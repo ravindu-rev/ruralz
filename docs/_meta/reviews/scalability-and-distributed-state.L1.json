@@ -1,175 +1,46 @@
 {
   "lens": "L1 feasibility-skeptic",
   "verdict": "revise",
-  "score": 6,
+  "score": 8,
   "blocking": [
     {
       "id": "L1-1",
-      "section": "Consistency and accuracy bounds",
-      "issue": "The fail-open bound for derived ceilings leaves out the per-Node floor of one token that the owning Traffic management document applies. As a result the stated number understates real admission whenever 2 x requests < N_published. The Control-mode case of a Node with no count (clamp max(1, requests / 100)) has no row at all. This document owns the pack 8.8 bound, so a wrong number here is a design defect.",
-      "evidence": "Line 353: \"| Rate Limit, fail-open | Derived ceiling, OQ-traffic-management-and-resilience-16 option (b) | At most N_serving / N_published × 2 × `requests` per aligned window (target) |\". The Traffic management failure matrix says: \"Unfloored buckets admit N_serving / N_published × 2 × limit per aligned window, one token per Node at least\" and \"fail-open admits N_countless × the clamp ... 10 × limit (hypothesis)\". Worked case: `requests: 10` per `1s` on 100 Nodes gives max(1, 0.2) = 1 token per Node, so 100 per second (10 × limit), not the 20 the row states.",
-      "fix": "Restate the row as 'At most N_serving × max(1, 2 × `requests` / N_published) per aligned window (target)' and show the 10-per-second-on-100-Nodes example. Add a row 'Rate Limit, fail-open | Control-mode Node without a count | At most N_countless × max(1, `requests` / 100) per window, plus the counted Nodes' share (target)'. Point CE-4 and CE-9 pass criteria at the corrected formula."
+      "section": "Distributed state catalog",
+      "issue": "The hot-key rule cannot hold as written. Every locally admitted request still runs GCRA, and the healthy derived ceiling is 2 x `requests` / N_published per Node, so a key sends up to N x ceiling = 2 x `requests` calls per window to its shard, and more while the count lags. At the stated 50% threshold, a key just under the threshold may therefore use 100% of a shard's about 100,000 calls per second (hypothesis). That contradicts CE-12's pass criteria (shard script CPU under 70%, no co-tenant breaker opens) and the 62.5% per-shard assumption in Cell sizing. The MUST also has no mechanism behind it. It relies on 'local-only enforcement (OQ-traffic-management-and-resilience-1)', which is only option (c) of that question, while its owner recommends option (a) (`config.perNodeCeiling`, `config.burst`), which does not stop GCRA per admitted request. A local-only mode also departs from pack 8.8 ('each locally admitted request runs GCRA'), yet OQ-scalability-and-distributed-state-11 does not list it among the pack 8.8 amendments.",
+      "evidence": "Line 293: \"Every locally admitted request still runs GCRA, so calls are at least the admitted rate, and no ceiling cuts them below the limit. A key whose `requests` per second exceeds 50% of one shard's calls, about 50,000 per second (hypothesis), MUST use local-only enforcement (OQ-traffic-management-and-resilience-1)\". Line 607: \"| CE-12 | Hot key at 10 times one shard's capacity, about 1,000,000 calls per second (hypothesis) | Calls at most N × ceiling per window; shard script CPU under 70% (target); no co-tenant breaker opens |\". Traffic management Per-Node ceiling: \"min(`requests`, max(10, ceil(2 × `requests` / N_published)))\". Traffic management OQ-traffic-management-and-resilience-1: \"(a) `config.perNodeCeiling`, `config.burst` (recommended); (b) a headroom multiplier; (c) `localOnly` mode\". Worked case: `requests: 49000` per `1s` on 100 Nodes gives a ceiling of 980, so the key can send 98,000 GCRA calls per second, 98% of one shard (hypothesis).",
+      "fix": "Derive the threshold from the call bound. Calls reach at most 2 x `requests` x N_serving / N_published, so a key MUST go local-only when 2 x `requests` exceeds 70% of one shard's calls: about 35,000 per second at steady state, or 25% (about 25,000 per second, hypothesis) to leave margin for count lag. Apply the same figure in the hot-key row of Cell and Cluster bottlenecks, in OQ-scalability-and-distributed-state-15 and in CE-12, whose tested key limit must sit below it. State that the MUST needs option (c) of OQ-traffic-management-and-resilience-1 (a `localOnly` mode), alone or alongside (a). Add that pack 8.8 amendment, with its fail-open and healthy bound of N_serving x ceiling per window (target), to OQ-scalability-and-distributed-state-11 and to the bounds table."
     },
     {
       "id": "L1-2",
-      "section": "Distributed state catalog",
-      "issue": "The document claims per-request GCRA keeps the Cell limit exact while the State Store is healthy. In the same section it recommends option (a) of OQ-traffic-management-and-resilience-20, under which first-seen keys past the budget are admitted from local-only entries without any GCRA call while the State Store is healthy. The bounds table has no row for that over-admission, so the recommended design contradicts the stated guarantee.",
-      "evidence": "Line 287: \"GCRA runs per admitted request from Planned (M1) through Planned (M3), as pack 8.8 fixes, keeping the Cell limit exact while the State Store is healthy.\" Line 291: \"This document recommends option (b) of OQ-traffic-management-and-resilience-16, option (a) of -20 and option (c) of -19\". Line 350 (healthy row): \"At most `requests` per `window` sustained, and 2 × `requests` in one window\". Traffic management step 3: \"past it ... a 10 s local-only entry (target) at the per-Node ceiling ... without GCRA\".",
-      "fix": "Qualify line 287: exact for keys with a GCRA answer, conditional on OQ-scalability-and-distributed-state-11. Add a bounds row 'Rate Limit | Healthy State Store, local-only key under OQ-traffic-management-and-resilience-20 (a) | At most N_serving × ceiling per window for the 10 s entry lifetime (target)'. Add a chaos experiment for a key-rotation flood, for example 'CE-15: 100,000 new keys per second (target); per key at most N × ceiling per window; the GCRA segment is not evicted'."
-    },
-    {
-      "id": "L1-3",
-      "section": "Consistency and accuracy bounds",
-      "issue": "The healthy Token Budget overshoot bound is narrower than the bound the owning AI/LLM gateway document states. It drops the per-attempt term and the hidden-reasoning term, which contradicts a depends_on document.",
-      "evidence": "Line 359: \"| Token Budget | Healthy, `closed` | Overshoot at most the sum of input-estimate errors, SM-10, owned by [AI/LLM gateway](06-ai-llm-gateway.md#settlement) (hypothesis) |\". The AI/LLM gateway Settlement section says: \"overshoots a budget by at most the sum of input-estimate errors across concurrent requests (hypothesis; SM-10 ...), plus (attempts - 1) x R per concurrent request ..., plus, while OQ-ai-llm-gateway-17 is open, hidden reasoning above C on `gemini` and `ollama`.\"",
-      "fix": "Quote the AI/LLM gateway bound in full: 'sum of input-estimate errors across concurrent requests, plus (attempts - 1) × R per concurrent request, plus hidden reasoning above C on `gemini` and `ollama` while OQ-ai-llm-gateway-17 is open (hypothesis)'. Change CE-13's pass criterion to match."
-    },
-    {
-      "id": "L1-4",
-      "section": "Distributed state catalog",
-      "issue": "The post-commit queue drains its classes in strict table order, so cache invalidations sit behind cache stores. Under sustained store load the invalidation class, which is only 10% of the queue, fills up and drops. That defeats the reserved slice that Traffic management relies on, because an invalidation must not drop. Plugin writes can starve entirely.",
-      "evidence": "Line 326: \"Eight writers per Node drain the classes in table order, pipelining up to 64 writes per batch (target).\" The table order (lines 321 to 324) is Quota refunds and Token Budget settlement, then Cache stores, then Cache invalidations, then Plugin writes. Traffic management says: \"Generation bumps get a reserved 10% of that queue and one retry (target)\" and \"invalidations must not drop\".",
-      "fix": "Drain order: settlement first, then invalidations, then stores and Plugin writes. Use weighted round-robin between the last two, for example 4:1 (target), so no class waits longer than one batch interval. Add a bound: 'an invalidation waits at most one batch behind settlement (target)'. Add a CE-6 variant that saturates cache stores and asserts zero `cache_invalidate` drops."
-    },
-    {
-      "id": "L1-5",
-      "section": "Distributed state catalog",
-      "issue": "Unbounded memory. The Plugin-writes class of the post-commit queue has only an item cap and no byte cap, and neither this document nor WASM plugin system caps value size (WASM caps keys at 256 bytes only). The claim that caches and the queue add at most 128 MiB per Node is therefore false.",
-      "evidence": "Line 324: \"| Plugin writes | 9,600 items (target) | Drop per Plugin Policy |\". Line 559: \"these limits add at most 64 MiB for keys, 256 MiB for balancers and 128 MiB for caches and the queue (target)\". WASM plugin system: \"Limits (target): 256-byte keys, `ttlMillis` 1 ms to 24 h, 10,000 keys per Policy per Node per minute, one `onLog` write per request\". No value limit is given. For example, 9,600 queued 1 MiB values hold about 9.4 GiB.",
-      "fix": "Add a byte cap to the Plugin-writes class, for example 16 MiB (target), and to the settlement class. Propose a per-value cap for `state.write`, for example 64 KiB (target), as an Open question owned by wasm-plugin-system or through OQ-wasm-plugin-system-19. Recompute line 559 from every class's byte cap."
-    },
-    {
-      "id": "L1-6",
-      "section": "High availability",
-      "issue": "Two capacity targets contradict each other. Autoscaling lets steady-state CPU reach 60%, yet the availability rule requires survivors to stay under 80% CPU after the largest zone is lost. With two zones, 60% becomes about 120%. With three zones it becomes about 90%. Only four or more zones satisfy both.",
-      "evidence": "Line 141: \"| CPU | Container CPU utilization | 60% over 2 minutes (target) |\". Line 169: \"A Cluster SHOULD run at least three Nodes in at least two zones (target), sized so that losing the largest zone keeps survivors under 80% CPU (target).\"",
-      "fix": "Derive the CPU scale-out threshold from the zone count: threshold = 80% × (Z - 1) / Z, which gives 40% for two zones and about 53% for three (target). Alternatively, require at least three zones with a 50% threshold, and state the formula in both places."
-    },
-    {
-      "id": "L1-7",
-      "section": "High availability",
-      "issue": "The required Raft HA state diagram models fencing staleness as an alternative to candidacy instead of a condition that runs alongside it. A voter in a minority partition goes Follower to Candidate and loops in Candidate, so on this diagram it never becomes Stale and never sends Reconnect (rebalance). Its Nodes stay pinned to an isolated replica, which contradicts Control plane and GitOps: 'A replica without word from a leader for one election timeout ... is stale ... After 30 s stale (target) it sends Reconnect'. Both transitions also fire on the same timeout with hashicorp/raft defaults (1000 ms), so the diagram does not say which one wins.",
-      "evidence": "Line 189: \"Follower --> Candidate: no leader heartbeat within HeartbeatTimeout\". Line 191: \"Candidate --> Candidate: split vote or no majority, new election after ElectionTimeout\". Line 194: \"Follower --> Stale: leader contact lost for one election timeout\". No transition leaves Candidate toward Stale or Rebalancing.",
-      "fix": "Model fencing as a concurrent region: a Raft region (Follower, Candidate, Leader) beside a fencing region (Fresh, Stale, Rebalancing) whose clock runs on 'no leader contact' whatever the Raft state. Or add 'Candidate --> Stale: no leader for one election timeout' and 'Stale --> Rebalancing: stale for 30 s' for candidates too. State what a Candidate serves to its Nodes: the Stale rule."
-    },
-    {
-      "id": "L1-8",
       "section": "Stateless data plane",
-      "issue": "The inventory claims to be complete, but it omits per-Node state that the dependency documents and this document create. Acceptance criterion 3 requires every in-memory per-Node state, each with its bound and why losing it is safe.",
-      "evidence": "Line 50: \"This table is the complete inventory of in-memory per-Node state; new per-Node state needs a row here before it ships.\" These are missing: State client breakers per shard, the connections and in-flight call counter (the 8,192 ceiling, defined at line 330 of this document); Response Cache miss coalescing (\"up to 4,096 keys (target)\") and the revalidation queue (\"256-entry queue\"); the per-URI `Vary`-name LRU; the per-shard `INFO memory` readings behind store skipping; the first-seen budget counters; Semantic Cache per-Node concurrency caps; Plugin per-Policy key-rate counters (\"10,000 keys per Policy per Node per minute\"); and `/tap` buffers (Data plane Bounded resources).",
-      "fix": "Add one row for each missing item, each with a bound, what rebuilds it and why losing it is safe. For example: 'State client breakers and connections | 2 + 8 per shard, 8,192 calls | New dials; breakers start closed | First calls pay one deadline, then the breaker reopens'. Or drop the word 'complete' and point to Data plane Bounded resources for the others."
-    },
-    {
-      "id": "L1-9",
-      "section": "Chaos experiments",
-      "issue": "Some scale figures carry no (target) or (hypothesis) tag, which breaks the style guide section 4 rule.",
-      "evidence": "Line 589: \"| CE-9 | Scale from 10 to 100 Nodes in 2 minutes | Over-admission within the derived-ceiling bound | Planned (M2) |\". Line 586: \"| CE-12 | Hot key at 10 times one shard's capacity | Calls for it at most N × ceiling per window | Planned (M1) |\".",
-      "fix": "Tag each figure on its line: 'Scale from 10 to 100 Nodes in 2 minutes (target)' and 'Hot key at 10 times one shard's capacity, about 1,000,000 calls per second (hypothesis)'."
+      "issue": "The Quota denial cache has no size ceiling. Its only bound is a TTL, and neither this document nor Traffic management puts it inside the shared 1,048,576-entry key table. The number of entries therefore grows with the number of distinct exhausted keys seen in 60 s, which breaks SG-7 ('Every per-Node structure has a ceiling') and leaves an unbounded-memory path. A custom `config.key`, for example one that includes `source.ip`, multiplies the number of distinct keys.",
+      "evidence": "Line 69: \"| Quota denial cache | 60 s per key (target) | Next Quota script | The counter is re-read |\". Line 42: \"| SG-7 | Every per-Node structure has a ceiling, and every accuracy bound is a tagged number | P10 |\". Traffic management Quotas: \"Nodes cache the denial, keyed with the limit, up to 60 s (target)\". Traffic management says only rate-limit \"Buckets, local-only and over-limit entries share a Node-wide 1,048,576 entries\", and the Quota denial cache is not among them.",
+      "fix": "Give the row an entry bound. Either place Quota denials in the shared CLOCK-evicted key table ('shares the 1,048,576-entry table (target)') or give them their own segment, for example 65,536 entries (target), with CLOCK eviction. State why eviction is safe: an evicted denial only costs one more Quota script. Add the segment to the Per-Node limits table and to the memory sum under it."
     }
   ],
   "non_blocking": [
-    {
-      "section": "Horizontal scaling",
-      "suggestion": "The reason given for 'two Nodes on one host are unsupported' does not hold: the file lock is per ${RURALZ_DATA_DIR}, so two Nodes with separate data directories could both bind. The real reason is that SO_REUSEPORT and CBPF steering assume one Node per network namespace. Write it as 'Not planned' with that reason, and avoid the word '(un)supported'."
-    },
-    {
-      "section": "High availability",
-      "suggestion": "'Supported topologies are OQ-scalability-and-distributed-state-2' uses 'Supported', which style guide section 4 reserves. Rephrase as 'The topologies the redis driver accepts are OQ-scalability-and-distributed-state-2'."
-    },
-    {
-      "section": "Multi-region",
-      "suggestion": "The divided-Quota YAML puts a Bundle `Consumer` in the same stream as control-plane-only `Environment` and `Cluster`, which a Bundle rejects with RZ-CFG-017. Split it into two fences labeled 'Bundle file' and 'control directory or --environments file'."
-    },
-    {
-      "section": "Open questions",
-      "suggestion": "OQ-scalability-and-distributed-state-11 calls option (c) of OQ-traffic-management-and-resilience-19 a pack 8.8 amendment. Option (c) persists the Node count under ${RURALZ_DATA_DIR}, so it amends pack 8.11. Name both sections."
-    },
-    {
-      "section": "Cells and blast radius",
-      "suggestion": "'Tenants per Cell: At most 10% of tenants (target)' contradicts the single-Region topology of one Cell. Scope it to deployments with ten or more Cells. Also fix the arithmetic '1,000,000, 60% of 16 shards at about 100,000 each', which comes to 960,000."
-    },
-    {
-      "section": "Limits and bottlenecks",
-      "suggestion": "'Connections per shard 10 × N_serving, 10,000 at 1,000 Nodes' equals the Redis and Valkey default maxclients at the Cell's Node ceiling. Make raising maxclients a MUST above about 900 Nodes. Also state which Cell ceiling binds first at realistic per-Node stateful request rates: at 5,000 State Store calls per second per Node (hypothesis), the 1,000,000-call ceiling binds at 200 Nodes."
-    },
-    {
-      "section": "Distributed state catalog",
-      "suggestion": "Define the 8,192 in-flight State Store call ceiling as counting until reply or connection reset, not until the caller's timeout. rueidis cannot retract an auto-pipelined command already written, so abandoned calls still occupy ring slots during a CE-3 brownout. Also state how many half-open probe calls the breaker allows."
-    },
-    {
-      "section": "Horizontal scaling",
-      "suggestion": "'Autoscaled Control-mode Clusters SHOULD declare per-Node ceilings' needs sizing guidance. A declared ceiling c fails open at N_serving × c, so c must be sized for the maximum autoscaled Node count (limit / N_max) to keep the bound at the limit."
-    },
-    {
-      "section": "Consistency and accuracy bounds",
-      "suggestion": "The failover-lag row assumes the TAT rolls back. A key first written within the lag window is missing on the new primary and restarts GCRA with a full burst τ, which allows up to `requests` extra. Add that case. Also add the release document's case of a Node rolled back to N-1 after lazy migration, which admits up to 2x for one window."
-    },
-    {
-      "section": "High availability",
-      "suggestion": "hashicorp/raft randomizes the follower timeout between 1x and 2x HeartbeatTimeout, and election adds ElectionTimeout jitter, so 'about 1 to 2 s plus election round trips' is optimistic. Say 1 to 3 s plus round trips (hypothesis), or cite the research derivation."
-    },
-    {
-      "section": "Distributed state catalog",
-      "suggestion": "The answer to OQ-wasm-plugin-system-19 covers only the queue half of option (a). Also answer the namespace half (Environment name as namespace)."
-    },
-    {
-      "section": "Stateless data plane",
-      "suggestion": "The 'Quota denial cache' bound is a TTL (60 s per key), not a size. Give an entry bound, or state that it shares the 1,048,576-entry key table."
-    },
-    {
-      "section": "Chaos experiments",
-      "suggestion": "Order the rows by ID (CE-11 to CE-14 are interleaved) so milestone gating is easier to scan."
-    }
+    {"section": "Consistency and accuracy bounds", "suggestion": "Line 355 (local-only row under OQ-traffic-management-and-resilience-20 (a)) uses the healthy, floored ceiling min(`requests`, max(10, ...)). Show the worked number: 10 per `1s` on 100 Nodes admits up to 1,000 per second, 100 x the limit, for the 10 s entry lifetime (hypothesis). Readers otherwise assume the fail-open, unfloored figure."},
+    {"section": "Chaos experiments", "suggestion": "The pass criterion 'the published count drops at most 10% (target)' in CE-7 and CE-10 holds only under OQ-scalability-and-distributed-state-14 (a). Control plane and GitOps currently says 'large decreases publish at once' and counts only streams connected for 10 minutes. Mark both criteria 'under OQ-scalability-and-distributed-state-14 (a)'."},
+    {"section": "Distributed state catalog", "suggestion": "State client in-flight calls count 'until its reply or a connection reset'. State which read or write deadline resets a black-holed pipelined connection (for example a rueidis connection timeout, once the research file covers it). Otherwise the size of the stuck-call leak toward the 8,192 ceiling depends on TCP keepalive."},
+    {"section": "Limits and bottlenecks", "suggestion": "The roughly 470 MiB sum leaves out byte bounds for the Response Cache revalidation queue (256 saved requests, each with headers of up to 256 KiB, about 64 MiB worst case), the 8,192-span queue and `/tap` buffers. Add byte caps, or say that the sum covers only the listed rows."},
+    {"section": "Stateless data plane", "suggestion": "'First-seen budget, Plugin key-rate and Semantic Cache concurrency counters | One counter each' understates the state. Plugin key-rate is per Policy, and if '10,000 keys per Policy per Node per minute' counts distinct keys it needs a set of up to 10,000 x 256 bytes per Policy. State the bound."},
+    {"section": "Horizontal scaling", "suggestion": "Line 163 tags '5,000 streams each' as (target) through the trailing tag, while Control plane and GitOps and line 585 give it as (hypothesis). Tag it (hypothesis) on line 163 as well."},
+    {"section": "Distributed rate limits", "suggestion": "Figure 3 has no branch for the local-only entry that option (a) of OQ-traffic-management-and-resilience-20 would add (admit with no GCRA call). Add an 'alt local-only entry (proposed)' branch, or say in the caption that the figure shows the conforming option (c)."},
+    {"section": "Stateless data plane", "suggestion": "Persisting the Node count under `${RURALZ_DATA_DIR}` (OQ-traffic-management-and-resilience-19 (c)) also changes the P4 wording in Vision and positioning ('no durable state beyond ...'). Name P4 in OQ-scalability-and-distributed-state-11 next to pack 8.11."},
+    {"section": "Horizontal scaling", "suggestion": "Make the Drain rule include the post-commit flush of up to 5 s (target): `terminationGracePeriodSeconds` MUST exceed preStop plus drain deadline plus flush."}
   ],
   "ac_results": [
-    {
-      "ac": "AC1: all 11 scalability_items are H2 or H3 headings or named pointer links",
-      "pass": true,
-      "note": "Stateless data plane, Horizontal scaling, High availability and Multi-region are H2s. Distributed rate limits, caches and sessions are H3s under Distributed state catalog. Performance budgets, Benchmarking, Capacity planning and Zero-downtime upgrades are named links under Pointers."
-    },
-    {
-      "ac": "AC2: Distributed state catalog has at least 10 rows with columns state, store, consistency, algorithm and failure mode, and no blank cells",
-      "pass": true,
-      "note": "11 rows with the required columns and no blank cells. The failure-mode cells for Rate Limits carry the bound errors in L1-1 and L1-2."
-    },
-    {
-      "ac": "AC3: Stateless data plane inventories every in-memory per-Node state and why losing it is safe",
-      "pass": false,
-      "note": "The inventory claims completeness but omits State client breakers, connections and in-flight counter; cache coalescing and the revalidation queue; the Vary LRU; INFO memory readings; first-seen counters; Semantic Cache caps; Plugin key-rate counters; and /tap buffers (L1-8)."
-    },
-    {
-      "ac": "AC4: Horizontal scaling covers scale unit, autoscaling signals, SO_REUSEPORT, L4 load balancing and warm-up",
-      "pass": true,
-      "note": "All five are H3s. The CPU threshold conflicts with the HA zone rule (L1-6)."
-    },
-    {
-      "ac": "AC5: High availability covers Ruralz Gateway, Ruralz Control and the State Store, and Ruralz Control outage behavior matches Control plane and GitOps (Last-Known-Good)",
-      "pass": true,
-      "note": "The outage behavior (5 s boot wait, then Last-Known-Good, detached, count frozen) matches 04. The HA state diagram misrepresents fencing for candidates (L1-7)."
-    },
-    {
-      "ac": "AC6: Consistency and accuracy bounds states a global quota accuracy bound tagged (target)",
-      "pass": true,
-      "note": "'Global quota accuracy bound (target)' states 0% over-admission per Cell and R × limit across Cells."
-    },
-    {
-      "ac": "AC7: Multi-region covers topologies, regional versus global quotas, geo and data-residency routing, cross-region configuration sync and latency budgets",
-      "pass": true,
-      "note": "Each is an H3 under Multi-region."
-    },
-    {
-      "ac": "AC8: Limits and bottlenecks contains a per-Node limits table with every value tagged (target)",
-      "pass": true,
-      "note": "Every Per-Node value cell carries (target). The memory-sum sentence after the table is wrong (L1-5)."
-    },
-    {
-      "ac": "Machine checks: verify-docs output for this file",
-      "pass": true,
-      "note": "`node scripts/verify-docs.mjs --allow-missing --skip markdownlint` reports no FAIL lines, only WARN lines for broken links to documents not yet written. Body length is about 5,758 words, inside the 2,500 to 6,500 band. The H2 outline matches mandatory_h2 plus outline_h2 in order. Every cited URL is in docs/_meta/research/scalability-patterns.md."
-    }
+    {"ac": "Each of the 11 scalability_items is an H2 or H3 heading or a named pointer link", "pass": true, "note": "The H2s cover stateless data plane, horizontal scaling, high availability and multi-region. The H3s under Distributed state catalog cover distributed rate limits, caches and sessions. Named links under Pointers cover performance budgets, benchmarking, capacity planning and zero-downtime upgrades."},
+    {"ac": "Distributed state catalog has at least 10 rows with columns state, store, consistency, algorithm and failure mode, and no blank cells", "pass": true, "note": "11 rows, the exact columns, no blank cells. The verify script has no FAIL line."},
+    {"ac": "Stateless data plane contains an inventory of every in-memory per-Node state and why losing it is safe", "pass": true, "note": "The inventory now covers State client, cache coalescing and LRU, INFO readings, first-seen and `/tap` state. The Quota denial cache row lacks a size ceiling (L1-2), but the inventory and safety column are present."},
+    {"ac": "Horizontal scaling covers the scale unit, autoscaling signals, SO_REUSEPORT, L4 load balancing and warm-up", "pass": true, "note": "An H3 covers each. The CPU threshold is now derived from the zone count."},
+    {"ac": "High availability covers Ruralz Gateway, Ruralz Control and the State Store, and Ruralz Control outage behavior is consistent with Control plane and GitOps (Last-Known-Good)", "pass": true, "note": "Matches the 5 s wait then Last-Known-Good boot, `detached`, held Enrollment and the fencing rule. The concurrent fencing region resolves the earlier diagram defect."},
+    {"ac": "Consistency and accuracy bounds states a global quota accuracy bound tagged (target)", "pass": true, "note": "'Global quota accuracy bound (target)' gives 0% over-admission in one healthy Cell, R x across Cells, plus tagged failover and layout-switch terms."},
+    {"ac": "Multi-region covers topologies, regional versus global quotas, geo and data-residency routing, cross-region configuration sync and latency budgets", "pass": true, "note": "An H3 covers each, with the divided-Quota YAML and Figure 4."},
+    {"ac": "Limits and bottlenecks contains a per-Node limits table with every value tagged (target)", "pass": true, "note": "Every value in the Per-Node limits table carries (target)."}
   ],
   "foundation_amendments": [
-    "Pack 8.8: the fail-open bound 'N × per-Node ceiling' should read N_serving × max(1, fail-open per-Node allowance) once OQ-traffic-management-and-resilience-16 option (b) is adopted, so derived ceilings carry the one-token floor explicitly (see L1-1).",
-    "Pack 8.11: if OQ-traffic-management-and-resilience-19 option (c) is adopted, list the persisted Node count, and list the fencing sequences that Control plane and GitOps already persists under ${RURALZ_DATA_DIR}/identity/, as Node durable state."
+    "Pack 8.8: if keys hotter than a shard are enforced local-only (OQ-traffic-management-and-resilience-1 option (c)), pack 8.8's 'each locally admitted request runs GCRA' needs an exception bounded by N_serving x declared ceiling per window (target); carry it in OQ-scalability-and-distributed-state-11.",
+    "Vision P4 and pack 8.11: persisting the published Node count under ${RURALZ_DATA_DIR} (OQ-traffic-management-and-resilience-19 (c)) adds durable Node state beyond identity, Last-Known-Good and disposable caches."
   ]
 }

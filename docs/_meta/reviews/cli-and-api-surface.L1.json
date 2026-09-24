@@ -1,144 +1,41 @@
 {
   "lens": "L1 feasibility-skeptic",
   "verdict": "revise",
-  "score": 6,
+  "score": 7,
   "blocking": [
     {
       "id": "L1-1",
       "section": "CLI command tree",
-      "issue": "Revision prefix lookup has no REST path to call. The CLI accepts `rev-<12 hex>` as a lookup key for Revision sources, but the REST conventions allow only full digests in paths, and no collection filter or search parameter is defined. So the CLI cannot resolve a prefix, or detect that one is ambiguous, without listing every Revision, and that listing is unbounded.",
-      "evidence": "\"Read commands accept the display form `rev-<12 hex>` as a lookup key and fail with exit code 2 when it is ambiguous\" (Bundle verbs in detail); \"| Revision identifier | `rev-162af81f5de4` or `sha256:<64 hex>` | A Revision from Ruralz Control, fetched from `revisions` |\"; versus REST conventions: \"Digests in paths and bodies are full `sha256:<64 hex>` values\"",
-      "fix": "Add a lookup to the REST API table, for example `GET /api/v1/revisions?digestPrefix=<12 hex>&environment=NAME`, that returns at most 2 matches, and state that the CLI uses it. Add it as a proposal to OQ-cli-and-api-surface-3, or open a new Open question owned by control-plane-and-gitops. The other option is to require the full `sha256:<64 hex>` for every Revision source and change the worked example (`ruralz bundle diff rev-162af81f5de4 ...`) to match."
+      "issue": "The replica join flow cannot work in the order this document gives. `ruralz control join` runs before `ruralz control serve`, so nothing on the new host answers Raft traffic on 8092 when the leader handles `Join`. Control plane and GitOps says the leader \"signs the replica's certificate and adds a voter\" in that same step. With hashicorp/raft, adding a voter that is not running raises the quorum at once. On the common 1-to-3 bootstrap, a 1-voter cluster becomes 2 voters with one down: the leader loses its lease and writes, logins and Enrollment stop (RZ-CP-004) until `serve` starts. The command also has no flag for the new replica's own advertised peer address (HOST:8092). The leader needs that address to add the server, and the peer certificate needs it as a SAN for mTLS on 8092. Finally, the document does not say how `ruralz control serve` on a data directory written by `join` knows not to bootstrap a new cluster and generate new CAs, which is what it does on an empty Control Store.",
+      "evidence": "\"`ruralz control join` runs on the new replica's host before `ruralz control serve`. It generates the key pair in `--data-dir`, dials `--peer` pinned to the SHA-256 fingerprint of the 8092 server CA ... then writes the certificate chain and peer CA beside the key\"; command row: \"| `ruralz control join` | Join a new replica to Raft | `--data-dir PATH`, `--peer HOST:8092`, `--join-token-file PATH` |\"; Control plane and GitOps: \"`ruralz control serve` on an empty Control Store generates the CAs or loads supplied ones; `ruralz control join` redeems a one-time `admin` token in `Join`, and the leader signs the replica's certificate and adds a voter.\"",
+      "fix": "Add `--advertise HOST:8092` (required) to `ruralz control join`, and put that address into the certificate request as a SAN. State that `Join` only issues the certificate and records a pending member. The replica is added as a non-voter only when `ruralz control serve` on that data directory first connects over 8092 with its new peer certificate. It is promoted to voter only after it catches up to the leader's commit index (hashicorp/raft AddNonvoter, then AddVoter). State that `serve` on a joined data directory never bootstraps or generates CAs. Record the voter-timing change as a proposal to Control plane and GitOps, in OQ-cli-and-api-surface-9 or a new Open question owned by control-plane-and-gitops. The other option is to make join a mode of serve (`ruralz control serve -- --join HOST:8092 --join-token-file PATH --advertise HOST:8092`), so the replica is running before it becomes a member."
     },
     {
       "id": "L1-2",
       "section": "CLI command tree",
-      "issue": "The document does not say how `ruralz test run --bundle` and `ruralz dev run` start a local `ruralzd` for an arbitrary Bundle. Listener ports are required Bundle fields and part of the digest (Configuration model Gateway: `port: 8443 # required`). The admin port defaults to 9901. The only process settings are `RURALZ_CONFIG`, `RURALZ_DATA_DIR` and `RURALZ_LOG_LEVEL`. So there is no way to move listeners to loopback or ephemeral ports without changing the tested Revision. Parallel CI jobs would collide on 8443 and 9901. The `secretRef` values, such as the `file` TLS certificates under `/etc/ruralz/tls`, would not resolve on a CI runner, so `/readyz` never turns 200. File-mode `ruralzd` applies no overlay (the OQ-configuration-model-10 decision), yet `dev run --env` promises Hot Reload of an overlaid render, and the re-render and watch loop is not described.",
-      "evidence": "\"With `--bundle DIR`, `ruralz test run` starts a local `ruralzd` on loopback ports with that Bundle rendered for `--env`\"; \"| `ruralz dev run` | Launch a local `ruralzd` on a Bundle directory with Hot Reload | `[DIR]`, `--env`, `--environments` | Local `ruralzd` |\"",
-      "fix": "Add a subsection, \"Local ruralzd launched by the CLI\", that states: (1) how listener and admin ports are rebound, either as a CLI-only render transform whose digest is reported as a test digest that differs from the Revision, or through a proposed `RURALZ_*` listener and admin override setting, recorded in a new OQ-cli-and-api-surface-N that needs a pack section 2 amendment; (2) how `secretRef` values are satisfied locally, for example a `--secret-overrides FILE` mapping, or a documented failure with RZ-CFG-026 and exit 2; (3) that the CLI waits for `/readyz` on the chosen admin port with a bounded timeout (target); (4) that `dev run --env` re-renders on change to a temporary rendered file, which it replaces atomically for Hot Reload."
-    },
-    {
-      "id": "L1-3",
-      "section": "CLI command tree",
-      "issue": "The document claims a single CLI for Linux, macOS and Windows but does not say which commands work where. That contradicts the tech stack platform table. `ruralzd` and `ruralz-control` are \"Not planned: no production target\" on windows/amd64 and \"Development only\" on darwin, and Windows has no SIGTERM. On Windows, `ruralz dev run`, `ruralz test run --bundle`, `ruralz node drain`, `ruralz control serve` and `ruralz control restore` therefore cannot work as written.",
-      "evidence": "\"The CLI is one static binary, `ruralz`, built with `CGO_ENABLED=0` for Linux, macOS and Windows.\" and \"`ruralz dev run` and `ruralz test run` launch a local `ruralzd` binary\"; Tech stack and libraries, Static builds: \"| windows/amd64 | Not planned: no production target | Not planned: no production target | Production (CLI) |\"",
-      "fix": "Add a platform column or a short table that marks these commands \"Not planned on Windows: no `ruralzd` or `ruralz-control` build\", and marks darwin \"development only\" for `dev run` and `test run --bundle`. On unsupported platforms the commands exit 2 with a clear message. Point `test run` users on Windows to `--target URL`."
-    },
-    {
-      "id": "L1-4",
-      "section": "CLI command tree",
-      "issue": "The document does not say how `ruralz node drain` finds the process to signal. A file lock taken with flock has no queryable owner PID. System overview says the old process releases the lock at Drain start, so during a Zero-Downtime Upgrade the lock holder changes. The CLI and a containerized `ruralzd` usually live in different PID namespaces, and signaling another user's process needs privileges. The command table defines no PID source, and the text does not cover a lock that no process holds, or one that changes owner while `--timeout` waits.",
-      "evidence": "\"on the Node's host it sends SIGTERM to the `ruralzd` process holding the file lock on `${RURALZ_DATA_DIR}`, starting a Drain as a process manager would ([ADR-0015](...)), and waits for exit or `--timeout`\"; the table lists only \"`--data-dir PATH` (default `RURALZ_DATA_DIR`), `--timeout DURATION` | Local process signal\"",
-      "fix": "Specify the mechanism, for example a PID and start-time record that the lock holder writes under `${RURALZ_DATA_DIR}` (layout owned by Data plane). The CLI then verifies the record against the lock (for example a POSIX `F_OFD_GETLK` or `/proc/locks` check on Linux) before it signals. Define exit 2 for no holder, a stale record or permission denied, and state that the command signals only the process recorded at invocation. In Kubernetes or systemd, send operators to Pod deletion or `systemctl stop` instead. Record the Linux-only limit, and leave the remote case to OQ-cli-and-api-surface-4."
-    },
-    {
-      "id": "L1-5",
-      "section": "CLI command tree",
-      "issue": "`ruralz control join` cannot be built as specified. Joining a replica needs a key pair on the new replica's host, a certificate stored in that replica's data directory, and a pinned server CA for the first TLS dial. The command has no data directory, no key or output location and no pin input, and the global `--ca-file` covers only 8090 and 9901. Security and identity describes `Join` as sent \"from a replica without a peer certificate\" over a pinned server CA, so it is not clear whether the CLI or the replica process dials 8092, or where the private key is created.",
-      "evidence": "\"| `ruralz control join` | Join a replica to the Raft cluster by redeeming a one-time `admin` token | `--peer HOST:8092`, `--token-file PATH` | Peer layer 8092 `Join` |\"; Figure 3: \"cli -.->|\\\"control join\\\"| peer\"; Security and identity transport table: \"except token `Join` from a replica without a peer certificate ... `Join` redeems a one-time `admin` token over a pinned server CA\"",
-      "fix": "Define `ruralz control join` as acting on the local replica's data directory: add a `--data-dir PATH` flag (required). The replica key is generated there, and the certificate chain and peer CA are written there. State that the join token embeds the SHA-256 fingerprint of the 8092 server CA, as Enrollment tokens do, and that the CLI refuses an unpinned dial. Alternatively, make `join` a mode of `ruralz control serve` (`-- --join HOST:8092 --join-token-file PATH`) and update Figure 3 and the Surface column."
-    },
-    {
-      "id": "L1-6",
-      "section": "CLI command tree",
-      "issue": "`ruralz control restore` cannot run in the order given. It needs a root-signed anchor set with a new online key. That key's private half must already exist in the restored deployment when the offline root signs the set, but restore targets an empty deployment and has no input for the private key, and no step that generates it and exports its public half. The backup is also \"encrypted and signed\" (Control plane and GitOps), yet restore takes no decryption key. The Control Store data directory it writes to is not named either.",
-      "evidence": "\"| `ruralz control restore` | Restore a Control Store snapshot into an empty deployment | `FILE`, `--anchor-set PATH` (required), `--revocation-list PATH` | Local Control Store |\" and \"requires a root-signed anchor set so that the restored Ruralz Control opens a higher `storeEpoch` before any delivery\"",
-      "fix": "Make restore two-step, or add flags. For example, `ruralz control restore --prepare --data-dir PATH` generates the new online key encrypted under the key-encryption key and prints its public half for offline root signing. Then `ruralz control restore FILE --data-dir PATH --anchor-set PATH --backup-key-file PATH [--revocation-list PATH]`. Name where the backup encryption key comes from, or add an Open question owned by control-plane-and-gitops."
-    },
-    {
-      "id": "L1-7",
-      "section": "CLI command tree",
-      "issue": "`--wait` can block forever. `paused` is not terminal, and failures under `autoRollback: false` enter `paused` and wait for a human. `--timeout` has no default, so a CI job running `ruralz rollout status --wait` without `--timeout` never exits. The exit code table has no row for `paused`. The polling interval is not stated, so the REST API load from many waiting CI jobs is unbounded.",
-      "evidence": "\"`ruralz rollout status --wait` polls until the Rollout is terminal.\"; exit code 1 row: \"`rollout status --wait` ended in `rolled-back` or `failed`\"; command row: \"`CLUSTER` or `ROLLOUT_ID`, `--wait`, `--timeout DURATION`, `--output json`\"",
-      "fix": "Treat `paused` as a stop condition for `--wait`: exit 1 with the pause reason, or add a `--wait-through-pause` flag. Give `--timeout` a default, for example 60m (target). State a polling interval with backoff, for example 5 s rising to 30 s (target), that honors `Retry-After` on `RZ-CP-010`. Add `paused` to the exit code table."
-    },
-    {
-      "id": "L1-8",
-      "section": "CLI command tree",
-      "issue": "The API has no way to approve a revert. Control plane and GitOps says a revert to an older target, or one with `security` impact or a Capability grant, \"gets `RZ-CP-006` until another `approver` approves\". Here, `ruralz rollout approve` and REST `promotions/{id}/approve` cover only queued promotion records, and `rollouts` has no approve action. The document also does not say whether `ruralz rollout start` then leaves a pending Rollout or fails with exit 2.",
-      "evidence": "\"Rollouts normally start from promotions; `ruralz rollout start` serves reverts, which need an `operator` with step-up TOTP\"; \"| `ruralz rollout approve` | Approve a queued promotion when `Environment.spec.promotion.requireApproval` is set | `--env NAME`, `--digest sha256:DIGEST` ...| REST API `promotions` |\"; REST row \"`/api/v1/rollouts`, `/api/v1/rollouts/{id}` with actions `/pause`, `/resume`, `/rollback`\"",
-      "fix": "Add a `/approve` action to `/api/v1/rollouts/{id}` with role `approver` and step-up, plus a matching `ruralz rollout approve --rollout ROLLOUT_ID --digest sha256:DIGEST`. State that `ruralz rollout start` prints the Rollout ID and exits 0 while the Rollout waits in `pending` for approval, or exits with a documented code. Alternatively, open an Open question owned by control-plane-and-gitops."
-    },
-    {
-      "id": "L1-9",
-      "section": "CLI command tree",
-      "issue": "The document uses `ruralz bundle render --api-version` as the apiVersion migration tool, but render merges one overlay and substitutes `${VAR}`: without `--env`, values come from the process environment, and unset variables without a default are RZ-CFG-010. Its output is a one-file rendered Bundle that cannot replace a source tree with `overlays/<env>/` and `${VAR}` expressions. The OQ-configuration-model-7 decision rests on the claim that only comments are lost and that \"its diff is empty by construction\". That holds only for a rendered Bundle, not for migrating sources.",
-      "evidence": "\"| `ruralz bundle render` | Render for one Environment into a one-file Bundle; ... `--api-version` converts |\" and \"`ruralz bundle render --api-version ruralz/v1beta1` drops comments. For OQ-configuration-model-7 this document chooses option (a), accept the loss: conversion is rare, its diff is empty by construction\"",
-      "fix": "Specify that `--api-version` switches render into a source-conversion mode. In that mode it converts each base and overlay file in place (with `--output-dir DIR`), skips overlay merge and `${VAR}` substitution, and keeps file layout. Verify the result by rendering both trees for every Environment in `--environments` and requiring an empty `ruralz bundle diff`. If that mode is not wanted, reopen OQ-configuration-model-7 with the real loss stated: overlays, variables, file layout and comments."
+      "issue": "`ruralz control restore` does not say what happens to Raft membership. A Raft snapshot carries the old cluster configuration: the old voters' IDs and addresses. Restored into an empty deployment on new hosts, that configuration leaves the new replica waiting for voters that no longer exist. It never elects a leader, so it can never open the higher `storeEpoch`. Neither restore step takes the local replica's advertised peer address, and neither step resets membership.",
+      "evidence": "\"2. `FILE --data-dir PATH --anchor-set PATH --backup-key-file PATH` verifies and decrypts the backup, requires a root-signed anchor set holding the prepared key, and opens a higher `storeEpoch` before any delivery.\"; Control plane and GitOps: \"`ruralz control backup` writes a Raft snapshot plus referenced content, consistent at one index\"",
+      "fix": "Add `--advertise HOST:8092` (required) to step 2. State that restore replaces the snapshot's Raft configuration with a single voter: the local replica at that address, with a new server ID, as hashicorp/raft RecoverCluster does. It also clears old peer certificates from the trust set. Other replicas then join with `ruralz control join` (L1-1). If the Control plane document should own this, add it to OQ-cli-and-api-surface-9, or open a new Open question owned by control-plane-and-gitops."
     }
   ],
   "non_blocking": [
-    {
-      "section": "Ruralz Gateway admin API",
-      "suggestion": "`ruralz dev tap --route` filters on the client side, so the Node pays about 2 µs per event (target) for every sampled Route. Observability also caps `/tap` at 4 subscribers of 1 MiB each (target) and drops slow events (`ruralz_tap_events_dropped_total`). State the cap, what `dev tap` does when refused (exit 2) or when events are dropped (warn on stderr), and add an Open question for a server-side route filter on `/tap`."
-    },
-    {
-      "section": "Ruralz Control REST and gRPC APIs",
-      "suggestion": "The gRPC table lists \"Renewal\" as a row beside `Enroll` and `Stream`, but Release, versioning and compatibility names only the RPCs `Enroll` and `Stream`. State that `RenewRequest` and `RenewResponse` travel on `Stream`, or list the RPC name that Control plane and GitOps defines."
-    },
-    {
-      "section": "CLI command tree",
-      "suggestion": "Control plane and GitOps (OQ-control-plane-and-gitops-25) relies on a \"CLI default\" size limit that `ruralz bundle build` enforces. State the defaults from the Configuration model, 64 MiB of source and 20,000 resources (target), and say how the CLI configures them (flag or Open question)."
-    },
-    {
-      "section": "Plugin, AI and development verbs",
-      "suggestion": "`ruralz ai cost` reads access log records, but Observability says busy Nodes SHOULD set an errors-only `accessLog.when`. That silently drops successful AI requests from cost totals. Either require AI usage records to be logged regardless of `when`, or have `ai cost` warn when records are filtered, and note this in OQ-cli-and-api-surface-6."
-    },
-    {
-      "section": "Rollout, promotion and Node verbs",
-      "suggestion": "With a terminal, `ruralz rollout approve` should also send the digest it displayed, so that a record replaced between display and confirmation is refused. Today only the non-terminal path requires `--digest`."
-    },
-    {
-      "section": "Scope and non-goals",
-      "suggestion": "Tech stack and libraries names the CLI reference as the owner of OQ-tech-stack-and-libraries-18 (CLI framework), but this document lists it as a non-goal. Either carry it in the Open questions table with this document as owner, or state that ownership stays with the tech stack document."
-    },
-    {
-      "section": "Ruralz Gateway admin API",
-      "suggestion": "\"Admin paths never change configuration or Node state\" is true, but a leaked operator token can still degrade a Node through CPU profiles and `/tap`. Heap profiles from `/debug/pprof/` can also hold resolved secrets, which the testing strategy excludes from leak checks. Say so beside the `/config/dump` \"secrets omitted\" claim."
-    },
-    {
-      "section": "Admin API conventions",
-      "suggestion": "\"The CLI warns when a Node is outside the skew window\": neither `/config/dump` nor any other admin path listed here returns the Node's binary version. Name the source, for example a `version` member in `/config/dump`, which would need Data plane agreement, or drop the claim."
-    },
-    {
-      "section": "Scope and non-goals",
-      "suggestion": "The ADR links (0006, 0007, 0015, 0017) are broken until those ADR files exist; the verifier reports them as WARN only. Re-check them when the ADRs land."
-    }
+    {"section": "CLI command tree", "suggestion": "Held revert (OQ-cli-and-api-surface-8, option a): say whether a `pending` revert waiting for approval counts as the Cluster's active Rollout, which would block every promotion with RZ-CP-009 until someone decides. Also say when its per-Node plan is computed: pack 8.3 records the plan at `pending`, and a revert held for hours would carry a stale member list. Suggest computing the plan at approval and adding a hold expiry (target). Control plane and GitOps currently says \"A Rollout exists only after approval\", so keep option (a) clearly marked as proposed until that document changes."},
+    {"section": "CLI command tree", "suggestion": "`--api-version` conversion of overlay files: Configuration model says \"the converter writes a field explicitly whenever the source version's default differs from the target's\". Applied to a standalone overlay patch, that rule would clobber base values. State that overlays are converted as patches (only fields present) and defaults are made explicit only in base files; otherwise the empty-diff check will reject many real Bundles."},
+    {"section": "CLI command tree", "suggestion": "Ephemeral ports: picking free ports in the CLI and then handing them to `ruralzd` is a race between the check and the bind. State that a bind failure triggers one re-pick and relaunch before exit 2. Also state that `ruralz dev run --ephemeral-ports` keeps the same mapping across re-renders, so Hot Reload does not move listeners."},
+    {"section": "CLI command tree", "suggestion": "Local ruralzd: security and identity rule 5 refuses to start when `RURALZ_SECRET_ROOT` contains `${RURALZ_DATA_DIR}` or an admin token file. State that the CLI puts the secret root, the temporary data directory and the admin token file in three separate subdirectories of its private directory."},
+    {"section": "CLI command tree", "suggestion": "`ruralz node drain`: `/proc/locks` reports PID -1 for open file description (OFD) locks. Say, in OQ-cli-and-api-surface-10, that the check assumes `flock` or POSIX record locks, or rely only on the PID and start-time record plus a non-blocking lock probe."},
+    {"section": "CLI command tree", "suggestion": "`ruralz test run --bundle` against a TLS listener needs the test client to trust the certificate supplied through `--secret-overrides`, and to know which listener a case targets. Name both in OQ-cli-and-api-surface-13 (for example `tls.caFile` and `listener`)."},
+    {"section": "Ruralz Control REST and gRPC APIs", "suggestion": "The join token pins \"the 8092 server CA\", but the Control plane certificate table issues 8092 certificates from the Peer CA and calls the Server CA the 8091 issuer. Name the CA whose fingerprint the join token embeds."}
   ],
   "ac_results": [
-    {
-      "ac": "CLI command tree contains a table listing every ruralz <noun> <verb> command in full form, including every command in foundation pack section 9 and every command mentioned in any other document.",
-      "pass": true,
-      "note": "The Command table lists all 36 pack 9 commands, `ruralz rollout reject`, `ruralz version` and `ruralz completion`. A grep of docs/ (excluding _meta) found 34 distinct `ruralz <noun> <verb>` forms, and all are present."
-    },
-    {
-      "ac": "Ruralz Gateway admin API includes at least /healthz, /readyz, /metrics, /debug/*, /config/dump and /tap on port 9901, matching docs/architecture/03-data-plane.md.",
-      "pass": true,
-      "note": "All six paths (plus `/debug/snapshots` and `/debug/upstreams`) match Data plane's Admin endpoints table. The Returns and Authentication cells use more specific wording that is consistent with Security and identity."
-    },
-    {
-      "ac": "Ruralz Control REST and gRPC APIs exposes resources matching the kinds in docs/architecture/02-configuration-model.md plus Revision and Rollout, and names the gRPC service ruralz.control.v1.ControlStream on port 8091.",
-      "pass": true,
-      "note": "All ten kinds are mapped (the eight Bundle kinds through the proposed `revisions/{digest}/resources` path, OQ-cli-and-api-surface-3), plus Revision and Rollout. The service is named on 8091."
-    },
-    {
-      "ac": "ruralz bundle validate and ruralz bundle diff support JSON output.",
-      "pass": true,
-      "note": "Both list `--output json`; the output table gives a diagnostics array and `ruralz.diff.v1`."
-    },
-    {
-      "ac": "Output formats and exit codes contains an exit code table.",
-      "pass": true,
-      "note": "The table has codes 0, 1, 2 and 130; see L1-7 for the missing `paused` case."
-    },
-    {
-      "ac": "API authentication covers admin API, REST API and Control Stream authentication.",
-      "pass": true,
-      "note": "There is a surface table plus Admin API, REST API and Control Stream subsections. The pinning gap on peer-layer `Join` is raised in L1-5."
-    }
+    {"ac": "CLI command tree contains a table listing every ruralz <noun> <verb> command in full form, including every command in foundation pack section 9 and every command mentioned in any other document.", "pass": true, "note": "The Command table lists all 36 pack 9 commands plus `ruralz rollout reject`, `ruralz version` and `ruralz completion`. A grep of docs/ outside _meta found no command missing."},
+    {"ac": "Ruralz Gateway admin API includes at least /healthz, /readyz, /metrics, /debug/*, /config/dump and /tap on port 9901, matching docs/architecture/03-data-plane.md.", "pass": true, "note": "The table matches Data plane Admin endpoints row for row, including /debug/pprof/, /debug/snapshots and /debug/upstreams."},
+    {"ac": "Ruralz Control REST and gRPC APIs exposes resources matching the kinds in docs/architecture/02-configuration-model.md plus Revision and Rollout, and names the gRPC service ruralz.control.v1.ControlStream on port 8091.", "pass": true, "note": "A kind-mapping table covers all ten kinds plus Revision and Rollout. The heading and text name ruralz.control.v1.ControlStream on 8091."},
+    {"ac": "ruralz bundle validate and ruralz bundle diff support JSON output.", "pass": true, "note": "The output table lists the diagnostics array and `ruralz.diff.v1`, and the Exit codes section says so explicitly."},
+    {"ac": "Output formats and exit codes contains an exit code table.", "pass": true, "note": "It has rows for 0, 1, 2, 3 and 130."},
+    {"ac": "API authentication covers admin API, REST API and Control Stream authentication.", "pass": true, "note": "It has a surface table plus Admin API, REST API and Control Stream subsections."}
   ],
   "foundation_amendments": [
-    "Pack section 2 (Env vars): if L1-2 is resolved with a process setting, register a `RURALZ_*` listener and admin port override for CLI-launched local `ruralzd`, which never changes a Revision.",
-    "Pack section 12: register `ruralz.test.v1` as a versioned format (OQ-cli-and-api-surface-1)."
+    "Pack 8.4 (8092 row): specify that a joining replica becomes a Raft voter only after it is serving and caught up, not when the `Join` token is redeemed. This follows up the pending amendment in OQ-control-plane-and-gitops-15 and OQ-security-and-identity-31."
   ]
 }

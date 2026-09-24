@@ -1,184 +1,112 @@
 {
   "lens": "L3 acceptance-audience",
   "verdict": "revise",
-  "score": 6,
+  "score": 8,
   "blocking": [
     {
       "id": "L3-1",
       "section": "Stateless data plane",
-      "issue": "Acceptance criterion 3 fails. The section says its table is the complete inventory of in-memory per-Node state, but it leaves out state that this document and its dependencies define. Missing: the State client itself (per-shard pipelined and dedicated connections, per-shard breakers, loaded script SHAs), telemetry export buffers, `/tap` buffers, AI candidate latency averages and cooldowns, the Semantic Cache per-Node concurrency cap, the per-Node first-seen GCRA budget, and the Plugin per-Node key-rate counters. An operator cannot tell from the table what a Node restart loses (for example, breaker state and buffered spans).",
-      "evidence": "Line 50: \"This table is the complete inventory of in-memory per-Node state; new per-Node state needs a row here before it ships.\" Line 330 of this document: \"Per Node it keeps 2 pipelined connections per shard plus up to 8 dedicated ones ... A breaker per shard opens when ...\" (no inventory row). Data plane Bounded resources: \"| Post-commit writes, `/tap` buffers | Fixed capacity, dropped with a counter |\". AI/LLM gateway Model routing: \"`latency` | Ascending time to first token | Node-local decaying average\" and \"skipping open breakers and cooling candidates\". WASM plugin system: \"10,000 keys per Policy per Node per minute\".",
-      "fix": "Add inventory rows, each with a Bound, a Rebuilt from and a Why losing it is safe entry: (1) State client connections, per-shard breakers and script SHAs: bound 2 + 8 connections per shard and 8,192 calls in flight (target); rebuilt by redial and `SCRIPT LOAD`; safe because breakers restart closed and the first failures reopen them within 5 s (target). (2) Telemetry and access-log export buffers: bounded by the exporter queue (Observability); lost spans and logs are counted, while metrics restart as counter resets. (3) `/tap` buffers: fixed capacity; only live tap sessions are lost. (4) AI candidate latency averages, cooldowns and candidate breakers: per `AIModel` candidate; relearned from traffic, with 5% exploration (hypothesis). (5) Semantic Cache embedding and lookup concurrency counters. (6) First-seen budget and Plugin key-rate counters: they refill on start. Otherwise drop the word 'complete'. Dropping it still fails acceptance criterion 3, so adding the rows is the preferred fix."
-    },
-    {
-      "id": "L3-2",
-      "section": "Consistency and accuracy bounds",
-      "issue": "The headline global quota accuracy bound says 0% over-admission for 'a Quota'. The glossary defines a Quota as unit requests or tokens, enforced by `quota` or `ai.token-budget`, and token Quotas do overshoot (AI/LLM gateway settlement). The document's own table also allows over-admission with a healthy State Store: the layout-switch row allows 2 × `limit`, and the failover row allows more. The headline number therefore contradicts both its own table and a dependency, so a reader who acts on it will over-promise to tenants.",
-      "evidence": "Line 346: \"In one Cell with a healthy State Store, a Quota admits at most its `limit` per window, 0% over-admission (target), because each unit is reserved atomically first.\" Line 364: \"| Quota layout switch | Node without the switch signal | Up to 2 × `limit` for one window per such Node ... (hypothesis) |\". Pack section 11 glossary: \"Quota | A long-window Consumer allowance (unit requests or tokens) enforced by `quota` or `ai.token-budget`\". AI/LLM gateway Token Budget: \"settlement adjusts the reserving window, possibly past its limit\".",
-      "fix": "Rewrite the bound as: \"For a `quota` Policy (`unit: requests`) in one Cell, with a healthy State Store, no failover and no pending layout switch, admission is at most `limit` per window, 0% over-admission (target). Add L × rate per failover and up to 2 × `limit` per Node lacking the layout-switch signal (hypothesis). Token Quotas (`ai.token-budget`) follow the Token Budget rows. Across R Cells the total is at most R × these (target).\" Also align the dropped-refund alert with Observability's `RuralzStateWritesDropped` rule (`rate(...) > 0` for 10m), or propose the 0.1% threshold to Observability as an Open question."
-    },
-    {
-      "id": "L3-3",
-      "section": "Distributed caches",
-      "issue": "An operator cannot tell from this document whether caches may share a State Store with limit keys, and the Open question that would make separation possible has the wrong blocking milestone. Traffic management recommends a separate State Store (OQ-traffic-management-and-resilience-11 option (a), blocking for M1) and makes it a MUST in some conditions. That separation needs the second connection that this document's OQ-scalability-and-distributed-state-3 proposes, yet OQ-3 is marked as blocking only the Semantic Cache at M3. This document's recommendation for OQ-ai-llm-gateway-18 also gives Cells that have a `closed` Token Budget no rule to follow before that field exists.",
-      "evidence": "Line 297: \"A separate cache deployment isolates them (OQ-traffic-management-and-resilience-11 option (a), OQ-ai-llm-gateway-18 option (b)), but `Gateway.spec.stateStore` holds one connection; OQ-scalability-and-distributed-state-3 proposes a second. For OQ-ai-llm-gateway-18 this document recommends option (a) in Cells without a `closed` Token Budget and option (b) once that field exists.\" Line 610: \"| OQ-scalability-and-distributed-state-3 | ... | Yes, Semantic Cache (M3) |\". Traffic management: \"Where N_serving can exceed 25 × N_c ... operators MUST use OQ-traffic-management-and-resilience-11 option (a) or leave `cache` off\" and \"OQ-traffic-management-and-resilience-11 ... | Yes, Response Cache (M1) |\".",
-      "fix": "Add an interim rule: \"Until OQ-scalability-and-distributed-state-3 closes, a Cell whose State Store holds `ai.token-budget` keys MUST NOT attach `cache` or `ai.semantic-cache`; where N_serving can exceed 25 × N_c, `cache` MUST stay off (Traffic management and resilience).\" Change OQ-3's Blocking? cell to \"Yes, Response Cache (M1) and Semantic Cache (M3)\". State the Node startup warning when `cache` and a limit Policy type share a State Store."
-    },
-    {
-      "id": "L3-4",
-      "section": "Distributed rate limits",
-      "issue": "The document recommends option (c) of OQ-traffic-management-and-resilience-19. That option persists the Node count under `${RURALZ_DATA_DIR}` and needs a pack 8.11 amendment. The document never says so. Its Stateless data plane section says the Node count is not persisted, and OQ-scalability-and-distributed-state-11 frames the whole package as a pack 8.8 amendment. An architect cannot tell what a restarted Node uses as its count.",
-      "evidence": "Line 291: \"This document recommends option (b) of OQ-traffic-management-and-resilience-16, option (a) of -20 and option (c) of -19; OQ-scalability-and-distributed-state-11 carries them as one amendment.\" Line 58: \"| Published Node count | One integer | Next `HeartbeatReply` | Derived ceilings fall back to the full limit ...\". Line 50: \"A Node persists only its enrollment identity, Last-Known-Good and disposable caches\". Traffic management OQ-19: \"(c) handover and persistence under `${RURALZ_DATA_DIR}` (pack 8.11 amendment; recommended)\". Line 618: \"Does pack 8.8 adopt ... -19 (c)? ... Yes, pack 8.8 amendment (M1)\".",
-      "fix": "Choose one of the following. (1) Keep the recommendation. Then change OQ-11 to \"pack 8.8 and pack 8.11 amendment\", add to the Stateless data plane text \"under OQ-scalability-and-distributed-state-11, the last count is also persisted under `${RURALZ_DATA_DIR}` and used flagged stale\", and change the row's Rebuilt from cell to \"persisted count (proposed), then the next `HeartbeatReply`\". (2) Recommend option (a) of -19 instead. Either way, list the pack 8.11 change under foundation amendments."
-    },
-    {
-      "id": "L3-5",
-      "section": "Consistency and accuracy bounds",
-      "issue": "Pack 8.8 makes this document the owner of the fail-open bound, but its Rate Limit fail-open rows disagree with the Traffic management failure matrix or leave cases out. (a) The derived-ceiling row drops the per-Node floor of max(1, ...). (b) There is no row for a Control-mode Node without a count, which uses the clamp max(1, `requests` / 100). (c) There is no row for a count frozen during a Ruralz Control outage or quorum loss. Because of (c), the Cells table understates the blast radius of a Ruralz Control outage as 'no request errors' with no accuracy impact.",
-      "evidence": "Line 353: \"| Rate Limit, fail-open | Derived ceiling, OQ-traffic-management-and-resilience-16 option (b) | At most N_serving / N_published × 2 × `requests` per aligned window (target) |\". Line 530: \"| Ruralz Control down or quorum lost | Management of every Cell it serves; no request errors |\". Traffic management: \"each derived-ceiling bucket holds max(1, 2 × `requests` / N_published) tokens\"; \"A Control-mode Node without a count clamps to max(1, `requests` / 100) (target), so the Cell admits N_countless × that\"; failure matrix: \"Count frozen at N_frozen while new Nodes get Revisions: fail-open admits N_serving / N_frozen × 2 × limit, 20 × limit after a 10 to 100 scale-out (hypothesis)\".",
-      "fix": "Change the derived-ceiling row to \"At most N_serving × max(1, 2 × `requests` / N_published) per aligned window (target)\". Add \"Rate Limit, fail-open | Control-mode Node without a count | N_countless × max(1, `requests` / 100) plus the counted Nodes' share (target)\" and \"Rate Limit, fail-open | Count frozen by a Ruralz Control outage | At most N_serving × max(1, 2 × `requests` / N_frozen) per window; 20 × `requests` after a 10 to 100 scale-out (hypothesis)\". Change the Cells row to \"Management of every Cell it serves; no request errors; fail-open accuracy degrades by N_serving / N_frozen\"."
-    },
-    {
-      "id": "L3-6",
-      "section": "State client and RZ-STS error codes",
-      "issue": "The document says every RZ-STS code returns 503 before commit. Pack 8.10 requires 502 when a `closed` Policy cannot decide in a response Phase before commit. A Plugin Policy may make its one blocking State Store call in any Phase before commit (WASM plugin system: `state_get` 'Before commit, never `onChunk`'), including `onUpstreamResponseHeaders`, `onUpstreamResponseBody` and `onResponse`.",
-      "evidence": "Line 332: \"All codes return 503 before commit in the [Data plane](03-data-plane.md#error-response-format) format.\" Pack 8.10: \"| A response Phase before commit | Replace the response with 502 | Skip; the response passes |\". WASM plugin system Host Function table: \"| `state_get` | ... | `state.read` | Before commit, never `onChunk` |\".",
-      "fix": "Replace the sentence with: \"Under `failureMode: closed`, an RZ-STS code returns 503 in a request Phase and replaces the response with 502 in a response Phase before commit (pack 8.10), in the Data plane format.\" Change the Status column to \"503 or 502 (pack 8.10)\", or add a note under the table."
-    },
-    {
-      "id": "L3-7",
-      "section": "Chaos experiments",
-      "issue": "Some scale and timing figures carry neither (target) nor (hypothesis) on their line, which style guide section 4 and this lens require: the scale-out rate in CE-9, the load multiple in CE-12, and the 30 s staleness transition in Figure 2.",
-      "evidence": "Line 589: \"| CE-9 | Scale from 10 to 100 Nodes in 2 minutes | Over-admission within the derived-ceiling bound | Planned (M2) |\". Line 586: \"| CE-12 | Hot key at 10 times one shard's capacity | Calls for it at most N × ceiling per window | Planned (M1) |\". Line 196: \"Stale --> Rebalancing: stale for 30 s\".",
-      "fix": "Write \"Scale from 10 to 100 Nodes in 2 minutes (target)\" and \"Hot key at 10 times one shard's capacity (hypothesis)\". In Figure 2, write \"stale for 30 s (target)\", or \"stale past the rebalance delay\" with the (target) value stated in the prose below the diagram. While editing CE-9, name the formula from L3-5 in its pass criterion."
+      "issue": "Acceptance criterion 3 still fails. The earlier finding is resolved for this document and its depends_on files: the State client, telemetry, `/tap`, AI candidate, first-seen, Plugin key-rate and Semantic Cache counter rows are all present. The table still calls itself 'the complete inventory', but it leaves out per-Node in-memory state that sibling architecture documents define. For one of these items, losing it is not safe. Security and identity keeps the signed revocation list in memory only, and a detached restart forgets it. A Node restarted during a Ruralz Control outage therefore accepts revoked JWTs, API keys and `auth.basic` usernames again. That makes the closing sentence ('the worst outcome is an over-charged Quota or Token Budget and a few extra admissions per key') and SG-3 wrong. Other items are missing: the `auth.basic` success cache and username throttle buckets, where a restart refuses legitimate clients with RZ-AUTH-007 for 25 to 50 s; the per-Node trace-sampling token buckets (Observability); the 32 MiB automatic-persisted-query cache (Multi-protocol); and the event-ingress fetch buffers and uncommitted offsets (Multi-protocol), where a crash causes redelivery, so an Upstream can see a message twice. An operator reading this table cannot predict these restart effects, and the security effect is the most serious one.",
+      "evidence": "Line 50: \"This table is the complete inventory of in-memory per-Node state; new per-Node state needs a row here before it ships.\" Line 76: \"So a Node can be killed at any instant: the worst outcome is an over-charged Quota or Token Budget and a few extra admissions per key.\" Line 39 (SG-3): \"Losing a Node loses only its in-flight requests, connections and the state [Stateless data plane] lists\". Security and identity, Revocation: \"Ruralz Control delivers one signed revocation list to every Node of a Cluster, checked in memory\" and \"**Persistence.** A detached restart forgets entries (OQ-security-and-identity-5)\". Security and identity, auth.basic Ramp: \"A restart or Zero-Downtime Upgrade starts with an empty cache and LRU ... callers beyond the queue get RZ-AUTH-007 with `Retry-After` meanwhile\". Observability: \"Two per-Node token buckets admit sampled traces (target)\". Multi-protocol: \"Automatic persisted queries | Disposable Node-local cache bounded by bytes (P4) ... | 32 MiB per Node (target)\" and \"Consumer group; commit after settle\".",
+      "fix": "Add rows, each with a Bound, a Rebuilt from and a Why losing it is safe entry. (1) Revocation list: bound one signed list; rebuilt from the Control Stream, or from the watched entry file in file mode. The safety cell must state the gap honestly: \"Not safe while detached: a restarted detached Node forgets revocations until Ruralz Control returns (OQ-security-and-identity-5); Planned (M2)\". (2) `auth.basic` success cache and username buckets: 10,000 and 100,000 entries (target); rebuilt by re-verification at the hash rate; safe because no credential is admitted without a hash, but expect a ramp of 25 to 50 s (hypothesis) with RZ-AUTH-007 refusals. (3) Trace-sampling buckets: two per Node; refilled at start; at worst one burst of extra sampled traces. (4) Automatic persisted query cache: 32 MiB (target); rebuilt when clients re-register; clients retry with the full document. (5) Event-ingress fetch buffers and uncommitted offsets or unacked messages: bounded by `maxBufferedBytes`; rebuilt by broker redelivery; at-least-once delivery, so an Upstream may see a message twice. Then rewrite line 76 as: \"the worst outcomes are an over-charged Quota or Token Budget, a few extra admissions per key, a re-verification ramp for `auth.basic`, redelivered ingress messages and, while detached, forgotten revocations (OQ-security-and-identity-5)\". Also align SG-3."
     }
   ],
   "non_blocking": [
     {
-      "section": "Consistency and accuracy bounds",
-      "suggestion": "The Token Budget 'Healthy, `closed`' row quotes only the first term of the AI/LLM gateway overshoot bound. Quote all of it: plus (attempts - 1) × R per concurrent request, plus hidden reasoning above C on `gemini` and `ollama` while OQ-ai-llm-gateway-17 is open (L1 raised this as blocking; it contradicts a dependency). Also add Release, versioning and compatibility's rollback-after-lazy-migration case (up to 2 × limit for that window, hypothesis), since that document says this one owns the bounds."
-    },
-    {
-      "section": "Post-commit write queue",
-      "suggestion": "Answering OQ-wasm-plugin-system-19 with option (a) is a pack 8.7 amendment, as the WASM plugin system's options say. Option (a) also fixes the `rzplg:` namespace as the Environment name. Say how that namespace behaves when the Divided pattern uses one Environment per Region."
-    },
-    {
-      "section": "Regional versus global quotas",
-      "suggestion": "The Divided pattern gives each Region its own Environment, which removes the one-Cluster-at-a-time lexical promotion that 'Cross-region configuration sync' relies on. Show `promotion.from: prod-eu` on `prod-us` in the example so a bad Revision still meets one Region's canary first. Also explain why Divided is Planned (M2) when render-time `variables` from a file are Planned (M1)."
-    },
-    {
-      "section": "Cell sizing",
-      "suggestion": "'Tenants per Cell: at most 10% of tenants (target)' cannot hold in the single-Region, one-Cell topology that the document supports from M1. Scope it to multi-Cell deployments."
+      "section": "Distributed caches",
+      "suggestion": "Define N_c where it is used: 'N_c being N_published, or 1,000 without a count (target), per Traffic management and resilience'. Without it, an operator cannot evaluate the MUST 'where N_serving can exceed 25 × N_c, `cache` MUST stay off'."
     },
     {
       "section": "Horizontal scaling",
-      "suggestion": "'two Nodes on one host are unsupported' conflicts with 'one `ruralzd` per host or pod network namespace', since several pods can share a host. State the real constraint: one Node per `${RURALZ_DATA_DIR}` and listener namespace. Avoid 'unsupported' and 'Supported topologies are ...' (line 223); the claims lens reads 'Supported' as a status word."
+      "suggestion": "Line 163 tags 'about 5,000 streams each, up to 10,000 Nodes' as (target). Control plane and GitOps and this document's own bottleneck table tag 5,000 streams per replica as (hypothesis). Split the tags: '5,000 streams each (hypothesis), up to 10,000 Nodes (target)'."
     },
     {
-      "section": "Autoscaling signals",
-      "suggestion": "`ruralz_http_active_requests` counts requests per listener, but the 20,000 ceiling counts in-flight units (requests, parallel steps and stream pumps). Either propose a units gauge to Observability or give the threshold in requests."
+      "section": "Distributed caches",
+      "suggestion": "The interim rule 'a Cell whose State Store holds `ai.token-budget` keys MUST NOT attach `cache`' is stricter than Traffic management and resilience, which only recommends OQ-traffic-management-and-resilience-11 option (a) in that case. Ask that document's owner to raise its wording to match at conformance, so the two documents do not disagree on the normative level."
     },
     {
-      "section": "Warm-up",
-      "suggestion": "Operators cannot size `terminationGracePeriodSeconds` from 'MUST exceed the preStop wait plus the drain deadline (target)' because no drain deadline value is given. State the value, or the value the Zero-downtime upgrades document will own, and include the 5 s post-commit flush (target)."
+      "section": "Consistency and accuracy bounds",
+      "suggestion": "In the countless-Node row, spell out 'plus the counted Nodes' share' as 'plus N_counted × max(1, 2 × `requests` / N_published)', so the formula stands on its own."
     },
     {
-      "section": "Latency budgets",
-      "suggestion": "Say how the recommended 5 to 10 ms `stateStoreTimeout` relates to the `Gateway.spec.stateStore.timeout` value in the Configuration model sketch (50ms), so operators know whether the default suits latency-sensitive Routes."
-    },
-    {
-      "section": "Cell and Cluster bottlenecks",
-      "suggestion": "Add per-key State Store memory hypotheses (GCRA TAT, Quota counter, Response Cache generation key of about 90 bytes, Semantic Cache entry of at most 32 KiB), so an operator can size shard `maxmemory` from this document before Capacity planning exists."
-    },
-    {
-      "section": "Open questions",
-      "suggestion": "OQ-observability-18 is owned by this document, yet OQ-scalability-and-distributed-state-12 sends it back with owner `observability`. Close it here with option (a), or keep this document as owner."
-    },
-    {
-      "section": "Chaos experiments",
-      "suggestion": "Order the rows by CE number, or renumber them, since CE-12 sits between CE-6 and CE-7 and CE-11 comes last. Add an experiment that fills a State Store shared by `cache` and a `closed` `ai.token-budget`, to verify the interim rule from L3-3."
-    },
-    {
-      "section": "Failure containment",
-      "suggestion": "Under `all-at-once`, or in file mode, a bad Revision reaches every Node of the Cluster or every Node reading the source (System overview). Add those cases next to the canary case."
+      "section": "Distributed sessions",
+      "suggestion": "'Ruralz Console sessions | Control Store' is not stated explicitly in Control plane and GitOps, which describes same-site cookie sessions and replicated roles and revocations. Cite the section that places sessions in replicated state, or word it as 'Cookie plus replicated revocations in the Control Store'."
     }
   ],
   "ac_results": [
     {
-      "ac": "Each of the 11 scalability_items is an H2 or H3 heading or a named pointer link (distributed rate limits, caches, sessions as H3s under Distributed state catalog; performance budgets, benchmarking, capacity planning, zero-downtime upgrades as named links under Pointers)",
+      "ac": "Each of the 11 scalability_items is an H2 or H3 heading or a named pointer link (rate limits, caches, sessions as H3s under Distributed state catalog; performance budgets, benchmarking, capacity planning, zero-downtime upgrades as named links under Pointers)",
       "pass": true,
-      "note": "Stateless data plane, Horizontal scaling, High availability and Multi-region are H2s. Distributed rate limits, Distributed caches and Distributed sessions are H3s under Distributed state catalog. The four named links are in Pointers to related documents. verify-docs scalability and covers_items checks pass."
+      "note": "Stateless data plane, Horizontal scaling, High availability and Multi-region are H2s. Distributed rate limits, caches and sessions are H3s under Distributed state catalog. Performance budgets, Benchmarking, Capacity planning and Zero-downtime upgrades are named links under Pointers to related documents. The verifier's covers_items check passes."
     },
     {
       "ac": "Distributed state catalog has at least 10 rows with columns state, store, consistency, algorithm and failure mode, and no blank cells",
       "pass": true,
-      "note": "11 data rows, columns State | Store | Consistency | Algorithm | Failure mode, no blank cells; min_table_rows and no_blank_cells pass."
+      "note": "11 rows under the columns State, Store, Consistency, Algorithm and Failure mode, with no blank cells. The verifier's min_table_rows and no_blank_cells checks pass."
     },
     {
       "ac": "Stateless data plane contains an inventory of every in-memory per-Node state and why losing it is safe",
       "pass": false,
-      "note": "The table exists and claims to be complete, but it omits the State client connections, breakers and script SHAs, telemetry and `/tap` buffers, AI candidate latency averages and cooldowns, and several per-Node budgets (L3-1). It also contradicts the recommended persisted Node count (L3-4)."
+      "note": "Every earlier gap from the depends_on documents is now filled. The table still omits the revocation list, the `auth.basic` caches and buckets, the trace-sampling buckets, the APQ cache and the ingress buffers from sibling documents. For the revocation list, loss is not safe while the Node is detached, which contradicts line 76 and SG-3 (L3-1)."
     },
     {
       "ac": "Horizontal scaling covers the scale unit, autoscaling signals, SO_REUSEPORT, L4 load balancing and warm-up",
       "pass": true,
-      "note": "H3s cover Scale unit, SO_REUSEPORT and listeners, L4 load balancing, Autoscaling signals and Warm-up, plus Figure 1. Minor gaps in the metric-to-ceiling mapping and drain timing values are non-blocking."
+      "note": "Covered by H3s Scale unit, SO_REUSEPORT and listeners, L4 load balancing, Autoscaling signals and Warm-up; all figures are tagged."
     },
     {
-      "ac": "High availability covers Ruralz Gateway, Ruralz Control and the State Store, and Ruralz Control outage behavior is consistent with docs/architecture/04-control-plane-and-gitops.md (Last-Known-Good)",
+      "ac": "High availability covers Ruralz Gateway, Ruralz Control and the State Store, and Ruralz Control outage behavior is consistent with 04-control-plane-and-gitops.md (Last-Known-Good)",
       "pass": true,
-      "note": "H3s for all three. Outage behavior (active Revision kept, ready indefinitely, 5 s (target) wait then Last-Known-Good, Enrollment held, count frozen) matches Control plane and GitOps 'Behavior during a Ruralz Control outage'. Figure 2 matches its fencing rules."
+      "note": "Three H3s. The outage text matches Control plane and GitOps: Nodes keep their active Revision and stay ready, wait 5 s (target) and then boot Last-Known-Good, Rollouts and Enrollment are held, and the count freezes. The non-lowering count rule is marked proposed (OQ-scalability-and-distributed-state-14)."
     },
     {
       "ac": "Consistency and accuracy bounds states a global quota accuracy bound tagged (target)",
       "pass": true,
-      "note": "Present and tagged (line 346), so the criterion is met as written. The content is wrong for token Quotas and conflicts with the section's own layout-switch and failover rows (L3-2)."
+      "note": "Line 350 is now scoped to `quota` with `unit: requests`, a healthy State Store, no failover and no pending layout switch: 0% over-admission (target), with failover and layout-switch additions (hypothesis) and R Cells (target). The earlier L3-2 finding is resolved."
     },
     {
       "ac": "Multi-region covers topologies, regional versus global quotas, geo and data-residency routing, cross-region configuration sync and latency budgets",
       "pass": true,
-      "note": "One H3 per item plus Figure 4; the example uses only Configuration model fields."
+      "note": "There is an H3 for each topic, plus the Home Region loss rules and a divided-Quota example that uses only defined fields (`Consumer.spec.quotas`, `Environment.spec.variables`, `Cluster.spec.region`)."
     },
     {
       "ac": "Limits and bottlenecks contains a per-Node limits table with every value tagged (target)",
       "pass": true,
-      "note": "All 14 rows of Per-Node limits carry (target); has_table passes."
+      "note": "All 11 rows of the Per-Node limits table carry (target); the Cell bottleneck table is tagged as well."
     },
     {
-      "ac": "H2 outline equals Summary, Scope and non-goals, outline_h2, Open questions, exactly and in order",
+      "ac": "H2 outline equals mandatory first two + outline_h2 + Open questions, in order",
       "pass": true,
-      "note": "Matches exactly; verify-docs outline passes. The Summary is 107 words (limit 120)."
+      "note": "There are 14 H2s, exactly matching the manifest outline and its order."
     },
     {
-      "ac": "Required Mermaid diagrams with italic captions (flowchart L4 topology, sequenceDiagram rate-limit check, flowchart multi-region, stateDiagram-v2 Raft HA)",
+      "ac": "Required Mermaid diagrams present with captions",
       "pass": true,
-      "note": "Figures 1 to 4 are present with the required types and captions immediately above, all under 25 nodes. Figure 2 has one untagged 30 s value (L3-7)."
+      "note": "Figure 1 is a flowchart of L4 horizontal scaling, Figure 2 a stateDiagram-v2 of Raft HA, Figure 3 a sequenceDiagram of the local bucket plus GCRA, and Figure 4 a flowchart of the multi-region topology. Each has an italic caption, and each diagram has 25 nodes or fewer."
     },
     {
       "ac": "Length band 2,500 to 6,500 words",
       "pass": true,
-      "note": "5,696 words per the verifier's countWords (body only, excluding code fences and HTML comments)."
+      "note": "The body counts about 6,485 words by the verifier's rule, which is inside the band but near the maximum. The verifier reports no length_words FAIL."
     },
     {
-      "ac": "Every performance or scale number carries (target) or (hypothesis)",
-      "pass": false,
-      "note": "CE-9 (10 to 100 Nodes in 2 minutes), CE-12 (10 times one shard's capacity) and Figure 2 (stale for 30 s) are untagged (L3-7)."
-    },
-    {
-      "ac": "verify-docs (--allow-missing --skip markdownlint) reports no FAIL line for this document",
+      "ac": "Every performance or scale number tagged (target) or (hypothesis)",
       "pass": true,
-      "note": "Only WARN lines, for links to documents and ADRs not yet written; every check passes."
+      "note": "The earlier L3-7 finding is resolved: CE-9, CE-12 and Figure 2 are now tagged. A full scan found no untagged Ruralz performance or scale figure; untagged numbers are sourced vendor facts or protocol constants."
     },
     {
-      "ac": "No contradiction with the foundation pack, foundation documents or depends_on documents",
+      "ac": "verify-docs.mjs reports no FAIL lines for this document",
+      "pass": true,
+      "note": "The only output lines are WARN broken-link lines for documents and ADRs that are not written yet (--allow-missing)."
+    },
+    {
+      "ac": "Declared audience (architects, operators) can act without reading sources",
       "pass": false,
-      "note": "Conflicts with pack 8.10 (L3-6), with pack 8.11 and its own inventory (L3-4), with Traffic management fail-open bounds and blocking milestones (L3-3, L3-5), and with the AI/LLM gateway overshoot bound (non-blocking here; L1 blocking)."
+      "note": "Mostly yes after the revision. However, operators cannot see from the inventory that a detached restart forgets revocations or that it causes an `auth.basic` refusal ramp (L3-1). N_c is also undefined (non-blocking)."
     }
   ],
   "foundation_amendments": [
-    "Pack 8.8: adopt OQ-traffic-management-and-resilience-16 option (b) (2x headroom, floor 10, per-window step refill with a max(1, ...) fail-open floor) and -20 option (a) (local-only first-seen entries), as OQ-scalability-and-distributed-state-11 proposes, and restate the fail-open bound as N_serving x max(1, 2 x requests / N_published) per window (target).",
-    "Pack 8.11: if OQ-traffic-management-and-resilience-19 option (c) is adopted, add the persisted, stale-flagged Node count (and any handed-over key table) to Node durable state under ${RURALZ_DATA_DIR}.",
-    "Pack 8.7 rule 4: record the post-commit queue's per-class sub-queues (settlement, cache stores, reserved invalidation slice, Plugin writes) that never displace one another, per OQ-wasm-plugin-system-19 option (a).",
-    "Pack 8.6: list RZ-STS-001 to RZ-STS-005 as registered by this document, and say whether a skipped call (open breaker, spent deadline, full in-flight ceiling) counts as 'failed or timed out'."
+    "Pack 8.8 and 8.11 (via OQ-scalability-and-distributed-state-11): adopt OQ-traffic-management-and-resilience-16 option (b), -20 option (a) and -19 option (c). Option (c) adds the last published Node count, flagged stale, to the Node durable state table in pack 8.11 under ${RURALZ_DATA_DIR}.",
+    "Pack 8.7 (via OQ-scalability-and-distributed-state-11): add the `rzplg:<Environment name>:` Plugin key namespace and the Plugin-writes class of the post-commit queue (OQ-wasm-plugin-system-19 option (a))."
   ]
 }

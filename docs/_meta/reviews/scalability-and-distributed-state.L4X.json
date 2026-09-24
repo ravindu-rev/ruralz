@@ -1,198 +1,93 @@
 {
   "lens": "L4X",
   "verdict": "revise",
-  "score": 5,
+  "score": 7,
   "blocking": [
-    {
-      "id": "L4X-1",
-      "section": "Multi-region; Cells and blast radius > Failure containment; High availability > Ruralz Control availability",
-      "issue": "Losing the home Region also takes down Ruralz Control for every Region, and the document never models that combination. The surviving Region has to absorb the lost Region's traffic at the same moment it cannot enroll a single new Node. The 30% headroom rule cannot cover that. The failure table treats Region loss and Ruralz Control loss as separate, independent rows. Hidden single point of failure: all Raft voters sit in one Region.",
-      "evidence": "Line 208: \"Voters SHOULD share one Region\". Figure 4, line 389: \"Ruralz Control: three Raft voters\" only in eu-west-1. Line 175: \"New Nodes without Last-Known-Good stay not ready until they enroll (pack 8.11), so an autoscaler adds no capacity during a long outage. Clusters SHOULD keep 30% headroom above peak (target)\". Line 531: \"| Region lost | Its Cells; survivors count alone, up to R × each limit |\". Line 530: \"| Ruralz Control down or quorum lost | Management of every Cell it serves; no request errors |\". Line 428: the Divided pattern gives prod-us a 40% share.",
-      "fix": "Failure scenario: active-active eu-west-1 and us-east-1 at 50/50, and eu-west-1 is lost. All three voters go with it, so Enrollment stops in every Region (RZ-CP-004). Geo DNS moves 100% of traffic to us-east-1, which is sized with 30% headroom and needs 100%. The autoscaler adds pods that stay not ready. Kubernetes pods rescheduled with an emptyDir `${RURALZ_DATA_DIR}` lose their identity and Last-Known-Good and cannot return either, so capacity shrinks. Consumers on the Divided pattern are capped at their 40% share while they carry 100% of their traffic. Fix: (1) Add a 'Home Region lost' row to Failure containment covering both effects. (2) Size active-active Regions for R/(R-1) of peak each (target), or state that a Region-loss plan requires pre-provisioned Nodes. (3) Require `${RURALZ_DATA_DIR}` on persistent storage wherever Nodes may be rescheduled during an outage, or state the capacity loss and extend OQ-scalability-and-distributed-state-7. (4) Name the DR path: restore the Control Store from `ruralz control backup` in another Region, owned by High availability and disaster recovery. (5) State what Divided shares do on Region loss. (6) Add a chaos experiment 'home Region lost', Planned (M4), whose pass criteria include surviving-Region capacity."
-    },
-    {
-      "id": "L4X-2",
-      "section": "Distributed state catalog (Published Node count row); Chaos experiments (CE-10); Limits and bottlenecks > Cell and Cluster bottlenecks",
-      "issue": "The document does not define the published Node count while Ruralz Control rebuilds it after a replica restart, a leader failover or a replica loss. Control plane and GitOps qualifies Nodes by 10 minutes of connection and publishes large decreases at once. After a reconnect storm, the published count can therefore collapse. A collapsed count sends derived ceilings toward the full limit and multiplies hot-key GCRA traffic. That puts Ruralz Control indirectly on the request path through shard saturation, which contradicts SG-1 and the claim of 'no request errors'. There is also no N+1 rule for replicas: the 10,000-Node target equals the capacity of exactly two replicas.",
-      "evidence": "Line 238: \"| Published Node count | Control Store, sent in `HeartbeatReply` | Lagging: 10-minute qualification, increases at most 10% per minute (target) |\". 04 line 115: \"`clusterNodeCount` counts ready Nodes that ACKed a Revision and stayed connected 10 minutes (target); large decreases publish at once\". 04 line 484: \"Heartbeat aggregates, stream state | Memory; rebuilt by resync\". Line 590: \"| CE-10 | Every Ruralz Control replica restarted at once | All Nodes reconnect within 5 minutes (target), within stream admission rates |\". Line 159: \"each serves about 5,000 streams ... a deployment targets 10,000 Nodes (target) ... Voters stay at three or five.\"",
-      "fix": "Failure scenario: 1,000 Nodes, and every replica restarts (CE-10), or one of three replicas is lost at 10,000 Nodes. Every reconnected stream has been connected for less than 10 minutes, so the rebuilt count qualifies few Nodes, and the decrease publishes at once. With N_published near 0, each derived ceiling becomes about the full limit. A hot key then reaches GCRA up to N_serving / N_published times as often, pushes its shard past about 100,000 calls per second (hypothesis), and opens every Node's breaker for that shard. Co-tenant `closed` Token Budgets return RZ-STS-003. Recovery takes 10 minutes plus about ln(N)/ln(1.1) minutes. Fix: (1) Specify that the count never decreases because Ruralz Control restarted, failed over or lost streams. Only qualified Nodes that miss three heartbeats reduce it, and qualification survives a reconnect to another replica because it is keyed by `node.id` in committed state. (2) Add that rule to the catalog row. (3) Add pass criteria to CE-10 and CE-7: the published count drops by no more than 10% (target), and no State client breaker opens. (4) Add a sizing rule: at least ceil(N / 5,000) + 1 replicas across zones (hypothesis)."
-    },
-    {
-      "id": "L4X-3",
-      "section": "Distributed state catalog > Distributed rate limits (Hot keys); Cells and blast radius > Failure containment; Chaos experiments (CE-12)",
-      "issue": "The hot-key mitigation is wrong for a key whose admitted rate, not only its offered rate, exceeds one shard. Every locally admitted request runs GCRA, and N × ceiling is at least the limit, so a declared ceiling cannot cut calls below the limit. CE-12 passes while the shard is saturated. The blast-radius row also leaves out the co-tenant `closed` Policies on that shard.",
-      "evidence": "Line 289: \"A constant key above one shard's capacity, about 100,000 script calls per second (hypothesis), needs a declared ceiling or local-only enforcement (OQ-traffic-management-and-resilience-1).\" Line 161: \"A hot key cannot be split; it is bounded locally\". Line 529: \"| Hot key | One shard of one Cell |\". Line 586: \"| CE-12 | Hot key at 10 times one shard's capacity | Calls for it at most N × ceiling per window | Planned (M1) |\".",
-      "fix": "Failure scenario: a service-wide `ratelimit` with constant `key` and `{requests: 300000, window: 1s}` protects an Upstream, and 300,000 requests per second arrive. Every request passes its local bucket and runs one EVALSHA, which is 3x shard capacity. All Nodes' breakers for that shard open, the limit fails open, and every other key on the shard applies `failureMode`, including `ai.token-budget` (503). CE-12 still passes because N × ceiling is not exceeded. Fix: (1) State the bound: GCRA calls per key are at most min(offered, N × ceiling) and at least the admitted rate. (2) State that a key whose `requests` per `window` exceeds 50% of one shard's call capacity (hypothesis) MUST use local-only enforcement, and add an Open question for a validation warning (configuration-model). (3) Rewrite the Failure containment row to include co-tenant `closed` Policies on the shard. (4) Give CE-12 a pass criterion on shard health: shard script CPU under 70% (target) and no co-tenant breaker opens."
-    },
-    {
-      "id": "L4X-4",
-      "section": "High availability > State Store availability; Distributed state catalog > State client and RZ-STS error codes; Chaos experiments (CE-5)",
-      "issue": "The State Store failover path can trigger a reconnect storm. No State client reconnect backoff, jitter or connect-rate bound is defined. Each Node re-runs SCRIPT LOAD on every connection, and half-open probes are spread over only ±20% of 1 s. At the Cell ceiling, the new primary receives 10,000 TLS connections at once. The failover window has no number, although Traffic management gives about 15 s (hypothesis). CE-5 does not check reconnect load or the length of that window.",
-      "evidence": "Line 220: \"| `SCRIPT LOAD` at connect, reconnect and failover | MUST (Node) |\". Line 330: \"Per Node it keeps 2 pipelined connections per shard plus up to 8 dedicated ones ... half-opens after 1 s ± 20% and closes after 3 successes (target)\". Line 567: \"| Connections per shard | 10 × N_serving, 10,000 at 1,000 Nodes (hypothesis) | Refused connections | Raise the server limit |\". Line 223: \"the Cell applies `failureMode` until the new primary answers\". Line 584: \"| CE-5 | State Store primary killed | Extra admissions within the lag bound; never two round trips per Policy |\". 09 line 490: \"about 15 s of failover (hypothesis) gets `failureMode`\".",
-      "fix": "Failure scenario: a 1,000-Node Cell loses a shard primary. Within about 400 ms every Node redials, which means 10,000 TLS handshakes, 1,000 sets of SCRIPT LOAD, and half-open probes, all against a replica that is still promoting. Refused or slow connects keep breakers open, so the failover window stretches past 15 s. `closed` Token Budgets return 503 for that whole window, with no stated bound. Fix: (1) Specify State client reconnects with exponential backoff and full jitter, for example base 100 ms and cap 5 s (target), plus a per-Node connect rate. (2) Spread half-open probes over 1 to 3 s (target). (3) Open the 8 dedicated connections lazily. (4) State the failover-window bound (about 15 s (hypothesis), matching 09) and its effect on each Policy type. (5) Give CE-5 a Node count of at least 100 (target) and pass criteria: every Node reconnected within 10 s (target) and a `failureMode` window of at most 15 s (target)."
-    },
-    {
-      "id": "L4X-5",
-      "section": "Consistency and accuracy bounds",
-      "issue": "The derived-ceiling fail-open bound leaves out the one-token-per-Node floor that Traffic management and resilience applies. At 10x to 100x Node counts with small limits, the real admission is many times the stated bound. CE-4's pass criterion uses the floored ceiling of 10, so it is looser still and would pass a regression.",
-      "evidence": "Line 353: \"| Rate Limit, fail-open | Derived ceiling, OQ-traffic-management-and-resilience-16 option (b) | At most N_serving / N_published × 2 × `requests` per aligned window (target) |\". 09 line 264: \"each derived-ceiling bucket holds max(1, 2 × `requests` / N_published) tokens per epoch-aligned window\". 09 line 479: \"one token per Node at least\". Line 583: \"| CE-4 | ... | Per key at most N_serving × ceiling per window\".",
-      "fix": "Failure scenario: `{requests: 10, window: 1s}` on 1,000 Nodes with the State Store black-holed. The stated bound is 20 per second. 09 admits max(1, 0.02) = 1 per Node, which is 1,000 per second, or 100x the limit. CE-4's 'N_serving × ceiling', with the derived ceiling floored at 10, would accept 10,000 per second. Fix: (1) Change the row to 'At most N_serving × max(1, 2 × `requests` / N_published) per aligned window (target)'. (2) Add the 1,000-Node small-limit example. (3) Make CE-4 check that same expression for derived ceilings and N_serving × ceiling only for declared ceilings."
-    },
-    {
-      "id": "L4X-6",
-      "section": "Consistency and accuracy bounds; Horizontal scaling > Warm-up; Chaos experiments (CE-8, CE-9)",
-      "issue": "The bounds table gives no number for three cases that Traffic management quantifies: scale-out while the count lags, a count frozen by a Ruralz Control outage, and restarted Control-mode Nodes that have no count. The document owns these bounds (pack 8.8), yet CE-9 has no numeric pass criterion. CE-8 restarts Nodes during quorum loss, which creates Nodes without a count, but checks only readiness.",
-      "evidence": "Line 570: \"| Node-count lag | Plus 10% per minute (target) | Over-admission after scale-out | Declared ceilings |\". Line 589: \"| CE-9 | Scale from 10 to 100 Nodes in 2 minutes | Over-admission within the derived-ceiling bound | Planned (M2) |\". Line 58: \"Derived ceilings fall back to the full limit with a fail-open clamp and reason `node_count_unknown`\" (no number). 09 line 493: \"10 to 100 Nodes fail open at up to 20 × limit for about 34 minutes\". 09 lines 494-495: \"N_countless × the clamp ... 10 × limit (hypothesis)\" and \"N_serving / N_frozen × 2 × limit, 20 × limit after a 10 to 100 scale-out\".",
-      "fix": "Failure scenario: an autoscaler takes a Cluster from 10 to 100 Nodes during a State Store brownout, and the Rate Limit admits 20x its limit for about 34 minutes. The owning document states no such number, and CE-9 accepts any result. Fix: (1) Add rows for: scale-out lag, 'N_serving / N_published × 2 × `requests`, 20 × `requests` for about 34 minutes at 10 to 100 Nodes (hypothesis)'; a frozen count, 'N_serving / N_frozen × 2 × `requests` (hypothesis)'; and Control-mode Nodes without a count, 'N_countless × max(1, `requests` / 100) per window (target)'. (2) Put those numbers into the CE-9 pass criteria, and add an admission criterion to CE-8."
-    },
-    {
-      "id": "L4X-7",
-      "section": "Distributed state catalog > Distributed rate limits; Consistency and accuracy bounds",
-      "issue": "The document claims per-request GCRA keeps the Cell limit exact while the State Store is healthy. In the same section it recommends option (a) of OQ-traffic-management-and-resilience-20. Under that option, first-seen keys past the budget are admitted local-only, without GCRA, while the State Store is healthy. The healthy-State-Store rows have no bound for this case. Under a 10x key-rotation flood it is the dominant over-admission.",
-      "evidence": "Line 287: \"GCRA runs per admitted request ... keeping the Cell limit exact while the State Store is healthy.\" Line 291: \"This document recommends option (b) of OQ-traffic-management-and-resilience-16, option (a) of -20 and option (c) of -19\". Line 350: \"| Rate Limit | Healthy State Store | At most `requests` per `window` sustained ...\". 09 line 214: \"past it, as OQ-traffic-management-and-resilience-20 proposes, a 10 s local-only entry (target) at the per-Node ceiling, capacity and refill alike, without GCRA.\"",
-      "fix": "Failure scenario: a credential-stuffing flood rotates `source.ip` keys past B = 20,000 first-seen calls per second. Each new key is admitted local-only at up to N × ceiling per window for 10 s on a healthy State Store. With the floor of 10 on 1,000 Nodes, that is 10,000 per second per key against a 10-per-second limit. Fix: (1) Qualify the 'exact' claim. (2) Add a healthy-State-Store row: 'First-seen key past budget, OQ-traffic-management-and-resilience-20 option (a): at most N_serving × ceiling per window for 10 s (target)'. (3) Cite the first-seen call bound from 09."
-    },
-    {
-      "id": "L4X-8",
-      "section": "Consistency and accuracy bounds (Token Budget rows); Chaos experiments (CE-13)",
-      "issue": "The healthy `closed` Token Budget overshoot bound is narrower than the bound in AI/LLM gateway, which owns it and is a depends_on document. It drops the (attempts - 1) × R term per request and the hidden-reasoning term. Under Provider Fallback at scale, spend can exceed this document's number while staying within the owner's.",
-      "evidence": "Line 359: \"| Token Budget | Healthy, `closed` | Overshoot at most the sum of input-estimate errors, SM-10, owned by [AI/LLM gateway](06-ai-llm-gateway.md#settlement) (hypothesis) |\". 06 line 326: \"at most the sum of input-estimate errors across concurrent requests ... plus (attempts - 1) x R per concurrent request ... plus, while OQ-ai-llm-gateway-17 is open, hidden reasoning above C on `gemini` and `ollama`.\"",
-      "fix": "Failure scenario: 200 concurrent streams using `fallback` with 3 candidates. A provider brownout produces extra attempts, each of which can consume up to R. Measured overshoot is 2 × R × 200, which violates this document's bound but is correct per 06, so CE-13 fails spuriously or is loosened ad hoc. Fix: quote 06's full bound in the row, citing the owner, and use the same bound in the CE-13 pass criterion."
-    },
-    {
-      "id": "L4X-9",
-      "section": "Distributed state catalog > Post-commit write queue",
-      "issue": "Draining the classes strictly in table order puts cache invalidations behind cache stores and Plugin writes behind everything else. Under sustained 10x store load, the 6,400-item invalidation class fills and drops. That defeats the reserved slice Traffic management relies on, and Plugin writes can starve without limit.",
-      "evidence": "Line 326: \"Eight writers per Node drain the classes in table order, pipelining up to 64 writes per batch (target).\" Line 323: \"| Cache invalidations | 6,400 items, the reserved 10% (target) | One retry, then drop |\". 09 line 380: \"Generation bumps get a reserved 10% of that queue and one retry (target)\". 09 line 388: \"as invalidations must not drop\".",
-      "fix": "Failure scenario: a flash sale drives cache stores at the writers' full throughput. The 16,000 queued stores are always drained first, so invalidations wait, reach 6,400 and drop. Stale prices are then served for up to 25 h (target). Fix: (1) Drain invalidations first, or give each class a guaranteed writer share, for example 2 of the 8 writers for invalidations and settlements (target). (2) Bound the maximum queueing delay per class (target). (3) Add a chaos or benchmark case with store saturation plus invalidations."
-    },
-    {
-      "id": "L4X-10",
-      "section": "Distributed state catalog > Post-commit write queue; Limits and bottlenecks > Per-Node limits",
-      "issue": "The Plugin-writes class has an item cap but no byte cap. Neither this document nor WASM plugin system caps the size of a value (only keys, at 256 bytes). The per-Node memory claim for caches and the queue is therefore false, and a per-Node structure is unbounded, which contradicts SG-7.",
-      "evidence": "Line 324: \"| Plugin writes | 9,600 items (target) | Drop per Plugin Policy |\". Line 559: \"these limits add at most 64 MiB for keys, 256 MiB for balancers and 128 MiB for caches and the queue (target)\". 05 line 186: \"Limits (target): 256-byte keys, `ttlMillis` 1 ms to 24 h, 10,000 keys per Policy per Node per minute, one `onLog` write per request\".",
-      "fix": "Failure scenario: a Plugin writes 1 MiB session blobs at `onLog`. 9,600 queued items hold about 9.4 GiB, which blows the 128 MiB claim, and the Node exceeds GOMEMLIMIT and is OOM-killed. Fix: (1) Give the Plugin-writes class a byte cap, for example 16 MiB (target). (2) Add an Open question to WASM plugin system for a per-value size cap. (3) Recompute the per-Node memory sum."
-    },
-    {
-      "id": "L4X-11",
-      "section": "Horizontal scaling > Autoscaling signals; High availability > Ruralz Gateway availability",
-      "issue": "Two capacity targets contradict each other. Autoscaling lets steady-state CPU sit just under 60%, while availability requires survivors to stay under 80% CPU after losing the largest zone. With two zones, a zone loss pushes survivors to about 120%. With three zones it pushes them to about 90%.",
-      "evidence": "Line 141: \"| CPU | Container CPU utilization | 60% over 2 minutes (target) |\". Line 169: \"A Cluster SHOULD run at least three Nodes in at least two zones (target), sized so that losing the largest zone keeps survivors under 80% CPU (target).\"",
-      "fix": "Failure scenario: three zones at 58% CPU, just under the scale-out trigger, and one zone is lost. Survivors reach 87% CPU and in-flight units saturate before the autoscaler reacts, so requests get 503 RZ-RT-005. Fix: derive the scale-out threshold from the zone count, as threshold = 80% × (Z - 1) / Z (target): 40% for two zones, about 53% for three. Alternatively, restrict the 60% figure to four or more zones and state the formula."
-    },
-    {
-      "id": "L4X-12",
-      "section": "High availability > Ruralz Control availability (Figure 2)",
-      "issue": "The required Raft HA state diagram models staleness as an alternative to candidacy, not as a timer that runs alongside it. A voter in a minority partition goes from Follower to Candidate and loops there. On this diagram it never becomes Stale and never sends Reconnect (`rebalance`). That contradicts the fencing rule in Control plane and GitOps, which applies to any replica without word from a leader. The 30 s threshold is also untagged.",
-      "evidence": "Line 189: \"Follower --> Candidate: no leader heartbeat within HeartbeatTimeout\". Line 191: \"Candidate --> Candidate: split vote or no majority, new election after ElectionTimeout\". Line 194: \"Follower --> Stale: leader contact lost for one election timeout\". Line 196: \"Stale --> Rebalancing: stale for 30 s\". 04 line 492: \"A replica without word from a leader for one election timeout (hypothesis) is stale ... After 30 s stale (target) it sends `Reconnect` (`rebalance`).\"",
-      "fix": "Failure scenario: a zone partition isolates one of three voters. It campaigns forever as Candidate, and its Nodes stay pinned to it without being told to rebalance to the healthy majority. They miss Rollouts and trust updates for the whole partition. Fix: (1) Model fencing as a separate concurrent region in the diagram (stateDiagram-v2 `--` concurrency) or as a composite state entered from both Follower and Candidate. (2) Say that stale serving applies in Candidate too. (3) Tag the threshold: 'stale for 30 s (target)'."
-    },
-    {
-      "id": "L4X-13",
-      "section": "Stateless data plane",
-      "issue": "The inventory claims to be complete, but it leaves out per-Node state that this document and its dependencies create. Acceptance criterion 3 fails, as does the document's own rule that new per-Node state needs a row.",
-      "evidence": "Line 50: \"This table is the complete inventory of in-memory per-Node state; new per-Node state needs a row here before it ships.\" Missing: the State client's per-shard connections, breakers and 8,192 in-flight call slots (this document, line 330); the Response Cache revalidation queue of 256 entries and the miss-coalescing table of up to 4,096 keys (09 lines 394 and 396); the `Vary`-name LRU per URI (09 line 376); the per-shard `INFO memory` readings and per-shard store byte budgets c (09 lines 385-386); and the per-Node first-seen budget counter (09 line 214).",
-      "fix": "Failure scenario: an operator sizing memory or reasoning about a Node kill uses this table as the complete list. The unlisted structures are bounded elsewhere but have no stated loss consequence here. After a restart, for example, the `INFO memory` reading is missing and stores run uncapped until the first read. Fix: add a row for each item above, with bound, rebuilt-from, and why losing it is safe. For the `INFO memory` reading, state that stores are skipped until the first read after start (target)."
-    },
     {
       "id": "L4X-14",
       "section": "Distributed state catalog > State client and RZ-STS error codes",
-      "issue": "The RZ-STS registry fixes every code at 503 before commit. Pack 8.10 and the Configuration model require 502 when a `closed` failure happens in a response Phase before commit. A Plugin Policy can make its one blocking State Store call in a response Phase.",
-      "evidence": "Line 332: \"All codes return 503 before commit in the [Data plane](03-data-plane.md#error-response-format) format.\" Lines 336-340: every Status is \"503\". Pack 8.10: \"| A response Phase before commit | Replace the response with 502 |\". 02 line 385: \"otherwise 503; 502 in a response Phase\". 05 line 176: \"`state_get` ... Before commit, never `onChunk`\".",
-      "fix": "Failure scenario: a `plugin` Policy in `onUpstreamResponseHeaders` calls `state_get` while the shard breaker is open. This document says 503 RZ-STS-003, while pack 8.10 requires 502, so implementations and tests diverge. Fix: change the Status column to '503 in a request Phase; 502 in a response Phase before commit (pack 8.10)' and reword line 332."
+      "issue": "Only partly resolved. The registry now gives 502 for a response Phase, but it still gives 503 for every request-Phase failure. Pack 8.10 requires 401 or 403 when a closed failure happens in a request Phase for auth and authz types, and WASM plugin system follows the pack. A `plugin` Policy with `filterClass` auth or authz is closed only and may make its one blocking `state_get` in `onRequestHeaders`. When that call fails, this document requires 503 while pack 8.10 and 05 require 403. That contradicts the foundation pack and a sibling document.",
+      "evidence": "Line 336: \"Before commit, a code returns 503 in a request Phase and replaces the response with 502 in a response Phase\". Lines 340-344: Status \"503 or 502\" for every code. Pack 8.10: \"| A request Phase, `onRequestHeaders` to `onUpstreamRequest` | 401 or 403 for auth and authz types, otherwise 503; code per section 8.6 |\". 05 line 386: \"filterClass: authz          # closed only: a trap or timeout rejects with 403\". 05 line 103: \"A negative guest result uses `RZ-STS` only when its State Store call was attempted and failed or timed out\".",
+      "fix": "Failure scenario: an authz-class Plugin in `onRequestHeaders` calls `state_get` while its shard breaker is open. This document returns 503 RZ-STS-003, but pack 8.10 and 05 return 403 with an RZ-STS code. Clients and conformance tests then disagree, and client retry behavior differs (a 503 is retried, a 403 is not). Fix, word-neutral: change line 336 to \"Before commit, a code takes pack 8.10's status: 401 or 403 for auth and authz types and 503 otherwise in a request Phase, and 502 in a response Phase\". Change the Status column to \"Per pack 8.10\"."
     },
     {
-      "id": "L4X-15",
-      "section": "Multi-region > Regional versus global quotas",
-      "issue": "The Divided Quota example puts a Bundle kind (`Consumer`) and control-plane-only kinds (`Environment`, `Cluster`) in one YAML stream with no file boundary. Loaded as one Bundle file, it fails with RZ-CFG-017.",
-      "evidence": "Lines 434-476: one ```yaml fence holding `kind: Consumer`, then `---`, `kind: Environment` (prod-eu), `kind: Environment` (prod-us) and `kind: Cluster` (prod-us-east). 02 line 594: \"`Environment` and `Cluster` are rejected inside a Bundle (RZ-CFG-017) ... They live elsewhere, such as `control/`\".",
-      "fix": "Failure scenario: an operator copies the sketch into `consumers.yaml` and `ruralz bundle validate` fails with RZ-CFG-017. Fix: split it into two fences, each preceded by a sentence naming the path: the Consumer in the Bundle (for example `consumers/partner-acme.yaml`), and the Environments and Cluster under `control/` outside the Bundle."
+      "id": "L4X-18",
+      "section": "High availability > Ruralz Control availability; Distributed state catalog (Published Node count row); Chaos experiments (CE-7, CE-10)",
+      "issue": "This is a regression from the L4X-2 fix. The new rule lets the published Node count fall when a qualified Node misses three heartbeats. Heartbeats run every 15 s (target), so the rule fires after about 45 s. After every replica restarts, or after a replica or the leader is lost, Nodes redial with full-jitter backoff up to 60 s. Per-replica stream admission also sheds them, and CE-10 itself allows 5 minutes to reconnect. Many qualified Nodes are therefore silent for more than three heartbeat intervals only because Ruralz Control restarted. The rule lowers the count anyway ('large decreases publish at once'), which is the collapse the fix was meant to prevent. CE-10's 'drops at most 10%' criterion cannot pass as the mechanism is specified. The text also never says when the missed-heartbeat clock starts for a replica that has just restarted with no heartbeat aggregates, which are held in memory and rebuilt by resync.",
+      "evidence": "Line 179: \"Only qualified Nodes missing three heartbeats may lower it, with qualification keyed by `node.id` in committed state\". 04 line 376: \"Nodes heartbeat every 15 s (target)\". 04 line 385: \"Backoff with full jitter, base 1 s, cap 60 s (target).\" 04 line 383: \"A per-replica token bucket on new streams answers excess with `Reconnect` or `RZ-CP-010`.\" 04 line 484: \"Heartbeat aggregates, stream state | Memory; rebuilt by resync\". Line 605: \"| CE-10 | Every Ruralz Control replica restarted at once | All Nodes reconnect within 5 minutes (target); the published count drops at most 10% (target)\".",
+      "fix": "Failure scenario: 10,000 Nodes, and all three replicas restart. With the 60 s backoff cap and stream shedding, about half of the Nodes reconnect after more than 45 s. Each is counted as missing three heartbeats, so the count drops about 50% at once and derived ceilings double. Hot keys reach GCRA twice as often, and CE-10 fails. Fix: (1) At line 179, state that the missed-heartbeat clock starts only after a replica has been up and not stale for a reconnect grace of 5 minutes (target), matching CE-10. Before that, no decrease caused by missed heartbeats publishes. The replica loss and leader failover cases (CE-7) get the same rule. (2) Put the same grace in the catalog row and in option (a) of OQ-scalability-and-distributed-state-14. (3) The word band has only about 15 words of room (6,485 of 6,500 words), so condense other prose to make space, without removing text that resolved earlier findings."
     },
     {
-      "id": "L4X-16",
-      "section": "Cells and blast radius > Failure containment; Multi-region > Topologies",
-      "issue": "The document says evacuating a Cell lets limits apply once per Cell only 'briefly'. Quota windows run up to 720 h, so a moved Consumer gets a fresh full allowance for the rest of the window, up to 30 days. Active-standby failover resets every counter. No number is given, and spend-bearing Token Budgets are affected the same way.",
-      "evidence": "Line 534: \"Receiving Cells start with empty counters for moved clients, so limits briefly apply once per Cell until old windows expire.\" Line 378: \"| Active-standby | ... | Counters start empty after failover |\". 09 line 328: \"`24h` resets at midnight, `720h` every 30 days\".",
-      "fix": "Failure scenario: a partner with a 3,000,000-per-720h Quota and a 2,000,000-per-24h token Token Budget is evacuated on day 2. Over the next 28 days it can consume up to 6,000,000 requests. The daily token budget doubles for the rest of that day, which is real provider spend. Fix: (1) Replace 'briefly' with the bound 'up to one extra `limit` per receiving Cell for the remainder of each open window, up to 720 h (target)'. (2) Add a row to the bounds table. (3) Recommend Region-pinned tenants or the Divided pattern for spend-bearing Quotas. (4) Add an Open question on carrying counters across an evacuation."
-    },
-    {
-      "id": "L4X-17",
-      "section": "High availability; Chaos experiments; Horizontal scaling > SO_REUSEPORT and listeners",
-      "issue": "Some scale figures have no (target) or (hypothesis) tag. The document also uses 'Supported' and 'unsupported', which the run rules forbid; only Planned (Mx) or Not planned with a reason are allowed.",
-      "evidence": "Line 196: \"Stale --> Rebalancing: stale for 30 s\" (untagged; 04 tags it (target)). Line 589: \"| CE-9 | Scale from 10 to 100 Nodes in 2 minutes |\". Line 586: \"| CE-12 | Hot key at 10 times one shard's capacity |\". Line 223: \"Supported topologies are OQ-scalability-and-distributed-state-2.\" Line 82: \"two Nodes on one host are unsupported\".",
-      "fix": "Fix: (1) Tag the figures: 'stale for 30 s (target)', 'Scale from 10 to 100 Nodes in 2 minutes (target)', 'Hot key at 10 times one shard's capacity (target)'. (2) Rewrite line 223 as 'The `redis` topologies Planned (M1) are OQ-scalability-and-distributed-state-2'. (3) Rewrite line 82 as 'running two Nodes on one host is Not planned, because only the process holding the file lock ...'."
+      "id": "L4X-19",
+      "section": "Horizontal scaling > Autoscaling signals; High availability > Ruralz Control availability; Multi-region > Topologies (Home Region loss); Chaos experiments (CE-17)",
+      "issue": "The L4X-1 fix added capacity that has to exist before a failure: pre-provisioning for R / (R − 1) of each Region's peak share, plus 30% headroom above peak for a Ruralz Control outage. The autoscaling rule in the same document removes that capacity. Scale-in happens when every signal is under half its threshold, and nothing sets an autoscaler minimum at the pre-provisioned count. When the home Region or Ruralz Control is lost, new Nodes cannot enroll, so capacity removed by scale-in cannot come back. This hidden single point of failure makes CE-17 depend on the autoscaler being off.",
+      "evidence": "Line 141: \"Scale out on the first signal over its threshold; scale in only when all are under half of it.\" Line 145: \"80% × (Z − 1) / Z over 2 minutes for Z zones: 40% at two, 53% at three\". Line 392: \"each active-active Region SHOULD be pre-provisioned for R / (R − 1) times its peak share (target): 100% of global peak each with two Regions\". Line 181: \"autoscaling adds nothing during a long outage; Clusters SHOULD keep 30% headroom above peak (target)\". Line 612: \"| CE-17 | Home Region lost with every voter | The surviving Region serves full peak on pre-provisioned Nodes (target)\".",
+      "fix": "Failure scenario: two Regions with three zones each. Each Region is pre-provisioned to carry 100% of global peak, so at its own 50% peak share it runs at about half the CPU that full load would give, about 26% against the 53% threshold. All signals are under half their thresholds (26.5% CPU), so the autoscaler scales in and removes the Region-loss capacity every day. The home Region is then lost. Enrollment stops (`RZ-CP-004`), autoscaled replacements stay not ready, and the survivor runs at about 2x its CPU with in-flight units saturated, returning 503 `RZ-RT-005`. Fix: (1) Add to Autoscaling signals: \"Autoscaler minimums MUST hold the pre-provisioned and headroom Node count (target); scale-in never goes below it.\" (2) Run CE-17 with the autoscaler enabled, after an off-peak scale-in period."
     }
   ],
   "non_blocking": [
     {
-      "section": "Cells and blast radius > Cell sizing",
-      "suggestion": "The arithmetic does not match: 60% of 16 shards at 100,000 each is 960,000, not 1,000,000. State 960,000 (hypothesis) or change the inputs."
+      "section": "Stateless data plane; Limits and bottlenecks > Per-Node limits",
+      "suggestion": "The Quota denial cache (line 69) is bounded only by a 60 s TTL per key and has no entry cap, which falls short of SG-7. A `quota` Policy with a high-cardinality `config.key` can grow it without limit under a 100x load of distinct keys. Either give it an entry cap inside the shared 1,048,576-entry key table, or state its maximum size (target). L1 raised the same point."
     },
     {
-      "section": "Limits and bottlenecks > Cell and Cluster bottlenecks",
-      "suggestion": "Connections per shard reach 10,000 at the 1,000-Node Cell ceiling, and replicas, monitoring and admin clients connect too. Derive the Nodes-per-Cell ceiling from the shard connection limit, and say which server setting (for example maxclients) operators must raise, citing a research URL once one is added."
+      "section": "Distributed state catalog > State client and RZ-STS error codes",
+      "suggestion": "Calls are counted in flight 'until its reply or a connection reset'. After a failover to a new primary address, calls on black-holed old connections may never get a reset until TCP retransmissions time out, which can take minutes. State how the State client detects dead connections, for example a write timeout or periodic PING (target), so that hung calls and half-open probes cannot fill the Node-wide 8,192 in-flight ceiling and spread one shard's failure to every shard."
     },
     {
-      "section": "Multi-region > Latency budgets",
-      "suggestion": "Say that the Configuration model's default `stateStore.timeout` is 50 ms, and when operators should lower it to the 5 to 10 ms recommendation. CE-3's 'at most one timeout' then has a concrete value."
+      "section": "High availability > Ruralz Control availability",
+      "suggestion": "Tag the timing figures on line 179: 'under 10 minutes old' and 'three heartbeats' (target), as the style guide requires for the 10-minute qualification elsewhere."
     },
     {
-      "section": "Horizontal scaling > Warm-up",
-      "suggestion": "Give numeric preStop and drain deadlines (target) that fit inside 30 s together with the 5 s post-commit flush, or state that `terminationGracePeriodSeconds` MUST be raised, and by how much."
+      "section": "Multi-region > Topologies (Home Region loss)",
+      "suggestion": "After home Region loss, a surviving relay goes stale and sends `Reconnect` (`rebalance`) after 30 s (target), so its Nodes redial in a loop with nowhere healthy to go. Say that this churn is expected, stays off the request path, and is bounded by the Control Stream backoff cap of 60 s (target)."
     },
     {
-      "section": "High availability > State Store availability",
-      "suggestion": "Give the State Store failover duration (about 15 s (hypothesis), per Traffic management) and the replication-lag assumption in this section, not only in the bounds table."
-    },
-    {
-      "section": "Chaos experiments",
-      "suggestion": "Order the table by ID or by milestone consistently (CE-12 currently sits between CE-6 and CE-7). Add a Kubernetes pod-replacement variant of CE-8, because a process restart keeps `${RURALZ_DATA_DIR}` and hides the loss of Last-Known-Good."
+      "section": "Length",
+      "suggestion": "The body is 6,485 words against a 6,500 maximum. The fixes for L4X-14, L4X-18 and L4X-19 have to be word-neutral or offset by condensing other prose. Do not cut text that resolved earlier findings."
     }
   ],
   "ac_results": [
     {
-      "ac": "AC1: each of the 11 scalability_items is an H2/H3 or named pointer link",
-      "note": "Stateless data plane, Horizontal scaling, High availability and Multi-region are H2s. Distributed rate limits, caches and sessions are H3s under Distributed state catalog. Performance budgets, Benchmarking, Capacity planning and Zero-downtime upgrades are named links under Pointers.",
-      "pass": true
+      "ac": "Each of the 11 scalability_items is an H2 or H3 heading or a named pointer link (rate limits, caches, sessions as H3s under Distributed state catalog; performance budgets, benchmarking, capacity planning, zero-downtime upgrades as named links under Pointers)",
+      "pass": true,
+      "note": "Stateless data plane, Horizontal scaling, High availability and Multi-region are H2s. Distributed rate limits, Distributed caches and Distributed sessions are H3s under Distributed state catalog. Performance budgets, Benchmarking, Capacity planning and Zero-downtime upgrades are named links in Pointers."
     },
     {
-      "ac": "AC2: Distributed state catalog has >=10 rows, columns state/store/consistency/algorithm/failure mode, no blank cells",
-      "note": "11 rows, the five required columns, no blank cells. The verify script reports no FAIL.",
-      "pass": true
+      "ac": "Distributed state catalog has at least 10 rows with columns state, store, consistency, algorithm and failure mode, and no blank cells",
+      "pass": true,
+      "note": "11 rows (lines 235-245) with the required columns and no blank cells; verify-docs reports no FAIL."
     },
     {
-      "ac": "AC3: Stateless data plane inventories every in-memory per-Node state and why losing it is safe",
-      "note": "Missing: State client connections, breakers and in-flight slots; revalidation queue; miss-coalescing table; Vary-name LRU; INFO memory readings and per-shard store budgets; first-seen budget counter (L4X-13).",
-      "pass": false
+      "ac": "Stateless data plane contains an inventory of every in-memory per-Node state and why losing it is safe",
+      "pass": true,
+      "note": "The L4X-13 omissions are fixed: State client connections and breakers, INFO memory readings, miss coalescing, revalidation queue, Vary LRU and first-seen counters now have rows. Non-blocking gap: the Quota denial cache still has no entry cap."
     },
     {
-      "ac": "AC4: Horizontal scaling covers scale unit, autoscaling signals, SO_REUSEPORT, L4 load balancing and warm-up",
-      "note": "All five H3s are present. The autoscaling threshold contradicts the zone-loss rule (L4X-11), but coverage is complete.",
-      "pass": true
+      "ac": "Horizontal scaling covers the scale unit, autoscaling signals, SO_REUSEPORT, L4 load balancing and warm-up",
+      "pass": true,
+      "note": "Each topic has an H3. The CPU threshold now derives from the zone count (L4X-11 resolved). A scale-in minimum is still missing (L4X-19)."
     },
     {
-      "ac": "AC5: High availability covers Gateway, Control and State Store; Control outage behavior consistent with 04 (Last-Known-Good)",
-      "note": "The prose matches 04 (active Revision kept, a 5 s (target) wait, then Last-Known-Good). The required Figure 2 contradicts 04's fencing rule for partitioned or quorum-lost voters (L4X-12). Node-count behavior across a Ruralz Control restart is undefined (L4X-2).",
-      "pass": false
+      "ac": "High availability covers Ruralz Gateway, Ruralz Control and the State Store, and Ruralz Control outage behavior is consistent with 04 (Last-Known-Good)",
+      "pass": true,
+      "note": "All three are covered. Outage behavior matches 04: 5 s boot wait, then Last-Known-Good, then detached. The fencing diagram now runs as a concurrent region (L4X-12 resolved). The count-decrease rule is the OQ-scalability-and-distributed-state-14 proposal to 04 and has the grace defect in L4X-18."
     },
     {
-      "ac": "AC6: Consistency and accuracy bounds states a global quota accuracy bound tagged (target)",
-      "note": "\"Global quota accuracy bound (target)\" is stated with 0% over-admission per Cell and R × limit across Cells. The evacuation and active-standby cases are unquantified (L4X-16).",
-      "pass": true
+      "ac": "Consistency and accuracy bounds states a global quota accuracy bound tagged (target)",
+      "pass": true,
+      "note": "Line 350 bolds 'Global quota accuracy bound (target)': 0% over-admission (target) per Cell, and R × that across Cells."
     },
     {
-      "ac": "AC7: Multi-region covers topologies, regional vs global quotas, geo and data-residency routing, cross-region configuration sync and latency budgets",
-      "note": "All five H3s are present. Home Region loss is not modeled (L4X-1).",
-      "pass": true
+      "ac": "Multi-region covers topologies, regional versus global quotas, geo and data-residency routing, cross-region configuration sync and latency budgets",
+      "pass": true,
+      "note": "All five are H3s. Home Region loss is now modeled (L4X-1 resolved), apart from the autoscaler interaction in L4X-19."
     },
     {
-      "ac": "AC8: Limits and bottlenecks contains a per-Node limits table with every value tagged (target)",
-      "note": "All 14 rows of the per-Node limits table carry (target).",
-      "pass": true
+      "ac": "Limits and bottlenecks contains a per-Node limits table with every value tagged (target)",
+      "pass": true,
+      "note": "All 11 per-Node values on lines 563-573 carry (target)."
     }
   ],
-  "foundation_amendments": [
-    "Pack 8.8: the per-Node ceiling is derived from the published Node count. Add that the published count MUST NOT decrease because Ruralz Control restarted, failed over or lost streams; only qualified Nodes that miss heartbeats reduce it. Otherwise a control-plane event changes request-path admission (see L4X-2).",
-    "Pack 8.13: 'Raft voters SHOULD stay in one Region' makes the home Region a single point of failure for Enrollment in every Region. Add that a multi-Region deployment MUST document a Control Store restore path in another Region and pre-provision surviving-Region capacity (see L4X-1)."
-  ]
+  "foundation_amendments": []
 }
