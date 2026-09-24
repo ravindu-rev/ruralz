@@ -141,7 +141,7 @@ Backoff is full-jitter exponential from 25 ms to 250 ms (target), or a longer `R
 
 ### Retry budget
 
-Each Node keeps a retry budget per Upstream: in-flight retries, backoff included, MUST NOT exceed max(3, 20% of in-flight originals) (target). Over budget, the original failure returns and `ruralz_upstream_retry_budget_exhausted_total` counts it. From 15 originals in flight, amplification is at most 1.2 times (target); fields are OQ-traffic-management-and-resilience-5.
+Each Node keeps a retry budget per Upstream: in-flight retries, backoff included, MUST NOT exceed max(3, 20% of in-flight originals) (target). Over budget, the original failure returns, counted in `ruralz_upstream_retry_budget_exhausted_total`. From 15 originals in flight, amplification is at most 1.2 times (target); fields are OQ-traffic-management-and-resilience-5.
 
 ### Hedging
 
@@ -216,7 +216,7 @@ Notation: N_published is the Node count Ruralz Control publishes (`HeartbeatRepl
 5. Otherwise one `EVALSHA` runs GCRA for every limit with server `TIME`, updating TATs only if all allow; a deny is 429 `RZ-RL-002`. Nodes `SCRIPT LOAD` every script at connect, reconnect and failover; `NOSCRIPT` applies `failureMode` and schedules a reload, so no request makes a second round trip (pack 8.7 rule 1).
 6. A failed call or open State client breaker applies `failureMode`: `open` admits within the local buckets, `closed` returns 503 `RZ-STS-<NNN>` ([Scalability and distributed state](11-scalability-and-distributed-state.md)).
 
-Local-only admission departs from pack 8.8, which runs GCRA for every locally admitted request; OQ-traffic-management-and-resilience-20 proposes the amendment. Until it closes, option (c), wait for GCRA, is the conforming behavior, and only offered load bounds first-seen calls. Under option (a) they are at most min(B × N_serving / N_published, 500 × N_serving) per second per Cell, B at steady state; without a count, as in file mode, 200 × N, 200,000 at 1,000 Nodes (hypothesis), so large file-mode Clusters SHOULD run Control mode or size the State Store for it.
+Local-only admission departs from pack 8.8, which runs GCRA for every locally admitted request; OQ-traffic-management-and-resilience-20 proposes the amendment. Until it closes, option (c), wait for GCRA, is the conforming behavior, and only offered load bounds first-seen calls. Under option (a) they are at most min(B × N_serving / N_published, 500 × N_serving) per second per Cell, B at steady state; without a count, as in file mode, 200 × N, 200,000 at 1,000 Nodes (hypothesis), so large file-mode Clusters SHOULD run Control mode or size the State Store.
 
 A Node new from scale-out, a restart or a Zero-Downtime Upgrade starts empty and warms at its budget: 50,000 active keys take about 250 s at N_published = 100 (hypothesis). Meanwhile past-budget keys wait for GCRA under option (c), or under option (a) are admitted at the per-Node ceiling without GCRA. Handing over the key table and count is OQ-traffic-management-and-resilience-22.
 
@@ -383,7 +383,7 @@ The State Store holding limit keys MUST run `maxmemory-policy noeviction`, so wh
 
 1. A 64 MiB per-Node hot-entry layer keeps, by LRU, entries and generation keys read twice within 1 s, for up to 1 s (target): a hot entry or URI costs at most N reads per second, about 131 MB/s for 128 KiB at 1,000 Nodes, 10% of a 10 Gb/s shard link (hypothesis).
 2. Nodes read `INFO memory` per shard off the request path every 10 s, or 1 s above 50% of `maxmemory` (target), at most N reads per second per shard. They skip stores above 70%, and to a shard that grew over 10% of `maxmemory` between reads until growth falls under 2% (target).
-3. Between reads, each Node caps store bytes per shard at c = min(2% of `maxmemory` per 10 s / N_c, 4 MiB per second), N_c being N_published, or 1,000 without a count (target). The Cell adds at most N_serving × c × the read interval, 2% × N_serving / N_c of `maxmemory` per 10 s read, so from a read under 50% a shard stays under 100% while N_serving / N_c < 25 (hypothesis); a scale-out from 2 to 40 Nodes adds 40% (hypothesis).
+3. Between reads, each Node caps store bytes per shard at c = min(2% of `maxmemory` per 10 s / N_c, 4 MiB per second), N_c being N_published, or 1,000 without a count (target). The Cell adds at most N_serving × c × the read interval, 2% × N_serving / N_c of `maxmemory` per 10 s read, so from a read under 50% a shard stays under 100% while N_serving / N_c < 25, as for 25,000 count-less Nodes; a scale-out from 2 to 40 Nodes adds 40% (hypothesis).
 
 Where N_serving can exceed 25 × N_c, as when a Cluster may scale 25-fold during a Ruralz Control outage, operators MUST use OQ-traffic-management-and-resilience-11 option (a) or leave `cache` off; Nodes warn at startup when `cache` and a limit Policy type share a State Store. Generation keys, about 90 bytes each, bypass rules 2 and 3, as invalidations must not drop: 1,000 distinct written URIs per second hold about 8.4 GB (hypothesis). Shards MUST fit them, or `cache` goes on a safe-methods-only Route, leaving invalidation to TTLs.
 

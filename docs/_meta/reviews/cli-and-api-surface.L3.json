@@ -1,0 +1,203 @@
+{
+  "lens": "L3 acceptance-audience",
+  "verdict": "revise",
+  "score": 6,
+  "blocking": [
+    {
+      "id": "L3-1",
+      "section": "Output formats and exit codes",
+      "issue": "A CI job running `ruralz rollout status --wait` can hang forever, and the exit contract has no outcome for `paused`. `--wait` polls until the Rollout is terminal. `paused` is not terminal (pack 8.3), and every failure under `autoRollback: false` enters `paused` and waits for a human. `--timeout` has no default, and the exit code table maps only `complete`, `rolled-back`/`failed` and timeout. An operator writing a pipeline cannot tell what the command does when a gate fails.",
+      "evidence": "Rollout, promotion and Node verbs: \"`ruralz rollout status --wait` polls until the Rollout is terminal.\" Command table: \"`--wait`, `--timeout DURATION`\" (no default). Exit codes: \"0 ... `rollout status --wait` reached `complete`\"; \"1 ... `rollout status --wait` ended in `rolled-back` or `failed`\"; \"2 ... `--wait` timeout\".",
+      "fix": "Define `--wait` as returning when the Rollout reaches a terminal state or `paused`. Give `paused` an exit code (1 with the pause reason in JSON, or a dedicated code such as 3, 'needs operator action'). Give `--timeout` a documented default. Add both to the exit code table and the Rollout verbs paragraph."
+    },
+    {
+      "id": "L3-2",
+      "section": "CLI command tree",
+      "issue": "The worked example, the main CI recipe for operators, fails as written. (1) It omits `--control` and `--token-file`, but the document says scripts must pass those flags. (2) `ruralz bundle diff` exits 1 whenever there are changes, which is every non-empty pull request, so a CI shell run with `-e` (the default in common CI runners) fails every such job. (3) The post-merge `ruralz rollout approve` step appears in a script, but approvals require step-up TOTP, and without a terminal the CLI fails with exit 2.",
+      "evidence": "Worked example: \"ruralz bundle diff rev-162af81f5de4 ./bundle --env prod --environments control/environments.yaml --output json\" and \"ruralz rollout approve --env prod --digest sha256:...\" / \"ruralz rollout status prod-eu-west --wait --timeout 30m\" with no `--control`/`--token-file`. Global flags: \"until then scripts pass flags\". Exit codes: \"1 ... Diff with changes\". REST API auth: \"When the REST API demands step-up, the CLI prompts for a TOTP code on a terminal and otherwise fails with exit code 2\".",
+      "fix": "Add `--control https://control.shop.example:8090 --token-file ...` to every networked line. Tolerate exit 1 from diff explicitly (for example `|| test $? -eq 1`), with a one-line comment. Mark the approve and status lines as run by a human approver at a terminal, not in the pipeline, citing OQ-cli-and-api-surface-5."
+    },
+    {
+      "id": "L3-3",
+      "section": "CLI command tree",
+      "issue": "The CLI accepts the display form `rev-<12 hex>` as a Revision lookup key and promises exit 2 on ambiguity. No REST operation can resolve a prefix: paths take only full digests, and `/api/v1/revisions` defines no filter or query parameter. A contributor cannot implement the lookup, yet the worked example depends on it.",
+      "evidence": "Bundle verbs in detail: \"Read commands accept the display form `rev-<12 hex>` as a lookup key and fail with exit code 2 when it is ambiguous\". REST conventions: \"Digests in paths and bodies are full `sha256:<64 hex>` values\". REST table row `/api/v1/revisions`, `/api/v1/revisions/{digest}`: no query parameters.",
+      "fix": "Add a lookup to the REST proposal, such as `GET /api/v1/revisions?prefix=<12 hex>&environment=NAME` returning every match with full digests. The CLI resolves through it and exits 2 on more than one match. Alternatively, state that only full digests are accepted and change the worked example."
+    },
+    {
+      "id": "L3-4",
+      "section": "CLI command tree",
+      "issue": "The document never says how `ruralz test run --bundle` and `ruralz dev run` start a local `ruralzd` on \"loopback ports\". Listener ports and `admin.port` are Bundle fields covered by the digest, and TLS listeners need `secretRef` material. Also unspecified: which `RURALZ_DATA_DIR` the local Node uses, how the CLI reaches its admin port, and what happens when 8080, 8443 or 9901 is taken. Contributors (the M2 end-to-end suite) and Plugin authors cannot run the command without reading the Configuration model and guessing.",
+      "evidence": "Test case format: \"With `--bundle DIR`, `ruralz test run` starts a local `ruralzd` on loopback ports with that Bundle rendered for `--env`\". Configuration model Gateway: \"admin:\\n    port: 9901                     # default 9901\"; listener ports are required Gateway fields. Command table: `ruralz dev run` \"Launch a local `ruralzd` on a Bundle directory with Hot Reload\".",
+      "fix": "State the mechanism. Option 1: the Bundle's ports are bound on 127.0.0.1, and a busy port fails with exit 2. Option 2: a process-level listen override, which needs a pack section 2 amendment and an Open question. Also state the temporary `RURALZ_DATA_DIR`, which `secretRef` providers work locally (`file`, `env`), and how the CLI gets the local admin token. Add an OQ for any part that needs a new setting."
+    },
+    {
+      "id": "L3-5",
+      "section": "CLI command tree",
+      "issue": "The document ships the CLI for Linux, macOS and Windows without saying which commands work where. The tech stack builds no production `ruralzd` or `ruralz-control` for Windows and builds both for development only on darwin. `ruralz dev run` and `ruralz test run --bundle` launch a local `ruralzd`, and `ruralz node drain` sends SIGTERM, which Windows lacks. `ruralz control serve` launches `ruralz-control`. A Plugin author on Windows, one of the declared audiences, cannot tell whether the inner loop works.",
+      "evidence": "CLI command tree: \"The CLI is one static binary, `ruralz`, built with `CGO_ENABLED=0` for Linux, macOS and Windows.\" Tech stack platform table: \"windows/amd64 | Not planned: no production target | Not planned: no production target | Production (CLI)\" and \"darwin/arm64, darwin/amd64 | Development only | Development only | Production (CLI)\".",
+      "fix": "Add a platform note or column. Local-only commands run everywhere. `ruralz dev run` and `ruralz test run --bundle` need a host `ruralzd`: Linux, or darwin for development; on Windows use `--target URL` or WSL. `ruralz node drain`, `ruralz control serve`, `ruralz control join` and `ruralz control restore` are Linux only."
+    },
+    {
+      "id": "L3-6",
+      "section": "CLI command tree",
+      "issue": "Operators cannot run `ruralz control join` or `ruralz control restore` from this document. Restore runs 'on the host holding the Control Store data directory' but takes no data-directory input, and nothing names where `ruralz-control` keeps its data. It needs a root-signed anchor set with a new online key, but has no input for that key's private half. Join has no data directory or key output location and no server-CA pin, although Security and identity says `Join` runs over a pinned server CA. Join also reuses the global `--token-file`, which the global flag table defines as the REST API token, contradicting 'Flags mean the same in every command'.",
+      "evidence": "Command table: \"`ruralz control join` | ... | `--peer HOST:8092`, `--token-file PATH`\"; \"`ruralz control restore` | ... | `FILE`, `--anchor-set PATH` (required), `--revocation-list PATH` | Local Control Store\". Global flags: \"Flags mean the same in every command\"; \"`--token-file PATH` | API token for the REST API\". Security and identity 8092 row: \"`Join` redeems a one-time `admin` token over a pinned server CA\". Control plane: \"a root-signed anchor set with a new online key opens a higher `storeEpoch`\".",
+      "fix": "Add `--data-dir PATH` to join and restore, naming its default. Rename the join credential to `--join-token-file` and state that the join token embeds the server-CA fingerprint, as `ruralz node token` tokens do. Specify the restore key flow: either a two-step `ruralz control restore` that first generates the online key and prints its public half for offline root signing, or an `--online-key PATH` input. Record whatever is undecided as an OQ owned by control-plane-and-gitops."
+    },
+    {
+      "id": "L3-7",
+      "section": "Ruralz Control REST and gRPC APIs",
+      "issue": "Neither the CLI nor the REST API can approve a revert that is held for approval. Control plane and GitOps says such reverts get `RZ-CP-006` until another `approver` approves. Here `ruralz rollout approve` and `/api/v1/promotions/{id}/approve` cover only queued promotion records selected by `--env` and `--digest`. An operator who starts a revert and gets `RZ-CP-006` has no documented next step.",
+      "evidence": "Control plane and GitOps, Rolling back: \"An older target, or a diff with `security` impact or a Capability grant, gets `RZ-CP-006` until another `approver` approves.\" This document: \"`ruralz rollout approve` | Approve a queued promotion when `Environment.spec.promotion.requireApproval` is set | `--env NAME`, `--digest sha256:DIGEST`\"; REST row \"`/api/v1/promotions` ... actions `/approve`, `/reject`, `/retry`\".",
+      "fix": "Add an approval path for held reverts, such as `ruralz rollout approve --rollout ROLLOUT_ID` calling `POST /api/v1/rollouts/{id}/approve` (role `approver`, step-up, separation of duties), or state that a held revert is queued as a promotion record approvable by `--env`/`--digest`. Add the missing piece as an OQ owned by control-plane-and-gitops."
+    },
+    {
+      "id": "L3-8",
+      "section": "API authentication",
+      "issue": "The document states the token-only `Enroll` on 8091 and the token `Join` on 8092 as settled fact. They contradict binding pack 8.4, and Security and identity marks both as proposals under OQ-security-and-identity-31 and OQ-control-plane-and-gitops-15.",
+      "evidence": "API authentication: \"Control Stream `Enroll` | 8091 | One-time token, pinned server CA\" and \"Peer layer | 8092 | Peer or relay certificate (mTLS); one-time `admin` token for `Join`\"; Peer layer: \"it admits only Ruralz Control replicas, relays (Planned (M4)) and the token `Join` of `ruralz control join`\". Pack 8.4: \"8091 ... mTLS, per-Node enrollment certificate\"; \"8092 ... mTLS with Ruralz Control peer certificates; Node certificates rejected\". Security and identity: \"(proposed: OQ-security-and-identity-31)\".",
+      "fix": "Tag both rows and the Peer layer sentence \"proposed, pending pack 8.4 amendment (OQ-security-and-identity-31, OQ-control-plane-and-gitops-15)\" and link the OQs."
+    },
+    {
+      "id": "L3-9",
+      "section": "Ruralz Control REST and gRPC APIs",
+      "issue": "The RPC table lists 'Renewal' as a third RPC of `ruralz.control.v1.ControlStream`. Release, versioning and compatibility fixes the service as exactly two RPCs, `Enroll` and `Stream`. Control plane and GitOps lists `RenewRequest` and `RenewResponse` only as messages. A contributor writing the proto would add an RPC that no other document defines.",
+      "evidence": "This document: \"| Renewal | Node to Ruralz Control and back | `RenewRequest`, `RenewResponse`, forwarded to the leader | Node certificate | Planned (M2) |\". Release, versioning and compatibility: \"service `ControlStream`, RPCs `Enroll` and `Stream`\".",
+      "fix": "Carry `RenewRequest` and `RenewResponse` inside `Stream` (up and down message lists) and remove the third row. If a separate RPC is wanted, raise it as an OQ owned by control-plane-and-gitops."
+    },
+    {
+      "id": "L3-10",
+      "section": "CLI command tree",
+      "issue": "Operators cannot use the apiVersion migration command without guessing what it outputs. `ruralz bundle render` merges one overlay, substitutes `${VAR}` (from the process environment when `--env` is absent) and emits a one-file rendered Bundle. So `--api-version` as written yields rendered output, not converted source files that keep the directory layout, `overlays/<env>/` and `${VAR}` expressions. The document discusses only comment loss.",
+      "evidence": "Command table: \"`ruralz bundle render` | Render for one Environment into a one-file Bundle; ... `--api-version` converts\". Global flags: \"`--env NAME` | ... without it, the process environment supplies `${VAR}` and no overlay applies\". Bundle verbs: \"`ruralz bundle render --api-version ruralz/v1beta1` drops comments.\"",
+      "fix": "Specify that `--api-version` with `--output-dir DIR` converts each source file, overlays included, in place of rendering: no substitution, no overlay merge, file layout kept. Or state that it emits a rendered Bundle and add an OQ for a source-conversion verb under `bundle`. Keep the empty-diff guarantee either way."
+    }
+  ],
+  "non_blocking": [
+    {
+      "section": "Whole document",
+      "suggestion": "The body is about 4,850 words by the verifier's rule (prose and tables, fences excluded), against a 5,000 maximum. Keep fixes compact, and tighten existing prose where it helps, without removing text that resolved earlier findings."
+    },
+    {
+      "section": "Ruralz Gateway admin API",
+      "suggestion": "The H3 'Ruralz Control admin API on 9902' sits under the Ruralz Gateway admin API H2. Add a one-line pointer from 'Ruralz Control REST and gRPC APIs' so readers who look for 9902 there find it."
+    },
+    {
+      "section": "Output formats and exit codes",
+      "suggestion": "The global `--output` default is `text`, but `ruralz bundle render` defaults to a YAML stream and accepts `--output yaml`. State that the per-command default overrides `text`, or make `yaml` the render default explicitly."
+    },
+    {
+      "section": "Plugin, AI and development verbs",
+      "suggestion": "AI/LLM gateway says currencies are never converted and cost records carry an `approximate` flag and unpriced usage. State that `ruralz ai cost` always groups by currency, carries `approximate`, and reports unpriced requests separately."
+    },
+    {
+      "section": "Test case format",
+      "suggestion": "`ruralz.test.v1` expresses only single HTTP exchanges. Add an OQ for gRPC, WebSocket, SSE and streaming cases, repeated requests (for Rate Limit 429s) and TLS or SNI targets, since Testing and quality strategy uses `ruralz test run` for the whole end-to-end suite."
+    },
+    {
+      "section": "Output formats and exit codes",
+      "suggestion": "Name the exit code for `ruralz bundle import krakend` when the fidelity report has `manual` items, and for `ruralz plugin build` compile failures."
+    },
+    {
+      "section": "CLI command tree",
+      "suggestion": "State the CLI deprecation rule from Release, versioning and compatibility: flags and added verbs are deprecated for 2 minor releases (target) before removal."
+    },
+    {
+      "section": "CLI command tree",
+      "suggestion": "`ruralz rollout status CLUSTER or ROLLOUT_ID`: say how the argument is disambiguated. For example, a ULID is a Rollout ID and anything else is a Cluster name."
+    },
+    {
+      "section": "CLI command tree",
+      "suggestion": "`ruralz dev run --env`: state that the CLI renders the Bundle and hands the rendered form to `ruralzd`, re-rendering on change. This keeps OQ-configuration-model-10's 'no overlay selector in `ruralzd`'."
+    },
+    {
+      "section": "API authentication",
+      "suggestion": "Say how the REST API signals step-up and how the CLI sends the TOTP code, for example a problem document code plus a header or re-authentication endpoint, or record it as an OQ."
+    },
+    {
+      "section": "Output formats and exit codes",
+      "suggestion": "Adding `digest` to `from`/`to` in `ruralz.diff.v1` changes a shape the Configuration model fixes. Record it as an OQ, or note that the Configuration model must adopt it."
+    },
+    {
+      "section": "Ruralz Control REST and gRPC APIs",
+      "suggestion": "Mention the Release document's rule that a future `/api/v2/` runs beside `/api/v1/` for 4 minor releases (target)."
+    },
+    {
+      "section": "Scope and non-goals",
+      "suggestion": "The links to ADR-0006, ADR-0007, ADR-0015 and ADR-0017 are broken (verifier WARN) until those ADRs exist. Acceptable for now; recheck at conformance."
+    }
+  ],
+  "ac_results": [
+    {
+      "ac": "CLI command tree contains a table listing every ruralz <noun> <verb> command in full form, including every command in foundation pack section 9 and every command mentioned in any other document.",
+      "pass": true,
+      "note": "All 36 pack 9 commands plus `ruralz rollout reject`, `ruralz version` and `ruralz completion` are in the Command table. A grep of every document under docs/ (excluding _meta) found no command missing from the table."
+    },
+    {
+      "ac": "Ruralz Gateway admin API includes at least /healthz, /readyz, /metrics, /debug/*, /config/dump and /tap on port 9901, matching docs/architecture/03-data-plane.md.",
+      "pass": true,
+      "note": "Paths, methods, Planned tags and semantics match Data plane Admin endpoints. The authentication column refines 'Token or mTLS' to match Security and identity."
+    },
+    {
+      "ac": "Ruralz Control REST and gRPC APIs exposes resources matching the kinds in docs/architecture/02-configuration-model.md plus Revision and Rollout, and names the gRPC service ruralz.control.v1.ControlStream on port 8091.",
+      "pass": true,
+      "note": "The ten kinds, Revision and Rollout map to REST paths, and the service is named on 8091. The per-kind paths are a proposal (OQ-cli-and-api-surface-3, blocking M2). The RPC table's 'Renewal' row contradicts the two-RPC service (L3-9)."
+    },
+    {
+      "ac": "ruralz bundle validate and ruralz bundle diff support JSON output.",
+      "pass": true,
+      "note": "`--output json` is listed for both, with a diagnostics array and `ruralz.diff.v1`."
+    },
+    {
+      "ac": "Output formats and exit codes contains an exit code table.",
+      "pass": true,
+      "note": "Codes 0, 1, 2 and 130 are present. The table has no outcome for `rollout status --wait` reaching `paused` (L3-1)."
+    },
+    {
+      "ac": "API authentication covers admin API, REST API and Control Stream authentication.",
+      "pass": true,
+      "note": "H3s cover Admin API, REST API and Control Stream, with a surface table. The token-only Enroll and Join are stated as fact while their pack 8.4 amendment is still proposed (L3-8)."
+    },
+    {
+      "ac": "H2 outline equals mandatory first two + outline_h2 + Open questions, in order",
+      "pass": true,
+      "note": "Summary, Scope and non-goals, CLI command tree, Ruralz Gateway admin API, Ruralz Control REST and gRPC APIs, API authentication, Output formats and exit codes, Open questions."
+    },
+    {
+      "ac": "Required diagram: mindmap of the ruralz CLI command tree with italic caption",
+      "pass": true,
+      "note": "Figures 1 and 2 are captioned mindmaps with 22 and 24 nodes (25 or fewer each); Figure 3 is an extra flowchart."
+    },
+    {
+      "ac": "Length band 1500 to 5000 words",
+      "pass": true,
+      "note": "The verifier reports no length_words FAIL; the prose-and-table body is about 4,850 words, near the maximum."
+    },
+    {
+      "ac": "Every performance or scale number tagged (target) or (hypothesis)",
+      "pass": true,
+      "note": "The document contains no performance or scale figures."
+    },
+    {
+      "ac": "Competitor claims cite URLs present in research files",
+      "pass": true,
+      "note": "https://www.krakend.io/features/ and the connect-go README URL both appear in docs/_meta/research/."
+    },
+    {
+      "ac": "verify-docs FAIL lines for this document",
+      "pass": true,
+      "note": "No FAIL lines; five link WARNs for ADR files that do not exist yet."
+    },
+    {
+      "ac": "Audience (operators, contributors, plugin-authors) can act without reading sources",
+      "pass": false,
+      "note": "Blocked by the unrunnable CI worked example (L3-2), the undefined local ruralzd startup and platform limits (L3-4, L3-5), unusable join and restore inputs (L3-6), no path to approve a held revert (L3-7) and unclear migration output (L3-10)."
+    }
+  ],
+  "foundation_amendments": [
+    "Pack 8.4: record the token-only `Enroll` on 8091 and the token `Join` on 8092 once OQ-security-and-identity-31 and OQ-control-plane-and-gitops-15 are decided, so the CLI reference can drop 'proposed'.",
+    "Pack section 12: register `ruralz.test.v1` beside `ruralz.canonical.v1` and `ruralz.diff.v1` (OQ-cli-and-api-surface-1).",
+    "Pack section 2: if OQ-cli-and-api-surface-2 chooses option (b), add `RURALZ_CONTROL_URL` and `RURALZ_TOKEN_FILE` as CLI process settings."
+  ]
+}

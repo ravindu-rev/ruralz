@@ -1,0 +1,120 @@
+{
+  "lens": "L2",
+  "verdict": "revise",
+  "score": 7,
+  "blocking": [
+    {
+      "id": "L2-1",
+      "section": "Ruralz Control REST and gRPC APIs / API authentication",
+      "issue": "The token-only `Enroll` on 8091 and the token `Join` on 8092 are written as settled facts. They contradict the binding foundation pack 8.4 as it stands: the 8091 row says 'mTLS, per-Node enrollment certificate' and the 8092 row says 'mTLS with Ruralz Control peer certificates; Node certificates rejected'. The amendments that would allow them are still open (OQ-security-and-identity-31, owner system-overview, 'Yes, Planned (M2)'; OQ-control-plane-and-gitops-15), and this document cites neither. Relays on 8092 are likewise part of the pending OQ-control-plane-and-gitops-15 amendment.",
+      "evidence": "line 374: \"| `Enroll` | Unary | ... | One-time token over TLS with a pinned server CA | Planned (M2) |\"; line 382: \"8092 is not a public API: it admits only Ruralz Control replicas, relays (Planned (M4)) and the token `Join` of `ruralz control join`\"; line 395: \"| Control Stream `Enroll` | 8091 | One-time token, pinned server CA |\"; line 397: \"| Peer layer | 8092 | Peer or relay certificate (mTLS); one-time `admin` token for `Join` |\"; pack 8.4: \"| 8092 | `ruralz-control` | Raft peer transport ... | mTLS with Ruralz Control peer certificates; Node certificates rejected |\"",
+      "fix": "Keep the design, but tag each of these statements as pending a pack amendment. On lines 374 and 395 add '(pack 8.4 amendment proposed: OQ-security-and-identity-31)'. On lines 382 and 397 add '(pack 8.4 amendment proposed: OQ-control-plane-and-gitops-15, OQ-security-and-identity-31)'. Name both IDs in the closing paragraph under Open questions as pending pack amendments this document relies on, so the text reads as a proposal rather than a pack fact."
+    },
+    {
+      "id": "L2-2",
+      "section": "Ruralz Control REST and gRPC APIs",
+      "issue": "The RPC table lists 'Renewal' as a third RPC of `ruralz.control.v1.ControlStream`, with its own 'Node to Ruralz Control and back' shape. Two other documents fix exactly two RPCs, `Enroll` and `Stream`. Release, versioning and compatibility (line 125) says \"service `ControlStream`, RPCs `Enroll` and `Stream`\", and Repository layout (line 252) says \"Service `ControlStream` with unary `Enroll` and bidirectional `Stream`\". The `Stream` row's Up list also omits `RenewRequest`, and its Down list omits `RenewResponse`, so the renewal messages belong to no RPC. The API reference is where an implementer reads the RPC set, so this contradiction is blocking.",
+      "evidence": "line 375: \"| `Stream` | Bidirectional stream | Down: `Snapshot`, `Delta`, `HeartbeatReply`, `TrustUpdate`, `Reconnect`. Up: `Hello`, `Ack`, `Nack`, `Heartbeat` |\"; line 376: \"| Renewal | Node to Ruralz Control and back | `RenewRequest`, `RenewResponse`, forwarded to the leader | Node certificate | Planned (M2) |\"; line 396: \"| Control Stream `Stream` and renewal | 8091 |\"",
+      "fix": "Delete the 'Renewal' row. Add `RenewRequest` to the `Stream` Up list and `RenewResponse` to its Down list, noting 'renewal is forwarded to the leader'. Rename the auth row on line 396 to 'Control Stream `Stream` (including renewal)'. If a separate unary `Renew` RPC is wanted, raise it as an Open question owned by control-plane-and-gitops, because release-versioning-and-compatibility and repository-layout-and-conventions would need to change too."
+    },
+    {
+      "id": "L2-3",
+      "section": "API authentication",
+      "issue": "The failure code given for `Enroll` does not match the `RZ-CP` registry owner. Control plane and GitOps says an `EnrollRequest` answers with \"`EnrollResponse`, `RZ-CP-001` or `RZ-CP-002`\", and RZ-CP-002 means \"`node.id` taken\". This document lists only RZ-CP-001 for `Enroll`.",
+      "evidence": "line 395: \"| Control Stream `Enroll` | 8091 | One-time token, pinned server CA | One Cluster; token consumed | `RZ-CP-001` | Planned (M2) |\"; Control plane and GitOps, Control Stream table: \"| `EnrollRequest` (RPC `Enroll`) | ... | `EnrollResponse`, `RZ-CP-001` or `RZ-CP-002`; token consumed |\"",
+      "fix": "Change the On failure cell to \"`RZ-CP-001` (token rejected), `RZ-CP-002` (`node.id` already enrolled); lockout after repeated failures per [Enrollment and mTLS](../architecture/04-control-plane-and-gitops.md#enrollment-and-mtls)\"."
+    },
+    {
+      "id": "L2-4",
+      "section": "Ruralz Control REST and gRPC APIs / API authentication",
+      "issue": "The document relies on `RZ-CP` codes that do not exist in the registry owned by Control plane and GitOps (RZ-CP-001 to RZ-CP-018). It says a malformed or unknown non-Bundle request field gets \"an `RZ-CP` code\", but no code covers an invalid request. It also maps every REST API authentication failure to `RZ-CP-007`, which the registry defines as \"RBAC or separation-of-duties denial\" (an authorization decision), not a missing, expired or invalid session or token.",
+      "evidence": "line 365: \"unknown request fields are rejected (RZ-CFG-006 for Bundle fields, else an `RZ-CP` code)\"; line 393: \"| REST API | 8090 | Session cookie (Ruralz Console) or API token ... | ... | `RZ-CP-007`, audited | Planned (M2) |\"; Control plane and GitOps API summary: \"| RZ-CP-007 | RBAC or separation-of-duties denial |\" (no invalid-request or unauthenticated code in RZ-CP-001..018)",
+      "fix": "Add an Open question owned by control-plane-and-gitops: \"Register `RZ-CP` codes for an invalid REST request (unknown or malformed field) and for a failed authentication (missing, expired or revoked session or API token)?\", with options (a) two new codes (proposed) or (b) plain 400/401 problem documents without `code`. On line 365, cite it in place of \"an `RZ-CP` code\". On line 393, write \"401 (code: OQ-cli-and-api-surface-8) for failed authentication; `RZ-CP-007` for RBAC or separation-of-duties denials\"."
+    },
+    {
+      "id": "L2-5",
+      "section": "CLI command tree",
+      "issue": "The document says global flags \"mean the same in every command\" and defines `--token-file PATH` as the \"API token for the REST API\". `ruralz control join` then reuses `--token-file` for a different credential: the one-time `admin` join token redeemed over the 8092 peer layer. That makes one flag name mean two different things, which contradicts the document's own rule, and a script that sets `--token-file` for REST calls would send its API token to `Join`.",
+      "evidence": "line 146: \"Flags mean the same in every command.\"; line 155: \"| `--token-file PATH` | API token for the REST API | Same |\"; line 138: \"| `ruralz control join` | Join a replica to the Raft cluster by redeeming a one-time `admin` token | `--peer HOST:8092`, `--token-file PATH` | Peer layer 8092 `Join` |\"",
+      "fix": "Rename the `ruralz control join` flag to `--join-token-file PATH` (\"one-time join token issued by `/api/v1/replicas`\"). Keep `--token-file` for REST API tokens only."
+    },
+    {
+      "id": "L2-6",
+      "section": "CLI command tree",
+      "issue": "`ruralz dev run` accepts `--env` and `--environments` and 'launches a local `ruralzd` on a Bundle directory with Hot Reload'. The Configuration model says file-mode `ruralzd` applies no overlay, and OQ-configuration-model-10, which this document says it decides, requires 'no overlay selector in `ruralzd`'. The document never says how the overlay and `spec.variables` reach `ruralzd`. As written, the reader has to assume that `ruralzd` selects an overlay, which contradicts the Configuration model. (`ruralz test run --bundle` does say the Bundle is 'rendered for `--env`'; `ruralz dev run` does not.)",
+      "evidence": "line 130: \"| `ruralz dev run` | Launch a local `ruralzd` on a Bundle directory with Hot Reload | `[DIR]`, `--env`, `--environments` | Local `ruralzd` | Planned (M1) |\"; line 460: \"OQ-configuration-model-10 (every listed flag, no overlay selector in `ruralzd`)\"; Configuration model, Overlays: \"File-mode `ruralzd` applies no overlay; it loads a rendered Bundle or a Revision from an OCI registry (OQ-configuration-model-10).\"",
+      "fix": "Add one sentence under 'Plugin, AI and development verbs': \"With `--env`, `ruralz dev run` renders the Bundle (`ruralz bundle render` semantics) into a private directory, atomically replacing it on every source change, and `ruralzd` watches that rendered one-file Bundle; without `--env`, `ruralzd` watches DIR directly and the process environment supplies `${VAR}`.\" This keeps `ruralzd` free of an overlay selector."
+    }
+  ],
+  "non_blocking": [
+    {
+      "section": "CLI command tree (Global flags)",
+      "suggestion": "Line 152 reads \"Render with that Environment's `overlay` and `spec.variables`\". Use the Configuration model field paths consistently: \"`spec.overlay` and `spec.variables`\"."
+    },
+    {
+      "section": "CLI command tree (Global flags)",
+      "suggestion": "`--output FORMAT` says `text` is the default for every command that prints data. But `ruralz bundle render` defaults to a YAML stream and `ruralz bundle export openapi` to YAML (Output formats table). State that the default is per command, as the Output formats table gives it."
+    },
+    {
+      "section": "API authentication",
+      "suggestion": "Several Planned cells in the authentication table read \"Same\" instead of a tag (lines 391 and 392). Write the tag out, for example \"Planned (M1); 9902 Planned (M2)\", so that every availability cell carries a Planned (Mx) tag as style guide section 4 requires."
+    },
+    {
+      "section": "Scope and non-goals",
+      "suggestion": "Tech stack and libraries names the \"CLI reference owner\" as owner of OQ-tech-stack-and-libraries-18, but this document lists the CLI framework as a non-goal. Say instead that this document owns the requirements it states under Open questions (nested nouns, generated completions, no global state), and that the choice waits for a researched catalog row (pack 7, Pending selections)."
+    },
+    {
+      "section": "Output formats and exit codes (Diff JSON compatibility)",
+      "suggestion": "Adding `digest` to `from` and `to` in `ruralz.diff.v1` changes the golden corpus and the Configuration model's JSON example, which today shows only `revision`. Add a line or an Open question asking configuration-model to update its example, and testing-and-quality-strategy to update the golden `ruralz.diff.v1` documents."
+    },
+    {
+      "section": "API authentication (REST API)",
+      "suggestion": "Line 405 lists the separation-of-duties cases as \"authored, pushed, started or requested\". Control plane and GitOps lists \"authored, committed, wrote back, pushed, started or requested\". Copy the full list so the two documents do not diverge."
+    },
+    {
+      "section": "CLI command tree (KrakenD EE tool mapping)",
+      "suggestion": "The OpenAPI server row says \"Not planned as a command: it is a Ruralz Gateway feature\", which implies that a Gateway feature exists or is planned. Pack 9 and OQ-vision-and-positioning-11 keep serving open, and this document owns that question. Reword to \"Not planned as a command; serving from Ruralz Gateway is open (OQ-vision-and-positioning-11)\"."
+    },
+    {
+      "section": "Open questions",
+      "suggestion": "OQ-cli-and-api-surface-7 (CLI registry credentials) sits next to OQ-wasm-plugin-system-6 (Node registry authentication). Cross-reference it so that one credential file format is chosen for both. Also consider stating how read commands resolve a `rev-<12 hex>` prefix through the REST API, since paths take only full digests (see L1-1)."
+    }
+  ],
+  "ac_results": [
+    {
+      "ac": "CLI command tree contains a table listing every ruralz <noun> <verb> command in full form, including every command in foundation pack section 9 and every command mentioned in any other document.",
+      "pass": true,
+      "note": "The Command table lists all 38 pack 9 commands plus `ruralz rollout reject`, `ruralz version` and `ruralz completion`. A grep of every document under docs/ (excluding _meta) found no command missing, and every flag other documents use (`--env`, `--environments`, `--effective`, `--route`, `--api-version`, `--output json`, `--offline`, `--online`) is present."
+    },
+    {
+      "ac": "Ruralz Gateway admin API includes at least /healthz, /readyz, /metrics, /debug/*, /config/dump and /tap on port 9901, matching docs/architecture/03-data-plane.md.",
+      "pass": true,
+      "note": "Paths, methods, return semantics and Planned tags match the Data plane Admin endpoints table row for row. The authentication wording follows Security and identity Admin ports."
+    },
+    {
+      "ac": "Ruralz Control REST and gRPC APIs exposes resources matching the kinds in docs/architecture/02-configuration-model.md plus Revision and Rollout, and names the gRPC service ruralz.control.v1.ControlStream on port 8091.",
+      "pass": true,
+      "note": "A mapping table covers all ten kinds plus Revision and Rollout, and the service on 8091 is named. The Bundle kind paths are proposed and depend on OQ-cli-and-api-surface-3. The RPC set needs the L2-2 fix."
+    },
+    {
+      "ac": "ruralz bundle validate and ruralz bundle diff support JSON output.",
+      "pass": true,
+      "note": "The Command table, the Output formats table and the Exit codes text all state `--output json` for both commands (a diagnostics array and `ruralz.diff.v1`)."
+    },
+    {
+      "ac": "Output formats and exit codes contains an exit code table.",
+      "pass": true,
+      "note": "The Exit codes table covers 0, 1, 2 and 130 and keeps the Configuration model diff rule (0, 1, 2)."
+    },
+    {
+      "ac": "API authentication covers admin API, REST API and Control Stream authentication.",
+      "pass": true,
+      "note": "The table plus the H3s 'Admin API', 'REST API' and 'Control Stream' cover all three. The failure codes need the L2-3 and L2-4 fixes, and the pack 8.4 amendment status needs L2-1."
+    }
+  ],
+  "foundation_amendments": [
+    "Pack 8.4 and section 2 (Control Stream row): adopt OQ-security-and-identity-31 / OQ-control-plane-and-gitops-15 wording so 8091 allows token-only `Enroll` over server-authenticated TLS with a pinned server CA, and 8092 admits relay certificates and a token `Join`; until then this document must cite them as pending (L2-1).",
+    "Pack 12 (versioned formats): register `ruralz.test.v1` beside `ruralz.canonical.v1` and `ruralz.diff.v1` (OQ-cli-and-api-surface-1).",
+    "Pack 9: record `ruralz rollout reject` (added verb, closing OQ-control-plane-and-gitops-17) in the registry at the next freeze, so the registry and this reference list the same verbs."
+  ]
+}

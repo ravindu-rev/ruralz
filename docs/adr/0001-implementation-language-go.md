@@ -48,7 +48,7 @@ Chosen option: "Go 1.26 or newer with `CGO_ENABLED=0` static binaries", plus a `
 | Production platforms | linux/amd64 and linux/arm64 for all three binaries; the CLI also targets darwin and windows/amd64 | Planned (M0) |
 | FIPS variant | Same source; HTTP/3 off (OQ-tech-stack-and-libraries-9) and hybrid post-quantum key exchange off ([FIPS build](../engineering/01-tech-stack-and-libraries.md#fips-build)); `GOFIPS140=v1.0.0` (CMVP #5247) until v1.26.0 leaves "Pending Review", `GODEBUG=fips140=on`, separate artifacts ([source](https://go.dev/doc/security/fips140)) | Planned (M5) |
 
-A FIPS build constraint keeps the quic-go listener package out of the FIPS `ruralzd`, which the quic-go G3 exception does not cover ([source](https://github.com/quic-go/quic-go/blob/master/FIPS140.md)). How a FIPS Node treats a Revision with `http3: true` is open: ignoring the field would break equal behavior for equal digests (foundation pack section 8.1), a render-time error would need a field that marks FIPS targets, which the Configuration model lacks, and a NACK fails the Rollout for a mixed Cluster (section 8.3). The owning document MUST add this case to OQ-tech-stack-and-libraries-9.
+A FIPS build constraint keeps the quic-go listener package out of the FIPS `ruralzd`, which the quic-go G3 exception does not cover ([source](https://github.com/quic-go/quic-go/blob/master/FIPS140.md)). How a FIPS Node treats a Revision with `http3: true` is open: ignoring the field would break equal behavior for equal digests (foundation pack section 8.1), a render-time error would need a field that marks FIPS targets, which the Configuration model lacks, and a deterministic NACK rolls back or pauses the Rollout in a Cluster that mixes FIPS and default Nodes (section 8.3). The owning document MUST add this case to OQ-tech-stack-and-libraries-9.
 
 *Figure 1: one source tree feeds the release build, the FIPS build and the CI-only floor job.*
 
@@ -77,7 +77,7 @@ flowchart LR
 - Good, because `net/http` serves HTTP/1.1, HTTP/2 and h2c ([ADR-0009](0009-http-stack-net-http-quic-go.md)), and the Go Cryptographic Module gives the FIPS build without a second TLS stack.
 - Bad, because GC pauses may hurt tail latency more than in C++ Envoy (hypothesis); `GOMEMLIMIT` and `GOGC` are the levers, and P10 requires published Planned (M4) benchmarks.
 - Bad, because wazero lacks fuel metering and wasmtime-go needs CGO: deadlines interrupt guest code only through `WithCloseOnContextDone`, reported 10 to 20x slower on loop-heavy guests ([source](https://github.com/wazero/wazero/issues/2466)), so the P6 `timeout` costs runtime or needs host-side budgets (OQ-tech-stack-and-libraries-8).
-- Bad, because a `CGO_ENABLED=0` binary still needs CA roots, shipped in the image ([Release, versioning and compatibility](../engineering/04-release-versioning-and-compatibility.md)); embedding them needs a research-backed catalog row and a G3 decision first.
+- Bad, because a `CGO_ENABLED=0` binary in an image without a libc base still needs CA roots, and an archive install reads the host CA store; whether the image ships them or the binary embeds them (which needs a research-backed catalog row and a G3 decision) is an Open question that the owning document MUST add.
 - Bad, because always-linked libraries grow `ruralzd` toward a 160 MiB stripped binary budget (target).
 
 ### Confirmation
@@ -124,4 +124,4 @@ flowchart LR
 
 - Owning document: [Tech stack and libraries](../engineering/01-tech-stack-and-libraries.md#selection-criteria), [foundation pack section 7](../_meta/foundation-pack.md#7-technology-decisions-fixed-details-in-docsengineering01-tech-stack-and-librariesmd-and-adrs) and the accepted costs in [System overview](../architecture/01-system-overview.md#design-principles).
 - Related decisions: [ADR-0002](0002-apache-2-license-no-feature-gating.md) (license gate G2) and [ADR-0017](0017-artifact-signing.md) (artifact verification).
-- Proposed owning-document amendments: extend OQ-tech-stack-and-libraries-9 to FIPS handling of `http3: true`; add an Open question on shipping or embedding CA roots.
+- Proposed owning-document amendments: extend OQ-tech-stack-and-libraries-9 to FIPS handling of `http3: true`; add an Open question on shipping or embedding CA roots. Proposed amendment to [Release, versioning and compatibility](../engineering/04-release-versioning-and-compatibility.md#release-artifacts): once that question is resolved, state CA roots for container images and binary archives.

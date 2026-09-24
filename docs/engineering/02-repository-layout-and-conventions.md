@@ -2,7 +2,7 @@
 title: Repository Layout and Conventions
 status: draft
 owner: ruralz-core
-last_updated: 2026-09-23
+last_updated: 2026-09-25
 depends_on:
   - docs/_meta/foundation-pack.md
   - docs/_meta/style-guide.md
@@ -436,7 +436,7 @@ Signed-off-by: Jane Doe <jane@example.com>
 | Rule | Detail |
 |---|---|
 | Merge method | Squash merge only; the title becomes the commit subject, and the repository's squash message setting MUST include commit details, so every `Signed-off-by:` survives |
-| Reviews | One CODEOWNERS approval; two, counted by stage 1 (rerun on each review), for `api/`, `pkg/`, `docs/_meta/`, security-sensitive packages and `go.mod` |
+| Reviews | One CODEOWNERS approval; two, counted by a stage 1 job that reruns on each review and gates only merge, for `api/`, `pkg/`, `docs/_meta/`, security-sensitive packages and `go.mod` |
 | Same-PR duties | Tests, regenerated files, documentation, and a catalog row for any new dependency |
 | Binding decisions | Changing a foundation pack decision needs an ADR or an Open questions entry (foundation pack section 14) |
 | Size | SHOULD stay under 400 changed lines, excluding generated files (target) |
@@ -448,11 +448,11 @@ The numbered stages are jobs inside the pipelines that [Testing and quality stra
 
 | Stage | Pipeline | What runs | Make target | Trigger | Blocks merge | Milestone |
 |---|---|---|---|---|---|---|
-| 1. Commit hygiene | `pr-fast` | DCO sign-off on the pull request's own commits, also on merge queue runs; Conventional Commits title; approval count; repocheck with the no-license-check scan | `make hygiene` | Every pull request | Yes | Planned (M0) |
+| 1. Commit hygiene | `pr-fast` | DCO sign-off on the pull request's own commits, also on merge queue runs; Conventional Commits title; repocheck with the no-license-check scan; a separate approval count job that gates only merge, never other stages | `make hygiene` | Every pull request | Yes | Planned (M0) |
 | 2. Format and lint | `pr-fast` | `gofumpt`, `goimports`, golangci-lint, `buf format`, `buf lint` | `make lint` | Go or proto changes | Yes | Planned (M0) |
 | 3. Generated code drift | `pr-fast` | `go generate ./...` and `buf generate`, then `git diff --exit-code`; `buf breaking`; builds and license-gates each `sdk/` module's lockfile (G2) | `make generate` | Changes under `pkg/`, `api/`, `internal/gen/`, `internal/tool/`, `sdk/` or `deploy/crds/`, or to `buf.yaml`, `buf.gen.yaml` or `go.mod` | Yes | Planned (M0) schema; Planned (M2) protos and PDKs |
 | 4. Build | `pr-fast` | Three binaries for linux/amd64 and linux/arm64 with `CGO_ENABLED=0`, `-trimpath` and `-ldflags -X` metadata (G1); CLI for darwin/arm64, darwin/amd64 and windows/amd64; floor job; FIPS job with `GOFIPS140` | `make build` | Go changes | Yes | Planned (M0); FIPS job Planned (M5) |
-| 5. Unit tests | `pr-fast` | `go test -race -shuffle=on ./...` in the release and floor jobs, with identical JSON golden files; CLI unit and golden tests also on darwin/arm64, darwin/amd64 and windows/amd64, with identical digests | `make test` | Go changes or `examples/` | Yes | Planned (M0) |
+| 5. Unit tests | `pr-fast` | `go test -race -shuffle=on ./...` with cgo and `netgo,osusergo`, plus the same tests under `CGO_ENABLED=0` without `-race`, in the release and floor jobs, with identical JSON golden files; CLI unit and golden tests also on darwin/arm64, darwin/amd64 and windows/amd64, with identical digests | `make test` | Go changes or `examples/` | Yes | Planned (M0) |
 | 6. Supply chain | `pr-fast` | `go mod verify`, govulncheck, license gate (G2) over `go list -deps -test=false` per binary, crypto denylist (G3), `ruralzd` Raft denylist | `make supply-chain` | Every pull request; nightly rescan | Yes | Planned (M0) |
 | 7. Docs verification | `pr-fast` | `node scripts/verify-docs.mjs` | `make docs` | Changes under `docs/` or `scripts/`, or to `README.md` or `.markdownlint-cli2.yaml` | Yes | Planned (M0) |
 | 8. Ruralz Console | `pr-fast` | Type check, lint, unit tests, lockfile license gate (G2, ADR-0002), production build into `internal/console/dist`, then a `ruralz-control` build | `make console` | Changes under `console/` or `internal/console/` | Yes | Planned (M2) |
@@ -462,9 +462,9 @@ The numbered stages are jobs inside the pipelines that [Testing and quality stra
 | 12. Nightly | `nightly` | Fuzz, chaos, scale and latency jobs; lychee v0.24.x; supply chain rescan | `make nightly` | Schedule | No; opens an issue and blocks the next release | Planned (M1); chaos and scale Planned (M2) |
 | 13. Release | `release` | Release gates, the ADR-0002 release audit and air-gapped start, then build, sign and publish ([Release](04-release-versioning-and-compatibility.md)) | `make release` | Release candidate tag | Not applicable | Planned (M1) |
 
-Stage 5 passes no `-tags`, so it never compiles the Docker-dependent suites. The race detector MAY enable cgo for test binaries, built with the `netgo,osusergo` tags; shipped binaries come only from stage 13, which uses stage 4's `CGO_ENABLED=0` and `-trimpath` flags. Before opening a pull request, run `make hygiene lint generate build test supply-chain docs`, plus `make integration` when Docker is available.
+Stage 5 never passes `integration` or `e2e`, so it never compiles the Docker-dependent suites. Race jobs enable cgo for test binaries only; the `CGO_ENABLED=0` job tests the shipped configuration. Shipped binaries come only from stage 13, which uses stage 4's `CGO_ENABLED=0` and `-trimpath` flags. Before opening a pull request, run `make hygiene lint generate build test supply-chain docs`, plus `make integration` when Docker is available.
 
-*Figure 3: CI stages by pipeline; stages 2 to 10 run in parallel after stage 1.*
+*Figure 3: CI stages by pipeline; stages 1 to 10 start in parallel, and stages 2 to 10 never wait for stage 1's approval count.*
 
 ```mermaid
 flowchart LR
@@ -484,15 +484,16 @@ flowchart LR
   s12["12 Nightly: fuzz, chaos, scale, latency, lychee"]
   s13["13 Release on candidate tag"]
   pr --> s1
-  s1 --> s2
-  s1 --> s3
-  s1 --> s4
-  s1 --> s5
-  s1 --> s6
-  s1 --> s7
-  s1 --> s8
-  s1 --> s9
-  s1 --> s10
+  pr --> s2
+  pr --> s3
+  pr --> s4
+  pr --> s5
+  pr --> s6
+  pr --> s7
+  pr --> s8
+  pr --> s9
+  pr --> s10
+  s1 --> mq
   s2 --> mq
   s3 --> mq
   s4 --> mq

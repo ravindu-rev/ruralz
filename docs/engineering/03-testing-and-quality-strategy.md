@@ -2,7 +2,7 @@
 title: Testing and Quality Strategy
 status: draft
 owner: ruralz-core
-last_updated: 2026-09-23
+last_updated: 2026-09-25
 depends_on:
   - docs/_meta/foundation-pack.md
   - docs/_meta/style-guide.md
@@ -92,7 +92,7 @@ Each property is a `testing.F` target until a property library is chosen (OQ-tes
 | Precedence | One Policy per slot per scope; `overridable: false` Policies are never removed; order follows Filter class, scope and list position; response Phases reverse, `onLog` keeps request order | Pack section 8.12 |
 | Diff | `diff(A, A)` is empty, exit 0; `diff(A, B)` is empty exactly when Revisions are equal; added and removed identities are set differences, mirrored in `diff(B, A)`; field ops turn A's canonical form into B's (`SecretValue` by reference); reordering `map` or `set` lists yields no op | [Diff semantics](../architecture/02-configuration-model.md#diff-semantics) |
 | Rate Limit | With a deterministic clock, admission per key stays within the limit with a healthy State Store, and within N × per-Node ceiling (target) while failing open | Pack section 8.8, [ADR-0008](../adr/0008-rate-limiting-local-bucket-and-gcra.md) |
-| Token Budget | R is reserved only if the remaining budget covers it; per attempt, settlement charges reported usage once (all of R if missing) and releases only R's unused part; overshoot stays within the sum of concurrent input-estimate errors (hypothesis; SM-10), plus hidden reasoning above C on `gemini` and `ollama` (OQ-ai-llm-gateway-17) | Pack section 8.9, [AI/LLM gateway](../architecture/06-ai-llm-gateway.md) |
+| Token Budget | R is reserved only if the remaining budget covers it; settlement charges each attempt's reported usage once, plus all of R once per request when any attempt that reached the provider reported no usage, and releases the rest of R; overshoot stays within the sum of concurrent input-estimate errors (hypothesis; SM-10), plus (attempts - 1) x R per concurrent request (hypothesis), plus hidden reasoning above C on `gemini` and `ollama` (OQ-ai-llm-gateway-17). If OQ-ai-llm-gateway-15 closes, the property follows it | Pack section 8.9, [AI/LLM gateway](../architecture/06-ai-llm-gateway.md) |
 | Rollout | Under random ACK, NACK, timeout and reconnect events, every transition is in the state table | Pack section 8.3 |
 | Last-Known-Good, Control mode | A candidate is promoted exactly when the active digest equals the promoted digest, also after reconnect, Enrollment or scale-out; never after a failed canary | Pack section 8.2 |
 | Last-Known-Good, file mode | Promotion on activation; a Revision that failed validation is never activated or promoted | Pack section 8.2 |
@@ -139,7 +139,7 @@ Integration tests run in `pr-full` on testcontainers-go, a test-only [catalog](0
 
 Authentication tests replace Mosquitto's anonymous default ([source](https://golang.testcontainers.org/modules/mosquitto/)). Required State Store scenarios:
 
-- `EVALSHA`, the cached form of pack section 8.8's single GCRA `EVAL`, meets `NOSCRIPT` after a script cache flush and resends `EVAL` within the same deadline.
+- After a script cache flush, `EVALSHA` (the cached form of pack section 8.8's single GCRA `EVAL`) meets `NOSCRIPT`. That request applies the Policy's `failureMode` without a second round trip (pack section 8.7 rule 1). The Node reloads the script off the request path, and the next request's `EVALSHA` succeeds ([Traffic management and resilience](../architecture/09-traffic-management-and-resilience.md)).
 - A full post-commit queue drops writes with a counter, never delaying the response.
 - A slow vector search never delays a rate-limit reply.
 - Without vector support, `ai.semantic-cache` behaves as a State Store failure under its `failureMode`; the Node reports a degraded state.
@@ -177,7 +177,7 @@ Conformance suites test published contracts; each is versioned with its contract
 | Plugin ABI | `ruralz.plugin.v1`: Host Functions, memory conventions, Capabilities, limits, every Phase | Reference Plugins per Phase; denied Capabilities; trap, deadline and memory cases with `RZ-PLG` codes | The `ruralzd` and `ruralz plugin test` hosts, every Ruralz PDK, the proxy-wasm adapter | `pr-full` | Planned (M2); adapter Planned (M4) |
 | Protocol | Per-protocol Phase mappings (P7) and wire behavior | HTTP/1.1, HTTP/2; gRPC, gRPC-Web and Connect with trailers, deadlines and all stream types; WebSocket; SSE; GraphQL federation; AI dialects; event protocols | Ruralz Gateway through its listeners | `pr-full` | Planned (M1) HTTP; Planned (M3) streaming, gRPC, GraphQL, AI and HTTP/3; Planned (M4) events |
 
-The five target-dependent codes of [Validation and diff semantics](../architecture/02-configuration-model.md#validation-and-diff-semantics) may carry no source position; integration and end-to-end cases assert code and resource identity wherever raised: RZ-CFG-024 at Rollout, NACK or file-mode load; RZ-CFG-026 at NACK or load; RZ-CFG-027 at `ruralz bundle push` or pull; RZ-CFG-028 and RZ-CFG-033 in `ruralz bundle build`, `validate --online` and Node activation, RZ-CFG-028 also at Ruralz Control ingest.
+The codes of the five checks that can fail after a green offline run ([Validation and diff semantics](../architecture/02-configuration-model.md#validation-and-diff-semantics)) may carry no source position; integration and end-to-end cases assert code and resource identity wherever raised: RZ-CFG-024 at Rollout, NACK or file-mode load; RZ-CFG-026 at NACK or load; RZ-CFG-027 at `ruralz bundle push`, OCI pull, Control Stream delivery and Last-Known-Good boot; RZ-CFG-028 and RZ-CFG-033 in `ruralz bundle build`, `validate --online`, Ruralz Control ingest and Node activation, RZ-CFG-033 also for Revision signatures at Node activation (pack sections 8.1 and 8.14).
 
 The configuration suite also re-runs the JSON-Schema-Test-Suite and the YAML Test Suite, because the selected libraries self-report test-suite results ([source](https://github.com/santhosh-tekuri/jsonschema/blob/boon/README.md)) ([source](https://github.com/goccy/go-yaml/blob/master/README.md)); an upgrade that loses a passing case fails.
 
@@ -228,7 +228,7 @@ Faults come from container stop, pause and kill, kind pod deletion and a TCP fau
 
 | Gate | Measures | Stage | Fails when | Milestone |
 |---|---|---|---|---|
-| Microbenchmarks | Router match, Filter Chain executor, CEL, canonicalization, validation, Plugin Phase call; `testing.AllocsPerRun` around Router and Filter Chain executor, with a pre-parsed HTTP/1.1 request and discard `ResponseWriter` | `pr-full` | alloc/op above its threshold | Planned (M1); Plugin Phase call Planned (M2) (SM-6) |
+| Microbenchmarks | Router match, Filter Chain executor, CEL, canonicalization, validation, Plugin Phase call per Phase, pooled instance, deadline interruption enabled (SM-6); `testing.AllocsPerRun` around Router and Filter Chain executor, with a pre-parsed HTTP/1.1 request and discard `ResponseWriter` | `pr-full` | alloc/op above its threshold | Planned (M1); Plugin Phase call Planned (M2) (SM-6) |
 | Macro latency | SM-4 and SM-5 reference scenario, open-loop; a same-zone GCRA round trip | `nightly` latency job, `release` | p99 above its threshold, or a seed budget exceeded | Planned (M1) |
 | SM-9 | 20 or more `all-at-once` Rollouts per run (target), Plugins cached, from Revision recorded to last ACK; 100 Nodes (target), three Ruralz Control replicas (OQ-testing-and-quality-strategy-10) | `nightly` scale job, `release` | Above 30 s at p95 (target) | Planned (M2) |
 | SM-10 | AI provider mock: B = 1,000,000 tokens, 200 concurrent streams, 2,000-token prompts, `max_tokens` = 4,096; usage 2% above the estimate on every stream, dropped on 5% of streams (hypothesis) | `nightly` scale job, `release` | Overshoot above the sum of per-stream estimate error, or above 1% of B (hypothesis) | Planned (M3) |
@@ -236,7 +236,7 @@ Faults come from container stop, pause and kill, kind pod deletion and a TCP fau
 
 The alloc gate runs with `GOGC=off` and fixed `GOMAXPROCS`, so GC cycles cannot empty `sync.Pool` mid-run; at 30 allocations (hypothesis), one extra allocation exceeds 3% (target). Macro runs use open-loop load, because closed-loop generators slow down with the system and hide latency ([source](https://grafana.com/docs/k6/latest/using-k6/scenarios/concepts/open-vs-closed/)) ([source](https://github.com/giltene/wrk2)).
 
-Seeds from the [System overview](../architecture/01-system-overview.md#worked-example-a-rate-limited-route-in-a-brownout): gateway-added p50 of 150 µs or less, p99 of 1 ms or less, from M2 a Plugin Phase call of 50 µs or less at p99 (target); a GCRA round trip of 1 ms or less at p99 and 30 or fewer Ruralz-owned allocations per pass-through HTTP/1.1 request, excluding `net/http` internals (hypothesis). From the [Configuration model](../architecture/02-configuration-model.md#limits): typical match and key expressions under 2 µs at p99 (target). Results publish with commit, hardware and raw histograms (P10); tooling is OQ-testing-and-quality-strategy-2.
+Seeds from the [System overview](../architecture/01-system-overview.md#worked-example-a-rate-limited-route-in-a-brownout): gateway-added p50 of 150 µs or less, p99 of 1 ms or less, from M2 a WASM Plugin Phase call on a pooled instance, deadline interruption enabled, of 50 µs or less at p99 (target); a GCRA round trip of 1 ms or less at p99 and 30 or fewer Ruralz-owned allocations per pass-through HTTP/1.1 request, excluding `net/http` internals (hypothesis). From the [Configuration model](../architecture/02-configuration-model.md#limits): typical match and key expressions under 2 µs at p99 (target). Results publish with commit, hardware and raw histograms (P10); tooling is OQ-testing-and-quality-strategy-2.
 
 ## Security scanning
 

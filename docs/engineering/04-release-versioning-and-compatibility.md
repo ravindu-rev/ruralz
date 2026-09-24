@@ -161,9 +161,9 @@ State Store changes add no blocking round trips (pack 8.7 rule 1, P3). A Cluster
 |---|---|---|
 | GCRA, Quota and Token Budget counters | Keep the old key's hash tag; while N-1 Nodes can serve, the N script reads and writes both keys in one `EVAL`, then, once the minimum Node version is N (OQ-release-versioning-and-compatibility-9), migrates lazily (read old, write new, delete old) | None (hypothesis) |
 | Quota counters, alternatively | The minimum-Node-version signal carries an absolute switch boundary, a window start published at least one full window ahead; every Node holding the signal switches at that boundary | Up to 2x for one window per Node that has not received the signal by the boundary, for example while detached (P9) (hypothesis); Scalability and distributed state owns the bound |
+| Response Cache, Semantic Cache | N Nodes keep the N-1 layout until the minimum Node version is N | None; misses only (hypothesis) |
 
 Token Budget counters take only the first path: a split key would let a Node admit a reservation that the remaining budget does not cover, which pack 8.9 and P8 forbid.
-| Response Cache, Semantic Cache | N Nodes keep the N-1 layout until the minimum Node version is N | None; misses only (hypothesis) |
 
 A Node rolled back to N-1 after lazy migration began sees an empty old key, so its limit may admit up to 2x for that window (hypothesis).
 
@@ -200,13 +200,19 @@ flowchart TD
     e{"Replica ready and Raft caught up?"}
     f["Roll that replica back to N-1"]
     s["Stop and investigate; Control Store version stays N-1"]
+    w["Wait: an N replica would be refused and stop"]
     g{"Every replica, voters and non-voters, reports N?"}
+    r["Upgrade each regional relay to N, one at a time; its Nodes stay on N-1"]
+    t{"Every replica, voters and non-voters, and every relay reports N?"}
     h["Soak, then finalize: later rollback is a restore and every Node serves detached"]
     m["Migrations apply as log entries; replicas snapshot and truncate"]
+    q["Apply ruralz-crds.yaml if it adds a served version"]
     i["Pin the CI ruralz CLI to N; resume pushes"]
     j["Zero-Downtime Upgrade of Nodes, one Cluster at a time"]
     k["Oldest Node schema level rises; the first N-only field ends binary rollback"]
     p -- "yes" --> a
+    p -- "no" --> w
+    w --> p
     a --> b
     b -- "no" --> c
     c --> b
@@ -216,9 +222,13 @@ flowchart TD
     f --> s
     e -- "yes" --> g
     g -- "no" --> d
-    g -- "yes" --> h
+    g -- "yes" --> r
+    r --> t
+    t -- "no" --> r
+    t -- "yes" --> h
     h --> m
-    m --> i
+    m --> q
+    q --> i
     i --> j
     j --> k
 ```
@@ -311,7 +321,7 @@ One tagged workflow builds, signs and publishes every artifact from `CGO_ENABLED
 | Checksums | `SHA256SUMS` for every archive | All | Planned (M1) |
 | Container images | `ghcr.io/ravindu-rev/ruralzd`, `ghcr.io/ravindu-rev/ruralz-control`; tags `X.Y.Z`, never re-pushed (policy), and `X.Y`, no `latest`; deployments SHOULD pin by digest | linux/amd64, linux/arm64 | Planned (M1); `ruralz-control` Planned (M2) |
 | FIPS build | `-fips` images and archives with the same feature set except HTTP/3, off per OQ-tech-stack-and-libraries-9 (pack 8.4) | linux/amd64, linux/arm64 | Planned (M5) |
-| Helm chart | `oci://ghcr.io/ravindu-rev/charts/ruralz` at the product version; `ruralz-crds.yaml`, applied before the chart on every upgrade | Kubernetes | Planned (M2) |
+| Helm chart | `oci://ghcr.io/ravindu-rev/charts/ruralz` at the product version; `ruralz-crds.yaml`, applied in the order below | Kubernetes | Planned (M2) |
 | SBOM | CycloneDX per archive and image, as an attestation | All | Planned (M1) |
 | Signatures | Sigstore bundles for images, chart and `SHA256SUMS` | All | Planned (M1) |
 | Provenance | SLSA Build Level 3 attestation per archive and image | All | Planned (M1) |
@@ -323,6 +333,7 @@ One tagged workflow builds, signs and publishes every artifact from `CGO_ENABLED
 - SLSA Build L3 needs a hardened, isolating platform protecting signing material ([source](https://slsa.dev/spec/v1.1/levels)); v1.2 is backward compatible ([source](https://slsa.dev/blog/2025/11/announce-slsa-v1.2)) ([source](https://slsa.dev/spec/v1.2/whats-new)). GitHub artifact attestations reach L3 with reusable workflows ([source](https://docs.github.com/en/actions/concepts/security/artifact-attestations)).
 - SM-12 targets an OpenSSF Scorecard of 8.0 or higher, including Signed-Releases, from Planned (M2) (hypothesis) ([source](https://github.com/ossf/scorecard)).
 - Release signing is separate from Revision and Plugin signing (pack 8.14).
+- `ruralz-crds.yaml` that changes only the schemas of already served versions applies before the chart. One that adds a served version, such as `ruralz.io/v1beta1` when `ruralz/v1beta1` ships, Planned (M3), applies only once every Ruralz Control replica runs N, because an N-1 conversion webhook cannot convert to it and the API server would fail every request in that version; Figure 2 places it after finalize, so a rolling rollback before finalize never meets it. A version becomes the storage version no earlier than the minor after it is first served, so a restore to N-1 (rule 6 of [Ruralz Control upgrades](#ruralz-control-upgrades)) never meets a stored version N-1 cannot convert, and re-applying N-1's manifest can drop the new version. Removals keep the rewrite-and-prune rule of [Migration tooling](#migration-tooling). Zero-downtime upgrades and hot reload owns the procedure.
 
 ## Open questions
 
@@ -336,9 +347,10 @@ One tagged workflow builds, signs and publishes every artifact from `CGO_ENABLED
 | OQ-release-versioning-and-compatibility-6 | Should `ruralz version` print schema, ABI and Control Stream levels? | (a) Yes, with `--output json`; (b) A separate verb | cli-and-api-surface | No |
 | OQ-release-versioning-and-compatibility-7 | How are announced default changes and deprecated field values, such as an old `abi`, reported? | (a) Widen RZ-CFG-025; (b) A new warning code (recommended, since codes never change meaning) | configuration-model | No |
 | OQ-release-versioning-and-compatibility-8 | Which surface finalizes a Ruralz Control upgrade; may a timed soak finalize it? | (a) A REST API action; (b) A `control` verb; (c) Either, plus optional timed soak | control-plane-and-gitops | Yes, for Planned (M2) |
-| OQ-release-versioning-and-compatibility-9 | How do Nodes learn the Cluster's minimum Node version, which starts lazy migration or a layout switch? | (a) A new Control Stream field, operator-set in file mode; (b) Operator-set everywhere | scalability-and-distributed-state | Yes, for the first layout change |
+| OQ-release-versioning-and-compatibility-9 | How do Nodes learn the Cluster's minimum Node version, which starts lazy migration, and a Quota layout switch's absolute boundary, published at least one full window ahead? | (a) A new Control Stream field, operator-set in file mode; (b) Operator-set everywhere | scalability-and-distributed-state | Yes, for the first layout change |
 | OQ-release-versioning-and-compatibility-10 | May `ruralz.plugin.v1` add more than Host Functions, such as optional guest JSON fields? | (a) No (current); (b) Also record a required level in the OCI config and take the maximum with imports | wasm-plugin-system | No |
 | OQ-release-versioning-and-compatibility-11 | Does the Helm chart deploy Nodes, and how does it replace Ruralz Control replicas? | (a) Ruralz Control only; (b) Both, separate tags, two upgrades; either with partitioned or `OnDelete` replica updates | deployment-topologies | Yes, for Planned (M2) |
 | OQ-release-versioning-and-compatibility-12 | How does Ruralz Control render at pinned schema levels and defaults while replicas run mixed binaries? | (a) The renderer takes the Control Store version's levels as input; (b) Rendering pauses until finalize | configuration-model | Yes, for Planned (M2) |
+| OQ-release-versioning-and-compatibility-13 | Does the golden-corpus exception in the Configuration model's Canonical form and Revision cover a digest-changing render or canonicalization fix shipped as a new `ruralz/v1alpha1` schema level, or only a default change? | (a) Amend it to cover any change shipped as a new `ruralz/v1alpha1` schema level (proposed); (b) Keep it narrow, so such a fix needs a new format identifier | configuration-model | Yes, for the first digest-changing fix |
 
 This document also owns OQ-repository-layout-and-conventions-4, recommending (b), since release asset URLs change per release, and OQ-testing-and-quality-strategy-5, recommending (a). As release owner of OQ-tech-stack-and-libraries-9 it keeps (a), HTTP/3 off in FIPS builds. It proposes option (c) for OQ-wasm-plugin-system-13 ([Plugin ABI versioning](#plugin-abi-versioning)).
