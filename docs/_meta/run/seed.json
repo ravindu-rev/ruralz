@@ -14119,5 +14119,140 @@
 "L3-11"
 ],
 "disputed": []
+},
+"write:adr-0004": {
+"path": "/home/user/ruralz/docs/adr/0004-wasm-runtime-wazero.md",
+"word_count": 1402,
+"h2s": [
+"Context and problem statement",
+"Decision drivers",
+"Considered options",
+"Decision outcome",
+"Pros and cons of the options",
+"More information"
+],
+"diagram_count": 1,
+"oq_ids": [
+"OQ-data-plane-11",
+"OQ-wasm-plugin-system-10",
+"OQ-wasm-plugin-system-16"
+],
+"verifier_clean": true
+},
+"write:adr-0005": {
+"path": "/home/user/ruralz/docs/adr/0005-plugin-abi-v1.md",
+"word_count": 1486,
+"h2s": [
+"Context and problem statement",
+"Decision drivers",
+"Considered options",
+"Decision outcome",
+"Pros and cons of the options",
+"More information"
+],
+"diagram_count": 2,
+"oq_ids": [],
+"verifier_clean": true
+},
+"write:adr-0014": {
+"path": "/home/user/ruralz/docs/adr/0014-ai-api-surface.md",
+"word_count": 1448,
+"h2s": [
+"Context and problem statement",
+"Decision drivers",
+"Considered options",
+"Decision outcome",
+"Pros and cons of the options",
+"More information"
+],
+"diagram_count": 1,
+"oq_ids": [
+"OQ-ai-llm-gateway-1",
+"OQ-ai-llm-gateway-2",
+"OQ-ai-llm-gateway-3",
+"OQ-ai-llm-gateway-15",
+"OQ-ai-llm-gateway-16",
+"OQ-ai-llm-gateway-17",
+"OQ-vision-and-positioning-15",
+"OQ-tech-stack-and-libraries-11",
+"OQ-configuration-model-8"
+],
+"verifier_clean": true
+},
+"write:performance-budgets-and-benchmarking": {
+"path": "/home/user/ruralz/docs/architecture/12-performance-budgets-and-benchmarking.md",
+"word_count": 6462,
+"h2s": [
+"Summary",
+"Scope and non-goals",
+"Budget philosophy",
+"Per-stage latency budget",
+"Throughput and resources per core",
+"Memory budget",
+"Startup and reload time by configuration size",
+"Benchmark methodology",
+"Benchmark suite and CI gating",
+"Profiling playbook",
+"Reporting",
+"Open questions"
+],
+"diagram_count": 2,
+"oq_ids": [
+"OQ-performance-budgets-and-benchmarking-1",
+"OQ-performance-budgets-and-benchmarking-2",
+"OQ-performance-budgets-and-benchmarking-3",
+"OQ-performance-budgets-and-benchmarking-4",
+"OQ-performance-budgets-and-benchmarking-5",
+"OQ-performance-budgets-and-benchmarking-6",
+"OQ-performance-budgets-and-benchmarking-7",
+"OQ-performance-budgets-and-benchmarking-8",
+"OQ-performance-budgets-and-benchmarking-9",
+"OQ-performance-budgets-and-benchmarking-10",
+"OQ-performance-budgets-and-benchmarking-11"
+],
+"verifier_clean": true
+},
+"write:adr-0012": {
+"path": "/home/user/ruralz/docs/adr/0012-graphql-engine-graphql-go-tools.md",
+"word_count": 1307,
+"h2s": [
+"Context and problem statement",
+"Decision drivers",
+"Considered options",
+"Decision outcome",
+"Pros and cons of the options",
+"More information"
+],
+"diagram_count": 1,
+"oq_ids": [
+"OQ-multi-protocol-4",
+"OQ-multi-protocol-5",
+"OQ-multi-protocol-12",
+"OQ-tech-stack-and-libraries-6",
+"OQ-tech-stack-and-libraries-22"
+],
+"verifier_clean": true
+},
+"write:adr-0013": {
+"path": "/home/user/ruralz/docs/adr/0013-messaging-client-libraries.md",
+"word_count": 1344,
+"h2s": [
+"Context and problem statement",
+"Decision drivers",
+"Considered options",
+"Decision outcome",
+"Pros and cons of the options",
+"More information"
+],
+"diagram_count": 1,
+"oq_ids": [
+"OQ-multi-protocol-7",
+"OQ-multi-protocol-8",
+"OQ-multi-protocol-9",
+"OQ-multi-protocol-10",
+"OQ-multi-protocol-11",
+"OQ-multi-protocol-14"
+],
+"verifier_clean": true
 }
 }
