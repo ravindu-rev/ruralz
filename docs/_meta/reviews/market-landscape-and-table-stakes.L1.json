@@ -1,0 +1,56 @@
+{
+  "lens": "L1",
+  "verdict": "accept",
+  "score": 9,
+  "blocking": [],
+  "non_blocking": [
+    {
+      "section": "Differentiator reality check (The cost of reservation)",
+      "suggestion": "The paragraph shows that only about 164 of SM-10's 200 streams can hold reservations at once (hypothesis): 200 x 6,096 = 1.22M against B = 1,000,000. SM-10 still describes 200 concurrent streams. State that the other ~36 streams are expected to get RZ-AI rejections, or add that as an input to OQ-vision-and-positioning-15, so that SM-10 counts rejections separately from overshoot."
+    },
+    {
+      "section": "Differentiator reality check (The cost of reservation)",
+      "suggestion": "Pack section 8.9 says the gateway writes C into the upstream request's output-token limit. Mention it in one clause. It is why reserving the full C bounds output overshoot, leaving input-estimate error as the only remaining source."
+    },
+    {
+      "section": "Open questions (OQ-market-landscape-and-table-stakes-3)",
+      "suggestion": "The option 'a Plugin Host Function' overlaps OQ-wasm-plugin-system-5 ('Should Plugins make outbound calls?', current answer (a) No). 05-wasm-plugin-system.md excludes outbound calls, and unsupported imports fail activation with RZ-CFG-028. Cross-reference OQ-wasm-plugin-system-5 so the two questions are not resolved inconsistently."
+    }
+  ],
+  "ac_results": [
+    {
+      "ac": "Competitor profiles contains at least nine profiles as H3s (Kong, Tyk, Apache APISIX, Envoy Gateway with Envoy AI Gateway, Zuplo, Gravitee, KrakenD, Portkey, LiteLLM), each citing at least two URLs present in docs/_meta/research/.",
+      "pass": true,
+      "note": "All nine H3s are present, plus Adjacent products. Each has well over two URLs. A script checked all 165 unique cited URLs against the five research files in the manifest and found every one."
+    },
+    {
+      "ac": "Table-stakes matrix has no blank cells.",
+      "pass": true,
+      "note": "Both the API gateway and AI gateway tables are fully populated. The verifier prints no FAIL line for this document, only WARN lines for broken links to documents and ADRs not yet written."
+    },
+    {
+      "ac": "Differentiator reality check has a 'who already does part' row for each of the four differentiators (proxy-wasm in Kong, APISIX and Envoy; AI gateways including KrakenD EE 2.10+; Konnect and Tyk Dashboard control planes; Tyk GraphQL federation and Gravitee native Kafka).",
+      "pass": true,
+      "note": "Rows 1 to 4 name each required product, with sources."
+    },
+    {
+      "ac": "Licensing landscape 2025 to 2026 lists at least four licensing events with ISO dates and URLs.",
+      "pass": true,
+      "note": "17 events, each with an ISO date and at least one research-file URL. Spot-checked dates (HashiCorp, OpenTofu, Redis 8, Valkey 9.0 and 9.1, Tyk AI Studio, Kong 3.15, CRA) match licensing-landscape.md."
+    },
+    {
+      "ac": "Method and snapshot date states the snapshot date 2026-09-23 and the sourcing method.",
+      "pass": true,
+      "note": "The snapshot date is in bold. The Sources and Rules applied subsections state the method."
+    },
+    {
+      "ac": "Implications for milestones maps each finding to a milestone M0 to M5.",
+      "pass": true,
+      "note": "F-1 to F-20 each map to one of M0 to M5. Milestones match pack section 2: SSO at M5, gRPC and HTTP/3 at M3, event protocols at M4, FIPS at M5, Ruralz Control at M2."
+    }
+  ],
+  "foundation_amendments": [
+    "Manifest docs[16].depends_on should add docs/architecture/06-ai-llm-gateway.md and docs/architecture/07-multi-protocol.md. The document's front matter already depends on both, for the MCP and A2A stance, the currency-budget and Token Budget questions, and the native wire-proxy stance.",
+    "Pack section 1, vision P1 and vision product non-goal 8 conflict with pack section 8.4 on HTTP/3 in FIPS builds. The document tracks this as OQ-market-landscape-and-table-stakes-8."
+  ]
+}

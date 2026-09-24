@@ -1,0 +1,113 @@
+{
+  "lens": "L2 foundation-auditor",
+  "verdict": "revise",
+  "score": 8,
+  "blocking": [
+    {
+      "id": "L2-7",
+      "section": "Component map",
+      "issue": "Regression from the revision. The new push-path sentence says `ruralz bundle push` hands a Revision to Ruralz Control. 02-configuration-model.md forbids this: Ruralz Control never accepts a pre-rendered Revision. It takes the source Bundle and the digest the CLI computed, re-renders the Bundle with the Environment's variables, and rejects a mismatch with RZ-CFG-027. Only the OCI registry receives a rendered Revision.",
+      "evidence": "Line 93: \"`ruralz bundle push` can also hand a Revision to Ruralz Control or an OCI registry, from which file-mode Nodes pull Revisions and Plugin artifacts by digest.\" 02-configuration-model.md (Environment substitution): \"Ruralz Control never accepts a pre-rendered Revision: `ruralz bundle push --env prod` to Ruralz Control uploads the source Bundle with the digest the CLI computed; Ruralz Control re-renders it ... rejects a mismatch with RZ-CFG-027 ... Pushing to an OCI registry uploads the rendered Revision for file-mode Nodes.\"",
+      "fix": "Replace the sentence with: \"`ruralz bundle push` can also upload a source Bundle to Ruralz Control, which re-renders it and checks the CLI's digest, or publish a rendered Revision to an OCI registry, from which file-mode Nodes pull Revisions and Plugin artifacts by digest.\" If Figure 1 gets a CLI-to-Control push edge, label it the same way."
+    },
+    {
+      "id": "L2-8",
+      "section": "Deployment modes",
+      "issue": "File mode lifecycle says the Node substitutes `${VAR}` while it reads `ruralz bundle render` output. In the configuration model, render output is already substituted: substitution runs once, after overlay merge, and a literal `${` is escaped as `$${`. File-mode `ruralzd` substitutes from its process environment only when it loads an unrendered source Bundle. The sentence also contradicts the Configuration lifecycle rule that the digest covers the render after substitution, because a Node that substitutes again could compute a different digest. The Source cell ('Rendered Bundle directory') is also narrower than the configuration model, which allows an unrendered source Bundle with no overlay. For a Cluster with more than one Node it only says rendered Bundles SHOULD be used.",
+      "evidence": "Line 395: \"The directory form reads `ruralz bundle render` output, since file-mode `ruralzd` applies no overlay; the Node substitutes `${VAR}` from its environment and computes the digest.\" Line 384: \"Rendered Bundle directory at `RURALZ_CONFIG`, or a Revision pulled from OCI\". 02-configuration-model.md: \"| `ruralzd` in file mode | Its process environment, only when it loads an unrendered source Bundle |\" and \"A file-mode Cluster with more than one Node SHOULD load rendered Bundles or OCI Revisions\".",
+      "fix": "Line 395: \"The directory form SHOULD hold `ruralz bundle render --env <env>` output, since file-mode `ruralzd` applies no overlay. Only when it loads an unrendered source Bundle does the Node substitute `${VAR}` from its process environment. Either way it computes the digest of what it loaded.\" Line 384 Source cell: \"Bundle directory at `RURALZ_CONFIG` (rendered SHOULD be used for more than one Node), or a Revision pulled from OCI\"."
+    },
+    {
+      "id": "L2-9",
+      "section": "Open questions",
+      "issue": "The revision deleted or reworded Open questions that 02-configuration-model.md still cites by ID and option, so cross-document traceability is broken. OQ-system-overview-4 was removed, but the configuration model says its OQ-configuration-model-8 'answers OQ-system-overview-4' (twice). OQ-system-overview-8 now offers the options 'One source per Cluster; CRDs win; Git wins'. The configuration model 'proposes option (b) of OQ-system-overview-8, CRDs convert to a Bundle', which is no longer among the options: option (b) now reads 'CRDs win'. OQ-system-overview-14 was also removed, and the configuration model says it 'resolves' that question, which is the only one of these references that still reads correctly.",
+      "evidence": "Line 521: \"| OQ-system-overview-8 | May one Cluster take both Git and CRD changes (OQ-configuration-model-2)? | One source per Cluster; CRDs win; Git wins | deployment-topologies | ...\". The table skips from OQ-system-overview-3 to OQ-system-overview-6 and omits 10 and 14. 02-configuration-model.md line 142: \"This document proposes option (b) of OQ-system-overview-8, CRDs convert to a Bundle\"; lines 374 and 1473: \"This answers OQ-system-overview-4.\"",
+      "fix": "Below the Open questions table, add one line listing the retired IDs: \"Retired: OQ-system-overview-4 (moved to OQ-configuration-model-8), OQ-system-overview-5 (answered by the `plugin` `failureMode` registry default `closed`), OQ-system-overview-10 (<disposition>), OQ-system-overview-14 (resolved by [Canonical form and Revision](02-configuration-model.md#canonical-form-and-revision)).\" Restate OQ-system-overview-8 so that its options include the configuration model's proposal, for example: \"How do CRDs feed a Cluster, and may one Cluster take both Git and CRD changes? | CRDs convert to a Bundle that Ruralz Control assembles (proposed by the configuration model); one source per Cluster; CRDs win; Git wins\". Alternatively, ask the configuration-model owner to update its three references in the same change."
+    }
+  ],
+  "non_blocking": [
+    {
+      "section": "Review bookkeeping",
+      "suggestion": "The harness passed an empty prior-blocking list, but the previous on-disk L2 verdict listed L2-1 to L2-6. All six are resolved: the onRoute work now matches the Policy registry; OQ-14 is resolved and the digest sentence matches the configuration model; OQ-4 and OQ-5 are removed and the Plugin trap row cites `failureMode` default `closed`; `spec.rollout` strategy and `autoRollback` are honored and batch sizing is in OQ-17; TB-7 no longer implies `secretRef`; the milestone cells are split. The new findings are numbered from L2-7 to avoid ID collisions."
+    },
+    {
+      "section": "Component map",
+      "suggestion": "Line 56 and Figure 2 add a second control-plane persistence area, 'Revision content by digest ... (a replicated blob directory or the OCI registry)' plus 'audit segments', outside the Control Store. The foundation pack names exactly one control-plane persistence, the Control Store, and the architecture summary says Ruralz Control 'keeps its operational state in a Raft-replicated Control Store'. Either describe the blob area as part of the Control Store (for example 'Control Store content area, stored by digest outside the Raft log') or add an OQ or foundation amendment for the new storage tier."
+    },
+    {
+      "section": "Request lifecycle",
+      "suggestion": "Figure 3's opt block 'Rate Limit or Quota Policy attached' applies the local token bucket and GCRA EVAL to Quotas. ADR-0008 covers Rate Limits only, and the configuration model says `quota` 'checks in `onRequestHeaders` and increments at `onLog`'. Label the opt 'Rate Limit Policy attached' and add a separate note: 'Quota: one check, settled in onLog'."
+    },
+    {
+      "section": "Request lifecycle",
+      "suggestion": "Line 248: 'a per-Node ceiling declared on the Policy (field owned by Traffic management and resilience, OQ-configuration-model-9)'. OQ-configuration-model-9 asks who authors config schemas, not whether this field exists, and the `ratelimit` fixed fields are only `key` and `limits[]`. Add a dedicated OQ (for example OQ-system-overview-21: 'How is the per-Node ceiling for `ratelimit` declared?'), as the style guide requires for fields not yet in the configuration model."
+    },
+    {
+      "section": "Request lifecycle",
+      "suggestion": "Line 270 states as design that the Token Budget 'counts locally in `onChunk` from streamed usage deltas or an estimate and ends the stream'. ADR-0014 limits the tokenizer to pre-admission estimates, and the document itself makes this OQ-system-overview-20 (blocking). Make the sentence conditional: 'ends the stream from streamed usage deltas; estimate-based enforcement awaits OQ-system-overview-20'."
+    },
+    {
+      "section": "Configuration lifecycle",
+      "suggestion": "The `/readyz` definition (line 372) and Figure 5 'Last-Known-Good loaded' omit a condition from the configuration model: a Node cold-starting from Last-Known-Good fails `/readyz` until every `secretRef` resolves. Append 'with every `secretRef` resolved' to the `/readyz` rule."
+    },
+    {
+      "section": "Cross-cutting concerns",
+      "suggestion": "Line 427, 'Both are Planned (M1)', follows definitions of three terms (Hot Reload, Rollout, Zero-Downtime Upgrade), and Rollout is Planned (M2). Write 'Hot Reload and Zero-Downtime Upgrade are Planned (M1)'."
+    },
+    {
+      "section": "Deployment modes",
+      "suggestion": "Line 399, 'a Node warns when its Cluster reports more than one Node', assumes Control mode, where the Node count is known. The configuration model's rule is a startup warning whenever the `memory` driver is used. Align the wording, or say the Cluster-count warning is in addition to the startup warning."
+    },
+    {
+      "section": "Design principles",
+      "suggestion": "Carried over: the rules table still does not name the P-ID each rule derives from. Add a 'Principle' column (for example P10 for 'Degraded states are observable')."
+    },
+    {
+      "section": "Request lifecycle",
+      "suggestion": "Word count is about 3,987 under word_count_rule, only 13 below the 4,000 cap. Any fix above that adds words should be offset by a cut, for example by shortening the Reconnect behavior paragraph."
+    }
+  ],
+  "ac_results": [
+    {
+      "ac": "Every product name, kind, port, binary, image and identifier matches the foundation pack exactly.",
+      "pass": true,
+      "note": "These all match the foundation pack: ports 8080, 8443 (+UDP), 9901, 8090 and 8091; ruralzd, ruralz-control and ruralz; the ghcr.io/ravindu-rev images; ruralz.control.v1.ControlStream and ruralz.plugin.v1; rev-<sha256:12> and ${RURALZ_DATA_DIR}/lkg/; the span and metric patterns; the RZ areas; the six Rollout states; and the CLI verbs (bundle validate|render|build|push, rollout resume|rollback, node drain, dev tap). verify-docs reports no alias or command findings. The factual inconsistencies with the configuration model (L2-7, L2-8) concern behavior, not names."
+    },
+    {
+      "ac": "The document states explicitly that Ruralz Gateway runs without Ruralz Control (Bundle directory watch or OCI pull) and serves Last-Known-Good configuration while Ruralz Control is unavailable.",
+      "pass": true,
+      "note": "Stated in the Summary (line 17), Last-Known-Good (line 348) and Deployment modes (line 380). The active-Revision-versus-Last-Known-Good nuance is carried as a foundation amendment."
+    },
+    {
+      "ac": "Deployment modes covers file mode, Control mode and multi-cluster mode.",
+      "pass": true,
+      "note": "A three-column table (lines 382-389) plus a File mode lifecycle and a Cells and Regions subsection. The file-mode substitution wording is wrong (L2-8), but coverage is complete."
+    },
+    {
+      "ac": "Each of the four differentiators has a pointer to the architecture document that owns it.",
+      "pass": true,
+      "note": "Lines 159-164 give verbatim differentiator names linked to 05, 06, 04 and 07, with milestones consistent with the foundation pack."
+    },
+    {
+      "ac": "Document map links every architecture document (docs/architecture/01 through 12).",
+      "pass": true,
+      "note": "Lines 497-510 link 01 through 12. The links_to machine check passes; missing targets are warnings only."
+    },
+    {
+      "ac": "Filter Chain phases are listed exactly as in the foundation pack, in order, including onChunk.",
+      "pass": true,
+      "note": "Line 170 lists the eight phases verbatim and in order, and line 172 adds onChunk. The phase table now agrees with the configuration model's Policy registry."
+    },
+    {
+      "ac": "The body is 4,000 words or fewer.",
+      "pass": true,
+      "note": "About 3,987 words under word_count_rule. verify-docs max_words passes, but with little margin. The Summary is 90 words."
+    }
+  ],
+  "foundation_amendments": [
+    "Section 2 (Canonical names), Last-Known-Good row: distinguish the 'active Revision' (what a Node serves, including while detached from Ruralz Control) from Last-Known-Good (the persisted boot Revision, promoted at the Cluster's promoted digest in Control mode). The current definition, 'Config served during CP outage', is false for a Node detached mid-canary, and 01-system-overview.md depends on the distinction.",
+    "Section 2, Rollout row: add a `paused` state (entered on a failed gate when `autoRollback: false`, left by `ruralz rollout resume` or `ruralz rollout rollback`), or state explicitly that pausing happens inside `canary` or `progressing`. This is needed to close OQ-system-overview-17.",
+    "Section 2, Control-plane persistence row: say whether Revision content and audit segments stored by digest outside the Raft log are part of the Control Store, so that documents do not introduce an unnamed second persistence tier.",
+    "Section 3, Policy row: amend 'Precedence: Route over Gateway' to 'Route over Gateway within a slot; additive types stack; a Gateway Policy with overridable: false cannot be replaced or excluded' (carried over; still unmerged)."
+  ]
+}

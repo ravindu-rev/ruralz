@@ -1,0 +1,42 @@
+{
+  "lens": "L2",
+  "verdict": "revise",
+  "score": 8,
+  "blocking": [
+    {
+      "id": "L2-2",
+      "section": "Token accounting (Settlement)",
+      "issue": "Residual from the previous L2-2. The missing-usage row now charges 'All of R for that attempt'. That charges R again for every attempt that lacks usage, so one request can be charged up to (retries.attempts + 1) x candidates x R, plus the usage of the attempt that succeeded. Pack 8.9 and the System overview charge the whole reservation once when usage is missing. The text says row 2 'applies pack 8.9' and applies it now, even though OQ-ai-llm-gateway-15 lists 'per-attempt settlement' as a proposed amendment that has not landed. The other proposals (guard tolerance, nothing for error statuses, larger of R and partial usage) are correctly held back with 'neither applies before it closes'. Row 3 ('Nothing, proposed') also gives no rule for the time before OQ-ai-llm-gateway-15 closes, and line 324 does not list it among the held-back proposals, so M3 behavior is ambiguous there.",
+      "evidence": "L316: \"Rows 1 and 2 apply pack 8.9, row 2 per attempt:\"; L321: \"| Attempt reached the provider, no usage read | Error status, `perTryTimeout`, stream error, interruption, client disconnect before or after commit, `RZ-AI-013` | All of R for that attempt |\"; L322: \"| No provider attempt after reservation | Guardrail block, `RZ-AI-004`, Semantic Cache hit | Nothing, proposed (OQ-ai-llm-gateway-15; hits: OQ-ai-llm-gateway-5) |\"; L324: \"neither applies before it closes\"; L206: \"at most (`retries.attempts` + 1) x candidates attempts\"; L617 OQ-15: \"per-attempt settlement\". Pack 8.9: \"When usage is missing (interrupted stream, no usage reported), charge all of R\". System overview L268: \"or charges the whole reservation when usage is missing\".",
+      "fix": "(1) Change row 2's charge to 'All of R, once per request (pack 8.9)', so a request is never charged more than R when any attempt lacks usage. (2) Rewrite L316 as 'Rows 1 and 2 apply pack 8.9'. (3) Extend L324 to say that charging R per attempt and charging nothing without an attempt (row 3) are also OQ-ai-llm-gateway-15 proposals that do not apply before it closes. Either make row 3 read 'All of R (pack 8.9); nothing is proposed', or state its interim rule explicitly. (4) Keep 'per-attempt settlement' in the OQ-ai-llm-gateway-15 question, reworded as 'charging R per attempt that lacks usage', so the proposal stays recorded."
+    }
+  ],
+  "non_blocking": [
+    {
+      "section": "Token accounting (Settlement)",
+      "suggestion": "The Overshoot bound adds 'hidden reasoning above C on `gemini` and `ollama`' to pack 8.9's bound. It is scoped to OQ-ai-llm-gateway-17, but consider adding a pack 8.9 Overshoot-bound amendment to the OQ-ai-llm-gateway-15 or -17 options, so the pack row and this document do not drift."
+    },
+    {
+      "section": "AI observability",
+      "suggestion": "L515 calls `ruralz_ai_abandoned_attempts_total`, `ruralz_ai_failed_attempts_total`, `ruralz_ai_semantic_cache_store_skipped_total` and the reasons `abandoned`, `error_status` and `oversized` 'New proposals'. docs/architecture/10-observability.md (L376-L382) already lists all of them. Reword to 'Observability has adopted ...' to avoid stale cross-document state. Note too that Observability gives `ruralz_ai_usage_missing_total` the unit 'requests', while settlement here is per attempt."
+    },
+    {
+      "section": "Unified API (Streaming)",
+      "suggestion": "Committing headers at the first content event (L124) extends the System overview lifecycle ('onResponse on headers', 'response headers, now committed'). It is recorded in OQ-ai-llm-gateway-15. Consider saying explicitly that it is proposed until the amendment lands, for the same reason as the guard tolerance."
+    }
+  ],
+  "ac_results": [
+    {"ac": "Each of the five AI capabilities has its own H2 or H3", "pass": true, "note": "H2s: Unified API; Model routing (H3 Provider Fallback); Token accounting and Token-aware rate limits and budgets; Cost tracking and attribution; Prompt caching and semantic caching (H3 Prompt Cache, Semantic Cache)."},
+    {"ac": "Unified API covers the OpenAI-compatible facade and native passthrough for Anthropic Messages, Bedrock and Gemini, including SSE streaming", "pass": true, "note": "OpenAI-compatible façade, Native passthrough, Streaming H3s and the Native APIs, caps and events table cover Anthropic Messages, Bedrock Converse and InvokeModel (M4), and Gemini."},
+    {"ac": "Dialect translation matrix covers six providers against dialect, streaming, usage fields and prompt-cache support, with no blank cells", "pass": true, "note": "Six rows (openai, anthropic, gemini, bedrock, mistral, ollama), all cells filled; verifier shows no FAIL."},
+    {"ac": "Guarantees Anthropic cache_control preservation in native passthrough and states facade behavior", "pass": true, "note": "Prompt Cache 'Guarantee' paragraph plus the Façade table."},
+    {"ac": "Model routing contains a fallback trigger matrix mapping error classes to retry, fall back or fail", "pass": true, "note": "Fallback trigger matrix under Provider Fallback."},
+    {"ac": "Cost tracking gives a cost formula with currency and pricing-table versioning", "pass": true, "note": "Formula block, ISO 4217 currency, and the 'Versioning' paragraph with pricing.version."},
+    {"ac": "Token accounting states provider usage is authoritative, tokenizer counts are estimates only, and how the streaming final-usage chunk is handled (ADR-0014)", "pass": true, "note": "Rules 1-3, the Streaming final-usage chunk H3 and Figure 3. The streaming guard now ends at C, as pack 8.9 does. The settlement multi-attempt issue is tracked as blocking L2-2 and does not affect this criterion."},
+    {"ac": "Every feature carries a milestone tag, including MCP gateway Planned (M3) and A2A Planned (M5)", "pass": true, "note": "Capabilities and milestones table and MCP and A2A stance table; CLI commands are tagged too."}
+  ],
+  "foundation_amendments": [
+    "Pack 8.9 Settlement row: define settlement across several attempts (Provider Fallback or retries). The proposal under OQ-ai-llm-gateway-15 is to charge summed provider usage and to charge all of R once when any attempt lacks usage. Charging R per attempt, charging nothing when no attempt was made or the status was an error, and charging the larger of R and partial usage stay options until the amendment lands.",
+    "Pack 8.9 Overshoot bound row: consider noting hidden-reasoning overshoot on dialects whose cap does not bound reasoning (OQ-ai-llm-gateway-17)."
+  ]
+}

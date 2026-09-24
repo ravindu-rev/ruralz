@@ -1,0 +1,31 @@
+{
+  "lens": "L2 foundation-auditor",
+  "verdict": "accept",
+  "score": 9,
+  "blocking": [],
+  "non_blocking": [
+    {
+      "section": "Implications for milestones (F-17); Table-stakes matrix (row 'Event protocols'); Reading the matrix",
+      "suggestion": "Line 366: 'Kafka and NATS wire-protocol ingress (Gravitee's model) is Not planned (OQ-multi-protocol-11)'. OQ-multi-protocol-11 covers Kafka only. In docs/architecture/07-multi-protocol.md#native-wire-proxy-stance, NATS client-protocol proxying is Not planned with no open question. Suggested wording: 'Kafka wire-protocol ingress is Not planned in M0 to M5, revisited at M4 (OQ-multi-protocol-11), and NATS client-protocol proxying is Not planned'. Change line 218 and line 249 the same way."
+    },
+    {
+      "section": "Implications for milestones (F-17)",
+      "suggestion": "Line 366 lists 'AMQP, Pub/Sub, SQS, SNS and Service Bus connectors' under OQ-multi-protocol-14. That question names only AMQP, Google Cloud Pub/Sub and Amazon SQS. The Multi-protocol stance row reads 'Other brokers (AMQP, cloud queues)'. Either use 'AMQP and cloud-queue connectors' to match the owning document, or note that SNS and Service Bus extend OQ-multi-protocol-14's scope."
+    },
+    {
+      "section": "Frontmatter / manifest",
+      "suggestion": "The document's frontmatter depends_on now lists docs/architecture/06-ai-llm-gateway.md and docs/architecture/07-multi-protocol.md. The manifest docs[] entry for market-landscape-and-table-stakes does not list them yet. The orchestrator should add both to the manifest so the two lists agree."
+    }
+  ],
+  "ac_results": [
+    {"ac": "Competitor profiles contains at least nine profiles as H3s (Kong, Tyk, Apache APISIX, Envoy Gateway with Envoy AI Gateway, Zuplo, Gravitee, KrakenD, Portkey, LiteLLM), each citing at least two URLs present in docs/_meta/research/.", "pass": true, "note": "Nine named H3s plus 'Adjacent products'. Each cites at least two URLs. The verifier reports no FAIL for min_h3 or min_urls_per_h3."},
+    {"ac": "Table-stakes matrix has no blank cells.", "pass": true, "note": "Both tables are fully populated. The no_blank_cells check reports no FAIL."},
+    {"ac": "Differentiator reality check has a 'who already does part' row for each of the four differentiators (proxy-wasm in Kong, APISIX and Envoy; AI gateways including KrakenD EE 2.10+; Konnect and Tyk Dashboard control planes; Tyk GraphQL federation and Gravitee native Kafka).", "pass": true, "note": "Rows 1-4 name every required example. Row 4 now states the Ruralz-side gaps: no Kafka wire-protocol gateway (OQ-multi-protocol-11) and no AMQP or cloud-queue connectors (OQ-multi-protocol-14)."},
+    {"ac": "Licensing landscape 2025 to 2026 lists at least four licensing events with ISO dates and URLs.", "pass": true, "note": "17 dated rows, each with at least one URL."},
+    {"ac": "Method and snapshot date states the snapshot date 2026-09-23 and the sourcing method.", "pass": true, "note": "Line 36 states the snapshot date. The 'Sources' and 'Rules applied' subsections give the sourcing method."},
+    {"ac": "Implications for milestones maps each finding to a milestone M0 to M5.", "pass": true, "note": "Each of F-1 to F-20 carries one milestone from M0 to M5."}
+  ],
+  "foundation_amendments": [
+    "OQ-market-landscape-and-table-stakes-8 (carried over, not new): pack section 1, P1 and vision non-goal 8 promise one feature set in every public build, but pack section 8.4 turns HTTP/3 off in FIPS builds (OQ-tech-stack-and-libraries-9). The pack should exempt HTTP/3 from the FIPS build, or the FIPS decision should be reversed."
+  ]
+}

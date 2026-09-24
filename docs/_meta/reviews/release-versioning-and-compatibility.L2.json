@@ -1,0 +1,88 @@
+{
+  "lens": "L2 foundation-auditor",
+  "verdict": "revise",
+  "score": 8,
+  "blocking": [
+    {
+      "id": "L2-1",
+      "section": "Semantic versioning (Versioned surfaces)",
+      "issue": "The Node upgrade handover row names a persisted field, `assignmentIndex`, that no other Ruralz document defines. Control plane and GitOps owns the Control Stream fencing fields. It names them `storeEpoch` and `assignmentSeq` and persists the highest activated pair under `${RURALZ_DATA_DIR}/identity/` (pack 8.11 Enrollment identity). A field name that appears in no source document is an invented identifier, which the L2 lens and style guide section 5 forbid.",
+      "evidence": "Line 63: \"| Node upgrade handover | `${RURALZ_DATA_DIR}` file lock, candidate, persisted `assignmentIndex`, Unix-socket readiness message |\". Control plane and GitOps, Fencing stale replicas: \"Nodes persist the highest pair activated under `${RURALZ_DATA_DIR}/identity/`, compare pairs in order\". The same document's Hello and Ack rows list `storeEpoch`, `assignmentSeq`. A repository-wide grep finds `assignmentIndex` only on line 63 of this document.",
+      "fix": "Replace \"persisted `assignmentIndex`\" with \"the persisted (`storeEpoch`, `assignmentSeq`) pair under `${RURALZ_DATA_DIR}/identity/` ([Control plane and GitOps](../architecture/04-control-plane-and-gitops.md#fencing-stale-replicas))\"."
+    },
+    {
+      "id": "L2-2",
+      "section": "Control plane and data plane version skew (Ruralz Control upgrades)",
+      "issue": "Step 4 describes rollback after finalize as `ruralz control restore`, with only one Node consequence: Nodes enrolled since the backup re-enroll. That understates what restore does according to Control plane and GitOps, which owns `ruralz control restore`. Restore runs only into an empty deployment. It needs a root-signed anchor set with a new online key, which opens a higher `storeEpoch`. It invalidates all sessions and API tokens. Unless the operator supplies a revocation list, it admits no Node certificate issued before the restore, so every Node, not just recently enrolled ones, serves detached until it re-enrolls. Operators who follow this document would plan a rollback that behaves differently from what the owning document specifies.",
+      "evidence": "Line 165: \"After it, rollback means `ruralz control restore` from the first backup, losing every later Control Store write (Rollouts, audit entries, Enrollments); Nodes enrolled since re-enroll.\" Control plane and GitOps, Backup, restore and `postgres`: \"`ruralz control restore` runs only from the host CLI into an empty deployment. Before any delivery it needs a root-signed anchor set with a new online key, opening a higher `storeEpoch` ... It invalidates sessions and API tokens and re-applies an operator-supplied revocation list; without one, no Node certificate issued before the restore is admitted ... until its Node re-enrolls or the list arrives. Those Nodes serve detached.\"",
+      "fix": "Rewrite the second half of step 4 as follows: \"After it, rollback means `ruralz control restore` of the pre-upgrade backup into an empty N-1 deployment, which loses every later Control Store write (Rollouts, audit entries, Enrollments, revocations). Restore follows [Control plane and GitOps](../architecture/04-control-plane-and-gitops.md#backup-restore-and-postgres): a root-signed anchor set opens a new `storeEpoch`, sessions and API tokens are invalidated, and Nodes serve detached until an operator-supplied revocation list arrives or they re-enroll; Nodes enrolled after the backup always re-enroll.\" Also add one line to Figure 2's caption or the Upgrade order prose saying that the backup taken in step a is the one this restore uses."
+    }
+  ],
+  "non_blocking": [
+    {
+      "section": "Plugin ABI versioning",
+      "suggestion": "Rules 1 and 2 (an integer ABI level while `rz_abi_version()` still returns 1, and 'a Node's product version implies its level') effectively decide OQ-wasm-plugin-system-13. That question's options are only (a) a heartbeat field and (b) a new identifier per addition. The document's scheme rules out (b) and is not (a). State that it proposes this as a new option (c) for the owner, control-plane-and-gitops, to accept at conformance, and list it in the closing paragraph beside the other recommendations."
+    },
+    {
+      "section": "Control plane and data plane version skew (Ruralz Control upgrades)",
+      "suggestion": "Step 1 adds a new kind of 8092 traffic, replicas reporting their binary version to the leader. Pack 8.4 still describes 8092 as the Raft peer transport only. Control plane and GitOps asks for the amendment that would widen it in OQ-control-plane-and-gitops-15. Cite that question, or say the report travels in the existing status-forwarding class."
+    },
+    {
+      "section": "Control plane and data plane version skew",
+      "suggestion": "'cluster version' (lines 146, 162, 163 and Figure 2 node s) can be read as the `Cluster` kind, a glossary term that means a group of Nodes. Rename it 'Control Store version' or 'Raft cluster version' throughout."
+    },
+    {
+      "section": "Control plane and data plane version skew (Upgrade order)",
+      "suggestion": "'Nodes then take a Zero-Downtime Upgrade ... from any supported line to N' conflicts with Figure 2, which brings every Node to N-1 before any Ruralz Control replica moves. With Ruralz Control at N, a Node at N-2 is outside the skew policy (table row 1). Write 'from N-1 to N', and keep 'any line in support' only for the handover format row."
+    },
+    {
+      "section": "Control Stream versioning",
+      "suggestion": "A Node that receives an unknown `oneof` member carrying a Revision sends 'a transient NACK', but the document names no error code. Pack 8.3 lists transient classes as fetch, resource and timeout. Name the code area (probably `RZ-CP`, owned by control-plane-and-gitops) or add an Open question, so the NACK's `code` field has a registered value."
+    },
+    {
+      "section": "Semantic versioning (Versioned surfaces)",
+      "suggestion": "The Error codes row says codes 'never change meaning', yet OQ-release-versioning-and-compatibility-7 option (a) is 'Widen RZ-CFG-025'. Either say that widening a warning's scope is the only allowed additive meaning change, or recommend option (b), a new warning code, so the two statements agree."
+    },
+    {
+      "section": "Control plane and data plane version skew",
+      "suggestion": "The CLI and REST API row enforces with 'Unknown field: RZ-CFG-006'. That fits Bundle payloads only. Control plane and GitOps says REST errors carry `RZ-CP-<NNN>` or `RZ-CFG` diagnostics, and pack 8.6 assigns REST API errors to area `CP`. Write 'Unknown Bundle field: RZ-CFG-006; other unknown request fields: an `RZ-CP` code (control-plane-and-gitops)'."
+    },
+    {
+      "section": "Summary; Security fix policy; Release cadence and support windows",
+      "suggestion": "The Summary says 'every item carries a Planned tag', but the security response process (`SECURITY.md`, the 2-business-day acknowledgment, advisories) and the quarterly cadence carry none. Tag them, for example `SECURITY.md` Planned (M0) (Repository layout lists it at the root) and the cadence and support windows Planned (M1) from `0.1.0`, or soften the Summary sentence."
+    }
+  ],
+  "ac_results": [
+    {
+      "ac": "Control plane and data plane version skew contains a skew table supporting N and N-1 between Ruralz Control, Ruralz Gateway and the ruralz CLI.",
+      "pass": true,
+      "note": "The table on lines 143-154 covers Ruralz Control and Nodes (N or N-1), Ruralz Control replicas, the CLI and REST API (N or N-1), `ruralz bundle push`, the CLI and Nodes, Nodes within a Cluster, upgrade handover, Plugins, Last-Known-Good and the Helm chart. The has_table check passes. The restore consequence in the Ruralz Control upgrades H3 contradicts Control plane and GitOps (L2-2)."
+    },
+    {
+      "ac": "Deprecation and support windows are quantified in months or releases.",
+      "pass": true,
+      "note": "apiVersion windows are 2, 3 and 4 minors (about 6, 9 and 12 months). Plugin ABI, Control Stream and REST API v2 overlaps are 4 minors each. CLI and metric deprecations are 2 minors. Support is 6 months of full support plus 3 months of critical and high fixes. All carry (target)."
+    },
+    {
+      "ac": "Plugin ABI versioning states the compatibility rules for ruralz.plugin.v1 (additive changes, major-version bumps).",
+      "pass": true,
+      "note": "It has a table of changes allowed within `ruralz.plugin.v1` versus those that need `ruralz.plugin.v2`, limited to new Host Functions as the WASM plugin system Contract requires. It also covers integer ABI levels, OCI media types and the `ruralz.plugin.v2` import namespace with 4 minors of overlap. The level mechanism pre-decides OQ-wasm-plugin-system-13 (non-blocking)."
+    },
+    {
+      "ac": "Release artifacts lists binaries, container images, SBOM, signatures and the Helm chart.",
+      "pass": true,
+      "note": "All five are rows, plus checksums, the FIPS build, SLSA provenance, schema and OpenAPI files, and release notes. Image names match pack section 2, and platforms match the tech stack Static builds table."
+    },
+    {
+      "ac": "Security fix policy states that open source releases receive security fixes immediately and contrasts this with KrakenD CE.",
+      "pass": true,
+      "note": "Line 268 opens with the required statement and defines 'immediately' as reaching every user at once through the public release. Line 284 contrasts this with KrakenD CE, citing https://www.krakend.io/enterprise/ (krakend-parity.md) and the EE license-file page (licensing-landscape.md)."
+    },
+    {
+      "ac": "apiVersion lifecycle and deprecation windows covers ruralz/v1alpha1 through beta and stable with migration tooling.",
+      "pass": true,
+      "note": "It has a stage table for `ruralz/v1alpha1`, `ruralz/v1beta1` and `ruralz/v1`, consistent with the Configuration model's promises and its Planned (M0) tag, plus Figure 1 and a Migration tooling H3. That H3 covers `ruralz bundle render --api-version`, hub conversion with an empty diff, golden-corpus conversion, RZ-CFG-025 warnings and the CRD conversion webhook."
+    }
+  ],
+  "foundation_amendments": []
+}

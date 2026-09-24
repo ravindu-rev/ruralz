@@ -1,0 +1,48 @@
+{
+  "lens": "L2 foundation-auditor",
+  "verdict": "revise",
+  "score": 8,
+  "blocking": [
+    {
+      "id": "L2-1",
+      "section": "Kafka, NATS JetStream and MQTT (Topic ingress bullets; Embedded MQTT broker mode, CONNECT row); Filter Chain applicability per protocol (Validation rules)",
+      "issue": "New regression from the L2-5 fix. The new Validation rules row stops embedded-PUBLISH Routes from excluding or replacing the Gateway `auth`-slot Policy. The CONNECT row makes that Gateway Policy mandatory for the embedded broker. The Topic ingress rules reject any effective `auth`-slot Policy. Line 445 says a Route that serves both ingress and embedded PUBLISH follows 'these stricter rules', which suggests such a Route can be valid. It cannot. It must exclude the Gateway `auth` Policy to pass the ingress rule, and it must not exclude it to pass the embedded-PUBLISH rule. So every mixed Route fails validation whenever the embedded broker can accept connections, and 'stricter' has no defined meaning here.",
+      "evidence": "Line 443: \"Validation rejects any effective `auth`-slot, `quota`, `cors` or `cache` Policy, since `consumer` is null; authors exclude inherited ones with `excludePolicies`.\" Line 445: \"A Route serving ingress and embedded PUBLISH follows these stricter rules until OQ-multi-protocol-10 separates them.\" Line 467: \"the Gateway `auth`-slot Policy runs outside any Route's Filter Chain ... without one, every CONNECT is refused\". Line 550: \"| No `excludePolicies` entry or Route Policy in slot `auth` | Embedded-PUBLISH Routes | The Gateway `auth` slot runs once at CONNECT, and PUBLISH skips it |\". Pack 8.12 step 1: \"Take the Gateway's `policies` minus the Route's `excludePolicies`.\"",
+      "fix": "Replace line 445 with: \"A `match.topic` Route cannot serve both topic ingress and embedded PUBLISH (a validation error whose code is listed in OQ-multi-protocol-13) until OQ-multi-protocol-10 separates them.\" Add a matching Validation rules row: \"| Not both topic ingress and embedded PUBLISH | `match.topic` Routes | The ingress rule removes the Gateway `auth` slot and the embedded-PUBLISH rule requires it |\". Also add a sentence to Topic ingress: when the embedded broker is on, every topic-ingress Route must list the Gateway `auth`-slot Policy in `excludePolicies`, so that Policy cannot set `overridable: false`. Add 'mixed Routes' under OQ-multi-protocol-18 option (d) as well as OQ-multi-protocol-10."
+    },
+    {
+      "id": "L2-2",
+      "section": "Kafka, NATS JetStream and MQTT (Topic ingress: Node backpressure, Retries and Poison message rows)",
+      "issue": "The revised outcome table still does not cover the Node-side 'could not decide' outcomes that pack 8.6 and 8.10 define for the Policies this section allows on ingress Routes. Examples: a `ratelimit` Policy with `failureMode: closed` during a State Store outage (503 `RZ-STS`), a `transform.request` Policy failing under `closed` (503 `RZ-RT-011`), and a Plugin trap (503 `RZ-PLG`). None of these is a `ratelimit` denial, `RZ-RT-004` or `RZ-RT-005`, so the Node backpressure row does not catch them. They are not timeouts, Upstream responses or `RZ-UP` failures, so the Retries row does not catch them either. They are not a size, `authz.*` or validation denial or an Upstream 4xx, so the Poison message row does not catch them. The spec therefore does not say whether a State Store outage backs off, retries, or pauses every partition until an operator intervenes. It also leaves open whether it commits.",
+      "evidence": "Line 451: \"| Node backpressure | A `ratelimit` denial (429 `RZ-RL`), `RZ-RT-004` or `RZ-RT-005` holds the message ...\"; line 452: \"| Retries | Timeouts, Upstream 408, 429 and 5xx, and `RZ-UP` leg failures retry ...\"; line 453: \"| Poison message | A value over `maxRequestBodyBytes`, an `authz.*` or validation denial, another Upstream 4xx or a last failed attempt pauses the partition ...\". Pack 8.6: \"A rejection uses `STS` when a State Store call failed or timed out, `PLG` when a Plugin trapped or exceeded limits\". Pack 8.10: \"A request Phase ... | 401 or 403 for auth and authz types, otherwise 503\". 03-data-plane.md line 458: \"RZ-RT-011 | 503 | A `cors`, `validation.json-schema`, `headers` or `transform.*` Policy could not decide under `closed`\".",
+      "fix": "Extend the Node backpressure row: \"A `ratelimit` denial (429 `RZ-RL`), `RZ-RT-004`, `RZ-RT-005`, or a request-Phase `failureMode: closed` 503 (`RZ-STS`, `RZ-PLG`, `RZ-RT-011`) holds the message ...\". Alternatively, put the deterministic ones (`RZ-PLG` limit breaches) under Poison message and name the split in OQ-multi-protocol-10. Either way, every pack 8.6 area that an ingress Route can produce must map to exactly one row."
+    }
+  ],
+  "non_blocking": [
+    {
+      "section": "Kafka, NATS JetStream and MQTT (Embedded MQTT broker mode, PUBLISH row)",
+      "suggestion": "\"`OnACLCheck` applies `authz.*`\" conflicts with the Filter Chain table, which runs `onRequestBody` per PUBLISH. `authz.*` is registered for both `onRequestHeaders` and `onRequestBody`, and the research lists `OnACLCheck` only as a hook, not as one that sees the payload. Say that `authz.*` runs in the PUBLISH Route's Filter Chain at its registered Phases, and that `OnACLCheck` only refuses SUBSCRIBE and carries the header-Phase verdict."
+    },
+    {
+      "section": "Server-Sent Events",
+      "suggestion": "The tech stack SSE row still says \"Replay and `Last-Event-ID` are Ruralz code\". This document declares gateway-side replay Not planned and sends the difference to OQ-multi-protocol-12. Record the fix as a tech stack conformance item in the review log, so the two documents do not ship with different answers."
+    },
+    {
+      "section": "Kafka, NATS JetStream and MQTT (Embedded MQTT broker mode, CONNECT row)",
+      "suggestion": "`route` is a Base CEL variable, and the Configuration model does not say it can be null (only `consumer` and `auth` are documented as nullable). Add to OQ-multi-protocol-18 that the Configuration model's Variables table needs \"null at MQTT CONNECT\" for `route` if option (a) is adopted."
+    }
+  ],
+  "ac_results": [
+    {"ac": "Protocol matrix (ingress by egress) has no blank cells and uses only Planned (M0) to Planned (M5), Not planned or N/A.", "pass": true, "note": "11 rows by 8 `Upstream.spec.protocol` columns, all cells filled with allowed values; verifier reports no FAIL."},
+    {"ac": "Each protocol section states use cases, the kind mapping (Route match and Upstream protocol), Policy applicability and limits.", "pass": true, "note": "HTTP, gRPC, GraphQL, WebSocket, SSE and the Kafka, NATS JetStream and MQTT sections each have an Aspect table with Use cases, Kind mapping, Policy applicability and Limits rows."},
+    {"ac": "Libraries named match docs/engineering/01-tech-stack-and-libraries.md.", "pass": true, "note": "net/http, quic-go, connectrpc.com/connect, grpc-go, coder/websocket, http.ResponseController, graphql-go-tools v2, franz-go, nats.go jetstream, paho.golang autopaho and mochi-mqtt (core and auth packages) all match catalog rows."},
+    {"ac": "Native wire-proxy stance states the Kafka native wire-proxy decision (none before M4) and the MQTT embedded-broker mode milestone.", "pass": true, "note": "Kafka row: \"No native Kafka wire-protocol proxying before M4\"; MQTT row: embedded broker mode Planned (M4)."},
+    {"ac": "GraphQL specifies the subscription transport(s) and covers federation v2, depth and complexity limits and persisted queries (ADR-0012).", "pass": true, "note": "graphql-transport-ws, graphql-ws and SSE; federation versions 1 and 2; depth, alias, complexity, APQ and trusted-documents table; ADR-0012 linked."},
+    {"ac": "gRPC covers transcoding, reflection, streaming, and Connect and gRPC-Web ingress.", "pass": true, "note": "HTTP/JSON transcoding with Figure 1, a reflection paragraph, the Method types table, and connect-go gRPC-Web and Connect ingress."},
+    {"ac": "Filter Chain applicability per protocol is a table mapping each phase, including onChunk, to each protocol.", "pass": true, "note": "Nine Phase rows including `onChunk`, by ten protocol columns, with no blank cells."}
+  ],
+  "foundation_amendments": [
+    "Pack section 4: allow a Route-less `onRequestHeaders` run of the Gateway `auth`-slot Policy at MQTT CONNECT (proposed through OQ-multi-protocol-18 option (a)), or confirm option (b), a session Route at CONNECT.",
+    "Pack section 4: `onChunk` per gRPC message and GraphQL event, and per-operation `onRequestBody` and admission on GraphQL WebSocket sessions (OQ-multi-protocol-17)."
+  ]
+}

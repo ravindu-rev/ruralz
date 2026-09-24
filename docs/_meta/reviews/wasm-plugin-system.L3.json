@@ -1,0 +1,150 @@
+{
+  "lens": "L3",
+  "verdict": "revise",
+  "score": 7,
+  "blocking": [
+    {
+      "id": "L3-1",
+      "section": "Runtime (rule 7; Default limits: instance pool size); Performance model (Sizing)",
+      "issue": "The parked bound falls as a Node gains cores, and at the document's own defaults it reaches zero. Parking is then refused for every call, not only under load. The bound is max(0, min(32, N − GOMAXPROCS)), and N = floor(share / limits.memoryBytes) does not depend on core count. With the default 2 GiB cap, 25% share and 16 MiB limit, N = 32, so a `state.*` pool gets 24 parked instances on 8 cores, 16 on 16 cores, 8 on 24 cores and 0 on 32 cores. Rule 7 returns ERR_UNAVAILABLE for any call beyond the parked bound. On a 32-core Node, every `state_get` and `state_incr` of a default-limit Plugin therefore fails at once with RZ-STS, even at 1 request/s with a healthy State Store. Scaling a Cluster up to larger Nodes breaks a Revision that passes on smaller ones. `ruralz plugin test` on a developer machine with GOMAXPROCS of 32 or more cannot reproduce production. The Sizing table shows the effect only for 64 MiB on 8 cores ('Every `state_*` call gets `RZ-STS`: does not hold'). It never states that the default 16 MiB configuration fails on large Nodes. Architects sizing Nodes cannot act on this section.",
+      "evidence": "L73: \"Every bound derives from the share, so min(`GOMAXPROCS`, N) compute slots always remain: beyond the parked bound, or with the State client breaker open, `state_*` returns `ERR_UNAVAILABLE` at once, yielding `RZ-STS`.\" L85: \"N = floor(share / `limits.memoryBytes`) instances; at most min(2 × `GOMAXPROCS`, N) computing and, in `state.*` pools, max(0, min(32, N − `GOMAXPROCS`)) parked\". L515: \"`state.read` 64 MiB, healthy or brownout | Same loads; N = 8, parked bound 0 on 8 cores | Every `state_*` call gets `RZ-STS`: does not hold\". L305: \"`state.*` Plugins with N below 32 (target)\" (audit checks N only, never GOMAXPROCS).",
+      "fix": "Make the compute reserve a fraction of N rather than all of GOMAXPROCS, so that the parked bound never reaches zero while N ≥ 2. For example: compute reserve = min(GOMAXPROCS, ceil(N/2)) and parked bound = min(32, N − reserve) (target). At N = 32 this gives 16 to 24 parked instances on any core count, and at N = 8 it gives 4. Recheck the healthy and brownout Sizing rows against the new bound and add a 32-core row. Also state that a pool whose parked bound is 0 (N = 1) cannot use `state.*`, and make that a `ruralz bundle audit` error. If the owner prefers to keep a GOMAXPROCS-derived reserve, state the core-count dependence in rule 7 and the Sizing section. Then add a Node-side transient resource NACK when a `state.*` pool's parked bound is 0, so the canary catches the failure instead of every request silently getting RZ-STS."
+    },
+    {
+      "id": "L3-2",
+      "section": "Runtime (Failure semantics and the RZ-PLG registry); Plugin ABI v1 (Contract: Phase result; Host Function rules)",
+      "issue": "Plugin authors cannot tell which ABI errors the guest can handle and which fail the call, and one guest outcome has no registered code. (1) RZ-PLG-006 is listed for 'wrong Phase, exhausted budget, second blocking State Store call, ERR_DENIED', but these are also returned to the guest as ERR_PHASE, ERR_BUDGET and ERR_DENIED values. The document never says whether the host aborts the call on these errors or lets the guest continue. Nor does it say whether a guest that receives ERR_PHASE and still returns CONTINUE is overridden to a failure. (2) The Phase result contract lets a guest return a negative value ('cannot decide, so failureMode applies'). If no State Store call returned ERR_UNAVAILABLE, no RZ code covers that rejection: it is not a trap, a limit, a pool failure or an invalid result. Pack 8.6 requires a code on every rejection, and this document owns the PLG registry. A PDK cannot implement consistent error handling, and operators cannot tell a Plugin's deliberate cannot-decide from a malfunction in `ruralz_plugin_failures_total`.",
+      "evidence": "L110: \"`RZ-PLG-006` | Host Function misuse: wrong Phase, exhausted budget, second blocking State Store call, `ERR_DENIED`\". L84: \"Substitute: 1,000 Host Function calls per call (target) | `ERR_BUDGET`, `RZ-PLG-006`\". L131: \"negative: cannot decide, so `failureMode` applies\". L101: \"A negative guest result after its State Store call returned `ERR_UNAVAILABLE` uses `RZ-STS`; traps and limits use `PLG` (pack section 8.6).\" L181: \"a second returns `ERR_BUDGET`\". Pack 8.6: \"A rejection uses `STS` when a State Store call failed or timed out, `PLG` when a Plugin trapped or exceeded limits, and otherwise the area of the Policy type\".",
+      "fix": "Add one row or sentence to the Contract table that splits the ERR_* values into two classes. Advisory values are returned and the guest may continue: ERR_ABSENT, ERR_LIMIT on context, log and metric writes, ERR_INVALID and ERR_UNAVAILABLE. Sticky values mark the call failed whatever the guest returns: ERR_PHASE, ERR_BUDGET and ERR_DENIED, which yield RZ-PLG-006. Alternatively, have the host trap immediately on the sticky class. Register a new code, for example `RZ-PLG-010 | Guest returned cannot-decide`, for a negative Phase result not preceded by ERR_UNAVAILABLE, and list it among the `ruralz_plugin_failures_total` codes. Add a conformance case per class."
+    },
+    {
+      "id": "L3-3",
+      "section": "Plugin ABI v1 (Host Function rules: Credentials); Threat model (PT-3); Open questions (OQ-wasm-plugin-system-3)",
+      "issue": "OQ-wasm-plugin-system-3 names security-and-identity as its owner, and that owner has answered it with option (b). Security and identity states that credential headers are hidden unless a separate credential Capability is granted and flagged, and it lists OQ-3 as answered. This document still gives option (a), 'All headers (current)', as the design. It keeps the OQ open and blocking for M2, and defines no credential Capability in its Capability or Host Function tables, though Configuration model assigns Capability identifiers to this document. A security engineer reading both documents gets opposite answers to what `request.headers.read` exposes. A PDK author cannot know whether reading `Authorization` needs an extra grant, and the audit table rates `request.headers.read` High for 'Credential exposure', a risk the owner's decision removes.",
+      "evidence": "L566: \"OQ-wasm-plugin-system-3 | Should credential headers need a separate grant? | (a) All headers (current); (b) Header-pattern Capabilities; (c) Redaction | security-and-identity | Yes, for Planned (M2)\". L528: \"PT-3 | Capability over-grant | ... | Header reads expose credentials (OQ-wasm-plugin-system-3)\". L180: \"**Credentials.** Headers set by upstream-auth Filters read as `ERR_ABSENT` elsewhere\". 08-security-and-identity.md L435: \"Credential headers | Hidden unless a separate credential Capability is granted and flagged (OQ-wasm-plugin-system-3, option (b))\"; L558: \"Answered above: ... OQ-wasm-plugin-system-3, -18\". 02-configuration-model.md L459: \"Capability identifiers, default limits and instance pool bounds belong to [WASM plugin system]\".",
+      "fix": "Adopt the owner's answer. Add a Capability, for example `request.credentials.read` (risk High, audit finding 'Credential exposure', always flagged in `ruralz bundle diff`). State in Credentials that `request_header_get` and `request_headers_list` return ERR_ABSENT for, or omit, `Authorization`, `Proxy-Authorization`, `Cookie` and the header names configured by `auth.api-key` Policies unless that Capability is granted. Update PT-3's residual risk and the audit table. Close OQ-3 as answered by Security and identity option (b). If the owner disputes the answer, keep OQ-3 open but mark the conflict explicitly as an escalation per the style guide, and do not describe (a) as current."
+    }
+  ],
+  "non_blocking": [
+    {
+      "section": "Performance model (Sizing); Runtime (rule 7)",
+      "suggestion": "Sizing analyses one pool at a time. In a Cell-wide State Store brownout every `state.*` pool parks up to its bound at the same moment, each reserving up to 24 × 16 MiB = 384 MiB (hypothesis). Several such pools can fill the Node cap, and unrelated pools, including closed auth `plugin` Policies, then fail to grow or refill with RZ-PLG-004. That weakens WG-2 ('fails only its own Policy'). Consider a Node-wide parked budget, for example 25% of the cap (target), beyond which `state_*` returns ERR_UNAVAILABLE, and add a multi-pool brownout row to Sizing."
+    },
+    {
+      "section": "Plugin ABI v1 (Host Function rules: Metrics)",
+      "suggestion": "\"at most 16 per Plugin\" still carries no (target) tag, unlike the neighboring State Store limits. Add the tag."
+    },
+    {
+      "section": "Open questions (OQ-wasm-plugin-system-18)",
+      "suggestion": "Security and identity L442 has already made the rewording ('the rewording OQ-wasm-plugin-system-18 asked for') and lists OQ-18 as answered (L558). Close OQ-18 or mark it answered."
+    },
+    {
+      "section": "Plugin ABI v1 (Contract: Identifier); Open questions (OQ-wasm-plugin-system-12)",
+      "suggestion": "This document owns OQ-repository-layout-and-conventions-2 ('What does the proto package `ruralz.plugin.v1` contain?'), whose proposed option (a) is Host Function field identifiers, return codes and the artifact config message. State that this document answers it with option (c), no proto file, pending the pack amendment in OQ-12. Repository layout's proposal should not stay unanswered."
+    },
+    {
+      "section": "Hot-swap lifecycle (Figure 3)",
+      "suggestion": "The Default limits row calls compiled-code pressure from retained snapshots a transient NACK, but Figure 3 draws no retry edge for it. Add `Compiling --> Compiling: compiled-code limit held by retained snapshots, retry`."
+    },
+    {
+      "section": "Runtime (Default limits: Compiled code per Node; Failure semantics)",
+      "suggestion": "Compiled code size depends on architecture (amd64 or arm64) and the wazero version, so 'RZ-CFG-028 when the Revision alone exceeds it' can differ between Nodes, or between the online stage and a Node. It then does not strictly 'reproduce from the Revision' (pack 8.3). Either treat it as deterministic only when the online stage reproduces it, as for timeouts, or bound it with a figure computed from the artifact, such as Wasm size × 4 (hypothesis)."
+    },
+    {
+      "section": "Hot-swap lifecycle (step 7)",
+      "suggestion": "\"pools and unshared compiled code close\" can be read as closing carried-over pools that the new snapshot still uses (step 4). Write \"pools and compiled code that no newer snapshot shares close\", matching Data plane."
+    },
+    {
+      "section": "Hot-swap lifecycle (Canary percentage)",
+      "suggestion": "\"an erroring `when` runs a `closed` Policy\" contradicts Configuration model L385, where a CEL runtime error applies `failureMode`, so a `closed` Policy rejects. Reword it to \"an erroring `when` makes a `closed` Policy reject\"."
+    },
+    {
+      "section": "Plugin ABI v1 (Host Function table)",
+      "suggestion": "Four clarifications for PDK authors. (1) `consumer_info` valid in 'Phases after the auth Filter class' mixes Phase and Filter class; write 'calls after the auth Filter class has run in `onRequestHeaders`'. (2) State what `request_header_get` returns for a repeated header: the first value, or the values joined with a comma. (3) Say whether `response_header_remove` and `response_headers_list` are omitted on purpose; request headers have both. (4) State that `chunk_read` is a cursor: repeated calls return successive bytes of the current chunk and 0 when it is exhausted."
+    },
+    {
+      "section": "Developer experience and test harness (Observability)",
+      "suggestion": "Observability defines reason `plugin_pool_degraded` as 'A pool is degraded after `RZ-PLG-008`' (10-observability.md L225). This document also shows it while a fault breaker is open. Align the two definitions."
+    },
+    {
+      "section": "Packaging (OCI artifact)",
+      "suggestion": "\"registry allowlist (process configuration, never a Bundle)\" covers file mode only. Under pack 8.14, in Control mode the trust policy lives in Ruralz Control's configuration and reaches Nodes over the Control Stream. State both modes, and say whether an allowlist violation is deterministic (it can differ between Nodes in file mode)."
+    },
+    {
+      "section": "Whole document",
+      "suggestion": "verify-docs prints only WARN lines, for links to documents not yet written (ADR-0004, ADR-0005, ADR-0011, ADR-0017, Performance budgets and benchmarking, CLI and API surface, Capacity planning). No action is needed beyond confirming the file names once those documents land."
+    }
+  ],
+  "ac_results": [
+    {
+      "ac": "Plugin ABI v1 contains a Host Function table giving each function's signature and the Capability it requires.",
+      "pass": true,
+      "note": "The Host Function table (25 rows) gives Parameters, Capability and Valid Phases. The Contract table fixes the universal i32 return, the out-pointer convention and output-buffer semantics. A constants table defines error values, selectors, alg identifiers, levels, the header-list encoding and direction. The L3-4 and L3-5 gaps are resolved. Error-class semantics remain open (L3-2)."
+    },
+    {
+      "ac": "Runtime contains a default limits table (memory, fuel or instruction budget, wall-clock time per call, instance pool size) with values tagged (target).",
+      "pass": true,
+      "note": "Memory 16 MiB (target); wall clock 5 ms (target); fuel 'None: no metering' with a call budget of 1,000 (target); pool size given as a share-derived N, a compute ceiling, a parked bound and a warm minimum of 1 (target). The parked-bound formula is defective on large Nodes (L3-1), but the table the criterion requires exists and is tagged."
+    },
+    {
+      "ac": "Hot-swap lifecycle replaces a Plugin without dropping in-flight requests and supports a canary percentage.",
+      "pass": true,
+      "note": "Step 6 'Serve pinned' keeps in-flight requests on their snapshot's pools for later Phases, onChunk and onLog, and retired pools grow for pinned demand. Step 7 retires at zero pins or at K = 2. Growth runs off the request path through the pool manager. The Hot Reload test case covers onResponse and onLog on the old version. The canary uses the Cluster's `spec.rollout` `canary.percent`, with deterministic and transient NACKs classified per pack 8.3."
+    },
+    {
+      "ac": "SDK matrix covers at least four languages (from Go/TinyGo, Rust, TypeScript, Python, C#), each with a milestone tag.",
+      "pass": true,
+      "note": "Rust Planned (M2), Go/TinyGo Planned (M2), TypeScript Planned (M3), C# Planned (M4). Python is 'Not planned' with an Open question."
+    },
+    {
+      "ac": "Capabilities and sandboxing states that Capabilities are deny-by-default.",
+      "pass": true,
+      "note": "L291: \"Capabilities are deny-by-default: a Plugin calls only Host Functions and WASI imports whose Capability is in `Plugin.spec.capabilities`.\""
+    },
+    {
+      "ac": "proxy-wasm stance states the adapter decision and its milestone, Planned (M4), consistent with ADR-0005.",
+      "pass": true,
+      "note": "L548 states that Plugin ABI v1 is the only primary contract and that a proxy-wasm compatibility adapter is Planned (M4). This matches the pack section 7 ADR-0005 row."
+    },
+    {
+      "ac": "Packaging covers OCI references pinned by digest, cosign signatures and the ruralz plugin commands.",
+      "pass": true,
+      "note": "It covers the required `@sha256:` digest (RZ-CFG-021), OCI media types, Sigstore signing at `ruralz plugin push` with interoperability of cosign-written bundles as a hypothesis confirmed by a CI test, and all five `ruralz plugin` commands tagged Planned (M2)."
+    },
+    {
+      "ac": "H2 outline equals mandatory first two + outline_h2 + Open questions, exactly and in order",
+      "pass": true,
+      "note": "Summary, Scope and non-goals, Goals and prior art, Runtime, Plugin ABI v1, Capabilities and sandboxing, Packaging, Hot-swap lifecycle, SDK matrix, Developer experience and test harness, Performance model, Threat model, proxy-wasm stance, Open questions."
+    },
+    {
+      "ac": "Required diagrams (flowchart host/guest boundary, stateDiagram-v2 lifecycle, sequenceDiagram Phase call) with captions",
+      "pass": true,
+      "note": "Figure 1 is the flowchart, Figure 2 the sequenceDiagram and Figure 3 the stateDiagram-v2 (fetch to retire, with transient retry self-loops and the Pinned state). Each has an italic caption."
+    },
+    {
+      "ac": "Length band, machine checks and required terms (verify-docs)",
+      "pass": true,
+      "note": "`node scripts/verify-docs.mjs --allow-missing --skip markdownlint` prints no FAIL line for this document, only WARNs for links to documents not yet written. All required terms are present."
+    },
+    {
+      "ac": "Every performance or scale number tagged (target) or (hypothesis)",
+      "pass": true,
+      "note": "All budget, limit and sizing figures carry tags, and the cited wazero measurements are sourced. One small count, 16 metric names per Plugin, is untagged (non-blocking)."
+    },
+    {
+      "ac": "Competitor, vendor and library claims cite URLs from this document's research[] files",
+      "pass": true,
+      "note": "All 23 distinct URLs appear in competitors-kong-tyk-apisix.md, competitors-envoy-zuplo-gravitee.md or go-libraries-runtime.md, checked by script. KrakenD cites Vision and pack section 13, sigstore-go cites the tech stack catalog, and the cosign sentence is a tagged hypothesis."
+    },
+    {
+      "ac": "Declared audience (plugin authors, architects, contributors, security engineers) can act without reading sources",
+      "pass": false,
+      "note": "Plugin authors cannot tell which ABI errors they can handle and which fail the call (L3-2). Architects cannot size `state.*` pools on large Nodes (L3-1). Security engineers get a Credential-header Capability model that contradicts Security and identity (L3-3)."
+    }
+  ],
+  "foundation_amendments": [
+    "Pack section 12 and the tech stack Protobuf row: drop `ruralz.plugin.v1` as a proto package, because it only names Plugin ABI v1 and the Wasm import module (OQ-wasm-plugin-system-12; also answers OQ-repository-layout-and-conventions-2 with option (c)).",
+    "Pack section 8.7 rule 4: add asynchronous Plugin `onLog` State Store writes as a bounded sub-queue that never displaces Quota or Token Budget settlement (OQ-wasm-plugin-system-19).",
+    "Pack section 8.11 Disposable caches row: the WASM plugin system keeps compiled Plugin code in memory only (OQ-data-plane-11 option (c)), so 'compiled modules' should be removed from the persisted caches or marked as never persisted (OQ-wasm-plugin-system-16)."
+  ]
+}

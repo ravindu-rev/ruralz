@@ -1,0 +1,65 @@
+{
+  "lens": "L1 feasibility-skeptic",
+  "verdict": "revise",
+  "score": 7,
+  "blocking": [
+    {
+      "id": "L1-1",
+      "section": "GraphQL (Subscriptions; Limits row); HTTP/1.1, HTTP/2 and HTTP/3 (Streams and chunks)",
+      "issue": "This is the same accounting gap that the previous L1-1 closed for gRPC, now in GraphQL subscriptions. The admission reservation and per-chunk reservation apply only to a 'subscribed stream', meaning one where a Policy or Plugin uses onChunk. But graphql-go-tools always builds each subscription event whole in memory, after its per-event entity fetches, whether or not anything subscribes to onChunk. So an unsubscribed GraphQL subscription holds events, and the entity fetch bodies behind them, outside maxBufferedBytes. Each active operation holds an in-flight unit from the proposed long-lived share (about 10,000 at 50% (target)). Each event may reach the 1 MiB cap (target). Worst case, that is about 10 GiB (hypothesis) of unaccounted memory beyond Data plane's roughly 18 GiB Node budget. Nothing refuses an operation with RZ-RT-004 before the Node runs out of memory. The subgraph-side subscription socket's read limit is also not tied to the cap.",
+      "evidence": "Line 82: \"a subscribed stream reserves 32 KiB (target) from the stream share of `maxBufferedBytes` at admission, else 503 `RZ-RT-004` before commit ... Unsubscribed WebSocket and SSE streams copy through 32 KiB (target) buffers, uncapped; the gRPC pass-through codec holds messages whole, so every gRPC stream takes the admission reservation.\" Line 193: \"| Limits | Rules below; `maxRequestBodyBytes`; subgraph bodies within `maxResponseBodyBytes`; each event a chunk; subscriptions end at the Route `timeout` |\". Line 215: \"Each active operation takes one in-flight unit from the proposed long-lived share (OQ-multi-protocol-20)\". Figure 2 loop: \"EN->>P: entity fetch for product fields\" with no reservation, while the query legs state \"body reserved from maxBufferedBytes\".",
+      "fix": "In Streams and chunks, add GraphQL beside gRPC: 'the GraphQL engine holds each event whole, so every subscription operation takes the 32 KiB (target) admission reservation, onChunk subscriber or not'. In Subscriptions, add a bound: an operation whose reservation fails gets an `error` for its id (`RZ-RT-004`), and the socket stays open. Each resolved event, including the bodies of its per-event entity fetches, is reserved toward the 1 MiB cap (target) while held. An event over the cap ends that operation with an `error` and `RZ-RT-013`. Set the subgraph subscription connection's read limit to the same cap. In Figure 2, annotate the per-event entity fetch as 'body reserved from maxBufferedBytes'."
+    },
+    {
+      "id": "L1-2",
+      "section": "Kafka, NATS JetStream and MQTT (Topic ingress: Concurrency, Node backpressure and JetStream rows)",
+      "issue": "The JetStream AckWait rule cannot be met as written, and it ignores pre-buffered messages. First, backpressure holds have no upper bound. Each capped backoff step is bounded, but a Rate Limit window or sustained RZ-RT-005 can repeat them without limit, and the doc says these holds never pause and never count as an attempt. Yet AckWait MUST exceed 'backpressure waits'. Second, the research the doc cites describes Consume() as a callback with pre-buffering, and messages start their AckWait when delivered into that buffer, not when the one-at-a-time processor reaches them. With a slow Upstream, buffered messages pass AckWait and are redelivered to other Nodes while still queued on the first. Both Nodes then process them. The added load slows processing further, so still more messages expire: a redelivery storm that feeds itself. If a MaxDeliver is ever set (listed as an option in OQ-multi-protocol-10), a message that keeps timing out is dropped by the server, which contradicts 'nothing commits silently'. The previous L1-4 fix required in-progress acknowledgments or the AckWait rule to cover the wait; the document leaves in-progress acknowledgments 'unresearched', and the AckWait rule cannot cover an unbounded wait.",
+      "evidence": "Line 449: \"| Concurrency | One message in flight per Kafka partition, or per JetStream consumer on each Node (target), one in-flight unit each |\". Line 451: \"| Node backpressure | A `ratelimit` denial (429 `RZ-RL`), `RZ-RT-004` or `RZ-RT-005` holds the message, releases its in-flight unit and delays the next fetch with capped backoff, never counting as an attempt or pausing |\". Line 455: \"| JetStream | `AckWait` MUST exceed attempts times the Route `timeout` plus backoff and backpressure waits, unless in-progress acknowledgments (unresearched) extend it |\". Research (go-libraries-protocols.md): \"`Consume()` (callback with pre-buffering)\".",
+      "fix": "In the JetStream row: (1) Set the Consume pre-buffer to the in-flight bound, one message per consumer per Node (target), so no message waits in a local buffer while its AckWait runs. Alternatively, count the pre-buffer's worst-case queue time in the AckWait formula. (2) Give JetStream backpressure a maximum hold H, for example 60 s (target). AckWait MUST exceed attempts x Route timeout + backoff + H. When H expires, the Node stops holding the message and lets AckWait redeliver it, which is not an attempt and not a pause. Count it in a metric. (3) Require MaxDeliver unlimited on ingress consumers until OQ-multi-protocol-10 decides between MaxDeliver and Term, so a redelivery never drops a message silently. (4) Add in-progress acknowledgments and the pre-buffer setting to the OQ-multi-protocol-10 spike, and add their nats.go source to the research file."
+    }
+  ],
+  "non_blocking": [
+    {
+      "section": "HTTP/1.1, HTTP/2 and HTTP/3 (Streams and chunks)",
+      "suggestion": "Line 84 gives 'Each stream, session or long-lived operation holds one in-flight unit', but Data plane's goroutine table has 'Stream pump | One per direction of a WebSocket or bidirectional gRPC stream | One in-flight unit each', which is two units per WebSocket session or bidi gRPC call. Pick one count and align both documents; the long-lived share capacity in OQ-multi-protocol-20 depends on it."
+    },
+    {
+      "section": "gRPC (Method types, retries and balancing)",
+      "suggestion": "The HTTP/1.x row sends every enveloped call to a half-duplex server-stream handler. That breaks Connect client-streaming calls over HTTP/1.1, which connect-go allows, even when descriptors prove a method is client-streaming. Add a row: with descriptors, HTTP/1.x client-streaming methods use a client-stream generic handler. Without descriptors, state in the gRPC Limits row that client streaming over HTTP/1.1 is refused. Add the case to the OQ-multi-protocol-2 spike."
+    },
+    {
+      "section": "Kafka, NATS JetStream and MQTT (Topic ingress)",
+      "suggestion": "The three outcome classes do not cover every Node-originated outcome. Examples: a `ratelimit` under `failureMode: closed` during a State Store outage (503), a Plugin short-circuit with an arbitrary status, a `transform.request` CEL error. Add a default rule: any other Node-originated 5xx is backpressure, and any other Node-originated 4xx is a deterministic failure."
+    },
+    {
+      "section": "Open questions (OQ-multi-protocol-20); Topic ingress (Concurrency)",
+      "suggestion": "List which units draw from the proposed long-lived share: stream pumps, WebSocket and multiplexed sessions, GraphQL operations, gRPC enveloped calls without descriptors (unary included), topic-ingress messages and pending MQTT PUBLISHes. Topic ingress takes one unit per assigned partition, with no per-Node cap. Add a per-Node ingress concurrency bound (target) so a Node assigned thousands of partitions cannot crowd out HTTP traffic."
+    },
+    {
+      "section": "HTTP/1.1, HTTP/2 and HTTP/3 (Streams and chunks); gRPC",
+      "suggestion": "Every enveloped gRPC call without descriptors, unary calls included, takes the 32 KiB stream-share reservation. Native gRPC concurrency is therefore capped near 4,000 calls per Node (hypothesis) until OQ-multi-protocol-1 closes. Say so in the gRPC Limits row so Capacity planning can size for it."
+    },
+    {
+      "section": "Filter Chain applicability per protocol (Termination per protocol)",
+      "suggestion": "Native gRPC ends a closed-failureMode onChunk failure with RST_STREAM (panic(http.ErrAbortHandler)), but ends an over-cap message with RESOURCE_EXHAUSTED in trailers. Consider a trailer status for both (for example UNAVAILABLE with the RZ code) under OQ-multi-protocol-17, so clients get a code in both cases."
+    },
+    {
+      "section": "Whole document (citations)",
+      "suggestion": "Several cited URLs appear only in research files outside this entry's research[]. The connect-go README and v1.21.0 release, the quic-go v0.63.0 release and FIPS140.md, grpc-go server.go and go.dev/doc/go1.24 are in go-libraries-runtime.md. krakend.io/features is in krakend-parity.md. Style guide section 4 accepts any file under docs/_meta/research/, but the manifest entry should add those files to research[] so the citation rule stays checkable per document."
+    }
+  ],
+  "ac_results": [
+    {"ac": "Protocol matrix (ingress by egress) has no blank cells and uses only Planned (M0) to Planned (M5), Not planned or N/A.", "pass": true, "note": "11 rows x 8 columns. Every cell is Planned (M1/M3/M4), Not planned or N/A. The verifier reports no FAIL."},
+    {"ac": "Each protocol section states use cases, the kind mapping (Route match and Upstream protocol), Policy applicability and limits.", "pass": true, "note": "HTTP, gRPC, GraphQL, WebSocket, SSE and the Kafka/NATS/MQTT sections each open with a table that has Use cases, Kind mapping, Policy applicability and Limits rows. GraphQL subscription memory limits are incomplete (L1-1)."},
+    {"ac": "Libraries named match docs/engineering/01-tech-stack-and-libraries.md.", "pass": true, "note": "connectrpc.com/connect, grpc-go, coder/websocket, http.ResponseController, graphql-go-tools v2, franz-go, nats.go jetstream, paho.golang autopaho, mochi-mqtt and quic-go all match. Choosing the handler by protocol version is flagged as a tech stack conformance item (see foundation_amendments)."},
+    {"ac": "Native wire-proxy stance states the Kafka native wire-proxy decision (none before M4) and the MQTT embedded-broker mode milestone.", "pass": true, "note": "The Kafka row: 'No native Kafka wire-protocol proxying before M4'. The MQTT row: embedded broker mode Planned (M4)."},
+    {"ac": "GraphQL specifies the subscription transport(s) and covers federation v2, depth and complexity limits and persisted queries (ADR-0012).", "pass": true, "note": "Client transports: graphql-transport-ws, graphql-ws and SSE. Subgraph transport: graphql-transport-ws. Federation versions 1 and 2 are named, and the depth, alias and complexity table plus APQ and trusted documents cite ADR-0012."},
+    {"ac": "gRPC covers transcoding, reflection, streaming, and Connect and gRPC-Web ingress.", "pass": true, "note": "The HTTP/JSON transcoding and reflection subsection, the Method types table (including the HTTP/1.x half-duplex case) and the Libraries section cover gRPC-Web and Connect."},
+    {"ac": "Filter Chain applicability per protocol is a table mapping each phase, including onChunk, to each protocol.", "pass": true, "note": "The table has 9 Phase rows, onChunk included, across 10 protocol columns."}
+  ],
+  "foundation_amendments": [
+    "docs/engineering/01-tech-stack-and-libraries.md, gRPC proxying: select the generic handler by protocol version as well as Content-Type. Enveloped calls on HTTP/1.x go to a server-stream handler (or a client-stream handler when descriptors prove it), and HTTP/2 and HTTP/3 go to the bidirectional handler. Replace 'the Content-Type alone picks the stream type'.",
+    "docs/engineering/01-tech-stack-and-libraries.md, SSE row: 'Replay and Last-Event-ID are Ruralz code' should say forwarding only; gateway-side replay is Not planned (OQ-multi-protocol-12).",
+    "docs/architecture/03-data-plane.md: add option (d) to OQ-data-plane-6, a long-lived share of the in-flight ceiling (OQ-multi-protocol-20). Reconcile the stream-pump count (one unit per direction versus one per stream or session) with Multi-protocol."
+  ]
+}

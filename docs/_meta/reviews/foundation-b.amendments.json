@@ -1,0 +1,136 @@
+[
+ {
+  "slug": "vision-and-positioning",
+  "status": "reviewed",
+  "escalations": [],
+  "scores": [
+   {
+    "lens": "L1 feasibility-skeptic",
+    "score": 6,
+    "verdict": "revise"
+   },
+   {
+    "lens": "L2 foundation-auditor",
+    "score": 7,
+    "verdict": "revise"
+   },
+   {
+    "lens": "L3",
+    "score": 7,
+    "verdict": "revise"
+   },
+   {
+    "lens": "L4C claims-auditor",
+    "score": 6,
+    "verdict": "revise"
+   }
+  ],
+  "amendments": [
+   "Section 2 (Last-Known-Good / Node): add the Node enrollment identity (per-Node mTLS certificate and key, node.id) persisted under ${RURALZ_DATA_DIR}/ as the second kind of durable Node state, so that P4 and the System Overview TB-5 agree.",
+   "Section 7 (AI surface, ADR-0014): add a reservation-and-settlement rule for Token Budgets. Reserve a tokenizer estimate plus max_tokens at admission, settle with provider-reported usage, and charge the reservation when usage is missing, for example on an interrupted stream.",
+   "Section 1 or 7 (Business model): state the Ruralz Cloud tenancy model (a dedicated ruralz-control per customer) and that billing reads only public metrics and APIs, so that 'no cloud-only hooks' is enforceable.",
+   "Manifest acceptance criterion for vision-and-positioning: reword 'Kong 3.10 removing the free Enterprise mode' to 'Kong 3.10 ending free mode per its release note (free mode deprecated per Kong's breaking-changes page)' to match the research's recorded source conflict.",
+   "Section 1 / section 7: state explicitly that the FIPS variant (GOFIPS140, Planned (M5)) is a build flavor with the same feature set and license as the default build, so 'no enterprise build' and 'single feature set' are not read as 'single binary'.",
+   "Section 9: the CLI noun/verb list has no commands for the KrakenD EE-only OpenAPI importer, exporter and end-to-end testing tool that the parity story needs. Add them, for example `ruralz bundle import openapi` as a format of the existing verb, or record them as an OQ owned by docs/reference/01-cli-and-api-surface.md.",
+   "Section 3 / section 10: KrakenD EE-only IP filtering and MaxMind GeoIP have no Policy type in the fixed vocabulary. Decide whether they are built-in Filters (to be added to the Configuration Model registry) or Plugins, so the parity matrix and vision stop inventing types.",
+   "Section 2 Milestones: assign downstream HTTP/3 (UDP 8443, quic-go) to a named milestone, for example M3 with the other multi-protocol work, so documents can tag it Planned (Mx) instead of pointing at OQ-system-overview-1.",
+   "Manifest acceptance criterion 4 for docs/vision/01-vision-and-positioning.md should describe the Kong event as 'Kong 3.10 ending free mode per its release note (Kong docs still describe free mode as deprecated)'. The research records conflicting first-party wording, so the current phrasing pushes writers toward an overstated claim.",
+   "Research correction (not the foundation pack): the licensing-landscape.md section 11 analysis that a DCO prevents Revington from unilaterally relicensing contributions is inaccurate for Apache-2.0 inbound code, because Section 4 allows different terms for Derivative Works. Correct it before ADR-0002 is written.",
+   "Section 7 (AI surface, ADR-0014): add that a Token Budget admits a request only if the remaining budget covers its full reservation, and that when the client omits an output-token limit the gateway writes the Policy default cap into the upstream request. This makes the reservation an upper bound on output tokens.",
+   "Section 2 (Node / Last-Known-Good): state that in Control mode a Node with no Last-Known-Good needs Ruralz Control, or an OCI-published Last-Known-Good seed, before it becomes ready. P2 and P9 can then cite a fixed rule rather than OQ-system-overview-12.",
+   "Section 3 / section 7: record that a Node-wide aggregate Plugin memory cap exists and name where it is configured (a Gateway `limits` field or a `RURALZ_*` setting), so P6 and the WASM plugin system document can cite a canonical field.",
+   "Section 7 (ADR-0008 row) or section 3: state that failureMode is overridable only for non-security Policy types, and that authentication and authorization types are closed only (RZ-CFG-029), matching the Configuration Model registry.",
+   "Manifest acceptance criterion 4 for docs/vision/01-vision-and-positioning.md should read 'Kong 3.10 ending free mode per its release note (Kong docs still describe free mode as deprecated)', because the research records conflicting first-party wording.",
+   "Research correction (not the foundation pack): the analysis line in licensing-landscape.md section 11 ('a DCO means Revington cannot unilaterally relicense community contributions') is legally inaccurate for Apache-2.0 inbound contributions (Section 4 allows different terms for Derivative Works). Correct it before ADR-0002 and the governance documents draw on it."
+  ]
+ },
+ {
+  "slug": "tech-stack-and-libraries",
+  "status": "approved-with-escalations",
+  "escalations": [
+   {
+    "id": "L1-2",
+    "reason": "This revision may edit only docs/engineering/01-tech-stack-and-libraries.md. The fix needs a research addendum under docs/_meta/research/ or a manifest amendment, and no research file gives a URL or license for MADR, markdownlint-cli2, lychee or mermaid. Stating those without a source would break the citation rule. So OQ-tech-stack-and-libraries-5 now reads as an escalation that names L1-2, L2-1 and L3-1 and blocks acceptance criteria 1 and 2 (style guide section 8, approved-with-escalations). The row's License and Source cells now say the item is escalated."
+   },
+   {
+    "id": "L2-1",
+    "reason": "Same limit as L1-2. The research files are outside this revision's edit scope and contain no URLs or licenses for the four docs tools. Adding a research section or amending the manifest's acceptance criteria would mean editing other files. The item is escalated through OQ-tech-stack-and-libraries-5, which names this finding. The 'Acceptance criterion 1 open' text in the Risk cell has been replaced."
+   },
+   {
+    "id": "L3-1",
+    "reason": "Same limit as L1-2. The finding's own fix says the orchestrator must add the research addendum first. That has not happened, and this revision cannot edit research files. The part this document controls is fixed: the Risk cell now states a real risk (flaky or rate-limited external URLs, so lychee runs on a schedule). The citation and license part is escalated through OQ-tech-stack-and-libraries-5."
+   },
+   {
+    "id": "L1-3",
+    "reason": "go-libraries-runtime.md section 6 gives only hashicorp/raft's license (MPL-2.0). It records no LICENSE URL or SPDX identifier for raft-boltdb/v2, go-msgpack/v2, go.etcd.io/bbolt or raft's other transitive modules. This revision cannot edit research, and claiming those licenses without a source is forbidden. The provisional MPL-2.0 exceptions and the merge block stay. OQ-tech-stack-and-libraries-10 is now an explicit escalation that names L1-3, L2-2 and L3-2 and blocks acceptance criteria 2 and 3 and ADR-0006."
+   },
+   {
+    "id": "L2-2",
+    "reason": "Same limit as L1-3. Confirming the licenses, marking rows Confirmed or dropping them, naming bbolt's license, and closing OQ-10 all depend on a research amendment in another file. The finding says 'Do not assert any license that is not in research'. So the Control Store License cell and OQ-tech-stack-and-libraries-10 now carry an escalation that names this finding."
+   },
+   {
+    "id": "L3-2",
+    "reason": "Same limit as L1-3. The research addendum to go-libraries-runtime.md section 6 cannot be made in this revision, and the finding's own fallback is to escalate through OQ-tech-stack-and-libraries-10. That row now says it is an escalation for L3-2 and blocks acceptance criteria 2 and 3 and ADR-0006. The Control Store License cell says the item is escalated."
+   }
+  ],
+  "scores": [
+   {
+    "lens": "L1 feasibility-skeptic",
+    "score": 6,
+    "verdict": "revise"
+   },
+   {
+    "lens": "L2 foundation-auditor",
+    "score": 7,
+    "verdict": "revise"
+   },
+   {
+    "lens": "L3 acceptance-audience",
+    "score": 7,
+    "verdict": "revise"
+   }
+  ],
+  "amendments": [
+   "Section 7, ADR-0004: repository github.com/wazero/wazero, Go module path github.com/tetratelabs/wazero.",
+   "Section 7, ADR-0009: net/http (HTTP/1.1, HTTP/2, h2c) plus quic-go; x/net/http2 Server and Transport are deprecated since x/net v0.59.0 and not used.",
+   "Section 7, ADR-0011: cel-go import path is cel.dev/cel-go; update the manifest acceptance text 'google/cel-go' to match.",
+   "Section 7, ADR-0001: set the Go floor explicitly, either 1.27 or 1.26 with GOEXPERIMENT=jsonv2 required for 1.26 builds.",
+   "Section 2, ports: add a Raft peer transport for ruralz-control (new port or a documented multiplex on 8091) and require mutual TLS.",
+   "Section 7: add decisions for the YAML 1.2 parser, the JSON Schema 2020-12 validator and the protobuf runtime.",
+   "Research: add a docs-tooling research file, plus license facts for raft-boltdb/v2, bbolt and go-msgpack/v2.",
+   "Section 7 WASM runtime (ADR-0004): repository `github.com/wazero/wazero`, Go module path `github.com/tetratelabs/wazero` (https://github.com/wazero/wazero/blob/main/go.mod). Resolves OQ-tech-stack-and-libraries-1.",
+   "Section 7 HTTP stack (ADR-0009): '`net/http` (HTTP/1.1, HTTP/2, h2c) + quic-go; `golang.org/x/net/http2` only for non-deprecated low-level APIs' (x/net v0.59.0 deprecates the Server and Transport, https://github.com/golang/go/issues/78064). Resolves OQ-tech-stack-and-libraries-2.",
+   "Section 7 Expressions (ADR-0011): cel-go import path `cel.dev/cel-go` (https://github.com/cel-expr/cel-go/releases/tag/v0.32.0). Also update the manifest AC that names google/cel-go. Resolves OQ-tech-stack-and-libraries-3.",
+   "Section 7 Language/build (ADR-0001): jwx v4 needs encoding/json/v2, which means a Go 1.27 floor or GOEXPERIMENT=jsonv2 on Go 1.26 (https://github.com/lestrrat-go/jwx/blob/develop/v4/README.md). Resolves OQ-tech-stack-and-libraries-4.",
+   "Section 7 Control Store (ADR-0006): name hashicorp/raft-boltdb/v2 on go.etcd.io/bbolt instead of 'BoltDB', and list every admitted MPL-2.0 module as a named exception once its license is confirmed.",
+   "Section 7: add decisions or explicit deferrals for the YAML 1.2 parser and JSON Schema 2020-12 validator (section 5), the Prometheus /metrics exposition (section 2 admin port), the protobuf runtime, ULID node.id and AWS SigV4 signing.",
+   "Section 7 WASM runtime: record the repository as github.com/wazero/wazero and the Go module path as github.com/tetratelabs/wazero (OQ-tech-stack-and-libraries-1).",
+   "Section 7 HTTP stack (ADR-0009): reword to net/http (HTTP/1.1, HTTP/2, h2c) + quic-go, with x/net/http2 only for low-level APIs, because its Server and Transport are deprecated in x/net v0.59.0 (OQ-2).",
+   "Section 7 Expressions (ADR-0011) and the manifest acceptance text: the cel-go import path is cel.dev/cel-go (repository cel-expr/cel-go), and google/cel-go is a read-only alias (OQ-3).",
+   "Section 7 Language/build (ADR-0001): Go 1.26 builds need GOEXPERIMENT=jsonv2 for jwx v4, and release builds use the newest Go patch through the toolchain directive (or raise the floor to 1.27, per OQ-4).",
+   "Section 7 Control Store (ADR-0006): name hashicorp/raft-boltdb/v2 (>= v2.4.2) on go.etcd.io/bbolt, and list every admitted MPL-2.0 module as a named exception.",
+   "Section 7 Control Stream (ADR-0007): record connectrpc.com/connect in gRPC mode on both ends, with protos gated by buf breaking.",
+   "Research amendment: add URLs and licenses for MADR 4.0, markdownlint-cli2, lychee and mermaid, plus the YAML, JSON Schema, protobuf, CLI, ULID, Prometheus exporter, SigV4, SAML and postgres driver candidates.",
+   "Section 2, default ports: add a Raft peer port for ruralz-control (the document proposes 8092, with ALPN multiplexing on 8091 as the alternative) and require mutual TLS for Control Store replication.",
+   "Section 7, Semantic cache: replace 'over the same State Store connection' with 'on the same State Store deployment through dedicated connections' (OQ-tech-stack-and-libraries-7).",
+   "Section 7, ADR-0004: repository github.com/wazero/wazero, Go module path github.com/tetratelabs/wazero (OQ-1).",
+   "Section 7, ADR-0009: net/http (HTTP/1.1, HTTP/2, h2c) plus quic-go; x/net/http2 Server and Transport are deprecated as of x/net v0.59.0 (OQ-2).",
+   "Section 7, ADR-0011: the cel-go import path is cel.dev/cel-go, and the manifest acceptance text should match (OQ-3).",
+   "Section 7, ADR-0001: the Go 1.26 floor requires GOEXPERIMENT=jsonv2 for 1.26 builds, and release and FIPS builds use the newest Go release through the toolchain directive with no GOEXPERIMENT.",
+   "Research inventory: add docs-tooling facts (MADR, markdownlint-cli2, lychee, mermaid URLs and licenses) and license facts for raft-boltdb/v2, bbolt, go-msgpack/v2 and raft's transitive modules, or relax acceptance criterion 1 for CI-only tooling.",
+   "Section 7 WASM runtime (ADR-0004): name the repository `github.com/wazero/wazero` and the Go module path `github.com/tetratelabs/wazero` (https://github.com/wazero/wazero/blob/main/go.mod). Resolves OQ-tech-stack-and-libraries-1.",
+   "Section 7 HTTP stack (ADR-0009): '`net/http` (HTTP/1.1, HTTP/2, h2c via `Server.Protocols`) + `quic-go` for HTTP/3; `golang.org/x/net/http2` only for non-deprecated low-level APIs' (https://github.com/golang/go/issues/78064). Resolves OQ-tech-stack-and-libraries-2.",
+   "Section 7 Expressions / authz (ADR-0011): record the cel-go import path as `cel.dev/cel-go` (https://github.com/cel-expr/cel-go/releases/tag/v0.32.0), and update the manifest acceptance criterion that names `google/cel-go`. Resolves OQ-tech-stack-and-libraries-3.",
+   "Section 7 Control Store (ADR-0006): name the log store as `hashicorp/raft-boltdb/v2` on `go.etcd.io/bbolt`, not 'BoltDB' (https://github.com/hashicorp/raft-boltdb/blob/master/v2/go.mod), and list every admitted MPL-2.0 module as a named exception once research confirms its license.",
+   "Section 7 Semantic cache: change 'over the same State Store connection' to 'on the same State Store deployment and connection settings, using dedicated connections separate from the auto-pipelined rate-limit and quota connections'; state that Semantic Cache is unavailable on State Store servers without Vector Sets or valkey-search (Dragonfly, Valkey below 9.0.1). Resolves OQ-tech-stack-and-libraries-7.",
+   "Section 2 default ports: assign a Control Store Raft peer port on `ruralz-control` (the document proposes 8092; the alternative is ALPN multiplexing on 8091), decided with OQ-system-overview-7, and state where `ruralz-control` exposes `/metrics`, since the foundation pack gives it no admin port.",
+   "Section 7 HTTP stack (ADR-0009): reword to \"net/http (HTTP/1.1, HTTP/2, h2c) + quic-go for HTTP/3; golang.org/x/net/http2 only for non-deprecated low-level APIs\" (OQ-tech-stack-and-libraries-2).",
+   "Section 7 Expressions (ADR-0011) and the manifest acceptance text for this doc: the cel-go import path is cel.dev/cel-go, and google/cel-go is a read-only alias (OQ-tech-stack-and-libraries-3).",
+   "Section 7 Control Store (ADR-0006): name the log store as hashicorp/raft-boltdb/v2 (>= v2.4.2) on go.etcd.io/bbolt, and list every MPL-2.0 module admitted as a named exception once research confirms the licenses (OQ-tech-stack-and-libraries-10).",
+   "Section 2 default ports: add a Raft peer port for ruralz-control (proposed 8092, mutual TLS, Ruralz Control peer authority only), or record ALPN multiplexing on 8091 (Control Store transport; OQ-system-overview-7).",
+   "Section 7 Semantic cache: change \"over the same State Store connection\" to \"on the same State Store deployment with dedicated connections\" (OQ-tech-stack-and-libraries-7).",
+   "Section 7 Control Stream (ADR-0007): record the library choice as connectrpc.com/connect in gRPC mode on both ends, with protos gated by buf breaking.",
+   "Research amendment (not the foundation pack itself): add primary URLs, versions and licenses for MADR 4.0, markdownlint-cli2, lychee and mermaid, and LICENSE facts for raft-boltdb/v2, go-msgpack/v2 and bbolt. These are needed to close L3-1 and L3-2."
+  ]
+ }
+]

@@ -1,0 +1,152 @@
+{
+  "lens": "L3 acceptance-audience",
+  "verdict": "revise",
+  "score": 7,
+  "blocking": [
+    {
+      "id": "L3-1",
+      "section": "Rate limiting / Per-Node ceiling; Response caching; Failure matrix",
+      "issue": "Operators who build alerts from this document will query a label value that does not exist and will page on a state Observability says is not degraded. (1) The document gives the `ruralz_cache_store_skipped_total` reason as `state_store_memory`, but the Observability catalog defines it as `memory`. (2) The document says any derived ceiling without a published Node count uses the full limit 'with a degraded metric'. Observability says file mode without a declared ceiling is not degraded, and it raises `node_count_unknown` only for derived ceilings in Control mode, Planned (M2). A file-mode Cluster would therefore show a permanent degraded state.",
+      "evidence": "Doc line 373: \"`ruralz_cache_store_skipped_total` reasons are `size_limit`, `buffer_budget` and `state_store_memory`.\" Observability line 161: \"| `ruralz_cache_store_skipped_total` | Counter | stores | `policy`, `reason` | size_limit, buffer_budget, memory |\". Doc line 250: \"else derived from N_published, the `HeartbeatReply` `clusterNodeCount`, else the full limit with a degraded metric.\" Doc line 470: \"| No Node count yet | Derived ceiling | Full limit, degraded metric | Open | Declared ceiling |\". Observability line 234: \"File mode without a declared ceiling uses the full limit (pack 8.8), which is not degraded.\" Observability reason table: \"| `node_count_unknown` | A derived Rate Limit ceiling lacks the published Node count; Planned (M2) |\".",
+      "fix": "Line 373: use reason `memory`, or agree one value with Observability so both documents print the same one. Line 250: \"else, in Control mode, the full limit with degraded reason `node_count_unknown`; file mode without a declared ceiling uses the full limit and is not degraded (pack 8.8).\" Line 470: make the same distinction (see L3-2 for the merged row). Keep the edits word-neutral: the body is at 4,990 of 5,000 words."
+    },
+    {
+      "id": "L3-2",
+      "section": "Failure matrix; Rate limiting / Per-Node ceiling",
+      "issue": "Acceptance criterion 3 asks for fail-open or fail-closed behavior for each dependency failure. Ruralz Control is the second external dependency of the rate-limit path, since it publishes `clusterNodeCount`, but no row names its outage. The consequence also goes unstated. A Node keeps the count only in memory, and pack 8.11 lets a Node persist only its identity, Last-Known-Good and disposable caches. So a Node that restarts from Last-Known-Good while Ruralz Control is down has no count and uses the full limit as its ceiling. If the State Store is also failing, fail-open admission reaches about N x limit instead of the 2 x limit the document advertises. Separately, the 'Nodes lost' row gives a 60 s rule for small decreases that Control plane and GitOps no longer states, and the quoted counting rule at line 254 does not match the source text.",
+      "evidence": "Doc line 254: \"Nodes apply the value as received and keep it while Ruralz Control is down.\" Doc line 470: \"| No Node count yet | Derived ceiling | Full limit, degraded metric | Open | Declared ceiling |\" (no row names Ruralz Control). Pack 8.11: \"A Node persists only the following under `${RURALZ_DATA_DIR}`\" (identity, Last-Known-Good, disposable caches). Doc line 471: \"| Nodes lost | Derived ceiling | Large decreases publish at once, small ones after 60 s (target); keys under-admit meanwhile | Closed | No |\". Control plane and GitOps line 115: \"`clusterNodeCount` counts ready Nodes that ACKed a Revision and stayed connected 10 minutes (target); large decreases publish at once, and increases rise at most 10% per minute, with an alert (target).\" Doc line 254 quotes it as \"ready, streaming Nodes that ACKed a Revision and stayed connected 10 minutes (target)\".",
+      "fix": "Replace the line 470 row with: \"| Ruralz Control unreachable, or no Node count yet | Derived ceiling | Keep the last count in memory; a Node restarted from Last-Known-Good has none and uses the full limit (`node_count_unknown`), so fail-open admits up to N x limit | Open | Declared ceiling; OQ-traffic-management-and-resilience-19 |\". Either accept that bound explicitly, or add an option to OQ-traffic-management-and-resilience-19 that persists the last count under `${RURALZ_DATA_DIR}`, which is a pack 8.11 amendment. Line 471: \"Large decreases publish at once ([Control plane and GitOps](04-control-plane-and-gitops.md#replica-roles)); keys under-admit until then\". Line 254: quote the source sentence verbatim or paraphrase it without quotation marks."
+    },
+    {
+      "id": "L3-3",
+      "section": "Rate limiting (Algorithm choice, Decision path, Per-Node ceiling); Failure matrix",
+      "issue": "The normative admission bounds that operators need to size Upstreams for a State Store outage use symbols the document never defines, or defines only after first use. N_published first appears in Decision path step 3 but is defined 45 lines later. N_serving is never defined. TAT is never expanded. τ is used as a burst parameter without being named as the GCRA burst tolerance. B appears inline once. The Failure matrix repeats 'N_serving / N_published x 2 x limit' with no definition nearby. Operators, one of the declared audiences, cannot evaluate these bounds without the GCRA sources.",
+      "evidence": "Line 198: \"| GCRA | Exact within one store | One timestamp (TAT) per key | Global when shared | τ; τ = window allows 2 × limit |\". Line 205: \"spends one unit of a per-Node budget, max(1, B / N_published) per second across all Policies, with B = 20,000 per Cell\". N_published is defined only at line 250: \"else derived from N_published, the `HeartbeatReply` `clusterNodeCount`\". Line 252: \"An aligned window then admits N_serving / N_published × 2 × limit\" (N_serving is never defined). Line 459: \"Admit from unfloored buckets: N_serving / N_published × 2 × limit per aligned window\".",
+      "fix": "After the first Rate limiting paragraph, add one sentence: \"Notation: N_published is the Node count Ruralz Control publishes (`clusterNodeCount`); N_serving is the number of Nodes actually serving; TAT is the GCRA theoretical arrival time per key; τ is the GCRA burst tolerance (one `window` today); B is the Cell-wide first-seen call budget.\" Offset the roughly 45 words with cuts elsewhere (see non-blocking), and have the Failure matrix intro point to it."
+    },
+    {
+      "id": "L3-4",
+      "section": "Circuit breakers; Traffic shaping / KrakenD EE routing and traffic features",
+      "issue": "The breaker opens only when both `consecutiveFailures` and a fixed ratio guard hold: 50% of at least 20 legs in 10 s, per Upstream per Node. So on any Node that sends fewer than 2 legs per second to an Upstream, the breaker can never open, whatever `consecutiveFailures` says. At 100 Nodes, an Upstream receiving under about 200 legs per second Cluster-wide is never broken. The document does not state this. It maps KrakenD's 'Customizable HTTP circuit breaker' to `circuitBreaker` as if equivalent, although KrakenD's breaker opens on consecutive errors alone (`max_errors`). An operator or a KrakenD migrant who sets `consecutiveFailures: 3` will expect behavior the design never produces, and no text tells them which mechanism protects low-traffic Upstreams instead.",
+      "evidence": "Line 173: \"| `consecutiveFailures` | Opens the breaker once that many consecutive legs failed and at least 50% of at least 20 legs in a rolling 10 s window (target) | 503 `RZ-UP-005` at once, no retry |\". Line 179: \"The guards are fixed until OQ-traffic-management-and-resilience-5 adds fields.\" Line 442: \"| Customizable HTTP circuit breaker | `circuitBreaker` with CEL `failureWhen` | Planned (M1) |\". docs/_meta/research/krakend-config-model.md line 127: \"`qos/circuit-breaker` | B | CE | Consecutive-error breaker (`interval`, `timeout`, `max_errors`, ...)\" (https://www.krakend.io/docs/backends/circuit-breaker/).",
+      "fix": "Add to Circuit breakers: \"Below 20 legs per 10 s per Node the breaker never opens; passive ejection, the retry budget and `maxPendingRequests` protect such Upstreams.\" Make one of these two changes as well. (a) Let the volume floor fall back to `consecutiveFailures` alone when fewer than 20 legs arrive, and state the false-trip trade-off. (b) Keep the floor, mark `minimumLegs` in OQ-traffic-management-and-resilience-5 as blocking for M1, and add to the KrakenD row that `max_errors` imports with fidelity `approximate`. Keep the change word-neutral."
+    }
+  ],
+  "non_blocking": [
+    {
+      "section": "Whole document (length band)",
+      "suggestion": "The body is 4,990 words by the verify-docs rule (fenced code excluded) against a 5,000 cap, so every fix must cut as many words as it adds. Candidate cuts: the second sentence of line 94 (Cluster-wide probe arithmetic); the 'Principal' row justification at line 354; the duplicated 'hot entry' arithmetic in the Failure matrix row at line 463, which restates line 370; and 'Pack 8.8 names a foundation pack section' at line 24."
+    },
+    {
+      "section": "Rate limiting / Decision path",
+      "suggestion": "Step 5 resends the script as `EVAL` on `NOSCRIPT` 'within the same deadline'. That is a second blocking round trip for one Policy, which pack 8.7 rule 1 forbids, although the Tech stack Rate limiting row endorses `EVALSHA` with `NOSCRIPT` fallback. Either send `EVAL` on the first call after a State client reconnect or failover, or list the exception in OQ-traffic-management-and-resilience-20 as a pack 8.7 clarification."
+    },
+    {
+      "section": "Rate limiting / Decision path",
+      "suggestion": "Line 210 says 'This local admission amends pack 8.8', but OQ-traffic-management-and-resilience-20 is still open. Write 'proposes to amend pack 8.8' so readers do not treat the local-only path as frozen."
+    },
+    {
+      "section": "Circuit breakers; Figure 1; Figure 2",
+      "suggestion": "State what non-probe attempts get while the breaker is half-open (presumably 503 `RZ-UP-005` at once). Figure 1's gate node 'Breaker closed and in-flight slot or pending room?' omits the half-open probe path."
+    },
+    {
+      "section": "Response caching",
+      "suggestion": "A background revalidation that returns 200 is discarded ('any other result ends the stale window, unstored'), so the next request misses synchronously. RFC 5861 expects the fresh response to replace the entry. Add the reason, presumably that the replay skipped the Route's response Phases, so the response cannot be stored as clients would receive it. This keeps implementers from 'fixing' it."
+    },
+    {
+      "section": "Response caching",
+      "suggestion": "Line 362 rejects `cache` combined with 'an `onRequestBody` authz' Policy. `authz.cel`, `authz.opa` and `authz.cedar` register both `onRequestHeaders` and `onRequestBody`, so say whether every such Policy counts, or only those whose rule reads `request.body`. Otherwise every Route with `authz.cel` may be unable to cache."
+    },
+    {
+      "section": "Timeouts, deadlines, retries and hedging / Deadlines",
+      "suggestion": "The proposed-defaults table gives `Route.spec.timeout` but no default for `Upstream.spec.timeout`. Add one, or say it defaults to the Route's remaining time. 'Each bound is clamped by the one above' does not hold for the State Store row, which is clamped by the Route's largest `stateStoreTimeout`."
+    },
+    {
+      "section": "Open questions",
+      "suggestion": "OQ-traffic-management-and-resilience-1 and -2 block M1 but mark no recommended option. This document authors `ratelimit` `config` (pack 3 and 8.8), so recommend one option in each."
+    },
+    {
+      "section": "Traffic shaping / KrakenD EE routing and traffic features; Quotas",
+      "suggestion": "https://www.krakend.io/features/ and https://redis.io/docs/latest/develop/programmability/eval-intro/ are not in this document's manifest research file (scalability-patterns.md). They appear in krakend-parity.md and go-libraries-protocols.md, and are cited by the Configuration model and the Tech stack document. Either add those research files to the manifest entry or cite the research-file rows next to the URLs."
+    },
+    {
+      "section": "Quotas",
+      "suggestion": "krakend-parity.md lists 'Token quota enforcement and quota management' as EE-only. One clause mapping it to `quota` plus `ai.token-budget` would help evaluators, although acceptance criterion 2 does not require it."
+    },
+    {
+      "section": "Overload protection",
+      "suggestion": "The section has two sentences. A compact list naming each bounded resource and where it is defined would let operators act without jumping across documents: Node in-flight ceiling, buffer budget, per-Upstream bulkhead and pending queue, retry budget, probe slots, post-commit queue, revalidation queue and coalescing table. It needs word offsets."
+    }
+  ],
+  "ac_results": [
+    {
+      "ac": "Rate limiting contains an algorithm table comparing accuracy, cost, multi-node behavior and burst handling (ADR-0008).",
+      "pass": true,
+      "note": "The 'Algorithm choice' table has columns Accuracy, State Store cost per request, Multi-Node behavior, Burst handling and Used by, for fixed window, sliding window counter, token bucket, GCRA and the chosen hybrid. It links ADR-0008, and each competitor claim cites a URL in scalability-patterns.md."
+    },
+    {
+      "ac": "Every KrakenD EE routing and traffic feature (catch-all fallback, header and query dynamic routing, conditional routing, wildcard routes, URL rewrite, virtual hosts, client redirects, customizable HTTP circuit breaker, service rate limit, tiered rate limit, stateful rate limit, IP filtering, GeoIP) is mapped to a Ruralz mechanism with a milestone.",
+      "pass": true,
+      "note": "All 13 rows appear with a mechanism and a milestone (client redirects Planned (M2), GeoIP Planned (M2), the rest Planned (M1)), matching the EE rows of krakend-parity.md. The circuit breaker mapping hides a behavioral difference (L3-4)."
+    },
+    {
+      "ac": "Failure matrix gives fail-open or fail-closed behavior for each dependency failure, including State Store outage.",
+      "pass": false,
+      "note": "27 rows with no blank cells cover State Store outage, shard breaker, OOM, eviction, failover, Cell loss, Upstream, Endpoint, discovery and CEL failures. Ruralz Control unavailability, the source of `clusterNodeCount`, has no row, and the restart-loses-count consequence (up to N x limit when fail-open) is missing (L3-2). The 'No Node count yet' row also contradicts Observability for file mode (L3-1)."
+    },
+    {
+      "ac": "Rate limiting specifies the IETF RateLimit-Policy and RateLimit response header contract.",
+      "pass": true,
+      "note": "Names draft-ietf-httpapi-ratelimit-headers-11 as an Internet-Draft and uses RFC 9651 Structured Field lists. It gives `q`, `w`, `r` and `t` per RZ-RL code and Retry-After precedence (as research quotes), explains why `pk` and `qu` are omitted, and includes a worked 429 example. Headers on admitted responses wait on OQ-traffic-management-and-resilience-2 (blocking, M1), because the `ratelimit` type registers no response Phase. That gap is acceptable, but the contract is complete only for 429 responses."
+    },
+    {
+      "ac": "Quotas supports long windows and token-weighted units, including LLM tokens.",
+      "pass": true,
+      "note": "Fixed windows aligned to the Unix epoch in UTC (`24h`, `720h`). Units are `requests` through `quota` and `tokens` (LLM input plus output) through `ai.token-budget`, with the pack 8.9 reservation and settlement. The Consumer and Policy example uses only Configuration model fields. Calendar months and weighted costs go to OQ-traffic-management-and-resilience-10."
+    },
+    {
+      "ac": "Timeouts, deadlines, retries and hedging defines a retry budget.",
+      "pass": true,
+      "note": "The 'Retry budget' H3 sets in-flight retries, backoff included, at most max(3, 20% of in-flight originals) per Upstream per Node (target). It adds a metric and an amplification bound of 1.2 times from 15 originals, which checks out arithmetically. Hedges count against the budget."
+    },
+    {
+      "ac": "Response caching follows HTTP caching semantics including stale-while-revalidate.",
+      "pass": true,
+      "note": "Covers RFC 9111 storability (including Authorization, `no-cache` not stored at M1, `private`, `Vary: *`), freshness order, stale limits (`must-revalidate`, `proxy-revalidate`, `s-maxage` per sections 4.2.4 and 5.2.2.10), request directives including `only-if-cached` 504, revalidation, invalidation (the RFC 9111 section 4.4 gap is in OQ-11), RFC 9211 Cache-Status, and RFC 5861 `stale-while-revalidate` and `stale-if-error` with a sequence diagram. The discarded 200 on revalidation needs a stated reason (non-blocking)."
+    },
+    {
+      "ac": "Machine checks: required_terms (RateLimit-Policy, GCRA, token bucket, retry budget, stale-while-revalidate, (target)); has_table in Rate limiting and Failure matrix; no_blank_cells in Failure matrix.",
+      "pass": true,
+      "note": "`node scripts/verify-docs.mjs --allow-missing --skip markdownlint` prints no FAIL line for this document. The only lines are WARN broken links to ADR-0008, ADR-0011, ADR-0014 and architecture documents 11 and 12, which are not written yet; their paths match the manifest."
+    },
+    {
+      "ac": "H2 outline equals Summary, Scope and non-goals, the 11 outline_h2 entries in order, then Open questions.",
+      "pass": true,
+      "note": "Exact match and order."
+    },
+    {
+      "ac": "Required Mermaid diagrams with captions: rate-limit decision flowchart, retry and circuit breaker stateDiagram-v2, load-balancing Endpoint selection flowchart.",
+      "pass": true,
+      "note": "Figure 3 (flowchart, 21 nodes), Figure 2 (stateDiagram-v2 with retry-loop and breaker composites) and Figure 1 (flowchart, 18 nodes) are present, plus a Figure 4 sequence diagram. Each has an italic caption directly above it and passes the official mermaid parser."
+    },
+    {
+      "ac": "Length band 2,500 to 5,000 words; Summary 120 words or fewer.",
+      "pass": true,
+      "note": "4,990 body words by the verify-docs rule, only 10 below the cap, so all fixes must be word-neutral. The Summary is 75 words and names architects, operators and contributors."
+    },
+    {
+      "ac": "Every performance or scale number carries (target) or (hypothesis).",
+      "pass": true,
+      "note": "A manual scan found none untagged. The Cloudflare 0.003% and Valkey 1.19 million figures cite research URLs on the same line. Spot-checked arithmetic is correct: 7 x 10^-6 binomial tail, 333 of 1,024 slots, 250 s warm-up, 34 minutes for 10 to 100 Nodes at +10% per minute, 13,300 DNS queries per second, 131 MB/s."
+    },
+    {
+      "ac": "Declared audience (architects, operators, contributors) can act on the document without reading its sources.",
+      "pass": false,
+      "note": "Architects and contributors mostly can. Operators get a wrong metric label value and a degraded state that contradicts Observability (L3-1), undefined notation in the admission bounds they must size for (L3-3), and a breaker that silently never opens at low per-Node volume (L3-4)."
+    }
+  ],
+  "foundation_amendments": [
+    "Pack 8.11: consider allowing a Node to persist the last received `clusterNodeCount` beside Last-Known-Good, so a Node restarted during a Ruralz Control outage keeps a derived Rate Limit ceiling instead of falling back to the full limit (see L3-2 and OQ-traffic-management-and-resilience-19).",
+    "Pack 8.7 rule 1: clarify whether a `NOSCRIPT` resend of the same script counts as the one blocking State Store round trip, since the Tech stack Rate limiting row endorses `EVALSHA` with `NOSCRIPT` fallback."
+  ]
+}

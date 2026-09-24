@@ -1,0 +1,128 @@
+{
+  "lens": "L1 feasibility-skeptic",
+  "verdict": "revise",
+  "score": 7,
+  "blocking": [
+    {
+      "id": "L1-1",
+      "section": "Rate limiting / Decision path; Failure matrix",
+      "issue": "The document claims the first-seen key budget caps State Store calls at B per Cell \"whatever N\", but the per-Node share is B / N_published. The document itself says N_published can be absent or lag N_serving. In file mode no `clusterNodeCount` exists, so the per-Node budget is undefined. Read as N = 1, every Node gets the full B, and the Cell makes N x B calls per second. During the scale-out lag the document describes elsewhere, the cost is N_serving / N_published x B. The stated bound and the headroom figure of \"20% of a shard\" are therefore false in two ordinary states.",
+      "evidence": "Step 3: \"spends one unit of a per-Node budget, max(1, B / N_published) per second across all Policies, with B = 20,000 per Cell, 20% of a shard (hypothesis)\" and \"First-seen keys thus cost at most B calls per second per Cell, whatever N and the Policy count\". Per-Node ceiling: \"else derived from N_published, the `HeartbeatReply` `clusterNodeCount`, else the full limit with a degraded metric\" and \"scaling 10 to 100 Nodes keeps N_serving / N_published up to 10 for about 34 minutes (hypothesis)\". Scenario: a key-rotation flood during that scale-out makes 10 x 20,000 = 200,000 first-seen GCRA calls per second, about 2 shards' worth at the document's own 100,000 per shard (hypothesis). In file mode with 100 Nodes it is 2,000,000 per second.",
+      "fix": "Define the per-Node budget when N_published is absent, for example a fixed 200 per second per Node (target), and state the resulting bound N x 200. Restate the bound as B x N_serving / N_published, noting that it grows during the count qualification window. Add both cases to the \"Key-rotation flood or new Node\" failure-matrix row and to OQ-traffic-management-and-resilience-19 and -20."
+    },
+    {
+      "id": "L1-2",
+      "section": "Rate limiting / Decision path; Failure matrix",
+      "issue": "The failure matrix labels the local-only path \"Open\", but for established legitimate keys it fails closed, and an attacker can force it across a Cell. A local-only entry has capacity 1 and refills at 2 x `requests` / N_published per window. That is below the per-Node ceiling of max(10, 2 x `requests` / N) that the document gives pinned clients, and capacity 1 allows no burst. Legitimate keys reach this path in two ways. First, every restarted Node, and so every Node during a rolling Zero-Downtime Upgrade, starts empty. Second, a key-rotation flood fills the shared 1,048,576-entry CLOCK table, which evicts established entries, and uses up the shared first-seen budget, so evicted keys come back as local-only for as long as the flood lasts.",
+      "evidence": "\"Past it, it gets a local-only entry for 10 s or until evicted (target): capacity 1, refill 2 x `requests` / N_published per window, no GCRA.\"; \"A new Node, after scale-out or a Zero-Downtime Upgrade, starts empty: 50,000 active keys on 100 Nodes leave local-only in about 250 s (hypothesis).\"; \"Buckets, local-only and over-limit entries share a Node-wide budget of 1,048,576 entries\"; matrix row \"Key-rotation flood or new Node | `ratelimit` | First-seen keys past the Cell budget ... go local-only | Open\". Scenario: a Consumer with limit 100 per `1s` on 100 Nodes sends 50 rps over one pinned HTTP/2 connection. Normally the per-Node ceiling of 10 applies. While local-only, the Node admits 2 per second with no burst and returns 429 `RZ-RL-001` for the rest. That lasts up to about 250 s after each upgrade, and for the whole of an IPv6 source-rotation flood (OQ-traffic-management-and-resilience-18 is open).",
+      "fix": "Give local-only entries the Policy's per-Node ceiling as capacity and refill, so admission stays within pack 8.8's N x per-Node ceiling bound. Keep one-hit keys from evicting entries that have already had a GCRA answer, for example with a second-sighting admission filter or a separate segment for local-only entries. Split the matrix row: new keys are Open, bounded by N x ceiling; established keys evicted or on a fresh Node give the stated under-admission (Closed), quantified and tagged (hypothesis)."
+    },
+    {
+      "id": "L1-3",
+      "section": "Response caching; Failure matrix",
+      "issue": "Every partition of a URI shares one hash tag, so one Redis Cluster slot. The Principal rule makes authenticated Routes key per principal by default. A popular authenticated URI therefore sends every principal's lookup script, including its `SET NX` lease, to one shard. The hot-entry layer does not help, because it only absorbs one entry read by many Nodes, not many distinct entries in one slot. When that shard saturates, its State client breaker opens on every Node, and every `ratelimit`, `quota` and `ai.token-budget` key hashed to that shard falls to `failureMode`. The Response Cache thus disables unrelated limits. The failure matrix bounds reads per entry, never per URI slot.",
+      "evidence": "\"Layout | One hash tag per URI, `{<SHA-256 of scheme, host, path, normalized query>}`, holds a metadata key (generation, `Vary` names), a fill lease and at most 8 variants per partition (target)\"; \"Principal | `auth.*` Routes key per principal unless `config.key` replaces it\"; \"A shard serves about 100,000 calls per second (hypothesis)\"; matrix: \"Hot, expiring or invalidated cache entry | ... At most N reads per second per entry (target)\". Scenario: `GET /v1/me` behind `auth.jwt` with 150,000 active principals at 1 rps each gives about 150,000 lookup scripts per second on one slot (hypothesis), above one shard's capacity. The shard breaker opens, and the Rate Limits of every Consumer whose key hashes to that shard fail open.",
+      "fix": "Choose and state one design. (a) Tag each variant by URI plus partition, and keep the per-URI generation in its own key, read in the same pipelined batch (pack 8.7 rule 3), so invalidation still bumps one key. (b) Cap lookups per URI slot per Node (target) and bypass the cache above the cap as a degraded state. Either way, add a failure-matrix row \"Hot URI slot\" giving the per-slot ceiling (hypothesis), the Open behavior, and the effect on limit keys that share the shard."
+    },
+    {
+      "id": "L1-4",
+      "section": "Load balancing",
+      "issue": "Round-robin schedules have a floor of 65,536 slots per Upstream regardless of Endpoint count, because the size is the max of the two values, not the min. Rings reach 1 MiB each. No Node-wide bound covers them, and Data plane's worst-case Node memory sum does not include them. Copy-on-write rebuilds briefly hold two copies. LB structures therefore grow without bound with the Upstream count in a Bundle.",
+      "evidence": "\"Schedules (max(65,536, Endpoints) 4-byte slots, about 256 KiB) and rings (min(65,536, 1,024 x Endpoints) 16-byte virtual nodes, at most 1 MiB ...) rebuild off the request path at most every 10 s and swap copy-on-write (target).\" Data plane's worst-case sum lists connections, in-flight units, pre-routing rejections, `maxBufferedBytes`, `maxPluginMemoryBytes` and snapshots, but no LB structures. Scenario: a Bundle with 2,000 `round-robin` Upstreams of 3 Endpoints each uses about 512 MiB of schedules, about 1 GiB during a rebuild wave (hypothesis). 1,000 `ring-hash` Upstreams with 64 or more Endpoints add up to 1 GiB more.",
+      "fix": "Size schedules by weight resolution, for example min(65,536, 64 x Endpoints) slots, or use an O(Endpoints) smooth weighted or EDF picker with no schedule array. Add a Node-wide budget for LB structures (target), with a validation warning or `RZ-CFG` code when a Bundle exceeds it. Hand the figure to Data plane's worst-case Node memory sum."
+    }
+  ],
+  "non_blocking": [
+    {
+      "section": "Rate limiting / Decision path",
+      "suggestion": "The `NOSCRIPT` resend as `EVAL` is a second blocking round trip before commit, which conflicts with pack 8.7 rule 1. The tech stack document specifies the same fallback, so the conflict is shared. Either load scripts with `SCRIPT LOAD` off the request path on reconnect or failover and treat `NOSCRIPT` as a State Store failure under `failureMode`, or record the resend as a bounded exception in a pack 8.7 amendment. The same applies to the quota and cache lookup scripts."
+    },
+    {
+      "section": "Failure matrix; Rate limiting / Per-Node ceiling",
+      "suggestion": "\"Large decreases publish at once, small ones after 60 s (target)\" states a Ruralz Control behavior that Control plane and GitOps does not define. The quoted definition \"ready, streaming Nodes that ACKed a Revision ...\" also differs from the source, which reads \"ready Nodes that ACKed a Revision and stayed connected 10 minutes (target)\". Quote the source exactly, and move the 60 s rule into OQ-traffic-management-and-resilience-19."
+    },
+    {
+      "section": "Response caching",
+      "suggestion": "Observability's catalog lists the `ruralz_cache_store_skipped_total` reasons as `size_limit`, `buffer_budget` and `memory`, while this document writes `state_store_memory`. Align the two documents so alerts match."
+    },
+    {
+      "section": "Response caching",
+      "suggestion": "The fill lease lasts 1 s (target), but an origin fetch may take up to the Route `timeout` (15 s proposed). A slow fetch therefore lets other Nodes take the lease and store again, so the claim of \"one store\" per lease does not hold. Tie the lease to the fetch deadline, or let the holder store only if the generation is unchanged and the lease is still held."
+    },
+    {
+      "section": "Response caching",
+      "suggestion": "Sampling `INFO memory` every 10 s leaves the 30% headroom unprotected between samples. At 1,000 Nodes each storing 10 entries of 128 KiB per second, about 12.5 GB arrives in 10 s (hypothesis). Add a per-Node store byte-rate cap such that N x rate x 10 s stays under the headroom."
+    },
+    {
+      "section": "Rate limiting / Per-Node ceiling",
+      "suggestion": "The fail-open step refill per epoch-aligned window releases every Node's allowance at the same boundary. With long windows (`1h`), Upstreams receive the whole hourly allowance in a burst at the top of the hour during a State Store outage. Say so, or spread the refill within the window while keeping the per-window bound."
+    },
+    {
+      "section": "Rate limiting",
+      "suggestion": "Keys embed `<policy>` and `<requests>/<window>`. One Policy attached to several Routes therefore shares one counter across them, and changing a limit in a Revision resets GCRA state, which briefly allows up to 2 x limit. State both behaviors, and show `route.name` in `config.key` for per-Route limits."
+    },
+    {
+      "section": "Timeouts, deadlines, retries and hedging / Deadlines",
+      "suggestion": "Say whether `Upstream.spec.timeout` covers the response body after commit, since only `RZ-UP-003` (504) is listed, and give its default. Otherwise an `ai` or SSE Upstream with a 3 s leg timeout ends streams. Also say that a `Retry-After` above the 10 s cap means no retry, rather than a shortened wait that ignores Upstream backpressure."
+    },
+    {
+      "section": "Circuit breakers",
+      "suggestion": "WebSocket and streaming legs hold a `maxConnections` slot for up to the proposed 1 h Route timeout, so the default allows 1,024 concurrent streams per Upstream per Node. Say this, or point stream Routes to a separate Upstream."
+    },
+    {
+      "section": "Rate limiting; Failure matrix",
+      "suggestion": "The document says a service limit's constant key over about one shard needs local-only enforcement (OQ-traffic-management-and-resilience-1), but the matrix lists only the effect (\"One shard failing\"). Add the cause as its own row, \"Hot constant key saturates a shard\", with its co-tenant impact and the M1 ceiling (hypothesis), next to the KrakenD service rate limit mapping."
+    },
+    {
+      "section": "Whole document (length_words)",
+      "suggestion": "The body is about 4,984 words against a 5,000 cap. Offset the text these fixes add, for example by merging the three derived-ceiling failure-matrix rows and trimming the Deadlines prose that repeats the defaults table."
+    }
+  ],
+  "ac_results": [
+    {
+      "ac": "Rate limiting contains an algorithm table comparing accuracy, cost, multi-node behavior and burst handling (ADR-0008).",
+      "pass": true,
+      "note": "The Algorithm choice table has Accuracy, State Store cost per request, Multi-Node behavior and Burst handling columns and five rows, cites ADR-0008, and cites a URL from scalability-patterns.md for every vendor claim."
+    },
+    {
+      "ac": "Every KrakenD EE routing and traffic feature (catch-all fallback, header and query dynamic routing, conditional routing, wildcard routes, URL rewrite, virtual hosts, client redirects, customizable HTTP circuit breaker, service rate limit, tiered rate limit, stateful rate limit, IP filtering, GeoIP) is mapped to a Ruralz mechanism with a milestone.",
+      "pass": true,
+      "note": "All 13 features are mapped, each with Planned (M1) or Planned (M2). The service rate limit is a hot key above about one shard (non-blocking)."
+    },
+    {
+      "ac": "Failure matrix gives fail-open or fail-closed behavior for each dependency failure, including State Store outage.",
+      "pass": true,
+      "note": "The matrix has no blank cells and covers the State Store being slow, unreachable, out of memory, evicting keys, failing over and losing a Cell. The key-rotation row is mislabeled (L1-1, L1-2), and the matrix lacks a hot URI slot row (L1-3)."
+    },
+    {
+      "ac": "Rate limiting specifies the IETF RateLimit-Policy and RateLimit response header contract.",
+      "pass": true,
+      "note": "It fixes the draft-11 fields, parameters and codes, gives Retry-After precedence, omits `pk`, and includes an example. Headers on admitted responses wait on OQ-traffic-management-and-resilience-2, which blocks M1."
+    },
+    {
+      "ac": "Quotas supports long windows and token-weighted units, including LLM tokens.",
+      "pass": true,
+      "note": "It covers epoch-aligned 24h and 720h windows, counters keyed by Consumer quota, a limit-aware over-limit cache capped at 60 s, and a `tokens` unit through `ai.token-budget` with reservation and settlement."
+    },
+    {
+      "ac": "Timeouts, deadlines, retries and hedging defines a retry budget.",
+      "pass": true,
+      "note": "It defines max(3, 20% of in-flight originals) per Upstream per Node (target), with an amplification bound and a metric. Hedges count against the budget, and the fields are in OQ-traffic-management-and-resilience-5."
+    },
+    {
+      "ac": "Response caching follows HTTP caching semantics including stale-while-revalidate.",
+      "pass": true,
+      "note": "It follows RFC 9111 and RFC 5861. It includes the section 4.2.4 stale prohibitions (`must-revalidate`, `proxy-revalidate`, `s-maxage`), does not store `no-cache` at M1, honors request directives, and handles revalidation, 304 and `Cache-Status`. It defines background revalidation, and waiters reuse a coalesced fetch only when their `Vary`-selected values match. The hot-slot scaling defect (L1-3) is separate from HTTP semantics."
+    },
+    {
+      "ac": "Machine checks (required_terms, has_table for Rate limiting and Failure matrix, no_blank_cells for Failure matrix), H2 outline and verify-docs FAIL lines",
+      "pass": true,
+      "note": "`node scripts/verify-docs.mjs --allow-missing --skip markdownlint` prints no FAIL line for this document, only WARN lines for broken links to the unwritten ADR-0008, ADR-0011 and ADR-0014 and architecture documents 11 and 12. The H2s equal Summary, Scope and non-goals, then outline_h2 in order, then Open questions. All three required diagrams are present with captions."
+    }
+  ],
+  "foundation_amendments": [
+    "Pack 8.7 rule 1: either permit the EVALSHA-to-EVAL resend on NOSCRIPT as part of the same bounded call within the same timeout, or require scripts to be loaded off the request path and treat NOSCRIPT as a State Store failure under failureMode (the tech stack document already specifies the fallback).",
+    "Pack 8.8: if OQ-traffic-management-and-resilience-16 closes on option (b), replace 'derived by dividing the limit by the Node count' with min(requests, max(10, ceil(2 x requests / N_published))), with fail-open buckets clamped to max(1, 2 x requests / N_published).",
+    "Pack 8.8: if OQ-traffic-management-and-resilience-20 closes on option (a), amend 'each locally admitted request runs GCRA in one Lua EVAL' to allow local-only admission, at the per-Node ceiling, for keys past a per-Node first-seen budget, with the bound owned by Scalability and distributed state."
+  ]
+}

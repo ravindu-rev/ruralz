@@ -1,0 +1,29 @@
+{
+  "lens": "L4C claims-auditor",
+  "verdict": "accept",
+  "score": 9,
+  "blocking": [],
+  "non_blocking": [
+    {
+      "section": "Table-stakes matrix (Event protocols row); Reading the matrix; Implications for milestones (F-17)",
+      "suggestion": "OQ-multi-protocol-11 covers only native Kafka wire proxying. The Multi-protocol stance marks NATS client-protocol proxying Not planned without an open question. Write \"Kafka wire-protocol ingress Not planned (OQ-multi-protocol-11); NATS client-protocol proxying Not planned\" rather than attributing both to OQ-multi-protocol-11."
+    },
+    {
+      "section": "Implications for milestones (F-17)",
+      "suggestion": "Topic ingress 'covering KrakenD's EE Kafka async agents' is Planned (M4), but how the async-agent direction is declared is still open (OQ-multi-protocol-10, OQ-configuration-model-11). Name these open questions next to the claim, as the Multi-protocol Topic ingress section does."
+    },
+    {
+      "section": "Implications for milestones (F-17)",
+      "suggestion": "OQ-multi-protocol-14 names AMQP, Google Cloud Pub/Sub and Amazon SQS. F-17 adds SNS and Service Bus under the same open question. They fall under the Multi-protocol stance's 'Other brokers (AMQP, cloud queues)' row, but consider asking the multi-protocol owner to list SNS and Service Bus in OQ-multi-protocol-14 explicitly."
+    }
+  ],
+  "ac_results": [
+    {"ac": "Competitor profiles contains at least nine profiles as H3s (Kong, Tyk, Apache APISIX, Envoy Gateway with Envoy AI Gateway, Zuplo, Gravitee, KrakenD, Portkey, LiteLLM), each citing at least two URLs present in docs/_meta/research/.", "pass": true, "note": "All nine H3s are present, each with several URLs. All 165 unique URLs in the document appear in the five research files listed for this document."},
+    {"ac": "Table-stakes matrix has no blank cells.", "pass": true, "note": "Both tables are fully populated, using the legend values. The verifier reports no FAIL."},
+    {"ac": "Differentiator reality check has a 'who already does part' row for each of the four differentiators (proxy-wasm in Kong, APISIX and Envoy; AI gateways including KrakenD EE 2.10+; Konnect and Tyk Dashboard control planes; Tyk GraphQL federation and Gravitee native Kafka).", "pass": true, "note": "Rows 1 to 4 name exactly the required products, each with sources."},
+    {"ac": "Licensing landscape 2025 to 2026 lists at least four licensing events with ISO dates and URLs.", "pass": true, "note": "It lists 17 events with ISO dates and URLs. I checked the dates against licensing-landscape.md, competitors-kong-tyk-apisix.md and ai-gateways.md."},
+    {"ac": "Method and snapshot date states the snapshot date 2026-09-23 and the sourcing method.", "pass": true, "note": "It gives the snapshot date 2026-09-23 in bold, a Sources table and a Rules applied table."},
+    {"ac": "Implications for milestones maps each finding to a milestone M0 to M5.", "pass": true, "note": "Each of F-1 to F-20 maps to a milestone from M0 to M5."}
+  ],
+  "foundation_amendments": []
+}

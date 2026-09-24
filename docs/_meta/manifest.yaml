@@ -1,0 +1,3207 @@
+version: 1
+generated: '2026-09-23'
+mandatory_h2:
+  first:
+  - Summary
+  - Scope and non-goals
+  last:
+  - Open questions
+milestones:
+- M0
+- M1
+- M2
+- M3
+- M4
+- M5
+scalability_items: &id002
+- stateless data plane
+- horizontal scaling
+- high availability
+- distributed rate limits
+- distributed caches
+- distributed sessions
+- performance budgets
+- benchmarking
+- capacity planning
+- zero-downtime upgrades
+- multi-region
+glossary_terms: &id001
+- Ruralz Gateway
+- Ruralz Control
+- Ruralz Console
+- Node
+- Cluster
+- Environment
+- Cell
+- Bundle
+- Revision
+- active Revision
+- Rollout
+- Drift
+- Route
+- Upstream
+- upstream leg
+- Endpoint
+- Policy
+- slot
+- Filter
+- Filter Chain
+- Filter class
+- Phase
+- Plugin
+- Plugin ABI
+- Host Function
+- Capability
+- Consumer
+- Tier
+- Rate Limit
+- Quota
+- Token Budget
+- AIProvider
+- AIModel
+- Provider Fallback
+- Prompt Cache
+- Semantic Cache
+- Response Cache
+- State Store
+- Control Store
+- Control Stream
+- Enrollment
+- Hot Reload
+- Drain
+- Zero-Downtime Upgrade
+- Region
+- Performance Budget
+- Last-Known-Good
+- promoted digest
+forbidden_aliases:
+- pattern: (?<!State Store )(?<!Control Store )\bbackends?\b
+  use: Upstream
+  sense: backend as a Ruralz concept; for State Store or Control Store implementations write 'State Store backend'
+    or 'driver'
+- pattern: \b(?:API|KrakenD|published|public) endpoints?\b
+  use: Route
+  sense: endpoint in the KrakenD sense (a published API path); bare 'Endpoint' is a glossary term (an Upstream target
+    address) and is not flagged
+- pattern: (?<!Kubernetes )(?<!Ingress )\bcontrollers?\b
+  use: Ruralz Control
+  sense: controller as a name for the control plane
+- pattern: \bmanagement planes?\b
+  use: Ruralz Control
+  sense: management plane as a name for the control plane
+- pattern: (?<!Grafana )(?<!Tyk )(?<!ELK Stack )\bdashboards?\b
+  use: Ruralz Console
+  sense: dashboard as a name for the Ruralz web UI; Grafana dashboards and third-party product names are exempt
+- pattern: \bsync protocols?\b
+  use: Control Stream
+  sense: name for the CP-to-DP protocol
+- pattern: \bconfig(?:uration)? push protocols?\b
+  use: Control Stream
+  sense: name for the CP-to-DP protocol
+- pattern: \bcache clusters?\b
+  use: State Store
+  sense: name for shared runtime state
+- pattern: \b(?:wasm|webassembly) (?:extensions?|modules?)\b
+  use: Plugin
+  sense: extension or module as a name for a WASM Plugin; the WASM spec term 'module' inside runtime internals needs
+    the escape comment
+alias_match:
+  case_insensitive: true
+  escape_comment: <!-- alias-ok -->
+lenses:
+  L1:
+    name: feasibility-skeptic
+    prompt: 'Act as a skeptical principal engineer with deep Go and distributed-systems experience, and try to prove
+      the design cannot be built as written. Challenge implementability with CGO_ENABLED=0 and the libraries fixed
+      in the foundation pack: hidden coordination on the request path, unbounded memory or goroutines, lock contention,
+      consistency or availability claims that contradict each other, and performance figures that are implausible
+      or not tagged (target) or (hypothesis). For every blocking finding cite the section name, quote the exact
+      sentence as evidence, and propose a concrete fix. When you cannot confirm that a design works, default to
+      verdict `revise`.'
+  L2:
+    name: foundation-auditor
+    prompt: Act as a pedantic auditor of consistency with docs/_meta/foundation-pack.md, docs/architecture/01-system-overview.md
+      and docs/architecture/02-configuration-model.md. Check every product name, kind, YAML field, port, Filter
+      Chain phase, CLI command, metric name, error code, milestone tag, glossary term, ADR reference and H2 heading
+      against those sources and the manifest, and flag forbidden aliases and invented fields. For each finding cite
+      the section name, quote the offending line with its line number, and give the canonical replacement. Default
+      to verdict `revise` when uncertain.
+  L3:
+    name: acceptance-audience
+    prompt: Act as the acceptance tester for this document's manifest entry and as its most demanding target reader.
+      Evaluate every acceptance criterion individually and record pass or fail with a note in ac_results; check
+      the exact H2 outline and order (Summary and Scope and non-goals first, Open questions last), every required
+      Mermaid diagram and its caption, the length band, and that every performance or scale number carries (target)
+      or (hypothesis). Judge whether the declared audience can act on the document without reading its sources,
+      cite section names and quote evidence for every failure, and default to verdict `revise` when uncertain.
+  L4S:
+    name: security-adversary
+    prompt: Act as a skilled attacker preparing a threat assessment of the design. Hunt for authentication or authorization
+      bypasses, Plugin sandbox escapes, Capability over-grants, Bundle or Revision tampering, Control Stream enrollment
+      and mTLS weaknesses, secret leakage outside secretRef, prompt-injection and data-residency failures on AI
+      traffic, and denial-of-service paths, and confirm that deny-by-default, signing, audit, and fail-open or fail-closed
+      choices are explicit and safe. For every blocking finding cite the section name, quote the evidence, describe
+      the attack, and propose a mitigation. Default to verdict `revise` when uncertain.
+  L4X:
+    name: scale-adversary
+    prompt: Act as an SRE trying to break the design at 10x and 100x load and during the loss of a Node, zone, Region,
+      State Store, Ruralz Control leader or Raft quorum. Look for coordination on the request path, hidden single
+      points of failure, unbounded fan-out, hot keys, reconnect storms, ignored cross-region latency, and accuracy
+      or consistency bounds stated without numbers; verify that every figure is tagged (target) or (hypothesis)
+      and agrees with docs/architecture/11-scalability-and-distributed-state.md and docs/architecture/12-performance-budgets-and-benchmarking.md.
+      For every blocking finding cite the section name, quote the evidence, and give the failure scenario and a
+      fix. Default to verdict `revise` when uncertain.
+  L4C:
+    name: claims-auditor
+    prompt: Act as a fact-checker who assumes every external claim is wrong until it is sourced. Every statement
+      about a competitor, vendor, license, release or date MUST cite a URL that appears in a file under docs/_meta/research/
+      and agree with the 2026-09-23 snapshot; no Ruralz capability may be described as Supported or shipped, every
+      Planned tag must name a milestone M0 to M5, and every matrix must have no blank cells and counts that sum.
+      For every blocking finding cite the section name, quote the claim, and name the missing or contradicting source.
+      Default to verdict `revise` when uncertain.
+filter_chain_phases:
+- onRequestHeaders
+- onRequestBody
+- onRoute
+- onUpstreamRequest
+- onUpstreamResponseHeaders
+- onUpstreamResponseBody
+- onResponse
+- onLog
+- onChunk
+audiences:
+- evaluators
+- architects
+- contributors
+- operators
+- plugin-authors
+- ai-platform-engineers
+- security-engineers
+research_files:
+- path: docs/_meta/research/krakend-parity.md
+  status: present
+  topic: KrakenD CE vs EE feature snapshot 2026-09-23 (153 feature rows)
+- path: docs/_meta/research/competitors-kong-tyk-apisix.md
+  status: planned
+  topic: Kong, Tyk, Apache APISIX
+- path: docs/_meta/research/competitors-envoy-zuplo-gravitee.md
+  status: planned
+  topic: Envoy Gateway and Envoy AI Gateway, Zuplo, Gravitee
+- path: docs/_meta/research/ai-gateways.md
+  status: planned
+  topic: AI gateways (Portkey, LiteLLM, vendor AI gateways), provider APIs, MCP and A2A
+- path: docs/_meta/research/go-libraries-runtime.md
+  status: planned
+  topic: 'Go libraries: WASM runtime, Raft, State Store client, telemetry, CEL, OPA, Cedar, JOSE, tokenizer'
+- path: docs/_meta/research/go-libraries-protocols.md
+  status: planned
+  topic: 'Go libraries: net/http, HTTP/2, quic-go, connect, grpc-go, GraphQL, Kafka, NATS, MQTT'
+- path: docs/_meta/research/scalability-patterns.md
+  status: planned
+  topic: Distributed rate limiting, stateless scaling, multi-region and zero-downtime upgrade patterns
+- path: docs/_meta/research/licensing-landscape.md
+  status: planned
+  topic: API gateway licensing moves 2025 to 2026
+- path: docs/_meta/research/krakend-config-model.md
+  status: planned
+  topic: KrakenD configuration model, extra_config namespaces, plugin types (for migration and parity)
+- path: docs/_meta/research/tooling-and-licenses.md
+  status: present
+  topic: Documentation and supply-chain tooling licenses, Control Store module licenses, YAML 1.2 parser and JSON
+    Schema validator candidates, other unselected library candidates
+word_count_rule: Words are counted in the Markdown body after front matter, excluding fenced code blocks (including
+  mermaid) and HTML comments; table cell text counts.
+machine_check_kinds:
+  max_words: Body word count (per word_count_rule) is at most value.
+  max_lines: Total file line count is at most value.
+  required_terms: Each literal in value appears at least once in the body (case-sensitive substring). The doc-level
+    required_terms field is checked the same way.
+  links_to: The body contains a relative Markdown link to each repo-relative path in value.
+  has_table: The H2 section named in section contains at least one Markdown table.
+  min_table_rows: At least one table inside the H2 section named table_heading has at least value data rows (header
+    and separator excluded).
+  min_table_rows_total: Data rows summed over the tables in every H2 section listed in table_headings is at least
+    value.
+  no_blank_cells: No table cell is empty or whitespace-only in the H2 section(s) named by table_heading or table_headings.
+  cell_values_in: 'In the H2 section(s) named by table_headings, every cell of each listed column fully matches
+    allowed_pattern (columns: all_but_first means every column except the first).'
+  min_h3: The H2 section named in section contains at least value H3 headings.
+  min_list_items: The H2 section named in section contains at least value top-level list items or table data rows.
+  min_urls_per_h3: Every H3 inside the H2 section named in section contains at least value distinct http(s) URLs.
+  min_distinct_matches: The body contains at least value distinct matches of the regular expression pattern.
+  covers_items: Each item in value (case-insensitive) is the text of an H2 or H3 heading or the text of a Markdown
+    link.
+  links_all_docs_once: Every manifest doc except ids 1 and 2 is linked exactly once, and every ADR is linked exactly
+    once.
+  covers_source_rows: Every value in the Feature column of the tables in source appears as a Feature cell in the
+    tables under table_headings.
+  summary_counts_match: Counts in the table under section equal the counts of each status value in column across
+    table_headings, and totals sum.
+adr_common:
+  front_matter:
+  - id
+  - title
+  - status
+  - date
+  - deciders
+  - related
+  outline_h2:
+  - Context and problem statement
+  - Decision drivers
+  - Considered options
+  - Decision outcome
+  - Pros and cons of the options
+  - More information
+  required_h3_under_decision_outcome:
+  - Consequences
+  - Confirmation
+  length_words:
+    min: 400
+    max: 1200
+  acceptance:
+  - Front matter contains id, title, status, date, deciders and related, and status matches this manifest.
+  - H2 headings match adr_common.outline_h2 exactly and in order, and Decision outcome contains the H3 headings
+    Consequences and Confirmation.
+  - Considered options lists at least two options including the chosen one, and each has pros and cons.
+  - 'Decision outcome states the chosen option as ''Chosen option: ..., because ...'' and matches the foundation
+    pack section 7 row for this ADR.'
+  - Confirmation names a concrete verification mechanism (test, lint rule, CI gate or review checklist item).
+  - The ADR is linked from docs/adr/README.md and from its owning document.
+adr_index:
+  path: docs/adr/README.md
+  table_columns:
+  - ID
+  - Title
+  - Status
+  - Date
+  - Owning document
+  written_with: docs/README.md
+docs:
+- id: 1
+  slug: root-readme
+  path: README.md
+  title: Ruralz
+  audience:
+  - evaluators
+  - contributors
+  - operators
+  wave: 5
+  mode: sequential
+  mandatory_h2: false
+  front_matter: false
+  depends_on:
+  - docs/_meta/foundation-pack.md
+  - docs/_meta/style-guide.md
+  - docs/README.md
+  - docs/glossary.md
+  - docs/vision/01-vision-and-positioning.md
+  - docs/architecture/01-system-overview.md
+  - docs/architecture/02-configuration-model.md
+  - docs/architecture/03-data-plane.md
+  - docs/architecture/04-control-plane-and-gitops.md
+  - docs/architecture/05-wasm-plugin-system.md
+  - docs/architecture/06-ai-llm-gateway.md
+  - docs/architecture/07-multi-protocol.md
+  - docs/architecture/08-security-and-identity.md
+  - docs/architecture/09-traffic-management-and-resilience.md
+  - docs/architecture/10-observability.md
+  - docs/architecture/11-scalability-and-distributed-state.md
+  - docs/architecture/12-performance-budgets-and-benchmarking.md
+  - docs/operations/01-deployment-topologies.md
+  - docs/operations/02-zero-downtime-upgrades-and-hot-reload.md
+  - docs/operations/03-capacity-planning.md
+  - docs/operations/04-high-availability-and-disaster-recovery.md
+  - docs/comparison/01-krakend-ee-parity-matrix.md
+  - docs/comparison/02-market-landscape-and-table-stakes.md
+  - docs/comparison/03-migration-from-krakend.md
+  - docs/engineering/01-tech-stack-and-libraries.md
+  - docs/engineering/02-repository-layout-and-conventions.md
+  - docs/engineering/03-testing-and-quality-strategy.md
+  - docs/engineering/04-release-versioning-and-compatibility.md
+  - docs/reference/01-cli-and-api-surface.md
+  - docs/roadmap/01-roadmap-and-milestones.md
+  research: []
+  outline_h2:
+  - What is Ruralz
+  - Why Ruralz
+  - Four differentiators
+  - Status
+  - Documentation map
+  - License and governance
+  diagrams:
+  - type: flowchart
+    subject: 'system context: clients, Ruralz Gateway, Upstreams, Ruralz Control, State Store'
+  acceptance:
+  - The file is 150 lines or fewer.
+  - Every relative link resolves (lychee offline check passes).
+  - Why Ruralz contrasts Ruralz with KrakenD Enterprise and states that every feature, including Ruralz Control
+    and Ruralz Console, is open source.
+  - The text states explicitly that Ruralz is Apache-2.0 and that there is no feature gating.
+  - Four differentiators lists the four differentiators verbatim from the foundation pack.
+  - Status states that nothing is implemented yet and that features are tagged Planned (Mx).
+  - License and governance names Revington (revington.co) as copyright and trademark holder and GitHub ravindu-rev
+    as the repository owner.
+  - Every capability claimed also appears in docs/comparison/01-krakend-ee-parity-matrix.md or docs/roadmap/01-roadmap-and-milestones.md.
+  machine_checks:
+  - kind: max_lines
+    value: 150
+  - kind: required_terms
+    value:
+    - Apache-2.0
+    - no feature gating
+    - Revington
+    - WASM plugin system
+    - AI/LLM gateway
+    - built-in control plane + GitOps
+    - multi-protocol native
+  - kind: links_to
+    value:
+    - docs/README.md
+    - docs/comparison/01-krakend-ee-parity-matrix.md
+    - docs/roadmap/01-roadmap-and-milestones.md
+  required_terms:
+  - Ruralz Gateway
+  - Ruralz Control
+  - Ruralz Console
+  adrs:
+  - ADR-0002
+  lenses:
+  - L2
+  - L3
+  length_words: null
+- id: 2
+  slug: docs-index
+  path: docs/README.md
+  title: Ruralz Documentation
+  audience:
+  - evaluators
+  - contributors
+  - operators
+  - plugin-authors
+  - ai-platform-engineers
+  wave: 5
+  mode: sequential
+  depends_on:
+  - docs/_meta/foundation-pack.md
+  - docs/_meta/style-guide.md
+  - docs/glossary.md
+  - docs/vision/01-vision-and-positioning.md
+  - docs/architecture/01-system-overview.md
+  - docs/architecture/02-configuration-model.md
+  - docs/architecture/03-data-plane.md
+  - docs/architecture/04-control-plane-and-gitops.md
+  - docs/architecture/05-wasm-plugin-system.md
+  - docs/architecture/06-ai-llm-gateway.md
+  - docs/architecture/07-multi-protocol.md
+  - docs/architecture/08-security-and-identity.md
+  - docs/architecture/09-traffic-management-and-resilience.md
+  - docs/architecture/10-observability.md
+  - docs/architecture/11-scalability-and-distributed-state.md
+  - docs/architecture/12-performance-budgets-and-benchmarking.md
+  - docs/operations/01-deployment-topologies.md
+  - docs/operations/02-zero-downtime-upgrades-and-hot-reload.md
+  - docs/operations/03-capacity-planning.md
+  - docs/operations/04-high-availability-and-disaster-recovery.md
+  - docs/comparison/01-krakend-ee-parity-matrix.md
+  - docs/comparison/02-market-landscape-and-table-stakes.md
+  - docs/comparison/03-migration-from-krakend.md
+  - docs/engineering/01-tech-stack-and-libraries.md
+  - docs/engineering/02-repository-layout-and-conventions.md
+  - docs/engineering/03-testing-and-quality-strategy.md
+  - docs/engineering/04-release-versioning-and-compatibility.md
+  - docs/reference/01-cli-and-api-surface.md
+  - docs/roadmap/01-roadmap-and-milestones.md
+  research: []
+  outline_h2:
+  - Organization
+  - Reading paths
+  - Document status
+  - ADR index
+  - Conventions
+  diagrams: []
+  acceptance:
+  - Every document in this manifest other than README.md and docs/README.md is linked exactly once.
+  - Reading paths defines five paths (Evaluator, Contributor, Operator, Plugin author, AI platform), each as an
+    H3 that links at least four documents in reading order.
+  - Document status is a table listing every document with its status from front matter (draft, reviewed, approved
+    or approved-with-escalations).
+  - ADR index lists all 17 ADRs with ID, title, status and owning document, and links docs/adr/README.md.
+  - Conventions summarizes the style guide rules readers need (milestone tags, (target) and (hypothesis) tags, Open
+    question IDs, canonical names) and links docs/_meta/style-guide.md and docs/glossary.md.
+  machine_checks:
+  - kind: links_all_docs_once
+  - kind: min_h3
+    section: Reading paths
+    value: 5
+  - kind: required_terms
+    value:
+    - Evaluator
+    - Contributor
+    - Operator
+    - Plugin author
+    - AI platform
+  - kind: has_table
+    section: Document status
+  - kind: min_table_rows
+    table_heading: ADR index
+    value: 17
+  - kind: links_to
+    value:
+    - docs/adr/README.md
+    - docs/glossary.md
+  required_terms:
+  - Ruralz Gateway
+  - Ruralz Control
+  - Ruralz Console
+  adrs:
+  - ADR-0001
+  - ADR-0002
+  - ADR-0003
+  - ADR-0004
+  - ADR-0005
+  - ADR-0006
+  - ADR-0007
+  - ADR-0008
+  - ADR-0009
+  - ADR-0010
+  - ADR-0011
+  - ADR-0012
+  - ADR-0013
+  - ADR-0014
+  - ADR-0015
+  - ADR-0016
+  - ADR-0017
+  lenses:
+  - L2
+  - L3
+  length_words: null
+  notes: The index generator also writes docs/adr/README.md (see adr_index).
+- id: 3
+  slug: glossary
+  path: docs/glossary.md
+  title: Glossary
+  audience:
+  - evaluators
+  - architects
+  - contributors
+  - operators
+  - plugin-authors
+  - ai-platform-engineers
+  - security-engineers
+  wave: 5
+  seed_wave: 1
+  mode: sequential
+  depends_on:
+  - docs/_meta/foundation-pack.md
+  - docs/_meta/style-guide.md
+  research: []
+  outline_h2:
+  - Terms
+  - Forbidden aliases
+  diagrams: []
+  acceptance:
+  - Terms is a single alphabetical table containing every term in glossary_terms.
+  - Each term row gives a definition of 40 words or fewer, the canonical spelling, its forbidden aliases (or None)
+    and a 'Defined in' link to the owning document.
+  - Every term is used in at least one other document under docs/ (verify-docs check 9).
+  - Forbidden aliases lists every forbidden alias from the foundation pack with its replacement and explains the
+    <!-- alias-ok --> escape.
+  machine_checks:
+  - kind: min_table_rows
+    table_heading: Terms
+    value: 48
+  - kind: min_table_rows
+    table_heading: Forbidden aliases
+    value: 7
+  - kind: no_blank_cells
+    table_heading: Terms
+  required_terms: *id001
+  adrs: []
+  lenses:
+  - L2
+  - L3
+  length_words: null
+  notes: Seeded in wave 1 by the foundation freeze agent; finalized in wave 5 after all documents exist.
+- id: 4
+  slug: vision-and-positioning
+  path: docs/vision/01-vision-and-positioning.md
+  title: Vision and Positioning
+  audience:
+  - evaluators
+  - architects
+  wave: 1
+  mode: pipeline
+  depends_on:
+  - docs/_meta/foundation-pack.md
+  - docs/_meta/style-guide.md
+  research:
+  - docs/_meta/research/krakend-parity.md
+  - docs/_meta/research/competitors-kong-tyk-apisix.md
+  - docs/_meta/research/competitors-envoy-zuplo-gravitee.md
+  - docs/_meta/research/ai-gateways.md
+  - docs/_meta/research/licensing-landscape.md
+  outline_h2:
+  - Problem and why now
+  - Personas
+  - Positioning versus KrakenD EE and the market
+  - Principles
+  - Open source and business model
+  - Product non-goals
+  - Success metrics
+  - Managed cloud
+  diagrams:
+  - type: quadrantChart
+    subject: market positioning of Ruralz, KrakenD CE and EE, and other gateways by openness and capability breadth
+  acceptance:
+  - 'The four differentiators appear verbatim as in foundation pack section 1: WASM plugin system, AI/LLM gateway,
+    built-in control plane + GitOps, multi-protocol native.'
+  - Principles defines P1 through P10, each in two sentences or fewer.
+  - Product non-goals lists at least five non-goals.
+  - 'Problem and why now cites both 2026 licensing events with URLs from docs/_meta/research/: KrakenD CE 3.0 dropping
+    Go plugins (announced 2026-06-04) and Kong 3.10 ending free mode per its release note (Kong docs still describe
+    free mode as deprecated).'
+  - Open source and business model states Apache-2.0 for all components, no feature gating or license keys, and
+    revenue only from Ruralz Cloud and commercial support.
+  - The managed cloud is described only in the Managed cloud section and no other section describes cloud-only hooks.
+  - Success metrics are measurable and every numeric figure is tagged (target) or (hypothesis).
+  machine_checks:
+  - kind: required_terms
+    value:
+    - WASM plugin system
+    - AI/LLM gateway
+    - built-in control plane + GitOps
+    - multi-protocol native
+    - P1
+    - P2
+    - P3
+    - P4
+    - P5
+    - P6
+    - P7
+    - P8
+    - P9
+    - P10
+    - KrakenD CE 3.0
+    - Kong 3.10
+    - '2026-06-04'
+    - Apache-2.0
+  - kind: min_list_items
+    section: Product non-goals
+    value: 5
+  required_terms:
+  - Ruralz Gateway
+  - Ruralz Control
+  - Ruralz Console
+  - Plugin
+  - State Store
+  adrs:
+  - ADR-0002
+  lenses:
+  - L1
+  - L2
+  - L3
+  - L4C
+  length_words:
+    min: 2000
+    max: 4000
+- id: 5
+  slug: system-overview
+  path: docs/architecture/01-system-overview.md
+  title: System Overview
+  audience:
+  - architects
+  - contributors
+  - evaluators
+  wave: 1
+  mode: judge-panel
+  panel_angles:
+  - data-plane and performance purist
+  - GitOps and platform engineer
+  - SRE, failure-first
+  depends_on:
+  - docs/_meta/foundation-pack.md
+  - docs/_meta/style-guide.md
+  research: []
+  outline_h2:
+  - Design principles
+  - Component map
+  - Request lifecycle
+  - Configuration lifecycle
+  - Deployment modes
+  - Cross-cutting concerns
+  - Trust boundaries
+  - Document map
+  diagrams:
+  - type: flowchart
+    subject: system context
+  - type: flowchart
+    subject: 'container view: Ruralz Gateway, Ruralz Control, Ruralz Console, ruralz CLI, State Store, Control Store'
+  - type: sequenceDiagram
+    subject: configuration Rollout from Git through Ruralz Control to Nodes
+  - type: sequenceDiagram
+    subject: request through the Filter Chain phases
+  acceptance:
+  - Every product name, kind, port, binary, image and identifier matches the foundation pack exactly.
+  - The document states explicitly that Ruralz Gateway runs without Ruralz Control (Bundle directory watch or OCI
+    pull) and serves Last-Known-Good configuration while Ruralz Control is unavailable.
+  - Deployment modes covers file mode, Control mode and multi-cluster mode.
+  - Each of the four differentiators has a pointer to the architecture document that owns it.
+  - Document map links every architecture document (docs/architecture/01 through 12).
+  - Filter Chain phases are listed exactly as in the foundation pack, in order, including onChunk.
+  - The body is 4,000 words or fewer.
+  machine_checks:
+  - kind: max_words
+    value: 4000
+  - kind: required_terms
+    value:
+    - Ruralz Gateway
+    - Ruralz Control
+    - Last-Known-Good
+    - onRequestHeaders
+    - onRequestBody
+    - onRoute
+    - onUpstreamRequest
+    - onUpstreamResponseHeaders
+    - onUpstreamResponseBody
+    - onResponse
+    - onLog
+    - onChunk
+    - '8080'
+    - '8443'
+    - '9901'
+    - '8090'
+    - '8091'
+  - kind: links_to
+    value:
+    - docs/architecture/02-configuration-model.md
+    - docs/architecture/03-data-plane.md
+    - docs/architecture/04-control-plane-and-gitops.md
+    - docs/architecture/05-wasm-plugin-system.md
+    - docs/architecture/06-ai-llm-gateway.md
+    - docs/architecture/07-multi-protocol.md
+    - docs/architecture/08-security-and-identity.md
+    - docs/architecture/09-traffic-management-and-resilience.md
+    - docs/architecture/10-observability.md
+    - docs/architecture/11-scalability-and-distributed-state.md
+    - docs/architecture/12-performance-budgets-and-benchmarking.md
+  required_terms:
+  - Ruralz Gateway
+  - Ruralz Control
+  - Ruralz Console
+  - Node
+  - Cluster
+  - Bundle
+  - Revision
+  - Rollout
+  - Route
+  - Upstream
+  - Policy
+  - Filter Chain
+  - Plugin
+  - State Store
+  - Control Store
+  - Control Stream
+  - Last-Known-Good
+  adrs:
+  - ADR-0001
+  - ADR-0003
+  - ADR-0004
+  - ADR-0005
+  - ADR-0006
+  - ADR-0007
+  - ADR-0008
+  - ADR-0009
+  - ADR-0010
+  - ADR-0014
+  lenses:
+  - L1
+  - L2
+  - L3
+  length_words:
+    min: 2500
+    max: 4000
+- id: 6
+  slug: configuration-model
+  path: docs/architecture/02-configuration-model.md
+  title: Configuration Model
+  audience:
+  - architects
+  - contributors
+  - operators
+  wave: 1
+  mode: judge-panel
+  panel_angles:
+  - Kubernetes-native
+  - KrakenD ergonomics
+  - diffability and validation first
+  depends_on:
+  - docs/_meta/foundation-pack.md
+  - docs/_meta/style-guide.md
+  research: []
+  outline_h2:
+  - Format decision
+  - Resource model
+  - Kind catalog
+  - Bundle layout and merge
+  - Attachment and precedence
+  - CEL expressions and allowed places
+  - Secrets and environment variables
+  - Validation and diff semantics
+  - apiVersion versioning and migration
+  - Complete annotated example Bundle
+  diagrams:
+  - type: classDiagram
+    subject: resource kinds and their references
+  - type: flowchart
+    subject: Bundle validation pipeline
+  acceptance:
+  - 'Kind catalog gives a schema sketch with required fields for every kind: Gateway, Route, Upstream, Policy, Plugin,
+    Consumer, AIProvider, AIModel, Environment and Cluster.'
+  - Attachment and precedence includes a worked example that resolves Gateway-, Route- and Upstream-scoped Policies
+    (Route over Gateway; Upstream-scoped Policies apply to the upstream leg only).
+  - Complete annotated example Bundle covers REST aggregation, a gRPC Route, an AI Route with AIProvider and AIModel,
+    a WASM Plugin and a Consumer.
+  - CEL expressions and allowed places contains a table of every place CEL is allowed, with the variables available
+    in each.
+  - The document states that JSON is accepted as a strict subset of YAML and states the KrakenD import stance (ruralz
+    bundle import krakend, best-effort fidelity levels, Planned (M2)).
+  - Validation and diff semantics specifies the diff output format in both JSON and human-readable form.
+  - Secrets are referenced only via secretRef, and env substitution supports ${VAR} and ${VAR:-default}.
+  machine_checks:
+  - kind: required_terms
+    value:
+    - Gateway
+    - Route
+    - Upstream
+    - Policy
+    - Plugin
+    - Consumer
+    - AIProvider
+    - AIModel
+    - Environment
+    - Cluster
+    - ruralz/v1alpha1
+    - secretRef
+    - overlays/
+    - ruralz bundle import
+    - Planned (M2)
+  - kind: has_table
+    section: CEL expressions and allowed places
+  - kind: min_h3
+    section: Kind catalog
+    value: 10
+  required_terms:
+  - Bundle
+  - Revision
+  - Route
+  - Upstream
+  - Policy
+  - Filter
+  - Plugin
+  - Consumer
+  - AIProvider
+  - AIModel
+  - Cluster
+  - Environment
+  adrs:
+  - ADR-0003
+  - ADR-0005
+  - ADR-0011
+  - ADR-0014
+  - ADR-0016
+  lenses:
+  - L1
+  - L2
+  - L3
+  length_words:
+    min: 2500
+    max: 8000
+- id: 7
+  slug: tech-stack-and-libraries
+  path: docs/engineering/01-tech-stack-and-libraries.md
+  title: Tech Stack and Libraries
+  audience:
+  - contributors
+  - architects
+  wave: 1
+  mode: pipeline
+  depends_on:
+  - docs/_meta/foundation-pack.md
+  - docs/_meta/style-guide.md
+  research:
+  - docs/_meta/research/go-libraries-runtime.md
+  - docs/_meta/research/go-libraries-protocols.md
+  outline_h2:
+  - Selection criteria
+  - Library catalog
+  - Go toolchain, static builds and FIPS
+  - Dependency hygiene
+  - Alternatives not chosen
+  diagrams:
+  - type: flowchart
+    subject: dependency graph from cmd/ruralzd, cmd/ruralz-control and cmd/ruralz to the chosen libraries
+  acceptance:
+  - 'Library catalog has a row, with a source URL present in docs/_meta/research/, for every concern: WASM runtime
+    (wazero), Plugin PDK conventions (Extism-style), HTTP/1.1 and HTTP/2 (net/http; x/net/http2 only for low-level APIs), HTTP/3 (quic-go),
+    gRPC ingress (connectrpc.com/connect) and upstream (grpc-go), telemetry (go.opentelemetry.io/otel with slog
+    bridge), Control Stream (own gRPC with xDS-style ACK/NACK, not go-control-plane), Control Store (hashicorp/raft
+    with raft-boltdb/v2 on bbolt), State Store client (redis/rueidis), Semantic Cache (Redis 8 Vector Sets or valkey-search), GraphQL
+    (wundergraph/graphql-go-tools v2), Kafka (twmb/franz-go), NATS (nats.go/jetstream), MQTT (eclipse-paho/paho.golang
+    and mochi-mqtt), JOSE and OIDC (lestrrat-go/jwx/v4, coreos/go-oidc/v3), expressions (cel-go, import path cel.dev/cel-go), authorization
+    (OPA v1 Rego, cedar-go), tokenizer (tiktoken-go/tokenizer, estimates only), rate limiting (GCRA in Redis Lua
+    plus local token bucket), and docs tooling (MADR 4.0, markdownlint-cli2, lychee, mermaid-lint).'
+  - Each Library catalog row gives the chosen library, alternatives, rationale, license, risk and the ADR it links
+    to where one exists.
+  - Every chosen library license is permissive and compatible with Apache-2.0 distribution; any weak-copyleft license
+    (for example MPL-2.0) is called out with its risk and rationale.
+  - The CGO_ENABLED=0 stance is consistent with wazero (pure Go, no CGO) and FIPS builds use GOFIPS140.
+  - The minimum Go version is 1.26.
+  machine_checks:
+  - kind: required_terms
+    value:
+    - wazero
+    - Extism
+    - quic-go
+    - connectrpc.com/connect
+    - grpc-go
+    - go.opentelemetry.io/otel
+    - slog
+    - hashicorp/raft
+    - rueidis
+    - graphql-go-tools
+    - franz-go
+    - nats.go
+    - paho.golang
+    - mochi-mqtt
+    - jwx
+    - go-oidc
+    - cel-go
+    - cedar-go
+    - tiktoken-go
+    - GCRA
+    - CGO_ENABLED=0
+    - GOFIPS140
+    - markdownlint-cli2
+    - lychee
+    - mermaid-lint
+    - MADR
+  - kind: min_table_rows
+    table_heading: Library catalog
+    value: 18
+  - kind: no_blank_cells
+    table_heading: Library catalog
+  required_terms:
+  - Ruralz Gateway
+  - Ruralz Control
+  - State Store
+  - Control Store
+  - Control Stream
+  - Plugin ABI
+  adrs:
+  - ADR-0001
+  - ADR-0004
+  - ADR-0005
+  - ADR-0006
+  - ADR-0007
+  - ADR-0008
+  - ADR-0009
+  - ADR-0010
+  - ADR-0011
+  - ADR-0012
+  - ADR-0013
+  - ADR-0014
+  lenses:
+  - L1
+  - L2
+  - L3
+  length_words:
+    min: 1500
+    max: 4000
+- id: 8
+  slug: data-plane
+  path: docs/architecture/03-data-plane.md
+  title: Data Plane
+  audience:
+  - architects
+  - contributors
+  wave: 2
+  mode: pipeline
+  depends_on:
+  - docs/_meta/foundation-pack.md
+  - docs/_meta/style-guide.md
+  - docs/architecture/01-system-overview.md
+  - docs/architecture/02-configuration-model.md
+  - docs/engineering/01-tech-stack-and-libraries.md
+  research:
+  - docs/_meta/research/go-libraries-runtime.md
+  outline_h2:
+  - Process and concurrency model
+  - Listeners and protocols
+  - Router
+  - Filter Chain execution
+  - Composition engine
+  - Upstream layer
+  - Configuration snapshots and hot reload
+  - Admin endpoints
+  - Failure semantics
+  - Performance budgets
+  diagrams:
+  - type: sequenceDiagram
+    subject: request through Ruralz Gateway from listener to Upstream and back
+  - type: flowchart
+    subject: Filter Chain execution with ordering and short-circuit
+  - type: stateDiagram-v2
+    subject: configuration snapshot swap during hot reload
+  acceptance:
+  - Filter Chain execution names the phases exactly as in the foundation pack, in order, including onChunk, and
+    covers ordering, short-circuit, streaming and error handling.
+  - Configuration snapshots and hot reload explains how an atomic snapshot swap drops no in-flight requests (in-flight
+    requests complete on the snapshot they started on).
+  - Router includes a routing precedence worked example covering host, path, method and wildcard matches.
+  - The streaming path is described for SSE, WebSocket and LLM token streams via onChunk.
+  - The document states that Ruralz Gateway keeps no durable local state other than its enrollment identity,
+    Last-Known-Good configuration and disposable caches (foundation pack section 8.11), and that shared runtime state lives in the State Store.
+  - Admin endpoints lists at least /healthz, /readyz, /metrics, /debug/*, /config/dump and /tap on port 9901, and
+    is the source that docs/reference/01-cli-and-api-surface.md must match.
+  - Failure semantics defines fail-open or fail-closed behavior per filter class in a table.
+  - Composition engine covers aggregation, sequential, conditional and workflow composition.
+  - Performance budgets points to docs/architecture/12-performance-budgets-and-benchmarking.md instead of restating
+    budgets.
+  machine_checks:
+  - kind: required_terms
+    value:
+    - onRequestHeaders
+    - onRequestBody
+    - onRoute
+    - onUpstreamRequest
+    - onUpstreamResponseHeaders
+    - onUpstreamResponseBody
+    - onResponse
+    - onLog
+    - onChunk
+    - /healthz
+    - /readyz
+    - /metrics
+    - /config/dump
+    - /tap
+    - '9901'
+    - Last-Known-Good
+  - kind: has_table
+    section: Failure semantics
+  - kind: has_table
+    section: Admin endpoints
+  - kind: links_to
+    value:
+    - docs/architecture/12-performance-budgets-and-benchmarking.md
+  required_terms:
+  - Ruralz Gateway
+  - Node
+  - Route
+  - Upstream
+  - Endpoint
+  - Policy
+  - Filter
+  - Filter Chain
+  - Phase
+  - Plugin
+  - Hot Reload
+  - Drain
+  - State Store
+  - Last-Known-Good
+  adrs:
+  - ADR-0004
+  - ADR-0008
+  - ADR-0009
+  - ADR-0010
+  - ADR-0015
+  lenses:
+  - L1
+  - L2
+  - L3
+  length_words:
+    min: 2500
+    max: 5000
+  notes: 'The plan''s AC ''admin endpoints match #28'' is inverted here because #28 is written in wave 3; #28 must
+    match this document.'
+- id: 9
+  slug: control-plane-and-gitops
+  path: docs/architecture/04-control-plane-and-gitops.md
+  title: Control Plane and GitOps
+  audience:
+  - architects
+  - operators
+  - contributors
+  wave: 2
+  mode: pipeline
+  depends_on:
+  - docs/_meta/foundation-pack.md
+  - docs/_meta/style-guide.md
+  - docs/architecture/01-system-overview.md
+  - docs/architecture/02-configuration-model.md
+  - docs/engineering/01-tech-stack-and-libraries.md
+  research:
+  - docs/_meta/research/go-libraries-runtime.md
+  - docs/_meta/research/scalability-patterns.md
+  outline_h2:
+  - Responsibilities and non-responsibilities
+  - Components
+  - GitOps model
+  - Bundle, Revision and Rollout lifecycle
+  - Control Stream
+  - Multi-cluster and multi-region sync
+  - Drift detection
+  - Ruralz Console
+  - Control Store and high availability
+  - API summary
+  - Audit and security
+  diagrams:
+  - type: flowchart
+    subject: Ruralz Control components
+  - type: sequenceDiagram
+    subject: git push to validated Revision to Rollout on Nodes
+  - type: stateDiagram-v2
+    subject: 'Rollout states: pending, canary, progressing, paused, complete, rolled-back, failed'
+  - type: flowchart
+    subject: multi-cluster topology across Environments and Regions
+  acceptance:
+  - The document states explicitly that Nodes keep serving their active Revision during a Ruralz Control outage
+    and boot Last-Known-Good configuration after a restart, and lists what is unavailable during the outage.
+  - Rolling back a Rollout takes three steps or fewer, shown as ruralz commands or Ruralz Console actions.
+  - Control Stream contains a message table giving each message, its direction, key fields and ACK/NACK semantics,
+    and covers enrollment, mTLS, snapshot plus delta, heartbeat and backpressure.
+  - Ruralz Console lists at least eight screens in a table, with RBAC and SSO behavior.
+  - Drift detection defines the reconciliation policy (what is detected, how it is reported, and when it is reverted
+    or alerted).
+  - Bundle, Revision and Rollout lifecycle describes Revision signing by Ruralz Control and signature verification
+    by Nodes, consistent with ADR-0017.
+  - 'Rollout states match the foundation pack exactly: pending, canary, progressing, paused, complete, rolled-back,
+    failed.'
+  - GitOps model covers repository layout, branch-to-Environment mapping, pull request validation and Ruralz Console
+    write-back.
+  machine_checks:
+  - kind: required_terms
+    value:
+    - Last-Known-Good
+    - pending
+    - canary
+    - progressing
+    - paused
+    - complete
+    - rolled-back
+    - failed
+    - '8091'
+    - ACK
+    - NACK
+    - ruralz.control.v1.ControlStream
+    - ruralz rollout rollback
+  - kind: has_table
+    section: Control Stream
+  - kind: min_table_rows
+    table_heading: Ruralz Console
+    value: 8
+  required_terms:
+  - Ruralz Control
+  - Ruralz Console
+  - Bundle
+  - Revision
+  - Rollout
+  - Drift
+  - Cluster
+  - Environment
+  - Node
+  - Control Stream
+  - Control Store
+  - Last-Known-Good
+  adrs:
+  - ADR-0003
+  - ADR-0006
+  - ADR-0007
+  - ADR-0016
+  - ADR-0017
+  lenses:
+  - L1
+  - L2
+  - L3
+  - L4S
+  length_words:
+    min: 2500
+    max: 5000
+- id: 10
+  slug: wasm-plugin-system
+  path: docs/architecture/05-wasm-plugin-system.md
+  title: WASM Plugin System
+  audience:
+  - plugin-authors
+  - architects
+  - contributors
+  - security-engineers
+  wave: 2
+  mode: pipeline
+  depends_on:
+  - docs/_meta/foundation-pack.md
+  - docs/_meta/style-guide.md
+  - docs/architecture/01-system-overview.md
+  - docs/architecture/02-configuration-model.md
+  - docs/engineering/01-tech-stack-and-libraries.md
+  research:
+  - docs/_meta/research/competitors-kong-tyk-apisix.md
+  - docs/_meta/research/competitors-envoy-zuplo-gravitee.md
+  - docs/_meta/research/go-libraries-runtime.md
+  outline_h2:
+  - Goals and prior art
+  - Runtime
+  - Plugin ABI v1
+  - Capabilities and sandboxing
+  - Packaging
+  - Hot-swap lifecycle
+  - SDK matrix
+  - Developer experience and test harness
+  - Performance model
+  - Threat model
+  - proxy-wasm stance
+  diagrams:
+  - type: flowchart
+    subject: host and guest boundary with Host Functions and Capabilities
+  - type: stateDiagram-v2
+    subject: Plugin lifecycle from fetch to retire
+  - type: sequenceDiagram
+    subject: Filter Chain invoking a Plugin phase through Plugin ABI v1
+  acceptance:
+  - Plugin ABI v1 contains a Host Function table giving each function's signature and the Capability it requires.
+  - Runtime contains a default limits table (memory, fuel or instruction budget, wall-clock time per call, instance
+    pool size) with values tagged (target).
+  - Hot-swap lifecycle replaces a Plugin without dropping in-flight requests and supports a canary percentage.
+  - SDK matrix covers at least four languages (from Go/TinyGo, Rust, TypeScript, Python, C#), each with a milestone
+    tag.
+  - Capabilities and sandboxing states that Capabilities are deny-by-default.
+  - proxy-wasm stance states the adapter decision and its milestone, Planned (M4), consistent with ADR-0005.
+  - Packaging covers OCI references pinned by digest, cosign signatures and the ruralz plugin commands.
+  machine_checks:
+  - kind: required_terms
+    value:
+    - wazero
+    - ruralz.plugin.v1
+    - Plugin ABI v1
+    - Planned (M4)
+    - cosign
+    - deny-by-default
+    - ruralz plugin build
+  - kind: has_table
+    section: Plugin ABI v1
+  - kind: has_table
+    section: Runtime
+  - kind: min_table_rows
+    table_heading: SDK matrix
+    value: 4
+  required_terms:
+  - Plugin
+  - Plugin ABI
+  - Host Function
+  - Capability
+  - Phase
+  - Filter Chain
+  - Hot Reload
+  adrs:
+  - ADR-0001
+  - ADR-0004
+  - ADR-0005
+  lenses:
+  - L1
+  - L2
+  - L3
+  - L4S
+  length_words:
+    min: 2500
+    max: 5000
+- id: 11
+  slug: ai-llm-gateway
+  path: docs/architecture/06-ai-llm-gateway.md
+  title: AI/LLM Gateway
+  audience:
+  - ai-platform-engineers
+  - architects
+  - contributors
+  wave: 2
+  mode: pipeline
+  depends_on:
+  - docs/_meta/foundation-pack.md
+  - docs/_meta/style-guide.md
+  - docs/architecture/01-system-overview.md
+  - docs/architecture/02-configuration-model.md
+  - docs/engineering/01-tech-stack-and-libraries.md
+  research:
+  - docs/_meta/research/ai-gateways.md
+  - docs/_meta/research/go-libraries-protocols.md
+  outline_h2:
+  - Personas and scope
+  - Unified API
+  - AIProvider, AIModel and dialect translation matrix
+  - Model routing
+  - Token accounting
+  - Token-aware rate limits and budgets
+  - Cost tracking and attribution
+  - Prompt caching and semantic caching
+  - Guardrail hooks
+  - MCP and A2A stance
+  - AI observability
+  - Security and data residency routing
+  diagrams:
+  - type: flowchart
+    subject: AIModel routing and Provider Fallback
+  - type: sequenceDiagram
+    subject: streaming token accounting with the final usage chunk
+  - type: flowchart
+    subject: AI gateway components inside Ruralz Gateway
+  acceptance:
+  - Each of the five AI capabilities (unified API, model routing with fallback, token accounting with token-aware
+    rate limits and budgets, cost tracking, and prompt and semantic caching) has its own H2 or H3.
+  - Unified API covers the OpenAI-compatible facade and native passthrough for Anthropic Messages, Bedrock and Gemini,
+    including SSE streaming.
+  - The dialect translation matrix covers at least six providers (openai, anthropic, gemini, bedrock, mistral, ollama)
+    against dialect, streaming, usage fields and prompt-cache support, with no blank cells.
+  - The document guarantees that Anthropic cache_control blocks are preserved in native passthrough and states the
+    facade's behavior for them.
+  - Model routing contains a fallback trigger matrix mapping error classes to retry, fall back or fail.
+  - Cost tracking and attribution gives a cost formula with currency and pricing-table versioning.
+  - Token accounting states that provider-reported usage is authoritative, that tokenizer counts are pre-admission
+    estimates only, and how the streaming final-usage chunk is handled (ADR-0014).
+  - Every feature carries a milestone tag, including MCP gateway Planned (M3) and A2A Planned (M5).
+  machine_checks:
+  - kind: required_terms
+    value:
+    - cache_control
+    - gen_ai
+    - AIProvider
+    - AIModel
+    - Provider Fallback
+    - Token Budget
+    - Prompt Cache
+    - Semantic Cache
+    - openai
+    - anthropic
+    - gemini
+    - bedrock
+    - mistral
+    - ollama
+    - Planned (M3)
+    - Planned (M5)
+  - kind: min_table_rows
+    table_heading: AIProvider, AIModel and dialect translation matrix
+    value: 6
+  - kind: no_blank_cells
+    table_heading: AIProvider, AIModel and dialect translation matrix
+  - kind: has_table
+    section: Model routing
+  required_terms:
+  - AIProvider
+  - AIModel
+  - Provider Fallback
+  - Token Budget
+  - Prompt Cache
+  - Semantic Cache
+  - Consumer
+  - Quota
+  - Rate Limit
+  - State Store
+  adrs:
+  - ADR-0005
+  - ADR-0008
+  - ADR-0010
+  - ADR-0014
+  lenses:
+  - L1
+  - L2
+  - L3
+  - L4S
+  length_words:
+    min: 2500
+    max: 5000
+  notes: The plan's 'all 5 user capabilities' is interpreted as the five capabilities named in the first acceptance
+    criterion.
+- id: 12
+  slug: multi-protocol
+  path: docs/architecture/07-multi-protocol.md
+  title: Multi-Protocol Support
+  audience:
+  - architects
+  - contributors
+  - operators
+  wave: 2
+  mode: pipeline
+  depends_on:
+  - docs/_meta/foundation-pack.md
+  - docs/_meta/style-guide.md
+  - docs/architecture/01-system-overview.md
+  - docs/architecture/02-configuration-model.md
+  - docs/engineering/01-tech-stack-and-libraries.md
+  research:
+  - docs/_meta/research/go-libraries-protocols.md
+  outline_h2:
+  - Protocol matrix
+  - HTTP/1.1, HTTP/2 and HTTP/3
+  - gRPC
+  - GraphQL
+  - WebSocket
+  - Server-Sent Events
+  - Kafka, NATS JetStream and MQTT
+  - Native wire-proxy stance
+  - Filter Chain applicability per protocol
+  diagrams:
+  - type: sequenceDiagram
+    subject: gRPC-JSON transcoding through Ruralz Gateway
+  - type: sequenceDiagram
+    subject: GraphQL federated query and subscription
+  - type: sequenceDiagram
+    subject: WebSocket proxying with per-message policies and backpressure
+  - type: sequenceDiagram
+    subject: HTTP request published to Kafka or NATS as an async agent
+  acceptance:
+  - Protocol matrix (ingress by egress) has no blank cells and uses only Planned (M0) to Planned (M5), Not planned
+    or N/A.
+  - Each protocol section states use cases, the kind mapping (Route match and Upstream protocol), Policy applicability
+    and limits.
+  - Libraries named match docs/engineering/01-tech-stack-and-libraries.md.
+  - Native wire-proxy stance states the Kafka native wire-proxy decision (none before M4) and the MQTT embedded-broker
+    mode milestone.
+  - GraphQL specifies the subscription transport(s) and covers federation v2, depth and complexity limits and persisted
+    queries (ADR-0012).
+  - gRPC covers transcoding, reflection, streaming, and Connect and gRPC-Web ingress.
+  - Filter Chain applicability per protocol is a table mapping each phase, including onChunk, to each protocol.
+  machine_checks:
+  - kind: no_blank_cells
+    table_heading: Protocol matrix
+  - kind: cell_values_in
+    table_headings:
+    - Protocol matrix
+    columns: all_but_first
+    allowed_pattern: ^(Planned \(M[0-5]\)|Not planned|N/A)$
+  - kind: required_terms
+    value:
+    - connectrpc.com/connect
+    - graphql-go-tools
+    - franz-go
+    - nats.go
+    - paho.golang
+    - mochi-mqtt
+    - quic-go
+    - onChunk
+  - kind: has_table
+    section: Filter Chain applicability per protocol
+  required_terms:
+  - Route
+  - Upstream
+  - Filter Chain
+  - Phase
+  - Policy
+  adrs:
+  - ADR-0009
+  - ADR-0012
+  - ADR-0013
+  lenses:
+  - L1
+  - L2
+  - L3
+  length_words:
+    min: 2500
+    max: 5000
+  notes: The plan's matrix legend 'Supported (Mx)' conflicts with style guide section 4 (never Supported); the style
+    guide wins.
+- id: 13
+  slug: security-and-identity
+  path: docs/architecture/08-security-and-identity.md
+  title: Security and Identity
+  audience:
+  - security-engineers
+  - architects
+  - operators
+  wave: 2
+  mode: pipeline
+  depends_on:
+  - docs/_meta/foundation-pack.md
+  - docs/_meta/style-guide.md
+  - docs/architecture/01-system-overview.md
+  - docs/architecture/02-configuration-model.md
+  - docs/engineering/01-tech-stack-and-libraries.md
+  research:
+  - docs/_meta/research/go-libraries-runtime.md
+  outline_h2:
+  - Threat model and trust boundaries
+  - Transport security
+  - Authentication
+  - Authorization
+  - Consumers and tiers
+  - Secrets
+  - Request hardening
+  - Revocation
+  - Plugin sandbox
+  - Control plane security
+  - Compliance
+  diagrams:
+  - type: flowchart
+    subject: trust boundaries between clients, Ruralz Gateway, Upstreams, Ruralz Control and State Store
+  - type: flowchart
+    subject: authentication decision for a request
+  - type: flowchart
+    subject: secret resolution via secretRef
+  acceptance:
+  - Every KrakenD CE and EE authentication feature (JWT/OIDC/OAuth2, JWT signing, client credentials, revocation
+    bloom filter, mTLS, basic auth, API keys, revoke server, multiple IdPs per KrakenD endpoint, NTLM, GCP auth,
+    AWS SigV4) is mapped to a Ruralz mechanism with a milestone, or marked Not planned with a reason.
+  - Authorization contains a guidance table comparing CEL, OPA (Rego) and Cedar (when to use, cost, milestone),
+    consistent with ADR-0011.
+  - The FIPS build statement (GOFIPS140) is consistent with docs/engineering/01-tech-stack-and-libraries.md.
+  - Revocation states a propagation-time target tagged (target).
+  - Compliance contains an audit event catalog with at least 15 events.
+  - Transport security covers TLS 1.3, mTLS, certificate rotation and HTTP/3.
+  - Control plane security covers RBAC, SSO (OIDC and SAML), audit, signed Revisions and Plugin artifacts (ADR-0017), SBOM and SLSA
+    provenance.
+  machine_checks:
+  - kind: required_terms
+    value:
+    - TLS 1.3
+    - mTLS
+    - JWKS
+    - SigV4
+    - NTLM
+    - secretRef
+    - CEL
+    - OPA
+    - Cedar
+    - GOFIPS140
+    - SBOM
+    - SLSA
+    - (target)
+  - kind: has_table
+    section: Authentication
+  - kind: has_table
+    section: Authorization
+  - kind: min_table_rows
+    table_heading: Compliance
+    value: 15
+  required_terms:
+  - Consumer
+  - Tier
+  - Policy
+  - Capability
+  - Plugin
+  - Ruralz Control
+  - Ruralz Console
+  - Bundle
+  adrs:
+  - ADR-0001
+  - ADR-0004
+  - ADR-0005
+  - ADR-0007
+  - ADR-0011
+  - ADR-0017
+  lenses:
+  - L1
+  - L2
+  - L3
+  - L4S
+  length_words:
+    min: 2500
+    max: 5000
+- id: 14
+  slug: traffic-management-and-resilience
+  path: docs/architecture/09-traffic-management-and-resilience.md
+  title: Traffic Management and Resilience
+  audience:
+  - architects
+  - operators
+  - contributors
+  wave: 2
+  mode: pipeline
+  depends_on:
+  - docs/_meta/foundation-pack.md
+  - docs/_meta/style-guide.md
+  - docs/architecture/01-system-overview.md
+  - docs/architecture/02-configuration-model.md
+  - docs/engineering/01-tech-stack-and-libraries.md
+  research:
+  - docs/_meta/research/scalability-patterns.md
+  outline_h2:
+  - Load balancing
+  - Service discovery
+  - Health checking and outlier detection
+  - Timeouts, deadlines, retries and hedging
+  - Circuit breakers
+  - Rate limiting
+  - Quotas
+  - Response caching
+  - Traffic shaping
+  - Overload protection
+  - Failure matrix
+  diagrams:
+  - type: flowchart
+    subject: 'rate-limit decision: local token bucket then GCRA in the State Store'
+  - type: stateDiagram-v2
+    subject: retry and circuit breaker states
+  - type: flowchart
+    subject: load-balancing Endpoint selection
+  acceptance:
+  - Rate limiting contains an algorithm table comparing accuracy, cost, multi-node behavior and burst handling (ADR-0008).
+  - Every KrakenD EE routing and traffic feature (catch-all fallback, header and query dynamic routing, conditional
+    routing, wildcard routes, URL rewrite, virtual hosts, client redirects, customizable HTTP circuit breaker, service
+    rate limit, tiered rate limit, stateful rate limit, IP filtering, GeoIP) is mapped to a Ruralz mechanism with
+    a milestone.
+  - Failure matrix gives fail-open or fail-closed behavior for each dependency failure, including State Store outage.
+  - Rate limiting specifies the IETF RateLimit-Policy and RateLimit response header contract.
+  - Quotas supports long windows and token-weighted units, including LLM tokens.
+  - Timeouts, deadlines, retries and hedging defines a retry budget.
+  - Response caching follows HTTP caching semantics including stale-while-revalidate.
+  machine_checks:
+  - kind: required_terms
+    value:
+    - RateLimit-Policy
+    - GCRA
+    - token bucket
+    - retry budget
+    - stale-while-revalidate
+    - (target)
+  - kind: has_table
+    section: Rate limiting
+  - kind: has_table
+    section: Failure matrix
+  - kind: no_blank_cells
+    table_heading: Failure matrix
+  required_terms:
+  - Upstream
+  - Endpoint
+  - Rate Limit
+  - Quota
+  - Response Cache
+  - State Store
+  - Consumer
+  - Tier
+  - Token Budget
+  adrs:
+  - ADR-0008
+  - ADR-0011
+  lenses:
+  - L1
+  - L2
+  - L3
+  - L4X
+  length_words:
+    min: 2500
+    max: 5000
+- id: 15
+  slug: observability
+  path: docs/architecture/10-observability.md
+  title: Observability
+  audience:
+  - operators
+  - contributors
+  wave: 2
+  mode: pipeline
+  depends_on:
+  - docs/_meta/foundation-pack.md
+  - docs/_meta/style-guide.md
+  - docs/architecture/01-system-overview.md
+  - docs/architecture/02-configuration-model.md
+  - docs/engineering/01-tech-stack-and-libraries.md
+  research: []
+  outline_h2:
+  - Observability principles
+  - Metrics catalog
+  - Tracing
+  - Logging and access logs
+  - AI observability
+  - Grafana dashboards and SLOs
+  - Debugging tools
+  - Control plane observability
+  - Cardinality and overhead budgets
+  diagrams:
+  - type: flowchart
+    subject: telemetry pipeline from Ruralz Gateway and Ruralz Control to OTel collectors and backends
+  - type: flowchart
+    subject: span tree for one request (ruralz.route.match, ruralz.filter.*, ruralz.upstream.*)
+  acceptance:
+  - Metrics catalog lists at least 25 metrics named ruralz_<component>_<name>_<unit>, each with type, labels and
+    unit.
+  - Cardinality and overhead budgets gives a per-signal overhead budget tagged (target).
+  - Logging and access logs lists the access-log fields.
+  - Tracing specifies W3C Trace Context propagation and default sampling.
+  - AI observability uses OpenTelemetry gen_ai semantic conventions.
+  - Grafana dashboards and SLOs lists the Grafana dashboard pack and defines SLOs that docs/architecture/12-performance-budgets-and-benchmarking.md
+    ties its budgets to.
+  machine_checks:
+  - kind: min_table_rows
+    table_heading: Metrics catalog
+    value: 25
+  - kind: min_distinct_matches
+    pattern: ruralz_[a-z0-9]+_[a-z0-9_]+
+    value: 25
+  - kind: required_terms
+    value:
+    - W3C Trace Context
+    - traceparent
+    - gen_ai
+    - ruralz.filter.
+    - (target)
+  - kind: has_table
+    section: Logging and access logs
+  - kind: has_table
+    section: Grafana dashboards and SLOs
+  required_terms:
+  - Ruralz Gateway
+  - Ruralz Control
+  - Filter
+  - Route
+  - Upstream
+  - AIProvider
+  - AIModel
+  - Performance Budget
+  adrs:
+  - ADR-0010
+  - ADR-0014
+  lenses:
+  - L1
+  - L2
+  - L3
+  length_words:
+    min: 2500
+    max: 5000
+  notes: Heading 'Dashboards & SLOs' is rendered as 'Grafana dashboards and SLOs' to avoid the forbidden alias for
+    Ruralz Console.
+- id: 16
+  slug: market-landscape-and-table-stakes
+  path: docs/comparison/02-market-landscape-and-table-stakes.md
+  title: Market Landscape and Table Stakes
+  audience:
+  - evaluators
+  - architects
+  wave: 2
+  mode: pipeline
+  depends_on:
+  - docs/_meta/foundation-pack.md
+  - docs/_meta/style-guide.md
+  - docs/vision/01-vision-and-positioning.md
+  research:
+  - docs/_meta/research/krakend-parity.md
+  - docs/_meta/research/competitors-kong-tyk-apisix.md
+  - docs/_meta/research/competitors-envoy-zuplo-gravitee.md
+  - docs/_meta/research/ai-gateways.md
+  - docs/_meta/research/licensing-landscape.md
+  outline_h2:
+  - Method and snapshot date
+  - Competitor profiles
+  - Table-stakes matrix
+  - Differentiator reality check
+  - Licensing landscape 2025 to 2026
+  - Implications for milestones
+  diagrams:
+  - type: quadrantChart
+    subject: competitive positioning by extensibility and openness
+  acceptance:
+  - Competitor profiles contains at least nine profiles as H3s (Kong, Tyk, Apache APISIX, Envoy Gateway with Envoy
+    AI Gateway, Zuplo, Gravitee, KrakenD, Portkey, LiteLLM), each citing at least two URLs present in docs/_meta/research/.
+  - Table-stakes matrix has no blank cells.
+  - Differentiator reality check has a 'who already does part' row for each of the four differentiators (proxy-wasm
+    in Kong, APISIX and Envoy; AI gateways including KrakenD EE 2.10+; Konnect and Tyk Dashboard control planes;
+    Tyk GraphQL federation and Gravitee native Kafka).
+  - Licensing landscape 2025 to 2026 lists at least four licensing events with ISO dates and URLs.
+  - Method and snapshot date states the snapshot date 2026-09-23 and the sourcing method.
+  - Implications for milestones maps each finding to a milestone M0 to M5.
+  machine_checks:
+  - kind: min_h3
+    section: Competitor profiles
+    value: 9
+  - kind: min_urls_per_h3
+    section: Competitor profiles
+    value: 2
+  - kind: no_blank_cells
+    table_heading: Table-stakes matrix
+  - kind: min_table_rows
+    table_heading: Differentiator reality check
+    value: 4
+  - kind: min_table_rows
+    table_heading: Licensing landscape 2025 to 2026
+    value: 4
+  - kind: required_terms
+    value:
+    - '2026-09-23'
+    - Kong
+    - Tyk
+    - APISIX
+    - Envoy
+    - Zuplo
+    - Gravitee
+    - KrakenD
+    - Portkey
+    - LiteLLM
+  required_terms:
+  - Ruralz Control
+  - Ruralz Console
+  - Plugin
+  adrs:
+  - ADR-0002
+  lenses:
+  - L1
+  - L2
+  - L3
+  - L4C
+  length_words:
+    min: 1500
+    max: 8000
+- id: 17
+  slug: repository-layout-and-conventions
+  path: docs/engineering/02-repository-layout-and-conventions.md
+  title: Repository Layout and Conventions
+  audience:
+  - contributors
+  wave: 2
+  mode: pipeline
+  depends_on:
+  - docs/_meta/foundation-pack.md
+  - docs/_meta/style-guide.md
+  - docs/architecture/01-system-overview.md
+  - docs/architecture/02-configuration-model.md
+  - docs/engineering/01-tech-stack-and-libraries.md
+  research: []
+  outline_h2:
+  - Monorepo tree
+  - Go conventions and linters
+  - API and protobuf definitions
+  - Schema generation from Go types
+  - Commits and pull requests
+  - CI stages
+  - Docs as code
+  diagrams:
+  - type: mindmap
+    subject: repository tree
+  - type: flowchart
+    subject: CI pipeline stages
+  acceptance:
+  - Monorepo tree matches cmd/ruralzd, cmd/ruralz-control, cmd/ruralz, internal/, pkg/, api/ and sdk/ from the foundation
+    pack.
+  - Schema generation from Go types specifies the source package and the output path of the published JSON Schema.
+  - Go conventions and linters lists the golangci-lint linter set.
+  - Commits and pull requests states the DCO sign-off stance explicitly and uses Conventional Commits.
+  - CI stages lists at least six stages, including docs verification with scripts/verify-docs.mjs.
+  - API and protobuf definitions uses buf and the proto packages ruralz.control.v1 and ruralz.plugin.v1.
+  machine_checks:
+  - kind: required_terms
+    value:
+    - cmd/ruralzd
+    - cmd/ruralz-control
+    - cmd/ruralz
+    - internal/
+    - pkg/
+    - api/
+    - sdk/
+    - golangci-lint
+    - buf
+    - DCO
+    - Conventional Commits
+    - scripts/verify-docs.mjs
+    - ruralz.control.v1
+    - ruralz.plugin.v1
+  - kind: min_table_rows
+    table_heading: CI stages
+    value: 6
+  required_terms:
+  - Ruralz Gateway
+  - Ruralz Control
+  - Plugin ABI
+  - Control Stream
+  adrs:
+  - ADR-0001
+  - ADR-0002
+  - ADR-0003
+  lenses:
+  - L1
+  - L2
+  - L3
+  length_words:
+    min: 1500
+    max: 4000
+- id: 18
+  slug: testing-and-quality-strategy
+  path: docs/engineering/03-testing-and-quality-strategy.md
+  title: Testing and Quality Strategy
+  audience:
+  - contributors
+  wave: 2
+  mode: pipeline
+  depends_on:
+  - docs/_meta/foundation-pack.md
+  - docs/_meta/style-guide.md
+  - docs/architecture/01-system-overview.md
+  - docs/architecture/02-configuration-model.md
+  - docs/engineering/01-tech-stack-and-libraries.md
+  research: []
+  outline_h2:
+  - Test pyramid
+  - Unit and property tests
+  - Integration tests
+  - End-to-end tests
+  - Conformance suites
+  - Fuzzing
+  - Chaos testing
+  - Benchmarks and regression gates
+  - Security scanning
+  - Plugin SDK and AI provider harnesses
+  - Release gates
+  diagrams: []
+  acceptance:
+  - Each test layer states its tools, coverage target tagged (target) and the CI stage that runs it.
+  - 'Conformance suites defines three suites: configuration, Plugin ABI and protocol.'
+  - Integration tests use testcontainers for Redis, Kafka, NATS and MQTT.
+  - End-to-end tests run on Docker Compose and kind.
+  - Plugin SDK and AI provider harnesses defines the AI provider mock strategy, including streaming responses and
+    usage chunks.
+  - Benchmarks and regression gates uses the regression thresholds owned by docs/architecture/12-performance-budgets-and-benchmarking.md
+    (fail on more than 5% p99 latency or more than 3% alloc/op regression, tagged (target)).
+  machine_checks:
+  - kind: required_terms
+    value:
+    - testcontainers
+    - Redis
+    - Kafka
+    - NATS
+    - MQTT
+    - kind
+    - (target)
+  - kind: has_table
+    section: Test pyramid
+  - kind: min_table_rows
+    table_heading: Conformance suites
+    value: 3
+  required_terms:
+  - Plugin ABI
+  - Bundle
+  - State Store
+  - AIProvider
+  adrs:
+  - ADR-0001
+  - ADR-0005
+  - ADR-0014
+  lenses:
+  - L1
+  - L2
+  - L3
+  length_words:
+    min: 1500
+    max: 4000
+  notes: 'The plan''s AC ''gates match #21'' targets a wave 3 document; the writer uses the regression policy from
+    the plan''s #21 spec and the cross-doc critic confirms consistency.'
+- id: 19
+  slug: release-versioning-and-compatibility
+  path: docs/engineering/04-release-versioning-and-compatibility.md
+  title: Release, Versioning and Compatibility
+  audience:
+  - contributors
+  - operators
+  - plugin-authors
+  wave: 2
+  mode: pipeline
+  depends_on:
+  - docs/_meta/foundation-pack.md
+  - docs/_meta/style-guide.md
+  - docs/architecture/01-system-overview.md
+  - docs/architecture/02-configuration-model.md
+  - docs/engineering/01-tech-stack-and-libraries.md
+  research:
+  - docs/_meta/research/krakend-parity.md
+  - docs/_meta/research/licensing-landscape.md
+  outline_h2:
+  - Semantic versioning
+  - apiVersion lifecycle and deprecation windows
+  - Plugin ABI versioning
+  - Control Stream versioning
+  - Control plane and data plane version skew
+  - SDK versioning
+  - Release cadence and support windows
+  - Security fix policy
+  - Release artifacts
+  diagrams:
+  - type: gantt
+    subject: release cadence and support windows
+  acceptance:
+  - Control plane and data plane version skew contains a skew table supporting N and N-1 between Ruralz Control,
+    Ruralz Gateway and the ruralz CLI.
+  - Deprecation and support windows are quantified in months or releases.
+  - Plugin ABI versioning states the compatibility rules for ruralz.plugin.v1 (additive changes, major-version bumps).
+  - Release artifacts lists binaries, container images, SBOM, signatures and the Helm chart.
+  - Security fix policy states that open source releases receive security fixes immediately and contrasts this with
+    KrakenD CE.
+  - apiVersion lifecycle and deprecation windows covers ruralz/v1alpha1 through beta and stable with migration tooling.
+  machine_checks:
+  - kind: has_table
+    section: Control plane and data plane version skew
+  - kind: required_terms
+    value:
+    - N-1
+    - SBOM
+    - Helm
+    - ruralz/v1alpha1
+    - ruralz.plugin.v1
+    - ruralz.control.v1
+    - KrakenD CE
+  required_terms:
+  - Plugin ABI
+  - Control Stream
+  - Ruralz Control
+  - Ruralz Gateway
+  - Bundle
+  adrs:
+  - ADR-0002
+  - ADR-0003
+  - ADR-0005
+  - ADR-0007
+  - ADR-0016
+  lenses:
+  - L1
+  - L2
+  - L3
+  length_words:
+    min: 1500
+    max: 4000
+- id: 20
+  slug: scalability-and-distributed-state
+  path: docs/architecture/11-scalability-and-distributed-state.md
+  title: Scalability and Distributed State
+  audience:
+  - architects
+  - operators
+  wave: 3
+  mode: pipeline
+  depends_on:
+  - docs/_meta/foundation-pack.md
+  - docs/_meta/style-guide.md
+  - docs/architecture/03-data-plane.md
+  - docs/architecture/04-control-plane-and-gitops.md
+  - docs/architecture/06-ai-llm-gateway.md
+  - docs/architecture/09-traffic-management-and-resilience.md
+  research:
+  - docs/_meta/research/scalability-patterns.md
+  outline_h2:
+  - Guarantees and principles
+  - Stateless data plane
+  - Horizontal scaling
+  - High availability
+  - Distributed state catalog
+  - Consistency and accuracy bounds
+  - Multi-region
+  - Cells and blast radius
+  - Limits and bottlenecks
+  - Chaos experiments
+  - Pointers to related documents
+  diagrams:
+  - type: flowchart
+    subject: horizontal scaling topology behind an L4 load balancer
+  - type: sequenceDiagram
+    subject: distributed rate-limit check with local token bucket and GCRA in the State Store
+  - type: flowchart
+    subject: multi-region topology with regional State Stores and Ruralz Control
+  - type: stateDiagram-v2
+    subject: Ruralz Control high availability with Raft leader election
+  acceptance:
+  - 'Each of the 11 scalability_items is an H2 or H3 heading or a named pointer link: distributed rate limits, distributed
+    caches and distributed sessions are H3s under Distributed state catalog, and performance budgets, benchmarking,
+    capacity planning and zero-downtime upgrades are named links under Pointers to related documents.'
+  - Distributed state catalog has at least 10 rows with columns state, store, consistency, algorithm and failure
+    mode, and no blank cells.
+  - Stateless data plane contains an inventory of every in-memory per-Node state and why losing it is safe.
+  - Horizontal scaling covers the scale unit, autoscaling signals, SO_REUSEPORT, L4 load balancing and warm-up.
+  - High availability covers Ruralz Gateway, Ruralz Control and the State Store, and Ruralz Control outage behavior
+    is consistent with docs/architecture/04-control-plane-and-gitops.md (Last-Known-Good).
+  - Consistency and accuracy bounds states a global quota accuracy bound tagged (target).
+  - Multi-region covers topologies, regional versus global quotas, geo and data-residency routing, cross-region
+    configuration sync and latency budgets.
+  - Limits and bottlenecks contains a per-Node limits table with every value tagged (target).
+  machine_checks:
+  - kind: covers_items
+    value: *id002
+  - kind: min_table_rows
+    table_heading: Distributed state catalog
+    value: 10
+  - kind: no_blank_cells
+    table_heading: Distributed state catalog
+  - kind: has_table
+    section: Limits and bottlenecks
+  - kind: required_terms
+    value:
+    - SO_REUSEPORT
+    - Last-Known-Good
+    - GCRA
+    - (target)
+  - kind: links_to
+    value:
+    - docs/architecture/12-performance-budgets-and-benchmarking.md
+    - docs/operations/02-zero-downtime-upgrades-and-hot-reload.md
+    - docs/operations/03-capacity-planning.md
+  required_terms:
+  - Node
+  - Cluster
+  - Region
+  - Cell
+  - State Store
+  - Control Store
+  - Rate Limit
+  - Quota
+  - Token Budget
+  - Semantic Cache
+  - Response Cache
+  - Last-Known-Good
+  - Performance Budget
+  - Zero-Downtime Upgrade
+  adrs:
+  - ADR-0006
+  - ADR-0007
+  - ADR-0008
+  - ADR-0015
+  lenses:
+  - L1
+  - L2
+  - L3
+  - L4X
+  length_words:
+    min: 2500
+    max: 5000
+- id: 21
+  slug: performance-budgets-and-benchmarking
+  path: docs/architecture/12-performance-budgets-and-benchmarking.md
+  title: Performance Budgets and Benchmarking
+  audience:
+  - contributors
+  - architects
+  - operators
+  wave: 3
+  mode: pipeline
+  depends_on:
+  - docs/_meta/foundation-pack.md
+  - docs/_meta/style-guide.md
+  - docs/architecture/03-data-plane.md
+  - docs/architecture/05-wasm-plugin-system.md
+  - docs/architecture/10-observability.md
+  - docs/architecture/11-scalability-and-distributed-state.md
+  research:
+  - docs/_meta/research/scalability-patterns.md
+  - docs/_meta/research/competitors-kong-tyk-apisix.md
+  - docs/_meta/research/krakend-config-model.md
+  outline_h2:
+  - Budget philosophy
+  - Per-stage latency budget
+  - Throughput and resources per core
+  - Memory budget
+  - Startup and reload time by configuration size
+  - Benchmark methodology
+  - Benchmark suite and CI gating
+  - Profiling playbook
+  - Reporting
+  diagrams:
+  - type: flowchart
+    subject: per-stage latency budget in microseconds with (target) numbers
+  - type: flowchart
+    subject: benchmark pipeline from load generator to CI gate and report
+  acceptance:
+  - Every performance number is tagged (target) or cites a measurement URL.
+  - Per-stage latency budget gives a microsecond budget per Filter Chain stage in a table.
+  - Throughput and resources per core states the reference hardware.
+  - Benchmark methodology names the load tool, protocol, duration, percentiles and reference machine, and addresses
+    open-loop load, coordinated omission, warm-up and reproducibility.
+  - Benchmark suite and CI gating quantifies the regression policy (more than 5% p99 latency or more than 3% alloc/op
+    regression fails, tagged (target)).
+  - Benchmark methodology includes a competitor baseline plan against KrakenD CE, Envoy, APISIX and Kong.
+  - Budgets tie to the SLOs defined in docs/architecture/10-observability.md.
+  - 'The seed targets appear, each tagged (target): p99 added latency 1 ms or less for plain proxying at 10k rps
+    per core; at least 50k rps on 4 vCPU; WASM Plugin call 50 microseconds or less; RSS 100 MB or less plus about
+    2 KB per Route; hot reload of 5,000 Routes in 500 ms or less.'
+  - Profiling playbook covers pprof, GOGC and GOMEMLIMIT.
+  machine_checks:
+  - kind: required_terms
+    value:
+    - (target)
+    - coordinated omission
+    - open-loop
+    - pprof
+    - GOGC
+    - GOMEMLIMIT
+    - KrakenD CE
+    - Envoy
+    - APISIX
+    - Kong
+    - alloc/op
+  - kind: has_table
+    section: Per-stage latency budget
+  - kind: links_to
+    value:
+    - docs/architecture/10-observability.md
+  required_terms:
+  - Performance Budget
+  - Filter Chain
+  - Plugin
+  - Route
+  - Hot Reload
+  - Node
+  adrs:
+  - ADR-0004
+  - ADR-0009
+  - ADR-0010
+  lenses:
+  - L1
+  - L2
+  - L3
+  - L4X
+  length_words:
+    min: 2500
+    max: 5000
+  notes: 'Master table deps 8, 10, 20 plus #15 (observability), which the ''ties to #15 SLOs'' AC requires.'
+- id: 22
+  slug: deployment-topologies
+  path: docs/operations/01-deployment-topologies.md
+  title: Deployment Topologies
+  audience:
+  - operators
+  - architects
+  wave: 3
+  mode: pipeline
+  depends_on:
+  - docs/_meta/foundation-pack.md
+  - docs/_meta/style-guide.md
+  - docs/architecture/04-control-plane-and-gitops.md
+  - docs/engineering/04-release-versioning-and-compatibility.md
+  - docs/architecture/11-scalability-and-distributed-state.md
+  - docs/architecture/12-performance-budgets-and-benchmarking.md
+  research: []
+  outline_h2:
+  - Topology catalog
+  - Network and ports
+  - Bootstrap and enrollment
+  - Configuration delivery per topology
+  - Sizing defaults
+  - Reference architectures
+  diagrams:
+  - type: flowchart
+    subject: development single binary and file mode
+  - type: flowchart
+    subject: Cluster of Nodes managed by Ruralz Control
+  - type: flowchart
+    subject: Kubernetes deployment with Helm, HPA and CRDs
+  - type: flowchart
+    subject: multi-region deployment with Cells
+  - type: flowchart
+    subject: 'hybrid: managed Ruralz Control with self-hosted Nodes'
+  acceptance:
+  - Topology catalog covers dev single binary, file mode, Cluster of Nodes with Ruralz Control, Kubernetes (Helm,
+    HPA, CRDs), VM with systemd, edge, per-team, multi-cluster, multi-region, and hybrid managed Ruralz Control
+    with self-hosted Nodes.
+  - Each topology states when to use it, components, failure domains, configuration delivery and scaling.
+  - Network and ports matches the foundation pack ports (8080, 8443 TCP and UDP, 9901, 8090, 8091).
+  - The Kubernetes stance matches ADR-0016 (Helm chart and CRDs mirroring kinds Planned (M2), Gateway API conformance
+    deferred).
+  - The hybrid topology uses the same open source binaries with no feature gating.
+  - Reference architectures presents three reference architectures as H3s.
+  machine_checks:
+  - kind: min_table_rows
+    table_heading: Topology catalog
+    value: 10
+  - kind: required_terms
+    value:
+    - '8080'
+    - '8443'
+    - '9901'
+    - '8090'
+    - '8091'
+    - ADR-0016
+    - Planned (M2)
+  - kind: min_h3
+    section: Reference architectures
+    value: 3
+  required_terms:
+  - Node
+  - Cluster
+  - Environment
+  - Region
+  - Cell
+  - Ruralz Gateway
+  - Ruralz Control
+  - Control Stream
+  - Bundle
+  - State Store
+  adrs:
+  - ADR-0006
+  - ADR-0007
+  - ADR-0015
+  - ADR-0016
+  lenses:
+  - L1
+  - L2
+  - L3
+  - L4X
+  length_words:
+    min: 1500
+    max: 3500
+  notes: 'Master table row ''22-25 depend on 9, 19, 20, 21, 22'' is read as #22 depending on 9, 19, 20, 21 and #23-#25
+    additionally depending on #22.'
+- id: 23
+  slug: zero-downtime-upgrades-and-hot-reload
+  path: docs/operations/02-zero-downtime-upgrades-and-hot-reload.md
+  title: Zero-Downtime Upgrades and Hot Reload
+  audience:
+  - operators
+  wave: 3
+  mode: pipeline
+  depends_on:
+  - docs/_meta/foundation-pack.md
+  - docs/_meta/style-guide.md
+  - docs/architecture/04-control-plane-and-gitops.md
+  - docs/engineering/04-release-versioning-and-compatibility.md
+  - docs/architecture/11-scalability-and-distributed-state.md
+  - docs/architecture/12-performance-budgets-and-benchmarking.md
+  - docs/operations/01-deployment-topologies.md
+  research: []
+  outline_h2:
+  - Guarantees
+  - Configuration hot reload
+  - Binary upgrades
+  - Control plane upgrades
+  - State Store upgrades
+  - apiVersion migrations
+  - Rollback
+  - Verification runbook
+  diagrams:
+  - type: sequenceDiagram
+    subject: SO_REUSEPORT handoff from old to new ruralzd process with drain
+  - type: gantt
+    subject: drain timeline defaults
+  - type: stateDiagram-v2
+    subject: Node lifecycle during an upgrade
+  acceptance:
+  - Binary upgrades states the drain timeline defaults (readiness failure, preStop, drain timeout, HTTP/2 GOAWAY)
+    with values tagged (target).
+  - Binary upgrades defines the strategy for long-lived WebSocket and SSE connections.
+  - Control plane upgrades covers Raft rolling upgrades, and the version skew matches docs/engineering/04-release-versioning-and-compatibility.md
+    (N and N-1).
+  - Rollback takes three steps or fewer.
+  - Configuration hot reload enumerates the validation gate checks and covers atomic swap, partial failure and Plugin
+    hot-swap.
+  - Binary upgrades follows ADR-0015 (SO_REUSEPORT, drain and readiness gating, no socket passing).
+  machine_checks:
+  - kind: required_terms
+    value:
+    - SO_REUSEPORT
+    - GOAWAY
+    - preStop
+    - readiness
+    - N-1
+    - (target)
+    - ADR-0015
+  - kind: has_table
+    section: Configuration hot reload
+  required_terms:
+  - Hot Reload
+  - Drain
+  - Zero-Downtime Upgrade
+  - Revision
+  - Rollout
+  - Last-Known-Good
+  - Plugin
+  - Control Store
+  - State Store
+  - Node
+  adrs:
+  - ADR-0005
+  - ADR-0006
+  - ADR-0007
+  - ADR-0015
+  lenses:
+  - L1
+  - L2
+  - L3
+  - L4X
+  length_words:
+    min: 1500
+    max: 3500
+- id: 24
+  slug: capacity-planning
+  path: docs/operations/03-capacity-planning.md
+  title: Capacity Planning
+  audience:
+  - operators
+  - architects
+  wave: 3
+  mode: pipeline
+  depends_on:
+  - docs/_meta/foundation-pack.md
+  - docs/_meta/style-guide.md
+  - docs/architecture/04-control-plane-and-gitops.md
+  - docs/engineering/04-release-versioning-and-compatibility.md
+  - docs/architecture/11-scalability-and-distributed-state.md
+  - docs/architecture/12-performance-budgets-and-benchmarking.md
+  - docs/operations/01-deployment-topologies.md
+  research: []
+  outline_h2:
+  - Planning inputs
+  - Capacity model
+  - Worked examples
+  - Headroom and failure capacity
+  - Autoscaling policies
+  - State Store sizing
+  - Ruralz Control sizing
+  - Cost template
+  - Re-planning triggers
+  diagrams:
+  - type: flowchart
+    subject: capacity model from workload inputs to Node, State Store and Ruralz Control sizing
+  acceptance:
+  - Capacity model gives formulas with named variables for CPU, memory, State Store operations and Ruralz Control
+    sizing.
+  - Worked examples contains three examples as H3s (REST aggregation at 20k rps, AI with 500 concurrent streams,
+    200k WebSocket connections), every number tagged (target).
+  - Every coefficient cites docs/architecture/12-performance-budgets-and-benchmarking.md.
+  - Sizing inputs, results and headroom are presented in tables.
+  - Re-planning triggers lists measurable triggers.
+  machine_checks:
+  - kind: min_h3
+    section: Worked examples
+    value: 3
+  - kind: has_table
+    section: Capacity model
+  - kind: has_table
+    section: State Store sizing
+  - kind: required_terms
+    value:
+    - (target)
+  - kind: links_to
+    value:
+    - docs/architecture/12-performance-budgets-and-benchmarking.md
+  required_terms:
+  - Node
+  - Cell
+  - State Store
+  - Ruralz Control
+  - Control Store
+  - Performance Budget
+  adrs:
+  - ADR-0006
+  - ADR-0008
+  lenses:
+  - L1
+  - L2
+  - L3
+  - L4X
+  length_words:
+    min: 1500
+    max: 3500
+- id: 25
+  slug: high-availability-and-disaster-recovery
+  path: docs/operations/04-high-availability-and-disaster-recovery.md
+  title: High Availability and Disaster Recovery
+  audience:
+  - operators
+  - architects
+  wave: 3
+  mode: pipeline
+  depends_on:
+  - docs/_meta/foundation-pack.md
+  - docs/_meta/style-guide.md
+  - docs/architecture/04-control-plane-and-gitops.md
+  - docs/engineering/04-release-versioning-and-compatibility.md
+  - docs/architecture/11-scalability-and-distributed-state.md
+  - docs/architecture/12-performance-budgets-and-benchmarking.md
+  - docs/operations/01-deployment-topologies.md
+  research: []
+  outline_h2:
+  - Failure catalog
+  - Degraded modes
+  - RPO and RTO
+  - Backups
+  - Runbooks
+  - Game days
+  diagrams:
+  - type: flowchart
+    subject: 'failure domains: Node, zone, Region, Ruralz Control, State Store, external dependencies'
+  - type: sequenceDiagram
+    subject: regional failover
+  acceptance:
+  - Failure catalog has at least 12 rows covering Node, availability zone, Region, Ruralz Control leader, Raft quorum
+    loss, State Store outage and partition, Git, OCI registry, IdP or JWKS, LLM provider, Plugin crash and DNS,
+    with no blank cells.
+  - Degraded modes covers Last-Known-Good, local rate-limit fallback and fail-open or fail-closed behavior, consistent
+    with docs/architecture/04-control-plane-and-gitops.md and docs/architecture/11-scalability-and-distributed-state.md.
+  - RPO and RTO contains a table of recovery objectives per component, each tagged (target).
+  - Runbooks covers region loss, Ruralz Control rebuild from Git and State Store rebuild.
+  - Game days lists at least eight chaos experiments.
+  - Backups uses ruralz control backup and ruralz control restore.
+  machine_checks:
+  - kind: min_table_rows
+    table_heading: Failure catalog
+    value: 12
+  - kind: no_blank_cells
+    table_heading: Failure catalog
+  - kind: has_table
+    section: RPO and RTO
+  - kind: min_list_items
+    section: Game days
+    value: 8
+  - kind: required_terms
+    value:
+    - Last-Known-Good
+    - ruralz control backup
+    - ruralz control restore
+    - (target)
+  required_terms:
+  - Last-Known-Good
+  - Region
+  - Cell
+  - Node
+  - Control Store
+  - State Store
+  - Ruralz Control
+  - Provider Fallback
+  - Plugin
+  adrs:
+  - ADR-0006
+  - ADR-0007
+  - ADR-0008
+  lenses:
+  - L1
+  - L2
+  - L3
+  - L4X
+  length_words:
+    min: 1500
+    max: 3500
+- id: 26
+  slug: krakend-ee-parity-matrix
+  path: docs/comparison/01-krakend-ee-parity-matrix.md
+  title: KrakenD Enterprise Parity Matrix
+  audience:
+  - evaluators
+  - architects
+  wave: 3
+  mode: pipeline
+  depends_on:
+  - docs/_meta/foundation-pack.md
+  - docs/_meta/style-guide.md
+  - docs/architecture/02-configuration-model.md
+  - docs/architecture/03-data-plane.md
+  - docs/architecture/04-control-plane-and-gitops.md
+  - docs/architecture/05-wasm-plugin-system.md
+  - docs/architecture/06-ai-llm-gateway.md
+  - docs/architecture/07-multi-protocol.md
+  - docs/architecture/08-security-and-identity.md
+  - docs/architecture/09-traffic-management-and-resilience.md
+  - docs/architecture/10-observability.md
+  - docs/roadmap/01-roadmap-and-milestones.md
+  research:
+  - docs/_meta/research/krakend-parity.md
+  - docs/_meta/research/krakend-config-model.md
+  outline_h2:
+  - Method and snapshot
+  - Legend
+  - CI/CD, GitOps and development tools
+  - Request and response transformation
+  - Security
+  - Routing
+  - Authentication and authorization
+  - AI gateway
+  - Services connectivity
+  - Traffic management
+  - Observability
+  - API governance and monetization
+  - Beyond parity
+  - Gaps and non-goals
+  - Summary counts
+  diagrams: []
+  acceptance:
+  - Method and snapshot states the source (krakend.io/features), the snapshot date 2026-09-23 and the edition KrakenD
+    EE 2.13.
+  - Each of the ten category sections contains a table with columns Feature, KrakenD CE, KrakenD EE, Ruralz status,
+    Ruralz mechanism and Notes/ADR.
+  - Every feature row of docs/_meta/research/krakend-parity.md (153 rows at the snapshot) appears, for at least
+    120 rows in total.
+  - No matrix table has a blank cell.
+  - KrakenD CE and KrakenD EE cells use only Yes, Partial, No or N/A, and Ruralz status cells use only Planned (M0)
+    to Planned (M5) or Not planned.
+  - Every KrakenD EE-only feature is Planned (Mx) and free in Ruralz, or Not planned with a reason in Notes/ADR.
+  - Every Ruralz mechanism names a kind, Policy or Filter defined in docs/architecture/02-configuration-model.md.
+  - Summary counts gives counts per category and per Ruralz status, and the counts sum to the total number of rows.
+  - Gaps and non-goals maps the KrakenD EE support and services offerings to Ruralz Cloud and commercial support.
+  machine_checks:
+  - kind: min_table_rows_total
+    table_headings:
+    - CI/CD, GitOps and development tools
+    - Request and response transformation
+    - Security
+    - Routing
+    - Authentication and authorization
+    - AI gateway
+    - Services connectivity
+    - Traffic management
+    - Observability
+    - API governance and monetization
+    value: 120
+  - kind: no_blank_cells
+    table_headings:
+    - CI/CD, GitOps and development tools
+    - Request and response transformation
+    - Security
+    - Routing
+    - Authentication and authorization
+    - AI gateway
+    - Services connectivity
+    - Traffic management
+    - Observability
+    - API governance and monetization
+  - kind: cell_values_in
+    table_headings:
+    - CI/CD, GitOps and development tools
+    - Request and response transformation
+    - Security
+    - Routing
+    - Authentication and authorization
+    - AI gateway
+    - Services connectivity
+    - Traffic management
+    - Observability
+    - API governance and monetization
+    columns:
+    - KrakenD CE
+    - KrakenD EE
+    allowed_pattern: ^(Yes|Partial|No|N/A)$
+  - kind: cell_values_in
+    table_headings:
+    - CI/CD, GitOps and development tools
+    - Request and response transformation
+    - Security
+    - Routing
+    - Authentication and authorization
+    - AI gateway
+    - Services connectivity
+    - Traffic management
+    - Observability
+    - API governance and monetization
+    columns:
+    - Ruralz status
+    allowed_pattern: ^(Planned \(M[0-5]\)|Not planned)$
+  - kind: covers_source_rows
+    source: docs/_meta/research/krakend-parity.md
+    column: Feature
+    table_headings:
+    - CI/CD, GitOps and development tools
+    - Request and response transformation
+    - Security
+    - Routing
+    - Authentication and authorization
+    - AI gateway
+    - Services connectivity
+    - Traffic management
+    - Observability
+    - API governance and monetization
+  - kind: summary_counts_match
+    section: Summary counts
+    column: Ruralz status
+    table_headings:
+    - CI/CD, GitOps and development tools
+    - Request and response transformation
+    - Security
+    - Routing
+    - Authentication and authorization
+    - AI gateway
+    - Services connectivity
+    - Traffic management
+    - Observability
+    - API governance and monetization
+  - kind: required_terms
+    value:
+    - '2026-09-23'
+    - EE 2.13
+    - krakend.io/features
+  required_terms:
+  - Route
+  - Upstream
+  - Policy
+  - Filter
+  - Plugin
+  - Consumer
+  - AIProvider
+  - AIModel
+  adrs:
+  - ADR-0004
+  - ADR-0005
+  - ADR-0007
+  - ADR-0008
+  - ADR-0011
+  - ADR-0012
+  - ADR-0013
+  - ADR-0014
+  - ADR-0016
+  lenses:
+  - L1
+  - L2
+  - L3
+  - L4C
+  length_words:
+    min: 1500
+    max: 8000
+  notes: 'The plan''s ''Matrix per 10 KrakenD categories'' is expanded into one H2 per category, named after the
+    categories in krakend-parity.md, so each table is machine-checkable. #6 added to deps for the mechanism AC.'
+- id: 27
+  slug: migration-from-krakend
+  path: docs/comparison/03-migration-from-krakend.md
+  title: Migration from KrakenD
+  audience:
+  - evaluators
+  - operators
+  wave: 3
+  mode: pipeline
+  depends_on:
+  - docs/_meta/foundation-pack.md
+  - docs/_meta/style-guide.md
+  - docs/architecture/02-configuration-model.md
+  - docs/comparison/01-krakend-ee-parity-matrix.md
+  research:
+  - docs/_meta/research/krakend-parity.md
+  - docs/_meta/research/krakend-config-model.md
+  outline_h2:
+  - Concept mapping
+  - Import tool fidelity levels
+  - Plugin migration
+  - Cutover runbook
+  - Migration gaps
+  diagrams: []
+  acceptance:
+  - Concept mapping maps every top-level KrakenD configuration key and at least 20 extra_config namespaces to Ruralz
+    kinds and Policies (KrakenD endpoint to Route, backend to Upstream, extra_config namespaces to Policies).
+  - Import tool fidelity levels defines the fidelity levels reported by ruralz bundle import krakend (Planned (M2))
+    and what each guarantees.
+  - 'Plugin migration covers both paths: Go plugins to WASM Plugins (TinyGo) or built-in Filters, and Lua to CEL
+    or WASM Plugins.'
+  - Cutover runbook gives ordered steps for shadow traffic and side-by-side cutover, including rollback.
+  - Migration gaps is consistent with the Not planned rows of docs/comparison/01-krakend-ee-parity-matrix.md.
+  - Quoted KrakenD terminology (endpoint, backend) carries the <!-- alias-ok --> escape.
+  machine_checks:
+  - kind: min_table_rows
+    table_heading: Concept mapping
+    value: 20
+  - kind: has_table
+    section: Import tool fidelity levels
+  - kind: required_terms
+    value:
+    - extra_config
+    - ruralz bundle import krakend
+    - TinyGo
+    - CEL
+    - Lua
+    - Planned (M2)
+  - kind: links_to
+    value:
+    - docs/comparison/01-krakend-ee-parity-matrix.md
+  required_terms:
+  - Route
+  - Upstream
+  - Policy
+  - Bundle
+  - Plugin
+  - Filter
+  adrs:
+  - ADR-0003
+  - ADR-0005
+  - ADR-0011
+  lenses:
+  - L1
+  - L2
+  - L3
+  - L4C
+  length_words:
+    min: 1500
+    max: 8000
+- id: 28
+  slug: cli-and-api-surface
+  path: docs/reference/01-cli-and-api-surface.md
+  title: CLI and API Surface
+  audience:
+  - operators
+  - contributors
+  - plugin-authors
+  wave: 3
+  mode: pipeline
+  depends_on:
+  - docs/_meta/foundation-pack.md
+  - docs/_meta/style-guide.md
+  - docs/architecture/02-configuration-model.md
+  - docs/architecture/03-data-plane.md
+  - docs/architecture/04-control-plane-and-gitops.md
+  - docs/architecture/05-wasm-plugin-system.md
+  research: []
+  outline_h2:
+  - CLI command tree
+  - Ruralz Gateway admin API
+  - Ruralz Control REST and gRPC APIs
+  - API authentication
+  - Output formats and exit codes
+  diagrams:
+  - type: mindmap
+    subject: ruralz CLI command tree
+  acceptance:
+  - CLI command tree contains a table listing every ruralz <noun> <verb> command in full form, including every command
+    in foundation pack section 9 and every command mentioned in any other document.
+  - Ruralz Gateway admin API includes at least /healthz, /readyz, /metrics, /debug/*, /config/dump and /tap on port
+    9901, matching docs/architecture/03-data-plane.md.
+  - Ruralz Control REST and gRPC APIs exposes resources matching the kinds in docs/architecture/02-configuration-model.md
+    plus Revision and Rollout, and names the gRPC service ruralz.control.v1.ControlStream on port 8091.
+  - ruralz bundle validate and ruralz bundle diff support JSON output.
+  - Output formats and exit codes contains an exit code table.
+  - API authentication covers admin API, REST API and Control Stream authentication.
+  machine_checks:
+  - kind: required_terms
+    value:
+    - ruralz bundle validate
+    - ruralz bundle diff
+    - ruralz bundle render
+    - ruralz bundle import
+    - ruralz bundle build
+    - ruralz bundle push
+    - ruralz rollout start
+    - ruralz rollout status
+    - ruralz rollout pause
+    - ruralz rollout resume
+    - ruralz rollout rollback
+    - ruralz plugin init
+    - ruralz plugin build
+    - ruralz plugin test
+    - ruralz plugin push
+    - ruralz plugin inspect
+    - ruralz ai cost
+    - ruralz ai models
+    - ruralz dev run
+    - ruralz dev tap
+    - ruralz node list
+    - ruralz node drain
+    - ruralz control serve
+    - ruralz control join
+    - ruralz control backup
+    - ruralz control restore
+    - /healthz
+    - /readyz
+    - /metrics
+    - /config/dump
+    - /tap
+    - '9901'
+    - '8090'
+    - '8091'
+    - ruralz.control.v1.ControlStream
+  - kind: has_table
+    section: CLI command tree
+  - kind: has_table
+    section: Output formats and exit codes
+  required_terms:
+  - Ruralz Gateway
+  - Ruralz Control
+  - Bundle
+  - Revision
+  - Rollout
+  - Plugin
+  - Node
+  adrs:
+  - ADR-0003
+  - ADR-0006
+  - ADR-0007
+  lenses:
+  - L1
+  - L2
+  - L3
+  length_words:
+    min: 1500
+    max: 4000
+  notes: 'Master table deps 6, 9, 10 plus #8 because the admin API must match the data plane document.'
+- id: 29
+  slug: roadmap-and-milestones
+  path: docs/roadmap/01-roadmap-and-milestones.md
+  title: Roadmap and Milestones
+  audience:
+  - evaluators
+  - contributors
+  wave: 3
+  mode: pipeline
+  depends_on:
+  - docs/_meta/foundation-pack.md
+  - docs/_meta/style-guide.md
+  - docs/vision/01-vision-and-positioning.md
+  - docs/comparison/02-market-landscape-and-table-stakes.md
+  - docs/architecture/01-system-overview.md
+  - docs/architecture/02-configuration-model.md
+  - docs/architecture/03-data-plane.md
+  - docs/architecture/04-control-plane-and-gitops.md
+  - docs/architecture/05-wasm-plugin-system.md
+  - docs/architecture/06-ai-llm-gateway.md
+  - docs/architecture/07-multi-protocol.md
+  - docs/architecture/08-security-and-identity.md
+  - docs/architecture/09-traffic-management-and-resilience.md
+  - docs/architecture/10-observability.md
+  - docs/architecture/11-scalability-and-distributed-state.md
+  - docs/architecture/12-performance-budgets-and-benchmarking.md
+  research: []
+  outline_h2:
+  - M0 Foundations
+  - M1 Core parity
+  - M2 WASM and Control with GitOps
+  - M3 AI gateway, gRPC, GraphQL, WebSocket and SSE
+  - M4 Event protocols, multi-region and benchmark suite
+  - M5 Long-tail parity
+  - Sequencing
+  - Risks
+  - Contribution surface
+  diagrams:
+  - type: gantt
+    subject: relative milestone sequencing M0 to M5 without calendar dates
+  acceptance:
+  - Every Planned (Mx) tag used in any document appears as an item under the corresponding Mx section.
+  - Each milestone section states scope, measurable exit criteria and the KrakenD EE parity percentage tagged (target).
+  - 'Milestone names match the foundation pack: M0 Foundations, M1 Core parity, M2 WASM + Control/GitOps, M3 AI
+    gateway + gRPC/GraphQL/WS/SSE, M4 Event protocols + multi-region + bench suite, M5 Long-tail parity.'
+  - The gantt chart uses relative durations and no calendar dates.
+  - Risks is a table with likelihood, impact and mitigation.
+  - Contribution surface identifies where outside contributors can help per milestone.
+  machine_checks:
+  - kind: has_table
+    section: Risks
+  - kind: required_terms
+    value:
+    - (target)
+    - Exit criteria
+  required_terms:
+  - Ruralz Gateway
+  - Ruralz Control
+  - Ruralz Console
+  - Plugin
+  adrs:
+  - ADR-0005
+  - ADR-0006
+  - ADR-0013
+  - ADR-0016
+  lenses:
+  - L1
+  - L2
+  - L3
+  length_words:
+    min: 1200
+    max: 3000
+  notes: The plan's 'M0-M5 (scope, exit criteria, parity %)' is expanded into one H2 per milestone so check 12 can
+    locate each tag under its milestone.
+adrs:
+- id: ADR-0001
+  path: docs/adr/0001-implementation-language-go.md
+  title: 'Implementation language: Go with CGO_ENABLED=0 static binaries'
+  status: accepted
+  owning_doc: docs/engineering/01-tech-stack-and-libraries.md
+  wave: 2
+  mode: pipeline
+  depends_on:
+  - docs/_meta/foundation-pack.md
+  - docs/_meta/style-guide.md
+  - docs/engineering/01-tech-stack-and-libraries.md
+  lenses:
+  - L1
+  - L2
+  research: []
+  decision: Go 1.26 or newer with CGO_ENABLED=0 static binaries for ruralzd, ruralz-control and ruralz; FIPS variant
+    built with GOFIPS140.
+- id: ADR-0002
+  path: docs/adr/0002-apache-2-license-no-feature-gating.md
+  title: 'License: Apache-2.0 for all components, no feature gating, DCO and Revington trademark policy'
+  status: accepted
+  owning_doc: docs/vision/01-vision-and-positioning.md
+  wave: 2
+  mode: pipeline
+  depends_on:
+  - docs/_meta/foundation-pack.md
+  - docs/_meta/style-guide.md
+  - docs/engineering/01-tech-stack-and-libraries.md
+  - docs/vision/01-vision-and-positioning.md
+  lenses:
+  - L1
+  - L2
+  research:
+  - docs/_meta/research/licensing-landscape.md
+  decision: Every component, including Ruralz Control and Ruralz Console, is Apache-2.0 with no feature gating or
+    license keys; contributions use DCO sign-off; Revington holds copyright and the Ruralz trademark under a published
+    trademark policy; revenue comes only from Ruralz Cloud and support.
+- id: ADR-0003
+  path: docs/adr/0003-configuration-format.md
+  title: 'Configuration format: YAML with JSON Schema and a Kubernetes-style resource model'
+  status: accepted
+  owning_doc: docs/architecture/02-configuration-model.md
+  wave: 2
+  mode: pipeline
+  depends_on:
+  - docs/_meta/foundation-pack.md
+  - docs/_meta/style-guide.md
+  - docs/engineering/01-tech-stack-and-libraries.md
+  - docs/architecture/02-configuration-model.md
+  lenses:
+  - L1
+  - L2
+  research:
+  - docs/_meta/research/tooling-and-licenses.md
+  decision: YAML 1.2 validated by a published JSON Schema (draft 2020-12) using apiVersion/kind/metadata/spec resources;
+    JSON accepted as a strict subset; HCL and JSON-only rejected.
+- id: ADR-0004
+  path: docs/adr/0004-wasm-runtime-wazero.md
+  title: 'WASM runtime: wazero'
+  status: accepted
+  owning_doc: docs/architecture/05-wasm-plugin-system.md
+  wave: 2
+  mode: pipeline
+  depends_on:
+  - docs/_meta/foundation-pack.md
+  - docs/_meta/style-guide.md
+  - docs/engineering/01-tech-stack-and-libraries.md
+  lenses:
+  - L1
+  - L2
+  research:
+  - docs/_meta/research/go-libraries-runtime.md
+  - docs/_meta/research/tooling-and-licenses.md
+  decision: Use wazero (pure Go, no CGO) as the WASM runtime for Plugins; the repository is github.com/wazero/wazero
+    and the Go module path is github.com/tetratelabs/wazero.
+- id: ADR-0005
+  path: docs/adr/0005-plugin-abi-v1.md
+  title: 'Plugin ABI v1: capability-based with Extism-style conventions, proxy-wasm adapter Planned (M4)'
+  status: accepted
+  owning_doc: docs/architecture/05-wasm-plugin-system.md
+  wave: 2
+  mode: pipeline
+  depends_on:
+  - docs/_meta/foundation-pack.md
+  - docs/_meta/style-guide.md
+  - docs/engineering/01-tech-stack-and-libraries.md
+  lenses:
+  - L1
+  - L2
+  research:
+  - docs/_meta/research/go-libraries-runtime.md
+  - docs/_meta/research/competitors-kong-tyk-apisix.md
+  - docs/_meta/research/competitors-envoy-zuplo-gravitee.md
+  decision: Custom capability-based Plugin ABI v1 (ruralz.plugin.v1) with Extism-style memory and Host Function
+    conventions and deny-by-default Capabilities; a proxy-wasm compatibility adapter is Planned (M4).
+- id: ADR-0006
+  path: docs/adr/0006-control-store-raft-boltdb.md
+  title: 'Control Store: embedded hashicorp/raft with raft-boltdb/v2 on bbolt, Postgres optional'
+  status: proposed
+  owning_doc: docs/architecture/04-control-plane-and-gitops.md
+  wave: 2
+  mode: pipeline
+  depends_on:
+  - docs/_meta/foundation-pack.md
+  - docs/_meta/style-guide.md
+  - docs/engineering/01-tech-stack-and-libraries.md
+  lenses:
+  - L1
+  - L2
+  research:
+  - docs/_meta/research/go-libraries-runtime.md
+  - docs/_meta/research/scalability-patterns.md
+  - docs/_meta/research/tooling-and-licenses.md
+  decision: The Control Store defaults to embedded hashicorp/raft with raft-boltdb/v2 on go.etcd.io/bbolt over a mutual-TLS
+    peer transport on port 8092, admitting MPL-2.0 modules only as named exceptions; a postgres implementation is
+    optional behind an interface, Planned (M4).
+- id: ADR-0007
+  path: docs/adr/0007-control-stream-protocol.md
+  title: 'Control Stream: own gRPC snapshot and delta protocol with xDS-style ACK/NACK'
+  status: accepted
+  owning_doc: docs/architecture/04-control-plane-and-gitops.md
+  wave: 2
+  mode: pipeline
+  depends_on:
+  - docs/_meta/foundation-pack.md
+  - docs/_meta/style-guide.md
+  - docs/engineering/01-tech-stack-and-libraries.md
+  lenses:
+  - L1
+  - L2
+  research:
+  - docs/_meta/research/go-libraries-protocols.md
+  - docs/_meta/research/competitors-envoy-zuplo-gravitee.md
+  decision: ruralz.control.v1.ControlStream is a purpose-built gRPC snapshot plus delta protocol over mTLS with
+    xDS-style ACK/NACK semantics; not xDS and not go-control-plane.
+- id: ADR-0008
+  path: docs/adr/0008-rate-limiting-local-bucket-and-gcra.md
+  title: 'Rate limiting: local token bucket plus GCRA in the State Store, fail-open by default'
+  status: accepted
+  owning_doc: docs/architecture/09-traffic-management-and-resilience.md
+  wave: 2
+  mode: pipeline
+  depends_on:
+  - docs/_meta/foundation-pack.md
+  - docs/_meta/style-guide.md
+  - docs/engineering/01-tech-stack-and-libraries.md
+  lenses:
+  - L1
+  - L2
+  research:
+  - docs/_meta/research/scalability-patterns.md
+  - docs/_meta/research/go-libraries-runtime.md
+  decision: Each Node applies a local token bucket and distributed limits use GCRA in the State Store via a single
+    Lua EVAL; behavior on State Store failure is fail-open by default and configurable per Policy.
+- id: ADR-0009
+  path: docs/adr/0009-http-stack-net-http-quic-go.md
+  title: 'HTTP stack: net/http and quic-go, no fasthttp'
+  status: accepted
+  owning_doc: docs/architecture/03-data-plane.md
+  wave: 2
+  mode: pipeline
+  depends_on:
+  - docs/_meta/foundation-pack.md
+  - docs/_meta/style-guide.md
+  - docs/engineering/01-tech-stack-and-libraries.md
+  lenses:
+  - L1
+  - L2
+  research:
+  - docs/_meta/research/go-libraries-protocols.md
+  - docs/_meta/research/tooling-and-licenses.md
+  decision: Use net/http for HTTP/1.1, HTTP/2 and h2c (Server.Protocols) and quic-go for HTTP/3, Planned (M3);
+    golang.org/x/net/http2 only for non-deprecated low-level APIs; fasthttp is rejected.
+- id: ADR-0010
+  path: docs/adr/0010-telemetry-opentelemetry-first.md
+  title: 'Telemetry: OpenTelemetry-first with an slog bridge for logs'
+  status: accepted
+  owning_doc: docs/architecture/10-observability.md
+  wave: 2
+  mode: pipeline
+  depends_on:
+  - docs/_meta/foundation-pack.md
+  - docs/_meta/style-guide.md
+  - docs/engineering/01-tech-stack-and-libraries.md
+  lenses:
+  - L1
+  - L2
+  research:
+  - docs/_meta/research/go-libraries-runtime.md
+  decision: OpenTelemetry (go.opentelemetry.io/otel) for traces and metrics; logs via log/slog with an OTel bridge
+    until OTel Go logs reach GA.
+- id: ADR-0011
+  path: docs/adr/0011-expressions-and-authorization-engines.md
+  title: 'Expressions and authorization: CEL inline, OPA and Cedar engines, no Lua'
+  status: accepted
+  owning_doc: docs/architecture/08-security-and-identity.md
+  wave: 2
+  mode: pipeline
+  depends_on:
+  - docs/_meta/foundation-pack.md
+  - docs/_meta/style-guide.md
+  - docs/engineering/01-tech-stack-and-libraries.md
+  lenses:
+  - L1
+  - L2
+  research:
+  - docs/_meta/research/go-libraries-runtime.md
+  - docs/_meta/research/krakend-parity.md
+  decision: CEL (cel-go) for inline expressions; OPA (Rego, v1) and Cedar (cedar-go) as pluggable authorization
+    engines; no embedded Lua.
+- id: ADR-0012
+  path: docs/adr/0012-graphql-engine-graphql-go-tools.md
+  title: 'GraphQL engine: wundergraph/graphql-go-tools v2'
+  status: accepted
+  owning_doc: docs/architecture/07-multi-protocol.md
+  wave: 2
+  mode: pipeline
+  depends_on:
+  - docs/_meta/foundation-pack.md
+  - docs/_meta/style-guide.md
+  - docs/engineering/01-tech-stack-and-libraries.md
+  lenses:
+  - L1
+  - L2
+  research:
+  - docs/_meta/research/go-libraries-protocols.md
+  - docs/_meta/research/competitors-kong-tyk-apisix.md
+  decision: Use the wundergraph/graphql-go-tools v2 engine for GraphQL proxying, federation v1 and v2, and subscriptions.
+- id: ADR-0013
+  path: docs/adr/0013-messaging-client-libraries.md
+  title: 'Messaging clients: franz-go, nats.go JetStream, paho.golang and embedded mochi-mqtt'
+  status: accepted
+  owning_doc: docs/architecture/07-multi-protocol.md
+  wave: 2
+  mode: pipeline
+  depends_on:
+  - docs/_meta/foundation-pack.md
+  - docs/_meta/style-guide.md
+  - docs/engineering/01-tech-stack-and-libraries.md
+  lenses:
+  - L1
+  - L2
+  research:
+  - docs/_meta/research/go-libraries-protocols.md
+  - docs/_meta/research/competitors-envoy-zuplo-gravitee.md
+  decision: twmb/franz-go for Kafka, nats.go with jetstream for NATS, eclipse-paho/paho.golang as the MQTT v5 client,
+    and mochi-mqtt for the embedded broker mode Planned (M4); no native Kafka or MQTT wire proxying before M4.
+- id: ADR-0014
+  path: docs/adr/0014-ai-api-surface.md
+  title: 'AI API surface: OpenAI-compatible facade plus native passthrough, provider usage authoritative'
+  status: accepted
+  owning_doc: docs/architecture/06-ai-llm-gateway.md
+  wave: 2
+  mode: pipeline
+  depends_on:
+  - docs/_meta/foundation-pack.md
+  - docs/_meta/style-guide.md
+  - docs/engineering/01-tech-stack-and-libraries.md
+  lenses:
+  - L1
+  - L2
+  research:
+  - docs/_meta/research/ai-gateways.md
+  - docs/_meta/research/krakend-parity.md
+  decision: Expose an OpenAI-compatible facade and native passthrough (Anthropic Messages, Bedrock, Gemini); provider-reported
+    usage is authoritative for billing and tokenizer counts are used only for pre-admission estimates.
+- id: ADR-0015
+  path: docs/adr/0015-zero-downtime-upgrades-so-reuseport.md
+  title: 'Zero-downtime upgrades: SO_REUSEPORT, drain and readiness gating, no socket passing'
+  status: accepted
+  owning_doc: docs/operations/02-zero-downtime-upgrades-and-hot-reload.md
+  wave: 2
+  mode: pipeline
+  depends_on:
+  - docs/_meta/foundation-pack.md
+  - docs/_meta/style-guide.md
+  - docs/engineering/01-tech-stack-and-libraries.md
+  lenses:
+  - L1
+  - L2
+  research:
+  - docs/_meta/research/scalability-patterns.md
+  decision: Binary upgrades use SO_REUSEPORT with graceful drain, readiness gating and HTTP/2 GOAWAY; listener socket
+    passing between processes is not supported in the first release line.
+- id: ADR-0016
+  path: docs/adr/0016-kubernetes-helm-and-crds.md
+  title: 'Kubernetes packaging: Helm chart and CRDs mirroring kinds, Gateway API deferred'
+  status: proposed
+  owning_doc: docs/operations/01-deployment-topologies.md
+  wave: 2
+  mode: pipeline
+  depends_on:
+  - docs/_meta/foundation-pack.md
+  - docs/_meta/style-guide.md
+  - docs/engineering/01-tech-stack-and-libraries.md
+  lenses:
+  - L1
+  - L2
+  research: []
+  decision: Ship a Helm chart and CRDs that mirror the resource kinds, Planned (M2); Kubernetes Gateway API conformance
+    is deferred.
+- id: ADR-0017
+  path: docs/adr/0017-artifact-signing.md
+  title: 'Artifact signing: Revisions and Plugins signed, verified by Nodes by default'
+  status: accepted
+  owning_doc: docs/architecture/08-security-and-identity.md
+  wave: 2
+  mode: pipeline
+  depends_on:
+  - docs/_meta/foundation-pack.md
+  - docs/_meta/style-guide.md
+  - docs/engineering/01-tech-stack-and-libraries.md
+  lenses:
+  - L1
+  - L2
+  research:
+  - docs/_meta/research/tooling-and-licenses.md
+  decision: Every Revision and Plugin artifact is verified by its full sha256 digest; Ruralz Control signs Revisions
+    in Control mode, CI and Plugin publishers sign OCI artifacts with Sigstore, and Nodes verify signatures offline
+    before activation by default.

@@ -1,0 +1,129 @@
+{
+  "lens": "L1 feasibility-skeptic",
+  "verdict": "revise",
+  "score": 7,
+  "blocking": [
+    {
+      "id": "L1-1",
+      "section": "Process and concurrency model / Bounded resources; Failure semantics / RZ-RT registry",
+      "issue": "No deadline covers work that happens before the Route is fixed. The only read and write deadline is the Route `timeout`, and server ReadTimeout and WriteTimeout are left unset. That leaves four Node-generated responses with no deadline: 503 RZ-RT-005 (in-flight ceiling full, before routing), 431 RZ-RT-002, 404 RZ-RT-001 and 500 RZ-RT-006. In Go's HTTP/2 server, a handler's final DATA write waits for flow-control window, so a client that advertises a zero stream window blocks the handler forever. IdleTimeout does not apply while streams are open. The attack: about 80 HTTP/2 connections x 250 streams, each sending a request to an unmatched path, hold all 20,000 in-flight units (target) and their snapshot pins with no time limit. From then on, every legitimate request on the Node gets 503 RZ-RT-005. The streams that go over the ceiling also block while writing their 503, so their goroutines and decoded header blocks (up to 256 KiB each) pile up outside every stated bound. Each held pin also forces every closing snapshot to wait out its full grace period.",
+      "evidence": "\"| Body reads and response writes | The Route `timeout`, set per request through `http.ResponseController`; server `ReadTimeout` and `WriteTimeout` unset |\"; \"| In-flight units per Node | 20,000 (target): one per request, parallel step and stream pump, taken by an atomic add; when full, 503 `RZ-RT-005` at once, never queued |\"; \"| RZ-RT-001 | 404 | No Route matched on this listener |\"; Figure 1: \"L->>L: admit under connection and in-flight ceilings, read headers\" before \"L->>R: pin the active snapshot\".",
+      "fix": "Add a Bounded resources row: at admission, every request gets fixed read and write deadlines through `http.ResponseController`, for example 10 s (target). The Route `timeout` replaces them once the Route is fixed. Node-generated responses written before routing, and any RZ-RT-005 rejection, use a short write deadline, for example 5 s (target). When a deadline expires, Go's HTTP/2 server resets the stream and the HTTP/1.1 server closes the connection. Say that this also bounds the goroutines of streams rejected with RZ-RT-005."
+    },
+    {
+      "id": "L1-2",
+      "section": "Configuration snapshots and hot reload / Why no in-flight request is dropped",
+      "issue": "Ending pinned work at the end of the grace period has no mechanism that works as written, and the state machine contradicts the pin rule. First, only the handler goroutine can raise `http.ErrAbortHandler`. A handler blocked in a response write (HTTP/2 flow control, or a slow HTTP/1.1 reader), a body read or a wazero guest call cannot reach the panic, and cancelling a context the handler derived does not unblock a write in net/http. Wazero stops a running guest on cancellation only with `WithCloseOnContextDone`, which the research file reports costs a 10-20x slowdown on loop-heavy guests. Second, Figure 4 frees a closing snapshot when its grace period ends even if pins remain. That contradicts \"no request runs on a freed snapshot\". It lets the retirer close pools and Plugin instances that live goroutines are still using. It also breaks the (K + 2) memory bound, because the pending Revision compiles as soon as the closing snapshot counts as freed, while goroutines that have not unwound still hold it reachable.",
+      "evidence": "\"After a grace period of 30 s (target), anything still pinned ends with `RZ-RT-014`: 503 before commit, else `RST_STREAM` through `http.ErrAbortHandler` on HTTP/2 or a connection close on HTTP/1.1\"; \"The retirer swaps the pointer, then waits for the stripes to sum to zero, so no request runs on a freed snapshot.\"; Figure 4: \"Closing --> Freed: pins reach zero or grace period ends\"; \"Because a pending Revision compiles only after the closing snapshot is freed, peak configuration memory is (K + 2) times the snapshot size (hypothesis).\"; research go-libraries-runtime.md: \"Open issue #2466 (2026-01-11) reports a 10–20x slowdown on loop-heavy guests with it enabled\".",
+      "fix": "Specify the termination protocol. At the end of the grace period, the retirer: (1) cancels each pinned request's root context, which aborts Upstream and State Store I/O; (2) sets past read and write deadlines through that request's `http.ResponseController`, which unblocks client I/O by resetting the HTTP/2 stream or closing the HTTP/1.1 connection; (3) relies on the Plugin call time limit for guest calls, naming the owner (WASM plugin system) and the bound. Then it waits for the pins to reach zero, bounded by that limit plus a small margin (target). Change Figure 4 so that the grace-period edge goes to an 'Ending' state and only 'pins reach zero' leads to Freed. Close resources only at zero pins, and state the (K + 2) bound under that rule. Note that concurrent use of `ResponseController` from the retirer needs a per-request mutex or a watchdog goroutine owned by the request."
+    },
+    {
+      "id": "L1-3",
+      "section": "Process and concurrency model / Bounded resources",
+      "issue": "The per-connection memory figure leaves out the HTTP/2 frame read buffer, so the 32 GiB fit is wrong at the stated ceilings. The document sets the HTTP/2 receive buffers but leaves `HTTP2Config.MaxReadFrameSize` at Go's server default of 1 MiB. Flow control does not cover HEADERS, CONTINUATION or unknown frame types, so any client can make each connection's framer allocate a 1 MiB read buffer, and the framer keeps it for reuse. That is about 19.5 GiB across 20,000 connections (hypothesis). Added to the stated about 18 GiB, the total is about 37.5 GiB plus snapshots, which exceeds the 32 GiB Node. The row also leaves out the two goroutine stacks each HTTP/2 connection runs (serve and frame reader).",
+      "evidence": "\"| Per-connection memory | About 560 KiB before a handler runs (hypothesis): header ceiling, HTTP/2 connection receive buffer, and 48 KiB of TLS and `bufio` buffers |\"; \"Worst-case Node memory sums connections at 560 KiB (about 10.7 GiB), ... about 18 GiB plus snapshots, fitting a 32 GiB Node (hypothesis)\"; \"| HTTP/2 unread request data | `HTTP2Config.MaxReceiveBufferPerConnection` 256 KiB and `MaxReceiveBufferPerStream` 64 KiB (target) ([source](https://go.dev/doc/go1.24)) |\"",
+      "fix": "Add `HTTP2Config.MaxReadFrameSize` 16 KiB (target), the protocol minimum, to the HTTP/2 rows and to the per-connection sum. Add the connection goroutine stacks, for example 16 KiB (hypothesis). Then recompute the 560 KiB figure and the Node total, or lower the connection ceiling."
+    }
+  ],
+  "non_blocking": [
+    {
+      "section": "Filter Chain execution / Streaming",
+      "suggestion": "Streams can now borrow the general budget without limit ('from the stream share, then free general budget'), which reverses the old coupling. About 400 WebSocket clients, each trickling a 1 MiB message, hold the 384 MiB general budget for the Route `timeout`, and every gate on the Node then fails with RZ-RT-004. Traffic management recommends 1 h timeouts for streaming Routes. Streams that stall mid-chunk while waiting on each other's partial reservations are also a hold-and-wait pattern that resolves only at the Route timeout. Cap what streams can borrow, for example growing only from the stream share, or letting borrowed bytes total at most a fixed fraction of the general budget (target)."
+    },
+    {
+      "section": "Process and concurrency model / Bounded resources",
+      "suggestion": "With 250 streams per HTTP/2 connection (target), 80 connections can fill the 20,000-unit ceiling even with legitimate slow requests, for a Route `timeout` of up to 1 h. Consider a per-connection in-flight cap, for example 100 (target), or record per-client or long-lived shares as options of OQ-data-plane-6 (see OQ-multi-protocol-20)."
+    },
+    {
+      "section": "Filter Chain execution / Error handling",
+      "suggestion": "'a runtime error in a Policy `config` CEL field ... `failureMode` then applies' conflicts with the Configuration model table for `config` fields that have their own rule: `cache` and `ai.semantic-cache` `config.key` bypass the cache, and `authz.cel` `config.rule` denies. Failure semantics has this right. Reword Error handling as 'a CEL field whose runtime-error column says Policy `failureMode`'."
+    },
+    {
+      "section": "Upstream layer",
+      "suggestion": "`http.Transport.MaxResponseHeaderBytes` defaults to about 10 MiB, which is outside the per-in-flight-unit memory figure. Set it, for example to 256 KiB (target), and count it in the per-unit row."
+    },
+    {
+      "section": "Configuration snapshots and hot reload / Why no in-flight request is dropped",
+      "suggestion": "Say how a goroutine picks its pin stripe, for example from a cheap per-call random value, since Go has no public per-P index. Store that index for the decrement."
+    },
+    {
+      "section": "Configuration snapshots and hot reload / Sources, Last-Known-Good and Drain",
+      "suggestion": "`Server.Shutdown` neither closes nor waits for hijacked connections, and coder/websocket hijacks HTTP/1.1 WebSockets. Drain must track upgraded WebSockets itself, for example with `RegisterOnShutdown` and close 1001."
+    },
+    {
+      "section": "Listeners and protocols",
+      "suggestion": "When a listener changes protocol on the same port, for example from `http` to `https`, the old and new servers both accept under SO_REUSEPORT during the overlap, and clients reach the wrong protocol. Say that the new server starts accepting only at the swap and the old one stops then, with the CBPF steering of ADR-0015."
+    },
+    {
+      "section": "Filter Chain execution / Streaming",
+      "suggestion": "The revision removed the gate capacity hypothesis. Restate it for Capacity planning: about 17 concurrent worst-case aggregate requests at 30 MiB raw, or about 3 at 150 MiB decoded, from the 384 MiB general budget (hypothesis). Also say that reservations track decoded bytes when the body carries Content-Encoding."
+    },
+    {
+      "section": "Process and concurrency model / Bounded resources",
+      "suggestion": "At the connection ceiling, the counting listener leaves new clients waiting in the kernel backlog rather than giving them the fast rejection the lead sentence promises. State this, or accept and close the connection immediately above the ceiling."
+    },
+    {
+      "section": "Whole document",
+      "suggestion": "The body has 4,994 words against a maximum of 5,000. Offset any text added for the blocking fixes, for example by trimming the Summary's retirement clause or the Failure semantics lead-in."
+    }
+  ],
+  "ac_results": [
+    {
+      "ac": "Filter Chain execution names the phases exactly as in the foundation pack, in order, including onChunk, and covers ordering, short-circuit, streaming and error handling.",
+      "pass": true,
+      "note": "All nine Phases are listed in pack 4 order, and the Ordering, Short-circuit, Streaming and Error handling subsections are present. The Error handling wording nit is non-blocking."
+    },
+    {
+      "ac": "Configuration snapshots and hot reload explains how an atomic snapshot swap drops no in-flight requests (in-flight requests complete on the snapshot they started on).",
+      "pass": true,
+      "note": "The striped pin with re-validation, the 'grace never cut short' rule and the stated K + 1 activation bound explain the guarantee. The mechanism for ending work at the end of the grace period is raised separately in L1-2."
+    },
+    {
+      "ac": "Router includes a routing precedence worked example covering host, path, method and wildcard matches.",
+      "pass": true,
+      "note": "Six Routes and eight requests cover exact against template, method fallthrough, the wildcard host, the bare suffix and the any-host tier."
+    },
+    {
+      "ac": "The streaming path is described for SSE, WebSocket and LLM token streams via onChunk.",
+      "pass": true,
+      "note": "All three sources are described, with the admission reservation, the 1 MiB cap (target), backpressure and closed-semantics termination."
+    },
+    {
+      "ac": "The document states that Ruralz Gateway keeps no durable local state other than its enrollment identity, Last-Known-Good configuration and disposable caches (foundation pack section 8.11), and that shared runtime state lives in the State Store.",
+      "pass": true,
+      "note": "The Durable and shared state subsection states both points and includes the table."
+    },
+    {
+      "ac": "Admin endpoints lists at least /healthz, /readyz, /metrics, /debug/*, /config/dump and /tap on port 9901, and is the source that docs/reference/01-cli-and-api-surface.md must match.",
+      "pass": true,
+      "note": "All six endpoints are listed on 9901, and the section says that CLI and API surface MUST match this table."
+    },
+    {
+      "ac": "Failure semantics defines fail-open or fail-closed behavior per filter class in a table.",
+      "pass": true,
+      "note": "The table has nine Filter class rows. upstream-auth uses 401 per pack 8.10, with the amendment in OQ-data-plane-8."
+    },
+    {
+      "ac": "Composition engine covers aggregation, sequential, conditional and workflow composition.",
+      "pass": true,
+      "note": "aggregate, sequential and conditional are tabulated. Workflow composition is covered through sequential with per-step when, plus OQ-data-plane-3."
+    },
+    {
+      "ac": "Performance budgets points to docs/architecture/12-performance-budgets-and-benchmarking.md instead of restating budgets.",
+      "pass": true,
+      "note": "The section links to the performance document and restates no budget."
+    },
+    {
+      "ac": "Machine checks (node scripts/verify-docs.mjs --allow-missing --skip markdownlint) report no FAIL for this document",
+      "pass": true,
+      "note": "The script prints only WARN lines, for broken links to documents and ADRs not yet written, and no FAIL. The body has 4,994 words, inside the 2,500 to 5,000 band."
+    }
+  ],
+  "foundation_amendments": [
+    "System overview, Compile before swap: replace 'HTTP/2 GOAWAY' in the bounded-retirement sentence with per-stream termination (gRPC trailers with UNAVAILABLE, RST_STREAM, SSE end event, WebSocket 1001). GOAWAY is connection-wide and lets streams finish (OQ-data-plane-12).",
+    "System overview, Compile before swap: amend 'activation never waits' so that, while a snapshot is closing, the latest pending Revision waits up to the grace period plus compile time (target). Otherwise the grace period is cut short (OQ-data-plane-13). This stays within the 60 s ACK timeout (target) of Control plane and GitOps.",
+    "System overview, Inside a Node: the Plugin host's 'after a brief wait' can cite the 1 ms (target) that the data plane now fixes.",
+    "Pack 8.6: the RT area meaning ('before any Upstream') does not cover RZ-RT-011 to RZ-RT-015 (OQ-data-plane-9).",
+    "Pack 8.10: amend the status for a failed upstream-auth Policy only if OQ-data-plane-8 or OQ-security-and-identity-9 settles on 503 or 502; the current 401 conforms."
+  ]
+}

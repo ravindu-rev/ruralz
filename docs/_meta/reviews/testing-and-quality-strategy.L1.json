@@ -1,0 +1,122 @@
+{
+  "lens": "L1 feasibility-skeptic",
+  "verdict": "revise",
+  "score": 7,
+  "blocking": [
+    {
+      "id": "L1-1",
+      "section": "Unit and property tests",
+      "issue": "The document requires every unit test to run under the race detector, and it builds with CGO_ENABLED=0 (G1, ADR-0001). It never says how these two fit together. On linux/amd64, linux/arm64 and windows/amd64, `go test -race` needs cgo and a C toolchain, and it stops with '-race requires cgo' when CGO_ENABLED=0. Turning cgo on for the race jobs fixes that, but then the tests run with the cgo DNS resolver and cgo `os/user`, not the pure-Go code that ships. So no pull-request stage runs the tests in the configuration that is actually released. Repository layout already allows this ('The race detector MAY enable cgo for test binaries'), but this document owns the pipelines and does not say so.",
+      "evidence": "Unit and property tests: \"Unit tests are hermetic: time, randomness and the State Store arrive as failure-injecting fakes, and tests run shuffled under the race detector.\" Test pyramid: \"`pr-fast` builds the three binaries with `CGO_ENABLED=0` for linux/amd64 and linux/arm64 ([tech stack](01-tech-stack-and-libraries.md#selection-criteria) gate G1 ...); shipped binaries come only from `release`.\"",
+      "fix": "Add one sentence: 'Race jobs set CGO_ENABLED=1 for test binaries only, with the `netgo,osusergo` build tags; a second `pr-fast` job runs the same tests without -race under CGO_ENABLED=0, so the shipped configuration is tested.' To keep the length band, shorten the next sentence."
+    },
+    {
+      "id": "L1-2",
+      "section": "Benchmarks and regression gates",
+      "issue": "The M1 benchmark gates include a Plugin Phase call benchmark and its seed budget, but Plugins do not exist until M2. SM-6 is Planned (M2), and the Plugin kind, `ruralz plugin *` and the Plugin ABI suite are all Planned (M2). An M1 gate cannot benchmark a Plugin host that has not been built, and the M1 release gate 'every seed budget met' cannot pass while one seed has nothing to measure.",
+      "evidence": "Benchmarks table: \"| Microbenchmarks | Router match, Filter Chain executor, CEL, canonicalization, validation, Plugin Phase call; ... | `pr-full` | ... | Planned (M1) |\"; \"M1 gates cover the seed budgets\"; seed list: \"a Plugin Phase call of 50 µs or less at p99 (target)\"; Release gates: \"| Benchmarks | ... every seed budget met | Planned (M1) |\". Vision SM-6: \"WASM Plugin Phase call overhead ... 50 µs or less (target) | Planned (M2)\".",
+      "fix": "Tag the Plugin Phase call part separately: 'Plugin Phase call Planned (M2)' in the Microbenchmarks milestone cell. Reword the gate sentence to 'M1 gates cover the seed budgets except the Plugin Phase call, gated from M2 (SM-6)'."
+    },
+    {
+      "id": "L1-3",
+      "section": "Benchmarks and regression gates",
+      "issue": "The alloc/op gate has no baseline that any stage produces. The regression policy compares against 'the latest `main` result on the same hardware'. But the `main` stage runs only end-to-end and secret-leak tests (Figure 1), microbenchmarks run only in `pr-full` and `nightly`, and `pr-full` runs on shared general runners, where 'same hardware' cannot be guaranteed from one job to the next. A pull request's merge base can also be behind the latest `main`, so an unrelated regression that has already merged would be blamed on the pull request.",
+      "evidence": "Regression policy: \"against the default-branch baseline, the latest `main` result on the same hardware.\" Figure 1: \"main: end-to-end on Docker Compose and kind, secret leak tests\". Test pyramid: \"| Benchmarks | ... | `pr-full`; `nightly` |\". nightly jobs table: only the latency job runs on \"Reference hardware, alone\".",
+      "fix": "Define the baseline for each gate. alloc/op: the same `pr-full` job benchmarks the merge base and the head on the same runner, interleaved, with at least 10 runs each (target). Macro latency: the previous `nightly` latency result on the reference hardware. Release: the release job re-runs the previous release's benchmarks on the same machine."
+    },
+    {
+      "id": "L1-4",
+      "section": "Plugin SDK and AI provider harnesses (AI provider mock)",
+      "issue": "The 'Mid-stream error' case puts the commit point at the first chunk. The AI/LLM gateway puts it at the first content event, and it requires Provider Fallback for a stream error before content. An Anthropic stream always opens with `message_start`, which carries no content. So an `error` event after `message_start` but before any content block must fall back to the next candidate. This harness would assert the opposite and fail a correct implementation, or push implementers into the wrong behavior.",
+      "evidence": "AI provider mock: \"**Mid-stream error.** After the first chunk, the Node MUST NOT attempt Provider Fallback; it ends the stream with an `RZ-AI` error event.\" AI/LLM gateway, fallback matrix: \"| Timeout or stream error before content | `perTryTimeout`, Anthropic `error`, Bedrock `modelStreamErrorException` | No | Yes | If exhausted |\" and Figure 2: \"AP-->>GW: status 200 and first content event / GW-->>C: response headers, now committed\". Glossary: Provider Fallback \"only before the response is committed\".",
+      "fix": "Replace the bullet with: '**Mid-stream error.** An error before the first content event (Anthropic `error` after `message_start`, Bedrock `modelStreamErrorException`) MUST cause Provider Fallback; after it, the Node ends the stream with `RZ-AI-009` and never falls back.'"
+    }
+  ],
+  "non_blocking": [
+    {
+      "section": "Benchmarks and regression gates",
+      "suggestion": "Fixing `GOGC` and `GOMAXPROCS` does not stop GC cycles from clearing `sync.Pool`, so 'cannot flake' overstates it. Use `GOGC=off` for the alloc gate, or integer `testing.AllocsPerRun` counts. Also note that at the seed of 30 allocations or fewer (hypothesis), a single added allocation (about 3.3%) already breaks the 3% (target) threshold. The performance document should confirm that this is intended."
+    },
+    {
+      "section": "Benchmarks and regression gates",
+      "suggestion": "SM-9 is a p95 figure, but the row does not say how many Rollouts the nightly scale job runs to compute it, or that Plugins are cached, which SM-9 requires. State the repetition count, for example 20 or more Rollouts per run (target)."
+    },
+    {
+      "section": "Fuzzing",
+      "suggestion": "The AI stream parser oracle 'Extracted usage equals the fixture's final usage' only holds if the fuzzer changes where the fixture is split into chunks, not what the chunks contain. State that, and for mutated content use the oracle 'no panic; either the correct usage or usage reported missing'."
+    },
+    {
+      "section": "Integration tests",
+      "suggestion": "Traffic management says a `NOSCRIPT` fallback is resent as `EVAL` 'within the same deadline'. Assert that in the `EVALSHA` scenario, so the retry never extends the Policy's single bounded State Store call."
+    },
+    {
+      "section": "Integration tests",
+      "suggestion": "Redis Cluster and Valkey cluster built from generic containers announce container IPs that the host test process cannot reach on Docker Desktop. Either run the test process on the container network or state that this scenario runs only on Linux CI runners."
+    },
+    {
+      "section": "Integration tests",
+      "suggestion": "Several Ruralz Control replicas and Nodes in one process need separate `RURALZ_DATA_DIR` locks, and they must not share global OpenTelemetry or `slog` state. Say that each component instance gets its own providers and data directory."
+    },
+    {
+      "section": "Unit and property tests (Required properties)",
+      "suggestion": "The AI/LLM gateway settles per attempt: R is charged for each attempt that returned no usage, and usage is summed across attempts. Phrase the Token Budget property per attempt. Also carry over the gateway's caveat about hidden reasoning above C on `gemini` and `ollama` (OQ-ai-llm-gateway-17)."
+    },
+    {
+      "section": "Conformance suites",
+      "suggestion": "'runs outside Ruralz CI' contradicts the `pr-full` CI stage in the same table. Write 'also runs outside Ruralz CI'. Also say which suite 'The suite also re-runs the JSON-Schema-Test-Suite' refers to (the configuration suite)."
+    },
+    {
+      "section": "End-to-end tests",
+      "suggestion": "Add `/tap` output to the list of places the canary secret must not appear, and exclude `/debug/pprof` heap profiles, which necessarily hold resolved secrets. In scenario 7, define a 'failed request' as an error seen by a client that honors `Connection: close` and GOAWAY."
+    },
+    {
+      "section": "End-to-end tests",
+      "suggestion": "The Control-mode Compose topology includes the AI provider mock, which is Planned (M3), but the topology is tagged Planned (M2). Tag the mock separately."
+    },
+    {
+      "section": "Security scanning / End-to-end tests",
+      "suggestion": "kind, Helm and the Autobahn test suite tool are named but have no tech stack catalog row or license research. Pack section 14 does not waive research for CI-only tooling. Add an Open question, owned by tech-stack-and-libraries, to catalog these test tools."
+    },
+    {
+      "section": "Test pyramid",
+      "suggestion": "Repository layout stage 5 lists CLI tests on darwin/arm64 and windows/amd64 only. This document correctly adds darwin/amd64, as the tech stack requires. Flag this to the cross-document critic so Repository layout is updated."
+    },
+    {
+      "section": "Whole document",
+      "suggestion": "The body is 3,977 words by the manifest word_count_rule, against a maximum of 4,000. Keep the fixes word-neutral by trimming prose, for example the rationale clauses in Integration tests."
+    }
+  ],
+  "ac_results": [
+    {
+      "ac": "Each test layer states its tools, coverage target tagged (target) and the CI stage that runs it.",
+      "pass": true,
+      "note": "All ten Test pyramid rows have Tools, a Coverage target tagged (target), and a CI stage. The race and cgo configuration of the unit layer is unspecified (L1-1)."
+    },
+    {
+      "ac": "Conformance suites defines three suites: configuration, Plugin ABI and protocol.",
+      "pass": true,
+      "note": "The table has three rows (Configuration, Plugin ABI, Protocol), with contract, cases, targets, CI stage and milestone."
+    },
+    {
+      "ac": "Integration tests use testcontainers for Redis, Kafka, NATS and MQTT.",
+      "pass": true,
+      "note": "modules/redis, modules/kafka (KRaft), modules/nats and modules/mosquitto, cited to go-libraries-protocols.md section 10."
+    },
+    {
+      "ac": "End-to-end tests run on Docker Compose and kind.",
+      "pass": true,
+      "note": "The End-to-end tests table has a Docker Compose row (file mode and Control mode) and a kind row."
+    },
+    {
+      "ac": "Plugin SDK and AI provider harnesses defines the AI provider mock strategy, including streaming responses and usage chunks.",
+      "pass": true,
+      "note": "A per-dialect table covers streaming shape and usage placement, plus fault scripts and Figure 2. The commit-point rule in the Mid-stream error case contradicts the AI/LLM gateway (L1-4)."
+    },
+    {
+      "ac": "Benchmarks and regression gates uses the regression thresholds owned by docs/architecture/12-performance-budgets-and-benchmarking.md (fail on more than 5% p99 latency or more than 3% alloc/op regression, tagged (target)).",
+      "pass": true,
+      "note": "The regression policy states 5% p99 (target) and 3% alloc/op (target) and credits the performance document as owner. The baseline source is not implementable as written (L1-3)."
+    }
+  ],
+  "foundation_amendments": []
+}

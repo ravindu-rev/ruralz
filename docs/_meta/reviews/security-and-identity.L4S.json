@@ -1,0 +1,180 @@
+{
+  "lens": "L4S security-adversary",
+  "verdict": "revise",
+  "score": 6,
+  "blocking": [
+    {
+      "id": "L4S-1",
+      "section": "Request hardening (Pre-authentication throttling); Threat model (T1)",
+      "issue": "The basic-auth hash queue can use every core on a Node. An anonymous attacker can then pin all CPUs with PBKDF2 and slow every Route on the Node, not only `auth.basic` Routes. Per-username buckets do not stop this, because each new username gets a fresh burst of 10 and the LRU holds 100,000 usernames. The source key stays off until OQ-security-and-identity-6. The document also never says whether an unknown username computes a hash. If it does not, the fast 401 lets an attacker enumerate usernames by timing. If it does, unknown usernames are the cheapest way to burn CPU. Nothing bounds the PBKDF2 iteration count either, so a Bundle can make each attempt as expensive as it likes.",
+      "evidence": "Line 402: \"| Hash queue | `GOMAXPROCS` slots, 4 × `GOMAXPROCS` waiters, 1 s deadline (target); overflow gets RZ-AUTH-007 unhashed |\". Line 400: \"| Username bucket | Burst 10, refill 1 per second, in a 64-shard LRU of 100,000 usernames (target)\". Line 401: \"| Source key | ... off until OQ-security-and-identity-6, since a load balancer makes one shared key |\". Line 529: OQ-security-and-identity-2 option (a) \"PBKDF2 with iteration count\" gives no bound.",
+      "fix": "Cap hashing at a share of the Node: max(1, GOMAXPROCS/4) slots plus a Node-wide hash rate, both (target), so other Routes keep their CPU. Put every username that no credential declares into one shared bucket, so rotating names mints no new bursts. Make unknown usernames compute a dummy hash under the same queue, so response time does not reveal which usernames exist. Bound the iteration count in the OQ-security-and-identity-2 schema. Add Node-wide CPU exhaustion to T1."
+    },
+    {
+      "id": "L4S-2",
+      "section": "Request hardening (Pre-authentication throttling); Threat model (T1)",
+      "issue": "T1 claims a property the design does not have, and the delay is unbounded. (1) One wrong attempt per second against `alice` keeps her bucket empty. Each of her own requests that misses the success cache then waits 2 s and gets 429. That is a targeted lockout for as long as the flood lasts, yet T1 lists 'targeted lockout' as mitigated by a throttle that 'never locks out'. (2) No limit is stated on concurrent delayed requests. Each held request keeps a goroutine, a connection and its buffered request for up to 2 s. At 100,000 attempts per second that is about 200,000 parked requests (hypothesis), a slowloris the gateway runs against itself. The 4 × GOMAXPROCS waiter bound covers only the hash queue, not the bucket delay. (3) Buckets are per Node, so N Nodes allow N guesses per second against one account. The document states no fleet-wide rate.",
+      "evidence": "Line 86: \"| T1 | Credential guessing, hash-cost exhaustion, targeted lockout | TB-1 | 128-bit keys; [throttle](#pre-authentication-throttling) that delays, never locks out |\". Line 400: \"an empty bucket delays up to 2 s (target), then RZ-AUTH-007, and never locks out\". Line 404: \"Residual trade-off (T1, OQ-security-and-identity-15): under a flood against one username, its owner shares the bucket's rate.\"",
+      "fix": "Bound delayed requests per bucket (for example 2) and per Node (target), and answer overflow at once with 429 RZ-AUTH-007. Reword T1 and the row: 'no permanent lockout; while a flood lasts, the attacked username is throttled, and the success cache is the owner's escape (residual, OQ-security-and-identity-15)'. State whether a success-cache hit refreshes its entry. State the fleet-wide rate as N × 1 guess per second per username (target), and add it to OQ-security-and-identity-15."
+    },
+    {
+      "id": "L4S-3",
+      "section": "Authentication (JWT and OIDC); Revocation; Threat model (T2, T3)",
+      "issue": "A leaked IdP signing key cannot be evicted quickly, and key lifetime past a failed refresh contradicts System overview. Keys live up to 24 hours and refresh at half-life. A new Revision reuses the keys of unchanged issuers. So after the IdP withdraws a compromised `kid`, an attacker holding its private key keeps forging accepted tokens for up to 12 hours. If the attacker also blocks the JWKS fetch at TB-10, the grace adds another hour. The revocation list cannot name an (issuer, `kid`) pair, and no forced JWKS refetch exists. 'Outlive failed refreshes by 1 hour' is also ambiguous. If it means one hour past `max-age`, it contradicts System overview TB-10.",
+      "evidence": "Line 165: \"Keys live for `max-age` clamped to 5 minutes to 24 hours, or 1 hour when it is absent or `no-cache` (target), refresh at half-life, and outlive failed refreshes by 1 hour as a degraded state (target); then RZ-AUTH-006.\" Line 164: \"Nodes prefetch all issuers in parallel within 5 s (target), reuse unchanged issuers' keys\". System overview TB-10: \"Cached keys until expiry, then fail closed\". The Revocation table (lines 410-418) has no signing-key row.",
+      "fix": "Add a revocation entry type for (issuer, `kid`), delivered like other entries within 5 s at p99 (target). Add an operator-forced JWKS refetch through the Ruralz Control revocation API and, in file mode, the watched revocation file. Lower the upper clamp, for example to 6 hours (target). Define the grace as ending no later than `max-age`, which matches TB-10, or record a TB-10 amendment in OQ-security-and-identity-29. Add eviction of a compromised IdP key to T2 or T3."
+    },
+    {
+      "id": "L4S-4",
+      "section": "Request hardening (Pre-authentication throttling); Transport security (Mutual TLS); Revocation",
+      "issue": "Two verification caches outlive the removal of a credential, and basic credentials and client certificates have no revocation path. (1) The basic success cache holds verified digests for 60 s. Nothing says it is flushed on a snapshot swap or when the revocation sequence advances, or whether a hit extends the TTL. With a sliding TTL, a leaked password that a Revision removed stays valid for as long as the attacker sends a request every few seconds. If the cached digest is a fast unkeyed hash of `user:password`, a memory dump yields crackable hashes and undoes PBKDF2. (2) mTLS results are cached 'per connection and Policy'. A stolen client certificate on a long-lived HTTP/2 connection may stay authenticated after a Revision removes its CA or subject rule. No CRL, OCSP or serial entry exists either, so the only response to a stolen client certificate is removing the whole CA.",
+      "evidence": "Line 399: \"| Success cache | Verified credential digests for 60 s, at most 10,000 per Node (target); a hit skips throttle and hash |\". Line 130: \"The Filter verifies the chain against its own anchors and caches the result per connection and Policy\". The Revocation table (lines 410-418) has rows for JWT, three API-key cases, Enrollment identity, operator session and Plugin publisher, but none for `auth.basic` or `auth.mtls`.",
+      "fix": "Success cache: an absolute TTL counted from verification, never sliding. Flush it on every snapshot swap and every revocation-sequence advance, and key it by HMAC under a per-process random key. mTLS: key the cache by the compiled snapshot and re-verify after a swap. Add Revocation rows for basic credentials (removed by Revision, plus an urgent entry naming the username) and client certificates (an entry naming issuer and serial, plus a CRL field raised under OQ-security-and-identity-3). Give each row a Planned (Mx) tag and a propagation time tagged (target)."
+    },
+    {
+      "id": "L4S-5",
+      "section": "Secrets (rules 5 and 6); Threat model (T18)",
+      "issue": "The proposed rules that close T18 can be bypassed, and the residual risk is not stated. Rule 6 misses five cases. (a) Unspecified addresses (0.0.0.0, ::) reach local listeners on Linux. (b) IPv4-mapped IPv6 (::ffff:169.254.169.254) and NAT64 forms of metadata addresses are not normalized before the check. (c) 'Metadata' is undefined, and the IPv6 metadata address fd00:ec2::254 is unique-local, not link-local. (d) Redirects from `jwksUrl`, `tokenUrl` or `baseUrl` are not covered, including a downgrade from `https` to `http`. (e) With proxy environment variables, the connect-time check tests the proxy instead of the target. Rule 5 also leaves secrets exposed. The default root `/etc/ruralz` holds legitimate keys such as the listener private key, and can hold `RURALZ_ADMIN_TLS_DIR` or the Vault credential. A Bundle author can name any file under the root as an `AIProvider` `credentials.apiKey` with an attacker `https` `baseUrl`, or as an `auth.upstream-oauth2` `clientSecret` with an attacker `tokenUrl`. The Node then sends the file out. Rule 7 only flags this for review, yet T18 is presented as mitigated.",
+      "evidence": "Line 347: \"6. Every Node connection for the Bundle (`jwksUrl`, `tokenUrl`, `baseUrl`, Upstream Endpoints, discovery results) refuses loopback, link-local and metadata addresses, checked on the resolved address at connect time, unless `RURALZ_FETCH_ALLOW` lists them\". Line 346: \"A Node refuses to start if the root contains `${RURALZ_DATA_DIR}` or the admin or Enrollment token file.\" Line 103: \"| T18 | Secret exfiltration, SSRF by a Bundle author | TB-3, TB-10 | [Secrets](#secrets) rules 5 to 7 |\".",
+      "fix": "In rule 6, normalize IPv4-mapped and NAT64 addresses before the check, and list the refused ranges: 0.0.0.0/8, ::/128, 127.0.0.0/8, ::1, 169.254.0.0/16, fe80::/10, plus named metadata addresses such as fd00:ec2::254. Re-check every redirect hop, never follow `https` to `http`, never follow redirects for `tokenUrl`, and ignore proxy variables unless `RURALZ_FETCH_ALLOW` names the proxy. In rule 5, extend the start-up refusal to `RURALZ_ADMIN_TLS_DIR` and the Vault credential. Scope the `kubernetes` provider's RBAC by `resourceNames`. Add to T18 the residual risk that a Bundle author who passes review can send any in-root secret to a destination the Bundle names. Propose a secret-to-destination binding under OQ-security-and-identity-22."
+    },
+    {
+      "id": "L4S-6",
+      "section": "Transport security; Threat model (T10); Open questions (OQ-security-and-identity-29)",
+      "issue": "The document contradicts System overview TB-4, and State Store tampering is missing from the threat model. TB-4 requires 'TLS and authentication'. This document accepts State Store URLs without credentials as a degraded state, and OQ-security-and-identity-29 proposes relaxing only the TLS wording, not authentication. The attack: any host that can reach an unauthenticated Redis can write Response Cache and Semantic Cache entries. Those entries are served to every client of the Route, which enables response injection, stored XSS and poisoned AI answers. The same host can reset GCRA counters and Quota or Token Budget balances. T10 covers only eavesdropping and cross-user cache hits.",
+      "evidence": "Line 113: \"Cleartext hops and State Store URLs without credentials are degraded states (reasons proposed to [Observability](10-observability.md)) and audit findings.\" Line 95: \"| T10 | State Store eavesdropping, cross-user cache hits | TB-4 | TLS when configured; principal in cache keys |\". Line 555: OQ-security-and-identity-29 asks only whether TB-1, TB-3, TB-4 and TB-12 should read \"TLS when configured; cleartext reported\". System overview TB-4: \"TLS and authentication; contents are never configuration\".",
+      "fix": "Add a threat row for State Store tampering at TB-4 (cache poisoning, counter reset, budget manipulation). Require credentials for every non-loopback State Store URL: the Node refuses readiness without them, which matches TB-4. Alternatively, extend OQ-security-and-identity-29 to cover TB-4 authentication and mitigate by MAC-ing cache entries with a Node-held key from `secretRef` (field proposed under OQ-security-and-identity-22)."
+    },
+    {
+      "id": "L4S-7",
+      "section": "Control plane security (Admin ports); Threat model (T14)",
+      "issue": "One admin bearer token serves both metrics scrapers and `/tap`, `/config/dump` and `/debug/*`, which gives scrapers far more access than they need. Scraper credentials usually sit in widely readable monitoring configuration. An attacker who reads a Prometheus scrape config and can reach 9901 over TLS gets three things. `/tap` streams live traffic with bodies and PII, redacting only credential headers. `/config/dump` returns every Consumer key hash, which feeds T19. `/debug/*` exposes runtime internals. Logging `/tap` sessions detects the misuse afterward but does not prevent it.",
+      "evidence": "Line 476: \"OQ-security-and-identity-7 proposes `RURALZ_ADMIN_TOKEN_FILE` and `RURALZ_ADMIN_TLS_DIR`, Planned (M1). The token, scrapers included, is accepted only over TLS or loopback; without one, other paths return 401. `/tap` sessions and `/config/dump` reads are logged.\" Line 534: \"(a) Two `RURALZ_ADMIN_*` settings, amending pack section 2 (proposed)\".",
+      "fix": "Split the credential. A metrics token (for example `RURALZ_ADMIN_METRICS_TOKEN_FILE`) grants only `/metrics`. The operator token grants `/tap`, `/config/dump` and `/debug/*`, which stay off unless it is set. Compare tokens in constant time. Update OQ-security-and-identity-7 option (a) to three settings, with the matching pack section 2 amendment, and extend T14 to scraper-token theft."
+    },
+    {
+      "id": "L4S-8",
+      "section": "Compliance (Data residency); Threat model (T21)",
+      "issue": "T21 claims Compliance mitigates residency violations in logs and telemetry, but Compliance constrains only the Semantic Cache. A residency-class request can reach an out-of-Region Node through GeoDNS failover or a client-chosen endpoint. It is still served there, and its access log, traces and `gen_ai` telemetry are written in the wrong Region. AI/LLM gateway says these follow the serving Node's Region and relies on operators steering clients. No rule makes such a request fail closed or strips its content from telemetry, and the threat row states no residual risk.",
+      "evidence": "Line 106: \"| T21 | Residency violation by generation, embedding, cache, logs or telemetry | TB-3, TB-4, TB-12 | [Compliance](#compliance) |\". Line 520: \"a request whose class differs from the Node's Region MUST NOT use the Semantic Cache: it is served uncached or fails closed with an `RZ-AI` code.\" AI/LLM gateway line 597: \"the embedding call, Semantic Cache entries, access logs and telemetry follow the serving Node's Region, to which operators steer clients\".",
+      "fix": "Add a per-class rule for a request whose residency class differs from the serving Node's Region. Strict classes reject it with an `RZ-AI` code. Other classes serve it with content-free telemetry (no prompt or completion capture, no bodies in access logs) and no Semantic Cache. State in T21 the residual risk that operators must keep each class's clients routed in Region, and fold the rule into the OQ-ai-llm-gateway-9 answer."
+    },
+    {
+      "id": "L4S-9",
+      "section": "Threat model (T20)",
+      "issue": "The prompt-injection row claims more than the design delivers, and a cross-document threat ID is broken. `ai.guardrail` detectors and validation Plugins cannot prevent indirect injection. They also cannot stop the model from exfiltrating data, for example through markdown image URLs or tool calls. The row states no residual risk and no least-privilege control. AI/LLM gateway also cites this risk as 'T23', but the table ends at T22 and prompt injection is T20, although this document says component documents cite these IDs.",
+      "evidence": "Line 105: \"| T20 | Prompt injection, exfiltration through a model | TB-3 | `ai.guardrail`, validation Plugins |\". Line 109: \"Component documents cite these IDs and MUST NOT add an unauthenticated crossing.\" AI/LLM gateway line 480: \"Injection through allowed parts or provider-fetched content remains a residual T23 risk.\"",
+      "fix": "Reword the mitigation: guardrails detect some direct injection but cannot prevent indirect injection, and the residual risk is accepted. Impact is bounded by least-privilege tool authorization on MCP and agent Routes (`authz.cel`), by response-side checks on URLs and links, and by never letting model output trigger a privileged action, all Planned (M3). Make threat IDs stable (retire, never renumber), and record the fix so AI/LLM gateway cites T20 at conformance."
+    },
+    {
+      "id": "L4S-10",
+      "section": "Revocation (Expiry); Authentication (JWT and OIDC); Open questions (OQ-security-and-identity-1)",
+      "issue": "Subject revocation depends on an undefined field, and tokens without `exp` are not handled. A subject cut-off expires 'after the issuer's stated maximum token lifetime'. That value has no field in the Configuration model and appears in no Open question, although the manifest forbids invented fields. If it is unknown, the cut-off either lives forever and fills the 100,000-entry cap, or expires too soon, and revoked long-lived tokens are accepted again. The document also never says that `exp` is required. A validly signed token without `exp` would never expire, and a `jti` entry that 'expires with `exp`' has no expiry. Nothing bounds `exp - iat` either, so an IdP that issues year-long tokens outlives any subject cut-off.",
+      "evidence": "Line 422: \"**Expiry.** A `jti` entry expires with `exp`; a subject cut-off after the issuer's stated maximum token lifetime, covering tokens without `iat`.\" Configuration model line 424 fixes only \"`issuers[]` with `issuer`, `jwksUrl`, `audiences`\". Line 528: OQ-security-and-identity-1 option (a) \"Algorithms, clock skew, required claims, duplicate-binding error\" names no lifetime.",
+      "fix": "Require `exp` and reject tokens without it (RZ-AUTH-003). Add a per-issuer maximum token lifetime to OQ-security-and-identity-1 option (a), marked (proposed), with a default such as 24 hours (target). Reject tokens whose `exp` lies further ahead than that bound, and expire subject cut-offs after it. If a later edit pushes the body past the 5,000-word maximum (it is 4,961 now), make matching cuts."
+    }
+  ],
+  "non_blocking": [
+    {
+      "section": "Revocation (Persistence); Threat model (T17)",
+      "suggestion": "A detached restart forgets revocation entries. An attacker who can crash a Node during a Ruralz Control outage therefore brings revoked JWTs and urgently revoked API keys back on its Last-Known-Good. The list is signed and holds no secrets, so persisting it under `${RURALZ_DATA_DIR}` is safe. Recommend OQ-security-and-identity-5 option (b), or name this residual risk in T17."
+    },
+    {
+      "section": "Revocation (Integrity)",
+      "suggestion": "A stale mark only degrades the Node, so revoked credentials keep working during a partition. The fail-static choice is explicit. Consider an opt-in fail-closed posture for high-assurance Routes once the mark age passes a bound (target), and state the choice in T17."
+    },
+    {
+      "section": "Transport security (hop table)",
+      "suggestion": "A `secretRef` credential can travel in cleartext today: an `AIProvider` `apiKey` over an `http` `baseUrl`, a `redis://` URL with a password, or an `auth.upstream-oauth2` token toward an `http` Upstream. Refuse any secret-bearing hop to a non-loopback address without TLS, whatever OQ-security-and-identity-29 decides for the other hops."
+    },
+    {
+      "section": "Authentication (default posture)",
+      "suggestion": "A Route with no auth-class Policy is anonymous, and a Gateway auth Policy with `overridable: false` rules out any public Route. Operators therefore pick between deny-by-default and health or public paths. Give an `excludePolicies` change that removes authentication from a Route diff impact `security`, and offer a way to declare public Routes when a Gateway auth Policy is not overridable. Also note that before `ruralz bundle audit` (Planned (M2)), an anonymous Route is reported only by metrics."
+    },
+    {
+      "section": "RZ-AUTH decision codes",
+      "suggestion": "Distinct client-visible codes act as an oracle. RZ-AUTH-004 (revoked) tells a holder of a leaked key that the key was once valid, and RZ-AUTH-005 versus RZ-AUTH-002 reveals key-set state. Return RZ-AUTH-002 to clients and keep the detailed code in telemetry."
+    },
+    {
+      "section": "Authentication (JWT and OIDC)",
+      "suggestion": "State how a token without a `kid` is handled, bind each JWK's `kty` and `alg` to the token `alg`, reject unknown `crit` headers, cap the JWKS response size and key count (target), and never follow redirects on `jwksUrl`."
+    },
+    {
+      "section": "Request hardening (Credential forwarding)",
+      "suggestion": "`auth.jwt` forwards the client bearer token to every `http` Upstream, including third-party ones, where it can be replayed. Recommend an Upstream-scoped `headers` Policy that removes `Authorization` toward third-party Upstreams, and have `ruralz bundle audit` report forwarding outside the operator's domains."
+    },
+    {
+      "section": "Request hardening (Path confusion)",
+      "suggestion": "A `transform.request` runs after `authz` and may rewrite the path from client input. Require that the rewritten path is re-normalized and stays within the Route's matched prefix, so a traversal cannot reach Upstream paths that authorization never saw."
+    },
+    {
+      "section": "Plugin sandbox",
+      "suggestion": "'Plugins MUST NOT keep request data in globals' binds only honest publishers. State the residual risk that a buggy or malicious Plugin in one pool can carry Consumer A's data into Consumer B's response, and consider per-Consumer pools for Plugins that hold both read and write Capabilities. Also align 'a separate credential Capability' with OQ-wasm-plugin-system-3 option (b) ('Header-pattern Capabilities'), and cover `Set-Cookie` and credentials in bodies."
+    },
+    {
+      "section": "Authentication (Upstream authentication)",
+      "suggestion": "Add negative caching with backoff for failed `auth.upstream-oauth2` fetches. Without it, a down token endpoint adds up to 2 s (target) to every request wave and hammers the IdP."
+    },
+    {
+      "section": "Control plane security (Audit log; Operator identity)",
+      "suggestion": "Failed sign-ins are aggregated in a 10,000-entry LRU and replaced by one summary past 50 per second. A password spray can therefore hide a targeted attempt on an admin account, so keep per-actor counts for any actor that later signs in. Control plane and GitOps locks local accounts after 10 failures, which is a targeted lockout of administrators. Reconcile it with T1's stance or record it under T11."
+    },
+    {
+      "section": "Control plane security (Signed Revisions and Plugin artifacts)",
+      "suggestion": "Say that after a restart a file-mode Node takes its sequence floor from the signed annotation of its Last-Known-Good, so an older signed Revision cannot replay. Also decide OQ-control-plane-and-gitops-24: whether a Last-Known-Good signed by an emergency-removed key still boots. Control plane and GitOps says it does, which lets an attacker who holds the removed key keep a malicious promoted Revision alive across restarts."
+    },
+    {
+      "section": "Open questions (OQ-security-and-identity-7)",
+      "suggestion": "Control plane and GitOps retires OQ-control-plane-and-gitops-11 into OQ-security-and-identity-7 and cites it for Console OIDC and SAML SSO, but that question now covers admin-port settings. Split out an SSO question, or note in OQ-security-and-identity-7 that it also covers SSO, Planned (M5)."
+    }
+  ],
+  "ac_results": [
+    {
+      "ac": "Every KrakenD CE and EE authentication feature (JWT/OIDC/OAuth2, JWT signing, client credentials, revocation bloom filter, mTLS, basic auth, API keys, revoke server, multiple IdPs per KrakenD endpoint, NTLM, GCP auth, AWS SigV4) is mapped to a Ruralz mechanism with a milestone, or marked Not planned with a reason.",
+      "pass": true,
+      "note": "The KrakenD authentication parity table has all 12 rows. NTLM is Not planned, with a per-connection-authentication and FIPS reason. JWT signing and GCP are Planned (M2), pending OQ-security-and-identity-11 and -12. The bloom filter and Revoke Server are Planned (M2), pending OQ-security-and-identity-4."
+    },
+    {
+      "ac": "Authorization contains a guidance table comparing CEL, OPA (Rego) and Cedar (when to use, cost, milestone), consistent with ADR-0011.",
+      "pass": true,
+      "note": "The Engine table has When to use, Cost per request (each tagged target or hypothesis), Guardrails and Planned columns. It matches pack section 7 (CEL inline, OPA and Cedar pluggable, no Lua), and its library claims cite URLs in go-libraries-runtime.md."
+    },
+    {
+      "ac": "The FIPS build statement (GOFIPS140) is consistent with docs/engineering/01-tech-stack-and-libraries.md.",
+      "pass": true,
+      "note": "It matches the tech stack FIPS table: GOFIPS140=v1.0.0 (CMVP #5247) until v1.26.0 leaves Pending Review, fips140=on and never only, HTTP/3 and hybrid key exchange off, approved JWA only with ML-DSA from Go 1.27, Plugin cryptography through a Host Function Capability, and Planned (M5)."
+    },
+    {
+      "ac": "Revocation states a propagation-time target tagged (target).",
+      "pass": true,
+      "note": "It gives '5 s or less at p99 with a fresh mark (target)', '30 s or less at p95 for 100 Nodes (target)' and '1 s or less on replicas in contact with the leader (target)'. Basic credentials, client certificates and IdP signing keys have no revocation path (L4S-3, L4S-4), and subject cut-off expiry depends on an undefined value (L4S-10)."
+    },
+    {
+      "ac": "Compliance contains an audit event catalog with at least 15 events.",
+      "pass": true,
+      "note": "The catalog lists 24 events, from `session.created` to `sso.config.changed`, each with an emitted-when column."
+    },
+    {
+      "ac": "Transport security covers TLS 1.3, mTLS, certificate rotation and HTTP/3.",
+      "pass": true,
+      "note": "It has a hop table plus H3s for Mutual TLS, Certificate rotation, HTTP/3 (Planned (M3), off in FIPS builds) and FIPS build. Optional authentication on TB-4 contradicts System overview (L4S-6)."
+    },
+    {
+      "ac": "Control plane security covers RBAC, SSO (OIDC and SAML), audit, signed Revisions and Plugin artifacts (ADR-0017), SBOM and SLSA provenance.",
+      "pass": true,
+      "note": "It covers RBAC additions, OIDC and SAML SSO Planned (M5), Enrollment, a trust-policy table with an empty-policy-rejects rule, Admin ports, an Audit log with off-box chain heads, and a Release supply chain H3 with a CycloneDX SBOM and SLSA Build Level 3. The admin token grants scrapers too much (L4S-7)."
+    },
+    {
+      "ac": "Verifier: node scripts/verify-docs.mjs --allow-missing --skip markdownlint (lines for this document) has no FAIL lines.",
+      "pass": true,
+      "note": "No FAIL lines. The nine WARN lines are links to ADR files and the parity matrix, which do not exist yet and which --allow-missing permits. The body is 4,961 words by the manifest word_count_rule, inside the 2,500 to 5,000 band but close to the limit, so the fixes need matching cuts. Every cited URL appears in docs/_meta/research/go-libraries-runtime.md."
+    }
+  ],
+  "foundation_amendments": [
+    "System overview TB-4 requires 'TLS and authentication', but Security and identity accepts State Store URLs without credentials as a degraded state. Either require State Store authentication outside loopback, or extend OQ-security-and-identity-29 to cover authentication as well as TLS, and add a State Store tampering threat row (L4S-6).",
+    "System overview TB-10 says 'Cached keys until expiry, then fail closed', but Security and identity keeps JWKS keys for 1 hour past a failed refresh. Align the two, and add an (issuer, kid) revocation entry and a forced JWKS refetch to the OQ-security-and-identity-4 proposal, which amends pack sections 8.1 and 8.4 (L4S-3).",
+    "Configuration model `auth.jwt` config: register a per-issuer maximum token lifetime and a required-`exp` rule through OQ-security-and-identity-1, since revocation expiry depends on them (L4S-10).",
+    "Pack section 2 environment variables (OQ-security-and-identity-7): split the admin credential into a metrics-only token and an operator token for /tap, /config/dump and /debug/*, making three RURALZ_ADMIN_* settings instead of two (L4S-7).",
+    "Pack section 8.11 Node durable state (OQ-security-and-identity-5): consider persisting the signed revocation list under ${RURALZ_DATA_DIR}, so a detached restart cannot bring revoked credentials back."
+  ]
+}

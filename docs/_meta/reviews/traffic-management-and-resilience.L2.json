@@ -1,0 +1,116 @@
+{
+  "lens": "L2",
+  "verdict": "revise",
+  "score": 7,
+  "blocking": [
+    {
+      "id": "L2-1",
+      "section": "Response caching",
+      "issue": "One `reason` label value of `ruralz_cache_store_skipped_total` disagrees with the Observability catalog, which owns metric names and label values. The document says elsewhere that Observability maps its failure-matrix rows to metrics. Observability now lists `memory`, not `state_store_memory`, and maps this document's out-of-memory row to `memory` skips. An alert written from this document would query a label value that does not exist.",
+      "evidence": "line 373: '`ruralz_cache_store_skipped_total` reasons are `size_limit`, `buffer_budget` and `state_store_memory`.'; line 455: '[Observability](10-observability.md) maps these rows to metrics'; docs/architecture/10-observability.md line 161: '| `ruralz_cache_store_skipped_total` | Counter | stores | `policy`, `reason` | size_limit, buffer_budget, memory |'; line 234: 'rows map to these reasons, call results, `fail_open`, `memory` skips'",
+      "fix": "On line 373, replace '`state_store_memory`' with '`memory`', giving 'reasons are `size_limit`, `buffer_budget` and `memory` ([Observability](10-observability.md))'. If `state_store_memory` is the preferred name, raise it as an Open question owned by observability. Do not state it as the catalog value."
+    },
+    {
+      "id": "L2-2",
+      "section": "Rate limiting (Per-Node ceiling); Failure matrix",
+      "issue": "The document calls the full-limit ceiling a degraded state in every case. Pack 8.8 defines the full-limit ceiling as the normal file-mode behavior when no ceiling is declared. Observability says explicitly that this case is not degraded. Its `node_count_unknown` reason covers only a derived ceiling that lacks the published count, Planned (M2). A file-mode Node has no `clusterNodeCount`, so under this text it would report a permanent degraded state that the pack and Observability both rule out.",
+      "evidence": "line 250: 'else derived from N_published, the `HeartbeatReply` `clusterNodeCount`, else the full limit with a degraded metric.'; line 470: '| No Node count yet | Derived ceiling | Full limit, degraded metric | Open | Declared ceiling |'; foundation pack 8.8: 'With neither (file mode without a declared ceiling), the ceiling equals the full limit.'; docs/architecture/10-observability.md line 234: 'File mode without a declared ceiling uses the full limit (pack 8.8), which is not degraded.'; line 232: '| `node_count_unknown` | A derived Rate Limit ceiling lacks the published Node count; Planned (M2) |'",
+      "fix": "Line 250: 'else, in Control mode, derived from N_published, the `HeartbeatReply` `clusterNodeCount`; a Control-mode Node without a count yet uses the full limit and reports degraded reason `node_count_unknown`; in file mode without a declared ceiling the ceiling is the full limit (pack 8.8), which is not degraded.' Line 470: 'No Node count yet (Control mode) | Derived ceiling | Full limit, degraded reason `node_count_unknown` | Open | Declared ceiling'. Add a file-mode row: 'File mode, no declared ceiling | Ceiling | Full limit per Node, so up to N × limit (pack 8.8); not degraded | Open | Declared ceiling'."
+    },
+    {
+      "id": "L2-3",
+      "section": "Rate limiting (Per-Node ceiling); Failure matrix",
+      "issue": "The document restates the `clusterNodeCount` rules of Control plane and GitOps, which owns the field. The restatement does not match that source. (1) The quoted definition adds 'streaming', which the source does not contain. Text inside quotation marks must match the source exactly. (2) The 'Nodes lost' row gives a timing rule, small decreases after 60 s (target), that Control plane and GitOps no longer states. The source says only that large decreases publish at once. The fail-open and under-admission bounds depend on this count, so an invented publication rule misleads operators.",
+      "evidence": "line 254: '[Control plane and GitOps](04-control-plane-and-gitops.md#replica-roles) counts \"ready, streaming Nodes that ACKed a Revision and stayed connected 10 minutes (target)\"'; line 471: '| Nodes lost | Derived ceiling | Large decreases publish at once, small ones after 60 s (target); keys under-admit meanwhile | Closed | No |'; docs/architecture/04-control-plane-and-gitops.md line 115: '`clusterNodeCount` counts ready Nodes that ACKed a Revision and stayed connected 10 minutes (target); large decreases publish at once, and increases rise at most 10% per minute, with an alert (target).'",
+      "fix": "Line 254: quote the source exactly, as counts \"ready Nodes that ACKed a Revision and stayed connected 10 minutes (target)\", or paraphrase without quotation marks. Line 471: 'Large decreases publish at once ([Control plane and GitOps](04-control-plane-and-gitops.md#replica-roles)); smaller ones follow that document's rule, and keys under-admit meanwhile'. If a 60 s hold for small decreases is wanted, propose it as an option of OQ-traffic-management-and-resilience-19, which control-plane-and-gitops owns."
+    },
+    {
+      "id": "L2-4",
+      "section": "Rate limiting (Decision path)",
+      "issue": "The document declares that it amends the binding foundation pack. Pack 8.8 says 'each locally admitted request runs GCRA in one Lua `EVAL` in the State Store'. Under decision path step 3 and Figure 3, local-only entries admit first-seen keys past the budget without GCRA while the State Store is healthy. Pack section 14 allows a change only through an ADR or an Open question, and deviations are review-blocking until that path closes. OQ-traffic-management-and-resilience-20 is still open and blocking for M1, and it lists (a) only as 'proposed'. The sentence nevertheless says the change is already made, and steps 3 and 4 and Figure 3 present it as the design, not as a proposal. The per-Node ceiling paragraph handles the same situation correctly: 'this document proposes ..., pending OQ-traffic-management-and-resilience-16'.",
+      "evidence": "line 210: 'This local admission amends pack 8.8 (OQ-traffic-management-and-resilience-20).'; line 205: 'Past it, it gets a local-only entry for 10 s or until evicted (target): capacity 1, refill 2 × `requests` / N_published per window, no GCRA.'; line 206: 'A local-only key is then admitted.'; foundation pack 8.8: 'each locally admitted request runs GCRA in one Lua `EVAL` in the State Store, which enforces the global limit'; line 535: '(a) Local-only entries (proposed)'",
+      "fix": "Line 210: 'Local-only admission departs from pack 8.8, which runs GCRA for every locally admitted request. This document proposes it as a pack 8.8 amendment pending OQ-traffic-management-and-resilience-20; until that closes, option (c), wait for GCRA, is the conforming behavior.' Mark step 3's local-only branch 'proposed (OQ-traffic-management-and-resilience-20)', and add the same note to the Figure 3 caption or to the 'first-seen past budget' edge label. Keep the Failure matrix row 'Key-rotation flood or new Node', which already cites OQ-20."
+    }
+  ],
+  "non_blocking": [
+    {
+      "section": "Rate limiting (Decision path)",
+      "suggestion": "Step 5, 'On `NOSCRIPT` it is resent as `EVAL` within the same deadline', is a second blocking round trip. It follows the Tech stack catalog row ('`EVALSHA` with `NOSCRIPT` fallback'), but it strains pack 8.7 rule 1 ('at most one blocking State Store round trip per request') and P3. Say explicitly that the resend happens only after a script-cache loss (failover or restart) and stays within the same `stateStoreTimeout`, and cite the proposed pack 8.7 clarification (see foundation_amendments)."
+    },
+    {
+      "section": "Quotas; Traffic shaping (KrakenD EE routing and traffic features)",
+      "suggestion": "Two cited URLs are absent from this document's manifest research[] file (scalability-patterns.md): https://redis.io/docs/latest/develop/programmability/eval-intro/ (only in go-libraries-protocols.md) and https://www.krakend.io/features/ (in krakend-parity.md). Style guide section 4 is satisfied, because both appear under docs/_meta/research/, but the writer brief limits citations to research[] files. Add both files to the manifest entry (see foundation_amendments) or cite an equivalent scalability-patterns.md URL for the Redis `KEYS` claim."
+    },
+    {
+      "section": "Response caching",
+      "suggestion": "Line 366 says '`kind` value `cache_invalidate` proposed to [Observability](10-observability.md)'. Observability already lists `cache_invalidate` as a write kind (10-observability.md line 201). Replace 'proposed to' with 'defined in'."
+    },
+    {
+      "section": "Rate limiting; Quotas; Response caching; Failure matrix",
+      "suggestion": "Pack section 2 forbids 'shard' and 'partition' as names for a Cell. Here they mean a State Store cluster shard and a rate-limit key partition, which is a different sense, but line 205 ('B = 20,000 per Cell, 20% of a shard') puts both next to Cell. Write 'State Store shard' at first use in each section to remove the ambiguity."
+    },
+    {
+      "section": "Traffic shaping (KrakenD EE routing and traffic features)",
+      "suggestion": "Catch-all fallback: under Data plane precedence, a Route with only `match.when: \"true\"` ties at rank 5 (one constraint) with any other host-less, path-less Route that has one constraint, and rank 6 then breaks the tie by `metadata.name`. So 'lowest-ranked' is not guaranteed. State the condition: the catch-all must be the only Route without `hosts` and `path` on its listener, or it must sort last by name."
+    },
+    {
+      "section": "Failure matrix",
+      "suggestion": "Consider adding three rows. (1) A CEL runtime error in `Policy.spec.when`: under `closed` the Policy runs, under `open` it is skipped (Configuration model CEL table). (2) The `memory` driver in a multi-Node Cluster: every limit multiplies by N and the Node warns (pack 8.8; Observability `state_store_memory_multi_node`). (3) The 'State Store evicts keys' row should name degraded reason `state_store_eviction_policy`."
+    },
+    {
+      "section": "Timeouts, deadlines, retries and hedging",
+      "suggestion": "'1 h for WebSocket, GraphQL subscription, gRPC streaming and `ai` Routes': `ai` is an Upstream `protocol`, not a Route type. Write 'Routes whose upstream legs use `protocol: ai`'."
+    },
+    {
+      "section": "Rate limiting (Per-Node ceiling); Open questions",
+      "suggestion": "Pack 8.8 delegates the declared per-Node ceiling field to this document ('field authored by Traffic management and resilience'), and pack section 3 lets a feature document author `config` fields for registration. OQ-traffic-management-and-resilience-1 is blocking for M1 but states no recommendation. Mark option (a) `config.perNodeCeiling` and `config.burst` as recommended, so the Configuration model can register it."
+    },
+    {
+      "section": "Quotas",
+      "suggestion": "The `tokens` settlement cell leaves out the pack 8.9 rule for missing usage: charge all of R and emit a degraded-state metric. Add it, or point to pack 8.9 for settlement."
+    }
+  ],
+  "ac_results": [
+    {
+      "ac": "Rate limiting contains an algorithm table comparing accuracy, cost, multi-node behavior and burst handling (ADR-0008).",
+      "pass": true,
+      "note": "The 'Algorithm choice' table has Accuracy, State Store cost per request, Multi-Node behavior and Burst handling columns over five algorithms, links ADR-0008, and cites research URLs from scalability-patterns.md."
+    },
+    {
+      "ac": "Every KrakenD EE routing and traffic feature (catch-all fallback, header and query dynamic routing, conditional routing, wildcard routes, URL rewrite, virtual hosts, client redirects, customizable HTTP circuit breaker, service rate limit, tiered rate limit, stateful rate limit, IP filtering, GeoIP) is mapped to a Ruralz mechanism with a milestone.",
+      "pass": true,
+      "note": "All 13 rows are present and match the EE-only Routing and Traffic management rows of krakend-parity.md. Milestones match the registry: `authz.ip` Planned (M1), `authz.geoip` Planned (M2), and redirects through `plugin` Planned (M2)."
+    },
+    {
+      "ac": "Failure matrix gives fail-open or fail-closed behavior for each dependency failure, including State Store outage.",
+      "pass": true,
+      "note": "It has 26 rows with no blank cells, including State Store slow or unreachable, a failing shard, out of memory, eviction, failover and Cell loss. The 'No Node count yet' row is miscast for file mode (L2-2)."
+    },
+    {
+      "ac": "Rate limiting specifies the IETF RateLimit-Policy and RateLimit response header contract.",
+      "pass": true,
+      "note": "'RateLimit response headers' pins draft-ietf-httpapi-ratelimit-headers-11 and gives field contents, `q`, `w`, `r`, `t`, `Retry-After` precedence and an example. Headers on admitted responses stay open in OQ-traffic-management-and-resilience-2, which is blocking for M1."
+    },
+    {
+      "ac": "Quotas supports long windows and token-weighted units, including LLM tokens.",
+      "pass": true,
+      "note": "It has epoch-aligned `24h` and `720h` windows and units `requests` (`quota`) and `tokens` (`ai.token-budget`, LLM input plus output, pack 8.9)."
+    },
+    {
+      "ac": "Timeouts, deadlines, retries and hedging defines a retry budget.",
+      "pass": true,
+      "note": "The 'Retry budget' H3 sets max(3, 20% of in-flight originals) per Upstream per Node (target), with an over-budget rule, a metric and fields in OQ-traffic-management-and-resilience-5."
+    },
+    {
+      "ac": "Response caching follows HTTP caching semantics including stale-while-revalidate.",
+      "pass": true,
+      "note": "It covers an RFC 9111 shared cache plus RFC 5861 `stale-while-revalidate` and `stale-if-error`, with storability, `Authorization`, stale prohibitions (section 4.2.4, `s-maxage` per 5.2.2.10), request directives, revalidation and a background refresh sequence diagram. Unsafe-method invalidation scope is OQ-traffic-management-and-resilience-11."
+    }
+  ],
+  "foundation_amendments": [
+    "Foundation pack 8.7 rule 1: clarify that resending a script as `EVAL` after a `NOSCRIPT` reply (script-cache loss after failover or restart), within the same `stateStoreTimeout`, counts as the Policy's one blocking round trip. The Tech stack catalog row 'Rate limiting' already specifies '`EVALSHA` with `NOSCRIPT` fallback'.",
+    "Manifest docs[id 14].research: add docs/_meta/research/krakend-parity.md (acceptance criterion 2 requires citing https://www.krakend.io/features/) and docs/_meta/research/go-libraries-protocols.md (the Redis scripting `KEYS` rule, https://redis.io/docs/latest/develop/programmability/eval-intro/).",
+    "Foundation pack 8.8: two proposed amendments are pending in this document, the derived ceiling min(requests, max(10, ceil(2 × requests / N_published))) with a clamped fail-open refill (OQ-traffic-management-and-resilience-16) and local-only first-seen keys without GCRA (OQ-traffic-management-and-resilience-20). Both need a decision by scalability-and-distributed-state and a pack or ADR-0008 update before M1.",
+    "docs/architecture/01-system-overview.md line 38 calls the per-key bucket table 'LRU'; Data plane and this document specify CLOCK-evicted shards. Align the system overview wording at conformance."
+  ]
+}

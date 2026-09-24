@@ -1,0 +1,35 @@
+# OS / editor
+.DS_Store
+Thumbs.db
+*.swp
+.idea/
+.vscode/*
+!.vscode/extensions.json
+
+# Node (docs tooling)
+node_modules/
+npm-debug.log*
+
+# Go (future)
+bin/
+dist/
+*.test
+*.out
+coverage.*
+
+# Local env
+.env
+.env.*
+!.env.example
+
+# Scratch
+tmp/
+
+# Claude Code local settings
+.claude/settings.local.json
+
+# Judge-panel drafts (intermediate)
+docs/_meta/drafts/
+
+# Docs tooling dependencies
+scripts/node_modules/

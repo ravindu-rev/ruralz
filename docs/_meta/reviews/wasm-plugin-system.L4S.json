@@ -1,0 +1,102 @@
+{
+  "lens": "L4S",
+  "verdict": "revise",
+  "score": 8,
+  "blocking": [
+    {
+      "id": "L4S-20",
+      "section": "Plugin ABI v1 / Host Function table (request_header_get, request_headers_list); Capabilities and sandboxing / risk table and Sandbox layers (Data); Threat model PT-3; Open questions (OQ-wasm-plugin-system-3); Packaging example",
+      "issue": "This document and Security and identity contradict each other on a live security control. Security and identity owns OQ-wasm-plugin-system-3 and has answered it with option (b): credential headers are hidden unless a separate credential Capability is granted and flagged. This document still marks option (a), 'All headers', as current. Under that option request.headers.read returns every client credential: Authorization bearer tokens, Cookie, and the API key header named by auth.api-key config.header. The Credentials rule hides only headers that upstream-auth Filters set, and the Data layer excludes only upstream-auth credentials. A security engineer who follows Security and identity's Plugin sandbox table grants request.headers.read expecting credentials to stay hidden. The Plugin then reads them and, holding log.write or metrics.write, can export them to the OpenTelemetry collector, which contradicts TB-12. The canonical geo-block example asks for exactly this combination (request.headers.read, response.send, log.write), so it trips this document's own 'Exfiltration path with a High-risk read' audit finding and teaches authors to accept that finding. Plugin ABI v1 freezes at M2 and allows additions only as new Host Functions. Hiding credential headers after M2 would silently change what request_header_get returns to existing Plugins, so the decision cannot be deferred past the freeze.",
+      "evidence": "L155: \"| `request_header_get` | `(name p, l, o, c)` | `request.headers.read` | All |\"; L180: \"**Credentials.** Headers set by upstream-auth Filters read as `ERR_ABSENT` elsewhere; guest logs redact known credentials.\"; L317: \"| Data | No other Policies' state keys, TLS keys, `secretRef` values or upstream-auth credentials; ...\"; L528: \"PT-3 | ... | Header reads expose credentials (OQ-wasm-plugin-system-3)\"; L566: \"OQ-wasm-plugin-system-3 | Should credential headers need a separate grant? | (a) All headers (current); (b) Header-pattern Capabilities; (c) Redaction | security-and-identity | Yes, for Planned (M2)\"; L362: \"capabilities: [request.headers.read, response.send, log.write]\". Security and identity L435: \"| Credential headers | Hidden unless a separate credential Capability is granted and flagged (OQ-wasm-plugin-system-3, option (b)) |\"; Security and identity L558: \"Answered above: ... OQ-wasm-plugin-system-3, -18\".",
+      "fix": "Adopt option (b), as the owner decided. Define a credential Capability (for example request.credentials.read, High risk, flagged by ruralz bundle audit and ruralz bundle diff). Define the credential header set normatively: authorization, proxy-authorization, cookie, the header named in each attached auth.api-key config.header, and headers set by upstream-auth Filters. Without that Capability, request_header_get returns ERR_ABSENT for those headers and request_headers_list omits them. Apply the same rule to response set-cookie, and to proxy-wasm adapter header-map calls. Update the Credentials rule, the Data layer row, PT-3's residual risk, the risk table and Figure 1. Close OQ-wasm-plugin-system-3 as option (b). Add a conformance case: a Plugin with only request.headers.read cannot read the Authorization header. The geo-block example then needs no credential Capability, and its log.write combination drops from High to the generic exfiltration finding."
+    }
+  ],
+  "non_blocking": [
+    {
+      "section": "Runtime (rule 2) / cross-document",
+      "suggestion": "Data plane L40 and L43 still describe ${RURALZ_DATA_DIR}/cache/wazero/ as wazero's directory cache, and OQ-data-plane-11 still marks '(a) Directory permissions (current)'. This document decides option (c), memory only. Say explicitly that Data plane MUST drop the cache/wazero directory and close OQ-data-plane-11, so an implementer does not build the persisted cache that PT-14 rules out."
+    },
+    {
+      "section": "Open questions (OQ-wasm-plugin-system-18); Threat model PT-11",
+      "suggestion": "Security and identity L442 already carries the rewording (instances are reused within a pool, and Plugins MUST NOT keep request data in globals), and its L558 lists OQ-18 as answered. Close OQ-18 as option (a), and drop the reference to it from PT-11's residual risk."
+    },
+    {
+      "section": "Plugin ABI v1 / Host Function rules (State Store); Threat model PT-16",
+      "suggestion": "The key-rate cap alone does not bound the resident key count. 10,000 new keys per Policy per Node per minute, with a TTL of up to 24 h (target), allows about 14.4 million resident keys per Node per Policy (hypothesis). Across a Cluster that can fill the shared State Store and evict or refuse GCRA, Quota and Token Budget keys for the whole Cell. PT-16's residual risk 'A Plugin exhausts its own quota' understates this. Add a resident-key bound (keys × TTL per Policy per Cluster, target) or a lower TTL maximum, and name State Store memory pressure on the Cell in PT-16."
+    },
+    {
+      "section": "Open questions (OQ-wasm-plugin-system-19)",
+      "suggestion": "Until the namespace component is fixed, Environments that share a State Store also share Plugin keys: staging traffic can move production counters, and state.read can read another Environment's values. Make the Environment name normative now, or mark OQ-19 'Yes, for Planned (M2)'."
+    },
+    {
+      "section": "Runtime (rule 3) / Default limits (Fault breaker)",
+      "suggestion": "Policies with the same digest, config and limits share a pool, and the fault breaker, share and parked bound are per pool. An attacker who faults the guest through a public Route can therefore trip the breaker for the same Plugin's authz Policy on another Route, where closed means 403 for 95% of traffic. Keep breaker state per Policy even when pools are shared, or share pools only among Policies attached at the same scope and Route."
+    },
+    {
+      "section": "Runtime / Default limits (Instance pool size); Hot-swap step 4",
+      "suggestion": "With a 25% share per pool, four slow or faulting pools can hold the whole Node cap. Auth and authz pools then cannot grow past their warm size, and a new auth or authz pool warmed to 1 or 0 answers 403 through RZ-PLG-004. Reserve growth headroom for auth and authz pools at runtime as well as at warm time, for example 10% of the cap (target)."
+    },
+    {
+      "section": "Packaging / OCI artifact",
+      "suggestion": "'Violations are RZ-CFG-028 before any I/O' cannot hold for address refusal, because checking an address needs a DNS lookup. Also, a DNS answer does not reproduce from the Revision, so it should not be a deterministic NACK. State that the address check runs on every resolved address at connect time, redirects included, to defeat DNS rebinding, and classify DNS-dependent refusals as transient."
+    },
+    {
+      "section": "Hot-swap lifecycle (step 7)",
+      "suggestion": "'A rollback recompiles from the artifact cache' should state that a rollback re-runs steps 1 to 3, re-checking the digest (pack section 8.14) and the signature on the cached artifact, so a tampered on-disk artifact cache cannot reach the compiler through the rollback path."
+    },
+    {
+      "section": "Runtime (rule 7); SDK matrix",
+      "suggestion": "Once the parked bound is reached, or the State client breaker opens, state_* returns ERR_UNAVAILABLE at once, and whether failureMode applies depends on the guest returning a negative result. A PDK-built Rate Limit or Quota that treats ERR_UNAVAILABLE as allow can be bypassed by an attacker who saturates the parked bound. Require PDKs to surface ERR_UNAVAILABLE as a negative Phase result by default, so failureMode decides."
+    },
+    {
+      "section": "Failure semantics (online stage)",
+      "suggestion": "Ruralz Control runs guest code (instantiation plus rz_configure) at ingest, inside the process that holds the Revision signing keys. A wazero escape there has a larger blast radius than one on a Node. Recommend running the online Plugin check in a separate unprivileged worker process, and add that to PT-1."
+    },
+    {
+      "section": "Plugin ABI v1 / Host Function rules (Message writes)",
+      "suggestion": "Extend write validation to chunk_replace on text/event-stream responses, so no CR or LF event boundaries are injected unless the PDK frames them. Also check response_send bodies against the response Content-Type."
+    }
+  ],
+  "ac_results": [
+    {
+      "ac": "Plugin ABI v1 contains a Host Function table giving each function's signature and the Capability it requires.",
+      "pass": true,
+      "note": "The Host Function table lists 25 functions, each with parameters, Capability and valid Phases. A WASI shim table maps each WASI import to a Capability."
+    },
+    {
+      "ac": "Runtime contains a default limits table (memory, fuel or instruction budget, wall-clock time per call, instance pool size) with values tagged (target).",
+      "pass": true,
+      "note": "Memory 16 MiB (target) and timeout 5 ms (target) are present. Fuel is none, since wazero has no metering, with a substitute of 1,000 Host Function calls per call (target). The pool size formula uses a 25% share and a warm minimum of 1 (target)."
+    },
+    {
+      "ac": "Hot-swap lifecycle replaces a Plugin without dropping in-flight requests and supports a canary percentage.",
+      "pass": true,
+      "note": "Step 6 (Serve pinned) keeps in-flight requests on their snapshot's pools. The Canary percentage subsection uses Cluster spec.rollout canary.percent and adds a per-request X and !(X) split."
+    },
+    {
+      "ac": "SDK matrix covers at least four languages (from Go/TinyGo, Rust, TypeScript, Python, C#), each with a milestone tag.",
+      "pass": true,
+      "note": "Rust Planned (M2), Go / TinyGo Planned (M2), TypeScript Planned (M3), C# Planned (M4). Python is Not planned, with OQ-11."
+    },
+    {
+      "ac": "Capabilities and sandboxing states that Capabilities are deny-by-default.",
+      "pass": true,
+      "note": "L291: \"Capabilities are deny-by-default\"."
+    },
+    {
+      "ac": "proxy-wasm stance states the adapter decision and its milestone, Planned (M4), consistent with ADR-0005.",
+      "pass": true,
+      "note": "L548 records the decision: Plugin ABI v1 is the only primary contract, and the adapter is Planned (M4), citing ADR-0005."
+    },
+    {
+      "ac": "Packaging covers OCI references pinned by digest, cosign signatures and the ruralz plugin commands.",
+      "pass": true,
+      "note": "The @sha256 digest is required (RZ-CFG-021). Cosign-written Sigstore bundles are covered by a pinned CI interoperability test. A table lists the five ruralz plugin commands."
+    }
+  ],
+  "foundation_amendments": [
+    "Pack section 8.7: Plugin onLog State Store writes go to a sub-queue that never displaces Quota or Token Budget settlement (OQ-wasm-plugin-system-19).",
+    "Pack section 8.10: for a plugin Policy, state that failureMode also applies when the Plugin fault breaker skips the guest (RZ-PLG-009), and that open on a Plugin holding an enforcing Capability (response.send, or a body or stream write) is an error-level audit finding.",
+    "Pack section 8.11: the Disposable caches row lists 'compiled modules'; with compiled code kept in memory only (PT-14, OQ-data-plane-11 option (c)), reduce it to Plugin artifacts."
+  ]
+}

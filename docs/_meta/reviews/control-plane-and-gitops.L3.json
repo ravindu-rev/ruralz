@@ -1,0 +1,107 @@
+{
+  "lens": "L3 acceptance-audience",
+  "verdict": "revise",
+  "score": 7,
+  "blocking": [
+    {
+      "id": "L3-15",
+      "section": "Whole document (length_words machine check)",
+      "issue": "The revision pushed the body past the manifest length band. The verifier now reports a FAIL for this file, and the L3 lens requires the length band to hold. Measured without code blocks, the largest sections are Bundle, Revision and Rollout lifecycle (about 1,100 words), Control Store and high availability (about 840), Control Stream (about 830) and Open questions (about 630). Several passages repeat what other sections already say: the threat table restates Enrollment, revert and relay rules, and the certificate prose restates the certificate table.",
+      "evidence": "`node scripts/verify-docs.mjs --allow-missing --skip markdownlint`: \"FAIL machine-checks docs/architecture/04-control-plane-and-gitops.md:0 [length_words] body has 5626 words; the manifest band is 2500 to 5000\"",
+      "fix": "Cut at least 650 words to leave margin, without removing decisions. (1) Audit and security: keep six threat rows that are unique to Ruralz Control (stale restore, stolen online key, stolen key-encryption key, compromised relay, compromised Ruralz Control, reconnect storm). Replace the rest with one sentence pointing to the sections that already carry those mitigations, and hand the full threat model to Security and identity, which owns it (about 150 words). (2) Control Store and high availability: shorten the certificate paragraph after the table to the join and bootstrap rules, since the table already gives usages and lifetimes. Compress the restore paragraph to its three rules: new root-signed epoch, sessions invalidated, revocation list required (about 150 words). (3) Bundle, Revision and Rollout lifecycle: move the Anchor sets and Rotation detail that concerns trust-root chains into ADR-0017 or OQ-control-plane-and-gitops-24. Merge the three-sentence plan-membership paragraph into the Plan element table (about 200 words). (4) Components, Replica roles: fold item 5's class list into Figure 1 labels and OQ-control-plane-and-gitops-15 (about 60 words). (5) Open questions: shorten the Question cells of -14, -15, -22 and -24 (about 80 words). Rerun the verifier until it shows no FAIL line."
+    },
+    {
+      "id": "L3-16",
+      "section": "Bundle, Revision and Rollout lifecycle (Revision signing and verification); API summary",
+      "issue": "The L3-12 fix introduced a regression: key rotation now reads as if Ruralz Control can do it alone, and that contradicts the Keys row. The previous step 1 said the new key arrives 'in a root-signed `TrustUpdate`'. The new step 1 says Rotate key 'publish[es] the new key in a higher `version`'. But anchor sets carry the online keys, and 'only a trust-root key outside Ruralz Control' signs them. Rotate key (an `admin` action) therefore cannot publish anything until someone signs the new public key offline with the root and uploads the resulting anchor set. The API gives that upload to `security-admin`, a different role. The text never says how the new public key is exported for root signing, which role uploads the signed set, or that step 1 waits for the upload. Emergency removal ('publishes a higher `version` and re-signs at once') has the same gap. An operator cannot carry out a rotation from this section, and a contributor cannot implement the Rotate key action.",
+      "evidence": "Keys row: \"The leader's online key ... signs everything except anchor sets, which only a trust-root key outside Ruralz Control signs\". Signed content row: \"Anchor set: `version`, `storeEpoch`, online keys, server CA fingerprint, Plugin trust policy\". Rotation row: \"(1) On Rotate key (Settings or `/api/v1/trust`, `admin`), publish the new key in a higher `version`.\" and \"Emergency removal publishes a higher `version` and re-signs at once, awaiting no ACK\". API summary: \"| `/api/v1/nodes`, `/api/v1/enrollment-tokens`, `/api/v1/trust` | List; create token, revoke; upload an anchor set; rotate the online key | security-admin; rotate: admin |\"",
+      "fix": "Keep the change word-neutral. Rewrite step 1 as: \"(1) Rotate key (Settings or `/api/v1/trust`, `admin`) creates the new key and exports its public half; after offline root signing, a `security-admin` uploads the anchor set that adds it at a higher `version`, and Ruralz Control publishes it.\" Rewrite the emergency sentence as: \"Emergency removal starts when a `security-admin` uploads a root-signed anchor set without the key; Ruralz Control then re-signs at once, awaiting no ACK.\" Check that the screen table's Settings Act cell (admin) and the API row name the same two roles for the two halves of the flow."
+    }
+  ],
+  "non_blocking": [
+    {
+      "section": "RBAC and SSO",
+      "suggestion": "This item is still open from the last review. No role includes `approver`, and `approver` does not include `viewer`. A principal bound only to `approver` therefore cannot open Environments or Revisions (View: viewer) to review the diff it approves. State that `approver` includes `viewer`. Also say that an `approver` binding must be global or per Environment, because roles may be bound per Cluster, yet one approval covers every Cluster of the Environment."
+    },
+    {
+      "section": "Enrollment and mTLS; RBAC and SSO",
+      "suggestion": "Two citations still point at the wrong question. \"`ruralz node revoke` closes the stream and refuses renewal (delivery: OQ-security-and-identity-4)\": OQ-security-and-identity-4 covers credential revocation entries, not Node identities. \"OIDC and SAML SSO is Planned (M5), per TB-6 (OQ-tech-stack-and-libraries-19, OQ-security-and-identity-7)\": OQ-security-and-identity-7 asks which settings hold the Node admin credentials. Remove both references, which also saves words."
+    },
+    {
+      "section": "Enrollment and mTLS",
+      "suggestion": "Name the role that the provisioning job's scoped API token carries. A per-Cluster `security-admin` binding would also grant revocation and anchor-set upload, which is wider than minting for one Cluster."
+    },
+    {
+      "section": "Revision signing and verification",
+      "suggestion": "Rotation step 2 still says \"Once every connected, non-revoked Node ACKed, except those disconnected over 30 days (target)\". If only connected Nodes must ACK, the 30-day exclusion adds nothing. State which rule holds: every non-revoked Node except those disconnected over 30 days, or only connected Nodes."
+    },
+    {
+      "section": "Rollout plan, batches and gates; Heartbeat and backpressure",
+      "suggestion": "\"`heartbeatInterval` is never raised for active-set Nodes\" uses 'active-set', which the document never defines. It probably means plan members of an active Rollout. Say so, because Heartbeat and backpressure says Ruralz Control MAY raise the interval under load."
+    },
+    {
+      "section": "Drift detection",
+      "suggestion": "Local tampering is reported as a `Nack` with RZ-CFG-027, but the message table defines `Nack` as a reply to a configuration message by `nonce`. Say whether the tampering report is an unsolicited `Nack` or a `Heartbeat` field."
+    },
+    {
+      "section": "Fencing stale replicas; Revision signing and verification",
+      "suggestion": "Nodes persist the highest (`storeEpoch`, `assignmentSeq`) pair and the anchor-set `version` under `${RURALZ_DATA_DIR}/identity/`. Pack 8.11 lists that directory as `node.id`, certificate and key, and says a Node persists 'only the following'. Record the difference in OQ-control-plane-and-gitops-24 or another amendment request."
+    },
+    {
+      "section": "Open questions; Ruralz Console write-back",
+      "suggestion": "Security and identity answers OQ-control-plane-and-gitops-9 with option (b), but this document's row still marks (a) as current. Security and identity also says push is 'off under `requireApproval`', while this document says 'off by default under `requireApproval`'. Security and identity also gives OQ-security-and-identity-27, two new `RZ-CP` codes, to this document; neither the registry nor Open questions records it."
+    }
+  ],
+  "ac_results": [
+    {
+      "ac": "The document states explicitly that Nodes keep serving their active Revision during a Ruralz Control outage and boot Last-Known-Good configuration after a restart, and lists what is unavailable during the outage.",
+      "pass": true,
+      "note": "The Summary and 'Behavior during a Ruralz Control outage' state both behaviors, with the 5 s boot wait tagged (target), and a seven-row table lists what is unavailable."
+    },
+    {
+      "ac": "Rolling back a Rollout takes three steps or fewer, shown as ruralz commands or Ruralz Console actions.",
+      "pass": true,
+      "note": "'Rolling back in three steps' gives three `ruralz rollout` commands and three Ruralz Console actions. Reverting a `complete` Rollout is a single `ruralz rollout start` or a Console Revert, with its role, eligibility and approval rules. A stopped promotion can be retried by an `operator` (L3-13 resolved)."
+    },
+    {
+      "ac": "Control Stream contains a message table giving each message, its direction, key fields and ACK/NACK semantics, and covers enrollment, mTLS, snapshot plus delta, heartbeat and backpressure.",
+      "pass": true,
+      "note": "The message table has twelve rows. H3s cover Enrollment and mTLS (Figure 4, OQ-13, scale-out minting), Snapshot, delta and version skew, and Heartbeat and backpressure (seven bounds, all tagged)."
+    },
+    {
+      "ac": "Ruralz Console lists at least eight screens in a table, with RBAC and SSO behavior.",
+      "pass": true,
+      "note": "The table lists twelve screens with View and Act columns. It now matches the API summary: replicas and trust reads need `viewer`, and rotate is `admin` on `/api/v1/trust` (L3-12 resolved). The section also gives the seven-role table, separation of duties with RZ-CP-007, local accounts with a G3-gated PBKDF2 (L3-14 resolved), and SSO as Planned (M5)."
+    },
+    {
+      "ac": "Drift detection defines the reconciliation policy (what is detected, how it is reported, and when it is reverted or alerted).",
+      "pass": true,
+      "note": "The table has four Drift kinds, each with detection, reporting and reconciliation. Git divergence is now measured against the commit of the Cluster's last `complete` promotion Rollout. Waiting, stopped and mixed promotions are reported as such, not as Drift (L3-13 resolved)."
+    },
+    {
+      "ac": "Bundle, Revision and Rollout lifecycle describes Revision signing by Ruralz Control and signature verification by Nodes, consistent with ADR-0017.",
+      "pass": true,
+      "note": "The signing table covers signed content, keys, algorithm, Node verification, anchor sets and rotation, consistently with pack 8.14. Rotation step 1 now contradicts the Keys row on who signs anchor sets (L3-16), but signing and verification themselves are described."
+    },
+    {
+      "ac": "Rollout states match the foundation pack exactly: pending, canary, progressing, paused, complete, rolled-back, failed.",
+      "pass": true,
+      "note": "All seven states appear in the text and in Figure 3. `pending` is scoped to the pack's queued meaning, and the added transitions to `failed` are recorded in OQ-control-plane-and-gitops-15."
+    },
+    {
+      "ac": "GitOps model covers repository layout, branch-to-Environment mapping, pull request validation and Ruralz Console write-back.",
+      "pass": true,
+      "note": "Four H3s cover these topics. The YAML uses only Configuration model fields. Promotion records, approval, reject and gate-relaxation rules are defined."
+    },
+    {
+      "ac": "Structure: H2 outline, required diagrams, captions, length band, tagged figures, verifier",
+      "pass": false,
+      "note": "The H2s are Summary, Scope and non-goals, the eleven outline_h2 entries in order, then Open questions. All four required diagrams are present, and all five figures have captions. Every performance or scale figure is tagged or cites a research URL. The length band fails: the verifier reports 5,626 body words against a maximum of 5,000 (L3-15). The other verifier lines are WARNs for links to documents not yet written."
+    }
+  ],
+  "foundation_amendments": [
+    "Pack 8.11: allow `${RURALZ_DATA_DIR}/identity/` to hold the accepted anchor set and the highest activated (`storeEpoch`, `assignmentSeq`) pair beside `node.id`, certificate and key, or add a fencing-state row.",
+    "Pack 8.4 (8092): allow status forwarding, content replication, a token-authenticated `Join` and relay-role traffic on the Ruralz mTLS stream layer (OQ-control-plane-and-gitops-15).",
+    "Pack 8.3: add the transitions from `canary`, `progressing` and `paused` to `failed` (OQ-control-plane-and-gitops-15)."
+  ]
+}

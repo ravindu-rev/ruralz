@@ -1,0 +1,427 @@
+{
+  "doc": "docs/architecture/02-configuration-model.md",
+  "slug": "configuration-model",
+  "mode": "judge-panel",
+  "date": "2026-09-23",
+  "panel_angles": [
+    "Kubernetes-native",
+    "KrakenD ergonomics",
+    "diffability and validation first"
+  ],
+  "drafts": [
+    "docs/_meta/drafts/configuration-model.draft1.md",
+    "docs/_meta/drafts/configuration-model.draft2.md",
+    "docs/_meta/drafts/configuration-model.draft3.md"
+  ],
+  "synthesis": {
+    "base_draft": 1,
+    "base_rationale": "Draft 1 won two of three panels and had the highest summed total (26 against 25 for draft 2 and 22 for draft 3), with the strongest foundation consistency.",
+    "output_status": "draft",
+    "word_count": 5354,
+    "word_count_method": "manifest word_count_rule: body after front matter, fenced code (including mermaid) and HTML comments excluded, table cell text counted, table pipes and separator rows not counted",
+    "diagram_count": 3,
+    "diagrams": [
+      "Figure 1: classDiagram of the ten resource kinds and their references (required)",
+      "Figure 2: flowchart resolving the effective Filter Chain with slots and guardrails (extra)",
+      "Figure 3: flowchart of the Bundle validation pipeline (required)"
+    ],
+    "grafted": [
+      "draft 2: slot-based precedence (spec.slot; all client-auth types share slot auth; additive ratelimit, quota and token-budget types default to their own name and stack) with the overridable: false guardrail (RZ-CFG-019) and the Figure 2 resolution flowchart, merged into draft 1's forward-reference, Filter-class and upstream-leg model",
+      "draft 2: Coming from KrakenD concept mapping table (endpoint, backend, extra_config, data manipulation, sequential proxy, flexible configuration, CEL and Lua, Go plugins), alias-escaped and cited",
+      "draft 3: schema annotation keywords table (x-ruralz-ref, x-ruralz-secret, x-ruralz-cel, x-ruralz-list map/set/atomic, x-ruralz-impact, x-ruralz-since, x-ruralz-validations) and value normalization (90s renders as 1m30s, 10Mi as 10485760)",
+      "draft 3: restricted YAML profile table (duplicate keys, anchors/aliases/merge keys, custom tags, non-UTF-8 and BOM), each with an error code, replacing draft 1's parser paragraph",
+      "draft 3: AIProvider pricing as decimal strings",
+      "draft 3: render-time ${VAR} versus runtime secretRef split, and the ban on ${VAR} in keys, apiVersion, kind, metadata.name, reference, SecretValue and CEL fields (RZ-CFG-011)",
+      "draft 3: CEL runtime-error column, rewritten to fail safe (a Policy when error runs the Policy under failureMode closed, so authentication is never skipped), plus CEL rows for retries.retryOn with error.kind and attempt, circuitBreaker.failureWhen and loadBalancing.hashKey, each backed by a Kind catalog field",
+      "draft 3: diff impact classes per change, always-flagged Plugin Capability and image changes, a source map that survives merge, overlay and substitution, and diffing against a live Node's /config/dump for Drift",
+      "draft 3: x-ruralz-since version-skew gate (RZ-CFG-024) and the migration check that converting ruralz/v1alpha1 to ruralz/v1beta1 yields the same Revision and an empty diff",
+      "draft 1 (kept as base): Kubernetes mapping table, Policy type registry with Filter class and Phases columns (extended with draft 2's slot column), full RZ-CFG error catalog, CRD-path status conditions, key-aware JSON path objects, secretRef failure semantics and the renderer-to-variable-source table"
+    ],
+    "issue_resolutions": [
+      "Per-type override bug (all panels): replaced by slots; auth.api-key on support-chat now replaces auth.jwt in slot auth; OQ-configuration-model-13 records multi-method auth on one Route.",
+      "Worked example missing geo-block-default (all panels): the resolution table now includes it and every other Policy attached on the orders-summary path.",
+      "Diff arithmetic (panel 1): human and JSON summaries both say 4 changed = 1 added + 1 removed + 2 modified.",
+      "failureMode semantics (panel 1): defined for State Store, remote dependency, Plugin trap or limit, and runtime CEL errors; for dependency-free types it governs only CEL errors.",
+      "Several Gateways and bindings (panel 1): exactly one Gateway per Bundle, in ruralz.yaml (RZ-CFG-016).",
+      "Unguarded excludePolicies (panels 2, 3): overridable: false forbids exclusion or replacement (RZ-CFG-019).",
+      "Promotion contradiction (panels 2, 3): promotion moves a source commit, not a digest; each Environment renders its own Revision, and from: staging gates on the same commit's staging Rollout reaching complete.",
+      "Cluster-level variables and tool-version digests (draft 3): variables come only from the Environment (OQ-configuration-model-12); schema defaults are not materialized and MUST NOT change within a served apiVersion.",
+      "Bundle header (draft 3): removed; ruralz.yaml holds only ordinary resources.",
+      "Empty telemetry/limits schemas and CEL fields missing from sketches (draft 3): Gateway telemetry and limits are specified; every CEL place maps to a field in the Kind catalog or in the new table of Policy config fields fixed by this document.",
+      "Anchors and aliases (draft 2): rejected (RZ-CFG-003).",
+      "RFC 7386 wholesale list replacement (draft 2): overlays use Kubernetes strategic merge keyed by x-ruralz-list, with $patch: delete.",
+      "Brace ambiguity (draft 2): steps use exactly one of path (literal) or pathExpression (CEL); template captures reach steps only as request.pathParams.",
+      "Placeholders (drafts 2, 3): all digests and hashes are full 64-hex values; no ellipses.",
+      "consul, mqtt listener, RURALZ_OVERLAY, cloud secret managers at M5: removed or moved to Open questions (OQ-configuration-model-5, -10, -11).",
+      "Invented CLI flags (all drafts): --env, --effective, --route, --api-version and --output collected in OQ-configuration-model-10 for the CLI reference.",
+      "Comment preservation (draft 2): not promised; OQ-configuration-model-7.",
+      "Stale research OQ (draft 2): dropped; KrakenD claims cite URLs from docs/_meta/research/.",
+      "Forbidden or risky strings (all drafts): no 'manifest', no 'krakend.json', no present-tense availability, no column-0 comments inside fences, no invalid 'Planned (Mx)' literal; 'controller' in an OQ option was reworded.",
+      "Consumer quotas and Cluster enrollment secret (draft 2): Consumer keeps foundation quotas; Cluster carries no secretRef, and enrollment belongs to the control-plane document.",
+      "Environment and Cluster CRDs (draft 2): mirrored as cluster-scoped CRDs read only by Ruralz Control.",
+      "Captions (drafts 2, 3): each diagram has one italic caption directly above it, separated by the single blank line that markdownlint MD031 (enforced by scripts/verify-docs.mjs) requires, matching docs/architecture/01-system-overview.md.",
+      "64 MiB limit (draft 2 and verifier): the MUST applies to the configured limit; only the proposed default values carry (target)."
+    ],
+    "verification": "scripts/verify-docs.mjs --allow-missing reports no findings for this document other than link warnings to planned documents; H2s match outline_h2 in order; manifest machine_checks (required_terms, has_table, min_h3 >= 10) pass."
+  },
+  "verdicts": [
+    {
+      "scores": [
+        {
+          "draft": 1,
+          "total": 9,
+          "outline_and_acs": 2,
+          "foundation_consistency": 3,
+          "diagrams_and_clarity": 2,
+          "feasibility_and_insight": 2,
+          "best_sections": [
+            "Kind catalog",
+            "Validation and diff semantics",
+            "Secrets and environment variables"
+          ],
+          "issues": [
+            "Precedence bug in Attachment and precedence: rule 2 says 'For each `override` type the Route sets, drop Gateway Policies of that type', but `auth.jwt` and `auth.api-key` are different types. Yet the example Route support-chat says '- name: apikey-partner # auth override: API keys instead of jwt-default'. Under the draft's own rule, jwt-default is NOT dropped, so the AI Route would need both a JWT and an API key. The override key has to be the class (or a slot), not the type.",
+            "The Worked example contradicts the Bundle it says it comes from. It states 'The resources come from the example Bundle below. Gateway `edge` attaches `cors-default`, `jwt-default`, `ratelimit-global` and `headers-security`', but ruralz.yaml also attaches `geo-block-default` (a plugin Policy with filterClass authz). That Policy is missing from the resolution table.",
+            "The human-readable diff summary has wrong arithmetic: '3 resources changed: 1 added, 1 removed, 2 modified' adds up to 4. The JSON summary {added:1, removed:1, modified:2} contradicts the '3'.",
+            "In the Policy registry, `failureMode` is described as State Store behavior ('govern behavior when the State Store is slow or unreachable'), yet every type gets a default, e.g. `cors` 'closed' and `headers` 'closed', and a Plugin fault is handled by failureMode too. The semantics of failureMode for types that make no State Store call are never defined.",
+            "It allows several Gateways per Bundle plus `Route.spec.gateways` and `Cluster.spec.gateways` bindings ('ruralz.yaml MUST contain at least one Gateway'). This adds binding and resolution complexity and never says how Gateway Policies combine when a Route binds two Gateways with conflicting override Policies.",
+            "It adds new CLI flags (`ruralz bundle render --effective`, `--api-version`, `--output-dir`). These are only partly covered by OQ-configuration-model-10.",
+            "Cloud secret managers are tagged 'Planned (M5)' while their names are still an open question (OQ-5). That commits a milestone for an undecided design."
+          ]
+        },
+        {
+          "draft": 2,
+          "total": 8,
+          "outline_and_acs": 3,
+          "foundation_consistency": 2,
+          "diagrams_and_clarity": 2,
+          "feasibility_and_insight": 1,
+          "best_sections": [
+            "Attachment and precedence",
+            "Format decision",
+            "Validation and diff semantics"
+          ],
+          "issues": [
+            "The built-in Policy type table has no Phases column: '| `type` | May attach to | Default `failureMode` | Milestone |'. An implementer cannot tell which Filter Chain phase `cors`, `headers`, `tokenBudget` or `responseCache` hooks into. Drafts 1 and 3 both specify this.",
+            "Type identifiers drift from the foundation's Policy vocabulary ('auth, ratelimit, quota, transform, cache, cors, headers, validation, authz'). The draft uses `rateLimit`, `responseCache`, `semanticCache`, `apiKey` and `tokenBudget`.",
+            "'Bundle kinds are cluster-scoped: a Bundle configures exactly one Cluster' conflicts with the foundation, which says Ruralz Control 'pushes Rollouts to one or many Clusters'. The same Revision must be able to go to many Clusters.",
+            "'Anchors and aliases are allowed within one file and expanded before validation' opens an alias-expansion (billion-laughs) DoS path in a loader that runs on every Node. No expansion limit is specified.",
+            "Step placeholders are ambiguous: the match path uses `{id}` as a capture ('path: /orders/{id} # template: {name} captures one segment'), while step paths treat `{...}` as CEL ('request: { method: GET, path: \"/users/{auth.claims.sub}\" }', with captures reachable only as `params.id`). The same brace syntax means two different things.",
+            "It claims migration preserves comments without describing any mechanism: '`ruralz bundle render --api-version ruralz/v1beta1` rewrites a Bundle to a target version, preserving comments'.",
+            "A normative limit is tagged as a target: 'A Bundle MUST NOT exceed 64 MiB of source text or 10,000 resources (target)'.",
+            "The sketches contain placeholder values: 'digest: sha256:9f2c...', 'hash: \"sha256:3b1f...\"', 'verify: { publicKey: \"-----BEGIN PUBLIC KEY-----...\" }'.",
+            "`discovery: { type: dns, name: orders.internal, port: 8080 }   # dns | kubernetes | consul` has no milestone tag for consul or kubernetes. The new env var `RURALZ_OVERLAY` is added without an open question.",
+            "OQ-configuration-model-6 asks to re-cite KrakenD claims against a 'planned' research file, but docs/_meta/research/krakend-config-model.md already exists and already contains the cited URLs.",
+            "Mermaid captions are separated from their fences by a blank line (for example line 96 then line 98). The style guide requires the caption 'immediately above' the diagram."
+          ]
+        },
+        {
+          "draft": 3,
+          "total": 8,
+          "outline_and_acs": 2,
+          "foundation_consistency": 2,
+          "diagrams_and_clarity": 2,
+          "feasibility_and_insight": 2,
+          "best_sections": [
+            "Resource model",
+            "Validation and diff semantics",
+            "Secrets and environment variables"
+          ],
+          "issues": [
+            "The Gateway schema is left empty and handed to another document: 'telemetry: {}                 # optional; schema owned by 10-observability' and 'limits: {}                    # optional; e.g. maxRequestBodyBytes'. The foundation says 'Detailed field schemas are owned by docs/architecture/02-configuration-model.md'.",
+            "The draft breaks its own rule 'A field not shown MUST be added here before any document uses it'. The CEL table cites `Upstream.spec.healthCheck.active.expect`, `Route.spec.composition.legs[].rewrite.pathExpression` and `Gateway.spec.telemetry.logs.sampleWhen`, and none of these fields appears in the Kind catalog sketches.",
+            "It adds a non-resource Bundle header ('apiVersion: ruralz/v1alpha1\\nbundle:\\n  name: shop-edge'), a document with no `kind`, `metadata` or `spec`. This contradicts the foundation ('All configuration is a set of resources: apiVersion, kind, metadata, spec'). It depends on the blocking OQ-1 and a foundation amendment.",
+            "Security hole: 'A runtime error in `when` or `match.expression` evaluates as `false`'. For an auth Policy, false means the Filter is skipped. The draft's own example gates authentication with `when` ('when: '!(\"x-api-key\" in request.headers)'  # API-key callers skip JWT'), so a runtime CEL error fails open on authentication.",
+            "It uses `${STATE_STORE_URL}` instead of the foundation env var `RURALZ_STATE_STORE_URL`, and demotes the canonical variable to 'an ordinary variable when a Bundle references it'.",
+            "Requiring every `${VAR}` to be declared in the header ('Every variable MUST be declared in the Bundle header's `variables` list (`RZ-CFG-010`)') depends on the unapproved header construct.",
+            "The sketches contain placeholder values: 'digest: sha256:4c1f...' and 'hash: sha256:9f86d0...'. The diff example shows truncated 12-hex digests as the value of `spec.source.digest`, which contradicts 'Nodes and Ruralz Control always verify the full digest'.",
+            "The KrakenD import text names 'a rendered `krakend.json`'. The foundation lists 'krakend.json' under 'Never write' for the config unit. It is acceptable here as the source file's name, but a strict review may flag it.",
+            "`ruralz/v1beta1` is tagged Planned (M2) and `ruralz/v1` Planned (M4). These schedule commitments are not grounded anywhere else in the pack.",
+            "Mermaid captions are separated from their fences by a blank line."
+          ]
+        }
+      ],
+      "winner": 1,
+      "graft_suggestions": [
+        {
+          "from_draft": 2,
+          "section": "Attachment and precedence",
+          "why": "Draft 2's slot model (override key = spec.slot, default the type), plus `overridable: false` guardrails, `exclude` entries and Figure 3, fixes Draft 1's core bug. In Draft 1, per-type override means `auth.api-key` on a Route cannot replace a Gateway `auth.jwt`. Draft 2's worked example is also internally consistent. Keep Draft 1's upstream-leg rule 3 and its per-Phase ordering table."
+        },
+        {
+          "from_draft": 2,
+          "section": "Format decision",
+          "why": "The 'Coming from KrakenD' concept mapping table (endpoint to Route, backend to Upstream, extra_config to Policy, aggregation to composition, Go plugins to WASM Plugin, all correctly marked alias-ok and cited) and the ergonomic tradeoff table give operators and the import implementer a fixed mapping. Draft 1 has only the fidelity-level table."
+        },
+        {
+          "from_draft": 3,
+          "section": "Resource model",
+          "why": "The schema annotation keywords table (`x-ruralz-ref`, `x-ruralz-secret`, `x-ruralz-cel`, `x-ruralz-list` set/map/atomic, `x-ruralz-impact`, `x-ruralz-since`) tells a Go implementer how one JSON Schema drives reference resolution, secret enforcement, CEL environments, list merge keys, diff impact and version skew. Draft 1 leaves this as 'the native engine knows list keys per field'. Also graft the value-format normalization rule (90s renders as 1m30s)."
+        },
+        {
+          "from_draft": 3,
+          "section": "Validation and diff semantics",
+          "why": "Adds impact classes on each diff entry, always-flagged Plugin Capability grants, a source map from rendered fields back to file:line:column that survives merge and overlay, and Revision refusal based on `x-ruralz-since` against the oldest Node. Graft these into Draft 1's diff format and fix Draft 1's '3 resources changed' arithmetic."
+        },
+        {
+          "from_draft": 3,
+          "section": "Secrets and environment variables",
+          "why": "The explicit split between render-time `${VAR}` and runtime `secretRef` belongs in Draft 1. So does the ban on `${VAR}` inside CEL, reference and secret fields ('so a variable value can never become code'), and so does Cluster.spec.variables overriding Environment.spec.variables. Draft 1 bans substitution only in keys, apiVersion, kind and metadata.name."
+        },
+        {
+          "from_draft": 3,
+          "section": "Format decision",
+          "why": "The restricted YAML profile table is more complete than Draft 1's parser rules: it rejects custom tags (`!include`, `!env`) and non-UTF-8/BOM input, each with its own error code."
+        },
+        {
+          "from_draft": 3,
+          "section": "Kind catalog",
+          "why": "AIProvider pricing as decimal strings ('Prices are decimal strings so that rendering never introduces floating-point drift into diffs'). This is a small canonicalization fix that Draft 1's float pricing needs."
+        }
+      ]
+    },
+    {
+      "scores": [
+        {
+          "draft": 1,
+          "total": 9,
+          "outline_and_acs": 2,
+          "foundation_consistency": 3,
+          "diagrams_and_clarity": 2,
+          "feasibility_and_insight": 2,
+          "best_sections": [
+            "Format decision",
+            "Attachment and precedence",
+            "apiVersion versioning and migration"
+          ],
+          "issues": [
+            "Attachment and precedence: the worked example says \"The resources come from the example Bundle below. Gateway `edge` attaches `cors-default`, `jwt-default`, `ratelimit-global` and `headers-security`\", but the example Bundle's `ruralz.yaml` also attaches `- name: geo-block-default` (type plugin, filterClass authz). The resolution table has no row for it, so it is wrong for the Bundle it claims to resolve.",
+            "Attachment and precedence: `excludePolicies: [{name: cors-default}]  # opt out of named Gateway Policies` has no guardrail, so any Route author can exclude `jwt-default` or `ratelimit-global`. A platform team cannot enforce a baseline, which blocks production adoption (draft 2's `overridable: false` fixes this).",
+            "Environment sketch: `from: staging  # Environment that must hold the Revision first` contradicts its own rendering model. Overlays and `Environment.spec.variables` are baked into the digest (\"The Revision digest covers substituted values\"), so prod never receives the Revision staging held. It never says what promotion actually promotes (the source commit or the Revision).",
+            "New CLI flags `ruralz bundle render --effective`, `--api-version`, `--env` and `--output-dir` are introduced without being in the CLI reference (partly covered by OQ-configuration-model-10).",
+            "Gateway listener `protocol: https | http | mqtt (Planned (M4))` adds an event-ingress listener type the foundation does not list for `Gateway`. It is plausible but undocumented in the Resource model table.",
+            "CEL table leaves out retry and circuit-breaker predicates (`retryOn` is a string list). This is less expressive than drafts 2 and 3 for a KrakenD-parity audience."
+          ]
+        },
+        {
+          "draft": 2,
+          "total": 8,
+          "outline_and_acs": 3,
+          "foundation_consistency": 2,
+          "diagrams_and_clarity": 2,
+          "feasibility_and_insight": 1,
+          "best_sections": [
+            "Attachment and precedence",
+            "Format decision",
+            "Validation and diff semantics"
+          ],
+          "issues": [
+            "Resource model: \"Bundle kinds are cluster-scoped: a Bundle configures exactly one Cluster\" conflicts with the foundation, where Ruralz Control \"pushes Rollouts to one or many Clusters\" and a Revision is promoted across Environments.",
+            "Cluster sketch: `enrollment: { token: { secretRef: { provider: vault, ... } } }` on a control-plane-only kind has to be resolved by Ruralz Control. That contradicts the document's own rule: \"Secrets are resolved on the Node, never by Ruralz Control\".",
+            "apiVersion section: \"`Environment` and `Cluster` get no CRDs\" deviates from foundation ADR-0016, \"Helm chart + CRDs mirroring the kinds\", without an Open question.",
+            "Format decision: \"Anchors and aliases are allowed within one file and expanded before validation\" undermines the diffability claim (one edit changes values far away) and leaves alias-expansion DoS unaddressed.",
+            "Bundle layout and merge: overlays use RFC 7386 with \"lists replace wholesale\", so an overlay changing one AIModel candidate or one listener must restate the whole list. That produces noisy, error-prone prod diffs.",
+            "Precedence: a Route `rateLimit` in the same slot silently replaces the Gateway `edge-ratelimit` (\"Replaced in the same slot\"). Global abuse protection is dropped by default unless the author knows to pick a new slot.",
+            "`discovery: ... # dns | kubernetes | consul` invents a `consul` discovery type with no milestone tag. Illustrative truncations like `digest: sha256:9f2c...` and `publicKey: \"-----BEGIN PUBLIC KEY-----...\"` read as placeholders.",
+            "The Summary contains the literal \"every capability is tagged Planned (Mx)\", which is not a valid M0..M5 tag and trips a naive Planned-tag check.",
+            "apiVersion section: \"rewrites a Bundle to a target version, preserving comments\" promises comment preservation without a mechanism. Draft 1 honestly records this as an Open question.",
+            "OQ-configuration-model-6 says the KrakenD configuration-model research file is \"planned\", but `docs/_meta/research/krakend-config-model.md` exists and holds the cited URLs."
+          ]
+        },
+        {
+          "draft": 3,
+          "total": 7,
+          "outline_and_acs": 2,
+          "foundation_consistency": 1,
+          "diagrams_and_clarity": 2,
+          "feasibility_and_insight": 2,
+          "best_sections": [
+            "Validation and diff semantics",
+            "Format decision",
+            "Secrets and environment variables"
+          ],
+          "issues": [
+            "Bundle layout and merge: \"The first document of `ruralz.yaml` is the **Bundle header**, which is not a resource kind\" (`apiVersion` plus `bundle:` with no `kind`/`metadata`/`spec`). This violates the foundation rule \"All configuration is a set of resources\" with fixed kinds. OQ-configuration-model-1 admits it is blocking, and the foundation calls such deviations review-blocking.",
+            "Kind catalog: Gateway `telemetry: {}  # optional; schema owned by 10-observability` hands off field ownership, although the foundation says \"Detailed field schemas are owned by docs/architecture/02-configuration-model.md\".",
+            "The document breaks its own rule \"A field not shown MUST be added here before any document uses it\". The CEL table uses `Gateway.spec.telemetry.logs.sampleWhen`, `Upstream.spec.healthCheck.active.expect`, `Upstream.spec.loadBalancing.hashKey` and `legs[].rewrite.pathExpression`, and none of them appear in the Kind catalog sketches.",
+            "Secrets and environment variables: `Cluster.spec.variables` (\"overrides Environment\") is baked into the Revision, so Clusters in one Environment get different Revisions. That clashes with Rollout and promotion of a single Revision, and with \"Environment and Cluster ... are excluded from the Revision digest\" in spirit.",
+            "Canonical form: \"if a new `ruralz` build changes a default, the next render yields a new Revision\" makes the digest depend on the tool version. When the CLI in CI and Ruralz Control run different builds, they compute different Revisions for the same Bundle, which undermines \"an unchanged digest means unchanged behavior\".",
+            "Policy `order: 200  # lower runs first within a phase` is a free integer, so a Route Policy can be ordered ahead of Gateway authentication. `excludePolicyRefs` has no guardrail, so a Route can drop `jwt-default`.",
+            "Format decision: \"converts a rendered `krakend.json`\" uses a string the foundation lists under \"Never write\" for the config unit (acceptable only as the KrakenD source file name).",
+            "Diff exit codes are deferred to the CLI document (\"Exit codes are owned by CLI and API surface\"), where drafts 1 and 2 specify 0/1/2."
+          ]
+        }
+      ],
+      "winner": 1,
+      "graft_suggestions": [
+        {
+          "from_draft": 2,
+          "section": "Attachment and precedence",
+          "why": "Draft 2's `overridable: false` guardrail (with RZ-CFG-011 on exclude or replace) and its Figure 3 resolution flowchart close draft 1's biggest production gap. In draft 1, `excludePolicies` lets any Route opt out of Gateway auth or rate limits. Graft the guardrail into draft 1's forward-reference and Filter-class model, keep draft 1's additive merge class for ratelimit and quota, and fix the worked example so it includes `geo-block-default`."
+        },
+        {
+          "from_draft": 3,
+          "section": "Format decision",
+          "why": "Draft 3's Restricted YAML profile table (duplicate keys, anchors and merge keys, custom tags like `!include`/`!env`, non-UTF-8 and BOM, each with an error code and a reason) is more complete and more reviewable than draft 1's one-paragraph Parser rules. Draft 1 does not mention custom tags or encodings at all."
+        },
+        {
+          "from_draft": 2,
+          "section": "Format decision",
+          "why": "Draft 2's KrakenD concept mapping table (endpoint to Route, backend to Upstream, extra_config to Policy, flexible config to overlays plus ${VAR}, Lua to CEL or Plugin, Go plugins to WASM, all correctly escaped and sourced) gives migrating operators more than draft 1's four-row fidelity example."
+        },
+        {
+          "from_draft": 3,
+          "section": "Validation and diff semantics",
+          "why": "Draft 3's diff adds `x-ruralz-impact` classes per change, always flags `Plugin.spec.capabilities` widening, and keeps a source map through merge and overlay. These are exactly what a platform or security reviewer needs for Rollout approval. Add them to draft 1's resource and effective-chain diff format without adopting draft 3's default materialization in the digest."
+        },
+        {
+          "from_draft": 3,
+          "section": "CEL expressions and allowed places",
+          "why": "Draft 3 forbids `${VAR}` inside CEL fields (RZ-CFG-012) so that a variable value can never become code, and it defines runtime CEL error semantics (`when` evaluates false, elsewhere follow `failureMode`). Draft 1 has neither. Draft 2 and draft 3 CEL rows for `retries.retryOn`, circuit-breaker failure predicates and `loadBalancing.hashKey` would also fill a gap in draft 1's table."
+        },
+        {
+          "from_draft": 3,
+          "section": "apiVersion versioning and migration",
+          "why": "Draft 3's `x-ruralz-since` gate, where Ruralz Control refuses a Rollout that uses a field newer than the oldest Node in the target Cluster can serve, is a concrete version-skew mechanism. Draft 1 only says Ruralz Control \"MUST NOT send\" such Revisions. Its migration check (converting v1alpha1 to v1beta1 MUST yield the same Revision and an empty diff) is also worth stating explicitly."
+        }
+      ]
+    },
+    {
+      "scores": [
+        {
+          "draft": 1,
+          "total": 8,
+          "outline_and_acs": 2,
+          "foundation_consistency": 3,
+          "diagrams_and_clarity": 2,
+          "feasibility_and_insight": 1,
+          "best_sections": [
+            "Resource model",
+            "Validation and diff semantics",
+            "Secrets and environment variables"
+          ],
+          "issues": [
+            "The Attachment worked example gets its own source Bundle wrong. Line 545 says \"The resources come from the example Bundle below. Gateway `edge` attaches `cors-default`, `jwt-default`, `ratelimit-global` and `headers-security`\", but ruralz.yaml line 855 also attaches `geo-block-default` (authz class, onRequestHeaders). That Policy is missing from the resolution table, so the table does not match the Bundle it says it resolves. This is a partial failure of the precedence acceptance criterion.",
+            "Precedence cannot do what the draft's own example needs. Rule 2 (line 537) says \"For each `override` type the Route sets, drop Gateway Policies of that type\", and `auth.jwt` and `auth.api-key` are separate types (line 317). Yet support-chat (line 983) claims \"apikey-partner # auth override: API keys instead of jwt-default\". Under the stated rule, `jwt-default` still runs fail-closed on the AI Route, so API-key-only callers are rejected. There is no slot or class-level override to fix this.",
+            "Promotion contradicts per-Environment rendering. Environment sketch line 442 says \"from: staging # Environment that must hold the Revision first\". But overlays and `Environment.spec.variables` are applied before digesting (lines 522, 640), so staging and prod always produce different Revisions and the same Revision can never be promoted. (Drafts 2 and 3 share this flaw.)",
+            "The word \"manifest\" appears, which the foundation lists under Never write for the config unit. Line 36: \"a Bundle reads and diffs like any manifest\" and \"manifest linters\".",
+            "Present tense implies something is implemented: \"the only served version today\" (line 69) and \"The only served version is `ruralz/v1alpha1`\" (line 781).",
+            "CLI flags are invented: `ruralz bundle render --effective`, `--api-version ... --output-dir`, `--env`. They are properly logged in OQ-configuration-model-10, but are still not in the CLI reference.",
+            "Only the two required diagrams are present. Precedence is explained by table only, with no resolution diagram."
+          ]
+        },
+        {
+          "draft": 2,
+          "total": 9,
+          "outline_and_acs": 3,
+          "foundation_consistency": 2,
+          "diagrams_and_clarity": 2,
+          "feasibility_and_insight": 2,
+          "best_sections": [
+            "Attachment and precedence",
+            "Format decision",
+            "CEL expressions and allowed places"
+          ],
+          "issues": [
+            "Misreads the foundation's 'cluster' scope. Line 88: \"Bundle kinds are cluster-scoped: a Bundle configures exactly one Cluster\". This contradicts the foundation summary, where Ruralz Control \"pushes Rollouts to one or many Clusters\".",
+            "The Consumer kind drops the foundation's `quotas` (foundation §3: \"tier, quotas, tags\") and replaces it with `quotaOverrides: - { policy: monthly-quota, limit: 5000000 }` (line 357).",
+            "Anchors are allowed, which reopens alias-expansion and non-local-edit risks that Drafts 1 and 3 close. Line 37: \"Anchors and aliases are allowed within one file and expanded before validation.\"",
+            "CLI flags are invented without any Open question: `ruralz bundle validate --online` (line 612), `ruralz bundle render --effective --route checkout` (line 554), `--overlay prod`. The style guide requires CLI surface additions to go through the CLI reference or Open questions.",
+            "Placeholder-like ellipses appear in normative sketches: `digest: sha256:9f2c...` (line 333), `verify: { publicKey: \"-----BEGIN PUBLIC KEY-----...\" }` (line 338), `hash: \"sha256:3b1f...\"` (line 351).",
+            "OQ-configuration-model-6 is stale. It asks whether to \"re-cite against the planned KrakenD configuration-model research file\", but docs/_meta/research/krakend-config-model.md already exists and contains the cited URLs.",
+            "`retryOn` cannot express connection failures. `retryOn: 'response.status in [502, 503]'` is evaluated at `onUpstreamResponseHeaders` with only `response, upstream` available (line 572). Draft 3's `error.kind` covers this.",
+            "Step placeholders `{...}` in `steps[].request.path` are CEL (line 565), but `{id}` in `match.path` is a template capture (line 227). The same brace syntax means two different things.",
+            "Same promotion contradiction as the other drafts: `promotion: { from: staging, approval: manual }` (line 405) while `Environment.spec.variables` and overlays feed the digest (line 626).",
+            "Machine-check risk: YAML comments at column 0 inside fences (`# Gateway (excerpt)`, line 520; `# The Gateway: exactly one per Bundle`, line 779) will trip a naive exactly-one-H1 check that does not skip fences."
+          ]
+        },
+        {
+          "draft": 3,
+          "total": 7,
+          "outline_and_acs": 2,
+          "foundation_consistency": 1,
+          "diagrams_and_clarity": 2,
+          "feasibility_and_insight": 2,
+          "best_sections": [
+            "Validation and diff semantics",
+            "Resource model",
+            "Secrets and environment variables"
+          ],
+          "issues": [
+            "Adds a document to ruralz.yaml that is not a resource. Line 406: \"The first document of `ruralz.yaml` is the **Bundle header**, which is not a resource kind\", with `bundle:` and no `kind`/`metadata`/`spec`. This contradicts foundation §3 (\"All configuration is a set of resources\"). It is logged as blocking OQ-1, but the whole design, including mandatory variable declarations (RZ-CFG-010), depends on it.",
+            "Hands kind schema ownership to another document, against foundation §3 (\"Detailed field schemas are owned by docs/architecture/02-configuration-model.md\"). Gateway sketch line 211: `telemetry: {}  # optional; schema owned by 10-observability`, plus `limits: {}`.",
+            "Breaks its own rule. Line 175 says \"A field not shown MUST be added here before any document uses it\", yet the CEL table uses fields that are absent from the Kind catalog sketches: `Upstream.spec.loadBalancing.hashKey`, `Upstream.spec.healthCheck.active.expect`, `Gateway.spec.telemetry.logs.sampleWhen`, `composition.legs[].rewrite.pathExpression`.",
+            "Replaces the canonical env var with a new name: `url: ${STATE_STORE_URL}` and `STATE_STORE_PASSWORD` (lines 209, 762) instead of the foundation's `RURALZ_STATE_STORE_URL`, which is then deferred to OQ-8.",
+            "Cluster-level variables (\"Ruralz Control uses `Cluster.spec.variables`, then `Environment.spec.variables`\", line 564) give each Cluster its own Revision. That breaks the Cluster-as-one-config and Rollout-of-a-Revision model, and makes `promotion: {from: staging}` unsatisfiable.",
+            "Competitor claim without a citation (style guide §4): \"KrakenD-style Go-template 'flexible configuration' is Not planned\" (line 27). The source is available in research/krakend-config-model.md but is not cited.",
+            "Materializing defaults into the digest (\"if a new `ruralz` build changes a default, the next render yields a new Revision\", line 635) ties the Revision to the toolchain version. CI and a differently versioned Ruralz Control can then compute different digests for the same Bundle, which undermines \"passes `ruralz bundle validate` in CI passes Ruralz Control ingest\".",
+            "Placeholders in sketches: `digest: sha256:4c1f...` (line 315), `hash: sha256:9f86d0...` (line 332).",
+            "The worked example is a \"simplified slice\" that omits `apikey-partners` and `geo-tag`, which are in the example Bundle. The final paragraph reconciles this, but the table does not.",
+            "Machine-check risk: `# file: ruralz.yaml` and similar comments at column 0 inside fences look like H1s to a naive checker."
+          ]
+        }
+      ],
+      "winner": 2,
+      "graft_suggestions": [
+        {
+          "from_draft": 1,
+          "section": "Format decision",
+          "why": "Draft 1's Parser rules reject anchors, aliases and merge keys, citing alias-expansion attacks and per-resource diffs. Draft 2 allows anchors, which is a security and diffability regression. Take this subsection."
+        },
+        {
+          "from_draft": 1,
+          "section": "Resource model",
+          "why": "Draft 1's Kubernetes mapping table covers the ruralz.io group translation, namespace to Bundle, x-kubernetes-validations and the status subresource, plus the rule that Ruralz Control is the only CRD watcher. That is far more actionable than Draft 2's one-sentence CRD note."
+        },
+        {
+          "from_draft": 1,
+          "section": "Kind catalog",
+          "why": "Draft 1's Policy type registry gives Filter class, Phases, allowed scopes, merge class and default failureMode for every type. Draft 2's table has no Phases or class column, and those are needed to check upstream-leg attachability and ordering. Keep Draft 2's slot and overridable columns."
+        },
+        {
+          "from_draft": 1,
+          "section": "Validation and diff semantics",
+          "why": "Draft 1's CRD-path status conditions (Accepted, ResolvedRefs, Programmed, with reasons) and its key-aware JSON path objects fill gaps in Draft 2. Its full RZ-CFG error catalog with CEL cost and deprecation codes is also more complete."
+        },
+        {
+          "from_draft": 1,
+          "section": "Secrets and environment variables",
+          "why": "Draft 1 defines what happens on a secretRef resolution failure: NACK and keep serving Last-Known-Good, and on a failed rotation keep the last value and raise an error metric. It also recommends provider: file with Secret volumes and has a renderer-to-variable-source table. Draft 2 hands these to another document."
+        },
+        {
+          "from_draft": 3,
+          "section": "Resource model",
+          "why": "Draft 3's schema keywords (x-ruralz-ref, x-ruralz-secret, x-ruralz-cel, x-ruralz-list set/map/atomic, x-ruralz-impact, x-ruralz-since) make merge, diff, secret handling and Node version-skew gating follow from one schema. This is the strongest idea across the three drafts."
+        },
+        {
+          "from_draft": 3,
+          "section": "CEL expressions and allowed places",
+          "why": "Draft 3 forbids ${VAR} inside CEL fields (a variable value can never become code), defines runtime error semantics (when evaluates to false, otherwise failureMode), and gives retryOn error.kind and attempt variables. That fixes Draft 2's retryOn gap."
+        },
+        {
+          "from_draft": 3,
+          "section": "Validation and diff semantics",
+          "why": "Draft 3 attaches an impact class to each change, always flags Capability grants, tracks source maps through overlays, uses the @key pointer extension, and can diff against a live Node's /config/dump for Drift. Together these make Draft 2's diff more reviewable and security-aware."
+        },
+        {
+          "from_draft": 3,
+          "section": "apiVersion versioning and migration",
+          "why": "Draft 3 requires that converting v1alpha1 to v1beta1 yields the same Revision and an empty diff (a testable migration check). It also has Ruralz Control refuse Rollouts whose fields are newer than the oldest Node can serve, via x-ruralz-since."
+        }
+      ]
+    }
+  ],
+  "foundation_amendments": [
+    "Section 3, Policy row: replace 'Precedence: Route over Gateway' with slot-based precedence (a Route Policy replaces a Gateway Policy only in the same `slot`, all client-authentication types share slot `auth`, additive types such as `ratelimit` and `quota` stack by default) plus the `overridable: false` guardrail, because per-type override cannot let `auth.api-key` replace `auth.jwt` and unguarded override lets any Route drop platform authentication or abuse limits.",
+    "Section 3, Policy row: list the dotted type identifiers from the configuration-model registry (`auth.jwt`, `auth.api-key`, `authz.cel`, `transform.request`, `ai.token-budget`, `ai.semantic-cache`, `plugin`, ...) under the existing families, because the drafts drifted into `rateLimit`, `apiKey` and `tokenBudget` and later documents need one registry to cite.",
+    "Section 3, introduction: state that 02-configuration-model.md owns every kind's field schema except each Policy type's `spec.config`, which its feature document authors and 02-configuration-model.md registers and publishes, because one document cannot own the configuration of every Filter and the current wording makes feature documents' config fields 'invented' (OQ-configuration-model-9).",
+    "Section 3, Gateway row: add 'exactly one per Bundle, declared in ruralz.yaml', because allowing several Gateways forces Route-to-Gateway binding rules and leaves conflicting Gateway Policies unresolved.",
+    "Section 3, Scope column: define 'cluster' scope as 'delivered in a Bundle to the Nodes of every target Cluster' and state that `Environment` and `Cluster` are never part of a Bundle or its Revision digest, because one draft read 'cluster' as 'a Bundle configures exactly one Cluster', which contradicts Rollouts of one Revision to many Clusters.",
+    "Section 2, Revision row: define the digest as covering the Bundle rendered for one Environment (overlay and `${VAR}` values applied, schema defaults not materialized, hub form serialized as RFC 8785 canonical JSON), because Environments and tool versions must agree on digests and the system-overview panel asked the same question (OQ-system-overview-14).",
+    "Section 3, Environment row: change 'promotion path' to 'promotion path for source commits (each Environment renders its own Revision)', because overlays and Environment variables are inside the digest, so the same Revision can never be promoted unchanged, a contradiction all three drafts shared.",
+    "Section 6 summary: change 'builds immutable content-addressed Bundles, records them as Revisions' to 'renders Bundles into immutable content-addressed Revisions', because a Bundle is the source directory and the Revision is the built artifact under the Section 2 canonical names.",
+    "Section 7, ADR-0016 row: record that mirrored CRDs use the dotted API group `ruralz.io` (`ruralz.io/v1alpha1`), translated losslessly from the Bundle's `ruralz/v1alpha1`, or move Bundles to `ruralz.io/v1alpha1` at the freeze, because Kubernetes rejects a CRD group without a dot (blocking OQ-configuration-model-1).",
+    "Section 5 (ADR-0003): add that the loader rejects anchors, aliases, merge keys, custom tags, duplicate keys and non-UTF-8 or BOM input, and that overlays use Kubernetes strategic-merge semantics driven by schema list types, because plain YAML 1.2 allows alias-expansion denial of service and RFC 7386 overlays replace whole lists and produce noisy production diffs.",
+    "Section 3, Route row: keep `topic` matching only together with an event-ingress declaration on `Gateway` (for example an `eventSources` list, Planned (M4)), because `Gateway` listeners are HTTP-only and a Route cannot match topics that nothing ingests (OQ-configuration-model-11)."
+  ]
+}

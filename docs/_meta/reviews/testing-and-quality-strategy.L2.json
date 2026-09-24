@@ -1,0 +1,29 @@
+{
+  "lens": "L2",
+  "verdict": "accept",
+  "score": 9,
+  "blocking": [],
+  "non_blocking": [
+    {
+      "section": "Benchmarks and regression gates",
+      "suggestion": "The Microbenchmarks 'Fails when' cell says only 'alloc/op above its threshold'; consider restating 'more than 3% (target) against the merge base' inline so the row is self-contained, matching the Regression policy paragraph."
+    },
+    {
+      "section": "Release gates",
+      "suggestion": "The FIPS build gate cites 'foundation pack section 8.4, OQ-tech-stack-and-libraries-9'; consider also linking Release, versioning and compatibility, which records keeping option (a) and lists the -fips artifacts 'except HTTP/3'."
+    },
+    {
+      "section": "Scope and non-goals",
+      "suggestion": "Links to docs/architecture/12-performance-budgets-and-benchmarking.md, docs/reference/01-cli-and-api-surface.md and ADR-0005/0007/0008/0014/0017 are WARN-level broken links today (target files not yet written); re-run verify-docs once wave 3 and the ADRs land."
+    }
+  ],
+  "ac_results": [
+    {"ac": "Each test layer states its tools, coverage target tagged (target) and the CI stage that runs it.", "pass": true, "note": "Test pyramid table: all ten layers have Tools, a (target)-tagged Coverage target, CI stage and Milestone."},
+    {"ac": "Conformance suites defines three suites: configuration, Plugin ABI and protocol.", "pass": true, "note": "Three-row table (Configuration, Plugin ABI, Protocol) with contract, cases, targets, stage and milestone."},
+    {"ac": "Integration tests use testcontainers for Redis, Kafka, NATS and MQTT.", "pass": true, "note": "testcontainers-go modules/redis, modules/kafka (KRaft), modules/nats, modules/mosquitto rows, each with a milestone."},
+    {"ac": "End-to-end tests run on Docker Compose and kind.", "pass": true, "note": "Environment table has Docker Compose (Planned M1/M2/M3) and kind (Planned M2)."},
+    {"ac": "Plugin SDK and AI provider harnesses defines the AI provider mock strategy, including streaming responses and usage chunks.", "pass": true, "note": "Per-dialect table of streaming shapes and usage reporting, fault scenarios (missing/cumulative usage, throttling, mid-stream error, overlong output) and Figure 2."},
+    {"ac": "Benchmarks and regression gates uses the regression thresholds owned by docs/architecture/12-performance-budgets-and-benchmarking.md (fail on more than 5% p99 latency or more than 3% alloc/op regression, tagged (target)).", "pass": true, "note": "Regression policy: 'more than 5% (target) or alloc/op by more than 3% (target)', ownership attributed to Performance budgets and benchmarking."}
+  ],
+  "foundation_amendments": []
+}

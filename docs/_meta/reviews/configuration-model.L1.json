@@ -1,0 +1,62 @@
+{
+  "doc": "docs/architecture/02-configuration-model.md",
+  "lens": "L1",
+  "lens_name": "feasibility-skeptic",
+  "date": "2026-09-23",
+  "review_round": 2,
+  "verdict": "revise",
+  "score": 8,
+  "resolved_from_previous": ["L1-1", "L1-2", "L1-3", "L1-4", "L1-5", "L1-6", "L1-7", "L1-8", "L1-9", "L1-10"],
+  "blocking": [
+    {
+      "id": "L1-11",
+      "section": "Kind catalog / Route (buffering and limits; residual of L1-4)",
+      "issue": "The new per-request memory bound is overstated, and Node-wide buffered memory is still unbounded. (a) The bound counts raw bytes, but `request.body`, `response.body` and `steps[].body` are exposed to CEL as decoded JSON `dyn`, which takes several times the raw size in Go values. The merged aggregate output is another copy. (b) With the proposed defaults, each of 16 steps may buffer 10 MiB, so one request may hold about 170 MiB raw, and nothing caps the total across concurrent requests. (c) The list of buffering triggers leaves out body-reading Policies and Plugins: `transform.response`, `cache`, `ai.semantic-cache`, `ai.guardrail`, `validation.json-schema`, and Plugins with body Phases. For tee-style buffering on a streamed response (a Response Cache or Semantic Cache storing an SSE completion), 'fails the request with 502' is impossible after commit. That contradicts the document's own failureMode table.",
+      "evidence": "Route: 'Buffered memory per request is therefore bounded by `maxRequestBodyBytes` plus the sum of the steps' `maxBodyBytes`.' Route sketch: 'maxBodyBytes: 1Mi          # default and ceiling: Gateway limits.maxResponseBodyBytes'. Gateway: 'The proposed defaults are 10 MiB for `maxResponseBodyBytes` and 16 for `maxCompositionSteps` (target).' Route: 'A body is buffered only when something reads it: a step with `target`, `select`, `rename` or `group`, a later step's CEL that references `steps`, or a CEL expression that reads `request.body` or `response.body`.' and 'any other buffered response body over `maxResponseBodyBytes` fails the request with 502'. Variables: '`body` (JSON as `dyn`, body Phases and composition only)'. Policy: 'a committed response cannot be rejected'.",
+      "fix": "(1) Add `Gateway.spec.limits.maxBufferedBytes`, a Node-wide budget for all buffered bodies. A request that needs buffering beyond the budget is rejected before commit with 503 and an `RZ-RT` code. Tag its default `(target)`, or open an OQ owned by Data plane if the field should live there. (2) Restate the per-request bound as raw bytes, and say how decoded `dyn` values are accounted for: count decoded size against the limit, or cap it at a stated multiple of raw bytes `(target)`. Include the merged output. (3) Lower the default step `maxBodyBytes` so that `maxCompositionSteps` times the step default stays within one `maxResponseBodyBytes`, or add a per-Route aggregate cap. (4) Complete the trigger list with body-reading Policy types and Plugins with body Phases. (5) Separate gate buffering from tee buffering. Gate buffering (transform, guardrail, validation, CEL) fails with 502 only before commit. Tee buffering (`cache`, `ai.semantic-cache`) stops buffering on overflow, skips the store, keeps streaming, and increments a metric."
+    }
+  ],
+  "non_blocking": [
+    {
+      "section": "Kind catalog / Policy",
+      "suggestion": "`quota` 'checks in `onRequestHeaders` and increments at `onLog`'. This is check-then-act, so concurrent requests can overshoot the quota by up to the in-flight count per window. Consider an atomic reserve at onRequestHeaders (INCR and compare in one EVAL, matching ADR-0008) with an optional refund at onLog, or state the overshoot bound `(hypothesis)`. For `ai.token-budget`, say that the onLog write uses provider-reported usage (ADR-0014 makes it authoritative) and that chunk counting only drives mid-stream cutoff. State the overshoot bound for N concurrent streams (at most N times `maxOutputTokens`). Say whether a failed onLog write is retried or the tokens go uncounted."
+    },
+    {
+      "section": "Kind catalog / Policy (failureMode table)",
+      "suggestion": "An upstream-leg Policy that fails `closed` in `onUpstreamRequest` on a composition step is listed as 'Rejects with ... 503'. For an `optional: true` step it should fail the step, with `optional` deciding the outcome. Add that row or note."
+    },
+    {
+      "section": "Bundle layout and merge / Overlays",
+      "suggestion": "The render idempotence claim covers only literals from `$${` escapes. A substituted variable value that contains `${` would appear raw in rendered output and be substituted again when the rendered Bundle is loaded. Say that render escapes every literal `${` in rendered strings, whatever its origin, or that variable values containing `${` are RZ-CFG-010 or a new code."
+    },
+    {
+      "section": "apiVersion versioning and migration / Version skew",
+      "suggestion": "`x-ruralz-since` covers fields only. New enum values and registry entries within an apiVersion (a new Policy `type`, `dialect`, discovery `type`, `filterClass` or Capability) hit the same skew problem. Extend `x-ruralz-since` to enum values and registry types so that RZ-CFG-024 catches them before a Rollout instead of at a Node NACK."
+    },
+    {
+      "section": "Validation and diff semantics",
+      "suggestion": "'a Bundle that passes `ruralz bundle validate` in CI passes Ruralz Control ingest (Git or CRD) and Node activation with identical diagnostics' overclaims. Node activation adds RZ-CFG-024, RZ-CFG-026 and RZ-CFG-028, which CI cannot see. Say 'identical offline diagnostics'."
+    },
+    {
+      "section": "Resource model / Kubernetes mapping",
+      "suggestion": "'string fields may still carry `${VAR}`' is not true for enum-constrained or pattern-constrained string fields (`protocol`, `strategy`, `dialect`) under the strict rendered view that CRDs publish. Limit it to free-form string fields."
+    },
+    {
+      "section": "CEL expressions and allowed places / Limits",
+      "suggestion": "To pass the golden-corpus check for `split(...).exists(...)`, the nominal-size estimator must also supply result sizes for extension function calls, through cel-go `EstimateCallCost`, not only sizes for variables. Say so, so implementers do not end up with an unbounded estimate from `split`."
+    }
+  ],
+  "ac_results": [
+    {"ac": "Kind catalog gives a schema sketch with required fields for every kind: Gateway, Route, Upstream, Policy, Plugin, Consumer, AIProvider, AIModel, Environment and Cluster.", "pass": true, "note": "All ten H3 sketches are present and mark fields with '# required'. Environment states that every field is optional, which is an explicit answer."},
+    {"ac": "Attachment and precedence includes a worked example that resolves Gateway-, Route- and Upstream-scoped Policies (Route over Gateway; Upstream-scoped Policies apply to the upstream leg only).", "pass": true, "note": "The worked example table covers slot replacement (cors), inheritance (jwt), stacking (ratelimit) and per-leg Upstream Policies for orders and inventory."},
+    {"ac": "Complete annotated example Bundle covers REST aggregation, a gRPC Route, an AI Route with AIProvider and AIModel, a WASM Plugin and a Consumer.", "pass": true, "note": "orders-summary (aggregate), cart-grpc, support-chat with anthropic-prod, openai-prod and the support-chat AIModel, geo-block Plugin and Policy, partner-acme Consumer."},
+    {"ac": "CEL expressions and allowed places contains a table of every place CEL is allowed, with the variables available in each.", "pass": true, "note": "The Allowed places table lists 16 fields with variables, and a Variables table defines each variable. Every CEL field used in the sketches appears in the table."},
+    {"ac": "The document states that JSON is accepted as a strict subset of YAML and states the KrakenD import stance (ruralz bundle import krakend, best-effort fidelity levels, Planned (M2)).", "pass": true, "note": "Format decision: 'JSON is accepted as a strict subset of YAML'. Coming from KrakenD: '`ruralz bundle import krakend`, `Planned (M2)`, is best-effort' with fidelity levels exact, equivalent, approximate and manual."},
+    {"ac": "Validation and diff semantics specifies the diff output format in both JSON and human-readable form.", "pass": true, "note": "Human-readable example plus `ruralz.diff.v1` JSON, with ops add, remove, replace and move, positions, and exit codes."},
+    {"ac": "Secrets are referenced only via secretRef, and env substitution supports ${VAR} and ${VAR:-default}.", "pass": true, "note": "secretRef section, RZ-CFG-012 for literals, and Environment substitution defines ${VAR} and ${VAR:-default} with POSIX empty-as-unset semantics."}
+  ],
+  "foundation_amendments": [
+    "Section 2 Revision row: 'content-addressed digest of a Bundle rendered for one Environment' (resolves OQ-system-overview-14, as proposed in the document).",
+    "Section 3 Consumer row: 'API keys (stored hashed; a `secretRef`-held key is hashed by the Node at load)' (OQ-configuration-model-14)."
+  ]
+}

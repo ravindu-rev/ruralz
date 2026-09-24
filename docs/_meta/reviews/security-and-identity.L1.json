@@ -1,0 +1,118 @@
+{
+  "lens": "L1",
+  "verdict": "revise",
+  "score": 7,
+  "blocking": [
+    {
+      "id": "L1-1",
+      "section": "Request hardening (Pre-authentication throttling)",
+      "issue": "The revised throttle is still a denial-of-service path and still breaks the Bounded everything rule, for three reasons. (1) Delayed requests have no cap. An empty username bucket parks each request for up to 2 s, and no limit applies to how many requests wait. A flood against one username at 10,000 req/s holds about 20,000 requests (hypothesis) until the Node's own in-flight or connection ceilings reject everyone with RZ-RT-004 or RZ-RT-005. (2) The hash queue gives password hashing all `GOMAXPROCS` slots. The source key is off until OQ-security-and-identity-6, and a flood of random usernames gets a fresh bucket for every attempt. Each attempt then runs a PBKDF2 hash (Control plane and GitOps uses 600,000 iterations (target) for its own accounts), so a few dozen requests per second per Node (hypothesis) keep every core hashing and starve all other Routes. (3) Random usernames also churn the 100,000-entry LRU and evict the victim's bucket. An evicted bucket comes back full at burst 10, which resets the throttle against the targeted user. The document also calls the design 'never locks out' and then concedes that under a flood the owner shares a 1-per-second rate with the attacker, which in practice is a lockout.",
+      "evidence": "Line 400: \"| Username bucket | Burst 10, refill 1 per second, in a 64-shard LRU of 100,000 usernames (target); an empty bucket delays up to 2 s (target), then RZ-AUTH-007, and never locks out |\"; line 402: \"| Hash queue | `GOMAXPROCS` slots, 4 × `GOMAXPROCS` waiters, 1 s deadline (target); overflow gets RZ-AUTH-007 unhashed |\"; line 401: \"| Source key | ... off until OQ-security-and-identity-6, since a load balancer makes one shared key |\"; line 404: \"under a flood against one username, its owner shares the bucket's rate\"; System overview Design principles: \"Bounded everything | Every queue, buffer, pool, retry, fan-out, retired snapshot and per-key bucket table (LRU) has a ceiling.\"",
+      "fix": "(1) Cap delayed requests per Node, for example at 1,024 (target), and give an immediate RZ-AUTH-007 with `Retry-After` beyond that cap. Alternatively, drop the delay and reject at once with `Retry-After`. (2) Limit hash slots to a fraction of the CPU, for example max(1, GOMAXPROCS/4) (target), so hashing cannot starve other Routes. State the resulting verification capacity per core (hypothesis) against the OQ-security-and-identity-2 iteration count. (3) Create or refresh a username bucket only after the hash queue admits the attempt, and add a Node-wide bucket for new usernames (for example 100 per second (target)) so that churn cannot evict live buckets at will. (4) Say that the success cache is sharded like the username LRU. (5) Replace 'never locks out' with 'no fixed lockout; a flood shares the username's rate, and a recent success-cache entry exempts its owner'."
+    },
+    {
+      "id": "L1-2",
+      "section": "Authorization",
+      "issue": "The aggregate engine-memory bound contradicts System overview and Data plane, and it confuses input size with memory. System overview and Data plane put peak configuration memory at (K + 2) times the snapshot size: the active snapshot, K = 2 retired snapshots and the candidate being compiled. This document claims three times, so it leaves out the candidate that is compiling. The 64 MiB ceiling also counts raw engine data. Rego data parsed into an AST and Cedar entity sets take several times their serialized size in memory (hypothesis), so '64 MiB of engine data' does not bound resident memory. Finally, a derived memory figure is tagged (target) where it should be a (hypothesis), and the 'Node compile budget' it cites has no memory value in System overview, which gives only a 2 s build time.",
+      "evidence": "Line 291: \"A Revision-wide ceiling of 64 MiB of engine data and 50,000 entities (target), checked by `ruralz bundle validate` (code: OQ-security-and-identity-30), counts against the Node compile budget ([System overview](01-system-overview.md#compile-before-swap)), so with two retired snapshots engine memory stays under three times it (target).\"; System overview Compile before swap: \"Peak configuration memory is (K + 2) times snapshot size (hypothesis)\"; Data plane line 361: \"peak configuration memory is (K + 2) times the snapshot size (hypothesis)\".",
+      "fix": "Restate the bound as '(K + 2) = 4 times the compiled engine size (hypothesis), unless identical engines are shared by digest across snapshots'. Either define the 64 MiB ceiling on compiled, measured engine memory reported per snapshot, or keep the raw-input ceiling and give an expansion factor tagged (hypothesis) that the benchmark suite verifies. Remove the reference to a 'compile budget' or point it at the Data plane worst-case memory sum, which already counts (K + 2) snapshots."
+    },
+    {
+      "id": "L1-3",
+      "section": "Revocation",
+      "issue": "Revocation entries do not have a bounded lifetime as written, so the 100,000-entry cap can fill with entries that never expire. (1) A subject cut-off expires 'after the issuer's stated maximum token lifetime', but no such field or setting exists. The Configuration model fixes `auth.jwt` `issuers[]` to `issuer`, `jwksUrl` and `audiences`, and OQ-security-and-identity-1 option (a) lists algorithms, clock skew, required claims and the duplicate-binding error, not a maximum lifetime. (2) A `jti` entry 'expires with `exp`', but Ruralz Control never sees the token, and nothing says the REST API entry must carry `exp`. The document also never says that `auth.jwt` rejects a token without `exp`, which makes the entry permanent. (3) The phrase 'covering tokens without `iat`' does not say what happens to them. Either every such token of the subject is refused until the cut-off lapses, or none of them is.",
+      "evidence": "Line 422: \"**Expiry.** A `jti` entry expires with `exp`; a subject cut-off after the issuer's stated maximum token lifetime, covering tokens without `iat`.\"; line 423: \"**Cap.** 100,000 entries per Cluster (target), alerting at 80% (target); tombstoning relieves it, and at the cap new entries are refused and audited.\"; Configuration model config fields: \"| `auth.jwt` | `issuers[]` with `issuer`, `jwksUrl`, `audiences` |\"; line 528 (OQ-security-and-identity-1 options): \"(a) Algorithms, clock skew, required claims, duplicate-binding error\".",
+      "fix": "Add `maxTokenLifetime` for each issuer and 'require `exp`' to OQ-security-and-identity-1 option (a). Until that closes, state a fixed default, for example 24 h (target), and say that `auth.jwt` rejects a token without `exp` (RZ-AUTH-003). Require the revocation REST API entry to carry `exp` for a `jti`, capped at the maximum lifetime, so Ruralz Control can expire it without seeing the token. Say that a subject cut-off refuses every token of that subject that has no `iat` until the cut-off lapses. Tombstoning relieves only API-key entries, so say how an operator relieves a cap filled by `jti` entries, for example by replacing them with one subject cut-off."
+    }
+  ],
+  "non_blocking": [
+    {
+      "section": "Transport security (Mutual TLS)",
+      "suggestion": "The 421 fallback only helps clients that retry. RFC 9110 lets a client retry a 421 on a new connection, but most HTTP/1.1 client libraries do not. An HTTP/1.1 keep-alive connection that was busy during the Hot Reload is not idle, so it is not closed, and its next request to the `auth.mtls` Route fails for the caller. After a mode change, also set `Connection: close` on the next response of every connection that is still in the old mode. Separately, requesting client certificates for every hostname on a listener makes browsers show certificate prompts on non-mTLS hostnames. Consider scoping the request by SNI through `GetConfigForClient`."
+    },
+    {
+      "section": "Revocation",
+      "suggestion": "Each entry carries its own signature. A Node reconnecting or cold-starting against a list near the 100,000-entry cap (target) then verifies up to 100,000 signatures, several seconds of one core (hypothesis). Have the signed high-water mark cover a digest or Merkle root of the entry set, so a snapshot needs one verification."
+    },
+    {
+      "section": "Revocation",
+      "suggestion": "'5 s or less at p99 with a fresh mark (target)' is weaker than it reads. Marks are re-signed every 10 s and count as stale only after 30 s, so a relay can withhold an entry, together with every newer mark, for up to 30 s (target) before a Node notices. Say that the detection bound for withholding is the 30 s staleness limit. Also state the clock assumption: mark age compares the leader's issue time with the Node's clock, so clock skew beyond the limit raises a false degraded state, or hides a real one."
+    },
+    {
+      "section": "Authentication (JWT and OIDC)",
+      "suggestion": "The unknown-`kid` refresh is bounded per Node, but anonymous clients can trigger it across the whole fleet. At 10,000 Nodes (target, Control plane and GitOps), tokens with random `kid` values drive about 333 JWKS fetches per second (hypothesis) to one IdP. The IdP may then rate-limit the fetches, and once the 1-hour grace runs out (target), every Node returns RZ-AUTH-006. Honor 429 and `Retry-After` from the JWKS endpoint, use conditional requests (ETag), cap JWKS response size and key count, and state the fleet-wide fetch rate as a (hypothesis)."
+    },
+    {
+      "section": "Authentication",
+      "suggestion": "Rule 1, under which 401 applies when every auth-class Policy is skipped, adds a chain-level check on top of the Configuration model statement that 'the Policy is skipped when false', and Data plane must implement it. Record it as a proposal in an Open question owned by configuration-model or data-plane, so both documents carry the rule."
+    },
+    {
+      "section": "Request hardening (Pre-authentication throttling)",
+      "suggestion": "'State is local, as Traffic management and resilience proposed for OQ-security-and-identity-15' no longer matches that document. Its current text only defers the pre-authentication limiter to this document. Drop the attribution or reword it."
+    },
+    {
+      "section": "Plugin sandbox",
+      "suggestion": "'`config` MUST NOT carry private keys' conflicts with the option that WASM plugin system recommends for OQ-wasm-plugin-system-4: option (b), Node-resolved `x-ruralz-secret` `configSchema` fields passed to `rz_configure`. Either state the conflict and link OQ-security-and-identity-11 to it, or phrase the rule as 'no literal keys in `config`; Node-resolved secret fields per OQ-wasm-plugin-system-4'."
+    },
+    {
+      "section": "Control plane security (Admin ports)",
+      "suggestion": "System overview TB-9 and the Data plane admin table accept a token or mTLS. This section describes only a token over TLS or loopback. Say whether mTLS client certificates from `RURALZ_ADMIN_TLS_DIR` are also accepted. Also note that without that setting, off-loopback Prometheus scraping of `/metrics` returns 401."
+    },
+    {
+      "section": "Request hardening",
+      "suggestion": "On the Go 1.26 floor there is no header-count limit in `net/http`, so the 256-field limit (target) can only be checked in the handler after parsing. The parse is already bounded by the 256 KiB process ceiling and `limits.maxRequestHeaderBytes`. Say this so the control does not seem to depend on Go 1.27."
+    },
+    {
+      "section": "Authorization",
+      "suggestion": "If OQ-security-and-identity-13 picks OCI delivery (b or c), the OPA data size and the Cedar entity count are not in the Bundle, and offline `ruralz bundle validate` cannot check the Revision-wide ceiling. Say that the check then moves to `--online`, to Ruralz Control ingest and to Node activation, where a violation NACKs the Revision."
+    },
+    {
+      "section": "Request hardening (Pre-authentication throttling)",
+      "suggestion": "The 60 s success cache (target) keeps accepting an `auth.basic` credential after its Consumer entry changes in a new Revision, unless the cache is keyed by, or flushed with, the Revision. Say that each snapshot swap drops the success cache, or that the cache key includes the Revision digest, so a removed password stops working at activation and not up to 60 s later."
+    },
+    {
+      "section": "Authentication (JWT and OIDC)",
+      "suggestion": "\"Nodes prefetch all issuers in parallel within 5 s (target)\" does not bound the parallelism. A Revision with hundreds of issuers opens that many outbound TLS connections at once on every Node, during every compile. Cap concurrent JWKS fetches per Node, for example at 16 (target), and cap the issuers per Revision, or state that the Revision-wide ceilings bound them."
+    }
+  ],
+  "ac_results": [
+    {
+      "ac": "Every KrakenD CE and EE authentication feature (JWT/OIDC/OAuth2, JWT signing, client credentials, revocation bloom filter, mTLS, basic auth, API keys, revoke server, multiple IdPs per KrakenD endpoint, NTLM, GCP auth, AWS SigV4) is mapped to a Ruralz mechanism with a milestone, or marked Not planned with a reason.",
+      "pass": true,
+      "note": "The KrakenD authentication parity table has all 12 rows. NTLM is Not planned, with a reason: it authenticates one connection, and MD4 and HMAC-MD5 are not FIPS-approved, so P1 rules it out. The other 11 carry Planned (M1) or (M2), and JWT signing, GCP, the bloom filter and Revoke Server are marked pending OQ-11, OQ-12 and OQ-4. The unresearched KrakenD edition claims are gone, and editions now defer to the parity matrix."
+    },
+    {
+      "ac": "Authorization contains a guidance table comparing CEL, OPA (Rego) and Cedar (when to use, cost, milestone), consistent with ADR-0011.",
+      "pass": true,
+      "note": "The table's columns are When to use, Cost per request (tagged target or hypothesis), Guardrails and Planned. It matches pack section 7 and the manifest ADR-0011 decision: CEL inline, OPA and Cedar pluggable, no Lua, all free. The aggregate memory bound has a separate defect (L1-2)."
+    },
+    {
+      "ac": "The FIPS build statement (GOFIPS140) is consistent with docs/engineering/01-tech-stack-and-libraries.md.",
+      "pass": true,
+      "note": "It matches the tech stack FIPS build table: GOFIPS140=v1.0.0 (CMVP #5247) until v1.26.0 leaves Pending Review, fips140=on and never only, HTTP/3 and hybrid key exchange off, allowlisted JWA algorithms only, ML-DSA only from Go 1.27, and Plugin cryptography only through a crypto Host Function Capability."
+    },
+    {
+      "ac": "Revocation states a propagation-time target tagged (target).",
+      "pass": true,
+      "note": "The document gives \"5 s or less at p99 with a fresh mark (target)\" for JWT and urgent API-key revocation, plus targets for Rollouts, Node identities and operator sessions. The detection bound for withholding is 30 s, not 5 s (non-blocking)."
+    },
+    {
+      "ac": "Compliance contains an audit event catalog with at least 15 events.",
+      "pass": true,
+      "note": "The catalog has 24 event rows, and the min_table_rows machine check passes."
+    },
+    {
+      "ac": "Transport security covers TLS 1.3, mTLS, certificate rotation and HTTP/3.",
+      "pass": true,
+      "note": "The hop table and the Mutual TLS, Certificate rotation, HTTP/3 and FIPS build subsections are all present. The Hot Reload re-handshake rule has been added. The HTTP/1.1 fallback is weak (non-blocking)."
+    },
+    {
+      "ac": "Control plane security covers RBAC, SSO (OIDC and SAML), audit, signed Revisions and Plugin artifacts (ADR-0017), SBOM and SLSA provenance.",
+      "pass": true,
+      "note": "The section covers RBAC with the seven roles and OQ-control-plane-and-gitops-20, OIDC and SAML SSO Planned (M5), the audit log with bounded failure aggregation, a trust policy table under ADR-0017, and Release supply chain with a CycloneDX SBOM and SLSA Build Level 3 provenance."
+    }
+  ],
+  "foundation_amendments": [
+    "Configuration model `auth.jwt` config (via OQ-security-and-identity-1): add a per-issuer maximum token lifetime and an 'exp required' rule. Revocation entry expiry cannot be bounded without them."
+  ]
+}

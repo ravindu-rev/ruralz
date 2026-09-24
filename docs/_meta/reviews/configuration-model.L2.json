@@ -1,0 +1,89 @@
+{
+  "lens": "L2",
+  "verdict": "revise",
+  "score": 8,
+  "blocking": [
+    {
+      "id": "L2-7",
+      "section": "Resource model / Kubernetes mapping; Kind catalog / Policy; Open questions",
+      "issue": "Cross-references to System overview open questions are stale after its revision. The document says it proposes 'option (b) of OQ-system-overview-8, CRDs convert to a Bundle', but the options in 01-system-overview for OQ-system-overview-8 are now 'One source per Cluster; CRDs win; Git wins', so option (b) is 'CRDs win' and none of them is 'CRDs convert to a Bundle'. The document also says twice that OQ-configuration-model-8 'answers OQ-system-overview-4', but 01-system-overview no longer has an OQ-system-overview-4 row; its State Store brownout example (01 L253) now points directly to OQ-configuration-model-8. That leaves a dangling ID.",
+      "evidence": "02 L142: \"This document proposes option (b) of OQ-system-overview-8, CRDs convert to a Bundle; the owner of that question is [Deployment topologies]\"; 01 L521: \"| OQ-system-overview-8 | May one Cluster take both Git and CRD changes (OQ-configuration-model-2)? | One source per Cluster; CRDs win; Git wins | deployment-topologies |\"; 02 L374: \"The default postures of these two types are OQ-configuration-model-8, which answers OQ-system-overview-4.\"; 02 L1473: \"This answers OQ-system-overview-4.\"; 01 OQ table (L516-L531) has no OQ-system-overview-4 row",
+      "fix": "At L142, drop the option letter and write it as a separate statement: \"CRDs are converted into a Bundle by Ruralz Control, so a Cluster has one configuration source per namespace; whether one Cluster may take both Git and CRD changes stays OQ-system-overview-8, owned by [Deployment topologies](../operations/01-deployment-topologies.md).\" If this document does take a side, name the option by its text (\"One source per Cluster\"), not by a letter. At L374, delete \", which answers OQ-system-overview-4\". In the OQ-configuration-model-8 row (L1473), delete \"This answers OQ-system-overview-4.\" or replace it with \"Referenced by System overview (State Store brownout example).\""
+    },
+    {
+      "id": "L2-8",
+      "section": "Kind catalog / Policy",
+      "issue": "The error-code area for a fail-closed State Store failure contradicts 01-system-overview. System overview says a `failureMode: closed` Policy such as `ai.token-budget` rejects with `RZ-STS-<NNN>` when the State Store slows down. This document says a closed failure in a request Phase uses 'an RZ-<AREA>-NNN code of the type's area', which gives RZ-AI for `ai.token-budget` and RZ-RL for `ratelimit` or `quota`. STS is a foundation error-code area, and the two documents assign the same event to different areas.",
+      "evidence": "02 L369: \"| A request Phase, `onRequestHeaders` through `onUpstreamRequest` | Rejects with 401 or 403 for auth and authz types, otherwise 503, and an `RZ-<AREA>-NNN` code of the type's area |\"; 02 L365: \"a State Store call fails or exceeds `stateStoreTimeout`\"; 01 L253: \"A `failureMode: closed` Policy, such as the `ai.token-budget` default, rejects with `RZ-STS-<NNN>`\"; foundation-pack L51: \"areas: `CFG`, `RT`, `UP`, `AUTH`, `RL`, `PLG`, `AI`, `CP`, `STS`\"",
+      "fix": "Change the L369 `closed` cell to: \"Rejects with 401 or 403 for auth and authz types, otherwise 503; the code is `RZ-STS-NNN` when a State Store call failed or timed out, `RZ-PLG-NNN` when a Plugin trapped or exceeded limits, and otherwise an `RZ-<AREA>-NNN` code of the type's area (`AUTH`, `RL`, `AI`)\". Also check L416 (\"an `RZ-RL` or `RZ-AI` code owned by the feature document\"): it covers a missing Consumer quota, not a State Store failure, so it can stay, but say so explicitly."
+    }
+  ],
+  "non_blocking": [
+    {
+      "section": "Open questions",
+      "suggestion": "OQ-system-overview-19 ('Which variable names a file-mode Node's OCI reference? RURALZ_CONFIG with oci://; a new variable') is owned by configuration-model, and this document never mentions it. Either answer it where file-mode OCI loading is described (Bundle layout and merge / Overlays, L596) or add it as an option under OQ-configuration-model-10 and cite the ID."
+    },
+    {
+      "section": "Bundle layout and merge / Overlays; Secrets and environment variables / Environment substitution",
+      "suggestion": "L596 says file-mode ruralzd \"loads a rendered Bundle or a Revision from an OCI registry\", but the renderer table (L760) and L764 let file-mode ruralzd load an unrendered source Bundle and substitute from its process environment. Reword L596 as \"applies no overlay; it loads a rendered Bundle, an unrendered Bundle substituted from its process environment, or a Revision from an OCI registry\"."
+    },
+    {
+      "section": "Resource model / Identity and references",
+      "suggestion": "L96 calls `Route.spec.listeners` \"the one list of plain strings\", but `hosts`, `methods`, `hostnames`, `select`, `phases`, `capabilities` and `tags` are also plain-string lists. Write \"the one reference list of plain strings\"."
+    },
+    {
+      "section": "Bundle layout and merge / Canonical form and Revision",
+      "suggestion": "01-system-overview has dropped the OQ-system-overview-14 row and adopted the answer (01 L274). Consider \"This resolves OQ-system-overview-14 (now closed in System overview)\" so readers do not look for an open row."
+    },
+    {
+      "section": "Front matter",
+      "suggestion": "The document cites OQ-system-overview IDs, the System overview CLI row and its Node compile budget, and links 01-system-overview.md. Consider adding docs/architecture/01-system-overview.md to depends_on. The manifest does not require it, but it makes the dependency explicit."
+    },
+    {
+      "section": "Open questions",
+      "suggestion": "01 OQ-system-overview-8 cites OQ-configuration-model-2 as if it were the same question, but OQ-configuration-model-2 asks whether file-mode ruralzd should watch CRDs without Ruralz Control. Ask the System overview owner to correct that parenthetical, or rephrase OQ-configuration-model-2 so the two questions visibly relate."
+    }
+  ],
+  "ac_results": [
+    {
+      "ac": "Kind catalog gives a schema sketch with required fields for every kind: Gateway, Route, Upstream, Policy, Plugin, Consumer, AIProvider, AIModel, Environment and Cluster.",
+      "pass": true,
+      "note": "Ten H3 sketches mark required fields with '# required'. Environment explicitly states every spec field is optional and that promotion.from is required when promotion is set. Every list carries its x-ruralz-list type."
+    },
+    {
+      "ac": "Attachment and precedence includes a worked example that resolves Gateway-, Route- and Upstream-scoped Policies (Route over Gateway; Upstream-scoped Policies apply to the upstream leg only).",
+      "pass": true,
+      "note": "The worked example table covers slot replacement (cors), inheritance (jwt-default), stacking (ratelimit), per-leg Upstream Policies (upstream-oauth on orders only) and a replaced Policy."
+    },
+    {
+      "ac": "Complete annotated example Bundle covers REST aggregation, a gRPC Route, an AI Route with AIProvider and AIModel, a WASM Plugin and a Consumer.",
+      "pass": true,
+      "note": "orders-summary (aggregate), cart-grpc, support-chat with anthropic-prod/openai-prod and AIModel support-chat, Plugin geo-block with Policy geo-block-default, Consumer partner-acme."
+    },
+    {
+      "ac": "CEL expressions and allowed places contains a table of every place CEL is allowed, with the variables available in each.",
+      "pass": true,
+      "note": "Allowed places table has 16 rows with Variables and runtime-error columns, plus a Variables table. Every x-ruralz-cel field used in the sketches appears in it."
+    },
+    {
+      "ac": "The document states that JSON is accepted as a strict subset of YAML and states the KrakenD import stance (ruralz bundle import krakend, best-effort fidelity levels, Planned (M2)).",
+      "pass": true,
+      "note": "L33 covers JSON as a strict subset. L63 covers `ruralz bundle import krakend`, Planned (M2), best-effort, fidelity levels exact/equivalent/approximate/manual."
+    },
+    {
+      "ac": "Validation and diff semantics specifies the diff output format in both JSON and human-readable form.",
+      "pass": true,
+      "note": "Human-readable and ruralz.diff.v1 JSON examples agree: counts 5/1/1/3, a move with a one-based and a zero-based position, and exit codes."
+    },
+    {
+      "ac": "Secrets are referenced only via secretRef, and env substitution supports ${VAR} and ${VAR:-default}.",
+      "pass": true,
+      "note": "secretRef section, RZ-CFG-012 for inline literals, Environment substitution section with ${VAR} and ${VAR:-default}."
+    }
+  ],
+  "foundation_amendments": [
+    "Section 2, Revision row: change the definition to \"content-addressed digest of a Bundle rendered for one Environment\" (resolves OQ-system-overview-14; 02 Canonical form and Revision).",
+    "Section 3, Consumer row: \"Caller identity: API keys (stored hashed; a secretRef-held key is hashed by the Node at load and only the hash is kept in memory), JWT subject/claim binding, OAuth client; tier, quotas, tags\" (OQ-configuration-model-14).",
+    "Section 3 intro: state that each Policy type's spec.config schema is authored by its feature document and registered and published by docs/architecture/02-configuration-model.md, which fixes the fields it uses (OQ-configuration-model-9)."
+  ]
+}

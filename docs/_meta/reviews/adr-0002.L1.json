@@ -1,0 +1,73 @@
+{
+  "lens": "L1",
+  "verdict": "accept",
+  "score": 8,
+  "blocking": [],
+  "non_blocking": [
+    {
+      "section": "Verifier run",
+      "suggestion": "`node scripts/verify-docs.mjs --allow-missing --skip markdownlint` reports no FAIL line for this file. Its only WARN is at line 142: the link to 0017-artifact-signing.md is broken because ADR-0017 is not written yet. The link will resolve when ADR-0017 lands. The body is 1,198 words under word_count_rule, against the 1,200 cap, so any future addition needs a matching cut."
+    },
+    {
+      "section": "Confirmation (Air-gapped start, line 105)",
+      "suggestion": "The ADR now points this check at the Testing and quality strategy end-to-end suite, but that suite's 'Required scenario' table (scenarios 1 to 7) still has no egress-denied, no-license-file start case. The check therefore has an owner only by reference. The Testing and quality strategy owner should add a scenario such as: '8. Each `ruralzd` and `ruralz-control` release image starts with egress denied except to in-network fixtures and no license file, and every feature path in that release serves (P1, SM-1) | Planned (M1); FIPS images Planned (M5)'. The FIPS release gate already carries the HTTP/3 exception."
+    },
+    {
+      "section": "Confirmation (Air-gapped start, line 105)",
+      "suggestion": "'egress denied except to in-network fixtures (Upstream, State Store, mock `AIProvider`)' reads as a closed list. Some later feature paths need other in-network services: the OCI registry for signed Plugin and Revision pulls (M2, already in the Docker Compose topology), a JWKS/OIDC issuer for `auth.jwt`, the OpenTelemetry collector, and event brokers (M4). As written, 'every feature path in that release serves' would fail at M2. Change the parenthetical to '(such as Upstreams, the State Store, an OCI registry, an identity provider and the mock `AIProvider`)'. Signature verification is offline per foundation pack section 8.14, so it needs no Sigstore egress exception."
+    },
+    {
+      "section": "Confirmation (Non-Go license gate, line 103); Decision outcome (Dependencies row, line 51)",
+      "suggestion": "Both lines rely on 'its named per-ecosystem addendum (for example Unicode-3.0)', but no such addendum exists yet. Tech stack and libraries License rules still say only 'Allowed without review: the G2 list', and no Open question there covers the non-Go gate. The ADR wording holds up. The addendum and the SPDX expression rule (OR passes if any branch qualifies, AND only if all do) must be added to Tech stack and libraries before the M2 gate lands, or the first Rust PDK build fails on `unicode-ident`. See foundation_amendments."
+    },
+    {
+      "section": "Confirmation (Release audit, line 107)",
+      "suggestion": "Every NOTICE is required to carry 'the EDL-1.0 election', but only artifacts that link paho.golang need it. The published PDK packages and the `ruralz` CLI, if it does not link paho, do not. Reword to 'NOTICE (upstream attributions and, where paho.golang is linked, the EDL-1.0 election)'."
+    },
+    {
+      "section": "Decision outcome (Build flavors row, line 48)",
+      "suggestion": "'today HTTP/3, ...' is a relative time word. Prefer 'as of 2026-09-23' so the snapshot stays accurate when the FIPS build table changes."
+    },
+    {
+      "section": "Acceptance (ADR index)",
+      "suggestion": "docs/adr/README.md does not exist yet (Wave 5 index), so the index half of the last criterion fails. The index writer should add the ADR-0002 row with Owning document docs/vision/01-vision-and-positioning.md. This ADR needs no change."
+    }
+  ],
+  "ac_results": [
+    {
+      "ac": "Front matter contains id, title, status, date, deciders and related, and status matches this manifest.",
+      "pass": true,
+      "note": "All six keys are present. id ADR-0002, the title and status: accepted match adrs[ADR-0002]. The related paths include Testing and quality strategy, which the Confirmation section now cites."
+    },
+    {
+      "ac": "H2 headings match adr_common.outline_h2 exactly and in order, and Decision outcome contains the H3 headings Consequences and Confirmation.",
+      "pass": true,
+      "note": "The six H2 headings match exactly and in order. Consequences and Confirmation are H3 headings under Decision outcome. The verifier reports no outline failure."
+    },
+    {
+      "ac": "Considered options lists at least two options including the chosen one, and each has pros and cons.",
+      "pass": true,
+      "note": "There are five options, each with Good and Bad bullets and research URLs. The AGPLv3 Good bullet is now stated as analysis rather than an over-cited claim. The CLA Bad bullet now matches what the owning document says about P1."
+    },
+    {
+      "ac": "Decision outcome states the chosen option as 'Chosen option: ..., because ...' and matches the foundation pack section 7 row for this ADR.",
+      "pass": true,
+      "note": "The form is correct and matches the pack section 7 row 'Apache-2.0 everything; DCO; Revington trademark policy' and the manifest decision. The Build flavors row now defers to the Tech stack FIPS build table (open list, including non-approved JWA algorithms), which agrees with the review checklist item on line 108. L1-2 is resolved."
+    },
+    {
+      "ac": "Confirmation names a concrete verification mechanism (test, lint rule, CI gate or review checklist item).",
+      "pass": true,
+      "note": "The G2 gate, the non-Go gate, the no-license-check scan, the air-gapped start test, the DCO check, the release audit (now Planned (M1), per artifact, covering PDK packages) and the review checklist are concrete. The air-gapped test is limited to server images and to features implemented in each release, with FIPS images joining at M5 less their exclusions (L1-1 resolved). The non-Go gate excludes build-only tooling and evaluates SPDX expressions against G2 plus an addendum (L1-3 resolved in this document). The remaining owner and addendum gaps are in other documents."
+    },
+    {
+      "ac": "The ADR is linked from docs/adr/README.md and from its owning document.",
+      "pass": false,
+      "note": "The owning document links it in Scope and non-goals, Personas, License and ownership, and Why Apache-2.0. docs/adr/README.md does not exist yet (Wave 5 index). The gap is outside this file, so it is not a blocking item for this ADR."
+    }
+  ],
+  "foundation_amendments": [
+    "Cross-document request to docs/engineering/01-tech-stack-and-libraries.md (License rules; Open questions): ADR-0002 lines 51 and 103 refer to a 'named per-ecosystem addendum' to G2 for the Ruralz Console and PDK dependency trees (for example Unicode-3.0), but the document names none. Add a table 'Per-ecosystem permissive addendum' (at least Unicode-3.0; candidates Zlib, 0BSD, CC0-1.0, BlueOak-1.0.0 after research). Add the SPDX expression rule: OR passes if any branch is admitted, AND only if every term is. State that build-only dependencies (proc-macros, bundlers, test tooling) are out of scope. Until those exist, record an Open question, for example 'OQ-tech-stack-and-libraries-N: G2 addendum and SPDX rule for Console and PDK lockfiles | (a) Addendum table plus SPDX rule; (b) G2 only, with per-crate exceptions | Tech stack owner | Yes, for the M2 non-Go license gate'.",
+    "Cross-document request to docs/engineering/03-testing-and-quality-strategy.md (End-to-end tests): add the air-gapped start case that ADR-0002 Confirmation attributes to the end-to-end suite: each `ruralzd` and `ruralz-control` release image starts with egress denied except to in-network fixtures and no license file, and every feature path in that release serves; Planned (M1); FIPS images Planned (M5), less the exclusions recorded in Tech stack and libraries.",
+    "Carried over: foundation pack section 1, row 'FIPS build', says 'the same features and license as the default build' without the FIPS cryptography exclusions recorded in section 8.4 (HTTP/3 off) and in the Tech stack FIPS build table. Proposed wording: 'A build flavor (`GOFIPS140`, Planned (M5)) with the same license and features as the default build, apart from the FIPS cryptography exclusions recorded in docs/engineering/01-tech-stack-and-libraries.md (HTTP/3 among them, OQ-tech-stack-and-libraries-9), published as separate artifacts'."
+  ]
+}

@@ -1,0 +1,53 @@
+{
+  "lens": "L2",
+  "verdict": "accept",
+  "score": 9,
+  "blocking": [],
+  "non_blocking": [
+    {
+      "section": "Decision outcome, Restricted profile row (line 50); Consequences (line 98)",
+      "suggestion": "The ADR rejects 'over-deep input, depth checked over `lexer.Tokenize` output' under RZ-CFG-001, but the Configuration model's Restricted YAML profile names only size limits (64 MiB, 20,000 resources) and its RZ-CFG-001 row reads 'Parse error, non-UTF-8, byte order mark, or size limit'. A depth limit fits under 'size limit', and line 98 already says the value waits for a Configuration model Open question, so this does not contradict the owning document. At the next Configuration model revision, add the depth limit to the profile text and open the promised question so the two documents match word for word."
+    },
+    {
+      "section": "Decision outcome, Libraries row (line 53)",
+      "suggestion": "'a substituted whole-value `${VAR}`, quoted or JSON too, takes the rendered view's field type' is correct, and the JSON-subset digest rule requires it, but 'quoted' is not in the owning document's Environment substitution text ('A value that is exactly one expression is re-typed by the rendered schema view'). Consider adding one clause to the Configuration model saying the scalar's quoting style does not matter, so the ADR is not the only place that states it."
+    },
+    {
+      "section": "More information / Decision outcome links",
+      "suggestion": "verify-docs reports WARN only (not FAIL): links to ADR-0011, ADR-0016 and ADR-0017 point to files that do not exist yet. These resolve when the later ADR waves are written. No change needed now."
+    }
+  ],
+  "ac_results": [
+    {
+      "ac": "Front matter contains id, title, status, date, deciders and related, and status matches this manifest.",
+      "pass": true,
+      "note": "All six keys are present. The title matches the manifest exactly, and status: accepted matches the manifest adrs[] entry."
+    },
+    {
+      "ac": "H2 headings match adr_common.outline_h2 exactly and in order, and Decision outcome contains the H3 headings Consequences and Confirmation.",
+      "pass": true,
+      "note": "The six H2 headings appear in the manifest order. Consequences (line 89) and Confirmation (line 102) sit under Decision outcome."
+    },
+    {
+      "ac": "Considered options lists at least two options including the chosen one, and each has pros and cons.",
+      "pass": true,
+      "note": "There are five options, each with a matching Pros and cons H3 that lists at least one Good and one Bad. Each option cites a research URL."
+    },
+    {
+      "ac": "Decision outcome states the chosen option as 'Chosen option: ..., because ...' and matches the foundation pack section 7 row for this ADR.",
+      "pass": true,
+      "note": "Line 44 uses the required form. It covers YAML 1.2, JSON Schema 2020-12, the restricted profile, Kubernetes-style resources, strategic-merge overlays and JSON as a strict subset, matching the section 7 Config row and section 5. HCL and JSON-only are rejected, as in the manifest decision."
+    },
+    {
+      "ac": "Confirmation names a concrete verification mechanism (test, lint rule, CI gate or review checklist item).",
+      "pass": true,
+      "note": "It names a loader conformance suite, fuzzing, the pinned YAML Test Suite and JSON-Schema-Test-Suite, JSON subset fixtures, a golden corpus now tied to the Configuration model's example Bundle, a schema drift check, the verify-docs gate and a review checklist item."
+    },
+    {
+      "ac": "The ADR is linked from docs/adr/README.md and from its owning document.",
+      "pass": true,
+      "note": "docs/architecture/02-configuration-model.md links it at line 33 (Format decision). docs/adr/README.md does not exist yet; the index generator writes it (manifest adr_index). That is outside this ADR, and the run used --allow-missing."
+    }
+  ],
+  "foundation_amendments": []
+}

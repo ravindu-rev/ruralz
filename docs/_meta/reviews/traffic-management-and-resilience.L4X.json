@@ -1,0 +1,132 @@
+{
+  "lens": "L4X scale-adversary",
+  "verdict": "revise",
+  "score": 6,
+  "blocking": [
+    {
+      "id": "L4X-1",
+      "section": "Circuit breakers; Timeouts, deadlines, retries and hedging; Failure matrix (Zone lost, black-holed)",
+      "issue": "The zone-blackhole analysis covers only new dials. Attempts already on pooled connections, which is every attempt on an HTTP/2 or gRPC Upstream, hang until `perTryTimeout`. The document sets no HTTP/2 connection health check, and the research notes that Go's HTTP/2 transport has none by default. Under the proposed defaults the Route timeout is 15 s with 1 retry, so `perTryTimeout` = 15 / (1 + 1) = 7.5 s. `timeout` is not in the default `retryOn`, so those attempts are not retried either. Failure scenario: a zone holding one third of an HTTP/2 Upstream's Endpoints black-holes packets. With `round-robin`, `random` or `ring-hash` at the document's own 1,000 attempts per second per Node, about 333 attempts per second each hold a `maxConnections` slot for 7.5 s, which would need about 2,500 slots. The 1,024 slots fill in about 3 s, the 256 pending slots fill at once, and from then on every request to the Upstream gets 503 `RZ-UP-006`, healthy-zone traffic included. Passive ejection comes only when the first 5 timeouts land, at about 7.5 s. This happens on every Node at the same moment. Meanwhile one third of requests hang 7.5 s and end with 504 `RZ-UP-003`. The claim of 333 of 1,024 slots is therefore false for pooled traffic, and the failure-matrix row does not state the bulkhead collapse.",
+      "evidence": "Circuit breakers: \"A dial holds its slot at most 1 s (target): at 1,000 attempts per second per Node, a black-holed third of Endpoints holds about 333 of 1,024 slots until ejected (hypothesis), fewer under `least-request`.\" Deadlines: \"| `retries.perTryTimeout` | Leg time left divided by (retries left + 1) (target) |\" and \"| `retries.retryOn` | GET, HEAD, OPTIONS, PUT and DELETE: `connect` or `reset` errors, or 503; other methods: `connect` errors only |\". Failure matrix: \"| Zone lost, black-holed | Load balancing | Dials fail at 1 s (target) as connect errors, retry and eject after `consecutiveErrors`; pooled requests end at `perTryTimeout`; the ratio guard holds the breaker | Open | `healthCheck`, `perTryTimeout` |\". docs/_meta/research/scalability-patterns.md section 6: \"x/net/http2 | `PingTimeout` defaults to 15 s; `ReadIdleTimeout` 0 = no health check\".",
+      "fix": "1. Add an Upstream connection health check as a design constant: `net/http` `HTTP2Config` pings after about 1 s of read idleness with a 1 s ping timeout (target), so a dead pooled connection fails its streams as error kind `connect` (or `reset`) within about 2 s and they retry elsewhere. 2. Eject an Endpoint on its first attempt timeout while other attempts to it are still in flight, or cap in-flight attempts per Endpoint at about 2 x its weighted share of `maxConnections` (target), so one dark zone cannot take the whole bulkhead. 3. Recompute the slot figure for pooled HTTP/1.1 and HTTP/2 traffic under the proposed defaults, tagged (hypothesis). 4. Split the failure-matrix row into dial and pooled cases, giving the time to ejection and the `RZ-UP-006` exposure for each."
+    },
+    {
+      "id": "L4X-2",
+      "section": "Rate limiting / Decision path; Failure matrix (Key-rotation flood or new Node)",
+      "issue": "The first-seen budget claims to hold 'whatever N', but it is divided by N_published, not N_serving. It therefore scales with exactly the lag the document admits two paragraphs later, and it is undefined when no count exists. Failure scenario: an autoscale from 10 to 100 Nodes. N_published stays at 10 for up to about 34 minutes, so each Node's budget is 20,000 / 10 = 2,000 first-seen calls per second. The 90 new Nodes start with empty tables, so every active key is first-seen: 100 x 2,000 = 200,000 GCRA calls per second, twice the shard hypothesis of 100,000. The shard saturates and its breaker opens. Every Rate Limit with keys there then fails open, and every `ai.token-budget` there fails closed, during the surge that caused the scale-out. The warm-up estimate (250 s) assumes N_published = 100, which is not true during a scale-out. In file mode (no `clusterNodeCount`) the formula max(1, B / N_published) has no value. Separately, the row is tagged only 'Open', yet a local-only entry (capacity 1, refill 2 x `requests` / N_published) under-admits pinned clients. A Consumer with a limit of 100 per `1s` on 100 Nodes whose HTTP/2 connection lands on a new Node gets about 2 requests per second for up to about 250 s, a 429 storm that no row states.",
+      "evidence": "Decision path step 3: \"A key with no local entry is first-seen and spends one unit of a per-Node budget, max(1, B / N_published) per second across all Policies, with B = 20,000 per Cell, 20% of a shard (hypothesis). ... First-seen keys thus cost at most B calls per second per Cell, whatever N and the Policy count\"; \"A new Node, after scale-out or a Zero-Downtime Upgrade, starts empty: 50,000 active keys on 100 Nodes leave local-only in about 250 s (hypothesis).\"; Per-Node ceiling: \"scaling 10 to 100 Nodes keeps N_serving / N_published up to 10 for about 34 minutes (hypothesis)\"; Failure matrix: \"| Key-rotation flood or new Node | `ratelimit` | First-seen keys past the Cell budget of 20,000 calls per second (hypothesis) go local-only | Open | OQ-traffic-management-and-resilience-20 |\".",
+      "fix": "1. Cap the per-Node first-seen budget at a fixed absolute value, for example min(B / N_published, 500 per second) (target), and state the true Cell bound: min(B x N_serving / N_published, 500 x N_serving). 2. Define the budget when no count exists (file mode, or before the first `HeartbeatReply`), for example 200 per second per Node (target). 3. Redo the warm-up estimate for a real scale-out (N_published lagging) and for a Zero-Downtime Upgrade, where the handover could pass the predecessor's bucket table or at least its count. 4. Change the row to 'Open for new keys; closed (under-admission) for pinned clients on local-only entries', with that bound (about 2 x `requests` / N_published per Node per window (target)). 5. Add both scale-out effects to the Scale-out row."
+    },
+    {
+      "id": "L4X-3",
+      "section": "Rate limiting / Per-Node ceiling; Failure matrix",
+      "issue": "The failure matrix has no row for losing the Ruralz Control leader or the Raft quorum, although the derived ceiling and the first-seen budget both depend on `clusterNodeCount`. (1) While there is no leader the count is frozen. Control plane and GitOps lets stale replicas still hand a Revision to Nodes with no active digest, so a Cluster can scale out during the outage. The 34-minute bound then becomes unbounded: scaling 10 to 100 Nodes over a 1-hour quorum loss leaves N_serving / N_published at 10 for the whole outage. The fail-open bound is 20 x limit, and hot keys reach GCRA 10 times as often. (2) A Node that restarts or is replaced by a Zero-Downtime Upgrade has no count, because pack 8.11 persists only identity, Last-Known-Good and disposable caches. It runs the full-limit ceiling ('else the full limit') until a `HeartbeatReply` arrives, which never happens during the outage, and its first-seen budget is undefined (L4X-2). A rolling upgrade during a State Store brownout then admits up to (restarted Nodes) x limit per window. (3) The 'Nodes lost' row asserts 'small ones after 60 s (target)', which Control plane and GitOps Replica roles item 3 does not state.",
+      "evidence": "Per-Node ceiling: \"else derived from N_published, the `HeartbeatReply` `clusterNodeCount`, else the full limit with a degraded metric\"; \"Nodes apply the value as received and keep it while Ruralz Control is down.\"; Failure matrix: \"| Scale-out within the count qualification window | Derived ceiling | New Nodes count after 10 minutes, then +10% per minute (target) ...\" and \"| Nodes lost | Derived ceiling | Large decreases publish at once, small ones after 60 s (target); keys under-admit meanwhile | Closed | No |\". Control plane and GitOps line 115: \"`clusterNodeCount` counts ready Nodes that ACKed a Revision and stayed connected 10 minutes (target); large decreases publish at once, and increases rise at most 10% per minute, with an alert (target).\"; line 492: \"A replica without word from a leader for one election timeout (hypothesis) is stale: it sends its last committed assignment only to Nodes with no active digest, answers others with nothing and `HeartbeatReply` with its last promotion\".",
+      "fix": "1. Add failure-matrix rows 'Ruralz Control leader lost or Raft quorum lost' and 'Node restarted or upgraded while Ruralz Control is down'. Give each the derived-ceiling behavior, the fail-open bound N_serving / N_frozen x 2 x limit with a worked number, the first-seen budget and the hot-key effect, marked open or closed. 2. Carry the count across a Zero-Downtime Upgrade in the ADR-0015 handover, and give a restarted Node a safe default instead of the full limit (for example the ceiling from its last Last-Known-Good-era count, if Data plane allows a disposable cache entry, or a declared-ceiling requirement). 3. Recommend declared ceilings (OQ-traffic-management-and-resilience-1) for autoscaled Control-mode Clusters. 4. Remove or source the '60 s' claim, and quote doc 04 exactly ('ready Nodes', not 'ready, streaming Nodes')."
+    },
+    {
+      "id": "L4X-4",
+      "section": "Response caching; Failure matrix (State Store out of memory)",
+      "issue": "The Response Cache shares the `noeviction` State Store with limit keys. Its only memory guard is a 70% watermark polled every 10 s, and nothing bounds the rate of stores between polls. Because `noeviction` keeps entries until their TTL (freshness plus stale, up to 25 h), an overshoot does not clear itself. Failure scenario: a crawler causes 10,000 distinct cacheable misses per second Cell-wide at 128 KiB. That is one store per URI because of the lease, about 1.3 GB/s. On a 16 GiB shard the 30% headroom (about 4.8 GiB) fills in under 4 s, inside a single poll. The store reaches OOM. Redis then refuses every write script, so GCRA fails and every Rate Limit fails open, and every `ai.token-budget` reservation fails closed with 503 `RZ-STS-<NNN>`, taking all AI traffic in the Cell down. Skipping new stores does not free memory, so the condition can last for hours until TTLs expire. The failure-matrix row gives no bound and no recovery.",
+      "evidence": "\"The State Store holding limit keys MUST run `maxmemory-policy noeviction`.\"; \"2. Nodes read `INFO memory` every 10 s off the request path and skip stores above 70% of `maxmemory` (target).\"; \"Stores use the post-commit queue (pack 8.7), with TTL of freshness plus the larger stale window.\"; \"at most 24 h, stale windows at most 1 h (target)\"; Failure matrix: \"| State Store out of memory | Limit scripts; cache stores | Stores skipped above 70% (target); at OOM limits fail open | Open; Closed for `ai.token-budget` | `failureMode` |\".",
+      "fix": "1. Bound store bytes per Node per second so the whole Cell cannot cross the headroom within one poll, for example (0.3 x `maxmemory` x 0.5) / (10 s x N_published) (target), and skip stores over it with a new `ruralz_cache_store_skipped_total` reason. Alternatively, keep a per-shard cache byte counter updated inside the store script and refuse stores above a cap. 2. Define recovery: a TTL cap at M1 (for example 1 h (target)) or a documented purge of Response Cache keys. 3. State in the row the time to OOM and its duration at a stated store rate (hypothesis), and the Cell-wide `ai.token-budget` outage it causes. 4. Recommend OQ-traffic-management-and-resilience-11 option (a), a separate State Store, whenever `ai.token-budget` and `cache` share a Cell above a stated Node count."
+    },
+    {
+      "id": "L4X-5",
+      "section": "Failure matrix (State Store failover)",
+      "issue": "The failover row applies one over-admission bound to both `ratelimit` and `quota`, but the formula is correct only for GCRA. A quota counter rolled back by replication lag L loses every reservation made during L. That loss depends on the Consumer's request rate, not on limit / window. For the document's own example Consumer quota (3,000,000 per `720h`, limit / window about 1.2 per second), a Consumer at 1,000 requests per second loses about 1,000 x L reservations, not 1.2 x L. That is about three orders of magnitude more than the stated bound. `ai.token-budget` reservations roll back the same way and are missing from the row. The replication lag and the failover unavailability window have no numbers, which the L4X lens treats as an accuracy bound without numbers.",
+      "evidence": "\"| State Store failover | `ratelimit`, `quota` | Lag rolls state back: over-admission up to lag × limit / window (hypothesis) | Open | No |\"; Quotas: \"Dropped refunds only over-charge, and a failover can lose recent reservations.\"",
+      "fix": "Split the row. For `ratelimit`, keep lag x limit / window. For `quota`, use lag x admitted request rate per key. For `ai.token-budget`, use lag x reserved tokens per second per key. Add a replication-lag figure and a failover unavailability window, each tagged (hypothesis), for example lag up to 1 s and 10 to 30 s during which `failureMode` applies. Alternatively, defer both numbers to Scalability and distributed state through a new blocking Open question, and still give the correct formulas here."
+    },
+    {
+      "id": "L4X-6",
+      "section": "Load balancing",
+      "issue": "Balancer memory is per Upstream and has no Node-wide ceiling. The System overview's 'Bounded everything' rule is not met. The round-robin schedule has at least 65,536 slots (max(65,536, Endpoints)), so every round-robin Upstream costs about 256 KiB even with two Endpoints. A ring-hash Upstream costs up to 1 MiB. A copy-on-write rebuild briefly holds two copies. Failure scenario at 10x configuration size: 4,000 round-robin Upstreams take about 1 GiB of schedules per Node, and 4,000 ring-hash Upstreams up to 4 GiB, doubled during a rebuild after a Kubernetes rolling deploy touches many Upstreams at once. That drives Nodes toward `GOMEMLIMIT` GC thrash or OOM kills across the Cluster simultaneously, because every Node compiles the same Revision.",
+      "evidence": "\"Schedules (max(65,536, Endpoints) 4-byte slots, about 256 KiB) and rings (min(65,536, 1,024 × Endpoints) 16-byte virtual nodes, at most 1 MiB, fixed hash per OQ-traffic-management-and-resilience-15) rebuild off the request path at most every 10 s and swap copy-on-write (target).\" System overview, design principles: \"| Bounded everything | Every queue, buffer, pool, retry, fan-out, retired snapshot and per-key bucket table (LRU) has a ceiling. |\"",
+      "fix": "Size schedules from the weights, for example min(65,536, sum of normalized weights) slots, or use O(Endpoints) smooth weighted round-robin with no precomputed schedule. Give a Node-wide balancer memory budget, for example 256 MiB (target), with the per-Upstream figure for a stated configuration, and state what happens at the budget: a validation warning, a smaller ring (fewer virtual nodes per Endpoint), or fallback to `random`. State that a rebuild is rate-limited across Upstreams so copy-on-write peaks stay within the budget."
+    }
+  ],
+  "non_blocking": [
+    {
+      "section": "Rate limiting / Service and tiered limits; KrakenD EE mapping",
+      "suggestion": "A constant-key service limit sends up to N x ceiling = 2 x limit GCRA calls per window to one key on one shard. Any service limit above about 50,000 per second therefore exceeds the 100,000-call shard hypothesis, and when that shard's breaker opens, the other tenants' Policies on it fail open or closed. State this threshold in the Service limit row and add a failure-matrix row for 'hot limit key exceeds shard capacity' tied to OQ-traffic-management-and-resilience-1."
+    },
+    {
+      "section": "Rate limiting / Per-Node ceiling; Quotas",
+      "suggestion": "Epoch-aligned windows synchronize load across Nodes. Every Node refills its fail-open bucket at the same instant, so each window boundary brings a burst of up to 2 x limit back to back. Every daily Quota resets at 00:00 UTC, and exhausted clients return within 60 s (the `Retry-After` jitter is at most 60 s and the denial cache expires at the window end). State the resulting spikes at 1,000 Nodes, or offset window starts per key hash."
+    },
+    {
+      "section": "Rate limiting (IPv6 keys)",
+      "suggestion": "With no IPv6 prefix aggregation (OQ-traffic-management-and-resilience-18, non-blocking), one client with a /64 can rotate source addresses freely. It exhausts the Cell first-seen budget and pushes legitimate keys into local-only entries, and each rotated key still gets at least one token per Node. Consider making OQ-traffic-management-and-resilience-18 blocking for M1, or recommend /64 keys in the tiered example."
+    },
+    {
+      "section": "Rate limiting / Per shard",
+      "suggestion": "'1 ms at p99 within a zone (hypothesis)' ignores that in a three-zone Cell about two thirds of Nodes reach a shard primary cross-zone. Add a cross-zone figure (hypothesis), or state the placement assumption, and confirm that the 50 ms default `stateStoreTimeout` covers it with a margin."
+    },
+    {
+      "section": "Rate limiting (Node table size)",
+      "suggestion": "1,048,576 entries in about 64 MiB is 64 B per entry. That seems implausible in Go once a key digest, one bucket per `limits[]` entry, CLOCK bits and map overhead are counted. Give the per-entry layout or raise the figure, and have Performance budgets and benchmarking verify it."
+    },
+    {
+      "section": "Circuit breakers",
+      "suggestion": "Each Node closes its breaker independently after 3 probe successes, with no ramp. Within about openDuration +/-20% of recovery, 1,000 Nodes send full load to a recovering Upstream, a likely flap. Consider making the post-close ramp of OQ-traffic-management-and-resilience-8 blocking for M1, or state the reclose bound."
+    },
+    {
+      "section": "Load balancing; Service discovery",
+      "suggestion": "Say whether an Endpoint removed by discovery (for example a terminating pod) is skipped at once like an ejected slot, or stays in the schedule or ring until the next rebuild (up to 10 s). Also state that the EndpointSlice watch is scoped with the `kubernetes.io/service-name` label per Upstream, so that 1,000 Nodes do not each watch every slice in the cluster and do not all relist together after an API server restart."
+    },
+    {
+      "section": "Response caching (metric reasons)",
+      "suggestion": "This document lists `ruralz_cache_store_skipped_total` reasons `size_limit`, `buffer_budget` and `state_store_memory`, while the Observability catalog (10-observability.md line 161) lists `size_limit, buffer_budget, memory`. Align the two, or propose the rename to Observability, so that OOM-skip alerts query a real label."
+    },
+    {
+      "section": "Research citations",
+      "suggestion": "Two URLs come from files outside this document's research[]: https://www.krakend.io/features/ (krakend-parity.md) and https://redis.io/docs/latest/develop/programmability/eval-intro/ (go-libraries-protocols.md). Add krakend-parity.md and go-libraries-protocols.md to the manifest research list, or copy the rows into scalability-patterns.md."
+    },
+    {
+      "section": "Cross-document numbers",
+      "suggestion": "docs/architecture/11-scalability-and-distributed-state.md and docs/architecture/12-performance-budgets-and-benchmarking.md do not exist yet, so the L4X agreement check cannot run. Reconcile these figures when those documents are written: the 100,000-call shard hypothesis, B = 20,000, the 1 ms GCRA p99, the 1,048,576-entry table, the retry-budget constants, the 1 s dial and 2 s TLS limits, and the 64 MiB hot-entry layer."
+    }
+  ],
+  "ac_results": [
+    {
+      "ac": "Rate limiting contains an algorithm table comparing accuracy, cost, multi-node behavior and burst handling (ADR-0008).",
+      "pass": true,
+      "note": "The Algorithm choice table has Accuracy, State Store cost per request, Multi-Node behavior and Burst handling columns, five rows with the hybrid marked as chosen, and a link to ADR-0008."
+    },
+    {
+      "ac": "Every KrakenD EE routing and traffic feature (catch-all fallback, header and query dynamic routing, conditional routing, wildcard routes, URL rewrite, virtual hosts, client redirects, customizable HTTP circuit breaker, service rate limit, tiered rate limit, stateful rate limit, IP filtering, GeoIP) is mapped to a Ruralz mechanism with a milestone.",
+      "pass": true,
+      "note": "All 13 features appear in 'KrakenD EE routing and traffic features', each with a mechanism and Planned (M1) or (M2). The service-limit scale threshold is noted as non-blocking."
+    },
+    {
+      "ac": "Failure matrix gives fail-open or fail-closed behavior for each dependency failure, including State Store outage.",
+      "pass": false,
+      "note": "State Store outage rows are present and the table has no blank cells. Still failing: there is no row for losing the Ruralz Control leader or the Raft quorum, or for a Node restarting while Ruralz Control is down (L4X-3). The failover bound is wrong for `quota` and omits `ai.token-budget` (L4X-5). The key-rotation/new-Node row is tagged only Open although pinned clients are under-admitted (L4X-2). The pooled-connection zone blackhole outcome is misstated (L4X-1). The OOM row has no bound or recovery (L4X-4)."
+    },
+    {
+      "ac": "Rate limiting specifies the IETF RateLimit-Policy and RateLimit response header contract.",
+      "pass": true,
+      "note": "'RateLimit response headers' specifies `q`, `w`, `r`, `t`, `Retry-After` precedence and the omission of `pk` and `qu`, cites draft-11 and gives a worked 429 example. Admitted responses are OQ-2, blocking for M1."
+    },
+    {
+      "ac": "Quotas supports long windows and token-weighted units, including LLM tokens.",
+      "pass": true,
+      "note": "It covers `720h` and `24h` epoch-aligned windows, `unit: requests` through `quota`, and `unit: tokens` (LLM input plus output) through `ai.token-budget` with reservation and settlement. Calendar months and weighted costs are OQ-10."
+    },
+    {
+      "ac": "Timeouts, deadlines, retries and hedging defines a retry budget.",
+      "pass": true,
+      "note": "Retry budget: at most max(3, 20% of in-flight originals) retries per Upstream per Node (target), with a metric and a 1.2x amplification bound. Hedges count against it."
+    },
+    {
+      "ac": "Response caching follows HTTP caching semantics including stale-while-revalidate.",
+      "pass": true,
+      "note": "It follows RFC 9111 as a shared cache, with RFC 5861 `stale-while-revalidate` and `stale-if-error`, RFC 9211 `Cache-Status`, conditional revalidation, `Vary` variants and request directives. Deviations (section 4.4 invalidation, `s-maxage`) are recorded in OQ-11."
+    }
+  ],
+  "foundation_amendments": [
+    "Pack 8.8: state the per-Node ceiling and the first-seen budget for three cases: no Node count available (file mode, a restarted Node before its first HeartbeatReply) and Ruralz Control leader or quorum loss. The full-limit fallback removes the hot-key shield, and a frozen count makes the fail-open bound N_serving / N_frozen x per-Node ceiling, which grows without bound during scale-out. See L4X-2, L4X-3 and OQ-traffic-management-and-resilience-19 and -20.",
+    "Pack 8.7 or 8.13: when the Response Cache shares a State Store with limit and Token Budget keys, require memory isolation or a bounded store rate. With `noeviction`, a cache-driven OOM fails every Rate Limit open and every `ai.token-budget` closed for up to the cache TTL. See L4X-4 and OQ-traffic-management-and-resilience-11."
+  ]
+}

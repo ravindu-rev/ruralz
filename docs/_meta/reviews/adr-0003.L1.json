@@ -1,0 +1,72 @@
+{
+  "lens": "L1",
+  "verdict": "accept",
+  "score": 8,
+  "blocking": [],
+  "non_blocking": [
+    {
+      "section": "Decision outcome (Restricted profile row); Consequences (sixth Bad bullet)",
+      "suggestion": "Checking depth over `lexer.Tokenize` output closes the stack-overflow path, but it runs only after the whole token list exists. goccy/go-yaml's token.Token carries several strings, a *Position and Next/Prev pointers, so it costs roughly 150 to 250 bytes (hypothesis). A 64 MiB file of one-byte tokens such as `[[[[` or `[a,a,a` can therefore allocate about 10 GB (hypothesis) before any check runs. The ADR honestly records peak loader memory as unset, so this is not blocking. When the Open question closes, add a token-count limit enforced while tokenizing, or an iterative byte-level depth pre-scan (bracket and indentation stack) that runs before `lexer.Tokenize`."
+    },
+    {
+      "section": "Decision outcome (Libraries row)",
+      "suggestion": "'a substituted whole-value `${VAR}`' should read 'a substituted whole-value expression', so it plainly covers `${VAR:-default}`, the owning document's own example (`port: ${HTTPS_PORT:-8443}`). Also name the rule for union-typed paths, such as a `oneOf` of integer and string or a Policy `config` chosen by `type`. For example: 'resolved after the discriminator; the first matching type in schema order'. Without that rule, two implementations can disagree on the digest."
+    },
+    {
+      "section": "Confirmation (Loader conformance suite)",
+      "suggestion": "'the rest are strings' covers raw values and string fields. It leaves unsaid what a boolean field gets: does `yes` substituted into a boolean field fail RZ-CFG-005, or become true? Add one fixture: substituted text is typed by the YAML 1.2 core schema and then checked against the field type, so `yes` into a boolean field fails RZ-CFG-005."
+    },
+    {
+      "section": "Confirmation (JSON subset fixtures)",
+      "suggestion": "Carried from the prior round. If goccy/go-yaml's scanner rejects tab-indented JSON, name the fallback: a JSON front end in the same loader that emits the same AST and source map. Otherwise the gate gets disabled, or the 'same loader' promise breaks."
+    },
+    {
+      "section": "Decision outcome (Figure 1, RFC 8785 canonical form)",
+      "suggestion": "Carried. RFC 8785 serializes numbers as IEEE 754 doubles, so integers above 2^53, such as token Quota limits or byte sizes, can collide in the Revision digest. Ask the Configuration model, through an Open question, to cap schema integers at 2^53-1 or carry such values as strings."
+    },
+    {
+      "section": "Consequences (first Good bullet); Confirmation (Schema generation check)",
+      "suggestion": "Carried. Kubernetes structural schemas are an OpenAPI v3 subset: no `$ref`, `$defs`, `prefixItems` or `unevaluatedProperties`, and a `type` at every level. The CRD schema is therefore a third lowered artifact. Extend the Planned (M0) generation check to the CRD schemas, or defer that explicitly to ADR-0016 (proposed)."
+    },
+    {
+      "section": "Verifier output",
+      "suggestion": "`node scripts/verify-docs.mjs --allow-missing --skip markdownlint` reports no FAIL line for this ADR, so the length band check passes. Its only output is four WARN broken links, to ADR-0016 (lines 21 and 54) and to ADR-0011 and ADR-0017 (line 148). The filenames match the manifest, so the warnings clear once those ADRs exist."
+    }
+  ],
+  "ac_results": [
+    {
+      "ac": "Front matter contains id, title, status, date, deciders and related, and status matches this manifest.",
+      "pass": true,
+      "note": "All six keys are present. The id ADR-0003, the title and `status: accepted` match adrs[ADR-0003]."
+    },
+    {
+      "ac": "H2 headings match adr_common.outline_h2 exactly and in order, and Decision outcome contains the H3 headings Consequences and Confirmation.",
+      "pass": true,
+      "note": "The six H2 headings are in order, and Consequences and Confirmation are H3 headings under Decision outcome. The verifier reports no length_words or outline FAIL."
+    },
+    {
+      "ac": "Considered options lists at least two options including the chosen one, and each has pros and cons.",
+      "pass": true,
+      "note": "There are five options, each with Good and Bad bullets and a research-backed source URL."
+    },
+    {
+      "ac": "Decision outcome states the chosen option as 'Chosen option: ..., because ...' and matches the foundation pack section 7 row for this ADR.",
+      "pass": true,
+      "note": "The form is correct and matches section 7, section 5 and the manifest decision. The Libraries row now follows the owning document's substitution rule: a whole-value expression is re-typed by the rendered schema view (L1-1 resolved). The Restricted profile row now decides that a depth check exists over token output, reported as RZ-CFG-001 (L1-2 resolved)."
+    },
+    {
+      "ac": "Confirmation names a concrete verification mechanism (test, lint rule, CI gate or review checklist item).",
+      "pass": true,
+      "note": "It names a conformance suite, fuzzing and hostile-input fixtures, upstream suites with pass rules, JSON subset fixtures, a golden corpus, a schema generation check, the verify-docs kind check and a review checklist item. The `0777` expectation now differs correctly between integer and string fields. The nesting fixture now matches a decided depth rule, and a Consequence no longer contradicts it."
+    },
+    {
+      "ac": "The ADR is linked from docs/adr/README.md and from its owning document.",
+      "pass": false,
+      "note": "The Configuration model links it in Format decision (line 33). docs/adr/README.md does not exist yet, and it is written with docs/README.md (manifest adr_index.written_with), which also does not exist. This is outside this file, so it is not a blocking item for this ADR."
+    }
+  ],
+  "foundation_amendments": [
+    "Configuration model Open questions (per foundation pack section 14): add an OQ-configuration-model entry for (a) the maximum nesting depth, enforced over goccy/go-yaml `lexer.Tokenize` output before `parser.Parse` (ADR-0003), and preferably also a token-count limit enforced while tokenizing, and (b) peak loader memory as a multiple of source size (hypothesis). Widen the RZ-CFG-001 meaning in Error codes from 'size limit' to 'size or depth limit'.",
+    "Foundation pack section 7 (YAML 1.2 parser row) and the Tech stack Library catalog row say goccy/go-yaml is 'the only researched candidate that claims YAML 1.2-only scalar resolution'. goccy/go-yaml token/token.go reads leading-zero plain integers such as `0777` as octal (YAML 1.1). Amend both to 'claims YAML 1.2 compliance and treats YAML 1.1 boolean words as strings; Ruralz resolves plain-scalar types from token text under the YAML 1.2 core schema (ADR-0003)', and add the finding to docs/_meta/research/tooling-and-licenses.md section 6."
+  ]
+}

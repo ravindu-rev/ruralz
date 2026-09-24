@@ -1,0 +1,61 @@
+{
+  "lens": "L2",
+  "verdict": "accept",
+  "score": 9,
+  "blocking": [],
+  "non_blocking": [
+    {
+      "section": "Commits and pull requests (Pull request rules, Reviews row)",
+      "suggestion": "ADR-0002 Confirmation says 'scan allowlist edits need maintainer review'. Line 439 lists the paths that need two approvals ('api/, pkg/, docs/_meta/, security-sensitive packages and go.mod') but not the no-license-check allowlist file. Add that file to the two-approval list and to CODEOWNERS, so an entry cannot quietly allow an entitlement check."
+    },
+    {
+      "section": "CI stages (stages 3 and 8)",
+      "suggestion": "ADR-0002 scopes the non-Go license gate to 'any dependency shipped in the artifact (not build-only tooling such as proc-macros)' and accepts a named per-ecosystem addendum such as Unicode-3.0. The document says 'lockfile license gate (G2)'. Consider 'license gate (G2 allowlist and per-ecosystem addendum) over shipped lockfile dependencies' so the wording matches the ADR. The Go PDK has go.sum rather than a lockfile, so stage 3 could say 'each PDK's shipped dependencies'."
+    },
+    {
+      "section": "CI stages (stage 6 and stage 12)",
+      "suggestion": "The nightly supply-chain rescan covers only the Go gate. Consider also rescanning the Console and PDK lockfiles, so a license change in an existing npm, Cargo or NuGet dependency is caught between pull requests. The tooling for this still waits on OQ-repository-layout-and-conventions-3."
+    },
+    {
+      "section": "CI stages (stage 9 trigger)",
+      "suggestion": "Testing and quality strategy triggers pr-full on 'Go, proto or schema changes'. Line 447 adds examples. Either propose that addition to the testing document or note that it comes from this document, so the two trigger lists do not drift apart."
+    },
+    {
+      "section": "Monorepo tree (internal/cli row)",
+      "suggestion": "Foundation pack section 9 also defines `ruralz version` and `ruralz completion` outside the noun-verb form. Consider naming where they live, for example `internal/cli/root`, so a contributor does not create a ninth noun package."
+    }
+  ],
+  "ac_results": [
+    {
+      "ac": "Monorepo tree matches cmd/ruralzd, cmd/ruralz-control, cmd/ruralz, internal/, pkg/, api/ and sdk/ from the foundation pack.",
+      "pass": true,
+      "note": "Line 36 names all seven from foundation pack section 2. The text tree (lines 70-110), the mindmap (Figure 1) and the Directory responsibilities table all agree with them."
+    },
+    {
+      "ac": "Schema generation from Go types specifies the source package and the output path of the published JSON Schema.",
+      "pass": true,
+      "note": "The source package is github.com/ravindu-rev/ruralz/pkg/config/v1alpha1 (line 293). The outputs are api/schema/ruralz/v1alpha1/authoring.schema.json and rendered.schema.json (line 295). The markers match the seven x-ruralz-* keywords in the Configuration model."
+    },
+    {
+      "ac": "Go conventions and linters lists the golangci-lint linter set.",
+      "pass": true,
+      "note": "The 'golangci-lint linter set' table (lines 181-195) and the .golangci.yml excerpt list the same linters and formatters."
+    },
+    {
+      "ac": "Commits and pull requests states the DCO sign-off stance explicitly and uses Conventional Commits.",
+      "pass": true,
+      "note": "The DCO sign-off subsection (lines 402-406) says DCO, not a CLA, sign-off is required for bots too, and stage 1 enforces it; this matches ADR-0002's DCO check. The Conventional Commits subsection gives the type and scope table and the breaking-change footer."
+    },
+    {
+      "ac": "CI stages lists at least six stages, including docs verification with scripts/verify-docs.mjs.",
+      "pass": true,
+      "note": "The table has 13 stages. Stage 7 runs `node scripts/verify-docs.mjs`. The verifier printed no FAIL line for this document, only WARN lines for broken links to documents that do not exist yet, which --allow-missing allows."
+    },
+    {
+      "ac": "API and protobuf definitions uses buf and the proto packages ruralz.control.v1 and ruralz.plugin.v1.",
+      "pass": true,
+      "note": "The path table (lines 250-255) gives both packages. The buf rules subsection gives buf.yaml and the format, lint, breaking and generate checks. The Enroll and Stream RPCs match the Control plane and GitOps message table."
+    }
+  ],
+  "foundation_amendments": []
+}

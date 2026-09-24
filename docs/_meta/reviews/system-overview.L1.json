@@ -1,0 +1,120 @@
+{
+  "lens": "L1 feasibility-skeptic",
+  "verdict": "revise",
+  "score": 7,
+  "blocking": [
+    {
+      "id": "L1-1",
+      "section": "Cross-cutting concerns / Hot Reload, Rollout and Zero-Downtime Upgrade",
+      "issue": "The upgrade handover deadlocks against the boot rules in Control mode. The new process cannot hold the Control Stream until the old process releases the data-dir lock. The old process releases it only when its Drain starts, and it starts draining only after the new process passes /readyz. So the new process always sits out the full boot wait and then serves Last-Known-Good. In Control mode, Last-Known-Good is the Cluster's promoted digest, which can be older than the old process's active Revision, for example during a canary or a Rollout in progress. Every binary upgrade therefore adds 5 s and can quietly roll a Node back mid-Rollout. Ruralz Control's record of that Node's ACK is then wrong, and the canary gate reads the wrong signals. A second swap follows once the new process gets the stream.",
+      "evidence": "Line 431: \"Only the process holding a file lock on `${RURALZ_DATA_DIR}` writes Last-Known-Good and holds the Control Stream for the shared `node.id`; the old process releases it when its Drain starts.\" Line 427: \"the new process binds the same ports with `SO_REUSEPORT` and passes `/readyz`, then the old one Drains\". Line 350: \"in Control mode, waits up to 5 s (target) for the Control Stream before serving Last-Known-Good.\" Line 348: the promoted digest is \"its last `complete` Rollout\".",
+      "fix": "Add a handover rule. When the new process finds a live lock holder, it skips the boot wait and boots the holder's active Revision from the digest-verified candidate under `${RURALZ_DATA_DIR}/lkg/` (step 6 of Compile before swap), not the promoted Last-Known-Good. When the lock is released, it takes over the Control Stream and presents that digest, so reconciliation sends nothing. Mark the handover in Figure 5, or say that the boot-wait rule applies only when no predecessor exists."
+    },
+    {
+      "id": "L1-2",
+      "section": "Cross-cutting concerns / Hot Reload, Rollout and Zero-Downtime Upgrade",
+      "issue": "The upgrade sequence gates on the new process passing /readyz, but it does not say how the admin port 9901 is handed over, and both obvious readings fail. If both processes bind 9901 with SO_REUSEPORT, probes spread across both of them. The draining old process answers not-ready by definition, so load balancers and kubelets see readiness flap and pull the Node from rotation in the middle of the upgrade. If 9901 is not shared, the new process cannot bind it while the old one lives, so it can never 'pass /readyz'.",
+      "evidence": "Line 427: \"the new process binds the same ports with `SO_REUSEPORT` and passes `/readyz`, then the old one Drains with HTTP/2 GOAWAY\". Line 372: \"`/readyz` on 9901 means an active validated Revision, bound listeners and no drain\". Rule 1 at line 429 covers only \"a TCP listener\" on the traffic ports.",
+      "fix": "Add a handover rule for 9901. The new process reports its readiness to the old one over a local channel under `${RURALZ_DATA_DIR}` (for example a Unix socket or the lock file), not over the shared port. When the old process starts its Drain, it closes its 9901 listener first, or steers 9901 with the same CBPF program, so external probes only ever reach the process that will keep serving. Hand the procedure to Zero-downtime upgrades and hot reload."
+    },
+    {
+      "id": "L1-3",
+      "section": "Request lifecycle / State Store access",
+      "issue": "'One pipelined batch per Phase' breaks the ordered, short-circuiting Filter Chain. A pipeline sends every command before it reads any reply. When a Rate Limit and a Quota share onRequestHeaders, the Quota is debited even for requests the Rate Limit denies, so under a rate-limit storm Consumers burn Quota on rejected calls, and Quota is billing-grade. A Response Cache lookup is keyed before any intervening Filter or Plugin that normalizes headers has run. A single server-side script cannot fix this in general either: on Redis Cluster, a per-Route rate-limit key and a per-Consumer quota key sit in different hash slots and cannot share one EVAL.",
+      "evidence": "Line 244: \"Stateful Policies of one Phase share one pipelined `rueidis` batch.\" Line 153: \"One pipelined batch per Phase, per-request deadline, breaker\". Line 176 lists `onRequestHeaders` work as \"Authentication, CORS, Rate Limit and Quota admission, Response Cache lookup, header-only authorization\".",
+      "fix": "Restate batching as an optimization that MUST preserve chain order. Read-only calls with no dependency on an earlier Filter's output MAY be pipelined. Consumptive calls (GCRA, Quota, Token Budget reservation) run in chain order and stop at the first deny, either in one script when the keys share a hash slot or as sequential round trips inside the same per-request deadline. The alternative is to reserve in the pipeline and send an asynchronous refund when a later Policy denies. Keep 'at most one blocking round trip per Policy' unchanged, and give the refund and accuracy bound to Scalability and distributed state."
+    },
+    {
+      "id": "L1-4",
+      "section": "Component map (Control Store paragraph)",
+      "issue": "Taking Revision content and the audit log out of Raft brings in a second, unspecified replication mechanism with no ordering rule. Suppose the Raft entry that records a Revision and its Rollout plan commits before the content reaches the other replicas. After a failover, the new leader knows the digest but cannot build snapshots or deltas, so 'a new leader resumes from the plan' fails and reconnecting Nodes cannot be served. Audit segments kept outside Raft on one replica disappear with that replica, which breaks the attribution that Control mode is sold on.",
+      "evidence": "Line 56: \"Revision content is stored by digest outside it (a replicated blob directory or the OCI registry), and the audit log in a segmented, retention-bounded store\". Line 328: \"a new leader resumes from the plan\". Line 376: \"a full snapshot otherwise\".",
+      "fix": "State a content-before-metadata rule: Revision content and audit segments are durably written to a quorum of Ruralz Control replicas, or to the OCI registry or `postgres`, before the Raft entry that references their digest is proposed. Followers fetch missing digests from peers by digest. Audit segments are hash-chained, and the chain head is recorded in Raft. Give the mechanism and its bounds to Control plane and GitOps."
+    },
+    {
+      "id": "L1-5",
+      "section": "Configuration lifecycle / Compile before swap",
+      "issue": "The snapshot memory bound contradicts itself and cannot be enforced as written. K = 2 retired snapshots, plus the active one, plus a candidate being compiled, gives a peak of four snapshots, not a brief doubling. Streams on the oldest snapshot close only 'after a stream max-age'. During that window another Rollout can activate, and the document does not say whether activation waits (which delays the ACK, turns into a transient NACK and marks the Node lagging) or K is exceeded. Enforcing 'at most K' also needs a way to find the streams pinned to the oldest snapshot and to know when a GC-freed snapshot is gone. The document names neither.",
+      "evidence": "Line 342: \"Garbage collection frees a retired snapshot once unreferenced; ... At most K = 2 retired snapshots are kept (target); at the limit, streams on the oldest get a graceful close after a stream max-age\". Line 344: \"A swap briefly doubles snapshot memory (hypothesis), bounded by K.\"",
+      "fix": "State peak configuration memory as (K + 2) x snapshot size (hypothesis). Define behavior at the limit: activation proceeds, streams pinned to the oldest snapshot get an immediate graceful close, and non-stream requests are bounded by the Route timeout. Say that long-lived streams register with their snapshot, and that snapshot liveness is tracked with `runtime.AddCleanup` or a `weak` pointer (Go 1.24 or newer, within the Go 1.26 floor). Give the numbers to Data plane."
+    }
+  ],
+  "non_blocking": [
+    {
+      "section": "Design principles",
+      "suggestion": "'sharded or per-P' and 'sharded per-P reference counts' (lines 32 and 342): Go has no public per-P API. The only route, runtime.procPin through go:linkname, has been restricted since Go 1.23. A per-key token bucket sharded per-P also splits the ceiling, so a burst on one P is rejected early. Write 'single-word CAS state for buckets and breakers, striped atomic counters for reference counts'."
+    },
+    {
+      "section": "Configuration lifecycle",
+      "suggestion": "A plan 'with per-Node desired digests' (line 291) grows with Cluster size and presses on the 1 MiB Raft entry target (line 56) at tens of thousands of Nodes. It also leaves undefined what a Node that enrolls mid-Rollout receives. Derive batch membership from hash ranges of node.id so the plan is O(batches) and new Nodes land in a batch automatically. Also require a minimum Node and traffic count before a canary gate can pass, so an empty canary set cannot pass vacuously."
+    },
+    {
+      "section": "Request lifecycle / State Store access",
+      "suggestion": "'later writes asynchronous and droppable' (line 420) covers Quota and Token Budget settlement. Under load, the drops systematically under-count Token Budgets, exactly when the budget matters most. State the accuracy bound, or keep a bounded per-Node settlement ledger that is retried before being dropped, and count the drops per Policy."
+    },
+    {
+      "section": "Request lifecycle / Worked example: a rate-limited Route in a brownout",
+      "suggestion": "Consulting GCRA for every locally admitted request puts every request under one global limit on a single hot key, so one Redis shard's EVAL throughput caps that limit. Add a per-key throughput ceiling (target) and cross-reference OQ-system-overview-15."
+    },
+    {
+      "section": "Configuration lifecycle / Compile before swap",
+      "suggestion": "Step 1 says 'Verifies content against the Revision digest', but `rev-<sha256:12>` is a 48-bit prefix. Say that the Control Stream, OCI pulls and Last-Known-Good verification carry and check the full sha256, and that `rev-` is for display only (see foundation_amendments)."
+    },
+    {
+      "section": "Cross-cutting concerns / Hot Reload, Rollout and Zero-Downtime Upgrade",
+      "suggestion": "During the upgrade overlap, two processes share one node.id, each with its own local token bucket, so the per-Node ceiling doubles briefly. State this in the fail-open bound, or have the new process inherit the bucket only after the old one drains."
+    },
+    {
+      "section": "Configuration lifecycle / Reconnect behavior",
+      "suggestion": "Say whether Control Streams terminate only on the Raft leader or also on followers, with ACKs forwarded. Leader-only termination turns every failover into a reconnect of every Node in every Cluster. Give the decision to Control plane and GitOps."
+    },
+    {
+      "section": "Deployment modes / Cells and Regions",
+      "suggestion": "'a Node warns when its Cluster reports more than one Node' (line 399) cannot work in file mode, which has no inventory. Limit the warning to Control mode, or say that file mode relies on documentation."
+    },
+    {
+      "section": "Whole document",
+      "suggestion": "The body is 3,987 words by the manifest rule, 13 under the 4,000 cap. Make the fixes above word-neutral by moving detail into the owning documents and replacing prose with pointers."
+    }
+  ],
+  "ac_results": [
+    {
+      "ac": "Every product name, kind, port, binary, image and identifier matches the foundation pack exactly.",
+      "pass": true,
+      "note": "Checked ruralzd, ruralz-control, both ghcr.io images, 8080, 8443 plus UDP 8443, 9901 and its admin paths, 8090, 8091, /console, rev-<sha256:12>, ruralz.control.v1.ControlStream, ruralz.plugin.v1, span and metric patterns, RZ-<AREA>-<NNN> areas, RURALZ_* variables, the Rollout states and the CLI commands. verify-docs glossary and commands-kinds checks pass."
+    },
+    {
+      "ac": "The document states explicitly that Ruralz Gateway runs without Ruralz Control (Bundle directory watch or OCI pull) and serves Last-Known-Good configuration while Ruralz Control is unavailable.",
+      "pass": true,
+      "note": "Summary (line 17), Last-Known-Good (line 348) and Deployment modes (line 380). L1-1 flags a handover path where the wrong Revision is served, but the required statement is present."
+    },
+    {
+      "ac": "Deployment modes covers file mode, Control mode and multi-cluster mode.",
+      "pass": true,
+      "note": "A three-column comparison table (lines 382-389), usage guidance, File mode lifecycle, and Cells and Regions."
+    },
+    {
+      "ac": "Each of the four differentiators has a pointer to the architecture document that owns it.",
+      "pass": true,
+      "note": "The table under 'Where the four differentiators live' links 05, 06, 04 and 07, each with Planned milestones."
+    },
+    {
+      "ac": "Document map links every architecture document (docs/architecture/01 through 12).",
+      "pass": true,
+      "note": "All 12 are linked. The links_to machine check passes. The target files do not exist yet, which verify-docs reports as warnings only."
+    },
+    {
+      "ac": "Filter Chain phases are listed exactly as in the foundation pack, in order, including onChunk.",
+      "pass": true,
+      "note": "Line 170 gives the verbatim sequence and line 172 gives onChunk. The phase table follows the same order, and the verify-docs phases check passes."
+    },
+    {
+      "ac": "The body is 4,000 words or fewer.",
+      "pass": true,
+      "note": "3,987 words under the verify-docs countWords rule (fences excluded). The machine-checks failure reported by verify-docs belongs to docs/vision/01-vision-and-positioning.md, not this document."
+    }
+  ],
+  "foundation_amendments": [
+    "Section 2, Revision row: `rev-<sha256:12>` is the display form only. The Control Stream, OCI pulls and Last-Known-Good verification carry and verify the full sha256 digest."
+  ]
+}

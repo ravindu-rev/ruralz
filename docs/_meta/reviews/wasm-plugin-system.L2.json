@@ -1,0 +1,57 @@
+{
+  "lens": "L2",
+  "verdict": "revise",
+  "score": 8,
+  "blocking": [
+    {
+      "id": "L2-10",
+      "section": "Runtime (rule 7, Failure semantics and the RZ-PLG registry), Performance model (Sizing)",
+      "issue": "This is a new finding introduced with parking. When the Plugin host refuses a state_* call because the pool's parked bound is reached, the document reports RZ-STS. No State Store call was made or timed out: the refusal comes from the Plugin's own instance-pool limit. Pack section 8.6 defines STS as a State Store call that failed or timed out, and its selection rule sends Plugin limit breaches to PLG, which covers instance-pool failures. The Sizing table shows the consequence: with a healthy State Store, a 64 MiB state.* Plugin returns RZ-STS on every state_* call, so operators would investigate the State Store (owned by scalability-and-distributed-state) for a Plugin pool limit.",
+      "evidence": "L73: \"beyond the parked bound, or with the State client breaker open, `state_*` returns `ERR_UNAVAILABLE` at once, yielding `RZ-STS`\"; L101: \"A negative guest result after its State Store call returned `ERR_UNAVAILABLE` uses `RZ-STS`\"; L514: \"24 park, the rest get `RZ-STS` until the breaker opens\"; L515: \"`state.read` 64 MiB, healthy or brownout | ... parked bound 0 on 8 cores | Every `state_*` call gets `RZ-STS`\". Pack 8.6: \"`STS` | A State Store call failed or timed out and the Policy applied `failureMode: closed`\", \"`PLG` | Plugin load, trap, limit, Capability and instance-pool failures\", and \"A rejection uses `STS` when a State Store call failed or timed out, `PLG` when a Plugin trapped or exceeded limits\".",
+      "fix": "Split the two cases in rule 7. With the State client breaker open (pack 8.7 rule 2 says it skips calls), keep `ERR_UNAVAILABLE` and `RZ-STS`. Beyond the parked bound, return `ERR_LIMIT` and add a registry row `RZ-PLG-010` \"Parked bound reached; State Store call not attempted\". Make L101 apply only to a State Store call that was attempted and failed or timed out, or that the open breaker skipped. In Sizing, change the L514 text to \"the rest get `RZ-PLG-010` until the breaker opens, then `RZ-STS`\" and the L515 text to \"Every `state_*` call gets `RZ-PLG-010`\". Add `RZ-PLG-010` to the codes listed in the Observability paragraph."
+    }
+  ],
+  "non_blocking": [
+    {
+      "section": "Open questions (OQ-wasm-plugin-system-3, -18) and Capabilities and sandboxing",
+      "suggestion": "Security and identity (08, L435, L442, L558) says it answered OQ-wasm-plugin-system-3 with option (b), which hides credential headers unless a separate flagged Capability is granted, and applied the rewording that OQ-18 asked for. This document still marks OQ-3 as '(a) All headers (current)' and blocking, and PT-3's residual risk says header reads expose credentials. Record both answers, close or annotate OQ-3 and OQ-18, and name the credential Capability in the Capability risk table or through an Open question."
+    },
+    {
+      "section": "Runtime (Default limits: Fault breaker) and Developer experience (Observability)",
+      "suggestion": "Observability registers reason `plugin_pool_degraded` as 'A pool is degraded after RZ-PLG-008'. This document also uses it while a fault breaker is open (RZ-PLG-009). Either ask Observability to widen the definition or propose a separate reason such as `plugin_breaker_open`."
+    },
+    {
+      "section": "Runtime (Failure semantics) and Open questions (OQ-wasm-plugin-system-9)",
+      "suggestion": "The online stage now SHOULD compile, instantiate once and run `rz_configure`. The Configuration model defines that stage (L821) as ABI, Phases and Capabilities checks only. Add to OQ-9 a second question: 'should the Configuration model add these checks to its online-stage description?'"
+    },
+    {
+      "section": "Plugin ABI v1 (Host Function table, consumer_info)",
+      "suggestion": "The phrase 'Phases after the auth Filter class' mixes up two glossary terms, because a Filter class is a position within a Phase. Write 'After the auth Filter class has run: authz and later classes of `onRequestHeaders`, and every later Phase'."
+    },
+    {
+      "section": "Runtime (rule 2) and Open questions (OQ-wasm-plugin-system-16)",
+      "suggestion": "Pack 8.11 lists compiled modules among the disposable caches a Node persists, and Data plane (L43) describes an on-disk wazero cache. This document never persists compiled code. OQ-16 raises the question, but an explicit request to Data plane to adopt option (c) of OQ-data-plane-11 would keep the two documents aligned."
+    },
+    {
+      "section": "Packaging (OCI artifact)",
+      "suggestion": "Registry allowlist violations are RZ-CFG-028, but the allowlist is process configuration in file mode. State whether such a NACK is deterministic, since it may not reproduce from the Revision alone (pack 8.3), or list it with the transient cases under OQ-14."
+    },
+    {
+      "section": "Performance model",
+      "suggestion": "In 'Instance creation ... 100 ms at most (hypothesis)', the 100 ms is the configured limit from Default limits, which is tagged (target). Tag it (target) here too, or cite the limit row."
+    }
+  ],
+  "ac_results": [
+    {"ac": "Plugin ABI v1 contains a Host Function table giving each function's signature and the Capability it requires.", "pass": true, "note": "The Host Function table has 25 rows with Parameters, Capability and Valid Phases; the WASI shim table maps its imports to Capabilities."},
+    {"ac": "Runtime contains a default limits table (memory, fuel or instruction budget, wall-clock time per call, instance pool size) with values tagged (target).", "pass": true, "note": "Memory 16 MiB (target), 5 ms (target), fuel 'None' with a 1,000-call budget (target), and pool size N with warm minimum 1 (target) and share 25% (target)."},
+    {"ac": "Hot-swap lifecycle replaces a Plugin without dropping in-flight requests and supports a canary percentage.", "pass": true, "note": "Step 6 'Serve pinned' and step 7 'Retire' drop no requests; the 'Canary percentage' H3 uses Cluster canary.percent and describes a per-request split."},
+    {"ac": "SDK matrix covers at least four languages (from Go/TinyGo, Rust, TypeScript, Python, C#), each with a milestone tag.", "pass": true, "note": "Rust Planned (M2), Go/TinyGo Planned (M2), TypeScript Planned (M3), C# Planned (M4); Python is Not planned with OQ-11."},
+    {"ac": "Capabilities and sandboxing states that Capabilities are deny-by-default.", "pass": true, "note": "L291: 'Capabilities are deny-by-default'."},
+    {"ac": "proxy-wasm stance states the adapter decision and its milestone, Planned (M4), consistent with ADR-0005.", "pass": true, "note": "L548 states that Plugin ABI v1 is the only primary contract and the adapter is Planned (M4), matching pack section 7 for ADR-0005."},
+    {"ac": "Packaging covers OCI references pinned by digest, cosign signatures and the ruralz plugin commands.", "pass": true, "note": "A required @sha256 digest, Sigstore referrers with cosign interoperability as a hypothesis confirmed by a CI test, and a table of the five ruralz plugin commands."},
+    {"ac": "verify-docs.mjs reports no FAIL lines for this document", "pass": true, "note": "Only WARN lines appear, for links to documents not yet written (ADR files, 12-performance, reference, capacity planning)."}
+  ],
+  "foundation_amendments": [
+    "Pack section 8.6: state explicitly that a request the Plugin host refuses before any State Store call (for example at a Plugin parked bound) is a PLG limit, not STS, so feature documents cannot report a healthy State Store as failing."
+  ]
+}

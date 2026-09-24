@@ -1,0 +1,92 @@
+{
+  "lens": "L2 foundation-auditor",
+  "verdict": "revise",
+  "score": 8,
+  "blocking": [
+    {
+      "id": "L2-1",
+      "section": "Principles",
+      "issue": "P9 calls every remote-dependency failureMode default 'overridable' and then lists authentication and authorization as examples. The Configuration Model Policy type registry makes auth.*, authz.* and auth/authz-class plugin Policies 'closed only': setting failureMode: open on them is RZ-CFG-029. So the binding principle contradicts the owning document on a security-relevant default.",
+      "evidence": "L178 (P9): \"Each Policy type with a remote dependency has a documented, overridable default `failureMode`: authentication and authorization fail closed, Rate Limits fail open\"; configuration model Policy registry: \"| `auth.jwt`, `auth.api-key`, `auth.basic`, `auth.mtls` | auth | ... | closed; closed only |\", \"| `authz.cel` | ... | closed; closed only |\"; configuration model: \"Authentication and authorization types ... are `closed` only: `open` there is RZ-CFG-029\".",
+      "fix": "Reword the second sentence of P9 to: \"Each Policy type with a remote dependency has a documented default `failureMode`, overridable only where the [Configuration model](../architecture/02-configuration-model.md#policy) registry allows: authentication and authorization always fail closed, and Rate Limits fail open by default ([ADR-0008](../adr/0008-rate-limiting-local-bucket-and-gcra.md)).\""
+    },
+    {
+      "id": "L2-2",
+      "section": "Principles",
+      "issue": "P6 describes a Gateway-level cap on aggregate Plugin memory per Node, but no such field exists. The Gateway sketch in the Configuration Model lists its limits in full (maxRequestBodyBytes, maxRequestHeaderBytes, maxResponseBodyBytes, maxCompositionSteps, maxBufferedBytes) and says 'A field not shown does not exist; other documents propose new fields through Open questions.' P6 also lists Plugin limits as 'memory pages, execution deadline, host-call quotas'. The Plugin sketch defines only `limits: {memoryBytes, timeout}`, and host-call quotas have no field. Because every document inherits P6, this commits the Configuration Model to fields it does not define.",
+      "evidence": "L175 (P6): \"declared limits (memory pages, execution deadline, host-call quotas); ... A Gateway-level cap bounds aggregate Plugin memory per Node; reaching it refuses new instances and never crashes the Node.\"; configuration model Plugin sketch: \"limits: {memoryBytes: 16Mi, timeout: 5ms}\"; configuration model Gateway sketch `limits` block (no Plugin memory field); configuration model: \"A field not shown does not exist\".",
+      "fix": "Reword P6 to: \"Plugins run in a WASM sandbox with deny-by-default Capabilities and declared limits (`memoryBytes`, `timeout`; further limits are owned by [WASM plugin system](../architecture/05-wasm-plugin-system.md)); within them, a faulty Plugin fails its own Filter, not the Node. A Node-wide cap on aggregate Plugin memory (field: OQ-vision-and-positioning-14) refuses new instances when reached and never crashes the Node.\" Add OQ-vision-and-positioning-14: \"Where is the Node-wide aggregate Plugin memory cap declared?\" | Gateway `limits` field (Configuration model amendment); `RURALZ_*` process setting; fixed default | WASM plugin system owner | No."
+    }
+  ],
+  "non_blocking": [
+    {
+      "section": "Principles",
+      "suggestion": "P3 says remote calls such as a Semantic Cache embedding call are \"declared on the Policy with a timeout and `failureMode`\". The Policy kind defines `failureMode` and `stateStoreTimeout` but no generic timeout. The Configuration Model says `ai.semantic-cache` \"uses the selected AIModel's cache.semantic parameters\", and no field names an embedding `AIProvider`. The Open source and business model bullet about \"a local embedding `AIProvider` such as `ollama`\" has the same gap. Consider: \"... are declared in configuration with a deadline and the Policy's `failureMode` (fields owned by [AI/LLM gateway](../architecture/06-ai-llm-gateway.md))\"."
+    },
+    {
+      "section": "Principles",
+      "suggestion": "P8 says \"`max_tokens` (or a Policy default cap)\". The Configuration Model already defines the cap as `AIModel.spec.limits.maxOutputTokens`, and `ai.token-budget` fixes only `consumerQuota`. Use \"`max_tokens` (or the AIModel's `limits.maxOutputTokens`)\" so the principle does not imply a new Policy field."
+    },
+    {
+      "section": "Principles",
+      "suggestion": "P4 says \"(file and OCI mode need none)\". The System Overview has three deployment modes, and OCI pull is part of file mode, not a separate mode. Write \"(file mode, directory or OCI pull, needs none)\"."
+    },
+    {
+      "section": "Managed cloud",
+      "suggestion": "Exit rule: \"Nodes re-enroll while Last-Known-Good keeps traffic flowing.\" According to P9 and System Overview Figure 5, a detached Node keeps serving its active Revision and boots Last-Known-Good only after a restart. Write \"Nodes re-enroll while they keep serving their active Revision (Last-Known-Good after a restart).\""
+    },
+    {
+      "section": "Positioning versus KrakenD EE and the market",
+      "suggestion": "Differentiator row 4 assigns HTTP/3 \"Planned (M3), provisional pending OQ-system-overview-1\". The System Overview deliberately leaves the milestone open (options M1, M3, M4), and its differentiator table gives HTTP/3 no milestone. Consider \"HTTP/3 per OQ-system-overview-1\" so the vision does not pre-empt the owning document's decision."
+    },
+    {
+      "section": "Open questions",
+      "suggestion": "Owner cells mix formats: 'deployment-topologies' next to 'Security and identity owner', 'CLI and API surface owner', 'AI/LLM gateway owner' and 'Migration from KrakenD owner'. The System Overview uses manifest slugs, so use them here too (security-and-identity, cli-and-api-surface, ai-llm-gateway, migration-from-krakend)."
+    },
+    {
+      "section": "Whole document",
+      "suggestion": "Earlier L2 findings (FIPS build versus single build in P1 and non-goal 8, authz.opa and authz.cedar at M2, IP filtering and GeoIP through OQ-10, secretRef at M1, OpenAPI tooling through OQ-11, ADR-0016 citation and front matter) are all resolved in this revision. All 48 cited URLs appear in the five research files listed for this document. verify-docs reports no findings for this document (outline, front matter, machine checks, citations, milestones, aliases)."
+    }
+  ],
+  "ac_results": [
+    {
+      "ac": "The four differentiators appear verbatim as in foundation pack section 1: WASM plugin system, AI/LLM gateway, built-in control plane + GitOps, multi-protocol native.",
+      "pass": true,
+      "note": "Verbatim in the Positioning statement (L87) and the differentiator table (L93-L96)."
+    },
+    {
+      "ac": "Principles defines P1 through P10, each in two sentences or fewer.",
+      "pass": true,
+      "note": "Table at L170-L179 has two sentences per principle. The form passes, but the content of P9 (L2-1) and P6 (L2-2) conflicts with the Configuration Model."
+    },
+    {
+      "ac": "Product non-goals lists at least five non-goals.",
+      "pass": true,
+      "note": "Eight numbered non-goals (L211-L218)."
+    },
+    {
+      "ac": "Problem and why now cites both 2026 licensing events with URLs from docs/_meta/research/: KrakenD CE 3.0 dropping Go plugins (announced 2026-06-04) and Kong 3.10 removing the free Enterprise mode.",
+      "pass": true,
+      "note": "L37 (KrakenD blog plus PR #1106) and L39 (Kong discussion #14628, with the breaking-changes page disagreement stated). All URLs appear in the research files."
+    },
+    {
+      "ac": "Open source and business model states Apache-2.0 for all components, no feature gating or license keys, and revenue only from Ruralz Cloud and commercial support.",
+      "pass": true,
+      "note": "L185 (all components Apache-2.0), L189-L192 (no license keys or gating) and L196 ('exactly two lines')."
+    },
+    {
+      "ac": "The managed cloud is described only in the Managed cloud section and no other section describes cloud-only hooks.",
+      "pass": true,
+      "note": "Revenue only names Ruralz Cloud and links to Managed cloud. The OQ rows about cloud pricing, launch and CRA status point back to that section. No section describes a cloud-only hook."
+    },
+    {
+      "ac": "Success metrics are measurable and every numeric figure is tagged (target) or (hypothesis).",
+      "pass": true,
+      "note": "SM-1 to SM-15 each have a measurement method and a tagged value. The reference-scenario paragraph (L224) is tagged. The latency rows match the System Overview seed budget (150 µs p50, 1 ms p99, 50 µs WASM Phase call)."
+    }
+  ],
+  "foundation_amendments": [
+    "Section 3 / section 7: record that a Node-wide aggregate Plugin memory cap exists and name where it is configured (a Gateway `limits` field or a `RURALZ_*` setting), so P6 and the WASM plugin system document can cite a canonical field.",
+    "Section 7 (ADR-0008 row) or section 3: state that failureMode is overridable only for non-security Policy types, and that authentication and authorization types are closed only (RZ-CFG-029), matching the Configuration Model registry."
+  ]
+}

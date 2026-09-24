@@ -1,0 +1,111 @@
+{
+  "lens": "L3 acceptance-audience",
+  "verdict": "revise",
+  "score": 8,
+  "blocking": [
+    {
+      "id": "L3-1",
+      "section": "Library catalog",
+      "issue": "This finding carries over from the previous L3 verdict on disk. It is not resolved because docs/_meta/research/ was not amended. Acceptance criterion 1 requires every concern's row to cite a source URL present in docs/_meta/research/. Criterion 2 requires every row to state a license. The docs tooling row (MADR 4.0, markdownlint-cli2, lychee, mermaid-lint) still cites only the style guide and gives no license. A grep of all nine research files finds no URL or license for MADR, markdownlint-cli2, lychee or mermaid. The revision renamed the mermaid-lint item accurately, but its Risk cell now holds review-process commentary instead of a real risk.",
+      "evidence": "Line 84: \"| Docs tooling (not shipped) | MADR 4.0; markdownlint-cli2; lychee; Mermaid syntax check via the mermaid package `parse()` ... | Not yet in research; CI-only, never distributed (OQ-tech-stack-and-libraries-5) | Acceptance criterion 1 open until the research addendum or an amendment lands | ... | [Style guide](../_meta/style-guide.md); no research URL yet (OQ-tech-stack-and-libraries-5) |\". Line 365: OQ-tech-stack-and-libraries-5 \"Yes, for acceptance criterion 1\".",
+      "fix": "The orchestrator adds a research addendum, either a docs-tooling section in go-libraries-protocols.md or a new docs/_meta/research/docs-tooling.md. For MADR, markdownlint-cli2, lychee and mermaid it records the primary repository URL, the latest version and date, and the license. The writer then cites those URLs in the row's Source cell, puts the actual licenses in the License cell, replaces the Risk cell with a real risk (for example lychee rate limits or flaky external URLs), and closes OQ-tech-stack-and-libraries-5. If no research amendment is possible in this cycle, the document can only reach approved-with-escalations, with OQ-tech-stack-and-libraries-5 as the listed escalation. It is already listed as blocking."
+    },
+    {
+      "id": "L3-2",
+      "section": "Library catalog / Dependency hygiene",
+      "issue": "This finding also carries over from the previous L3 verdict and is not resolved, for the same reason: no research amendment. Acceptance criteria 2 and 3 require every chosen library's license to be stated and permissive, with any weak copyleft called out. The Control Store row chooses raft-boltdb/v2, go-msgpack/v2 and bbolt, and still says their licenses are unconfirmed. go-libraries-runtime.md section 6 names these modules and their versions but gives no license for any of them. The revision handles the uncertainty well: provisional MPL-2.0 exception rows, a merge block and a blocking OQ. But a provisional answer cannot pass a criterion that asks for the license.",
+      "evidence": "Line 67: \"hashicorp/raft MPL-2.0 (named exception); others unconfirmed, provisional (OQ-tech-stack-and-libraries-10)\". Lines 303 and 304: \"Unconfirmed; provisional (OQ-tech-stack-and-libraries-10)\". Line 306: \"`go.etcd.io/bbolt` and raft's other transitive modules are unconfirmed too ... OQ-tech-stack-and-libraries-10 stays blocking\".",
+      "fix": "Amend go-libraries-runtime.md section 6 with the LICENSE URLs and license identifiers of github.com/hashicorp/raft-boltdb (v2), github.com/hashicorp/go-msgpack/v2 and go.etcd.io/bbolt. Then set each license in the Control Store row. Keep an MPL-2.0 exception row only for modules that research confirms as MPL-2.0, and delete the other provisional rows and the bbolt caveat. Mark OQ-tech-stack-and-libraries-10 closed for licenses and keep only the postgres driver question open. If research cannot be amended, escalate through OQ-tech-stack-and-libraries-10, as for L3-1."
+    }
+  ],
+  "non_blocking": [
+    {
+      "section": "Whole document",
+      "suggestion": "The body is 3986 words by word_count_rule, against a 4000-word maximum. Fixing L3-1 and L3-2 adds Source and License text, so the fix must also cut words elsewhere. Candidates: shorten the Alternatives not chosen rationale cells, or trim the gRPC proxying bullets."
+    },
+    {
+      "section": "Library catalog / Dependency graph",
+      "suggestion": "The foundation pack lists `ruralz control serve|join|backup|restore` as CLI commands, but Figure 2 does not link hashicorp/raft or rueidis from `cmd/ruralz`. State whether `ruralz control serve` launches `ruralz-control` (as `ruralz dev run` launches `ruralzd`) or embeds it. If it embeds it, add the edge `cli --> raft`. Also say whether `ruralz ai cost|models` links the tokenizer."
+    },
+    {
+      "section": "Library catalog",
+      "suggestion": "The Semantic Cache row says \"on the same State Store deployment, via a separate rueidis client with dedicated connections\", but foundation section 7 says \"over the same State Store connection\". This is tracked in OQ-tech-stack-and-libraries-7 and proposed below as a foundation amendment. Until the amendment lands, add \"(proposed foundation amendment, OQ-tech-stack-and-libraries-7)\" to the row so architects do not read it as settled."
+    },
+    {
+      "section": "Library catalog / Control Store transport",
+      "suggestion": "The proposed Raft peer port 8092 is recorded only in prose. Add it to the Open questions table, either as its own OQ or by extending OQ-tech-stack-and-libraries-10 or OQ-system-overview-7 by reference, so owners of the reference and operations documents can find it."
+    }
+  ],
+  "ac_results": [
+    {
+      "ac": "Library catalog has a row, with a source URL present in docs/_meta/research/, for every concern: WASM runtime (wazero), Plugin PDK conventions (Extism-style), HTTP/1.1 and HTTP/2 (net/http, x/net/http2), HTTP/3 (quic-go), gRPC ingress (connectrpc.com/connect) and upstream (grpc-go), telemetry (go.opentelemetry.io/otel with slog bridge), Control Stream (own gRPC with xDS-style ACK/NACK, not go-control-plane), Control Store (hashicorp/raft with BoltDB), State Store client (redis/rueidis), Semantic Cache (Redis 8 Vector Sets or valkey-search), GraphQL (wundergraph/graphql-go-tools v2), Kafka (twmb/franz-go), NATS (nats.go/jetstream), MQTT (eclipse-paho/paho.golang and mochi-mqtt), JOSE and OIDC (lestrrat-go/jwx/v4, coreos/go-oidc/v3), expressions (google/cel-go), authorization (OPA v1 Rego, cedar-go), tokenizer (tiktoken-go/tokenizer, estimates only), rate limiting (GCRA in Redis Lua plus local token bucket), and docs tooling (MADR 4.0, markdownlint-cli2, lychee, mermaid-lint).",
+      "pass": false,
+      "note": "Every concern has a row. A script confirmed that all 86 distinct URLs in the document appear in go-libraries-runtime.md or go-libraries-protocols.md. The docs tooling row has no research URL (L3-1)."
+    },
+    {
+      "ac": "Each Library catalog row gives the chosen library, alternatives, rationale, license, risk and the ADR it links to where one exists.",
+      "pass": false,
+      "note": "All 28 rows fill every column, and the ADR links match the manifest adrs[] paths. Two License cells give no license: docs tooling (\"Not yet in research\") and Control Store (\"others unconfirmed, provisional\") (L3-1, L3-2)."
+    },
+    {
+      "ac": "Every chosen library license is permissive and compatible with Apache-2.0 distribution; any weak-copyleft license (for example MPL-2.0) is called out with its risk and rationale.",
+      "pass": false,
+      "note": "The document calls out hashicorp/raft's MPL-2.0 with its obligations. It records the EDL-1.0 election for paho.golang and marks the Redis 8 server licenses as external. The licenses of raft-boltdb/v2, go-msgpack/v2, bbolt and the docs tooling remain unverified, so the criterion cannot be confirmed (L3-2)."
+    },
+    {
+      "ac": "The CGO_ENABLED=0 stance is consistent with wazero (pure Go, no CGO) and FIPS builds use GOFIPS140.",
+      "pass": true,
+      "note": "Static builds cites wazero's README for pure Go and rejects wasmtime-go for CGO. The new CGO column separates Verified from Pending CI, which removes the earlier overclaim. The FIPS build section uses GOFIPS140=v1.0.0 with fips140=on, tagged Planned (M5)."
+    },
+    {
+      "ac": "The minimum Go version is 1.26.",
+      "pass": true,
+      "note": "Version floor: \"The minimum Go version is 1.26 ... `go 1.26.0`\". The document gives the jsonv2 handling for the 1.26 floor job and describes GOTOOLCHAIN=auto versus local behavior correctly. OQ-tech-stack-and-libraries-4 is closed."
+    },
+    {
+      "ac": "[structure] H2 outline matches outline_h2 exactly and in order, wrapped by Summary and Scope and non-goals first and Open questions last",
+      "pass": true,
+      "note": "The H2s, in order: Summary, Scope and non-goals, Selection criteria, Library catalog, Go toolchain, static builds and FIPS, Dependency hygiene, Alternatives not chosen, Open questions. The verify-docs outline check passes."
+    },
+    {
+      "ac": "[structure] Required flowchart: dependency graph from cmd/ruralzd, cmd/ruralz-control and cmd/ruralz to the chosen libraries, with italic caption",
+      "pass": true,
+      "note": "The graph is split into Figure 1 (ruralzd, 22 nodes, now including coder/websocket) and Figure 2 (ruralz-control and ruralz, 15 nodes). Both have italic captions and stay within the 25-node limit, and the Mermaid check passes. Figure 3 (Admission) is an extra diagram."
+    },
+    {
+      "ac": "[structure] Length band 1500 to 4000 words; Summary 120 words or fewer",
+      "pass": true,
+      "note": "The body is 3986 words under word_count_rule, which is at the edge of the band (see non_blocking). The Summary is 102 words."
+    },
+    {
+      "ac": "[numbers] Every performance or scale figure carries (target) or (hypothesis) or a same-line measurement URL",
+      "pass": true,
+      "note": "10 to 20x, 4 GiB, 128 MiB, about 4 MB, 2 to 14%, ten times slower and 10 ms each have a same-line research URL. The 160 MiB and 96 MiB budgets are tagged (target). The verify-docs numbers check reports nothing."
+    },
+    {
+      "ac": "[machine_checks] required_terms (26), min_table_rows 18 and no_blank_cells in Library catalog; doc-level required_terms",
+      "pass": true,
+      "note": "All machine and doc-level terms are present. The catalog has 28 data rows and no blank cells. verify-docs --allow-missing reports only warnings for links to manifest documents that do not exist yet."
+    },
+    {
+      "ac": "[style] Planned (Mx) tags only, no Supported, no placeholders, no em dashes, canonical names",
+      "pass": true,
+      "note": "The document has 0 occurrences of Supported, 0 em dashes and no TODO or TBD. The HTTP/3 and postgres rows now carry Planned tags with the deciding OQ. The Summary's claim that every item is tagged now holds."
+    },
+    {
+      "ac": "[audience] Contributors and architects can act without reading the sources",
+      "pass": true,
+      "note": "The previous L3-3 is resolved. The new Concerns not yet selected table gives a milestone, a consumer and a blocking OQ for YAML, JSON Schema, protobuf, ULID, /metrics, SigV4, CLI, SAML and postgres. The Summary now says \"selected so far\". The gRPC proxying and Control Store transport subsections give actionable designs. The only remaining gaps are the license and citation items in L3-1 and L3-2."
+    }
+  ],
+  "foundation_amendments": [
+    "Section 7 WASM runtime: record the repository as github.com/wazero/wazero and the Go module path as github.com/tetratelabs/wazero (OQ-tech-stack-and-libraries-1).",
+    "Section 7 HTTP stack (ADR-0009): reword to \"net/http (HTTP/1.1, HTTP/2, h2c) + quic-go for HTTP/3; golang.org/x/net/http2 only for non-deprecated low-level APIs\" (OQ-tech-stack-and-libraries-2).",
+    "Section 7 Expressions (ADR-0011) and the manifest acceptance text for this doc: the cel-go import path is cel.dev/cel-go, and google/cel-go is a read-only alias (OQ-tech-stack-and-libraries-3).",
+    "Section 7 Control Store (ADR-0006): name the log store as hashicorp/raft-boltdb/v2 (>= v2.4.2) on go.etcd.io/bbolt, and list every MPL-2.0 module admitted as a named exception once research confirms the licenses (OQ-tech-stack-and-libraries-10).",
+    "Section 2 default ports: add a Raft peer port for ruralz-control (proposed 8092, mutual TLS, Ruralz Control peer authority only), or record ALPN multiplexing on 8091 (Control Store transport; OQ-system-overview-7).",
+    "Section 7 Semantic cache: change \"over the same State Store connection\" to \"on the same State Store deployment with dedicated connections\", so vector search never shares auto-pipelined connections with rate-limit scripts (OQ-tech-stack-and-libraries-7).",
+    "Section 7 Control Stream (ADR-0007): record the library choice as connectrpc.com/connect in gRPC mode on both ends, with protos gated by buf breaking.",
+    "Research amendment (not the foundation pack itself): add primary URLs, versions and licenses for MADR 4.0, markdownlint-cli2, lychee and mermaid, and LICENSE facts for raft-boltdb/v2, go-msgpack/v2 and bbolt. These are needed to close L3-1 and L3-2."
+  ]
+}

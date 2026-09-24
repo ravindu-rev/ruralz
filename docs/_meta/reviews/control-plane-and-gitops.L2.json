@@ -1,0 +1,63 @@
+{
+  "lens": "L2 foundation-auditor",
+  "verdict": "revise",
+  "score": 7,
+  "blocking": [
+    {
+      "id": "L2-1",
+      "section": "Whole document (length_words machine check)",
+      "issue": "The body is over the manifest length band. The verifier reports a FAIL, and every FAIL line is blocking. The revisions that fixed the earlier L2 items pushed the document about 630 words over the 5000-word maximum.",
+      "evidence": "verify-docs output: \"FAIL machine-checks docs/architecture/04-control-plane-and-gitops.md:0 [length_words] body has 5626 words; the manifest band is 2500 to 5000\"",
+      "fix": "Cut at least 650 words and keep every OQ ID and pack-amendment sentence that resolved the earlier items. Candidate cuts: (1) Audit and security: the 16-row threat table repeats the threat model that Scope and non-goals assigns to Security and identity. Keep only the control-plane-specific rows (Enrollment token, online key, relay, stale restore, compromised Ruralz Control) and link the rest. (2) Revision signing and verification: shorten the Rotation row to its three step names and move the detail to ADR-0017 through OQ-control-plane-and-gitops-24. (3) Control Store and high availability: fold the Certificates table into three sentences. Shorten Backup, restore and `postgres` to its rules. (4) RBAC and SSO: shorten the local-account paragraph (L479). (5) Components / Replica roles: merge items 2 and 3."
+    },
+    {
+      "id": "L2-2",
+      "section": "Ruralz Console / RBAC and SSO; Bundle, Revision and Rollout lifecycle / Revision signing and verification; Open questions",
+      "issue": "Four cross-references point to Open questions in Security and identity that ask something unrelated. OQ-security-and-identity-7 asks 'Which settings hold admin credentials?' (the RURALZ_ADMIN_* settings), not Console SSO. OQ-security-and-identity-8 asks 'Where do file-mode trust policies live?', not where the online and trust-root keys are held. It also does not cover the Control-mode Plugin trust policy that Ruralz Control sends in anchor sets. The note retiring OQ-control-plane-and-gitops-11 into OQ-security-and-identity-7 therefore describes a merge that does not exist.",
+      "evidence": "L479: \"OIDC and SAML SSO is Planned (M5), per TB-6 (OQ-tech-stack-and-libraries-19, OQ-security-and-identity-7)\". L619: \"OQ-control-plane-and-gitops-11 (earlier OIDC) is retired into OQ-security-and-identity-7.\" L602: \"Where are the online and trust-root keys held (also OQ-security-and-identity-8)?\" L247: \"Without a Plugin trust policy from process configuration (OQ-security-and-identity-8), signed-Plugin activation fails under `enforce`\". Security and identity L534: \"| OQ-security-and-identity-7 | Which settings hold admin credentials? |\"; L535: \"| OQ-security-and-identity-8 | Where do file-mode trust policies live? |\".",
+      "fix": "L479: cite only OQ-tech-stack-and-libraries-19. Security and identity L450 already states that OIDC and SAML SSO for Ruralz Console is Planned (M5). L619: restore OQ-control-plane-and-gitops-11, or state that it is retired because Security and identity settles SSO as Planned (M5), and name no OQ. L602: drop '(also OQ-security-and-identity-8)'. L247: state that the Control-mode Plugin trust policy comes from Ruralz Control's configuration (pack section 8.14) and cite OQ-control-plane-and-gitops-1, after adding the Plugin trust policy to its list."
+    }
+  ],
+  "non_blocking": [
+    {
+      "section": "GitOps model / Change detection and pull request validation; Open questions",
+      "suggestion": "Every earlier L2 item is resolved: 8091 token Enroll, HMAC webhooks with an API route, 8092 classes including token Join and relay, Heartbeat schemaLevels, OQ-control-plane-and-gitops-13, the pack Drift definition with /config/dump, the FIPS claim deferred to the G3 check, and OQ-control-plane-and-gitops-22 widened. Some settings still come from 'process configuration' without an OQ entry: the key-encryption key (L244), the backup encryption and signing key (L523), and the per-Environment switch implied by 'Push is per-Environment, off by default' (L186). Add them to OQ-control-plane-and-gitops-1, so that no knob stays undeclared under style guide section 5."
+    },
+    {
+      "section": "API summary",
+      "suggestion": "L529 says 'Requests carry a session cookie or API token', but the `/api/v1/hooks/git` row authenticates with a per-source HMAC. Add 'except webhooks, which carry a per-source HMAC'."
+    },
+    {
+      "section": "Components / Replica roles",
+      "suggestion": "L118 places '(OQ-control-plane-and-gitops-15)' right after the throughput target '64 MiB/s per peer (target)'. OQ-15 concerns the pack 8.4 amendment for 8092, not throughput. Move the citation to the end of the class list."
+    },
+    {
+      "section": "Drift detection",
+      "suggestion": "Local tampering is reported as a `Nack` RZ-CFG-027, but a `Nack` carries the `nonce` of a configuration message, and a periodic re-hash has none. Say which nonce it uses (for example, the last accepted nonce), or report tampering through a `Heartbeat` field."
+    },
+    {
+      "section": "Audit and security; Open questions",
+      "suggestion": "Sibling divergence to settle at conformance. Security and identity L472 answers OQ-control-plane-and-gitops-9 with option (b), verifying commit signatures where approvals depend on authorship, but this document still lists '(a) No (current)'. Security and identity L109 maps the OQ-14 crossings to TB-5, TB-7, TB-8 and TB-13, while this document also maps token replica join to TB-11."
+    }
+  ],
+  "ac_results": [
+    {"ac": "The document states explicitly that Nodes keep serving their active Revision during a Ruralz Control outage and boot Last-Known-Good configuration after a restart, and lists what is unavailable during the outage.", "pass": true, "note": "Summary and 'Behavior during a Ruralz Control outage' (L40-L52) state both behaviors and give a 7-row table of what is unavailable, consistent with pack 8.2 and 8.5."},
+    {"ac": "Rolling back a Rollout takes three steps or fewer, shown as ruralz commands or Ruralz Console actions.", "pass": true, "note": "'Rolling back in three steps' gives three commands (status, `ruralz rollout rollback`, status) and three Ruralz Console actions."},
+    {"ac": "Control Stream contains a message table giving each message, its direction, key fields and ACK/NACK semantics, and covers enrollment, mTLS, snapshot plus delta, heartbeat and backpressure.", "pass": true, "note": "The 14-message table has all four columns. Subsections cover Enrollment and mTLS, Snapshot, delta and version skew, and Heartbeat and backpressure. Heartbeat now carries schemaLevels, per pack 8.4."},
+    {"ac": "Ruralz Console lists at least eight screens in a table, with RBAC and SSO behavior.", "pass": true, "note": "12 screens with View and Act roles. The RBAC and SSO subsection covers roles, separation of duties, local accounts and TOTP, and SSO as Planned (M5). The SSO line cites the wrong OQ (L2-2)."},
+    {"ac": "Drift detection defines the reconciliation policy (what is detected, how it is reported, and when it is reverted or alerted).", "pass": true, "note": "The pack section 11 definition is quoted verbatim. The table gives detection, reporting and reconciliation per Drift kind. Related conditions are separated, and the /config/dump comparison is explained."},
+    {"ac": "Bundle, Revision and Rollout lifecycle describes Revision signing by Ruralz Control and signature verification by Nodes, consistent with ADR-0017.", "pass": true, "note": "The signing table covers signed content, keys, algorithm, Node verification (RZ-CFG-033), anchor sets and rotation, consistent with pack 8.14. The re-signing and emergency-removal boot extensions are proposed to ADR-0017 through OQ-control-plane-and-gitops-24."},
+    {"ac": "Rollout states match the foundation pack exactly: pending, canary, progressing, paused, complete, rolled-back, failed.", "pass": true, "note": "All seven states match in name and meaning. The missing pack 8.3 transitions to `failed` are raised in OQ-control-plane-and-gitops-15."},
+    {"ac": "GitOps model covers repository layout, branch-to-Environment mapping, pull request validation and Ruralz Console write-back.", "pass": true, "note": "Four subsections cover these. The Environment and Cluster examples use only Configuration model fields."},
+    {"ac": "machine_checks: length_words 2500-5000", "pass": false, "note": "The verifier reports 5626 body words (L2-1)."},
+    {"ac": "machine_checks: required_terms, has_table (Control Stream), min_table_rows (Ruralz Console >= 8)", "pass": true, "note": "The verifier reports no FAIL for these checks. Its only other output is WARN lines for broken links to documents not written yet."},
+    {"ac": "H2 outline equals Summary, Scope and non-goals + outline_h2 + Open questions, in order", "pass": true, "note": "The H2 headings match exactly and in order."}
+  ],
+  "foundation_amendments": [
+    "Pack section 8.4, 8091 row and System overview TB-5: add 'the listener requests but does not require a client certificate; unary Enroll is authenticated by a one-time Enrollment token over a pinned server CA' (OQ-control-plane-and-gitops-14).",
+    "Pack section 8.4, 8090 row and TB-6: add per-source HMAC-authenticated, rate-limited forge webhooks at /api/v1/hooks/git (OQ-control-plane-and-gitops-14).",
+    "Pack section 8.4, 8092 row, TB-11 and TB-13: '8092: Raft peer transport, leader write forwarding, status forwarding and Revision content replication, a token-authenticated Join pinned to the peer CA, and relay traffic by certificate role, over one Ruralz mTLS stream layer' (OQ-control-plane-and-gitops-15).",
+    "Pack section 8.3: add `failed` as a Next state of `canary`, `progressing` and `paused` when a revert cannot finish (OQ-control-plane-and-gitops-15).",
+    "Pack section 2 Control Store row and section 11 glossary: 'with `postgres`, Revision content and audit segments are also stored in PostgreSQL' (OQ-control-plane-and-gitops-22)."
+  ]
+}
