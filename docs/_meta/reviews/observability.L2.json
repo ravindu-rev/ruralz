@@ -1,129 +1,78 @@
 {
   "lens": "L2",
   "verdict": "revise",
-  "score": 7,
+  "score": 8,
   "blocking": [
     {
       "id": "L2-1",
-      "section": "Scope and non-goals; Metrics catalog",
-      "issue": "The document cites an Open question under the wrong ID and misstates what it asks. OQ-wasm-plugin-system-12 asks only whether pack section 12 and the tech stack's Protobuf runtime row should drop the `ruralz.plugin.v1` proto package. Its owner is tech-stack-and-libraries, and it has no metric half for Observability to answer. The metric names are proposed in the Observability section of WASM plugin system, which no longer mentions `ruralz_plugin_signature_verification_disabled`.",
-      "evidence": "Line 28: \"It answers OQ-ai-llm-gateway-11, OQ-control-plane-and-gitops-12 and the metric half of OQ-wasm-plugin-system-12 (the proto package half stays open)\". Line 210: \"For OQ-wasm-plugin-system-12 this catalog accepts `ruralz_plugin_guest_events_total` (guest names are label values) and reason `plugin_pool_degraded`, and replaces `ruralz_plugin_signature_verification_disabled` with reason `plugin_signature_off`.\" docs/architecture/05-wasm-plugin-system.md line 575: \"| OQ-wasm-plugin-system-12 | Should pack section 12 and the tech stack's Protobuf runtime row drop the `ruralz.plugin.v1` proto package, since Plugin ABI v1 passes no protobuf messages? | ... | tech-stack-and-libraries |\".",
-      "fix": "Line 28: delete \"and the metric half of OQ-wasm-plugin-system-12 (the proto package half stays open)\". Line 210: replace the sentence with \"This catalog accepts the Plugin names proposed in [WASM plugin system](05-wasm-plugin-system.md#observability), including `ruralz_plugin_guest_events_total` (guest names are label values), and the reasons `plugin_pool_degraded` and `plugin_signature_off`.\""
-    },
-    {
-      "id": "L2-2",
-      "section": "Observability principles (Telemetry pipeline)",
-      "issue": "The document adds a rule that contradicts System overview TB-12, which requires TLS for Nodes and Ruralz Control to the OpenTelemetry collector and has no same-host exception. The normative example then uses a plaintext endpoint. The TB-12 reword is already OQ-security-and-identity-29, owned by system-overview, and this document neither cites it nor defers to it.",
-      "evidence": "Line 51: \"OTLP across TB-12 MUST use TLS ([System overview](01-system-overview.md)); plaintext to a same-host or same-Pod Collector is allowed and counts as a cleartext `telemetry` hop.\" Line 111: \"endpoint: ${OTEL_EXPORTER_OTLP_ENDPOINT:-http://127.0.0.1:4317}   # same-Pod Collector, reported as a cleartext hop\". docs/architecture/01-system-overview.md line 491: \"| TB-12 | Nodes and Ruralz Control to OpenTelemetry collector | TLS; no secrets in telemetry | Drop on failure |\". docs/architecture/08-security-and-identity.md line 555: OQ-security-and-identity-29, owner system-overview.",
-      "fix": "Replace the second clause of line 51 with: \"Until OQ-security-and-identity-29 rewords TB-12, a cleartext endpoint, same-host included, breaks TB-12: the Node still exports, reports a cleartext `telemetry` hop and raises `cleartext_hop`.\" Change the YAML default to an `https://` endpoint, or keep `http://` with the comment \"# cleartext: violates TB-12, reported as a degraded state\". Point OQ-observability-2 at OQ-security-and-identity-29 and give it the owner system-overview for the TB-12 half."
-    },
-    {
-      "id": "L2-3",
-      "section": "Control plane observability; Observability principles (O2)",
-      "issue": "The audit export crosses TB-12 as OTLP logs to the Collector, but it is specified to lag and never drop. System overview gives TB-12 the failure behavior \"Drop on failure\". The document states the exception as settled and opens no Open question to amend TB-12.",
-      "evidence": "Line 37 (O2): \"only the audit export, off the request path, lags instead\". Line 80: `aud -.->|\"OTLP logs\"| col`. Line 525: \"Failures retry, so export lags and never drops; a new leader resumes from the mark, so delivery is at least once\". docs/architecture/01-system-overview.md line 491: \"| TB-12 | ... | Drop on failure |\".",
-      "fix": "Add OQ-observability-19: \"Should System overview TB-12 distinguish droppable telemetry from the audit export, which retries from the Control Store and never drops?\" Options: (a) amend TB-12's failure column to \"Drop on failure; audit export lags\" (proposed); (b) send the audit export over a separate boundary. Owner system-overview; blocking for Planned (M2). Cite it at lines 37 and 525."
-    },
-    {
-      "id": "L2-4",
-      "section": "Grafana dashboards and SLOs (SLO definitions)",
-      "issue": "SLO-GW-4 claims a tie to SM-6, but the two measure different things. SM-6 in Vision and positioning is the WASM Plugin Phase call overhead from a per-Phase microbenchmark. The SLI of SLO-GW-4 is `ruralz_plugin_call_duration_seconds`, which the catalog defines as the whole Plugin call, guest work included. Configuration model Plugins may run up to their `limits.timeout` (5 ms for `geo-block`), so the SLO would page on correct Plugins. The Performance Budget for SM-6 also cannot be \"the lab ceiling on the same metric\" (line 410).",
-      "evidence": "Line 417: \"| SLO-GW-4 | `ruralz_plugin_call_duration_seconds` bucket `le=\\\"0.00005\\\"` / `_count` | 99% (target) | 30 days | SM-6 (50 µs p99, target) |\". Line 178: \"`ruralz_plugin_call_duration_seconds` | Histogram, fast | seconds | `policy`, `phase` | SLI of SLO-GW-4\". Vision SM-6: \"WASM Plugin Phase call overhead, pooled instance, deadline interruption enabled, p99 | Per-Phase microbenchmark in CI | 50 µs or less (target)\". Configuration model `geo-block`: \"limits: {memoryBytes: 16Mi, timeout: 5ms}\".",
-      "fix": "Either (a) define the SLI as host overhead, for example a new `ruralz_plugin_call_overhead_seconds` (Histogram, fast; `policy`, `phase`) measured as the call time minus the time spent in guest code, and point SLO-GW-4 and SM-6 at it; or (b) keep `ruralz_plugin_call_duration_seconds`, drop the SM-6 tie, and set the objective per Plugin against its `limits.timeout`, proposed here."
-    },
-    {
-      "id": "L2-5",
-      "section": "Cardinality and overhead budgets (Overhead per signal)",
-      "issue": "Acceptance criterion 2 requires a per-signal overhead budget tagged (target). The CPU budgets for Metrics and Access log, the Metrics memory budget, the Access log allocation budget and the all-telemetry memory are tagged (hypothesis). These are estimates, not committed ceilings, so the two costliest signals have no (target) CPU budget.",
-      "evidence": "Line 535: \"| Metrics | 2 µs or less for 40 operations (hypothesis) | 0 (target) | 24 MiB or less at the series cap (hypothesis) |\". Line 538: \"| Access log, logged request | 2 µs or less at p99, `when` included (hypothesis) | 8 or fewer until a cel-go benchmark (hypothesis) | ...\". Line 542: \"| All telemetry at defaults | ... | 40 MiB or less (hypothesis) |\". Manifest acceptance: \"Cardinality and overhead budgets gives a per-signal overhead budget tagged (target).\"",
-      "fix": "Tag every budget cell (target): for example \"2 µs or less for 40 operations (target)\", \"2 µs or less at p99 (target)\", \"8 or fewer (target)\", \"24 MiB or less (target)\" and \"40 MiB or less (target)\". Move the supporting estimates (about 15 and 40 metric operations, 120 and 700 bytes per series) into the prose as (hypothesis), with the M1 benchmark that confirms or revises each target."
+      "section": "Metrics catalog (Ruralz Gateway metrics, Degraded states)",
+      "issue": "Regression from the previous L2-1 fix. The document now says it accepts every name and reason that other documents propose, but its catalog and Degraded states table leave out five of them. O3 fixes the `reason` set, and CI fails any panel that uses an unlisted metric, so these sibling signals can never be emitted or charted. The rename note also cites a name Traffic management and resilience no longer uses.",
+      "evidence": "Line 134: \"Other documents' proposed names are accepted, renaming [Traffic management and resilience](09-traffic-management-and-resilience.md)'s `ruralz_upstream_endpoint_ejections_total` to `ruralz_upstream_ejections_total`.\" Line 203: \"[WASM plugin system](05-wasm-plugin-system.md#observability)'s proposed names and reasons are accepted\". Line 36 (O3): \"`ruralz_node_degraded_info` with a fixed `reason`\". Line 375: \"CI fails on a panel using an unlisted metric\". Missing from the catalog and the Degraded states table: 05-wasm-plugin-system.md line 97: \"reports `ruralz_node_degraded_info{reason=\\\"plugin_parked_bound_low\\\"}` (proposed to [Observability](10-observability.md))\"; 09-traffic-management-and-resilience.md: \"skipped probes count in `ruralz_upstream_probes_skipped_total` and, above 10% for 1 minute, raise degraded reason `probes_skipped` (target), both proposed to Observability\" and \"falls back to weighted `random` with degraded reason `balancer_budget`, proposed to [Observability](10-observability.md)\"; 07-multi-protocol.md line 456: \"(`ruralz_ingress_hold_expiries_total`, proposed)\". `ruralz_upstream_endpoint_ejections_total` appears in no file under docs/architecture other than this one.",
+      "fix": "(1) Line 134: replace the second sentence with \"Names and reasons other documents propose are accepted as listed below.\" (2) Add catalog rows: \"| `ruralz_upstream_probes_skipped_total` | Counter | probes | `upstream` | Active health probes skipped for lack of probe slots |\" (Planned (M1)) and \"| `ruralz_ingress_hold_expiries_total` | Counter | holds | `route`, `protocol` | Backpressure holds that ended so `AckWait` redelivers |\", adding the latter to the Planned (M4) list in line 134. (3) Add Degraded states rows: \"| `plugin_parked_bound_low` | A `state.*` Plugin pool's guaranteed parked bound is below 16 (target); Planned (M2) |\", \"| `probes_skipped` | More than 10% of active probes skipped for 1 minute (target) |\" and \"| `balancer_budget` | An Upstream fell back to weighted `random` at the 256 MiB balancer budget (target) |\", and add `balancer_budget` to the `ruralz_upstream_degraded_info` values on line 168. (4) Recompute the \"other and fixed families\" row of the cardinality table if the new series change it. About 110 words; the body is about 6,170 prose words against a 6,500 maximum."
     }
   ],
   "non_blocking": [
     {
-      "section": "Grafana dashboards and SLOs (Alert rules)",
-      "suggestion": "Line 457: \"10 s (target), about one election timeout (hypothesis)\" disagrees with Control plane and GitOps, which cites hashicorp/raft's 1000 ms default election timeout. Write \"10 s (target), about ten default election timeouts\", or derive the threshold from the configured election timeout."
-    },
-    {
-      "section": "Control plane observability",
-      "suggestion": "Line 498: \"nothing scrapes Nodes\" contradicts Figure 1 and pack section 8.4, where a Prometheus-compatible scraper reads `/metrics` on 9901. Write \"Ruralz Control never scrapes Nodes\"."
-    },
-    {
-      "section": "Metrics catalog",
-      "suggestion": "Line 208 limits `kind` on `ruralz_state_writes_dropped_total` to single-operation names, but Traffic management and resilience (line 365) proposes kind `cache_invalidate`. Accept it or reject it explicitly. Security and identity (line 113) also proposes a degraded reason for State Store URLs without credentials, which the Degraded states table does not list."
-    },
-    {
-      "section": "Metrics catalog",
-      "suggestion": "Line 136 says Multi-protocol's `ruralz_ingress_paused` and Traffic management's `ruralz_upstream_endpoint_ejections_total` are renamed. Multi-protocol already uses `ruralz_ingress_paused_partitions`, so drop that rename note. Traffic management still uses the old ejection name, so keep that one and have it resolved at conformance."
-    },
-    {
-      "section": "Observability principles; Open questions",
-      "suggestion": "Option (c) \"Ruralz encoders\" of OQ-observability-16 would bypass the OpenTelemetry SDK for metrics, against pack section 7 and ADR-0010 (\"OpenTelemetry-first (traces, metrics)\"). Mark it \"needs an ADR-0010 amendment\". OQ-tech-stack-and-libraries-16 names Observability as its owner, so the recommendation on line 45 should pick one of its listed options (OTel Prometheus exporter or Prometheus client) or say why neither fits."
-    },
-    {
-      "section": "AI observability (AI metrics)",
-      "suggestion": "Line 365 says \"Histograms drop `route`; counters keep it\", but `ruralz_ai_unpriced_requests_total`, `ruralz_ai_cache_markers_dropped_total`, `ruralz_ai_fallbacks_total`, `ruralz_ai_settlements_total` and `ruralz_ai_usage_missing_total` are counters without `route`. Reword the rule to match the table."
-    },
-    {
-      "section": "Tracing (Span model, Figure 2)",
-      "suggestion": "In the Configuration model, `headers-security` sets only response headers and `headers-internal` only request headers, yet Figure 2 draws `headers-security, onRequestHeaders` and two `headers-internal, onUpstreamResponseHeaders` spans. State whether a Phase with no operations still makes a call, or drop those three spans and recompute the figure of about 18 spans per trace and the budgets that depend on it. Listing the children in pack 8.12 Filter class order (cors, auth, authz, admission, transform) would also stop readers inferring a wrong order."
-    },
-    {
-      "section": "Cardinality and overhead budgets; Control plane observability",
-      "suggestion": "Lowercase 'quota' (lines 498, 548 and 558, 'at quota') collides with the glossary term Quota, a Consumer allowance. Write 'series quota' or 'admission limit'."
-    },
-    {
-      "section": "Control plane observability",
-      "suggestion": "Line 525: \"(at most once per second, target)\" does not use the literal tag the style guide requires. Write \"at most once per second (target)\"."
-    },
-    {
-      "section": "Metrics catalog",
-      "suggestion": "`ruralz_listener_tls_handshake_duration_seconds` says \"TLS or QUIC handshake\" in a Planned (M1) row, but QUIC is Planned (M3). Add \"QUIC from Planned (M3)\". `ruralz_snapshot_retirement_ended_total` uses component `snapshot` while its sibling uses `ruralz_config_retired_snapshots`; consider `ruralz_config_snapshot_retirements_ended_total`."
-    },
-    {
-      "section": "Front matter / manifest",
-      "suggestion": "The manifest entry has `research: []`, yet the document cites URLs from docs/_meta/research/ai-gateways.md (gen_ai) and go-libraries-runtime.md (OpenTelemetry Go). Every cited URL appears in those files and agrees with them, but the manifest entry should list both files."
-    },
-    {
       "section": "Metrics catalog (Degraded states)",
-      "suggestion": "`node_count_unknown` is Planned (M1), but derived per-Node ceilings need the Node count Ruralz Control publishes (Planned (M2)). Under pack 8.8, a file-mode Node with no declared ceiling uses the full limit, which is not a degraded state. Tag it Planned (M2), or say what raises it in M1."
+      "suggestion": "Line 222: \"`state_store_unauthenticated` | The resolved `stateStore.url` carries no credentials\" reads as if any credential-less State Store is accepted and only reported. System overview TB-4 requires \"TLS and authentication\", and Security and identity line 117 says \"a Node rejects a non-loopback State Store URL without credentials (code: OQ-security-and-identity-30)\". Write \"A loopback `stateStore.url` carries no credentials; a non-loopback one is rejected ([Security and identity](08-security-and-identity.md), OQ-security-and-identity-30)\"."
+    },
+    {
+      "section": "Metrics catalog; Grafana dashboards and SLOs (SLO-GW-4)",
+      "suggestion": "Line 203 defines `ruralz_plugin_call_overhead_seconds` as \"instance checkout to guest entry and guest return to call end\". SM-6 measures a \"pooled instance\", and pool wait has its own histogram, `ruralz_plugin_pool_wait_seconds`. State that checkout time excludes the wait for a free instance. Otherwise SLO-GW-4 burns during pool contention, which SM-6 does not measure."
+    },
+    {
+      "section": "Observability principles",
+      "suggestion": "Line 43: \"For OQ-tech-stack-and-libraries-16 this document recommends one `/metrics` exporter reading the OTLP aggregates\". The Open question lists two options: the OTel Prometheus exporter and the Prometheus client. Name the option being recommended, or say that neither fits Ruralz-owned aggregates and add it as a third option. Name no library until the tech stack document adds a catalog row (pack section 7, Pending selections)."
+    },
+    {
+      "section": "Metrics catalog",
+      "suggestion": "Security and identity line 409 refers to \"per-cause refusal counters proposed to Observability\" for the credential hash queue but names none. Say that `ruralz_auth_decisions_total{result=\"deny\", code}` carries them, or add a named counter, so the two documents agree."
+    },
+    {
+      "section": "Open questions",
+      "suggestion": "OQ-observability-2, Blocking column: \"Yes, for TLS export (M1)\". Use the milestone tag form, \"Yes, for TLS export, Planned (M1)\", to match OQ-observability-19."
+    },
+    {
+      "section": "Front matter",
+      "suggestion": "`last_updated: 2026-09-23` predates this revision. Set it to the revision date."
     }
   ],
   "ac_results": [
     {
       "ac": "Metrics catalog lists at least 25 metrics named ruralz_<component>_<name>_<unit>, each with type, labels and unit.",
       "pass": true,
-      "note": "The Ruralz Gateway table lists about 60 metrics, AI metrics adds 18 and Control plane observability adds 20. Every row has type, unit and labels, and the verifier's min_table_rows and min_distinct_matches checks pass."
+      "note": "The Ruralz Gateway table has more than 60 rows, each with Type, Unit and Labels columns, and AI metrics and Control plane observability add 35 more. Five sibling proposals are missing (L2-1), but the criterion itself is met."
     },
     {
       "ac": "Cardinality and overhead budgets gives a per-signal overhead budget tagged (target).",
-      "pass": false,
-      "note": "The Metrics CPU and memory, Access log CPU and allocation, and all-telemetry memory budgets are tagged (hypothesis). See L2-5."
+      "pass": true,
+      "note": "Every cell of the Overhead per signal table now carries (target). The supporting estimates moved to prose as (hypothesis), each with its M1 benchmark. The previous L2-5 is resolved."
     },
     {
       "ac": "Logging and access logs lists the access-log fields.",
       "pass": true,
-      "note": "The access log table has 20 field rows. It excludes bodies, query strings and secrets (O4)."
+      "note": "The Access logs table lists 17 field groups. `accessLog.when` uses the Configuration model's CEL variables (Base, `response`, `upstream`, `duration`)."
     },
     {
       "ac": "Tracing specifies W3C Trace Context propagation and default sampling.",
       "pass": true,
-      "note": "Propagation covers `traceparent` and `tracestate` on every hop, a parent-based sampler and per-Node caps. The schema default for `traceSampling` is correctly deferred to OQ-observability-1 (0.01 assumed; the Configuration model example uses 0.05), since only the Configuration model can set defaults."
+      "note": "Propagation steps 1 to 4 cover `traceparent` and `tracestate` extraction and injection per leg. The default ratio is 0.01, pending OQ-observability-1, with per-Node root and parent caps (target)."
     },
     {
       "ac": "AI observability uses OpenTelemetry gen_ai semantic conventions.",
       "pass": true,
-      "note": "The `gen_ai.*` attribute and metric names match docs/_meta/research/ai-gateways.md section 10, and the Development status and v1.42.0 move are cited correctly."
+      "note": "`gen_ai.*` span attributes and metric mirrors are cited to URLs present in docs/_meta/research/ai-gateways.md and agree with section 10 of that file (moved in v1.42.0, no tagged release, Development status)."
     },
     {
       "ac": "Grafana dashboards and SLOs lists the Grafana dashboard pack and defines SLOs that docs/architecture/12-performance-budgets-and-benchmarking.md ties its budgets to.",
       "pass": true,
-      "note": "The section lists 11 Grafana dashboards and 10 SLO IDs, each with its SLI, objective and window. Document 12 does not exist yet, so the reverse tie is unverified. The SLO-GW-4 tie to SM-6 is wrong (L2-4)."
+      "note": "Eleven Grafana dashboards and ten SLO IDs are listed. SLO-GW-4 now uses `ruralz_plugin_call_overhead_seconds`, so the SM-6 tie is coherent (previous L2-4 resolved). Document 12 does not exist yet, so the tie is one-sided for now."
     }
   ],
   "foundation_amendments": [
-    "System overview TB-12: decide OQ-security-and-identity-29 (TLS when configured, cleartext reported, or TLS required), because the Configuration model's own examples use `http://otel-collector:4317` and this document's example uses `http://127.0.0.1:4317`.",
-    "System overview TB-12 failure column: if option (a) of OQ-control-plane-and-gitops-12 stands, distinguish the audit export (lags, never drops) from droppable telemetry.",
-    "Vision and positioning SM-6: if SLO-GW-4 keeps a production tie, name the host-overhead metric SM-6 measures so that the Performance Budget and the SLO share one metric."
+    "Manifest docs[id=15].research is still []. The document cites OpenTelemetry URLs from docs/_meta/research/go-libraries-runtime.md and docs/_meta/research/ai-gateways.md; every cited URL is present in those files. Add both files to research[].",
+    "Vision and positioning SM-6: name `ruralz_plugin_call_overhead_seconds` as the measured quantity, so that the Performance Budget in document 12 and SLO-GW-4 share one metric.",
+    "System overview TB-12: decide OQ-observability-19 (audit export lags, never drops) and OQ-observability-20 / OQ-security-and-identity-29 (cleartext or loopback OTLP) at conformance.",
+    "Manifest: add a machine_check that every `ruralz_*` token and every `ruralz_node_degraded_info` reason written under docs/architecture/ appears in the Observability catalog, so sibling proposals cannot drift again (the cause of L2-1)."
   ]
 }

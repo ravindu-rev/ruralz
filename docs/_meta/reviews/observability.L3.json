@@ -1,178 +1,108 @@
 {
   "lens": "L3 acceptance-audience",
   "verdict": "revise",
-  "score": 7,
+  "score": 8,
   "blocking": [
     {
       "id": "L3-1",
-      "section": "Tracing / Span model (Figure 2) and Cardinality and overhead budgets",
-      "issue": "Figure 2 contradicts the Configuration model's worked example, a foundation document. It draws three spans the effective Filter Chain does not contain: `headers-security` in onRequestHeaders, and `headers-internal` in onUpstreamResponseHeaders on both legs. The Configuration model says `headers` runs only in the Phases its `config` uses. `headers-security` sets only `response` headers and `headers-internal` sets only `request` headers, and the worked-example table, which `ruralz bundle render --effective --route orders-summary` prints, lists neither extra Phase. The resulting 18-spans-per-trace figure feeds the span-rate cap, the sampled-trace overhead row and the 4.5% CPU figure. A contributor who checks the expected spans against the render command will see 15.",
-      "evidence": "10-observability.md line 281: \"secq[\\\"ruralz.filter.headers-security, onRequestHeaders\\\"]\"; lines 290 and 294: \"ruralz.filter.headers-internal, onUpstreamResponseHeaders\"; line 254: \"at about 18 spans per trace (Figure 2) both caps allow 27,000 spans per second (target)\"; line 537: \"Tracing, sampled trace of 18 spans\". 02-configuration-model.md line 389: \"`headers` and `transform` run only in Phases their `config` uses.\" Lines 1374-1390: `headers-security` config has only `response: set`, and `headers-internal` has only `request: set`. Lines 680-683: the only rows are \"onUpstreamRequest | `orders` | `headers-internal`\", \"onUpstreamRequest | `inventory` | `headers-internal`\" and \"onResponse | client | `headers-security`\".",
-      "fix": "Delete the nodes `secq`, `hdr1r` and `hdr2r` and their edges from Figure 2. Keep the caption, which `cors-partner` still illustrates, and add \"`headers` runs only in the Phases its config uses\" to the Tree bounds list. Recompute the dependent figures: 15 spans per trace; 1,500 × 15 = 22,500 spans per second (target); the overhead row becomes \"Tracing, sampled trace of 15 spans\", with the allocation figure scaled to about 60 (hypothesis); re-derive the 0.3 µs average and 4.5% of one core from the new per-trace cost, or keep 30 µs as a ceiling and say so."
+      "section": "Metrics catalog / Ruralz Gateway metrics and Degraded states",
+      "issue": "The catalog says it accepts every proposed name, but it leaves out three degraded reasons and two counters that component documents propose to this document. One further degraded state has no reason at all. This is the same drift that L3-2 and L3-4 flagged in the previous round. It breaks O3 (\"a fixed `reason`\") and P10. An operator who wires alerts from the fixed reason table can never see these states, and CI, which \"fails on a panel using an unlisted metric\", would reject a Grafana panel for them.",
+      "evidence": "10 line 134: \"Other documents' proposed names are accepted\"; line 203: \"[WASM plugin system]'s proposed names and reasons are accepted\"; line 36: \"O3 | Every degraded state is a metric | `ruralz_node_degraded_info` with a fixed `reason`\". The Degraded states table (lines 213-232) has no `plugin_parked_bound_low`, `balancer_budget` or `probes_skipped`, and the catalog has neither `ruralz_upstream_probes_skipped_total` nor `ruralz_ingress_hold_expiries_total`. 05 line 97: \"reports `ruralz_node_degraded_info{reason=\\\"plugin_parked_bound_low\\\"}` (proposed to [Observability](10-observability.md))\". 09 line 41: \"falls back to weighted `random` with degraded reason `balancer_budget`, proposed to [Observability]\". 09 line 98: \"skipped probes count in `ruralz_upstream_probes_skipped_total` and, above 10% for 1 minute, raise degraded reason `probes_skipped` (target), both proposed to Observability\". 07 line 456: \"(`ruralz_ingress_hold_expiries_total`, proposed)\". 03 line 364: \"a snapshot pinned longer stays ending as a degraded state, never freed early\".",
+      "fix": "Add these Degraded states rows: \"`plugin_parked_bound_low` | A `state.*` Plugin pool's guaranteed parked bound is below 16 (target); Planned (M2)\"; \"`balancer_budget` | Balancer rebuilds exceed the 256 MiB budget (target) and fall back to weighted `random`\"; \"`probes_skipped` | Over 10% of active health probes skipped for 1 minute (target)\"; \"`snapshot_ending_overdue` | A snapshot stays ending past the zero-pin bound of [Data plane](03-data-plane.md#configuration-snapshots-and-hot-reload)\". Add catalog rows for `ruralz_upstream_probes_skipped_total` (Counter, probes, `upstream`) and `ruralz_ingress_hold_expiries_total` (Counter, holds, `route`; Planned (M4)), or reject each one explicitly by name. Then grep 03 to 09 for \"proposed to [Observability]\", \"degraded\" and `ruralz_` and reconcile every hit before the next revision."
     },
     {
       "id": "L3-2",
-      "section": "Metrics catalog / Ruralz Gateway metrics",
-      "issue": "Two label value sets contradict Traffic management and resilience, which writes values into these families. Grafana panels and alerts built from 09 will query values this catalog never emits. (a) 09 counts State Store memory skips as reason `memory`, but the catalog lists `state_store_memory`, and the rename sentence mentions only two metric renames, not this value. (b) 09 counts dropped invalidations in `ruralz_state_writes_dropped_total` with kind `cache_invalidate`, and its failure matrix drops refunds through the same queue. This catalog's `kind` is \"the single-operation names\" (gcra, quota, budget, cache_get, semantic_get, cache_set, settle), which has no invalidate or refund value.",
-      "evidence": "10-observability.md line 163: \"`ruralz_cache_store_skipped_total` | Counter | stores | `policy`, `reason` | size_limit, buffer_budget, state_store_memory\"; line 208: \"`kind` uses the single-operation names\". 09-traffic-management-and-resilience.md line 371: \"counted in `ruralz_cache_store_skipped_total` (reason `memory`)\"; line 365: \"counts in `ruralz_state_writes_dropped_total` with kind `cache_invalidate` (proposed to [Observability](10-observability.md))\"; failure matrix: \"Post-commit queue full | Cache stores, invalidations, refunds, settlements | Drop and count\".",
-      "fix": "Either accept `memory` as the reason value, or keep `state_store_memory` and record the rename (and file a note against 09). Replace \"`kind` uses the single-operation names\" with an explicit list for write families: `cache_set`, `semantic_set`, `cache_invalidate`, `refund`, `settle`. Check every other value 09 and 06 write against the catalog before the next revision."
-    },
-    {
-      "id": "L3-3",
-      "section": "Control plane observability / Alert rules / Open questions",
-      "issue": "Three statements contradict Control plane and GitOps. (a) 04 publishes `clusterNodeCount` and says increases alert, and this document itself says \"node-count gauges come from in-memory heartbeat aggregates\". Yet no leader gauge for the published Node count exists, only the per-replica stream count, and there is no alert rule. An operator cannot see the N_published that every derived Rate Limit ceiling in 09 depends on, and the Node-count inflation defense in 04 has no alert. (b) OQ-observability-14 asks whether heartbeats should carry \"latency and failure counters\", with (a) No as the current answer. But 04 already decided that Rollout gates read per-Revision request, 5xx and rejection counters from heartbeats. (c) The replica-stale rule calls 10 s \"about one election timeout\", while 04 states that hashicorp/raft's default election timeout is 1000 ms. So 10 s is about ten election timeouts.",
-      "evidence": "04-control-plane-and-gitops.md line 116: \"`clusterNodeCount` counts ready, streaming Nodes ... increases rise at most 10% per minute, with an alert (target).\"; line 268: \"Gates read per-Revision request, 5xx and rejection counters from heartbeats, deciding OQ-system-overview-9\"; line 503: \"hashicorp/raft defaults to 1000 ms heartbeat and election timeouts\". 10-observability.md line 498: \"Drift, quarantine and node-count gauges come from in-memory heartbeat aggregates\"; line 514: \"`ruralz_control_connected_nodes` | Gauge | nodes | `cluster` | R | Streams to this replica\"; line 581: \"Should heartbeats carry latency and failure counters for Rollout gates? | (a) No (current); (b) Yes\"; line 457: \"`> 10   # 10 s (target), about one election timeout (hypothesis)`\".",
-      "fix": "(a) Add a row `ruralz_control_cluster_nodes` | Gauge | nodes | `cluster` | L | Published `clusterNodeCount`, and an alert `RuralzClusterNodesRising` (for example `delta(max by (cluster) (ruralz_control_cluster_nodes)[10m:]) > ...` with a (target) threshold, ticket). Point the failure-matrix mapping on line 241 (\"lost Nodes\") at it. (b) Reword OQ-observability-14 to \"Should heartbeats also carry latency histograms for Rollout gates?\" and note that 04 already carries request, 5xx and rejection counters. (c) Change the comment to \"10 s (target), ten default election timeouts (hypothesis)\", or lower the threshold to match one election timeout."
-    },
-    {
-      "id": "L3-4",
       "section": "Metrics catalog / Degraded states",
-      "issue": "Security and identity defines two degraded states and proposes their reasons to this document. The table covers `cleartext_hop` but has no reason for a State Store URL without credentials. O3 and P10 promise a metric for every degraded state, so an operator cannot alert on an unauthenticated State Store, which 08 treats as both a degraded state and an audit finding.",
-      "evidence": "08-security-and-identity.md line 113: \"Cleartext hops and State Store URLs without credentials are degraded states (reasons proposed to [Observability](10-observability.md)) and audit findings.\" 10-observability.md line 38: \"O3 | Every degraded state is a metric\"; the Degraded states table (lines 218-239) has `cleartext_hop` but no credential-less State Store reason.",
-      "fix": "Add the row \"`state_store_unauthenticated` | The resolved `stateStore.url` carries no credentials | Planned (M1)\" to the Degraded states table. Re-read 08 for any other reason it proposes."
-    },
-    {
-      "id": "L3-5",
-      "section": "Observability principles (O5) / Metrics catalog / Cardinality budget",
-      "issue": "The document states a cardinality rule that one of its own families breaks. `ruralz_plugin_guest_events_total` takes `name` values that the guest chooses at runtime through `metric_add`. WASM plugin system admits the first 16 names a Plugin emits, so the values are user-supplied strings, unknown when the Revision compiles. They can also differ between Nodes if a Plugin derives names from traffic. That contradicts O5, the \"never a label\" rule and the claim that folding is identical on every Node. A contributor cannot tell which rule governs this family, and the cardinality table never counts it.",
-      "evidence": "Line 40: \"O5 | Bounded cardinality | Label values are Revision-bounded names or fixed enumerations, admitted at compile time\"; line 123: \"Never a label: ... or any user-supplied string\"; line 548: \"Every label value is known when a Revision compiles (O5) ... identically on every Node\"; line 210: \"accepts `ruralz_plugin_guest_events_total` (guest names are label values)\". 05-wasm-plugin-system.md line 182: \"`name` matches `^[a-z][a-z0-9_]{0,31}$`, at most 16 per Plugin; a negative value or 17th name returns `ERR_LIMIT`.\"",
-      "fix": "State the exception in O5 and in the Cardinality budget: guest event names are admitted at runtime, first come, at most 16 per Plugin Policy (so at most 16 × Plugin Policies series), may differ between Nodes, and are never folded into `_overflow` because the ABI already refuses a 17th name. Add the family to the cardinality table (for 50 Plugin Policies, 800 series (hypothesis)). Alternatively, add an Open question owned by wasm-plugin-system proposing that Plugins declare their event names, which would make them compile-time values."
-    },
-    {
-      "id": "L3-6",
-      "section": "Cardinality and overhead budgets",
-      "issue": "The memory and series budgets leave out the label sets that the document's own Hot Reload rule retains. Quotas apply per Revision (100,000 series). Dropped names stay exported until the snapshot that references them retires, and the CI test accepts up to three times the single-Revision worst case. Yet the Metrics memory budget holds only \"at the series cap\", and the Cluster bound of 10 million series uses the single-Revision figure. After a Revision that renames many Routes, a Node can legitimately hold about 3 × 100,000 series. By the document's own per-series assumptions that is roughly 55 to 60 MiB, over both the 24 MiB metrics budget and the 40 MiB total. An operator sizing a metrics store for a 100-Node Cluster would under-provision by up to three times during churn.",
-      "evidence": "Line 548: \"quotas (target) of 6,000 per counter or gauge family, 2,000 per histogram family and 100,000 series per Revision\"; line 550: \"a dropped name is exported until the last snapshot referencing it retires (active plus K = 2 retired ...) ... MUST stay within 3 times the single-Revision worst case (hypothesis)\"; line 535: \"24 MiB or less at the series cap (hypothesis)\"; line 542: \"40 MiB or less (hypothesis)\"; line 562: \"a 100-Node Cluster stays under 10 million series (hypothesis)\".",
-      "fix": "Choose one option and state it. (a) Make the cap per Node, covering live and retiring series together: \"100,000 series per Node including retiring label sets (target); a new Revision's label sets beyond the remaining room fold until retired snapshots close\". (b) Keep per-Revision quotas and restate the Metrics memory row and the total at three times the cap, with the Cluster series bound given for steady state and for churn. Either way, name `ruralz_telemetry_series{state=\"retiring\"}` as the signal that shows the difference."
-    },
-    {
-      "id": "L3-7",
-      "section": "Observability principles / Telemetry pipeline / Control plane observability",
-      "issue": "The document decides two TB-12 behaviors that contradict System overview and records neither as a proposed amendment. System overview gives TB-12 as \"TLS\" with \"Drop on failure\". This document allows plaintext to a same-host or same-Pod Collector, and OQ-observability-2 covers only the off-host case. It also makes the audit export lag instead of drop. An operator or security engineer who reads System overview's trust-boundary table gets rules this document breaks.",
-      "evidence": "01-system-overview.md line 491: \"| TB-12 | Nodes and Ruralz Control to OpenTelemetry collector | TLS; no secrets in telemetry | Drop on failure |\". 10-observability.md line 51: \"OTLP across TB-12 MUST use TLS ...; plaintext to a same-host or same-Pod Collector is allowed\"; line 37: \"only the audit export, off the request path, lags instead\"; line 569: \"may it be cleartext off-host (Security and identity allows it; TB-12 forbids it)?\"",
-      "fix": "Extend OQ-observability-2 (or add a row owned by system-overview) to cover both deviations: \"(c) amend TB-12: same-host cleartext allowed and reported; audit export lags, never drops\". Also say what a Node does today with a cleartext off-host endpoint: it reports `ruralz_security_cleartext_hops{hop=\"telemetry\"}` and does not refuse. Keep the change word-neutral (see non-blocking note on word headroom)."
-    },
-    {
-      "id": "L3-8",
-      "section": "Grafana dashboards and SLOs / Metrics catalog / Control plane observability",
-      "issue": "Three performance or scale figures lack a literal (target) or (hypothesis) tag on their line, which style guide section 4 requires. The verifier skips code fences and does not catch the first one.",
-      "evidence": "Line 442: \"expr: sum(rate(ruralz_http_gateway_duration_seconds_bucket{le=\\\"0.00015\\\"}[1h])) / sum(rate(ruralz_http_gateway_duration_seconds_count[1h])) < 0.5\" (the 50% objective, untagged). Line 525: \"(at most once per second, target)\" (not the literal tag). Line 183: \"Guest `metric_add`, 16 names\" (a per-Plugin limit, untagged).",
-      "fix": "Append \"# 50% objective (target)\" to line 442, rewrite line 525 as \"at most once per second (target)\", and write line 183's cell as \"Guest `metric_add`, at most 16 names (target)\"."
+      "issue": "The `state_store_unauthenticated` row, added to resolve the previous L3-4, now contradicts Security and identity. 08 says a Node rejects a non-loopback State Store URL without credentials. The row says a Node raises the reason whenever the resolved URL carries no credentials, so an operator would expect a degraded but serving Node where 08 specifies a rejection.",
+      "evidence": "10 line 222: \"| `state_store_unauthenticated` | The resolved `stateStore.url` carries no credentials |\". 08 line 117: \"Per TB-4, a Node rejects a non-loopback State Store URL without credentials (code: OQ-security-and-identity-30).\"",
+      "fix": "Reword the row to \"`state_store_unauthenticated` | A loopback `stateStore.url` carries no credentials; a non-loopback one is rejected ([Security and identity](08-security-and-identity.md), code OQ-security-and-identity-30)\"."
     }
   ],
   "non_blocking": [
     {
-      "section": "Whole document (length)",
-      "suggestion": "The body is 4,914 words against a maximum of 5,000, so only 86 words are free. The blocking fixes add about 150 words. Offset them: replace the 45-word rename sentence on line 136 with \"Names other documents propose are accepted as they now appear there.\" Multi-protocol already uses `ruralz_ingress_paused_partitions`, and 09 no longer names any ejection metric, so both rename notes are stale. Removing Figure 2 nodes saves nothing, because fences are not counted."
+      "section": "Observability principles (O3) / AI observability",
+      "suggestion": "Pack 8.9 and Vision (line 237) require a \"degraded-state metric\" when usage is missing, while O3 defines degraded states as `ruralz_node_degraded_info` reasons. State in one sentence that `ruralz_ai_usage_missing_total` is the pack 8.9 degraded-state signal: a per-request event counter, not a Node reason. Alternatively, widen O3 to allow event counters."
     },
     {
       "section": "Grafana dashboards and SLOs / Alert rules",
-      "suggestion": "`RuralzSeriesFolded` has no `for` and fires on any fold. `ruralz_http_requests_total{route,status_class}` uses 5 series per Route against a 6,000 quota, so every Bundle with more than about 1,200 Routes folds permanently. That is well inside the 10,000-Route seed that SLO-GW-6 uses. Exclude expected Route folding (for example, alert only when the folded count increases after a Revision), or document it as expected at scale. Also note that the Route detail Grafana dashboard shows `_overflow` for most Routes in such Bundles."
+      "suggestion": "04 publishes `clusterNodeCount` increases at no more than 10% per minute \"with an alert\". Say whether `RuralzClusterNodesRising` (more than 25% in 1 hour) is that alert, or whether 04 means an alert on each rate-limited step, so that the two documents agree on what triggers it."
     },
     {
-      "section": "Degraded states",
-      "suggestion": "`node_count_unknown` is tagged Planned (M1), but derived ceilings need a Node count from Ruralz Control (M2). In file mode pack 8.8 sets the ceiling to the full limit by design. Say whether file mode raises this reason, or tag it Planned (M2)."
+      "section": "AI observability",
+      "suggestion": "06 says `gen_ai` content attributes are \"off by default\", while this document says \"never\" (OQ-observability-8, option (a)). Align the wording in 06, or reference OQ-observability-8 from 06."
     },
     {
-      "section": "AI observability / Alert rules",
-      "suggestion": "AI/LLM gateway's fallback matrix says provider credential failures fall back \"alerting with `RZ-AUTH`\". Add a ticket rule on `increase(ruralz_ai_fallbacks_total{error_class=\"credential\"}[15m]) > 0`, or say which dashboard panel covers it."
+      "section": "Metrics catalog",
+      "suggestion": "08 lists `AIProvider` as its own possible cleartext hop, but the `hop` enumeration (client, upstream, state_store, telemetry, admin) has no AI value. Say that `AIProvider` hops count as `upstream`, or add `ai_provider`."
     },
     {
-      "section": "Control plane observability",
-      "suggestion": "04 has no artifact named an \"action registry\" or \"operation registry\". Define `operation` as `<resource>:<operation>` from 04's API summary table, for example `rollouts:start`. Define `action` as the audited change list in 04's Audit and security section. List the `ruralz_control_rollout_state_info` values, or cite pack 8.3 as the registry."
-    },
-    {
-      "section": "Cardinality and overhead budgets",
-      "suggestion": "The Metrics CPU row and the Access log CPU row are tagged (hypothesis), yet the text says an M1 benchmark \"gates the metrics row\". A gate is a target. Tag the gating value (target) and keep the operation-count estimate as (hypothesis)."
-    },
-    {
-      "section": "Grafana dashboards and SLOs",
-      "suggestion": "State how RZ-STS rejections (a State Store failure under `failureMode: closed`, such as `ai.token-budget`) map to `origin`. Today they count as `node` and burn SLO-GW-1 during a State Store outage. Also reconsider `RZ-AI-004` as `dependency`, since residency `when` rules can cause it with no provider failure."
-    },
-    {
-      "section": "Tracing / Span model",
-      "suggestion": "The server span name `<method> <route>` uses the Route resource name, while the HTTP semantic conventions named in pack 2 use the path template (`http.route`). Say that `http.route` carries the Route's path template where one exists, or record the deviation."
-    },
-    {
-      "section": "Alert rules",
-      "suggestion": "`RuralzControlNoLeader` uses `absent()`, which fires in file-mode deployments without Ruralz Control. Say that the Ruralz Control rules ship as a separate group that is loaded only when Ruralz Control is deployed. Likewise, `RuralzAuditExportLagging` should not exist when no audit exporter is configured (OQ-observability-11)."
+      "section": "Grafana dashboards and SLOs / Alert rules",
+      "suggestion": "Several rule windows (`[15m]`, `[1h]`) have no (target) comment, while every `for:` line does. For consistency, add \"# (target)\" to those lines as well."
     }
   ],
   "ac_results": [
     {
       "ac": "Metrics catalog lists at least 25 metrics named ruralz_<component>_<name>_<unit>, each with type, labels and unit.",
       "pass": true,
-      "note": "The catalog has 67 Ruralz Gateway rows, 16 AI rows and 20 Ruralz Control rows, each with Type, Unit and Labels, and the min_table_rows and min_distinct_matches checks pass. Every sibling-proposed name is present. However, two label value sets contradict 09 (L3-2), and the guest-event family breaks O5 (L3-5)."
+      "note": "The Ruralz Gateway, AI and Ruralz Control tables hold more than 60 rows, each with Type, Unit and Labels columns. The machine checks min_table_rows (25) and min_distinct_matches pass. The proposed names still missing are covered by L3-1."
     },
     {
       "ac": "Cardinality and overhead budgets gives a per-signal overhead budget tagged (target).",
       "pass": true,
-      "note": "The Overhead per signal table covers 8 signals across CPU, allocations and memory, and every row carries at least one (target). The Metrics memory row leaves out the series that Hot Reload retains (L3-6), and some gating values are tagged (hypothesis) (non-blocking)."
+      "note": "Overhead per signal has eight rows, each tagged (target) for CPU, allocations and memory. The 15-span trace figures, 60 allocations, 22,500 spans per second and 4.5% of one core are now consistent with Figure 2, and the 125,000-series Node limit is consistent with the 24 MiB and 40 MiB rows."
     },
     {
       "ac": "Logging and access logs lists the access-log fields.",
       "pass": true,
-      "note": "The access log table has 21 field rows and a fixed redaction rule. The has_table check passes."
+      "note": "The access-log field table has 18 rows and states that no bodies, header values or query strings are logged; has_table passes."
     },
     {
       "ac": "Tracing specifies W3C Trace Context propagation and default sampling.",
       "pass": true,
-      "note": "Propagation steps 1 to 4 cover `traceparent` and `tracestate` extraction, a parent-based sampler, the root default (0.01 assumed, OQ-observability-1), separate root and parent rate caps, and injection per protocol with milestones. Figure 2's span count is wrong (L3-1)."
+      "note": "Propagation covers extracting and injecting `traceparent`/`tracestate` and parent-based sampling, with 0.01 as the proposed default ratio (the schema default is tracked in OQ-observability-1). It also gives the root and parent rate caps (target)."
     },
     {
       "ac": "AI observability uses OpenTelemetry gen_ai semantic conventions.",
       "pass": true,
-      "note": "The `gen_ai.*` span attributes, metric mirrors and Development stability status match section 10 of docs/_meta/research/ai-gateways.md, and every URL is present there. It adopts all new 06 proposals and 06's reason values."
+      "note": "Span attributes and mirrored metrics cite semantic-conventions-genai URLs, all present in docs/_meta/research/ai-gateways.md; the commit pinning follows OQ-ai-llm-gateway-11."
     },
     {
       "ac": "Grafana dashboards and SLOs lists the Grafana dashboard pack and defines SLOs that docs/architecture/12-performance-budgets-and-benchmarking.md ties its budgets to.",
       "pass": true,
-      "note": "The pack table has 11 Grafana dashboards. The 10 SLOs each give an SLI whose threshold is a histogram boundary, plus objective, window and seed tie, and the alert rules are valid-looking PromQL. Residual gaps: the node-count alert that 04 promises is missing (L3-3), one untagged objective (L3-8), and a folding alert that will fire permanently at scale (non-blocking)."
+      "note": "The pack has 11 Grafana dashboards. It defines SLO-GW-1 to SLO-GW-7, SLO-AI-1, SLO-CP-1 and SLO-CP-2 with tagged objectives, and every SLO threshold is a histogram boundary."
     },
     {
-      "ac": "H2 outline equals Summary, Scope and non-goals + outline_h2 + Open questions, exactly and in order",
+      "ac": "H2 outline equals mandatory first two + outline_h2 + Open questions, exactly and in order.",
       "pass": true,
-      "note": "All 12 H2 headings match the manifest exactly and in order."
+      "note": "The order is Summary, Scope and non-goals, the nine outline_h2 headings, then Open questions."
     },
     {
-      "ac": "Required Mermaid diagrams (telemetry pipeline flowchart; span tree flowchart) present with italic captions",
+      "ac": "Required diagrams present with captions (telemetry pipeline flowchart; span tree flowchart).",
       "pass": true,
-      "note": "Figure 1 is a flowchart with 15 nodes and Figure 2 a flowchart with 19 nodes, each with an italic caption above it. Figure 2's content contradicts the Configuration model (L3-1), but the diagram requirement itself is met."
+      "note": "Figure 1 (a flowchart of 15 nodes) and Figure 2 (a flowchart of 16 nodes) both have italic captions. Figure 2 now matches the effective Filter Chain of the Configuration model's worked example."
     },
     {
-      "ac": "Length band 2,500 to 5,000 words; Summary 120 words or fewer",
+      "ac": "Length within manifest band 2500-6500 words.",
       "pass": true,
-      "note": "The body is 4,914 words by the manifest word_count_rule, and the Summary is 89 words. Only 86 words of headroom remain for fixes (non-blocking)."
+      "note": "The body counts about 4,990 words under word_count_rule."
     },
     {
-      "ac": "Every performance or scale number tagged (target) or (hypothesis)",
+      "ac": "Every performance or scale number tagged (target) or (hypothesis).",
+      "pass": true,
+      "note": "The three untagged figures from the previous round are fixed, and no untagged performance or scale figure remains in the prose."
+    },
+    {
+      "ac": "verify-docs.mjs reports no FAIL lines for this document.",
+      "pass": true,
+      "note": "The script reports only WARN lines, all for links to ADRs and to document 12, which are not yet written."
+    },
+    {
+      "ac": "No contradiction with foundation documents or documents it depends on or proposes names for.",
       "pass": false,
-      "note": "Lines 442, 525 and 183 carry untagged figures (L3-8)."
-    },
-    {
-      "ac": "verify-docs.mjs reports no FAIL lines for this document",
-      "pass": true,
-      "note": "No FAIL lines. The 10 WARN lines are links to ADR-0007, ADR-0008, ADR-0010, ADR-0014, ADR-0016, ADR-0017 and doc 12, none of which is written yet."
-    },
-    {
-      "ac": "Every competitor, vendor or library claim cites a URL present in the research files",
-      "pass": true,
-      "note": "All 8 cited URLs appear in docs/_meta/research/go-libraries-runtime.md or ai-gateways.md, and the claims agree with those files."
-    },
-    {
-      "ac": "No contradiction with the foundation pack, the four foundation documents or the documents it depends on",
-      "pass": false,
-      "note": "The document contradicts the Configuration model's worked example (L3-1) and System overview TB-12 (L3-7). It also contradicts label values in 09 (L3-2) and three statements in 04 (L3-3), and omits a degraded state from 08 (L3-4)."
-    },
-    {
-      "ac": "Declared audience (operators, contributors) can act without reading sources",
-      "pass": false,
-      "note": "Operators cannot see or alert on the published Node count (L3-3) or an unauthenticated State Store (L3-4), and would under-size metric storage during Hot Reload churn (L3-6). Contributors meet a cardinality rule that one family breaks (L3-5) and label values that disagree with 09 (L3-2)."
+      "note": "L3-1: reasons and metrics proposed by 03, 05, 07 and 09 are missing. L3-2: the `state_store_unauthenticated` row contradicts 08."
     }
   ],
   "foundation_amendments": [
-    "Manifest: docs[id=15].research is still empty, although the document cites OpenTelemetry URLs from docs/_meta/research/go-libraries-runtime.md and docs/_meta/research/ai-gateways.md. Add both files so the citation rule can be checked against the entry.",
-    "Manifest: docs[id=15].depends_on still leaves out 03, 04, 05, 06, 07, 08 and 09. Every one of them writes metric names, label values or degraded states into this catalog, and this round's findings L3-2, L3-3 and L3-4 come from them. Add them, or adopt a rule that a document proposing names to Observability is an implicit dependency.",
-    "System overview (TB-12 row): if L3-7 option (c) is accepted, amend TB-12 to allow same-host cleartext OTLP (reported as a degraded cleartext hop) and to say the Ruralz Control audit export lags and never drops."
+    "System overview TB-12 (OQ-observability-19, OQ-observability-20, OQ-security-and-identity-29): the audit export lags instead of dropping, and loopback cleartext OTLP may be allowed; the owner is system-overview."
   ]
 }

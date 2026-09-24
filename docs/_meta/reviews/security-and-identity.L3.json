@@ -1,155 +1,118 @@
 {
   "lens": "L3",
   "verdict": "revise",
-  "score": 7,
+  "score": 8,
   "blocking": [
     {
       "id": "L3-1",
-      "section": "Threat model and trust boundaries (Figure 1, OQ-control-plane-and-gitops-14 answer); Transport security (hop table)",
-      "issue": "The Scope promises \"transport and identity for every hop\", but the hops that carry secrets are missing from Figure 1, the threat table and the hop table. These are Node to Vault for `vault` secretRef, Node to the Kubernetes API for `kubernetes` secretRef and `kubernetes` discovery, and Ruralz Control to the Kubernetes API for the CRD watch. The hop table gives no TLS or peer-authentication rule for Vault or the Kubernetes API, although a security engineer needs exactly that to approve a `vault` or `kubernetes` provider. The answer to OQ-control-plane-and-gitops-14 is also incomplete compared with its source. Control plane and GitOps lists token replica join (TB-11) and a Kubernetes client (service account) as new crossings, but this document maps only to TB-5, TB-7, TB-8 and TB-13. Figure 1 still has no Ruralz Control to OCI registry TB-8 edge, although the answer adopts that crossing.",
-      "evidence": "Line 24: \"In scope: ... transport and identity for every hop\". Line 109: \"For OQ-control-plane-and-gitops-14, option (a), its new crossings map to TB-5, TB-7, TB-8 and TB-13.\" Line 338: \"`kubernetes` (`get` and `watch` in the Node's namespace only) and `vault` (Node authentication: OQ-security-and-identity-10) are Planned (M2)\". This is the only mention, with no hop row. Control plane and GitOps line 589: \"This design adds crossings ... token `Enroll` (TB-5), token replica join (TB-11), HMAC webhooks, Ruralz Control as OCI registry client ... and Kubernetes client (service account), and the relay on 8092 (TB-13).\" Figure 1 has `gw -->|\"TB-8 ...\"| oci` but no `ctl --> oci` edge and no Vault or Kubernetes API node.",
-      "fix": "(1) Add a 'Secret providers and Kubernetes API' node to Figure 1, with gw and ctl edges labeled with an existing TB ID (for example TB-3 for Node secret and discovery fetches, TB-7 or TB-11 for Ruralz Control's Kubernetes client), or propose new IDs in OQ-security-and-identity-29 for System overview. Also add a `ctl -->|\"TB-8\"| oci` edge. (2) Add a hop-table row: \"Vault, Kubernetes API (TB-x) | TLS 1.2 or newer, server verified, never cleartext | Vault auth per OQ-security-and-identity-10; namespace-scoped service account | Planned (M2)\". (3) Add a threat row for compromise or spoofing of the secret provider, with its mitigation. (4) Extend the OQ-control-plane-and-gitops-14 sentence to name TB-11 for token replica join and the boundary chosen for the Kubernetes client."
+      "section": "Request hardening (Pre-authentication throttling)",
+      "issue": "New regression from the revision. The throttle now has max(1, GOMAXPROCS/4) hash slots, a success cache that hits do not extend, and a full cache flush on every snapshot swap and revocation advance. Together these put an unstated ceiling on legitimate `auth.basic` traffic and cause a 429 storm after every configuration change. An operator cannot tell from the document whether `auth.basic` fits their workload. On a 4-core Node there is 1 slot, which verifies 10 to 20 credentials per second (hypothesis). Every active client must be re-verified every 60 s, so the Node sustains only about 600 to 1,200 distinct active credentials, while the success cache is sized for 10,000. After each Hot Reload or Rollout, or after any revocation entry (for example a JWT `jti` logout unrelated to basic auth), every cached client misses at once. Only 1 slot plus 4 waiters are admitted within the 1 s deadline, so nearly all other legitimate callers get 429 RZ-AUTH-007. Neither the capacity bound nor the flush storm appears in the residuals or in OQ-security-and-identity-15.",
+      "evidence": "Line 402: \"Success cache | HMAC-SHA-256 under a per-process key; 60 s from verification, not extended by hits; 64 shards, 10,000 entries per Node (target); flushed on each snapshot swap and revocation advance\". Line 404: \"Hash queue | max(1, `GOMAXPROCS`/4) slots, which cap the Node's hash rate; 4 × slots waiters, 1 s deadline (target); overflow gets RZ-AUTH-007 unhashed\". Line 409: \"At 600,000 iterations a slot verifies 10 to 20 credentials per second (hypothesis)\".",
+      "fix": "(1) State the capacity: \"a Node sustains about slots x 10 to 20 x 60 distinct active `auth.basic` credentials (hypothesis); `auth.basic` suits low-cardinality clients, and high-cardinality callers SHOULD use API keys or JWT\". (2) Stop flushing the whole cache. On a snapshot swap, keep entries whose Consumer credential digest is unchanged in the new snapshot, and on a revocation advance evict only entries for the revoked usernames or digests. Or spread re-verification over time and state the resulting 429 bound (target). (3) Size the success cache to the sustainable rate, or state why 10,000 is correct. (4) Add the capacity bound and the flush behavior to the T1 residuals and to OQ-security-and-identity-15."
     },
     {
       "id": "L3-2",
-      "section": "Authorization (IP filtering and GeoIP); Open questions (OQ-security-and-identity-6)",
-      "issue": "Foundation pack section 10 assigns the derivation of the client address behind trusted proxies to this document. The document does not derive it. It sends the whole question to OQ-security-and-identity-6, owned by configuration-model, lists three options with none proposed, and only warns operators away from IP-based controls. Running behind a load balancer is the most common production topology. There, `authz.ip`, `source.ip` Rate Limit keys and the throttle's source key are all unusable, and so is the Configuration model's own `overridable: false` `ratelimit-global` keyed on `source.ip`. OQ-observability-4 (b), which this document recommends, also depends on trusted proxies. Operators cannot act, and nobody else owns the rule, since no other document mentions trusted proxies or X-Forwarded-For.",
-      "evidence": "Pack line 379: \"`authz.ip` allows or denies by CIDR on the client address; deriving that address behind trusted proxies belongs to Security and identity.\" Line 305: \"Until trusted proxies exist (OQ-security-and-identity-6), deployments behind a load balancer SHOULD NOT rely on `authz.ip`, `source.ip` Rate Limit keys or the throttle's source key, which collapse to one key.\" Line 533: \"| OQ-security-and-identity-6 | How are trusted proxies declared? | (a) CIDR list; (b) PROXY protocol v2; (c) Both | configuration-model | Yes, for `source.ip` users |\"",
-      "fix": "Add a short 'Client address' rule under IP filtering. For example: \"`source.ip` is the TCP or QUIC peer, unless the peer is in the trusted-proxy CIDR list. Then it is the rightmost `X-Forwarded-For` (or `Forwarded`) address not in the list, or the PROXY protocol v2 source on listeners that opt in. Headers from untrusted peers are overwritten, never appended.\" Mark the rule Planned (M1) and tag any limits (target). Change OQ-security-and-identity-6 to recommend option (c), marked (proposed), for the fields. Make security-and-identity co-owner for the semantics, since the pack assigns them here, with configuration-model owning the fields."
-    },
-    {
-      "id": "L3-3",
-      "section": "Request hardening (Pre-authentication throttling); Threat model (T1)",
-      "issue": "The document claims a property the design does not have. T1 and the throttle table say the throttle 'never locks out'. But the username bucket (burst 10, refill 1 per second) is shared by the attacker and the real owner. A flood of wrong passwords for one username keeps that bucket empty, so the owner's verifications that miss the success cache wait 2 s and get 429 RZ-AUTH-007 for as long as the flood lasts. That is a targeted lockout, and the residual-trade-off sentence effectively admits it. The document also leaves two things undefined that an operator needs to judge the risk. It does not say whether a success-cache hit refreshes the 60 s entry, which decides whether a steady legitimate client is ever re-throttled. It does not say whether an unknown username computes a hash. Without that rule, an attacker who sprays many usernames gets a fresh burst of 10 for each and can fill the Node-wide hash queue (GOMAXPROCS slots, 4 x GOMAXPROCS waiters). Every `auth.basic` caller outside the success cache then gets 429.",
-      "evidence": "Line 86: \"| T1 | Credential guessing, hash-cost exhaustion, targeted lockout | TB-1 | 128-bit keys; [throttle](#pre-authentication-throttling) that delays, never locks out |\". Line 400: \"| Username bucket | Burst 10, refill 1 per second, in a 64-shard LRU of 100,000 usernames (target); an empty bucket delays up to 2 s (target), then RZ-AUTH-007, and never locks out |\". Line 402: \"| Hash queue | `GOMAXPROCS` slots, 4 x `GOMAXPROCS` waiters, 1 s deadline (target); overflow gets RZ-AUTH-007 unhashed |\". Line 404: \"Residual trade-off (T1, OQ-security-and-identity-15): under a flood against one username, its owner shares the bucket's rate.\"",
-      "fix": "(1) Replace 'never locks out' with an accurate statement, for example \"no permanent lockout; under a sustained flood against one username, that user is throttled while the flood lasts (residual, OQ-security-and-identity-15)\". Or change the design so the owner is protected, for example by giving a separate small bucket to sources that authenticated that username successfully in the last 24 h (target). (2) State that a success-cache hit refreshes the entry, or that it does not. (3) State how unknown usernames are handled, for example \"an unknown username computes one dummy hash under the same bucket and queue\". Add a sentence and a T1 note that spraying across usernames is bounded only by the Node-wide hash queue, with the metric that exposes it. (4) Add both residuals to OQ-security-and-identity-15."
-    },
-    {
-      "id": "L3-4",
-      "section": "Open questions (inherited list); Control plane security (Signed Revisions and Plugin artifacts)",
-      "issue": "This document owns OQ-control-plane-and-gitops-24, but neither the inherited list nor any section addresses it. The question is about ADR-0017, which this document also owns: whether key rotation re-signs retained Revisions, and whether a Last-Known-Good verified before an emergency key removal still boots. The Signed Revisions section says nothing about emergency removal. A security engineer therefore cannot tell from the owning document whether, after an emergency removal of the online key, a Node still boots a Last-Known-Good signed by that key. Control plane and GitOps already says it does.",
-      "evidence": "Control plane and GitOps line 617: \"| OQ-control-plane-and-gitops-24 | Should ADR-0017 and Security and identity adopt rotation re-signing and booting a Last-Known-Good verified before an emergency removal? | (a) Adopt (proposed); (b) such Nodes boot not ready | security-and-identity | No |\". Line 246 there: \"a Last-Known-Good verified before an emergency removal still boots (OQ-control-plane-and-gitops-24)\". Line 558 here lists the answered and deferred inherited questions without OQ-control-plane-and-gitops-24. The only rotation text here is line 134: \"signing keys arrive in a root-signed `TrustUpdate` before use\".",
-      "fix": "Add one sentence to Signed Revisions and Plugin artifacts that decides it. For example: \"For OQ-control-plane-and-gitops-24, option (a): rotation re-signs retained Revisions, assignments and promotions; a Last-Known-Good verified before an emergency removal still boots, and it is reported as a degraded state until a Revision signed by a current key arrives.\" Alternatively choose (b) and state the consequence that such Nodes boot not ready. Add the ID to the 'Answered above' list."
-    },
-    {
-      "id": "L3-5",
-      "section": "Authorization (engine memory ceiling)",
-      "issue": "The engine-memory bound contradicts System overview. System overview gives peak configuration memory as (K + 2) times the snapshot size, with K = 2 retired snapshots: the active snapshot, two retired ones and the candidate being compiled. This document says engine memory stays under three times the Revision-wide ceiling, which leaves out the candidate being compiled. When engine data changes between Revisions, the shared-by-digest reuse does not help, and the peak is four times the ceiling. Operators sizing Nodes from this document would under-provision by about 64 MiB (target).",
-      "evidence": "Line 291: \"A Revision-wide ceiling of 64 MiB of engine data and 50,000 entities (target) ... counts against the Node compile budget ([System overview](01-system-overview.md#compile-before-swap)), so with two retired snapshots engine memory stays under three times it (target).\" System overview line 342: \"Peak configuration memory is (K + 2) times snapshot size (hypothesis)\", with \"At most K = 2 retired snapshots are kept (target)\".",
-      "fix": "Change the sentence to \"so at peak, during a compile with two retired snapshots, engine memory stays under (K + 2) = four times it (target), less where unchanged engines are shared by content digest\". Keep the System overview anchor."
+      "section": "Request hardening (Pre-authentication throttling, 'Unknown usernames' and 'Username bucket' rows)",
+      "issue": "The new unknown-username rule claims that \"timing reveals nothing\", but the design lets an attacker enumerate usernames through the throttle state. All unknown usernames share one bucket, while each known username gets its own bucket with a burst of 10. An attacker first empties the shared bucket with a few junk usernames, then probes a candidate. An unknown candidate is delayed up to 2 s or refused with 429 RZ-AUTH-007. A known candidate still has a full bucket, so it is hashed and gets a 401. The status and latency differ, so a security engineer relying on the stated property is misled. The document also leaves undefined what happens to a known-username attempt once bucket creation hits its limit of 100 per second per Node (target): whether it is refused, shares a bucket, or gets no bucket.",
+      "evidence": "Line 403: \"Unknown usernames | One shared bucket and a dummy hash through the same queue, so timing reveals nothing\". Line 405: \"Username bucket | Burst 10, refill 1 per second, 64-shard LRU of 100,000 (target); created only after the hash queue admits an attempt, at most 100 per second per Node (target)\".",
+      "fix": "Either give each unknown username its own bucket in the same LRU, created under the same admission rule and creation cap as known ones, so throttle behavior does not depend on whether the username exists. Or keep the shared bucket, delete \"so timing reveals nothing\", and list username enumeration through throttle state as a T1 residual in OQ-security-and-identity-15. In both cases, state the outcome for an attempt that exceeds the bucket-creation cap, for example \"429 RZ-AUTH-007 unhashed, counted by cause\", and apply it to known and unknown usernames alike."
     }
   ],
   "non_blocking": [
     {
-      "section": "Request hardening (Pre-authentication throttling)",
-      "suggestion": "\"State is local, as Traffic management and resilience proposed for OQ-security-and-identity-15\": the current Traffic management and resilience document no longer contains any such proposal and does not mention OQ-security-and-identity-15. Drop the attribution and say \"State is local (OQ-security-and-identity-15, option (a))\"."
+      "section": "Threat model and trust boundaries",
+      "suggestion": "The OQ-control-plane-and-gitops-14 answer widens three System overview boundaries: TB-3 now covers Vault and the Kubernetes API, TB-7 covers Ruralz Control's Kubernetes client, and TB-8 covers Ruralz Control as registry client. System overview still defines them as Gateway to Upstreams and AIProviders, Ruralz Control to Git, and Node to OCI registry. Add the widened definitions to OQ-security-and-identity-29 so System overview can update its TB table."
     },
     {
-      "section": "Authentication (JWT and OIDC); System overview conformance",
-      "suggestion": "Keys \"outlive failed refreshes by 1 hour as a degraded state\", which uses keys past their `max-age`. System overview TB-10 says \"Cached keys until expiry, then fail closed\". Define expiry as `max-age` plus the 1-hour stale grace (target), or add TB-10 to OQ-security-and-identity-29, so readers of both documents do not see a contradiction."
+      "section": "Authorization",
+      "suggestion": "\"compilation counts against the 2 s compile time budget\" paraphrases System overview's \"2 s or less on one core (target)\" for 10,000 Routes. Name that scope and carry the (target) tag next to the figure."
     },
     {
-      "section": "Authentication (Upstream authentication)",
-      "suggestion": "For OQ-ai-llm-gateway-12 (b), `auth.upstream-sigv4` is Upstream-scoped, but one `ai` Upstream can reach candidates of several dialects, for example Bedrock falling back to Anthropic. State that the Node signs only legs whose `AIProvider` dialect is `bedrock`, and passes other legs unsigned. Also say where region and service come from, for example derived from `baseUrl` (OQ-security-and-identity-18). This also keeps the design consistent with the AI/LLM gateway rule that Upstream-scoped Policies on an `ai` Upstream do not set credential headers."
+      "section": "Transport security (Certificate rotation); Revocation",
+      "suggestion": "Write \"(30 days, target)\" and \"(the last 10 `complete` per Cluster, target; ...)\" as \"30 days (target)\" and \"10 (target)\". Style guide section 57 requires the literal tag on the same line."
     },
     {
-      "section": "Open questions (inherited list)",
-      "suggestion": "OQ-tech-stack-and-libraries-17, -19 and -24 name this document as owner, and -24 is Blocking for `authz.geoip`. \"Await catalog rows\" gives no recommendation. Recommend options without naming a library, as pack section 7 requires. For example: -24 (a), a research addendum; -19 SAML is required by this document's acceptance, so not 'OIDC only'; -17, either option after G3 review."
+      "section": "Authorization (IP filtering and GeoIP)",
+      "suggestion": "The Client address rule does not cover the case where all 16 parsed forwarding addresses are trusted, or where the header is malformed. State the fallback, for example \"the leftmost parsed address\" or \"the TCP peer\"."
     },
     {
-      "section": "Plugin sandbox (Credential headers; Secrets and network)",
-      "suggestion": "OQ-wasm-plugin-system-3 option (b) is \"Header-pattern Capabilities\", but this document describes one separate credential Capability. Call it a narrower variant and name the proposed Capability identifier. Also, WASM plugin system recommends OQ-wasm-plugin-system-4 (b), Node-resolved `x-ruralz-secret` config fields, while this document says \"None in Plugin ABI v1\" and \"`config` MUST NOT carry private keys\". State this document's recommendation, (a), and the reason explicitly."
-    },
-    {
-      "section": "Transport security (hop table); Admin ports",
-      "suggestion": "The row \"Admin 9901, 9902 (TB-9) ... Planned (M1)\" covers 9902, which exists only with Ruralz Control, Planned (M2). Tag 9902 Planned (M2). Also state the out-of-the-box consequence of \"without one, other paths return 401\": `/metrics` cannot be scraped until an admin token, and TLS for non-loopback scrapers, are configured."
-    },
-    {
-      "section": "Authentication (KrakenD authentication parity)",
-      "suggestion": "The JWT token signing row still names no type string or Filter class. Put a proposed type in OQ-security-and-identity-11 option (b) so that the parity matrix can cite it. Consider also citing ([source](https://www.krakend.io/features/)), which the Configuration model already uses, for the KrakenD feature list."
-    },
-    {
-      "section": "Secrets (Figure 3)",
-      "suggestion": "Figure 3 shows the proposed secret-root check rejecting the Revision, while the text says that until OQ-security-and-identity-22 closes, nothing is refused. Label the 'no' edge \"after OQ-security-and-identity-22; until then reported only\"."
-    },
-    {
-      "section": "Compliance (Data residency)",
-      "suggestion": "The answer to OQ-ai-llm-gateway-9 (a) implies new fields: allowed Regions on `AIModel` and embedding providers, and a Node Region input. Add them to an Open question for configuration-model, or reference the AI/LLM gateway OQ that registers them, per style guide section 5."
+      "section": "Secrets",
+      "suggestion": "Say in a few words that `resourceNames` in the `kubernetes` provider row is the Kubernetes RBAC Role field and not a Ruralz field, so readers do not look for it in the Configuration model."
     }
   ],
   "ac_results": [
     {
-      "ac": "Every KrakenD CE and EE authentication feature (JWT/OIDC/OAuth2, JWT signing, client credentials, revocation bloom filter, mTLS, basic auth, API keys, revoke server, multiple IdPs per KrakenD endpoint, NTLM, GCP auth, AWS SigV4) is mapped to a Ruralz mechanism with a milestone, or marked Not planned with a reason.",
+      "ac": "Every KrakenD CE and EE authentication feature is mapped to a Ruralz mechanism with a milestone, or marked Not planned with a reason",
       "pass": true,
-      "note": "The parity table has all 12 rows. NTLM is Not planned, with a reason: it authenticates one connection and uses MD4 and HMAC-MD5, which are not FIPS-approved (P1). JWT signing and GCP are Planned (M2) pending OQ-security-and-identity-11 and -12. The revocation bloom filter and Revoke Server are Planned (M2) pending OQ-4. Editions defer to the parity matrix. The signing type is still unnamed (non-blocking)."
+      "note": "The KrakenD authentication parity table covers all 12 features. JWT/OIDC/OAuth2, client credentials, basic auth, API keys, multiple IdPs and mTLS are Planned (M1). JWT signing, the revocation bloom filter, Revoke Server, GCP and SigV4 are Planned (M2). NTLM is Not planned, with a pooling and FIPS reason."
     },
     {
-      "ac": "Authorization contains a guidance table comparing CEL, OPA (Rego) and Cedar (when to use, cost, milestone), consistent with ADR-0011.",
+      "ac": "Authorization contains a guidance table comparing CEL, OPA (Rego) and Cedar (when to use, cost, milestone), consistent with ADR-0011",
       "pass": true,
-      "note": "The table has Engine, When to use, Cost per request (tagged target or hypothesis), Guardrails and Planned columns. It matches pack section 7: CEL inline, OPA and Cedar pluggable, no Lua. All library URLs are in go-libraries-runtime.md. The memory-ceiling sentence below the table contradicts System overview (L3-5)."
+      "note": "The engine table has When to use, Cost per request (tagged), Guardrails and Planned columns. CEL is inline and OPA and Cedar are pluggable, with no Lua, which matches ADR-0011."
     },
     {
-      "ac": "The FIPS build statement (GOFIPS140) is consistent with docs/engineering/01-tech-stack-and-libraries.md.",
+      "ac": "The FIPS build statement (GOFIPS140) is consistent with docs/engineering/01-tech-stack-and-libraries.md",
       "pass": true,
-      "note": "It matches the tech stack's FIPS build section: Planned (M5), separate artifacts; `GOFIPS140=v1.0.0` (CMVP #5247) until v1.26.0 leaves Pending Review; `GODEBUG=fips140=on`, never `only`; HTTP/3 and hybrid post-quantum key exchange off; approved JWA only, with ML-DSA from Go 1.27; Plugins get cryptography only through a crypto Host Function Capability."
+      "note": "The FIPS build section matches Tech stack: Planned (M5), GOFIPS140=v1.0.0 (CMVP #5247), fips140=on and never only, HTTP/3 off, Wasm outside the boundary, and hybrid key exchange off."
     },
     {
-      "ac": "Revocation states a propagation-time target tagged (target).",
+      "ac": "Revocation states a propagation-time target tagged (target)",
       "pass": true,
-      "note": "\"5 s or less at p99 with a fresh mark (target)\", \"1 s or less on replicas in contact with the leader (target)\", and \"30 s or less at p95 for 100 Nodes, `all-at-once` (target) (SM-9)\". File mode says \"No Ruralz target\"."
+      "note": "\"5 s or less at p99 with a fresh mark (target)\", plus further rows that are also tagged."
     },
     {
-      "ac": "Compliance contains an audit event catalog with at least 15 events.",
+      "ac": "Compliance contains an audit event catalog with at least 15 events",
       "pass": true,
-      "note": "The catalog has 24 event rows, and min_table_rows passes. The events and their common fields are consistent with Control plane and GitOps Audit and security."
+      "note": "18 table rows and 22 event names."
     },
     {
-      "ac": "Transport security covers TLS 1.3, mTLS, certificate rotation and HTTP/3.",
+      "ac": "Transport security covers TLS 1.3, mTLS, certificate rotation and HTTP/3",
       "pass": true,
-      "note": "It has a hop table plus Mutual TLS, Certificate rotation, HTTP/3 and FIPS build H3s. The hop table leaves out the Vault and Kubernetes API hops (L3-1), and 9902 is tagged M1 (non-blocking), but the four required topics are covered."
+      "note": "The hop table and the H3 sections Mutual TLS, Certificate rotation and HTTP/3 cover all four. The Vault and Kubernetes API row is now present."
     },
     {
-      "ac": "Control plane security covers RBAC, SSO (OIDC and SAML), audit, signed Revisions and Plugin artifacts (ADR-0017), SBOM and SLSA provenance.",
+      "ac": "Control plane security covers RBAC, SSO (OIDC and SAML), audit, signed Revisions and Plugin artifacts (ADR-0017), SBOM and SLSA provenance",
       "pass": true,
-      "note": "RBAC defers to the seven roles in Control plane and GitOps and adds four rules. OIDC and SAML SSO is Planned (M5). The Audit log H3 and the trust-policy table cover ADR-0017. Release supply chain covers the CycloneDX SBOM and SLSA Build Level 3, matching the Release document. The emergency key-removal semantics (OQ-control-plane-and-gitops-24) are missing (L3-4)."
+      "note": "All are present. OQ-control-plane-and-gitops-24 is now answered, consistent with Control plane and GitOps. SBOM and SLSA at Planned (M1) match the Release document."
     },
     {
-      "ac": "Structure: H2s equal mandatory first two + outline_h2 + mandatory last, exactly and in order; Summary 120 words or fewer; Open questions table format.",
+      "ac": "H2 outline equals mandatory first two + outline_h2 + Open questions, exactly and in order",
       "pass": true,
-      "note": "There are 14 H2s in the exact order. The Summary has 85 words. Open questions has a single table with the columns ID | Question | Options | Owner | Blocking?, and the inherited questions are now prose. verify-docs reports no FAIL, which fixes the earlier L3-2."
+      "note": "14 H2s in the exact order."
     },
     {
-      "ac": "Required Mermaid diagrams with italic captions: trust boundaries, authentication decision, secret resolution via secretRef.",
+      "ac": "Required Mermaid diagrams with captions (trust boundaries; authentication decision; secret resolution via secretRef)",
       "pass": true,
-      "note": "Figures 1 to 3 are flowcharts. Each has an italic caption directly above it and fewer than 25 nodes (16, 21 and 15). Figure 2 now puts the throttle after 'Credential present?' and applies it only to `auth.basic`. Figure 1 is missing crossings (L3-1)."
+      "note": "Figures 1 to 3 are flowcharts with italic captions. Figure 1 now includes Vault and Kubernetes API, the ctl-to-OCI edge and TB-11."
     },
     {
-      "ac": "Length band 2500 to 5000 words.",
+      "ac": "Length band 2500 to 6500 words",
       "pass": true,
-      "note": "verify-docs reports no length_words FAIL, so the body, excluding fenced code, is inside the band. This fixes the earlier L3-1."
+      "note": "About 5,776 words by the word_count_rule. verify-docs reports no FAIL."
     },
     {
-      "ac": "Every performance or scale number tagged (target) or (hypothesis).",
+      "ac": "Machine checks (required_terms, has_table Authentication and Authorization, min_table_rows Compliance 15) and doc required_terms",
       "pass": true,
-      "note": "The latency, propagation, cap, throttle, TTL, lifetime, bound and retention figures carry tags. The 4 GiB and 10 to 20x figures cite measurement URLs on the same line."
+      "note": "verify-docs shows only WARN lines, for links to ADR and comparison files that are not written yet, and no FAIL line."
     },
     {
-      "ac": "Machine checks and citations: required_terms, has_table (Authentication, Authorization), min_table_rows (Compliance); every vendor/library claim cites a URL in research[] or depends_on files.",
+      "ac": "Every performance or scale number carries (target) or (hypothesis)",
       "pass": true,
-      "note": "verify-docs reports no FAIL. A script checked all 15 cited URLs, and each appears in go-libraries-runtime.md and, for most, also in the Tech stack. The 9 WARN lines are links to ADR files and the parity matrix, which do not exist yet."
+      "note": "Every line with a figure carries a tag on the same line. Minor spelling variants such as \"30 days, target\" are listed as non-blocking."
     },
     {
-      "ac": "Canonical names, no forbidden aliases, only Planned (Mx) tags, config examples use only Configuration model fields.",
+      "ac": "Competitor, vendor or library claims cite URLs present in research files",
       "pass": true,
-      "note": "No aliases are flagged, and the one KrakenD-sense term carries alias-ok. 'Supported' never appears. The YAML uses only registered fields: `slot`, `when`, `excludePolicies`, `issuers[]` with `issuer`, `jwksUrl` and `audiences`, `header`, `rule`, `apiKeys` with `hash` or `secretRef`, and `tier`. New process settings and fields are proposed through OQ-security-and-identity-7, -18, -22 and -23. All CLI commands are in the pack section 9 registry."
+      "note": "All 13 external URLs, excluding the example.com-style `auth.shop.example` sample, appear in go-libraries-runtime.md. The cedar-go commit claim matches section 9.3."
     },
     {
-      "ac": "Declared audience (security engineers, architects, operators) can act without reading sources.",
+      "ac": "Declared audience (security engineers, architects, operators) can act without reading sources",
       "pass": false,
-      "note": "The earlier gaps are largely closed: length, the Open questions format, the throttle scope, the semaphore behavior, and the load-balancer warning. Four gaps remain. Security engineers get no transport or identity rule for the Vault and Kubernetes API hops that carry secrets (L3-1). Operators behind a load balancer get no client-address rule, although the pack assigns it here (L3-2). The throttle is described as never locking out, but it can (L3-3). The ADR-0017 emergency-removal behavior is undecided in its owning document (L3-4)."
+      "note": "L3-1: operators cannot size or predict `auth.basic` capacity, and a configuration change causes a 429 storm. L3-2: the stated anti-enumeration property is false."
     }
   ],
   "foundation_amendments": [
-    "System overview (docs/architecture/01-system-overview.md), trust-boundary table: if Security and identity keeps the 1-hour stale-JWKS grace, change TB-10's failure behavior from \"Cached keys until expiry, then fail closed\" to \"Cached keys until expiry plus a bounded stale grace (target), then fail closed\". Also add the secret-provider crossings (Node to Vault and Kubernetes API, Ruralz Control to Kubernetes API) to an existing or new TB ID, as decided under L3-1 through OQ-security-and-identity-29."
+    "System overview TB table: widen TB-3 to Node to secret providers (Vault, Kubernetes API), TB-7 to Ruralz Control to Git and Kubernetes API, and TB-8 to Nodes and Ruralz Control to OCI registry, as the OQ-control-plane-and-gitops-14 answer uses them (via OQ-security-and-identity-29)."
   ]
 }
