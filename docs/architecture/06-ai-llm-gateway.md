@@ -1,8 +1,8 @@
 ---
 title: AI/LLM Gateway
-status: draft
+status: reviewed
 owner: ruralz-core
-last_updated: 2026-09-23
+last_updated: 2026-09-25
 depends_on:
   - docs/_meta/foundation-pack.md
   - docs/_meta/style-guide.md
