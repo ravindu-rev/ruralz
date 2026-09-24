@@ -2,7 +2,7 @@
 title: Security and Identity
 status: draft
 owner: ruralz-core
-last_updated: 2026-09-23
+last_updated: 2026-09-25
 depends_on:
   - docs/_meta/foundation-pack.md
   - docs/_meta/style-guide.md
@@ -87,8 +87,8 @@ flowchart LR
 
 | ID | Threat | Boundary | Mitigation |
 |---|---|---|---|
-| T1 | Credential guessing, hashing CPU exhaustion, targeted throttling | TB-1 | 128-bit keys; bounded [throttle](#pre-authentication-throttling); residuals in OQ-security-and-identity-15 |
-| T2 | JWT forgery, leaked IdP key | TB-1, TB-10 | [JWT and OIDC](#jwt-and-oidc); `kid` [revocation](#revocation) |
+| T1 | Credential guessing, username enumeration, hashing CPU exhaustion, targeted throttling | TB-1 | 128-bit keys; bounded [throttle](#pre-authentication-throttling) with a bucket per presented username; residuals, including the `auth.basic` capacity bound, in OQ-security-and-identity-15 |
+| T2 | JWT forgery, leaked IdP key | TB-1, TB-10 | [JWT and OIDC](#jwt-and-oidc); `kid` [revocation](#revocation) entries that last until the key leaves the issuer's JWKS, pending OQ-security-and-identity-4 |
 | T3 | Spoofed or unavailable JWKS | TB-10 | `https`, pinned issuer, bounded key lifetime |
 | T4 | Path confusion | TB-1 | One normalized path |
 | T5 | Address or certificate spoofing | TB-1 | [Client address](#ip-filtering-and-geoip) rule; per-Route `auth.mtls` verification |
@@ -100,7 +100,7 @@ flowchart LR
 | T11 | Stolen session, insider change | TB-6 | [RBAC](#operator-identity-sso-and-rbac), approvals, audit |
 | T12 | Resource exhaustion | TB-1 | [Request hardening](#request-hardening) |
 | T13 | Cross-tenant leakage via Semantic Cache, Prompt Cache or provider resources | TB-1, TB-3 | Planned (M3): principal in cache keys; OQ-ai-llm-gateway-19 answer |
-| T14 | Admin exposure, stolen scrape credential | TB-9 | [Admin ports](#admin-ports): separate metrics token |
+| T14 | Admin exposure, stolen scrape credential, Pod sidecars reading admin paths over shared loopback | TB-9 | [Admin ports](#admin-ports): a credential on every interface, loopback included; separate metrics token |
 | T15 | Compromised Git account, forged webhook | TB-7 | Branch protection, HMAC, commit signatures |
 | T16 | Rogue Ruralz Control replica | TB-11 | Separate peer CA |
 | T17 | Relay or stale replica withholding revocations or forging `Ack`s | TB-13 | Signed mark exposes withholding within 30 s (target); forged `Ack`s residual (OQ-security-and-identity-4) |
@@ -110,7 +110,7 @@ flowchart LR
 | T21 | Residency violation in generation, caches or telemetry | TB-3, TB-4, TB-12 | [Compliance](#compliance) fail-closed rule; client steering residual |
 | T22 | Authentication skipped by `when` | TB-1 | [Authentication](#authentication) rule 1 |
 
-IDs are stable; component documents cite them and MUST NOT add an unauthenticated crossing. For OQ-control-plane-and-gitops-14, option (a): token `Enroll` maps to TB-5, token replica join to TB-11, webhooks and Ruralz Control's Kubernetes client to TB-7, its registry client to TB-8, the relay to TB-13, and Node calls to Vault and the Kubernetes API to TB-3; pack 8.4's 8091 row and TB-5 need the amendment proposed below.
+IDs are stable; component documents cite them and MUST NOT add an unauthenticated crossing. For OQ-control-plane-and-gitops-14, option (a): token `Enroll` maps to TB-5, token replica `Join` to TB-11, webhooks and Ruralz Control's Kubernetes client to TB-7, its registry client to TB-8, the relay to TB-13, and Node calls to Vault and the Kubernetes API to TB-3. This widens TB-3, TB-5, TB-7, TB-8 and TB-11 and pack 8.4's 8091 and 8092 rows, which need the amendment in OQ-security-and-identity-31.
 
 ## Transport security
 
@@ -125,8 +125,9 @@ Every TLS hop verifies the server certificate; no field disables it. Cleartext, 
 | Vault, Kubernetes API (TB-3, TB-7) | TLS 1.2 or newer, never cleartext | Server verified; Vault authentication (OQ-security-and-identity-10); namespace-scoped service account | Planned (M2) |
 | IdP (TB-10) | TLS 1.2 or newer; `jwksUrl` and `tokenUrl` MUST be `https` (code: OQ-security-and-identity-18) | Server verified | Planned (M1) |
 | Admin 9901, 9902 (TB-9) | TLS when configured | [Admin ports](#admin-ports) | 9901 Planned (M1); 9902 Planned (M2) |
-| 8091 (TB-5) | TLS 1.3; client certificate required for every RPC except `Enroll`, which needs a one-time token (proposed pack 8.4 amendment) | Node certificate or token | Planned (M2) |
-| 8092 (TB-11), relay (TB-13) | mTLS, TLS 1.3 only | Disjoint CAs, so a Node key cannot join Raft | Planned (M2); TB-13 Planned (M4) |
+| 8091 (TB-5) | TLS 1.3; client certificate required for every RPC except `Enroll`, which uses server-authenticated TLS with a pinned server CA and a one-time token (proposed: OQ-security-and-identity-31) | Node certificate or token | Planned (M2) |
+| 8092 (TB-11) | mTLS, TLS 1.3 only, except token `Join` from a replica without a peer certificate (proposed: OQ-control-plane-and-gitops-15, OQ-security-and-identity-31) | Disjoint CAs, so a Node key cannot join Raft; `Join` redeems a one-time `admin` token over a pinned server CA | Planned (M2) |
+| Relay (TB-13) | mTLS, TLS 1.3 only | Relay certificate | Planned (M4) |
 | 8090 (TB-6) | TLS 1.3 by default | Sessions or API tokens | Planned (M2) |
 
 TLS 1.2 suites are fixed to ECDHE with AES-GCM or ChaCha20-Poly1305. Go 1.26 enables hybrid post-quantum key exchange by default ([source](https://go.dev/doc/go1.26)). 0-RTT is off, since early data can be replayed.
@@ -170,7 +171,7 @@ A `when` that errors makes a closed Policy run ([Configuration model](02-configu
 - A token without `exp`, or with `exp` beyond the maximum lifetime (24 hours (target) until OQ-security-and-identity-1 adds a per-issuer value), fails with RZ-AUTH-003.
 - When compiling a Revision, Nodes prefetch issuers, 16 at once, within 5 s (target), reuse unchanged issuers' keys and activate even if a fetch fails.
 - Keys live for `max-age` clamped to 5 minutes to 6 hours, or 1 hour when absent or `no-cache` (target), refresh at half-life and, after failed refreshes, serve degraded until expiry (TB-10), then RZ-AUTH-006.
-- An unknown `kid` fails with RZ-AUTH-005 and triggers at most one refresh per issuer per 30 s (target), honoring `Retry-After`; a `kid` [revocation](#revocation) entry evicts a leaked key.
+- An unknown `kid` fails with RZ-AUTH-005 and triggers at most one refresh per issuer per 30 s (target), honoring `Retry-After`; a `kid` [revocation](#revocation) entry evicts a leaked key and blocks every later load of it until the entry is removed.
 - jwx v4.5.0 or newer fixes GHSA-4cf7-xm37-g63h ([source](https://github.com/lestrrat-go/jwx/releases/tag/v4.5.0)). For OQ-tech-stack-and-libraries-6, option (b): go-oidc, with go-jose/v4 ([source](https://github.com/coreos/go-oidc/blob/v3/go.mod)), stays in Ruralz Control.
 
 *Figure 2: the authentication decision for a request.*
@@ -399,14 +400,24 @@ Rate Limits run after `auth` and never see failed attempts, so a throttle, Plann
 
 | Element | Rule |
 |---|---|
-| Success cache | HMAC-SHA-256 under a per-process key; 60 s from verification, not extended by hits; 64 shards, 10,000 entries per Node (target); flushed on each snapshot swap and revocation advance; a hit skips throttle and hash |
-| Unknown usernames | One shared bucket and a dummy hash through the same queue, so timing reveals nothing |
-| Hash queue | max(1, `GOMAXPROCS`/4) slots, which cap the Node's hash rate; 4 × slots waiters, 1 s deadline (target); overflow gets RZ-AUTH-007 unhashed |
-| Username bucket | Burst 10, refill 1 per second, 64-shard LRU of 100,000 (target); created only after the hash queue admits an attempt, at most 100 per second per Node (target) |
-| Delay | An empty bucket holds at most 2 waiters, 1,024 per Node, for up to 2 s (target); others get RZ-AUTH-007 with `Retry-After` at once |
+| Success cache | Keyed by HMAC-SHA-256 of username and password under a per-process key; each entry records the Consumer credential digest it matched. An entry lasts 60 s after its last hit and at most 15 minutes from verification, less up to 20% jitter (target); 64 shards, 10,000 entries per Node (target). A hit skips throttle and hash |
+| Cache on change | A hit still passes the [revocation](#revocation) check (Figure 2, E to F), so a revocation advance evicts nothing. A snapshot swap keeps each entry whose username and credential digest are unchanged, and evicts only changed or removed credentials |
+| Username bucket | One per presented username, declared or not, keyed by HMAC-SHA-256 of the username under the per-process key, in one 64-shard LRU of 100,000 (target); burst 10, refill 1 per second (target). A bucket is created only after the hash queue admits an attempt, at most 100 per second per Node (target) |
+| Undeclared usernames | The same bucket rules, plus a dummy hash at the default iteration count through the same queue, so neither timing nor status reveals whether a username exists |
+| Hash queue | max(1, `GOMAXPROCS`/4) slots, which cap the Node's hash rate; 4 × slots waiters, 1 s deadline (target) |
+| Delay | An empty bucket holds at most 2 waiters, 1,024 per Node, for up to 2 s (target) |
+| Refusal | Hash-queue overflow, the bucket-creation cap and delay overflow each return 429 RZ-AUTH-007 with `Retry-After` before any hash, for declared and undeclared usernames alike, counted by cause |
 | Source key | Address, IPv6 as /64, 10 failures per minute (target); off until OQ-security-and-identity-6 closes |
 
-At 600,000 iterations a slot verifies 10 to 20 credentials per second (hypothesis), so hashing uses at most a quarter of the cores; at 100 new usernames per second, evicting a live bucket takes 1,000 s (hypothesis), 100 times its refill. Residuals (T1, OQ-security-and-identity-15): no fixed lockout, but a flood shares the username's rate with its owner, exempt only through the success cache; spraying across usernames is bounded only by the hash queue, shown by per-cause refusal counters proposed to Observability.
+**Cost.** At 600,000 iterations a slot verifies 10 to 20 credentials per second (hypothesis), so hashing uses at most a quarter of the cores when `GOMAXPROCS` is 4 or more, otherwise one core.
+
+**Capacity.** A client calling at least once per 60 s is re-verified about once per maximum age, so a Node sustains about slots × 10 to 20 × 800 distinct active `auth.basic` credentials (hypothesis): 8,000 to 16,000 on one slot, capped at the 10,000-entry cache (target), which is sized to one slot's rate. A client calling less often pays one hash per call. Beyond that bound, legitimate clients get RZ-AUTH-007 with no attack, so `auth.basic` suits low-cardinality clients, and high-cardinality callers SHOULD use API keys or JWT.
+
+**Ramp.** Hot Reloads and Rollouts keep unchanged entries. A restart or Zero-Downtime Upgrade starts with an empty cache and LRU, since the key is per process, so each active client needs one hash; the ramp runs at the lower of the hash rate and the 100 per second creation cap (target). With 1,000 active clients on an 8-core Node (2 slots), it takes about 25 to 50 s (hypothesis), and callers beyond the queue get RZ-AUTH-007 with `Retry-After` meanwhile. Restarting one Node at a time behind a load balancer bounds the burst to that Node's share.
+
+**Eviction.** At 100 new usernames per second, evicting a live bucket takes 1,000 s (hypothesis), 100 times its refill; an evicted bucket returns full, adding at most 10 guesses per username per 1,000 s (hypothesis).
+
+Residuals (T1, OQ-security-and-identity-15): no fixed lockout, but a flood shares the username's rate with its owner, exempt only through the success cache; spraying across usernames is bounded only by the hash queue, shown by per-cause refusal counters proposed to Observability; credentials stored at a non-default iteration count differ in timing from the dummy hash; the capacity bound and the restart ramp above.
 
 ## Revocation
 
@@ -423,8 +434,9 @@ Ruralz Control delivers one signed revocation list to every Node of a Cluster, c
 
 - **Integrity.** The leader signs each entry with a monotonic sequence, and a high-water mark (sequence, Cluster, issue time) every 10 s (target) and on each entry; followers and relays forward both unchanged. A gap, or a mark older than 30 s with clocks within 5 s (target), is a degraded state and Drift.
 - **API keys.** A Revision holding a revoked hash reaches only Nodes reporting a covering sequence. Once the removing Revision is `complete`, Ruralz Control tombstones older Revisions holding the hash as rollback targets (the last 10 `complete` per Cluster, target; OQ-security-and-identity-27) and collects the entry when no Node reports such a digest.
-- **Expiry.** A `jti` entry MUST carry the token's `exp`, capped at the maximum lifetime, and expires then; cut-offs and `kid` entries expire after that lifetime, and a cut-off meanwhile refuses the subject's tokens without `iat`.
-- **Cap.** 100,000 entries per Cluster (target), alerting at 80% (target); at the cap new entries are refused and audited. Tombstoning relieves API-key entries; replacing a subject's `jti` entries with one cut-off relieves the rest.
+- **Expiry.** A `jti` entry MUST carry the token's `exp`, capped at the maximum lifetime, and expires then; a cut-off expires after that lifetime and meanwhile refuses the subject's tokens without `iat`.
+- **Keys.** A `kid` entry never expires on its own, because a leaked key keeps minting fresh tokens. Nodes refuse to load a revoked (issuer, `kid`) from any JWKS fetch and report whether the issuer still serves it; while any Node sees it served, the Cluster is in a degraded state and alerts. An operator MAY remove the entry; Ruralz Control collects it only after no Node has seen the key in that issuer's JWKS for the 6-hour key clamp plus the maximum lifetime, 30 hours (target). Both emit `credential.revoked`.
+- **Cap.** 100,000 entries per Cluster (target), 1,000 of them reserved for `kid` entries (target) so other entries never crowd them out, alerting at 80% (target); at the cap new entries are refused and audited. Tombstoning relieves API-key entries; replacing a subject's `jti` entries with one cut-off relieves the rest.
 - **Quorum loss.** A revoked session keeps reading until it expires, at most 12 hours (target).
 - **Persistence.** A detached restart forgets entries (OQ-security-and-identity-5); file mode reads a watched entry file.
 
@@ -477,7 +489,7 @@ Proposed (OQ-security-and-identity-26): `ruralz bundle push` adds signed Environ
 
 ### Admin ports
 
-For OQ-system-overview-6: 9901 and 9902 bind all interfaces for kubelet probes; only `/healthz` and `/readyz` are unauthenticated. OQ-security-and-identity-7 proposes `RURALZ_ADMIN_METRICS_TOKEN_FILE` (`/metrics` only), `RURALZ_ADMIN_TOKEN_FILE` (all paths) and `RURALZ_ADMIN_TLS_DIR`, whose client CA also admits certificates (TB-9). Tokens are compared in constant time, only over TLS or loopback; without the operator token, `/tap`, `/config/dump` and `/debug/*` are off, and off-loopback scraping needs a token. `/tap` and `/config/dump` use is logged.
+For OQ-system-overview-6: 9901 and 9902 bind all interfaces for kubelet probes; only `/healthz` and `/readyz` are unauthenticated. OQ-security-and-identity-7 proposes `RURALZ_ADMIN_METRICS_TOKEN_FILE` (`/metrics` only), `RURALZ_ADMIN_TOKEN_FILE` (all paths) and `RURALZ_ADMIN_TLS_DIR`, whose client CA also admits certificates (TB-9). `/metrics` needs the metrics token, the operator token or an admitted client certificate on every interface, loopback included, because every container in a Pod, sidecars included, shares loopback. If no admin credential is configured, only `/healthz` and `/readyz` answer and every other path returns 401. Tokens are compared in constant time and accepted only over TLS or loopback; without the operator token, `/tap`, `/config/dump` and `/debug/*` are off. `/tap` and `/config/dump` use is logged.
 
 ### Audit log
 
@@ -506,7 +518,7 @@ Every audit event carries time, actor, role, source address, target, outcome and
 | `node.token.issued` | An Enrollment token is issued |
 | `node.enrolled` | A Node enrolls |
 | `node.revoked` | `ruralz node revoke` runs |
-| `credential.revoked` | A revocation entry is added, collected or refused |
+| `credential.revoked` | A revocation entry is added, collected, removed by an operator or refused |
 | `trust-policy.changed` | A trust policy, anchor set or signing key changes |
 | `signature.failed` | A signature fails at ingest or on a Node |
 | `control.backup.created`, `control.restored` | A backup completes or is downloaded; a restore completes |
@@ -537,7 +549,7 @@ Data-plane decisions are telemetry, not audit events. Other evidence:
 | OQ-security-and-identity-12 | How is GCP authentication served? | (a) Plugin; (b) JWT-bearer fields (proposed); (c) New type | security-and-identity | Yes, Planned (M2) |
 | OQ-security-and-identity-13 | How do OPA and Cedar get policies? | (a) Inline; (b) OCI; (c) Both | security-and-identity | Yes, Planned (M2) |
 | OQ-security-and-identity-14 | Should `authz.geoip` enrich upstream requests? | (a) No; (b) Header; (c) `source.country` | security-and-identity | No |
-| OQ-security-and-identity-15 | Are the throttle defaults and residuals acceptable: flood-shared rates, spraying, N × 1 guess per second per username across N Nodes (target)? | (a) Local throttle (current); (b) Pre-auth `ratelimit` position | security-and-identity | Yes, for `auth.basic` |
+| OQ-security-and-identity-15 | Are the throttle defaults and residuals acceptable: flood-shared rates, spraying, N × 1 guess per second per username across N Nodes (target), about 8,000 to 16,000 active `auth.basic` clients per hash slot capped at 10,000 per Node (hypothesis), and a post-restart ramp of one hash per active client? | (a) Local throttle (current); (b) Pre-auth `ratelimit` position | security-and-identity | Yes, for `auth.basic` |
 | OQ-security-and-identity-17 | Which fields set client timeouts? | (a) Gateway `limits`; (b) Fixed | data-plane | No |
 | OQ-security-and-identity-18 | Which schemas are registered? | (a) `authz.ip`, `authz.geoip` lists; `auth.upstream-sigv4` region, service and payload mode; upstream-auth `timeout`; `https` pattern for `jwksUrl` and `tokenUrl` (proposed); (b) Other | configuration-model | Yes, per type |
 | OQ-security-and-identity-19 | One switch requiring TLS everywhere? | (a) No (current); (b) Gateway field | configuration-model | No |
@@ -552,5 +564,6 @@ Data-plane decisions are telemetry, not audit events. Other evidence:
 | OQ-security-and-identity-28 | Where does transport-time signing live? | (a) Hook after the last `onUpstreamRequest` Filter, amending pack sections 8.12 and 10 (proposed); (b) Forbid later mutation | security-and-identity | Yes, for `auth.upstream-sigv4` |
 | OQ-security-and-identity-29 | Should TB-1, TB-3, TB-4 and TB-12 read "TLS when configured; cleartext reported"? | (a) Yes (proposed); (b) Require TLS | system-overview | No |
 | OQ-security-and-identity-30 | Which codes reject the engine ceiling and an uncredentialed State Store URL? | (a) New RZ-CFG codes (proposed); (b) RZ-CFG-015 and RZ-CFG-026 | configuration-model | Yes, Planned (M2) |
+| OQ-security-and-identity-31 | Should pack 8.4 (the 8091 and 8092 rows, and the Control Stream row of section 2) and System overview TB-5 read "mTLS with a per-Node enrollment certificate; `Enroll` only: server-authenticated TLS, pinned server CA, one-time token", 8092 and TB-11 add token `Join`, and TB-3, TB-7 and TB-8 add Vault and the Kubernetes API, Git webhooks and the Ruralz Control Kubernetes client, and Ruralz Control's OCI registry client? | (a) Amend (proposed); (b) New TB IDs | system-overview | Yes, Planned (M2) |
 
 OQ-security-and-identity-16 is closed. Answered above: OQ-system-overview-6; OQ-configuration-model-5, -13, -15, -17; OQ-tech-stack-and-libraries-6; OQ-control-plane-and-gitops-9, -10, -14, -19, -20, -24; OQ-wasm-plugin-system-3, -18; OQ-ai-llm-gateway-9, -12. Recommended, pending host documents: OQ-ai-llm-gateway-14 (b); OQ-ai-llm-gateway-19 (b), plus (c) for untrusted tenants; OQ-multi-protocol-7, -9 (a); OQ-observability-4, -7 (b); OQ-release-versioning-and-compatibility-5 (a). For OQ-tech-stack-and-libraries-24, option (a); -17 and -19 need the same research addendum, with OIDC only as the -19 fallback.

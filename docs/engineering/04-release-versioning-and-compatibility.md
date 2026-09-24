@@ -2,7 +2,7 @@
 title: Release, Versioning and Compatibility
 status: draft
 owner: ruralz-core
-last_updated: 2026-09-23
+last_updated: 2026-09-25
 depends_on:
   - docs/_meta/foundation-pack.md
   - docs/_meta/style-guide.md
@@ -38,9 +38,11 @@ Non-goals:
 | Change | Patch `x.y.Z` | Minor `x.Y.0` | Major `X.0.0` |
 |---|---|---|---|
 | Security fix, dependency or toolchain bump, bug fix changing no Revision | Yes | Yes | Yes |
-| Bug fix changing a Revision (with a golden-corpus entry); new feature, Policy type, CLI verb or flag, metric, error code, field, Host Function or Control Stream field | No | Yes | Yes |
+| `ruralz/v1alpha1` default change or digest-changing render fix, shipped as a new schema level with a golden-corpus entry; new feature, Policy type, CLI verb or flag, metric, error code, field, Host Function or Control Stream field | No | Yes | Yes |
 | Deprecation, or removal after its window in a surface that is not stable | No | Yes | Yes |
 | Removal or incompatible change in a stable surface | No | No | Yes, with a new surface identifier |
+
+Every change that alters a digest, whether a default change or a render or canonicalization fix, is gated by a schema level or a format identifier, never shipped bare. In `ruralz/v1alpha1` it ships as a new schema level, so rendering at a level reproduces that level's output byte for byte. In `ruralz/v1beta1` and `ruralz/v1`, a fix that would change a digest ships only behind a new opt-in field or a new format identifier (for example `ruralz.canonical.v2`), per the [Configuration model](../architecture/02-configuration-model.md#canonical-form-and-revision); CI runs the golden corpus at every schema level inside the skew window. Whether the Configuration model's golden-corpus exception covers a `ruralz/v1alpha1` render fix, and not only a default change, is OQ-release-versioning-and-compatibility-13.
 
 Patches never raise a level or change a digest, so they never matter for skew. Stable surfaces are `ruralz/v1`, `ruralz.canonical.v1`, `ruralz.diff.v1`, a frozen `ruralz.plugin.v1`, `ruralz.control.v1`, `/api/v1/`, exit codes and error codes; `ruralz/v1alpha1`, `ruralz/v1beta1`, preview ABI levels and the rest retire by their windows. `1.0.0` needs `ruralz/v1` served, Plugin ABI v1 frozen and two consecutive minors without a stable-surface deprecation (OQ-release-versioning-and-compatibility-1).
 
@@ -49,7 +51,7 @@ Patches never raise a level or change a digest, so they never matter for skew. S
 | Surface | Identifier | Compatibility rule | Owner |
 |---|---|---|---|
 | Bundle schema, CRDs | `ruralz/v1alpha1` to `ruralz/v1`; `ruralz.io/v1alpha1` | Lifecycle below; additions raise `x-ruralz-since` ([ADR-0016](../adr/0016-kubernetes-helm-and-crds.md), proposed) | [Configuration model](../architecture/02-configuration-model.md#version-skew) |
-| Revision serialization | `ruralz.canonical.v1` | Every release reproduces the golden corpus byte for byte, except entries recording a deliberate default change | Configuration model |
+| Revision serialization | `ruralz.canonical.v1` | Every release reproduces the golden corpus byte for byte at every schema level inside the skew window, except entries recording a change shipped as a new `ruralz/v1alpha1` schema level; any other serialization change needs a new format identifier | Configuration model |
 | Diff JSON | `ruralz.diff.v1` | Additive fields only | [CLI and API surface](../reference/01-cli-and-api-surface.md) |
 | Plugin ABI | `ruralz.plugin.v1` | [Plugin ABI versioning](#plugin-abi-versioning) | [WASM plugin system](../architecture/05-wasm-plugin-system.md#contract) |
 | Control Stream | `ruralz.control.v1` | [Control Stream versioning](#control-stream-versioning) | [Control plane and GitOps](../architecture/04-control-plane-and-gitops.md#control-stream) |
@@ -140,16 +142,16 @@ Here N is the newest Ruralz Control binary minor; the Control Store version stay
 | Pair | In policy | Outside policy | Enforcement |
 |---|---|---|---|
 | Ruralz Control and Ruralz Gateway Nodes | N-1; N once the Control Store version is N | N-2 or older; newer than the Control Store version | Every enrolled Node's stream is accepted, so in-policy skew costs no active Revision (P9) within the [binary rollback limit](#binary-rollback-limit); flagging: OQ-release-versioning-and-compatibility-4 |
-| Ruralz Control replicas, voters and non-voters | N-1 and N while the Control Store version is N-1 | N-2; N-1 after finalize | The binary halts (rule 4 of [Ruralz Control upgrades](#ruralz-control-upgrades)) |
-| Regional Ruralz Control relay, Planned (M4) | The replicas' minor or one older; upgrades after the replicas, before its Nodes | Two minors older; newer than the replicas | Same halt rule; form: OQ-system-overview-16 |
+| Ruralz Control replicas, voters and non-voters | N-1 and N while the Control Store version is N-1 | N-2; N-1 after finalize; more than one minor above the Control Store version, or one above it before every replica reported its post-finalize snapshot | The binary halts, or its status report is rejected and it stops (rule 4 of [Ruralz Control upgrades](#ruralz-control-upgrades)) |
+| Regional Ruralz Control relay, Planned (M4) | N-1 and N while the Control Store version is N-1; N after finalize; upgrades after every replica reports N and before finalize | N-2; N-1 after finalize; newer than the replicas | Reports its binary version like a replica and counts toward finalize (rules 1 and 3); same halt rule. Form: the read-only relay that [Control plane and GitOps](../architecture/04-control-plane-and-gitops.md#relay-feed) decided for OQ-system-overview-16 |
 | `ruralz` CLI and REST API | CLI at N or N-1 | N-2; newer than Ruralz Control | Unknown Bundle field: RZ-CFG-006; other unknown request fields: an `RZ-CP` code |
-| `ruralz bundle push` to Ruralz Control | CLI at the Control Store version; one minor older only if no `ruralz/v1alpha1` default changed | Other versions | Re-render mismatch: RZ-CFG-027 |
+| `ruralz bundle push` to Ruralz Control | CLI at the Control Store version; one minor older only if N added no schema level | Other versions | Re-render mismatch: RZ-CFG-027 |
 | CLI and Nodes (`ruralz dev tap`, `ruralz node dump`, file-mode Revisions) | Oldest Node's minor or one newer | Two or more newer | File-mode Node: RZ-CFG-024 |
 | Nodes within one Cluster | Any mix of N and N-1 | N-2 or older; newer than the Control Store version | Rollouts with fields newer than the oldest Node are refused (RZ-CFG-024) |
 | `ruralzd` upgrade handover | From any supported line; back within the binary rollback limit | Unsupported lines | An unknown format marker refuses the handover; the old process keeps serving |
 | Plugin and Node | ABI level at or below the Node's | Above it | RZ-CFG-028, or earlier refusal (rule 2 of [Plugin ABI versioning](#plugin-abi-versioning)) |
 | Last-Known-Good and Node | Written by N-1 or N, booted by N; written by N without newer fields, booted by N-1 | Newer field, booted by N-1 | RZ-CFG-024; the Node waits for the Control Stream or stays not ready (pack 8.2) |
-| Helm chart and CRDs | `ruralz-control` at the chart version; `ruralzd` at N or N-1; CRDs serve every apiVersion N-1 served | Anything else | Separate image tags (OQ-release-versioning-and-compatibility-11) |
+| Helm chart and CRDs | `ruralz-control` at the chart version; `ruralzd` at N or N-1; CRDs serve every apiVersion N-1 served; a newly served version appears only once every replica runs N, and becomes the storage version no earlier than the next minor | A served version that some replica's conversion webhook cannot convert; a storage version that N-1 cannot read | Separate image tags (OQ-release-versioning-and-compatibility-11); CRD order in [Release artifacts](#release-artifacts) |
 
 ### State Store layout changes
 
@@ -158,7 +160,9 @@ State Store changes add no blocking round trips (pack 8.7 rule 1, P3). A Cluster
 | State class | Allowed layout change | Extra admission |
 |---|---|---|
 | GCRA, Quota and Token Budget counters | Keep the old key's hash tag; while N-1 Nodes can serve, the N script reads and writes both keys in one `EVAL`, then, once the minimum Node version is N (OQ-release-versioning-and-compatibility-9), migrates lazily (read old, write new, delete old) | None (hypothesis) |
-| Quota and Token Budget counters, alternatively | Once the minimum Node version is N, every Node switches at the next window reset | None (hypothesis) |
+| Quota counters, alternatively | The minimum-Node-version signal carries an absolute switch boundary, a window start published at least one full window ahead; every Node holding the signal switches at that boundary | Up to 2x for one window per Node that has not received the signal by the boundary, for example while detached (P9) (hypothesis); Scalability and distributed state owns the bound |
+
+Token Budget counters take only the first path: a split key would let a Node admit a reservation that the remaining budget does not cover, which pack 8.9 and P8 forbid.
 | Response Cache, Semantic Cache | N Nodes keep the N-1 layout until the minimum Node version is N | None; misses only (hypothesis) |
 
 A Node rolled back to N-1 after lazy migration began sees an empty old key, so its limit may admit up to 2x for that window (hypothesis).
@@ -167,11 +171,12 @@ A Node rolled back to N-1 after lazy migration began sees an empty old key, so i
 
 For the `raft` Control Store, Planned (M2):
 
-1. The Control Store holds a replicated Control Store version. Each replica, voter or non-voter, reports its binary version to the leader over the status-forwarding class on 8092 (OQ-control-plane-and-gitops-15).
-2. N binaries MUST decode every N-1 entry, record and snapshot. While the Control Store version is N-1, every replica, whichever leads, writes only N-1 formats in all persisted state (log entries, bbolt records, snapshots, content objects, audit segments) and on 8092. It also renders Revisions at N-1's schema levels and defaults, so a commit yields one digest, feasible because each default change is a new schema level (OQ-release-versioning-and-compatibility-12).
-3. Once every replica reports N and a 24-hour soak (target) has passed, an operator finalizes (OQ-release-versioning-and-compatibility-8) and the leader commits a version-advance entry. Migrations, new record types and N defaults apply only after it, as deterministic log entries, never at startup; recorded Revisions are never re-rendered. Every replica then forces a snapshot past that index, truncates its log and reports to the leader, which refuses the next upgrade until all have.
-4. A replica meeting a Control Store version above its binary's, or an unknown entry type, stops before serving, exports a metric and never skips the entry; it checks the snapshot and log at startup too.
-5. Before finalize, returning a replica to N-1 is a rolling step. After it, rollback is `ruralz control restore` of the pre-upgrade backup into an empty N-1 deployment ([Backup, restore and `postgres`](../architecture/04-control-plane-and-gitops.md#backup-restore-and-postgres)). It loses later writes (Rollouts, audit entries, Enrollments, revocations), needs a root-signed anchor set with a new online key and a higher `storeEpoch`, and invalidates sessions and API tokens. Every Node serves detached until the operator supplies a revocation list, and Nodes enrolled after the backup re-enroll; hence the soak before finalize.
+1. The Control Store holds a replicated Control Store version. Each replica, voter or non-voter, and each regional relay, Planned (M4), reports its binary version to the leader over the status-forwarding class on 8092 (OQ-control-plane-and-gitops-15); a relay reports through the replica serving its [relay feed](../architecture/04-control-plane-and-gitops.md#relay-feed).
+2. N binaries MUST decode every N-1 entry, record and snapshot. While the Control Store version is N-1, every replica, whichever leads, writes only N-1 formats in all persisted state (log entries, bbolt records, snapshots, content objects, audit segments) and on 8092, relay feed included. It also renders Revisions at N-1's schema levels and defaults, so a commit yields one digest. This is feasible because every digest-changing change, default or render fix, ships as a new schema level or format identifier ([One product version](#one-product-version)), so rendering at a level reproduces that level's output byte for byte (OQ-release-versioning-and-compatibility-12).
+3. Once every replica and every relay reports N and a 24-hour soak (target) has passed, an operator finalizes (OQ-release-versioning-and-compatibility-8) and the leader commits a version-advance entry. Migrations, new record types and N defaults apply only after it, as deterministic log entries, never at startup; recorded Revisions are never re-rendered. Every replica then forces a snapshot past that index, truncates its log and reports to the leader. Until all have, the leader refuses the next upgrade as rule 4 describes.
+4. A replica or relay meeting a Control Store version above its binary's, or an unknown entry type, stops before serving, exports a metric and never skips the entry; it checks the snapshot and log at startup too. A replica or relay whose binary minor is more than one above the Control Store version, or whose local snapshot predates the last version-advance entry, also stops before serving and exports a metric. The leader rejects the status report of a binary newer than the Control Store version, with an `RZ-CP` code that Control plane and GitOps registers, until every replica has reported its snapshot past the last version-advance entry; a replica or relay whose report is rejected stops before serving. That is how the leader refuses the next upgrade, and why a skipped minor never serves.
+5. Before finalize, returning a replica or relay to N-1 is a rolling step. After it, rollback is `ruralz control restore` of the pre-upgrade backup into an empty N-1 deployment ([Backup, restore and `postgres`](../architecture/04-control-plane-and-gitops.md#backup-restore-and-postgres)). It loses later writes (Rollouts, audit entries, Enrollments, revocations), needs a root-signed anchor set with a new online key and a higher `storeEpoch`, and invalidates sessions and API tokens. Every Node serves detached until the operator supplies a revocation list, and Nodes enrolled after the backup re-enroll; hence the soak before finalize.
+6. If Nodes have already moved to N, rollback after finalize follows a fixed order. First, while still on the N deployment, roll out to every Cluster a Revision without N-only fields and let it reach `complete`, so Last-Known-Good is promoted. Next, return every Node to N-1 by handover, which the [binary rollback limit](#binary-rollback-limit) now allows; N-1 Nodes stay in policy against the N Ruralz Control. Only then restore, redeploying relays at N-1 with the restored deployment and, on Kubernetes, first re-applying N-1's `ruralz-crds.yaml` ([Release artifacts](#release-artifacts)). No Node runs newer than the restored Control Store version, so the skew table needs no exception. [Zero-downtime upgrades and hot reload](../operations/02-zero-downtime-upgrades-and-hot-reload.md) owns the Rollout and handover steps; [High availability and disaster recovery](../operations/04-high-availability-and-disaster-recovery.md) owns the restore.
 
 With `postgres`, Planned (M4), replicas use the N-1 schema until finalize, and the version advance and migrations are transactions.
 
@@ -181,7 +186,7 @@ Once a Revision uses a field above N-1's levels, a Node restarted on N-1 (a Kube
 
 ### Upgrade order
 
-Ruralz Control moves one minor at a time (rule 3), replicas one at a time, leadership moved off each first. After finalize, Nodes take a Zero-Downtime Upgrade ([ADR-0015](../adr/0015-zero-downtime-upgrades-so-reuseport.md), [System overview](../architecture/01-system-overview.md#hot-reload-rollout-and-zero-downtime-upgrade)) from N-1 to N. Pushes pause from the backup, the one rule 5 restores, until finalize, then resume from a CI CLI at N. A chart that deploys Nodes takes two upgrades, Ruralz Control first.
+Ruralz Control moves one minor at a time (rules 3 and 4), replicas one at a time, leadership moved off each first. Skipping a minor is refused: upgrade through each minor in turn. Once every replica reports N, relays move to N one at a time, before finalize, and their Nodes stay on N-1 until after it. After finalize, Nodes take a Zero-Downtime Upgrade ([ADR-0015](../adr/0015-zero-downtime-upgrades-so-reuseport.md), [System overview](../architecture/01-system-overview.md#hot-reload-rollout-and-zero-downtime-upgrade)) from N-1 to N. Pushes pause from the backup, the one rule 5 restores, until finalize, then resume from a CI CLI at N. A chart that deploys Nodes takes two upgrades, Ruralz Control first.
 
 *Figure 2: upgrading one deployment from N-1 to N without leaving the skew window.*
 

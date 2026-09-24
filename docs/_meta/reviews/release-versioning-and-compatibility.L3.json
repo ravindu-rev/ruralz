@@ -1,73 +1,112 @@
 {
   "lens": "L3 acceptance-audience",
   "verdict": "revise",
-  "score": 7,
+  "score": 8,
   "blocking": [
     {
       "id": "L3-1",
-      "section": "Control plane and data plane version skew (Ruralz Control upgrades, Upgrade order, Figure 2)",
-      "issue": "The Raft rules freeze wire and storage encodings at N-1 until finalize. They do not freeze rendering semantics. While binaries are mixed, Ruralz Control keeps building Revisions from Git. If minor N changes a `ruralz/v1alpha1` default, which line 75 allows, one commit renders to different digests depending on whether an N or an N-1 replica leads. An election mid-upgrade can therefore produce a different Revision, spurious Drift or an unplanned Rollout, and the new default reaches N-1 Nodes before the operator finalizes. Figure 2 also resumes pushes from an N CLI before finalize ('i' comes before 'h'). The N CLI computes the expected digest with N defaults. If N binaries rendered with N-1 defaults until finalize, which is what the encoding rule implies, that push fails with RZ-CFG-027. An operator cannot tell which defaults are in force between the last replica swap and finalize.",
-      "evidence": "Line 163: \"While the cluster version is N-1, every replica writes only N-1 encodings in log entries, snapshots sent to followers and the write-forwarding and status-forwarding classes on 8092, whichever replica leads, so an election mid-upgrade is harmless.\" Line 171: \"Pushes pause from the backup until the CI CLI runs N\". Figure 2: \"g -- yes --> i\", \"i[Pin the CI ruralz CLI to N; resume pushes]\", \"i --> h\". Line 148: \"N-1 only if N's release notes list no `ruralz/v1alpha1` default change\".",
-      "fix": "Add rule 2a under Ruralz Control upgrades: \"While the cluster version is N-1, every replica renders Revisions with the N-1 schema levels and defaults, so a commit yields the same digest whichever replica leads; N defaults take effect only after the version-advance entry.\" In Figure 2 and in Upgrade order, move 'Pin the CI ruralz CLI to N; resume pushes' after the finalize node ('h'): \"Pushes pause from the backup until finalize, then resume from a CI CLI at N.\""
+      "section": "Control plane and data plane version skew (skew table, regional relay row; Ruralz Control upgrades rules 3 and 4; Figure 2)",
+      "issue": "The relay row puts a relay one minor behind the replicas inside policy after finalize. It also says relays upgrade 'after the replicas', which can fall after finalize, since Nodes upgrade only after finalize. But the relay is subject to the 'Same halt rule', and the relay feed streams committed entries on 8092. After finalize that includes the version-advance entry and N record types or migrations, which rule 3 applies only then. An N-1 relay that follows the in-policy path therefore meets a Control Store version above its binary's and stops (rule 4), or receives N encodings it is not required to decode. Every Node that dials that relay loses Rollouts until the relay is upgraded. The finalize gate and Figure 2 count only replicas, so nothing stops an operator from reaching this state.",
+      "evidence": "Line 144: \"| Regional Ruralz Control relay, Planned (M4) | The replicas' minor or one older; upgrades after the replicas, before its Nodes | Two minors older; newer than the replicas | Same halt rule; form: OQ-system-overview-16 |\". Line 172: \"Migrations, new record types and N defaults apply only after it\". Line 173: \"A replica meeting a Control Store version above its binary's, or an unknown entry type, stops before serving\". Figure 2: \"g{\"Every replica, voters and non-voters, reports N?\"}\". Control plane and GitOps, Relay feed: \"It streams committed entries filtered to the relay's Clusters: plan and assignment state with `storeEpoch` and `assignmentSeq`, signed promotions, revocations, anchor sets and `clusterNodeCount`.\"",
+      "fix": "Change the relay row to: In policy \"N-1 and N while the Control Store version is N-1; N after finalize; upgrades after every replica reports N and before finalize\"; Outside policy \"N-2; N-1 after finalize; newer than the replicas\". Extend rule 1 and rule 3 to relays: \"Each replica, voter or non-voter, and each relay reports its binary version ...\" and \"Once every replica and relay reports N ...\". Relabel Figure 2 node g to \"Every replica, voters and non-voters, and every relay reports N?\" and add a node before g: \"Upgrade relays to N\". The alternative is to state that the relay feed keeps N-1 encodings and entry types until the next finalize. If the writer takes that route, the row must say so and the rule 4 halt must not apply to relays at N-1."
     },
     {
       "id": "L3-2",
-      "section": "Control plane and data plane version skew (Ruralz Control upgrades, Upgrade order)",
-      "issue": "The upgrade path depends on 'N decodes only N-1 encodings', but nothing guarantees that only N-1 encodings are left when the next upgrade starts. After a finalize from N-2 to N-1, the latest Raft snapshot and the retained log entries can still hold N-2 encodings until a new snapshot is taken and the log is compacted. Audit segments and other digest-addressed content on replicas are immutable and keep their original encoding indefinitely. The document's own recommended maintenance window runs two single-minor steps back to back. An N binary that restarts in the second step can then restore an N-2 snapshot, or replay N-2 entries, that it is not required to decode. Contributors implementing the Control Store cannot tell which encodings N must read.",
-      "evidence": "Line 163: \"N binaries MUST decode every N-1 log entry, record and snapshot.\" Line 171: \"Ruralz Control upgrades one minor at a time, since N decodes only N-1 encodings\". Line 264: \"An operator can plan one maintenance window every 6 months (target) and stay supported; it contains two single-minor steps\". Foundation pack section 2, Control Store row: \"plus digest-addressed Revision content and audit segments on Ruralz Control replicas\".",
-      "fix": "Extend rule 3: \"After the version-advance entry, every replica takes a snapshot and truncates its log, so no N-1 log entry or snapshot remains; the next upgrade MUST NOT start until every replica reports a snapshot at the current cluster version.\" Add: \"Immutable Control Store content (Revision content in `ruralz.canonical.v1`, audit segments) carries a version marker, and every release decodes every marker back to the first release, or the migration entries rewrite it.\" Add this precondition to Figure 2 (a check before 'd' for the second step)."
-    },
-    {
-      "id": "L3-3",
-      "section": "Control plane and data plane version skew (Ruralz Control upgrades, step 4)",
-      "issue": "The rollback path after finalize understates what a restore does, compared with the owning document. Control plane and GitOps says restore runs only into an empty deployment and needs a root-signed anchor set with a new online key, which opens a higher `storeEpoch`. It also invalidates sessions and API tokens. Unless an operator supplies a revocation list, no Node certificate issued before the restore is admitted, so every Node serves detached, not only the Nodes enrolled since the backup. An operator who follows this step during an incident will find the whole fleet detached and the CI tokens invalid.",
-      "evidence": "Line 165: \"After it, rollback means `ruralz control restore` from the first backup, losing every later Control Store write (Rollouts, audit entries, Enrollments); Nodes enrolled since re-enroll.\" Control plane and GitOps, Backup, restore and `postgres`: \"`ruralz control restore` runs only from the host CLI into an empty deployment. Before any delivery it needs a root-signed anchor set with a new online key, opening a higher `storeEpoch` ... It invalidates sessions and API tokens and re-applies an operator-supplied revocation list; without one, no Node certificate issued before the restore is admitted ... Those Nodes serve detached.\"",
-      "fix": "Rewrite step 4: \"After it, rollback means `ruralz control restore` of the pre-upgrade backup into an empty N-1 deployment ([Backup, restore and `postgres`](../architecture/04-control-plane-and-gitops.md#backup-restore-and-postgres)): it loses every later Control Store write (Rollouts, audit entries, Enrollments), needs a root-signed anchor set with a new online key, invalidates sessions and API tokens, and admits existing Nodes only once the operator supplies a revocation list; until then every Node serves detached, and Nodes enrolled after the backup re-enroll.\" Add the same warning next to the finalize node in Figure 2."
-    },
-    {
-      "id": "L3-4",
-      "section": "Control plane and data plane version skew (Ruralz Control upgrades step 3, Figure 2)",
-      "issue": "Finalize is gated on every voter reporting N. The skew table puts any N-1 binary outside policy after finalize, and Raft non-voters also apply every committed entry. OQ-system-overview-16 keeps a non-voting regional Ruralz Control open, Planned (M4), so the procedure as written lets an operator finalize while an N-1 non-voter still replicates the log. That replica then cannot decode the version-advance entry or the migration entries that follow it.",
-      "evidence": "Line 164: \"Once every voter reports N and a 24-hour soak (target) has passed, an operator finalizes\". Line 146: \"N-2; an N-1 binary after finalize\" (outside policy). Figure 2: \"g{Every voter reports N?}\". Foundation pack 8.13: \"Whether it has its own Control Store, is a Raft non-voter or is a read-only relay is OQ-system-overview-16.\"",
-      "fix": "Change step 1 to \"each replica, voter or non-voter, reports its binary version\" and step 3 to \"Once every replica, voters and non-voters, reports N ...\". Relabel the Figure 2 node to \"Every replica, voters and non-voters, reports N?\""
-    },
-    {
-      "id": "L3-5",
-      "section": "Semantic versioning (Versioned surfaces, Node upgrade handover row)",
-      "issue": "The handover surface names a persisted `assignmentIndex`, which no other document defines. Control plane and GitOps, the owner of assignment fencing, persists the pair (`storeEpoch`, `assignmentSeq`) under `${RURALZ_DATA_DIR}/identity/`. A contributor implementing the cross-version handover format would look for a field that does not exist.",
-      "evidence": "Line 63: \"`${RURALZ_DATA_DIR}` file lock, candidate, persisted `assignmentIndex`, Unix-socket readiness message\". Control plane and GitOps: \"Nodes persist the highest pair activated under `${RURALZ_DATA_DIR}/identity/`\", where the pair is (`storeEpoch`, `assignmentSeq`). No document under docs/ other than this one contains `assignmentIndex`.",
-      "fix": "Replace \"persisted `assignmentIndex`\" with \"the persisted (`storeEpoch`, `assignmentSeq`) pair under `${RURALZ_DATA_DIR}/identity/` ([Control plane and GitOps](../architecture/04-control-plane-and-gitops.md))\"."
+      "section": "Control plane and data plane version skew (Ruralz Control upgrades rules 3 and 4, Upgrade order, Figure 2 node p)",
+      "issue": "The one-minor-at-a-time rule is enforced only from one side. Rule 4 halts a binary that is older than the Control Store version, but nothing halts a binary that is too new. Two cases are unprotected. The first is an operator skipping a minor, such as N+1 binaries on a Control Store at N-1, a common mistake with image tags. The second is starting N+1 before every replica has reported its post-finalize snapshot, which rule 3 forbids. In both, the new binary starts and decodes snapshots and log entries older than its N-1 decode guarantee. Rule 3 says the leader 'refuses the next upgrade', but it does not say how: upgrading is an operator replacing a binary, and no refusal path, error code or halt is defined. Figure 2 node p has no 'no' branch. An operator therefore cannot tell what happens, or what they will see, when the precondition is unmet.",
+      "evidence": "Line 172: \"Every replica then forces a snapshot past that index, truncates its log and reports to the leader, which refuses the next upgrade until all have.\" Line 173: \"A replica meeting a Control Store version above its binary's, or an unknown entry type, stops before serving\". Line 171: \"N binaries MUST decode every N-1 entry, record and snapshot.\" Line 184: \"Ruralz Control moves one minor at a time (rule 3)\". Figure 2: \"p -- \\\"yes\\\" --> a\" (no 'no' edge).",
+      "fix": "Extend rule 4: \"A replica whose binary minor is more than one above the Control Store version, or whose local snapshot predates the last version-advance entry, stops before serving and exports a metric. The leader rejects status reports from a binary newer than the Control Store version until every replica has reported its post-finalize snapshot, using an `RZ-CP` code that Control plane and GitOps registers. That is how it refuses the next upgrade.\" In Upgrade order add: \"Skipping a minor is refused: upgrade through each minor in turn.\" In Figure 2 add the edge p -- no --> a wait node: \"Wait: an N+1 replica would be refused and stop\"."
     }
   ],
   "non_blocking": [
-    {"section": "Control plane and data plane version skew", "suggestion": "Line 156 says State Store changes 'add no dual reads or writes on the request path', but the shared-hash-tag option then has 'one script cover both keys', which is a dual read or write inside one round trip. Reword it as 'add no extra blocking round trips (pack 8.7 rule 1, P3)'."},
-    {"section": "Control plane and data plane version skew", "suggestion": "State what happens when one Node rolls back from N to N-1 after a State Store layout switch has completed: it would go back to the N-1 layout and split consumptive counters. Either say that a rollback after the switch needs the switch reversed first, or say that the 2x bound (hypothesis) applies for the duration of the rollback."},
-    {"section": "Release artifacts", "suggestion": "The FIPS row reads 'same version and features, HTTP/3 off', which contradicts itself. Write 'same version and feature set except HTTP/3, which stays off per OQ-tech-stack-and-libraries-9 (pack 8.4)', so P1 readers see the one exception stated plainly."},
-    {"section": "Semantic versioning", "suggestion": "The major-bump row refers to a 'stable surface (below)', but the Versioned surfaces table never marks which surfaces are stable. Add a 'Stable' column, or a sentence saying that `ruralz/v1alpha1`, `ruralz/v1beta1` and preview ABI levels are not stable surfaces, so contributors know whether retiring `ruralz/v1beta1` needs a product major."},
-    {"section": "Control plane and data plane version skew", "suggestion": "The CLI and REST API row maps a newer CLI's unknown request field to RZ-CFG-006, which the Configuration model registers for unknown configuration fields. REST errors carry RZ-CP codes (Control plane and GitOps, API summary). Name an RZ-CP code or leave the code to Control plane and GitOps."},
-    {"section": "Release cadence and support windows; Security fix policy", "suggestion": "'Fixes land on the main branch, then are cherry-picked to release-X.Y branches' conflicts with the embargoed security flow, where fixes are prepared privately and merge publicly on disclosure day. Add 'except embargoed security fixes, which land on every named line and main together at disclosure'."},
-    {"section": "Summary; Control plane and data plane version skew", "suggestion": "N means the newest minor in the support table but Ruralz Control's minor in the skew table. Between the last replica swap and finalize, it is unclear whether N is the binary version or the cluster version. Define N once for each table and say which one the skew rows use before finalize."},
-    {"section": "Control Stream versioning", "suggestion": "Say that a `ruralz.control.v2` also needs a foundation pack amendment (pack 14), because pack section 2 names the protocol `ruralz.control.v1.ControlStream`."},
-    {"section": "Open questions", "suggestion": "The recommendation for OQ-testing-and-quality-strategy-5 ('recommending (a)') gives no scanner, stage or gate. Add one line to Release artifacts or Security fix policy on where image scanning will run once it is selected."},
-    {"section": "Release artifacts", "suggestion": "The Binaries row lists 'darwin for development' without architectures. Name darwin/arm64 (and darwin/amd64, if intended) so the platform matrix is complete."},
-    {"section": "Security fix policy", "suggestion": "The CRA reporting obligation started on 2026-09-11, before the 2026-09-23 snapshot. Write 'started' rather than 'starts'."}
+    {
+      "section": "Plugin ABI versioning",
+      "suggestion": "OQ-wasm-plugin-system-13 lists only options (a) and (b). Write \"propose a new option (c)\" so readers do not look for an existing (c) in the owning table."
+    },
+    {
+      "section": "Semantic versioning (Versioned surfaces, Node upgrade handover and identity row)",
+      "suggestion": "Control plane and GitOps persists the highest accepted pair of each type. Write \"the persisted (`storeEpoch`, `assignmentSeq`) and (`storeEpoch`, `promotionSeq`) pairs\" instead of \"last accepted `promotionSeq`\"."
+    },
+    {
+      "section": "Control plane and data plane version skew (Upgrade order)",
+      "suggestion": "State that `ruralz bundle push` stays paused for at least the 24-hour soak (target). Also state that Git-driven builds continue meanwhile and render at N-1 levels, so CI owners can plan the freeze."
+    },
+    {
+      "section": "Control plane and data plane version skew (Ruralz Control upgrades rule 5)",
+      "suggestion": "Control plane and GitOps says Node certificates issued before the restore are refused 'until their Nodes re-enroll' when no revocation list is supplied. Say whether the list can be supplied after the restore, or only during it."
+    }
   ],
   "ac_results": [
-    {"ac": "Control plane and data plane version skew contains a skew table supporting N and N-1 between Ruralz Control, Ruralz Gateway and the ruralz CLI.", "pass": true, "note": "The table at lines 143-154 has rows for Ruralz Control and Nodes, Control replicas, CLI and REST API, pushes, CLI and Nodes, Nodes within a Cluster, handover, Plugin, Last-Known-Good and Helm, each with in-policy, outside-policy and enforcement columns. The procedural gaps are raised as L3-1 to L3-4."},
-    {"ac": "Deprecation and support windows are quantified in months or releases.", "pass": true, "note": "v1alpha1: 2 minors, about 6 months; v1beta1: 3 minors, about 9 months; v2 surfaces: 4 minors, about 12 months; CLI and metrics: 2 minors; support: 6 months full plus 3 months critical and high. All are tagged (target), and the gantt matches (182d + 91d)."},
-    {"ac": "Plugin ABI versioning states the compatibility rules for ruralz.plugin.v1 (additive changes, major-version bumps).", "pass": true, "note": "The additive table matches the WASM plugin system contract (new Host Functions only), with the integer ABI level, the Node acceptance rule, OCI media types and the v2 namespace with a 4-minor overlap."},
-    {"ac": "Release artifacts lists binaries, container images, SBOM, signatures and the Helm chart.", "pass": true, "note": "All five are present with names, platforms and Planned tags, plus checksums, FIPS, provenance, schema and OpenAPI files, and release notes."},
-    {"ac": "Security fix policy states that open source releases receive security fixes immediately and contrasts this with KrakenD CE.", "pass": true, "note": "Line 268 defines 'immediately' as reaching every user at once, with no paid or early channel. Line 284 contrasts KrakenD CE, citing krakend.io/enterprise and the license-file page, both present in the research files."},
-    {"ac": "apiVersion lifecycle and deprecation windows covers ruralz/v1alpha1 through beta and stable with migration tooling.", "pass": true, "note": "The stage table covers v1alpha1, v1beta1 and v1, Figure 1 shows the progression, and Migration tooling covers render --api-version, round-trip and golden-corpus tests, RZ-CFG-025, the CRD storage-version rewrite and release notes. OQ-configuration-model-6 is answered."},
-    {"ac": "[structure] H2 outline equals mandatory first two + outline_h2 + mandatory last, exact and in order", "pass": true, "note": "Summary, Scope and non-goals, the nine outline H2s in manifest order, then Open questions."},
-    {"ac": "[structure] Required gantt diagram 'release cadence and support windows' present with italic caption", "pass": true, "note": "Figure 3 is a gantt diagram with a caption. Figures 1 and 2 are extra flowcharts with captions, under 25 nodes each."},
-    {"ac": "[structure] Length band 1500-4000 words; Summary 120 words or fewer", "pass": true, "note": "3908 body words by the verifier's rule (fenced code excluded, table text counted); the Summary has 106 words."},
-    {"ac": "[structure] Every performance or scale number tagged (target) or (hypothesis)", "pass": true, "note": "Windows, cadence, the soak, acknowledgment and fix SLAs, maintenance window and 2x over-admission are all tagged. Scorecard is tagged (hypothesis). The CRA clocks cite a URL."},
-    {"ac": "[machine] verify-docs.mjs output for this document has no FAIL lines", "pass": true, "note": "Only WARN lines for links to documents that are not yet written (ADR-0005, -0007, -0015, -0016, -0017, operations, roadmap, reference, scalability), which --allow-missing permits. Required terms, has_table, outline, anchors and aliases pass."},
-    {"ac": "[citations] Competitor, vendor and library claims cite URLs present in research files", "pass": true, "note": "All 16 cited URLs appear in licensing-landscape.md or krakend-parity.md (Kong also in competitors-kong-tyk-apisix.md). The cosign, Rekor v2, CycloneDX 1.7, ECMA-424, SLSA, Scorecard, CRA and Kong LTS facts match the research rows."},
-    {"ac": "[terms] Canonical names only, no forbidden aliases, no 'Supported', Planned tags name M0-M5", "pass": false, "note": "Canonical product names and aliases pass, but line 63 invents the persisted field `assignmentIndex` in place of Control plane and GitOps' (`storeEpoch`, `assignmentSeq`) (L3-5)."},
-    {"ac": "[consistency] No contradiction with foundation pack, four foundation documents and depended-on documents", "pass": false, "note": "The restore consequences contradict Control plane and GitOps Backup, restore and `postgres` (L3-3). The Config model, WASM contract, Control Stream message fields, vision P1, SM-12 and SM-13, and the tech stack update policy are all consistent."},
-    {"ac": "[audience] Contributors, operators and plugin authors can act without reading sources", "pass": false, "note": "Plugin authors are well served. Operators cannot safely run a Ruralz Control upgrade or roll it back: rendering defaults during the mixed-binary state, when pushes resume, leftover older encodings in the two-step window, non-voters, and the full effect of a restore are all missing (L3-1 to L3-4)."}
+    {
+      "ac": "Control plane and data plane version skew contains a skew table supporting N and N-1 between Ruralz Control, Ruralz Gateway and the ruralz CLI.",
+      "pass": true,
+      "note": "The table has rows for Ruralz Control and Ruralz Gateway Nodes (N-1; N once the Control Store version is N), the CLI and REST API (N or N-1) and CLI to Nodes. The has_table machine check passes. The relay row is inconsistent (L3-1), but this does not fail this criterion."
+    },
+    {
+      "ac": "Deprecation and support windows are quantified in months or releases.",
+      "pass": true,
+      "note": "apiVersion windows: 2 minors (about 6 months), 3 minors (about 9 months), 4 minors (about 12 months). Support lines: 6 months, then 3 more. The CLI and metric deprecation periods are 2 minors. All carry (target)."
+    },
+    {
+      "ac": "Plugin ABI versioning states the compatibility rules for ruralz.plugin.v1 (additive changes, major-version bumps).",
+      "pass": true,
+      "note": "A change table covers what is allowed within v1 and what needs `ruralz.plugin.v2`, together with integer ABI levels and a 4-minor dual-serving window for v2. It is consistent with the WASM plugin system rule that additions are new Host Functions only."
+    },
+    {
+      "ac": "Release artifacts lists binaries, container images, SBOM, signatures and the Helm chart.",
+      "pass": true,
+      "note": "The artifact table lists all five, plus checksums, the FIPS build, provenance, schema and OpenAPI, and release notes. The platforms match the tech stack Static builds table."
+    },
+    {
+      "ac": "Security fix policy states that open source releases receive security fixes immediately and contrasts this with KrakenD CE.",
+      "pass": true,
+      "note": "The first sentence states it verbatim. The KrakenD CE contrast cites krakend.io/enterprise and the license-file page, and both URLs are in the research files."
+    },
+    {
+      "ac": "apiVersion lifecycle and deprecation windows covers ruralz/v1alpha1 through beta and stable with migration tooling.",
+      "pass": true,
+      "note": "The stage table and Figure 1 cover v1alpha1 to v1beta1 to v1. The Migration tooling subsection covers `ruralz bundle render --api-version`, hub conversion, RZ-CFG-025 and the CRD conversion webhook."
+    },
+    {
+      "ac": "H2 outline equals mandatory first two + outline_h2 + Open questions, in order",
+      "pass": true,
+      "note": "The H2s match exactly and in order. The verify-docs outline check passes."
+    },
+    {
+      "ac": "Required diagram: gantt of release cadence and support windows, with caption",
+      "pass": true,
+      "note": "Figure 3 is a gantt with an italic caption directly above it. Figures 1 and 2 also have captions."
+    },
+    {
+      "ac": "Length band 1500 to 5000 words",
+      "pass": true,
+      "note": "About 4,700 body words. verify-docs reports no length_words failure for this document."
+    },
+    {
+      "ac": "Every performance or scale number tagged (target) or (hypothesis)",
+      "pass": true,
+      "note": "Windows, soak, response times, the 2x over-admission figure and the Scorecard figure are all tagged. The verify-docs numbers check passes."
+    },
+    {
+      "ac": "verify-docs has no FAIL lines for this document",
+      "pass": true,
+      "note": "Only WARN lines appear, for links to documents not yet written, which are allowed under --allow-missing."
+    },
+    {
+      "ac": "Competitor, vendor and library claims cite URLs present in the research files",
+      "pass": true,
+      "note": "All 14 cited URLs appear in docs/_meta/research/licensing-landscape.md or krakend-parity.md. The cosign 3.1.3/2.6.5 and GHSA-fx35-mq7g-6g98, Rekor v2 GA 2025-10-10, CycloneDX 1.7/ECMA-424 and SLSA claims match the research rows."
+    },
+    {
+      "ac": "Previous blocking items L3-1 to L3-5 resolved",
+      "pass": true,
+      "note": "L3-1 (rule 2 renders at N-1 levels and pushes resume after finalize), L3-2 (snapshot and truncate after finalize, a format marker per immutable object, precondition p), L3-3 (restore consequences in rule 5 and Figure 2 node h), L3-4 (voters and non-voters) and L3-5 (identity pair) are all resolved. The new L3-1 and L3-2 are gaps found in this pass. They are not reopened items."
+    },
+    {
+      "ac": "Declared audience (contributors, operators, plugin-authors) can act without reading sources",
+      "pass": false,
+      "note": "Contributors and plugin authors can act. Operators cannot yet safely plan a regional relay upgrade (L3-1) or tell what happens when they skip a minor or upgrade before the post-finalize snapshots (L3-2)."
+    }
   ],
   "foundation_amendments": []
 }
