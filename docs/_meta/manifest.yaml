@@ -257,7 +257,7 @@ adr_common:
   - Confirmation
   length_words:
     min: 400
-    max: 1200
+    max: 1500
   acceptance:
   - Front matter contains id, title, status, date, deciders and related, and status matches this manifest.
   - H2 headings match adr_common.outline_h2 exactly and in order, and Decision outcome contains the H3 headings
@@ -603,7 +603,7 @@ docs:
   - L4C
   length_words:
     min: 2000
-    max: 4000
+    max: 5000
 - id: 5
   slug: system-overview
   path: docs/architecture/01-system-overview.md
@@ -648,10 +648,10 @@ docs:
   - Each of the four differentiators has a pointer to the architecture document that owns it.
   - Document map links every architecture document (docs/architecture/01 through 12).
   - Filter Chain phases are listed exactly as in the foundation pack, in order, including onChunk.
-  - The body is 4,000 words or fewer.
+  - The body is 5,000 words or fewer.
   machine_checks:
   - kind: max_words
-    value: 4000
+    value: 5000
   - kind: required_terms
     value:
     - Ruralz Gateway
@@ -719,7 +719,7 @@ docs:
   - L3
   length_words:
     min: 2500
-    max: 4000
+    max: 5000
 - id: 6
   slug: configuration-model
   path: docs/architecture/02-configuration-model.md
@@ -815,7 +815,7 @@ docs:
   - L3
   length_words:
     min: 2500
-    max: 8000
+    max: 9500
 - id: 7
   slug: tech-stack-and-libraries
   path: docs/engineering/01-tech-stack-and-libraries.md
@@ -916,7 +916,7 @@ docs:
   - L3
   length_words:
     min: 1500
-    max: 4000
+    max: 5000
 - id: 8
   slug: data-plane
   path: docs/architecture/03-data-plane.md
@@ -1020,7 +1020,7 @@ docs:
   - L3
   length_words:
     min: 2500
-    max: 5000
+    max: 6500
   notes: 'The plan''s AC ''admin endpoints match #28'' is inverted here because #28 is written in wave 3; #28 must
     match this document.'
 - id: 9
@@ -1125,7 +1125,7 @@ docs:
   - L4S
   length_words:
     min: 2500
-    max: 5000
+    max: 6500
 - id: 10
   slug: wasm-plugin-system
   path: docs/architecture/05-wasm-plugin-system.md
@@ -1212,7 +1212,7 @@ docs:
   - L4S
   length_words:
     min: 2500
-    max: 5000
+    max: 6500
 - id: 11
   slug: ai-llm-gateway
   path: docs/architecture/06-ai-llm-gateway.md
@@ -1315,7 +1315,7 @@ docs:
   - L4S
   length_words:
     min: 2500
-    max: 5000
+    max: 6500
   notes: The plan's 'all 5 user capabilities' is interpreted as the five capabilities named in the first acceptance
     criterion.
 - id: 12
@@ -1403,7 +1403,7 @@ docs:
   - L3
   length_words:
     min: 2500
-    max: 5000
+    max: 6500
   notes: The plan's matrix legend 'Supported (Mx)' conflicts with style guide section 4 (never Supported); the style
     guide wins.
 - id: 13
@@ -1501,7 +1501,7 @@ docs:
   - L4S
   length_words:
     min: 2500
-    max: 5000
+    max: 6500
 - id: 14
   slug: traffic-management-and-resilience
   path: docs/architecture/09-traffic-management-and-resilience.md
@@ -1585,7 +1585,7 @@ docs:
   - L4X
   length_words:
     min: 2500
-    max: 5000
+    max: 6500
 - id: 15
   slug: observability
   path: docs/architecture/10-observability.md
@@ -1662,7 +1662,7 @@ docs:
   - L3
   length_words:
     min: 2500
-    max: 5000
+    max: 6500
   notes: Heading 'Dashboards & SLOs' is rendered as 'Grafana dashboards and SLOs' to avoid the forbidden alias for
     Ruralz Console.
 - id: 16
@@ -1744,7 +1744,7 @@ docs:
   - L4C
   length_words:
     min: 1500
-    max: 8000
+    max: 9500
 - id: 17
   slug: repository-layout-and-conventions
   path: docs/engineering/02-repository-layout-and-conventions.md
@@ -1816,7 +1816,7 @@ docs:
   - L3
   length_words:
     min: 1500
-    max: 4000
+    max: 5000
 - id: 18
   slug: testing-and-quality-strategy
   path: docs/engineering/03-testing-and-quality-strategy.md
@@ -1884,7 +1884,7 @@ docs:
   - L3
   length_words:
     min: 1500
-    max: 4000
+    max: 5000
   notes: 'The plan''s AC ''gates match #21'' targets a wave 3 document; the writer uses the regression policy from
     the plan''s #21 spec and the cross-doc critic confirms consistency.'
 - id: 19
@@ -1958,7 +1958,7 @@ docs:
   - L3
   length_words:
     min: 1500
-    max: 4000
+    max: 5000
 - id: 20
   slug: scalability-and-distributed-state
   path: docs/architecture/11-scalability-and-distributed-state.md
@@ -2060,7 +2060,7 @@ docs:
   - L4X
   length_words:
     min: 2500
-    max: 5000
+    max: 6500
 - id: 21
   slug: performance-budgets-and-benchmarking
   path: docs/architecture/12-performance-budgets-and-benchmarking.md
@@ -2148,7 +2148,7 @@ docs:
   - L4X
   length_words:
     min: 2500
-    max: 5000
+    max: 6500
   notes: 'Master table deps 8, 10, 20 plus #15 (observability), which the ''ties to #15 SLOs'' AC requires.'
 - id: 22
   slug: deployment-topologies
@@ -2234,7 +2234,7 @@ docs:
   - L4X
   length_words:
     min: 1500
-    max: 3500
+    max: 4500
   notes: 'Master table row ''22-25 depend on 9, 19, 20, 21, 22'' is read as #22 depending on 9, 19, 20, 21 and #23-#25
     additionally depending on #22.'
 - id: 23
@@ -2315,7 +2315,7 @@ docs:
   - L4X
   length_words:
     min: 1500
-    max: 3500
+    max: 4500
 - id: 24
   slug: capacity-planning
   path: docs/operations/03-capacity-planning.md
@@ -2386,7 +2386,7 @@ docs:
   - L4X
   length_words:
     min: 1500
-    max: 3500
+    max: 4500
 - id: 25
   slug: high-availability-and-disaster-recovery
   path: docs/operations/04-high-availability-and-disaster-recovery.md
@@ -2465,7 +2465,7 @@ docs:
   - L4X
   length_words:
     min: 1500
-    max: 3500
+    max: 4500
 - id: 26
   slug: krakend-ee-parity-matrix
   path: docs/comparison/01-krakend-ee-parity-matrix.md
@@ -2638,7 +2638,7 @@ docs:
   - L4C
   length_words:
     min: 1500
-    max: 8000
+    max: 9500
   notes: 'The plan''s ''Matrix per 10 KrakenD categories'' is expanded into one H2 per category, named after the
     categories in krakend-parity.md, so each table is machine-checkable. #6 added to deps for the mechanism AC.'
 - id: 27
@@ -2710,7 +2710,7 @@ docs:
   - L4C
   length_words:
     min: 1500
-    max: 8000
+    max: 9500
 - id: 28
   slug: cli-and-api-surface
   path: docs/reference/01-cli-and-api-surface.md
@@ -2808,7 +2808,7 @@ docs:
   - L3
   length_words:
     min: 1500
-    max: 4000
+    max: 5000
   notes: 'Master table deps 6, 9, 10 plus #8 because the admin API must match the data plane document.'
 - id: 29
   slug: roadmap-and-milestones
@@ -2881,7 +2881,7 @@ docs:
   - L3
   length_words:
     min: 1200
-    max: 3000
+    max: 3750
   notes: The plan's 'M0-M5 (scope, exit criteria, parity %)' is expanded into one H2 per milestone so check 12 can
     locate each tag under its milestone.
 adrs:

@@ -74,7 +74,7 @@ milestone_tags_used: [M1, M2]
 - Code fences always declare a language (`yaml`, `go`, `bash`, `json`, `protobuf`, `mermaid`, `text`).
 - Cross-references are relative Markdown links: `[ADR-0003](../adr/0003-configuration-format.md)`, `[Data plane](03-data-plane.md#router)`. Never bare paths.
 - No placeholders: `TODO`, `TBD`, `XXX`, `lorem`, `???`. Unknowns go to Open questions.
-- Length guidance: architecture documents 2,500 to 5,000 words; operations documents 1,500 to 3,500; comparison documents as long as the tables require; ADRs 400 to 1,200.
+- Length guidance: architecture documents 2,500 to 6,500 words; operations documents 1,500 to 4,500; comparison documents as long as the tables require; ADRs 400 to 1,500. The manifest `length_words` band of each document is binding (maximums raised about 25% on 2026-09-25 so review fixes add content instead of trading against earlier fixes).
 
 ## 7. ADR format (MADR 4.0 minimal plus `Confirmation`)
 
