@@ -1,6 +1,6 @@
 ---
 title: Release, Versioning and Compatibility
-status: draft
+status: reviewed
 owner: ruralz-core
 last_updated: 2026-09-25
 depends_on:

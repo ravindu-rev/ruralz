@@ -1,6 +1,6 @@
 ---
 title: CLI and API Surface
-status: draft
+status: reviewed
 owner: ruralz-core
 last_updated: 2026-09-25
 depends_on:
@@ -206,7 +206,7 @@ During a Zero-Downtime Upgrade the lock moves at Drain start; the CLI still awai
 
 ### Ruralz Control replica verbs
 
-`ruralz control serve` runs `ruralz-control` on the Control Store in `--data-dir` (default `RURALZ_DATA_DIR`, (layout: OQ-cli-and-api-surface-9).
+`ruralz control serve` runs `ruralz-control` on the Control Store in `--data-dir` (default `RURALZ_DATA_DIR`; layout: OQ-cli-and-api-surface-9).
 
 `ruralz control join` runs on the new replica's host before `ruralz control serve`. It generates a key pair in `--data-dir` and dials `--peer` pinned to the 8092 server CA's SHA-256 fingerprint from the join token, as with Enrollment tokens (proposed, OQ-cli-and-api-surface-9), never unpinned. It redeems the one-time `admin` token from `--join-token-file`, issued by `/api/v1/replicas`, in `Join` with a certificate request whose SAN is `--advertise`, the replica's own peer address, then stores the certificate chain and peer CA beside the key, which stays local.
 

@@ -1,6 +1,19 @@
 # Resume procedure for the doc-set continuation (temporary; removed when the set is done)
 
-Runs of `ruralz-continue` (append each run dir here after it ends):
+## Continuing on another machine (e.g. local Claude Code on Windows)
+
+`seed.json` already contains every finished stage up to 2026-09-24 23:0x UTC (cloud run wf_e5e0b29b-c2e merged).
+Nothing else from the cloud container is needed.
+
+1. `git pull`, then `cd scripts && npm ci`.
+2. `python docs/_meta/run/gen_seed.py emit docs/_meta/run/ruralz-continue.js`
+3. Dry run: Workflow({scriptPath: <abs path to ruralz-continue.js>, args: {today: "<YYYY-MM-DD>", repo: "<abs repo path, forward slashes>", maxConcurrent: 6, dryRun: true}}).
+   Every finished item reports complete; the rest report their next stage.
+4. Same call with dryRun false. When it ends or dies, merge its run dir
+   (`~/.claude/projects/<project>/<session>/subagents/workflows/<runId>`) with `gen_seed.py merge`, commit, and relaunch.
+5. When all 39 items are complete, run the finish phase of the plan (cross-doc critics, glossary, indexes, READMEs, verify, overview doc).
+
+Runs of `ruralz-continue` (append each run dir here after it ends; all listed ones are already merged):
 
 - /root/.claude/projects/-home-user-ruralz/8a9a4c6e-d048-5961-9dea-7de4711f34d4/subagents/workflows/wf_e5e0b29b-c2e
 
