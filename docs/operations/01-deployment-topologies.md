@@ -175,15 +175,15 @@ Per [ADR-0016](../adr/0016-kubernetes-helm-and-crds.md) (proposed), the Helm cha
 |---|---|
 | `ruralz-control` StatefulSet | Three pods with volumes; `OnDelete`, leadership moved off first (OQ-deployment-topologies-6). A pod with a peer certificate runs `serve`. On an empty volume only ordinal 0 at first install (no marker ConfigMap, no peer on headless 8092) runs `serve`; any other pod waits not ready for a join token, from the Job at install, else once an `admin` removes its old voter (OQ-deployment-topologies-20), then runs `join` |
 | Bootstrap Secret and Job (proposed) | The chart generates a one-time bootstrap credential Secret, imported as process configuration by ordinal 0's first `serve` (OQ-deployment-topologies-11 (b)); the Job uses it to mint join tokens at `/api/v1/replicas` into Secrets ordinals 1 and 2 mount, then writes the marker; the credential expires once both join (OQ-deployment-topologies-12) |
-| `ruralz-control` Services | 8090 behind a load balancer or Ingress; 8091 as L4 passthrough for mTLS; headless 8092; a conversion webhook (port: OQ-deployment-topologies-13), `caBundle` from the server CA, `conversion.strategy: None` while only `ruralz.io/v1alpha1` is served |
+| `ruralz-control` Services | 8090 behind a load balancer or Ingress; 8091 as L4 passthrough for mTLS; headless 8092; the conversion webhook (port: OQ-deployment-topologies-13, `caBundle` from the server CA) only from `ruralz.io/v1beta1`, Planned (M3), as `conversion.strategy: None` needs none |
 | Node StatefulSet | `podManagementPolicy: Parallel`, so a not-ready pod blocks none; `RollingUpdate`, `maxUnavailable` matching the PodDisruptionBudget; a persistent `${RURALZ_DATA_DIR}` volume |
 | Zone loss | Pods on unreachable nodes count until force-deleted or their nodes removed (`node.kubernetes.io/out-of-service` taint), their zonal volumes stuck; HPA reads them as idle on scale-up (below). The zone-loss procedure force-deletes them, releasing the volumes; replacements re-enroll via Ruralz Control (OQ-deployment-topologies-20) |
 | Zone spread | `topologySpreadConstraints` on the zone label, `maxSkew: 1`, `whenUnsatisfiable: DoNotSchedule` |
 | Node Service | LoadBalancer for TCP 8080 and 8443; UDP 8443 (`http3: true`, Planned (M3)) needs a UDP balancer |
 | Probes | `/readyz` and `/healthz` on 9901, or 9902 for `ruralz-control` |
-| HorizontalPodAutoscaler | [Autoscaling signals](../architecture/11-scalability-and-distributed-state.md#autoscaling-signals) at their thresholds (target): CPU as a Resource metric, the rest as adapter Pods metrics, connections at 10,000 (target) or half Sizing option (b)'s cap, 1,250 (hypothesis). `behavior.scaleDown` removes at most one zone's share per stabilized period (target); half-threshold scale-in is OQ-deployment-topologies-14. `minReplicas` holds the headroom and, without an adapter, peak connections / threshold; State Store shards bound `maxReplicas` ([Sizing defaults](#sizing-defaults)). As the Node count lags ([Warm-up](../architecture/11-scalability-and-distributed-state.md#warm-up)), Control-mode Clusters SHOULD declare per-Node ceilings c, below |
+| HorizontalPodAutoscaler | [Autoscaling signals](../architecture/11-scalability-and-distributed-state.md#autoscaling-signals) at their thresholds (target): CPU as a Resource metric, the rest as adapter Pods metrics, connections at 10,000 (target). `behavior.scaleDown` removes at most one zone's share per stabilized period (target); half-threshold scale-in is OQ-deployment-topologies-14. `minReplicas` holds the headroom and, without an adapter, peak connections / threshold; State Store shards bound `maxReplicas` ([Sizing defaults](#sizing-defaults)). As the Node count lags ([Warm-up](../architecture/11-scalability-and-distributed-state.md#warm-up)), Control-mode Clusters SHOULD declare per-Node ceilings c, below |
 | PodDisruptionBudgets | One `ruralz-control` pod; for Nodes, one zone's share at minimum scale (target) |
-| Termination | `terminationGracePeriodSeconds` MUST exceed the preStop wait plus the Drain deadline |
+| Termination | `terminationGracePeriodSeconds` MUST exceed the preStop wait plus the exit bound (Drain deadline plus flush) |
 | RBAC | Nodes: `get` and `watch` on own-namespace Secrets, only for `provider: kubernetes`; `list` and `watch` on `endpointslices.discovery.k8s.io` via a Role per Upstream namespace (OQ-deployment-topologies-1). `ruralz-control`: `list` and `watch` on `ruralz.io` CRDs in bound namespaces, reads of cluster-scoped `Environment` and `Cluster` CRDs, cluster-scoped CRD status updates. Bootstrap Job, in its namespace: `get` on the bootstrap Secret, `create` on token Secrets and the marker. None reads Secrets cluster-wide |
 
 Declared ceilings bind healthy admission too (pack 8.8): pick c per limit between the bounds below, at least one token per window, and declare `requests` / `maxReplicas` only where that under-admission is acceptable, else narrow the HPA range to `minReplicas` / `maxReplicas` ≥ 0.5. A declared cap on the derived ceiling: OQ-deployment-topologies-22.
@@ -222,7 +222,7 @@ flowchart TB
         c90["Service 8090: REST API and Ruralz Console"]
         c91["Service 8091: L4 passthrough for the Control Stream"]
         c92["Headless Service 8092: Raft peers"]
-        cwh["Conversion webhook Service, port OQ-deployment-topologies-13"]
+        cwh["Conversion webhook Service, port OQ-deployment-topologies-13, Planned (M3)"]
         nst["StatefulSet ruralzd: Parallel, volume for RURALZ_DATA_DIR, zone spread"]
         init["Init container: mints an Enrollment token, proposed"]
         hpa["HorizontalPodAutoscaler: CPU plus Pods metrics"]
@@ -262,7 +262,7 @@ flowchart TB
 
 ### T5 and T6: VMs with systemd and edge sites
 
-**T5.** One `ruralzd` service per VM keeps `${RURALZ_DATA_DIR}` on local disk; two per network namespace: Not planned ([listeners](../architecture/11-scalability-and-distributed-state.md#so_reuseport-and-listeners)). `systemctl stop` starts a Drain, so `TimeoutStopSec` MUST exceed the Drain deadline. Upgrades hand over through `SO_REUSEPORT` ([ADR-0015](../adr/0015-zero-downtime-upgrades-so-reuseport.md), OQ-deployment-topologies-7).
+**T5.** One `ruralzd` service per VM keeps `${RURALZ_DATA_DIR}` on local disk; two per network namespace: Not planned ([listeners](../architecture/11-scalability-and-distributed-state.md#so_reuseport-and-listeners)). `systemctl stop` starts a Drain, so `TimeoutStopSec` MUST exceed the exit bound, 30 s (target) ([Drain timeline](02-zero-downtime-upgrades-and-hot-reload.md#drain-timeline-defaults)). Upgrades hand over through `SO_REUSEPORT` ([ADR-0015](../adr/0015-zero-downtime-upgrades-so-reuseport.md), OQ-deployment-topologies-7).
 
 **T6.** A multi-Node site needs a local `redis` State Store; one Node MAY use `memory`. Nodes pull signed Revisions from a site mirror by default, verifying offline, or in Control mode dial 8091 when the uplink allows; certificates live 30 days (target), and a restarted detached Node forgets revocations (OQ-security-and-identity-5).
 
@@ -400,7 +400,7 @@ Ports follow pack 8.4; Ruralz Control never dials a Node, and Nodes never dial e
 | State Store calls, TLS, authenticated | Nodes | Own Cell's State Store only | With `redis` |
 | Pulls by digest | Nodes, CI, Ruralz Control | OCI registry or mirror | Revisions: T2, T6; Plugins: all |
 | Git reads, write-back pushes | Ruralz Control leader, CI | Git forge | T3, T4, T7 to T10 |
-| CRD watch and status; conversion webhook | Ruralz Control leader; API server | Kubernetes API; `ruralz-control` | T4 |
+| CRD watch and status; conversion webhook, Planned (M3) | Ruralz Control leader; API server | Kubernetes API; `ruralz-control` | T4 |
 | Secret, discovery reads | Nodes | Kubernetes API or Vault | Those providers |
 | Upstream calls, JWKS, telemetry | Nodes; Ruralz Control telemetry | Upstreams, IdPs, OpenTelemetry collector | All |
 
@@ -490,9 +490,9 @@ Starting points; [Capacity planning](03-capacity-planning.md) replaces them with
 
 | Item | Starting value | Owner |
 |---|---|---|
-| Node container | 4 vCPU (target) and 4 GiB (hypothesis) for idle TLS connections and default buffered-bytes and state-table budgets only; the fixed ceilings' worst case, about 19 GiB plus snapshots, needs 32 GiB (hypothesis, [Performance budgets](../architecture/12-performance-budgets-and-benchmarking.md)). (a) Size for it, or (b) cap connections per Node at the L4 balancer near 2,500 (hypothesis; OQ-deployment-topologies-21). Plugins add `limits.maxPluginMemoryBytes`, 2 GiB by default (target) | [Memory budget](../architecture/12-performance-budgets-and-benchmarking.md#memory-budget); OQ-deployment-topologies-8 |
+| Node container | 4 vCPU (target); 4 GiB (hypothesis) fits only idle TLS connections and default buffered-bytes and state-table budgets; the fixed ceilings' worst case, about 19 GiB plus snapshots, needs 32 GiB (hypothesis, [Performance budgets](../architecture/12-performance-budgets-and-benchmarking.md)). Size memory by `GOMEMLIMIT` below; an L4 connection cap does not bound it (OQ-capacity-planning-5). Plugins add `limits.maxPluginMemoryBytes`, 2 GiB by default (target) | [Memory budget](../architecture/12-performance-budgets-and-benchmarking.md#memory-budget); OQ-deployment-topologies-8 |
 | S2 planning throughput | 16,000 rps per 4-vCPU Node at half saturation (target) | [Throughput targets](../architecture/12-performance-budgets-and-benchmarking.md#throughput-targets) |
-| `GOMEMLIMIT` | About 90% of the container memory limit (target) | [Scale unit](../architecture/11-scalability-and-distributed-state.md#scale-unit) |
+| `GOMEMLIMIT` | At least max(M_node, M_flood), 90% of the container limit (target) | [Capacity planning](03-capacity-planning.md#formulas) |
 | Nodes per Cluster | At least three in two or more equal zones (target), scaling out at 40% CPU with two zones, 53% with three, 60% with four (target); unequal zones at 80% × (N − N_largest_zone) / N (target) | [Autoscaling signals](../architecture/11-scalability-and-distributed-state.md#autoscaling-signals) |
 | Nodes per Cell | 1,000 at most (target) | [Cell sizing](../architecture/11-scalability-and-distributed-state.md#cell-sizing) |
 | State Store calls per Cell | 1,000,000 per second (hypothesis), binding at about 200 Nodes of 5,000 calls per second (hypothesis) | [Bottlenecks](../architecture/11-scalability-and-distributed-state.md#cell-and-cluster-bottlenecks) |
@@ -517,9 +517,9 @@ Shards               ceil(78,000 / 50,000 at 50% of a shard) = 2, each with a re
 Ruralz Control       3 voters; ceil(6 / 5,000) + 1 = 2 replicas → 3                   (hypothesis)
 Node memory          20,000 × 96 KiB + 256 MiB = 2.2 GiB                              (target)
                      + 512 MiB maxBufferedBytes + about 475 MiB state tables ≈ 3.2 GiB (hypothesis)
-                     → 4 GiB container; Performance budgets' informational run: 2.5 GiB (target)
-Connection cap (b)   (3,686 MiB GOMEMLIMIT − 1,243 MiB budgets) / (592 KiB per connection
-                     + 320 KiB per in-flight unit) ≈ 2,700 → about 2,500 per Node       (hypothesis)
+                     idle only; Performance budgets' informational run: 2.5 GiB (target)
+GOMEMLIMIT           ≥ max(M_node, M_flood), M_flood holding 6,250 MiB of in-flight
+                     units on every Node, so the container exceeds 4 GiB               (hypothesis)
 maxReplicas bound    ≤ shards × 50,000 / (per-Node rps × blocking calls per request)
                      RA-2: ceil(30 × 16,960 × 1 / 50,000) = 11 shards, within 16        (hypothesis)
 ```
@@ -594,5 +594,5 @@ Failure behavior: a lost Region's traffic moves to pre-provisioned capacity. A l
 | OQ-deployment-topologies-18 | How do thousands of Nodes re-enroll after a restore without a revocation list? | (a) Bulk procedure, batched tokens (proposed); (b) require the list | high-availability-and-disaster-recovery | No |
 | OQ-deployment-topologies-19 | Should a namespace-primary Environment show as Drift, and can object sets promote? | (a) A normal source whose object sets promote (proposed); (b) Drift, no promotion | control-plane-and-gitops | Yes, for the Planned (M2) CRD source |
 | OQ-deployment-topologies-20 | After volume or zone loss, how are a `ruralz-control` replica replaced, as `/api/v1/replicas` removes no voter, and stranded Node pods released ([HA and DR](04-high-availability-and-disaster-recovery.md))? | (a) A chart Job removes the stale voter and mints a join token under a standing credential; runbooks force-delete Node pods (proposed); (b) manual steps; (c) higher `minReplicas` or zone-replicated volumes; (d) Nodes as a Deployment | high-availability-and-disaster-recovery | Yes, for the Planned (M2) chart |
-| OQ-deployment-topologies-21 | Can the connection ceiling be lowered, sparing small Nodes a balancer cap? | (a) Fixed (current, OQ-data-plane-1 (a)); (b) or (c) of OQ-data-plane-1 | data-plane | No |
+| OQ-deployment-topologies-21 | Can small Nodes get a lower connection ceiling? | (a) Fixed (current, OQ-data-plane-1 (a)); (b) or (c) of OQ-data-plane-1, with OQ-capacity-planning-5 | data-plane | No |
 | OQ-deployment-topologies-22 | Should a declared per-Node cap bound the derived ceiling, min(derived, cap), not replace it? | (a) Yes (proposed; OQ-traffic-management-and-resilience-1, -19); (b) replace (current) | traffic-management-and-resilience | No |

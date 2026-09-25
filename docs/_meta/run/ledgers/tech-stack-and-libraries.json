@@ -65,7 +65,7 @@
   {
    "section": "Selection criteria",
    "kind": "decision",
-   "value": "Accepted exceptions: jwx v4 fails S2; paho.golang and mochi-mqtt fail S1; gorilla/websocket and go-jose/v4 break S6; archived boltdb/bolt fails S1"
+   "value": "Accepted exceptions: jwx v4 fails S2; paho.golang and mochi-mqtt fail S1; gorilla/websocket breaks S6 via graphql-go-tools' `graphql_datasource`; go-jose/v4 breaks S6 in `ruralz-control` only, via go-oidc (OQ-tech-stack-and-libraries-6, option (b)); archived boltdb/bolt fails S1"
   },
   {
    "section": "Selection criteria",
@@ -210,7 +210,7 @@
   {
    "section": "Library catalog",
    "kind": "library",
-   "value": "Semantic Cache: Redis 8 Vector Sets (`VADD`, `VSIM`) or valkey-search 1.2 (`FT.*`) via separate rueidis client; CGO Via rueidis; ADR None"
+   "value": "Semantic Cache: Redis 8.4.6 or newer Vector Sets (`VADD`, `VSIM`) or valkey-search 1.2 (`FT.*`) on Valkey 9.0.1 or newer, floors set by AI/LLM gateway, via separate rueidis client; CGO Via rueidis; ADR None"
   },
   {
    "section": "Library catalog",
@@ -270,7 +270,7 @@
   {
    "section": "Library catalog",
    "kind": "library",
-   "value": "JOSE: `lestrrat-go/jwx/v4` v4.5.x; CGO Pending CI; ADR None"
+   "value": "JOSE: `lestrrat-go/jwx/v4` v4.5.x; `ruralzd` uses jwx alone for JWKS and token verification; CGO Pending CI; ADR None"
   },
   {
    "section": "Library catalog",
@@ -280,12 +280,12 @@
   {
    "section": "Library catalog",
    "kind": "library",
-   "value": "OIDC: `coreos/go-oidc/v3` v3.21.x; CGO Pending CI; ADR None"
+   "value": "OIDC: `coreos/go-oidc/v3` v3.21.x, in `ruralz-control` only, for Ruralz Console SSO (OQ-tech-stack-and-libraries-6, option (b)); CGO Pending CI; ADR None"
   },
   {
    "section": "Library catalog",
    "kind": "milestone",
-   "value": "OIDC: Planned (M1)"
+   "value": "OIDC: Planned (M5)"
   },
   {
    "section": "Library catalog",
@@ -336,6 +336,16 @@
    "section": "Library catalog",
    "kind": "milestone",
    "value": "Service discovery: Planned (M1) DNS; Planned (M2) Kubernetes"
+  },
+  {
+   "section": "Library catalog",
+   "kind": "library",
+   "value": "Zero-Downtime Upgrade socket steering: `golang.org/x/sys/unix` v0.48.x, imported directly for `SO_ATTACH_REUSEPORT_CBPF` steering; CGO Pending CI; ADR ADR-0015"
+  },
+  {
+   "section": "Library catalog",
+   "kind": "milestone",
+   "value": "Zero-Downtime Upgrade socket steering: Planned (M1)"
   },
   {
    "section": "Library catalog",
@@ -480,6 +490,11 @@
   {
    "section": "Library catalog",
    "kind": "claim",
+   "value": "License golang.org/x/sys: BSD-3-Clause; already linked transitively through wazero and bbolt; steering calls are Linux-only"
+  },
+  {
+   "section": "Library catalog",
+   "kind": "claim",
    "value": "License testcontainers-go; buf: MIT; Apache-2.0"
   },
   {
@@ -595,7 +610,7 @@
   {
    "section": "Library catalog",
    "kind": "decision",
-   "value": "Rate limiting: server `TIME`; `EVALSHA` with `NOSCRIPT` fallback; Script cache lost on failover; all keys in `KEYS`"
+   "value": "Rate limiting: server `TIME`; `EVALSHA`; `NOSCRIPT` applies `failureMode` and schedules an off-path `SCRIPT LOAD`, never an `EVAL` retry; Script cache lost on failover; all keys in `KEYS`"
   },
   {
    "section": "Library catalog",
@@ -625,7 +640,7 @@
   {
    "section": "Library catalog",
    "kind": "claim",
-   "value": "GraphQL: Ruralz Control and CLI import only `ast` and `astvalidation`; Federation versions 1 and 2; pins gorilla/websocket v1.5.1"
+   "value": "GraphQL: `ruralzd` links lexer, parser, `astnormalization`, `astvalidation`, `engine/plan`, `engine/resolve` and `graphql_datasource`; `ruralz-control` and `ruralz` link lexer, parser, normalization and validation packages plus `engine/plan` and the `graphql_datasource` planner, with no HTTP or subscription client, never `engine/resolve`; no binary links `subscription`; Federation versions 1 and 2; pins gorilla/websocket v1.5.1, which `graphql_datasource` brings into all three binaries"
   },
   {
    "section": "Library catalog",
@@ -660,7 +675,7 @@
   {
    "section": "Library catalog",
    "kind": "claim",
-   "value": "go-oidc: Brings go-jose/v4 beside jwx"
+   "value": "go-oidc: Brings go-jose/v4 beside jwx in `ruralz-control`"
   },
   {
    "section": "Library catalog",
@@ -730,7 +745,7 @@
   {
    "section": "Library catalog",
    "kind": "limit",
-   "value": "an idle RSS budget of 96 MiB with no Revision loaded (target)"
+   "value": "an idle RSS budget of 89 MiB with no Revision loaded (target), owned by Performance budgets and benchmarking; answers OQ-performance-budgets-and-benchmarking-5 with option (a)"
   },
   {
    "section": "Library catalog",
@@ -880,12 +895,22 @@
   {
    "section": "Dependency graph",
    "kind": "decision",
-   "value": "One validation library runs in all three binaries; errors surface in `ruralz bundle validate`, not as Node NACKs (size cost: OQ-tech-stack-and-libraries-22)"
+   "value": "One validation library runs in all three binaries; `ruralz-control` and the CLI compile every CEL expression, Rego module, Cedar policy and GraphQL document, and plan supergraph operations, before a Revision exists; errors surface in `ruralz bundle validate`, not as Node NACKs (size cost: OQ-tech-stack-and-libraries-22)"
   },
   {
    "section": "Dependency graph",
    "kind": "claim",
    "value": "`ruralz-control` links client-go to watch Ruralz CRDs; `ruralz dev run` launches a local `ruralzd` rather than embedding it"
+  },
+  {
+   "section": "Dependency graph",
+   "kind": "claim",
+   "value": "Figure 1: `ruralzd` does not link go-oidc, so jwx alone verifies tokens; it links `golang.org/x/sys/unix`"
+  },
+  {
+   "section": "Dependency graph",
+   "kind": "claim",
+   "value": "Figure 2: `ruralz-control` and `ruralz` link graphql-go-tools lexer, parser, normalization, validation, `engine/plan` and the `graphql_datasource` planner; `ruralz-control` links go-oidc"
   },
   {
    "section": "Version floor",
@@ -980,7 +1005,7 @@
   {
    "section": "FIPS build",
    "kind": "decision",
-   "value": "quic-go G3 exception: Accepted outside FIPS builds; HTTP/3 off in FIPS builds (OQ-tech-stack-and-libraries-9)"
+   "value": "quic-go G3 exception: Accepted outside FIPS builds; HTTP/3 off in FIPS builds, and a FIPS Node refuses, never ignores, `http3: true` (OQ-tech-stack-and-libraries-9)"
   },
   {
    "section": "FIPS build",
@@ -990,7 +1015,7 @@
   {
    "section": "FIPS build",
    "kind": "decision",
-   "value": "go-jose/v4, OPA v1, sigstore-go: The G3 check decides; a failure adds a row or a replacement"
+   "value": "go-jose/v4 (`ruralz-control` only), OPA v1, sigstore-go: The G3 check decides; a failure adds a row or a replacement"
   },
   {
    "section": "FIPS build",
@@ -1205,7 +1230,7 @@
   {
    "section": "Open questions",
    "kind": "decision",
-   "value": "OQ-tech-stack-and-libraries-6: Two JOSE stacks (non-blocking)"
+   "value": "OQ-tech-stack-and-libraries-6: Two JOSE stacks; answered by Security and identity with option (b): go-oidc, with go-jose/v4, in Ruralz Control only (No (answered))"
   },
   {
    "section": "Open questions",
@@ -1215,7 +1240,7 @@
   {
    "section": "Open questions",
    "kind": "decision",
-   "value": "OQ-tech-stack-and-libraries-9: FIPS HTTP/3 given the quic-go G3 exception (golang/go#79219); Blocking for the FIPS build"
+   "value": "OQ-tech-stack-and-libraries-9: FIPS HTTP/3 given the quic-go G3 exception (golang/go#79219); how a FIPS Node refuses, never ignores, `http3: true`: (c) deterministic NACK or file-mode load failure with an RZ-CFG code the Configuration model registers (proposed), (d) render-time error needing a FIPS-target field; Blocking for the FIPS build"
   },
   {
    "section": "Open questions",
@@ -1236,6 +1261,21 @@
    "section": "Open questions",
    "kind": "decision",
    "value": "OQ-tech-stack-and-libraries-24: MaxMind-format reader for `authz.geoip`; Blocking for `authz.geoip`"
+  },
+  {
+   "section": "Open questions",
+   "kind": "decision",
+   "value": "OQ-tech-stack-and-libraries-22: Validation-only engines and GraphQL supergraph planning grow Ruralz Control and CLI (non-blocking)"
+  },
+  {
+   "section": "Open questions",
+   "kind": "decision",
+   "value": "OQ-tech-stack-and-libraries-25: CA roots for static binaries: (a) image ships a CA bundle, archives read the host store; (b) binary embeds roots, needing a research-backed catalog row and a G3 decision, `-fips` artifacts the same; (c) host or mounted store only; Release owner; Blocking for container images"
+  },
+  {
+   "section": "Open questions",
+   "kind": "decision",
+   "value": "Answered here: OQ-performance-budgets-and-benchmarking-5, option (a), idle RSS 89 MiB (target)"
   },
   {
    "section": "Open questions",

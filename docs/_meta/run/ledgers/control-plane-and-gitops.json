@@ -208,6 +208,106 @@
    "value": "A new leader restarts open gate windows and evaluates no gate until canary Nodes report or one ACK timeout passes"
   },
   {
+   "section": "Process configuration",
+   "kind": "decision",
+   "value": "decides OQ-control-plane-and-gitops-1 with option (a): Ruralz Control's own settings are process configuration, never a kind or field, so they never change a Revision"
+  },
+  {
+   "section": "Process configuration",
+   "kind": "term",
+   "value": "ruralz-control reads one YAML file named by `RURALZ_CONFIG` (pack section 2) with `camelCase` keys; `RURALZ_DATA_DIR` holds the Control Store and `RURALZ_LOG_LEVEL` the log level"
+  },
+  {
+   "section": "Process configuration",
+   "kind": "claim",
+   "value": "Secrets appear only as file paths, never inline, so the file itself holds no secret"
+  },
+  {
+   "section": "Process configuration",
+   "kind": "claim",
+   "value": "Every replica SHOULD carry the same file; the leader's copy governs leader-only work, and each replica exports its file's digest so a mismatch shows on the Drift screen"
+  },
+  {
+   "section": "Process configuration",
+   "kind": "milestone",
+   "value": "Settings are Planned (M2); `postgres` is Planned (M4)"
+  },
+  {
+   "section": "Process configuration",
+   "kind": "kind_or_field",
+   "value": "git.url, git.branch, git.credentialsFile: tracked repository, branch and fetch/write-back credentials; reload"
+  },
+  {
+   "section": "Process configuration",
+   "kind": "default",
+   "value": "Without `git.url`, no Git source runs"
+  },
+  {
+   "section": "Process configuration",
+   "kind": "kind_or_field",
+   "value": "webhooks[].source, webhooks[].secretFile: per-source HMAC secret for /api/v1/hooks/git; reload"
+  },
+  {
+   "section": "Process configuration",
+   "kind": "kind_or_field",
+   "value": "registries[].host, registries[].credentialsFile: online Plugin check allowlist, credentials bound to one host; reload"
+  },
+  {
+   "section": "Process configuration",
+   "kind": "default",
+   "value": "An empty registry allowlist means every online Plugin check fails"
+  },
+  {
+   "section": "Process configuration",
+   "kind": "kind_or_field",
+   "value": "pluginTrustPolicy: Control-mode Plugin trust policy (pack 8.14); reaches Nodes only in the next root-signed anchor set"
+  },
+  {
+   "section": "Process configuration",
+   "kind": "kind_or_field",
+   "value": "crd.bindings[].namespace, crd.bindings[].environment, crd.controlKinds: CRD source per Environment, off when empty; controlKinds also reads Environment and Cluster CRDs; reload"
+  },
+  {
+   "section": "Process configuration",
+   "kind": "kind_or_field",
+   "value": "sources.allowUngated[]: Environments whose requireApproval still admits ruralz bundle push and CRD sources, each use audited; reload"
+  },
+  {
+   "section": "Process configuration",
+   "kind": "kind_or_field",
+   "value": "enrollment.nodeCap, enrollment.mintingQuota: per-Cluster Node cap and token minting quota (OQ-control-plane-and-gitops-23); reload"
+  },
+  {
+   "section": "Process configuration",
+   "kind": "kind_or_field",
+   "value": "controlStore.driver, controlStore.postgres.urlFile: raft (default) or postgres; a change is a Control Store move that opens a new storeEpoch; restart"
+  },
+  {
+   "section": "Process configuration",
+   "kind": "kind_or_field",
+   "value": "api.tlsCertFile, api.tlsKeyFile: 8090 TLS, else issued by the server CA; restart"
+  },
+  {
+   "section": "Process configuration",
+   "kind": "kind_or_field",
+   "value": "telemetry.otlp.endpoint, telemetry.otlp.caFile: OTLP traces, metrics and logs, TLS per TB-12; unset means /metrics on 9902 and JSON logs on stdout only; restart"
+  },
+  {
+   "section": "Process configuration",
+   "kind": "failure_mode",
+   "value": "Reload means on SIGHUP or file change, validated first: an invalid file keeps the previous settings, logs the error and exports a metric"
+  },
+  {
+   "section": "Process configuration",
+   "kind": "claim",
+   "value": "Every applied process configuration change is audited with the file's digest"
+  },
+  {
+   "section": "Process configuration",
+   "kind": "decision",
+   "value": "answers OQ-observability-11 with option (b): OTLP settings live in the process configuration file, the log level in `RURALZ_LOG_LEVEL`"
+  },
+  {
    "section": "GitOps model",
    "kind": "claim",
    "value": "Git is the source of truth (P5); Ruralz Console never edits the Control Store directly"
@@ -241,6 +341,11 @@
    "section": "Repository layout",
    "kind": "claim",
    "value": "adding a Cluster never changes a digest"
+  },
+  {
+   "section": "Repository layout",
+   "kind": "claim",
+   "value": "The Git source and credentials come from process configuration (TB-7)"
   },
   {
    "section": "Branch-to-Environment mapping",
@@ -316,6 +421,16 @@
    "section": "Branch-to-Environment mapping",
    "kind": "claim",
    "value": "queues a promotion record (source, Environment, digest), which replaces an older unapproved one"
+  },
+  {
+   "section": "Branch-to-Environment mapping",
+   "kind": "cli_command",
+   "value": "ruralz rollout reject --env NAME --digest sha256:DIGEST"
+  },
+  {
+   "section": "Branch-to-Environment mapping",
+   "kind": "claim",
+   "value": "Reject in Ruralz Console, the REST API or `ruralz rollout reject` discards a queued promotion record"
   },
   {
    "section": "Branch-to-Environment mapping",
@@ -499,8 +614,18 @@
   },
   {
    "section": "Revision signing and verification",
+   "kind": "kind_or_field",
+   "value": "The Control-mode Plugin trust policy comes from `pluginTrustPolicy` in process configuration (pack 8.14)"
+  },
+  {
+   "section": "Revision signing and verification",
    "kind": "failure_mode",
    "value": "A Node refuses to boot a candidate or Last-Known-Good whose assignment or promotion it accepted from that key after `compromisedSince`... stays not ready until the Control Stream delivers"
+  },
+  {
+   "section": "Revision signing and verification",
+   "kind": "decision",
+   "value": "compromisedSince boot refusal is OQ-control-plane-and-gitops-24, option (a), adopted by ADR-0017 and Security and identity"
   },
   {
    "section": "Revision signing and verification",
@@ -639,18 +764,23 @@
   },
   {
    "section": "Rolling back in three steps",
-   "kind": "cli_command",
-   "value": "ruralz rollout status prod-eu-west"
+   "kind": "claim",
+   "value": "CONTROL=\"--control https://control.shop.example:8090 --token-file ${HOME}/.ruralz/token\" is passed to each of the three commands"
   },
   {
    "section": "Rolling back in three steps",
    "kind": "cli_command",
-   "value": "ruralz rollout rollback 01J9ZK3M7Q8R2T4V6X8Y0A1B2C"
+   "value": "ruralz rollout status $CONTROL prod-eu-west"
   },
   {
    "section": "Rolling back in three steps",
    "kind": "cli_command",
-   "value": "ruralz rollout status 01J9ZK3M7Q8R2T4V6X8Y0A1B2C"
+   "value": "ruralz rollout rollback $CONTROL 01J9ZK3M7Q8R2T4V6X8Y0A1B2C"
+  },
+  {
+   "section": "Rolling back in three steps",
+   "kind": "cli_command",
+   "value": "ruralz rollout status $CONTROL 01J9ZK3M7Q8R2T4V6X8Y0A1B2C"
   },
   {
    "section": "Rolling back in three steps",
@@ -725,7 +855,7 @@
   {
    "section": "Control Stream",
    "kind": "kind_or_field",
-   "value": "Hello: activeDigest, lkgDigest, schemaLevels, lastNonce, storeEpoch, assignmentSeq, anchor-set version"
+   "value": "Hello: activeDigest, lkgDigest, schemaLevels, lastNonce, storeEpoch, assignmentSeq, anchor-set version, revocationSeq; answered with revocation entries after revocationSeq"
   },
   {
    "section": "Control Stream",
@@ -750,7 +880,7 @@
   {
    "section": "Control Stream",
    "kind": "kind_or_field",
-   "value": "Heartbeat: activeDigest, lkgDigest, signingKeyId per digest, schemaLevels, ready, draining, counters per rolloutId"
+   "value": "Heartbeat: activeDigest, lkgDigest, signingKeyId per digest, schemaLevels, ready, draining, revocationSeq, counters per rolloutId"
   },
   {
    "section": "Control Stream",
@@ -761,6 +891,16 @@
    "section": "Control Stream",
    "kind": "kind_or_field",
    "value": "TrustUpdate: nonce, anchorSet, rootSignature"
+  },
+  {
+   "section": "Control Stream",
+   "kind": "kind_or_field",
+   "value": "RevocationUpdate (Ruralz Control to Node): nonce, entries (each with sequence and signature), highWaterMark (sequence, Cluster, issue time, signature); acknowledged by a Node-signed Ack; pending OQ-security-and-identity-4, option (a)"
+  },
+  {
+   "section": "Control Stream",
+   "kind": "number",
+   "value": "A RevocationUpdate with no entries is a mark-only update every 10 s (target); a sequence gap is a degraded state"
   },
   {
    "section": "Control Stream",
@@ -795,7 +935,22 @@
   {
    "section": "Control Stream",
    "kind": "claim",
-   "value": "`Ack` means active, not durable; stale nonces are ignored"
+   "value": "`Ack` means active, not durable; stale nonces are ignored; counts per (`node.id`, `storeEpoch`, `assignmentSeq`), so a `Hello` matching the pending assignment's digest, `storeEpoch` and `assignmentSeq` is its `Ack` (ADR-0007)"
+  },
+  {
+   "section": "Control Stream",
+   "kind": "claim",
+   "value": "The `Delta` `ops` encoding is OQ-control-plane-and-gitops-26"
+  },
+  {
+   "section": "Control Stream",
+   "kind": "claim",
+   "value": "Revocations bypass the Revision digest, a proposed exception to pack 8.1 and 8.4; the leader signs each entry with the Cluster's next revocation sequence; followers and relays forward entries and marks unchanged"
+  },
+  {
+   "section": "Control Stream",
+   "kind": "failure_mode",
+   "value": "Until OQ-security-and-identity-4 is decided, RevocationUpdate is unused and revocation entries are unavailable"
   },
   {
    "section": "Control Stream",
@@ -890,7 +1045,7 @@
   {
    "section": "Heartbeat and backpressure",
    "kind": "limit",
-   "value": "One unacknowledged configuration message per Node, `TrustUpdate` included"
+   "value": "One unacknowledged configuration message per Node, `TrustUpdate` included; `RevocationUpdate` has its own window of one, so a pending Snapshot never delays a revocation"
   },
   {
    "section": "Heartbeat and backpressure",
@@ -1065,7 +1220,17 @@
   {
    "section": "Ruralz Console",
    "kind": "term",
-   "value": "Screens: Overview, Environments, Clusters, Nodes, Revisions, Rollouts, Drift, Bundle editor, Plugins, Audit log, Access, Settings"
+   "value": "Screens: Overview, Environments, Clusters, Nodes, Revocations, Revisions, Rollouts, Drift, Bundle editor, Plugins, Audit log, Access, Settings"
+  },
+  {
+   "section": "Ruralz Console",
+   "kind": "kind_or_field",
+   "value": "Revocations screen: add entry, remove `kid` entry; view and act: security-admin, step-up"
+  },
+  {
+   "section": "Ruralz Console",
+   "kind": "kind_or_field",
+   "value": "Settings actions: rotate key, upload anchor set, join token, remove voter, backup; act: admin, remove voter with step-up; anchor set: security-admin"
   },
   {
    "section": "RBAC and SSO",
@@ -1111,6 +1276,11 @@
    "section": "RBAC and SSO",
    "kind": "milestone",
    "value": "Planned (M2): local accounts with PBKDF2-HMAC-SHA-256, lockout and TOTP"
+  },
+  {
+   "section": "RBAC and SSO",
+   "kind": "claim",
+   "value": "step-up for approvals, reverts, trust uploads, revocation entries, voter removal and Access changes"
   },
   {
    "section": "RBAC and SSO",
@@ -1238,6 +1408,36 @@
    "value": "ruralz control join"
   },
   {
+   "section": "Certificates and replica join",
+   "kind": "decision",
+   "value": "Adopting OQ-cli-and-api-surface-14 option (a): Join records a pending member; the leader adds it as a non-voter on its first 8092 connection and promotes it to voter once it reaches the commit index"
+  },
+  {
+   "section": "Removing a voter",
+   "kind": "api_path",
+   "value": "DELETE /api/v1/replicas/{serverId}"
+  },
+  {
+   "section": "Removing a voter",
+   "kind": "claim",
+   "value": "Voter removal: admin with step-up TOTP, audited, Raft only; also Remove voter in Ruralz Console Settings"
+  },
+  {
+   "section": "Removing a voter",
+   "kind": "claim",
+   "value": "Only the leader acts, as a Raft `RemoveServer` of that server ID, then revokes the replica's peer certificate so the old volume cannot rejoin"
+  },
+  {
+   "section": "Removing a voter",
+   "kind": "error_code",
+   "value": "RZ-CP-019: refused when it names the leader or when the voters left in contact with the leader would not form a majority of the new voter set"
+  },
+  {
+   "section": "Removing a voter",
+   "kind": "claim",
+   "value": "High availability and disaster recovery decides who calls it (OQ-high-availability-and-disaster-recovery-2)"
+  },
+  {
    "section": "Readiness on port 9902",
    "kind": "port",
    "value": "9902"
@@ -1350,6 +1550,11 @@
   {
    "section": "API summary",
    "kind": "api_path",
+   "value": "revocations"
+  },
+  {
+   "section": "API summary",
+   "kind": "api_path",
    "value": "drift"
   },
   {
@@ -1381,6 +1586,36 @@
    "section": "API summary",
    "kind": "api_path",
    "value": "hooks/git"
+  },
+  {
+   "section": "API summary",
+   "kind": "claim",
+   "value": "`audit`, `access`, `backup` and `revocations` also need the write role for reads"
+  },
+  {
+   "section": "API summary",
+   "kind": "api_path",
+   "value": "POST /api/v1/revocations: adds one entry, signed by the leader at the Cluster's next sequence and sent as RevocationUpdate; security-admin with step-up; audited as credential.revoked"
+  },
+  {
+   "section": "API summary",
+   "kind": "api_path",
+   "value": "GET /api/v1/revocations: entries per Cluster, sequence, high-water mark, cap use; security-admin"
+  },
+  {
+   "section": "API summary",
+   "kind": "api_path",
+   "value": "DELETE /api/v1/revocations/{entryId}: removes a kid entry only; security-admin with step-up; audited as credential.revoked"
+  },
+  {
+   "section": "API summary",
+   "kind": "api_path",
+   "value": "DELETE /api/v1/replicas/{serverId}: removes a voter; admin with step-up; audited"
+  },
+  {
+   "section": "API summary",
+   "kind": "failure_mode",
+   "value": "The revocations operations and RevocationUpdate are pending OQ-security-and-identity-4, option (a); until then the operations return RZ-CP-020 and Nodes receive no RevocationUpdate"
   },
   {
    "section": "API summary",
@@ -1503,6 +1738,16 @@
    "value": "RZ-CP-018: Webhook signature invalid or rate-limited"
   },
   {
+   "section": "API summary",
+   "kind": "error_code",
+   "value": "RZ-CP-019: Voter removal refused: leader or quorum"
+  },
+  {
+   "section": "API summary",
+   "kind": "error_code",
+   "value": "RZ-CP-020: Revocation entries unavailable, or the entry cap is reached"
+  },
+  {
    "section": "Audit and security",
    "kind": "number",
    "value": "commit through Raft every 250 ms (target) before the write returns"
@@ -1530,12 +1775,7 @@
   {
    "section": "Audit and security",
    "kind": "decision",
-   "value": "This document decides OQ-system-overview-9, -11 and -16, OQ-configuration-model-12, and OQ-tech-stack-and-libraries-22 with option (a)"
-  },
-  {
-   "section": "Open questions",
-   "kind": "milestone",
-   "value": "OQ-control-plane-and-gitops-1: Blocking, for Planned (M2)"
+   "value": "This document decides OQ-system-overview-9, -11 and -16, OQ-configuration-model-12, OQ-tech-stack-and-libraries-22 and OQ-cli-and-api-surface-14 with option (a), and OQ-observability-11 with option (b)"
   },
   {
    "section": "Open questions",
@@ -1564,13 +1804,23 @@
   },
   {
    "section": "Open questions",
+   "kind": "milestone",
+   "value": "OQ-control-plane-and-gitops-26: Blocking, for Planned (M2)"
+  },
+  {
+   "section": "Open questions",
+   "kind": "claim",
+   "value": "OQ-control-plane-and-gitops-26: How does `Delta` encode `ops` over `ruralz.canonical.v1`? (a) JSON Patch (RFC 6902) on the canonical document; (b) per-resource replace and delete"
+  },
+  {
+   "section": "Open questions",
    "kind": "library",
    "value": "(b) argon2id outside FIPS builds"
   },
   {
    "section": "Open questions",
    "kind": "decision",
-   "value": "Closed: OQ-control-plane-and-gitops-9 (b) and -10, -14, -19, -20 (a); -2 (trunk only) and -5 (a newer promotion waits); -11 (SSO) Planned (M5)"
+   "value": "Closed: OQ-control-plane-and-gitops-9 (b) and -10, -14, -19, -20, -24 (a), answered by Security and identity, -24 also by ADR-0017; -17 (a), decided by CLI and API surface as `ruralz rollout reject`; -1 (a) (process configuration), -2 (trunk only) and -5 (a newer promotion waits), decided here; -11 (SSO) Planned (M5)"
   }
  ]
 }

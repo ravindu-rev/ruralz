@@ -940,6 +940,11 @@
   {
    "section": "Degraded states",
    "kind": "kind_or_field",
+   "value": "`plugin_memlimit`: Plugins are active and `GOMEMLIMIT` is unset or below the Plugin memory cap plus M_fix; Planned (M2)"
+  },
+  {
+   "section": "Degraded states",
+   "kind": "kind_or_field",
    "value": "`state_store_memory_fallback`: No State Store, Node count unknown"
   },
   {
@@ -1036,6 +1041,11 @@
    "section": "Degraded states",
    "kind": "milestone",
    "value": "`plugin_parked_bound_low`: Planned (M2)"
+  },
+  {
+   "section": "Degraded states",
+   "kind": "milestone",
+   "value": "`plugin_memlimit`: Planned (M2)"
   },
   {
    "section": "Degraded states",
@@ -2230,7 +2240,7 @@
   {
    "section": "Overhead per signal",
    "kind": "number",
-   "value": "96 MiB idle RSS budget (target)"
+   "value": "89 MiB idle RSS budget (target) in [Performance budgets and benchmarking](12-performance-budgets-and-benchmarking.md#memory-budget)"
   },
   {
    "section": "Overhead per signal",
@@ -2240,7 +2250,7 @@
   {
    "section": "Overhead per signal",
    "kind": "number",
-   "value": "RSS above idle is at most twice each row (hypothesis; OQ-observability-17)"
+   "value": "RSS above idle is at most twice each row (hypothesis); Performance budgets checks that these seeds fit (OQ-observability-17)"
   },
   {
    "section": "Overhead per signal",
@@ -2495,12 +2505,12 @@
   {
    "section": "Open questions",
    "kind": "claim",
-   "value": "OQ-observability-17: Do 50,000 requests per second (hypothesis), 96 MiB idle RSS and 40 MiB of telemetry live heap, up to 80 MiB RSS at `GOGC=100` (target), fit together?"
+   "value": "OQ-observability-17: Do 50,000 requests per second (hypothesis), the idle RSS budget and 40 MiB of telemetry live heap, up to 80 MiB RSS at `GOGC=100` (target), fit together? Answered by Performance budgets and benchmarking: option (a), idle RSS lowered from 96 to 89 MiB (target)"
   },
   {
    "section": "Open questions",
    "kind": "claim",
-   "value": "OQ-observability-17 Owner performance-budgets-and-benchmarking; Blocking: No"
+   "value": "OQ-observability-17 Owner performance-budgets-and-benchmarking; Blocking: No (answered)"
   },
   {
    "section": "Open questions",

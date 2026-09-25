@@ -236,6 +236,7 @@ Reasons are Planned (M1) unless tagged.
 | `revision_signature_off`, `plugin_signature_off` | Revision or Plugin verification is `off` ([ADR-0017](../adr/0017-artifact-signing.md)); Planned (M2) |
 | `plugin_pool_degraded` | A pool is degraded after `RZ-PLG-008`; Planned (M2) |
 | `plugin_parked_bound_low` | A `state.*` Plugin pool's guaranteed parked bound is below 16 (target); Planned (M2) |
+| `plugin_memlimit` | Plugins are active and `GOMEMLIMIT` is unset or below the Plugin memory cap plus [M_fix](../operations/03-capacity-planning.md#formulas); Planned (M2) |
 | `state_store_memory_fallback` | No State Store, Node count unknown |
 | `state_store_memory_multi_node` | `memory` in a multi-Node Cluster (pack 8.8); Planned (M2) |
 | `state_store_unauthenticated` | A loopback `stateStore.url` carries no credentials; a non-loopback one is rejected ([Security and identity](08-security-and-identity.md#transport-security), code OQ-security-and-identity-30) |
@@ -555,7 +556,7 @@ For OQ-control-plane-and-gitops-12 this document chooses option (a), OpenTelemet
 
 ### Overhead per signal
 
-Budgets are per request, defaults minus telemetry off, on the reference hardware of [Performance budgets and benchmarking](12-performance-budgets-and-benchmarking.md), access-logging every request. Memory rows are live heap above the 96 MiB idle RSS budget (target) in [Tech stack and libraries](../engineering/01-tech-stack-and-libraries.md). The M1 benchmarks run at the default `GOGC=100` without `GOMEMLIMIT`, where the heap target is twice the live heap, so RSS above idle is at most twice each row (hypothesis; OQ-observability-17).
+Budgets are per request, defaults minus telemetry off, on the reference hardware of [Performance budgets and benchmarking](12-performance-budgets-and-benchmarking.md), access-logging every request. Memory rows are live heap above the 89 MiB idle RSS budget (target) in [Performance budgets and benchmarking](12-performance-budgets-and-benchmarking.md#memory-budget). The M1 benchmarks run at the default `GOGC=100` without `GOMEMLIMIT`, where the heap target is twice the live heap, so RSS above idle is at most twice each row (hypothesis); Performance budgets checks that these seeds fit (OQ-observability-17).
 
 | Signal | CPU per request | Allocations per request | Memory per Node |
 |---|---|---|---|
@@ -614,7 +615,7 @@ With the Route histogram at its limit it is about 82,400 (hypothesis): about 8.2
 | OQ-observability-14 | Should heartbeats add latency histograms for Rollout gates, beside the request, 5xx and rejection counters they carry? | (a) No (current); (b) Yes | control-plane-and-gitops | No |
 | OQ-observability-15 | May Go runtime metrics keep SDK names outside pack 2? | (a) No, `ruralz_runtime_*` (current); (b) pack amendment | tech-stack-and-libraries | No |
 | OQ-observability-16 | Which OpenTelemetry Go SDK interface exports Ruralz aggregates and ends series, at what cost? | (a) External producer; (b) callback instruments; (c) Ruralz encoders, needing an ADR-0010 amendment | tech-stack-and-libraries | Yes, for M1 metrics |
-| OQ-observability-17 | Do 50,000 requests per second (hypothesis), 96 MiB idle RSS and 40 MiB of telemetry live heap, up to 80 MiB RSS at `GOGC=100` (target), fit together? | (a) Adopt as seeds; (b) lower admission limits, shard caps or the retiring ceiling; (c) raise the idle budget; (d) ship a documented `GOMEMLIMIT` that the M1 benchmark uses | performance-budgets-and-benchmarking | No |
+| OQ-observability-17 | Do 50,000 requests per second (hypothesis), the idle RSS budget and 40 MiB of telemetry live heap, up to 80 MiB RSS at `GOGC=100` (target), fit together? | (a) Adopt as seeds, chosen by [Performance budgets and benchmarking](12-performance-budgets-and-benchmarking.md#memory-budget) with idle RSS lowered from 96 to 89 MiB (target); (b) lower admission limits, shard caps or the retiring ceiling; (c) raise the idle budget; (d) ship a documented `GOMEMLIMIT` that the M1 benchmark uses | performance-budgets-and-benchmarking | No (answered) |
 | OQ-observability-18 | How is a State Store failover rollback or lost Cell reported? | (a) State Store monitoring (current); (b) Ruralz Control | scalability-and-distributed-state | No |
 | OQ-observability-19 | Should TB-12 in System overview exempt the audit export, which retries from the Control Store and never drops? | (a) Failure column "Drop on failure; audit export lags" (proposed); (b) a separate boundary | system-overview | Yes, for Planned (M2) |
 | OQ-observability-20 | Should TB-12 allow unreported cleartext OTLP to a loopback address or Unix socket, checked on the resolved address? | (a) Yes (proposed; see OQ-security-and-identity-29); (b) No (current) | system-overview | No |

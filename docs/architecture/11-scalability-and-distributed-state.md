@@ -26,7 +26,7 @@ This document fixes how Ruralz scales out and where shared state lives: per-Node
 
 In scope: the stateless Ruralz Gateway contract; scaling and high availability of Ruralz Gateway, Ruralz Control and the State Store; shared state and its accuracy bounds ([pack 8.8](../_meta/foundation-pack.md#88-rate-limiting-adr-0008), [pack 8.7](../_meta/foundation-pack.md#87-state-store-round-trips)); the post-commit queue [Data plane](03-data-plane.md#goroutines) defers here; the `RZ-STS` registry; Cells, Regions, limits and chaos experiments.
 
-Non-goals: Rate Limit, Quota and Response Cache semantics ([Traffic management and resilience](09-traffic-management-and-resilience.md)); Token Budget and Semantic Cache semantics ([AI/LLM gateway](06-ai-llm-gateway.md)); Control Stream and Control Store internals ([Control plane and GitOps](04-control-plane-and-gitops.md)); performance values ([Performance budgets and benchmarking](12-performance-budgets-and-benchmarking.md)); runbooks ([High availability and disaster recovery](../operations/04-high-availability-and-disaster-recovery.md)); fields ([Configuration model](02-configuration-model.md)).
+Non-goals: Rate Limit, Quota and Response Cache semantics ([Traffic management and resilience](09-traffic-management-and-resilience.md)); Token Budget and Semantic Cache semantics ([AI/LLM gateway](06-ai-llm-gateway.md)); Control Stream and Control Store internals ([Control plane and GitOps](04-control-plane-and-gitops.md)); performance values ([Performance budgets](12-performance-budgets-and-benchmarking.md)); runbooks ([High availability and disaster recovery](../operations/04-high-availability-and-disaster-recovery.md)); fields ([Configuration model](02-configuration-model.md)).
 
 ## Guarantees and principles
 
@@ -47,7 +47,7 @@ Non-guarantees: limits are exact only inside one Cell; long-lived connections ne
 
 ## Stateless data plane
 
-A Node persists only its enrollment identity, Last-Known-Good and disposable caches under `${RURALZ_DATA_DIR}` (pack 8.11); under OQ-scalability-and-distributed-state-11 it would also persist the last Node count, used flagged stale. This table inventories all in-memory per-Node state; new per-Node state needs a row before it ships.
+A Node persists only its enrollment identity, Last-Known-Good and disposable caches under `${RURALZ_DATA_DIR}` (pack 8.11); under OQ-scalability-and-distributed-state-11 it would also persist the last Node count, used flagged stale. This table inventories all in-memory per-Node state; new state needs a row before shipping.
 
 | Per-Node state | Bound | Rebuilt from | Why losing it is safe |
 |---|---|---|---|
@@ -61,7 +61,7 @@ A Node persists only its enrollment identity, Last-Known-Good and disposable cac
 | Per-shard `INFO memory` readings and store byte budgets | One each per shard | First read after start | Stores skip until then (target): no unmetered bytes |
 | AI candidate latency averages, cooldowns, breakers | Per `AIModel` candidate | Live traffic, 5% exploration (hypothesis) | About one failed attempt per cooldown per Node (hypothesis) |
 | Endpoint sets, health, ejections, breakers, retry budgets, connection pools | Per Upstream; `circuitBreaker.maxConnections` | Discovery, traffic, checks, new dials | A black-holed Endpoint is re-ejected in about 1 s; dial within 1 s, TLS within 2 s (target) |
-| Plugin instance pools, compiled code | Gateway `limits.maxPluginMemoryBytes`; disk cache | OCI artifact by digest | Recompiling costs only warm-up |
+| Plugin instance pools, compiled code | Gateway `limits.maxPluginMemoryBytes`; code 512 MiB, [in memory only](05-wasm-plugin-system.md#default-limits) (target) | OCI artifact by digest | Recompiling costs only warm-up |
 | JWKS keys, upstream OAuth2 tokens | Per issuer or Policy | `jwksUrl`, `tokenUrl` | A Node that cannot refetch fails closed alone (P9) |
 | Response Cache hot-entry layer, miss coalescing, revalidation queue, `Vary`-name LRU | 64 MiB; 4,096 keys, 256 entries, 65,536 URIs (target) | State Store; relearned on misses | Extra origin fetches and misses only |
 | Quota denial cache | 65,536 entries, CLOCK eviction, 60 s each (target) | Next Quota script | An evicted or lost denial costs one more script, which re-reads the counter |
@@ -82,7 +82,7 @@ So a Node can be killed at any instant: the worst outcomes are an over-charged Q
 
 ### Scale unit
 
-The Node is the scale unit: a Cluster adds Nodes without peer coordination (P4) until a [Cell](#cells-and-blast-radius) ceiling saturates, then adds Cells. Run one `ruralzd` per network namespace with container CPU limits, which Go 1.25 reads for `GOMAXPROCS` ([source](https://go.dev/doc/go1.25)), and `GOMEMLIMIT` at about 90% of the memory limit (target) ([source](https://go.dev/doc/gc-guide)).
+The Node is the scale unit: a Cluster adds Nodes without peer coordination (P4) until its [Cell](#cells-and-blast-radius) ceiling saturates, then a new Cluster forms another Cell. Run one `ruralzd` per network namespace with container CPU limits, which Go 1.25 reads for `GOMAXPROCS` ([source](https://go.dev/doc/go1.25)), and `GOMEMLIMIT` at about 90% of the memory limit (target) ([source](https://go.dev/doc/gc-guide)).
 
 ### SO_REUSEPORT and listeners
 
@@ -141,7 +141,7 @@ flowchart LR
 
 ### Autoscaling signals
 
-Scale out on the first signal over its threshold; scale in only when all are under half of it. Autoscaler minimums MUST hold the pre-provisioned and headroom Node count (target) of [Home Region loss](#topologies) and [Ruralz Control availability](#ruralz-control-availability); scale-in never goes below it.
+Scale out on the first signal over its threshold; scale in only when all are under half of it. Autoscaler minimums MUST hold the pre-provisioned and headroom Node count (target) of [Home Region loss](#topologies) and [Ruralz Control availability](#ruralz-control-availability).
 
 | Signal | Metric | Scale-out threshold |
 |---|---|---|
@@ -157,9 +157,9 @@ State Store saturation is a Cell sizing signal: more Nodes add State Store load.
 
 A new Node is ready (pack 8.5) with cold state: its rate-limit key table warms at the [first-seen budget](09-traffic-management-and-resilience.md#decision-path), and Upstream pools dial on demand, so balancers SHOULD slow-start new Nodes over 30 to 60 s (target).
 
-Scale-out also moves the Node count, which [Control plane and GitOps](04-control-plane-and-gitops.md#replica-roles) raises at most 10% per minute after a 10-minute qualification (target), so derived ceilings lag ([bounds](#consistency-and-accuracy-bounds)). Until OQ-traffic-management-and-resilience-19 closes, autoscaled Control-mode Clusters SHOULD declare per-Node ceilings (field: OQ-traffic-management-and-resilience-1). A declared ceiling c fails open at N_serving × c, so c SHOULD be at most `requests` / N_max for the largest autoscaled Node count (target).
+Scale-out also moves the Node count, which [Control plane and GitOps](04-control-plane-and-gitops.md#replica-roles) raises at most 10% per minute after a 10-minute qualification (target), so derived ceilings lag ([bounds](#consistency-and-accuracy-bounds)). Until OQ-traffic-management-and-resilience-19 closes, autoscaled Control-mode Clusters SHOULD declare per-Node ceilings (field: OQ-traffic-management-and-resilience-1). A declared ceiling c fails open at N_serving × c, so c SHOULD be at most `requests` / N_max, the largest autoscaled Node count (target).
 
-Scale-in is a Drain: `/readyz` fails, GOAWAY goes out and WebSockets close with 1001 ([source](https://www.iana.org/assignments/websocket/websocket.xhtml)), jittered across the drain window. Kubernetes' `terminationGracePeriodSeconds`, 30 s by default ([source](https://kubernetes.io/docs/concepts/workloads/pods/pod-lifecycle/)), MUST exceed the preStop wait plus the drain deadline (target).
+Scale-in is a Drain: `/readyz` fails, GOAWAY goes out and WebSockets close with 1001 ([source](https://www.iana.org/assignments/websocket/websocket.xhtml)), jittered across the drain window. Kubernetes' `terminationGracePeriodSeconds`, 30 s by default ([source](https://kubernetes.io/docs/concepts/workloads/pods/pod-lifecycle/)), MUST exceed the preStop wait plus the exit bound ([Drain deadline plus flush](../operations/02-zero-downtime-upgrades-and-hot-reload.md#drain-timeline-defaults)) (target).
 
 ### Scaling Ruralz Control and the State Store
 
@@ -183,7 +183,7 @@ New Nodes without Last-Known-Good stay not ready until they enroll (pack 8.11), 
 
 The Control Store is embedded `hashicorp/raft` with `raft-boltdb/v2` on bbolt ([ADR-0006](../adr/0006-control-store-raft-boltdb.md), proposed), with three voters, or five to survive two failures (target), as etcd advises ([source](https://etcd.io/docs/v3.6/faq/)). With default timeouts of 1000 ms ([source](https://raw.githubusercontent.com/hashicorp/raft/main/config.go)), leader failover takes about 1 to 2 s plus election round trips (hypothesis).
 
-*Figure 2: Ruralz Control high availability: one replica's Raft states beside its fencing states, clocked by leader contact.*
+*Figure 2: one Ruralz Control replica's Raft and fencing states.*
 
 ```mermaid
 stateDiagram-v2
@@ -249,7 +249,7 @@ A failover loses the newest TATs and reservations to replication lag, and the Ce
 
 A Rate Limit pairs a local token bucket per Node with GCRA in the State Store ([ADR-0008](../adr/0008-rate-limiting-local-bucket-and-gcra.md)), the hybrid Envoy recommends ([source](https://www.envoyproxy.io/docs/envoy/latest/intro/arch_overview/other_features/global_rate_limiting)). The local bucket denies a pinned client without a round trip, shields the State Store from hot keys, and is the only limiter left while the State Store fails.
 
-*Figure 3: distributed rate-limit check: local token bucket, then GCRA in the State Store.*
+*Figure 3: local token bucket, then GCRA in the State Store.*
 
 ```mermaid
 sequenceDiagram
@@ -289,9 +289,9 @@ sequenceDiagram
     end
 ```
 
-**Per-request GCRA.** For OQ-system-overview-15, GCRA runs per admitted request through Planned (M3), as pack 8.8 fixes, keeping the Cell limit exact for every key with a GCRA answer while the State Store is healthy: under option (c) of OQ-traffic-management-and-resilience-20, conforming until OQ-scalability-and-distributed-state-11 closes, every key except `localOnly` hot keys. Under option (a), a first-seen key past the budget B runs local-only for 10 s (target) with its own [bound](#consistency-and-accuracy-bounds), and first-seen calls stay at most min(B × N_serving / N_published, 500 × N_serving) per second per Cell (target) ([decision path](09-traffic-management-and-resilience.md#decision-path)). Leases, as in Doorman ([source](https://github.com/youtube/doorman)), trade accuracy for fewer calls (OQ-scalability-and-distributed-state-1).
+**Per-request GCRA.** For OQ-system-overview-15, GCRA runs per admitted request through Planned (M3), as pack 8.8 fixes, keeping the Cell limit exact for every key with a GCRA answer while the State Store is healthy: under option (c) of OQ-traffic-management-and-resilience-20, conforming until OQ-scalability-and-distributed-state-11 closes, every key except `localOnly` hot keys (proposed). Under option (a), a first-seen key past the budget B runs local-only for 10 s (target) with its own [bound](#consistency-and-accuracy-bounds), and first-seen calls stay at most min(B × N_serving / N_published, 500 × N_serving) per second per Cell (target) ([decision path](09-traffic-management-and-resilience.md#decision-path)). Leases, as in Doorman ([source](https://github.com/youtube/doorman)), trade accuracy for fewer calls (OQ-scalability-and-distributed-state-1).
 
-**Hot keys.** A key reaches the State Store at most min(offered, N_serving × ceiling) times per window; denials come from the over-limit cache, as in envoyproxy/ratelimit ([source](https://github.com/envoyproxy/ratelimit)). Since each locally admitted request runs GCRA (pack 8.8), a derived ceiling allows 2 × `requests` × N_serving / N_published calls per window. A key whose `requests` exceed 25% of one shard's calls, about 25,000 per second (hypothesis), MUST use `localOnly` mode, option (c) of OQ-traffic-management-and-resilience-1, alone or beside (a); GCRA keys then stay at 50% of a shard, leaving margin under the 70% script CPU target for a count lagging 40% (hypothesis). A `localOnly` key never runs GCRA and admits at most N_serving × ceiling per window, even healthy (target), amending pack 8.8 (OQ-scalability-and-distributed-state-11); validation warnings are OQ-scalability-and-distributed-state-15.
+**Hot keys.** A key reaches the State Store at most min(offered, 2 × N_serving × ceiling) times per window (target) ([ADR-0008](../adr/0008-rate-limiting-local-bucket-and-gcra.md)); denials come from the over-limit cache, as in envoyproxy/ratelimit ([source](https://github.com/envoyproxy/ratelimit)). Since each locally admitted request runs GCRA (pack 8.8), a derived ceiling allows 2 × `requests` × N_serving / N_published calls per window. A key whose `requests` exceed 25% of one shard's calls, about 25,000 per second (hypothesis), SHOULD use `localOnly` mode once OQ-traffic-management-and-resilience-1 adopts option (c) (proposed, OQ-scalability-and-distributed-state-11); until then it needs a declared per-Node ceiling, a split `config.key` or its own Cell. GCRA keys thus stay under 2 × 25% = 50% of a shard, leaving margin under the 70% script CPU target for a count lagging 40% (hypothesis). A `localOnly` key would never run GCRA, admitting at most N_serving × ceiling per window, even healthy (target), amending pack 8.8; validation warnings are OQ-scalability-and-distributed-state-15.
 
 **Pack amendments.** OQ-scalability-and-distributed-state-11 carries the options recommended here, amending packs 8.8 and 8.11; their owners close them with it.
 
@@ -395,7 +395,7 @@ Multi-region is Planned (M4); single-Region Cells work from Planned (M1). Pack 8
 
 Divided shares stay as rendered, so moved Consumers get only the surviving share until Ruralz Control returns. Recovery runs `ruralz control restore` from a `ruralz control backup` in a surviving Region, which opens a new `storeEpoch` and may make Nodes re-enroll ([backup and restore](04-control-plane-and-gitops.md#backup-restore-and-postgres)); runbooks: [High availability and disaster recovery](../operations/04-high-availability-and-disaster-recovery.md).
 
-*Figure 4: multi-region topology; no edge crosses a Region to reach a State Store.*
+*Figure 4: multi-region topology; no State Store edge crosses a Region.*
 
 ```mermaid
 flowchart TB
@@ -445,7 +445,7 @@ A shared Revision gives every Region the same `limit`, enforced alone, as AWS AP
 | Home Region | Region-pinned tenants | Exact in the home Cell (target) | Planned (M4) |
 | Leased global budget | A home Region leases allowances to others | Bounded by lease size and refresh | OQ-scalability-and-distributed-state-5 |
 
-Per-Cell enforcement itself is Planned (M1) and Environment variables Planned (M2); running either pattern across Regions waits for multi-region, Planned (M4).
+Per-Cell enforcement is Planned (M1) and Environment variables Planned (M2).
 
 A divided Quota: the Bundle's `consumers/partner-acme.yaml` holds only the Consumer:
 
@@ -538,7 +538,7 @@ AWS advises capped cell sizes with a known maximum throughput ([source](https://
 |---|---|
 | Nodes per Cell | 1,000 (target) |
 | State Store shards per Cell | 16 (target) |
-| State Store calls per second per Cell | 1,000,000, 62.5% of 16 shards at about 100,000 each (hypothesis); Valkey 8 measured 1.19 million `SET` per second ([source](https://valkey.io/blog/unlock-one-million-rps-part2/)) |
+| State Store calls per second per Cell | 800,000, [50%](../operations/03-capacity-planning.md#state-store-sizing) of 16 shards at about 100,000 each (hypothesis); Valkey 8 measured 1.19 million `SET` per second ([source](https://valkey.io/blog/unlock-one-million-rps-part2/)) |
 | State Store memory per shard | 70% of `maxmemory` steady state (target) |
 | Tenants per Cell | At most 10% of tenants in deployments of ten or more Cells (target) |
 
@@ -560,7 +560,7 @@ Evacuating a Cell shifts DNS or anycast weight; receiving Cells start with empty
 
 ### Per-Node limits
 
-[Performance budgets and benchmarking](12-performance-budgets-and-benchmarking.md) verifies every value.
+[Benchmarking](12-performance-budgets-and-benchmarking.md) verifies every value.
 
 | Limit | Per-Node value | Owner | When reached |
 |---|---|---|---|
@@ -577,20 +577,20 @@ Evacuating a Cell shifts DNS or anycast weight; receiving Cells start with empty
 | State Store calls in flight | 8,192 (target) | This document | `failureMode` without a call |
 | State Store connections per shard | 2 pipelined plus 8 dedicated (target) | This document | Dedicated calls skipped |
 
-Data plane sums worst-case Node memory at about 19 GiB plus snapshots on a 32 GiB Node (hypothesis); these limits add at most 64 MiB for keys, 256 MiB for balancers, 64 MiB for the hot-entry layer, 85 MiB for the queue and 4 MiB for Quota denials, about 475 MiB (target).
+Data plane sums worst-case Node memory at about 19 GiB plus snapshots on a 32 GiB Node (hypothesis); these limits add at most about 475 MiB: keys 64, balancers 256, hot-entry layer 64, queue 85 and Quota denials 4 MiB (target).
 
 ### Cell and Cluster bottlenecks
 
 | Resource | Capacity | Symptom | Mitigation |
 |---|---|---|---|
 | Shard script throughput | About 100,000 calls per second (hypothesis) | Breakers open | More shards, declared ceilings, shared scripts |
-| One hot key | One shard; up to 2 × `requests` calls per window | Every Node's breaker for it opens | `localOnly` above 25% of a shard, about 25,000 per second (hypothesis) |
+| One hot key | One shard; up to 2 × `requests` calls per window | Every Node's breaker for it opens | `localOnly` (proposed) above 25% of a shard, about 25,000 per second (hypothesis) |
 | Connections per shard | 10 × N_serving, 10,000 at 1,000 Nodes (hypothesis) | Refused connections | Server client limit above 10 × N_serving, a MUST above 900 Nodes (target) |
 | First-seen budget B | 20,000 calls per second per Cell (hypothesis) | New keys wait | Control mode; OQ-traffic-management-and-resilience-20 |
 | Ruralz Control streams | About 5,000 per replica (hypothesis) | `Reconnect` with `shed` | ceil(N / 5,000) + 1 replicas (hypothesis) |
 | Node-count lag | Plus 10% per minute (target) | Over-admission after scale-out, 20 × `requests` fail-open (hypothesis) | Declared ceilings |
 
-At 5,000 State Store calls per second per Node (hypothesis), the 1,000,000-call ceiling binds at 200 Nodes, before the Node ceiling; [Capacity planning](../operations/03-capacity-planning.md) derives coefficients from benchmarks (P10).
+At 5,000 State Store calls per second per Node (hypothesis), the 800,000-call ceiling binds at 160 Nodes, before the Node ceiling; [Capacity planning](../operations/03-capacity-planning.md) derives coefficients from benchmarks (P10).
 
 ## Chaos experiments
 
@@ -599,7 +599,7 @@ Each runs against at least 10 Nodes (target) under open-loop load, since closed-
 | ID | Fault | Pass criteria | Milestone |
 |---|---|---|---|
 | CE-1 | SIGKILL one Node at 50% load (target) | Errors only on its in-flight requests; no Quota under-charge | Planned (M1) |
-| CE-2 | SIGTERM a Node holding WebSockets and SSE | Zero failed new requests; reconnects spread over the drain | Planned (M1) |
+| CE-2 | SIGTERM a Node holding HTTP/2, WebSocket and SSE connections | Zero failed new requests; reconnects spread over the drain | Planned (M1) for HTTP/1.1 and HTTP/2; WebSockets and SSE Planned (M3) |
 | CE-3 | 200 ms added to every State Store call (target) | p99 rises at most one timeout, then within 10% once breakers open (target) | Planned (M1) |
 | CE-4 | State Store black-holed for 60 s (target) | Per key within the fail-open derived and declared ceiling bounds (target); `closed` Token Budgets get `RZ-STS-001`, then `RZ-STS-003` | Planned (M1) |
 | CE-5 | State Store primary killed under at least 100 Nodes (target) | Every Node reconnected within 10 s and `failureMode` for at most 15 s (target); extra admissions within the lag bound | Planned (M1) |
@@ -609,7 +609,7 @@ Each runs against at least 10 Nodes (target) under open-loop load, since closed-
 | CE-9 | Scale from 10 to 100 Nodes in 2 minutes (target), State Store black-holed | Per key within the lagging-count bound, 20 × `requests` for about 34 minutes (hypothesis) | Planned (M2) |
 | CE-10 | Every Ruralz Control replica restarted at once | All Nodes reconnect within 5 minutes (target); the published count drops at most 10% (target); no State client breaker opens | Planned (M2) |
 | CE-11 | One Region cut off with its State Store and relay | No cross-Region State Store dial | Planned (M4) |
-| CE-12 | Hot key offered 1,000,000 calls per second, 10 times one shard (hypothesis): `requests` just under 25,000 per second, then above it as `localOnly` (hypothesis) | GCRA calls at most N_serving × ceiling per window, none when `localOnly`; shard script CPU under 70% (target); no co-tenant breaker opens | Planned (M1) |
+| CE-12 | Hot key offered 1,000,000 calls per second, 10 times one shard (hypothesis): `requests` just under 25,000 per second, then above it as `localOnly`, proposed (hypothesis) | GCRA calls at most 2 × N_serving × ceiling per window, none when `localOnly`; shard script CPU under 70% (target); no co-tenant breaker opens | Planned (M1) |
 | CE-13 | 200 concurrent AI streams, usage dropped on 5% (target) | Overshoot within the healthy `closed` Token Budget bound (hypothesis); no under-charge | Planned (M3) |
 | CE-14 | `ai.semantic-cache` without vector commands | Bypass under `open`; `RZ-STS-005` under `closed` | Planned (M3) |
 | CE-15 | Key-rotation flood, 100,000 new keys per second (target) | Per key at most N_serving × ceiling per window; first-seen calls within budget; no key with a GCRA answer evicted | Planned (M1) |

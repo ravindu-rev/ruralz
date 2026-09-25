@@ -164,6 +164,11 @@
   },
   {
    "section": "Stateless data plane",
+   "kind": "limit",
+   "value": "Plugin instance pools, compiled code: compiled code 512 MiB per Node, in memory only (target); never persisted"
+  },
+  {
+   "section": "Stateless data plane",
    "kind": "kind_or_field",
    "value": "jwksUrl"
   },
@@ -280,7 +285,7 @@
   {
    "section": "Scale unit",
    "kind": "decision",
-   "value": "The Node is the scale unit: a Cluster adds Nodes without peer coordination (P4) until a Cell ceiling saturates, then adds Cells"
+   "value": "The Node is the scale unit: a Cluster adds Nodes without peer coordination (P4) until its Cell ceiling saturates, then a new Cluster forms another Cell"
   },
   {
    "section": "Scale unit",
@@ -435,7 +440,7 @@
   {
    "section": "Warm-up",
    "kind": "limit",
-   "value": "c SHOULD be at most `requests` / N_max for the largest autoscaled Node count (target)"
+   "value": "c SHOULD be at most `requests` / N_max, the largest autoscaled Node count (target)"
   },
   {
    "section": "Warm-up",
@@ -455,7 +460,7 @@
   {
    "section": "Warm-up",
    "kind": "timeout",
-   "value": "`terminationGracePeriodSeconds` MUST exceed the preStop wait plus the drain deadline (target)"
+   "value": "`terminationGracePeriodSeconds` MUST exceed the preStop wait plus the exit bound (Drain deadline plus flush) (target)"
   },
   {
    "section": "Scaling Ruralz Control and the State Store",
@@ -819,13 +824,18 @@
   },
   {
    "section": "Distributed rate limits",
+   "kind": "limit",
+   "value": "A key reaches the State Store at most min(offered, 2 × N_serving × ceiling) times per window (target), per ADR-0008"
+  },
+  {
+   "section": "Distributed rate limits",
    "kind": "number",
    "value": "a derived ceiling allows 2 × `requests` × N_serving / N_published calls per window"
   },
   {
    "section": "Distributed rate limits",
    "kind": "limit",
-   "value": "A key whose `requests` exceed 25% of one shard's calls, about 25,000 per second (hypothesis), MUST use `localOnly` mode"
+   "value": "A key whose `requests` exceed 25% of one shard's calls, about 25,000 per second (hypothesis), SHOULD use `localOnly` mode once OQ-traffic-management-and-resilience-1 adopts option (c) (proposed, OQ-scalability-and-distributed-state-11); until then it needs a declared per-Node ceiling, a split `config.key` or its own Cell"
   },
   {
    "section": "Distributed rate limits",
@@ -835,12 +845,12 @@
   {
    "section": "Distributed rate limits",
    "kind": "number",
-   "value": "GCRA keys then stay at 50% of a shard, leaving margin under the 70% script CPU target for a count lagging 40% (hypothesis)"
+   "value": "GCRA keys thus stay under 2 × 25% = 50% of a shard, leaving margin under the 70% script CPU target for a count lagging 40% (hypothesis)"
   },
   {
    "section": "Distributed rate limits",
    "kind": "limit",
-   "value": "A `localOnly` key never runs GCRA and admits at most N_serving × ceiling per window, even healthy (target)"
+   "value": "A `localOnly` key (proposed) would never run GCRA, admitting at most N_serving × ceiling per window, even healthy (target)"
   },
   {
    "section": "Distributed caches",
@@ -1285,7 +1295,7 @@
   {
    "section": "Regional versus global quotas",
    "kind": "milestone",
-   "value": "Per-Cell enforcement itself is Planned (M1) and Environment variables Planned (M2)"
+   "value": "Per-Cell enforcement is Planned (M1) and Environment variables Planned (M2)"
   },
   {
    "section": "Regional versus global quotas",
@@ -1435,7 +1445,7 @@
   {
    "section": "Cell sizing",
    "kind": "limit",
-   "value": "State Store calls per second per Cell: 1,000,000, 62.5% of 16 shards at about 100,000 each (hypothesis)"
+   "value": "State Store calls per second per Cell: 800,000, 50% of 16 shards at about 100,000 each (hypothesis), Capacity planning's K-22 GCRA share"
   },
   {
    "section": "Cell sizing",
@@ -1560,7 +1570,7 @@
   {
    "section": "Cell and Cluster bottlenecks",
    "kind": "number",
-   "value": "One hot key: up to 2 × `requests` calls per window; `localOnly` above 25% of a shard, about 25,000 per second (hypothesis)"
+   "value": "One hot key: up to 2 × `requests` calls per window; `localOnly` (proposed) above 25% of a shard, about 25,000 per second (hypothesis)"
   },
   {
    "section": "Cell and Cluster bottlenecks",
@@ -1590,7 +1600,7 @@
   {
    "section": "Cell and Cluster bottlenecks",
    "kind": "number",
-   "value": "At 5,000 State Store calls per second per Node (hypothesis), the 1,000,000-call ceiling binds at 200 Nodes"
+   "value": "At 5,000 State Store calls per second per Node (hypothesis), the 800,000-call ceiling binds at 160 Nodes"
   },
   {
    "section": "Chaos experiments",
@@ -1605,7 +1615,7 @@
   {
    "section": "Chaos experiments",
    "kind": "milestone",
-   "value": "CE-2: SIGTERM a Node holding WebSockets and SSE; zero failed new requests — Planned (M1)"
+   "value": "CE-2: SIGTERM a Node holding HTTP/2, WebSocket and SSE connections; zero failed new requests — Planned (M1) for HTTP/1.1 and HTTP/2; WebSockets and SSE Planned (M3)"
   },
   {
    "section": "Chaos experiments",
@@ -1655,7 +1665,7 @@
   {
    "section": "Chaos experiments",
    "kind": "milestone",
-   "value": "CE-12: Hot key offered 1,000,000 calls per second, 10 times one shard (hypothesis); script CPU under 70% (target) — Planned (M1)"
+   "value": "CE-12: Hot key offered 1,000,000 calls per second, 10 times one shard (hypothesis), then above 25,000 per second as `localOnly` (proposed); GCRA calls at most 2 × N_serving × ceiling per window; script CPU under 70% (target) — Planned (M1)"
   },
   {
    "section": "Chaos experiments",

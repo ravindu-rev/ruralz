@@ -9,7 +9,7 @@ depends_on:
   - docs/architecture/01-system-overview.md
   - docs/architecture/02-configuration-model.md
   - docs/engineering/01-tech-stack-and-libraries.md
-adrs: [ADR-0001, ADR-0003, ADR-0005, ADR-0007, ADR-0008, ADR-0014, ADR-0017]
+adrs: [ADR-0001, ADR-0003, ADR-0005, ADR-0006, ADR-0007, ADR-0008, ADR-0011, ADR-0012, ADR-0014, ADR-0017]
 milestone_tags_used: [M0, M1, M2, M3, M4, M5]
 ---
 
@@ -38,7 +38,7 @@ A defect found in a higher layer MUST add a regression test at the lowest layer 
 | Conformance | The three [suites](#conformance-suites) | 100% of cases per production platform (target) | `pr-full` | Planned (M1) to Planned (M4) |
 | Fuzzing | Go native fuzzing | 25 or more targets by M2; zero open crashers at release (target) | `pr-fast` seeds; `nightly` | Planned (M1) |
 | End-to-end | Docker Compose, kind, `ruralz test run` | Every pack section 9 command by its milestone: 100% (target) | `main` | Planned (M1) |
-| Chaos | Fault injection | Every System overview failure row: 100% (target) | `nightly` | Planned (M2) |
+| Chaos | Fault injection | Every System overview failure row and Scalability chaos experiment by its milestone: 100% (target) | `nightly` | Planned (M1); Ruralz Control, Plugin and signature rows Planned (M2) |
 | Benchmarks | `go test -bench -benchmem`; open-loop load | Every seed budget item from its component's milestone: 100% (target) | `pr-full`; `nightly` | Planned (M1); Plugin Phase call Planned (M2) |
 | Security scanning | `govulncheck`, license gate, golangci-lint, `buf breaking` | Zero reachable vulnerabilities (target) | `pr-fast`; secret leak tests in `main` | Planned (M0); `buf breaking` Planned (M2) |
 
@@ -144,7 +144,7 @@ Authentication tests replace Mosquitto's anonymous default ([source](https://gol
 - A slow vector search never delays a rate-limit reply.
 - Without vector support, `ai.semantic-cache` behaves as a State Store failure under its `failureMode`; the Node reports a degraded state.
 
-Container-free tests run three Ruralz Control replicas and Nodes in one process over loopback mutual TLS ([ADR-0007](../adr/0007-control-stream-protocol.md)), each instance with its own `RURALZ_DATA_DIR`, OpenTelemetry providers and `slog` logger: snapshot and delta delivery, ACK and NACK classification, promoted digests, backup then restore.
+Container-free tests run three Ruralz Control replicas and Nodes in one process over loopback mutual TLS ([ADR-0007](../adr/0007-control-stream-protocol.md)), each instance with its own `RURALZ_DATA_DIR`, OpenTelemetry providers and `slog` logger: snapshot and delta delivery, ACK and NACK classification, promoted digests, backup then restore. Their fencing test, Planned (M2), proves a deposed leader's entry at a taken sequence commits but is never accepted or delivered, and a new leader proposes only after Barrier; its `postgres` Control Store variant, Planned (M4), proves the transaction rejects that entry ([ADR-0006](../adr/0006-control-store-raft-boltdb.md)).
 
 ## End-to-end tests
 
@@ -198,20 +198,23 @@ Go native fuzzing covers every surface parsing untrusted or operator-supplied by
 | Router match and header handling | Matches equal those of a reference matcher | Planned (M1) |
 | Control Stream decoding, one target per message type | Malformed messages NACK or close the stream | Planned (M2) |
 | Plugin Host Functions, one target per Host Function group | Out-of-bounds guest pointers and lengths trap the guest, never the host | Planned (M2) |
+| Rego and Cedar policy parsing for `authz.opa` and `authz.cedar` ([ADR-0011](../adr/0011-expressions-and-authorization-engines.md)) | Malformed policies are rejected before activation; accepted ones stay within the per-Revision engine-memory cap (target) | Planned (M2) |
+| GraphQL operation parser and normalizer ([ADR-0012](../adr/0012-graphql-engine-graphql-go-tools.md)) | Depth, alias, field-count and complexity limits hold after fragment expansion, before any upstream call | Planned (M3) |
 | AI stream parsers, one target per dialect | Moving chunk boundaries: extracted usage equals the fixture's final usage; mutated content: correct usage or usage reported missing | Planned (M3) |
 
 Property targets plus the per-message and per-group targets make 25 or more by M2 (target). The `nightly` fuzz job keeps the grown corpus as a CI artifact. Fuzzing beyond CI is OQ-testing-and-quality-strategy-4.
 
 ## Chaos testing
 
-Chaos tests prove P9: each [System overview failure table](../architecture/01-system-overview.md#failure-semantics-at-component-boundaries) row is injected under load, its declared behavior asserted through metrics and responses.
+Chaos tests prove P9: each [System overview failure table](../architecture/01-system-overview.md#failure-semantics-at-component-boundaries) row is injected under load, its declared behavior asserted through metrics and responses. The `nightly` chaos job also runs each [Scalability chaos experiment](../architecture/11-scalability-and-distributed-state.md#chaos-experiments) against at least 10 Nodes (target), which owns their pass criteria, and each gates its milestone: CE-1 to CE-6, CE-12, CE-15 and CE-16 Planned (M1); CE-7 to CE-10 Planned (M2); CE-13 and CE-14 Planned (M3); CE-11 and CE-17 Planned (M4).
 
 | Injected failure | Assertion | Milestone |
 |---|---|---|
+| One Node killed at 50% load (target), or sent SIGTERM while holding connections (CE-1, CE-2) | Errors only on its in-flight requests; no Quota under-charge; zero failed new requests during Drain | Planned (M1); WebSocket and SSE Drain Planned (M3) |
 | Ruralz Control replicas killed; Raft quorum lost | Nodes keep their active Revision and stay ready; zero outage-caused errors (target) | Planned (M2) |
 | Node restarted during that outage | Boots Last-Known-Good after the boot wait, else stays not ready | Planned (M2) |
-| State Store slower than `stateStoreTimeout`, then stopped | At most one deadline per request, then `failureMode`; the breaker opens; admission within N × per-Node ceiling (target); `closed` Policies reject with `RZ-STS` | Planned (M2) |
-| Upstream Endpoints reset or slowed | Outlier ejection, budgeted retries and an open breaker, with `RZ-UP` codes | Planned (M2) |
+| State Store slower than `stateStoreTimeout`, then stopped | At most one deadline per request, then `failureMode`; the breaker opens; admission within N × per-Node ceiling (target); `closed` Policies reject with `RZ-STS` (CE-3 to CE-5) | Planned (M1) |
+| Upstream Endpoints reset or slowed | Outlier ejection, budgeted retries and an open breaker, with `RZ-UP` codes | Planned (M1) |
 | AI provider mock returns 429 before the first byte | Provider Fallback to the next `AIModel` candidate | Planned (M3) |
 | Plugin traps, loops or reaches `limits.maxPluginMemoryBytes` | `RZ-PLG` under `failureMode`; the Node never crashes | Planned (M2) |
 | Revision with a bad digest or signature | Rejected before any swap (NACK in Control mode) ([ADR-0017](../adr/0017-artifact-signing.md)) | Planned (M2) |
@@ -232,7 +235,7 @@ Faults come from container stop, pause and kill, kind pod deletion and a TCP fau
 | Macro latency | SM-4 and SM-5 reference scenario, open-loop; a same-zone GCRA round trip | `nightly` latency job, `release` | p99 above its threshold, or a seed budget exceeded | Planned (M1) |
 | SM-9 | 20 or more `all-at-once` Rollouts per run (target), Plugins cached, from Revision recorded to last ACK; 100 Nodes (target), three Ruralz Control replicas (OQ-testing-and-quality-strategy-10) | `nightly` scale job, `release` | Above 30 s at p95 (target) | Planned (M2) |
 | SM-10 | AI provider mock: B = 1,000,000 tokens, 200 concurrent streams, 2,000-token prompts, `max_tokens` = 4,096; usage 2% above the estimate on every stream, dropped on 5% of streams (hypothesis) | `nightly` scale job, `release` | Overshoot above the sum of per-stream estimate error, or above 1% of B (hypothesis) | Planned (M3) |
-| Size | Stripped `ruralzd` binary; idle RSS with no Revision loaded | `pr-full` | Above 160 MiB or 96 MiB respectively (target) ([tech stack](01-tech-stack-and-libraries.md#library-catalog)) | Planned (M1) |
+| Size | Stripped `ruralzd` binary; idle RSS with no Revision loaded | `pr-full` | Above 160 MiB or 89 MiB respectively (target) ([Memory budget](../architecture/12-performance-budgets-and-benchmarking.md#memory-budget)) | Planned (M1) |
 
 The alloc gate runs with `GOGC=off` and fixed `GOMAXPROCS`, so GC cycles cannot empty `sync.Pool` mid-run; at 30 allocations (hypothesis), one extra allocation exceeds 3% (target). Macro runs use open-loop load, because closed-loop generators slow down with the system and hide latency ([source](https://grafana.com/docs/k6/latest/using-k6/scenarios/concepts/open-vs-closed/)) ([source](https://github.com/giltene/wrk2)).
 
@@ -317,7 +320,7 @@ A release candidate becomes a release only when every gate below passes on its e
 | Golden corpus | Byte-exact, except entries recording a deliberate change | Planned (M1) |
 | Conformance | 100% of cases for shipped features (target); every PDK passes the Plugin ABI suite of every supported release line | Planned (M1) |
 | Fuzzing | Zero open crashers; every fixed crasher has a regression seed | Planned (M1) |
-| Chaos | The full scenario set passed on the candidate commit | Planned (M2) |
+| Chaos | Every chaos scenario and CE experiment shipped by the candidate's milestone passed on the candidate commit | Planned (M1) |
 | Benchmarks | Within 5% p99 and 3% alloc/op of the previous release (target); every seed budget met from the milestone introducing its component | Planned (M1) |
 | Security scanning | Every check in [Security scanning](#security-scanning) green | Planned (M0) |
 | Compatibility | `buf breaking` against the last tag of each supported release line; a previous-release Node gets a skew-checked Revision (RZ-CFG-024); a Zero-Downtime Upgrade from it fails no requests (target) | Planned (M2) |

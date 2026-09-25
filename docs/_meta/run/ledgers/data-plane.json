@@ -75,27 +75,32 @@
   {
    "section": "Durable and shared state",
    "kind": "default",
-   "value": "Plugin artifacts: `${RURALZ_DATA_DIR}/cache/oci/sha256/`"
-  },
-  {
-   "section": "Durable and shared state",
-   "kind": "default",
-   "value": "compiled Plugin code: `${RURALZ_DATA_DIR}/cache/wazero/`"
+   "value": "Plugin artifacts: `${RURALZ_DATA_DIR}/cache/oci/sha256/`; disposable, refetched and verified"
   },
   {
    "section": "Durable and shared state",
    "kind": "claim",
-   "value": "Snapshots, token buckets, Endpoint health, breakers, pools: Memory; lost on restart"
+   "value": "compiled Plugin code: Memory; lost on restart, never persisted"
+  },
+  {
+   "section": "Durable and shared state",
+   "kind": "claim",
+   "value": "Snapshots, compiled Plugin code, token buckets, Endpoint health, breakers, pools: Memory; lost on restart"
   },
   {
    "section": "Durable and shared state",
    "kind": "library",
-   "value": "The compiled-code cache is wazero's, keyed on the wazero version"
+   "value": "Compiled Plugin code stays in memory only, in one wazero `NewCompilationCache()` and never a cache directory (ADR-0004)"
   },
   {
    "section": "Durable and shared state",
    "kind": "decision",
-   "value": "only the `ruralzd` user MAY write it (OQ-data-plane-11)"
+   "value": "no signature covers persisted native code, so a restart recompiles verified artifacts; OQ-data-plane-11 closed with option (c)"
+  },
+  {
+   "section": "Durable and shared state",
+   "kind": "claim",
+   "value": "Pack 8.11 still names compiled modules among disposable caches, a wording left to OQ-wasm-plugin-system-16"
   },
   {
    "section": "Goroutines",
@@ -264,6 +269,56 @@
   },
   {
    "section": "Bounded resources",
+   "kind": "limit",
+   "value": "HTTP/3 connections: each QUIC connection takes 16 of the 20,000 connection slots (target), so at most 1,250 are open"
+  },
+  {
+   "section": "Bounded resources",
+   "kind": "failure_mode",
+   "value": "at the ceiling a new QUIC connection is refused before any stream, and its client stays on TCP"
+  },
+  {
+   "section": "Bounded resources",
+   "kind": "timeout",
+   "value": "Idle QUIC connections close after `IdleTimeout`"
+  },
+  {
+   "section": "Bounded resources",
+   "kind": "limit",
+   "value": "HTTP/3 streams per connection: 32 incoming bidirectional streams (target); incoming unidirectional streams only for the control and QPACK streams"
+  },
+  {
+   "section": "Bounded resources",
+   "kind": "limit",
+   "value": "HTTP/3 unread request data: 1 MiB connection receive window (target)"
+  },
+  {
+   "section": "Bounded resources",
+   "kind": "claim",
+   "value": "QUIC flow control counts every stream byte, HEADERS frames included (RFC 9000)"
+  },
+  {
+   "section": "Bounded resources",
+   "kind": "timeout",
+   "value": "HTTP/3 header reads: each stream gets a header-read deadline of `ReadHeaderTimeout` from stream open, and expiry resets the stream"
+  },
+  {
+   "section": "Bounded resources",
+   "kind": "claim",
+   "value": "quic-go reads a stream's headers before the handler runs (ADR-0009)"
+  },
+  {
+   "section": "Bounded resources",
+   "kind": "decision",
+   "value": "HTTP/3 body and write deadlines follow the Body reads and response writes row, pending quic-go support (OQ-data-plane-14)"
+  },
+  {
+   "section": "Bounded resources",
+   "kind": "number",
+   "value": "HTTP/3 per-connection memory: About 9.25 MiB before a handler runs (hypothesis): 32 streams at the 256 KiB header ceiling, the 1 MiB receive window, and 256 KiB of QUIC, TLS and packet buffers; this equals 16 × 592 KiB"
+  },
+  {
+   "section": "Bounded resources",
    "kind": "number",
    "value": "Per in-flight unit: at most `limits.maxRequestHeaderBytes`, plus 64 KiB of copy buffers (hypothesis)"
   },
@@ -366,6 +421,11 @@
    "section": "Bounded resources",
    "kind": "decision",
    "value": "else the connection ceiling is lowered first"
+  },
+  {
+   "section": "Bounded resources",
+   "kind": "claim",
+   "value": "A QUIC connection costs at most its 16 slots of 592 KiB (hypothesis), so `http3: true` leaves this sum unchanged"
   },
   {
    "section": "Listeners and protocols",
@@ -519,8 +579,43 @@
   },
   {
    "section": "Listeners and protocols",
+   "kind": "decision",
+   "value": "HTTP/3 0-RTT off (ADR-0009)"
+  },
+  {
+   "section": "Listeners and protocols",
+   "kind": "decision",
+   "value": "the quic-go settings that enforce the HTTP/3 rows, and its deadline support, are OQ-data-plane-14"
+  },
+  {
+   "section": "Listeners and protocols",
    "kind": "failure_mode",
    "value": "binary upgrades lose in-flight QUIC connections (OQ-system-overview-18)"
+  },
+  {
+   "section": "Listeners and protocols",
+   "kind": "failure_mode",
+   "value": "a Hot Reload that replaces an `https` listener with `http3: true` loses in-flight QUIC connections, because the new server holds no state for them (OQ-data-plane-16)"
+  },
+  {
+   "section": "Listeners and protocols",
+   "kind": "decision",
+   "value": "Clients discover HTTP/3 through `Alt-Svc`: with `http3: true`, the `https` listener adds `Alt-Svc: h3=\":<port>\"; ma=3600` (target), carrying the listener `port`, to every HTTP/1.1 and HTTP/2 response after `onResponse`"
+  },
+  {
+   "section": "Listeners and protocols",
+   "kind": "decision",
+   "value": "HTTPS DNS records are left to operators; a balancer that maps UDP to another port needs the advertised port changed (OQ-data-plane-15)"
+  },
+  {
+   "section": "Listeners and protocols",
+   "kind": "decision",
+   "value": "A FIPS build never advertises HTTP/3"
+  },
+  {
+   "section": "Listeners and protocols",
+   "kind": "failure_mode",
+   "value": "When a Revision turns `http3` off, the header stops at once, and a client holding a cached entry falls back to TCP after a failed QUIC attempt until `ma` expires"
   },
   {
    "section": "Listeners and protocols",
@@ -1049,8 +1144,8 @@
   },
   {
    "section": "Upstream layer",
-   "kind": "kind_or_field",
-   "value": "HTTP2Config.StrictMaxConcurrentRequests"
+   "kind": "decision",
+   "value": "`HTTP2Config.StrictMaxConcurrentRequests` is false, so an HTTP/2 Upstream's stream limit opens another connection, within `circuitBreaker.maxConnections` (ADR-0009)"
   },
   {
    "section": "Upstream layer",
@@ -1660,17 +1755,32 @@
   {
    "section": "Open questions",
    "kind": "decision",
-   "value": "OQ-data-plane-11: compiled Plugin cache tamper protection; owner wasm-plugin-system; No"
-  },
-  {
-   "section": "Open questions",
-   "kind": "decision",
    "value": "OQ-data-plane-12: per-stream closes instead of HTTP/2 GOAWAY; owner system-overview; No"
   },
   {
    "section": "Open questions",
    "kind": "decision",
    "value": "OQ-data-plane-13: latest pending Revision waits up to 30 s plus the ending bound and compile time (target) (current); owner system-overview; No"
+  },
+  {
+   "section": "Open questions",
+   "kind": "decision",
+   "value": "OQ-data-plane-14: quic-go settings for the HTTP/3 Bounded resources rows and `http.ResponseController` and per-stream header-read deadline support; owner data-plane; Yes, for HTTP/3 (M3)"
+  },
+  {
+   "section": "Open questions",
+   "kind": "decision",
+   "value": "OQ-data-plane-15: HTTP/3 discovery (`Alt-Svc` with the listener port, current; listener field; HTTPS DNS records); owner data-plane; Yes, for HTTP/3 (M3)"
+  },
+  {
+   "section": "Open questions",
+   "kind": "decision",
+   "value": "OQ-data-plane-16: keep QUIC connections across a Hot Reload that replaces an `http3` listener (lost, current); owner data-plane; No"
+  },
+  {
+   "section": "Open questions",
+   "kind": "decision",
+   "value": "Closed: OQ-data-plane-11 with option (c), compiled Plugin code in memory only (ADR-0004)"
   },
   {
    "section": "Open questions",

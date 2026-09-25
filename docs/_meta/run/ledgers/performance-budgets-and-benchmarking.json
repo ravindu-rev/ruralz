@@ -2065,7 +2065,7 @@
   {
    "section": "Competitor baseline plan",
    "kind": "milestone",
-   "value": "The comparative bench suite is Planned (M4), the bench suite milestone of pack 2"
+   "value": "The comparative bench suite (F-18) is Planned (M4), pack 2's bench suite milestone"
   },
   {
    "section": "Competitor baseline plan",
@@ -2720,12 +2720,12 @@
   {
    "section": "Publication",
    "kind": "milestone",
-   "value": "Market landscape F-7 points here for S1, S2 and S5, Planned (M4)"
+   "value": "Market landscape F-7 is the S1 and S2 nightly and release publication (SM-4, SM-5), Planned (M1)"
   },
   {
    "section": "Publication",
-   "kind": "claim",
-   "value": "F-18 waits for an S6 comparison (OQ-performance-budgets-and-benchmarking-7)"
+   "kind": "milestone",
+   "value": "F-18 covers S1, S2, S5 and S6 competitor baselines, Planned (M4), S6 products pending OQ-performance-budgets-and-benchmarking-7"
   },
   {
    "section": "Publication",

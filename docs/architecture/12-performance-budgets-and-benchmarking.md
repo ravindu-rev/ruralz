@@ -475,7 +475,7 @@ Both views gate, because each misses something the other sees:
 
 ### Competitor baseline plan
 
-The comparative bench suite is Planned (M4), the bench suite milestone of pack 2. It runs KrakenD CE, Envoy, Apache APISIX and Kong on RH-1 with the same cpuset, mock, scenarios and generator as Ruralz, following Envoy's guidance: open-loop load, worker or thread count matched to the 4 cores, features absent from the comparison disabled, TLS and HTTP/2 settings aligned, and latency never measured at maximum load ([source](https://www.envoyproxy.io/docs/envoy/latest/faq/performance/how_to_benchmark_envoy)).
+The comparative bench suite (F-18) is Planned (M4), pack 2's bench suite milestone. It runs KrakenD CE, Envoy, Apache APISIX and Kong on RH-1 with the same cpuset, mock, scenarios and generator as Ruralz, following Envoy's guidance: open-loop load, worker or thread count matched to the 4 cores, features absent from the comparison disabled, TLS and HTTP/2 settings aligned, and latency never measured at maximum load ([source](https://www.envoyproxy.io/docs/envoy/latest/faq/performance/how_to_benchmark_envoy)).
 
 | Product | Build at the snapshot | S1 plain proxying | S2 equivalent | S5 equivalent |
 |---|---|---|---|---|
@@ -694,7 +694,7 @@ Every run writes one machine-readable record:
 
 - Nightly and release runs publish records, raw histograms and CPU profiles from this repository (P10), Planned (M1); release notes list every budget with its result.
 - Other documents quote Ruralz performance only as a tagged target or a published result.
-- [Market landscape](../comparison/02-market-landscape-and-table-stakes.md) F-7 points here for S1, S2 and S5, Planned (M4); F-18 waits for an S6 comparison (OQ-performance-budgets-and-benchmarking-7).
+- [Market landscape](../comparison/02-market-landscape-and-table-stakes.md) F-7 is the S1 and S2 nightly and release publication (SM-4, SM-5), Planned (M1); F-18 covers S1, S2, S5 and S6 competitor baselines, Planned (M4), S6 products pending OQ-performance-budgets-and-benchmarking-7.
 - Competitor results carry version, edition and configuration, and never rank products overall.
 
 ### Production comparison

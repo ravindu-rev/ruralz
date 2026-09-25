@@ -2,11 +2,11 @@
 title: Tech Stack and Libraries
 status: reviewed
 owner: ruralz-core
-last_updated: 2026-09-23
+last_updated: 2026-09-25
 depends_on:
   - docs/_meta/foundation-pack.md
   - docs/_meta/style-guide.md
-adrs: [ADR-0001, ADR-0002, ADR-0003, ADR-0004, ADR-0005, ADR-0006, ADR-0007, ADR-0008, ADR-0009, ADR-0010, ADR-0011, ADR-0012, ADR-0013, ADR-0014, ADR-0017]
+adrs: [ADR-0001, ADR-0002, ADR-0003, ADR-0004, ADR-0005, ADR-0006, ADR-0007, ADR-0008, ADR-0009, ADR-0010, ADR-0011, ADR-0012, ADR-0013, ADR-0014, ADR-0015, ADR-0017]
 milestone_tags_used: [M0, M1, M2, M3, M4, M5]
 ---
 
@@ -44,7 +44,7 @@ Every dependency MUST pass gates G1 to G3 and SHOULD score well on the rest. A l
 | S6 | Small transitive graph; no second implementation of something already linked | `go mod graph` diff in review |
 | S7 | Wrapped behind a Ruralz interface in `internal/`, never exposed in `pkg/` or `sdk/` | Exported API lint |
 
-Accepted soft-criterion exceptions: jwx v4 fails S2 ([Version floor](#version-floor)); paho.golang and mochi-mqtt fail S1 (watch list); gorilla/websocket and go-jose/v4 break S6 because graphql-go-tools and go-oidc pull them in beside coder/websocket and jwx (OQ-tech-stack-and-libraries-6); the archived boltdb/bolt, linked by raft-boltdb/v2 for `MigrateToV2`, fails S1 (watch list).
+Accepted soft-criterion exceptions: jwx v4 fails S2 ([Version floor](#version-floor)); paho.golang and mochi-mqtt fail S1 (watch list); gorilla/websocket breaks S6 because graphql-go-tools' `graphql_datasource` pulls it in beside coder/websocket; go-jose/v4 breaks S6 in `ruralz-control` only, where go-oidc pulls it in beside jwx (OQ-tech-stack-and-libraries-6, option (b)); the archived boltdb/bolt, linked by raft-boltdb/v2 for `MigrateToV2`, fails S1 (watch list).
 
 Library choices never gate features: every library ships in the single Apache-2.0 build, with no separate "enterprise" dependency set.
 
@@ -66,26 +66,27 @@ Versions are the 2026-09-23 releases and serve as floors; pins live in `go.mod`.
 | Control Stream | Own `ruralz.control.v1.ControlStream` (snapshot plus delta, xDS-style ACK/NACK) over mTLS, via connect in gRPC mode on both ends; every Node dials `ruralz-control` on 8091 | xDS via go-control-plane; grpc-go both ends | Built for whole Revisions; one RPC library for Ruralz APIs; not xDS | Apache-2.0 | The 8091 server disables `ReadTimeout` and `WriteTimeout` for the stream and detects dead peers with `HTTP2Config` pings; `buf breaking` gates protos | Verified | [ADR-0007](../adr/0007-control-stream-protocol.md) | Planned (M2) | ([source](https://github.com/connectrpc/connect-go/blob/main/README.md)) ([source](https://github.com/bufbuild/buf)) |
 | Control Store | `hashicorp/raft` v1.8.0 with `github.com/hashicorp/raft-boltdb/v2` v2.4.2 or newer on `go.etcd.io/bbolt` v1.4.1 (`go-msgpack/v2` v2.1.5), mutual-TLS transport on 8092 ([Control Store transport](#control-store-transport)); optional `postgres`, Planned (M4) | etcd raft; dragonboat | `NetworkTransport` and file snapshot store; pure-Go log store; avoid raft-boltdb v2.4.0 and v2.4.1 | MPL-2.0 named exceptions: raft, raft-boltdb/v2, go-immutable-radix, golang-lru ([License rules](#license-rules)); bbolt, go-msgpack/v2, go-hclog, go-metrics MIT | MPL-2.0 obligations; links the archived boltdb/bolt ([source](https://github.com/hashicorp/raft-boltdb/blob/v2.4.2/v2/bolt_store.go)) | Pending CI | [ADR-0006](../adr/0006-control-store-raft-boltdb.md) (proposed) | Planned (M2) | ([source](https://github.com/hashicorp/raft)) ([source](https://github.com/hashicorp/raft-boltdb/releases/tag/v2.4.2)) ([source](https://github.com/hashicorp/raft-boltdb/blob/v2.4.2/LICENSE)) ([source](https://github.com/hashicorp/go-msgpack/blob/v2.1.5/LICENSE)) |
 | State Store client | `github.com/redis/rueidis` v1.0.78 | go-redis v9 | RESP3-first; auto-pipelining; Valkey-aware | Apache-2.0 | Client-side caching off (`DisableCache`) by default, since `DefaultCacheBytes` is 128 MiB per connection; enabling needs a per-connection cap owned by the scalability document (target) | Pending CI | None | Planned (M1) | ([source](https://github.com/redis/rueidis/blob/main/rueidis.go)) ([source](https://github.com/redis/rueidis/blob/main/README.md)) |
-| Rate limiting | Local token bucket at a per-Node ceiling plus GCRA as one Lua `EVAL` through rueidis; server `TIME`; `EVALSHA` with `NOSCRIPT` fallback; fail-open default, over-admission at most N × per-Node ceiling | redis_rate v10; throttled v2 | redis_rate is bound to go-redis; throttled uses non-atomic SETNX plus EXPIRE | Apache-2.0 (Ruralz code) | Script cache lost on failover; all keys in `KEYS` | Ruralz code | [ADR-0008](../adr/0008-rate-limiting-local-bucket-and-gcra.md) | Planned (M1) | ([source](https://raw.githubusercontent.com/go-redis/redis_rate/v10/lua.go)) ([source](https://redis.io/docs/latest/develop/programmability/eval-intro/)) |
-| Semantic Cache | Redis 8 Vector Sets (`VADD`, `VSIM`) or valkey-search 1.2 (`FT.*`) on the same State Store deployment, via a separate rueidis client with dedicated connections and timeouts | External vector database | No new infrastructure | rueidis Apache-2.0; servers external (Redis 8 RSALv2, SSPLv1 or AGPLv3; valkey-search BSD-3-Clause) | Vector commands MUST NOT share auto-pipelined connections with rate-limit and quota scripts, or a slow search delays every queued reply; on servers with neither (Dragonfly, Valkey below 9.0.1) the Policy acts as a State Store failure under `failureMode` (default `open`) and the Node reports degraded; no Active-Active | Via rueidis | None ([AI/LLM gateway](../architecture/06-ai-llm-gateway.md)) | Planned (M3) | ([source](https://redis.io/docs/latest/develop/data-types/vector-sets/)) ([source](https://redis.io/docs/latest/commands/vsim/)) ([source](https://github.com/valkey-io/valkey-search/releases)) |
-| GraphQL | `wundergraph/graphql-go-tools` v2.22.x; Ruralz Control and CLI import only `ast` and `astvalidation` | gqlgen; bramble; graphql-go | Federation versions 1 and 2; subscriptions over WebSocket and SSE; built for gateways | MIT | Customer-steered roadmap; pins gorilla/websocket v1.5.1 | Pending CI | [ADR-0012](../adr/0012-graphql-engine-graphql-go-tools.md) | Planned (M3) | ([source](https://github.com/wundergraph/graphql-go-tools)) ([source](https://github.com/wundergraph/graphql-go-tools/tree/master/v2)) ([source](https://raw.githubusercontent.com/wundergraph/graphql-go-tools/master/v2/go.mod)) |
+| Rate limiting | Local token bucket at a per-Node ceiling plus GCRA as one Lua `EVAL` through rueidis; server `TIME`; `EVALSHA`; `NOSCRIPT` applies `failureMode` and schedules an off-path `SCRIPT LOAD`, never an `EVAL` retry; fail-open default, over-admission at most N × per-Node ceiling | redis_rate v10; throttled v2 | redis_rate is bound to go-redis; throttled uses non-atomic SETNX plus EXPIRE | Apache-2.0 (Ruralz code) | Script cache lost on failover; all keys in `KEYS` | Ruralz code | [ADR-0008](../adr/0008-rate-limiting-local-bucket-and-gcra.md) | Planned (M1) | ([source](https://raw.githubusercontent.com/go-redis/redis_rate/v10/lua.go)) ([source](https://redis.io/docs/latest/develop/programmability/eval-intro/)) |
+| Semantic Cache | Redis 8.4.6 or newer Vector Sets (`VADD`, `VSIM`) or valkey-search 1.2 (`FT.*`) on Valkey 9.0.1 or newer, floors set by [AI/LLM gateway](../architecture/06-ai-llm-gateway.md), on the same State Store deployment, via a separate rueidis client with dedicated connections and timeouts | External vector database | No new infrastructure | rueidis Apache-2.0; servers external (Redis 8 RSALv2, SSPLv1 or AGPLv3; valkey-search BSD-3-Clause) | Vector commands MUST NOT share auto-pipelined connections with rate-limit and quota scripts, or a slow search delays every queued reply; on servers with neither (Dragonfly, Valkey below 9.0.1) the Policy acts as a State Store failure under `failureMode` (default `open`) and the Node reports degraded; no Active-Active | Via rueidis | None ([AI/LLM gateway](../architecture/06-ai-llm-gateway.md)) | Planned (M3) | ([source](https://redis.io/docs/latest/develop/data-types/vector-sets/)) ([source](https://redis.io/docs/latest/commands/vsim/)) ([source](https://github.com/valkey-io/valkey-search/releases)) ([source](https://redis.io/docs/latest/operate/oss_and_stack/stack-with-enterprise/release-notes/redisce/redisos-8.4-release-notes/)) |
+| GraphQL | `wundergraph/graphql-go-tools` v2.22.x. `ruralzd`: lexer, parser, `astnormalization`, `astvalidation`, `engine/plan`, `engine/resolve` and `graphql_datasource`. `ruralz-control` and `ruralz`: lexer, parser, normalization and validation packages, plus `engine/plan` and the `graphql_datasource` planner, with no HTTP or subscription client, never `engine/resolve`. No binary links `subscription` | gqlgen; bramble; graphql-go | Federation versions 1 and 2; subscriptions over WebSocket and SSE; built for gateways | MIT | Customer-steered roadmap; pins gorilla/websocket v1.5.1, which `graphql_datasource` brings into all three binaries | Pending CI | [ADR-0012](../adr/0012-graphql-engine-graphql-go-tools.md) | Planned (M3) | ([source](https://github.com/wundergraph/graphql-go-tools)) ([source](https://github.com/wundergraph/graphql-go-tools/tree/master/v2)) ([source](https://raw.githubusercontent.com/wundergraph/graphql-go-tools/master/v2/go.mod)) |
 | Kafka | `twmb/franz-go` v1.22.x; `ProducerLinger(0)` on Routes that await the acknowledgment | IBM/sarama; segmentio/kafka-go | Kafka 0.8.0 to 4.4; full EOS; KIP-848, KIP-932 | BSD-3-Clause | Tags only; library default linger 10 ms since v1.20.0 | Verified | [ADR-0013](../adr/0013-messaging-client-libraries.md) | Planned (M4) | ([source](https://github.com/twmb/franz-go)) ([source](https://raw.githubusercontent.com/twmb/franz-go/master/CHANGELOG.md)) |
 | NATS | `nats-io/nats.go` v1.54.x, `jetstream` package | Legacy JetStream API | Replaces the legacy API; pull consumers, KeyValue | Apache-2.0 | Needs nats-server 2.9.0 or newer | Pending CI | [ADR-0013](../adr/0013-messaging-client-libraries.md) | Planned (M4) | ([source](https://github.com/nats-io/nats.go/blob/main/jetstream/README.md)) ([source](https://github.com/nats-io/nats.go/releases)) |
 | MQTT client | `eclipse-paho/paho.golang` v0.23.x (module `github.com/eclipse/paho.golang`), `autopaho` | paho.mqtt.golang | MQTT v5, session persistence, QoS 1 and 2 | EPL-2.0 or EDL-1.0; Ruralz elects EDL-1.0 | Pre-1.0; last tag 2025-09-06 (fails S1); Receive Maximum gaps | Pending CI | [ADR-0013](../adr/0013-messaging-client-libraries.md) | Planned (M4) | ([source](https://github.com/eclipse-paho/paho.golang)) ([source](https://pkg.go.dev/github.com/eclipse/paho.golang?tab=versions)) |
 | MQTT embedded broker | `mochi-mqtt/server/v2` v2.7.x, core and auth packages only, so its Redis, Badger and Pebble storage hooks are not linked (the license gate still scans them) | Separate broker process | In-process v5 broker with ACL hooks; passes Paho interoperability tests | MIT | Last tag 2025-03-01 (fails S1); inline client bypasses ACLs | Pending CI | [ADR-0013](../adr/0013-messaging-client-libraries.md) | Planned (M4) | ([source](https://github.com/mochi-mqtt/server)) ([source](https://pkg.go.dev/github.com/mochi-mqtt/server/v2?tab=versions)) |
-| JOSE | `lestrrat-go/jwx/v4` v4.5.x | golang-jwt/jwt/v5; go-jose/v4 alone | Full JWA, JWE, JWK, JWS, JWT; v4.5.0 fixes GHSA-4cf7-xm37-g63h | MIT | `GOEXPERIMENT=jsonv2` on Go 1.26 (S2 exception); ML-DSA unregistered below Go 1.27 (G3) | Pending CI | None | Planned (M1) | ([source](https://github.com/lestrrat-go/jwx/blob/develop/v4/README.md)) ([source](https://github.com/lestrrat-go/jwx/releases/tag/v4.5.0)) |
-| OIDC | `coreos/go-oidc/v3` v3.21.x | jwx plus own discovery | Maintained discovery and ID token verification | Apache-2.0 | Brings go-jose/v4 beside jwx | Pending CI | None | Planned (M1) | ([source](https://github.com/coreos/go-oidc/blob/v3/go.mod)) |
+| JOSE | `lestrrat-go/jwx/v4` v4.5.x; `ruralzd` uses jwx alone for JWKS and token verification | golang-jwt/jwt/v5; go-jose/v4 alone | Full JWA, JWE, JWK, JWS, JWT; v4.5.0 fixes GHSA-4cf7-xm37-g63h | MIT | `GOEXPERIMENT=jsonv2` on Go 1.26 (S2 exception); ML-DSA unregistered below Go 1.27 (G3) | Pending CI | None | Planned (M1) | ([source](https://github.com/lestrrat-go/jwx/blob/develop/v4/README.md)) ([source](https://github.com/lestrrat-go/jwx/releases/tag/v4.5.0)) |
+| OIDC | `coreos/go-oidc/v3` v3.21.x, in `ruralz-control` only, for Ruralz Console SSO (OQ-tech-stack-and-libraries-6, option (b)) | jwx plus own discovery | Maintained discovery and ID token verification | Apache-2.0 | Brings go-jose/v4 beside jwx in `ruralz-control` | Pending CI | None | Planned (M5) | ([source](https://github.com/coreos/go-oidc/blob/v3/go.mod)) |
 | Expressions | cel-go v0.32.x at `cel.dev/cel-go` (`google/cel-go` is a read-only alias) | Lua; expr-lang | Typed, non-Turing-complete; `CostLimit`, `ContextEval` | Apache-2.0 | Old path "will eventually be removed" | Pending CI | [ADR-0011](../adr/0011-expressions-and-authorization-engines.md) | Planned (M1) | ([source](https://github.com/google/cel-go/blob/main/README.md)) ([source](https://github.com/cel-expr/cel-go/releases/tag/v0.32.0)) |
 | Authorization engines | OPA v1 (`opa/v1/rego`, `PrepareForEval`) and cedar-go v1.8.x; also in Ruralz Control and CLI for validation | Root `opa/rego`; OPA sidecar | Prepared queries per request, no network hop | Apache-2.0 | cedar-go idle since 2026-06-01 and lacks the schema validator, so Cedar validation stops at parsing | Pending CI | [ADR-0011](../adr/0011-expressions-and-authorization-engines.md) | Planned (M2) | ([source](https://github.com/open-policy-agent/opa/blob/main/v1/rego/rego.go)) ([source](https://github.com/cedar-policy/cedar-go/blob/main/README.md)) ([source](https://github.com/cedar-policy/cedar-go)) |
 | Tokenizer (estimates only) | `tiktoken-go/tokenizer` v0.8.x | pkoukk/tiktoken-go | Vocabularies embedded (about 4 MB); provider usage stays authoritative | MIT | OpenAI encodings only; init-time heap unmeasured (hypothesis: lazy per-encoding loading avoids it) | Pending CI | [ADR-0014](../adr/0014-ai-api-surface.md) | Planned (M3) | ([source](https://github.com/tiktoken-go/tokenizer)) ([source](https://pkg.go.dev/github.com/tiktoken-go/tokenizer)) |
 | Plugin and Revision distribution | `oras.land/oras-go/v2` v2.6.2 or newer; `sigstore/sigstore-go` v1.3.x | cosign as a library | OCI Referrers carry Sigstore signatures; stable verification library | Apache-2.0 | Older oras-go carries GO-2026-5879 | Pending CI | [ADR-0017](../adr/0017-artifact-signing.md) | Planned (M2) | ([source](https://pkg.go.dev/oras.land/oras-go/v2?tab=versions)) ([source](https://github.com/sigstore/sigstore-go)) |
 | Service discovery | `net` for DNS SRV; `k8s.io/client-go` EndpointSlice informers | Consul `api`; minimal list-and-watch client (OQ-tech-stack-and-libraries-23) | Informers avoid DNS TTL lag | BSD-3-Clause; Apache-2.0 | client-go is always linked into `ruralzd` and `ruralz-control`: a static binary cannot drop it without a second build variant | Pending CI | None | Planned (M1) DNS; Planned (M2) Kubernetes | ([source](https://pkg.go.dev/net)) ([source](https://pkg.go.dev/k8s.io/client-go/informers/discovery/v1)) |
+| Zero-Downtime Upgrade socket steering | `golang.org/x/sys/unix` v0.48.x, imported directly for `SO_ATTACH_REUSEPORT_CBPF` steering at a Zero-Downtime Upgrade | `syscall` | Already linked transitively through wazero and bbolt, so no new module | BSD-3-Clause | Steering calls are Linux-only | Pending CI | [ADR-0015](../adr/0015-zero-downtime-upgrades-so-reuseport.md) | Planned (M1) | ([source](https://github.com/golang/sys/blob/v0.48.0/LICENSE)) ([source](https://github.com/wazero/wazero/blob/main/go.mod)) ([source](https://github.com/etcd-io/bbolt/blob/v1.4.1/go.mod)) |
 | YAML 1.2 parser | `github.com/goccy/go-yaml` v1.19.x; Ruralz code over its AST rejects anchors, aliases, merge keys and custom tags | go-yaml v4 (`go.yaml.in/yaml/v4`); sigs.k8s.io/yaml (YAML 1.1 resolver) | Only candidate claiming YAML 1.2-only scalar resolution; duplicate keys fail by default; no dependencies | MIT | Last release 2026-01-08; YAML Test Suite results self-reported | Pending CI | [ADR-0003](../adr/0003-configuration-format.md) | Planned (M1) | ([source](https://github.com/goccy/go-yaml/blob/master/README.md)) ([source](https://github.com/goccy/go-yaml/blob/master/token/token.go)) ([source](https://github.com/goccy/go-yaml/blob/v1.19.2/option.go)) |
 | JSON Schema validator | `github.com/santhosh-tekuri/jsonschema/v6` v6.0.x (draft 2020-12), also behind `validation.json-schema` | kaptinlin/jsonschema (`go 1.27.0` fails S2); google/jsonschema-go | Claims 2020-12 test-suite compliance; `Vocabulary` API for `x-ruralz-*` keywords; instance locations for the source map; declares `go 1.21` | Apache-2.0 | Compliance shown by badges, not an independent run | Pending CI | [ADR-0003](../adr/0003-configuration-format.md) | Planned (M1) | ([source](https://github.com/santhosh-tekuri/jsonschema/blob/boon/README.md)) ([source](https://github.com/santhosh-tekuri/jsonschema/blob/v6.0.3/vocab.go)) ([source](https://github.com/santhosh-tekuri/jsonschema/blob/v6.0.3/go.mod)) |
 | Test tooling (not shipped) | testcontainers-go v0.44.x; buf v1.73.x | Docker Compose scripts | Real brokers in Go tests; `buf lint` and `buf breaking` | MIT; Apache-2.0 | Breaking changes in v0.42.0 and v0.43.0 | Not linked | None | Planned (M0) | ([source](https://github.com/testcontainers/testcontainers-go)) ([source](https://github.com/bufbuild/buf)) |
 | Docs tooling (not shipped) | MADR 4.0; markdownlint-cli2 0.23.x; lychee v0.24.x; mermaid 11.x `parse()` (the mermaid-lint step in [verify-docs.mjs](../../scripts/verify-docs.mjs)) | Vale | Matches the [style guide](../_meta/style-guide.md) and CI docs gate | MADR `MIT OR CC0-1.0`; markdownlint-cli2 MIT; lychee `Apache-2.0 OR MIT`; mermaid MIT; CI-only, never distributed | Flaky external URLs, so lychee runs on a schedule; mermaid 12 needs Node 22.12 and re-lays out flowcharts ([source](https://github.com/mermaid-js/mermaid/releases/tag/mermaid%4012.0.0)) | Not linked | None | Planned (M0) | ([source](https://github.com/adr/madr/blob/develop/LICENSE)) ([source](https://github.com/DavidAnson/markdownlint-cli2/blob/main/LICENSE)) ([source](https://github.com/lycheeverse/lychee/blob/master/lychee-bin/Cargo.toml)) ([source](https://github.com/mermaid-js/mermaid/blob/develop/LICENSE)) |
 
-Because client-go, OPA and graphql-go-tools are always linked, `ruralzd` has a stripped binary budget of 160 MiB (target) and an idle RSS budget of 96 MiB with no Revision loaded (target), owned by [Performance budgets and benchmarking](../architecture/12-performance-budgets-and-benchmarking.md) and reported by a CI size check from Planned (M1).
+Because client-go, OPA and graphql-go-tools are always linked, `ruralzd` has a stripped binary budget of 160 MiB (target) and an idle RSS budget of 89 MiB with no Revision loaded (target), owned by [Performance budgets and benchmarking](../architecture/12-performance-budgets-and-benchmarking.md) and reported by a CI size check from Planned (M1). This answers OQ-performance-budgets-and-benchmarking-5 with option (a), aligning to 89 MiB.
 
 ### Concerns not yet selected
 
@@ -117,7 +118,7 @@ connect-go serves typed handlers, yet a Route matches arbitrary services by serv
 
 ### Dependency graph
 
-*Figure 1: libraries linked by `cmd/ruralzd`, which carries the request path.*
+*Figure 1: libraries linked by `cmd/ruralzd`, which carries the request path; go-oidc stays out, so jwx alone verifies tokens.*
 
 ```mermaid
 flowchart LR
@@ -136,7 +137,6 @@ flowchart LR
   paho["paho.golang"]
   mochi["mochi-mqtt"]
   jwx["jwx v4"]
-  oidc["go-oidc v3"]
   cel["cel-go"]
   opa["OPA v1 rego"]
   cedar["cedar-go"]
@@ -145,6 +145,7 @@ flowchart LR
   k8s["k8s.io/client-go"]
   yaml["goccy/go-yaml"]
   jss["santhosh-tekuri/jsonschema v6"]
+  xsys["golang.org/x/sys/unix"]
   dp --> http
   dp --> quic
   dp --> connect
@@ -159,7 +160,6 @@ flowchart LR
   dp --> paho
   dp --> mochi
   dp --> jwx
-  dp --> oidc
   dp --> cel
   dp --> opa
   dp --> cedar
@@ -168,6 +168,7 @@ flowchart LR
   dp --> k8s
   dp --> yaml
   dp --> jss
+  dp --> xsys
 ```
 
 *Figure 2: libraries linked by `cmd/ruralz-control` and `cmd/ruralz`.*
@@ -185,7 +186,7 @@ flowchart LR
   cel["cel-go"]
   opa["OPA v1 rego"]
   cedar["cedar-go"]
-  gqlv["graphql-go-tools parser and validation"]
+  gqlv["graphql-go-tools lexer, parser, normalization, validation, engine/plan and graphql_datasource planner"]
   wazero["wazero"]
   oras["oras-go and sigstore-go"]
   k8s["k8s.io/client-go"]
@@ -216,7 +217,7 @@ flowchart LR
   cli --> jss
 ```
 
-One validation library runs in all three binaries ([Configuration model](../architecture/02-configuration-model.md#validation-and-diff-semantics)), so `ruralz-control` and the CLI compile every CEL expression, Rego module, Cedar policy and GraphQL document before a Revision exists; such errors surface in `ruralz bundle validate`, not as Node NACKs (size cost: OQ-tech-stack-and-libraries-22). `ruralz-control` links client-go to watch Ruralz CRDs. The CLI links wazero so `ruralz plugin test` matches `ruralzd`; `ruralz dev run` launches a local `ruralzd` rather than embedding it.
+One validation library runs in all three binaries ([Configuration model](../architecture/02-configuration-model.md#validation-and-diff-semantics)), so `ruralz-control` and the CLI compile every CEL expression, Rego module, Cedar policy and GraphQL document, and plan supergraph operations, before a Revision exists; such errors surface in `ruralz bundle validate`, not as Node NACKs (size cost: OQ-tech-stack-and-libraries-22). `ruralz-control` links client-go to watch Ruralz CRDs. The CLI links wazero so `ruralz plugin test` matches `ruralzd`; `ruralz dev run` launches a local `ruralzd` rather than embedding it.
 
 ## Go toolchain, static builds and FIPS
 
@@ -259,9 +260,9 @@ The FIPS variant is Planned (M5): the same source built with `GOFIPS140` by the 
 
 | G3 exception | What breaks G3 | Handling | Tracking |
 |---|---|---|---|
-| quic-go | FIPS enforcement off for Initial and Retry protection (fixed keys); separate ChaCha20 path; `go:linkname` into unexported `crypto/tls.aeadAESGCMTLS13` ([source](https://github.com/quic-go/quic-go/blob/master/FIPS140.md)) | Accepted outside FIPS builds; HTTP/3 off in FIPS builds | OQ-tech-stack-and-libraries-9 |
+| quic-go | FIPS enforcement off for Initial and Retry protection (fixed keys); separate ChaCha20 path; `go:linkname` into unexported `crypto/tls.aeadAESGCMTLS13` ([source](https://github.com/quic-go/quic-go/blob/master/FIPS140.md)) | Accepted outside FIPS builds; HTTP/3 off in FIPS builds, and a FIPS Node refuses, never ignores, `http3: true` | OQ-tech-stack-and-libraries-9 |
 | jwx v4 ML-DSA | No `crypto/mldsa` before Go 1.27 ([source](https://tip.golang.org/doc/go1.27)) | Excluded below Go 1.27 | Version floor |
-| go-jose/v4, OPA v1, sigstore-go | No research evidence either way | The G3 check decides; a failure adds a row or a replacement | OQ-tech-stack-and-libraries-9 |
+| go-jose/v4 (`ruralz-control` only), OPA v1, sigstore-go | No research evidence either way | The G3 check decides; a failure adds a row or a replacement | OQ-tech-stack-and-libraries-9 |
 
 Go 1.26 enables hybrid post-quantum key exchange in `crypto/tls` by default ([source](https://go.dev/doc/go1.26)); Ruralz keeps it outside FIPS builds.
 
@@ -371,13 +372,10 @@ ADRs follow MADR 4.0 plus `Confirmation` ([style guide](../_meta/style-guide.md)
 
 | ID | Question | Options | Owner | Blocking? |
 |---|---|---|---|---|
-| OQ-tech-stack-and-libraries-6 | Two JOSE stacks (jwx, go-jose via go-oidc) | (a) Accept; (b) go-oidc in Ruralz Control only; (c) go-jose/v4 only | Security and identity owner | No |
-
+| OQ-tech-stack-and-libraries-6 | Two JOSE stacks (jwx, go-jose via go-oidc) | (a) Accept; (b) Chosen by Security and identity: go-oidc, with go-jose/v4, in Ruralz Control only; (c) go-jose/v4 only | Security and identity owner | No (answered) |
 | OQ-tech-stack-and-libraries-8 | Plugin CPU limits without fuel metering? | (a) Deadlines; (b) Host-side call budgets; (c) Upstream fix | WASM plugin system owner | Yes, for WASM plugin system |
-| OQ-tech-stack-and-libraries-9 | FIPS HTTP/3 given the quic-go G3 exception (golang/go#79219); G3 status of go-jose/v4, OPA, sigstore-go | (a) HTTP/3 off in FIPS builds (current); (b) Ship with caveat | Release owner | Yes, for the FIPS build |
-
+| OQ-tech-stack-and-libraries-9 | FIPS HTTP/3 given the quic-go G3 exception (golang/go#79219); how a FIPS Node refuses, never ignores, a Revision with `http3: true`; G3 status of go-jose/v4, OPA, sigstore-go | (a) HTTP/3 off in FIPS builds (current); (b) Ship with caveat. For `http3: true`: (c) Deterministic NACK, or a file-mode load failure, with an RZ-CFG code the Configuration model registers (proposed), which pauses or rolls back Rollouts in Clusters mixing FIPS and default Nodes; (d) Render-time error, needing a field that marks FIPS targets, which the Configuration model lacks | Release owner | Yes, for the FIPS build |
 | OQ-tech-stack-and-libraries-11 | Token estimates for non-OpenAI providers? | (a) Per-`AIProvider` ratio; (b) Provider count APIs; (c) OpenAI proxy | AI/LLM gateway owner | No |
-
 | OQ-tech-stack-and-libraries-14 | Protobuf runtime and generator? | google.golang.org/protobuf with buf | Control plane owner | Yes, for Planned (M2) |
 | OQ-tech-stack-and-libraries-15 | ULID library? | oklog/ulid/v2; own code on `crypto/rand` | Data plane owner | No |
 | OQ-tech-stack-and-libraries-16 | Which `/metrics` exporter serves 9901 and 9902? | OTel Prometheus exporter; Prometheus client | Observability owner | No |
@@ -386,6 +384,9 @@ ADRs follow MADR 4.0 plus `Confirmation` ([style guide](../_meta/style-guide.md)
 | OQ-tech-stack-and-libraries-19 | SAML library for Console SSO? | crewjam/saml (fails S1); OIDC only | Security and identity owner | No |
 | OQ-tech-stack-and-libraries-20 | `postgres` driver? | jackc/pgx/v5; defer | Control plane owner | No |
 | OQ-tech-stack-and-libraries-21 | Does gRPC pass-through hold for trailers, deadlines, all stream types, Connect unary and error mapping; where do descriptors come from? | (a) Generic connect handlers (proposed); (b) Raw HTTP/2 proxy for gRPC | Multi-protocol owner | Yes, for Multi-protocol |
-| OQ-tech-stack-and-libraries-22 | Validation-only engines grow Ruralz Control and CLI | (a) Accept; (b) Node-side only, errors as NACKs | Control plane owner | No |
+| OQ-tech-stack-and-libraries-22 | Validation-only engines and GraphQL supergraph planning grow Ruralz Control and CLI | (a) Accept; (b) Node-side only, errors as NACKs | Control plane owner | No |
 | OQ-tech-stack-and-libraries-23 | client-go or a minimal EndpointSlice client in `ruralzd`? | (a) client-go within budget; (b) Minimal client | Data plane owner | No |
 | OQ-tech-stack-and-libraries-24 | MaxMind-format database reader for `authz.geoip`? | (a) Research addendum, then a catalog row; (b) Own reader | Security and identity owner | Yes, for `authz.geoip` |
+| OQ-tech-stack-and-libraries-25 | Where do the static binaries get CA roots, given images without a libc base and archive installs? | (a) The image ships a CA bundle and archives read the host store; (b) The binary embeds roots, needing a research-backed catalog row and a G3 decision, with `-fips` artifacts making the same choice; (c) The host or a mounted store only | Release owner | Yes, for container images |
+
+Answered here: OQ-performance-budgets-and-benchmarking-5, option (a), idle RSS 89 MiB (target) ([Library catalog](#library-catalog)).

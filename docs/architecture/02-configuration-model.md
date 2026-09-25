@@ -2,7 +2,7 @@
 title: Configuration Model
 status: reviewed
 owner: ruralz-core
-last_updated: 2026-09-23
+last_updated: 2026-09-25
 depends_on:
   - docs/_meta/foundation-pack.md
   - docs/_meta/style-guide.md
@@ -243,7 +243,7 @@ spec:
   admin:
     port: 9901                     # default 9901
   telemetry:
-    otlp: {endpoint: "http://otel-collector:4317"}
+    otlp: {endpoint: "https://otel-collector:4317"}   # TLS per TB-12
     traceSampling: 0.05            # ratio 0 to 1
     accessLog: {when: "response.status >= 400"}   # CEL
   limits:
@@ -315,7 +315,7 @@ Every body streams unless something must read it whole. Buffering is `Planned (M
 | Form | Triggered by | Over a limit or out of budget |
 |---|---|---|
 | Gate: nothing is forwarded until the body is complete, so the response is still uncommitted | Steps: every `aggregate` step, since merging needs whole bodies, and any step with `target`, `select`, `rename` or `group` or read later through `steps`. CEL reading `request.body` or `response.body`. Policies: `authz.*` in `onRequestBody`, `validation.json-schema`, `transform.request`, `transform.response`, `ai.token-budget` and `ai.guardrail` outside `onChunk`, and the request side of `ai.semantic-cache`. An `ai` Upstream, which parses the request. A Plugin with `onRequestBody` or `onUpstreamResponseBody` in `phases` | Always before commit: 413 for the request body; a failed step, decided by `optional`; 502 for another response body; 503 with an `RZ-RT-<NNN>` code when the Node budget is spent |
-| Tee: a copy is kept while the body streams on to the client | The store side of `cache` (Response Cache) and `ai.semantic-cache`, including a streamed SSE completion | Stops copying, skips the store, keeps streaming and increments `ruralz_cache_store_skipped_total` (name proposed to [Observability](10-observability.md)) |
+| Tee: a copy is kept while the body streams on to the client | The store side of `cache` (Response Cache) and `ai.semantic-cache`, including a streamed SSE completion | Stops copying, skips the store, keeps streaming and increments `ruralz_cache_store_skipped_total` for `cache` or `ruralz_ai_semantic_cache_store_skipped_total` for `ai.semantic-cache` ([Observability](10-observability.md); a `buffer_budget` reason for the latter is proposed there) |
 
 Limits count bytes after content decoding. A body decoded into Go values for CEL (`request.body`, `response.body`, `steps[].body`) or for a merge is charged at the size of the values the decoder builds, at most 4 times the raw limit it arrived under (target); beyond that it fails as oversized. The merged aggregate output is one more copy, capped as the client response by `maxResponseBodyBytes`.
 
@@ -444,7 +444,7 @@ spec:
   image: ghcr.io/acme/ruralz-plugins/geo-block:1.4.0@sha256:fc37c2971bb6e82aa12a871aed718818afcf45ab42bd093f0cf52f4ad8045435   # required; digest required
   abi: ruralz.plugin.v1            # required; Plugin ABI v1
   phases: [onRequestHeaders]       # required; set; subset of the Filter Chain Phases, including onChunk
-  capabilities: [request.headers.read, log.write]   # set; illustrative identifiers; nothing else is granted
+  capabilities: [request.headers.read, response.send, log.write]   # set; illustrative identifiers; nothing else is granted
   limits: {memoryBytes: 16Mi, timeout: 5ms}
   configSchema:                    # JSON Schema for the Policy spec.config
     type: object
@@ -542,7 +542,7 @@ spec:
     from: staging                  # required when promotion is set; the source commit must complete a Rollout there first
     requireApproval: true
   variables:                       # non-secret values for ${VAR} substitution
-    OTEL_EXPORTER_OTLP_ENDPOINT: "http://otel-collector.observability:4317"
+    OTEL_EXPORTER_OTLP_ENDPOINT: "https://otel-collector.observability:4317"
 ```
 
 Every `Environment.spec` field is optional. CLI renders read only `overlay` and `variables`; `promotion` needs Ruralz Control. `promotion.from` chains MUST be acyclic (RZ-CFG-022). Promotion moves a source commit, not a digest, because each Environment renders its own Revision. `from: staging` lets Ruralz Control start a `prod` Rollout only for a Revision rendered from a commit whose `staging` Revision reached `complete`.
@@ -778,9 +778,9 @@ Substitution is forbidden in keys, `apiVersion`, `kind`, `metadata.name`, refere
 | Ruralz Control, including the CRD path | Target Environment's `spec.variables`, never its own process environment | Planned (M2) |
 | `ruralzd` in file mode | Its process environment, only when it loads an unrendered source Bundle | Planned (M1) |
 
-With `--env`, CI renders exactly what Ruralz Control renders and reproduces its digest. Ruralz Control never accepts a pre-rendered Revision: `ruralz bundle push --env prod` uploads the source Bundle with the CLI's digest, and Ruralz Control re-renders it with the Environment's variables, rejects a mismatch with RZ-CFG-027 and records the source tree digest in place of a Git commit, so promotion gating applies unchanged. Pushing to an OCI registry publishes the rendered Revision, signed with Sigstore ([ADR-0017](../adr/0017-artifact-signing.md)), for file-mode Nodes to pull by digest. New flags are OQ-configuration-model-10.
+With `--env`, CI renders exactly what Ruralz Control renders and reproduces its digest. Ruralz Control never accepts a pre-rendered Revision: `ruralz bundle push --env staging` uploads the source Bundle with the CLI's digest, and Ruralz Control re-renders it with the Environment's variables, rejects a mismatch with RZ-CFG-027 and records the source tree digest in place of a Git commit, so promotion gating applies unchanged. Pushing to an OCI registry publishes the rendered Revision, signed with Sigstore ([ADR-0017](../adr/0017-artifact-signing.md)), for file-mode Nodes to pull by digest. New flags are OQ-configuration-model-10.
 
-Values never come from a Cluster, so all Clusters of an Environment run one Revision; Node-local values such as a regional State Store URL use `secretRef` (OQ-configuration-model-12). A file-mode Cluster with more than one Node SHOULD load rendered Bundles or OCI Revisions; divergence shows as Drift. `RURALZ_CONFIG`, `RURALZ_DATA_DIR` and `RURALZ_LOG_LEVEL` never change a Revision.
+Values never come from a Cluster, so all Clusters of an Environment run one Revision; Node-local values such as a regional State Store URL use `secretRef` (OQ-configuration-model-12). When several file-mode Nodes read one source, they SHOULD load rendered Bundles or OCI Revisions; without Ruralz Control no Drift is reported, so compare Nodes' `/config/dump` with `ruralz bundle diff`. `RURALZ_CONFIG`, `RURALZ_DATA_DIR` and `RURALZ_LOG_LEVEL` never change a Revision.
 
 ## Validation and diff semantics
 
@@ -901,9 +901,10 @@ ruralz bundle diff: rev-162af81f5de4 -> rev-68f782530463 (environment: prod)
     ~ spec.timeout: 5s -> 4s
     + spec.policies[name=ratelimit-orders]
 ~ Plugin/geo-block                              plugins/geo-block.yaml       [plugin, security]
-    + spec.capabilities[item=request.body.read]  (Capability grant)
+    + spec.capabilities[item=response.send]  (Capability grant)
 ~ AIModel/support-chat                          ai/models.yaml               [ai]
-    > spec.candidates[name=secondary]: position 2 -> 1
+    > spec.candidates[name=primary]: position 2 -> 1
+    > spec.candidates[name=secondary]: position 1 -> 2
 + Policy/ratelimit-orders                       policies/common.yaml         [traffic]
 - Upstream/legacy-orders                        upstreams/services.yaml      [routing]
 
@@ -918,8 +919,10 @@ JSON form (`--output json`), versioned by `format` independently of the apiVersi
 ```json
 {
   "format": "ruralz.diff.v1",
-  "from": {"revision": "rev-162af81f5de4"},
-  "to": {"revision": "rev-68f782530463", "bundle": "./shop-bundle"},
+  "from": {"revision": "rev-162af81f5de4",
+           "digest": "sha256:162af81f5de482d540e09cf25205ffe39b705fd2dcf5eca88eb42e92b098a85e"},
+  "to": {"revision": "rev-68f782530463", "bundle": "./shop-bundle",
+         "digest": "sha256:68f782530463d5c1f0e2b9a7c4d8e6f1a3b5c7d9e0f2a4b6c8d0e2f4a6b8c0d2"},
   "environment": "prod",
   "resources": [
     {"kind": "Route", "name": "orders-summary", "change": "modified", "source": "routes/orders-summary.yaml",
@@ -929,11 +932,12 @@ JSON form (`--output json`), versioned by `format` independently of the apiVersi
     ]},
     {"kind": "Plugin", "name": "geo-block", "change": "modified", "source": "plugins/geo-block.yaml",
      "impact": ["plugin", "security"], "flags": ["capabilityGrant"], "ops": [
-      {"op": "add", "path": ["spec", "capabilities", {"item": "request.body.read"}], "to": "request.body.read"}
+      {"op": "add", "path": ["spec", "capabilities", {"item": "response.send"}], "to": "response.send"}
     ]},
     {"kind": "AIModel", "name": "support-chat", "change": "modified", "source": "ai/models.yaml",
      "impact": ["ai"], "ops": [
-      {"op": "move", "path": ["spec", "candidates", {"name": "secondary"}], "from": 1, "to": 0}
+      {"op": "move", "path": ["spec", "candidates", {"name": "primary"}], "from": 1, "to": 0},
+      {"op": "move", "path": ["spec", "candidates", {"name": "secondary"}], "from": 0, "to": 1}
     ]},
     {"kind": "Policy", "name": "ratelimit-orders", "change": "added", "source": "policies/common.yaml", "impact": ["traffic"]},
     {"kind": "Upstream", "name": "legacy-orders", "change": "removed", "source": "upstreams/services.yaml", "impact": ["routing"]}
@@ -947,7 +951,7 @@ JSON form (`--output json`), versioned by `format` independently of the apiVersi
 }
 ```
 
-Field operations are `add`, `remove`, `replace` and `move`; a `move` carries zero-based list positions in JSON and one-based positions in the human form, where `>` marks it. Added and removed resources carry identity only. Ruralz Control attaches the JSON to each Revision for Rollout approval in Ruralz Console.
+The TO side is the example Bundle rendered for `prod`; FROM is a hypothetical earlier Revision that listed `secondary` first and did not grant `response.send`. JSON carries the full `sha256:<64 hex>` digest beside each `rev-<12 hex>` ([CLI and API surface](../reference/01-cli-and-api-surface.md)). Field operations are `add`, `remove`, `replace` and `move`; a `move` carries zero-based list positions in JSON and one-based positions in the human form, where `>` marks it. Added and removed resources carry identity only. Ruralz Control attaches the JSON to each Revision for Rollout approval in Ruralz Console.
 
 ### Status conditions in the CRD path
 
@@ -975,7 +979,7 @@ Deprecation windows belong to [Release, versioning and compatibility](../enginee
 
 ### Hub-and-spoke conversion
 
-Every served version converts to and from one internal hub type per kind, with round trips property-tested for every field; newer-only fields survive down-conversion in the annotation `ruralz.io/conversion-data`. A Bundle MAY mix versions; each resource is merged and defaulted under its own apiVersion before hub conversion. Because the digest covers effective values, converting a Bundle from `ruralz/v1alpha1` to `ruralz/v1beta1` MUST yield the same Revision and an empty `ruralz bundle diff`; the converter writes a field explicitly whenever the source version's default differs from the target's. Deprecated versions and fields raise RZ-CFG-025. `ruralz bundle render --api-version ruralz/v1beta1` writes converted resources and drops comments (OQ-configuration-model-7).
+Every served version converts to and from one internal hub type per kind, with round trips property-tested for every field; newer-only fields survive down-conversion in the annotation `ruralz.io/conversion-data`. A Bundle MAY mix versions; each resource is merged and defaulted under its own apiVersion before hub conversion. Because the digest covers effective values, converting a Bundle from `ruralz/v1alpha1` to `ruralz/v1beta1` MUST yield the same Revision and an empty `ruralz bundle diff`; the converter writes a field explicitly whenever the source version's default differs from the target's. Deprecated versions and fields raise RZ-CFG-025. `ruralz bundle render --api-version ruralz/v1beta1 --output-dir DIR --environments FILE` writes converted resources and drops comments (OQ-configuration-model-7).
 
 ### Version skew
 
@@ -1016,7 +1020,7 @@ spec:
   telemetry:
     otlp:
       # Render-time value from Environment variables; the default keeps local runs working.
-      endpoint: ${OTEL_EXPORTER_OTLP_ENDPOINT:-http://otel-collector:4317}
+      endpoint: ${OTEL_EXPORTER_OTLP_ENDPOINT:-https://otel-collector:4317}
     traceSampling: 0.05
     accessLog:
       when: 'response.status >= 400 || duration > duration("1s")'   # CEL
@@ -1168,8 +1172,7 @@ spec:
     methods: [POST]
   policies:
     - name: apikey-partner              # auth.api-key, slot auth: replaces jwt-default
-    - name: token-budget-partner
-    - name: semantic-cache-support      # turns on the Semantic Cache for this Route
+    - name: token-budget-partner        # no ai.semantic-cache: this Cell's State Store holds Token Budget keys
   upstreams:
     - name: llm
   timeout: 120s                         # long-running streamed completions; onChunk per token chunk
@@ -1224,7 +1227,7 @@ spec:
   limits: {maxInputTokens: 32000, maxOutputTokens: 2048}
   cache:
     prompt: {mode: passthrough}         # keep provider cache_control blocks
-    semantic: {similarityThreshold: 0.92, ttl: 1h}   # used by semantic-cache-support
+    semantic: {similarityThreshold: 0.92, ttl: 1h}   # harmless until a Route attaches ai.semantic-cache
 ```
 
 `plugins/geo-block.yaml`, a WASM Plugin and the Policy that configures it:
@@ -1238,7 +1241,7 @@ spec:
   image: ghcr.io/acme/ruralz-plugins/geo-block:1.4.0@sha256:fc37c2971bb6e82aa12a871aed718818afcf45ab42bd093f0cf52f4ad8045435
   abi: ruralz.plugin.v1
   phases: [onRequestHeaders]
-  capabilities: [request.headers.read, log.write]   # nothing else is granted
+  capabilities: [request.headers.read, response.send, log.write]   # response.send rejects a denied country; nothing else is granted
   limits: {memoryBytes: 16Mi, timeout: 5ms}
   configSchema:
     type: object
@@ -1363,7 +1366,7 @@ spec:
 ---
 apiVersion: ruralz/v1alpha1
 kind: Policy
-metadata: {name: semantic-cache-support}
+metadata: {name: semantic-cache-support}   # attached nowhere: see the note after this file
 spec:
   type: ai.semantic-cache
   config:
@@ -1401,6 +1404,8 @@ spec:
     clientSecret: {secretRef: {provider: kubernetes, name: upstream-oauth, key: client-secret}}
     scopes: [orders.read]
 ```
+
+`semantic-cache-support` stays unattached: a Cell whose State Store holds `ai.token-budget` keys MUST NOT attach `ai.semantic-cache` ([Scalability and distributed state](11-scalability-and-distributed-state.md#distributed-caches)), and this Gateway's single `stateStore` serves `token-budget-partner`. Combining the two on `support-chat` waits for the second State Store connection of OQ-scalability-and-distributed-state-3; until then, attach the Policy only in a Bundle without `ai.token-budget`.
 
 `overlays/prod/scale.yaml`, applied only when rendering for Environment `prod`:
 
@@ -1447,7 +1452,7 @@ metadata:
   name: staging
 spec:
   variables:
-    OTEL_EXPORTER_OTLP_ENDPOINT: "http://otel-collector.observability:4317"
+    OTEL_EXPORTER_OTLP_ENDPOINT: "https://otel-collector.observability:4317"
 ---
 apiVersion: ruralz/v1alpha1
 kind: Environment
@@ -1458,7 +1463,7 @@ spec:
     from: staging                       # a commit must complete a staging Rollout first
     requireApproval: true
   variables:
-    OTEL_EXPORTER_OTLP_ENDPOINT: "http://otel-collector.observability:4317"
+    OTEL_EXPORTER_OTLP_ENDPOINT: "https://otel-collector.observability:4317"
 ---
 apiVersion: ruralz/v1alpha1
 kind: Cluster
@@ -1476,14 +1481,15 @@ spec:
 Working with it:
 
 ```bash
+CONTROL="--control https://control.shop.example:8090 --token-file /run/secrets/ruralz-ci-token"
 ruralz bundle validate --env prod --environments control/environments.yaml ./shop-bundle
 ruralz bundle render --env prod --environments control/environments.yaml --effective --route orders-summary ./shop-bundle
-ruralz bundle diff rev-162af81f5de4 ./shop-bundle --env prod --environments control/environments.yaml --output json
+ruralz bundle diff $CONTROL rev-162af81f5de4 ./shop-bundle --env prod --environments control/environments.yaml --output json
 ruralz bundle build --env prod --environments control/environments.yaml ./shop-bundle
-ruralz bundle push --env prod ./shop-bundle
+ruralz bundle push $CONTROL --env staging ./shop-bundle
 ```
 
-`ruralz bundle build` produces the Revision and runs the online Plugin check, including Plugin signatures. `ruralz bundle push` sends the source Bundle to Ruralz Control, which re-renders it with the `prod` variables, checks the digest, records and signs the Revision; a Rollout then delivers it to `prod-eu-west`.
+`ruralz bundle build` produces the Revision and runs the online Plugin check, including Plugin signatures. `ruralz bundle push` sends the source Bundle to Ruralz Control, which re-renders it with the `staging` variables, checks the digest, records and signs the Revision and rolls it out to the `staging` Clusters. `prod` follows through `promotion.from`: once that staging Rollout reaches `complete`, an approver runs `ruralz rollout approve --env prod`, and only then does a Rollout deliver the `prod` Revision to `prod-eu-west`. A direct `--env prod` push is refused under `requireApproval` unless process configuration allows it ([Control plane and GitOps](04-control-plane-and-gitops.md)).
 
 ## Open questions
 

@@ -395,7 +395,12 @@
   {
    "section": "T4: Kubernetes with Helm, HPA and CRDs",
    "kind": "port",
-   "value": "a conversion webhook (port: OQ-deployment-topologies-13)"
+   "value": "the conversion webhook (port: OQ-deployment-topologies-13)"
+  },
+  {
+   "section": "T4: Kubernetes with Helm, HPA and CRDs",
+   "kind": "milestone",
+   "value": "the conversion webhook (port: OQ-deployment-topologies-13, `caBundle` from the server CA) only from `ruralz.io/v1beta1`, Planned (M3)"
   },
   {
    "section": "T4: Kubernetes with Helm, HPA and CRDs",
@@ -464,11 +469,6 @@
   },
   {
    "section": "T4: Kubernetes with Helm, HPA and CRDs",
-   "kind": "limit",
-   "value": "half Sizing option (b)'s cap, 1,250 (hypothesis)"
-  },
-  {
-   "section": "T4: Kubernetes with Helm, HPA and CRDs",
    "kind": "claim",
    "value": "CPU as a Resource metric, the rest as adapter Pods metrics"
   },
@@ -500,7 +500,7 @@
   {
    "section": "T4: Kubernetes with Helm, HPA and CRDs",
    "kind": "timeout",
-   "value": "`terminationGracePeriodSeconds` MUST exceed the preStop wait plus the Drain deadline"
+   "value": "`terminationGracePeriodSeconds` MUST exceed the preStop wait plus the exit bound (Drain deadline plus flush)"
   },
   {
    "section": "T4: Kubernetes with Helm, HPA and CRDs",
@@ -645,7 +645,7 @@
   {
    "section": "T5 and T6: VMs with systemd and edge sites",
    "kind": "timeout",
-   "value": "`systemctl stop` starts a Drain, so `TimeoutStopSec` MUST exceed the Drain deadline"
+   "value": "`systemctl stop` starts a Drain, so `TimeoutStopSec` MUST exceed the exit bound, 30 s (target)"
   },
   {
    "section": "T5 and T6: VMs with systemd and edge sites",
@@ -958,6 +958,11 @@
    "value": "Across Regions only 8091, 8092, telemetry, backups, configured Upstreams and calls to a single-Region forge, registry or 8090 cross."
   },
   {
+   "section": "Network and ports",
+   "kind": "milestone",
+   "value": "CRD watch and status; conversion webhook, Planned (M3)"
+  },
+  {
    "section": "File-mode bootstrap",
    "kind": "kind_or_field",
    "value": "`node.id` under `${RURALZ_DATA_DIR}/identity/`"
@@ -1140,7 +1145,7 @@
   {
    "section": "Sizing defaults",
    "kind": "number",
-   "value": "Node container: 4 vCPU (target) and 4 GiB (hypothesis)"
+   "value": "Node container: 4 vCPU (target); 4 GiB (hypothesis) fits only idle TLS connections and default buffered-bytes and state-table budgets"
   },
   {
    "section": "Sizing defaults",
@@ -1149,8 +1154,8 @@
   },
   {
    "section": "Sizing defaults",
-   "kind": "limit",
-   "value": "cap connections per Node at the L4 balancer near 2,500 (hypothesis; OQ-deployment-topologies-21)"
+   "kind": "claim",
+   "value": "Size memory by `GOMEMLIMIT` below; an L4 connection cap does not bound it (OQ-capacity-planning-5)"
   },
   {
    "section": "Sizing defaults",
@@ -1170,7 +1175,7 @@
   {
    "section": "Sizing defaults",
    "kind": "default",
-   "value": "`GOMEMLIMIT`: About 90% of the container memory limit (target)"
+   "value": "`GOMEMLIMIT`: At least max(M_node, M_flood), 90% of the container limit (target)"
   },
   {
    "section": "Sizing defaults",
@@ -1290,7 +1295,7 @@
   {
    "section": "Sizing defaults",
    "kind": "number",
-   "value": "→ 4 GiB container; Performance budgets' informational run: 2.5 GiB (target)"
+   "value": "idle only; Performance budgets' informational run: 2.5 GiB (target)"
   },
   {
    "section": "Sizing defaults",
@@ -1300,7 +1305,7 @@
   {
    "section": "Sizing defaults",
    "kind": "number",
-   "value": "Connection cap (b) (3,686 MiB GOMEMLIMIT − 1,243 MiB budgets) / (592 KiB per connection + 320 KiB per in-flight unit) ≈ 2,700 → about 2,500 per Node (hypothesis)"
+   "value": "GOMEMLIMIT ≥ max(M_node, M_flood), M_flood holding 6,250 MiB of in-flight units on every Node, so the container exceeds 4 GiB (hypothesis)"
   },
   {
    "section": "Sizing defaults",
@@ -1591,6 +1596,11 @@
    "section": "Open questions",
    "kind": "claim",
    "value": "OQ-deployment-topologies-21: (a) Fixed (current, OQ-data-plane-1 (a))"
+  },
+  {
+   "section": "Open questions",
+   "kind": "claim",
+   "value": "OQ-deployment-topologies-21: Can small Nodes get a lower connection ceiling? (b) or (c) of OQ-data-plane-1, with OQ-capacity-planning-5"
   }
  ]
 }

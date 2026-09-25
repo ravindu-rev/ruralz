@@ -105,12 +105,12 @@
   {
    "section": "Test pyramid",
    "kind": "number",
-   "value": "Chaos: Every System overview failure row: 100% (target)"
+   "value": "Chaos: Every System overview failure row and Scalability chaos experiment by its milestone: 100% (target)"
   },
   {
    "section": "Test pyramid",
    "kind": "milestone",
-   "value": "Chaos: Planned (M2)"
+   "value": "Chaos: Planned (M1); Ruralz Control, Plugin and signature rows Planned (M2)"
   },
   {
    "section": "Test pyramid",
@@ -428,6 +428,16 @@
    "value": "each instance with its own `RURALZ_DATA_DIR`"
   },
   {
+   "section": "Integration tests",
+   "kind": "milestone",
+   "value": "Fencing test (container-free): Planned (M2); `postgres` variant Planned (M4)"
+  },
+  {
+   "section": "Integration tests",
+   "kind": "decision",
+   "value": "Fencing test: a deposed leader's entry at a taken sequence commits but is never accepted or delivered; a new leader proposes only after Barrier (ADR-0006)"
+  },
+  {
    "section": "End-to-end tests",
    "kind": "cli_command",
    "value": "`ruralz test run` (pack section 9); until it lands in M2, a Go driver runs the cases"
@@ -720,12 +730,42 @@
   {
    "section": "Fuzzing",
    "kind": "milestone",
+   "value": "Rego and Cedar policy parsing (`authz.opa`, `authz.cedar`, ADR-0011): Planned (M2)"
+  },
+  {
+   "section": "Fuzzing",
+   "kind": "milestone",
+   "value": "GraphQL operation parser and normalizer (ADR-0012): Planned (M3)"
+  },
+  {
+   "section": "Fuzzing",
+   "kind": "claim",
+   "value": "GraphQL fuzz oracle: depth, alias, field-count and complexity limits hold after fragment expansion, before any upstream call"
+  },
+  {
+   "section": "Fuzzing",
+   "kind": "milestone",
    "value": "AI stream parsers: Planned (M3)"
   },
   {
    "section": "Fuzzing",
    "kind": "number",
    "value": "Property targets plus the per-message and per-group targets make 25 or more by M2 (target)"
+  },
+  {
+   "section": "Chaos testing",
+   "kind": "claim",
+   "value": "The `nightly` chaos job runs each Scalability chaos experiment against at least 10 Nodes (target); each gates its milestone"
+  },
+  {
+   "section": "Chaos testing",
+   "kind": "milestone",
+   "value": "CE-1 to CE-6, CE-12, CE-15 and CE-16 Planned (M1); CE-7 to CE-10 Planned (M2); CE-13 and CE-14 Planned (M3); CE-11 and CE-17 Planned (M4)"
+  },
+  {
+   "section": "Chaos testing",
+   "kind": "milestone",
+   "value": "Node killed or sent SIGTERM (CE-1, CE-2): Planned (M1); WebSocket and SSE Drain Planned (M3)"
   },
   {
    "section": "Chaos testing",
@@ -760,7 +800,7 @@
   {
    "section": "Chaos testing",
    "kind": "milestone",
-   "value": "State Store slower/stopped: Planned (M2)"
+   "value": "State Store slower/stopped (CE-3 to CE-5): Planned (M1)"
   },
   {
    "section": "Chaos testing",
@@ -770,7 +810,7 @@
   {
    "section": "Chaos testing",
    "kind": "milestone",
-   "value": "Upstream Endpoints reset or slowed: Planned (M2)"
+   "value": "Upstream Endpoints reset or slowed: Planned (M1)"
   },
   {
    "section": "Chaos testing",
@@ -885,7 +925,7 @@
   {
    "section": "Benchmarks and regression gates",
    "kind": "limit",
-   "value": "Size: Above 160 MiB or 96 MiB respectively (target)"
+   "value": "Size: Above 160 MiB or 89 MiB respectively (target) (Performance budgets, Memory budget)"
   },
   {
    "section": "Benchmarks and regression gates",
@@ -1180,7 +1220,7 @@
   {
    "section": "Release gates",
    "kind": "milestone",
-   "value": "Chaos gate: Planned (M2)"
+   "value": "Chaos gate: Planned (M1); every chaos scenario and CE experiment shipped by the candidate's milestone"
   },
   {
    "section": "Release gates",

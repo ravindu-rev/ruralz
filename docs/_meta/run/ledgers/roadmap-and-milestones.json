@@ -13,6 +13,21 @@
    "value": "Not planned: Lua advanced helpers, NTLM authentication, New Relic native SDK"
   },
   {
+   "section": "How parity is counted",
+   "kind": "decision",
+   "value": "Parity follows the KrakenD EE parity matrix allocation; OQ-roadmap-and-milestones-1 closed there"
+  },
+  {
+   "section": "How parity is counted",
+   "kind": "decision",
+   "value": "OQ-krakend-ee-parity-matrix-12: option (a) adopted (API governance at M1, 12 EE-only rows at M5)"
+  },
+  {
+   "section": "Scope and non-goals",
+   "kind": "term",
+   "value": "GD-n game days, owner High availability"
+  },
+  {
    "section": "M0 scope",
    "kind": "milestone",
    "value": "Apache-2.0 license and ownership: Planned (M0)"
@@ -300,6 +315,11 @@
   {
    "section": "M1 scope",
    "kind": "kind_or_field",
+   "value": "`overridable: false` Gateway Policies"
+  },
+  {
+   "section": "M1 scope",
+   "kind": "kind_or_field",
    "value": "service discovery (`dns`, static `endpoints`) for `http` Upstreams"
   },
   {
@@ -470,6 +490,11 @@
   {
    "section": "M1 scope",
    "kind": "milestone",
+   "value": "API governance (`quota`, `overridable: false` Gateway Policies): Planned (M1)"
+  },
+  {
+   "section": "M1 scope",
+   "kind": "milestone",
    "value": "KrakenD row \"Stateful rate limit (Redis backed)\": Planned (M1)"
   },
   {
@@ -595,12 +620,22 @@
   {
    "section": "M1 exit criteria",
    "kind": "number",
-   "value": "the 30 whose Blocking column names M1"
+   "value": "the 33 whose Blocking column names M1 (2026-09-25)"
+  },
+  {
+   "section": "M1 exit criteria",
+   "kind": "decision",
+   "value": "M1 blockers also include OQ-configuration-model-8 and OQ-security-and-identity-2, -3, -6, -15 and -18 (`auth.basic`, `auth.mtls`, `source.ip`, `authz.ip`)"
+  },
+  {
+   "section": "M1 exit criteria",
+   "kind": "failure_mode",
+   "value": "CE-1 to CE-6, CE-12, CE-15, CE-16 and GD-1 to GD-5 pass"
   },
   {
    "section": "M1 exit criteria",
    "kind": "number",
-   "value": "KrakenD EE parity at exit: 23 of 71, 32% (target)"
+   "value": "KrakenD EE parity at exit: 24 of 71, 34% (target)"
   },
   {
    "section": "M1 exit criteria",
@@ -615,7 +650,7 @@
   {
    "section": "M1 exit criteria",
    "kind": "milestone",
-   "value": "Provisional M1 parity: request body extractor, request and response template manipulation"
+   "value": "M1 parity rows include IP filtering, API governance, request body extractor, request and response template manipulation"
   },
   {
    "section": "M1 exit criteria",
@@ -740,7 +775,7 @@
   {
    "section": "M2 scope",
    "kind": "milestone",
-   "value": "Built-in client redirects; `kubernetes` discovery: Planned (M2)"
+   "value": "Built-in client redirects; `Route` mirroring (OQ-traffic-management-and-resilience-12); `kubernetes` discovery: Planned (M2)"
   },
   {
    "section": "M2 scope",
@@ -1015,12 +1050,22 @@
   {
    "section": "M2 exit criteria",
    "kind": "number",
-   "value": "the 47 whose Blocking column names M2 at this snapshot"
+   "value": "the 55 whose Blocking column names M2 (2026-09-25)"
+  },
+  {
+   "section": "M2 exit criteria",
+   "kind": "decision",
+   "value": "M2 blockers also include OQ-tech-stack-and-libraries-24, OQ-security-and-identity-10 and -28, OQ-traffic-management-and-resilience-12 (mirroring)"
+  },
+  {
+   "section": "M2 exit criteria",
+   "kind": "failure_mode",
+   "value": "CE-7 to CE-10, GD-6 to GD-11, GD-13, GD-15 and GD-16 pass"
   },
   {
    "section": "M2 exit criteria",
    "kind": "number",
-   "value": "KrakenD EE parity at exit: 35 of 71, 49% (target)"
+   "value": "KrakenD EE parity at exit: 36 of 71, 51% (target)"
   },
   {
    "section": "M2 exit criteria",
@@ -1275,12 +1320,17 @@
   {
    "section": "M3 exit criteria",
    "kind": "number",
-   "value": "KrakenD EE parity at exit: 53 of 71, 75% (target)"
+   "value": "KrakenD EE parity at exit: 54 of 71, 76% (target)"
+  },
+  {
+   "section": "M3 exit criteria",
+   "kind": "decision",
+   "value": "M3 blockers include OQ-capacity-planning-1 and OQ-deployment-topologies-13"
   },
   {
    "section": "M3 exit criteria",
    "kind": "failure_mode",
-   "value": "Chaos tests pass the LLM provider throttling failure row, with CE-13 and AI provider mock 429 case"
+   "value": "Chaos tests pass the LLM provider throttling failure row, with CE-13, CE-14, GD-12 and AI provider mock 429 case"
   },
   {
    "section": "M4 scope",
@@ -1415,7 +1465,7 @@
   {
    "section": "M4 scope",
    "kind": "milestone",
-   "value": "Competitor baselines for KrakenD CE, Envoy, Apache APISIX and Kong on RH-1 (F-7); S8; `default.pgo`: Planned (M4)"
+   "value": "Competitor baselines for KrakenD CE, Envoy, Apache APISIX and Kong on RH-1 (F-18); S8; `default.pgo`: Planned (M4)"
   },
   {
    "section": "M4 exit criteria",
@@ -1430,7 +1480,12 @@
   {
    "section": "M4 exit criteria",
    "kind": "number",
-   "value": "KrakenD EE parity at exit: 55 of 71, 77% (target)"
+   "value": "KrakenD EE parity at exit: 56 of 71, 79% (target)"
+  },
+  {
+   "section": "M4 exit criteria",
+   "kind": "failure_mode",
+   "value": "CE-11, CE-17 and GD-14 pass"
   },
   {
    "section": "M4 exit criteria",
@@ -1460,7 +1515,7 @@
   {
    "section": "M5 scope",
    "kind": "milestone",
-   "value": "Long-tail EE rows (OpenAPI server, faster JSON decoding, gzip compression, JSON Schema response validation, static web server, SOAP integration, ...): Planned (M5)"
+   "value": "Long-tail EE rows (OpenAPI server, faster JSON decoding, gzip compression, JSON Schema response validation, static web server, SOAP integration, intermediary web proxy, OpenTelemetry SaaS authentication, exporter override, advanced logging): Planned (M5)"
   },
   {
    "section": "M5 scope",
@@ -1528,6 +1583,16 @@
    "value": "at least 61 of 71, 86% (target), if SM-3 uses all 10 Not planned slots"
   },
   {
+   "section": "M5 exit criteria",
+   "kind": "number",
+   "value": "M5 rows: FIPS-140-2 module, API monetization and the 10 long-tail rows"
+  },
+  {
+   "section": "M5 exit criteria",
+   "kind": "decision",
+   "value": "M5 blockers: OQ-tech-stack-and-libraries-9, OQ-market-landscape-and-table-stakes-8, OQ-krakend-ee-parity-matrix-1 (SOAP part), -3, -6, -8 and -9"
+  },
+  {
    "section": "Sequencing",
    "kind": "decision",
    "value": "A slipping item blocks its milestone's exit unless its owning document moves it"
@@ -1591,11 +1656,6 @@
    "section": "Risks",
    "kind": "library",
    "value": "`GOMEMLIMIT` guidance"
-  },
-  {
-   "section": "Open questions",
-   "kind": "decision",
-   "value": "OQ-roadmap-and-milestones-1: Blocking Yes, for M1 exit criterion 6"
   },
   {
    "section": "Open questions",

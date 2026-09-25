@@ -1135,7 +1135,7 @@
   {
    "section": "CI stages",
    "kind": "milestone",
-   "value": "12. Nightly: Planned (M1); chaos and scale Planned (M2)"
+   "value": "12. Nightly: Planned (M1), including the M1 chaos experiments; control-plane chaos and scale jobs Planned (M2)"
   },
   {
    "section": "CI stages",

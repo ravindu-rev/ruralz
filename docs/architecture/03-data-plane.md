@@ -37,18 +37,18 @@ Ruralz Gateway keeps no durable local state other than its enrollment identity, 
 |---|---|---|
 | Enrollment identity | `${RURALZ_DATA_DIR}/identity/` | No |
 | Last-Known-Good and candidate | `${RURALZ_DATA_DIR}/lkg/` | No |
-| Plugin artifacts; compiled Plugin code | `${RURALZ_DATA_DIR}/cache/oci/sha256/`; `${RURALZ_DATA_DIR}/cache/wazero/` | Disposable; refetched and verified, or recompiled |
-| Snapshots, token buckets, Endpoint health, breakers, pools | Memory | Yes |
+| Plugin artifacts | `${RURALZ_DATA_DIR}/cache/oci/sha256/` | Disposable; refetched and verified |
+| Snapshots, compiled Plugin code, token buckets, Endpoint health, breakers, pools | Memory | Yes |
 
-This document owns the cache layout. The compiled-code cache is wazero's, keyed on the wazero version ([source](https://github.com/wazero/wazero/blob/main/config.go)); its native code runs unsandboxed, so only the `ruralzd` user MAY write it (OQ-data-plane-11).
+This document owns the cache layout. Compiled Plugin code stays in memory only, in one wazero `NewCompilationCache()` and never a cache directory, because no signature covers persisted native code; a restart recompiles verified artifacts ([ADR-0004](../adr/0004-wasm-runtime-wazero.md), [WASM plugin system](05-wasm-plugin-system.md#runtime)). This closes OQ-data-plane-11 with option (c). Pack 8.11 still names compiled modules among disposable caches, a wording left to OQ-wasm-plugin-system-16.
 
 ### Goroutines
 
-The goroutine `net/http` assigns to each request or HTTP/2 stream pins the snapshot, matches the Route and runs the Filter Chain synchronously. Every goroutine Ruralz starts recovers panics as cannot decide, a failed step or an ended stream.
+The goroutine `net/http` or quic-go assigns to each request, HTTP/2 stream or HTTP/3 stream pins the snapshot, matches the Route and runs the Filter Chain synchronously. Every goroutine Ruralz starts recovers panics as cannot decide, a failed step or an ended stream.
 
 | Goroutine | Count | Bound |
 |---|---|---|
-| Request handler | One per request or HTTP/2 stream | [Bounded resources](#bounded-resources) |
+| Request handler | One per request, HTTP/2 stream or HTTP/3 stream | [Bounded resources](#bounded-resources) |
 | Composition step | One per parallel `aggregate` step | `limits.maxCompositionSteps`; one in-flight unit each |
 | Stream pump | One per direction of a WebSocket or bidirectional gRPC stream | One in-flight unit each |
 | Post-commit writer | Fixed pool | Queue capacity ([Scalability and distributed state](11-scalability-and-distributed-state.md)) |
@@ -121,6 +121,11 @@ Every queue, buffer, pool, connection and stream has a ceiling, so overload yiel
 | HTTP/2 unread request data | `HTTP2Config.MaxReceiveBufferPerConnection` 256 KiB and `MaxReceiveBufferPerStream` 64 KiB (target) ([source](https://go.dev/doc/go1.24)) |
 | HTTP/2 frame read buffer | `HTTP2Config.MaxReadFrameSize` 16 KiB (target), the protocol minimum; flow control does not cover HEADERS frames ([source](https://raw.githubusercontent.com/golang/go/master/src/net/http/http.go)) |
 | Per-connection memory | About 592 KiB before a handler runs (hypothesis): header ceiling, HTTP/2 receive buffer, frame buffer, 16 KiB of serve and frame-reader stacks, 48 KiB of TLS and `bufio` buffers |
+| HTTP/3 connections | Each QUIC connection takes 16 of the 20,000 connection slots (target), so at most 1,250 are open; at the ceiling a new QUIC connection is refused before any stream, and its client stays on TCP. Idle QUIC connections close after `IdleTimeout` |
+| HTTP/3 streams per connection | 32 incoming bidirectional streams (target); incoming unidirectional streams only for the control and QPACK streams |
+| HTTP/3 unread request data | 1 MiB connection receive window (target); QUIC flow control counts every stream byte, HEADERS frames included (RFC 9000) |
+| HTTP/3 header reads | quic-go reads a stream's headers before the handler runs ([ADR-0009](../adr/0009-http-stack-net-http-quic-go.md)), so each stream gets a header-read deadline of `ReadHeaderTimeout` from stream open, and expiry resets the stream. Body and write deadlines follow the row above, pending quic-go support (OQ-data-plane-14) |
+| HTTP/3 per-connection memory | About 9.25 MiB before a handler runs (hypothesis): 32 streams at the 256 KiB header ceiling, the 1 MiB receive window, and 256 KiB of QUIC, TLS and packet buffers; this equals 16 × 592 KiB |
 | Per in-flight unit | Its header block, at most `limits.maxRequestHeaderBytes`, plus 64 KiB of copy buffers (hypothesis) |
 | In-flight units per Node | 20,000 (target): one per request, parallel step and stream pump, taken by an atomic add; when full, 503 `RZ-RT-005` at once, never queued |
 | Header block | `Server.MaxHeaderBytes` 256 KiB (target) |
@@ -131,7 +136,7 @@ Every queue, buffer, pool, connection and stream has a ceiling, so overload yiel
 | Post-commit writes, `/tap` buffers | Fixed capacity, dropped with a counter |
 | Retired snapshots | K = 2 (target), plus at most one closing or ending |
 
-Worst-case Node memory sums connections at 592 KiB (about 11.3 GiB), in-flight units at 320 KiB under the header maximum of OQ-data-plane-1 (about 6.1 GiB), 2,000 pre-routing rejections at 256 KiB (about 0.5 GiB), `maxBufferedBytes`, `maxPluginMemoryBytes` and (K + 2) snapshots: about 19 GiB plus snapshots, fitting a 32 GiB Node (hypothesis) per [Capacity planning](../operations/03-capacity-planning.md), else the connection ceiling is lowered first.
+Worst-case Node memory sums connections at 592 KiB (about 11.3 GiB), in-flight units at 320 KiB under the header maximum of OQ-data-plane-1 (about 6.1 GiB), 2,000 pre-routing rejections at 256 KiB (about 0.5 GiB), `maxBufferedBytes`, `maxPluginMemoryBytes` and (K + 2) snapshots: about 19 GiB plus snapshots, fitting a 32 GiB Node (hypothesis) per [Capacity planning](../operations/03-capacity-planning.md), else the connection ceiling is lowered first. A QUIC connection costs at most its 16 slots of 592 KiB (hypothesis), so `http3: true` leaves this sum unchanged.
 
 ## Listeners and protocols
 
@@ -153,7 +158,9 @@ h2c is prior knowledge only ([source](https://go.dev/doc/go1.24)); the `x/net/ht
 
 A header block above the 256 KiB process ceiling (target) is refused by `net/http` before any handler, with a plain 431. Below it, the handler checks the pinned snapshot's `limits.maxRequestHeaderBytes` and returns 431 `RZ-RT-002` as a problem document; a larger Revision value is capped, as a degraded state.
 
-HTTP/3 uses quic-go, pre-1.0 with `http3` API breaks in v0.63.0, behind an internal interface ([source](https://github.com/quic-go/quic-go/releases/tag/v0.63.0)); binary upgrades lose in-flight QUIC connections (OQ-system-overview-18).
+HTTP/3 uses quic-go, pre-1.0 with `http3` API breaks in v0.63.0, behind an internal interface ([source](https://github.com/quic-go/quic-go/releases/tag/v0.63.0)), with 0-RTT off ([ADR-0009](../adr/0009-http-stack-net-http-quic-go.md)). Its limits are the HTTP/3 rows of [Bounded resources](#bounded-resources); the quic-go settings that enforce them, and its deadline support, are OQ-data-plane-14. Binary upgrades lose in-flight QUIC connections (OQ-system-overview-18), and so does a Hot Reload that replaces an `https` listener with `http3: true`, because the new server holds no state for them (OQ-data-plane-16).
+
+Clients discover HTTP/3 through `Alt-Svc`. With `http3: true`, the `https` listener adds `Alt-Svc: h3=":<port>"; ma=3600` (target), carrying the listener `port`, to every HTTP/1.1 and HTTP/2 response after `onResponse`; without it, clients stay on TCP. HTTPS DNS records are left to operators, and a balancer that maps UDP to another port needs the advertised port changed (OQ-data-plane-15). A FIPS build never advertises HTTP/3. When a Revision turns `http3` off, the header stops at once, and a client holding a cached entry falls back to TCP after a failed QUIC attempt until `ma` expires.
 
 Each `https` listener picks a certificate by SNI from `tls.certificates`; `GetCertificate` reads `secretRef` values from the secret store and other TLS settings from the current snapshot, so reloads and rotations reach new handshakes only.
 The Route `timeout` bounds a whole SSE stream or WebSocket, so streaming Routes need a large value. Time-to-first-byte and idle limits are OQ-data-plane-10.
@@ -328,7 +335,7 @@ Endpoints come from `endpoints` or `discovery` (`dns` Planned (M1); `kubernetes`
 
 Three deadlines nest: the Route `timeout` bounds the request, the Upstream `timeout` one leg including retries, and `retries.perTryTimeout` one attempt. `retryOn` decides after each attempt under the replay rule: a leg is retried or falls back only if its request body is empty or buffered and no response byte is committed. An open breaker (`consecutiveFailures`, `openDuration`, `failureWhen`) or a full `maxPendingRequests` queue fails the attempt at once with an `RZ-UP-<NNN>` code; each attempt emits `ruralz.upstream.<name>`.
 
-Connection pools are keyed by protocol, TLS settings and Endpoint and carried across Hot Reloads when the key is unchanged; HTTP/2 Upstreams honor server limits through `HTTP2Config.StrictMaxConcurrentRequests` ([source](https://go.dev/doc/go1.26)). `grpc`, `websocket`, `graphql` and `ai` Upstreams are Planned (M3); `kafka`, `nats` and `mqtt` Planned (M4).
+Connection pools are keyed by protocol, TLS settings and Endpoint and carried across Hot Reloads when the key is unchanged; `HTTP2Config.StrictMaxConcurrentRequests` is false ([source](https://go.dev/doc/go1.26)), so an HTTP/2 Upstream's stream limit opens another connection, within `circuitBreaker.maxConnections` ([ADR-0009](../adr/0009-http-stack-net-http-quic-go.md)). `grpc`, `websocket`, `graphql` and `ai` Upstreams are Planned (M3); `kafka`, `nats` and `mqtt` Planned (M4).
 
 ## Configuration snapshots and hot reload
 
@@ -488,6 +495,10 @@ Latency, allocation, throughput and memory budgets live in [Performance budgets 
 | OQ-data-plane-8 | Should pack 8.10 let a failed `upstream-auth` Policy, not caused by the client, return a status other than 401? | (a) 401 per pack 8.10 (current); (b) amend to 503; (c) amend to 502 | security-and-identity | Yes, pack 8.10 amendment (pack 14); escalation if disputed |
 | OQ-data-plane-9 | Which area covers Node-generated failures outside "before any Upstream" (RZ-RT-011 to RZ-RT-015)? | (a) Amend pack 8.6 `RT` to "request and response handling on a Node outside Upstream legs" (current); (b) a new area; (c) `UP` | data-plane | Yes, pack 8.6 amendment (M1) |
 | OQ-data-plane-10 | Should streams get time-to-first-byte and idle limits besides the Route `timeout`? | (a) No (current); (b) new stream fields; (c) a fixed idle default | traffic-management-and-resilience | No |
-| OQ-data-plane-11 | How is the on-disk compiled Plugin cache protected from tampering? | (a) Directory permissions (current); (b) a per-entry HMAC bound to the Plugin digest; (c) in-memory only | wasm-plugin-system | No |
 | OQ-data-plane-12 | Should System overview Compile before swap use per-stream closes instead of HTTP/2 GOAWAY for snapshot retirement? | (a) Per-stream close: gRPC trailers `UNAVAILABLE`, `RST_STREAM` (current); (b) GOAWAY as written | system-overview | No |
 | OQ-data-plane-13 | Should System overview's "activation never waits" be amended so a grace period is never cut short? | (a) The latest pending Revision waits up to 30 s plus the ending bound and compile time (target) (current); (b) never wait, ending the closing snapshot's pins at once | system-overview | No |
+| OQ-data-plane-14 | Which quic-go settings enforce the HTTP/3 Bounded resources rows (stream caps, receive window, header ceiling, idle timeout, connection refusal at the ceiling), and does quic-go `http3` support `http.ResponseController` read and write deadlines and a per-stream header-read deadline? | (a) quic-go settings and deadlines, verified by the HTTP/3 conformance cases (current); (b) an internal per-stream timer that resets streams where deadlines are missing; (c) `http3: true` refused until both are verified | data-plane | Yes, for HTTP/3 (M3) |
+| OQ-data-plane-15 | How do clients discover HTTP/3? | (a) `Alt-Svc` on `https` responses with the listener port (current); (b) an advertised port or `ma` field on the listener; (c) HTTPS DNS records only, published by operators | data-plane | Yes, for HTTP/3 (M3) |
+| OQ-data-plane-16 | Should a Hot Reload that replaces an `http3` listener keep its QUIC connections? | (a) No; they are lost and clients reconnect (current); (b) keep the UDP socket and QUIC transport when only non-socket settings change; (c) connection-ID steering to the new server | data-plane | No |
+
+Closed: OQ-data-plane-11 with option (c), compiled Plugin code in memory only ([ADR-0004](../adr/0004-wasm-runtime-wazero.md)).
