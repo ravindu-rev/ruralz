@@ -257,17 +257,18 @@ cases:
       status: 401
       headers:
         content-type: application/problem+json
-  - name: serves a partner key
+  - name: serves a token with orders:read
     request:
       method: GET
       path: /v1/orders/42/summary
       headers:
         host: api.shop.example
-        x-api-key: {file: ./secrets/partner-key}   # read at run time, never inlined
+        # "Bearer <JWT>" for jwt-default, scope orders:read; read at run time, never inlined
+        authorization: {file: ./secrets/partner-jwt}
     expect:
       status: 200
       json:                                          # subset match on the decoded body
-        id: "42"
+        order: {id: "42"}                            # aggregate steps merge under `group`
 ```
 
 | Field | Meaning |

@@ -290,7 +290,7 @@
   {
    "section": "Service discovery",
    "kind": "decision",
-   "value": "Registry-specific clients are Not planned, as each adds a dependency to every build; SRV-capable registries use `discovery.type: dns`"
+   "value": "Registry-specific clients are Not planned, each adding a dependency to every build; SRV-capable registries use `discovery.type: dns`"
   },
   {
    "section": "Health checking and outlier detection",
@@ -365,7 +365,7 @@
   {
    "section": "Health checking and outlier detection",
    "kind": "decision",
-   "value": "for OQ-data-plane-7 this document recommends all-or-nothing panic at M1 (threshold: OQ-traffic-management-and-resilience-7)"
+   "value": "all-or-nothing panic at M1 is recommended for OQ-data-plane-7 (threshold: OQ-traffic-management-and-resilience-7)"
   },
   {
    "section": "Health checking and outlier detection",
@@ -540,7 +540,7 @@
   {
    "section": "Deadlines",
    "kind": "timeout",
-   "value": "For OQ-data-plane-10 this document recommends a fixed 60 s idle limit between chunks (target)"
+   "value": "OQ-data-plane-10: a fixed 60 s inter-chunk idle limit is recommended (target)"
   },
   {
    "section": "Retries",
@@ -585,7 +585,7 @@
   {
    "section": "Hedging",
    "kind": "milestone",
-   "value": "Hedging: Planned (M4), once OQ-traffic-management-and-resilience-5 adds a delay field"
+   "value": "Hedging: Planned (M4) with `hedgeDelay` (proposed, OQ-traffic-management-and-resilience-5)"
   },
   {
    "section": "Hedging",
@@ -755,7 +755,7 @@
   {
    "section": "Rate limiting",
    "kind": "term",
-   "value": "TAT, the GCRA theoretical arrival time per key; τ, the GCRA burst tolerance (one `window` today); B, the Cell-wide first-seen call budget"
+   "value": "TAT, the GCRA theoretical arrival time per key; τ, the GCRA burst tolerance; B, the Cell-wide first-seen call budget"
   },
   {
    "section": "Algorithm choice",
@@ -880,7 +880,7 @@
   {
    "section": "Decision path",
    "kind": "claim",
-   "value": "A changed limit starts fresh GCRA state, briefly allowing 2 × limit."
+   "value": "A changed limit starts fresh GCRA state, briefly allowing `requests` + `burst`."
   },
   {
    "section": "Decision path",
@@ -918,9 +918,49 @@
    "value": "503 RZ-RL-005"
   },
   {
+   "section": "Decision path",
+   "kind": "number",
+   "value": "A key reaches the State Store at most min(offered, 2 × N × ceiling) times per window (target), a full bucket plus one window's refill per Node (ADR-0008); pack 8.8's N × ceiling bounds fail-open admission, not calls"
+  },
+  {
+   "section": "Decision path",
+   "kind": "claim",
+   "value": "Local-only entries and `localOnly` Policies admit after the local buckets, within N × ceiling per window"
+  },
+  {
+   "section": "Decision path",
+   "kind": "claim",
+   "value": "Hotter keys than a shard serves, like a busy service limit's, need `localOnly`"
+  },
+  {
    "section": "Per-Node ceiling",
    "kind": "decision",
-   "value": "ceiling declared on the Policy (OQ-traffic-management-and-resilience-1, blocking for M1, option (a) recommended)"
+   "value": "This document authors three `ratelimit` fields (former OQ-traffic-management-and-resilience-1 options (a) and (c)), submitted to the Configuration model for registration"
+  },
+  {
+   "section": "Per-Node ceiling",
+   "kind": "kind_or_field",
+   "value": "limits[].perNodeCeiling (integer, 1 to `requests`; unset): each Node's bucket capacity and refill per `window` (proposed, OQ-1 registration)"
+  },
+  {
+   "section": "Per-Node ceiling",
+   "kind": "kind_or_field",
+   "value": "limits[].burst (integer, 0 to `requests`; default `requests`): τ = `burst` × `window` / `requests`, so a window admits `requests` + `burst` (proposed, OQ-1 registration)"
+  },
+  {
+   "section": "Per-Node ceiling",
+   "kind": "kind_or_field",
+   "value": "config.localOnly (boolean; default `false`) (proposed, OQ-1 registration)"
+  },
+  {
+   "section": "Per-Node ceiling",
+   "kind": "limit",
+   "value": "`localOnly`: local buckets alone decide, without State Store calls, over-limit cache or first-seen budget; at most N_serving × ceiling per window, even healthy (target); amends pack 8.8 (OQ-scalability-and-distributed-state-11)"
+  },
+  {
+   "section": "Per-Node ceiling",
+   "kind": "decision",
+   "value": "Without `perNodeCeiling` the ceiling derives from N_published in Control mode; file mode without it uses the full limit, not degraded"
   },
   {
    "section": "Per-Node ceiling",
@@ -950,7 +990,7 @@
   {
    "section": "Per-Node ceiling",
    "kind": "decision",
-   "value": "recommends OQ-traffic-management-and-resilience-19 option (c), a persisted count used flagged stale"
+   "value": "OQ-traffic-management-and-resilience-19 option (c), a persisted count used flagged stale, is recommended"
   },
   {
    "section": "Per-Node ceiling",
@@ -965,7 +1005,7 @@
   {
    "section": "Per-Node ceiling",
    "kind": "claim",
-   "value": "Autoscaled Control-mode Clusters SHOULD declare ceilings until OQ-traffic-management-and-resilience-19 closes"
+   "value": "Autoscaled Control-mode Clusters SHOULD set `perNodeCeiling` until OQ-traffic-management-and-resilience-19 closes"
   },
   {
    "section": "Service and tiered limits",
@@ -1030,7 +1070,7 @@
   {
    "section": "RateLimit response headers",
    "kind": "claim",
-   "value": "`pk`, `qu` and all fields for `ai.token-budget` are omitted"
+   "value": "`pk`, `qu` and `ai.token-budget` fields are omitted"
   },
   {
    "section": "RateLimit response headers",
@@ -1120,7 +1160,7 @@
   {
    "section": "Quotas",
    "kind": "timeout",
-   "value": "`Retry-After` at the window end plus up to 1% of the window, at most 60 s (target)"
+   "value": "`Retry-After` at the window end plus up to 1% of it, at most 60 s (target)"
   },
   {
    "section": "Quotas",
@@ -1145,7 +1185,7 @@
   {
    "section": "Quotas",
    "kind": "decision",
-   "value": "For OQ-configuration-model-8 this document recommends option (a): `quota` fails open, `ai.token-budget` closed"
+   "value": "For OQ-configuration-model-8, option (a) is recommended: `quota` fails open, `ai.token-budget` closed"
   },
   {
    "section": "Response caching",
@@ -1500,7 +1540,7 @@
   {
    "section": "Failure matrix",
    "kind": "failure_mode",
-   "value": "Hot constant key: above about 100,000 per second (hypothesis) every Node's shard breaker opens and co-tenants apply `failureMode`"
+   "value": "Hot constant key: up to 2 × N × ceiling calls per window (target); above about 100,000 per second (hypothesis) every Node's shard breaker opens and co-tenants apply `failureMode`; `localOnly` makes none; configurable via `perNodeCeiling`, `localOnly`"
   },
   {
    "section": "Failure matrix",
@@ -1730,7 +1770,7 @@
   {
    "section": "Open questions",
    "kind": "decision",
-   "value": "OQ-1 (a) `config.perNodeCeiling`, `config.burst` (recommended); Blocking: Yes, per-Node ceiling (M1)"
+   "value": "OQ-1 Will the Configuration model register the Per-Node ceiling fields? (a) As authored (decided here); (b) renamed; Owner: configuration-model; Blocking: No; pack 8.8's amendment is OQ-scalability-and-distributed-state-11"
   },
   {
    "section": "Open questions",
@@ -1740,7 +1780,7 @@
   {
    "section": "Open questions",
    "kind": "decision",
-   "value": "OQ-5 fields `retries.backoff`, `budget`, `hedgeDelay`; `circuitBreaker.failureRatio`, `minimumLegs`, `halfOpenSuccesses`; Blocking: Yes, breaker `minimumLegs` (M1); hedging (M4)"
+   "value": "OQ-5 (a) Proposed: `retries.backoff`, `budget`, `hedgeDelay` (M4); `circuitBreaker.failureRatio`, `minimumLegs` (M1), `halfOpenSuccesses`; (b) fixed values, hedging awaiting `hedgeDelay`; Blocking: Yes, breaker `minimumLegs` (M1); hedging (M4)"
   },
   {
    "section": "Open questions",

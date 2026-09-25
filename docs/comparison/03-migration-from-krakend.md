@@ -72,7 +72,7 @@ A KrakenD configuration is one file: a service object, an `endpoints` array with
 | Flexible Configuration templates | `overlays/<env>/` and `${VAR}` substitution per `Environment` | Planned (M1) | No template language; the importer reads the rendered file |
 | `KRAKEND_<KEY>` environment overrides | `${VAR}` at render time, or `secretRef` with `provider: env` at runtime | Planned (M1) | Overrides only keys already in the file ([source](https://www.krakend.io/docs/configuration/environment-vars/)) |
 | Restart or blue/green deploy per change ([source](https://www.krakend.io/docs/deploying/)) | Hot Reload of a new Revision; Rollouts in Control mode | Planned (M1); Rollouts Planned (M2) | No restart |
-| KrakenD nodes sharing only a file ([source](https://www.krakend.io/docs/deploying/clustering/)) | A `Cluster` of Nodes sharing one Revision | Planned (M1) file mode; Planned (M2) Control mode | Digest-verified |
+| KrakenD nodes sharing only a file ([source](https://www.krakend.io/docs/deploying/clustering/)) | Nodes reading one rendered source (file mode), or a `Cluster` of enrolled Nodes (Control mode), sharing one Revision | Planned (M1) file mode; Planned (M2) Control mode | Digest-verified |
 | Go plugins (`.so`) | WASM `Plugin` attached by a `plugin` Policy, or a built-in Filter | Planned (M2) | [Plugin migration](#plugin-migration) |
 | Lua scripts | CEL fields or a WASM `Plugin` | Planned (M1) CEL; Planned (M2) Plugins | No Lua runtime ([ADR-0011](../adr/0011-expressions-and-authorization-engines.md)) |
 | API keys listed in the file | One `Consumer` per key with a hashed `credentials.apiKeys` entry and an `auth.api-key` Policy | Planned (M1) | Never stored plain |
@@ -119,7 +119,7 @@ The v2.13 schema has 36 root properties, only `version` required ([source](https
 
 ### KrakenD path entries and their targets
 
-An endpoint entry requires `endpoint` and `backend`; a backend requires only `url_pattern` ([source](https://www.krakend.io/schema/v2.13/krakend.json)). The importer emits one `Route` per endpoint entry and one `Upstream` per distinct host list, service discovery, TLS and backend-scope namespace combination, so backends that share these share an Upstream. <!-- alias-ok -->
+An endpoint entry requires `endpoint` and `backend`; a backend requires only `url_pattern` ([source](https://www.krakend.io/schema/v2.13/krakend.json)). The importer emits one `Route` per endpoint entry and one `Upstream` per distinct host list, service discovery, TLS and backend-scope namespace combination. <!-- alias-ok -->
 
 | KrakenD field | Ruralz target | Fidelity | Notes |
 |---|---|---|---|
@@ -259,7 +259,7 @@ The 87 rows cover every v2.13 namespace the research records, split by scope whe
 
 ### Built-in KrakenD EE plugins
 
-KrakenD EE ships built-in plugins under the plugin namespaces: `geoip`, `ip-filter`, `jwk-aggregator`, `redis-ratelimit`, `static-filesystem`, `url-rewrite`, `virtualhost` and `wildcard` under `plugin/http-server`, and `content-replacer`, `ip-filter` and `response-schema-validator` under `plugin/req-resp-modifier` ([source](https://www.krakend.io/docs/extending/http-server-plugins/)) ([source](https://www.krakend.io/docs/extending/plugin-modifiers/)). Being configuration, not code, they map to built-in types; the research records only their names, so mappings that depend on sub-key semantics are `approximate`.
+KrakenD EE ships built-in plugins: `geoip`, `ip-filter`, `jwk-aggregator`, `redis-ratelimit`, `static-filesystem`, `url-rewrite`, `virtualhost` and `wildcard` under `plugin/http-server`, and `content-replacer`, `ip-filter` and `response-schema-validator` under `plugin/req-resp-modifier` ([source](https://www.krakend.io/docs/extending/http-server-plugins/)) ([source](https://www.krakend.io/docs/extending/plugin-modifiers/)). Being configuration, not code, they map to built-in types; the research records only their names, so mappings that depend on sub-key semantics are `approximate`.
 
 | KrakenD built-in plugin | Ruralz target | Fidelity | Notes |
 |---|---|---|---|
@@ -554,7 +554,7 @@ flowchart TD
 
 | KrakenD plugin type | Registerer and namespace | Ruralz target | Planned |
 |---|---|---|---|
-| HTTP server (router layer) | `HandlerRegisterer`, `plugin/http-server` ([source](https://github.com/luraproject/lura/blob/master/transport/http/server/plugin/plugin.go)) | Built-in `auth.*`, `authz.ip`, `authz.geoip`, `headers` or `cors`; else a Route-scoped `plugin` Policy that short-circuits with `response_send` | Planned (M1) built-ins; Planned (M2) Plugins |
+| HTTP server (router layer) | `HandlerRegisterer`, `plugin/http-server` ([source](https://github.com/luraproject/lura/blob/master/transport/http/server/plugin/plugin.go)) | Built-in `auth.*`, `authz.ip`, `authz.geoip`, `headers` or `cors`; else a Route-scoped `plugin` Policy that short-circuits with `response_send` | Planned (M1) built-ins, `authz.geoip` Planned (M2); Planned (M2) Plugins |
 | HTTP client (replaces the backend client) | `ClientRegisterer`, `plugin/http-client` ([source](https://github.com/luraproject/lura/blob/master/transport/http/client/plugin/plugin.go)) | Built-in `Upstream` protocols and upstream-auth types; else a separate service behind an `http` Upstream, since Plugins make no outbound calls | Planned (M1) to Planned (M4) <!-- alias-ok --> |
 | Request and response modifier | `ModifierRegisterer`, `plugin/req-resp-modifier` ([source](https://www.krakend.io/docs/extending/plugin-modifiers/)) | `headers` or `transform.*`; else a `plugin` Policy in body or header Phases, Upstream-scoped for backend-level modifiers | Planned (M1) built-ins; Planned (M2) Plugins <!-- alias-ok --> |
 | Middleware (EE) | `MiddlewareRegisterer`, `plugin/middleware` ([source](https://www.krakend.io/docs/enterprise/extending/middleware-plugins/)) | A `plugin` Policy at the matching scope and Phases | Planned (M2) <!-- alias-ok --> |
@@ -587,7 +587,7 @@ Porting steps for a Go plugin that becomes a WASM Plugin:
 
 Accessors: ([source](https://www.krakend.io/docs/extending/plugin-modifiers/)); Host Functions: [Host Function table](../architecture/05-wasm-plugin-system.md#host-function-table).
 
-A modifier that admitted listed tenants and copied the tenant into a header needs no Plugin; two built-in Filters with CEL cover it:
+A modifier that admits listed tenants and copies the tenant into a header needs only two built-in Filters with CEL:
 
 ```yaml
 apiVersion: ruralz/v1alpha1
@@ -613,7 +613,7 @@ spec:
           valueExpression: 'request.headers["x-tenant"]'
 ```
 
-When the logic outgrows CEL, for example a signature check over the body, the same behavior becomes a WASM Plugin:
+When the logic outgrows CEL, for example a tenant list beyond the CEL cost bound, it becomes a WASM Plugin; `clock.read` and `random.read` cover the Go PDK scaffold's WASI imports (RZ-CFG-028):
 
 ```yaml
 apiVersion: ruralz/v1alpha1
@@ -624,7 +624,7 @@ spec:
   image: registry.example.com/platform/tenant-guard:1.0.0@sha256:dc2d15f5ae1773101c928bb8673b3ea75ee886305f757a5f9451873e2e3a5611
   abi: ruralz.plugin.v1
   phases: [onRequestHeaders]
-  capabilities: [request.headers.read, request.headers.write, response.send, log.write]
+  capabilities: [request.headers.read, request.headers.write, response.send, log.write, clock.read, random.read]
   limits: {memoryBytes: 32Mi, timeout: 5ms}
   configSchema:
     type: object
@@ -748,7 +748,7 @@ Shadowing rules:
 ### Stage 5: side-by-side cutover
 
 1. Before any weight above 0, confirm that every serving Node is ready on the expected digest and resolves the production State Store, which no shadow Node has used; with `provider: env`, a changed `RURALZ_STATE_STORE_URL` takes effect only after a Node restart.
-2. Shift client traffic by load balancer weight in steps of 1%, 5%, 25%, 50% and 100% (target), baking each step for at least 1 hour and one daily peak before the next (target). DNS weighting is a poor fit, because resolver caching delays rollback.
+2. Shift client traffic by load balancer weight in steps of 1%, 5%, 25%, 50% and 100% (target), baking each step for at least 1 hour and one daily peak before the next (target). Avoid DNS weighting; resolver caching delays rollback.
 3. Keep session affinity for long-lived connections such as WebSocket, Planned (M3), so shifts move only new sessions.
 4. Account for split enforcement. While both gateways serve traffic, each enforces its own limits, KrakenD per instance and Ruralz Cluster-wide on the rule 8 State Store, so admitted traffic can exceed one limit. KrakenD keeps its full limits throughout, so a rollback needs no KrakenD limit change and the excess is bounded by the Ruralz share. Either accept it or lower only the Ruralz `ratelimit` and `quota` values through a new Revision per weight step, reviewed with `ruralz bundle diff` and covered by the bad configuration change trigger.
 5. Expect Quotas to restart: KrakenD counters are not migrated, so a Consumer can get up to one extra window allowance; where that matters, lower the first window's `quota` `limit`.
@@ -842,7 +842,7 @@ The matrix lists 17 partial-parity rows ([Partial parity](01-krakend-ee-parity-m
 
 ### Features that arrive after the importer
 
-Items whose target postdates the importer, Planned (M2), import as `manual` (rule 4); their Routes wait or stay on KrakenD longer. KrakenD streaming Routes are the exception: they import `approximate` through the no-op rows, since the reverse proxy exists from Planned (M1).
+Items whose target postdates the importer, Planned (M2), import as `manual` (rule 4); their Routes stay on KrakenD longer. KrakenD streaming Routes are the exception: they import `approximate` through the no-op rows, since the reverse proxy exists from Planned (M1).
 
 | KrakenD feature group | Ruralz target | Planned |
 |---|---|---|

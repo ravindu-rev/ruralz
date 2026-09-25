@@ -23,7 +23,7 @@ This document fixes how a Ruralz Gateway Node selects and ejects Endpoints, boun
 
 In scope: the Summary's subjects and Policy `config` ([Configuration model](02-configuration-model.md#policy)), `Route.spec.timeout`, weighted `upstreams`, IETF RateLimit headers and the KrakenD EE traffic mapping. "Pack 8.8" is a [foundation pack](../_meta/foundation-pack.md) section. Nothing here is implemented.
 
-Non-goals, with owners: kinds and fields ([Configuration model](02-configuration-model.md)); precedence, error format, buffer budgets ([Data plane](03-data-plane.md)); accuracy bounds, State Store sizing, Cells ([Scalability](11-scalability-and-distributed-state.md)); Token Budgets ([ADR-0014](../adr/0014-ai-api-surface.md)), Provider Fallback ([AI/LLM gateway](06-ai-llm-gateway.md)); `authz.ip`, `authz.geoip`, pre-authentication limits ([Security and identity](08-security-and-identity.md)); streams ([Multi-protocol](07-multi-protocol.md)); authoritative numbers ([Performance budgets and benchmarking](12-performance-budgets-and-benchmarking.md), which wins).
+Non-goals, with owners: kinds and fields ([Configuration model](02-configuration-model.md)); precedence, error format, buffer budgets ([Data plane](03-data-plane.md)); accuracy bounds, State Store sizing, Cells ([Scalability](11-scalability-and-distributed-state.md)); Token Budgets ([ADR-0014](../adr/0014-ai-api-surface.md)), Provider Fallback ([AI/LLM gateway](06-ai-llm-gateway.md)); `authz.ip`, `authz.geoip`, pre-authentication limits ([Security](08-security-and-identity.md)); streams ([Multi-protocol](07-multi-protocol.md)); authoritative numbers ([Performance budgets](12-performance-budgets-and-benchmarking.md), which wins).
 
 ## Load balancing
 
@@ -80,18 +80,18 @@ flowchart TD
 
 Kubernetes discovery uses serving, non-terminating Endpoints, or terminating ones if all are ([source](https://kubernetes.io/docs/concepts/services-networking/endpoint-slices/)).
 
-On lookup failure or an unreachable Kubernetes API the Node keeps its last set, raises `ruralz_upstream_degraded_info` (reason `discovery_stale`) and retries with full-jitter backoff, 1 s to 60 s (target). NXDOMAIN or an empty answer counts as a failure until 3 consecutive refreshes repeat it (target); only an EndpointSlice with zero serving Endpoints empties the set at once (`RZ-UP-008`). Registry-specific clients are Not planned, as each adds a dependency to every build; SRV-capable registries use `discovery.type: dns`.
+On lookup failure or an unreachable Kubernetes API the Node keeps its last set, raises `ruralz_upstream_degraded_info` (reason `discovery_stale`) and retries with full-jitter backoff, 1 s to 60 s (target). NXDOMAIN or an empty answer counts as a failure until 3 consecutive refreshes repeat it (target); only an EndpointSlice with zero serving Endpoints empties the set at once (`RZ-UP-008`). Registry-specific clients are Not planned, each adding a dependency to every build; SRV-capable registries use `discovery.type: dns`.
 
 ## Health checking and outlier detection
 
-Each Node judges health alone (P3 in [Vision and positioning](../vision/01-vision-and-positioning.md#principles)), Planned (M1):
+Each Node judges health alone (P3 in [Vision](../vision/01-vision-and-positioning.md#principles)), Planned (M1):
 
 | Mechanism | Fields | Rule |
 |---|---|---|
 | Passive ejection, on by default | `healthCheck.passive.consecutiveErrors`, `ejectionTime` | That many attempts matching `circuitBreaker.failureWhen` eject the Endpoint for `ejectionTime` × its ejection count, at most 10 (target) |
 | Active checks, when set | `healthCheck.active.path`, `interval`, `timeout`, `healthyThreshold`, `unhealthyThreshold` | `GET path` every `interval`, 10% jitter (target); 200 to 399 within `timeout` succeeds; new Endpoints start healthy |
 
-At most 50% of Endpoints are passively ejected at once (target), so a bad deploy cannot empty the set; active removals, connect errors (dial timeouts, ping closes) and timeouts on suspect Endpoints bypass the cap, so a lost zone leaves rotation. With no healthy Endpoint the Node uses all (panic mode, reason `panic`); for OQ-data-plane-7 this document recommends all-or-nothing panic at M1 (threshold: OQ-traffic-management-and-resilience-7). [Observability](10-observability.md) defines `ruralz_upstream_ejections_total` (reason `passive` or `active`).
+At most 50% of Endpoints are passively ejected at once (target), so a bad deploy cannot empty the set; active removals, connect errors (dial timeouts, ping closes) and timeouts on suspect Endpoints bypass the cap, so a lost zone leaves rotation. With no healthy Endpoint the Node uses all (panic mode, reason `panic`); all-or-nothing panic at M1 is recommended for OQ-data-plane-7 (threshold: OQ-traffic-management-and-resilience-7). [Observability](10-observability.md) defines `ruralz_upstream_ejections_total` (reason `passive` or `active`).
 
 An attempt without response headers after 1 s is stalled (target); an Endpoint holding one and sending no headers for 1 s is suspect until it does: selection skips it while another remains, and an attempt timeout on it ejects it. Any black-holed Endpoint, `http` or gRPC, pooled or not, thus stops getting attempts within about 1 s (target).
 
@@ -126,7 +126,7 @@ Only attempt, leg or Route deadlines yield kind `timeout`, so a black-holed dial
 | `circuitBreaker` limits | `maxConnections` 1,024, `maxPendingRequests` 256, `consecutiveFailures` 5, `openDuration` 30 s (target) |
 | `healthCheck.passive` | `consecutiveErrors` 5, `ejectionTime` 30 s (target) |
 
-For OQ-data-plane-10 this document recommends a fixed 60 s inter-chunk idle limit (target).
+OQ-data-plane-10: a fixed 60 s inter-chunk idle limit is recommended (target).
 
 ### Retries
 
@@ -211,8 +211,8 @@ Notation: N_published is the Node count Ruralz Control publishes (`HeartbeatRepl
 
 1. `when` false skips the Policy. A `config.key` runtime error applies `failureMode` without a bucket: `open` admits unmetered, `closed` returns 503 `RZ-RL-005`.
 2. A key whose last GCRA answer denied stays denied from a per-Node over-limit cache until its retry-after ([source](https://github.com/envoyproxy/ratelimit)).
-3. A key with no local entry is first-seen and spends a unit of a per-Node budget shared by all Policies: min(500, B / N_published) per second with a count, else 200 (target), with B = 20,000 per Cell, 20% of a shard (hypothesis). Within budget it gets full buckets; past it, as OQ-traffic-management-and-resilience-20 proposes, a 10 s local-only entry (target) at the per-Node ceiling, capacity and refill alike, without GCRA.
-4. Each `limits[]` entry has a local token bucket at its per-Node ceiling; all must hold a token, else 429 `RZ-RL-001`. A local-only entry or `localOnly` Policy is then admitted, within N × ceiling per window.
+3. A key with no local entry is first-seen, spending a unit of a per-Node budget all Policies share: min(500, B / N_published) per second with a count, else 200 (target), with B = 20,000 per Cell, 20% of a shard (hypothesis). Within budget it gets full buckets; past it, as OQ-traffic-management-and-resilience-20 proposes, a 10 s local-only entry (target) at the per-Node ceiling, capacity and refill alike, without GCRA.
+4. Each `limits[]` entry has a local token bucket at its per-Node ceiling; all must hold a token, else 429 `RZ-RL-001`. Local-only entries and `localOnly` Policies then admit, within N × ceiling per window.
 5. Otherwise one `EVALSHA` runs GCRA for every limit with server `TIME`, updating TATs only if all allow; a deny is 429 `RZ-RL-002`. Nodes `SCRIPT LOAD` every script at connect, reconnect and failover; `NOSCRIPT` applies `failureMode` and schedules a reload, so no request makes a second round trip (pack 8.7 rule 1).
 6. A failed call or open State client breaker applies `failureMode`: `open` admits within the local buckets, `closed` returns 503 `RZ-STS-<NNN>` ([Scalability](11-scalability-and-distributed-state.md)).
 
@@ -220,7 +220,7 @@ Local-only admission departs from pack 8.8, which runs GCRA for every locally ad
 
 A Node new from scale-out, a restart or a Zero-Downtime Upgrade starts empty and warms at its budget: 50,000 active keys take about 250 s at N_published = 100 (hypothesis). Meanwhile past-budget keys wait for GCRA under option (c), or under option (a) are admitted at the per-Node ceiling without GCRA. Handing over the key table and count is OQ-traffic-management-and-resilience-22.
 
-Keys are `rz:rl:<policy>:<requests>/<window>:{<SHA-256 of the key value>}`: the tag keeps a partition in one slot, so consumptive calls with equal keys share one script (pack 8.7); `PEXPIRE` at TAT − now + τ drops idle keys. A Policy on several Routes shares one counter; per-Route limits add `route.name` to `config.key`. A changed limit starts fresh GCRA state, briefly allowing 2 × limit.
+Keys are `rz:rl:<policy>:<requests>/<window>:{<SHA-256 of the key value>}`: the tag keeps a partition in one slot, so consumptive calls with equal keys share one script (pack 8.7); `PEXPIRE` at TAT − now + τ drops idle keys. A Policy on several Routes shares one counter; per-Route limits add `route.name` to `config.key`. A changed limit starts fresh GCRA state, briefly allowing `requests` + `burst`.
 
 Buckets, local-only and over-limit entries share a Node-wide 1,048,576 entries, about 64 MiB (target), in [Data plane](03-data-plane.md)'s CLOCK-evicted shards, surviving Hot Reloads. Local-only entries get their own 131,072-entry segment (target), so a key-rotation flood never evicts a key with a GCRA answer.
 
@@ -259,7 +259,7 @@ flowchart TD
 
 ### Per-Node ceiling
 
-Three `ratelimit` fields, submitted to the [Configuration model](02-configuration-model.md#policy) for registration (OQ-traffic-management-and-resilience-1):
+Three `ratelimit` fields, submitted to the [Configuration model](02-configuration-model.md#policy) for registration (OQ-traffic-management-and-resilience-1), govern ceilings:
 
 | Field | Type; default | Rule |
 |---|---|---|
@@ -267,9 +267,9 @@ Three `ratelimit` fields, submitted to the [Configuration model](02-configuratio
 | `limits[].burst` | Integer, 0 to `requests`; `requests` | τ = `burst` × `window` / `requests`: a window admits `requests` + `burst` |
 | `config.localOnly` | Boolean; `false` | Local buckets alone decide, without State Store calls, over-limit cache or first-seen budget: at most N_serving × ceiling per window, even healthy (target), for keys too hot for one shard ([Scalability](11-scalability-and-distributed-state.md#distributed-rate-limits)); amends pack 8.8 (OQ-scalability-and-distributed-state-11) |
 
-Without `perNodeCeiling` the ceiling derives from N_published in Control mode; a Control-mode Node without a count uses the full limit, degraded reason `node_count_unknown` ([Observability](10-observability.md)); so does file mode (pack 8.8), not degraded. For pack 8.8's limit / N, this document proposes min(`requests`, max(10, ceil(2 × `requests` / N_published))) (target), OQ-traffic-management-and-resilience-16: the factor 2 absorbs uneven spread, the floor serves pinned clients.
+Without `perNodeCeiling` the ceiling derives from N_published in Control mode; a Control-mode Node without a count uses the full limit, degraded reason `node_count_unknown` ([Observability](10-observability.md)); so does file mode (pack 8.8), not degraded. OQ-traffic-management-and-resilience-16 proposes min(`requests`, max(10, ceil(2 × `requests` / N_published))) (target) over pack 8.8's limit / N: the factor 2 absorbs uneven spread, the floor serves pinned clients.
 
-The floor alone breaks the fail-open bound (10 per `1s` on 100 Nodes admits 1,000 per second), so while GCRA fails each derived-ceiling bucket holds max(1, 2 × `requests` / N_published) tokens per epoch-aligned window, without carry-over, refilled in 60 steps past 1 minute (target). A Control-mode Node without a count clamps to max(1, `requests` / 100) (target), so the Cell admits N_countless × that; this document recommends OQ-traffic-management-and-resilience-19 option (c), a persisted count used flagged stale.
+The floor alone breaks the fail-open bound (10 per `1s` on 100 Nodes admits 1,000 per second), so while GCRA fails each derived-ceiling bucket holds max(1, 2 × `requests` / N_published) tokens per epoch-aligned window, without carry-over, refilled in 60 steps past 1 minute (target). A Control-mode Node without a count clamps to max(1, `requests` / 100) (target), so the Cell admits N_countless × that; OQ-traffic-management-and-resilience-19 option (c), a persisted count used flagged stale, is recommended.
 
 [Control plane](04-control-plane-and-gitops.md#replica-roles) counts ready Nodes that ACKed a Revision and stayed connected 10 minutes (target); large decreases publish at once, increases at most 10% per minute. Nodes keep it in memory while Ruralz Control is down, unpersisted (pack 8.11). As a larger N tightens ceilings, lag is unsafe: hot keys reach GCRA N_serving / N_published times as often, and fail-open admits that multiple of 2 × limit. A lost Ruralz Control leader or Raft quorum freezes it at N_frozen while stale replicas still serve new Nodes. Autoscaled Control-mode Clusters SHOULD set `perNodeCeiling` until OQ-traffic-management-and-resilience-19 closes.
 
@@ -312,7 +312,7 @@ Ruralz Gateway will emit Internet-Draft `draft-ietf-httpapi-ratelimit-headers-11
 | `RateLimit` | The denied limit: `r` remaining, `t` seconds until it admits | Same |
 | `Retry-After` | Equal to `t`, taking precedence over `RateLimit` as the draft requires | Every 429 |
 
-`RZ-RL-001` gives `r=0` and `t` until the local bucket refills; `RZ-RL-002` the GCRA or cached retry-after; `RZ-RL-003` `r=0` and `t` to the jittered window end. `q` is the sustained rate; the default `burst` allows 2 × `q` in one window. `pk`, which would disclose a client address or Consumer name, `qu` and `ai.token-budget` fields are omitted. Admitted responses wait on OQ-traffic-management-and-resilience-2, `X-RateLimit-*` on OQ-traffic-management-and-resilience-3.
+`RZ-RL-001` gives `r=0` and `t` until the local bucket refills; `RZ-RL-002` the GCRA or cached retry-after; `RZ-RL-003` `r=0` and `t` to the jittered window end. `q` is the sustained rate; default `burst` allows 2 × `q` per window. `pk`, which would disclose a client address or Consumer name, `qu` and `ai.token-budget` fields are omitted. Admitted responses wait on OQ-traffic-management-and-resilience-2, `X-RateLimit-*` on OQ-traffic-management-and-resilience-3.
 
 ```text
 HTTP/1.1 429 Too Many Requests
@@ -331,7 +331,7 @@ A Quota is a long-window Consumer allowance (a Consumer quota's `limit` per `win
 | `requests` | `quota` (`config.consumerQuota`, `config.key`) | `onRequestHeaders`: one atomic script reserves a unit if the window has room | `onLog`: refunds after a later Filter rejection or `RZ-UP-005`, `RZ-UP-006` or `RZ-UP-008`; cache hits are charged | Planned (M1) |
 | `tokens` (LLM input plus output) | `ai.token-budget` (`config.consumerQuota`) | `onRequestBody`: reserves estimated input plus output cap C (pack 8.9) | `onLog` (pack 8.9): provider-reported usage, else all of R with a degraded-state metric | Planned (M3) |
 
-Windows are fixed and epoch-aligned in UTC: `24h` resets at midnight, `720h` every 30 days. Each key and window costs one counter, `rz:qt:<consumerQuota>:<window>:<window start>:{<SHA-256 of the key value>}`, expiring a window after it closes. Policies naming one Consumer quota share its counter, charged once per request; renaming a Consumer resets usage under the default `key`. Scripts get in `KEYS` the keys for the Node clock's window and the nearer neighbor, picking by server `TIME`, tolerating skew up to half the window (target). Quotas apply per Cell; calendar months and weighted costs are OQ-traffic-management-and-resilience-10.
+Windows are fixed and epoch-aligned in UTC: `24h` resets at midnight, `720h` every 30 days. Each key and window costs one counter, `rz:qt:<consumerQuota>:<window>:<window start>:{<SHA-256 of the key value>}`, expiring a window after it closes. Policies naming one Consumer quota share its counter, charged once per request; renaming a Consumer resets usage under the default `key`. Scripts get `KEYS` for the Node clock's window and its nearer neighbor, pick by server `TIME` and tolerate skew up to half the window (target). Quotas apply per Cell; calendar months and weighted costs are OQ-traffic-management-and-resilience-10.
 
 ```yaml
 apiVersion: ruralz/v1alpha1
@@ -356,9 +356,9 @@ spec:
     consumerQuota: monthly-requests
 ```
 
-An exhausted quota returns 429 `RZ-RL-003` with `Retry-After` at the window end plus up to 1% of the window, at most 60 s (target). Nodes cache the denial, keyed with the limit, up to 60 s (target): a raised limit applies at once, refunds within 60 s, costing one script per minute per key per Node, about 17 per second at 1,000 Nodes (hypothesis). Before exhaustion each request costs one script: 20,000 per second on one key take 20% of a shard (hypothesis) unless a `ratelimit` sharing the script (pack 8.7) bounds it. A null Consumer, or one lacking the quota, gets 403 `RZ-RL-004`.
+An exhausted quota returns 429 `RZ-RL-003` with `Retry-After` at the window end plus up to 1% of it, at most 60 s (target). Nodes cache the denial, keyed with the limit, up to 60 s (target): a raised limit applies at once, refunds within 60 s, costing one script per minute per key per Node, about 17 per second at 1,000 Nodes (hypothesis). Before exhaustion each request costs one script: 20,000 per second on one key take 20% of a shard (hypothesis) unless a `ratelimit` sharing the script (pack 8.7) bounds it. A null Consumer, or one lacking the quota, gets 403 `RZ-RL-004`.
 
-Dropped refunds only over-charge. For OQ-configuration-model-8 this document recommends option (a): `quota` fails open, `ai.token-budget` closed, as unmetered tokens are provider spend.
+Dropped refunds only over-charge. For OQ-configuration-model-8, option (a) is recommended: `quota` fails open, `ai.token-budget` closed, as unmetered tokens are provider spend.
 
 ## Response caching
 
@@ -369,7 +369,7 @@ The Response Cache is the `cache` Policy: Route scope, lookup in `onRequestHeade
 | Methods | GET, and HEAD from GET entries |
 | Layout | With U the SHA-256 of scheme, host, path and normalized query, and P that of the partition key value: a generation key `rz:rc:{<U>}:gen`, expiring 26 h after its last bump (target), and per partition a tag `{<U>:<P>}` holding `Vary` names, a fill lease and at most 8 variants (target) |
 | Storable | Explicit freshness; no `no-store`, `no-cache` (never stored at M1), `private`, `Vary: *` or `Set-Cookie`; with `Authorization`, only under `public`, `s-maxage` or `must-revalidate` |
-| Principal | `auth.*` Routes key per principal unless `config.key` replaces it (Tier example below; OQ-security-and-identity-25) |
+| Principal | `auth.*` Routes key per principal unless `config.key` replaces it (OQ-security-and-identity-25) |
 | Freshness | `s-maxage`, `max-age`, then `Expires`, at most 24 h, stale windows at most 1 h (target); hits carry `Age` and `Cache-Status` (RFC 9211) |
 | Stale limits | `must-revalidate`, `proxy-revalidate` and `s-maxage` (implying `proxy-revalidate`, RFC 9111 section 5.2.2.10) forbid stale (section 4.2.4), overriding RFC 5861 |
 | Request directives | `no-cache` or `max-age=0` revalidates; `no-store` bypasses; `only-if-cached` misses with 504 |
@@ -458,7 +458,7 @@ Every KrakenD EE-only routing and traffic feature in the 2026-09-23 snapshot ([s
 
 | KrakenD EE feature | Ruralz mechanism | Planned |
 |---|---|---|
-| Catch-all fallback | A Route matching only `when: "true"`, ranked by [Data plane precedence](03-data-plane.md#precedence) | Planned (M1) |
+| Catch-all fallback | A Route matching only `when: "true"`, ranked by [precedence](03-data-plane.md#precedence) | Planned (M1) |
 | Header and query string based dynamic routing | `match.headers`, `match.when` over `request.query`, or `conditional` composition | Planned (M1) |
 | Conditional routing | `composition.mode: conditional` with CEL ([ADR-0011](../adr/0011-expressions-and-authorization-engines.md)) | Planned (M1) |
 | Wildcard routes | `match.path` `prefix`, `template` or `regex`; wildcard hosts per OQ-data-plane-2 | Planned (M1) |
@@ -469,7 +469,7 @@ Every KrakenD EE-only routing and traffic feature in the 2026-09-23 snapshot ([s
 | Service rate limit | `ratelimit` with a constant `config.key` | Planned (M1) |
 | Tiered rate limit | One `ratelimit` per Tier guarded by `when` | Planned (M1) |
 | Stateful rate limit (Redis backed) | GCRA in the `redis` driver | Planned (M1) |
-| IP filtering | `authz.ip` ([Security and identity](08-security-and-identity.md)) | Planned (M1) |
+| IP filtering | `authz.ip` ([Security](08-security-and-identity.md)) | Planned (M1) |
 | MaxMind GeoIP | `authz.geoip` | Planned (M2) |
 
 ## Overload protection

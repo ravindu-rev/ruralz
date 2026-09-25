@@ -225,7 +225,7 @@
   {
    "section": "Core concepts",
    "kind": "milestone",
-   "value": "`Cluster` of Nodes sharing one Revision: Planned (M1) file mode; Planned (M2) Control mode"
+   "value": "Nodes reading one rendered source (file mode), or a `Cluster` of enrolled Nodes (Control mode), sharing one Revision: Planned (M1) file mode; Planned (M2) Control mode"
   },
   {
    "section": "Core concepts",
@@ -1905,7 +1905,7 @@
   {
    "section": "Go plugins to built-in Filters or WASM Plugins",
    "kind": "milestone",
-   "value": "HTTP server plugins: Planned (M1) built-ins; Planned (M2) Plugins"
+   "value": "HTTP server plugins: Planned (M1) built-ins, `authz.geoip` Planned (M2); Planned (M2) Plugins"
   },
   {
    "section": "Go plugins to built-in Filters or WASM Plugins",
@@ -2061,6 +2061,26 @@
    "section": "Go plugins to built-in Filters or WASM Plugins",
    "kind": "kind_or_field",
    "value": "abi: ruralz.plugin.v1"
+  },
+  {
+   "section": "Go plugins to built-in Filters or WASM Plugins",
+   "kind": "claim",
+   "value": "When the logic outgrows CEL, for example a tenant list beyond the CEL cost bound, it becomes a WASM Plugin"
+  },
+  {
+   "section": "Go plugins to built-in Filters or WASM Plugins",
+   "kind": "kind_or_field",
+   "value": "capabilities: [request.headers.read, request.headers.write, response.send, log.write, clock.read, random.read]"
+  },
+  {
+   "section": "Go plugins to built-in Filters or WASM Plugins",
+   "kind": "claim",
+   "value": "`clock.read` and `random.read` cover the Go PDK scaffold's WASI imports (RZ-CFG-028)"
+  },
+  {
+   "section": "Go plugins to built-in Filters or WASM Plugins",
+   "kind": "error_code",
+   "value": "RZ-CFG-028"
   },
   {
    "section": "Go plugins to built-in Filters or WASM Plugins",
@@ -2265,7 +2285,7 @@
   {
    "section": "Stage 5: side-by-side cutover",
    "kind": "claim",
-   "value": "DNS weighting is a poor fit, because resolver caching delays rollback"
+   "value": "Avoid DNS weighting; resolver caching delays rollback"
   },
   {
    "section": "Stage 5: side-by-side cutover",

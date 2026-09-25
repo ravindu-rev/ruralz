@@ -1210,6 +1210,16 @@
   {
    "section": "Test case format",
    "kind": "claim",
+   "value": "The 200 case sends `authorization: {file: ./secrets/partner-jwt}`, a Bearer JWT with scope `orders:read` for the inherited `jwt-default` Policy and `authz-orders`"
+  },
+  {
+   "section": "Test case format",
+   "kind": "claim",
+   "value": "expect: json: `order: {id: \"42\"}`; aggregate steps merge under `group`"
+  },
+  {
+   "section": "Test case format",
+   "kind": "claim",
    "value": "`format`: Required, `ruralz.test.v1`; unknown top-level fields rejected"
   },
   {

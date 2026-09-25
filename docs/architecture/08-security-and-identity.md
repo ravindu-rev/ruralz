@@ -134,7 +134,7 @@ TLS 1.2 suites are fixed to ECDHE with AES-GCM or ChaCha20-Poly1305. Go 1.26 ena
 
 ### Mutual TLS
 
-A listener requests an unverified client certificate when any of its Routes attaches `auth.mtls`. A Hot Reload changing this mode sends GOAWAY, closes idle connections and sets `Connection: close` on busy HTTP/1.1 ones; an `auth.mtls` Route reached over a connection that requested none, coalesced HTTP/2 included, returns 421. The Filter verifies the chain against its own anchors, caching per connection, Policy and snapshot, so a removed CA stops matching at the next swap. Values such as `source.clientCertSubject` stay null unless the Route's own `auth.mtls` verified them (fields: OQ-security-and-identity-3).
+A listener requests an unverified client certificate when any of its Routes attaches `auth.mtls`. A Hot Reload changing this mode sends GOAWAY, closes idle connections and sets `Connection: close` on busy HTTP/1.1 ones; an `auth.mtls` Route reached over a connection that requested none, coalesced HTTP/2 included, returns 421. The Filter verifies the chain against its own anchors, caching per connection, Policy and snapshot, so a removed CA stops matching at the next swap. Values such as `source.clientCertSubject` stay null unless the Route's own `auth.mtls` verified them ([fields](#basic-and-mtls-schemas)).
 
 ### Certificate rotation
 
@@ -161,8 +161,8 @@ A `when` that errors makes a closed Policy run ([Configuration model](02-configu
 |---|---|---|---|
 | `auth.jwt` | Signature with keys from each issuer's `jwksUrl`; `iss`, `aud`, required `exp`, `nbf` | `credentials.jwt` by issuer plus `subject` or `claims` | Planned (M1) |
 | `auth.api-key` | SHA-256 of the key in `config.header`, looked up by digest | `credentials.apiKeys` | Planned (M1) |
-| `auth.basic` | PBKDF2 behind the [throttle](#pre-authentication-throttling) | Field missing (OQ-security-and-identity-2) | Planned (M1) |
-| `auth.mtls` | Chain and subject rules | Field missing (OQ-security-and-identity-3) | Planned (M1) |
+| `auth.basic` | PBKDF2 behind the [throttle](#pre-authentication-throttling) | `credentials.basic` by username ([proposed](#basic-and-mtls-schemas)) | Planned (M1) |
+| `auth.mtls` | Chain to `config.caCertificate`, `config.subjects`, `config.crl` | Optional `credentials.certificates` by subject or URI SAN ([proposed](#basic-and-mtls-schemas)) | Planned (M1) |
 
 ### JWT and OIDC
 
@@ -197,13 +197,30 @@ flowchart TD
     F -- "no" --> G{"Matching Consumer?"}
     G -- "yes, first binding" --> H["consumer and auth set"]
     G -- "no, API key or basic; or a second binding" --> R2
-    G -- "no, JWT" --> J["auth set, consumer null"]
+    G -- "no, JWT or mTLS" --> J["auth set, consumer null"]
     AN --> Z["authz Policies in class order"]
     H --> Z
     J --> Z
     Z -- "any deny" --> R3["403 RZ-AUTH-010 to 016"]
     Z -- "all allow" --> OK["Admission and later classes"]
 ```
+
+### Basic and mTLS schemas
+
+Per pack section 3, this document authors these schemas, all Planned (M1) and proposed for Configuration model registration (OQ-security-and-identity-2 and -3); until then, no example uses them.
+
+| Type or kind | Field | Shape and rule |
+|---|---|---|
+| `auth.basic` | `config` | No fields; reads `Authorization: Basic`, and a malformed value is RZ-AUTH-002 |
+| `auth.mtls` | `config.caCertificate` | Required `SecretValue`: PEM bundle of the client CAs this Policy trusts, rotated by watch like listener certificates |
+| `auth.mtls` | `config.subjects` | Optional `set`; each rule holds exactly one of `subject` (RFC 4514 name, exact) or `uriSan` (exact, for example a SPIFFE ID). Empty admits any verified leaf; a leaf matching no rule is RZ-AUTH-002 |
+| `auth.mtls` | `config.crl` | Optional `SecretValue`: PEM CRLs for those CAs, watched; a listed serial is RZ-AUTH-004. Past `nextUpdate`, the last CRL stays enforced and the Node reports a degraded state |
+| `Consumer` | `credentials.basic` | `map` keyed by `username`; each entry holds `hash` and `iterations` |
+| `Consumer` | `credentials.basic[].hash` | `pbkdf2-sha256:<salt>:<key>`, base64url of a 16-byte random salt and a 32-byte PBKDF2-HMAC-SHA-256 key; T19 applies as to key hashes |
+| `Consumer` | `credentials.basic[].iterations` | 600,000 to 1,000,000, default 600,000 (target); outside that range fails validation |
+| `Consumer` | `credentials.certificates` | `map` keyed by `name`; each entry holds exactly one of `subject` or `uriSan`, matched exactly against a leaf `auth.mtls` verified |
+
+A leaf MUST carry the `clientAuth` extended key usage. A leaf matching no Consumer sets `auth` and leaves `consumer` null, as for JWT. A `username`, `subject` or `uriSan` declared by two Consumers fails validation, so each credential binds at most one Consumer. The throttle's dummy hash uses the default `iterations`.
 
 ### Accepting more than one credential type
 
@@ -246,7 +263,9 @@ spec:
 
 `auth.upstream-oauth2`, Planned (M1), runs the client credentials grant, refreshing at two thirds of the token lifetime (target). A miss runs one single-flight fetch per Policy and Node within the request deadline and a proposed 2 s `timeout` (target); failure is 401 RZ-AUTH-020.
 
-`auth.upstream-sigv4`, Planned (M2), records signing parameters in `onUpstreamRequest`; the Node signs at the transport on every attempt, after every Filter, Plugin and dialect translation (hook: OQ-security-and-identity-28). The body is buffered within `limits.maxRequestBodyBytes` or sent as UNSIGNED-PAYLOAD where accepted (OQ-security-and-identity-18). For OQ-ai-llm-gateway-12, option (b): this type on the `ai` Upstream, signing only `bedrock` dialect legs.
+`auth.upstream-sigv4`, Planned (M2), records signing parameters in `onUpstreamRequest`; the Node signs at the transport on every attempt, after every Filter, Plugin and dialect translation (hook: OQ-security-and-identity-28). The body is buffered within `limits.maxRequestBodyBytes` or, with `payload: unsigned`, sent as UNSIGNED-PAYLOAD where accepted. For OQ-ai-llm-gateway-12, option (b): this type on the `ai` Upstream, signing only `bedrock` dialect legs.
+
+Authored here, proposed for registration (OQ-security-and-identity-18): `auth.upstream-sigv4` requires `config.region` and `config.service`, and `config.payload` is `signed` (default) or `unsigned`; `auth.upstream-oauth2` adds `config.timeout`, default 2 s (target).
 
 ### KrakenD authentication parity
 
@@ -309,7 +328,14 @@ spec:
 
 ### IP filtering and GeoIP
 
-`authz.ip`, Planned (M1), filters by CIDR on `source.ip`; `authz.geoip`, Planned (M2), by country from a local MaxMind-format database (reader: OQ-tech-stack-and-libraries-24; schemas: OQ-security-and-identity-18).
+`authz.ip`, Planned (M1), filters by CIDR on `source.ip`; `authz.geoip`, Planned (M2), by country from a local MaxMind-format database (reader: OQ-tech-stack-and-libraries-24). This document authors both schemas, proposed for Configuration model registration (OQ-security-and-identity-18):
+
+| Type | Field | Shape |
+|---|---|---|
+| `authz.ip` | `config.allow`, `config.deny` | `set` of CIDRs; a bare address means /32 or /128, and IPv4-mapped IPv6 matches as IPv4 |
+| `authz.geoip` | `config.allow`, `config.deny` | `set` of ISO 3166-1 alpha-2 codes; an address the database cannot place matches neither list |
+
+Precedence is the same for both: a `deny` match refuses; otherwise, a non-empty `allow` refuses every address outside it, and with `allow` empty the default is to admit. Both lists empty fails validation. Refusals are 403 RZ-AUTH-013 (`authz.ip`) or RZ-AUTH-014 (`authz.geoip`).
 
 **Client address**, Planned (M1): `source.ip` is the TCP or QUIC peer unless that peer is in the trusted-proxy CIDR list; then it is the rightmost `X-Forwarded-For` or `Forwarded` address outside the list, from at most 16 parsed (target), or the PROXY protocol v2 source on opted-in listeners. Forwarding headers from untrusted peers are overwritten, never appended. Until OQ-security-and-identity-6 adds the fields, deployments behind a load balancer SHOULD NOT rely on `source.ip` controls, which collapse to one key.
 
@@ -425,14 +451,14 @@ Ruralz Control delivers one signed revocation list to every Node of a Cluster, c
 
 | What is revoked | Mechanism | Propagation | Planned |
 |---|---|---|---|
-| A JWT by `jti`; a subject's older tokens; an IdP key by (issuer, `kid`), forcing a JWKS refetch; an API key hash or `auth.basic` username; a client certificate by issuer and serial (CRL: OQ-security-and-identity-3) | Signed entry, REST API | 5 s or less at p99 with a fresh mark (target) | Planned (M2), pending OQ-security-and-identity-4 (usernames: -2) |
+| A JWT by `jti`; a subject's older tokens; an IdP key by (issuer, `kid`), forcing a JWKS refetch; an API key hash or `auth.basic` username; a client certificate by issuer and serial (per Policy: `config.crl`) | Signed entry, REST API | 5 s or less at p99 with a fresh mark (target) | Planned (M2), pending OQ-security-and-identity-4 (usernames: -2) |
 | An API key, file mode | Removed; CI and Hot Reload | No Ruralz target | Planned (M1) |
 | An API key, Control mode | Removed; Rollout | 30 s or less at p95 for 100 Nodes, `all-at-once` (target) (SM-9) | Planned (M2) |
 | An Enrollment identity | `ruralz node revoke` | 5 s or less at p99 (target) | Planned (M2) |
 | An operator session or token | Raft-replicated set | 1 s or less on connected replicas (target) | Planned (M2) |
 | A Plugin publisher | Trust policy change; RZ-CFG-033 | Next activation | Planned (M2) |
 
-- **Integrity.** The leader signs each entry with a monotonic sequence, and a high-water mark (sequence, Cluster, issue time) every 10 s (target) and on each entry; followers and relays forward both unchanged. A gap, or a mark older than 30 s with clocks within 5 s (target), is a degraded state and Drift.
+- **Integrity.** The leader signs each entry with a monotonic sequence, and a high-water mark (sequence, Cluster, issue time) every 10 s (target) and on each entry; followers and relays forward both unchanged. A gap, or a mark older than 30 s with clocks within 5 s (target), is the degraded state `revocation_sequence_gap`.
 - **API keys.** A Revision holding a revoked hash reaches only Nodes reporting a covering sequence. Once the removing Revision is `complete`, Ruralz Control tombstones older Revisions holding the hash as rollback targets (the last 10 `complete` per Cluster, target; OQ-security-and-identity-27) and collects the entry when no Node reports such a digest.
 - **Expiry.** A `jti` entry MUST carry the token's `exp`, capped at the maximum lifetime, and expires then; a cut-off expires after that lifetime and meanwhile refuses the subject's tokens without `iat`.
 - **Keys.** A `kid` entry never expires on its own, because a leaked key keeps minting fresh tokens. Nodes refuse to load a revoked (issuer, `kid`) from any JWKS fetch and report whether the issuer still serves it; while any Node sees it served, the Cluster is in a degraded state and alerts. An operator MAY remove the entry; Ruralz Control collects it only after no Node has seen the key in that issuer's JWKS for the 6-hour key clamp plus the maximum lifetime, 30 hours (target). Both emit `credential.revoked`.
@@ -536,8 +562,8 @@ Data-plane decisions are telemetry, not audit events. Other evidence:
 | ID | Question | Options | Owner | Blocking? |
 |---|---|---|---|---|
 | OQ-security-and-identity-1 | Which extra `auth.jwt` and `auth.api-key` fields? | (a) Algorithms, clock skew, required claims, per-issuer maximum token lifetime (default 24 hours (target)), duplicate-binding error; (b) Fixed defaults | security-and-identity | Yes, Planned (M1) |
-| OQ-security-and-identity-2 | How are `auth.basic` credentials held? | (a) `credentials.basic`, PBKDF2-HMAC-SHA-256 at 600,000 to 1,000,000 iterations (target); (b) `apiKeys`; (c) Plugin | security-and-identity | Yes, for `auth.basic` |
-| OQ-security-and-identity-3 | Which `auth.mtls` fields and Consumer binding? | (a) Policy CA, subject rules, CRL; (b) Listener CA | security-and-identity | Yes, for `auth.mtls` |
+| OQ-security-and-identity-2 | Does the Configuration model register Consumer `credentials.basic` as authored in [Basic and mTLS schemas](#basic-and-mtls-schemas), with RZ-CFG codes for duplicate usernames and out-of-range `iterations`? | (a) Register as authored (proposed); (b) Register with changes | configuration-model | Yes, for `auth.basic` |
+| OQ-security-and-identity-3 | Does the Configuration model register the `auth.mtls` `config` (Policy CA, subject rules, CRL) and Consumer `credentials.certificates` as authored in [Basic and mTLS schemas](#basic-and-mtls-schemas)? | (a) Register as authored (proposed); (b) Register with changes | configuration-model | Yes, for `auth.mtls` |
 | OQ-security-and-identity-4 | How do revocations bypass the Revision? | (a) Signed entries and high-water mark, Node-signed `Ack`s, watched file, amending pack 8.1 and 8.4 (proposed); (b) State Store; (c) Revisions only | security-and-identity, control-plane-and-gitops | Yes, Planned (M2) |
 | OQ-security-and-identity-5 | Do revocations survive a detached restart? | (a) No; (b) Persisted, amending pack 8.11 | security-and-identity | Yes, Planned (M2) |
 | OQ-security-and-identity-6 | How are trusted proxies declared? | (a) CIDR list; (b) PROXY protocol v2; (c) Both (proposed) | configuration-model (fields), security-and-identity (semantics) | Yes, for `source.ip` users |
@@ -551,7 +577,7 @@ Data-plane decisions are telemetry, not audit events. Other evidence:
 | OQ-security-and-identity-14 | Should `authz.geoip` enrich upstream requests? | (a) No; (b) Header; (c) `source.country` | security-and-identity | No |
 | OQ-security-and-identity-15 | Are the throttle defaults and residuals acceptable: flood-shared rates, spraying, N × 1 guess per second per username across N Nodes (target), about 8,000 to 16,000 active `auth.basic` clients per hash slot capped at 10,000 per Node (hypothesis), and a post-restart ramp of one hash per active client? | (a) Local throttle (current); (b) Pre-auth `ratelimit` position | security-and-identity | Yes, for `auth.basic` |
 | OQ-security-and-identity-17 | Which fields set client timeouts? | (a) Gateway `limits`; (b) Fixed | data-plane | No |
-| OQ-security-and-identity-18 | Which schemas are registered? | (a) `authz.ip`, `authz.geoip` lists; `auth.upstream-sigv4` region, service and payload mode; upstream-auth `timeout`; `https` pattern for `jwksUrl` and `tokenUrl` (proposed); (b) Other | configuration-model | Yes, per type |
+| OQ-security-and-identity-18 | Does the Configuration model register the schemas authored above: `authz.ip` and `authz.geoip` `allow` and `deny`; `auth.upstream-sigv4` `region`, `service` and `payload`; upstream-auth `timeout`; an `https` pattern for `jwksUrl` and `tokenUrl`? | (a) Register as authored (proposed); (b) Register with changes | configuration-model | Yes, per type |
 | OQ-security-and-identity-19 | One switch requiring TLS everywhere? | (a) No (current); (b) Gateway field | configuration-model | No |
 | OQ-security-and-identity-20 | Record a `go1.27` build-tag file? | (a) Yes (proposed); (b) Wait | tech-stack-and-libraries | No |
 | OQ-security-and-identity-21 | Reject encoded NUL and backslashes? | (a) Yes (proposed); (b) No | data-plane | Yes, Planned (M1) |
