@@ -114,7 +114,7 @@ Ruralz ADR-0008 already fixes fail-open by default, configurable per Policy (fou
 - `terminationGracePeriodSeconds` defaults to 30 s (https://kubernetes.io/docs/concepts/workloads/pods/pod-lifecycle/).
 - A preStop hook "must complete its execution before the TERM signal can be sent", and the grace period covers hook plus shutdown (example: 60 s grace, 55 s hook, 10 s stop gets the container killed) (https://kubernetes.io/docs/concepts/containers/container-lifecycle-hooks/).
 - Hook handler types: exec, HTTP, sleep (https://kubernetes.io/docs/concepts/containers/container-lifecycle-hooks/).
-- EndpointSlice `serving` and `terminating` conditions are stable since v1.26; `terminating` is set when the Pod gets a deletion timestamp; service proxies may still route to entries that are both `serving` and `terminating` when all entries are terminating (https://kubernetes.io/docs/concepts/services-networking/endpoint-slices/). <!-- alias-ok -->
+- EndpointSlice `serving` and `terminating` conditions are stable since v1.26; `terminating` is set when the Pod gets a deletion timestamp; service proxies may still route to entries that are both `serving` and `terminating` when all entries are terminating (https://kubernetes.io/docs/concepts/services-networking/endpoint-slices/).
 - **Analysis:** because EndpointSlice updates run concurrently with termination, the conventional sequence is preStop sleep (wait for EndpointSlice propagation) -> fail `/readyz` -> GOAWAY / `Connection: close` -> `Shutdown` with a deadline shorter than the grace period.
 
 ### 4.4 Long-lived WebSocket and SSE drain
@@ -263,7 +263,7 @@ https://www.rfc-editor.org/rfc/rfc9113.html
 https://github.com/grpc/grpc-go/blob/master/internal/transport/http2_server.go
 https://kubernetes.io/docs/concepts/workloads/pods/pod-lifecycle/
 https://kubernetes.io/docs/concepts/containers/container-lifecycle-hooks/
-https://kubernetes.io/docs/concepts/services-networking/endpoint-slices/ <!-- alias-ok -->
+https://kubernetes.io/docs/concepts/services-networking/endpoint-slices/
 https://pkg.go.dev/net/http#Server.Shutdown
 https://www.iana.org/assignments/websocket/websocket.xhtml
 https://html.spec.whatwg.org/multipage/server-sent-events.html

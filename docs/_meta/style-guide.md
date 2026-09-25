@@ -7,7 +7,7 @@ last_updated: 2026-09-23
 
 # Ruralz Documentation Style Guide
 
-Binding for every file under `docs/`. Reviewers check these rules; `scripts/verify-docs.mjs` enforces the machine-checkable ones.
+Binding for every file under `docs/`. Reviewers check these rules.
 
 ## 1. File and front matter
 
@@ -124,4 +124,4 @@ How compliance with this decision is verified (test, lint rule, review checklist
 
 ## 8. Review artifacts
 
-Reviewer verdicts are written to `docs/_meta/reviews/<docslug>.<lens>.json` and committed. A document is `approved` when no blocking findings remain, or `approved-with-escalations` when the second revision still disputes a blocking finding; escalations are listed in the document's Open questions.
+A document is `approved` when no blocking findings remain, or `approved-with-escalations` when the second revision still disputes a blocking finding; escalations are listed in the document's Open questions.

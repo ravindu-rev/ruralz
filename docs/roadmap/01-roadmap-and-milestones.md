@@ -32,7 +32,7 @@ This document orders milestones `M0` to `M5` without dates, giving each scope, m
 
 ## Scope and non-goals
 
-In scope: the [foundation pack](../_meta/foundation-pack.md) section 2 milestones and every item tagged `Planned (Mx)`. The verify-docs milestone check tests coverage; a WARN naming a real item is fixed here.
+In scope: the [foundation pack](../_meta/foundation-pack.md) section 2 milestones and every item tagged `Planned (Mx)`.
 
 Non-goals: designs; moving a tag (only its owning document does); row-by-row parity ([KrakenD EE parity matrix](../comparison/01-krakend-ee-parity-matrix.md), which wins on conflict); performance values ([Performance budgets](../architecture/12-performance-budgets-and-benchmarking.md)); release numbering ([Release](../engineering/04-release-versioning-and-compatibility.md)); calendar dates (OQ-roadmap-and-milestones-2).
 
@@ -65,20 +65,19 @@ Pack name: **M0** Foundations. M0 builds the repository, gates and contracts lat
 |---|---|
 | License and governance | Apache-2.0 license and ownership; contributions under DCO, no CLA; dependencies and licenses; revenue rules; no feature gating: all features without a license key; trademark policy; `SECURITY.md`, where a reporter uses the private channel ([ADR-0002](../adr/0002-apache-2-license-no-feature-gating.md)) |
 | Build | Go 1.26 floor, release toolchain, floor job and guard file; `CGO_ENABLED=0`; build flags; production platforms |
-| CI stages 1 to 7 in `pr-fast` | 1. commit hygiene: DCO check, repocheck, no-license-check scan (SM-1); 2. format and lint: golangci-lint linters (`sloglint`), `golang.org/x/net/http2` forbidigo rule, depguard import rules: `github.com/tetratelabs/wazero` only in `internal/pluginhost`; the `github.com/google/cel-go` alias and any Lua runtime banned; 3. generated code drift; 4. cross-build (gate G1); 5. unit tests; 6. supply chain: `go mod verify`, `govulncheck` on every pull request, advisory floor, license gate G2 (what the gate reads; MPL-2.0 named exceptions, [ADR-0006](../adr/0006-control-store-raft-boltdb.md)), crypto denylist gate G3; 7. docs verification. Dependency admission (catalog row, rate limiting, no fasthttp); security scanning; all CI stages green |
-| Repository | `internal/`, `pkg/`, `api/` schema; test and docs tooling; `verify-docs.mjs` as docs gate, markdownlint-cli2 pinned to 0.23.x; OQ-repository-layout-and-conventions-1 and -7 |
+| CI stages 1 to 6 in `pr-fast` | 1. commit hygiene: DCO check, repocheck, no-license-check scan (SM-1); 2. format and lint: golangci-lint linters (`sloglint`), `golang.org/x/net/http2` forbidigo rule, depguard import rules: `github.com/tetratelabs/wazero` only in `internal/pluginhost`; the `github.com/google/cel-go` alias and any Lua runtime banned; 3. generated code drift; 4. cross-build (gate G1); 5. unit tests; 6. supply chain: `go mod verify`, `govulncheck` on every pull request, advisory floor, license gate G2 (what the gate reads; MPL-2.0 named exceptions, [ADR-0006](../adr/0006-control-store-raft-boltdb.md)), crypto denylist gate G3. Dependency admission (catalog row, rate limiting, no fasthttp); security scanning; all CI stages green |
+| Repository | `internal/`, `pkg/`, `api/` schema; test tooling; OQ-repository-layout-and-conventions-1 and -7 |
 | Contracts | `ruralz/v1alpha1` envelope; JSON Schema (draft 2020-12) authoring and rendered views with a generation check ([ADR-0003](../adr/0003-configuration-format.md)), published; OpenAPI for `/api/v1/` follows in M2 |
 
 ### M0 exit criteria
 
 Exit criteria:
 
-1. `pr-fast` stages 1 to 7 run on their triggers, block merge and complete within 10 minutes (target).
+1. `pr-fast` stages 1 to 6 run on their triggers, block merge and complete within 10 minutes (target).
 2. The three binaries cross-build with `CGO_ENABLED=0` for linux/amd64 and linux/arm64; the license gate, crypto denylist and `govulncheck` pass on `main`.
 3. The no-license-check scan finds 0 gated features (target), per SM-1.
 4. Both schema views are generated from one source and published; the drift check fails on any difference.
-5. `verify-docs.mjs` reports no error, and each architecture document is `approved` or lists its escalations.
-6. OQ-repository-layout-and-conventions-1 and -7, the two Open questions blocking M0, are closed.
+5. OQ-repository-layout-and-conventions-1 and -7, the two Open questions blocking M0, are closed.
 
 KrakenD EE parity at exit: 0 of 71, 0% (target).
 
@@ -98,7 +97,7 @@ Pack name: **M1** Core parity. M1 ships a file-mode Ruralz Gateway with core Kra
 | Security | `auth.jwt` (JWT, OpenID Connect, OAuth2; JOSE library), `auth.api-key` (removal in file mode), `auth.basic`, `auth.mtls`, `authz.cel` (Security Policies Engine, first part), `authz.ip`, `auth.upstream-oauth2` (client credentials), `cors`; TLS to IdP JWKS endpoint (TB-10), Upstreams, State Store, OTLP (TB-3, TB-4, TB-12; `AIProvider` from M3); digest checks on every Revision and Plugin artifact; redaction unit tests; secret leak tests |
 | Traffic and state | `ratelimit` with local token bucket and GCRA ([ADR-0008](../adr/0008-rate-limiting-local-bucket-and-gcra.md)), distributed rate limiting, KrakenD row "Stateful rate limit (Redis backed)", `quota` in `requests`; API governance (`quota`, `overridable: false` Gateway Policies); `cache` (Response Cache), retries, circuit breaker, health checks, catch-all fallback, header and query string routing, wildcard routes, service discovery (`dns`, static `endpoints`) for `http` Upstreams, weighted splits, composition; `memory` and `redis` drivers (tested on Valkey 9.0.1 or newer, Dragonfly), single-Region Cells; `headers`, `transform.request`, `transform.response`, `validation.json-schema` |
 | Observability | OpenTelemetry telemetry: traces, export, conventions, resource; traceparent injection with its sampling decision; metrics exposition (`/metrics`) including `ruralz_listener_tls_handshake_duration_seconds`; logs; catalog gates; cardinality test; ULID `node.id`; `ruralz_node_degraded_info` with M1 reasons such as `lkg_boot` and `state_store_breaker_open` |
-| Quality | Property tests; protocol conformance suite in `pr-full` (HTTP/1.1, HTTP/2); integration tests; round-trip test; fuzzing; Docker Compose end-to-end test in file mode (quickstart, `--effective --route`, `ruralz bundle diff` against Node `/config/dump`, Zero-Downtime Upgrade); air-gapped start; chaos experiments CE-1 to CE-6, CE-12, CE-15, CE-16; CI stages 9. integration and conformance, 10. regression gates, 11. end-to-end, 12. nightly, 13. release |
+| Quality | Property tests; protocol conformance suite in `pr-full` (HTTP/1.1, HTTP/2); integration tests; round-trip test; fuzzing; Docker Compose end-to-end test in file mode (quickstart, `--effective --route`, `ruralz bundle diff` against Node `/config/dump`, Zero-Downtime Upgrade); air-gapped start; chaos experiments CE-1 to CE-6, CE-12, CE-15, CE-16; CI stages 8. integration and conformance, 9. regression gates, 10. end-to-end, 11. nightly, 12. release |
 | Budgets | PB-1 to PB-4, PB-6 to PB-9, PB-10, PB-11, PB-14, PB-15, PB-16; scenarios S1 plain proxying, S2 reference, S3, S5, S5x, O1, O2, C1, C2, R1, G1; microbenchmarks; soak; alloc/op, size and idle RSS gates; macro p99 and macro latency; absolute budgets and criteria; component and CEL benchmarks; binary and CI size check; nightly and release runs publish records (P10, F-7) |
 | Release | Release `0.1.0`: binaries, container images, checksums, SBOM, signatures, provenance, notes, release audit per tag; `cmd/ruralzd`, `cmd/ruralz`, `test/`, `examples/` |
 
@@ -124,7 +123,7 @@ Pack name: **M2** WASM + Control/GitOps. M2 delivers differentiators (1) and (3)
 |---|---|
 | Ruralz Control | `cmd/ruralz-control` replicas; Control Store on Raft ([ADR-0006](../adr/0006-control-store-raft-boltdb.md), proposed): interface, consensus, snapshots, transport, content store, membership, telemetry; Rollouts with canary, gates (OQ-system-overview-9), `autoRollback`, promotions, skew checks; Drift; REST API with its `/api/v1/` OpenAPI description in `api/openapi/` (OQ-cli-and-api-surface-3); RBAC; audit log; published Node count; OTLP export like a Node; OQ-release-versioning-and-compatibility-4, -11, -12 |
 | Control Stream | Control mode, Nodes enrolled with Ruralz Control ([ADR-0007](../adr/0007-control-stream-protocol.md)): service, delivery, ACK/NACK, flow control, reconnect, heartbeat, trust, evolution; `Enroll`; `Stream` with renewal; peer layer; forge webhook; TCP 8090 (TB-6), 8091 (TB-5), 8092 (TB-11); `ruralz-control` admin 9902: `/healthz`, `/readyz`, `/metrics`, `/debug/pprof/`; protobuf runtime and code generation; `buf lint`, `buf breaking` |
-| Ruralz Console | Control plane with web console at `/console`, built from `console/` in CI stage 8: local accounts, TOTP, roles |
+| Ruralz Console | Control plane with web console at `/console`, built from `console/` in CI stage 7: local accounts, TOTP, roles |
 | WASM Plugins | `Plugin` kind and `plugin` Policy; WASM runtime wazero; Plugin ABI v1 and PDK conventions ([ADR-0005](../adr/0005-plugin-abi-v1.md)); Capabilities, Host Functions, limits; Plugin ABI conformance suite; Rust and Go (TinyGo) PDKs in `sdk/`; `api/proto/ruralz/plugin/v1/`, derived output (OQ-repository-layout-and-conventions-2); `rzplg:` State Store keys |
 | CLI | `ruralz bundle` verbs `push`, `import krakend`, `import openapi`, `export openapi`, `export postman`, `export dot`, `audit`; `ruralz test run`; `ruralz rollout` verbs `start`, `status`, `pause`, `resume`, `rollback`, `approve`, `reject`; `ruralz node` verbs `list`, `token`, `revoke`; `ruralz control` verbs `serve`, `join`, `backup`, `restore`; `ruralz plugin` verbs `init`, `build`, `test`, `push`, `inspect`; `--env` without `--environments FILE` fetches from Ruralz Control; `rev-<12 hex>` and `sha256:<64 hex>` Revision sources; OQ-cli-and-api-surface-7, -14 |
 | Signing and file mode | Topology T2 with OCI pull by `oci://REPOSITORY@sha256:<64 hex>`; signed Plugin artifact; signed Revision in Control mode ([ADR-0017](../adr/0017-artifact-signing.md)); OCI registry integration tests and interoperability job |

@@ -282,7 +282,7 @@ Every mechanism is free; the [KrakenD EE parity matrix](../comparison/01-krakend
 | API keys | `auth.api-key` | Planned (M1) |
 | Token revocation bloom filter | Signed revocation list on every Node | Planned (M2) |
 | Revoke Server | Ruralz Control revocation API | Planned (M2) |
-| Multiple identity providers per endpoint <!-- alias-ok --> | Several `issuers[]` | Planned (M1) |
+| Multiple identity providers per endpoint | Several `issuers[]` | Planned (M1) |
 | mTLS | `auth.mtls`; `Upstream.spec.tls` | Planned (M1) |
 | NTLM authentication | Not planned: it authenticates a TCP connection, breaking pooling, and uses non-FIPS MD4 and HMAC-MD5 (P1) | Not planned |
 | Google GCP authentication | JWT-bearer grant in `auth.upstream-oauth2` ([fields](#upstream-authentication)) | Planned (M2), pending OQ-security-and-identity-12 |

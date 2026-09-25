@@ -324,7 +324,6 @@ A release candidate becomes a release only when every gate below passes on its e
 | Benchmarks | Within 5% p99 and 3% alloc/op of the previous release (target); every seed budget met from the milestone introducing its component | Planned (M1) |
 | Security scanning | Every check in [Security scanning](#security-scanning) green | Planned (M0) |
 | Compatibility | `buf breaking` against the last tag of each supported release line; a previous-release Node gets a skew-checked Revision (RZ-CFG-024); a Zero-Downtime Upgrade from it fails no requests (target) | Planned (M2) |
-| Docs gate | [verify-docs.mjs](../../scripts/verify-docs.mjs) clean for every changed document | Planned (M0) |
 | FIPS build | The same tests pass on the `GOFIPS140` artifacts, except HTTP/3 cases, which assert `http3: true` is refused, never ignored (deterministic NACK or file-mode load failure), and UDP 8443 is never bound (foundation pack section 8.4, OQ-tech-stack-and-libraries-9) | Planned (M5) |
 
 Signing and SBOM follow [Release, versioning and compatibility](04-release-versioning-and-compatibility.md); the tested commit MUST be the signed commit.

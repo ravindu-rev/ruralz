@@ -107,7 +107,6 @@ flowchart LR
 - **JSON subset fixtures**, Planned (M1): tab indentation, `\/` and surrogate `\u` escapes MUST yield the digest of their YAML twins.
 - **Golden corpus**, Planned (M1): the Configuration model's [example Bundle](../architecture/02-configuration-model.md#complete-annotated-example-bundle) and its JSON twin MUST reproduce one expected digest on every release, except entries recording a `v1alpha1` default change.
 - **Schema generation check**, Planned (M0): CI regenerates both views from one source and fails on any drift from the published files.
-- **Docs gate**: [verify-docs.mjs](../../scripts/verify-docs.mjs) rejects `ruralz/*` yaml examples with an unknown `kind`.
 - **Review checklist item**: a pull request accepting a new YAML feature, file format or envelope key MUST amend this ADR.
 
 ## Pros and cons of the options

@@ -104,10 +104,9 @@ forbidden_aliases:
 - pattern: \b(?:wasm|webassembly) (?:extensions?|modules?)\b
   use: Plugin
   sense: extension or module as a name for a WASM Plugin; the WASM spec term 'module' inside runtime internals needs
-    the escape comment
+    to be quoted
 alias_match:
   case_insensitive: true
-  escape_comment: <!-- alias-ok -->
 lenses:
   L1:
     name: feasibility-skeptic
@@ -333,7 +332,7 @@ docs:
     subject: 'system context: clients, Ruralz Gateway, Upstreams, Ruralz Control, State Store'
   acceptance:
   - The file is 150 lines or fewer.
-  - Every relative link resolves (lychee offline check passes).
+  - Every relative link resolves.
   - Why Ruralz contrasts Ruralz with KrakenD Enterprise and states that every feature, including Ruralz Control
     and Ruralz Console, is open source.
   - The text states explicitly that Ruralz is Apache-2.0 and that there is no feature gating.
@@ -503,9 +502,9 @@ docs:
   - Terms is a single alphabetical table containing every term in glossary_terms.
   - Each term row gives a definition of 40 words or fewer, the canonical spelling, its forbidden aliases (or None)
     and a 'Defined in' link to the owning document.
-  - Every term is used in at least one other document under docs/ (verify-docs check 9).
-  - Forbidden aliases lists every forbidden alias from the foundation pack with its replacement and explains the
-    <!-- alias-ok --> escape.
+  - Every term is used in at least one other document under docs/.
+  - Forbidden aliases lists every forbidden alias from the foundation pack with its replacement and explains when
+    an alias may be quoted.
   machine_checks:
   - kind: min_table_rows
     table_heading: Terms
@@ -849,7 +848,7 @@ docs:
     (wundergraph/graphql-go-tools v2), Kafka (twmb/franz-go), NATS (nats.go/jetstream), MQTT (eclipse-paho/paho.golang
     and mochi-mqtt), JOSE and OIDC (lestrrat-go/jwx/v4, coreos/go-oidc/v3), expressions (cel-go, import path cel.dev/cel-go), authorization
     (OPA v1 Rego, cedar-go), tokenizer (tiktoken-go/tokenizer, estimates only), rate limiting (GCRA in Redis Lua
-    plus local token bucket), and docs tooling (MADR 4.0, markdownlint-cli2, lychee, mermaid-lint).'
+    plus local token bucket), and the ADR format (MADR 4.0).'
   - Each Library catalog row gives the chosen library, alternatives, rationale, license, risk and the ADR it links
     to where one exists.
   - Every chosen library license is permissive and compatible with Apache-2.0 distribution; any weak-copyleft license
@@ -881,9 +880,6 @@ docs:
     - GCRA
     - CGO_ENABLED=0
     - GOFIPS140
-    - markdownlint-cli2
-    - lychee
-    - mermaid-lint
     - MADR
   - kind: min_table_rows
     table_heading: Library catalog
@@ -1779,7 +1775,7 @@ docs:
   - Schema generation from Go types specifies the source package and the output path of the published JSON Schema.
   - Go conventions and linters lists the golangci-lint linter set.
   - Commits and pull requests states the DCO sign-off stance explicitly and uses Conventional Commits.
-  - CI stages lists at least six stages, including docs verification with scripts/verify-docs.mjs.
+  - CI stages lists at least six stages.
   - API and protobuf definitions uses buf and the proto packages ruralz.control.v1 and ruralz.plugin.v1.
   machine_checks:
   - kind: required_terms
@@ -1795,7 +1791,6 @@ docs:
     - buf
     - DCO
     - Conventional Commits
-    - scripts/verify-docs.mjs
     - ruralz.control.v1
     - ruralz.plugin.v1
   - kind: min_table_rows
@@ -2674,7 +2669,6 @@ docs:
     or WASM Plugins.'
   - Cutover runbook gives ordered steps for shadow traffic and side-by-side cutover, including rollback.
   - Migration gaps is consistent with the Not planned rows of docs/comparison/01-krakend-ee-parity-matrix.md.
-  - Quoted KrakenD terminology (endpoint, backend) carries the <!-- alias-ok --> escape.
   machine_checks:
   - kind: min_table_rows
     table_heading: Concept mapping

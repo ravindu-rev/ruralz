@@ -56,7 +56,7 @@ The source is the public KrakenD feature table at krakend.io/features ([source](
 
 Rules applied to every row:
 
-1. The Feature cell copies the research row verbatim, so the verify-docs coverage check can match all 153 rows.
+1. The Feature cell copies the research row verbatim, so all 153 rows can be traced to their source.
 2. The KrakenD CE and KrakenD EE cells come from the features page. Where the JSON Schema and the features page disagree on an edition, as the research records for several namespaces, the features page wins.
 3. The Ruralz status comes from the Planned tag of the owning architecture document. Rows no architecture document maps take the Roadmap's provisional allocation unless an Open question of this matrix moves them (API governance, OQ-krakend-ee-parity-matrix-12), and rows neither covers are decided here with an Open question.
 4. The Ruralz mechanism names only kinds, fields, Policy types and Filters of the [Configuration model](../architecture/02-configuration-model.md#kind-catalog). Where a row needs a field that does not exist yet, the mechanism names the kind that would carry it and the Notes/ADR cell names the Open question.
@@ -139,7 +139,7 @@ KrakenD columns: ([source](https://www.krakend.io/features/)). Ten of the 25 row
 
 | Feature | KrakenD CE | KrakenD EE | Ruralz status | Ruralz mechanism | Notes/ADR |
 |---|---|---|---|---|---|
-| Backend For Frontend <!-- alias-ok --> | Yes | Yes | Planned (M1) | `Route` `composition.mode: aggregate` merges several `Upstream` legs into one JSON response | Per-client shaping with step `select` and `group` |
+| Backend For Frontend | Yes | Yes | Planned (M1) | `Route` `composition.mode: aggregate` merges several `Upstream` legs into one JSON response | Per-client shaping with step `select` and `group` |
 | Aggregation | Yes | Yes | Planned (M1) | `Route` `composition.mode: aggregate` runs steps in parallel and merges bodies under `group` | A failed `optional` step yields a partial response |
 | Data transformation | Yes | Yes | Planned (M1) | `Route` composition step fields `target`, `select`, `rename`, `group` and `collection` | Same shape as KrakenD's field operations ([source](https://www.krakend.io/docs/backends/data-manipulation/)) |
 | HTTP Cache headers (for CDN) | Yes | Yes | Planned (M1) | `headers` Policy `response.set[]` writes `Cache-Control` | KrakenD `cache_ttl` also only sets the header ([source](https://www.krakend.io/schema/v2.13/krakend.json)) |

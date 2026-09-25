@@ -64,10 +64,10 @@ Size and depth limits are configurable; exceeding one is RZ-CFG-001. The propose
 
 | KrakenD concept | Ruralz concept | Notes |
 |---|---|---|
-| endpoint (a published path) | `Route` | Richer match <!-- alias-ok --> |
-| backend | `Upstream` | Named, reusable <!-- alias-ok --> |
+| endpoint (a published path) | `Route` | Richer match |
+| backend | `Upstream` | Named, reusable |
 | `extra_config` namespace | `Policy` with a `type` | Attached by reference |
-| `group`, `target`, `allow`, `mapping`, `is_collection` | Step fields `group`, `target`, `select`, `rename`, `collection` | Same shape ([source](https://www.krakend.io/docs/backends/data-manipulation/)) <!-- alias-ok --> |
+| `group`, `target`, `allow`, `mapping`, `is_collection` | Step fields `group`, `target`, `select`, `rename`, `collection` | Same shape ([source](https://www.krakend.io/docs/backends/data-manipulation/)) |
 | Sequential proxy | `composition.mode: sequential` | Results reached through CEL |
 | Flexible configuration | Overlays and `${VAR}` | ([source](https://www.krakend.io/docs/configuration/flexible-config/)) |
 | CEL conditions, Lua | CEL or a WASM `Plugin` | No Lua ([ADR-0011](../adr/0011-expressions-and-authorization-engines.md)) |

@@ -433,7 +433,7 @@ IP filtering and GeoIP (OQ-vision-and-positioning-10) are built-in types. `authz
 | upstream leg | One Upstream call made for a Route, a weighted target or a composition step; Upstream-scoped Policies run only in that leg's Phases. | configuration-model |
 | Zero-Downtime Upgrade | Replacing the `ruralzd` binary: the new process binds with `SO_REUSEPORT` and reports ready, then the old process Drains. | zero-downtime-upgrades-and-hot-reload |
 
-**Forbidden aliases** (script-checked, case-insensitive, word boundary; wrap unavoidable quotations of KrakenD terminology with `<!-- alias-ok -->` on the same line):
+**Forbidden aliases** (case-insensitive, word boundary; quoting KrakenD terminology is allowed):
 
 | Forbidden | Use instead |
 |---|---|

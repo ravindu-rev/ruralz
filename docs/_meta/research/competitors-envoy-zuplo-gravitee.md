@@ -43,7 +43,7 @@
 | `EnvoyExtensionPolicy` | Wasm, Lua, ExtProc, DynamicModule filters | https://gateway.envoyproxy.io/docs/api/extension_types/ |
 | `EnvoyPatchPolicy` | Raw patches to generated Envoy config | https://gateway.envoyproxy.io/docs/api/extension_types/ |
 | `EnvoyProxy`, `EnvoyGateway` | Data-plane deployment and control-plane configuration | https://gateway.envoyproxy.io/docs/api/extension_types/ |
-| `Backend`, `HTTPRouteFilter` | Non-Service upstream targets; extra route filters | https://gateway.envoyproxy.io/docs/api/extension_types/ <!-- alias-ok --> |
+| `Backend`, `HTTPRouteFilter` | Non-Service upstream targets; extra route filters | https://gateway.envoyproxy.io/docs/api/extension_types/ |
 
 v1.9.0 API additions:
 - `BackendTrafficPolicy`: response override can match on response headers; a `Week` unit was added to `RateLimitUnit` (https://github.com/envoyproxy/gateway/releases/tag/v1.9.0).
@@ -54,14 +54,14 @@ v1.9.0 API additions:
 - Lua's `disableLua` is deprecated in favor of `enableLua` (https://github.com/envoyproxy/gateway/releases/tag/v1.9.0).
 
 v1.8.0 additions:
-- Remote-source dynamic modules <!-- alias-ok -->, TLS for Wasm code sources, and chaining of multiple ExtensionManagers (https://github.com/envoyproxy/gateway/releases/tag/v1.8.0).
+- Remote-source dynamic modules, TLS for Wasm code sources, and chaining of multiple ExtensionManagers (https://github.com/envoyproxy/gateway/releases/tag/v1.8.0).
 - Per-rule rate-limit options, shadow mode, and a bandwidth limit (https://github.com/envoyproxy/gateway/releases/tag/v1.8.0).
 - GeoIP, and admission control in `BackendTrafficPolicy` (https://github.com/envoyproxy/gateway/releases/tag/v1.8.0).
 
 ### 2.3 Extensibility
 
-- `EnvoyExtensionPolicy` supports four extension types: Wasm, Lua, ExtProc and DynamicModule (https://gateway.envoyproxy.io/docs/api/extension_types/). <!-- alias-ok -->
-- The documented Dynamic Modules task <!-- alias-ok --> loads `.so` files from the local filesystem (`source.type: Local`, `local.path`), mounted via Kubernetes 1.35+ image volumes, custom images, or shared volumes populated by an init container (https://gateway.envoyproxy.io/docs/tasks/extensibility/dynamic-modules/).
+- `EnvoyExtensionPolicy` supports four extension types: Wasm, Lua, ExtProc and DynamicModule (https://gateway.envoyproxy.io/docs/api/extension_types/).
+- The documented Dynamic Modules task loads `.so` files from the local filesystem (`source.type: Local`, `local.path`), mounted via Kubernetes 1.35+ image volumes, custom images, or shared volumes populated by an init container (https://gateway.envoyproxy.io/docs/tasks/extensibility/dynamic-modules/).
 - The API version for this feature is `v1alpha1` (https://gateway.envoyproxy.io/docs/tasks/extensibility/dynamic-modules/).
 
 ### 2.4 Rate limiting
@@ -93,7 +93,7 @@ v1.8.0 additions:
 - The project joined the Agentic AI Foundation (AAIF) under the Linux Foundation. It is no longer an Envoy/CNCF sub-project, but it is "still built on Envoy and Envoy Gateway" (https://theagentrouter.ai/blog/envoy-ai-gateway-is-now-agent-router/; https://www.linuxfoundation.org/press/linux-foundation-announces-the-formation-of-the-agentic-ai-foundation).
 - The repository moved from `envoyproxy/ai-gateway` to `theagentrouter/agent-router`, and old links redirect (https://github.com/theagentrouter/agent-router).
 - The README says: "Same code, same maintainers, same release cadence and Apache 2.0 license" (https://github.com/theagentrouter/agent-router).
-- These did not change: the CRDs and API group (`aigateway.envoyproxy.io`: `AIGatewayRoute`, `AIServiceBackend`, `BackendSecurityPolicy`), the CLI `aigw`, the namespace `envoy-ai-gateway-system`, container images, Helm charts and Go module paths (https://theagentrouter.ai/blog/envoy-ai-gateway-is-now-agent-router/; https://github.com/theagentrouter/agent-router). <!-- alias-ok -->
+- These did not change: the CRDs and API group (`aigateway.envoyproxy.io`: `AIGatewayRoute`, `AIServiceBackend`, `BackendSecurityPolicy`), the CLI `aigw`, the namespace `envoy-ai-gateway-system`, container images, Helm charts and Go module paths (https://theagentrouter.ai/blog/envoy-ai-gateway-is-now-agent-router/; https://github.com/theagentrouter/agent-router).
 - The repository had 2,131 GitHub stars at snapshot (https://github.com/theagentrouter/agent-router).
 
 ### 3.2 Releases
@@ -120,7 +120,7 @@ Providers listed across releases: OpenAI, Azure OpenAI, Gemini, Vertex AI, AWS B
 
 ### 3.4 Provider fallback
 
-- `AIGatewayRoute` lists several `backendRefs` with priorities: "The first backend is treated as primary, and subsequent backends are considered fallbacks" (https://theagentrouter.ai/docs/capabilities/traffic/provider-fallback/). <!-- alias-ok -->
+- `AIGatewayRoute` lists several `backendRefs` with priorities: "The first backend is treated as primary, and subsequent backends are considered fallbacks" (https://theagentrouter.ai/docs/capabilities/traffic/provider-fallback/).
 - Retries are set with an Envoy Gateway `BackendTrafficPolicy` attached to the generated HTTPRoute (`numAttemptsPerPriority`, `numRetries`, triggers `connect-failure` and `retriable-status-codes`) (https://theagentrouter.ai/docs/capabilities/traffic/provider-fallback/).
 
 ### 3.5 Performance claims (vendor-affiliated source)
@@ -168,7 +168,7 @@ Providers listed across releases: OpenAI, Azure OpenAI, Gemini, Vertex AI, AWS B
 - Budgets cover spend, tokens and requests, and each limit is either Block or Warn (https://zuplo.com/docs/ai-gateway/usage-limits.md).
 - An exhausted Block limit returns 429 unless a quota fallback is configured (https://zuplo.com/docs/ai-gateway/usage-limits.md).
 - App budgets may add up to more than the team budget, but the team budget still caps combined usage (https://zuplo.com/docs/ai-gateway/usage-limits.md).
-- Other AI features: routing to OpenAI, Anthropic, Gemini and Mistral through one OpenAI-compatible endpoint, semantic caching by vector similarity, prompt-injection blocking, secret/PII masking, and trace export to Galileo and Comet Opik (https://zuplo.com/ai-gateway.md). <!-- alias-ok -->
+- Other AI features: routing to OpenAI, Anthropic, Gemini and Mistral through one OpenAI-compatible endpoint, semantic caching by vector similarity, prompt-injection blocking, secret/PII masking, and trace export to Galileo and Comet Opik (https://zuplo.com/ai-gateway.md).
 - All plans include the AI Gateway, the MCP Gateway and the developer portal (https://zuplo.com/pricing).
 
 ### 4.5 Developer portal and monetization
@@ -209,7 +209,7 @@ Providers listed across releases: OpenAI, Azure OpenAI, Gemini, Vertex AI, AWS B
 - The Kafka Gateway speaks the Kafka wire protocol over TCP and "is treated like a traditional Kafka broker by consumers and producers" (https://documentation.gravitee.io/apim/kafka-gateway.md).
 - It embeds the Apache Kafka 3.9 client libraries and negotiates protocol API versions per connection (https://documentation.gravitee.io/apim/kafka-gateway.md).
 - It supports virtual topics and partitions, and multi-tenant routing to different clusters (https://documentation.gravitee.io/apim/kafka-gateway.md).
-- A separate Kafka connector does HTTP-to-Kafka protocol mediation for v4 Message APIs <!-- alias-ok -->, with PLAINTEXT, SASL_PLAINTEXT, SASL_SSL and SSL security (https://documentation.gravitee.io/apim/create-and-configure-apis/configure-v4-apis/endpoints/kafka.md).
+- A separate Kafka connector does HTTP-to-Kafka protocol mediation for v4 Message APIs, with PLAINTEXT, SASL_PLAINTEXT, SASL_SSL and SSL security (https://documentation.gravitee.io/apim/create-and-configure-apis/configure-v4-apis/endpoints/kafka.md).
 - Kafka-specific policies for native Kafka APIs include Kafka ACL, Message Filtering, Offloading, Quota, Topic Mapping, Transform Key and Native IP filtering (https://documentation.gravitee.io/apim/kafka-gateway/create-and-configure-kafka-apis/configure-kafka-apis/policies.md), plus a Kafka Message Encryption & Decryption policy (https://documentation.gravitee.io/apim/create-and-configure-apis/apply-policies/policy-reference/kafka-message-encryption-decryption-policy-reference.md).
 
 ### 5.4 Community vs Enterprise split (APIM 4.12)
@@ -264,7 +264,7 @@ Providers listed across releases: OpenAI, Azure OpenAI, Gemini, Vertex AI, AWS B
   - `least_time` load balancing for NGINX OSS users
 
   (https://github.com/nginx/nginx-gateway-fabric/blob/v2.7.0/CHANGELOG.md; the `PayloadProcessor` CRD name is from https://github.com/nginx/nginx-gateway-fabric/pull/5697)
-- The v2.7.0 fixes mention InferencePool `failureMode` handling, so NGF implements the Gateway API Inference Extension InferencePool (https://github.com/nginx/nginx-gateway-fabric/blob/v2.7.0/CHANGELOG.md). <!-- alias-ok -->
+- The v2.7.0 fixes mention InferencePool `failureMode` handling, so NGF implements the Gateway API Inference Extension InferencePool (https://github.com/nginx/nginx-gateway-fabric/blob/v2.7.0/CHANGELOG.md).
 - NGF policy CRDs include ClientSettingsPolicy, UpstreamSettingsPolicy, ObservabilityPolicy, ProxySettingsPolicy, RateLimitPolicy and SnippetsPolicy (https://github.com/nginx/nginx-gateway-fabric/blob/v2.7.0/CHANGELOG.md).
 - The compatibility table lists the Edge build at Gateway API 1.6.1 with NGINX OSS 1.31.4 / NGINX Plus R37.1, and 2.6.8 at Gateway API 1.5.1 (https://github.com/nginx/nginx-gateway-fabric/blob/v2.7.0/README.md).
 - NGINX Plus features and dedicated support are commercial, with a 30-day trial (https://github.com/nginx/nginx-gateway-fabric/blob/v2.7.0/README.md).
@@ -285,7 +285,7 @@ Providers listed across releases: OpenAI, Azure OpenAI, Gemini, Vertex AI, AWS B
 | Badge version | Implementations | Source |
 |---|---|---|
 | Gateway v1.6.2 | Kong Operator | https://gateway-api.sigs.k8s.io/implementations/ |
-| Gateway v1.6.1 | Envoy Gateway, NGINX Gateway Fabric, Traefik Proxy, Gravitee Kubernetes Operator, kgateway, Cilium (plus Mesh v1.6.1), AWS Load Balancer Controller <!-- alias-ok -->, Cloudflare tunnel gateway (lexfrei) | https://gateway-api.sigs.k8s.io/implementations/ |
+| Gateway v1.6.1 | Envoy Gateway, NGINX Gateway Fabric, Traefik Proxy, Gravitee Kubernetes Operator, kgateway, Cilium (plus Mesh v1.6.1), AWS Load Balancer Controller, Cloudflare tunnel gateway (lexfrei) | https://gateway-api.sigs.k8s.io/implementations/ |
 | Gateway v1.6.0 | Istio (plus Mesh v1.6.0), agentgateway, Airlock Microgateway, GKE, Higress | https://gateway-api.sigs.k8s.io/implementations/ |
 | Gateway v1.5.x | N42 Gateway, WSO2 Gateway (v1.5.1), Varnish Gateway (v1.5.0) | https://gateway-api.sigs.k8s.io/implementations/ |
 | Gateway v1.4.x | Amazon EKS (v1.4.0), Calico, Gloo Gateway (v1.4.1) | https://gateway-api.sigs.k8s.io/implementations/ |
@@ -378,7 +378,7 @@ https://gateway-api.sigs.k8s.io/implementations/
 - **Envoy Gateway v1.9.1 Gateway API version, conflicting sources.** A summary of the GitHub releases list gave Gateway API v1.5.1 for v1.9.1. The compatibility matrix and the v1.9.0 release notes both say v1.6.1. This file uses v1.6.1.
 - **Envoy Gateway rate-limit header selector limit.** One reading of the releases page gave a MaxItems increase of 16 to 64, and the v1.9.0 tag notes gave 64 to 128. The exact numbers are left out of the findings.
 - **Envoy Gateway HTTP/3.** An `HTTP3Settings` type exists in the API reference, but the HTTP/3 task page could not be fetched, so HTTP/3 maturity is not stated.
-- **Envoy Gateway Dynamic Modules** <!-- alias-ok -->. The first version that supported them and the SDK languages were not confirmed. The docs only show local `.so` loading, and v1.8.0 notes mention remote sources.
+- **Envoy Gateway Dynamic Modules**. The first version that supported them and the SDK languages were not confirmed. The docs only show local `.so` loading, and v1.8.0 notes mention remote sources.
 - **Envoy Gateway performance.** No headline benchmark numbers were extracted. The per-release benchmark reports are binary assets that were not parsed.
 - **Agent Router features.** Semantic caching and prompt guardrails were not found in the docs reviewed.
 - **Agent Router performance.** The benchmark figures come from Tetrate, which is affiliated with the project, citing Broadcom. The underlying Broadcom report was not read.
