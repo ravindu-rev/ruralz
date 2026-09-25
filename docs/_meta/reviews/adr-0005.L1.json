@@ -1,0 +1,87 @@
+{
+  "lens": "L1 feasibility-skeptic",
+  "verdict": "revise",
+  "score": 6,
+  "blocking": [
+    {
+      "id": "L1-1",
+      "section": "Decision outcome (rules table, rows State Store and Capabilities)",
+      "issue": "The per-request State Store budget cannot be met as written by an Upstream-scoped Plugin Policy. Data plane runs `onUpstreamRequest` \"per leg attempt, including retries and steps\", and Traffic management says \"each retry reruns `onUpstreamRequest`\". A Plugin that calls `state_get` in `onUpstreamRequest` spends its one call on the first attempt. On the retry the same call returns `ERR_BUDGET`, which this ADR makes sticky. Result: `RZ-PLG-006` under `failureMode` (default `closed`, so 503). A correct Plugin therefore fails on every retried request. Composition steps that share one Plugin Policy hit the same problem. With parallel `aggregate` steps it is worse: the per-request counter is contended between leg goroutines, so which leg fails is a race. Neither this ADR nor the owning document says how the budget applies across attempts and steps, and the ADR's checklist would freeze the sticky `ERR_BUDGET` rule.",
+      "evidence": "ADR State Store row: \"One blocking `state_get` or `state_incr` per Plugin Policy per request before commit, a second returning `ERR_BUDGET`\". Capabilities row: \"`ERR_PHASE`, `ERR_BUDGET` and `ERR_DENIED` are sticky and yield `RZ-PLG-006`\". Data plane Phase table: \"`onUpstreamRequest` | Per leg attempt, including retries and steps\". Traffic management and resilience: \"each retry reruns `onUpstreamRequest`\".",
+      "fix": "Add the missing rule and track it as an Open question without changing pack section 8.7. For example, add to the State Store row: \"in upstream-leg Phases the host records the first `state_get` or `state_incr` result per Policy per request and replays it on later attempts and steps, with no round trip and no `ERR_BUDGET`; parallel steps serialize on that per-request slot\". Alternatively, forbid `state.*` for Upstream-scoped Plugin Policies (RZ-CFG-020). Add a Bad consequence for this, and record the choice as a new OQ-wasm-plugin-system-20 in the owning document, cited under More information. Add a conformance case to Confirmation: an Upstream-scoped `state.read` Plugin on a Route with one retry and on a two-step `aggregate` composition gets no `RZ-PLG-006`."
+    },
+    {
+      "id": "L1-2",
+      "section": "Decision outcome (rules table, row Results; Figure 2)",
+      "issue": "The Results row gives the output-buffer rule as universal: an output write above its capacity writes nothing and returns the full length. The owning document's Contract makes body and chunk reads an exception: they are offset reads that return the bytes written and 0 at the end. As written in the ADR, `request_body_read` and `response_body_read` on a body larger than the guest buffer write nothing, so the guest must allocate the whole body. With the default 16 MiB `limits.memoryBytes` (target), a body near that size, plus the copy that `*_body_replace` needs, cannot fit in linear memory. `memory.grow` then fails, the guest traps with `RZ-PLG-003`, and the only escape is a larger per-instance limit, which shrinks N in every pool. The review checklist freezes the \"memory convention\", so shipping this wording would make the streaming read impossible within v1.",
+      "evidence": "ADR Results row: \"Every Host Function returns `i32`, negative only for errors (`-1` ERR_ABSENT to `-7` ERR_DENIED); an output write above its capacity writes nothing and returns the full length\". Owning document, Contract, row Output buffers: \"Writes to `(o, c)` return the full length; above `c`, nothing was written and the guest retries. Body and chunk reads return bytes written, 0 at the end\".",
+      "fix": "Append this to the Results row: \"except `request_body_read`, `response_body_read` and `chunk_read`, which take an offset (bodies) and return the bytes written, 0 at the end, so a guest streams a body through a fixed buffer\". Mention in Figure 2's caption that the figure shows the header-read case only. Add to the conformance bullet a body larger than `limits.memoryBytes` that is read in fixed-size chunks without `RZ-PLG-003`."
+    },
+    {
+      "id": "L1-3",
+      "section": "Decision outcome (rules table, row proxy-wasm, Planned (M4)); Consequences (last Bad bullet)",
+      "issue": "The adapter row claims the same host, limits, `RZ-PLG` codes and `failureMode`. Request affinity breaks two limits the native host relies on. First, the native pool gives each Phase call its own idle instance with a wait of at most 1 ms (target). A pinned proxy-wasm context instead waits for its one instance, which serializes calls for up to 1,000 contexts (target). One guest call running to its 5 ms `limits.timeout` (target) delays the Phase calls of up to 999 other requests, and no wait bound or error code is stated for this. Second, a trap discards the instance, so its fault radius is every pinned context, up to 1,000 in-flight requests (target), not one call. That contradicts \"a faulty Plugin fails only its own Policy\" at request granularity and the owning document's per-call fault model. The ADR also narrows OQ-wasm-plugin-system-17 to recycling, although the owning document asks about recycling and faults.",
+      "evidence": "ADR adapter row: \"Ruralz adapter on the same host, Capabilities, limits, `RZ-PLG` codes and `failureMode`\". ADR Consequences: \"the adapter pins each request to one instance, since proxy-wasm keeps stream state in guest memory: 1,000 contexts per instance (target), recycling open (OQ-wasm-plugin-system-17)\". Owning document, Runtime rule 6: \"Requests never compile or instantiate; they wait at most 1 ms (target)\"; proxy-wasm stance: \"calls are serialized; 1,000 contexts per instance (target) (OQ-wasm-plugin-system-17)\"; OQ-wasm-plugin-system-17: \"How does adapter pinning interact with recycling and faults?\"",
+      "fix": "Add to the adapter row: \"a pinned call waits for its instance at most the pool wait, 1 ms (target), then fails with `RZ-PLG-005` under `failureMode`; a trap fails every context pinned to that instance, each under its own Policy's `failureMode`\". Change the Consequences bullet to say \"recycling and fault radius open (OQ-wasm-plugin-system-17)\". Add a Planned (M4) adapter conformance case: one trapping context does not affect contexts on other instances, and pinned waits respect the bound."
+    }
+  ],
+  "non_blocking": [
+    {
+      "section": "More information (Revisit bullet)",
+      "suggestion": "\"admitting outbound calls would only add Host Functions within v1\" understates the change. Pack section 8.7 rule 6 requires any remote call before commit to be declared on the Policy with a timeout and `failureMode`, and P3 requires the same. That needs a `Plugin` or `Policy` field that the Configuration model does not have. Reword as \"would add Host Functions within v1 plus a declared timeout and `failureMode` per pack section 8.7 rule 6 (OQ-wasm-plugin-system-5)\"."
+    },
+    {
+      "section": "Decision outcome (rules table, row proxy-wasm, Planned (M4))",
+      "suggestion": "Activation fails when an import is unsupported (outbound calls, timers, shared queues). No research shows how many existing proxy-wasm filters, built with the Rust or Go SDKs, import these ABI functions even when they never call them. If the SDKs keep the imports, most of the corpus is rejected and the adapter adds little. Add a research action, or a note under OQ-wasm-plugin-system-8, that measures the import sets of the proxy-wasm filter corpus before M4. As a fallback, consider an import that is linked but returns an error when called."
+    },
+    {
+      "section": "Figure 1",
+      "suggestion": "The sticky-error node lists \"ERR_PHASE or ERR_DENIED: RZ-PLG-006\" but leaves out `ERR_BUDGET`, which the Capabilities row calls sticky. Change it to \"ERR_PHASE, ERR_BUDGET or ERR_DENIED: RZ-PLG-006\"."
+    },
+    {
+      "section": "Consequences (engine-based PDK bullet)",
+      "suggestion": "Quantify the memory cost using the owning document's Sizing. A 64 MiB TypeScript `state.*` Plugin under the 2 GiB default cap (target) gets N = 16 and a parked bound of 12. That is below the audit threshold of 16 (target), so it needs a 4 GiB cap at 20,000 requests/s (hypothesis). Say this so readers see that the TypeScript PDK is constrained by the cap, not only larger."
+    },
+    {
+      "section": "Considered options (option 2)",
+      "suggestion": "\"proxy-wasm as the primary ABI, behind Kong's 3.4 beta\" is ambiguous. Write \"as used by Kong's 3.4 beta ([source](...)) and APISIX's `wasm-nginx-module` ([source](...))\"."
+    },
+    {
+      "section": "Decision outcome (row Ambient authority)",
+      "suggestion": "Say that the shim's `args_*` and `environ_*` imports succeed with zero entries and need no Capability, and that `proc_exit` traps (`RZ-PLG-001`), as the owning document's WASI shim table says. This makes clear that these are the only imports outside the one-Capability rule."
+    }
+  ],
+  "ac_results": [
+    {
+      "ac": "Front matter contains id, title, status, date, deciders and related, and status matches this manifest.",
+      "pass": true,
+      "note": "id ADR-0005, title identical to the manifest, status accepted (matches), date 2026-09-25, deciders [ruralz-core], related lists the owning document and dependencies."
+    },
+    {
+      "ac": "H2 headings match adr_common.outline_h2 exactly and in order, and Decision outcome contains the H3 headings Consequences and Confirmation.",
+      "pass": true,
+      "note": "All six H2 headings appear in order, and Consequences and Confirmation are H3 under Decision outcome. verify-docs prints no FAIL line for this file."
+    },
+    {
+      "ac": "Considered options lists at least two options including the chosen one, and each has pros and cons.",
+      "pass": true,
+      "note": "There are three options (custom capability-based ABI, proxy-wasm primary, Extism go-sdk host). Each has Good and Bad bullets, and every URL appears in the research files."
+    },
+    {
+      "ac": "Decision outcome states the chosen option as 'Chosen option: ..., because ...' and matches the foundation pack section 7 row for this ADR.",
+      "pass": true,
+      "note": "The chosen option is quoted verbatim from the manifest decision and matches the pack section 7 Plugin ABI row (custom capability-based, Extism-style conventions, proxy-wasm adapter Planned (M4))."
+    },
+    {
+      "ac": "Confirmation names a concrete verification mechanism (test, lint rule, CI gate or review checklist item).",
+      "pass": true,
+      "note": "Confirmation names the Plugin ABI conformance suite in pr-full, the online Plugin check (RZ-CFG-028), Host Function fuzzing, the SM-6 microbenchmark gate and a review checklist item. It lacks cases for L1-1 (retry and composition budget), L1-2 (streamed body read) and L1-3 (adapter fault radius)."
+    },
+    {
+      "ac": "The ADR is linked from docs/adr/README.md and from its owning document.",
+      "pass": false,
+      "note": "The owning document links it in Contract and in proxy-wasm stance (\"[ADR-0005](../adr/0005-plugin-abi-v1.md)\"). docs/adr/README.md does not exist yet: the index generator produces it, not this ADR, so this is not a blocking item against the ADR text."
+    }
+  ],
+  "foundation_amendments": []
+}

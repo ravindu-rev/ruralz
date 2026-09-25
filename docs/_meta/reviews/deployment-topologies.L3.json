@@ -1,0 +1,147 @@
+{
+  "lens": "L3 acceptance-audience",
+  "verdict": "revise",
+  "score": 7,
+  "blocking": [
+    {
+      "id": "L3-1",
+      "section": "Bootstrap and enrollment (Control-mode bootstrap steps 2-3, Figure 7)",
+      "issue": "An operator cannot run the Control-mode bootstrap as written. Step 3 and Figure 7 end the second replica at `ruralz control join`. The CLI reference says join only obtains the peer certificate and runs BEFORE `ruralz control serve`, and it needs `--peer` and `--advertise`. So the replica is never started. Step 3 also needs an `admin` session in Ruralz Console, but step 2 creates no user and no source document defines how the first `admin` identity exists. Step 5 then needs `security-admin` (Ruralz Console Nodes row) for `ruralz node token`. The sequence stalls at step 3 for T3, T5 and T10, and T4 has the same gap (see also L1-1).",
+      "evidence": "Doc line 405: \"3. **More replicas.** An `admin` creates a one-time join token in Ruralz Console Settings; `ruralz control join` redeems it over 8092 and the leader adds a voter.\" Figure 7: \"Op->>R2: ruralz control join with the token\" with no serve step. CLI and API surface line 211: \"`ruralz control join` runs on the new replica's host before `ruralz control serve`... redeems the one-time `admin` token from `--join-token-file`, issued by `/api/v1/replicas`\"; line 137: \"`--advertise HOST:8092` (required)\". A grep of docs/architecture and docs/reference for a first-admin or bootstrap-admin mechanism finds none.",
+      "fix": "Rewrite step 3 as follows: an `admin` obtains a join token from Ruralz Console Settings or `POST /api/v1/replicas`; on the new host, `ruralz control join --peer <leader>:8092 --advertise <self>:8092 --join-token-file <f>` stores the peer certificate; then `ruralz control serve` starts the replica, which the leader adds as a voter. Add the serve message to Figure 7. Add a step 2a naming how the first `admin` (and `security-admin`) principal is created, and add an Open question for it, e.g. OQ-deployment-topologies-11 (a) a one-time bootstrap credential printed or written by the first `ruralz control serve` (proposed), (b) an initial admin from process configuration, owner security-and-identity, Blocking: Yes, for Planned (M2)."
+    },
+    {
+      "id": "L3-2",
+      "section": "Topology catalog (T10 bullets and Figure 6 caption) and Network and ports (flow table)",
+      "issue": "The hybrid boundary is described as narrower than its dependencies make it. An operator using this section for T10 firewall rules and credentials would misconfigure it. Besides the Control Stream and Git reads, Control plane and GitOps has the customer's forge dial the managed side's 8090 with HMAC webhooks. Ruralz Console write-back pushes branches into the customer's Git, so the managed side holds Git write credentials. The builder's online Plugin check dials the customer's allowlisted OCI registry (L1-8 covers only this last part). The flow table also says Ruralz Control only reads Git.",
+      "evidence": "Doc: \"*Figure 6: hybrid topology; only the Control Stream and Git reads cross the boundary.*\" and the flow row \"Git object reads | Ruralz Control leader, CI | Git forge\". Control plane and GitOps Figure 1: `gw -.->|\"Git objects, push\"| git`, `bld -.->|\"online Plugin check\"| oci`; \"Forge webhooks at `/api/v1/hooks/git` need a per-source HMAC\"; write-back: \"submit commits an audited branch (author: the user)\". Doc Network table 8090 row itself lists \"forge webhooks\".",
+      "fix": "Change the Figure 6 caption to name every crossing: the Control Stream (Node to managed 8091), Git reads and write-back pushes (managed to customer forge), forge webhooks (customer forge to managed 8090) and the online Plugin check (managed to customer registry). Add those edges to Figure 6. Change the flow row to 'Git object reads and write-back pushes'. Add a T10 bullet saying the managed side holds Git read credentials, plus write credentials only if write-back is enabled. Widen OQ-deployment-topologies-10 to cover write-back credentials and private registries, or add a new OQ."
+    },
+    {
+      "id": "L3-3",
+      "section": "Topology catalog (T4, decision on OQ-system-overview-8) and Configuration delivery per topology (T4 row)",
+      "issue": "The decision to make 'one bound namespace' an Environment's primary source leaves out three rules of Control plane and GitOps that a T4 operator will hit. First, a CRD source records a digest in place of a commit and shows as Drift. Second, it is refused for an Environment with `requireApproval` unless process configuration overrides it. Third, promotion moves a commit, never a digest, so it is undefined how a namespace-sourced `staging` promotes to `prod`. The doc owns OQ-system-overview-8, but it neither adopts nor amends these rules. As written, an operator binding a `prod` namespace with `requireApproval` (the RA-2 pattern) gets every change refused and cannot tell why.",
+      "evidence": "Doc line 197: \"Each Environment takes one primary source, a Git path or one bound namespace... `ruralz bundle push` stays the audited exception shown as Drift\". Control plane and GitOps: \"Two sources record a digest in place of a commit, pass `promotion.from` and `requireApproval` exactly like one and show as Drift\" and \"Both are refused for an Environment with `requireApproval` unless process configuration overrides it, which is audited.\" Pack 8.1: \"Promotion | Moves a source commit, not a digest\".",
+      "fix": "Extend the OQ-system-overview-8 decision to say: (1) whether a namespace-primary Environment reports Drift, and if not, record it as a Control plane and GitOps amendment through an Open question; (2) that `requireApproval` refuses CRD changes unless process configuration overrides it, which is audited; (3) how `promotion.from` works when either Environment is namespace-sourced (for example, not allowed, with a new OQ for object-set promotion). Mirror (2) and (3) in the T4 row of Configuration delivery per topology."
+    },
+    {
+      "id": "L3-4",
+      "section": "Topology catalog (T4 chart object table, Node StatefulSet row)",
+      "issue": "The row lets file-mode Nodes use an ephemeral `${RURALZ_DATA_DIR}`. Scalability and distributed state makes persistent storage a MUST for any Node that may be rescheduled, because an `emptyDir` pod loses Last-Known-Good. For an OCI-pulling file-mode pod, 'if its registry is reachable at boot' cannot be guaranteed at deploy time. A pod rescheduled during a registry outage boots nothing and stays not ready, which defeats P9. The row contradicts a depends_on document.",
+      "evidence": "Doc: \"Node StatefulSet | A persistent volume for `${RURALZ_DATA_DIR}`, which rescheduled Control-mode pods MUST keep (OQ-scalability-and-distributed-state-7); file mode MAY use an ephemeral volume if its registry is reachable at boot\". Scalability: \"Nodes that may be rescheduled MUST keep `${RURALZ_DATA_DIR}` on persistent storage, since an `emptyDir` pod loses its identity and Last-Known-Good (OQ-scalability-and-distributed-state-7).\"",
+      "fix": "Limit the exception to file-mode pods whose Bundle is a locally mounted rendered directory (a ConfigMap or volume), because their source is present at every boot. Require a persistent volume for OCI-pull pods. Alternatively, keep the MAY but record it as a proposed amendment to Scalability's MUST under OQ-scalability-and-distributed-state-7, and state the consequence: a rescheduled pod stays not ready during a registry outage."
+    },
+    {
+      "id": "L3-5",
+      "section": "Topology catalog (T4 chart object table, Secrets row) and Network and ports (flow table)",
+      "issue": "The chart's only RBAC statement covers Node Secret reads. The flow table says Nodes read the Kubernetes API for `kubernetes` discovery. Traffic management defines that discovery as an EndpointSlice watch for a `service` in a configurable `namespace`, which needs `list` and `watch` on EndpointSlices in each target namespace. An operator who installs the chart as specified gets discovery Upstreams without Endpoints. The Ruralz Control side (CRD watch in bound namespaces, cluster-scoped Environment and Cluster CRDs, CRD status) has no RBAC row either (see L1-3).",
+      "evidence": "Doc: \"Secrets | Mounted as files for `secretRef` `provider: file`; `provider: kubernetes` needs `get` and `watch` in the Node's namespace only\" and flow row \"Secret and discovery reads | Nodes | Kubernetes API or Vault | With `provider: kubernetes`, `provider: vault` or `kubernetes` discovery\". Traffic management: \"Kubernetes | `discovery.type: kubernetes`, `service`, `namespace`, `port` | EndpointSlice watch\".",
+      "fix": "Replace the Secrets row with an 'RBAC' row that lists each principal. The Node ServiceAccount gets `get` and `watch` on Secrets in its own namespace (only with `provider: kubernetes`), plus `list` and `watch` on `endpointslices.discovery.k8s.io` in each namespace that Upstreams name (a Role per namespace, set through chart values, OQ-deployment-topologies-1). The `ruralz-control` ServiceAccount gets `list` and `watch` on the `ruralz.io` CRDs in bound namespaces, read on the cluster-scoped Environment and Cluster CRDs, and CRD status updates. State that nothing needs cluster-wide Secret access."
+    }
+  ],
+  "non_blocking": [
+    {
+      "section": "Whole document (length)",
+      "suggestion": "The body is 4,473 words against a 4,500 maximum (verify-docs countWords), so there are 27 words of headroom, and the L1 and L3 fixes add several hundred. Tighten text that no finding depends on: the T2 and T5 table cells repeat the T1-T2 and T5 prose, Figure 1's caption can drop its second clause, and 'Rules that hold everywhere' repeats T2-T3 prose. Keep every fix sentence."
+    },
+    {
+      "section": "Configuration delivery per topology",
+      "suggestion": "The section is titled 'per topology' but has no row for T7 or for T6 in Control mode ('mostly detached'). Add 'T6 Control mode' (Rollout when connected, certificate expiry after 30 days offline (target) forces re-enrollment, low-traffic canaries may pause) and 'T7' (as T2 or T3 per team's Bundle; RBAC per Environment and Cluster)."
+    },
+    {
+      "section": "Network and ports (8443 UDP row)",
+      "suggestion": "Pack 8.4 lists authentication as 'TLS or QUIC; Consumer credentials'. The UDP row says only 'QUIC; off in FIPS builds, Planned (M5)'. Add 'Consumer credentials' so the row matches the pack. Also, 'off in FIPS builds' is not an authentication fact, so move it to Exposure or a note."
+    },
+    {
+      "section": "Topology catalog (table, T7 Scaling and T10 Failure domain cells)",
+      "suggestion": "The T7 Scaling cell 'Per team' is a tautology; say 'Add Clusters per team; with a Ruralz Control per team, voters scale per team'. The T10 Failure domain cell describes behavior. Name the domain instead, for example 'The managed deployment of one customer (management only); each customer Cell for traffic'."
+    },
+    {
+      "section": "Topology catalog (T4 HorizontalPodAutoscaler row)",
+      "suggestion": "Scalability scales out on the first of five signals (CPU, in-flight units, connections, buffered bytes, gateway latency). The chart row configures only CPU. State that long-lived WebSocket, SSE or LLM streaming loads hit the 20,000-connection ceiling (target) at low CPU, so those Clusters SHOULD add the `ruralz_listener_open_connections` signal through a metrics adapter."
+    },
+    {
+      "section": "Topology catalog (T9, Figure 1)",
+      "suggestion": "Scalability's Topologies table also lists 'Active-standby' and 'File-mode Regions' (each Region pulls one signed Revision from an OCI mirror). T9 and the Figure 1 decision tree offer multi-region only under Control mode. Add one sentence to T9 pointing to both, with their State behavior."
+    },
+    {
+      "section": "Topology catalog (T7 versus T4)",
+      "suggestion": "T4 already binds each Environment to its own namespace Bundle, so one Ruralz Control serves several Bundles. T7 says a Bundle per team needs OQ-deployment-topologies-5. Say in T7 that namespace binding already gives per-team Bundles on Kubernetes, and narrow OQ-5 to Git sources."
+    },
+    {
+      "section": "Bootstrap and enrollment (step 1)",
+      "suggestion": "Carry over the levels from State Store availability: noeviction is a MUST where limit, Quota or Token Budget keys live; TLS and authentication outside loopback are a MUST; persistence is a SHOULD where Quota or Token Budget windows exceed one day. Step 1 currently has no RFC 2119 keyword and names only limit keys."
+    },
+    {
+      "section": "Topology catalog (Planned tags)",
+      "suggestion": "verify-docs warns that 'File mode' Planned (M1), 'Control mode' Planned (M2) and T10 Planned (M2) have no matching roadmap item. Ask the roadmap owner to add the hybrid topology and the file and Control modes under M1 and M2, or cite the existing roadmap items by their names."
+    },
+    {
+      "section": "Topology catalog (T4 PodDisruptionBudgets row)",
+      "suggestion": "'Nodes limited so survivors stay under the CPU threshold' is not something an operator can set. Give it as a value, for example `maxUnavailable` equal to the Node count of one zone less any headroom already consumed, or 1 per zone (target)."
+    }
+  ],
+  "ac_results": [
+    {
+      "ac": "Topology catalog covers dev single binary, file mode, Cluster of Nodes with Ruralz Control, Kubernetes (Helm, HPA, CRDs), VM with systemd, edge, per-team, multi-cluster, multi-region, and hybrid managed Ruralz Control with self-hosted Nodes.",
+      "pass": true,
+      "note": "Rows T1 to T10 map one to one onto the ten required topologies. The min_table_rows check (10) passes, and each topology has an H3 section."
+    },
+    {
+      "ac": "Each topology states when to use it, components, failure domains, configuration delivery and scaling.",
+      "pass": true,
+      "note": "The catalog table has all five columns filled for all ten rows. The T7 Scaling cell ('Per team') and the T10 Failure domain cell (a behavior, not a domain) are weak (non-blocking). Configuration delivery per topology has no row for T7 or T6 in Control mode (non-blocking)."
+    },
+    {
+      "ac": "Network and ports matches the foundation pack ports (8080, 8443 TCP and UDP, 9901, 8090, 8091).",
+      "pass": true,
+      "note": "8080, 8443 TCP, 8443 UDP (Planned (M3)), 9901, 8090, 8091, 8092 and 9902 appear with the pack 8.4 processes and authentication. One exception: the UDP row leaves out 'Consumer credentials' (non-blocking). The admin bind matches Security and identity's answer to OQ-system-overview-6. The T10 crossings are incomplete (L3-2)."
+    },
+    {
+      "ac": "The Kubernetes stance matches ADR-0016 (Helm chart and CRDs mirroring kinds Planned (M2), Gateway API conformance deferred).",
+      "pass": true,
+      "note": "Line 179 states it, and it matches the pack 7 ADR-0016 row, the Configuration model's Kubernetes mapping ('ruralz.io/v1alpha1', only Ruralz Control watches CRDs) and the Release artifacts chart path. OQ-vision-and-positioning-4 is decided as deferred beyond M5. The chart's operational gaps are separate findings (L3-3, L3-4, L3-5; L1-1, L1-3)."
+    },
+    {
+      "ac": "The hybrid topology uses the same open source binaries with no feature gating.",
+      "pass": true,
+      "note": "The T10 bullet 'Same binaries, no feature gating (P1)' names the public images ghcr.io/ravindu-rev/ruralzd and ruralz-control and rules out a fork, private patch or license key. This matches the vision Managed cloud rules and pack 1 tenancy."
+    },
+    {
+      "ac": "Reference architectures presents three reference architectures as H3s.",
+      "pass": true,
+      "note": "The H3s RA-1, RA-2 and RA-3 each have a component table and failure behavior. min_h3 3 passes."
+    },
+    {
+      "ac": "H2 outline equals mandatory first two + outline_h2 + Open questions, exactly and in order.",
+      "pass": true,
+      "note": "The H2s are Summary, Scope and non-goals, Topology catalog, Network and ports, Bootstrap and enrollment, Configuration delivery per topology, Sizing defaults, Reference architectures, Open questions. This matches exactly."
+    },
+    {
+      "ac": "Every required Mermaid diagram is present with an italic caption.",
+      "pass": true,
+      "note": "Figure 2 covers the T1 and T2 dev single binary and file mode. Figure 3 covers T3, Figure 4 Kubernetes with Helm, HPA and CRDs, Figure 5 multi-region with Cells, and Figure 6 hybrid. All five are flowcharts with captions and 25 or fewer nodes. Figures 1 and 7 are extras. Figure 6's caption is inaccurate (L3-2)."
+    },
+    {
+      "ac": "Length within manifest band 1500-4500 words; Summary 120 words or fewer.",
+      "pass": true,
+      "note": "The body has 4,473 words by the verify-docs countWords rule, 27 under the maximum. The Summary has 102 words."
+    },
+    {
+      "ac": "Every performance or scale number carries (target) or (hypothesis).",
+      "pass": true,
+      "note": "Every figure is tagged, including those in the worked sizing block. Untagged numbers are only counts or configuration values (three pods, canary percent 10, bake 15m)."
+    },
+    {
+      "ac": "verify-docs (--allow-missing --skip markdownlint) reports no FAIL for this document; required_terms present; no forbidden aliases.",
+      "pass": true,
+      "note": "The run gives only WARN lines: nine links to ADRs and operations documents that do not exist yet, and three milestone lines with no roadmap match. There are no FAIL lines. All required terms and machine-check terms are present, and there are no forbidden aliases."
+    },
+    {
+      "ac": "The declared audience (operators, architects) can act on the document without reading its sources.",
+      "pass": false,
+      "note": "Architects can choose a topology from the catalog and Figure 1. Operators cannot yet complete a Control-mode bootstrap (L3-1), configure T10 boundaries (L3-2), run namespace-sourced Environments (L3-3), or install the chart with discovery (L3-5)."
+    }
+  ],
+  "foundation_amendments": []
+}

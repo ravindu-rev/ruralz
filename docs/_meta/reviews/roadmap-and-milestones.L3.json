@@ -1,0 +1,124 @@
+{
+  "lens": "L3 acceptance-audience",
+  "verdict": "revise",
+  "score": 5,
+  "blocking": [
+    {
+      "id": "L3-1",
+      "section": "M0 Foundations, M1 Core parity, M2 WASM and Control with GitOps, M3 AI gateway, gRPC, GraphQL, WebSocket and SSE, M4 Event protocols, multi-region and benchmark suite, M5 Long-tail parity (all scope tables)",
+      "issue": "The declared audience (evaluators and contributors) cannot act on the scope tables without opening the sources. Many cells are fragments lifted from other documents' tag lines with their context removed, and CI stages are numbered with gaps. The tables also use unexplained codes (TB-n, CE-n, S-n, O-n, G-n, F-n, T-n, RH-1), and some codes collide: G1 means the Pure Go CI gate in M0 and a Valkey GCRA scenario in M1, T1 to T10 are topologies while T13 and T20 are threats, and O1 and O2 are scenarios while O8 is an observability objective. Persona names are listed as deliverables. An evaluator cannot tell what 'anything else' or 'fixed Route rule' will ship, and a contributor cannot pick up an item phrased this way.",
+      "evidence": "M1 scope (line 87): \"HTTP/2 settings, deadlines, other servers; REST and plain HTTP over HTTP/1.1, HTTP/2 or h2c, and anything else\"; line 88: \"the same verbs without `--env`; ... hostile input; upstream suites\"; line 90: \"declarative config and GitOps CLI\"; line 92: \"IdP (TB-10); Upstream, AIProvider, State Store, OTLP (TB-3, TB-4, TB-12); ... security engineer persona\"; line 95: \"10. regression gates, 11. end-to-end, 12. nightly, 13. release\"; M0 line 63: \"1. commit hygiene and DCO check in CI stage 1; 2. format and lint; CI cross-build gate (G1); 5. unit tests; ... license gate (G2): what the gate reads\"; M1 line 96: \"scenarios S5, S5x, O1, O2, C1, C2, R1, G1\"; M2 line 124: \"plugin author persona; KrakenD CE operator with custom Go plugins\"; M3 line 155: \"fixed Route rule\"; M3 line 156: \"`ruralz_listener_tls_handshake_duration_seconds`; 96 KiB or less per session (target)\"; M4 line 180: \"protocol milestone row\"; M5 line 205: \"vendor-neutral and free signals (O8)\".",
+      "fix": "Keep every item, because the milestone coverage check and acceptance criterion 1 depend on those keywords, but rewrite each fragment as a self-explaining deliverable. Examples: 'plain HTTP reverse proxying for any other content type (Multi-protocol \"Anything else\" row)'; 'CLI verbs work without `--env` when no Environment is declared'; 'hostile-input loader tests and upstream conformance suites'; 'TLS to the IdP JWKS endpoint (trust boundary TB-10)'; 'TLS handshake histogram `ruralz_listener_tls_handshake_duration_seconds` gains QUIC handshakes'; 'WebSocket session memory of 96 KiB or less (target)'; 'the FIPS build emits the same OpenTelemetry signals (Observability objective O8)'. List the CI stages as 'stages 1 to 7: commit hygiene and DCO, format and lint, cross-build (gate G1), ..., docs verification', with no numbering gaps. Move personas into a one-line 'Serves:' sentence under each milestone instead of listing them as items. Add an H3 'Reading the scope tables' under Scope and non-goals that defines each code family with a link to its owner: SM (Vision success metrics), PB/S/O/C/R/G/F (Performance budgets scenarios), RH-1 (reference hardware), CE (chaos experiments in Scalability), TB (trust boundaries in System overview), T1-T10 (Deployment topologies), T13/T20 (threats in Security and identity), F-n (Market landscape findings), G1-G3 (tech stack gates). Qualify the colliding codes, for example 'tech stack gate G1' versus 'scenario G1', and 'threat T13' versus 'topology T1'."
+    },
+    {
+      "id": "L3-2",
+      "section": "M0 Foundations; M1 Core parity; M2 WASM and Control with GitOps; M3 AI gateway, gRPC, GraphQL, WebSocket and SSE",
+      "issue": "Acceptance criterion 1 fails: several items that other documents tag Planned (Mx) are missing from the matching milestone section. verify-docs also emits 63 'milestones' WARN lines against this document. Many of those are heuristic noise, but the items below are real gaps.",
+      "evidence": "CLI reference line 121: \"| `ruralz rollout reject` | Discard a queued promotion ... | Planned (M2) |\", absent from the M2 CLI row. Deployment topologies: \"T2 File mode ... Planned (M1) directory; Planned (M2) OCI pull\" and \"T4 Kubernetes (Helm, HPA, CRDs) ... Planned (M2)\"; the roadmap lists only \"topologies T1 development single binary and T5 VM with systemd\" (M1) and \"T3 ..., T6 edge, T7 per-team, T8 multi-cluster, T10 hybrid\" (M2). Testing strategy line 166: \"5. A Hot Reload keeps open WebSocket and SSE streams on their starting snapshot | Planned (M3)\", and line 215: \"AI provider mock returns 429 before the first byte | Provider Fallback ... | Planned (M3)\"; M3 Quality has neither. Security and identity line 428 plans revocation of \"a subject's older tokens; ... an API key hash or `auth.basic` username; a client certificate by issuer and serial\", Planned (M2); the M2 revocation list omits all three. Performance milestone plan: \"Planned (M2) | ... reload with Plugins\" and \"Planned (M3) | ... the tokenizer benchmark, ... WebSocket and SSE session memory\"; none appears. Traffic management line 78 and Configuration model line 365: `http` and `dns` discovery Planned (M1); the roadmap writes \"service discovery (DNS, static)\". Repository layout line 532: \"pinning 0.23.x in `scripts/package.json` is Planned (M0)\"; M0 has no markdownlint-cli2 pin.",
+      "fix": "Add each missing item under its milestone: `ruralz rollout reject` to the M2 CLI row. 'T2 file mode with a watched directory' to M1 Lifecycle, and 'T2 with OCI pull, T4 Kubernetes (Helm, HPA, CRDs) and T5 in Control mode' to M2 Operations. The two end-to-end and chaos cases to M3 Quality. The three revocation targets to the M2 Security row. 'Reload with Plugins' to M2 Quality, and 'tokenizer benchmark' and 'WebSocket and SSE session memory' to M3 Quality. Replace 'DNS, static' with '`dns` discovery and static `endpoints`'. Add 'pinned markdownlint-cli2 0.23.x' to the M0 Repository row. Then add one sentence under Scope and non-goals: 'Coverage is checked by verify-docs milestone check; a WARN that names a real item is fixed here.' Work through the remaining WARN lines and add any other real gaps."
+    },
+    {
+      "id": "L3-3",
+      "section": "M5 Long-tail parity (M5 exit criteria)",
+      "issue": "M5 exit criterion 1 is stricter than the performance document, which owns performance values under this document's own non-goals. The performance milestone plan exempts the S3 and C2 TLS handshakes from the FIPS budgets and only reports them until they are measured. The roadmap requires every scenario except HTTP/3 to meet the same budgets, so it makes FIPS handshake cost a gating exit criterion that the owning document explicitly declines to gate.",
+      "evidence": "Roadmap line 213: \"The same tests pass on the `GOFIPS140` artifacts except HTTP/3 cases, and every benchmark scenario but HTTP/3 meets the same budgets (target).\" Performance budgets and benchmarking, Milestone plan: \"Planned (M5) | The FIPS build, with P1's feature set, runs every scenario but HTTP/3 under the same budgets (target), except S3 and C2 handshakes, reported until measured since they may cost more (hypothesis)\".",
+      "fix": "Reword the criterion as: \"... every benchmark scenario but HTTP/3 meets the same budgets (target), except the S3 and C2 TLS handshakes, which are reported until measured because FIPS handshakes may cost more (hypothesis), per [Performance budgets and benchmarking](../architecture/12-performance-budgets-and-benchmarking.md#milestone-plan).\""
+    },
+    {
+      "id": "L3-4",
+      "section": "M0 Foundations (M0 scope and M0 exit criteria)",
+      "issue": "M0 is the only milestone whose exit criteria do not require its blocking Open questions to be closed. Two Open questions name M0 in their Blocking column. One of them, OQ-repository-layout-and-conventions-7, blocks the M0 CI stages 2 and 6 and appears nowhere in the document. A contributor starting M0 therefore does not see the decision that gates the lint and supply-chain stages.",
+      "evidence": "Repository layout: \"| OQ-repository-layout-and-conventions-7 | Which Go CI tools (golangci-lint v2.13.x, `gofumpt`, `goimports`, govulncheck) get a Tech stack catalog row? | ... | Yes, for Planned (M0) stages 2 and 6 |\". Roadmap M0 exit criteria 1 to 5 contain no Open-question clause, whereas M1 exit criterion 7, M2 exit criterion 6, M3 exit criterion 6, M4 exit criterion 5 and M5 exit criterion 4 all have one.",
+      "fix": "Add M0 exit criterion 6: \"The two Open questions whose Blocking column names M0 are closed: OQ-repository-layout-and-conventions-1 and -7 (CI tool catalog rows for golangci-lint, gofumpt, goimports and govulncheck).\" Also list OQ-repository-layout-and-conventions-7 next to -1 in the M0 Repository row."
+    },
+    {
+      "id": "L3-5",
+      "section": "M4 Event protocols, multi-region and benchmark suite (M4 scope, Other row); M5 Long-tail parity (M5 scope, Console and product row)",
+      "issue": "The tables are headed 'Items, all Planned (Mx)', yet they list undecided or already-decided-otherwise Open-question options as planned deliverables. An evaluator would read these as commitments. Deployment topologies has already decided OQ-vision-and-positioning-4 as 'deferred beyond M5'. OQ-multi-protocol-11's current answer is Not planned. OQ-release-versioning-and-compatibility-1 includes 'After M5' among its options.",
+      "evidence": "M4 line 182: \"Gateway API conformance decision (OQ-vision-and-positioning-4)\"; Deployment topologies line 199: \"OQ-vision-and-positioning-4: keep Gateway API conformance deferred beyond M5\". M5 line 206: \"produce-only Kafka proxying option (OQ-multi-protocol-11); `1.0.0` timing (OQ-release-versioning-and-compatibility-1)\"; Multi-protocol: \"OQ-multi-protocol-11 ... (a) Not planned (current); (b) Produce-only, Planned (M5)\"; Release: \"OQ-release-versioning-and-compatibility-1 ... (a) First release meeting the criteria; (b) At Planned (M5); (c) After M5 | ... | No\".",
+      "fix": "Remove these three entries from the 'Items, all Planned' tables. Add a short 'Pending decisions touching this milestone' line under each affected milestone that lists them as options, not commitments: \"Gateway API conformance: deferred beyond M5 by Deployment topologies (OQ-vision-and-positioning-4)\"; \"Produce-only Kafka proxying: Not planned today, M5 is option (b) of OQ-multi-protocol-11\"; \"`1.0.0` timing: OQ-release-versioning-and-compatibility-1\". Also remove 'Gateway API conformance decision' from the M4 exit criteria and parity reasoning if referenced."
+    },
+    {
+      "id": "L3-6",
+      "section": "Risks (R-6)",
+      "issue": "R-6 cites a URL that does not support its claim and misstates the risk. The missing fuel metering is sourced to wazero issue #422. Issue #2466 is about the 10 to 20x cost of the deadline interruption that the WASM plugin system adopts. With close-on-context-done, a CPU-bound Plugin is interrupted at its deadline (5 ms default, target) rather than holding a core, and the WASM plugin system document already answers OQ-tech-stack-and-libraries-8 with options (a) and (b).",
+      "evidence": "Roadmap R-6: \"wazero lacks fuel metering, so a CPU-bound Plugin holds a core ([source](https://github.com/wazero/wazero/issues/2466))\" with mitigation \"Deadlines, call budgets, fault breakers (OQ-tech-stack-and-libraries-8)\". Research go-libraries-runtime.md: \"No fuel or instruction metering ... (https://github.com/wazero/wazero/issues/422)\" and \"#2466 ... reports a 10-20x slowdown on loop-heavy guests with it enabled\". WASM plugin system line 71: \"Deadlines, not fuel ... This answers OQ-tech-stack-and-libraries-8 with options (a) and (b).\"",
+      "fix": "Rewrite R-6: \"wazero has no fuel metering ([source](https://github.com/wazero/wazero/issues/422)); deadline interruption costs 10 to 20x on loop-heavy guests ([source](https://github.com/wazero/wazero/issues/2466)), so SM-6 may miss | Medium | High | Deadlines and Host Function call budgets (decided in WASM plugin system for OQ-tech-stack-and-libraries-8); S4 variants gate M2; revisit per ADR-0004\"."
+    },
+    {
+      "id": "L3-7",
+      "section": "M2 WASM and Control with GitOps (M2 scope, Security row)",
+      "issue": "The client-redirects item points to the wrong Open question. OQ-traffic-management-and-resilience-12 is about mirroring and is non-blocking. The question that blocks built-in redirects at M2 is -13. A contributor who follows the link would work on the wrong question.",
+      "evidence": "Roadmap line 127: \"client redirects (OQ-traffic-management-and-resilience-12)\". Traffic management: \"| OQ-traffic-management-and-resilience-12 | How is mirroring declared? | ... | No |\" and \"| OQ-traffic-management-and-resilience-13 | How are redirects and plain `upstreams` rewrites declared? | ... | Yes, built-in redirects (M2) |\".",
+      "fix": "Replace the reference with 'client redirects (OQ-traffic-management-and-resilience-13)'. Name -13 among the M2 exit criterion 6 examples, since it is one of the 41."
+    }
+  ],
+  "non_blocking": [
+    {
+      "section": "Sequencing (Figure 1) and Risks (R-1, R-2)",
+      "suggestion": "The gantt puts a 'gRPC pass-through spike' right after the M0-era wazero spike, which falls inside M1, and shows no GraphQL spike. R-1, however, promises 'gRPC and GraphQL spikes during M2', and the current answer of OQ-market-landscape-and-table-stakes-7 is 'Keep Planned (M3)'. Rename the track to 'gRPC and GraphQL spikes (R-1)', start it 'after m1', and label it as spikes only, so it does not suggest early gRPC delivery."
+    },
+    {
+      "section": "Sequencing (Figure 1)",
+      "suggestion": "Use the pack's milestone names in the gantt task labels: 'M3 AI gateway + gRPC/GraphQL/WS/SSE + HTTP/3' and 'M4 Event protocols + multi-region + bench suite'. Acceptance criterion 3 is about names, and abbreviations like 'AI' and 'Events ... bench' invite drift."
+    },
+    {
+      "section": "M3 AI gateway, gRPC, GraphQL, WebSocket and SSE (M3 exit criteria)",
+      "suggestion": "Criterion 6 counts '12 in AI/LLM gateway, 10 in Multi-protocol' without IDs, so neither contributors nor evaluators can check it. List the IDs: OQ-ai-llm-gateway-2, -3, -4, -5, -9, -10, -12, -15, -16, -17, -18, -20; OQ-multi-protocol-1 to -6, -15, -16, -17, -20."
+    },
+    {
+      "section": "M1 Core parity and M4 (exit criteria)",
+      "suggestion": "OQ-traffic-management-and-resilience-5 is listed as closed at M1 and again at M4. Write it as 'OQ-traffic-management-and-resilience-5 (breaker minimumLegs part)' at M1 and '(hedging part)' at M4, or state that it is split."
+    },
+    {
+      "section": "Scope and non-goals",
+      "suggestion": "The vision document says 'dates live in' this document, while this document makes dates a non-goal. Add one sentence saying that the vision's pointer resolves to OQ-roadmap-and-milestones-2, so evaluators know where dates will appear."
+    },
+    {
+      "section": "Contribution surface",
+      "suggestion": "Tell contributors how to find claimable work, for example an issue label per milestone such as 'milestone/M1' plus 'help wanted', and link the DCO sign-off instructions (CONTRIBUTING, owned by Repository layout)."
+    },
+    {
+      "section": "M2 WASM and Control with GitOps (M2 exit criteria)",
+      "suggestion": "Also address L1-1 and L1-2: scope the chaos criterion to the failure rows planned by M2, and report the (hypothesis) adoption metrics SM-14 and SM-15 rather than gating on them. Both affect whether exit criteria are measurable and within the project's control."
+    }
+  ],
+  "ac_results": [
+    {
+      "ac": "Every Planned (Mx) tag used in any document appears as an item under the corresponding Mx section.",
+      "pass": false,
+      "note": "Missing: `ruralz rollout reject` (M2), T2 (M1/M2) and T4 (M2) topologies, the M3 end-to-end and chaos cases, three M2 revocation targets, reload with Plugins (M2), the tokenizer benchmark and session memory (M3), `http` discovery (M1), and the markdownlint-cli2 pin (M0). verify-docs reports 63 milestone WARNs (see L3-2)."
+    },
+    {
+      "ac": "Each milestone section states scope, measurable exit criteria and the KrakenD EE parity percentage tagged (target).",
+      "pass": true,
+      "note": "Every milestone has a scope table, a numbered 'Exit criteria:' list and a 'KrakenD EE parity at exit' line tagged (target), and the parity counts sum to 71. The weaknesses are raised elsewhere: M5 criterion 1 contradicts its owner (L3-3), M0 lacks an Open-question criterion (L3-4), and M3 criterion 6 does not list its IDs (non-blocking)."
+    },
+    {
+      "ac": "Milestone names match the foundation pack: M0 Foundations, M1 Core parity, M2 WASM + Control/GitOps, M3 AI gateway + gRPC/GraphQL/WS/SSE, M4 Event protocols + multi-region + bench suite, M5 Long-tail parity.",
+      "pass": true,
+      "note": "The H2s follow manifest outline_h2. Each section's 'Pack name:' line and the parity table use the pack names verbatim, including '+ HTTP/3' for M3 and the M5 parenthetical. The gantt labels are abbreviated (non-blocking)."
+    },
+    {
+      "ac": "The gantt chart uses relative durations and no calendar dates.",
+      "pass": true,
+      "note": "Uses `dateFormat X`, start 0 and `after` dependencies with relative 'd' units. The caption says the units are relative, and the prose tags them (hypothesis)."
+    },
+    {
+      "ac": "Risks is a table with likelihood, impact and mitigation.",
+      "pass": true,
+      "note": "11 rows with columns ID, Risk, Likelihood, Impact and Mitigation. R-6 has a citation defect (L3-6)."
+    },
+    {
+      "ac": "Contribution surface identifies where outside contributors can help per milestone.",
+      "pass": true,
+      "note": "Has a table covering M0 to M5, plus DCO/no-CLA guidance."
+    },
+    {
+      "ac": "Machine checks and structure: H2 outline, required diagram with caption, length band, required terms, tagged numbers, verify-docs FAIL lines.",
+      "pass": true,
+      "note": "The H2s are exactly Summary, Scope and non-goals, the outline_h2 entries in order, then Open questions. The gantt has an italic caption directly above it. verify-docs reports 0 errors in outline, machine-checks, numbers, citations and phases, and no FAIL line for this file, only link and milestone WARNs. The Summary is 101 words. The Risks table exists, and '(target)' and 'Exit criteria' appear."
+    }
+  ],
+  "foundation_amendments": []
+}

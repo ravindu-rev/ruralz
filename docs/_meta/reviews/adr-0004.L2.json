@@ -1,0 +1,83 @@
+{
+  "lens": "L2",
+  "verdict": "revise",
+  "score": 8,
+  "blocking": [
+    {
+      "id": "L2-1",
+      "section": "More information (proposed owning-document amendment, line 131)",
+      "issue": "The proposed amendment tells Data plane to drop the whole durable-state row. That row also holds the Plugin artifact cache `${RURALZ_DATA_DIR}/cache/oci/sha256/`, not only the wazero compiled-code directory. The owning document depends on that artifact cache: Hot-swap lifecycle step 1 fetches from it and step 7 recompiles from it on rollback. Foundation pack section 8.11 also lists Plugin artifacts as a disposable Node cache. Applied literally, the amendment removes a location that the owning document and the pack both rely on, so it contradicts them. The ADR also never mentions that pack section 8.11 lists 'compiled modules' as a persisted disposable cache, which is the same tension it reports for Data plane (the owning document tracks that under OQ-wasm-plugin-system-16).",
+      "evidence": "ADR line 131: \"Proposed owning-document amendment: [Data plane](../architecture/03-data-plane.md#durable-and-shared-state) still lists an on-disk `${RURALZ_DATA_DIR}/cache/wazero/` directory, which contradicts the in-memory-only rule; it SHOULD drop that row and close OQ-data-plane-11 with option (c).\" Data plane line 40: \"| Plugin artifacts; compiled Plugin code | `${RURALZ_DATA_DIR}/cache/oci/sha256/`; `${RURALZ_DATA_DIR}/cache/wazero/` | Disposable; refetched and verified, or recompiled |\". Owning document, Hot-swap lifecycle: \"1. **Fetch.** From the artifact cache or a pull by digest.\" and \"7. **Retire.** ... a rollback recompiles from the artifact cache.\" Foundation pack section 8.11: \"| Disposable caches | Under `${RURALZ_DATA_DIR}`, layout owned by Data plane | Plugin artifacts and compiled modules; deleting them costs only warm-up |\".",
+      "fix": "Replace the last clause of line 131 with: \"it SHOULD remove 'compiled Plugin code' and `${RURALZ_DATA_DIR}/cache/wazero/` from that row, keep `${RURALZ_DATA_DIR}/cache/oci/sha256/` for Plugin artifacts, and close OQ-data-plane-11 with option (c). Foundation pack section 8.11 still names compiled code among disposable caches; that stays with OQ-wasm-plugin-system-16.\" This adds about 30 words. The body is about 1,400 of 1,500 words, so no other text needs trimming."
+    }
+  ],
+  "non_blocking": [
+    {
+      "section": "Decision outcome (Chosen option sentence, line 42)",
+      "suggestion": "\"the only researched runtime that is pure Go\" is imprecise, because Considered options also lists the pure-Go Extism go-sdk and mosn host (research section 2.1 marks both 'No' CGO for their wazero backends). Write \"the only researched pure-Go runtime engine (the Extism go-sdk and mosn host wrap it)\" instead."
+    },
+    {
+      "section": "Decision outcome > Consequences (line 83)",
+      "suggestion": "\"a Hot Reload that keeps a digest reuses its compiled code and pools\" overstates the owning document. Pools carry over only when digest, canonical `config` and limits are all unchanged (Runtime rule 3, Hot-swap step 4). Write \"reuses its compiled code, and unchanged pools carry over\". Also cite cache.go ([source](https://github.com/wazero/wazero/blob/main/cache.go)) for sharing across runtimes; runtime.go documents only per-worker instantiation."
+    },
+    {
+      "section": "Decision outcome > Consequences (line 85)",
+      "suggestion": "The owning document tags the accounting rule \"4 × Wasm bytes per distinct digest and `limits.memoryBytes` (target)\" in Default limits, and tags only the measured factor (hypothesis) in Performance model. Tag the accounting here as (target) and the factor as (hypothesis) so the two documents agree."
+    },
+    {
+      "section": "Decision outcome table, Compilation row (line 49)",
+      "suggestion": "Add (target) to \"at most max(1, `GOMAXPROCS`/4)\" to match the owning document's Cold compilation row. The cited compilationworkers.go is an API reference, not a measurement."
+    },
+    {
+      "section": "Decision outcome > Confirmation (SM-6 microbenchmark gate, line 96)",
+      "suggestion": "In Testing and quality strategy, the pr-full Microbenchmarks gate fails only on alloc/op. The absolute 50 µs p99 seed budget is enforced by the Macro latency gate ('a seed budget exceeded', nightly and release). Name the stage explicitly, for example \"measured by the pr-full microbenchmark (SM-6), failing the nightly and release gate above 50 µs at p99 (target)\", or add an Open question to the testing document."
+    },
+    {
+      "section": "Pros and cons of the options > Extism go-sdk (line 118)",
+      "suggestion": "The last-commit date 2025-05-14 comes from the repository page (https://github.com/extism/go-sdk), which research section 2.1 cites, not from go.mod. Add that source next to the go.mod link."
+    },
+    {
+      "section": "Considered options (line 35)",
+      "suggestion": "The Go proxy source reports v1.12.0 as 2026-05-28, while the GitHub release reports 2026-05-29 (research tooling-and-licenses section 4). Cite only the release page for the date, and keep the proxy link for the module path."
+    },
+    {
+      "section": "Pros and cons of the options > wazero (line 106)",
+      "suggestion": "\"so current toolchains' output loads\" is an uncited inference. Write \"so guests that use these proposals load\" instead."
+    }
+  ],
+  "ac_results": [
+    {
+      "ac": "Front matter contains id, title, status, date, deciders and related, and status matches this manifest.",
+      "pass": true,
+      "note": "Front matter has id ADR-0004, title \"WASM runtime: wazero\" (matches the manifest), status accepted (matches the manifest), date 2026-09-25, deciders [ruralz-core], and five related paths that all exist."
+    },
+    {
+      "ac": "H2 headings match adr_common.outline_h2 exactly and in order, and Decision outcome contains the H3 headings Consequences and Confirmation.",
+      "pass": true,
+      "note": "The six H2 headings match exactly and in order. Consequences (line 79) and Confirmation (line 91) sit under Decision outcome. The verifier outline and adr checks pass."
+    },
+    {
+      "ac": "Considered options lists at least two options including the chosen one, and each has pros and cons.",
+      "pass": true,
+      "note": "Four options: wazero (chosen), wasmtime-go, Extism go-sdk and mosn proxy-wasm-go-host. Each has at least one Good and one Bad bullet under Pros and cons, and each cites URLs that appear in docs/_meta/research/go-libraries-runtime.md or tooling-and-licenses.md."
+    },
+    {
+      "ac": "Decision outcome states the chosen option as 'Chosen option: ..., because ...' and matches the foundation pack section 7 row for this ADR.",
+      "pass": true,
+      "note": "Line 42 reads 'Chosen option: \"wazero, imported as `github.com/tetratelabs/wazero`\", because ...'. It restates the section 7 row: repository github.com/wazero/wazero, Go module path github.com/tetratelabs/wazero, pure Go. This agrees with the manifest decision."
+    },
+    {
+      "ac": "Confirmation names a concrete verification mechanism (test, lint rule, CI gate or review checklist item).",
+      "pass": true,
+      "note": "The mechanisms are a depguard import rule, a G1 cross-build and license gate, the Plugin ABI conformance suite in pr-full, an SM-6 microbenchmark, Host Function fuzzing, govulncheck and a review checklist item, each with a milestone tag. The SM-6 gate stage needs precise wording; see non-blocking."
+    },
+    {
+      "ac": "The ADR is linked from docs/adr/README.md and from its owning document.",
+      "pass": false,
+      "note": "The owning document docs/architecture/05-wasm-plugin-system.md links ADR-0004 in Runtime > wazero on every Node. docs/adr/README.md does not exist yet, because the manifest adr_index is written with docs/README.md in a later wave. This file cannot fix that, so it is not a blocking item for this ADR."
+    }
+  ],
+  "foundation_amendments": [
+    "Section 8.11 Disposable caches row: replace \"Plugin artifacts and compiled modules; deleting them costs only warm-up\" with \"Plugin artifacts; deleting them costs only warm-up. Compiled Plugin code stays in memory only (ADR-0004)\". This aligns the pack with ADR-0004, the owning document's Runtime rule 2 and threat PT-14, and closes the pack half of OQ-wasm-plugin-system-16. It also removes the pack's own use of 'module' for WASM, which section 11 lists as a forbidden alias."
+  ]
+}

@@ -1,0 +1,139 @@
+{
+  "lens": "L2",
+  "verdict": "revise",
+  "score": 6,
+  "blocking": [
+    {
+      "id": "L2-1",
+      "section": "M2 WASM and Control with GitOps / M2 scope (CLI row)",
+      "issue": "`--environments FILE` is listed as a Planned (M2) item, but the Configuration model (a foundation document) tags `--env` and `--environments` (local `Environment` files) Planned (M1). Only fetching an Environment from Ruralz Control is Planned (M2). The M1 CLI and Configuration rows never name `--env` or `--environments`, so the M1 items end up in M2.",
+      "evidence": "L125: \"... `ruralz plugin inspect`; `--environments FILE`; `rev-<12 hex>` or `sha256:<64 hex>` Revision sources; ...\" vs 02-configuration-model.md L600: \"Overlays, `--env` and `--environments` (local `Environment` files) are `Planned (M1)`; selection by Ruralz Control is `Planned (M2)`\", L107 \"`Environment` ... Planned (M1) for CLI renders; Planned (M2) in Ruralz Control\" and L776 \"Planned (M1) from a file; Planned (M2) from Ruralz Control\"; 01-cli-and-api-surface.md L163 \"without it, `--env` fetches from Ruralz Control (Planned (M2))\".",
+      "fix": "In the M1 CLI row, add \"`--env` and `--environments FILE` (local `Environment` files)\". In the M2 CLI row, replace \"`--environments FILE`\" with \"`--env` fetching `Environment` variables from Ruralz Control\"."
+    },
+    {
+      "id": "L2-2",
+      "section": "M0 Foundations / M0 scope (Contracts and Repository rows)",
+      "issue": "Two M2 items are listed as Planned (M0). The OpenAPI description of the Ruralz Control REST API `/api/v1/` is Planned (M2), because the REST API itself is M2. `sdk/` is Planned (M2) for Go and Rust, (M3) for TypeScript and (M4) for C#. Neither is M0.",
+      "evidence": "L65: \"Contracts | ... JSON Schema and OpenAPI for `/api/v1/`\" and L64: \"Repository | `internal/`, `pkg/`, `api/`, `sdk/`, ...\" under \"Items, all Planned (M0)\" vs 04-release-versioning-and-compatibility.md L246: \"JSON Schema; OpenAPI for `/api/v1/` | ... | Schema published Planned (M0), attached to releases Planned (M1); OpenAPI Planned (M2)\"; 02-repository-layout-and-conventions.md L254 \"`api/openapi/` ... Planned (M2)\" and the directory table \"`sdk/` => Planned (M2) Go and Rust; Planned (M3) TypeScript; Planned (M4) C#\"; `api/` \"Planned (M0) schema; Planned (M2) protos\".",
+      "fix": "In M0 Contracts, write \"JSON Schema publication (OpenAPI for `/api/v1/` follows in M2)\". Remove `sdk/` from the M0 Repository row. Add \"OpenAPI description of `/api/v1/` (`api/openapi/`)\" to the M2 Ruralz Control row, keep `sdk/` in M2 WASM Plugins, and add the TypeScript and C# PDK `sdk/` modules to M3 and M4."
+    },
+    {
+      "id": "L2-3",
+      "section": "M3 AI gateway, gRPC, GraphQL, WebSocket and SSE / M3 scope (Operations row)",
+      "issue": "`ruralz_listener_tls_handshake_duration_seconds` is listed as an M3 item. Observability tags the metric Planned (M1), because TLS on 8443 ships in M1. Only its QUIC coverage is Planned (M3). As written, it reads as if M1 TLS listeners ship without their handshake metric.",
+      "evidence": "L156: \"Operations | `ruralz_listener_tls_handshake_duration_seconds`; 96 KiB or less per session (target); ...\" vs 10-observability.md L142 \"Rows are Planned (M1) except `ruralz_plugin_*`, ...\" and L157 \"`ruralz_listener_tls_handshake_duration_seconds` | ... | TLS handshake; QUIC from Planned (M3)\".",
+      "fix": "In M3, write \"QUIC handshakes in `ruralz_listener_tls_handshake_duration_seconds`\". Add the metric to M1 Observability (\"TLS handshake histogram `ruralz_listener_tls_handshake_duration_seconds`\")."
+    },
+    {
+      "id": "L2-4",
+      "section": "M2 WASM and Control with GitOps / M2 scope (Security row)",
+      "issue": "The Open question for client redirects has the wrong ID. OQ-traffic-management-and-resilience-12 is about request mirroring. Redirects are OQ-traffic-management-and-resilience-13, which is also the M2-blocking question that exit criterion 6 counts.",
+      "evidence": "L127: \"... signed revocation list; client redirects (OQ-traffic-management-and-resilience-12)\" vs 09-traffic-management-and-resilience.md L553 \"OQ-traffic-management-and-resilience-12 | How is mirroring declared?\" and L554 \"OQ-traffic-management-and-resilience-13 | How are redirects and plain `upstreams` rewrites declared? | ... | Yes, built-in redirects (M2)\"; L461 \"Configurable client redirects | ... built-in fields per OQ-traffic-management-and-resilience-13 | Planned (M2)\".",
+      "fix": "Replace \"OQ-traffic-management-and-resilience-12\" with \"OQ-traffic-management-and-resilience-13\" on L127."
+    },
+    {
+      "id": "L2-5",
+      "section": "M3 scope (AI Policies and tools), M4 scope (Other), M5 scope (Console and product)",
+      "issue": "Four items sit under headers that say \"Items, all Planned (Mx)\", but no owning document gives them that tag. Each one is an unresolved option of a non-blocking Open question. Listing them pre-decides those questions. That breaks this document's own non-goal (\"moving a tag, which only its owning document does through an Open question\") and pack section 14 change control.",
+      "evidence": "L154 (M3): \"... token-based limits in tokens (LLM input plus output), currency spend budgets; ...\" vs 06-ai-llm-gateway.md L412 \"shared or currency budgets are OQ-ai-llm-gateway-7\" (Blocking: No) and market L235 \"currency unit per OQ-ai-llm-gateway-7\". L182 (M4): \"Gateway API conformance decision (OQ-vision-and-positioning-4)\" vs vision non-goal 7, pack section 7 \"Gateway API conformance deferred\" and 01-deployment-topologies.md L199 \"keep Gateway API conformance deferred beyond M5\". L206 (M5): \"produce-only Kafka proxying option (OQ-multi-protocol-11); `1.0.0` timing (OQ-release-versioning-and-compatibility-1)\" vs 07-multi-protocol.md L582 \"(a) Not planned (current); (b) Produce-only, Planned (M5)\" and market F-17 \"Kafka and NATS wire-protocol ingress ... is Not planned (OQ-multi-protocol-11)\".",
+      "fix": "Move these four items out of the \"Items, all Planned (Mx)\" tables. Add a line under each milestone headed \"Decisions due before exit (not Planned items)\": OQ-ai-llm-gateway-7 (currency budgets; M3 ships token budgets plus `ruralz ai cost` reporting), OQ-vision-and-positioning-4 (current answer: deferred beyond M5), OQ-multi-protocol-11 (current answer: Not planned) and OQ-release-versioning-and-compatibility-1. Alternatively, leave them only in Open questions or Risks."
+    },
+    {
+      "id": "L2-6",
+      "section": "M1 Core parity, M2 WASM and Control with GitOps, M4 (scope tables)",
+      "issue": "Acceptance criterion 1 fails. Several concrete Planned (Mx) items from dependency documents appear under no Mx section. The verifier emits 62 `milestones` WARN lines for this document. Many are heuristic noise, but the items listed here are real gaps confirmed at their source.",
+      "evidence": "L95 (M1 Quality): \"chaos experiments CE-3, CE-4, CE-5, CE-12, CE-15, CE-16\" and L130 (M2 Quality): \"CE-7, CE-10\", while 11-scalability-and-distributed-state.md L601-L609 tags CE-1 (SIGKILL a Node), CE-2 (SIGTERM with WebSockets and SSE) and CE-6 (State Store at maxmemory) Planned (M1), and CE-8 (quorum loss then restarts) and CE-9 (10 to 100 Nodes) Planned (M2). L125 (M2 CLI) omits `ruralz rollout reject`, which 01-cli-and-api-surface.md L121 tags Planned (M2). M1 has no benchmark publication item, although 12-performance-budgets-and-benchmarking.md L695 says \"Nightly and release runs publish records, raw histograms and CPU profiles from this repository (P10), Planned (M1)\" and market F-7 maps it to M1. M2 does not list the `ruralz-control` admin endpoints on 9902 (`/healthz`, `/readyz`, `/metrics`, `/debug/pprof/`), which 01-cli-and-api-surface.md L325 tags Planned (M2). Only a bare \"9902 TCP\" and an unqualified \"`/debug/pprof/`\" appear. Topology T2 File mode (Planned (M1) directory, Planned (M2) OCI pull) and T4 Kubernetes (Planned (M2)) are never named.",
+      "fix": "Add CE-1, CE-2 and CE-6 to M1 Quality and CE-8 and CE-9 to M2 Quality. Add `ruralz rollout reject` (OQ-control-plane-and-gitops-17) to the M2 CLI row. Add \"nightly and release benchmark records published from this repository (P10, market F-7)\" to M1 Budgets. Replace the M2 \"`/debug/pprof/`\" with \"`ruralz-control` admin 9902: `/healthz`, `/readyz`, `/metrics`, `/debug/pprof/`\". Name \"T2 file mode (directory)\" in M1 Lifecycle, and \"T2 OCI pull\" and \"T4 Kubernetes\" in M2 Operations. Then rerun the verifier and triage each remaining `milestones` WARN."
+    },
+    {
+      "id": "L2-7",
+      "section": "Risks (R-6)",
+      "issue": "The URL cited for the claim \"wazero lacks fuel metering\" does not support it. In the research file, issue #2466 reports the slowdown from `WithCloseOnContextDone`. The no-fuel-metering statement is sourced to issue #422.",
+      "evidence": "L265: \"R-6 | wazero lacks fuel metering, so a CPU-bound Plugin holds a core ([source](https://github.com/wazero/wazero/issues/2466))\" vs docs/_meta/research/go-libraries-runtime.md L89: \"No fuel or instruction metering. Maintainers point to context cancellation, memory page limits and `FunctionListenerFactory` instead (https://github.com/wazero/wazero/issues/422)\" and L88 (#2466: \"10-20x slowdown on loop-heavy guests\" with `WithCloseOnContextDone`).",
+      "fix": "Cite https://github.com/wazero/wazero/issues/422 for the fuel-metering claim. Keep #2466 only if the risk text adds that deadline interruption itself costs throughput on loop-heavy guests."
+    }
+  ],
+  "non_blocking": [
+    {
+      "section": "Verifier",
+      "suggestion": "`node scripts/verify-docs.mjs --allow-missing --skip markdownlint` reports no FAIL line for this document. It reports two WARN broken links (parity matrix and ADR-0016, both files not yet written and listed in the manifest) and 62 roadmap-coverage WARNs from the `milestones` check. L2-6 covers the real gaps. Rerun after revising, and record triage notes for the noise lines (for example the ADR 'Bad, because ...' matches)."
+    },
+    {
+      "section": "Scope and non-goals / Open questions (OQ-roadmap-and-milestones-2)",
+      "suggestion": "Two dependency documents say dates live in this document: the vision Summary (\"dates live in the Roadmap\") and market Scope (\"Dates and exit criteria, owned by the Roadmap and milestones\"). Routing this through OQ-roadmap-and-milestones-2 is correct. Name both documents in the question, and make the fix under option (a) explicit: amend both to say \"milestone order and exit criteria live in the Roadmap\"."
+    },
+    {
+      "section": "M3 scope (AI/LLM gateway row)",
+      "suggestion": "\"model routing, provider fallback and load balancing\" should use the glossary term \"Provider Fallback\", as the AI document's capability table does (\"Model routing and Provider Fallback\")."
+    },
+    {
+      "section": "M1 scope (Traffic and state row)",
+      "suggestion": "\"stateful rate limit (Redis backed)\" uses Redis as a concept name, which pack section 2 forbids outside quotation. Write \"KrakenD's 'Stateful rate limit (Redis backed)' row, served by `ratelimit` GCRA in the State Store\". \"service discovery (DNS, static)\" should be \"`dns` discovery and static Endpoints\", because the pack names only `dns` and `kubernetes` as discovery modes. \"(Valkey 9.0.1 or newer, Dragonfly)\" reads as a driver requirement, but it is the integration-test matrix of Testing and quality strategy. Say so."
+    },
+    {
+      "section": "M1 scope (Security row)",
+      "suggestion": "\"Upstream, AIProvider, State Store, OTLP (TB-3, TB-4, TB-12)\" is copied from the Security and identity TLS row, but `AIProvider` is Planned (M3) in the Configuration model. Add \"(`AIProvider` from M3)\" so an M1 item does not name an M3 kind."
+    },
+    {
+      "section": "M0 exit criteria",
+      "suggestion": "Criterion 1 says \"Every pull request runs CI stages 1 to 7\", but in Repository layout most stages are conditional (stage 2 on Go or proto changes, stage 7 on docs changes). Write \"`pr-fast` stages 1 to 7 exist, run on their triggers and block merge\"."
+    },
+    {
+      "section": "M1 and M3 scope tables (readability)",
+      "suggestion": "Several cells are keyword lists copied from source rows, not items a reader can act on: \"other servers\", \"and anything else\", \"the same verbs without `--env`\", \"10. regression gates, 11. end-to-end, 12. nightly, 13. release\" and \"GraphQL module, limits and transport in `ruralzd`, `ruralz-control` and `ruralz`\". Rewrite them as named items, such as \"CI stages 10 to 13 (regression gates, end-to-end, nightly, release)\". The length band has room."
+    },
+    {
+      "section": "M3 scope (Protocols row)",
+      "suggestion": "Name `match.graphql` (Configuration model L309: \"`grpc` and `graphql` matching are `Planned (M3)`\") next to `match.grpc`, and tie it to OQ-system-overview-5 and OQ-multi-protocol-3."
+    },
+    {
+      "section": "M3 exit criteria (criterion 6)",
+      "suggestion": "M1 and M2 criteria enumerate or count OQ IDs verifiably, but M3 says only \"10 in Multi-protocol\" and \"12 in AI/LLM gateway\". List the IDs: OQ-multi-protocol-1 to -6, -15, -16, -17 and -20, and OQ-ai-llm-gateway-2, -3, -4, -5, -9, -10, -12, -15, -16, -17, -18 and -20. Readers can then see that OQ-multi-protocol-14 (parity matrix) is excluded on purpose."
+    },
+    {
+      "section": "Risks (R-8)",
+      "suggestion": "\"cedar-go idle since 2026-06-01\" overstates the research, which says \"0 commits since ... (last commit 2026-06-01)\" and \"pushed_at is 2026-07-15 ... Whether it is still actively maintained is uncertain\". Write \"no default-branch commit since 2026-06-01\"."
+    },
+    {
+      "section": "Sequencing (Figure 1)",
+      "suggestion": "`dateFormat X` with `axisFormat %j` prints epoch day-of-year numbers, and the durations use the `d` (day) unit. There are no calendar dates, so acceptance criterion 4 passes, but readers may read the axis as days. Add a line under the figure saying that axis ticks and the `d` suffix are relative effort units, or hide the tick labels."
+    },
+    {
+      "section": "M2 scope (Kubernetes and Ruralz Console rows)",
+      "suggestion": "Add the Repository-layout M2 directories `cmd/ruralz-control`, `console/` and `deploy/`, and CI stage 8 (Ruralz Console, Planned (M2)), so the M2 row matches the M0 and M1 repository items."
+    }
+  ],
+  "ac_results": [
+    {
+      "ac": "Every Planned (Mx) tag used in any document appears as an item under the corresponding Mx section.",
+      "pass": false,
+      "note": "Concrete misses: CE-1, CE-2, CE-6 (M1); CE-8, CE-9, `ruralz rollout reject` and `ruralz-control` 9902 admin endpoints (M2); M1 benchmark publication; T2 and T4 never named. Misattributions: `--environments` (M1 listed as M2), OpenAPI for `/api/v1/` and `sdk/` (M2 listed as M0), TLS handshake metric (M1 listed as M3). Items listed as Planned that no document tags: see L2-5. The verifier reports 62 coverage WARNs."
+    },
+    {
+      "ac": "Each milestone section states scope, measurable exit criteria and the KrakenD EE parity percentage tagged (target).",
+      "pass": true,
+      "note": "Each M0-M5 section has a scope table, an \"Exit criteria:\" numbered list and a \"KrakenD EE parity at exit: ... (target)\" line. I checked the parity arithmetic against the 71 EE rows in krakend-parity.md: 23+12+18+2+13+3 = 71, and 32%, 49%, 75%, 77%, 96% and 86% are correct. The M1 (30) and M2 (41) blocking-OQ counts match the dependency documents."
+    },
+    {
+      "ac": "Milestone names match the foundation pack: M0 Foundations, M1 Core parity, M2 WASM + Control/GitOps, M3 AI gateway + gRPC/GraphQL/WS/SSE, M4 Event protocols + multi-region + bench suite, M5 Long-tail parity.",
+      "pass": true,
+      "note": "H2s follow the manifest outline_h2 exactly. The \"Pack name\" lines and the parity table use the pack section 2 names verbatim, including \"+ HTTP/3\" for M3 and the M5 parenthetical."
+    },
+    {
+      "ac": "The gantt chart uses relative durations and no calendar dates.",
+      "pass": true,
+      "note": "It uses `dateFormat X`, `after` dependencies and unitless relative durations, with no calendar dates. The `%j` axis and `d` suffix could be misread (non-blocking)."
+    },
+    {
+      "ac": "Risks is a table with likelihood, impact and mitigation.",
+      "pass": true,
+      "note": "R-1 to R-11 have Likelihood, Impact and Mitigation columns. The has_table check passes. The R-6 citation is wrong (L2-7)."
+    },
+    {
+      "ac": "Contribution surface identifies where outside contributors can help per milestone.",
+      "pass": true,
+      "note": "The table has one row per milestone M0 to M5, plus the DCO and no-CLA rule."
+    }
+  ],
+  "foundation_amendments": []
+}

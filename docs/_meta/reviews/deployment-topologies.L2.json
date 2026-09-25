@@ -1,0 +1,127 @@
+{
+  "lens": "L2 foundation-auditor",
+  "verdict": "revise",
+  "score": 7,
+  "blocking": [
+    {
+      "id": "L2-1",
+      "section": "Configuration delivery per topology",
+      "issue": "The T2-to-T3 migration rule says a Node restarted in Control mode keeps serving its active Revision until it enrolls. That contradicts pack 8.2 boot order and pack 8.11. It also contradicts Control plane and GitOps, where a Control-mode Node verifies Last-Known-Good against Ruralz Control signatures and the Environment and Cluster from its EnrollResponse. A file-mode active Revision or Last-Known-Good has neither, and a Node never merges sources. A restarted, unenrolled Control-mode Node therefore stays not ready.",
+      "evidence": "Line 467: \"- **No mixed modes in one Cluster.** Moving from T2 to T3 restarts each Node in Control mode with a token; it serves its active Revision until it enrolls.\" Pack 8.11: \"In Control mode, a Node without Last-Known-Good stays not ready until it enrolls and receives its first Revision from Ruralz Control\". 04-control-plane-and-gitops.md Revision signing table: \"Node verification | Before activation and at Last-Known-Good boot: digest (RZ-CFG-027), both signatures, and the Environment and Cluster from its `EnrollResponse`, else RZ-CFG-033\".",
+      "fix": "Replace the sentence (word-neutral) with: \"Moving from T2 to T3 replaces Nodes: a Node restarted in Control mode with a token stays not ready until it enrolls and activates its first Revision (pack 8.11), so move Nodes one at a time behind the load balancer, or add enrolled Nodes before draining file-mode ones.\""
+    },
+    {
+      "id": "L2-2",
+      "section": "Network and ports",
+      "issue": "The port table and T9 put relays on 8092 without saying that pack 8.4 does not yet allow this. Pack 8.4 defines 8092 only as the Raft peer transport between Ruralz Control replicas, unused with `postgres`. The relay feed and token `Join` classes are still a proposed pack amendment (OQ-control-plane-and-gitops-15). Scalability and distributed state states this caveat explicitly. The row also drops the pack's \"unused with `postgres`\".",
+      "evidence": "Line 377: \"| 8092 TCP | `ruralz-control` | Other replicas, relays | Replica networks only | mTLS peer certificates; Node certificates rejected | Planned (M2); relays Planned (M4) |\". Figure 5 line 312: `rly -.->|\"relay feed on 8092\"| ctl`. RA-3 line 540: \"the relay feeds from the home Region on 8092\". Pack 8.4: \"8092 | `ruralz-control` | Raft peer transport (`raft.NetworkTransport` over a Ruralz mTLS stream layer); unused with `postgres`\". 11-scalability line 514: \"its 8092 feed awaits the pack 8.4 amendment of OQ-control-plane-and-gitops-15\".",
+      "fix": "In the 8092 row, change Who connects to \"Other replicas; relays and token `Join` pending OQ-control-plane-and-gitops-15\" and add \"; unused with `postgres`\" to Exposure. In T9, after \"serves them, Planned (M4)\", add \"(its 8092 feed awaits the pack 8.4 amendment of OQ-control-plane-and-gitops-15)\"."
+    },
+    {
+      "id": "L2-3",
+      "section": "Topology catalog (T4 chart objects table)",
+      "issue": "The Node StatefulSet row limits the persistent `${RURALZ_DATA_DIR}` requirement to Control-mode pods and lets file mode use an ephemeral volume. This contradicts depends_on document 11, which makes persistent storage a MUST for every Node that may be rescheduled, with no mode exception. The condition \"if its registry is reachable at boot\" is also a runtime hope, not a deployable rule.",
+      "evidence": "Line 185: \"| Node StatefulSet | A persistent volume for `${RURALZ_DATA_DIR}`, which rescheduled Control-mode pods MUST keep (OQ-scalability-and-distributed-state-7); file mode MAY use an ephemeral volume if its registry is reachable at boot |\". 11-scalability-and-distributed-state.md line 394: \"Nodes that may be rescheduled MUST keep `${RURALZ_DATA_DIR}` on persistent storage, since an `emptyDir` pod loses its identity and Last-Known-Good (OQ-scalability-and-distributed-state-7).\"",
+      "fix": "Change the row to: \"A persistent volume for `${RURALZ_DATA_DIR}`, which every rescheduled pod MUST keep (OQ-scalability-and-distributed-state-7)\". If a file-mode exception is wanted, add it as a new Open question owned by scalability-and-distributed-state instead of asserting it."
+    },
+    {
+      "id": "L2-4",
+      "section": "Bootstrap and enrollment",
+      "issue": "Step 3 and Figure 7 add a replica with `ruralz control join` alone. They never run `ruralz control serve` on the joining host. Pack 9 separates the two commands: join joins over 8092, serve runs a Ruralz Control replica. The linked CLI and API surface document says join runs before serve and only issues the certificate. The voter is added when serve first connects over 8092 (proposed, OQ-cli-and-api-surface-14). As written, the second and third replicas are never started. T5 lists both commands with no order.",
+      "evidence": "Line 405: \"3. **More replicas.** An `admin` creates a one-time join token in Ruralz Console Settings; `ruralz control join` redeems it over 8092 and the leader adds a voter.\" Line 424-425: \"Op->>R2: ruralz control join with the token / R2->>R1: Join over 8092, receive a peer certificate, added as voter\". Pack 9: \"`ruralz control serve` | Run a Ruralz Control replica (launches `ruralz-control`)\". 01-cli-and-api-surface.md line 211: \"`ruralz control join` runs on the new replica's host before `ruralz control serve`.\"",
+      "fix": "Step 3: \"...`ruralz control join` redeems it over 8092 for a peer certificate, then `ruralz control serve` on that host starts the replica, which the leader adds as a voter once caught up (OQ-cli-and-api-surface-14).\" In Figure 7, add `Op->>R2: ruralz control serve` after the Join message and move \"added as voter\" to that step. In T5, write \"`ruralz control join`, then `ruralz control serve`\"."
+    },
+    {
+      "id": "L2-5",
+      "section": "Sizing defaults",
+      "issue": "The worked example's State Store call rate contradicts pack 8.8. Every locally admitted request runs one GCRA `EVAL`, and S2 traffic carries a Gateway `ratelimit`. A 60,000 rps peak therefore means up to 60,000 GCRA calls/s, not 30,000. The per-Node factor 5,000 appears nowhere in the depends_on documents.",
+      "evidence": "Line 495: \"Peak                          60,000 rps of S2-like traffic\"; line 500: \"State Store calls             6 × 5,000 = 30,000 calls/s, one shard with a replica  (hypothesis)\". Pack 8.8: \"each locally admitted request runs GCRA in one Lua `EVAL` in the State Store\". 12-performance-budgets S2: \"`auth.jwt` and `ratelimit` at the Gateway\".",
+      "fix": "Replace the line with: \"State Store calls             up to 60,000 GCRA calls/s (one per admitted request, pack 8.8); one shard with a replica  (hypothesis)\". This is word-neutral. Or give the source of 5,000 calls/s per Node and state which share of requests carries a `ratelimit` Policy."
+    },
+    {
+      "id": "L2-6",
+      "section": "Reference architectures (RA-1)",
+      "issue": "RA-1 has no Ruralz Control, yet CI runs `ruralz bundle build --env prod` without `--environments`. The Configuration model says `--env` takes values from the `--environments` file or from Ruralz Control, and is an error with neither. The command as written fails.",
+      "evidence": "Line 512: \"| Configuration | CI runs `ruralz bundle validate`, `ruralz bundle build --env prod` and `ruralz bundle push` to an OCI registry |\". 02-configuration-model.md Environment substitution: \"That Environment's `spec.variables`, read from the file named by `--environments` or fetched from Ruralz Control; never the process environment; with neither source, an error\".",
+      "fix": "Write `ruralz bundle build --env prod --environments control/environments.yaml`, matching 01-cli-and-api-surface.md line 292, and pass the same flags to `ruralz bundle validate`."
+    }
+  ],
+  "non_blocking": [
+    {
+      "section": "Topology catalog (T10)",
+      "suggestion": "Figure 6's caption says only the Control Stream and Git reads cross the boundary, but the figure also shows operators reaching 8090 and offline-signed anchor sets crossing, and the T10 text adds `ruralz bundle push` (OQ-deployment-topologies-10). Reword it to: \"only outbound Control Streams, operator access to 8090, anchor-set uploads and Git reads or pushes cross the boundary\"."
+    },
+    {
+      "section": "Topology catalog (T4 decisions)",
+      "suggestion": "OQ-system-overview-8 option (a) is \"One source per Cluster\", but the decision applies it per Environment. Say so explicitly, since all Clusters of an Environment share one Revision. Also note that the Drift table in 04-control-plane-and-gitops.md classifies a CRD source as Git divergence. A namespace-primary Environment would then show Drift permanently, so hand that reclassification to Control plane and GitOps at conformance."
+    },
+    {
+      "section": "Network and ports",
+      "suggestion": "The 8443 UDP Authentication cell drops the pack's \"Consumer credentials\". Pack 8.4 reads \"TLS or QUIC; Consumer credentials\"; write \"QUIC; Consumer credentials; off in FIPS builds, Planned (M5)\"."
+    },
+    {
+      "section": "Topology catalog (T4)",
+      "suggestion": "04-release-versioning-and-compatibility.md (Helm chart and CRDs skew row) assumes Ruralz Control replicas serve a CRD conversion webhook. The chart objects table names no Service or port for it, and pack 8.4 lists none. Add an Open question on which port and Service serve the conversion webhook before `ruralz.io/v1beta1`, Planned (M3)."
+    },
+    {
+      "section": "Network and ports",
+      "suggestion": "\"Across Regions only 8091, 8092, telemetry and configured Upstream traffic cross\" leaves out two flows: Plugin and Revision pulls from a single-Region OCI registry, and operator access to 8090 in the home Region. Qualify the sentence, or add those flows."
+    },
+    {
+      "section": "Summary",
+      "suggestion": "The Summary has six sentences. Style guide section 6 allows at most five per paragraph; merge \"Nothing is implemented yet.\" into the previous sentence."
+    },
+    {
+      "section": "Sizing defaults",
+      "suggestion": "The table gives 16,000 rps per Node at half saturation, but the worked example uses 16,960 at the 53% three-zone threshold. Say in the example that it applies the three-zone CPU threshold, so readers do not see two planning figures."
+    },
+    {
+      "section": "Reference architectures (RA-2)",
+      "suggestion": "\"`prod` uses `strategy: canary`, `canary: {percent: 10, bake: 15m}` and `requireApproval`\" mixes `Cluster.spec.rollout` with `Environment.spec.promotion`. Name each owning kind, for example: \"Cluster `prod-eu-west` `spec.rollout`; Environment `prod` `spec.promotion.requireApproval`\"."
+    },
+    {
+      "section": "Whole document",
+      "suggestion": "The body has 4,473 words by the verify-docs counter against a 4,500 maximum. Keep the fixes above close to word-neutral: most are replacements. Do not remove text that resolved earlier findings."
+    },
+    {
+      "section": "Whole document",
+      "suggestion": "verify-docs raises WARNs only, with no FAILs. There are broken links to documents not yet written (ADR-0015, ADR-0016, and operations 02, 03 and 04). There are also milestone items missing under the M1 and M2 sections of docs/roadmap/01-roadmap-and-milestones.md for file mode, Control mode and T10. Recheck both when those documents land."
+    }
+  ],
+  "ac_results": [
+    {
+      "ac": "Topology catalog covers dev single binary, file mode, Cluster of Nodes with Ruralz Control, Kubernetes (Helm, HPA, CRDs), VM with systemd, edge, per-team, multi-cluster, multi-region, and hybrid managed Ruralz Control with self-hosted Nodes.",
+      "pass": true,
+      "note": "T1 to T10 cover all ten topologies in a 10-row table; the min_table_rows check passes."
+    },
+    {
+      "ac": "Each topology states when to use it, components, failure domains, configuration delivery and scaling.",
+      "pass": true,
+      "note": "The catalog table has a column for each attribute and no blank cells. T4 inherits from T2 and T3 by reference."
+    },
+    {
+      "ac": "Network and ports matches the foundation pack ports (8080, 8443 TCP and UDP, 9901, 8090, 8091).",
+      "pass": true,
+      "note": "All five ports match pack 8.4, and 8092 and 9902 are added. The 8092 relay use is unflagged (L2-2), and the 8443 UDP authentication cell omits Consumer credentials (non-blocking)."
+    },
+    {
+      "ac": "The Kubernetes stance matches ADR-0016 (Helm chart and CRDs mirroring kinds Planned (M2), Gateway API conformance deferred).",
+      "pass": true,
+      "note": "Line 179 states it verbatim, with `ruralz.io/v1alpha1` changing only the group. OQ-vision-and-positioning-4 is kept deferred beyond M5. The ADR-0016 file does not exist yet (WARN)."
+    },
+    {
+      "ac": "The hybrid topology uses the same open source binaries with no feature gating.",
+      "pass": true,
+      "note": "The T10 bullet \"Same binaries, no feature gating (P1)\" names both public images, with no fork, private patch or license key."
+    },
+    {
+      "ac": "Reference architectures presents three reference architectures as H3s.",
+      "pass": true,
+      "note": "RA-1, RA-2 and RA-3 are H3s; the min_h3 check passes. RA-1's CLI invocation is wrong (L2-6)."
+    }
+  ],
+  "foundation_amendments": [
+    "Pack 8.4: add the 8092 classes (relay feed, content fetch, status forwarding and token Join) as OQ-control-plane-and-gitops-15 proposes. The deployment topology port table and RA-3 depend on it.",
+    "Pack 8.4: name the port and Service on which `ruralz-control` serves the Kubernetes CRD conversion webhook that 04-release-versioning-and-compatibility.md assumes. None is listed today."
+  ]
+}

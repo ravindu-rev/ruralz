@@ -1,161 +1,111 @@
 {
   "lens": "L4X scale-adversary",
   "verdict": "revise",
-  "score": 6,
+  "score": 7,
   "blocking": [
     {
-      "id": "L4X-1",
-      "section": "Budget philosophy (Budget catalog and SLO ties); Benchmark methodology (Scenarios); Benchmark suite and CI gating (Suite layers; Constants the suite verifies)",
-      "issue": "The overload scenario O1 cannot reach the in-flight ceiling or emit RZ-RT-005, so PB-11 and the 20,000 in-flight constant are unverifiable, and every O1 run fails the document's own validity rule. O1 is S1, which has 256 HTTP/1.1 keep-alive connections. At most 256 requests can therefore be in flight. With a mock whose p99 is 200 µs, Little's law gives about 50 in flight at 50,000 rps. At 150% offered load, the excess 25,000 rps waits inside the generator, where latency correction records it as latency. The Node never sheds it. The achieved rate misses the offered rate by about 33%, so the 0.5% validity rule rejects every O1 run. The scenario also contradicts 'Budgets hold on RH-1 only', because O1, C1 and R1 gate on 'Dedicated runners'. Failure scenario: at 10x load the real 20,000-unit shedding path, never queued, runs untested for the first time in production.",
-      "evidence": "L84 'PB-11 | Goodput with S1 offered at 150% of saturation | 90% or more of saturation throughput, excess rejected only as `RZ-RT-005` (target)'; L281 'S1 | GET, 1 KiB response from the mock, 256 keep-alive connections (target)'; L488 'In-flight units per Node | 20,000 (target) | Data plane | O1: `RZ-RT-005` at the ceiling, never queued'; L370 'A run is valid only if the achieved rate stays within 0.5% of the offered rate (target)'; L154 'Budgets hold on RH-1 only'; L416 'Scale | C1, O1, R1, F1 (SM-9), SM-10 | Dedicated runners'.",
-      "fix": "Define O1 as its own workload rather than 'S1 at 150%'. Use at least 25,000 client connections, or HTTP/2 on 8443 with 100 connections of 250 streams. Delay the mock by 500 ms (target) so that 40,000 rps × 0.5 s fills the 20,000 in-flight units. Offer 150% of that rate. For O1, validity means that admitted responses plus RZ-RT-005 responses match the offered rate within 0.5% (target). Pass when goodput is at least 90% (target), no request waits before its RZ-RT-005, and RZ-RT-005 responses are written with p99 of 1 ms or less (target), counted from `ruralz_http_active_requests` and `ruralz_http_listener_requests_total`. Run O1, C1 and R1 on RH-1 hosts, or state that their budgets gate only there."
-    },
-    {
-      "id": "L4X-2",
-      "section": "Benchmark suite and CI gating (Constants the suite verifies)",
-      "issue": "The test assigned to the State Store in-flight ceiling cannot reach 8,192 calls, so the overflow path ('an excess call is skipped under failureMode') is never exercised. S5 is 'As S1', which caps concurrency at 256 requests, and each request makes at most one blocking call. The Policy's `stateStoreTimeout` falls back to the Gateway default, which Scalability advises at 5 to 10 ms, so callers stop waiting after about 10 ms. That caps the rate near 25,600 rps. By Little's law, 25,600 rps × 0.2 s is about 5,120 calls in flight. A 200 ms fault also makes calls time out, and the per-shard breaker then opens ('50% of at least 20 calls in 5 s fail') and skips calls, so the in-flight count falls further. Failure scenario: in a real 10x brownout with thousands of concurrent requests, the ceiling, and the goroutine and memory behavior at it, run for the first time in production.",
-      "evidence": "L493 'State Store calls in flight | 8,192 (target) | Scalability and distributed state | S5 with 200 ms added latency (target), CE-3'; L285 'S5 | As S1 | `ratelimit` on the `redis` driver'; Scalability State client: 'at most 8,192 blocking calls in flight (target), each counted until its reply or a connection reset, not its caller's timeout' and 'A per-shard breaker opens when 50% of at least 20 calls in 5 s fail'.",
-      "fix": "Add a dedicated scenario of about 12,000 concurrent requests, reusing C1's connections. Set `stateStoreTimeout: 1s` on the bench `ratelimit` Policy; the field is defined in the Configuration model. A fault proxy adds 200 ms (target) and returns no errors, so the breaker stays closed. Pass criteria, each (target): in-flight calls plateau at 8,192; the excess is skipped under `failureMode` and counted in `ruralz_state_calls_total`; the goroutine count stays bounded; skipped requests add no more than 1 ms at p99. Add an Open question to Observability for an in-flight State Store call gauge, because none exists in the catalog."
-    },
-    {
-      "id": "L4X-3",
-      "section": "Benchmark methodology (Scenarios)",
-      "issue": "S2 and S5 rate-limit a single hot key, which contradicts Scalability's hot-key rule and leaves the key table and shard distribution unexercised. The bench key is `source.ip`, and all load comes from the single load generator host RH-1L. Every request therefore hits one key: 40,000 GCRA calls per second on one key and one shard in S5. That is above the 25,000 per second at which Scalability says a key 'MUST use `localOnly` mode'. The run never exercises key-table CLOCK eviction, the first-seen budget, the over-limit cache or hash-slot spread. PB-9 and the S5 throughput row therefore measure a pathological single-key case that the design forbids, not a production key mix.",
-      "evidence": "L357 'key: \"source.ip\"'; L358 'limits: [{requests: 1000000, window: 1s}]'; L159 'RH-1L, RH-1U | Load generator host'; L175 'S5 GCRA in a `redis` State Store | 40,000 rps or more on the Node (target)'; Scalability Distributed rate limits: 'A key whose `requests` exceed 25% of one shard's calls, about 25,000 per second (hypothesis), MUST use `localOnly` mode'.",
-      "fix": "Derive the bench key from a header, `key: 'request.headers[\"x-bench-key\"]'`, using the CEL `request.headers` variable of the Configuration model. The generator should cycle 100,000 distinct keys (target), uniform in S2 and S5, plus a Zipf variant that keeps the hottest key under 25,000 calls per second (target). Record the key cardinality and distribution in the result record. Keep a separate single-key run only as the CE-12 hot-key check."
-    },
-    {
-      "id": "L4X-4",
-      "section": "Throughput and resources per core (Throughput targets)",
-      "issue": "No scenario measures the per-shard GCRA throughput hypothesis that Scalability's Cell sizing rests on. BP-1 promises that the first benchmark to measure a hypothesis turns it into a target, but S5 drives one 4-vCPU Node at 40,000 rps, at most 40% of the assumed 100,000 calls per second per shard. The document itself says no published EVAL throughput exists, and the research confirms that. Scalability derives four things from this number: the 1,000,000 calls per second Cell ceiling, the 25,000 per second hot-key threshold, the 200-Node binding point and the connections-per-shard limit. Failure scenario: if Lua GCRA on one Valkey main thread saturates at, say, 40,000 calls per second, every Cell sized from this document overloads its shards at 2.5x lower load. Breakers then open Cell-wide and Rate Limits fail open at N_serving × ceiling.",
-      "evidence": "L175 'about 100,000 GCRA calls per second per shard (hypothesis)'; L180 'S5's per-shard figure is a hypothesis: no published EVAL throughput exists'; L48 'The first benchmark that measures a hypothesis turns it into a target or changes the design'; Scalability Cell sizing: 'State Store calls per second per Cell | 1,000,000, 62.5% of 16 shards at about 100,000 each (hypothesis)'; research scalability-patterns.md: 'no Lua/EVAL (GCRA-style script) throughput per core was found'.",
-      "fix": "Add a shard-saturation scenario, Planned (M1). Drive one Valkey primary on its own host with a fixed cpuset, using an open-loop generator of GCRA `EVALSHA` calls through the State client, or several Nodes. Step the rate until the p99 round trip exceeds 1 ms or script CPU reaches 70% (target). Include 10 × N connections per shard as a variant. Publish calls per second per shard at 70% script CPU as the coefficient Scalability and Capacity planning consume, and add it to the milestone plan and to the Capacity planning hand-off in Reporting."
-    },
-    {
-      "id": "L4X-5",
+      "id": "L4X-12",
       "section": "Budget philosophy (Budget catalog and SLO ties); Benchmark methodology (Scenarios)",
-      "issue": "The document ignores cross-zone State Store latency even though the recommended deployment pays it. Scalability says a Cluster SHOULD span at least two zones and keeps a single primary with a replica in another zone. Nodes outside the primary's zone, and every Node after a zonal failover, therefore pay the 2 ms cross-zone p99 (hypothesis). PB-9 and S5 measure only the same zone. Yet BP-3 says a budget uses 'the same metric and threshold as a production SLO', and SLO-GW-5 counts every `op=\"gcra\"` call against 1 ms, with no zone split. Failure scenario: in the recommended 2-zone topology, about half of all GCRA calls take about 2 ms. SLO-GW-5 then burns continuously in production while the lab gate passes, and a zonal failover sends all calls cross-zone with no budget or benchmark behind it.",
-      "evidence": "L82 'PB-9 | Same-zone GCRA round trip p99 | 1 ms or less (hypothesis) | ... | SLO-GW-5'; L285 'a Valkey primary in the same zone'; L50 'BP-3 | A Performance Budget is the lab ceiling on the same metric and threshold as a production SLO'; Scalability Latency budgets: 'Cross-zone State Store round trip in one Region, p99 | 2 ms or less (hypothesis)'; Scalability: 'A Cluster SHOULD run at least three Nodes in at least two zones (target)'.",
-      "fix": "Add a cross-zone S5 variant, with the Valkey host in a second zone or with injected round-trip time, and a budget PB-9x: cross-zone GCRA round trip p99 of 2 ms or less (hypothesis), matching Scalability. Also add an Open question owned by Observability: should SLO-GW-5 restrict its SLI to same-zone calls, or take a zone-relative label, so that the SLO and PB-9 measure the same population?"
+      "issue": "New regression from the L4X-5 fix: S5x cannot meet PB-14. S5x adds 1 ms of delay in each direction, so every GCRA call has a floor of 2 ms of injected delay. The call also pays the base RH-1 round trip, 50 µs or less (hypothesis), plus Valkey script time. Every sample is therefore above 2 ms, so PB-14's 2 ms p99 fails on every run. The Latency job would open an issue each week, or reviewers would learn to ignore the gate. Either way, the cross-zone path in Scalability's recommended 2-zone topology has no working budget. S5x also leaves `stateStoreTimeout` unset. Scalability requires that timeout to be 'at least five times the p99', which is 10 ms or more at a cross-zone p99 of 2 ms. Failure scenario: a zonal failover moves all GCRA calls cross-zone. The only lab evidence is a gate that has always failed, so nobody can tell a real regression from the gate's built-in failure.",
+      "evidence": "L85 'PB-14 | Cross-zone GCRA round trip p99, S5x | 2 ms or less (hypothesis) | As PB-9'; L300 'S5x | As S5, 1 ms added each way on RH-1S (target)'; L162 'round trip p99 of 50 µs or less (hypothesis)'; Scalability Latency budgets: 'Cross-zone State Store round trip in one Region, p99 | 2 ms or less (hypothesis)' and '`stateStoreTimeout` on latency-sensitive Policies | 5 to 10 ms, at least five times the p99 (target)'.",
+      "fix": "Inject a delay distribution whose round-trip p99 stays below the budget. For example, add 0.5 ms each way with jitter so the injected round-trip p99 is about 1.5 ms (hypothesis). Alternatively, restate PB-14 as the injected round trip plus 1 ms or less at p99 (hypothesis), which keeps PB-9's same-zone overhead. Either way, show the arithmetic in the S5x row or in the scenario code block. Set `stateStoreTimeout: 10ms` (target) in the S5x overlay, because the field exists on Policy in the Configuration model, and record the injected delay distribution in the result record."
     },
     {
-      "id": "L4X-6",
-      "section": "Per-stage latency budget; Throughput and resources per core (Throughput targets)",
-      "issue": "PB-2 and PB-3 hold only at half of S2 saturation, but Scalability's sizing rules run Nodes above that load, so no budget covers gateway-added latency at those loads. In steady state the autoscaling threshold allows 53% CPU with three zones and 60% with four. After a zone loss, the survivors run at up to 80% CPU by design. SLO-GW-2 is tied to PB-2 and applies at every load. Failure scenario: a zone is lost in a 3-zone Cluster, and the survivors run S2-like traffic at about 80% utilization. The document gives no p99 at that point, and its own queueing note suggests p99 exceeds 1 ms there. SLO-GW-2 then burns during exactly the incident the HA rules were sized for, and no lab gate would have predicted it.",
-      "evidence": "L75 'PB-2 | Gateway-added p99, S2 reference scenario at half saturation (SM-4) | 1 ms or less (target)'; L172 'PB-2 and PB-3 at half saturation (target)'; L163 'queueing at 80% utilization alone would push p99 past 1 ms (hypothesis)'; Scalability Autoscaling signals: '80% × (Z − 1) / Z ... 40% at two, 53% at three, 60% at four (target)'; Scalability Ruralz Gateway availability: 'sized so that losing the largest zone keeps survivors under 80% CPU (target)'.",
-      "fix": "Add a budget for S2 at 80% of saturation, the survivor load after a zone loss. Examples: p99 of 2 ms or less (target), gated in the saturation ladder job, and a p99 at 60% of saturation, the steady-state autoscaling ceiling. State whether SLO-GW-2 counts zone-loss periods against its error budget, and add an Open question to Scalability if the autoscaling thresholds must drop to the load where PB-2 is proven."
-    },
-    {
-      "id": "L4X-7",
-      "section": "Startup and reload time by configuration size (Fleet-level timing); Benchmark suite and CI gating (Statistics and runners)",
-      "issue": "No scenario, runner or gate verifies the fleet-scale budgets. Control plane and GitOps says Performance budgets and benchmarking measures the 10,000-Node largest batch. The only fleet scenario is F1, with 100 `ruralzd` processes. It cannot load a replica with 5,000 Control Streams, cannot measure the missing '20 Snapshots/s (hypothesis)' replica capacity, and cannot reproduce the CE-10 reconnect storm at scale. Failure scenario: a leader failover or the restart of every replica sends 10,000 Nodes reconnecting at once. Stream capacity, the per-replica token bucket and the 5-minute recovery are unmeasured at the only size where they matter, so a shed or reconnect storm at 100x the F1 size is untested.",
-      "evidence": "L269 'Largest batch of a 10,000-Node Cluster | 5 minutes or less (target)'; L270 'Control Streams per Ruralz Control replica | 5,000 (hypothesis)'; L271 'All Nodes reconnected after every replica restarts (CE-10) | 5 minutes or less (target)'; L479 '100 `ruralzd` processes ... on four dedicated runners (target)'; Control plane and GitOps Heartbeat and backpressure: 'a replica 5,000 streams and 20 Snapshots/s (hypothesis); ... a 10,000-Node Cluster's largest batch takes at most 5 minutes (target), measured by Performance budgets and benchmarking'.",
-      "fix": "Add scenario F2, Planned (M2), in the `nightly` scale job or `release`. A protocol-level Control Stream driver emulates 10,000 Nodes with mTLS, 15 s heartbeats and ACK after a simulated activation, against three Ruralz Control replicas. Measure streams per replica at the onset of shedding, Snapshots per second per replica, the largest-batch time and the reconnect time after every replica restarts, using `ruralz_control_connected_nodes` and `ruralz_control_stream_reconnects_total`. Add the 20 Snapshots/s row (hypothesis) to Fleet-level timing and give each row its verifying scenario."
-    },
-    {
-      "id": "L4X-8",
-      "section": "Benchmark suite and CI gating (Constants the suite verifies)",
-      "issue": "The constants table verifies only a subset of the ceilings that dependency documents delegate to this suite. Scalability says this document 'verifies every value' in its Per-node limits table, and Data plane says the suite verifies its 'Bounded resources ceilings'. The table has no test for any of these: buffered bytes (512 MiB, RZ-RT-004), the local-only key segment (131,072), the Quota denial cache (65,536), the first-seen GCRA budget, balancer structures (256 MiB), the Response Cache hot-entry layer (64 MiB), State Store connections per shard (2 + 8), HTTP/2 streams per connection (250), the 2,000 concurrent pre-routing rejection writes, and the worst-case per-connection memory of 592 KiB. The 'Worst-case Node' row (about 19 GiB) is an unmeasured hypothesis. The rate-limit key table row also names the wrong owner: Scalability names Traffic management. Failure scenario: under a 10x slow-client or body flood, these unverified ceilings decide whether a Node rejects work or is OOM-killed.",
-      "evidence": "Constants table L483-494 lists 8 rows only; L491 'Rate-limit key table | 1,048,576 entries, about 64 MiB (target) | Scalability and distributed state'; L228 'Worst-case Node | About 19 GiB plus snapshots, fitting a 32 GiB Node (hypothesis) | Data plane'; Scalability Per-node limits: '[Performance budgets and benchmarking] verifies every value' and 'Rate-limit key table | ... | [Traffic management]'; Data plane Performance budgets: 'Its suite also verifies this document's constants: Bounded resources ceilings, K and the grace period'.",
-      "fix": "Add one compact row per delegated ceiling, naming its test. Examples: a body flood to `limits.maxBufferedBytes` with RZ-RT-004 and no OOM; CE-15 for the local-only segment; a slow-header and HTTP/2-window flood over 20,000 connections measuring worst-case per-connection RSS against 592 KiB (hypothesis); 2,000 or more pre-routing rejections. Correct the key-table owner to Traffic management and resilience. Put rows that cannot run in M1 in an Open question rather than leaving them silent."
+      "id": "L4X-13",
+      "section": "Benchmark methodology (Scenarios, O1 and the S2 Bundle); Benchmark suite and CI gating (Constants the suite verifies)",
+      "issue": "New issue in the L4X-1 fix: the Upstream semaphore stops O1 long before the in-flight ceiling. The bench Upstream `mock` sets no `circuitBreaker`, so the defaults from Traffic management and resilience apply: `maxConnections` 1,024, `maxPendingRequests` 256, and a single Endpoint limited to 50% of `maxConnections`, which is 512 attempts. In O1a the mock delays each response by 1 s, and 20,000 rps are to be admitted. That needs about 20,000 concurrent Upstream attempts, but only about 512 can hold the semaphore and 256 can wait. Everything else gets 503 `RZ-UP-006` at once. In-flight units therefore never approach 20,000 and `RZ-RT-005` is never emitted, so O1a fails every one of its own pass criteria. In O1b about 20,000 admitted requests queue for about 0.54 s (hypothesis). Many of them hold or wait for the semaphore, so `RZ-UP-006` also contaminates 'excess only as `RZ-RT-005`'. The Bundle also breaks the Traffic management rule that '`maxConnections` SHOULD exceed attempts per second per Node' in S1 and S2, which run at 40,000 to 50,000 attempts per second. Failure scenario: the 20,000-unit shedding path again goes unexercised, and a benchmark run hides the production misconfiguration it should expose.",
+      "evidence": "L308 'O1a: mock delay 1 s, 30,000 rps, 150% of what the in-flight ceiling admits ... active requests plateau at 20,000'; L353-361 the `mock` Upstream has one Endpoint and no `circuitBreaker`; Traffic management: '`circuitBreaker` limits | `maxConnections` 1,024, `maxPendingRequests` 256' and '`maxPendingRequests` | ... | 503 `RZ-UP-006` at once' and 'An Endpoint holds at most max(8, min(2 × its weighted share, 50%) of `maxConnections`) in-flight attempts'.",
+      "fix": "Give the bench Upstream `circuitBreaker: {maxConnections: 65536, maxPendingRequests: 1024}` (target). Both fields are defined in the Configuration model. Put it in the base Bundle so that S1 and S2 also meet the attempts-per-second rule. Alternatively, add it only to an O1 overlay with at least two mock Endpoints, so that the per-Endpoint 50% share covers 20,000 attempts. Add 'zero `RZ-UP-006`' to O1's pass criteria. Also record the ephemeral port range needed for about 20,000 HTTP/1.1 connections to the mock among the recorded sysctls."
     },
     {
       "id": "L4X-9",
       "section": "Memory budget",
-      "issue": "The memory rows cannot all hold together, because the base leaves no room for the label sets placed 'inside' it. 95 MiB is 99,614,720 bytes, which leaves 385,280 bytes of the 100,000,000-byte PB-6 base. The table nevertheless places 2 MiB (2,097,152 bytes) of sharded label sets 'inside the base', and bills the per-Route slope separately at 2 KB. At R = 1,000, 99,614,720 + 2,097,152 + 2,000,000 is 103,711,872 bytes, above PB-6's 102,000,000. The pr-full idle-RSS gate at 95 MiB can pass while PB-6 fails at every Route count up to about 17,000, so the Capacity planning memory coefficient is wrong at scale.",
-      "evidence": "L211 'PB-6 compares bytes: 100,000,000 plus 2,000 per Route (target)'; L215 'Idle RSS, no Revision, telemetry at defaults | 95 MiB or less (target)'; L217 'Per-Route slope between 1,000 and 17,000 Routes | 2 KB or less (target)'; L218 'Sharded label sets of the first 1,000 admitted Routes | 2 MiB or less at 4 stripes (target), inside the base'.",
-      "fix": "Make the arithmetic close. One option: set idle RSS to 93 MiB (target), about 97.5 MB, leaving 2.5 MB for the sharded sets. Another: charge the sharded sets to the slope and fit it only above 1,000 Routes, with a separate first-1,000 allowance. Show the byte sum at R = 1,000 and R = 17,000 in one sentence, and keep OQ-performance-budgets-and-benchmarking-5 and -10 consistent with the chosen option."
+      "issue": "Partly resolved: the byte arithmetic now closes for the Route label sets. However, the proof leaves out the other sharded label sets that Observability charges at 4 stripes, so PB-6 still fails at the ladder's large sizes. Observability puts all sharded sets at 5.4 MiB of live heap at S = 8 and half of that at S = 4. The halves are 0.3 MiB for listener and enumeration families, 0.45 MiB for Gateway Policies and 1.95 MiB for 1,000 Routes and 1,000 Upstreams, about 2.7 MiB live in total (hypothesis). This document charges only the Routes' 1 MiB live, 2 MiB of RSS. The remaining 1.7 MiB live becomes about 3.4 MiB of RSS at `GOGC=100`. The ladder has R/10 Upstreams, so it reaches 1,000 Upstreams at R = 10,000. At that point the sum is 96,468,992 + 2,097,152 + 20,000,000 + 943,718 (Gateway Policies) + 2,097,152 (Upstreams) = 121,607,014 bytes, above the 120,000,000 allowance. At R = 17,000 the sum is 135,607,014 bytes, above 134,000,000. Both exceed the 1,433,856-byte margin the document claims. Failure scenario: a Node passes the 92 MiB idle gate in `pr-full`, fails PB-6 in R1 at 10,000 Routes, and gives Capacity planning a Route-memory coefficient that is too low at the sizes where it matters.",
+      "evidence": "L213 'Sharded label sets, first 1,000 admitted Routes | 2 MiB of RSS, 1 MiB live, 4 stripes (target), in the base'; L226 'PB-6 closes at every checked size, with about 1.4 MB of margin'; L235 'R = 17,000 96,468,992 + 2,097,152 + 34,000,000 = 132,566,144 <= 134,000,000'; L244 'R/10 Upstreams'; Observability Overhead per signal: 'At S = 8 the sharded sets add at most 5.4 MiB: 0.6 MiB listener and enumeration, 0.9 MiB Gateway Policies, 3.9 MiB for 1,000 Routes and 1,000 Upstreams at 2 KiB each (hypothesis); at S = 4 they add half'; Observability: 'the `ruralz_upstream_attempts_total` and `ruralz_upstream_attempt_duration_seconds` label sets of the first 1,000 admitted Upstreams'.",
+      "fix": "Charge every sharded set at S = 4: listener and enumeration 0.6 MiB of RSS, Gateway Policies 0.9 MiB, and Routes plus Upstreams about 2 KiB of RSS each (hypothesis). Then close the arithmetic, for example with idle RSS at 89 MiB (target). At R = 17,000 that gives 93,323,264 + 5,662,310 + 34,000,000 = 132,985,574, which is 134,000,000 or less. Alternatively, add a per-Upstream term to PB-6. Show R = 0, 1,000, 10,000 and 17,000 in the code block. Update the `pr-full` idle-RSS gate, OQ-performance-budgets-and-benchmarking-5 and -10 to match."
     },
     {
-      "id": "L4X-10",
-      "section": "Throughput and resources per core (Resources per core); Memory budget",
-      "issue": "No budget covers a client connection storm on the Nodes that survive a Node or zone loss. Clients of a lost Node or zone reconnect to the survivors with fresh TLS handshakes. At the document's 2,000 handshakes per second per vCPU (hypothesis), a 4-vCPU Node needs about 2.5 s of all its CPU to accept 20,000 connections, while it keeps serving existing traffic. No scenario measures the p99 of existing traffic, or the handshake latency, during such a storm. On memory, 20,000 TLS connections at 96 KiB need about 1.9 GiB, far above the 256 MiB loaded budget and the 512 MiB container of the informational `GOMEMLIMIT` run. The document never states the container memory the default 20,000-connection ceiling requires. Failure scenario: survivors in right-sized containers run into `GOMEMLIMIT` GC thrash or an OOM kill before they reach the connection ceiling. Their clients move on to the next survivors, and the failure cascades.",
-      "evidence": "L194 'New TLS 1.3 handshakes, ECDSA P-256 | 2,000 or more per second per vCPU (hypothesis)'; L222 'Idle HTTP/1.1 or HTTP/2 connection over TLS | 96 KiB or less (target) | 20,000 fit in about 1.9 GiB (target)'; L225 'Loaded RSS, S1 at 40,000 rps with 256 connections | 256 MiB or less (target)'; L230 'An informational run adds `GOMEMLIMIT` at 90% of a 512 MiB container limit (target)'; Scalability CE-1 checks only 'Errors only on its in-flight requests'.",
-      "fix": "Add scenario C2, Planned (M1). Run S3 at half saturation, then open 10,000 new TLS connections within 2 s (target). Budget the existing traffic's p99 during the storm (for example 5 ms or less (target)) and the p99 of `ruralz_listener_tls_handshake_duration_seconds`. Add a Memory budget row for the minimum container memory at the default ceilings (for example 20,000 × 96 KiB + 256 MiB, about 2.2 GiB (target)). Run the `GOMEMLIMIT` variant under C1 plus S2, so the limit actually binds, and report GC CPU."
+      "id": "L4X-7",
+      "section": "Startup and reload time by configuration size (Fleet-level timing); Benchmark methodology (Scenarios, F2)",
+      "issue": "Partly resolved: F2 exists now, but as specified it cannot verify the per-replica stream capacity it is assigned. F2 runs 10,000 emulated Nodes against three replicas, so each replica holds about 3,333 streams, never 5,000 and never the onset of shedding. The 5,000-stream figure is what Scalability's HA rule rests on: ceil(N / 5,000) + 1 replicas, so that losing one replica never exceeds stream capacity. At 10,000 Nodes that rule predicts two survivors at exactly 5,000 streams each. F2 has no step that removes a replica, so the one load the rule depends on is never produced. Failure scenario: a replica dies in a 10,000-Node Cluster, and the two survivors take 5,000 streams each for the first time in production. If real capacity is, say, 4,000, both shed, and every shed Node redials, which is the reconnect storm CE-10 is meant to bound.",
+      "evidence": "L283 'Control Streams per replica before shedding | 5,000 (hypothesis) | F2'; L315 'F2 | A Control Stream driver emulating 10,000 Nodes ... against three replicas'; Scalability: 'deployments SHOULD run at least ceil(N / 5,000) + 1 replicas across zones (hypothesis), so losing one never exceeds stream capacity'; Cell and Cluster bottlenecks: 'Ruralz Control streams | About 5,000 per replica (hypothesis) | `Reconnect` with `shed`'.",
+      "fix": "Add two F2 steps. First, stop one of the three replicas, so that 10,000 streams settle on two, and pass when neither survivor sheds and every Node reconnects within 5 minutes (target). Second, drive a single replica past 5,000 streams to find where shedding starts, and record that point as the measured capacity that replaces the hypothesis. Use `ruralz_control_connected_nodes` and `Reconnect` with `reason: shed` as the signals."
     },
     {
       "id": "L4X-11",
-      "section": "Startup and reload time by configuration size; Benchmark suite and CI gating (Figure 2)",
-      "issue": "Two scale or performance figures lack (target) or (hypothesis) on their line, which violates style guide section 4 and acceptance criterion 1. The regression thresholds in Figure 2 are also the figures that acceptance criterion 5 requires to be tagged.",
-      "evidence": "L236 'The largest class stays under the 20,000-resource default limit of the [Configuration model]'; L453 'gate{\"CI gate: 5% p99, 3% alloc/op, budget catalog\"}'.",
-      "fix": "Write '20,000-resource default limit (target)', and change the Figure 2 node to 'CI gate: 5% p99 (target), 3% alloc/op (target), budget catalog'."
+      "section": "Memory budget; Benchmark methodology (Scenarios; S2 Bundle comments); Benchmark suite and CI gating (Figure 2)",
+      "issue": "Several performance or scale figures still lack (target) or (hypothesis) on the same line, which violates style guide section 4 and acceptance criterion 1. The earlier two lines are fixed, but the revision added new untagged lines.",
+      "evidence": "L233-235 'R = 0 96,468,992 <= 100,000,000', 'R = 1,000 ... = 100,566,144 <= 102,000,000', 'R = 17,000 ... = 132,566,144 <= 134,000,000'; L314 'F1 | SM-9: 100 `ruralzd` processes'; L324 '(CE-3's 200 ms would need 41,000 calls/s to fill 8,192; the 1 s timeout keeps the breaker closed)'; L380 'generator rotates 10,000 tokens from two keys'; L394 'the generator cycles 100,000 values uniformly'; L396 'At 40,000 rps each key sees about 0.4 requests/s'; L399 'keeps its hottest key under 25,000 calls/s'; L501 'Ruralz Gateway under test: 4-core cpuset'.",
+      "fix": "Append (target) or (hypothesis) to each of these lines. For example, write '<= 100,000,000 (target)' on each R row, '100 `ruralzd` processes (target)', '41,000 calls/s (hypothesis)', '100,000 values uniformly (target)', '0.4 requests/s (hypothesis)', 'under 25,000 calls/s (target)', and change the Figure 2 node to '4-core cpuset (target)'."
     }
   ],
   "non_blocking": [
     {
-      "section": "Benchmark suite and CI gating",
-      "suggestion": "The 'weekly' stage (L415, L417, L427, L429) does not exist in Testing and quality strategy, which defines pr-fast, pr-full, main, nightly and release. Use the `nightly` scale or latency jobs or `release`, or add an Open question owned by testing-and-quality-strategy (also raised by L2-1)."
+      "section": "Benchmark methodology (Scenarios, O1 arithmetic)",
+      "suggestion": "The O1b code block charges 20,000 rejections/s, but 60,000 offered minus about 36,800 admitted is about 23,200/s. That costs about 0.37 vCPU, leaving goodput of about 90.7%, which is still at or above PB-11 but with less margin than the 92% stated. Correct the figures."
     },
     {
-      "section": "Benchmark methodology (Scenarios)",
-      "suggestion": "Specify JWT workload cardinality: how many distinct tokens and signing keys the generator rotates, and whether a verified-token cache is allowed. A single token could let a cache hide the 40 µs RS256 cost at scale."
+      "section": "Benchmark suite and CI gating (Suite layers; Latency job rotation)",
+      "suggestion": "The rotation lists seven slots but none for the constants tests (frame-limit run, slow-header flood, body flood, `ring-hash` ladder, Quota denial flood, the Plugin rows), so they run only in `release`. Either assign them a slot or say explicitly that they gate only at release."
     },
     {
-      "section": "Benchmark methodology (Scenarios)",
-      "suggestion": "Vision SM-4 says 'no Plugins or State Store Policy', but S2 attaches `ratelimit` on the `memory` State Store driver. State explicitly that in-process `memory` GCRA counts as the 'local token bucket' of SM-4, or raise an Open question to vision-and-positioning."
+      "section": "Benchmark methodology (S2 Bundle comments)",
+      "suggestion": "Under option (a) of OQ-traffic-management-and-resilience-20, 100,000 first-seen keys at a budget of 500 per second take about 200 s (hypothesis) to reach GCRA, which is longer than the 60 s warm-up. Note that S5 warm-up must then run until the key table holds every key, or that S5 assumes option (c)."
     },
     {
-      "section": "Benchmark methodology (Scenarios)",
-      "suggestion": "Name the host and cpuset of S5's Valkey primary. It must not share RH-1U CPUs with the mock and the Collector sink, or PB-9 is not reproducible."
+      "section": "Benchmark suite and CI gating (Constants the suite verifies)",
+      "suggestion": "The first-seen budget row omits Scalability's 'else 200 (target)' fallback. Restate the full value."
     },
     {
-      "section": "Reporting (Production comparison)",
-      "suggestion": "Hand Capacity planning the State Store coefficient too: GCRA calls per second per shard and per Node from the shard-saturation run. Scalability's '5,000 State Store calls per second per Node (hypothesis)' currently has no measured source."
+      "section": "Memory budget",
+      "suggestion": "The informational `GOMEMLIMIT` run expects about 2.08 GiB of RSS (C1 over TLS plus S2), below the 2.25 GiB limit. Report the heap goal and the number of GC cycles forced by the limit, so the run shows that the limit actually binds."
     },
     {
-      "section": "Whole document",
-      "suggestion": "The body is about 6,468 words against a 6,500 maximum, so the fixes above must be compact: prefer new table rows over prose, and do not remove text that resolved an earlier blocking finding. The verifier emitted WARN lines only (broken links to docs/operations/03-capacity-planning.md, ADR-0008 and ADR-0010, which are not yet written), and no FAIL lines."
-    },
-    {
-      "section": "Profiling playbook (GOGC and GOMEMLIMIT)",
-      "suggestion": "Rule 3 assumes a memory limit is set. Without `GOMEMLIMIT`, `GOGC=off` never collects and the Node is OOM-killed. State both cases."
+      "section": "Budget catalog and SLO ties",
+      "suggestion": "PB-1 holds S1 at 80% of its saturation to 1 ms, while PB-16 allows S2 2 ms at the same utilization. Add one sentence explaining the difference: queueing delay scales with per-request service time, about 80 µs of CPU for S1 against 125 µs for S2 (target)."
     }
   ],
   "ac_results": [
     {
       "ac": "Every performance number is tagged (target) or cites a measurement URL.",
       "pass": false,
-      "note": "Fails at L236 ('20,000-resource default limit', untagged) and L453 (Figure 2 '5% p99, 3% alloc/op', untagged). See L4X-11."
+      "note": "Untagged figures at L233-235, L314, L324, L380, L394, L396, L399 and L501 (L4X-11)."
     },
     {
       "ac": "Per-stage latency budget gives a microsecond budget per Filter Chain stage in a table.",
       "pass": true,
-      "note": "The table at L94-113 covers every Phase including onChunk, with p50 and p99 in µs (target), and the sums check: 150/1,000 for S2 and 45/177 for S1."
+      "note": "All nine Phases plus parse, match, upstream, write and reserve have p50 and p99 values in µs."
     },
     {
       "ac": "Throughput and resources per core states the reference hardware.",
       "pass": true,
-      "note": "RH-1 is specified at L158; RH-1L/U, RH-2 and RH-3 are also given."
+      "note": "RH-1, RH-1L/U/S, RH-2 and RH-3 are specified."
     },
     {
       "ac": "Benchmark methodology names the load tool, protocol, duration, percentiles and reference machine, and addresses open-loop load, coordinated omission, warm-up and reproducibility.",
-      "pass": true,
-      "note": "The tools are oha, vegeta and fortio; runs are 5 × 180 s; percentiles run p50 to p99.9; RH-1 is the reference machine. Open-loop load, coordinated omission, warm-up and reproducibility each have a subsection. The tool catalog rows are still OQ-1 (blocking for M1)."
+      "pass": true
     },
     {
       "ac": "Benchmark suite and CI gating quantifies the regression policy (more than 5% p99 latency or more than 3% alloc/op regression fails, tagged (target)).",
-      "pass": true,
-      "note": "L422 and the gate table are tagged. Figure 2 restates the thresholds untagged; that is counted under AC1 and L4X-11."
+      "pass": true
     },
     {
       "ac": "Benchmark methodology includes a competitor baseline plan against KrakenD CE, Envoy, APISIX and Kong.",
-      "pass": true,
-      "note": "The Competitor baseline plan table has all four. The S2 JWT configuration for Envoy, APISIX and Kong awaits research (OQ-7)."
+      "pass": true
     },
     {
       "ac": "Budgets tie to the SLOs defined in docs/architecture/10-observability.md.",
       "pass": true,
-      "note": "The budget catalog maps each PB to an SLO-GW or SLO-CP ID, or to 'None'. The ties are weak at scale: PB-9 is same-zone while SLO-GW-5 counts all zones (L4X-5), and PB-2 holds only at 50% load while SLO-GW-2 applies at every load (L4X-6)."
+      "note": "Every PB names an SLO, a related SLO or none. PB-14 and PB-16 have open questions."
     },
     {
       "ac": "The seed targets appear, each tagged (target): p99 added latency 1 ms or less for plain proxying at 10k rps per core; at least 50k rps on 4 vCPU; WASM Plugin call 50 microseconds or less; RSS 100 MB or less plus about 2 KB per Route; hot reload of 5,000 Routes in 500 ms or less.",
       "pass": true,
-      "note": "The seed table at L60-66 is tagged. The RSS seed is internally inconsistent with the 95 MiB idle row (L4X-9)."
+      "note": "The seed table appears, but PB-6 does not close at 10,000 or more Routes once every sharded label set is counted (L4X-9)."
     },
     {
       "ac": "Profiling playbook covers pprof, GOGC and GOMEMLIMIT.",
-      "pass": true,
-      "note": "The Capturing profiles and GOGC and GOMEMLIMIT subsections cover all three."
+      "pass": true
     }
   ],
   "foundation_amendments": []

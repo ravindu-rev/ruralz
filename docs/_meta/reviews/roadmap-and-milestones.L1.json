@@ -1,0 +1,78 @@
+{
+  "lens": "L1 feasibility-skeptic",
+  "verdict": "revise",
+  "score": 6,
+  "blocking": [
+    {
+      "id": "L1-1",
+      "section": "M2 WASM and Control with GitOps (M2 exit criteria)",
+      "issue": "Exit criterion 4 requires every System overview failure row to pass at M2, but one of those rows needs M3 features. The 'LLM provider throttling' row (Provider Fallback on an AIModel) cannot run until AIProvider and AIModel ship, Planned (M3). The criterion also disagrees with the doc's own M2 Quality chaos list, which leaves the AI row out.",
+      "evidence": "\"Chaos tests pass 100% of System overview failure rows (target); a Zero-Downtime Upgrade from the previous release fails no requests (target).\" System overview, Failure semantics at component boundaries: \"| LLM provider throttling | One `AIModel` | Provider Fallback before commit |\"",
+      "fix": "Reword to: \"Chaos tests pass 100% of the System overview failure rows whose features are Planned (M2) or earlier (target): Ruralz Control unreachable or quorum lost, Node restart during that outage, bad digest or signature, State Store slow or down, Upstream failing, Plugin trap or memory cap.\" Add the LLM provider throttling row to the M3 exit criteria (with the CE-13 and AI provider mock 429 tests)."
+    },
+    {
+      "id": "L1-2",
+      "section": "M3 AI gateway, gRPC, GraphQL, WebSocket and SSE; M4 Event protocols, multi-region and benchmark suite; Sequencing",
+      "issue": "Two milestone exits depend on community adoption, which the project does not control, and both numbers are tagged (hypothesis). Because milestones must exit in order, a shortfall of outside contributors or public adopters would block M4 and M5 engineering indefinitely. The vision document defines SM-14 and SM-15 as success metrics, not as release gates.",
+      "evidence": "M3: \"At least 50 external contributors have merged DCO-signed commits (hypothesis), per SM-14.\" M4: \"At least 25 production adopters reference Ruralz publicly (hypothesis), per SM-15.\" Sequencing: \"Milestones exit in order.\"",
+      "fix": "Move SM-14 and SM-15 out of the numbered Exit criteria. Add a sentence after each milestone's exit list: \"Measured and published at exit, not gating: SM-14 (hypothesis)\" (and SM-15 at M4). Alternatively, state in Sequencing that criteria tagged (hypothesis) are reported, not gating, and that a missed hypothesis opens an Open question in its owning document."
+    },
+    {
+      "id": "L1-3",
+      "section": "M3 AI gateway, gRPC, GraphQL, WebSocket and SSE (M3 scope)",
+      "issue": "Currency spend budgets appear as a Planned (M3) item, but no dependency document plans them. The AI/LLM gateway document leaves shared or currency budgets to OQ-ai-llm-gateway-7, which is non-blocking and has no milestone. Market landscape F-15 says that until that question is decided Ruralz offers only token budgets plus cost reporting.",
+      "evidence": "Roadmap M3 scope: \"Token accounting, Token Budgets (`ai.token-budget`), token-based limits in tokens (LLM input plus output), currency spend budgets;\" under \"Items, all Planned (M3)\". AI/LLM gateway: \"shared or currency budgets are OQ-ai-llm-gateway-7.\" Market landscape F-15: \"until then Ruralz offers token budgets plus cost reporting through `ruralz ai cost`, Planned (M3)\".",
+      "fix": "Remove \"currency spend budgets\" from the M3 Planned list. Add a sentence below the M3 scope table: \"Currency budgets are unscheduled until OQ-ai-llm-gateway-7 is decided; M3 offers token budgets plus cost reporting through `ruralz ai cost`.\""
+    },
+    {
+      "id": "L1-4",
+      "section": "M4 Event protocols, multi-region and benchmark suite (M4 scope); M5 Long-tail parity (M5 scope)",
+      "issue": "Several items listed under the headers 'Items, all Planned (M4)' and 'Items, all Planned (M5)' are only non-current options of open questions. The owning documents' current answers are different: GCRA leases are not current (scalability says per request is current), produce-only Kafka proxying is Not planned (current), Gateway API conformance's first option is 'Keep deferred beyond M5', and the 1.0.0 timing is undecided. The Scope and non-goals section says only the owning document may move a tag.",
+      "evidence": "M4: \"regional (default), divided and home Region Quota patterns; OQ-scalability-and-distributed-state-1 leases\" (scalability OQ-1: \"(a) Per request (current); (b) leases for keys over a shard threshold, Planned (M4)\", Blocking No). M5: \"produce-only Kafka proxying option (OQ-multi-protocol-11); `1.0.0` timing (OQ-release-versioning-and-compatibility-1)\" (multi-protocol OQ-11: \"(a) Not planned (current); (b) Produce-only, Planned (M5)\"). M4: \"Gateway API conformance decision (OQ-vision-and-positioning-4)\".",
+      "fix": "Remove these four entries from the Planned tables. Add a line under each scope table headed \"Decisions reviewed at this milestone, not planned items\", listing OQ-scalability-and-distributed-state-1 (leases, current: per request), OQ-vision-and-positioning-4 at M4, and OQ-multi-protocol-11 (current: Not planned) and OQ-release-versioning-and-compatibility-1 at M5."
+    },
+    {
+      "id": "L1-5",
+      "section": "M0 Foundations (M0 scope)",
+      "issue": "The M0 table tags the OpenAPI description of the Ruralz Control REST API as Planned (M0). The release document and the repository layout both place it at M2, and this document's own M2 row lists `api/openapi/`, so the same item appears in two milestones. At M0 the REST API has no resource set yet: Control plane and GitOps owns it and ships it at M2.",
+      "evidence": "M0 Contracts row: \"JSON Schema (draft 2020-12) authoring and rendered views with a generation check ([ADR-0003]); JSON Schema and OpenAPI for `/api/v1/`\" under \"Items, all Planned (M0)\". Release, versioning and compatibility: \"Schema published Planned (M0), attached to releases Planned (M1); OpenAPI Planned (M2)\". Repository layout: \"`api/openapi/` | ... REST API under `/api/v1/` on 8090 ... | Planned (M2)\".",
+      "fix": "In M0 Contracts keep only \"`ruralz/v1alpha1` envelope; JSON Schema (draft 2020-12) authoring and rendered views with a generation check (ADR-0003), published\". Move \"OpenAPI description for `/api/v1/` (OQ-cli-and-api-surface-3)\" into the M2 Ruralz Control row."
+    },
+    {
+      "id": "L1-6",
+      "section": "Risks (R-6)",
+      "issue": "R-6 cites the wrong source and understates the risk. In the runtime research, the fact that wazero has no fuel metering is sourced to issue #422. Issue #2466 reports that WithCloseOnContextDone, the deadline interruption R-6 offers as its first mitigation, slows loop-heavy guests 10–20x, and no fix had merged by 2026-09-12. SM-6 and PB-5 (M2 exit criterion 2) are measured with deadline interruption enabled, so this overhead directly threatens the M2 exit.",
+      "evidence": "\"| R-6 | wazero lacks fuel metering, so a CPU-bound Plugin holds a core ([source](https://github.com/wazero/wazero/issues/2466)) | Medium | High | Deadlines, call budgets, fault breakers (OQ-tech-stack-and-libraries-8); S4 variants gate M2 |\". go-libraries-runtime.md: \"Open issue #2466 (2026-01-11) reports a 10–20x slowdown on loop-heavy guests with it enabled... As of 2026-09-12 no fix has merged\" and \"No fuel or instruction metering... (https://github.com/wazero/wazero/issues/422)\".",
+      "fix": "Cite https://github.com/wazero/wazero/issues/422 for the missing fuel metering. Add a separate risk or a second clause citing https://github.com/wazero/wazero/issues/2466: \"deadline interruption (`WithCloseOnContextDone`) costs 10–20x on loop-heavy guests, threatening SM-6 and PB-5 (M2 exit criterion 2)\". Mitigation: host-side call budgets, the S4 loop-heavy variant as an M2 gate, and a fallback decision recorded in OQ-tech-stack-and-libraries-8."
+    },
+    {
+      "id": "L1-7",
+      "section": "M2 WASM and Control with GitOps (M2 scope, Security row)",
+      "issue": "Client redirects cite the wrong open question. OQ-traffic-management-and-resilience-12 is about mirroring (Blocking No). The redirect question, which blocks M2, is OQ-traffic-management-and-resilience-13, so a contributor following this reference would work on the wrong decision.",
+      "evidence": "Roadmap: \"client redirects (OQ-traffic-management-and-resilience-12)\". Traffic management: \"| OQ-traffic-management-and-resilience-12 | How is mirroring declared? ... | No |\" and \"| OQ-traffic-management-and-resilience-13 | How are redirects and plain `upstreams` rewrites declared? ... | Yes, built-in redirects (M2) |\".",
+      "fix": "Replace with \"client redirects (OQ-traffic-management-and-resilience-13)\", and move the item from the Security row to a traffic row or the Configuration area of M2."
+    }
+  ],
+  "non_blocking": [
+    {"section": "M1 Core parity; M3; M4 exit criteria", "suggestion": "OQ-traffic-management-and-resilience-5 is closed at M1 (criterion 7) and again at M4, and OQ-scalability-and-distributed-state-3 at M1 and again at M3. Write 'the M1 part (breaker `minimumLegs`)' and 'the M4 part (hedging)', and likewise Response Cache (M1) and Semantic Cache (M3), so no question is closed twice."},
+    {"section": "M0 Foundations (M0 exit criteria)", "suggestion": "\"Every pull request runs CI stages 1 to 7\" conflicts with the path triggers in Repository layout (stages 2 to 5 run on Go or proto changes; stage 7 on docs changes). Reword to \"stages 1 to 7 run on every pull request that matches their triggers\"."},
+    {"section": "M0 Foundations (M0 scope)", "suggestion": "The 'Gates in `pr-fast`' cell mixes stage numbers with unnumbered items and omits stage 3 (generated code drift) and stage 4 (build). List stages 1 to 7 by their Repository layout names and add the markdownlint-cli2 0.23.x pin, which is Planned (M0) in Repository layout but missing here."},
+    {"section": "M2 WASM and Control with GitOps (M2 exit criteria)", "suggestion": "\"a Zero-Downtime Upgrade from the previous release fails no requests (target)\": add the Testing qualifier \"on TCP listeners, for clients honoring `Connection: close` and GOAWAY\". From M3 on, in-flight QUIC connections are lost (pack ADR-0015 row)."},
+    {"section": "M1 Core parity (M1 scope)", "suggestion": "\"digest checks on every Revision and Plugin artifact\" is listed at M1 while Plugins are Planned (M2). Say \"every Revision\" at M1 and \"Plugin artifacts\" at M2."},
+    {"section": "M2 WASM and Control with GitOps (M2 scope)", "suggestion": "Operations lists `/debug/pprof/`, which M1 already ships on 9901. Write \"`/debug/pprof/` on 9902 for `ruralz-control`\"."},
+    {"section": "Sequencing / Risks", "suggestion": "R-1 says the gRPC and GraphQL spikes run during M2, but the gantt places the gRPC pass-through spike inside the M1 window (after t1) and shows no GraphQL spike. Align the two."},
+    {"section": "M3 AI gateway, gRPC, GraphQL, WebSocket and SSE (M3 exit criteria)", "suggestion": "Criterion 6 counts OQ-system-overview-5 separately, although OQ-multi-protocol-3 answers it. State that the two close together, so the count of 27 is not read as 27 independent decisions."},
+    {"section": "M3 AI gateway, gRPC, GraphQL, WebSocket and SSE (M3 scope)", "suggestion": "Add the Testing end-to-end item \"A Hot Reload keeps open WebSocket and SSE streams on their starting snapshot\" (Planned (M3)), which the M3 section does not mention."},
+    {"section": "M4 Event protocols, multi-region and benchmark suite (M4 exit criteria)", "suggestion": "\"S8 results are published\" is not measurable because S8 budgets are 'Reported'. Name what is checked, for example that S8 runs in the Latency job for each of Kafka, NATS and MQTT and its record is published."},
+    {"section": "Whole document", "suggestion": "The body is about 3,717 words against a 3,750 maximum. Any fix that adds text should replace text of similar length, without removing earlier resolved content."}
+  ],
+  "ac_results": [
+    {"ac": "Every Planned (Mx) tag used in any document appears as an item under the corresponding Mx section.", "pass": true, "note": "verify-docs reports 0 FAIL lines and 65 heuristic WARNs. Spot checks show most WARNs are wording mismatches for items the sections do cover (for example Bedrock InvokeModel at M4, revocation at M2, traceparent at M1). Small real gaps are listed in non_blocking: the markdownlint-cli2 pin at M0 and the Hot Reload WebSocket and SSE end-to-end item at M3. Several items also appear at the wrong milestone or as Planned without a tag (L1-3, L1-4, L1-5)."},
+    {"ac": "Each milestone section states scope, measurable exit criteria and the KrakenD EE parity percentage tagged (target).", "pass": true, "note": "All six sections have a scope table, an 'Exit criteria' list and a parity line tagged (target). The parity arithmetic checks against krakend-parity.md: 23+12+18+2+13+3 = 71 EE-only rows, with 32%, 49%, 75%, 77% and 96% correct. The feasibility of the M2 and M3/M4 exit criteria is covered by L1-1 and L1-2."},
+    {"ac": "Milestone names match the foundation pack: M0 Foundations, M1 Core parity, M2 WASM + Control/GitOps, M3 AI gateway + gRPC/GraphQL/WS/SSE, M4 Event protocols + multi-region + bench suite, M5 Long-tail parity.", "pass": true, "note": "Each section quotes the pack name verbatim ('Pack name: **Mx** ...'), and the H2s follow the manifest outline_h2."},
+    {"ac": "The gantt chart uses relative durations and no calendar dates.", "pass": true, "note": "The chart uses dateFormat X from 0, day-of-year axis, todayMarker off and relative 'Nd' units, and the caption says units are not calendar dates."},
+    {"ac": "Risks is a table with likelihood, impact and mitigation.", "pass": true, "note": "R-1 to R-11 have Likelihood, Impact and Mitigation columns. R-6 has a citation and completeness problem (L1-6)."},
+    {"ac": "Contribution surface identifies where outside contributors can help per milestone.", "pass": true, "note": "The table has one row per milestone, M0 to M5, plus the DCO and no-CLA rule."}
+  ],
+  "foundation_amendments": []
+}
