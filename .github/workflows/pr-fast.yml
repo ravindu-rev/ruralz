@@ -1,0 +1,199 @@
+# Copyright 2026 Revington
+# SPDX-License-Identifier: Apache-2.0
+#
+# pr-fast: CI stages 1 to 6 (docs/engineering/02-repository-layout-and-conventions.md).
+# Path filters skip stages whose inputs did not change; the pr-fast job
+# aggregates every stage and is the one required status check, so skipped
+# stages never leave a required check pending.
+name: pr-fast
+
+on:
+  pull_request:
+  merge_group:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: pr-fast-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+env:
+  GOTOOLCHAIN: local
+
+jobs:
+  changes:
+    name: Path filters
+    runs-on: ubuntu-latest
+    outputs:
+      go: ${{ steps.paths.outputs.go }}
+      generate: ${{ steps.paths.outputs.generate }}
+      test: ${{ steps.paths.outputs.test }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - id: paths
+        env:
+          EVENT: ${{ github.event_name }}
+          PR_BASE: ${{ github.event.pull_request.base.sha }}
+          PR_HEAD: ${{ github.event.pull_request.head.sha }}
+          MG_BASE: ${{ github.event.merge_group.base_sha }}
+          MG_HEAD: ${{ github.event.merge_group.head_sha }}
+          PUSH_BEFORE: ${{ github.event.before }}
+        run: bash scripts/ci-changes.sh
+
+  hygiene:
+    name: 1. Commit hygiene
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+      - name: DCO range
+        env:
+          EVENT: ${{ github.event_name }}
+          PR_BASE: ${{ github.event.pull_request.base.sha }}
+          PR_HEAD: ${{ github.event.pull_request.head.sha }}
+          MG_BASE: ${{ github.event.merge_group.base_sha }}
+          MG_HEAD_REF: ${{ github.event.merge_group.head_ref }}
+        run: |
+          case "$EVENT" in
+            pull_request)
+              echo "DCO_RANGE=$PR_BASE..$PR_HEAD" >>"$GITHUB_ENV" ;;
+            merge_group)
+              # Check the queued pull request's own commits, not the queue's squash commit.
+              pr=$(sed -nE 's|.*/pr-([0-9]+)-[0-9a-f]+$|\1|p' <<<"$MG_HEAD_REF")
+              git fetch --no-tags origin "+refs/pull/$pr/head:refs/remotes/pr/$pr"
+              echo "DCO_RANGE=$(git merge-base "$MG_BASE" "pr/$pr")..pr/$pr" >>"$GITHUB_ENV" ;;
+            *)
+              echo "no DCO range for $EVENT" ;;
+          esac
+      - run: make hygiene
+
+  lint:
+    name: 2. Format and lint
+    needs: changes
+    if: needs.changes.outputs.go == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+      - run: make lint
+
+  generate:
+    name: 3. Generated code drift
+    needs: changes
+    if: needs.changes.outputs.generate == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+      - run: make generate
+
+  build:
+    name: 4. Build (G1)
+    needs: changes
+    if: needs.changes.outputs.go == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+      - run: make build
+
+  floor:
+    name: 4. Build and test on the Go 1.26 floor
+    needs: changes
+    if: needs.changes.outputs.go == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version: '1.26.x'
+          check-latest: true
+      - run: make floor
+
+  test:
+    name: 5. Unit tests
+    needs: changes
+    if: needs.changes.outputs.test == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+      - run: make test
+
+  test-cli:
+    name: 5. CLI tests on ${{ matrix.os }}
+    needs: changes
+    if: needs.changes.outputs.test == 'true'
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-latest, macos-15-intel, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+      - shell: bash
+        env:
+          CGO_ENABLED: "0"
+        run: go test -shuffle=on ./internal/cli/... ./internal/buildinfo/... ./pkg/...
+
+  supply-chain:
+    name: 6. Supply chain
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+      - run: make supply-chain
+
+  pr-fast:
+    name: pr-fast
+    if: always()
+    needs: [changes, hygiene, lint, generate, build, floor, test, test-cli, supply-chain]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Every stage passed or was skipped by its path filter
+        env:
+          RESULTS: ${{ join(needs.*.result, ' ') }}
+        run: |
+          echo "results: $RESULTS"
+          for r in $RESULTS; do
+            if [[ "$r" != success && "$r" != skipped ]]; then exit 1; fi
+          done

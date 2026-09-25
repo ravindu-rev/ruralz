@@ -1,0 +1,35 @@
+# Copyright 2026 Revington
+# SPDX-License-Identifier: Apache-2.0
+#
+# Stage 1 approval count. It gates only merge and never other stages: paths
+# that need two approvals are listed in scripts/ci-approvals.sh.
+name: approvals
+
+on:
+  pull_request:
+    types: [opened, reopened, synchronize, ready_for_review]
+  pull_request_review:
+    types: [submitted, dismissed]
+  merge_group:
+
+permissions:
+  contents: read
+  pull-requests: read
+
+jobs:
+  approvals:
+    name: approvals
+    runs-on: ubuntu-latest
+    steps:
+      - if: github.event_name != 'merge_group'
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - if: github.event_name != 'merge_group'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          PR: ${{ github.event.pull_request.number }}
+        run: bash scripts/ci-approvals.sh
+      - if: github.event_name == 'merge_group'
+        run: echo "Approvals were counted on the pull request."
