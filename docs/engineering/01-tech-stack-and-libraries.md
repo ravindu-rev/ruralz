@@ -336,6 +336,20 @@ Explicit `require` lines enforce floors over lower transitive pins.
 - Weekly update pull requests: patch bumps merge on green CI; minor bumps of pre-1.0 modules need a named reviewer, since quic-go breaks APIs on minor releases ([source](https://github.com/quic-go/quic-go/releases/tag/v0.63.0)).
 - Release builds follow [Version floor](#version-floor); the floor moves only by ADR-0001 amendment.
 
+### CI tooling
+
+CI tools run in stages 2 and 6 but are never linked into a binary and never enter `go.mod` ([License rules](#license-rules)). `make tools` installs them into `bin/`; the research is in the [tooling addendum](../_meta/research/tooling-and-licenses.md). This answers OQ-repository-layout-and-conventions-7 with option (a).
+
+| Tool | Version | License | How it runs | Source |
+|---|---|---|---|---|
+| golangci-lint | v2.13.2 | GPL-3.0 | Release binary checked against a pinned SHA-256 | ([source](https://github.com/golangci/golangci-lint/releases/tag/v2.13.2)) ([source](https://github.com/golangci/golangci-lint/blob/v2.13.2/LICENSE)) |
+| gofumpt, goimports | Bundled in golangci-lint | BSD-3-Clause | golangci-lint formatters; no separate install | ([source](https://github.com/mvdan/gofumpt/blob/master/LICENSE)) ([source](https://github.com/golang/tools/blob/master/LICENSE)) |
+| govulncheck | `golang.org/x/vuln` v1.8.0 | BSD-3-Clause | `go install` at the pinned version, verified by the Go checksum database and built with the module's toolchain | ([source](https://pkg.go.dev/golang.org/x/vuln@v1.8.0/cmd/govulncheck)) ([source](https://proxy.golang.org/golang.org/x/vuln/@v/v1.8.0.zip)) |
+| actions/checkout | v7.0.1 | MIT | GitHub Actions step, pinned by commit SHA | ([source](https://github.com/actions/checkout/blob/v7.0.1/LICENSE)) |
+| actions/setup-go | v7.0.0 | MIT | GitHub Actions step, pinned by commit SHA; installs the `go.mod` `toolchain` version | ([source](https://github.com/actions/setup-go/blob/v7.0.0/README.md)) ([source](https://github.com/actions/setup-go/blob/v7.0.0/LICENSE)) |
+
+G2, G3, the `ruralzd` Raft denylist and the advisory floors run as `internal/tool/depgate`, a standard-library program over `go list -deps -test=false` for each binary and shipped platform with `CGO_ENABLED=0`. It classifies each linked module's license file text, keys the MPL-2.0 exceptions by module path, and fails on an unreadable license until a reviewed override names it. Its x/crypto delegation allowlist is empty: no research row yet names a delegating package, and nothing links `golang.org/x/crypto`.
+
 ### Watch list
 
 | Module | Signal at snapshot | Trigger | Fallback |
