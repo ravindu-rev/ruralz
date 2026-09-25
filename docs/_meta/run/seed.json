@@ -20547,5 +20547,293 @@
 }
 ],
 "foundation_amendments": []
+},
+"review:adr-0011:L2": {
+"lens": "L2 foundation-auditor",
+"verdict": "revise",
+"score": 7,
+"blocking": [
+{
+"id": "L2-1",
+"section": "Decision drivers",
+"issue": "The 'Free' driver says Ruralz has a single Apache-2.0 build. The foundation pack (section 1, FIPS build row) and P1 both describe a default build and a separate FIPS build flavor with the same features, and say 'no enterprise build' means no feature difference, not a single binary.",
+"evidence": "ADR line 31: \"- **Free**: the Security Policies Engine equivalent ships in the one Apache-2.0 build (P1).\" Pack section 1: \"FIPS build | A build flavor (`GOFIPS140`, Planned (M5)) with the same features and license as the default build, published as separate artifacts; \\\"no enterprise build\\\" means no feature difference, not a single binary\". Vision P1: \"ships under Apache-2.0 with one feature set in every public build, including the FIPS build.\"",
+"fix": "Line 31: \"- **Free**: the Security Policies Engine equivalent ships in every public build, FIPS included (P1).\""
+},
+{
+"id": "L2-2",
+"section": "Decision drivers; Pros and cons of the options > OPA as an external decision service",
+"issue": "The ADR describes P3 as banning any network hop on the request path and says an OPA sidecar would violate it. P3 bans only dependencies on the control plane or on peers. It explicitly allows other remote calls before commit if they are declared on the Policy with a timeout and failureMode (pack section 8.7 rule 6). An OPA sidecar is neither Ruralz Control nor a peer Node, so the rejection rests on a misquoted principle.",
+"evidence": "ADR line 29: \"- **No request-path network hop** (P3), and authorization always fails closed (P9)\". Line 134: \"- Bad, because every decision adds a remote call before commit, against P3, while embedding already gives prepared in-process queries\". Vision P3: \"No control-plane or peer dependency on the request path | ... Other remote calls, such as a Semantic Cache embedding call to an `AIProvider`, are declared on the Policy with a timeout and `failureMode` (P9).\" Pack 8.7 rule 6: \"Any other remote call before commit ... is declared on the Policy with a timeout and `failureMode`.\"",
+"fix": "Line 29: \"- **No extra request-path hop**: P3 allows only declared, timed remote calls (pack section 8.7), and authorization always fails closed (P9).\" Line 134: \"- Bad, because every decision adds a declared, timed remote call before commit (pack section 8.7) that fails closed, while embedding already gives prepared in-process queries ([source](...v1/rego/rego.go)).\""
+},
+{
+"id": "L2-3",
+"section": "Decision drivers; Decision outcome (Engine memory row); Decision outcome > Consequences",
+"issue": "The ADR says every CEL, Rego and Cedar error, and the engine-memory ceiling, surfaces in `ruralz bundle validate`. The owning document makes that conditional: with OCI policy delivery (OQ-security-and-identity-13), Ruralz Control checks at ingest and the Node checks at activation, and a violation is NACKed. The ADR states as unconditional what its owning document leaves open and qualifies.",
+"evidence": "ADR line 28: \"- **Validate everywhere**: errors surface in `ruralz bundle validate`, not as Node NACKs.\" Line 95: \"- Good, because CEL, Rego and Cedar errors appear in `ruralz bundle validate`, since the same libraries link into all three binaries\". Line 53: \"per Revision at most 64 MiB of compiled engine memory and 50,000 entities (target), counted toward snapshot size; the rejection code is OQ-security-and-identity-30\". Security and identity, Authorization: \"`ruralz bundle validate` checks the ceiling (code: OQ-security-and-identity-30), or, with OCI delivery (OQ-security-and-identity-13), Ruralz Control ingest and Node activation, NACKing a violation.\"",
+"fix": "Line 28: \"- **Validate everywhere**: inline-policy errors surface in `ruralz bundle validate`; OCI-delivered policies (OQ-security-and-identity-13) fail at ingest or as activation NACKs.\" Line 53: add \"; with OCI delivery, checked at Ruralz Control ingest and Node activation (NACK)\" after \"counted toward snapshot size\". Line 95: \"errors in inline policies appear in `ruralz bundle validate`\". The body has 1,479 words against a 1,500 maximum, so offset the words these fixes add by shortening restated detail. For example, the nominal-size parenthetical on line 49 is already in the linked Limits section."
+},
+{
+"id": "L2-4",
+"section": "Decision outcome (Binaries row)",
+"issue": "The Binaries row tags the linking of all three libraries 'Planned (M1)'. The tech stack catalog tags the Authorization engines row (OPA v1 and cedar-go) Planned (M2), and it defines 'Milestone' as when the first code using the library lands. The ADR's own table tags authz.opa and authz.cedar Planned (M2), so OPA and cedar-go cannot be linked into any binary at M1.",
+"evidence": "ADR line 56: \"| Binaries | All three libraries link into `ruralzd`, `ruralz-control` and `ruralz` (size: OQ-tech-stack-and-libraries-22) | Planned (M1) |\". Tech stack Library catalog: \"| Authorization engines | OPA v1 (`opa/v1/rego`, `PrepareForEval`) and cedar-go v1.8.x; also in Ruralz Control and CLI for validation | ... | Planned (M2) |\" and \"\\\"Milestone\\\" is when the first code using the library lands.\"",
+"fix": "Line 56: \"| Binaries | cel-go, then OPA and cedar-go, link into `ruralzd`, `ruralz-control` and `ruralz` (size: OQ-tech-stack-and-libraries-22) | Planned (M1) for cel-go; Planned (M2) for OPA and cedar-go |\""
+}
+],
+"non_blocking": [
+{
+"section": "Considered options; Decision outcome; Pros and cons of the options",
+"suggestion": "The chosen option has three different labels: option 1 in Considered options, the 'Chosen option' string (the pack section 7 wording) and the H3 'CEL inline with OPA and Cedar engines'. Keep the pack wording in the Chosen option sentence, and name option 1 and its H3 so a reader can match them without guessing."
+},
+{
+"section": "Considered options",
+"suggestion": "The citation on option 2 (the cel-go v0.32.0 release notes) supports nothing that option says. The citation on option 4 (v1/rego/rego.go) documents embedding, not a sidecar. Cite the policy package README on option 2, or drop the per-option citations wherever the Pros and cons H3 already carries the evidence."
+},
+{
+"section": "Decision outcome (Lua row)",
+"suggestion": "Name the import fidelity level the pack defines for this case: `ruralz bundle import krakend` reports Lua as `manual` (pack section 7, Other defaults)."
+},
+{
+"section": "Decision outcome (Figure 1)",
+"suggestion": "The flowchart draws the authz-class Policies as parallel branches. Pack 8.12 rule 5 orders them by scope and list position, and a deny short-circuits. Consider a relabel such as 'in order; the first deny stops'."
+},
+{
+"section": "Decision outcome (Engine memory row)",
+"suggestion": "Owning-document details worth restating, word budget permitting: peak engine memory is (K + 2) = 4 times the ceiling, 256 MiB (hypothesis), and compilation counts against the 2 s compile budget."
+},
+{
+"section": "Whole document",
+"suggestion": "verify-docs emits three non-blocking WARN lines (lines 55, 100 and 111). They report Planned (M1) and (M5) items that have no matching roadmap entry. Coordinate with the roadmap document rather than changing the tags."
+},
+{
+"section": "Whole document (length)",
+"suggestion": "The body is 1,479 words against a 1,500 maximum, so every fix must be close to word-neutral. Do not delete text that resolved an earlier finding; tighten restated detail that the linked Allowed places and Limits sections already own."
+}
+],
+"ac_results": [
+{
+"ac": "Front matter contains id, title, status, date, deciders and related, and status matches this manifest.",
+"pass": true,
+"note": "All six keys are present. status: accepted matches the manifest, and the title matches verbatim."
+},
+{
+"ac": "H2 headings match adr_common.outline_h2 exactly and in order, and Decision outcome contains the H3 headings Consequences and Confirmation.",
+"pass": true,
+"note": "All six H2 headings are present, spelled exactly and in order. Both H3 headings sit under Decision outcome."
+},
+{
+"ac": "Considered options lists at least two options including the chosen one, and each has pros and cons.",
+"pass": true,
+"note": "Five options, each with a Good and a Bad bullet. Labels are inconsistent (non-blocking)."
+},
+{
+"ac": "Decision outcome states the chosen option as 'Chosen option: ..., because ...' and matches the foundation pack section 7 row for this ADR.",
+"pass": true,
+"note": "Matches the pack section 7 'Expressions / authz' row. The read-only alias parenthetical appears in the CEL module row."
+},
+{
+"ac": "Confirmation names a concrete verification mechanism (test, lint rule, CI gate or review checklist item).",
+"pass": true,
+"note": "Named mechanisms: depguard, dependency admission gates, the CEL fuzz target, conformance fixtures, benchmarks and a review checklist item. Each exists in the engineering documents."
+},
+{
+"ac": "The ADR is linked from docs/adr/README.md and from its owning document.",
+"pass": false,
+"note": "The owning document 08-security-and-identity.md links it. docs/adr/README.md does not exist yet because the index generator writes it in wave 5. This file cannot fix that, so no blocking item is raised."
+},
+{
+"ac": "Length within adr_common.length_words (400 to 1500).",
+"pass": true,
+"note": "The body has 1,479 words per the verify-docs word_count_rule."
+},
+{
+"ac": "Considered options cite research URLs.",
+"pass": true,
+"note": "Every cited URL appears in go-libraries-runtime.md or krakend-parity.md."
+},
+{
+"ac": "verify-docs has no FAIL lines for this file.",
+"pass": true,
+"note": "Only three WARN milestone lines (55, 100, 111), no FAIL."
+}
+],
+"foundation_amendments": []
+},
+"review:adr-0011:L1": {
+"lens": "L1",
+"verdict": "revise",
+"score": 6,
+"blocking": [
+{
+"id": "L1-1",
+"section": "Decision outcome (Binaries row)",
+"issue": "The Binaries row puts OPA and cedar-go into all three binaries at Planned (M1). The tech stack catalog, which this ADR must agree with, gives the Authorization engines row the milestone Planned (M2), and it defines that milestone as the point when the first code using the library lands. Because the row says 'All three libraries', OPA and cedar-go would enter the dependency graph, the 160 MiB size check and the G3 check one milestone before any `authz.opa` or `authz.cedar` code exists.",
+"evidence": "ADR line 56: \"| Binaries | All three libraries link into `ruralzd`, `ruralz-control` and `ruralz` (size: OQ-tech-stack-and-libraries-22) | Planned (M1) |\". Tech stack Library catalog: \"| Authorization engines | OPA v1 (`opa/v1/rego`, `PrepareForEval`) and cedar-go v1.8.x; also in Ruralz Control and CLI for validation | ... | Planned (M2) |\" and \"'Milestone' is when the first code using the library lands.\"",
+"fix": "Replace the row with: \"| Binaries | cel-go links into `ruralzd`, `ruralz-control` and `ruralz`, Planned (M1); OPA and cedar-go join all three with `authz.opa` and `authz.cedar`, Planned (M2) (size: OQ-tech-stack-and-libraries-22) | Planned (M1); Planned (M2) |\"."
+},
+{
+"id": "L1-2",
+"section": "Decision drivers (Compile once, read lock-free); Decision outcome (`authz.opa` row)",
+"issue": "The ADR claims that reads are lock-free but never says how `authz.opa` meets that claim. `PreparedEvalQuery.Eval` opens a storage transaction on the query's `storage.Store` on every call unless the caller supplies one. OPA's default `storage/inmem` store guards read transactions with a `sync.RWMutex`. So every `authz.opa` evaluation takes a shared read lock on one per-Policy mutex, and that cache line is contended across every core serving the Route. This is the hidden request-path coordination that the System overview principle forbids. Research section 9.2 covers only `PrepareForEval` and `Eval(ctx, ...)`, not the storage layer, so the ADR has no evidence for the driver it cites.",
+"evidence": "ADR driver: \"**Compile once, read lock-free**: programs compile with the Revision, never per request\". System overview Design principles: \"| Compile once, read lock-free | Each Revision compiles into an immutable snapshot; Node-local mutable state is sharded or per-P. | A request loads one atomic pointer; no read locks. |\" ADR `authz.opa` row: \"`opa/v1/rego`, prepared once per Policy per Revision; allowlisted pure built-ins only, so no `http.send`; a call deadline; 16 MiB of data per Policy (target)\" (it does not mention the data store).",
+"fix": "Add to the `authz.opa` row: \"data is an immutable per-Revision document served by a Ruralz `storage.Store` whose read transactions take no lock, never `storage/inmem`\". Add to the Benchmarks Confirmation item: \"`authz.opa` throughput scales linearly from 1 to 32 GOMAXPROCS (target)\". Add to More information a research action that confirms OPA v1.20.x transaction behavior for prepared queries in docs/_meta/research/go-libraries-runtime.md section 9.2."
+},
+{
+"id": "L1-3",
+"section": "Decision drivers (Bounded, typed evaluation); Decision outcome (`authz.opa`, `authz.cedar` and Failure rows); Consequences",
+"issue": "The driver requires static and runtime cost bounds (S4), but only CEL has them. Rego has no cost or allocation limit. Its only bound is 'a call deadline', which has no value, no owner and no source showing that a context deadline interrupts topdown evaluation. So a comprehension over 16 MiB of data can allocate freely for the whole deadline on every concurrent request. The research lists no cancellation, cost or deadline API for cedar-go, whose authorizer is called without a context. The Failure row's 'deadline' therefore can only be enforced by abandoning the goroutine that is evaluating, and that goroutine keeps burning CPU, so goroutines grow without bound under a slow-policy attack. The ADR never states this gap. It accepts two engines that fail a driver it lists first.",
+"evidence": "ADR driver: \"**Bounded, typed evaluation**: no loops, I/O or randomness on the request path; static and runtime cost bounds (S4 in [Selection criteria]...)\". `authz.opa` row: \"a call deadline\". `authz.cedar` row: \"cedar-go v1.8.x core authorizer; 1,000 policies and 10,000 entities per Policy (target); ... under 100 µs at p99 (hypothesis)\". Failure row: \"a runtime error or deadline, which leaves a Policy unable to decide, returns 403 RZ-AUTH-015\". Research 9.3 lists only \"the core authorizer, all core and extended types ... and schema parsing\"; research 9.2: \"`PrepareForEval(ctx)` returns a `PreparedEvalQuery` for repeated `Eval(ctx, ...)` calls\".",
+"fix": "(a) In the `authz.opa` row, replace \"a call deadline\" with \"`Eval` on the request goroutine with a context deadline of the smaller of the time left in the request and 5 ms (target); a Planned (M2) spike confirms topdown stops at the deadline\". (b) Add to the `authz.cedar` row: \"evaluated synchronously on the request goroutine and never abandoned; cedar-go takes no context, so only the policy and entity caps bound it\". (c) Add a Consequence: \"Bad, because only CEL fully meets S4: OPA has a deadline but no cost or allocation limit, and cedar-go has neither.\" (d) Under Proposed amendments, ask Security and identity for an entity ancestor-depth cap (target) and a Revision-time transitive-closure precompute for `in`. (e) Extend the Benchmarks item with worst-case fixtures at the caps."
+},
+{
+"id": "L1-4",
+"section": "Decision outcome (Engine memory and `authz.opa` rows)",
+"issue": "The ADR does not say how 'compiled engine memory' is measured, and no deterministic measure exists. Go has no per-object heap size, and the retained size of an OPA prepared query or a cedar-go PolicySet changes with the Go version, GOARCH and library version. The Configuration conformance suite requires `ruralz`, `ruralz-control` and `ruralzd` to emit identical diagnostics. A ceiling measured from the heap cannot meet that rule: a Bundle near 64 MiB could pass `ruralz bundle validate` in CI and then fail on a Node with a deterministic NACK that rolls the Rollout back. The per-Policy data limit also has no unit. If 16 MiB means source bytes, the decoded form grows several times over (the Configuration model itself charges decoded bodies at up to 4 times raw), so one OPA Policy at its own limit could exhaust the whole Revision ceiling.",
+"evidence": "ADR Engine memory row: \"Identical engines compile once, by digest; per Revision at most 64 MiB of compiled engine memory and 50,000 entities (target), counted toward snapshot size; the rejection code is OQ-security-and-identity-30\". `authz.opa` row: \"16 MiB of data per Policy (target)\". Testing and quality strategy, Conformance suites: \"`ruralz` and `ruralz-control` MUST emit identical diagnostics; `ruralzd` MUST match for its stages\". Configuration model: \"charged at the size of the values the decoder builds, at most 4 times the raw limit it arrived under (target)\".",
+"fix": "Change the Engine memory row to: \"compiled engine memory is a deterministic estimate: the canonical bytes of Rego modules, data documents, Cedar policies and entities times an expansion factor of 4 (hypothesis, calibrated by the Planned (M2) benchmarks), so every binary computes the same value; measured heap is reported as a metric only\". State in the `authz.opa` row that 16 MiB counts canonical bytes. Add a Confirmation fixture: one Bundle at the ceiling gives the same verdict in all three binaries."
+},
+{
+"id": "L1-5",
+"section": "Decision drivers (Validate everywhere); Consequences (second Good bullet)",
+"issue": "The ADR promises without qualification that every Rego and Cedar error, and every ceiling violation, surfaces in `ruralz bundle validate` and never as a Node NACK. The owning document says the opposite for OCI delivery, which is option (b) or (c) of the still-open OQ-security-and-identity-13: there, checks move to Ruralz Control ingest and Node activation, which NACK. The two statements contradict each other, and an offline CLI cannot compile policies it never receives.",
+"evidence": "ADR driver: \"**Validate everywhere**: errors surface in `ruralz bundle validate`, not as Node NACKs.\" Consequence: \"Good, because CEL, Rego and Cedar errors appear in `ruralz bundle validate`, since the same libraries link into all three binaries\". Owning document, Authorization: \"`ruralz bundle validate` checks the ceiling (code: OQ-security-and-identity-30), or, with OCI delivery (OQ-security-and-identity-13), Ruralz Control ingest and Node activation, NACKing a violation.\"",
+"fix": "Qualify both statements. Driver: \"**Validate everywhere**: inline policies fail in `ruralz bundle validate`; with OCI delivery (OQ-security-and-identity-13) they fail at Ruralz Control ingest or as a Node NACK.\" Consequence: \"Good, because CEL, and inline Rego and Cedar, errors appear in `ruralz bundle validate` ...\"."
+}
+],
+"non_blocking": [
+{
+"section": "Decision outcome (CEL cost row)",
+"suggestion": "The runtime limit is 1,000,000 units per expression, and a request can run many CEL places (Route `match.when`, several Policy `when` fields, `config.rule`, keys, `hashKey`). State the worst-case CEL CPU per request as a (hypothesis) derived from the unit cost, or name an aggregate per-request cap. Also say whether evaluation uses `ContextEval` with `InterruptCheckFrequency` against the request deadline, since the rationale cites `ContextEval` but no rule uses it."
+},
+{
+"section": "Decision outcome (Engine memory row)",
+"suggestion": "Say whether 'compile once, by digest' reuses unchanged engines across Revisions, as System overview Compile before swap step 2 ('reusing artifacts by digest') implies. Give a compile-time hypothesis for a ceiling-size engine set against the 2 s compile budget the owning document charges it to. Without reuse, every Hot Reload recompiles up to 64 MiB of engines."
+},
+{
+"section": "Confirmation",
+"suggestion": "Add a test for the OPA built-in allowlist: negative fixtures where `http.send`, `net.lookup_ip_addr`, `time.now_ns`, `rand.intn` and `uuid.rfc4122` fail compilation in all three binaries. P3 and the 'no I/O or randomness' driver rest on this allowlist, which today is covered only by a review checklist item for additions."
+},
+{
+"section": "Whole document (length)",
+"suggestion": "The body is 1,479 words against the 1,500 maximum (verifier counting). To make room for the fixes, shorten the first More information bullet, whose foundation pack section 7 and Library catalog links repeat Decision outcome, and the parentheticals under 'Related decisions'. Do not cut the rules table or Confirmation."
+},
+{
+"section": "Considered options (option 1)",
+"suggestion": "Option 1 cites the read-only `google/cel-go` README as evidence for the chosen CEL module. Cite `https://github.com/cel-expr/cel-go/releases/tag/v0.32.0` or `https://github.com/cel-expr/cel-go` (both in research) so the citation points to the canonical repository."
+},
+{
+"section": "Verifier warnings",
+"suggestion": "The three WARN milestone lines (lines 55, 100 and 111) have no matching roadmap items. They are not FAILs, but the Roadmap should list the `authz.*` failure handling (M1), FIPS G3 review of OPA (M5) and CEL/engine benchmarks (M1, M2) when it is written."
+}
+],
+"ac_results": [
+{
+"ac": "Front matter contains id, title, status, date, deciders and related, and status matches this manifest.",
+"pass": true,
+"note": "All six keys are present. The id is ADR-0011. The title matches the manifest verbatim, and status: accepted matches."
+},
+{
+"ac": "H2 headings match adr_common.outline_h2 exactly and in order, and Decision outcome contains the H3 headings Consequences and Confirmation.",
+"pass": true,
+"note": "The six H2 headings are exact and in order. Consequences and Confirmation are H3 headings under Decision outcome. The verifier reports no FAIL for this file."
+},
+{
+"ac": "Considered options lists at least two options including the chosen one, and each has pros and cons.",
+"pass": true,
+"note": "It lists five options, including the chosen one, and each cites a research URL. Every option has a matching H3 in Pros and cons with a Good and a Bad bullet."
+},
+{
+"ac": "Decision outcome states the chosen option as 'Chosen option: ..., because ...' and matches the foundation pack section 7 row for this ADR.",
+"pass": true,
+"note": "It uses the required form. The chosen text matches the section 7 'Expressions / authz' row. The row's alias parenthetical is carried in the CEL module rule instead."
+},
+{
+"ac": "Confirmation names a concrete verification mechanism (test, lint rule, CI gate or review checklist item).",
+"pass": true,
+"note": "It names the depguard banned-import lint, the dependency admission gates (G1, license, G3), a fuzz target, the configuration conformance suite, microbenchmarks and a review checklist item. It has no test of the OPA built-in allowlist (non-blocking) and no fixture for the engine ceiling (L1-4)."
+},
+{
+"ac": "The ADR is linked from docs/adr/README.md and from its owning document.",
+"pass": false,
+"note": "docs/architecture/08-security-and-identity.md links it in the Authorization section. docs/adr/README.md does not exist yet, so the index half fails. That file is outside this ADR, so this is not raised as a blocking item against it."
+}
+],
+"foundation_amendments": []
+},
+"rereview:zero-downtime-upgrades-and-hot-reload:L1": {
+"lens": "L1 feasibility-skeptic",
+"verdict": "revise",
+"score": 7,
+"blocking": [
+{
+"id": "L1-1",
+"section": "Binary upgrades > In-place handover (step 5, Steer); Binary upgrades intro",
+"issue": "Previous items L1-1 to L1-9 are resolved. This is a new finding in the revised steering step. After the CBPF swap, the old process accepts its queue and then closes its listeners. On Linux, that close still resets two kinds of connection. First, handshakes that were in SYN_RECV on the old listener before the swap: when the final ACK arrives after the close, the request is dropped, the lookup finds the new listener, and the new listener answers the unmatched ACK with an RST (no SYN cookie was issued). Second, children that complete their handshake between the old process's last accept() returning EAGAIN and close(): inet_csk_listen_stop resets them. Go cannot drain an accept queue and close it atomically. The window is about the connection rate times the client RTT, so at half saturation with 100 ms clients it is tens of resets per handover (hypothesis). This is the failure HAProxy measured. So 'CBPF steering, emptying the closing accept queue, closes that gap' is not true as written. ZG-3 and the V-3 pass criterion ('Zero refused or reset connections' over 1,000 handovers) cannot be met. Only net.ipv4.tcp_migrate_req=1 (Linux 5.14+) moves in-progress requests and late children to the remaining socket on close. The document calls it 'the alternative' to the CBPF swap, but for this window it is the complement.",
+"evidence": "Step 5: \"Once accepted, the new process listens; the holder swaps each program to select it through `golang.org/x/sys/unix` (`net.ipv4.tcp_migrate_req` is the alternative), accepts its queue and closes its listeners, losing QUIC connections here, not at bind.\"; line 138: \"CBPF steering, emptying the closing accept queue, closes that gap.\"; ZG-3: \"An in-place handover refuses no new TCP connection\"; V-3 pass: \"Zero refused or reset connections and failed requests\"",
+"fix": "In step 5, after the swap the holder keeps accepting for a linger of at least 3 s (target), which covers handshakes started before the swap, including one SYN-ACK retransmission. Only then does it close. Also state that handover hosts SHOULD set net.ipv4.tcp_migrate_req=1 (Linux 5.14 or later, per network namespace). With it, closing migrates both queued children and in-progress handshakes to the new socket, even with a CBPF program attached (selection falls back to hash over the remaining sockets). Reword line 138 to match. Qualify ZG-3 as 'with tcp_migrate_req=1; without it, only handshakes needing more than one SYN-ACK retransmission across the linger can be reset (hypothesis)'. Run V-3 in both modes, recording resets per handover. Record the pack change under foundation amendments rather than contradicting pack section 7 in the text."
+},
+{
+"id": "L1-2",
+"section": "Verification runbook (During any upgrade row) vs Control plane upgrades and Kubernetes Drain and restart",
+"issue": "The runbook applies a pass criterion to every upgrade: ruralz_control_cluster_nodes drops at most 10%. The document's own procedures predictably break it. Replacing one of three Ruralz Control replicas unqualifies that replica's Nodes, about a third of the Cluster, for 10 minutes. The document says so, and V-5 depends on OQ-scalability-and-distributed-state-14 (a). A T4 rolling update with declared ceilings needs no pacing, and it removes M = 100 of 1,000 Nodes every 45 s. Each drained Node drops out of the count at once and rejoins only 10 minutes later, so within 7.5 minutes the published count falls far beyond 10%. An operator following the runbook would fail, or halt, every Ruralz Control upgrade and every unpaced T4 update.",
+"evidence": "Runbook: \"During any upgrade | `ruralz_control_cluster_nodes`; `ruralz_node_degraded_info{reason=\\\"state_store_breaker_open\\\"}` | Drops at most 10% (target); no breaker opens\"; Control plane upgrades: \"Until OQ-scalability-and-distributed-state-14 closes, each replacement unqualifies its Nodes\"; Node count during upgrades: \"a `draining` Heartbeat drops a Node at once, and it rejoins only 10 minutes plus a 10%-per-minute ramp later (target)\" and \"declared ceilings ... need no pacing\"; Kubernetes: \"Example N = 1,000, minReplicas 300, three zones: M = 100, 10 steps, 7.5 min (hypothesis)\"",
+"fix": "Scope the row. For derived-ceiling Clusters upgraded under the 10%-per-10-minutes pacing, the count drops at most 10% (target) and no breaker opens. For declared-ceiling Clusters, only 'no breaker opens' applies, and the count drop is expected. For Ruralz Control upgrades, until OQ-scalability-and-distributed-state-14 (a), expect a drop of up to the replaced replica's share of Nodes, and check that derived-ceiling Clusters declared per-Node ceilings before starting. Keep V-5's dependency note consistent with this."
+}
+],
+"non_blocking": [
+{
+"section": "Binary upgrades > In-place handover (shared ceilings)",
+"suggestion": "The old process reports usage each second (target), so right after a burst of 1001 closes, the new process sees stale usage. Near the connection ceiling, it could refuse reconnects that the old process has already released. Have the old process send a usage update before each batch of going-away closes, or give the new process a small burst allowance equal to the closes announced in the last report."
+},
+{
+"section": "Binary upgrades > In-place handover (steps 4 to 7)",
+"suggestion": "Between acceptance and closing its Control Stream, the holder can still receive a Snapshot or Delta, activate it and ACK it. The new process then serves an older Revision until its Hello resyncs. State that once the holder has accepted, it defers or transiently NACKs new configuration until the Control Stream moves, so the Node never reports an ACKed digest it does not serve."
+},
+{
+"section": "Binary upgrades > In-place handover; Plugin hot-swap",
+"suggestion": "With Plugin memory shared, the new process's pools may warm to 0 when the old process's pools hold most of maxPluginMemoryBytes, and the first requests then hit RZ-PLG under failureMode. That would fail V-3's zero-failed-requests criterion. Have the old process shrink idle pool instances as soon as steering completes, and add Plugin-bearing Routes to V-3."
+},
+{
+"section": "Rollback (Ruralz Control after finalize, Nodes at N)",
+"suggestion": "Step 1 folds in two steps from another row across every Cluster, and step 3 bundles a restore, a CRD re-apply and a relay redeploy. Say explicitly that each step is one per-Cluster operation, and that the restore's own steps are owned by High availability and disaster recovery. Otherwise the three-step claim reads as compressed."
+}
+],
+"ac_results": [
+{
+"ac": "Binary upgrades states the drain timeline defaults (readiness failure, preStop, drain timeout, HTTP/2 GOAWAY) with values tagged (target).",
+"pass": true,
+"note": "Drain timeline defaults table and Figure 2 give readiness failure at 0 s, preStop 5 s, drain deadline 25 s and GOAWAY at 5 s, each tagged (target)."
+},
+{
+"ac": "Binary upgrades defines the strategy for long-lived WebSocket and SSE connections.",
+"pass": true,
+"note": "Per-protocol table: 10 s jitter window, 1001, SSE retry with Last-Event-ID, and the AI SSE exception."
+},
+{
+"ac": "Control plane upgrades covers Raft rolling upgrades, and the version skew matches docs/engineering/04-release-versioning-and-compatibility.md (N and N-1).",
+"pass": true,
+"note": "Prepare now requires every Node at N-1; the skew table matches Release."
+},
+{
+"ac": "Rollback takes three steps or fewer.",
+"pass": true,
+"note": "Every row has at most three steps, including the past-limit and after-finalize rows; the after-finalize row is dense (non-blocking)."
+},
+{
+"ac": "Configuration hot reload enumerates the validation gate checks and covers atomic swap, partial failure and Plugin hot-swap.",
+"pass": true,
+"note": "11-step gate table, then Atomic swap, Partial failure and Plugin hot-swap subsections."
+},
+{
+"ac": "Binary upgrades follows ADR-0015 (SO_REUSEPORT, drain and readiness gating, no socket passing).",
+"pass": true,
+"note": "Follows ADR-0015; the residual reset window at listener close is L1-1."
+}
+],
+"foundation_amendments": [
+"Pack section 7, Upgrades row (and System overview, Hot Reload, Rollout and Zero-Downtime Upgrade, item 1): change '`net.ipv4.tcp_migrate_req` is an alternative' to 'the old process lingers accepting after the CBPF swap; `net.ipv4.tcp_migrate_req` (Linux 5.14+) is a recommended complement that also migrates handshakes in progress at close'."
+]
 }
 }

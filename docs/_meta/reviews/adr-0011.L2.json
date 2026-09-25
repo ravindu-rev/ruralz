@@ -1,0 +1,113 @@
+{
+  "lens": "L2 foundation-auditor",
+  "verdict": "revise",
+  "score": 7,
+  "blocking": [
+    {
+      "id": "L2-1",
+      "section": "Decision drivers",
+      "issue": "The 'Free' driver says Ruralz has a single Apache-2.0 build. The foundation pack (section 1, FIPS build row) and P1 both describe a default build and a separate FIPS build flavor with the same features, and say 'no enterprise build' means no feature difference, not a single binary.",
+      "evidence": "ADR line 31: \"- **Free**: the Security Policies Engine equivalent ships in the one Apache-2.0 build (P1).\" Pack section 1: \"FIPS build | A build flavor (`GOFIPS140`, Planned (M5)) with the same features and license as the default build, published as separate artifacts; \\\"no enterprise build\\\" means no feature difference, not a single binary\". Vision P1: \"ships under Apache-2.0 with one feature set in every public build, including the FIPS build.\"",
+      "fix": "Line 31: \"- **Free**: the Security Policies Engine equivalent ships in every public build, FIPS included (P1).\""
+    },
+    {
+      "id": "L2-2",
+      "section": "Decision drivers; Pros and cons of the options > OPA as an external decision service",
+      "issue": "The ADR describes P3 as banning any network hop on the request path and says an OPA sidecar would violate it. P3 bans only dependencies on the control plane or on peers. It explicitly allows other remote calls before commit if they are declared on the Policy with a timeout and `failureMode` (pack section 8.7 rule 6). An OPA sidecar is neither Ruralz Control nor a peer Node, so the rejection rests on a misquoted principle.",
+      "evidence": "ADR line 29: \"- **No request-path network hop** (P3), and authorization always fails closed (P9)\". Line 134: \"- Bad, because every decision adds a remote call before commit, against P3, while embedding already gives prepared in-process queries\". Vision P3: \"No control-plane or peer dependency on the request path | ... Other remote calls, such as a Semantic Cache embedding call to an `AIProvider`, are declared on the Policy with a timeout and `failureMode` (P9).\" Pack 8.7 rule 6: \"Any other remote call before commit ... is declared on the Policy with a timeout and `failureMode`.\"",
+      "fix": "Line 29: \"- **No extra request-path hop**: P3 allows only declared, timed remote calls (pack section 8.7), and authorization always fails closed (P9).\" Line 134: \"- Bad, because every decision adds a declared, timed remote call before commit (pack section 8.7) that fails closed, while embedding already gives prepared in-process queries ([source](...v1/rego/rego.go)).\""
+    },
+    {
+      "id": "L2-3",
+      "section": "Decision drivers; Decision outcome (Engine memory row); Decision outcome > Consequences",
+      "issue": "The ADR says every CEL, Rego and Cedar error, and the engine-memory ceiling, surfaces in `ruralz bundle validate`. The owning document makes that conditional: with OCI policy delivery (OQ-security-and-identity-13), Ruralz Control checks at ingest and the Node checks at activation, and a violation is NACKed. The ADR states as unconditional what its owning document leaves open and qualifies.",
+      "evidence": "ADR line 28: \"- **Validate everywhere**: errors surface in `ruralz bundle validate`, not as Node NACKs.\" Line 95: \"- Good, because CEL, Rego and Cedar errors appear in `ruralz bundle validate`, since the same libraries link into all three binaries\". Line 53: \"per Revision at most 64 MiB of compiled engine memory and 50,000 entities (target), counted toward snapshot size; the rejection code is OQ-security-and-identity-30\". Security and identity, Authorization: \"`ruralz bundle validate` checks the ceiling (code: OQ-security-and-identity-30), or, with OCI delivery (OQ-security-and-identity-13), Ruralz Control ingest and Node activation, NACKing a violation.\"",
+      "fix": "Line 28: \"- **Validate everywhere**: inline-policy errors surface in `ruralz bundle validate`; OCI-delivered policies (OQ-security-and-identity-13) fail at ingest or as activation NACKs.\" Line 53: add \"; with OCI delivery, checked at Ruralz Control ingest and Node activation (NACK)\" after \"counted toward snapshot size\". Line 95: \"errors in inline policies appear in `ruralz bundle validate`\". The body has 1,479 words against a 1,500 maximum (verify-docs word_count_rule), so offset the words these fixes add by shortening low-value phrasing. For example, the nominal-size parenthetical on line 49 is already in the linked Limits section."
+    },
+    {
+      "id": "L2-4",
+      "section": "Decision outcome (Binaries row)",
+      "issue": "The Binaries row tags the linking of all three libraries 'Planned (M1)'. The tech stack catalog tags the Authorization engines row (OPA v1 and cedar-go) Planned (M2), and it defines 'Milestone' as when the first code using the library lands. The ADR's own table tags `authz.opa` and `authz.cedar` Planned (M2), so OPA and cedar-go cannot be linked into any binary at M1.",
+      "evidence": "ADR line 56: \"| Binaries | All three libraries link into `ruralzd`, `ruralz-control` and `ruralz` (size: OQ-tech-stack-and-libraries-22) | Planned (M1) |\". Tech stack Library catalog: \"| Authorization engines | OPA v1 (`opa/v1/rego`, `PrepareForEval`) and cedar-go v1.8.x; also in Ruralz Control and CLI for validation | ... | Planned (M2) |\" and \"\\\"Milestone\\\" is when the first code using the library lands.\"",
+      "fix": "Line 56: \"| Binaries | cel-go, then OPA and cedar-go, link into `ruralzd`, `ruralz-control` and `ruralz` (size: OQ-tech-stack-and-libraries-22) | Planned (M1) for cel-go; Planned (M2) for OPA and cedar-go |\""
+    }
+  ],
+  "non_blocking": [
+    {
+      "section": "Considered options; Decision outcome; Pros and cons of the options",
+      "suggestion": "The chosen option has three different labels: option 1 in Considered options, the 'Chosen option' string (the pack section 7 wording) and the H3 'CEL inline with OPA and Cedar engines'. Keep the pack wording in the Chosen option sentence, and name option 1 and its H3 so a reader can match them without guessing, for example option 1: 'CEL inline, OPA and Cedar engines, no Lua'."
+    },
+    {
+      "section": "Considered options",
+      "suggestion": "The citation on option 2 (the cel-go v0.32.0 release notes) supports nothing that option says. The citation on option 4 (`v1/rego/rego.go`) documents embedding, not a sidecar. Cite the policy package README on option 2, or drop the per-option citations wherever the Pros and cons H3 already carries the evidence."
+    },
+    {
+      "section": "Decision outcome (Lua row)",
+      "suggestion": "Name the import fidelity level the pack defines for this case: `ruralz bundle import krakend` reports Lua as `manual` (pack section 7, Other defaults)."
+    },
+    {
+      "section": "Decision outcome (Figure 1)",
+      "suggestion": "The flowchart draws the authz-class Policies as parallel branches. Pack 8.12 rule 5 orders them by scope and list position, and a deny short-circuits. Consider one sentence or a relabel such as 'in order; the first deny stops'."
+    },
+    {
+      "section": "Decision outcome (Engine memory row)",
+      "suggestion": "Owning-document details worth restating, word budget permitting: peak engine memory is (K + 2) = 4 times the ceiling, 256 MiB (hypothesis), and compilation counts against the 2 s compile budget."
+    },
+    {
+      "section": "Whole document",
+      "suggestion": "verify-docs emits three non-blocking WARN lines (lines 55, 100 and 111). They report Planned (M1) and (M5) items that have no matching roadmap entry. Coordinate with the roadmap document rather than changing the tags."
+    },
+    {
+      "section": "Whole document (length)",
+      "suggestion": "The body is 1,479 words against a 1,500 maximum, so every fix here must be close to word-neutral. Do not delete text that resolved an earlier finding. Tighten restated detail that the linked Allowed places and Limits sections already own."
+    }
+  ],
+  "ac_results": [
+    {
+      "ac": "Front matter contains id, title, status, date, deciders and related, and status matches this manifest.",
+      "pass": true,
+      "note": "All six keys are present. status: accepted matches adrs[ADR-0011].status, and the title matches the manifest verbatim."
+    },
+    {
+      "ac": "H2 headings match adr_common.outline_h2 exactly and in order, and Decision outcome contains the H3 headings Consequences and Confirmation.",
+      "pass": true,
+      "note": "All six H2 headings are present, spelled exactly and in order. ### Consequences and ### Confirmation sit under Decision outcome."
+    },
+    {
+      "ac": "Considered options lists at least two options including the chosen one, and each has pros and cons.",
+      "pass": true,
+      "note": "Five options, each with a Good and a Bad bullet under Pros and cons of the options. Labels are inconsistent (non-blocking)."
+    },
+    {
+      "ac": "Decision outcome states the chosen option as 'Chosen option: ..., because ...' and matches the foundation pack section 7 row for this ADR.",
+      "pass": true,
+      "note": "The Chosen option string matches the pack section 7 'Expressions / authz' row. The read-only alias parenthetical appears in the CEL module row."
+    },
+    {
+      "ac": "Confirmation names a concrete verification mechanism (test, lint rule, CI gate or review checklist item).",
+      "pass": true,
+      "note": "Named mechanisms: depguard banned imports, dependency admission gates (G1, license, G3 go list -deps), the CEL fuzz target, conformance fixtures for RZ-CFG-014, RZ-CFG-015 and RZ-CFG-029, benchmarks and a review checklist item. Each exists in the engineering documents."
+    },
+    {
+      "ac": "The ADR is linked from docs/adr/README.md and from its owning document.",
+      "pass": false,
+      "note": "The owning document docs/architecture/08-security-and-identity.md links it (Authorization section). docs/adr/README.md does not exist yet because the index generator writes it in wave 5. This file cannot fix that, so no blocking item is raised."
+    },
+    {
+      "ac": "Length within adr_common.length_words (400 to 1500).",
+      "pass": true,
+      "note": "The body has 1,479 words per the verify-docs word_count_rule, 21 under the maximum."
+    },
+    {
+      "ac": "Considered options cite research URLs (task requirement).",
+      "pass": true,
+      "note": "Every cited URL appears in docs/_meta/research/go-libraries-runtime.md or krakend-parity.md."
+    },
+    {
+      "ac": "verify-docs --allow-missing --skip markdownlint has no FAIL lines for this file.",
+      "pass": true,
+      "note": "Only three WARN milestone lines (55, 100, 111), no FAIL."
+    }
+  ],
+  "foundation_amendments": []
+}

@@ -1,0 +1,101 @@
+{
+  "lens": "L1",
+  "verdict": "revise",
+  "score": 6,
+  "blocking": [
+    {
+      "id": "L1-1",
+      "section": "Decision outcome (Binaries row)",
+      "issue": "The Binaries row puts OPA and cedar-go into all three binaries at Planned (M1). The tech stack catalog, which this ADR must agree with, gives the Authorization engines row the milestone Planned (M2), and it defines that milestone as the point when the first code using the library lands. Because the row says 'All three libraries', OPA and cedar-go would enter the dependency graph, the 160 MiB size check and the G3 check one milestone before any `authz.opa` or `authz.cedar` code exists.",
+      "evidence": "ADR line 56: \"| Binaries | All three libraries link into `ruralzd`, `ruralz-control` and `ruralz` (size: OQ-tech-stack-and-libraries-22) | Planned (M1) |\". Tech stack Library catalog: \"| Authorization engines | OPA v1 (`opa/v1/rego`, `PrepareForEval`) and cedar-go v1.8.x; also in Ruralz Control and CLI for validation | ... | Planned (M2) |\" and \"'Milestone' is when the first code using the library lands.\"",
+      "fix": "Replace the row with: \"| Binaries | cel-go links into `ruralzd`, `ruralz-control` and `ruralz`, Planned (M1); OPA and cedar-go join all three with `authz.opa` and `authz.cedar`, Planned (M2) (size: OQ-tech-stack-and-libraries-22) | Planned (M1); Planned (M2) |\"."
+    },
+    {
+      "id": "L1-2",
+      "section": "Decision drivers (Compile once, read lock-free); Decision outcome (`authz.opa` row)",
+      "issue": "The ADR claims that reads are lock-free but never says how `authz.opa` meets that claim. `PreparedEvalQuery.Eval` opens a storage transaction on the query's `storage.Store` on every call unless the caller supplies one. OPA's default `storage/inmem` store guards read transactions with a `sync.RWMutex`. So every `authz.opa` evaluation takes a shared read lock on one per-Policy mutex, and that cache line is contended across every core serving the Route. This is the hidden request-path coordination that the System overview principle forbids. Research section 9.2 covers only `PrepareForEval` and `Eval(ctx, ...)`, not the storage layer, so the ADR has no evidence for the driver it cites.",
+      "evidence": "ADR driver: \"**Compile once, read lock-free**: programs compile with the Revision, never per request ([System overview](../architecture/01-system-overview.md#design-principles)).\" System overview Design principles: \"| Compile once, read lock-free | Each Revision compiles into an immutable snapshot; Node-local mutable state is sharded or per-P. | A request loads one atomic pointer; no read locks. |\" ADR `authz.opa` row: \"`opa/v1/rego`, prepared once per Policy per Revision; allowlisted pure built-ins only, so no `http.send`; a call deadline; 16 MiB of data per Policy (target)\" (it does not mention the data store).",
+      "fix": "Add to the `authz.opa` row: \"data is an immutable per-Revision document served by a Ruralz `storage.Store` whose read transactions take no lock, never `storage/inmem`\". Add to the Benchmarks Confirmation item: \"`authz.opa` throughput scales linearly from 1 to 32 GOMAXPROCS (target)\". Add to More information a research action that confirms OPA v1.20.x transaction behavior for prepared queries in docs/_meta/research/go-libraries-runtime.md section 9.2."
+    },
+    {
+      "id": "L1-3",
+      "section": "Decision drivers (Bounded, typed evaluation); Decision outcome (`authz.opa`, `authz.cedar` and Failure rows); Consequences",
+      "issue": "The driver requires static and runtime cost bounds (S4), but only CEL has them. Rego has no cost or allocation limit. Its only bound is 'a call deadline', which has no value, no owner and no source showing that a context deadline interrupts topdown evaluation. So a comprehension over 16 MiB of data can allocate freely for the whole deadline on every concurrent request. The research lists no cancellation, cost or deadline API for cedar-go, whose authorizer is called without a context. The Failure row's 'deadline' therefore can only be enforced by abandoning the goroutine that is evaluating, and that goroutine keeps burning CPU, so goroutines grow without bound under a slow-policy attack. The ADR never states this gap. It accepts two engines that fail a driver it lists first.",
+      "evidence": "ADR driver: \"**Bounded, typed evaluation**: no loops, I/O or randomness on the request path; static and runtime cost bounds (S4 in [Selection criteria]...)\". `authz.opa` row: \"a call deadline\". `authz.cedar` row: \"cedar-go v1.8.x core authorizer; 1,000 policies and 10,000 entities per Policy (target); ... under 100 µs at p99 (hypothesis)\". Failure row: \"a runtime error or deadline, which leaves a Policy unable to decide, returns 403 RZ-AUTH-015\". Research 9.3 lists only \"the core authorizer, all core and extended types ... and schema parsing\"; research 9.2: \"`PrepareForEval(ctx)` returns a `PreparedEvalQuery` for repeated `Eval(ctx, ...)` calls\".",
+      "fix": "(a) In the `authz.opa` row, replace \"a call deadline\" with \"`Eval` on the request goroutine with a context deadline of the smaller of the time left in the request and 5 ms (target); a Planned (M2) spike confirms topdown stops at the deadline\". (b) Add to the `authz.cedar` row: \"evaluated synchronously on the request goroutine and never abandoned; cedar-go takes no context, so only the policy and entity caps bound it\". (c) Add a Consequence: \"Bad, because only CEL fully meets S4: OPA has a deadline but no cost or allocation limit, and cedar-go has neither.\" (d) Under Proposed amendments, ask Security and identity for an entity ancestor-depth cap (target) and a Revision-time transitive-closure precompute for `in`. (e) Extend the Benchmarks item with worst-case fixtures at the caps."
+    },
+    {
+      "id": "L1-4",
+      "section": "Decision outcome (Engine memory and `authz.opa` rows)",
+      "issue": "The ADR does not say how 'compiled engine memory' is measured, and no deterministic measure exists. Go has no per-object heap size, and the retained size of an OPA prepared query or a cedar-go PolicySet changes with the Go version, GOARCH and library version. The Configuration conformance suite requires `ruralz`, `ruralz-control` and `ruralzd` to emit identical diagnostics. A ceiling measured from the heap cannot meet that rule: a Bundle near 64 MiB could pass `ruralz bundle validate` in CI and then fail on a Node with a deterministic NACK that rolls the Rollout back. The per-Policy data limit also has no unit. If 16 MiB means source bytes, the decoded form grows several times over (the Configuration model itself charges decoded bodies at up to 4 times raw), so one OPA Policy at its own limit could exhaust the whole Revision ceiling.",
+      "evidence": "ADR Engine memory row: \"Identical engines compile once, by digest; per Revision at most 64 MiB of compiled engine memory and 50,000 entities (target), counted toward snapshot size; the rejection code is OQ-security-and-identity-30\". `authz.opa` row: \"16 MiB of data per Policy (target)\". Testing and quality strategy, Conformance suites: \"`ruralz` and `ruralz-control` MUST emit identical diagnostics; `ruralzd` MUST match for its stages\". Configuration model: \"charged at the size of the values the decoder builds, at most 4 times the raw limit it arrived under (target)\".",
+      "fix": "Change the Engine memory row to: \"compiled engine memory is a deterministic estimate: the canonical bytes of Rego modules, data documents, Cedar policies and entities times an expansion factor of 4 (hypothesis, calibrated by the Planned (M2) benchmarks), so every binary computes the same value; measured heap is reported as a metric only\". State in the `authz.opa` row that 16 MiB counts canonical bytes. Add a Confirmation fixture: one Bundle at the ceiling gives the same verdict in all three binaries."
+    },
+    {
+      "id": "L1-5",
+      "section": "Decision drivers (Validate everywhere); Consequences (second Good bullet)",
+      "issue": "The ADR promises without qualification that every Rego and Cedar error, and every ceiling violation, surfaces in `ruralz bundle validate` and never as a Node NACK. The owning document says the opposite for OCI delivery, which is option (b) or (c) of the still-open OQ-security-and-identity-13: there, checks move to Ruralz Control ingest and Node activation, which NACK. The two statements contradict each other, and an offline CLI cannot compile policies it never receives.",
+      "evidence": "ADR driver: \"**Validate everywhere**: errors surface in `ruralz bundle validate`, not as Node NACKs.\" Consequence: \"Good, because CEL, Rego and Cedar errors appear in `ruralz bundle validate`, since the same libraries link into all three binaries\". Owning document, Authorization: \"`ruralz bundle validate` checks the ceiling (code: OQ-security-and-identity-30), or, with OCI delivery (OQ-security-and-identity-13), Ruralz Control ingest and Node activation, NACKing a violation.\"",
+      "fix": "Qualify both statements. Driver: \"**Validate everywhere**: inline policies fail in `ruralz bundle validate`; with OCI delivery (OQ-security-and-identity-13) they fail at Ruralz Control ingest or as a Node NACK.\" Consequence: \"Good, because CEL, and inline Rego and Cedar, errors appear in `ruralz bundle validate` ...\"."
+    }
+  ],
+  "non_blocking": [
+    {
+      "section": "Decision outcome (CEL cost row)",
+      "suggestion": "The runtime limit is 1,000,000 units per expression, and a request can run many CEL places (Route `match.when`, several Policy `when` fields, `config.rule`, keys, `hashKey`). State the worst-case CEL CPU per request as a (hypothesis) derived from the unit cost, or name an aggregate per-request cap. Also say whether evaluation uses `ContextEval` with `InterruptCheckFrequency` against the request deadline, since the rationale cites `ContextEval` but no rule uses it."
+    },
+    {
+      "section": "Decision outcome (Engine memory row)",
+      "suggestion": "Say whether 'compile once, by digest' reuses unchanged engines across Revisions, as System overview Compile before swap step 2 ('reusing artifacts by digest') implies. Give a compile-time hypothesis for a ceiling-size engine set against the 2 s compile budget the owning document charges it to. Without reuse, every Hot Reload recompiles up to 64 MiB of engines."
+    },
+    {
+      "section": "Confirmation",
+      "suggestion": "Add a test for the OPA built-in allowlist: negative fixtures where `http.send`, `net.lookup_ip_addr`, `time.now_ns`, `rand.intn` and `uuid.rfc4122` fail compilation in all three binaries. P3 and the 'no I/O or randomness' driver rest on this allowlist, which today is covered only by a review checklist item for additions."
+    },
+    {
+      "section": "Whole document (length)",
+      "suggestion": "The body is 1,479 words against the 1,500 maximum (verifier counting). To make room for the fixes, shorten the first More information bullet, whose foundation pack section 7 and Library catalog links repeat Decision outcome, and the parentheticals under 'Related decisions'. Do not cut the rules table or Confirmation."
+    },
+    {
+      "section": "Considered options (option 1)",
+      "suggestion": "Option 1 cites the read-only `google/cel-go` README as evidence for the chosen CEL module. Cite `https://github.com/cel-expr/cel-go/releases/tag/v0.32.0` or `https://github.com/cel-expr/cel-go` (both in research) so the citation points to the canonical repository."
+    },
+    {
+      "section": "Verifier warnings",
+      "suggestion": "The three WARN milestone lines (lines 55, 100 and 111) have no matching roadmap items. They are not FAILs, but the Roadmap should list the `authz.*` failure handling (M1), FIPS G3 review of OPA (M5) and CEL/engine benchmarks (M1, M2) when it is written."
+    }
+  ],
+  "ac_results": [
+    {
+      "ac": "Front matter contains id, title, status, date, deciders and related, and status matches this manifest.",
+      "pass": true,
+      "note": "All six keys are present. The id is ADR-0011. The title matches the manifest verbatim, and status: accepted matches."
+    },
+    {
+      "ac": "H2 headings match adr_common.outline_h2 exactly and in order, and Decision outcome contains the H3 headings Consequences and Confirmation.",
+      "pass": true,
+      "note": "The six H2 headings are exact and in order. Consequences and Confirmation are H3 headings under Decision outcome. The verifier reports no FAIL for this file."
+    },
+    {
+      "ac": "Considered options lists at least two options including the chosen one, and each has pros and cons.",
+      "pass": true,
+      "note": "It lists five options, including the chosen one, and each cites a research URL. Every option has a matching H3 in Pros and cons with a Good and a Bad bullet."
+    },
+    {
+      "ac": "Decision outcome states the chosen option as 'Chosen option: ..., because ...' and matches the foundation pack section 7 row for this ADR.",
+      "pass": true,
+      "note": "It uses the required form. The chosen text matches the section 7 'Expressions / authz' row. The row's alias parenthetical is carried in the CEL module rule instead."
+    },
+    {
+      "ac": "Confirmation names a concrete verification mechanism (test, lint rule, CI gate or review checklist item).",
+      "pass": true,
+      "note": "It names the depguard banned-import lint, the dependency admission gates (G1, license, G3), a fuzz target, the configuration conformance suite, microbenchmarks and a review checklist item. It has no test of the OPA built-in allowlist (non-blocking) and no fixture for the engine ceiling (L1-4)."
+    },
+    {
+      "ac": "The ADR is linked from docs/adr/README.md and from its owning document.",
+      "pass": false,
+      "note": "docs/architecture/08-security-and-identity.md links it in the Authorization section. docs/adr/README.md does not exist yet, so the index half fails. That file is outside this ADR, so this is not raised as a blocking item against it."
+    }
+  ],
+  "foundation_amendments": []
+}

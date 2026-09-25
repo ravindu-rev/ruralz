@@ -1,148 +1,50 @@
 {
   "lens": "L1 feasibility-skeptic",
   "verdict": "revise",
-  "score": 5,
+  "score": 7,
   "blocking": [
     {
       "id": "L1-1",
-      "section": "Binary upgrades > In-place handover",
-      "issue": "The new process joins every SO_REUSEPORT group before it is ready or accepted. Once a TCP socket listens, or a UDP socket binds, the kernel hashes new connections to it. That breaks readiness gating (ADR-0015) and ZG-3 in three ways. First, some 9901 probes reach the new process while it is still warming, and its /readyz returns 503 until warm-up ends. Second, client connections queue on a process that has not been accepted, and if the handover is refused or times out (60 s), the new process exits and its queued connections are reset. Third, half of the in-flight QUIC flows on UDP 8443 break at bind time, even if the handover is later refused. Steering happens only in step 5, which is too late.",
-      "evidence": "Line 174: \"3. **Bind and gate.** It binds 8080, 8443 and 9901 with `SO_REUSEPORT` (in-flight QUIC on UDP 8443 is lost), warms, then reports version, format markers and active digest over the owner-only Unix socket\"; line 175: \"A new process not accepted within 60 s (target) exits; the old one never started draining.\"; line 53: \"ZG-3 | An in-place handover refuses no new TCP connection and keeps the Node's `/readyz` at 200 throughout\"",
-      "fix": "Specify pinning. The lock holder attaches, at startup and after every listener bind, an `SO_ATTACH_REUSEPORT_CBPF` program to each of its reuseport groups (8080, 8443 TCP and UDP, 9901) that returns its own socket index, so a new binder gets no connection or datagram until step 5 replaces the program with one that returns the new socket's index. Alternatively, the new process creates TCP sockets with `x/sys/unix` socket and bind and calls listen only after acceptance, but UDP still needs the pin. Update Figure 1 and steps 3 to 5 to match. State that QUIC flows are lost at steering, not at bind. Add a refused-handover case and a 9901 probe check to V-3."
+      "section": "Binary upgrades > In-place handover (step 5, Steer); Binary upgrades intro",
+      "issue": "Previous items L1-1 to L1-9 are resolved. This is a new finding in the revised steering step. After the CBPF swap, the old process accepts its queue and then closes its listeners. On Linux, that close still resets two kinds of connection. First, handshakes that were in SYN_RECV on the old listener before the swap: when the final ACK arrives after the close, the request is dropped, the lookup finds the new listener, and the new listener answers the unmatched ACK with an RST (no SYN cookie was issued). Second, children that complete their handshake between the old process's last accept() returning EAGAIN and close(): inet_csk_listen_stop resets them. Go cannot drain an accept queue and close it atomically. The window is about the connection rate times the client RTT, so at half saturation with 100 ms clients it is tens of resets per handover (hypothesis). This is the failure HAProxy measured. So 'CBPF steering, emptying the closing accept queue, closes that gap' is not true as written. ZG-3 and the V-3 pass criterion ('Zero refused or reset connections' over 1,000 handovers) cannot be met. Only net.ipv4.tcp_migrate_req=1 (Linux 5.14+) moves in-progress requests and late children to the remaining socket on close. The document calls it 'the alternative' to the CBPF swap, but for this window it is the complement.",
+      "evidence": "Step 5: \"Once accepted, the new process listens; the holder swaps each program to select it through `golang.org/x/sys/unix` (`net.ipv4.tcp_migrate_req` is the alternative), accepts its queue and closes its listeners, losing QUIC connections here, not at bind.\"; line 138: \"CBPF steering, emptying the closing accept queue, closes that gap.\"; ZG-3: \"An in-place handover refuses no new TCP connection\"; V-3 pass: \"Zero refused or reset connections and failed requests\"",
+      "fix": "In step 5, after the swap the holder keeps accepting for a linger of at least 3 s (target), which covers handshakes started before the swap, including one SYN-ACK retransmission. Only then does it close. Also state that handover hosts SHOULD set net.ipv4.tcp_migrate_req=1 (Linux 5.14 or later, per network namespace). With it, closing migrates both queued children and in-progress handshakes to the new socket, even with a CBPF program attached (selection falls back to hash over the remaining sockets). Reword line 138 to match. Qualify ZG-3 as 'with tcp_migrate_req=1; without it, only handshakes needing more than one SYN-ACK retransmission across the linger can be reset (hypothesis)'. Run V-3 in both modes, recording resets per handover. Record the pack change under foundation amendments rather than contradicting pack section 7 in the text."
     },
     {
       "id": "L1-2",
-      "section": "Binary upgrades > In-place handover; Drain timeline defaults",
-      "issue": "In a handover, the old process fails /readyz as soon as it starts draining. CBPF steers only new connections, so a balancer that reuses its health-check connection (a keep-alive HTTP checker) keeps probing the old process, gets 503 and marks the Node down. That violates ZG-3 and the V-3 pass criterion of 200 throughout a handover.",
-      "evidence": "Figure 1: \"Old->>Old: accept the queued connections, close listeners, fail readyz\"; Drain table line 190: \"0 s | Readiness failure: `/readyz` returns 503; heartbeats set `draining`\"; line 389: \"200 throughout a handover\"",
-      "fix": "Define the handover variant of the readiness step. After steering, the old process first closes its idle 9901 connections, then answers any in-flight admin request with `Connection: close`, and only then reports draining. Its /readyz is never served as 503 on a connection it keeps open, since the accepted new process holds readiness for the Node. Add a keep-alive health checker to V-3."
-    },
-    {
-      "id": "L1-3",
-      "section": "Guarantees",
-      "issue": "ZG-1 contradicts the document's own Atomic swap text and Data plane. Streams pinned to a snapshot K + 1 activations old are closed at once, with no grace. Only non-stream requests that are still pinned get the 30 s grace before they end with RZ-RT-014.",
-      "evidence": "Line 51: \"ZG-1 | A Hot Reload drops no in-flight request; only a stream that outlives K + 1 further activations and a 30 s grace ends, K = 2 (target)\". Data plane, Why no in-flight request is dropped: \"When a third would be retired, the oldest becomes closing: its streams end at once (WebSocket close 1001, gRPC trailers ... UNAVAILABLE, an SSE end event with a retry hint). After a grace period of 30 s (target) it becomes ending, and anything still pinned ends with `RZ-RT-014`\"",
-      "fix": "Reword ZG-1: \"A Hot Reload drops no in-flight request. A stream pinned to a snapshot K + 1 activations old receives a going-away close at once, and a request still pinned 30 s later (target) ends with RZ-RT-014, K = 2 (target).\" Also note Data plane rule 6: during a burst, activation waits for the closing snapshot to be freed."
-    },
-    {
-      "id": "L1-4",
-      "section": "Control plane upgrades; Verification runbook",
-      "issue": "The Prepare step allows Nodes at N before Ruralz Control is upgraded. Under the Release skew table, a Node newer than the Control Store version is outside policy, and Release Figure 2 requires every Node at N-1 before the first replica is replaced. The runbook's generic Before row repeats the error.",
-      "evidence": "Line 294: \"1. **Prepare.** Every replica reported a snapshot at the Control Store version and every Node runs N-1 or N\"; line 385: \"Before | `ruralz version`; `ruralz node list --cluster <name>` | Every Node at N-1 or N\". Release, versioning and compatibility skew table: \"Ruralz Control and Ruralz Gateway Nodes | N-1; N once the Control Store version is N | N-2 or older; newer than the Control Store version\"; Figure 2: \"Every Node at N-1?\" / \"Upgrade lagging Nodes to N-1\"",
-      "fix": "In Prepare, require every Node at N-1 and upgrade any N-2 Node first. Split the runbook Before row into two rows: before a Ruralz Control upgrade (every Node at N-1) and before a Node upgrade after finalize (every Node at N-1 or N)."
-    },
-    {
-      "id": "L1-5",
-      "section": "Rollback",
-      "issue": "After finalize, Figure 4 sends the operator straight to restore. It omits rule 6 of Ruralz Control upgrades, which Release assigns to this document: while still on N, roll out a Revision without N-only fields to every Cluster until `complete`, then return every Node to N-1 by handover, and only then restore (re-applying N-1's `ruralz-crds.yaml`). Following Figure 4 while Nodes run N leaves them newer than the restored Control Store version, which is outside the skew policy.",
-      "evidence": "Figure 4: `q5 -- \"yes\" --> r7` with r7 \"Restore: High availability and disaster recovery\"; line 377: \"After finalize, returning to N-1 is a restore into an empty N-1 deployment ... a recovery, not a rollback\". Release rule 6: \"If Nodes have already moved to N, rollback after finalize follows a fixed order ... [Zero-downtime upgrades and hot reload] owns the Rollout and handover steps\"",
-      "fix": "Add a Figure 4 branch, \"Nodes already on N?\", that leads to \"Roll out a Revision without N-only fields to every Cluster, then hand over every Node to N-1\" before r7. In the prose, write out the rule 6 Rollout and handover steps that this document owns, with the CRD re-apply order, and link HA/DR for the restore itself."
-    },
-    {
-      "id": "L1-6",
-      "section": "Guarantees; Rollback",
-      "issue": "ZG-8 promises that every rollback this document owns takes three steps or fewer. Past the binary rollback limit, however, a binary rollback chains a Revision revert (start, a possible RZ-CP-006 approval, status) with a binary rollback (two steps), which makes up to five steps. The revert target is older than the replaced Revision, so RZ-CP-006 approval is likely.",
-      "evidence": "Line 58: \"ZG-8 | Every rollback this document owns takes three steps or fewer\"; line 377: \"Past the binary rollback limit, first roll back to a Revision without N-only fields, then the binary.\"; Figure 4: `r5 --> r4`",
-      "fix": "Either add a single table row, \"Binary past the rollback limit\", with at most three steps (for example, 1: `ruralz rollout start --cluster <c> --revision sha256:<pre-adoption>` plus approval, 2: `ruralz rollout status <id> --wait` reaches `complete`, 3: handover or image back to N-1), or narrow ZG-8 to exclude this path and name the path as a two-stage procedure with its own drill (V-6)."
-    },
-    {
-      "id": "L1-7",
-      "section": "Binary upgrades > In-place handover (step 6, Move identity)",
-      "issue": "The new process presents the same certificate and `node.id` as the old one. Control Stream state lives in memory on each replica, so a `Hello` that reaches a different replica before that replica learns the old stream closed can be rejected with RZ-CP-002 (\"`node.id` taken\"). The document does not define what the new process does then. Treated as fatal, the Node stays detached, and Rollouts quarantine it as lagging.",
-      "evidence": "Line 177: \"At Drain start the old process sends a last `Heartbeat` with `draining`, closes its Control Stream and releases the lock. The new process takes the lock and dials 8091 with `Hello`\". Control plane and GitOps registry: \"RZ-CP-002 | `node.id` taken, or `Hello` mismatches the certificate\"; Hello row: \"`RZ-CP-002`, `RZ-CP-003`, or anchor updates\"",
-      "fix": "State that during a handover the new process retries RZ-CP-002 with full-jitter backoff (base 1 s, cap 60 s (target)) while it stays ready. Propose that Ruralz Control let a `Hello` from the same certificate supersede a stream whose last `Heartbeat` carried `draining`, and record that as a new OQ owned by control-plane-and-gitops."
-    },
-    {
-      "id": "L1-8",
-      "section": "Binary upgrades > In-place handover (overlap sizing)",
-      "issue": "The overlap sizing covers only a second base RSS plus Plugin pools. Every Node ceiling in Data plane is enforced per process: 20,000 connections, 20,000 in-flight units, `maxBufferedBytes`, `maxPluginMemoryBytes` (instances reserve their full limit) and (K + 2) snapshots. During the overlap the old process still holds its long-lived connections and buffers while the new process fills its own ceilings, so the Node's worst case roughly doubles. Data plane sizes that worst case at about 19 GiB plus snapshots on a 32 GiB Node, and nothing bounds the combined total.",
-      "evidence": "Line 182: \"handover hosts SHOULD keep free memory for a second base RSS, 100 MB plus 2 KB per Route (target), plus its Plugin pools (OQ-zero-downtime-upgrades-and-hot-reload-6)\". Data plane, Bounded resources: \"Worst-case Node memory sums connections at 592 KiB (about 11.3 GiB), in-flight units ... about 19 GiB plus snapshots, fitting a 32 GiB Node (hypothesis)\"",
-      "fix": "Make the Node-wide ceilings shared across the overlap. The old process reports its live connection, in-flight unit, buffered-byte and Plugin-memory usage in the Unix-socket exchange, and the new process starts at the ceiling minus that usage, rising as the old process drains. If that is rejected, state the 2x worst case with (hypothesis) and add ceiling sharing as an option to OQ-zero-downtime-upgrades-and-hot-reload-6."
-    },
-    {
-      "id": "L1-9",
-      "section": "Binary upgrades (path table; Kubernetes replacement)",
-      "issue": "The replacement path contradicts Deployment topologies. That document sets the Node StatefulSet's `RollingUpdate` `maxUnavailable` to match the PodDisruptionBudget, which is one zone's share at minimum scale, not one Pod. PodDisruptionBudgets limit evictions, not the StatefulSet controller's own rolling update, so \"within the PodDisruptionBudget\" does not bound the update.",
-      "evidence": "Line 132: \"Replacement | Kubernetes (T4) | StatefulSet rolling update: preStop, Drain, new Pod | One Pod at a time, within the PodDisruptionBudget\"; line 251: \"Each step removes one Pod for about 40 to 45 s (hypothesis)\". Deployment topologies T4: \"Node StatefulSet | `podManagementPolicy: Parallel` ...; `RollingUpdate`, `maxUnavailable` matching the PodDisruptionBudget\"; \"PodDisruptionBudgets | ... for Nodes, one zone's share at minimum scale (target)\"",
-      "fix": "Align with Deployment topologies. State that each step replaces up to `maxUnavailable` Pods (one zone's share at minimum scale), recompute the per-step capacity loss and the reconnect load against the 2,000 reconnects per second per Node figure, and bound the update by `maxUnavailable`, not by the PodDisruptionBudget. If one Pod at a time is intended, raise an OQ against deployment-topologies."
+      "section": "Verification runbook (During any upgrade row) vs Control plane upgrades and Kubernetes Drain and restart",
+      "issue": "The runbook applies a pass criterion to every upgrade: `ruralz_control_cluster_nodes` drops at most 10%. The document's own procedures predictably break it. Replacing one of three Ruralz Control replicas unqualifies that replica's Nodes, about a third of the Cluster, for 10 minutes. The document says so, and V-5 depends on OQ-scalability-and-distributed-state-14 (a). A T4 rolling update with declared ceilings needs no pacing, and it removes M = 100 of 1,000 Nodes every 45 s. Each drained Node drops out of the count at once and rejoins only 10 minutes later, so within 7.5 minutes the published count falls far beyond 10%. An operator following the runbook would fail, or halt, every Ruralz Control upgrade and every unpaced T4 update.",
+      "evidence": "Runbook: \"During any upgrade | `ruralz_control_cluster_nodes`; `ruralz_node_degraded_info{reason=\\\"state_store_breaker_open\\\"}` | Drops at most 10% (target); no breaker opens\"; Control plane upgrades: \"Until OQ-scalability-and-distributed-state-14 closes, each replacement unqualifies its Nodes\"; Node count during upgrades: \"a `draining` Heartbeat drops a Node at once, and it rejoins only 10 minutes plus a 10%-per-minute ramp later (target)\" and \"declared ceilings ... need no pacing\"; Kubernetes: \"Example N = 1,000, minReplicas 300, three zones: M = 100, 10 steps, 7.5 min (hypothesis)\"",
+      "fix": "Scope the row. For derived-ceiling Clusters upgraded under the 10%-per-10-minutes pacing, the count drops at most 10% (target) and no breaker opens. For declared-ceiling Clusters, only 'no breaker opens' applies, and the count drop is expected. For Ruralz Control upgrades, until OQ-scalability-and-distributed-state-14 (a), expect a drop of up to the replaced replica's share of Nodes, and check that derived-ceiling Clusters declared per-Node ceilings before starting. Keep V-5's dependency note consistent with this."
     }
   ],
   "non_blocking": [
     {
-      "section": "Binary upgrades > Drain timeline defaults",
-      "suggestion": "The two-phase GOAWAY (last stream ID 2^31-1, then a final GOAWAY after a PING round trip) cannot be built on `net/http`'s HTTP/2 server. `Server.Shutdown` sends one GOAWAY with the highest processed stream ID and exposes no server-side frame API, and x/net's `Server` is deprecated (pack 7, ADR-0009). Mark those two table rows as depending on OQ-zero-downtime-upgrades-and-hot-reload-3, and state that the default for Planned (M1) is option (a), a single GOAWAY, whose race clients survive by retrying unprocessed streams."
+      "section": "Binary upgrades > In-place handover (shared ceilings)",
+      "suggestion": "The old process reports usage each second (target), so right after a burst of 1001 closes, the new process sees stale usage. Near the connection ceiling, it could refuse reconnects that the old process has already released. Have the old process send a usage update before each batch of going-away closes, or give the new process a small burst allowance equal to the closes announced in the last report."
     },
     {
-      "section": "Configuration hot reload > Validation gate (step 10)",
-      "suggestion": "When a Revision changes a listener on the same port (protocol, TLS, `http3`), rebinding puts two sockets of one process in one reuseport group, and closing the old one drops its queued connections, the same gap HAProxy measured. Prefer keeping the socket and swapping only the handler and TLS config in the snapshot, or apply the in-process CBPF steering the handover uses."
+      "section": "Binary upgrades > In-place handover (steps 4 to 7)",
+      "suggestion": "Between acceptance and closing its Control Stream, the holder can still receive a Snapshot or Delta, activate it and ACK it. The new process then serves an older Revision until its Hello resyncs. State that once the holder has accepted, it defers or transiently NACKs new configuration until the Control Stream moves, so the Node never reports an ACKed digest it does not serve."
     },
     {
-      "section": "Configuration hot reload > Atomic swap",
-      "suggestion": "State Data plane rule 6: while a snapshot is closing or ending, the latest pending Revision waits up to the 30 s grace plus the ending bound and compile time (target). PB-7's 500 ms then applies only without a closing snapshot, and Rollout ACK timing (60 s) should be checked against that delay."
+      "section": "Binary upgrades > In-place handover; Plugin hot-swap",
+      "suggestion": "With Plugin memory shared, the new process's pools may warm to 0 when the old process's pools hold most of maxPluginMemoryBytes, and the first requests then hit RZ-PLG under failureMode. That would fail V-3's zero-failed-requests criterion. Have the old process shrink idle pool instances as soon as steering completes, and add Plugin-bearing Routes to V-3."
     },
     {
-      "section": "Binary upgrades > In-place handover",
-      "suggestion": "Cover two edge cases. (1) The holder's candidate write failed (the full-disk case in Partial failure), so its candidate does not match its active digest: the old process should refuse at once with a reason instead of letting the new process loop until the 60 s timeout. (2) The holder exits during the overlap before acceptance: say whether the new process takes the lock and serves under boot order (1) or exits."
-    },
-    {
-      "section": "Binary upgrades > Kubernetes replacement",
-      "suggestion": "The research file notes that the Kubernetes version in which the preStop `sleep` handler became GA was not verified (scalability-patterns.md, Gaps). Name the minimum supported Kubernetes version, or give an exec fallback, before relying on \"needs no binary in the image\"."
-    },
-    {
-      "section": "Binary upgrades > Drain timeline defaults",
-      "suggestion": "Use one name for 25 s (drain deadline) and 30 s (exit bound). The text says \"preStop wait plus the Drain deadline: 45 s against 5 s plus 30 s\" while the table puts the Drain deadline at 25 s."
-    },
-    {
-      "section": "Binary upgrades > Long-lived WebSocket and SSE connections",
-      "suggestion": "AI completions over SSE are cut at every Drain deadline and charged the full reservation (pack 8.9). Quantify the cost per upgrade (hypothesis) and say whether operators should shift AI Routes away before an upgrade."
-    },
-    {
-      "section": "State Store upgrades; Verification runbook",
-      "suggestion": "The failover window is tagged \"about 15 s (hypothesis)\" in the table but \"at most 15 s (target)\" in V-7. Pick one tag, matching Scalability's CE-5 (target), or explain the difference. Also note that `ai.semantic-cache` bypasses under its default `open`, not only failing under `closed`."
-    },
-    {
-      "section": "apiVersion migrations",
-      "suggestion": "CLI and API surface requires `--environments` for `ruralz bundle render --api-version ... --output-dir`, which renders both trees and exits 1 unless every diff is empty. Add the flag to step 2; step 3 could then reuse that exit code."
-    },
-    {
-      "section": "Binary upgrades > In-place handover",
-      "suggestion": "Say that during the overlap both processes keep full local token buckets, so a key can briefly see two local ceilings on one Node before GCRA. This is still inside Scalability's one-extra-ceiling-per-restart bound, but state it."
+      "section": "Rollback (Ruralz Control after finalize, Nodes at N)",
+      "suggestion": "Step 1 folds in two steps from another row across every Cluster, and step 3 bundles a restore, a CRD re-apply and a relay redeploy. Say explicitly that each step is one per-Cluster operation, and that the restore's own steps are owned by High availability and disaster recovery. Otherwise the three-step claim reads as compressed."
     }
   ],
   "ac_results": [
-    {
-      "ac": "Binary upgrades states the drain timeline defaults (readiness failure, preStop, drain timeout, HTTP/2 GOAWAY) with values tagged (target).",
-      "pass": true,
-      "note": "The Drain timeline table and Figure 2 give every default tagged (target). The two-phase GOAWAY rows depend on OQ-3 (see non-blocking)."
-    },
-    {
-      "ac": "Binary upgrades defines the strategy for long-lived WebSocket and SSE connections.",
-      "pass": true,
-      "note": "A per-protocol table covers jittered 1001 closes, SSE retry with Last-Event-ID, AI SSE, gRPC and other requests, with reconnect-rate figures."
-    },
-    {
-      "ac": "Control plane upgrades covers Raft rolling upgrades, and the version skew matches docs/engineering/04-release-versioning-and-compatibility.md (N and N-1).",
-      "pass": false,
-      "note": "Raft rolling upgrade and finalize are covered, and the skew table matches. However, Prepare's \"every Node runs N-1 or N\" contradicts Release (Nodes must be at N-1; N is outside policy before finalize) (L1-4), and the post-finalize rollback ordering of Release rule 6 is missing (L1-5)."
-    },
-    {
-      "ac": "Rollback takes three steps or fewer.",
-      "pass": false,
-      "note": "Each table row has at most three steps, but the binary rollback past the N-only-field limit chains two rows, up to five steps, which contradicts ZG-8 (L1-6)."
-    },
-    {
-      "ac": "Configuration hot reload enumerates the validation gate checks and covers atomic swap, partial failure and Plugin hot-swap.",
-      "pass": true,
-      "note": "An 11-step gate table with codes and classes, plus Atomic swap, Partial failure and Plugin hot-swap subsections. ZG-1's wording conflicts with the swap text (L1-3)."
-    },
-    {
-      "ac": "Binary upgrades follows ADR-0015 (SO_REUSEPORT, drain and readiness gating, no socket passing).",
-      "pass": false,
-      "note": "SO_REUSEPORT, Drain and no socket passing are followed. Readiness gating is not: the new process joins the reuseport groups before it is ready or accepted, so it receives connections and 9901 probes early (L1-1), and the old process can serve 503 on kept-alive probe connections (L1-2)."
-    }
+    {"ac": "Binary upgrades states the drain timeline defaults (readiness failure, preStop, drain timeout, HTTP/2 GOAWAY) with values tagged (target).", "pass": true, "note": "Drain timeline defaults table and Figure 2 give readiness failure at 0 s, preStop 5 s, drain deadline 25 s and GOAWAY at 5 s, each tagged (target)."},
+    {"ac": "Binary upgrades defines the strategy for long-lived WebSocket and SSE connections.", "pass": true, "note": "Per-protocol table: 10 s jitter window, 1001, SSE retry with Last-Event-ID, and the AI SSE exception."},
+    {"ac": "Control plane upgrades covers Raft rolling upgrades, and the version skew matches docs/engineering/04-release-versioning-and-compatibility.md (N and N-1).", "pass": true, "note": "Prepare now requires every Node at N-1; the skew table matches Release."},
+    {"ac": "Rollback takes three steps or fewer.", "pass": true, "note": "Every row has at most three steps, including the past-limit and after-finalize rows; the after-finalize row is dense (non-blocking)."},
+    {"ac": "Configuration hot reload enumerates the validation gate checks and covers atomic swap, partial failure and Plugin hot-swap.", "pass": true, "note": "11-step gate table, then Atomic swap, Partial failure and Plugin hot-swap subsections."},
+    {"ac": "Binary upgrades follows ADR-0015 (SO_REUSEPORT, drain and readiness gating, no socket passing).", "pass": true, "note": "Follows ADR-0015; the residual reset window at listener close is L1-1."}
   ],
   "foundation_amendments": [
-    "Pack section 7, Upgrades row (ADR-0015): add that the lock holder pins its reuseport groups with an SO_ATTACH_REUSEPORT_CBPF program returning its own socket index until it accepts a handover. Without it, SO_REUSEPORT sends connections, UDP datagrams and /readyz probes to a new process before readiness gating.",
-    "Pack section 8.5: say how a Node's /readyz behaves during an in-place handover, where two processes share one node.id: the draining process must not serve 503 on connections that a balancer keeps alive."
+    "Pack section 7, Upgrades row (and System overview, Hot Reload, Rollout and Zero-Downtime Upgrade, item 1): change '`net.ipv4.tcp_migrate_req` is an alternative' to 'the old process lingers accepting after the CBPF swap; `net.ipv4.tcp_migrate_req` (Linux 5.14+) is a recommended complement that also migrates handshakes in progress at close'."
   ]
 }
