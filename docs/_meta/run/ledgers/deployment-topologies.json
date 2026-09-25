@@ -1,0 +1,1596 @@
+{
+ "path": "docs/operations/01-deployment-topologies.md",
+ "status": "reviewed",
+ "facts": [
+  {
+   "section": "Summary",
+   "kind": "number",
+   "value": "ten topologies"
+  },
+  {
+   "section": "Summary",
+   "kind": "milestone",
+   "value": "a Helm chart and mirrored CRDs, Planned (M2)"
+  },
+  {
+   "section": "Summary",
+   "kind": "decision",
+   "value": "Gateway API conformance deferred"
+  },
+  {
+   "section": "Summary",
+   "kind": "decision",
+   "value": "ADR-0016's Kubernetes stance"
+  },
+  {
+   "section": "Summary",
+   "kind": "claim",
+   "value": "Nothing is implemented yet."
+  },
+  {
+   "section": "Scope and non-goals",
+   "kind": "decision",
+   "value": "[ADR-0016](../adr/0016-kubernetes-helm-and-crds.md) (proposed)"
+  },
+  {
+   "section": "Scope and non-goals",
+   "kind": "claim",
+   "value": "Ruralz Cloud beyond T10"
+  },
+  {
+   "section": "Topology catalog",
+   "kind": "claim",
+   "value": "A Node runs in one mode, chosen at boot, never merging sources"
+  },
+  {
+   "section": "Topology catalog",
+   "kind": "milestone",
+   "value": "File mode watches a rendered Bundle directory, Planned (M1)"
+  },
+  {
+   "section": "Topology catalog",
+   "kind": "milestone",
+   "value": "pulls a signed OCI Revision by digest, Planned (M2)"
+  },
+  {
+   "section": "Topology catalog",
+   "kind": "milestone",
+   "value": "Control mode enrolls and receives Rollouts over the Control Stream it dials on 8091, Planned (M2)"
+  },
+  {
+   "section": "Topology catalog",
+   "kind": "port",
+   "value": "Control Stream it dials on 8091"
+  },
+  {
+   "section": "Topology catalog",
+   "kind": "decision",
+   "value": "ADR-0007 (Control Stream protocol)"
+  },
+  {
+   "section": "Topology catalog",
+   "kind": "claim",
+   "value": "Ruralz Gateway is stateless (P4): a Node persists only identity, Last-Known-Good and caches under `${RURALZ_DATA_DIR}` (pack 8.11)"
+  },
+  {
+   "section": "Topology catalog",
+   "kind": "claim",
+   "value": "a reschedulable Node MUST keep on persistent storage (OQ-scalability-and-distributed-state-7)"
+  },
+  {
+   "section": "Topology catalog",
+   "kind": "kind_or_field",
+   "value": "${RURALZ_DATA_DIR}"
+  },
+  {
+   "section": "Topology catalog",
+   "kind": "cli_command",
+   "value": "ruralz dev run"
+  },
+  {
+   "section": "Topology catalog",
+   "kind": "kind_or_field",
+   "value": "`memory` State Store"
+  },
+  {
+   "section": "Topology catalog",
+   "kind": "kind_or_field",
+   "value": "`redis` State Store"
+  },
+  {
+   "section": "Topology catalog",
+   "kind": "milestone",
+   "value": "T1 Development single binary: Planned (M1)"
+  },
+  {
+   "section": "Topology catalog",
+   "kind": "milestone",
+   "value": "T2 File mode: Planned (M1) directory; Planned (M2) OCI pull"
+  },
+  {
+   "section": "Topology catalog",
+   "kind": "failure_mode",
+   "value": "T2 Scaling: Nodes to Cell ceilings, then Cells; declared per-Node ceilings bound fail-open"
+  },
+  {
+   "section": "Topology catalog",
+   "kind": "milestone",
+   "value": "T3 Cluster with Ruralz Control: Planned (M2)"
+  },
+  {
+   "section": "Topology catalog",
+   "kind": "failure_mode",
+   "value": "T3 Failure domain: One Cluster per Rollout, stopped at canary"
+  },
+  {
+   "section": "Topology catalog",
+   "kind": "milestone",
+   "value": "T4 Kubernetes (Helm, HPA, CRDs): Planned (M2)"
+  },
+  {
+   "section": "Topology catalog",
+   "kind": "milestone",
+   "value": "T5 VM with systemd: Planned (M1) file mode; Planned (M2) Control mode"
+  },
+  {
+   "section": "Topology catalog",
+   "kind": "decision",
+   "value": "in-place Zero-Downtime Upgrade ([ADR-0015](../adr/0015-zero-downtime-upgrades-so-reuseport.md))"
+  },
+  {
+   "section": "Topology catalog",
+   "kind": "milestone",
+   "value": "T6 Edge: Planned (M2)"
+  },
+  {
+   "section": "Topology catalog",
+   "kind": "default",
+   "value": "T6 Configuration delivery: Mirror pull (default), or mostly detached Control mode"
+  },
+  {
+   "section": "Topology catalog",
+   "kind": "milestone",
+   "value": "T7 Per-team: Planned (M2)"
+  },
+  {
+   "section": "Topology catalog",
+   "kind": "milestone",
+   "value": "T8 Multi-cluster: Planned (M2)"
+  },
+  {
+   "section": "Topology catalog",
+   "kind": "limit",
+   "value": "Clusters, then Cells, to 10,000 Nodes per Ruralz Control (target)"
+  },
+  {
+   "section": "Topology catalog",
+   "kind": "milestone",
+   "value": "T9 Multi-region with Cells: Planned (M4)"
+  },
+  {
+   "section": "Topology catalog",
+   "kind": "failure_mode",
+   "value": "T9 Failure domain: One Cell; home Region loss stops changes"
+  },
+  {
+   "section": "Topology catalog",
+   "kind": "number",
+   "value": "R / (R − 1) pre-provisioning"
+  },
+  {
+   "section": "Topology catalog",
+   "kind": "milestone",
+   "value": "T10 Hybrid: Planned (M2) topology; Ruralz Cloud has no milestone"
+  },
+  {
+   "section": "Topology catalog",
+   "kind": "kind_or_field",
+   "value": "ruralz-control"
+  },
+  {
+   "section": "T1 and T2: development and file mode",
+   "kind": "cli_command",
+   "value": "ruralz dev run"
+  },
+  {
+   "section": "T1 and T2: development and file mode",
+   "kind": "claim",
+   "value": "renders the source Bundle by atomic rename into a private directory for a local `ruralzd`, which Hot Reloads and keeps its active Revision on a failed render"
+  },
+  {
+   "section": "T1 and T2: development and file mode",
+   "kind": "claim",
+   "value": "macOS `ruralzd` is development-only; Windows has none."
+  },
+  {
+   "section": "T1 and T2: development and file mode",
+   "kind": "claim",
+   "value": "File-mode `ruralzd` applies no overlay, so every watched directory SHOULD hold the same `ruralz bundle render --env <env>` output, trusting the filesystem."
+  },
+  {
+   "section": "T1 and T2: development and file mode",
+   "kind": "cli_command",
+   "value": "ruralz bundle render --env <env>"
+  },
+  {
+   "section": "T1 and T2: development and file mode",
+   "kind": "cli_command",
+   "value": "ruralz bundle push --oci"
+  },
+  {
+   "section": "T1 and T2: development and file mode",
+   "kind": "default",
+   "value": "OCI Revisions are Sigstore-signed by `ruralz bundle push --oci`, verified by each Node, `enforce` by default"
+  },
+  {
+   "section": "T1 and T2: development and file mode",
+   "kind": "library",
+   "value": "Sigstore"
+  },
+  {
+   "section": "T1 and T2: development and file mode",
+   "kind": "decision",
+   "value": "ADR-0017 (artifact signing), pack 8.14; reference variable: OQ-system-overview-19"
+  },
+  {
+   "section": "T1 and T2: development and file mode",
+   "kind": "claim",
+   "value": "Nodes MUST poll with jitter and backoff (OQ-deployment-topologies-16)"
+  },
+  {
+   "section": "T1 and T2: development and file mode",
+   "kind": "number",
+   "value": "a registry serves N / interval polls plus one pull per Node per digest (hypothesis)"
+  },
+  {
+   "section": "T1 and T2: development and file mode",
+   "kind": "number",
+   "value": "a local mirror SHOULD serve above 100 Nodes per Region or site (hypothesis)"
+  },
+  {
+   "section": "T1 and T2: development and file mode",
+   "kind": "port",
+   "value": "L4 load balancer: 8080, 8443"
+  },
+  {
+   "section": "T1 and T2: development and file mode",
+   "kind": "port",
+   "value": "tester -->|\"8080\"| n0"
+  },
+  {
+   "section": "T1 and T2: development and file mode",
+   "kind": "cli_command",
+   "value": "ruralz test run"
+  },
+  {
+   "section": "T1 and T2: development and file mode",
+   "kind": "cli_command",
+   "value": "ruralz bundle validate, build and push --oci, each with --env and --environments"
+  },
+  {
+   "section": "T3: Cluster of Nodes managed by Ruralz Control",
+   "kind": "default",
+   "value": "Three `ruralz-control` replicas, or five (Sizing defaults)"
+  },
+  {
+   "section": "T3: Cluster of Nodes managed by Ruralz Control",
+   "kind": "port",
+   "value": "form the Raft Control Store on 8092"
+  },
+  {
+   "section": "T3: Cluster of Nodes managed by Ruralz Control",
+   "kind": "decision",
+   "value": "[ADR-0006](../adr/0006-control-store-raft-boltdb.md), proposed"
+  },
+  {
+   "section": "T3: Cluster of Nodes managed by Ruralz Control",
+   "kind": "library",
+   "value": "Raft Control Store (ADR-0006, Raft BoltDB)"
+  },
+  {
+   "section": "T3: Cluster of Nodes managed by Ruralz Control",
+   "kind": "port",
+   "value": "all serve 8090 and 8091"
+  },
+  {
+   "section": "T3: Cluster of Nodes managed by Ruralz Control",
+   "kind": "claim",
+   "value": "only the leader watching Git, signing, enrolling and running Rollouts"
+  },
+  {
+   "section": "T3: Cluster of Nodes managed by Ruralz Control",
+   "kind": "failure_mode",
+   "value": "In an outage (P3) Nodes keep serving, restarted ones boot Last-Known-Good within 5 s (target), and new ones stay not ready"
+  },
+  {
+   "section": "T3: Cluster of Nodes managed by Ruralz Control",
+   "kind": "timeout",
+   "value": "restarted ones boot Last-Known-Good within 5 s (target)"
+  },
+  {
+   "section": "T3: Cluster of Nodes managed by Ruralz Control",
+   "kind": "number",
+   "value": "Clusters SHOULD keep 30% headroom above peak (target)"
+  },
+  {
+   "section": "T3: Cluster of Nodes managed by Ruralz Control",
+   "kind": "port",
+   "value": "Control Stream, Node dials 8091"
+  },
+  {
+   "section": "T3: Cluster of Nodes managed by Ruralz Control",
+   "kind": "port",
+   "value": "Raft replication 8092"
+  },
+  {
+   "section": "T3: Cluster of Nodes managed by Ruralz Control",
+   "kind": "port",
+   "value": "8090 REST API and Ruralz Console"
+  },
+  {
+   "section": "T4: Kubernetes with Helm, HPA and CRDs",
+   "kind": "milestone",
+   "value": "the Helm chart `oci://ghcr.io/ravindu-rev/charts/ruralz` and CRDs mirroring the ten kinds are Planned (M2)"
+  },
+  {
+   "section": "T4: Kubernetes with Helm, HPA and CRDs",
+   "kind": "decision",
+   "value": "Per [ADR-0016](../adr/0016-kubernetes-helm-and-crds.md) (proposed)"
+  },
+  {
+   "section": "T4: Kubernetes with Helm, HPA and CRDs",
+   "kind": "decision",
+   "value": "Gateway API conformance is deferred beyond M5, an adapter needing no kind change (OQ-vision-and-positioning-4)"
+  },
+  {
+   "section": "T4: Kubernetes with Helm, HPA and CRDs",
+   "kind": "kind_or_field",
+   "value": "CRD `ruralz.io/v1alpha1` differs from Bundle `ruralz/v1alpha1` only in group"
+  },
+  {
+   "section": "T4: Kubernetes with Helm, HPA and CRDs",
+   "kind": "kind_or_field",
+   "value": "ruralz/v1alpha1"
+  },
+  {
+   "section": "T4: Kubernetes with Helm, HPA and CRDs",
+   "kind": "kind_or_field",
+   "value": "ruralz.io/v1alpha1"
+  },
+  {
+   "section": "T4: Kubernetes with Helm, HPA and CRDs",
+   "kind": "claim",
+   "value": "`ruralz-control` StatefulSet: Three pods with volumes; `OnDelete`, leadership moved off first (OQ-deployment-topologies-6)"
+  },
+  {
+   "section": "T4: Kubernetes with Helm, HPA and CRDs",
+   "kind": "claim",
+   "value": "On an empty volume only ordinal 0 at first install (no marker ConfigMap, no peer on headless 8092) runs `serve`"
+  },
+  {
+   "section": "T4: Kubernetes with Helm, HPA and CRDs",
+   "kind": "claim",
+   "value": "any other pod waits not ready for a join token, from the Job at install, else once an `admin` removes its old voter (OQ-deployment-topologies-20), then runs `join`"
+  },
+  {
+   "section": "T4: Kubernetes with Helm, HPA and CRDs",
+   "kind": "claim",
+   "value": "Bootstrap Secret and Job (proposed): chart generates a one-time bootstrap credential Secret, imported as process configuration by ordinal 0's first `serve` (OQ-deployment-topologies-11 (b))"
+  },
+  {
+   "section": "T4: Kubernetes with Helm, HPA and CRDs",
+   "kind": "api_path",
+   "value": "/api/v1/replicas"
+  },
+  {
+   "section": "T4: Kubernetes with Helm, HPA and CRDs",
+   "kind": "claim",
+   "value": "the credential expires once both join (OQ-deployment-topologies-12)"
+  },
+  {
+   "section": "T4: Kubernetes with Helm, HPA and CRDs",
+   "kind": "port",
+   "value": "8090 behind a load balancer or Ingress; 8091 as L4 passthrough for mTLS; headless 8092"
+  },
+  {
+   "section": "T4: Kubernetes with Helm, HPA and CRDs",
+   "kind": "port",
+   "value": "a conversion webhook (port: OQ-deployment-topologies-13)"
+  },
+  {
+   "section": "T4: Kubernetes with Helm, HPA and CRDs",
+   "kind": "kind_or_field",
+   "value": "`caBundle` from the server CA, `conversion.strategy: None` while only `ruralz.io/v1alpha1` is served"
+  },
+  {
+   "section": "T4: Kubernetes with Helm, HPA and CRDs",
+   "kind": "kind_or_field",
+   "value": "`podManagementPolicy: Parallel`"
+  },
+  {
+   "section": "T4: Kubernetes with Helm, HPA and CRDs",
+   "kind": "kind_or_field",
+   "value": "`RollingUpdate`, `maxUnavailable` matching the PodDisruptionBudget"
+  },
+  {
+   "section": "T4: Kubernetes with Helm, HPA and CRDs",
+   "kind": "failure_mode",
+   "value": "Zone loss: Pods on unreachable nodes count until force-deleted or their nodes removed (`node.kubernetes.io/out-of-service` taint), their zonal volumes stuck; HPA reads them as idle on scale-up"
+  },
+  {
+   "section": "T4: Kubernetes with Helm, HPA and CRDs",
+   "kind": "kind_or_field",
+   "value": "node.kubernetes.io/out-of-service"
+  },
+  {
+   "section": "T4: Kubernetes with Helm, HPA and CRDs",
+   "kind": "kind_or_field",
+   "value": "`topologySpreadConstraints` on the zone label, `maxSkew: 1`, `whenUnsatisfiable: DoNotSchedule`"
+  },
+  {
+   "section": "T4: Kubernetes with Helm, HPA and CRDs",
+   "kind": "port",
+   "value": "LoadBalancer for TCP 8080 and 8443; UDP 8443 (`http3: true`, Planned (M3)) needs a UDP balancer"
+  },
+  {
+   "section": "T4: Kubernetes with Helm, HPA and CRDs",
+   "kind": "milestone",
+   "value": "UDP 8443 (`http3: true`, Planned (M3))"
+  },
+  {
+   "section": "T4: Kubernetes with Helm, HPA and CRDs",
+   "kind": "kind_or_field",
+   "value": "http3: true"
+  },
+  {
+   "section": "T4: Kubernetes with Helm, HPA and CRDs",
+   "kind": "api_path",
+   "value": "`/readyz` and `/healthz` on 9901, or 9902 for `ruralz-control`"
+  },
+  {
+   "section": "T4: Kubernetes with Helm, HPA and CRDs",
+   "kind": "port",
+   "value": "9901"
+  },
+  {
+   "section": "T4: Kubernetes with Helm, HPA and CRDs",
+   "kind": "port",
+   "value": "9902 for `ruralz-control`"
+  },
+  {
+   "section": "T4: Kubernetes with Helm, HPA and CRDs",
+   "kind": "limit",
+   "value": "connections at 10,000 (target)"
+  },
+  {
+   "section": "T4: Kubernetes with Helm, HPA and CRDs",
+   "kind": "limit",
+   "value": "half Sizing option (b)'s cap, 1,250 (hypothesis)"
+  },
+  {
+   "section": "T4: Kubernetes with Helm, HPA and CRDs",
+   "kind": "claim",
+   "value": "CPU as a Resource metric, the rest as adapter Pods metrics"
+  },
+  {
+   "section": "T4: Kubernetes with Helm, HPA and CRDs",
+   "kind": "limit",
+   "value": "`behavior.scaleDown` removes at most one zone's share per stabilized period (target)"
+  },
+  {
+   "section": "T4: Kubernetes with Helm, HPA and CRDs",
+   "kind": "claim",
+   "value": "half-threshold scale-in is OQ-deployment-topologies-14"
+  },
+  {
+   "section": "T4: Kubernetes with Helm, HPA and CRDs",
+   "kind": "claim",
+   "value": "`minReplicas` holds the headroom and, without an adapter, peak connections / threshold; State Store shards bound `maxReplicas`"
+  },
+  {
+   "section": "T4: Kubernetes with Helm, HPA and CRDs",
+   "kind": "claim",
+   "value": "Control-mode Clusters SHOULD declare per-Node ceilings c"
+  },
+  {
+   "section": "T4: Kubernetes with Helm, HPA and CRDs",
+   "kind": "limit",
+   "value": "PodDisruptionBudgets: One `ruralz-control` pod; for Nodes, one zone's share at minimum scale (target)"
+  },
+  {
+   "section": "T4: Kubernetes with Helm, HPA and CRDs",
+   "kind": "timeout",
+   "value": "`terminationGracePeriodSeconds` MUST exceed the preStop wait plus the Drain deadline"
+  },
+  {
+   "section": "T4: Kubernetes with Helm, HPA and CRDs",
+   "kind": "kind_or_field",
+   "value": "provider: kubernetes"
+  },
+  {
+   "section": "T4: Kubernetes with Helm, HPA and CRDs",
+   "kind": "claim",
+   "value": "Nodes: `get` and `watch` on own-namespace Secrets, only for `provider: kubernetes`"
+  },
+  {
+   "section": "T4: Kubernetes with Helm, HPA and CRDs",
+   "kind": "claim",
+   "value": "`list` and `watch` on `endpointslices.discovery.k8s.io` via a Role per Upstream namespace (OQ-deployment-topologies-1)"
+  },
+  {
+   "section": "T4: Kubernetes with Helm, HPA and CRDs",
+   "kind": "claim",
+   "value": "None reads Secrets cluster-wide"
+  },
+  {
+   "section": "T4: Kubernetes with Helm, HPA and CRDs",
+   "kind": "kind_or_field",
+   "value": "Environment"
+  },
+  {
+   "section": "T4: Kubernetes with Helm, HPA and CRDs",
+   "kind": "kind_or_field",
+   "value": "Cluster"
+  },
+  {
+   "section": "T4: Kubernetes with Helm, HPA and CRDs",
+   "kind": "claim",
+   "value": "Declared ceilings bind healthy admission too (pack 8.8)"
+  },
+  {
+   "section": "T4: Kubernetes with Helm, HPA and CRDs",
+   "kind": "claim",
+   "value": "declare `requests` / `maxReplicas` only where that under-admission is acceptable, else narrow the HPA range to `minReplicas` / `maxReplicas` ≥ 0.5"
+  },
+  {
+   "section": "T4: Kubernetes with Helm, HPA and CRDs",
+   "kind": "kind_or_field",
+   "value": "requests"
+  },
+  {
+   "section": "T4: Kubernetes with Helm, HPA and CRDs",
+   "kind": "claim",
+   "value": "A declared cap on the derived ceiling: OQ-deployment-topologies-22."
+  },
+  {
+   "section": "T4: Kubernetes with Helm, HPA and CRDs",
+   "kind": "failure_mode",
+   "value": "each request first takes a local token at c: admits ≤ min(requests, N_serving × c) per window; a client pinned to one Node gets c (target)"
+  },
+  {
+   "section": "T4: Kubernetes with Helm, HPA and CRDs",
+   "kind": "failure_mode",
+   "value": "c = requests / N_max: fail-open ≤ requests; healthy ≥ N_min / N_max × requests, 20% at 6 of 30 (target)"
+  },
+  {
+   "section": "T4: Kubernetes with Helm, HPA and CRDs",
+   "kind": "failure_mode",
+   "value": "c = 2 × requests / N_min: healthy exact; fail-open ≤ 2 × N_max / N_min × requests, 10 × at 6 of 30 (target)"
+  },
+  {
+   "section": "T4: Kubernetes with Helm, HPA and CRDs",
+   "kind": "number",
+   "value": "Zone loss, 2 of 6 pods: 4 survivors at x% CPU; HPA ratio 4x / (6 × 53%) > 1.1 only once x > 87.5% (hypothesis)"
+  },
+  {
+   "section": "T4: Kubernetes with Helm, HPA and CRDs",
+   "kind": "milestone",
+   "value": "Once a second version is served, Planned (M3)"
+  },
+  {
+   "section": "T4: Kubernetes with Helm, HPA and CRDs",
+   "kind": "failure_mode",
+   "value": "non-storage-version CRD reads fail while every `ruralz-control` replica is down"
+  },
+  {
+   "section": "T4: Kubernetes with Helm, HPA and CRDs",
+   "kind": "decision",
+   "value": "OQ-release-versioning-and-compatibility-11: option (b): separate image tags, two upgrades, Ruralz Control first, each `OnDelete` replacement awaiting readiness and Raft catch-up"
+  },
+  {
+   "section": "T4: Kubernetes with Helm, HPA and CRDs",
+   "kind": "decision",
+   "value": "OQ-configuration-model-2: option (a): `ruralzd` never reads CRDs; without Ruralz Control, Nodes use T2"
+  },
+  {
+   "section": "T4: Kubernetes with Helm, HPA and CRDs",
+   "kind": "decision",
+   "value": "OQ-system-overview-8: options (a) and (b) per Environment, whose Clusters share one Revision"
+  },
+  {
+   "section": "T4: Kubernetes with Helm, HPA and CRDs",
+   "kind": "claim",
+   "value": "`ruralz bundle push` stays an audited Drift exception"
+  },
+  {
+   "section": "T4: Kubernetes with Helm, HPA and CRDs",
+   "kind": "cli_command",
+   "value": "ruralz bundle push"
+  },
+  {
+   "section": "T4: Kubernetes with Helm, HPA and CRDs",
+   "kind": "failure_mode",
+   "value": "a namespace source (a digest, not a commit) shows as Git divergence Drift, is refused under `requireApproval` unless overridden (audited), and never promotes"
+  },
+  {
+   "section": "T4: Kubernetes with Helm, HPA and CRDs",
+   "kind": "kind_or_field",
+   "value": "requireApproval"
+  },
+  {
+   "section": "T4: Kubernetes with Helm, HPA and CRDs",
+   "kind": "decision",
+   "value": "OQ-configuration-model-3: option (a): kind names unchanged; CRDs join category `ruralz`, short names `rz` plus the lower-case kind (`rzroute`, `rzaimodel`), except `rzgw` and `rzenv`"
+  },
+  {
+   "section": "T4: Kubernetes with Helm, HPA and CRDs",
+   "kind": "kind_or_field",
+   "value": "Route, Upstream and Policy objects"
+  },
+  {
+   "section": "T4: Kubernetes with Helm, HPA and CRDs",
+   "kind": "kind_or_field",
+   "value": "ruralz-crds.yaml"
+  },
+  {
+   "section": "T4: Kubernetes with Helm, HPA and CRDs",
+   "kind": "api_path",
+   "value": "POST /api/v1/replicas"
+  },
+  {
+   "section": "T5 and T6: VMs with systemd and edge sites",
+   "kind": "claim",
+   "value": "One `ruralzd` service per VM keeps `${RURALZ_DATA_DIR}` on local disk; two per network namespace: Not planned"
+  },
+  {
+   "section": "T5 and T6: VMs with systemd and edge sites",
+   "kind": "timeout",
+   "value": "`systemctl stop` starts a Drain, so `TimeoutStopSec` MUST exceed the Drain deadline"
+  },
+  {
+   "section": "T5 and T6: VMs with systemd and edge sites",
+   "kind": "decision",
+   "value": "Upgrades hand over through `SO_REUSEPORT` ([ADR-0015](../adr/0015-zero-downtime-upgrades-so-reuseport.md), OQ-deployment-topologies-7)"
+  },
+  {
+   "section": "T5 and T6: VMs with systemd and edge sites",
+   "kind": "claim",
+   "value": "A multi-Node site needs a local `redis` State Store; one Node MAY use `memory`."
+  },
+  {
+   "section": "T5 and T6: VMs with systemd and edge sites",
+   "kind": "default",
+   "value": "Nodes pull signed Revisions from a site mirror by default, verifying offline, or in Control mode dial 8091 when the uplink allows"
+  },
+  {
+   "section": "T5 and T6: VMs with systemd and edge sites",
+   "kind": "port",
+   "value": "dial 8091 when the uplink allows"
+  },
+  {
+   "section": "T5 and T6: VMs with systemd and edge sites",
+   "kind": "timeout",
+   "value": "certificates live 30 days (target)"
+  },
+  {
+   "section": "T5 and T6: VMs with systemd and edge sites",
+   "kind": "failure_mode",
+   "value": "a restarted detached Node forgets revocations (OQ-security-and-identity-5)"
+  },
+  {
+   "section": "T5 and T6: VMs with systemd and edge sites",
+   "kind": "failure_mode",
+   "value": "an uplink lost mid-Rollout fails a multi-Node site's batch, stopping promotion until an `operator` retries"
+  },
+  {
+   "section": "T5 and T6: VMs with systemd and edge sites",
+   "kind": "limit",
+   "value": "a canary gate under 200 requests (target) pauses"
+  },
+  {
+   "section": "T5 and T6: VMs with systemd and edge sites",
+   "kind": "limit",
+   "value": "Environments above 50 sites (hypothesis), SHOULD use file mode or several Environments (OQ-deployment-topologies-4)"
+  },
+  {
+   "section": "T5 and T6: VMs with systemd and edge sites",
+   "kind": "number",
+   "value": "Per canary Cluster: canary.bake + 3 batches × max(30 s, 3 × 15 s heartbeats) = bake + 135 s, plus ACKs (target)"
+  },
+  {
+   "section": "T5 and T6: VMs with systemd and edge sites",
+   "kind": "number",
+   "value": "500 sites: 500 × (15 min + 135 s) = 500 × 17.25 min ≈ 6 days (hypothesis)"
+  },
+  {
+   "section": "T5 and T6: VMs with systemd and edge sites",
+   "kind": "kind_or_field",
+   "value": "canary.bake"
+  },
+  {
+   "section": "T7 and T8: per-team and multi-cluster",
+   "kind": "claim",
+   "value": "A Bundle has one Gateway, so a team needing its own blast radius or pace needs its own Bundle and Clusters"
+  },
+  {
+   "section": "T7 and T8: per-team and multi-cluster",
+   "kind": "claim",
+   "value": "once OQ-deployment-topologies-5 closes, a shared Ruralz Control; until then teams may share a Bundle with per-directory code owners and RBAC per Environment and Cluster"
+  },
+  {
+   "section": "T7 and T8: per-team and multi-cluster",
+   "kind": "kind_or_field",
+   "value": "promotion.from: staging"
+  },
+  {
+   "section": "T7 and T8: per-team and multi-cluster",
+   "kind": "claim",
+   "value": "a commit reaches `prod` only after its `staging` Revision reached `complete` (pack 8.1)"
+  },
+  {
+   "section": "T7 and T8: per-team and multi-cluster",
+   "kind": "claim",
+   "value": "A Cell splits at whichever Cell sizing ceiling in Sizing defaults saturates first."
+  },
+  {
+   "section": "T9: multi-region with Cells",
+   "kind": "kind_or_field",
+   "value": "stateStore.url"
+  },
+  {
+   "section": "T9: multi-region with Cells",
+   "kind": "kind_or_field",
+   "value": "secretRef"
+  },
+  {
+   "section": "T9: multi-region with Cells",
+   "kind": "claim",
+   "value": "Regions share one Revision and no request crosses Regions to a State Store (pack 8.13)"
+  },
+  {
+   "section": "T9: multi-region with Cells",
+   "kind": "claim",
+   "value": "Raft voters SHOULD share the home Region"
+  },
+  {
+   "section": "T9: multi-region with Cells",
+   "kind": "milestone",
+   "value": "read-only relays without signing keys serve them, Planned (M4)"
+  },
+  {
+   "section": "T9: multi-region with Cells",
+   "kind": "port",
+   "value": "their 8092 feed awaiting OQ-control-plane-and-gitops-15's pack 8.4 amendment"
+  },
+  {
+   "section": "T9: multi-region with Cells",
+   "kind": "claim",
+   "value": "losing a Region's relays is OQ-deployment-topologies-17"
+  },
+  {
+   "section": "T9: multi-region with Cells",
+   "kind": "failure_mode",
+   "value": "Losing the home Region stops Enrollment and Rollouts everywhere"
+  },
+  {
+   "section": "T9: multi-region with Cells",
+   "kind": "number",
+   "value": "active-active Regions SHOULD each hold R / (R − 1) times their peak share (target)"
+  },
+  {
+   "section": "T9: multi-region with Cells",
+   "kind": "limit",
+   "value": "State Store calls under 50% of shard capacity (hypothesis)"
+  },
+  {
+   "section": "T9: multi-region with Cells",
+   "kind": "limit",
+   "value": "client limits above 10 × N_serving (target)"
+  },
+  {
+   "section": "T9: multi-region with Cells",
+   "kind": "number",
+   "value": "A shared Revision allows up to R × each limit (target) unless Consumers are Region-pinned or quotas divided"
+  },
+  {
+   "section": "T9: multi-region with Cells",
+   "kind": "milestone",
+   "value": "Relay 1, zone a, Planned (M4)"
+  },
+  {
+   "section": "T9: multi-region with Cells",
+   "kind": "port",
+   "value": "relay feed on 8092, pending OQ-control-plane-and-gitops-15"
+  },
+  {
+   "section": "T10: hybrid managed Ruralz Control with self-hosted Nodes",
+   "kind": "milestone",
+   "value": "Control mode across a network boundary, Planned (M2)"
+  },
+  {
+   "section": "T10: hybrid managed Ruralz Control with self-hosted Nodes",
+   "kind": "claim",
+   "value": "Ruralz Cloud, no milestone yet, OQ-vision-and-positioning-3"
+  },
+  {
+   "section": "T10: hybrid managed Ruralz Control with self-hosted Nodes",
+   "kind": "claim",
+   "value": "Both sides run the public `ruralzd` and `ruralz-control` images: no fork, license key, feature gating or cloud-only hook."
+  },
+  {
+   "section": "T10: hybrid managed Ruralz Control with self-hosted Nodes",
+   "kind": "claim",
+   "value": "One tenant per deployment (pack section 1)."
+  },
+  {
+   "section": "T10: hybrid managed Ruralz Control with self-hosted Nodes",
+   "kind": "port",
+   "value": "Nodes dial 8091 over mTLS, opening no inbound port."
+  },
+  {
+   "section": "T10: hybrid managed Ruralz Control with self-hosted Nodes",
+   "kind": "port",
+   "value": "the forge sends webhooks to 8090"
+  },
+  {
+   "section": "T10: hybrid managed Ruralz Control with self-hosted Nodes",
+   "kind": "claim",
+   "value": "private forges and registries: OQ-deployment-topologies-10"
+  },
+  {
+   "section": "T10: hybrid managed Ruralz Control with self-hosted Nodes",
+   "kind": "claim",
+   "value": "Secrets and State Store data stay with the customer."
+  },
+  {
+   "section": "T10: hybrid managed Ruralz Control with self-hosted Nodes",
+   "kind": "claim",
+   "value": "The customer SHOULD keep the offline anchor-set key (OQ-deployment-topologies-9)."
+  },
+  {
+   "section": "T10: hybrid managed Ruralz Control with self-hosted Nodes",
+   "kind": "cli_command",
+   "value": "ruralz control backup"
+  },
+  {
+   "section": "T10: hybrid managed Ruralz Control with self-hosted Nodes",
+   "kind": "cli_command",
+   "value": "ruralz control restore"
+  },
+  {
+   "section": "T10: hybrid managed Ruralz Control with self-hosted Nodes",
+   "kind": "claim",
+   "value": "`ruralz control backup` and `restore` move to a self-hosted T3; Nodes re-enroll while serving."
+  },
+  {
+   "section": "T10: hybrid managed Ruralz Control with self-hosted Nodes",
+   "kind": "port",
+   "value": "webhooks to 8090, HMAC"
+  },
+  {
+   "section": "Network and ports",
+   "kind": "claim",
+   "value": "Ports follow pack 8.4; Ruralz Control never dials a Node, and Nodes never dial each other."
+  },
+  {
+   "section": "Network and ports",
+   "kind": "port",
+   "value": "8080 TCP | `ruralzd` | Clients via the balancer | Consumer credentials per Policy | Planned (M1)"
+  },
+  {
+   "section": "Network and ports",
+   "kind": "port",
+   "value": "8443 TCP | `ruralzd` | TLS; Consumer credentials | Planned (M1)"
+  },
+  {
+   "section": "Network and ports",
+   "kind": "port",
+   "value": "8443 UDP | `ruralzd` | HTTP/3 clients when `http3: true` | QUIC | Planned (M3)"
+  },
+  {
+   "section": "Network and ports",
+   "kind": "milestone",
+   "value": "8443 UDP: off in FIPS builds, Planned (M5)"
+  },
+  {
+   "section": "Network and ports",
+   "kind": "port",
+   "value": "9901 TCP | `ruralzd` | binds all interfaces, so network policies SHOULD fence it | Only `/healthz` and `/readyz` unauthenticated | Planned (M1)"
+  },
+  {
+   "section": "Network and ports",
+   "kind": "api_path",
+   "value": "/healthz"
+  },
+  {
+   "section": "Network and ports",
+   "kind": "api_path",
+   "value": "/readyz"
+  },
+  {
+   "section": "Network and ports",
+   "kind": "port",
+   "value": "8090 TCP | `ruralz-control` | Sessions or tokens, RBAC, audit log; HMAC for webhooks | Planned (M2)"
+  },
+  {
+   "section": "Network and ports",
+   "kind": "port",
+   "value": "8091 TCP | `ruralz-control` | Every Node | mTLS, per-Node certificates; a one-time token for `Enroll` | Planned (M2)"
+  },
+  {
+   "section": "Network and ports",
+   "kind": "port",
+   "value": "8092 TCP | `ruralz-control` | Replica networks only; unused with `postgres` | mTLS peer certificates; Node certificates rejected | Planned (M2); relays Planned (M4)"
+  },
+  {
+   "section": "Network and ports",
+   "kind": "port",
+   "value": "9902 TCP | `ruralz-control` | As 9901 | Planned (M2)"
+  },
+  {
+   "section": "Network and ports",
+   "kind": "kind_or_field",
+   "value": "postgres"
+  },
+  {
+   "section": "Network and ports",
+   "kind": "claim",
+   "value": "State Store calls, TLS, authenticated: Nodes to Own Cell's State Store only, With `redis`"
+  },
+  {
+   "section": "Network and ports",
+   "kind": "timeout",
+   "value": "idle timeout above the Node's 120 s (target)"
+  },
+  {
+   "section": "Network and ports",
+   "kind": "timeout",
+   "value": "30 to 60 s slow start (target)"
+  },
+  {
+   "section": "Network and ports",
+   "kind": "claim",
+   "value": "Balancers: `/readyz` checks on 9901, TLS passthrough, no stickiness"
+  },
+  {
+   "section": "Network and ports",
+   "kind": "claim",
+   "value": "Across Regions only 8091, 8092, telemetry, backups, configured Upstreams and calls to a single-Region forge, registry or 8090 cross."
+  },
+  {
+   "section": "File-mode bootstrap",
+   "kind": "kind_or_field",
+   "value": "`node.id` under `${RURALZ_DATA_DIR}/identity/`"
+  },
+  {
+   "section": "File-mode bootstrap",
+   "kind": "kind_or_field",
+   "value": "RURALZ_CONFIG"
+  },
+  {
+   "section": "File-mode bootstrap",
+   "kind": "failure_mode",
+   "value": "boots a valid Bundle, else Last-Known-Good, else stays not ready (pack 8.2)"
+  },
+  {
+   "section": "File-mode bootstrap",
+   "kind": "claim",
+   "value": "signed pulls need a process-configuration trust policy"
+  },
+  {
+   "section": "Control-mode bootstrap",
+   "kind": "claim",
+   "value": "This order brings up T3, T4, T5 and T10; later Nodes repeat steps 6 to 8."
+  },
+  {
+   "section": "Control-mode bootstrap",
+   "kind": "kind_or_field",
+   "value": "`noeviction` where limit keys live"
+  },
+  {
+   "section": "Control-mode bootstrap",
+   "kind": "cli_command",
+   "value": "ruralz control serve"
+  },
+  {
+   "section": "Control-mode bootstrap",
+   "kind": "claim",
+   "value": "after install, no replica of any ordinal does"
+  },
+  {
+   "section": "Control-mode bootstrap",
+   "kind": "claim",
+   "value": "creating the first is OQ-deployment-topologies-11"
+  },
+  {
+   "section": "Control-mode bootstrap",
+   "kind": "api_path",
+   "value": "POST /api/v1/replicas"
+  },
+  {
+   "section": "Control-mode bootstrap",
+   "kind": "cli_command",
+   "value": "ruralz control join --peer <leader>:8092 --advertise <self>:8092 --join-token-file <file>"
+  },
+  {
+   "section": "Control-mode bootstrap",
+   "kind": "claim",
+   "value": "then `serve` starts a voter once caught up (OQ-cli-and-api-surface-14)"
+  },
+  {
+   "section": "Control-mode bootstrap",
+   "kind": "failure_mode",
+   "value": "`join` runs only while the data directory lacks a peer certificate; after volume loss, remove the old voter and issue a new token (OQ-deployment-topologies-20)"
+  },
+  {
+   "section": "Control-mode bootstrap",
+   "kind": "kind_or_field",
+   "value": "control/environments.yaml"
+  },
+  {
+   "section": "Control-mode bootstrap",
+   "kind": "kind_or_field",
+   "value": "control/clusters.yaml"
+  },
+  {
+   "section": "Control-mode bootstrap",
+   "kind": "cli_command",
+   "value": "ruralz node token --cluster prod-eu-west"
+  },
+  {
+   "section": "Control-mode bootstrap",
+   "kind": "timeout",
+   "value": "one-time, valid 1 hour (target), pinning the 8091 server CA and trust root"
+  },
+  {
+   "section": "Control-mode bootstrap",
+   "kind": "claim",
+   "value": "Given Control mode, address and token (OQ-control-plane-and-gitops-13), the Node generates a key pair and calls `Enroll` on 8091."
+  },
+  {
+   "section": "Control-mode bootstrap",
+   "kind": "claim",
+   "value": "activates its Cluster's Snapshot and ACKs; `/readyz` returns 200."
+  },
+  {
+   "section": "Enrollment per topology",
+   "kind": "claim",
+   "value": "T3, T5: `security-admin`, or a job with a Cluster-scoped API token under quota and Node cap"
+  },
+  {
+   "section": "Enrollment per topology",
+   "kind": "claim",
+   "value": "T4: An init container via `enrollment-tokens`, just in time (proposed, OQ-deployment-topologies-2)"
+  },
+  {
+   "section": "Enrollment per topology",
+   "kind": "kind_or_field",
+   "value": "enrollment-tokens"
+  },
+  {
+   "section": "Enrollment per topology",
+   "kind": "claim",
+   "value": "T4 re-enrollment: Volume deleted; scale-in leftovers (OQ-deployment-topologies-3)"
+  },
+  {
+   "section": "Enrollment per topology",
+   "kind": "claim",
+   "value": "T6 re-enrollment: Offline beyond the certificate lifetime"
+  },
+  {
+   "section": "Enrollment per topology",
+   "kind": "limit",
+   "value": "`Enroll` rate-limits each source and locks it out after 10 failures in 10 minutes (target)"
+  },
+  {
+   "section": "Enrollment per topology",
+   "kind": "failure_mode",
+   "value": "behind NAT (T10, many T4 clusters) Nodes share one source and lockout"
+  },
+  {
+   "section": "Enrollment per topology",
+   "kind": "number",
+   "value": "CE-9's 90 Enrolls in 2 minutes (target)"
+  },
+  {
+   "section": "Enrollment per topology",
+   "kind": "error_code",
+   "value": "RZ-CP-001"
+  },
+  {
+   "section": "Enrollment per topology",
+   "kind": "claim",
+   "value": "keying: OQ-deployment-topologies-15"
+  },
+  {
+   "section": "Configuration delivery per topology",
+   "kind": "claim",
+   "value": "T2 OCI, T6 mirror: `ruralz bundle push --oci`; jittered poll, pull by digest; Sigstore, `enforce`"
+  },
+  {
+   "section": "Configuration delivery per topology",
+   "kind": "kind_or_field",
+   "value": "Cluster.spec.rollout"
+  },
+  {
+   "section": "Configuration delivery per topology",
+   "kind": "cli_command",
+   "value": "ruralz rollout rollback"
+  },
+  {
+   "section": "Configuration delivery per topology",
+   "kind": "timeout",
+   "value": "re-enrollment after 30 days offline (target)"
+  },
+  {
+   "section": "Configuration delivery per topology",
+   "kind": "claim",
+   "value": "Only `secretRef` values and `RURALZ_*` settings differ between Nodes, so Region-specific values use `secretRef` (OQ-configuration-model-12 (a))."
+  },
+  {
+   "section": "Configuration delivery per topology",
+   "kind": "failure_mode",
+   "value": "a Node restarted in Control mode stays not ready until it enrolls and activates a Revision (pack 8.11)"
+  },
+  {
+   "section": "Configuration delivery per topology",
+   "kind": "claim",
+   "value": "Last-Known-Good follows the mode: on activation in file mode, at the promoted digest in Control mode (pack 8.2)."
+  },
+  {
+   "section": "Sizing defaults",
+   "kind": "number",
+   "value": "Node container: 4 vCPU (target) and 4 GiB (hypothesis)"
+  },
+  {
+   "section": "Sizing defaults",
+   "kind": "number",
+   "value": "the fixed ceilings' worst case, about 19 GiB plus snapshots, needs 32 GiB (hypothesis)"
+  },
+  {
+   "section": "Sizing defaults",
+   "kind": "limit",
+   "value": "cap connections per Node at the L4 balancer near 2,500 (hypothesis; OQ-deployment-topologies-21)"
+  },
+  {
+   "section": "Sizing defaults",
+   "kind": "default",
+   "value": "`limits.maxPluginMemoryBytes`, 2 GiB by default (target)"
+  },
+  {
+   "section": "Sizing defaults",
+   "kind": "kind_or_field",
+   "value": "limits.maxPluginMemoryBytes"
+  },
+  {
+   "section": "Sizing defaults",
+   "kind": "number",
+   "value": "16,000 rps per 4-vCPU Node at half saturation (target)"
+  },
+  {
+   "section": "Sizing defaults",
+   "kind": "default",
+   "value": "`GOMEMLIMIT`: About 90% of the container memory limit (target)"
+  },
+  {
+   "section": "Sizing defaults",
+   "kind": "number",
+   "value": "At least three in two or more equal zones (target), scaling out at 40% CPU with two zones, 53% with three, 60% with four (target)"
+  },
+  {
+   "section": "Sizing defaults",
+   "kind": "number",
+   "value": "unequal zones at 80% × (N − N_largest_zone) / N (target)"
+  },
+  {
+   "section": "Sizing defaults",
+   "kind": "limit",
+   "value": "Nodes per Cell: 1,000 at most (target)"
+  },
+  {
+   "section": "Sizing defaults",
+   "kind": "limit",
+   "value": "1,000,000 per second (hypothesis), binding at about 200 Nodes of 5,000 calls per second (hypothesis)"
+  },
+  {
+   "section": "Sizing defaults",
+   "kind": "limit",
+   "value": "State Store shards per Cell: 16 at most (target)"
+  },
+  {
+   "section": "Sizing defaults",
+   "kind": "number",
+   "value": "GCRA at 50% of about 100,000 calls per second each (hypothesis)"
+  },
+  {
+   "section": "Sizing defaults",
+   "kind": "limit",
+   "value": "memory at 70% of `maxmemory` (target)"
+  },
+  {
+   "section": "Sizing defaults",
+   "kind": "limit",
+   "value": "State Store client limit: Above 10 × N_serving, a MUST above 900 Nodes (target)"
+  },
+  {
+   "section": "Sizing defaults",
+   "kind": "default",
+   "value": "Ruralz Control voters: Three, or five to survive two failures (target)"
+  },
+  {
+   "section": "Sizing defaults",
+   "kind": "number",
+   "value": "ceil(N / 5,000) + 1 across zones, at least the voters, N counting relay-served Nodes; relays with N_region (hypothesis)"
+  },
+  {
+   "section": "Sizing defaults",
+   "kind": "limit",
+   "value": "Nodes per Ruralz Control deployment: 10,000, counting every Environment and relay-served Node (target)"
+  },
+  {
+   "section": "Sizing defaults",
+   "kind": "default",
+   "value": "`${RURALZ_DATA_DIR}` volume: 1 GiB (hypothesis)"
+  },
+  {
+   "section": "Sizing defaults",
+   "kind": "default",
+   "value": "Ruralz Control replica: 2 vCPU and 4 GiB (hypothesis)"
+  },
+  {
+   "section": "Sizing defaults",
+   "kind": "number",
+   "value": "5,000 calls per second per Node (hypothesis) suits only unknown mixes"
+  },
+  {
+   "section": "Sizing defaults",
+   "kind": "number",
+   "value": "Peak 60,000 rps of S2-like traffic, one ratelimit per request (hypothesis)"
+  },
+  {
+   "section": "Sizing defaults",
+   "kind": "number",
+   "value": "Per-Node capacity 32,000 rps × 0.53 ≈ 16,960 rps per 4-vCPU Node, upper bound (hypothesis)"
+  },
+  {
+   "section": "Sizing defaults",
+   "kind": "number",
+   "value": "With 30% headroom 60,000 × 1.3 = 78,000 rps → 78,000 / 16,960 ≈ 4.6 (hypothesis)"
+  },
+  {
+   "section": "Sizing defaults",
+   "kind": "number",
+   "value": "Nodes 5, rounded up to 6 for two per zone (hypothesis)"
+  },
+  {
+   "section": "Sizing defaults",
+   "kind": "number",
+   "value": "= 60,000 calls/s at peak, 78,000 with headroom (hypothesis)"
+  },
+  {
+   "section": "Sizing defaults",
+   "kind": "number",
+   "value": "Shards ceil(78,000 / 50,000 at 50% of a shard) = 2, each with a replica (hypothesis)"
+  },
+  {
+   "section": "Sizing defaults",
+   "kind": "number",
+   "value": "Ruralz Control 3 voters; ceil(6 / 5,000) + 1 = 2 replicas → 3 (hypothesis)"
+  },
+  {
+   "section": "Sizing defaults",
+   "kind": "number",
+   "value": "Node memory 20,000 × 96 KiB + 256 MiB = 2.2 GiB (target)"
+  },
+  {
+   "section": "Sizing defaults",
+   "kind": "number",
+   "value": "+ 512 MiB maxBufferedBytes + about 475 MiB state tables ≈ 3.2 GiB (hypothesis)"
+  },
+  {
+   "section": "Sizing defaults",
+   "kind": "number",
+   "value": "→ 4 GiB container; Performance budgets' informational run: 2.5 GiB (target)"
+  },
+  {
+   "section": "Sizing defaults",
+   "kind": "kind_or_field",
+   "value": "maxBufferedBytes"
+  },
+  {
+   "section": "Sizing defaults",
+   "kind": "number",
+   "value": "Connection cap (b) (3,686 MiB GOMEMLIMIT − 1,243 MiB budgets) / (592 KiB per connection + 320 KiB per in-flight unit) ≈ 2,700 → about 2,500 per Node (hypothesis)"
+  },
+  {
+   "section": "Sizing defaults",
+   "kind": "number",
+   "value": "RA-2: ceil(30 × 16,960 × 1 / 50,000) = 11 shards, within 16 (hypothesis)"
+  },
+  {
+   "section": "Sizing defaults",
+   "kind": "limit",
+   "value": "`maxReplicas` MUST NOT exceed that bound (hypothesis)"
+  },
+  {
+   "section": "Sizing defaults",
+   "kind": "claim",
+   "value": "autoscaling misses State Store saturation, so alert on script CPU, the Cell sizing signal"
+  },
+  {
+   "section": "RA-1: single team on VMs in file mode",
+   "kind": "milestone",
+   "value": "One team's internal APIs in one Region, Planned (M2) for OCI pull."
+  },
+  {
+   "section": "RA-1: single team on VMs in file mode",
+   "kind": "number",
+   "value": "Four VMs, two per zone, systemd (T5); peak CPU at most 40% each (target)"
+  },
+  {
+   "section": "RA-1: single team on VMs in file mode",
+   "kind": "cli_command",
+   "value": "ruralz bundle validate"
+  },
+  {
+   "section": "RA-1: single team on VMs in file mode",
+   "kind": "cli_command",
+   "value": "ruralz bundle build"
+  },
+  {
+   "section": "RA-1: single team on VMs in file mode",
+   "kind": "cli_command",
+   "value": "ruralz bundle push --oci <registry>/<repository>"
+  },
+  {
+   "section": "RA-1: single team on VMs in file mode",
+   "kind": "cli_command",
+   "value": "--env prod --environments control/environments.yaml"
+  },
+  {
+   "section": "RA-1: single team on VMs in file mode",
+   "kind": "port",
+   "value": "L4 on 8080 and 8443, `/readyz` checks on 9901"
+  },
+  {
+   "section": "RA-1: single team on VMs in file mode",
+   "kind": "failure_mode",
+   "value": "a lost zone leaves two Nodes under 80% CPU (target); a registry outage stops changes, not traffic"
+  },
+  {
+   "section": "RA-2: single-Region production on Kubernetes",
+   "kind": "milestone",
+   "value": "A platform team serving product teams in one Region, Planned (M2)."
+  },
+  {
+   "section": "RA-2: single-Region production on Kubernetes",
+   "kind": "timeout",
+   "value": "Hourly `ruralz control backup` (target) off-cluster, revocation list exported beside it (proposed)"
+  },
+  {
+   "section": "RA-2: single-Region production on Kubernetes",
+   "kind": "number",
+   "value": "HorizontalPodAutoscaler, 6 to 30 pods, at least two per zone (target)"
+  },
+  {
+   "section": "RA-2: single-Region production on Kubernetes",
+   "kind": "failure_mode",
+   "value": "Ceilings c per limit (T4) from `requests` / 30, admitting 20% at 6 healthy pods and c per pinned client, to `requests` / 3, failing open up to 10 × `requests` (target)"
+  },
+  {
+   "section": "RA-2: single-Region production on Kubernetes",
+   "kind": "kind_or_field",
+   "value": "Environment.spec.promotion"
+  },
+  {
+   "section": "RA-2: single-Region production on Kubernetes",
+   "kind": "kind_or_field",
+   "value": "`from: staging`, `requireApproval`"
+  },
+  {
+   "section": "RA-2: single-Region production on Kubernetes",
+   "kind": "kind_or_field",
+   "value": "`strategy: canary`, `canary: {percent: 10, bake: 15m}`"
+  },
+  {
+   "section": "RA-2: single-Region production on Kubernetes",
+   "kind": "number",
+   "value": "One per Cluster: 11 shards for 30 pods, each with a replica across zones (hypothesis, Sizing defaults)"
+  },
+  {
+   "section": "RA-2: single-Region production on Kubernetes",
+   "kind": "port",
+   "value": "LoadBalancer Node Service; 8091 passthrough; 8090 behind an Ingress"
+  },
+  {
+   "section": "RA-2: single-Region production on Kubernetes",
+   "kind": "port",
+   "value": "Network policies keep 9901, 9902 and 8092 internal"
+  },
+  {
+   "section": "RA-2: single-Region production on Kubernetes",
+   "kind": "failure_mode",
+   "value": "a lost zone leaves at least four Nodes under 80% CPU at unchanged load (target), its stranded pods blocking scale-out until force-deleted (T4)"
+  },
+  {
+   "section": "RA-2: single-Region production on Kubernetes",
+   "kind": "failure_mode",
+   "value": "a Ruralz Control outage freezes Rollouts and the Node count, not traffic; a bad Revision stops at the canary Nodes of `prod`"
+  },
+  {
+   "section": "RA-3: multi-region active-active with Cells",
+   "kind": "milestone",
+   "value": "A public API in two Regions with residency constraints, Planned (M4)."
+  },
+  {
+   "section": "RA-3: multi-region active-active with Cells",
+   "kind": "timeout",
+   "value": "Hourly backups (target) with the revocation list, copied to the second Region"
+  },
+  {
+   "section": "RA-3: multi-region active-active with Cells",
+   "kind": "number",
+   "value": "relays per Sizing defaults, at least two (hypothesis)"
+  },
+  {
+   "section": "RA-3: multi-region active-active with Cells",
+   "kind": "number",
+   "value": "Up to R × each limit (target)"
+  },
+  {
+   "section": "RA-3: multi-region active-active with Cells",
+   "kind": "number",
+   "value": "R / (R − 1) of each Region's peak share, 100% of global peak with two (target), per Cell resource (T9)"
+  },
+  {
+   "section": "RA-3: multi-region active-active with Cells",
+   "kind": "kind_or_field",
+   "value": "`prod` shared, or `prod-eu` and `prod-us` for divided quotas"
+  },
+  {
+   "section": "RA-3: multi-region active-active with Cells",
+   "kind": "kind_or_field",
+   "value": "${VAR}"
+  },
+  {
+   "section": "RA-3: multi-region active-active with Cells",
+   "kind": "cli_command",
+   "value": "ruralz control restore"
+  },
+  {
+   "section": "RA-3: multi-region active-active with Cells",
+   "kind": "failure_mode",
+   "value": "A lost home Region also holds Rollouts and Enrollment until `ruralz control restore` runs in the other Region"
+  },
+  {
+   "section": "RA-3: multi-region active-active with Cells",
+   "kind": "number",
+   "value": "every Node re-enrolls at about 20 per second per leader (hypothesis)"
+  },
+  {
+   "section": "RA-3: multi-region active-active with Cells",
+   "kind": "claim",
+   "value": "bulk tokens under the minting quota (OQ-deployment-topologies-18)"
+  },
+  {
+   "section": "Open questions",
+   "kind": "milestone",
+   "value": "OQ-deployment-topologies-1: Blocking? Yes, for the Planned (M2) chart"
+  },
+  {
+   "section": "Open questions",
+   "kind": "milestone",
+   "value": "OQ-deployment-topologies-2: Blocking? Yes, for Planned (M2) autoscaling"
+  },
+  {
+   "section": "Open questions",
+   "kind": "decision",
+   "value": "OQ-deployment-topologies-3: Blocking? No"
+  },
+  {
+   "section": "Open questions",
+   "kind": "decision",
+   "value": "OQ-deployment-topologies-4: Blocking? No"
+  },
+  {
+   "section": "Open questions",
+   "kind": "milestone",
+   "value": "OQ-deployment-topologies-5: Blocking? Yes, for Planned (M2) per-team layouts"
+  },
+  {
+   "section": "Open questions",
+   "kind": "milestone",
+   "value": "OQ-deployment-topologies-6: Blocking? Yes, for Planned (M2) upgrades"
+  },
+  {
+   "section": "Open questions",
+   "kind": "decision",
+   "value": "OQ-deployment-topologies-7: Blocking? No"
+  },
+  {
+   "section": "Open questions",
+   "kind": "decision",
+   "value": "OQ-deployment-topologies-8: Blocking? No"
+  },
+  {
+   "section": "Open questions",
+   "kind": "decision",
+   "value": "OQ-deployment-topologies-9: Blocking? No"
+  },
+  {
+   "section": "Open questions",
+   "kind": "decision",
+   "value": "OQ-deployment-topologies-10: Blocking? No"
+  },
+  {
+   "section": "Open questions",
+   "kind": "milestone",
+   "value": "OQ-deployment-topologies-11: Blocking? Yes, for Planned (M2)"
+  },
+  {
+   "section": "Open questions",
+   "kind": "milestone",
+   "value": "OQ-deployment-topologies-12: Blocking? Yes, for the Planned (M2) chart"
+  },
+  {
+   "section": "Open questions",
+   "kind": "milestone",
+   "value": "OQ-deployment-topologies-13: Blocking? Yes, before `ruralz.io/v1beta1`, Planned (M3)"
+  },
+  {
+   "section": "Open questions",
+   "kind": "decision",
+   "value": "OQ-deployment-topologies-14: Blocking? No"
+  },
+  {
+   "section": "Open questions",
+   "kind": "milestone",
+   "value": "OQ-deployment-topologies-15: Blocking? Yes, for Planned (M2) autoscaling"
+  },
+  {
+   "section": "Open questions",
+   "kind": "decision",
+   "value": "OQ-deployment-topologies-16: Blocking? No"
+  },
+  {
+   "section": "Open questions",
+   "kind": "milestone",
+   "value": "OQ-deployment-topologies-17: Blocking? Yes, for Planned (M4)"
+  },
+  {
+   "section": "Open questions",
+   "kind": "decision",
+   "value": "OQ-deployment-topologies-18: Blocking? No"
+  },
+  {
+   "section": "Open questions",
+   "kind": "milestone",
+   "value": "OQ-deployment-topologies-19: Blocking? Yes, for the Planned (M2) CRD source"
+  },
+  {
+   "section": "Open questions",
+   "kind": "milestone",
+   "value": "OQ-deployment-topologies-20: Blocking? Yes, for the Planned (M2) chart"
+  },
+  {
+   "section": "Open questions",
+   "kind": "decision",
+   "value": "OQ-deployment-topologies-21: Blocking? No"
+  },
+  {
+   "section": "Open questions",
+   "kind": "decision",
+   "value": "OQ-deployment-topologies-22: Blocking? No"
+  },
+  {
+   "section": "Open questions",
+   "kind": "kind_or_field",
+   "value": "ruralz.io/v1beta1"
+  },
+  {
+   "section": "Open questions",
+   "kind": "claim",
+   "value": "OQ-deployment-topologies-21: (a) Fixed (current, OQ-data-plane-1 (a))"
+  }
+ ]
+}

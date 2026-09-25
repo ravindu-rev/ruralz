@@ -1,0 +1,1256 @@
+{
+ "path": "docs/engineering/04-release-versioning-and-compatibility.md",
+ "status": "reviewed",
+ "facts": [
+  {
+   "section": "Summary",
+   "kind": "decision",
+   "value": "one Semantic Versioning scheme for every binary and the Helm chart"
+  },
+  {
+   "section": "Summary",
+   "kind": "decision",
+   "value": "N and N-1 skew between Ruralz Control, Ruralz Gateway and the CLI, with a finalize step for Raft upgrades"
+  },
+  {
+   "section": "Summary",
+   "kind": "decision",
+   "value": "quarterly releases with support windows in months; security fixes by severity, public to everyone at once"
+  },
+  {
+   "section": "Summary",
+   "kind": "decision",
+   "value": "signed artifacts with SBOM and provenance"
+  },
+  {
+   "section": "Summary",
+   "kind": "claim",
+   "value": "Nothing is implemented yet; all of it is Planned."
+  },
+  {
+   "section": "Scope and non-goals",
+   "kind": "claim",
+   "value": "Revision and Plugin signing"
+  },
+  {
+   "section": "One product version",
+   "kind": "cli_command",
+   "value": "ruralz version"
+  },
+  {
+   "section": "One product version",
+   "kind": "decision",
+   "value": "`ruralzd`, `ruralz-control`, the `ruralz` CLI, the Helm chart and the published JSON Schema share one product version, `MAJOR.MINOR.PATCH` in Semantic Versioning 2.0.0 syntax"
+  },
+  {
+   "section": "One product version",
+   "kind": "claim",
+   "value": "tagged `vMAJOR.MINOR.PATCH` on `github.com/ravindu-rev/ruralz`; one tag builds every artifact"
+  },
+  {
+   "section": "One product version",
+   "kind": "claim",
+   "value": "Binaries embed version, commit and build flavor through `-ldflags -X`"
+  },
+  {
+   "section": "One product version",
+   "kind": "milestone",
+   "value": "the first release is `0.1.0`, Planned (M1)"
+  },
+  {
+   "section": "One product version",
+   "kind": "claim",
+   "value": "Milestones are feature sets, not versions"
+  },
+  {
+   "section": "One product version",
+   "kind": "decision",
+   "value": "Patch `x.y.Z`: Security fix, dependency or toolchain bump, bug fix changing no Revision"
+  },
+  {
+   "section": "One product version",
+   "kind": "decision",
+   "value": "`ruralz/v1alpha1` default change or digest-changing render fix, shipped as a new schema level with a golden-corpus entry: Minor, not Patch"
+  },
+  {
+   "section": "One product version",
+   "kind": "decision",
+   "value": "Removal or incompatible change in a stable surface: Major only, \"Yes, with a new surface identifier\""
+  },
+  {
+   "section": "One product version",
+   "kind": "decision",
+   "value": "Every change that alters a digest, whether a default change or a render or canonicalization fix, is gated by a schema level or a format identifier, never shipped bare."
+  },
+  {
+   "section": "One product version",
+   "kind": "kind_or_field",
+   "value": "ruralz/v1alpha1"
+  },
+  {
+   "section": "One product version",
+   "kind": "kind_or_field",
+   "value": "ruralz/v1beta1"
+  },
+  {
+   "section": "One product version",
+   "kind": "kind_or_field",
+   "value": "ruralz/v1"
+  },
+  {
+   "section": "One product version",
+   "kind": "term",
+   "value": "ruralz.canonical.v2"
+  },
+  {
+   "section": "One product version",
+   "kind": "claim",
+   "value": "CI runs the golden corpus at every schema level inside the skew window"
+  },
+  {
+   "section": "One product version",
+   "kind": "decision",
+   "value": "Patches never raise a level or change a digest, so they never matter for skew."
+  },
+  {
+   "section": "One product version",
+   "kind": "decision",
+   "value": "Stable surfaces are `ruralz/v1`, `ruralz.canonical.v1`, `ruralz.diff.v1`, a frozen `ruralz.plugin.v1`, `ruralz.control.v1`, `/api/v1/`, exit codes and error codes"
+  },
+  {
+   "section": "One product version",
+   "kind": "milestone",
+   "value": "`1.0.0` needs `ruralz/v1` served, Plugin ABI v1 frozen and two consecutive minors without a stable-surface deprecation (OQ-release-versioning-and-compatibility-1)"
+  },
+  {
+   "section": "Versioned surfaces",
+   "kind": "kind_or_field",
+   "value": "ruralz.io/v1alpha1"
+  },
+  {
+   "section": "Versioned surfaces",
+   "kind": "kind_or_field",
+   "value": "x-ruralz-since"
+  },
+  {
+   "section": "Versioned surfaces",
+   "kind": "term",
+   "value": "ruralz.canonical.v1"
+  },
+  {
+   "section": "Versioned surfaces",
+   "kind": "term",
+   "value": "ruralz.diff.v1"
+  },
+  {
+   "section": "Versioned surfaces",
+   "kind": "term",
+   "value": "ruralz.plugin.v1"
+  },
+  {
+   "section": "Versioned surfaces",
+   "kind": "term",
+   "value": "ruralz.control.v1"
+  },
+  {
+   "section": "Versioned surfaces",
+   "kind": "decision",
+   "value": "Diff JSON `ruralz.diff.v1`: Additive fields only"
+  },
+  {
+   "section": "Versioned surfaces",
+   "kind": "claim",
+   "value": "Control Store content: Immutable, never re-encoded; every release decodes every format still referenced or retained"
+  },
+  {
+   "section": "Versioned surfaces",
+   "kind": "api_path",
+   "value": "/api/v1/"
+  },
+  {
+   "section": "Versioned surfaces",
+   "kind": "api_path",
+   "value": "/api/v2/"
+  },
+  {
+   "section": "Versioned surfaces",
+   "kind": "number",
+   "value": "a `/api/v2/` runs beside it for 4 minor releases (target)"
+  },
+  {
+   "section": "Versioned surfaces",
+   "kind": "number",
+   "value": "Flags and added verbs are deprecated for 2 minor releases before removal (target)"
+  },
+  {
+   "section": "Versioned surfaces",
+   "kind": "decision",
+   "value": "pack 9 commands need a pack amendment; exit codes never change"
+  },
+  {
+   "section": "Versioned surfaces",
+   "kind": "error_code",
+   "value": "RZ-<AREA>-<NNN>"
+  },
+  {
+   "section": "Versioned surfaces",
+   "kind": "metric",
+   "value": "ruralz_<component>_<name>_<unit>"
+  },
+  {
+   "section": "Versioned surfaces",
+   "kind": "number",
+   "value": "a renamed metric keeps its old name for 2 minor releases (target)"
+  },
+  {
+   "section": "Versioned surfaces",
+   "kind": "decision",
+   "value": "Codes never change meaning or get reused"
+  },
+  {
+   "section": "Versioned surfaces",
+   "kind": "kind_or_field",
+   "value": "${RURALZ_DATA_DIR}/identity/"
+  },
+  {
+   "section": "Versioned surfaces",
+   "kind": "kind_or_field",
+   "value": "storeEpoch"
+  },
+  {
+   "section": "Versioned surfaces",
+   "kind": "kind_or_field",
+   "value": "assignmentSeq"
+  },
+  {
+   "section": "Versioned surfaces",
+   "kind": "kind_or_field",
+   "value": "promotionSeq"
+  },
+  {
+   "section": "Versioned surfaces",
+   "kind": "claim",
+   "value": "format changes are additive or version-marked"
+  },
+  {
+   "section": "apiVersion lifecycle and deprecation windows",
+   "kind": "milestone",
+   "value": "The first served version is `ruralz/v1alpha1`, Planned (M0)"
+  },
+  {
+   "section": "apiVersion lifecycle and deprecation windows",
+   "kind": "milestone",
+   "value": "first loaded by a released binary in `0.1.0`, Planned (M1)"
+  },
+  {
+   "section": "apiVersion lifecycle and deprecation windows",
+   "kind": "decision",
+   "value": "`ruralz/v1alpha1`: Fields and defaults may change with one milestone of notice, each a new schema level"
+  },
+  {
+   "section": "apiVersion lifecycle and deprecation windows",
+   "kind": "number",
+   "value": "`ruralz/v1alpha1` served after the successor ships: At least 2 minor releases, about 6 months (target)"
+  },
+  {
+   "section": "apiVersion lifecycle and deprecation windows",
+   "kind": "number",
+   "value": "`ruralz/v1beta1` served after the successor ships: At least 3 minor releases, about 9 months (target)"
+  },
+  {
+   "section": "apiVersion lifecycle and deprecation windows",
+   "kind": "milestone",
+   "value": "`ruralz/v1beta1` Planned (M3)"
+  },
+  {
+   "section": "apiVersion lifecycle and deprecation windows",
+   "kind": "decision",
+   "value": "`ruralz/v1beta1`: Deprecation, not removal; defaults never change"
+  },
+  {
+   "section": "apiVersion lifecycle and deprecation windows",
+   "kind": "decision",
+   "value": "`ruralz/v1`: Additive only; defaults never change"
+  },
+  {
+   "section": "apiVersion lifecycle and deprecation windows",
+   "kind": "number",
+   "value": "a `ruralz/v2` serves it alongside for 4 minor releases, about 12 months (target)"
+  },
+  {
+   "section": "apiVersion lifecycle and deprecation windows",
+   "kind": "decision",
+   "value": "takes effect no earlier than the later of minor N+2 and the next milestone's first release"
+  },
+  {
+   "section": "apiVersion lifecycle and deprecation windows",
+   "kind": "error_code",
+   "value": "RZ-CFG-007"
+  },
+  {
+   "section": "apiVersion lifecycle and deprecation windows",
+   "kind": "failure_mode",
+   "value": "Deprecated fields work until their apiVersion stops being served; an unserved version fails with RZ-CFG-007."
+  },
+  {
+   "section": "apiVersion lifecycle and deprecation windows",
+   "kind": "decision",
+   "value": "`ruralz/v1beta1` ships in the first minor after the first CRD release, Planned (M2), and two consecutive minors without a breaking `ruralz/v1alpha1` change, targeting Planned (M3)"
+  },
+  {
+   "section": "Migration tooling",
+   "kind": "cli_command",
+   "value": "ruralz bundle render --api-version"
+  },
+  {
+   "section": "Migration tooling",
+   "kind": "milestone",
+   "value": "`ruralz bundle render --api-version` converts through the hub, Planned (M1), and drops comments (OQ-configuration-model-7)"
+  },
+  {
+   "section": "Migration tooling",
+   "kind": "cli_command",
+   "value": "ruralz bundle diff"
+  },
+  {
+   "section": "Migration tooling",
+   "kind": "decision",
+   "value": "Conversion MUST yield the same Revision and an empty `ruralz bundle diff`"
+  },
+  {
+   "section": "Migration tooling",
+   "kind": "milestone",
+   "value": "round-trip property tests run from Planned (M1), golden-corpus conversion from Planned (M3)"
+  },
+  {
+   "section": "Migration tooling",
+   "kind": "cli_command",
+   "value": "ruralz bundle validate"
+  },
+  {
+   "section": "Migration tooling",
+   "kind": "error_code",
+   "value": "RZ-CFG-025"
+  },
+  {
+   "section": "Migration tooling",
+   "kind": "milestone",
+   "value": "CRDs serve every served version through Ruralz Control's conversion webhook, Planned (M2)"
+  },
+  {
+   "section": "Migration tooling",
+   "kind": "kind_or_field",
+   "value": "status.storedVersions"
+  },
+  {
+   "section": "Migration tooling",
+   "kind": "claim",
+   "value": "Ruralz Control rewrites stored objects and prunes `status.storedVersions`, needing cluster-scoped RBAC on CRD status"
+  },
+  {
+   "section": "Plugin ABI versioning",
+   "kind": "milestone",
+   "value": "freezes when the Plugin system ships, Planned (M2)"
+  },
+  {
+   "section": "Plugin ABI versioning",
+   "kind": "claim",
+   "value": "a compiled Plugin runs on every release serving v1, whatever Go toolchain built `ruralzd`, because the contract is WASM imports, not Go linkage"
+  },
+  {
+   "section": "Plugin ABI versioning",
+   "kind": "claim",
+   "value": "KrakenD CE 3.0 drops Go plugins, which need an exact Go match"
+  },
+  {
+   "section": "Plugin ABI versioning",
+   "kind": "decision",
+   "value": "New Host Function, guarded by a new or existing Capability: Allowed; raises the ABI level"
+  },
+  {
+   "section": "Plugin ABI versioning",
+   "kind": "decision",
+   "value": "Existing Host Function valid in more Phases: Only as a new name"
+  },
+  {
+   "section": "Plugin ABI versioning",
+   "kind": "decision",
+   "value": "Removing, renaming or re-typing a Host Function; changing result codes, Phase results, memory conventions or required exports; fewer Phases or a broader Capability: Never; needs `ruralz.plugin.v2`"
+  },
+  {
+   "section": "Plugin ABI versioning",
+   "kind": "kind_or_field",
+   "value": "rz_abi_version()"
+  },
+  {
+   "section": "Plugin ABI versioning",
+   "kind": "number",
+   "value": "`rz_abi_version()` still returns 1"
+  },
+  {
+   "section": "Plugin ABI versioning",
+   "kind": "decision",
+   "value": "A Plugin's level follows from its imports, so no `Plugin` field is needed."
+  },
+  {
+   "section": "Plugin ABI versioning",
+   "kind": "kind_or_field",
+   "value": "Plugin"
+  },
+  {
+   "section": "Plugin ABI versioning",
+   "kind": "decision",
+   "value": "A Node at level L, implied by its product version, accepts v1 Plugins at L or below."
+  },
+  {
+   "section": "Plugin ABI versioning",
+   "kind": "error_code",
+   "value": "RZ-CFG-028"
+  },
+  {
+   "section": "Plugin ABI versioning",
+   "kind": "failure_mode",
+   "value": "an older Node NACKs with RZ-CFG-028, which Ruralz Control cannot reproduce, so it quarantines the Node as transient"
+  },
+  {
+   "section": "Plugin ABI versioning",
+   "kind": "decision",
+   "value": "operators MUST NOT roll out a Plugin needing a level some Node of the Cluster lacks"
+  },
+  {
+   "section": "Plugin ABI versioning",
+   "kind": "term",
+   "value": "application/vnd.ruralz.plugin.v1"
+  },
+  {
+   "section": "Plugin ABI versioning",
+   "kind": "term",
+   "value": "application/vnd.ruralz.plugin.config.v1+json"
+  },
+  {
+   "section": "Plugin ABI versioning",
+   "kind": "decision",
+   "value": "propose option (c) for OQ-wasm-plugin-system-13, levels implied by reported product versions"
+  },
+  {
+   "section": "Plugin ABI versioning",
+   "kind": "failure_mode",
+   "value": "a missing-import NACK that pauses the Rollout instead of quarantining, since retries never succeed"
+  },
+  {
+   "section": "Plugin ABI versioning",
+   "kind": "kind_or_field",
+   "value": "abi"
+  },
+  {
+   "section": "Plugin ABI versioning",
+   "kind": "number",
+   "value": "Nodes serve v1 and v2 for 4 minor releases, about 12 months (target)"
+  },
+  {
+   "section": "Plugin ABI versioning",
+   "kind": "milestone",
+   "value": "The proxy-wasm compatibility adapter, Planned (M4)"
+  },
+  {
+   "section": "Control Stream versioning",
+   "kind": "decision",
+   "value": "The Control Stream is the gRPC package `ruralz.control.v1`, service `ControlStream`, RPCs `Enroll` and `Stream`"
+  },
+  {
+   "section": "Control Stream versioning",
+   "kind": "library",
+   "value": "buf breaking"
+  },
+  {
+   "section": "Control Stream versioning",
+   "kind": "milestone",
+   "value": "From Planned (M2), `buf breaking` checks every pull request against the last tag of every supported line"
+  },
+  {
+   "section": "Control Stream versioning",
+   "kind": "decision",
+   "value": "New field with a new number: Allowed; receivers ignore unknown fields"
+  },
+  {
+   "section": "Control Stream versioning",
+   "kind": "failure_mode",
+   "value": "one carrying a Revision gets a transient NACK with an `RZ-CP` code that Control plane and GitOps registers"
+  },
+  {
+   "section": "Control Stream versioning",
+   "kind": "error_code",
+   "value": "RZ-CP"
+  },
+  {
+   "section": "Control Stream versioning",
+   "kind": "number",
+   "value": "Only as `reserved`, after at least 2 minor releases (target) in which no in-policy version reads or requires it"
+  },
+  {
+   "section": "Control Stream versioning",
+   "kind": "decision",
+   "value": "Renumbering, re-typing or changing a field's meaning; ACK meaning, digest encoding, dial direction: Never; needs `ruralz.control.v2`"
+  },
+  {
+   "section": "Control Stream versioning",
+   "kind": "decision",
+   "value": "Ruralz Control upgrades first and MUST NOT depend on an older Node understanding additions."
+  },
+  {
+   "section": "Control Stream versioning",
+   "kind": "kind_or_field",
+   "value": "EnrollRequest"
+  },
+  {
+   "section": "Control Stream versioning",
+   "kind": "kind_or_field",
+   "value": "Hello"
+  },
+  {
+   "section": "Control Stream versioning",
+   "kind": "kind_or_field",
+   "value": "version"
+  },
+  {
+   "section": "Control Stream versioning",
+   "kind": "kind_or_field",
+   "value": "binaryVersion"
+  },
+  {
+   "section": "Control Stream versioning",
+   "kind": "milestone",
+   "value": "treats others as the first `ruralz.control.v1` release, Planned (M2)"
+  },
+  {
+   "section": "Control Stream versioning",
+   "kind": "port",
+   "value": "8091"
+  },
+  {
+   "section": "Control Stream versioning",
+   "kind": "number",
+   "value": "8091 serves both for 4 minor releases, about 12 months (target)"
+  },
+  {
+   "section": "Control Stream versioning",
+   "kind": "failure_mode",
+   "value": "Nodes fall back on `Unimplemented`"
+  },
+  {
+   "section": "Control plane and data plane version skew",
+   "kind": "milestone",
+   "value": "Skew checks are Planned (M2), file-mode checks Planned (M1)"
+  },
+  {
+   "section": "Control plane and data plane version skew",
+   "kind": "decision",
+   "value": "Ruralz Control and Ruralz Gateway Nodes in policy: N-1; N once the Control Store version is N"
+  },
+  {
+   "section": "Control plane and data plane version skew",
+   "kind": "claim",
+   "value": "in-policy skew costs no active Revision (P9)"
+  },
+  {
+   "section": "Control plane and data plane version skew",
+   "kind": "failure_mode",
+   "value": "The binary halts, or its status report is rejected and it stops"
+  },
+  {
+   "section": "Control plane and data plane version skew",
+   "kind": "milestone",
+   "value": "Regional Ruralz Control relay, Planned (M4)"
+  },
+  {
+   "section": "Control plane and data plane version skew",
+   "kind": "decision",
+   "value": "CLI at N or N-1"
+  },
+  {
+   "section": "Control plane and data plane version skew",
+   "kind": "error_code",
+   "value": "RZ-CFG-006"
+  },
+  {
+   "section": "Control plane and data plane version skew",
+   "kind": "failure_mode",
+   "value": "Unknown Bundle field: RZ-CFG-006; other unknown request fields: an `RZ-CP` code"
+  },
+  {
+   "section": "Control plane and data plane version skew",
+   "kind": "cli_command",
+   "value": "ruralz bundle push"
+  },
+  {
+   "section": "Control plane and data plane version skew",
+   "kind": "decision",
+   "value": "CLI at the Control Store version; one minor older only if N added no schema level"
+  },
+  {
+   "section": "Control plane and data plane version skew",
+   "kind": "error_code",
+   "value": "RZ-CFG-027"
+  },
+  {
+   "section": "Control plane and data plane version skew",
+   "kind": "cli_command",
+   "value": "ruralz dev tap"
+  },
+  {
+   "section": "Control plane and data plane version skew",
+   "kind": "cli_command",
+   "value": "ruralz node dump"
+  },
+  {
+   "section": "Control plane and data plane version skew",
+   "kind": "decision",
+   "value": "CLI and Nodes: Oldest Node's minor or one newer"
+  },
+  {
+   "section": "Control plane and data plane version skew",
+   "kind": "error_code",
+   "value": "RZ-CFG-024"
+  },
+  {
+   "section": "Control plane and data plane version skew",
+   "kind": "decision",
+   "value": "Nodes within one Cluster: Any mix of N and N-1"
+  },
+  {
+   "section": "Control plane and data plane version skew",
+   "kind": "failure_mode",
+   "value": "Rollouts with fields newer than the oldest Node are refused (RZ-CFG-024)"
+  },
+  {
+   "section": "Control plane and data plane version skew",
+   "kind": "failure_mode",
+   "value": "An unknown format marker refuses the handover; the old process keeps serving"
+  },
+  {
+   "section": "Control plane and data plane version skew",
+   "kind": "failure_mode",
+   "value": "RZ-CFG-024; the Node waits for the Control Stream or stays not ready (pack 8.2)"
+  },
+  {
+   "section": "Control plane and data plane version skew",
+   "kind": "decision",
+   "value": "a newly served version appears only once every replica runs N, and becomes the storage version no earlier than the next minor"
+  },
+  {
+   "section": "State Store layout changes",
+   "kind": "decision",
+   "value": "State Store changes add no blocking round trips (pack 8.7 rule 1, P3)"
+  },
+  {
+   "section": "State Store layout changes",
+   "kind": "library",
+   "value": "EVAL"
+  },
+  {
+   "section": "State Store layout changes",
+   "kind": "number",
+   "value": "GCRA, Quota and Token Budget counters extra admission: None (hypothesis)"
+  },
+  {
+   "section": "State Store layout changes",
+   "kind": "number",
+   "value": "Up to 2x for one window per Node that has not received the signal by the boundary, for example while detached (P9) (hypothesis)"
+  },
+  {
+   "section": "State Store layout changes",
+   "kind": "number",
+   "value": "Response Cache, Semantic Cache: None; misses only (hypothesis)"
+  },
+  {
+   "section": "State Store layout changes",
+   "kind": "decision",
+   "value": "Token Budget counters take only the first path"
+  },
+  {
+   "section": "State Store layout changes",
+   "kind": "failure_mode",
+   "value": "A Node rolled back to N-1 after lazy migration began sees an empty old key, so its limit may admit up to 2x for that window (hypothesis)."
+  },
+  {
+   "section": "Ruralz Control upgrades",
+   "kind": "milestone",
+   "value": "For the `raft` Control Store, Planned (M2)"
+  },
+  {
+   "section": "Ruralz Control upgrades",
+   "kind": "kind_or_field",
+   "value": "raft"
+  },
+  {
+   "section": "Ruralz Control upgrades",
+   "kind": "port",
+   "value": "8092"
+  },
+  {
+   "section": "Ruralz Control upgrades",
+   "kind": "milestone",
+   "value": "each regional relay, Planned (M4), reports its binary version to the leader over the status-forwarding class on 8092"
+  },
+  {
+   "section": "Ruralz Control upgrades",
+   "kind": "decision",
+   "value": "N binaries MUST decode every N-1 entry, record and snapshot."
+  },
+  {
+   "section": "Ruralz Control upgrades",
+   "kind": "library",
+   "value": "bbolt"
+  },
+  {
+   "section": "Ruralz Control upgrades",
+   "kind": "decision",
+   "value": "While the Control Store version is N-1, every replica, whichever leads, writes only N-1 formats in all persisted state"
+  },
+  {
+   "section": "Ruralz Control upgrades",
+   "kind": "timeout",
+   "value": "a 24-hour soak (target)"
+  },
+  {
+   "section": "Ruralz Control upgrades",
+   "kind": "decision",
+   "value": "Migrations, new record types and N defaults apply only after it, as deterministic log entries, never at startup; recorded Revisions are never re-rendered."
+  },
+  {
+   "section": "Ruralz Control upgrades",
+   "kind": "failure_mode",
+   "value": "A replica or relay meeting a Control Store version above its binary's, or an unknown entry type, stops before serving, exports a metric and never skips the entry"
+  },
+  {
+   "section": "Ruralz Control upgrades",
+   "kind": "failure_mode",
+   "value": "a replica or relay whose report is rejected stops before serving"
+  },
+  {
+   "section": "Ruralz Control upgrades",
+   "kind": "cli_command",
+   "value": "ruralz control restore"
+  },
+  {
+   "section": "Ruralz Control upgrades",
+   "kind": "failure_mode",
+   "value": "It loses later writes (Rollouts, audit entries, Enrollments, revocations), needs a root-signed anchor set with a new online key and a higher `storeEpoch`"
+  },
+  {
+   "section": "Ruralz Control upgrades",
+   "kind": "failure_mode",
+   "value": "Every Node serves detached until the operator supplies a revocation list, and Nodes enrolled after the backup re-enroll"
+  },
+  {
+   "section": "Ruralz Control upgrades",
+   "kind": "kind_or_field",
+   "value": "complete"
+  },
+  {
+   "section": "Ruralz Control upgrades",
+   "kind": "term",
+   "value": "ruralz-crds.yaml"
+  },
+  {
+   "section": "Ruralz Control upgrades",
+   "kind": "milestone",
+   "value": "With `postgres`, Planned (M4)"
+  },
+  {
+   "section": "Ruralz Control upgrades",
+   "kind": "kind_or_field",
+   "value": "postgres"
+  },
+  {
+   "section": "Binary rollback limit",
+   "kind": "failure_mode",
+   "value": "a Node restarted on N-1 (a Kubernetes image rollback, systemd) boots Last-Known-Good, gets RZ-CFG-024, NACKs and stays not ready; a handover to N-1 is refused"
+  },
+  {
+   "section": "Binary rollback limit",
+   "kind": "milestone",
+   "value": "Ruralz Control flags such Clusters, Planned (M2)"
+  },
+  {
+   "section": "Binary rollback limit",
+   "kind": "decision",
+   "value": "operators SHOULD soak N before adopting new fields"
+  },
+  {
+   "section": "Upgrade order",
+   "kind": "decision",
+   "value": "Ruralz Control moves one minor at a time (rules 3 and 4), replicas one at a time, leadership moved off each first."
+  },
+  {
+   "section": "Upgrade order",
+   "kind": "failure_mode",
+   "value": "Skipping a minor is refused: upgrade through each minor in turn."
+  },
+  {
+   "section": "Upgrade order",
+   "kind": "decision",
+   "value": "After finalize, Nodes take a Zero-Downtime Upgrade"
+  },
+  {
+   "section": "Upgrade order",
+   "kind": "decision",
+   "value": "A chart that deploys Nodes takes two upgrades, Ruralz Control first."
+  },
+  {
+   "section": "Upgrade order",
+   "kind": "cli_command",
+   "value": "ruralz control backup"
+  },
+  {
+   "section": "SDK versioning",
+   "kind": "decision",
+   "value": "Apache-2.0 under `sdk/`"
+  },
+  {
+   "section": "SDK versioning",
+   "kind": "milestone",
+   "value": "Rust PDK `ruralz-pdk` crate, Planned (M2)"
+  },
+  {
+   "section": "SDK versioning",
+   "kind": "milestone",
+   "value": "Go PDK `github.com/ravindu-rev/ruralz/sdk/go`, tags `sdk/go/vX.Y.Z`, Planned (M2)"
+  },
+  {
+   "section": "SDK versioning",
+   "kind": "milestone",
+   "value": "TypeScript PDK `@ruralz/pdk`, Planned (M3)"
+  },
+  {
+   "section": "SDK versioning",
+   "kind": "milestone",
+   "value": "C# PDK `Ruralz.Pdk`, Planned (M4)"
+  },
+  {
+   "section": "SDK versioning",
+   "kind": "decision",
+   "value": "Own SemVer; major 1 targets `ruralz.plugin.v1`"
+  },
+  {
+   "section": "SDK versioning",
+   "kind": "milestone",
+   "value": "Schema published Planned (M0), attached to releases Planned (M1); OpenAPI Planned (M2)"
+  },
+  {
+   "section": "SDK versioning",
+   "kind": "number",
+   "value": "the two newest PDK minors get fixes (target)"
+  },
+  {
+   "section": "SDK versioning",
+   "kind": "decision",
+   "value": "`pkg/` follows SemVer from `1.0.0`, `internal/` never."
+  },
+  {
+   "section": "SDK versioning",
+   "kind": "claim",
+   "value": "a product `2.0.0` also moves the module path to `github.com/ravindu-rev/ruralz/v2`"
+  },
+  {
+   "section": "SDK versioning",
+   "kind": "decision",
+   "value": "Generated REST clients are Not planned: users generate them from OpenAPI."
+  },
+  {
+   "section": "Release cadence and support windows",
+   "kind": "milestone",
+   "value": "One cadence and support policy covers every artifact, Planned (M1) from `0.1.0`."
+  },
+  {
+   "section": "Release cadence and support windows",
+   "kind": "decision",
+   "value": "No payment buys another line, a longer window or an earlier patch; commercial support buys help only, and the FIPS build gets the same windows (P1)."
+  },
+  {
+   "section": "Release cadence and support windows",
+   "kind": "number",
+   "value": "A minor ships every 3 months (target)"
+  },
+  {
+   "section": "Release cadence and support windows",
+   "kind": "number",
+   "value": "a signed release candidate `vX.Y.0-rc.N` at least 2 weeks earlier (target)"
+  },
+  {
+   "section": "Release cadence and support windows",
+   "kind": "number",
+   "value": "at least monthly while a line has unreleased fixes (target)"
+  },
+  {
+   "section": "Release cadence and support windows",
+   "kind": "library",
+   "value": "toolchain"
+  },
+  {
+   "section": "Release cadence and support windows",
+   "kind": "library",
+   "value": "govulncheck"
+  },
+  {
+   "section": "Release cadence and support windows",
+   "kind": "decision",
+   "value": "Release builds pin the newest Go patch through the `toolchain` directive"
+  },
+  {
+   "section": "Release cadence and support windows",
+   "kind": "decision",
+   "value": "Fixes land on the main branch, then are cherry-picked to `release-X.Y` branches"
+  },
+  {
+   "section": "Release cadence and support windows",
+   "kind": "number",
+   "value": "N (newest minor): Full support for about 6 months, until N+2 ships (target)"
+  },
+  {
+   "section": "Release cadence and support windows",
+   "kind": "number",
+   "value": "N-1: Inside the same 6 months (target)"
+  },
+  {
+   "section": "Release cadence and support windows",
+   "kind": "number",
+   "value": "N-2: Critical and high security fixes only; About 3 more months, until N+3 ships (target)"
+  },
+  {
+   "section": "Release cadence and support windows",
+   "kind": "decision",
+   "value": "N-3 and older: Nothing; Unsupported"
+  },
+  {
+   "section": "Release cadence and support windows",
+   "kind": "number",
+   "value": "about six months of full support, then three of critical and high fixes (target)"
+  },
+  {
+   "section": "Release cadence and support windows",
+   "kind": "number",
+   "value": "Staying supported means moving two minors every 6 months (target)"
+  },
+  {
+   "section": "Release cadence and support windows",
+   "kind": "number",
+   "value": "each with its own 24-hour soak (target) and Node upgrades, so at least 2 to 3 days (target)"
+  },
+  {
+   "section": "Security fix policy",
+   "kind": "decision",
+   "value": "Open source releases receive security fixes immediately: every user gets a fix at once, through the public signed release, with no embargoed, private or paid early channel"
+  },
+  {
+   "section": "Security fix policy",
+   "kind": "decision",
+   "value": "commercial support MUST NOT deliver a private fix (P1)"
+  },
+  {
+   "section": "Security fix policy",
+   "kind": "claim",
+   "value": "Ruralz Cloud runs the public images with no private patches"
+  },
+  {
+   "section": "Security fix policy",
+   "kind": "milestone",
+   "value": "the private channel in `SECURITY.md`, Planned (M0)"
+  },
+  {
+   "section": "Security fix policy",
+   "kind": "timeout",
+   "value": "the security response team acknowledges within 2 business days (target)"
+  },
+  {
+   "section": "Security fix policy",
+   "kind": "timeout",
+   "value": "Critical: Within 7 days of triage (target); Lines N, N-1, N-2"
+  },
+  {
+   "section": "Security fix policy",
+   "kind": "timeout",
+   "value": "High: Within 30 days (target); SM-13 bounds a sandbox escape rated High to 30 days; Lines N, N-1, N-2"
+  },
+  {
+   "section": "Security fix policy",
+   "kind": "timeout",
+   "value": "Medium: Next patch, within 90 days (target); Lines N, N-1"
+  },
+  {
+   "section": "Security fix policy",
+   "kind": "decision",
+   "value": "Low: Next minor; Lines N"
+  },
+  {
+   "section": "Security fix policy",
+   "kind": "decision",
+   "value": "Critical: Plugin sandbox escape (default rating)"
+  },
+  {
+   "section": "Security fix policy",
+   "kind": "metric",
+   "value": "SM-13"
+  },
+  {
+   "section": "Security fix policy",
+   "kind": "claim",
+   "value": "EU Cyber Resilience Act reporting, from 2026-09-11"
+  },
+  {
+   "section": "Security fix policy",
+   "kind": "claim",
+   "value": "KrakenD lists \"security fixes and updates as standard\" among its Enterprise support services"
+  },
+  {
+   "section": "Security fix policy",
+   "kind": "claim",
+   "value": "the 2026-09-23 research snapshot records no published security fix window for KrakenD CE"
+  },
+  {
+   "section": "Security fix policy",
+   "kind": "claim",
+   "value": "KrakenD EE also stops when its license file expires"
+  },
+  {
+   "section": "Release artifacts",
+   "kind": "decision",
+   "value": "One tagged workflow builds, signs and publishes every artifact from `CGO_ENABLED=0` builds on the pinned toolchain"
+  },
+  {
+   "section": "Release artifacts",
+   "kind": "claim",
+   "value": "a CI job checks that rebuilding a tag reproduces identical binaries (target)"
+  },
+  {
+   "section": "Release artifacts",
+   "kind": "milestone",
+   "value": "Binaries `ruralzd_<version>_<os>_<arch>.tar.gz`: Planned (M1); `ruralz-control` Planned (M2)"
+  },
+  {
+   "section": "Release artifacts",
+   "kind": "milestone",
+   "value": "Checksums `SHA256SUMS`: Planned (M1)"
+  },
+  {
+   "section": "Release artifacts",
+   "kind": "milestone",
+   "value": "Container images `ghcr.io/ravindu-rev/ruralzd`, `ghcr.io/ravindu-rev/ruralz-control`: Planned (M1); `ruralz-control` Planned (M2)"
+  },
+  {
+   "section": "Release artifacts",
+   "kind": "decision",
+   "value": "tags `X.Y.Z`, never re-pushed (policy), and `X.Y`, no `latest`; deployments SHOULD pin by digest"
+  },
+  {
+   "section": "Release artifacts",
+   "kind": "milestone",
+   "value": "FIPS build: Planned (M5)"
+  },
+  {
+   "section": "Release artifacts",
+   "kind": "decision",
+   "value": "`-fips` images and archives with the same feature set except HTTP/3, off per OQ-tech-stack-and-libraries-9 (pack 8.4)"
+  },
+  {
+   "section": "Release artifacts",
+   "kind": "milestone",
+   "value": "Helm chart `oci://ghcr.io/ravindu-rev/charts/ruralz`: Planned (M2)"
+  },
+  {
+   "section": "Release artifacts",
+   "kind": "milestone",
+   "value": "SBOM CycloneDX per archive and image: Planned (M1)"
+  },
+  {
+   "section": "Release artifacts",
+   "kind": "milestone",
+   "value": "Signatures Sigstore bundles for images, chart and `SHA256SUMS`: Planned (M1)"
+  },
+  {
+   "section": "Release artifacts",
+   "kind": "milestone",
+   "value": "Provenance SLSA Build Level 3 attestation per archive and image: Planned (M1)"
+  },
+  {
+   "section": "Release artifacts",
+   "kind": "milestone",
+   "value": "JSON Schema, OpenAPI: Planned (M1); OpenAPI Planned (M2)"
+  },
+  {
+   "section": "Release artifacts",
+   "kind": "milestone",
+   "value": "Release notes: Planned (M1)"
+  },
+  {
+   "section": "Release artifacts",
+   "kind": "library",
+   "value": "Sigstore"
+  },
+  {
+   "section": "Release artifacts",
+   "kind": "claim",
+   "value": "Rekor v2, generally available since 2025-10-10"
+  },
+  {
+   "section": "Release artifacts",
+   "kind": "library",
+   "value": "cosign"
+  },
+  {
+   "section": "Release artifacts",
+   "kind": "decision",
+   "value": "Verification instructions using cosign MUST require 3.1.3 or newer on 3.x, or 2.6.5 or newer on 2.x"
+  },
+  {
+   "section": "Release artifacts",
+   "kind": "claim",
+   "value": "which fix a verification bypass (GHSA-fx35-mq7g-6g98)"
+  },
+  {
+   "section": "Release artifacts",
+   "kind": "library",
+   "value": "CycloneDX 1.7"
+  },
+  {
+   "section": "Release artifacts",
+   "kind": "claim",
+   "value": "CycloneDX 1.7, standardized as ECMA-424 2nd edition"
+  },
+  {
+   "section": "Release artifacts",
+   "kind": "library",
+   "value": "SPDX 3.0.1"
+  },
+  {
+   "section": "Release artifacts",
+   "kind": "claim",
+   "value": "SLSA Build L3 needs a hardened, isolating platform protecting signing material"
+  },
+  {
+   "section": "Release artifacts",
+   "kind": "claim",
+   "value": "v1.2 is backward compatible"
+  },
+  {
+   "section": "Release artifacts",
+   "kind": "claim",
+   "value": "GitHub artifact attestations reach L3 with reusable workflows"
+  },
+  {
+   "section": "Release artifacts",
+   "kind": "metric",
+   "value": "SM-12"
+  },
+  {
+   "section": "Release artifacts",
+   "kind": "number",
+   "value": "SM-12 targets an OpenSSF Scorecard of 8.0 or higher, including Signed-Releases, from Planned (M2) (hypothesis)"
+  },
+  {
+   "section": "Release artifacts",
+   "kind": "decision",
+   "value": "Release signing is separate from Revision and Plugin signing (pack 8.14)."
+  },
+  {
+   "section": "Release artifacts",
+   "kind": "decision",
+   "value": "`ruralz-crds.yaml` that changes only the schemas of already served versions applies before the chart."
+  },
+  {
+   "section": "Release artifacts",
+   "kind": "kind_or_field",
+   "value": "ruralz.io/v1beta1"
+  },
+  {
+   "section": "Release artifacts",
+   "kind": "failure_mode",
+   "value": "an N-1 conversion webhook cannot convert to it and the API server would fail every request in that version"
+  },
+  {
+   "section": "Release artifacts",
+   "kind": "decision",
+   "value": "A version becomes the storage version no earlier than the minor after it is first served"
+  },
+  {
+   "section": "Open questions",
+   "kind": "decision",
+   "value": "OQ-release-versioning-and-compatibility-3 Blocking: Yes, for Planned (M1) artifacts"
+  },
+  {
+   "section": "Open questions",
+   "kind": "decision",
+   "value": "OQ-release-versioning-and-compatibility-4 Blocking: Yes, for Planned (M2) skew checks"
+  },
+  {
+   "section": "Open questions",
+   "kind": "decision",
+   "value": "OQ-release-versioning-and-compatibility-8 Blocking: Yes, for Planned (M2)"
+  },
+  {
+   "section": "Open questions",
+   "kind": "decision",
+   "value": "OQ-release-versioning-and-compatibility-9 Blocking: Yes, for the first layout change"
+  },
+  {
+   "section": "Open questions",
+   "kind": "decision",
+   "value": "OQ-release-versioning-and-compatibility-11 Blocking: Yes, for Planned (M2)"
+  },
+  {
+   "section": "Open questions",
+   "kind": "decision",
+   "value": "OQ-release-versioning-and-compatibility-12 Blocking: Yes, for Planned (M2)"
+  },
+  {
+   "section": "Open questions",
+   "kind": "decision",
+   "value": "OQ-release-versioning-and-compatibility-13 Blocking: Yes, for the first digest-changing fix"
+  },
+  {
+   "section": "Open questions",
+   "kind": "number",
+   "value": "One free yearly line with 24 months of security fixes"
+  },
+  {
+   "section": "Open questions",
+   "kind": "number",
+   "value": "Up to 5 days, free, never binaries"
+  },
+  {
+   "section": "Open questions",
+   "kind": "cli_command",
+   "value": "--output json"
+  },
+  {
+   "section": "Open questions",
+   "kind": "kind_or_field",
+   "value": "Heartbeat"
+  },
+  {
+   "section": "Open questions",
+   "kind": "kind_or_field",
+   "value": "schemaLevels"
+  },
+  {
+   "section": "Open questions",
+   "kind": "library",
+   "value": "sigstore-go"
+  },
+  {
+   "section": "Open questions",
+   "kind": "kind_or_field",
+   "value": "OnDelete"
+  },
+  {
+   "section": "Open questions",
+   "kind": "decision",
+   "value": "recommending (b), since release asset URLs change per release"
+  },
+  {
+   "section": "Open questions",
+   "kind": "decision",
+   "value": "As release owner of OQ-tech-stack-and-libraries-9 it keeps (a), HTTP/3 off in FIPS builds."
+  }
+ ]
+}

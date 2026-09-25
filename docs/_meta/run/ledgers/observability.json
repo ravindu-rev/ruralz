@@ -1,0 +1,2546 @@
+{
+ "path": "docs/architecture/10-observability.md",
+ "status": "reviewed",
+ "facts": [
+  {
+   "section": "Summary",
+   "kind": "library",
+   "value": "OpenTelemetry-first ([ADR-0010](../adr/0010-telemetry-opentelemetry-first.md))"
+  },
+  {
+   "section": "Summary",
+   "kind": "claim",
+   "value": "Telemetry is OpenTelemetry-first ([ADR-0010](../adr/0010-telemetry-opentelemetry-first.md)), never blocks a request and carries no secrets or payloads"
+  },
+  {
+   "section": "Summary",
+   "kind": "term",
+   "value": "W3C Trace Context propagation"
+  },
+  {
+   "section": "Summary",
+   "kind": "term",
+   "value": "OpenTelemetry `gen_ai` conventions"
+  },
+  {
+   "section": "Scope and non-goals",
+   "kind": "kind_or_field",
+   "value": "`Gateway.spec.telemetry`"
+  },
+  {
+   "section": "Scope and non-goals",
+   "kind": "kind_or_field",
+   "value": "`otlp.endpoint`"
+  },
+  {
+   "section": "Scope and non-goals",
+   "kind": "kind_or_field",
+   "value": "`traceSampling`"
+  },
+  {
+   "section": "Scope and non-goals",
+   "kind": "kind_or_field",
+   "value": "`accessLog.when`"
+  },
+  {
+   "section": "Scope and non-goals",
+   "kind": "claim",
+   "value": "Performance Budget values, owned by [Performance budgets and benchmarking](12-performance-budgets-and-benchmarking.md), which wins on conflict"
+  },
+  {
+   "section": "Scope and non-goals",
+   "kind": "claim",
+   "value": "the admin endpoint list, owned by [Data plane](03-data-plane.md#admin-endpoints)"
+  },
+  {
+   "section": "Scope and non-goals",
+   "kind": "term",
+   "value": "\"Pack 8.7\" names a [foundation pack](../_meta/foundation-pack.md) section"
+  },
+  {
+   "section": "Observability principles",
+   "kind": "claim",
+   "value": "P10 requires OpenTelemetry signals and a metric for every degraded state; P3 forbids request-path coordination"
+  },
+  {
+   "section": "Observability principles",
+   "kind": "decision",
+   "value": "O1 OpenTelemetry first: traces and metrics through the OpenTelemetry Go SDK, logs through `log/slog` and the `otelslog` bridge ([ADR-0010](../adr/0010-telemetry-opentelemetry-first.md))"
+  },
+  {
+   "section": "Observability principles",
+   "kind": "library",
+   "value": "OpenTelemetry Go SDK"
+  },
+  {
+   "section": "Observability principles",
+   "kind": "library",
+   "value": "`log/slog`"
+  },
+  {
+   "section": "Observability principles",
+   "kind": "library",
+   "value": "`otelslog` bridge"
+  },
+  {
+   "section": "Observability principles",
+   "kind": "failure_mode",
+   "value": "O2 Telemetry never blocks, slows or fails a request: Bounded span and log queues drop with a counter (TB-12); only the audit export lags instead (OQ-observability-19)"
+  },
+  {
+   "section": "Observability principles",
+   "kind": "metric",
+   "value": "`ruralz_node_degraded_info` with a fixed `reason`"
+  },
+  {
+   "section": "Observability principles",
+   "kind": "claim",
+   "value": "O4 No secrets, credentials or payloads in any signal: no resolved secret, credential header, query string (`url.full`, `url.query`) or body reaches a signal or `/tap` (threat T9)"
+  },
+  {
+   "section": "Observability principles",
+   "kind": "claim",
+   "value": "O5 Bounded cardinality: label values are Revision-bounded names or enumerations admitted at compile time, except Plugin guest event names"
+  },
+  {
+   "section": "Observability principles",
+   "kind": "claim",
+   "value": "O6 One correlation key: (`trace_id`, server `span_id`); `requestId` carries the trace ID; the span ID is OQ-observability-13"
+  },
+  {
+   "section": "Observability principles",
+   "kind": "claim",
+   "value": "O7 Unsampled requests create no spans; `/tap` without a subscriber costs one atomic load"
+  },
+  {
+   "section": "Observability principles",
+   "kind": "milestone",
+   "value": "FIPS build: Planned (M5)"
+  },
+  {
+   "section": "Observability principles",
+   "kind": "claim",
+   "value": "O8 Self-hosted and air-gapped: No phone-home; the FIPS build (Planned (M5)) emits the same signals (P1)"
+  },
+  {
+   "section": "Observability principles",
+   "kind": "api_path",
+   "value": "`/metrics`"
+  },
+  {
+   "section": "Observability principles",
+   "kind": "api_path",
+   "value": "`/tap`"
+  },
+  {
+   "section": "Observability principles",
+   "kind": "claim",
+   "value": "The Go SDK's traces and metrics are stable; its Logs API is a release candidate, expected stable in v1.47.0"
+  },
+  {
+   "section": "Observability principles",
+   "kind": "library",
+   "value": "opentelemetry-go v1.47.0-rc.1"
+  },
+  {
+   "section": "Observability principles",
+   "kind": "decision",
+   "value": "For OQ-tech-stack-and-libraries-16 this document recommends one `/metrics` exporter reading the OTLP aggregates, with a CI golden test for identical names"
+  },
+  {
+   "section": "Observability principles",
+   "kind": "decision",
+   "value": "Metric values live in Ruralz-owned aggregates, not SDK synchronous instruments, kept by name across Hot Reloads and read by both exporters (SDK interface: OQ-observability-16)"
+  },
+  {
+   "section": "Observability principles",
+   "kind": "limit",
+   "value": "S = min(`GOMAXPROCS` at start, 8) stripes (target) padded to 64-byte cache lines"
+  },
+  {
+   "section": "Observability principles",
+   "kind": "limit",
+   "value": "listener-scoped and enumeration-only families: at most 1,000 counter or gauge series and 64 histogram label sets (target)"
+  },
+  {
+   "section": "Observability principles",
+   "kind": "number",
+   "value": "five in the [Configuration model worked example](02-configuration-model.md#worked-example) (Gateway-scoped Policies)"
+  },
+  {
+   "section": "Observability principles",
+   "kind": "limit",
+   "value": "Gateway-scoped Policies label sets: at most 1,024 counter series and 256 histogram label sets (target)"
+  },
+  {
+   "section": "Observability principles",
+   "kind": "limit",
+   "value": "label sets of the first 1,000 admitted Routes and first 1,000 admitted Upstreams sharded; one 64-byte line per stripe holding up to eight counters (target)"
+  },
+  {
+   "section": "Observability principles",
+   "kind": "metric",
+   "value": "`ruralz_http_requests_total`"
+  },
+  {
+   "section": "Observability principles",
+   "kind": "metric",
+   "value": "`ruralz_http_request_duration_seconds`"
+  },
+  {
+   "section": "Observability principles",
+   "kind": "metric",
+   "value": "`ruralz_upstream_attempts_total`"
+  },
+  {
+   "section": "Observability principles",
+   "kind": "metric",
+   "value": "`ruralz_upstream_attempt_duration_seconds`"
+  },
+  {
+   "section": "Observability principles",
+   "kind": "claim",
+   "value": "The stripe is assigned round robin per connection at accept, offset by the stream ID when multiplexed; no runtime internal is read"
+  },
+  {
+   "section": "Observability principles",
+   "kind": "decision",
+   "value": "A histogram `_sum` is an integer (nanoseconds for `fast`, microseconds for `request` and `control`, bytes, or millionths for `ratio`) added with `atomic.AddUint64`"
+  },
+  {
+   "section": "Observability principles",
+   "kind": "claim",
+   "value": "collection adds each stripe's delta since the previous collection, modulo 2^64, to a float64 total, so a wrap never shows"
+  },
+  {
+   "section": "Observability principles",
+   "kind": "limit",
+   "value": "At most one collection is in flight per process"
+  },
+  {
+   "section": "Observability principles",
+   "kind": "timeout",
+   "value": "a result is reused for up to 1 s (target)"
+  },
+  {
+   "section": "Observability principles",
+   "kind": "limit",
+   "value": "pooled 64 KiB buffer (target)"
+  },
+  {
+   "section": "Observability principles",
+   "kind": "limit",
+   "value": "at most 4 scrapes encode at once (target), a fifth waits"
+  },
+  {
+   "section": "Observability principles",
+   "kind": "timeout",
+   "value": "a scrape still writing after 10 s (target) is cancelled"
+  },
+  {
+   "section": "Telemetry pipeline",
+   "kind": "kind_or_field",
+   "value": "`Gateway.spec.telemetry.otlp.endpoint`"
+  },
+  {
+   "section": "Telemetry pipeline",
+   "kind": "port",
+   "value": "`/metrics` on 9901"
+  },
+  {
+   "section": "Telemetry pipeline",
+   "kind": "default",
+   "value": "without OTLP endpoint: `/metrics` on 9901 still serves metrics, logs go to stdout as JSON lines, and trace context propagates without spans"
+  },
+  {
+   "section": "Telemetry pipeline",
+   "kind": "claim",
+   "value": "OTLP across TB-12 MUST use TLS until OQ-security-and-identity-29 rewords TB-12"
+  },
+  {
+   "section": "Telemetry pipeline",
+   "kind": "failure_mode",
+   "value": "A cleartext endpoint, same-host included, breaks TB-12: the Node still exports, reports a cleartext `telemetry` hop and raises `cleartext_hop` (loopback exception: OQ-observability-20)"
+  },
+  {
+   "section": "Telemetry pipeline",
+   "kind": "port",
+   "value": "Ruralz Control serves `/metrics` on 9902"
+  },
+  {
+   "section": "Telemetry pipeline",
+   "kind": "claim",
+   "value": "Ruralz Control takes OTLP settings from process configuration (OQ-observability-11)"
+  },
+  {
+   "section": "Telemetry pipeline",
+   "kind": "failure_mode",
+   "value": "Spans and logs pass through Ruralz bounded queues that never block, counting `queue_full`; a worker counts `export_error` per record of a failed batch"
+  },
+  {
+   "section": "Telemetry pipeline",
+   "kind": "port",
+   "value": "Admin 9901: /metrics and /tap"
+  },
+  {
+   "section": "Telemetry pipeline",
+   "kind": "port",
+   "value": "Admin 9902: /metrics"
+  },
+  {
+   "section": "Telemetry pipeline",
+   "kind": "cli_command",
+   "value": "`ruralz dev tap`"
+  },
+  {
+   "section": "Telemetry pipeline",
+   "kind": "failure_mode",
+   "value": "Audit export: OTLP logs, lag instead of drop"
+  },
+  {
+   "section": "Telemetry pipeline",
+   "kind": "kind_or_field",
+   "value": "Resource attributes `service.name`, `service.version`, `service.instance.id` (`node.id` or replica), never the active Revision"
+  },
+  {
+   "section": "Telemetry pipeline",
+   "kind": "claim",
+   "value": "Providers rebuild once after Enrollment; aggregates carry over, so counters never reset"
+  },
+  {
+   "section": "Telemetry pipeline",
+   "kind": "kind_or_field",
+   "value": "apiVersion: ruralz/v1alpha1"
+  },
+  {
+   "section": "Telemetry pipeline",
+   "kind": "kind_or_field",
+   "value": "kind: Gateway"
+  },
+  {
+   "section": "Telemetry pipeline",
+   "kind": "kind_or_field",
+   "value": "`spec.listeners` (example)"
+  },
+  {
+   "section": "Telemetry pipeline",
+   "kind": "kind_or_field",
+   "value": "`name` (example)"
+  },
+  {
+   "section": "Telemetry pipeline",
+   "kind": "kind_or_field",
+   "value": "`protocol` (example)"
+  },
+  {
+   "section": "Telemetry pipeline",
+   "kind": "kind_or_field",
+   "value": "`port` (example)"
+  },
+  {
+   "section": "Telemetry pipeline",
+   "kind": "kind_or_field",
+   "value": "`spec.admin.port` (example)"
+  },
+  {
+   "section": "Telemetry pipeline",
+   "kind": "kind_or_field",
+   "value": "`spec.telemetry.otlp.endpoint` (example)"
+  },
+  {
+   "section": "Telemetry pipeline",
+   "kind": "kind_or_field",
+   "value": "`spec.telemetry.traceSampling` (example)"
+  },
+  {
+   "section": "Telemetry pipeline",
+   "kind": "kind_or_field",
+   "value": "`spec.telemetry.accessLog.when` (example)"
+  },
+  {
+   "section": "Telemetry pipeline",
+   "kind": "port",
+   "value": "listener `http` port: 8080"
+  },
+  {
+   "section": "Telemetry pipeline",
+   "kind": "port",
+   "value": "admin: port: 9901  # /metrics, /tap, /debug/* (token or mTLS)"
+  },
+  {
+   "section": "Telemetry pipeline",
+   "kind": "default",
+   "value": "endpoint: ${OTEL_EXPORTER_OTLP_ENDPOINT:-https://otel-collector.observability:4317}"
+  },
+  {
+   "section": "Telemetry pipeline",
+   "kind": "port",
+   "value": "4317 (OTLP collector in example)"
+  },
+  {
+   "section": "Telemetry pipeline",
+   "kind": "default",
+   "value": "traceSampling: 0.01 (example)"
+  },
+  {
+   "section": "Telemetry pipeline",
+   "kind": "default",
+   "value": "when: 'response.status >= 400 || duration > duration(\"1s\")'   # CEL; errors and slow requests only"
+  },
+  {
+   "section": "Naming and label rules",
+   "kind": "term",
+   "value": "Names follow `ruralz_<component>_<name>_<unit>` (pack 2)"
+  },
+  {
+   "section": "Naming and label rules",
+   "kind": "claim",
+   "value": "Instruments register UCUM units; `/metrics` MUST NOT append suffixes"
+  },
+  {
+   "section": "Naming and label rules",
+   "kind": "kind_or_field",
+   "value": "`route=\"_unmatched\"` without a match"
+  },
+  {
+   "section": "Naming and label rules",
+   "kind": "milestone",
+   "value": "protocol `grpc`, `websocket`, `sse` labels (with http3): Planned (M3)"
+  },
+  {
+   "section": "Naming and label rules",
+   "kind": "milestone",
+   "value": "protocol `kafka`, `nats` or `mqtt`: Planned (M4)"
+  },
+  {
+   "section": "Naming and label rules",
+   "kind": "claim",
+   "value": "Never a label: Consumer, credential, client address, method, path, query, host, trace ID, `node.id` or any user-supplied string other than Plugin guest event names (O5). Tier is allowed"
+  },
+  {
+   "section": "Naming and label rules",
+   "kind": "number",
+   "value": "Histograms use five sets of 13 boundaries (16 series per label set); every SLO threshold is a boundary"
+  },
+  {
+   "section": "Naming and label rules",
+   "kind": "number",
+   "value": "fast: [0.00001, 0.000025, 0.00005, 0.0001, 0.00015, 0.00025, 0.0005, 0.001, 0.0025, 0.005, 0.01, 0.025, 0.1]"
+  },
+  {
+   "section": "Naming and label rules",
+   "kind": "number",
+   "value": "request: [0.001, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1, 2.5, 5, 10, 60]"
+  },
+  {
+   "section": "Naming and label rules",
+   "kind": "number",
+   "value": "control: [0.01, 0.05, 0.1, 0.25, 0.5, 1, 2, 5, 10, 30, 60, 120, 3600]"
+  },
+  {
+   "section": "Naming and label rules",
+   "kind": "number",
+   "value": "bytes: [64, 256, 1024, 4096, 16384, 65536, 262144, 1048576, 4194304, 16777216, 67108864, 268435456, 1073741824]"
+  },
+  {
+   "section": "Naming and label rules",
+   "kind": "number",
+   "value": "ratio: [0.5, 0.75, 0.9, 0.95, 0.98, 0.99, 1, 1.01, 1.02, 1.05, 1.1, 1.25, 1.5]"
+  },
+  {
+   "section": "Ruralz Gateway metrics",
+   "kind": "milestone",
+   "value": "Gateway metric rows: Planned (M1) unless listed"
+  },
+  {
+   "section": "Ruralz Gateway metrics",
+   "kind": "milestone",
+   "value": "`ruralz_plugin_*`, `ruralz_node_detached_seconds`, `ruralz_node_revocation_mark_age_seconds`, `ruralz_node_control_stream_reconnects_total`: Planned (M2)"
+  },
+  {
+   "section": "Ruralz Gateway metrics",
+   "kind": "milestone",
+   "value": "`ruralz_http_session_duration_seconds` and `ruralz_sse_buffered_total`: Planned (M3)"
+  },
+  {
+   "section": "Ruralz Gateway metrics",
+   "kind": "milestone",
+   "value": "`ruralz_ingress_paused_partitions` and `ruralz_ingress_hold_expiries_total`: Planned (M4)"
+  },
+  {
+   "section": "Ruralz Gateway metrics",
+   "kind": "claim",
+   "value": "A CI check fails when a `ruralz_*` name or a `ruralz_node_degraded_info` reason under `docs/architecture/` is missing from this catalog"
+  },
+  {
+   "section": "Ruralz Gateway metrics",
+   "kind": "metric",
+   "value": "`ruralz_http_requests_total` | Counter | requests | `route`, `status_class` | Includes sessions"
+  },
+  {
+   "section": "Ruralz Gateway metrics",
+   "kind": "metric",
+   "value": "`ruralz_http_listener_requests_total` | Counter | requests | `listener`, `protocol`, `status_class`, `origin` | SLI of SLO-GW-1"
+  },
+  {
+   "section": "Ruralz Gateway metrics",
+   "kind": "metric",
+   "value": "`ruralz_http_node_responses_total` | Counter | responses | `code` | Node-generated responses"
+  },
+  {
+   "section": "Ruralz Gateway metrics",
+   "kind": "metric",
+   "value": "`ruralz_http_request_duration_seconds` | Histogram, request | seconds | `route` | Unary exchange"
+  },
+  {
+   "section": "Ruralz Gateway metrics",
+   "kind": "metric",
+   "value": "`ruralz_http_session_duration_seconds` | Histogram, control | seconds | `listener`, `protocol` | Session lifetime"
+  },
+  {
+   "section": "Ruralz Gateway metrics",
+   "kind": "metric",
+   "value": "`ruralz_http_gateway_duration_seconds` | Histogram, fast | seconds | `listener` | SLI of SLO-GW-2, SLO-GW-3"
+  },
+  {
+   "section": "Ruralz Gateway metrics",
+   "kind": "metric",
+   "value": "`ruralz_http_gateway_duration_skipped_total` | Counter | requests | `reason` | clock_anomaly"
+  },
+  {
+   "section": "Ruralz Gateway metrics",
+   "kind": "metric",
+   "value": "`ruralz_http_request_body_bytes`, `ruralz_http_response_body_bytes` | Histogram, bytes | bytes | `listener` | Body sizes"
+  },
+  {
+   "section": "Ruralz Gateway metrics",
+   "kind": "metric",
+   "value": "`ruralz_http_active_requests` | Gauge | requests | `listener` | In flight"
+  },
+  {
+   "section": "Ruralz Gateway metrics",
+   "kind": "metric",
+   "value": "`ruralz_listener_open_connections` | Gauge | connections | `listener`, `protocol` | Open connections"
+  },
+  {
+   "section": "Ruralz Gateway metrics",
+   "kind": "metric",
+   "value": "`ruralz_listener_connections_total` | Counter | connections | `listener`, `protocol`, `result` | accepted, tls_failure, refused"
+  },
+  {
+   "section": "Ruralz Gateway metrics",
+   "kind": "metric",
+   "value": "`ruralz_listener_tls_handshake_duration_seconds` | Histogram, request | seconds | `listener` | TLS handshake; QUIC from Planned (M3)"
+  },
+  {
+   "section": "Ruralz Gateway metrics",
+   "kind": "metric",
+   "value": "`ruralz_filter_duration_seconds` | Histogram, fast | seconds | `policy`, `phase` | One Filter or Plugin call"
+  },
+  {
+   "section": "Ruralz Gateway metrics",
+   "kind": "metric",
+   "value": "`ruralz_filter_short_circuits_total` | Counter | responses | `policy`, `phase`, `status_class` | Policy responses"
+  },
+  {
+   "section": "Ruralz Gateway metrics",
+   "kind": "metric",
+   "value": "`ruralz_filter_failures_total` | Counter | failures | `policy`, `phase`, `mode` | open, closed"
+  },
+  {
+   "section": "Ruralz Gateway metrics",
+   "kind": "metric",
+   "value": "`ruralz_auth_decisions_total` | Counter | decisions | `policy`, `result`, `code` | allow, deny"
+  },
+  {
+   "section": "Ruralz Gateway metrics",
+   "kind": "metric",
+   "value": "`ruralz_auth_jwks_age_seconds`, `ruralz_auth_upstream_token_age_seconds` | Gauge | seconds | `policy` | Key and token age"
+  },
+  {
+   "section": "Ruralz Gateway metrics",
+   "kind": "metric",
+   "value": "`ruralz_auth_upstream_refresh_failures_total` | Counter | failures | `policy` | Token fetches"
+  },
+  {
+   "section": "Ruralz Gateway metrics",
+   "kind": "metric",
+   "value": "`ruralz_security_cleartext_hops` | Gauge | hops | `hop` | client, upstream, state_store, telemetry, admin"
+  },
+  {
+   "section": "Ruralz Gateway metrics",
+   "kind": "metric",
+   "value": "`ruralz_ratelimit_decisions_total` | Counter | decisions | `policy`, `result` | allow, deny_local, deny_global, fail_open (ADR-0008)"
+  },
+  {
+   "section": "Ruralz Gateway metrics",
+   "kind": "metric",
+   "value": "`ruralz_ratelimit_bucket_evictions_total` | Counter | entries | `policy` | Local keys evicted"
+  },
+  {
+   "section": "Ruralz Gateway metrics",
+   "kind": "metric",
+   "value": "`ruralz_quota_decisions_total` | Counter | decisions | `policy`, `result` | allow, deny, no_quota, fail_open"
+  },
+  {
+   "section": "Ruralz Gateway metrics",
+   "kind": "metric",
+   "value": "`ruralz_cache_requests_total` | Counter | requests | `route`, `result` | hit, miss, bypass, stale, stale_error"
+  },
+  {
+   "section": "Ruralz Gateway metrics",
+   "kind": "metric",
+   "value": "`ruralz_cache_store_skipped_total` | Counter | stores | `policy`, `reason` | size_limit, buffer_budget, memory (chosen over `state_store_memory`, as in Traffic management and resilience)"
+  },
+  {
+   "section": "Ruralz Gateway metrics",
+   "kind": "metric",
+   "value": "`ruralz_upstream_attempts_total` | Counter | attempts | `upstream`, `status_class`, `error` | none, connect, timeout, reset, tls"
+  },
+  {
+   "section": "Ruralz Gateway metrics",
+   "kind": "metric",
+   "value": "`ruralz_upstream_attempt_duration_seconds` | Histogram, request | seconds | `upstream` | Connect to last byte"
+  },
+  {
+   "section": "Ruralz Gateway metrics",
+   "kind": "metric",
+   "value": "`ruralz_upstream_retries_total`, `ruralz_upstream_retry_budget_exhausted_total` | Counter | retries | `upstream` | Made; skipped"
+  },
+  {
+   "section": "Ruralz Gateway metrics",
+   "kind": "metric",
+   "value": "`ruralz_upstream_breaker_state_info` | Gauge | info | `upstream`, `state` | closed, open, half_open"
+  },
+  {
+   "section": "Ruralz Gateway metrics",
+   "kind": "metric",
+   "value": "`ruralz_upstream_ejections_total` | Counter | ejections | `upstream`, `reason` | passive, active"
+  },
+  {
+   "section": "Ruralz Gateway metrics",
+   "kind": "metric",
+   "value": "`ruralz_upstream_healthy_endpoints` | Gauge | endpoints | `upstream` | Eligible Endpoints"
+  },
+  {
+   "section": "Ruralz Gateway metrics",
+   "kind": "metric",
+   "value": "`ruralz_upstream_probes_skipped_total` | Counter | probes | `upstream` | Active health probes skipped for lack of probe slots"
+  },
+  {
+   "section": "Ruralz Gateway metrics",
+   "kind": "metric",
+   "value": "`ruralz_upstream_degraded_info` | Gauge | info | `upstream`, `reason` | panic, discovery_stale, balancer_budget"
+  },
+  {
+   "section": "Ruralz Gateway metrics",
+   "kind": "metric",
+   "value": "`ruralz_upstream_cel_errors_total` | Counter | errors | `upstream`, `field` | hashKey, retryOn, failureWhen"
+  },
+  {
+   "section": "Ruralz Gateway metrics",
+   "kind": "metric",
+   "value": "`ruralz_upstream_pool_connections` | Gauge | connections | `upstream`, `state` | idle, active"
+  },
+  {
+   "section": "Ruralz Gateway metrics",
+   "kind": "metric",
+   "value": "`ruralz_state_call_duration_seconds` | Histogram, fast | seconds | `op` | SLI of SLO-GW-5"
+  },
+  {
+   "section": "Ruralz Gateway metrics",
+   "kind": "metric",
+   "value": "`ruralz_state_calls_total` | Counter | calls | `op`, `result` | ok, error, timeout, skipped"
+  },
+  {
+   "section": "Ruralz Gateway metrics",
+   "kind": "metric",
+   "value": "`ruralz_state_ops_total`, `ruralz_state_writes_dropped_total` | Counter | operations, writes | `kind` | In round trips; dropped by a full post-commit queue"
+  },
+  {
+   "section": "Ruralz Gateway metrics",
+   "kind": "metric",
+   "value": "`ruralz_state_write_queue_items` | Gauge | items | none | Queue depth"
+  },
+  {
+   "section": "Ruralz Gateway metrics",
+   "kind": "metric",
+   "value": "`ruralz_plugin_call_duration_seconds`, `ruralz_plugin_call_overhead_seconds` | Histogram, fast | seconds | `policy`, `phase` | Whole call; host time around the guest call, SLI of SLO-GW-4"
+  },
+  {
+   "section": "Ruralz Gateway metrics",
+   "kind": "metric",
+   "value": "`ruralz_plugin_pool_wait_seconds` | Histogram, fast | seconds | `policy` | Instance wait"
+  },
+  {
+   "section": "Ruralz Gateway metrics",
+   "kind": "metric",
+   "value": "`ruralz_plugin_failures_total` | Counter | failures | `policy`, `code` | Traps, limits, denials"
+  },
+  {
+   "section": "Ruralz Gateway metrics",
+   "kind": "metric",
+   "value": "`ruralz_plugin_pool_instances` | Gauge | instances | `policy`, `state` | idle, busy"
+  },
+  {
+   "section": "Ruralz Gateway metrics",
+   "kind": "metric",
+   "value": "`ruralz_plugin_memory_reserved_bytes` | Gauge | bytes | `plugin` | Against the Node cap"
+  },
+  {
+   "section": "Ruralz Gateway metrics",
+   "kind": "metric",
+   "value": "`ruralz_plugin_guest_events_total` | Counter | events | `policy`, `name` | Guest `metric_add`, at most 16 names (target)"
+  },
+  {
+   "section": "Ruralz Gateway metrics",
+   "kind": "metric",
+   "value": "`ruralz_sse_buffered_total` | Counter | responses | `route` | SSE buffered for a gate"
+  },
+  {
+   "section": "Ruralz Gateway metrics",
+   "kind": "metric",
+   "value": "`ruralz_ingress_paused_partitions` | Gauge | partitions | `route`, `protocol` | Paused by poison messages"
+  },
+  {
+   "section": "Ruralz Gateway metrics",
+   "kind": "metric",
+   "value": "`ruralz_ingress_hold_expiries_total` | Counter | holds | `route`, `protocol` | Backpressure holds that ended so `AckWait` redelivers"
+  },
+  {
+   "section": "Ruralz Gateway metrics",
+   "kind": "metric",
+   "value": "`ruralz_config_revision_info` | Gauge | info | `revision`, `role` | active, lkg"
+  },
+  {
+   "section": "Ruralz Gateway metrics",
+   "kind": "metric",
+   "value": "`ruralz_config_activations_total` | Counter | activations | `result`, `code` | activated, rejected"
+  },
+  {
+   "section": "Ruralz Gateway metrics",
+   "kind": "metric",
+   "value": "`ruralz_config_activation_duration_seconds` | Histogram, control | seconds | `stage`, `size_class` | SLI of SLO-GW-6"
+  },
+  {
+   "section": "Ruralz Gateway metrics",
+   "kind": "metric",
+   "value": "`ruralz_config_retired_snapshots` | Gauge | snapshots | none | Pinned retired"
+  },
+  {
+   "section": "Ruralz Gateway metrics",
+   "kind": "metric",
+   "value": "`ruralz_snapshot_retirement_ended_total` | Counter | requests | none | Ended by `RZ-RT-014`"
+  },
+  {
+   "section": "Ruralz Gateway metrics",
+   "kind": "metric",
+   "value": "`ruralz_config_secret_rotation_failures_total` | Counter | failures | `provider` | env, file, kubernetes, vault"
+  },
+  {
+   "section": "Ruralz Gateway metrics",
+   "kind": "metric",
+   "value": "`ruralz_node_degraded_info` | Gauge | info | `reason` | Degraded states"
+  },
+  {
+   "section": "Ruralz Gateway metrics",
+   "kind": "metric",
+   "value": "`ruralz_node_buffered_bytes` | Gauge | bytes | none | Of `limits.maxBufferedBytes`"
+  },
+  {
+   "section": "Ruralz Gateway metrics",
+   "kind": "metric",
+   "value": "`ruralz_node_detached_seconds`, `ruralz_node_revocation_mark_age_seconds` | Gauge | seconds | none | Since Control Stream loss; revocation mark age"
+  },
+  {
+   "section": "Ruralz Gateway metrics",
+   "kind": "metric",
+   "value": "`ruralz_node_control_stream_reconnects_total` | Counter | reconnects | `result` | success, failure"
+  },
+  {
+   "section": "Ruralz Gateway metrics",
+   "kind": "metric",
+   "value": "`ruralz_runtime_goroutines`, `ruralz_runtime_heap_bytes`, `ruralz_runtime_gc_cycles_total` | Gauge; Counter for cycles | goroutines, bytes, cycles | none | Live goroutines, live heap, GC cycles"
+  },
+  {
+   "section": "Ruralz Gateway metrics",
+   "kind": "metric",
+   "value": "`ruralz_telemetry_spans_total`, `ruralz_telemetry_spans_dropped_total` | Counter | spans | `reason` when dropped | Offered to export; queue_full, export_error"
+  },
+  {
+   "section": "Ruralz Gateway metrics",
+   "kind": "metric",
+   "value": "`ruralz_telemetry_traces_unsampled_total` | Counter | traces | `reason` | rate_cap_root, rate_cap_parent"
+  },
+  {
+   "section": "Ruralz Gateway metrics",
+   "kind": "metric",
+   "value": "`ruralz_telemetry_logs_total`, `ruralz_telemetry_logs_dropped_total` | Counter | records | `stream`; `reason` when dropped | access, process; queue_full, export_error"
+  },
+  {
+   "section": "Ruralz Gateway metrics",
+   "kind": "metric",
+   "value": "`ruralz_telemetry_folded_label_sets` | Gauge | label sets | `instrument` | Folded into `_overflow`"
+  },
+  {
+   "section": "Ruralz Gateway metrics",
+   "kind": "metric",
+   "value": "`ruralz_telemetry_series` | Gauge | series | `state` | live, retiring"
+  },
+  {
+   "section": "Ruralz Gateway metrics",
+   "kind": "metric",
+   "value": "`ruralz_tap_events_dropped_total` | Counter | events | none | Slow `/tap` subscribers"
+  },
+  {
+   "section": "Ruralz Gateway metrics",
+   "kind": "kind_or_field",
+   "value": "`origin` is `upstream`, `node`, or `dependency` for Node-generated Upstream or `AIProvider` failures"
+  },
+  {
+   "section": "Ruralz Gateway metrics",
+   "kind": "error_code",
+   "value": "RZ-UP"
+  },
+  {
+   "section": "Ruralz Gateway metrics",
+   "kind": "error_code",
+   "value": "RZ-AI-004"
+  },
+  {
+   "section": "Ruralz Gateway metrics",
+   "kind": "error_code",
+   "value": "RZ-AI-005"
+  },
+  {
+   "section": "Ruralz Gateway metrics",
+   "kind": "error_code",
+   "value": "RZ-AI-013"
+  },
+  {
+   "section": "Ruralz Gateway metrics",
+   "kind": "error_code",
+   "value": "RZ-RT-014"
+  },
+  {
+   "section": "Ruralz Gateway metrics",
+   "kind": "kind_or_field",
+   "value": "`AIProvider`"
+  },
+  {
+   "section": "Ruralz Gateway metrics",
+   "kind": "kind_or_field",
+   "value": "`stage` is verify, plugin_compile, compile, swap or total; `size_class` is le1000, le10000 or gt10000 Routes"
+  },
+  {
+   "section": "Ruralz Gateway metrics",
+   "kind": "kind_or_field",
+   "value": "`op` is gcra, quota, budget, cache_get, semantic_get, script_multi, pipeline (pack 8.7 rule 3), or a write kind: cache_set, semantic_set, cache_invalidate, refund or settle"
+  },
+  {
+   "section": "Ruralz Gateway metrics",
+   "kind": "kind_or_field",
+   "value": "`limits.maxBufferedBytes`"
+  },
+  {
+   "section": "Ruralz Gateway metrics",
+   "kind": "decision",
+   "value": "Both binaries read `ruralz_runtime_*` from `runtime/metrics` (SDK names: OQ-observability-15)"
+  },
+  {
+   "section": "Ruralz Gateway metrics",
+   "kind": "library",
+   "value": "`runtime/metrics`"
+  },
+  {
+   "section": "Ruralz Gateway metrics",
+   "kind": "decision",
+   "value": "[WASM plugin system]'s proposed names and reasons are accepted; `ruralz_plugin_call_overhead_seconds`, added for SM-6, spans instance checkout to guest entry and guest return to call end"
+  },
+  {
+   "section": "Ruralz Gateway metrics",
+   "kind": "decision",
+   "value": "`memory` chosen over `state_store_memory` for `ruralz_cache_store_skipped_total` reason"
+  },
+  {
+   "section": "Ruralz Gateway metrics",
+   "kind": "limit",
+   "value": "Guest `metric_add`, at most 16 names (target)"
+  },
+  {
+   "section": "Gateway-added time",
+   "kind": "claim",
+   "value": "wall-clock time minus the union of excluded sections: client reads and writes, upstream I/O, State Store round trips and declared remote calls (pack 8.7 rule 6)"
+  },
+  {
+   "section": "Gateway-added time",
+   "kind": "claim",
+   "value": "Unary exchanges end at the last byte, `text/event-stream` responses at header commit; sessions are not measured"
+  },
+  {
+   "section": "Gateway-added time",
+   "kind": "claim",
+   "value": "The access log reuses it, within the Metrics CPU budget, matching SM-4 and SM-5"
+  },
+  {
+   "section": "Gateway-added time",
+   "kind": "number",
+   "value": "One 64-bit word per request packs an excluded depth (16 bits) and the start of the current excluded run (48 bits of monotonic nanoseconds since request start, about 78 hours)"
+  },
+  {
+   "section": "Gateway-added time",
+   "kind": "library",
+   "value": "`atomic.AddInt64`"
+  },
+  {
+   "section": "Gateway-added time",
+   "kind": "claim",
+   "value": "the union is exact with no cap and no lock"
+  },
+  {
+   "section": "Gateway-added time",
+   "kind": "failure_mode",
+   "value": "A result below 0 or above wall-clock time is skipped and counted with reason `clock_anomaly`"
+  },
+  {
+   "section": "Degraded states",
+   "kind": "milestone",
+   "value": "Degraded reasons are Planned (M1) unless tagged"
+  },
+  {
+   "section": "Degraded states",
+   "kind": "kind_or_field",
+   "value": "`detached`: The Control Stream is lost; Planned (M2)"
+  },
+  {
+   "section": "Degraded states",
+   "kind": "kind_or_field",
+   "value": "`lkg_boot`: Booted Last-Known-Good; no source answered"
+  },
+  {
+   "section": "Degraded states",
+   "kind": "kind_or_field",
+   "value": "`lkg_write_failed`: Last-Known-Good writes keep failing"
+  },
+  {
+   "section": "Degraded states",
+   "kind": "kind_or_field",
+   "value": "`revision_signature_off`, `plugin_signature_off`: Revision or Plugin verification is `off`; Planned (M2)"
+  },
+  {
+   "section": "Degraded states",
+   "kind": "kind_or_field",
+   "value": "`plugin_pool_degraded`: A pool is degraded after `RZ-PLG-008`; Planned (M2)"
+  },
+  {
+   "section": "Degraded states",
+   "kind": "kind_or_field",
+   "value": "`plugin_parked_bound_low`: A `state.*` Plugin pool's guaranteed parked bound is below 16 (target); Planned (M2)"
+  },
+  {
+   "section": "Degraded states",
+   "kind": "kind_or_field",
+   "value": "`state_store_memory_fallback`: No State Store, Node count unknown"
+  },
+  {
+   "section": "Degraded states",
+   "kind": "kind_or_field",
+   "value": "`state_store_memory_multi_node`: `memory` in a multi-Node Cluster (pack 8.8); Planned (M2)"
+  },
+  {
+   "section": "Degraded states",
+   "kind": "kind_or_field",
+   "value": "`state_store_unauthenticated`: A loopback `stateStore.url` carries no credentials; a non-loopback one is rejected"
+  },
+  {
+   "section": "Degraded states",
+   "kind": "kind_or_field",
+   "value": "`state_store_breaker_open`: The State client breaker is open"
+  },
+  {
+   "section": "Degraded states",
+   "kind": "kind_or_field",
+   "value": "`state_store_eviction_policy`: The State Store is not `noeviction`"
+  },
+  {
+   "section": "Degraded states",
+   "kind": "kind_or_field",
+   "value": "`semantic_cache_unsupported`: No vector commands; Planned (M3)"
+  },
+  {
+   "section": "Degraded states",
+   "kind": "kind_or_field",
+   "value": "`upstream_panic`, `discovery_stale`: An Upstream is in panic mode; keeps its last Endpoint set"
+  },
+  {
+   "section": "Degraded states",
+   "kind": "kind_or_field",
+   "value": "`balancer_budget`: An Upstream fell back to weighted `random` at the 256 MiB balancer budget (target)"
+  },
+  {
+   "section": "Degraded states",
+   "kind": "kind_or_field",
+   "value": "`probes_skipped`: More than 10% of active health probes skipped for 1 minute (target)"
+  },
+  {
+   "section": "Degraded states",
+   "kind": "kind_or_field",
+   "value": "`header_limit_capped`: The header limit exceeds the process ceiling"
+  },
+  {
+   "section": "Degraded states",
+   "kind": "kind_or_field",
+   "value": "`snapshot_ending_overdue`: A snapshot stays ending past the zero-pin bound of [Data plane](03-data-plane.md#configuration-snapshots-and-hot-reload), so no newer Revision activates; pages"
+  },
+  {
+   "section": "Degraded states",
+   "kind": "kind_or_field",
+   "value": "`secret_rotation_failed`, `jwks_stale`: A secret rotation or JWKS fetch fails; the last value serves"
+  },
+  {
+   "section": "Degraded states",
+   "kind": "kind_or_field",
+   "value": "`cleartext_hop`: `ruralz_security_cleartext_hops` is above 0; alerts only for `state_store`, `telemetry` and `admin`"
+  },
+  {
+   "section": "Degraded states",
+   "kind": "kind_or_field",
+   "value": "`node_count_unknown`: A derived Rate Limit ceiling lacks the published Node count; Planned (M2)"
+  },
+  {
+   "section": "Degraded states",
+   "kind": "kind_or_field",
+   "value": "`revocation_sequence_gap`: A revocation sequence gap, or a mark older than 30 s (target); Planned (M2)"
+  },
+  {
+   "section": "Degraded states",
+   "kind": "kind_or_field",
+   "value": "`telemetry_export_failing`: OTLP export fails past one interval"
+  },
+  {
+   "section": "Degraded states",
+   "kind": "milestone",
+   "value": "`detached`: Planned (M2)"
+  },
+  {
+   "section": "Degraded states",
+   "kind": "milestone",
+   "value": "`revision_signature_off, plugin_signature_off`: Planned (M2)"
+  },
+  {
+   "section": "Degraded states",
+   "kind": "milestone",
+   "value": "`plugin_pool_degraded`: Planned (M2)"
+  },
+  {
+   "section": "Degraded states",
+   "kind": "milestone",
+   "value": "`plugin_parked_bound_low`: Planned (M2)"
+  },
+  {
+   "section": "Degraded states",
+   "kind": "milestone",
+   "value": "`state_store_memory_multi_node`: Planned (M2)"
+  },
+  {
+   "section": "Degraded states",
+   "kind": "milestone",
+   "value": "`node_count_unknown`: Planned (M2)"
+  },
+  {
+   "section": "Degraded states",
+   "kind": "milestone",
+   "value": "`revocation_sequence_gap`: Planned (M2)"
+  },
+  {
+   "section": "Degraded states",
+   "kind": "milestone",
+   "value": "`semantic_cache_unsupported`: Planned (M3)"
+  },
+  {
+   "section": "Degraded states",
+   "kind": "error_code",
+   "value": "RZ-PLG-008"
+  },
+  {
+   "section": "Degraded states",
+   "kind": "decision",
+   "value": "[ADR-0017](../adr/0017-artifact-signing.md): Revision or Plugin verification `off` is degraded"
+  },
+  {
+   "section": "Degraded states",
+   "kind": "limit",
+   "value": "guaranteed parked bound is below 16 (target)"
+  },
+  {
+   "section": "Degraded states",
+   "kind": "limit",
+   "value": "256 MiB balancer budget (target)"
+  },
+  {
+   "section": "Degraded states",
+   "kind": "limit",
+   "value": "More than 10% of active health probes skipped for 1 minute (target)"
+  },
+  {
+   "section": "Degraded states",
+   "kind": "timeout",
+   "value": "a mark older than 30 s (target)"
+  },
+  {
+   "section": "Degraded states",
+   "kind": "kind_or_field",
+   "value": "`stateStore.url`"
+  },
+  {
+   "section": "Degraded states",
+   "kind": "failure_mode",
+   "value": "`balancer_budget`: An Upstream fell back to weighted `random`"
+  },
+  {
+   "section": "Degraded states",
+   "kind": "failure_mode",
+   "value": "`secret_rotation_failed`, `jwks_stale`: the last value serves"
+  },
+  {
+   "section": "Degraded states",
+   "kind": "claim",
+   "value": "File mode without a declared ceiling uses the full limit (pack 8.8), which is not degraded"
+  },
+  {
+   "section": "Degraded states",
+   "kind": "claim",
+   "value": "failover and Cell loss show only as call errors (OQ-observability-18)"
+  },
+  {
+   "section": "Degraded states",
+   "kind": "metric",
+   "value": "`ruralz_control_cluster_nodes`"
+  },
+  {
+   "section": "Propagation",
+   "kind": "claim",
+   "value": "Ruralz Gateway uses W3C Trace Context on every hop"
+  },
+  {
+   "section": "Propagation",
+   "kind": "kind_or_field",
+   "value": "`traceparent` and `tracestate`"
+  },
+  {
+   "section": "Propagation",
+   "kind": "default",
+   "value": "`Gateway.spec.telemetry.traceSampling` (default: OQ-observability-1, 0.01 assumed)"
+  },
+  {
+   "section": "Propagation",
+   "kind": "limit",
+   "value": "Two per-Node token buckets admit sampled traces (target): root at 1,000 per second, parent at 500, bursts equal to rates"
+  },
+  {
+   "section": "Propagation",
+   "kind": "failure_mode",
+   "value": "A request over its bucket is unsampled and counted, never dropped"
+  },
+  {
+   "section": "Propagation",
+   "kind": "milestone",
+   "value": "traceparent injection: HTTP from Planned (M1)"
+  },
+  {
+   "section": "Propagation",
+   "kind": "milestone",
+   "value": "traceparent injection: gRPC from Planned (M3)"
+  },
+  {
+   "section": "Propagation",
+   "kind": "milestone",
+   "value": "traceparent injection: Kafka, NATS and MQTT 5 from Planned (M4)"
+  },
+  {
+   "section": "Propagation",
+   "kind": "kind_or_field",
+   "value": "trace ID as `requestId` in every problem document"
+  },
+  {
+   "section": "Propagation",
+   "kind": "number",
+   "value": "an assumed 50,000 requests per second per Node (hypothesis; OQ-observability-17)"
+  },
+  {
+   "section": "Propagation",
+   "kind": "number",
+   "value": "at 15 spans per trace (Figure 2) both caps allow 22,500 spans per second (target)"
+  },
+  {
+   "section": "Propagation",
+   "kind": "claim",
+   "value": "Baggage is never propagated"
+  },
+  {
+   "section": "Span model",
+   "kind": "term",
+   "value": "server span `<method> <route>` (`_OTHER` for methods outside RFC 9110 and PATCH)"
+  },
+  {
+   "section": "Span model",
+   "kind": "kind_or_field",
+   "value": "Server span | SERVER | Once per request"
+  },
+  {
+   "section": "Span model",
+   "kind": "kind_or_field",
+   "value": "`ruralz.route.match` | INTERNAL | Before `onRequestHeaders`"
+  },
+  {
+   "section": "Span model",
+   "kind": "kind_or_field",
+   "value": "`ruralz.filter.<name>` | INTERNAL | Once per Policy Phase call"
+  },
+  {
+   "section": "Span model",
+   "kind": "kind_or_field",
+   "value": "`ruralz.upstream.<name>` | CLIENT | Once per leg attempt"
+  },
+  {
+   "section": "Span model",
+   "kind": "claim",
+   "value": "Server span attributes: HTTP conventions minus `url.full` and `url.query`"
+  },
+  {
+   "section": "Span model",
+   "kind": "term",
+   "value": "Children follow pack 8.12 order"
+  },
+  {
+   "section": "Span model",
+   "kind": "policy_type",
+   "value": "`headers`"
+  },
+  {
+   "section": "Span model",
+   "kind": "policy_type",
+   "value": "`transform`"
+  },
+  {
+   "section": "Span model",
+   "kind": "kind_or_field",
+   "value": "`onChunk`"
+  },
+  {
+   "section": "Span model",
+   "kind": "kind_or_field",
+   "value": "`failureMode: closed`"
+  },
+  {
+   "section": "Span model",
+   "kind": "kind_or_field",
+   "value": "`onLog` creates no span"
+  },
+  {
+   "section": "Span model",
+   "kind": "kind_or_field",
+   "value": "`ruralz.state.batch`"
+  },
+  {
+   "section": "Span model",
+   "kind": "number",
+   "value": "Figure 2: the 15 Ruralz spans of one sampled request to the `orders-summary` Route, which aggregates two Upstreams"
+  },
+  {
+   "section": "Span model",
+   "kind": "kind_or_field",
+   "value": "`orders-summary` (Figure 2 example name)"
+  },
+  {
+   "section": "Span model",
+   "kind": "kind_or_field",
+   "value": "`cors-partner` (Figure 2 example name)"
+  },
+  {
+   "section": "Span model",
+   "kind": "kind_or_field",
+   "value": "`jwt-default` (Figure 2 example name)"
+  },
+  {
+   "section": "Span model",
+   "kind": "kind_or_field",
+   "value": "`geo-block-default` (Figure 2 example name)"
+  },
+  {
+   "section": "Span model",
+   "kind": "kind_or_field",
+   "value": "`authz-orders` (Figure 2 example name)"
+  },
+  {
+   "section": "Span model",
+   "kind": "kind_or_field",
+   "value": "`ratelimit-global` (Figure 2 example name)"
+  },
+  {
+   "section": "Span model",
+   "kind": "kind_or_field",
+   "value": "`ratelimit-orders` (Figure 2 example name)"
+  },
+  {
+   "section": "Span model",
+   "kind": "kind_or_field",
+   "value": "`upstream-oauth` (Figure 2 example name)"
+  },
+  {
+   "section": "Span model",
+   "kind": "kind_or_field",
+   "value": "`headers-internal` (Figure 2 example name)"
+  },
+  {
+   "section": "Span model",
+   "kind": "kind_or_field",
+   "value": "`headers-security` (Figure 2 example name)"
+  },
+  {
+   "section": "Span model",
+   "kind": "kind_or_field",
+   "value": "`orders` (Figure 2 example name)"
+  },
+  {
+   "section": "Span model",
+   "kind": "kind_or_field",
+   "value": "`inventory` (Figure 2 example name)"
+  },
+  {
+   "section": "Span model",
+   "kind": "kind_or_field",
+   "value": "`onRequestHeaders` (Phase)"
+  },
+  {
+   "section": "Span model",
+   "kind": "kind_or_field",
+   "value": "`onUpstreamRequest` (Phase)"
+  },
+  {
+   "section": "Span model",
+   "kind": "kind_or_field",
+   "value": "`onResponse` (Phase)"
+  },
+  {
+   "section": "Span model",
+   "kind": "milestone",
+   "value": "gRPC, WebSocket and SSE sessions (Planned (M3)) produce one server span per call or session, never per message"
+  },
+  {
+   "section": "Span model",
+   "kind": "kind_or_field",
+   "value": "INTERNAL `rollout batch` span per batch (Ruralz Control)"
+  },
+  {
+   "section": "Process logs",
+   "kind": "library",
+   "value": "`log/slog` as JSON lines on stdout"
+  },
+  {
+   "section": "Process logs",
+   "kind": "default",
+   "value": "`RURALZ_LOG_LEVEL` (`debug`, `info`, `warn`, `error`; default `info`)"
+  },
+  {
+   "section": "Process logs",
+   "kind": "claim",
+   "value": "Changing the level live is OQ-observability-6"
+  },
+  {
+   "section": "Access logs",
+   "kind": "kind_or_field",
+   "value": "`Gateway.spec.telemetry.accessLog.when` (CEL over the base variables, `response`, `upstream` and `duration`)"
+  },
+  {
+   "section": "Access logs",
+   "kind": "default",
+   "value": "Without it every request is logged, possibly tens of MB per second per Node (hypothesis)"
+  },
+  {
+   "section": "Access logs",
+   "kind": "claim",
+   "value": "busy Nodes SHOULD set an errors-only `when`"
+  },
+  {
+   "section": "Access logs",
+   "kind": "failure_mode",
+   "value": "a runtime error writes the entry"
+  },
+  {
+   "section": "Access logs",
+   "kind": "limit",
+   "value": "A record is at most 4 KiB (target)"
+  },
+  {
+   "section": "Access logs",
+   "kind": "limit",
+   "value": "at most 8,192 records (target)"
+  },
+  {
+   "section": "Access logs",
+   "kind": "limit",
+   "value": "4 MiB byte budget (target)"
+  },
+  {
+   "section": "Access logs",
+   "kind": "failure_mode",
+   "value": "when either is exhausted the record drops with reason `queue_full`"
+  },
+  {
+   "section": "Access logs",
+   "kind": "kind_or_field",
+   "value": "`revision` as `rev-<12 hex>`"
+  },
+  {
+   "section": "Access logs",
+   "kind": "limit",
+   "value": "`host` and `path` cut at 256 and 1,024 bytes (target)"
+  },
+  {
+   "section": "Access logs",
+   "kind": "limit",
+   "value": "`User-Agent` cut at 256 bytes (target)"
+  },
+  {
+   "section": "Access logs",
+   "kind": "limit",
+   "value": "`failure_modes`: at most 8 (target)"
+  },
+  {
+   "section": "Access logs",
+   "kind": "limit",
+   "value": "`ai`: at most 1 KiB (target)"
+  },
+  {
+   "section": "Access logs",
+   "kind": "term",
+   "value": "`time`: Request start, RFC 3339 with microseconds"
+  },
+  {
+   "section": "Access logs",
+   "kind": "claim",
+   "value": "Bodies, header values, query strings, secrets and prompt or completion text never appear (O4)"
+  },
+  {
+   "section": "Access logs",
+   "kind": "claim",
+   "value": "`client_address`: masking is OQ-observability-7"
+  },
+  {
+   "section": "Access logs",
+   "kind": "claim",
+   "value": "Destination, format and sampling are OQ-observability-3"
+  },
+  {
+   "section": "AI observability",
+   "kind": "milestone",
+   "value": "AI telemetry: Planned (M3)"
+  },
+  {
+   "section": "AI observability",
+   "kind": "decision",
+   "value": "[ADR-0014](../adr/0014-ai-api-surface.md)"
+  },
+  {
+   "section": "AI observability",
+   "kind": "kind_or_field",
+   "value": "`AIModel`"
+  },
+  {
+   "section": "AI observability",
+   "kind": "kind_or_field",
+   "value": "`AIProvider`"
+  },
+  {
+   "section": "AI observability",
+   "kind": "claim",
+   "value": "Provider Fallback shows as sibling attempts; the server span carries the virtual model"
+  },
+  {
+   "section": "`gen_ai` attributes and stability",
+   "kind": "kind_or_field",
+   "value": "`gen_ai.provider.name`"
+  },
+  {
+   "section": "`gen_ai` attributes and stability",
+   "kind": "kind_or_field",
+   "value": "`gen_ai.usage.input_tokens`"
+  },
+  {
+   "section": "`gen_ai` attributes and stability",
+   "kind": "kind_or_field",
+   "value": "`gen_ai.usage.output_tokens`"
+  },
+  {
+   "section": "`gen_ai` attributes and stability",
+   "kind": "kind_or_field",
+   "value": "`gen_ai.usage.cache_read.input_tokens`"
+  },
+  {
+   "section": "`gen_ai` attributes and stability",
+   "kind": "kind_or_field",
+   "value": "`gen_ai.usage.cache_write.input_tokens`"
+  },
+  {
+   "section": "`gen_ai` attributes and stability",
+   "kind": "kind_or_field",
+   "value": "`gen_ai.usage.reasoning.output_tokens`"
+  },
+  {
+   "section": "`gen_ai` attributes and stability",
+   "kind": "claim",
+   "value": "never content attributes such as `gen_ai.input.messages`"
+  },
+  {
+   "section": "`gen_ai` attributes and stability",
+   "kind": "claim",
+   "value": "The conventions left the main repository in semantic-conventions v1.42.0; the new repository has no tagged release and marks its documents Development"
+  },
+  {
+   "section": "`gen_ai` attributes and stability",
+   "kind": "decision",
+   "value": "For OQ-ai-llm-gateway-11 this document chooses option (a): each release pins one commit, named in its release notes, and never captures content (OQ-observability-8)"
+  },
+  {
+   "section": "`gen_ai` attributes and stability",
+   "kind": "claim",
+   "value": "The `ruralz_ai_*` metrics are the stable contract"
+  },
+  {
+   "section": "AI metrics",
+   "kind": "kind_or_field",
+   "value": "\"Model labels\" are `aimodel`, `provider` (the `AIProvider` name) and `model`"
+  },
+  {
+   "section": "AI metrics",
+   "kind": "claim",
+   "value": "Only token, cost and Semantic Cache counters carry `route`. No AI metric carries a Consumer label"
+  },
+  {
+   "section": "AI metrics",
+   "kind": "cli_command",
+   "value": "`ruralz ai cost` (Planned (M3))"
+  },
+  {
+   "section": "AI metrics",
+   "kind": "milestone",
+   "value": "`ruralz ai cost`: Planned (M3)"
+  },
+  {
+   "section": "AI metrics",
+   "kind": "metric",
+   "value": "`ruralz_ai_tokens_total` | Counter | tokens | `route`, model labels, `type` | `gen_ai.client.inference.usage.*`; input, cache_read, cache_write, output, reasoning"
+  },
+  {
+   "section": "AI metrics",
+   "kind": "metric",
+   "value": "`ruralz_ai_cost_total` | Counter | currency units | `route`, model labels, `tier`, `currency` | Priced usage"
+  },
+  {
+   "section": "AI metrics",
+   "kind": "metric",
+   "value": "`ruralz_ai_unpriced_requests_total` | Counter | requests | model labels | No pricing row"
+  },
+  {
+   "section": "AI metrics",
+   "kind": "metric",
+   "value": "`ruralz_ai_request_duration_seconds` | Histogram, control | seconds | model labels | `gen_ai.client.operation.duration`"
+  },
+  {
+   "section": "AI metrics",
+   "kind": "metric",
+   "value": "`ruralz_ai_time_to_first_token_seconds` | Histogram, request | seconds | model labels | `gen_ai.client.operation.time_to_first_chunk`"
+  },
+  {
+   "section": "AI metrics",
+   "kind": "metric",
+   "value": "`ruralz_ai_time_per_output_chunk_seconds` | Histogram, request | seconds | model labels | `gen_ai.client.operation.time_per_output_chunk`; added here"
+  },
+  {
+   "section": "AI metrics",
+   "kind": "metric",
+   "value": "`ruralz_ai_fallbacks_total` | Counter | fallbacks | `aimodel`, `from`, `to`, `error_class` | `AIProvider` names; connect, rate_limit, spend_cap, server_error, pre_content, credential, context_window"
+  },
+  {
+   "section": "AI metrics",
+   "kind": "metric",
+   "value": "`ruralz_ai_failed_attempts_total`, `ruralz_ai_abandoned_attempts_total` | Counter | attempts | `provider`, `model` | Error status or abandoned, no usage"
+  },
+  {
+   "section": "AI metrics",
+   "kind": "metric",
+   "value": "`ruralz_ai_budget_decisions_total` | Counter | decisions | `policy`, `result` | reserved, denied, no_quota, fail_closed, fail_open"
+  },
+  {
+   "section": "AI metrics",
+   "kind": "metric",
+   "value": "`ruralz_ai_settlements_total` | Counter | settlements | `provider`, `model` | Attempts settled with reported usage"
+  },
+  {
+   "section": "AI metrics",
+   "kind": "metric",
+   "value": "`ruralz_ai_usage_missing_total` | Counter | requests | `provider`, `model`, `reason` | disconnect, interrupted, none_reported, abandoned, error_status, oversized"
+  },
+  {
+   "section": "AI metrics",
+   "kind": "metric",
+   "value": "`ruralz_ai_estimate_error_ratio` | Histogram, ratio | ratio | `provider`, `model` | Estimate divided by actual input"
+  },
+  {
+   "section": "AI metrics",
+   "kind": "metric",
+   "value": "`ruralz_ai_semantic_cache_requests_total` | Counter | requests | `route`, `result` | hit, miss, bypass"
+  },
+  {
+   "section": "AI metrics",
+   "kind": "metric",
+   "value": "`ruralz_ai_semantic_cache_store_skipped_total` | Counter | stores | `route`, `reason` | error, truncated, blocked, size_limit, queue_full"
+  },
+  {
+   "section": "AI metrics",
+   "kind": "metric",
+   "value": "`ruralz_ai_guardrail_decisions_total` | Counter | decisions | `policy`, `phase`, `action` | block, redact, flag"
+  },
+  {
+   "section": "AI metrics",
+   "kind": "metric",
+   "value": "`ruralz_ai_cache_markers_dropped_total` | Counter | markers | model labels | Prompt Cache markers lost"
+  },
+  {
+   "section": "AI metrics",
+   "kind": "limit",
+   "value": "access log `ai` object within 1 KiB (target)"
+  },
+  {
+   "section": "AI metrics",
+   "kind": "kind_or_field",
+   "value": "`pricing.version`"
+  },
+  {
+   "section": "Grafana dashboard pack",
+   "kind": "milestone",
+   "value": "Grafana dashboards: Planned (M1) unless tagged"
+  },
+  {
+   "section": "Grafana dashboard pack",
+   "kind": "milestone",
+   "value": "dashboards in the Helm chart from Planned (M2)"
+  },
+  {
+   "section": "Grafana dashboard pack",
+   "kind": "decision",
+   "value": "[ADR-0016](../adr/0016-kubernetes-helm-and-crds.md), proposed"
+  },
+  {
+   "section": "Grafana dashboard pack",
+   "kind": "library",
+   "value": "Apache-2.0 JSON Grafana dashboards"
+  },
+  {
+   "section": "Grafana dashboard pack",
+   "kind": "claim",
+   "value": "CI fails on a panel using an unlisted metric and parses every rule with a PromQL parser"
+  },
+  {
+   "section": "Grafana dashboard pack",
+   "kind": "term",
+   "value": "Grafana dashboard: Ruralz Gateway overview"
+  },
+  {
+   "section": "Grafana dashboard pack",
+   "kind": "term",
+   "value": "Grafana dashboard: Route detail"
+  },
+  {
+   "section": "Grafana dashboard pack",
+   "kind": "term",
+   "value": "Grafana dashboard: Policies and Filter Chain"
+  },
+  {
+   "section": "Grafana dashboard pack",
+   "kind": "term",
+   "value": "Grafana dashboard: Upstreams and resilience"
+  },
+  {
+   "section": "Grafana dashboard pack",
+   "kind": "term",
+   "value": "Grafana dashboard: State Store, Rate Limits and Quotas"
+  },
+  {
+   "section": "Grafana dashboard pack",
+   "kind": "term",
+   "value": "Grafana dashboard: Node runtime and configuration"
+  },
+  {
+   "section": "Grafana dashboard pack",
+   "kind": "term",
+   "value": "Grafana dashboard: Telemetry health"
+  },
+  {
+   "section": "Grafana dashboard pack",
+   "kind": "term",
+   "value": "Grafana dashboard: SLO burn rates"
+  },
+  {
+   "section": "Grafana dashboard pack",
+   "kind": "term",
+   "value": "Grafana dashboard: Plugins"
+  },
+  {
+   "section": "Grafana dashboard pack",
+   "kind": "term",
+   "value": "Grafana dashboard: Ruralz Control and Rollouts"
+  },
+  {
+   "section": "Grafana dashboard pack",
+   "kind": "term",
+   "value": "Grafana dashboard: AI gateway"
+  },
+  {
+   "section": "Grafana dashboard pack",
+   "kind": "milestone",
+   "value": "Plugins dashboard: Planned (M2)"
+  },
+  {
+   "section": "Grafana dashboard pack",
+   "kind": "milestone",
+   "value": "Ruralz Control and Rollouts dashboard: Planned (M2)"
+  },
+  {
+   "section": "Grafana dashboard pack",
+   "kind": "milestone",
+   "value": "AI gateway dashboard: Planned (M3)"
+  },
+  {
+   "section": "SLO definitions",
+   "kind": "number",
+   "value": "SLO windows are 30 days"
+  },
+  {
+   "section": "SLO definitions",
+   "kind": "number",
+   "value": "SLO-GW-1: 99.95% (target); Proposed here"
+  },
+  {
+   "section": "SLO definitions",
+   "kind": "metric",
+   "value": "SLO-GW-1 SLI: 1 − `ruralz_http_listener_requests_total{status_class=\"5xx\", origin=\"node\"}` / all of it"
+  },
+  {
+   "section": "SLO definitions",
+   "kind": "number",
+   "value": "SLO-GW-2: 99% (target); SM-4 (1 ms p99, target)"
+  },
+  {
+   "section": "SLO definitions",
+   "kind": "metric",
+   "value": "SLO-GW-2 SLI: `ruralz_http_gateway_duration_seconds` bucket `le=\"0.001\"` / `_count`"
+  },
+  {
+   "section": "SLO definitions",
+   "kind": "number",
+   "value": "SLO-GW-3: 50% (target); SM-5 (150 µs p50, target)"
+  },
+  {
+   "section": "SLO definitions",
+   "kind": "metric",
+   "value": "SLO-GW-3 SLI: Same metric, bucket `le=\"0.00015\"` / `_count`"
+  },
+  {
+   "section": "SLO definitions",
+   "kind": "number",
+   "value": "SLO-GW-4: 99% (target); SM-6 (50 µs p99, target), same metric"
+  },
+  {
+   "section": "SLO definitions",
+   "kind": "metric",
+   "value": "SLO-GW-4 SLI: `ruralz_plugin_call_overhead_seconds` bucket `le=\"0.00005\"` / `_count`"
+  },
+  {
+   "section": "SLO definitions",
+   "kind": "number",
+   "value": "SLO-GW-5: 99% (hypothesis); System overview same-zone GCRA seed (1 ms p99, hypothesis)"
+  },
+  {
+   "section": "SLO definitions",
+   "kind": "metric",
+   "value": "SLO-GW-5 SLI: `ruralz_state_call_duration_seconds{op=\"gcra\"}` bucket `le=\"0.001\"` / `_count`, `script_multi` excluded"
+  },
+  {
+   "section": "SLO definitions",
+   "kind": "number",
+   "value": "SLO-GW-6: 99% (target); System overview seed: 10,000 Routes in 2 s on one core (target)"
+  },
+  {
+   "section": "SLO definitions",
+   "kind": "metric",
+   "value": "SLO-GW-6 SLI: `ruralz_config_activation_duration_seconds{stage=\"compile\", size_class!=\"gt10000\"}` bucket `le=\"2\"` / `_count`"
+  },
+  {
+   "section": "SLO definitions",
+   "kind": "number",
+   "value": "SLO-GW-7: 99.9% (target); Proposed here; without OTLP, logs only"
+  },
+  {
+   "section": "SLO definitions",
+   "kind": "metric",
+   "value": "SLO-GW-7 SLI: 1 − dropped / produced, summing the `ruralz_telemetry_spans_*` and `ruralz_telemetry_logs_*` counters"
+  },
+  {
+   "section": "SLO definitions",
+   "kind": "number",
+   "value": "SLO-AI-1: interrupted\\; oversized\"}`, both summed over `provider` and `model`"
+  },
+  {
+   "section": "SLO definitions",
+   "kind": "metric",
+   "value": "SLO-AI-1 SLI: 1 − M / (`ruralz_ai_settlements_total` + M), M being `ruralz_ai_usage_missing_total{reason=~\"none_reported\\"
+  },
+  {
+   "section": "SLO definitions",
+   "kind": "number",
+   "value": "SLO-CP-1: 95% (target); SM-9 (30 s p95, target); Plugins cached in the lab only"
+  },
+  {
+   "section": "SLO definitions",
+   "kind": "metric",
+   "value": "SLO-CP-1 SLI: `ruralz_control_rollout_duration_seconds{strategy=\"all-at-once\", size_class=\"le100\"}` bucket `le=\"30\"` / `_count`"
+  },
+  {
+   "section": "SLO definitions",
+   "kind": "number",
+   "value": "SLO-CP-2: 99.9% (target); Proposed here"
+  },
+  {
+   "section": "SLO definitions",
+   "kind": "metric",
+   "value": "SLO-CP-2 SLI: 1 − `ruralz_control_api_requests_total{status_class=\"5xx\"}` / all of it"
+  },
+  {
+   "section": "SLO definitions",
+   "kind": "claim",
+   "value": "For SLO-AI-1, `disconnect`, `abandoned` and `error_status` are not lost usage and leave both terms"
+  },
+  {
+   "section": "Alert rules",
+   "kind": "claim",
+   "value": "Every enumeration label set an alert rule references exists at 0 before its first event"
+  },
+  {
+   "section": "Alert rules",
+   "kind": "error_code",
+   "value": "RZ-CFG-027"
+  },
+  {
+   "section": "Alert rules",
+   "kind": "claim",
+   "value": "`ruralz_ai_fallbacks_total` carries resource labels and is not pre-created"
+  },
+  {
+   "section": "Alert rules",
+   "kind": "claim",
+   "value": "A CI test checks that each alerted series exists at 0 after start and after a leader failover"
+  },
+  {
+   "section": "Alert rules",
+   "kind": "decision",
+   "value": "only `state_store`, `telemetry` and `admin` hops raise a ticket; `client` and `upstream` cleartext chart only (OQ-observability-21)"
+  },
+  {
+   "section": "Alert rules",
+   "kind": "claim",
+   "value": "that Bundle's `http://` OTLP endpoint tickets, because TB-12 requires TLS"
+  },
+  {
+   "section": "Alert rules",
+   "kind": "number",
+   "value": "Burn-rate rules cover every SLO objective of 90% or more (target)"
+  },
+  {
+   "section": "Alert rules",
+   "kind": "number",
+   "value": "page when the 1 h and 5 min windows both burn at 14 times the budget rate (target)"
+  },
+  {
+   "section": "Alert rules",
+   "kind": "number",
+   "value": "ticket at 6 times over 6 h and 30 min (target)"
+  },
+  {
+   "section": "Alert rules",
+   "kind": "timeout",
+   "value": "RuralzNodeDegradedPage: for: 5m (target); page"
+  },
+  {
+   "section": "Alert rules",
+   "kind": "timeout",
+   "value": "RuralzNodeDegraded: for: 5m (target); ticket"
+  },
+  {
+   "section": "Alert rules",
+   "kind": "timeout",
+   "value": "RuralzCleartextHop: for: 15m (target); ticket"
+  },
+  {
+   "section": "Alert rules",
+   "kind": "timeout",
+   "value": "RuralzGatewayP50: < 0.5, for: 30m (target); ticket"
+  },
+  {
+   "section": "Alert rules",
+   "kind": "timeout",
+   "value": "RuralzStateWritesDropped: rate > 0 [5m], for: 10m (target); ticket"
+  },
+  {
+   "section": "Alert rules",
+   "kind": "limit",
+   "value": "RuralzSeriesFolded: delta [15m] > 0; ticket"
+  },
+  {
+   "section": "Alert rules",
+   "kind": "limit",
+   "value": "RuralzAIProviderCredential: error_class=\"credential\" [15m]; ticket (RZ-AUTH)"
+  },
+  {
+   "section": "Alert rules",
+   "kind": "timeout",
+   "value": "RuralzControlNoLeader: for: 1m (target); page"
+  },
+  {
+   "section": "Alert rules",
+   "kind": "limit",
+   "value": "RuralzControlReplicaStale: ruralz_control_leader_contact_age_seconds > 10; 10 s (target); ticket"
+  },
+  {
+   "section": "Alert rules",
+   "kind": "limit",
+   "value": "RuralzClusterNodesRising: > 1.25 * offset 1h; 25% in 1 hour (target); ticket"
+  },
+  {
+   "section": "Alert rules",
+   "kind": "limit",
+   "value": "RuralzTampering: drift kind=\"tampering\" or RZ-CFG-027 nacks [1h]; page"
+  },
+  {
+   "section": "Alert rules",
+   "kind": "limit",
+   "value": "RuralzRolloutFailed: state=\"failed\" [15m]; page"
+  },
+  {
+   "section": "Alert rules",
+   "kind": "timeout",
+   "value": "RuralzNodeQuarantined: for: 15m (target); ticket"
+  },
+  {
+   "section": "Alert rules",
+   "kind": "timeout",
+   "value": "RuralzDriftPersistent: git divergence > 3600, 1 hour (target); for: 30m (target); ticket"
+  },
+  {
+   "section": "Alert rules",
+   "kind": "timeout",
+   "value": "RuralzAuditExportLagging: > 10000 (target); for: 15m (target); ticket"
+  },
+  {
+   "section": "Alert rules",
+   "kind": "error_code",
+   "value": "RZ-AUTH"
+  },
+  {
+   "section": "Alert rules",
+   "kind": "timeout",
+   "value": "30 s stale (target) it sends Reconnect and its Nodes move"
+  },
+  {
+   "section": "Alert rules",
+   "kind": "number",
+   "value": "10 s (target): ten default election timeouts, below the 30 s Reconnect threshold"
+  },
+  {
+   "section": "Alert rules",
+   "kind": "metric",
+   "value": "`ruralz_control_leader_info` (alert rule)"
+  },
+  {
+   "section": "Alert rules",
+   "kind": "metric",
+   "value": "`ruralz_control_leader_contact_age_seconds` (alert rule)"
+  },
+  {
+   "section": "Alert rules",
+   "kind": "metric",
+   "value": "`ruralz_control_cluster_nodes` (alert rule)"
+  },
+  {
+   "section": "Alert rules",
+   "kind": "metric",
+   "value": "`ruralz_control_drift_nodes` (alert rule)"
+  },
+  {
+   "section": "Alert rules",
+   "kind": "metric",
+   "value": "`ruralz_control_nacks_total` (alert rule)"
+  },
+  {
+   "section": "Alert rules",
+   "kind": "metric",
+   "value": "`ruralz_control_rollouts_total` (alert rule)"
+  },
+  {
+   "section": "Alert rules",
+   "kind": "metric",
+   "value": "`ruralz_control_quarantined_nodes` (alert rule)"
+  },
+  {
+   "section": "Alert rules",
+   "kind": "metric",
+   "value": "`ruralz_control_git_divergence_seconds` (alert rule)"
+  },
+  {
+   "section": "Alert rules",
+   "kind": "metric",
+   "value": "`ruralz_control_audit_export_lag_entries` (alert rule)"
+  },
+  {
+   "section": "Debugging tools",
+   "kind": "milestone",
+   "value": "Debugging tools: Planned (M1) unless tagged"
+  },
+  {
+   "section": "Debugging tools",
+   "kind": "claim",
+   "value": "Only `/tap` and running profiles cost the request path; mutex and block profiling run only during a `?seconds=` request"
+  },
+  {
+   "section": "Debugging tools",
+   "kind": "cli_command",
+   "value": "`ruralz dev tap` over `/tap`"
+  },
+  {
+   "section": "Debugging tools",
+   "kind": "api_path",
+   "value": "`/tap`"
+  },
+  {
+   "section": "Debugging tools",
+   "kind": "api_path",
+   "value": "`/debug/pprof/`"
+  },
+  {
+   "section": "Debugging tools",
+   "kind": "milestone",
+   "value": "`/debug/pprof/` on 9902 Planned (M2)"
+  },
+  {
+   "section": "Debugging tools",
+   "kind": "api_path",
+   "value": "`/debug/snapshots`"
+  },
+  {
+   "section": "Debugging tools",
+   "kind": "api_path",
+   "value": "`/debug/upstreams`"
+  },
+  {
+   "section": "Debugging tools",
+   "kind": "cli_command",
+   "value": "`ruralz node dump`"
+  },
+  {
+   "section": "Debugging tools",
+   "kind": "cli_command",
+   "value": "`ruralz bundle diff`"
+  },
+  {
+   "section": "Debugging tools",
+   "kind": "cli_command",
+   "value": "`ruralz bundle render --effective --route`"
+  },
+  {
+   "section": "Debugging tools",
+   "kind": "cli_command",
+   "value": "`ruralz node list`"
+  },
+  {
+   "section": "Debugging tools",
+   "kind": "cli_command",
+   "value": "`ruralz rollout status`"
+  },
+  {
+   "section": "Debugging tools",
+   "kind": "milestone",
+   "value": "`ruralz node list`, `ruralz rollout status`: Planned (M2)"
+  },
+  {
+   "section": "Debugging tools",
+   "kind": "claim",
+   "value": "Only a sampled `traceparent` forces a trace, within the parent cap. A trace ID response header is OQ-observability-9"
+  },
+  {
+   "section": "Control plane observability",
+   "kind": "milestone",
+   "value": "Ruralz Control (Planned (M2)) exports signals like a Node"
+  },
+  {
+   "section": "Control plane observability",
+   "kind": "claim",
+   "value": "Every replica exports replica series (R); only the leader exports leader series (L)"
+  },
+  {
+   "section": "Control plane observability",
+   "kind": "decision",
+   "value": "[ADR-0007](../adr/0007-control-stream-protocol.md): Nodes send digests and counters on heartbeats; Ruralz Control never scrapes Nodes"
+  },
+  {
+   "section": "Control plane observability",
+   "kind": "metric",
+   "value": "`ruralz_control_rollouts_total` | Counter | rollouts | `cluster`, `state`; L | complete, rolled-back, failed"
+  },
+  {
+   "section": "Control plane observability",
+   "kind": "metric",
+   "value": "`ruralz_control_rollout_state_info` | Gauge | info | `cluster`, `state`; L | Current Rollout state"
+  },
+  {
+   "section": "Control plane observability",
+   "kind": "metric",
+   "value": "`ruralz_control_rollout_duration_seconds` | Histogram, control | seconds | `cluster`, `strategy`, `size_class`; L | all-at-once, canary; le100, le1000, gt1000 Nodes"
+  },
+  {
+   "section": "Control plane observability",
+   "kind": "metric",
+   "value": "`ruralz_control_nacks_total` | Counter | nacks | `cluster`, `kind`, `code`; L | deterministic, transient"
+  },
+  {
+   "section": "Control plane observability",
+   "kind": "metric",
+   "value": "`ruralz_control_drift_nodes` | Gauge | nodes | `cluster`, `kind`; L | laggard, lkg, tampering"
+  },
+  {
+   "section": "Control plane observability",
+   "kind": "metric",
+   "value": "`ruralz_control_quarantined_nodes`, `ruralz_control_cluster_nodes` | Gauge | nodes | `cluster`; L | Quarantined; published `clusterNodeCount`"
+  },
+  {
+   "section": "Control plane observability",
+   "kind": "metric",
+   "value": "`ruralz_control_git_divergence_seconds` | Gauge | seconds | `cluster`; L | Git divergence age"
+  },
+  {
+   "section": "Control plane observability",
+   "kind": "metric",
+   "value": "`ruralz_control_schema_skew_nodes` | Gauge | nodes | `cluster`; L | RZ-CFG-024, not Drift"
+  },
+  {
+   "section": "Control plane observability",
+   "kind": "metric",
+   "value": "`ruralz_control_build_failures_total` | Counter | failures | `environment`, `code`; L | Failed branch heads"
+  },
+  {
+   "section": "Control plane observability",
+   "kind": "metric",
+   "value": "`ruralz_control_enrollments_total` | Counter | enrollments | `result`; L | issued, rejected, revoked"
+  },
+  {
+   "section": "Control plane observability",
+   "kind": "metric",
+   "value": "`ruralz_control_audit_events_total` | Counter | events | `action`, `result`; L | Action registry; success, failure"
+  },
+  {
+   "section": "Control plane observability",
+   "kind": "metric",
+   "value": "`ruralz_control_audit_export_lag_entries` | Gauge | entries | none; L | Committed, not exported"
+  },
+  {
+   "section": "Control plane observability",
+   "kind": "metric",
+   "value": "`ruralz_control_connected_nodes` | Gauge | nodes | `cluster`; R | Streams to this replica"
+  },
+  {
+   "section": "Control plane observability",
+   "kind": "metric",
+   "value": "`ruralz_control_stream_reconnects_total` | Counter | reconnects | `result`; R | accepted, shed"
+  },
+  {
+   "section": "Control plane observability",
+   "kind": "metric",
+   "value": "`ruralz_control_heartbeat_aggregates_dropped_total` | Counter | aggregates | none; R | Dropped before forwarding"
+  },
+  {
+   "section": "Control plane observability",
+   "kind": "metric",
+   "value": "`ruralz_control_api_requests_total` | Counter | requests | `operation`, `status_class`; R | Operation registry"
+  },
+  {
+   "section": "Control plane observability",
+   "kind": "metric",
+   "value": "`ruralz_control_auth_failures_total` | Counter | events | none; R | Sign-in failures over the cap"
+  },
+  {
+   "section": "Control plane observability",
+   "kind": "metric",
+   "value": "`ruralz_control_leader_info` | Gauge | info | none; R | Raft leader or `postgres` lease holder"
+  },
+  {
+   "section": "Control plane observability",
+   "kind": "metric",
+   "value": "`ruralz_control_leader_contact_age_seconds` | Gauge | seconds | none; R | Staleness: stale above one election timeout (fencing)"
+  },
+  {
+   "section": "Control plane observability",
+   "kind": "metric",
+   "value": "`ruralz_control_raft_commit_duration_seconds` | Histogram, request | seconds | none; R | Raft commit time"
+  },
+  {
+   "section": "Control plane observability",
+   "kind": "error_code",
+   "value": "RZ-CFG-024"
+  },
+  {
+   "section": "Control plane observability",
+   "kind": "kind_or_field",
+   "value": "`clusterNodeCount`"
+  },
+  {
+   "section": "Control plane observability",
+   "kind": "decision",
+   "value": "For OQ-control-plane-and-gitops-12 this document chooses option (a), OpenTelemetry logs, with the Control Store's committed audit log as the queue"
+  },
+  {
+   "section": "Control plane observability",
+   "kind": "limit",
+   "value": "advances a Raft-recorded high-water mark, at most once per second (target)"
+  },
+  {
+   "section": "Control plane observability",
+   "kind": "failure_mode",
+   "value": "an OTLP partial success counts as failure. Export retries, so it lags and never drops, unlike TB-12 (OQ-observability-19)"
+  },
+  {
+   "section": "Control plane observability",
+   "kind": "claim",
+   "value": "delivery is at least once, deduplicated on the Raft index attribute"
+  },
+  {
+   "section": "Control plane observability",
+   "kind": "api_path",
+   "value": "`/api/v1/audit`"
+  },
+  {
+   "section": "Overhead per signal",
+   "kind": "number",
+   "value": "96 MiB idle RSS budget (target)"
+  },
+  {
+   "section": "Overhead per signal",
+   "kind": "default",
+   "value": "`GOGC=100` without `GOMEMLIMIT`"
+  },
+  {
+   "section": "Overhead per signal",
+   "kind": "number",
+   "value": "RSS above idle is at most twice each row (hypothesis; OQ-observability-17)"
+  },
+  {
+   "section": "Overhead per signal",
+   "kind": "number",
+   "value": "Metrics: 2 µs or less (target); 0 (target); 24 MiB or less live heap (target)"
+  },
+  {
+   "section": "Overhead per signal",
+   "kind": "number",
+   "value": "Tracing, unsampled: 1 µs or less (target); 2 or fewer (target); None (target)"
+  },
+  {
+   "section": "Overhead per signal",
+   "kind": "number",
+   "value": "Tracing, sampled trace of 15 spans: 30 µs or less, export excluded (target); 60 or fewer (target); 8,192-span queue, 8 MiB or less (target)"
+  },
+  {
+   "section": "Overhead per signal",
+   "kind": "number",
+   "value": "Access log, logged request: 2 µs or less at p99, `when` included (target); 8 or fewer (target); 8,192 records and a 4 MiB byte budget (target)"
+  },
+  {
+   "section": "Overhead per signal",
+   "kind": "number",
+   "value": "Process logs at `info`: None (target); 0 (target); 1 MiB or less (target)"
+  },
+  {
+   "section": "Overhead per signal",
+   "kind": "number",
+   "value": "`/tap`, no subscriber: Under 10 ns (target); 0 (target); None (target)"
+  },
+  {
+   "section": "Overhead per signal",
+   "kind": "number",
+   "value": "`/tap`, one subscriber: 2 µs or less per event (target); 1 per event (target); 1 MiB each, at most 4 (target)"
+  },
+  {
+   "section": "Overhead per signal",
+   "kind": "number",
+   "value": "All telemetry at defaults: 5% or less of Node CPU at half saturation (target); Within the performance budget (target); 40 MiB or less live heap, up to 80 MiB RSS, no `/tap` subscriber (target)"
+  },
+  {
+   "section": "Overhead per signal",
+   "kind": "number",
+   "value": "15 metric operations in the SM-4 scenario and 40 for 10 Filters; 4 allocations per span; 8 for the example `when` (hypothesis)"
+  },
+  {
+   "section": "Overhead per signal",
+   "kind": "number",
+   "value": "Sampled traces average 0.01 × 30 µs = 0.3 µs per request and at most 1,500 × 30 µs, 4.5% of one core, at both caps (target)"
+  },
+  {
+   "section": "Overhead per signal",
+   "kind": "number",
+   "value": "the span queue then holds 0.36 s (hypothesis)"
+  },
+  {
+   "section": "Overhead per signal",
+   "kind": "claim",
+   "value": "Worker encoding and export count toward the 5% row (hypothesis)"
+  },
+  {
+   "section": "Overhead per signal",
+   "kind": "number",
+   "value": "M1 benchmark at 4 P and 32 P"
+  },
+  {
+   "section": "Overhead per signal",
+   "kind": "number",
+   "value": "120 bytes per counter or gauge series and 300 per histogram label set, 64 × S and 192 × S more when sharded (hypothesis)"
+  },
+  {
+   "section": "Overhead per signal",
+   "kind": "number",
+   "value": "At the Node limit of 125,000 series, aggregates take about 8.3 MiB and the collection about 8.3 MiB (hypothesis)"
+  },
+  {
+   "section": "Overhead per signal",
+   "kind": "number",
+   "value": "At S = 8 the sharded sets add at most 5.4 MiB: 0.6 MiB listener and enumeration, 0.9 MiB Gateway Policies, 3.9 MiB for 1,000 Routes and 1,000 Upstreams at 2 KiB each (hypothesis)"
+  },
+  {
+   "section": "Overhead per signal",
+   "kind": "number",
+   "value": "Four scrape buffers add 0.25 MiB, so Metrics is about 22.2 MiB of live heap and All telemetry about 35.2 MiB (hypothesis)"
+  },
+  {
+   "section": "Cardinality budget",
+   "kind": "limit",
+   "value": "admission limits (target) of 6,000 per counter or gauge family, 2,000 per histogram family and 100,000 series per Revision"
+  },
+  {
+   "section": "Cardinality budget",
+   "kind": "failure_mode",
+   "value": "the rest fold into `_overflow`, identically on every Node"
+  },
+  {
+   "section": "Cardinality budget",
+   "kind": "kind_or_field",
+   "value": "`metadata.name`"
+  },
+  {
+   "section": "Cardinality budget",
+   "kind": "limit",
+   "value": "The compiler reserves 16 `ruralz_plugin_guest_events_total` series per Plugin Policy; the Plugin ABI refuses a 17th"
+  },
+  {
+   "section": "Cardinality budget",
+   "kind": "number",
+   "value": "K = 2 retired plus one closing snapshot"
+  },
+  {
+   "section": "Cardinality budget",
+   "kind": "limit",
+   "value": "A Node-wide ceiling of 25,000 retiring series (target) caps a Node at 125,000 series"
+  },
+  {
+   "section": "Cardinality budget",
+   "kind": "claim",
+   "value": "Folding never carries accumulated values"
+  },
+  {
+   "section": "Cardinality budget",
+   "kind": "limit",
+   "value": "CI test of 1,000 Hot Reloads MUST keep `ruralz_telemetry_series{state=\"retiring\"}` within 25,000 (target) and see at most 2 `ruralz_config_revision_info` series"
+  },
+  {
+   "section": "Cardinality budget",
+   "kind": "number",
+   "value": "For 1,000 Routes, 300 Upstreams, 300 Policy and Phase pairs, 50 Plugin Policies and 100 AI model label sets, the worst case per Node is about 66,400 series (hypothesis)"
+  },
+  {
+   "section": "Cardinality budget",
+   "kind": "number",
+   "value": "Route duration histogram; Route status counter: 16,000; 5,005 (hypothesis)"
+  },
+  {
+   "section": "Cardinality budget",
+   "kind": "number",
+   "value": "Filter, upstream attempt, Plugin and AI histograms: 4,800; 4,800; 1,600; 6,400 (hypothesis)"
+  },
+  {
+   "section": "Cardinality budget",
+   "kind": "number",
+   "value": "AI token and cost counters at their limits; other AI counters: 12,000; 800 (hypothesis)"
+  },
+  {
+   "section": "Cardinality budget",
+   "kind": "number",
+   "value": "Cache counters (400 cached Routes, 100 Semantic Cache Routes); Plugin guest events: 2,800; 800 (hypothesis)"
+  },
+  {
+   "section": "Cardinality budget",
+   "kind": "number",
+   "value": "Upstream-scoped, with skipped probes and `balancer_budget`; Policy-scoped; other and fixed families, with `_overflow` sets and the new degraded reasons: 4,200; 4,000; 3,200 (hypothesis)"
+  },
+  {
+   "section": "Cardinality budget",
+   "kind": "number",
+   "value": "With the Route histogram at its limit it is about 82,400 (hypothesis)"
+  },
+  {
+   "section": "Cardinality budget",
+   "kind": "number",
+   "value": "about 8.2 million series per 100-Node Cluster, at most 12.5 million with every retiring ceiling full (hypothesis)"
+  },
+  {
+   "section": "Open questions",
+   "kind": "claim",
+   "value": "OQ-observability-1: Which schema default should `traceSampling` have? Owner configuration-model; Blocking: No"
+  },
+  {
+   "section": "Open questions",
+   "kind": "claim",
+   "value": "OQ-observability-2: How does OTLP export get TLS client settings and authentication (cleartext itself: OQ-security-and-identity-29, owner system-overview)?"
+  },
+  {
+   "section": "Open questions",
+   "kind": "claim",
+   "value": "OQ-observability-2 Owner configuration-model; Blocking: Yes, for TLS export (M1)"
+  },
+  {
+   "section": "Open questions",
+   "kind": "claim",
+   "value": "OQ-observability-3: Should access log destination, format and sampling be configurable? Owner configuration-model; Blocking: No"
+  },
+  {
+   "section": "Open questions",
+   "kind": "claim",
+   "value": "OQ-observability-4: Should a Node honor an untrusted client's sampled flag? Owner security-and-identity; Blocking: No"
+  },
+  {
+   "section": "Open questions",
+   "kind": "claim",
+   "value": "OQ-observability-5: Are per-Route sampling overrides needed? Owner configuration-model; Blocking: No"
+  },
+  {
+   "section": "Open questions",
+   "kind": "claim",
+   "value": "OQ-observability-6: How is the log level changed live? Owner data-plane; Blocking: No"
+  },
+  {
+   "section": "Open questions",
+   "kind": "claim",
+   "value": "OQ-observability-7: How is the client address stored in access logs? Owner security-and-identity; Blocking: No"
+  },
+  {
+   "section": "Open questions",
+   "kind": "claim",
+   "value": "OQ-observability-8: Should `gen_ai` content capture ever be allowed? Owner ai-llm-gateway; Blocking: No"
+  },
+  {
+   "section": "Open questions",
+   "kind": "claim",
+   "value": "OQ-observability-9: Should responses carry the trace ID in a header? Owner data-plane; Blocking: No"
+  },
+  {
+   "section": "Open questions",
+   "kind": "claim",
+   "value": "OQ-observability-10: Should admission limits, trace caps and queues be configurable? Owner configuration-model; Blocking: No"
+  },
+  {
+   "section": "Open questions",
+   "kind": "claim",
+   "value": "OQ-observability-11: How does Ruralz Control name its OTLP and log settings? Owner control-plane-and-gitops; Blocking: No"
+  },
+  {
+   "section": "Open questions",
+   "kind": "claim",
+   "value": "OQ-observability-12: How are Routes aggregated beyond the admission limit? Owner observability; Blocking: No"
+  },
+  {
+   "section": "Open questions",
+   "kind": "claim",
+   "value": "OQ-observability-13: How does `requestId` tell apart requests sharing a trace ID? Owner data-plane; Blocking: No"
+  },
+  {
+   "section": "Open questions",
+   "kind": "claim",
+   "value": "OQ-observability-14: Should heartbeats add latency histograms for Rollout gates, beside the request, 5xx and rejection counters they carry? Owner control-plane-and-gitops; Blocking: No"
+  },
+  {
+   "section": "Open questions",
+   "kind": "claim",
+   "value": "OQ-observability-15: May Go runtime metrics keep SDK names outside pack 2? Owner tech-stack-and-libraries; Blocking: No"
+  },
+  {
+   "section": "Open questions",
+   "kind": "claim",
+   "value": "OQ-observability-16: Which OpenTelemetry Go SDK interface exports Ruralz aggregates and ends series, at what cost? Owner tech-stack-and-libraries; Blocking: Yes, for M1 metrics"
+  },
+  {
+   "section": "Open questions",
+   "kind": "claim",
+   "value": "OQ-observability-17: Do 50,000 requests per second (hypothesis), 96 MiB idle RSS and 40 MiB of telemetry live heap, up to 80 MiB RSS at `GOGC=100` (target), fit together?"
+  },
+  {
+   "section": "Open questions",
+   "kind": "claim",
+   "value": "OQ-observability-17 Owner performance-budgets-and-benchmarking; Blocking: No"
+  },
+  {
+   "section": "Open questions",
+   "kind": "claim",
+   "value": "OQ-observability-18: How is a State Store failover rollback or lost Cell reported? Owner scalability-and-distributed-state; Blocking: No"
+  },
+  {
+   "section": "Open questions",
+   "kind": "claim",
+   "value": "OQ-observability-19: Should TB-12 in System overview exempt the audit export, which retries from the Control Store and never drops? Owner system-overview; Blocking: Yes, for Planned (M2)"
+  },
+  {
+   "section": "Open questions",
+   "kind": "claim",
+   "value": "OQ-observability-20: Should TB-12 allow unreported cleartext OTLP to a loopback address or Unix socket, checked on the resolved address? Owner system-overview; Blocking: No"
+  },
+  {
+   "section": "Open questions",
+   "kind": "claim",
+   "value": "OQ-observability-21: Which cleartext hops should alert, given that Security and identity makes every cleartext hop a degraded state? Owner security-and-identity; Blocking: No"
+  },
+  {
+   "section": "Open questions",
+   "kind": "milestone",
+   "value": "OQ-observability-2 blocking for TLS export (M1)"
+  },
+  {
+   "section": "Open questions",
+   "kind": "milestone",
+   "value": "OQ-observability-16 blocking for M1 metrics"
+  },
+  {
+   "section": "Open questions",
+   "kind": "milestone",
+   "value": "OQ-observability-19 blocking for Planned (M2)"
+  },
+  {
+   "section": "Open questions",
+   "kind": "default",
+   "value": "OQ-observability-1: (a) 0.01 (proposed); (b) 0.05, the Configuration model example"
+  }
+ ]
+}

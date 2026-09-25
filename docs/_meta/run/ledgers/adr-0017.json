@@ -1,0 +1,486 @@
+{
+ "path": "docs/adr/0017-artifact-signing.md",
+ "status": "accepted",
+ "facts": [
+  {
+   "section": "Context and problem statement",
+   "kind": "milestone",
+   "value": "signing and verification are Planned (M2)"
+  },
+  {
+   "section": "Context and problem statement",
+   "kind": "claim",
+   "value": "Nothing is implemented"
+  },
+  {
+   "section": "Context and problem statement",
+   "kind": "decision",
+   "value": "The freeze answered OQ-system-overview-3 with this ADR"
+  },
+  {
+   "section": "Context and problem statement",
+   "kind": "term",
+   "value": "Threat T6 covers tampering, replay and retagging across TB-5 (Node to Ruralz Control) and TB-8 (Node to OCI registry)"
+  },
+  {
+   "section": "Context and problem statement",
+   "kind": "claim",
+   "value": "A digest proves which bytes arrived, not who chose them"
+  },
+  {
+   "section": "Decision drivers",
+   "kind": "claim",
+   "value": "T6 integrity and origin: every activated artifact is bound to its digest and a trusted identity"
+  },
+  {
+   "section": "Decision drivers",
+   "kind": "failure_mode",
+   "value": "P9, fail static: a bad artifact is rejected before any swap"
+  },
+  {
+   "section": "Decision drivers",
+   "kind": "claim",
+   "value": "P2 and P1, standalone and free: file mode verifies without Ruralz Control or any Revington service"
+  },
+  {
+   "section": "Decision drivers",
+   "kind": "claim",
+   "value": "P10, measured, not claimed: a disabled check emits a degraded-state metric"
+  },
+  {
+   "section": "Decision drivers",
+   "kind": "claim",
+   "value": "Trust outside the Bundle: authors cannot trust their own content"
+  },
+  {
+   "section": "Decision drivers",
+   "kind": "claim",
+   "value": "Stable digests: signing never changes a digest"
+  },
+  {
+   "section": "Decision drivers",
+   "kind": "library",
+   "value": "Library gates: pure Go, Apache-2.0, FIPS via G3"
+  },
+  {
+   "section": "Considered options",
+   "kind": "claim",
+   "value": "sigstore-go, \"considered stable and ready for production use\", accepts custom trusted roots"
+  },
+  {
+   "section": "Considered options",
+   "kind": "claim",
+   "value": "oras-go v2 has a Referrers API"
+  },
+  {
+   "section": "Considered options",
+   "kind": "claim",
+   "value": "Ruralz Control signs keyless through Fulcio and OIDC, as cosign supports"
+  },
+  {
+   "section": "Considered options",
+   "kind": "claim",
+   "value": "Signatures opt-in: verify only when enabled, as standalone cosign does"
+  },
+  {
+   "section": "Considered options",
+   "kind": "library",
+   "value": "cosign: Apache-2.0 at v3.1.3"
+  },
+  {
+   "section": "Decision outcome",
+   "kind": "decision",
+   "value": "Chosen option: \"Layered signing, verified offline by default\""
+  },
+  {
+   "section": "Decision outcome",
+   "kind": "default",
+   "value": "Every Revision and Plugin artifact: content addressing, verified every fetch by full `sha256:<64 hex>`; Always on; not configurable"
+  },
+  {
+   "section": "Decision outcome",
+   "kind": "error_code",
+   "value": "RZ-CFG-027"
+  },
+  {
+   "section": "Decision outcome",
+   "kind": "error_code",
+   "value": "RZ-CFG-028"
+  },
+  {
+   "section": "Decision outcome",
+   "kind": "error_code",
+   "value": "RZ-CFG-033"
+  },
+  {
+   "section": "Decision outcome",
+   "kind": "milestone",
+   "value": "Content-addressed digest verification: Planned (M1); OCI and Control Stream Planned (M2)"
+  },
+  {
+   "section": "Decision outcome",
+   "kind": "default",
+   "value": "Revision in Control mode: signed by Ruralz Control's online key; Always verified; failure is a NACK"
+  },
+  {
+   "section": "Decision outcome",
+   "kind": "milestone",
+   "value": "Revision in Control mode signing: Planned (M2)"
+  },
+  {
+   "section": "Decision outcome",
+   "kind": "default",
+   "value": "Revision published to OCI (file mode): `enforce`; an explicit `off` is a degraded state"
+  },
+  {
+   "section": "Decision outcome",
+   "kind": "milestone",
+   "value": "Revision published to OCI (file mode) signing: Planned (M2)"
+  },
+  {
+   "section": "Decision outcome",
+   "kind": "default",
+   "value": "Plugin artifact: `enforce`; `warn` in `ruralz dev run`; `off` is degraded"
+  },
+  {
+   "section": "Decision outcome",
+   "kind": "milestone",
+   "value": "Plugin artifact signing: Planned (M2)"
+  },
+  {
+   "section": "Decision outcome",
+   "kind": "default",
+   "value": "Watched Bundle directory: Not signed; the operator's filesystem is the trust root"
+  },
+  {
+   "section": "Decision outcome",
+   "kind": "milestone",
+   "value": "Watched Bundle directory: Planned (M1)"
+  },
+  {
+   "section": "Decision outcome",
+   "kind": "cli_command",
+   "value": "ruralz bundle push"
+  },
+  {
+   "section": "Decision outcome",
+   "kind": "cli_command",
+   "value": "ruralz plugin push"
+  },
+  {
+   "section": "Decision outcome",
+   "kind": "cli_command",
+   "value": "ruralz bundle build"
+  },
+  {
+   "section": "Decision outcome",
+   "kind": "cli_command",
+   "value": "ruralz bundle validate --online"
+  },
+  {
+   "section": "Decision outcome",
+   "kind": "cli_command",
+   "value": "ruralz dev run"
+  },
+  {
+   "section": "Decision outcome",
+   "kind": "failure_mode",
+   "value": "A signature missing from a reachable registry, invalid, or matching no trusted identity is RZ-CFG-033, a deterministic NACK (pack 8.3)"
+  },
+  {
+   "section": "Decision outcome",
+   "kind": "failure_mode",
+   "value": "a failed or timed-out registry or referrer fetch is a transient NACK, retried then quarantined"
+  },
+  {
+   "section": "Decision outcome",
+   "kind": "failure_mode",
+   "value": "The Node keeps its active Revision; verification is step 1 of Compile before swap, off the request path"
+  },
+  {
+   "section": "Decision outcome",
+   "kind": "decision",
+   "value": "Control mode: root-signed anchor sets carry the online keys and the Plugin trust policy, via Enrollment and `TrustUpdate`"
+  },
+  {
+   "section": "Decision outcome",
+   "kind": "kind_or_field",
+   "value": "TrustUpdate"
+  },
+  {
+   "section": "Decision outcome",
+   "kind": "decision",
+   "value": "File mode trust policy: the Node's process configuration (OQ-security-and-identity-8)"
+  },
+  {
+   "section": "Decision outcome",
+   "kind": "failure_mode",
+   "value": "ruralz bundle build and ruralz bundle validate --online without a trust policy fail with RZ-CFG-033 naming the missing input"
+  },
+  {
+   "section": "Decision outcome",
+   "kind": "decision",
+   "value": "Trust policies never live in a Bundle"
+  },
+  {
+   "section": "Decision outcome",
+   "kind": "failure_mode",
+   "value": "Under `enforce` an empty trust policy rejects everything"
+  },
+  {
+   "section": "Decision outcome",
+   "kind": "default",
+   "value": "keyless entries name exact issuer and subject pairs, and patterns are opt-in"
+  },
+  {
+   "section": "Decision outcome",
+   "kind": "decision",
+   "value": "Nodes never fetch trust roots over TUF"
+  },
+  {
+   "section": "Decision outcome",
+   "kind": "decision",
+   "value": "Sigstore trusted root sits in the anchor-set Plugin trust policy in Control mode, refreshed by `TrustUpdate`, and in process configuration in file mode"
+  },
+  {
+   "section": "Decision outcome",
+   "kind": "failure_mode",
+   "value": "A keyless signature MUST be a Sigstore bundle carrying a transparency-log inclusion proof and at least one trusted timestamp; missing or unverifiable proof or timestamp is RZ-CFG-033"
+  },
+  {
+   "section": "Decision outcome",
+   "kind": "claim",
+   "value": "cosign signs through Rekor v2 since v3.1.1"
+  },
+  {
+   "section": "Decision outcome",
+   "kind": "claim",
+   "value": "Rekor v2: a tile-backed log with yearly shards"
+  },
+  {
+   "section": "Decision outcome",
+   "kind": "limit",
+   "value": "try at most 16 of at most 1 MiB each within 10 s (target)"
+  },
+  {
+   "section": "Decision outcome",
+   "kind": "limit",
+   "value": "at most 16 (target) Sigstore bundle referrers"
+  },
+  {
+   "section": "Decision outcome",
+   "kind": "limit",
+   "value": "at most 1 MiB each (target)"
+  },
+  {
+   "section": "Decision outcome",
+   "kind": "timeout",
+   "value": "within 10 s (target)"
+  },
+  {
+   "section": "Decision outcome",
+   "kind": "limit",
+   "value": "64 MiB fetch limit (target)"
+  },
+  {
+   "section": "Decision outcome",
+   "kind": "timeout",
+   "value": "30 s fetch limit (target)"
+  },
+  {
+   "section": "Decision outcome",
+   "kind": "failure_mode",
+   "value": "No valid signature within the count and size limits is RZ-CFG-033; a timeout is transient"
+  },
+  {
+   "section": "Decision outcome",
+   "kind": "claim",
+   "value": "Results are cached by artifact digest and trust policy version"
+  },
+  {
+   "section": "Decision outcome",
+   "kind": "kind_or_field",
+   "value": "rolloutId"
+  },
+  {
+   "section": "Decision outcome",
+   "kind": "kind_or_field",
+   "value": "storeEpoch"
+  },
+  {
+   "section": "Decision outcome",
+   "kind": "kind_or_field",
+   "value": "assignmentSeq"
+  },
+  {
+   "section": "Decision outcome",
+   "kind": "kind_or_field",
+   "value": "promotedDigest"
+  },
+  {
+   "section": "Decision outcome",
+   "kind": "kind_or_field",
+   "value": "promotionSeq"
+  },
+  {
+   "section": "Decision outcome",
+   "kind": "kind_or_field",
+   "value": "compromisedSince"
+  },
+  {
+   "section": "Decision outcome",
+   "kind": "decision",
+   "value": "Control mode signs Revisions (digest, Environment, key ID, time)"
+  },
+  {
+   "section": "Decision outcome",
+   "kind": "decision",
+   "value": "assignments (Cluster, Environment, digest, `rolloutId`, `storeEpoch`, `assignmentSeq`)"
+  },
+  {
+   "section": "Decision outcome",
+   "kind": "decision",
+   "value": "promotions (Cluster, `promotedDigest`, `storeEpoch`, `promotionSeq`)"
+  },
+  {
+   "section": "Decision outcome",
+   "kind": "decision",
+   "value": "OCI Revisions bind digest and signature only until OQ-security-and-identity-26 closes"
+  },
+  {
+   "section": "Decision outcome",
+   "kind": "decision",
+   "value": "each Environment SHOULD use its own signing identity"
+  },
+  {
+   "section": "Decision outcome",
+   "kind": "library",
+   "value": "ECDSA P-256 and SHA-256 through Go `crypto/ecdsa` for Ruralz Control"
+  },
+  {
+   "section": "Decision outcome",
+   "kind": "library",
+   "value": "`sigstore/sigstore-go` v1.3.x"
+  },
+  {
+   "section": "Decision outcome",
+   "kind": "library",
+   "value": "`oras.land/oras-go/v2` v2.6.2 or newer, above GO-2026-5879"
+  },
+  {
+   "section": "Decision outcome",
+   "kind": "failure_mode",
+   "value": "After emergency key removal, a Node refuses to boot a candidate or Last-Known-Good accepted from that key after `compromisedSince` and stays not ready until the Control Stream delivers"
+  },
+  {
+   "section": "Decision outcome",
+   "kind": "decision",
+   "value": "Key-compromise boot refusal is an exception to pack 8.2 step (3) and P9 (OQ-control-plane-and-gitops-24, option (a))"
+  },
+  {
+   "section": "Decision outcome",
+   "kind": "decision",
+   "value": "Release artifact signing (images, SBOM) belongs to Release, versioning and compatibility"
+  },
+  {
+   "section": "Decision outcome",
+   "kind": "port",
+   "value": "Control Stream 8091"
+  },
+  {
+   "section": "Consequences",
+   "kind": "metric",
+   "value": "ruralz_node_degraded_info{reason=\"plugin_signature_off\"}"
+  },
+  {
+   "section": "Consequences",
+   "kind": "claim",
+   "value": "closes T6 on TB-5 and TB-8 for every artifact outside a watched directory"
+  },
+  {
+   "section": "Consequences",
+   "kind": "claim",
+   "value": "Control-mode Revisions need no Sigstore infrastructure"
+  },
+  {
+   "section": "Consequences",
+   "kind": "claim",
+   "value": "two signing schemes exist: Ruralz Control keys (custody: OQ-control-plane-and-gitops-8) and Sigstore"
+  },
+  {
+   "section": "Consequences",
+   "kind": "failure_mode",
+   "value": "file-mode Nodes accept older same-identity Revisions until OQ-security-and-identity-26 closes"
+  },
+  {
+   "section": "Consequences",
+   "kind": "limit",
+   "value": "Sigstore trusted roots need a refresh at least yearly, or new keyless signatures fail under `enforce`"
+  },
+  {
+   "section": "Consequences",
+   "kind": "failure_mode",
+   "value": "the key-compromise boot refusal leaves a Node not ready while Ruralz Control is unreachable"
+  },
+  {
+   "section": "Consequences",
+   "kind": "claim",
+   "value": "sigstore-go's G3 FIPS status is unconfirmed (OQ-tech-stack-and-libraries-9); the Control-mode path uses only `crypto/ecdsa`"
+  },
+  {
+   "section": "Confirmation",
+   "kind": "milestone",
+   "value": "Integration tests, Planned (M2)"
+  },
+  {
+   "section": "Confirmation",
+   "kind": "milestone",
+   "value": "Chaos test, Planned (M2)"
+  },
+  {
+   "section": "Confirmation",
+   "kind": "milestone",
+   "value": "Interoperability job, Planned (M2)"
+  },
+  {
+   "section": "Confirmation",
+   "kind": "number",
+   "value": "cosign 3.1.3 or newer referrers, keyless bundles included, verify with sigstore-go with egress denied (hypothesis until it passes)"
+  },
+  {
+   "section": "Confirmation",
+   "kind": "milestone",
+   "value": "FIPS CI job, Planned (M5)"
+  },
+  {
+   "section": "Confirmation",
+   "kind": "decision",
+   "value": "a pull request that skips the verifier, reads a trust policy from a Bundle, or makes the Control-mode check configurable MUST amend this ADR"
+  },
+  {
+   "section": "Sigstore for every artifact, Control-mode Revisions included",
+   "kind": "claim",
+   "value": "sigstore-go fetches its root over TUF unless given one"
+  },
+  {
+   "section": "cosign as the embedded signing and verification library",
+   "kind": "claim",
+   "value": "cosign supports keyless, KMS and hardware-token signing"
+  },
+  {
+   "section": "cosign as the embedded signing and verification library",
+   "kind": "claim",
+   "value": "its README points library users to sigstore-go and plans a major release on it"
+  },
+  {
+   "section": "More information",
+   "kind": "library",
+   "value": "sigstore-go v1.3.0 Apache-2.0"
+  },
+  {
+   "section": "More information",
+   "kind": "library",
+   "value": "oras-go v2.6.2 Apache-2.0"
+  }
+ ]
+}

@@ -1,0 +1,476 @@
+{
+ "path": "docs/adr/0008-rate-limiting-local-bucket-and-gcra.md",
+ "status": "accepted",
+ "facts": [
+  {
+   "section": "Context and problem statement",
+   "kind": "policy_type",
+   "value": "ratelimit"
+  },
+  {
+   "section": "Context and problem statement",
+   "kind": "default",
+   "value": "ratelimit Policy: admission class, onRequestHeaders, default failureMode: open (pack section 10)"
+  },
+  {
+   "section": "Context and problem statement",
+   "kind": "kind_or_field",
+   "value": "config.key (CEL) partitions traffic"
+  },
+  {
+   "section": "Context and problem statement",
+   "kind": "kind_or_field",
+   "value": "config.limits[] entry allows requests per window"
+  },
+  {
+   "section": "Context and problem statement",
+   "kind": "claim",
+   "value": "Every Node of a Cluster shares one State Store, so a limit holds per Cell (pack section 8.13)"
+  },
+  {
+   "section": "Context and problem statement",
+   "kind": "limit",
+   "value": "at most one blocking State Store round trip per Policy (pack section 8.7)"
+  },
+  {
+   "section": "Context and problem statement",
+   "kind": "claim",
+   "value": "KrakenD sells stateful Redis-backed rate limiting only in EE"
+  },
+  {
+   "section": "Context and problem statement",
+   "kind": "milestone",
+   "value": "Ruralz will offer stateful rate limiting free, Planned (M1)"
+  },
+  {
+   "section": "Decision drivers",
+   "kind": "decision",
+   "value": "Cell-wide accuracy: a key gets requests per window across all Nodes"
+  },
+  {
+   "section": "Decision drivers",
+   "kind": "limit",
+   "value": "Bounded round trips: at most one blocking call per Policy, none for a denial where possible"
+  },
+  {
+   "section": "Decision drivers",
+   "kind": "decision",
+   "value": "No coordination: per-Node state comes from the Policy or Ruralz Control's Node count, never peers"
+  },
+  {
+   "section": "Decision drivers",
+   "kind": "decision",
+   "value": "Hot-key protection: one busy key must not starve its State Store shard's co-tenants"
+  },
+  {
+   "section": "Decision drivers",
+   "kind": "failure_mode",
+   "value": "a failing State Store costs at most one deadline, then bounded, documented behavior (P9); Rate Limits, not a security control, may fail open"
+  },
+  {
+   "section": "Considered options",
+   "kind": "claim",
+   "value": "Envoy documents the hybrid local token bucket plus global rate limiting"
+  },
+  {
+   "section": "Considered options",
+   "kind": "claim",
+   "value": "Stripe and redis_rate: GCRA or a token bucket in the State Store on every request"
+  },
+  {
+   "section": "Considered options",
+   "kind": "claim",
+   "value": "Tyk's DRL: each Node enforces a share of the limit"
+  },
+  {
+   "section": "Considered options",
+   "kind": "claim",
+   "value": "Kong's default policy: local enforces the whole limit per Node"
+  },
+  {
+   "section": "Considered options",
+   "kind": "claim",
+   "value": "fixed windows as in Kong and Tyk, or Cloudflare's sliding window counter"
+  },
+  {
+   "section": "Considered options",
+   "kind": "claim",
+   "value": "Doorman leases, Envoy RLQS assignments, Kong sync_rate"
+  },
+  {
+   "section": "Considered options",
+   "kind": "claim",
+   "value": "Envoy's failure_mode_deny: true (fail-closed)"
+  },
+  {
+   "section": "Decision outcome",
+   "kind": "decision",
+   "value": "Chosen option: \"Local bucket plus GCRA, fail-open\""
+  },
+  {
+   "section": "Decision outcome",
+   "kind": "claim",
+   "value": "GCRA keeps one timestamp per key and is exact within one store"
+  },
+  {
+   "section": "Decision outcome",
+   "kind": "claim",
+   "value": "fail-open is Stripe's default too"
+  },
+  {
+   "section": "Decision outcome",
+   "kind": "milestone",
+   "value": "Rate limiting rules (local bucket, GCRA, over-limit cache, fail-open), all Planned (M1)"
+  },
+  {
+   "section": "Decision outcome",
+   "kind": "decision",
+   "value": "Local bucket: one token bucket per key and limits[] entry at the per-Node ceiling"
+  },
+  {
+   "section": "Decision outcome",
+   "kind": "error_code",
+   "value": "RZ-RL-001"
+  },
+  {
+   "section": "Decision outcome",
+   "kind": "decision",
+   "value": "an empty local bucket gives 429 RZ-RL-001, no State Store call"
+  },
+  {
+   "section": "Decision outcome",
+   "kind": "number",
+   "value": "Node-wide, CLOCK-evicted table of 1,048,576 entries, about 64 MiB (target)"
+  },
+  {
+   "section": "Decision outcome",
+   "kind": "claim",
+   "value": "local table survives Hot Reload; an evicted bucket restarts full, at most one extra ceiling per eviction"
+  },
+  {
+   "section": "Decision outcome",
+   "kind": "default",
+   "value": "Per-Node ceiling: declared on the Policy (field: OQ-traffic-management-and-resilience-1), else the limit divided by the Node count Ruralz Control publishes"
+  },
+  {
+   "section": "Decision outcome",
+   "kind": "default",
+   "value": "with neither (file mode, or a Control-mode Node without a count), the full limit"
+  },
+  {
+   "section": "Decision outcome",
+   "kind": "decision",
+   "value": "GCRA: each locally admitted request runs one EVALSHA for all the Policy's limits, reading server TIME, updating TATs only if all allow"
+  },
+  {
+   "section": "Decision outcome",
+   "kind": "error_code",
+   "value": "RZ-RL-002"
+  },
+  {
+   "section": "Decision outcome",
+   "kind": "decision",
+   "value": "a GCRA deny is 429 RZ-RL-002"
+  },
+  {
+   "section": "Decision outcome",
+   "kind": "default",
+   "value": "τ is one window"
+  },
+  {
+   "section": "Decision outcome",
+   "kind": "decision",
+   "value": "Nodes SCRIPT LOAD on every primary at connect, reconnect and failover"
+  },
+  {
+   "section": "Decision outcome",
+   "kind": "failure_mode",
+   "value": "NOSCRIPT applies failureMode and schedules a reload, never a second call (pack section 8.7 rule 1)"
+  },
+  {
+   "section": "Decision outcome",
+   "kind": "decision",
+   "value": "Over-limit cache: a key GCRA denied stays denied locally until its retry-after, as in envoyproxy/ratelimit"
+  },
+  {
+   "section": "Decision outcome",
+   "kind": "kind_or_field",
+   "value": "rz:rl:<policy>:<requests>/<window>:{<SHA-256 of the key value>}"
+  },
+  {
+   "section": "Decision outcome",
+   "kind": "decision",
+   "value": "keys expire once idle; hash tag lets consumptive calls share one script (pack section 8.7 rule 3)"
+  },
+  {
+   "section": "Decision outcome",
+   "kind": "decision",
+   "value": "The State Store MUST run noeviction"
+  },
+  {
+   "section": "Decision outcome",
+   "kind": "failure_mode",
+   "value": "A failed, timed-out or unattempted call, or an open State client breaker, applies failureMode"
+  },
+  {
+   "section": "Decision outcome",
+   "kind": "failure_mode",
+   "value": "open (default) admits from the local buckets, which refill per epoch-aligned window, in 60 steps past 1 minute, without carry-over"
+  },
+  {
+   "section": "Decision outcome",
+   "kind": "number",
+   "value": "fail-open refill in 60 steps past 1 minute"
+  },
+  {
+   "section": "Decision outcome",
+   "kind": "default",
+   "value": "a Control-mode Node without a count at max(1, requests / 100) (derived ceilings unfloored)"
+  },
+  {
+   "section": "Decision outcome",
+   "kind": "failure_mode",
+   "value": "closed returns 503 RZ-STS-001 to RZ-STS-004"
+  },
+  {
+   "section": "Decision outcome",
+   "kind": "error_code",
+   "value": "RZ-STS-001"
+  },
+  {
+   "section": "Decision outcome",
+   "kind": "error_code",
+   "value": "RZ-STS-004"
+  },
+  {
+   "section": "Decision outcome",
+   "kind": "limit",
+   "value": "Fail-open bound: At most N × per-Node ceiling per key per window, N being serving Nodes (target)"
+  },
+  {
+   "section": "Decision outcome",
+   "kind": "failure_mode",
+   "value": "config.key error: failureMode: open admits unmetered, closed returns 503 RZ-RL-005"
+  },
+  {
+   "section": "Decision outcome",
+   "kind": "error_code",
+   "value": "RZ-RL-005"
+  },
+  {
+   "section": "Decision outcome",
+   "kind": "decision",
+   "value": "memory driver: Limits multiply by the Node count; a Node warns when its Cluster reports several"
+  },
+  {
+   "section": "Decision outcome",
+   "kind": "library",
+   "value": "rueidis"
+  },
+  {
+   "section": "Decision outcome",
+   "kind": "decision",
+   "value": "Ruralz scripts sent as raw EVALSHA through rueidis Do, never Lua.Exec, whose EVAL retry on NOSCRIPT is a second round trip"
+  },
+  {
+   "section": "Decision outcome",
+   "kind": "decision",
+   "value": "reloads are single-flight per shard"
+  },
+  {
+   "section": "Decision outcome",
+   "kind": "kind_or_field",
+   "value": "Policy when (skipped when false)"
+  },
+  {
+   "section": "Decision outcome",
+   "kind": "claim",
+   "value": "429 RZ-RL-002 with Retry-After"
+  },
+  {
+   "section": "Consequences",
+   "kind": "limit",
+   "value": "a key reaches the State Store at most min(offered, 2 × N × ceiling) times per window (target)"
+  },
+  {
+   "section": "Consequences",
+   "kind": "claim",
+   "value": "GCRA stores one TAT per key and needs no drip worker; server TIME removes Node clock skew"
+  },
+  {
+   "section": "Consequences",
+   "kind": "claim",
+   "value": "a pinned or unevenly spread key meets its per-Node ceilings before the Cell limit, as Tyk reports for DRL"
+  },
+  {
+   "section": "Consequences",
+   "kind": "term",
+   "value": "OQ-traffic-management-and-resilience-16 proposes headroom over pack section 8.8's limit / N"
+  },
+  {
+   "section": "Consequences",
+   "kind": "number",
+   "value": "Valkey 8's 1.19 million per second are SET, not EVAL"
+  },
+  {
+   "section": "Consequences",
+   "kind": "number",
+   "value": "assumed 100,000 calls per second per shard (hypothesis)"
+  },
+  {
+   "section": "Consequences",
+   "kind": "number",
+   "value": "a key admitted above about 25,000 per second (hypothesis) runs GCRA on one shard per request and can open every Node's breaker"
+  },
+  {
+   "section": "Consequences",
+   "kind": "kind_or_field",
+   "value": "localOnly mode (to be added by OQ-traffic-management-and-resilience-1)"
+  },
+  {
+   "section": "Consequences",
+   "kind": "claim",
+   "value": "a lagging or frozen Node count shifts derived ceilings and their fail-open bound (OQ-traffic-management-and-resilience-19)"
+  },
+  {
+   "section": "Consequences",
+   "kind": "failure_mode",
+   "value": "file mode without a declared ceiling fails open at N × limit"
+  },
+  {
+   "section": "Consequences",
+   "kind": "claim",
+   "value": "R Regions allow R × each limit; Redis Active-Active would replicate a TAT last-write-wins"
+  },
+  {
+   "section": "Consequences",
+   "kind": "failure_mode",
+   "value": "under closed each Node returns 503 RZ-STS-002 until its reload (after State Store failover)"
+  },
+  {
+   "section": "Consequences",
+   "kind": "error_code",
+   "value": "RZ-STS-002"
+  },
+  {
+   "section": "Consequences",
+   "kind": "claim",
+   "value": "τ of one window admits 2 × requests in one window, as does a changed limit's fresh key; a burst field waits on OQ-traffic-management-and-resilience-1"
+  },
+  {
+   "section": "Confirmation",
+   "kind": "milestone",
+   "value": "Integration tests, Planned (M1): against Redis 8, Valkey, Dragonfly and clustered servers"
+  },
+  {
+   "section": "Confirmation",
+   "kind": "library",
+   "value": "Redis 8, Valkey, Dragonfly"
+  },
+  {
+   "section": "Confirmation",
+   "kind": "milestone",
+   "value": "Round-trip test, Planned (M1): zero commands for local denials and over-limit cache hits, at most one blocking call per admitted request per Policy"
+  },
+  {
+   "section": "Confirmation",
+   "kind": "milestone",
+   "value": "Chaos experiments CE-3, CE-4 and CE-5, Planned (M1): fail-open bounds (target)"
+  },
+  {
+   "section": "Confirmation",
+   "kind": "term",
+   "value": "CE-12 and CE-15 verify OQ-scalability-and-distributed-state-11's proposed amendments"
+  },
+  {
+   "section": "Confirmation",
+   "kind": "milestone",
+   "value": "Dependency admission, Planned (M0): Library catalog lists redis_rate and throttled as alternatives not chosen"
+  },
+  {
+   "section": "Confirmation",
+   "kind": "library",
+   "value": "redis_rate and throttled: alternatives not chosen"
+  },
+  {
+   "section": "Confirmation",
+   "kind": "decision",
+   "value": "a change to per-request State Store calls, ceiling derivation or the default failureMode MUST amend this ADR and pack section 8.8"
+  },
+  {
+   "section": "Local bucket plus GCRA, fail-open",
+   "kind": "claim",
+   "value": "Envoy documents local limiting in front of a global service to cut its load"
+  },
+  {
+   "section": "Shared limiter only",
+   "kind": "claim",
+   "value": "every request, denials included, pays a round trip, hot keys load one shard, and nothing limits while the State Store fails"
+  },
+  {
+   "section": "Local limits only",
+   "kind": "claim",
+   "value": "Tyk calls its DRL \"unreliable at low rate limits where requests are not fairly balanced\""
+  },
+  {
+   "section": "Shared window counters",
+   "kind": "claim",
+   "value": "Cloudflare measured 0.003% wrong decisions for sliding windows"
+  },
+  {
+   "section": "Shared window counters",
+   "kind": "claim",
+   "value": "fixed windows allow a burst across a window boundary"
+  },
+  {
+   "section": "Leases or asynchronous sync",
+   "kind": "claim",
+   "value": "Kong documents overage growing with node count and sync interval"
+  },
+  {
+   "section": "Leases or asynchronous sync",
+   "kind": "term",
+   "value": "leasing is OQ-system-overview-15"
+  },
+  {
+   "section": "Local bucket plus GCRA, fail-closed by default",
+   "kind": "failure_mode",
+   "value": "operators who need it set failureMode: closed per Policy"
+  },
+  {
+   "section": "More information",
+   "kind": "term",
+   "value": "Owning document: Traffic management and resilience (Rate limiting, Per-Node ceiling, Failure matrix)"
+  },
+  {
+   "section": "More information",
+   "kind": "decision",
+   "value": "ADR-0014 (Token Budgets fail closed)"
+  },
+  {
+   "section": "More information",
+   "kind": "decision",
+   "value": "ADR-0007 (Control Stream carrying the Node count)"
+  },
+  {
+   "section": "More information",
+   "kind": "term",
+   "value": "Pending pack section 8.8 amendments: OQ-traffic-management-and-resilience-1, -16, -19 and -20, OQ-scalability-and-distributed-state-11, and aligned-window fail-open refill for declared ceilings too"
+  },
+  {
+   "section": "More information",
+   "kind": "claim",
+   "value": "the Library catalog's \"NOSCRIPT fallback\" means the failureMode path above, never an EVAL retry"
+  },
+  {
+   "section": "More information",
+   "kind": "limit",
+   "value": "Traffic management's and Scalability's N × ceiling call bound is 2 × N × ceiling"
+  },
+  {
+   "section": "More information",
+   "kind": "claim",
+   "value": "Revisit when OQ-system-overview-15 chooses leases or per-shard script throughput is measured"
+  }
+ ]
+}

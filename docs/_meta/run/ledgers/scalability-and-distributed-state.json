@@ -1,0 +1,1751 @@
+{
+ "path": "docs/architecture/11-scalability-and-distributed-state.md",
+ "status": "reviewed",
+ "facts": [
+  {
+   "section": "Summary",
+   "kind": "milestone",
+   "value": "Nothing is implemented; everything is Planned (M1) to Planned (M4)"
+  },
+  {
+   "section": "Summary",
+   "kind": "error_code",
+   "value": "RZ-STS"
+  },
+  {
+   "section": "Summary",
+   "kind": "term",
+   "value": "Cells as blast-radius units"
+  },
+  {
+   "section": "Scope and non-goals",
+   "kind": "claim",
+   "value": "Non-goals: Rate Limit, Quota and Response Cache semantics; Token Budget and Semantic Cache semantics; Control Stream and Control Store internals; performance values; runbooks; fields"
+  },
+  {
+   "section": "Guarantees and principles",
+   "kind": "claim",
+   "value": "SG-1: No request waits on another Node, Ruralz Control or the Control Store (P3; CE-7, CE-8)"
+  },
+  {
+   "section": "Guarantees and principles",
+   "kind": "claim",
+   "value": "SG-2: Before commit, each Policy makes at most one blocking State Store round trip, within its `stateStoreTimeout` and the request deadline (P3, pack 8.7; CE-3, CE-4)"
+  },
+  {
+   "section": "Guarantees and principles",
+   "kind": "kind_or_field",
+   "value": "stateStoreTimeout"
+  },
+  {
+   "section": "Guarantees and principles",
+   "kind": "claim",
+   "value": "SG-3: Losing a Node loses only its in-flight requests, connections and the state Stateless data plane lists (P4; CE-1, CE-2)"
+  },
+  {
+   "section": "Guarantees and principles",
+   "kind": "failure_mode",
+   "value": "SG-4: A State Store outage costs a request at most one deadline, nothing once the breaker opens, and degrades only its Cell (P9, pack 8.13; CE-3, CE-5)"
+  },
+  {
+   "section": "Guarantees and principles",
+   "kind": "failure_mode",
+   "value": "SG-5: A Ruralz Control outage never changes what a Node serves; restarted Nodes boot Last-Known-Good (P2, P9; CE-7, CE-8)"
+  },
+  {
+   "section": "Guarantees and principles",
+   "kind": "decision",
+   "value": "SG-6: No request crosses a Region to reach a State Store (pack 8.13; CE-11)"
+  },
+  {
+   "section": "Guarantees and principles",
+   "kind": "claim",
+   "value": "SG-7: Every per-Node structure has a ceiling, and every accuracy bound is a tagged number (P10; CE-6, CE-9)"
+  },
+  {
+   "section": "Guarantees and principles",
+   "kind": "claim",
+   "value": "SG-8: Every degraded state, such as fail-open decisions or dropped writes, is a metric (P10; All)"
+  },
+  {
+   "section": "Guarantees and principles",
+   "kind": "claim",
+   "value": "Non-guarantees: limits are exact only inside one Cell; long-lived connections never migrate between Nodes; Ruralz never replicates State Store data between Cells; Nodes never gossip"
+  },
+  {
+   "section": "Stateless data plane",
+   "kind": "kind_or_field",
+   "value": "${RURALZ_DATA_DIR}"
+  },
+  {
+   "section": "Stateless data plane",
+   "kind": "claim",
+   "value": "A Node persists only its enrollment identity, Last-Known-Good and disposable caches under `${RURALZ_DATA_DIR}` (pack 8.11)"
+  },
+  {
+   "section": "Stateless data plane",
+   "kind": "number",
+   "value": "Active snapshot: (K + 2) times snapshot size at peak (hypothesis)"
+  },
+  {
+   "section": "Stateless data plane",
+   "kind": "limit",
+   "value": "Retired snapshots and pins: K = 2 (target)"
+  },
+  {
+   "section": "Stateless data plane",
+   "kind": "kind_or_field",
+   "value": "secretRef"
+  },
+  {
+   "section": "Stateless data plane",
+   "kind": "api_path",
+   "value": "/readyz"
+  },
+  {
+   "section": "Stateless data plane",
+   "kind": "limit",
+   "value": "Local token buckets, over-limit cache, local-only entries: 1,048,576 entries, about 64 MiB (target)"
+  },
+  {
+   "section": "Stateless data plane",
+   "kind": "limit",
+   "value": "at most one extra ceiling per key (target)"
+  },
+  {
+   "section": "Stateless data plane",
+   "kind": "default",
+   "value": "Without either, derived ceilings use the full limit, fail-open clamp max(1, `requests` / 100) (target), reason `node_count_unknown`"
+  },
+  {
+   "section": "Stateless data plane",
+   "kind": "kind_or_field",
+   "value": "HeartbeatReply"
+  },
+  {
+   "section": "Stateless data plane",
+   "kind": "kind_or_field",
+   "value": "requests"
+  },
+  {
+   "section": "Stateless data plane",
+   "kind": "timeout",
+   "value": "Breakers restart closed; failing calls reopen them within 5 s (target)"
+  },
+  {
+   "section": "Stateless data plane",
+   "kind": "claim",
+   "value": "Per-shard `INFO memory` readings and store byte budgets: Stores skip until then (target): no unmetered bytes"
+  },
+  {
+   "section": "Stateless data plane",
+   "kind": "number",
+   "value": "AI candidate latency averages: 5% exploration (hypothesis); About one failed attempt per cooldown per Node (hypothesis)"
+  },
+  {
+   "section": "Stateless data plane",
+   "kind": "kind_or_field",
+   "value": "AIModel"
+  },
+  {
+   "section": "Stateless data plane",
+   "kind": "kind_or_field",
+   "value": "circuitBreaker.maxConnections"
+  },
+  {
+   "section": "Stateless data plane",
+   "kind": "timeout",
+   "value": "A black-holed Endpoint is re-ejected in about 1 s; dial within 1 s, TLS within 2 s (target)"
+  },
+  {
+   "section": "Stateless data plane",
+   "kind": "kind_or_field",
+   "value": "limits.maxPluginMemoryBytes"
+  },
+  {
+   "section": "Stateless data plane",
+   "kind": "kind_or_field",
+   "value": "jwksUrl"
+  },
+  {
+   "section": "Stateless data plane",
+   "kind": "kind_or_field",
+   "value": "tokenUrl"
+  },
+  {
+   "section": "Stateless data plane",
+   "kind": "failure_mode",
+   "value": "A Node that cannot refetch fails closed alone (P9)"
+  },
+  {
+   "section": "Stateless data plane",
+   "kind": "limit",
+   "value": "Response Cache hot-entry layer, miss coalescing, revalidation queue, `Vary`-name LRU: 64 MiB; 4,096 keys, 256 entries, 65,536 URIs (target)"
+  },
+  {
+   "section": "Stateless data plane",
+   "kind": "limit",
+   "value": "Quota denial cache: 65,536 entries, CLOCK eviction, 60 s each (target)"
+  },
+  {
+   "section": "Stateless data plane",
+   "kind": "limit",
+   "value": "Post-commit write queue: 64,000 items, 85 MiB (target)"
+  },
+  {
+   "section": "Stateless data plane",
+   "kind": "limit",
+   "value": "Span and access-log queues, `/tap` buffers: 8,192 spans; 8,192 records and 4 MiB; fixed `/tap` capacity (target)"
+  },
+  {
+   "section": "Stateless data plane",
+   "kind": "api_path",
+   "value": "/tap"
+  },
+  {
+   "section": "Stateless data plane",
+   "kind": "failure_mode",
+   "value": "Streaming output-token counts: A crash skips settlement, leaving R charged"
+  },
+  {
+   "section": "Stateless data plane",
+   "kind": "limit",
+   "value": "Client connections and streams: 20,000 per Node (target)"
+  },
+  {
+   "section": "Stateless data plane",
+   "kind": "claim",
+   "value": "Drain sends GOAWAY and close 1001 first"
+  },
+  {
+   "section": "Stateless data plane",
+   "kind": "kind_or_field",
+   "value": "Hello"
+  },
+  {
+   "section": "Stateless data plane",
+   "kind": "limit",
+   "value": "Signed revocation list: One list, at most 100,000 entries per Cluster (target)"
+  },
+  {
+   "section": "Stateless data plane",
+   "kind": "milestone",
+   "value": "Signed revocation list persistence while detached: Planned (M2) (OQ-security-and-identity-5)"
+  },
+  {
+   "section": "Stateless data plane",
+   "kind": "policy_type",
+   "value": "auth.basic"
+  },
+  {
+   "section": "Stateless data plane",
+   "kind": "limit",
+   "value": "`auth.basic` success cache and username buckets: 10,000 and 100,000 entries (target)"
+  },
+  {
+   "section": "Stateless data plane",
+   "kind": "number",
+   "value": "a 25 to 50 s ramp (hypothesis) refuses some callers with RZ-AUTH-007"
+  },
+  {
+   "section": "Stateless data plane",
+   "kind": "error_code",
+   "value": "RZ-AUTH-007"
+  },
+  {
+   "section": "Stateless data plane",
+   "kind": "limit",
+   "value": "Trace-sampling token buckets: Two per Node (target)"
+  },
+  {
+   "section": "Stateless data plane",
+   "kind": "limit",
+   "value": "Automatic persisted query cache: 32 MiB (target)"
+  },
+  {
+   "section": "Stateless data plane",
+   "kind": "kind_or_field",
+   "value": "maxBufferedBytes"
+  },
+  {
+   "section": "Stateless data plane",
+   "kind": "failure_mode",
+   "value": "Event ingress: At-least-once: an Upstream may see a message twice"
+  },
+  {
+   "section": "Stateless data plane",
+   "kind": "claim",
+   "value": "So a Node can be killed at any instant: the worst outcomes are an over-charged Quota or Token Budget, a few extra admissions per key"
+  },
+  {
+   "section": "Scale unit",
+   "kind": "decision",
+   "value": "The Node is the scale unit: a Cluster adds Nodes without peer coordination (P4) until a Cell ceiling saturates, then adds Cells"
+  },
+  {
+   "section": "Scale unit",
+   "kind": "library",
+   "value": "Go 1.25 reads container CPU limits for `GOMAXPROCS`"
+  },
+  {
+   "section": "Scale unit",
+   "kind": "default",
+   "value": "`GOMEMLIMIT` at about 90% of the memory limit (target)"
+  },
+  {
+   "section": "Scale unit",
+   "kind": "term",
+   "value": "ruralzd"
+  },
+  {
+   "section": "SO_REUSEPORT and listeners",
+   "kind": "decision",
+   "value": "Ruralz uses `SO_REUSEPORT` only for the Zero-Downtime Upgrade of ADR-0015"
+  },
+  {
+   "section": "SO_REUSEPORT and listeners",
+   "kind": "claim",
+   "value": "`SO_ATTACH_REUSEPORT_CBPF` steering empties the closing accept queue"
+  },
+  {
+   "section": "SO_REUSEPORT and listeners",
+   "kind": "decision",
+   "value": "two Nodes per network namespace are Not planned; a bigger host scales one Node vertically"
+  },
+  {
+   "section": "L4 load balancing",
+   "kind": "port",
+   "value": "Health-check `/readyz` on 9901"
+  },
+  {
+   "section": "L4 load balancing",
+   "kind": "failure_mode",
+   "value": "/readyz fails during Drain, never for a lost Control Stream or State Store (pack 8.5)"
+  },
+  {
+   "section": "L4 load balancing",
+   "kind": "port",
+   "value": "UDP 8443 for `http3: true`, Planned (M3), needs a UDP balancer"
+  },
+  {
+   "section": "L4 load balancing",
+   "kind": "milestone",
+   "value": "http3: true — Planned (M3)"
+  },
+  {
+   "section": "L4 load balancing",
+   "kind": "kind_or_field",
+   "value": "http3: true"
+  },
+  {
+   "section": "L4 load balancing",
+   "kind": "claim",
+   "value": "QUIC connections are lost on upgrade (OQ-system-overview-18)"
+  },
+  {
+   "section": "L4 load balancing",
+   "kind": "decision",
+   "value": "No stickiness"
+  },
+  {
+   "section": "L4 load balancing",
+   "kind": "timeout",
+   "value": "Balancer idle timeout above the Node's 120 s (target)"
+  },
+  {
+   "section": "L4 load balancing",
+   "kind": "port",
+   "value": "L4 load balancer: TCP 8080 and 8443, UDP 8443 Planned (M3)"
+  },
+  {
+   "section": "L4 load balancing",
+   "kind": "port",
+   "value": "Control Stream, Node dials 8091"
+  },
+  {
+   "section": "Autoscaling signals",
+   "kind": "number",
+   "value": "CPU: 80% × (Z − 1) / Z over 2 minutes for Z zones: 40% at two, 53% at three, 60% at four (target)"
+  },
+  {
+   "section": "Autoscaling signals",
+   "kind": "metric",
+   "value": "ruralz_http_active_requests"
+  },
+  {
+   "section": "Autoscaling signals",
+   "kind": "number",
+   "value": "In-flight units against 20,000: 50% of the ceiling (target)"
+  },
+  {
+   "section": "Autoscaling signals",
+   "kind": "metric",
+   "value": "ruralz_listener_open_connections"
+  },
+  {
+   "section": "Autoscaling signals",
+   "kind": "number",
+   "value": "Client connections against 20,000: 50% of the ceiling (target)"
+  },
+  {
+   "section": "Autoscaling signals",
+   "kind": "metric",
+   "value": "ruralz_node_buffered_bytes"
+  },
+  {
+   "section": "Autoscaling signals",
+   "kind": "kind_or_field",
+   "value": "limits.maxBufferedBytes"
+  },
+  {
+   "section": "Autoscaling signals",
+   "kind": "number",
+   "value": "Buffered bytes: 50% of the budget (target)"
+  },
+  {
+   "section": "Autoscaling signals",
+   "kind": "metric",
+   "value": "ruralz_http_gateway_duration_seconds"
+  },
+  {
+   "section": "Autoscaling signals",
+   "kind": "timeout",
+   "value": "Gateway-added latency p99: Over its Performance Budget for 5 minutes (target)"
+  },
+  {
+   "section": "Autoscaling signals",
+   "kind": "claim",
+   "value": "Scale out on the first signal over its threshold; scale in only when all are under half of it"
+  },
+  {
+   "section": "Warm-up",
+   "kind": "timeout",
+   "value": "balancers SHOULD slow-start new Nodes over 30 to 60 s (target)"
+  },
+  {
+   "section": "Warm-up",
+   "kind": "number",
+   "value": "Node count raised at most 10% per minute after a 10-minute qualification (target)"
+  },
+  {
+   "section": "Warm-up",
+   "kind": "decision",
+   "value": "Until OQ-traffic-management-and-resilience-19 closes, autoscaled Control-mode Clusters SHOULD declare per-Node ceilings"
+  },
+  {
+   "section": "Warm-up",
+   "kind": "limit",
+   "value": "c SHOULD be at most `requests` / N_max for the largest autoscaled Node count (target)"
+  },
+  {
+   "section": "Warm-up",
+   "kind": "claim",
+   "value": "WebSockets close with 1001"
+  },
+  {
+   "section": "Warm-up",
+   "kind": "kind_or_field",
+   "value": "terminationGracePeriodSeconds"
+  },
+  {
+   "section": "Warm-up",
+   "kind": "default",
+   "value": "Kubernetes' `terminationGracePeriodSeconds`, 30 s by default"
+  },
+  {
+   "section": "Warm-up",
+   "kind": "timeout",
+   "value": "`terminationGracePeriodSeconds` MUST exceed the preStop wait plus the drain deadline (target)"
+  },
+  {
+   "section": "Scaling Ruralz Control and the State Store",
+   "kind": "limit",
+   "value": "Ruralz Control scales by replicas of about 5,000 Control Streams each, up to 10,000 Nodes (target)"
+  },
+  {
+   "section": "Scaling Ruralz Control and the State Store",
+   "kind": "number",
+   "value": "at least ceil(N / 5,000) + 1 replicas across zones (hypothesis)"
+  },
+  {
+   "section": "Scaling Ruralz Control and the State Store",
+   "kind": "number",
+   "value": "three or five voters"
+  },
+  {
+   "section": "Scaling Ruralz Control and the State Store",
+   "kind": "claim",
+   "value": "a hot key cannot be split"
+  },
+  {
+   "section": "Ruralz Gateway availability",
+   "kind": "number",
+   "value": "at least three Nodes in at least two zones (target)"
+  },
+  {
+   "section": "Ruralz Gateway availability",
+   "kind": "number",
+   "value": "losing the largest zone keeps survivors under 80% CPU (target)"
+  },
+  {
+   "section": "Ruralz Control availability",
+   "kind": "term",
+   "value": "detached"
+  },
+  {
+   "section": "Ruralz Control availability",
+   "kind": "timeout",
+   "value": "restarted Nodes wait up to 5 s for the Control Stream (target), then boot Last-Known-Good"
+  },
+  {
+   "section": "Ruralz Control availability",
+   "kind": "failure_mode",
+   "value": "Rollouts and Enrollment are held; the published Node count freezes"
+  },
+  {
+   "section": "Ruralz Control availability",
+   "kind": "timeout",
+   "value": "after a reconnect storm every stream is under 10 minutes old (target)"
+  },
+  {
+   "section": "Ruralz Control availability",
+   "kind": "number",
+   "value": "Only qualified Nodes, keyed by `node.id` in committed state, missing three heartbeats (target) may lower it"
+  },
+  {
+   "section": "Ruralz Control availability",
+   "kind": "timeout",
+   "value": "5-minute reconnect grace (target)"
+  },
+  {
+   "section": "Ruralz Control availability",
+   "kind": "kind_or_field",
+   "value": "node.id"
+  },
+  {
+   "section": "Ruralz Control availability",
+   "kind": "decision",
+   "value": "a replica loss or leader failover (CE-7) restarts the grace (proposed, OQ-scalability-and-distributed-state-14)"
+  },
+  {
+   "section": "Ruralz Control availability",
+   "kind": "number",
+   "value": "Clusters SHOULD keep 30% headroom above peak (target)"
+  },
+  {
+   "section": "Ruralz Control availability",
+   "kind": "library",
+   "value": "embedded `hashicorp/raft` with `raft-boltdb/v2` on bbolt (ADR-0006, proposed)"
+  },
+  {
+   "section": "Ruralz Control availability",
+   "kind": "decision",
+   "value": "ADR-0006: Control Store is embedded hashicorp/raft with raft-boltdb/v2 on bbolt"
+  },
+  {
+   "section": "Ruralz Control availability",
+   "kind": "number",
+   "value": "three voters, or five to survive two failures (target)"
+  },
+  {
+   "section": "Ruralz Control availability",
+   "kind": "default",
+   "value": "hashicorp/raft default timeouts of 1000 ms"
+  },
+  {
+   "section": "Ruralz Control availability",
+   "kind": "timeout",
+   "value": "leader failover takes about 1 to 2 s plus election round trips (hypothesis)"
+  },
+  {
+   "section": "Ruralz Control availability",
+   "kind": "port",
+   "value": "Candidate: requests votes on 8092"
+  },
+  {
+   "section": "Ruralz Control availability",
+   "kind": "cli_command",
+   "value": "ruralz control join"
+  },
+  {
+   "section": "Ruralz Control availability",
+   "kind": "timeout",
+   "value": "Stale for 30 s (target) -> Rebalancing: sends Reconnect rebalance to its Nodes"
+  },
+  {
+   "section": "Ruralz Control availability",
+   "kind": "error_code",
+   "value": "RZ-CP-004"
+  },
+  {
+   "section": "Ruralz Control availability",
+   "kind": "failure_mode",
+   "value": "Without a voter majority, writes, logins and Enrollment stop (`RZ-CP-004`)"
+  },
+  {
+   "section": "Ruralz Control availability",
+   "kind": "claim",
+   "value": "Voters SHOULD share one Region, since etcd advises election timeouts of at least ten round trips"
+  },
+  {
+   "section": "State Store availability",
+   "kind": "claim",
+   "value": "The State Store is the only shared request-path dependency"
+  },
+  {
+   "section": "State Store availability",
+   "kind": "decision",
+   "value": "SHOULD: A primary with a replica and automatic failover across zones"
+  },
+  {
+   "section": "State Store availability",
+   "kind": "failure_mode",
+   "value": "A lone primary's restart fails every Rate Limit open and `closed` Token Budget shut"
+  },
+  {
+   "section": "State Store availability",
+   "kind": "decision",
+   "value": "MUST: `maxmemory-policy noeviction` where limit, Quota or Token Budget keys live"
+  },
+  {
+   "section": "State Store availability",
+   "kind": "claim",
+   "value": "state_store_eviction_policy"
+  },
+  {
+   "section": "State Store availability",
+   "kind": "decision",
+   "value": "SHOULD: Persistence where Quota or Token Budget windows exceed one day"
+  },
+  {
+   "section": "State Store availability",
+   "kind": "decision",
+   "value": "MUST: TLS and authentication outside loopback (TB-4)"
+  },
+  {
+   "section": "State Store availability",
+   "kind": "decision",
+   "value": "MUST (Node): `SCRIPT LOAD` at connect, reconnect and failover"
+  },
+  {
+   "section": "State Store availability",
+   "kind": "failure_mode",
+   "value": "`NOSCRIPT` applies `failureMode`; no second round trip"
+  },
+  {
+   "section": "State Store availability",
+   "kind": "kind_or_field",
+   "value": "failureMode"
+  },
+  {
+   "section": "State Store availability",
+   "kind": "decision",
+   "value": "MUST NOT: No Active-Active or cross-Region replication of limit keys"
+  },
+  {
+   "section": "State Store availability",
+   "kind": "claim",
+   "value": "Redis Active-Active replicates non-counter strings last-write-wins, and a GCRA TAT is not a counter"
+  },
+  {
+   "section": "State Store availability",
+   "kind": "timeout",
+   "value": "the Cell applies `failureMode` for about 15 s (hypothesis) after a failover"
+  },
+  {
+   "section": "Distributed state catalog",
+   "kind": "policy_type",
+   "value": "ratelimit"
+  },
+  {
+   "section": "Distributed state catalog",
+   "kind": "term",
+   "value": "rz:rl:"
+  },
+  {
+   "section": "Distributed state catalog",
+   "kind": "decision",
+   "value": "Local bucket at the per-Node ceiling, then GCRA in one Lua `EVAL` with server `TIME` (ADR-0008)"
+  },
+  {
+   "section": "Distributed state catalog",
+   "kind": "default",
+   "value": "Rate Limit: `open` (default): local buckets only; `closed`: `RZ-STS`"
+  },
+  {
+   "section": "Distributed state catalog",
+   "kind": "limit",
+   "value": "Local buckets: CLOCK eviction in 256 shards (target)"
+  },
+  {
+   "section": "Distributed state catalog",
+   "kind": "policy_type",
+   "value": "quota"
+  },
+  {
+   "section": "Distributed state catalog",
+   "kind": "term",
+   "value": "rz:qt:"
+  },
+  {
+   "section": "Distributed state catalog",
+   "kind": "default",
+   "value": "Quota: `open` (default): unmetered; `closed`: 503; dropped refund over-charges"
+  },
+  {
+   "section": "Distributed state catalog",
+   "kind": "policy_type",
+   "value": "ai.token-budget"
+  },
+  {
+   "section": "Distributed state catalog",
+   "kind": "kind_or_field",
+   "value": "consumerQuota"
+  },
+  {
+   "section": "Distributed state catalog",
+   "kind": "decision",
+   "value": "Reserve R = E + C if covered; settle provider usage at `onLog` (ADR-0014)"
+  },
+  {
+   "section": "Distributed state catalog",
+   "kind": "default",
+   "value": "Token Budget: `closed` (default): 503; dropped settlement leaves R charged"
+  },
+  {
+   "section": "Distributed state catalog",
+   "kind": "policy_type",
+   "value": "cache"
+  },
+  {
+   "section": "Distributed state catalog",
+   "kind": "term",
+   "value": "rz:rc:"
+  },
+  {
+   "section": "Distributed state catalog",
+   "kind": "default",
+   "value": "Response Cache: `open` (default): bypass; dropped bump: stale up to 25 h (target)"
+  },
+  {
+   "section": "Distributed state catalog",
+   "kind": "policy_type",
+   "value": "ai.semantic-cache"
+  },
+  {
+   "section": "Distributed state catalog",
+   "kind": "default",
+   "value": "Semantic Cache: `open` (default): bypass; no vector commands: `RZ-STS-005` under `closed`"
+  },
+  {
+   "section": "Distributed state catalog",
+   "kind": "milestone",
+   "value": "Plugin state via Host Functions: Planned (M2)"
+  },
+  {
+   "section": "Distributed state catalog",
+   "kind": "term",
+   "value": "rzplg:<Environment name>: (proposed)"
+  },
+  {
+   "section": "Distributed state catalog",
+   "kind": "number",
+   "value": "Published Node count: 10-minute qualification, rises at most 10% per minute (target); 5-minute reconnect grace (proposed)"
+  },
+  {
+   "section": "Distributed state catalog",
+   "kind": "kind_or_field",
+   "value": "storeEpoch"
+  },
+  {
+   "section": "Distributed state catalog",
+   "kind": "error_code",
+   "value": "RZ-CFG-027"
+  },
+  {
+   "section": "Distributed state catalog",
+   "kind": "failure_mode",
+   "value": "Quorum loss stops writes; Nodes keep serving"
+  },
+  {
+   "section": "Distributed state catalog",
+   "kind": "failure_mode",
+   "value": "Last-Known-Good missing in Control mode: not ready"
+  },
+  {
+   "section": "Distributed rate limits",
+   "kind": "claim",
+   "value": "the hybrid Envoy recommends (local token bucket per Node with GCRA in the State Store)"
+  },
+  {
+   "section": "Distributed rate limits",
+   "kind": "error_code",
+   "value": "RZ-RL-001"
+  },
+  {
+   "section": "Distributed rate limits",
+   "kind": "error_code",
+   "value": "RZ-RL-002"
+  },
+  {
+   "section": "Distributed rate limits",
+   "kind": "decision",
+   "value": "GCRA runs per admitted request through Planned (M3), as pack 8.8 fixes"
+  },
+  {
+   "section": "Distributed rate limits",
+   "kind": "milestone",
+   "value": "Per-request GCRA through Planned (M3)"
+  },
+  {
+   "section": "Distributed rate limits",
+   "kind": "timeout",
+   "value": "a first-seen key past the budget B runs local-only for 10 s (target)"
+  },
+  {
+   "section": "Distributed rate limits",
+   "kind": "limit",
+   "value": "first-seen calls stay at most min(B × N_serving / N_published, 500 × N_serving) per second per Cell (target)"
+  },
+  {
+   "section": "Distributed rate limits",
+   "kind": "claim",
+   "value": "Leases, as in Doorman, trade accuracy for fewer calls"
+  },
+  {
+   "section": "Distributed rate limits",
+   "kind": "claim",
+   "value": "denials come from the over-limit cache, as in envoyproxy/ratelimit"
+  },
+  {
+   "section": "Distributed rate limits",
+   "kind": "number",
+   "value": "a derived ceiling allows 2 × `requests` × N_serving / N_published calls per window"
+  },
+  {
+   "section": "Distributed rate limits",
+   "kind": "limit",
+   "value": "A key whose `requests` exceed 25% of one shard's calls, about 25,000 per second (hypothesis), MUST use `localOnly` mode"
+  },
+  {
+   "section": "Distributed rate limits",
+   "kind": "kind_or_field",
+   "value": "localOnly"
+  },
+  {
+   "section": "Distributed rate limits",
+   "kind": "number",
+   "value": "GCRA keys then stay at 50% of a shard, leaving margin under the 70% script CPU target for a count lagging 40% (hypothesis)"
+  },
+  {
+   "section": "Distributed rate limits",
+   "kind": "limit",
+   "value": "A `localOnly` key never runs GCRA and admits at most N_serving × ceiling per window, even healthy (target)"
+  },
+  {
+   "section": "Distributed caches",
+   "kind": "failure_mode",
+   "value": "under `noeviction` a full deployment refuses writes, so Rate Limits fail open and every `closed` Token Budget in the Cell returns 503"
+  },
+  {
+   "section": "Distributed caches",
+   "kind": "kind_or_field",
+   "value": "Gateway.spec.stateStore"
+  },
+  {
+   "section": "Distributed caches",
+   "kind": "decision",
+   "value": "a Cell whose State Store holds `ai.token-budget` keys MUST NOT attach `cache` or `ai.semantic-cache`"
+  },
+  {
+   "section": "Distributed caches",
+   "kind": "limit",
+   "value": "where N_serving can exceed 25 × N_c (hypothesis), `cache` MUST stay off"
+  },
+  {
+   "section": "Distributed caches",
+   "kind": "decision",
+   "value": "For OQ-ai-llm-gateway-18 this document decides option (a) in Cells without `ai.token-budget`, and (b) once the second connection exists"
+  },
+  {
+   "section": "Distributed caches",
+   "kind": "decision",
+   "value": "Client-side caching stays off"
+  },
+  {
+   "section": "Distributed caches",
+   "kind": "limit",
+   "value": "enabling client-side caching MUST cap each connection at 16 MiB and each Node at 64 MiB (target)"
+  },
+  {
+   "section": "Distributed sessions",
+   "kind": "decision",
+   "value": "Ruralz has no server-side session store"
+  },
+  {
+   "section": "Distributed sessions",
+   "kind": "kind_or_field",
+   "value": "Last-Event-ID"
+  },
+  {
+   "section": "Distributed sessions",
+   "kind": "kind_or_field",
+   "value": "ring-hash"
+  },
+  {
+   "section": "Distributed sessions",
+   "kind": "kind_or_field",
+   "value": "hashKey"
+  },
+  {
+   "section": "Distributed sessions",
+   "kind": "milestone",
+   "value": "Plugin-held sessions: Planned (M2)"
+  },
+  {
+   "section": "Post-commit write queue",
+   "kind": "milestone",
+   "value": "Post-commit write queue: Planned (M1)"
+  },
+  {
+   "section": "Post-commit write queue",
+   "kind": "decision",
+   "value": "answers OQ-wasm-plugin-system-19 with option (a): this sub-queue, plus the Environment name as `rzplg:` namespace"
+  },
+  {
+   "section": "Post-commit write queue",
+   "kind": "limit",
+   "value": "Quota refunds, Token Budget settlement: 32,000 items and 16 MiB (target); First; Drop; over-charge, never under-charge"
+  },
+  {
+   "section": "Post-commit write queue",
+   "kind": "limit",
+   "value": "Cache invalidations: 6,400 items and 1 MiB, the reserved 10% (target); Second; One retry, then drop"
+  },
+  {
+   "section": "Post-commit write queue",
+   "kind": "limit",
+   "value": "Cache stores: 16,000 items and 64 MiB of payload (target); Third, 4 of 5 turns (target)"
+  },
+  {
+   "section": "Post-commit write queue",
+   "kind": "limit",
+   "value": "Plugin writes: 9,600 items and 4 MiB (target); Third, 1 of 5 turns (target); Drop per Plugin Policy"
+  },
+  {
+   "section": "Post-commit write queue",
+   "kind": "number",
+   "value": "Eight writers per Node cycle through the turns, skipping empty classes, 64 writes per batch (target)"
+  },
+  {
+   "section": "Post-commit write queue",
+   "kind": "number",
+   "value": "Plugin writes get one batch in 15 under saturation (target)"
+  },
+  {
+   "section": "Post-commit write queue",
+   "kind": "limit",
+   "value": "A Plugin write is a `state_incr` of an i64 on a key of at most 256 bytes"
+  },
+  {
+   "section": "Post-commit write queue",
+   "kind": "term",
+   "value": "state_incr"
+  },
+  {
+   "section": "Post-commit write queue",
+   "kind": "timeout",
+   "value": "on Drain the Node flushes for up to 5 s (target)"
+  },
+  {
+   "section": "Post-commit write queue",
+   "kind": "metric",
+   "value": "ruralz_state_writes_dropped_total"
+  },
+  {
+   "section": "State client and RZ-STS error codes",
+   "kind": "milestone",
+   "value": "State client: Planned (M1)"
+  },
+  {
+   "section": "State client and RZ-STS error codes",
+   "kind": "library",
+   "value": "`rueidis` with auto-pipelining"
+  },
+  {
+   "section": "State client and RZ-STS error codes",
+   "kind": "limit",
+   "value": "2 pipelined connections per shard plus up to 8 dedicated ones opened lazily (target)"
+  },
+  {
+   "section": "State client and RZ-STS error codes",
+   "kind": "limit",
+   "value": "at most 8,192 blocking calls in flight (target)"
+  },
+  {
+   "section": "State client and RZ-STS error codes",
+   "kind": "number",
+   "value": "breaker opens when 50% of at least 20 calls in 5 s fail, or after 5 consecutive connect failures"
+  },
+  {
+   "section": "State client and RZ-STS error codes",
+   "kind": "timeout",
+   "value": "half-opens after a uniform 1 to 3 s delay, admits one probe at a time and closes after 3 successes (target)"
+  },
+  {
+   "section": "State client and RZ-STS error codes",
+   "kind": "timeout",
+   "value": "Reconnects back off with full jitter, base 100 ms, cap 5 s, at most 4 connects per second per shard per Node (target)"
+  },
+  {
+   "section": "State client and RZ-STS error codes",
+   "kind": "failure_mode",
+   "value": "a State Store call failed or timed out under `failureMode: closed`, never a decision"
+  },
+  {
+   "section": "State client and RZ-STS error codes",
+   "kind": "claim",
+   "value": "request Phase 503, or 401 for a `plugin` Policy of Filter class auth and 403 for class authz; response Phase 502"
+  },
+  {
+   "section": "State client and RZ-STS error codes",
+   "kind": "policy_type",
+   "value": "plugin"
+  },
+  {
+   "section": "State client and RZ-STS error codes",
+   "kind": "term",
+   "value": "state_get"
+  },
+  {
+   "section": "State client and RZ-STS error codes",
+   "kind": "error_code",
+   "value": "RZ-STS-001: The call exceeded `stateStoreTimeout` or the remaining per-request deadline"
+  },
+  {
+   "section": "State client and RZ-STS error codes",
+   "kind": "error_code",
+   "value": "RZ-STS-002: Connection error, error reply (such as out of memory or `NOSCRIPT`) or unparsable reply"
+  },
+  {
+   "section": "State client and RZ-STS error codes",
+   "kind": "error_code",
+   "value": "RZ-STS-003: Skipped: the shard's State client breaker was open"
+  },
+  {
+   "section": "State client and RZ-STS error codes",
+   "kind": "error_code",
+   "value": "RZ-STS-004: Not attempted: the per-request deadline was spent or the in-flight ceiling full"
+  },
+  {
+   "section": "State client and RZ-STS error codes",
+   "kind": "error_code",
+   "value": "RZ-STS-005: The deployment lacks a command set the Policy needs, such as vector search"
+  },
+  {
+   "section": "Consistency and accuracy bounds",
+   "kind": "kind_or_field",
+   "value": "limits[]"
+  },
+  {
+   "section": "Consistency and accuracy bounds",
+   "kind": "kind_or_field",
+   "value": "window"
+  },
+  {
+   "section": "Consistency and accuracy bounds",
+   "kind": "kind_or_field",
+   "value": "unit: requests"
+  },
+  {
+   "section": "Consistency and accuracy bounds",
+   "kind": "kind_or_field",
+   "value": "limit"
+  },
+  {
+   "section": "Consistency and accuracy bounds",
+   "kind": "number",
+   "value": "Global quota accuracy bound: admission is at most `limit` per window, 0% over-admission (target)"
+  },
+  {
+   "section": "Consistency and accuracy bounds",
+   "kind": "number",
+   "value": "across R Cells the total is at most R × these (target)"
+  },
+  {
+   "section": "Consistency and accuracy bounds",
+   "kind": "metric",
+   "value": "RuralzStateWritesDropped"
+  },
+  {
+   "section": "Consistency and accuracy bounds",
+   "kind": "number",
+   "value": "Rate Limit healthy: `requests` per `window` sustained, 2 × `requests` in one window with τ of one window (target)"
+  },
+  {
+   "section": "Consistency and accuracy bounds",
+   "kind": "number",
+   "value": "First-seen key past the budget: At most N_serving × ceiling per window during its 10 s local-only entry (target)"
+  },
+  {
+   "section": "Consistency and accuracy bounds",
+   "kind": "number",
+   "value": "Client pinned to one Node: One ceiling per window: under-admission only (target)"
+  },
+  {
+   "section": "Consistency and accuracy bounds",
+   "kind": "number",
+   "value": "`localOnly` hot key: At most N_serving × ceiling per window, healthy or not (target)"
+  },
+  {
+   "section": "Consistency and accuracy bounds",
+   "kind": "number",
+   "value": "Fail-open declared ceiling: At most N_serving × ceiling per window, pack 8.8 (target)"
+  },
+  {
+   "section": "Consistency and accuracy bounds",
+   "kind": "number",
+   "value": "Derived ceiling: N_serving × max(1, 2 × `requests` / N_published) per aligned window (target): 10 per `1s` admits 100 per second on 100 Nodes, 1,000 on 1,000 (target)"
+  },
+  {
+   "section": "Consistency and accuracy bounds",
+   "kind": "number",
+   "value": "Scale-out while the count lags: 20 × `requests` for about 34 minutes from 10 to 100 Nodes (hypothesis)"
+  },
+  {
+   "section": "Consistency and accuracy bounds",
+   "kind": "number",
+   "value": "Countless Node: N_countless × max(1, `requests` / 100) per window (target): 10 × `requests` from 100 restarted Nodes at 10 per second (hypothesis)"
+  },
+  {
+   "section": "Consistency and accuracy bounds",
+   "kind": "number",
+   "value": "Frozen count: At most N_serving × max(1, 2 × `requests` / N_frozen) per window; 20 × `requests` after a 10 to 100 scale-out (hypothesis)"
+  },
+  {
+   "section": "Consistency and accuracy bounds",
+   "kind": "number",
+   "value": "File mode without a ceiling: At most N_serving × `requests` per window (target)"
+  },
+  {
+   "section": "Consistency and accuracy bounds",
+   "kind": "number",
+   "value": "`memory` driver, several Nodes: N_serving × each limit; Nodes warn (pack 8.8) (target)"
+  },
+  {
+   "section": "Consistency and accuracy bounds",
+   "kind": "term",
+   "value": "memory driver"
+  },
+  {
+   "section": "Consistency and accuracy bounds",
+   "kind": "number",
+   "value": "Failover with lag L: L × the key's admitted rate extra, 100 at 1,000 per second and 100 ms lag; up to `requests` extra (hypothesis)"
+  },
+  {
+   "section": "Consistency and accuracy bounds",
+   "kind": "number",
+   "value": "Rate Limit Node restart: At most one extra ceiling per key per restarted Node (target)"
+  },
+  {
+   "section": "Consistency and accuracy bounds",
+   "kind": "failure_mode",
+   "value": "Quota, State Store failing, `open`: Unmetered; such Routes SHOULD also carry a `ratelimit`"
+  },
+  {
+   "section": "Consistency and accuracy bounds",
+   "kind": "number",
+   "value": "Quota dropped refunds: Over-charge by the drops only (target)"
+  },
+  {
+   "section": "Consistency and accuracy bounds",
+   "kind": "number",
+   "value": "Cell evacuation or active-standby failover: One extra `limit` per receiving Cell per open window, up to 720 h (target)"
+  },
+  {
+   "section": "Consistency and accuracy bounds",
+   "kind": "number",
+   "value": "Token Budget healthy `closed`: overshoot bound SM-10 (hypothesis), incl. hidden reasoning above C on `gemini` and `ollama` while OQ-ai-llm-gateway-17 is open"
+  },
+  {
+   "section": "Consistency and accuracy bounds",
+   "kind": "number",
+   "value": "Token Budget dropped settlement or crash: Over-charge of R minus usage each (target)"
+  },
+  {
+   "section": "Consistency and accuracy bounds",
+   "kind": "number",
+   "value": "Token Budget failover with lag L: Over-spend up to L × reserved tokens per second per key (hypothesis)"
+  },
+  {
+   "section": "Consistency and accuracy bounds",
+   "kind": "number",
+   "value": "Response Cache dropped invalidation: Stale variant up to 25 h (target)"
+  },
+  {
+   "section": "Consistency and accuracy bounds",
+   "kind": "number",
+   "value": "Caches, dropped store or failing State Store: Misses only (target)"
+  },
+  {
+   "section": "Consistency and accuracy bounds",
+   "kind": "number",
+   "value": "Quota layout switch: Up to 2 × `limit` for one window per such Node (hypothesis)"
+  },
+  {
+   "section": "Consistency and accuracy bounds",
+   "kind": "number",
+   "value": "Node clock skew up to half a window does not matter (target)"
+  },
+  {
+   "section": "Consistency and accuracy bounds",
+   "kind": "decision",
+   "value": "For OQ-release-versioning-and-compatibility-9 this document recommends option (a), a Control Stream field"
+  },
+  {
+   "section": "Multi-region",
+   "kind": "milestone",
+   "value": "Multi-region is Planned (M4); single-Region Cells work from Planned (M1)"
+  },
+  {
+   "section": "Multi-region",
+   "kind": "kind_or_field",
+   "value": "stateStore.url"
+  },
+  {
+   "section": "Topologies",
+   "kind": "number",
+   "value": "Active-active: R × each limit"
+  },
+  {
+   "section": "Topologies",
+   "kind": "number",
+   "value": "Active-standby: Counters start empty: one extra limit per open window (target)"
+  },
+  {
+   "section": "Topologies",
+   "kind": "number",
+   "value": "each active-active Region SHOULD be pre-provisioned for R / (R − 1) times its peak share (target): 100% of global peak each with two Regions"
+  },
+  {
+   "section": "Topologies",
+   "kind": "decision",
+   "value": "Nodes that may be rescheduled MUST keep `${RURALZ_DATA_DIR}` on persistent storage"
+  },
+  {
+   "section": "Topologies",
+   "kind": "cli_command",
+   "value": "ruralz control restore"
+  },
+  {
+   "section": "Topologies",
+   "kind": "cli_command",
+   "value": "ruralz control backup"
+  },
+  {
+   "section": "Topologies",
+   "kind": "milestone",
+   "value": "Regional Ruralz Control relay, Planned (M4)"
+  },
+  {
+   "section": "Topologies",
+   "kind": "port",
+   "value": "Control Stream 8091"
+  },
+  {
+   "section": "Topologies",
+   "kind": "port",
+   "value": "relay feed and content fetch on 8092"
+  },
+  {
+   "section": "Regional versus global quotas",
+   "kind": "claim",
+   "value": "AWS API Gateway throttles per Region"
+  },
+  {
+   "section": "Regional versus global quotas",
+   "kind": "claim",
+   "value": "Cloudflare keeps no global counters"
+  },
+  {
+   "section": "Regional versus global quotas",
+   "kind": "number",
+   "value": "Regional (default): At most R × `limit` globally (target); Planned (M4)"
+  },
+  {
+   "section": "Regional versus global quotas",
+   "kind": "number",
+   "value": "Divided: At most the sum of shares (target); shares never borrow; Planned (M4)"
+  },
+  {
+   "section": "Regional versus global quotas",
+   "kind": "number",
+   "value": "Home Region: Exact in the home Cell (target); Planned (M4)"
+  },
+  {
+   "section": "Regional versus global quotas",
+   "kind": "milestone",
+   "value": "Per-Cell enforcement itself is Planned (M1) and Environment variables Planned (M2)"
+  },
+  {
+   "section": "Regional versus global quotas",
+   "kind": "kind_or_field",
+   "value": "kind: Consumer"
+  },
+  {
+   "section": "Regional versus global quotas",
+   "kind": "kind_or_field",
+   "value": "apiVersion: ruralz/v1alpha1"
+  },
+  {
+   "section": "Regional versus global quotas",
+   "kind": "kind_or_field",
+   "value": "tier: gold"
+  },
+  {
+   "section": "Regional versus global quotas",
+   "kind": "kind_or_field",
+   "value": "credentials.apiKeys"
+  },
+  {
+   "section": "Regional versus global quotas",
+   "kind": "kind_or_field",
+   "value": "quotas"
+  },
+  {
+   "section": "Regional versus global quotas",
+   "kind": "kind_or_field",
+   "value": "window: 24h"
+  },
+  {
+   "section": "Regional versus global quotas",
+   "kind": "kind_or_field",
+   "value": "kind: Environment"
+  },
+  {
+   "section": "Regional versus global quotas",
+   "kind": "kind_or_field",
+   "value": "overlay: prod"
+  },
+  {
+   "section": "Regional versus global quotas",
+   "kind": "kind_or_field",
+   "value": "variables"
+  },
+  {
+   "section": "Regional versus global quotas",
+   "kind": "number",
+   "value": "PARTNER_ACME_DAILY_REQUESTS: \"600000\"    # 60% of a 1,000,000 global allowance"
+  },
+  {
+   "section": "Regional versus global quotas",
+   "kind": "number",
+   "value": "PARTNER_ACME_DAILY_REQUESTS: \"400000\""
+  },
+  {
+   "section": "Regional versus global quotas",
+   "kind": "kind_or_field",
+   "value": "kind: Cluster"
+  },
+  {
+   "section": "Regional versus global quotas",
+   "kind": "kind_or_field",
+   "value": "environment: prod-us"
+  },
+  {
+   "section": "Regional versus global quotas",
+   "kind": "kind_or_field",
+   "value": "region: us-east-1"
+  },
+  {
+   "section": "Geo and data-residency routing",
+   "kind": "claim",
+   "value": "a router AWS advises keeping simple"
+  },
+  {
+   "section": "Geo and data-residency routing",
+   "kind": "policy_type",
+   "value": "authz.geoip"
+  },
+  {
+   "section": "Geo and data-residency routing",
+   "kind": "milestone",
+   "value": "`authz.geoip`, Planned (M2)"
+  },
+  {
+   "section": "Geo and data-residency routing",
+   "kind": "decision",
+   "value": "a Route splitting candidates on residency MUST NOT attach `ai.semantic-cache` until OQ-ai-llm-gateway-9 closes"
+  },
+  {
+   "section": "Cross-region configuration sync",
+   "kind": "decision",
+   "value": "One Revision per Environment reaches every Region over the Control Stream (ADR-0007)"
+  },
+  {
+   "section": "Cross-region configuration sync",
+   "kind": "milestone",
+   "value": "read-only regional relay, Planned (M4)"
+  },
+  {
+   "section": "Cross-region configuration sync",
+   "kind": "port",
+   "value": "its 8092 feed awaits the pack 8.4 amendment of OQ-control-plane-and-gitops-15"
+  },
+  {
+   "section": "Latency budgets",
+   "kind": "number",
+   "value": "Same-zone State Store GCRA round trip, p99: 1 ms or less (hypothesis), SLO-GW-5"
+  },
+  {
+   "section": "Latency budgets",
+   "kind": "number",
+   "value": "Cross-zone State Store round trip in one Region, p99: 2 ms or less (hypothesis)"
+  },
+  {
+   "section": "Latency budgets",
+   "kind": "timeout",
+   "value": "`stateStoreTimeout` on latency-sensitive Policies: 5 to 10 ms, at least five times the p99 (target)"
+  },
+  {
+   "section": "Latency budgets",
+   "kind": "number",
+   "value": "Raft round trip between voters: About 100 ms or less (hypothesis)"
+  },
+  {
+   "section": "Cells and blast radius",
+   "kind": "kind_or_field",
+   "value": "Cluster.spec.region"
+  },
+  {
+   "section": "Cells and blast radius",
+   "kind": "claim",
+   "value": "A Cell is the bulkhead AWS extends to cell-based architecture"
+  },
+  {
+   "section": "Cell sizing",
+   "kind": "limit",
+   "value": "Nodes per Cell: 1,000 (target)"
+  },
+  {
+   "section": "Cell sizing",
+   "kind": "limit",
+   "value": "State Store shards per Cell: 16 (target)"
+  },
+  {
+   "section": "Cell sizing",
+   "kind": "limit",
+   "value": "State Store calls per second per Cell: 1,000,000, 62.5% of 16 shards at about 100,000 each (hypothesis)"
+  },
+  {
+   "section": "Cell sizing",
+   "kind": "claim",
+   "value": "Valkey 8 measured 1.19 million `SET` per second"
+  },
+  {
+   "section": "Cell sizing",
+   "kind": "limit",
+   "value": "State Store memory per shard: 70% of `maxmemory` steady state (target)"
+  },
+  {
+   "section": "Cell sizing",
+   "kind": "limit",
+   "value": "Tenants per Cell: At most 10% of tenants in deployments of ten or more Cells (target)"
+  },
+  {
+   "section": "Failure containment",
+   "kind": "failure_mode",
+   "value": "State Store slow, down or full: One Cell: Rate Limits open, Quotas unmetered, caches bypassed, `closed` Token Budgets reject"
+  },
+  {
+   "section": "Failure containment",
+   "kind": "failure_mode",
+   "value": "Hot key: One shard: every Node's breaker for it opens and co-tenant keys apply `failureMode`"
+  },
+  {
+   "section": "Failure containment",
+   "kind": "failure_mode",
+   "value": "Ruralz Control down: no request errors; fail-open accuracy degrades by N_serving / N_frozen"
+  },
+  {
+   "section": "Failure containment",
+   "kind": "failure_mode",
+   "value": "Bad Revision: The canary Nodes of one Cluster"
+  },
+  {
+   "section": "Per-Node limits",
+   "kind": "limit",
+   "value": "Client connections: 20,000 (target); Stops calling `Accept`"
+  },
+  {
+   "section": "Per-Node limits",
+   "kind": "limit",
+   "value": "In-flight units: 20,000 (target); 503 `RZ-RT-005`"
+  },
+  {
+   "section": "Per-Node limits",
+   "kind": "error_code",
+   "value": "RZ-RT-005"
+  },
+  {
+   "section": "Per-Node limits",
+   "kind": "default",
+   "value": "Buffered bytes: 512 MiB proposed default (target); 503 `RZ-RT-004`; tees skip"
+  },
+  {
+   "section": "Per-Node limits",
+   "kind": "error_code",
+   "value": "RZ-RT-004"
+  },
+  {
+   "section": "Per-Node limits",
+   "kind": "limit",
+   "value": "Rate-limit key table: 1,048,576 entries, about 64 MiB (target)"
+  },
+  {
+   "section": "Per-Node limits",
+   "kind": "limit",
+   "value": "Local-only key segment: 131,072 entries (target)"
+  },
+  {
+   "section": "Per-Node limits",
+   "kind": "limit",
+   "value": "Quota denial cache: 65,536 entries, about 4 MiB (target)"
+  },
+  {
+   "section": "Per-Node limits",
+   "kind": "limit",
+   "value": "First-seen GCRA budget: min(500, B / N_published) per second, else 200 (target)"
+  },
+  {
+   "section": "Per-Node limits",
+   "kind": "limit",
+   "value": "Balancer structures: 256 MiB (target); Weighted `random` fallback"
+  },
+  {
+   "section": "Per-Node limits",
+   "kind": "limit",
+   "value": "Response Cache hot-entry layer: 64 MiB (target); LRU eviction"
+  },
+  {
+   "section": "Per-Node limits",
+   "kind": "limit",
+   "value": "Post-commit write queue: 64,000 items and 85 MiB: 16, 1, 64 and 4 MiB per class (target)"
+  },
+  {
+   "section": "Per-Node limits",
+   "kind": "limit",
+   "value": "State Store calls in flight: 8,192 (target)"
+  },
+  {
+   "section": "Per-Node limits",
+   "kind": "limit",
+   "value": "State Store connections per shard: 2 pipelined plus 8 dedicated (target)"
+  },
+  {
+   "section": "Per-Node limits",
+   "kind": "number",
+   "value": "worst-case Node memory at about 19 GiB plus snapshots on a 32 GiB Node (hypothesis)"
+  },
+  {
+   "section": "Per-Node limits",
+   "kind": "number",
+   "value": "these limits add ... about 475 MiB (target)"
+  },
+  {
+   "section": "Cell and Cluster bottlenecks",
+   "kind": "number",
+   "value": "Shard script throughput: About 100,000 calls per second (hypothesis)"
+  },
+  {
+   "section": "Cell and Cluster bottlenecks",
+   "kind": "number",
+   "value": "One hot key: up to 2 × `requests` calls per window; `localOnly` above 25% of a shard, about 25,000 per second (hypothesis)"
+  },
+  {
+   "section": "Cell and Cluster bottlenecks",
+   "kind": "number",
+   "value": "Connections per shard: 10 × N_serving, 10,000 at 1,000 Nodes (hypothesis)"
+  },
+  {
+   "section": "Cell and Cluster bottlenecks",
+   "kind": "limit",
+   "value": "Server client limit above 10 × N_serving, a MUST above 900 Nodes (target)"
+  },
+  {
+   "section": "Cell and Cluster bottlenecks",
+   "kind": "number",
+   "value": "First-seen budget B: 20,000 calls per second per Cell (hypothesis)"
+  },
+  {
+   "section": "Cell and Cluster bottlenecks",
+   "kind": "number",
+   "value": "Ruralz Control streams: About 5,000 per replica (hypothesis); `Reconnect` with `shed`"
+  },
+  {
+   "section": "Cell and Cluster bottlenecks",
+   "kind": "number",
+   "value": "Node-count lag: Plus 10% per minute (target); 20 × `requests` fail-open (hypothesis)"
+  },
+  {
+   "section": "Cell and Cluster bottlenecks",
+   "kind": "number",
+   "value": "At 5,000 State Store calls per second per Node (hypothesis), the 1,000,000-call ceiling binds at 200 Nodes"
+  },
+  {
+   "section": "Chaos experiments",
+   "kind": "number",
+   "value": "Each runs against at least 10 Nodes (target) under open-loop load"
+  },
+  {
+   "section": "Chaos experiments",
+   "kind": "milestone",
+   "value": "CE-1: SIGKILL one Node at 50% load (target) — Planned (M1)"
+  },
+  {
+   "section": "Chaos experiments",
+   "kind": "milestone",
+   "value": "CE-2: SIGTERM a Node holding WebSockets and SSE; zero failed new requests — Planned (M1)"
+  },
+  {
+   "section": "Chaos experiments",
+   "kind": "milestone",
+   "value": "CE-3: 200 ms added to every State Store call (target); p99 within 10% once breakers open (target) — Planned (M1)"
+  },
+  {
+   "section": "Chaos experiments",
+   "kind": "milestone",
+   "value": "CE-4: State Store black-holed for 60 s (target); `RZ-STS-001`, then `RZ-STS-003` — Planned (M1)"
+  },
+  {
+   "section": "Chaos experiments",
+   "kind": "milestone",
+   "value": "CE-5: primary killed under at least 100 Nodes (target); reconnected within 10 s, `failureMode` at most 15 s (target) — Planned (M1)"
+  },
+  {
+   "section": "Chaos experiments",
+   "kind": "milestone",
+   "value": "CE-6: State Store filled to `maxmemory`; Stores skip above 70% (target) — Planned (M1)"
+  },
+  {
+   "section": "Chaos experiments",
+   "kind": "milestone",
+   "value": "CE-7: Ruralz Control leader killed mid-Rollout; published count drops at most 10% (target) — Planned (M2)"
+  },
+  {
+   "section": "Chaos experiments",
+   "kind": "milestone",
+   "value": "CE-8: Raft quorum removed, then 10% of Nodes restarted (target); boot Last-Known-Good within 30 s (target) — Planned (M2)"
+  },
+  {
+   "section": "Chaos experiments",
+   "kind": "milestone",
+   "value": "CE-9: Scale from 10 to 100 Nodes in 2 minutes (target); 20 × `requests` for about 34 minutes (hypothesis) — Planned (M2)"
+  },
+  {
+   "section": "Chaos experiments",
+   "kind": "milestone",
+   "value": "CE-10: Every Ruralz Control replica restarted; reconnect within 5 minutes (target); count drops at most 10% (target) — Planned (M2)"
+  },
+  {
+   "section": "Chaos experiments",
+   "kind": "milestone",
+   "value": "CE-11: One Region cut off with its State Store and relay; No cross-Region State Store dial — Planned (M4)"
+  },
+  {
+   "section": "Chaos experiments",
+   "kind": "milestone",
+   "value": "CE-12: Hot key offered 1,000,000 calls per second, 10 times one shard (hypothesis); script CPU under 70% (target) — Planned (M1)"
+  },
+  {
+   "section": "Chaos experiments",
+   "kind": "milestone",
+   "value": "CE-13: 200 concurrent AI streams, usage dropped on 5% (target) — Planned (M3)"
+  },
+  {
+   "section": "Chaos experiments",
+   "kind": "milestone",
+   "value": "CE-14: `ai.semantic-cache` without vector commands; Bypass under `open`; `RZ-STS-005` under `closed` — Planned (M3)"
+  },
+  {
+   "section": "Chaos experiments",
+   "kind": "milestone",
+   "value": "CE-15: Key-rotation flood, 100,000 new keys per second (target) — Planned (M1)"
+  },
+  {
+   "section": "Chaos experiments",
+   "kind": "milestone",
+   "value": "CE-16: Cache stores saturate the post-commit queue; Zero `cache_invalidate` drops — Planned (M1)"
+  },
+  {
+   "section": "Chaos experiments",
+   "kind": "term",
+   "value": "cache_invalidate"
+  },
+  {
+   "section": "Chaos experiments",
+   "kind": "milestone",
+   "value": "CE-17: Home Region lost with every voter; serves full peak on pre-provisioned Nodes (target) — Planned (M4)"
+  },
+  {
+   "section": "Open questions",
+   "kind": "milestone",
+   "value": "OQ-scalability-and-distributed-state-1 (b) leases for keys over a shard threshold, Planned (M4)"
+  },
+  {
+   "section": "Open questions",
+   "kind": "claim",
+   "value": "OQ-scalability-and-distributed-state-2 blocking: Yes, State Store (M1)"
+  },
+  {
+   "section": "Open questions",
+   "kind": "claim",
+   "value": "OQ-scalability-and-distributed-state-3 blocking: Yes, Response Cache (M1) and Semantic Cache (M3)"
+  },
+  {
+   "section": "Open questions",
+   "kind": "kind_or_field",
+   "value": "RURALZ_*"
+  },
+  {
+   "section": "Open questions",
+   "kind": "milestone",
+   "value": "OQ-scalability-and-distributed-state-5 (b) home-Region leases, Planned (M4)"
+  },
+  {
+   "section": "Open questions",
+   "kind": "timeout",
+   "value": "OQ-scalability-and-distributed-state-6 (b) GOAWAY after 10 minutes with jitter (target)"
+  },
+  {
+   "section": "Open questions",
+   "kind": "number",
+   "value": "OQ-scalability-and-distributed-state-7 (a) 30% headroom (target)"
+  },
+  {
+   "section": "Open questions",
+   "kind": "claim",
+   "value": "OQ-scalability-and-distributed-state-10 blocking: Yes, chaos experiments (M1)"
+  },
+  {
+   "section": "Open questions",
+   "kind": "claim",
+   "value": "OQ-scalability-and-distributed-state-11 blocking: Yes, pack 8.7, 8.8 and 8.11 amendment (M1); (a) All (recommended)"
+  },
+  {
+   "section": "Open questions",
+   "kind": "claim",
+   "value": "OQ-scalability-and-distributed-state-14 blocking: Yes, derived ceilings (M2); (a) recommended"
+  },
+  {
+   "section": "Open questions",
+   "kind": "error_code",
+   "value": "RZ-CFG"
+  },
+  {
+   "section": "Open questions",
+   "kind": "number",
+   "value": "OQ-scalability-and-distributed-state-15: 25% of one shard's calls, about 25,000 per second (hypothesis)"
+  }
+ ]
+}

@@ -1,0 +1,1471 @@
+{
+ "path": "docs/architecture/05-wasm-plugin-system.md",
+ "status": "reviewed",
+ "facts": [
+  {
+   "section": "Summary",
+   "kind": "term",
+   "value": "Plugin ABI v1 (`ruralz.plugin.v1`)"
+  },
+  {
+   "section": "Summary",
+   "kind": "library",
+   "value": "wazero"
+  },
+  {
+   "section": "Summary",
+   "kind": "milestone",
+   "value": "Plugins are Planned (M2)"
+  },
+  {
+   "section": "Summary",
+   "kind": "milestone",
+   "value": "the proxy-wasm adapter Planned (M4)"
+  },
+  {
+   "section": "Scope and non-goals",
+   "kind": "kind_or_field",
+   "value": "Gateway `limits.maxPluginMemoryBytes`"
+  },
+  {
+   "section": "Scope and non-goals",
+   "kind": "error_code",
+   "value": "`RZ-PLG` registry ([foundation pack] section 8.6)"
+  },
+  {
+   "section": "Scope and non-goals",
+   "kind": "claim",
+   "value": "Hostile third-party code: Plugins are operator-installed; the sandbox bounds faults and over-reach."
+  },
+  {
+   "section": "Scope and non-goals",
+   "kind": "decision",
+   "value": "Non-goal: Outbound network, filesystem and environment access; the WebAssembly component model."
+  },
+  {
+   "section": "Scope and non-goals",
+   "kind": "decision",
+   "value": "A Revington-hosted marketplace: Plugins live in any OCI registry (P1)."
+  },
+  {
+   "section": "Goals",
+   "kind": "claim",
+   "value": "WG-1 Custom logic in any Phase, including `onChunk`, without Go plugins or Lua (ADR-0011)"
+  },
+  {
+   "section": "Goals",
+   "kind": "claim",
+   "value": "WG-2 A faulty Plugin fails only its own Policy"
+  },
+  {
+   "section": "Goals",
+   "kind": "claim",
+   "value": "WG-3 Pure Go host that builds with `CGO_ENABLED=0` (ADR-0001)"
+  },
+  {
+   "section": "Goals",
+   "kind": "claim",
+   "value": "WG-4 Deny-by-default Capabilities"
+  },
+  {
+   "section": "Goals",
+   "kind": "claim",
+   "value": "WG-5 Plugins pinned by digest inside the Revision"
+  },
+  {
+   "section": "Goals",
+   "kind": "claim",
+   "value": "WG-6 Hot Reload and Rollouts swap Plugins without dropping requests"
+  },
+  {
+   "section": "Goals",
+   "kind": "claim",
+   "value": "WG-7 Several PDK languages over one sandboxed ABI"
+  },
+  {
+   "section": "Goals",
+   "kind": "number",
+   "value": "WG-8 A pooled Phase call costs 50 µs or less at p99 (target), SM-6"
+  },
+  {
+   "section": "Prior art at the 2026-09-23 snapshot",
+   "kind": "claim",
+   "value": "KrakenD: Go plugins and Lua; CE 3.0 drops Go plugins; WASM status None"
+  },
+  {
+   "section": "Prior art at the 2026-09-23 snapshot",
+   "kind": "claim",
+   "value": "Kong Gateway: Lua, Go, Python and JavaScript PDKs; Beta proxy-wasm removed in 3.11.0.0"
+  },
+  {
+   "section": "Prior art at the 2026-09-23 snapshot",
+   "kind": "claim",
+   "value": "Tyk: Go, JavaScript, Python, Lua and gRPC plugins; WASM None documented"
+  },
+  {
+   "section": "Prior art at the 2026-09-23 snapshot",
+   "kind": "claim",
+   "value": "Apache APISIX: Lua plus external runners; WASM Experimental; \"only a few APIs are implemented\""
+  },
+  {
+   "section": "Prior art at the 2026-09-23 snapshot",
+   "kind": "claim",
+   "value": "Envoy Gateway: Wasm, Lua, ExtProc and Dynamic Modules; WASM Available"
+  },
+  {
+   "section": "Prior art at the 2026-09-23 snapshot",
+   "kind": "claim",
+   "value": "Zuplo: TypeScript policies on a custom JavaScript engine; WASM Not applicable"
+  },
+  {
+   "section": "Prior art at the 2026-09-23 snapshot",
+   "kind": "claim",
+   "value": "Extism: PDK conventions for eight languages; Host SDK on wazero; reuse guest conventions, not the stale go-sdk"
+  },
+  {
+   "section": "wazero on every Node",
+   "kind": "library",
+   "value": "wazero, module `github.com/tetratelabs/wazero` (ADR-0004)"
+  },
+  {
+   "section": "wazero on every Node",
+   "kind": "decision",
+   "value": "ADR-0004: runtime is wazero, pure Go, compiler mode on amd64 and arm64 only"
+  },
+  {
+   "section": "wazero on every Node",
+   "kind": "claim",
+   "value": "interpreter often ten times slower"
+  },
+  {
+   "section": "wazero on every Node",
+   "kind": "milestone",
+   "value": "wazero runtime rules, Planned (M2)"
+  },
+  {
+   "section": "wazero on every Node",
+   "kind": "decision",
+   "value": "Compile once per digest and memory limit; one runtime per distinct `limits.memoryBytes`, sharing one in-memory compilation cache"
+  },
+  {
+   "section": "wazero on every Node",
+   "kind": "decision",
+   "value": "Compiled code in memory only; restarts recompile verified artifacts (OQ-data-plane-11, option (c))"
+  },
+  {
+   "section": "wazero on every Node",
+   "kind": "decision",
+   "value": "Pools per configuration: Policies with equal digest, canonical `config` and limits share a pool"
+  },
+  {
+   "section": "wazero on every Node",
+   "kind": "kind_or_field",
+   "value": "`limits.memoryBytes` in 64 KiB WebAssembly pages"
+  },
+  {
+   "section": "wazero on every Node",
+   "kind": "error_code",
+   "value": "a declared minimum above it is RZ-CFG-028"
+  },
+  {
+   "section": "wazero on every Node",
+   "kind": "default",
+   "value": "The wazero default is 4 GiB"
+  },
+  {
+   "section": "wazero on every Node",
+   "kind": "decision",
+   "value": "Deadlines, not fuel: wazero has no metering; answers OQ-tech-stack-and-libraries-8 with options (a) and (b)"
+  },
+  {
+   "section": "wazero on every Node",
+   "kind": "number",
+   "value": "close-on-context-done costs 10 to 20x on loop-heavy guests"
+  },
+  {
+   "section": "wazero on every Node",
+   "kind": "limit",
+   "value": "keeping idle at least max(1, 25% of busy) (target)"
+  },
+  {
+   "section": "wazero on every Node",
+   "kind": "timeout",
+   "value": "Requests never compile or instantiate; they wait at most 1 ms (target)"
+  },
+  {
+   "section": "wazero on every Node",
+   "kind": "error_code",
+   "value": "Beyond the parked bound no call is attempted and `state_*` returns `ERR_LIMIT` (`RZ-PLG-010`)"
+  },
+  {
+   "section": "wazero on every Node",
+   "kind": "failure_mode",
+   "value": "an open State client breaker skips the call (pack section 8.7) with `ERR_UNAVAILABLE` (`RZ-STS`)"
+  },
+  {
+   "section": "wazero on every Node",
+   "kind": "failure_mode",
+   "value": "Faulted instances are destroyed; their refills are rate-limited, and a fault breaker prevents instantiation loops"
+  },
+  {
+   "section": "Default limits",
+   "kind": "kind_or_field",
+   "value": "`limits.memoryBytes` and `limits.timeout` are the only per-Plugin limit fields (P6); the rest are Node defaults (OQ-wasm-plugin-system-1)"
+  },
+  {
+   "section": "Default limits",
+   "kind": "default",
+   "value": "Linear memory per instance (`limits.memoryBytes`): 16 MiB (target)"
+  },
+  {
+   "section": "Default limits",
+   "kind": "limit",
+   "value": "Proposed maximum 256 MiB (target), OQ-wasm-plugin-system-15"
+  },
+  {
+   "section": "Default limits",
+   "kind": "error_code",
+   "value": "`memory.grow` fails, usually a trap: `RZ-PLG-003`"
+  },
+  {
+   "section": "Default limits",
+   "kind": "timeout",
+   "value": "Wall-clock time per call (`limits.timeout`): 5 ms (target)"
+  },
+  {
+   "section": "Default limits",
+   "kind": "limit",
+   "value": "Stopped while parked; proposed maximum 1 s (target); breach `RZ-PLG-002`"
+  },
+  {
+   "section": "Default limits",
+   "kind": "limit",
+   "value": "Fuel or instruction budget: None: no metering (OQ-wasm-plugin-system-10)"
+  },
+  {
+   "section": "Default limits",
+   "kind": "limit",
+   "value": "Substitute: 1,000 Host Function calls per call (target); `ERR_BUDGET`, `RZ-PLG-006`"
+  },
+  {
+   "section": "Default limits",
+   "kind": "limit",
+   "value": "N = floor(share / `limits.memoryBytes`); at most min(2 × `GOMAXPROCS`, N) computing"
+  },
+  {
+   "section": "Default limits",
+   "kind": "limit",
+   "value": "compute reserve R = min(ceil(N/4), max(2, ceil(2 × 1-minute peak computing))), parked bound N − R; warm minimum 1 (target)"
+  },
+  {
+   "section": "Default limits",
+   "kind": "limit",
+   "value": "Share: 25% of the Node cap, 50% for `state.*` pools (target)"
+  },
+  {
+   "section": "Default limits",
+   "kind": "error_code",
+   "value": "`limits.memoryBytes` above it is a validation error (OQ-wasm-plugin-system-9)"
+  },
+  {
+   "section": "Default limits",
+   "kind": "timeout",
+   "value": "Instance pool: Wait up to 1 ms (target), then `RZ-PLG-005`"
+  },
+  {
+   "section": "Default limits",
+   "kind": "limit",
+   "value": "Pool manager: max(1, `GOMAXPROCS`/2) workers; fault refills at most 10/s per pool (target); `RZ-PLG-008`"
+  },
+  {
+   "section": "Default limits",
+   "kind": "timeout",
+   "value": "Instantiate and configure: 100 ms, `rz_configure` included (target)"
+  },
+  {
+   "section": "Default limits",
+   "kind": "decision",
+   "value": "`rz_configure` may call only log, clock, random and crypto"
+  },
+  {
+   "section": "Default limits",
+   "kind": "failure_mode",
+   "value": "Instantiate and configure breach: Transient NACK, deterministic if the online stage reproduces it; at runtime `RZ-PLG-008`"
+  },
+  {
+   "section": "Default limits",
+   "kind": "limit",
+   "value": "Fault breaker: Faults above 50% of at least 200 calls in 10 s trip it for 5 s (target)"
+  },
+  {
+   "section": "Default limits",
+   "kind": "limit",
+   "value": "half-open: 5% of calls (target) reach the guest"
+  },
+  {
+   "section": "Default limits",
+   "kind": "failure_mode",
+   "value": "Others take `failureMode`: `RZ-PLG-009`, reason `plugin_pool_degraded`"
+  },
+  {
+   "section": "Default limits",
+   "kind": "limit",
+   "value": "Instance recycling: After 100,000 calls (target) or a fault"
+  },
+  {
+   "section": "Default limits",
+   "kind": "default",
+   "value": "Node Plugin memory (Gateway `limits.maxPluginMemoryBytes`): 2 GiB (target)"
+  },
+  {
+   "section": "Default limits",
+   "kind": "limit",
+   "value": "Instances reserve their full limit; 10% swap headroom (target)"
+  },
+  {
+   "section": "Default limits",
+   "kind": "error_code",
+   "value": "New instance refused: `RZ-PLG-004`"
+  },
+  {
+   "section": "Default limits",
+   "kind": "limit",
+   "value": "Compiled code per Node: 512 MiB (target), accounted as 4 × Wasm bytes per distinct digest and `limits.memoryBytes` (target)"
+  },
+  {
+   "section": "Default limits",
+   "kind": "failure_mode",
+   "value": "RZ-CFG-028 when the Revision's accounted code alone exceeds it; transient NACK while retained code blocks it or on a measured overrun (OQ-wasm-plugin-system-16)"
+  },
+  {
+   "section": "Default limits",
+   "kind": "limit",
+   "value": "Guest logs: 4 KiB per message, 16 KiB per call, 1 MiB/s (target); Truncated or dropped, counted"
+  },
+  {
+   "section": "Default limits",
+   "kind": "limit",
+   "value": "Per-request context: 4 KiB per Plugin Policy per request (target); Freed after `onLog`; `ERR_LIMIT`"
+  },
+  {
+   "section": "Default limits",
+   "kind": "limit",
+   "value": "Artifact size and structure: 32 MiB; 100,000 functions, 50,000 locals each, 16 MiB data (target); RZ-CFG-028"
+  },
+  {
+   "section": "Default limits",
+   "kind": "timeout",
+   "value": "Cold compilation: 30 s per artifact (target); one at a time"
+  },
+  {
+   "section": "Default limits",
+   "kind": "limit",
+   "value": "`WithCompilationWorkers` at most max(1, `GOMAXPROCS`/4)"
+  },
+  {
+   "section": "Default limits",
+   "kind": "limit",
+   "value": "Uncancellable: at most 1 abandoned per Node (target)"
+  },
+  {
+   "section": "Default limits",
+   "kind": "failure_mode",
+   "value": "Cold compilation: Transient NACK, 2 retries (target); deterministic if the online stage reproduces it"
+  },
+  {
+   "section": "Default limits",
+   "kind": "limit",
+   "value": "`state.*` pool guaranteed parked bound, N − ceil(N/4), below 16 (target) is logged"
+  },
+  {
+   "section": "Default limits",
+   "kind": "metric",
+   "value": "`ruralz_node_degraded_info{reason=\"plugin_parked_bound_low\"}` (proposed to Observability)"
+  },
+  {
+   "section": "Default limits",
+   "kind": "number",
+   "value": "A default 16 MiB pool parks at least 48, about 48,000 calls/s at a 1 ms round trip (hypothesis)"
+  },
+  {
+   "section": "Default limits",
+   "kind": "metric",
+   "value": "transient NACK with `reason=\"plugin_compiled_code_over_estimate\"` (proposed)"
+  },
+  {
+   "section": "Failure semantics and the RZ-PLG registry",
+   "kind": "failure_mode",
+   "value": "A Plugin failure applies `failureMode` per pack section 8.10; auth and authz `plugin` Policies are closed only (RZ-CFG-029)"
+  },
+  {
+   "section": "Failure semantics and the RZ-PLG registry",
+   "kind": "failure_mode",
+   "value": "A negative guest result uses `RZ-STS` only when its State Store call was attempted and failed or timed out, or the open breaker skipped it, returning `ERR_UNAVAILABLE`"
+  },
+  {
+   "section": "Failure semantics and the RZ-PLG registry",
+   "kind": "failure_mode",
+   "value": "after a parked-bound refusal it uses `RZ-PLG-010`, otherwise `RZ-PLG-011`"
+  },
+  {
+   "section": "Failure semantics and the RZ-PLG registry",
+   "kind": "error_code",
+   "value": "`RZ-PLG-001`: Guest trap, or a host panic recovered at the boundary"
+  },
+  {
+   "section": "Failure semantics and the RZ-PLG registry",
+   "kind": "error_code",
+   "value": "`RZ-PLG-002`: Call exceeded its wall-clock deadline"
+  },
+  {
+   "section": "Failure semantics and the RZ-PLG registry",
+   "kind": "error_code",
+   "value": "`RZ-PLG-003`: Linear memory limit reached"
+  },
+  {
+   "section": "Failure semantics and the RZ-PLG registry",
+   "kind": "error_code",
+   "value": "`RZ-PLG-004`: No idle instance within the wait; the pool manager was refused at the Node cap or pool share"
+  },
+  {
+   "section": "Failure semantics and the RZ-PLG registry",
+   "kind": "error_code",
+   "value": "`RZ-PLG-005`: No idle instance within the wait"
+  },
+  {
+   "section": "Failure semantics and the RZ-PLG registry",
+   "kind": "error_code",
+   "value": "`RZ-PLG-006`: Host Function misuse, a sticky error whatever the guest returns: wrong Phase, exhausted budget, second blocking State Store call, `ERR_DENIED`"
+  },
+  {
+   "section": "Failure semantics and the RZ-PLG registry",
+   "kind": "error_code",
+   "value": "`RZ-PLG-007`: Invalid guest result, such as `RESPOND` without an accepted `response_send`"
+  },
+  {
+   "section": "Failure semantics and the RZ-PLG registry",
+   "kind": "error_code",
+   "value": "`RZ-PLG-008`: Background instantiation or `rz_configure` failure; pool marked degraded, never returned to a request"
+  },
+  {
+   "section": "Failure semantics and the RZ-PLG registry",
+   "kind": "error_code",
+   "value": "`RZ-PLG-009`: Fault breaker open; the guest was not called"
+  },
+  {
+   "section": "Failure semantics and the RZ-PLG registry",
+   "kind": "error_code",
+   "value": "`RZ-PLG-010`: Parked bound reached; State Store call not attempted, and the guest returned cannot-decide"
+  },
+  {
+   "section": "Failure semantics and the RZ-PLG registry",
+   "kind": "error_code",
+   "value": "`RZ-PLG-011`: Guest returned cannot-decide without a preceding `ERR_UNAVAILABLE` or parked-bound refusal"
+  },
+  {
+   "section": "Failure semantics and the RZ-PLG registry",
+   "kind": "failure_mode",
+   "value": "Deterministic failures (digest mismatch, compile errors, Capability excess, `config` rejection, limits) fail the gate at once: RZ-CFG-028 pending OQ-wasm-plugin-system-9"
+  },
+  {
+   "section": "Failure semantics and the RZ-PLG registry",
+   "kind": "error_code",
+   "value": "bad signatures are RZ-CFG-033"
+  },
+  {
+   "section": "Failure semantics and the RZ-PLG registry",
+   "kind": "failure_mode",
+   "value": "Registry outages, timeouts and Node-local compiled-code pressure are transient NACKs, retried, then quarantined (OQ-wasm-plugin-system-14)"
+  },
+  {
+   "section": "Failure semantics and the RZ-PLG registry",
+   "kind": "cli_command",
+   "value": "`ruralz bundle build`"
+  },
+  {
+   "section": "Failure semantics and the RZ-PLG registry",
+   "kind": "cli_command",
+   "value": "`ruralz bundle validate --online`"
+  },
+  {
+   "section": "Failure semantics and the RZ-PLG registry",
+   "kind": "decision",
+   "value": "That stage and activation SHOULD compile, instantiate and run `rz_configure` per Policy."
+  },
+  {
+   "section": "Contract",
+   "kind": "decision",
+   "value": "ADR-0005: Plugin ABI v1 capability-based contract modeled on Extism's PDKs, frozen when it ships; additions are new Host Functions only (OQ-wasm-plugin-system-13)"
+  },
+  {
+   "section": "Contract",
+   "kind": "milestone",
+   "value": "Plugin ABI v1 Planned (M2)"
+  },
+  {
+   "section": "Contract",
+   "kind": "term",
+   "value": "`ruralz.plugin.v1` names the ABI and the Host Function import module; no protobuf messages are proposed (OQ-wasm-plugin-system-12)"
+  },
+  {
+   "section": "Contract",
+   "kind": "claim",
+   "value": "`(ptr i32, len i32)` buffers from `rz_alloc`; the host copies and never retains guest pointers"
+  },
+  {
+   "section": "Contract",
+   "kind": "claim",
+   "value": "Every Host Function returns `i32`, negative only for errors"
+  },
+  {
+   "section": "Contract",
+   "kind": "term",
+   "value": "Required exports: `rz_abi_version() -> i32` (returns 1), `rz_alloc(len i32) -> i32`, `rz_free(ptr i32)`, `rz_configure(ptr i32, len i32) -> i32`"
+  },
+  {
+   "section": "Contract",
+   "kind": "error_code",
+   "value": "Phase exports set MUST equal `spec.phases` (RZ-CFG-028)"
+  },
+  {
+   "section": "Contract",
+   "kind": "number",
+   "value": "Phase result `0` CONTINUE; `1` RESPOND; `2` END_STREAM in `onChunk`; negative: cannot decide, so `failureMode` applies"
+  },
+  {
+   "section": "Contract",
+   "kind": "term",
+   "value": "Advisory errors: `ERR_ABSENT`, `ERR_LIMIT`, `ERR_INVALID`, `ERR_UNAVAILABLE`. Sticky: `ERR_PHASE`, `ERR_BUDGET` or `ERR_DENIED` fail with `RZ-PLG-006`"
+  },
+  {
+   "section": "Contract",
+   "kind": "failure_mode",
+   "value": "`rz_configure` non-zero fails activation, or is `RZ-PLG-008` in a refill"
+  },
+  {
+   "section": "Contract",
+   "kind": "number",
+   "value": "Errors: `-1` ERR_ABSENT, `-2` ERR_PHASE, `-3` ERR_BUDGET, `-4` ERR_LIMIT, `-5` ERR_UNAVAILABLE, `-6` ERR_INVALID, `-7` ERR_DENIED"
+  },
+  {
+   "section": "Contract",
+   "kind": "number",
+   "value": "`level`: 0 debug, 1 info, 2 warn, 3 error"
+  },
+  {
+   "section": "Contract",
+   "kind": "number",
+   "value": "`alg`: 1 SHA-256, 2 SHA-384, 3 SHA-512"
+  },
+  {
+   "section": "Contract",
+   "kind": "number",
+   "value": "`request_info` field: 0 method, 1 scheme, 2 host, 3 path, 4 query, 5 source address, 6 Route"
+  },
+  {
+   "section": "Contract",
+   "kind": "number",
+   "value": "`consumer_info` field: 0 name, 1 Tier, 2 tags (JSON array), 3 auth method, 4 claims (JSON object)"
+  },
+  {
+   "section": "Contract",
+   "kind": "term",
+   "value": "Header list: Repeated little-endian u32 name length, name, u32 value length, value; names lowercased"
+  },
+  {
+   "section": "Contract",
+   "kind": "number",
+   "value": "`chunk_read` direction: 0 client to Upstream, 1 Upstream to client"
+  },
+  {
+   "section": "Host Function table",
+   "kind": "term",
+   "value": "`log` requires `log.write`"
+  },
+  {
+   "section": "Host Function table",
+   "kind": "term",
+   "value": "`clock_now` requires `clock.read`"
+  },
+  {
+   "section": "Host Function table",
+   "kind": "term",
+   "value": "`random_bytes` requires `random.read`"
+  },
+  {
+   "section": "Host Function table",
+   "kind": "term",
+   "value": "`request_info` requires `request.metadata.read`"
+  },
+  {
+   "section": "Host Function table",
+   "kind": "term",
+   "value": "`request_header_get` requires `request.headers.read`"
+  },
+  {
+   "section": "Host Function table",
+   "kind": "term",
+   "value": "`request_headers_list` requires `request.headers.read`"
+  },
+  {
+   "section": "Host Function table",
+   "kind": "term",
+   "value": "`request_header_set` requires `request.headers.write`"
+  },
+  {
+   "section": "Host Function table",
+   "kind": "term",
+   "value": "`request_header_remove` requires `request.headers.write`"
+  },
+  {
+   "section": "Host Function table",
+   "kind": "term",
+   "value": "`request_body_read` requires `request.body.read`"
+  },
+  {
+   "section": "Host Function table",
+   "kind": "term",
+   "value": "`request_body_replace` requires `request.body.write`"
+  },
+  {
+   "section": "Host Function table",
+   "kind": "term",
+   "value": "`consumer_info` requires `consumer.read`"
+  },
+  {
+   "section": "Host Function table",
+   "kind": "term",
+   "value": "`response_header_get` requires `response.headers.read`"
+  },
+  {
+   "section": "Host Function table",
+   "kind": "term",
+   "value": "`response_header_set` requires `response.headers.write`"
+  },
+  {
+   "section": "Host Function table",
+   "kind": "term",
+   "value": "`response_body_read` requires `response.body.read`"
+  },
+  {
+   "section": "Host Function table",
+   "kind": "term",
+   "value": "`response_body_replace` requires `response.body.write`"
+  },
+  {
+   "section": "Host Function table",
+   "kind": "term",
+   "value": "`response_send` requires `response.send`"
+  },
+  {
+   "section": "Host Function table",
+   "kind": "term",
+   "value": "`chunk_read` requires `stream.read`"
+  },
+  {
+   "section": "Host Function table",
+   "kind": "term",
+   "value": "`chunk_replace` requires `stream.write`"
+  },
+  {
+   "section": "Host Function table",
+   "kind": "term",
+   "value": "`context_get` requires `context.use`"
+  },
+  {
+   "section": "Host Function table",
+   "kind": "term",
+   "value": "`context_set` requires `context.use`"
+  },
+  {
+   "section": "Host Function table",
+   "kind": "term",
+   "value": "`state_get` requires `state.read`"
+  },
+  {
+   "section": "Host Function table",
+   "kind": "term",
+   "value": "`state_incr` requires `state.write`"
+  },
+  {
+   "section": "Host Function table",
+   "kind": "term",
+   "value": "`metric_add` requires `metrics.write`"
+  },
+  {
+   "section": "Host Function table",
+   "kind": "term",
+   "value": "`crypto_digest` requires `crypto.use`"
+  },
+  {
+   "section": "Host Function table",
+   "kind": "term",
+   "value": "`crypto_hmac` requires `crypto.use`"
+  },
+  {
+   "section": "Host Function table",
+   "kind": "term",
+   "value": "`credentials.read` only widens what header reads return"
+  },
+  {
+   "section": "Host Function table",
+   "kind": "limit",
+   "value": "`response_send` takes status 200 to 599; violations return `ERR_INVALID`"
+  },
+  {
+   "section": "Host Function table",
+   "kind": "decision",
+   "value": "OQ-wasm-plugin-system-3, option (b): credential headers `authorization`, `proxy-authorization`, `cookie`, each `auth.api-key` Policy's `config.header`, and response `set-cookie`"
+  },
+  {
+   "section": "Host Function table",
+   "kind": "policy_type",
+   "value": "`auth.api-key`"
+  },
+  {
+   "section": "Host Function table",
+   "kind": "limit",
+   "value": "State Store: One blocking call per Plugin Policy per request before commit (pack section 8.7); a second returns `ERR_BUDGET`"
+  },
+  {
+   "section": "Host Function table",
+   "kind": "term",
+   "value": "Keys are `rzplg:`, a namespace (OQ-wasm-plugin-system-19), the length-prefixed Policy name and the guest key"
+  },
+  {
+   "section": "Host Function table",
+   "kind": "limit",
+   "value": "State Store limits (target): 256-byte keys, `ttlMillis` 1 ms to 24 h, 10,000 keys per Policy per Node per minute, one `onLog` write per request; beyond is `ERR_LIMIT`"
+  },
+  {
+   "section": "Host Function table",
+   "kind": "metric",
+   "value": "`ruralz_plugin_guest_events_total{policy, name}`"
+  },
+  {
+   "section": "Host Function table",
+   "kind": "limit",
+   "value": "`name` matches `^[a-z][a-z0-9_]{0,31}$`; a negative value or 17th name returns `ERR_LIMIT`"
+  },
+  {
+   "section": "Host Function table",
+   "kind": "milestone",
+   "value": "FIPS builds (Planned (M5)) offer approved algorithms only through `crypto.use`"
+  },
+  {
+   "section": "Host Function table",
+   "kind": "decision",
+   "value": "Keys MUST NOT appear in plaintext `config` (OQ-wasm-plugin-system-4)"
+  },
+  {
+   "section": "Host Function table",
+   "kind": "decision",
+   "value": "Excluded: Outbound calls, timers and shared queues (pack section 8.7 rule 6; OQ-wasm-plugin-system-5)"
+  },
+  {
+   "section": "Host Function table",
+   "kind": "term",
+   "value": "The WASI shim serves `wasi_snapshot_preview1`"
+  },
+  {
+   "section": "Host Function table",
+   "kind": "error_code",
+   "value": "`proc_exit`: Trap, `RZ-PLG-001`"
+  },
+  {
+   "section": "Host Function table",
+   "kind": "term",
+   "value": "Other `fd_*`; `path_*`, `sock_*`, `poll_oneoff`: `EBADF` for `fd_*`, else `ENOSYS`"
+  },
+  {
+   "section": "Host Function table",
+   "kind": "timeout",
+   "value": "Figure 1/2: take idle, wait at most 1 ms"
+  },
+  {
+   "section": "Host Function table",
+   "kind": "kind_or_field",
+   "value": "Figure 2 example Policy geo-block-default"
+  },
+  {
+   "section": "Deny-by-default",
+   "kind": "error_code",
+   "value": "the online check rejects artifacts needing more (RZ-CFG-028)"
+  },
+  {
+   "section": "Deny-by-default",
+   "kind": "claim",
+   "value": "`credentials.read`, `request.body.read`: High risk; `credentials.read` is always flagged"
+  },
+  {
+   "section": "Deny-by-default",
+   "kind": "claim",
+   "value": "`log.write`, `metrics.write`: Low; Exfiltration path with a High-risk read or `state.write`"
+  },
+  {
+   "section": "Deny-by-default",
+   "kind": "cli_command",
+   "value": "`ruralz bundle audit`"
+  },
+  {
+   "section": "Deny-by-default",
+   "kind": "limit",
+   "value": "audit reports warm reservations above 50% of the Node cap (target), `state.*` pools with a guaranteed parked bound below 16 (target)"
+  },
+  {
+   "section": "Deny-by-default",
+   "kind": "failure_mode",
+   "value": "audit errors: `state.*` pools with N below 4 and enforcing Plugins (`response.send`, body or stream writes) set to `open`"
+  },
+  {
+   "section": "Deny-by-default",
+   "kind": "cli_command",
+   "value": "`ruralz bundle diff`"
+  },
+  {
+   "section": "Deny-by-default",
+   "kind": "kind_or_field",
+   "value": "`ruralz bundle diff` flags `capabilities` and `image` changes with impact `plugin` and `security`"
+  },
+  {
+   "section": "Deny-by-default",
+   "kind": "error_code",
+   "value": "`phases` fixes scope (RZ-CFG-020)"
+  },
+  {
+   "section": "Deny-by-default",
+   "kind": "cli_command",
+   "value": "`ruralz plugin build` generates an import shim from declared Capabilities"
+  },
+  {
+   "section": "Sandbox layers",
+   "kind": "claim",
+   "value": "reused instances may retain data (PT-11)"
+  },
+  {
+   "section": "Sandbox layers",
+   "kind": "kind_or_field",
+   "value": "`secretRef`"
+  },
+  {
+   "section": "OCI artifact",
+   "kind": "kind_or_field",
+   "value": "`Plugin.spec.image` with a required `@sha256:` digest (RZ-CFG-021)"
+  },
+  {
+   "section": "OCI artifact",
+   "kind": "library",
+   "value": "`oras-go`"
+  },
+  {
+   "section": "OCI artifact",
+   "kind": "library",
+   "value": "`sigstore-go`"
+  },
+  {
+   "section": "OCI artifact",
+   "kind": "failure_mode",
+   "value": "registry fetch violations (non-allowlisted host, loopback, link-local, private addresses) are RZ-CFG-028"
+  },
+  {
+   "section": "OCI artifact",
+   "kind": "term",
+   "value": "artifact type `application/vnd.ruralz.plugin.v1`"
+  },
+  {
+   "section": "OCI artifact",
+   "kind": "term",
+   "value": "Config `application/vnd.ruralz.plugin.config.v1+json`"
+  },
+  {
+   "section": "OCI artifact",
+   "kind": "term",
+   "value": "Layer `application/wasm`"
+  },
+  {
+   "section": "Signing and verification",
+   "kind": "cli_command",
+   "value": "`ruralz plugin push`"
+  },
+  {
+   "section": "Signing and verification",
+   "kind": "default",
+   "value": "`enforce` by default, `warn` in `ruralz dev run`, `off` degraded; failure is RZ-CFG-033"
+  },
+  {
+   "section": "Signing and verification",
+   "kind": "cli_command",
+   "value": "`ruralz dev run`"
+  },
+  {
+   "section": "Signing and verification",
+   "kind": "claim",
+   "value": "Referrers written by cosign should verify (hypothesis), checked in CI"
+  },
+  {
+   "section": "Plugin commands",
+   "kind": "cli_command",
+   "value": "`ruralz plugin init` Planned (M2)"
+  },
+  {
+   "section": "Plugin commands",
+   "kind": "cli_command",
+   "value": "`ruralz plugin build` Planned (M2)"
+  },
+  {
+   "section": "Plugin commands",
+   "kind": "cli_command",
+   "value": "`ruralz plugin test` Planned (M2)"
+  },
+  {
+   "section": "Plugin commands",
+   "kind": "cli_command",
+   "value": "`ruralz plugin push` Planned (M2)"
+  },
+  {
+   "section": "Plugin commands",
+   "kind": "cli_command",
+   "value": "`ruralz plugin inspect` Planned (M2)"
+  },
+  {
+   "section": "Plugin commands",
+   "kind": "milestone",
+   "value": "`authz.geoip` (Planned (M2))"
+  },
+  {
+   "section": "Plugin commands",
+   "kind": "policy_type",
+   "value": "`authz.geoip`"
+  },
+  {
+   "section": "Plugin commands",
+   "kind": "kind_or_field",
+   "value": "apiVersion: ruralz/v1alpha1; kind: Plugin; kind: Policy"
+  },
+  {
+   "section": "Plugin commands",
+   "kind": "kind_or_field",
+   "value": "Plugin spec fields: image, abi, phases, capabilities, limits, configSchema, x-ruralz-validations"
+  },
+  {
+   "section": "Plugin commands",
+   "kind": "kind_or_field",
+   "value": "capabilities: [request.headers.read, response.send, log.write]"
+  },
+  {
+   "section": "Plugin commands",
+   "kind": "default",
+   "value": "limits: {memoryBytes: 16Mi, timeout: 5ms}"
+  },
+  {
+   "section": "Plugin commands",
+   "kind": "limit",
+   "value": "\"self.denyCountries.size() <= 50\""
+  },
+  {
+   "section": "Plugin commands",
+   "kind": "policy_type",
+   "value": "type: plugin"
+  },
+  {
+   "section": "Plugin commands",
+   "kind": "kind_or_field",
+   "value": "Policy spec fields: type, plugin, filterClass, failureMode, config"
+  },
+  {
+   "section": "Plugin commands",
+   "kind": "failure_mode",
+   "value": "filterClass: authz, failureMode: closed; a trap or timeout rejects with 403"
+  },
+  {
+   "section": "Hot-swap lifecycle",
+   "kind": "milestone",
+   "value": "Plugin hot-swap is Planned (M2)"
+  },
+  {
+   "section": "Hot-swap lifecycle",
+   "kind": "number",
+   "value": "Replacement pools warm to their predecessor's 1-minute peak busy count plus headroom (target)"
+  },
+  {
+   "section": "Hot-swap lifecycle",
+   "kind": "number",
+   "value": "Replaced pools trim idle instances to max(1, busy) (target)"
+  },
+  {
+   "section": "Hot-swap lifecycle",
+   "kind": "api_path",
+   "value": "`/readyz` turns 200 only after warming (pack section 8.5)"
+  },
+  {
+   "section": "Hot-swap lifecycle",
+   "kind": "limit",
+   "value": "K = 2 retired-snapshot limit (target)"
+  },
+  {
+   "section": "Hot-swap lifecycle",
+   "kind": "failure_mode",
+   "value": "Warm minimums that can never fit the cap are a validation error (OQ-wasm-plugin-system-9)"
+  },
+  {
+   "section": "Canary percentage",
+   "kind": "kind_or_field",
+   "value": "`spec.rollout`, `strategy: canary`, `canary.percent`, `canary.bake`, `autoRollback: true`"
+  },
+  {
+   "section": "Canary percentage",
+   "kind": "failure_mode",
+   "value": "an erroring `when` runs a `closed` Policy"
+  },
+  {
+   "section": "Canary percentage",
+   "kind": "decision",
+   "value": "Weighted splits need a field (OQ-wasm-plugin-system-2); file mode has no canary unless CI runs one"
+  },
+  {
+   "section": "SDK matrix",
+   "kind": "library",
+   "value": "Rust: `ruralz-pdk` crate, Planned (M2); 16 MiB suggested (hypothesis)"
+  },
+  {
+   "section": "SDK matrix",
+   "kind": "library",
+   "value": "Go / TinyGo: `github.com/ravindu-rev/ruralz/sdk/go`, Planned (M2); 32 MiB suggested (hypothesis)"
+  },
+  {
+   "section": "SDK matrix",
+   "kind": "library",
+   "value": "TypeScript: `@ruralz/pdk`, Planned (M3); 64 MiB suggested (hypothesis)"
+  },
+  {
+   "section": "SDK matrix",
+   "kind": "library",
+   "value": "C#: `Ruralz.Pdk`, Planned (M4); largest footprint (hypothesis)"
+  },
+  {
+   "section": "SDK matrix",
+   "kind": "milestone",
+   "value": "Rust PDK Planned (M2)"
+  },
+  {
+   "section": "SDK matrix",
+   "kind": "milestone",
+   "value": "Go / TinyGo PDK Planned (M2)"
+  },
+  {
+   "section": "SDK matrix",
+   "kind": "milestone",
+   "value": "TypeScript PDK Planned (M3)"
+  },
+  {
+   "section": "SDK matrix",
+   "kind": "milestone",
+   "value": "C# PDK Planned (M4)"
+  },
+  {
+   "section": "SDK matrix",
+   "kind": "decision",
+   "value": "AssemblyScript, C, Zig: Not planned (community PDKs)"
+  },
+  {
+   "section": "SDK matrix",
+   "kind": "decision",
+   "value": "Python: Not planned (OQ-wasm-plugin-system-11); Revisit after M3"
+  },
+  {
+   "section": "SDK matrix",
+   "kind": "decision",
+   "value": "PDKs are Apache-2.0 under `sdk/`"
+  },
+  {
+   "section": "Inner loop",
+   "kind": "cli_command",
+   "value": "`ruralz plugin init geo-block`"
+  },
+  {
+   "section": "Inner loop",
+   "kind": "cli_command",
+   "value": "`ruralz plugin push ghcr.io/acme/ruralz-plugins/geo-block:1.4.0`"
+  },
+  {
+   "section": "Inner loop",
+   "kind": "cli_command",
+   "value": "`ruralz plugin inspect ghcr.io/acme/ruralz-plugins/geo-block:1.4.0`"
+  },
+  {
+   "section": "Inner loop",
+   "kind": "cli_command",
+   "value": "`ruralz bundle validate --online ./shop-bundle`"
+  },
+  {
+   "section": "Inner loop",
+   "kind": "cli_command",
+   "value": "`ruralz dev run ./shop-bundle`"
+  },
+  {
+   "section": "Inner loop",
+   "kind": "decision",
+   "value": "`ruralz plugin test` uses production limits; `ruralz dev run` uses Hot Reload and `warn` signatures (OQ-wasm-plugin-system-7)"
+  },
+  {
+   "section": "Test harness",
+   "kind": "number",
+   "value": "a `state.read` swap at 20,000 requests/s (target) yields no `RZ-PLG-005`"
+  },
+  {
+   "section": "Test harness",
+   "kind": "cli_command",
+   "value": "`ruralz test run`"
+  },
+  {
+   "section": "Observability",
+   "kind": "metric",
+   "value": "span `ruralz.filter.<name>`"
+  },
+  {
+   "section": "Observability",
+   "kind": "metric",
+   "value": "`ruralz_plugin_call_duration_seconds`"
+  },
+  {
+   "section": "Observability",
+   "kind": "metric",
+   "value": "`ruralz_plugin_failures_total`"
+  },
+  {
+   "section": "Observability",
+   "kind": "metric",
+   "value": "`ruralz_plugin_pool_instances`"
+  },
+  {
+   "section": "Observability",
+   "kind": "metric",
+   "value": "`ruralz_plugin_pool_wait_seconds`"
+  },
+  {
+   "section": "Observability",
+   "kind": "metric",
+   "value": "`ruralz_plugin_memory_reserved_bytes`"
+  },
+  {
+   "section": "Observability",
+   "kind": "metric",
+   "value": "`ruralz_plugin_guest_events_total`"
+  },
+  {
+   "section": "Observability",
+   "kind": "metric",
+   "value": "`ruralz_node_degraded_info{reason=\"plugin_signature_off\"}`"
+  },
+  {
+   "section": "Observability",
+   "kind": "metric",
+   "value": "reason `plugin_pool_degraded`"
+  },
+  {
+   "section": "Performance model",
+   "kind": "claim",
+   "value": "One wazero host-call microbenchmark measured 47.62 ns"
+  },
+  {
+   "section": "Performance model",
+   "kind": "claim",
+   "value": "the only dated Wasmtime comparison is from 2023"
+  },
+  {
+   "section": "Performance model",
+   "kind": "number",
+   "value": "Phase call overhead, pooled, deadline interruption on, p99 (SM-6): 50 µs or less (target)"
+  },
+  {
+   "section": "Performance model",
+   "kind": "number",
+   "value": "Host Function call, excluding copying: 0.2 µs or less (hypothesis)"
+  },
+  {
+   "section": "Performance model",
+   "kind": "number",
+   "value": "Header-only Plugin Phase with its logic, p99: 100 µs or less (target)"
+  },
+  {
+   "section": "Performance model",
+   "kind": "number",
+   "value": "Taking an idle instance without contention: 1 µs or less (hypothesis)"
+  },
+  {
+   "section": "Performance model",
+   "kind": "number",
+   "value": "Cold compile of a 2 MiB artifact on one core: 1 s or less (hypothesis)"
+  },
+  {
+   "section": "Performance model",
+   "kind": "number",
+   "value": "Instance creation, `rz_configure` included: 1 ms or less typical, 100 ms at most (hypothesis)"
+  },
+  {
+   "section": "Performance model",
+   "kind": "number",
+   "value": "Creation throughput, 8 cores, 4 workers: 4,000 per second typical, 40 at the maximum (hypothesis)"
+  },
+  {
+   "section": "Performance model",
+   "kind": "number",
+   "value": "`state.read` reference pool ramp from 1 to 25 instances: 250 ms or less (target)"
+  },
+  {
+   "section": "Performance model",
+   "kind": "number",
+   "value": "Compiled code per MiB of Wasm, on amd64 and arm64: 4 MiB or less (hypothesis), the accounting factor"
+  },
+  {
+   "section": "Performance model",
+   "kind": "number",
+   "value": "Gateway-added p99 with long guest calls during garbage collection: 1 ms or less (target), benchmarked (OQ-wasm-plugin-system-16)"
+  },
+  {
+   "section": "Sizing",
+   "kind": "number",
+   "value": "Header-only: 20,000 requests/s, 3 calls of 20 µs: 1.2 (hypothesis)"
+  },
+  {
+   "section": "Sizing",
+   "kind": "number",
+   "value": "`state.read` 16 MiB, 8 cores: 20,000 requests/s, 20 µs plus a 1 ms round trip; N = 64, R = 2, parked bound 62: 20 parked (hypothesis), 25 with idle headroom; holds"
+  },
+  {
+   "section": "Sizing",
+   "kind": "number",
+   "value": "`state.read` 16 MiB, 16 cores: 40,000 requests/s; same N, R and bound: 40 parked (hypothesis); holds"
+  },
+  {
+   "section": "Sizing",
+   "kind": "number",
+   "value": "`state.read` 16 MiB, 32 cores: 60,000 requests/s; R = 3, parked bound 61: 60 parked (hypothesis); holds narrowly; a 4 GiB cap (N = 128) is advised"
+  },
+  {
+   "section": "Sizing",
+   "kind": "number",
+   "value": "`state.read` 16 MiB, brownout: 1,000 wanted (hypothesis); 62 park, the rest get `RZ-PLG-010` until the breaker opens, then `RZ-STS`"
+  },
+  {
+   "section": "Sizing",
+   "kind": "number",
+   "value": "`state.read` 64 MiB, 8 cores: 20,000 requests/s; N = 16, R = 2, parked bound 14: 20 wanted (hypothesis); excess gets `RZ-PLG-010`: needs a 4 GiB cap, N = 32"
+  },
+  {
+   "section": "Sizing",
+   "kind": "number",
+   "value": "`onChunk`: 1,000 streams × 100 chunks/s × 20 µs: 2 cores (hypothesis)"
+  },
+  {
+   "section": "Sizing",
+   "kind": "number",
+   "value": "The 2 GiB default cap (target) fits 20 pools × 4 busy instances × 16 MiB, 1.25 GiB (hypothesis), plus swap headroom"
+  },
+  {
+   "section": "Sizing",
+   "kind": "number",
+   "value": "audit flags the 64 MiB `state.*` Plugin (guaranteed parked bound 12)"
+  },
+  {
+   "section": "Sizing",
+   "kind": "timeout",
+   "value": "the 50 ms `stateStoreTimeout`"
+  },
+  {
+   "section": "Sizing",
+   "kind": "kind_or_field",
+   "value": "`stateStoreTimeout`"
+  },
+  {
+   "section": "Threat model",
+   "kind": "claim",
+   "value": "PT-1 Sandbox escape through a wazero defect: Pinned wazero with `govulncheck`; fuzzing; SM-13"
+  },
+  {
+   "section": "Threat model",
+   "kind": "claim",
+   "value": "PT-2 Tampered artifact or mutated tag: Digest on every fetch; Sigstore `enforce`"
+  },
+  {
+   "section": "Threat model",
+   "kind": "claim",
+   "value": "PT-3 Capability over-grant: Import-derived Capabilities; shims; runtime checks; audit; flagged diffs"
+  },
+  {
+   "section": "Threat model",
+   "kind": "failure_mode",
+   "value": "PT-4 Auth bypass by a failing Plugin: Auth and authz closed only; audit of `open` enforcing Plugins; Other `open` classes skip on failure"
+  },
+  {
+   "section": "Threat model",
+   "kind": "claim",
+   "value": "PT-5 CPU loop in a call or `rz_configure`: Deadlines with interruption; discard"
+  },
+  {
+   "section": "Threat model",
+   "kind": "claim",
+   "value": "PT-6 Memory exhaustion: Page limits; full reservation; pool share"
+  },
+  {
+   "section": "Threat model",
+   "kind": "claim",
+   "value": "PT-7 Host work amplification: Call budget; log and metric caps"
+  },
+  {
+   "section": "Threat model",
+   "kind": "claim",
+   "value": "PT-8 Pool exhaustion: Bounded wait; pool share; parked bound; breaker short-circuit"
+  },
+  {
+   "section": "Threat model",
+   "kind": "claim",
+   "value": "PT-9 Compile bomb: Structure limits; compile in CI and at ingest; one bounded worker; retries, then quarantine"
+  },
+  {
+   "section": "Threat model",
+   "kind": "claim",
+   "value": "PT-10 Exfiltration: Credential headers hidden without `credentials.read`; redaction; combined-Capability audit; TB-12"
+  },
+  {
+   "section": "Threat model",
+   "kind": "claim",
+   "value": "PT-11 Cross-request leakage through instance reuse: PDKs zero host data; conformance; recycling (OQ-wasm-plugin-system-18)"
+  },
+  {
+   "section": "Threat model",
+   "kind": "claim",
+   "value": "PT-12 Side channels between Plugins: None; Not mitigated"
+  },
+  {
+   "section": "Threat model",
+   "kind": "claim",
+   "value": "PT-13 Signature checks disabled: `off` is explicit and degraded"
+  },
+  {
+   "section": "Threat model",
+   "kind": "claim",
+   "value": "PT-14 Tampered compiled-code cache: Compiled code never persisted"
+  },
+  {
+   "section": "Threat model",
+   "kind": "failure_mode",
+   "value": "PT-15: During a trip, `open` Plugins are bypassed and `closed` Plugins deny for 95% of traffic (target)"
+  },
+  {
+   "section": "Threat model",
+   "kind": "claim",
+   "value": "PT-16 State key collision, flooding or displaced settlement: Namespaced keys; limits (OQ-wasm-plugin-system-19)"
+  },
+  {
+   "section": "Threat model",
+   "kind": "claim",
+   "value": "PT-17 Header injection or request smuggling: Write validation; framing recomputed"
+  },
+  {
+   "section": "Threat model",
+   "kind": "claim",
+   "value": "PT-18 Registry SSRF or credential leak: Host allowlist; address refusal"
+  },
+  {
+   "section": "Threat model",
+   "kind": "claim",
+   "value": "PT-19 Decisions on spoofable input: Trusted-edge rule; authenticated split attributes"
+  },
+  {
+   "section": "proxy-wasm stance",
+   "kind": "decision",
+   "value": "ADR-0005: Plugin ABI v1 is the only primary contract, and a proxy-wasm compatibility adapter is Planned (M4)"
+  },
+  {
+   "section": "proxy-wasm stance",
+   "kind": "milestone",
+   "value": "proxy-wasm compatibility adapter Planned (M4)"
+  },
+  {
+   "section": "proxy-wasm stance",
+   "kind": "claim",
+   "value": "`mosn.io/proxy-wasm-go-host` was last pushed in 2024 on wazero v1.2.1 and `wasmer-go`; the original repository is gone"
+  },
+  {
+   "section": "proxy-wasm stance",
+   "kind": "library",
+   "value": "The adapter is Ruralz code (not `mosn.io/proxy-wasm-go-host`)"
+  },
+  {
+   "section": "proxy-wasm stance",
+   "kind": "limit",
+   "value": "1,000 contexts per instance (target) (OQ-wasm-plugin-system-17)"
+  },
+  {
+   "section": "proxy-wasm stance",
+   "kind": "error_code",
+   "value": "Unsupported imports: Outbound calls, timers and shared queues fail activation with RZ-CFG-028"
+  },
+  {
+   "section": "proxy-wasm stance",
+   "kind": "decision",
+   "value": "OQ-wasm-plugin-system-8: `abi` accepts only `ruralz.plugin.v1`"
+  },
+  {
+   "section": "Open questions",
+   "kind": "decision",
+   "value": "OQ-wasm-plugin-system-3 answered: (b) `credentials.read`"
+  },
+  {
+   "section": "Open questions",
+   "kind": "milestone",
+   "value": "OQ-wasm-plugin-system-4 blocking: Yes, for Planned (M2)"
+  },
+  {
+   "section": "Open questions",
+   "kind": "milestone",
+   "value": "OQ-wasm-plugin-system-6 blocking: Yes, for Planned (M2)"
+  },
+  {
+   "section": "Open questions",
+   "kind": "milestone",
+   "value": "OQ-wasm-plugin-system-8 blocking: Yes, for Planned (M4)"
+  },
+  {
+   "section": "Open questions",
+   "kind": "milestone",
+   "value": "OQ-wasm-plugin-system-12 blocking: Yes, for a pack amendment (section 14)"
+  },
+  {
+   "section": "Open questions",
+   "kind": "milestone",
+   "value": "OQ-wasm-plugin-system-13 blocking: Yes, for the first addition"
+  },
+  {
+   "section": "Open questions",
+   "kind": "milestone",
+   "value": "OQ-wasm-plugin-system-14 blocking: Yes, for Planned (M2)"
+  },
+  {
+   "section": "Open questions",
+   "kind": "milestone",
+   "value": "OQ-wasm-plugin-system-16 blocking: Yes, for Planned (M2)"
+  },
+  {
+   "section": "Open questions",
+   "kind": "milestone",
+   "value": "OQ-wasm-plugin-system-17 blocking: Yes, for Planned (M4)"
+  },
+  {
+   "section": "Open questions",
+   "kind": "limit",
+   "value": "OQ-wasm-plugin-system-15: maxima of 256 MiB and 1 s (target)"
+  },
+  {
+   "section": "Open questions",
+   "kind": "kind_or_field",
+   "value": "Node-resolved `x-ruralz-secret` `configSchema` fields passed only to `rz_configure` (recommended)"
+  },
+  {
+   "section": "Open questions",
+   "kind": "kind_or_field",
+   "value": "`http.call` Capability (option)"
+  }
+ ]
+}

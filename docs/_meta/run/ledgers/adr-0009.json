@@ -1,0 +1,521 @@
+{
+ "path": "docs/adr/0009-http-stack-net-http-quic-go.md",
+ "status": "accepted",
+ "facts": [
+  {
+   "section": "Context and problem statement",
+   "kind": "port",
+   "value": "`http` listener (8080): HTTP/1.1 and h2c"
+  },
+  {
+   "section": "Context and problem statement",
+   "kind": "port",
+   "value": "HTTP/1.1 and HTTP/2 on `https` (8443)"
+  },
+  {
+   "section": "Context and problem statement",
+   "kind": "port",
+   "value": "with `http3: true`, HTTP/3 on UDP 8443"
+  },
+  {
+   "section": "Context and problem statement",
+   "kind": "port",
+   "value": "serves admin on 9901"
+  },
+  {
+   "section": "Context and problem statement",
+   "kind": "port",
+   "value": "Control Stream on 8091 through `connectrpc.com/connect`"
+  },
+  {
+   "section": "Context and problem statement",
+   "kind": "port",
+   "value": "REST API and Ruralz Console on 8090"
+  },
+  {
+   "section": "Context and problem statement",
+   "kind": "kind_or_field",
+   "value": "`http3: true`"
+  },
+  {
+   "section": "Context and problem statement",
+   "kind": "kind_or_field",
+   "value": "`http` Upstreams"
+  },
+  {
+   "section": "Context and problem statement",
+   "kind": "library",
+   "value": "`connectrpc.com/connect` for the Control Stream (ADR-0007)"
+  },
+  {
+   "section": "Context and problem statement",
+   "kind": "claim",
+   "value": "gRPC ingress, WebSocket and SSE share the client listeners"
+  },
+  {
+   "section": "Context and problem statement",
+   "kind": "default",
+   "value": "`CGO_ENABLED=0` binary (ADR-0001)"
+  },
+  {
+   "section": "Context and problem statement",
+   "kind": "milestone",
+   "value": "HTTP/1.1, HTTP/2 and h2c are Planned (M1)"
+  },
+  {
+   "section": "Context and problem statement",
+   "kind": "milestone",
+   "value": "HTTP/3 Planned (M3)"
+  },
+  {
+   "section": "Decision drivers",
+   "kind": "claim",
+   "value": "One handler model for every client wire format, so the Router and Filter Chain behave alike on every protocol (P7)"
+  },
+  {
+   "section": "Decision drivers",
+   "kind": "claim",
+   "value": "soft criterion S3 favors `net/http` handlers and `context.Context` cancellation"
+  },
+  {
+   "section": "Decision drivers",
+   "kind": "limit",
+   "value": "stream, buffer, frame and deadline limits on every listener, HTTP/3 included"
+  },
+  {
+   "section": "Decision drivers",
+   "kind": "claim",
+   "value": "Gates G1 to G3: pure Go, a G2 license, and cryptography from the Go Cryptographic Module or a named exception"
+  },
+  {
+   "section": "Decision drivers",
+   "kind": "claim",
+   "value": "allocation overhead is accepted only as a (hypothesis) that the benchmark suite checks (P10)"
+  },
+  {
+   "section": "Considered options",
+   "kind": "library",
+   "value": "Option 1: net/http plus quic-go (`Server.Protocols`, `HTTP2Config`, quic-go `http3`)"
+  },
+  {
+   "section": "Considered options",
+   "kind": "library",
+   "value": "Option 2: net/http with x/net/http2 (`Server`, `Transport`, `ConfigureServer`, `h2c` package)"
+  },
+  {
+   "section": "Considered options",
+   "kind": "library",
+   "value": "Option 3: fasthttp, a server outside `net/http`, on which connect-go cannot serve"
+  },
+  {
+   "section": "Considered options",
+   "kind": "claim",
+   "value": "Standard-library HTTP/3: code is unexported on Go master, and its proposals are on hold"
+  },
+  {
+   "section": "Considered options",
+   "kind": "claim",
+   "value": "TCP only, with HTTP/3 Not planned, as in KrakenD"
+  },
+  {
+   "section": "Decision outcome",
+   "kind": "decision",
+   "value": "Chosen option: \"net/http plus quic-go\""
+  },
+  {
+   "section": "Decision outcome",
+   "kind": "library",
+   "value": "connect-go, coder/websocket and `http.ResponseController` SSE flushing compose with `net/http` handlers"
+  },
+  {
+   "section": "Decision outcome",
+   "kind": "claim",
+   "value": "x/net v0.59.0 deprecates the `x/net/http2` types"
+  },
+  {
+   "section": "Decision outcome",
+   "kind": "claim",
+   "value": "quic-go is the only researched pure-Go, MIT-licensed HTTP/3 implementation with a public Go API"
+  },
+  {
+   "section": "Decision outcome",
+   "kind": "claim",
+   "value": "matches the foundation pack section 7 HTTP stack row"
+  },
+  {
+   "section": "Decision outcome",
+   "kind": "decision",
+   "value": "Client listeners: One `http.Server` per listener; `Server.Protocols` enables HTTP/1.1 and HTTP/2 (ALPN `h2`) on `https`, and HTTP/1.1 plus `UnencryptedHTTP2` on `http`"
+  },
+  {
+   "section": "Decision outcome",
+   "kind": "decision",
+   "value": "h2c by prior knowledge; no `Upgrade: h2c`"
+  },
+  {
+   "section": "Decision outcome",
+   "kind": "milestone",
+   "value": "Client listeners: Planned (M1)"
+  },
+  {
+   "section": "Decision outcome",
+   "kind": "limit",
+   "value": "HTTP/2 settings: Only `HTTP2Config`; `MaxConcurrentStreams`, `MaxReceiveBufferPerConnection`, `MaxReceiveBufferPerStream` and `MaxReadFrameSize`, set once at start"
+  },
+  {
+   "section": "Decision outcome",
+   "kind": "decision",
+   "value": "At Hot Reload, a changed listener gets a new socket and server"
+  },
+  {
+   "section": "Decision outcome",
+   "kind": "milestone",
+   "value": "HTTP/2 settings: Planned (M1)"
+  },
+  {
+   "section": "Decision outcome",
+   "kind": "timeout",
+   "value": "Body reads and response writes use `http.ResponseController` deadlines"
+  },
+  {
+   "section": "Decision outcome",
+   "kind": "timeout",
+   "value": "server `ReadTimeout` and `WriteTimeout` stay unset on client listeners"
+  },
+  {
+   "section": "Decision outcome",
+   "kind": "milestone",
+   "value": "Deadlines: Planned (M1)"
+  },
+  {
+   "section": "Decision outcome",
+   "kind": "library",
+   "value": "quic-go `http3` v0.63.x, pinned, behind an internal interface"
+  },
+  {
+   "section": "Decision outcome",
+   "kind": "port",
+   "value": "HTTP/3 on UDP at the `https` port when `http3: true`"
+  },
+  {
+   "section": "Decision outcome",
+   "kind": "limit",
+   "value": "QUIC connections count against the Node connection ceiling"
+  },
+  {
+   "section": "Decision outcome",
+   "kind": "limit",
+   "value": "HTTP/3 per-connection memory is the incoming-stream cap times the header limit plus receive windows ... so the Node worst-case sum holds (hypothesis)"
+  },
+  {
+   "section": "Decision outcome",
+   "kind": "timeout",
+   "value": "Per-stream header reads get a `ReadHeaderTimeout` deadline"
+  },
+  {
+   "section": "Decision outcome",
+   "kind": "claim",
+   "value": "The quic-go settings and deadline support await research"
+  },
+  {
+   "section": "Decision outcome",
+   "kind": "default",
+   "value": "0-RTT stays off"
+  },
+  {
+   "section": "Decision outcome",
+   "kind": "milestone",
+   "value": "HTTP/3: Planned (M3)"
+  },
+  {
+   "section": "Decision outcome",
+   "kind": "decision",
+   "value": "FIPS release builds set the tag `ruralz_fips`, which the HTTP/3 package excludes (`//go:build !ruralz_fips`)"
+  },
+  {
+   "section": "Decision outcome",
+   "kind": "failure_mode",
+   "value": "A FIPS `ruralzd` never binds UDP 8443 and refuses, never ignores, a Revision with `http3: true`"
+  },
+  {
+   "section": "Decision outcome",
+   "kind": "error_code",
+   "value": "proposed form, a deterministic NACK or a file-mode load failure with an RZ-CFG code, goes to OQ-tech-stack-and-libraries-9"
+  },
+  {
+   "section": "Decision outcome",
+   "kind": "milestone",
+   "value": "FIPS builds: Planned (M5)"
+  },
+  {
+   "section": "Decision outcome",
+   "kind": "decision",
+   "value": "Upstream layer: Own loop on `http.Transport`, not `httputil.ReverseProxy`; HTTP/1.1 in cleartext, HTTP/2 by ALPN over TLS"
+  },
+  {
+   "section": "Decision outcome",
+   "kind": "default",
+   "value": "`HTTP2Config.StrictMaxConcurrentRequests` is false, so a server's stream limit opens another connection"
+  },
+  {
+   "section": "Decision outcome",
+   "kind": "kind_or_field",
+   "value": "`circuitBreaker.maxConnections`"
+  },
+  {
+   "section": "Decision outcome",
+   "kind": "kind_or_field",
+   "value": "`maxPendingRequests`"
+  },
+  {
+   "section": "Decision outcome",
+   "kind": "limit",
+   "value": "each attempt first takes a `circuitBreaker.maxConnections` slot, whose waiters count toward `maxPendingRequests`, so nothing queues unseen in `http.Transport`"
+  },
+  {
+   "section": "Decision outcome",
+   "kind": "milestone",
+   "value": "Upstream layer: Planned (M1)"
+  },
+  {
+   "section": "Decision outcome",
+   "kind": "port",
+   "value": "`net/http` on 9901 and on `ruralz-control` ports 8090, 8091 and 9902"
+  },
+  {
+   "section": "Decision outcome",
+   "kind": "timeout",
+   "value": "the 8091 server unsets server timeouts and detects dead peers with `HTTP2Config` pings"
+  },
+  {
+   "section": "Decision outcome",
+   "kind": "milestone",
+   "value": "Other servers: Planned (M1) for 9901; Planned (M2) for Ruralz Control"
+  },
+  {
+   "section": "Decision outcome",
+   "kind": "decision",
+   "value": "`golang.org/x/net/http2`: Non-deprecated low-level APIs only, such as `Framer`; none in use at the snapshot"
+  },
+  {
+   "section": "Decision outcome",
+   "kind": "milestone",
+   "value": "`golang.org/x/net/http2` lint rule: Planned (M0)"
+  },
+  {
+   "section": "Decision outcome",
+   "kind": "decision",
+   "value": "fasthttp: Never linked"
+  },
+  {
+   "section": "Decision outcome",
+   "kind": "milestone",
+   "value": "fasthttp: Not planned: it is not `net/http`"
+  },
+  {
+   "section": "Decision outcome",
+   "kind": "milestone",
+   "value": "Figure 1: dashed edges are Planned (M3); gRPC and WebSocket stay on TCP"
+  },
+  {
+   "section": "Decision outcome",
+   "kind": "library",
+   "value": "grpc-go client for grpc Upstreams"
+  },
+  {
+   "section": "Decision outcome",
+   "kind": "kind_or_field",
+   "value": "`grpc` Upstreams"
+  },
+  {
+   "section": "Consequences",
+   "kind": "claim",
+   "value": "since v0.63.0 quic-go `http3` leaves `URL.Scheme` and `URL.Host` empty, as `net/http` does"
+  },
+  {
+   "section": "Consequences",
+   "kind": "claim",
+   "value": "connect-go serves gRPC, gRPC-Web and Connect on `net/http` handlers, so gRPC ingress shares the TCP listeners"
+  },
+  {
+   "section": "Consequences",
+   "kind": "claim",
+   "value": "`HTTP2Config` has exposed stream, receive-buffer and frame-size limits since Go 1.24"
+  },
+  {
+   "section": "Consequences",
+   "kind": "claim",
+   "value": "`net/http` and quic-go allocate more than fasthttp (hypothesis)"
+  },
+  {
+   "section": "Consequences",
+   "kind": "number",
+   "value": "Planned (M1) PB-8 gate of 30 Ruralz-owned allocations per pass-through request (target) excludes `net/http` internals"
+  },
+  {
+   "section": "Consequences",
+   "kind": "claim",
+   "value": "Go 1.27 moved HTTP/2 into `net/http/internal/http2`, so floor and release builds run different HTTP/2 code"
+  },
+  {
+   "section": "Consequences",
+   "kind": "claim",
+   "value": "Go 1.27-only APIs stay out of floor-compiled files"
+  },
+  {
+   "section": "Consequences",
+   "kind": "claim",
+   "value": "quic-go is pre-1.0, breaks `http3` APIs on minor releases, and reaches the unexported `crypto/tls.aeadAESGCMTLS13` through `go:linkname` pending golang/go#79219"
+  },
+  {
+   "section": "Consequences",
+   "kind": "claim",
+   "value": "FIPS builds lack HTTP/3, allowed only by pack section 8.4 until OQ-tech-stack-and-libraries-9 closes"
+  },
+  {
+   "section": "Consequences",
+   "kind": "claim",
+   "value": "`http.Transport` and grpc-go both reach Upstreams over HTTP/2, so client limits are set twice"
+  },
+  {
+   "section": "Consequences",
+   "kind": "failure_mode",
+   "value": "in-flight QUIC connections on UDP 8443 are lost, while TCP connections Drain, at a Zero-Downtime Upgrade (ADR-0015, OQ-system-overview-18)"
+  },
+  {
+   "section": "Consequences",
+   "kind": "failure_mode",
+   "value": "QUIC connections lost when a Hot Reload replaces an `http3` socket"
+  },
+  {
+   "section": "Consequences",
+   "kind": "kind_or_field",
+   "value": "`Upstream` (no field selects h2c or HTTP/3)"
+  },
+  {
+   "section": "Consequences",
+   "kind": "claim",
+   "value": "`http` Upstreams stop at HTTP/1.1 and HTTP/2 over TLS until OQ-multi-protocol-12 decides"
+  },
+  {
+   "section": "Confirmation",
+   "kind": "milestone",
+   "value": "forbidigo rule, Planned (M0): golangci-lint bans the deprecated `x/net/http2` `Server` and `Transport`"
+  },
+  {
+   "section": "Confirmation",
+   "kind": "milestone",
+   "value": "Dependency admission, Planned (M0): fasthttp has no catalog row, so Admission rejects it"
+  },
+  {
+   "section": "Confirmation",
+   "kind": "decision",
+   "value": "quic-go minor bumps need a named reviewer"
+  },
+  {
+   "section": "Confirmation",
+   "kind": "milestone",
+   "value": "Protocol conformance suite in `pr-full`: HTTP/1.1 and HTTP/2 cases, Planned (M1)"
+  },
+  {
+   "section": "Confirmation",
+   "kind": "milestone",
+   "value": "HTTP/3 conformance cases, Planned (M3), assert the QUIC stream cap and per-connection memory"
+  },
+  {
+   "section": "Confirmation",
+   "kind": "claim",
+   "value": "frame-level suites wait on OQ-testing-and-quality-strategy-6"
+  },
+  {
+   "section": "Confirmation",
+   "kind": "milestone",
+   "value": "FIPS job, Planned (M5): `go list -deps -tags ruralz_fips ./cmd/ruralzd` fails if quic-go appears"
+  },
+  {
+   "section": "Confirmation",
+   "kind": "failure_mode",
+   "value": "FIPS tests assert that a FIPS `ruralzd` never binds UDP 8443 and rejects a Revision with `http3: true`"
+  },
+  {
+   "section": "Confirmation",
+   "kind": "decision",
+   "value": "a pull request that adds an HTTP server or client library, or sets an HTTP/2 option outside `HTTP2Config`, MUST amend this ADR"
+  },
+  {
+   "section": "net/http plus quic-go",
+   "kind": "claim",
+   "value": "h2c has been built into `net/http` since Go 1.24"
+  },
+  {
+   "section": "net/http plus quic-go",
+   "kind": "claim",
+   "value": "quic-go requires Go 1.26 since v0.62.0 and is a named G3 exception"
+  },
+  {
+   "section": "net/http with x/net/http2",
+   "kind": "claim",
+   "value": "low-level types such as `Framer` are not deprecated"
+  },
+  {
+   "section": "net/http with x/net/http2",
+   "kind": "claim",
+   "value": "x/net v0.59.0 deprecates `Server` and `ConfigureServer` in favor of `http.Server` and `Server.Protocols`, and the `h2c` package too"
+  },
+  {
+   "section": "fasthttp",
+   "kind": "claim",
+   "value": "it would likely allocate less per request than `net/http` (hypothesis)"
+  },
+  {
+   "section": "fasthttp",
+   "kind": "claim",
+   "value": "connect-go needs `net/http` handlers, so a Node would run two server stacks"
+  },
+  {
+   "section": "Standard-library HTTP/3 later",
+   "kind": "claim",
+   "value": "would drop a pre-1.0 dependency and its G3 exception, if the standard-library code avoids quic-go's FIPS workarounds (hypothesis)"
+  },
+  {
+   "section": "Standard-library HTTP/3 later",
+   "kind": "claim",
+   "value": "Go 1.26 and Go 1.27 ship no HTTP/3 and no date is published"
+  },
+  {
+   "section": "TCP only",
+   "kind": "claim",
+   "value": "drops quic-go, its G3 exception and the QUIC loss at upgrade"
+  },
+  {
+   "section": "TCP only",
+   "kind": "claim",
+   "value": "it gives up HTTP/3, which KrakenD lacks"
+  },
+  {
+   "section": "More information",
+   "kind": "decision",
+   "value": "Revisit when the standard library ships a public HTTP/3 API"
+  },
+  {
+   "section": "More information",
+   "kind": "claim",
+   "value": "Data plane SHOULD add HTTP/3 Bounded resources rows (per-connection memory, connection ceiling, per-stream header-read deadline) and an Open question on HTTP/3 discovery (`Alt-Svc`)"
+  },
+  {
+   "section": "More information",
+   "kind": "error_code",
+   "value": "The Configuration model SHOULD register the RZ-CFG code for `http3: true` on a FIPS Node, under OQ-tech-stack-and-libraries-9"
+  },
+  {
+   "section": "More information",
+   "kind": "claim",
+   "value": "admit `ruralz_fips` as the one feature build tag; extend forbidigo to `ConfigureServer`, `ConfigureTransport`, `ClientConn` and `h2c`"
+  },
+  {
+   "section": "More information",
+   "kind": "claim",
+   "value": "depguard rules confining quic-go to the HTTP/3 package (criterion S7) and denying fasthttp"
+  }
+ ]
+}

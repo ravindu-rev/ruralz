@@ -1,0 +1,596 @@
+{
+ "path": "docs/adr/0007-control-stream-protocol.md",
+ "status": "accepted",
+ "facts": [
+  {
+   "section": "Context and problem statement",
+   "kind": "port",
+   "value": "Nodes dial 8091"
+  },
+  {
+   "section": "Context and problem statement",
+   "kind": "number",
+   "value": "one full `sha256:<64 hex>` digest"
+  },
+  {
+   "section": "Context and problem statement",
+   "kind": "library",
+   "value": "`CGO_ENABLED=0` binaries (ADR-0001)"
+  },
+  {
+   "section": "Context and problem statement",
+   "kind": "library",
+   "value": "`net/http` (ADR-0009)"
+  },
+  {
+   "section": "Context and problem statement",
+   "kind": "milestone",
+   "value": "The Control Stream is Planned (M2)"
+  },
+  {
+   "section": "Context and problem statement",
+   "kind": "milestone",
+   "value": "a regional relay serving it, Planned (M4)"
+  },
+  {
+   "section": "Context and problem statement",
+   "kind": "failure_mode",
+   "value": "keep serving without the stream (P9)"
+  },
+  {
+   "section": "Context and problem statement",
+   "kind": "term",
+   "value": "Control Stream"
+  },
+  {
+   "section": "Context and problem statement",
+   "kind": "term",
+   "value": "Last-Known-Good"
+  },
+  {
+   "section": "Context and problem statement",
+   "kind": "term",
+   "value": "Drift"
+  },
+  {
+   "section": "Decision drivers",
+   "kind": "claim",
+   "value": "Whole-Revision atomicity: one digest per delivery, verified and swapped at once."
+  },
+  {
+   "section": "Decision drivers",
+   "kind": "claim",
+   "value": "ACK means active, not durable; NACK carries digest, code and class; stale replies are recognizable."
+  },
+  {
+   "section": "Decision drivers",
+   "kind": "failure_mode",
+   "value": "no inbound connection to a Node; stream loss never fails `/readyz` (pack 8.5)"
+  },
+  {
+   "section": "Decision drivers",
+   "kind": "api_path",
+   "value": "/readyz"
+  },
+  {
+   "section": "Decision drivers",
+   "kind": "number",
+   "value": "10,000 Nodes per deployment (target)"
+  },
+  {
+   "section": "Decision drivers",
+   "kind": "claim",
+   "value": "One RPC library, pure Go: gates G1 to G3 of the selection criteria"
+  },
+  {
+   "section": "Decision drivers",
+   "kind": "kind_or_field",
+   "value": "`ruralz.control.v1` is a stable surface"
+  },
+  {
+   "section": "Considered options",
+   "kind": "api_path",
+   "value": "`ruralz.control.v1.ControlStream`"
+  },
+  {
+   "section": "Considered options",
+   "kind": "library",
+   "value": "connect serves gRPC on `net/http` handlers"
+  },
+  {
+   "section": "Considered options",
+   "kind": "library",
+   "value": "`buf breaking` checks protos"
+  },
+  {
+   "section": "Considered options",
+   "kind": "library",
+   "value": "xDS through go-control-plane"
+  },
+  {
+   "section": "Considered options",
+   "kind": "claim",
+   "value": "Envoy's State-of-the-World or Incremental (Delta) discovery, ACK/NACK through echoed `version_info` and `response_nonce`"
+  },
+  {
+   "section": "Considered options",
+   "kind": "claim",
+   "value": "Envoy Gateway translates Gateway API resources this way"
+  },
+  {
+   "section": "Considered options",
+   "kind": "library",
+   "value": "grpc-go: native HTTP/2 server or `Server.ServeHTTP`"
+  },
+  {
+   "section": "Considered options",
+   "kind": "claim",
+   "value": "Nodes long-poll the REST API for their digest, like Consul blocking queries"
+  },
+  {
+   "section": "Considered options",
+   "kind": "library",
+   "value": "oras-go (file mode pull by digest)"
+  },
+  {
+   "section": "Decision outcome",
+   "kind": "decision",
+   "value": "Chosen option: \"own `ruralz.control.v1.ControlStream` on connect in gRPC mode at both ends\""
+  },
+  {
+   "section": "Decision outcome",
+   "kind": "decision",
+   "value": "needing no second HTTP/2 server in `ruralz-control`"
+  },
+  {
+   "section": "Decision outcome",
+   "kind": "decision",
+   "value": "own snapshot plus delta protocol, xDS-style ACK/NACK, connect in gRPC mode on both ends, `buf breaking`, not go-control-plane"
+  },
+  {
+   "section": "Decision outcome",
+   "kind": "milestone",
+   "value": "Rules, all Planned (M2)"
+  },
+  {
+   "section": "Decision outcome",
+   "kind": "api_path",
+   "value": "`ruralz.control.v1.ControlStream` with exactly two RPCs: unary `Enroll` and bidirectional `Stream`"
+  },
+  {
+   "section": "Decision outcome",
+   "kind": "claim",
+   "value": "`Enroll` (one-time token, server CA pinned; pack 8.4 amendment pending, OQ-security-and-identity-31)"
+  },
+  {
+   "section": "Decision outcome",
+   "kind": "kind_or_field",
+   "value": "`Stream` (Node certificate over mTLS, the only source of `node.id`)"
+  },
+  {
+   "section": "Decision outcome",
+   "kind": "decision",
+   "value": "Ruralz Control never dials a Node"
+  },
+  {
+   "section": "Decision outcome",
+   "kind": "library",
+   "value": "`connectrpc.com/connect` v1.21.x, gRPC mode"
+  },
+  {
+   "section": "Decision outcome",
+   "kind": "port",
+   "value": "HTTP/2 over TLS on 8091"
+  },
+  {
+   "section": "Decision outcome",
+   "kind": "timeout",
+   "value": "no `ReadTimeout` or `WriteTimeout` on the stream"
+  },
+  {
+   "section": "Decision outcome",
+   "kind": "claim",
+   "value": "`HTTP2Config` pings detect dead peers"
+  },
+  {
+   "section": "Decision outcome",
+   "kind": "kind_or_field",
+   "value": "Each carries `promotion` and a signed assignment naming one Revision by full digest"
+  },
+  {
+   "section": "Decision outcome",
+   "kind": "limit",
+   "value": "`Snapshot` sends canonical content in chunks of at most 1 MiB (target)"
+  },
+  {
+   "section": "Decision outcome",
+   "kind": "limit",
+   "value": "`Delta` (`baseDigest`, `ops`) serves changes encoding within 1 MiB (target)"
+  },
+  {
+   "section": "Decision outcome",
+   "kind": "error_code",
+   "value": "RZ-CFG-027"
+  },
+  {
+   "section": "Decision outcome",
+   "kind": "failure_mode",
+   "value": "a mismatching result is `Nack` RZ-CFG-027, after which ... the next delivery is a `Snapshot`"
+  },
+  {
+   "section": "Decision outcome",
+   "kind": "failure_mode",
+   "value": "a `Hello` whose Last-Known-Good or active content fails re-hash -> next delivery is a `Snapshot`"
+  },
+  {
+   "section": "Decision outcome",
+   "kind": "number",
+   "value": "128-bit random `nonce`"
+  },
+  {
+   "section": "Decision outcome",
+   "kind": "claim",
+   "value": "stale nonces are ignored"
+  },
+  {
+   "section": "Decision outcome",
+   "kind": "claim",
+   "value": "`Ack` means active, not durable, and counts per (`node.id`, `storeEpoch`, `assignmentSeq`), not per stream"
+  },
+  {
+   "section": "Decision outcome",
+   "kind": "claim",
+   "value": "a `Hello` matching the pending assignment's digest, `storeEpoch` and `assignmentSeq` is its `Ack`"
+  },
+  {
+   "section": "Decision outcome",
+   "kind": "claim",
+   "value": "a Node re-ACKs a re-sent assignment it runs, so a lost `Ack` never makes a Node lag"
+  },
+  {
+   "section": "Decision outcome",
+   "kind": "failure_mode",
+   "value": "`Nack` keeps the active Revision and carries `code` and `class`"
+  },
+  {
+   "section": "Decision outcome",
+   "kind": "claim",
+   "value": "one Ruralz Control reproduces from the Revision is deterministic (pack 8.3) and fails the gate, else transient"
+  },
+  {
+   "section": "Decision outcome",
+   "kind": "limit",
+   "value": "One unacknowledged configuration message per Node, a chunked Snapshot counting as one"
+  },
+  {
+   "section": "Decision outcome",
+   "kind": "claim",
+   "value": "a newer assignment replaces an unsent one"
+  },
+  {
+   "section": "Decision outcome",
+   "kind": "limit",
+   "value": "messages cap at 2 MiB (target)"
+  },
+  {
+   "section": "Decision outcome",
+   "kind": "kind_or_field",
+   "value": "`Hello` presents active and Last-Known-Good digests, `lastNonce`, `storeEpoch` and `assignmentSeq`"
+  },
+  {
+   "section": "Decision outcome",
+   "kind": "claim",
+   "value": "the answer is nothing, a `Delta` or a `Snapshot`"
+  },
+  {
+   "section": "Decision outcome",
+   "kind": "timeout",
+   "value": "full-jitter redials, base 1 s, cap 60 s (target)"
+  },
+  {
+   "section": "Decision outcome",
+   "kind": "error_code",
+   "value": "RZ-CP-010"
+  },
+  {
+   "section": "Decision outcome",
+   "kind": "failure_mode",
+   "value": "excess streams get `Reconnect` or `RZ-CP-010`"
+  },
+  {
+   "section": "Decision outcome",
+   "kind": "timeout",
+   "value": "Heartbeat every 15 s (target)"
+  },
+  {
+   "section": "Decision outcome",
+   "kind": "kind_or_field",
+   "value": "`HeartbeatReply` down with the signed promotion and `clusterNodeCount`"
+  },
+  {
+   "section": "Decision outcome",
+   "kind": "claim",
+   "value": "mTLS authenticates the peer; content trust comes from signatures fenced by `storeEpoch` and sequences (ADR-0017)"
+  },
+  {
+   "section": "Decision outcome",
+   "kind": "milestone",
+   "value": "relays Planned (M4)"
+  },
+  {
+   "section": "Decision outcome",
+   "kind": "decision",
+   "value": "Additive changes stay in `ruralz.control.v1`; a breaking change needs `ruralz.control.v2` on distinct gRPC paths"
+  },
+  {
+   "section": "Decision outcome",
+   "kind": "number",
+   "value": "served beside v1 for about 12 months (target)"
+  },
+  {
+   "section": "Decision outcome",
+   "kind": "kind_or_field",
+   "value": "Snapshot chunks with nonce, offset, totalBytes, signature and promotion"
+  },
+  {
+   "section": "Decision outcome",
+   "kind": "kind_or_field",
+   "value": "Reconnect with retryAfter"
+  },
+  {
+   "section": "Decision outcome",
+   "kind": "kind_or_field",
+   "value": "heartbeatInterval"
+  },
+  {
+   "section": "Decision outcome",
+   "kind": "kind_or_field",
+   "value": "TrustUpdate"
+  },
+  {
+   "section": "Decision outcome",
+   "kind": "error_code",
+   "value": "RZ-CP-002"
+  },
+  {
+   "section": "Decision outcome",
+   "kind": "error_code",
+   "value": "RZ-CP-003"
+  },
+  {
+   "section": "Decision outcome",
+   "kind": "failure_mode",
+   "value": "RZ-CP-002 or RZ-CP-003, stream closed; the Node redials with full jitter"
+  },
+  {
+   "section": "Decision outcome",
+   "kind": "limit",
+   "value": "Per-replica token bucket"
+  },
+  {
+   "section": "Decision outcome",
+   "kind": "failure_mode",
+   "value": "Stale replica: last committed assignment only to a Node with no active digest; others get nothing and HeartbeatReply with the last promotion"
+  },
+  {
+   "section": "Decision outcome",
+   "kind": "timeout",
+   "value": "Reconnect rebalance after 30 s stale (target)"
+  },
+  {
+   "section": "Decision outcome",
+   "kind": "claim",
+   "value": "the active Revision stays until a verified swap"
+  },
+  {
+   "section": "Consequences",
+   "kind": "claim",
+   "value": "one digest names the unit from signing to ACK, Last-Known-Good and Drift, with no per-resource versions"
+  },
+  {
+   "section": "Consequences",
+   "kind": "claim",
+   "value": "xDS orders CDS, EDS, LDS, then RDS to avoid blackholing traffic"
+  },
+  {
+   "section": "Consequences",
+   "kind": "milestone",
+   "value": "connect, the catalog's gRPC ingress library (Planned (M3))"
+  },
+  {
+   "section": "Consequences",
+   "kind": "milestone",
+   "value": "Control Stream (Planned (M2))"
+  },
+  {
+   "section": "Consequences",
+   "kind": "port",
+   "value": "`ruralz-control` serves 8091 on `net/http`"
+  },
+  {
+   "section": "Consequences",
+   "kind": "claim",
+   "value": "Ruralz owns the specification, both implementations and their tests; no xDS client can consume a Revision"
+  },
+  {
+   "section": "Consequences",
+   "kind": "limit",
+   "value": "32 concurrent Snapshots and 256 MiB in flight per replica (target)"
+  },
+  {
+   "section": "Consequences",
+   "kind": "number",
+   "value": "20 Snapshots/s (hypothesis)"
+  },
+  {
+   "section": "Consequences",
+   "kind": "number",
+   "value": "a 10,000-Node Cluster's largest batch takes up to 5 minutes (target)"
+  },
+  {
+   "section": "Consequences",
+   "kind": "number",
+   "value": "about 5,000 streams per replica (hypothesis)"
+  },
+  {
+   "section": "Consequences",
+   "kind": "claim",
+   "value": "10,000 Nodes need N+1 replicas"
+  },
+  {
+   "section": "Consequences",
+   "kind": "claim",
+   "value": "liveness relies on HTTP/2 pings and heartbeats"
+  },
+  {
+   "section": "Consequences",
+   "kind": "claim",
+   "value": "a proxy in front of 8091 MUST pass HTTP/2 and TLS through, since the Node certificate authenticates the stream"
+  },
+  {
+   "section": "Consequences",
+   "kind": "claim",
+   "value": "the protobuf runtime is unselected (OQ-tech-stack-and-libraries-14, blocking Planned (M2))"
+  },
+  {
+   "section": "Consequences",
+   "kind": "claim",
+   "value": "the `Delta` `ops` encoding is unspecified"
+  },
+  {
+   "section": "Confirmation",
+   "kind": "milestone",
+   "value": "`buf lint` (stage 2) and `buf breaking` (stage 3) of `pr-fast`, Planned (M2) for `ruralz.control.v1`"
+  },
+  {
+   "section": "Confirmation",
+   "kind": "claim",
+   "value": "`buf breaking` runs against `main` and the last tag of each supported line"
+  },
+  {
+   "section": "Confirmation",
+   "kind": "decision",
+   "value": "go-control-plane has no catalog row, so banned imports rejects it"
+  },
+  {
+   "section": "Confirmation",
+   "kind": "milestone",
+   "value": "Container-free integration tests, Planned (M2)"
+  },
+  {
+   "section": "Confirmation",
+   "kind": "claim",
+   "value": "a Node still ACKed after the replica holding its forwarded `Ack` dies before the bitmap commit"
+  },
+  {
+   "section": "Confirmation",
+   "kind": "milestone",
+   "value": "Fuzzing and chaos, Planned (M2): one fuzz target per message type"
+  },
+  {
+   "section": "Confirmation",
+   "kind": "claim",
+   "value": "after leader failover each reconnecting Node gets only its planned Revision"
+  },
+  {
+   "section": "Confirmation",
+   "kind": "decision",
+   "value": "a new message, field or RPC MUST update the owning document's message table; a grpc-go server or second channel to Nodes MUST supersede this ADR"
+  },
+  {
+   "section": "Own `ruralz.control.v1.ControlStream` on connect in gRPC mode at both ends",
+   "kind": "claim",
+   "value": "connect is Apache-2.0 without CGO"
+  },
+  {
+   "section": "Own `ruralz.control.v1.ControlStream` on connect in gRPC mode at both ends",
+   "kind": "claim",
+   "value": "its v1 module stays \"stable and supported indefinitely\""
+  },
+  {
+   "section": "Own `ruralz.control.v1.ControlStream` on connect in gRPC mode at both ends",
+   "kind": "claim",
+   "value": "`WithRequestGate` authenticates before decompression or unmarshalling"
+  },
+  {
+   "section": "Own `ruralz.control.v1.ControlStream` on connect in gRPC mode at both ends",
+   "kind": "number",
+   "value": "connect had 29 commits in 90 days against grpc-go's 112"
+  },
+  {
+   "section": "xDS through go-control-plane",
+   "kind": "claim",
+   "value": "ACK/NACK with `error_detail` and Incremental updates are already specified"
+  },
+  {
+   "section": "xDS through go-control-plane",
+   "kind": "claim",
+   "value": "its unit is the typed Envoy resource, not a Revision under one digest"
+  },
+  {
+   "section": "xDS through go-control-plane",
+   "kind": "claim",
+   "value": "State-of-the-World resends every LDS and CDS resource"
+  },
+  {
+   "section": "xDS through go-control-plane",
+   "kind": "claim",
+   "value": "the Envoy Gateway-based Agent Router raised its gRPC message cap from 4 MB to 25 MB at 2,000 routes in a vendor-affiliated test"
+  },
+  {
+   "section": "The same protocol on grpc-go at both ends",
+   "kind": "claim",
+   "value": "grpc-go has a native HTTP/2 transport, more activity"
+  },
+  {
+   "section": "The same protocol on grpc-go at both ends",
+   "kind": "milestone",
+   "value": "`ruralzd` links it (grpc-go) for upstream clients from Planned (M3)"
+  },
+  {
+   "section": "The same protocol on grpc-go at both ends",
+   "kind": "claim",
+   "value": "`ServeHTTP` \"does not support some gRPC features available through grpc-go's HTTP/2 server\""
+  },
+  {
+   "section": "Node polling",
+   "kind": "claim",
+   "value": "requests are short-lived and stateless, and pulls reuse file mode's digest path"
+  },
+  {
+   "section": "Node polling",
+   "kind": "timeout",
+   "value": "5 minutes by default in Consul"
+  },
+  {
+   "section": "Node polling",
+   "kind": "claim",
+   "value": "Ruralz Control cannot pace deliveries or send `Reconnect`, so canary timing follows poll intervals"
+  },
+  {
+   "section": "More information",
+   "kind": "claim",
+   "value": "OQ-release-versioning-and-compatibility-4 (`binaryVersion` in `Hello`)"
+  },
+  {
+   "section": "More information",
+   "kind": "claim",
+   "value": "OQ-control-plane-and-gitops-25 (Snapshot limit)"
+  },
+  {
+   "section": "More information",
+   "kind": "claim",
+   "value": "OQ-zero-downtime-upgrades-and-hot-reload-11 (stream supersession)"
+  },
+  {
+   "section": "More information",
+   "kind": "claim",
+   "value": "Control plane and GitOps SHOULD add the implicit `Ack` to its `Ack` row and an Open question on the `Delta` `ops` encoding over `ruralz.canonical.v1`"
+  },
+  {
+   "section": "More information",
+   "kind": "decision",
+   "value": "Repository layout and conventions SHOULD ban go-control-plane explicitly and grpc-go servers in `ruralz-control` via forbidigo"
+  }
+ ]
+}

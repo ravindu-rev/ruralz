@@ -1,0 +1,2236 @@
+{
+ "path": "docs/architecture/06-ai-llm-gateway.md",
+ "status": "reviewed",
+ "facts": [
+  {
+   "section": "Summary",
+   "kind": "milestone",
+   "value": "AI traffic is Planned (M3)"
+  },
+  {
+   "section": "Summary",
+   "kind": "decision",
+   "value": "an OpenAI-compatible façade beside native passthrough (ADR-0014)"
+  },
+  {
+   "section": "Summary",
+   "kind": "decision",
+   "value": "Provider-reported usage is authoritative, tokenizer counts are estimates only, and native passthrough edits bytes in place"
+  },
+  {
+   "section": "Summary",
+   "kind": "term",
+   "value": "AIProvider"
+  },
+  {
+   "section": "Summary",
+   "kind": "term",
+   "value": "AIModel"
+  },
+  {
+   "section": "Summary",
+   "kind": "term",
+   "value": "Provider Fallback"
+  },
+  {
+   "section": "Summary",
+   "kind": "term",
+   "value": "Token Budgets"
+  },
+  {
+   "section": "Summary",
+   "kind": "term",
+   "value": "Prompt Cache"
+  },
+  {
+   "section": "Summary",
+   "kind": "term",
+   "value": "Semantic Cache"
+  },
+  {
+   "section": "Scope and non-goals",
+   "kind": "kind_or_field",
+   "value": "protocol: ai"
+  },
+  {
+   "section": "Scope and non-goals",
+   "kind": "error_code",
+   "value": "RZ-AI"
+  },
+  {
+   "section": "Scope and non-goals",
+   "kind": "claim",
+   "value": "Image, audio, video, file and batch provider APIs: Not planned; plain `http` Upstreams may carry them."
+  },
+  {
+   "section": "Scope and non-goals",
+   "kind": "claim",
+   "value": "Hosting models, retrieval and evaluations (Vision and positioning non-goal 4); also fine-tuning and invoicing."
+  },
+  {
+   "section": "Capabilities and milestones",
+   "kind": "milestone",
+   "value": "Façade (Chat Completions, embeddings, models) and native passthrough, streaming (`ai.surface`): Planned (M3)"
+  },
+  {
+   "section": "Capabilities and milestones",
+   "kind": "milestone",
+   "value": "Façade Responses API; native Bedrock InvokeModel: Planned (M4)"
+  },
+  {
+   "section": "Capabilities and milestones",
+   "kind": "milestone",
+   "value": "Model routing and Provider Fallback (`strategy`, `candidates`): Planned (M3)"
+  },
+  {
+   "section": "Capabilities and milestones",
+   "kind": "milestone",
+   "value": "Token accounting, Token Budgets, Rate Limits and Quotas (`ai.token-budget`, `ratelimit`, `quota`): Planned (M3)"
+  },
+  {
+   "section": "Capabilities and milestones",
+   "kind": "milestone",
+   "value": "Cost tracking and attribution (`pricing`, `ruralz ai cost`): Planned (M3)"
+  },
+  {
+   "section": "Capabilities and milestones",
+   "kind": "milestone",
+   "value": "Prompt Cache passthrough and Semantic Cache (`cache.prompt`, `ai.semantic-cache`): Planned (M3)"
+  },
+  {
+   "section": "Capabilities and milestones",
+   "kind": "milestone",
+   "value": "Guardrail hooks (`ai.guardrail`, `plugin` Policies): Planned (M3)"
+  },
+  {
+   "section": "Capabilities and milestones",
+   "kind": "milestone",
+   "value": "External guardrail detectors: Not planned: waits for OQ-wasm-plugin-system-5 option (b)"
+  },
+  {
+   "section": "Capabilities and milestones",
+   "kind": "milestone",
+   "value": "MCP gateway and MCP Server (OQ-ai-llm-gateway-10): Planned (M3)"
+  },
+  {
+   "section": "Capabilities and milestones",
+   "kind": "milestone",
+   "value": "A2A-aware gateway: Planned (M5)"
+  },
+  {
+   "section": "Capabilities and milestones",
+   "kind": "milestone",
+   "value": "`gen_ai` telemetry, AI metrics, data residency routing: Planned (M3)"
+  },
+  {
+   "section": "Capabilities and milestones",
+   "kind": "policy_type",
+   "value": "ai.token-budget"
+  },
+  {
+   "section": "Capabilities and milestones",
+   "kind": "policy_type",
+   "value": "ratelimit"
+  },
+  {
+   "section": "Capabilities and milestones",
+   "kind": "policy_type",
+   "value": "quota"
+  },
+  {
+   "section": "Capabilities and milestones",
+   "kind": "policy_type",
+   "value": "ai.semantic-cache"
+  },
+  {
+   "section": "Capabilities and milestones",
+   "kind": "policy_type",
+   "value": "ai.guardrail"
+  },
+  {
+   "section": "Capabilities and milestones",
+   "kind": "policy_type",
+   "value": "plugin"
+  },
+  {
+   "section": "Capabilities and milestones",
+   "kind": "kind_or_field",
+   "value": "ai.surface"
+  },
+  {
+   "section": "Capabilities and milestones",
+   "kind": "kind_or_field",
+   "value": "strategy"
+  },
+  {
+   "section": "Capabilities and milestones",
+   "kind": "kind_or_field",
+   "value": "candidates"
+  },
+  {
+   "section": "Capabilities and milestones",
+   "kind": "kind_or_field",
+   "value": "pricing"
+  },
+  {
+   "section": "Capabilities and milestones",
+   "kind": "kind_or_field",
+   "value": "cache.prompt"
+  },
+  {
+   "section": "Capabilities and milestones",
+   "kind": "kind_or_field",
+   "value": "region"
+  },
+  {
+   "section": "Capabilities and milestones",
+   "kind": "kind_or_field",
+   "value": "candidate `when`"
+  },
+  {
+   "section": "Capabilities and milestones",
+   "kind": "cli_command",
+   "value": "ruralz ai cost"
+  },
+  {
+   "section": "Capabilities and milestones",
+   "kind": "decision",
+   "value": "OpenTelemetry (ADR-0010)"
+  },
+  {
+   "section": "Unified API",
+   "kind": "kind_or_field",
+   "value": "apiVersion: ruralz/v1alpha1"
+  },
+  {
+   "section": "Unified API",
+   "kind": "kind_or_field",
+   "value": "kind: Upstream"
+  },
+  {
+   "section": "Unified API",
+   "kind": "kind_or_field",
+   "value": "kind: Route"
+  },
+  {
+   "section": "Unified API",
+   "kind": "kind_or_field",
+   "value": "protocol: ai"
+  },
+  {
+   "section": "Unified API",
+   "kind": "kind_or_field",
+   "value": "ai.models"
+  },
+  {
+   "section": "Unified API",
+   "kind": "kind_or_field",
+   "value": "ai.surface"
+  },
+  {
+   "section": "Unified API",
+   "kind": "kind_or_field",
+   "value": "surface: openai"
+  },
+  {
+   "section": "Unified API",
+   "kind": "kind_or_field",
+   "value": "surface: native"
+  },
+  {
+   "section": "Unified API",
+   "kind": "kind_or_field",
+   "value": "models: [{name: support-chat}]"
+  },
+  {
+   "section": "Unified API",
+   "kind": "kind_or_field",
+   "value": "models: [{name: claude-direct}]"
+  },
+  {
+   "section": "Unified API",
+   "kind": "kind_or_field",
+   "value": "match.hosts: [\"api.shop.example\"]"
+  },
+  {
+   "section": "Unified API",
+   "kind": "kind_or_field",
+   "value": "path: {exact: /v1/messages}"
+  },
+  {
+   "section": "Unified API",
+   "kind": "kind_or_field",
+   "value": "methods: [POST]"
+  },
+  {
+   "section": "Unified API",
+   "kind": "kind_or_field",
+   "value": "policies"
+  },
+  {
+   "section": "Unified API",
+   "kind": "kind_or_field",
+   "value": "upstreams"
+  },
+  {
+   "section": "Unified API",
+   "kind": "kind_or_field",
+   "value": "maxRequestBodyBytes"
+  },
+  {
+   "section": "Unified API",
+   "kind": "timeout",
+   "value": "timeout: 120s"
+  },
+  {
+   "section": "Unified API",
+   "kind": "claim",
+   "value": "AI Routes buffer the request body within `maxRequestBodyBytes`, so every attempt stays replayable until commit."
+  },
+  {
+   "section": "Surface decoder",
+   "kind": "decision",
+   "value": "The `ai` Upstream's surface decoder runs at the start of `onRequestBody`, before any `onRequestBody` Policy, so nothing is reserved for an invalid request (OQ-ai-llm-gateway-15)"
+  },
+  {
+   "section": "Surface decoder",
+   "kind": "error_code",
+   "value": "RZ-AI-002"
+  },
+  {
+   "section": "Surface decoder",
+   "kind": "error_code",
+   "value": "RZ-AI-001"
+  },
+  {
+   "section": "Surface decoder",
+   "kind": "error_code",
+   "value": "RZ-AI-003"
+  },
+  {
+   "section": "Surface decoder",
+   "kind": "error_code",
+   "value": "RZ-RT"
+  },
+  {
+   "section": "Surface decoder",
+   "kind": "kind_or_field",
+   "value": "limits.maxInputTokens"
+  },
+  {
+   "section": "Surface decoder",
+   "kind": "kind_or_field",
+   "value": "strategy: cost"
+  },
+  {
+   "section": "Surface decoder",
+   "kind": "claim",
+   "value": "Every `request.body` decode that CEL, a Policy or the decoder reads MUST reject invalid UTF-8 and repeated member names at any depth"
+  },
+  {
+   "section": "Surface decoder",
+   "kind": "claim",
+   "value": "A member equal to a recognized field ... under Unicode case folding but not exactly is `RZ-AI-002`"
+  },
+  {
+   "section": "Surface decoder",
+   "kind": "claim",
+   "value": "Outside `ai` Upstreams this is 400 with an `RZ-RT` code proposed to Data plane (OQ-ai-llm-gateway-16)"
+  },
+  {
+   "section": "OpenAI-compatible façade",
+   "kind": "claim",
+   "value": "With `surface: openai`, the Node accepts Chat Completions, streamed or not, embeddings and the model list"
+  },
+  {
+   "section": "OpenAI-compatible façade",
+   "kind": "claim",
+   "value": "translates the response back into OpenAI chunks ending with `data: [DONE]`"
+  },
+  {
+   "section": "OpenAI-compatible façade",
+   "kind": "claim",
+   "value": "a feature the dialect cannot express, such as Bedrock `guardrailConfig`, is `RZ-AI-002`"
+  },
+  {
+   "section": "OpenAI-compatible façade",
+   "kind": "limit",
+   "value": "A non-streamed response is a buffering gate within `maxResponseBodyBytes`, reserved from `maxBufferedBytes`; larger ones get 502 `RZ-AI-013`"
+  },
+  {
+   "section": "OpenAI-compatible façade",
+   "kind": "error_code",
+   "value": "RZ-AI-013"
+  },
+  {
+   "section": "OpenAI-compatible façade",
+   "kind": "kind_or_field",
+   "value": "maxResponseBodyBytes"
+  },
+  {
+   "section": "OpenAI-compatible façade",
+   "kind": "kind_or_field",
+   "value": "maxBufferedBytes"
+  },
+  {
+   "section": "Native passthrough",
+   "kind": "decision",
+   "value": "The Node edits bytes in place and MUST NOT re-serialize the body from a typed schema."
+  },
+  {
+   "section": "Native passthrough",
+   "kind": "claim",
+   "value": "Replace `model` or the model path segment: Always"
+  },
+  {
+   "section": "Native passthrough",
+   "kind": "claim",
+   "value": "Write C into the cap field; remove other cap fields: Always (pack 8.9)"
+  },
+  {
+   "section": "Native passthrough",
+   "kind": "claim",
+   "value": "Set `stream_options.include_usage`: Streamed Chat Completions"
+  },
+  {
+   "section": "Native passthrough",
+   "kind": "claim",
+   "value": "Keep only `content-type`, `accept`, `anthropic-version` and the query parameters the API's row allows: Always, before credentials (opt-ins: OQ-ai-llm-gateway-14)"
+  },
+  {
+   "section": "Native passthrough",
+   "kind": "claim",
+   "value": "Replace matched strings in place: `ai.guardrail` redaction"
+  },
+  {
+   "section": "Native passthrough",
+   "kind": "claim",
+   "value": "Remove explicit cache markers: `cache.prompt.mode: disabled`"
+  },
+  {
+   "section": "Native passthrough",
+   "kind": "claim",
+   "value": "fixtures prove redaction keeps marker positions and `access_token`, `fields` and `key` never reach a provider"
+  },
+  {
+   "section": "Native passthrough",
+   "kind": "claim",
+   "value": "All candidates of an `AIModel` behind a native Upstream MUST share one dialect (code: OQ-ai-llm-gateway-3)"
+  },
+  {
+   "section": "Native passthrough",
+   "kind": "kind_or_field",
+   "value": "stream_options.include_usage"
+  },
+  {
+   "section": "Native passthrough",
+   "kind": "kind_or_field",
+   "value": "cache.prompt.mode: disabled"
+  },
+  {
+   "section": "Streaming",
+   "kind": "claim",
+   "value": "native passthrough keeps each provider's framing (SSE, AWS event stream, NDJSON), one `onChunk` call per event, message or line"
+  },
+  {
+   "section": "Streaming",
+   "kind": "claim",
+   "value": "headers commit at the first content event (per API, below), never at `message_start`, `ping` or a usage-only chunk"
+  },
+  {
+   "section": "Streaming",
+   "kind": "claim",
+   "value": "`perTryTimeout` bounds the wait, during which the client receives nothing (OQ-data-plane-10)"
+  },
+  {
+   "section": "Streaming",
+   "kind": "limit",
+   "value": "beyond 64 KiB (target) the attempt commits early"
+  },
+  {
+   "section": "Streaming",
+   "kind": "number",
+   "value": "Gateway-added time to first token for bodies up to 16 KiB ...: 1 ms or less at p99 (target)"
+  },
+  {
+   "section": "Streaming",
+   "kind": "number",
+   "value": "parsing, translation and estimation add per-KiB costs (hypothesis)"
+  },
+  {
+   "section": "Streaming",
+   "kind": "milestone",
+   "value": "an M3 benchmark of `tiktoken-go/tokenizer` and the decoder"
+  },
+  {
+   "section": "Streaming",
+   "kind": "library",
+   "value": "tiktoken-go/tokenizer"
+  },
+  {
+   "section": "Streaming",
+   "kind": "kind_or_field",
+   "value": "perTryTimeout"
+  },
+  {
+   "section": "Components inside a Node",
+   "kind": "port",
+   "value": "Listeners 8080, 8443"
+  },
+  {
+   "section": "Components inside a Node",
+   "kind": "library",
+   "value": "Token estimator (tiktoken-go/tokenizer)"
+  },
+  {
+   "section": "Components inside a Node",
+   "kind": "metric",
+   "value": "ruralz_ai metrics"
+  },
+  {
+   "section": "Components inside a Node",
+   "kind": "claim",
+   "value": "tb -> State Store: one atomic reservation"
+  },
+  {
+   "section": "Components inside a Node",
+   "kind": "claim",
+   "value": "sc -> State Store: one threaded vector query"
+  },
+  {
+   "section": "Components inside a Node",
+   "kind": "claim",
+   "value": "asynchronous settlement and cache store"
+  },
+  {
+   "section": "AIProvider, AIModel and dialect translation matrix",
+   "kind": "kind_or_field",
+   "value": "dialect"
+  },
+  {
+   "section": "AIProvider, AIModel and dialect translation matrix",
+   "kind": "kind_or_field",
+   "value": "baseUrl"
+  },
+  {
+   "section": "AIProvider, AIModel and dialect translation matrix",
+   "kind": "kind_or_field",
+   "value": "credentials.apiKey"
+  },
+  {
+   "section": "AIProvider, AIModel and dialect translation matrix",
+   "kind": "kind_or_field",
+   "value": "region"
+  },
+  {
+   "section": "AIProvider, AIModel and dialect translation matrix",
+   "kind": "kind_or_field",
+   "value": "pricing"
+  },
+  {
+   "section": "AIProvider, AIModel and dialect translation matrix",
+   "kind": "kind_or_field",
+   "value": "candidates (`provider`, `model`, `weight`, `when`)"
+  },
+  {
+   "section": "AIProvider, AIModel and dialect translation matrix",
+   "kind": "kind_or_field",
+   "value": "strategy"
+  },
+  {
+   "section": "AIProvider, AIModel and dialect translation matrix",
+   "kind": "kind_or_field",
+   "value": "limits"
+  },
+  {
+   "section": "AIProvider, AIModel and dialect translation matrix",
+   "kind": "kind_or_field",
+   "value": "cache"
+  },
+  {
+   "section": "AIProvider, AIModel and dialect translation matrix",
+   "kind": "milestone",
+   "value": "Both kinds and `ruralz ai models` are Planned (M3)"
+  },
+  {
+   "section": "AIProvider, AIModel and dialect translation matrix",
+   "kind": "cli_command",
+   "value": "ruralz ai models"
+  },
+  {
+   "section": "AIProvider, AIModel and dialect translation matrix",
+   "kind": "claim",
+   "value": "Wire facts as of 2026-09-23"
+  },
+  {
+   "section": "AIProvider, AIModel and dialect translation matrix",
+   "kind": "claim",
+   "value": "openai: Chat usage in final chunk with `choices: []`, only with `include_usage`; Responses: `response.usage`"
+  },
+  {
+   "section": "AIProvider, AIModel and dialect translation matrix",
+   "kind": "claim",
+   "value": "openai prompt cache: Automatic; `prompt_cache_key`; `input_tokens_details.cached_tokens`"
+  },
+  {
+   "section": "AIProvider, AIModel and dialect translation matrix",
+   "kind": "claim",
+   "value": "anthropic: Explicit `cache_control` (at most 4 breakpoints) or top-level automatic; TTL `5m` or `1h`"
+  },
+  {
+   "section": "AIProvider, AIModel and dialect translation matrix",
+   "kind": "claim",
+   "value": "anthropic usage: Input and cache fields in `message_start.message.usage`; cumulative `message_delta.usage`"
+  },
+  {
+   "section": "AIProvider, AIModel and dialect translation matrix",
+   "kind": "claim",
+   "value": "gemini: SSE with `alt=sse`; Implicit (default from 2.5) plus explicit `cachedContents`"
+  },
+  {
+   "section": "AIProvider, AIModel and dialect translation matrix",
+   "kind": "claim",
+   "value": "gemini usageMetadata: `promptTokenCount`, `candidatesTokenCount`, `cachedContentTokenCount`, `thoughtsTokenCount`, `toolUsePromptTokenCount`"
+  },
+  {
+   "section": "AIProvider, AIModel and dialect translation matrix",
+   "kind": "claim",
+   "value": "bedrock: `metadata`: `inputTokens` (uncached only), `outputTokens`, `cacheReadInputTokens`, `cacheWriteInputTokens`"
+  },
+  {
+   "section": "AIProvider, AIModel and dialect translation matrix",
+   "kind": "claim",
+   "value": "bedrock: Converse `cachePoint`; InvokeModel `cache_control` for Claude; at most 4"
+  },
+  {
+   "section": "AIProvider, AIModel and dialect translation matrix",
+   "kind": "claim",
+   "value": "mistral: `usage` in the final message; cached-token field unconfirmed; `prompt_cache_key`; cached tokens billed at 10%"
+  },
+  {
+   "section": "AIProvider, AIModel and dialect translation matrix",
+   "kind": "claim",
+   "value": "ollama: NDJSON; `stream` defaults to true; Final `done: true` object: `prompt_eval_count`, `eval_count`"
+  },
+  {
+   "section": "AIProvider, AIModel and dialect translation matrix",
+   "kind": "claim",
+   "value": "ollama: None: `cache_control` unavailable on `/v1/messages`"
+  },
+  {
+   "section": "AIProvider, AIModel and dialect translation matrix",
+   "kind": "kind_or_field",
+   "value": "dialect: openai"
+  },
+  {
+   "section": "AIProvider, AIModel and dialect translation matrix",
+   "kind": "kind_or_field",
+   "value": "dialect: anthropic"
+  },
+  {
+   "section": "AIProvider, AIModel and dialect translation matrix",
+   "kind": "kind_or_field",
+   "value": "dialect: gemini"
+  },
+  {
+   "section": "AIProvider, AIModel and dialect translation matrix",
+   "kind": "kind_or_field",
+   "value": "dialect: bedrock"
+  },
+  {
+   "section": "AIProvider, AIModel and dialect translation matrix",
+   "kind": "kind_or_field",
+   "value": "dialect: mistral"
+  },
+  {
+   "section": "AIProvider, AIModel and dialect translation matrix",
+   "kind": "kind_or_field",
+   "value": "dialect: ollama"
+  },
+  {
+   "section": "Native APIs, caps and events",
+   "kind": "error_code",
+   "value": "A choice count above 1 (`n`, `candidateCount`) is `RZ-AI-002` on every Route."
+  },
+  {
+   "section": "Native APIs, caps and events",
+   "kind": "api_path",
+   "value": "POST /v1/chat/completions"
+  },
+  {
+   "section": "Native APIs, caps and events",
+   "kind": "api_path",
+   "value": "/v1/embeddings"
+  },
+  {
+   "section": "Native APIs, caps and events",
+   "kind": "api_path",
+   "value": "GET /v1/models"
+  },
+  {
+   "section": "Native APIs, caps and events",
+   "kind": "api_path",
+   "value": "POST /v1/responses"
+  },
+  {
+   "section": "Native APIs, caps and events",
+   "kind": "api_path",
+   "value": "POST /v1/messages"
+  },
+  {
+   "section": "Native APIs, caps and events",
+   "kind": "api_path",
+   "value": "models/{model}:generateContent"
+  },
+  {
+   "section": "Native APIs, caps and events",
+   "kind": "api_path",
+   "value": "`:streamGenerateContent`"
+  },
+  {
+   "section": "Native APIs, caps and events",
+   "kind": "api_path",
+   "value": "`:embedContent`"
+  },
+  {
+   "section": "Native APIs, caps and events",
+   "kind": "api_path",
+   "value": "GET models"
+  },
+  {
+   "section": "Native APIs, caps and events",
+   "kind": "api_path",
+   "value": "POST /model/{modelId}/converse"
+  },
+  {
+   "section": "Native APIs, caps and events",
+   "kind": "api_path",
+   "value": "/converse-stream"
+  },
+  {
+   "section": "Native APIs, caps and events",
+   "kind": "api_path",
+   "value": "POST /model/{modelId}/invoke"
+  },
+  {
+   "section": "Native APIs, caps and events",
+   "kind": "api_path",
+   "value": "/invoke-with-response-stream"
+  },
+  {
+   "section": "Native APIs, caps and events",
+   "kind": "api_path",
+   "value": "POST /api/chat"
+  },
+  {
+   "section": "Native APIs, caps and events",
+   "kind": "api_path",
+   "value": "/api/embed"
+  },
+  {
+   "section": "Native APIs, caps and events",
+   "kind": "api_path",
+   "value": "GET /api/tags"
+  },
+  {
+   "section": "Native APIs, caps and events",
+   "kind": "kind_or_field",
+   "value": "max_completion_tokens (`openai`) or max_tokens (`mistral`)"
+  },
+  {
+   "section": "Native APIs, caps and events",
+   "kind": "kind_or_field",
+   "value": "max_output_tokens"
+  },
+  {
+   "section": "Native APIs, caps and events",
+   "kind": "kind_or_field",
+   "value": "max_tokens, which also bounds thinking"
+  },
+  {
+   "section": "Native APIs, caps and events",
+   "kind": "kind_or_field",
+   "value": "generationConfig.maxOutputTokens"
+  },
+  {
+   "section": "Native APIs, caps and events",
+   "kind": "kind_or_field",
+   "value": "inferenceConfig.maxTokens"
+  },
+  {
+   "section": "Native APIs, caps and events",
+   "kind": "kind_or_field",
+   "value": "options.num_predict"
+  },
+  {
+   "section": "Native APIs, caps and events",
+   "kind": "milestone",
+   "value": "Bedrock InvokeModel, Planned (M4); Claude-family bodies only (OQ-ai-llm-gateway-3)"
+  },
+  {
+   "section": "Native APIs, caps and events",
+   "kind": "claim",
+   "value": "Gemini: query `alt` only"
+  },
+  {
+   "section": "Native APIs, caps and events",
+   "kind": "claim",
+   "value": "Chat Completions first content event: First chunk with a `choices` delta"
+  },
+  {
+   "section": "Native APIs, caps and events",
+   "kind": "claim",
+   "value": "Anthropic Messages first content event: First `content_block_delta`: text, tool input or thinking"
+  },
+  {
+   "section": "Model routing",
+   "kind": "decision",
+   "value": "Model routing runs in `onRoute`. Body-dependent criteria choose only among the `AIModel`'s candidates, never another Route"
+  },
+  {
+   "section": "Model routing",
+   "kind": "decision",
+   "value": "CEL (ADR-0011)"
+  },
+  {
+   "section": "Model routing",
+   "kind": "claim",
+   "value": "a runtime error skips it"
+  },
+  {
+   "section": "Model routing",
+   "kind": "claim",
+   "value": "skipping open breakers and cooling candidates"
+  },
+  {
+   "section": "Model routing",
+   "kind": "claim",
+   "value": "a request makes at most (`retries.attempts` + 1) x candidates attempts"
+  },
+  {
+   "section": "Model routing",
+   "kind": "kind_or_field",
+   "value": "strategy: fallback"
+  },
+  {
+   "section": "Model routing",
+   "kind": "kind_or_field",
+   "value": "strategy: weighted"
+  },
+  {
+   "section": "Model routing",
+   "kind": "kind_or_field",
+   "value": "strategy: latency"
+  },
+  {
+   "section": "Model routing",
+   "kind": "kind_or_field",
+   "value": "strategy: cost"
+  },
+  {
+   "section": "Model routing",
+   "kind": "kind_or_field",
+   "value": "weight"
+  },
+  {
+   "section": "Model routing",
+   "kind": "kind_or_field",
+   "value": "retries"
+  },
+  {
+   "section": "Model routing",
+   "kind": "kind_or_field",
+   "value": "circuitBreaker"
+  },
+  {
+   "section": "Model routing",
+   "kind": "kind_or_field",
+   "value": "retries.attempts"
+  },
+  {
+   "section": "Model routing",
+   "kind": "kind_or_field",
+   "value": "pricing"
+  },
+  {
+   "section": "Model routing",
+   "kind": "number",
+   "value": "latency: Node-local decaying average; 5% of first picks explore (hypothesis)"
+  },
+  {
+   "section": "Model routing",
+   "kind": "decision",
+   "value": "priced candidates MUST share a currency, else list order (code: OQ-ai-llm-gateway-16)"
+  },
+  {
+   "section": "Model routing",
+   "kind": "limit",
+   "value": "Routes with `ai.token-budget` allow 2 attempts (target)"
+  },
+  {
+   "section": "Model routing",
+   "kind": "error_code",
+   "value": "RZ-AI-005"
+  },
+  {
+   "section": "Provider Fallback",
+   "kind": "decision",
+   "value": "only before commit; after commit a failure ends the stream with `RZ-AI-009`"
+  },
+  {
+   "section": "Provider Fallback",
+   "kind": "claim",
+   "value": "as in Agent Router"
+  },
+  {
+   "section": "Provider Fallback",
+   "kind": "claim",
+   "value": "Abandoned attempts are cancelled at once"
+  },
+  {
+   "section": "Provider Fallback",
+   "kind": "failure_mode",
+   "value": "Connect, TLS or reset before headers: retry Yes, per `retryOn`; fallback Yes, after retries; fail If exhausted"
+  },
+  {
+   "section": "Provider Fallback",
+   "kind": "failure_mode",
+   "value": "Provider rate limit (429, `anthropic-ratelimit-*`; Bedrock `throttlingException`): No; candidate cools until reset; fallback Yes"
+  },
+  {
+   "section": "Provider Fallback",
+   "kind": "failure_mode",
+   "value": "Provider spend cap (Anthropic `enforced_spend_limit_reached`): No; candidate cools; fallback Yes"
+  },
+  {
+   "section": "Provider Fallback",
+   "kind": "failure_mode",
+   "value": "Provider server error 5xx: Yes, per `retryOn`; fallback Yes"
+  },
+  {
+   "section": "Provider Fallback",
+   "kind": "failure_mode",
+   "value": "Timeout or stream error before content: No retry; fallback Yes"
+  },
+  {
+   "section": "Provider Fallback",
+   "kind": "failure_mode",
+   "value": "Provider credential failure 401 or 403: fallback Yes, alerting with `RZ-AUTH`"
+  },
+  {
+   "section": "Provider Fallback",
+   "kind": "failure_mode",
+   "value": "Context window exceeded: fallback Yes"
+  },
+  {
+   "section": "Provider Fallback",
+   "kind": "failure_mode",
+   "value": "Invalid request (Other 4xx): no fallback; fail Yes, `RZ-AI-011`"
+  },
+  {
+   "section": "Provider Fallback",
+   "kind": "failure_mode",
+   "value": "Content-policy refusal: No (OQ-ai-llm-gateway-14); fail Yes, `RZ-AI-012`"
+  },
+  {
+   "section": "Provider Fallback",
+   "kind": "failure_mode",
+   "value": "Local decision (`RZ-AI-001`, `RZ-AI-003`, `RZ-AI-006`, `RZ-AI-010`): Yes, no provider call"
+  },
+  {
+   "section": "Provider Fallback",
+   "kind": "failure_mode",
+   "value": "Failure after commit: Stream ends, `RZ-AI-009`"
+  },
+  {
+   "section": "Provider Fallback",
+   "kind": "error_code",
+   "value": "RZ-AUTH"
+  },
+  {
+   "section": "Provider Fallback",
+   "kind": "error_code",
+   "value": "RZ-AI-011"
+  },
+  {
+   "section": "Provider Fallback",
+   "kind": "error_code",
+   "value": "RZ-AI-012"
+  },
+  {
+   "section": "Provider Fallback",
+   "kind": "error_code",
+   "value": "RZ-AI-009"
+  },
+  {
+   "section": "Provider Fallback",
+   "kind": "kind_or_field",
+   "value": "retryOn"
+  },
+  {
+   "section": "Provider Fallback",
+   "kind": "number",
+   "value": "in a brownout each Node pays about one failed attempt per cooldown (hypothesis)"
+  },
+  {
+   "section": "Provider Fallback",
+   "kind": "claim",
+   "value": "Cooldowns honor `retry-after` and reset headers; they and breakers stay Node-local (P3, P4)"
+  },
+  {
+   "section": "Provider Fallback",
+   "kind": "error_code",
+   "value": "RZ-AI-004 (Figure 2: none at all)"
+  },
+  {
+   "section": "Authoritative usage and estimates",
+   "kind": "decision",
+   "value": "Provider-reported usage is authoritative for settlement, cost and every export."
+  },
+  {
+   "section": "Authoritative usage and estimates",
+   "kind": "decision",
+   "value": "Tokenizer counts serve only E and the streaming guard, and are never billed."
+  },
+  {
+   "section": "Authoritative usage and estimates",
+   "kind": "decision",
+   "value": "C is the client's cap field, else `limits.maxOutputTokens` (larger values: OQ-ai-llm-gateway-1); R = E + C."
+  },
+  {
+   "section": "Authoritative usage and estimates",
+   "kind": "library",
+   "value": "`tiktoken-go/tokenizer` embeds OpenAI encodings only"
+  },
+  {
+   "section": "Authoritative usage and estimates",
+   "kind": "default",
+   "value": "E uses `o200k_base` times the candidates' largest per-dialect correction (OQ-ai-llm-gateway-2), with no count endpoint on the request path"
+  },
+  {
+   "section": "Authoritative usage and estimates",
+   "kind": "number",
+   "value": "counts as bytes divided by 3 (hypothesis) any pre-tokenized piece over 1 KiB (target)"
+  },
+  {
+   "section": "Authoritative usage and estimates",
+   "kind": "number",
+   "value": "after a 256 KiB prefix (target) or a spent per-request CPU budget (target)"
+  },
+  {
+   "section": "Authoritative usage and estimates",
+   "kind": "number",
+   "value": "counts an inline media part as 1,500 tokens (hypothesis)"
+  },
+  {
+   "section": "Authoritative usage and estimates",
+   "kind": "claim",
+   "value": "on budgeted Routes, sets E to `limits.maxInputTokens` if any part is by reference (OQ-ai-llm-gateway-17)"
+  },
+  {
+   "section": "Authoritative usage and estimates",
+   "kind": "claim",
+   "value": "Anthropic publishes no tokenizer"
+  },
+  {
+   "section": "Authoritative usage and estimates",
+   "kind": "kind_or_field",
+   "value": "limits.maxOutputTokens"
+  },
+  {
+   "section": "Authoritative usage and estimates",
+   "kind": "kind_or_field",
+   "value": "limits.maxInputTokens"
+  },
+  {
+   "section": "Streaming guard",
+   "kind": "error_code",
+   "value": "RZ-AI-008"
+  },
+  {
+   "section": "Streaming guard",
+   "kind": "claim",
+   "value": "It ends the stream with `RZ-AI-008` once the count exceeds C (pack 8.9); a tolerance above C for tokenizer drift is proposed in OQ-ai-llm-gateway-15"
+  },
+  {
+   "section": "Streaming guard",
+   "kind": "claim",
+   "value": "Hidden reasoning is never streamed, so only the provider's cap bounds it."
+  },
+  {
+   "section": "Streaming final-usage chunk",
+   "kind": "claim",
+   "value": "reads usage per attempt, in `onChunk` or `onUpstreamResponseBody` (scanning native bodies without buffering), with no State Store call"
+  },
+  {
+   "section": "Streaming final-usage chunk",
+   "kind": "claim",
+   "value": "For `openai` Chat Completions the Node sets `include_usage` and hides the final chunk unless requested"
+  },
+  {
+   "section": "Streaming final-usage chunk",
+   "kind": "claim",
+   "value": "A client disconnect cancels the upstream request at once, since the provider keeps billing output."
+  },
+  {
+   "section": "Streaming final-usage chunk",
+   "kind": "claim",
+   "value": "reserve R = E + C only if the remaining budget covers R, one atomic call"
+  },
+  {
+   "section": "Streaming final-usage chunk",
+   "kind": "claim",
+   "value": "attempt lost its usage: charge all of R, emit the degraded-state metric"
+  },
+  {
+   "section": "Streaming final-usage chunk",
+   "kind": "error_code",
+   "value": "RZ-AI-006"
+  },
+  {
+   "section": "Settlement",
+   "kind": "claim",
+   "value": "`onLog` settles asynchronously, one cost record per attempt"
+  },
+  {
+   "section": "Settlement",
+   "kind": "claim",
+   "value": "Usage reported: That usage, summed over attempts; rest of R released"
+  },
+  {
+   "section": "Settlement",
+   "kind": "claim",
+   "value": "Attempt reached the provider, no usage read: All of R once per request, plus usage other attempts reported"
+  },
+  {
+   "section": "Settlement",
+   "kind": "claim",
+   "value": "No provider attempt after reservation: All of R (pack 8.9); proposed: nothing (OQ-ai-llm-gateway-15; hits: OQ-ai-llm-gateway-5)"
+  },
+  {
+   "section": "Settlement",
+   "kind": "claim",
+   "value": "A dropped settlement (pack 8.7) leaves R charged."
+  },
+  {
+   "section": "Settlement",
+   "kind": "metric",
+   "value": "ruralz_ai_settlements_total"
+  },
+  {
+   "section": "Settlement",
+   "kind": "metric",
+   "value": "ruralz_ai_usage_missing_total"
+  },
+  {
+   "section": "Settlement",
+   "kind": "number",
+   "value": "Under `failureMode: closed`, provider spend overshoots a budget by at most the sum of input-estimate errors across concurrent requests (hypothesis; SM-10)"
+  },
+  {
+   "section": "Settlement",
+   "kind": "number",
+   "value": "plus (attempts - 1) x R per concurrent request (hypothesis)"
+  },
+  {
+   "section": "Settlement",
+   "kind": "failure_mode",
+   "value": "Under `open`, a State Store outage admits unmetered."
+  },
+  {
+   "section": "Token Budget",
+   "kind": "policy_type",
+   "value": "ai.token-budget"
+  },
+  {
+   "section": "Token Budget",
+   "kind": "default",
+   "value": "ai.token-budget: Filter class admission, Phases `onRequestBody`, `onChunk` and `onLog`, Gateway or Route scope, default `failureMode: closed`"
+  },
+  {
+   "section": "Token Budget",
+   "kind": "kind_or_field",
+   "value": "config.consumerQuota"
+  },
+  {
+   "section": "Token Budget",
+   "kind": "kind_or_field",
+   "value": "unit: tokens"
+  },
+  {
+   "section": "Token Budget",
+   "kind": "error_code",
+   "value": "RZ-CFG-034"
+  },
+  {
+   "section": "Token Budget",
+   "kind": "error_code",
+   "value": "RZ-AI-006"
+  },
+  {
+   "section": "Token Budget",
+   "kind": "error_code",
+   "value": "RZ-AI-007"
+  },
+  {
+   "section": "Token Budget",
+   "kind": "error_code",
+   "value": "RZ-STS"
+  },
+  {
+   "section": "Token Budget",
+   "kind": "error_code",
+   "value": "RZ-AI-014"
+  },
+  {
+   "section": "Token Budget",
+   "kind": "decision",
+   "value": "one Lua script, using server `TIME`, reserves R only if the window's remaining budget covers it; otherwise 429 `RZ-AI-006` with `retry-after` at the window end"
+  },
+  {
+   "section": "Token Budget",
+   "kind": "decision",
+   "value": "the hash tag is `{<SHA-256 of consumer.name>}`"
+  },
+  {
+   "section": "Token Budget",
+   "kind": "claim",
+   "value": "a null Consumer or one without the quota gets 403 `RZ-AI-007`, a decision, never `RZ-STS`"
+  },
+  {
+   "section": "Token Budget",
+   "kind": "failure_mode",
+   "value": "`closed` rejects a State Store failure with 503 `RZ-STS` and a CEL error with `RZ-AI-014`; `open` admits unmetered (default: OQ-configuration-model-8)"
+  },
+  {
+   "section": "Token-aware rate limits",
+   "kind": "milestone",
+   "value": "`ratelimit`, Planned (M1), in `onRequestHeaders`"
+  },
+  {
+   "section": "Token-aware rate limits",
+   "kind": "decision",
+   "value": "a local token bucket plus GCRA in the State Store, failing open by default (ADR-0008)"
+  },
+  {
+   "section": "Token-aware rate limits",
+   "kind": "failure_mode",
+   "value": "ratelimit failing open by default"
+  },
+  {
+   "section": "Token-aware rate limits",
+   "kind": "kind_or_field",
+   "value": "kind: Consumer"
+  },
+  {
+   "section": "Token-aware rate limits",
+   "kind": "kind_or_field",
+   "value": "tier: gold"
+  },
+  {
+   "section": "Token-aware rate limits",
+   "kind": "kind_or_field",
+   "value": "credentials.apiKeys"
+  },
+  {
+   "section": "Token-aware rate limits",
+   "kind": "kind_or_field",
+   "value": "hash: \"sha256:...\""
+  },
+  {
+   "section": "Token-aware rate limits",
+   "kind": "kind_or_field",
+   "value": "quotas"
+  },
+  {
+   "section": "Token-aware rate limits",
+   "kind": "kind_or_field",
+   "value": "name: minute-tokens"
+  },
+  {
+   "section": "Token-aware rate limits",
+   "kind": "kind_or_field",
+   "value": "name: daily-tokens"
+  },
+  {
+   "section": "Token-aware rate limits",
+   "kind": "kind_or_field",
+   "value": "tags: [partner, eu]"
+  },
+  {
+   "section": "Token-aware rate limits",
+   "kind": "kind_or_field",
+   "value": "kind: Policy"
+  },
+  {
+   "section": "Token-aware rate limits",
+   "kind": "kind_or_field",
+   "value": "type: ai.token-budget"
+  },
+  {
+   "section": "Token-aware rate limits",
+   "kind": "kind_or_field",
+   "value": "failureMode: closed"
+  },
+  {
+   "section": "Token-aware rate limits",
+   "kind": "kind_or_field",
+   "value": "when: 'consumer != null && \"minute-tokens\" in consumer.quotas'"
+  },
+  {
+   "section": "Token-aware rate limits",
+   "kind": "kind_or_field",
+   "value": "config: {consumerQuota: minute-tokens}"
+  },
+  {
+   "section": "Token-aware rate limits",
+   "kind": "kind_or_field",
+   "value": "config: {consumerQuota: daily-tokens}"
+  },
+  {
+   "section": "Token-aware rate limits",
+   "kind": "kind_or_field",
+   "value": "type: ratelimit"
+  },
+  {
+   "section": "Token-aware rate limits",
+   "kind": "kind_or_field",
+   "value": "key: 'consumer == null ? source.ip : consumer.name'"
+  },
+  {
+   "section": "Token-aware rate limits",
+   "kind": "kind_or_field",
+   "value": "Policy.spec.when"
+  },
+  {
+   "section": "Token-aware rate limits",
+   "kind": "kind_or_field",
+   "value": "consumer.tier"
+  },
+  {
+   "section": "Token-aware rate limits",
+   "kind": "limit",
+   "value": "limit: 200000 (window: 1m)"
+  },
+  {
+   "section": "Token-aware rate limits",
+   "kind": "limit",
+   "value": "limit: 2000000 (window: 24h)"
+  },
+  {
+   "section": "Token-aware rate limits",
+   "kind": "limit",
+   "value": "limits: [{requests: 20, window: 1s}]"
+  },
+  {
+   "section": "Token-aware rate limits",
+   "kind": "timeout",
+   "value": "stateStoreTimeout: 30ms"
+  },
+  {
+   "section": "Token-aware rate limits",
+   "kind": "timeout",
+   "value": "timeout: 120s"
+  },
+  {
+   "section": "Token-aware rate limits",
+   "kind": "api_path",
+   "value": "path: {exact: /v1/chat/completions}"
+  },
+  {
+   "section": "Token-aware rate limits",
+   "kind": "claim",
+   "value": "Per-model sub-caps need `ai` in `Policy.spec.when` (OQ-ai-llm-gateway-8); shared or currency budgets are OQ-ai-llm-gateway-7."
+  },
+  {
+   "section": "Cost tracking and attribution",
+   "kind": "decision",
+   "value": "cost = ( inputTokens x inputPerMillionTokens + cacheReadInputTokens x cachedInputPerMillionTokens + cacheWriteInputTokens x inputPerMillionTokens + outputTokens x outputPerMillionTokens ) / 1,000,000"
+  },
+  {
+   "section": "Cost tracking and attribution",
+   "kind": "decision",
+   "value": "Prices are decimal strings in fixed-point arithmetic, never floats; currencies are never converted."
+  },
+  {
+   "section": "Cost tracking and attribution",
+   "kind": "decision",
+   "value": "`pricing.version` is required with `pricing`; a price change is a new Revision whose `ruralz bundle diff` carries impact `ai`"
+  },
+  {
+   "section": "Cost tracking and attribution",
+   "kind": "kind_or_field",
+   "value": "pricing.models"
+  },
+  {
+   "section": "Cost tracking and attribution",
+   "kind": "kind_or_field",
+   "value": "pricing.currency"
+  },
+  {
+   "section": "Cost tracking and attribution",
+   "kind": "kind_or_field",
+   "value": "pricing.version"
+  },
+  {
+   "section": "Cost tracking and attribution",
+   "kind": "kind_or_field",
+   "value": "inputPerMillionTokens"
+  },
+  {
+   "section": "Cost tracking and attribution",
+   "kind": "kind_or_field",
+   "value": "cachedInputPerMillionTokens"
+  },
+  {
+   "section": "Cost tracking and attribution",
+   "kind": "kind_or_field",
+   "value": "outputPerMillionTokens"
+  },
+  {
+   "section": "Cost tracking and attribution",
+   "kind": "default",
+   "value": "Without `cachedInputPerMillionTokens`, cache reads use the input rate. Cache writes use the input rate until a write price exists (OQ-ai-llm-gateway-6)"
+  },
+  {
+   "section": "Cost tracking and attribution",
+   "kind": "claim",
+   "value": "records from providers billing writes above input, such as Anthropic and OpenAI GPT-5.6 and later, carry an `approximate` flag"
+  },
+  {
+   "section": "Cost tracking and attribution",
+   "kind": "claim",
+   "value": "No Revington service supplies prices."
+  },
+  {
+   "section": "Cost tracking and attribution",
+   "kind": "claim",
+   "value": "metrics omit Consumer"
+  },
+  {
+   "section": "Cost tracking and attribution",
+   "kind": "cli_command",
+   "value": "ruralz bundle diff"
+  },
+  {
+   "section": "Cost tracking and attribution",
+   "kind": "cli_command",
+   "value": "ruralz ai cost"
+  },
+  {
+   "section": "Cost tracking and attribution",
+   "kind": "milestone",
+   "value": "`ruralz ai cost`, Planned (M3), aggregates usage records (OQ-ai-llm-gateway-13)"
+  },
+  {
+   "section": "Cost tracking and attribution",
+   "kind": "metric",
+   "value": "ruralz_ai_unpriced_requests_total"
+  },
+  {
+   "section": "Prompt Cache",
+   "kind": "kind_or_field",
+   "value": "AIModel.spec.cache.prompt.mode (`passthrough` or `disabled`)"
+  },
+  {
+   "section": "Prompt Cache",
+   "kind": "decision",
+   "value": "Unless `cache.prompt.mode: disabled` is set, native passthrough MUST deliver every Anthropic `cache_control` block ... unchanged in position, `type` and `ttl`"
+  },
+  {
+   "section": "Prompt Cache",
+   "kind": "number",
+   "value": "Conformance tests verify it in 100% of cases (target; SM-11)"
+  },
+  {
+   "section": "Prompt Cache",
+   "kind": "claim",
+   "value": "Rebuilding bodies from typed schemas has dropped such markers (BerriAI/litellm issue 41424)"
+  },
+  {
+   "section": "Prompt Cache",
+   "kind": "claim",
+   "value": "anthropic: Forwarded as `cache_control` on the mapped block"
+  },
+  {
+   "section": "Prompt Cache",
+   "kind": "claim",
+   "value": "bedrock (Claude models): Converted to `cachePoint`"
+  },
+  {
+   "section": "Prompt Cache",
+   "kind": "claim",
+   "value": "openai, mistral: Dropped, since caching is automatic; a client `prompt_cache_key` is forwarded (isolation: OQ-ai-llm-gateway-19)"
+  },
+  {
+   "section": "Prompt Cache",
+   "kind": "claim",
+   "value": "gemini: Dropped; implicit caching applies"
+  },
+  {
+   "section": "Prompt Cache",
+   "kind": "claim",
+   "value": "ollama: Dropped; no prompt cache"
+  },
+  {
+   "section": "Prompt Cache",
+   "kind": "claim",
+   "value": "`disabled` cannot switch off implicit provider caching"
+  },
+  {
+   "section": "Prompt Cache",
+   "kind": "metric",
+   "value": "ruralz_ai_cache_markers_dropped_total"
+  },
+  {
+   "section": "Semantic Cache",
+   "kind": "policy_type",
+   "value": "ai.semantic-cache"
+  },
+  {
+   "section": "Semantic Cache",
+   "kind": "default",
+   "value": "ai.semantic-cache: Filter class cache, Route scope, default `failureMode: open`"
+  },
+  {
+   "section": "Semantic Cache",
+   "kind": "kind_or_field",
+   "value": "cache.semantic"
+  },
+  {
+   "section": "Semantic Cache",
+   "kind": "kind_or_field",
+   "value": "similarityThreshold"
+  },
+  {
+   "section": "Semantic Cache",
+   "kind": "kind_or_field",
+   "value": "config.key"
+  },
+  {
+   "section": "Semantic Cache",
+   "kind": "kind_or_field",
+   "value": "cache.semantic.ttl"
+  },
+  {
+   "section": "Semantic Cache",
+   "kind": "failure_mode",
+   "value": "under `closed` a failure is `RZ-AI-014`"
+  },
+  {
+   "section": "Semantic Cache",
+   "kind": "failure_mode",
+   "value": "until then, and without vector search (Dragonfly), the Policy acts as a State Store failure"
+  },
+  {
+   "section": "Semantic Cache",
+   "kind": "decision",
+   "value": "Look up with one threaded command on dedicated connections, never a script (proposed, OQ-ai-llm-gateway-18)"
+  },
+  {
+   "section": "Semantic Cache",
+   "kind": "decision",
+   "value": "without an auth-class Policy nothing is cached"
+  },
+  {
+   "section": "Semantic Cache",
+   "kind": "decision",
+   "value": "every partition includes the principal ... against T10 and T13"
+  },
+  {
+   "section": "Semantic Cache",
+   "kind": "claim",
+   "value": "`VSIM` with `COUNT 1`, `WITHATTRIBS`, a bounded `EF` and a timestamp `FILTER` on Redis Vector Sets"
+  },
+  {
+   "section": "Semantic Cache",
+   "kind": "claim",
+   "value": "a nearest-neighbor `FT.SEARCH` returning the completion field on valkey-search"
+  },
+  {
+   "section": "Semantic Cache",
+   "kind": "claim",
+   "value": "A per-Node cap on concurrent embedding calls and lookups bypasses the cache when reached."
+  },
+  {
+   "section": "Semantic Cache",
+   "kind": "claim",
+   "value": "Requests with tool results or prompts over the embedding limit bypass it."
+  },
+  {
+   "section": "Semantic Cache",
+   "kind": "claim",
+   "value": "values off a fixed grid (target) bypass the cache"
+  },
+  {
+   "section": "Semantic Cache",
+   "kind": "claim",
+   "value": "Each store refreshes `PEXPIRE` to `cache.semantic.ttl` on the partition's keys"
+  },
+  {
+   "section": "Semantic Cache",
+   "kind": "claim",
+   "value": "each Node issues `FT.CREATE` per `AIModel`, embedding model and dimension at Revision activation"
+  },
+  {
+   "section": "Semantic Cache",
+   "kind": "limit",
+   "value": "caps of 10,000 entries per partition and of entries and bytes per principal (targets)"
+  },
+  {
+   "section": "Semantic Cache",
+   "kind": "limit",
+   "value": "completion, at most 32 KiB (target)"
+  },
+  {
+   "section": "Semantic Cache",
+   "kind": "limit",
+   "value": "trims at most 64 entries (target)"
+  },
+  {
+   "section": "Semantic Cache",
+   "kind": "limit",
+   "value": "above a per-Node store rate (target) or above a memory watermark (target)"
+  },
+  {
+   "section": "Semantic Cache",
+   "kind": "number",
+   "value": "bounding memory by store rate times TTL times entry size (hypothesis)"
+  },
+  {
+   "section": "Semantic Cache",
+   "kind": "number",
+   "value": "Lookups SHOULD take 5 ms or less at p99 (target)"
+  },
+  {
+   "section": "Semantic Cache",
+   "kind": "library",
+   "value": "Redis 8.4.6 or newer"
+  },
+  {
+   "section": "Semantic Cache",
+   "kind": "library",
+   "value": "valkey-search 1.2 on Valkey 9.0.1 or newer"
+  },
+  {
+   "section": "Semantic Cache",
+   "kind": "library",
+   "value": "Redis Vector Sets"
+  },
+  {
+   "section": "Guardrail hooks",
+   "kind": "policy_type",
+   "value": "ai.guardrail"
+  },
+  {
+   "section": "Guardrail hooks",
+   "kind": "policy_type",
+   "value": "plugin"
+  },
+  {
+   "section": "Guardrail hooks",
+   "kind": "default",
+   "value": "ai.guardrail: Filter class validation, Gateway or Route scope, default `failureMode: closed`"
+  },
+  {
+   "section": "Guardrail hooks",
+   "kind": "decision",
+   "value": "Plugin ABI v1 (ADR-0005), which has no outbound calls"
+  },
+  {
+   "section": "Guardrail hooks",
+   "kind": "decision",
+   "value": "Ruralz hosts no classifier and never executes tool calls."
+  },
+  {
+   "section": "Guardrail hooks",
+   "kind": "claim",
+   "value": "onRequestBody: Block (400, `RZ-AI-010`), redact in place before routing and caching, flag"
+  },
+  {
+   "section": "Guardrail hooks",
+   "kind": "claim",
+   "value": "onChunk: End the stream (`RZ-AI-010` error event), redact a held-back chunk, flag"
+  },
+  {
+   "section": "Guardrail hooks",
+   "kind": "claim",
+   "value": "onResponse: Replace with an error before commit, redact, flag"
+  },
+  {
+   "section": "Guardrail hooks",
+   "kind": "claim",
+   "value": "onLog (Plugins only): Audit only"
+  },
+  {
+   "section": "Guardrail hooks",
+   "kind": "claim",
+   "value": "a Route whose `ai.guardrail` blocks rejects them with `RZ-AI-002` unless its `config` allows them (OQ-ai-llm-gateway-4)"
+  },
+  {
+   "section": "Guardrail hooks",
+   "kind": "claim",
+   "value": "Injection through allowed parts or provider-fetched content remains a residual T20 risk."
+  },
+  {
+   "section": "Guardrail hooks",
+   "kind": "failure_mode",
+   "value": "A Plugin trap or limit applies `failureMode` with an `RZ-PLG` code, a CEL error with `RZ-AI-014`: under `closed`, 503 in `onRequestBody`, 502 in `onResponse` and a stream end in `onChunk` (pack 8.10)"
+  },
+  {
+   "section": "Guardrail hooks",
+   "kind": "error_code",
+   "value": "RZ-AI-010"
+  },
+  {
+   "section": "Guardrail hooks",
+   "kind": "error_code",
+   "value": "RZ-PLG"
+  },
+  {
+   "section": "Guardrail hooks",
+   "kind": "error_code",
+   "value": "RZ-AI-014"
+  },
+  {
+   "section": "MCP and A2A stance",
+   "kind": "milestone",
+   "value": "MCP gateway: Planned (M3)"
+  },
+  {
+   "section": "MCP and A2A stance",
+   "kind": "milestone",
+   "value": "MCP Server: tools generated from existing Routes: Planned (M3)"
+  },
+  {
+   "section": "MCP and A2A stance",
+   "kind": "milestone",
+   "value": "stdio MCP servers: Not planned"
+  },
+  {
+   "section": "MCP and A2A stance",
+   "kind": "milestone",
+   "value": "A2A traffic as plain HTTP and SSE: Planned (M3)"
+  },
+  {
+   "section": "MCP and A2A stance",
+   "kind": "milestone",
+   "value": "A2A-aware gateway: Planned (M5)"
+  },
+  {
+   "section": "MCP and A2A stance",
+   "kind": "policy_type",
+   "value": "authz.cel"
+  },
+  {
+   "section": "MCP and A2A stance",
+   "kind": "kind_or_field",
+   "value": "ring-hash on `consumer.name`"
+  },
+  {
+   "section": "MCP and A2A stance",
+   "kind": "kind_or_field",
+   "value": "rule"
+  },
+  {
+   "section": "MCP and A2A stance",
+   "kind": "kind_or_field",
+   "value": "request.body.method"
+  },
+  {
+   "section": "MCP and A2A stance",
+   "kind": "kind_or_field",
+   "value": "request.body.params.name"
+  },
+  {
+   "section": "MCP and A2A stance",
+   "kind": "claim",
+   "value": "Unknown methods, batches, `GET` streams, `DELETE` and client responses are denied"
+  },
+  {
+   "section": "MCP and A2A stance",
+   "kind": "claim",
+   "value": "The allow list is no security control until strict JSON covers MCP Routes (OQ-ai-llm-gateway-16)"
+  },
+  {
+   "section": "MCP and A2A stance",
+   "kind": "claim",
+   "value": "LiteLLM serves A2A 0.3 or 1.0 per agent"
+  },
+  {
+   "section": "AI observability",
+   "kind": "decision",
+   "value": "Telemetry is OpenTelemetry-first (ADR-0010)"
+  },
+  {
+   "section": "AI observability",
+   "kind": "decision",
+   "value": "each release pins a commit (OQ-ai-llm-gateway-11) and `ruralz_ai_*` metrics are the stable contract"
+  },
+  {
+   "section": "AI observability",
+   "kind": "kind_or_field",
+   "value": "ruralz.upstream.<name> span"
+  },
+  {
+   "section": "AI observability",
+   "kind": "kind_or_field",
+   "value": "gen_ai.provider.name"
+  },
+  {
+   "section": "AI observability",
+   "kind": "kind_or_field",
+   "value": "gen_ai.usage.*"
+  },
+  {
+   "section": "AI observability",
+   "kind": "kind_or_field",
+   "value": "gen_ai.input.messages"
+  },
+  {
+   "section": "AI observability",
+   "kind": "default",
+   "value": "content attributes such as `gen_ai.input.messages` are off by default"
+  },
+  {
+   "section": "AI observability",
+   "kind": "metric",
+   "value": "ruralz_ai_*"
+  },
+  {
+   "section": "AI observability",
+   "kind": "metric",
+   "value": "ruralz_ai_abandoned_attempts_total (Counter; `provider`, `model`)"
+  },
+  {
+   "section": "AI observability",
+   "kind": "metric",
+   "value": "ruralz_ai_failed_attempts_total (Counter; `provider`, `model`)"
+  },
+  {
+   "section": "AI observability",
+   "kind": "metric",
+   "value": "ruralz_ai_semantic_cache_store_skipped_total (Counter; `route`, `reason`)"
+  },
+  {
+   "section": "AI observability",
+   "kind": "metric",
+   "value": "`reason` values `abandoned`, `error_status` and `oversized` on `ruralz_ai_usage_missing_total`"
+  },
+  {
+   "section": "AI observability",
+   "kind": "metric",
+   "value": "model labels are `aimodel`, `provider` and `model`"
+  },
+  {
+   "section": "AI observability",
+   "kind": "claim",
+   "value": "The access log adds Consumer, candidate chain, per-attempt usage and cost, and cache and guardrail results, never prompt or completion text."
+  },
+  {
+   "section": "RZ-AI error codes",
+   "kind": "error_code",
+   "value": "RZ-AI-001: `model` is not an `AIModel` in the Upstream's `ai.models`: 404"
+  },
+  {
+   "section": "RZ-AI error codes",
+   "kind": "error_code",
+   "value": "RZ-AI-002: Invalid, ambiguous or untranslatable body; disallowed operation, parameter, field, part or server tool: 400"
+  },
+  {
+   "section": "RZ-AI error codes",
+   "kind": "error_code",
+   "value": "RZ-AI-003: Estimated input exceeds `limits.maxInputTokens`: 400"
+  },
+  {
+   "section": "RZ-AI error codes",
+   "kind": "error_code",
+   "value": "RZ-AI-004: No eligible candidate before any attempt: 503"
+  },
+  {
+   "section": "RZ-AI error codes",
+   "kind": "error_code",
+   "value": "RZ-AI-005: Provider Fallback exhausted: 503 when every failure was a rate limit, else 502"
+  },
+  {
+   "section": "RZ-AI error codes",
+   "kind": "error_code",
+   "value": "RZ-AI-006: Token Budget cannot cover the reservation: 429 with `retry-after`"
+  },
+  {
+   "section": "RZ-AI error codes",
+   "kind": "error_code",
+   "value": "RZ-AI-007: Consumer missing or lacks the named token quota: 403"
+  },
+  {
+   "section": "RZ-AI error codes",
+   "kind": "error_code",
+   "value": "RZ-AI-008: Streaming guard: local output count exceeded C: Error event, stream ends"
+  },
+  {
+   "section": "RZ-AI error codes",
+   "kind": "error_code",
+   "value": "RZ-AI-009: Provider failure after commit: Error event, stream ends"
+  },
+  {
+   "section": "RZ-AI error codes",
+   "kind": "error_code",
+   "value": "RZ-AI-010: Guardrail block: 400 before commit; error event after"
+  },
+  {
+   "section": "RZ-AI error codes",
+   "kind": "error_code",
+   "value": "RZ-AI-011: Provider rejected the request as invalid: 400"
+  },
+  {
+   "section": "RZ-AI error codes",
+   "kind": "error_code",
+   "value": "RZ-AI-012: Provider content-policy refusal: 400"
+  },
+  {
+   "section": "RZ-AI error codes",
+   "kind": "error_code",
+   "value": "RZ-AI-013: Non-streamed provider response exceeds `maxResponseBodyBytes`: 502"
+  },
+  {
+   "section": "RZ-AI error codes",
+   "kind": "error_code",
+   "value": "RZ-AI-014: An AI Policy could not decide (CEL error, failed declared remote call) under `failureMode: closed`: 503 before commit; 502 in `onResponse`; error event in `onChunk`"
+  },
+  {
+   "section": "Credentials and trust boundaries",
+   "kind": "kind_or_field",
+   "value": "credentials.apiKey `secretRef`"
+  },
+  {
+   "section": "Credentials and trust boundaries",
+   "kind": "api_path",
+   "value": "/config/dump"
+  },
+  {
+   "section": "Credentials and trust boundaries",
+   "kind": "api_path",
+   "value": "/tap"
+  },
+  {
+   "section": "Credentials and trust boundaries",
+   "kind": "decision",
+   "value": "The Node attaches them at the transport after the last `onUpstreamRequest` Filter"
+  },
+  {
+   "section": "Credentials and trust boundaries",
+   "kind": "decision",
+   "value": "Upstream-scoped Policies on an `ai` Upstream MUST NOT read or set credential headers (code: OQ-ai-llm-gateway-16)"
+  },
+  {
+   "section": "Credentials and trust boundaries",
+   "kind": "decision",
+   "value": "every `AIProvider` `baseUrl`, `ollama` included, MUST use TLS, and `http://` fails validation"
+  },
+  {
+   "section": "Credentials and trust boundaries",
+   "kind": "claim",
+   "value": "Provider keys exist only as `credentials.apiKey` `secretRef` values, never in a Revision, `/config/dump` or a log, and rotate without a Rollout"
+  },
+  {
+   "section": "Credentials and trust boundaries",
+   "kind": "claim",
+   "value": "Bedrock API keys are bearer tokens governed by `bedrock:CallWithBearerToken`; SigV4 is OQ-ai-llm-gateway-12"
+  },
+  {
+   "section": "Credentials and trust boundaries",
+   "kind": "claim",
+   "value": "TB-4 needs TLS and authentication"
+  },
+  {
+   "section": "Credentials and trust boundaries",
+   "kind": "claim",
+   "value": "TB-12 carries no prompt content"
+  },
+  {
+   "section": "Credentials and trust boundaries",
+   "kind": "claim",
+   "value": "isolated tenants use separate accounts, and per-call server tools are `RZ-AI-002` on budgeted Routes"
+  },
+  {
+   "section": "Credentials and trust boundaries",
+   "kind": "cli_command",
+   "value": "ruralz dev tap"
+  },
+  {
+   "section": "Credentials and trust boundaries",
+   "kind": "milestone",
+   "value": "`ruralz dev tap`, Planned (M1), SHOULD show AI bodies only as sizes and token counts"
+  },
+  {
+   "section": "Data residency routing",
+   "kind": "kind_or_field",
+   "value": "AIProvider.spec.region"
+  },
+  {
+   "section": "Data residency routing",
+   "kind": "kind_or_field",
+   "value": "kind: AIProvider"
+  },
+  {
+   "section": "Data residency routing",
+   "kind": "kind_or_field",
+   "value": "dialect: bedrock"
+  },
+  {
+   "section": "Data residency routing",
+   "kind": "kind_or_field",
+   "value": "baseUrl: https://bedrock-runtime.eu-central-1.amazonaws.com"
+  },
+  {
+   "section": "Data residency routing",
+   "kind": "kind_or_field",
+   "value": "apiKey: {secretRef: {provider: file, name: /etc/ruralz/ai/bedrock-eu-key}}"
+  },
+  {
+   "section": "Data residency routing",
+   "kind": "kind_or_field",
+   "value": "region: eu"
+  },
+  {
+   "section": "Data residency routing",
+   "kind": "kind_or_field",
+   "value": "currency: EUR"
+  },
+  {
+   "section": "Data residency routing",
+   "kind": "kind_or_field",
+   "value": "version: \"2026-09-01\""
+  },
+  {
+   "section": "Data residency routing",
+   "kind": "kind_or_field",
+   "value": "model: example.claude-model-id"
+  },
+  {
+   "section": "Data residency routing",
+   "kind": "kind_or_field",
+   "value": "inputPerMillionTokens: \"2.80\""
+  },
+  {
+   "section": "Data residency routing",
+   "kind": "kind_or_field",
+   "value": "outputPerMillionTokens: \"14.00\""
+  },
+  {
+   "section": "Data residency routing",
+   "kind": "kind_or_field",
+   "value": "cachedInputPerMillionTokens: \"0.28\""
+  },
+  {
+   "section": "Data residency routing",
+   "kind": "kind_or_field",
+   "value": "kind: AIModel"
+  },
+  {
+   "section": "Data residency routing",
+   "kind": "kind_or_field",
+   "value": "strategy: fallback"
+  },
+  {
+   "section": "Data residency routing",
+   "kind": "kind_or_field",
+   "value": "candidates eu-primary/us-primary/us-secondary"
+  },
+  {
+   "section": "Data residency routing",
+   "kind": "kind_or_field",
+   "value": "provider: anthropic-prod"
+  },
+  {
+   "section": "Data residency routing",
+   "kind": "kind_or_field",
+   "value": "model: claude-sonnet-4-5"
+  },
+  {
+   "section": "Data residency routing",
+   "kind": "kind_or_field",
+   "value": "provider: openai-prod"
+  },
+  {
+   "section": "Data residency routing",
+   "kind": "kind_or_field",
+   "value": "model: gpt-4.1-mini"
+  },
+  {
+   "section": "Data residency routing",
+   "kind": "kind_or_field",
+   "value": "when: 'consumer != null && \"eu\" in consumer.tags'"
+  },
+  {
+   "section": "Data residency routing",
+   "kind": "kind_or_field",
+   "value": "ai.estimatedInputTokens < 100000"
+  },
+  {
+   "section": "Data residency routing",
+   "kind": "kind_or_field",
+   "value": "cache: prompt: {mode: passthrough}"
+  },
+  {
+   "section": "Data residency routing",
+   "kind": "limit",
+   "value": "limits: {maxInputTokens: 32000, maxOutputTokens: 2048}"
+  },
+  {
+   "section": "Data residency routing",
+   "kind": "default",
+   "value": "semantic: {similarityThreshold: 0.92, ttl: 1h}"
+  },
+  {
+   "section": "Data residency routing",
+   "kind": "failure_mode",
+   "value": "Provider Fallback never reaches a candidate whose `when` is false, so the request fails with `RZ-AI-004`, or `RZ-AI-005` after a failed attempt, rather than leave its Region"
+  },
+  {
+   "section": "Data residency routing",
+   "kind": "failure_mode",
+   "value": "a null-Consumer guard fails anonymous requests closed"
+  },
+  {
+   "section": "Data residency routing",
+   "kind": "failure_mode",
+   "value": "it is served uncached or fails closed with an `RZ-AI` code"
+  },
+  {
+   "section": "Data residency routing",
+   "kind": "decision",
+   "value": "residency terms MUST read only Consumer tags, Tier and `route`, never `request`, `auth.claims` or `ai`, which may only narrow them with `&&`"
+  },
+  {
+   "section": "Data residency routing",
+   "kind": "decision",
+   "value": "each `ai.semantic-cache` embedding provider MUST be in the Region of the residency class its `when` selects"
+  },
+  {
+   "section": "Data residency routing",
+   "kind": "decision",
+   "value": "a Route whose candidates split on residency MUST NOT attach `ai.semantic-cache`"
+  },
+  {
+   "section": "Data residency routing",
+   "kind": "cli_command",
+   "value": "ruralz bundle audit"
+  },
+  {
+   "section": "Data residency routing",
+   "kind": "claim",
+   "value": "Residency routing covers only the generation provider; access logs and telemetry follow the serving Node's Region (pack 8.13)"
+  },
+  {
+   "section": "Data residency routing",
+   "kind": "claim",
+   "value": "`support-chat` attaches none"
+  },
+  {
+   "section": "Open questions",
+   "kind": "decision",
+   "value": "OQ-ai-llm-gateway-1: Blocking No"
+  },
+  {
+   "section": "Open questions",
+   "kind": "decision",
+   "value": "OQ-ai-llm-gateway-2: Blocking Yes, for Token Budget accuracy (SM-10)"
+  },
+  {
+   "section": "Open questions",
+   "kind": "decision",
+   "value": "OQ-ai-llm-gateway-3: Blocking Yes, for native passthrough"
+  },
+  {
+   "section": "Open questions",
+   "kind": "decision",
+   "value": "OQ-ai-llm-gateway-4: Blocking Yes, for guardrail hooks"
+  },
+  {
+   "section": "Open questions",
+   "kind": "decision",
+   "value": "OQ-ai-llm-gateway-5: Blocking Yes, for Semantic Cache"
+  },
+  {
+   "section": "Open questions",
+   "kind": "decision",
+   "value": "OQ-ai-llm-gateway-6: Blocking No"
+  },
+  {
+   "section": "Open questions",
+   "kind": "decision",
+   "value": "OQ-ai-llm-gateway-7: Blocking No"
+  },
+  {
+   "section": "Open questions",
+   "kind": "decision",
+   "value": "OQ-ai-llm-gateway-8: Blocking No"
+  },
+  {
+   "section": "Open questions",
+   "kind": "decision",
+   "value": "OQ-ai-llm-gateway-9: Blocking Yes, for data residency routing"
+  },
+  {
+   "section": "Open questions",
+   "kind": "decision",
+   "value": "OQ-ai-llm-gateway-10: Blocking Yes, for MCP Server"
+  },
+  {
+   "section": "Open questions",
+   "kind": "decision",
+   "value": "OQ-ai-llm-gateway-11: Blocking No"
+  },
+  {
+   "section": "Open questions",
+   "kind": "decision",
+   "value": "OQ-ai-llm-gateway-12: Blocking Yes, for SigV4 Bedrock"
+  },
+  {
+   "section": "Open questions",
+   "kind": "decision",
+   "value": "OQ-ai-llm-gateway-13: Blocking No"
+  },
+  {
+   "section": "Open questions",
+   "kind": "decision",
+   "value": "OQ-ai-llm-gateway-14: Blocking No"
+  },
+  {
+   "section": "Open questions",
+   "kind": "decision",
+   "value": "OQ-ai-llm-gateway-15: Blocking Yes, for token accounting"
+  },
+  {
+   "section": "Open questions",
+   "kind": "decision",
+   "value": "OQ-ai-llm-gateway-16: Blocking Yes, for native passthrough and the MCP gateway"
+  },
+  {
+   "section": "Open questions",
+   "kind": "decision",
+   "value": "OQ-ai-llm-gateway-17: Blocking Yes, for Token Budget accuracy"
+  },
+  {
+   "section": "Open questions",
+   "kind": "decision",
+   "value": "OQ-ai-llm-gateway-18: Blocking Yes, for Semantic Cache"
+  },
+  {
+   "section": "Open questions",
+   "kind": "decision",
+   "value": "OQ-ai-llm-gateway-19: Blocking No"
+  },
+  {
+   "section": "Open questions",
+   "kind": "decision",
+   "value": "OQ-ai-llm-gateway-20: Blocking Yes, for guardrail hooks"
+  },
+  {
+   "section": "Open questions",
+   "kind": "number",
+   "value": "Semantic Cache: under `noeviction` a full deployment fails every `closed` Token Budget in the Cell"
+  }
+ ]
+}

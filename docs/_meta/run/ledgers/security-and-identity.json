@@ -1,0 +1,2151 @@
+{
+ "path": "docs/architecture/08-security-and-identity.md",
+ "status": "reviewed",
+ "facts": [
+  {
+   "section": "Summary",
+   "kind": "term",
+   "value": "RZ-AUTH"
+  },
+  {
+   "section": "Summary",
+   "kind": "decision",
+   "value": "ADR-0011"
+  },
+  {
+   "section": "Summary",
+   "kind": "decision",
+   "value": "ADR-0017"
+  },
+  {
+   "section": "Summary",
+   "kind": "claim",
+   "value": "Nothing is implemented yet: every capability is Planned (Mx)"
+  },
+  {
+   "section": "Scope and non-goals",
+   "kind": "cli_command",
+   "value": "ruralz bundle audit"
+  },
+  {
+   "section": "Scope and non-goals",
+   "kind": "milestone",
+   "value": "`ruralz bundle audit` is Planned (M2)"
+  },
+  {
+   "section": "Scope and non-goals",
+   "kind": "claim",
+   "value": "Curated WAF rule sets, a product non-goal"
+  },
+  {
+   "section": "Threat model and trust boundaries",
+   "kind": "failure_mode",
+   "value": "authentication and authorization fail closed"
+  },
+  {
+   "section": "Threat model and trust boundaries",
+   "kind": "port",
+   "value": "Admin port 9901"
+  },
+  {
+   "section": "Threat model and trust boundaries",
+   "kind": "port",
+   "value": "Admin port 9902"
+  },
+  {
+   "section": "Threat model and trust boundaries",
+   "kind": "milestone",
+   "value": "Regional Ruralz Control, Planned (M4)"
+  },
+  {
+   "section": "Threat model and trust boundaries",
+   "kind": "port",
+   "value": "TB-1 TLS or QUIC on 8443, cleartext 8080, Consumer credentials"
+  },
+  {
+   "section": "Threat model and trust boundaries",
+   "kind": "port",
+   "value": "TB-5 8091, certificate or Enroll token, signed Revisions"
+  },
+  {
+   "section": "Threat model and trust boundaries",
+   "kind": "port",
+   "value": "TB-6 RBAC and audit, 8090"
+  },
+  {
+   "section": "Threat model and trust boundaries",
+   "kind": "port",
+   "value": "TB-11 Raft mTLS 8092, token join"
+  },
+  {
+   "section": "Threat model and trust boundaries",
+   "kind": "library",
+   "value": "Plugin sandbox (wazero)"
+  },
+  {
+   "section": "Threat model and trust boundaries",
+   "kind": "number",
+   "value": "128-bit keys"
+  },
+  {
+   "section": "Threat model and trust boundaries",
+   "kind": "number",
+   "value": "Signed mark exposes withholding within 30 s (target)"
+  },
+  {
+   "section": "Threat model and trust boundaries",
+   "kind": "milestone",
+   "value": "T13: Planned (M3): principal in cache keys"
+  },
+  {
+   "section": "Threat model and trust boundaries",
+   "kind": "milestone",
+   "value": "T20: no privileged action on model output, Planned (M3)"
+  },
+  {
+   "section": "Threat model and trust boundaries",
+   "kind": "policy_type",
+   "value": "auth.basic"
+  },
+  {
+   "section": "Threat model and trust boundaries",
+   "kind": "policy_type",
+   "value": "auth.mtls"
+  },
+  {
+   "section": "Threat model and trust boundaries",
+   "kind": "policy_type",
+   "value": "ai.guardrail"
+  },
+  {
+   "section": "Threat model and trust boundaries",
+   "kind": "policy_type",
+   "value": "authz.cel"
+  },
+  {
+   "section": "Threat model and trust boundaries",
+   "kind": "failure_mode",
+   "value": "T21: Compliance fail-closed rule; client steering residual"
+  },
+  {
+   "section": "Threat model and trust boundaries",
+   "kind": "term",
+   "value": "T22 Authentication skipped by `when`"
+  },
+  {
+   "section": "Threat model and trust boundaries",
+   "kind": "claim",
+   "value": "component documents cite them and MUST NOT add an unauthenticated crossing"
+  },
+  {
+   "section": "Threat model and trust boundaries",
+   "kind": "decision",
+   "value": "For OQ-control-plane-and-gitops-14, option (a): token `Enroll` maps to TB-5, token replica `Join` to TB-11, webhooks and Ruralz Control's Kubernetes client to TB-7, its registry client to TB-8"
+  },
+  {
+   "section": "Transport security",
+   "kind": "claim",
+   "value": "Every TLS hop verifies the server certificate; no field disables it."
+  },
+  {
+   "section": "Transport security",
+   "kind": "failure_mode",
+   "value": "Cleartext ... is a degraded state and audit finding"
+  },
+  {
+   "section": "Transport security",
+   "kind": "failure_mode",
+   "value": "a Node rejects a non-loopback State Store URL without credentials (code: OQ-security-and-identity-30)"
+  },
+  {
+   "section": "Transport security",
+   "kind": "port",
+   "value": "Client, TCP 8443"
+  },
+  {
+   "section": "Transport security",
+   "kind": "default",
+   "value": "TLS 1.3 by default; `tls.minVersion: \"1.2\"` allowed"
+  },
+  {
+   "section": "Transport security",
+   "kind": "kind_or_field",
+   "value": "tls.minVersion"
+  },
+  {
+   "section": "Transport security",
+   "kind": "milestone",
+   "value": "Client, TCP 8443: Planned (M1)"
+  },
+  {
+   "section": "Transport security",
+   "kind": "port",
+   "value": "Client, UDP 8443"
+  },
+  {
+   "section": "Transport security",
+   "kind": "milestone",
+   "value": "Client, UDP 8443 HTTP/3, TLS 1.3: Planned (M3)"
+  },
+  {
+   "section": "Transport security",
+   "kind": "port",
+   "value": "Client, 8080"
+  },
+  {
+   "section": "Transport security",
+   "kind": "milestone",
+   "value": "Client, 8080 cleartext: Planned (M1)"
+  },
+  {
+   "section": "Transport security",
+   "kind": "kind_or_field",
+   "value": "Upstream.spec.tls"
+  },
+  {
+   "section": "Transport security",
+   "kind": "kind_or_field",
+   "value": "AIProvider"
+  },
+  {
+   "section": "Transport security",
+   "kind": "milestone",
+   "value": "Upstream, AIProvider, State Store, OTLP TLS 1.2 or newer: Planned (M1)"
+  },
+  {
+   "section": "Transport security",
+   "kind": "claim",
+   "value": "Vault, Kubernetes API (TB-3, TB-7): TLS 1.2 or newer, never cleartext"
+  },
+  {
+   "section": "Transport security",
+   "kind": "milestone",
+   "value": "Vault, Kubernetes API: Planned (M2)"
+  },
+  {
+   "section": "Transport security",
+   "kind": "kind_or_field",
+   "value": "jwksUrl"
+  },
+  {
+   "section": "Transport security",
+   "kind": "kind_or_field",
+   "value": "tokenUrl"
+  },
+  {
+   "section": "Transport security",
+   "kind": "claim",
+   "value": "`jwksUrl` and `tokenUrl` MUST be `https` (code: OQ-security-and-identity-18)"
+  },
+  {
+   "section": "Transport security",
+   "kind": "milestone",
+   "value": "IdP (TB-10): Planned (M1)"
+  },
+  {
+   "section": "Transport security",
+   "kind": "milestone",
+   "value": "9901 Planned (M1); 9902 Planned (M2)"
+  },
+  {
+   "section": "Transport security",
+   "kind": "port",
+   "value": "8091 (TB-5)"
+  },
+  {
+   "section": "Transport security",
+   "kind": "claim",
+   "value": "8091: TLS 1.3; client certificate required for every RPC except `Enroll`, which uses server-authenticated TLS with a pinned server CA and a one-time token"
+  },
+  {
+   "section": "Transport security",
+   "kind": "milestone",
+   "value": "8091: Planned (M2)"
+  },
+  {
+   "section": "Transport security",
+   "kind": "port",
+   "value": "8092 (TB-11)"
+  },
+  {
+   "section": "Transport security",
+   "kind": "claim",
+   "value": "8092: mTLS, TLS 1.3 only, except token `Join` from a replica without a peer certificate"
+  },
+  {
+   "section": "Transport security",
+   "kind": "milestone",
+   "value": "8092: Planned (M2)"
+  },
+  {
+   "section": "Transport security",
+   "kind": "milestone",
+   "value": "Relay (TB-13) mTLS, TLS 1.3 only: Planned (M4)"
+  },
+  {
+   "section": "Transport security",
+   "kind": "port",
+   "value": "8090 (TB-6)"
+  },
+  {
+   "section": "Transport security",
+   "kind": "default",
+   "value": "8090: TLS 1.3 by default"
+  },
+  {
+   "section": "Transport security",
+   "kind": "milestone",
+   "value": "8090: Planned (M2)"
+  },
+  {
+   "section": "Transport security",
+   "kind": "claim",
+   "value": "TLS 1.2 suites are fixed to ECDHE with AES-GCM or ChaCha20-Poly1305."
+  },
+  {
+   "section": "Transport security",
+   "kind": "library",
+   "value": "Go 1.26 enables hybrid post-quantum key exchange by default"
+  },
+  {
+   "section": "Transport security",
+   "kind": "default",
+   "value": "0-RTT is off, since early data can be replayed."
+  },
+  {
+   "section": "Mutual TLS",
+   "kind": "claim",
+   "value": "A Hot Reload changing this mode sends GOAWAY, closes idle connections and sets `Connection: close` on busy HTTP/1.1 ones"
+  },
+  {
+   "section": "Mutual TLS",
+   "kind": "number",
+   "value": "an `auth.mtls` Route reached over a connection that requested none, coalesced HTTP/2 included, returns 421"
+  },
+  {
+   "section": "Mutual TLS",
+   "kind": "kind_or_field",
+   "value": "source.clientCertSubject"
+  },
+  {
+   "section": "Certificate rotation",
+   "kind": "milestone",
+   "value": "`file`, Planned (M1)"
+  },
+  {
+   "section": "Certificate rotation",
+   "kind": "milestone",
+   "value": "`kubernetes`, Planned (M2)"
+  },
+  {
+   "section": "Certificate rotation",
+   "kind": "metric",
+   "value": "ruralz_config_secret_rotation_failures_total"
+  },
+  {
+   "section": "Certificate rotation",
+   "kind": "number",
+   "value": "Enrollment certificates (30 days, target)"
+  },
+  {
+   "section": "Certificate rotation",
+   "kind": "number",
+   "value": "renew at two thirds"
+  },
+  {
+   "section": "Certificate rotation",
+   "kind": "kind_or_field",
+   "value": "TrustUpdate"
+  },
+  {
+   "section": "Certificate rotation",
+   "kind": "milestone",
+   "value": "Enrollment and Ruralz Control certificate renewal, TrustUpdate: all Planned (M2)"
+  },
+  {
+   "section": "HTTP/3",
+   "kind": "milestone",
+   "value": "HTTP/3, Planned (M3)"
+  },
+  {
+   "section": "HTTP/3",
+   "kind": "kind_or_field",
+   "value": "http3: true"
+  },
+  {
+   "section": "HTTP/3",
+   "kind": "library",
+   "value": "quic-go"
+  },
+  {
+   "section": "HTTP/3",
+   "kind": "claim",
+   "value": "FIPS builds turn it off, because quic-go skips FIPS enforcement for Initial packet protection and the Retry integrity tag"
+  },
+  {
+   "section": "FIPS build",
+   "kind": "milestone",
+   "value": "The FIPS build, Planned (M5)"
+  },
+  {
+   "section": "FIPS build",
+   "kind": "default",
+   "value": "`GOFIPS140=v1.0.0` (CMVP #5247) until v1.26.0 leaves \"Pending Review\""
+  },
+  {
+   "section": "FIPS build",
+   "kind": "default",
+   "value": "`GODEBUG=fips140=on`, never `only`"
+  },
+  {
+   "section": "FIPS build",
+   "kind": "claim",
+   "value": "HTTP/3 and hybrid key exchange are off, only approved `alg` values register, and Plugins get cryptography only through a crypto Host Function Capability"
+  },
+  {
+   "section": "FIPS build",
+   "kind": "decision",
+   "value": "ADR-0001"
+  },
+  {
+   "section": "FIPS build",
+   "kind": "decision",
+   "value": "ADR-0002: same license and features"
+  },
+  {
+   "section": "Authentication",
+   "kind": "term",
+   "value": "onRequestHeaders"
+  },
+  {
+   "section": "Authentication",
+   "kind": "failure_mode",
+   "value": "The four client types share slot `auth`, are `failureMode: closed` only and never call the State Store"
+  },
+  {
+   "section": "Authentication",
+   "kind": "error_code",
+   "value": "401 RZ-AUTH-001"
+  },
+  {
+   "section": "Authentication",
+   "kind": "kind_or_field",
+   "value": "excludePolicies"
+  },
+  {
+   "section": "Authentication",
+   "kind": "error_code",
+   "value": "401 RZ-AUTH-002"
+  },
+  {
+   "section": "Authentication",
+   "kind": "failure_mode",
+   "value": "A `when` that errors makes a closed Policy run"
+  },
+  {
+   "section": "Authentication",
+   "kind": "policy_type",
+   "value": "auth.jwt"
+  },
+  {
+   "section": "Authentication",
+   "kind": "kind_or_field",
+   "value": "credentials.jwt"
+  },
+  {
+   "section": "Authentication",
+   "kind": "milestone",
+   "value": "auth.jwt: Planned (M1)"
+  },
+  {
+   "section": "Authentication",
+   "kind": "policy_type",
+   "value": "auth.api-key"
+  },
+  {
+   "section": "Authentication",
+   "kind": "kind_or_field",
+   "value": "config.header"
+  },
+  {
+   "section": "Authentication",
+   "kind": "kind_or_field",
+   "value": "credentials.apiKeys"
+  },
+  {
+   "section": "Authentication",
+   "kind": "claim",
+   "value": "SHA-256 of the key in `config.header`, looked up by digest"
+  },
+  {
+   "section": "Authentication",
+   "kind": "milestone",
+   "value": "auth.api-key: Planned (M1)"
+  },
+  {
+   "section": "Authentication",
+   "kind": "policy_type",
+   "value": "auth.basic"
+  },
+  {
+   "section": "Authentication",
+   "kind": "library",
+   "value": "PBKDF2 behind the throttle"
+  },
+  {
+   "section": "Authentication",
+   "kind": "milestone",
+   "value": "auth.basic: Planned (M1)"
+  },
+  {
+   "section": "Authentication",
+   "kind": "policy_type",
+   "value": "auth.mtls"
+  },
+  {
+   "section": "Authentication",
+   "kind": "milestone",
+   "value": "auth.mtls: Planned (M1)"
+  },
+  {
+   "section": "JWT and OIDC",
+   "kind": "kind_or_field",
+   "value": "config.issuers[]"
+  },
+  {
+   "section": "JWT and OIDC",
+   "kind": "kind_or_field",
+   "value": "audiences"
+  },
+  {
+   "section": "JWT and OIDC",
+   "kind": "claim",
+   "value": "`alg` MUST be RS256, PS256, ES256 or EdDSA"
+  },
+  {
+   "section": "JWT and OIDC",
+   "kind": "claim",
+   "value": "imported KrakenD HS256 gets fidelity `manual`"
+  },
+  {
+   "section": "JWT and OIDC",
+   "kind": "claim",
+   "value": "`jku`, `x5u`, `jwk` and `x5c` are ignored"
+  },
+  {
+   "section": "JWT and OIDC",
+   "kind": "limit",
+   "value": "maximum lifetime (24 hours (target) until OQ-security-and-identity-1 adds a per-issuer value)"
+  },
+  {
+   "section": "JWT and OIDC",
+   "kind": "error_code",
+   "value": "RZ-AUTH-003"
+  },
+  {
+   "section": "JWT and OIDC",
+   "kind": "limit",
+   "value": "Nodes prefetch issuers, 16 at once, within 5 s (target)"
+  },
+  {
+   "section": "JWT and OIDC",
+   "kind": "failure_mode",
+   "value": "activate even if a fetch fails"
+  },
+  {
+   "section": "JWT and OIDC",
+   "kind": "limit",
+   "value": "Keys live for `max-age` clamped to 5 minutes to 6 hours, or 1 hour when absent or `no-cache` (target)"
+  },
+  {
+   "section": "JWT and OIDC",
+   "kind": "failure_mode",
+   "value": "after failed refreshes, serve degraded until expiry (TB-10), then RZ-AUTH-006"
+  },
+  {
+   "section": "JWT and OIDC",
+   "kind": "error_code",
+   "value": "RZ-AUTH-006"
+  },
+  {
+   "section": "JWT and OIDC",
+   "kind": "error_code",
+   "value": "RZ-AUTH-005"
+  },
+  {
+   "section": "JWT and OIDC",
+   "kind": "limit",
+   "value": "at most one refresh per issuer per 30 s (target), honoring `Retry-After`"
+  },
+  {
+   "section": "JWT and OIDC",
+   "kind": "library",
+   "value": "jwx v4.5.0 or newer fixes GHSA-4cf7-xm37-g63h"
+  },
+  {
+   "section": "JWT and OIDC",
+   "kind": "library",
+   "value": "go-oidc, with go-jose/v4"
+  },
+  {
+   "section": "JWT and OIDC",
+   "kind": "decision",
+   "value": "For OQ-tech-stack-and-libraries-6, option (b): go-oidc, with go-jose/v4, stays in Ruralz Control."
+  },
+  {
+   "section": "JWT and OIDC",
+   "kind": "error_code",
+   "value": "429 RZ-AUTH-007, no hash computed"
+  },
+  {
+   "section": "JWT and OIDC",
+   "kind": "error_code",
+   "value": "401 RZ-AUTH-004"
+  },
+  {
+   "section": "JWT and OIDC",
+   "kind": "error_code",
+   "value": "403 RZ-AUTH-010 to 016"
+  },
+  {
+   "section": "Accepting more than one credential type",
+   "kind": "decision",
+   "value": "For OQ-configuration-model-13, option (a): distinct slots with complementary `when` conditions."
+  },
+  {
+   "section": "Accepting more than one credential type",
+   "kind": "failure_mode",
+   "value": "the pattern fails where that Policy is `overridable: false`; if a `when` errors, both run and rule 2 applies"
+  },
+  {
+   "section": "Accepting more than one credential type",
+   "kind": "kind_or_field",
+   "value": "apiVersion: ruralz/v1alpha1"
+  },
+  {
+   "section": "Accepting more than one credential type",
+   "kind": "kind_or_field",
+   "value": "Policy"
+  },
+  {
+   "section": "Accepting more than one credential type",
+   "kind": "kind_or_field",
+   "value": "Route"
+  },
+  {
+   "section": "Accepting more than one credential type",
+   "kind": "kind_or_field",
+   "value": "spec.slot"
+  },
+  {
+   "section": "Accepting more than one credential type",
+   "kind": "kind_or_field",
+   "value": "spec.when"
+  },
+  {
+   "section": "Accepting more than one credential type",
+   "kind": "kind_or_field",
+   "value": "spec.config"
+  },
+  {
+   "section": "Accepting more than one credential type",
+   "kind": "kind_or_field",
+   "value": "issuers: issuer, jwksUrl, audiences"
+  },
+  {
+   "section": "Accepting more than one credential type",
+   "kind": "kind_or_field",
+   "value": "match: hosts, path.prefix"
+  },
+  {
+   "section": "Accepting more than one credential type",
+   "kind": "kind_or_field",
+   "value": "policies"
+  },
+  {
+   "section": "Accepting more than one credential type",
+   "kind": "kind_or_field",
+   "value": "excludePolicies"
+  },
+  {
+   "section": "Accepting more than one credential type",
+   "kind": "kind_or_field",
+   "value": "upstreams"
+  },
+  {
+   "section": "Accepting more than one credential type",
+   "kind": "policy_type",
+   "value": "auth.api-key"
+  },
+  {
+   "section": "Accepting more than one credential type",
+   "kind": "policy_type",
+   "value": "auth.jwt"
+  },
+  {
+   "section": "Upstream authentication",
+   "kind": "policy_type",
+   "value": "auth.upstream-oauth2"
+  },
+  {
+   "section": "Upstream authentication",
+   "kind": "milestone",
+   "value": "`auth.upstream-oauth2`, Planned (M1)"
+  },
+  {
+   "section": "Upstream authentication",
+   "kind": "number",
+   "value": "refreshing at two thirds of the token lifetime (target)"
+  },
+  {
+   "section": "Upstream authentication",
+   "kind": "timeout",
+   "value": "a proposed 2 s `timeout` (target)"
+  },
+  {
+   "section": "Upstream authentication",
+   "kind": "error_code",
+   "value": "401 RZ-AUTH-020"
+  },
+  {
+   "section": "Upstream authentication",
+   "kind": "policy_type",
+   "value": "auth.upstream-sigv4"
+  },
+  {
+   "section": "Upstream authentication",
+   "kind": "milestone",
+   "value": "`auth.upstream-sigv4`, Planned (M2)"
+  },
+  {
+   "section": "Upstream authentication",
+   "kind": "term",
+   "value": "onUpstreamRequest"
+  },
+  {
+   "section": "Upstream authentication",
+   "kind": "kind_or_field",
+   "value": "limits.maxRequestBodyBytes"
+  },
+  {
+   "section": "Upstream authentication",
+   "kind": "claim",
+   "value": "sent as UNSIGNED-PAYLOAD where accepted"
+  },
+  {
+   "section": "Upstream authentication",
+   "kind": "decision",
+   "value": "For OQ-ai-llm-gateway-12, option (b): this type on the `ai` Upstream, signing only `bedrock` dialect legs."
+  },
+  {
+   "section": "KrakenD authentication parity",
+   "kind": "milestone",
+   "value": "JWT, OpenID Connect, OAuth2: Planned (M1)"
+  },
+  {
+   "section": "KrakenD authentication parity",
+   "kind": "milestone",
+   "value": "JWT token signing: Planned (M2), pending OQ-security-and-identity-11"
+  },
+  {
+   "section": "KrakenD authentication parity",
+   "kind": "milestone",
+   "value": "Client credentials: Planned (M1)"
+  },
+  {
+   "section": "KrakenD authentication parity",
+   "kind": "milestone",
+   "value": "Basic authentication: Planned (M1)"
+  },
+  {
+   "section": "KrakenD authentication parity",
+   "kind": "milestone",
+   "value": "API keys: Planned (M1)"
+  },
+  {
+   "section": "KrakenD authentication parity",
+   "kind": "milestone",
+   "value": "Token revocation bloom filter: Planned (M2)"
+  },
+  {
+   "section": "KrakenD authentication parity",
+   "kind": "milestone",
+   "value": "Revoke Server: Planned (M2)"
+  },
+  {
+   "section": "KrakenD authentication parity",
+   "kind": "milestone",
+   "value": "Multiple identity providers per endpoint: Planned (M1)"
+  },
+  {
+   "section": "KrakenD authentication parity",
+   "kind": "milestone",
+   "value": "mTLS: Planned (M1)"
+  },
+  {
+   "section": "KrakenD authentication parity",
+   "kind": "milestone",
+   "value": "NTLM authentication: Not planned"
+  },
+  {
+   "section": "KrakenD authentication parity",
+   "kind": "milestone",
+   "value": "Google GCP authentication: Planned (M2), pending OQ-security-and-identity-12"
+  },
+  {
+   "section": "KrakenD authentication parity",
+   "kind": "milestone",
+   "value": "AWS SigV4 authentication: Planned (M2)"
+  },
+  {
+   "section": "KrakenD authentication parity",
+   "kind": "claim",
+   "value": "Every mechanism is free; the KrakenD EE parity matrix wins on conflict."
+  },
+  {
+   "section": "KrakenD authentication parity",
+   "kind": "kind_or_field",
+   "value": "oauthClients"
+  },
+  {
+   "section": "KrakenD authentication parity",
+   "kind": "claim",
+   "value": "NTLM: Not planned: it authenticates a TCP connection, breaking pooling, and uses non-FIPS MD4 and HMAC-MD5 (P1)"
+  },
+  {
+   "section": "RZ-AUTH decision codes",
+   "kind": "error_code",
+   "value": "RZ-AUTH-001 | 401 | Credential missing, or every auth-class Policy skipped"
+  },
+  {
+   "section": "RZ-AUTH decision codes",
+   "kind": "error_code",
+   "value": "RZ-AUTH-002 | 401 | Credential invalid, no matching Consumer, or a second binding"
+  },
+  {
+   "section": "RZ-AUTH decision codes",
+   "kind": "error_code",
+   "value": "RZ-AUTH-003 | 401 | Token expired, not yet valid, without or over-long `exp`, or wrong issuer or audience"
+  },
+  {
+   "section": "RZ-AUTH decision codes",
+   "kind": "error_code",
+   "value": "RZ-AUTH-004 | 401 | Credential revoked"
+  },
+  {
+   "section": "RZ-AUTH decision codes",
+   "kind": "error_code",
+   "value": "RZ-AUTH-005 | 401 | Unknown `kid`"
+  },
+  {
+   "section": "RZ-AUTH decision codes",
+   "kind": "error_code",
+   "value": "RZ-AUTH-006 | 401 | No usable keys for the issuer"
+  },
+  {
+   "section": "RZ-AUTH decision codes",
+   "kind": "error_code",
+   "value": "RZ-AUTH-007 | 429 | Authentication throttled"
+  },
+  {
+   "section": "RZ-AUTH decision codes",
+   "kind": "error_code",
+   "value": "RZ-AUTH-010 to RZ-AUTH-014 | 403 | Denied by `authz.cel`, `authz.opa`, `authz.cedar`, `authz.ip` or `authz.geoip`"
+  },
+  {
+   "section": "RZ-AUTH decision codes",
+   "kind": "error_code",
+   "value": "RZ-AUTH-015 | 403 | Authorization could not decide"
+  },
+  {
+   "section": "RZ-AUTH decision codes",
+   "kind": "error_code",
+   "value": "RZ-AUTH-016 | 401 or 403 | Rejected by a `plugin` Policy of class `auth` (401) or `authz` (403)"
+  },
+  {
+   "section": "RZ-AUTH decision codes",
+   "kind": "error_code",
+   "value": "RZ-AUTH-020 | 401 | Upstream credential not obtained or signed (status: OQ-security-and-identity-9)"
+  },
+  {
+   "section": "RZ-AUTH decision codes",
+   "kind": "claim",
+   "value": "Client messages are generic; metric names are proposed to Observability."
+  },
+  {
+   "section": "Authorization",
+   "kind": "claim",
+   "value": "Each type's slot defaults to its name, so Policies stack and all must allow; a deny returns 403 and an evaluation error RZ-AUTH-015"
+  },
+  {
+   "section": "Authorization",
+   "kind": "decision",
+   "value": "ADR-0011 fixes CEL inline, OPA and Cedar as pluggable engines, and no Lua."
+  },
+  {
+   "section": "Authorization",
+   "kind": "policy_type",
+   "value": "authz.cel"
+  },
+  {
+   "section": "Authorization",
+   "kind": "number",
+   "value": "CEL: under 2 µs at p99 (target)"
+  },
+  {
+   "section": "Authorization",
+   "kind": "error_code",
+   "value": "RZ-CFG-015"
+  },
+  {
+   "section": "Authorization",
+   "kind": "library",
+   "value": "cel-go runtime `CostLimit`"
+  },
+  {
+   "section": "Authorization",
+   "kind": "milestone",
+   "value": "authz.cel: Planned (M1)"
+  },
+  {
+   "section": "Authorization",
+   "kind": "policy_type",
+   "value": "authz.opa"
+  },
+  {
+   "section": "Authorization",
+   "kind": "library",
+   "value": "OPA `PrepareForEval` per Revision"
+  },
+  {
+   "section": "Authorization",
+   "kind": "number",
+   "value": "OPA: under 100 µs at p99 (hypothesis)"
+  },
+  {
+   "section": "Authorization",
+   "kind": "claim",
+   "value": "only allowlisted pure built-ins, so no `http.send`"
+  },
+  {
+   "section": "Authorization",
+   "kind": "limit",
+   "value": "16 MiB data per Policy (target)"
+  },
+  {
+   "section": "Authorization",
+   "kind": "milestone",
+   "value": "authz.opa: Planned (M2)"
+  },
+  {
+   "section": "Authorization",
+   "kind": "policy_type",
+   "value": "authz.cedar"
+  },
+  {
+   "section": "Authorization",
+   "kind": "number",
+   "value": "Cedar: under 100 µs at p99 (hypothesis)"
+  },
+  {
+   "section": "Authorization",
+   "kind": "limit",
+   "value": "1,000 policies and 10,000 entities per Policy (target)"
+  },
+  {
+   "section": "Authorization",
+   "kind": "library",
+   "value": "cedar-go (no schema validator)"
+  },
+  {
+   "section": "Authorization",
+   "kind": "milestone",
+   "value": "authz.cedar: Planned (M2)"
+  },
+  {
+   "section": "Authorization",
+   "kind": "limit",
+   "value": "A Revision-wide ceiling of 64 MiB of compiled engine memory and 50,000 entities (target)"
+  },
+  {
+   "section": "Authorization",
+   "kind": "number",
+   "value": "peak engine memory is (K + 2) = 4 times it, 256 MiB (hypothesis)"
+  },
+  {
+   "section": "Authorization",
+   "kind": "timeout",
+   "value": "the 2 s compile time budget"
+  },
+  {
+   "section": "Authorization",
+   "kind": "cli_command",
+   "value": "ruralz bundle validate"
+  },
+  {
+   "section": "Authorization",
+   "kind": "failure_mode",
+   "value": "Ruralz Control ingest and Node activation, NACKing a violation"
+  },
+  {
+   "section": "Authorization",
+   "kind": "claim",
+   "value": "CEL SHOULD come first; cedar-go has had no commits since 2026-06-01, so OPA is the fallback."
+  },
+  {
+   "section": "Authorization",
+   "kind": "kind_or_field",
+   "value": "config.rule"
+  },
+  {
+   "section": "Authorization",
+   "kind": "kind_or_field",
+   "value": "consumer.tier"
+  },
+  {
+   "section": "IP filtering and GeoIP",
+   "kind": "policy_type",
+   "value": "authz.ip"
+  },
+  {
+   "section": "IP filtering and GeoIP",
+   "kind": "milestone",
+   "value": "`authz.ip`, Planned (M1)"
+  },
+  {
+   "section": "IP filtering and GeoIP",
+   "kind": "kind_or_field",
+   "value": "source.ip"
+  },
+  {
+   "section": "IP filtering and GeoIP",
+   "kind": "policy_type",
+   "value": "authz.geoip"
+  },
+  {
+   "section": "IP filtering and GeoIP",
+   "kind": "milestone",
+   "value": "`authz.geoip`, Planned (M2)"
+  },
+  {
+   "section": "IP filtering and GeoIP",
+   "kind": "library",
+   "value": "local MaxMind-format database (reader: OQ-tech-stack-and-libraries-24)"
+  },
+  {
+   "section": "IP filtering and GeoIP",
+   "kind": "milestone",
+   "value": "**Client address**, Planned (M1)"
+  },
+  {
+   "section": "IP filtering and GeoIP",
+   "kind": "limit",
+   "value": "from at most 16 parsed (target)"
+  },
+  {
+   "section": "IP filtering and GeoIP",
+   "kind": "claim",
+   "value": "Forwarding headers from untrusted peers are overwritten, never appended."
+  },
+  {
+   "section": "IP filtering and GeoIP",
+   "kind": "claim",
+   "value": "deployments behind a load balancer SHOULD NOT rely on `source.ip` controls, which collapse to one key"
+  },
+  {
+   "section": "Consumers and tiers",
+   "kind": "kind_or_field",
+   "value": "Consumer"
+  },
+  {
+   "section": "Consumers and tiers",
+   "kind": "kind_or_field",
+   "value": "consumer"
+  },
+  {
+   "section": "Consumers and tiers",
+   "kind": "kind_or_field",
+   "value": "credentials.jwt"
+  },
+  {
+   "section": "Consumers and tiers",
+   "kind": "claim",
+   "value": "OAuth clients by `client_id`, else `azp`, when `iss` is in that Consumer's `credentials.jwt`"
+  },
+  {
+   "section": "Consumers and tiers",
+   "kind": "limit",
+   "value": "rejected under 22 base64url characters (OQ-security-and-identity-23)"
+  },
+  {
+   "section": "Consumers and tiers",
+   "kind": "number",
+   "value": "Keys SHOULD carry 128 random bits"
+  },
+  {
+   "section": "Consumers and tiers",
+   "kind": "claim",
+   "value": "OCI registries holding Revisions MUST be private"
+  },
+  {
+   "section": "Consumers and tiers",
+   "kind": "claim",
+   "value": "Tier: A label Policies read; it grants nothing"
+  },
+  {
+   "section": "Consumers and tiers",
+   "kind": "policy_type",
+   "value": "headers"
+  },
+  {
+   "section": "Consumers and tiers",
+   "kind": "policy_type",
+   "value": "cache"
+  },
+  {
+   "section": "Consumers and tiers",
+   "kind": "policy_type",
+   "value": "ai.semantic-cache"
+  },
+  {
+   "section": "Consumers and tiers",
+   "kind": "number",
+   "value": "entries grow with principals (hypothesis)"
+  },
+  {
+   "section": "Consumers and tiers",
+   "kind": "kind_or_field",
+   "value": "spec.tier"
+  },
+  {
+   "section": "Consumers and tiers",
+   "kind": "kind_or_field",
+   "value": "credentials.apiKeys[].name"
+  },
+  {
+   "section": "Consumers and tiers",
+   "kind": "kind_or_field",
+   "value": "credentials.apiKeys[].hash"
+  },
+  {
+   "section": "Consumers and tiers",
+   "kind": "kind_or_field",
+   "value": "credentials.apiKeys[].secretRef {provider, name, key}"
+  },
+  {
+   "section": "Consumers and tiers",
+   "kind": "decision",
+   "value": "For OQ-configuration-model-17, the Bundle stays the only Consumer source through Planned (M3)."
+  },
+  {
+   "section": "Secrets",
+   "kind": "kind_or_field",
+   "value": "secretRef"
+  },
+  {
+   "section": "Secrets",
+   "kind": "kind_or_field",
+   "value": "SecretValue"
+  },
+  {
+   "section": "Secrets",
+   "kind": "error_code",
+   "value": "RZ-CFG-012"
+  },
+  {
+   "section": "Secrets",
+   "kind": "milestone",
+   "value": "Providers `env` and `file` are Planned (M1)"
+  },
+  {
+   "section": "Secrets",
+   "kind": "milestone",
+   "value": "`kubernetes` and `vault` are Planned (M2)"
+  },
+  {
+   "section": "Secrets",
+   "kind": "claim",
+   "value": "Only Nodes resolve Bundle secrets; Ruralz Control and the CLI see references."
+  },
+  {
+   "section": "Secrets",
+   "kind": "api_path",
+   "value": "/config/dump"
+  },
+  {
+   "section": "Secrets",
+   "kind": "api_path",
+   "value": "/tap"
+  },
+  {
+   "section": "Secrets",
+   "kind": "error_code",
+   "value": "RZ-CFG-026"
+  },
+  {
+   "section": "Secrets",
+   "kind": "failure_mode",
+   "value": "An unresolvable reference is RZ-CFG-026: the Node rejects the Revision (a NACK in Control mode) and keeps its active one."
+  },
+  {
+   "section": "Secrets",
+   "kind": "api_path",
+   "value": "/readyz"
+  },
+  {
+   "section": "Secrets",
+   "kind": "decision",
+   "value": "For OQ-configuration-model-15 and -5: no persistence through Planned (M3); `vault` for cloud managers."
+  },
+  {
+   "section": "Secrets",
+   "kind": "default",
+   "value": "`RURALZ_SECRET_ROOT`, default `/etc/ruralz`"
+  },
+  {
+   "section": "Secrets",
+   "kind": "term",
+   "value": "RURALZ_STATE_STORE_URL"
+  },
+  {
+   "section": "Secrets",
+   "kind": "term",
+   "value": "RURALZ_SECRET_*"
+  },
+  {
+   "section": "Secrets",
+   "kind": "failure_mode",
+   "value": "A Node refuses to start if the root contains `${RURALZ_DATA_DIR}`, `RURALZ_ADMIN_TLS_DIR`, an admin or Enrollment token file or the Vault credential."
+  },
+  {
+   "section": "Secrets",
+   "kind": "limit",
+   "value": "refuses 0.0.0.0/8, ::/128, 127.0.0.0/8, ::1, 169.254.0.0/16, fe80::/10 and fd00:ec2::254"
+  },
+  {
+   "section": "Secrets",
+   "kind": "term",
+   "value": "RURALZ_FETCH_ALLOW"
+  },
+  {
+   "section": "Secrets",
+   "kind": "claim",
+   "value": "never follows `https` to `http` or a `tokenUrl` redirect, and ignores proxy variables unless allowlisted"
+  },
+  {
+   "section": "Secrets",
+   "kind": "claim",
+   "value": "Adding a `secretRef` or changing a secret's destination has diff impact `security`."
+  },
+  {
+   "section": "Secrets",
+   "kind": "failure_mode",
+   "value": "New value invalid: Keep last value, rotation failure metric"
+  },
+  {
+   "section": "Request hardening",
+   "kind": "milestone",
+   "value": "These controls are always on and Planned (M1) unless noted"
+  },
+  {
+   "section": "Request hardening",
+   "kind": "error_code",
+   "value": "RZ-RT-002"
+  },
+  {
+   "section": "Request hardening",
+   "kind": "error_code",
+   "value": "RZ-RT-003"
+  },
+  {
+   "section": "Request hardening",
+   "kind": "kind_or_field",
+   "value": "limits.maxRequestHeaderBytes"
+  },
+  {
+   "section": "Request hardening",
+   "kind": "kind_or_field",
+   "value": "maxRequestBodyBytes"
+  },
+  {
+   "section": "Request hardening",
+   "kind": "limit",
+   "value": "256 fields (target)"
+  },
+  {
+   "section": "Request hardening",
+   "kind": "library",
+   "value": "Go 1.27 adds `Server.MaxHeaderValueCount`"
+  },
+  {
+   "section": "Request hardening",
+   "kind": "claim",
+   "value": "Conflicting framing rejected; hop-by-hop headers removed"
+  },
+  {
+   "section": "Request hardening",
+   "kind": "policy_type",
+   "value": "transform.request"
+  },
+  {
+   "section": "Request hardening",
+   "kind": "claim",
+   "value": "`auth.api-key` and `auth.basic` strip their credential; `auth.jwt` forwards it"
+  },
+  {
+   "section": "Request hardening",
+   "kind": "milestone",
+   "value": "gRPC: Planned (M3)"
+  },
+  {
+   "section": "Request hardening",
+   "kind": "library",
+   "value": "connect-go `WithRequestGate`"
+  },
+  {
+   "section": "Request hardening",
+   "kind": "policy_type",
+   "value": "cors"
+  },
+  {
+   "section": "Request hardening",
+   "kind": "policy_type",
+   "value": "headers"
+  },
+  {
+   "section": "Pre-authentication throttling",
+   "kind": "milestone",
+   "value": "a throttle, Planned (M1) and local to each Node"
+  },
+  {
+   "section": "Pre-authentication throttling",
+   "kind": "claim",
+   "value": "Rate Limits run after `auth` and never see failed attempts"
+  },
+  {
+   "section": "Pre-authentication throttling",
+   "kind": "library",
+   "value": "HMAC-SHA-256 of username and password under a per-process key"
+  },
+  {
+   "section": "Pre-authentication throttling",
+   "kind": "timeout",
+   "value": "An entry lasts 60 s after its last hit and at most 15 minutes from verification, less up to 20% jitter (target)"
+  },
+  {
+   "section": "Pre-authentication throttling",
+   "kind": "limit",
+   "value": "64 shards, 10,000 entries per Node (target)"
+  },
+  {
+   "section": "Pre-authentication throttling",
+   "kind": "limit",
+   "value": "one 64-shard LRU of 100,000 (target)"
+  },
+  {
+   "section": "Pre-authentication throttling",
+   "kind": "limit",
+   "value": "burst 10, refill 1 per second (target)"
+  },
+  {
+   "section": "Pre-authentication throttling",
+   "kind": "limit",
+   "value": "at most 100 per second per Node (target)"
+  },
+  {
+   "section": "Pre-authentication throttling",
+   "kind": "claim",
+   "value": "a dummy hash at the default iteration count through the same queue, so neither timing nor status reveals whether a username exists"
+  },
+  {
+   "section": "Pre-authentication throttling",
+   "kind": "limit",
+   "value": "max(1, `GOMAXPROCS`/4) slots"
+  },
+  {
+   "section": "Pre-authentication throttling",
+   "kind": "limit",
+   "value": "4 × slots waiters, 1 s deadline (target)"
+  },
+  {
+   "section": "Pre-authentication throttling",
+   "kind": "limit",
+   "value": "An empty bucket holds at most 2 waiters, 1,024 per Node, for up to 2 s (target)"
+  },
+  {
+   "section": "Pre-authentication throttling",
+   "kind": "error_code",
+   "value": "429 RZ-AUTH-007 with `Retry-After` before any hash"
+  },
+  {
+   "section": "Pre-authentication throttling",
+   "kind": "limit",
+   "value": "Address, IPv6 as /64, 10 failures per minute (target); off until OQ-security-and-identity-6 closes"
+  },
+  {
+   "section": "Pre-authentication throttling",
+   "kind": "number",
+   "value": "At 600,000 iterations a slot verifies 10 to 20 credentials per second (hypothesis)"
+  },
+  {
+   "section": "Pre-authentication throttling",
+   "kind": "number",
+   "value": "slots × 10 to 20 × 800 distinct active `auth.basic` credentials (hypothesis): 8,000 to 16,000 on one slot, capped at the 10,000-entry cache (target)"
+  },
+  {
+   "section": "Pre-authentication throttling",
+   "kind": "claim",
+   "value": "`auth.basic` suits low-cardinality clients, and high-cardinality callers SHOULD use API keys or JWT"
+  },
+  {
+   "section": "Pre-authentication throttling",
+   "kind": "limit",
+   "value": "the 100 per second creation cap (target)"
+  },
+  {
+   "section": "Pre-authentication throttling",
+   "kind": "number",
+   "value": "With 1,000 active clients on an 8-core Node (2 slots), it takes about 25 to 50 s (hypothesis)"
+  },
+  {
+   "section": "Pre-authentication throttling",
+   "kind": "number",
+   "value": "evicting a live bucket takes 1,000 s (hypothesis), 100 times its refill"
+  },
+  {
+   "section": "Pre-authentication throttling",
+   "kind": "number",
+   "value": "adding at most 10 guesses per username per 1,000 s (hypothesis)"
+  },
+  {
+   "section": "Pre-authentication throttling",
+   "kind": "claim",
+   "value": "Residuals (T1, OQ-security-and-identity-15): no fixed lockout"
+  },
+  {
+   "section": "Revocation",
+   "kind": "claim",
+   "value": "one signed revocation list to every Node of a Cluster, checked in memory, outside the Revision digest"
+  },
+  {
+   "section": "Revocation",
+   "kind": "claim",
+   "value": "Until then, entries are unavailable."
+  },
+  {
+   "section": "Revocation",
+   "kind": "number",
+   "value": "5 s or less at p99 with a fresh mark (target)"
+  },
+  {
+   "section": "Revocation",
+   "kind": "milestone",
+   "value": "Signed revocation entries: Planned (M2), pending OQ-security-and-identity-4 (usernames: -2)"
+  },
+  {
+   "section": "Revocation",
+   "kind": "milestone",
+   "value": "An API key, file mode: Planned (M1)"
+  },
+  {
+   "section": "Revocation",
+   "kind": "number",
+   "value": "30 s or less at p95 for 100 Nodes, `all-at-once` (target) (SM-9)"
+  },
+  {
+   "section": "Revocation",
+   "kind": "milestone",
+   "value": "An API key, Control mode: Planned (M2)"
+  },
+  {
+   "section": "Revocation",
+   "kind": "cli_command",
+   "value": "ruralz node revoke"
+  },
+  {
+   "section": "Revocation",
+   "kind": "number",
+   "value": "Enrollment identity: 5 s or less at p99 (target)"
+  },
+  {
+   "section": "Revocation",
+   "kind": "milestone",
+   "value": "An Enrollment identity: Planned (M2)"
+  },
+  {
+   "section": "Revocation",
+   "kind": "number",
+   "value": "1 s or less on connected replicas (target)"
+  },
+  {
+   "section": "Revocation",
+   "kind": "milestone",
+   "value": "An operator session or token: Planned (M2)"
+  },
+  {
+   "section": "Revocation",
+   "kind": "error_code",
+   "value": "RZ-CFG-033"
+  },
+  {
+   "section": "Revocation",
+   "kind": "milestone",
+   "value": "A Plugin publisher: Planned (M2)"
+  },
+  {
+   "section": "Revocation",
+   "kind": "timeout",
+   "value": "a high-water mark (sequence, Cluster, issue time) every 10 s (target)"
+  },
+  {
+   "section": "Revocation",
+   "kind": "failure_mode",
+   "value": "A gap, or a mark older than 30 s with clocks within 5 s (target), is a degraded state and Drift."
+  },
+  {
+   "section": "Revocation",
+   "kind": "limit",
+   "value": "the last 10 `complete` per Cluster, target; OQ-security-and-identity-27"
+  },
+  {
+   "section": "Revocation",
+   "kind": "claim",
+   "value": "A `kid` entry never expires on its own"
+  },
+  {
+   "section": "Revocation",
+   "kind": "timeout",
+   "value": "the 6-hour key clamp plus the maximum lifetime, 30 hours (target)"
+  },
+  {
+   "section": "Revocation",
+   "kind": "term",
+   "value": "credential.revoked"
+  },
+  {
+   "section": "Revocation",
+   "kind": "limit",
+   "value": "100,000 entries per Cluster (target), 1,000 of them reserved for `kid` entries (target)"
+  },
+  {
+   "section": "Revocation",
+   "kind": "limit",
+   "value": "alerting at 80% (target)"
+  },
+  {
+   "section": "Revocation",
+   "kind": "failure_mode",
+   "value": "at the cap new entries are refused and audited"
+  },
+  {
+   "section": "Revocation",
+   "kind": "timeout",
+   "value": "A revoked session keeps reading until it expires, at most 12 hours (target)."
+  },
+  {
+   "section": "Revocation",
+   "kind": "failure_mode",
+   "value": "A detached restart forgets entries (OQ-security-and-identity-5)"
+  },
+  {
+   "section": "Plugin sandbox",
+   "kind": "decision",
+   "value": "ADR-0004"
+  },
+  {
+   "section": "Plugin sandbox",
+   "kind": "decision",
+   "value": "ADR-0005"
+  },
+  {
+   "section": "Plugin sandbox",
+   "kind": "milestone",
+   "value": "Every control is Planned (M2)."
+  },
+  {
+   "section": "Plugin sandbox",
+   "kind": "library",
+   "value": "wazero"
+  },
+  {
+   "section": "Plugin sandbox",
+   "kind": "term",
+   "value": "Plugin ABI v1"
+  },
+  {
+   "section": "Plugin sandbox",
+   "kind": "claim",
+   "value": "Capabilities: Deny by default"
+  },
+  {
+   "section": "Plugin sandbox",
+   "kind": "error_code",
+   "value": "RZ-CFG-028"
+  },
+  {
+   "section": "Plugin sandbox",
+   "kind": "kind_or_field",
+   "value": "Plugin.spec.capabilities"
+  },
+  {
+   "section": "Plugin sandbox",
+   "kind": "decision",
+   "value": "OQ-wasm-plugin-system-3, option (b)"
+  },
+  {
+   "section": "Plugin sandbox",
+   "kind": "kind_or_field",
+   "value": "limits.memoryBytes"
+  },
+  {
+   "section": "Plugin sandbox",
+   "kind": "library",
+   "value": "wazero `WithMemoryLimitPages`"
+  },
+  {
+   "section": "Plugin sandbox",
+   "kind": "default",
+   "value": "wazero defaults to 4 GiB"
+  },
+  {
+   "section": "Plugin sandbox",
+   "kind": "kind_or_field",
+   "value": "limits.maxPluginMemoryBytes"
+  },
+  {
+   "section": "Plugin sandbox",
+   "kind": "claim",
+   "value": "wazero has no fuel metering"
+  },
+  {
+   "section": "Plugin sandbox",
+   "kind": "kind_or_field",
+   "value": "image"
+  },
+  {
+   "section": "Plugin sandbox",
+   "kind": "default",
+   "value": "Sigstore `enforce`"
+  },
+  {
+   "section": "Plugin sandbox",
+   "kind": "failure_mode",
+   "value": "Traps fail the Policy (`RZ-PLG`); auth and authz classes closed only"
+  },
+  {
+   "section": "Plugin sandbox",
+   "kind": "error_code",
+   "value": "RZ-PLG"
+  },
+  {
+   "section": "Plugin sandbox",
+   "kind": "limit",
+   "value": "recycled after 100,000 calls (target)"
+  },
+  {
+   "section": "Plugin sandbox",
+   "kind": "number",
+   "value": "Unpatched sandbox escapes older than 30 days stay at zero (target) (SM-13)"
+  },
+  {
+   "section": "Control plane security",
+   "kind": "claim",
+   "value": "Ruralz Control holds the keys to every Cluster, so it denies by default"
+  },
+  {
+   "section": "Operator identity, SSO and RBAC",
+   "kind": "number",
+   "value": "the seven roles"
+  },
+  {
+   "section": "Operator identity, SSO and RBAC",
+   "kind": "milestone",
+   "value": "Local accounts, TOTP, sessions and the seven roles: Planned (M2)"
+  },
+  {
+   "section": "Operator identity, SSO and RBAC",
+   "kind": "milestone",
+   "value": "OIDC and SAML SSO for Ruralz Console is Planned (M5), free"
+  },
+  {
+   "section": "Operator identity, SSO and RBAC",
+   "kind": "claim",
+   "value": "Nobody edits their own bindings or approves their own change."
+  },
+  {
+   "section": "Operator identity, SSO and RBAC",
+   "kind": "decision",
+   "value": "for OQ-control-plane-and-gitops-20, option (a), `viewer` gets none"
+  },
+  {
+   "section": "Operator identity, SSO and RBAC",
+   "kind": "cli_command",
+   "value": "ruralz bundle push"
+  },
+  {
+   "section": "Operator identity, SSO and RBAC",
+   "kind": "default",
+   "value": "`ruralz bundle push` skips review, so it is off by default under `requireApproval`"
+  },
+  {
+   "section": "Enrollment",
+   "kind": "claim",
+   "value": "private keys never leave the Node"
+  },
+  {
+   "section": "Enrollment",
+   "kind": "kind_or_field",
+   "value": "node.id"
+  },
+  {
+   "section": "Enrollment",
+   "kind": "decision",
+   "value": "For OQ-control-plane-and-gitops-19 and -10, option (a): Cluster-scoped minting; expired Nodes re-enroll"
+  },
+  {
+   "section": "Signed Revisions and Plugin artifacts",
+   "kind": "milestone",
+   "value": "these trust policies are Planned (M2)"
+  },
+  {
+   "section": "Signed Revisions and Plugin artifacts",
+   "kind": "default",
+   "value": "Anchor sets: Always verified"
+  },
+  {
+   "section": "Signed Revisions and Plugin artifacts",
+   "kind": "default",
+   "value": "OCI Revision trust policy: `enforce`"
+  },
+  {
+   "section": "Signed Revisions and Plugin artifacts",
+   "kind": "default",
+   "value": "Plugin trust policy: `enforce`; `warn` in `ruralz dev run`"
+  },
+  {
+   "section": "Signed Revisions and Plugin artifacts",
+   "kind": "cli_command",
+   "value": "ruralz dev run"
+  },
+  {
+   "section": "Signed Revisions and Plugin artifacts",
+   "kind": "failure_mode",
+   "value": "Under `enforce`, an empty trust policy rejects everything (RZ-CFG-033)"
+  },
+  {
+   "section": "Signed Revisions and Plugin artifacts",
+   "kind": "claim",
+   "value": "Verification is offline (pack 8.14); trust policies never live in a Bundle."
+  },
+  {
+   "section": "Signed Revisions and Plugin artifacts",
+   "kind": "decision",
+   "value": "For OQ-control-plane-and-gitops-9, option (b): verify commit signatures where approvals depend on authorship."
+  },
+  {
+   "section": "Signed Revisions and Plugin artifacts",
+   "kind": "decision",
+   "value": "For OQ-control-plane-and-gitops-24, option (a): after an emergency key removal, a Node refuses to boot a candidate or Last-Known-Good accepted from that key after `compromisedSince`"
+  },
+  {
+   "section": "Signed Revisions and Plugin artifacts",
+   "kind": "kind_or_field",
+   "value": "compromisedSince"
+  },
+  {
+   "section": "Signed Revisions and Plugin artifacts",
+   "kind": "cli_command",
+   "value": "ruralz bundle push"
+  },
+  {
+   "section": "Signed Revisions and Plugin artifacts",
+   "kind": "term",
+   "value": "${RURALZ_DATA_DIR}/lkg/"
+  },
+  {
+   "section": "Admin ports",
+   "kind": "decision",
+   "value": "For OQ-system-overview-6: 9901 and 9902 bind all interfaces for kubelet probes"
+  },
+  {
+   "section": "Admin ports",
+   "kind": "port",
+   "value": "9901"
+  },
+  {
+   "section": "Admin ports",
+   "kind": "port",
+   "value": "9902"
+  },
+  {
+   "section": "Admin ports",
+   "kind": "api_path",
+   "value": "/healthz"
+  },
+  {
+   "section": "Admin ports",
+   "kind": "api_path",
+   "value": "/readyz"
+  },
+  {
+   "section": "Admin ports",
+   "kind": "term",
+   "value": "RURALZ_ADMIN_METRICS_TOKEN_FILE"
+  },
+  {
+   "section": "Admin ports",
+   "kind": "term",
+   "value": "RURALZ_ADMIN_TOKEN_FILE"
+  },
+  {
+   "section": "Admin ports",
+   "kind": "term",
+   "value": "RURALZ_ADMIN_TLS_DIR"
+  },
+  {
+   "section": "Admin ports",
+   "kind": "api_path",
+   "value": "/metrics"
+  },
+  {
+   "section": "Admin ports",
+   "kind": "failure_mode",
+   "value": "If no admin credential is configured, only `/healthz` and `/readyz` answer and every other path returns 401."
+  },
+  {
+   "section": "Admin ports",
+   "kind": "claim",
+   "value": "Tokens are compared in constant time and accepted only over TLS or loopback"
+  },
+  {
+   "section": "Admin ports",
+   "kind": "api_path",
+   "value": "/tap"
+  },
+  {
+   "section": "Admin ports",
+   "kind": "api_path",
+   "value": "/config/dump"
+  },
+  {
+   "section": "Admin ports",
+   "kind": "api_path",
+   "value": "/debug/*"
+  },
+  {
+   "section": "Audit log",
+   "kind": "claim",
+   "value": "Every state change is audited, Raft-committed before the write returns and hash-chained"
+  },
+  {
+   "section": "Audit log",
+   "kind": "milestone",
+   "value": "OQ-control-plane-and-gitops-12 should block Planned (M2)"
+  },
+  {
+   "section": "Release supply chain",
+   "kind": "milestone",
+   "value": "signed images, CycloneDX SBOM, SLSA Build Level 3 provenance: all Planned (M1)"
+  },
+  {
+   "section": "Release supply chain",
+   "kind": "library",
+   "value": "CycloneDX SBOM"
+  },
+  {
+   "section": "Release supply chain",
+   "kind": "number",
+   "value": "SLSA Build Level 3"
+  },
+  {
+   "section": "Compliance",
+   "kind": "milestone",
+   "value": "All are Planned (M2) except `sso.config.changed`, Planned (M5)"
+  },
+  {
+   "section": "Compliance",
+   "kind": "term",
+   "value": "session.created"
+  },
+  {
+   "section": "Compliance",
+   "kind": "term",
+   "value": "token.created"
+  },
+  {
+   "section": "Compliance",
+   "kind": "term",
+   "value": "session.failed"
+  },
+  {
+   "section": "Compliance",
+   "kind": "term",
+   "value": "session.revoked"
+  },
+  {
+   "section": "Compliance",
+   "kind": "term",
+   "value": "rbac.binding.changed"
+  },
+  {
+   "section": "Compliance",
+   "kind": "term",
+   "value": "source.changed"
+  },
+  {
+   "section": "Compliance",
+   "kind": "term",
+   "value": "crd.changed"
+  },
+  {
+   "section": "Compliance",
+   "kind": "term",
+   "value": "revision.recorded"
+  },
+  {
+   "section": "Compliance",
+   "kind": "term",
+   "value": "revision.pushed"
+  },
+  {
+   "section": "Compliance",
+   "kind": "term",
+   "value": "revision.rejected"
+  },
+  {
+   "section": "Compliance",
+   "kind": "term",
+   "value": "revision.tombstoned"
+  },
+  {
+   "section": "Compliance",
+   "kind": "term",
+   "value": "writeback.submitted"
+  },
+  {
+   "section": "Compliance",
+   "kind": "term",
+   "value": "rollout.changed"
+  },
+  {
+   "section": "Compliance",
+   "kind": "term",
+   "value": "node.token.issued"
+  },
+  {
+   "section": "Compliance",
+   "kind": "term",
+   "value": "node.enrolled"
+  },
+  {
+   "section": "Compliance",
+   "kind": "term",
+   "value": "node.revoked"
+  },
+  {
+   "section": "Compliance",
+   "kind": "term",
+   "value": "credential.revoked"
+  },
+  {
+   "section": "Compliance",
+   "kind": "term",
+   "value": "trust-policy.changed"
+  },
+  {
+   "section": "Compliance",
+   "kind": "term",
+   "value": "signature.failed"
+  },
+  {
+   "section": "Compliance",
+   "kind": "term",
+   "value": "control.backup.created"
+  },
+  {
+   "section": "Compliance",
+   "kind": "term",
+   "value": "control.restored"
+  },
+  {
+   "section": "Compliance",
+   "kind": "term",
+   "value": "sso.config.changed"
+  },
+  {
+   "section": "Compliance",
+   "kind": "claim",
+   "value": "Data-plane decisions are telemetry, not audit events."
+  },
+  {
+   "section": "Compliance",
+   "kind": "milestone",
+   "value": "Data residency, Planned (M3)"
+  },
+  {
+   "section": "Compliance",
+   "kind": "decision",
+   "value": "for OQ-ai-llm-gateway-9, option (a)"
+  },
+  {
+   "section": "Compliance",
+   "kind": "kind_or_field",
+   "value": "AIModel"
+  },
+  {
+   "section": "Compliance",
+   "kind": "failure_mode",
+   "value": "A request whose `AIModel` excludes the serving Node's Region fails closed with an `RZ-AI` code before any provider call"
+  },
+  {
+   "section": "Compliance",
+   "kind": "error_code",
+   "value": "RZ-AI"
+  },
+  {
+   "section": "Compliance",
+   "kind": "decision",
+   "value": "ADR-0008: fail-open Rate Limits"
+  },
+  {
+   "section": "Compliance",
+   "kind": "failure_mode",
+   "value": "fail-open Rate Limits"
+  },
+  {
+   "section": "Compliance",
+   "kind": "term",
+   "value": "SM-13"
+  },
+  {
+   "section": "Compliance",
+   "kind": "term",
+   "value": "OQ-vision-and-positioning-6 (Cyber Resilience Act)"
+  },
+  {
+   "section": "Open questions",
+   "kind": "default",
+   "value": "OQ-security-and-identity-1 (a): per-issuer maximum token lifetime (default 24 hours (target))"
+  },
+  {
+   "section": "Open questions",
+   "kind": "number",
+   "value": "OQ-security-and-identity-2 (a): `credentials.basic`, PBKDF2-HMAC-SHA-256 at 600,000 to 1,000,000 iterations (target)"
+  },
+  {
+   "section": "Open questions",
+   "kind": "kind_or_field",
+   "value": "credentials.basic"
+  },
+  {
+   "section": "Open questions",
+   "kind": "number",
+   "value": "OQ-security-and-identity-15: N × 1 guess per second per username across N Nodes (target)"
+  },
+  {
+   "section": "Open questions",
+   "kind": "number",
+   "value": "about 8,000 to 16,000 active `auth.basic` clients per hash slot capped at 10,000 per Node (hypothesis)"
+  },
+  {
+   "section": "Open questions",
+   "kind": "claim",
+   "value": "OQ-security-and-identity-9 (b) 503, amending pack 8.10 (proposed)"
+  },
+  {
+   "section": "Open questions",
+   "kind": "claim",
+   "value": "OQ-security-and-identity-27 (a) Two `RZ-CP` codes, 10 targets (proposed)"
+  },
+  {
+   "section": "Open questions",
+   "kind": "error_code",
+   "value": "RZ-CP"
+  },
+  {
+   "section": "Open questions",
+   "kind": "claim",
+   "value": "OQ-security-and-identity-16 is closed."
+  },
+  {
+   "section": "Open questions",
+   "kind": "decision",
+   "value": "For OQ-tech-stack-and-libraries-24, option (a)"
+  },
+  {
+   "section": "Open questions",
+   "kind": "milestone",
+   "value": "OQ-security-and-identity-1 blocking: Yes, Planned (M1)"
+  },
+  {
+   "section": "Open questions",
+   "kind": "milestone",
+   "value": "OQ-security-and-identity-4 blocking: Yes, Planned (M2)"
+  },
+  {
+   "section": "Open questions",
+   "kind": "milestone",
+   "value": "OQ-security-and-identity-5 blocking: Yes, Planned (M2)"
+  },
+  {
+   "section": "Open questions",
+   "kind": "milestone",
+   "value": "OQ-security-and-identity-7 blocking: Yes, Planned (M1)"
+  },
+  {
+   "section": "Open questions",
+   "kind": "milestone",
+   "value": "OQ-security-and-identity-8 blocking: Yes, Planned (M2)"
+  },
+  {
+   "section": "Open questions",
+   "kind": "milestone",
+   "value": "OQ-security-and-identity-11 blocking: Yes, Planned (M2)"
+  },
+  {
+   "section": "Open questions",
+   "kind": "milestone",
+   "value": "OQ-security-and-identity-12 blocking: Yes, Planned (M2)"
+  },
+  {
+   "section": "Open questions",
+   "kind": "milestone",
+   "value": "OQ-security-and-identity-13 blocking: Yes, Planned (M2)"
+  },
+  {
+   "section": "Open questions",
+   "kind": "milestone",
+   "value": "OQ-security-and-identity-21 blocking: Yes, Planned (M1)"
+  },
+  {
+   "section": "Open questions",
+   "kind": "milestone",
+   "value": "OQ-security-and-identity-22 blocking: Yes, Planned (M1)"
+  },
+  {
+   "section": "Open questions",
+   "kind": "milestone",
+   "value": "OQ-security-and-identity-24 blocking: Yes, Planned (M1)"
+  },
+  {
+   "section": "Open questions",
+   "kind": "milestone",
+   "value": "OQ-security-and-identity-26 blocking: Yes, Planned (M2)"
+  },
+  {
+   "section": "Open questions",
+   "kind": "milestone",
+   "value": "OQ-security-and-identity-27 blocking: Yes, Planned (M2)"
+  },
+  {
+   "section": "Open questions",
+   "kind": "milestone",
+   "value": "OQ-security-and-identity-30 blocking: Yes, Planned (M2)"
+  },
+  {
+   "section": "Open questions",
+   "kind": "milestone",
+   "value": "OQ-security-and-identity-31 blocking: Yes, Planned (M2)"
+  }
+ ]
+}

@@ -1,0 +1,1446 @@
+{
+ "path": "docs/operations/04-high-availability-and-disaster-recovery.md",
+ "status": "reviewed",
+ "facts": [
+  {
+   "section": "Summary",
+   "kind": "milestone",
+   "value": "Node recovery is Planned (M1)"
+  },
+  {
+   "section": "Summary",
+   "kind": "milestone",
+   "value": "Ruralz Control and backups Planned (M2)"
+  },
+  {
+   "section": "Summary",
+   "kind": "milestone",
+   "value": "multi-region Planned (M4)"
+  },
+  {
+   "section": "Summary",
+   "kind": "claim",
+   "value": "Nodes never wait on Ruralz Control, so its failures cost requests nothing, except derived ceilings after a rebuild"
+  },
+  {
+   "section": "Summary",
+   "kind": "kind_or_field",
+   "value": "failureMode"
+  },
+  {
+   "section": "Scope and non-goals",
+   "kind": "decision",
+   "value": "This document decides OQ-system-overview-13 (`/readyz` never fails for detachment) and OQ-scalability-and-distributed-state-7 (option (a) below)"
+  },
+  {
+   "section": "Scope and non-goals",
+   "kind": "claim",
+   "value": "carries OQ-system-overview-12 and OQ-deployment-topologies-18 and -20, with every option, into Open questions"
+  },
+  {
+   "section": "Failure catalog",
+   "kind": "milestone",
+   "value": "Regional Ruralz Control relay, Planned (M4)"
+  },
+  {
+   "section": "Failure catalog",
+   "kind": "port",
+   "value": "Control Stream 8091"
+  },
+  {
+   "section": "Failure catalog",
+   "kind": "port",
+   "value": "8092 relay feed"
+  },
+  {
+   "section": "Failure catalog",
+   "kind": "port",
+   "value": "`/readyz` on 9901"
+  },
+  {
+   "section": "Failure catalog",
+   "kind": "api_path",
+   "value": "/readyz"
+  },
+  {
+   "section": "Failure catalog",
+   "kind": "claim",
+   "value": "Rows are Planned in their component's milestone."
+  },
+  {
+   "section": "Failure catalog",
+   "kind": "term",
+   "value": "\"Traffic\" means request handling; \"management\" means Rollouts, Enrollment, Drift, Ruralz Console and the REST API."
+  },
+  {
+   "section": "Failure catalog",
+   "kind": "number",
+   "value": "FC-1: at most one extra ceiling per key per restarted Node (target)"
+  },
+  {
+   "section": "Failure catalog",
+   "kind": "kind_or_field",
+   "value": "${RURALZ_DATA_DIR}"
+  },
+  {
+   "section": "Failure catalog",
+   "kind": "failure_mode",
+   "value": "FC-1 Kubernetes: force-delete the pod or taint the host `node.kubernetes.io/out-of-service`"
+  },
+  {
+   "section": "Failure catalog",
+   "kind": "timeout",
+   "value": "FC-2: Boots Last-Known-Good, detached, after up to 5 s (target); without it, not ready"
+  },
+  {
+   "section": "Failure catalog",
+   "kind": "limit",
+   "value": "FC-3: Survivors under 80% CPU when sized (target)"
+  },
+  {
+   "section": "Failure catalog",
+   "kind": "limit",
+   "value": "FC-4: survivors count alone, up to R × each limit (target)"
+  },
+  {
+   "section": "Failure catalog",
+   "kind": "error_code",
+   "value": "RZ-CP-004"
+  },
+  {
+   "section": "Failure catalog",
+   "kind": "failure_mode",
+   "value": "FC-5: Other Regions serve; Rollouts, Enrollment and Drift stop (`RZ-CP-004`); new Nodes stay not ready"
+  },
+  {
+   "section": "Failure catalog",
+   "kind": "timeout",
+   "value": "FC-6: New leader in about 1 to 2 s plus election round trips (hypothesis); Rollouts resume; zero request errors (CE-7)"
+  },
+  {
+   "section": "Failure catalog",
+   "kind": "metric",
+   "value": "ruralz_control_leader_info"
+  },
+  {
+   "section": "Failure catalog",
+   "kind": "metric",
+   "value": "ruralz_control_leader_contact_age_seconds"
+  },
+  {
+   "section": "Failure catalog",
+   "kind": "failure_mode",
+   "value": "FC-7: Writes, logins, Enrollment stop (`RZ-CP-004`); stale replicas serve only Nodes without an active digest; the Node count freezes"
+  },
+  {
+   "section": "Failure catalog",
+   "kind": "decision",
+   "value": "ADR-0007 (Control Stream protocol)"
+  },
+  {
+   "section": "Failure catalog",
+   "kind": "timeout",
+   "value": "FC-8: jittered redial, base 1 s, cap 60 s (target)"
+  },
+  {
+   "section": "Failure catalog",
+   "kind": "failure_mode",
+   "value": "FC-8: Detached, `/readyz` 200; revocations and promotions wait"
+  },
+  {
+   "section": "Failure catalog",
+   "kind": "number",
+   "value": "FC-8 detection: Three missed heartbeats (target)"
+  },
+  {
+   "section": "Failure catalog",
+   "kind": "kind_or_field",
+   "value": "Hello"
+  },
+  {
+   "section": "Failure catalog",
+   "kind": "kind_or_field",
+   "value": "Reconnect (`shed`, `rebalance`)"
+  },
+  {
+   "section": "Failure catalog",
+   "kind": "timeout",
+   "value": "FC-9: all Nodes back within 5 minutes of a full restart (target) (CE-10)"
+  },
+  {
+   "section": "Failure catalog",
+   "kind": "error_code",
+   "value": "RZ-CP-010"
+  },
+  {
+   "section": "Failure catalog",
+   "kind": "number",
+   "value": "FC-9: ceil(N / 5,000) + 1 replicas (hypothesis)"
+  },
+  {
+   "section": "Failure catalog",
+   "kind": "failure_mode",
+   "value": "FC-10: One deadline per request at most, none once the breaker opens"
+  },
+  {
+   "section": "Failure catalog",
+   "kind": "term",
+   "value": "Reason `state_store_breaker_open`"
+  },
+  {
+   "section": "Failure catalog",
+   "kind": "term",
+   "value": "Reason `state_store_eviction_policy`"
+  },
+  {
+   "section": "Failure catalog",
+   "kind": "term",
+   "value": "Reason `jwks_stale`"
+  },
+  {
+   "section": "Failure catalog",
+   "kind": "term",
+   "value": "Reason `discovery_stale`"
+  },
+  {
+   "section": "Failure catalog",
+   "kind": "metric",
+   "value": "ruralz_state_ops_total"
+  },
+  {
+   "section": "Failure catalog",
+   "kind": "error_code",
+   "value": "`RZ-STS` codes only under `closed`"
+  },
+  {
+   "section": "Failure catalog",
+   "kind": "failure_mode",
+   "value": "FC-11: Cut-off Nodes admit per the fail-open rows, connected ones per the healthy GCRA row"
+  },
+  {
+   "section": "Failure catalog",
+   "kind": "timeout",
+   "value": "FC-12: `failureMode` about 15 s (hypothesis)"
+  },
+  {
+   "section": "Failure catalog",
+   "kind": "timeout",
+   "value": "FC-12: Automatic within 15 s (target) (CE-5)"
+  },
+  {
+   "section": "Failure catalog",
+   "kind": "number",
+   "value": "FC-12: lag × rate extra per key (hypothesis)"
+  },
+  {
+   "section": "Failure catalog",
+   "kind": "claim",
+   "value": "FC-12 detection: `NOSCRIPT`, then `SCRIPT LOAD`"
+  },
+  {
+   "section": "Failure catalog",
+   "kind": "limit",
+   "value": "FC-13: Stores skip above 70% of `maxmemory` (target)"
+  },
+  {
+   "section": "Failure catalog",
+   "kind": "failure_mode",
+   "value": "FC-13: full: limits open, `closed` Token Budgets 503; eviction resets counters"
+  },
+  {
+   "section": "Failure catalog",
+   "kind": "default",
+   "value": "FC-13: `noeviction` MUST be set"
+  },
+  {
+   "section": "Failure catalog",
+   "kind": "error_code",
+   "value": "RZ-CP-011"
+  },
+  {
+   "section": "Failure catalog",
+   "kind": "failure_mode",
+   "value": "FC-14: No new Revisions (`RZ-CP-011`); recorded Revisions, Rollouts and reverts work"
+  },
+  {
+   "section": "Failure catalog",
+   "kind": "failure_mode",
+   "value": "FC-15: File-mode Nodes keep serving; Plugin fetches NACK transient, then quarantine"
+  },
+  {
+   "section": "Failure catalog",
+   "kind": "number",
+   "value": "FC-15: A mirror above 100 Nodes per Region (hypothesis)"
+  },
+  {
+   "section": "Failure catalog",
+   "kind": "policy_type",
+   "value": "auth.jwt"
+  },
+  {
+   "section": "Failure catalog",
+   "kind": "timeout",
+   "value": "FC-16: `max-age` clamped to 5 minutes to 6 hours, default 1 hour (target)"
+  },
+  {
+   "section": "Failure catalog",
+   "kind": "error_code",
+   "value": "RZ-AUTH-006"
+  },
+  {
+   "section": "Failure catalog",
+   "kind": "failure_mode",
+   "value": "FC-16: Cached keys serve until expiry, then 401 `RZ-AUTH-006`; Closed by design (P9)"
+  },
+  {
+   "section": "Failure catalog",
+   "kind": "metric",
+   "value": "ruralz_auth_jwks_age_seconds"
+  },
+  {
+   "section": "Failure catalog",
+   "kind": "kind_or_field",
+   "value": "AIModel"
+  },
+  {
+   "section": "Failure catalog",
+   "kind": "failure_mode",
+   "value": "FC-17: Provider Fallback before commit, inside the residency class; after commit `RZ-AI-009`; exhausted `RZ-AI-005`"
+  },
+  {
+   "section": "Failure catalog",
+   "kind": "error_code",
+   "value": "RZ-AI-009"
+  },
+  {
+   "section": "Failure catalog",
+   "kind": "error_code",
+   "value": "RZ-AI-005"
+  },
+  {
+   "section": "Failure catalog",
+   "kind": "number",
+   "value": "FC-17: Cooldowns: one failed attempt each per Node (hypothesis)"
+  },
+  {
+   "section": "Failure catalog",
+   "kind": "milestone",
+   "value": "FC-17 LLM provider outage recovery: Automatic, Planned (M3)"
+  },
+  {
+   "section": "Failure catalog",
+   "kind": "failure_mode",
+   "value": "FC-18: Instance discarded; `failureMode` decides (closed only for auth and authz); the Node survives; the memory cap refuses new instances"
+  },
+  {
+   "section": "Failure catalog",
+   "kind": "error_code",
+   "value": "RZ-PLG counters"
+  },
+  {
+   "section": "Failure catalog",
+   "kind": "error_code",
+   "value": "RZ-CP-006"
+  },
+  {
+   "section": "Failure catalog",
+   "kind": "cli_command",
+   "value": "ruralz rollout rollback"
+  },
+  {
+   "section": "Failure catalog",
+   "kind": "cli_command",
+   "value": "ruralz rollout start"
+  },
+  {
+   "section": "Failure catalog",
+   "kind": "claim",
+   "value": "FC-18: after `complete`, `ruralz rollout start` of the replaced Revision (step-up TOTP; `RZ-CP-006` if `security`)"
+  },
+  {
+   "section": "Failure catalog",
+   "kind": "number",
+   "value": "FC-19: counting NXDOMAIN after 3 refreshes (target)"
+  },
+  {
+   "section": "Failure catalog",
+   "kind": "failure_mode",
+   "value": "FC-19: failed dials detach or apply `failureMode`"
+  },
+  {
+   "section": "Failure catalog",
+   "kind": "kind_or_field",
+   "value": "autoRollback"
+  },
+  {
+   "section": "Failure catalog",
+   "kind": "failure_mode",
+   "value": "FC-20: Gates fail: `rolled-back` or `paused` per `autoRollback`"
+  },
+  {
+   "section": "Failure catalog",
+   "kind": "kind_or_field",
+   "value": "secret provider `vault`"
+  },
+  {
+   "section": "Failure catalog",
+   "kind": "kind_or_field",
+   "value": "secret provider `kubernetes`"
+  },
+  {
+   "section": "Failure catalog",
+   "kind": "kind_or_field",
+   "value": "stateStore.url"
+  },
+  {
+   "section": "Failure catalog",
+   "kind": "kind_or_field",
+   "value": "secret provider `file`"
+  },
+  {
+   "section": "Failure catalog",
+   "kind": "kind_or_field",
+   "value": "secret provider `env`"
+  },
+  {
+   "section": "Failure catalog",
+   "kind": "failure_mode",
+   "value": "FC-21: Running Nodes keep values; cold starts stay not ready; discovery keeps its last set"
+  },
+  {
+   "section": "Failure catalog",
+   "kind": "metric",
+   "value": "ruralz_upstream_degraded_info"
+  },
+  {
+   "section": "Degraded modes",
+   "kind": "claim",
+   "value": "Every degraded mode is a metric (P10, SG-8) named by Observability; Control plane and Scalability win on conflict"
+  },
+  {
+   "section": "Detached Nodes and Last-Known-Good",
+   "kind": "decision",
+   "value": "A detached Node serves its active Revision and stays ready indefinitely (pack 8.5), deciding OQ-system-overview-13 as \"never\""
+  },
+  {
+   "section": "Detached Nodes and Last-Known-Good",
+   "kind": "timeout",
+   "value": "Pack 8.2 boot order: upgrade handover, then Last-Known-Good after up to 5 s (target)"
+  },
+  {
+   "section": "Detached Nodes and Last-Known-Good",
+   "kind": "timeout",
+   "value": "Restarts boot Last-Known-Good within 30 s (target) (CE-8)"
+  },
+  {
+   "section": "Detached Nodes and Last-Known-Good",
+   "kind": "kind_or_field",
+   "value": "secretRef"
+  },
+  {
+   "section": "Detached Nodes and Last-Known-Good",
+   "kind": "kind_or_field",
+   "value": "compromisedSince"
+  },
+  {
+   "section": "Detached Nodes and Last-Known-Good",
+   "kind": "failure_mode",
+   "value": "Last-Known-Good boot with unresolvable `secretRef`: Not ready until every reference resolves; secrets are never on disk"
+  },
+  {
+   "section": "Detached Nodes and Last-Known-Good",
+   "kind": "error_code",
+   "value": "RZ-CFG-024"
+  },
+  {
+   "section": "Detached Nodes and Last-Known-Good",
+   "kind": "error_code",
+   "value": "RZ-CP-003"
+  },
+  {
+   "section": "Detached Nodes and Last-Known-Good",
+   "kind": "failure_mode",
+   "value": "Last-Known-Good uses a field newer than the binary: `RZ-CFG-024`; not ready"
+  },
+  {
+   "section": "Detached Nodes and Last-Known-Good",
+   "kind": "claim",
+   "value": "Never roll back a binary during a Ruralz Control outage"
+  },
+  {
+   "section": "Detached Nodes and Last-Known-Good",
+   "kind": "failure_mode",
+   "value": "Last-Known-Good accepted from a removed signing key after `compromisedSince`: Refused at boot until the Control Stream delivers (proposed, OQ-control-plane-and-gitops-24)"
+  },
+  {
+   "section": "Detached Nodes and Last-Known-Good",
+   "kind": "number",
+   "value": "Autoscaling adds nothing: hold 30% headroom (target)"
+  },
+  {
+   "section": "Detached Nodes and Last-Known-Good",
+   "kind": "claim",
+   "value": "reschedulable Nodes MUST keep `${RURALZ_DATA_DIR}` persistent"
+  },
+  {
+   "section": "Detached Nodes and Last-Known-Good",
+   "kind": "limit",
+   "value": "Detached beyond the 30-day certificate lifetime (target): Keeps serving; on return `RZ-CP-003`"
+  },
+  {
+   "section": "Detached Nodes and Last-Known-Good",
+   "kind": "failure_mode",
+   "value": "Restarted while detached: Forgets revocations until Ruralz Control returns (OQ-security-and-identity-5)"
+  },
+  {
+   "section": "Detached Nodes and Last-Known-Good",
+   "kind": "decision",
+   "value": "The new-Node row is option (a) of OQ-scalability-and-distributed-state-7, headroom being a SHOULD"
+  },
+  {
+   "section": "Local rate-limit fallback",
+   "kind": "decision",
+   "value": "ADR-0008 (rate limiting local bucket and GCRA)"
+  },
+  {
+   "section": "Local rate-limit fallback",
+   "kind": "limit",
+   "value": "the breaker opens when 50% of at least 20 calls in 5 s fail (target)"
+  },
+  {
+   "section": "Local rate-limit fallback",
+   "kind": "timeout",
+   "value": "half-opens after 1 to 3 s (target)"
+  },
+  {
+   "section": "Local rate-limit fallback",
+   "kind": "limit",
+   "value": "Declared per-Node ceiling: N_serving × ceiling (target)"
+  },
+  {
+   "section": "Local rate-limit fallback",
+   "kind": "limit",
+   "value": "Derived ceiling, current Node count: N_serving × max(1, 2 × requests / N_published) (target)"
+  },
+  {
+   "section": "Local rate-limit fallback",
+   "kind": "limit",
+   "value": "Count frozen by a Ruralz Control outage: N_serving × max(1, 2 × requests / N_frozen) (target)"
+  },
+  {
+   "section": "Local rate-limit fallback",
+   "kind": "limit",
+   "value": "20 × requests after a 10 to 100 scale-out (hypothesis)"
+  },
+  {
+   "section": "Local rate-limit fallback",
+   "kind": "limit",
+   "value": "Control-mode Node restarted without a count: clamp max(1, requests / 100) per such Node (target)"
+  },
+  {
+   "section": "Local rate-limit fallback",
+   "kind": "limit",
+   "value": "File mode without a declared ceiling: N_serving × requests (target)"
+  },
+  {
+   "section": "Local rate-limit fallback",
+   "kind": "limit",
+   "value": "Rebuild or list-less restore, count collapsed: N_reenrolled × 2 × requests until re-qualified (hypothesis)"
+  },
+  {
+   "section": "Local rate-limit fallback",
+   "kind": "kind_or_field",
+   "value": "limits[]"
+  },
+  {
+   "section": "Local rate-limit fallback",
+   "kind": "kind_or_field",
+   "value": "requests"
+  },
+  {
+   "section": "Local rate-limit fallback",
+   "kind": "claim",
+   "value": "Autoscaled Control-mode Clusters, and any a rebuild or list-less restore may hit, SHOULD declare per-Node ceilings in advance"
+  },
+  {
+   "section": "Fail-open and fail-closed behavior",
+   "kind": "claim",
+   "value": "`failureMode` follows pack 8.10: registry defaults apply unless a Policy overrides them, and security types are closed only (RZ-CFG-029)"
+  },
+  {
+   "section": "Fail-open and fail-closed behavior",
+   "kind": "error_code",
+   "value": "RZ-CFG-029"
+  },
+  {
+   "section": "Fail-open and fail-closed behavior",
+   "kind": "error_code",
+   "value": "RZ-STS-001"
+  },
+  {
+   "section": "Fail-open and fail-closed behavior",
+   "kind": "error_code",
+   "value": "RZ-STS-004"
+  },
+  {
+   "section": "Fail-open and fail-closed behavior",
+   "kind": "policy_type",
+   "value": "auth.*"
+  },
+  {
+   "section": "Fail-open and fail-closed behavior",
+   "kind": "policy_type",
+   "value": "authz.*"
+  },
+  {
+   "section": "Fail-open and fail-closed behavior",
+   "kind": "policy_type",
+   "value": "plugin"
+  },
+  {
+   "section": "Fail-open and fail-closed behavior",
+   "kind": "policy_type",
+   "value": "ratelimit"
+  },
+  {
+   "section": "Fail-open and fail-closed behavior",
+   "kind": "policy_type",
+   "value": "quota"
+  },
+  {
+   "section": "Fail-open and fail-closed behavior",
+   "kind": "policy_type",
+   "value": "cache"
+  },
+  {
+   "section": "Fail-open and fail-closed behavior",
+   "kind": "policy_type",
+   "value": "ai.semantic-cache"
+  },
+  {
+   "section": "Fail-open and fail-closed behavior",
+   "kind": "policy_type",
+   "value": "ai.token-budget"
+  },
+  {
+   "section": "Fail-open and fail-closed behavior",
+   "kind": "failure_mode",
+   "value": "`auth.*`, `authz.*`, auth or authz `plugin`: Closed only; 401 or 403; JWKS keys serve until expiry first"
+  },
+  {
+   "section": "Fail-open and fail-closed behavior",
+   "kind": "failure_mode",
+   "value": "`ratelimit`: Open; Local buckets only"
+  },
+  {
+   "section": "Fail-open and fail-closed behavior",
+   "kind": "failure_mode",
+   "value": "`quota`: Open; Unmetered; such Routes SHOULD also carry a `ratelimit`"
+  },
+  {
+   "section": "Fail-open and fail-closed behavior",
+   "kind": "failure_mode",
+   "value": "`cache`, `ai.semantic-cache`: Open; Bypassed; origin or provider load rises"
+  },
+  {
+   "section": "Fail-open and fail-closed behavior",
+   "kind": "failure_mode",
+   "value": "`ai.token-budget`: Closed; 503 `RZ-STS-001` to `RZ-STS-004`: a State Store outage is an AI outage in that Cell (default: OQ-configuration-model-8)"
+  },
+  {
+   "section": "Fail-open and fail-closed behavior",
+   "kind": "failure_mode",
+   "value": "Other `plugin` Policies: Closed; Per the Policy; a trap discards the instance only"
+  },
+  {
+   "section": "Fail-open and fail-closed behavior",
+   "kind": "decision",
+   "value": "ADR-0014 (AI API surface) governs Token Budgets"
+  },
+  {
+   "section": "RPO and RTO",
+   "kind": "timeout",
+   "value": "Rollouts up to one ACK timeout, 60 s (target), later"
+  },
+  {
+   "section": "RPO and RTO",
+   "kind": "claim",
+   "value": "Counters are never restored"
+  },
+  {
+   "section": "RPO and RTO",
+   "kind": "timeout",
+   "value": "Node lost: replacement ready 30 s after pod release, itself up to 5 minutes on Kubernetes (target)"
+  },
+  {
+   "section": "RPO and RTO",
+   "kind": "claim",
+   "value": "Node lost RPO: No configuration lost (target); Management RTO: Not affected (target)"
+  },
+  {
+   "section": "RPO and RTO",
+   "kind": "claim",
+   "value": "Node disk lost: RPO Re-derived from Ruralz Control (target); Traffic RTO Survivors at once (target); Management RTO One Enrollment (target)"
+  },
+  {
+   "section": "RPO and RTO",
+   "kind": "number",
+   "value": "Availability zone lost RPO: Lag, 1 s or less (target)"
+  },
+  {
+   "section": "RPO and RTO",
+   "kind": "timeout",
+   "value": "Availability zone lost traffic RTO: 30 s or less on survivors (target); State Store 15 s or less (target)"
+  },
+  {
+   "section": "RPO and RTO",
+   "kind": "claim",
+   "value": "Availability zone lost management RTO: Unchanged with voters in three zones (target)"
+  },
+  {
+   "section": "RPO and RTO",
+   "kind": "claim",
+   "value": "Non-home Region lost RPO: Not recovered: one extra limit per open window (target)"
+  },
+  {
+   "section": "RPO and RTO",
+   "kind": "timeout",
+   "value": "Non-home Region lost traffic RTO: About 2 minutes, at most 5 (target)"
+  },
+  {
+   "section": "RPO and RTO",
+   "kind": "timeout",
+   "value": "Ruralz Control leader lost management RTO: 10 s or less (target)"
+  },
+  {
+   "section": "RPO and RTO",
+   "kind": "timeout",
+   "value": "Raft quorum lost, replicas recoverable management RTO: 30 minutes or less (target)"
+  },
+  {
+   "section": "RPO and RTO",
+   "kind": "number",
+   "value": "Zero committed writes (target)"
+  },
+  {
+   "section": "RPO and RTO",
+   "kind": "number",
+   "value": "Zero request errors (target)"
+  },
+  {
+   "section": "RPO and RTO",
+   "kind": "timeout",
+   "value": "Control Store lost: RPO 75 minutes or less: hourly, copied within 10 minutes (target)"
+  },
+  {
+   "section": "RPO and RTO",
+   "kind": "timeout",
+   "value": "Control Store lost: Management RTO 4 hours or less with relay rebuild, excluding post-backup Nodes' re-enrollment (target)"
+  },
+  {
+   "section": "RPO and RTO",
+   "kind": "timeout",
+   "value": "Control Store and every backup lost: Management RTO 8 hours or less, re-enrollment excluded (target)"
+  },
+  {
+   "section": "RPO and RTO",
+   "kind": "claim",
+   "value": "Control Store and every backup lost RPO: Configuration: none, Git holds it (target); records: all"
+  },
+  {
+   "section": "RPO and RTO",
+   "kind": "claim",
+   "value": "Re-enrollment: One zone's capacity drains at a time (target)"
+  },
+  {
+   "section": "RPO and RTO",
+   "kind": "timeout",
+   "value": "Re-enrollment of every Node: 30 minutes or less for 10,000 Nodes (target)"
+  },
+  {
+   "section": "RPO and RTO",
+   "kind": "timeout",
+   "value": "State Store primary lost: `failureMode` for 15 s or less (target)"
+  },
+  {
+   "section": "RPO and RTO",
+   "kind": "timeout",
+   "value": "State Store deployment lost: `failureMode` until rebuilt, 30 minutes or less (target)"
+  },
+  {
+   "section": "RPO and RTO",
+   "kind": "claim",
+   "value": "State Store deployment lost RPO: All, unless persistence is on (target)"
+  },
+  {
+   "section": "RPO and RTO",
+   "kind": "number",
+   "value": "Bad Revision: Canary bake or 200-request sample, then a revert within three ACK timeouts per Node (target)"
+  },
+  {
+   "section": "RPO and RTO",
+   "kind": "timeout",
+   "value": "Regional failover: 3 missed geo checks × 10 s + API hostname TTL ≤ 60 s + client retry (target)"
+  },
+  {
+   "section": "RPO and RTO",
+   "kind": "timeout",
+   "value": "≈ 2 minutes; caches past the TTL extend it; anycast: route withdrawal (target)"
+  },
+  {
+   "section": "RPO and RTO",
+   "kind": "number",
+   "value": "Re-enrollment: Z × (t_drain + (N / Z) / min(20 per s per leader, L_src × A) + t_slow) (hypothesis)"
+  },
+  {
+   "section": "RPO and RTO",
+   "kind": "timeout",
+   "value": "t_drain about 30 s (target)"
+  },
+  {
+   "section": "RPO and RTO",
+   "kind": "timeout",
+   "value": "t_slow the 30 to 60 s slow start (target)"
+  },
+  {
+   "section": "RPO and RTO",
+   "kind": "number",
+   "value": "10,000 Nodes, 3 zones: 3 × (30 s + 167 s + 60 s) ≈ 13 minutes (hypothesis)"
+  },
+  {
+   "section": "RPO and RTO",
+   "kind": "number",
+   "value": "Enroll limits MUST be keyed so L_src × A reaches 20 per second (hypothesis) (OQ-deployment-topologies-15)"
+  },
+  {
+   "section": "Backups",
+   "kind": "cli_command",
+   "value": "ruralz control backup"
+  },
+  {
+   "section": "Backups",
+   "kind": "cli_command",
+   "value": "ruralz control restore"
+  },
+  {
+   "section": "Backups",
+   "kind": "milestone",
+   "value": "`ruralz control backup` and `ruralz control restore` are Planned (M2)"
+  },
+  {
+   "section": "Backups",
+   "kind": "decision",
+   "value": "ADR-0006 (Control Store Raft BoltDB), proposed"
+  },
+  {
+   "section": "Backups",
+   "kind": "claim",
+   "value": "A backup is a Raft snapshot plus referenced content, consistent at one index, encrypted and signed; downloads need `admin` and are audited"
+  },
+  {
+   "section": "What to protect",
+   "kind": "number",
+   "value": "Control Store backup frequency: Hourly (target) and before each upgrade"
+  },
+  {
+   "section": "What to protect",
+   "kind": "claim",
+   "value": "Node revocation list exported beside each backup (proposed; OQ-high-availability-and-disaster-recovery-6)"
+  },
+  {
+   "section": "What to protect",
+   "kind": "claim",
+   "value": "Audit log export (OQ-control-plane-and-gitops-12) to a separate system; MUST for multi-region"
+  },
+  {
+   "section": "What to protect",
+   "kind": "claim",
+   "value": "State Store: Persistence for Quota or Token Budget windows over one day (SHOULD); never restore an old snapshot, which rewinds counters"
+  },
+  {
+   "section": "What to protect",
+   "kind": "claim",
+   "value": "Backup key (OQ-cli-and-api-surface-9), offline trust-root key: Offline, never with backups"
+  },
+  {
+   "section": "What to protect",
+   "kind": "port",
+   "value": "CA keys and key-encryption key, so a rebuild keeps the 8091 server CA"
+  },
+  {
+   "section": "What to protect",
+   "kind": "limit",
+   "value": "Keep hourly backups 7 days and daily ones 90 days (target)"
+  },
+  {
+   "section": "What to protect",
+   "kind": "limit",
+   "value": "The Control Store holds 50 Revisions per Environment (target)"
+  },
+  {
+   "section": "What to protect",
+   "kind": "cli_command",
+   "value": "ruralz bundle push"
+  },
+  {
+   "section": "What to protect",
+   "kind": "claim",
+   "value": "older ones re-render from Git only on the `ruralz-control` minor that built them (OQ-release-versioning-and-compatibility-12)"
+  },
+  {
+   "section": "Taking and checking backups",
+   "kind": "port",
+   "value": "https://control.shop.example:8090"
+  },
+  {
+   "section": "Taking and checking backups",
+   "kind": "cli_command",
+   "value": "ruralz control backup --control https://control.shop.example:8090 --token-file /run/secrets/ruralz-backup-token --output-file /backups/ruralz-control-2026-09-25T10.bak"
+  },
+  {
+   "section": "Taking and checking backups",
+   "kind": "timeout",
+   "value": "Copy each backup to a second Region within 10 minutes of its start (hypothesis)"
+  },
+  {
+   "section": "Taking and checking backups",
+   "kind": "claim",
+   "value": "Restore with the binary minor that wrote the backup (OQ-high-availability-and-disaster-recovery-8)"
+  },
+  {
+   "section": "Taking and checking backups",
+   "kind": "claim",
+   "value": "Before a Ruralz Control upgrade, back up and pause `ruralz bundle push` until finalize"
+  },
+  {
+   "section": "Taking and checking backups",
+   "kind": "number",
+   "value": "monthly, restore the newest into an isolated scratch deployment with GD-9 (target)"
+  },
+  {
+   "section": "Taking and checking backups",
+   "kind": "limit",
+   "value": "alert above 75 minutes, page at 2 hours (target)"
+  },
+  {
+   "section": "Runbooks",
+   "kind": "milestone",
+   "value": "Ruralz Control Planned (M2)"
+  },
+  {
+   "section": "Runbooks",
+   "kind": "milestone",
+   "value": "relays and multi-region Planned (M4)"
+  },
+  {
+   "section": "Runbooks",
+   "kind": "milestone",
+   "value": "State Store Planned (M1)"
+  },
+  {
+   "section": "Holding deliveries during recovery",
+   "kind": "kind_or_field",
+   "value": "promotion.from"
+  },
+  {
+   "section": "Holding deliveries during recovery",
+   "kind": "kind_or_field",
+   "value": "requireApproval"
+  },
+  {
+   "section": "Holding deliveries during recovery",
+   "kind": "kind_or_field",
+   "value": "promotion.requireApproval: true"
+  },
+  {
+   "section": "Holding deliveries during recovery",
+   "kind": "kind_or_field",
+   "value": "control/environments.yaml"
+  },
+  {
+   "section": "Holding deliveries during recovery",
+   "kind": "kind_or_field",
+   "value": "HeartbeatReply"
+  },
+  {
+   "section": "Holding deliveries during recovery",
+   "kind": "kind_or_field",
+   "value": "localOnly"
+  },
+  {
+   "section": "Holding deliveries during recovery",
+   "kind": "claim",
+   "value": "A Rollout to a Cluster with no connected Nodes has an empty plan and completes at once"
+  },
+  {
+   "section": "Holding deliveries during recovery",
+   "kind": "limit",
+   "value": "keys above 25% of a shard (hypothesis) should be `localOnly` (OQ-traffic-management-and-resilience-1 (c), proposed)"
+  },
+  {
+   "section": "Holding deliveries during recovery",
+   "kind": "cli_command",
+   "value": "ruralz bundle diff"
+  },
+  {
+   "section": "Holding deliveries during recovery",
+   "kind": "cli_command",
+   "value": "ruralz rollout approve --env prod --digest sha256:<served digest>"
+  },
+  {
+   "section": "Holding deliveries during recovery",
+   "kind": "cli_command",
+   "value": "ruralz node list"
+  },
+  {
+   "section": "Holding deliveries during recovery",
+   "kind": "claim",
+   "value": "Final promoted digests MUST equal served digests."
+  },
+  {
+   "section": "Holding deliveries during recovery",
+   "kind": "limit",
+   "value": "Derived ceiling max(1, 2 × requests / N_published) → the full limit as N_published → 0"
+  },
+  {
+   "section": "Holding deliveries during recovery",
+   "kind": "limit",
+   "value": "Hot-key GCRA 2 × requests → up to N_reenrolled × 2 × requests per window, opening shard breakers"
+  },
+  {
+   "section": "Holding deliveries during recovery",
+   "kind": "limit",
+   "value": "Over-admission up to N_reenrolled × 2 × requests per key per window (hypothesis)"
+  },
+  {
+   "section": "Holding deliveries during recovery",
+   "kind": "error_code",
+   "value": "RZ-STS-003"
+  },
+  {
+   "section": "Holding deliveries during recovery",
+   "kind": "timeout",
+   "value": "Count recovery 10 min qualification, then +10% per minute: 10 to 1,000 Nodes ≈ 58 minutes (hypothesis)"
+  },
+  {
+   "section": "Region loss",
+   "kind": "limit",
+   "value": "Keep Nodes within the shard-derived `maxReplicas` and 1,000 per Cell (target)"
+  },
+  {
+   "section": "Region loss",
+   "kind": "kind_or_field",
+   "value": "maxReplicas"
+  },
+  {
+   "section": "Region loss",
+   "kind": "kind_or_field",
+   "value": "storeEpoch"
+  },
+  {
+   "section": "Region loss",
+   "kind": "number",
+   "value": "Nodes R / (R − 1) of peak (target)"
+  },
+  {
+   "section": "Region loss",
+   "kind": "number",
+   "value": "Script CPU under 70% (target), from 50% provisioned (hypothesis)"
+  },
+  {
+   "section": "Region loss",
+   "kind": "number",
+   "value": "Client limit above 10 × N_serving (target)"
+  },
+  {
+   "section": "Region loss",
+   "kind": "number",
+   "value": "Reconnect storm λ_storm × c_hs within 10% of CPU (target)"
+  },
+  {
+   "section": "Region loss",
+   "kind": "limit",
+   "value": "Expect up to R × each regional limit, plus one extra per open window for spend-bearing Quotas"
+  },
+  {
+   "section": "Region loss",
+   "kind": "claim",
+   "value": "While the Region is lost, operators MUST hold promotions into every Environment with a Cluster there"
+  },
+  {
+   "section": "Region loss",
+   "kind": "cli_command",
+   "value": "ruralz rollout status <cluster>"
+  },
+  {
+   "section": "Region loss",
+   "kind": "cli_command",
+   "value": "ruralz rollout start"
+  },
+  {
+   "section": "Region loss",
+   "kind": "timeout",
+   "value": "slow-starting 30 to 60 s (target)"
+  },
+  {
+   "section": "Region loss",
+   "kind": "milestone",
+   "value": "Home Region lost (FC-5), Planned (M4) for multi-region"
+  },
+  {
+   "section": "Region loss",
+   "kind": "port",
+   "value": "block 8090 to 8092 at the network or DNS"
+  },
+  {
+   "section": "Region loss",
+   "kind": "port",
+   "value": "--advertise control-b1.shop.example:8092"
+  },
+  {
+   "section": "Region loss",
+   "kind": "decision",
+   "value": "ADR-0017 (artifact signing): Nodes verify every signature"
+  },
+  {
+   "section": "Region loss",
+   "kind": "cli_command",
+   "value": "ruralz control restore --prepare --data-dir /var/lib/ruralz-control"
+  },
+  {
+   "section": "Region loss",
+   "kind": "cli_command",
+   "value": "ruralz control restore /backups/newest.bak --data-dir /var/lib/ruralz-control --advertise control-b1.shop.example:8092 --anchor-set anchors.signed"
+  },
+  {
+   "section": "Region loss",
+   "kind": "cli_command",
+   "value": "ruralz control restore --backup-key-file /run/secrets/backup-key --revocation-list revoked.list"
+  },
+  {
+   "section": "Region loss",
+   "kind": "cli_command",
+   "value": "ruralz node revoke"
+  },
+  {
+   "section": "Region loss",
+   "kind": "cli_command",
+   "value": "ruralz control join"
+  },
+  {
+   "section": "Region loss",
+   "kind": "cli_command",
+   "value": "ruralz control serve"
+  },
+  {
+   "section": "Region loss",
+   "kind": "error_code",
+   "value": "RZ-CP-002"
+  },
+  {
+   "section": "Region loss",
+   "kind": "failure_mode",
+   "value": "Nodes enrolled after the backup, lacking Enrollment records, fail `Hello` with `RZ-CP-002` or `RZ-CP-003`"
+  },
+  {
+   "section": "Ruralz Control rebuild from Git",
+   "kind": "claim",
+   "value": "Git keeps configuration; Rollout history, users, bindings, Enrollments, unexported audit entries and `ruralz bundle push` or CRD Revisions are lost."
+  },
+  {
+   "section": "Ruralz Control rebuild from Git",
+   "kind": "claim",
+   "value": "an unsigned commit needs two approvers"
+  },
+  {
+   "section": "Ruralz Control rebuild from Git",
+   "kind": "term",
+   "value": "admin"
+  },
+  {
+   "section": "Ruralz Control rebuild from Git",
+   "kind": "term",
+   "value": "security-admin"
+  },
+  {
+   "section": "Ruralz Control rebuild from Git",
+   "kind": "term",
+   "value": "approver"
+  },
+  {
+   "section": "Ruralz Control rebuild from Git",
+   "kind": "cli_command",
+   "value": "ruralz bundle diff repo/bundle https://node-a.shop.example:9901 --env prod --environments repo/control/environments.yaml --admin-token-file /run/secrets/ruralz-admin-token"
+  },
+  {
+   "section": "Ruralz Control rebuild from Git",
+   "kind": "port",
+   "value": "https://node-a.shop.example:9901"
+  },
+  {
+   "section": "Ruralz Control rebuild from Git",
+   "kind": "claim",
+   "value": "ruralz bundle diff exit 0: this commit is served"
+  },
+  {
+   "section": "Ruralz Control rebuild from Git",
+   "kind": "cli_command",
+   "value": "ruralz node drain --data-dir /var/lib/ruralz"
+  },
+  {
+   "section": "Ruralz Control rebuild from Git",
+   "kind": "cli_command",
+   "value": "ruralz node token --cluster prod-eu-west --output-file /run/secrets/ruralz-enroll-token"
+  },
+  {
+   "section": "Ruralz Control rebuild from Git",
+   "kind": "cli_command",
+   "value": "ruralz node list --cluster prod-eu-west"
+  },
+  {
+   "section": "Ruralz Control rebuild from Git",
+   "kind": "timeout",
+   "value": "with derived ceilings, by the hold step 0 bound for about 58 minutes (hypothesis)"
+  },
+  {
+   "section": "State Store rebuild",
+   "kind": "default",
+   "value": "maxmemory-policy noeviction"
+  },
+  {
+   "section": "State Store rebuild",
+   "kind": "limit",
+   "value": "Clients a client limit above 10 × N_serving (target)"
+  },
+  {
+   "section": "State Store rebuild",
+   "kind": "timeout",
+   "value": "Nodes redial with full jitter, base 100 ms, cap 5 s (target)"
+  },
+  {
+   "section": "State Store rebuild",
+   "kind": "number",
+   "value": "close breakers after 3 successful probes (target)"
+  },
+  {
+   "section": "State Store rebuild",
+   "kind": "limit",
+   "value": "Quota windows up to 720 h (target)"
+  },
+  {
+   "section": "State Store rebuild",
+   "kind": "metric",
+   "value": "ruralz_state_writes_dropped_total"
+  },
+  {
+   "section": "State Store rebuild",
+   "kind": "failure_mode",
+   "value": "Rate Limits run on local buckets; `closed` Token Budgets return 503"
+  },
+  {
+   "section": "Raft quorum loss and replica replacement",
+   "kind": "api_path",
+   "value": "/api/v1/replicas"
+  },
+  {
+   "section": "Raft quorum loss and replica replacement",
+   "kind": "claim",
+   "value": "the Control Store resumes with zero committed writes lost (target)"
+  },
+  {
+   "section": "Game days",
+   "kind": "number",
+   "value": "Each runs quarterly (target), GD-9 monthly (target)"
+  },
+  {
+   "section": "Game days",
+   "kind": "number",
+   "value": "GD-1: SIGKILL one Node at 50% load (target), CE-1; replacement ready 30 s after pod release (target)"
+  },
+  {
+   "section": "Game days",
+   "kind": "milestone",
+   "value": "GD-1 Node loss Planned (M1)"
+  },
+  {
+   "section": "Game days",
+   "kind": "milestone",
+   "value": "GD-2 Zone loss Planned (M1)"
+  },
+  {
+   "section": "Game days",
+   "kind": "milestone",
+   "value": "GD-3 State Store outage Planned (M1)"
+  },
+  {
+   "section": "Game days",
+   "kind": "milestone",
+   "value": "GD-4 State Store partition Planned (M1)"
+  },
+  {
+   "section": "Game days",
+   "kind": "milestone",
+   "value": "GD-5 State Store rebuild Planned (M1)"
+  },
+  {
+   "section": "Game days",
+   "kind": "milestone",
+   "value": "GD-6 Leader loss Planned (M2)"
+  },
+  {
+   "section": "Game days",
+   "kind": "milestone",
+   "value": "GD-7 Quorum loss with restarts Planned (M2)"
+  },
+  {
+   "section": "Game days",
+   "kind": "milestone",
+   "value": "GD-8 Replica replacement Planned (M2)"
+  },
+  {
+   "section": "Game days",
+   "kind": "milestone",
+   "value": "GD-9 Restore drill Planned (M2)"
+  },
+  {
+   "section": "Game days",
+   "kind": "milestone",
+   "value": "GD-10 Rebuild from Git Planned (M2)"
+  },
+  {
+   "section": "Game days",
+   "kind": "milestone",
+   "value": "GD-11 External dependencies Planned (M2)"
+  },
+  {
+   "section": "Game days",
+   "kind": "milestone",
+   "value": "GD-12 LLM provider outage Planned (M3)"
+  },
+  {
+   "section": "Game days",
+   "kind": "milestone",
+   "value": "GD-13 Plugin crash Planned (M2)"
+  },
+  {
+   "section": "Game days",
+   "kind": "milestone",
+   "value": "GD-14 Region evacuation Planned (M4)"
+  },
+  {
+   "section": "Game days",
+   "kind": "milestone",
+   "value": "GD-15 Secret provider down Planned (M2)"
+  },
+  {
+   "section": "Game days",
+   "kind": "milestone",
+   "value": "GD-16 Rebuild with derived ceilings Planned (M2)"
+  },
+  {
+   "section": "Game days",
+   "kind": "number",
+   "value": "GD-2: Survivors under 80% CPU (target); State Store `failureMode` 15 s or less (target)"
+  },
+  {
+   "section": "Game days",
+   "kind": "number",
+   "value": "GD-3: Black-hole for 60 s (target), CE-4"
+  },
+  {
+   "section": "Game days",
+   "kind": "number",
+   "value": "GD-7: restart 10% of Nodes (target), CE-8; boot Last-Known-Good within 30 s (target)"
+  },
+  {
+   "section": "Game days",
+   "kind": "number",
+   "value": "GD-10: the published count drops at most 10% (target)"
+  },
+  {
+   "section": "Game days",
+   "kind": "number",
+   "value": "GD-11: Git, OCI registry and JWKS unreachable for 1 hour (target)"
+  },
+  {
+   "section": "Game days",
+   "kind": "number",
+   "value": "GD-14: survivors serve full peak, 99% of requests within 5 minutes (target), script CPU under 70% (target), handshake p99 within C2 (target)"
+  },
+  {
+   "section": "Game days",
+   "kind": "number",
+   "value": "GD-15: Nodes with only `file` or `env` references boot within 30 s (target)"
+  },
+  {
+   "section": "Game days",
+   "kind": "number",
+   "value": "GD-16: per key at most N_reenrolled × 2 × `requests` per window (target)"
+  },
+  {
+   "section": "Game days",
+   "kind": "error_code",
+   "value": "GD-3: `closed` Token Budgets get `RZ-STS-001`, then `RZ-STS-003`"
+  },
+  {
+   "section": "Game days",
+   "kind": "error_code",
+   "value": "GD-11: RZ-AUTH-006"
+  },
+  {
+   "section": "Open questions",
+   "kind": "claim",
+   "value": "OQ-high-availability-and-disaster-recovery-1: break-glass changes and new Node seeding; (a) None (current); (b) seed from a signed OCI Revision (proposed); Blocking: No"
+  },
+  {
+   "section": "Open questions",
+   "kind": "claim",
+   "value": "OQ-high-availability-and-disaster-recovery-2: voter replacement, as `/api/v1/replicas` removes none; (a) chart Job (proposed); (b) manual (current); Blocking: Yes, for the Planned (M2) chart"
+  },
+  {
+   "section": "Open questions",
+   "kind": "claim",
+   "value": "OQ-high-availability-and-disaster-recovery-3: (a) Complete, plus the runbook hold (current); (b) such plans stay `pending` or `paused` (proposed); Yes, for Planned (M2) restore"
+  },
+  {
+   "section": "Open questions",
+   "kind": "claim",
+   "value": "OQ-high-availability-and-disaster-recovery-4: (a) Background re-enrollment on `RZ-CP-003` with batched tokens (proposed); (b) rolling Drain and restart per zone (current)"
+  },
+  {
+   "section": "Open questions",
+   "kind": "claim",
+   "value": "OQ-high-availability-and-disaster-recovery-5: fencing a pre-restore deployment; (a) Operator blocks, then wipes it (current); Blocking: Yes, for Planned (M2) restore"
+  },
+  {
+   "section": "Open questions",
+   "kind": "claim",
+   "value": "OQ-high-availability-and-disaster-recovery-6: revocation list export; (a) `ruralz control backup` output (proposed); (b) a REST API export; Blocking: Yes, for Planned (M2) restore"
+  },
+  {
+   "section": "Open questions",
+   "kind": "claim",
+   "value": "OQ-high-availability-and-disaster-recovery-7: backup scheduling; (a) External scheduler (current); Blocking: No"
+  },
+  {
+   "section": "Open questions",
+   "kind": "claim",
+   "value": "OQ-high-availability-and-disaster-recovery-8: newer minor restore older backup; (a) Same minor only (proposed); (b) N restores N-1, then finalize; Blocking: No"
+  },
+  {
+   "section": "Open questions",
+   "kind": "claim",
+   "value": "OQ-high-availability-and-disaster-recovery-9: withhold or seed `clusterNodeCount`; (a) Withhold (proposed); Blocking: Yes, for Planned (M2) restore and GD-10"
+  },
+  {
+   "section": "Open questions",
+   "kind": "claim",
+   "value": "OQ-high-availability-and-disaster-recovery-10: drill-only root; (a) Yes (proposed); (b) offline root each drill; Blocking: No"
+  },
+  {
+   "section": "Open questions",
+   "kind": "kind_or_field",
+   "value": "clusterNodeCount"
+  }
+ ]
+}

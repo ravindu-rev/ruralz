@@ -1,0 +1,2171 @@
+{
+ "path": "docs/architecture/02-configuration-model.md",
+ "status": "reviewed",
+ "facts": [
+  {
+   "section": "Summary",
+   "kind": "kind_or_field",
+   "value": "apiVersion: ruralz/v1alpha1"
+  },
+  {
+   "section": "Summary",
+   "kind": "claim",
+   "value": "validated by one published JSON Schema, grouped into a Bundle and rendered into a content-addressed Revision"
+  },
+  {
+   "section": "Summary",
+   "kind": "number",
+   "value": "ten kinds"
+  },
+  {
+   "section": "Summary",
+   "kind": "claim",
+   "value": "a rule without its own tag ships with the kind or verb that applies it"
+  },
+  {
+   "section": "Scope and non-goals",
+   "kind": "milestone",
+   "value": "Kubernetes CRD mapping: Planned (M2) (ADR-0016, proposed)"
+  },
+  {
+   "section": "Scope and non-goals",
+   "kind": "claim",
+   "value": "Each feature document authors its type's `config` schema, and this document registers and publishes it"
+  },
+  {
+   "section": "Scope and non-goals",
+   "kind": "claim",
+   "value": "this document registers only the signature error code"
+  },
+  {
+   "section": "Scope and non-goals",
+   "kind": "decision",
+   "value": "Gateway API conformance, deferred by ADR-0016 (proposed)"
+  },
+  {
+   "section": "Scope and non-goals",
+   "kind": "claim",
+   "value": "A built-in template language (non-goal)"
+  },
+  {
+   "section": "Format decision",
+   "kind": "decision",
+   "value": "ADR-0003: YAML 1.2 with a published JSON Schema (draft 2020-12) and a Kubernetes-style resource model"
+  },
+  {
+   "section": "Format decision",
+   "kind": "claim",
+   "value": "JSON is accepted as a strict subset of YAML: `.json` files use the same loader and schema and yield the same Revision digest"
+  },
+  {
+   "section": "Format decision",
+   "kind": "claim",
+   "value": "Keys are `camelCase`; kinds are `PascalCase`"
+  },
+  {
+   "section": "Format decision",
+   "kind": "milestone",
+   "value": "published JSON Schema: Planned (M0)"
+  },
+  {
+   "section": "Format decision",
+   "kind": "milestone",
+   "value": "`ruralz bundle` verbs `validate`, `render`, `diff` and `build`: Planned (M1)"
+  },
+  {
+   "section": "Format decision",
+   "kind": "milestone",
+   "value": "`push`, `import`, `export` and `audit`: Planned (M2)"
+  },
+  {
+   "section": "Format decision",
+   "kind": "cli_command",
+   "value": "ruralz bundle validate"
+  },
+  {
+   "section": "Format decision",
+   "kind": "cli_command",
+   "value": "ruralz bundle render"
+  },
+  {
+   "section": "Format decision",
+   "kind": "cli_command",
+   "value": "ruralz bundle diff"
+  },
+  {
+   "section": "Format decision",
+   "kind": "cli_command",
+   "value": "ruralz bundle build"
+  },
+  {
+   "section": "Format decision",
+   "kind": "cli_command",
+   "value": "ruralz bundle push"
+  },
+  {
+   "section": "Format decision",
+   "kind": "cli_command",
+   "value": "ruralz bundle import"
+  },
+  {
+   "section": "Format decision",
+   "kind": "cli_command",
+   "value": "ruralz bundle export"
+  },
+  {
+   "section": "Format decision",
+   "kind": "cli_command",
+   "value": "ruralz bundle audit"
+  },
+  {
+   "section": "Why the Kubernetes resource model",
+   "kind": "claim",
+   "value": "the CRD path in ADR-0016 (proposed) is a translation, not a second schema"
+  },
+  {
+   "section": "Why the Kubernetes resource model",
+   "kind": "claim",
+   "value": "Kubernetes stays optional: `ruralzd` can watch a Bundle directory, pull a Revision from an OCI registry, or receive one from Ruralz Control"
+  },
+  {
+   "section": "Why the Kubernetes resource model",
+   "kind": "decision",
+   "value": "YAML 1.2 + JSON Schema, Kubernetes envelope: Chosen; JSON only: Rejected; HCL: Rejected; Single flat file (KrakenD style): Import source only"
+  },
+  {
+   "section": "Restricted YAML profile",
+   "kind": "milestone",
+   "value": "restricted YAML profile: Planned (M1), with the `ruralz bundle` verbs and file-mode `ruralzd`"
+  },
+  {
+   "section": "Restricted YAML profile",
+   "kind": "claim",
+   "value": "YAML 1.2 core scalars (`yes`, `on` are strings) accepted"
+  },
+  {
+   "section": "Restricted YAML profile",
+   "kind": "error_code",
+   "value": "RZ-CFG-002 (duplicate keys)"
+  },
+  {
+   "section": "Restricted YAML profile",
+   "kind": "error_code",
+   "value": "RZ-CFG-003 (anchors, aliases, merge keys)"
+  },
+  {
+   "section": "Restricted YAML profile",
+   "kind": "error_code",
+   "value": "RZ-CFG-004 (custom tags `!include`, `!env`)"
+  },
+  {
+   "section": "Restricted YAML profile",
+   "kind": "error_code",
+   "value": "RZ-CFG-001 (non-UTF-8, byte order marks; size limit exceeded)"
+  },
+  {
+   "section": "Restricted YAML profile",
+   "kind": "default",
+   "value": "64 MiB of source text (target)"
+  },
+  {
+   "section": "Restricted YAML profile",
+   "kind": "limit",
+   "value": "20,000 resources (target)"
+  },
+  {
+   "section": "Restricted YAML profile",
+   "kind": "claim",
+   "value": "A Node never enforces a limit below the CLI default, so no Bundle that passes CI fails on a Node for size"
+  },
+  {
+   "section": "Restricted YAML profile",
+   "kind": "library",
+   "value": "github.com/goccy/go-yaml"
+  },
+  {
+   "section": "Restricted YAML profile",
+   "kind": "library",
+   "value": "github.com/santhosh-tekuri/jsonschema/v6"
+  },
+  {
+   "section": "Coming from KrakenD",
+   "kind": "cli_command",
+   "value": "ruralz bundle import krakend"
+  },
+  {
+   "section": "Coming from KrakenD",
+   "kind": "milestone",
+   "value": "`ruralz bundle import krakend`: Planned (M2), best-effort"
+  },
+  {
+   "section": "Coming from KrakenD",
+   "kind": "kind_or_field",
+   "value": "ruralz.io/import-fidelity (`exact`, `equivalent`, `approximate` or `manual`)"
+  },
+  {
+   "section": "Coming from KrakenD",
+   "kind": "claim",
+   "value": "Operators render flexible configuration templates first"
+  },
+  {
+   "section": "Coming from KrakenD",
+   "kind": "claim",
+   "value": "KrakenD endpoint -> `Route`; backend -> `Upstream`; `extra_config` namespace -> `Policy` with a `type`"
+  },
+  {
+   "section": "Coming from KrakenD",
+   "kind": "claim",
+   "value": "`group`, `target`, `allow`, `mapping`, `is_collection` -> Step fields `group`, `target`, `select`, `rename`, `collection`"
+  },
+  {
+   "section": "Coming from KrakenD",
+   "kind": "kind_or_field",
+   "value": "composition.mode: sequential"
+  },
+  {
+   "section": "Coming from KrakenD",
+   "kind": "claim",
+   "value": "KrakenD CEL conditions, Lua -> CEL or a WASM `Plugin`; No Lua (ADR-0011)"
+  },
+  {
+   "section": "Coming from KrakenD",
+   "kind": "claim",
+   "value": "KrakenD Go plugins: Dropped in KrakenD CE 3.0"
+  },
+  {
+   "section": "Coming from KrakenD",
+   "kind": "cli_command",
+   "value": "ruralz bundle import openapi"
+  },
+  {
+   "section": "Coming from KrakenD",
+   "kind": "cli_command",
+   "value": "ruralz bundle export openapi"
+  },
+  {
+   "section": "Coming from KrakenD",
+   "kind": "cli_command",
+   "value": "ruralz bundle export postman"
+  },
+  {
+   "section": "Coming from KrakenD",
+   "kind": "cli_command",
+   "value": "ruralz bundle export dot"
+  },
+  {
+   "section": "Coming from KrakenD",
+   "kind": "cli_command",
+   "value": "ruralz test run"
+  },
+  {
+   "section": "Coming from KrakenD",
+   "kind": "milestone",
+   "value": "OpenAPI import/export, Postman, DOT export and `ruralz test run`: all Planned (M2)"
+  },
+  {
+   "section": "Coming from KrakenD",
+   "kind": "claim",
+   "value": "EE OpenAPI importer and exporter, Postman and DOT generators and end-to-end testing tool map to Ruralz CLI verbs"
+  },
+  {
+   "section": "Resource model",
+   "kind": "milestone",
+   "value": "apiVersion: ruralz/v1alpha1, the first served version, Planned (M0)"
+  },
+  {
+   "section": "Resource model",
+   "kind": "limit",
+   "value": "metadata.name: RFC 1123 label, 1 to 63 chars"
+  },
+  {
+   "section": "Resource model",
+   "kind": "kind_or_field",
+   "value": "metadata.labels / metadata.annotations: string to string"
+  },
+  {
+   "section": "Identity and references",
+   "kind": "claim",
+   "value": "Identity is `(kind, metadata.name)`, unique within a rendered Bundle"
+  },
+  {
+   "section": "Identity and references",
+   "kind": "claim",
+   "value": "a rename is a removal plus an addition"
+  },
+  {
+   "section": "Identity and references",
+   "kind": "kind_or_field",
+   "value": "`ruralz.io/` label and annotation prefix is reserved"
+  },
+  {
+   "section": "Identity and references",
+   "kind": "claim",
+   "value": "a `status` block is rejected because only Ruralz Control writes status"
+  },
+  {
+   "section": "Identity and references",
+   "kind": "kind_or_field",
+   "value": "spec.plugin: geo-block"
+  },
+  {
+   "section": "Identity and references",
+   "kind": "kind_or_field",
+   "value": "spec.policies: [{name: jwt-default}]"
+  },
+  {
+   "section": "Identity and references",
+   "kind": "kind_or_field",
+   "value": "Route.spec.listeners is the one list of plain strings"
+  },
+  {
+   "section": "Identity and references",
+   "kind": "claim",
+   "value": "A missing target is an error and there are no cross-Bundle references"
+  },
+  {
+   "section": "Scope of kinds",
+   "kind": "milestone",
+   "value": "`Gateway`, `Route`, `Upstream`, `Policy`, `Consumer`: Planned (M1)"
+  },
+  {
+   "section": "Scope of kinds",
+   "kind": "milestone",
+   "value": "`Plugin`: Planned (M2)"
+  },
+  {
+   "section": "Scope of kinds",
+   "kind": "milestone",
+   "value": "`AIProvider`, `AIModel`: Planned (M3)"
+  },
+  {
+   "section": "Scope of kinds",
+   "kind": "milestone",
+   "value": "`Environment`: Planned (M1) for CLI renders; Planned (M2) in Ruralz Control"
+  },
+  {
+   "section": "Scope of kinds",
+   "kind": "milestone",
+   "value": "`Cluster`: Planned (M2)"
+  },
+  {
+   "section": "Scope of kinds",
+   "kind": "kind_or_field",
+   "value": "--environments"
+  },
+  {
+   "section": "Scope of kinds",
+   "kind": "error_code",
+   "value": "RZ-CFG-016 (exactly one `Gateway`, in `ruralz.yaml`)"
+  },
+  {
+   "section": "Schema keywords that drive tooling",
+   "kind": "number",
+   "value": "Seven custom annotation keywords"
+  },
+  {
+   "section": "Schema keywords that drive tooling",
+   "kind": "kind_or_field",
+   "value": "x-ruralz-ref"
+  },
+  {
+   "section": "Schema keywords that drive tooling",
+   "kind": "kind_or_field",
+   "value": "x-ruralz-secret"
+  },
+  {
+   "section": "Schema keywords that drive tooling",
+   "kind": "kind_or_field",
+   "value": "x-ruralz-cel"
+  },
+  {
+   "section": "Schema keywords that drive tooling",
+   "kind": "kind_or_field",
+   "value": "x-ruralz-list: `map`, `orderedMap`, `set`, `atomic`"
+  },
+  {
+   "section": "Schema keywords that drive tooling",
+   "kind": "kind_or_field",
+   "value": "x-ruralz-impact: `routing`, `security`, `traffic`, `plugin`, `ai`, `metadata`"
+  },
+  {
+   "section": "Schema keywords that drive tooling",
+   "kind": "kind_or_field",
+   "value": "x-ruralz-since"
+  },
+  {
+   "section": "Schema keywords that drive tooling",
+   "kind": "kind_or_field",
+   "value": "x-ruralz-validations"
+  },
+  {
+   "section": "Schema keywords that drive tooling",
+   "kind": "claim",
+   "value": "`orderedMap`: `spec.policies` on every kind, `AIModel.spec.candidates` and `Route.spec.composition.steps`; every other keyed list is an unordered `map`"
+  },
+  {
+   "section": "Schema keywords that drive tooling",
+   "kind": "claim",
+   "value": "published in two views generated from one source: authoring view and strict rendered view"
+  },
+  {
+   "section": "Schema keywords that drive tooling",
+   "kind": "claim",
+   "value": "substitution pattern `^\\$\\{[A-Za-z_][A-Za-z0-9_]*(:-[^}]*)?\\}$`"
+  },
+  {
+   "section": "Schema keywords that drive tooling",
+   "kind": "error_code",
+   "value": "RZ-CFG-006 (unknown fields, with a nearest-match hint)"
+  },
+  {
+   "section": "Schema keywords that drive tooling",
+   "kind": "claim",
+   "value": "`90s` becomes `1m30s`, `10Mi` becomes `10485760`"
+  },
+  {
+   "section": "Schema keywords that drive tooling",
+   "kind": "claim",
+   "value": "Durations use Go syntax, byte sizes accept integers or Kubernetes quantities, and prices are decimal strings"
+  },
+  {
+   "section": "Kubernetes mapping",
+   "kind": "milestone",
+   "value": "Mirrored CRDs for all ten kinds: Planned (M2) (ADR-0016, proposed)"
+  },
+  {
+   "section": "Kubernetes mapping",
+   "kind": "kind_or_field",
+   "value": "ruralz.io/v1alpha1, category `ruralz` (CRD form)"
+  },
+  {
+   "section": "Kubernetes mapping",
+   "kind": "kind_or_field",
+   "value": "metadata.namespace: Rejected in Bundle form; one namespace becomes one Bundle"
+  },
+  {
+   "section": "Kubernetes mapping",
+   "kind": "kind_or_field",
+   "value": "x-kubernetes-validations"
+  },
+  {
+   "section": "Kubernetes mapping",
+   "kind": "claim",
+   "value": "rules in a Plugin `configSchema` run only in Ruralz Control, because Policy `config` is schemaless in the CRD"
+  },
+  {
+   "section": "Kubernetes mapping",
+   "kind": "claim",
+   "value": "Ruralz Control is the only Kubernetes controller in this path; `ruralzd` never reads CRDs (OQ-configuration-model-2)"
+  },
+  {
+   "section": "Kubernetes mapping",
+   "kind": "claim",
+   "value": "Gateway API is a later adapter"
+  },
+  {
+   "section": "Kind catalog",
+   "kind": "kind_or_field",
+   "value": "SecretValue shape `{secretRef: {...}}`"
+  },
+  {
+   "section": "Kind catalog",
+   "kind": "claim",
+   "value": "A field not shown does not exist"
+  },
+  {
+   "section": "Gateway",
+   "kind": "kind_or_field",
+   "value": "listeners (map keyed by name): name, protocol (http | https), port, http3, hostnames, tls"
+  },
+  {
+   "section": "Gateway",
+   "kind": "port",
+   "value": "8443 (https listener)"
+  },
+  {
+   "section": "Gateway",
+   "kind": "default",
+   "value": "tls.minVersion: \"1.2\" | \"1.3\"; default \"1.3\""
+  },
+  {
+   "section": "Gateway",
+   "kind": "port",
+   "value": "admin port: default 9901"
+  },
+  {
+   "section": "Gateway",
+   "kind": "port",
+   "value": "otlp endpoint \"http://otel-collector:4317\""
+  },
+  {
+   "section": "Gateway",
+   "kind": "number",
+   "value": "traceSampling: 0.05 (ratio 0 to 1)"
+  },
+  {
+   "section": "Gateway",
+   "kind": "kind_or_field",
+   "value": "telemetry.accessLog.when (CEL)"
+  },
+  {
+   "section": "Gateway",
+   "kind": "limit",
+   "value": "maxRequestBodyBytes: 10Mi"
+  },
+  {
+   "section": "Gateway",
+   "kind": "limit",
+   "value": "maxRequestHeaderBytes: 64Ki"
+  },
+  {
+   "section": "Gateway",
+   "kind": "limit",
+   "value": "maxResponseBodyBytes: 10Mi"
+  },
+  {
+   "section": "Gateway",
+   "kind": "limit",
+   "value": "maxCompositionSteps: 16"
+  },
+  {
+   "section": "Gateway",
+   "kind": "limit",
+   "value": "maxBufferedBytes: 512Mi"
+  },
+  {
+   "section": "Gateway",
+   "kind": "limit",
+   "value": "maxPluginMemoryBytes: 1Gi; default owned by WASM plugin system"
+  },
+  {
+   "section": "Gateway",
+   "kind": "default",
+   "value": "stateStore.driver: memory | redis; default memory"
+  },
+  {
+   "section": "Gateway",
+   "kind": "kind_or_field",
+   "value": "stateStore.url: {secretRef: {provider: env, name: RURALZ_STATE_STORE_URL}}"
+  },
+  {
+   "section": "Gateway",
+   "kind": "timeout",
+   "value": "stateStore.timeout: 50ms (per-operation default for Policies)"
+  },
+  {
+   "section": "Gateway",
+   "kind": "kind_or_field",
+   "value": "policies: [{name: cors-default}]"
+  },
+  {
+   "section": "Gateway",
+   "kind": "failure_mode",
+   "value": "Without `stateStore`, `ruralzd` reads `RURALZ_STATE_STORE_URL`, else uses `memory` and logs a warning at startup"
+  },
+  {
+   "section": "Gateway",
+   "kind": "claim",
+   "value": "`memory` multiplies every Rate Limit and Quota by the Node count"
+  },
+  {
+   "section": "Gateway",
+   "kind": "default",
+   "value": "10 MiB for `maxResponseBodyBytes`, 16 for `maxCompositionSteps` and 512 MiB for `maxBufferedBytes` (target)"
+  },
+  {
+   "section": "Gateway",
+   "kind": "failure_mode",
+   "value": "at the `maxPluginMemoryBytes` cap new instances are refused (`RZ-PLG` under the Policy's `failureMode`)"
+  },
+  {
+   "section": "Gateway",
+   "kind": "error_code",
+   "value": "RZ-PLG"
+  },
+  {
+   "section": "Gateway",
+   "kind": "milestone",
+   "value": "`http3: true`: Planned (M3); off in FIPS builds"
+  },
+  {
+   "section": "Route",
+   "kind": "kind_or_field",
+   "value": "listeners: set of Gateway listener names; default all"
+  },
+  {
+   "section": "Route",
+   "kind": "kind_or_field",
+   "value": "match: hosts, path (exact | prefix | template | regex), methods, headers (exact | regex | present), grpc, graphql, topic, when"
+  },
+  {
+   "section": "Route",
+   "kind": "kind_or_field",
+   "value": "policies, excludePolicies"
+  },
+  {
+   "section": "Route",
+   "kind": "default",
+   "value": "upstreams[].weight: default 1"
+  },
+  {
+   "section": "Route",
+   "kind": "kind_or_field",
+   "value": "composition.mode: aggregate | sequential | conditional"
+  },
+  {
+   "section": "Route",
+   "kind": "kind_or_field",
+   "value": "steps: name, upstream, method, pathExpression/path, target, select, rename, collection, group, maxBodyBytes, optional, when"
+  },
+  {
+   "section": "Route",
+   "kind": "default",
+   "value": "step method: default the incoming method"
+  },
+  {
+   "section": "Route",
+   "kind": "limit",
+   "value": "step maxBodyBytes: 1Mi; default an equal share of Gateway limits.maxResponseBodyBytes"
+  },
+  {
+   "section": "Route",
+   "kind": "timeout",
+   "value": "timeout: 5s (whole-request deadline)"
+  },
+  {
+   "section": "Route",
+   "kind": "error_code",
+   "value": "RZ-CFG-031 (more steps than `maxCompositionSteps`)"
+  },
+  {
+   "section": "Route",
+   "kind": "error_code",
+   "value": "RZ-CFG-023 (two Routes with identical match criteria)"
+  },
+  {
+   "section": "Route",
+   "kind": "milestone",
+   "value": "`grpc` and `graphql` matching: Planned (M3)"
+  },
+  {
+   "section": "Route",
+   "kind": "milestone",
+   "value": "`topic` matching: Planned (M4)"
+  },
+  {
+   "section": "Body buffering and limits",
+   "kind": "milestone",
+   "value": "Buffering: Planned (M1); its AI triggers Planned (M3)"
+  },
+  {
+   "section": "Body buffering and limits",
+   "kind": "failure_mode",
+   "value": "Gate: 413 for the request body; a failed step, decided by `optional`; 502 for another response body; 503 with an `RZ-RT-<NNN>` code when the Node budget is spent"
+  },
+  {
+   "section": "Body buffering and limits",
+   "kind": "error_code",
+   "value": "RZ-RT-<NNN>"
+  },
+  {
+   "section": "Body buffering and limits",
+   "kind": "failure_mode",
+   "value": "Tee: stops copying, skips the store, keeps streaming and increments `ruralz_cache_store_skipped_total`"
+  },
+  {
+   "section": "Body buffering and limits",
+   "kind": "metric",
+   "value": "ruralz_cache_store_skipped_total (name proposed to Observability)"
+  },
+  {
+   "section": "Body buffering and limits",
+   "kind": "limit",
+   "value": "decoded values charged at most 4 times the raw limit (target)"
+  },
+  {
+   "section": "Body buffering and limits",
+   "kind": "error_code",
+   "value": "RZ-CFG-032 (explicit step maxBodyBytes break the share)"
+  },
+  {
+   "section": "Body buffering and limits",
+   "kind": "limit",
+   "value": "raw buffering per request: `maxRequestBodyBytes` plus twice `maxResponseBodyBytes`: 30 MiB with the proposed defaults"
+  },
+  {
+   "section": "Body buffering and limits",
+   "kind": "limit",
+   "value": "150 MiB counting decoded values (target)"
+  },
+  {
+   "section": "Body buffering and limits",
+   "kind": "claim",
+   "value": "Limits count bytes after content decoding"
+  },
+  {
+   "section": "Upstream",
+   "kind": "kind_or_field",
+   "value": "protocol: http | grpc | graphql | websocket | kafka | nats | mqtt | ai"
+  },
+  {
+   "section": "Upstream",
+   "kind": "port",
+   "value": "orders.shop.svc:8080"
+  },
+  {
+   "section": "Upstream",
+   "kind": "kind_or_field",
+   "value": "discovery.type: dns | kubernetes"
+  },
+  {
+   "section": "Upstream",
+   "kind": "kind_or_field",
+   "value": "loadBalancing.algorithm: round-robin | least-request | ring-hash | random"
+  },
+  {
+   "section": "Upstream",
+   "kind": "timeout",
+   "value": "healthCheck.active: interval: 10s, timeout: 2s, healthyThreshold: 2, unhealthyThreshold: 3"
+  },
+  {
+   "section": "Upstream",
+   "kind": "number",
+   "value": "passive: {consecutiveErrors: 5, ejectionTime: 30s}"
+  },
+  {
+   "section": "Upstream",
+   "kind": "number",
+   "value": "retries.attempts: 2"
+  },
+  {
+   "section": "Upstream",
+   "kind": "timeout",
+   "value": "perTryTimeout: 1s"
+  },
+  {
+   "section": "Upstream",
+   "kind": "kind_or_field",
+   "value": "retries.retryOn (CEL)"
+  },
+  {
+   "section": "Upstream",
+   "kind": "limit",
+   "value": "circuitBreaker: maxConnections: 1024, maxPendingRequests: 256, consecutiveFailures: 5, openDuration: 30s"
+  },
+  {
+   "section": "Upstream",
+   "kind": "kind_or_field",
+   "value": "circuitBreaker.failureWhen (CEL)"
+  },
+  {
+   "section": "Upstream",
+   "kind": "kind_or_field",
+   "value": "tls: sni, caCertificate, clientCertificate, clientKey"
+  },
+  {
+   "section": "Upstream",
+   "kind": "timeout",
+   "value": "Upstream timeout: 3s"
+  },
+  {
+   "section": "Upstream",
+   "kind": "kind_or_field",
+   "value": "messaging: {topic, key} (kafka | nats | mqtt only; key is CEL)"
+  },
+  {
+   "section": "Upstream",
+   "kind": "kind_or_field",
+   "value": "ai: {surface: openai | native, models}"
+  },
+  {
+   "section": "Upstream",
+   "kind": "claim",
+   "value": "`ai.models` replaces `endpoints` for `ai`, and `ring-hash` requires `hashKey`"
+  },
+  {
+   "section": "Upstream",
+   "kind": "claim",
+   "value": "Kubernetes discovery watches EndpointSlices, avoiding DNS TTL lag"
+  },
+  {
+   "section": "Upstream",
+   "kind": "milestone",
+   "value": "`http` and `dns` discovery: Planned (M1)"
+  },
+  {
+   "section": "Upstream",
+   "kind": "milestone",
+   "value": "`kubernetes` discovery: Planned (M2)"
+  },
+  {
+   "section": "Upstream",
+   "kind": "milestone",
+   "value": "`grpc`, `graphql`, `websocket` and `ai`: Planned (M3)"
+  },
+  {
+   "section": "Upstream",
+   "kind": "milestone",
+   "value": "`kafka`, `nats`, `mqtt` and `messaging`: Planned (M4)"
+  },
+  {
+   "section": "Policy",
+   "kind": "kind_or_field",
+   "value": "Policy spec: type, slot, overridable, failureMode, stateStoreTimeout, when, plugin, filterClass, config"
+  },
+  {
+   "section": "Policy",
+   "kind": "default",
+   "value": "failureMode: open | closed; default from the registry"
+  },
+  {
+   "section": "Policy",
+   "kind": "default",
+   "value": "stateStoreTimeout: 50ms; default Gateway spec.stateStore.timeout"
+  },
+  {
+   "section": "Policy",
+   "kind": "default",
+   "value": "filterClass: plugin only; default custom"
+  },
+  {
+   "section": "Policy",
+   "kind": "decision",
+   "value": "ADR-0008 (State Store call fails or exceeds `stateStoreTimeout` triggers `failureMode`)"
+  },
+  {
+   "section": "Policy",
+   "kind": "failure_mode",
+   "value": "before commit, `closed` rejects (401 or 403 for auth and authz types, otherwise 503; 502 in a response Phase), and `open` skips the Policy"
+  },
+  {
+   "section": "Policy",
+   "kind": "failure_mode",
+   "value": "after commit, `closed` ends an `onChunk` stream and `open` passes the chunk; an `onLog` failure only reaches telemetry"
+  },
+  {
+   "section": "Policy",
+   "kind": "metric",
+   "value": "ruralz_filter_failures_total (by Policy, Phase and mode; name proposed to Observability)"
+  },
+  {
+   "section": "Policy",
+   "kind": "claim",
+   "value": "No Policy calls the State Store per chunk"
+  },
+  {
+   "section": "Policy",
+   "kind": "decision",
+   "value": "ADR-0014: `ai.token-budget` reserves in `onRequestBody`, counts locally in `onChunk`, settles asynchronously at `onLog`"
+  },
+  {
+   "section": "Policy",
+   "kind": "error_code",
+   "value": "RZ-CFG-034 (AIModel with ai.token-budget Route and no `limits.maxOutputTokens`)"
+  },
+  {
+   "section": "Policy",
+   "kind": "claim",
+   "value": "`quota` checks in `onRequestHeaders` and settles at `onLog`"
+  },
+  {
+   "section": "Policy",
+   "kind": "claim",
+   "value": "all client authentication types share `auth`; additive types default to their own name"
+  },
+  {
+   "section": "Policy",
+   "kind": "failure_mode",
+   "value": "`auth.*`, `authz.*` and `plugin` Policies with `filterClass` auth or authz are `closed` only, and `open` there is RZ-CFG-029"
+  },
+  {
+   "section": "Policy",
+   "kind": "error_code",
+   "value": "RZ-CFG-029"
+  },
+  {
+   "section": "Policy",
+   "kind": "claim",
+   "value": "`rateLimit`, `rate-limit`, `apiKey`, `jwt`, `tokenBudget`, `ipfilter` and `geoip` are never valid spellings"
+  },
+  {
+   "section": "Policy",
+   "kind": "policy_type",
+   "value": "auth.jwt, auth.api-key, auth.basic, auth.mtls: auth; slot `auth`; closed; closed only; Planned (M1)"
+  },
+  {
+   "section": "Policy",
+   "kind": "policy_type",
+   "value": "authz.cel: authz; slot `name`; closed; closed only; Planned (M1)"
+  },
+  {
+   "section": "Policy",
+   "kind": "policy_type",
+   "value": "authz.opa, authz.cedar: authz; closed; closed only; Planned (M2)"
+  },
+  {
+   "section": "Policy",
+   "kind": "policy_type",
+   "value": "authz.ip: authz; onRequestHeaders; closed; closed only; Planned (M1)"
+  },
+  {
+   "section": "Policy",
+   "kind": "policy_type",
+   "value": "authz.geoip: authz; onRequestHeaders; closed; closed only; Planned (M2)"
+  },
+  {
+   "section": "Policy",
+   "kind": "policy_type",
+   "value": "ratelimit: admission; onRequestHeaders; G, R; open; either; Planned (M1)"
+  },
+  {
+   "section": "Policy",
+   "kind": "policy_type",
+   "value": "quota: admission; onRequestHeaders, onLog; G, R; open; either; Planned (M1)"
+  },
+  {
+   "section": "Policy",
+   "kind": "policy_type",
+   "value": "validation.json-schema: validation; onRequestBody; R; slot `validation`; closed; either; Planned (M1)"
+  },
+  {
+   "section": "Policy",
+   "kind": "policy_type",
+   "value": "cors: cors; onRequestHeaders, onResponse; slot `cors`; closed; either; Planned (M1)"
+  },
+  {
+   "section": "Policy",
+   "kind": "policy_type",
+   "value": "cache (Response Cache): cache; R; slot `cache`; open; either; Planned (M1)"
+  },
+  {
+   "section": "Policy",
+   "kind": "policy_type",
+   "value": "headers: transform; G, R, U; closed; either; Planned (M1)"
+  },
+  {
+   "section": "Policy",
+   "kind": "policy_type",
+   "value": "transform.request: transform; G, R, U; closed; either; Planned (M1)"
+  },
+  {
+   "section": "Policy",
+   "kind": "policy_type",
+   "value": "transform.response: transform; G, R, U; closed; either; Planned (M1)"
+  },
+  {
+   "section": "Policy",
+   "kind": "policy_type",
+   "value": "auth.upstream-oauth2: upstream-auth; onUpstreamRequest; U; closed; closed only; Planned (M1)"
+  },
+  {
+   "section": "Policy",
+   "kind": "policy_type",
+   "value": "auth.upstream-sigv4: upstream-auth; onUpstreamRequest; U; closed; closed only; Planned (M2)"
+  },
+  {
+   "section": "Policy",
+   "kind": "policy_type",
+   "value": "ai.token-budget: admission; onRequestBody, onChunk, onLog; G, R; closed; either; Planned (M3)"
+  },
+  {
+   "section": "Policy",
+   "kind": "policy_type",
+   "value": "ai.semantic-cache (Semantic Cache): cache; R; slot `semantic-cache`; open; either; Planned (M3)"
+  },
+  {
+   "section": "Policy",
+   "kind": "policy_type",
+   "value": "ai.guardrail: validation; onRequestBody, onChunk, onResponse; G, R; closed; either; Planned (M3)"
+  },
+  {
+   "section": "Policy",
+   "kind": "policy_type",
+   "value": "plugin: `filterClass`; closed; closed only for auth and authz classes; Planned (M2)"
+  },
+  {
+   "section": "Policy",
+   "kind": "claim",
+   "value": "a Route caches only when it attaches an `ai.semantic-cache` Policy; a model without `cache.semantic` is never cached"
+  },
+  {
+   "section": "Policy",
+   "kind": "claim",
+   "value": "The Prompt Cache is provider-side and configured on `AIModel`"
+  },
+  {
+   "section": "Policy",
+   "kind": "claim",
+   "value": "`authz.geoip` by ISO 3166 country from a local MaxMind-format database, whose reader is a pending selection"
+  },
+  {
+   "section": "Policy",
+   "kind": "kind_or_field",
+   "value": "cors config: `allowOrigins`, `allowMethods`"
+  },
+  {
+   "section": "Policy",
+   "kind": "kind_or_field",
+   "value": "auth.jwt config: `issuers[]` with `issuer`, `jwksUrl`, `audiences`"
+  },
+  {
+   "section": "Policy",
+   "kind": "kind_or_field",
+   "value": "auth.api-key config: `header`"
+  },
+  {
+   "section": "Policy",
+   "kind": "kind_or_field",
+   "value": "authz.cel config: `rule` (CEL)"
+  },
+  {
+   "section": "Policy",
+   "kind": "kind_or_field",
+   "value": "ratelimit config: `key` (CEL), `limits[]` with `requests`, `window`"
+  },
+  {
+   "section": "Policy",
+   "kind": "default",
+   "value": "quota config: `consumerQuota`, `key` (CEL; default `consumer.name`)"
+  },
+  {
+   "section": "Policy",
+   "kind": "kind_or_field",
+   "value": "cache, ai.semantic-cache config: `key` (CEL)"
+  },
+  {
+   "section": "Policy",
+   "kind": "kind_or_field",
+   "value": "headers config: `request.set[]`, `response.set[]` with `name` and exactly one of `value` or `valueExpression`"
+  },
+  {
+   "section": "Policy",
+   "kind": "kind_or_field",
+   "value": "ai.token-budget config: `consumerQuota` (unit: tokens)"
+  },
+  {
+   "section": "Policy",
+   "kind": "kind_or_field",
+   "value": "auth.upstream-oauth2 config: `tokenUrl`, `clientId`, `clientSecret` (`SecretValue`), `scopes`"
+  },
+  {
+   "section": "Policy",
+   "kind": "error_code",
+   "value": "RZ-CFG-009 (`consumerQuota` no Consumer defines with the matching `unit`)"
+  },
+  {
+   "section": "Policy",
+   "kind": "failure_mode",
+   "value": "when `consumer` is null or lacks the named quota, the Policy rejects the request with 403 and an `RZ-RL` or `RZ-AI` code; never uses `RZ-STS`"
+  },
+  {
+   "section": "Policy",
+   "kind": "error_code",
+   "value": "RZ-RL"
+  },
+  {
+   "section": "Policy",
+   "kind": "error_code",
+   "value": "RZ-AI"
+  },
+  {
+   "section": "Policy",
+   "kind": "error_code",
+   "value": "RZ-STS"
+  },
+  {
+   "section": "Plugin",
+   "kind": "decision",
+   "value": "ADR-0005: Capabilities are deny-by-default under Plugin ABI v1"
+  },
+  {
+   "section": "Plugin",
+   "kind": "kind_or_field",
+   "value": "Plugin spec: image (digest required), abi: ruralz.plugin.v1, phases, capabilities, limits, configSchema"
+  },
+  {
+   "section": "Plugin",
+   "kind": "limit",
+   "value": "limits: {memoryBytes: 16Mi, timeout: 5ms}"
+  },
+  {
+   "section": "Plugin",
+   "kind": "limit",
+   "value": "\"self.denyCountries.size() <= 50\" (at most 50 countries)"
+  },
+  {
+   "section": "Plugin",
+   "kind": "error_code",
+   "value": "RZ-CFG-021 (image without an `@sha256:` digest)"
+  },
+  {
+   "section": "Plugin",
+   "kind": "cli_command",
+   "value": "ruralz plugin push"
+  },
+  {
+   "section": "Plugin",
+   "kind": "decision",
+   "value": "ADR-0017: publishers sign Plugin artifacts at `ruralz plugin push`"
+  },
+  {
+   "section": "Consumer",
+   "kind": "kind_or_field",
+   "value": "Consumer spec: tier, credentials (apiKeys, jwt, oauthClients), quotas, tags"
+  },
+  {
+   "section": "Consumer",
+   "kind": "kind_or_field",
+   "value": "quotas unit: requests | tokens"
+  },
+  {
+   "section": "Consumer",
+   "kind": "number",
+   "value": "daily-tokens limit: 2000000, window: 24h"
+  },
+  {
+   "section": "Consumer",
+   "kind": "claim",
+   "value": "API keys are stored as SHA-256 digests of high-entropy keys; the Node hashes a `secretRef` key at load and keeps only the hash in memory"
+  },
+  {
+   "section": "Consumer",
+   "kind": "claim",
+   "value": "every key change is a new Revision"
+  },
+  {
+   "section": "AIProvider",
+   "kind": "decision",
+   "value": "ADR-0014"
+  },
+  {
+   "section": "AIProvider",
+   "kind": "kind_or_field",
+   "value": "dialect: openai | anthropic | gemini | bedrock | mistral | ollama"
+  },
+  {
+   "section": "AIProvider",
+   "kind": "kind_or_field",
+   "value": "baseUrl: default per dialect; required for ollama"
+  },
+  {
+   "section": "AIProvider",
+   "kind": "kind_or_field",
+   "value": "pricing: currency (ISO 4217), version, models"
+  },
+  {
+   "section": "AIProvider",
+   "kind": "number",
+   "value": "inputPerMillionTokens: \"3.00\", outputPerMillionTokens: \"15.00\", cachedInputPerMillionTokens: \"0.30\" (illustrative)"
+  },
+  {
+   "section": "AIProvider",
+   "kind": "claim",
+   "value": "Provider-reported usage is authoritative; pricing only converts it to currency"
+  },
+  {
+   "section": "AIModel",
+   "kind": "kind_or_field",
+   "value": "strategy: weighted | latency | cost | fallback"
+  },
+  {
+   "section": "AIModel",
+   "kind": "kind_or_field",
+   "value": "candidates: name, provider, model, weight, when"
+  },
+  {
+   "section": "AIModel",
+   "kind": "limit",
+   "value": "limits: {maxInputTokens: 32000, maxOutputTokens: 2048}"
+  },
+  {
+   "section": "AIModel",
+   "kind": "number",
+   "value": "\"ai.estimatedInputTokens < 100000\""
+  },
+  {
+   "section": "AIModel",
+   "kind": "kind_or_field",
+   "value": "cache.prompt.mode: passthrough | disabled"
+  },
+  {
+   "section": "AIModel",
+   "kind": "number",
+   "value": "semantic: {similarityThreshold: 0.92, ttl: 1h}"
+  },
+  {
+   "section": "AIModel",
+   "kind": "claim",
+   "value": "Under `fallback`, Provider Fallback follows list order"
+  },
+  {
+   "section": "Environment",
+   "kind": "kind_or_field",
+   "value": "Environment spec: overlay (default: metadata.name), promotion (from, requireApproval), variables"
+  },
+  {
+   "section": "Environment",
+   "kind": "error_code",
+   "value": "RZ-CFG-022 (promotion cycle)"
+  },
+  {
+   "section": "Environment",
+   "kind": "claim",
+   "value": "Promotion moves a source commit, not a digest"
+  },
+  {
+   "section": "Cluster",
+   "kind": "kind_or_field",
+   "value": "Cluster spec: environment, region, rollout (strategy all-at-once | canary, canary, autoRollback)"
+  },
+  {
+   "section": "Cluster",
+   "kind": "number",
+   "value": "canary: {percent: 10, bake: 15m}"
+  },
+  {
+   "section": "Cluster",
+   "kind": "failure_mode",
+   "value": "With `autoRollback: true` a deterministic NACK, failed gate or lagging threshold ends a Rollout in `rolled-back`; with `false` it enters `paused`"
+  },
+  {
+   "section": "Bundle layout and merge",
+   "kind": "claim",
+   "value": "There is no Bundle kind or header"
+  },
+  {
+   "section": "Bundle layout and merge",
+   "kind": "kind_or_field",
+   "value": ".ruralzignore"
+  },
+  {
+   "section": "Discovery and base merge",
+   "kind": "claim",
+   "value": "reads every `*.yaml`, `*.yml` and `*.json` file under the root except `overlays/`, hidden paths and `.ruralzignore` matches, in lexical byte order"
+  },
+  {
+   "section": "Discovery and base merge",
+   "kind": "error_code",
+   "value": "RZ-CFG-017 (`Environment` and `Cluster` inside a Bundle)"
+  },
+  {
+   "section": "Discovery and base merge",
+   "kind": "error_code",
+   "value": "RZ-CFG-008 (duplicate identity)"
+  },
+  {
+   "section": "Overlays",
+   "kind": "milestone",
+   "value": "Overlays, `--env` and `--environments`: Planned (M1); selection by Ruralz Control: Planned (M2)"
+  },
+  {
+   "section": "Overlays",
+   "kind": "kind_or_field",
+   "value": "{$patch: replace} / $patch: delete"
+  },
+  {
+   "section": "Overlays",
+   "kind": "kind_or_field",
+   "value": "ruralz.io/patch: replace or delete"
+  },
+  {
+   "section": "Overlays",
+   "kind": "error_code",
+   "value": "RZ-CFG-030 (overlay apiVersion differs from base)"
+  },
+  {
+   "section": "Overlays",
+   "kind": "cli_command",
+   "value": "ruralz bundle render --env prod"
+  },
+  {
+   "section": "Overlays",
+   "kind": "claim",
+   "value": "Render is idempotent"
+  },
+  {
+   "section": "Overlays",
+   "kind": "claim",
+   "value": "File-mode `ruralzd` applies no overlay (OQ-configuration-model-10)"
+  },
+  {
+   "section": "Canonical form and Revision",
+   "kind": "milestone",
+   "value": "canonical form and Revision digest: Planned (M1), with `ruralz bundle build`"
+  },
+  {
+   "section": "Canonical form and Revision",
+   "kind": "kind_or_field",
+   "value": "ruralz.canonical.v1"
+  },
+  {
+   "section": "Canonical form and Revision",
+   "kind": "claim",
+   "value": "serialized as RFC 8785 canonical JSON"
+  },
+  {
+   "section": "Canonical form and Revision",
+   "kind": "claim",
+   "value": "resources sorted by kind (`Gateway`, `Upstream`, `Plugin`, `Policy`, `Consumer`, `AIProvider`, `AIModel`, `Route`) and name"
+  },
+  {
+   "section": "Canonical form and Revision",
+   "kind": "claim",
+   "value": "Defaults never change in `v1beta1` or `v1`; a `v1alpha1` default change ships as a new schema level with one milestone of notice"
+  },
+  {
+   "section": "Canonical form and Revision",
+   "kind": "claim",
+   "value": "A golden corpus of Bundles and their expected digests runs in CI; every release MUST reproduce it byte for byte"
+  },
+  {
+   "section": "Canonical form and Revision",
+   "kind": "kind_or_field",
+   "value": "rev-<12 hex> display form; full `sha256:<64 hex>`"
+  },
+  {
+   "section": "Canonical form and Revision",
+   "kind": "error_code",
+   "value": "RZ-CFG-027 (content does not hash to its digest)"
+  },
+  {
+   "section": "Why forward references",
+   "kind": "claim",
+   "value": "Agent Router's `QuotaPolicy` targets `AIServiceBackend` resources through `targetRefs`"
+  },
+  {
+   "section": "Why forward references",
+   "kind": "decision",
+   "value": "Policies attach by forward reference; `overridable: false` covers the platform-team case"
+  },
+  {
+   "section": "Resolution rules",
+   "kind": "error_code",
+   "value": "RZ-CFG-018 (slot holds one Policy per scope)"
+  },
+  {
+   "section": "Resolution rules",
+   "kind": "error_code",
+   "value": "RZ-CFG-019 (excluding or replacing `overridable: false`)"
+  },
+  {
+   "section": "Resolution rules",
+   "kind": "error_code",
+   "value": "RZ-CFG-020 (type at a disallowed scope)"
+  },
+  {
+   "section": "Resolution rules",
+   "kind": "claim",
+   "value": "order is Filter class (cors, auth, authz, admission, validation, cache, upstream-auth, transform, custom), then scope (Gateway, Route, Upstream), then position"
+  },
+  {
+   "section": "Resolution rules",
+   "kind": "claim",
+   "value": "Response Phases run in reverse; `onLog` keeps request order"
+  },
+  {
+   "section": "Worked example",
+   "kind": "cli_command",
+   "value": "ruralz bundle render --effective --route orders-summary"
+  },
+  {
+   "section": "Worked example",
+   "kind": "milestone",
+   "value": "`ruralz bundle render --effective --route orders-summary`: Planned (M1)"
+  },
+  {
+   "section": "Worked example",
+   "kind": "claim",
+   "value": "Client-leg Policies run once per request, upstream-leg Policies once per leg"
+  },
+  {
+   "section": "CEL expressions and allowed places",
+   "kind": "library",
+   "value": "cel-go"
+  },
+  {
+   "section": "CEL expressions and allowed places",
+   "kind": "decision",
+   "value": "ADR-0011: CEL via `cel-go`; no Lua or template language; OPA and Cedar behind `authz.opa` and `authz.cedar`"
+  },
+  {
+   "section": "CEL expressions and allowed places",
+   "kind": "claim",
+   "value": "KrakenD offers CEL and Lua in both editions"
+  },
+  {
+   "section": "Allowed places",
+   "kind": "error_code",
+   "value": "RZ-CFG-011 (`${VAR}` in CEL fields)"
+  },
+  {
+   "section": "Allowed places",
+   "kind": "failure_mode",
+   "value": "Route.spec.match.when runtime error: 500; no fallthrough to another Route"
+  },
+  {
+   "section": "Allowed places",
+   "kind": "failure_mode",
+   "value": "Policy.spec.when runtime error: `closed`: Policy runs; `open`: skipped"
+  },
+  {
+   "section": "Allowed places",
+   "kind": "failure_mode",
+   "value": "composition steps pathExpression/when error: Step fails; `optional` decides"
+  },
+  {
+   "section": "Allowed places",
+   "kind": "failure_mode",
+   "value": "authz.cel config.rule error: Deny"
+  },
+  {
+   "section": "Allowed places",
+   "kind": "failure_mode",
+   "value": "ratelimit, quota config.key and headers valueExpression error: Policy `failureMode`"
+  },
+  {
+   "section": "Allowed places",
+   "kind": "failure_mode",
+   "value": "cache and ai.semantic-cache config.key error: Cache bypassed"
+  },
+  {
+   "section": "Allowed places",
+   "kind": "failure_mode",
+   "value": "loadBalancing.hashKey error: Random Endpoint"
+  },
+  {
+   "section": "Allowed places",
+   "kind": "failure_mode",
+   "value": "retries.retryOn error: No retry"
+  },
+  {
+   "section": "Allowed places",
+   "kind": "failure_mode",
+   "value": "circuitBreaker.failureWhen error: Counted as failure"
+  },
+  {
+   "section": "Allowed places",
+   "kind": "failure_mode",
+   "value": "telemetry.accessLog.when error: Entry written"
+  },
+  {
+   "section": "Allowed places",
+   "kind": "failure_mode",
+   "value": "Upstream.spec.messaging.key error: 502 (Planned (M4))"
+  },
+  {
+   "section": "Allowed places",
+   "kind": "failure_mode",
+   "value": "AIModel.spec.candidates[].when error: Candidate skipped (Planned (M3))"
+  },
+  {
+   "section": "Allowed places",
+   "kind": "milestone",
+   "value": "x-ruralz-validations[].rule: Planned (M2)"
+  },
+  {
+   "section": "Allowed places",
+   "kind": "milestone",
+   "value": "ai.semantic-cache config.key CEL: Planned (M3)"
+  },
+  {
+   "section": "Allowed places",
+   "kind": "milestone",
+   "value": "all other CEL places: Planned (M1)"
+  },
+  {
+   "section": "Variables",
+   "kind": "kind_or_field",
+   "value": "request: method, scheme, host, path, pathParams, query, headers, body"
+  },
+  {
+   "section": "Variables",
+   "kind": "kind_or_field",
+   "value": "source: ip, port, tlsVersion, clientCertSubject"
+  },
+  {
+   "section": "Variables",
+   "kind": "kind_or_field",
+   "value": "error.kind: `connect`, `timeout`, `reset`, `tls`"
+  },
+  {
+   "section": "Variables",
+   "kind": "kind_or_field",
+   "value": "ai: model, estimatedInputTokens, maxOutputTokens, stream"
+  },
+  {
+   "section": "Limits",
+   "kind": "error_code",
+   "value": "RZ-CFG-014 (CEL syntax, type or unavailable-variable error)"
+  },
+  {
+   "section": "Limits",
+   "kind": "number",
+   "value": "every string counts at a nominal 256 bytes and every list or map at 32 entries (target)"
+  },
+  {
+   "section": "Limits",
+   "kind": "limit",
+   "value": "RZ-CFG-015: estimate exceeds 10,000 cost units (target)"
+  },
+  {
+   "section": "Limits",
+   "kind": "limit",
+   "value": "runtime error at 1,000,000 units through the `cel-go` runtime cost limit (target)"
+  },
+  {
+   "section": "Limits",
+   "kind": "number",
+   "value": "typical match and key expressions evaluate in under 2 µs at p99 (target)"
+  },
+  {
+   "section": "Limits",
+   "kind": "claim",
+   "value": "Programs compile once per Revision"
+  },
+  {
+   "section": "Secrets and environment variables",
+   "kind": "api_path",
+   "value": "/config/dump"
+  },
+  {
+   "section": "Secrets and environment variables",
+   "kind": "claim",
+   "value": "`secretRef` value never appears in a Bundle, Revision, diff, `/config/dump` or log"
+  },
+  {
+   "section": "secretRef",
+   "kind": "kind_or_field",
+   "value": "secretRef: provider (env | file | kubernetes | vault), name, key"
+  },
+  {
+   "section": "secretRef",
+   "kind": "milestone",
+   "value": "`env` and `file` providers: Planned (M1)"
+  },
+  {
+   "section": "secretRef",
+   "kind": "milestone",
+   "value": "`kubernetes` and `vault` providers: Planned (M2)"
+  },
+  {
+   "section": "secretRef",
+   "kind": "error_code",
+   "value": "RZ-CFG-012 (literal in a `SecretValue` field)"
+  },
+  {
+   "section": "secretRef",
+   "kind": "error_code",
+   "value": "RZ-CFG-013 (warning: credential-shaped literal)"
+  },
+  {
+   "section": "secretRef",
+   "kind": "error_code",
+   "value": "RZ-CFG-026 (unresolvable reference)"
+  },
+  {
+   "section": "secretRef",
+   "kind": "failure_mode",
+   "value": "An unresolvable reference: the Node rejects the Revision (a NACK in Control mode) and keeps serving its active Revision"
+  },
+  {
+   "section": "secretRef",
+   "kind": "failure_mode",
+   "value": "A failed rotation keeps the last value and increments `ruralz_config_secret_rotation_failures_total`"
+  },
+  {
+   "section": "secretRef",
+   "kind": "metric",
+   "value": "ruralz_config_secret_rotation_failures_total"
+  },
+  {
+   "section": "secretRef",
+   "kind": "api_path",
+   "value": "/readyz"
+  },
+  {
+   "section": "secretRef",
+   "kind": "failure_mode",
+   "value": "`/readyz` fails, with retries and backoff, until all `secretRef` resolve"
+  },
+  {
+   "section": "secretRef",
+   "kind": "claim",
+   "value": "resolved secret values are never written to disk"
+  },
+  {
+   "section": "secretRef",
+   "kind": "kind_or_field",
+   "value": "${RURALZ_DATA_DIR}/lkg/"
+  },
+  {
+   "section": "secretRef",
+   "kind": "claim",
+   "value": "`provider: kubernetes` needs `get` and `watch` in the Node's own namespace only"
+  },
+  {
+   "section": "Environment substitution",
+   "kind": "error_code",
+   "value": "RZ-CFG-010 (undefined variable without default)"
+  },
+  {
+   "section": "Environment substitution",
+   "kind": "port",
+   "value": "port: ${HTTPS_PORT:-8443}"
+  },
+  {
+   "section": "Environment substitution",
+   "kind": "claim",
+   "value": "Substitution runs once, after overlay merge and before schema validation, on parsed scalars only, and it is not recursive"
+  },
+  {
+   "section": "Environment substitution",
+   "kind": "claim",
+   "value": "A variable named like `(?i)(secret|password|token|apikey)` warns (RZ-CFG-013)"
+  },
+  {
+   "section": "Environment substitution",
+   "kind": "milestone",
+   "value": "`--env` renders: Planned (M1) from a file; Planned (M2) from Ruralz Control"
+  },
+  {
+   "section": "Environment substitution",
+   "kind": "milestone",
+   "value": "verbs without `--env` (CLI process environment): Planned (M1)"
+  },
+  {
+   "section": "Environment substitution",
+   "kind": "milestone",
+   "value": "Ruralz Control substitution, including the CRD path: Planned (M2)"
+  },
+  {
+   "section": "Environment substitution",
+   "kind": "milestone",
+   "value": "`ruralzd` in file mode substitution: Planned (M1)"
+  },
+  {
+   "section": "Environment substitution",
+   "kind": "cli_command",
+   "value": "ruralz bundle push --env prod"
+  },
+  {
+   "section": "Environment substitution",
+   "kind": "claim",
+   "value": "Ruralz Control never accepts a pre-rendered Revision; rejects a mismatch with RZ-CFG-027"
+  },
+  {
+   "section": "Environment substitution",
+   "kind": "decision",
+   "value": "ADR-0017: OCI Revision signed with Sigstore"
+  },
+  {
+   "section": "Environment substitution",
+   "kind": "kind_or_field",
+   "value": "RURALZ_CONFIG, RURALZ_DATA_DIR and RURALZ_LOG_LEVEL never change a Revision"
+  },
+  {
+   "section": "Validation and diff semantics",
+   "kind": "claim",
+   "value": "One validation library is linked into `ruralz`, `ruralz-control` and `ruralzd`"
+  },
+  {
+   "section": "Validation and diff semantics",
+   "kind": "kind_or_field",
+   "value": "ruralz bundle validate --online; ruralz bundle build --offline"
+  },
+  {
+   "section": "Validation and diff semantics",
+   "kind": "error_code",
+   "value": "RZ-CFG-028 (online Plugin check)"
+  },
+  {
+   "section": "Validation and diff semantics",
+   "kind": "error_code",
+   "value": "RZ-CFG-033 (Plugin or Revision signature)"
+  },
+  {
+   "section": "Validation and diff semantics",
+   "kind": "error_code",
+   "value": "RZ-CFG-024 (Node schema level, at Rollout)"
+  },
+  {
+   "section": "Validation and diff semantics",
+   "kind": "claim",
+   "value": "The online stage never changes the digest; signing never changes the digest"
+  },
+  {
+   "section": "Validation and diff semantics",
+   "kind": "claim",
+   "value": "A watched Bundle directory is unsigned"
+  },
+  {
+   "section": "Validation and diff semantics",
+   "kind": "number",
+   "value": "Validating 10,000 resources takes under 2 seconds on a four-core laptop (target)"
+  },
+  {
+   "section": "Validation and diff semantics",
+   "kind": "number",
+   "value": "the 20,000-resource default limit under 4 seconds (target)"
+  },
+  {
+   "section": "Validation and diff semantics",
+   "kind": "limit",
+   "value": "peak validation memory under four times the canonical size (target)"
+  },
+  {
+   "section": "Validation and diff semantics",
+   "kind": "failure_mode",
+   "value": "a failed render keeps the active Revision serving"
+  },
+  {
+   "section": "Error codes",
+   "kind": "error_code",
+   "value": "RZ-CFG-001"
+  },
+  {
+   "section": "Error codes",
+   "kind": "error_code",
+   "value": "RZ-CFG-002"
+  },
+  {
+   "section": "Error codes",
+   "kind": "error_code",
+   "value": "RZ-CFG-003"
+  },
+  {
+   "section": "Error codes",
+   "kind": "error_code",
+   "value": "RZ-CFG-004"
+  },
+  {
+   "section": "Error codes",
+   "kind": "error_code",
+   "value": "RZ-CFG-005"
+  },
+  {
+   "section": "Error codes",
+   "kind": "error_code",
+   "value": "RZ-CFG-006"
+  },
+  {
+   "section": "Error codes",
+   "kind": "error_code",
+   "value": "RZ-CFG-007"
+  },
+  {
+   "section": "Error codes",
+   "kind": "error_code",
+   "value": "RZ-CFG-008"
+  },
+  {
+   "section": "Error codes",
+   "kind": "error_code",
+   "value": "RZ-CFG-009"
+  },
+  {
+   "section": "Error codes",
+   "kind": "error_code",
+   "value": "RZ-CFG-010"
+  },
+  {
+   "section": "Error codes",
+   "kind": "error_code",
+   "value": "RZ-CFG-011"
+  },
+  {
+   "section": "Error codes",
+   "kind": "error_code",
+   "value": "RZ-CFG-012"
+  },
+  {
+   "section": "Error codes",
+   "kind": "error_code",
+   "value": "RZ-CFG-013"
+  },
+  {
+   "section": "Error codes",
+   "kind": "error_code",
+   "value": "RZ-CFG-014"
+  },
+  {
+   "section": "Error codes",
+   "kind": "error_code",
+   "value": "RZ-CFG-015"
+  },
+  {
+   "section": "Error codes",
+   "kind": "error_code",
+   "value": "RZ-CFG-016"
+  },
+  {
+   "section": "Error codes",
+   "kind": "error_code",
+   "value": "RZ-CFG-017"
+  },
+  {
+   "section": "Error codes",
+   "kind": "error_code",
+   "value": "RZ-CFG-018"
+  },
+  {
+   "section": "Error codes",
+   "kind": "error_code",
+   "value": "RZ-CFG-019"
+  },
+  {
+   "section": "Error codes",
+   "kind": "error_code",
+   "value": "RZ-CFG-020"
+  },
+  {
+   "section": "Error codes",
+   "kind": "error_code",
+   "value": "RZ-CFG-021"
+  },
+  {
+   "section": "Error codes",
+   "kind": "error_code",
+   "value": "RZ-CFG-022"
+  },
+  {
+   "section": "Error codes",
+   "kind": "error_code",
+   "value": "RZ-CFG-023"
+  },
+  {
+   "section": "Error codes",
+   "kind": "error_code",
+   "value": "RZ-CFG-024"
+  },
+  {
+   "section": "Error codes",
+   "kind": "error_code",
+   "value": "RZ-CFG-025"
+  },
+  {
+   "section": "Error codes",
+   "kind": "error_code",
+   "value": "RZ-CFG-026"
+  },
+  {
+   "section": "Error codes",
+   "kind": "error_code",
+   "value": "RZ-CFG-027"
+  },
+  {
+   "section": "Error codes",
+   "kind": "error_code",
+   "value": "RZ-CFG-028"
+  },
+  {
+   "section": "Error codes",
+   "kind": "error_code",
+   "value": "RZ-CFG-029"
+  },
+  {
+   "section": "Error codes",
+   "kind": "error_code",
+   "value": "RZ-CFG-030"
+  },
+  {
+   "section": "Error codes",
+   "kind": "error_code",
+   "value": "RZ-CFG-031"
+  },
+  {
+   "section": "Error codes",
+   "kind": "error_code",
+   "value": "RZ-CFG-032"
+  },
+  {
+   "section": "Error codes",
+   "kind": "error_code",
+   "value": "RZ-CFG-033"
+  },
+  {
+   "section": "Error codes",
+   "kind": "error_code",
+   "value": "RZ-CFG-034"
+  },
+  {
+   "section": "Error codes",
+   "kind": "claim",
+   "value": "foundation pack section 8.6 lists RZ-CFG-001 to RZ-CFG-032 at the freeze; sections 8.14 and 8.9 ask it to register RZ-CFG-033 and RZ-CFG-034"
+  },
+  {
+   "section": "Diagnostics and source map",
+   "kind": "kind_or_field",
+   "value": "--output json"
+  },
+  {
+   "section": "Diagnostics and source map",
+   "kind": "claim",
+   "value": "human form writes `map` and `orderedMap` entries as `[name=stock]`, `set` elements as `[item=request.body.read]` and `atomic` entries by index"
+  },
+  {
+   "section": "Diff semantics",
+   "kind": "cli_command",
+   "value": "ruralz bundle diff FROM TO"
+  },
+  {
+   "section": "Diff semantics",
+   "kind": "milestone",
+   "value": "Diffing rendered Bundles and `/config/dump`: Planned (M1)"
+  },
+  {
+   "section": "Diff semantics",
+   "kind": "milestone",
+   "value": "Revisions fetched from Ruralz Control or an OCI registry: Planned (M2)"
+  },
+  {
+   "section": "Diff semantics",
+   "kind": "claim",
+   "value": "changes to `Plugin.spec.capabilities` or `image` are always flagged"
+  },
+  {
+   "section": "Diff semantics",
+   "kind": "number",
+   "value": "Exit status is 0 for no changes, 1 for changes and 2 for errors"
+  },
+  {
+   "section": "Diff semantics",
+   "kind": "kind_or_field",
+   "value": "ruralz.diff.v1"
+  },
+  {
+   "section": "Diff semantics",
+   "kind": "kind_or_field",
+   "value": "Field operations are `add`, `remove`, `replace` and `move`"
+  },
+  {
+   "section": "Diff semantics",
+   "kind": "kind_or_field",
+   "value": "flags: capabilityGrant"
+  },
+  {
+   "section": "Status conditions in the CRD path",
+   "kind": "kind_or_field",
+   "value": "Accepted: `InvalidSpec`, `GuardrailViolation`"
+  },
+  {
+   "section": "Status conditions in the CRD path",
+   "kind": "kind_or_field",
+   "value": "ResolvedRefs: `RefNotFound`, `PluginDigestMissing`"
+  },
+  {
+   "section": "Status conditions in the CRD path",
+   "kind": "kind_or_field",
+   "value": "Programmed: `RolloutPending`, `RolloutPaused`, `RolledBack`, `RolloutFailed`, `NodeNack`"
+  },
+  {
+   "section": "Status conditions in the CRD path",
+   "kind": "failure_mode",
+   "value": "A failing object blocks the namespace's Revision and Nodes keep the previous one"
+  },
+  {
+   "section": "apiVersion versioning and migration",
+   "kind": "milestone",
+   "value": "`ruralz/v1alpha1`: Planned (M0)"
+  },
+  {
+   "section": "apiVersion versioning and migration",
+   "kind": "kind_or_field",
+   "value": "ruralz/v1beta1"
+  },
+  {
+   "section": "apiVersion versioning and migration",
+   "kind": "kind_or_field",
+   "value": "ruralz/v1"
+  },
+  {
+   "section": "apiVersion versioning and migration",
+   "kind": "claim",
+   "value": "`ruralz/v1alpha1`: Fields and defaults may change with one milestone of notice"
+  },
+  {
+   "section": "apiVersion versioning and migration",
+   "kind": "claim",
+   "value": "`ruralz/v1`: Stable; additive only; defaults never change"
+  },
+  {
+   "section": "Hub-and-spoke conversion",
+   "kind": "kind_or_field",
+   "value": "ruralz.io/conversion-data"
+  },
+  {
+   "section": "Hub-and-spoke conversion",
+   "kind": "error_code",
+   "value": "RZ-CFG-025 (deprecated versions and fields)"
+  },
+  {
+   "section": "Hub-and-spoke conversion",
+   "kind": "cli_command",
+   "value": "ruralz bundle render --api-version ruralz/v1beta1"
+  },
+  {
+   "section": "Hub-and-spoke conversion",
+   "kind": "claim",
+   "value": "converting from `ruralz/v1alpha1` to `ruralz/v1beta1` MUST yield the same Revision and an empty `ruralz bundle diff`"
+  },
+  {
+   "section": "Version skew",
+   "kind": "milestone",
+   "value": "Skew checks: Planned (M2)"
+  },
+  {
+   "section": "Version skew",
+   "kind": "claim",
+   "value": "Ruralz Control refuses to start a Rollout whose Revision uses a field newer than the oldest Node serves (RZ-CFG-024); a Node that receives one anyway NACKs"
+  },
+  {
+   "section": "Complete annotated example Bundle",
+   "kind": "port",
+   "value": "http listener port: 8080"
+  },
+  {
+   "section": "Complete annotated example Bundle",
+   "kind": "port",
+   "value": "https listener port: 8443 (HTTP/3 on UDP 8443)"
+  },
+  {
+   "section": "Complete annotated example Bundle",
+   "kind": "port",
+   "value": "admin port: 9901"
+  },
+  {
+   "section": "Complete annotated example Bundle",
+   "kind": "default",
+   "value": "${OTEL_EXPORTER_OTLP_ENDPOINT:-http://otel-collector:4317}"
+  },
+  {
+   "section": "Complete annotated example Bundle",
+   "kind": "kind_or_field",
+   "value": "accessLog.when: 'response.status >= 400 || duration > duration(\"1s\")'"
+  },
+  {
+   "section": "Complete annotated example Bundle",
+   "kind": "port",
+   "value": "inventory.shop.svc:8080"
+  },
+  {
+   "section": "Complete annotated example Bundle",
+   "kind": "port",
+   "value": "cart.shop.svc:9000"
+  },
+  {
+   "section": "Complete annotated example Bundle",
+   "kind": "timeout",
+   "value": "inventory and cart Upstream timeout: 2s"
+  },
+  {
+   "section": "Complete annotated example Bundle",
+   "kind": "timeout",
+   "value": "orders-summary timeout: 4s"
+  },
+  {
+   "section": "Complete annotated example Bundle",
+   "kind": "timeout",
+   "value": "cart-grpc timeout: 2s"
+  },
+  {
+   "section": "Complete annotated example Bundle",
+   "kind": "timeout",
+   "value": "support-chat timeout: 120s"
+  },
+  {
+   "section": "Complete annotated example Bundle",
+   "kind": "kind_or_field",
+   "value": "gpt-4.1-mini"
+  },
+  {
+   "section": "Complete annotated example Bundle",
+   "kind": "kind_or_field",
+   "value": "claude-sonnet-4-5"
+  },
+  {
+   "section": "Complete annotated example Bundle",
+   "kind": "policy_type",
+   "value": "plugin (geo-block-default, filterClass: authz, failureMode: closed)"
+  },
+  {
+   "section": "Complete annotated example Bundle",
+   "kind": "policy_type",
+   "value": "ratelimit (ratelimit-global): overridable: false, failureMode: open, limits: [{requests: 1000, window: 1s}]"
+  },
+  {
+   "section": "Complete annotated example Bundle",
+   "kind": "policy_type",
+   "value": "ratelimit (ratelimit-orders): limits: [{requests: 50, window: 1s}]"
+  },
+  {
+   "section": "Complete annotated example Bundle",
+   "kind": "timeout",
+   "value": "token-budget-partner stateStoreTimeout: 30ms"
+  },
+  {
+   "section": "Complete annotated example Bundle",
+   "kind": "policy_type",
+   "value": "ai.token-budget (token-budget-partner): failureMode: closed"
+  },
+  {
+   "section": "Complete annotated example Bundle",
+   "kind": "policy_type",
+   "value": "ai.semantic-cache (semantic-cache-support): key \"consumer.name\""
+  },
+  {
+   "section": "Complete annotated example Bundle",
+   "kind": "policy_type",
+   "value": "headers (headers-security): strict-transport-security \"max-age=31536000\""
+  },
+  {
+   "section": "Complete annotated example Bundle",
+   "kind": "policy_type",
+   "value": "auth.upstream-oauth2 (upstream-oauth): scopes: [orders.read]"
+  },
+  {
+   "section": "Complete annotated example Bundle",
+   "kind": "policy_type",
+   "value": "cors, auth.jwt, auth.api-key, authz.cel, headers in the example Bundle"
+  },
+  {
+   "section": "Complete annotated example Bundle",
+   "kind": "number",
+   "value": "overlays/prod: retries attempts: 3; consecutiveFailures: 10"
+  },
+  {
+   "section": "Complete annotated example Bundle",
+   "kind": "number",
+   "value": "overlay `ai.estimatedInputTokens < 50000`"
+  },
+  {
+   "section": "Complete annotated example Bundle",
+   "kind": "cli_command",
+   "value": "ruralz bundle validate --env prod --environments control/environments.yaml ./shop-bundle"
+  },
+  {
+   "section": "Complete annotated example Bundle",
+   "kind": "cli_command",
+   "value": "ruralz bundle build --env prod --environments control/environments.yaml ./shop-bundle"
+  },
+  {
+   "section": "Complete annotated example Bundle",
+   "kind": "cli_command",
+   "value": "ruralz bundle push --env prod ./shop-bundle"
+  },
+  {
+   "section": "Open questions",
+   "kind": "claim",
+   "value": "OQ-configuration-model-8 is Blocking: Yes (default `failureMode` for `quota` (open) and `ai.token-budget` (closed))"
+  },
+  {
+   "section": "Open questions",
+   "kind": "claim",
+   "value": "OQ-configuration-model-11: (a) A Gateway `eventSources` list, `Planned (M4)`"
+  },
+  {
+   "section": "Open questions",
+   "kind": "claim",
+   "value": "OQ-configuration-model-2: (b) Optional CRD source, `Planned (M2)`"
+  }
+ ]
+}

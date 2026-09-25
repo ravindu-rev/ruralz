@@ -1,0 +1,991 @@
+{
+ "path": "docs/vision/01-vision-and-positioning.md",
+ "status": "reviewed",
+ "facts": [
+  {
+   "section": "Summary",
+   "kind": "claim",
+   "value": "\"KrakenD Enterprise, but better, and fully free.\""
+  },
+  {
+   "section": "Summary",
+   "kind": "decision",
+   "value": "design documents MUST NOT contradict `P1` to `P10`"
+  },
+  {
+   "section": "Scope and non-goals",
+   "kind": "decision",
+   "value": "license per ADR-0002 (Apache-2.0, no feature gating)"
+  },
+  {
+   "section": "The problem",
+   "kind": "claim",
+   "value": "KrakenD CE is Apache-2.0"
+  },
+  {
+   "section": "The problem",
+   "kind": "claim",
+   "value": "KrakenD: AI Gateway category, gRPC, SSE, WebSockets, API keys, stateful rate limiting, the Security Policies Engine and OpenAPI tooling are Enterprise-only"
+  },
+  {
+   "section": "The problem",
+   "kind": "claim",
+   "value": "KrakenD EE will not start without a valid license file and shuts down when it expires"
+  },
+  {
+   "section": "The problem",
+   "kind": "claim",
+   "value": "KrakenD has no WASM Plugin runtime, no control plane, no console beyond the stateless Designer, no GraphQL federation and no HTTP/3"
+  },
+  {
+   "section": "The problem",
+   "kind": "claim",
+   "value": "Apache APISIX AI plugins are Apache-2.0 and gained a semantic cache and distributed token counters in 3.18"
+  },
+  {
+   "section": "The problem",
+   "kind": "claim",
+   "value": "Envoy Gateway free control plane is Kubernetes-native; standalone mode is experimental"
+  },
+  {
+   "section": "Two licensing events that frame 2026",
+   "kind": "claim",
+   "value": "On 2026-06-04 KrakenD announced that from 3.0, KrakenD CE and the Lura Project no longer support Go plugins while EE keeps them"
+  },
+  {
+   "section": "Two licensing events that frame 2026",
+   "kind": "claim",
+   "value": "Pull request #1106 merged the change into `dev-3.0` on 2026-09-21"
+  },
+  {
+   "section": "Two licensing events that frame 2026",
+   "kind": "claim",
+   "value": "KrakenD CE keeps Lua and CEL"
+  },
+  {
+   "section": "Two licensing events that frame 2026",
+   "kind": "claim",
+   "value": "Kong 3.10: \"Free mode is no longer available. Running Kong Gateway without a license will now behave the same as running it with an expired license.\""
+  },
+  {
+   "section": "Two licensing events that frame 2026",
+   "kind": "claim",
+   "value": "Kong breaking-changes page calls free mode deprecated, due for removal \"in a future 3.x version\""
+  },
+  {
+   "section": "Two licensing events that frame 2026",
+   "kind": "claim",
+   "value": "Kong/kong open-source releases stop at 3.9.x"
+  },
+  {
+   "section": "The wider pattern",
+   "kind": "claim",
+   "value": "2023-08-10 HashiCorp moves to BSL 1.1"
+  },
+  {
+   "section": "The wider pattern",
+   "kind": "claim",
+   "value": "2024-03 Redis moves to RSALv2 and SSPLv1"
+  },
+  {
+   "section": "The wider pattern",
+   "kind": "claim",
+   "value": "2024-10 Tyk Operator and Tyk Sync close source"
+  },
+  {
+   "section": "The wider pattern",
+   "kind": "claim",
+   "value": "2025-03-27 Kong 3.10 ends free mode"
+  },
+  {
+   "section": "The wider pattern",
+   "kind": "claim",
+   "value": "2026-05-29 Palo Alto Networks completes Portkey acquisition"
+  },
+  {
+   "section": "The wider pattern",
+   "kind": "claim",
+   "value": "2026-06-04 KrakenD announces CE 3.0 drops Go plugins"
+  },
+  {
+   "section": "The wider pattern",
+   "kind": "claim",
+   "value": "2026-09-21 KrakenD PR 1106 merged into dev-3.0"
+  },
+  {
+   "section": "Why now",
+   "kind": "claim",
+   "value": "Kong removed beta WASM in 3.11.0.0"
+  },
+  {
+   "section": "Why now",
+   "kind": "claim",
+   "value": "APISIX's proxy-wasm is experimental"
+  },
+  {
+   "section": "Why now",
+   "kind": "claim",
+   "value": "Tyk documents no WASM"
+  },
+  {
+   "section": "Why now",
+   "kind": "claim",
+   "value": "Envoy Gateway's Wasm runs outside Kubernetes only in its experimental standalone mode"
+  },
+  {
+   "section": "Why now",
+   "kind": "claim",
+   "value": "Palo Alto Networks owns Portkey; Helicone is in maintenance mode"
+  },
+  {
+   "section": "Why now",
+   "kind": "claim",
+   "value": "LiteLLM and Portkey drop `cache_control` on some routes"
+  },
+  {
+   "section": "Why now",
+   "kind": "claim",
+   "value": "EU Cyber Resilience Act reporting for manufacturers began on 2026-09-11"
+  },
+  {
+   "section": "Personas",
+   "kind": "milestone",
+   "value": "Plugins on Plugin ABI v1, Planned (M2)"
+  },
+  {
+   "section": "Personas",
+   "kind": "cli_command",
+   "value": "`ruralz bundle import krakend` with declared fidelity levels, Planned (M2)"
+  },
+  {
+   "section": "Personas",
+   "kind": "milestone",
+   "value": "Every EE capability except rows the parity matrix marks Not planned, Planned (M1) to Planned (M5)"
+  },
+  {
+   "section": "Personas",
+   "kind": "milestone",
+   "value": "Ruralz Control and Ruralz Console, Planned (M2)"
+  },
+  {
+   "section": "Personas",
+   "kind": "claim",
+   "value": "Kong's AI load balancing and token rate limiting are AI Gateway Enterprise"
+  },
+  {
+   "section": "Personas",
+   "kind": "kind_or_field",
+   "value": "`AIProvider`"
+  },
+  {
+   "section": "Personas",
+   "kind": "kind_or_field",
+   "value": "`AIModel`"
+  },
+  {
+   "section": "Personas",
+   "kind": "milestone",
+   "value": "`AIProvider`, `AIModel`, Token Budget in the State Store, Semantic Cache, Planned (M3)"
+  },
+  {
+   "section": "Personas",
+   "kind": "milestone",
+   "value": "Plugin ABI v1, deny-by-default Capabilities, `ruralz plugin init` and `ruralz plugin test`, Planned (M2)"
+  },
+  {
+   "section": "Personas",
+   "kind": "cli_command",
+   "value": "`ruralz plugin init`"
+  },
+  {
+   "section": "Personas",
+   "kind": "cli_command",
+   "value": "`ruralz plugin test`"
+  },
+  {
+   "section": "Personas",
+   "kind": "claim",
+   "value": "FIPS and the Security Policies Engine are KrakenD EE-only"
+  },
+  {
+   "section": "Personas",
+   "kind": "kind_or_field",
+   "value": "`secretRef`"
+  },
+  {
+   "section": "Personas",
+   "kind": "milestone",
+   "value": "`secretRef`, Planned (M1)"
+  },
+  {
+   "section": "Personas",
+   "kind": "milestone",
+   "value": "Capabilities, audit log, Revision and Plugin signing (ADR-0017), Planned (M2)"
+  },
+  {
+   "section": "Personas",
+   "kind": "milestone",
+   "value": "FIPS build and Ruralz Console SSO/SAML, Planned (M5)"
+  },
+  {
+   "section": "Personas",
+   "kind": "claim",
+   "value": "Tyk AI Studio requires the Tyk CLA"
+  },
+  {
+   "section": "Personas",
+   "kind": "milestone",
+   "value": "DCO, no CLA, Apache-2.0 everywhere (ADR-0002), Planned (M0)"
+  },
+  {
+   "section": "Positioning statement",
+   "kind": "decision",
+   "value": "every feature, including the control plane and console, is Apache-2.0, with no feature gating, no license keys and no \"enterprise\" build"
+  },
+  {
+   "section": "Positioning statement",
+   "kind": "claim",
+   "value": "four differentiators: (1) WASM plugin system, (2) AI/LLM gateway, (3) built-in control plane + GitOps, (4) multi-protocol native"
+  },
+  {
+   "section": "The four differentiators",
+   "kind": "milestone",
+   "value": "WASM plugin system: Planned (M2); proxy-wasm adapter Planned (M4) (ADR-0005)"
+  },
+  {
+   "section": "The four differentiators",
+   "kind": "decision",
+   "value": "Sandboxed Plugins on Plugin ABI v1, pulled from OCI by digest and Sigstore-signed (ADR-0017), in any Phase including `onChunk`"
+  },
+  {
+   "section": "The four differentiators",
+   "kind": "claim",
+   "value": "KrakenD: Go plugins (EE-only from CE 3.0) and Lua; no WASM"
+  },
+  {
+   "section": "The four differentiators",
+   "kind": "milestone",
+   "value": "AI/LLM gateway Planned (M3)"
+  },
+  {
+   "section": "The four differentiators",
+   "kind": "decision",
+   "value": "an OpenAI-compatible façade plus native passthrough (ADR-0014)"
+  },
+  {
+   "section": "The four differentiators",
+   "kind": "claim",
+   "value": "AI Gateway is EE-only"
+  },
+  {
+   "section": "The four differentiators",
+   "kind": "milestone",
+   "value": "built-in control plane + GitOps Planned (M2)"
+  },
+  {
+   "section": "The four differentiators",
+   "kind": "claim",
+   "value": "No control plane; no console beyond the Designer"
+  },
+  {
+   "section": "The four differentiators",
+   "kind": "milestone",
+   "value": "gRPC, GraphQL, WebSocket, SSE and HTTP/3 Planned (M3); Kafka, NATS, MQTT Planned (M4)"
+  },
+  {
+   "section": "The four differentiators",
+   "kind": "claim",
+   "value": "No HTTP/3 or GraphQL federation; gRPC, SSE and WebSockets EE-only"
+  },
+  {
+   "section": "Versus KrakenD EE: what becomes free",
+   "kind": "number",
+   "value": "39 of the 71 EE-only rows on the KrakenD feature matrix"
+  },
+  {
+   "section": "Versus KrakenD EE: what becomes free",
+   "kind": "policy_type",
+   "value": "`auth.api-key`"
+  },
+  {
+   "section": "Versus KrakenD EE: what becomes free",
+   "kind": "policy_type",
+   "value": "`auth.basic`"
+  },
+  {
+   "section": "Versus KrakenD EE: what becomes free",
+   "kind": "policy_type",
+   "value": "`auth.jwt`"
+  },
+  {
+   "section": "Versus KrakenD EE: what becomes free",
+   "kind": "milestone",
+   "value": "API keys, basic authentication, multiple identity providers per Route: Planned (M1)"
+  },
+  {
+   "section": "Versus KrakenD EE: what becomes free",
+   "kind": "policy_type",
+   "value": "`ratelimit`"
+  },
+  {
+   "section": "Versus KrakenD EE: what becomes free",
+   "kind": "decision",
+   "value": "`ratelimit`: local token bucket plus GCRA in the State Store (ADR-0008)"
+  },
+  {
+   "section": "Versus KrakenD EE: what becomes free",
+   "kind": "milestone",
+   "value": "Stateful, tiered and service rate limiting: Planned (M1)"
+  },
+  {
+   "section": "Versus KrakenD EE: what becomes free",
+   "kind": "policy_type",
+   "value": "`authz.ip`"
+  },
+  {
+   "section": "Versus KrakenD EE: what becomes free",
+   "kind": "milestone",
+   "value": "`authz.ip`, Planned (M1)"
+  },
+  {
+   "section": "Versus KrakenD EE: what becomes free",
+   "kind": "policy_type",
+   "value": "`authz.geoip`"
+  },
+  {
+   "section": "Versus KrakenD EE: what becomes free",
+   "kind": "milestone",
+   "value": "`authz.geoip`, Planned (M2)"
+  },
+  {
+   "section": "Versus KrakenD EE: what becomes free",
+   "kind": "policy_type",
+   "value": "`authz.cel`"
+  },
+  {
+   "section": "Versus KrakenD EE: what becomes free",
+   "kind": "milestone",
+   "value": "`authz.cel`, Planned (M1)"
+  },
+  {
+   "section": "Versus KrakenD EE: what becomes free",
+   "kind": "policy_type",
+   "value": "`authz.opa`"
+  },
+  {
+   "section": "Versus KrakenD EE: what becomes free",
+   "kind": "policy_type",
+   "value": "`authz.cedar`"
+  },
+  {
+   "section": "Versus KrakenD EE: what becomes free",
+   "kind": "milestone",
+   "value": "`authz.opa` and `authz.cedar`, Planned (M2) (ADR-0011)"
+  },
+  {
+   "section": "Versus KrakenD EE: what becomes free",
+   "kind": "cli_command",
+   "value": "`ruralz bundle import openapi`"
+  },
+  {
+   "section": "Versus KrakenD EE: what becomes free",
+   "kind": "cli_command",
+   "value": "`ruralz bundle export`"
+  },
+  {
+   "section": "Versus KrakenD EE: what becomes free",
+   "kind": "cli_command",
+   "value": "`ruralz test run`"
+  },
+  {
+   "section": "Versus KrakenD EE: what becomes free",
+   "kind": "milestone",
+   "value": "`ruralz bundle import openapi`, `ruralz bundle export`, `ruralz test run`, `ruralz plugin init`, Planned (M2)"
+  },
+  {
+   "section": "Versus KrakenD EE: what becomes free",
+   "kind": "cli_command",
+   "value": "`ruralz node dump`"
+  },
+  {
+   "section": "Versus KrakenD EE: what becomes free",
+   "kind": "milestone",
+   "value": "`ruralz node dump`, Planned (M1)"
+  },
+  {
+   "section": "Versus KrakenD EE: what becomes free",
+   "kind": "milestone",
+   "value": "All 11 AI Gateway rows: `AIProvider`, `AIModel`, Token Budget, Planned (M3)"
+  },
+  {
+   "section": "Versus KrakenD EE: what becomes free",
+   "kind": "milestone",
+   "value": "gRPC server and client; streaming and SSE; direct WebSockets and multiplexer: Planned (M3)"
+  },
+  {
+   "section": "Versus KrakenD EE: what becomes free",
+   "kind": "policy_type",
+   "value": "`ai.token-budget`"
+  },
+  {
+   "section": "Versus KrakenD EE: what becomes free",
+   "kind": "milestone",
+   "value": "Token quota enforcement and quota management, Token Budget (`ai.token-budget`): Planned (M3)"
+  },
+  {
+   "section": "Versus KrakenD EE: what becomes free",
+   "kind": "milestone",
+   "value": "MCP Server: Planned (M3)"
+  },
+  {
+   "section": "Versus KrakenD EE: what becomes free",
+   "kind": "milestone",
+   "value": "Kafka async agents and advanced Apache Kafka: Planned (M4)"
+  },
+  {
+   "section": "Versus KrakenD EE: what becomes free",
+   "kind": "milestone",
+   "value": "FIPS-140-2 cryptography module, Free FIPS build: Planned (M5)"
+  },
+  {
+   "section": "Versus KrakenD EE: what becomes free",
+   "kind": "milestone",
+   "value": "API monetization, Free monetization hooks: Planned (M5)"
+  },
+  {
+   "section": "The market",
+   "kind": "claim",
+   "value": "Tyk's `ee` folder is commercial"
+  },
+  {
+   "section": "The market",
+   "kind": "claim",
+   "value": "APISIX's multi-cluster control plane, SSO and audit are in commercial API7 Gateway"
+  },
+  {
+   "section": "The market",
+   "kind": "claim",
+   "value": "Gravitee: LLM, MCP and A2A proxies, event entrypoints and connectors, and audit trail are Enterprise-only"
+  },
+  {
+   "section": "The market",
+   "kind": "claim",
+   "value": "Zuplo self-hosting is Enterprise-only"
+  },
+  {
+   "section": "The market",
+   "kind": "claim",
+   "value": "Traefik's central control plane and AI Gateway are paid in Hub"
+  },
+  {
+   "section": "The market",
+   "kind": "claim",
+   "value": "LiteLLM's SSO, audit logs and RBAC are enterprise features"
+  },
+  {
+   "section": "The market",
+   "kind": "claim",
+   "value": "Portkey's semantic caching is hosted and enterprise only"
+  },
+  {
+   "section": "The market",
+   "kind": "claim",
+   "value": "Agent Router is Apache-2.0"
+  },
+  {
+   "section": "The market",
+   "kind": "number",
+   "value": "Scores (openness; breadth): KrakenD CE (1.0; 0.4), EE (0; 0.6), Kong Gateway Enterprise (0; 0.8), Tyk (0.2; 0.8)"
+  },
+  {
+   "section": "The market",
+   "kind": "number",
+   "value": "Apache APISIX (1.0; 0.7), Envoy Gateway (1.0; 0.6), API7 Gateway (0; 0.8), Gravitee APIM (0.4; 0.8)"
+  },
+  {
+   "section": "The market",
+   "kind": "number",
+   "value": "Zuplo (0; 0.8), Traefik Proxy and Hub (0.6; 0.8), LiteLLM (0.8; 0.2), Agent Router (1.0; 0.3)"
+  },
+  {
+   "section": "The market",
+   "kind": "number",
+   "value": "Ruralz scores openness 1.0 (P1) and breadth 1.0 at M5 and 0.2 at M1 (core only)"
+  },
+  {
+   "section": "The market",
+   "kind": "number",
+   "value": "Points sit at 0.05 + 0.9 × score"
+  },
+  {
+   "section": "Where Ruralz does not lead",
+   "kind": "claim",
+   "value": "Envoy Gateway, NGINX Gateway Fabric, Traefik Proxy and Gravitee report 1.6.1 (Gateway API conformance)"
+  },
+  {
+   "section": "Where Ruralz does not lead",
+   "kind": "claim",
+   "value": "Garbage-collector pauses may hurt a Go data plane more than C++ Envoy (hypothesis)"
+  },
+  {
+   "section": "Principles",
+   "kind": "decision",
+   "value": "P1 Everything is free: No code path checks a Ruralz license, license key or Revington entitlement"
+  },
+  {
+   "section": "Principles",
+   "kind": "decision",
+   "value": "P2 The gateway stands alone: Ruralz Control is never on an enrolled Node's serving path"
+  },
+  {
+   "section": "Principles",
+   "kind": "failure_mode",
+   "value": "in Control mode, a Node without Last-Known-Good stays not ready until it enrolls and receives its first Revision"
+  },
+  {
+   "section": "Principles",
+   "kind": "limit",
+   "value": "each Policy makes at most one blocking, timed State Store round trip before the response is committed"
+  },
+  {
+   "section": "Principles",
+   "kind": "failure_mode",
+   "value": "usage settlement and cache stores asynchronous, bounded and droppable"
+  },
+  {
+   "section": "Principles",
+   "kind": "decision",
+   "value": "Other remote calls, such as a Semantic Cache embedding call to an `AIProvider`, are declared on the Policy with a timeout and `failureMode` (P9)"
+  },
+  {
+   "section": "Principles",
+   "kind": "kind_or_field",
+   "value": "`failureMode`"
+  },
+  {
+   "section": "Principles",
+   "kind": "decision",
+   "value": "P4 Nodes are disposable: per-Node Rate Limit ceilings come from the Policy or a Node count Ruralz Control publishes, never from peers"
+  },
+  {
+   "section": "Principles",
+   "kind": "decision",
+   "value": "P5 Git is the source of truth: one immutable, content-addressed Revision per Environment; Rollout with ACK/NACK in Control mode"
+  },
+  {
+   "section": "Principles",
+   "kind": "kind_or_field",
+   "value": "`memoryBytes`"
+  },
+  {
+   "section": "Principles",
+   "kind": "kind_or_field",
+   "value": "`timeout`"
+  },
+  {
+   "section": "Principles",
+   "kind": "kind_or_field",
+   "value": "Gateway `spec.limits.maxPluginMemoryBytes`"
+  },
+  {
+   "section": "Principles",
+   "kind": "failure_mode",
+   "value": "a faulty Plugin fails its own Filter, not the Node; Node-wide Plugin memory cap refuses new instances when reached and never crashes the Node"
+  },
+  {
+   "section": "Principles",
+   "kind": "kind_or_field",
+   "value": "`Route`"
+  },
+  {
+   "section": "Principles",
+   "kind": "kind_or_field",
+   "value": "`Policy`"
+  },
+  {
+   "section": "Principles",
+   "kind": "decision",
+   "value": "P7: a session maps to the request Phases, each message to `onChunk`, and inapplicable Phases are skipped"
+  },
+  {
+   "section": "Principles",
+   "kind": "kind_or_field",
+   "value": "`AIModel` `limits.maxOutputTokens`"
+  },
+  {
+   "section": "Principles",
+   "kind": "default",
+   "value": "output cap: the client's `max_tokens`, else `AIModel` `limits.maxOutputTokens`, which a Token-Budgeted `AIModel` MUST set"
+  },
+  {
+   "section": "Principles",
+   "kind": "decision",
+   "value": "Token Budget atomically reserves estimated prompt tokens plus an output cap, admits only when the remaining budget covers the full reservation, settles with provider-reported usage (ADR-0014)"
+  },
+  {
+   "section": "Principles",
+   "kind": "failure_mode",
+   "value": "Nodes keep serving their active Revision when Ruralz Control is unavailable and boot Last-Known-Good after a restart"
+  },
+  {
+   "section": "Principles",
+   "kind": "failure_mode",
+   "value": "authentication and authorization always fail closed"
+  },
+  {
+   "section": "Principles",
+   "kind": "failure_mode",
+   "value": "Rate Limits fail open by default (ADR-0008)"
+  },
+  {
+   "section": "Principles",
+   "kind": "decision",
+   "value": "P10: Every performance figure is either a tagged target or a reproducible benchmark; a metric for every degraded state is part of every build"
+  },
+  {
+   "section": "License and ownership",
+   "kind": "term",
+   "value": "`ruralzd`"
+  },
+  {
+   "section": "License and ownership",
+   "kind": "term",
+   "value": "`ruralz-control`"
+  },
+  {
+   "section": "License and ownership",
+   "kind": "term",
+   "value": "monorepo `github.com/ravindu-rev/ruralz`"
+  },
+  {
+   "section": "License and ownership",
+   "kind": "claim",
+   "value": "\"Copyright 2026 Revington\""
+  },
+  {
+   "section": "License and ownership",
+   "kind": "milestone",
+   "value": "ADR-0002 records this as repository policy, Planned (M0)"
+  },
+  {
+   "section": "No feature gating",
+   "kind": "decision",
+   "value": "Ruralz MUST NOT ship license keys, license files, Revington entitlement checks or a separate \"enterprise\" build"
+  },
+  {
+   "section": "No feature gating",
+   "kind": "claim",
+   "value": "Kong: binary degrades over a license state (license entity)"
+  },
+  {
+   "section": "No feature gating",
+   "kind": "decision",
+   "value": "air-gapped Semantic Cache uses a local embedding `AIProvider` such as `ollama`"
+  },
+  {
+   "section": "No feature gating",
+   "kind": "decision",
+   "value": "Commercial support MUST NOT deliver private features"
+  },
+  {
+   "section": "Revenue",
+   "kind": "decision",
+   "value": "exactly two revenue lines: Ruralz Cloud and commercial support"
+  },
+  {
+   "section": "Revenue",
+   "kind": "claim",
+   "value": "admin console SSO, paid at Kong Konnect Enterprise"
+  },
+  {
+   "section": "Revenue",
+   "kind": "claim",
+   "value": "SSO, custom roles and audit trail, paid at Gravitee EE"
+  },
+  {
+   "section": "Revenue",
+   "kind": "claim",
+   "value": "advanced RBAC and audit logging, paid at Tyk AI Studio EE"
+  },
+  {
+   "section": "Revenue",
+   "kind": "claim",
+   "value": "multi-cluster control planes, paid at Traefik Hub"
+  },
+  {
+   "section": "Revenue",
+   "kind": "milestone",
+   "value": "RBAC, audit log and Ruralz Control are Planned (M2)"
+  },
+  {
+   "section": "Revenue",
+   "kind": "milestone",
+   "value": "Ruralz Console SSO/SAML is Planned (M5)"
+  },
+  {
+   "section": "Why Apache-2.0 and not copyleft or source-available",
+   "kind": "claim",
+   "value": "Redis said its 2024 move \"hurt our relationship with the Redis community\""
+  },
+  {
+   "section": "Why Apache-2.0 and not copyleft or source-available",
+   "kind": "claim",
+   "value": "HashiCorp's BSL move produced the OpenTofu fork"
+  },
+  {
+   "section": "Why Apache-2.0 and not copyleft or source-available",
+   "kind": "decision",
+   "value": "DCO, no CLA"
+  },
+  {
+   "section": "Why Apache-2.0 and not copyleft or source-available",
+   "kind": "claim",
+   "value": "Valkey is BSD-3-Clause"
+  },
+  {
+   "section": "Why Apache-2.0 and not copyleft or source-available",
+   "kind": "library",
+   "value": "Redis or Valkey (State Store, over the network)"
+  },
+  {
+   "section": "Product non-goals",
+   "kind": "decision",
+   "value": "No service mesh"
+  },
+  {
+   "section": "Product non-goals",
+   "kind": "milestone",
+   "value": "monetization hooks (Planned (M5))"
+  },
+  {
+   "section": "Product non-goals",
+   "kind": "cli_command",
+   "value": "`ruralz bundle export openapi`"
+  },
+  {
+   "section": "Product non-goals",
+   "kind": "milestone",
+   "value": "`ruralz bundle export openapi` (Planned (M2))"
+  },
+  {
+   "section": "Product non-goals",
+   "kind": "decision",
+   "value": "No Go `plugin` or shared-object loading, and no Lua"
+  },
+  {
+   "section": "Product non-goals",
+   "kind": "decision",
+   "value": "Custom logic is a WASM Plugin or inline CEL (ADR-0011)"
+  },
+  {
+   "section": "Product non-goals",
+   "kind": "milestone",
+   "value": "Kafka, NATS and MQTT Routes (Planned (M4))"
+  },
+  {
+   "section": "Product non-goals",
+   "kind": "decision",
+   "value": "Ruralz bundles no OWASP rule set; WAF engines integrate as Plugins"
+  },
+  {
+   "section": "Product non-goals",
+   "kind": "decision",
+   "value": "No Kubernetes Gateway API conformance, deferred by ADR-0016 (proposed)"
+  },
+  {
+   "section": "Product non-goals",
+   "kind": "milestone",
+   "value": "a Helm chart and CRDs mirroring the kinds are Planned (M2)"
+  },
+  {
+   "section": "Product non-goals",
+   "kind": "milestone",
+   "value": "FIPS build (Planned (M5))"
+  },
+  {
+   "section": "Product non-goals",
+   "kind": "decision",
+   "value": "no capability is limited by Node count"
+  },
+  {
+   "section": "Success metrics",
+   "kind": "number",
+   "value": "HTTP/1.1 keep-alive, 1 KiB body, JWT validation and a local token bucket, no Plugins or State Store Policy, at half of saturation RPS (target)"
+  },
+  {
+   "section": "Success metrics",
+   "kind": "number",
+   "value": "a same-zone State Store round trip alone may reach 1 ms at p99 (hypothesis)"
+  },
+  {
+   "section": "Success metrics",
+   "kind": "metric",
+   "value": "SM-1 Features behind a license key or edition: 0 features (target); Planned (M0), permanent"
+  },
+  {
+   "section": "Success metrics",
+   "kind": "metric",
+   "value": "SM-2 KrakenD EE-only rows with a milestone or a reasoned \"Not planned\": 100% of EE-only rows (target); Planned (M1)"
+  },
+  {
+   "section": "Success metrics",
+   "kind": "metric",
+   "value": "SM-3 KrakenD EE-only rows implemented: 100% of rows not marked Not planned, with 10 or fewer Not planned rows (target); Planned (M5)"
+  },
+  {
+   "section": "Success metrics",
+   "kind": "metric",
+   "value": "SM-4 Gateway-added latency p99, reference scenario: 1 ms or less (target); Planned (M1)"
+  },
+  {
+   "section": "Success metrics",
+   "kind": "metric",
+   "value": "SM-5 Gateway-added latency p50, reference scenario: 150 µs or less (target); Planned (M1)"
+  },
+  {
+   "section": "Success metrics",
+   "kind": "metric",
+   "value": "SM-6 WASM Plugin Phase call overhead, pooled instance, deadline interruption enabled, p99: 50 µs or less (target); Planned (M2)"
+  },
+  {
+   "section": "Success metrics",
+   "kind": "metric",
+   "value": "SM-7 Time from download to first proxied request: 10 minutes or less (target); Planned (M1)"
+  },
+  {
+   "section": "Success metrics",
+   "kind": "metric",
+   "value": "SM-8 KrakenD configurations imported by `ruralz bundle import krakend`: 90% or more at full or partial fidelity (target); Planned (M2)"
+  },
+  {
+   "section": "Success metrics",
+   "kind": "metric",
+   "value": "SM-9 Rollout convergence in a 100-Node Cluster (`all-at-once`, Plugins cached): 30 s or less at p95 (target); Planned (M2)"
+  },
+  {
+   "section": "Success metrics",
+   "kind": "kind_or_field",
+   "value": "`all-at-once` Rollout"
+  },
+  {
+   "section": "Success metrics",
+   "kind": "number",
+   "value": "SM-10: B = 1,000,000 tokens, 200 concurrent streams, 2,000-token prompts, `max_tokens` = 4,096; mock reports 2% above estimate, drops usage on 5% of streams"
+  },
+  {
+   "section": "Success metrics",
+   "kind": "metric",
+   "value": "SM-10 Token Budget overshoot: at most the sum of per-stream estimate error, and 1% of B or less (hypothesis); Planned (M3)"
+  },
+  {
+   "section": "Success metrics",
+   "kind": "metric",
+   "value": "SM-11 Prompt Cache marker preservation on native passthrough: 100% of test cases (target); Planned (M3)"
+  },
+  {
+   "section": "Success metrics",
+   "kind": "metric",
+   "value": "SM-12 Supply-chain posture: 100% of releases signed from M1 (target); Scorecard 8.0 or higher from M2 (hypothesis); Planned (M1) to Planned (M2)"
+  },
+  {
+   "section": "Success metrics",
+   "kind": "metric",
+   "value": "SM-13 Unpatched Plugin sandbox escapes: 0 older than 30 days (target); Planned (M2)"
+  },
+  {
+   "section": "Success metrics",
+   "kind": "metric",
+   "value": "SM-14 External contributors with merged DCO-signed commits: 50 or more (hypothesis); Planned (M3)"
+  },
+  {
+   "section": "Success metrics",
+   "kind": "metric",
+   "value": "SM-15 Production adopters who publicly reference Ruralz: 25 or more (hypothesis); Planned (M4)"
+  },
+  {
+   "section": "Success metrics",
+   "kind": "number",
+   "value": "SM-10's 2% estimate error is an assumption (hypothesis)"
+  },
+  {
+   "section": "Success metrics",
+   "kind": "claim",
+   "value": "Claude Opus 4.7 and later produce about 30% more tokens for the same text"
+  },
+  {
+   "section": "Success metrics",
+   "kind": "failure_mode",
+   "value": "A stream reporting no usage is charged its full reservation and emits a degraded-state metric (P10)"
+  },
+  {
+   "section": "What it will be",
+   "kind": "claim",
+   "value": "Ruralz Cloud has not launched and has no milestone in `M0` to `M5`"
+  },
+  {
+   "section": "What it will be",
+   "kind": "decision",
+   "value": "customers' own Ruralz Gateway Nodes would enroll and dial the Control Stream over mTLS"
+  },
+  {
+   "section": "What it will be",
+   "kind": "term",
+   "value": "`ghcr.io/ravindu-rev/ruralzd`"
+  },
+  {
+   "section": "What it will be",
+   "kind": "term",
+   "value": "`ghcr.io/ravindu-rev/ruralz-control`"
+  },
+  {
+   "section": "Rules for Ruralz Cloud",
+   "kind": "decision",
+   "value": "Ruralz Cloud MUST run one dedicated `ruralz-control` and Control Store per customer"
+  },
+  {
+   "section": "Rules for Ruralz Cloud",
+   "kind": "decision",
+   "value": "Ruralz Cloud MUST NOT offer any feature, Filter, Host Function, API or kind that a self-hosted Ruralz Control lacks"
+  },
+  {
+   "section": "Rules for Ruralz Cloud",
+   "kind": "cli_command",
+   "value": "`ruralz control backup`"
+  },
+  {
+   "section": "Rules for Ruralz Cloud",
+   "kind": "cli_command",
+   "value": "`ruralz control restore`"
+  },
+  {
+   "section": "Rules for Ruralz Cloud",
+   "kind": "failure_mode",
+   "value": "State Store counters, such as Token Budget usage, reset on migration"
+  },
+  {
+   "section": "Rules for Ruralz Cloud",
+   "kind": "decision",
+   "value": "Customers pay for operations, availability, Regions and support, never for features"
+  },
+  {
+   "section": "Market reference points",
+   "kind": "claim",
+   "value": "Kong Konnect Plus prices per gateway plus USD 200 per extra million requests"
+  },
+  {
+   "section": "Market reference points",
+   "kind": "claim",
+   "value": "API7 Cloud prices per million calls"
+  },
+  {
+   "section": "Market reference points",
+   "kind": "claim",
+   "value": "Zuplo reserves self-hosting for Enterprise"
+  },
+  {
+   "section": "Open questions",
+   "kind": "term",
+   "value": "OQ-vision-and-positioning-12: no MCP kind or Policy type exists"
+  }
+ ]
+}

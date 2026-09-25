@@ -1,0 +1,646 @@
+{
+ "path": "docs/adr/0010-telemetry-opentelemetry-first.md",
+ "status": "accepted",
+ "facts": [
+  {
+   "section": "Context and problem statement",
+   "kind": "claim",
+   "value": "P10 requires OpenTelemetry signals in every build"
+  },
+  {
+   "section": "Context and problem statement",
+   "kind": "kind_or_field",
+   "value": "Gateway.spec.telemetry.otlp.endpoint"
+  },
+  {
+   "section": "Context and problem statement",
+   "kind": "kind_or_field",
+   "value": "traceSampling"
+  },
+  {
+   "section": "Context and problem statement",
+   "kind": "kind_or_field",
+   "value": "accessLog.when"
+  },
+  {
+   "section": "Context and problem statement",
+   "kind": "claim",
+   "value": "OpenTelemetry Go traces and metrics are stable but Logs is a release candidate"
+  },
+  {
+   "section": "Context and problem statement",
+   "kind": "milestone",
+   "value": "Ruralz Gateway telemetry is Planned (M1)"
+  },
+  {
+   "section": "Context and problem statement",
+   "kind": "milestone",
+   "value": "Ruralz Control Planned (M2)"
+  },
+  {
+   "section": "Context and problem statement",
+   "kind": "milestone",
+   "value": "AI Planned (M3)"
+  },
+  {
+   "section": "Decision drivers",
+   "kind": "claim",
+   "value": "Vendor-neutral and free (P1, P10): identical signals in every build, including FIPS (Planned (M5)) and air-gapped"
+  },
+  {
+   "section": "Decision drivers",
+   "kind": "milestone",
+   "value": "FIPS (Planned (M5))"
+  },
+  {
+   "section": "Decision drivers",
+   "kind": "failure_mode",
+   "value": "no request goroutine waits on a lock, pipe or exporter; bounded queues drop with a counter"
+  },
+  {
+   "section": "Decision drivers",
+   "kind": "claim",
+   "value": "packages call only stable APIs; library churn SHOULD stay inside `internal/telemetry`"
+  },
+  {
+   "section": "Decision drivers",
+   "kind": "claim",
+   "value": "Gates G1 to G3 and S2: pure Go, compatible license, Go 1.26 floor"
+  },
+  {
+   "section": "Decision drivers",
+   "kind": "number",
+   "value": "Go 1.26 floor"
+  },
+  {
+   "section": "Decision drivers",
+   "kind": "claim",
+   "value": "OTLP and `/metrics` (9901, 9902) MUST show identical names"
+  },
+  {
+   "section": "Decision drivers",
+   "kind": "api_path",
+   "value": "/metrics"
+  },
+  {
+   "section": "Decision drivers",
+   "kind": "port",
+   "value": "9901"
+  },
+  {
+   "section": "Decision drivers",
+   "kind": "port",
+   "value": "9902"
+  },
+  {
+   "section": "Decision drivers",
+   "kind": "claim",
+   "value": "One correlation key (O6): (`trace_id`, server `span_id`) links spans, logs and exemplars; problem-document `requestId` carries the trace ID (span ID: OQ-observability-13)"
+  },
+  {
+   "section": "Decision drivers",
+   "kind": "kind_or_field",
+   "value": "requestId"
+  },
+  {
+   "section": "Decision drivers",
+   "kind": "claim",
+   "value": "Nodes on one Revision differ only in `secretRef` values and `RURALZ_*` settings (pack section 8.1)"
+  },
+  {
+   "section": "Decision drivers",
+   "kind": "kind_or_field",
+   "value": "secretRef"
+  },
+  {
+   "section": "Decision drivers",
+   "kind": "number",
+   "value": "telemetry at defaults stays within 5% of Node CPU at half saturation (target)"
+  },
+  {
+   "section": "Considered options",
+   "kind": "library",
+   "value": "`go.opentelemetry.io/otel` v1.46.x for traces and metrics"
+  },
+  {
+   "section": "Considered options",
+   "kind": "library",
+   "value": "`log/slog` with the `otelslog` bridge v0.20.x for logs"
+  },
+  {
+   "section": "Considered options",
+   "kind": "library",
+   "value": "logs on the v1.47.0-rc.1 Logs API"
+  },
+  {
+   "section": "Considered options",
+   "kind": "library",
+   "value": "`prometheus/client_golang` v1.24.1"
+  },
+  {
+   "section": "Considered options",
+   "kind": "claim",
+   "value": "OpenTelemetry traces and plain `slog` logs, as APISIX splits them"
+  },
+  {
+   "section": "Considered options",
+   "kind": "claim",
+   "value": "Per-vendor exporters, as KrakenD links InfluxDB and GELF"
+  },
+  {
+   "section": "Considered options",
+   "kind": "claim",
+   "value": "KrakenD: with an EE-only New Relic SDK and deprecated OpenCensus"
+  },
+  {
+   "section": "Decision outcome",
+   "kind": "decision",
+   "value": "Chosen option: \"OpenTelemetry-first with an slog bridge\""
+  },
+  {
+   "section": "Decision outcome",
+   "kind": "claim",
+   "value": "OTLP carries all three signals while every call site uses a stable API (OpenTelemetry traces and metrics, `log/slog`), per pack section 7"
+  },
+  {
+   "section": "Decision outcome",
+   "kind": "decision",
+   "value": "v1.47.0's expected stable Logs API and SDK replace the release-candidate SDK behind the bridge; `slog` call sites stay, and `otelslog` remains the adapter in `internal/telemetry`"
+  },
+  {
+   "section": "Decision outcome",
+   "kind": "claim",
+   "value": "the Watch list trigger changes only wiring"
+  },
+  {
+   "section": "Decision outcome",
+   "kind": "decision",
+   "value": "Traces: SDK tracer; W3C Trace Context extracted at the server span and injected into every upstream leg; no baggage"
+  },
+  {
+   "section": "Decision outcome",
+   "kind": "decision",
+   "value": "`internal/telemetry` samples under both per-Node caps first, so unsampled requests create no spans, and installs a lock-free per-connection `sdktrace.WithIDGenerator`"
+  },
+  {
+   "section": "Decision outcome",
+   "kind": "library",
+   "value": "sdktrace.WithIDGenerator"
+  },
+  {
+   "section": "Decision outcome",
+   "kind": "milestone",
+   "value": "Traces: Planned (M1) for HTTP"
+  },
+  {
+   "section": "Decision outcome",
+   "kind": "milestone",
+   "value": "Traces: Planned (M3) for gRPC"
+  },
+  {
+   "section": "Decision outcome",
+   "kind": "milestone",
+   "value": "Traces: Planned (M4) for Kafka, NATS and MQTT 5"
+  },
+  {
+   "section": "Decision outcome",
+   "kind": "decision",
+   "value": "Metrics: Ruralz-owned aggregates, not SDK synchronous instruments, read by OTLP and `/metrics` via OQ-observability-16's SDK interface"
+  },
+  {
+   "section": "Decision outcome",
+   "kind": "milestone",
+   "value": "Metrics: Planned (M1)"
+  },
+  {
+   "section": "Decision outcome",
+   "kind": "decision",
+   "value": "Exemplars: Sampled requests alone write one slot per histogram label set per collection, under a sequence lock off the unsampled path, exported via OQ-observability-16 and OpenMetrics on `/metrics`"
+  },
+  {
+   "section": "Decision outcome",
+   "kind": "number",
+   "value": "slots add to the 300-byte histogram assumption (hypothesis)"
+  },
+  {
+   "section": "Decision outcome",
+   "kind": "milestone",
+   "value": "Exemplars: Planned (M1)"
+  },
+  {
+   "section": "Decision outcome",
+   "kind": "decision",
+   "value": "Logs: Only `log/slog` via `internal/telemetry`, except the audit export; no request goroutine runs a writing handler"
+  },
+  {
+   "section": "Decision outcome",
+   "kind": "limit",
+   "value": "Pooled access log records use a bounded queue of 8,192 records and 4 MiB (target)"
+  },
+  {
+   "section": "Decision outcome",
+   "kind": "decision",
+   "value": "process logs a non-blocking handler and another bounded queue; the one stdout-owning worker encodes each once for stdout and the bridge"
+  },
+  {
+   "section": "Decision outcome",
+   "kind": "failure_mode",
+   "value": "Both drop with `ruralz_telemetry_logs_dropped_total{stream, reason=\"queue_full\"}`"
+  },
+  {
+   "section": "Decision outcome",
+   "kind": "metric",
+   "value": "ruralz_telemetry_logs_dropped_total"
+  },
+  {
+   "section": "Decision outcome",
+   "kind": "library",
+   "value": "Raft's `go-hclog` adapts to `slog` (ADR-0006)"
+  },
+  {
+   "section": "Decision outcome",
+   "kind": "milestone",
+   "value": "Logs: Planned (M1); Ruralz Control Planned (M2)"
+  },
+  {
+   "section": "Decision outcome",
+   "kind": "decision",
+   "value": "Export: Node OTLP only when `Gateway.spec.telemetry.otlp.endpoint` is set, over TLS (TB-12)"
+  },
+  {
+   "section": "Decision outcome",
+   "kind": "failure_mode",
+   "value": "spans and logs, except the audit export, pass queues dropping with `queue_full` or `export_error` counts"
+  },
+  {
+   "section": "Decision outcome",
+   "kind": "failure_mode",
+   "value": "failure past one interval raises `telemetry_export_failing`"
+  },
+  {
+   "section": "Decision outcome",
+   "kind": "term",
+   "value": "telemetry_export_failing"
+  },
+  {
+   "section": "Decision outcome",
+   "kind": "decision",
+   "value": "Before any SDK constructor, `ruralzd` and `ruralz-control` `os.Unsetenv` every `OTEL_*` variable (`WithResource` always merges `resource.Environment()`) and pass explicit options"
+  },
+  {
+   "section": "Decision outcome",
+   "kind": "decision",
+   "value": "`${OTEL_...}` substitution runs at render time, or in file-mode `ruralzd` from its pre-removal environment"
+  },
+  {
+   "section": "Decision outcome",
+   "kind": "milestone",
+   "value": "Export: Planned (M1)"
+  },
+  {
+   "section": "Decision outcome",
+   "kind": "decision",
+   "value": "Audit export: The leader emits committed entries, bypassing `slog`, through a dedicated `sdklog.LoggerProvider` with the Resource-row resource"
+  },
+  {
+   "section": "Decision outcome",
+   "kind": "decision",
+   "value": "one synchronous capture Processor cloning records into a batch (no BatchProcessor, since `Emit` returns no error)"
+  },
+  {
+   "section": "Decision outcome",
+   "kind": "library",
+   "value": "sdklog.LoggerProvider"
+  },
+  {
+   "section": "Decision outcome",
+   "kind": "decision",
+   "value": "It calls the OTLP log exporter's `Export`, advancing the high-water mark only on a nil error, never on partial success"
+  },
+  {
+   "section": "Decision outcome",
+   "kind": "failure_mode",
+   "value": "Raft-indexed batches retry until acknowledged, lagging, never dropping (TB-12 exception proposed in OQ-observability-19)"
+  },
+  {
+   "section": "Decision outcome",
+   "kind": "milestone",
+   "value": "Audit export: Planned (M2)"
+  },
+  {
+   "section": "Decision outcome",
+   "kind": "decision",
+   "value": "Conventions: HTTP semantic conventions without `url.full` and `url.query`; `gen_ai.*` pinned to one commit per release, never content attributes"
+  },
+  {
+   "section": "Decision outcome",
+   "kind": "milestone",
+   "value": "Conventions: Planned (M1); `gen_ai` Planned (M3)"
+  },
+  {
+   "section": "Decision outcome",
+   "kind": "decision",
+   "value": "Resource: `service.name`, `service.version`, `service.instance.id` (`node.id` or replica), plus Cluster and Environment in Control mode; never the active Revision"
+  },
+  {
+   "section": "Decision outcome",
+   "kind": "decision",
+   "value": "Providers rebuild once after Enrollment; old-provider spans end and flush off the request path"
+  },
+  {
+   "section": "Decision outcome",
+   "kind": "milestone",
+   "value": "Resource: Planned (M1)"
+  },
+  {
+   "section": "Decision outcome",
+   "kind": "decision",
+   "value": "Vendor SDKs: None; vendors read the operator's OpenTelemetry Collector or a Prometheus-compatible scraper"
+  },
+  {
+   "section": "Decision outcome",
+   "kind": "milestone",
+   "value": "Vendor SDKs: Not planned: one export path (P1)"
+  },
+  {
+   "section": "Decision outcome",
+   "kind": "port",
+   "value": "Ruralz Control serves `/metrics` on 9902"
+  },
+  {
+   "section": "Decision outcome",
+   "kind": "port",
+   "value": "/metrics exporter on 9901, library open"
+  },
+  {
+   "section": "Decision outcome",
+   "kind": "failure_mode",
+   "value": "Audit export to OTLP exporter: retry, never drop"
+  },
+  {
+   "section": "Consequences",
+   "kind": "claim",
+   "value": "one OTLP pipeline reaches any store without per-vendor Ruralz code (P1)"
+  },
+  {
+   "section": "Consequences",
+   "kind": "claim",
+   "value": "`slog` call sites survive v1.47.0 unchanged"
+  },
+  {
+   "section": "Consequences",
+   "kind": "claim",
+   "value": "(`trace_id`, server `span_id`) correlates spans, access logs, exemplars and `requestId` (O6)"
+  },
+  {
+   "section": "Consequences",
+   "kind": "failure_mode",
+   "value": "a blocked stdout or stalled Collector costs counted drops, not latency"
+  },
+  {
+   "section": "Consequences",
+   "kind": "claim",
+   "value": "until v1.47.0 the bridge feeds a pre-stable SDK, and v1.47.0-rc.1 already deprecates `otel/log/global`"
+  },
+  {
+   "section": "Consequences",
+   "kind": "claim",
+   "value": "the lossless audit export uses the pre-stable OTLP log exporter and waits on OQ-observability-19 (blocking for Planned (M2)) to amend TB-12's \"Drop on failure\""
+  },
+  {
+   "section": "Consequences",
+   "kind": "library",
+   "value": "`otelslog` declares `go 1.26.0`"
+  },
+  {
+   "section": "Consequences",
+   "kind": "claim",
+   "value": "Ruralz aggregates duplicate part of the SDK pipeline and forgo its exemplar reservoirs; OQ-observability-16 (blocking for M1 metrics) sets their export interface, option (c) amending this ADR"
+  },
+  {
+   "section": "Consequences",
+   "kind": "library",
+   "value": "the `/metrics` exporter is unselected (OQ-tech-stack-and-libraries-16): `client_golang`, still a candidate, or the OpenTelemetry Prometheus exporter v0.68.0"
+  },
+  {
+   "section": "Consequences",
+   "kind": "claim",
+   "value": "it MUST expose OpenMetrics exemplars"
+  },
+  {
+   "section": "Consequences",
+   "kind": "library",
+   "value": "grpc-go v1.84.0"
+  },
+  {
+   "section": "Consequences",
+   "kind": "claim",
+   "value": "library instruments rename between releases, so Grafana dashboards and alerts use only `ruralz_*` names"
+  },
+  {
+   "section": "Consequences",
+   "kind": "claim",
+   "value": "the `gen_ai` conventions are Development with no tagged release, so each release pins a commit"
+  },
+  {
+   "section": "Consequences",
+   "kind": "claim",
+   "value": "with `OTEL_*` removed, OTLP TLS and authentication wait on OQ-observability-2 (blocking for TLS export at M1)"
+  },
+  {
+   "section": "Consequences",
+   "kind": "failure_mode",
+   "value": "cleartext raises `cleartext_hop`"
+  },
+  {
+   "section": "Consequences",
+   "kind": "term",
+   "value": "cleartext_hop"
+  },
+  {
+   "section": "Consequences",
+   "kind": "limit",
+   "value": "telemetry takes up to 40 MiB live heap and 80 MiB RSS, no `/tap` subscriber, at `GOGC=100` (target; OQ-observability-17)"
+  },
+  {
+   "section": "Consequences",
+   "kind": "api_path",
+   "value": "/tap"
+  },
+  {
+   "section": "Confirmation",
+   "kind": "milestone",
+   "value": "Lint, Planned (M0)"
+  },
+  {
+   "section": "Confirmation",
+   "kind": "claim",
+   "value": "depguard `log$` rejects `log`; `sloglint` checks `slog` keys, `spancheck` unended spans; repocheck checks pack section 2 names"
+  },
+  {
+   "section": "Confirmation",
+   "kind": "library",
+   "value": "sloglint"
+  },
+  {
+   "section": "Confirmation",
+   "kind": "library",
+   "value": "spancheck"
+  },
+  {
+   "section": "Confirmation",
+   "kind": "milestone",
+   "value": "Catalog gates, Planned (M1)"
+  },
+  {
+   "section": "Confirmation",
+   "kind": "claim",
+   "value": "CI fails on a `ruralz_*` name or degraded reason absent from the Metrics catalog, a Grafana panel on an unlisted metric, or differing OTLP and `/metrics` names"
+  },
+  {
+   "section": "Confirmation",
+   "kind": "milestone",
+   "value": "Cardinality test, Planned (M1)"
+  },
+  {
+   "section": "Confirmation",
+   "kind": "limit",
+   "value": "1,000 Hot Reloads renaming every Route keep retiring series within 25,000 (target)"
+  },
+  {
+   "section": "Confirmation",
+   "kind": "milestone",
+   "value": "Benchmark gate, Planned (M1)"
+  },
+  {
+   "section": "Confirmation",
+   "kind": "number",
+   "value": "PB-10 fails when telemetry at defaults exceeds 5% of Node CPU (target)"
+  },
+  {
+   "section": "Confirmation",
+   "kind": "number",
+   "value": "at 4 P and 32 P, unsampled requests never touch exemplar slots (target)"
+  },
+  {
+   "section": "Confirmation",
+   "kind": "milestone",
+   "value": "Blocked stdout test, Planned (M1)"
+  },
+  {
+   "section": "Confirmation",
+   "kind": "number",
+   "value": "a blocked stdout keeps request latency within Overhead per signal budgets (target), with drops counted"
+  },
+  {
+   "section": "Confirmation",
+   "kind": "milestone",
+   "value": "Environment golden test, Planned (M1)"
+  },
+  {
+   "section": "Confirmation",
+   "kind": "claim",
+   "value": "with `OTEL_RESOURCE_ATTRIBUTES`, `OTEL_EXPORTER_OTLP_HEADERS` and `OTEL_TRACES_SAMPLER` set, `ruralzd` exports a byte-identical resource, headers and sampling"
+  },
+  {
+   "section": "Confirmation",
+   "kind": "claim",
+   "value": "`os.Getenv(\"OTEL_RESOURCE_ATTRIBUTES\")` is empty after startup, and an unrendered Bundle's `${OTEL_EXPORTER_OTLP_ENDPOINT}` still resolves"
+  },
+  {
+   "section": "Confirmation",
+   "kind": "milestone",
+   "value": "End-to-end test, Planned (M1)"
+  },
+  {
+   "section": "Confirmation",
+   "kind": "claim",
+   "value": "the file-mode Docker Compose environment runs an OpenTelemetry Collector"
+  },
+  {
+   "section": "Confirmation",
+   "kind": "milestone",
+   "value": "Audit export test, Planned (M2)"
+  },
+  {
+   "section": "Confirmation",
+   "kind": "claim",
+   "value": "across a leader failover, against a Collector returning partial success, every committed entry arrives at least once, carrying the Resource-row attributes"
+  },
+  {
+   "section": "Confirmation",
+   "kind": "decision",
+   "value": "a vendor telemetry SDK, or `go.opentelemetry.io/otel/log` or an OTLP log exporter used outside `internal/telemetry` or beyond the audit export, MUST amend this ADR"
+  },
+  {
+   "section": "OpenTelemetry-first with an slog bridge",
+   "kind": "claim",
+   "value": "traces and metrics are stable"
+  },
+  {
+   "section": "OpenTelemetry-first with an slog bridge",
+   "kind": "claim",
+   "value": "logs and the audit export rest on a pre-stable Logs SDK until v1.47.0"
+  },
+  {
+   "section": "OpenTelemetry for all three signals now",
+   "kind": "claim",
+   "value": "one API covers every signal"
+  },
+  {
+   "section": "OpenTelemetry for all three signals now",
+   "kind": "claim",
+   "value": "call sites would use a release-candidate API, its global logger package already deprecated"
+  },
+  {
+   "section": "Prometheus client for metrics",
+   "kind": "library",
+   "value": "`client_golang` is Apache-2.0"
+  },
+  {
+   "section": "Prometheus client for metrics",
+   "kind": "claim",
+   "value": "metrics miss OTLP, so operators run two pipelines, as with APISIX's traces-only plugin"
+  },
+  {
+   "section": "Per-vendor exporters",
+   "kind": "claim",
+   "value": "vendor features need no Collector"
+  },
+  {
+   "section": "Per-vendor exporters",
+   "kind": "claim",
+   "value": "each vendor adds a dependency and code path, and KrakenD keeps native SDKs in a paid edition, against P1"
+  },
+  {
+   "section": "More information",
+   "kind": "claim",
+   "value": "ADR-0007 (Node counters ride heartbeats)"
+  },
+  {
+   "section": "More information",
+   "kind": "claim",
+   "value": "Ruralz Control's OTLP settings are OQ-observability-11"
+  },
+  {
+   "section": "More information",
+   "kind": "decision",
+   "value": "Revisit at OpenTelemetry Go v1.47.0, when OQ-observability-16 picks Ruralz encoders, OQ-observability-2 adds TLS fields or `gen_ai` tags a release"
+  },
+  {
+   "section": "More information",
+   "kind": "decision",
+   "value": "Proposed amendment: tech stack Watch list Fallback for the OTel Logs API: \"Stable Logs SDK behind the `otelslog` bridge; `slog` call sites unchanged\""
+  },
+  {
+   "section": "More information",
+   "kind": "decision",
+   "value": "Proposed amendment: pack section 7: \"`slog` bridge (`otelslog`) for logs, over a pre-stable Logs SDK until OTel Go v1.47.0\""
+  },
+  {
+   "section": "More information",
+   "kind": "decision",
+   "value": "Proposed amendment: confine `go.opentelemetry.io/otel`, OTLP exporter modules and `otelslog` to `internal/telemetry` (S7), so the checklist item becomes lint"
+  }
+ ]
+}

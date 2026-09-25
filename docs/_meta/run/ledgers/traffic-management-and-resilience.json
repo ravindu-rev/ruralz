@@ -1,0 +1,1821 @@
+{
+ "path": "docs/architecture/09-traffic-management-and-resilience.md",
+ "status": "reviewed",
+ "facts": [
+  {
+   "section": "Summary",
+   "kind": "decision",
+   "value": "Rate limiting follows ADR-0008: local token bucket, then State Store GCRA, fail-open by default"
+  },
+  {
+   "section": "Summary",
+   "kind": "error_code",
+   "value": "RZ-UP"
+  },
+  {
+   "section": "Summary",
+   "kind": "error_code",
+   "value": "RZ-RL"
+  },
+  {
+   "section": "Summary",
+   "kind": "policy_type",
+   "value": "ratelimit"
+  },
+  {
+   "section": "Summary",
+   "kind": "policy_type",
+   "value": "quota"
+  },
+  {
+   "section": "Summary",
+   "kind": "policy_type",
+   "value": "cache"
+  },
+  {
+   "section": "Summary",
+   "kind": "kind_or_field",
+   "value": "Upstream"
+  },
+  {
+   "section": "Scope and non-goals",
+   "kind": "kind_or_field",
+   "value": "Route.spec.timeout"
+  },
+  {
+   "section": "Scope and non-goals",
+   "kind": "kind_or_field",
+   "value": "upstreams"
+  },
+  {
+   "section": "Scope and non-goals",
+   "kind": "claim",
+   "value": "Nothing here is implemented."
+  },
+  {
+   "section": "Scope and non-goals",
+   "kind": "claim",
+   "value": "authoritative numbers (Performance budgets and benchmarking, which wins)"
+  },
+  {
+   "section": "Scope and non-goals",
+   "kind": "policy_type",
+   "value": "authz.ip"
+  },
+  {
+   "section": "Scope and non-goals",
+   "kind": "policy_type",
+   "value": "authz.geoip"
+  },
+  {
+   "section": "Scope and non-goals",
+   "kind": "decision",
+   "value": "Token Budgets (ADR-0014)"
+  },
+  {
+   "section": "Load balancing",
+   "kind": "milestone",
+   "value": "Endpoint selection per attempt between `onRoute` and `onUpstreamRequest`: Planned (M1) for `http` Upstreams"
+  },
+  {
+   "section": "Load balancing",
+   "kind": "kind_or_field",
+   "value": "weight"
+  },
+  {
+   "section": "Load balancing",
+   "kind": "kind_or_field",
+   "value": "loadBalancing.algorithm"
+  },
+  {
+   "section": "Load balancing",
+   "kind": "kind_or_field",
+   "value": "endpoints[].weight"
+  },
+  {
+   "section": "Load balancing",
+   "kind": "kind_or_field",
+   "value": "round-robin"
+  },
+  {
+   "section": "Load balancing",
+   "kind": "kind_or_field",
+   "value": "least-request"
+  },
+  {
+   "section": "Load balancing",
+   "kind": "kind_or_field",
+   "value": "ring-hash"
+  },
+  {
+   "section": "Load balancing",
+   "kind": "kind_or_field",
+   "value": "random"
+  },
+  {
+   "section": "Load balancing",
+   "kind": "kind_or_field",
+   "value": "hashKey"
+  },
+  {
+   "section": "Load balancing",
+   "kind": "default",
+   "value": "`least-request`: Mixed latency; proposed default"
+  },
+  {
+   "section": "Load balancing",
+   "kind": "number",
+   "value": "least-request counting failures of the last 1 s (target)"
+  },
+  {
+   "section": "Load balancing",
+   "kind": "limit",
+   "value": "A `round-robin` schedule holds min(65,536, 64 × Endpoints) 4-byte slots"
+  },
+  {
+   "section": "Load balancing",
+   "kind": "number",
+   "value": "768 bytes for 3 Endpoints, 256 KiB at most (target)"
+  },
+  {
+   "section": "Load balancing",
+   "kind": "limit",
+   "value": "A `ring-hash` ring holds min(65,536, v × Endpoints) 16-byte virtual nodes, at most 1 MiB (target; hash: OQ-traffic-management-and-resilience-15)"
+  },
+  {
+   "section": "Load balancing",
+   "kind": "limit",
+   "value": "Structures rebuild off the request path at most every 10 s per Upstream, 8 at a time per Node, swapping copy-on-write (target)"
+  },
+  {
+   "section": "Load balancing",
+   "kind": "claim",
+   "value": "A pick skips ejected slots for one pass, then panics."
+  },
+  {
+   "section": "Load balancing",
+   "kind": "limit",
+   "value": "Balancer structures share a 256 MiB budget per Node (target)"
+  },
+  {
+   "section": "Load balancing",
+   "kind": "number",
+   "value": "v = clamp(floor((256 MiB − schedules − 16 MiB copy-on-write reserve) / (16 B × Endpoints summed over rings)), 64, 1,024) virtual nodes per Endpoint (target)"
+  },
+  {
+   "section": "Load balancing",
+   "kind": "failure_mode",
+   "value": "If v = 64 does not fit, rings fall back to weighted `random`, largest first, with degraded reason `balancer_budget`"
+  },
+  {
+   "section": "Load balancing",
+   "kind": "number",
+   "value": "Endpoint-set changes lower v at once on overflow and raise it only when it can double (target)"
+  },
+  {
+   "section": "Load balancing",
+   "kind": "number",
+   "value": "1,000 rings of 64 Endpoints, 1 GiB at full size, all build at v = 244, about 238 MiB (hypothesis)"
+  },
+  {
+   "section": "Load balancing",
+   "kind": "claim",
+   "value": "Health, ejection and breaker state survive Hot Reloads."
+  },
+  {
+   "section": "Load balancing",
+   "kind": "metric",
+   "value": "ruralz_upstream_degraded_info"
+  },
+  {
+   "section": "Load balancing",
+   "kind": "error_code",
+   "value": "503 RZ-UP-008"
+  },
+  {
+   "section": "Load balancing",
+   "kind": "error_code",
+   "value": "503 RZ-UP-005 or RZ-UP-006"
+  },
+  {
+   "section": "Load balancing",
+   "kind": "timeout",
+   "value": "dial within 1 s and TLS within 2 s (target)"
+  },
+  {
+   "section": "Service discovery",
+   "kind": "kind_or_field",
+   "value": "endpoints[].address"
+  },
+  {
+   "section": "Service discovery",
+   "kind": "kind_or_field",
+   "value": "discovery.type: dns"
+  },
+  {
+   "section": "Service discovery",
+   "kind": "kind_or_field",
+   "value": "discovery.type: kubernetes"
+  },
+  {
+   "section": "Service discovery",
+   "kind": "kind_or_field",
+   "value": "service"
+  },
+  {
+   "section": "Service discovery",
+   "kind": "kind_or_field",
+   "value": "namespace"
+  },
+  {
+   "section": "Service discovery",
+   "kind": "kind_or_field",
+   "value": "port"
+  },
+  {
+   "section": "Service discovery",
+   "kind": "timeout",
+   "value": "Static: Host names resolve every 30 s (target), keeping the last good answer"
+  },
+  {
+   "section": "Service discovery",
+   "kind": "milestone",
+   "value": "Static discovery: Planned (M1)"
+  },
+  {
+   "section": "Service discovery",
+   "kind": "timeout",
+   "value": "DNS: Every 30 s, 10% jitter (target)"
+  },
+  {
+   "section": "Service discovery",
+   "kind": "claim",
+   "value": "Numeric `port`: A and AAAA; named: SRV `_<port>._tcp.<service>`"
+  },
+  {
+   "section": "Service discovery",
+   "kind": "milestone",
+   "value": "DNS discovery: Planned (M1)"
+  },
+  {
+   "section": "Service discovery",
+   "kind": "milestone",
+   "value": "Kubernetes discovery (EndpointSlice watch): Planned (M2)"
+  },
+  {
+   "section": "Service discovery",
+   "kind": "library",
+   "value": "EndpointSlice watch (client: OQ-tech-stack-and-libraries-23)"
+  },
+  {
+   "section": "Service discovery",
+   "kind": "failure_mode",
+   "value": "On lookup failure or an unreachable Kubernetes API the Node keeps its last set, raises `ruralz_upstream_degraded_info` (reason `discovery_stale`)"
+  },
+  {
+   "section": "Service discovery",
+   "kind": "timeout",
+   "value": "retries with full-jitter backoff, 1 s to 60 s (target)"
+  },
+  {
+   "section": "Service discovery",
+   "kind": "number",
+   "value": "NXDOMAIN or an empty answer counts as a failure until 3 consecutive refreshes repeat it (target)"
+  },
+  {
+   "section": "Service discovery",
+   "kind": "failure_mode",
+   "value": "only an EndpointSlice with zero serving Endpoints empties the set at once (`RZ-UP-008`)"
+  },
+  {
+   "section": "Service discovery",
+   "kind": "decision",
+   "value": "Registry-specific clients are Not planned, as each adds a dependency to every build; SRV-capable registries use `discovery.type: dns`"
+  },
+  {
+   "section": "Health checking and outlier detection",
+   "kind": "milestone",
+   "value": "Health checking (each Node judges health alone): Planned (M1)"
+  },
+  {
+   "section": "Health checking and outlier detection",
+   "kind": "kind_or_field",
+   "value": "healthCheck.passive.consecutiveErrors"
+  },
+  {
+   "section": "Health checking and outlier detection",
+   "kind": "kind_or_field",
+   "value": "ejectionTime"
+  },
+  {
+   "section": "Health checking and outlier detection",
+   "kind": "kind_or_field",
+   "value": "circuitBreaker.failureWhen"
+  },
+  {
+   "section": "Health checking and outlier detection",
+   "kind": "kind_or_field",
+   "value": "healthCheck.active.path"
+  },
+  {
+   "section": "Health checking and outlier detection",
+   "kind": "kind_or_field",
+   "value": "interval"
+  },
+  {
+   "section": "Health checking and outlier detection",
+   "kind": "kind_or_field",
+   "value": "timeout"
+  },
+  {
+   "section": "Health checking and outlier detection",
+   "kind": "kind_or_field",
+   "value": "healthyThreshold"
+  },
+  {
+   "section": "Health checking and outlier detection",
+   "kind": "kind_or_field",
+   "value": "unhealthyThreshold"
+  },
+  {
+   "section": "Health checking and outlier detection",
+   "kind": "default",
+   "value": "Passive ejection, on by default"
+  },
+  {
+   "section": "Health checking and outlier detection",
+   "kind": "limit",
+   "value": "eject the Endpoint for `ejectionTime` × its ejection count, at most 10 (target)"
+  },
+  {
+   "section": "Health checking and outlier detection",
+   "kind": "number",
+   "value": "`GET path` every `interval`, 10% jitter (target); 200 to 399 within `timeout` succeeds; new Endpoints start healthy"
+  },
+  {
+   "section": "Health checking and outlier detection",
+   "kind": "limit",
+   "value": "At most 50% of Endpoints are passively ejected at once (target)"
+  },
+  {
+   "section": "Health checking and outlier detection",
+   "kind": "failure_mode",
+   "value": "With no healthy Endpoint the Node uses all (panic mode, reason `panic`)"
+  },
+  {
+   "section": "Health checking and outlier detection",
+   "kind": "decision",
+   "value": "for OQ-data-plane-7 this document recommends all-or-nothing panic at M1 (threshold: OQ-traffic-management-and-resilience-7)"
+  },
+  {
+   "section": "Health checking and outlier detection",
+   "kind": "metric",
+   "value": "ruralz_upstream_ejections_total"
+  },
+  {
+   "section": "Health checking and outlier detection",
+   "kind": "timeout",
+   "value": "An attempt without response headers after 1 s is stalled (target)"
+  },
+  {
+   "section": "Health checking and outlier detection",
+   "kind": "number",
+   "value": "Any black-holed Endpoint, `http` or gRPC, pooled or not, thus stops getting attempts within about 1 s (target)"
+  },
+  {
+   "section": "Health checking and outlier detection",
+   "kind": "claim",
+   "value": "Go leaves HTTP/2 health checks off by default"
+  },
+  {
+   "section": "Health checking and outlier detection",
+   "kind": "timeout",
+   "value": "`HTTP2Config` pings a connection silent for 1 s and closes it after 5 s unanswered (target)"
+  },
+  {
+   "section": "Health checking and outlier detection",
+   "kind": "number",
+   "value": "A 2 s garbage-collection pause or two TCP retransmission timeouts only suspend new attempts: no false positives below 5 s (hypothesis)"
+  },
+  {
+   "section": "Health checking and outlier detection",
+   "kind": "milestone",
+   "value": "gRPC Upstreams, Planned (M3)"
+  },
+  {
+   "section": "Health checking and outlier detection",
+   "kind": "decision",
+   "value": "gRPC Upstreams skip keepalive (OQ-traffic-management-and-resilience-6)"
+  },
+  {
+   "section": "Health checking and outlier detection",
+   "kind": "claim",
+   "value": "a default grpc-go server answers frequent pings with GOAWAY `too_many_pings`"
+  },
+  {
+   "section": "Health checking and outlier detection",
+   "kind": "failure_mode",
+   "value": "in-flight attempts on a black-holed gRPC connection thus end at `perTryTimeout` as 504 `RZ-UP-003`, since default `retryOn` omits `timeout`"
+  },
+  {
+   "section": "Health checking and outlier detection",
+   "kind": "limit",
+   "value": "Probe slots per Node are min(256, ceil(probes per second × `timeout`)) (target)"
+  },
+  {
+   "section": "Health checking and outlier detection",
+   "kind": "metric",
+   "value": "ruralz_upstream_probes_skipped_total"
+  },
+  {
+   "section": "Health checking and outlier detection",
+   "kind": "number",
+   "value": "above 10% for 1 minute, raise degraded reason `probes_skipped` (target)"
+  },
+  {
+   "section": "Health checking and outlier detection",
+   "kind": "number",
+   "value": "Beyond about 1,280 Endpoints per Node at `interval: 10s`, `timeout: 2s` (target)"
+  },
+  {
+   "section": "Health checking and outlier detection",
+   "kind": "milestone",
+   "value": "gRPC checks use `grpc.health.v1`, Planned (M3)"
+  },
+  {
+   "section": "Deadlines",
+   "kind": "kind_or_field",
+   "value": "Route.spec.timeout"
+  },
+  {
+   "section": "Deadlines",
+   "kind": "kind_or_field",
+   "value": "Upstream.spec.timeout"
+  },
+  {
+   "section": "Deadlines",
+   "kind": "kind_or_field",
+   "value": "retries.perTryTimeout"
+  },
+  {
+   "section": "Deadlines",
+   "kind": "kind_or_field",
+   "value": "Policy.spec.stateStoreTimeout"
+  },
+  {
+   "section": "Deadlines",
+   "kind": "kind_or_field",
+   "value": "failureMode"
+  },
+  {
+   "section": "Deadlines",
+   "kind": "kind_or_field",
+   "value": "retryOn"
+  },
+  {
+   "section": "Deadlines",
+   "kind": "error_code",
+   "value": "`RZ-RT-007` before any attempt, `RZ-UP-003` during one, `RZ-UP-009` after commit"
+  },
+  {
+   "section": "Deadlines",
+   "kind": "timeout",
+   "value": "Dial; TLS handshake: Fixed 1 s; 2 s (target)"
+  },
+  {
+   "section": "Deadlines",
+   "kind": "claim",
+   "value": "State Store round trip clamped by the Route's largest (pack 8.7)"
+  },
+  {
+   "section": "Deadlines",
+   "kind": "claim",
+   "value": "an SSE or `ai` Upstream's `timeout: 3s` never ends a stream"
+  },
+  {
+   "section": "Deadlines",
+   "kind": "claim",
+   "value": "gRPC sends the remaining deadline as `grpc-timeout`"
+  },
+  {
+   "section": "Deadlines",
+   "kind": "default",
+   "value": "`Route.spec.timeout`: 15 s; 1 h for WebSocket, GraphQL subscription, gRPC streaming and `protocol: ai` Routes (target)"
+  },
+  {
+   "section": "Deadlines",
+   "kind": "default",
+   "value": "`Upstream.spec.timeout`: The Route's `timeout` (target)"
+  },
+  {
+   "section": "Deadlines",
+   "kind": "default",
+   "value": "`retries.perTryTimeout`: Leg time left divided by (retries left + 1) (target)"
+  },
+  {
+   "section": "Deadlines",
+   "kind": "default",
+   "value": "`retries.attempts`: 1 retry"
+  },
+  {
+   "section": "Deadlines",
+   "kind": "default",
+   "value": "`retries.retryOn`: GET, HEAD, OPTIONS, PUT, DELETE: `connect` or `reset` errors, or 503; other methods: `connect` errors"
+  },
+  {
+   "section": "Deadlines",
+   "kind": "default",
+   "value": "`circuitBreaker.failureWhen`: `error != null || response.status in [502, 503, 504]`"
+  },
+  {
+   "section": "Deadlines",
+   "kind": "default",
+   "value": "`circuitBreaker` limits: `maxConnections` 1,024, `maxPendingRequests` 256, `consecutiveFailures` 5, `openDuration` 30 s (target)"
+  },
+  {
+   "section": "Deadlines",
+   "kind": "default",
+   "value": "`healthCheck.passive`: `consecutiveErrors` 5, `ejectionTime` 30 s (target)"
+  },
+  {
+   "section": "Deadlines",
+   "kind": "timeout",
+   "value": "For OQ-data-plane-10 this document recommends a fixed 60 s idle limit between chunks (target)"
+  },
+  {
+   "section": "Retries",
+   "kind": "kind_or_field",
+   "value": "retries.attempts"
+  },
+  {
+   "section": "Retries",
+   "kind": "claim",
+   "value": "`attempts: 2` allows three attempts"
+  },
+  {
+   "section": "Retries",
+   "kind": "limit",
+   "value": "Any Upstream `Retry-After` at most 10 s (target) and ending before the leg deadline"
+  },
+  {
+   "section": "Retries",
+   "kind": "timeout",
+   "value": "Backoff is full-jitter exponential from 25 ms to 250 ms (target), or a longer `Retry-After`"
+  },
+  {
+   "section": "Retries",
+   "kind": "claim",
+   "value": "a runtime error means no retry"
+  },
+  {
+   "section": "Retry budget",
+   "kind": "limit",
+   "value": "in-flight retries, backoff included, MUST NOT exceed max(3, 20% of in-flight originals) (target)"
+  },
+  {
+   "section": "Retry budget",
+   "kind": "metric",
+   "value": "ruralz_upstream_retry_budget_exhausted_total"
+  },
+  {
+   "section": "Retry budget",
+   "kind": "number",
+   "value": "From 15 originals in flight, amplification is at most 1.2 times (target)"
+  },
+  {
+   "section": "Hedging",
+   "kind": "milestone",
+   "value": "Hedging: Planned (M4), once OQ-traffic-management-and-resilience-5 adds a delay field"
+  },
+  {
+   "section": "Hedging",
+   "kind": "claim",
+   "value": "hedges spend retry budget"
+  },
+  {
+   "section": "Circuit breakers",
+   "kind": "milestone",
+   "value": "one breaker and one in-flight ceiling per Upstream per Node, Planned (M1)"
+  },
+  {
+   "section": "Circuit breakers",
+   "kind": "number",
+   "value": "connect errors count only while over 50% of Endpoints are ejected (target)"
+  },
+  {
+   "section": "Circuit breakers",
+   "kind": "kind_or_field",
+   "value": "consecutiveFailures"
+  },
+  {
+   "section": "Circuit breakers",
+   "kind": "kind_or_field",
+   "value": "openDuration"
+  },
+  {
+   "section": "Circuit breakers",
+   "kind": "kind_or_field",
+   "value": "failureWhen"
+  },
+  {
+   "section": "Circuit breakers",
+   "kind": "kind_or_field",
+   "value": "maxConnections"
+  },
+  {
+   "section": "Circuit breakers",
+   "kind": "kind_or_field",
+   "value": "maxPendingRequests"
+  },
+  {
+   "section": "Circuit breakers",
+   "kind": "number",
+   "value": "Opens the breaker once that many consecutive legs and at least 50% of at least 20 legs in a rolling 10 s window failed (target)"
+  },
+  {
+   "section": "Circuit breakers",
+   "kind": "error_code",
+   "value": "503 `RZ-UP-005` at once, no retry"
+  },
+  {
+   "section": "Circuit breakers",
+   "kind": "number",
+   "value": "Open time, jittered ±20% (target)"
+  },
+  {
+   "section": "Circuit breakers",
+   "kind": "number",
+   "value": "Half-open: one probe at a time; 3 consecutive successes close it, a failure reopens (target)"
+  },
+  {
+   "section": "Circuit breakers",
+   "kind": "error_code",
+   "value": "503 `RZ-UP-006` at once"
+  },
+  {
+   "section": "Circuit breakers",
+   "kind": "number",
+   "value": "At 10% independent failures, a 20-leg window reaches 50% with probability about 7 × 10^-6 (hypothesis)"
+  },
+  {
+   "section": "Circuit breakers",
+   "kind": "number",
+   "value": "Below 20 legs per 10 s per Node the breaker never opens: at 100 Nodes, for any Upstream under about 200 legs per second (hypothesis)"
+  },
+  {
+   "section": "Circuit breakers",
+   "kind": "kind_or_field",
+   "value": "minimumLegs"
+  },
+  {
+   "section": "Circuit breakers",
+   "kind": "decision",
+   "value": "guard fields like `minimumLegs` are OQ-traffic-management-and-resilience-5, blocking for M1"
+  },
+  {
+   "section": "Circuit breakers",
+   "kind": "limit",
+   "value": "An Endpoint holds at most max(8, min(2 × its weighted share, 50%) of `maxConnections`) in-flight attempts"
+  },
+  {
+   "section": "Circuit breakers",
+   "kind": "number",
+   "value": "once stalled attempts hold 50%, selection skips every Endpoint holding one (target)"
+  },
+  {
+   "section": "Circuit breakers",
+   "kind": "claim",
+   "value": "`maxConnections` SHOULD exceed attempts per second per Node (target)"
+  },
+  {
+   "section": "Circuit breakers",
+   "kind": "number",
+   "value": "the default allows 1,024 streams per Upstream and Node (target)"
+  },
+  {
+   "section": "Circuit breakers",
+   "kind": "claim",
+   "value": "stream Routes SHOULD get their own Upstream"
+  },
+  {
+   "section": "Circuit breakers",
+   "kind": "metric",
+   "value": "ruralz_upstream_breaker_state_info"
+  },
+  {
+   "section": "Rate limiting",
+   "kind": "milestone",
+   "value": "Rate Limit (`ratelimit` Policy): Planned (M1)"
+  },
+  {
+   "section": "Rate limiting",
+   "kind": "default",
+   "value": "`ratelimit`: admission class, `onRequestHeaders`, default `failureMode: open`"
+  },
+  {
+   "section": "Rate limiting",
+   "kind": "kind_or_field",
+   "value": "config.key"
+  },
+  {
+   "section": "Rate limiting",
+   "kind": "kind_or_field",
+   "value": "config.limits[]"
+  },
+  {
+   "section": "Rate limiting",
+   "kind": "kind_or_field",
+   "value": "requests"
+  },
+  {
+   "section": "Rate limiting",
+   "kind": "kind_or_field",
+   "value": "window"
+  },
+  {
+   "section": "Rate limiting",
+   "kind": "claim",
+   "value": "Route limits stack on Gateway limits (pack 8.12)"
+  },
+  {
+   "section": "Rate limiting",
+   "kind": "claim",
+   "value": "Limits apply per Cell, so R Regions allow R × each"
+  },
+  {
+   "section": "Rate limiting",
+   "kind": "kind_or_field",
+   "value": "HeartbeatReply clusterNodeCount"
+  },
+  {
+   "section": "Rate limiting",
+   "kind": "term",
+   "value": "N_published is the Node count Ruralz Control publishes (`HeartbeatReply` `clusterNodeCount`)"
+  },
+  {
+   "section": "Rate limiting",
+   "kind": "term",
+   "value": "TAT, the GCRA theoretical arrival time per key; τ, the GCRA burst tolerance (one `window` today); B, the Cell-wide first-seen call budget"
+  },
+  {
+   "section": "Algorithm choice",
+   "kind": "decision",
+   "value": "ADR-0008 chooses Local bucket plus GCRA (chosen)"
+  },
+  {
+   "section": "Algorithm choice",
+   "kind": "claim",
+   "value": "Fixed window counter: Up to 2 × limit across a boundary; Used by Kong, Tyk"
+  },
+  {
+   "section": "Algorithm choice",
+   "kind": "claim",
+   "value": "Sliding window counter: Cloudflare measured 0.003% wrong decisions; Used by Cloudflare, Kong Advanced"
+  },
+  {
+   "section": "Algorithm choice",
+   "kind": "claim",
+   "value": "Token bucket: Used by Stripe, Envoy local"
+  },
+  {
+   "section": "Algorithm choice",
+   "kind": "claim",
+   "value": "GCRA: τ = window allows 2 × limit; Used by redis_rate, Brandur"
+  },
+  {
+   "section": "Algorithm choice",
+   "kind": "claim",
+   "value": "Local bucket plus GCRA: Envoy local plus global"
+  },
+  {
+   "section": "Decision path",
+   "kind": "failure_mode",
+   "value": "A `config.key` runtime error applies `failureMode` without a bucket: `open` admits unmetered, `closed` returns 503 `RZ-RL-005`"
+  },
+  {
+   "section": "Decision path",
+   "kind": "claim",
+   "value": "A key whose last GCRA answer denied stays denied from a per-Node over-limit cache until its retry-after"
+  },
+  {
+   "section": "Decision path",
+   "kind": "limit",
+   "value": "per-Node first-seen budget: min(500, B / N_published) per second with a count, else 200 (target)"
+  },
+  {
+   "section": "Decision path",
+   "kind": "number",
+   "value": "B = 20,000 per Cell, 20% of a shard (hypothesis)"
+  },
+  {
+   "section": "Decision path",
+   "kind": "timeout",
+   "value": "past it, as OQ-traffic-management-and-resilience-20 proposes, a 10 s local-only entry (target)"
+  },
+  {
+   "section": "Decision path",
+   "kind": "error_code",
+   "value": "429 `RZ-RL-001`"
+  },
+  {
+   "section": "Decision path",
+   "kind": "error_code",
+   "value": "429 `RZ-RL-002`"
+  },
+  {
+   "section": "Decision path",
+   "kind": "claim",
+   "value": "one `EVALSHA` runs GCRA for every limit with server `TIME`, updating TATs only if all allow"
+  },
+  {
+   "section": "Decision path",
+   "kind": "failure_mode",
+   "value": "`NOSCRIPT` applies `failureMode` and schedules a reload, so no request makes a second round trip"
+  },
+  {
+   "section": "Decision path",
+   "kind": "failure_mode",
+   "value": "A failed call or open State client breaker applies `failureMode`: `open` admits within the local buckets, `closed` returns 503 `RZ-STS-<NNN>`"
+  },
+  {
+   "section": "Decision path",
+   "kind": "error_code",
+   "value": "RZ-STS-<NNN>"
+  },
+  {
+   "section": "Decision path",
+   "kind": "decision",
+   "value": "Until OQ-20 closes, option (c), wait for GCRA, is the conforming behavior"
+  },
+  {
+   "section": "Decision path",
+   "kind": "number",
+   "value": "Under option (a) first-seen calls at most min(B × N_serving / N_published, 500 × N_serving) per second per Cell"
+  },
+  {
+   "section": "Decision path",
+   "kind": "number",
+   "value": "without a count, as in file mode, 200 × N, 200,000 at 1,000 Nodes (hypothesis)"
+  },
+  {
+   "section": "Decision path",
+   "kind": "claim",
+   "value": "large file-mode Clusters SHOULD run Control mode or size the State Store"
+  },
+  {
+   "section": "Decision path",
+   "kind": "number",
+   "value": "50,000 active keys take about 250 s at N_published = 100 (hypothesis)"
+  },
+  {
+   "section": "Decision path",
+   "kind": "claim",
+   "value": "Keys are `rz:rl:<policy>:<requests>/<window>:{<SHA-256 of the key value>}`"
+  },
+  {
+   "section": "Decision path",
+   "kind": "claim",
+   "value": "`PEXPIRE` at TAT − now + τ drops idle keys"
+  },
+  {
+   "section": "Decision path",
+   "kind": "claim",
+   "value": "A changed limit starts fresh GCRA state, briefly allowing 2 × limit."
+  },
+  {
+   "section": "Decision path",
+   "kind": "limit",
+   "value": "Buckets, local-only and over-limit entries share a Node-wide 1,048,576 entries, about 64 MiB (target)"
+  },
+  {
+   "section": "Decision path",
+   "kind": "limit",
+   "value": "Local-only entries get their own 131,072-entry segment (target)"
+  },
+  {
+   "section": "Decision path",
+   "kind": "number",
+   "value": "A shard serves about 100,000 calls per second (hypothesis)"
+  },
+  {
+   "section": "Decision path",
+   "kind": "claim",
+   "value": "Valkey 8 measured 1.19 million `SET`, not `EVAL`, per second"
+  },
+  {
+   "section": "Decision path",
+   "kind": "number",
+   "value": "GCRA takes 1 ms at p99 within a zone (hypothesis)"
+  },
+  {
+   "section": "Decision path",
+   "kind": "claim",
+   "value": "The State client breaker is per shard per Node"
+  },
+  {
+   "section": "Decision path",
+   "kind": "error_code",
+   "value": "503 RZ-RL-005"
+  },
+  {
+   "section": "Per-Node ceiling",
+   "kind": "decision",
+   "value": "ceiling declared on the Policy (OQ-traffic-management-and-resilience-1, blocking for M1, option (a) recommended)"
+  },
+  {
+   "section": "Per-Node ceiling",
+   "kind": "failure_mode",
+   "value": "a Control-mode Node without a count uses the full limit, degraded reason `node_count_unknown`"
+  },
+  {
+   "section": "Per-Node ceiling",
+   "kind": "number",
+   "value": "min(`requests`, max(10, ceil(2 × `requests` / N_published))) (target)"
+  },
+  {
+   "section": "Per-Node ceiling",
+   "kind": "number",
+   "value": "10 per `1s` on 100 Nodes admits 1,000 per second"
+  },
+  {
+   "section": "Per-Node ceiling",
+   "kind": "failure_mode",
+   "value": "while GCRA fails each derived-ceiling bucket holds max(1, 2 × `requests` / N_published) tokens per epoch-aligned window, without carry-over, refilled in 60 steps past 1 minute (target)"
+  },
+  {
+   "section": "Per-Node ceiling",
+   "kind": "failure_mode",
+   "value": "A Control-mode Node without a count clamps to max(1, `requests` / 100) (target)"
+  },
+  {
+   "section": "Per-Node ceiling",
+   "kind": "decision",
+   "value": "recommends OQ-traffic-management-and-resilience-19 option (c), a persisted count used flagged stale"
+  },
+  {
+   "section": "Per-Node ceiling",
+   "kind": "timeout",
+   "value": "counts ready Nodes that ACKed a Revision and stayed connected 10 minutes (target)"
+  },
+  {
+   "section": "Per-Node ceiling",
+   "kind": "limit",
+   "value": "large decreases publish at once, increases at most 10% per minute"
+  },
+  {
+   "section": "Per-Node ceiling",
+   "kind": "claim",
+   "value": "Autoscaled Control-mode Clusters SHOULD declare ceilings until OQ-traffic-management-and-resilience-19 closes"
+  },
+  {
+   "section": "Service and tiered limits",
+   "kind": "kind_or_field",
+   "value": "apiVersion: ruralz/v1alpha1"
+  },
+  {
+   "section": "Service and tiered limits",
+   "kind": "kind_or_field",
+   "value": "kind: Policy"
+  },
+  {
+   "section": "Service and tiered limits",
+   "kind": "policy_type",
+   "value": "ratelimit"
+  },
+  {
+   "section": "Service and tiered limits",
+   "kind": "kind_or_field",
+   "value": "spec.when"
+  },
+  {
+   "section": "Service and tiered limits",
+   "kind": "kind_or_field",
+   "value": "consumer.tier"
+  },
+  {
+   "section": "Service and tiered limits",
+   "kind": "kind_or_field",
+   "value": "consumer.name"
+  },
+  {
+   "section": "Service and tiered limits",
+   "kind": "kind_or_field",
+   "value": "source.ip"
+  },
+  {
+   "section": "Service and tiered limits",
+   "kind": "number",
+   "value": "ratelimit-gold limits: {requests: 100, window: 1s}, {requests: 5000, window: 1m}"
+  },
+  {
+   "section": "Service and tiered limits",
+   "kind": "number",
+   "value": "ratelimit-free limits: {requests: 10, window: 1s}"
+  },
+  {
+   "section": "RateLimit response headers",
+   "kind": "milestone",
+   "value": "`draft-ietf-httpapi-ratelimit-headers-11` fields as RFC 9651 Structured Field lists, Planned (M1)"
+  },
+  {
+   "section": "RateLimit response headers",
+   "kind": "claim",
+   "value": "RateLimit-Policy on 429 responses (`RZ-RL-001` to `RZ-RL-003`)"
+  },
+  {
+   "section": "RateLimit response headers",
+   "kind": "claim",
+   "value": "`Retry-After` Equal to `t`, taking precedence over `RateLimit` as the draft requires"
+  },
+  {
+   "section": "RateLimit response headers",
+   "kind": "claim",
+   "value": "`pk`, `qu` and all fields for `ai.token-budget` are omitted"
+  },
+  {
+   "section": "RateLimit response headers",
+   "kind": "policy_type",
+   "value": "ai.token-budget"
+  },
+  {
+   "section": "RateLimit response headers",
+   "kind": "number",
+   "value": "example: RateLimit-Policy: \"ratelimit-global\";q=1000;w=1, \"ratelimit-gold.1\";q=100;w=1, \"ratelimit-gold.2\";q=5000;w=60"
+  },
+  {
+   "section": "Quotas",
+   "kind": "milestone",
+   "value": "`requests` quota (`quota` Policy): Planned (M1)"
+  },
+  {
+   "section": "Quotas",
+   "kind": "milestone",
+   "value": "`tokens` (`ai.token-budget`): Planned (M3)"
+  },
+  {
+   "section": "Quotas",
+   "kind": "kind_or_field",
+   "value": "config.consumerQuota"
+  },
+  {
+   "section": "Quotas",
+   "kind": "claim",
+   "value": "Windows are fixed and epoch-aligned in UTC: `24h` resets at midnight, `720h` every 30 days"
+  },
+  {
+   "section": "Quotas",
+   "kind": "claim",
+   "value": "counter `rz:qt:<consumerQuota>:<window>:<window start>:{<SHA-256 of the key value>}`"
+  },
+  {
+   "section": "Quotas",
+   "kind": "limit",
+   "value": "tolerating skew up to half the window (target)"
+  },
+  {
+   "section": "Quotas",
+   "kind": "kind_or_field",
+   "value": "kind: Consumer"
+  },
+  {
+   "section": "Quotas",
+   "kind": "kind_or_field",
+   "value": "tier"
+  },
+  {
+   "section": "Quotas",
+   "kind": "kind_or_field",
+   "value": "credentials.apiKeys"
+  },
+  {
+   "section": "Quotas",
+   "kind": "kind_or_field",
+   "value": "quotas"
+  },
+  {
+   "section": "Quotas",
+   "kind": "kind_or_field",
+   "value": "unit"
+  },
+  {
+   "section": "Quotas",
+   "kind": "kind_or_field",
+   "value": "limit"
+  },
+  {
+   "section": "Quotas",
+   "kind": "number",
+   "value": "{name: monthly-requests, unit: requests, limit: 3000000, window: 720h}"
+  },
+  {
+   "section": "Quotas",
+   "kind": "number",
+   "value": "{name: daily-tokens, unit: tokens, limit: 2000000, window: 24h}"
+  },
+  {
+   "section": "Quotas",
+   "kind": "error_code",
+   "value": "429 `RZ-RL-003`"
+  },
+  {
+   "section": "Quotas",
+   "kind": "timeout",
+   "value": "`Retry-After` at the window end plus up to 1% of the window, at most 60 s (target)"
+  },
+  {
+   "section": "Quotas",
+   "kind": "timeout",
+   "value": "Nodes cache the denial, keyed with the limit, up to 60 s (target)"
+  },
+  {
+   "section": "Quotas",
+   "kind": "number",
+   "value": "about 17 per second at 1,000 Nodes (hypothesis)"
+  },
+  {
+   "section": "Quotas",
+   "kind": "number",
+   "value": "20,000 per second on one key take 20% of a shard (hypothesis)"
+  },
+  {
+   "section": "Quotas",
+   "kind": "error_code",
+   "value": "403 `RZ-RL-004`"
+  },
+  {
+   "section": "Quotas",
+   "kind": "decision",
+   "value": "For OQ-configuration-model-8 this document recommends option (a): `quota` fails open, `ai.token-budget` closed"
+  },
+  {
+   "section": "Response caching",
+   "kind": "milestone",
+   "value": "`cache` Policy (Response Cache): Planned (M1)"
+  },
+  {
+   "section": "Response caching",
+   "kind": "default",
+   "value": "`cache`: default `failureMode: open`"
+  },
+  {
+   "section": "Response caching",
+   "kind": "claim",
+   "value": "an RFC 9111 shared cache plus RFC 5861 `stale-while-revalidate` and `stale-if-error`"
+  },
+  {
+   "section": "Response caching",
+   "kind": "claim",
+   "value": "generation key `rz:rc:{<U>}:gen`, expiring 26 h after its last bump (target)"
+  },
+  {
+   "section": "Response caching",
+   "kind": "limit",
+   "value": "at most 8 variants (target)"
+  },
+  {
+   "section": "Response caching",
+   "kind": "limit",
+   "value": "Freshness at most 24 h, stale windows at most 1 h (target)"
+  },
+  {
+   "section": "Response caching",
+   "kind": "claim",
+   "value": "`no-cache` (never stored at M1)"
+  },
+  {
+   "section": "Response caching",
+   "kind": "claim",
+   "value": "`only-if-cached` misses with 504"
+  },
+  {
+   "section": "Response caching",
+   "kind": "number",
+   "value": "generation key `PEXPIRE` 26 h (target); variants live at most 25 h"
+  },
+  {
+   "section": "Response caching",
+   "kind": "timeout",
+   "value": "Hot-entry layers may serve the old generation 1 s longer (target)"
+  },
+  {
+   "section": "Response caching",
+   "kind": "limit",
+   "value": "Size: From a tee, up to 128 KiB (target)"
+  },
+  {
+   "section": "Response caching",
+   "kind": "decision",
+   "value": "validation rejects `cache` with an `onRequestBody` authz, validation, or `plugin` auth or authz Policy (`RZ-CFG` code: OQ-traffic-management-and-resilience-21)"
+  },
+  {
+   "section": "Response caching",
+   "kind": "timeout",
+   "value": "fill lease (`SET NX PX`, 1 s (target))"
+  },
+  {
+   "section": "Response caching",
+   "kind": "number",
+   "value": "a cold miss costs up to N origin fetches (hypothesis) but one store"
+  },
+  {
+   "section": "Response caching",
+   "kind": "number",
+   "value": "Generation bumps get a reserved 10% of that queue and one retry (target)"
+  },
+  {
+   "section": "Response caching",
+   "kind": "metric",
+   "value": "ruralz_state_writes_dropped_total (`kind` `cache_invalidate`)"
+  },
+  {
+   "section": "Response caching",
+   "kind": "claim",
+   "value": "The State Store holding limit keys MUST run `maxmemory-policy noeviction`"
+  },
+  {
+   "section": "Response caching",
+   "kind": "failure_mode",
+   "value": "when full it refuses writes: Rate Limits fail open and every `ai.token-budget` returns 503 Cell-wide"
+  },
+  {
+   "section": "Response caching",
+   "kind": "decision",
+   "value": "OQ-traffic-management-and-resilience-11 closes (blocking for M1)"
+  },
+  {
+   "section": "Response caching",
+   "kind": "limit",
+   "value": "A 64 MiB per-Node hot-entry layer keeps entries read twice within 1 s, for up to 1 s (target)"
+  },
+  {
+   "section": "Response caching",
+   "kind": "number",
+   "value": "about 131 MB/s for 128 KiB at 1,000 Nodes, 10% of a 10 Gb/s shard link (hypothesis)"
+  },
+  {
+   "section": "Response caching",
+   "kind": "timeout",
+   "value": "Nodes read `INFO memory` per shard every 10 s, or 1 s above 50% of `maxmemory` (target)"
+  },
+  {
+   "section": "Response caching",
+   "kind": "limit",
+   "value": "skip stores above 70%, and to a shard that grew over 10% of `maxmemory` between reads until growth falls under 2% (target)"
+  },
+  {
+   "section": "Response caching",
+   "kind": "limit",
+   "value": "c = min(2% of `maxmemory` per 10 s / N_c, 4 MiB per second), N_c being N_published, or 1,000 without a count (target)"
+  },
+  {
+   "section": "Response caching",
+   "kind": "number",
+   "value": "a shard stays under 100% while N_serving / N_c < 25, as for 25,000 count-less Nodes; a scale-out from 2 to 40 Nodes adds 40% (hypothesis)"
+  },
+  {
+   "section": "Response caching",
+   "kind": "claim",
+   "value": "operators MUST use OQ-traffic-management-and-resilience-11 option (a) or leave `cache` off"
+  },
+  {
+   "section": "Response caching",
+   "kind": "number",
+   "value": "Generation keys, about 90 bytes each; 1,000 distinct written URIs per second hold about 8.4 GB (hypothesis)"
+  },
+  {
+   "section": "Response caching",
+   "kind": "number",
+   "value": "1.3 GB/s of 128 KiB misses would fill a 16 GiB shard's 30% headroom in under 4 s (hypothesis)"
+  },
+  {
+   "section": "Response caching",
+   "kind": "timeout",
+   "value": "Keys never evict and live up to 26 h (target)"
+  },
+  {
+   "section": "Response caching",
+   "kind": "decision",
+   "value": "OQ-11 option (a), a separate State Store, is recommended whenever `ai.token-budget` and `cache` share a Cell"
+  },
+  {
+   "section": "Response caching",
+   "kind": "metric",
+   "value": "ruralz_cache_store_skipped_total (reasons `size_limit`, `buffer_budget`, `memory`)"
+  },
+  {
+   "section": "Response caching",
+   "kind": "kind_or_field",
+   "value": "limits.maxBufferedBytes"
+  },
+  {
+   "section": "Response caching",
+   "kind": "limit",
+   "value": "four workers on a 256-entry queue that drops when full (target)"
+  },
+  {
+   "section": "Response caching",
+   "kind": "timeout",
+   "value": "partition's lease for the 5 s deadline (target)"
+  },
+  {
+   "section": "Response caching",
+   "kind": "limit",
+   "value": "Concurrent misses for one key on one Node, up to 4,096 keys (target)"
+  },
+  {
+   "section": "Response caching",
+   "kind": "kind_or_field",
+   "value": "config.key (cache-catalog: 'consumer == null ? \"anonymous\" : consumer.tier')"
+  },
+  {
+   "section": "Traffic shaping",
+   "kind": "milestone",
+   "value": "Weighted splits, header/cookie/query canaries, spike arrest, bulkhead `circuitBreaker.maxConnections`: all Planned (M1)"
+  },
+  {
+   "section": "Traffic shaping",
+   "kind": "kind_or_field",
+   "value": "upstreams[].weight"
+  },
+  {
+   "section": "Traffic shaping",
+   "kind": "kind_or_field",
+   "value": "match.headers"
+  },
+  {
+   "section": "Traffic shaping",
+   "kind": "kind_or_field",
+   "value": "match.when"
+  },
+  {
+   "section": "Traffic shaping",
+   "kind": "claim",
+   "value": "Mirroring, in both KrakenD editions, is OQ-traffic-management-and-resilience-12"
+  },
+  {
+   "section": "Traffic shaping",
+   "kind": "kind_or_field",
+   "value": "kind: Route"
+  },
+  {
+   "section": "Traffic shaping",
+   "kind": "kind_or_field",
+   "value": "match.hosts"
+  },
+  {
+   "section": "Traffic shaping",
+   "kind": "kind_or_field",
+   "value": "match.path prefix"
+  },
+  {
+   "section": "Traffic shaping",
+   "kind": "number",
+   "value": "orders-split: {name: orders-v1, weight: 95}, {name: orders-v2, weight: 5}, timeout: 3s"
+  },
+  {
+   "section": "KrakenD EE routing and traffic features",
+   "kind": "claim",
+   "value": "Every KrakenD EE-only routing and traffic feature in the 2026-09-23 snapshot maps to a free mechanism"
+  },
+  {
+   "section": "KrakenD EE routing and traffic features",
+   "kind": "milestone",
+   "value": "Catch-all fallback: Planned (M1)"
+  },
+  {
+   "section": "KrakenD EE routing and traffic features",
+   "kind": "milestone",
+   "value": "Header and query string based dynamic routing: Planned (M1)"
+  },
+  {
+   "section": "KrakenD EE routing and traffic features",
+   "kind": "milestone",
+   "value": "Conditional routing `composition.mode: conditional` with CEL (ADR-0011): Planned (M1)"
+  },
+  {
+   "section": "KrakenD EE routing and traffic features",
+   "kind": "milestone",
+   "value": "Wildcard routes: Planned (M1)"
+  },
+  {
+   "section": "KrakenD EE routing and traffic features",
+   "kind": "milestone",
+   "value": "URL rewrite: Planned (M1)"
+  },
+  {
+   "section": "KrakenD EE routing and traffic features",
+   "kind": "milestone",
+   "value": "Virtual hosts: Planned (M1)"
+  },
+  {
+   "section": "KrakenD EE routing and traffic features",
+   "kind": "milestone",
+   "value": "Configurable client redirects: Planned (M2)"
+  },
+  {
+   "section": "KrakenD EE routing and traffic features",
+   "kind": "milestone",
+   "value": "Customizable HTTP circuit breaker: Planned (M1)"
+  },
+  {
+   "section": "KrakenD EE routing and traffic features",
+   "kind": "claim",
+   "value": "KrakenD's `max_errors` imports as `consecutiveFailures`, fidelity `approximate`"
+  },
+  {
+   "section": "KrakenD EE routing and traffic features",
+   "kind": "milestone",
+   "value": "Service rate limit: Planned (M1)"
+  },
+  {
+   "section": "KrakenD EE routing and traffic features",
+   "kind": "milestone",
+   "value": "Tiered rate limit: Planned (M1)"
+  },
+  {
+   "section": "KrakenD EE routing and traffic features",
+   "kind": "milestone",
+   "value": "Stateful rate limit (Redis backed): GCRA in the `redis` driver, Planned (M1)"
+  },
+  {
+   "section": "KrakenD EE routing and traffic features",
+   "kind": "milestone",
+   "value": "IP filtering `authz.ip`: Planned (M1)"
+  },
+  {
+   "section": "KrakenD EE routing and traffic features",
+   "kind": "milestone",
+   "value": "MaxMind GeoIP `authz.geoip`: Planned (M2)"
+  },
+  {
+   "section": "KrakenD EE routing and traffic features",
+   "kind": "kind_or_field",
+   "value": "composition.mode: conditional"
+  },
+  {
+   "section": "KrakenD EE routing and traffic features",
+   "kind": "kind_or_field",
+   "value": "listener hostnames"
+  },
+  {
+   "section": "KrakenD EE routing and traffic features",
+   "kind": "policy_type",
+   "value": "plugin"
+  },
+  {
+   "section": "KrakenD EE routing and traffic features",
+   "kind": "kind_or_field",
+   "value": "match.path prefix, template or regex"
+  },
+  {
+   "section": "Overload protection",
+   "kind": "error_code",
+   "value": "503 `RZ-RT-004`, `RZ-RT-005`"
+  },
+  {
+   "section": "Overload protection",
+   "kind": "claim",
+   "value": "Stripe sheds non-critical traffic first"
+  },
+  {
+   "section": "Overload protection",
+   "kind": "claim",
+   "value": "Tier-priority shedding and adaptive concurrency are OQ-traffic-management-and-resilience-14"
+  },
+  {
+   "section": "Failure matrix",
+   "kind": "failure_mode",
+   "value": "State Store slow or unreachable, `ratelimit`: Open (`failureMode`); declared ceilings N_serving × ceiling; file mode without one N × limit (target)"
+  },
+  {
+   "section": "Failure matrix",
+   "kind": "failure_mode",
+   "value": "State Store slow or unreachable: `quota` admits unmetered; `cache` bypasses; `ai.token-budget` gives 503 `RZ-STS-<NNN>`"
+  },
+  {
+   "section": "Failure matrix",
+   "kind": "failure_mode",
+   "value": "One State Store shard failing, breaker open: `failureMode` at once, no deadline paid; Open; Closed for `ai.token-budget`"
+  },
+  {
+   "section": "Failure matrix",
+   "kind": "failure_mode",
+   "value": "Hot constant key: above about 100,000 per second (hypothesis) every Node's shard breaker opens and co-tenants apply `failureMode`"
+  },
+  {
+   "section": "Failure matrix",
+   "kind": "failure_mode",
+   "value": "Key-rotation flood: option (a) 200 × N without a count (target); Open"
+  },
+  {
+   "section": "Failure matrix",
+   "kind": "failure_mode",
+   "value": "New or restarted Node: Warms in about 250 s for 50,000 keys at 100 Nodes (hypothesis); Open"
+  },
+  {
+   "section": "Failure matrix",
+   "kind": "failure_mode",
+   "value": "Hot URI: Rule 1 bounds each hot key to N reads per second (hypothesis); one store per lease; Open"
+  },
+  {
+   "section": "Failure matrix",
+   "kind": "failure_mode",
+   "value": "State Store out of memory: 20% per 10 s under a 10-fold count lag, 2% from 1,000 count-less Nodes; limits fail open, `ai.token-budget` 503 up to 26 h (target)"
+  },
+  {
+   "section": "Failure matrix",
+   "kind": "failure_mode",
+   "value": "State Store evicts keys (not `noeviction`): reason `state_store_eviction_policy`; `noeviction` is REQUIRED"
+  },
+  {
+   "section": "Failure matrix",
+   "kind": "failure_mode",
+   "value": "`memory` driver, several Nodes: Limits multiply by N; reason `state_store_memory_multi_node`; Open"
+  },
+  {
+   "section": "Failure matrix",
+   "kind": "failure_mode",
+   "value": "Post-commit queue full: Drop and count; invalidations stale up to 25 h (target); Open"
+  },
+  {
+   "section": "Failure matrix",
+   "kind": "failure_mode",
+   "value": "State Store failover `ratelimit`, `quota`: About 100 ms of lag (hypothesis), 100 at 1,000 per second; about 15 s of failover (hypothesis) gets `failureMode`; Open"
+  },
+  {
+   "section": "Failure matrix",
+   "kind": "failure_mode",
+   "value": "State Store failover `ai.token-budget`: over-spend up to lag × reserved tokens per second per key (hypothesis); 503 meanwhile; Closed"
+  },
+  {
+   "section": "Failure matrix",
+   "kind": "failure_mode",
+   "value": "Region or Cell lost: Survivors count alone, up to R × each limit; other Cells miss invalidations; Open"
+  },
+  {
+   "section": "Failure matrix",
+   "kind": "failure_mode",
+   "value": "Scale-out: 10 to 100 Nodes fail open at up to 20 × limit for about 34 minutes, with 50,000 first-seen calls per second under option (a); stores add up to 20% of `maxmemory` per 10 s read (hypothesis)"
+  },
+  {
+   "section": "Failure matrix",
+   "kind": "failure_mode",
+   "value": "Ruralz Control unreachable: 200 first-seen calls per second (target); 100 per second per client on `ratelimit-free` from 100 restarted Nodes, 10 × limit (hypothesis); Open"
+  },
+  {
+   "section": "Failure matrix",
+   "kind": "failure_mode",
+   "value": "Ruralz Control leader or Raft quorum lost: fail-open admits N_serving / N_frozen × 2 × limit, 20 × limit after a 10 to 100 scale-out; unsafe past 25-fold (hypothesis); Open"
+  },
+  {
+   "section": "Failure matrix",
+   "kind": "failure_mode",
+   "value": "Nodes lost: Large decreases publish at once; keys under-admit meanwhile; Closed"
+  },
+  {
+   "section": "Failure matrix",
+   "kind": "failure_mode",
+   "value": "Endpoint or zone black-holed, new dials: Dials fail at once or at 1 s (target); two zones hold about 500 of 1,024 slots (hypothesis); Open"
+  },
+  {
+   "section": "Failure matrix",
+   "kind": "failure_mode",
+   "value": "Zone lost, pooled HTTP/2: Suspect in about 1 s; 5 s ping close (target); Open; Closed for non-idempotent methods (502 `RZ-UP-004`)"
+  },
+  {
+   "section": "Failure matrix",
+   "kind": "failure_mode",
+   "value": "Zone lost, pooled gRPC: about 500 per Node at 1,000 per second get 504 `RZ-UP-003` at `perTryTimeout`, 7.5 s; Closed for in-flight attempts"
+  },
+  {
+   "section": "Failure matrix",
+   "kind": "failure_mode",
+   "value": "Endpoint reset, or 5 s without a ping answer: Idempotent methods retry; others get 502 `RZ-UP-004`; Closed for non-idempotent methods"
+  },
+  {
+   "section": "Failure matrix",
+   "kind": "failure_mode",
+   "value": "Upstream TLS failure or handshake timeout: 502 `RZ-UP-002`, no retry; Closed"
+  },
+  {
+   "section": "Failure matrix",
+   "kind": "failure_mode",
+   "value": "Every Endpoint unhealthy: Panic mode; an empty set gives 503 `RZ-UP-008`; Open; Closed when empty"
+  },
+  {
+   "section": "Failure matrix",
+   "kind": "failure_mode",
+   "value": "Discovery source down: Keep the last set, `discovery_stale`; NXDOMAIN until 3 refreshes repeat it (target); Open"
+  },
+  {
+   "section": "Failure matrix",
+   "kind": "failure_mode",
+   "value": "Low-traffic Upstream failing: Under 20 legs per 10 s per Node (target) the breaker stays closed; Closed per failed request"
+  },
+  {
+   "section": "Failure matrix",
+   "kind": "failure_mode",
+   "value": "Breaker open, bulkhead full, timeout or retry budget exhausted: 503 `RZ-UP-005`, `RZ-UP-006`; Closed"
+  },
+  {
+   "section": "Failure matrix",
+   "kind": "failure_mode",
+   "value": "Upstream fails, stale entry exists: Serve stale within `stale-if-error`, also while the breaker is open; Open"
+  },
+  {
+   "section": "Failure matrix",
+   "kind": "failure_mode",
+   "value": "Upstream fails after commit: End the stream with `RZ-UP-009`; Closed"
+  },
+  {
+   "section": "Failure matrix",
+   "kind": "failure_mode",
+   "value": "CEL error in `hashKey`, `retryOn` or `failureWhen`: Random Endpoint; no retry; counted as failure; Open for `hashKey`, else Closed"
+  },
+  {
+   "section": "Failure matrix",
+   "kind": "failure_mode",
+   "value": "CEL error in `Policy.spec.when`: `closed` runs the Policy; `open` skips it; Per `failureMode`"
+  },
+  {
+   "section": "Failure matrix",
+   "kind": "failure_mode",
+   "value": "CEL error in a `config.key`: Admit unmetered; bypass the cache; Open; closed: 503 `RZ-RL-005`; not for `cache`"
+  },
+  {
+   "section": "Error codes this document owns",
+   "kind": "claim",
+   "value": "Pack 8.6 assigns `UP` and `RL` here"
+  },
+  {
+   "section": "Error codes this document owns",
+   "kind": "claim",
+   "value": "A retry ran and the last attempt ended in a connect, tls or reset error: 502 `RZ-UP-007`"
+  },
+  {
+   "section": "Error codes this document owns",
+   "kind": "error_code",
+   "value": "RZ-UP-001 | 502 | Connect failed or dial timed out, no retry"
+  },
+  {
+   "section": "Error codes this document owns",
+   "kind": "error_code",
+   "value": "RZ-UP-002 | 502 | TLS handshake or verification failed or timed out, no retry"
+  },
+  {
+   "section": "Error codes this document owns",
+   "kind": "error_code",
+   "value": "RZ-UP-003 | 504 | Deadline expired, or the final attempt timed out"
+  },
+  {
+   "section": "Error codes this document owns",
+   "kind": "error_code",
+   "value": "RZ-UP-004 | 502 | Reset or protocol error before a response, no retry"
+  },
+  {
+   "section": "Error codes this document owns",
+   "kind": "error_code",
+   "value": "RZ-UP-005 | 503 | Circuit breaker open, or half-open with its probe in flight"
+  },
+  {
+   "section": "Error codes this document owns",
+   "kind": "error_code",
+   "value": "RZ-UP-006 | 503 | In-flight ceiling and pending queue full"
+  },
+  {
+   "section": "Error codes this document owns",
+   "kind": "error_code",
+   "value": "RZ-UP-007 | 502 | Retries ran and the last attempt got no response"
+  },
+  {
+   "section": "Error codes this document owns",
+   "kind": "error_code",
+   "value": "RZ-UP-008 | 503 | Endpoint set empty"
+  },
+  {
+   "section": "Error codes this document owns",
+   "kind": "error_code",
+   "value": "RZ-UP-009 | Not applicable | Upstream failed after commit; the stream ended with an error"
+  },
+  {
+   "section": "Error codes this document owns",
+   "kind": "error_code",
+   "value": "RZ-UP-010 | 502 | Buffered plain `upstreams` response over its cap (area per OQ-data-plane-9)"
+  },
+  {
+   "section": "Error codes this document owns",
+   "kind": "error_code",
+   "value": "RZ-RL-001 | 429 | Denied by a local token bucket"
+  },
+  {
+   "section": "Error codes this document owns",
+   "kind": "error_code",
+   "value": "RZ-RL-002 | 429 | Denied by GCRA or the over-limit cache"
+  },
+  {
+   "section": "Error codes this document owns",
+   "kind": "error_code",
+   "value": "RZ-RL-003 | 429 | Consumer quota exhausted"
+  },
+  {
+   "section": "Error codes this document owns",
+   "kind": "error_code",
+   "value": "RZ-RL-004 | 403 | Consumer missing or lacks the named quota"
+  },
+  {
+   "section": "Error codes this document owns",
+   "kind": "error_code",
+   "value": "RZ-RL-005 | 503 | `config.key` CEL error under `failureMode: closed`"
+  },
+  {
+   "section": "Open questions",
+   "kind": "decision",
+   "value": "OQ-1 (a) `config.perNodeCeiling`, `config.burst` (recommended); Blocking: Yes, per-Node ceiling (M1)"
+  },
+  {
+   "section": "Open questions",
+   "kind": "decision",
+   "value": "OQ-2 admitted RateLimit fields; Blocking: Yes, header contract (M1)"
+  },
+  {
+   "section": "Open questions",
+   "kind": "decision",
+   "value": "OQ-5 fields `retries.backoff`, `budget`, `hedgeDelay`; `circuitBreaker.failureRatio`, `minimumLegs`, `halfOpenSuccesses`; Blocking: Yes, breaker `minimumLegs` (M1); hedging (M4)"
+  },
+  {
+   "section": "Open questions",
+   "kind": "decision",
+   "value": "OQ-6 (c) per-protocol Route timeouts (recommended); Blocking: Yes, canonical form (M1)"
+  },
+  {
+   "section": "Open questions",
+   "kind": "kind_or_field",
+   "value": "Upstream.spec.connectTimeout, tls.handshakeTimeout, healthCheck.pingTimeout, healthCheck.stallTimeout (proposed, OQ-6)"
+  },
+  {
+   "section": "Open questions",
+   "kind": "kind_or_field",
+   "value": "healthCheck.passive.maxEjectionPercent (proposed, OQ-7)"
+  },
+  {
+   "section": "Open questions",
+   "kind": "kind_or_field",
+   "value": "loadBalancing.locality, slowStart (proposed, OQ-8)"
+  },
+  {
+   "section": "Open questions",
+   "kind": "number",
+   "value": "1,000 Nodes refreshing 200 Upstreams send about 13,300 DNS queries per second (hypothesis)"
+  },
+  {
+   "section": "Open questions",
+   "kind": "kind_or_field",
+   "value": "discovery.refreshInterval (proposed, OQ-9)"
+  },
+  {
+   "section": "Open questions",
+   "kind": "decision",
+   "value": "OQ-11 (a) A separate State Store (recommended beside `ai.token-budget`); Blocking: Yes, Response Cache (M1)"
+  },
+  {
+   "section": "Open questions",
+   "kind": "milestone",
+   "value": "OQ-12 (a) `Route.spec.mirror`, Planned (M2)"
+  },
+  {
+   "section": "Open questions",
+   "kind": "decision",
+   "value": "OQ-13 `Route.spec.redirect`, `upstreams[].pathRewrite`; Blocking: Yes, built-in redirects (M2)"
+  },
+  {
+   "section": "Open questions",
+   "kind": "decision",
+   "value": "OQ-16 (b) 2× headroom, floor 10, step refill per aligned window (recommended); Blocking: Yes, pack 8.8 amendment (M1)"
+  },
+  {
+   "section": "Open questions",
+   "kind": "decision",
+   "value": "OQ-19 (c) handover and persistence under `${RURALZ_DATA_DIR}` (pack 8.11 amendment; recommended); Blocking: Yes, cross-document amendment (M1)"
+  },
+  {
+   "section": "Open questions",
+   "kind": "timeout",
+   "value": "OQ-19 (d) a 60 s hold for small decreases (target)"
+  },
+  {
+   "section": "Open questions",
+   "kind": "decision",
+   "value": "OQ-20 (a) Local-only entries (proposed); (c) wait for GCRA (conforming until closed); Blocking: Yes, pack 8.8 amendment (M1)"
+  },
+  {
+   "section": "Open questions",
+   "kind": "decision",
+   "value": "OQ-21 (a) Reject with a new `RZ-CFG` code (proposed); Blocking: Yes, Response Cache (M1)"
+  },
+  {
+   "section": "Open questions",
+   "kind": "limit",
+   "value": "OQ-23 How is the 256 MiB balancer budget (target) reported and sized?"
+  }
+ ]
+}

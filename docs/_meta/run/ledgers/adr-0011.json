@@ -1,0 +1,651 @@
+{
+ "path": "docs/adr/0011-expressions-and-authorization-engines.md",
+ "status": "accepted",
+ "facts": [
+  {
+   "section": "Context and problem statement",
+   "kind": "policy_type",
+   "value": "authz.cel"
+  },
+  {
+   "section": "Context and problem statement",
+   "kind": "milestone",
+   "value": "`authz.cel`, Planned (M1)"
+  },
+  {
+   "section": "Context and problem statement",
+   "kind": "policy_type",
+   "value": "authz.opa"
+  },
+  {
+   "section": "Context and problem statement",
+   "kind": "policy_type",
+   "value": "authz.cedar"
+  },
+  {
+   "section": "Context and problem statement",
+   "kind": "milestone",
+   "value": "`authz.opa` and `authz.cedar`, Planned (M2)"
+  },
+  {
+   "section": "Context and problem statement",
+   "kind": "kind_or_field",
+   "value": "Filter class `authz`"
+  },
+  {
+   "section": "Context and problem statement",
+   "kind": "failure_mode",
+   "value": "all Filter class `authz` and `failureMode: closed` only"
+  },
+  {
+   "section": "Context and problem statement",
+   "kind": "kind_or_field",
+   "value": "failureMode: closed"
+  },
+  {
+   "section": "Context and problem statement",
+   "kind": "claim",
+   "value": "CGO_ENABLED=0 binaries (ADR-0001)"
+  },
+  {
+   "section": "Context and problem statement",
+   "kind": "claim",
+   "value": "KrakenD ships CEL and Lua in both editions but keeps its Security Policies Engine Enterprise-only"
+  },
+  {
+   "section": "Decision drivers",
+   "kind": "claim",
+   "value": "Bounded, typed evaluation: no loops, I/O or randomness on the request path; static and runtime cost bounds (S4)"
+  },
+  {
+   "section": "Decision drivers",
+   "kind": "claim",
+   "value": "Gates G1 to G3: pure Go, Apache-2.0-compatible license, Go Cryptographic Module only"
+  },
+  {
+   "section": "Decision drivers",
+   "kind": "claim",
+   "value": "Compile once, read lock-free: programs compile with the Revision and evaluate without read locks"
+  },
+  {
+   "section": "Decision drivers",
+   "kind": "cli_command",
+   "value": "ruralz bundle validate"
+  },
+  {
+   "section": "Decision drivers",
+   "kind": "claim",
+   "value": "with OCI delivery (OQ-security-and-identity-13) they fail at Ruralz Control ingest or as a Node NACK"
+  },
+  {
+   "section": "Decision drivers",
+   "kind": "failure_mode",
+   "value": "authorization always fails closed (P9)"
+  },
+  {
+   "section": "Decision drivers",
+   "kind": "claim",
+   "value": "P3 allows only declared, timed remote calls"
+  },
+  {
+   "section": "Decision drivers",
+   "kind": "claim",
+   "value": "One custom-code path: arbitrary logic is a sandboxed Plugin (P6), not a second scripting runtime (product non-goal 3)"
+  },
+  {
+   "section": "Decision drivers",
+   "kind": "claim",
+   "value": "Free: the Security Policies Engine equivalent ships in every public build, FIPS included (P1)"
+  },
+  {
+   "section": "Considered options",
+   "kind": "decision",
+   "value": "CEL inline with OPA and Cedar engines, and no Lua"
+  },
+  {
+   "section": "Considered options",
+   "kind": "decision",
+   "value": "CEL only: richer rules become `authz`-class `plugin` Policies"
+  },
+  {
+   "section": "Considered options",
+   "kind": "policy_type",
+   "value": "plugin"
+  },
+  {
+   "section": "Considered options",
+   "kind": "decision",
+   "value": "CEL plus embedded Lua, as KrakenD offers"
+  },
+  {
+   "section": "Considered options",
+   "kind": "decision",
+   "value": "OPA as an external decision service, such as a sidecar"
+  },
+  {
+   "section": "Considered options",
+   "kind": "decision",
+   "value": "Root `opa/rego` package instead of `opa/v1/rego`"
+  },
+  {
+   "section": "Decision outcome",
+   "kind": "decision",
+   "value": "Chosen option: \"CEL via cel-go, import path `cel.dev/cel-go`, inline; OPA (`opa/v1/rego`) and Cedar (`cedar-go`) as pluggable authz engines; no Lua\" (option 1)"
+  },
+  {
+   "section": "Decision outcome",
+   "kind": "claim",
+   "value": "CEL is typed, non-Turing-complete and offers `CostLimit` and `ContextEval`"
+  },
+  {
+   "section": "Decision outcome",
+   "kind": "claim",
+   "value": "OPA's `PrepareForEval` yields a reusable in-process query"
+  },
+  {
+   "section": "Decision outcome",
+   "kind": "claim",
+   "value": "cedar-go ships the core Cedar authorizer"
+  },
+  {
+   "section": "Decision outcome",
+   "kind": "claim",
+   "value": "All three are Apache-2.0"
+  },
+  {
+   "section": "Decision outcome",
+   "kind": "decision",
+   "value": "CEL SHOULD come first, with OPA the fallback for Cedar"
+  },
+  {
+   "section": "Decision outcome",
+   "kind": "library",
+   "value": "`cel.dev/cel-go` v0.32.x"
+  },
+  {
+   "section": "Decision outcome",
+   "kind": "milestone",
+   "value": "CEL module: Planned (M1)"
+  },
+  {
+   "section": "Decision outcome",
+   "kind": "library",
+   "value": "read-only alias `github.com/google/cel-go` \"will eventually be removed\", so it is banned"
+  },
+  {
+   "section": "Decision outcome",
+   "kind": "decision",
+   "value": "standard library plus strings and encoders extensions only (no v0.32.0 HMAC library)"
+  },
+  {
+   "section": "Decision outcome",
+   "kind": "milestone",
+   "value": "CEL places: Planned (M1)"
+  },
+  {
+   "section": "Decision outcome",
+   "kind": "limit",
+   "value": "An estimate above 10,000 units at nominal sizes is RZ-CFG-015 (target)"
+  },
+  {
+   "section": "Decision outcome",
+   "kind": "error_code",
+   "value": "RZ-CFG-015"
+  },
+  {
+   "section": "Decision outcome",
+   "kind": "limit",
+   "value": "`CostLimit` stops evaluation at 1,000,000 units (target)"
+  },
+  {
+   "section": "Decision outcome",
+   "kind": "timeout",
+   "value": "`ContextEval` at the request deadline"
+  },
+  {
+   "section": "Decision outcome",
+   "kind": "milestone",
+   "value": "CEL cost: Planned (M1)"
+  },
+  {
+   "section": "Decision outcome",
+   "kind": "kind_or_field",
+   "value": "config.rule"
+  },
+  {
+   "section": "Decision outcome",
+   "kind": "claim",
+   "value": "`config.rule` is a bool over the base variables; false denies with 403 RZ-AUTH-010"
+  },
+  {
+   "section": "Decision outcome",
+   "kind": "error_code",
+   "value": "RZ-AUTH-010"
+  },
+  {
+   "section": "Decision outcome",
+   "kind": "milestone",
+   "value": "`authz.cel`: Planned (M1)"
+  },
+  {
+   "section": "Decision outcome",
+   "kind": "library",
+   "value": "opa/v1/rego"
+  },
+  {
+   "section": "Decision outcome",
+   "kind": "decision",
+   "value": "prepared per Policy and Revision; allowlisted pure built-ins only, so no `http.send`"
+  },
+  {
+   "section": "Decision outcome",
+   "kind": "decision",
+   "value": "data is an immutable per-Revision document served by a Ruralz `storage.Store` whose read transactions take no lock, never `storage/inmem`"
+  },
+  {
+   "section": "Decision outcome",
+   "kind": "timeout",
+   "value": "`Eval` runs on the request goroutine with a context deadline of the smaller of the time left in the request and 5 ms (target)"
+  },
+  {
+   "section": "Decision outcome",
+   "kind": "milestone",
+   "value": "a Planned (M2) spike confirms topdown stops at the deadline"
+  },
+  {
+   "section": "Decision outcome",
+   "kind": "limit",
+   "value": "16 MiB of data per Policy in canonical bytes (target)"
+  },
+  {
+   "section": "Decision outcome",
+   "kind": "number",
+   "value": "authz.opa: under 100 µs at p99 (hypothesis)"
+  },
+  {
+   "section": "Decision outcome",
+   "kind": "error_code",
+   "value": "RZ-AUTH-011"
+  },
+  {
+   "section": "Decision outcome",
+   "kind": "milestone",
+   "value": "`authz.opa`: Planned (M2)"
+  },
+  {
+   "section": "Decision outcome",
+   "kind": "library",
+   "value": "cedar-go v1.8.x core authorizer"
+  },
+  {
+   "section": "Decision outcome",
+   "kind": "decision",
+   "value": "evaluated synchronously on the request goroutine and never abandoned; cedar-go takes no context"
+  },
+  {
+   "section": "Decision outcome",
+   "kind": "limit",
+   "value": "1,000 policies and 10,000 entities per Policy (target)"
+  },
+  {
+   "section": "Decision outcome",
+   "kind": "decision",
+   "value": "validation stops at parsing"
+  },
+  {
+   "section": "Decision outcome",
+   "kind": "number",
+   "value": "authz.cedar: under 100 µs at p99 (hypothesis)"
+  },
+  {
+   "section": "Decision outcome",
+   "kind": "error_code",
+   "value": "RZ-AUTH-012"
+  },
+  {
+   "section": "Decision outcome",
+   "kind": "milestone",
+   "value": "`authz.cedar`: Planned (M2)"
+  },
+  {
+   "section": "Decision outcome",
+   "kind": "decision",
+   "value": "Identical engines compile once, by digest, across Revisions"
+  },
+  {
+   "section": "Decision outcome",
+   "kind": "limit",
+   "value": "per Revision at most 64 MiB of compiled engine memory and 50,000 entities (target), counted toward snapshot size"
+  },
+  {
+   "section": "Decision outcome",
+   "kind": "number",
+   "value": "an expansion factor of 4 (hypothesis, calibrated by the Planned (M2) benchmarks)"
+  },
+  {
+   "section": "Decision outcome",
+   "kind": "decision",
+   "value": "deterministic estimate: canonical bytes of Rego modules, data documents, Cedar policies and entities times an expansion factor; measured heap is only a metric"
+  },
+  {
+   "section": "Decision outcome",
+   "kind": "error_code",
+   "value": "code: OQ-security-and-identity-30"
+  },
+  {
+   "section": "Decision outcome",
+   "kind": "claim",
+   "value": "`ruralz bundle validate` rejects a violation, or, with OCI delivery, Ruralz Control ingest and Node activation (NACK)"
+  },
+  {
+   "section": "Decision outcome",
+   "kind": "milestone",
+   "value": "Engine memory: Planned (M2)"
+  },
+  {
+   "section": "Decision outcome",
+   "kind": "claim",
+   "value": "Engine `config` schemas are unregistered; policy delivery is OQ-security-and-identity-13"
+  },
+  {
+   "section": "Decision outcome",
+   "kind": "milestone",
+   "value": "Engine configuration: Planned (M2)"
+  },
+  {
+   "section": "Decision outcome",
+   "kind": "failure_mode",
+   "value": "Every `authz.*` type is `failureMode: closed` only (`open` is RZ-CFG-029)"
+  },
+  {
+   "section": "Decision outcome",
+   "kind": "error_code",
+   "value": "RZ-CFG-029"
+  },
+  {
+   "section": "Decision outcome",
+   "kind": "failure_mode",
+   "value": "a runtime error or deadline, leaving a Policy unable to decide, is 403 RZ-AUTH-015"
+  },
+  {
+   "section": "Decision outcome",
+   "kind": "error_code",
+   "value": "RZ-AUTH-015"
+  },
+  {
+   "section": "Decision outcome",
+   "kind": "milestone",
+   "value": "Failure: Planned (M1)"
+  },
+  {
+   "section": "Decision outcome",
+   "kind": "milestone",
+   "value": "cel-go links into `ruralzd`, `ruralz-control` and `ruralz`, Planned (M1)"
+  },
+  {
+   "section": "Decision outcome",
+   "kind": "milestone",
+   "value": "OPA and cedar-go join all three with `authz.opa` and `authz.cedar`, Planned (M2) (size: OQ-tech-stack-and-libraries-22)"
+  },
+  {
+   "section": "Decision outcome",
+   "kind": "decision",
+   "value": "No Lua runtime"
+  },
+  {
+   "section": "Decision outcome",
+   "kind": "cli_command",
+   "value": "ruralz bundle import krakend"
+  },
+  {
+   "section": "Decision outcome",
+   "kind": "claim",
+   "value": "`ruralz bundle import krakend` reports KrakenD Lua as `manual`, for rewrite as CEL or a WASM Plugin"
+  },
+  {
+   "section": "Decision outcome",
+   "kind": "milestone",
+   "value": "Lua: Planned (M2)"
+  },
+  {
+   "section": "Decision outcome",
+   "kind": "policy_type",
+   "value": "authz.ip"
+  },
+  {
+   "section": "Decision outcome",
+   "kind": "policy_type",
+   "value": "authz.geoip"
+  },
+  {
+   "section": "Decision outcome",
+   "kind": "error_code",
+   "value": "403: RZ-AUTH-010 to 014, or 016 for a plugin"
+  },
+  {
+   "section": "Decision outcome",
+   "kind": "error_code",
+   "value": "RZ-AUTH-016"
+  },
+  {
+   "section": "Decision outcome",
+   "kind": "claim",
+   "value": "authz-class Policies in scope and list order; the first deny stops"
+  },
+  {
+   "section": "Consequences",
+   "kind": "claim",
+   "value": "every inline field uses one bounded, typed language that cannot loop or call out"
+  },
+  {
+   "section": "Consequences",
+   "kind": "claim",
+   "value": "errors in CEL, and in inline Rego and Cedar, appear in `ruralz bundle validate`, since all three binaries link the same libraries"
+  },
+  {
+   "section": "Consequences",
+   "kind": "claim",
+   "value": "the counterpart of KrakenD's Enterprise-only Security Policies Engine is free (P1)"
+  },
+  {
+   "section": "Consequences",
+   "kind": "claim",
+   "value": "dropping Lua leaves two extension paths, bounded CEL and sandboxed Plugins (P6)"
+  },
+  {
+   "section": "Consequences",
+   "kind": "claim",
+   "value": "only CEL fully meets S4: OPA has a deadline but no cost or allocation limit, and cedar-go has neither"
+  },
+  {
+   "section": "Consequences",
+   "kind": "limit",
+   "value": "`ruralzd` 160 MiB stripped binary budget (target)"
+  },
+  {
+   "section": "Consequences",
+   "kind": "claim",
+   "value": "cedar-go is idle since 2026-06-01 and lacks the schema validator, formatter, partial evaluation and templates"
+  },
+  {
+   "section": "Consequences",
+   "kind": "claim",
+   "value": "Watch list fallback is \"OPA only; fork\""
+  },
+  {
+   "section": "Consequences",
+   "kind": "milestone",
+   "value": "OPA v1 lacks G3 evidence (OQ-tech-stack-and-libraries-9), so the FIPS build, Planned (M5), may need a named exception"
+  },
+  {
+   "section": "Consequences",
+   "kind": "milestone",
+   "value": "OPA and Cedar costs stay hypotheses until the Planned (M2) benchmarks"
+  },
+  {
+   "section": "Consequences",
+   "kind": "claim",
+   "value": "the static CEL bound rests on Ruralz's nominal-size estimator for `dyn` and unsized values"
+  },
+  {
+   "section": "Confirmation",
+   "kind": "milestone",
+   "value": "Banned imports, Planned (M0): depguard rejects `github.com/google/cel-go` and any Lua runtime"
+  },
+  {
+   "section": "Confirmation",
+   "kind": "library",
+   "value": "depguard"
+  },
+  {
+   "section": "Confirmation",
+   "kind": "milestone",
+   "value": "Dependency admission, Planned (M0): the G1 cross-build, license gate and `go list -deps` G3 check cover all three libraries"
+  },
+  {
+   "section": "Confirmation",
+   "kind": "claim",
+   "value": "\"Embedded Lua\" is \"Never\" under Alternatives not chosen"
+  },
+  {
+   "section": "Confirmation",
+   "kind": "milestone",
+   "value": "Fuzzing, Planned (M1): the \"CEL compile and cost estimator\" target"
+  },
+  {
+   "section": "Confirmation",
+   "kind": "milestone",
+   "value": "Configuration conformance suite, Planned (M1): the golden corpus, including the `authz-orders` rule, passes RZ-CFG-015"
+  },
+  {
+   "section": "Confirmation",
+   "kind": "error_code",
+   "value": "RZ-CFG-014"
+  },
+  {
+   "section": "Confirmation",
+   "kind": "claim",
+   "value": "negative fixtures cover RZ-CFG-014, RZ-CFG-015 and RZ-CFG-029"
+  },
+  {
+   "section": "Confirmation",
+   "kind": "milestone",
+   "value": "Planned (M2) fixtures in all three binaries: Rego calling `http.send`, `net.lookup_ip_addr`, `time.now_ns`, `rand.intn` or `uuid.rfc4122` fails compilation"
+  },
+  {
+   "section": "Confirmation",
+   "kind": "claim",
+   "value": "a Bundle at the engine ceiling gets one verdict"
+  },
+  {
+   "section": "Confirmation",
+   "kind": "milestone",
+   "value": "Benchmarks, Planned (M1) for CEL, Planned (M2) for the engines"
+  },
+  {
+   "section": "Confirmation",
+   "kind": "number",
+   "value": "`authz.opa` throughput scales linearly from 1 to 32 GOMAXPROCS (target)"
+  },
+  {
+   "section": "Confirmation",
+   "kind": "decision",
+   "value": "a miss reopens this ADR"
+  },
+  {
+   "section": "Confirmation",
+   "kind": "decision",
+   "value": "a pull request that adds an expression language, policy engine, CEL extension or allowlisted OPA built-in MUST amend this ADR"
+  },
+  {
+   "section": "CEL inline with OPA and Cedar engines",
+   "kind": "claim",
+   "value": "the engines add data-driven and entity-based models in process"
+  },
+  {
+   "section": "CEL inline with OPA and Cedar engines",
+   "kind": "claim",
+   "value": "it links three evaluators and depends on an idle cedar-go"
+  },
+  {
+   "section": "CEL only",
+   "kind": "claim",
+   "value": "cel-go's policy package offers a YAML rule format"
+  },
+  {
+   "section": "CEL only",
+   "kind": "library",
+   "value": "wazero"
+  },
+  {
+   "section": "CEL only",
+   "kind": "claim",
+   "value": "Plugins, which wazero cannot meter by instruction"
+  },
+  {
+   "section": "CEL plus embedded Lua",
+   "kind": "claim",
+   "value": "KrakenD Lua configurations would import more directly"
+  },
+  {
+   "section": "CEL plus embedded Lua",
+   "kind": "claim",
+   "value": "Lua is Turing-complete with no static cost bound, duplicates the Plugin path, and no Go Lua runtime has been researched"
+  },
+  {
+   "section": "OPA as an external decision service",
+   "kind": "claim",
+   "value": "OPA and its data would live outside `ruralzd`"
+  },
+  {
+   "section": "OPA as an external decision service",
+   "kind": "failure_mode",
+   "value": "each decision adds a declared, timed remote call before commit that fails closed"
+  },
+  {
+   "section": "Root `opa/rego` package",
+   "kind": "claim",
+   "value": "older OPA examples use it"
+  },
+  {
+   "section": "Root `opa/rego` package",
+   "kind": "claim",
+   "value": "it is deprecated and kept only for the v0.x transition \"for the lifetime of OPA v1.x\""
+  },
+  {
+   "section": "More information",
+   "kind": "claim",
+   "value": "Proposed: extend OQ-security-and-identity-18 to the `authz.opa` and `authz.cedar` `config` schemas and to the engines' input (proposed: the base CEL variables)"
+  },
+  {
+   "section": "More information",
+   "kind": "limit",
+   "value": "add a Cedar entity ancestor-depth cap (target) with a Revision-time transitive-closure precompute for `in`"
+  },
+  {
+   "section": "More information",
+   "kind": "decision",
+   "value": "SHOULD ban the root `opa/rego` import and confine OPA and cedar-go to one `internal/` wrapper package (S7)"
+  },
+  {
+   "section": "More information",
+   "kind": "claim",
+   "value": "Testing and quality strategy SHOULD add Rego and Cedar parse fuzz targets"
+  },
+  {
+   "section": "More information",
+   "kind": "library",
+   "value": "OPA v1.20.x"
+  },
+  {
+   "section": "More information",
+   "kind": "claim",
+   "value": "Not evaluated: expr-lang (no research entry)"
+  },
+  {
+   "section": "More information",
+   "kind": "decision",
+   "value": "Revisit if cedar-go hits its watch-list trigger, OPA fails the G3 check, or a per-call budget misses"
+  }
+ ]
+}

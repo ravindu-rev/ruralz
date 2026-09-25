@@ -1,0 +1,571 @@
+{
+ "path": "docs/adr/0015-zero-downtime-upgrades-so-reuseport.md",
+ "status": "accepted",
+ "facts": [
+  {
+   "section": "Context and problem statement",
+   "kind": "port",
+   "value": "8080 (default listener)"
+  },
+  {
+   "section": "Context and problem statement",
+   "kind": "port",
+   "value": "8443 (TCP, plus UDP for HTTP/3, Planned (M3))"
+  },
+  {
+   "section": "Context and problem statement",
+   "kind": "milestone",
+   "value": "HTTP/3 over UDP 8443: Planned (M3)"
+  },
+  {
+   "section": "Context and problem statement",
+   "kind": "port",
+   "value": "admin port 9901"
+  },
+  {
+   "section": "Context and problem statement",
+   "kind": "kind_or_field",
+   "value": "node.id"
+  },
+  {
+   "section": "Context and problem statement",
+   "kind": "default",
+   "value": "Last-Known-Good under ${RURALZ_DATA_DIR}"
+  },
+  {
+   "section": "Context and problem statement",
+   "kind": "api_path",
+   "value": "/readyz"
+  },
+  {
+   "section": "Context and problem statement",
+   "kind": "failure_mode",
+   "value": "Balancers probe `/readyz`, which fails during a Drain"
+  },
+  {
+   "section": "Context and problem statement",
+   "kind": "milestone",
+   "value": "in-place handover: Planned (M1), blocked by two Open questions"
+  },
+  {
+   "section": "Context and problem statement",
+   "kind": "milestone",
+   "value": "Kubernetes Drain and restart: Planned (M2)"
+  },
+  {
+   "section": "Context and problem statement",
+   "kind": "claim",
+   "value": "Nothing is implemented"
+  },
+  {
+   "section": "Decision drivers",
+   "kind": "claim",
+   "value": "No refused connections: new TCP connections always reach a listening socket, and probes see `/readyz` 200 throughout a handover"
+  },
+  {
+   "section": "Decision drivers",
+   "kind": "claim",
+   "value": "Independent processes: no descriptors, counters or in-memory state cross between binaries, only the kernel, a file lock and a version-marked readiness and usage message"
+  },
+  {
+   "section": "Decision drivers",
+   "kind": "claim",
+   "value": "keeping skew within N-1"
+  },
+  {
+   "section": "Decision drivers",
+   "kind": "claim",
+   "value": "Bounded Drain: every long-lived connection gets a going-away signal and all work ends within a fixed bound"
+  },
+  {
+   "section": "Decision drivers",
+   "kind": "failure_mode",
+   "value": "Safe refusal: a new process failing verification or the gate exits holding no listening socket; the old one keeps serving"
+  },
+  {
+   "section": "Decision drivers",
+   "kind": "library",
+   "value": "golang.org/x/sys/unix and the standard library"
+  },
+  {
+   "section": "Decision drivers",
+   "kind": "default",
+   "value": "CGO_ENABLED=0"
+  },
+  {
+   "section": "Considered options",
+   "kind": "decision",
+   "value": "Option 1: `SO_REUSEPORT` with CBPF steering, Drain and readiness gating"
+  },
+  {
+   "section": "Considered options",
+   "kind": "claim",
+   "value": "SO_REUSEPORT bind allowed when both share the effective user ID"
+  },
+  {
+   "section": "Considered options",
+   "kind": "claim",
+   "value": "HAProxy passes listening descriptors with `SCM_RIGHTS`"
+  },
+  {
+   "section": "Considered options",
+   "kind": "claim",
+   "value": "Envoy hot restart fetches listen sockets and transfers counters"
+  },
+  {
+   "section": "Considered options",
+   "kind": "claim",
+   "value": "NGINX's `USR2` starts a new master sharing the listeners"
+  },
+  {
+   "section": "Considered options",
+   "kind": "decision",
+   "value": "Option 3: Plain `SO_REUSEPORT` without steering: close the old listeners once the new process is ready"
+  },
+  {
+   "section": "Considered options",
+   "kind": "decision",
+   "value": "Option 4: Drain and restart only: stop the old process, then start the new one, while balancers move traffic to other Nodes"
+  },
+  {
+   "section": "Decision outcome",
+   "kind": "decision",
+   "value": "Chosen option: \"`SO_REUSEPORT` with CBPF steering, Drain and readiness gating\""
+  },
+  {
+   "section": "Decision outcome",
+   "kind": "default",
+   "value": "net.ipv4.tcp_migrate_req=1"
+  },
+  {
+   "section": "Decision outcome",
+   "kind": "claim",
+   "value": "refusing no new connection when `net.ipv4.tcp_migrate_req=1` (ZG-3)"
+  },
+  {
+   "section": "Decision outcome",
+   "kind": "failure_mode",
+   "value": "survives the new process's refusal or crash before the holder closes its listeners, and the holder's crash during the gate, after which the new process takes the lock and listens"
+  },
+  {
+   "section": "Decision outcome",
+   "kind": "decision",
+   "value": "Listener socket passing is Not planned for the first release line"
+  },
+  {
+   "section": "Decision outcome",
+   "kind": "decision",
+   "value": "Pinning: lock holder attaches to each reuseport group (TCP listeners, 9901, UDP 8443) an `SO_ATTACH_REUSEPORT_CBPF` program returning its own socket's index"
+  },
+  {
+   "section": "Decision outcome",
+   "kind": "milestone",
+   "value": "Pinning: Planned (M1)"
+  },
+  {
+   "section": "Decision outcome",
+   "kind": "kind_or_field",
+   "value": "RURALZ_CONFIG"
+  },
+  {
+   "section": "Decision outcome",
+   "kind": "kind_or_field",
+   "value": "RURALZ_DATA_DIR"
+  },
+  {
+   "section": "Decision outcome",
+   "kind": "kind_or_field",
+   "value": "listeners"
+  },
+  {
+   "section": "Decision outcome",
+   "kind": "kind_or_field",
+   "value": "port"
+  },
+  {
+   "section": "Decision outcome",
+   "kind": "kind_or_field",
+   "value": "admin.port"
+  },
+  {
+   "section": "Decision outcome",
+   "kind": "decision",
+   "value": "Bind, not listen: the new process binds with `SO_REUSEPORT` but does not listen (TCP) and receives nothing while pinned (UDP)"
+  },
+  {
+   "section": "Decision outcome",
+   "kind": "milestone",
+   "value": "Bind, not listen: Planned (M1)"
+  },
+  {
+   "section": "Decision outcome",
+   "kind": "decision",
+   "value": "the new process passes the holder's active Revision through the full validation gate without boot wait"
+  },
+  {
+   "section": "Decision outcome",
+   "kind": "decision",
+   "value": "Readiness gating over an owner-only Unix socket under `${RURALZ_DATA_DIR}`: version, format markers and active digest; holder refuses an unknown marker or older candidate"
+  },
+  {
+   "section": "Decision outcome",
+   "kind": "timeout",
+   "value": "Unaccepted after 60 s (target), the new process exits"
+  },
+  {
+   "section": "Decision outcome",
+   "kind": "failure_mode",
+   "value": "if the holder exits first, the new process takes the lock and listens"
+  },
+  {
+   "section": "Decision outcome",
+   "kind": "milestone",
+   "value": "Readiness gating: Planned (M1)"
+  },
+  {
+   "section": "Decision outcome",
+   "kind": "timeout",
+   "value": "3 s linger (target)"
+  },
+  {
+   "section": "Decision outcome",
+   "kind": "decision",
+   "value": "Steering: the holder swaps each program to the new sockets, 9901 included, accepts through a 3 s linger (target), then closes its listeners"
+  },
+  {
+   "section": "Decision outcome",
+   "kind": "milestone",
+   "value": "Steering: Planned (M1)"
+  },
+  {
+   "section": "Decision outcome",
+   "kind": "decision",
+   "value": "Readiness move: holder closes idle admin connections and answers in-flight admin requests with `Connection: close`, so no probe sees the Drain's 503"
+  },
+  {
+   "section": "Decision outcome",
+   "kind": "milestone",
+   "value": "Readiness move: Planned (M1)"
+  },
+  {
+   "section": "Decision outcome",
+   "kind": "kind_or_field",
+   "value": "net.ipv4.tcp_migrate_req"
+  },
+  {
+   "section": "Decision outcome",
+   "kind": "decision",
+   "value": "handover hosts SHOULD set it, so closing migrates queued and in-progress handshakes"
+  },
+  {
+   "section": "Decision outcome",
+   "kind": "claim",
+   "value": "Pack section 7 says alternative, pending OQ-zero-downtime-upgrades-and-hot-reload-12 (a)"
+  },
+  {
+   "section": "Decision outcome",
+   "kind": "milestone",
+   "value": "net.ipv4.tcp_migrate_req: Planned (M1)"
+  },
+  {
+   "section": "Decision outcome",
+   "kind": "number",
+   "value": "usage reported at acceptance and each second (target)"
+  },
+  {
+   "section": "Decision outcome",
+   "kind": "limit",
+   "value": "soft memory limit of 90% of the limit minus the old RSS (target)"
+  },
+  {
+   "section": "Decision outcome",
+   "kind": "decision",
+   "value": "Shared Node-wide ceilings: the new one admits each ceiling minus that usage (OQ-zero-downtime-upgrades-and-hot-reload-6)"
+  },
+  {
+   "section": "Decision outcome",
+   "kind": "milestone",
+   "value": "Shared Node-wide ceilings: Planned (M1)"
+  },
+  {
+   "section": "Decision outcome",
+   "kind": "kind_or_field",
+   "value": "Heartbeat with `draining`"
+  },
+  {
+   "section": "Decision outcome",
+   "kind": "decision",
+   "value": "Identity: at Drain start the old process sends a last `Heartbeat` with `draining`, closes its Control Stream and releases the file lock; the new one alone writes Last-Known-Good"
+  },
+  {
+   "section": "Decision outcome",
+   "kind": "port",
+   "value": "8091 (Control mode dial)"
+  },
+  {
+   "section": "Decision outcome",
+   "kind": "error_code",
+   "value": "RZ-CP-002"
+  },
+  {
+   "section": "Decision outcome",
+   "kind": "milestone",
+   "value": "Identity: Planned (M1)"
+  },
+  {
+   "section": "Decision outcome",
+   "kind": "decision",
+   "value": "Drain: `/readyz` 503, stop accepting, one HTTP/2 GOAWAY, `Connection: close` on HTTP/1.1, jittered WebSocket 1001 and SSE ends"
+  },
+  {
+   "section": "Decision outcome",
+   "kind": "milestone",
+   "value": "one HTTP/2 GOAWAY in Planned (M1) (OQ-zero-downtime-upgrades-and-hot-reload-3)"
+  },
+  {
+   "section": "Decision outcome",
+   "kind": "timeout",
+   "value": "After SIGTERM: deadline 20 s after stop-accepting"
+  },
+  {
+   "section": "Decision outcome",
+   "kind": "timeout",
+   "value": "exit within 30 s (target)"
+  },
+  {
+   "section": "Decision outcome",
+   "kind": "timeout",
+   "value": "After a handover: Drain from the linger's end, no accept window, deadline 20 s later, 23 s after steering (target)"
+  },
+  {
+   "section": "Decision outcome",
+   "kind": "milestone",
+   "value": "Drain: Planned (M1); WebSocket and SSE Planned (M3)"
+  },
+  {
+   "section": "Decision outcome",
+   "kind": "failure_mode",
+   "value": "In-flight QUIC connections on UDP 8443 are lost and reconnect (OQ-system-overview-18)"
+  },
+  {
+   "section": "Decision outcome",
+   "kind": "milestone",
+   "value": "QUIC: Planned (M3)"
+  },
+  {
+   "section": "Decision outcome",
+   "kind": "kind_or_field",
+   "value": "terminationGracePeriodSeconds"
+  },
+  {
+   "section": "Decision outcome",
+   "kind": "timeout",
+   "value": "`terminationGracePeriodSeconds` 45 s (target)"
+  },
+  {
+   "section": "Decision outcome",
+   "kind": "decision",
+   "value": "Kubernetes (T4): preStop, Drain and a new Pod replace each Pod; this is no per-Node Zero-Downtime Upgrade"
+  },
+  {
+   "section": "Decision outcome",
+   "kind": "milestone",
+   "value": "Kubernetes (T4): Planned (M2)"
+  },
+  {
+   "section": "Decision outcome",
+   "kind": "timeout",
+   "value": "60 s timeout (Figure 1)"
+  },
+  {
+   "section": "Decision outcome",
+   "kind": "claim",
+   "value": "dial 8091, retry RZ-CP-002 with backoff"
+  },
+  {
+   "section": "Consequences",
+   "kind": "failure_mode",
+   "value": "a refused new process, or one crashing before the holder closes its listeners, leaves the holder serving"
+  },
+  {
+   "section": "Consequences",
+   "kind": "claim",
+   "value": "an N-1 binary beside N is a reverse handover (binary rollback)"
+  },
+  {
+   "section": "Consequences",
+   "kind": "failure_mode",
+   "value": "without `tcp_migrate_req` (Linux 5.14+, per network namespace) a handshake needing a second SYN-ACK retransmission can be reset (hypothesis)"
+  },
+  {
+   "section": "Consequences",
+   "kind": "number",
+   "value": "Linux 5.14+"
+  },
+  {
+   "section": "Consequences",
+   "kind": "failure_mode",
+   "value": "a new process crashing after the holder closes its listeners leaves the Node refusing connections until restarted, a Drain and restart"
+  },
+  {
+   "section": "Consequences",
+   "kind": "limit",
+   "value": "admitting at most one extra ceiling per key (target)"
+  },
+  {
+   "section": "Consequences",
+   "kind": "number",
+   "value": "about 0.6 GiB plus snapshots free (hypothesis)"
+  },
+  {
+   "section": "Consequences",
+   "kind": "metric",
+   "value": "clusterNodeCount"
+  },
+  {
+   "section": "Consequences",
+   "kind": "timeout",
+   "value": "drops the Node from `clusterNodeCount` for 10 minutes plus a ramp (target)"
+  },
+  {
+   "section": "Consequences",
+   "kind": "decision",
+   "value": "derived-ceiling Clusters MUST pace upgrades"
+  },
+  {
+   "section": "Consequences",
+   "kind": "timeout",
+   "value": "clients reconnect over a 10 s jitter window (target)"
+  },
+  {
+   "section": "Consequences",
+   "kind": "claim",
+   "value": "WebSocket, SSE and QUIC connections never migrate"
+  },
+  {
+   "section": "Consequences",
+   "kind": "claim",
+   "value": "the in-place path is Linux-only and needs process-manager support such as a systemd unit"
+  },
+  {
+   "section": "Confirmation",
+   "kind": "milestone",
+   "value": "V-3, Planned (M1)"
+  },
+  {
+   "section": "Confirmation",
+   "kind": "number",
+   "value": "1,000 handovers at half saturation (target)"
+  },
+  {
+   "section": "Confirmation",
+   "kind": "number",
+   "value": "1,000 refused or timed-out handovers"
+  },
+  {
+   "section": "Confirmation",
+   "kind": "claim",
+   "value": "V-3 pass: resets per handover recorded: none at 1, only twice-retransmitted handshakes at 0; no refused connection or failed request; every probe 200; no OOM kill or State Store connection refusal"
+  },
+  {
+   "section": "Confirmation",
+   "kind": "limit",
+   "value": "derived-ceiling count drops at most 10% (target)"
+  },
+  {
+   "section": "Confirmation",
+   "kind": "milestone",
+   "value": "V-4, Planned (M1); WebSocket and SSE Planned (M3)"
+  },
+  {
+   "section": "Confirmation",
+   "kind": "claim",
+   "value": "V-4 pass: zero failed new requests, exit within 30 s (target)"
+  },
+  {
+   "section": "Confirmation",
+   "kind": "milestone",
+   "value": "V-6, Planned (M1)"
+  },
+  {
+   "section": "Confirmation",
+   "kind": "failure_mode",
+   "value": "a handover to N-1 past the binary rollback limit is refused; N keeps serving"
+  },
+  {
+   "section": "Confirmation",
+   "kind": "decision",
+   "value": "a pull request passing listening descriptors between processes (such as `unix.UnixRights`) or closing a listener before steering MUST supersede this ADR"
+  },
+  {
+   "section": "SO_REUSEPORT with CBPF steering, Drain and readiness gating",
+   "kind": "library",
+   "value": "Server.Shutdown (net/http)"
+  },
+  {
+   "section": "SO_REUSEPORT with CBPF steering, Drain and readiness gating",
+   "kind": "claim",
+   "value": "the kernel always has an accepting socket, and `Server.Shutdown` plus Ruralz tracking of hijacked connections covers the Drain"
+  },
+  {
+   "section": "SO_REUSEPORT with CBPF steering, Drain and readiness gating",
+   "kind": "failure_mode",
+   "value": "pinning, steering, the linger and lock handoff are Ruralz code, where a mistake resets connections"
+  },
+  {
+   "section": "Listener socket passing",
+   "kind": "claim",
+   "value": "HAProxy's seamless reload avoids those failures"
+  },
+  {
+   "section": "Listener socket passing",
+   "kind": "claim",
+   "value": "Envoy's per-worker reuse_port handover can drop queued connections when concurrency drops"
+  },
+  {
+   "section": "Plain SO_REUSEPORT without steering",
+   "kind": "claim",
+   "value": "HAProxy measured 155 failures per million connections over 180 reloads from sockets closed with queued connections"
+  },
+  {
+   "section": "Drain and restart only",
+   "kind": "claim",
+   "value": "Kubernetes preStop runs before SIGTERM within the grace period"
+  },
+  {
+   "section": "Drain and restart only",
+   "kind": "failure_mode",
+   "value": "the Node serves nothing between exit and ready, and correctness depends on balancers noticing the failed `/readyz` in time"
+  },
+  {
+   "section": "More information",
+   "kind": "claim",
+   "value": "SO_REUSEPORT and listeners rules out `SO_REUSEPORT` for scaling"
+  },
+  {
+   "section": "More information",
+   "kind": "decision",
+   "value": "Related: ADR-0007 (Control Stream reconnect), ADR-0009 (`net/http` GOAWAY and QUIC loss), ADR-0016 (Kubernetes packaging, proposed)"
+  },
+  {
+   "section": "More information",
+   "kind": "claim",
+   "value": "Blocking the Planned (M1) handover: OQ-zero-downtime-upgrades-and-hot-reload-6 (overlap memory) and OQ-zero-downtime-upgrades-and-hot-reload-7 (systemd unit)"
+  },
+  {
+   "section": "More information",
+   "kind": "claim",
+   "value": "Non-blocking: OQ-zero-downtime-upgrades-and-hot-reload-1, -5, -11 and -12"
+  },
+  {
+   "section": "More information",
+   "kind": "library",
+   "value": "The tech stack document SHOULD add a `golang.org/x/sys` catalog row, today only transitive"
+  },
+  {
+   "section": "More information",
+   "kind": "decision",
+   "value": "Revisit when QUIC connection-ID steering is feasible (OQ-system-overview-18) or a measured handover failure rate justifies socket passing"
+  }
+ ]
+}

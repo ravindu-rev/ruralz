@@ -1,0 +1,1611 @@
+{
+ "path": "docs/roadmap/01-roadmap-and-milestones.md",
+ "status": "reviewed",
+ "facts": [
+  {
+   "section": "How parity is counted",
+   "kind": "number",
+   "value": "71 EE-only rows in the 2026-09-23 KrakenD snapshot"
+  },
+  {
+   "section": "How parity is counted",
+   "kind": "decision",
+   "value": "Not planned: Lua advanced helpers, NTLM authentication, New Relic native SDK"
+  },
+  {
+   "section": "M0 scope",
+   "kind": "milestone",
+   "value": "Apache-2.0 license and ownership: Planned (M0)"
+  },
+  {
+   "section": "M0 scope",
+   "kind": "milestone",
+   "value": "contributions under DCO, no CLA: Planned (M0)"
+  },
+  {
+   "section": "M0 scope",
+   "kind": "milestone",
+   "value": "no feature gating: all features without a license key: Planned (M0)"
+  },
+  {
+   "section": "M0 scope",
+   "kind": "milestone",
+   "value": "`SECURITY.md`, where a reporter uses the private channel: Planned (M0)"
+  },
+  {
+   "section": "M0 scope",
+   "kind": "milestone",
+   "value": "Go 1.26 floor, release toolchain, floor job and guard file: Planned (M0)"
+  },
+  {
+   "section": "M0 scope",
+   "kind": "milestone",
+   "value": "`CGO_ENABLED=0`: Planned (M0)"
+  },
+  {
+   "section": "M0 scope",
+   "kind": "milestone",
+   "value": "CI stages 1 to 7 in `pr-fast`: Planned (M0)"
+  },
+  {
+   "section": "M0 scope",
+   "kind": "milestone",
+   "value": "`verify-docs.mjs` as docs gate, markdownlint-cli2 pinned to 0.23.x: Planned (M0)"
+  },
+  {
+   "section": "M0 scope",
+   "kind": "milestone",
+   "value": "`ruralz/v1alpha1` envelope; JSON Schema (draft 2020-12) authoring and rendered views with a generation check: Planned (M0)"
+  },
+  {
+   "section": "M0 scope",
+   "kind": "milestone",
+   "value": "OpenAPI for `/api/v1/` follows in M2"
+  },
+  {
+   "section": "M0 scope",
+   "kind": "decision",
+   "value": "ADR-0002: Apache-2.0 license, no feature gating"
+  },
+  {
+   "section": "M0 scope",
+   "kind": "decision",
+   "value": "ADR-0003: JSON Schema (draft 2020-12) authoring and rendered views with a generation check"
+  },
+  {
+   "section": "M0 scope",
+   "kind": "decision",
+   "value": "ADR-0006: MPL-2.0 named exceptions in license gate G2"
+  },
+  {
+   "section": "M0 scope",
+   "kind": "library",
+   "value": "golangci-lint linters (`sloglint`)"
+  },
+  {
+   "section": "M0 scope",
+   "kind": "library",
+   "value": "`golang.org/x/net/http2` forbidigo rule"
+  },
+  {
+   "section": "M0 scope",
+   "kind": "library",
+   "value": "depguard import rules: `github.com/tetratelabs/wazero` only in `internal/pluginhost`"
+  },
+  {
+   "section": "M0 scope",
+   "kind": "library",
+   "value": "the `github.com/google/cel-go` alias and any Lua runtime banned"
+  },
+  {
+   "section": "M0 scope",
+   "kind": "library",
+   "value": "`go mod verify`, `govulncheck` on every pull request"
+  },
+  {
+   "section": "M0 scope",
+   "kind": "library",
+   "value": "no fasthttp"
+  },
+  {
+   "section": "M0 scope",
+   "kind": "library",
+   "value": "markdownlint-cli2 pinned to 0.23.x"
+  },
+  {
+   "section": "M0 scope",
+   "kind": "library",
+   "value": "Go 1.26 floor"
+  },
+  {
+   "section": "M0 scope",
+   "kind": "api_path",
+   "value": "`/api/v1/`"
+  },
+  {
+   "section": "M0 exit criteria",
+   "kind": "timeout",
+   "value": "`pr-fast` stages 1 to 7 ... complete within 10 minutes (target)"
+  },
+  {
+   "section": "M0 exit criteria",
+   "kind": "claim",
+   "value": "three binaries cross-build with `CGO_ENABLED=0` for linux/amd64 and linux/arm64"
+  },
+  {
+   "section": "M0 exit criteria",
+   "kind": "metric",
+   "value": "no-license-check scan finds 0 gated features (target), per SM-1"
+  },
+  {
+   "section": "M0 exit criteria",
+   "kind": "number",
+   "value": "KrakenD EE parity at exit: 0 of 71, 0% (target)"
+  },
+  {
+   "section": "M1 scope",
+   "kind": "port",
+   "value": "HTTP/1.1 and h2c on 8080 TCP"
+  },
+  {
+   "section": "M1 scope",
+   "kind": "port",
+   "value": "HTTP/2 over TLS on 8443 TCP"
+  },
+  {
+   "section": "M1 scope",
+   "kind": "port",
+   "value": "admin 9901 (TB-9)"
+  },
+  {
+   "section": "M1 scope",
+   "kind": "api_path",
+   "value": "`/healthz`"
+  },
+  {
+   "section": "M1 scope",
+   "kind": "api_path",
+   "value": "`/readyz`"
+  },
+  {
+   "section": "M1 scope",
+   "kind": "api_path",
+   "value": "`/metrics`"
+  },
+  {
+   "section": "M1 scope",
+   "kind": "api_path",
+   "value": "`/debug/pprof/`"
+  },
+  {
+   "section": "M1 scope",
+   "kind": "api_path",
+   "value": "`/debug/snapshots`"
+  },
+  {
+   "section": "M1 scope",
+   "kind": "api_path",
+   "value": "`/debug/upstreams`"
+  },
+  {
+   "section": "M1 scope",
+   "kind": "api_path",
+   "value": "`/config/dump`"
+  },
+  {
+   "section": "M1 scope",
+   "kind": "api_path",
+   "value": "`/tap`"
+  },
+  {
+   "section": "M1 scope",
+   "kind": "kind_or_field",
+   "value": "`Gateway`"
+  },
+  {
+   "section": "M1 scope",
+   "kind": "kind_or_field",
+   "value": "`Route`"
+  },
+  {
+   "section": "M1 scope",
+   "kind": "kind_or_field",
+   "value": "`Upstream`"
+  },
+  {
+   "section": "M1 scope",
+   "kind": "kind_or_field",
+   "value": "`Policy`"
+  },
+  {
+   "section": "M1 scope",
+   "kind": "kind_or_field",
+   "value": "`Consumer`"
+  },
+  {
+   "section": "M1 scope",
+   "kind": "kind_or_field",
+   "value": "`Environment`"
+  },
+  {
+   "section": "M1 scope",
+   "kind": "kind_or_field",
+   "value": "`secretRef` `env` and `file`"
+  },
+  {
+   "section": "M1 scope",
+   "kind": "kind_or_field",
+   "value": "`Route.spec.match.when`"
+  },
+  {
+   "section": "M1 scope",
+   "kind": "kind_or_field",
+   "value": "`Policy.spec.when`"
+  },
+  {
+   "section": "M1 scope",
+   "kind": "kind_or_field",
+   "value": "`Route.spec.composition.steps[].pathExpression`"
+  },
+  {
+   "section": "M1 scope",
+   "kind": "kind_or_field",
+   "value": "`Route.spec.composition.steps[].when`"
+  },
+  {
+   "section": "M1 scope",
+   "kind": "kind_or_field",
+   "value": "`Upstream.spec.retries.retryOn`"
+  },
+  {
+   "section": "M1 scope",
+   "kind": "kind_or_field",
+   "value": "`Upstream.spec.circuitBreaker.failureWhen`"
+  },
+  {
+   "section": "M1 scope",
+   "kind": "kind_or_field",
+   "value": "`Upstream.spec.loadBalancing.hashKey`"
+  },
+  {
+   "section": "M1 scope",
+   "kind": "kind_or_field",
+   "value": "`Gateway.spec.telemetry.accessLog.when`"
+  },
+  {
+   "section": "M1 scope",
+   "kind": "kind_or_field",
+   "value": "`authz.cel` `config.rule`"
+  },
+  {
+   "section": "M1 scope",
+   "kind": "kind_or_field",
+   "value": "`ratelimit`, `quota` and `cache` `config.key`"
+  },
+  {
+   "section": "M1 scope",
+   "kind": "kind_or_field",
+   "value": "`headers` `valueExpression`"
+  },
+  {
+   "section": "M1 scope",
+   "kind": "kind_or_field",
+   "value": "`AIProvider` from M3"
+  },
+  {
+   "section": "M1 scope",
+   "kind": "kind_or_field",
+   "value": "`quota` in `requests`"
+  },
+  {
+   "section": "M1 scope",
+   "kind": "kind_or_field",
+   "value": "service discovery (`dns`, static `endpoints`) for `http` Upstreams"
+  },
+  {
+   "section": "M1 scope",
+   "kind": "kind_or_field",
+   "value": "`memory` and `redis` drivers"
+  },
+  {
+   "section": "M1 scope",
+   "kind": "policy_type",
+   "value": "`auth.jwt`"
+  },
+  {
+   "section": "M1 scope",
+   "kind": "policy_type",
+   "value": "`auth.api-key`"
+  },
+  {
+   "section": "M1 scope",
+   "kind": "policy_type",
+   "value": "`auth.basic`"
+  },
+  {
+   "section": "M1 scope",
+   "kind": "policy_type",
+   "value": "`auth.mtls`"
+  },
+  {
+   "section": "M1 scope",
+   "kind": "policy_type",
+   "value": "`authz.cel`"
+  },
+  {
+   "section": "M1 scope",
+   "kind": "policy_type",
+   "value": "`authz.ip`"
+  },
+  {
+   "section": "M1 scope",
+   "kind": "policy_type",
+   "value": "`auth.upstream-oauth2`"
+  },
+  {
+   "section": "M1 scope",
+   "kind": "policy_type",
+   "value": "`cors`"
+  },
+  {
+   "section": "M1 scope",
+   "kind": "policy_type",
+   "value": "`ratelimit`"
+  },
+  {
+   "section": "M1 scope",
+   "kind": "policy_type",
+   "value": "`quota`"
+  },
+  {
+   "section": "M1 scope",
+   "kind": "policy_type",
+   "value": "`cache`"
+  },
+  {
+   "section": "M1 scope",
+   "kind": "policy_type",
+   "value": "`headers`"
+  },
+  {
+   "section": "M1 scope",
+   "kind": "policy_type",
+   "value": "`transform.request`"
+  },
+  {
+   "section": "M1 scope",
+   "kind": "policy_type",
+   "value": "`transform.response`"
+  },
+  {
+   "section": "M1 scope",
+   "kind": "policy_type",
+   "value": "`validation.json-schema`"
+  },
+  {
+   "section": "M1 scope",
+   "kind": "cli_command",
+   "value": "`ruralz bundle validate`"
+  },
+  {
+   "section": "M1 scope",
+   "kind": "cli_command",
+   "value": "`ruralz bundle render` (`--api-version` conversion MUST yield the same Revision)"
+  },
+  {
+   "section": "M1 scope",
+   "kind": "cli_command",
+   "value": "`ruralz bundle diff` from directory, file or admin URL"
+  },
+  {
+   "section": "M1 scope",
+   "kind": "cli_command",
+   "value": "`ruralz bundle build`"
+  },
+  {
+   "section": "M1 scope",
+   "kind": "cli_command",
+   "value": "`ruralz dev run`"
+  },
+  {
+   "section": "M1 scope",
+   "kind": "cli_command",
+   "value": "`ruralz dev tap`"
+  },
+  {
+   "section": "M1 scope",
+   "kind": "cli_command",
+   "value": "`ruralz node drain`"
+  },
+  {
+   "section": "M1 scope",
+   "kind": "cli_command",
+   "value": "`ruralz node dump`"
+  },
+  {
+   "section": "M1 scope",
+   "kind": "cli_command",
+   "value": "`ruralz version`"
+  },
+  {
+   "section": "M1 scope",
+   "kind": "cli_command",
+   "value": "`ruralz completion`"
+  },
+  {
+   "section": "M1 scope",
+   "kind": "cli_command",
+   "value": "`--env` and `--environments FILE` (local `Environment` files)"
+  },
+  {
+   "section": "M1 scope",
+   "kind": "milestone",
+   "value": "`ruralzd` Nodes, client listeners, Router, Filter Chain executor, Upstream layer, error format, load shedding: Planned (M1)"
+  },
+  {
+   "section": "M1 scope",
+   "kind": "milestone",
+   "value": "YAML 1.2 parser, JSON Schema validator; Bundle merge; restricted profile; env substitution, overlay merge: Planned (M1)"
+  },
+  {
+   "section": "M1 scope",
+   "kind": "milestone",
+   "value": "CEL module, compile and cost estimator in all CEL places: Planned (M1)"
+  },
+  {
+   "section": "M1 scope",
+   "kind": "milestone",
+   "value": "File mode: topology T2 watching a rendered directory; Hot Reload, Last-Known-Good, Zero-Downtime Upgrade and Drain: Planned (M1)"
+  },
+  {
+   "section": "M1 scope",
+   "kind": "milestone",
+   "value": "topologies T1 development single binary, T5 VM with systemd in file mode: Planned (M1)"
+  },
+  {
+   "section": "M1 scope",
+   "kind": "milestone",
+   "value": "`ratelimit` with local token bucket and GCRA; distributed rate limiting: Planned (M1)"
+  },
+  {
+   "section": "M1 scope",
+   "kind": "milestone",
+   "value": "KrakenD row \"Stateful rate limit (Redis backed)\": Planned (M1)"
+  },
+  {
+   "section": "M1 scope",
+   "kind": "milestone",
+   "value": "`cache` (Response Cache), retries, circuit breaker, health checks, catch-all fallback, weighted splits, composition: Planned (M1)"
+  },
+  {
+   "section": "M1 scope",
+   "kind": "milestone",
+   "value": "single-Region Cells: Planned (M1)"
+  },
+  {
+   "section": "M1 scope",
+   "kind": "milestone",
+   "value": "OpenTelemetry telemetry: traces, export, conventions, resource; traceparent injection: Planned (M1)"
+  },
+  {
+   "section": "M1 scope",
+   "kind": "milestone",
+   "value": "chaos experiments CE-1 to CE-6, CE-12, CE-15, CE-16: Planned (M1)"
+  },
+  {
+   "section": "M1 scope",
+   "kind": "milestone",
+   "value": "CI stages 9. integration and conformance, 10. regression gates, 11. end-to-end, 12. nightly, 13. release: Planned (M1)"
+  },
+  {
+   "section": "M1 scope",
+   "kind": "milestone",
+   "value": "PB-1 to PB-4, PB-6 to PB-9, PB-10, PB-11, PB-14, PB-15, PB-16: Planned (M1)"
+  },
+  {
+   "section": "M1 scope",
+   "kind": "milestone",
+   "value": "scenarios S1 plain proxying, S2 reference, S3, S5, S5x, O1, O2, C1, C2, R1, G1: Planned (M1)"
+  },
+  {
+   "section": "M1 scope",
+   "kind": "milestone",
+   "value": "Release `0.1.0`: binaries, container images, checksums, SBOM, signatures, provenance, notes, release audit per tag: Planned (M1)"
+  },
+  {
+   "section": "M1 scope",
+   "kind": "milestone",
+   "value": "TLS to IdP JWKS endpoint (TB-10), Upstreams, State Store, OTLP (TB-3, TB-4, TB-12): Planned (M1)"
+  },
+  {
+   "section": "M1 scope",
+   "kind": "decision",
+   "value": "ADR-0008: `ratelimit` with local token bucket and GCRA"
+  },
+  {
+   "section": "M1 scope",
+   "kind": "library",
+   "value": "YAML 1.2 parser"
+  },
+  {
+   "section": "M1 scope",
+   "kind": "library",
+   "value": "JSON Schema validator"
+  },
+  {
+   "section": "M1 scope",
+   "kind": "library",
+   "value": "JOSE and OIDC libraries"
+  },
+  {
+   "section": "M1 scope",
+   "kind": "library",
+   "value": "`redis` drivers (tested on Valkey 9.0.1 or newer, Dragonfly)"
+  },
+  {
+   "section": "M1 scope",
+   "kind": "library",
+   "value": "CEL module"
+  },
+  {
+   "section": "M1 scope",
+   "kind": "metric",
+   "value": "`ruralz_listener_tls_handshake_duration_seconds`"
+  },
+  {
+   "section": "M1 scope",
+   "kind": "metric",
+   "value": "`ruralz_node_degraded_info` with M1 reasons such as `lkg_boot` and `state_store_breaker_open`"
+  },
+  {
+   "section": "M1 scope",
+   "kind": "term",
+   "value": "ULID `node.id`"
+  },
+  {
+   "section": "M1 exit criteria",
+   "kind": "metric",
+   "value": "100% of artifacts signed (target), per SM-12"
+  },
+  {
+   "section": "M1 exit criteria",
+   "kind": "number",
+   "value": "On RH-1 in S2 at half saturation, gateway-added latency is 1 ms or less at p99 and 150 µs or less at p50 (target), per SM-4 and SM-5"
+  },
+  {
+   "section": "M1 exit criteria",
+   "kind": "number",
+   "value": "S1 reaches 50,000 rps or more on 4 vCPU (target), per PB-4"
+  },
+  {
+   "section": "M1 exit criteria",
+   "kind": "number",
+   "value": "a Hot Reload of 5,000 Routes takes 500 ms or less (target), per PB-7"
+  },
+  {
+   "section": "M1 exit criteria",
+   "kind": "number",
+   "value": "conformance passes 100% of cases for shipped features (target)"
+  },
+  {
+   "section": "M1 exit criteria",
+   "kind": "number",
+   "value": "The parity matrix gives 100% of EE-only rows a milestone or a reasoned Not planned (target), per SM-2"
+  },
+  {
+   "section": "M1 exit criteria",
+   "kind": "number",
+   "value": "the 30 whose Blocking column names M1"
+  },
+  {
+   "section": "M1 exit criteria",
+   "kind": "number",
+   "value": "KrakenD EE parity at exit: 23 of 71, 32% (target)"
+  },
+  {
+   "section": "M1 exit criteria",
+   "kind": "timeout",
+   "value": "The scripted quickstart reaches a first proxied request in 10 minutes or less (target), per SM-7"
+  },
+  {
+   "section": "M1 exit criteria",
+   "kind": "kind_or_field",
+   "value": "breaker `minimumLegs`"
+  },
+  {
+   "section": "M1 exit criteria",
+   "kind": "milestone",
+   "value": "Provisional M1 parity: request body extractor, request and response template manipulation"
+  },
+  {
+   "section": "M1 exit criteria",
+   "kind": "milestone",
+   "value": "response query language and regular expression replacements (`transform.*`), custom access log, linear workflows"
+  },
+  {
+   "section": "M2 scope",
+   "kind": "port",
+   "value": "TCP 8090 (TB-6)"
+  },
+  {
+   "section": "M2 scope",
+   "kind": "port",
+   "value": "8091 (TB-5)"
+  },
+  {
+   "section": "M2 scope",
+   "kind": "port",
+   "value": "8092 (TB-11)"
+  },
+  {
+   "section": "M2 scope",
+   "kind": "port",
+   "value": "`ruralz-control` admin 9902"
+  },
+  {
+   "section": "M2 scope",
+   "kind": "api_path",
+   "value": "`/api/v1/`"
+  },
+  {
+   "section": "M2 scope",
+   "kind": "api_path",
+   "value": "`/healthz`"
+  },
+  {
+   "section": "M2 scope",
+   "kind": "api_path",
+   "value": "`/readyz`"
+  },
+  {
+   "section": "M2 scope",
+   "kind": "api_path",
+   "value": "`/metrics`"
+  },
+  {
+   "section": "M2 scope",
+   "kind": "api_path",
+   "value": "`/debug/pprof/`"
+  },
+  {
+   "section": "M2 scope",
+   "kind": "api_path",
+   "value": "`/console`"
+  },
+  {
+   "section": "M2 scope",
+   "kind": "decision",
+   "value": "ADR-0006: Control Store on Raft (proposed)"
+  },
+  {
+   "section": "M2 scope",
+   "kind": "decision",
+   "value": "ADR-0007: Control Stream protocol"
+  },
+  {
+   "section": "M2 scope",
+   "kind": "decision",
+   "value": "ADR-0005: Plugin ABI v1 and PDK conventions"
+  },
+  {
+   "section": "M2 scope",
+   "kind": "decision",
+   "value": "ADR-0017: signed Revision in Control mode"
+  },
+  {
+   "section": "M2 scope",
+   "kind": "decision",
+   "value": "ADR-0016: CRD mirror in `ruralz.io/v1alpha1`, CRDs serve every served version (proposed)"
+  },
+  {
+   "section": "M2 scope",
+   "kind": "decision",
+   "value": "only Ruralz Control watches CRDs (OQ-configuration-model-2, option (a))"
+  },
+  {
+   "section": "M2 scope",
+   "kind": "decision",
+   "value": "no Gateway API conformance (deferred)"
+  },
+  {
+   "section": "M2 scope",
+   "kind": "milestone",
+   "value": "`cmd/ruralz-control` replicas; Control Store on Raft; Rollouts with canary, `autoRollback`, promotions, skew checks; Drift; REST API; RBAC; audit log: Planned (M2)"
+  },
+  {
+   "section": "M2 scope",
+   "kind": "milestone",
+   "value": "Control mode, Control Stream, `Enroll`, `Stream` with renewal: Planned (M2)"
+  },
+  {
+   "section": "M2 scope",
+   "kind": "milestone",
+   "value": "web console at `/console`, built from `console/` in CI stage 8: local accounts, TOTP, roles: Planned (M2)"
+  },
+  {
+   "section": "M2 scope",
+   "kind": "milestone",
+   "value": "`Plugin` kind and `plugin` Policy; WASM runtime wazero; Plugin ABI v1; Rust and Go (TinyGo) PDKs: Planned (M2)"
+  },
+  {
+   "section": "M2 scope",
+   "kind": "milestone",
+   "value": "Topology T2 with OCI pull by `oci://REPOSITORY@sha256:<64 hex>`; signed Plugin artifact; signed Revision: Planned (M2)"
+  },
+  {
+   "section": "M2 scope",
+   "kind": "milestone",
+   "value": "signed revocation list and bloom filter: Planned (M2)"
+  },
+  {
+   "section": "M2 scope",
+   "kind": "milestone",
+   "value": "Built-in client redirects; `kubernetes` discovery: Planned (M2)"
+  },
+  {
+   "section": "M2 scope",
+   "kind": "milestone",
+   "value": "Topology T4 Kubernetes (Helm, HPA, CRDs); Helm chart in `deploy/`: Planned (M2)"
+  },
+  {
+   "section": "M2 scope",
+   "kind": "milestone",
+   "value": "Topologies T3, T5 in Control mode, T6 edge, T7 per-team, T8 multi-cluster, T10 hybrid: Planned (M2)"
+  },
+  {
+   "section": "M2 scope",
+   "kind": "milestone",
+   "value": "CE-7 to CE-10; S4 one header-only Plugin; F1, F2: Planned (M2)"
+  },
+  {
+   "section": "M2 scope",
+   "kind": "milestone",
+   "value": "JWT signing, GCP authentication: Planned (M2)"
+  },
+  {
+   "section": "M2 scope",
+   "kind": "kind_or_field",
+   "value": "`Plugin`"
+  },
+  {
+   "section": "M2 scope",
+   "kind": "kind_or_field",
+   "value": "`Cluster`"
+  },
+  {
+   "section": "M2 scope",
+   "kind": "kind_or_field",
+   "value": "`secretRef` `kubernetes` and `vault`"
+  },
+  {
+   "section": "M2 scope",
+   "kind": "kind_or_field",
+   "value": "`x-ruralz-validations[].rule`"
+  },
+  {
+   "section": "M2 scope",
+   "kind": "kind_or_field",
+   "value": "`kubernetes` discovery"
+  },
+  {
+   "section": "M2 scope",
+   "kind": "kind_or_field",
+   "value": "`rzplg:` State Store keys"
+  },
+  {
+   "section": "M2 scope",
+   "kind": "kind_or_field",
+   "value": "`ruralz.io/v1alpha1`"
+  },
+  {
+   "section": "M2 scope",
+   "kind": "policy_type",
+   "value": "`plugin`"
+  },
+  {
+   "section": "M2 scope",
+   "kind": "policy_type",
+   "value": "`authz.opa`"
+  },
+  {
+   "section": "M2 scope",
+   "kind": "policy_type",
+   "value": "`authz.cedar`"
+  },
+  {
+   "section": "M2 scope",
+   "kind": "policy_type",
+   "value": "`authz.geoip`"
+  },
+  {
+   "section": "M2 scope",
+   "kind": "policy_type",
+   "value": "`auth.upstream-sigv4`"
+  },
+  {
+   "section": "M2 scope",
+   "kind": "library",
+   "value": "WASM runtime wazero"
+  },
+  {
+   "section": "M2 scope",
+   "kind": "library",
+   "value": "protobuf runtime and code generation; `buf lint`, `buf breaking`"
+  },
+  {
+   "section": "M2 scope",
+   "kind": "library",
+   "value": "MaxMind-format reader"
+  },
+  {
+   "section": "M2 scope",
+   "kind": "library",
+   "value": "Raft"
+  },
+  {
+   "section": "M2 scope",
+   "kind": "library",
+   "value": "Rust and Go (TinyGo) PDKs"
+  },
+  {
+   "section": "M2 scope",
+   "kind": "cli_command",
+   "value": "`ruralz bundle push`"
+  },
+  {
+   "section": "M2 scope",
+   "kind": "cli_command",
+   "value": "`ruralz bundle import krakend`"
+  },
+  {
+   "section": "M2 scope",
+   "kind": "cli_command",
+   "value": "`ruralz bundle import openapi`"
+  },
+  {
+   "section": "M2 scope",
+   "kind": "cli_command",
+   "value": "`ruralz bundle export openapi`"
+  },
+  {
+   "section": "M2 scope",
+   "kind": "cli_command",
+   "value": "`ruralz bundle export postman`"
+  },
+  {
+   "section": "M2 scope",
+   "kind": "cli_command",
+   "value": "`ruralz bundle export dot`"
+  },
+  {
+   "section": "M2 scope",
+   "kind": "cli_command",
+   "value": "`ruralz bundle audit`"
+  },
+  {
+   "section": "M2 scope",
+   "kind": "cli_command",
+   "value": "`ruralz test run`"
+  },
+  {
+   "section": "M2 scope",
+   "kind": "cli_command",
+   "value": "`ruralz rollout` verbs `start`, `status`, `pause`, `resume`, `rollback`, `approve`, `reject`"
+  },
+  {
+   "section": "M2 scope",
+   "kind": "cli_command",
+   "value": "`ruralz node` verbs `list`, `token`, `revoke`"
+  },
+  {
+   "section": "M2 scope",
+   "kind": "cli_command",
+   "value": "`ruralz control` verbs `serve`, `join`, `backup`, `restore`"
+  },
+  {
+   "section": "M2 scope",
+   "kind": "cli_command",
+   "value": "`ruralz plugin` verbs `init`, `build`, `test`, `push`, `inspect`"
+  },
+  {
+   "section": "M2 scope",
+   "kind": "cli_command",
+   "value": "`--env` without `--environments FILE` fetches from Ruralz Control"
+  },
+  {
+   "section": "M2 scope",
+   "kind": "cli_command",
+   "value": "`rev-<12 hex>` and `sha256:<64 hex>` Revision sources"
+  },
+  {
+   "section": "M2 scope",
+   "kind": "term",
+   "value": "`detached`"
+  },
+  {
+   "section": "M2 scope",
+   "kind": "term",
+   "value": "`plugin_pool_degraded`"
+  },
+  {
+   "section": "M2 scope",
+   "kind": "term",
+   "value": "`plugin_parked_bound_low`"
+  },
+  {
+   "section": "M2 scope",
+   "kind": "term",
+   "value": "`revision_signature_off`"
+  },
+  {
+   "section": "M2 scope",
+   "kind": "term",
+   "value": "`plugin_signature_off`"
+  },
+  {
+   "section": "M2 scope",
+   "kind": "term",
+   "value": "`revocation_sequence_gap`"
+  },
+  {
+   "section": "M2 scope",
+   "kind": "term",
+   "value": "`state_store_memory_multi_node`"
+  },
+  {
+   "section": "M2 scope",
+   "kind": "term",
+   "value": "`node_count_unknown`"
+  },
+  {
+   "section": "M2 scope",
+   "kind": "metric",
+   "value": "`ruralz_plugin_*`"
+  },
+  {
+   "section": "M2 scope",
+   "kind": "metric",
+   "value": "`ruralz_node_detached_seconds`"
+  },
+  {
+   "section": "M2 scope",
+   "kind": "metric",
+   "value": "`ruralz_node_revocation_mark_age_seconds`"
+  },
+  {
+   "section": "M2 scope",
+   "kind": "metric",
+   "value": "`ruralz_node_control_stream_reconnects_total`"
+  },
+  {
+   "section": "M2 exit criteria",
+   "kind": "number",
+   "value": "A 100-Node `all-at-once` Rollout converges in 30 s or less at p95 (target), per SM-9 and PB-13"
+  },
+  {
+   "section": "M2 exit criteria",
+   "kind": "number",
+   "value": "F2 emulates 10,000 Nodes (target) on three replicas and survives one replica stopping"
+  },
+  {
+   "section": "M2 exit criteria",
+   "kind": "number",
+   "value": "A pooled Plugin Phase call adds 50 µs or less at p99 (target), per SM-6 and PB-5"
+  },
+  {
+   "section": "M2 exit criteria",
+   "kind": "number",
+   "value": "`ruralz bundle import krakend` imports 90% or more of the SM-8 corpus at full or partial fidelity (target)"
+  },
+  {
+   "section": "M2 exit criteria",
+   "kind": "number",
+   "value": "Chaos tests pass 100% of the System overview failure rows whose features are Planned (M2) or earlier (target)"
+  },
+  {
+   "section": "M2 exit criteria",
+   "kind": "number",
+   "value": "OpenSSF Scorecard is 8.0 or higher (hypothesis), per SM-12"
+  },
+  {
+   "section": "M2 exit criteria",
+   "kind": "number",
+   "value": "no Plugin sandbox escape stays unpatched past 30 days (target), per SM-13"
+  },
+  {
+   "section": "M2 exit criteria",
+   "kind": "number",
+   "value": "the 47 whose Blocking column names M2 at this snapshot"
+  },
+  {
+   "section": "M2 exit criteria",
+   "kind": "number",
+   "value": "KrakenD EE parity at exit: 35 of 71, 49% (target)"
+  },
+  {
+   "section": "M2 exit criteria",
+   "kind": "failure_mode",
+   "value": "Ruralz Control replicas killed, Raft quorum lost; Node restarted during that outage; Revision with a bad digest or signature"
+  },
+  {
+   "section": "M2 exit criteria",
+   "kind": "failure_mode",
+   "value": "State Store slower than `stateStoreTimeout`, then stopped"
+  },
+  {
+   "section": "M2 exit criteria",
+   "kind": "failure_mode",
+   "value": "Plugin traps, loops or reaches `limits.maxPluginMemoryBytes`"
+  },
+  {
+   "section": "M2 exit criteria",
+   "kind": "failure_mode",
+   "value": "A Zero-Downtime Upgrade from the previous release fails no requests on TCP listeners (target)"
+  },
+  {
+   "section": "M2 exit criteria",
+   "kind": "kind_or_field",
+   "value": "`stateStoreTimeout`"
+  },
+  {
+   "section": "M2 exit criteria",
+   "kind": "kind_or_field",
+   "value": "`limits.maxPluginMemoryBytes`"
+  },
+  {
+   "section": "M3 scope",
+   "kind": "kind_or_field",
+   "value": "`AIProvider`"
+  },
+  {
+   "section": "M3 scope",
+   "kind": "kind_or_field",
+   "value": "`AIModel`"
+  },
+  {
+   "section": "M3 scope",
+   "kind": "kind_or_field",
+   "value": "`protocol: ai`"
+  },
+  {
+   "section": "M3 scope",
+   "kind": "kind_or_field",
+   "value": "`AIModel.spec.candidates[].when`"
+  },
+  {
+   "section": "M3 scope",
+   "kind": "kind_or_field",
+   "value": "`match.grpc`"
+  },
+  {
+   "section": "M3 scope",
+   "kind": "kind_or_field",
+   "value": "`match.graphql`"
+  },
+  {
+   "section": "M3 scope",
+   "kind": "kind_or_field",
+   "value": "`grpc` Upstream"
+  },
+  {
+   "section": "M3 scope",
+   "kind": "kind_or_field",
+   "value": "`graphql` Upstream"
+  },
+  {
+   "section": "M3 scope",
+   "kind": "kind_or_field",
+   "value": "`ruralz/v1beta1`"
+  },
+  {
+   "section": "M3 scope",
+   "kind": "kind_or_field",
+   "value": "`ruralz.io/v1beta1`"
+  },
+  {
+   "section": "M3 scope",
+   "kind": "policy_type",
+   "value": "`ai.token-budget`"
+  },
+  {
+   "section": "M3 scope",
+   "kind": "policy_type",
+   "value": "`ai.semantic-cache`"
+  },
+  {
+   "section": "M3 scope",
+   "kind": "policy_type",
+   "value": "`ai.guardrail`"
+  },
+  {
+   "section": "M3 scope",
+   "kind": "decision",
+   "value": "ADR-0014: OpenAI-compatible façade (Chat Completions, embeddings, models) and native passthrough, streaming"
+  },
+  {
+   "section": "M3 scope",
+   "kind": "decision",
+   "value": "Currency budgets are unscheduled until OQ-ai-llm-gateway-7 is decided"
+  },
+  {
+   "section": "M3 scope",
+   "kind": "cli_command",
+   "value": "`ruralz ai cost`"
+  },
+  {
+   "section": "M3 scope",
+   "kind": "cli_command",
+   "value": "`ruralz ai models`"
+  },
+  {
+   "section": "M3 scope",
+   "kind": "port",
+   "value": "client UDP 8443"
+  },
+  {
+   "section": "M3 scope",
+   "kind": "port",
+   "value": "Kubernetes Node Service with UDP 8443"
+  },
+  {
+   "section": "M3 scope",
+   "kind": "limit",
+   "value": "WebSocket session memory of 96 KiB or less (target)"
+  },
+  {
+   "section": "M3 scope",
+   "kind": "metric",
+   "value": "`ruralz_listener_tls_handshake_duration_seconds` (QUIC handshakes)"
+  },
+  {
+   "section": "M3 scope",
+   "kind": "metric",
+   "value": "`ruralz_http_session_duration_seconds`"
+  },
+  {
+   "section": "M3 scope",
+   "kind": "metric",
+   "value": "`ruralz_sse_buffered_total`"
+  },
+  {
+   "section": "M3 scope",
+   "kind": "metric",
+   "value": "`gen_ai` telemetry"
+  },
+  {
+   "section": "M3 scope",
+   "kind": "term",
+   "value": "degraded reason `semantic_cache_unsupported`"
+  },
+  {
+   "section": "M3 scope",
+   "kind": "milestone",
+   "value": "OpenAI-compatible façade, native passthrough, model routing, Provider Fallback and load balancing: Planned (M3)"
+  },
+  {
+   "section": "M3 scope",
+   "kind": "milestone",
+   "value": "Token Budgets, token-based limits, `ai.semantic-cache`, Prompt Cache, `ai.guardrail`, cost tracking, MCP gateway and MCP Server, A2A proxy as plain HTTP and SSE: Planned (M3)"
+  },
+  {
+   "section": "M3 scope",
+   "kind": "milestone",
+   "value": "gRPC ingress and proxying, gRPC-Web and Connect; GraphQL query, mutation, subscription, federation; WebSocket direct and multiplexer; SSE: Planned (M3)"
+  },
+  {
+   "section": "M3 scope",
+   "kind": "milestone",
+   "value": "REST and plain HTTP over HTTP/3 (HTTP/3 downstream, client UDP 8443): Planned (M3)"
+  },
+  {
+   "section": "M3 scope",
+   "kind": "milestone",
+   "value": "TypeScript PDK in `sdk/`: Planned (M3)"
+  },
+  {
+   "section": "M3 scope",
+   "kind": "milestone",
+   "value": "`ruralz-crds.yaml` changes serving `ruralz.io/v1beta1` with its conversion webhook: Planned (M3)"
+  },
+  {
+   "section": "M3 scope",
+   "kind": "milestone",
+   "value": "traceparent injection into gRPC legs: Planned (M3)"
+  },
+  {
+   "section": "M3 scope",
+   "kind": "milestone",
+   "value": "CE-13, CE-14; S6, S6n, S7 gRPC unary, HTTP/3 variant of S3: Planned (M3)"
+  },
+  {
+   "section": "M3 scope",
+   "kind": "failure_mode",
+   "value": "losing QUIC connections on upgrade (OQ-system-overview-18)"
+  },
+  {
+   "section": "M3 scope",
+   "kind": "failure_mode",
+   "value": "AI provider mock returns 429 before first byte"
+  },
+  {
+   "section": "M3 scope",
+   "kind": "failure_mode",
+   "value": "Hot Reload keeps open WebSocket and SSE streams on their starting snapshot"
+  },
+  {
+   "section": "M3 scope",
+   "kind": "term",
+   "value": "threats T13 (cross-tenant cache leakage) and T20 (prompt injection)"
+  },
+  {
+   "section": "M3 exit criteria",
+   "kind": "number",
+   "value": "Token Budget overshoot is 1% of B or less (hypothesis) in the SM-10 mock scenario"
+  },
+  {
+   "section": "M3 exit criteria",
+   "kind": "number",
+   "value": "Prompt Cache markers survive native passthrough in 100% of test cases (target), per SM-11"
+  },
+  {
+   "section": "M3 exit criteria",
+   "kind": "number",
+   "value": "Gateway-added time to first token is 1 ms or less at p99 (target), per PB-12"
+  },
+  {
+   "section": "M3 exit criteria",
+   "kind": "number",
+   "value": "S6 carries 1,000 streams at 100 chunks per second on 1.2 vCPU or less (target)"
+  },
+  {
+   "section": "M3 exit criteria",
+   "kind": "number",
+   "value": "S7 reaches 30,000 rps or more (target)"
+  },
+  {
+   "section": "M3 exit criteria",
+   "kind": "number",
+   "value": "protocol conformance passes 100% of cases (target) for gRPC, GraphQL, WebSocket, SSE and HTTP/3"
+  },
+  {
+   "section": "M3 exit criteria",
+   "kind": "number",
+   "value": "Measured and published at exit, not gating: SM-14 (hypothesis)"
+  },
+  {
+   "section": "M3 exit criteria",
+   "kind": "number",
+   "value": "KrakenD EE parity at exit: 53 of 71, 75% (target)"
+  },
+  {
+   "section": "M3 exit criteria",
+   "kind": "failure_mode",
+   "value": "Chaos tests pass the LLM provider throttling failure row, with CE-13 and AI provider mock 429 case"
+  },
+  {
+   "section": "M4 scope",
+   "kind": "kind_or_field",
+   "value": "`kafka`, `nats` and `mqtt` Upstreams"
+  },
+  {
+   "section": "M4 scope",
+   "kind": "kind_or_field",
+   "value": "`Upstream.spec.messaging.key`"
+  },
+  {
+   "section": "M4 scope",
+   "kind": "kind_or_field",
+   "value": "`postgres` Control Store"
+  },
+  {
+   "section": "M4 scope",
+   "kind": "kind_or_field",
+   "value": "`surface: openai` Responses API"
+  },
+  {
+   "section": "M4 scope",
+   "kind": "kind_or_field",
+   "value": "`surface: native`"
+  },
+  {
+   "section": "M4 scope",
+   "kind": "decision",
+   "value": "ADR-0013: messaging client libraries for `kafka`, `nats` and `mqtt` Upstreams"
+  },
+  {
+   "section": "M4 scope",
+   "kind": "decision",
+   "value": "ADR-0005: proxy-wasm adapter on the same host"
+  },
+  {
+   "section": "M4 scope",
+   "kind": "decision",
+   "value": "no Kafka wire proxying"
+  },
+  {
+   "section": "M4 scope",
+   "kind": "decision",
+   "value": "Reviewed here, not planned: OQ-scalability-and-distributed-state-1 (GCRA leases; current: per request)"
+  },
+  {
+   "section": "M4 scope",
+   "kind": "decision",
+   "value": "Gateway API conformance, deferred beyond M5 by Deployment topologies"
+  },
+  {
+   "section": "M4 scope",
+   "kind": "metric",
+   "value": "`ruralz_ingress_paused_partitions`"
+  },
+  {
+   "section": "M4 scope",
+   "kind": "metric",
+   "value": "`ruralz_ingress_hold_expiries_total`"
+  },
+  {
+   "section": "M4 scope",
+   "kind": "port",
+   "value": "relay on 8092"
+  },
+  {
+   "section": "M4 scope",
+   "kind": "port",
+   "value": "server CA on 8091"
+  },
+  {
+   "section": "M4 scope",
+   "kind": "default",
+   "value": "regional (default), divided and home Region Quota patterns"
+  },
+  {
+   "section": "M4 scope",
+   "kind": "api_path",
+   "value": "Bedrock `POST /model/{modelId}/invoke`"
+  },
+  {
+   "section": "M4 scope",
+   "kind": "api_path",
+   "value": "`/invoke-with-response-stream`"
+  },
+  {
+   "section": "M4 scope",
+   "kind": "library",
+   "value": "MQTT client"
+  },
+  {
+   "section": "M4 scope",
+   "kind": "library",
+   "value": "embedded MQTT broker"
+  },
+  {
+   "section": "M4 scope",
+   "kind": "library",
+   "value": "`default.pgo`"
+  },
+  {
+   "section": "M4 scope",
+   "kind": "milestone",
+   "value": "`kafka`, `nats` and `mqtt` Upstreams; topic ingress and async agents; embedded MQTT broker: Planned (M4)"
+  },
+  {
+   "section": "M4 scope",
+   "kind": "milestone",
+   "value": "traceparent injection into Kafka, NATS and MQTT 5: Planned (M4)"
+  },
+  {
+   "section": "M4 scope",
+   "kind": "milestone",
+   "value": "Cells across Regions; relay (TB-13); CE-11, CE-17; topology T9 multi-region with Cells: Planned (M4)"
+  },
+  {
+   "section": "M4 scope",
+   "kind": "milestone",
+   "value": "Optional `postgres` Control Store; proxy-wasm adapter; C# PDK in `sdk/`: Planned (M4)"
+  },
+  {
+   "section": "M4 scope",
+   "kind": "milestone",
+   "value": "`surface: openai` Responses API; `surface: native` Bedrock, Claude-family bodies only: Planned (M4)"
+  },
+  {
+   "section": "M4 scope",
+   "kind": "milestone",
+   "value": "request hedging (Traffic management): Planned (M4)"
+  },
+  {
+   "section": "M4 scope",
+   "kind": "milestone",
+   "value": "Competitor baselines for KrakenD CE, Envoy, Apache APISIX and Kong on RH-1 (F-7); S8; `default.pgo`: Planned (M4)"
+  },
+  {
+   "section": "M4 exit criteria",
+   "kind": "number",
+   "value": "messaging integration tests pass 100% of cases (target)"
+  },
+  {
+   "section": "M4 exit criteria",
+   "kind": "number",
+   "value": "Measured and published at exit, not gating: SM-15 (hypothesis)"
+  },
+  {
+   "section": "M4 exit criteria",
+   "kind": "number",
+   "value": "KrakenD EE parity at exit: 55 of 71, 77% (target)"
+  },
+  {
+   "section": "M4 exit criteria",
+   "kind": "claim",
+   "value": "KrakenD CE S5 not run: Redis-backed limits are Enterprise-only"
+  },
+  {
+   "section": "M4 exit criteria",
+   "kind": "failure_mode",
+   "value": "losing one Cell's State Store degrades only that Cell"
+  },
+  {
+   "section": "M5 scope",
+   "kind": "milestone",
+   "value": "FIPS variant and build flavors from `GOFIPS140`: Planned (M5)"
+  },
+  {
+   "section": "M5 scope",
+   "kind": "milestone",
+   "value": "Ruralz Console OIDC and SAML SSO (TB-6), `sso.config.changed`: Planned (M5)"
+  },
+  {
+   "section": "M5 scope",
+   "kind": "milestone",
+   "value": "monetization hooks, no full API management suite; A2A-aware gateway: Planned (M5)"
+  },
+  {
+   "section": "M5 scope",
+   "kind": "milestone",
+   "value": "Long-tail EE rows (OpenAPI server, faster JSON decoding, gzip compression, JSON Schema response validation, static web server, SOAP integration, ...): Planned (M5)"
+  },
+  {
+   "section": "M5 scope",
+   "kind": "decision",
+   "value": "stage 4 FIPS job fails if quic-go appears"
+  },
+  {
+   "section": "M5 scope",
+   "kind": "decision",
+   "value": "FIPS mode does not cover Wasm, so Plugin cryptography goes through `crypto.use`"
+  },
+  {
+   "section": "M5 scope",
+   "kind": "decision",
+   "value": "UDP 8443 off"
+  },
+  {
+   "section": "M5 scope",
+   "kind": "decision",
+   "value": "no feature or edition tiers"
+  },
+  {
+   "section": "M5 scope",
+   "kind": "decision",
+   "value": "Reviewed here, not planned: produce-only Kafka proxying"
+  },
+  {
+   "section": "M5 scope",
+   "kind": "decision",
+   "value": "`1.0.0` timing (OQ-release-versioning-and-compatibility-1)"
+  },
+  {
+   "section": "M5 scope",
+   "kind": "library",
+   "value": "quic-go"
+  },
+  {
+   "section": "M5 scope",
+   "kind": "library",
+   "value": "OPA v1"
+  },
+  {
+   "section": "M5 exit criteria",
+   "kind": "number",
+   "value": "every benchmark scenario but HTTP/3 meets the same budgets (target)"
+  },
+  {
+   "section": "M5 exit criteria",
+   "kind": "number",
+   "value": "FIPS handshakes may cost more (hypothesis)"
+  },
+  {
+   "section": "M5 exit criteria",
+   "kind": "number",
+   "value": "100% of EE-only rows not marked Not planned are implemented, with 10 or fewer Not planned (target), per SM-3"
+  },
+  {
+   "section": "M5 exit criteria",
+   "kind": "number",
+   "value": "KrakenD EE parity at exit: 68 of 71, 96% (target)"
+  },
+  {
+   "section": "M5 exit criteria",
+   "kind": "number",
+   "value": "at least 61 of 71, 86% (target), if SM-3 uses all 10 Not planned slots"
+  },
+  {
+   "section": "Sequencing",
+   "kind": "decision",
+   "value": "A slipping item blocks its milestone's exit unless its owning document moves it"
+  },
+  {
+   "section": "Sequencing",
+   "kind": "number",
+   "value": "M0 2d, M1 8d, M2 8d, M3 9d, M4 6d, M5 5d relative effort units"
+  },
+  {
+   "section": "Risks",
+   "kind": "claim",
+   "value": "R-3: Go garbage collection breaks 1 ms p99 (target)"
+  },
+  {
+   "section": "Risks",
+   "kind": "claim",
+   "value": "R-6: wazero has no fuel metering"
+  },
+  {
+   "section": "Risks",
+   "kind": "claim",
+   "value": "deadline interruption (`WithCloseOnContextDone`) costs 10 to 20x on loop-heavy guests"
+  },
+  {
+   "section": "Risks",
+   "kind": "claim",
+   "value": "R-8: paho.golang last tagged 2025-09-06"
+  },
+  {
+   "section": "Risks",
+   "kind": "claim",
+   "value": "mochi-mqtt 2025-03-01"
+  },
+  {
+   "section": "Risks",
+   "kind": "claim",
+   "value": "cedar-go has no default-branch commit since 2026-06-01"
+  },
+  {
+   "section": "Risks",
+   "kind": "claim",
+   "value": "R-9: APISIX 3.18 gives away a semantic cache and token counters"
+  },
+  {
+   "section": "Risks",
+   "kind": "library",
+   "value": "paho.golang"
+  },
+  {
+   "section": "Risks",
+   "kind": "library",
+   "value": "mochi-mqtt"
+  },
+  {
+   "section": "Risks",
+   "kind": "library",
+   "value": "cedar-go"
+  },
+  {
+   "section": "Risks",
+   "kind": "library",
+   "value": "`GOMEMLIMIT` guidance"
+  },
+  {
+   "section": "Open questions",
+   "kind": "decision",
+   "value": "OQ-roadmap-and-milestones-1: Blocking Yes, for M1 exit criterion 6"
+  },
+  {
+   "section": "Open questions",
+   "kind": "decision",
+   "value": "OQ-roadmap-and-milestones-2: (a) Relative order only (current)"
+  },
+  {
+   "section": "Open questions",
+   "kind": "decision",
+   "value": "OQ-roadmap-and-milestones-3: (a) One exit (current)"
+  }
+ ]
+}

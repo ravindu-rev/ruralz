@@ -1,0 +1,451 @@
+{
+ "path": "docs/adr/0012-graphql-engine-graphql-go-tools.md",
+ "status": "accepted",
+ "facts": [
+  {
+   "section": "Context and problem statement",
+   "kind": "kind_or_field",
+   "value": "Route.spec.match.graphql"
+  },
+  {
+   "section": "Context and problem statement",
+   "kind": "kind_or_field",
+   "value": "Upstream.spec.protocol: graphql"
+  },
+  {
+   "section": "Context and problem statement",
+   "kind": "milestone",
+   "value": "GraphQL via Route.spec.match.graphql and Upstream.spec.protocol: graphql: Planned (M3)"
+  },
+  {
+   "section": "Context and problem statement",
+   "kind": "claim",
+   "value": "Clients subscribe over graphql-transport-ws, graphql-ws or SSE; subgraphs over graphql-transport-ws"
+  },
+  {
+   "section": "Context and problem statement",
+   "kind": "claim",
+   "value": "CGO_ENABLED=0 binary (ADR-0001)"
+  },
+  {
+   "section": "Context and problem statement",
+   "kind": "claim",
+   "value": "Federation is part of the multi-protocol differentiator; KrakenD lacks it"
+  },
+  {
+   "section": "Decision drivers",
+   "kind": "claim",
+   "value": "Federation versions 1 and 2 and subscriptions from one engine (foundation pack section 7)"
+  },
+  {
+   "section": "Decision drivers",
+   "kind": "claim",
+   "value": "A library, not a server, so GraphQL keeps its Filter Chain Phase mapping (P7)"
+  },
+  {
+   "section": "Decision drivers",
+   "kind": "claim",
+   "value": "Runtime configuration: a Revision carries Routes and subgraph and supergraph schemas (declaration: OQ-multi-protocol-4); Hot Reload activates it (P5)"
+  },
+  {
+   "section": "Decision drivers",
+   "kind": "claim",
+   "value": "Gates G1 to G3 and criteria S1 to S4, S6 and S7; S3 and S4 also govern the upstream seam"
+  },
+  {
+   "section": "Decision drivers",
+   "kind": "cli_command",
+   "value": "ruralz bundle validate"
+  },
+  {
+   "section": "Decision drivers",
+   "kind": "claim",
+   "value": "all three binaries report the same GraphQL errors, in `ruralz bundle validate` rather than as Node NACKs"
+  },
+  {
+   "section": "Decision drivers",
+   "kind": "kind_or_field",
+   "value": "limits.maxBufferedBytes"
+  },
+  {
+   "section": "Decision drivers",
+   "kind": "kind_or_field",
+   "value": "maxResponseBodyBytes"
+  },
+  {
+   "section": "Decision drivers",
+   "kind": "limit",
+   "value": "events and subgraph bodies are reserved from Gateway `limits.maxBufferedBytes`, and a request's subgraph bodies together fit `maxResponseBodyBytes`"
+  },
+  {
+   "section": "Considered options",
+   "kind": "library",
+   "value": "github.com/wundergraph/graphql-go-tools/v2"
+  },
+  {
+   "section": "Considered options",
+   "kind": "library",
+   "value": "99designs/gqlgen"
+  },
+  {
+   "section": "Considered options",
+   "kind": "library",
+   "value": "movio/bramble"
+  },
+  {
+   "section": "Considered options",
+   "kind": "library",
+   "value": "graphql-go/graphql"
+  },
+  {
+   "section": "Considered options",
+   "kind": "library",
+   "value": "External GraphQL router, such as Cosmo Router, as a graphql Upstream"
+  },
+  {
+   "section": "Considered options",
+   "kind": "claim",
+   "value": "No engine: GraphQL forwarded as plain HTTP under HTTP-level Policies, as in KrakenD"
+  },
+  {
+   "section": "Decision outcome",
+   "kind": "decision",
+   "value": "Chosen option: \"`github.com/wundergraph/graphql-go-tools/v2` engine (federation versions 1 and 2, subscriptions)\""
+  },
+  {
+   "section": "Decision outcome",
+   "kind": "claim",
+   "value": "only researched Go library that plans federation versions 1 and 2 with batched entity calls and supports subscriptions"
+  },
+  {
+   "section": "Decision outcome",
+   "kind": "claim",
+   "value": "it \"is not a GraphQL server by itself\""
+  },
+  {
+   "section": "Decision outcome",
+   "kind": "library",
+   "value": "Module: v2 only, v2.22.x floor; v1 is \"deprecated and retracted\""
+  },
+  {
+   "section": "Decision outcome",
+   "kind": "milestone",
+   "value": "Module (v2 only, v2.22.x floor): Planned (M3)"
+  },
+  {
+   "section": "Decision outcome",
+   "kind": "decision",
+   "value": "ruralzd: Lexer, parser, astnormalization, astvalidation, engine/plan, engine/resolve and graphql_datasource behind one internal/ interface (S7); never subscription"
+  },
+  {
+   "section": "Decision outcome",
+   "kind": "milestone",
+   "value": "ruralzd package set: Planned (M3)"
+  },
+  {
+   "section": "Decision outcome",
+   "kind": "decision",
+   "value": "ruralz-control, ruralz: lexer, parser, normalization, validation, engine/plan and graphql_datasource planner, no HTTP or subscription client; never engine/resolve or subscription"
+  },
+  {
+   "section": "Decision outcome",
+   "kind": "failure_mode",
+   "value": "If spike fails, supergraph planning errors surface as Node NACKs under option (b) of OQ-tech-stack-and-libraries-22, and these binaries drop engine/plan and graphql_datasource"
+  },
+  {
+   "section": "Decision outcome",
+   "kind": "milestone",
+   "value": "ruralz-control, ruralz package set: Planned (M3)"
+  },
+  {
+   "section": "Decision outcome",
+   "kind": "decision",
+   "value": "Federation: plan against a supergraph SDL composed outside Ruralz and pinned by digest, proposed option (c) of OQ-multi-protocol-4; no Configuration model field declares it yet"
+  },
+  {
+   "section": "Decision outcome",
+   "kind": "milestone",
+   "value": "Federation: Planned (M3)"
+  },
+  {
+   "section": "Decision outcome",
+   "kind": "limit",
+   "value": "Depth and alias limits in both modes, field count in pass-through and complexity in federation, per operation after fragment expansion and before any upstream call (settings: OQ-multi-protocol-5)"
+  },
+  {
+   "section": "Decision outcome",
+   "kind": "claim",
+   "value": "Until a pass-through schema source exists, pass-through expands fragments itself and skips schema validation"
+  },
+  {
+   "section": "Decision outcome",
+   "kind": "milestone",
+   "value": "Limits: Planned (M3)"
+  },
+  {
+   "section": "Decision outcome",
+   "kind": "library",
+   "value": "coder/websocket (graphql-transport-ws and graphql-ws framing); SSE over net/http"
+  },
+  {
+   "section": "Decision outcome",
+   "kind": "limit",
+   "value": "32 KiB reservation (target) per subscribe"
+  },
+  {
+   "section": "Decision outcome",
+   "kind": "limit",
+   "value": "per-session operation cap and rate, an in-flight unit per subscribe"
+  },
+  {
+   "section": "Decision outcome",
+   "kind": "failure_mode",
+   "value": "a denial is an `error` for that operation id, keeping the socket (OQ-multi-protocol-17)"
+  },
+  {
+   "section": "Decision outcome",
+   "kind": "milestone",
+   "value": "Transport: Planned (M3)"
+  },
+  {
+   "section": "Decision outcome",
+   "kind": "decision",
+   "value": "GraphQL upstream seam: graphql_datasource uses a Ruralz-supplied http.Client per upstream leg; in-flight unit per fetch; reserves response bytes from maxBufferedBytes"
+  },
+  {
+   "section": "Decision outcome",
+   "kind": "failure_mode",
+   "value": "else subgraph subscriptions wait on OQ-multi-protocol-12"
+  },
+  {
+   "section": "Decision outcome",
+   "kind": "milestone",
+   "value": "GraphQL upstream seam: Planned (M3)"
+  },
+  {
+   "section": "Decision outcome",
+   "kind": "decision",
+   "value": "Pass-through: each admitted subscribe dials its own graphql-transport-ws socket via coder/websocket client, so onUpstreamRequest runs per subscription"
+  },
+  {
+   "section": "Decision outcome",
+   "kind": "limit",
+   "value": "1 MiB chunk cap (target)"
+  },
+  {
+   "section": "Decision outcome",
+   "kind": "milestone",
+   "value": "GraphQL pass-through upstream: Planned (M3)"
+  },
+  {
+   "section": "Decision outcome",
+   "kind": "library",
+   "value": "Explicit `require` of `gorilla/websocket` v1.5.3 over the v1.5.1 pin"
+  },
+  {
+   "section": "Decision outcome",
+   "kind": "error_code",
+   "value": "GO-2026-6278"
+  },
+  {
+   "section": "Decision outcome",
+   "kind": "milestone",
+   "value": "GraphQL module floor: Planned (M3)"
+  },
+  {
+   "section": "Decision outcome",
+   "kind": "term",
+   "value": "onRequestHeaders"
+  },
+  {
+   "section": "Decision outcome",
+   "kind": "term",
+   "value": "onRequestBody"
+  },
+  {
+   "section": "Decision outcome",
+   "kind": "term",
+   "value": "onUpstreamRequest"
+  },
+  {
+   "section": "Consequences",
+   "kind": "claim",
+   "value": "MIT-licensed, v2 go.mod declares `go 1.25.0` with no C dependencies"
+  },
+  {
+   "section": "Consequences",
+   "kind": "number",
+   "value": "seven releases in 14 days"
+  },
+  {
+   "section": "Consequences",
+   "kind": "claim",
+   "value": "Cosmo Router runs on it; passes G2, S1 and S2 (G1 and G3: Confirmation)"
+  },
+  {
+   "section": "Consequences",
+   "kind": "claim",
+   "value": "paying WunderGraph customers steer its features"
+  },
+  {
+   "section": "Consequences",
+   "kind": "claim",
+   "value": "pins `gorilla/websocket` v1.5.1, inside the GO-2026-6278 range: an accepted S6 exception that OQ-tech-stack-and-libraries-6 does not yet cover"
+  },
+  {
+   "section": "Consequences",
+   "kind": "claim",
+   "value": "no composition package, so federation waits on OQ-multi-protocol-4 (size: OQ-tech-stack-and-libraries-22)"
+  },
+  {
+   "section": "Consequences",
+   "kind": "limit",
+   "value": "each is reserved as a chunk up to 1 MiB (target) even without `onChunk`"
+  },
+  {
+   "section": "Consequences",
+   "kind": "claim",
+   "value": "the subgraph read limit is unresearched (OQ-multi-protocol-12)"
+  },
+  {
+   "section": "Consequences",
+   "kind": "limit",
+   "value": "160 MiB stripped budget (target)"
+  },
+  {
+   "section": "Consequences",
+   "kind": "library",
+   "value": "`connectrpc.com/connect` v1.19.2 against Ruralz's v1.21.x"
+  },
+  {
+   "section": "Consequences",
+   "kind": "number",
+   "value": "(hypothesis: compatible; the gRPC and GraphQL conformance suites check it)"
+  },
+  {
+   "section": "Confirmation",
+   "kind": "milestone",
+   "value": "Dependency admission: Planned (M0)"
+  },
+  {
+   "section": "Confirmation",
+   "kind": "decision",
+   "value": "depguard rule banning github.com/99designs/gqlgen, github.com/movio/bramble and github.com/graphql-go/graphql"
+  },
+  {
+   "section": "Confirmation",
+   "kind": "milestone",
+   "value": "G1 cross-build, G3 crypto denylist and license gate: Planned (M0)"
+  },
+  {
+   "section": "Confirmation",
+   "kind": "milestone",
+   "value": "FIPS CI job: Planned (M5)"
+  },
+  {
+   "section": "Confirmation",
+   "kind": "milestone",
+   "value": "GraphQL module floor: Planned (M3)"
+  },
+  {
+   "section": "Confirmation",
+   "kind": "milestone",
+   "value": "govulncheck on every pull request: Planned (M0)"
+  },
+  {
+   "section": "Confirmation",
+   "kind": "milestone",
+   "value": "Protocol conformance suite in pr-full: Planned (M3)"
+  },
+  {
+   "section": "Confirmation",
+   "kind": "metric",
+   "value": "ruralz.upstream.<name>"
+  },
+  {
+   "section": "Confirmation",
+   "kind": "failure_mode",
+   "value": "an oversized subgraph body is rejected with its reservation released"
+  },
+  {
+   "section": "Confirmation",
+   "kind": "failure_mode",
+   "value": "a denied `subscribe` gets an `error` for its operation id while the socket stays open"
+  },
+  {
+   "section": "Confirmation",
+   "kind": "milestone",
+   "value": "CI size check: Planned (M1)"
+  },
+  {
+   "section": "Confirmation",
+   "kind": "claim",
+   "value": "a pull request that adds another GraphQL library, imports the `subscription` package, or exceeds the ruralz-control, ruralz package set or builds a client there, MUST amend this ADR"
+  },
+  {
+   "section": "gqlgen",
+   "kind": "number",
+   "value": "v0.17.95"
+  },
+  {
+   "section": "gqlgen",
+   "kind": "claim",
+   "value": "generates code from a schema at build time, so a Revision's schema would need a rebuild, breaking P5"
+  },
+  {
+   "section": "bramble",
+   "kind": "claim",
+   "value": "stateless federation gateway with hot reload"
+  },
+  {
+   "section": "bramble",
+   "kind": "claim",
+   "value": "uses its own federation specification, has no subscriptions and shares no unions, interfaces, scalars, enums or inputs across services"
+  },
+  {
+   "section": "graphql-go",
+   "kind": "claim",
+   "value": "supports queries, mutations and subscriptions"
+  },
+  {
+   "section": "graphql-go",
+   "kind": "number",
+   "value": "no tag since v0.8.1 on 2023-04-10"
+  },
+  {
+   "section": "graphql-go",
+   "kind": "error_code",
+   "value": "GO-2022-0942"
+  },
+  {
+   "section": "External GraphQL router as an Upstream",
+   "kind": "claim",
+   "value": "subgraph calls would bypass the Filter Chain, breaking P7; operators would run a second product; no router license was researched"
+  },
+  {
+   "section": "Opaque HTTP pass-through",
+   "kind": "claim",
+   "value": "gives up federation and subscriptions, and `match.graphql` and the limits still need a parser"
+  },
+  {
+   "section": "More information",
+   "kind": "claim",
+   "value": "depguard: graphql-go-tools only in one wrapper package; `subscription` nowhere; gqlgen, bramble and graphql-go banned"
+  },
+  {
+   "section": "More information",
+   "kind": "claim",
+   "value": "watch graphql-go-tools (trigger: an unfixed advisory or license change; fallback: a fork)"
+  },
+  {
+   "section": "More information",
+   "kind": "claim",
+   "value": "Testing and quality strategy SHOULD add a GraphQL parser and normalizer fuzz target"
+  },
+  {
+   "section": "More information",
+   "kind": "claim",
+   "value": "Revisit if the engine drops a federation version, changes license, or adds a composition package"
+  }
+ ]
+}

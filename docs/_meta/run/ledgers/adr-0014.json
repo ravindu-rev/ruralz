@@ -1,0 +1,536 @@
+{
+ "path": "docs/adr/0014-ai-api-surface.md",
+ "status": "accepted",
+ "facts": [
+  {
+   "section": "Context and problem statement",
+   "kind": "kind_or_field",
+   "value": "Upstream"
+  },
+  {
+   "section": "Context and problem statement",
+   "kind": "kind_or_field",
+   "value": "protocol: ai"
+  },
+  {
+   "section": "Context and problem statement",
+   "kind": "kind_or_field",
+   "value": "AIModel"
+  },
+  {
+   "section": "Context and problem statement",
+   "kind": "kind_or_field",
+   "value": "ai.models"
+  },
+  {
+   "section": "Context and problem statement",
+   "kind": "kind_or_field",
+   "value": "ai.surface (`openai` or `native`)"
+  },
+  {
+   "section": "Context and problem statement",
+   "kind": "kind_or_field",
+   "value": "AIProvider"
+  },
+  {
+   "section": "Context and problem statement",
+   "kind": "kind_or_field",
+   "value": "dialect `openai`, `anthropic`, `gemini`, `bedrock`, `mistral` or `ollama`"
+  },
+  {
+   "section": "Context and problem statement",
+   "kind": "milestone",
+   "value": "AI traffic is Planned (M3)"
+  },
+  {
+   "section": "Context and problem statement",
+   "kind": "claim",
+   "value": "Nothing is implemented"
+  },
+  {
+   "section": "Context and problem statement",
+   "kind": "claim",
+   "value": "Translating proxies that rebuild requests from typed schemas drop Prompt Cache markers (LiteLLM #41424, Coder #29563)"
+  },
+  {
+   "section": "Context and problem statement",
+   "kind": "library",
+   "value": "tiktoken-go/tokenizer embeds OpenAI encodings only"
+  },
+  {
+   "section": "Context and problem statement",
+   "kind": "claim",
+   "value": "Anthropic publishes no tokenizer"
+  },
+  {
+   "section": "Decision drivers",
+   "kind": "claim",
+   "value": "P8, AI traffic is API traffic: the same Routes, Policies, Consumers and State Store govern AI calls"
+  },
+  {
+   "section": "Decision drivers",
+   "kind": "kind_or_field",
+   "value": "cache.prompt.mode: disabled"
+  },
+  {
+   "section": "Decision drivers",
+   "kind": "number",
+   "value": "native requests keep every cache marker in 100% of conformance cases (target; SM-11)"
+  },
+  {
+   "section": "Decision drivers",
+   "kind": "number",
+   "value": "overshoot is at most the sum of concurrent input-estimate errors plus (attempts - 1) x R per concurrent request, plus unstreamed hidden reasoning (OQ-ai-llm-gateway-17) (hypothesis; SM-10)"
+  },
+  {
+   "section": "Decision drivers",
+   "kind": "claim",
+   "value": "pack 8.9 omits both extra terms (OQ-ai-llm-gateway-15)"
+  },
+  {
+   "section": "Decision drivers",
+   "kind": "claim",
+   "value": "P3: one blocking State Store call per Policy before commit, none in `onChunk`; any other remote call is declared on its Policy"
+  },
+  {
+   "section": "Decision drivers",
+   "kind": "claim",
+   "value": "Client portability: SDKs written for OpenAI Chat Completions reach every dialect"
+  },
+  {
+   "section": "Decision drivers",
+   "kind": "kind_or_field",
+   "value": "AIProvider.spec.pricing"
+  },
+  {
+   "section": "Decision drivers",
+   "kind": "claim",
+   "value": "P1 and P2: no Revington service or entitlement supplies prices or counts"
+  },
+  {
+   "section": "Decision drivers",
+   "kind": "number",
+   "value": "gateway-added time to first token of 1 ms or less at p99 for bodies up to 16 KiB, excluding State Store, embedding, provider and estimator time (target; PB-12)"
+  },
+  {
+   "section": "Decision drivers",
+   "kind": "limit",
+   "value": "bodies up to 16 KiB"
+  },
+  {
+   "section": "Considered options",
+   "kind": "claim",
+   "value": "Kong offers native formats beside its OpenAI default"
+  },
+  {
+   "section": "Considered options",
+   "kind": "claim",
+   "value": "Cloudflare serves OpenAI-compatible and Anthropic formats"
+  },
+  {
+   "section": "Considered options",
+   "kind": "claim",
+   "value": "Agent Router's \"single OpenAI-compatible API across 16 providers\""
+  },
+  {
+   "section": "Considered options",
+   "kind": "claim",
+   "value": "KrakenD EE's no-op passthrough"
+  },
+  {
+   "section": "Considered options",
+   "kind": "claim",
+   "value": "Anthropic offers only a count endpoint"
+  },
+  {
+   "section": "Considered options",
+   "kind": "claim",
+   "value": "Kong uses provider-returned token data, and \"The cost ... is only reflected during the next request\""
+  },
+  {
+   "section": "Considered options",
+   "kind": "claim",
+   "value": "Agent Router checks usage already charged, then charges actual usage"
+  },
+  {
+   "section": "Decision outcome",
+   "kind": "decision",
+   "value": "Chosen option: \"OpenAI-compatible façade plus native passthrough, provider usage authoritative\""
+  },
+  {
+   "section": "Decision outcome",
+   "kind": "decision",
+   "value": "tokenizer counts serve only pre-admission estimates and the streaming guard; Token Budgets reserve and settle per section 8.9"
+  },
+  {
+   "section": "Decision outcome",
+   "kind": "decision",
+   "value": "Surface decoder at the start of `onRequestBody`, before any `onRequestBody` Policy, after the `onRequestHeaders` Policies"
+  },
+  {
+   "section": "Decision outcome",
+   "kind": "error_code",
+   "value": "RZ-AI-002 (invalid UTF-8 or repeated members; inexpressible feature)"
+  },
+  {
+   "section": "Decision outcome",
+   "kind": "error_code",
+   "value": "RZ-AI-001 (`model` not resolved in `ai.models`)"
+  },
+  {
+   "section": "Decision outcome",
+   "kind": "claim",
+   "value": "assumes the Route has exactly one upstream leg and no `composition` (proposed validation code: OQ-ai-llm-gateway-16)"
+  },
+  {
+   "section": "Decision outcome",
+   "kind": "milestone",
+   "value": "Surface decoder: Planned (M3)"
+  },
+  {
+   "section": "Decision outcome",
+   "kind": "decision",
+   "value": "surface: openai: Chat Completions, streamed or not, embeddings and the model list, translated to each candidate's dialect and back to OpenAI chunks ending `data: [DONE]`"
+  },
+  {
+   "section": "Decision outcome",
+   "kind": "milestone",
+   "value": "surface: openai: Planned (M3)"
+  },
+  {
+   "section": "Decision outcome",
+   "kind": "milestone",
+   "value": "Responses API Planned (M4)"
+  },
+  {
+   "section": "Decision outcome",
+   "kind": "decision",
+   "value": "surface: native: bytes edited in place, never re-serialized from a typed schema; all candidates share one dialect (code: OQ-ai-llm-gateway-3)"
+  },
+  {
+   "section": "Decision outcome",
+   "kind": "milestone",
+   "value": "surface: native (Anthropic Messages, Gemini, Bedrock Converse): Planned (M3)"
+  },
+  {
+   "section": "Decision outcome",
+   "kind": "milestone",
+   "value": "Bedrock InvokeModel Planned (M4)"
+  },
+  {
+   "section": "Decision outcome",
+   "kind": "decision",
+   "value": "Native request edits only: rewrite `model` or the model path segment; write C into the cap field and remove the others; set `stream_options.include_usage` on streamed Chat Completions"
+  },
+  {
+   "section": "Decision outcome",
+   "kind": "decision",
+   "value": "keep only allowlisted headers and query parameters before credentials attach; redact in place for `ai.guardrail`; remove cache markers under `cache.prompt.mode: disabled`"
+  },
+  {
+   "section": "Decision outcome",
+   "kind": "kind_or_field",
+   "value": "stream_options.include_usage"
+  },
+  {
+   "section": "Decision outcome",
+   "kind": "policy_type",
+   "value": "ai.guardrail"
+  },
+  {
+   "section": "Decision outcome",
+   "kind": "milestone",
+   "value": "Native request edits: Planned (M3)"
+  },
+  {
+   "section": "Decision outcome",
+   "kind": "decision",
+   "value": "Provider-reported usage, read per attempt keeping each field's latest value, is authoritative for settlement, cost and every export"
+  },
+  {
+   "section": "Decision outcome",
+   "kind": "claim",
+   "value": "Anthropic `message_delta.usage` is cumulative"
+  },
+  {
+   "section": "Decision outcome",
+   "kind": "milestone",
+   "value": "Usage: Planned (M3)"
+  },
+  {
+   "section": "Decision outcome",
+   "kind": "library",
+   "value": "tiktoken-go/tokenizer computes E (`o200k_base` times the candidates' largest per-dialect correction, OQ-ai-llm-gateway-2) and the `onChunk` guard count; never billed"
+  },
+  {
+   "section": "Decision outcome",
+   "kind": "decision",
+   "value": "no count call on the request path"
+  },
+  {
+   "section": "Decision outcome",
+   "kind": "milestone",
+   "value": "Tokenizer: Planned (M3)"
+  },
+  {
+   "section": "Decision outcome",
+   "kind": "default",
+   "value": "C is the client cap, else `limits.maxOutputTokens`"
+  },
+  {
+   "section": "Decision outcome",
+   "kind": "kind_or_field",
+   "value": "limits.maxOutputTokens"
+  },
+  {
+   "section": "Decision outcome",
+   "kind": "decision",
+   "value": "R = E + C, reserved in one atomic State Store call only if the budget covers all of R"
+  },
+  {
+   "section": "Decision outcome",
+   "kind": "error_code",
+   "value": "RZ-AI-006 (budget does not cover R)"
+  },
+  {
+   "section": "Decision outcome",
+   "kind": "error_code",
+   "value": "RZ-AI-008 (guard ends the stream past C)"
+  },
+  {
+   "section": "Decision outcome",
+   "kind": "decision",
+   "value": "`onLog` charges usage summed over attempts, plus all of R once per request if an attempt lacked usage (degraded-state metric) or none ran, and releases the rest"
+  },
+  {
+   "section": "Decision outcome",
+   "kind": "limit",
+   "value": "budgeted Routes allow 2 attempts (target)"
+  },
+  {
+   "section": "Decision outcome",
+   "kind": "error_code",
+   "value": "RZ-AI-005 (stop Provider Fallback once charge reaches R)"
+  },
+  {
+   "section": "Decision outcome",
+   "kind": "milestone",
+   "value": "Token Budget: Planned (M3)"
+  },
+  {
+   "section": "Decision outcome",
+   "kind": "kind_or_field",
+   "value": "credentials.apiKey"
+  },
+  {
+   "section": "Decision outcome",
+   "kind": "kind_or_field",
+   "value": "secretRef"
+  },
+  {
+   "section": "Decision outcome",
+   "kind": "decision",
+   "value": "Credentials attached at the transport after the last `onUpstreamRequest` Filter"
+  },
+  {
+   "section": "Decision outcome",
+   "kind": "milestone",
+   "value": "Credentials: Planned (M3)"
+  },
+  {
+   "section": "Decision outcome",
+   "kind": "policy_type",
+   "value": "ai.token-budget"
+  },
+  {
+   "section": "Consequences",
+   "kind": "claim",
+   "value": "native passthrough cannot drop a field it never parses into a type, the failure behind LiteLLM #41424 and Coder #29563"
+  },
+  {
+   "section": "Consequences",
+   "kind": "claim",
+   "value": "OpenAI-SDK clients fall back across dialects on the façade without code changes"
+  },
+  {
+   "section": "Consequences",
+   "kind": "kind_or_field",
+   "value": "pricing.version"
+  },
+  {
+   "section": "Consequences",
+   "kind": "claim",
+   "value": "cost records carry the Revision digest and `pricing.version`, so re-pricing needs no Revington service (P1, P2)"
+  },
+  {
+   "section": "Consequences",
+   "kind": "claim",
+   "value": "the local guard keeps State Store calls out of `onChunk` (pack 8.7)"
+  },
+  {
+   "section": "Consequences",
+   "kind": "failure_mode",
+   "value": "the façade drops cache markers for `openai`, `mistral`, `gemini` and `ollama`"
+  },
+  {
+   "section": "Consequences",
+   "kind": "metric",
+   "value": "ruralz_ai_cache_markers_dropped_total"
+  },
+  {
+   "section": "Consequences",
+   "kind": "failure_mode",
+   "value": "Provider Fallback behind `surface: native` stays within one dialect"
+  },
+  {
+   "section": "Consequences",
+   "kind": "number",
+   "value": "Claude Opus 4.7 and later produce about 30% more tokens for the same text"
+  },
+  {
+   "section": "Consequences",
+   "kind": "failure_mode",
+   "value": "an overestimate can end streams with `RZ-AI-008` below the provider cap (tolerance: OQ-ai-llm-gateway-15)"
+  },
+  {
+   "section": "Consequences",
+   "kind": "failure_mode",
+   "value": "OpenAI omits the usage chunk on interrupted streams, and such streams are charged all of R"
+  },
+  {
+   "section": "Consequences",
+   "kind": "kind_or_field",
+   "value": "maxResponseBodyBytes"
+  },
+  {
+   "section": "Consequences",
+   "kind": "error_code",
+   "value": "502 `RZ-AI-013` (non-streamed façade response beyond `maxResponseBodyBytes`)"
+  },
+  {
+   "section": "Consequences",
+   "kind": "failure_mode",
+   "value": "hidden reasoning is never streamed, so only the provider's cap bounds it (OQ-ai-llm-gateway-17)"
+  },
+  {
+   "section": "Confirmation",
+   "kind": "milestone",
+   "value": "Protocol conformance suite, Planned (M3)"
+  },
+  {
+   "section": "Confirmation",
+   "kind": "number",
+   "value": "Prompt Cache marker preservation in 100% of cases (target; SM-11)"
+  },
+  {
+   "section": "Confirmation",
+   "kind": "milestone",
+   "value": "Token Budget property test, Planned (M3)"
+  },
+  {
+   "section": "Confirmation",
+   "kind": "milestone",
+   "value": "SM-10 scale job, Planned (M3)"
+  },
+  {
+   "section": "Confirmation",
+   "kind": "failure_mode",
+   "value": "the AI provider mock drops usage on some streams, and settlement MUST charge all of R"
+  },
+  {
+   "section": "Confirmation",
+   "kind": "milestone",
+   "value": "Fuzzing, Planned (M3)"
+  },
+  {
+   "section": "Confirmation",
+   "kind": "milestone",
+   "value": "Validation, Planned (M3)"
+  },
+  {
+   "section": "Confirmation",
+   "kind": "cli_command",
+   "value": "ruralz bundle validate"
+  },
+  {
+   "section": "Confirmation",
+   "kind": "error_code",
+   "value": "RZ-CFG-034 (Token-Budgeted `AIModel` without `limits.maxOutputTokens`)"
+  },
+  {
+   "section": "Confirmation",
+   "kind": "decision",
+   "value": "a pull request that bills, budgets or exports token counts from anything but provider usage, or re-serializes a native body, MUST amend this ADR"
+  },
+  {
+   "section": "OpenAI-compatible façade plus native passthrough, provider usage authoritative",
+   "kind": "claim",
+   "value": "each client picks portability or fidelity per Route"
+  },
+  {
+   "section": "OpenAI-compatible façade plus native passthrough, provider usage authoritative",
+   "kind": "claim",
+   "value": "the gateway maintains a translator and an in-place editor per dialect"
+  },
+  {
+   "section": "OpenAI-compatible façade only",
+   "kind": "claim",
+   "value": "rebuilding from typed parameters dropped `cache_control` markers in Coder's interceptor"
+  },
+  {
+   "section": "OpenAI-compatible façade only",
+   "kind": "claim",
+   "value": "translation loses provider features such as Bedrock `guardrailConfig`"
+  },
+  {
+   "section": "Native passthrough only",
+   "kind": "claim",
+   "value": "clients must speak each vendor's API, so Provider Fallback across dialects is impossible"
+  },
+  {
+   "section": "Gateway tokenizer counts as the billing source",
+   "kind": "claim",
+   "value": "counts exist even when a stream loses its usage chunk"
+  },
+  {
+   "section": "Gateway tokenizer counts as the billing source",
+   "kind": "claim",
+   "value": "Ollama calls its own Anthropic-API counts \"approximations\""
+  },
+  {
+   "section": "Post-response charging without reservation",
+   "kind": "failure_mode",
+   "value": "every concurrent stream admitted before settlement can overshoot the budget by its full output, which the reservation of R bounds per attempt"
+  },
+  {
+   "section": "More information",
+   "kind": "decision",
+   "value": "ADR-0008 (request-rate limits in `onRequestHeaders`), ADR-0010 (`gen_ai` telemetry), ADR-0011 (candidate `when` expressions)"
+  },
+  {
+   "section": "More information",
+   "kind": "default",
+   "value": "`ai.token-budget`'s default `failureMode` stays OQ-configuration-model-8"
+  },
+  {
+   "section": "More information",
+   "kind": "kind_or_field",
+   "value": "failureMode"
+  },
+  {
+   "section": "More information",
+   "kind": "claim",
+   "value": "rate-limited provider count endpoints would be declared remote calls"
+  },
+  {
+   "section": "More information",
+   "kind": "decision",
+   "value": "OQ-ai-llm-gateway-15 proposes charging R per attempt without usage and releasing R when no attempt ran; until it closes pack 8.9 applies as written"
+  },
+  {
+   "section": "More information",
+   "kind": "library",
+   "value": "Proposed: depguard rule confining `tiktoken-go/tokenizer` to the estimator and streaming-guard package"
+  }
+ ]
+}

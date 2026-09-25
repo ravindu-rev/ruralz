@@ -1,0 +1,516 @@
+{
+ "path": "docs/adr/0016-kubernetes-helm-and-crds.md",
+ "status": "proposed",
+ "facts": [
+  {
+   "section": "Context and problem statement",
+   "kind": "claim",
+   "value": "Envoy Gateway, NGINX Gateway Fabric, Traefik Proxy and the Gravitee Kubernetes Operator report Gateway API v1.6.1 conformance"
+  },
+  {
+   "section": "Context and problem statement",
+   "kind": "claim",
+   "value": "Tyk made its Operator closed source in 2024-10"
+  },
+  {
+   "section": "Context and problem statement",
+   "kind": "claim",
+   "value": "from v1.0 it requires a license key"
+  },
+  {
+   "section": "Context and problem statement",
+   "kind": "claim",
+   "value": "Kubernetes rejects a CRD group without a dot"
+  },
+  {
+   "section": "Context and problem statement",
+   "kind": "term",
+   "value": "topology T4"
+  },
+  {
+   "section": "Decision drivers",
+   "kind": "decision",
+   "value": "a Kubernetes form MUST translate to the Bundle form, and equal rendered resources MUST yield one Revision digest from any source"
+  },
+  {
+   "section": "Decision drivers",
+   "kind": "failure_mode",
+   "value": "an API server outage never reaches the request path, and Nodes keep their active Revision"
+  },
+  {
+   "section": "Decision drivers",
+   "kind": "claim",
+   "value": "`ruralzd` needs no Kubernetes API to obtain configuration"
+  },
+  {
+   "section": "Decision drivers",
+   "kind": "claim",
+   "value": "the chart, CRDs and images are Apache-2.0, with no license check"
+  },
+  {
+   "section": "Decision drivers",
+   "kind": "kind_or_field",
+   "value": "Plugin"
+  },
+  {
+   "section": "Decision drivers",
+   "kind": "kind_or_field",
+   "value": "AIProvider"
+  },
+  {
+   "section": "Decision drivers",
+   "kind": "kind_or_field",
+   "value": "AIModel"
+  },
+  {
+   "section": "Decision drivers",
+   "kind": "milestone",
+   "value": "the Helm chart and CRDs ship with Ruralz Control, Planned (M2)"
+  },
+  {
+   "section": "Considered options",
+   "kind": "kind_or_field",
+   "value": "ruralz.io/v1alpha1"
+  },
+  {
+   "section": "Considered options",
+   "kind": "kind_or_field",
+   "value": "GatewayClass"
+  },
+  {
+   "section": "Considered options",
+   "kind": "kind_or_field",
+   "value": "Gateway"
+  },
+  {
+   "section": "Considered options",
+   "kind": "kind_or_field",
+   "value": "HTTPRoute"
+  },
+  {
+   "section": "Considered options",
+   "kind": "kind_or_field",
+   "value": "targetRefs"
+  },
+  {
+   "section": "Considered options",
+   "kind": "claim",
+   "value": "Ruralz Policies as policy CRDs attached through `targetRefs`, the model of Envoy Gateway"
+  },
+  {
+   "section": "Considered options",
+   "kind": "claim",
+   "value": "no CRDs, so no Kubernetes-native authoring, which Tyk now sells under license"
+  },
+  {
+   "section": "Considered options",
+   "kind": "claim",
+   "value": "`ruralzd` watches CRDs through dynamic informers, a list-and-watch per kind"
+  },
+  {
+   "section": "Decision outcome",
+   "kind": "decision",
+   "value": "Chosen option: \"Helm chart and mirrored CRDs, Gateway API deferred\""
+  },
+  {
+   "section": "Decision outcome",
+   "kind": "milestone",
+   "value": "Chart: Planned (M2)"
+  },
+  {
+   "section": "Decision outcome",
+   "kind": "default",
+   "value": "`oci://ghcr.io/ravindu-rev/charts/ruralz` at the product version, Apache-2.0 and Sigstore-signed"
+  },
+  {
+   "section": "Decision outcome",
+   "kind": "decision",
+   "value": "installs `ruralz-control` and Nodes as StatefulSets with separate image tags, upgraded Ruralz Control first (OQ-release-versioning-and-compatibility-11 (b))"
+  },
+  {
+   "section": "Decision outcome",
+   "kind": "term",
+   "value": "Values schema: OQ-deployment-topologies-1"
+  },
+  {
+   "section": "Decision outcome",
+   "kind": "milestone",
+   "value": "CRDs: Planned (M2)"
+  },
+  {
+   "section": "Decision outcome",
+   "kind": "default",
+   "value": "`ruralz-crds.yaml`, generated into `deploy/crds/`"
+  },
+  {
+   "section": "Decision outcome",
+   "kind": "decision",
+   "value": "one CRD per kind, group `ruralz.io`, version `v1alpha1`, category `ruralz`"
+  },
+  {
+   "section": "Decision outcome",
+   "kind": "decision",
+   "value": "short names are `rz` plus the lower-case kind, except `rzgw` and `rzenv` (OQ-configuration-model-3 (a))"
+  },
+  {
+   "section": "Decision outcome",
+   "kind": "failure_mode",
+   "value": "Lowering inlines `$ref` (recursion fails generation)"
+  },
+  {
+   "section": "Decision outcome",
+   "kind": "limit",
+   "value": "checks with no structural equivalent, over the Kubernetes CEL cost budget or using Ruralz-only variables run only in Ruralz Control"
+  },
+  {
+   "section": "Decision outcome",
+   "kind": "milestone",
+   "value": "CRD translation: Planned (M2)"
+  },
+  {
+   "section": "Decision outcome",
+   "kind": "decision",
+   "value": "Server-set `metadata` and `status` are dropped; otherwise only the group changes"
+  },
+  {
+   "section": "Decision outcome",
+   "kind": "error_code",
+   "value": "RZ-CFG-016"
+  },
+  {
+   "section": "Decision outcome",
+   "kind": "limit",
+   "value": "One bound namespace becomes one Bundle holding exactly one `Gateway` (RZ-CFG-016)"
+  },
+  {
+   "section": "Decision outcome",
+   "kind": "kind_or_field",
+   "value": "Environment"
+  },
+  {
+   "section": "Decision outcome",
+   "kind": "kind_or_field",
+   "value": "Cluster"
+  },
+  {
+   "section": "Decision outcome",
+   "kind": "claim",
+   "value": "`Environment` and `Cluster` are cluster-scoped"
+  },
+  {
+   "section": "Decision outcome",
+   "kind": "kind_or_field",
+   "value": "x-ruralz-validations"
+  },
+  {
+   "section": "Decision outcome",
+   "kind": "kind_or_field",
+   "value": "x-kubernetes-validations"
+  },
+  {
+   "section": "Decision outcome",
+   "kind": "failure_mode",
+   "value": "`${VAR}` in non-string fields is rejected"
+  },
+  {
+   "section": "Decision outcome",
+   "kind": "kind_or_field",
+   "value": "status subresource carries `Accepted`, `ResolvedRefs` and `Programmed`"
+  },
+  {
+   "section": "Decision outcome",
+   "kind": "milestone",
+   "value": "Reader: Planned (M2)"
+  },
+  {
+   "section": "Decision outcome",
+   "kind": "decision",
+   "value": "Only the Ruralz Control leader watches CRDs, off until process configuration binds a namespace to an Environment (OQ-control-plane-and-gitops-1)"
+  },
+  {
+   "section": "Decision outcome",
+   "kind": "timeout",
+   "value": "debounce window, or after a maximum delay (both target values)"
+  },
+  {
+   "section": "Decision outcome",
+   "kind": "decision",
+   "value": "`ruralzd` never reads CRDs (OQ-configuration-model-2 (a)); without Ruralz Control, Kubernetes installs use T2"
+  },
+  {
+   "section": "Decision outcome",
+   "kind": "milestone",
+   "value": "CRD source: Planned (M2)"
+  },
+  {
+   "section": "Decision outcome",
+   "kind": "decision",
+   "value": "One primary source per Environment, a Git path or one bound namespace (OQ-system-overview-8 (a) and (b))"
+  },
+  {
+   "section": "Decision outcome",
+   "kind": "failure_mode",
+   "value": "a namespace source shows as Git divergence Drift, is refused under `requireApproval` unless overridden (audited) and never promotes"
+  },
+  {
+   "section": "Decision outcome",
+   "kind": "kind_or_field",
+   "value": "requireApproval"
+  },
+  {
+   "section": "Decision outcome",
+   "kind": "milestone",
+   "value": "CRD versions: Planned (M2); `ruralz.io/v1beta1` and webhook use Planned (M3)"
+  },
+  {
+   "section": "Decision outcome",
+   "kind": "port",
+   "value": "conversion webhook (port: OQ-deployment-topologies-13)"
+  },
+  {
+   "section": "Decision outcome",
+   "kind": "kind_or_field",
+   "value": "conversion.strategy: None"
+  },
+  {
+   "section": "Decision outcome",
+   "kind": "kind_or_field",
+   "value": "ruralz.io/v1beta1"
+  },
+  {
+   "section": "Decision outcome",
+   "kind": "decision",
+   "value": "A new served version applies only once every replica runs N, and becomes the storage version no earlier than the next minor"
+  },
+  {
+   "section": "Decision outcome",
+   "kind": "milestone",
+   "value": "Gateway API: Not planned within M0 to M5: mirrored CRDs already expose every feature"
+  },
+  {
+   "section": "Decision outcome",
+   "kind": "decision",
+   "value": "No conformance work; a later adapter would map Gateway API objects to existing kinds (OQ-vision-and-positioning-4)"
+  },
+  {
+   "section": "Decision outcome",
+   "kind": "number",
+   "value": "ten CRDs in ruralz.io/v1alpha1"
+  },
+  {
+   "section": "Decision outcome",
+   "kind": "port",
+   "value": "Control Stream, Node dials 8091"
+  },
+  {
+   "section": "Decision outcome",
+   "kind": "claim",
+   "value": "a new leader rebuilds only namespaces whose source digest changed"
+  },
+  {
+   "section": "Decision outcome",
+   "kind": "milestone",
+   "value": "Conversion webhook on every replica, unused until a second version, Planned (M3)"
+  },
+  {
+   "section": "Decision outcome",
+   "kind": "kind_or_field",
+   "value": "Route"
+  },
+  {
+   "section": "Decision outcome",
+   "kind": "error_code",
+   "value": "Accepted False (InvalidSpec)"
+  },
+  {
+   "section": "Decision outcome",
+   "kind": "error_code",
+   "value": "ResolvedRefs False (RefNotFound)"
+  },
+  {
+   "section": "Decision outcome",
+   "kind": "failure_mode",
+   "value": "validation fails: Nodes keep their active Revision"
+  },
+  {
+   "section": "Decision outcome",
+   "kind": "claim",
+   "value": "Programmed True once every target Cluster is complete"
+  },
+  {
+   "section": "Decision outcome",
+   "kind": "kind_or_field",
+   "value": "provider: kubernetes"
+  },
+  {
+   "section": "Decision outcome",
+   "kind": "kind_or_field",
+   "value": "EndpointSlice"
+  },
+  {
+   "section": "Consequences",
+   "kind": "failure_mode",
+   "value": "an API server outage stops new CRD changes and freezes EndpointSlice discovery and `provider: kubernetes` secret refresh at their last state, while running Nodes keep their active Revision (P9)"
+  },
+  {
+   "section": "Consequences",
+   "kind": "failure_mode",
+   "value": "a Node restarted meanwhile stays not ready if it needs such a secret (pack 8.5)"
+  },
+  {
+   "section": "Consequences",
+   "kind": "claim",
+   "value": "no chart component reads Secrets cluster-wide"
+  },
+  {
+   "section": "Consequences",
+   "kind": "claim",
+   "value": "Ruralz stays off the Gateway API conformance list while competitors report v1.6.1"
+  },
+  {
+   "section": "Consequences",
+   "kind": "kind_or_field",
+   "value": "configSchema"
+  },
+  {
+   "section": "Consequences",
+   "kind": "kind_or_field",
+   "value": "config"
+  },
+  {
+   "section": "Consequences",
+   "kind": "claim",
+   "value": "Plugin `configSchema` rules run only in Ruralz Control, since Policy `config` is schemaless in the CRD"
+  },
+  {
+   "section": "Consequences",
+   "kind": "failure_mode",
+   "value": "a non-atomic apply slower than the debounce window can expose an intermediate object set"
+  },
+  {
+   "section": "Consequences",
+   "kind": "claim",
+   "value": "client-side `kubectl apply`, Helm and Argo CD metadata change the digest of equal resources"
+  },
+  {
+   "section": "Consequences",
+   "kind": "failure_mode",
+   "value": "once a second version is served, reads in a non-storage version fail while every Ruralz Control replica is down"
+  },
+  {
+   "section": "Confirmation",
+   "kind": "milestone",
+   "value": "Generated drift gate: Planned (M2)"
+  },
+  {
+   "section": "Confirmation",
+   "kind": "claim",
+   "value": "CI stage 3 in `pr-fast` regenerates `deploy/crds/` and fails on `git diff --exit-code`"
+  },
+  {
+   "section": "Confirmation",
+   "kind": "milestone",
+   "value": "Equivalence test (proposed), Planned (M2)"
+  },
+  {
+   "section": "Confirmation",
+   "kind": "claim",
+   "value": "applied by `kubectl apply --server-side` without tool labels or annotations to a bound namespace in kind (Kubernetes in Docker), MUST yield its Git render's digest and RZ-CFG diagnostics"
+  },
+  {
+   "section": "Confirmation",
+   "kind": "term",
+   "value": "prod"
+  },
+  {
+   "section": "Confirmation",
+   "kind": "milestone",
+   "value": "kind end-to-end suite, Planned (M2)"
+  },
+  {
+   "section": "Confirmation",
+   "kind": "claim",
+   "value": "a multi-object change applied in random order records exactly one Revision"
+  },
+  {
+   "section": "Confirmation",
+   "kind": "claim",
+   "value": "a Node's service account is denied `list` on `ruralz.io` resources"
+  },
+  {
+   "section": "Confirmation",
+   "kind": "milestone",
+   "value": "Upgrade test (proposed), Planned (M3)"
+  },
+  {
+   "section": "Confirmation",
+   "kind": "claim",
+   "value": "fails on a served-version addition before finalize"
+  },
+  {
+   "section": "Confirmation",
+   "kind": "decision",
+   "value": "a pull request adding a Gateway API resource, a CRD reader outside Ruralz Control, or a CRD field absent from the Configuration model MUST amend this ADR"
+  },
+  {
+   "section": "Helm chart and mirrored CRDs, Gateway API deferred",
+   "kind": "milestone",
+   "value": "from Planned (M3), run the conversion webhook"
+  },
+  {
+   "section": "Gateway API conformance first",
+   "kind": "claim",
+   "value": "v1.6.0 making TCPRoute and UDPRoute GA"
+  },
+  {
+   "section": "Gateway API conformance first",
+   "kind": "kind_or_field",
+   "value": "EnvoyExtensionPolicy"
+  },
+  {
+   "section": "Gateway API conformance first",
+   "kind": "claim",
+   "value": "`targetRefs` attach in reverse, so a new Policy could silently change any Route, which forward references forbid"
+  },
+  {
+   "section": "Helm chart only",
+   "kind": "claim",
+   "value": "Kubernetes users get no native authoring, a gap vendors gate"
+  },
+  {
+   "section": "CRDs read by every Node",
+   "kind": "number",
+   "value": "each Node would add ten CRD informers to the EndpointSlice informers it already holds"
+  },
+  {
+   "section": "CRDs read by every Node",
+   "kind": "claim",
+   "value": "Nodes would skip Revision signing, canaries, audit and Drift, breaking P5"
+  },
+  {
+   "section": "More information",
+   "kind": "library",
+   "value": "client-go is linked into both binaries"
+  },
+  {
+   "section": "More information",
+   "kind": "claim",
+   "value": "Nodes watch only EndpointSlices and `provider: kubernetes` Secrets"
+  },
+  {
+   "section": "More information",
+   "kind": "cli_command",
+   "value": "ruralz bundle push"
+  },
+  {
+   "section": "More information",
+   "kind": "claim",
+   "value": "(a) debounce only; (b) an expected object-set digest, like `ruralz bundle push`"
+  },
+  {
+   "section": "More information",
+   "kind": "decision",
+   "value": "Revisit when OQ-vision-and-positioning-4 schedules conformance"
+  }
+ ]
+}

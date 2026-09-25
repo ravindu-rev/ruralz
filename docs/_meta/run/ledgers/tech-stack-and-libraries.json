@@ -1,0 +1,1251 @@
+{
+ "path": "docs/engineering/01-tech-stack-and-libraries.md",
+ "status": "reviewed",
+ "facts": [
+  {
+   "section": "Summary",
+   "kind": "claim",
+   "value": "Nothing is implemented yet; every item carries a Planned (Mx) tag."
+  },
+  {
+   "section": "Summary",
+   "kind": "decision",
+   "value": "`CGO_ENABLED=0` and `GOFIPS140` build stance"
+  },
+  {
+   "section": "Selection criteria",
+   "kind": "decision",
+   "value": "Every dependency MUST pass gates G1 to G3 and SHOULD score well on the rest."
+  },
+  {
+   "section": "Selection criteria",
+   "kind": "milestone",
+   "value": "G1 CI cross-build of all three binaries, Planned (M0)"
+  },
+  {
+   "section": "Selection criteria",
+   "kind": "decision",
+   "value": "G1 Pure Go: builds with `CGO_ENABLED=0` for linux/amd64 and linux/arm64"
+  },
+  {
+   "section": "Selection criteria",
+   "kind": "decision",
+   "value": "G2 License: Apache-2.0, MIT, BSD-2-Clause, BSD-3-Clause, ISC, or EDL-1.0 where elected; MPL-2.0 only by named exception; no GPL, AGPL, SSPL, RSALv2, BSL or EPL-only code"
+  },
+  {
+   "section": "Selection criteria",
+   "kind": "milestone",
+   "value": "G2 License gate over the linked package set, Planned (M0)"
+  },
+  {
+   "section": "Selection criteria",
+   "kind": "decision",
+   "value": "G3 Cryptographic primitives come only from Go `crypto/...` or from `golang.org/x/crypto` packages that delegate to the Go Cryptographic Module in FIPS mode"
+  },
+  {
+   "section": "Selection criteria",
+   "kind": "milestone",
+   "value": "G3 `go list -deps` crypto denylist in CI, Planned (M0); FIPS CI job, Planned (M5)"
+  },
+  {
+   "section": "Selection criteria",
+   "kind": "number",
+   "value": "S1 A release in the last 12 months and active commits at the snapshot"
+  },
+  {
+   "section": "Selection criteria",
+   "kind": "number",
+   "value": "S2 Builds on the project floor (Go 1.26) with no extra flags"
+  },
+  {
+   "section": "Selection criteria",
+   "kind": "claim",
+   "value": "S7 Wrapped behind a Ruralz interface in `internal/`, never exposed in `pkg/` or `sdk/`"
+  },
+  {
+   "section": "Selection criteria",
+   "kind": "decision",
+   "value": "Accepted exceptions: jwx v4 fails S2; paho.golang and mochi-mqtt fail S1; gorilla/websocket and go-jose/v4 break S6; archived boltdb/bolt fails S1"
+  },
+  {
+   "section": "Selection criteria",
+   "kind": "decision",
+   "value": "Library choices never gate features: every library ships in the single Apache-2.0 build, with no separate \"enterprise\" dependency set."
+  },
+  {
+   "section": "Library catalog",
+   "kind": "claim",
+   "value": "Versions are the 2026-09-23 releases and serve as floors; pins live in `go.mod`."
+  },
+  {
+   "section": "Library catalog",
+   "kind": "library",
+   "value": "WASM runtime: wazero v1.12.x (module `github.com/tetratelabs/wazero`); CGO Verified; ADR ADR-0004"
+  },
+  {
+   "section": "Library catalog",
+   "kind": "milestone",
+   "value": "WASM runtime: Planned (M2)"
+  },
+  {
+   "section": "Library catalog",
+   "kind": "library",
+   "value": "Plugin PDK conventions: Extism-style memory and Host Function conventions for Plugin ABI v1 (`ruralz.plugin.v1`); Ruralz PDKs; CGO Not linked; ADR ADR-0005"
+  },
+  {
+   "section": "Library catalog",
+   "kind": "milestone",
+   "value": "Plugin PDK conventions: Planned (M2)"
+  },
+  {
+   "section": "Library catalog",
+   "kind": "library",
+   "value": "HTTP/1.1 and HTTP/2: `net/http` (`Server.Protocols`, `HTTP2Config`, `UnencryptedHTTP2`); CGO Standard library; ADR ADR-0009"
+  },
+  {
+   "section": "Library catalog",
+   "kind": "milestone",
+   "value": "HTTP/1.1 and HTTP/2: Planned (M1)"
+  },
+  {
+   "section": "Library catalog",
+   "kind": "library",
+   "value": "HTTP/3: quic-go `http3` v0.63.x, pinned; CGO Verified; ADR ADR-0009"
+  },
+  {
+   "section": "Library catalog",
+   "kind": "milestone",
+   "value": "HTTP/3: Planned (M3)"
+  },
+  {
+   "section": "Library catalog",
+   "kind": "library",
+   "value": "gRPC ingress: `connectrpc.com/connect` v1.21.x; CGO Verified; ADR None"
+  },
+  {
+   "section": "Library catalog",
+   "kind": "milestone",
+   "value": "gRPC ingress: Planned (M3)"
+  },
+  {
+   "section": "Library catalog",
+   "kind": "library",
+   "value": "gRPC upstream client: grpc-go v1.84.x; CGO Verified; ADR None"
+  },
+  {
+   "section": "Library catalog",
+   "kind": "milestone",
+   "value": "gRPC upstream client: Planned (M3)"
+  },
+  {
+   "section": "Library catalog",
+   "kind": "library",
+   "value": "WebSocket: coder/websocket v1.8.x; CGO Pending CI; ADR None"
+  },
+  {
+   "section": "Library catalog",
+   "kind": "milestone",
+   "value": "WebSocket: Planned (M3)"
+  },
+  {
+   "section": "Library catalog",
+   "kind": "library",
+   "value": "SSE: `http.ResponseController` (`Flush`, deadlines, `EnableFullDuplex`); CGO Standard library; ADR None"
+  },
+  {
+   "section": "Library catalog",
+   "kind": "milestone",
+   "value": "SSE: Planned (M3)"
+  },
+  {
+   "section": "Library catalog",
+   "kind": "library",
+   "value": "Telemetry: `go.opentelemetry.io/otel` v1.46.x; `log/slog` with `otelslog` v0.20.x; CGO Pending CI; ADR ADR-0010"
+  },
+  {
+   "section": "Library catalog",
+   "kind": "milestone",
+   "value": "Telemetry: Planned (M1)"
+  },
+  {
+   "section": "Library catalog",
+   "kind": "library",
+   "value": "Control Stream: Own `ruralz.control.v1.ControlStream` via connect in gRPC mode; CGO Verified; ADR ADR-0007"
+  },
+  {
+   "section": "Library catalog",
+   "kind": "milestone",
+   "value": "Control Stream: Planned (M2)"
+  },
+  {
+   "section": "Library catalog",
+   "kind": "library",
+   "value": "Control Store: `hashicorp/raft` v1.8.0 with `raft-boltdb/v2` v2.4.2 or newer on `go.etcd.io/bbolt` v1.4.1 (`go-msgpack/v2` v2.1.5); CGO Pending CI; ADR ADR-0006 (proposed)"
+  },
+  {
+   "section": "Library catalog",
+   "kind": "milestone",
+   "value": "Control Store: Planned (M2)"
+  },
+  {
+   "section": "Library catalog",
+   "kind": "library",
+   "value": "State Store client: `github.com/redis/rueidis` v1.0.78; CGO Pending CI; ADR None"
+  },
+  {
+   "section": "Library catalog",
+   "kind": "milestone",
+   "value": "State Store client: Planned (M1)"
+  },
+  {
+   "section": "Library catalog",
+   "kind": "library",
+   "value": "Rate limiting: Local token bucket plus GCRA as one Lua `EVAL` through rueidis (Ruralz code); CGO Ruralz code; ADR ADR-0008"
+  },
+  {
+   "section": "Library catalog",
+   "kind": "milestone",
+   "value": "Rate limiting: Planned (M1)"
+  },
+  {
+   "section": "Library catalog",
+   "kind": "library",
+   "value": "Semantic Cache: Redis 8 Vector Sets (`VADD`, `VSIM`) or valkey-search 1.2 (`FT.*`) via separate rueidis client; CGO Via rueidis; ADR None"
+  },
+  {
+   "section": "Library catalog",
+   "kind": "milestone",
+   "value": "Semantic Cache: Planned (M3)"
+  },
+  {
+   "section": "Library catalog",
+   "kind": "library",
+   "value": "GraphQL: `wundergraph/graphql-go-tools` v2.22.x; CGO Pending CI; ADR ADR-0012"
+  },
+  {
+   "section": "Library catalog",
+   "kind": "milestone",
+   "value": "GraphQL: Planned (M3)"
+  },
+  {
+   "section": "Library catalog",
+   "kind": "library",
+   "value": "Kafka: `twmb/franz-go` v1.22.x; CGO Verified; ADR ADR-0013"
+  },
+  {
+   "section": "Library catalog",
+   "kind": "milestone",
+   "value": "Kafka: Planned (M4)"
+  },
+  {
+   "section": "Library catalog",
+   "kind": "library",
+   "value": "NATS: `nats-io/nats.go` v1.54.x, `jetstream` package; CGO Pending CI; ADR ADR-0013"
+  },
+  {
+   "section": "Library catalog",
+   "kind": "milestone",
+   "value": "NATS: Planned (M4)"
+  },
+  {
+   "section": "Library catalog",
+   "kind": "library",
+   "value": "MQTT client: `eclipse-paho/paho.golang` v0.23.x (module `github.com/eclipse/paho.golang`), `autopaho`; CGO Pending CI; ADR ADR-0013"
+  },
+  {
+   "section": "Library catalog",
+   "kind": "milestone",
+   "value": "MQTT client: Planned (M4)"
+  },
+  {
+   "section": "Library catalog",
+   "kind": "library",
+   "value": "MQTT embedded broker: `mochi-mqtt/server/v2` v2.7.x, core and auth packages only; CGO Pending CI; ADR ADR-0013"
+  },
+  {
+   "section": "Library catalog",
+   "kind": "milestone",
+   "value": "MQTT embedded broker: Planned (M4)"
+  },
+  {
+   "section": "Library catalog",
+   "kind": "library",
+   "value": "JOSE: `lestrrat-go/jwx/v4` v4.5.x; CGO Pending CI; ADR None"
+  },
+  {
+   "section": "Library catalog",
+   "kind": "milestone",
+   "value": "JOSE: Planned (M1)"
+  },
+  {
+   "section": "Library catalog",
+   "kind": "library",
+   "value": "OIDC: `coreos/go-oidc/v3` v3.21.x; CGO Pending CI; ADR None"
+  },
+  {
+   "section": "Library catalog",
+   "kind": "milestone",
+   "value": "OIDC: Planned (M1)"
+  },
+  {
+   "section": "Library catalog",
+   "kind": "library",
+   "value": "Expressions: cel-go v0.32.x at `cel.dev/cel-go`; CGO Pending CI; ADR ADR-0011"
+  },
+  {
+   "section": "Library catalog",
+   "kind": "milestone",
+   "value": "Expressions: Planned (M1)"
+  },
+  {
+   "section": "Library catalog",
+   "kind": "library",
+   "value": "Authorization engines: OPA v1 (`opa/v1/rego`, `PrepareForEval`) and cedar-go v1.8.x; CGO Pending CI; ADR ADR-0011"
+  },
+  {
+   "section": "Library catalog",
+   "kind": "milestone",
+   "value": "Authorization engines: Planned (M2)"
+  },
+  {
+   "section": "Library catalog",
+   "kind": "library",
+   "value": "Tokenizer (estimates only): `tiktoken-go/tokenizer` v0.8.x; CGO Pending CI; ADR ADR-0014"
+  },
+  {
+   "section": "Library catalog",
+   "kind": "milestone",
+   "value": "Tokenizer (estimates only): Planned (M3)"
+  },
+  {
+   "section": "Library catalog",
+   "kind": "library",
+   "value": "Plugin and Revision distribution: `oras.land/oras-go/v2` v2.6.2 or newer; `sigstore/sigstore-go` v1.3.x; CGO Pending CI; ADR ADR-0017"
+  },
+  {
+   "section": "Library catalog",
+   "kind": "milestone",
+   "value": "Plugin and Revision distribution: Planned (M2)"
+  },
+  {
+   "section": "Library catalog",
+   "kind": "library",
+   "value": "Service discovery: `net` for DNS SRV; `k8s.io/client-go` EndpointSlice informers; CGO Pending CI; ADR None"
+  },
+  {
+   "section": "Library catalog",
+   "kind": "milestone",
+   "value": "Service discovery: Planned (M1) DNS; Planned (M2) Kubernetes"
+  },
+  {
+   "section": "Library catalog",
+   "kind": "library",
+   "value": "YAML 1.2 parser: `github.com/goccy/go-yaml` v1.19.x; CGO Pending CI; ADR ADR-0003"
+  },
+  {
+   "section": "Library catalog",
+   "kind": "milestone",
+   "value": "YAML 1.2 parser: Planned (M1)"
+  },
+  {
+   "section": "Library catalog",
+   "kind": "library",
+   "value": "JSON Schema validator: `github.com/santhosh-tekuri/jsonschema/v6` v6.0.x (draft 2020-12); CGO Pending CI; ADR ADR-0003"
+  },
+  {
+   "section": "Library catalog",
+   "kind": "milestone",
+   "value": "JSON Schema validator: Planned (M1)"
+  },
+  {
+   "section": "Library catalog",
+   "kind": "library",
+   "value": "Test tooling (not shipped): testcontainers-go v0.44.x; buf v1.73.x; CGO Not linked; ADR None"
+  },
+  {
+   "section": "Library catalog",
+   "kind": "milestone",
+   "value": "Test tooling (not shipped): Planned (M0)"
+  },
+  {
+   "section": "Library catalog",
+   "kind": "library",
+   "value": "Docs tooling (not shipped): MADR 4.0; markdownlint-cli2 0.23.x; lychee v0.24.x; mermaid 11.x `parse()`; CGO Not linked; ADR None"
+  },
+  {
+   "section": "Library catalog",
+   "kind": "milestone",
+   "value": "Docs tooling (not shipped): Planned (M0)"
+  },
+  {
+   "section": "Library catalog",
+   "kind": "claim",
+   "value": "License wazero: Apache-2.0"
+  },
+  {
+   "section": "Library catalog",
+   "kind": "claim",
+   "value": "License quic-go: MIT"
+  },
+  {
+   "section": "Library catalog",
+   "kind": "claim",
+   "value": "License connect: Apache-2.0"
+  },
+  {
+   "section": "Library catalog",
+   "kind": "claim",
+   "value": "License grpc-go: Apache-2.0"
+  },
+  {
+   "section": "Library catalog",
+   "kind": "claim",
+   "value": "License coder/websocket: ISC"
+  },
+  {
+   "section": "Library catalog",
+   "kind": "claim",
+   "value": "License net/http: BSD-3-Clause"
+  },
+  {
+   "section": "Library catalog",
+   "kind": "claim",
+   "value": "License otel: Apache-2.0"
+  },
+  {
+   "section": "Library catalog",
+   "kind": "claim",
+   "value": "License graphql-go-tools: MIT"
+  },
+  {
+   "section": "Library catalog",
+   "kind": "claim",
+   "value": "License franz-go: BSD-3-Clause"
+  },
+  {
+   "section": "Library catalog",
+   "kind": "claim",
+   "value": "License nats.go: Apache-2.0"
+  },
+  {
+   "section": "Library catalog",
+   "kind": "claim",
+   "value": "License paho.golang: EPL-2.0 or EDL-1.0; Ruralz elects EDL-1.0"
+  },
+  {
+   "section": "Library catalog",
+   "kind": "claim",
+   "value": "License mochi-mqtt: MIT"
+  },
+  {
+   "section": "Library catalog",
+   "kind": "claim",
+   "value": "License jwx: MIT"
+  },
+  {
+   "section": "Library catalog",
+   "kind": "claim",
+   "value": "License go-oidc: Apache-2.0"
+  },
+  {
+   "section": "Library catalog",
+   "kind": "claim",
+   "value": "License cel-go: Apache-2.0"
+  },
+  {
+   "section": "Library catalog",
+   "kind": "claim",
+   "value": "License OPA/cedar-go: Apache-2.0"
+  },
+  {
+   "section": "Library catalog",
+   "kind": "claim",
+   "value": "License tiktoken-go/tokenizer: MIT"
+  },
+  {
+   "section": "Library catalog",
+   "kind": "claim",
+   "value": "License oras-go/sigstore-go: Apache-2.0"
+  },
+  {
+   "section": "Library catalog",
+   "kind": "claim",
+   "value": "License goccy/go-yaml: MIT"
+  },
+  {
+   "section": "Library catalog",
+   "kind": "claim",
+   "value": "License jsonschema/v6: Apache-2.0"
+  },
+  {
+   "section": "Library catalog",
+   "kind": "claim",
+   "value": "License testcontainers-go; buf: MIT; Apache-2.0"
+  },
+  {
+   "section": "Library catalog",
+   "kind": "limit",
+   "value": "wazero default 65536 pages (4 GiB) per instance, so `WithMemoryLimitPages` and a bounded pool are mandatory, cap owned by the WASM plugin system document (target)"
+  },
+  {
+   "section": "Library catalog",
+   "kind": "number",
+   "value": "`WithCloseOnContextDone` costs 10 to 20x on loop-heavy guests"
+  },
+  {
+   "section": "Library catalog",
+   "kind": "claim",
+   "value": "wazero: No fuel metering; `api.Function.Call` is not goroutine-safe, so one instance per concurrent call"
+  },
+  {
+   "section": "Library catalog",
+   "kind": "claim",
+   "value": "Plugin PDK: go-sdk is stale and pins wazero v1.9.0"
+  },
+  {
+   "section": "Library catalog",
+   "kind": "claim",
+   "value": "h2c built in since Go 1.24; `x/net/http2` `Server` and `Transport` deprecated in x/net v0.59.0"
+  },
+  {
+   "section": "Library catalog",
+   "kind": "claim",
+   "value": "HTTP/2 moves from `h2_bundle.go` into `net/http/internal/http2` in Go 1.27"
+  },
+  {
+   "section": "Library catalog",
+   "kind": "claim",
+   "value": "quic-go: Pre-1.0, breaks on minor releases; named G3 exception; RFC 9218 priorities"
+  },
+  {
+   "section": "Library catalog",
+   "kind": "claim",
+   "value": "connect: `WithRequestGate` authenticates before decompression; v2 changes the Go API; pass-through unproven (OQ-tech-stack-and-libraries-21)"
+  },
+  {
+   "section": "Library catalog",
+   "kind": "claim",
+   "value": "grpc-go: OTel metric names changed in v1.84.0"
+  },
+  {
+   "section": "Library catalog",
+   "kind": "limit",
+   "value": "coder/websocket row: gorilla/websocket enters via graphql-go-tools; floor v1.5.3"
+  },
+  {
+   "section": "Library catalog",
+   "kind": "claim",
+   "value": "SSE: Replay and `Last-Event-ID` are Ruralz code"
+  },
+  {
+   "section": "Library catalog",
+   "kind": "claim",
+   "value": "Telemetry: Logs API expected at v1 in v1.47.0; v1.47.0-rc.1 deprecates `otel/log/global`; `/metrics` exporter unselected (OQ-tech-stack-and-libraries-16)"
+  },
+  {
+   "section": "Library catalog",
+   "kind": "port",
+   "value": "every Node dials `ruralz-control` on 8091"
+  },
+  {
+   "section": "Library catalog",
+   "kind": "decision",
+   "value": "Control Stream: snapshot plus delta, xDS-style ACK/NACK over mTLS; not xDS"
+  },
+  {
+   "section": "Library catalog",
+   "kind": "timeout",
+   "value": "The 8091 server disables `ReadTimeout` and `WriteTimeout` for the stream and detects dead peers with `HTTP2Config` pings"
+  },
+  {
+   "section": "Library catalog",
+   "kind": "cli_command",
+   "value": "`buf breaking` gates protos"
+  },
+  {
+   "section": "Library catalog",
+   "kind": "port",
+   "value": "Control Store mutual-TLS transport on 8092"
+  },
+  {
+   "section": "Library catalog",
+   "kind": "milestone",
+   "value": "Control Store optional `postgres`, Planned (M4)"
+  },
+  {
+   "section": "Library catalog",
+   "kind": "limit",
+   "value": "avoid raft-boltdb v2.4.0 and v2.4.1"
+  },
+  {
+   "section": "Library catalog",
+   "kind": "claim",
+   "value": "Control Store license: MPL-2.0 named exceptions: raft, raft-boltdb/v2, go-immutable-radix, golang-lru; bbolt, go-msgpack/v2, go-hclog, go-metrics MIT"
+  },
+  {
+   "section": "Library catalog",
+   "kind": "default",
+   "value": "Client-side caching off (`DisableCache`) by default, since `DefaultCacheBytes` is 128 MiB per connection; enabling needs a per-connection cap owned by the scalability document (target)"
+  },
+  {
+   "section": "Library catalog",
+   "kind": "failure_mode",
+   "value": "Rate limiting: fail-open default, over-admission at most N × per-Node ceiling"
+  },
+  {
+   "section": "Library catalog",
+   "kind": "decision",
+   "value": "Rate limiting: server `TIME`; `EVALSHA` with `NOSCRIPT` fallback; Script cache lost on failover; all keys in `KEYS`"
+  },
+  {
+   "section": "Library catalog",
+   "kind": "claim",
+   "value": "redis_rate is bound to go-redis; throttled uses non-atomic SETNX plus EXPIRE"
+  },
+  {
+   "section": "Library catalog",
+   "kind": "decision",
+   "value": "Vector commands MUST NOT share auto-pipelined connections with rate-limit and quota scripts"
+  },
+  {
+   "section": "Library catalog",
+   "kind": "failure_mode",
+   "value": "on servers with neither (Dragonfly, Valkey below 9.0.1) the Policy acts as a State Store failure under `failureMode` (default `open`) and the Node reports degraded; no Active-Active"
+  },
+  {
+   "section": "Library catalog",
+   "kind": "kind_or_field",
+   "value": "`failureMode`"
+  },
+  {
+   "section": "Library catalog",
+   "kind": "claim",
+   "value": "Redis 8 RSALv2, SSPLv1 or AGPLv3; valkey-search BSD-3-Clause"
+  },
+  {
+   "section": "Library catalog",
+   "kind": "claim",
+   "value": "GraphQL: Ruralz Control and CLI import only `ast` and `astvalidation`; Federation versions 1 and 2; pins gorilla/websocket v1.5.1"
+  },
+  {
+   "section": "Library catalog",
+   "kind": "default",
+   "value": "`ProducerLinger(0)` on Routes that await the acknowledgment; library default linger 10 ms since v1.20.0"
+  },
+  {
+   "section": "Library catalog",
+   "kind": "claim",
+   "value": "franz-go: Kafka 0.8.0 to 4.4; full EOS; KIP-848, KIP-932"
+  },
+  {
+   "section": "Library catalog",
+   "kind": "limit",
+   "value": "NATS: Needs nats-server 2.9.0 or newer"
+  },
+  {
+   "section": "Library catalog",
+   "kind": "claim",
+   "value": "paho.golang: Pre-1.0; last tag 2025-09-06 (fails S1); Receive Maximum gaps"
+  },
+  {
+   "section": "Library catalog",
+   "kind": "claim",
+   "value": "mochi-mqtt: Last tag 2025-03-01 (fails S1); inline client bypasses ACLs"
+  },
+  {
+   "section": "Library catalog",
+   "kind": "claim",
+   "value": "jwx: v4.5.0 fixes GHSA-4cf7-xm37-g63h; `GOEXPERIMENT=jsonv2` on Go 1.26 (S2 exception); ML-DSA unregistered below Go 1.27 (G3)"
+  },
+  {
+   "section": "Library catalog",
+   "kind": "claim",
+   "value": "go-oidc: Brings go-jose/v4 beside jwx"
+  },
+  {
+   "section": "Library catalog",
+   "kind": "limit",
+   "value": "cel-go: Typed, non-Turing-complete; `CostLimit`, `ContextEval`"
+  },
+  {
+   "section": "Library catalog",
+   "kind": "claim",
+   "value": "cel-go old path \"will eventually be removed\""
+  },
+  {
+   "section": "Library catalog",
+   "kind": "claim",
+   "value": "cedar-go idle since 2026-06-01 and lacks the schema validator, so Cedar validation stops at parsing"
+  },
+  {
+   "section": "Library catalog",
+   "kind": "number",
+   "value": "Tokenizer vocabularies embedded (about 4 MB); provider usage stays authoritative"
+  },
+  {
+   "section": "Library catalog",
+   "kind": "number",
+   "value": "init-time heap unmeasured (hypothesis: lazy per-encoding loading avoids it)"
+  },
+  {
+   "section": "Library catalog",
+   "kind": "error_code",
+   "value": "Older oras-go carries GO-2026-5879"
+  },
+  {
+   "section": "Library catalog",
+   "kind": "claim",
+   "value": "client-go is always linked into `ruralzd` and `ruralz-control`: a static binary cannot drop it without a second build variant"
+  },
+  {
+   "section": "Library catalog",
+   "kind": "claim",
+   "value": "goccy/go-yaml: Ruralz code over its AST rejects anchors, aliases, merge keys and custom tags; duplicate keys fail by default; Last release 2026-01-08"
+  },
+  {
+   "section": "Library catalog",
+   "kind": "kind_or_field",
+   "value": "`validation.json-schema`"
+  },
+  {
+   "section": "Library catalog",
+   "kind": "claim",
+   "value": "jsonschema/v6: `Vocabulary` API for `x-ruralz-*` keywords; declares `go 1.21`; kaptinlin/jsonschema (`go 1.27.0` fails S2)"
+  },
+  {
+   "section": "Library catalog",
+   "kind": "claim",
+   "value": "testcontainers-go: Breaking changes in v0.42.0 and v0.43.0"
+  },
+  {
+   "section": "Library catalog",
+   "kind": "claim",
+   "value": "mermaid 12 needs Node 22.12 and re-lays out flowcharts; lychee runs on a schedule"
+  },
+  {
+   "section": "Library catalog",
+   "kind": "limit",
+   "value": "`ruralzd` has a stripped binary budget of 160 MiB (target)"
+  },
+  {
+   "section": "Library catalog",
+   "kind": "limit",
+   "value": "an idle RSS budget of 96 MiB with no Revision loaded (target)"
+  },
+  {
+   "section": "Library catalog",
+   "kind": "milestone",
+   "value": "CI size check from Planned (M1)"
+  },
+  {
+   "section": "Concerns not yet selected",
+   "kind": "decision",
+   "value": "A design MAY assume the capability but MUST NOT name a library until a research-backed catalog row lands (foundation pack section 7)."
+  },
+  {
+   "section": "Concerns not yet selected",
+   "kind": "milestone",
+   "value": "Protobuf runtime and code generation: Planned (M2) (OQ-tech-stack-and-libraries-14)"
+  },
+  {
+   "section": "Concerns not yet selected",
+   "kind": "milestone",
+   "value": "ULID for `node.id`: Planned (M1) (OQ-tech-stack-and-libraries-15)"
+  },
+  {
+   "section": "Concerns not yet selected",
+   "kind": "milestone",
+   "value": "Metrics exposition (`/metrics`): Planned (M1) (OQ-tech-stack-and-libraries-16)"
+  },
+  {
+   "section": "Concerns not yet selected",
+   "kind": "milestone",
+   "value": "AWS SigV4 signing: Planned (M2) (OQ-tech-stack-and-libraries-17)"
+  },
+  {
+   "section": "Concerns not yet selected",
+   "kind": "milestone",
+   "value": "CLI framework: Planned (M1) (OQ-tech-stack-and-libraries-18)"
+  },
+  {
+   "section": "Concerns not yet selected",
+   "kind": "milestone",
+   "value": "SAML and SSO for Ruralz Console: Planned (M5) (OQ-tech-stack-and-libraries-19)"
+  },
+  {
+   "section": "Concerns not yet selected",
+   "kind": "milestone",
+   "value": "`postgres` Control Store driver: Planned (M4) (OQ-tech-stack-and-libraries-20)"
+  },
+  {
+   "section": "Concerns not yet selected",
+   "kind": "milestone",
+   "value": "MaxMind-format database reader: Planned (M2) (OQ-tech-stack-and-libraries-24)"
+  },
+  {
+   "section": "Concerns not yet selected",
+   "kind": "port",
+   "value": "`ruralzd` (admin port 9901)"
+  },
+  {
+   "section": "Concerns not yet selected",
+   "kind": "port",
+   "value": "`ruralz-control` (admin port 9902)"
+  },
+  {
+   "section": "Concerns not yet selected",
+   "kind": "api_path",
+   "value": "`/metrics`"
+  },
+  {
+   "section": "Concerns not yet selected",
+   "kind": "kind_or_field",
+   "value": "`node.id`"
+  },
+  {
+   "section": "Concerns not yet selected",
+   "kind": "policy_type",
+   "value": "`auth.upstream-sigv4`"
+  },
+  {
+   "section": "Concerns not yet selected",
+   "kind": "kind_or_field",
+   "value": "`bedrock` dialect"
+  },
+  {
+   "section": "Concerns not yet selected",
+   "kind": "policy_type",
+   "value": "`authz.geoip`"
+  },
+  {
+   "section": "gRPC proxying",
+   "kind": "milestone",
+   "value": "gRPC proxying design Planned (M3), confirmed by a spike under OQ-tech-stack-and-libraries-21"
+  },
+  {
+   "section": "gRPC proxying",
+   "kind": "decision",
+   "value": "unary and bidirectional-stream generic connect handler sharing a pass-through codec; the Content-Type alone picks the stream type, with no descriptor"
+  },
+  {
+   "section": "gRPC proxying",
+   "kind": "decision",
+   "value": "Descriptors load only when a client uses JSON encoding and the Node transcodes"
+  },
+  {
+   "section": "gRPC proxying",
+   "kind": "timeout",
+   "value": "`grpc-timeout` becomes the context deadline clamped by the Route timeout"
+  },
+  {
+   "section": "gRPC proxying",
+   "kind": "decision",
+   "value": "A non-OK Upstream `grpc-status` returns as `*connect.Error` (code, message, details from `grpc-status-details-bin`)"
+  },
+  {
+   "section": "gRPC proxying",
+   "kind": "error_code",
+   "value": "An unmatched procedure returns `Unimplemented` without reading the body."
+  },
+  {
+   "section": "Control Store transport",
+   "kind": "decision",
+   "value": "`raft.NetworkTransport` runs over a Ruralz mutual-TLS stream layer on `crypto/tls`, never the built-in TCP layer; Node certificates are rejected"
+  },
+  {
+   "section": "Control Store transport",
+   "kind": "port",
+   "value": "It listens on 8092, the Raft peer port of foundation pack section 8.4"
+  },
+  {
+   "section": "Control Store transport",
+   "kind": "cli_command",
+   "value": "`ruralz control join`"
+  },
+  {
+   "section": "Dependency graph",
+   "kind": "cli_command",
+   "value": "`ruralz bundle validate`"
+  },
+  {
+   "section": "Dependency graph",
+   "kind": "cli_command",
+   "value": "`ruralz plugin test`"
+  },
+  {
+   "section": "Dependency graph",
+   "kind": "cli_command",
+   "value": "`ruralz dev run`"
+  },
+  {
+   "section": "Dependency graph",
+   "kind": "decision",
+   "value": "One validation library runs in all three binaries; errors surface in `ruralz bundle validate`, not as Node NACKs (size cost: OQ-tech-stack-and-libraries-22)"
+  },
+  {
+   "section": "Dependency graph",
+   "kind": "claim",
+   "value": "`ruralz-control` links client-go to watch Ruralz CRDs; `ruralz dev run` launches a local `ruralzd` rather than embedding it"
+  },
+  {
+   "section": "Version floor",
+   "kind": "number",
+   "value": "The minimum Go version is 1.26 (ADR-0001); the root `go.mod` declares `go 1.26.0`"
+  },
+  {
+   "section": "Version floor",
+   "kind": "claim",
+   "value": "quic-go since v0.62.0, nats.go v1.54.0, OPA, `raft-boltdb/v2` and `otelslog` force the Go 1.26 floor"
+  },
+  {
+   "section": "Version floor",
+   "kind": "decision",
+   "value": "Release and FIPS binaries MUST use the latest patch of the newest Go release (Go 1.27.1 at the snapshot), pinned by `toolchain go1.27.1`, and never set a `GOEXPERIMENT`"
+  },
+  {
+   "section": "Version floor",
+   "kind": "default",
+   "value": "Under the default `GOTOOLCHAIN=auto`, a Go 1.26 `go` command switches to go1.27.1"
+  },
+  {
+   "section": "Version floor",
+   "kind": "decision",
+   "value": "The floor CI job builds and tests on the latest 1.26 patch with `GOTOOLCHAIN=local` and `GOEXPERIMENT=jsonv2`"
+  },
+  {
+   "section": "Version floor",
+   "kind": "decision",
+   "value": "A guard file constrained to `go1.26 && !go1.27 && !goexperiment.jsonv2` fails compilation"
+  },
+  {
+   "section": "Version floor",
+   "kind": "decision",
+   "value": "JSON golden tests (Bundle loading, Control Stream JSON, JOSE) MUST produce identical bytes in both jobs"
+  },
+  {
+   "section": "Version floor",
+   "kind": "milestone",
+   "value": "A checked-in `default.pgo` for `cmd/ruralzd` is Planned (M4)"
+  },
+  {
+   "section": "Version floor",
+   "kind": "number",
+   "value": "the Go docs report 2 to 14% gains"
+  },
+  {
+   "section": "Static builds",
+   "kind": "decision",
+   "value": "All three binaries build with `CGO_ENABLED=0`, `-trimpath` and `-ldflags -X` metadata"
+  },
+  {
+   "section": "Static builds",
+   "kind": "decision",
+   "value": "A library that fails the Planned (M0) G1 cross-build loses its row."
+  },
+  {
+   "section": "Static builds",
+   "kind": "decision",
+   "value": "linux/amd64, linux/arm64: Production for all three; darwin: Development only (`ruralzd`, `ruralz-control`), Production (CLI); windows/amd64: Not planned for servers, Production (CLI)"
+  },
+  {
+   "section": "Static builds",
+   "kind": "number",
+   "value": "wazero's compiler runs only there and its interpreter is often ten times slower"
+  },
+  {
+   "section": "FIPS build",
+   "kind": "milestone",
+   "value": "The FIPS variant is Planned (M5)"
+  },
+  {
+   "section": "FIPS build",
+   "kind": "decision",
+   "value": "`GOFIPS140=v1.0.0` (CMVP #5247) until v1.26.0 leaves \"Pending Review\"; `GODEBUG=fips140=on`, never `only`"
+  },
+  {
+   "section": "FIPS build",
+   "kind": "decision",
+   "value": "FIPS mode does not cover Wasm; Plugins get cryptography only through a crypto Host Function Capability"
+  },
+  {
+   "section": "FIPS build",
+   "kind": "decision",
+   "value": "JOSE: Only allowlisted approved JWA algorithms register; ML-DSA only where `crypto/mldsa` exists (Go 1.27 and newer)"
+  },
+  {
+   "section": "FIPS build",
+   "kind": "decision",
+   "value": "G3 check: `go list -deps` fails on any `golang.org/x/crypto` package off the delegation allowlist, or non-standard package with `crypto` in its path, that lacks a row"
+  },
+  {
+   "section": "FIPS build",
+   "kind": "decision",
+   "value": "quic-go G3 exception: Accepted outside FIPS builds; HTTP/3 off in FIPS builds (OQ-tech-stack-and-libraries-9)"
+  },
+  {
+   "section": "FIPS build",
+   "kind": "decision",
+   "value": "jwx v4 ML-DSA: Excluded below Go 1.27"
+  },
+  {
+   "section": "FIPS build",
+   "kind": "decision",
+   "value": "go-jose/v4, OPA v1, sigstore-go: The G3 check decides; a failure adds a row or a replacement"
+  },
+  {
+   "section": "FIPS build",
+   "kind": "claim",
+   "value": "quic-go: FIPS enforcement off for Initial and Retry protection (fixed keys); `go:linkname` into unexported `crypto/tls.aeadAESGCMTLS13`"
+  },
+  {
+   "section": "FIPS build",
+   "kind": "default",
+   "value": "Go 1.26 enables hybrid post-quantum key exchange in `crypto/tls` by default; Ruralz keeps it outside FIPS builds."
+  },
+  {
+   "section": "Admission",
+   "kind": "decision",
+   "value": "A new direct dependency MUST get a catalog row in the same pull request."
+  },
+  {
+   "section": "Admission",
+   "kind": "decision",
+   "value": "Transitive additions outside the license set fail the gate even under a permissive direct import."
+  },
+  {
+   "section": "License rules",
+   "kind": "decision",
+   "value": "MPL-2.0, named exceptions only; the MPL-2.0 Consul `api` module is not admitted"
+  },
+  {
+   "section": "License rules",
+   "kind": "decision",
+   "value": "paho.golang is EPL-2.0 or EDL-1.0; Ruralz elects EDL-1.0 in `NOTICE`"
+  },
+  {
+   "section": "License rules",
+   "kind": "decision",
+   "value": "Gate reads each binary's linked packages (`go list -deps -test=false`), not `go mod graph`"
+  },
+  {
+   "section": "License rules",
+   "kind": "claim",
+   "value": "MPL-2.0 `go-cleanhttp` and `go-retryablehttp` pass until the Circonus sink is imported; first gate run Planned (M0)"
+  },
+  {
+   "section": "License rules",
+   "kind": "milestone",
+   "value": "The first gate run, Planned (M0)"
+  },
+  {
+   "section": "License rules",
+   "kind": "decision",
+   "value": "golangci-lint (GPL-3.0) runs as a pinned binary, never a `tool` directive"
+  },
+  {
+   "section": "License rules",
+   "kind": "claim",
+   "value": "Valkey with valkey-search (BSD-3-Clause) is the fully open State Store deployment"
+  },
+  {
+   "section": "License rules",
+   "kind": "library",
+   "value": "MPL-2.0 exception `github.com/hashicorp/raft` v1.8.0 Confirmed"
+  },
+  {
+   "section": "License rules",
+   "kind": "library",
+   "value": "MPL-2.0 exception `github.com/hashicorp/raft-boltdb/v2` v2.4.2 Confirmed"
+  },
+  {
+   "section": "License rules",
+   "kind": "library",
+   "value": "MPL-2.0 exception `github.com/hashicorp/go-immutable-radix` v1.3.1 Confirmed"
+  },
+  {
+   "section": "License rules",
+   "kind": "library",
+   "value": "MPL-2.0 exception `github.com/hashicorp/golang-lru` v1.0.2 Confirmed"
+  },
+  {
+   "section": "License rules",
+   "kind": "decision",
+   "value": "a linked license outside G2 and this table reopens ADR-0006"
+  },
+  {
+   "section": "Version floors from advisories",
+   "kind": "limit",
+   "value": "gorilla/websocket (via graphql-go-tools) floor v1.5.3: GO-2026-6278; graphql-go-tools pins v1.5.1"
+  },
+  {
+   "section": "Version floors from advisories",
+   "kind": "limit",
+   "value": "oras-go/v2 floor v2.6.2: GO-2026-5879 and related"
+  },
+  {
+   "section": "Version floors from advisories",
+   "kind": "limit",
+   "value": "jwx/v4 floor v4.5.0: GHSA-4cf7-xm37-g63h"
+  },
+  {
+   "section": "Version floors from advisories",
+   "kind": "limit",
+   "value": "raft-boltdb/v2 floor v2.4.2: v2.4.0 and v2.4.1 \"should not be used\""
+  },
+  {
+   "section": "Version floors from advisories",
+   "kind": "decision",
+   "value": "Explicit `require` lines enforce floors over lower transitive pins."
+  },
+  {
+   "section": "Update policy",
+   "kind": "decision",
+   "value": "`govulncheck` and `go mod verify` run on every pull request; a reachable vulnerability blocks merge, Planned (M0)"
+  },
+  {
+   "section": "Update policy",
+   "kind": "decision",
+   "value": "Weekly update pull requests: patch bumps merge on green CI; minor bumps of pre-1.0 modules need a named reviewer"
+  },
+  {
+   "section": "Update policy",
+   "kind": "decision",
+   "value": "the floor moves only by ADR-0001 amendment"
+  },
+  {
+   "section": "Watch list",
+   "kind": "claim",
+   "value": "mochi-mqtt/server: No tag in about 18 months; trigger No release by M4 start; fallback Separate broker via paho.golang"
+  },
+  {
+   "section": "Watch list",
+   "kind": "claim",
+   "value": "paho.golang: Last tag 2025-09-06; trigger v5 defect unfixed for a quarter; fallback Public fork"
+  },
+  {
+   "section": "Watch list",
+   "kind": "claim",
+   "value": "cedar-go: No commits since 2026-06-01; trigger Unfixed security issue; fallback OPA only; fork"
+  },
+  {
+   "section": "Watch list",
+   "kind": "claim",
+   "value": "boltdb/bolt: Archived; last push 2018-03-02; trigger Advisory against v1.3.1; fallback Fork raft-boltdb/v2 without `MigrateToV2`"
+  },
+  {
+   "section": "Watch list",
+   "kind": "claim",
+   "value": "OTel Logs API: Release candidate; trigger v1.47.0 stable; fallback Logs SDK replaces the bridge"
+  },
+  {
+   "section": "Documentation tooling",
+   "kind": "decision",
+   "value": "ADRs follow MADR 4.0 plus `Confirmation`; CI docs gate runs markdownlint-cli2, mermaid-lint, outline, citation and tag checks per pull request; lychee on a schedule"
+  },
+  {
+   "section": "Alternatives not chosen",
+   "kind": "claim",
+   "value": "wasmtime-go: CGO and a prebuilt Rust library break G1, despite fuel and epoch interruption"
+  },
+  {
+   "section": "Alternatives not chosen",
+   "kind": "claim",
+   "value": "fasthttp: Not `net/http`, so connect and the standard HTTP/2 server cannot be reused"
+  },
+  {
+   "section": "Alternatives not chosen",
+   "kind": "claim",
+   "value": "Go stdlib HTTP/3: Unexported package on master; proposals on hold"
+  },
+  {
+   "section": "Alternatives not chosen",
+   "kind": "claim",
+   "value": "grpc-go `ServeHTTP`: Needs HTTP/2; lacks some native-server features"
+  },
+  {
+   "section": "Alternatives not chosen",
+   "kind": "claim",
+   "value": "go-control-plane: Envoy resource model, not whole Revisions"
+  },
+  {
+   "section": "Alternatives not chosen",
+   "kind": "claim",
+   "value": "etcd raft; dragonboat: etcd raft has no transport or storage; dragonboat has no release since 2023"
+  },
+  {
+   "section": "Alternatives not chosen",
+   "kind": "claim",
+   "value": "go-redis v9: Auto-pipelining and client-side caching experimental"
+  },
+  {
+   "section": "Alternatives not chosen",
+   "kind": "claim",
+   "value": "gqlgen; bramble; graphql-go: Code-generation framework; no subscriptions; stale since 2023 with GO-2022-0942"
+  },
+  {
+   "section": "Alternatives not chosen",
+   "kind": "claim",
+   "value": "sarama; kafka-go: Only two latest Kafka releases; tested only to Kafka 2.7.1"
+  },
+  {
+   "section": "Alternatives not chosen",
+   "kind": "claim",
+   "value": "pkoukk/tiktoken-go: Downloads vocabularies at runtime"
+  },
+  {
+   "section": "Alternatives not chosen",
+   "kind": "claim",
+   "value": "r3labs/sse: MPL-2.0; no tag since 2023-01"
+  },
+  {
+   "section": "Alternatives not chosen",
+   "kind": "claim",
+   "value": "Embedded Lua: Duplicates the Plugin path (ADR-0011)"
+  },
+  {
+   "section": "Open questions",
+   "kind": "decision",
+   "value": "OQ-tech-stack-and-libraries-6: Two JOSE stacks (non-blocking)"
+  },
+  {
+   "section": "Open questions",
+   "kind": "decision",
+   "value": "OQ-tech-stack-and-libraries-8: Plugin CPU limits without fuel metering? Blocking for WASM plugin system"
+  },
+  {
+   "section": "Open questions",
+   "kind": "decision",
+   "value": "OQ-tech-stack-and-libraries-9: FIPS HTTP/3 given the quic-go G3 exception (golang/go#79219); Blocking for the FIPS build"
+  },
+  {
+   "section": "Open questions",
+   "kind": "decision",
+   "value": "OQ-tech-stack-and-libraries-11: Token estimates for non-OpenAI providers? (a) Per-`AIProvider` ratio"
+  },
+  {
+   "section": "Open questions",
+   "kind": "decision",
+   "value": "OQ-tech-stack-and-libraries-14: Protobuf runtime and generator? Blocking for Planned (M2)"
+  },
+  {
+   "section": "Open questions",
+   "kind": "decision",
+   "value": "OQ-tech-stack-and-libraries-21: gRPC pass-through; Blocking for Multi-protocol"
+  },
+  {
+   "section": "Open questions",
+   "kind": "decision",
+   "value": "OQ-tech-stack-and-libraries-24: MaxMind-format reader for `authz.geoip`; Blocking for `authz.geoip`"
+  },
+  {
+   "section": "Open questions",
+   "kind": "kind_or_field",
+   "value": "`AIProvider`"
+  },
+  {
+   "section": "Open questions",
+   "kind": "api_path",
+   "value": "`/metrics` exporter serves 9901 and 9902 (OQ-tech-stack-and-libraries-16)"
+  }
+ ]
+}

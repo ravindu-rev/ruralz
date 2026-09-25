@@ -1,0 +1,2496 @@
+{
+ "path": "docs/comparison/03-migration-from-krakend.md",
+ "status": "reviewed",
+ "facts": [
+  {
+   "section": "Summary",
+   "kind": "cli_command",
+   "value": "ruralz bundle import krakend"
+  },
+  {
+   "section": "Summary",
+   "kind": "milestone",
+   "value": "`ruralz bundle import krakend`, Planned (M2)"
+  },
+  {
+   "section": "Summary",
+   "kind": "claim",
+   "value": "maps every top-level key and `extra_config` namespace of the v2.13 schema"
+  },
+  {
+   "section": "Summary",
+   "kind": "number",
+   "value": "four fidelity levels"
+  },
+  {
+   "section": "Summary",
+   "kind": "number",
+   "value": "two plugin migration paths"
+  },
+  {
+   "section": "Summary",
+   "kind": "claim",
+   "value": "Nothing is implemented yet."
+  },
+  {
+   "section": "Scope and non-goals",
+   "kind": "claim",
+   "value": "KrakenD CE v2.13.11 and EE 2.13 configurations at the 2026-09-23 snapshot, per the v2.13 JSON Schema"
+  },
+  {
+   "section": "Scope and non-goals",
+   "kind": "claim",
+   "value": "Pre-2.0 KrakenD configurations are first converted with KrakenD's `krakend-config-migrator`"
+  },
+  {
+   "section": "Scope and non-goals",
+   "kind": "claim",
+   "value": "No CE 3.0 release tag existed at the snapshot"
+  },
+  {
+   "section": "Scope and non-goals",
+   "kind": "claim",
+   "value": "plugin removal was merged on the `dev-3.0` branch"
+  },
+  {
+   "section": "Scope and non-goals",
+   "kind": "claim",
+   "value": "KrakenD's published benchmarks use the pre-2.0 `\"version\": 1` format"
+  },
+  {
+   "section": "Scope and non-goals",
+   "kind": "milestone",
+   "value": "Performance budgets and benchmarking bench suite, Planned (M4)"
+  },
+  {
+   "section": "Scope and non-goals",
+   "kind": "term",
+   "value": "a KrakenD \"endpoint\" is a Ruralz `Route`, and a KrakenD \"backend\" is a Ruralz `Upstream` plus, when a request fans out, a composition step"
+  },
+  {
+   "section": "Concept mapping",
+   "kind": "claim",
+   "value": "A KrakenD configuration is one file: a service object, an `endpoints` array with backends, and `extra_config` namespaces at five scopes"
+  },
+  {
+   "section": "Concept mapping",
+   "kind": "kind_or_field",
+   "value": "Gateway"
+  },
+  {
+   "section": "Concept mapping",
+   "kind": "kind_or_field",
+   "value": "Route"
+  },
+  {
+   "section": "Concept mapping",
+   "kind": "kind_or_field",
+   "value": "Upstream"
+  },
+  {
+   "section": "Concept mapping",
+   "kind": "kind_or_field",
+   "value": "Policy"
+  },
+  {
+   "section": "Concept mapping",
+   "kind": "kind_or_field",
+   "value": "Consumer"
+  },
+  {
+   "section": "Core concepts",
+   "kind": "milestone",
+   "value": "`Gateway` in `ruralz.yaml`: Planned (M1)"
+  },
+  {
+   "section": "Core concepts",
+   "kind": "error_code",
+   "value": "RZ-CFG-016"
+  },
+  {
+   "section": "Core concepts",
+   "kind": "claim",
+   "value": "Exactly one per Bundle (RZ-CFG-016)"
+  },
+  {
+   "section": "Core concepts",
+   "kind": "decision",
+   "value": "Content-addressed, verified by digest (ADR-0003)"
+  },
+  {
+   "section": "Core concepts",
+   "kind": "milestone",
+   "value": "Bundle directory rendered into a Revision per Environment: Planned (M1)"
+  },
+  {
+   "section": "Core concepts",
+   "kind": "kind_or_field",
+   "value": "match.path"
+  },
+  {
+   "section": "Core concepts",
+   "kind": "kind_or_field",
+   "value": "match.methods"
+  },
+  {
+   "section": "Core concepts",
+   "kind": "milestone",
+   "value": "`Route` with `match.path` and `match.methods`: Planned (M1)"
+  },
+  {
+   "section": "Core concepts",
+   "kind": "milestone",
+   "value": "`Upstream` plus composition step: Planned (M1)"
+  },
+  {
+   "section": "Core concepts",
+   "kind": "kind_or_field",
+   "value": "Upstream.spec.endpoints[].address"
+  },
+  {
+   "section": "Core concepts",
+   "kind": "milestone",
+   "value": "`extra_config` namespace mapping: Planned (M1) to Planned (M5)"
+  },
+  {
+   "section": "Core concepts",
+   "kind": "kind_or_field",
+   "value": "composition.mode: aggregate"
+  },
+  {
+   "section": "Core concepts",
+   "kind": "kind_or_field",
+   "value": "composition.mode: sequential"
+  },
+  {
+   "section": "Core concepts",
+   "kind": "milestone",
+   "value": "Aggregation / Sequential proxy / Workflow composition: Planned (M1)"
+  },
+  {
+   "section": "Core concepts",
+   "kind": "kind_or_field",
+   "value": "Step `group`, `target`, `select`, `rename`, `collection`"
+  },
+  {
+   "section": "Core concepts",
+   "kind": "kind_or_field",
+   "value": "step `when`"
+  },
+  {
+   "section": "Core concepts",
+   "kind": "claim",
+   "value": "Workflow: Linear workflows only"
+  },
+  {
+   "section": "Core concepts",
+   "kind": "kind_or_field",
+   "value": "overlays/<env>/"
+  },
+  {
+   "section": "Core concepts",
+   "kind": "kind_or_field",
+   "value": "${VAR}"
+  },
+  {
+   "section": "Core concepts",
+   "kind": "milestone",
+   "value": "Flexible Configuration templates to overlays and `${VAR}`: Planned (M1)"
+  },
+  {
+   "section": "Core concepts",
+   "kind": "kind_or_field",
+   "value": "secretRef with `provider: env`"
+  },
+  {
+   "section": "Core concepts",
+   "kind": "claim",
+   "value": "`KRAKEND_<KEY>` overrides only keys already in the file"
+  },
+  {
+   "section": "Core concepts",
+   "kind": "milestone",
+   "value": "Hot Reload of a new Revision: Planned (M1); Rollouts Planned (M2)"
+  },
+  {
+   "section": "Core concepts",
+   "kind": "claim",
+   "value": "KrakenD: Restart or blue/green deploy per change"
+  },
+  {
+   "section": "Core concepts",
+   "kind": "claim",
+   "value": "KrakenD nodes sharing only a file"
+  },
+  {
+   "section": "Core concepts",
+   "kind": "milestone",
+   "value": "`Cluster` of Nodes sharing one Revision: Planned (M1) file mode; Planned (M2) Control mode"
+  },
+  {
+   "section": "Core concepts",
+   "kind": "kind_or_field",
+   "value": "Cluster"
+  },
+  {
+   "section": "Core concepts",
+   "kind": "milestone",
+   "value": "Go plugins (`.so`) to WASM `Plugin` attached by a `plugin` Policy: Planned (M2)"
+  },
+  {
+   "section": "Core concepts",
+   "kind": "policy_type",
+   "value": "plugin"
+  },
+  {
+   "section": "Core concepts",
+   "kind": "kind_or_field",
+   "value": "Plugin"
+  },
+  {
+   "section": "Core concepts",
+   "kind": "milestone",
+   "value": "Lua scripts: Planned (M1) CEL; Planned (M2) Plugins"
+  },
+  {
+   "section": "Core concepts",
+   "kind": "decision",
+   "value": "No Lua runtime (ADR-0011)"
+  },
+  {
+   "section": "Core concepts",
+   "kind": "kind_or_field",
+   "value": "credentials.apiKeys"
+  },
+  {
+   "section": "Core concepts",
+   "kind": "policy_type",
+   "value": "auth.api-key"
+  },
+  {
+   "section": "Core concepts",
+   "kind": "milestone",
+   "value": "API keys to `Consumer` with hashed `credentials.apiKeys` and `auth.api-key` Policy: Planned (M1)"
+  },
+  {
+   "section": "Core concepts",
+   "kind": "claim",
+   "value": "API keys never stored plain"
+  },
+  {
+   "section": "Core concepts",
+   "kind": "kind_or_field",
+   "value": "Consumer.spec.tier"
+  },
+  {
+   "section": "Core concepts",
+   "kind": "kind_or_field",
+   "value": "Policy.spec.when"
+  },
+  {
+   "section": "Core concepts",
+   "kind": "api_path",
+   "value": "/__health/"
+  },
+  {
+   "section": "Core concepts",
+   "kind": "api_path",
+   "value": "/healthz"
+  },
+  {
+   "section": "Core concepts",
+   "kind": "api_path",
+   "value": "/readyz"
+  },
+  {
+   "section": "Core concepts",
+   "kind": "milestone",
+   "value": "`/healthz` and `/readyz` on the `ruralzd` admin port: Planned (M1)"
+  },
+  {
+   "section": "Core concepts",
+   "kind": "api_path",
+   "value": "/__stats/"
+  },
+  {
+   "section": "Core concepts",
+   "kind": "api_path",
+   "value": "/metrics"
+  },
+  {
+   "section": "Core concepts",
+   "kind": "milestone",
+   "value": "`/metrics` on the admin port and OTLP export: Planned (M1)"
+  },
+  {
+   "section": "Core concepts",
+   "kind": "metric",
+   "value": "ruralz_<component>_<name>_<unit>"
+  },
+  {
+   "section": "Core concepts",
+   "kind": "api_path",
+   "value": "/__debug/"
+  },
+  {
+   "section": "Core concepts",
+   "kind": "api_path",
+   "value": "/__echo/"
+  },
+  {
+   "section": "Core concepts",
+   "kind": "api_path",
+   "value": "/tap"
+  },
+  {
+   "section": "Core concepts",
+   "kind": "cli_command",
+   "value": "ruralz dev tap"
+  },
+  {
+   "section": "Core concepts",
+   "kind": "milestone",
+   "value": "`ruralz dev tap` over `/tap`: Planned (M1)"
+  },
+  {
+   "section": "Core concepts",
+   "kind": "api_path",
+   "value": "/__catchall"
+  },
+  {
+   "section": "Core concepts",
+   "kind": "kind_or_field",
+   "value": "match.when: \"true\""
+  },
+  {
+   "section": "Core concepts",
+   "kind": "milestone",
+   "value": "lowest-ranked catch-all `Route`: Planned (M1)"
+  },
+  {
+   "section": "Core concepts",
+   "kind": "decision",
+   "value": "EE license file: None: no license key, file or entitlement check; P1, ADR-0002"
+  },
+  {
+   "section": "Core concepts",
+   "kind": "claim",
+   "value": "KrakenD EE needs a license file"
+  },
+  {
+   "section": "Top-level keys",
+   "kind": "number",
+   "value": "The v2.13 schema has 36 root properties, only `version` required"
+  },
+  {
+   "section": "Top-level keys",
+   "kind": "claim",
+   "value": "`version` not `3`: exit 2, naming `krakend-config-migrator`"
+  },
+  {
+   "section": "Top-level keys",
+   "kind": "kind_or_field",
+   "value": "metadata.name"
+  },
+  {
+   "section": "Top-level keys",
+   "kind": "claim",
+   "value": "`name` converted to an RFC 1123 label, `approximate`"
+  },
+  {
+   "section": "Top-level keys",
+   "kind": "kind_or_field",
+   "value": "listeners[]"
+  },
+  {
+   "section": "Top-level keys",
+   "kind": "kind_or_field",
+   "value": "protocol: http"
+  },
+  {
+   "section": "Top-level keys",
+   "kind": "kind_or_field",
+   "value": "protocol: https"
+  },
+  {
+   "section": "Top-level keys",
+   "kind": "port",
+   "value": "Default `8080` in both products"
+  },
+  {
+   "section": "Top-level keys",
+   "kind": "claim",
+   "value": "`listen_ip`: No listener bind-address field (OQ-migration-from-krakend-2), `manual`"
+  },
+  {
+   "section": "Top-level keys",
+   "kind": "kind_or_field",
+   "value": "Route `timeout`"
+  },
+  {
+   "section": "Top-level keys",
+   "kind": "timeout",
+   "value": "when absent, KrakenD's `2s` default is written"
+  },
+  {
+   "section": "Top-level keys",
+   "kind": "policy_type",
+   "value": "headers"
+  },
+  {
+   "section": "Top-level keys",
+   "kind": "kind_or_field",
+   "value": "response.set[]"
+  },
+  {
+   "section": "Top-level keys",
+   "kind": "default",
+   "value": "`cache-control: public, max-age=<seconds>`"
+  },
+  {
+   "section": "Top-level keys",
+   "kind": "claim",
+   "value": "KrakenD `cache_ttl` only sets the header; the Policy writes it on every response of the Route"
+  },
+  {
+   "section": "Top-level keys",
+   "kind": "claim",
+   "value": "`output_encoding`: `json` and `no-op` import; other encodings per OQ-krakend-ee-parity-matrix-2"
+  },
+  {
+   "section": "Top-level keys",
+   "kind": "claim",
+   "value": "`host` with scheme `https` needs an Upstream TLS block (OQ-migration-from-krakend-5)"
+  },
+  {
+   "section": "Top-level keys",
+   "kind": "kind_or_field",
+   "value": "match.topic"
+  },
+  {
+   "section": "Top-level keys",
+   "kind": "milestone",
+   "value": "`async_agent`: `Route` `match.topic` with a `kafka` Upstream, Planned (M4)"
+  },
+  {
+   "section": "Top-level keys",
+   "kind": "claim",
+   "value": "the AMQP driver is Not planned"
+  },
+  {
+   "section": "Top-level keys",
+   "kind": "kind_or_field",
+   "value": "tls.minVersion"
+  },
+  {
+   "section": "Top-level keys",
+   "kind": "kind_or_field",
+   "value": "tls.certificates"
+  },
+  {
+   "section": "Top-level keys",
+   "kind": "kind_or_field",
+   "value": "secretRef with `provider: file`"
+  },
+  {
+   "section": "Top-level keys",
+   "kind": "default",
+   "value": "a `min_version` below `TLS12` is raised to `\"1.2\"`"
+  },
+  {
+   "section": "Top-level keys",
+   "kind": "policy_type",
+   "value": "auth.mtls"
+  },
+  {
+   "section": "Top-level keys",
+   "kind": "claim",
+   "value": "`enable_mtls` needs a Gateway `auth.mtls` Policy, whose fields are pending (OQ-security-and-identity-3): `manual` with a hold"
+  },
+  {
+   "section": "Top-level keys",
+   "kind": "kind_or_field",
+   "value": "Upstream.spec.tls (`caCertificate`, `clientCertificate`, `clientKey`)"
+  },
+  {
+   "section": "Top-level keys",
+   "kind": "claim",
+   "value": "`client_tls`: Cipher and version settings have no Upstream field"
+  },
+  {
+   "section": "Top-level keys",
+   "kind": "claim",
+   "value": "`debug_endpoint` and `echo_endpoint`: `/__debug/` and `/__echo/` are not recreated; use `ruralz dev tap`"
+  },
+  {
+   "section": "Top-level keys",
+   "kind": "kind_or_field",
+   "value": "match.path with `exact`, `prefix`, `template` or `regex`"
+  },
+  {
+   "section": "Top-level keys",
+   "kind": "claim",
+   "value": "`use_h2c`: No listener field enables h2c"
+  },
+  {
+   "section": "Top-level keys",
+   "kind": "kind_or_field",
+   "value": "discovery.type: dns"
+  },
+  {
+   "section": "Top-level keys",
+   "kind": "claim",
+   "value": "`dns_cache_ttl`: No DNS refresh field"
+  },
+  {
+   "section": "Top-level keys",
+   "kind": "kind_or_field",
+   "value": "limits.maxRequestHeaderBytes"
+  },
+  {
+   "section": "Top-level keys",
+   "kind": "default",
+   "value": "`max_header_bytes`: The importer writes KrakenD's value, default `1000000`, explicitly"
+  },
+  {
+   "section": "Top-level keys",
+   "kind": "claim",
+   "value": "`max_shutdown_wait_time`: Process-level Drain bound, `manual`"
+  },
+  {
+   "section": "Top-level keys",
+   "kind": "claim",
+   "value": "`read_timeout`, `read_header_timeout`, `write_timeout`, `idle_timeout`: No listener timeout fields, `manual`"
+  },
+  {
+   "section": "Top-level keys",
+   "kind": "claim",
+   "value": "dialer and idle connection settings: Connection tuning has no Upstream fields (OQ-migration-from-krakend-3), `approximate`"
+  },
+  {
+   "section": "Top-level keys",
+   "kind": "kind_or_field",
+   "value": "retries.perTryTimeout"
+  },
+  {
+   "section": "Top-level keys",
+   "kind": "kind_or_field",
+   "value": "Upstream `timeout`"
+  },
+  {
+   "section": "Top-level keys",
+   "kind": "kind_or_field",
+   "value": "circuitBreaker.maxConnections"
+  },
+  {
+   "section": "KrakenD path entries and their targets",
+   "kind": "claim",
+   "value": "An endpoint entry requires `endpoint` and `backend`; a backend requires only `url_pattern`"
+  },
+  {
+   "section": "KrakenD path entries and their targets",
+   "kind": "claim",
+   "value": "one `Upstream` per distinct host list, service discovery, TLS and backend-scope namespace combination"
+  },
+  {
+   "section": "KrakenD path entries and their targets",
+   "kind": "kind_or_field",
+   "value": "match.path.template"
+  },
+  {
+   "section": "KrakenD path entries and their targets",
+   "kind": "kind_or_field",
+   "value": "match.path.exact"
+  },
+  {
+   "section": "KrakenD path entries and their targets",
+   "kind": "claim",
+   "value": "endpoint path is Case-sensitive in KrakenD"
+  },
+  {
+   "section": "KrakenD path entries and their targets",
+   "kind": "default",
+   "value": "endpoint `method`: One method per entry, default `GET`"
+  },
+  {
+   "section": "KrakenD path entries and their targets",
+   "kind": "kind_or_field",
+   "value": "upstreams"
+  },
+  {
+   "section": "KrakenD path entries and their targets",
+   "kind": "milestone",
+   "value": "SSE, Planned (M3)"
+  },
+  {
+   "section": "KrakenD path entries and their targets",
+   "kind": "claim",
+   "value": "`text/event-stream` flushes per read, not per event, until SSE; one `approximate` item per streaming Route before M3"
+  },
+  {
+   "section": "KrakenD path entries and their targets",
+   "kind": "claim",
+   "value": "`output_encoding: json` or `fast-json`: JSON key order and whitespace may differ, `equivalent`"
+  },
+  {
+   "section": "KrakenD path entries and their targets",
+   "kind": "kind_or_field",
+   "value": "step `collection: true`"
+  },
+  {
+   "section": "KrakenD path entries and their targets",
+   "kind": "claim",
+   "value": "`output_encoding` `xml`, `yaml`, `negotiate`, `string`: No re-encoding, `manual`"
+  },
+  {
+   "section": "KrakenD path entries and their targets",
+   "kind": "milestone",
+   "value": "`concurrent_calls` above 1: hedging on the Upstream leg, Planned (M4)"
+  },
+  {
+   "section": "KrakenD path entries and their targets",
+   "kind": "claim",
+   "value": "Ruralz sends one request per leg (partial parity)"
+  },
+  {
+   "section": "KrakenD path entries and their targets",
+   "kind": "claim",
+   "value": "endpoint `cache_ttl`: A zero value means the root value, which the importer resolves"
+  },
+  {
+   "section": "KrakenD path entries and their targets",
+   "kind": "claim",
+   "value": "KrakenD forwards only listed parameters, none by default; Ruralz forwards every client header and query string, `Authorization` and cookies included, unless a Policy removes them"
+  },
+  {
+   "section": "KrakenD path entries and their targets",
+   "kind": "claim",
+   "value": "`input_headers`, `input_query_strings`: `manual`, security-flagged, one item per Route"
+  },
+  {
+   "section": "KrakenD path entries and their targets",
+   "kind": "kind_or_field",
+   "value": "composition.steps"
+  },
+  {
+   "section": "KrakenD path entries and their targets",
+   "kind": "claim",
+   "value": "a Route `cors` Policy replaces the Gateway one"
+  },
+  {
+   "section": "KrakenD path entries and their targets",
+   "kind": "kind_or_field",
+   "value": "pathExpression"
+  },
+  {
+   "section": "KrakenD path entries and their targets",
+   "kind": "kind_or_field",
+   "value": "request.pathParams"
+  },
+  {
+   "section": "KrakenD path entries and their targets",
+   "kind": "kind_or_field",
+   "value": "step `path`"
+  },
+  {
+   "section": "KrakenD path entries and their targets",
+   "kind": "claim",
+   "value": "backend `url_pattern` rewrite: `equivalent` for `GET` and `HEAD`; `approximate` for methods with a body"
+  },
+  {
+   "section": "KrakenD path entries and their targets",
+   "kind": "claim",
+   "value": "KrakenD's balancing algorithm is unresearched; Ruralz uses the `loadBalancing` default"
+  },
+  {
+   "section": "KrakenD path entries and their targets",
+   "kind": "kind_or_field",
+   "value": "loadBalancing"
+  },
+  {
+   "section": "KrakenD path entries and their targets",
+   "kind": "default",
+   "value": "backend `method` Default: the incoming method"
+  },
+  {
+   "section": "KrakenD path entries and their targets",
+   "kind": "claim",
+   "value": "backend `encoding` `xml`, `rss`, `string`, `yaml`: CEL sees bodies only as JSON, `manual`"
+  },
+  {
+   "section": "KrakenD path entries and their targets",
+   "kind": "claim",
+   "value": "backend `deny`: No denylist field (OQ-migration-from-krakend-6)"
+  },
+  {
+   "section": "KrakenD path entries and their targets",
+   "kind": "claim",
+   "value": "`is_collection`: Unclear schema default, so the value read is written"
+  },
+  {
+   "section": "KrakenD path entries and their targets",
+   "kind": "default",
+   "value": "backend `sd: static`: The KrakenD default"
+  },
+  {
+   "section": "KrakenD path entries and their targets",
+   "kind": "claim",
+   "value": "`dns-shared` has no separate mode"
+  },
+  {
+   "section": "KrakenD path entries and their targets",
+   "kind": "claim",
+   "value": "`proxy.sequential_propagated_params`: Placeholder syntax and propagation semantics are unresearched"
+  },
+  {
+   "section": "KrakenD path entries and their targets",
+   "kind": "kind_or_field",
+   "value": "steps.<name>.body"
+  },
+  {
+   "section": "KrakenD path entries and their targets",
+   "kind": "claim",
+   "value": "`proxy.combiner`: Custom merge logic becomes a `plugin` Policy, `manual`"
+  },
+  {
+   "section": "KrakenD path entries and their targets",
+   "kind": "claim",
+   "value": "`proxy.static`: Built-in static responses per OQ-krakend-ee-parity-matrix-3"
+  },
+  {
+   "section": "KrakenD path entries and their targets",
+   "kind": "policy_type",
+   "value": "transform.response"
+  },
+  {
+   "section": "KrakenD path entries and their targets",
+   "kind": "kind_or_field",
+   "value": "limits.maxRequestBodyBytes"
+  },
+  {
+   "section": "KrakenD path entries and their targets",
+   "kind": "claim",
+   "value": "`proxy.max_payload`: One Gateway-wide limit: the largest value, reporting each endpoint that set less"
+  },
+  {
+   "section": "KrakenD path entries and their targets",
+   "kind": "milestone",
+   "value": "backend `proxy.shadow`: `Route` mirroring, Planned (M2)"
+  },
+  {
+   "section": "extra_config namespaces",
+   "kind": "number",
+   "value": "The 87 rows cover every v2.13 namespace the research records"
+  },
+  {
+   "section": "extra_config namespaces",
+   "kind": "claim",
+   "value": "scopes: S service, E endpoint, B backend, W workflow, A async agent"
+  },
+  {
+   "section": "extra_config namespaces",
+   "kind": "claim",
+   "value": "Both legacy spellings, `github_com/...` and `github.com/...`, normalize to the v2 names, as KrakenD CE registers both"
+  },
+  {
+   "section": "extra_config namespaces",
+   "kind": "claim",
+   "value": "every Ruralz target is free (P1)"
+  },
+  {
+   "section": "extra_config namespaces",
+   "kind": "policy_type",
+   "value": "auth.jwt"
+  },
+  {
+   "section": "extra_config namespaces",
+   "kind": "kind_or_field",
+   "value": "issuers[] (`issuer`, `jwksUrl`, `audiences`)"
+  },
+  {
+   "section": "extra_config namespaces",
+   "kind": "policy_type",
+   "value": "authz.cel"
+  },
+  {
+   "section": "extra_config namespaces",
+   "kind": "kind_or_field",
+   "value": "auth.claims"
+  },
+  {
+   "section": "extra_config namespaces",
+   "kind": "milestone",
+   "value": "`auth/validator` E: `auth.jwt` and `authz.cel` rule, Planned (M1)"
+  },
+  {
+   "section": "extra_config namespaces",
+   "kind": "claim",
+   "value": "Ruralz accepts RS256, PS256, ES256, EdDSA"
+  },
+  {
+   "section": "extra_config namespaces",
+   "kind": "claim",
+   "value": "One `auth` slot per Route (OQ-configuration-model-13)"
+  },
+  {
+   "section": "extra_config namespaces",
+   "kind": "kind_or_field",
+   "value": "request.set[].valueExpression"
+  },
+  {
+   "section": "extra_config namespaces",
+   "kind": "kind_or_field",
+   "value": "onRequestHeaders"
+  },
+  {
+   "section": "extra_config namespaces",
+   "kind": "milestone",
+   "value": "`auth/signer`: built-in JWT signing type, not yet in the registry, Planned (M2)"
+  },
+  {
+   "section": "extra_config namespaces",
+   "kind": "milestone",
+   "value": "`auth/revoker`: Signed revocation list, Planned (M2)"
+  },
+  {
+   "section": "extra_config namespaces",
+   "kind": "claim",
+   "value": "Revoked entries are not migrated"
+  },
+  {
+   "section": "extra_config namespaces",
+   "kind": "policy_type",
+   "value": "auth.upstream-oauth2"
+  },
+  {
+   "section": "extra_config namespaces",
+   "kind": "kind_or_field",
+   "value": "`tokenUrl`, `clientId`, `clientSecret`, `scopes`"
+  },
+  {
+   "section": "extra_config namespaces",
+   "kind": "milestone",
+   "value": "`auth/client-credentials`: `auth.upstream-oauth2`, Planned (M1)"
+  },
+  {
+   "section": "extra_config namespaces",
+   "kind": "kind_or_field",
+   "value": "credentials.apiKeys[].hash"
+  },
+  {
+   "section": "extra_config namespaces",
+   "kind": "kind_or_field",
+   "value": "config.header"
+  },
+  {
+   "section": "extra_config namespaces",
+   "kind": "milestone",
+   "value": "`auth/api-keys` S: Consumer per key, Planned (M1)"
+  },
+  {
+   "section": "extra_config namespaces",
+   "kind": "claim",
+   "value": "`auth/api-keys`: `equivalent` for `hash: plain`; `manual` with a hold for `fnv128`, `sha1` or a `salt`"
+  },
+  {
+   "section": "extra_config namespaces",
+   "kind": "claim",
+   "value": "Plain keys are hashed at import and never written; `roles` become Consumer `tags`"
+  },
+  {
+   "section": "extra_config namespaces",
+   "kind": "kind_or_field",
+   "value": "Consumer `tags`"
+  },
+  {
+   "section": "extra_config namespaces",
+   "kind": "claim",
+   "value": "`strategy: query_string` has no field (OQ-migration-from-krakend-1); hashed keys need reissue (OQ-migration-from-krakend-13)"
+  },
+  {
+   "section": "extra_config namespaces",
+   "kind": "policy_type",
+   "value": "ratelimit"
+  },
+  {
+   "section": "extra_config namespaces",
+   "kind": "kind_or_field",
+   "value": "consumer.tags"
+  },
+  {
+   "section": "extra_config namespaces",
+   "kind": "kind_or_field",
+   "value": "consumer.name"
+  },
+  {
+   "section": "extra_config namespaces",
+   "kind": "error_code",
+   "value": "RZ-CFG-018"
+  },
+  {
+   "section": "extra_config namespaces",
+   "kind": "decision",
+   "value": "rate limit algorithm differs (ADR-0008)"
+  },
+  {
+   "section": "extra_config namespaces",
+   "kind": "policy_type",
+   "value": "auth.basic"
+  },
+  {
+   "section": "extra_config namespaces",
+   "kind": "milestone",
+   "value": "`auth/basic`: `auth.basic`, Planned (M1)"
+  },
+  {
+   "section": "extra_config namespaces",
+   "kind": "claim",
+   "value": "`auth/basic`: Consumer binding field pending (OQ-security-and-identity-2), `manual` with a hold"
+  },
+  {
+   "section": "extra_config namespaces",
+   "kind": "policy_type",
+   "value": "auth.upstream-sigv4"
+  },
+  {
+   "section": "extra_config namespaces",
+   "kind": "milestone",
+   "value": "`auth/aws-sigv4`: `auth.upstream-sigv4`, Planned (M2)"
+  },
+  {
+   "section": "extra_config namespaces",
+   "kind": "milestone",
+   "value": "`auth/gcp`: JWT-bearer grant in `auth.upstream-oauth2`, Planned (M2)"
+  },
+  {
+   "section": "extra_config namespaces",
+   "kind": "claim",
+   "value": "`auth/ntlm`: None: Not planned"
+  },
+  {
+   "section": "extra_config namespaces",
+   "kind": "kind_or_field",
+   "value": "config.rule"
+  },
+  {
+   "section": "extra_config namespaces",
+   "kind": "milestone",
+   "value": "`security/policies` E: `authz.cel`, Planned (M1); `authz.opa` or `authz.cedar`, Planned (M2)"
+  },
+  {
+   "section": "extra_config namespaces",
+   "kind": "policy_type",
+   "value": "authz.opa"
+  },
+  {
+   "section": "extra_config namespaces",
+   "kind": "policy_type",
+   "value": "authz.cedar"
+  },
+  {
+   "section": "extra_config namespaces",
+   "kind": "claim",
+   "value": "`security/policies`: `manual` with a hold for `resp` rules, `geoIP()` and hash or `uuid()` macros"
+  },
+  {
+   "section": "extra_config namespaces",
+   "kind": "claim",
+   "value": "the `error` body and status have no field (OQ-migration-from-krakend-15)"
+  },
+  {
+   "section": "extra_config namespaces",
+   "kind": "kind_or_field",
+   "value": "filterClass: authz"
+  },
+  {
+   "section": "extra_config namespaces",
+   "kind": "kind_or_field",
+   "value": "onUpstreamRequest"
+  },
+  {
+   "section": "extra_config namespaces",
+   "kind": "milestone",
+   "value": "`security/policies` B, W: Upstream-scoped `plugin` Policy, Planned (M2)"
+  },
+  {
+   "section": "extra_config namespaces",
+   "kind": "error_code",
+   "value": "RZ-CFG-020"
+  },
+  {
+   "section": "extra_config namespaces",
+   "kind": "claim",
+   "value": "`authz.cel` is Gateway and Route scope only (RZ-CFG-020)"
+  },
+  {
+   "section": "extra_config namespaces",
+   "kind": "kind_or_field",
+   "value": "limits[] (`requests`, `window`)"
+  },
+  {
+   "section": "extra_config namespaces",
+   "kind": "kind_or_field",
+   "value": "config.key"
+  },
+  {
+   "section": "extra_config namespaces",
+   "kind": "kind_or_field",
+   "value": "route.name"
+  },
+  {
+   "section": "extra_config namespaces",
+   "kind": "claim",
+   "value": "IP-keyed `client_max_rate` behind a load balancer puts every client in one bucket (OQ-security-and-identity-6)"
+  },
+  {
+   "section": "extra_config namespaces",
+   "kind": "claim",
+   "value": "KrakenD limits apply per instance"
+  },
+  {
+   "section": "extra_config namespaces",
+   "kind": "claim",
+   "value": "on the `redis` State Store of rule 8 Ruralz enforces one Cluster-wide limit"
+  },
+  {
+   "section": "extra_config namespaces",
+   "kind": "number",
+   "value": "A constant key is one State Store hot key, safe to about 25,000 requests per second (hypothesis)"
+  },
+  {
+   "section": "extra_config namespaces",
+   "kind": "kind_or_field",
+   "value": "failureMode"
+  },
+  {
+   "section": "extra_config namespaces",
+   "kind": "failure_mode",
+   "value": "The importer sets `failureMode: closed` unless `on_failure_allow` is true, keeping KrakenD's default of blocking when Redis fails"
+  },
+  {
+   "section": "extra_config namespaces",
+   "kind": "claim",
+   "value": "`qos/ratelimit/service`: Per-instance in KrakenD"
+  },
+  {
+   "section": "extra_config namespaces",
+   "kind": "claim",
+   "value": "`qos/ratelimit/tiered`: KrakenD picks the first matching tier"
+  },
+  {
+   "section": "extra_config namespaces",
+   "kind": "kind_or_field",
+   "value": "consumer.tier"
+  },
+  {
+   "section": "extra_config namespaces",
+   "kind": "claim",
+   "value": "`qos/ratelimit/tiered`: `equivalent` for `literal` tiers; `approximate` for the `*` catch-all; `manual` for `tier_value_as: policy`"
+  },
+  {
+   "section": "extra_config namespaces",
+   "kind": "kind_or_field",
+   "value": "circuitBreaker.maxPendingRequests"
+  },
+  {
+   "section": "extra_config namespaces",
+   "kind": "kind_or_field",
+   "value": "circuitBreaker"
+  },
+  {
+   "section": "extra_config namespaces",
+   "kind": "kind_or_field",
+   "value": "consecutiveFailures"
+  },
+  {
+   "section": "extra_config namespaces",
+   "kind": "kind_or_field",
+   "value": "openDuration"
+  },
+  {
+   "section": "extra_config namespaces",
+   "kind": "claim",
+   "value": "`qos/circuit-breaker`: `interval` has no field; the volume guard differs"
+  },
+  {
+   "section": "extra_config namespaces",
+   "kind": "kind_or_field",
+   "value": "circuitBreaker.failureWhen"
+  },
+  {
+   "section": "extra_config namespaces",
+   "kind": "kind_or_field",
+   "value": "response.status"
+  },
+  {
+   "section": "extra_config namespaces",
+   "kind": "policy_type",
+   "value": "cache"
+  },
+  {
+   "section": "extra_config namespaces",
+   "kind": "claim",
+   "value": "KrakenD caches in memory per instance; `shared`, `max_items` and `max_size` are reported unmapped"
+  },
+  {
+   "section": "extra_config namespaces",
+   "kind": "kind_or_field",
+   "value": "stateStore"
+  },
+  {
+   "section": "extra_config namespaces",
+   "kind": "kind_or_field",
+   "value": "Consumer `quotas` (`unit: requests`, `limit`, `window`)"
+  },
+  {
+   "section": "extra_config namespaces",
+   "kind": "policy_type",
+   "value": "quota"
+  },
+  {
+   "section": "extra_config namespaces",
+   "kind": "kind_or_field",
+   "value": "consumerQuota"
+  },
+  {
+   "section": "extra_config namespaces",
+   "kind": "policy_type",
+   "value": "ai.token-budget"
+  },
+  {
+   "section": "extra_config namespaces",
+   "kind": "milestone",
+   "value": "`weight_key` charging becomes `ai.token-budget`, Planned (M3)"
+  },
+  {
+   "section": "extra_config namespaces",
+   "kind": "claim",
+   "value": "`quota` is Gateway and Route scope only; weighted costs are partial parity; counters are not migrated"
+  },
+  {
+   "section": "extra_config namespaces",
+   "kind": "kind_or_field",
+   "value": "driver: redis"
+  },
+  {
+   "section": "extra_config namespaces",
+   "kind": "claim",
+   "value": "`redis`: Named pools collapse into one State Store; pool tuning has no fields"
+  },
+  {
+   "section": "extra_config namespaces",
+   "kind": "claim",
+   "value": "`security/bot-detector`: Long pattern lists exceeding the CEL cost bound need a `plugin` Policy"
+  },
+  {
+   "section": "extra_config namespaces",
+   "kind": "policy_type",
+   "value": "cors"
+  },
+  {
+   "section": "extra_config namespaces",
+   "kind": "kind_or_field",
+   "value": "allowOrigins"
+  },
+  {
+   "section": "extra_config namespaces",
+   "kind": "kind_or_field",
+   "value": "allowMethods"
+  },
+  {
+   "section": "extra_config namespaces",
+   "kind": "kind_or_field",
+   "value": "overridable: false"
+  },
+  {
+   "section": "extra_config namespaces",
+   "kind": "kind_or_field",
+   "value": "telemetry.accessLog.when"
+  },
+  {
+   "section": "extra_config namespaces",
+   "kind": "port",
+   "value": "`health_path` to 9901 `/readyz`"
+  },
+  {
+   "section": "extra_config namespaces",
+   "kind": "claim",
+   "value": "`router`: `manual` for `trusted_proxies` and `remote_ip_headers`"
+  },
+  {
+   "section": "extra_config namespaces",
+   "kind": "kind_or_field",
+   "value": "match.hosts"
+  },
+  {
+   "section": "extra_config namespaces",
+   "kind": "kind_or_field",
+   "value": "hostnames"
+  },
+  {
+   "section": "extra_config namespaces",
+   "kind": "milestone",
+   "value": "`server/static-filesystem`: Built-in static-content type, Planned (M5)"
+  },
+  {
+   "section": "extra_config namespaces",
+   "kind": "kind_or_field",
+   "value": "match.grpc"
+  },
+  {
+   "section": "extra_config namespaces",
+   "kind": "milestone",
+   "value": "`grpc`: `Route` `match.grpc` and `grpc` Upstreams, Planned (M3)"
+  },
+  {
+   "section": "extra_config namespaces",
+   "kind": "milestone",
+   "value": "`websocket`: `websocket` Upstream, Planned (M3)"
+  },
+  {
+   "section": "extra_config namespaces",
+   "kind": "kind_or_field",
+   "value": "composition.mode: conditional"
+  },
+  {
+   "section": "extra_config namespaces",
+   "kind": "claim",
+   "value": "`backend/conditional`: `equivalent` for `header` and `fallback`; `approximate` for `policy`"
+  },
+  {
+   "section": "extra_config namespaces",
+   "kind": "claim",
+   "value": "Lua namespaces: `manual` with a hold when the script can reject"
+  },
+  {
+   "section": "extra_config namespaces",
+   "kind": "policy_type",
+   "value": "transform.request"
+  },
+  {
+   "section": "extra_config namespaces",
+   "kind": "claim",
+   "value": "`modifier/martian`: No DSL; `equivalent` for header set"
+  },
+  {
+   "section": "extra_config namespaces",
+   "kind": "claim",
+   "value": "`modifier/request-body-extractor`: New in 2.13"
+  },
+  {
+   "section": "extra_config namespaces",
+   "kind": "kind_or_field",
+   "value": "filterClass: validation"
+  },
+  {
+   "section": "extra_config namespaces",
+   "kind": "milestone",
+   "value": "`validation/cel` W: step `when`, Planned (M1), or `plugin` Policy with `filterClass: validation`, Planned (M2)"
+  },
+  {
+   "section": "extra_config namespaces",
+   "kind": "policy_type",
+   "value": "validation.json-schema"
+  },
+  {
+   "section": "extra_config namespaces",
+   "kind": "milestone",
+   "value": "`validation/json-schema`: `validation.json-schema` Policy on the `Route`, Planned (M1)"
+  },
+  {
+   "section": "extra_config namespaces",
+   "kind": "milestone",
+   "value": "`validation/response-json-schema`: `validation.json-schema` in response Phases, Planned (M5)"
+  },
+  {
+   "section": "extra_config namespaces",
+   "kind": "claim",
+   "value": "`workflow`: Nesting is unlimited in KrakenD"
+  },
+  {
+   "section": "extra_config namespaces",
+   "kind": "kind_or_field",
+   "value": "step `optional`"
+  },
+  {
+   "section": "extra_config namespaces",
+   "kind": "error_code",
+   "value": "RZ-<AREA>-<NNN>"
+  },
+  {
+   "section": "extra_config namespaces",
+   "kind": "milestone",
+   "value": "`backend/http/client` `proxy_address` to an egress field, Planned (M5)"
+  },
+  {
+   "section": "extra_config namespaces",
+   "kind": "claim",
+   "value": "Ruralz passes 3xx responses to the client (OQ-traffic-management-and-resilience-13)"
+  },
+  {
+   "section": "extra_config namespaces",
+   "kind": "milestone",
+   "value": "`backend/graphql`: `graphql` Upstream, Planned (M3)"
+  },
+  {
+   "section": "extra_config namespaces",
+   "kind": "milestone",
+   "value": "`backend/grpc`: `grpc` Upstream, Planned (M3)"
+  },
+  {
+   "section": "extra_config namespaces",
+   "kind": "claim",
+   "value": "`backend/lambda`: None: Not planned"
+  },
+  {
+   "section": "extra_config namespaces",
+   "kind": "claim",
+   "value": "`backend/amqp/consumer` and `backend/amqp/producer`: None: Not planned"
+  },
+  {
+   "section": "extra_config namespaces",
+   "kind": "milestone",
+   "value": "`backend/pubsub/publisher`: `kafka` or `nats` Upstream, Planned (M4); other brokers Not planned"
+  },
+  {
+   "section": "extra_config namespaces",
+   "kind": "milestone",
+   "value": "`backend/pubsub/subscriber`: `Route` `match.topic`, Planned (M4)"
+  },
+  {
+   "section": "extra_config namespaces",
+   "kind": "milestone",
+   "value": "`backend/pubsub/publisher/kafka`: `kafka` Upstream `messaging` options, Planned (M4)"
+  },
+  {
+   "section": "extra_config namespaces",
+   "kind": "milestone",
+   "value": "`backend/pubsub/subscriber/kafka`: Planned (M4)"
+  },
+  {
+   "section": "extra_config namespaces",
+   "kind": "milestone",
+   "value": "`backend/soap`: `transform.request` XML envelopes, Planned (M5)"
+  },
+  {
+   "section": "extra_config namespaces",
+   "kind": "milestone",
+   "value": "`backend/static-filesystem`: Planned (M5)"
+  },
+  {
+   "section": "extra_config namespaces",
+   "kind": "claim",
+   "value": "`async/amqp`: None: Not planned"
+  },
+  {
+   "section": "extra_config namespaces",
+   "kind": "milestone",
+   "value": "`async/kafka`: `Route` `match.topic` through a `kafka` Upstream, Planned (M4)"
+  },
+  {
+   "section": "extra_config namespaces",
+   "kind": "claim",
+   "value": "Kafka async agents arrived in EE 2.13"
+  },
+  {
+   "section": "extra_config namespaces",
+   "kind": "kind_or_field",
+   "value": "AIProvider"
+  },
+  {
+   "section": "extra_config namespaces",
+   "kind": "kind_or_field",
+   "value": "AIModel"
+  },
+  {
+   "section": "extra_config namespaces",
+   "kind": "kind_or_field",
+   "value": "dialect"
+  },
+  {
+   "section": "extra_config namespaces",
+   "kind": "kind_or_field",
+   "value": "limits.maxOutputTokens"
+  },
+  {
+   "section": "extra_config namespaces",
+   "kind": "milestone",
+   "value": "`ai/llm`: `AIProvider`, `AIModel` and `ai` `Upstream`, Planned (M3)"
+  },
+  {
+   "section": "extra_config namespaces",
+   "kind": "decision",
+   "value": "ADR-0014 AI API surface"
+  },
+  {
+   "section": "extra_config namespaces",
+   "kind": "milestone",
+   "value": "`ai/mcp`: MCP Server surface, Planned (M3)"
+  },
+  {
+   "section": "extra_config namespaces",
+   "kind": "cli_command",
+   "value": "ruralz bundle export openapi"
+  },
+  {
+   "section": "extra_config namespaces",
+   "kind": "cli_command",
+   "value": "ruralz bundle export postman"
+  },
+  {
+   "section": "extra_config namespaces",
+   "kind": "kind_or_field",
+   "value": "telemetry.otlp.endpoint"
+  },
+  {
+   "section": "extra_config namespaces",
+   "kind": "kind_or_field",
+   "value": "traceSampling"
+  },
+  {
+   "section": "extra_config namespaces",
+   "kind": "decision",
+   "value": "ADR-0010 telemetry OpenTelemetry first"
+  },
+  {
+   "section": "extra_config namespaces",
+   "kind": "milestone",
+   "value": "`telemetry/opentelemetry-security`: Authenticated OTLP export, Planned (M5)"
+  },
+  {
+   "section": "extra_config namespaces",
+   "kind": "library",
+   "value": "`slog` JSON on stdout"
+  },
+  {
+   "section": "extra_config namespaces",
+   "kind": "default",
+   "value": "level from `RURALZ_LOG_LEVEL`"
+  },
+  {
+   "section": "extra_config namespaces",
+   "kind": "milestone",
+   "value": "per-Upstream log records Planned (M5)"
+  },
+  {
+   "section": "extra_config namespaces",
+   "kind": "claim",
+   "value": "No native GELF writer"
+  },
+  {
+   "section": "extra_config namespaces",
+   "kind": "claim",
+   "value": "`telemetry/opencensus`: Deprecated by KrakenD in favor of OpenTelemetry"
+  },
+  {
+   "section": "extra_config namespaces",
+   "kind": "claim",
+   "value": "`telemetry/newrelic`: None: Not planned; OTLP through the Collector instead"
+  },
+  {
+   "section": "extra_config namespaces",
+   "kind": "milestone",
+   "value": "`telemetry/moesif`: Monetization hooks, Planned (M5)"
+  },
+  {
+   "section": "extra_config namespaces",
+   "kind": "claim",
+   "value": "Plugins make no outbound calls (OQ-wasm-plugin-system-5)"
+  },
+  {
+   "section": "extra_config namespaces",
+   "kind": "claim",
+   "value": "`plugin/middleware`: EE since 2.10"
+  },
+  {
+   "section": "Built-in KrakenD EE plugins",
+   "kind": "claim",
+   "value": "built-in plugins `geoip`, `ip-filter`, `jwk-aggregator`, `redis-ratelimit`, `static-filesystem`, `url-rewrite`, `virtualhost`, `wildcard`, `content-replacer`, `response-schema-validator`"
+  },
+  {
+   "section": "Built-in KrakenD EE plugins",
+   "kind": "policy_type",
+   "value": "authz.geoip"
+  },
+  {
+   "section": "Built-in KrakenD EE plugins",
+   "kind": "milestone",
+   "value": "`geoip`: `authz.geoip`, Planned (M2)"
+  },
+  {
+   "section": "Built-in KrakenD EE plugins",
+   "kind": "policy_type",
+   "value": "authz.ip"
+  },
+  {
+   "section": "Built-in KrakenD EE plugins",
+   "kind": "milestone",
+   "value": "`ip-filter`: `authz.ip` by CIDR on `source.ip`, Planned (M1)"
+  },
+  {
+   "section": "Built-in KrakenD EE plugins",
+   "kind": "kind_or_field",
+   "value": "source.ip"
+  },
+  {
+   "section": "Built-in KrakenD EE plugins",
+   "kind": "failure_mode",
+   "value": "Behind a load balancer `source.ip` is the balancer's address until OQ-security-and-identity-6 closes, so a denylist admits and an allowlist denies every client"
+  },
+  {
+   "section": "Built-in KrakenD EE plugins",
+   "kind": "claim",
+   "value": "`redis-ratelimit`: Deprecated since EE 2.8"
+  },
+  {
+   "section": "Built-in KrakenD EE plugins",
+   "kind": "kind_or_field",
+   "value": "match.path.prefix"
+  },
+  {
+   "section": "Built-in KrakenD EE plugins",
+   "kind": "milestone",
+   "value": "`static-filesystem` and `response-schema-validator`: Planned (M5)"
+  },
+  {
+   "section": "Worked import example",
+   "kind": "cli_command",
+   "value": "ruralz bundle import krakend krakend.json --output-dir ./bundle"
+  },
+  {
+   "section": "Worked import example",
+   "kind": "port",
+   "value": "\"port\": 8080"
+  },
+  {
+   "section": "Worked import example",
+   "kind": "timeout",
+   "value": "\"timeout\": \"3s\""
+  },
+  {
+   "section": "Worked import example",
+   "kind": "number",
+   "value": "\"cache_ttl\": \"300s\""
+  },
+  {
+   "section": "Worked import example",
+   "kind": "number",
+   "value": "\"qos/ratelimit/router\": {\"max_rate\": 50, \"every\": \"1s\"}"
+  },
+  {
+   "section": "Worked import example",
+   "kind": "kind_or_field",
+   "value": "apiVersion: ruralz/v1alpha1"
+  },
+  {
+   "section": "Worked import example",
+   "kind": "kind_or_field",
+   "value": "ruralz.io/import-fidelity"
+  },
+  {
+   "section": "Worked import example",
+   "kind": "default",
+   "value": "maxRequestHeaderBytes: 1000000     # KrakenD default, written explicitly"
+  },
+  {
+   "section": "Worked import example",
+   "kind": "kind_or_field",
+   "value": "RURALZ_STATE_STORE_URL"
+  },
+  {
+   "section": "Worked import example",
+   "kind": "kind_or_field",
+   "value": "protocol: http (Upstream)"
+  },
+  {
+   "section": "Worked import example",
+   "kind": "timeout",
+   "value": "timeout: 3s"
+  },
+  {
+   "section": "Worked import example",
+   "kind": "number",
+   "value": "limits: [{requests: 50, window: 1s}]"
+  },
+  {
+   "section": "Worked import example",
+   "kind": "default",
+   "value": "value: \"public, max-age=300\""
+  },
+  {
+   "section": "Worked import example",
+   "kind": "number",
+   "value": "(7 resources)"
+  },
+  {
+   "section": "Worked import example",
+   "kind": "number",
+   "value": "items: exact 4, equivalent 13, approximate 3, manual 1"
+  },
+  {
+   "section": "Worked import example",
+   "kind": "claim",
+   "value": "KrakenD limits each instance to 50 per 1s; Ruralz enforces 50 per 1s across the Cluster on the redis State Store (rule 8)"
+  },
+  {
+   "section": "Worked import example",
+   "kind": "claim",
+   "value": "a failed step fails the request; set optional: true to allow partial responses"
+  },
+  {
+   "section": "Worked import example",
+   "kind": "number",
+   "value": "exit status 1 (1 manual item)"
+  },
+  {
+   "section": "Import tool fidelity levels",
+   "kind": "cli_command",
+   "value": "ruralz bundle import krakend FILE --output-dir DIR"
+  },
+  {
+   "section": "Import tool fidelity levels",
+   "kind": "milestone",
+   "value": "`ruralz bundle import krakend FILE --output-dir DIR`, Planned (M2)"
+  },
+  {
+   "section": "Import tool fidelity levels",
+   "kind": "claim",
+   "value": "every generated resource carries the annotation `ruralz.io/import-fidelity` with the lowest level among its items"
+  },
+  {
+   "section": "Import tool fidelity levels",
+   "kind": "term",
+   "value": "Levels rank `exact`, `equivalent`, `approximate`, `manual`."
+  },
+  {
+   "section": "Import tool fidelity levels",
+   "kind": "claim",
+   "value": "full fidelity when every item is `exact` or `equivalent`, partial fidelity when no item is `manual` and at least one is `approximate` (proposed)"
+  },
+  {
+   "section": "Import tool fidelity levels",
+   "kind": "claim",
+   "value": "Until OQ-krakend-ee-parity-matrix-5 closes, every import holds forwarding items and exits 1"
+  },
+  {
+   "section": "Import tool fidelity levels",
+   "kind": "number",
+   "value": "The M2 exit criterion requires 90% or more of the SM-8 corpus at full or partial fidelity (target)"
+  },
+  {
+   "section": "Levels and guarantees",
+   "kind": "term",
+   "value": "`exact`: Every request gets the same routing, decision and bytes on the wire as under the KrakenD setting"
+  },
+  {
+   "section": "Levels and guarantees",
+   "kind": "term",
+   "value": "`equivalent`: only JSON key order and whitespace, header casing and order, and gateway error bodies (`RZ-<AREA>-<NNN>`) differ"
+  },
+  {
+   "section": "Levels and guarantees",
+   "kind": "term",
+   "value": "`approximate`: The Bundle validates and serves traffic; the report states each behavioral difference"
+  },
+  {
+   "section": "Levels and guarantees",
+   "kind": "term",
+   "value": "`manual`: No automatic translation at this release; the behavior is absent unless the operator adds it"
+  },
+  {
+   "section": "Levels and guarantees",
+   "kind": "failure_mode",
+   "value": "`manual`: Emits no resource for the setting, or a fail-closed hold for security controls"
+  },
+  {
+   "section": "Rules that hold at every level",
+   "kind": "cli_command",
+   "value": "ruralz bundle validate"
+  },
+  {
+   "section": "Rules that hold at every level",
+   "kind": "error_code",
+   "value": "RZ-CFG"
+  },
+  {
+   "section": "Rules that hold at every level",
+   "kind": "claim",
+   "value": "an `RZ-CFG` error in generated output is an importer defect, never a report item"
+  },
+  {
+   "section": "Rules that hold at every level",
+   "kind": "failure_mode",
+   "value": "the importer attaches a hold: an `authz.cel` Policy with `rule: \"false\"` on each affected Route, or on the `Gateway` with `overridable: false` for service-scope settings"
+  },
+  {
+   "section": "Rules that hold at every level",
+   "kind": "error_code",
+   "value": "RZ-AUTH"
+  },
+  {
+   "section": "Rules that hold at every level",
+   "kind": "failure_mode",
+   "value": "Imports thus fail closed, like every `auth.*` and `authz.*` type (P9)"
+  },
+  {
+   "section": "Rules that hold at every level",
+   "kind": "claim",
+   "value": "The per-Route forwarding item rejects nothing, so it is security-flagged without a hold"
+  },
+  {
+   "section": "Rules that hold at every level",
+   "kind": "default",
+   "value": "Plain API keys are hashed to `sha256:<hex>`"
+  },
+  {
+   "section": "Rules that hold at every level",
+   "kind": "limit",
+   "value": "keys under 32 characters (target) are flagged for reissue"
+  },
+  {
+   "section": "Rules that hold at every level",
+   "kind": "error_code",
+   "value": "RZ-CFG-012"
+  },
+  {
+   "section": "Rules that hold at every level",
+   "kind": "kind_or_field",
+   "value": "SecretValue"
+  },
+  {
+   "section": "Rules that hold at every level",
+   "kind": "claim",
+   "value": "Before M3, for example, `ai/llm` and `grpc` import `manual`"
+  },
+  {
+   "section": "Rules that hold at every level",
+   "kind": "claim",
+   "value": "The same input produces byte-identical files and report"
+  },
+  {
+   "section": "Rules that hold at every level",
+   "kind": "cli_command",
+   "value": "ruralz bundle diff"
+  },
+  {
+   "section": "Rules that hold at every level",
+   "kind": "limit",
+   "value": "RFC 1123 labels of at most 63 characters"
+  },
+  {
+   "section": "Rules that hold at every level",
+   "kind": "claim",
+   "value": "suffix from a hash of the source entry on collision, so inserting an entry renames nothing"
+  },
+  {
+   "section": "Rules that hold at every level",
+   "kind": "claim",
+   "value": "a missing value is reported rather than assumed"
+  },
+  {
+   "section": "Rules that hold at every level",
+   "kind": "claim",
+   "value": "Limits therefore never fall back to the `memory` driver, which multiplies them by the Node count"
+  },
+  {
+   "section": "Rules that hold at every level",
+   "kind": "error_code",
+   "value": "RZ-CFG-026"
+  },
+  {
+   "section": "Rules that hold at every level",
+   "kind": "failure_mode",
+   "value": "an unresolved URL keeps Nodes not ready (RZ-CFG-026)"
+  },
+  {
+   "section": "Rules that hold at every level",
+   "kind": "kind_or_field",
+   "value": "rule: \"false\""
+  },
+  {
+   "section": "Report, annotation and exit status",
+   "kind": "claim",
+   "value": "Bundle: `ruralz.yaml` with the `Gateway`, and one file per kind under `routes/`, `upstreams/`, `policies/`, `consumers/` and `ai/`"
+  },
+  {
+   "section": "Report, annotation and exit status",
+   "kind": "claim",
+   "value": "Report items carry an RFC 6901 pointer into the source"
+  },
+  {
+   "section": "Report, annotation and exit status",
+   "kind": "claim",
+   "value": "JSON report: A hidden file under `DIR`, skipped by the Bundle loader; format per OQ-migration-from-krakend-8"
+  },
+  {
+   "section": "Report, annotation and exit status",
+   "kind": "number",
+   "value": "Exit status 0 when no item is `manual`; 1 when any item is `manual`; 2 when the input is unreadable, is not JSON or has a `version` other than `3`"
+  },
+  {
+   "section": "Input the importer reads",
+   "kind": "claim",
+   "value": "KrakenD recommends `.json`, and its linter reads only JSON"
+  },
+  {
+   "section": "Input the importer reads",
+   "kind": "kind_or_field",
+   "value": "FC_OUT"
+  },
+  {
+   "section": "Input the importer reads",
+   "kind": "claim",
+   "value": "CE templating writes the rendered file when `FC_OUT` is set; EE has an `out` setting in `flexible_config.json`"
+  },
+  {
+   "section": "Input the importer reads",
+   "kind": "failure_mode",
+   "value": "A failed template makes KrakenD CE parse the raw file instead"
+  },
+  {
+   "section": "Input the importer reads",
+   "kind": "claim",
+   "value": "`KRAKEND_<UPPERCASE_KEY>` overrides root values at runtime, invisibly to the importer"
+  },
+  {
+   "section": "Input the importer reads",
+   "kind": "claim",
+   "value": "Keys starting with `@`, `$`, `_` or `#` are schema comments, skipped silently"
+  },
+  {
+   "section": "Plugin migration",
+   "kind": "claim",
+   "value": "Go plugins: `.so` files built with `-buildmode=plugin` against KrakenD's Go version"
+  },
+  {
+   "section": "Plugin migration",
+   "kind": "library",
+   "value": "`gopher-lua`, \"a Lua5.1(+ goto statement in Lua5.2) VM\""
+  },
+  {
+   "section": "Plugin migration",
+   "kind": "claim",
+   "value": "KrakenD CE 3.0 drops Go plugins, announced on 2026-06-04"
+  },
+  {
+   "section": "Plugin migration",
+   "kind": "decision",
+   "value": "Ruralz loads neither (vision non-goal 3, ADR-0011)"
+  },
+  {
+   "section": "Plugin migration",
+   "kind": "library",
+   "value": "Go PDK compiled by TinyGo"
+  },
+  {
+   "section": "Plugin migration",
+   "kind": "decision",
+   "value": "ADR-0005 plugin ABI v1"
+  },
+  {
+   "section": "Plugin migration",
+   "kind": "claim",
+   "value": "The importer never translates code: every Go plugin and Lua script is a `manual` item, with a hold when it can reject requests"
+  },
+  {
+   "section": "Plugin migration",
+   "kind": "cli_command",
+   "value": "ruralz plugin test"
+  },
+  {
+   "section": "Plugin migration",
+   "kind": "cli_command",
+   "value": "ruralz plugin push"
+  },
+  {
+   "section": "Go plugins to built-in Filters or WASM Plugins",
+   "kind": "milestone",
+   "value": "HTTP server plugins: Planned (M1) built-ins; Planned (M2) Plugins"
+  },
+  {
+   "section": "Go plugins to built-in Filters or WASM Plugins",
+   "kind": "milestone",
+   "value": "HTTP client plugins: Planned (M1) to Planned (M4)"
+  },
+  {
+   "section": "Go plugins to built-in Filters or WASM Plugins",
+   "kind": "milestone",
+   "value": "Request and response modifier: Planned (M1) built-ins; Planned (M2) Plugins"
+  },
+  {
+   "section": "Go plugins to built-in Filters or WASM Plugins",
+   "kind": "milestone",
+   "value": "Middleware (EE): Planned (M2)"
+  },
+  {
+   "section": "Go plugins to built-in Filters or WASM Plugins",
+   "kind": "cli_command",
+   "value": "ruralz plugin init tenant-guard --language go"
+  },
+  {
+   "section": "Go plugins to built-in Filters or WASM Plugins",
+   "kind": "milestone",
+   "value": "`ruralz plugin init`, Planned (M2)"
+  },
+  {
+   "section": "Go plugins to built-in Filters or WASM Plugins",
+   "kind": "kind_or_field",
+   "value": "Plugin.spec.configSchema"
+  },
+  {
+   "section": "Go plugins to built-in Filters or WASM Plugins",
+   "kind": "kind_or_field",
+   "value": "rz_configure"
+  },
+  {
+   "section": "Go plugins to built-in Filters or WASM Plugins",
+   "kind": "limit",
+   "value": "a call defaults to a 5 ms deadline (target)"
+  },
+  {
+   "section": "Go plugins to built-in Filters or WASM Plugins",
+   "kind": "limit",
+   "value": "16 MiB of memory (target)"
+  },
+  {
+   "section": "Go plugins to built-in Filters or WASM Plugins",
+   "kind": "limit",
+   "value": "32 MiB suggested for the Go PDK (hypothesis)"
+  },
+  {
+   "section": "Go plugins to built-in Filters or WASM Plugins",
+   "kind": "claim",
+   "value": "The sandbox has no filesystem, sockets, environment or threads"
+  },
+  {
+   "section": "Go plugins to built-in Filters or WASM Plugins",
+   "kind": "claim",
+   "value": "KrakenD EE 2.13 injects Redis and quota processors into every plugin type"
+  },
+  {
+   "section": "Go plugins to built-in Filters or WASM Plugins",
+   "kind": "kind_or_field",
+   "value": "state_get, state_incr (`state.read`, `state.write`)"
+  },
+  {
+   "section": "Go plugins to built-in Filters or WASM Plugins",
+   "kind": "cli_command",
+   "value": "ruralz plugin build"
+  },
+  {
+   "section": "Go plugins to built-in Filters or WASM Plugins",
+   "kind": "library",
+   "value": "wazero host of `ruralzd`"
+  },
+  {
+   "section": "Go plugins to built-in Filters or WASM Plugins",
+   "kind": "library",
+   "value": "Sigstore (ADR-0017)"
+  },
+  {
+   "section": "Go plugins to built-in Filters or WASM Plugins",
+   "kind": "cli_command",
+   "value": "ruralz plugin inspect"
+  },
+  {
+   "section": "Go plugins to built-in Filters or WASM Plugins",
+   "kind": "kind_or_field",
+   "value": "Plugin.spec.image"
+  },
+  {
+   "section": "Go plugins to built-in Filters or WASM Plugins",
+   "kind": "failure_mode",
+   "value": "`filterClass` (`auth` and `authz` are closed only)"
+  },
+  {
+   "section": "Go plugins to built-in Filters or WASM Plugins",
+   "kind": "kind_or_field",
+   "value": "request_info (`request.metadata.read`)"
+  },
+  {
+   "section": "Go plugins to built-in Filters or WASM Plugins",
+   "kind": "kind_or_field",
+   "value": "request_header_get, request_headers_list (`request.headers.read`)"
+  },
+  {
+   "section": "Go plugins to built-in Filters or WASM Plugins",
+   "kind": "claim",
+   "value": "`authorization` also needs `credentials.read`"
+  },
+  {
+   "section": "Go plugins to built-in Filters or WASM Plugins",
+   "kind": "kind_or_field",
+   "value": "request_header_set, request_header_remove (`request.headers.write`)"
+  },
+  {
+   "section": "Go plugins to built-in Filters or WASM Plugins",
+   "kind": "kind_or_field",
+   "value": "request_body_read, request_body_replace (`request.body.read`, `request.body.write`)"
+  },
+  {
+   "section": "Go plugins to built-in Filters or WASM Plugins",
+   "kind": "kind_or_field",
+   "value": "response_body_read, response_body_replace (`response.body.read`, `response.body.write`)"
+  },
+  {
+   "section": "Go plugins to built-in Filters or WASM Plugins",
+   "kind": "kind_or_field",
+   "value": "response_header_get, response_header_set (`response.headers.read`, `response.headers.write`)"
+  },
+  {
+   "section": "Go plugins to built-in Filters or WASM Plugins",
+   "kind": "claim",
+   "value": "`RequestWrapper` `Params` and `ResponseWrapper` `StatusCode`: Not exposed (OQ-migration-from-krakend-11)"
+  },
+  {
+   "section": "Go plugins to built-in Filters or WASM Plugins",
+   "kind": "kind_or_field",
+   "value": "response_send (`response.send`)"
+  },
+  {
+   "section": "Go plugins to built-in Filters or WASM Plugins",
+   "kind": "failure_mode",
+   "value": "A negative result applies `failureMode`"
+  },
+  {
+   "section": "Go plugins to built-in Filters or WASM Plugins",
+   "kind": "kind_or_field",
+   "value": "log (`log.write`)"
+  },
+  {
+   "section": "Go plugins to built-in Filters or WASM Plugins",
+   "kind": "kind_or_field",
+   "value": "abi: ruralz.plugin.v1"
+  },
+  {
+   "section": "Go plugins to built-in Filters or WASM Plugins",
+   "kind": "limit",
+   "value": "limits: {memoryBytes: 32Mi, timeout: 5ms}"
+  },
+  {
+   "section": "Go plugins to built-in Filters or WASM Plugins",
+   "kind": "failure_mode",
+   "value": "filterClass: authz                   # closed only: a trap or timeout rejects the request"
+  },
+  {
+   "section": "Lua to CEL or WASM Plugins",
+   "kind": "claim",
+   "value": "`modifier/lua-endpoint` (router, `pre` only), `modifier/lua-proxy` (`pre` and `post`) and `modifier/lua-backend` (`pre`, `post` and `skip_next`)"
+  },
+  {
+   "section": "Lua to CEL or WASM Plugins",
+   "kind": "kind_or_field",
+   "value": "onRequestBody"
+  },
+  {
+   "section": "Lua to CEL or WASM Plugins",
+   "kind": "kind_or_field",
+   "value": "onResponse"
+  },
+  {
+   "section": "Lua to CEL or WASM Plugins",
+   "kind": "kind_or_field",
+   "value": "onUpstreamResponseHeaders"
+  },
+  {
+   "section": "Lua to CEL or WASM Plugins",
+   "kind": "kind_or_field",
+   "value": "onUpstreamResponseBody"
+  },
+  {
+   "section": "Lua to CEL or WASM Plugins",
+   "kind": "claim",
+   "value": "A custom status or body needs a Plugin (OQ-migration-from-krakend-15)"
+  },
+  {
+   "section": "Lua to CEL or WASM Plugins",
+   "kind": "kind_or_field",
+   "value": "crypto_digest, crypto_hmac (`crypto.use`)"
+  },
+  {
+   "section": "Lua to CEL or WASM Plugins",
+   "kind": "claim",
+   "value": "Host cryptography, FIPS-ready"
+  },
+  {
+   "section": "Lua to CEL or WASM Plugins",
+   "kind": "kind_or_field",
+   "value": "clock_now (`clock.read`)"
+  },
+  {
+   "section": "Lua to CEL or WASM Plugins",
+   "kind": "claim",
+   "value": "CEL `now` is the request start time"
+  },
+  {
+   "section": "Lua to CEL or WASM Plugins",
+   "kind": "claim",
+   "value": "One blocking State Store call per request"
+  },
+  {
+   "section": "Cutover runbook",
+   "kind": "milestone",
+   "value": "runbook works in file mode, Planned (M1); Control mode, Planned (M2), adds canary Rollouts"
+  },
+  {
+   "section": "Cutover runbook",
+   "kind": "claim",
+   "value": "Every figure below is a proposed default."
+  },
+  {
+   "section": "Stage 0: prepare",
+   "kind": "claim",
+   "value": "Freeze KrakenD configuration from Stage 3 until decommission"
+  },
+  {
+   "section": "Stage 0: prepare",
+   "kind": "number",
+   "value": "keep KrakenD sized for 100% of traffic (target) until Stage 6"
+  },
+  {
+   "section": "Stage 1: import and review",
+   "kind": "claim",
+   "value": "Security-flagged items MUST be resolved or explicitly accepted by the service owner before Stage 3, and every hold Policy MUST be replaced, not deleted alone"
+  },
+  {
+   "section": "Stage 1: import and review",
+   "kind": "claim",
+   "value": "Until OQ-security-and-identity-6 closes, no Policy may filter on or key by `source.ip` while Nodes sit behind a load balancer"
+  },
+  {
+   "section": "Stage 1: import and review",
+   "kind": "cli_command",
+   "value": "ruralz bundle audit"
+  },
+  {
+   "section": "Stage 1: import and review",
+   "kind": "cli_command",
+   "value": "ruralz bundle render --effective --route NAME"
+  },
+  {
+   "section": "Stage 2: test before traffic",
+   "kind": "kind_or_field",
+   "value": "ruralz.test.v1"
+  },
+  {
+   "section": "Stage 2: test before traffic",
+   "kind": "cli_command",
+   "value": "ruralz test run ./tests --target URL"
+  },
+  {
+   "section": "Stage 2: test before traffic",
+   "kind": "cli_command",
+   "value": "ruralz test run ./tests --bundle ./bundle"
+  },
+  {
+   "section": "Stage 3: deploy dark",
+   "kind": "port",
+   "value": "`/readyz` on admin port 9901"
+  },
+  {
+   "section": "Stage 3: deploy dark",
+   "kind": "claim",
+   "value": "the admin bind and authentication default is OQ-system-overview-6"
+  },
+  {
+   "section": "Stage 3: deploy dark",
+   "kind": "cli_command",
+   "value": "ruralz bundle build"
+  },
+  {
+   "section": "Stage 3: deploy dark",
+   "kind": "number",
+   "value": "possibly tens of MB per second per Node (hypothesis)"
+  },
+  {
+   "section": "Stage 4: shadow traffic",
+   "kind": "claim",
+   "value": "A KrakenD shadow backend is not a mirroring point: its copies miss imported Routes and lack credentials"
+  },
+  {
+   "section": "Stage 4: shadow traffic",
+   "kind": "claim",
+   "value": "Mirror only safe methods (`GET`, `HEAD`, `OPTIONS`)"
+  },
+  {
+   "section": "Stage 4: shadow traffic",
+   "kind": "number",
+   "value": "enters Stage 5 at the 1% step (target) under closer watch"
+  },
+  {
+   "section": "Stage 4: shadow traffic",
+   "kind": "kind_or_field",
+   "value": "traceparent / `trace_id`"
+  },
+  {
+   "section": "Stage 4: shadow traffic",
+   "kind": "kind_or_field",
+   "value": "gateway_duration"
+  },
+  {
+   "section": "Stage 4: shadow traffic",
+   "kind": "metric",
+   "value": "ruralz_telemetry_logs_dropped_total{stream=\"access\",reason=\"queue_full\"}"
+  },
+  {
+   "section": "Stage 4: shadow traffic",
+   "kind": "number",
+   "value": "over at least 24 hours (target) of mirrored traffic"
+  },
+  {
+   "section": "Stage 4: shadow traffic",
+   "kind": "number",
+   "value": "paired status classes agree for 99.9% or more of requests (target)"
+  },
+  {
+   "section": "Stage 4: shadow traffic",
+   "kind": "number",
+   "value": "each status class's share differs from KrakenD's by 0.1 percentage points or less (target)"
+  },
+  {
+   "section": "Stage 5: side-by-side cutover",
+   "kind": "claim",
+   "value": "with `provider: env`, a changed `RURALZ_STATE_STORE_URL` takes effect only after a Node restart"
+  },
+  {
+   "section": "Stage 5: side-by-side cutover",
+   "kind": "number",
+   "value": "steps of 1%, 5%, 25%, 50% and 100% (target)"
+  },
+  {
+   "section": "Stage 5: side-by-side cutover",
+   "kind": "timeout",
+   "value": "baking each step for at least 1 hour and one daily peak before the next (target)"
+  },
+  {
+   "section": "Stage 5: side-by-side cutover",
+   "kind": "claim",
+   "value": "DNS weighting is a poor fit, because resolver caching delays rollback"
+  },
+  {
+   "section": "Stage 5: side-by-side cutover",
+   "kind": "milestone",
+   "value": "WebSocket, Planned (M3)"
+  },
+  {
+   "section": "Stage 5: side-by-side cutover",
+   "kind": "claim",
+   "value": "a Consumer can get up to one extra window allowance"
+  },
+  {
+   "section": "Stage 5: side-by-side cutover",
+   "kind": "timeout",
+   "value": "retention period, 14 days (target)"
+  },
+  {
+   "section": "Rollback",
+   "kind": "number",
+   "value": "fires only with at least 1,000 requests in the window (target)"
+  },
+  {
+   "section": "Rollback",
+   "kind": "metric",
+   "value": "ruralz_http_requests_total{route,status_class}"
+  },
+  {
+   "section": "Rollback",
+   "kind": "number",
+   "value": "More than 0.5 percentage points for 5 minutes (target)"
+  },
+  {
+   "section": "Rollback",
+   "kind": "number",
+   "value": "More than 50% above its Stage 4 baseline for 10 minutes (target)"
+  },
+  {
+   "section": "Rollback",
+   "kind": "number",
+   "value": "differs from KrakenD's 401 and 403 rate in the same window by more than 0.1 percentage points for 5 minutes (target)"
+  },
+  {
+   "section": "Rollback",
+   "kind": "claim",
+   "value": "treat a lower Ruralz rate as a security incident"
+  },
+  {
+   "section": "Rollback",
+   "kind": "error_code",
+   "value": "RZ-STS"
+  },
+  {
+   "section": "Rollback",
+   "kind": "metric",
+   "value": "ruralz_filter_failures_total"
+  },
+  {
+   "section": "Rollback",
+   "kind": "cli_command",
+   "value": "ruralz rollout rollback ROLLOUT_ID"
+  },
+  {
+   "section": "Rollback",
+   "kind": "claim",
+   "value": "after decommission, rollback is no longer a traffic shift and needs a KrakenD redeploy from its retained image"
+  },
+  {
+   "section": "Stage 6: decommission",
+   "kind": "timeout",
+   "value": "keeping its last image and rendered file for 90 days (target)"
+  },
+  {
+   "section": "Gate summary",
+   "kind": "number",
+   "value": "5 Side-by-side cutover exit: 100% weight baked, no trigger (target)"
+  },
+  {
+   "section": "Not planned features",
+   "kind": "number",
+   "value": "The parity matrix marks 13 rows Not planned, three EE-only"
+  },
+  {
+   "section": "Not planned features",
+   "kind": "claim",
+   "value": "NTLM: Connection-bound authentication breaks pooling; MD4 and HMAC-MD5 fail the FIPS build"
+  },
+  {
+   "section": "Not planned features",
+   "kind": "claim",
+   "value": "Lambda functions: No researched invocation library or protocol value"
+  },
+  {
+   "section": "Not planned features",
+   "kind": "claim",
+   "value": "AMQP/RabbitMQ: No researched Go library (OQ-multi-protocol-14)"
+  },
+  {
+   "section": "Not planned features",
+   "kind": "milestone",
+   "value": "`kafka`, `nats` or `mqtt` Upstreams, Planned (M4)"
+  },
+  {
+   "section": "Not planned features",
+   "kind": "milestone",
+   "value": "Grafana dashboards only, Planned (M1)"
+  },
+  {
+   "section": "Not planned features",
+   "kind": "decision",
+   "value": "No vendor SDKs (ADR-0010)"
+  },
+  {
+   "section": "Partial parity that changes migrated behavior",
+   "kind": "number",
+   "value": "The matrix lists 17 partial-parity rows"
+  },
+  {
+   "section": "Partial parity that changes migrated behavior",
+   "kind": "claim",
+   "value": "Concurrent calls: Duplicate parallel requests are dropped; hedging arrives Planned (M4)"
+  },
+  {
+   "section": "Partial parity that changes migrated behavior",
+   "kind": "claim",
+   "value": "LLM routing: `ai/llm` is `manual` before M3, then `approximate`; aggregation is buffered only"
+  },
+  {
+   "section": "Features that arrive after the importer",
+   "kind": "claim",
+   "value": "KrakenD streaming Routes import `approximate` through the no-op rows, since the reverse proxy exists from Planned (M1)"
+  },
+  {
+   "section": "Features that arrive after the importer",
+   "kind": "milestone",
+   "value": "AI Gateway (`ai/llm`), token quotas, MCP Server: Planned (M3)"
+  },
+  {
+   "section": "Features that arrive after the importer",
+   "kind": "milestone",
+   "value": "gRPC, direct WebSockets, multiplexer, SSE per-event flushing and `onChunk` Policies: Planned (M3)"
+  },
+  {
+   "section": "Features that arrive after the importer",
+   "kind": "kind_or_field",
+   "value": "onChunk"
+  },
+  {
+   "section": "Features that arrive after the importer",
+   "kind": "milestone",
+   "value": "GraphQL adapter: Planned (M3)"
+  },
+  {
+   "section": "Features that arrive after the importer",
+   "kind": "milestone",
+   "value": "Async agents, Kafka and NATS publishers and subscribers: Planned (M4)"
+  },
+  {
+   "section": "Features that arrive after the importer",
+   "kind": "milestone",
+   "value": "Concurrent calls, Hedging: Planned (M4)"
+  },
+  {
+   "section": "Features that arrive after the importer",
+   "kind": "milestone",
+   "value": "Static web server, SOAP, response JSON Schema validation, intermediary web proxy, OpenTelemetry SaaS authentication, advanced logging, Moesif: Planned (M5)"
+  },
+  {
+   "section": "Behavior changes to plan for",
+   "kind": "claim",
+   "value": "KrakenD: Stateless limits apply per instance"
+  },
+  {
+   "section": "Behavior changes to plan for",
+   "kind": "decision",
+   "value": "One Cluster-wide limit through the `redis` State Store of rule 8 (ADR-0008)"
+  },
+  {
+   "section": "Behavior changes to plan for",
+   "kind": "claim",
+   "value": "KrakenD: Nothing forwarded unless allowlisted"
+  },
+  {
+   "section": "Behavior changes to plan for",
+   "kind": "claim",
+   "value": "KrakenD: Both namespaces are valid on one endpoint"
+  },
+  {
+   "section": "Behavior changes to plan for",
+   "kind": "claim",
+   "value": "KrakenD API keys: Inline, plain or hashed"
+  },
+  {
+   "section": "Behavior changes to plan for",
+   "kind": "claim",
+   "value": "SHA-256 digests in `Consumer` resources; every key change is a new Revision"
+  },
+  {
+   "section": "Open questions",
+   "kind": "decision",
+   "value": "OQ-migration-from-krakend-5 Blocking: Yes, for the M2 importer"
+  },
+  {
+   "section": "Open questions",
+   "kind": "decision",
+   "value": "OQ-migration-from-krakend-10 Blocking: Yes, for the M2 exit criterion 3"
+  },
+  {
+   "section": "Open questions",
+   "kind": "decision",
+   "value": "OQ-migration-from-krakend-12 current: Copy the per-instance value, `approximate`"
+  },
+  {
+   "section": "Open questions",
+   "kind": "decision",
+   "value": "OQ-migration-from-krakend-9 current: Rendered JSON only"
+  },
+  {
+   "section": "Open questions",
+   "kind": "decision",
+   "value": "OQ-migration-from-krakend-13 current: Reissue keys"
+  },
+  {
+   "section": "Open questions",
+   "kind": "kind_or_field",
+   "value": "localOnly"
+  }
+ ]
+}
