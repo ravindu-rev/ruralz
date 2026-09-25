@@ -27,11 +27,11 @@ milestone_tags_used: [M0, M1, M2, M3, M4, M5]
 
 ## Summary
 
-This document maps all 153 rows of the KrakenD feature snapshot (2026-09-23, KrakenD EE 2.13) to Ruralz. Each of the 71 Enterprise-only rows is free in Ruralz with a milestone, except three rows marked Not planned with a reason: Lua advanced helpers, NTLM authentication and the New Relic native SDK. Across all rows, 140 are Planned (M0) to Planned (M5) and 13 are Not planned. Each row names the kind, Policy type or Filter that carries it. The document also lists what Ruralz adds beyond parity and maps KrakenD EE support offerings to commercial support and Ruralz Cloud. Evaluators use it to judge fit; architects use it to trace rows to owning documents. Nothing is implemented yet.
+This document maps all 153 rows of the KrakenD feature snapshot (2026-09-23, KrakenD EE 2.13) to Ruralz. Each of the 71 Enterprise-only rows is free in Ruralz with a milestone, except three Not planned with a reason: Lua advanced helpers, NTLM authentication and the New Relic native SDK. Across all rows, 140 are Planned (M0) to Planned (M5), 17 of them Partial parity, and 13 are Not planned. Each row names the kind, Policy type or Filter that carries it. The document also lists what Ruralz adds beyond parity and maps KrakenD EE support offerings to commercial support and Ruralz Cloud. Evaluators judge fit; architects trace rows to owning documents. Nothing is implemented yet.
 
 ## Scope and non-goals
 
-In scope: every feature row of the [KrakenD parity research](../_meta/research/krakend-parity.md), grouped in its ten categories; the Ruralz status, mechanism and rationale of each row; capabilities KrakenD lacks in both editions; Not planned rows and partial parity; the KrakenD EE support and services offerings; and counts per category and status. This matrix decides row allocations: the [Roadmap](../roadmap/01-roadmap-and-milestones.md#how-parity-is-counted) and [Vision and positioning](../vision/01-vision-and-positioning.md#versus-krakend-ee-what-becomes-free) both defer to it on conflict. Terms follow the binding [foundation pack](../_meta/foundation-pack.md#13-krakend-parity-anchor), whose section 13 makes this document the owner of KrakenD EE parity.
+In scope: every feature row of the [KrakenD parity research](../_meta/research/krakend-parity.md), grouped in its ten categories; the Ruralz status, mechanism and rationale of each row; capabilities KrakenD lacks in both editions; Not planned rows and partial parity; the KrakenD EE support and services offerings; and counts per category and status. This matrix decides row allocations: the [Roadmap](../roadmap/01-roadmap-and-milestones.md#scope-and-non-goals) and [Vision and positioning](../vision/01-vision-and-positioning.md#versus-krakend-ee-what-becomes-free) both defer to it on conflict. Terms follow the binding [foundation pack](../_meta/foundation-pack.md#13-krakend-parity-anchor), whose section 13 makes this document the owner of KrakenD EE parity.
 
 Non-goals:
 
@@ -58,10 +58,10 @@ Rules applied to every row:
 
 1. The Feature cell copies the research row verbatim, so the verify-docs coverage check can match all 153 rows.
 2. The KrakenD CE and KrakenD EE cells come from the features page. Where the JSON Schema and the features page disagree on an edition, as the research records for several namespaces, the features page wins.
-3. The Ruralz status comes from the Planned tag of the owning architecture document. Rows no architecture document maps take the Roadmap's provisional allocation, and rows neither covers are decided here with an Open question.
+3. The Ruralz status comes from the Planned tag of the owning architecture document. Rows no architecture document maps take the Roadmap's provisional allocation unless an Open question of this matrix moves them (API governance, OQ-krakend-ee-parity-matrix-12), and rows neither covers are decided here with an Open question.
 4. The Ruralz mechanism names only kinds, fields, Policy types and Filters of the [Configuration model](../architecture/02-configuration-model.md#kind-catalog). Where a row needs a field that does not exist yet, the mechanism names the kind that would carry it and the Notes/ADR cell names the Open question.
-5. A Not planned row always states its reason. At most 10 EE-only rows may be Not planned, per SM-3 in [Vision and positioning](../vision/01-vision-and-positioning.md#success-metrics).
-6. Every Planned row is free under Apache-2.0 in the single public build ([ADR-0002](../adr/0002-apache-2-license-no-feature-gating.md), P1). KrakenD EE, by contrast, will not start without a valid license file ([source](https://www.krakend.io/docs/enterprise/overview/license-file/)).
+5. A Not planned row always states its reason. At most 10 EE-only rows (target) may be Not planned, per SM-3 in [Vision and positioning](../vision/01-vision-and-positioning.md#success-metrics).
+6. Every Planned row is free under Apache-2.0 with the same feature set in every public build, including the FIPS build ([ADR-0002](../adr/0002-apache-2-license-no-feature-gating.md), P1). KrakenD EE, by contrast, will not start without a valid license file ([source](https://www.krakend.io/docs/enterprise/overview/license-file/)).
 
 *Figure 1: how each snapshot row receives its Ruralz status.*
 
@@ -71,6 +71,7 @@ flowchart TD
     B -- "yes" --> C["Take its Planned (Mx) tag and mechanism"]
     B -- "no" --> D{"Does the Roadmap allocate it?"}
     D -- "yes" --> E["Adopt the provisional milestone"]
+    D -- "yes, but an Open question of this matrix moves it" --> F
     D -- "no" --> F["Decide here and record an Open question"]
     C --> G{"Can a kind, Policy type or Filter carry it?"}
     E --> G
@@ -110,17 +111,17 @@ A **Policy** is configuration; a **Filter** (built-in Go) or a **Plugin** (WASM)
 
 ## CI/CD, GitOps and development tools
 
-KrakenD columns: ([source](https://www.krakend.io/features/)). Nine of the 17 rows are EE-only; Ruralz ships every tool as a free `ruralz` CLI command or through Ruralz Console, as the [CLI mapping](../reference/01-cli-and-api-surface.md#krakend-ee-tool-mapping) fixes. GitOps itself, which KrakenD lacks, is in [Beyond parity](#beyond-parity).
+KrakenD columns: ([source](https://www.krakend.io/features/)). Nine of the 17 rows are EE-only; every tool is planned as a free `ruralz` CLI command or Ruralz Console feature, Planned (M0) to Planned (M5) per row, as the [CLI mapping](../reference/01-cli-and-api-surface.md#krakend-ee-tool-mapping) fixes. GitOps itself, which KrakenD lacks, is in [Beyond parity](#beyond-parity).
 
 | Feature | KrakenD CE | KrakenD EE | Ruralz status | Ruralz mechanism | Notes/ADR |
 |---|---|---|---|---|---|
 | KrakenD Designer | Yes | Yes | Planned (M2) | Ruralz Console Bundle editor over `Route`, `Upstream` and `Policy` files with live diagnostics and Git write-back | The Designer is stateless ([source](https://www.krakend.io/features/)); [Ruralz Console](../architecture/04-control-plane-and-gitops.md#ruralz-console) |
 | Audit configuration | Yes | Yes | Planned (M2) | `ruralz bundle audit` reports findings such as a `Route` without an auth Policy or broad `Plugin` Capabilities | Runs on the rendered Bundle |
-| Syntax validation and linting | Yes | Yes | Planned (M1) | `ruralz bundle validate` checks every kind against the published JSON Schema with source-mapped `RZ-CFG` diagnostics | KrakenD lints JSON only ([source](https://www.krakend.io/docs/configuration/supported-formats/)); [ADR-0003](../adr/0003-configuration-format.md) |
+| Syntax validation and linting | Yes | Yes | Planned (M1) | `ruralz bundle validate` checks every kind, from `Gateway` to `Cluster`, against the published JSON Schema with source-mapped `RZ-CFG` diagnostics | KrakenD lints JSON only ([source](https://www.krakend.io/docs/configuration/supported-formats/)); [ADR-0003](../adr/0003-configuration-format.md) |
 | Flexible configuration | Yes | Yes | Planned (M1) | `overlays/<env>/` strategic merge and `${VAR}` substitution, selected by `Environment` `spec.overlay` and `spec.variables` | No template language; import reads a rendered KrakenD file ([source](https://www.krakend.io/docs/configuration/flexible-config/)) |
 | Extended flexible configuration | No | Yes | Planned (M1) | Multi-file Bundle union in lexical order plus one overlay per render, with `Environment` variables | Replaces `$ref` and settings files ([source](https://www.krakend.io/docs/enterprise/configuration/flexible-config/)) |
-| Multi-format configuration | Yes | Yes | Planned (M1) | YAML 1.2 and JSON through one loader for every kind, yielding one Revision digest | Partial parity: TOML, HCL and properties files are rejected ([source](https://www.krakend.io/docs/configuration/supported-formats/)); ADR-0003 |
-| Hot-reload in development | Yes | Yes | Planned (M1) | `ruralz dev run` watches a Bundle; the Node swaps its compiled `Route` snapshot atomically (Hot Reload) | KrakenD restarts the process and advises against it in production ([source](https://www.krakend.io/docs/developer/hot-reload/)) |
+| Multi-format configuration | Yes | Yes | Planned (M1) | YAML 1.2 and JSON through one loader for every kind, from `Gateway` to `Cluster`, yielding one Revision digest | Partial parity: TOML, HCL and properties files are rejected ([source](https://www.krakend.io/docs/configuration/supported-formats/)); ADR-0003 |
+| Hot-reload in development | Yes | Yes | Planned (M1) | `ruralz dev run` watches a Bundle; the Node activates each change by an atomic swap of the active Revision's compiled snapshot (Hot Reload) | KrakenD restarts the process and advises against it in production ([source](https://www.krakend.io/docs/developer/hot-reload/)) |
 | IDE integration | Yes | Yes | Planned (M0) | Published JSON Schema, draft 2020-12 authoring view, for all ten kinds from `Gateway` to `Cluster` | Existing YAML language servers apply; ADR-0003 |
 | Plugin builder | Yes | Yes | Planned (M2) | `ruralz plugin build` compiles a `Plugin` to WASM for Plugin ABI v1 | KrakenD plugins must match its Go version ([source](https://www.krakend.io/docs/extending/http-server-plugins/)); [ADR-0005](../adr/0005-plugin-abi-v1.md) |
 | Plugin generator | No | Yes | Planned (M2) | `ruralz plugin init` scaffolds a `Plugin` project with a PDK | Rust and TinyGo PDKs first ([WASM plugin system](../architecture/05-wasm-plugin-system.md)) |
@@ -145,7 +146,7 @@ KrakenD columns: ([source](https://www.krakend.io/features/)). Ten of the 25 row
 | Automatic output encoding | Yes | Yes | Planned (M1) | A `Route` passes Upstream bytes through; `composition` merges emit JSON | Partial parity: XML, YAML and negotiated output per OQ-krakend-ee-parity-matrix-2 |
 | Faster JSON decoding (fastjson) | No | Yes | Planned (M5) | The JSON decoder behind `composition` merges, `transform.response` and `validation.json-schema` | A decoder choice, weighed in OQ-krakend-ee-parity-matrix-11 |
 | Flatmap | Yes | Yes | Planned (M1) | `transform.response` array operations | `config` per OQ-krakend-ee-parity-matrix-1 ([source](https://www.krakend.io/docs/backends/flatmap/)) |
-| Gzip compression | No | Yes | Planned (M5) | A built-in compression Filter registered as a new Policy type | Type per OQ-krakend-ee-parity-matrix-3 |
+| Gzip compression | No | Yes | Planned (M5) | A `Policy` of a built-in compression type, not yet in the registry, attached at `Gateway` or `Route` scope and run in `onResponse` | Type per OQ-krakend-ee-parity-matrix-3, a pack section 10 amendment |
 | Request body extractor | No | Yes | Planned (M1) | `transform.request` copies body fields into headers or the query string | New in EE 2.13 ([source](https://www.krakend.io/docs/enterprise/endpoints/request-body-extractor/)); OQ-krakend-ee-parity-matrix-1 |
 | Request manipulation using Go templates | No | Yes | Planned (M1) | `transform.request` builds the Upstream body with CEL | No Go templates ([source](https://www.krakend.io/docs/enterprise/backends/body-generator/)); OQ-krakend-ee-parity-matrix-1 |
 | Response manipulation using Go templates | No | Yes | Planned (M1) | `transform.response` builds the client body with CEL | ([source](https://www.krakend.io/docs/enterprise/backends/response-body-generator/)); OQ-krakend-ee-parity-matrix-1 |
@@ -161,8 +162,8 @@ KrakenD columns: ([source](https://www.krakend.io/features/)). Ten of the 25 row
 | Multistrategy error handling | Yes | Yes | Planned (M1) | Upstream statuses pass through; composition step `optional`; the `RZ-<AREA>-<NNN>` error format | KrakenD error detail options ([source](https://www.krakend.io/docs/backends/detailed-errors/)) |
 | Cache | Yes | Yes | Planned (M1) | `cache` Policy (Response Cache) in the State Store, partitioned by CEL `config.key` | Shared by all Nodes of a Cell; KrakenD's cache is in memory ([source](https://www.krakend.io/docs/backends/caching/)) |
 | Sequential proxy | Yes | Yes | Planned (M1) | `composition.mode: sequential`; later steps read earlier results through CEL `steps` | Results reach steps only through CEL |
-| Mocked data | Yes | Yes | Planned (M2) | A `plugin` Policy that short-circuits a request Phase with a static response | Built-in static responses per OQ-krakend-ee-parity-matrix-3 |
-| Workflows | No | Yes | Planned (M1) | `composition.mode: sequential` with per-step `when` for linear workflows | Dependency graphs per OQ-data-plane-3 ([source](https://www.krakend.io/docs/enterprise/endpoints/workflows/)) |
+| Mocked data | Yes | Yes | Planned (M2) | A `plugin` Policy that short-circuits a request Phase with a static response | Partial parity: KrakenD mocks are built in ([source](https://www.krakend.io/features/)), while Ruralz needs a user-written `Plugin`; built-in static responses per OQ-krakend-ee-parity-matrix-3 |
+| Workflows | No | Yes | Planned (M1) | `composition.mode: sequential` with per-step `when` for linear workflows | Partial parity: linear workflows only; dependency graphs of parallel and sequential stages need declared edges (OQ-data-plane-3) ([source](https://www.krakend.io/docs/enterprise/endpoints/workflows/)) |
 
 ## Security
 
@@ -171,7 +172,7 @@ KrakenD columns: ([source](https://www.krakend.io/features/)). Two of the 11 row
 | Feature | KrakenD CE | KrakenD EE | Ruralz status | Ruralz mechanism | Notes/ADR |
 |---|---|---|---|---|---|
 | FIPS-140-2 cryptography module | No | Yes | Planned (M5) | `GOFIPS140` build flavor of `ruralzd` with the same `Gateway` listeners and Policy types | Same features and license (P1); HTTP/3 off, per OQ-tech-stack-and-libraries-9 ([FIPS build](../engineering/01-tech-stack-and-libraries.md#fips-build)) |
-| Security Policies Engine | No | Yes | Planned (M2) | `authz.cel`, Planned (M1); `authz.opa` and `authz.cedar` | Partial parity: request Phases only. Macros such as `geoIP()` map to CEL variables and `authz.geoip` ([source](https://www.krakend.io/docs/enterprise/security-policies/advanced-policy-macros/)); ADR-0011 |
+| Security Policies Engine | No | Yes | Planned (M2) | `authz.cel`, Planned (M1); `authz.opa` and `authz.cedar` | Partial parity: request Phases only. No CEL variable carries the client country, so `geoIP()` conditions become a separate `authz.geoip` Policy that stacks with `authz.cel` and cannot be combined in one expression; rules combining geography with other conditions need a `plugin` Policy, and a `source.country` variable is option (c) of OQ-security-and-identity-14. Header, cookie and query macros map to the `request` variable and string helpers to the strings and encoders extensions; `sha256`, `hmac`, `uuid()` and bitwise helpers need a `plugin` Policy ([source](https://www.krakend.io/docs/enterprise/security-policies/advanced-policy-macros/)); ADR-0011 |
 | TLS for HTTPS and HTTP/2 | Yes | Yes | Planned (M1) | `Gateway` `listeners[].tls` with `minVersion` and `certificates` chosen by SNI; HTTP/2 by ALPN | [ADR-0009](../adr/0009-http-stack-net-http-quic-go.md) |
 | Zero-trust parameter forwarding | Yes | Yes | Planned (M1) | Upstream-scoped `headers` Policies; `auth.api-key` and `auth.basic` strip their credential | Partial parity: KrakenD forwards no client headers by default ([source](https://www.krakend.io/schema/v2.13/krakend.json)); allowlist per OQ-krakend-ee-parity-matrix-5 |
 | Restrict connections by host | Yes | Yes | Planned (M1) | `Gateway` listener `hostnames` and `Route` `match.hosts` | An unmatched host reaches no Route |
@@ -189,15 +190,15 @@ KrakenD columns: ([source](https://www.krakend.io/features/)). Seven of the 10 r
 | Feature | KrakenD CE | KrakenD EE | Ruralz status | Ruralz mechanism | Notes/ADR |
 |---|---|---|---|---|---|
 | Noop proxy | Yes | Yes | Planned (M1) | A `Route` with `upstreams` streams bodies unchanged | Pass-through is the default |
-| Traffic shadowing/mirroring | Yes | Yes | Planned (M2) | `Route` mirroring to a second `Upstream` | Declaration per OQ-traffic-management-and-resilience-12 |
+| Traffic shadowing/mirroring | Yes | Yes | Planned (M2) | `Route` mirroring to a second `Upstream` | Declaration per OQ-traffic-management-and-resilience-12, which must keep mirrored legs within `limits.maxBufferedBytes` and the in-flight units, dropping them with a counter when those are exhausted ([Bounded resources](../architecture/03-data-plane.md#bounded-resources)) |
 | JWT claim-based routing | Yes | Yes | Planned (M1) | `composition.mode: conditional` with step `when` over `auth.claims` after `auth.jwt` | The header match stays claim-free |
-| Catchall (fallback upstream) | No | Yes | Planned (M1) | A lowest-ranked `Route` whose only criterion is `match.when: "true"` | Ranked by Data plane precedence |
+| Catchall (fallback upstream) | No | Yes | Planned (M1) | A lowest-ranked `Route` whose only criterion is `match.when: "true"` | Ranked by [Data plane precedence](../architecture/03-data-plane.md#precedence): rank 5 counts `when`, so it ties with any other Route that has no host, no path and one constraint, and `metadata.name` byte order decides; keep it the only such Route or name it to sort last |
 | Header and query string based dynamic routing | No | Yes | Planned (M1) | `Route` `match.headers`, `match.when` over `request.query`, or `conditional` composition | CEL `match.when` sees no body |
 | Conditional routing | No | Yes | Planned (M1) | `composition.mode: conditional` with CEL step `when` | ADR-0011; KrakenD skips legs by condition ([source](https://www.krakend.io/docs/enterprise/backends/conditional/)) |
 | Wildcard routes | No | Yes | Planned (M1) | `Route` `match.path` with `prefix`, `template` or `regex` | Wildcard hosts per OQ-data-plane-2 |
 | URL rewrite | No | Yes | Planned (M1) | Composition step `path` or `pathExpression` | Plain `upstreams` rewrites per OQ-traffic-management-and-resilience-13 |
 | Virtual hosts | No | Yes | Planned (M1) | `Route` `match.hosts` with listener `hostnames` | ([source](https://www.krakend.io/docs/enterprise/service-settings/virtual-hosts/)) |
-| Configurable client redirects | No | Yes | Planned (M2) | Upstream 3xx responses pass through; Route-issued redirects use a `plugin` Policy | Built-in fields per OQ-traffic-management-and-resilience-13 |
+| Configurable client redirects | No | Yes | Planned (M2) | Upstream 3xx responses pass through; Route-issued redirects use a `plugin` Policy | Partial parity: Route-issued redirects need a user-written `Plugin` until built-in fields land per OQ-traffic-management-and-resilience-13 (blocking M2) |
 
 ## Authentication and authorization
 
@@ -206,21 +207,21 @@ KrakenD columns: ([source](https://www.krakend.io/features/)). Seven of the 12 r
 | Feature | KrakenD CE | KrakenD EE | Ruralz status | Ruralz mechanism | Notes/ADR |
 |---|---|---|---|---|---|
 | JWT, OpenID Connect, OAuth2 | Yes | Yes | Planned (M1) | `auth.jwt` with `issuers[]` (`issuer`, `jwksUrl`, `audiences`); `Consumer` `jwt` and `oauthClients` bindings | RS256, PS256, ES256 and EdDSA; imported HS256 is fidelity `manual` |
-| JWT token signing | Yes | Yes | Planned (M2) | A built-in signing Policy type; keys never sit in `plugin` `config` | Type per OQ-security-and-identity-11 ([source](https://www.krakend.io/docs/authorization/jwt-signing/)) |
+| JWT token signing | Yes | Yes | Planned (M2) | A `Policy` of a built-in signing type, not yet in the registry, attached to a `Route`, with keys only through `secretRef`, never in `plugin` `config` | Type per OQ-security-and-identity-11, option (b), a pack section 10 amendment ([source](https://www.krakend.io/docs/authorization/jwt-signing/)) |
 | Client credentials | Yes | Yes | Planned (M1) | `auth.upstream-oauth2` (`tokenUrl`, `clientId`, `clientSecret`, `scopes`) on an `Upstream` | ([source](https://www.krakend.io/docs/authorization/client-credentials/)) |
 | Basic authentication | No | Yes | Planned (M1) | `auth.basic` binding a `Consumer` | Credential storage per OQ-security-and-identity-2 |
 | API keys | No | Yes | Planned (M1) | `auth.api-key` (`header`) matched by hash against `Consumer` `credentials.apiKeys` | KrakenD keeps keys inline, plain or hashed ([source](https://www.krakend.io/docs/enterprise/authentication/api-keys/)) |
-| Token revocation bloom filter | Yes | Yes | Planned (M2) | A signed revocation list that `auth.*` Policies check on every Node | KrakenD's filter does not synchronize ([source](https://www.krakend.io/docs/authorization/revoking-tokens/)); OQ-security-and-identity-4 |
-| Revoke Server | No | Yes | Planned (M2) | Ruralz Control revocation API feeding that list, enforced by `auth.jwt` | File-mode delivery per OQ-security-and-identity-4 |
+| Token revocation bloom filter | Yes | Yes | Planned (M2) | A signed revocation list that `auth.*` Policies check on every Node | KrakenD's filter does not synchronize ([source](https://www.krakend.io/docs/authorization/revoking-tokens/)); the list is capped at 100,000 entries per Cluster (target) ([Revocation](../architecture/08-security-and-identity.md#revocation)); OQ-security-and-identity-4 |
+| Revoke Server | No | Yes | Planned (M2) | Ruralz Control revocation API feeding that list, enforced by `auth.jwt` | File-mode delivery and the REST path, which the API surface does not list yet, per OQ-security-and-identity-4 |
 | Multiple identity providers per endpoint | No | Yes | Planned (M1) | Several `issuers[]` entries in one `auth.jwt` Policy | JWT or API key on one Route: distinct slots with complementary `when` |
 | mTLS | Yes | Yes | Planned (M1) | `auth.mtls` for clients; `Upstream.spec.tls` `clientCertificate` toward Upstreams | `auth.mtls` fields per OQ-security-and-identity-3 |
-| NTLM authentication | No | Yes | Not planned | No `Policy` type; an `Upstream` uses `auth.upstream-oauth2` or mTLS instead | NTLM authenticates a TCP connection, breaking pooling, and needs non-FIPS MD4 and HMAC-MD5 ([source](https://www.krakend.io/docs/enterprise/authentication/ntlm/)) |
+| NTLM authentication | No | Yes | Not planned | No `Policy` type; an `Upstream` uses `auth.upstream-oauth2` or mTLS instead | KrakenD EE offers NTLM to Microsoft servers ([source](https://www.krakend.io/docs/enterprise/authentication/ntlm/)); NTLM authenticates a TCP connection, breaking pooling, and needs non-FIPS MD4 and HMAC-MD5 ([Security and identity](../architecture/08-security-and-identity.md#krakend-authentication-parity)) |
 | Google GCP authentication | No | Yes | Planned (M2) | JWT-bearer grant in `auth.upstream-oauth2` | Fields per OQ-security-and-identity-12 ([source](https://www.krakend.io/docs/enterprise/authentication/gcloud/)) |
 | AWS SigV4 authentication | No | Yes | Planned (M2) | `auth.upstream-sigv4` on an `Upstream`, signing at the transport on every attempt | Signer per OQ-tech-stack-and-libraries-17 ([source](https://www.krakend.io/docs/enterprise/authentication/aws-sigv4/)) |
 
 ## AI gateway
 
-KrakenD columns: ([source](https://www.krakend.io/features/)). All 11 rows are EE-only; KrakenD added the AI Gateway in EE 2.10 ([source](https://www.krakend.io/blog/krakend-ee-2.10-release-notes/)) and the `ai/llm` namespace in EE 2.11 ([source](https://www.krakend.io/blog/krakend-ee-2.11-release-notes/)). In Ruralz every row is free and Planned (M3) under [AI/LLM gateway](../architecture/06-ai-llm-gateway.md) and [ADR-0014](../adr/0014-ai-api-surface.md): LLM providers are Upstreams governed by the same Policies, Consumers and State Store (P8).
+KrakenD columns: ([source](https://www.krakend.io/features/)). All 11 rows are EE-only; KrakenD added the AI Gateway in EE 2.10 ([source](https://www.krakend.io/blog/krakend-ee-2.10-release-notes/)) and extended it in EE 2.11 ([source](https://www.krakend.io/blog/krakend-ee-2.11-release-notes/)); the research records the `ai/llm` namespace under both releases. In Ruralz every row is free and Planned (M3) under [AI/LLM gateway](../architecture/06-ai-llm-gateway.md) and [ADR-0014](../adr/0014-ai-api-surface.md): LLM providers are Upstreams governed by the same Policies, Consumers and State Store (P8).
 
 | Feature | KrakenD CE | KrakenD EE | Ruralz status | Ruralz mechanism | Notes/ADR |
 |---|---|---|---|---|---|
@@ -229,7 +230,7 @@ KrakenD columns: ([source](https://www.krakend.io/features/)). All 11 rows are E
 | AI Budget Control | No | Yes | Planned (M3) | `ai.token-budget` against `Consumer` `quotas` with `unit: tokens` | Reserves, then settles on provider-reported usage; KrakenD charges a body or header weight ([source](https://www.krakend.io/docs/enterprise/ai-gateway/budget-control/)) |
 | AI Governance | No | Yes | Planned (M3) | `AIProvider` `pricing` with `ruralz ai cost`; `gen_ai` telemetry per `AIModel` | The snapshot does not detail this row ([source](https://www.krakend.io/docs/ai-gateway/)) |
 | Unified LLM interface and prompt templates | No | Yes | Planned (M3) | `ai.surface: openai` façade; prompts shaped by `transform.request` or a `plugin` Policy | KrakenD uses Go templates ([source](https://www.krakend.io/docs/enterprise/ai-gateway/unified-llm-interface/)); OQ-krakend-ee-parity-matrix-1 |
-| LLM routing, multi-routing, and aggregation | No | Yes | Planned (M3) | `AIModel` `strategy` (`weighted`, `latency`, `cost`, `fallback`) and `candidates[].when`; Provider Fallback | Aggregation per OQ-krakend-ee-parity-matrix-7; KrakenD routes through conditional legs ([source](https://www.krakend.io/docs/enterprise/ai-gateway/llm-routing/)) |
+| LLM routing, multi-routing, and aggregation | No | Yes | Planned (M3) | `AIModel` `strategy` (`weighted`, `latency`, `cost`, `fallback`) and `candidates[].when`; Provider Fallback | Partial parity: aggregation is buffered only, with no streamed merge, under proposed option (a) of OQ-krakend-ee-parity-matrix-7; KrakenD routes through conditional legs ([source](https://www.krakend.io/docs/enterprise/ai-gateway/llm-routing/)) |
 | OpenAI integration | No | Yes | Planned (M3) | `AIProvider` `dialect: openai` | ([source](https://www.krakend.io/docs/enterprise/ai-gateway/openai/)) |
 | Google Gemini integration | No | Yes | Planned (M3) | `AIProvider` `dialect: gemini` | Native passthrough keeps the Gemini path model segment |
 | Mistral integration | No | Yes | Planned (M3) | `AIProvider` `dialect: mistral` | Façade translation |
@@ -238,36 +239,36 @@ KrakenD columns: ([source](https://www.krakend.io/features/)). All 11 rows are E
 
 ## Services connectivity
 
-KrakenD columns: ([source](https://www.krakend.io/features/)). Eleven of the 26 rows are EE-only, all Planned. Ruralz carries protocols natively through `Route` matching and `Upstream.spec.protocol` (P7, [Multi-protocol](../architecture/07-multi-protocol.md)); the seven Not planned rows are cloud queues and functions with no researched Go library, which OQ-multi-protocol-14 option (a) keeps out of M0 to M5.
+KrakenD columns: ([source](https://www.krakend.io/features/)). Eleven of the 26 rows are EE-only, all Planned. Ruralz carries protocols natively through `Route` matching and `Upstream.spec.protocol` (P7, [Multi-protocol](../architecture/07-multi-protocol.md)); of the seven Not planned rows, six are brokers and cloud queues under OQ-multi-protocol-14, whose current option (a) this matrix adopts, and Lambda falls under OQ-krakend-ee-parity-matrix-10.
 
 | Feature | KrakenD CE | KrakenD EE | Ruralz status | Ruralz mechanism | Notes/ADR |
 |---|---|---|---|---|---|
-| MCP Gateway | Yes | Yes | Planned (M3) | `Route` to MCP servers on `http` Upstreams with auth Policies and `authz.cel` tool allow lists | Per-session affinity per OQ-ai-llm-gateway-10 ([MCP stance](../architecture/06-ai-llm-gateway.md#mcp-and-a2a-stance)) |
+| MCP Gateway | Yes | Yes | Planned (M3) | `Route` to MCP servers on `http` Upstreams with auth Policies and `authz.cel` tool allow lists | Per-client affinity through `ring-hash` on `consumer.name`; per-session affinity per OQ-ai-llm-gateway-10 ([MCP stance](../architecture/06-ai-llm-gateway.md#mcp-and-a2a-stance)) |
 | MCP Server | No | Yes | Planned (M3) | MCP tools generated from existing `Route` resources | Surface per OQ-ai-llm-gateway-10 ([source](https://www.krakend.io/docs/enterprise/ai-gateway/mcp-server/)) |
 | Protocol translation | Yes | Yes | Planned (M3) | REST `Route` to `grpc` (transcoding) or `graphql` Upstreams; HTTP publish to `kafka`, `nats` or `mqtt` Upstreams, Planned (M4) | Descriptors per OQ-multi-protocol-1 |
 | Streaming and Server-Sent Events (SSE) | No | Yes | Planned (M3) | SSE responses stream through `onChunk`, where Policies such as `ai.guardrail` act per event | KrakenD SSE is proxy-only ([source](https://www.krakend.io/docs/enterprise/endpoints/streaming/)) |
 | gRPC Server | No | Yes | Planned (M3) | `Route` `match.grpc` serving gRPC, gRPC-Web and Connect | ([source](https://www.krakend.io/docs/enterprise/grpc/server/)) |
 | gRPC Client | No | Yes | Planned (M3) | `Upstream` `protocol: grpc` | ([source](https://www.krakend.io/docs/enterprise/backends/grpc/)) |
-| Static web server | No | Yes | Planned (M5) | A built-in static-content Filter behind a `Route`, registered as a new Policy type | Plugins get no filesystem access; type per OQ-krakend-ee-parity-matrix-3 |
+| Static web server | No | Yes | Planned (M5) | A `Policy` of a built-in static-content type, not yet in the registry, on a `Route`, short-circuiting a request Phase | Plugins get no filesystem access; type per OQ-krakend-ee-parity-matrix-3, a pack section 10 amendment |
 | Service discovery | Yes | Yes | Planned (M1) | `Upstream` `discovery` `dns`; `kubernetes` EndpointSlices, Planned (M2) | Informers avoid DNS TTL lag |
 | GraphQL | Yes | Yes | Planned (M3) | `Upstream` `protocol: graphql`, `Route` `match.graphql`, federation versions 1 and 2 | KrakenD CE adapts REST to GraphQL ([source](https://www.krakend.io/docs/backends/graphql/)); [ADR-0012](../adr/0012-graphql-engine-graphql-go-tools.md) |
 | Load balancing | Yes | Yes | Planned (M1) | `Upstream` `loadBalancing.algorithm`: `round-robin`, `least-request`, `ring-hash` or `random` | With active and passive health checks |
 | Async agents | Yes | Yes | Planned (M4) | Topic ingress through `Route` `match.topic` from `kafka`, `nats` or `mqtt` Upstreams | Partial parity: no AMQP source ([source](https://www.krakend.io/docs/async/amqp/)); OQ-configuration-model-11 |
 | Kafka async agents | No | Yes | Planned (M4) | `Route` `match.topic` consuming through a `kafka` `Upstream` | [ADR-0013](../adr/0013-messaging-client-libraries.md); ingress per OQ-multi-protocol-10 |
 | Lambda functions | Yes | Yes | Not planned | No `lambda` value in `Upstream.spec.protocol` | No researched invocation path; OQ-krakend-ee-parity-matrix-10 ([source](https://www.krakend.io/docs/backends/lambda/)) |
-| SOAP integration | No | Yes | Planned (M5) | `transform.request` and `transform.response` build and read XML envelopes for an `http` `Upstream` | ([source](https://www.krakend.io/docs/enterprise/backends/soap/)); OQ-krakend-ee-parity-matrix-1 |
-| WebSockets multiplexer | No | Yes | Planned (M3) | `Upstream` `protocol: websocket` with one shared connection per Route and Endpoint | Envelope per OQ-multi-protocol-6 ([source](https://www.krakend.io/docs/enterprise/websockets/)) |
-| Direct WebSockets | No | Yes | Planned (M3) | `Upgrade: websocket` on a `Route` to a `websocket` `Upstream`; `onChunk` per message | Session memory of 96 KiB or less (target) |
+| SOAP integration | No | Yes | Planned (M5) | `transform.request` builds XML envelopes with CEL string functions for an `http` `Upstream`; `transform.response` reads them once an XML decoder exists | Partial parity: CEL can build the XML request, but reading an XML response needs an XML decoder for `response.body`, which the Configuration model lacks (OQ-krakend-ee-parity-matrix-1); meanwhile a `plugin` Policy ([source](https://www.krakend.io/docs/enterprise/backends/soap/)) |
+| WebSockets multiplexer | No | Yes | Planned (M3) | `Upstream` `protocol: websocket` with one shared connection per Route and Endpoint per Node | Envelope per OQ-multi-protocol-6; the shared reader never pauses, so an overflowing session closes alone with 1013 ([Multiplexing](../architecture/07-multi-protocol.md#multiplexing)) ([source](https://www.krakend.io/docs/enterprise/websockets/)) |
+| Direct WebSockets | No | Yes | Planned (M3) | `Upgrade: websocket` on a `Route` to a `websocket` `Upstream`; `onChunk` per message | An idle direct session costs about 96 KiB (hypothesis) ([Multi-protocol](../architecture/07-multi-protocol.md#backpressure-and-per-message-policies)); the tag differs from the 96 KiB or less (target) of [Performance budgets](../architecture/12-performance-budgets-and-benchmarking.md#memory-budget) (OQ-krakend-ee-parity-matrix-14) |
 | Intermediary web proxy | No | Yes | Planned (M5) | `Upstream` egress through an HTTP proxy | Field per OQ-krakend-ee-parity-matrix-6; KrakenD's `proxy_address` is EE ([source](https://www.krakend.io/docs/backends/http-client/)) |
-| AMQP/RabbitMQ consumer | Yes | Yes | Not planned | No `amqp` value in `Upstream.spec.protocol` | No researched library; OQ-multi-protocol-14 ([source](https://www.krakend.io/docs/backends/amqp-consumer/)) |
-| AMQP/RabbitMQ producer | Yes | Yes | Not planned | No `amqp` value in `Upstream.spec.protocol`; `kafka`, `nats` or `mqtt` Upstreams instead | No researched library; OQ-multi-protocol-14 |
-| Azure Service Bus topic and subscription | Yes | Yes | Not planned | No matching value in `Upstream.spec.protocol` | No researched library; OQ-multi-protocol-14 |
-| Google Cloud Pub/Sub | Yes | Yes | Not planned | No matching value in `Upstream.spec.protocol` | No researched library; OQ-multi-protocol-14 ([source](https://www.krakend.io/docs/backends/pubsub/)) |
+| AMQP/RabbitMQ consumer | Yes | Yes | Not planned | No `amqp` value in `Upstream.spec.protocol` | No researched library; OQ-multi-protocol-14 option (a), adopted here ([source](https://www.krakend.io/docs/backends/amqp-consumer/)) |
+| AMQP/RabbitMQ producer | Yes | Yes | Not planned | No `amqp` value in `Upstream.spec.protocol`; `kafka`, `nats` or `mqtt` Upstreams instead | No researched library; OQ-multi-protocol-14 option (a), adopted here |
+| Azure Service Bus topic and subscription | Yes | Yes | Not planned | No matching value in `Upstream.spec.protocol` | No researched library; Multi-protocol's [Other brokers (AMQP, cloud queues)](../architecture/07-multi-protocol.md#native-wire-proxy-stance) row; OQ-multi-protocol-14 does not name it yet |
+| Google Cloud Pub/Sub | Yes | Yes | Not planned | No matching value in `Upstream.spec.protocol` | No researched library; OQ-multi-protocol-14 option (a), adopted here ([source](https://www.krakend.io/docs/backends/pubsub/)) |
 | NATS | Yes | Yes | Planned (M4) | `Upstream` `protocol: nats` (JetStream) with `messaging.topic` | ADR-0013 |
 | Apache Kafka | Yes | Yes | Planned (M4) | `Upstream` `protocol: kafka` with `messaging.topic` and CEL `messaging.key` | No Kafka wire proxying ([stance](../architecture/07-multi-protocol.md#native-wire-proxy-stance)) |
 | Advanced Apache Kafka | No | Yes | Planned (M4) | The same `kafka` `Upstream` with further `messaging` options | Options per OQ-multi-protocol-8, credentials per OQ-multi-protocol-9 |
-| Amazon SNS | Yes | Yes | Not planned | No matching value in `Upstream.spec.protocol` | No researched library; OQ-multi-protocol-14 |
-| Amazon SQS | Yes | Yes | Not planned | No matching value in `Upstream.spec.protocol` | No researched library; OQ-multi-protocol-14 |
+| Amazon SNS | Yes | Yes | Not planned | No matching value in `Upstream.spec.protocol` | No researched library; Multi-protocol's [Other brokers (AMQP, cloud queues)](../architecture/07-multi-protocol.md#native-wire-proxy-stance) row; OQ-multi-protocol-14 does not name it yet |
+| Amazon SQS | Yes | Yes | Not planned | No matching value in `Upstream.spec.protocol` | No researched library; OQ-multi-protocol-14 option (a), adopted here |
 
 ## Traffic management
 
@@ -275,18 +276,18 @@ KrakenD columns: ([source](https://www.krakend.io/features/)). Six of the 13 row
 
 | Feature | KrakenD CE | KrakenD EE | Ruralz status | Ruralz mechanism | Notes/ADR |
 |---|---|---|---|---|---|
-| Concurrent calls | Yes | Yes | Planned (M4) | Request hedging on the `Upstream` leg for idempotent, replayable requests | Fields per OQ-traffic-management-and-resilience-5 |
+| Concurrent calls | Yes | Yes | Planned (M4) | Request hedging on the `Upstream` leg for idempotent, replayable requests | Partial parity: KrakenD sends N requests at once ([source](https://www.krakend.io/schema/v2.13/krakend.json)); a hedge waits a delay, needs an idempotent method and a replayable body, and spends retry budget ([Hedging](../architecture/09-traffic-management-and-resilience.md#hedging)). OQ-traffic-management-and-resilience-5's current option is no hedging; its delay field blocks M4 |
 | Circuit breaker | Yes | Yes | Planned (M1) | `Upstream` `circuitBreaker` (`consecutiveFailures`, `openDuration`, `maxConnections`) | An open breaker fails fast with an `RZ-UP` code |
 | Customizable HTTP circuit breaker | No | Yes | Planned (M1) | `circuitBreaker.failureWhen` CEL over `response.status` and `error` | KrakenD `max_errors` imports as `consecutiveFailures` ([source](https://www.krakend.io/docs/backends/circuit-breaker/)) |
 | Spike arrest and burst | Yes | Yes | Planned (M1) | `ratelimit` `limits[]` with a short `window` | Burst field per OQ-traffic-management-and-resilience-1 |
-| Bot detector | Yes | Yes | Planned (M1) | `authz.cel` `config.rule` matching `request.headers["user-agent"]` | ([source](https://www.krakend.io/docs/throttling/botdetector/)) |
+| Bot detector | Yes | Yes | Planned (M1) | `authz.cel` `config.rule` matching `request.headers["user-agent"]` | Partial parity: one CEL rule evaluated per request; a long regular expression list can exceed the RZ-CFG-015 static cost bound of 10,000 units (target), so large lists use a `plugin` Policy ([source](https://www.krakend.io/docs/throttling/botdetector/)) |
 | Granular timeouts | Yes | Yes | Planned (M1) | `Route` `timeout`, `Upstream` `timeout`, `retries.perTryTimeout` and Policy `stateStoreTimeout` | Deadlines nest per request, leg and attempt |
-| Service rate limit | No | Yes | Planned (M1) | Gateway-scoped `ratelimit` with a constant `config.key` | ([source](https://www.krakend.io/docs/enterprise/service-settings/service-rate-limit/)) |
+| Service rate limit | No | Yes | Planned (M1) | Gateway-scoped `ratelimit` with a constant `config.key` | Partial parity: a constant key is one State Store hot key: a limit above about 25,000 requests per second (hypothesis) needs a declared per-Node ceiling or `localOnly` mode, both pending OQ-traffic-management-and-resilience-1 (blocking M1) ([Distributed rate limits](../architecture/11-scalability-and-distributed-state.md#distributed-rate-limits)) ([source](https://www.krakend.io/docs/enterprise/service-settings/service-rate-limit/)) |
 | Tiered rate limit | No | Yes | Planned (M1) | One `ratelimit` per Tier guarded by `Policy.spec.when` on `consumer.tier` | One Policy per Tier, per OQ-traffic-management-and-resilience-4 ([source](https://www.krakend.io/docs/enterprise/service-settings/tiered-rate-limit/)) |
 | Endpoint rate limit | Yes | Yes | Planned (M1) | Route-scoped `ratelimit` with `limits[]` (`requests`, `window`) | Local bucket plus GCRA; ADR-0008 |
 | Stateful rate limit (Redis backed) | No | Yes | Planned (M1) | `ratelimit` with GCRA on the `redis` State Store driver | Fails open by default; KrakenD blocks on Redis failure by default ([source](https://www.krakend.io/docs/enterprise/throttling/global-rate-limit/)) |
-| Proxy rate limit | Yes | Yes | Planned (M1) | `ratelimit` with a constant key on each `Route` reaching the `Upstream`; `circuitBreaker.maxPendingRequests` | Partial parity: Upstream-scoped `ratelimit` per OQ-krakend-ee-parity-matrix-4 |
-| IP filtering | No | Yes | Planned (M1) | `authz.ip` by CIDR on `source.ip` | Trusted proxies per OQ-security-and-identity-6 |
+| Proxy rate limit | Yes | Yes | Planned (M1) | `ratelimit` with a constant key on each `Route` reaching the `Upstream`; `circuitBreaker.maxPendingRequests` | Partial parity: Upstream-scoped `ratelimit` per OQ-krakend-ee-parity-matrix-4. A constant key is one State Store hot key: a limit above about 25,000 requests per second (hypothesis) needs a declared per-Node ceiling or `localOnly` mode, both pending OQ-traffic-management-and-resilience-1 (blocking M1) |
+| IP filtering | No | Yes | Planned (M1) | `authz.ip` by CIDR on `source.ip` | Trusted proxies per OQ-security-and-identity-6; until it closes, deployments behind a load balancer SHOULD NOT rely on `source.ip` ([IP filtering and GeoIP](../architecture/08-security-and-identity.md#ip-filtering-and-geoip)) |
 | MaxMind GeoIP | No | Yes | Planned (M2) | `authz.geoip` by ISO 3166 country from a local MaxMind-format database | Reader per OQ-tech-stack-and-libraries-24 |
 
 ## Observability
@@ -295,7 +296,7 @@ KrakenD columns: ([source](https://www.krakend.io/features/)). Five of the 25 ro
 
 | Feature | KrakenD CE | KrakenD EE | Ruralz status | Ruralz mechanism | Notes/ADR |
 |---|---|---|---|---|---|
-| OpenTelemetry | Yes | Yes | Planned (M1) | `Gateway` `telemetry.otlp.endpoint` and `traceSampling`; spans `ruralz.filter.<name>` and `ruralz.upstream.<name>` | ADR-0010 |
+| OpenTelemetry | Yes | Yes | Planned (M1) | `Gateway` `telemetry.otlp.endpoint` and `traceSampling`; spans `ruralz.filter.<name>` and `ruralz.upstream.<name>` | ADR-0010; TLS for OTLP export is blocking at M1 on OQ-observability-2 |
 | OpenTelemetry SaaS authentication | No | Yes | Planned (M5) | Authenticated OTLP export from `Gateway` `telemetry.otlp` | Settings per OQ-observability-2 ([source](https://www.krakend.io/docs/enterprise/telemetry/opentelemetry-security/)) |
 | Granular OpenTelemetry | Yes | Yes | Planned (M1) | Spans per Filter and per upstream leg; `Gateway` `traceSampling` | Partial parity: per-Route sampling per OQ-observability-5 ([source](https://www.krakend.io/docs/telemetry/opentelemetry-by-endpoint/)) |
 | Exporter override for OpenTelemetry | No | Yes | Planned (M5) | Per-`Route` export selection within `Gateway` `telemetry` | OQ-krakend-ee-parity-matrix-9 |
@@ -307,8 +308,8 @@ KrakenD columns: ([source](https://www.krakend.io/features/)). Five of the 25 ro
 | Jaeger tracing | Yes | Yes | Planned (M1) | OTLP traces from `Gateway` `telemetry.otlp` | Delivered through the Collector |
 | AWS X-Ray metrics and traces | Yes | Yes | Planned (M1) | OTLP traces and metrics from `Gateway` `telemetry.otlp` | Delivered through the Collector |
 | Zipkin tracing | Yes | Yes | Planned (M1) | OTLP traces from `Gateway` `telemetry.otlp` | Delivered through the Collector |
-| Elastic Logstash | Yes | Yes | Planned (M1) | JSON access log records on stdout, or OTLP logs | ([source](https://www.krakend.io/docs/logging/logstash/)) |
-| ELK Stack dashboard | Yes | Yes | Not planned | Access log records keyed by `Route`, `Consumer` and `Upstream` feed any log store | Ruralz ships Grafana dashboards only; a Kibana view is community work |
+| Elastic Logstash | Yes | Yes | Planned (M1) | Access log records written in `onLog` and selected by `Gateway` `telemetry.accessLog` (destination per OQ-observability-3), or OTLP logs from `Gateway` `telemetry.otlp` through the Collector | ([source](https://www.krakend.io/docs/logging/logstash/)) |
+| ELK Stack dashboard | Yes | Yes | Not planned | Access log records keyed by `Route`, `Consumer` and `Upstream` feed any log store | Ruralz plans Grafana dashboards only, Planned (M1); a Kibana view is community work |
 | Prometheus | Yes | Yes | Planned (M1) | `/metrics` on admin port 9901 with `Route` and `Upstream` labels | Exporter per OQ-tech-stack-and-libraries-16 |
 | InfluxDB metrics | Yes | Yes | Planned (M1) | OTLP metrics from `Gateway` `telemetry.otlp` | KrakenD pushes natively; Ruralz does not ([source](https://www.krakend.io/docs/telemetry/influxdb-native/)) |
 | Grafana dashboard | Yes | Yes | Planned (M1) | Grafana dashboard pack over `Route`, `Upstream` and `Policy` metrics | Plugin panels Planned (M2); AI panels Planned (M3) |
@@ -328,7 +329,7 @@ KrakenD columns: ([source](https://www.krakend.io/features/)). All three rows ar
 | Feature | KrakenD CE | KrakenD EE | Ruralz status | Ruralz mechanism | Notes/ADR |
 |---|---|---|---|---|---|
 | API monetization (Moesif integration) | No | Yes | Planned (M5) | Monetization hooks over usage records per `Consumer`, `Route` and `AIModel` | No vendor-specific code; surface per OQ-krakend-ee-parity-matrix-8 ([source](https://www.krakend.io/docs/enterprise/governance/moesif/)) |
-| API governance | No | Yes | Planned (M1) | `quota` against `Consumer` `quotas` (`unit: requests`), `ratelimit`, and Gateway Policies with `overridable: false` | Moved from the Roadmap's M5 allocation (OQ-krakend-ee-parity-matrix-12) ([source](https://www.krakend.io/docs/enterprise/governance/quota/)) |
+| API governance | No | Yes | Planned (M1) | `quota` against `Consumer` `quotas` (`unit: requests`), `ratelimit`, and Gateway Policies with `overridable: false` | Partial parity: `quota` has no weighted costs, which KrakenD's `weight_key` and `weight_strategy` give (OQ-traffic-management-and-resilience-10, current option (c)). Moved from the Roadmap's M5 allocation (OQ-krakend-ee-parity-matrix-12) ([source](https://www.krakend.io/docs/enterprise/governance/quota/)) |
 | Token quota enforcement and quota management | No | Yes | Planned (M3) | `ai.token-budget` against `Consumer` `quotas` with `unit: tokens`; request quotas through `quota` | Calendar windows per OQ-traffic-management-and-resilience-10 |
 
 ## Beyond parity
@@ -340,17 +341,17 @@ KrakenD has no WASM plugin runtime, no control plane, no console beyond the stat
 | Sandboxed WASM Plugins in any Phase, including `onChunk` | Go plugins, EE-only from CE 3.0, and Lua ([source](https://www.krakend.io/blog/dropping-plugins-support-on-community/)) | `Plugin` on Plugin ABI v1 with deny-by-default Capabilities, wazero ([ADR-0004](../adr/0004-wasm-runtime-wazero.md), ADR-0005) | Planned (M2); proxy-wasm adapter Planned (M4) |
 | Signed Plugin and Revision artifacts | No row | Digest pinning and Sigstore signatures ([ADR-0017](../adr/0017-artifact-signing.md)) | Planned (M2) |
 | Control plane with canary Rollouts and automatic rollback | No control plane; configuration changes need a restart ([source](https://www.krakend.io/docs/deploying/)) | Ruralz Control, `Cluster` `spec.rollout`, Control Stream with ACK and NACK ([ADR-0007](../adr/0007-control-stream-protocol.md)) | Planned (M2) |
-| Web console with RBAC, audit log and Drift detection | Stateless Designer only | Ruralz Console over the REST API | Planned (M2); SSO and SAML Planned (M5) |
-| Hot Reload in production | Restart required ([source](https://www.krakend.io/docs/developer/hot-reload/)) | Atomic snapshot swap of the compiled `Route` set; Last-Known-Good boot | Planned (M1) |
+| Web console with RBAC, audit log and Drift detection | Stateless Designer only ([source](https://www.krakend.io/features/)) | Ruralz Console over the REST API | Planned (M2); SSO and SAML Planned (M5) |
+| Hot Reload in production | Restart required ([source](https://www.krakend.io/docs/developer/hot-reload/)) | Atomic swap of the active Revision's compiled snapshot; Last-Known-Good boot | Planned (M1) |
 | Effective Filter Chain diff | No row | `ruralz bundle diff` with an effective layer per `Route` and Phase | Planned (M1) |
 | Kubernetes CRDs and Helm chart | No row | CRDs `ruralz.io/v1alpha1` mirroring every kind ([ADR-0016](../adr/0016-kubernetes-helm-and-crds.md), proposed) | Planned (M2) |
 | OPA and Cedar authorization | CEL-only Security Policies Engine ([source](https://www.krakend.io/docs/enterprise/security-policies/)) | `authz.opa`, `authz.cedar` (ADR-0011) | Planned (M2) |
-| Fail-open distributed Rate Limits with bounded over-admission | Redis-backed limits are EE-only and block when Redis fails by default ([source](https://www.krakend.io/docs/enterprise/throttling/global-rate-limit/)) | `ratelimit` with a per-Node ceiling (ADR-0008) | Planned (M1) |
+| Fail-open distributed Rate Limits with bounded over-admission | Redis-backed limits are EE-only and block when Redis fails by default ([source](https://www.krakend.io/docs/enterprise/throttling/global-rate-limit/)) | `ratelimit` with a per-Node ceiling (ADR-0008): over-admission at most N × per-Node ceiling per window (target), with the ceiling field pending OQ-traffic-management-and-resilience-1 | Planned (M1) |
 | GraphQL federation versions 1 and 2 and subscriptions | No federation ([source](https://www.krakend.io/features/)) | `graphql` Upstreams (ADR-0012) | Planned (M3) |
 | HTTP/3 | Not offered ([source](https://www.krakend.io/features/)) | `Gateway` `listeners[].http3` on quic-go (ADR-0009) | Planned (M3); off in FIPS builds |
 | Token Budgets with atomic reservation and provider-reported settlement | Quotas charge a declared weight ([source](https://www.krakend.io/docs/enterprise/ai-gateway/budget-control/)) | `ai.token-budget` (ADR-0014) | Planned (M3) |
 | Semantic Cache and Prompt Cache passthrough | No row | `ai.semantic-cache`; `AIModel` `cache.prompt` with native passthrough | Planned (M3) |
-| Embedded MQTT broker and topic ingress for Kafka, NATS and MQTT | Async agents for AMQP and, in EE, Kafka | `Route` `match.topic`; `mqtt` Upstreams ([ADR-0013](../adr/0013-messaging-client-libraries.md)) | Planned (M4) |
+| Embedded MQTT broker and topic ingress for Kafka, NATS and MQTT | Async agents for AMQP ([source](https://www.krakend.io/docs/async/amqp/)) and, in EE, Kafka ([source](https://www.krakend.io/blog/krakend-ee-2.13-release-notes/)) | `Route` `match.topic`; `mqtt` Upstreams ([ADR-0013](../adr/0013-messaging-client-libraries.md)) | Planned (M4) |
 | Multi-region Cells with regional Ruralz Control | KrakenD instances share only a configuration file ([source](https://www.krakend.io/docs/deploying/clustering/)) | One `Cluster` and State Store per Region | Planned (M4) |
 | A2A-aware gateway | No row | Agent cards and per-skill authorization on `Route` resources | Planned (M5) |
 
@@ -367,13 +368,33 @@ Thirteen rows are Not planned; three are EE-only, within the SM-3 limit of 10 or
 | Custom Go plugins | Request and response transformation | No | No Go `plugin` or shared-object loading (vision non-goal 3), avoiding the toolchain coupling KrakenD cited ([source](https://www.krakend.io/blog/dropping-plugins-support-on-community/)) | A WASM `Plugin`, Planned (M2) |
 | NTLM authentication | Authentication and authorization | Yes | Connection-bound authentication breaks pooling; MD4 and HMAC-MD5 fail the FIPS build | `auth.upstream-oauth2` or mTLS toward the `Upstream` |
 | Lambda functions | Services connectivity | No | No researched invocation library or protocol value | An `http` `Upstream` to an HTTP-reachable function (OQ-krakend-ee-parity-matrix-10) |
-| AMQP/RabbitMQ consumer, AMQP/RabbitMQ producer, Azure Service Bus topic and subscription, Google Cloud Pub/Sub, Amazon SNS, Amazon SQS | Services connectivity | No | No researched Go library; OQ-multi-protocol-14 option (a) keeps them out of M0 to M5 | `kafka`, `nats` or `mqtt` Upstreams, or a bridge |
-| ELK Stack dashboard | Observability | No | Ruralz ships Grafana dashboards only | JSON access logs in any log store |
+| AMQP/RabbitMQ consumer, AMQP/RabbitMQ producer, Azure Service Bus topic and subscription, Google Cloud Pub/Sub, Amazon SNS, Amazon SQS | Services connectivity | No | No researched Go library; six brokers and cloud queues under OQ-multi-protocol-14, whose current option (a) this matrix adopts; the question names only AMQP, Pub/Sub and SQS, so Multi-protocol is asked to add Azure Service Bus and SNS | `kafka`, `nats` or `mqtt` Upstreams, or a bridge |
+| ELK Stack dashboard | Observability | No | Ruralz plans Grafana dashboards only, Planned (M1); a Kibana view is community work | JSON access logs in any log store |
 | New Relic (native SDK) | Observability | Yes | OpenTelemetry-first; no vendor SDKs ([ADR-0010](../adr/0010-telemetry-opentelemetry-first.md)) | OTLP through the Collector |
 
 ### Partial parity
 
-Eight planned rows are narrower than the KrakenD feature; each Notes/ADR cell says how. Multi-format configuration accepts YAML and JSON only. Automatic output encoding keeps Upstream bytes or emits JSON. Martian (DSL) maps its operations but not its language. Zero-trust parameter forwarding forwards headers unless a Policy removes them. Async agents have no AMQP source. Proxy rate limit attaches to Routes, not Upstreams. Granular OpenTelemetry samples per Node, not per Route. Security Policies Engine rules run in request Phases; response-context rules use a `plugin` Policy. The transformation rows depend on the unauthored `transform.*` `config` schema (OQ-krakend-ee-parity-matrix-1).
+Seventeen planned rows are narrower than the KrakenD feature; each Notes/ADR cell starts with "Partial parity:" and says how. The transformation rows also depend on the unauthored `transform.*` `config` schema (OQ-krakend-ee-parity-matrix-1).
+
+| Feature | What is missing | Open question |
+|---|---|---|
+| Multi-format configuration | TOML, HCL and properties files; YAML and JSON only | None; ADR-0003 |
+| Automatic output encoding | XML, YAML and negotiated output; Upstream bytes pass through or merges emit JSON | OQ-krakend-ee-parity-matrix-2 |
+| Martian (DSL) | The DSL itself; its operations map to `headers` and `transform.*` | OQ-krakend-ee-parity-matrix-1 |
+| Mocked data | A built-in mock; static responses need a user-written `Plugin` | OQ-krakend-ee-parity-matrix-3 |
+| Workflows | Dependency graphs; only linear `sequential` workflows | OQ-data-plane-3 |
+| Zero-trust parameter forwarding | Deny-by-default forwarding; headers pass unless a Policy removes them | OQ-krakend-ee-parity-matrix-5 |
+| Security Policies Engine | Response-context rules and combined geography rules: `geoIP()` becomes a separate `authz.geoip` Policy, since no CEL variable carries the country | OQ-security-and-identity-14 |
+| Configurable client redirects | Built-in Route-issued redirects; a `plugin` Policy meanwhile | OQ-traffic-management-and-resilience-13 |
+| LLM routing, multi-routing, and aggregation | Streamed aggregation; buffered only under the proposed option | OQ-krakend-ee-parity-matrix-7 |
+| Async agents | An AMQP source | OQ-multi-protocol-14 |
+| SOAP integration | Reading XML responses: CEL sees bodies only as JSON | OQ-krakend-ee-parity-matrix-1 |
+| Concurrent calls | Simultaneous duplicate requests; delayed hedging for idempotent, replayable requests only | OQ-traffic-management-and-resilience-5 |
+| Bot detector | Large pattern lists within the CEL cost bound; a `plugin` Policy for them | None |
+| Service rate limit | A safe hot constant key above about 25,000 requests per second (hypothesis) | OQ-traffic-management-and-resilience-1 |
+| Proxy rate limit | Upstream scope, and the same hot-key limit as Service rate limit | OQ-krakend-ee-parity-matrix-4; OQ-traffic-management-and-resilience-1 |
+| Granular OpenTelemetry | Per-Route sampling; sampling is per Node | OQ-observability-5 |
+| API governance | Weighted quota costs such as KrakenD's `weight_key` | OQ-traffic-management-and-resilience-10 |
 
 ### Non-goals of this matrix
 
@@ -383,7 +404,7 @@ Eight planned rows are narrower than the KrakenD feature; each Notes/ADR cell sa
 
 ### Enterprise support and services
 
-The KrakenD enterprise page lists support and services beside the EE features ([source](https://www.krakend.io/enterprise/)). Ruralz sells only two things, commercial support and Ruralz Cloud, and neither delivers a private feature ([Vision and positioning](../vision/01-vision-and-positioning.md#managed-cloud)). Ruralz Cloud has not launched and carries no milestone (OQ-vision-and-positioning-3). The counterparts below state the intended scope of each channel; contract terms are Revington's and outside these documents.
+The KrakenD enterprise page lists support and services beside the EE features ([source](https://www.krakend.io/enterprise/)). Revington earns revenue from only two channels, commercial support and Ruralz Cloud, and neither delivers a private feature ([Vision and positioning](../vision/01-vision-and-positioning.md#managed-cloud)). Ruralz Cloud has not launched and carries no milestone (OQ-vision-and-positioning-3). The counterparts below state the intended scope of each channel; contract terms are Revington's and outside these documents.
 
 | KrakenD EE offering | Ruralz counterpart | Channel | Rule |
 |---|---|---|---|
@@ -397,7 +418,7 @@ The KrakenD enterprise page lists support and services beside the EE features ([
 | Architecture reviews | Design reviews against these documents | Commercial support | Recommendations use public features only |
 | Performance optimization | Tuning against Performance Budget scenarios | Commercial support | Benchmarks are reproducible from the repository (P10) |
 | Onboarding assistance | Migration help with `ruralz bundle import krakend` | Commercial support | The importer is free, Planned (M2) |
-| Security fixes and updates as standard | Public advisories and patched releases for every user | Project, free | Fixes ship in public releases; contracts buy help, not private patches |
+| Security fixes and updates as standard | Public advisories and patched releases for every user | Project, free | Fixes go into public releases; contracts buy help, not private patches |
 | Pricing not linked to API count or throughput | Ruralz Cloud pricing for operations, availability, Regions and support | Ruralz Cloud | Unit per OQ-vision-and-positioning-1; never per feature |
 
 ## Summary counts
@@ -444,15 +465,17 @@ flowchart LR
 
 Decisions these counts record:
 
-- **OQ-roadmap-and-milestones-1:** option (a) for every provisional allocation (the M1 transformation, access log and workflow rows and the M5 long-tail rows), except API governance, moved from M5 to M1 under option (b) because `quota` and `Consumer` `quotas` are Planned (M1). The Roadmap's M1 figure becomes 24 and its M5 figure 12 (OQ-krakend-ee-parity-matrix-12).
-- **OQ-vision-and-positioning-5:** the vision's EE summary table agrees with these rows; this matrix governs row by row.
+- **OQ-roadmap-and-milestones-1:** option (a) for every provisional allocation (the M1 transformation, access log and workflow rows and the M5 long-tail rows), except API governance, moved from M5 to M1 under option (b) because `quota` and `Consumer` `quotas` are Planned (M1). The Roadmap's exit figures become M1 24 of 71, 34% (target); M2 36 of 71, 51% (target); M3 54 of 71, 76% (target); M4 56 of 71, 79% (target). M5 adds 12 rows instead of 13 and stays at 68 of 71, 96% (target) (OQ-krakend-ee-parity-matrix-12).
+- **OQ-vision-and-positioning-5:** option "defer to the parity matrix row by row". The vision's EE summary table differs on one row: it groups the OpenAPI server with Planned (M1) to Planned (M2) tools, while this matrix places it at Planned (M5), with serving per OQ-vision-and-positioning-11; the vision table should move the server to its own row (OQ-krakend-ee-parity-matrix-13).
+- **OQ-multi-protocol-14:** this matrix adopts its current option (a), Not planned in M0 to M5, for AMQP, Google Cloud Pub/Sub and Amazon SQS, and asks Multi-protocol to extend the question to Azure Service Bus and Amazon SNS, which its Other brokers row covers but the question does not name. Lambda stays under OQ-krakend-ee-parity-matrix-10.
+- **Contingent M1 share:** six M1 EE-only rows wait on blocking Open questions: the five `transform.*` rows on OQ-krakend-ee-parity-matrix-1 and Basic authentication on OQ-security-and-identity-2. If neither closes before the M1 exit, M1 reaches 18 of 71, 25% (target), instead of 34% (target).
 - **SM-2:** 100% of EE-only rows carry a milestone or a reasoned Not planned (target). **SM-3:** 3 EE-only rows are Not planned, within the limit of 10 (target).
 
 ## Open questions
 
 | ID | Question | Options | Owner | Blocking? |
 |---|---|---|---|---|
-| OQ-krakend-ee-parity-matrix-1 | Which document authors the `transform.request` and `transform.response` `config` schema, and does it cover body extraction to headers, CEL-built bodies, CEL queries, regular expression replacement, flatmap array operations and SOAP envelopes? | (a) Data plane authors one CEL-based schema covering all six (proposed); (b) field moves only, the rest `plugin` Policies, turning several rows Not planned; (c) more registered types | data-plane | Yes, for the M1 transformation rows |
+| OQ-krakend-ee-parity-matrix-1 | Which document authors the `transform.request` and `transform.response` `config` schema, and does it cover body extraction to headers, CEL-built bodies, CEL queries, regular expression replacement, flatmap array operations and SOAP envelopes? Sub-question: CEL sees `request.body` and `response.body` only as JSON, and only the strings and encoders extensions are enabled, so how is an XML response body read for SOAP integration? | (a) Data plane authors one CEL-based schema covering the first five and XML request building (proposed); (b) field moves only, the rest `plugin` Policies, turning several rows Not planned; (c) more registered types; (d) for SOAP, an XML decoder that exposes XML bodies to CEL as `dyn`, a Configuration model change, else SOAP responses stay with a `plugin` Policy | data-plane | Yes, for the M1 transformation rows; the XML sub-question blocks the M5 SOAP row |
 | OQ-krakend-ee-parity-matrix-2 | Should Ruralz re-encode responses to XML, YAML or a negotiated format, as KrakenD's automatic output encoding does? | (a) No: pass-through and JSON merges (current); (b) an encoding option in `transform.response`; (c) a `plugin` Policy | data-plane | No |
 | OQ-krakend-ee-parity-matrix-3 | Which built-in types, each a pack section 10 amendment, serve gzip compression, the static web server, response JSON Schema validation and static (mocked) responses? | (a) A compression type, a static-content type, and `validation.json-schema` in `onResponse` (proposed); (b) `plugin` Policies only, marking the static web server Not planned; (c) a mix decided per row | configuration-model | Yes, for the M5 transformation and connectivity rows |
 | OQ-krakend-ee-parity-matrix-4 | Should `ratelimit` be allowed at Upstream scope for KrakenD's proxy rate limit? | (a) No: a Route-scoped `ratelimit` with a constant key plus `circuitBreaker.maxPendingRequests` (current); (b) Upstream scope, amending pack section 10 | traffic-management-and-resilience | No |
@@ -460,7 +483,9 @@ Decisions these counts record:
 | OQ-krakend-ee-parity-matrix-6 | Where does an `Upstream` declare an egress HTTP proxy for the intermediary web proxy row? | (a) A new `Upstream.spec` field; (b) a Node process setting; (c) Not planned | configuration-model | Yes, for the M5 intermediary web proxy row |
 | OQ-krakend-ee-parity-matrix-7 | Can one Route aggregate completions from several `AIModel` resources through `composition` over `ai` Upstreams, and how do streamed completions merge? | (a) Buffered aggregation only, no streaming (proposed); (b) Not planned; (c) a `plugin` Policy | ai-llm-gateway | No |
 | OQ-krakend-ee-parity-matrix-8 | What surface do monetization hooks take without a Revington-operated service (P1)? | (a) Usage records in access logs and OTLP metrics per `Consumer`, `Route` and `AIModel` (proposed); (b) a signed usage export from Ruralz Control; (c) a `plugin` Policy at `onLog` | observability | Yes, for the M5 API monetization row |
-| OQ-krakend-ee-parity-matrix-9 | Do OQ-observability-2, -3 and -5 cover OTLP authentication, exporter override and custom access logs, and do per-`Upstream` log records need fields for advanced logging? | (a) Resolve those three, then add per-leg access log fields (proposed); (b) Collector-side routing only, marking exporter override Not planned; (c) a `plugin` Policy at `onLog` | observability | Yes, for the M5 observability rows |
+| OQ-krakend-ee-parity-matrix-9 | OQ-observability-2 covers OTLP authentication and OQ-observability-3 custom access logs; OQ-observability-5 asks only about per-Route sampling, so does exporter override extend it to per-Route exporter selection or need a new Observability Open question, and do per-`Upstream` log records need fields for advanced logging? | (a) Resolve -2 and -3, extend -5 to per-Route exporter selection, then add per-leg access log fields (proposed); (b) Collector-side routing only, marking exporter override Not planned; (c) a `plugin` Policy at `onLog` | observability | Yes, for the M5 observability rows |
 | OQ-krakend-ee-parity-matrix-10 | Should AWS Lambda invocation get a mechanism or stay Not planned? | (a) Not planned (current); (b) an `http` `Upstream` with `auth.upstream-sigv4` after research on the invocation API; (c) a `lambda` protocol value by ADR | multi-protocol | No |
 | OQ-krakend-ee-parity-matrix-11 | Is faster JSON decoding a parity row or a Performance Budget, and which decoder would it need? | (a) Keep the row, met when the transform and merge budgets pass (proposed); (b) Not planned, with the budget as the commitment; (c) a tech stack catalog row for a faster decoder | performance-budgets-and-benchmarking | No |
-| OQ-krakend-ee-parity-matrix-12 | Should the Roadmap adopt this matrix's allocation, with API governance at M1 and 12 EE-only rows at M5? | (a) Adopt and update the M1 and M5 parity figures (proposed); (b) keep API governance at M5 for a broader governance feature | roadmap-and-milestones | No |
+| OQ-krakend-ee-parity-matrix-12 | Should the Roadmap adopt this matrix's allocation, with API governance at M1 and 12 EE-only rows at M5? | (a) Adopt, updating the M1 to M4 cumulative parity figures (24, 36, 54 and 56 of 71) and the M5 row list (proposed); (b) keep API governance at M5 for a broader governance feature | roadmap-and-milestones | No |
+| OQ-krakend-ee-parity-matrix-13 | Should the vision's KrakenD EE summary table move the OpenAPI server out of its Planned (M1) to Planned (M2) tools row? | (a) A separate Planned (M5) row, serving per OQ-vision-and-positioning-11 (proposed); (b) keep the grouping and defer to this matrix | vision-and-positioning | No |
+| OQ-krakend-ee-parity-matrix-14 | Is the idle WebSocket session cost a hypothesis of about 96 KiB, as Multi-protocol states, or a ceiling of 96 KiB or less (target), as Performance budgets and the Roadmap M3 exit state? | (a) Multi-protocol adopts the Performance budgets ceiling as its target (proposed); (b) Performance budgets and the Roadmap tag it (hypothesis) until the M3 measurement | multi-protocol | No |

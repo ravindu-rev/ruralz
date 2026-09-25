@@ -1,84 +1,48 @@
 {
-  "lens": "L2",
+  "lens": "L2 foundation-auditor",
   "verdict": "revise",
-  "score": 7,
+  "score": 8,
   "blocking": [
     {
       "id": "L2-1",
-      "section": "Security (Security Policies Engine row, Notes/ADR)",
-      "issue": "The row maps KrakenD policy macros such as geoIP() to 'CEL variables'. The Configuration model defines no geo variable. Its CEL variables are request, source (ip, port, tlsVersion, clientCertSubject), route, consumer, auth, response, error, upstream, attempt, steps, ai, duration, now and self. A `source.country` variable exists only as option (c) of the open OQ-security-and-identity-14. The row relies on a variable that is not defined, which the style guide section 5 and the pack section 3 forbid.",
-      "evidence": "Line 174: \"Partial parity: request Phases only. Macros such as `geoIP()` map to CEL variables and `authz.geoip`\". docs/architecture/02-configuration-model.md, Variables table: \"`source` | `ip`, `port`, `tlsVersion`, `clientCertSubject`\". docs/architecture/08-security-and-identity.md OQ-security-and-identity-14: \"Should `authz.geoip` enrich upstream requests? | (a) No; (b) Header; (c) `source.country`\".",
-      "fix": "Replace the sentence with: \"Partial parity: request Phases only. No CEL variable carries the client country, so `geoIP()` conditions become a separate `authz.geoip` Policy that stacks with `authz.cel` and cannot be combined in one expression; a `source.country` variable is option (c) of OQ-security-and-identity-14.\" Add the same point to the Security Policies Engine sentence of the Partial parity paragraph."
-    },
-    {
-      "id": "L2-2",
-      "section": "Request and response transformation (Gzip compression row); Authentication and authorization (JWT token signing row)",
-      "issue": "Acceptance criterion 7 requires every Ruralz mechanism to name a kind, Policy or Filter defined in the Configuration model. These two mechanisms name only a type that does not exist yet, and neither names the `Policy` kind that rule 4 of Method and snapshot says must carry a missing field. The JWT row does not name any kind as the carrier. It mentions `plugin` only to exclude it.",
-      "evidence": "Line 148: \"Gzip compression | No | Yes | Planned (M5) | A built-in compression Filter registered as a new Policy type\". Line 209: \"JWT token signing | Yes | Yes | Planned (M2) | A built-in signing Policy type; keys never sit in `plugin` `config`\". Line 62 (rule 4): \"Where a row needs a field that does not exist yet, the mechanism names the kind that would carry it and the Notes/ADR cell names the Open question.\"",
-      "fix": "Gzip compression mechanism: \"A `Policy` of a built-in compression type, not yet in the registry, running in `onResponse` on a `Route` (type per OQ-krakend-ee-parity-matrix-3, a pack section 10 amendment)\". JWT token signing mechanism: \"A `Policy` of a built-in signing type, not yet in the registry, attached to a `Route`, with keys only through `secretRef`, never in `plugin` `config` (type per OQ-security-and-identity-11, option (b), a pack section 10 amendment)\"."
-    },
-    {
-      "id": "L2-3",
-      "section": "Summary counts (Decisions these counts record, OQ-vision-and-positioning-5 bullet)",
-      "issue": "The matrix says the vision's EE summary table agrees with its rows. It does not. The vision groups the OpenAPI server with the importer and exporter under 'Planned (M1) to Planned (M2)', while this matrix places the OpenAPI server at Planned (M5). The false agreement hides a real conflict in a dependency, which is blocking.",
-      "evidence": "Line 448: \"**OQ-vision-and-positioning-5:** the vision's EE summary table agrees with these rows; this matrix governs row by row.\" Line 130: \"OpenAPI server | No | Yes | Planned (M5)\". docs/vision/01-vision-and-positioning.md line 103: \"OpenAPI importer, exporter and server; Postman and DOT generators; dump to disk; ... | Planned (M1) to Planned (M2)\".",
-      "fix": "Reword the bullet: \"**OQ-vision-and-positioning-5:** option 'defer to the parity matrix row by row'. The vision's EE summary table differs on one row: it groups the OpenAPI server with Planned (M1) to Planned (M2) tools, while this matrix places it at Planned (M5), with serving per OQ-vision-and-positioning-11; the vision table should move the server to its own row.\" Add that change to option (a) of OQ-krakend-ee-parity-matrix-12, or add a new Open question owned by vision-and-positioning."
-    },
-    {
-      "id": "L2-4",
-      "section": "Summary counts (cumulative EE-only table and OQ-roadmap-and-milestones-1 bullet); Open questions (OQ-krakend-ee-parity-matrix-12)",
-      "issue": "The document says that moving API governance changes only the Roadmap's M1 and M5 figures. Moving one row from M5 to M1 also raises the cumulative parity figure at every exit from M1 to M4. The matrix's cumulative column therefore contradicts four Roadmap exit statements that it does not mention, and OQ-krakend-ee-parity-matrix-12 option (a) asks for too small an update.",
-      "evidence": "Line 447: \"The Roadmap's M1 figure becomes 24 and its M5 figure 12 (OQ-krakend-ee-parity-matrix-12).\" Lines 426 to 429: \"24 | 34% (target)\", \"36 | 51% (target)\", \"54 | 76% (target)\", \"56 | 79% (target)\". Roadmap lines 114, 146, 175, 201: \"23 of 71, 32% (target)\", \"35 of 71, 49% (target)\", \"53 of 71, 75% (target)\", \"55 of 71, 77% (target)\". Line 466 option (a): \"Adopt and update the M1 and M5 parity figures\".",
-      "fix": "Change the bullet to: \"The Roadmap's exit figures become M1 24 of 71, 34% (target); M2 36 of 71, 51% (target); M3 54 of 71, 76% (target); M4 56 of 71, 79% (target). M5 adds 12 rows instead of 13 and stays at 68 of 71, 96% (target).\" Make option (a) of OQ-krakend-ee-parity-matrix-12 read \"Adopt, updating the M1 to M4 cumulative parity figures and the M5 row list\"."
-    },
-    {
-      "id": "L2-5",
-      "section": "Observability (Elastic Logstash row)",
-      "issue": "The mechanism says access log records go to stdout. Observability, the owning document, leaves the access log destination open (OQ-observability-3). Only process logs are defined as JSON lines on stdout. The Custom access log row of this same table also cites OQ-observability-3 for the destination, so the two rows contradict each other.",
-      "evidence": "Line 310: \"Elastic Logstash | Yes | Yes | Planned (M1) | JSON access log records on stdout, or OTLP logs\". Line 305: \"Format and destination per OQ-observability-3\". docs/architecture/10-observability.md line 335: \"Destination, format and sampling are OQ-observability-3.\"",
-      "fix": "Mechanism: \"Access log records written in `onLog` (destination per OQ-observability-3), or OTLP logs from `Gateway` `telemetry.otlp` through the Collector\". Keep the source link in Notes/ADR."
+      "section": "Authentication and authorization (JWT, OpenID Connect, OAuth2 row)",
+      "issue": "The mechanism names Consumer fields `jwt` and `oauthClients` as if they sat directly under `Consumer.spec`. The Legend says fields are written as `spec` paths, but the Configuration model has them only under `spec.credentials` (`credentials.jwt`, `credentials.oauthClients`). The API keys row of the same table correctly writes `credentials.apiKeys`. As written, the row names a field path that does not exist (pack section 3, style guide section 5).",
+      "evidence": "Line 209: \"`auth.jwt` with `issuers[]` (`issuer`, `jwksUrl`, `audiences`); `Consumer` `jwt` and `oauthClients` bindings\". Line 98 (Legend): \"fields as `spec` paths (`match.hosts`)\". Line 213: \"matched by hash against `Consumer` `credentials.apiKeys`\". docs/architecture/02-configuration-model.md, Consumer sketch: \"credentials: ... apiKeys: ... jwt: # map keyed by issuer ... oauthClients: [{clientId: acme-portal}]\". docs/architecture/08-security-and-identity.md line 162: \"`credentials.jwt` by issuer plus `subject` or `claims`\".",
+      "fix": "Change the mechanism to: \"`auth.jwt` with `issuers[]` (`issuer`, `jwksUrl`, `audiences`); `Consumer` `credentials.jwt` and `credentials.oauthClients` bindings\". The word count does not change."
     }
   ],
   "non_blocking": [
     {
-      "section": "Method and snapshot (rule 3 and Figure 1)",
-      "suggestion": "Rule 3 and Figure 1 say that a row the Roadmap allocates takes the provisional milestone. API governance does not: it moves from M5 to M1. Add an exception to rule 3, such as \"unless an Open question of this matrix moves it (OQ-krakend-ee-parity-matrix-12)\", and a matching edge in Figure 1."
+      "section": "Authentication and authorization (Multiple identity providers per endpoint row)",
+      "suggestion": "The note \"JWT or API key on one Route: distinct slots with complementary `when`\" states option (a) of the still-open OQ-configuration-model-13 as settled. The Configuration model says that all client authentication types share slot `auth`. Cite the question and the constraint from Security and identity, for example: \"distinct slots with complementary `when` (OQ-configuration-model-13, option (a) per Security and identity; the Route must exclude any Gateway slot-`auth` Policy)\"."
     },
     {
-      "section": "Scope and non-goals",
-      "suggestion": "The Roadmap's statement that the matrix wins on conflict is in its Scope and non-goals section, not in How parity is counted. Link to ../roadmap/01-roadmap-and-milestones.md#scope-and-non-goals."
+      "section": "Summary counts (Contingent M1 share bullet)",
+      "suggestion": "Roadmap M1 exit criterion 7 requires every Open question that blocks an M1 feature to be closed. It names OQ-security-and-identity-2 explicitly. The bullet should therefore say that the rows move out of M1 rather than that M1 exits with them open. The list of rows that depend on blocking questions is also incomplete. IP filtering depends on OQ-security-and-identity-6, which blocks for `source.ip` users. The ratelimit-based rows depend on the per-Node ceiling in OQ-traffic-management-and-resilience-1, which blocks M1. Either add these rows or say why they are excluded."
     },
     {
-      "section": "Services connectivity (Azure Service Bus and Amazon SNS rows); Gaps and non-goals",
-      "suggestion": "OQ-multi-protocol-14 names AMQP, Google Cloud Pub/Sub and Amazon SQS only. Either cite Multi-protocol's \"Other brokers (AMQP, cloud queues)\" row for Azure Service Bus and SNS, or ask the owner to widen OQ-multi-protocol-14 to all six rows."
+      "section": "CI/CD, GitOps and development tools (OpenAPI server row)",
+      "suggestion": "The linked CLI and API surface says \"KrakenD's OpenAPI server has no counterpart; publish `ruralz bundle export openapi` output until a serving design exists\". This matrix tags the row Planned (M5). The pack allows this (serving stays OQ-vision-and-positioning-11). Still, consider adding the CLI reference to option (a) of OQ-krakend-ee-parity-matrix-13, so that both downstream documents move together."
     },
     {
-      "section": "CI/CD, GitOps and development tools (Hot-reload row); Beyond parity (Hot Reload row)",
-      "suggestion": "Hot Reload swaps the Node's whole compiled snapshot of the active Revision (pack 8.2), not a 'compiled `Route` snapshot' or 'compiled `Route` set'. Reword both cells to: \"atomic swap of the active Revision's compiled snapshot\"."
+      "section": "Services connectivity (Async agents row) and Partial parity table",
+      "suggestion": "The row's Notes/ADR cites OQ-configuration-model-11 for the missing AMQP source, but the Partial parity table cites OQ-multi-protocol-14. Use the same Open question in both places. The AMQP gap is OQ-multi-protocol-14; ingress declaration is OQ-configuration-model-11 and OQ-multi-protocol-10."
     },
     {
-      "section": "Authentication and authorization (Revoke Server row)",
-      "suggestion": "The CLI and API surface REST table has no path for credential revocation: only /api/v1/nodes/{nodeId}/revoke and /api/v1/access exist. Add \"path pending OQ-security-and-identity-4\" to Notes/ADR so readers do not look for an existing endpoint."
-    },
-    {
-      "section": "Open questions (OQ-krakend-ee-parity-matrix-9)",
-      "suggestion": "OQ-observability-5 asks about per-Route sampling overrides, not exporter override. Say that exporter override needs a new Observability Open question, or reword it as \"extends OQ-observability-5 to per-Route exporter selection\"."
-    },
-    {
-      "section": "Services connectivity (Direct WebSockets row)",
-      "suggestion": "The dependencies disagree: the Roadmap M3 says \"96 KiB or less (target)\", while Multi-protocol says \"about 96 KiB (hypothesis)\" with no ceiling. Follow the owning document, Multi-protocol, as L1-1 asks, and record the Roadmap discrepancy."
+      "section": "Length",
+      "suggestion": "The verifier reports no length FAIL, but the body is close to the 9,500-word maximum. Keep the fixes word-neutral."
     }
   ],
   "ac_results": [
-    {"ac": "Method and snapshot states the source (krakend.io/features), the snapshot date 2026-09-23 and the edition KrakenD EE 2.13.", "pass": true, "note": "Lines 46 to 52 state all three; the required_terms check passes."},
-    {"ac": "Each of the ten category sections contains a table with columns Feature, KrakenD CE, KrakenD EE, Ruralz status, Ruralz mechanism and Notes/ADR.", "pass": true, "note": "All ten tables use the exact six-column header."},
-    {"ac": "Every feature row of docs/_meta/research/krakend-parity.md (153 rows at the snapshot) appears, for at least 120 rows in total.", "pass": true, "note": "A script found all 153 research rows verbatim, each in its research category; the only difference is that 'Authorization and authentication' is spelled 'Authentication and authorization', as the outline requires."},
-    {"ac": "No matrix table has a blank cell.", "pass": true, "note": "verify-docs reports no FAIL for no_blank_cells."},
-    {"ac": "KrakenD CE and KrakenD EE cells use only Yes, Partial, No or N/A, and Ruralz status cells use only Planned (M0) to Planned (M5) or Not planned.", "pass": true, "note": "Every CE and EE cell matches research Both = Yes/Yes and EE = No/Yes; the status values are valid."},
-    {"ac": "Every KrakenD EE-only feature is Planned (Mx) and free in Ruralz, or Not planned with a reason in Notes/ADR.", "pass": true, "note": "68 of the 71 EE-only rows are Planned and 3 are Not planned, each with a reason (Lua advanced helpers, NTLM, New Relic native SDK)."},
-    {"ac": "Every Ruralz mechanism names a kind, Policy or Filter defined in docs/architecture/02-configuration-model.md.", "pass": false, "note": "Fails for Gzip compression and JWT token signing, which name only unregistered types (L2-2). The Security Policies Engine note depends on a CEL variable that does not exist (L2-1)."},
-    {"ac": "Summary counts gives counts per category and per Ruralz status, and the counts sum to the total number of rows.", "pass": true, "note": "Rechecked by script: every category row and the Total row (1/81/19/21/6/12/13 = 153; 71 EE-only) match the tables. The cross-document figures in the decisions are wrong (L2-3, L2-4)."},
-    {"ac": "Gaps and non-goals maps the KrakenD EE support and services offerings to Ruralz Cloud and commercial support.", "pass": true, "note": "All 12 research offerings are mapped to a channel under Enterprise support and services."}
+    {"ac": "Method and snapshot states the source (krakend.io/features), the snapshot date 2026-09-23 and the edition KrakenD EE 2.13.", "pass": true, "note": "Lines 46 to 52 give all three, each with a source URL."},
+    {"ac": "Each of the ten category sections contains a table with columns Feature, KrakenD CE, KrakenD EE, Ruralz status, Ruralz mechanism and Notes/ADR.", "pass": true, "note": "All ten H2s have the six-column table header."},
+    {"ac": "Every feature row of docs/_meta/research/krakend-parity.md (153 rows at the snapshot) appears, for at least 120 rows in total.", "pass": true, "note": "153 rows. The verifier coverage check passes, and a script comparison found every research row with matching CE and EE cells (81 in both editions, 71 EE-only)."},
+    {"ac": "No matrix table has a blank cell.", "pass": true, "note": "The no_blank_cells machine check produced no FAIL."},
+    {"ac": "KrakenD CE and KrakenD EE cells use only Yes, Partial, No or N/A, and Ruralz status cells use only Planned (M0) to Planned (M5) or Not planned.", "pass": true, "note": "The cell_values_in checks produced no FAIL."},
+    {"ac": "Every KrakenD EE-only feature is Planned (Mx) and free in Ruralz, or Not planned with a reason in Notes/ADR.", "pass": true, "note": "68 EE-only rows are Planned (24 M1, 12 M2, 18 M3, 2 M4, 12 M5). The 3 Not planned rows (Lua advanced helpers, NTLM, New Relic native SDK) each give a reason."},
+    {"ac": "Every Ruralz mechanism names a kind, Policy or Filter defined in docs/architecture/02-configuration-model.md.", "pass": true, "note": "Every row names a defined kind or registered type. The earlier Gzip and JWT signing gaps are fixed with the `Policy` kind plus an Open question. The field path `Consumer` `jwt` on line 209 is imprecise (L2-1), but the kind is named."},
+    {"ac": "Summary counts gives counts per category and per Ruralz status, and the counts sum to the total number of rows.", "pass": true, "note": "Recomputed from the tables: 1/81/19/21/6/12/13 = 153. The EE-only rows by milestone are 24/12/18/2/12/3 = 71, and the cumulative figures match the rows."},
+    {"ac": "Gaps and non-goals maps the KrakenD EE support and services offerings to Ruralz Cloud and commercial support.", "pass": true, "note": "The Enterprise support and services table maps 12 offerings to commercial support, the free project or Ruralz Cloud."}
   ],
   "foundation_amendments": []
 }

@@ -1,137 +1,32 @@
 {
   "lens": "L3",
   "verdict": "revise",
-  "score": 7,
+  "score": 8,
   "blocking": [
     {
       "id": "L3-1",
-      "section": "Observability (Elastic Logstash row); Request and response transformation (Gzip compression row); Authentication and authorization (JWT token signing row); Summary",
-      "issue": "Acceptance criterion 7 fails. Several Ruralz mechanism cells name no kind, Policy type or Filter defined in the Configuration model. The Elastic Logstash cell names no kind or type. The Gzip compression and JWT token signing cells name only a hypothetical \"built-in ... Policy type\" that the registry does not contain. They also do not name the kind that would carry it, which the document's own Method rule 4 requires. The Summary therefore overclaims when it says every row names its carrier. An architect following these three rows into docs/architecture/02-configuration-model.md finds nothing to trace.",
-      "evidence": "Line 310: \"| Elastic Logstash | Yes | Yes | Planned (M1) | JSON access log records on stdout, or OTLP logs |\". Line 148: \"| Gzip compression | No | Yes | Planned (M5) | A built-in compression Filter registered as a new Policy type |\". Line 209: \"| JWT token signing | Yes | Yes | Planned (M2) | A built-in signing Policy type; keys never sit in `plugin` `config` |\". Line 30 (Summary): \"Each row names the kind, Policy type or Filter that carries it.\" Line 62 (rule 4): \"Where a row needs a field that does not exist yet, the mechanism names the kind that would carry it\".",
-      "fix": "Elastic Logstash: \"Access log records selected by `Gateway` `telemetry.accessLog`, written as JSON on stdout, or OTLP logs from `Gateway` `telemetry.otlp`\". Gzip compression: \"A `Policy` of a new built-in compression type (OQ-krakend-ee-parity-matrix-3), attached at `Gateway` or `Route` scope and run in `onResponse`\". JWT token signing: \"A `Policy` of a new built-in signing type attached to the `Route` (OQ-security-and-identity-11), with keys held as `secretRef` and never in `plugin` `config`\". Keep the Summary sentence only once every row meets it."
-    },
-    {
-      "id": "L3-2",
-      "section": "Request and response transformation (Mocked data, Workflows); Routing (Configurable client redirects); AI gateway (LLM routing, multi-routing, and aggregation); Services connectivity (SOAP integration); Traffic management (Concurrent calls); Gaps and non-goals (Partial parity)",
-      "issue": "The document labels only eight rows \"Partial parity\", and evaluators rely on that label because the status column alone reads as full parity. At least six more planned rows deliver less than the KrakenD feature, and their own Notes cells or dependency documents say so, but they carry no label and are missing from the Partial parity paragraph. Workflows covers linear workflows only, and dependency graphs are OQ-data-plane-3. Concurrent calls becomes delayed hedging, limited to idempotent requests with replayable bodies (Traffic management and resilience, Hedging). Mocked data, a built-in CE feature, needs a user-written WASM Plugin. Route-issued client redirects need a `plugin` Policy. The CEL `body` variable is JSON-only (Configuration model, Variables), so the SOAP mechanism cannot read an XML envelope. LLM aggregation is buffered only, under the proposed option of OQ-krakend-ee-parity-matrix-7. An evaluator who counts Partial parity rows to size migration risk gets the wrong number.",
-      "evidence": "Line 376: \"Eight planned rows are narrower than the KrakenD feature; each Notes/ADR cell says how.\" Line 165: \"`composition.mode: sequential` with per-step `when` for linear workflows | Dependency graphs per OQ-data-plane-3\". Line 278: \"Request hedging on the `Upstream` leg for idempotent, replayable requests\". Line 164: \"A `plugin` Policy that short-circuits a request Phase with a static response\". Line 200: \"Route-issued redirects use a `plugin` Policy\". Line 258: \"`transform.request` and `transform.response` build and read XML envelopes\", while the Configuration model defines `request.body` as \"(JSON as `dyn`, body Phases and composition only)\". Line 461: \"(a) Buffered aggregation only, no streaming (proposed)\".",
-      "fix": "Start each of these six Notes/ADR cells with \"Partial parity:\" followed by what is missing. Workflows: \"linear workflows only; dependency graphs per OQ-data-plane-3\". Concurrent calls: \"a delayed hedge, not N simultaneous calls; idempotent, replayable requests only\". Mocked data: \"static responses need a user-written `plugin` Policy until OQ-krakend-ee-parity-matrix-3\". Configurable client redirects: \"Route-issued redirects need a `plugin` Policy\". SOAP integration: \"CEL can build an XML request, but reading an XML response needs an XML decoder the Configuration model lacks\"; add XML body decoding as an explicit sub-question of OQ-krakend-ee-parity-matrix-1. LLM routing: \"aggregation buffered only, pending OQ-krakend-ee-parity-matrix-7\". Then change \"Eight planned rows\" to the new count (fourteen) and add one sentence per new row to the Partial parity paragraph."
-    },
-    {
-      "id": "L3-3",
-      "section": "Services connectivity (section intro and Lambda, Azure Service Bus, Amazon SNS rows); Gaps and non-goals (Not planned rows)",
-      "issue": "The matrix misrepresents the scope and status of the dependency Open question it relies on for most of its Not planned rows. In Multi-protocol, OQ-multi-protocol-14 asks only about AMQP, Google Cloud Pub/Sub and Amazon SQS. It is still open, with option (a) marked current, and it is marked \"Blocking: Yes, for the parity matrix\". The matrix says that question's option (a) keeps all seven rows out of M0 to M5, and presents that as settled. The seven include Lambda, which the matrix itself assigns to OQ-krakend-ee-parity-matrix-10, and Azure Service Bus and Amazon SNS, which OQ-multi-protocol-14 does not name. The \"Decisions these counts record\" list never records that this matrix adopts option (a). An evaluator therefore cannot tell whether these six Not planned rows are decided or still pending.",
-      "evidence": "Line 241: \"the seven Not planned rows are cloud queues and functions with no researched Go library, which OQ-multi-protocol-14 option (a) keeps out of M0 to M5.\" Line 370: \"No researched Go library; OQ-multi-protocol-14 option (a) keeps them out of M0 to M5\". docs/architecture/07-multi-protocol.md line 585: \"| OQ-multi-protocol-14 | Should AMQP, Google Cloud Pub/Sub or Amazon SQS join `Upstream.spec.protocol`? | (a) Not planned in M0 to M5 (current); (b) New values by ADR; (c) Plugins | multi-protocol | Yes, for the parity matrix |\".",
-      "fix": "Rewrite the intro sentence as: \"the seven Not planned rows have no researched Go library: six brokers and cloud queues under OQ-multi-protocol-14, whose current option (a) this matrix adopts, and Lambda under OQ-krakend-ee-parity-matrix-10.\" Add a bullet to \"Decisions these counts record\": \"OQ-multi-protocol-14: option (a) adopted for AMQP consumer and producer, Google Cloud Pub/Sub and Amazon SQS. Azure Service Bus and Amazon SNS follow the same reasoning; Multi-protocol should extend the question to name them.\" Make the same wording change in the Gaps and non-goals row."
-    },
-    {
-      "id": "L3-4",
-      "section": "Method and snapshot (rule 6)",
-      "issue": "The rule contradicts foundation pack section 1 and the matrix's own FIPS row. The pack defines the FIPS build as a separate build flavor published as separate artifacts, and says \"no enterprise build\" means no feature difference, not a single binary. \"The single public build\" tells evaluators there is only one build, which contradicts the Security section's `GOFIPS140` build flavor row.",
-      "evidence": "Line 64: \"Every Planned row is free under Apache-2.0 in the single public build ([ADR-0002](...), P1).\" Foundation pack section 1: \"FIPS build | A build flavor (`GOFIPS140`, Planned (M5)) with the same features and license as the default build, published as separate artifacts; \\\"no enterprise build\\\" means no feature difference, not a single binary\". Line 173: \"`GOFIPS140` build flavor of `ruralzd`\".",
-      "fix": "Replace the phrase with: \"Every Planned row is free under Apache-2.0 with the same feature set in every public build, including the FIPS build ([ADR-0002](../adr/0002-apache-2-license-no-feature-gating.md), P1).\""
+      "section": "CI/CD, GitOps and development tools (Hot-reload in development row); Request and response transformation (Data transformation row); Routing (URL rewrite row); Traffic management (Customizable HTTP circuit breaker row); Summary",
+      "issue": "Acceptance criterion 7 still fails for one row, so the earlier L3-1 is only partly resolved. The Elastic Logstash, Gzip compression and JWT token signing cells are fixed. The Hot-reload in development cell names only a CLI command and glossary terms (Bundle, Node, Revision), with no kind, Policy type or Filter. Three more cells name bare fields without the kind that owns them, which Method rule 4 asks for. The Summary still says every row names its carrier, and the previous fix made that sentence conditional on every row meeting it.",
+      "evidence": "Line 124: \"| Hot-reload in development | Yes | Yes | Planned (M1) | `ruralz dev run` watches a Bundle; the Node activates each change by an atomic swap of the active Revision's compiled snapshot (Hot Reload) |\". Line 144: \"Composition step fields `target`, `select`, `rename`, `group` and `collection`\". Line 199: \"Composition step `path` or `pathExpression`\". Line 281: \"`circuitBreaker.failureWhen` CEL over `response.status` and `error`\". Line 30: \"Each row names the kind, Policy type or Filter that carries it.\"",
+      "fix": "Hot-reload: \"`ruralz dev run` watches a Bundle of `Gateway`, `Route`, `Upstream` and `Policy` files; the Node activates each change by an atomic swap of the active Revision's compiled snapshot (Hot Reload)\". Data transformation: \"`Route` composition step fields `target`, `select`, `rename`, `group` and `collection`\". URL rewrite: \"`Route` composition step `path` or `pathExpression`\". Customizable HTTP circuit breaker: \"`Upstream` `circuitBreaker.failureWhen` CEL over `response.status` and `error`\". The Summary sentence at line 30 can then stay as written."
     }
   ],
   "non_blocking": [
-    {
-      "section": "Services connectivity (Direct WebSockets row)",
-      "suggestion": "\"Session memory of 96 KiB or less (target)\" agrees with the Roadmap M3 scope and with Performance budgets and benchmarking (Memory budget). It does not agree with Multi-protocol line 293, which says \"about 96 KiB (hypothesis)\". Cite the owner so the figure is traceable: \"Session memory of 96 KiB or less (target) ([Performance budgets](../architecture/12-performance-budgets-and-benchmarking.md#memory-budget))\". Also flag the upstream tagging conflict to Multi-protocol rather than changing the tag here."
-    },
-    {
-      "section": "Security (Security Policies Engine row)",
-      "suggestion": "\"Macros such as `geoIP()` map to CEL variables and `authz.geoip`\" reads as if a geography CEL variable exists. The Configuration model's variables (`request`, `source`, `route`, `consumer`, `auth`, ...) carry no country. Say that `geoIP()` maps only to a separate `authz.geoip` allow or deny, and that a rule combining geography with other conditions needs a `plugin` Policy."
-    },
-    {
-      "section": "Beyond parity (Embedded MQTT broker row)",
-      "suggestion": "The KrakenD cell \"Async agents for AMQP and, in EE, Kafka\" makes a vendor claim with no URL on its line. Append ([source](https://www.krakend.io/docs/async/amqp/)) and ([source](https://www.krakend.io/features/)), both present in the research files."
-    },
-    {
-      "section": "Summary counts",
-      "suggestion": "For evaluators, add one column or sentence counting the Planned rows that wait on a blocking Open question. OQ-krakend-ee-parity-matrix-1 covers seven M1 EE-only transformation rows. OQ-krakend-ee-parity-matrix-3, -6, -8 and -9 cover M5 rows. The M1 share of 34% (target) partly depends on OQ-krakend-ee-parity-matrix-1, whose option (b) would turn several rows Not planned."
-    },
-    {
-      "section": "Routing (Catchall (fallback upstream) row)",
-      "suggestion": "Data plane precedence rank 5 counts `when` as a constraint, so a `when`-only Route ties with any Route that has no host or path and one constraint, and rank 6 (`metadata.name`) then decides. The catch-all is not guaranteed to rank lowest. State this, or tell authors to name the catch-all so it sorts last."
-    },
-    {
-      "section": "API governance and monetization (API governance row)",
-      "suggestion": "KrakenD's `governance/quota` supports `weight_key` and `weight_strategy`. Ruralz `quota` has no weighted cost. Since this row now moves to M1, consider marking it Partial parity and citing the research file's `governance/quota` row."
-    },
-    {
-      "section": "Method and snapshot (rule 5)",
-      "suggestion": "\"At most 10 EE-only rows may be Not planned\" is an SM-3 target. Tag it \"(target)\" as line 361 does, for consistency."
-    },
-    {
-      "section": "Gaps and non-goals (Enterprise support and services)",
-      "suggestion": "\"Ruralz sells only two things\" attributes the sale to the product. The vision and the pack say Revington earns revenue from Ruralz Cloud and commercial support. Write \"Revington sells only two things around Ruralz\"."
-    }
+    {"section": "AI gateway (AWS Bedrock integration row)", "suggestion": "The mechanism presents `auth.upstream-sigv4` on the `ai` Upstream as settled, but OQ-ai-llm-gateway-12 is open, with (a) `AIProvider` fields and (b) `auth.upstream-sigv4` as options. Write \"SigV4 through `auth.upstream-sigv4` or `AIProvider` fields, per OQ-ai-llm-gateway-12\"."},
+    {"section": "Request and response transformation (Aggregation, Sequential proxy rows)", "suggestion": "Write `Route` `composition.mode` here too, so every composition cell names its kind, as the Backend For Frontend row already does."},
+    {"section": "Scope and non-goals; Beyond parity", "suggestion": "The links to 03-migration-from-krakend.md and ADR-0016 are broken until those files exist (WARN only under --allow-missing). Check them again when the wave lands."},
+    {"section": "Summary counts", "suggestion": "Most verifier milestone WARN lines come from Roadmap wording, not from contradictions; the M1 to M5 EE-only lists match the Roadmap exit lists apart from API governance, which OQ-krakend-ee-parity-matrix-12 records. Consider linking each milestone row of the EE-only table to its Roadmap section so evaluators can trace the lists."}
   ],
   "ac_results": [
-    {
-      "ac": "Method and snapshot states the source (krakend.io/features), the snapshot date 2026-09-23 and the edition KrakenD EE 2.13.",
-      "pass": true,
-      "note": "Lines 46-52 state all three, with research-backed URLs, the CE v2.13.11 release and the EE 2.13 release date."
-    },
-    {
-      "ac": "Each of the ten category sections contains a table with columns Feature, KrakenD CE, KrakenD EE, Ruralz status, Ruralz mechanism and Notes/ADR.",
-      "pass": true,
-      "note": "All ten category H2s have one six-column table with exactly these headers; every data row parses to six cells."
-    },
-    {
-      "ac": "Every feature row of docs/_meta/research/krakend-parity.md (153 rows at the snapshot) appears, for at least 120 rows in total.",
-      "pass": true,
-      "note": "A script parse finds 153 of 153 research features, verbatim, in the matching category. verify-docs reports no FAIL for covers_source_rows or min_table_rows_total."
-    },
-    {
-      "ac": "No matrix table has a blank cell.",
-      "pass": true,
-      "note": "The script parse finds no empty cell; verify-docs reports no no_blank_cells FAIL."
-    },
-    {
-      "ac": "KrakenD CE and KrakenD EE cells use only Yes, Partial, No or N/A, and Ruralz status cells use only Planned (M0) to Planned (M5) or Not planned.",
-      "pass": true,
-      "note": "All values are in the allowed sets. CE/EE values match the research Both/EE availability for all 153 rows."
-    },
-    {
-      "ac": "Every KrakenD EE-only feature is Planned (Mx) and free in Ruralz, or Not planned with a reason in Notes/ADR.",
-      "pass": true,
-      "note": "68 of the 71 EE-only rows are Planned (M1 24, M2 12, M3 18, M4 2, M5 12). Lua advanced helpers, NTLM and the New Relic native SDK are Not planned, each with a reason; within SM-3."
-    },
-    {
-      "ac": "Every Ruralz mechanism names a kind, Policy or Filter defined in docs/architecture/02-configuration-model.md.",
-      "pass": false,
-      "note": "Fails for Elastic Logstash (no kind or type), Gzip compression and JWT token signing (undefined built-in types, carrying kind not named). See L3-1. The other rows check out against the kind catalog and Policy registry: fields such as `telemetry.accessLog.when`, `circuitBreaker.failureWhen`, `candidates[].when`, `cache.prompt.mode` and `messaging.key` all exist."
-    },
-    {
-      "ac": "Summary counts gives counts per category and per Ruralz status, and the counts sum to the total number of rows.",
-      "pass": true,
-      "note": "A recount matches every cell: 1/81/19/21/6/12/13 = 153, with EE-only 71 and per-category EE counts 9/10/2/7/7/11/11/6/5/3. The cumulative EE shares 34%, 51%, 76%, 79% and 96% are arithmetically correct and tagged (target)."
-    },
-    {
-      "ac": "Gaps and non-goals maps the KrakenD EE support and services offerings to Ruralz Cloud and commercial support.",
-      "pass": true,
-      "note": "The Enterprise support and services table maps all 12 offerings from the research file: 10 to commercial support, 1 to Ruralz Cloud, 1 to the free project, each with a rule."
-    },
-    {
-      "ac": "[structural] H2 outline equals Summary, Scope and non-goals + outline_h2 + Open questions, exactly and in order.",
-      "pass": true,
-      "note": "All 18 H2s match the manifest order and spelling."
-    },
-    {
-      "ac": "[structural] Length within manifest band 1500-9500 words; Summary 120 words or fewer.",
-      "pass": true,
-      "note": "Body about 8,500 words by raw count, and verify-docs raises no length FAIL. Summary is 117 words."
-    },
-    {
-      "ac": "[structural] Required diagrams present with captions; every performance or scale number tagged (target) or (hypothesis).",
-      "pass": true,
-      "note": "The manifest requires no diagrams; two extra Mermaid flowcharts have italic captions above them. Performance and scale figures (96 KiB, the parity shares, SM-2 and SM-3 values) are tagged. Line 63's SM-3 limit is untagged but is not a performance figure (non-blocking)."
-    },
-    {
-      "ac": "[structural] verify-docs FAIL lines for this document.",
-      "pass": true,
-      "note": "No FAIL lines. There are WARN lines only: two broken links to not-yet-written files (03-migration-from-krakend.md, ADR-0016) and milestone-matching heuristics against the Roadmap."
-    }
+    {"ac": "Method and snapshot states the source (krakend.io/features), the snapshot date 2026-09-23 and the edition KrakenD EE 2.13.", "pass": true, "note": "Lines 46-52 give all three, with research-backed URLs."},
+    {"ac": "Each of the ten category sections contains a table with columns Feature, KrakenD CE, KrakenD EE, Ruralz status, Ruralz mechanism and Notes/ADR.", "pass": true, "note": "All ten H2 tables use the six columns in order."},
+    {"ac": "Every feature row of docs/_meta/research/krakend-parity.md (153 rows at the snapshot) appears, for at least 120 rows in total.", "pass": true, "note": "153 rows counted (17+25+11+10+12+11+26+13+25+3); the verifier reports no coverage failure."},
+    {"ac": "No matrix table has a blank cell.", "pass": true, "note": "Every row parses to six non-empty cells."},
+    {"ac": "KrakenD CE and KrakenD EE cells use only Yes, Partial, No or N/A, and Ruralz status cells use only Planned (M0) to Planned (M5) or Not planned.", "pass": true, "note": "The verifier's cell_values_in checks pass."},
+    {"ac": "Every KrakenD EE-only feature is Planned (Mx) and free in Ruralz, or Not planned with a reason in Notes/ADR.", "pass": true, "note": "71 EE-only rows: 68 Planned, and 3 Not planned (Lua advanced helpers, NTLM, New Relic native SDK), each with a reason."},
+    {"ac": "Every Ruralz mechanism names a kind, Policy or Filter defined in docs/architecture/02-configuration-model.md.", "pass": false, "note": "The Hot-reload in development cell names no kind or type. The Data transformation, URL rewrite and Customizable HTTP circuit breaker cells name bare fields without their kind (L3-1). All named fields do exist in the Configuration model."},
+    {"ac": "Summary counts gives counts per category and per Ruralz status, and the counts sum to the total number of rows.", "pass": true, "note": "Recomputed from the tables: 1/81/19/21/6/12/13 = 153; EE-only 24/12/18/2/12/3 = 71; per-category rows match."},
+    {"ac": "Gaps and non-goals maps the KrakenD EE support and services offerings to Ruralz Cloud and commercial support.", "pass": true, "note": "The Enterprise support and services table maps 12 offerings to a channel and rule."}
   ],
   "foundation_amendments": []
 }
