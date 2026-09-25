@@ -1,0 +1,138 @@
+{
+  "lens": "L1",
+  "verdict": "revise",
+  "score": 6,
+  "blocking": [
+    {
+      "id": "L1-1",
+      "section": "Runbooks > Region loss (non-home, step 4); Failure catalog FC-4; Figure 2",
+      "issue": "The runbook says a lost Cluster stops its Environment's promotion. Control plane and GitOps says the opposite. A Rollout to a Cluster with no connected Nodes has an empty plan, and an empty plan completes at once. So the promotion passes straight through the lost Region's Cluster and advances its promoted digest. When the Region returns, its Nodes reconnect as late Nodes and take that Revision with no canary. Pausing does not help, because an empty Rollout is `complete` before an operator can run `ruralz rollout pause`.",
+      "evidence": "HA doc: \"Promotions run Clusters one at a time, so a lost Cluster stops its Environment's promotion: pause affected Rollouts with `ruralz rollout pause`, or let them roll back, and retry after recovery.\" Control plane and GitOps, Rollout plan table: \"Members | Connected Nodes that ACKed any Revision, or all connected Nodes if none has; others are late.\" and \"Late or zero Nodes | Late Nodes join the final batch and never lag; an empty plan completes at once\".",
+      "fix": "Rewrite step 4 to say: \"A Rollout to a Cluster with no connected Nodes has an empty plan and completes at once, so the Cluster's promoted digest advances and its Nodes would activate that Revision on return without a canary.\" Add an action: while a Region is lost, operators MUST hold promotions into every Environment that has a Cluster in that Region. They approve nothing under `requireApproval`; for other Environments they freeze merges to the tracked branch, or first commit `requireApproval: true` to `control/environments.yaml`, which tightens a gate and so applies without approval. In step 5, add a check with `ruralz rollout status` for Rollouts that completed with an empty plan during the loss, and revert them before raising geo weight. Change the Figure 2 message \"pause promotions that need Region B\" to match. Add an Open question owned by control-plane-and-gitops: should a plan with zero members, or with far fewer members than the Cluster's last published Node count, stay `pending` or `paused` instead of completing?"
+    },
+    {
+      "id": "L1-2",
+      "section": "Runbooks > Region loss (home Region, step 5); Runbooks > Ruralz Control rebuild from Git (steps 3 to 6); Game days GD-9 and GD-10",
+      "issue": "Both recovery procedures let the Git watcher ingest the tracked branch while no Nodes are connected, so every Cluster's plan is empty and completes at once. In any Environment without `requireApproval`, the branch head becomes the promoted digest. That head may include commits merged during the outage that were never canaried anywhere. Because `promotion.from` is satisfied by an empty completion, those commits also pass into downstream Environments. When Nodes reconnect, they receive their assignment, which is the uncanaried head. So \"traffic never changes\" and the GD-10 pass criterion do not follow from these steps. The mitigation covers only Environments with `requireApproval`, and OQ-high-availability-and-disaster-recovery-3 only asks a question; the runbook as written still bypasses the canary.",
+      "evidence": "Home Region step 5: \"With no Nodes connected, let the Git watcher ingest the tracked branch: an empty plan completes at once, so each Cluster's promoted digest advances without delivery. Under `requireApproval`, approve only up to the commit each Cluster's Nodes serve (rebuild step 4)\". Rebuild step 6: \"each Node's `Hello` carries a digest that equals its assignment, so traffic never changes.\" GD-10: \"No Node changes its active digest\". Pack 8.3: \"A reconnecting Node receives the Revision its plan assigns, so reconnect storms cannot bypass a canary.\"",
+      "fix": "Reorder and gate both procedures. (1) First identify the commit each Cluster serves: in a rebuild, move step 4 before step 3; in a restore, use the digests in the restored records plus Node heartbeats after reconnect, or `ruralz bundle diff` against sample Nodes. (2) Before the Git watcher runs, commit `requireApproval: true` for every Environment in `control/environments.yaml`, which tightens a gate and applies directly. Alternatively, point Ruralz Control's Git source in process configuration at a recovery ref at the served commit. (3) Approve only records whose digest equals the Cluster's served digest. (4) After Nodes reconcile, restore the normal gates through an approved change, so newer commits then roll out with a canary. Reword rebuild step 6 to say traffic stays unchanged only when every Cluster's promoted digest equals its Nodes' active digest, and make GD-9 and GD-10 check exactly that. Keep OQ-high-availability-and-disaster-recovery-3 for the long-term restore-hold mode."
+    },
+    {
+      "id": "L1-3",
+      "section": "Runbooks > Ruralz Control rebuild from Git (step 4); Backups > What to protect (retention paragraph)",
+      "issue": "The rebuild depends on a new render of an old commit reproducing the digest that Nodes serve. The digest includes every materialized schema and registry default (pack 8.1). `ruralz/v1alpha1` defaults may change at each schema level, and rendering at pinned schema levels is still open (OQ-release-versioning-and-compatibility-12). If the rebuilt `ruralz-control`, or the `ruralz` CLI used for `bundle diff`, runs a different minor from the one that built the served Revisions, two things go wrong. Every candidate commit fails to match (`bundle diff` exits 1), and the promoted digests differ from the active digests. Every Node would then receive a re-rendered Revision without a canary. The same assumption sits behind \"Older Revisions are rebuilt from Git\". That sentence also skips Revisions whose source was `ruralz bundle push` or CRDs, which are not in Git.",
+      "evidence": "Rebuild step 4: \"`ruralz bundle diff <bundle-dir> https://node-a.shop.example:9901 --env prod` exits 0 when a rendered commit equals a Node's active configuration. Equal commits render equal digests.\" Release, versioning and compatibility: \"`ruralz/v1alpha1` | Fields and defaults may change with one milestone of notice, each a new schema level\". OQ-release-versioning-and-compatibility-12: \"How does Ruralz Control render at pinned schema levels and defaults while replicas run mixed binaries?\"",
+      "fix": "Add a rule to the rebuild runbook, mirroring Backups rule 3: \"Rebuild with the `ruralz-control` minor that built the served Revisions, and run `bundle diff` with a `ruralz` CLI of the same minor. Read the minor from `ruralz node list` versions or the release records.\" Add: \"If no commit matches a Cluster's active digest, hold that Cluster (L1-2 gating) and escalate; never let its promotion complete.\" Qualify \"Equal commits render equal digests\" as \"at the same binary minor and schema levels\". In the retention paragraph, say that rebuilding old Revisions from Git needs the building minor, and does not cover `ruralz bundle push` or CRD sources, whose content exists only in backups. Link OQ-release-versioning-and-compatibility-12, or add a new Open question if the dependency is not covered there."
+    },
+    {
+      "id": "L1-4",
+      "section": "Runbooks > Region loss (home Region, steps 3 to 6); RPO and RTO (row 'Control Store lost with its Region')",
+      "issue": "The restore runbook leaves out three consequences that its sources state. (a) A restore resets Raft membership and drops old peer certificates. Every relay loses its 8092 feed, and RA-3 puts at least two relays in the surviving Region. Nodes served by relays keep dialing stale relays, and the runbook only adds voters. (b) Nodes enrolled after the backup must re-enroll, according to Release, versioning and compatibility, but the runbook never finds or re-enrolls them. (c) Step 4 re-issues revocations \"audited after the backup\", but that part of the audit log was in the lost Control Store. Only an external audit export (still OQ-control-plane-and-gitops-12, and never required) holds it. Without that export, a revoked Node certificate becomes valid again.",
+      "evidence": "CLI and API surface, `ruralz control restore`: \"It resets the snapshot's Raft membership to one voter, this replica at `--advertise` under a new server ID, and drops old peer certificates\". Deployment topologies RA-3: \"Second Region | Cells; relays per Sizing defaults, at least two (hypothesis)\". Release rule 5: \"Every Node serves detached until the operator supplies a revocation list, and Nodes enrolled after the backup re-enroll\". HA step 4: \"Re-issue `ruralz node revoke` for every revocation audited after the backup, which the restored list lacks.\" HA step 6: \"Add two voters with `ruralz control join` and `ruralz control serve` in the same Region, repoint the name Nodes dial\".",
+      "fix": "Add steps: (i) wipe and re-join every relay with a new relay-role token (mechanism tied to OQ-control-plane-and-gitops-15), or repoint relay-served Nodes to the restored replicas until the relays are rebuilt. (ii) List the Nodes enrolled after the backup: `node.id` values absent from the restored Enrollment records, which fail `Hello` with `RZ-CP-002` or `RZ-CP-003`. Re-enroll them through OQ-high-availability-and-disaster-recovery-4. (iii) Take the step 4 revocations from the external audit export. Make that export a MUST for multi-region in the What to protect table, and state that without it, certificates revoked after the backup stay valid until they expire. In the RPO and RTO row, state whether the 4-hour management RTO (target) includes relay rebuild and re-enrollment of post-backup Nodes."
+    },
+    {
+      "id": "L1-5",
+      "section": "Runbooks > State Store rebuild (step 4); RPO and RTO (row 'State Store deployment lost')",
+      "issue": "The runbook assumes that when a `file`-provider `stateStore.url` value rotates, Nodes redial the new deployment without a restart. The behavior on a rotated URL that names another deployment is an open question, and its option (a) keeps the old connection until restart. Under option (a), step 4 leaves every Node attached to the dead deployment. Every Rate Limit then stays fail-open and every `closed` Token Budget returns 503 until some unplanned restart, so the \"30 minutes or less (target)\" traffic RTO is not met.",
+      "evidence": "HA step 4: \"Change the value behind `stateStore.url`'s `secretRef`: a `file` provider rotates without a restart; `env` needs a rolling Drain of Nodes, one zone at a time.\" Zero-downtime upgrades and hot reload: \"OQ-zero-downtime-upgrades-and-hot-reload-9 | What does a Node do when a rotated `stateStore.url` value names another deployment? | (a) Keep the old connection until restart, warning; (b) Redial at once; (c) Require a new Revision\".",
+      "fix": "Rewrite step 4: \"Prefer a replacement reachable at the same `stateStore.url` value, such as the same DNS name or service, so no secret changes. Otherwise change the value and roll a Drain across Nodes one zone at a time, for `file` and `env` providers alike, until OQ-zero-downtime-upgrades-and-hot-reload-9 decides the redial behavior.\" Add the rolling Drain time to the 30-minute traffic RTO (target) or restate it, and cite OQ-zero-downtime-upgrades-and-hot-reload-9 in Open questions as a dependency of GD-5."
+    }
+  ],
+  "non_blocking": [
+    {
+      "section": "Runbooks > Region loss (home Region, step 1)",
+      "suggestion": "\"Traffic needs nothing\" applies only to the surviving Nodes. The lost home Region's own Cells still need geo steering, capacity checks and a gradual ramp-back. Open the home-Region procedure with \"First run non-home steps 1, 2, 3 and 5 for the home Region's Cells\"."
+    },
+    {
+      "section": "Runbooks > Region loss (home Region, step 7)",
+      "suggestion": "On Kubernetes or systemd, the old replicas restart on their own when the Region returns, so wiping them \"before they start\" may not be possible. Add a pre-return action: scale the old StatefulSet to zero, or block 8090, 8091 and 8092 at the network or DNS before the Region reconnects (until OQ-high-availability-and-disaster-recovery-5 decides)."
+    },
+    {
+      "section": "Runbooks > Raft quorum loss and replica replacement (step 3)",
+      "suggestion": "Restoring the hourly backup discards committed writes that a surviving minority replica still holds. Add an Open question owned by control-plane-and-gitops about recovering from the newest surviving replica's data rather than the backup. Any hashicorp/raft recovery API it names needs a research citation first. Also add an RPO row for 'majority of voters permanently lost in one Region', which is distinct from Region loss."
+    },
+    {
+      "section": "RPO and RTO",
+      "suggestion": "Define 'Management RTO'. For leader loss, 10 s (target) matches accepting writes, but a new leader restarts gate windows and evaluates no gate for up to one ACK timeout, 60 s (target), so Rollout progress resumes later. The 'Bad Revision' traffic RTO counts only the revert. It should add detection time: the canary bake, or the 200-request minimum sample (target)."
+    },
+    {
+      "section": "Failure catalog FC-11; Game days GD-4",
+      "suggestion": "The partition bound 'healthy GCRA bound plus N_cut × ceiling per window (target)' is not in the Consistency and accuracy bounds table of Scalability and distributed state. Your own non-goals say accuracy bounds and chaos pass criteria belong there. Ask that owner to register the row, cite it here, or record an Open question."
+    },
+    {
+      "section": "Runbooks > Ruralz Control rebuild from Git (step 4)",
+      "suggestion": "`/config/dump` on 9901 requires authentication (pack 8.4: only `/healthz` and `/readyz` MAY be unauthenticated). Add `--admin-token-file` (or `--client-cert`/`--client-key`) to the `ruralz bundle diff` example."
+    },
+    {
+      "section": "Runbooks > Ruralz Control rebuild from Git (steps 1 and 2)",
+      "suggestion": "State explicitly that the uploaded root-signed anchor set opens a `storeEpoch` higher than the one Nodes persisted. Otherwise the fresh deployment's sequences, which restart low, are NACKed as stale under the fencing rule."
+    },
+    {
+      "section": "Degraded modes > Detached Nodes and Last-Known-Good (row 'Restarted while detached')",
+      "suggestion": "The revocation list comes back when the Node reconnects, so \"Revoke again after recovery\" does not address the real risk. The risk is that revoked credentials are accepted during detachment. For urgent revocations during a Ruralz Control outage, say to rotate the credential at its source (IdP key, API key hash)."
+    },
+    {
+      "section": "Summary",
+      "suggestion": "Qualify \"a request-path RTO is near zero\" as applying to Ruralz Control failures. The RPO table shows State Store loss can hold `closed` Token Budgets at 503 for up to 30 minutes (target)."
+    },
+    {
+      "section": "Failure catalog > Figure 1",
+      "suggestion": "The lead-in says each edge label names the catalog row for its loss, but zone loss (FC-3), leader loss (FC-6) and quorum loss (FC-7) have no labeled edge. The label \"FC-4, FC-5 Region\" on the home Region's Nodes is also confusing, since FC-4 is a non-home Region. Relabel, or loosen the lead-in sentence."
+    },
+    {
+      "section": "Game days",
+      "suggestion": "The verifier prints WARN lines (not FAIL) because GD-1 to GD-14, FC-17 and OQ-high-availability-and-disaster-recovery-2 have no matching roadmap items. Coordinate with the roadmap owner so the game-day gates appear under M1 to M4."
+    }
+  ],
+  "ac_results": [
+    {
+      "ac": "Failure catalog has at least 12 rows covering Node, availability zone, Region, Ruralz Control leader, Raft quorum loss, State Store outage and partition, Git, OCI registry, IdP or JWKS, LLM provider, Plugin crash and DNS, with no blank cells.",
+      "pass": true,
+      "note": "20 rows (FC-1 to FC-20) cover every required item (FC-1, FC-3, FC-4/5, FC-6, FC-7, FC-10, FC-11, FC-14 to FC-19). No blank cells; the verifier reports no FAIL."
+    },
+    {
+      "ac": "Degraded modes covers Last-Known-Good, local rate-limit fallback and fail-open or fail-closed behavior, consistent with docs/architecture/04-control-plane-and-gitops.md and docs/architecture/11-scalability-and-distributed-state.md.",
+      "pass": true,
+      "note": "All three subsections are present. Boot wait, readiness, breaker values and fail-open bounds match both sources. The FC-11 partition bound is new and should be registered by Scalability (non-blocking)."
+    },
+    {
+      "ac": "RPO and RTO contains a table of recovery objectives per component, each tagged (target).",
+      "pass": true,
+      "note": "11-row table, and every objective cell carries (target). Definitional gaps are non-blocking; the RTO for State Store deployment loss depends on L1-5."
+    },
+    {
+      "ac": "Runbooks covers region loss, Ruralz Control rebuild from Git and State Store rebuild.",
+      "pass": false,
+      "note": "All three runbooks exist, but as written they fail in practice. Region loss lets empty plans deliver uncanaried Revisions (L1-1, L1-2) and omits relays and post-backup Enrollments (L1-4). The rebuild assumes digests reproduce across binary minors (L1-3). The State Store rebuild depends on the open OQ-zero-downtime-upgrades-and-hot-reload-9 (L1-5)."
+    },
+    {
+      "ac": "Game days lists at least eight chaos experiments.",
+      "pass": true,
+      "note": "14 experiments (GD-1 to GD-14), each with a fault, pass criteria and milestone."
+    },
+    {
+      "ac": "Backups uses ruralz control backup and ruralz control restore.",
+      "pass": true,
+      "note": "Both commands are used, with flags that match CLI and API surface (`--output-file`; `--prepare`, `--data-dir`, `--advertise`, `--anchor-set`, `--backup-key-file`, `--revocation-list`)."
+    },
+    {
+      "ac": "H2 outline equals mandatory first two + outline_h2 + Open questions, in order.",
+      "pass": true,
+      "note": "Summary, Scope and non-goals, Failure catalog, Degraded modes, RPO and RTO, Backups, Runbooks, Game days, Open questions."
+    },
+    {
+      "ac": "Required diagrams (flowchart of failure domains; sequenceDiagram of regional failover) with captions.",
+      "pass": true,
+      "note": "Figure 1 flowchart (14 nodes) and Figure 2 sequenceDiagram, each with an italic caption."
+    },
+    {
+      "ac": "Length band 1,500 to 4,500 words; machine checks; performance numbers tagged.",
+      "pass": true,
+      "note": "About 4,060 body words, leaving about 440 words of headroom for fixes. The verifier reports only WARN lines (roadmap matches) and no FAIL lines. Numbers carry (target) or (hypothesis)."
+    }
+  ],
+  "foundation_amendments": [
+    "Pack 8.3 (proposed, via an Open question owned by control-plane-and-gitops): state whether a Rollout whose persisted plan has zero members may reach `complete` and advance the promoted digest. Today an empty plan completes at once, so a Cluster whose Nodes are all disconnected (a lost Region, or a restore or rebuild before Nodes reconnect) later receives an uncanaried Revision on reconnect. That conflicts with the pack 8.3 sentence \"reconnect storms cannot bypass a canary\"."
+  ]
+}

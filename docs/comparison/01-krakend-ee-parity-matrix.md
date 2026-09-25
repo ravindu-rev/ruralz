@@ -1,6 +1,6 @@
 ---
 title: KrakenD Enterprise Parity Matrix
-status: draft
+status: reviewed
 owner: ruralz-core
 last_updated: 2026-09-25
 depends_on:
@@ -121,7 +121,7 @@ KrakenD columns: ([source](https://www.krakend.io/features/)). Nine of the 17 ro
 | Flexible configuration | Yes | Yes | Planned (M1) | `overlays/<env>/` strategic merge and `${VAR}` substitution, selected by `Environment` `spec.overlay` and `spec.variables` | No template language; import reads a rendered KrakenD file ([source](https://www.krakend.io/docs/configuration/flexible-config/)) |
 | Extended flexible configuration | No | Yes | Planned (M1) | Multi-file Bundle union in lexical order plus one overlay per render, with `Environment` variables | Replaces `$ref` and settings files ([source](https://www.krakend.io/docs/enterprise/configuration/flexible-config/)) |
 | Multi-format configuration | Yes | Yes | Planned (M1) | YAML 1.2 and JSON through one loader for every kind, from `Gateway` to `Cluster`, yielding one Revision digest | Partial parity: TOML, HCL and properties files are rejected ([source](https://www.krakend.io/docs/configuration/supported-formats/)); ADR-0003 |
-| Hot-reload in development | Yes | Yes | Planned (M1) | `ruralz dev run` watches a Bundle; the Node activates each change by an atomic swap of the active Revision's compiled snapshot (Hot Reload) | KrakenD restarts the process and advises against it in production ([source](https://www.krakend.io/docs/developer/hot-reload/)) |
+| Hot-reload in development | Yes | Yes | Planned (M1) | `ruralz dev run` watches a Bundle of `Gateway`, `Route`, `Upstream` and `Policy` files; the Node activates each change by an atomic swap of the active Revision's compiled snapshot (Hot Reload) | KrakenD restarts the process and advises against it in production ([source](https://www.krakend.io/docs/developer/hot-reload/)) |
 | IDE integration | Yes | Yes | Planned (M0) | Published JSON Schema, draft 2020-12 authoring view, for all ten kinds from `Gateway` to `Cluster` | Existing YAML language servers apply; ADR-0003 |
 | Plugin builder | Yes | Yes | Planned (M2) | `ruralz plugin build` compiles a `Plugin` to WASM for Plugin ABI v1 | KrakenD plugins must match its Go version ([source](https://www.krakend.io/docs/extending/http-server-plugins/)); [ADR-0005](../adr/0005-plugin-abi-v1.md) |
 | Plugin generator | No | Yes | Planned (M2) | `ruralz plugin init` scaffolds a `Plugin` project with a PDK | Rust and TinyGo PDKs first ([WASM plugin system](../architecture/05-wasm-plugin-system.md)) |
@@ -140,8 +140,8 @@ KrakenD columns: ([source](https://www.krakend.io/features/)). Ten of the 25 row
 | Feature | KrakenD CE | KrakenD EE | Ruralz status | Ruralz mechanism | Notes/ADR |
 |---|---|---|---|---|---|
 | Backend For Frontend <!-- alias-ok --> | Yes | Yes | Planned (M1) | `Route` `composition.mode: aggregate` merges several `Upstream` legs into one JSON response | Per-client shaping with step `select` and `group` |
-| Aggregation | Yes | Yes | Planned (M1) | `composition.mode: aggregate` runs steps in parallel and merges bodies under `group` | A failed `optional` step yields a partial response |
-| Data transformation | Yes | Yes | Planned (M1) | Composition step fields `target`, `select`, `rename`, `group` and `collection` | Same shape as KrakenD's field operations ([source](https://www.krakend.io/docs/backends/data-manipulation/)) |
+| Aggregation | Yes | Yes | Planned (M1) | `Route` `composition.mode: aggregate` runs steps in parallel and merges bodies under `group` | A failed `optional` step yields a partial response |
+| Data transformation | Yes | Yes | Planned (M1) | `Route` composition step fields `target`, `select`, `rename`, `group` and `collection` | Same shape as KrakenD's field operations ([source](https://www.krakend.io/docs/backends/data-manipulation/)) |
 | HTTP Cache headers (for CDN) | Yes | Yes | Planned (M1) | `headers` Policy `response.set[]` writes `Cache-Control` | KrakenD `cache_ttl` also only sets the header ([source](https://www.krakend.io/schema/v2.13/krakend.json)) |
 | Automatic output encoding | Yes | Yes | Planned (M1) | A `Route` passes Upstream bytes through; `composition` merges emit JSON | Partial parity: XML, YAML and negotiated output per OQ-krakend-ee-parity-matrix-2 |
 | Faster JSON decoding (fastjson) | No | Yes | Planned (M5) | The JSON decoder behind `composition` merges, `transform.response` and `validation.json-schema` | A decoder choice, weighed in OQ-krakend-ee-parity-matrix-11 |
@@ -152,18 +152,18 @@ KrakenD columns: ([source](https://www.krakend.io/features/)). Ten of the 25 row
 | Response manipulation using Go templates | No | Yes | Planned (M1) | `transform.response` builds the client body with CEL | ([source](https://www.krakend.io/docs/enterprise/backends/response-body-generator/)); OQ-krakend-ee-parity-matrix-1 |
 | Response manipulation with query language | No | Yes | Planned (M1) | `transform.response` CEL expressions over `response.body` | CEL replaces JMESPath ([source](https://www.krakend.io/docs/enterprise/endpoints/jmespath/)) |
 | Regular expression replacements | No | Yes | Planned (M1) | `transform.response` literal and regular expression replacement | ([source](https://www.krakend.io/docs/enterprise/endpoints/content-replacer/)); OQ-krakend-ee-parity-matrix-1 |
-| Conditional request and responses (CEL) | Yes | Yes | Planned (M1) | `Policy.spec.when`, `authz.cel` `config.rule` and composition step `when` | cel-go, cost-checked at validation; ADR-0011 |
+| Conditional request and responses (CEL) | Yes | Yes | Planned (M1) | `Policy.spec.when`, `authz.cel` `config.rule` and `Route` composition step `when` | cel-go, cost-checked at validation; ADR-0011 |
 | Lua scripting | Yes | Yes | Not planned | CEL fields and `plugin` Policies instead | No Lua runtime (ADR-0011); KrakenD compiles Lua on every execution ([source](https://www.krakend.io/docs/deploying/server-dimensioning/)) |
 | Lua advanced helpers | No | Yes | Not planned | CEL strings and encoders extensions, or a `plugin` Policy | Follows the Lua row (ADR-0011); EE-only helpers ([source](https://www.krakend.io/docs/endpoints/lua/)) |
 | Custom Go plugins | Yes | Yes | Not planned | A WASM `Plugin` attached by a `plugin` Policy replaces them | Vision non-goal 3; CE 3.0 drops Go plugins ([source](https://www.krakend.io/blog/dropping-plugins-support-on-community/)) |
 | JSON Schema response validation | No | Yes | Planned (M5) | `validation.json-schema` extended to response Phases; a validation-class `plugin` Policy meanwhile | Phase extension per OQ-krakend-ee-parity-matrix-3 ([source](https://www.krakend.io/docs/enterprise/endpoints/response-schema-validator/)) |
 | JSON Schema request validation | Yes | Yes | Planned (M1) | `validation.json-schema` in `onRequestBody`, draft 2020-12 | Validator row in [Tech stack](../engineering/01-tech-stack-and-libraries.md) |
 | Martian (DSL) | Yes | Yes | Planned (M1) | `headers`, `transform.request` and `transform.response` Policies | Partial parity: same operations, no DSL ([source](https://www.krakend.io/docs/backends/martian/)) |
-| Multistrategy error handling | Yes | Yes | Planned (M1) | Upstream statuses pass through; composition step `optional`; the `RZ-<AREA>-<NNN>` error format | KrakenD error detail options ([source](https://www.krakend.io/docs/backends/detailed-errors/)) |
+| Multistrategy error handling | Yes | Yes | Planned (M1) | Upstream statuses pass through; `Route` composition step `optional`; the `RZ-<AREA>-<NNN>` error format | KrakenD error detail options ([source](https://www.krakend.io/docs/backends/detailed-errors/)) |
 | Cache | Yes | Yes | Planned (M1) | `cache` Policy (Response Cache) in the State Store, partitioned by CEL `config.key` | Shared by all Nodes of a Cell; KrakenD's cache is in memory ([source](https://www.krakend.io/docs/backends/caching/)) |
-| Sequential proxy | Yes | Yes | Planned (M1) | `composition.mode: sequential`; later steps read earlier results through CEL `steps` | Results reach steps only through CEL |
+| Sequential proxy | Yes | Yes | Planned (M1) | `Route` `composition.mode: sequential`; later steps read earlier results through CEL `steps` | Results reach steps only through CEL |
 | Mocked data | Yes | Yes | Planned (M2) | A `plugin` Policy that short-circuits a request Phase with a static response | Partial parity: KrakenD mocks are built in ([source](https://www.krakend.io/features/)), while Ruralz needs a user-written `Plugin`; built-in static responses per OQ-krakend-ee-parity-matrix-3 |
-| Workflows | No | Yes | Planned (M1) | `composition.mode: sequential` with per-step `when` for linear workflows | Partial parity: linear workflows only; dependency graphs of parallel and sequential stages need declared edges (OQ-data-plane-3) ([source](https://www.krakend.io/docs/enterprise/endpoints/workflows/)) |
+| Workflows | No | Yes | Planned (M1) | `Route` `composition.mode: sequential` with per-step `when` for linear workflows | Partial parity: linear workflows only; dependency graphs of parallel and sequential stages need declared edges (OQ-data-plane-3) ([source](https://www.krakend.io/docs/enterprise/endpoints/workflows/)) |
 
 ## Security
 
@@ -191,12 +191,12 @@ KrakenD columns: ([source](https://www.krakend.io/features/)). Seven of the 10 r
 |---|---|---|---|---|---|
 | Noop proxy | Yes | Yes | Planned (M1) | A `Route` with `upstreams` streams bodies unchanged | Pass-through is the default |
 | Traffic shadowing/mirroring | Yes | Yes | Planned (M2) | `Route` mirroring to a second `Upstream` | Declaration per OQ-traffic-management-and-resilience-12, which must keep mirrored legs within `limits.maxBufferedBytes` and the in-flight units, dropping them with a counter when those are exhausted ([Bounded resources](../architecture/03-data-plane.md#bounded-resources)) |
-| JWT claim-based routing | Yes | Yes | Planned (M1) | `composition.mode: conditional` with step `when` over `auth.claims` after `auth.jwt` | The header match stays claim-free |
+| JWT claim-based routing | Yes | Yes | Planned (M1) | `Route` `composition.mode: conditional` with step `when` over `auth.claims` after `auth.jwt` | The header match stays claim-free |
 | Catchall (fallback upstream) | No | Yes | Planned (M1) | A lowest-ranked `Route` whose only criterion is `match.when: "true"` | Ranked by [Data plane precedence](../architecture/03-data-plane.md#precedence): rank 5 counts `when`, so it ties with any other Route that has no host, no path and one constraint, and `metadata.name` byte order decides; keep it the only such Route or name it to sort last |
 | Header and query string based dynamic routing | No | Yes | Planned (M1) | `Route` `match.headers`, `match.when` over `request.query`, or `conditional` composition | CEL `match.when` sees no body |
-| Conditional routing | No | Yes | Planned (M1) | `composition.mode: conditional` with CEL step `when` | ADR-0011; KrakenD skips legs by condition ([source](https://www.krakend.io/docs/enterprise/backends/conditional/)) |
+| Conditional routing | No | Yes | Planned (M1) | `Route` `composition.mode: conditional` with CEL step `when` | ADR-0011; KrakenD skips legs by condition ([source](https://www.krakend.io/docs/enterprise/backends/conditional/)) |
 | Wildcard routes | No | Yes | Planned (M1) | `Route` `match.path` with `prefix`, `template` or `regex` | Wildcard hosts per OQ-data-plane-2 |
-| URL rewrite | No | Yes | Planned (M1) | Composition step `path` or `pathExpression` | Plain `upstreams` rewrites per OQ-traffic-management-and-resilience-13 |
+| URL rewrite | No | Yes | Planned (M1) | `Route` composition step `path` or `pathExpression` | Plain `upstreams` rewrites per OQ-traffic-management-and-resilience-13 |
 | Virtual hosts | No | Yes | Planned (M1) | `Route` `match.hosts` with listener `hostnames` | ([source](https://www.krakend.io/docs/enterprise/service-settings/virtual-hosts/)) |
 | Configurable client redirects | No | Yes | Planned (M2) | Upstream 3xx responses pass through; Route-issued redirects use a `plugin` Policy | Partial parity: Route-issued redirects need a user-written `Plugin` until built-in fields land per OQ-traffic-management-and-resilience-13 (blocking M2) |
 
@@ -206,7 +206,7 @@ KrakenD columns: ([source](https://www.krakend.io/features/)). Seven of the 12 r
 
 | Feature | KrakenD CE | KrakenD EE | Ruralz status | Ruralz mechanism | Notes/ADR |
 |---|---|---|---|---|---|
-| JWT, OpenID Connect, OAuth2 | Yes | Yes | Planned (M1) | `auth.jwt` with `issuers[]` (`issuer`, `jwksUrl`, `audiences`); `Consumer` `jwt` and `oauthClients` bindings | RS256, PS256, ES256 and EdDSA; imported HS256 is fidelity `manual` |
+| JWT, OpenID Connect, OAuth2 | Yes | Yes | Planned (M1) | `auth.jwt` with `issuers[]` (`issuer`, `jwksUrl`, `audiences`); `Consumer` `credentials.jwt` and `credentials.oauthClients` bindings | RS256, PS256, ES256 and EdDSA; imported HS256 is fidelity `manual` |
 | JWT token signing | Yes | Yes | Planned (M2) | A `Policy` of a built-in signing type, not yet in the registry, attached to a `Route`, with keys only through `secretRef`, never in `plugin` `config` | Type per OQ-security-and-identity-11, option (b), a pack section 10 amendment ([source](https://www.krakend.io/docs/authorization/jwt-signing/)) |
 | Client credentials | Yes | Yes | Planned (M1) | `auth.upstream-oauth2` (`tokenUrl`, `clientId`, `clientSecret`, `scopes`) on an `Upstream` | ([source](https://www.krakend.io/docs/authorization/client-credentials/)) |
 | Basic authentication | No | Yes | Planned (M1) | `auth.basic` binding a `Consumer` | Credential storage per OQ-security-and-identity-2 |
@@ -278,7 +278,7 @@ KrakenD columns: ([source](https://www.krakend.io/features/)). Six of the 13 row
 |---|---|---|---|---|---|
 | Concurrent calls | Yes | Yes | Planned (M4) | Request hedging on the `Upstream` leg for idempotent, replayable requests | Partial parity: KrakenD sends N requests at once ([source](https://www.krakend.io/schema/v2.13/krakend.json)); a hedge waits a delay, needs an idempotent method and a replayable body, and spends retry budget ([Hedging](../architecture/09-traffic-management-and-resilience.md#hedging)). OQ-traffic-management-and-resilience-5's current option is no hedging; its delay field blocks M4 |
 | Circuit breaker | Yes | Yes | Planned (M1) | `Upstream` `circuitBreaker` (`consecutiveFailures`, `openDuration`, `maxConnections`) | An open breaker fails fast with an `RZ-UP` code |
-| Customizable HTTP circuit breaker | No | Yes | Planned (M1) | `circuitBreaker.failureWhen` CEL over `response.status` and `error` | KrakenD `max_errors` imports as `consecutiveFailures` ([source](https://www.krakend.io/docs/backends/circuit-breaker/)) |
+| Customizable HTTP circuit breaker | No | Yes | Planned (M1) | `Upstream` `circuitBreaker.failureWhen` CEL over `response.status` and `error` | KrakenD `max_errors` imports as `consecutiveFailures` ([source](https://www.krakend.io/docs/backends/circuit-breaker/)) |
 | Spike arrest and burst | Yes | Yes | Planned (M1) | `ratelimit` `limits[]` with a short `window` | Burst field per OQ-traffic-management-and-resilience-1 |
 | Bot detector | Yes | Yes | Planned (M1) | `authz.cel` `config.rule` matching `request.headers["user-agent"]` | Partial parity: one CEL rule evaluated per request; a long regular expression list can exceed the RZ-CFG-015 static cost bound of 10,000 units (target), so large lists use a `plugin` Policy ([source](https://www.krakend.io/docs/throttling/botdetector/)) |
 | Granular timeouts | Yes | Yes | Planned (M1) | `Route` `timeout`, `Upstream` `timeout`, `retries.perTryTimeout` and Policy `stateStoreTimeout` | Deadlines nest per request, leg and attempt |

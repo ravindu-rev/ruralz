@@ -1,0 +1,139 @@
+{
+  "lens": "L2 foundation-auditor",
+  "verdict": "revise",
+  "score": 6,
+  "blocking": [
+    {
+      "id": "L2-1",
+      "section": "Capacity model",
+      "issue": "The document misquotes pack 8.13. The pack says no request crosses a *Region* to reach a State Store. A Cell is one Cluster plus the State Store it uses, and several Cells can share a Region, so 'crosses a Cell' is not the pack rule. The per-Cell sizing premise therefore cites a rule that does not exist.",
+      "evidence": "Line 63: \"The model sizes each Cell independently, since no request crosses a Cell to reach its State Store (pack 8.13).\" Pack 8.13: \"No request crosses a Region to reach a State Store; each Region's Nodes resolve their own `stateStore.url` through `secretRef`\". Scalability Cells and blast radius: \"Every Node of a Cluster MUST resolve the same State Store\".",
+      "fix": "Replace with: \"The model sizes each Cell independently, since every Node of a Cluster uses only its own Cell's State Store ([Cells and blast radius](../architecture/11-scalability-and-distributed-state.md#cells-and-blast-radius)) and no request crosses a Region to reach one (pack 8.13).\""
+    },
+    {
+      "id": "L2-2",
+      "section": "Headroom and failure capacity",
+      "issue": "The Home Region loss row describes Cells that span Regions. That contradicts the canonical definition of Cell (pack section 2, pack 8.13, glossary: one Cluster and its State Store in one Region) and the Scalability Topologies table (\"One Cell per Region\").",
+      "evidence": "Line 285: \"| Home Region loss, Planned (M4) | Multi-region Cells across Regions, each pre-provisioned | R_g / (R_g − 1) × its peak share (target) |\". Pack section 2: \"Cell | one Cluster and its State Store in one Region\". Scalability Topologies: \"Active-active | One Cell per Region, one Environment, geo steering\".",
+      "fix": "Reword the rule cell to: \"Active-active, one Cell per Region; each Region's Cells are pre-provisioned\", keeping the formula R_g / (R_g − 1) × its peak share (target) and the [Topologies] link."
+    },
+    {
+      "id": "L2-3",
+      "section": "Headroom and failure capacity; Re-planning triggers",
+      "issue": "`localOnly` is written in code formatting as a settled mode or field. It is not defined in the Configuration model or in the ratelimit `config` fields fixed there (`key`, `limits[]` with `requests`, `window`). It exists only as the proposed option (c) of OQ-traffic-management-and-resilience-1, which Scalability and the parity matrix label as pending. Style guide section 5 forbids using undefined fields without an Open question.",
+      "evidence": "Line 287: \"| Hot key | Keys above 25% of a shard use `localOnly` | About 25,000 calls per second (hypothesis) |\"; line 395: \"| Add a shard or `localOnly` keys |\". Scalability Distributed rate limits: \"MUST use `localOnly` mode, option (c) of OQ-traffic-management-and-resilience-1\". Configuration model registry: \"`ratelimit` | `key` (CEL), `limits[]` with `requests`, `window`\".",
+      "fix": "On line 287 write \"Keys above 25% of a shard use `localOnly` mode, option (c) of OQ-traffic-management-and-resilience-1 (proposed)\". On line 395 write \"Add a shard, or `localOnly` keys once OQ-traffic-management-and-resilience-1 closes\". Alternatively, list the dependency in Open questions."
+    },
+    {
+      "id": "L2-4",
+      "section": "State Store sizing",
+      "issue": "The layout-change rule misstates Release, versioning and compatibility, a depends_on document. Release allows extra admission only on the alternative Quota-counter path with a switch boundary. It gives \"None\" for GCRA, Quota and Token Budget counters on the dual-key path, and Token Budget counters may take only that path. The capacity rule makes the 2x a property of every layout change. It also puts `limit` in code formatting, but no Policy type has a `limit` field (ratelimit has `limits[].requests`; Quotas are Consumer quotas).",
+      "evidence": "Line 345: \"A layout change during an upgrade adds no calls but may admit up to 2 × `limit` for one window per Node without the switch signal (hypothesis)\". Release State Store layout changes: \"GCRA, Quota and Token Budget counters | Keep the old key's hash tag; ... | None (hypothesis)\" and \"Quota counters, alternatively | ... switch boundary ... | Up to 2x for one window per Node that has not received the signal by the boundary\".",
+      "fix": "Replace with: \"A layout change adds no calls (pack 8.7). Only Quota counters that take the switch-boundary path may admit up to twice the Consumer quota for one window per Node that has not received the signal (hypothesis); GCRA and Token Budget counters add no admission ([State Store layout changes](../engineering/04-release-versioning-and-compatibility.md#state-store-layout-changes)).\""
+    },
+    {
+      "id": "L2-5",
+      "section": "State Store sizing; Worked examples",
+      "issue": "The persistence rule contradicts Scalability. Scalability makes persistence a SHOULD for windows that *exceed* one day (OQ-scalability-and-distributed-state-13 option (a), current). The capacity document states it as fact (\"is on\") and moves the threshold to windows that *reach* one day, so one-day windows are handled differently in the two documents.",
+      "evidence": "Line 344: \"Persistence is on where Quota or Token Budget windows reach one day\". Scalability State Store availability: \"Persistence where Quota or Token Budget windows exceed one day | SHOULD\".",
+      "fix": "Write: \"Persistence SHOULD be on where Quota or Token Budget windows exceed one day (OQ-scalability-and-distributed-state-13)\". Keep Example 2's \"persistence on\" as an example choice, and state its window if it relies on the rule."
+    },
+    {
+      "id": "L2-6",
+      "section": "Planning inputs",
+      "issue": "Several per-Route-class inputs name metrics whose Observability label sets cannot supply them. `ruralz_http_request_body_bytes` and `ruralz_http_response_body_bytes` are labeled only by `listener` and measure wire bodies, not merged or decoded ones. `ruralz_http_active_requests` is labeled only by `listener` and counts requests only, so it cannot give S \"on streaming Routes\". `ruralz_state_calls_total` is labeled `op` and `result`, not Route, so it cannot give s_r and w_r per Route class. `ruralz_control_connected_nodes` is a per-replica gauge labeled by `cluster` (\"Streams to this replica\"), so N_all needs a sum across replicas, and the trigger divides it by (replicas − 1) without summing.",
+      "evidence": "Line 45: \"| Merged or transformed body per request | β_r (KiB) | `ruralz_http_response_body_bytes` |\"; line 47: \"| Prompt size on AI Routes | e_r (KiB) | `ruralz_http_request_body_bytes` |\"; line 50: \"`ruralz_http_active_requests` on streaming Routes\"; line 57: \"| N_all | `ruralz_control_connected_nodes` |\"; line 398: \"`ruralz_control_connected_nodes` / (replicas − 1)\". Observability: \"`ruralz_http_request_body_bytes`, `ruralz_http_response_body_bytes` | Histogram, bytes | bytes | `listener`\"; \"`ruralz_http_active_requests` | Gauge | requests | `listener`\"; \"`ruralz_state_calls_total` | Counter | calls | `op`, `result`\"; \"`ruralz_control_connected_nodes` | Gauge | nodes | `cluster` | R | Streams to this replica\".",
+      "fix": "Name sources that exist. β_r and e_r come from `ruralz bundle render --effective --route` (step `maxBodyBytes`) or from access-log records. S comes from `ruralz_http_requests_total{route}` × mean session duration. s_r and w_r come from the effective Filter Chain and the State Store sizing table, checked against `ruralz_state_calls_total` by `op` per Cell. N_all is the sum of `ruralz_control_connected_nodes` over replicas and Clusters. Add an Open question owned by observability for per-Route body-size and active-stream series and a per-Node in-flight-units gauge. Also fix the Ruralz Control streams trigger to use the summed value."
+    },
+    {
+      "id": "L2-7",
+      "section": "Autoscaling policies",
+      "issue": "Rule 6 cites ADR-0008 for the published Node-count pace (10% per minute after a 10-minute qualification). ADR-0008 contains no such rule. The owner is Control plane and GitOps (Replica roles, `clusterNodeCount`), restated in Scalability Warm-up. This is a wrong ADR reference.",
+      "evidence": "Line 312: \"In Control mode the published Node count rises at most 10% per minute after a 10-minute qualification (target), so autoscaled Clusters SHOULD declare per-Node ceilings ([ADR-0008](../adr/0008-rate-limiting-local-bucket-and-gcra.md); field: OQ-traffic-management-and-resilience-1).\" Control plane Replica roles: \"`clusterNodeCount` counts ready Nodes that ACKed a Revision and stayed connected 10 minutes (target); ... increases rise at most 10% per minute\". A search of docs/adr/0008-rate-limiting-local-bucket-and-gcra.md finds no \"10%\" or \"qualification\".",
+      "fix": "Cite [Replica roles](../architecture/04-control-plane-and-gitops.md#replica-roles) and [Warm-up](../architecture/11-scalability-and-distributed-state.md#warm-up) for the pace. Keep ADR-0008 only for the per-Node ceiling rule if needed, for example \"(pack 8.8, [ADR-0008](...))\"."
+    },
+    {
+      "id": "L2-8",
+      "section": "Capacity model",
+      "issue": "Acceptance criterion 3 fails: not every coefficient cites Performance budgets and benchmarking. K-15 cites the PB \"streamed chunk row\", which holds 1 MiB; the 32 KiB reservation and 128 MiB share come from Data plane. K-18 cites \"G1\", which records no bytes per key. Other constants have no PB source: s_rev ≈ 1.5 KiB per resource, the 5,000 calls per second per Node default (Scalability and Deployment topologies), u_s = 3 (Data plane), and about 20 Enrollments per second per leader (Deployment topologies). The D_store constant \"50\" retained Revisions appears in no document in the repository, so it is an invented value. The Coefficients lead still claims that every coefficient comes from PB.",
+      "evidence": "Line 112: \"Every coefficient comes from [Performance budgets and benchmarking](...) (PB)\"; K-15: \"| Same, streamed chunk row |\"; K-18: \"| 128 B (hypothesis); not yet measured (OQ-capacity-planning-2) | G1 |\"; line 171: \"D_store   = E × 50 × (s_rev + s_diff + s_src) + ...\"; line 358: \"E × 50 retained × (s_rev + diff + source) (target)\"; line 356: \"Resources × about 1.5 KiB (hypothesis, OQ-capacity-planning-3)\". A repository-wide search for a 50-Revision retention count finds only this document.",
+      "fix": "Give every constant a K-row whose source cell names its real owner with a link: Data plane for 32 KiB, 128 MiB and u_s; Deployment topologies for 20 Enrollments per second and 5,000 calls per Node. Add the PB scenario or Open question that will verify each one. Either source the retention count from Control plane and GitOps or replace it with a named variable n_keep plus a new Open question owned by control-plane-and-gitops. Define s_diff and s_src. Reword line 112 to \"Every coefficient cites PB or, where PB has no value yet, its owner and the Open question that adds it to PB\"."
+    },
+    {
+      "id": "L2-9",
+      "section": "Worked examples; Capacity model; Ruralz Control sizing",
+      "issue": "Acceptance criterion 2 and style guide section 4 fail. Scale figures in the Worked examples prose are untagged, and so are constants in the formula block, the Figure 1 label and the Ruralz Control sizing table header. The machine check passes only because it skips code fences.",
+      "evidence": "Line 182: \"A partner API aggregates three Upstreams per request over HTTP/2 and TLS\"; line 247: \"A notification service holds 200,000 long-lived WebSocket sessions over TLS\"; line 76: \"hr[\\\"Headroom: zone fraction, 30% outage headroom\\\"]\"; line 351: \"| Item | Formula | Example: 3 Environments, 1,200 Nodes, 5,000 Routes |\"; lines 151, 163, 168-171: \"f_z × 20,000\", \"at most 16\", \"ceil(N_all / 5,000) + 1\", \"N_all / 15 s\", \"20 Snapshots per second\", \"E × 50\".",
+      "fix": "Append (target) to lines 182, 247 and 351 and to the Figure 1 label. In the formula block, replace each literal with its K-symbol (K-14, K-15, K-19, K-20, and the new retention and shard-limit rows), or tag each line with the tag its K-row carries."
+    },
+    {
+      "id": "L2-10",
+      "section": "Ruralz Control sizing",
+      "issue": "The \"fourth replica as a non-voter\" relies on a replica type that the foundation sources do not define. Control plane and GitOps says `ruralz control join` \"adds a voter\", and voters are three or five. Pack 8.13 left non-voter against relay open (OQ-system-overview-16), and Control plane decided it as a read-only relay. A non-voting full replica therefore has no join path, so the SHOULD cannot be carried out as written. It also conflicts with the formula, which yields three replicas up to 10,000 Nodes.",
+      "evidence": "Line 363: \"deployments above 8,000 Nodes (target) SHOULD add a fourth replica as a non-voter\"; line 168: \"replicas  = max(voters, ceil(N_all / 5,000) + 1)\". Control plane Certificates and replica join: \"`ruralz control join` redeems a one-time `admin` token in `Join`, and the leader signs the replica's certificate and adds a voter.\" Control plane Multi-cluster sync: \"this document decides the read-only relay of OQ-system-overview-16\".",
+      "fix": "Reach the extra capacity with five voters (target), which Control plane allows, and change the formula to match, for example ceil(N_all / 4,000) + 1 (hypothesis). Alternatively, add an Open question owned by control-plane-and-gitops for a non-voter join path and mark the fourth replica as depending on it. Apply the same rule in the Formulas block, the Headroom row and the Ruralz Control streams trigger."
+    }
+  ],
+  "non_blocking": [
+    {
+      "section": "Headroom and failure capacity",
+      "suggestion": "The verifier WARNs that '../adr/0015-zero-downtime-upgrades-so-reuseport.md' does not exist yet. The path matches the manifest's ADR-0015 entry and Scalability's link, so keep it. Check it again when ADR-0015 is written."
+    },
+    {
+      "section": "Re-planning triggers",
+      "suggestion": "The Shard CPU trigger fires at a GCRA p99 above 1 ms (hypothesis). State Store sizing puts two of three zones at a 2 ms cross-zone p99 (PB-14), and the metric has no zone label (OQ-performance-budgets-and-benchmarking-12), so a healthy three-zone Cell would trip the trigger permanently. Use 2 ms for cross-zone populations, or cite OQ-performance-budgets-and-benchmarking-12."
+    },
+    {
+      "section": "Re-planning triggers",
+      "suggestion": "The lead says \"A trigger fires on a measured value\", but the Design change row's threshold is \"Any\" with no metric. Move it below the table as a separate SHOULD, or reword the lead."
+    },
+    {
+      "section": "Cost template",
+      "suggestion": "The State Store servers formula is \"shards × 2 × maxmemory / 0.7\", but the quantities give \"4 of 1 GiB\", which is maxmemory rather than server memory (about 1.43 GiB each). Make them match."
+    },
+    {
+      "section": "State Store sizing",
+      "suggestion": "Example 3's maxclients \"Above 780\" uses N = 78, but its maxReplicas is \"N plus one zone's share\" (104 Nodes). The formula maxclients ≥ 10 × N_max then needs more than 1,040."
+    },
+    {
+      "section": "Capacity model",
+      "suggestion": "Define m_conn, s_diff, s_src, N_max, N_serving, λ_storm, λ_open, s_open and n_batch in Planning inputs or in the coefficient table. Several formulas use them without a definition."
+    },
+    {
+      "section": "Ruralz Control sizing",
+      "suggestion": "Say whether relay-served Nodes count toward replica stream capacity or only toward the 10,000-Node deployment limit. Relays serve 8091 themselves, so their Nodes do not hold Control Streams to replicas."
+    },
+    {
+      "section": "Scope and non-goals",
+      "suggestion": "The body is about 4,325 words of the 4,500 maximum. Replacing formula literals with K-symbols (L2-9) and short OQ references (L2-3, L2-8) keeps the fixes inside the band. Do not delete text that resolved earlier findings."
+    }
+  ],
+  "ac_results": [
+    {
+      "ac": "Capacity model gives formulas with named variables for CPU, memory, State Store operations and Ruralz Control sizing.",
+      "pass": true,
+      "note": "All four groups exist in the Formulas block with named variables. Some variables are undefined (m_conn, s_diff, s_src, N_max, λ_storm), and the retention constant 50 has no source (L2-8)."
+    },
+    {
+      "ac": "Worked examples contains three examples as H3s (REST aggregation at 20k rps, AI with 500 concurrent streams, 200k WebSocket connections), every number tagged (target).",
+      "pass": false,
+      "note": "All three H3s are present and named correctly. \"three Upstreams per request\" (line 182) and \"200,000 long-lived WebSocket sessions\" (line 247) are untagged (L2-9)."
+    },
+    {
+      "ac": "Every coefficient cites docs/architecture/12-performance-budgets-and-benchmarking.md.",
+      "pass": false,
+      "note": "K-15 and K-18 cite PB rows that do not contain their values. s_rev 1.5 KiB, 5,000 calls per Node, u_s, 20 Enrollments per second and the 50-Revision retention have no PB citation, and the retention count has no source at all (L2-8)."
+    },
+    {
+      "ac": "Sizing inputs, results and headroom are presented in tables.",
+      "pass": true,
+      "note": "Each example has input, result and headroom-check tables. Capacity model and State Store sizing both have tables, so the has_table machine checks pass."
+    },
+    {
+      "ac": "Re-planning triggers lists measurable triggers.",
+      "pass": true,
+      "note": "There are 15 triggers with metric and threshold. The Design change row is not measurable, the Ruralz Control streams row misuses a per-replica gauge (L2-6), and the Shard CPU threshold conflicts with the cross-zone p99 (non-blocking)."
+    }
+  ],
+  "foundation_amendments": []
+}

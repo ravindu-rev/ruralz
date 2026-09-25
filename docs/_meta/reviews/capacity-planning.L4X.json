@@ -1,0 +1,180 @@
+{
+  "lens": "L4X",
+  "verdict": "revise",
+  "score": 5,
+  "blocking": [
+    {
+      "id": "L4X-1",
+      "section": "Capacity model (Formulas, K-13); Worked examples (Example 1 Container row)",
+      "issue": "The GOMEMLIMIT floor treats memory under a flood as bounded by the L4 connection cap, with one in-flight unit per connection. It also leaves out Plugin memory and snapshots. On HTTP/2 each connection can carry 250 streams, so a handful of capped connections can fill the whole 20,000-unit ceiling. Example 1 is HTTP/2 over TLS. Its floor is therefore about half of what a flood can pin, and a Plugin-bearing Cluster exceeds the floor by a further 2 GiB.",
+      "evidence": "Formulas: \"GOMEMLIMIT ≥ max(M_node, M_fix + C_cap × m_worst)\"; K-13: \"m_worst, flood case per connection: 592 KiB connection plus a 320 KiB unit | 912 KiB (hypothesis)\"; Example 1: \"L4 cap 4,500 connections, above 3,900 per survivor: 1,243 MiB + 4,500 × 912 KiB = 5,251 MiB (target) [H] | 6 GiB, `GOMEMLIMIT` 5,530 MiB (target)\". PB Constants the suite verifies: \"HTTP/2 streams per connection; header block; streamed chunk | 250; 256 KiB; 1 MiB (target)\" and \"Client connections; in-flight units | 20,000 each (target)\"; PB Memory budget: \"Plugin memory ... 2 GiB default cap\".",
+      "fix": "Failure scenario: 80 HTTP/2 connections × 250 streams fill 20,000 units. At 320 KiB each that is 6,250 MiB, plus 4,500 × 592 KiB = 2,601 MiB of connections, plus M_fix 1,243 MiB, for about 10,094 MiB against a 5,530 MiB GOMEMLIMIT in a 6 GiB container. The Node is OOM-killed, and its connections land on zone survivors running the same floor, so the failure cascades. Fix: bound unit memory by the in-flight ceiling, not by connections. Use GOMEMLIMIT ≥ max(M_node, M_fix + P_plg + (K + 2) × snapshot + C_cap × 592 KiB + min(20,000, C_cap × 250) × 320 KiB). Otherwise size to PB's worst-case Node (about 19 GiB plus snapshots, 32 GiB), or add an Open question to Data plane for a per-Node header-block budget. Recompute Example 1's container and the Example 3 container."
+    },
+    {
+      "id": "L4X-2",
+      "section": "Capacity model; Worked examples (Example 1, Example 3)",
+      "issue": "The model has no Upstream bulkhead term. Example 3 plans 3,333 to 5,000 WebSocket Upstream sessions per Node on one Upstream. Traffic management holds a `circuitBreaker.maxConnections` slot for the life of each WebSocket leg, with a default of 1,024 per Upstream per Node and at most 50% per Endpoint. Example 1 sends about 6,500 attempts per second per Upstream per survivor. Traffic management says `maxConnections` SHOULD exceed that rate, yet the example keeps the 1,024 default and never mentions the field.",
+      "evidence": "Example 3: \"| Upstream | `protocol: websocket`, cleartext inside the Region, one connection per session (target) |\"; Example 1: \"The Upstreams see 60,000 legs per second (target)\". Traffic management: \"Streaming and WebSocket legs hold a slot for life, up to the Route `timeout`, so the default allows 1,024 streams per Upstream and Node (target)\" and \"`maxConnections` SHOULD exceed attempts per second per Node (target), or a multi-Endpoint zone can fill the slots first\"; defaults: \"`maxConnections` 1,024, `maxPendingRequests` 256\".",
+      "fix": "Failure scenario: in Example 3, session 1,025 on every Node waits behind 256 pending slots and then fails with `RZ-UP-006`. About 70% of the 200,000 planned sessions cannot connect, and their retries become a permanent reconnect storm. In Example 1, a black-holed Upstream zone fills 1,024 slots in about 0.16 s at 6,500 attempts per second and fails healthy legs for the roughly 1 s detection window. Fix: add inputs for Upstream in-flight attempts per Upstream per Node, A_u = λ_u × W_u × (1 + h) / N_s, and for attempts per second. Add the rule `maxConnections` ≥ max(A_u, attempts per second per Node), with enough Endpoints that the 50% per-Endpoint cap holds. State the values: Example 1 at least 6,500 per Upstream, and Example 3 at least 5,000 with two or more Endpoints. Add m_clear × upstream connections to M_node, and add an Upstream check row to each example."
+    },
+    {
+      "id": "L4X-3",
+      "section": "Worked examples (Example 3); Headroom and failure capacity (Reconnect storm row)",
+      "issue": "Example 3 spreads the snapshot-retirement reconnect storm over the 30 s grace period, but Data plane ends closing streams at once. The storm is therefore 200,000 near-simultaneous upgrades against a State Store sized for 6,667 calls per second and a handshake budget sized for 6,667 per second. The frequency is also unbounded: sessions survive only K + 1 activations, yet the Rollouts-per-day input f_ro never enters any formula.",
+      "evidence": "Example 3: \"A Hot Reload that retires a third snapshot closes sessions pinned to the oldest one with 1001 ([Data plane](../architecture/03-data-plane.md)), so 200,000 sessions may reconnect within the 30 s grace (target) after every three activations: at most 6,667 handshakes per second (target) [H], which the example absorbs.\"; \"| State Store | 56 GCRA calls per second, 6,667 in a reconnect storm (target) | 1 shard with a replica\". Data plane: \"When a third would be retired, the oldest becomes closing: its streams end at once (WebSocket close 1001, ...). After a grace period of 30 s (target) it becomes ending\".",
+      "fix": "Failure scenario: three Rollouts, or a Rollout followed by a rollback and a fix, within one session lifetime close all 200,000 sessions at once. Clients redial within seconds. That produces about 100 vCPU-seconds of handshakes on 156 vCPU, and 200,000 upgrade GCRA calls on one shard of about 100,000 per second (hypothesis). With `stateStoreTimeout` at 5 to 10 ms the calls time out, the per-shard breaker opens, and every `ratelimit` in the Cell fails open. Fix: set λ_storm = S for snapshot retirement, not S / 30. Size shards and handshake CPU for the burst, or state client reconnect jitter as an explicit (hypothesis) with an Open question to Data plane for jittered retirement closes. Add a rule linking f_ro to session lifetime, for example at most K + 1 activations per mean session lifetime, and add a re-planning trigger on `ruralz_snapshot_retirement_ended_total` or on activations per hour."
+    },
+    {
+      "id": "L4X-4",
+      "section": "Worked examples (Example 3)",
+      "issue": "Example 3's mean session lifetime equals the default 1 h WebSocket Route timeout, and the gateway ends a WebSocket leg at that timeout. After any mass reconnect (zone loss, Drain waves, snapshot retirement), the reconnected sessions therefore share a start time and expire together an hour later. The storm repeats every hour, while the model plans a uniform 56 opens per second.",
+      "evidence": "Example 3: \"| Mean session lifetime | 1 hour, so 56 new sessions per second (target) |\". Traffic management defaults: \"| `Route.spec.timeout` | 15 s; 1 h for WebSocket, GraphQL subscription, gRPC streaming and `protocol: ai` Routes (target) |\" and \"Streaming and WebSocket legs hold a slot for life, up to the Route `timeout`\".",
+      "fix": "Failure scenario: a zone loss makes 66,667 sessions reconnect within about 30 s. At 60 minutes they hit the Route timeout together, and they reconnect again at 2,222 per second on top of the 56 per second baseline, every hour, indefinitely. A snapshot-retirement storm resynchronizes all 200,000 sessions in the same way. Fix: state the Route `timeout` explicitly in Example 3, above the session lifetime or chosen deliberately. Plan λ_open at the synchronized-expiry rate. Add an Open question, linked to OQ-scalability-and-distributed-state-6, for a jittered maximum stream age so that expiries desynchronize."
+    },
+    {
+      "id": "L4X-5",
+      "section": "Worked examples (Examples 1 and 3 Container rows); Headroom and failure capacity (Zone loss row)",
+      "issue": "The L4 connection caps chosen to fit GOMEMLIMIT leave survivors with no margin, which contradicts the document's own 80%-of-each-ceiling rule. In Example 3 the cap of 5,000 equals the planned 5,000 sessions per survivor at peak plus h (100% of the cap). In Example 1, 3,900 per survivor is 87% of the 4,500 cap. Long-lived connections are pinned and L4 balancers spread them unevenly, so the fullest survivors refuse connections while others have room.",
+      "evidence": "Example 3: \"| Container | L4 cap 5,000 connections: 1,243 MiB + 5,000 × 912 KiB = 5,696 MiB (target) [H] | 8 GiB (target) |\" and \"| Zone loss at peak plus 30% | 52 Nodes, 5,000 sessions each (target) [H] |\"; Example 1: \"L4 cap 4,500 connections, above 3,900 per survivor\"; Headroom table: \"| Zone loss | Survivors under 80% CPU and 80% of each ceiling |\"; Autoscaling rule 8: \"Long-lived connections pin to their Node: a new Node takes only new sessions\".",
+      "fix": "Failure scenario: after a zone loss at peak plus 30% in Example 3, any imbalance of a few percent pushes some Nodes past 5,000. The L4 balancer refuses those sessions, clients retry, and the retries add to the storm. Autoscaled Nodes do not rebalance pinned sessions. Fix: require C_cap ≥ per-survivor planned connections / 0.8 and recompute the examples. For Example 3 that is 6,250: 1,243 + 6,250 × 912 KiB ≈ 6,810 MiB, which still fits the 8 GiB container at GOMEMLIMIT 7,373 MiB. For Example 1 it is 4,875, which needs a 7 GiB container before L4X-1 is applied. Add the L4 cap to the Headroom check tables."
+    },
+    {
+      "id": "L4X-6",
+      "section": "Headroom and failure capacity",
+      "issue": "A zone loss is modeled alone, but in the recommended layout it also takes out a State Store primary (\"a replica per shard across zones\") and one Ruralz Control replica, possibly the leader. The table says failures compose only where it says so, and it never composes these. The reconnect-storm row also allows 10% of survivor CPU on top of survivors already planned at 80%.",
+      "evidence": "\"Capacity is planned for the peak plus h on the survivors of the largest single failure. Failures compose only where the table says so.\"; \"| State Store primary failover | A replica per shard across zones; `failureMode` for about 15 s (hypothesis) |\"; \"| Reconnect storm (zone loss, Drain, snapshot retirement) | Handshake CPU and upgrade GCRA calls fit | λ_storm × c_hs ≤ 10% of survivor CPU (target) |\". Scalability Failure containment: \"| One Node or zone | Its in-flight requests and connections; a zonal primary until failover |\".",
+      "fix": "Failure scenario: in one zone loss in Example 2, survivors absorb a third of the streams while the Token Budget shard fails over, giving about 15 s of `RZ-STS` 503s. At the same time a third of the Control Streams reconnect to two replicas and, if the leader was in that zone, Rollouts and the Node count freeze. The document budgets each of these separately. Survivors can reach 80% CPU plus 10% storm, which is 90%, past the 80% rule. Fix: add a composite \"zone loss\" row that sums survivor CPU, handshake storm, State Store failover window and Ruralz Control stream reconnects (N_all / (replicas − 1)). Require survivor CPU plus storm ≤ 80%, or lower u_z. Show the composite in each example's Headroom check table."
+    },
+    {
+      "id": "L4X-7",
+      "section": "Ruralz Control sizing; Re-planning triggers; Capacity model (Formulas)",
+      "issue": "The replica rule is not zone-aware, and the 8,000-Node rule is inconsistent with it. The formula gives 3 replicas up to 10,000 Nodes, the prose adds a fourth above 8,000, and the trigger fires at 4,000 streams per survivor. With three zones, a fourth replica shares a zone with another, so a zone loss still leaves 2 replicas at 5,000 streams each, exactly the shedding onset. If the fourth replica is a voter (Control plane: `ruralz control join` \"adds a voter\"), four voters with two in one zone lose quorum when that zone fails.",
+      "evidence": "Formulas: \"replicas  = max(voters, ceil(N_all / 5,000) + 1)\"; prose: \"so deployments above 8,000 Nodes (target) SHOULD add a fourth replica as a non-voter, keeping survivors of a replica loss at 4,000 streams, 80% of the onset (hypothesis)\"; trigger: \"| Ruralz Control streams | `ruralz_control_connected_nodes` / (replicas − 1); shed reconnects | Above 4,000 (hypothesis), or any shed outside a restart | Add a replica |\". Control plane: \"`ruralz control join` redeems a one-time `admin` token in `Join`, and the leader signs the replica's certificate and adds a voter.\"",
+      "fix": "Failure scenario: at 9,000 Nodes with 4 replicas in 3 zones, losing the zone with two replicas sends 4,500 Nodes to two survivors at 4,500 streams each, against a 5,000 onset (hypothesis) with no margin while every Node redials. With four voters, quorum is lost too: writes, Enrollment and Rollouts stop (`RZ-CP-004`). Fix: use a zone-aware rule, the smallest r with r − ceil(r / Z) ≥ N_all / (0.8 × 5,000), with voters kept at three or five and spread one per zone. At 10,000 Nodes and Z = 3 that gives 5 replicas. Name any extra replica type only as the Release document's non-voter, or raise an Open question with Control plane and GitOps. Align the formula, the prose rule and the trigger threshold to one value."
+    },
+    {
+      "id": "L4X-8",
+      "section": "Ruralz Control sizing; Capacity model (Formulas); Planning inputs",
+      "issue": "Control Store disk sizing assumes 50 retained Revisions per Environment, but no depended-on document defines a retention or garbage-collection policy for Revision content, diffs, sources or audit segments. The Rollouts-per-day input f_ro is collected and then never used. Audit segments and the Raft log are named but not quantified. Disk growth is therefore unbounded, while the plan fixes a 20 GiB volume.",
+      "evidence": "Formulas: \"D_store   = E × 50 × (s_rev + s_diff + s_src) + audit segments + Raft log + 2 snapshots\"; Ruralz Control sizing: \"| Control Store content | E × 50 retained × (s_rev + diff + source) (target) | 3.7 GiB; a 20 GiB volume per replica (target) [H] |\"; Planning inputs: \"| Environments; encoded Revision size; Rollouts per day | E; s_rev; f_ro | Ruralz Control |\". Control plane and GitOps defines no Revision retention count.",
+      "fix": "Failure scenario: at 20 Rollouts per day across 3 Environments, with about 25 MiB per Revision triple (3.7 GiB / 150), content grows by about 1.5 GiB per day. Without GC the 20 GiB volume fills in about 11 days. bbolt and content writes then fail, Raft writes stop, and Enrollment and Rollouts fail (`RZ-CP-004`), so autoscaling adds no Nodes. Fix: write D_store = E × f_ro × retention_days × (s_rev + s_diff + s_src) + audit bytes per day × audit retention + the Raft log up to the snapshot threshold, tagged. Raise an Open question to Control plane and GitOps for Revision and audit retention and GC. Add a re-planning trigger on Control Store volume use (for example above 70% (target)), and include backup storage (backup size × retained backups) in the Cost template."
+    },
+    {
+      "id": "L4X-9",
+      "section": "Capacity model (Figure 1, Formulas); Re-planning triggers (Cell ceilings)",
+      "issue": "The model's remedy for exceeding Cell ceilings is to split the Cell. It never states that a split multiplies every Rate Limit, Quota and Token Budget by the number of Cells a Consumer can reach, because limits are exact only inside one Cell. The consistency bound changes silently, and no number is given.",
+      "evidence": "Figure 1: `split[\"Split into a second Cell\"]`; Formulas: \"n_shard = max(1, ceil((1 + h) × O / (0.5 × q_shard)))   at most 16, else split the Cell\"; trigger: \"| Cell ceilings | Nodes; shards | Above 800 Nodes or 12 shards per Cell (target) | Plan a Cell split |\". Scalability: \"Non-guarantees: limits are exact only inside one Cell\" and \"across R Cells the total is at most R × these (target)\".",
+      "fix": "Failure scenario: Example 1 at 100x load (2,000,000 rps, O about 2.6 million calls per second against a 1,000,000 Cell ceiling (hypothesis)) splits into three Cells behind one L4 or DNS layer. Each partner's `ratelimit` and `quota` then admits up to 3 × its limit, and Token Budgets overspend by up to 3x. Fix: in the split guidance, require that Consumers are pinned to one Cell (hostname or tenant steering), or that limits are divided through per-Environment variables as in Scalability's Divided pattern. State the resulting bound (C_cells × limit, tagged). Add \"Consumer-to-Cell pinning in place\" to the Cell-split action."
+    },
+    {
+      "id": "L4X-10",
+      "section": "Capacity model (Formulas); State Store sizing; Worked examples (Example 1)",
+      "issue": "n_shard assumes calls spread evenly across shards. The model has no input for the hottest key or hash slot, even though a hot key cannot be split, and pack 8.7 hash-tagging deliberately concentrates a Consumer's consumptive keys on one slot. No example states its hottest key's rate or checks it against the 25%-of-a-shard threshold.",
+      "evidence": "Formulas: \"n_shard = max(1, ceil((1 + h) × O / (0.5 × q_shard)))\"; Example 1: \"| State Store calls | s = 1 GCRA, w = 0; 50,000 active keys (target) |\"; Scalability: \"A key whose `requests` exceed 25% of one shard's calls, about 25,000 per second (hypothesis), MUST use `localOnly` mode\" and Failure containment \"| Hot key | One shard: every Node's breaker for it opens and co-tenant keys apply `failureMode` |\".",
+      "fix": "Failure scenario: Example 1 at 10x (200,000 rps, 6 shards planned) with one partner key carrying 15% of traffic sends 39,000 GCRA calls per second with h to one shard, above the 25,000 threshold and near its about 50,000 planning share. That shard's breakers open on every Node, and every co-tenant key on it fails open, regardless of n_shard. Fix: add inputs λ_key,max and λ_slot,max. Add the checks λ_key,max × (1 + h) ≤ 0.25 × q_shard and λ_slot,max × (1 + h) ≤ 0.5 × q_shard, otherwise declared ceilings or the proposed `localOnly` (OQ-traffic-management-and-resilience-1). State the hottest-key share in each example, and add a re-planning trigger on per-shard call skew."
+    },
+    {
+      "id": "L4X-11",
+      "section": "Worked examples (Example 2)",
+      "issue": "Example 2 reports a Token Budget overshoot bound of 20,000 tokens tagged (target). Scalability's healthy `closed` bound adds (attempts − 1) × R per concurrent request and hidden reasoning above C, and it is a (hypothesis). The 2% estimate error is itself a (hypothesis): Vision notes that newer Claude models produce about 30% more tokens. The stated accuracy bound is understated by up to about 150x and mis-tagged.",
+      "evidence": "Example 2: \"| Overshoot bound | 500 × 2,000 × 2% estimate error, the SM-10 assumption (target) [H] | 20,000 tokens (target) |\". Scalability: \"Overshoot at most the sum of input-estimate errors across concurrent requests, plus (attempts − 1) × R per concurrent request, plus hidden reasoning above C on `gemini` and `ollama` while OQ-ai-llm-gateway-17 is open; SM-10 ... (hypothesis)\". Vision: \"SM-10's 2% estimate error is an assumption (hypothesis): ... about 30% more tokens for the same text\".",
+      "fix": "Failure scenario: with one Provider Fallback attempt per stream, overshoot reaches 20,000 + 500 × 6,096 = 3,068,000 tokens. With a 30% estimate gap it is 300,000 tokens before retries. An operator who sizes Quotas and spend alerts from 20,000 is wrong by two orders of magnitude. Fix: restate the full bound with all three terms, tagged (hypothesis), and give numbers for attempts = 1 and attempts = 2 and for 2% and 30% estimate error. Cite Scalability and AI/LLM gateway as owners."
+    },
+    {
+      "id": "L4X-12",
+      "section": "Autoscaling policies; Re-planning triggers (Ceilings)",
+      "issue": "For Examples 1 and 3, where in-flight units bind, the autoscaling signal and the trigger cannot see the binding resource. `ruralz_http_active_requests` counts requests only, not parallel composition steps or WebSocket pumps. A 50% threshold on the connection gauge also sits far above Example 3's planned 3,333 connections per Node (16.7% of 20,000), because units run out at 6,667 sessions, or 33% of the connection ceiling.",
+      "evidence": "Autoscaling table: \"| Connection-bound, Example 3 | In-flight units, connections | `ruralz_listener_open_connections` and `ruralz_http_active_requests` at 50% (target) | N, held static | N plus one zone's share |\"; Scalability Autoscaling signals: \"| In-flight units | `ruralz_http_active_requests` (requests only) against 20,000 | 50% of the ceiling (target) |\"; Example 3: \"| In-flight units per session u_s | 3: the upgrade request plus one pump per direction (target) [H]\".",
+      "fix": "Failure scenario: Example 3 growth pushes a Node toward 6,667 sessions. Units reach 20,000 and new upgrades get 503 `RZ-RT-005`, while the connection gauge reads 33% and the request gauge reads at most 33%, so neither crosses 50%. The autoscaler never adds a Node, and the trigger never fires. Fix: scale on units expressed through observable gauges, such as connections at f_z / u_s of the ceiling (16.7% for Example 3) or active requests × (1 + q_r) for Example 1. Alternatively, raise an Open question to Observability for an in-flight-unit gauge, and set the Ceilings trigger on that gauge."
+    },
+    {
+      "id": "L4X-13",
+      "section": "Headroom and failure capacity (Zero-Downtime Upgrade on a VM row)",
+      "issue": "During an ADR-0015 handover, the old and new `ruralzd` each run with their own GOMEMLIMIT, which the model sets at the flood floor, not at M_node. Sizing the host at 2 × M_node lets the host run out of memory while both processes are within their limits.",
+      "evidence": "\"| Zero-Downtime Upgrade on a VM | Old and new `ruralzd` share the host during Drain ([ADR-0015](../adr/0015-zero-downtime-upgrades-so-reuseport.md)) | Host memory ≥ 2 × M_node (hypothesis) |\"; Formulas: \"GOMEMLIMIT ≥ max(M_node, M_fix + C_cap × m_worst)\".",
+      "fix": "Failure scenario: an Example 1 VM sized at 2 × 1,675 MiB ≈ 3.3 GiB upgrades during a slow-header flood. The draining process holds its connections up to 5,530 MiB, and the new process reserves M_fix of 1,243 MiB plus new connections. The host OOM killer takes one or both processes, so every connection on that Node drops at once, in the middle of a Drain. Fix: host memory ≥ 2 × container (2 × GOMEMLIMIT / 0.9), or set a lower GOMEMLIMIT for the successor until the predecessor exits, with an Open question to Zero-downtime upgrades and hot reload. Recompute the example numbers."
+    },
+    {
+      "id": "L4X-14",
+      "section": "Capacity model (Figure 1, Formulas); Worked examples (Example 3); Ruralz Control sizing",
+      "issue": "Several scale figures carry neither (target) nor (hypothesis) on their line, which violates style guide section 4, the L4X lens rule and acceptance criterion 2. The machine check passes only because code fences and Mermaid labels are skipped.",
+      "evidence": "Figure 1 label: \"hr[\\\"Headroom: zone fraction, 30% outage headroom\\\"]\"; Formulas: \"N_conn = ceil((1 + h) × C / (f_z × 20,000))\", \"B      = Σ_r λ_r × W_r × b_r  +  S_sub × 32 KiB\", \"at most 16, else split the Cell\", \"replicas  = max(voters, ceil(N_all / 5,000) + 1)\", \"heartbeats per second = N_all / 15 s\", \"T_batch   ≈ n_batch / (replicas × 20 Snapshots per second)\", \"D_store   = E × 50 × ...\"; Example 3: \"A notification service holds 200,000 long-lived WebSocket sessions over TLS\"; Ruralz Control sizing header: \"| Item | Formula | Example: 3 Environments, 1,200 Nodes, 5,000 Routes |\".",
+      "fix": "Append (target) or (hypothesis) on each of those lines, matching the source: 20,000, 32 KiB, 15 s and 16 are (target); 5,000 streams, 20 Snapshots per second and 50 retained are (hypothesis), or (target) once they have an owner. Tag the Figure 1 label and the table header. Re-run a manual scan of fenced blocks for untagged figures."
+    }
+  ],
+  "non_blocking": [
+    {
+      "section": "Headroom and failure capacity",
+      "suggestion": "The ADR-0015 link '../adr/0015-zero-downtime-upgrades-so-reuseport.md' targets a file that does not exist yet (verify-docs WARN). Keep the link and track it until the ADR lands, or link Zero-downtime upgrades and hot reload instead."
+    },
+    {
+      "section": "Capacity model",
+      "suggestion": "The sentence \"no request crosses a Cell to reach its State Store (pack 8.13)\" misquotes the pack, which says no request crosses a Region. Justify per-Cell sizing with the Cell definition (one Cluster and the State Store it uses) instead."
+    },
+    {
+      "section": "Headroom and failure capacity; Re-planning triggers",
+      "suggestion": "`localOnly` is formatted as a settled mode, but it is option (c) of OQ-traffic-management-and-resilience-1, carried by OQ-scalability-and-distributed-state-11. Write it as \"the proposed `localOnly` mode (OQ-traffic-management-and-resilience-1)\" and give the fallback until the option closes: declared per-Node ceilings."
+    },
+    {
+      "section": "Cost template",
+      "suggestion": "\"shards × 2 × maxmemory / 0.7\" divides by 0.7 a second time, since maxmemory is already sized at 70%. The row \"4 of 1 GiB\" also contradicts the formula. Server RAM must exceed maxmemory to cover fork copy-on-write, the replication backlog and client output buffers for 10 × N connections. Add a server-memory factor and make the quantities follow the formula."
+    },
+    {
+      "section": "State Store sizing (examples table)",
+      "suggestion": "maxclients uses N, not N_max: Example 3 gives \"Above 780\" while its maxReplicas is N plus one zone's share (104 Nodes, 1,040 connections), and Example 2 gives \"Above 30\" with a shard-bound maxReplicas. Use N_max plus rolling-update surge."
+    },
+    {
+      "section": "Headroom and failure capacity; Worked examples",
+      "suggestion": "Give each example a numeric fail-open bound. Example 1 with 6 Nodes and derived ceilings admits up to 2 × `requests` per window during a failover, and up to 20 × `requests` during a 10-to-100 scale-out while the count lags (hypothesis). Operators can then see the accuracy cost, not only the formula."
+    },
+    {
+      "section": "Capacity model (Formulas)",
+      "suggestion": "O counts every State Store operation at GCRA cost against q_shard. Response Cache stores with payloads and `ai.semantic-cache` vector searches cost far more per call. Add per-operation weights, or a separate budget for dedicated connections."
+    },
+    {
+      "section": "Worked examples (Example 3)",
+      "suggestion": "The memory row drops the I × m_unit term (600,000 units × 64 KiB) by saying pump buffers sit inside the 96 KiB session budget, which contradicts K-12 and the M_node formula. Either change K-12 for WebSocket pumps with a PB source or keep the term. The \"30 s client backoff\" is a client-side assumption and should be tagged (hypothesis), with worst-case instant-reconnect numbers shown."
+    },
+    {
+      "section": "Ruralz Control sizing; Cost template",
+      "suggestion": "Cover cross-Region Control Stream Snapshot egress before relays exist (Planned (M4)), and the re-enrollment time after a restore without a revocation list: 10,000 Nodes at about 20 per second per leader is about 500 s (hypothesis). Add a line to the Cost template for backup retention (3.7 GiB per hourly backup)."
+    },
+    {
+      "section": "Ruralz Control sizing",
+      "suggestion": "The \"Full resync after every replica restarts\" row assumes every Node needs a Snapshot. Reconnecting Nodes present their active digest and receive nothing unless they lag. Label the row as the worst case (every Node changed digest), and keep the 32-concurrent and 256 MiB in-flight per-replica bounds of Control plane visible."
+    }
+  ],
+  "ac_results": [
+    {
+      "ac": "Capacity model gives formulas with named variables for CPU, memory, State Store operations and Ruralz Control sizing.",
+      "pass": false,
+      "note": "Formulas exist for all four, but m_conn, s_diff, s_src, λ_open, s_open, n_batch and N_max are used without definition or value. The GOMEMLIMIT floor omits HTTP/2 stream multiplexing, P_plg and snapshots (L4X-1). n_shard has no hot-key term (L4X-10), and D_store rests on an undefined retention and an unused f_ro (L4X-8)."
+    },
+    {
+      "ac": "Worked examples contains three examples as H3s (REST aggregation at 20k rps, AI with 500 concurrent streams, 200k WebSocket connections), every number tagged (target).",
+      "pass": false,
+      "note": "All three H3s are present with the required subjects. Example 3's opening line \"holds 200,000 long-lived WebSocket sessions\" is untagged (L4X-14). Example 2's overshoot bound is tagged (target) although its source is a (hypothesis) and it omits terms (L4X-11)."
+    },
+    {
+      "ac": "Every coefficient cites docs/architecture/12-performance-budgets-and-benchmarking.md.",
+      "pass": false,
+      "note": "K-15 cites the PB streamed chunk row, which holds 1 MiB, while the 32 KiB and 128 MiB values come from Data plane. K-18 cites G1, which records no bytes per key. The 1.5 KiB per resource, the 50 retained Revisions, the 20 Enrollments per second (Deployment topologies) and the 25% hot-key and 0.5 × q_shard factors (Scalability) have no PB source."
+    },
+    {
+      "ac": "Sizing inputs, results and headroom are presented in tables.",
+      "pass": true,
+      "note": "Each example has input, result and headroom tables, and the State Store, Ruralz Control and Cost sections are tabular. The headroom tables omit the L4 cap and composite zone loss (L4X-5, L4X-6)."
+    },
+    {
+      "ac": "Re-planning triggers lists measurable triggers.",
+      "pass": true,
+      "note": "Every row names a metric and threshold. The Ruralz Control streams threshold of 4,000 contradicts the replica formula (L4X-7), and the Ceilings row cannot observe in-flight units (L4X-12). There is no trigger for Control Store disk or activation frequency (L4X-3, L4X-8)."
+    },
+    {
+      "ac": "verify-docs.mjs (--allow-missing --skip markdownlint) reports no FAIL line for this document",
+      "pass": true,
+      "note": "Only a WARN for the missing ADR-0015 link at line 290."
+    }
+  ],
+  "foundation_amendments": []
+}

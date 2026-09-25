@@ -1,156 +1,120 @@
 {
   "lens": "L3 acceptance-audience",
   "verdict": "revise",
-  "score": 6,
+  "score": 7,
   "blocking": [
     {
       "id": "L3-1",
-      "section": "Control plane upgrades; Verification runbook",
-      "issue": "The Prepare step, and the runbook's generic Before row, accept Nodes already at N before Ruralz Control is upgraded. In Release, versioning and compatibility, a Node newer than the Control Store version is outside policy, and Figure 2 there gates the first replica replacement on 'Every Node at N-1?'. The version skew therefore does not match the dependency. An operator following this document would start a Ruralz Control upgrade with out-of-policy Nodes. Acceptance criterion 3 fails.",
-      "evidence": "Line 294: \"1. **Prepare.** Every replica reported a snapshot at the Control Store version and every Node runs N-1 or N\"; line 385: \"| Before | `ruralz version`; `ruralz node list --cluster <name>` | Every Node at N-1 or N; digests equal the promoted digest |\". Release skew table: \"| Ruralz Control and Ruralz Gateway Nodes | N-1; N once the Control Store version is N | N-2 or older; newer than the Control Store version |\"; Release Figure 2: \"b{\\\"Every Node at N-1?\\\"}\" / \"c[\\\"Upgrade lagging Nodes to N-1\\\"]\"",
-      "fix": "Prepare: \"Every replica reported a snapshot at the Control Store version, and every Node runs N-1 (upgrade any N-2 Node to N-1 first); take `ruralz control backup` and pause `ruralz bundle push`.\" Split the runbook Before row in two: \"Before a Ruralz Control upgrade: every Node at N-1\" and \"Before a Node upgrade (after finalize): every Node at N-1 or N\"."
+      "section": "Binary upgrades > Kubernetes Drain and restart; Binary upgrades > Node count during upgrades; Verification runbook",
+      "issue": "This is a regression from the L3-6 fix. Each Kubernetes step now replaces one zone's share of Pods. The worked example therefore upgrades a 1,000-Node Cluster at 10% per 45 s, finishing in 7.5 minutes. Node count during upgrades says derived-ceiling Clusters MUST upgrade at most 10% of Nodes per 10 minutes, about 100 minutes per Cluster. The document gives T4 operators no way to pace a StatefulSet RollingUpdate to that rate. The runbook also requires `ruralz_control_cluster_nodes` to drop at most 10% during any upgrade, which a one-zone step of about 33% breaks even on declared-ceiling Clusters. A T4 operator cannot follow both rules, and the only worked example breaks the MUST.",
+      "evidence": "Line 204: \"derived-ceiling Clusters MUST upgrade at most 10% of Nodes per 10 minutes (target), about 100 minutes per Cluster (hypothesis); declared ceilings ... need no pacing.\" Line 278: \"Each step replaces up to `maxUnavailable` Pods, M, one zone's share at minimum scale (target) ... derived-ceiling Clusters also pace as [above]\". Line 282: \"Example      N = 1,000, minReplicas 300, three zones: M = 100, 10 steps, 7.5 min   (hypothesis)\". Line 435: \"| During any upgrade | `ruralz_control_cluster_nodes`; ... | Drops at most 10% (target); no breaker opens |\"",
+      "fix": "In Kubernetes Drain and restart, say that the chart's RollingUpdate cannot pace to 10% per 10 minutes. On T4, a derived-ceiling Cluster therefore MUST declare per-Node ceilings before an image change. Alternatively, add an Open question owned by deployment-topologies for a paced Node update, and keep the MUST until it closes. Label the 7.5-minute example \"declared ceilings\". Scope the runbook row, and the count criteria in V-3 and V-5, to derived-ceiling Clusters, for example \"Derived-ceiling Clusters: drops at most 10% (target); declared-ceiling T4: drops at most M Nodes per step\"."
     },
     {
       "id": "L3-2",
-      "section": "Rollback",
-      "issue": "Rule 6 of Ruralz Control upgrades in Release, versioning and compatibility gives this document the Rollout and handover steps for returning to N-1 after finalize once Nodes run N. This document does not state them. Figure 4 goes straight from 'Ruralz Control finalized? yes' to 'Restore', and the prose treats that path as a restore only. An operator whose Nodes already run N would restore an N-1 Control Store behind N Nodes. That is outside the skew policy, and those Nodes may hold N-only fields in Last-Known-Good.",
-      "evidence": "Figure 4: \"q5 -- \\\"yes\\\" --> r7\" with r7 \"Restore: High availability and disaster recovery\"; line 377: \"After finalize, returning to N-1 is a restore into an empty N-1 deployment ... a recovery, not a rollback\". Release rule 6: \"First, while still on the N deployment, roll out to every Cluster a Revision without N-only fields and let it reach `complete` ... Next, return every Node to N-1 by handover ... Only then restore ... Zero-downtime upgrades and hot reload owns the Rollout and handover steps\"",
-      "fix": "Add a row or subsection 'Ruralz Control after finalize, Nodes at N' with the owned steps: (1) on the N deployment, `ruralz rollout start --cluster <name> --revision sha256:<digest without N-only fields>` for every Cluster until `complete`; (2) hand every Node back to N-1 (in place) or set the N-1 image (Kubernetes); (3) hand off to the restore runbook in High availability and disaster recovery, re-applying N-1's `ruralz-crds.yaml` first on Kubernetes. In Figure 4, add a decision 'Nodes at N?' before r7 that routes through these steps."
-    },
-    {
-      "id": "L3-3",
-      "section": "Rollback; Guarantees",
-      "issue": "ZG-8 and the section's opening sentence promise that every rollback takes three steps or fewer. Past the binary rollback limit, however, Figure 4 chains r5 to r4, and the prose says to roll back the Revision first and then the binary. The complete-Rollout revert takes three steps and the binary row two, so the path takes up to five steps. The table has no row for this case. Acceptance criterion 4 ('Rollback takes three steps or fewer') fails for a path the document itself routes the operator into.",
-      "evidence": "Line 58: \"ZG-8 | Every rollback this document owns takes three steps or fewer\"; line 335: \"Every rollback below takes three steps or fewer\"; Figure 4: \"q4 -- \\\"no\\\" --> r5\" and \"r5 --> r4\"; line 377: \"Past the binary rollback limit, first roll back to a Revision without N-only fields, then the binary.\"",
-      "fix": "Add a table row 'Binary past the rollback limit' with three steps at most: (1) `ruralz rollout start --cluster <name> --revision sha256:<last digest without N-only fields>` (approval if held, counted inside the step); (2) `ruralz rollout status <rollout-id> --wait` reaches `complete`; (3) the in-place reverse handover or the N-1 image. Alternatively, scope ZG-8 to single-change rollbacks and state that a chained path is two rollbacks run in sequence. Either way, the guarantee and the figure must agree."
-    },
-    {
-      "id": "L3-4",
-      "section": "Binary upgrades > In-place handover",
-      "issue": "Readiness gating (ADR-0015) is not achieved for traffic. The new process binds 8080, 8443 and 9901 with SO_REUSEPORT in step 3, before it warms and before the old process accepts it. From that bind on, the kernel spreads new connections across both sockets, so clients reach a process that has not passed its gate. If the handover is refused or times out, the new process exits and the connections queued on it are reset. That contradicts ZG-3 ('refuses no new TCP connection') and V-3 ('Zero refused connections'), and an operator cannot tell from the document whether a refused handover is safe. Acceptance criterion 6 fails on 'readiness gating'.",
-      "evidence": "Line 174: \"3. **Bind and gate.** It binds 8080, 8443 and 9901 with `SO_REUSEPORT` (in-flight QUIC on UDP 8443 is lost), warms, then reports version, format markers and active digest\"; line 175: \"A new process not accepted within 60 s (target) exits; the old one never started draining.\"; line 53: \"ZG-3 | An in-place handover refuses no new TCP connection\"",
-      "fix": "State how new connections stay off the new sockets until acceptance. For example, the lock holder keeps an `SO_ATTACH_REUSEPORT_CBPF` program on each reuseport group that selects only its own socket, and step 5 swaps it for one that selects the new socket. Alternatively, the new process calls listen only after it is accepted. Reorder Figure 1 and steps 3 to 5 to match. Add a refused-handover case to V-3 with the pass criterion 'zero reset connections'."
-    },
-    {
-      "id": "L3-5",
-      "section": "Guarantees; Binary upgrades > Drain timeline defaults",
-      "issue": "The document contradicts itself on readiness during a handover. ZG-3 and V-3 promise that /readyz stays at 200 throughout. The Drain timeline, however, applies to every Drain, including one started by an accepted handover, and its first row sets /readyz to 503 at 0 s. Figure 1 also has the old process 'fail readyz'. A balancer health check that reuses its connection to the old process sees 503 and marks the Node down. The document does not say which rule wins, so an operator cannot configure health checks for T5 or T2.",
-      "evidence": "Line 186: \"A Drain starts on SIGTERM, on `ruralz node drain` ... or on an accepted handover.\"; line 190: \"| 0 s | Readiness failure: `/readyz` returns 503; heartbeats set `draining` | At once (target) |\"; Figure 1: \"Old->>Old: accept the queued connections, close listeners, fail readyz\"; line 53: \"keeps the Node's `/readyz` at 200 throughout\"; line 389: \"200 throughout a handover\"",
-      "fix": "Add a handover variant of the Drain timeline. In a handover, the old process closes its idle 9901 connections and answers in-flight admin requests with `Connection: close` after CBPF steers 9901, so every probe reaches the accepted new process, and it never serves a 503 /readyz on a kept-alive connection. Make the offsets explicit when no SIGTERM and no accept window occur, for example 'deadline 20 s after acceptance (target)'. Add a keep-alive health checker to V-3."
-    },
-    {
-      "id": "L3-6",
-      "section": "Binary upgrades (path table; Kubernetes replacement)",
-      "issue": "The Kubernetes replacement cadence contradicts Deployment topologies, which this document depends on. That document sets the Node StatefulSet's RollingUpdate maxUnavailable to match the PodDisruptionBudget, which is one zone's share at minimum scale. This document says the update replaces one Pod at a time and sizes the headroom from that. An operator would get different upgrade durations and capacity loss depending on which document they follow.",
-      "evidence": "Line 132: \"| Replacement | Kubernetes (T4) | StatefulSet rolling update: preStop, Drain, new Pod | One Pod at a time, within the PodDisruptionBudget |\"; line 251: \"Each step removes one Pod for about 40 to 45 s (hypothesis), so `minReplicas` SHOULD hold one zone's share of headroom.\" Deployment topologies: \"| Node StatefulSet | `podManagementPolicy: Parallel` ...; `RollingUpdate`, `maxUnavailable` matching the PodDisruptionBudget\" and \"| PodDisruptionBudgets | One `ruralz-control` pod; for Nodes, one zone's share at minimum scale (target) |\"",
-      "fix": "Change the Capacity cell to \"Up to `maxUnavailable` Pods at a time, equal to the PodDisruptionBudget (one zone's share at minimum scale, target), per Deployment topologies\". Restate line 251 so that each step removes up to one zone's share for about 40 to 45 s (hypothesis). Note that the PodDisruptionBudget limits evictions, not the StatefulSet controller's own rolling update."
-    },
-    {
-      "id": "L3-7",
-      "section": "Guarantees",
-      "issue": "ZG-1, the first guarantee operators read, misstates the retirement behavior that the document's own Atomic swap paragraph and Data plane define. Streams pinned to the oldest retired snapshot are closed at once when a third retirement occurs. They get no 30 s grace; only whatever is still pinned after the grace ends with RZ-RT-014. An operator planning frequent Hot Reloads would underestimate how many WebSocket, gRPC and SSE streams are closed.",
-      "evidence": "Line 51: \"ZG-1 | A Hot Reload drops no in-flight request; only a stream that outlives K + 1 further activations and a 30 s grace ends, K = 2 (target)\"; line 88: \"a third retirement closes the oldest one's streams (WebSocket 1001, gRPC `UNAVAILABLE`, SSE end with a retry hint) and ends the rest after a 30 s grace (target) with `RZ-RT-014`\"",
-      "fix": "Reword ZG-1: \"A Hot Reload drops no in-flight request. When a third snapshot retires, streams pinned to the oldest receive a going-away close at once, and anything still pinned 30 s later (target) ends with RZ-RT-014; K = 2 (target).\""
+      "section": "Rollback (table row 'Ruralz Control before finalize'; Figure 4 r6)",
+      "issue": "The rollback before finalize replaces only replicas and never mentions regional relays. Control plane upgrades step 3 upgrades relays to N before finalize, and the Release skew table puts a relay newer than the replicas outside policy. An operator who follows the row after relays reached N returns every replica to N-1 while the relays stay at N. That breaks the skew policy this document must match, and Release rule 5 names relays in the rolling return.",
+      "evidence": "Line 419: \"| Ruralz Control before finalize | Replace each N replica with N-1, one at a time, leadership moved off first | Confirm `/readyz` on 9902 and Raft catch-up | None |\"; Figure 4: \"r6[\\\"Replace replicas back to N-1, one at a time\\\"]\"; line 326: \"3. **Regional Ruralz Control relays**, Planned (M4), one at a time\". Release skew table, relay row, Outside policy: \"N-2; N-1 after finalize; newer than the replicas\"; Release rule 5: \"Before finalize, returning a replica or relay to N-1 is a rolling step.\"",
+      "fix": "Change step 1 of that row to \"Return each relay at N to N-1, one at a time (Planned (M4)), then replace each N replica with N-1, one at a time, leadership moved off first\". Keep step 2 as is and add \"and every relay\" to it. Update the r6 label to \"Relays, then replicas, back to N-1, one at a time\"."
     }
   ],
   "non_blocking": [
     {
-      "section": "Binary upgrades > Drain timeline defaults",
-      "suggestion": "The 'Drain deadline' is 25 s after SIGTERM in the table, but line 204 compares the grace period against \"5 s plus 30 s\" and calls 30 s the Drain deadline. Use one term: 'exit at 30 s' for the comparison, and keep 'Drain deadline' for 25 s."
+      "section": "Binary upgrades > In-place handover; Guarantees (ZG-3); V-3",
+      "suggestion": "The CBPF swap covers the accept queue but not half-open handshakes. A SYN that reached the old listener just before the swap completes after `close()`, and without `net.ipv4.tcp_migrate_req=1` the final ACK finds no request socket and is reset. That conflicts with ZG-3 and with V-3's 'zero reset connections'. After step 5, keep the old listeners accepting for a short bounded window (for example until their SYN-RECV count is zero, capped in seconds (target)). Alternatively, make `tcp_migrate_req` a complement rather than an alternative (see foundation amendment)."
     },
     {
-      "section": "Binary upgrades > Node lifecycle during an upgrade",
-      "suggestion": "Figure 3 labels are wrong for a rollback. 'ServingNew --> Overlap: rollback handover to N-1' ends in 'Serving on N'. 'Booting --> NotReady: ... RZ-CFG-024' sits under 'New Pod booting on N', but only an N-1 binary meets RZ-CFG-024. Use version-neutral labels, such as 'Serving on the target binary', or add an N-1 rollback branch."
+      "section": "Rollback (Figure 4 q6)",
+      "suggestion": "Change 'Nodes already on N?' to 'Any Node on N?'. As written, a Cluster with only some Nodes on N can take the 'no' branch and restore an N-1 Control Store behind N Nodes."
     },
     {
-      "section": "Binary upgrades > Long-lived WebSocket and SSE connections",
-      "suggestion": "Add the MQTT embedded broker row (MQTT 5 DISCONNECT 0x8B; 3.1.1 connection closed, Planned (M4)) from Multi-protocol's Termination per protocol table, so the strategy covers every long-lived protocol."
+      "section": "Rollback (row 'Ruralz Control after finalize, Nodes at N')",
+      "suggestion": "Step 1, 'steps 1 and 2 of the rollback-limit row', packs a Rollout start, an optional approval and a wait into one cell. Spell it out as \"`ruralz rollout start` of the last digest without N-only fields to every Cluster, each reaching `complete`\" so the row reads as three concrete actions."
     },
     {
-      "section": "Verification runbook",
-      "suggestion": "V-4 (CE-2, WebSockets and SSE) is Planned (M1), but this document tags these protocols Planned (M3). Either say that V-4 runs at M1 for HTTP/1.1 and HTTP/2 only and adds WebSocket and SSE at M3, or tag it Planned (M3). Scalability's CE-2 has the same inconsistency."
+      "section": "Guarantees (Drain glossary row) and Drain timeline defaults",
+      "suggestion": "The pack's Drain definition says 'readiness fails', but a handover Drain never serves a 503. Add one clause under the table: 'in a handover, readiness moves to the new process instead of failing (step 6)'. This also keeps Scalability's '/readyz fails during Drain' consistent."
     },
     {
-      "section": "Rollback",
-      "suggestion": "Give complete commands: `ruralz rollout approve --rollout <rollout-id> --digest sha256:<previous>` (the CLI requires both flags), `ruralz bundle push --env <env> --environments <file> --oci <reference>` (push needs `--environments` without Ruralz Control, per Deployment topologies RA-1), and `ruralz node dump --admin <url>`."
+      "section": "Binary upgrades > In-place handover (Figure 1)",
+      "suggestion": "Tag the '60 s timeout' in the Figure 1 alt branch with (target), as step 4 already does. The style guide requires the tag on the same line."
     },
     {
-      "section": "apiVersion migrations",
-      "suggestion": "The CLI and API surface requires `--environments` for `ruralz bundle render --api-version ... --output-dir`. Add it to step 2."
+      "section": "Configuration hot reload > Atomic swap",
+      "suggestion": "Two sentences are hard for operators to parse. In 'within the 60 s ACK timeout (target) while that timeout is under 23 s', 'that timeout' means the largest Plugin `limits.timeout`, so name it. The sentence starting 'An `all-at-once` Rollout, or file-mode Nodes sharing a source, reach a third activation together, a rollback and re-rollout sufficing' needs a subject-verb rewrite."
     },
     {
-      "section": "Configuration hot reload > Validation gate",
-      "suggestion": "Add the WASM plugin system rule that warm minimums which can never fit the cap are a validation error (OQ-wasm-plugin-system-9), and name RZ-CFG-021 (Plugin config against its schema) in step 6 or step 7."
-    },
-    {
-      "section": "Control plane upgrades",
-      "suggestion": "For T4, add that `ruralz-control` runs as an `OnDelete` StatefulSet (Deployment topologies), so the operator deletes one Pod at a time after moving leadership off it."
-    },
-    {
-      "section": "Binary upgrades > In-place handover",
-      "suggestion": "Step 1 implies that `SO_REUSEPORT` requires the same `RURALZ_CONFIG` and `RURALZ_DATA_DIR`. It requires only the same effective user ID. Split the sentence so the source covers only the UID claim."
+      "section": "Binary upgrades > In-place handover step 4",
+      "suggestion": "Rewrite 'the holder accepts only its active digest, has a newer candidate reloaded and reported again, and refuses an older one' as three short clauses that say who reloads what."
     },
     {
       "section": "Whole document",
-      "suggestion": "verify-docs reports no FAIL lines for this file. It reports six WARN lines: broken links to ADR-0015, ADR-0016 and High availability and disaster recovery, which are not written yet, and 'Relays ... Planned (M4)', which has no matching M4 roadmap item. Recheck them once those files exist."
+      "suggestion": "The body is 4,496 words against a 4,500 maximum, so any fix above will exceed the band. Make room by tightening prose elsewhere, for example the Open question rationale, rather than removing text that resolved earlier findings (L3-4 and L3-5 steps 3 to 6, the handover Drain sentence, and the rollback-limit rows)."
     }
   ],
   "ac_results": [
     {
       "ac": "Binary upgrades states the drain timeline defaults (readiness failure, preStop, drain timeout, HTTP/2 GOAWAY) with values tagged (target).",
       "pass": true,
-      "note": "The Drain timeline defaults table and Figure 2 give readiness failure at 0 s, preStop 5 s, a Drain deadline 20 s after stop-accepting, the first and final GOAWAY, exit at 30 s, 45 s of grace and TimeoutStopSec 40 s, all tagged (target). The handover variant is inconsistent (L3-5), and the deadline terminology differs between 25 s and 30 s (non-blocking)."
+      "note": "The Drain timeline defaults table covers the /readyz 503 at 0 s, the 5 s preStop, the 20 s deadline after stop-accepting, the first and final GOAWAY, grace 45 s and TimeoutStopSec 40 s, all tagged (target). Figure 2 is a gantt with a caption, and the handover variant is stated: deadline 20 s after steering (target)."
     },
     {
       "ac": "Binary upgrades defines the strategy for long-lived WebSocket and SSE connections.",
       "pass": true,
-      "note": "The Long-lived WebSocket and SSE connections subsection covers close 1001, SSE retry jitter with Last-Event-ID, the AI SSE exception, gRPC and the reconnect-rate hypothesis. The MQTT row is missing (non-blocking)."
+      "note": "The 'Long-lived WebSocket and SSE connections' table gives per-protocol behavior at stop-accepting, during the 10 s jitter window (target) and at the deadline, with a reconnect-load hypothesis."
     },
     {
       "ac": "Control plane upgrades covers Raft rolling upgrades, and the version skew matches docs/engineering/04-release-versioning-and-compatibility.md (N and N-1).",
-      "pass": false,
-      "note": "The Raft rolling upgrade, finalize and skew table are present, but the Prepare step and the runbook Before row allow Nodes at N before the upgrade, which contradicts Release's skew table and Figure 2 (L3-1)."
+      "pass": true,
+      "note": "The former L3-1 is resolved: Prepare requires every Node at N-1, and the runbook splits the Before rows. Steps 1 to 5 and the skew table match Release rules 1 to 5 and Figure 2. The relay omission in the Rollback row is listed separately as blocking L3-2."
     },
     {
       "ac": "Rollback takes three steps or fewer.",
-      "pass": false,
-      "note": "Each table row has at most three steps, but the chained path past the binary rollback limit (Figure 4 r5 to r4) takes up to five (L3-3). The rule-6 post-finalize steps this document owns are missing (L3-2)."
+      "pass": true,
+      "note": "The former L3-2 and L3-3 are resolved: every table row has at most three steps, the chained rollback-limit path is its own row, and Figure 4 routes 'Nodes already on N?' through r8. The 'Ruralz Control before finalize' row omits relays (blocking L3-2)."
     },
     {
       "ac": "Configuration hot reload enumerates the validation gate checks and covers atomic swap, partial failure and Plugin hot-swap.",
       "pass": true,
-      "note": "An 11-step gate table with codes and NACK class, plus the Atomic swap, Partial failure (table) and Plugin hot-swap subsections. The has_table machine check passes. ZG-1 misstates retirement (L3-7)."
+      "note": "An 11-step gate table with codes and NACK class, plus Atomic swap, Partial failure (a table) and Plugin hot-swap subsections. The has_table machine check passes."
     },
     {
       "ac": "Binary upgrades follows ADR-0015 (SO_REUSEPORT, drain and readiness gating, no socket passing).",
+      "pass": true,
+      "note": "The former L3-4 and L3-5 are resolved: bind without listen, the holder's CBPF pinning, listen only after acceptance, steering, and readiness moving by closing admin connections, with no 503 in a handover. Socket passing is Not planned. The half-open handshake gap is a non-blocking note and a foundation amendment."
+    },
+    {
+      "ac": "H2 outline equals mandatory first two + outline_h2 + Open questions, in order.",
+      "pass": true,
+      "note": "The outline is Summary, Scope and non-goals, the eight outline_h2 headings in order, then Open questions."
+    },
+    {
+      "ac": "Required diagrams (sequenceDiagram, gantt, stateDiagram-v2) with captions.",
+      "pass": true,
+      "note": "Figures 1, 2 and 3 are present with italic captions. Figure 4 (flowchart) is extra."
+    },
+    {
+      "ac": "Length within length_words band 1500-4500.",
+      "pass": true,
+      "note": "4,496 body words by the verify script's rule, which leaves 4 words of headroom."
+    },
+    {
+      "ac": "Every performance or scale number tagged (target) or (hypothesis).",
+      "pass": true,
+      "note": "The prose and tables comply. Only the '60 s timeout' inside the Figure 1 mermaid block is untagged (non-blocking)."
+    },
+    {
+      "ac": "verify-docs.mjs reports no FAIL lines for this document.",
+      "pass": true,
+      "note": "Only WARN lines for broken links to ADR-0015 and ADR-0016, which do not exist yet."
+    },
+    {
+      "ac": "Operators can act without reading sources.",
       "pass": false,
-      "note": "SO_REUSEPORT, CBPF steering, GOAWAY, the Unix-socket ready message and no socket passing are all stated. Readiness gating is defeated because the new process binds before it is ready or accepted, so connections reach it early and are reset if the handover is refused (L3-4)."
-    },
-    {
-      "ac": "Structure: H2 outline equals mandatory first two + outline_h2 + Open questions, in order",
-      "pass": true,
-      "note": "Summary, Scope and non-goals, Guarantees, Configuration hot reload, Binary upgrades, Control plane upgrades, State Store upgrades, apiVersion migrations, Rollback, Verification runbook, Open questions."
-    },
-    {
-      "ac": "Required diagrams (sequenceDiagram handoff, gantt drain timeline, stateDiagram-v2 Node lifecycle) with italic captions",
-      "pass": true,
-      "note": "Figures 1 to 3 are present with captions immediately above, plus the Figure 4 flowchart. All are within 25 nodes."
-    },
-    {
-      "ac": "Length band 1,500 to 4,500 words; Summary 120 words or fewer",
-      "pass": true,
-      "note": "About 4,265 body words by the word_count_rule; the Summary has 106 words."
-    },
-    {
-      "ac": "Every performance or scale number tagged (target) or (hypothesis)",
-      "pass": true,
-      "note": "Manual scan found no untagged figures; the HAProxy and Kubernetes figures carry source URLs from docs/_meta/research/scalability-patterns.md."
-    },
-    {
-      "ac": "verify-docs FAIL lines for this document",
-      "pass": true,
-      "note": "No FAIL lines; six WARN lines (missing link targets not yet written, an M4 roadmap match)."
+      "note": "Mostly yes. T4 operators with derived ceilings cannot follow the pacing MUST, and the runbook count criterion contradicts the one-zone-share step (L3-1)."
     }
   ],
-  "foundation_amendments": []
+  "foundation_amendments": [
+    "Pack section 7, Upgrades row: '`net.ipv4.tcp_migrate_req` is an alternative' should read 'is a complement, or the old listener keeps accepting until its pending handshakes complete'. CBPF steering alone empties the accept queue but resets connections still in SYN-RECV on the closing listener, so zero-reset claims such as ZG-3 need one of the two."
+  ]
 }
