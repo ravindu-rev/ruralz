@@ -433,6 +433,8 @@ Commit messages and pull request titles follow Conventional Commits: `<type>(<sc
 
 A breaking change adds `!` after the scope and a `BREAKING CHANGE:` footer. Footers also carry `Refs: OQ-<docslug>-<n>` or `Refs: ADR-NNNN` when a change implements a decision.
 
+The scope is optional; a change spanning several scopes omits it. A document slug is the file name of a Markdown document under `docs/`, lower-cased, without its extension and numeric prefix: `docs/architecture/03-data-plane.md` is `data-plane` and `docs/glossary.md` is `glossary`. Stage 1 checks `docs` scopes against the files in `docs/`.
+
 ```text
 fix(statestore): skip remaining calls once the request deadline expires
 
@@ -452,6 +454,8 @@ Signed-off-by: Jane Doe <jane@example.com>
 | Binding decisions | Changing a foundation pack decision needs an ADR or an Open questions entry (foundation pack section 14) |
 | Size | SHOULD stay under 400 changed lines, excluding generated files (target) |
 | Merge queue | Re-runs every required `pr-fast` and `pr-full` stage on the combined change |
+
+The security-sensitive packages are `internal/filter/auth/`, `internal/filter/authz/`, `internal/signing/` and `internal/pluginhost/`: the auth, authz, signing and Plugin host packages whose gosec suppressions need a security reviewer. The approval count also requires two approvals for the no-license-check allowlist `internal/tool/repocheck/nolicensecheck.allow`, whose edits need maintainer review ([ADR-0002](../adr/0002-apache-2-license-no-feature-gating.md)), and for `.github/`, which holds the workflows that enforce these rules. `scripts/ci-approvals.sh` holds the list.
 
 ## CI stages
 
