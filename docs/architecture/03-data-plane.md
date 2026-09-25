@@ -335,7 +335,7 @@ Limits: each CEL field has the Configuration model's [cost bounds](02-configurat
 
 A CEL runtime error, a JSON operation on a null body, a path through a non-object or an output over its cap is cannot decide: under `closed`, 503 `RZ-RT-011` in a request Phase or 502 `RZ-RT-012` in a response Phase; under `open`, the Policy is skipped and the body passes unchanged. A spent buffer budget stays 503 `RZ-RT-004`.
 
-The schema carries these [KrakenD EE parity](../comparison/01-krakend-ee-parity-matrix.md) rows: request body extractor (`set[]`), request and response Go-template manipulation (`body`), response query language (`body` or `set[]` over `response.body`), regular expression replacements (`replace[]`), Flatmap (`arrayOps[]`), prompt templates on a Route to an `ai` Upstream, Planned (M3), and SOAP request envelopes, Planned (M5).
+The schema serves these [Feature catalog](../features/01-feature-catalog.md) rows: request body extraction (`set[]`), request and response body templating in CEL (`body`), response queries (`body` or `set[]` over `response.body`), regular expression replacements (`replace[]`), flatmap array operations (`arrayOps[]`), prompt templates on a Route to an `ai` Upstream, Planned (M3), and SOAP request envelopes, Planned (M5).
 
 ```yaml
 apiVersion: ruralz/v1alpha1
@@ -374,7 +374,7 @@ A Route with `composition` instead of `upstreams` calls several Upstreams for on
 
 ### Merge rules
 
-Merging applies to `aggregate` steps and to any step that sets `target`, `select`, `rename` or `group`. Such a body passes `target` (unwrap a nested object), `collection: true` (accept a JSON array), `select` (allowlist fields) and `rename`, then merges under `group` or at the top level; when two steps write one key, the later in list order wins. Merged responses are `application/json` with status 200; a non-JSON body that must merge fails the step. Dot-path removals, such as a KrakenD `deny` list, and flatmap array operations belong to a Route-scoped `transform.response`, which runs on the merged body ([Transform Policies](#transform-policies)).
+Merging applies to `aggregate` steps and to any step that sets `target`, `select`, `rename` or `group`. Such a body passes `target` (unwrap a nested object), `collection: true` (accept a JSON array), `select` (allowlist fields) and `rename`, then merges under `group` or at the top level; when two steps write one key, the later in list order wins. Merged responses are `application/json` with status 200; a non-JSON body that must merge fails the step. Dot-path field removals and flatmap array operations belong to a Route-scoped `transform.response`, which runs on the merged body ([Transform Policies](#transform-policies)).
 
 ### Failures and partial responses
 
@@ -556,10 +556,10 @@ Latency, allocation, throughput and memory budgets live in [Performance budgets 
 | OQ-data-plane-14 | Which quic-go settings enforce the HTTP/3 Bounded resources rows (stream caps, receive window, header ceiling, idle timeout, connection refusal at the ceiling), and does quic-go `http3` support `http.ResponseController` read and write deadlines and a per-stream header-read deadline? | (a) quic-go settings and deadlines, verified by the HTTP/3 conformance cases (current); (b) an internal per-stream timer that resets streams where deadlines are missing; (c) `http3: true` refused until both are verified | data-plane | Yes, for HTTP/3 (M3) |
 | OQ-data-plane-15 | How do clients discover HTTP/3? | (a) `Alt-Svc` on `https` responses with the listener port (current); (b) an advertised port or `ma` field on the listener; (c) HTTPS DNS records only, published by operators | data-plane | Yes, for HTTP/3 (M3) |
 | OQ-data-plane-16 | Should a Hot Reload that replaces an `http3` listener keep its QUIC connections? | (a) No; they are lost and clients reconnect (current); (b) keep the UDP socket and QUIC transport when only non-socket settings change; (c) connection-ID steering to the new server | data-plane | No |
-| OQ-data-plane-17 | How does `transform.response` read an XML response body for SOAP integration (the XML sub-question of OQ-krakend-ee-parity-matrix-1)? | (a) A `plugin` Policy for XML responses (current); (b) an XML decoder exposing XML bodies to CEL as `dyn`, a Configuration model change | data-plane | Yes, for the SOAP integration row (M5) |
+| OQ-data-plane-17 | How does `transform.response` read an XML response body for SOAP integration (the XML sub-question of OQ-feature-catalog-1)? | (a) A `plugin` Policy for XML responses (current); (b) an XML decoder exposing XML bodies to CEL as `dyn`, a Configuration model change | data-plane | Yes, for the SOAP integration row (M5) |
 
 Closed:
 
 - OQ-data-plane-11 with option (c), compiled Plugin code in memory only ([ADR-0004](../adr/0004-wasm-runtime-wazero.md)).
 - OQ-data-plane-4 with option (b), local SIGTERM only, decided by [CLI and API surface](../reference/01-cli-and-api-surface.md): `ruralz node drain` signals the local Node.
-- OQ-krakend-ee-parity-matrix-1 with option (a), decided here: [Transform Policies](#transform-policies) is one CEL-based schema covering body extraction to headers, CEL-built bodies, CEL queries, regular expression replacement, flatmap array operations and XML request building; only its XML response sub-question stays open, as OQ-data-plane-17.
+- OQ-feature-catalog-1 with option (a), decided here: [Transform Policies](#transform-policies) is one CEL-based schema covering body extraction to headers, CEL-built bodies, CEL queries, regular expression replacement, flatmap array operations and XML request building; only its XML response sub-question stays open, as OQ-data-plane-17.

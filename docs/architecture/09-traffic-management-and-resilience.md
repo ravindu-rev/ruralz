@@ -21,7 +21,7 @@ This document fixes how a Ruralz Gateway Node selects and ejects Endpoints, boun
 
 ## Scope and non-goals
 
-In scope: the Summary's subjects and Policy `config` ([Configuration model](02-configuration-model.md#policy)), `Route.spec.timeout`, weighted `upstreams`, IETF RateLimit headers and the KrakenD EE traffic mapping. "Pack 8.8" is a [foundation pack](../_meta/foundation-pack.md) section. Nothing here is implemented.
+In scope: the Summary's subjects and Policy `config` ([Configuration model](02-configuration-model.md#policy)), `Route.spec.timeout`, weighted `upstreams` and IETF RateLimit headers. "Pack 8.8" is a [foundation pack](../_meta/foundation-pack.md) section. Nothing here is implemented.
 
 Non-goals, with owners: kinds and fields ([Configuration model](02-configuration-model.md)); precedence, error format, buffer budgets ([Data plane](03-data-plane.md)); accuracy bounds, State Store sizing, Cells ([Scalability](11-scalability-and-distributed-state.md)); Token Budgets ([ADR-0014](../adr/0014-ai-api-surface.md)), Provider Fallback ([AI/LLM gateway](06-ai-llm-gateway.md)); `authz.ip`, `authz.geoip`, pre-authentication limits ([Security](08-security-and-identity.md)); streams ([Multi-protocol](07-multi-protocol.md)); authoritative numbers ([Performance budgets](12-performance-budgets-and-benchmarking.md), which wins).
 
@@ -197,20 +197,20 @@ Notation: N_published is the Node count Ruralz Control publishes (`HeartbeatRepl
 
 ### Algorithm choice
 
-[ADR-0008](../adr/0008-rate-limiting-local-bucket-and-gcra.md) chooses a hybrid over the algorithms other gateways use:
+[ADR-0008](../adr/0008-rate-limiting-local-bucket-and-gcra.md) chooses a hybrid of the common algorithms:
 
-| Algorithm | Accuracy | State Store cost per request | Multi-Node behavior | Burst handling | Used by |
+| Algorithm | Accuracy | State Store cost per request | Multi-Node behavior | Burst handling | Reference |
 |---|---|---|---|---|---|
-| Fixed window counter | Up to 2 × limit across a boundary | One `INCR` | Per Node unless counters are shared | Full limit per window | Kong ([source](https://developer.konghq.com/plugins/rate-limiting/reference/)), Tyk ([source](https://tyk.io/docs/api-management/rate-limit/)) |
-| Sliding window counter | Approximate; Cloudflare measured 0.003% wrong decisions | Two counters | Counters per location | Smoothed | Cloudflare ([source](https://blog.cloudflare.com/counting-things-a-lot-of-different-things/)), Kong Advanced ([source](https://developer.konghq.com/plugins/rate-limiting-advanced/reference/)) |
-| Token bucket | Exact within one store | Tokens and refill time | Local, or one shared bucket | Bucket size | Stripe ([source](https://stripe.com/blog/rate-limiters)), Envoy local ([source](https://www.envoyproxy.io/docs/envoy/latest/configuration/http/http_filters/local_rate_limit_filter)) |
+| Fixed window counter | Up to 2 × limit across a boundary | One `INCR` | Per Node unless counters are shared | Full limit per window | Simplest; boundary bursts |
+| Sliding window counter | Approximate; assumes even arrivals in the previous window | Two counters | Counters per location | Smoothed | Weighted previous-window count |
+| Token bucket | Exact within one store | Tokens and refill time | Local, or one shared bucket | Bucket size | Stripe ([source](https://stripe.com/blog/rate-limiters)) |
 | GCRA | Exact within one store | One timestamp (TAT) per key | Global when shared | τ; τ = window allows 2 × limit | redis_rate ([source](https://github.com/go-redis/redis_rate)), Brandur ([source](https://brandur.org/rate-limiting)) |
-| Local bucket plus GCRA (chosen) | GCRA for spread keys; per-Node ceiling for a pinned client | None for local denials, else one script | Bucket shields hot keys; GCRA enforces the Cell limit | Ceiling per Node; τ globally | Envoy local plus global ([source](https://www.envoyproxy.io/docs/envoy/latest/intro/arch_overview/other_features/global_rate_limiting)) |
+| Local bucket plus GCRA (chosen) | GCRA for spread keys; per-Node ceiling for a pinned client | None for local denials, else one script | Bucket shields hot keys; GCRA enforces the Cell limit | Ceiling per Node; τ globally | [ADR-0008](../adr/0008-rate-limiting-local-bucket-and-gcra.md) |
 
 ### Decision path
 
 1. `when` false skips the Policy. A `config.key` runtime error applies `failureMode` without a bucket: `open` admits unmetered, `closed` returns 503 `RZ-RL-005`.
-2. A key whose last GCRA answer denied stays denied from a per-Node over-limit cache until its retry-after ([source](https://github.com/envoyproxy/ratelimit)).
+2. A key whose last GCRA answer denied stays denied from a per-Node over-limit cache until its retry-after.
 3. A key with no local entry is first-seen, spending a unit of a per-Node budget all Policies share: min(500, B / N_published) per second with a count, else 200 (target), with B = 20,000 per Cell, 20% of a shard (hypothesis). Within budget it gets full buckets; past it, as OQ-traffic-management-and-resilience-20 proposes, a 10 s local-only entry (target) at the per-Node ceiling, capacity and refill alike, without GCRA.
 4. Each `limits[]` entry has a local token bucket at its per-Node ceiling; all must hold a token, else 429 `RZ-RL-001`. Local-only entries and `localOnly` Policies then admit, within N × ceiling per window.
 5. Otherwise one `EVALSHA` runs GCRA for every limit with server `TIME`, updating TATs only if all allow; a deny is 429 `RZ-RL-002`. Nodes `SCRIPT LOAD` every script at connect, reconnect and failover; `NOSCRIPT` applies `failureMode` and schedules a reload, so no request makes a second round trip (pack 8.7 rule 1).
@@ -436,7 +436,7 @@ sequenceDiagram
 
 ## Traffic shaping
 
-Weighted splits and blue-green use `upstreams[].weight` per request; header, cookie or query canaries a higher-ranked Route with `match.headers` or `match.when`; spike arrest a short-`window` `ratelimit`; the bulkhead `circuitBreaker.maxConnections`, all Planned (M1). Splits stick only through a client-sent header or cookie (percentage-sticky: OQ-traffic-management-and-resilience-17). Mirroring, in both KrakenD editions ([source](https://www.krakend.io/features/)), is OQ-traffic-management-and-resilience-12.
+Weighted splits and blue-green use `upstreams[].weight` per request; header, cookie or query canaries a higher-ranked Route with `match.headers` or `match.when`; spike arrest a short-`window` `ratelimit`; the bulkhead `circuitBreaker.maxConnections`, all Planned (M1). Splits stick only through a client-sent header or cookie (percentage-sticky: OQ-traffic-management-and-resilience-17). Mirroring is OQ-traffic-management-and-resilience-12.
 
 ```yaml
 apiVersion: ruralz/v1alpha1
@@ -452,25 +452,7 @@ spec:
   timeout: 3s
 ```
 
-### KrakenD EE routing and traffic features
-
-Every KrakenD EE-only routing and traffic feature in the 2026-09-23 snapshot ([source](https://www.krakend.io/features/)) maps to a free mechanism:
-
-| KrakenD EE feature | Ruralz mechanism | Planned |
-|---|---|---|
-| Catch-all fallback | A Route matching only `when: "true"`, ranked by [precedence](03-data-plane.md#precedence) | Planned (M1) |
-| Header and query string based dynamic routing | `match.headers`, `match.when` over `request.query`, or `conditional` composition | Planned (M1) |
-| Conditional routing | `composition.mode: conditional` with CEL ([ADR-0011](../adr/0011-expressions-and-authorization-engines.md)) | Planned (M1) |
-| Wildcard routes | `match.path` `prefix`, `template` or `regex`; wildcard hosts per OQ-data-plane-2 | Planned (M1) |
-| URL rewrite | Composition step `path` or `pathExpression`; plain `upstreams` per OQ-traffic-management-and-resilience-13 | Planned (M1) |
-| Virtual hosts | `match.hosts` with listener `hostnames` | Planned (M1) |
-| Configurable client redirects | Upstream 3xx pass through; Route-issued redirects use a `plugin` Policy; built-in fields per OQ-traffic-management-and-resilience-13 | Planned (M2) |
-| Customizable HTTP circuit breaker | `circuitBreaker` with CEL `failureWhen`; KrakenD's `max_errors` ([source](https://www.krakend.io/docs/backends/circuit-breaker/)) imports as `consecutiveFailures`, fidelity `approximate` given the volume guard | Planned (M1) |
-| Service rate limit | `ratelimit` with a constant `config.key` | Planned (M1) |
-| Tiered rate limit | One `ratelimit` per Tier guarded by `when` | Planned (M1) |
-| Stateful rate limit (Redis backed) | GCRA in the `redis` driver | Planned (M1) |
-| IP filtering | `authz.ip` ([Security](08-security-and-identity.md)) | Planned (M1) |
-| MaxMind GeoIP | `authz.geoip` | Planned (M2) |
+Routing features build on Route matching and composition, all free and Planned (M1) unless noted. A catch-all fallback is a Route matching only `when: "true"`, ranked by [precedence](03-data-plane.md#precedence); header and query routing use `match.headers`, `match.when` over `request.query` or `composition.mode: conditional` with CEL ([ADR-0011](../adr/0011-expressions-and-authorization-engines.md)); wildcard routes use `match.path` `prefix`, `template` or `regex` (wildcard hosts: OQ-data-plane-2); virtual hosts use `match.hosts` with listener `hostnames`. URL rewrite is a composition step `path` or `pathExpression` (plain `upstreams`: OQ-traffic-management-and-resilience-13). Upstream 3xx responses pass through; Route-issued redirects use a `plugin` Policy, Planned (M2), with built-in fields under OQ-traffic-management-and-resilience-13. A service-wide Rate Limit is a `ratelimit` with a constant `config.key`, and a tiered one is one `ratelimit` per Tier guarded by `when`. IP filtering is `authz.ip`, Planned (M1), and GeoIP `authz.geoip`, Planned (M2) ([Security](08-security-and-identity.md)).
 
 ## Overload protection
 

@@ -101,7 +101,7 @@ flowchart LR
 
 ## Plugin ABI versioning
 
-Plugin ABI v1, `ruralz.plugin.v1` ([ADR-0005](../adr/0005-plugin-abi-v1.md)), freezes when the Plugin system ships, Planned (M2); preview Plugins need rebuilds. After it, a compiled Plugin runs on every release serving v1, whatever Go toolchain built `ruralzd`, because the contract is WASM imports, not Go linkage; KrakenD CE 3.0 drops Go plugins, which need an exact Go match ([source](https://www.krakend.io/blog/dropping-plugins-support-on-community/)).
+Plugin ABI v1, `ruralz.plugin.v1` ([ADR-0005](../adr/0005-plugin-abi-v1.md)), freezes when the Plugin system ships, Planned (M2); preview Plugins need rebuilds. After it, a compiled Plugin runs on every release serving v1, whatever Go toolchain built `ruralzd`, because the contract is WASM imports, not Go linkage, so no Plugin needs an exact Go toolchain match.
 
 Only new Host Functions count as additions ([WASM plugin system](../architecture/05-wasm-plugin-system.md#contract)):
 
@@ -309,7 +309,6 @@ Open source releases receive security fixes immediately: every user gets a fix a
 
 Reachable `govulncheck` findings in linked modules or the Go toolchain follow the same table ([Tech stack and libraries](01-tech-stack-and-libraries.md#update-policy)); redistributor notice is OQ-release-versioning-and-compatibility-5. Whether EU Cyber Resilience Act reporting, from 2026-09-11 ([source](https://digital-strategy.ec.europa.eu/en/policies/cra-reporting)), binds Revington is OQ-vision-and-positioning-6.
 
-Contrast with KrakenD CE: KrakenD lists "security fixes and updates as standard" among its Enterprise support services ([source](https://www.krakend.io/enterprise/)), and the 2026-09-23 research snapshot records no published security fix window for KrakenD CE. KrakenD EE also stops when its license file expires ([source](https://www.krakend.io/docs/enterprise/overview/license-file/)); in Ruralz, every user of a supported line gets the same fix at once.
 
 ## Release artifacts
 

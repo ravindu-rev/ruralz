@@ -41,7 +41,7 @@ The envelope maps one to one onto CRDs, so the CRD path in ADR-0016 (proposed) i
 | YAML 1.2 + JSON Schema, Kubernetes envelope | One schema source drives editors, CLI, admission | Direct | Good | Chosen |
 | JSON only | Strong, no comments | Possible | Poor | Rejected |
 | HCL | Weak | None | Good | Rejected |
-| Single flat file (KrakenD style) | Moderate | None | Poor at scale | Import source only |
+| Single flat file with templates | Moderate | None | Poor at scale | Rejected |
 
 ### Restricted YAML profile
 
@@ -58,22 +58,9 @@ The loader rejects features that let a small edit change distant values or let a
 
 Size and depth limits are configurable; exceeding one is RZ-CFG-001. The proposed defaults are 64 MiB of source text, 20,000 resources and 64 nesting levels (target). Depth is counted over `lexer.Tokenize` output before parsing, so over-deep input never reaches the parser. A Node never enforces a limit below the CLI default, so no Bundle that passes CI fails on a Node for size or depth. The depth value and peak loader memory (hypothesis) are OQ-configuration-model-18. The loader parses with `github.com/goccy/go-yaml`, with Ruralz code over its AST rejecting anchors, aliases, merge keys and custom tags, and validates with `github.com/santhosh-tekuri/jsonschema/v6`, whose `Vocabulary` API carries the `x-ruralz-*` keywords (foundation pack section 7, selected at the freeze).
 
-### Coming from KrakenD
+### OpenAPI, Postman and test tooling
 
-`ruralz bundle import krakend`, `Planned (M2)`, is best-effort: it reads a fully rendered KrakenD configuration file and emits a Bundle plus a fidelity report, annotating each generated resource with `ruralz.io/import-fidelity` (`exact`, `equivalent`, `approximate` or `manual`). Operators render flexible configuration templates first ([source](https://www.krakend.io/features/)). Credentials become `secretRef` entries. [Migration from KrakenD](../comparison/03-migration-from-krakend.md) owns level definitions and the full mapping; the core concepts are fixed here:
-
-| KrakenD concept | Ruralz concept | Notes |
-|---|---|---|
-| endpoint (a published path) | `Route` | Richer match |
-| backend | `Upstream` | Named, reusable |
-| `extra_config` namespace | `Policy` with a `type` | Attached by reference |
-| `group`, `target`, `allow`, `mapping`, `is_collection` | Step fields `group`, `target`, `select`, `rename`, `collection` | Same shape ([source](https://www.krakend.io/docs/backends/data-manipulation/)) |
-| Sequential proxy | `composition.mode: sequential` | Results reached through CEL |
-| Flexible configuration | Overlays and `${VAR}` | ([source](https://www.krakend.io/docs/configuration/flexible-config/)) |
-| CEL conditions, Lua | CEL or a WASM `Plugin` | No Lua ([ADR-0011](../adr/0011-expressions-and-authorization-engines.md)) |
-| Go plugins | WASM `Plugin` or built-in Filter | Dropped in KrakenD CE 3.0 ([source](https://www.krakend.io/blog/dropping-plugins-support-on-community/)) |
-
-The EE OpenAPI importer and exporter, Postman and DOT generators and end-to-end testing tool map to `ruralz bundle import openapi`, `ruralz bundle export openapi`, `ruralz bundle export postman`, `ruralz bundle export dot` and `ruralz test run`, all `Planned (M2)` (foundation pack sections 9 and 13); test cases live outside the Bundle.
+`ruralz bundle import openapi` builds Routes and Upstreams from an OpenAPI document; `ruralz bundle export openapi`, `ruralz bundle export postman` and `ruralz bundle export dot` publish a Bundle as an OpenAPI document, a Postman collection or a DOT graph; and `ruralz test run` executes end-to-end test cases against a Gateway. All are `Planned (M2)` (foundation pack section 9); test cases live outside the Bundle.
 
 ## Resource model
 
@@ -667,7 +654,7 @@ Policies attach by forward reference: the attaching resource lists them in `spec
 
 ### Why forward references
 
-Kubernetes policy CRDs often attach in reverse: Agent Router's `QuotaPolicy` targets `AIServiceBackend` resources through `targetRefs` ([source](https://theagentrouter.ai/docs/capabilities/traffic/quota-policy/)). A new Policy file could then silently change any Route. Ruralz chooses locality: a `Route` plus the `Gateway` show every Policy that can run, and `overridable: false` covers the platform-team case (OQ-configuration-model-4).
+Kubernetes policy CRDs often attach in reverse, with a Policy naming its targets through `targetRefs`; a new Policy file could then silently change any Route. Ruralz chooses locality: a `Route` plus the `Gateway` show every Policy that can run, and `overridable: false` covers the platform-team case (OQ-configuration-model-4).
 
 ### Resolution rules
 
@@ -720,7 +707,7 @@ Client-leg Policies run once per request, upstream-leg Policies once per leg. On
 
 ## CEL expressions and allowed places
 
-Inline expressions use CEL via `cel-go` ([ADR-0011](../adr/0011-expressions-and-authorization-engines.md)); there is no Lua or template language, and OPA and Cedar sit behind `authz.opa` and `authz.cedar`. KrakenD offers CEL and Lua in both editions ([source](https://www.krakend.io/features/)); Ruralz sends Lua use cases to CEL or a WASM Plugin.
+Inline expressions use CEL via `cel-go` ([ADR-0011](../adr/0011-expressions-and-authorization-engines.md)); there is no Lua or template language, and OPA and Cedar sit behind `authz.opa` and `authz.cedar`. Use cases that would need a scripting language go to CEL or a WASM Plugin.
 
 ### Allowed places
 
@@ -1559,4 +1546,4 @@ ruralz bundle push $CONTROL --env staging ./shop-bundle
 
 Answered and closed here: in [Registered from feature documents](#registered-from-feature-documents), option (a) each, OQ-security-and-identity-2, -3 and -18 and OQ-traffic-management-and-resilience-1, plus Data plane's Transform Policies submission; in [Gateway](#gateway), OQ-security-and-identity-6 (c) and OQ-scalability-and-distributed-state-2 (a); in [Route](#route), OQ-data-plane-2 (a). Release answers OQ-configuration-model-6 and CLI and API surface OQ-configuration-model-7. Still pending registration, so their fields do not exist yet: OQ-security-and-identity-12 and -13, Planned (M2), whose options are not yet chosen.
 
-Other blocking field questions assigned here stay open in their owners' tables, by blocking milestone: M0, OQ-repository-layout-and-conventions-1; M1, OQ-observability-2, OQ-traffic-management-and-resilience-2, -5, -6, -11 and -21, OQ-security-and-identity-22 and -24, and OQ-scalability-and-distributed-state-3; M2, OQ-security-and-identity-30, OQ-wasm-plugin-system-4, OQ-release-versioning-and-compatibility-12, OQ-control-plane-and-gitops-25 and OQ-migration-from-krakend-5; M3, OQ-ai-llm-gateway-3 and -16 and OQ-multi-protocol-15; M4, OQ-wasm-plugin-system-8; M5, OQ-krakend-ee-parity-matrix-3 and -6; and, before the first digest-changing fix, OQ-release-versioning-and-compatibility-13.
+Other blocking field questions assigned here stay open in their owners' tables, by blocking milestone: M0, OQ-repository-layout-and-conventions-1; M1, OQ-observability-2, OQ-traffic-management-and-resilience-2, -5, -6, -11 and -21, OQ-security-and-identity-22 and -24, and OQ-scalability-and-distributed-state-3; M2, OQ-security-and-identity-30, OQ-wasm-plugin-system-4, OQ-release-versioning-and-compatibility-12 and OQ-control-plane-and-gitops-25; M3, OQ-ai-llm-gateway-3 and -16 and OQ-multi-protocol-15; M4, OQ-wasm-plugin-system-8; M5, OQ-feature-catalog-3 and -6; and, before the first digest-changing fix, OQ-release-versioning-and-compatibility-13.

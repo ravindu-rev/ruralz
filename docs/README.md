@@ -8,6 +8,7 @@ depends_on:
   - docs/_meta/style-guide.md
   - docs/glossary.md
   - docs/vision/01-vision-and-positioning.md
+  - docs/features/01-feature-catalog.md
   - docs/architecture/01-system-overview.md
   - docs/architecture/02-configuration-model.md
   - docs/architecture/03-data-plane.md
@@ -24,9 +25,6 @@ depends_on:
   - docs/operations/02-zero-downtime-upgrades-and-hot-reload.md
   - docs/operations/03-capacity-planning.md
   - docs/operations/04-high-availability-and-disaster-recovery.md
-  - docs/comparison/01-krakend-ee-parity-matrix.md
-  - docs/comparison/02-market-landscape-and-table-stakes.md
-  - docs/comparison/03-migration-from-krakend.md
   - docs/engineering/01-tech-stack-and-libraries.md
   - docs/engineering/02-repository-layout-and-conventions.md
   - docs/engineering/03-testing-and-quality-strategy.md
@@ -67,9 +65,9 @@ The documentation is split by question. Each folder answers one kind of question
 | Folder | Question it answers | Documents | Main audience |
 |---|---|---|---|
 | `docs/vision/` | Why Ruralz exists, who it serves, the four differentiators and the principles `P1` to `P10` | 1 | Evaluators, everyone |
+| `docs/features/` | Which capabilities Ruralz plans, each with its milestone or a `Not planned` reason | 1 | Evaluators |
 | `docs/architecture/` | How Ruralz Gateway, Ruralz Control, Ruralz Console, the State Store and the Control Store are designed, from the system overview to performance budgets | 12 | Architects, contributors |
 | `docs/operations/` | How to deploy, upgrade, size and recover Ruralz in production | 4 | Operators |
-| `docs/comparison/` | How Ruralz compares with KrakenD Enterprise and the wider market, and how to migrate from KrakenD | 3 | Evaluators |
 | `docs/engineering/` | Which libraries are used, how the repository is laid out, how code is tested and how releases are versioned | 4 | Contributors |
 | `docs/reference/` | The `ruralz` CLI, the admin APIs, the REST API and the Control Stream service | 1 | Operators, contributors, Plugin authors |
 | `docs/roadmap/` | The order of milestones `M0` to `M5`, their scope and exit criteria | 1 | Evaluators, contributors |
@@ -87,11 +85,9 @@ Each path lists documents in reading order. Paths overlap on purpose: the System
 For people deciding whether Ruralz fits their organization.
 
 1. [Vision and Positioning](vision/01-vision-and-positioning.md): the four differentiators, the principles and the Apache-2.0 license with no feature gating.
-2. [KrakenD Enterprise Parity Matrix](comparison/01-krakend-ee-parity-matrix.md): every KrakenD feature row mapped to a Ruralz milestone or a Not planned reason.
-3. [Market Landscape and Table Stakes](comparison/02-market-landscape-and-table-stakes.md): nine competitors and the table stakes every gateway must meet.
-4. [System Overview](architecture/01-system-overview.md): the two runtime components, the CLI and how they degrade.
-5. [Roadmap and Milestones](roadmap/01-roadmap-and-milestones.md): what arrives in which milestone and how completion is measured.
-6. [Migration from KrakenD](comparison/03-migration-from-krakend.md): fidelity levels, gaps and the cutover runbook.
+2. [Feature Catalog](features/01-feature-catalog.md): every Ruralz capability mapped to a milestone or a `Not planned` reason.
+3. [System Overview](architecture/01-system-overview.md): the two runtime components, the CLI and how they degrade.
+4. [Roadmap and Milestones](roadmap/01-roadmap-and-milestones.md): what arrives in which milestone and how completion is measured.
 
 ### Contributor
 
@@ -155,6 +151,7 @@ Status values come from each document's front matter: `draft` (written, not yet 
 | Ruralz Documentation (this index) | `docs/` | reviewed |
 | Glossary | `docs/` | reviewed |
 | [Vision and Positioning](vision/01-vision-and-positioning.md) | `docs/vision/` | reviewed |
+| [Feature Catalog](features/01-feature-catalog.md) | `docs/features/` | reviewed |
 | [System Overview](architecture/01-system-overview.md) | `docs/architecture/` | reviewed |
 | [Configuration Model](architecture/02-configuration-model.md) | `docs/architecture/` | reviewed |
 | [Data Plane](architecture/03-data-plane.md) | `docs/architecture/` | reviewed |
@@ -171,9 +168,6 @@ Status values come from each document's front matter: `draft` (written, not yet 
 | [Zero-Downtime Upgrades and Hot Reload](operations/02-zero-downtime-upgrades-and-hot-reload.md) | `docs/operations/` | reviewed |
 | [Capacity Planning](operations/03-capacity-planning.md) | `docs/operations/` | reviewed |
 | [High Availability and Disaster Recovery](operations/04-high-availability-and-disaster-recovery.md) | `docs/operations/` | reviewed |
-| [KrakenD Enterprise Parity Matrix](comparison/01-krakend-ee-parity-matrix.md) | `docs/comparison/` | reviewed |
-| [Market Landscape and Table Stakes](comparison/02-market-landscape-and-table-stakes.md) | `docs/comparison/` | reviewed |
-| [Migration from KrakenD](comparison/03-migration-from-krakend.md) | `docs/comparison/` | reviewed |
 | [Tech Stack and Libraries](engineering/01-tech-stack-and-libraries.md) | `docs/engineering/` | reviewed |
 | [Repository Layout and Conventions](engineering/02-repository-layout-and-conventions.md) | `docs/engineering/` | reviewed |
 | [Testing and Quality Strategy](engineering/03-testing-and-quality-strategy.md) | `docs/engineering/` | reviewed |
@@ -181,7 +175,7 @@ Status values come from each document's front matter: `draft` (written, not yet 
 | [CLI and API Surface](reference/01-cli-and-api-surface.md) | `docs/reference/` | reviewed |
 | [Roadmap and Milestones](roadmap/01-roadmap-and-milestones.md) | `docs/roadmap/` | reviewed |
 
-All 28 documents above are `reviewed`. The Glossary is linked under Conventions.
+All 26 documents above are `reviewed`. The Glossary is linked under Conventions.
 
 ## ADR index
 
@@ -213,7 +207,7 @@ These rules come from the [style guide](_meta/style-guide.md), which is binding 
 
 | Convention | What it means for a reader |
 |---|---|
-| Milestone tags | `Planned (Mx)` names the milestone that delivers a capability: `M0` Foundations, `M1` Core parity, `M2` WASM + Control/GitOps, `M3` AI gateway + gRPC/GraphQL/WS/SSE + HTTP/3, `M4` Event protocols + multi-region + bench suite, `M5` Long-tail parity. `Not planned` always carries a reason. Nothing is implemented yet, so no capability is ever described as supported or shipped. |
+| Milestone tags | `Planned (Mx)` names the milestone that delivers a capability: `M0` Foundations, `M1` Core gateway, `M2` WASM + Control/GitOps, `M3` AI gateway + gRPC/GraphQL/WS/SSE + HTTP/3, `M4` Event protocols + multi-region + bench suite, `M5` Enterprise hardening. `Not planned` always carries a reason. Nothing is implemented yet, so no capability is ever described as supported or shipped. |
 | Number tags | Every performance or scale figure carries `(target)` (a design goal to be met) or `(hypothesis)` (an estimate to be measured) on the same line, unless that line cites a measurement. No untagged figure is a measured result. |
 | Open question IDs | Unresolved points are listed in the Open questions table of the owning document, with IDs `OQ-<docslug>-<n>` (for example `OQ-data-plane-3`) and a Blocking? column. A document that cites an unresolved point refers to its ID. |
 | ADR IDs | Decisions are cited as `ADR-0001` to `ADR-0017`; an ADR changes only through a new or superseding ADR. |
@@ -221,7 +215,7 @@ These rules come from the [style guide](_meta/style-guide.md), which is binding 
 | Kinds and fields | Kinds appear in `PascalCase` code formatting (`Route`, `Upstream`, `Policy`) and YAML keys in `camelCase`. Only the Configuration Model defines kinds, fields and Policy types. |
 | CLI commands | Commands appear as `ruralz <noun> <verb>`, and every command mentioned exists in the CLI and API Surface reference. |
 | Normative words | `MUST`, `SHOULD` and `MAY` in capitals carry their RFC 2119 meaning. |
-| Dates | Dates are ISO `YYYY-MM-DD`; competitor facts are as of the snapshot date 2026-09-23. |
+| Dates | Dates are ISO `YYYY-MM-DD`. |
 
 ## Open questions
 

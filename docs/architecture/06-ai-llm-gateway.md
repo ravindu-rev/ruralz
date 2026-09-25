@@ -207,7 +207,7 @@ Model routing runs in `onRoute`. Body-dependent criteria choose only among the `
 
 ### Provider Fallback
 
-Provider Fallback moves a request to the next eligible candidate after a fallback-class failure, only before commit; after commit a failure ends the stream with `RZ-AI-009`, as in Agent Router ([source](https://github.com/envoyproxy/ai-gateway/releases)). Abandoned attempts are cancelled at once ([Settlement](#settlement)).
+Provider Fallback moves a request to the next eligible candidate after a fallback-class failure, only before commit; after commit a failure ends the stream with `RZ-AI-009`, because bytes already sent to the client cannot be retracted. Abandoned attempts are cancelled at once ([Settlement](#settlement)).
 
 Fallback trigger matrix ("if exhausted" means no eligible candidate remains, `RZ-AI-005`):
 
@@ -437,7 +437,7 @@ cost = ( inputTokens           x inputPerMillionTokens
 
 The Prompt Cache is provider-side, set by `AIModel.spec.cache.prompt.mode` (`passthrough` or `disabled`).
 
-**Guarantee.** Unless `cache.prompt.mode: disabled` is set, native passthrough MUST deliver every Anthropic `cache_control` block, including a top-level automatic one, unchanged in position, `type` and `ttl`, and likewise Bedrock `cachePoint`, `prompt_cache_key` and Gemini `cachedContent` references. Rebuilding bodies from typed schemas has dropped such markers ([source](https://github.com/BerriAI/litellm/issues/41424)). Conformance tests verify it in 100% of cases (target; SM-11).
+**Guarantee.** Unless `cache.prompt.mode: disabled` is set, native passthrough MUST deliver every Anthropic `cache_control` block, including a top-level automatic one, unchanged in position, `type` and `ttl`, and likewise Bedrock `cachePoint`, `prompt_cache_key` and Gemini `cachedContent` references. Rebuilding bodies from typed schemas can drop such markers, so passthrough forwards them byte for byte. Conformance tests verify it in 100% of cases (target; SM-11).
 
 **Façade.** The façade accepts `cache_control` on content parts and the request, as an extension:
 
@@ -506,11 +506,11 @@ spec:
           && request.body.params.name in ["search_orders", "get_order"])
 ```
 
-Unknown methods, batches, `GET` streams, `DELETE` and client responses are denied, so resources, prompts, sampling and elicitation need rules. The allow list is no security control until strict JSON ([Surface decoder](#surface-decoder)) covers MCP Routes, since a repeated `params.name` could show CEL one tool and the server another (OQ-ai-llm-gateway-16). A2A-aware features wait for M5 because the wire format still moves: LiteLLM serves A2A 0.3 or 1.0 per agent ([source](https://docs.litellm.ai/docs/a2a)).
+Unknown methods, batches, `GET` streams, `DELETE` and client responses are denied, so resources, prompts, sampling and elicitation need rules. The allow list is no security control until strict JSON ([Surface decoder](#surface-decoder)) covers MCP Routes, since a repeated `params.name` could show CEL one tool and the server another (OQ-ai-llm-gateway-16). A2A-aware features wait for M5 because the wire format still moves, with agents speaking A2A 0.3 or 1.0.
 
 ### MCP Server
 
-Proposed answer to OQ-ai-llm-gateway-10, option (a), and so to OQ-vision-and-positioning-12: a built-in `ai.mcp` Policy type that turns one Route into an MCP Server whose tools are existing Routes. It is submitted as a pack section 10 amendment through that Open question (pack section 14), and the Configuration model registers its `config` as authored here (OQ-configuration-model-9). Until then it is no registered type, so no example Bundle uses it. KrakenD EE declares each tool with its own input and output schemas and an upstream workflow ([source](https://www.krakend.io/docs/enterprise/ai-gateway/mcp-server/)); `ai.mcp` instead points each tool at a Route, so every call runs that Route's Policies.
+Proposed answer to OQ-ai-llm-gateway-10, option (a), and so to OQ-vision-and-positioning-12: a built-in `ai.mcp` Policy type that turns one Route into an MCP Server whose tools are existing Routes. It is submitted as a pack section 10 amendment through that Open question (pack section 14), and the Configuration model registers its `config` as authored here (OQ-configuration-model-9). Until then it is no registered type, so no example Bundle uses it. `ai.mcp` points each tool at a Route rather than at a separately declared schema and workflow, so every call runs that Route's Policies.
 
 | Registry column | Proposed value |
 |---|---|

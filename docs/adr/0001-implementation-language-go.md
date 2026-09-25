@@ -31,9 +31,9 @@ Which language and build mode yield three simple artifacts that operators can co
 
 1. Go 1.26 or newer with `CGO_ENABLED=0` static binaries ([source](https://go.dev/doc/security/fips140)).
 2. Go with CGO enabled, to link C or Rust libraries such as wasmtime ([source](https://github.com/bytecodealliance/wasmtime-go/blob/main/README.md)).
-3. Rust, as in the AISIX and Helicone AI gateways ([source](https://github.com/api7/aisix)) ([source](https://github.com/Helicone/ai-gateway)).
-4. C++ Envoy as the data plane with a Go control plane, the Envoy Gateway pattern ([source](https://gateway.envoyproxy.io/docs/api/extension_types/)) ([source](https://github.com/envoyproxy/gateway/releases/tag/v1.9.0)).
-5. Lua on OpenResty, the Kong and APISIX model ([source](https://developer.konghq.com/custom-plugins/)) ([source](https://github.com/apache/apisix)).
+3. Rust for the data plane, with no garbage collector.
+4. A C++ proxy as the data plane with a Go control plane that translates Configuration into the proxy's resource model.
+5. Lua on OpenResty, with Plugins written in Lua.
 
 ## Decision outcome
 
@@ -75,7 +75,7 @@ flowchart LR
 - Good, because each `ghcr.io/ravindu-rev/ruralzd` image can carry one static binary and no libc, which simplifies image handling for disposable Nodes (P4) and frees the Zero-Downtime Upgrade ([ADR-0015](0015-zero-downtime-upgrades-so-reuseport.md)) from library compatibility checks.
 - Good, because research confirms pure Go for wazero, quic-go, franz-go, connect-go and grpc-go ([source](https://github.com/wazero/wazero/blob/main/README.md)) ([source](https://github.com/quic-go/quic-go)) ([source](https://github.com/twmb/franz-go)) ([source](https://github.com/connectrpc/connect-go)) ([source](https://github.com/grpc/grpc-go)), so the Plugin sandbox runs in-process without CGO ([ADR-0004](0004-wasm-runtime-wazero.md)).
 - Good, because `net/http` serves HTTP/1.1, HTTP/2 and h2c ([ADR-0009](0009-http-stack-net-http-quic-go.md)), and the Go Cryptographic Module gives the FIPS build without a second TLS stack.
-- Bad, because GC pauses may hurt tail latency more than in C++ Envoy (hypothesis); `GOMEMLIMIT` and `GOGC` are the levers, and P10 requires published Planned (M4) benchmarks.
+- Bad, because GC pauses may hurt tail latency more than in a C++ proxy (hypothesis); `GOMEMLIMIT` and `GOGC` are the levers, and P10 requires published Planned (M4) benchmarks.
 - Bad, because wazero lacks fuel metering and wasmtime-go needs CGO: deadlines interrupt guest code only through `WithCloseOnContextDone`, reported 10 to 20x slower on loop-heavy guests ([source](https://github.com/wazero/wazero/issues/2466)), so the P6 `timeout` costs runtime or needs host-side budgets (OQ-tech-stack-and-libraries-8).
 - Bad, because a `CGO_ENABLED=0` binary in an image without a libc base still needs CA roots, and an archive install reads the host CA store; whether the image ships them or the binary embeds them (which needs a research-backed catalog row and a G3 decision) is an Open question that the owning document MUST add.
 - Bad, because always-linked libraries grow `ruralzd` toward a 160 MiB stripped binary budget (target).
@@ -108,16 +108,16 @@ flowchart LR
 - Bad, because raft, graphql-go-tools, cel-go and OPA would need Rust replacements that no research file evaluates.
 - Bad, because Ruralz Control and the CLI would be rewritten or stay in Go, adding a second toolchain and losing the shared validation library.
 
-### C++ Envoy with a Go control plane
+### C++ proxy with a Go control plane
 
-- Good, because Envoy offers Wasm, Lua, ExtProc and Dynamic Modules ([source](https://gateway.envoyproxy.io/docs/api/extension_types/)).
+- Good, because a mature C++ proxy has no garbage collector and offers several extension points, including Wasm and native modules.
 - Bad, because it splits the product across two languages, so the CLI cannot share data-plane validation code.
-- Bad, because it ties delivery to Envoy's resource model, which [ADR-0007](0007-control-stream-protocol.md) rejects.
+- Bad, because it ties delivery to the proxy's own resource model, which [ADR-0007](0007-control-stream-protocol.md) rejects.
 
 ### Lua on OpenResty
 
-- Good, because Kong and APISIX prove the model.
-- Bad, because WASM support is removed or experimental: Kong removed its beta WASM in 3.11.0.0 ([source](https://developer.konghq.com/gateway/breaking-changes/)) and APISIX notes "only a few APIs are implemented" ([source](https://apisix.apache.org/docs/apisix/wasm/)).
+- Good, because LuaJIT scripting is a proven model for request-path extensions with low per-call overhead (hypothesis).
+- Bad, because WASM support on OpenResty is limited, so the P6 sandbox and one Plugin ABI across languages would need extra work.
 - Bad, because Ruralz Control and the CLI would still need a second language.
 
 ## More information

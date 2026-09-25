@@ -34,7 +34,7 @@ Non-goals, with owners:
 
 ## CLI command tree
 
-`ruralz` is one static `CGO_ENABLED=0` binary for Linux, macOS and Windows; commands that start or signal a server run only where that server is built ([Platform support](#platform-support)). Commands take the form `ruralz <noun> <verb>`, formats such as `krakend` being arguments, except `ruralz version` and `ruralz completion`. Flags and verbs stay deprecated for 2 minor releases (target) before removal ([Release, versioning and compatibility](../engineering/04-release-versioning-and-compatibility.md)).
+`ruralz` is one static `CGO_ENABLED=0` binary for Linux, macOS and Windows; commands that start or signal a server run only where that server is built ([Platform support](#platform-support)). Commands take the form `ruralz <noun> <verb>`, formats such as `openapi` being arguments, except `ruralz version` and `ruralz completion`. Flags and verbs stay deprecated for 2 minor releases (target) before removal ([Release, versioning and compatibility](../engineering/04-release-versioning-and-compatibility.md)).
 
 *Figure 1: CLI command tree, part 1: configuration, testing and delivery.*
 
@@ -47,7 +47,7 @@ mindmap
       diff
       build
       push
-      import krakend or openapi
+      import openapi
       export openapi postman or dot
       audit
     test
@@ -105,7 +105,6 @@ Every command from pack 9 and other documents, plus `ruralz rollout reject`; Fig
 | `ruralz bundle diff` | Compare FROM with TO | `FROM TO` (forms below), Bundle flags, `--from-env`, `--to-env` | Planned (M1); Revision sources Planned (M2) |
 | `ruralz bundle build` | Build a Revision, print its digest | `[DIR]`, Bundle flags, `--offline` (no Plugin check), `--output-file` (`ruralz.canonical.v1`) | Planned (M1) |
 | `ruralz bundle push` | Send source to Ruralz Control, or a signed Revision to OCI | `[DIR]`, `--env` (required), `--oci REFERENCE`, `--key PATH` (else Sigstore keyless) | Planned (M2) |
-| `ruralz bundle import krakend` | KrakenD configuration, with a fidelity report | `FILE`, `--output-dir DIR` | Planned (M2) |
 | `ruralz bundle import openapi` | Routes and Upstreams from OpenAPI 3.x | `FILE`, `--output-dir DIR` | Planned (M2) |
 | `ruralz bundle export openapi` | OpenAPI 3.x for HTTP Routes | `[DIR]`, Bundle flags, `--output-file` | Planned (M2) |
 | `ruralz bundle export postman` | Postman collection of those Routes | `[DIR]`, Bundle flags, `--output-file` | Planned (M2) |
@@ -281,10 +280,6 @@ cases:
 | `cases[].expect` | Any of `status`, `headers` (exact), `json` (subset match), `bodyContains` |
 
 `--target URL` needs no admin access.
-
-### KrakenD EE tool mapping
-
-KrakenD makes its plugin generator, end-to-end testing tool, OpenAPI importer and exporter, Postman and DOT generators and dump to disk Enterprise-only ([source](https://www.krakend.io/features/)). Ruralz ships them free (pack section 13) as `ruralz plugin init`, `ruralz test run`, `ruralz bundle import openapi`, `ruralz bundle export` (`openapi`, `postman`, `dot`) and `ruralz node dump`. KrakenD's OpenAPI server has no counterpart; publish `ruralz bundle export openapi` output until a serving design exists (recommended, OQ-vision-and-positioning-11).
 
 ### Worked example: pull request and promotion
 
@@ -475,7 +470,7 @@ Exit codes never change once released. `ruralz bundle validate` and `ruralz bund
 | Code | Meaning | Examples |
 |---|---|---|
 | 0 | Success with nothing to report | Valid Bundle, warnings included; no diff; every case passed; `--wait` reached `complete`; `rollout start` created a Rollout |
-| 1 | A negative result | Diff with changes; error diagnostic or audit finding; failed case; `--wait` ended `rolled-back` or `failed`; `manual` items from `bundle import krakend`; `plugin build` compile error; `--api-version` conversion that changed a Revision |
+| 1 | A negative result | Diff with changes; error diagnostic or audit finding; failed case; `--wait` ended `rolled-back` or `failed`; `plugin build` compile error; `--api-version` conversion that changed a Revision |
 | 2 | No result | Usage error, unreadable input or diff source, unresolved `rev-<12 hex>`, authentication or RBAC denial, `RZ-CP` error, missing step-up, `--wait` timeout, unsupported platform, local `ruralzd` not ready, no verified lock holder |
 | 3 | Waiting on a person | `--wait` reached `paused`; `rollout start` held for approval (`RZ-CP-006`) |
 | 130 | Interrupted by SIGINT | Ctrl-C during `ruralz dev run`, `ruralz dev tap` or `--wait` |

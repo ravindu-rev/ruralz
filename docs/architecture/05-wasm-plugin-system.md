@@ -46,17 +46,15 @@ Non-goals:
 | WG-7 | Several PDK languages over one sandboxed ABI | P6 |
 | WG-8 | A pooled Phase call costs 50 µs or less at p99 (target), SM-6 | P10 |
 
-### Prior art at the 2026-09-23 snapshot
+### Prior art Ruralz builds on
 
-| Product | Custom code model | WASM status | Lesson for Ruralz |
-|---|---|---|---|
-| KrakenD | Go plugins and Lua; CE 3.0 drops Go plugins ([Vision](../vision/01-vision-and-positioning.md#two-licensing-events-that-frame-2026), pack section 13) | None | A stable ABI avoids toolchain coupling |
-| Kong Gateway | Lua, Go, Python and JavaScript PDKs ([source](https://developer.konghq.com/custom-plugins/)) | Beta proxy-wasm removed in 3.11.0.0 ([source](https://developer.konghq.com/gateway/breaking-changes/)) | A secondary beta ABI gets dropped |
-| Tyk | Go, JavaScript, Python, Lua and gRPC plugins ([source](https://tyk.io/docs/api-management/plugins/overview)) | None documented | Many runtimes widen attack surface |
-| Apache APISIX | Lua plus external runners ([source](https://github.com/apache/apisix)) | Experimental; "only a few APIs are implemented" ([source](https://apisix.apache.org/docs/apisix/wasm/)) | Unsupported imports must fail loudly |
-| Envoy Gateway | Wasm, Lua, ExtProc and Dynamic Modules ([source](https://gateway.envoyproxy.io/docs/api/extension_types/)) | Available | Offer one sandboxed path |
-| Zuplo | TypeScript policies ([source](https://zuplo.com/api-management.md)) on a custom JavaScript engine ([source](https://zuplo.com/docs/programmable-api/node-modules.md)) | Not applicable | Schedule a TypeScript PDK |
-| Extism | PDK conventions for eight languages ([source](https://extism.org/docs/concepts/pdk)) | Host SDK on wazero | Reuse guest conventions, not the stale go-sdk ([source](https://github.com/extism/go-sdk)) |
+| Basis | What Ruralz takes | Design consequence |
+|---|---|---|
+| wazero ([ADR-0004](../adr/0004-wasm-runtime-wazero.md)) | A pure Go WebAssembly runtime | The host keeps `CGO_ENABLED=0` (WG-3) |
+| Extism PDK conventions ([source](https://extism.org/docs/concepts/pdk)) | Guest-side conventions for eight languages | Reuse guest conventions, not the stale go-sdk ([source](https://github.com/extism/go-sdk)); a TypeScript PDK is scheduled |
+| The proxy-wasm ABI ([source](https://github.com/proxy-wasm/spec)) | An existing filter ABI with a module corpus | An adapter, never the primary contract ([proxy-wasm stance](#proxy-wasm-stance)) |
+
+Three design rules follow from Ruralz's own goals. A stable, versioned ABI avoids coupling Plugins to the Go toolchain, so Go plugins and Lua are not offered (WG-1). One sandboxed extension path, rather than several language runtimes, keeps the attack surface small (WG-4). An import the host does not implement fails activation loudly instead of trapping at request time (RZ-CFG-028).
 
 ## Runtime
 
@@ -553,11 +551,11 @@ This is the Plugin part of the threat model [Security and identity](08-security-
 
 ## proxy-wasm stance
 
-Decision ([ADR-0005](../adr/0005-plugin-abi-v1.md)): Plugin ABI v1 is the only primary contract, and a proxy-wasm compatibility adapter is Planned (M4); proxy-wasm lacks deny-by-default Capabilities, `onChunk` and the one-round-trip rule. The adapter is Ruralz code: `mosn.io/proxy-wasm-go-host` was last pushed in 2024 ([source](https://github.com/mosn/proxy-wasm-go-host)) on wazero v1.2.1 and `wasmer-go` ([source](https://github.com/mosn/proxy-wasm-go-host/blob/main/go.mod)), and the original repository is gone ([source](https://github.com/tetratelabs/proxy-wasm-go-host)).
+Decision ([ADR-0005](../adr/0005-plugin-abi-v1.md)): Plugin ABI v1 is the only primary contract, and a proxy-wasm compatibility adapter is Planned (M4); the proxy-wasm ABI lacks deny-by-default Capabilities, `onChunk` and the one-round-trip rule. The adapter is Ruralz code: `mosn.io/proxy-wasm-go-host` was last pushed in 2024 ([source](https://github.com/mosn/proxy-wasm-go-host)) on wazero v1.2.1 and `wasmer-go` ([source](https://github.com/mosn/proxy-wasm-go-host/blob/main/go.mod)), and the original repository is gone ([source](https://github.com/tetratelabs/proxy-wasm-go-host)).
 
 | Adapter rule | Statement |
 |---|---|
-| Mapping | Request callbacks map to `onRequestHeaders` and `onRequestBody`, response callbacks to `onUpstreamResponseHeaders` and `onUpstreamResponseBody`, `proxy_on_configure` ([source](https://apisix.apache.org/docs/apisix/wasm/)) to `rz_configure` |
+| Mapping | Request callbacks map to `onRequestHeaders` and `onRequestBody`, response callbacks to `onUpstreamResponseHeaders` and `onUpstreamResponseBody`, `proxy_on_configure` ([source](https://github.com/proxy-wasm/spec)) to `rz_configure` |
 | Affinity | Stream state lives in guest memory, so each request is pinned to one instance for its context's life; calls are serialized; 1,000 contexts per instance (target) (OQ-wasm-plugin-system-17) |
 | Capabilities | Multiplexed imports are checked per call on their selector; property paths pass an allowlist |
 | Unsupported imports | Outbound calls, timers and shared queues fail activation with RZ-CFG-028 |

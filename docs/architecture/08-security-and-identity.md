@@ -167,7 +167,7 @@ A `when` that errors makes a closed Policy run ([Configuration model](02-configu
 ### JWT and OIDC
 
 - The token's `iss` selects exactly one `config.issuers[]` entry, which MUST set `audiences` and an `https` `jwksUrl`.
-- `alg` MUST be RS256, PS256, ES256 or EdDSA; imported KrakenD HS256 gets fidelity `manual`; `jku`, `x5u`, `jwk` and `x5c` are ignored (fields: OQ-security-and-identity-1).
+- `alg` MUST be RS256, PS256, ES256 or EdDSA, so HS256 is rejected; `jku`, `x5u`, `jwk` and `x5c` are ignored (fields: OQ-security-and-identity-1).
 - A token without `exp`, or with `exp` beyond the maximum lifetime (24 hours (target) until OQ-security-and-identity-1 adds a per-issuer value), fails with RZ-AUTH-003.
 - When compiling a Revision, Nodes prefetch issuers, 16 at once, within 5 s (target), reuse unchanged issuers' keys and activate even if a fetch fails.
 - Keys live for `max-age` clamped to 5 minutes to 6 hours, or 1 hour when absent or `no-cache` (target), refresh at half-life and, after failed refreshes, serve degraded until expiry (TB-10), then RZ-AUTH-006.
@@ -267,26 +267,9 @@ spec:
 
 Authored here and registered in the Configuration model ([Registered from feature documents](02-configuration-model.md#registered-from-feature-documents)): `auth.upstream-sigv4` requires `config.region` and `config.service`, and `config.payload` is `signed` (default) or `unsigned`; `auth.upstream-oauth2` adds `config.timeout`, default 2 s (target).
 
-Also authored here, Planned (M2) and proposed for registration (OQ-security-and-identity-12, option (b)): `auth.upstream-oauth2` `config.grantType` is `client-credentials` (default) or `jwt-bearer` (RFC 7523). `jwt-bearer` replaces `clientId` and `clientSecret` with `config.serviceAccountKey`, a required `SecretValue` holding a service-account JSON key; per fetch, the Node signs an RS256 assertion with it and posts it to the `https` `tokenUrl`. `config.audience`, when set, requests an ID token for that audience instead of an access token for `scopes`. This serves Google GCP authentication ([source](https://www.krakend.io/docs/enterprise/authentication/gcloud/)).
+Also authored here, Planned (M2) and proposed for registration (OQ-security-and-identity-12, option (b)): `auth.upstream-oauth2` `config.grantType` is `client-credentials` (default) or `jwt-bearer` (RFC 7523). `jwt-bearer` replaces `clientId` and `clientSecret` with `config.serviceAccountKey`, a required `SecretValue` holding a service-account JSON key; per fetch, the Node signs an RS256 assertion with it and posts it to the `https` `tokenUrl`. `config.audience`, when set, requests an ID token for that audience instead of an access token for `scopes`. This serves Google Cloud service-account authentication.
 
-### KrakenD authentication parity
-
-Every mechanism is free; the [KrakenD EE parity matrix](../comparison/01-krakend-ee-parity-matrix.md) wins on conflict.
-
-| KrakenD feature | Ruralz mechanism | Planned |
-|---|---|---|
-| JWT, OpenID Connect, OAuth2 | `auth.jwt`; `oauthClients` binding | Planned (M1) |
-| JWT token signing | Built-in type; never keys in Plugin `config` | Planned (M2), pending OQ-security-and-identity-11 |
-| Client credentials | `auth.upstream-oauth2` | Planned (M1) |
-| Basic authentication | `auth.basic` | Planned (M1) |
-| API keys | `auth.api-key` | Planned (M1) |
-| Token revocation bloom filter | Signed revocation list on every Node | Planned (M2) |
-| Revoke Server | Ruralz Control revocation API | Planned (M2) |
-| Multiple identity providers per endpoint | Several `issuers[]` | Planned (M1) |
-| mTLS | `auth.mtls`; `Upstream.spec.tls` | Planned (M1) |
-| NTLM authentication | Not planned: it authenticates a TCP connection, breaking pooling, and uses non-FIPS MD4 and HMAC-MD5 (P1) | Not planned |
-| Google GCP authentication | JWT-bearer grant in `auth.upstream-oauth2` ([fields](#upstream-authentication)) | Planned (M2), pending OQ-security-and-identity-12 |
-| AWS SigV4 authentication | `auth.upstream-sigv4` | Planned (M2) |
+Every mechanism is free. JWT token signing is a built-in type that never takes keys in Plugin `config`, Planned (M2), pending OQ-security-and-identity-11. Token revocation uses a signed revocation list on every Node and a Ruralz Control revocation API, both Planned (M2) ([Revocation](#revocation)). NTLM authentication is Not planned: it authenticates a TCP connection, breaking pooling, and uses non-FIPS MD4 and HMAC-MD5 (P1).
 
 ### RZ-AUTH decision codes
 

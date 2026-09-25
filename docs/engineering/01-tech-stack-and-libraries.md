@@ -358,7 +358,7 @@ ADRs follow MADR 4.0 plus `Confirmation` ([style guide](../_meta/style-guide.md)
 | fasthttp | HTTP stack | Not `net/http`, so connect and the standard HTTP/2 server cannot be reused | Never | ([source](https://github.com/connectrpc/connect-go/blob/main/README.md)) |
 | Go stdlib HTTP/3 | HTTP/3 | Unexported package on master; proposals on hold | A public API ships | ([source](https://github.com/golang/go/issues/70914)) |
 | grpc-go `ServeHTTP` | gRPC ingress | Needs HTTP/2; lacks some native-server features | Never | ([source](https://github.com/grpc/grpc-go/blob/master/server.go)) |
-| go-control-plane | Control Stream | Envoy resource model, not whole Revisions ([ADR-0007](../adr/0007-control-stream-protocol.md)) | Never | Design decision, no external claim |
+| go-control-plane | Control Stream | Per-resource xDS model, not whole Revisions ([ADR-0007](../adr/0007-control-stream-protocol.md)) | Never | Design decision, no external claim |
 | etcd raft; dragonboat | Control Store | etcd raft has no transport or storage; dragonboat has no release since 2023 | hashicorp/raft stalls | ([source](https://github.com/etcd-io/raft/blob/main/README.md)) ([source](https://github.com/lni/dragonboat/blob/master/README.md)) |
 | go-redis v9 | State Store client | Auto-pipelining and client-side caching experimental | Both stabilize and win benchmarks | ([source](https://github.com/redis/go-redis/releases/tag/v9.22.0)) |
 | gqlgen; bramble; graphql-go | GraphQL | Code-generation framework; no subscriptions; stale since 2023 with GO-2022-0942 | Never | ([source](https://github.com/99designs/gqlgen)) ([source](https://github.com/movio/bramble)) ([source](https://pkg.go.dev/github.com/graphql-go/graphql?tab=versions)) |

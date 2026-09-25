@@ -16,7 +16,7 @@ related:
 
 ## Context and problem statement
 
-Ruralz is positioned as "KrakenD Enterprise, but better, and fully free" ([Vision and positioning](../vision/01-vision-and-positioning.md#positioning-versus-krakend-ee-and-the-market)). KrakenD EE will not start without a license file ([source](https://www.krakend.io/docs/enterprise/overview/license-file/)), unlicensed Kong Gateway 3.10 behaves as expired ([source](https://github.com/Kong/kong/discussions/14628)), and Tyk keeps a commercial `ee` folder ([source](https://github.com/TykTechnologies/tyk)).
+Ruralz is positioned as an open-source API gateway where every feature, including the control plane and console, is free (Apache-2.0, no feature gating) ([Vision and positioning](../vision/01-vision-and-positioning.md#positioning)). A binary that checks a license file can refuse to start, turn read-only or drop features when the license lapses, and a commercial source folder splits one code base into two feature sets; P1 rules out both.
 
 Which license, contribution model and name protection make P1 ("Everything is free") verifiable while Revington funds the project?
 
@@ -31,10 +31,10 @@ Which license, contribution model and name protection make P1 ("Everything is fr
 ## Considered options
 
 1. Apache-2.0 for every component ([source](https://www.apache.org/licenses/LICENSE-2.0)), no feature gating, DCO sign-off ([source](https://developercertificate.org/)) and a Revington trademark policy.
-2. Open core with a license-key-gated enterprise edition, as with KrakenD EE ([source](https://www.krakend.io/features/)), Kong Gateway Enterprise ([source](https://developer.konghq.com/gateway/entities/license/)) and Gravitee APIM ([source](https://documentation.gravitee.io/apim/introduction/enterprise-edition)).
+2. Open core with a license-key-gated enterprise edition.
 3. AGPLv3, as adopted by Grafana ([source](https://grafana.com/blog/grafana-loki-tempo-relicensing-to-agplv3/)) and Redis 8 ([source](https://redis.io/blog/agplv3/)).
 4. Source-available terms that convert later: BSL 1.1 ([source](https://www.hashicorp.com/en/bsl)) or the Functional Source License ([source](https://fsl.software/)).
-5. Apache-2.0 with a Contributor License Agreement (CLA), as Tyk AI Studio requires ([source](https://github.com/TykTechnologies/ai-studio)).
+5. Apache-2.0 with a Contributor License Agreement (CLA).
 
 ## Decision outcome
 
@@ -51,7 +51,7 @@ Chosen option: "Apache-2.0 for every component, no feature gating, DCO sign-off 
 | Dependencies | Linked Go packages, the Ruralz Console production dependency tree and each PDK's shipped dependencies stay on the G2 allowlist or its named per-ecosystem addendum; MPL-2.0 only by named exception ([License rules](../engineering/01-tech-stack-and-libraries.md#license-rules)) | Planned (M0) |
 | Revenue | Only Ruralz Cloud ([Managed cloud](../vision/01-vision-and-positioning.md#managed-cloud)) and commercial support; support delivers no private features; Ruralz Cloud offers nothing a self-hosted Ruralz Control lacks and uses no cloud-only hook | Policy Planned (M0); Ruralz Cloud has no milestone (OQ-vision-and-positioning-3) |
 
-Scope: a DCO cannot stop Revington, like any redistributor, from shipping later Derivative Works under other terms; published releases stay Apache-2.0 ([Licensing landscape](../_meta/research/licensing-landscape.md), section 11), and P1 and this ADR keep future releases Apache-2.0; stewardship is OQ-vision-and-positioning-9.
+Scope: a DCO cannot stop Revington, like any redistributor, from shipping later Derivative Works under other terms; published releases stay Apache-2.0 ([Licensing landscape](../_meta/research/licensing-landscape.md), DCO versus CLA), and P1 and this ADR keep future releases Apache-2.0; stewardship is OQ-vision-and-positioning-9.
 
 *Figure 1: CI gates and one Apache-2.0 feature set for every operator.*
 
@@ -93,7 +93,7 @@ flowchart LR
 
 - Good, because P1 becomes testable: no binary holds license state, so one test suite and support surface cover every build.
 - Good, because adopters receive each contributor's patent license, and the DCO keeps friction low ([source](https://helm.sh/blog/helm-dco/)).
-- Good, because Plugins, Ruralz Control and Ruralz Console are free in every build flavor, while KrakenD CE 3.0 moves Go plugins to EE ([source](https://www.krakend.io/blog/dropping-plugins-support-on-community/)).
+- Good, because Plugins, Ruralz Control and Ruralz Console are free in every build flavor, so no adopter outgrows the free build.
 - Bad, because revenue has no enterprise upsell, and anyone may host Ruralz against Ruralz Cloud; Apache-2.0 Section 6 grants no trademark rights, so only the name is protected ([source](https://www.apache.org/licenses/LICENSE-2.0)).
 - Bad, because G2 bars GPL, AGPL and source-available code, GPLv2-only code is incompatible outright ([source](https://www.apache.org/licenses/GPL-compatibility.html)), and MPL-2.0 exceptions carry file-level obligations.
 
@@ -111,14 +111,14 @@ flowchart LR
 
 ### Apache-2.0, no feature gating, DCO and trademark policy
 
-- Good, because Apache APISIX ([source](https://apisix.apache.org/)) and Envoy ([source](https://www.cncf.io/projects/envoy/)) use the same license.
+- Good, because Apache-2.0 is OSI-approved and familiar to adopters' legal review ([source](https://opensource.org/license/apache-2-0)).
 - Good, because a trademark policy protects the name without restricting code; Redis requires an agreement for hosted services using its mark ([source](https://redis.io/legal/trademark-policy/)).
 - Bad, because it gives no copyleft defense against closed forks.
 
 ### Open core with a gated enterprise edition
 
-- Good, because it is proven revenue; KrakenD EE is sold through sales only ([source](https://www.krakend.io/enterprise/)).
-- Bad, because it contradicts P1: an expired Kong license makes configuration read-only and DB-less restarts fail ([source](https://developer.konghq.com/gateway/entities/license/)).
+- Good, because it is a proven revenue model for infrastructure software.
+- Bad, because it contradicts P1: a lapsed license can make configuration read-only or stop restarts, and features differ by edition.
 
 ### AGPLv3
 

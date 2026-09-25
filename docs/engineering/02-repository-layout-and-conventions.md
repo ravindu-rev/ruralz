@@ -505,13 +505,13 @@ flowchart LR
 
 ## Docs as code
 
-Documentation lives in `docs/` beside the code and is reviewed in the same pull requests. Folders follow the manifest: `README.md` and `glossary.md` at the root, `vision/`, `architecture/`, `engineering/`, `operations/`, `comparison/`, `reference/`, `roadmap/`, `adr/` (MADR 4.0 plus `Confirmation` ([source](https://github.com/adr/madr/releases/tag/4.0.0)), indexed by the [ADR index](../adr/README.md)) and `_meta/` (binding inputs and research).
+Documentation lives in `docs/` beside the code and is reviewed in the same pull requests. Folders follow the manifest: `README.md` and `glossary.md` at the root, `vision/`, `architecture/`, `engineering/`, `operations/`, `features/`, `reference/`, `roadmap/`, `adr/` (MADR 4.0 plus `Confirmation` ([source](https://github.com/adr/madr/releases/tag/4.0.0)), indexed by the [ADR index](../adr/README.md)) and `_meta/` (binding inputs and research).
 
 ### Rules
 
 - The [style guide](../_meta/style-guide.md) and the foundation pack are binding; `docs/_meta/manifest.yaml` fixes each document's outline, diagrams and acceptance criteria.
 - Diagrams are Mermaid source, never images, so diffs stay reviewable.
-- Every competitor, vendor or library claim cites a URL from a file under `docs/_meta/research/`; a new fact needs a research addendum first.
+- Every vendor or library claim cites a URL from a file under `docs/_meta/research/`; a new fact needs a research addendum first.
 - Changes to binding files under `docs/_meta/` follow foundation pack section 14 and need two approvals.
 
 ## Open questions

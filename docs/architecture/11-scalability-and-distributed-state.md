@@ -247,7 +247,7 @@ A failover loses the newest TATs and reservations to replication lag, and the Ce
 
 ### Distributed rate limits
 
-A Rate Limit pairs a local token bucket per Node with GCRA in the State Store ([ADR-0008](../adr/0008-rate-limiting-local-bucket-and-gcra.md)), the hybrid Envoy recommends ([source](https://www.envoyproxy.io/docs/envoy/latest/intro/arch_overview/other_features/global_rate_limiting)). The local bucket denies a pinned client without a round trip, shields the State Store from hot keys, and is the only limiter left while the State Store fails.
+A Rate Limit pairs a local token bucket per Node with GCRA in the State Store ([ADR-0008](../adr/0008-rate-limiting-local-bucket-and-gcra.md)). The local bucket denies a pinned client without a round trip, shields the State Store from hot keys, and is the only limiter left while the State Store fails.
 
 *Figure 3: local token bucket, then GCRA in the State Store.*
 
@@ -291,7 +291,7 @@ sequenceDiagram
 
 **Per-request GCRA.** For OQ-system-overview-15, GCRA runs per admitted request through Planned (M3), as pack 8.8 fixes, keeping the Cell limit exact for every key with a GCRA answer while the State Store is healthy: under option (c) of OQ-traffic-management-and-resilience-20, conforming until OQ-scalability-and-distributed-state-11 closes, every key except `config.localOnly` hot keys (proposed). Under option (a), a first-seen key past the budget B runs local-only for 10 s (target) with its own [bound](#consistency-and-accuracy-bounds), and first-seen calls stay at most min(B × N_serving / N_published, 500 × N_serving) per second per Cell (target) ([decision path](09-traffic-management-and-resilience.md#decision-path)). Leases, as in Doorman ([source](https://github.com/youtube/doorman)), trade accuracy for fewer calls (OQ-scalability-and-distributed-state-1).
 
-**Hot keys.** A key reaches the State Store at most min(offered, 2 × N_serving × ceiling) times per window (target) ([ADR-0008](../adr/0008-rate-limiting-local-bucket-and-gcra.md)); denials come from the over-limit cache, as in envoyproxy/ratelimit ([source](https://github.com/envoyproxy/ratelimit)). Since each locally admitted request runs GCRA (pack 8.8), a derived ceiling allows 2 × `requests` × N_serving / N_published calls per window. A key whose `requests` exceed 25% of one shard's calls, about 25,000 per second (hypothesis), SHOULD set [Traffic's](09-traffic-management-and-resilience.md#per-node-ceiling) `config.localOnly` once OQ-scalability-and-distributed-state-11 amends pack 8.8 (proposed); until then it needs a declared per-Node ceiling, a split `config.key` or its own Cell. GCRA keys thus stay under 2 × 25% = 50% of a shard, leaving margin under the 70% script CPU target for a count lagging 40% (hypothesis). A `config.localOnly` key would never run GCRA, admitting at most N_serving × ceiling per window, even healthy (target), amending pack 8.8; validation warnings are OQ-scalability-and-distributed-state-15.
+**Hot keys.** A key reaches the State Store at most min(offered, 2 × N_serving × ceiling) times per window (target) ([ADR-0008](../adr/0008-rate-limiting-local-bucket-and-gcra.md)); denials come from the per-Node over-limit cache. Since each locally admitted request runs GCRA (pack 8.8), a derived ceiling allows 2 × `requests` × N_serving / N_published calls per window. A key whose `requests` exceed 25% of one shard's calls, about 25,000 per second (hypothesis), SHOULD set [Traffic's](09-traffic-management-and-resilience.md#per-node-ceiling) `config.localOnly` once OQ-scalability-and-distributed-state-11 amends pack 8.8 (proposed); until then it needs a declared per-Node ceiling, a split `config.key` or its own Cell. GCRA keys thus stay under 2 × 25% = 50% of a shard, leaving margin under the 70% script CPU target for a count lagging 40% (hypothesis). A `config.localOnly` key would never run GCRA, admitting at most N_serving × ceiling per window, even healthy (target), amending pack 8.8; validation warnings are OQ-scalability-and-distributed-state-15.
 
 **Pack amendments.** OQ-scalability-and-distributed-state-11 carries the options recommended here, amending packs 8.8 and 8.11; their owners close them with it.
 
@@ -436,7 +436,7 @@ flowchart TB
 
 ### Regional versus global quotas
 
-A shared Revision gives every Region the same `limit`, enforced alone, as AWS API Gateway throttles per Region ([source](https://docs.aws.amazon.com/apigateway/latest/developerguide/api-gateway-request-throttling.html)) and Cloudflare keeps no global counters ([source](https://developers.cloudflare.com/waf/rate-limiting-rules/request-rate/)).
+A shared Revision gives every Region the same `limit`, enforced alone: each Region counts only its own traffic, with no global counter.
 
 | Pattern | How | Accuracy | Status |
 |---|---|---|---|

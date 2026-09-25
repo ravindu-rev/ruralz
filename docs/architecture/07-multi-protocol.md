@@ -88,7 +88,7 @@ Each stream, session or long-lived operation holds one in-flight unit (503 `RZ-R
 | Aspect | Design |
 |---|---|
 | Milestone | Planned (M3) |
-| Use cases | Service and mobile RPC; browsers through gRPC-Web or Connect; REST clients through transcoding; KrakenD "gRPC Server" and "gRPC Client" parity ([source](https://www.krakend.io/features/)) |
+| Use cases | Service and mobile RPC; browsers through gRPC-Web or Connect; REST clients through transcoding |
 | Kind mapping | `Route.spec.match.grpc.service`, optional `method`, or `path` and `methods` for transcoding; `Upstream.spec.protocol: grpc` (`http` for reverse transcoding); descriptors in a proposed `Upstream` `grpc.descriptors` (OQ-multi-protocol-1) |
 | Policy applicability | Header-Phase types read metadata as headers; body-Phase types and `cache` only on unary calls (below); `cors` only for browser clients |
 | Limits | Unary messages are bodies; stream messages are chunks (proposed, OQ-multi-protocol-17) failing over 1 MiB (target), even native unary calls without descriptors (OQ-multi-protocol-15); `grpc-timeout` clamped by Route `timeout`; native gRPC needs HTTP/2 |
@@ -320,7 +320,7 @@ sequenceDiagram
 | Aspect | Design |
 |---|---|
 | Milestone | Planned (M3) |
-| Use cases | Chat, collaboration, live feeds; KrakenD "Direct WebSockets" and "WebSockets multiplexer" parity ([source](https://www.krakend.io/features/)) |
+| Use cases | Chat, collaboration, live feeds; many clients sharing one Upstream connection (multiplexer mode) |
 | Kind mapping | A Route matching the HTTP/1.1 upgrade; `Upstream.spec.protocol: websocket`; mode (direct or multiplexer) and session settings in a proposed `Upstream` `websocket` object (OQ-multi-protocol-6) |
 | Policy applicability | Header-Phase types run once at the upgrade, so `ratelimit` and `quota` admit sessions; `cache` and anything using `onRequestBody` are rejected; data messages run `onChunk` Plugins |
 | Limits | A message read by an `onChunk` subscriber is a chunk, 1 MiB (target), close 1009 beyond; session bounded by Route `timeout` |
@@ -339,7 +339,7 @@ Under `failureMode: closed` a failing Plugin closes both sides with 1011; under 
 
 ### Multiplexing
 
-The multiplexer mode (KrakenD's EE multiplexer row, [source](https://www.krakend.io/features/)), Planned (M3), keeps one Upstream connection per Route and Endpoint per Node, wrapping client messages in envelopes with a session identifier. The proposed `websocket.mode: multiplex` selects it; `direct`, the default, keeps one Upstream connection per client (OQ-multi-protocol-6). The envelope below is fixed by this document, not configurable.
+The multiplexer mode, Planned (M3), keeps one Upstream connection per Route and Endpoint per Node, wrapping client messages in envelopes with a session identifier. The proposed `websocket.mode: multiplex` selects it; `direct`, the default, keeps one Upstream connection per client (OQ-multi-protocol-6). The envelope below is fixed by this document, not configurable.
 
 - Dial: the shared connection offers the subprotocol `ruralz.mux.v1`; an Upstream that does not select it fails the dial as a leg failure. Balancing picks the Endpoint per session. The first session on a Route and Endpoint waits for the shared dial before its 101, so it gets direct mode's retries, breakers and 502; later sessions get 101 after their admission Phases. A shared connection closes 60 s (target) after its last session ends.
 - Phases: the shared dial runs `onUpstreamRequest` and `onUpstreamResponseHeaders` once, so Upstream-scoped Policies run only there. Each client runs the upgrade Phases and `onChunk`; its identity reaches the Upstream only in the `open` envelope.
@@ -449,7 +449,7 @@ sequenceDiagram
 | Aspect | Design |
 |---|---|
 | Milestone | Planned (M3) |
-| Use cases | Notifications, LLM token streams and GraphQL subscriptions; KrakenD "Streaming and Server-Sent Events" parity ([source](https://www.krakend.io/features/)) |
+| Use cases | Notifications, LLM token streams and GraphQL subscriptions |
 | Kind mapping | An ordinary HTTP Route; `Upstream.spec.protocol: http` answering `text/event-stream`, `ai` for LLM streams or `graphql` for subscriptions |
 | Policy applicability | All request-Phase types; `onChunk` per event; response-body gates buffer (below) |
 | Limits | An event read by an `onChunk` subscriber is a chunk, 1 MiB (target); the stream ends at the Route `timeout`; each write has a deadline |
@@ -463,7 +463,7 @@ sequenceDiagram
 | Aspect | Kafka | NATS JetStream | MQTT |
 |---|---|---|---|
 | Milestone | Planned (M4) | Planned (M4) | Planned (M4) |
-| Use cases | HTTP to a log; topics to HTTP, KrakenD's "Kafka async agents" ([source](https://www.krakend.io/features/)) | The same | External brokers; device ingress |
+| Use cases | HTTP to a log; topics to HTTP as async agents | The same | External brokers; device ingress |
 | Library ([ADR-0013](../adr/0013-messaging-client-libraries.md)) | twmb/franz-go | nats.go `jetstream` | paho.golang `autopaho`; mochi-mqtt broker |
 | Kind mapping | Publish: `path` Route; ingress: `match.topic`; `protocol: kafka`, bootstrap `endpoints`, `messaging.topic`, `messaging.key` as record key | `nats`; topic as subject; no key | `mqtt`; no key; embedded PUBLISH matches `match.topic` |
 | Acknowledgment | All in-sync replicas, idempotent producer ([source](https://github.com/twmb/franz-go)); proposed `acks` ([Advanced Kafka options](#advanced-kafka-options)) | Stream `PubAck` | `PUBACK` at QoS 1 |
@@ -481,7 +481,7 @@ The Node answers 202 once the broker acknowledges, 502 with an `RZ-UP` code when
 
 ### Advanced Kafka options
 
-KrakenD EE 2.13 added advanced Kafka publisher and subscriber settings ([source](https://www.krakend.io/blog/krakend-ee-2.13-release-notes/)). Ruralz covers that Advanced Apache Kafka row, Planned (M4), on the same `kafka` `Upstream` through the `messaging` fields below, proposed as OQ-multi-protocol-8 option (a) until the Configuration model adds them; broker credentials stay with OQ-multi-protocol-9, and consumer-side settings (groups, fetch bounds, start offset) with OQ-multi-protocol-10.
+Advanced Kafka publisher settings, Planned (M4), live on the same `kafka` `Upstream` through the `messaging` fields below, proposed as OQ-multi-protocol-8 option (a) until the Configuration model adds them; broker credentials stay with OQ-multi-protocol-9, and consumer-side settings (groups, fetch bounds, start offset) with OQ-multi-protocol-10.
 
 | Proposed field | Values and default | Kafka | NATS and MQTT |
 |---|---|---|---|
@@ -611,7 +611,7 @@ Ruralz Gateway mediates rather than proxying broker protocols, keeping every mes
 | Kafka | No native Kafka wire-protocol proxying before M4 (pack 7, [ADR-0013](../adr/0013-messaging-client-libraries.md)); Not planned in M0 to M5, revisited at M4 (OQ-multi-protocol-11) | A proxy rewrites metadata and coordinator responses, and Phases would see record batches without a per-message Route |
 | MQTT | Native ingress only through the embedded broker mode, Planned (M4); transparent proxying Not planned | Terminating MQTT gives each PUBLISH a Route; external brokers are `mqtt` Upstreams |
 | NATS | Native client-protocol proxying Not planned | NATS has its own clustering and authorization |
-| Other brokers (AMQP, cloud queues) | Not planned in M0 to M5 | No researched library; KrakenD lists AMQP consumer and producer, Azure Service Bus topic and subscription, Google Cloud Pub/Sub, Amazon SNS and Amazon SQS ([source](https://www.krakend.io/features/)), six parity-matrix rows marked Not planned (OQ-multi-protocol-14) |
+| Other brokers (AMQP, cloud queues) | Not planned in M0 to M5 | No researched library for AMQP, Azure Service Bus, Google Cloud Pub/Sub, Amazon SNS or Amazon SQS (OQ-multi-protocol-14) |
 
 ## Filter Chain applicability per protocol
 
@@ -675,7 +675,7 @@ Sessions keep their snapshot until it retires ([System overview](01-system-overv
 | OQ-multi-protocol-11 | Should native Kafka wire proxying follow the M4 review? | (a) Not planned (current); (b) Produce-only, Planned (M5); (c) An external proxy | multi-protocol | No |
 | OQ-multi-protocol-12 | Which Upstream-side choices need fields: h2c or HTTP/3, gRPC health, subgraph subscription transport and read limit? Tech stack SSE row: forwarding only | (a) New `Upstream` fields; (b) Inferred defaults (current); (c) Plugins | multi-protocol | No |
 | OQ-multi-protocol-13 | Which RZ-CFG registrations cover these validation rules, the topic-ingress `overridable: false` and response-Phase cases, and a broker body-gate row? | (a) New codes and row; (b) Widen RZ-CFG-020 | configuration-model | No |
-| OQ-multi-protocol-14 | Should AMQP (consumer and producer), Azure Service Bus, Google Cloud Pub/Sub, Amazon SNS or Amazon SQS join `Upstream.spec.protocol`? | (a) Not planned in M0 to M5 (current); (b) New values by ADR; (c) Plugins | multi-protocol | Yes, for the parity matrix |
+| OQ-multi-protocol-14 | Should AMQP (consumer and producer), Azure Service Bus, Google Cloud Pub/Sub, Amazon SNS or Amazon SQS join `Upstream.spec.protocol`? | (a) Not planned in M0 to M5 (current); (b) New values by ADR; (c) Plugins | multi-protocol | No |
 | OQ-multi-protocol-15 | Should the 1 MiB (target) chunk cap be configurable? Fixed, it rejects larger gRPC stream messages | (a) Fixed (current); (b) A Gateway `limits` field; (c) A per-Upstream field | configuration-model | Yes, for gRPC streaming |
 | OQ-multi-protocol-16 | Which codes cover unparsable transcoded bodies, upgrades to `http`, plain requests to `websocket` Upstreams, GraphQL prefix misses, timeouts and rejections, SSE buffered timeouts, multiplexer closes and full producer buffers (an `RZ-UP` bulkhead code)? | (a) New codes; (b) Reuse RZ-RT-003 and RZ-RT-009 | data-plane; `RZ-UP`: traffic-management-and-resilience | Yes, for gRPC and GraphQL |
 | OQ-multi-protocol-17 | Pack section 4 amendment: `onChunk` per gRPC message and GraphQL event; `onRequestBody`, `onUpstreamRequest` and admission per GraphQL WebSocket operation; gRPC trailer statuses | (a) Amend (proposed); (b) Plugins only; (c) No WebSocket subscriptions with body-Phase Policies | multi-protocol | Yes, for gRPC and GraphQL |

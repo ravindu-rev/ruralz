@@ -11,7 +11,6 @@ related:
   - docs/architecture/01-system-overview.md
   - docs/vision/01-vision-and-positioning.md
   - docs/_meta/research/tooling-and-licenses.md
-  - docs/_meta/research/krakend-config-model.md
 ---
 
 # ADR-0003: Configuration format: YAML with JSON Schema and a Kubernetes-style resource model
@@ -20,7 +19,7 @@ related:
 
 Ruralz is configured through Bundles: directories rooted at `ruralz.yaml` that render into one content-addressed Revision per Environment ([Configuration model](../architecture/02-configuration-model.md#canonical-form-and-revision), [System overview](../architecture/01-system-overview.md#configuration-lifecycle)). The same files are reviewed in Git (P5), validated by the `ruralz` CLI, re-rendered by Ruralz Control, loaded by file-mode Nodes (P2) and, Planned (M2), mirrored as CRDs ([ADR-0016](0016-kubernetes-helm-and-crds.md), proposed; [principles](../vision/01-vision-and-positioning.md#principles)).
 
-Which format gives all of them one schema, identical parsing and no construct that expands without bound? KrakenD, the main migration source, recommends one JSON file ([source](https://www.krakend.io/docs/configuration/supported-formats/)) plus Go templates ([source](https://www.krakend.io/docs/configuration/flexible-config/)).
+Which format gives all of them one schema, identical parsing and no construct that expands without bound? Candidate formats range from one JSON file to HCL and a flat file expanded by a template language.
 
 ## Decision drivers
 
@@ -35,13 +34,13 @@ Which format gives all of them one schema, identical parsing and no construct th
 
 1. YAML 1.2 with JSON Schema (draft 2020-12), restricted profile and Kubernetes envelope, using `goccy/go-yaml` ([source](https://github.com/goccy/go-yaml/blob/master/README.md)) and `santhosh-tekuri/jsonschema/v6` ([source](https://github.com/santhosh-tekuri/jsonschema/blob/boon/README.md)).
 2. Unrestricted YAML with a YAML 1.1 resolver, as in `sigs.k8s.io/yaml` ([source](https://github.com/kubernetes-sigs/yaml/blob/v1.6.0/yaml.go)).
-3. JSON only, which KrakenD recommends and alone checks with `--lint` ([source](https://www.krakend.io/docs/configuration/supported-formats/)).
-4. HCL, listed among KrakenD's formats ([source](https://www.krakend.io/docs/configuration/supported-formats/)).
-5. KrakenD-style flat file with templates ([source](https://www.krakend.io/docs/configuration/templates/)).
+3. JSON only.
+4. HCL.
+5. Flat file with templates.
 
 ## Decision outcome
 
-Chosen option: "YAML 1.2 validated by a published JSON Schema (draft 2020-12), with a restricted YAML profile, Kubernetes-style `apiVersion`/`kind`/`metadata`/`spec` resources and strategic-merge overlays, and JSON accepted as a strict subset", because only it keeps comments and line diffs, maps one to one onto CRDs, and parses deterministically, with bounded input, under one schema. HCL and JSON-only are rejected; the flat file stays an import source. The rules refine [Format decision](../architecture/02-configuration-model.md#format-decision) and foundation pack sections 5 and 7:
+Chosen option: "YAML 1.2 validated by a published JSON Schema (draft 2020-12), with a restricted YAML profile, Kubernetes-style `apiVersion`/`kind`/`metadata`/`spec` resources and strategic-merge overlays, and JSON accepted as a strict subset", because only it keeps comments and line diffs, maps one to one onto CRDs, and parses deterministically, with bounded input, under one schema. HCL, JSON-only and the flat file with templates are rejected. The rules refine [Format decision](../architecture/02-configuration-model.md#format-decision) and foundation pack sections 5 and 7:
 
 | Rule | Value | Planned |
 |---|---|---|
@@ -97,7 +96,6 @@ flowchart LR
 - Bad, because both libraries self-report conformance, and goccy/go-yaml's last release (2026-01-08) ([source](https://github.com/goccy/go-yaml/releases/tag/v1.19.2)) leaves the S1 window on 2027-01-08, triggering a health review.
 - Bad, because the depth limit's value and peak loader memory (hypothesis) stay unset until the Configuration model adds an Open question for them.
 - Bad, because two schema views and seven custom keywords must stay in step, and apiVersion migration drops comments (OQ-configuration-model-7).
-- Bad, because KrakenD users must convert; `ruralz bundle import krakend` is best-effort, Planned (M2).
 
 ### Confirmation
 
@@ -125,24 +123,24 @@ flowchart LR
 ### JSON only
 
 - Good, because the syntax is unambiguous and every tool parses it.
-- Bad, because it lacks comments; KrakenD's schema tolerates `@`, `$`, `_` or `#` keys instead ([source](https://www.krakend.io/schema/v2.13/krakend.json)).
+- Bad, because it lacks comments, so authors resort to placeholder keys that the schema must tolerate.
 - Bad, because large nested files diff poorly.
 
 ### HCL
 
 - Good, because it has comments and readable diffs.
 - Bad, because its schema and editor story is weak and it has no CRD path.
-- Bad, because KrakenD CE v2.13 parses through krakend-koanf, whose README omits HCL ([source](https://github.com/krakend/krakend-koanf)).
+- Bad, because a second syntax needs its own deterministic parser and conformance suite.
 
-### KrakenD-style flat file with templates
+### Flat file with templates
 
-- Good, because KrakenD operators know it.
-- Bad, because a failed render falls back to the raw file ([source](https://github.com/krakend/krakend-flexibleconfig/blob/master/template.go)), so the loaded configuration can differ from the reviewed intent.
+- Good, because one file with shared template partials is simple to ship.
+- Bad, because the rendered output, not the reviewed source, is what loads, and a render engine that falls back to the raw file on error lets the loaded configuration differ from the reviewed intent.
 - Bad, because a template language is a Configuration model non-goal.
 
 ## More information
 
 - Owning document: [Configuration model](../architecture/02-configuration-model.md#restricted-yaml-profile).
-- Evidence: [Tooling and licenses research](../_meta/research/tooling-and-licenses.md) sections 6 and 7; [KrakenD configuration model research](../_meta/research/krakend-config-model.md); the [Library catalog](../engineering/01-tech-stack-and-libraries.md#library-catalog).
+- Evidence: [Tooling and licenses research](../_meta/research/tooling-and-licenses.md) sections 6 and 7; the [Library catalog](../engineering/01-tech-stack-and-libraries.md#library-catalog).
 - Related decisions: [ADR-0011](0011-expressions-and-authorization-engines.md) and [ADR-0017](0017-artifact-signing.md).
 - Open elsewhere: OQ-configuration-model-10 and OQ-configuration-model-2.
