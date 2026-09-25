@@ -7,7 +7,7 @@ last_updated: 2026-09-23
 
 # Ruralz Foundation Pack
 
-This file is **binding** for every document under `docs/`. Writers and reviewers MUST use these names, kinds, phases, Policy types, commands and facts verbatim; deviations are review-blocking. This version was frozen on 2026-09-23 after the System overview and Configuration model judge panels. Every amendment decision is logged in `docs/_meta/reviews/freeze-decisions.md`; later changes follow section 14.
+This file is **binding** for every document under `docs/`. Writers and reviewers MUST use these names, kinds, phases, Policy types, commands and facts verbatim; deviations are review-blocking. This version was frozen on 2026-09-23 after the System overview and Configuration model judge panels. Later changes follow section 14.
 
 ## 1. Product facts
 
@@ -459,7 +459,7 @@ The KrakenD CE/EE feature table snapshot (2026-09-23, EE 2.13) lives in `docs/_m
 
 ## 14. Change control
 
-- History: the previous version was authored on 2026-09-23, before the research files existed. This version was frozen on 2026-09-23 after the System overview and Configuration model judge panels and the Vision and Tech stack reviews; it decides 114 amendment proposals (61 distinct) as logged in `docs/_meta/reviews/freeze-decisions.md`, and its research actions and two library selections were completed against `docs/_meta/research/tooling-and-licenses.md` and the corrected section 11 of `docs/_meta/research/licensing-landscape.md`. All Wave 2 and Wave 3 documents are written against it, and a later step conforms the four foundation documents to it.
+- History: the previous version was authored on 2026-09-23, before the research files existed. This version was frozen on 2026-09-23 after the System overview and Configuration model judge panels and the Vision and Tech stack reviews; it decides 114 amendment proposals (61 distinct), and its research actions and two library selections were completed against `docs/_meta/research/tooling-and-licenses.md` and the corrected section 11 of `docs/_meta/research/licensing-landscape.md`. All Wave 2 and Wave 3 documents are written against it, and a later step conforms the four foundation documents to it.
 - After the freeze, changes require an ADR or an entry in the owning document's Open questions.
 
 Open questions this freeze decides; owners close them during conformance:
