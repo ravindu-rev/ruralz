@@ -457,7 +457,7 @@ Data goes to standard output; progress, warnings and prompts to standard error. 
 | `ruralz ai cost` | Table per currency; also `--output csv` | Rows with `currency` and `approximate` |
 | `ruralz version` | Text | `version`, `commit`, `flavor`, `apiVersions`, `pluginAbi`, `controlStream` |
 
-The `ruralz version` members take OQ-release-versioning-and-compatibility-6 option (a).
+The `ruralz version` members take OQ-release-versioning-and-compatibility-6 option (a). `pluginAbi` and `controlStream` name contracts the binary serves, so a build omits them until Plugin ABI v1 and the Control Stream are served, Planned (M2); `apiVersions` lists the configuration apiVersions it serves.
 
 ### Diff JSON compatibility
 
