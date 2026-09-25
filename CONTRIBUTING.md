@@ -21,7 +21,7 @@ Pull requests are squash-merged, so the title becomes the commit subject. It fol
 |---|---|
 | `feat`, `fix`, `perf`, `refactor` | `gateway`, `control`, `cli`, `config`, `filter`, `plugin`, `ai`, `statestore`, `controlstream`, `console`, `sdk`, `api`, `deploy` |
 | `test` | The scopes above, `e2e`, `conformance` |
-| `docs` | A document slug, such as `docs(data-plane)` |
+| `docs` | A document slug: the file name under `docs/` without its numeric prefix and extension, such as `docs(data-plane)` |
 | `build`, `ci` | `deps`, `tools`, `workflows` |
 | `chore`, `revert` | Any |
 
@@ -57,7 +57,7 @@ make floor FLOOR_GOTOOLCHAIN=go1.26.8                # the Go 1.26 floor job, wi
 ## Pull requests
 
 - Keep a pull request under 400 changed lines, excluding generated files (target), and bring its tests, regenerated files and documentation with it.
-- One CODEOWNERS approval is required; changes to `api/`, `pkg/`, `docs/_meta/`, `go.mod`, security-sensitive packages, the no-license-check allowlist or workflows need two.
+- One CODEOWNERS approval is required; changes to `api/`, `pkg/`, `docs/_meta/`, `go.mod`, the security-sensitive packages (`internal/filter/auth/`, `internal/filter/authz/`, `internal/signing/`, `internal/pluginhost/`), the no-license-check allowlist or `.github/` need two.
 - The required checks are `pr-fast` (stages 1 to 6), `pr-title` and `approvals`.
 - A design change that contradicts a document needs an ADR or an entry in that document's Open questions.
 

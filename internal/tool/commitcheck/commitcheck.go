@@ -7,7 +7,9 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io/fs"
 	"os/exec"
+	"path"
 	"regexp"
 	"slices"
 	"strings"
@@ -85,7 +87,7 @@ func componentScopes() []string {
 }
 
 // scopesFor returns the allowed scopes of a type; nil means any scope.
-func scopesFor(typ string) (scopes []string, known bool) {
+func scopesFor(typ string, docSlugs []string) (scopes []string, known bool) {
 	switch typ {
 	case "feat", "fix", "perf", "refactor":
 		return componentScopes(), true
@@ -93,26 +95,54 @@ func scopesFor(typ string) (scopes []string, known bool) {
 		return append(componentScopes(), "e2e", "conformance"), true
 	case "build", "ci":
 		return []string{"deps", "tools", "workflows"}, true
-	case "docs", "chore", "revert":
+	case "docs":
+		return docSlugs, true
+	case "chore", "revert":
 		return nil, true
 	default:
 		return nil, false
 	}
 }
 
+// docSlugs lists the slug of every Markdown document under docs: its file
+// name without the extension and the numeric prefix, so
+// docs/architecture/03-data-plane.md is data-plane.
+func docSlugs(docs fs.FS) ([]string, error) {
+	prefix := regexp.MustCompile(`^[0-9]+-`)
+	var slugs []string
+	err := fs.WalkDir(docs, ".", func(p string, d fs.DirEntry, err error) error {
+		if err != nil || d.IsDir() || path.Ext(p) != ".md" {
+			return err
+		}
+		slug := strings.ToLower(prefix.ReplaceAllString(strings.TrimSuffix(path.Base(p), ".md"), ""))
+		if !slices.Contains(slugs, slug) {
+			slugs = append(slugs, slug)
+		}
+		return nil
+	})
+	slices.Sort(slugs)
+	if err == nil && len(slugs) == 0 {
+		err = errors.New("no Markdown documents found")
+	}
+	return slugs, err
+}
+
 // checkTitle validates "<type>(<scope>)!: <subject>". The scope is optional;
 // docs takes a document slug and chore and revert any scope.
-func checkTitle(title string) error {
+func checkTitle(title string, docSlugs []string) error {
 	m := regexp.MustCompile(`^([a-z]+)(?:\(([a-z0-9][a-z0-9-]*)\))?(!)?: (.+)$`).FindStringSubmatch(title)
 	if m == nil {
 		return errors.New("want <type>(<scope>): <subject>, such as \"fix(statestore): skip calls after the deadline\"")
 	}
 	typ, scope, subject := m[1], m[2], m[4]
-	scopes, known := scopesFor(typ)
+	scopes, known := scopesFor(typ, docSlugs)
 	if !known {
 		return fmt.Errorf("unknown type %q; use feat, fix, perf, refactor, test, docs, build, ci, chore or revert", typ)
 	}
-	if scope != "" && scopes != nil && !slices.Contains(scopes, scope) {
+	if scope != "" && typ == "docs" && !slices.Contains(scopes, scope) {
+		return fmt.Errorf("scope %q is not a document slug; use a file name under docs/ without its numeric prefix, such as data-plane", scope)
+	}
+	if scope != "" && typ != "docs" && scopes != nil && !slices.Contains(scopes, scope) {
 		return fmt.Errorf("scope %q is not allowed for %s; use one of %s", scope, typ, strings.Join(scopes, ", "))
 	}
 	first := []rune(subject)[0]

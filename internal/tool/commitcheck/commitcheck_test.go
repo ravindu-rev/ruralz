@@ -7,16 +7,23 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
+	"testing/fstest"
 )
 
+const repoDocs = "../../../docs"
+
 func TestCheckTitle(t *testing.T) {
+	slugs := []string{"data-plane", "glossary"}
 	good := []string{
 		"feat(gateway): add the admin listener",
 		"fix(statestore): skip remaining calls once the request deadline expires",
 		"feat(api)!: rename the config field",
 		"docs(data-plane): clarify body buffering",
+		"docs(glossary): add a term",
+		"docs: fix links across documents",
 		"build(deps): bump example.com/mod from 1.0.0 to 1.0.1",
 		"ci(workflows): add pr-fast",
 		"chore: tidy",
@@ -25,7 +32,7 @@ func TestCheckTitle(t *testing.T) {
 		"revert(anything): undo a change",
 	}
 	for _, title := range good {
-		if err := checkTitle(title); err != nil {
+		if err := checkTitle(title, slugs); err != nil {
 			t.Errorf("checkTitle(%q) = %v", title, err)
 		}
 	}
@@ -40,9 +47,12 @@ func TestCheckTitle(t *testing.T) {
 		"feat(gateway): add the listener.",
 		"feat(gateway):add",
 		"test(tools): add",
+		"docs(dataplane): fix a typo",
+		"docs(03-data-plane): fix a typo",
+		"docs: Fix a typo",
 	}
 	for _, title := range bad {
-		if err := checkTitle(title); err == nil {
+		if err := checkTitle(title, slugs); err == nil {
 			t.Errorf("checkTitle(%q) = nil, want an error", title)
 		}
 	}
@@ -108,18 +118,53 @@ func TestRunUsage(t *testing.T) {
 	if run(t.Context(), nil) != 2 || run(t.Context(), []string{"nope"}) != 2 || run(t.Context(), []string{"dco"}) != 2 {
 		t.Error("usage errors must exit 2")
 	}
-	if run(t.Context(), []string{"title", "-title", "feat(cli): add version"}) != 0 {
+	if run(t.Context(), []string{"title", "-docs", repoDocs, "-title", "feat(cli): add version"}) != 0 {
 		t.Error("valid title rejected")
 	}
-	if run(t.Context(), []string{"title", "-title", "Add version"}) != 1 {
+	if run(t.Context(), []string{"title", "-docs", repoDocs, "-title", "Add version"}) != 1 {
 		t.Error("invalid title accepted")
 	}
 	t.Setenv("PR_TITLE", "")
-	if run(t.Context(), []string{"title"}) != 2 {
+	if run(t.Context(), []string{"title", "-docs", repoDocs}) != 2 {
 		t.Error("missing title must exit 2")
 	}
 	t.Setenv("PR_TITLE", "docs(roadmap-and-milestones): mark M0 done")
-	if run(t.Context(), []string{"title"}) != 0 {
+	if run(t.Context(), []string{"title", "-docs", repoDocs}) != 0 {
 		t.Error("PR_TITLE not read")
+	}
+	if run(t.Context(), []string{"title", "-docs", filepath.Join(t.TempDir(), "missing")}) != 2 {
+		t.Error("unreadable docs directory must exit 2")
+	}
+}
+
+func TestDocSlugs(t *testing.T) {
+	docs := fstest.MapFS{
+		"README.md":                              {},
+		"glossary.md":                            {},
+		"architecture/03-data-plane.md":          {},
+		"adr/0001-implementation-language-go.md": {},
+		"_meta/manifest.yaml":                    {},
+		"_meta/research/scalability-patterns.md": {},
+	}
+	got, err := docSlugs(docs)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []string{"data-plane", "glossary", "implementation-language-go", "readme", "scalability-patterns"}
+	if !slices.Equal(got, want) {
+		t.Errorf("docSlugs = %v, want %v", got, want)
+	}
+	if _, err := docSlugs(fstest.MapFS{"x.txt": {}}); err == nil {
+		t.Error("a tree without documents must be an error")
+	}
+	// The repository's own documents yield the documented example.
+	repo, err := docSlugs(os.DirFS(repoDocs))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, slug := range []string{"data-plane", "configuration-model", "repository-layout-and-conventions", "roadmap-and-milestones"} {
+		if !slices.Contains(repo, slug) {
+			t.Errorf("repository documents lack slug %q", slug)
+		}
 	}
 }

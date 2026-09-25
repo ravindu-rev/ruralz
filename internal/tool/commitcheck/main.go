@@ -7,7 +7,8 @@
 //	commitcheck dco -range BASE..HEAD   every non-merge commit carries a
 //	                                     Signed-off-by matching its author (DCO 1.1)
 //	commitcheck title [-title TITLE]    a pull request title, default $PR_TITLE, follows
-//	                                     Conventional Commits
+//	                                     Conventional Commits; a docs scope must be a
+//	                                     document slug under -docs (default docs)
 package main
 
 import (
@@ -56,6 +57,7 @@ func run(ctx context.Context, args []string) int {
 		return 0
 	case "title":
 		title := fs.String("title", "", "pull request title; default $PR_TITLE")
+		docs := fs.String("docs", "docs", "documents directory whose file names are the docs scopes")
 		if err := fs.Parse(args[1:]); err != nil {
 			return 2
 		}
@@ -66,7 +68,12 @@ func run(ctx context.Context, args []string) int {
 			fmt.Fprintln(os.Stderr, "commitcheck title: -title or PR_TITLE is required")
 			return 2
 		}
-		if err := checkTitle(*title); err != nil {
+		slugs, err := docSlugs(os.DirFS(*docs))
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "commitcheck title: reading %s: %v\n", *docs, err)
+			return 2
+		}
+		if err := checkTitle(*title, slugs); err != nil {
 			fmt.Fprintf(os.Stderr, "commitcheck title: %q: %v\n", *title, err)
 			return 1
 		}
