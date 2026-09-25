@@ -41,7 +41,7 @@
 
 ### 1.4 Fail-open vs fail-closed conventions
 
-| Product | Default | Source |
+| System | Default | Source |
 |---|---|---|
 | Stripe | Fail open | https://stripe.com/blog/rate-limiters |
 | Doorman (archived) | On server loss, leases expire and clients revert to a configured safe capacity (unlimited, zero, or fixed rate) | https://github.com/youtube/doorman |
@@ -76,18 +76,18 @@ Ruralz ADR-0008 already fixes fail-open by default, configurable per Policy (fou
 
 ## 4. Zero-downtime upgrade and reload patterns
 
-### 4.1 Comparison
+### 4.1 Listener handover and drain
 
 | Mechanism | How listeners survive | Existing connections | Key parameters / caveats |
 |---|---|---|---|
-| HAProxy seamless reload (1.8+) | Listening FDs passed via `SCM_RIGHTS`; `expose-fd listeners` on the stats socket plus `-x` (https://www.haproxy.com/blog/truly-seamless-reloads-with-haproxy-no-more-hacks); master-worker mode does this automatically over `sockpair@` and re-execs on `SIGUSR2` with `-sf` (https://docs.haproxy.org/3.2/management.html) | Old workers stop gracefully on `SIGUSR1` (https://docs.haproxy.org/3.2/management.html) | — |
+| `SO_REUSEPORT` (Linux 3.9+) | New process binds the same address; kernel distributes TCP connections across listener sockets; all binders need the same effective UID (https://man7.org/linux/man-pages/man7/socket.7.html) | Old process drains | HAProxy measured "155 connection failures for one million connections after 180 reloads" (10 reloads/s at 55,000 conn/s) using SO_REUSEPORT alone, caused by closing sockets with queued connections (https://www.haproxy.com/blog/truly-seamless-reloads-with-haproxy-no-more-hacks) |
 | Go `net/http` | n/a (application level) | `Server.Shutdown` waits for active requests but does not handle hijacked connections such as WebSockets; `RegisterOnShutdown` callbacks let the application notify them (https://pkg.go.dev/net/http#Server.Shutdown) | `SetKeepAlivesEnabled(false)` stops keep-alive reuse (https://pkg.go.dev/net/http#Server.Shutdown) |
 
 - Ruralz ADR-0015 chose `SO_REUSEPORT` + drain + readiness gating and no socket passing in v1 (foundation pack). **Analysis:** the HAProxy measurement is the documented residual risk of that choice at high reload rates.
 
 ### 4.2 HTTP/2 GOAWAY and draining
 
-- RFC 9113 two-phase shutdown: an initial GOAWAY with last stream ID 2^31-1 and NO_ERROR, then a final GOAWAY after at least one round-trip time; grpc-go times that round trip with a PING/ACK pair, falling back to a 5 s timer (https://www.rfc-editor.org/rfc/rfc9113.html, https://github.com/grpc/grpc-go/blob/master/internal/transport/http2_server.go)
+- RFC 9113 two-phase shutdown: an initial GOAWAY with last stream ID 2^31-1 and NO_ERROR, then a final GOAWAY after at least one round-trip time; grpc-go times that round trip with a PING/ACK pair, falling back to a 5 s timer (https://www.rfc-editor.org/rfc/rfc9113.html, https://github.com/grpc/grpc-go/blob/master/internal/transport/http2_server.go).
 
 ### 4.3 Kubernetes termination
 
@@ -194,7 +194,6 @@ https://docs.aws.amazon.com/wellarchitected/latest/reducing-scope-of-impact-with
 https://docs.aws.amazon.com/wellarchitected/latest/reducing-scope-of-impact-with-cell-based-architecture/cell-routing.html
 https://man7.org/linux/man-pages/man7/socket.7.html
 https://www.haproxy.com/blog/truly-seamless-reloads-with-haproxy-no-more-hacks
-https://docs.haproxy.org/3.2/management.html
 https://www.rfc-editor.org/rfc/rfc9113.html
 https://github.com/grpc/grpc-go/blob/master/internal/transport/http2_server.go
 https://kubernetes.io/docs/concepts/workloads/pods/pod-lifecycle/
@@ -233,6 +232,7 @@ https://pkg.go.dev/github.com/hashicorp/raft#DefaultConfig
 ## Gaps
 
 - No non-vendor primary source was captured for fixed-window or sliding-log rate limiting; the Algorithm table describes them from first principles.
+- No primary source was found for a CPU-per-10k-rps coefficient of a current Go reverse proxy; Section 7 therefore has no proxy CPU coefficient.
 - The Valkey 8 1.19M rps result is SET-only via `valkey-benchmark`; no Lua/EVAL (GCRA-style script) throughput per core was found for Redis 8 or Valkey 8/9.
 - The Mail.Ru post-optimization per-connection memory figure was not captured precisely; only the pre-optimization ~24 KB/connection breakdown is sourced.
 - No primary source gives a measured Raft leader failover time for hashicorp/raft, etcd or Consul; the 1-2 s figure is derived from default timeouts.

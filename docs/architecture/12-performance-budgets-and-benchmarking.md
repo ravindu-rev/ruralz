@@ -50,7 +50,7 @@ These rules turn P10 ([Vision and positioning](../vision/01-vision-and-positioni
 | BP-3 | A Performance Budget is the lab ceiling on the metric and threshold of a production SLO, where one exists | Each budget names that SLO, a related one, or none |
 | BP-4 | Budgets compose: stage p50 values sum to at most the end-to-end p50, and stage p99 values plus a runtime reserve sum to at most the end-to-end p99 | Percentiles do not add, so the sums plan a budget and the end-to-end values gate it |
 | BP-5 | Pay only for what is attached: an unsubscribed Phase costs one nil check ([System overview](01-system-overview.md#design-principles)) | Scenarios add one feature at a time |
-| BP-6 | Latency holds at a stated load, never at saturation, as Envoy's benchmarking guidance advises ([source](https://www.envoyproxy.io/docs/envoy/latest/faq/performance/how_to_benchmark_envoy)) | Every latency budget names its offered rate |
+| BP-6 | Latency holds at a stated load, never at saturation | Every latency budget names its offered rate |
 | BP-7 | A budget gates from the milestone that ships its component; changing a value is a `perf` pull request here with benchmark evidence, and loosening SM-4, SM-5 or SM-6 also needs the Vision owner | Budgets move deliberately, never by drift |
 
 ### Seed targets
@@ -473,19 +473,6 @@ Both views gate, because each misses something the other sees:
 - Baseline p99 values across five runs MUST vary by a coefficient of variation of 2% or less (target), or the comparison is inconclusive.
 - Anyone can re-run every scenario on RH-3; floor-toolchain builds (Go 1.26 with `GOEXPERIMENT=jsonv2`, [Version floor](../engineering/01-tech-stack-and-libraries.md#version-floor)) report for information only.
 
-### Competitor baseline plan
-
-The comparative bench suite (F-18) is Planned (M4), pack 2's bench suite milestone. It runs KrakenD CE, Envoy, Apache APISIX and Kong on RH-1 with the same cpuset, mock, scenarios and generator as Ruralz, following Envoy's guidance: open-loop load, worker or thread count matched to the 4 cores, features absent from the comparison disabled, TLS and HTTP/2 settings aligned, and latency never measured at maximum load ([source](https://www.envoyproxy.io/docs/envoy/latest/faq/performance/how_to_benchmark_envoy)).
-
-| Product | Build at the snapshot | S1 plain proxying | S2 equivalent | S5 equivalent |
-|---|---|---|---|---|
-| KrakenD CE | v2.13.11, released 2026-09-08 ([source](https://github.com/krakend/krakend-ce/releases)) | Yes | JWT through CE `auth/validator` ([source](https://www.krakend.io/docs/authorization/jwt-validation/)) and the per-Node CE token bucket `qos/ratelimit/router` ([source](https://www.krakend.io/docs/endpoints/rate-limit/)) | Not run: Redis-backed limits are Enterprise-only ([source](https://www.krakend.io/docs/enterprise/throttling/endpoint-redis-rate-limit/)) |
-| Envoy | The release current at the M4 run, recorded in the report ([source](https://www.envoyproxy.io/docs/envoy/latest/faq/performance/how_fast_is_envoy)) | Yes | Local rate limit filter ([source](https://www.envoyproxy.io/docs/envoy/latest/configuration/http/http_filters/local_rate_limit_filter)); JWT configuration awaits research (OQ-performance-budgets-and-benchmarking-7) | The external rate limit service on Redis ([source](https://github.com/envoyproxy/ratelimit)) |
-| Apache APISIX | 3.18.0, released 2026-08-20 ([source](https://apisix.apache.org/blog/2026/08/20/release-apache-apisix-3.18.0/)) | Yes | `limit-count` with the `local` policy ([source](https://apisix.apache.org/docs/apisix/plugins/limit-count/)); JWT configuration awaits research | `limit-count` with the `redis` policy ([source](https://apisix.apache.org/docs/apisix/plugins/limit-count/)) |
-| Kong | Kong/kong 3.9.3, the latest GitHub release ([source](https://github.com/Kong/kong/releases)); a community reply names `kong:3.9.1` and says unlicensed 3.10 and later behaves as expired ([source](https://github.com/Kong/kong/discussions/14628)); the report records the image | Yes | `rate-limiting` with `policy: local` ([source](https://developer.konghq.com/plugins/rate-limiting/reference/)); JWT configuration awaits research | `rate-limiting` with the `redis` policy ([source](https://developer.konghq.com/plugins/rate-limiting/)) |
-
-Only open-source editions run, so every baseline is reproducible without a license. Ruralz also runs with access logs off (`accessLog.when: 'false'`), since logging defaults differ; every configuration is published.
-
 ## Benchmark suite and CI gating
 
 ### Suite layers
@@ -499,7 +486,7 @@ Every layer runs in a stage or `nightly` job of [Testing and quality strategy](.
 | Scenarios | S1 to S8, S5x, S6n, O1, O2, C1, C2, R1, G1, constants tests | RH-1 hosts, Latency job: S1 and S2 nightly, the rest in the slot rotation | Planned (M1) to Planned (M4) |
 | Control-plane scale and accounting | F1 (SM-9), F2, SM-10 | Dedicated general runners, `nightly` Scale job (F2: OQ-performance-budgets-and-benchmarking-3) | Planned (M2) to Planned (M3) |
 | Soak | S2 at half saturation for 2 hours (target): RSS drift of 2% or less after 10 minutes, flat goroutines (target) | RH-1, `release` | Planned (M1) |
-| Competitor baselines | [Competitor baseline plan](#competitor-baseline-plan) | RH-1, `release` | Planned (M4) |
+| Release trend | The M4 bench suite: S1, S2, S5 and S6 of each release against the budgets and the previous releases, on the same hosts and Bundles | RH-1, `release` | Planned (M4) |
 
 The Latency job runs alone on RH-1 within Testing's 3-hour limit (target):
 
@@ -616,7 +603,7 @@ Constants delegated by [Data plane](03-data-plane.md#performance-budgets), [Scal
 | Planned (M1) | S1, S2, S3, S5, S5x; O1, O2, C1, C2, R1, G1; microbenchmarks; alloc/op, size and idle RSS gates; soak; constants tests except Plugin rows |
 | Planned (M2) | S4 and PB-5 (SM-6); F1 (SM-9), F2; Plugin constants rows; `authz.opa` and `authz.cedar` costs; reload with Plugins |
 | Planned (M3) | S6, S6n (PB-12), the tokenizer benchmark, S7, the HTTP/3 variant of S3; WebSocket and SSE session memory; SM-10 |
-| Planned (M4) | Competitor baselines; S8; the `default.pgo` build ([tech stack](../engineering/01-tech-stack-and-libraries.md#version-floor)) |
+| Planned (M4) | The release-trend bench suite; S8; the `default.pgo` build ([tech stack](../engineering/01-tech-stack-and-libraries.md#version-floor)) |
 | Planned (M5) | The FIPS build, with P1's feature set, runs every scenario but HTTP/3 under the same budgets (target), except S3 and C2 handshakes, reported until measured since they may cost more (hypothesis) |
 
 ## Profiling playbook
@@ -694,8 +681,8 @@ Every run writes one machine-readable record:
 
 - Nightly and release runs publish records, raw histograms and CPU profiles from this repository (P10), Planned (M1); release notes list every budget with its result.
 - Other documents quote Ruralz performance only as a tagged target or a published result.
-- [Market landscape](../comparison/02-market-landscape-and-table-stakes.md) F-7 is the S1 and S2 nightly and release publication (SM-4, SM-5), Planned (M1); F-18 covers S1, S2, S5 and S6 competitor baselines, Planned (M4), S6 products pending OQ-performance-budgets-and-benchmarking-7.
-- Competitor results carry version, edition and configuration, and never rank products overall.
+- S1 and S2 nightly and release results publish from Planned (M1) (SM-4, SM-5); from Planned (M4) the bench suite publishes S1, S2, S5 and S6 for each release beside the budgets and the previous releases' results.
+- Every result carries its Ruralz release, commit and configuration.
 
 ### Production comparison
 
@@ -711,7 +698,6 @@ Operators compare budgets and SLOs on the same metrics in the SLO burn rates Gra
 | OQ-performance-budgets-and-benchmarking-4 | When does linux/arm64 (RH-2) gate? | (a) From M2 (proposed); (b) from M1 | testing-and-quality-strategy | No |
 | OQ-performance-budgets-and-benchmarking-5 | Tech stack and Testing state a 96 MiB idle RSS gate; this document sets 89 MiB (target) to fit the 100 MB seed with every sharded label set. Do they align? | (a) Align to 89 MiB (proposed); (b) restate the seed in binary units | tech-stack-and-libraries | No |
 | OQ-performance-budgets-and-benchmarking-6 | Does the config loader adopt W = max(1, `GOMAXPROCS`/2) workers yielding every 100 µs (target)? | (a) Yes, fixed (proposed); (b) all cores at boot; (c) a field | data-plane | Yes, for PB-7 (M1) |
-| OQ-performance-budgets-and-benchmarking-7 | Which JWT configuration of Envoy, APISIX and Kong matches S2, and which AI gateways run S6 for F-18? | (a) Research addendum, then S2 and S6 baselines (proposed); (b) S1 and S5 only | performance-budgets-and-benchmarking | Yes, for the M4 S2 baselines |
 | OQ-performance-budgets-and-benchmarking-8 | Which JWT algorithm defines SM-4, whose cost it dominates? | (a) RS256, 2,048-bit (current); (b) ES256; (c) both, gating the slower | vision-and-positioning | No |
 | OQ-performance-budgets-and-benchmarking-9 | Should Observability add a time-to-first-token SLO (PB-12) and an estimator duration metric? | (a) Both; (b) lab budget on S6n only (current) | observability | No |
 | OQ-performance-budgets-and-benchmarking-10 | Sharded label sets cost about 2 KiB per Route and per Upstream at 8 stripes, 5.4 MiB in all (hypothesis); should PB-6 scale with stripes? | (a) No, the 89 MiB base holds 4 stripes (current); (b) a per-stripe allowance | observability | No |

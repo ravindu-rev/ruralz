@@ -37,7 +37,7 @@ Nodes dial 8091, working behind NAT, and keep serving without the stream (P9, [V
 ## Considered options
 
 1. **Own `ruralz.control.v1.ControlStream` on connect in gRPC mode at both ends**: unary `Enroll` plus one bidirectional `Stream` per Node carrying Snapshots and deltas of whole Revisions with nonce-based ACK/NACK. connect serves gRPC on `net/http` handlers ([source](https://github.com/connectrpc/connect-go/blob/main/README.md)); `buf breaking` checks protos ([source](https://github.com/bufbuild/buf)).
-2. **xDS through go-control-plane**: Envoy's State-of-the-World or Incremental (Delta) discovery, ACK/NACK through echoed `version_info` and `response_nonce` ([source](https://www.envoyproxy.io/docs/envoy/latest/api-docs/xds_protocol)); Envoy Gateway translates Gateway API resources this way ([source](https://gateway.envoyproxy.io/docs/concepts/)).
+2. **xDS through go-control-plane**: the xDS State-of-the-World or Incremental (Delta) discovery protocol, ACK/NACK through echoed `version_info` and `response_nonce` ([source](https://github.com/cncf/xds)).
 3. **The same protocol on grpc-go at both ends**: its native HTTP/2 server ([source](https://github.com/grpc/grpc-go)) or `Server.ServeHTTP` ([source](https://github.com/grpc/grpc-go/blob/master/server.go)).
 4. **Node polling**: Nodes long-poll the REST API for their digest, like Consul blocking queries ([source](https://developer.hashicorp.com/consul/api-docs/features/blocking)), pull content by digest like file mode's oras-go ([source](https://github.com/oras-project/oras-go)), and post ACK, NACK and heartbeats separately.
 
@@ -130,7 +130,7 @@ flowchart TD
 ### Consequences
 
 - Good, because one digest names the unit from signing to ACK, Last-Known-Good and Drift, with no per-resource versions.
-- Good, because an atomic swap needs no cross-resource ordering, whereas xDS orders CDS, EDS, LDS, then RDS to avoid blackholing traffic ([source](https://www.envoyproxy.io/docs/envoy/latest/api-docs/xds_protocol)).
+- Good, because an atomic swap needs no cross-resource ordering, whereas xDS orders CDS, EDS, LDS, then RDS to avoid blackholing traffic.
 - Good, because connect, the catalog's gRPC ingress library (Planned (M3)), enters both binaries with the Control Stream (Planned (M2)) and ingress reuses it; `ruralz-control` serves 8091 on `net/http`.
 - Bad, because Ruralz owns the specification, both implementations and their tests; no xDS client can consume a Revision.
 - Bad, because pacing is Ruralz code: with 32 concurrent Snapshots and 256 MiB in flight per replica (target) at 20 Snapshots/s (hypothesis), a 10,000-Node Cluster's largest batch takes up to 5 minutes (target).
@@ -156,9 +156,9 @@ flowchart TD
 
 ### xDS through go-control-plane
 
-- Good, because ACK/NACK with `error_detail` and Incremental updates are already specified ([source](https://www.envoyproxy.io/docs/envoy/latest/api-docs/xds_protocol)).
-- Bad, because its unit is the typed Envoy resource, not a Revision under one digest, so signing, Last-Known-Good and Drift need a layer on top, and State-of-the-World resends every LDS and CDS resource ([source](https://www.envoyproxy.io/docs/envoy/latest/api-docs/xds_protocol)).
-- Bad, because unchunked messages grow with resource count: the Envoy Gateway-based Agent Router ([source](https://theagentrouter.ai/blog/envoy-ai-gateway-is-now-agent-router/)) raised its gRPC message cap from 4 MB to 25 MB at 2,000 routes in a vendor-affiliated test ([source](https://tetrate.io/learn/ai/ai-gateway-benchmarks)).
+- Good, because ACK/NACK with `error_detail` and Incremental updates are already specified ([source](https://github.com/cncf/xds)).
+- Bad, because its unit is the typed xDS resource, not a Revision under one digest, so signing, Last-Known-Good and Drift need a layer on top, and State-of-the-World resends every LDS and CDS resource.
+- Bad, because unchunked messages grow with resource count, so large route sets push against default gRPC message size caps.
 
 ### The same protocol on grpc-go at both ends
 

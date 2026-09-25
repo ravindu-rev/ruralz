@@ -21,7 +21,7 @@ related:
 
 Differentiator (1) runs WASM Plugins on wazero ([ADR-0004](0004-wasm-runtime-wazero.md)) in every Node of Ruralz Gateway (`ruralzd`). Their guest-host contract fixes what Plugins can touch, in which Phases and languages, and whether binaries survive releases ([WASM plugin system](../architecture/05-wasm-plugin-system.md#plugin-abi-v1)). Principles P3, P6 and P7 ([Vision](../vision/01-vision-and-positioning.md#principles)) constrain it.
 
-KrakenD CE 3.0 drops Go plugins ([source](https://www.krakend.io/blog/dropping-plugins-support-on-community/)) and Kong dropped its proxy-wasm beta ([source](https://developer.konghq.com/gateway/breaking-changes/)): which ABI should Ruralz freeze? Plugin ABI v1 is Planned (M2), the adapter Planned (M4).
+Go plugin linkage breaks whenever the toolchain changes, and the proxy-wasm ABI defines no per-import grants: which ABI should Ruralz freeze? Plugin ABI v1 is Planned (M2), the adapter Planned (M4).
 
 ## Decision drivers
 
@@ -36,7 +36,7 @@ KrakenD CE 3.0 drops Go plugins ([source](https://www.krakend.io/blog/dropping-p
 ## Considered options
 
 1. **Custom capability-based ABI `ruralz.plugin.v1`**: one Capability per Host Function, with Extism's PDK memory and Host Function conventions ([source](https://extism.org/docs/concepts/pdk)).
-2. **proxy-wasm as the primary ABI**, as used by Kong's 3.4 beta ([source](https://konghq.com/blog/product-releases/webassembly-in-kong-gateway-3-4)) and APISIX's `wasm-nginx-module` ([source](https://apisix.apache.org/docs/apisix/wasm/)), hosted by mosn's proxy-wasm-go-host ([source](https://github.com/mosn/proxy-wasm-go-host)).
+2. **proxy-wasm as the primary ABI** ([source](https://github.com/proxy-wasm/spec)), hosted by mosn's proxy-wasm-go-host ([source](https://github.com/mosn/proxy-wasm-go-host)).
 3. **Extism's own ABI with its go-sdk as the host**, loading Extism plugins unchanged ([source](https://github.com/extism/go-sdk)).
 
 ## Decision outcome
@@ -136,9 +136,8 @@ Planned (M2) unless tagged:
 
 ### proxy-wasm as the primary ABI
 
-- Good, because filters already exist; APISIX implements `proxy_on_configure` and HTTP header and body callbacks ([source](https://apisix.apache.org/docs/apisix/wasm/)).
+- Good, because filters built with the proxy-wasm SDKs already exist, using `proxy_on_configure` and HTTP header and body callbacks.
 - Bad, because it lacks deny-by-default Capabilities, `onChunk` and the one-round-trip rule; its outbound calls are remote calls that no Policy declares with a timeout and `failureMode` (pack section 8.7 rule 6), while its timers and shared queues fall outside the per-request model ([Host Function table](../architecture/05-wasm-plugin-system.md#host-function-table), Excluded rule).
-- Bad, because adoption is receding: Kong removed its beta in 3.11.0.0 ([source](https://developer.konghq.com/gateway/breaking-changes/)), and APISIX says "only a few APIs are implemented" ([source](https://apisix.apache.org/docs/apisix/wasm/)).
 - Bad, because no maintained Go host exists: mosn's, last pushed in 2024, pins wazero v1.2.1 and `wasmer-go` ([source](https://github.com/mosn/proxy-wasm-go-host/blob/main/go.mod)); the original is gone ([source](https://github.com/tetratelabs/proxy-wasm-go-host)).
 
 ### Extism's ABI with its go-sdk as host
@@ -150,7 +149,7 @@ Planned (M2) unless tagged:
 ## More information
 
 - Owning document: [WASM plugin system](../architecture/05-wasm-plugin-system.md).
-- Research: [Go runtime libraries](../_meta/research/go-libraries-runtime.md) sections 2.5 and 2.6, [Kong, Tyk and APISIX](../_meta/research/competitors-kong-tyk-apisix.md) section 3, [Envoy Gateway and others](../_meta/research/competitors-envoy-zuplo-gravitee.md) section 2.3.
+- Research: [Go runtime libraries](../_meta/research/go-libraries-runtime.md) sections 2.5 and 2.6.
 - Related decisions: [ADR-0001](0001-implementation-language-go.md), [ADR-0011](0011-expressions-and-authorization-engines.md) and [ADR-0017](0017-artifact-signing.md).
 - Open questions: OQ-wasm-plugin-system-8 (adapter declaration, blocking Planned (M4); first measure SDK-built filters' import sets), -12 (proto package), -13 (ABI levels in Rollouts), -17 (adapter recycling and fault radius) and OQ-release-versioning-and-compatibility-10. Proposed to the owning document: OQ-wasm-plugin-system-20, whether upstream attempts and steps (a) replay the first State Store result, as here, or (b) forbid `state.*` at Upstream scope (RZ-CFG-020).
 - Revisit if proxy-wasm gains a capability model and a maintained pure-Go host; admitting outbound calls would add Host Functions within v1, plus a Policy-declared timeout and `failureMode` (pack section 8.7 rule 6) that the Configuration model does not define yet (OQ-wasm-plugin-system-5).
