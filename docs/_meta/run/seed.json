@@ -22194,5 +22194,1552 @@
 "L4X-14"
 ],
 "disputed": []
+},
+"review:migration-from-krakend:L1": {
+"lens": "L1 feasibility-skeptic",
+"verdict": "revise",
+"score": 6,
+"blocking": [
+{
+"id": "L1-1",
+"section": "Import tool fidelity levels / Worked import example",
+"issue": "The exact and equivalent guarantees, and the worked example's clean exit, contradict the document's own statement that KrakenD forwards no client headers or query strings by default while Ruralz forwards them. Every imported Route therefore sends different bytes to its Upstreams, including the client's Authorization header and cookies, but the importer reports no item when input_headers is absent. That silently widens what Upstreams receive.",
+"evidence": "Line 453: \"`exact` | For every request, the generated configuration yields the same routing, the same decision and the same bytes on the wire as the KrakenD setting did\"; line 140: \"KrakenD forwards nothing by default; Ruralz forwards client headers and query strings unless a Policy removes them\"; line 434: \"items: exact 4, equivalent 13, approximate 3, manual 0\"; line 442: \"exit status 0 (no manual items)\". The research (section 3) confirms `input_headers` default `[]`: \"No client headers are forwarded by default\".",
+"fix": "Make the forwarding default a per-Route report item, whether or not input_headers is present: a security-flagged `manual` item (OQ-migration-from-krakend-7 option (a)) or an emitted Upstream-scoped `headers` removal once OQ-krakend-ee-parity-matrix-5 closes. Update the worked example's counts, exit status (1) and Route annotation to match, and qualify the `exact`/`equivalent` guarantees to state how forwarded client parameters are treated."
+},
+{
+"id": "L1-2",
+"section": "Concept mapping / extra_config namespaces (auth/validator propagate_claims)",
+"issue": "propagate_claims is an endpoint-scope setting, but the document maps it to an Upstream-scoped `headers` Policy. The importer shares one Upstream across endpoints, and endpoint namespaces are not in the dedup key, so the Policy also runs on Routes that do no JWT validation. On those Routes `auth` is null, `auth.claims` fails at runtime, and `headers` defaults to `failureMode: closed`. Requests on Routes that worked in KrakenD then fail with 503.",
+"evidence": "Line 179: \"`auth/validator` `propagate_claims` | E | Upstream-scoped `headers` Policy with `request.set[].valueExpression` over `auth.claims` | `equivalent`\"; line 127: \"one `Upstream` per distinct combination of host list, service discovery settings, TLS and backend-scope namespaces, so backends that share a host share an Upstream\". Configuration model Variables: `auth` is \"null before auth\"; registry: `headers` \"closed; either\".",
+"fix": "Map propagate_claims to a Route-scoped `headers` Policy with `request.set[]`. It runs in onRequestHeaders after the auth Filter class, so the claims are available. Alternatively, add endpoint-scope namespaces that emit Upstream Policies to the Upstream dedup key. Either way, guard the Policy with `when: 'auth != null'`."
+},
+{
+"id": "L1-3",
+"section": "Concept mapping / extra_config namespaces (security/policies)",
+"issue": "The row maps backend-scope and workflow-scope security/policies to `authz.cel`, which the registry allows only at Gateway and Route scope. Attaching the rule at Upstream scope is RZ-CFG-020, which breaks rule 1 (\"The output validates\"). Attaching it at the Route instead rejects the whole aggregated request, where KrakenD affects only that backend, and the row still claims `approximate`. The `validation/cel` B row already handles this case differently.",
+"evidence": "Line 189: \"`security/policies` | E, B, W | `authz.cel` `config.rule` for `req` and `jwt` contexts, Planned (M1)\"; foundation pack section 10: \"`authz.cel` | authz | onRequestHeaders, onRequestBody | G, R\"; pack 8.12 rule 4: \"a type at a disallowed scope is RZ-CFG-020\"; line 224 maps `validation/cel` B to \"A validation-class `plugin` Policy at Upstream scope\".",
+"fix": "Split the row. Map E to Route `authz.cel` (`approximate`). Map B and W to `manual` with a hold, targeting an Upstream-scoped `plugin` Policy with `filterClass: authz`, or a composition step `when` with the semantic difference stated, as the `validation/cel` B row does."
+},
+{
+"id": "L1-4",
+"section": "Concept mapping / extra_config namespaces (auth/api-keys with auth/validator)",
+"issue": "Service-scope auth/api-keys becomes a Gateway `auth.api-key` Policy in slot `auth`, and endpoint-scope auth/validator becomes a Route `auth.jwt` Policy in the same slot. Under pack 8.12 the Route Policy replaces the Gateway one. An endpoint that KrakenD protected with both an API key and a JWT would therefore lose its API-key check without any report item, which contradicts rule 2. A Gateway-wide `auth.api-key` also forces API keys on endpoints that KrakenD left open, because KrakenD grants roles per endpoint.",
+"evidence": "Line 183: \"`auth/api-keys` | S | One `Consumer` per `keys[]` entry ... and a Gateway `auth.api-key` Policy\"; line 177: \"`auth/validator` | E | `auth.jwt` Policy on the `Route`\"; pack 8.12 step 2: \"A Route Policy in the same `slot` as a remaining Gateway Policy replaces it ... All client authentication types share slot `auth`\"; line 463: \"Security controls are never dropped silently.\"",
+"fix": "Emit `auth.api-key` only on Routes whose KrakenD endpoint carries endpoint-scope `auth/api-keys`, and emit Consumers from the service-scope keys. When an endpoint combines two client authentication namespaces, import it as `manual` with a hold that cites OQ-configuration-model-13, and say so in the api-keys and validator rows."
+},
+{
+"id": "L1-5",
+"section": "Built-in KrakenD EE plugins / extra_config namespaces / Cutover runbook Stage 3",
+"issue": "The runbook places Nodes behind the same load balancer as KrakenD, so `source.ip` is the balancer's address until OQ-security-and-identity-6 closes. An imported `ip-filter` denylist then admits every client, which is a security control that silently fails open. An allowlist denies everyone, and a `client_max_rate` keyed on `source.ip` collapses every client into one bucket. The document grades these `approximate` and attaches no hold.",
+"evidence": "Line 270: \"`ip-filter` | `authz.ip` by CIDR on `source.ip`, Planned (M1) | `equivalent` for direct clients; `approximate` behind proxies\"; line 190: \"`client_max_rate` becomes a second `ratelimit` keyed on the same client attribute (`source.ip` or a `request.headers` entry)\"; line 726: \"Deploy Ruralz Gateway Nodes next to KrakenD behind the same load balancer or ingress\". The parity matrix IP filtering row says: \"until it closes, deployments behind a load balancer SHOULD NOT rely on `source.ip`\".",
+"fix": "Grade `ip-filter`, `geoip` and IP-keyed `client_max_rate` or bot rules as `manual`. Attach a fail-closed hold to the security ones, security-flag them, and reference OQ-security-and-identity-6. Add a Stage 1 check that no Policy keys on or filters by `source.ip` behind a proxy until trusted-proxy handling exists."
+},
+{
+"id": "L1-6",
+"section": "Concept mapping / Worked import example (rate limit scope)",
+"issue": "The report says Ruralz enforces imported router limits across the Cluster. The worked example emits no `stateStore`, however, and the pack then uses `RURALZ_STATE_STORE_URL`, or else `memory`. The importer cannot see that process setting. With `memory` each limit applies per Node, which matches KrakenD, so the report's advice to multiply by the instance count would raise real capacity. A single constant `route.name` key on a busy Route is also a State Store hot key, and the parity matrix bounds such a key at about 25,000 requests per second (hypothesis).",
+"evidence": "Lines 438-439: \"KrakenD limits each instance to 50 per 1s; Ruralz enforces 50 per 1s across the Cluster; multiply by the KrakenD instance count to keep capacity\". The worked example Gateway (lines 327-341) has no `stateStore`. Pack section 2: \"`RURALZ_STATE_STORE_URL` is the fallback source for Gateway `spec.stateStore.url` when `stateStore` is absent (else `memory` with a startup warning)\"; pack 8.8: \"With the `memory` driver every limit multiplies by the Node count\".",
+"fix": "Make the rate-limit report text conditional on the driver: per Node with `memory`, Cluster-wide with `redis`. Alternatively, have the importer emit an explicit Gateway `stateStore` whenever it emits `ratelimit`, `quota` or `cache`, reading the URL through `secretRef` `provider: env`, and record the choice. Add the hot-key caveat (parity matrix, OQ-traffic-management-and-resilience-1) to the `qos/ratelimit/router` row and as an option in OQ-migration-from-krakend-12."
+},
+{
+"id": "L1-7",
+"section": "Cutover runbook / Stage 4 and Rollback",
+"issue": "The runbook applies SM-4's 1 ms p99 figure to all production traffic, as a shadow exit gate and as a rollback trigger. SM-4 covers only a benchmark reference scenario with a 1 KiB body, JWT and a local bucket, no Plugins and no State Store Policy, at half saturation. Migrated Routes include aggregate composition with whole-body JSON decode and merge, Plugins and large bodies, and the performance document gives such Routes their own budgets. As written, the trigger would fire routine rollbacks on correctly working Routes.",
+"evidence": "Line 743: \"Gateway-added latency p99 stays at 1 ms or less (target) as SM-4 defines\"; line 761: \"Gateway-added latency p99 | Above 1 ms for 10 minutes (target) | Set the Ruralz weight to 0\". Vision: \"SM-4 and SM-5 use one reference scenario: HTTP/1.1 keep-alive, 1 KiB body, JWT validation and a local token bucket, no Plugins or State Store Policy, at half of saturation RPS\". Performance budgets: \"A Route above the 400 µs stage ceiling (target) gets its own measured budget.\"",
+"fix": "Replace the absolute figure with a per-Route criterion measured on `ruralz_http_gateway_duration_seconds`: the Stage 4 per-Route p99 baseline becomes the Stage 5 reference, and a regression above that baseline by a stated margin (target) triggers rollback. Cite SM-4 only for reference-scenario Routes."
+},
+{
+"id": "L1-8",
+"section": "Cutover runbook / Stage 4 shadow traffic and Rollback triggers",
+"issue": "The shadow exit criterion and the authentication trigger require per-request pairing of KrakenD and Ruralz outcomes, but the runbook's mechanisms cannot provide it. The mirror discards Ruralz responses, and the comparison uses aggregate metrics. During a split each request reaches only one gateway. By design, shadow rate-limit and quota decisions cannot match production: the shadow uses a separate State Store and sees only safe methods, and KrakenD enforces per instance. The auth trigger also fires on ordinary token expiry between two requests.",
+"evidence": "Line 742: \"Compare per Route, from metrics such as `ruralz_http_request_duration_seconds` and the `RZ-<AREA>-<NNN>` codes against KrakenD's status codes\"; line 743: \"status classes agree for 99.9% or more of mirrored requests per Route (target)\"; line 762: \"Any `RZ-AUTH` rejection on a Route where KrakenD admitted the same client\".",
+"fix": "Define the correlation mechanism: a request ID the load balancer injects on both copies, with both gateways' access logs joined offline. Otherwise restate the criteria as per-Route status-class distribution differences with a tolerance (target). Exclude `ratelimit`, `quota` and `ai.token-budget` decisions from agreement. Express the auth trigger as an `RZ-AUTH` rejection rate above the KrakenD 401/403 baseline for the same Route over a window (target)."
+},
+{
+"id": "L1-9",
+"section": "Cutover runbook / Stage 4 to Stage 5",
+"issue": "Stage 4 puts the shadow Nodes on their own State Store. Stage 5 then shifts client traffic straight to 'Ruralz Gateway' with no step that repoints Nodes at the production State Store or flushes shadow counters, although Stage 6 removes 'the shadow State Store'. The URL is a `secretRef`, and the `env` provider rotates only on restart. The ordered steps therefore leave production traffic on the shadow store, or leave the switch undefined.",
+"evidence": "Line 740: \"Run shadow Nodes on their own State Store, so mirrored requests never consume production Quotas, Rate Limits or Token Budgets that Stage 5 uses.\"; line 747 starts the weight shift directly; line 776: \"Remove any KrakenD shadow backend configuration and the shadow State Store.\" Configuration model secretRef table: `env` rotation \"Restart\".",
+"fix": "Add an explicit step at the start of Stage 5 or the end of Stage 4. It either deploys a separate serving Node set whose `stateStore.url` resolves to the production State Store (the shadow set stays mirror-only), or restarts or rotates the Nodes onto it. It then verifies readiness and an empty counter keyspace before any weight above 0. Show the step in Figure 4 and the gate summary."
+},
+{
+"id": "L1-10",
+"section": "Cutover runbook / Stage 4 (KrakenD traffic shadowing)",
+"issue": "A KrakenD shadow backend is a backend. It receives the request KrakenD builds for a backend: its own `url_pattern` path, and only the headers and query strings that `input_headers` and `input_query_strings` allow, which is none by default. Pointed at Ruralz Gateway, it sends backend-shaped paths without client credentials, so Routes do not match or auth rejects. That makes the comparison meaningless, and the step does not say how to configure the backend to avoid it.",
+"evidence": "Line 735: \"KrakenD's own traffic shadowing ... through a shadow backend (`proxy` `shadow` at backend scope ...) that points at Ruralz Gateway.\" The research says `url_pattern` is \"Path only, with no scheme or host\", `input_headers` \"No client headers are forwarded by default\", and backend `input_headers` is \"A second filter per backend\".",
+"fix": "Either state the required shape, or restrict mirroring to the load balancer. The shape is one shadow backend per endpoint, with `url_pattern` equal to the endpoint path and placeholders, and with the endpoint's `input_headers` and `input_query_strings` widened. Backend-level filters on the real backends then keep their current forwarding. Note that this changes KrakenD configuration and needs a restart."
+},
+{
+"id": "L1-11",
+"section": "Concept mapping / Endpoint objects and their targets",
+"issue": "Acceptance criterion 6 fails: four rows quote KrakenD's \"endpoint\" term without the alias escape comment.",
+"evidence": "Line 163: \"| endpoint `proxy.sequential_propagated_params` and `{resp0_field}` placeholders | ...\" (no `<!-- alias-ok -->`); lines 164, 165 and 168: \"| endpoint `proxy.combiner` |\", \"| endpoint `proxy.static` |\", \"| endpoint `proxy.decompress_gzip` |\" (no escape).",
+"fix": "Append `<!-- alias-ok -->` to lines 163, 164, 165 and 168, as the neighboring rows already do."
+}
+],
+"non_blocking": [
+{
+"section": "Import tool fidelity levels / Rules that hold at every level",
+"suggestion": "Rule 3 hashes plain KrakenD API keys with unsalted SHA-256 and commits them to Git in Stage 1. The Configuration model assumes \"SHA-256 digests of high-entropy keys\". The importer should flag keys shorter than a stated entropy floor (target) for reissue, because low-entropy digests in Git can be brute-forced offline."
+},
+{
+"section": "Import tool fidelity levels / Rules that hold at every level",
+"suggestion": "Rule 6 adds numeric suffixes on name collisions in input order, so inserting a KrakenD endpoint can rename later Routes. A rename is a removal plus an addition, which contradicts rule 5's promise that re-imports diff cleanly. Derive suffixes from a stable hash of the endpoint entry instead."
+},
+{
+"section": "Concept mapping / Top-level keys",
+"suggestion": "When `timeout` is absent, KrakenD applies its documented 2s default. Write that default explicitly, as the importer already does for `max_header_bytes`, so Routes do not silently inherit a different Ruralz default. Also reconsider grading `max_header_bytes` as `exact`, since Go's MaxHeaderBytes counts differently from a strict header cap, and note the per-connection memory exposure of a 1,000,000-byte limit."
+},
+{
+"section": "Cutover runbook / Rollback",
+"suggestion": "The 5xx trigger of more than 0.5 percentage points for 5 minutes is noisy at the 1% weight step. Add a minimum request count per window (target) before a trigger can fire."
+},
+{
+"section": "Cutover runbook / Stage 2 and Stage 3",
+"suggestion": "The CLI reference gives `ruralz test run` a required CASES argument (`ruralz test run CASES --target URL`); include it in the examples. In Stage 3, say how a file-mode Node's active digest is read (`/config/dump` on 9901 or a metric), since `ruralz node list` needs Control mode, Planned (M2)."
+},
+{
+"section": "Whole document",
+"suggestion": "The body is about 9,200 words against a 9,500 maximum. Keep the fixes concise: for example, fold the four extra per-namespace sentences into existing Notes cells rather than adding new paragraphs."
+}
+],
+"ac_results": [
+{
+"ac": "Concept mapping maps every top-level KrakenD configuration key and at least 20 extra_config namespaces to Ruralz kinds and Policies (KrakenD endpoint to Route, backend to Upstream, extra_config namespaces to Policies).",
+"pass": true,
+"note": "All 36 root keys are covered, grouped where their mapping is shared, and 85 namespace rows are present. Some mappings are infeasible or unsafe as written (L1-2, L1-3, L1-4, L1-5)."
+},
+{
+"ac": "Import tool fidelity levels defines the fidelity levels reported by ruralz bundle import krakend (Planned (M2)) and what each guarantees.",
+"pass": false,
+"note": "All four levels are defined, but the `exact`/`equivalent` guarantee of the same bytes on the wire cannot hold while client-parameter forwarding differs on every Route, and the worked example contradicts it (L1-1)."
+},
+{
+"ac": "Plugin migration covers both paths: Go plugins to WASM Plugins (TinyGo) or built-in Filters, and Lua to CEL or WASM Plugins.",
+"pass": true,
+"note": "Both paths are covered, with Host Function and Capability mappings consistent with the WASM plugin system document."
+},
+{
+"ac": "Cutover runbook gives ordered steps for shadow traffic and side-by-side cutover, including rollback.",
+"pass": false,
+"note": "The stages exist, but the switch from the shadow State Store to production is missing (L1-9), the shadow and rollback criteria cannot be measured (L1-7, L1-8), and the KrakenD shadow-backend option does not work as described (L1-10)."
+},
+{
+"ac": "Migration gaps is consistent with the Not planned rows of docs/comparison/01-krakend-ee-parity-matrix.md.",
+"pass": true,
+"note": "13 Not planned rows, three of them EE-only, with reasons matching the parity matrix; the partial-parity subset is also consistent."
+},
+{
+"ac": "Quoted KrakenD terminology (endpoint, backend) carries the <!-- alias-ok --> escape.",
+"pass": false,
+"note": "Lines 163, 164, 165 and 168 quote KrakenD \"endpoint\" without the escape (L1-11)."
+}
+],
+"foundation_amendments": []
+},
+"revise:high-availability-and-disaster-recovery": {
+"addressed": [
+"L1-1",
+"L1-2",
+"L1-3",
+"L1-4",
+"L1-5",
+"L2-1",
+"L2-2",
+"L2-3",
+"L2-4",
+"L2-5",
+"L3-1",
+"L3-2",
+"L3-3",
+"L3-4",
+"L3-5",
+"L4X-1",
+"L4X-2",
+"L4X-3",
+"L4X-4",
+"L4X-5",
+"L4X-6",
+"L4X-7",
+"L4X-8"
+],
+"disputed": []
+},
+"review:migration-from-krakend:L2": {
+"lens": "L2 foundation-auditor",
+"verdict": "revise",
+"score": 6,
+"blocking": [
+{
+"id": "L2-1",
+"section": "Concept mapping / Endpoint objects and their targets; Worked import example",
+"issue": "Acceptance criterion 6 fails. Four table rows quote KrakenD's \"endpoint\" term without the alias escape comment, which every neighboring row carries. A YAML comment in the worked example also uses the KrakenD term inside a code block, where the escape cannot be placed. The machine check does not catch these, because the forbidden-alias regex flags only the 'API/KrakenD/published/public endpoint' forms, but the AC is a manual criterion.",
+"evidence": "Line 163: \"| endpoint `proxy.sequential_propagated_params` and `{resp0_field}` placeholders | ... |\"; line 164: \"| endpoint `proxy.combiner` | None | `manual` | ...\"; line 165: \"| endpoint `proxy.static` | ...\"; line 168: \"| endpoint `proxy.decompress_gzip` | None | `manual` | ...\"; line 414 (yaml block): \"# one limit for the whole Route, as KrakenD's endpoint limit\".",
+"fix": "Append ` <!-- alias-ok -->` to the last cell of lines 163, 164, 165 and 168, as on line 162. On line 414, reword the YAML comment to \"# one limit for the whole Route, as KrakenD's router limit\"."
+},
+{
+"id": "L2-2",
+"section": "Concept mapping / extra_config namespaces (security/policies, governance/quota)",
+"issue": "Two mappings attach Policy types at scopes that the pack section 10 registry forbids. `authz.cel` is G and R only, so the backend-scope and workflow-scope `security/policies` mapping yields RZ-CFG-020. That breaks rule 1 ('The output validates'). `governance/quota` is listed for S, E and B, but `quota` is G and R only, and the row does not say where a backend-scope quota goes.",
+"evidence": "Line 189: \"| `security/policies` | E, B, W | `authz.cel` `config.rule` for `req` and `jwt` contexts, Planned (M1); ...\"; line 200: \"| `governance/quota` | S, E, B | `quota` Policy with `consumerQuota`; ...\". Pack section 10: \"| `authz.cel` | authz | onRequestHeaders, onRequestBody | G, R |\", \"| `quota` | admission | onRequestHeaders, onLog | G, R |\". Pack 8.12 rule 4: \"a type at a disallowed scope is RZ-CFG-020\".",
+"fix": "Split the `security/policies` row into two rows. First: \"E, W | `authz.cel` on the `Route` | `approximate`\". Second: \"B | a `plugin` Policy with `filterClass: authz` at Upstream scope in `onUpstreamRequest`, Planned (M2) | `manual` with a hold\", mirroring line 224. In the `governance/quota` row, state that a backend-scope quota becomes a Route `quota` on every Route reaching the `Upstream`, as `qos/ratelimit/proxy` does, or grade that case `manual`."
+},
+{
+"id": "L2-3",
+"section": "Concept mapping / extra_config namespaces (auth/api-keys S with auth/validator E); Import tool fidelity levels / Rules",
+"issue": "The mapping contradicts pack 8.12 slot precedence and the document's own rule 2. Service-scope `auth/api-keys` becomes a Gateway `auth.api-key` Policy, and endpoint-scope `auth/validator` becomes a Route `auth.jwt` Policy. All client authentication types share slot `auth`, so the Route Policy replaces the Gateway one. An endpoint that KrakenD protected with both an API key and a JWT therefore loses its API-key check, and the report records no item. The document never cites OQ-configuration-model-13.",
+"evidence": "Line 183: \"One `Consumer` per `keys[]` entry ... and a Gateway `auth.api-key` Policy\"; line 177: \"`auth.jwt` Policy on the `Route`\"; line 463: \"Security controls are never dropped silently.\" Pack 8.12 step 2: \"A Route Policy in the same `slot` as a remaining Gateway Policy replaces it ... All client authentication types share slot `auth`\".",
+"fix": "Add to the `auth/api-keys` S row: on a Route whose endpoint also sets `auth/validator` or `auth/basic`, the Route `auth` Policy would replace the Gateway `auth.api-key` (pack 8.12), so the importer grades that Route `manual`, attaches a hold and cites OQ-configuration-model-13. Add the same condition to rule 2."
+},
+{
+"id": "L2-4",
+"section": "Concept mapping / Worked import example; Cutover runbook / Stage 5; Migration gaps / Behavior changes to plan for",
+"issue": "The document states unconditionally that Ruralz enforces imported limits across the whole Cluster. Pack section 2 and 8.8 make that true only with the `redis` driver. With no Gateway `stateStore` and no `RURALZ_STATE_STORE_URL`, the driver is `memory`, and every limit then multiplies by the Node count. The worked example emits a `ratelimit` Policy but no `stateStore`. Stage 0 step 4 states the correct rule, so the document contradicts itself.",
+"evidence": "Lines 438-439: \"KrakenD limits each instance to 50 per 1s; Ruralz enforces 50 per 1s across the Cluster; multiply by the KrakenD instance count to keep capacity\"; the worked example Gateway (lines 327-341) has no `stateStore`; line 190: \"Ruralz enforces one Cluster-wide limit\"; line 749; line 857: \"One Cluster-wide limit through the State Store\". Pack section 2: \"`RURALZ_STATE_STORE_URL` is the fallback source for Gateway `spec.stateStore.url` when `stateStore` is absent (else `memory` with a startup warning)\"; pack 8.8: \"With the `memory` driver every limit multiplies by the Node count\".",
+"fix": "Pick one rule and state it once. Recommended: whenever the importer emits `ratelimit`, `quota` or `cache`, it writes Gateway `stateStore: {driver: redis, url: {secretRef: {provider: env, name: RURALZ_STATE_STORE_URL}}}` and lists the URL as a value to provision. Add that block to the worked-example Gateway. Otherwise make lines 190, 438-439, 749 and 857 conditional: Cluster-wide with `redis`, per Node with `memory`."
+},
+{
+"id": "L2-5",
+"section": "Cutover runbook / Stage 4 shadow traffic and Rollback",
+"issue": "The runbook applies SM-4 to all migrated production traffic, as the shadow exit gate and as a rollback trigger. Vision defines SM-4 only for one benchmark reference scenario that excludes Plugins, State Store Policies, Upstream time and State Store time. `ruralz_http_request_duration_seconds` is the whole exchange duration, not Gateway-added latency. `ruralz_http_gateway_duration_seconds` is labeled by `listener`, not by `route`, so a per-Route p99 cannot be read from metrics.",
+"evidence": "Line 743: \"Gateway-added latency p99 stays at 1 ms or less (target) as SM-4 defines\"; line 761: \"| Gateway-added latency p99 | Above 1 ms for 10 minutes (target) | Set the Ruralz weight to 0 |\"; line 742: \"from metrics such as `ruralz_http_request_duration_seconds`\". Vision: \"SM-4 and SM-5 use one reference scenario: HTTP/1.1 keep-alive, 1 KiB body, JWT validation and a local token bucket, no Plugins or State Store Policy ... Both exclude Upstream and State Store time\". Observability: \"| `ruralz_http_gateway_duration_seconds` | Histogram, fast | seconds | `listener` |\".",
+"fix": "Stop citing SM-4 as a production gate. Stage 4 records a per-Route Gateway-added p99 baseline (target) from the access log `gateway_duration` field, or per listener from `ruralz_http_gateway_duration_seconds`. Stage 4's exit and the rollback trigger become \"above that baseline by more than a stated margin for 10 minutes (target)\". Keep `ruralz_http_request_duration_seconds` only for end-to-end comparison with KrakenD."
+},
+{
+"id": "L2-6",
+"section": "Concept mapping / Built-in KrakenD EE plugins (ip-filter, geoip); extra_config namespaces (client_max_rate); Cutover runbook / Stage 3",
+"issue": "The document contradicts the IP filtering row of the parity matrix, which it depends on. That row says deployments behind a load balancer SHOULD NOT rely on `source.ip` until OQ-security-and-identity-6 closes. The document grades `ip-filter` `approximate` behind proxies with no hold, keys `client_max_rate` on `source.ip`, and then deploys every Node behind the same load balancer. An imported denylist therefore fails open without any report item, against rule 2.",
+"evidence": "Line 270: \"`ip-filter` | `authz.ip` by CIDR on `source.ip`, Planned (M1) | `equivalent` for direct clients; `approximate` behind proxies\"; line 190: \"keyed on the same client attribute (`source.ip` or a `request.headers` entry)\"; line 726: \"Deploy Ruralz Gateway Nodes next to KrakenD behind the same load balancer or ingress\". Parity matrix: \"until it closes, deployments behind a load balancer SHOULD NOT rely on `source.ip`\".",
+"fix": "Grade `ip-filter` and `geoip` behind proxies as `manual`, security-flagged, with a hold, and cite OQ-security-and-identity-6. Grade `source.ip`-keyed `client_max_rate` and `router` `trusted_proxies` as `manual`. Add to Stage 1 step 2: no imported Policy may filter or key on `source.ip` behind a load balancer until OQ-security-and-identity-6 closes."
+},
+{
+"id": "L2-7",
+"section": "Import tool fidelity levels / Levels and guarantees; Concept mapping / Worked import example",
+"issue": "The `exact` and `equivalent` guarantees conflict with the parity matrix's zero-trust forwarding row and with line 140. KrakenD forwards no client headers or query strings when `input_headers` is absent, which is the default. Ruralz forwards them. The mapping raises an item only for the explicit fields, and the worked example (no such fields) reports no security item and exit status 0, although every Upstream now receives client headers, cookies and query strings.",
+"evidence": "Line 453: \"`exact` | ... the same bytes on the wire\"; line 140: \"KrakenD forwards nothing by default; Ruralz forwards client headers and query strings unless a Policy removes them\"; line 434: \"items: exact 4, equivalent 13, approximate 3, manual 0\"; line 442: \"exit status 0 (no manual items)\". Parity matrix: \"Zero-trust parameter forwarding ... Partial parity: KrakenD forwards no client headers by default\".",
+"fix": "Change line 140 to cover the fields whether present or absent, so every Route gets one security-flagged `manual` forwarding item (OQ-migration-from-krakend-7 option (a)). Update the worked example: `manual 1`, a report line for `/endpoints/0`, and \"exit status 1\". Qualify the `exact` guarantee: apart from client parameter forwarding, which is reported separately per Route."
+},
+{
+"id": "L2-8",
+"section": "Cutover runbook / Stage 2: test before traffic",
+"issue": "Both `ruralz test run` invocations omit the required `CASES` argument that the CLI and API surface defines.",
+"evidence": "Line 720: \"`ruralz test run --target URL`\"; line 721: \"`ruralz test run --bundle ./bundle`\". CLI command table: \"| `ruralz test run` | ... | `CASES`, `--bundle DIR` or `--target URL`, ...\"; CLI example: \"ruralz test run --bundle ./bundle --env staging --environments control/environments.yaml ./tests\".",
+"fix": "Write `ruralz test run ./tests --target URL` on line 720 and `ruralz test run ./tests --bundle ./bundle` on line 721, and say in step 1 that the cases live in `./tests` in `ruralz.test.v1` format."
+},
+{
+"id": "L2-9",
+"section": "Migration gaps / Partial parity that changes migrated behavior",
+"issue": "The section says its table lists the parity matrix's partial-parity rows that an importer run surfaces as `approximate` or `manual`, but it leaves out four such rows that the document itself grades that way. The Proxy rate limit entry also drops OQ-krakend-ee-parity-matrix-4.",
+"evidence": "Line 817: \"These are the ones an importer run surfaces as `approximate` or `manual`\". Missing: Martian (DSL), line 215 \"`manual` otherwise\"; Async agents, line 242 `async/kafka` `manual`; SOAP integration, line 239 `backend/soap` `manual`; LLM routing, line 243 \"`manual` before M3; then `approximate`\". Parity matrix: \"| Proxy rate limit | ... | OQ-krakend-ee-parity-matrix-4; OQ-traffic-management-and-resilience-1 |\" versus line 828.",
+"fix": "Add rows for Martian (DSL) (OQ-krakend-ee-parity-matrix-1), Async agents (OQ-multi-protocol-14), SOAP integration (OQ-krakend-ee-parity-matrix-1) and LLM routing, multi-routing, and aggregation (OQ-krakend-ee-parity-matrix-7). Add OQ-krakend-ee-parity-matrix-4 to line 828, or reword line 817 to \"a selection of\" the rows."
+}
+],
+"non_blocking": [
+{
+"section": "Concept mapping / extra_config namespaces (auth/validator)",
+"suggestion": "Security and identity requires every `issuers[]` entry to set `audiences` and an `https` `jwksUrl`. A KrakenD validator without `audience`, or with an `http` `jwk_url`, therefore cannot import at `equivalent` without failing rule 1. Grade those entries `manual` with a hold."
+},
+{
+"section": "Concept mapping / extra_config namespaces (security/http)",
+"suggestion": "The E scope maps to a Gateway `headers` Policy with `overridable: false`, which applies endpoint-specific headers to every Route. Map E to a Route-scoped `headers` Policy."
+},
+{
+"section": "Concept mapping / extra_config namespaces (propagate_claims)",
+"suggestion": "An Upstream-scoped `headers` Policy on a shared Upstream runs on Routes where `auth` is null. Its `valueExpression` then errors, and `headers` defaults to `failureMode: closed`. Use a Route-scoped Policy or guard it with `when: 'auth != null'` (see L1-2)."
+},
+{
+"section": "Concept mapping / extra_config namespaces (ai/mcp)",
+"suggestion": "The parity matrix's MCP Server row cites OQ-ai-llm-gateway-10; this document cites OQ-vision-and-positioning-12. Cite both."
+},
+{
+"section": "Core concepts / Behavior changes (license file URL)",
+"suggestion": "The license-file URL is present only in docs/_meta/research/licensing-landscape.md, which is not in this document's research[] list. Add that file to the list or leave the call to L4C."
+},
+{
+"section": "Concept mapping / Top-level keys (tls)",
+"suggestion": "State that a KrakenD `min_version` below TLS12 is raised (`approximate`), since `tls.minVersion` accepts only 1.2 or 1.3, and map `tls.disabled` explicitly."
+},
+{
+"section": "Cutover runbook / Stage 3",
+"suggestion": "`ruralz node list` needs Control mode. In file mode, read the active digest with `ruralz node dump` or `/config/dump` on 9901."
+},
+{
+"section": "Cutover runbook / Stage 4 and Stage 5",
+"suggestion": "L1-8, L1-9 and L1-10 are still open: request pairing, the switch from the shadow State Store to production under `env` restart rotation, and the KrakenD shadow-backend shape. Resolve them in the same revision."
+},
+{
+"section": "Whole document",
+"suggestion": "The body is 9,201 words by the verifier's rule, against a 9,500 maximum. Keep fixes terse and do not delete text that resolved earlier findings."
+},
+{
+"section": "Verifier output",
+"suggestion": "No FAIL lines. There are 48 WARN milestones lines, plus one WARN for the KrakenD path `/__health/` on line 727, which is not a Ruralz admin path and needs no change."
+}
+],
+"ac_results": [
+{
+"ac": "Concept mapping maps every top-level KrakenD configuration key and at least 20 extra_config namespaces to Ruralz kinds and Policies (KrakenD endpoint to Route, backend to Upstream, extra_config namespaces to Policies).",
+"pass": true,
+"note": "All 36 root keys and 85 namespace rows are covered, and the core concept rows are present. Some targets break registry scopes or slot precedence (L2-2, L2-3)."
+},
+{
+"ac": "Import tool fidelity levels defines the fidelity levels reported by ruralz bundle import krakend (Planned (M2)) and what each guarantees.",
+"pass": false,
+"note": "All four levels are defined and the CLI form matches. However, the exact/equivalent guarantees and the example's exit status 0 contradict the forwarding default (L2-7), and the rate-limit report text contradicts pack 8.8 (L2-4)."
+},
+{
+"ac": "Plugin migration covers both paths: Go plugins to WASM Plugins (TinyGo) or built-in Filters, and Lua to CEL or WASM Plugins.",
+"pass": true,
+"note": "Both paths are covered. Host Functions, Capabilities, Phases, the Go PDK path and default limits match the WASM plugin system document."
+},
+{
+"ac": "Cutover runbook gives ordered steps for shadow traffic and side-by-side cutover, including rollback.",
+"pass": false,
+"note": "The stages are ordered and rollback is present. However, SM-4 is misapplied and the metric named cannot measure Gateway-added latency per Route (L2-5), `ruralz test run` omits CASES (L2-8), and the load-balancer placement conflicts with imported `source.ip` controls (L2-6)."
+},
+{
+"ac": "Migration gaps is consistent with the Not planned rows of docs/comparison/01-krakend-ee-parity-matrix.md.",
+"pass": true,
+"note": "All 13 Not planned rows are present, 3 of them EE-only, with matching reasons. The partial-parity subset is incomplete (L2-9), which is outside this criterion."
+},
+{
+"ac": "Quoted KrakenD terminology (endpoint, backend) carries the <!-- alias-ok --> escape.",
+"pass": false,
+"note": "Lines 163, 164, 165 and 168 lack the escape, and the YAML comment on line 414 uses the term inside a code fence (L2-1)."
+}
+],
+"foundation_amendments": []
+},
+"review:migration-from-krakend:L3": {
+"lens": "L3 acceptance-audience",
+"verdict": "revise",
+"score": 5,
+"blocking": [
+{
+"id": "L3-1",
+"section": "Concept mapping / Endpoint objects and their targets; Worked import example",
+"issue": "Acceptance criterion 6 fails. Four table rows quote KrakenD's term \"endpoint\" without the alias escape comment, while every other row that quotes it carries one. A YAML comment in the worked example also uses the KrakenD term inside a code block, where no escape can be placed. The machine check misses these because it flags only the prefixed forms (\"KrakenD endpoint\", \"API endpoint\").",
+"evidence": "Line 163: \"| endpoint `proxy.sequential_propagated_params` and `{resp0_field}` placeholders | Step `pathExpression` over `steps.<name>.body` | `equivalent` | The importer rewrites each placeholder to a CEL expression |\"; line 164: \"| endpoint `proxy.combiner` | None | `manual` | Custom merge logic becomes a `plugin` Policy |\"; line 165: \"| endpoint `proxy.static` | A `plugin` Policy that short-circuits with a static response | `manual` | ...\"; line 168: \"| endpoint `proxy.decompress_gzip` | None | `manual` | Compression type per OQ-krakend-ee-parity-matrix-3 |\"; line 414: \"key: \\\"route.name\\\"                  # one limit for the whole Route, as KrakenD's endpoint limit\".",
+"fix": "Append ` <!-- alias-ok -->` to the ends of lines 163, 164, 165 and 168. Reword the YAML comment on line 414 to \"# one limit for the whole Route, as KrakenD's per-path limit\"."
+},
+{
+"id": "L3-2",
+"section": "Import tool fidelity levels / Levels and guarantees; Concept mapping / Worked import example",
+"issue": "Acceptance criterion 2 fails on substance. The `exact` and `equivalent` guarantees are false for every imported Route that does not set `input_headers`, which is KrakenD's default. KrakenD then forwards no client headers or query strings. Ruralz forwards them all, including `Authorization` and cookies. The importer raises a security-flagged item only when `input_headers` is present, so the common case changes silently. The worked example shows the result: 0 manual items and exit 0, while every client header now reaches both Upstreams. An operator who follows the example sees no security item, so the Stage 1 gate on \"zero-trust forwarding\" never fires. This also contradicts the Zero-trust parameter forwarding row of the parity matrix, which the document depends on.",
+"evidence": "Line 140: \"| endpoint `input_headers`, `input_query_strings` | None yet; allowlist per OQ-krakend-ee-parity-matrix-5 | `manual`, security-flagged | KrakenD forwards nothing by default; Ruralz forwards client headers and query strings unless a Policy removes them\"; line 453: \"`exact` | For every request, the generated configuration yields the same routing, the same decision and the same bytes on the wire\"; line 434: \"items: exact 4, equivalent 13, approximate 3, manual 0\"; line 442: \"exit status 0 (no manual items)\". Research section 3: `input_headers` \"array, `[]` | Case-insensitive allowlist. No client headers are forwarded by default\".",
+"fix": "Make forwarding one report item per Route, whether or not `input_headers` is present: `manual`, security-flagged, pointer `/endpoints/N` (OQ-migration-from-krakend-7 option (a)). Update the worked example to show it: manual 1, exit status 1, Route annotation `manual`, plus a report line. Add a sentence to the `exact` and `equivalent` guarantees saying that client parameters Ruralz forwards and KrakenD dropped always count as a separate security item."
+},
+{
+"id": "L3-3",
+"section": "Concept mapping / Worked import example; extra_config namespaces (qos/ratelimit/*); Cutover runbook / Stage 0",
+"issue": "The report, the namespace table and the Behavior changes table state without condition that imported limits are enforced across the whole Cluster. Per foundation pack 8.8 and the Configuration model, that holds only with the `redis` driver. The worked example emits no `stateStore`. The Node then uses `RURALZ_STATE_STORE_URL` if the environment sets it, else `memory`, where every limit multiplies by the Node count. The importer cannot see which applies. An operator who follows the report's advice to multiply by the KrakenD instance count over-admits by roughly the Node count times the instance count. Stage 0 step 4 asks the operator to provision a State Store, but no step adds `stateStore` to an imported Bundle.",
+"evidence": "Line 438-439: \"KrakenD limits each instance to 50 per 1s; Ruralz enforces 50 per 1s across the Cluster; multiply by the KrakenD instance count to keep capacity\"; line 190: \"Ruralz enforces one Cluster-wide limit\"; line 857: \"One Cluster-wide limit through the State Store\"; worked example `Gateway` spec (lines 333-341) has no `stateStore`; Configuration model Gateway: \"Without `stateStore`, `ruralzd` reads `RURALZ_STATE_STORE_URL`, else uses `memory` ... because `memory` multiplies every Rate Limit and Quota by the Node count.\"",
+"fix": "When the Bundle contains `ratelimit`, `quota` or `cache` and the KrakenD file has no `redis` namespace, have the importer emit a Gateway `stateStore` with `driver: redis` and `url` as `secretRef` (`provider: env`, `name: RURALZ_STATE_STORE_URL`), and list it among the secrets to provision. Otherwise, emit a report item saying the limits are per Node until a State Store exists. Make the report text conditional (\"with the redis driver, across the Cluster; with memory, per Node\"). Add a Stage 1 step: \"Confirm the Gateway `stateStore` before accepting any rate limit item.\""
+},
+{
+"id": "L3-4",
+"section": "Cutover runbook / Stage 4 shadow traffic; Rollback",
+"issue": "The runbook uses SM-4 as a production shadow exit gate and as a rollback trigger, which contradicts the Vision. SM-4 is defined only for one benchmark reference scenario. That scenario uses a 1 KiB body, JWT and a local bucket, no Plugins and no State Store Policy, and it excludes Upstream and State Store time. Migrated Routes include aggregation, State Store rate limits and Plugins. The Vision itself says a State Store round trip alone may reach 1 ms at p99. The runbook also names no metric that separates gateway-added time from Upstream time: `ruralz_http_request_duration_seconds` is the total request duration. Operators would roll back healthy cutovers or fail to measure the gate.",
+"evidence": "Line 743: \"Gateway-added latency p99 stays at 1 ms or less (target) as SM-4 defines\"; line 761: \"| Gateway-added latency p99 | Above 1 ms for 10 minutes (target) | Set the Ruralz weight to 0 |\"; line 742: \"from metrics such as `ruralz_http_request_duration_seconds`\"; Vision Success metrics: \"SM-4 and SM-5 use one reference scenario: HTTP/1.1 keep-alive, 1 KiB body, JWT validation and a local token bucket, no Plugins or State Store Policy, at half of saturation RPS (target). Both exclude Upstream and State Store time, since a same-zone State Store round trip alone may reach 1 ms at p99 (hypothesis).\"",
+"fix": "Replace the absolute 1 ms gate and trigger with a relative one per Route: for example, Ruralz end-to-end p99 no more than KrakenD's p99 for the same Route plus a tagged margin (target), both measured at the load balancer. Alternatively, cite the per-scenario Performance Budgets of Performance budgets and benchmarking. Name the exact metric or load balancer measurement to use, and drop \"as SM-4 defines\"."
+},
+{
+"id": "L3-5",
+"section": "Cutover runbook / Stage 4 shadow traffic; Rollback",
+"issue": "The shadow exit criteria and the authentication trigger cannot be measured with the mechanisms the runbook prescribes. (a) Ruralz responses are discarded and the comparison uses aggregate per-Route metrics, so no one can compute \"agreement for 99.9% of mirrored requests\" or explain each disagreement. That needs requests paired with their outcomes on both gateways, and the runbook names no source for KrakenD's per-path status codes. (b) Rule 1 mirrors only safe methods, so a Route that serves only `POST`, `PUT`, `PATCH` or `DELETE` never receives shadow data. Its per-Route exit gate is then undefined. These are the Routes with body validation, transforms and holds. (c) During a split each request reaches only one gateway, so \"a Route where KrakenD admitted the same client\" cannot be observed. Operators cannot run Stage 4 or the Rollback table as written.",
+"evidence": "Line 732: \"Mirror production requests to Ruralz Gateway and discard its responses\"; line 739: \"Mirror only safe methods (`GET`, `HEAD`, `OPTIONS`).\"; line 742: \"Compare per Route, from metrics ... against KrakenD's status codes\"; line 743: \"status classes agree for 99.9% or more of mirrored requests per Route (target), every disagreement is explained by an accepted report item\"; line 762: \"Any `RZ-AUTH` rejection on a Route where KrakenD admitted the same client\".",
+"fix": "Define how requests are paired. The load balancer or ingress stamps a request ID header on both copies. Both gateways log it: Ruralz in its access log, KrakenD through `telemetry/logging` or OpenTelemetry. A join of the two logs gives per-request status-class agreement. Say where KrakenD's per-path status counts come from. For Routes that serve only unsafe methods, state the alternative gate: Stage 2 cases against non-production Upstreams, mirroring to non-production copies, or entry at the 1% split step with a closer watch. Restate the authentication trigger for the split as a comparison of per-Route `RZ-AUTH` 401 and 403 rates against KrakenD's 401 and 403 rates over the same window, with a tagged threshold (target)."
+},
+{
+"id": "L3-6",
+"section": "Cutover runbook / Stage 4 shadow traffic (KrakenD's own traffic shadowing)",
+"issue": "The second mirroring option does not produce comparable traffic. A KrakenD shadow backend is a backend: it receives the request KrakenD builds for its backends. That request uses the backend's own `url_pattern` path and carries only the headers and query strings that `input_headers` and `input_query_strings` allow, which is none by default. Pointed at Ruralz Gateway, it sends paths that match no imported Route and requests without `Authorization`. Every mirrored request then diverges. Allowlisting headers on the endpoint to fix that also changes what production backends receive. It is also defined per backend, so an aggregating endpoint needs one added shadow backend per path.",
+"evidence": "Line 735: \"**KrakenD's own traffic shadowing**, offered in both editions ... through a shadow backend (`proxy` `shadow` at backend scope ...) that points at Ruralz Gateway.\" Research section 3: `input_headers` \"No client headers are forwarded by default\"; section 4: `url_pattern` \"Path only, with no scheme or host\".",
+"fix": "Either remove this option, or state its constraints. Each shadowed endpoint needs a shadow backend whose `url_pattern` equals the endpoint path and whose host is Ruralz Gateway. The endpoint's `input_headers` and `input_query_strings` must list every parameter Ruralz Policies read, and this changes what production backends receive. Aggregating endpoints are mirrored once, not once per backend. Recommend the load balancer mirror as the only supported option when these constraints cannot be met."
+},
+{
+"id": "L3-7",
+"section": "Cutover runbook / Stage 4 to Stage 5",
+"issue": "The ordered steps miss the move from the shadow State Store to the production State Store. Stage 4 puts shadow Nodes on their own State Store. Stage 5 then shifts client traffic to those Nodes with no step that repoints them or resets shadow counters. Stage 6 deletes \"the shadow State Store\". The URL is a `secretRef` resolved per Node, typically from `RURALZ_STATE_STORE_URL` with `provider: env`. Changing it means a Node restart or a new Revision, which neither Stage 5 nor the Gate summary contains. Followed literally, production traffic runs against the shadow store with counters inflated by mirrored traffic until Stage 6 removes it.",
+"evidence": "Line 740: \"Run shadow Nodes on their own State Store, so mirrored requests never consume production Quotas, Rate Limits or Token Budgets that Stage 5 uses.\"; line 776: \"Remove any KrakenD shadow backend configuration and the shadow State Store.\"; Gate summary line 788: \"| 5 Side-by-side cutover | Shadow exit | 100% weight baked, no trigger (target) |\" with no State Store step.",
+"fix": "Add a Stage 5 step 0: repoint the Nodes' State Store secret to the production State Store and restart or Hot Reload them. Say which one the `secretRef` provider requires. Confirm readiness and the digest, and only then raise the weight above 0. Or run separate shadow Nodes and a separate cutover Node set. Add the step to the Gate summary entry gate for Stage 5."
+},
+{
+"id": "L3-8",
+"section": "Concept mapping / Built-in KrakenD EE plugins (ip-filter, geoip); Cutover runbook / Stage 3",
+"issue": "The `ip-filter` mapping contradicts the IP filtering row of the parity matrix, which the document depends on. That row says deployments behind a load balancer SHOULD NOT rely on `source.ip` until OQ-security-and-identity-6 closes. This runbook always places Nodes behind a load balancer or ingress, so `source.ip` is the balancer's address. An imported IP denylist then admits every client, and an IP allowlist denies every client. Either way a security control changes with only an `approximate` note and no hold, which contradicts rule 2 of the document.",
+"evidence": "Line 270: \"| `ip-filter` | `authz.ip` by CIDR on `source.ip`, Planned (M1) | `equivalent` for direct clients; `approximate` behind proxies | Trusted proxies per OQ-security-and-identity-6 |\"; line 726: \"Deploy Ruralz Gateway Nodes next to KrakenD behind the same load balancer or ingress\"; parity matrix IP filtering row: \"until it closes, deployments behind a load balancer SHOULD NOT rely on `source.ip`\"; rule 2 (line 463): \"Security controls are never dropped silently.\"",
+"fix": "Import `ip-filter` and `geoip` as `manual` with a hold and a security flag until OQ-security-and-identity-6 closes, with `equivalent` only when the operator states that Nodes receive client addresses directly. Treat `client_max_rate` keyed on `source.ip` (line 190) the same way, as `approximate` with a warning. Add a Stage 1 check for Policies that read `source.ip`."
+},
+{
+"id": "L3-9",
+"section": "Concept mapping / extra_config namespaces (security/policies, governance/quota)",
+"issue": "Two mappings attach Policy types at scopes that the pack section 10 registry forbids. `authz.cel` is G and R only, so the backend and workflow scopes of `security/policies` cannot become an Upstream-scoped `authz.cel`: that is RZ-CFG-020, which breaks rule 1 (\"The output validates\"). Attached to the Route instead, a backend-scope rule rejects the whole aggregated request rather than one upstream leg. `quota` is also G and R only, but `governance/quota` at scope B maps to a `quota` Policy with no scope named. Operators cannot tell where the importer puts these.",
+"evidence": "Line 189: \"| `security/policies` | E, B, W | `authz.cel` `config.rule` for `req` and `jwt` contexts, Planned (M1)\"; line 200: \"| `governance/quota` | S, E, B | `quota` Policy with `consumerQuota`\"; pack section 10: \"| `authz.cel` | authz | onRequestHeaders, onRequestBody | G, R |\" and \"| `quota` | admission | onRequestHeaders, onLog | G, R |\"; pack 8.12 rule 4: \"a type at a disallowed scope is RZ-CFG-020\".",
+"fix": "Split both rows by scope. E maps to a Route `authz.cel` or `quota`. B and W map to a step `when` for skip semantics, or to a validation-class `plugin` Policy at Upstream scope, imported `manual` with a hold. For `governance/quota` at B, use a Route `quota` guarded by `Policy.spec.when`, `approximate`, or `manual`. State the scope in the Ruralz target cell."
+},
+{
+"id": "L3-10",
+"section": "Concept mapping / extra_config namespaces (auth/api-keys S with auth/validator E); Import tool fidelity levels / Rules",
+"issue": "Service-scope `auth/api-keys` becomes a Gateway `auth.api-key` Policy, and endpoint-scope `auth/validator` becomes a Route `auth.jwt` Policy. Every client authentication type shares slot `auth`, so under pack 8.12 the Route Policy replaces the Gateway one. An endpoint that KrakenD protected with both an API key and a JWT keeps only the JWT check, and the report says nothing. This contradicts rule 2. The document never mentions OQ-configuration-model-13, which covers this case.",
+"evidence": "Line 183: \"a Gateway `auth.api-key` Policy with `config.header` from `identifier`\"; line 177: \"`auth.jwt` Policy on the `Route`\"; pack 8.12: \"A Route Policy in the same `slot` as a remaining Gateway Policy replaces it (Route over Gateway) ... All client authentication types share slot `auth`\"; line 463: \"Security controls are never dropped silently.\"",
+"fix": "Add an importer rule: when a Route would carry a second client authentication type, import the endpoint as `manual` with a hold and a security flag, citing OQ-configuration-model-13. Alternatively, attach the API key check as an `authz.cel` rule over `consumer`. Add the case to Behavior changes to plan for."
+},
+{
+"id": "L3-11",
+"section": "Concept mapping / extra_config namespaces (auth/validator propagate_claims)",
+"issue": "`propagate_claims` is endpoint-scoped, but it maps to an Upstream-scoped `headers` Policy. The importer shares one Upstream among all backends with the same hosts and backend-scope namespaces, and endpoint namespaces are not part of that key. The Policy therefore also runs on Routes that do no JWT validation. On those Routes `auth` is null, so `auth.claims` raises a CEL runtime error. `headers` defaults to `failureMode: closed`, so those Routes fail with 503. The `equivalent` level hides a failure on unrelated Routes.",
+"evidence": "Line 179: \"| `auth/validator` `propagate_claims` | E | Upstream-scoped `headers` Policy with `request.set[].valueExpression` over `auth.claims` | `equivalent` |\"; line 127: \"one `Upstream` per distinct combination of host list, service discovery settings, TLS and backend-scope namespaces, so backends that share a host share an Upstream\"; Configuration model variables: `auth` \"null before auth\"; registry: `headers` \"closed; either\"; `valueExpression` runtime error: \"Policy `failureMode`\".",
+"fix": "Map `propagate_claims` to a Route-scoped `headers` Policy (`request.set[]` runs at onRequestHeaders at Route scope), or guard it with `when: 'auth != null'`. Alternatively, add endpoint-scope claim propagation to the Upstream dedup key. Keep `equivalent` only after that change."
+},
+{
+"id": "L3-12",
+"section": "Cutover runbook / Stage 2: test before traffic",
+"issue": "Both `ruralz test run` invocations omit the required `CASES` argument that CLI and API surface defines. Operators copy runbook commands as written, and the commands fail with exit 2.",
+"evidence": "Line 720: \"Run the cases with `ruralz test run --target URL` against the production KrakenD\"; line 721: \"Run the same cases with `ruralz test run --bundle ./bundle` against a local `ruralzd`.\"; CLI command table: \"| `ruralz test run` | Run request and expected-response cases | `CASES`, `--bundle DIR` or `--target URL`, ...\".",
+"fix": "Write `ruralz test run ./tests --target URL` and `ruralz test run ./tests --bundle ./bundle --env ENV`. Say that the cases use the `ruralz.test.v1` format of [CLI and API surface](../reference/01-cli-and-api-surface.md#test-case-format)."
+},
+{
+"id": "L3-13",
+"section": "Migration gaps / Partial parity that changes migrated behavior",
+"issue": "The section says its table lists the parity matrix's partial-parity rows that an importer run surfaces as `approximate` or `manual`. It leaves out five rows that the document itself grades that way: Martian (DSL) (`manual` otherwise), Async agents (`async/amqp` `manual`), SOAP integration (`manual`), Configurable client redirects (`approximate` for methods with a body), and LLM routing, multi-routing, and aggregation (`ai/llm` `manual` before M3, then `approximate`). The Service rate limit and Proxy rate limit row also drops OQ-krakend-ee-parity-matrix-4, which the matrix names for Proxy rate limit. An evaluator who sizes a migration from this table undercounts the gaps.",
+"evidence": "Line 817: \"The matrix lists 17 partial-parity rows ... These are the ones an importer run surfaces as `approximate` or `manual`:\" followed by 11 rows; line 828: \"| Service rate limit and Proxy rate limit | A constant key is one State Store hot key | OQ-traffic-management-and-resilience-1 |\"; parity matrix Partial parity: \"| Proxy rate limit | Upstream scope, and the same hot-key limit as Service rate limit | OQ-krakend-ee-parity-matrix-4; OQ-traffic-management-and-resilience-1 |\".",
+"fix": "Add rows for Martian (DSL), Async agents, SOAP integration, Configurable client redirects and LLM routing, each with its effect and its matrix Open question. Add OQ-krakend-ee-parity-matrix-4 to the rate limit row. Alternatively, reword the lead sentence so it does not claim completeness."
+},
+{
+"id": "L3-14",
+"section": "Concept mapping / Core concepts; Migration gaps / Behavior changes to plan for",
+"issue": "The document's research files do not contain one of the URLs it cites for a vendor claim. The run rules require every competitor or vendor claim to cite a URL present in this document's depends_on or research files. The KrakenD license-file URL appears only in docs/_meta/research/licensing-landscape.md, which is not in this entry's research list.",
+"evidence": "Line 89: \"KrakenD EE will not start without one ([source](https://www.krakend.io/docs/enterprise/overview/license-file/))\"; line 863: \"EE needs a valid license file ([source](https://www.krakend.io/docs/enterprise/overview/license-file/))\". The URL is absent from docs/_meta/research/krakend-parity.md and docs/_meta/research/krakend-config-model.md.",
+"fix": "Replace both citations with a link to the parity matrix section that owns the claim ([parity matrix](01-krakend-ee-parity-matrix.md#non-goals-of-this-matrix)), which is a depends_on document. Alternatively, add docs/_meta/research/licensing-landscape.md to this entry's research list in the manifest."
+}
+],
+"non_blocking": [
+{
+"section": "Concept mapping / Endpoint objects and their targets (heading)",
+"suggestion": "\"Endpoint\" is a glossary term (an Upstream address), but this H3 uses it in the KrakenD sense, and it cannot carry the escape comment cleanly. Rename it, for example to \"Path entries and host objects\", and update the three in-page links to `#endpoint-objects-and-their-targets`."
+},
+{
+"section": "Cutover runbook / Rollback step 4",
+"suggestion": "Line 771, \"During the retention period after 100%,\" has an untagged percentage. Write \"after full weight\" or add (target), as the other weight figures do."
+},
+{
+"section": "Cutover runbook / Stage 3 step 3",
+"suggestion": "In file mode, `ruralz node list` is not available (Control mode, Planned (M2)). Name the check, for example `ruralz bundle diff` against each Node's admin URL or `/config/dump`, so operators can confirm the active Revision digest."
+},
+{
+"section": "Cutover runbook / Stage 1 step 5",
+"suggestion": "`ruralz bundle render --effective --route NAME` renders one Environment. Say which `--env` or `--environments` value to pass for a freshly imported Bundle that has no overlays."
+},
+{
+"section": "Cutover runbook / Rollback (State Store degraded trigger)",
+"suggestion": "Name the metric behind \"fail-open decisions above the reviewed baseline\", such as `ruralz_filter_failures_total` by Policy and mode (proposed to Observability), and say where the baseline is recorded."
+},
+{
+"section": "Summary / Import tool fidelity levels",
+"suggestion": "Evaluators size a migration from the report. Add a short sizing aid: which `manual` categories usually drive effort (custom code, security holds, post-M2 targets), and how to read the counts in the JSON report."
+},
+{
+"section": "Front matter / milestone tags",
+"suggestion": "verify-docs prints 48 WARN milestone lines because tagged items have no matching item under the Roadmap milestone sections. They are not FAIL lines, but aligning with docs/roadmap/01-roadmap-and-milestones.md, or recording that the parity matrix owns the allocation, would keep later refreshes quiet."
+}
+],
+"ac_results": [
+{
+"ac": "Concept mapping maps every top-level KrakenD configuration key and at least 20 extra_config namespaces to Ruralz kinds and Policies (KrakenD endpoint to Route, backend to Upstream, extra_config namespaces to Policies).",
+"pass": true,
+"note": "All 36 root properties from research section 2 appear in Top-level keys, grouped where they map the same way. The namespace table has 85 rows and covers every namespace in research section 5. Core concepts has 27 rows mapping endpoint to Route and backend to Upstream. Several targets are invalid or unsafe (L3-9, L3-10, L3-11), which are separate blocking items."
+},
+{
+"ac": "Import tool fidelity levels defines the fidelity levels reported by ruralz bundle import krakend (Planned (M2)) and what each guarantees.",
+"pass": false,
+"note": "The four-level table, the rules, the report and the exit status are present. However, the `exact` and `equivalent` guarantees are contradicted by the document's own forwarding row: KrakenD forwards nothing by default and Ruralz forwards everything. The worked example exits 0 with no security item (L3-2)."
+},
+{
+"ac": "Plugin migration covers both paths: Go plugins to WASM Plugins (TinyGo) or built-in Filters, and Lua to CEL or WASM Plugins.",
+"pass": true,
+"note": "Both paths are covered: four Go plugin types with targets, eight porting steps using the TinyGo Go PDK, an accessor to Host Function table consistent with the WASM plugin system Host Function table and request_info fields, Lua layer to Phase mapping, and a Lua use-case table."
+},
+{
+"ac": "Cutover runbook gives ordered steps for shadow traffic and side-by-side cutover, including rollback.",
+"pass": false,
+"note": "Stages 0 to 6, a rollback table and a gate summary exist, but the ordered steps are not executable as written. The move from the shadow State Store to production is missing (L3-7). The shadow exit gate and the authentication trigger cannot be measured (L3-5). The KrakenD shadow option yields non-comparable traffic (L3-6). SM-4 is misapplied (L3-4). The test commands lack CASES (L3-12)."
+},
+{
+"ac": "Migration gaps is consistent with the Not planned rows of docs/comparison/01-krakend-ee-parity-matrix.md.",
+"pass": true,
+"note": "All 13 Not planned rows match the matrix, including 3 EE-only (Lua advanced helpers, NTLM, New Relic), with the same reasons and alternatives. The Partial parity subsection is incomplete against the matrix (L3-13), but that criterion covers Not planned rows only."
+},
+{
+"ac": "Quoted KrakenD terminology (endpoint, backend) carries the <!-- alias-ok --> escape.",
+"pass": false,
+"note": "Lines 163, 164, 165 and 168 quote \"endpoint\" without the escape, and a YAML comment on line 414 uses the term inside a code block (L3-1)."
+},
+{
+"ac": "H2 outline equals mandatory first two + outline_h2 + mandatory last, in order",
+"pass": true,
+"note": "Summary, Scope and non-goals, Concept mapping, Import tool fidelity levels, Plugin migration, Cutover runbook, Migration gaps, Open questions."
+},
+{
+"ac": "Required diagrams present with captions",
+"pass": true,
+"note": "No diagram is required. Four Mermaid diagrams (flowchart x3, stateDiagram-v2) each have an italic caption above them and fewer than 25 nodes."
+},
+{
+"ac": "length_words band 1500 to 9500",
+"pass": true,
+"note": "About 9,231 prose words by the verifier's rule (fenced code and comments excluded). The Summary is about 97 words, within the 120-word limit."
+},
+{
+"ac": "Every performance or scale number carries (target) or (hypothesis)",
+"pass": true,
+"note": "Every runbook figure is tagged. The only exception is \"after 100%\" on line 771 (non-blocking). The tagged 1 ms figures are misapplied (L3-4)."
+},
+{
+"ac": "Machine checks (min_table_rows Concept mapping 20, has_table Import tool fidelity levels, required_terms, links_to parity matrix) and verify-docs FAIL lines",
+"pass": true,
+"note": "`node scripts/verify-docs.mjs --allow-missing --skip markdownlint` reports no FAIL line for this document. It reports 48 milestone WARN lines and one commands-kinds WARN line for the KrakenD path `/__health/`."
+},
+{
+"ac": "Declared audience (evaluators, operators) can act without reading sources",
+"pass": false,
+"note": "Evaluators undercount partial-parity gaps (L3-13). Operators following the worked example, the report text and the runbook would silently widen header forwarding (L3-2), misconfigure limits (L3-3), keep production on the shadow State Store (L3-7) and apply unmeasurable gates (L3-4, L3-5)."
+}
+],
+"foundation_amendments": []
+},
+"review:migration-from-krakend:L4C": {
+"lens": "L4C",
+"verdict": "revise",
+"score": 6,
+"blocking": [
+{
+"id": "L4C-1",
+"section": "Concept mapping / Endpoint objects and their targets; Worked import example",
+"issue": "Acceptance criterion 6 fails. Four table rows quote KrakenD's 'endpoint' term as prose without the alias escape comment, which neighboring rows carry. The H3 heading uses the Ruralz glossary term 'Endpoint' (an Upstream address, foundation pack section 11) in KrakenD's published-path sense. A YAML comment inside a code block also uses the KrakenD term, and no escape can be placed there. The forbidden-alias regex misses all of these because it flags only the 'API/KrakenD/published/public endpoint' forms, but the AC is a manual criterion.",
+"evidence": "Line 163: '| endpoint `proxy.sequential_propagated_params` and `{resp0_field}` placeholders | ... |'. Line 164: '| endpoint `proxy.combiner` | None | `manual` | Custom merge logic becomes a `plugin` Policy |'. Line 165: '| endpoint `proxy.static` | ...'. Line 168: '| endpoint `proxy.decompress_gzip` | None | `manual` | ... |'. Line 125: '### Endpoint objects and their targets'. Line 414 (yaml): '# one limit for the whole Route, as KrakenD's endpoint limit'. Glossary: 'Endpoint | One network address of an Upstream ... never a published API path'.",
+"fix": "Append ' <!-- alias-ok -->' to the last cell of lines 163, 164, 165 and 168. Rename the H3 to '### KrakenD path entries and their targets' and update the anchors at lines 103, 105 and 211. Reword the line 414 comment to '# one limit for the whole Route, as KrakenD's router limit'."
+},
+{
+"id": "L4C-2",
+"section": "Import tool fidelity levels / Levels and guarantees; Concept mapping / Worked import example",
+"issue": "The `exact` and `equivalent` guarantees contradict the sourced KrakenD default that the document states itself. With `input_headers` and `input_query_strings` absent, KrakenD forwards nothing, while Ruralz forwards all client headers and query strings. Every imported Route therefore sends different bytes to its Upstreams, including Authorization and cookies. The worked example has no input_headers, yet it grades its Upstreams `equivalent`, reports manual 0 and exits 0.",
+"evidence": "Line 453: '`exact` | ... the same bytes on the wire as the KrakenD setting did'. Line 140: 'KrakenD forwards nothing by default; Ruralz forwards client headers and query strings unless a Policy removes them'. Lines 434 and 442: 'items: exact 4, equivalent 13, approximate 3, manual 0' and 'exit status 0 (no manual items)'. Research section 3: '`input_headers` | array, `[]` | ... No client headers are forwarded by default'.",
+"fix": "Emit one security-flagged `manual` item per Route for the forwarding default, whether or not the input keys are present (OQ-migration-from-krakend-7 option (a)). Update the worked example to show that item with manual 1, exit status 1 and Route annotation `manual`. Add to the `exact` and `equivalent` guarantees that forwarded client parameters are governed by that item."
+},
+{
+"id": "L4C-3",
+"section": "extra_config namespaces (qos/ratelimit/router); Worked import example; Cutover runbook Stage 5; Behavior changes",
+"issue": "The document says without condition that Ruralz enforces imported limits Cluster-wide. Foundation pack sections 2 and 8.8 and the Configuration model make that true only with the `redis` driver; on the `memory` default every limit multiplies by the Node count. The worked example emits a `ratelimit` but no `stateStore`, so its report states a false limit. Its advice to multiply by the KrakenD instance count would inflate capacity again. Stage 0 step 4 contradicts these statements.",
+"evidence": "Line 190: 'Ruralz enforces one Cluster-wide limit'. Lines 438 and 439: 'Ruralz enforces 50 per 1s across the Cluster; multiply by the KrakenD instance count'. Line 857: 'One Cluster-wide limit through the State Store'. Line 749: 'Ruralz Cluster-wide'. Pack 8.8: 'With the `memory` driver every limit multiplies by the Node count'.",
+"fix": "Add an importer rule: when any `ratelimit`, `quota` or `cache` Policy is emitted, also emit Gateway `stateStore: {driver: redis, url: {secretRef: {provider: env, name: RURALZ_STATE_STORE_URL}}}` and list the secret. Show it in the worked example. Qualify lines 190, 439, 749 and 857 with 'with the redis State Store driver'."
+},
+{
+"id": "L4C-4",
+"section": "Cutover runbook / Stage 4; Rollback",
+"issue": "The shadow exit gate and a rollback trigger apply SM-4 outside the scenario that SM-4 defines. SM-4 covers one reference scenario with no Plugins and no State Store Policy, and it excludes State Store and Upstream time. Migrated production traffic includes State Store limits and Plugins. A State Store round trip alone may reach 1 ms p99 (hypothesis), so 'as SM-4 defines' misstates the metric and the 1 ms trigger would roll back healthy cutovers.",
+"evidence": "Line 743: 'Gateway-added latency p99 stays at 1 ms or less (target) as SM-4 defines'. Line 761: 'Gateway-added latency p99 | Above 1 ms for 10 minutes (target)'. Vision line 217: 'no Plugins or State Store Policy ... Both exclude Upstream and State Store time, since a same-zone State Store round trip alone may reach 1 ms at p99 (hypothesis)'.",
+"fix": "Drop 'as SM-4 defines'. Make the gate relative to a baseline, for example 'Gateway-added p99 per Route, including State Store and Plugin time, no more than KrakenD's p99 for the same Route measured in Stage 4 plus 1 ms (target)'. Use the same definition in the rollback trigger."
+},
+{
+"id": "L4C-5",
+"section": "extra_config namespaces (security/policies, governance/quota)",
+"issue": "Two mappings attach Policy types at scopes the pack section 10 registry forbids. That produces RZ-CFG-020 and breaks rule 1 ('The output validates'). `authz.cel` is G and R only, yet B-scope and W-scope `security/policies` map to it. `quota` is G and R only, yet the `governance/quota` row lists B and never says where a backend quota goes.",
+"evidence": "Line 189: '| `security/policies` | E, B, W | `authz.cel` `config.rule` ...'. Line 200: '| `governance/quota` | S, E, B | `quota` Policy ...'. Pack section 10: '`authz.cel` ... G, R' and '`quota` ... G, R'. Pack 8.12 rule 4: 'a type at a disallowed scope is RZ-CFG-020'. Line 224 handles `validation/cel` B correctly.",
+"fix": "Split `security/policies` into two rows. E: `authz.cel` on the Route, graded `approximate`. B, W: an Upstream-scoped `plugin` Policy with `filterClass: authz`, Planned (M2), graded `manual` with a hold. In `governance/quota`, map B to a Route `quota` on every Route reaching the Upstream, graded `approximate`, or grade B `manual`."
+},
+{
+"id": "L4C-6",
+"section": "extra_config namespaces (auth/api-keys S with auth/validator E); Rules that hold at every level",
+"issue": "All client authentication types share slot `auth`, so a Route `auth.jwt` replaces the Gateway `auth.api-key` (pack 8.12). An endpoint that KrakenD protected with both an API key and a JWT therefore silently loses its API-key check. That contradicts rule 2 and the `equivalent` grade. OQ-configuration-model-13 is not cited.",
+"evidence": "Line 183: '`auth/api-keys` | S | ... a Gateway `auth.api-key` Policy ... | `equivalent` for `hash: plain`'. Line 177: '`auth.jwt` Policy on the `Route`'. Line 463: 'Security controls are never dropped silently.' Pack 8.12 step 2: 'A Route Policy in the same `slot` as a remaining Gateway Policy replaces it ... All client authentication types share slot `auth`'.",
+"fix": "When an endpoint also sets `auth/validator` or `auth/basic`, grade that Route `manual`, attach a hold and cite OQ-configuration-model-13. Add this case to rule 2."
+},
+{
+"id": "L4C-7",
+"section": "Built-in KrakenD EE plugins (ip-filter); qos/ratelimit/router client_max_rate; Cutover runbook Stage 3",
+"issue": "The `ip-filter` grade contradicts the parity matrix IP filtering row: until OQ-security-and-identity-6 closes, deployments behind a load balancer SHOULD NOT rely on `source.ip`. Stage 3 of the runbook puts Nodes behind the same load balancer as KrakenD, so `source.ip` is the balancer's address. An imported CIDR allowlist then denies or admits every client, and a `client_max_rate` keyed on `source.ip` becomes one shared bucket. Grading this `approximate` without a hold understates a security-control failure.",
+"evidence": "Line 270: '`ip-filter` | `authz.ip` by CIDR on `source.ip` ... | `equivalent` for direct clients; `approximate` behind proxies'. Line 190: 'keyed on the same client attribute (`source.ip` ...)'. Line 726: 'behind the same load balancer or ingress'. Parity matrix line 290: 'deployments behind a load balancer SHOULD NOT rely on `source.ip`'. OQ-security-and-identity-6 is blocking 'for `source.ip` users'.",
+"fix": "Grade `ip-filter` and client-IP rules `manual` with a hold whenever direct client connections cannot be confirmed, until OQ-security-and-identity-6 closes. Grade a `source.ip`-keyed `client_max_rate` `manual` and security-flagged. Add a Stage 0 step that resolves every `source.ip` item before Stage 3."
+},
+{
+"id": "L4C-8",
+"section": "extra_config namespaces (qos/http-cache, auth/validator); Endpoint objects (backend encoding)",
+"issue": "Three rows grade fidelity on KrakenD behavior that neither research file records. For `qos/http-cache`, the row interprets `shared` as a per-client cache key, but the research gives only the field name. For `auth/validator`, the research records no algorithm or HS256 support, yet the grades depend on an algorithm list. For `safejson`, the row claims 'Same JSON semantics', but the research says only 'How the response is parsed'.",
+"evidence": "Line 198: '`shared` selects a constant or per-Consumer `config.key`'. Research 5.2: 'Fields: `shared`, `max_items`, `max_size`'. Line 177: '`equivalent` for RS256, PS256, ES256 and EdDSA key sets; `manual` with a hold for HS256 or inline keys'. Line 147: '`safejson` ... `equivalent` | Same JSON semantics'.",
+"fix": "State that the semantics of `shared` are not researched, report it as `approximate` and ask the research to record it. Grade `auth/validator` by key source (`jwk_url` is `equivalent`; local keys are `manual` with a hold), or add an Open question on algorithms. Grade `safejson` `approximate` with a note that its differences are unresearched."
+},
+{
+"id": "L4C-9",
+"section": "Endpoint objects and their targets; Built-in KrakenD EE plugins; Lua to CEL or WASM Plugins",
+"issue": "The L4C lens requires matrices with no blank cells. Nine rows leave the Notes cell empty, or holding only the alias escape comment.",
+"evidence": "Lines 148, 150, 151, 154, 156, 160, 162, 275 and 667. For example, line 275: '| `virtualhost` | `match.hosts` | `equivalent` | |'.",
+"fix": "Fill each cell with a short note or 'None', for example line 275 'Host header matching' and line 160 'Same security-flagged item as the endpoint row'. Keep the alias-ok comments."
+}
+],
+"non_blocking": [
+{
+"section": "Core concepts (EE license file row); Behavior changes (License)",
+"suggestion": "The license-file URL is in docs/_meta/research/licensing-landscape.md and in the parity matrix, but not in this document's manifest research[] files. Link the parity matrix row that carries it, or ask the manifest owner to add licensing-landscape.md to research[]."
+},
+{
+"section": "Scope and non-goals (CE 3.0 bullet)",
+"suggestion": "'CE 3.0 had no release tag at the snapshot' cites PR #1106, which does not show the missing tag. Reword to attribute that observation to the research, and cite the PR only for the dev-3.0 merge."
+},
+{
+"section": "extra_config namespaces intro; Input the importer reads",
+"suggestion": "'KrakenD CE still registers both as aliases' overstates the research, which says the spellings are mapped inconsistently across namespaces and were not verified at runtime. Reword, and present accepting both spellings as a Ruralz design choice."
+},
+{
+"section": "Migration gaps / Partial parity that changes migrated behavior",
+"suggestion": "The importer also surfaces Martian, Async agents, SOAP integration, LLM routing and Configurable client redirects. Add those rows, or reword the intro to 'these include'."
+},
+{
+"section": "extra_config namespaces (auth/api-keys S)",
+"suggestion": "Unsalted `hash: sha256` is not graded, and the research does not record its encoding. Grade it `manual` with a hold under OQ-migration-from-krakend-13."
+},
+{
+"section": "extra_config namespaces (modifier/request-body-extractor)",
+"suggestion": "The research gives `/early` at E scope only. The row gives S, E for both variants; state that `/early` is E only."
+},
+{
+"section": "extra_config namespaces (backend/http/client)",
+"suggestion": "The `equivalent` grade ignores the unmapped `proxy_address` and `send_body_on_redirect`. Grade the item `approximate` when either key is set."
+},
+{
+"section": "documentation/openapi, documentation/postman; Cutover runbook Stages 1 and 2",
+"suggestion": "`ruralz bundle export openapi`, `ruralz bundle export postman`, `ruralz bundle audit` and `ruralz test run` appear without their Planned (M2) tags. Tag each once."
+},
+{
+"section": "Top-level keys; Endpoint objects",
+"suggestion": "Several rows (lines 101, 117, 133, 139 and 140) rely on the section-level schema citation. Row 140 is security-relevant; add an inline schema source there, as line 859 does."
+},
+{
+"section": "extra_config namespaces (auth/validator propagate_claims)",
+"suggestion": "See L1-2. An Upstream-scoped `headers` Policy over `auth.claims` also runs on Routes that share the Upstream but validate no JWT. There `auth` is null and the Policy fails closed. Scope it to the Route, or guard it with `when: 'auth != null'`."
+}
+],
+"ac_results": [
+{
+"ac": "Concept mapping maps every top-level KrakenD configuration key and at least 20 extra_config namespaces to Ruralz kinds and Policies.",
+"pass": true,
+"note": "All 36 root properties and 85 namespace rows are mapped. Some individual mappings are wrong (L4C-5, L4C-6, L4C-7)."
+},
+{
+"ac": "Import tool fidelity levels defines the fidelity levels reported by ruralz bundle import krakend (Planned (M2)) and what each guarantees.",
+"pass": false,
+"note": "Four levels are defined, but the exact and equivalent guarantees are false for every Route because of the forwarding default, and the worked example reports them anyway (L4C-2)."
+},
+{
+"ac": "Plugin migration covers both paths: Go plugins to WASM Plugins (TinyGo) or built-in Filters, and Lua to CEL or WASM Plugins.",
+"pass": true,
+"note": "Four Go plugin types, TinyGo porting steps, an accessor-to-Host Function table and Lua tables. The KrakenD claims are cited."
+},
+{
+"ac": "Cutover runbook gives ordered steps for shadow traffic and side-by-side cutover, including rollback.",
+"pass": true,
+"note": "Stages 0 to 6, rollback triggers and steps, and a gate summary. The latency gate (L4C-4) and the load balancer source.ip issue (L4C-7) are separate blocking findings."
+},
+{
+"ac": "Migration gaps is consistent with the Not planned rows of docs/comparison/01-krakend-ee-parity-matrix.md.",
+"pass": true,
+"note": "13 rows, 3 of them EE-only, with reasons and alternatives that match the matrix. The 17 partial-parity count also matches."
+},
+{
+"ac": "Quoted KrakenD terminology (endpoint, backend) carries the <!-- alias-ok --> escape.",
+"pass": false,
+"note": "Lines 163, 164, 165 and 168, the H3 at line 125 and the YAML comment at line 414 lack it (L4C-1)."
+},
+{
+"ac": "machine_checks: min_table_rows 20, has_table, required_terms, links_to",
+"pass": true,
+"note": "All pass. The Core concepts table has 27 data rows."
+},
+{
+"ac": "verify-docs has no FAIL line for this document",
+"pass": true,
+"note": "No FAIL lines. There are 48 WARN milestones lines and 1 WARN commands-kinds line, for the quoted KrakenD path /__health/."
+},
+{
+"ac": "L4C: competitor claims cite research URLs and agree with the 2026-09-23 snapshot; no Supported; every Planned tag names M0 to M5; matrices have no blank cells",
+"pass": false,
+"note": "Every cited URL is present in docs/_meta/research/. There is no 'Supported', and the Planned tags are valid. Three rows assert KrakenD semantics that the research does not record (L4C-8), and nine table cells are blank (L4C-9)."
+}
+],
+"foundation_amendments": []
+},
+"rereview:capacity-planning:L1": {
+"lens": "L1",
+"verdict": "revise",
+"score": 7,
+"blocking": [
+{
+"id": "L1-1",
+"section": "Headroom and failure capacity",
+"issue": "Regression in the text that resolved the earlier VM-upgrade finding. The alternative rule says that splitting 90% of VM memory between the two ruralzd processes only halves each C_cap. Under the document's own M_flood, most of the floor does not depend on C_cap. M_fix, M_rej, the unit term min(I_max, C_cap × n_str) × m_u (which stays at I_max for any C_cap ≥ 80, because every listener accepts HTTP/2) and the upstream term together come to 1,245 + 500 + 6,250 + 469 = 8,464 MiB for Example 1 (hypothesis), before any connection is counted. On a 13 GiB VM each process would get about 0.45 × 13,312 = 5,990 MiB of GOMEMLIMIT, which is below the floor even at C_cap = 0. Example 3 is similar: 8,139 MiB against 5,990 MiB. A header or stream flood during a handover therefore pushes live heap past GOMEMLIMIT, and then past host memory, and the host OOM-kills a process mid-Drain. That is the same failure the 2 × container rule was added to prevent.",
+"evidence": "\"Operators MAY instead split 90% of VM memory between both processes' `GOMEMLIMIT` (target), halving each C_cap.\"; Formulas: \"M_flood = M_fix + m_route × R + P_plg + (K + 2) × s_snap + M_rej + C_cap × m_c\" / \"+ min(I_max, C_cap × n_str) × m_u + min(I_max, Σ_u maxConnections_u) × m_up  (hypothesis)\"; Example 1: \"= 1,245 + 500 + 2,818 + 6,250 + 469 = 11,282 MiB\"; Capacity model: \"so 80 connections can hold all 20,000 units (target): an L4 connection cap alone does not bound memory\"",
+"fix": "Remove the MAY until OQ-capacity-planning-5 lowers the unit or stream ceiling. Alternatively, restate it as: each process's share, 0.45 × host memory, MUST be at least M_flood evaluated at the reduced C_cap', which gives C_cap' = (0.45 × host − M_flood without the connection term) / m_c (hypothesis). Say that halving memory does not halve C_cap, because the 6,250 MiB unit term is fixed. For Example 1, give the smallest host that allows a split, for example 2 × (8,464 MiB + C_cap' × 592 KiB) / 0.9 (target) [H], or state that no split below the 26 GiB host is possible."
+},
+{
+"id": "L1-2",
+"section": "Autoscaling policies",
+"issue": "The shard and maxReplicas bounds define λ_node as \"one Node's rate at u_z\". Applied literally to Example 3, which is connection-bound, they contradict the example's own results. A 2-vCPU Node at u_z that spends its CPU on upgrades (662 µs each) generates about 2 × 0.53 / 662 µs ≈ 1,611 upgrade GCRA calls per second (hypothesis). Rule 2 then caps maxReplicas at floor(1 × 50,000 / 1,611) = 31, but Example 3 sets maxReplicas to 104. The second n_shard term gives ceil(104 × 1,611 / 50,000) = 4 shards, but Example 3 plans 1. For connection-bound classes λ_node is undefined. An operator following the formulas gets either a MUST violation or four times the shards. Burst upgrade load is already bounded separately by W_rc,min, so the formula as written does not match the model's own storm treatment.",
+"evidence": "Formulas: \"n_shard = max(ceil((1 + h) × O / (0.5 × q_shard)), ceil(N_max × λ_node × s / (0.5 × q_shard)))  (hypothesis)\" and \"λ_node: one Node's rate at u_z\"; Rule 2: \"maxReplicas MUST NOT exceed floor(n_shard × 0.5 × q_shard / (λ_node × s)) (hypothesis) or 1,000 per Cell (target)\"; Autoscaling table: \"Connection-bound, Example 3 | In-flight units | ... | N, held static | N plus one zone's share, 104 (target)\"; State Store sizing: \"| 3, WebSockets | 56; 6,667 in a storm at W_rc = 30 s (target) [H] | 73; 8,667 (target) [H] | 1 primary, 1 replica (target)\"",
+"fix": "Define λ_node per workload class. For request-bound classes use V × u_z / c_r. For connection-bound classes use the steady per-Node open rate at the unit threshold, f_z × I_max / (u_s × L), about 0.93 per second for Example 3 (target) [H], and state that burst upgrades are checked only by the W_rc,min rule. Then show Example 3's rule-2 bound, well above 104, and its second n_shard term (1 shard) in the example block. Alternatively, keep the CPU-bound definition and raise Example 3 to 4 shards (target) [H], updating the State Store sizing table, the cost template and maxclients."
+},
+{
+"id": "L1-3",
+"section": "Capacity model",
+"issue": "This is the remaining part of the earlier coefficient-citation finding (acceptance criterion 3). Most rows now cite PB or name a pending OQ, but three rows still cite no PB row, and two of those are wrong because PB holds the value or its test. K-22's 0.9 GOMEMLIMIT share is PB's GOGC and GOMEMLIMIT rule 1. K-20's estimate error is SM-10, which PB schedules in Suite layers and the Milestone plan, Planned (M3). K-19 (n_keep) and K-22's 0.7 and 0.5 shares name no Open question that adds them to PB, although the Coefficients lead promises one for every row without a PB value. The model cannot be traced to its verifying budget for these constants (P10).",
+"evidence": "Lead: \"Every coefficient cites [Performance budgets and benchmarking] (PB) or, where PB has no value yet, its owner and the Open question that adds it to PB.\"; \"| K-19 | n_keep, Revisions kept per Environment | 50 (hypothesis) | None | OQ-capacity-planning-9 |\"; \"| K-20 | e, prompt estimate error (SM-10) | 2% (hypothesis) | None | [Vision] ...; OQ-vision-and-positioning-15 |\"; \"| K-22 | `GOMEMLIMIT` share of container; `maxmemory` use; shard GCRA share | 0.9; 0.7; 0.5 (target) | None | [Scale unit]...; Cell sizing |\"; PB GOGC and GOMEMLIMIT: \"operators SHOULD set `GOMEMLIMIT` to about 90% of the container limit (target)\"; PB Suite layers: \"| Control-plane scale and accounting | F1 (SM-9), F2, SM-10 |\"",
+"fix": "In K-22's PB row, cite [GOGC and GOMEMLIMIT](../architecture/12-performance-budgets-and-benchmarking.md#gogc-and-gomemlimit) for 0.9, and cite G1 (70% script CPU) with \"Pending (OQ-capacity-planning-2)\" for the 0.5 share. For 0.7, write \"Pending\" with an Open question, or cite CE-6. In K-20's PB row, cite the Suite layers or Milestone plan SM-10 run. In K-19, write \"Pending, not a budget; set by OQ-capacity-planning-9\". Also reword the lead so that retention counts are allowed to be policy values owned outside PB."
+}
+],
+"non_blocking": [
+{
+"section": "Capacity model",
+"suggestion": "State what C_cap is when the L4 balancer has no per-backend connection cap, as with many cloud network load balancers: C_cap = C_max = 20,000, and M_flood is then about 19.6 GiB plus Plugins (hypothesis). That matches PB's and Data plane's \"worst-case Node ... fitting 32 GiB\", which both attribute to Capacity planning, a value this document never states."
+},
+{
+"section": "Scope and non-goals",
+"suggestion": "Say explicitly that Deployment topologies Sizing defaults option (b), an L4 cap near 2,500 connections in a 4 GiB container, no longer holds, because the 6,250 MiB unit term applies whatever the cap. Ask that document to update its row, alongside OQ-deployment-topologies-21."
+},
+{
+"section": "Headroom and failure capacity",
+"suggestion": "Hot key row: a declared per-Node ceiling lowers λ_key only from 2 × `requests` to `requests`, so it cannot fix a key whose `requests` exceed 25% of a shard. Say so, and align the row with Scalability's MUST on `localOnly` mode (proposed, OQ-traffic-management-and-resilience-1 (c))."
+},
+{
+"section": "Worked examples",
+"suggestion": "Example 2 memory per stream: spell out that the 80 KiB is the in-flight unit (64 KiB of copy buffers plus headers) plus the 16 KiB prompt. As written, the unit's copy buffers look omitted."
+},
+{
+"section": "Autoscaling policies",
+"suggestion": "`ruralz_node_buffered_bytes` measures all of `limits.maxBufferedBytes`, not the 25% stream share. Note that the 64 MiB Example 2 threshold is a conservative proxy until the stream-share gauge of OQ-capacity-planning-8 exists."
+},
+{
+"section": "Planning inputs",
+"suggestion": "Define n_batch for file-mode activations as well. Every Node watching one directory or OCI digest activates at about the same time, so n_batch = N, the same as `all-at-once`."
+},
+{
+"section": "Worked examples",
+"suggestion": "Tag the remaining configuration-scale figures in the Example 3 prose (\"the 4 h `timeout`\") and in Example 2 (\"attempts = 1\") so acceptance criterion 2 holds without interpretation."
+}
+],
+"ac_results": [
+{
+"ac": "Capacity model gives formulas with named variables for CPU, memory, State Store operations and Ruralz Control sizing.",
+"pass": true,
+"note": "The Formulas block covers CPU (c_r, U, N_cpu), ceilings, Upstreams, memory (M_node, M_flood, GOMEMLIMIT), State Store (O, n_shard, maxmemory, maxclients), reconnect storms and Ruralz Control (r_min, D_store). λ_node is ambiguous for connection-bound classes (L1-2)."
+},
+{
+"ac": "Worked examples contains three examples as H3s (REST aggregation at 20k rps, AI with 500 concurrent streams, 200k WebSocket connections), every number tagged (target).",
+"pass": true,
+"note": "Three H3s with the required subjects. Every derived line carries (target), with [H] where it rests on hypotheses. Minor untagged configuration values (\"4 h `timeout`\", \"attempts = 1\") are listed under non-blocking."
+},
+{
+"ac": "Every coefficient cites docs/architecture/12-performance-budgets-and-benchmarking.md.",
+"pass": false,
+"note": "K-19, K-20 and K-22 give \"None\" in the PB row. PB holds the 0.9 GOMEMLIMIT share and schedules SM-10 (L1-3)."
+},
+{
+"ac": "Sizing inputs, results and headroom are presented in tables.",
+"pass": true,
+"note": "Each example has an Input table, a Result table and a Headroom check table. The State Store, Ruralz Control and Cost sections are tables too."
+},
+{
+"ac": "Re-planning triggers lists measurable triggers.",
+"pass": true,
+"note": "Every row names a metric or a checkable event with a threshold and an action. The metric names exist in Observability."
+},
+{
+"ac": "verify-docs machine checks (grep for this file)",
+"pass": true,
+"note": "No FAIL lines. One WARN: the link to ADR-0015 is broken because docs/adr/0015-zero-downtime-upgrades-so-reuseport.md does not exist yet, which --allow-missing permits."
+}
+],
+"foundation_amendments": []
+},
+"rereview:capacity-planning:L2": {
+"lens": "L2 foundation-auditor",
+"verdict": "revise",
+"score": 8,
+"blocking": [
+{
+"id": "L2-1",
+"section": "Headroom and failure capacity",
+"issue": "The Zero-Downtime Upgrade row names Zero-downtime upgrades and hot reload as the owner of its bound, but states a different rule from that document. Zero-downtime upgrades uses shared Node-wide ceilings: the new process admits each ceiling minus the old process's usage, under a soft memory limit of 90% of the limit minus the old RSS, and the host keeps only the overlap extra free (about 0.6 GiB plus snapshots). The capacity document instead says both processes hold their full GOMEMLIMIT and doubles the host. It also offers a 90% split that halves each C_cap, which is not the owner's rule either. The design choice is still open as OQ-zero-downtime-upgrades-and-hot-reload-6, which this document owns and which blocks Planned (M1) in-place handover. The capacity document never mentions that question, so the two documents disagree and nothing decides between them.",
+"evidence": "Line 372: \"| Zero-Downtime Upgrade on a VM | Both `ruralzd` processes hold their `GOMEMLIMIT` during Drain ([ADR-0015](...)) | Host memory ≥ 2 × container (hypothesis): 26 GiB for Example 1 (target) | [Zero-downtime upgrades](02-zero-downtime-upgrades-and-hot-reload.md) |\"; line 375: \"Operators MAY instead split 90% of VM memory between both processes' `GOMEMLIMIT` (target), halving each C_cap.\" Zero-downtime upgrades, line 192: \"Node-wide ceilings are shared: ... the new one admits each ceiling minus that usage, under a soft memory limit of 90% of the limit minus the old RSS (target). Hosts MUST keep the overlap extra free ... (OQ-zero-downtime-upgrades-and-hot-reload-6)\"; line 197: \"Shared 20,000 TLS connections × 96 KiB = 1.9 GiB, never doubled (target)\"; line 475: \"| OQ-zero-downtime-upgrades-and-hot-reload-6 | How do `GOMEMLIMIT` and host memory cover the handover overlap? | (a) Hosts sized for two processes; (b) Shared ceilings, a reduced soft limit and free overlap memory (current); ... | capacity-planning | Yes, for Planned (M1) in-place handover |\".",
+"fix": "Keep the conservative 2 × container sizing that resolved the earlier L1 and L4X findings, but say which option it is. In the row's rule cell write: \"This document answers OQ-zero-downtime-upgrades-and-hot-reload-6 with option (a) for planning: size the host for two processes at their flood-floor `GOMEMLIMIT` (hypothesis), since each process's GOMEMLIMIT is set at M_flood.\" Add a sentence under the table: \"Where the shared ceilings of option (b) are verified, host memory ≥ container + the overlap extra, about 0.6 GiB plus (K + 2) snapshots (hypothesis).\" Replace line 375's \"split 90% of VM memory ... halving each C_cap\" with the owner's rule: \"the new process runs under 90% of the limit minus the old RSS (target) and admits each ceiling minus the old process's usage\". Also add OQ-zero-downtime-upgrades-and-hot-reload-6 to Scope, next to OQ-deployment-topologies-8, as a question this document answers."
+},
+{
+"id": "L2-2",
+"section": "Capacity model (Coefficients)",
+"issue": "Acceptance criterion 3 still fails, a remainder of the earlier L2-8. The revised lead says every coefficient cites PB or, where PB has no value yet, its owner and the Open question that adds it to PB. Four rows break that rule. (1) K-18 cites T9 for about 20 Enrollments per second per leader, but T9 has no such figure. The value is in RA-3's failure paragraph. (2) K-20 gives \"None\" as its PB row, but PB runs SM-10 in its control-plane scale and accounting layer. (3) K-22 gives \"None\" as its PB row, but PB's GOGC and GOMEMLIMIT rule 1 fixes GOMEMLIMIT at about 90% of the container, and G1 fixes the 70% script-CPU point. (4) K-19's n_keep and K-22's 0.7 `maxmemory` share cite no PB row and name no Open question that adds them to PB. n_keep is a retention policy input, not a measured coefficient.",
+"evidence": "Line 121: \"Every coefficient cites [Performance budgets and benchmarking](...) (PB) or, where PB has no value yet, its owner and the Open question that adds it to PB.\" Line 142: \"| K-18 | ... Enrollments per second per leader | About 1.5 KiB; 2 vCPU, 4 GiB; about 20 (hypothesis) | Pending (OQ-capacity-planning-3) | This document; Sizing defaults; [T9](01-deployment-topologies.md#t9-multi-region-with-cells) |\". Deployment topologies line 571 (under ### RA-3): \"else every Node re-enrolls at about 20 per second per leader (hypothesis)\". Line 143: \"| K-19 | n_keep, Revisions kept per Environment | 50 (hypothesis) | None | OQ-capacity-planning-9 |\". Line 144: \"| K-20 | e, prompt estimate error (SM-10) | 2% (hypothesis) | None |\". Line 146: \"| K-22 | `GOMEMLIMIT` share of container; `maxmemory` use; shard GCRA share | 0.9; 0.7; 0.5 (target) | None |\". PB line 500: \"| Control-plane scale and accounting | F1 (SM-9), F2, SM-10 |\"; PB line 670: \"operators SHOULD set `GOMEMLIMIT` to about 90% of the container limit (target)\".",
+"fix": "In K-18, replace the T9 link with [RA-3](01-deployment-topologies.md#ra-3-multi-region-active-active-with-cells). In K-20, set the PB row to [Benchmark suite and CI gating](../architecture/12-performance-budgets-and-benchmarking.md#benchmark-suite-and-ci-gating), SM-10. In K-22, set the PB row to [GOGC and GOMEMLIMIT](../architecture/12-performance-budgets-and-benchmarking.md#gogc-and-gomemlimit) for 0.9 and to Throughput targets, G1, for the shard share. For the 0.7 `maxmemory` share, keep Cell sizing as the owner and extend OQ-capacity-planning-2 to measure it. Move n_keep out of the coefficient table into Planning inputs, next to d_audit and n_bk, citing OQ-capacity-planning-9. It is a retention policy, not a coefficient, so AC3 then holds literally."
+}
+],
+"non_blocking": [
+{
+"section": "Worked examples (Example 2)",
+"suggestion": "Line 268: \"Its `AIModel` has one candidate, not `gemini` or `ollama`, so attempts = 1.\" AI/LLM gateway, Model routing, allows up to (`retries.attempts` + 1) × candidates attempts, and Routes with `ai.token-budget` allow 2 attempts (target). One candidate therefore gives attempts = 1 only if the Upstream sets no retries. Write: \"one candidate and no `retries`, so attempts = 1\"."
+},
+{
+"section": "Planning inputs",
+"suggestion": "Line 52 gives the hottest-key call bound as \"min(offered, 2 × `requests`) per second\", but Scalability states it per window. Write \"min(offered, 2 × `requests` per `window`), as a per-second rate\"."
+},
+{
+"section": "Autoscaling policies",
+"suggestion": "The Stream-bound row uses `ruralz_node_buffered_bytes` at 64 MiB as a stream-share signal. That gauge counts all buffered bytes of `limits.maxBufferedBytes`, and the stream share is 25% of that budget. Say that this proxy is stricter than Scalability's 50%-of-budget signal and can fire on non-stream buffering, and link OQ-capacity-planning-8's proposed `ruralz_node_stream_share_bytes`."
+},
+{
+"section": "Autoscaling policies",
+"suggestion": "Rule 5 restates Deployment topologies, Enrollment per topology (line 468). Cite that section and OQ-deployment-topologies-15 as the source, not K-18 alone."
+},
+{
+"section": "Worked examples (Example 2)",
+"suggestion": "Line 305 says the `ai.token-budget` default is `closed` citing ADR-0014. Pack 8.9 adds that the default is still subject to OQ-configuration-model-8. Append that Open question so the MUST on automatic failover is clearly conditional."
+},
+{
+"section": "State Store sizing",
+"suggestion": "Line 426 applies the Divided pattern with \"one Environment per Cell\". Scalability defines Divided as one Environment per Region. Say that the per-Cell use generalizes that pattern, or limit it to Cells in different Regions."
+},
+{
+"section": "Planning inputs",
+"suggestion": "Line 61 sets interim values (10 MiB of audit per day for 365 days, a 1 GiB Raft log, 14 backups) with no Open question. Point them at OQ-capacity-planning-3 or OQ-capacity-planning-9."
+},
+{
+"section": "Headroom and failure capacity",
+"suggestion": "The ADR-0015 link on line 372 uses the canonical manifest path, but the file does not exist yet, so verify-docs reports WARN for a broken link. No change is needed now. Recheck once the ADR is written."
+}
+],
+"ac_results": [
+{
+"ac": "Capacity model gives formulas with named variables for CPU, memory, State Store operations and Ruralz Control sizing.",
+"pass": true,
+"note": "The Formulas block defines U, N_cpu, N_conn, N_unit, N_buf, M_node, M_flood, O, n_shard, r_min, replicas and D_store with named variables. Planning inputs and the K-rows define those variables."
+},
+{
+"ac": "Worked examples contains three examples as H3s (REST aggregation at 20k rps, AI with 500 concurrent streams, 200k WebSocket connections), every number tagged (target).",
+"pass": true,
+"note": "The three H3s are present, and their headings, opening sentences and code lines carry (target). A scan found no untagged scale figure in the section."
+},
+{
+"ac": "Every coefficient cites docs/architecture/12-performance-budgets-and-benchmarking.md.",
+"pass": false,
+"note": "See L2-2. K-18 cites T9 for a value that is in RA-3. K-20 and K-22 give \"None\" as their PB row although PB covers SM-10 and GOMEMLIMIT. K-19 n_keep and K-22's maxmemory share name neither a PB row nor an Open question that adds them to PB."
+},
+{
+"ac": "Sizing inputs, results and headroom are presented in tables.",
+"pass": true,
+"note": "The document has tables for Planning inputs, Coefficients, each example's Input, Result and Headroom check, Headroom and failure capacity, State Store sizing and Ruralz Control sizing."
+},
+{
+"ac": "Re-planning triggers lists measurable triggers.",
+"pass": true,
+"note": "Each trigger names an existing metric with a valid label set, or a checkable event, plus a threshold. The Ruralz Control trigger now sums ruralz_control_connected_nodes over replicas and Clusters."
+}
+],
+"foundation_amendments": []
+},
+"rereview:capacity-planning:L3": {
+"lens": "L3",
+"verdict": "revise",
+"score": 7,
+"blocking": [
+{
+"id": "L3-1",
+"section": "Capacity model (Coefficients, Formulas); Ruralz Control sizing; Re-planning triggers; Open questions",
+"issue": "This contradicts a dependency. Control plane and GitOps already sets Revision retention: unreferenced Revisions beyond the latest 50 per Environment (target) are deleted. The document treats that retention as undecided. It tags n_keep = 50 as a (hypothesis) with no PB row and routes it to OQ-capacity-planning-9, which is marked Blocking for M2. It adds a no-retention growth formula and tells operators the Control Store volume reaches 70% in 19 days. An operator following the Ruralz Control sizing table would plan pruning or resizing for growth that the design already prevents. Only audit-segment retention is still open.",
+"evidence": "K-19: \"n_keep, Revisions kept per Environment | 50 (hypothesis) | None | OQ-capacity-planning-9\"; Formulas: \"growth   = f_ro × (s_rev + s_diff + s_src) per day while no retention exists (OQ-capacity-planning-9)\"; Ruralz Control sizing: \"Growth without retention, 20 Rollouts per day | 352 MiB per day: 70% of the volume in 19 days (target) [H]\"; Re-planning triggers: \"Prune (OQ-capacity-planning-9) or resize\"; Control plane and GitOps, Building and recording a Revision: \"Unreferenced Revisions beyond the latest 50 per Environment (target) are deleted.\"",
+"fix": "Set K-19 to \"50 unreferenced Revisions per Environment (target)\" and cite Control plane's Building and recording a Revision section. Add that Revisions still referenced (active, Last-Known-Good, or promoted elsewhere) are kept beyond 50. Delete the growth formula and the \"Growth without retention\" row, which also frees words. Narrow OQ-capacity-planning-9 to audit-segment retention only, and change the Control Store volume trigger's action to \"Check audit retention (OQ-capacity-planning-9) or resize\"."
+},
+{
+"id": "L3-2",
+"section": "Capacity model (Coefficients)",
+"issue": "Acceptance criterion 3 still fails for part of the table, which also breaks the table's own lead-in rule. Rows without a PB value are supposed to name the Open question that adds the value to PB. Four rows do not. K-22 has no PB row and no Open question. K-20 cites only a Vision question. K-19's question belongs to control-plane-and-gitops and is superseded (see L3-1). K-11's question is owned by data-plane and asks about the unit count, not a PB row, even though PB's Milestone plan already schedules WebSocket and SSE session memory for M3. K-16 cites Control-plane timing for the 15 s heartbeat, but that PB table has no heartbeat row.",
+"evidence": "Lead-in: \"Every coefficient cites [Performance budgets and benchmarking] (PB) or, where PB has no value yet, its owner and the Open question that adds it to PB.\"; \"K-11 | ... | Pending (OQ-capacity-planning-1) | Data plane\"; \"K-16 | Heartbeat interval; largest batch at 10,000 Nodes | 15 s; 5 minutes (target) | Control-plane timing\"; \"K-20 | e, prompt estimate error (SM-10) | 2% (hypothesis) | None\"; \"K-22 | `GOMEMLIMIT` share of container; `maxmemory` use; shard GCRA share | 0.9; 0.7; 0.5 (target) | None\"; PB Memory budget: \"`GOMEMLIMIT` at 90% (target)\"; PB Milestone plan M3: \"WebSocket and SSE session memory; SM-10\".",
+"fix": "K-22: cite PB Memory budget for the 0.9 share (the 90% informational run) and G1 for the 0.5 GCRA share, keeping Scale unit and Cell sizing as interim owners. K-20 and K-11: cite the PB Milestone plan's M3 row (SM-10; WebSocket and SSE session memory), and extend OQ-capacity-planning-4, which PB owns, to ask PB to record units per session. K-16: split the row. Cite the 15 s heartbeat to Control plane only, with PB row \"None (configuration default)\". K-19: resolve as in L3-1."
+},
+{
+"id": "L3-3",
+"section": "Headroom and failure capacity",
+"issue": "This regression was introduced when L3-6 was fixed. The VM alternative says that splitting 90% of VM memory between both `ruralzd` processes only halves each C_cap. Under the document's own M_flood, most of the floor does not depend on C_cap. Any C_cap of 80 or more gives min(I_max, C_cap × 250) = 20,000, so the unit term alone is 6,250 MiB. For Example 1, M_fix + M_rej + units + Upstream come to 1,245 + 500 + 6,250 + 469 = 8,464 MiB. That is above the 0.45 × 13,312 = 5,990 MiB each process would get, even at C_cap = 0. An operator who takes this MAY is OOM-killed during a flood in mid-Drain. L1-1 raised the same defect.",
+"evidence": "\"Operators MAY instead split 90% of VM memory between both processes' `GOMEMLIMIT` (target), halving each C_cap.\"; Formulas: \"+ min(I_max, C_cap × n_str) × m_u + min(I_max, Σ_u maxConnections_u) × m_up  (hypothesis)\"; prose: \"80 connections can hold all 20,000 units (target): an L4 connection cap alone does not bound memory\".",
+"fix": "Delete the MAY sentence, or restate it as a condition: a split is allowed only when each process's `GOMEMLIMIT` is at least M_flood at its own C_cap, which no example meets while I_max is fixed at 20,000. So VM hosts MUST provide 2 × container (hypothesis) until OQ-capacity-planning-5 lowers the unit or stream ceiling. Add a pointer from OQ-capacity-planning-5 to this case."
+}
+],
+"non_blocking": [
+{
+"section": "Length",
+"suggestion": "The body is about 4,485 words under word_count_rule, and the band maximum is 4,500. Removing the growth formula and row frees about 40 words. Keep the other fixes word-neutral, and do not remove text that resolved earlier findings."
+},
+{
+"section": "Ruralz Control sizing",
+"suggestion": "The two Raft snapshots are given as 0.2 GiB with no derivation. Say that Raft holds only metadata while content lives in the content store, and add the per-snapshot size to Planning inputs."
+},
+{
+"section": "State Store sizing",
+"suggestion": "Example 1's \"keys need 9 MiB\" is the Cell total, but the column is labeled per shard, where the formula gives about 4.4 MiB."
+},
+{
+"section": "Autoscaling policies",
+"suggestion": "The Example 2 maxReplicas of 6 is not derived. Show it from rule 2, or say it is one extra zone's share above N."
+},
+{
+"section": "Front matter",
+"suggestion": "The ADR-0015 link targets a file that does not exist yet (verify-docs WARN). Confirm the slug once the ADR is written."
+},
+{
+"section": "Headroom and failure capacity",
+"suggestion": "The Hot key row lists \"a declared per-Node ceiling\" as an action available today, but the field is still OQ-traffic-management-and-resilience-1. Mark it as proposed, as the `localOnly` mode already is."
+}
+],
+"ac_results": [
+{
+"ac": "Capacity model gives formulas with named variables for CPU, memory, State Store operations and Ruralz Control sizing.",
+"pass": true,
+"note": "All four areas are covered and every variable is now defined. The growth line contradicts Control plane (L3-1)."
+},
+{
+"ac": "Worked examples contains three examples as H3s (REST aggregation at 20k rps, AI with 500 concurrent streams, 200k WebSocket connections), every number tagged (target).",
+"pass": true,
+"note": "There are three H3s. A line scan found no figure without (target)."
+},
+{
+"ac": "Every coefficient cites docs/architecture/12-performance-budgets-and-benchmarking.md.",
+"pass": false,
+"note": "K-19, K-20 and K-22 say None with no PB question. K-11's question is not a PB question, and K-16's heartbeat cites a PB table that lacks it (L3-2)."
+},
+{
+"ac": "Sizing inputs, results and headroom are presented in tables.",
+"pass": true,
+"note": "Each example has Input, Result and Headroom check tables, and the other sizing sections use tables too."
+},
+{
+"ac": "Re-planning triggers lists measurable triggers.",
+"pass": true,
+"note": "Seventeen triggers each have a metric or event, a threshold and an action. The volume trigger's action points at superseded retention (L3-1)."
+},
+{
+"ac": "L3 lens: exact H2 outline and order",
+"pass": true,
+"note": "The H2s match exactly and in order."
+},
+{
+"ac": "L3 lens: required Mermaid diagram and caption",
+"pass": true,
+"note": "The flowchart has 19 nodes and an italic caption above it."
+},
+{
+"ac": "L3 lens: length band 1,500 to 4,500 words",
+"pass": true,
+"note": "About 4,485 words, at the top of the band."
+},
+{
+"ac": "L3 lens: every performance or scale number tagged",
+"pass": true,
+"note": "Formula constants are tagged or replaced by symbols, and the Ruralz Control table header is tagged."
+},
+{
+"ac": "machine_checks and verify-docs",
+"pass": true,
+"note": "No FAIL lines, only a WARN for the missing ADR-0015 file. min_h3, has_table, required_terms and links_to all pass."
+}
+],
+"foundation_amendments": []
+},
+"rereview:capacity-planning:L4X": {
+"lens": "L4X",
+"verdict": "revise",
+"score": 7,
+"blocking": [
+{
+"id": "L4X-8",
+"section": "Capacity model (Coefficients K-19, Formulas); Ruralz Control sizing; Re-planning triggers (Control Store volume); Open questions (OQ-capacity-planning-9)",
+"issue": "This is a regression from the L4X-8 fix, and part of the cause is the previous L4X-8 evidence, which wrongly said that Control plane and GitOps defines no Revision retention. Control plane does define one: \"Unreferenced Revisions beyond the latest 50 per Environment (target) are deleted.\" The document now contradicts that dependency in three ways. It tags n_keep as a (hypothesis) with no owner. It says Revision content grows without bound \"while no retention exists\". It also makes OQ-capacity-planning-9 blocking for Revision retention. The part that really is unbounded, audit segments, is the part the growth row leaves out.",
+"evidence": "K-19: \"| K-19 | n_keep, Revisions kept per Environment | 50 (hypothesis) | None | OQ-capacity-planning-9 |\"; Formulas: \"growth   = f_ro × (s_rev + s_diff + s_src) per day while no retention exists (OQ-capacity-planning-9)\"; Ruralz Control sizing: \"| Growth without retention, 20 Rollouts per day | 352 MiB per day: 70% of the volume in 19 days (target) [H] |\". Control plane and GitOps, Building and recording a Revision: \"Unreferenced Revisions beyond the latest 50 per Environment (target) are deleted.\" Audit and security: \"the leader seals them into hash-chained segments of at most 4 MiB (target)\", with no retention period stated.",
+"fix": "Failure scenario: an operator follows the growth row and prunes Revisions by hand, or resizes for 352 MiB per day that GC already removes. Meanwhile audit segments, the growth nothing bounds, keep growing: 10 MiB per day (hypothesis) with no retention period, plus Revisions still referenced by active, promoted or rollback digests across many Clusters. Fix: tag K-19 as 50 unreferenced Revisions per Environment (target) and cite Control plane and GitOps (#building-and-recording-a-revision). Write D_store = E × (50 + referenced Revisions per Environment) × (s_rev + s_diff + s_src) + d_audit × days kept + L_raft + two Raft snapshots. Replace the growth row with audit growth, d_audit per day with no retention, and state when that reaches 70% of the volume. Narrow OQ-capacity-planning-9 to the audit-segment retention period and the count of referenced Revisions, and point the Control Store volume trigger's Prune action at that narrowed question."
+},
+{
+"id": "L4X-13",
+"section": "Headroom and failure capacity (Zero-Downtime Upgrade on a VM row and the paragraph below the table)",
+"issue": "The row now sizes the host at 2 × container, which fixes the original under-sizing. It still contradicts the handover design it cites, however, and the MAY alternative brings back the OOM. Zero-downtime upgrades and hot reload shares Node-wide ceilings between the old and new process. The new process runs at a soft limit of 90% of the limit minus the old RSS, and only a 0.6 GiB overlap is extra. That is option (b), marked current, of OQ-zero-downtime-upgrades-and-hot-reload-6. That question is owned by capacity-planning and blocks Planned (M1), yet this document never answers it. The row also says each process holds its own GOMEMLIMIT, which is option (a). Separately, \"halving each C_cap\" does not halve M_flood. The unit term min(I_max, C_cap × n_str) × m_u stays at 6,250 MiB once C_cap is 80 or more.",
+"evidence": "Row: \"| Zero-Downtime Upgrade on a VM | Both `ruralzd` processes hold their `GOMEMLIMIT` during Drain (...) | Host memory ≥ 2 × container (hypothesis): 26 GiB for Example 1 (target) |\"; paragraph: \"Operators MAY instead split 90% of VM memory between both processes' `GOMEMLIMIT` (target), halving each C_cap.\"; Formulas: \"M_flood = ... + min(I_max, C_cap × n_str) × m_u\". Zero-downtime upgrades: \"Node-wide ceilings are shared: ... the new one admits each ceiling minus that usage, under a soft memory limit of 90% of the limit minus the old RSS (target). Hosts MUST keep the overlap extra free\"; OQ-zero-downtime-upgrades-and-hot-reload-6: \"(b) Shared ceilings, a reduced soft limit and free overlap memory (current) | capacity-planning | Yes, for Planned (M1) in-place handover\".",
+"fix": "Failure scenario: an Example 1 VM of 13 GiB follows the MAY and gives each process a GOMEMLIMIT of about 5.9 GiB. An HTTP/2 header flood during the handover pins 20,000 units at 320 KiB, which is 6,250 MiB, plus M_fix of 1,243 MiB. That is about 7.5 GiB in one process, whatever its C_cap, so the process is OOM-killed in the middle of a Drain and every connection on the Node drops. Fix: answer OQ-zero-downtime-upgrades-and-hot-reload-6 explicitly. Under option (b), the current one, write host memory ≥ container + overlap extra (about 0.6 GiB plus snapshots (hypothesis)): about 13.6 GiB for Example 1 (target). Keep 2 × container only as option (a). Delete the \"halving each C_cap\" sentence, or replace it with the rule that no split may leave either process below M_flood."
+},
+{
+"id": "L4X-15",
+"section": "Capacity model (Coefficients K-19, K-20, K-22)",
+"issue": "Acceptance criterion 3 requires every coefficient to cite docs/architecture/12-performance-budgets-and-benchmarking.md. Three rows cite no PB row and name no Open question that would add one. K-22's 0.9 GOMEMLIMIT share is in PB's GOGC and GOMEMLIMIT rules, yet the row says None. K-19 and K-20 are planning parameters owned by Control plane and Vision, not benchmarked coefficients.",
+"evidence": "\"| K-19 | n_keep, Revisions kept per Environment | 50 (hypothesis) | None | OQ-capacity-planning-9 |\"; \"| K-20 | e, prompt estimate error (SM-10) | 2% (hypothesis) | None | [Vision](...); OQ-vision-and-positioning-15 |\"; \"| K-22 | `GOMEMLIMIT` share of container; `maxmemory` use; shard GCRA share | 0.9; 0.7; 0.5 (target) | None | ... |\". PB, GOGC and GOMEMLIMIT rule 1: \"operators SHOULD set `GOMEMLIMIT` to about 90% of the container limit (target)\".",
+"fix": "Failure scenario: a reader auditing criterion 3 cannot trace K-19, K-20 or K-22 to a verified budget, so the criterion fails and the release-record update rule has nothing to update for them. Fix: cite PB #gogc-and-gomemlimit for 0.9, and PB Throughput targets and G1 for the 0.5 shard share, with Scalability as the interim owner. Move K-19 (Control plane, (target)) and K-20 (Vision SM-10, (hypothesis)) out of the coefficient table into Planning inputs. Alternatively, keep them and add an Open question to performance-budgets-and-benchmarking that records them in PB."
+}
+],
+"non_blocking": [
+{
+"section": "Re-planning triggers (Memory)",
+"suggestion": "The Memory trigger fires above 70% of GOMEMLIMIT. GOMEMLIMIT is now sized to the flood floor, 11,981 MiB for Example 1 against M_node of 1,693 MiB, so the trigger stays silent until steady heap is about 5x the plan. By then a K-6 or K-7 coefficient error, which also feeds M_flood, is already invalidating the flood floor. Add a threshold on heap per connection or per unit more than 10% above K-6 or K-7, or heap above 1.15 × planned M_node (target)."
+},
+{
+"section": "Capacity model (Formulas); Headroom and failure capacity",
+"suggestion": "N_cpu has no storm term, yet the composite rule requires survivor CPU plus storm to stay at or below 80%. A CPU-bound Cluster that fits exactly fails its own check, and no remedy is given. Add λ_storm × (c_hs + c_up) × Z / (Z − 1) to U before computing N_cpu, or lower u_z by the storm share."
+},
+{
+"section": "Scope and non-goals; Capacity model",
+"suggestion": "Deployment topologies' Sizing defaults still offers option (b): an L4 cap near 2,500 connections in a 4 GiB container. It uses the per-connection formula this document rejects. Say explicitly that option (b) no longer holds and that any Node needs at least M_flood, and link OQ-deployment-topologies-21 beside OQ-capacity-planning-5."
+},
+{
+"section": "Worked examples (Example 2)",
+"suggestion": "attempts = 1 is justified only by a single AIModel candidate. State that the ai Upstream has no retries, or count retried attempts in the (attempts − 1) × R term, since Scalability's bound counts attempts, not candidates."
+},
+{
+"section": "Headroom and failure capacity; State Store sizing",
+"suggestion": "The hot-key check uses λ_key = min(offered, 2 × requests). While autoscaling lags the published count, Scalability allows 2 × requests × N_serving / N_published. For autoscaled Clusters, check λ_key at the lag ratio, or require declared ceilings as rule 4 already recommends."
+},
+{
+"section": "Headroom and failure capacity",
+"suggestion": "The ADR-0015 link still targets a missing file (verify-docs WARN at line 372). Keep it tracked until the ADR lands."
+},
+{
+"section": "Worked examples (Example 1 Headroom check)",
+"suggestion": "Give the composite zone loss a numeric fail-open bound per key, for example N_serving × ceiling on 4 survivors for about 15 s (hypothesis)."
+}
+],
+"ac_results": [
+{
+"ac": "Capacity model gives formulas with named variables for CPU, memory, State Store operations and Ruralz Control sizing.",
+"pass": true,
+"note": "Formulas cover CPU, memory (M_node, M_flood, GOMEMLIMIT), the State Store (O, n_shard, the hot-key checks, maxmemory, maxclients), Upstreams, reconnect storms and Ruralz Control. D_store's retention term contradicts Control plane (L4X-8)."
+},
+{
+"ac": "Worked examples contains three examples as H3s (REST aggregation at 20k rps, AI with 500 concurrent streams, 200k WebSocket connections), every number tagged (target).",
+"pass": true,
+"note": "All three H3s are present. A scan of the input tables, code blocks, result tables and headroom tables found every figure tagged (target), with [H] marking lines that rest on a hypothesis."
+},
+{
+"ac": "Every coefficient cites docs/architecture/12-performance-budgets-and-benchmarking.md.",
+"pass": false,
+"note": "K-19, K-20 and K-22 list None as their PB row and name no Open question that adds one. K-22's 0.9 is already in PB (L4X-15)."
+},
+{
+"ac": "Sizing inputs, results and headroom are presented in tables.",
+"pass": true,
+"note": "Each example has input, result and headroom-check tables, including C_cap and composite zone-loss rows."
+},
+{
+"ac": "Re-planning triggers lists measurable triggers.",
+"pass": true,
+"note": "Every row names a metric or checkable event and a threshold. The Memory threshold is weak (see non-blocking)."
+},
+{
+"ac": "verify-docs.mjs (--allow-missing --skip markdownlint) reports no FAIL line for this document",
+"pass": true,
+"note": "The only line is a WARN for the missing ADR-0015 link at line 372."
+}
+],
+"foundation_amendments": []
+},
+"rereview:high-availability-and-disaster-recovery:L1": {
+"lens": "L1",
+"verdict": "revise",
+"score": 8,
+"blocking": [
+{
+"id": "L1-6",
+"section": "Runbooks > Ruralz Control rebuild from Git (step 4); Runbooks > Holding deliveries during recovery (step 1)",
+"issue": "The rebuild step 4 command renders with `--env prod` but without `--environments`. The CLI and Configuration model say that without `--environments`, `--env` fetches the Environment from Ruralz Control, and with neither source the render is an error. At step 4, Ruralz Control has not read Git yet, so it holds no Environments. Every candidate `bundle diff` therefore exits 2, no commit ever matches, and by step 4's own rule every Cluster is held and escalated. The rebuild cannot proceed as written. Hold step 1 reuses this command after a restore. There, `--env` would fetch the backup-era `spec.variables`, not the candidate commit's, so a commit that changed variables after the backup renders a different digest and is wrongly rejected. This was introduced in the revised command block.",
+"evidence": "HA rebuild step 4: \"Before Ruralz Control reads Git, render candidate commits against each Cluster's Nodes.\" followed by `ruralz bundle diff ./bundle https://node-a.shop.example:9901 --env prod --admin-token-file /run/secrets/ruralz-admin-token   # exit 0: this commit is served`. CLI and API surface: \"`--environments FILE` | Local `Environment` resources; without it, `--env` fetches from Ruralz Control (Planned (M2))\". Configuration model: \"That Environment's `spec.variables`, read from the file named by `--environments` or fetched from Ruralz Control; never the process environment; with neither source, an error\".",
+"fix": "Change the command to render from the candidate commit's own checkout: `git -C repo checkout <candidate>` (or a worktree), then `ruralz bundle diff repo/bundle https://node-a.shop.example:9901 --env prod --environments repo/control/environments.yaml --admin-token-file ...`. Add a sentence to step 4 and hold step 1: \"Always pass the candidate commit's `control/environments.yaml` with `--environments`, so each candidate renders with its own variables and never with the Control Store's.\""
+}
+],
+"non_blocking": [
+{
+"section": "Runbooks > Holding deliveries during recovery (step 3)",
+"suggestion": "A restored `pending` Rollout dispatches as soon as the restored replica elects itself. With no Nodes connected, its plan is empty and it completes before the operator reaches the hold, and its digest may not be the served one (for example, a Rollout that was later rolled back after the backup). Step 3 lists only `canary`, `progressing` and `paused`. Add `pending`, and add Rollouts that became `complete` after the restore with a digest that differs from the served one. Give the remedy: `ruralz rollout start` of the served Revision, which also completes empty, before any Node connects."
+},
+{
+"section": "Runbooks > Holding deliveries during recovery (step 2)",
+"suggestion": "After a restore, the recovery ref at the served commit may not descend from the last commit the restored Control Store processed (a backward, non-fast-forward move). The Git watcher's behavior on such a ref is not specified anywhere. Name this as a dependency in OQ-high-availability-and-disaster-recovery-3 or OQ-control-plane-and-gitops-1."
+},
+{
+"section": "Runbooks > Region loss (non-home, step 4)",
+"suggestion": "Freezing merges does not stop a commit that was merged before the loss from finishing in `promotion.from` during the loss and then auto-promoting into an Environment that has a lost Cluster. Step 5 catches this case only through its \"passed a canary elsewhere\" exception. Say that committing `requireApproval: true` is the preferred hold, and that a merge freeze is enough only when no promotion is in flight toward that Environment."
+},
+{
+"section": "Runbooks > State Store rebuild (step 4)",
+"suggestion": "The \"change the value and Drain Nodes zone by zone\" path splits a Cluster across two State Stores for the length of the Drain, which conflicts for a while with Scalability's \"Every Node of a Cluster MUST resolve the same State Store\". In the corrupted or eviction case, the old deployment is still live, so admission can reach one limit per store. Say to stop or firewall the old deployment first, or prefer the new-Cell row whenever the old deployment is still reachable."
+},
+{
+"section": "Game days (GD-10)",
+"suggestion": "\"the published count drops at most 10% (target)\" is achievable only under option (a) of OQ-high-availability-and-disaster-recovery-9. The hold section says the count can collapse after a rebuild until that question is decided. Name OQ-high-availability-and-disaster-recovery-9 as GD-10's dependency, the same way GD-5 names OQ-zero-downtime-upgrades-and-hot-reload-9."
+},
+{
+"section": "Failure catalog FC-17; Game days",
+"suggestion": "verify-docs prints only WARN lines here, no FAIL lines: FC-17 and GD-1 to GD-15 have no matching roadmap items. Flag this to the roadmap owner so that the game days are tracked as milestone exit gates."
+}
+],
+"ac_results": [
+{
+"ac": "Failure catalog has at least 12 rows covering Node, availability zone, Region, Ruralz Control leader, Raft quorum loss, State Store outage and partition, Git, OCI registry, IdP or JWKS, LLM provider, Plugin crash and DNS, with no blank cells.",
+"pass": true,
+"note": "21 rows, FC-1 to FC-21. Every listed domain is covered, and verify-docs reports no FAIL."
+},
+{
+"ac": "Degraded modes covers Last-Known-Good, local rate-limit fallback and fail-open or fail-closed behavior, consistent with docs/architecture/04-control-plane-and-gitops.md and docs/architecture/11-scalability-and-distributed-state.md.",
+"pass": true,
+"note": "It has three subsections. The breaker, N_frozen and clamp rows match Scalability, and the outage behavior matches Control plane and GitOps."
+},
+{
+"ac": "RPO and RTO contains a table of recovery objectives per component, each tagged (target).",
+"pass": true,
+"note": "The table has 12 component rows with objectives tagged (target). The formulas are tagged (target) or (hypothesis)."
+},
+{
+"ac": "Runbooks covers region loss, Ruralz Control rebuild from Git and State Store rebuild.",
+"pass": true,
+"note": "All three are present, plus a hold procedure and quorum loss. The rebuild step 4 command defect is L1-6."
+},
+{
+"ac": "Game days lists at least eight chaos experiments.",
+"pass": true,
+"note": "15 experiments, GD-1 to GD-15."
+},
+{
+"ac": "Backups uses ruralz control backup and ruralz control restore.",
+"pass": true,
+"note": "Both are used, and the restore flags match the CLI reference."
+}
+],
+"foundation_amendments": []
+},
+"rereview:high-availability-and-disaster-recovery:L2": {
+"lens": "L2",
+"verdict": "revise",
+"score": 8,
+"blocking": [
+{
+"id": "L2-6",
+"section": "Runbooks > Holding deliveries during recovery (step 2, line 236); Runbooks > Region loss (non-home step 4, line 295)",
+"issue": "New regression from the L2-1 and L2-2 fixes. The hold tells operators to set `requireApproval: true` on every Environment. Region loss step 4 offers committing `requireApproval: true` as a way to hold promotions. The Configuration model allows `promotion.requireApproval` only with `promotion.from`, which is 'required when promotion is set'. A root Environment has no source to promote from, such as `staging` in RA-2 or the only Environment of a single-Environment deployment, so it cannot carry the field. Following step 2 literally puts an invalid `Environment` in `control/environments.yaml`. Ruralz Control then records a failed build for the recovery ref and ingests nothing, so the hold stalls. It is also an invented use of the field: requireApproval gates promotion records, and a root Environment never gets one. Its Rollouts start as soon as it ingests a commit. For such an Environment, the hold works only through where the recovery ref points, and the Region-loss hold only through a merge freeze.",
+"evidence": "line 236: \"Push a recovery ref at that commit, plus a commit setting `requireApproval: true` on every Environment in `control/environments.yaml` (no digest changes)\"; line 295: \"approve nothing under `requireApproval`, else freeze merges to the tracked branch or first commit `requireApproval: true`, a tightening that needs no approval.\" 02-configuration-model.md line 542: \"from: staging                  # required when promotion is set; the source commit must complete a Rollout there first\"; 04-control-plane-and-gitops.md line 170: \"Once a commit's Revision reached `complete` in every Cluster of `promotion.from`, the target Environment queues a promotion record\"; foundation pack section 9: \"`ruralz rollout approve` | Approve a promotion when `Environment.spec.promotion.requireApproval` is set\".",
+"fix": "Hold step 2: write \"setting `promotion.requireApproval: true` on every Environment that has `promotion.from` (no digest changes); an Environment without `promotion.from` cannot be gated, so it renders the recovery ref's head directly and is held only by where the ref points.\" Hold step 3: add \"Place the ref at the root Environments' served commit first, since their empty plans complete at whatever the ref names.\" Region loss step 4: replace \"or first commit `requireApproval: true`\" with \"or, for an Environment with `promotion.from`, first commit `promotion.requireApproval: true`, a tightening that needs no approval. An Environment without `promotion.from` is held only by a merge freeze.\""
+}
+],
+"non_blocking": [
+{
+"section": "Failure catalog FC-18 (line 104); Runbooks > Region loss step 5 (line 296)",
+"suggestion": "Control plane and GitOps gives `RZ-CP-006` to a revert for 'An older target, or a diff with `security` impact or a Capability grant'. FC-18 says only \"`RZ-CP-006` if `security`\", and step 5's revert does not mention `RZ-CP-006`. Name all three triggers in FC-18, and tell step 5 that a second `approver` may be needed."
+},
+{
+"section": "Runbooks > Region loss home step 7 (line 314)",
+"suggestion": "'a new relay-role token' is not a named artifact in Control plane and GitOps, which describes relays only as holding 'a peer certificate of role `relay`', and OQ-control-plane-and-gitops-15 is about 8092 classes. Either say 'a new `relay`-role peer certificate (issuance: OQ-control-plane-and-gitops-15)' or add a sub-question under OQ-high-availability-and-disaster-recovery-5."
+},
+{
+"section": "Backups > What to protect (line 206)",
+"suggestion": "'The Control Store holds 50 Revisions per Environment (target)' simplifies the source. Control plane and GitOps says 'Unreferenced Revisions beyond the latest 50 per Environment (target) are deleted', so referenced ones are also kept. Reword to match."
+},
+{
+"section": "Runbooks > Region loss home step 1 (line 300)",
+"suggestion": "Non-home step 5 runs `ruralz rollout status` and `ruralz rollout start` against Ruralz Control. When the home Region is lost, those commands work only after the restore. Say that step 5 runs after home step 8."
+},
+{
+"section": "Runbooks > Holding deliveries during recovery (step 3, line 237)",
+"suggestion": "'pause it' also covers a Rollout that is already `paused`. Say 'pause it if it is not already `paused`'."
+}
+],
+"ac_results": [
+{
+"ac": "Failure catalog has at least 12 rows covering Node, availability zone, Region, Ruralz Control leader, Raft quorum loss, State Store outage and partition, Git, OCI registry, IdP or JWKS, LLM provider, Plugin crash and DNS, with no blank cells.",
+"pass": true,
+"note": "21 rows (FC-1 to FC-21) cover every listed failure: FC-1, 3, 4, 5, 6, 7, 10, 11, 14, 15, 16, 17, 18 and 19. No blank cells. FC-11 now uses the existing Scalability rows."
+},
+{
+"ac": "Degraded modes covers Last-Known-Good, local rate-limit fallback and fail-open or fail-closed behavior, consistent with docs/architecture/04-control-plane-and-gitops.md and docs/architecture/11-scalability-and-distributed-state.md.",
+"pass": true,
+"note": "All three subsections are present. The fallback table matches the Scalability bounds rows, and the breaker values match the State client paragraph."
+},
+{
+"ac": "RPO and RTO contains a table of recovery objectives per component, each tagged (target).",
+"pass": true,
+"note": "12 rows, each carrying (target)."
+},
+{
+"ac": "Runbooks covers region loss, Ruralz Control rebuild from Git and State Store rebuild.",
+"pass": true,
+"note": "All three are present, plus the hold and Raft quorum loss. Hold step 2 misuses a field (L2-6)."
+},
+{
+"ac": "Game days lists at least eight chaos experiments.",
+"pass": true,
+"note": "15 experiments (GD-1 to GD-15), each with a milestone."
+},
+{
+"ac": "Backups uses ruralz control backup and ruralz control restore.",
+"pass": true,
+"note": "Both are used, and their flags match the CLI reference, including `--revocation-list` and `--prepare`."
+}
+],
+"foundation_amendments": []
+},
+"rereview:high-availability-and-disaster-recovery:L4X": {
+"lens": "L4X",
+"verdict": "revise",
+"score": 7,
+"blocking": [
+{
+"id": "L4X-1",
+"section": "Runbooks > Ruralz Control rebuild from Git (step 7); Runbooks > Holding deliveries during recovery (paragraph after step 4); RPO and RTO (rows 'Control Store and every backup lost' and 'Re-enrollment of every Node'); Game days GD-10",
+"issue": "Partly resolved. The revision now describes the collapse of the published Node count after a rebuild, or after a restore without a revocation list, and adds OQ-high-availability-and-disaster-recovery-9 (blocking for M2). Three problems remain. (1) The runbooks still have no step for it. The only mitigation is a sentence saying 'declared ceilings avoid it', and during recovery an operator cannot declare ceilings, because the hold forbids digest changes ('aligning needs a delivery'). (2) Three claims in the same document still say traffic is unchanged. Rebuild step 7 says traffic changes only by the draining zone's capacity. The rebuild row's traffic RTO is 'As above', which resolves to 'Zero request errors (target)'. The Re-enrollment row's traffic RTO is 'One zone's capacity drains at a time (target)'. All three contradict the collapse paragraph. (3) Under the current option (c) of OQ-9, GD-10 cannot pass its own criterion, and the document does not say that GD-10 requires option (a). Failure scenario: a 3,000-Node Cell uses derived ceilings and has a hot key at 20% of one shard. Every backup is lost. The zone-a re-enrollment wave brings 1,000 Nodes online on the rebuilt deployment. They have fresh `node.id`s and are unqualified, so their first `HeartbeatReply` carries a near-zero count. Each of those Nodes derives a ceiling of about 2 × `requests`, and hot-key GCRA calls rise from about 2 × `requests` toward 1,000 × 2 × `requests` per window. The shard's State client breakers open, so co-tenant Rate Limits fall back to local buckets and `closed` Token Budgets return `RZ-STS-003`. That is a request error the RTO row says cannot happen. The count then needs about 58 minutes (hypothesis) to recover, and each later zone wave repeats the collapse.",
+"evidence": "Rebuild step 7: \"Re-enroll Cluster by Cluster, one zone at a time ... Traffic changes only by the draining zone's capacity (target).\" Holding deliveries: \"After a rebuild, or a restore without a revocation list, no Node is qualified, so the first `HeartbeatReply` can collapse the published count until OQ-high-availability-and-disaster-recovery-9 decides; [declared ceilings] avoid it\". RPO and RTO: \"| Control Store and every backup lost | ... | As above | 8 hours or less ...\" where the row above reads \"Zero request errors (target); Node count per the [hold]\"; \"| Re-enrollment of every Node | Enrollment identities | None (target) | One zone's capacity drains at a time (target) |\". GD-10: \"the published count drops at most 10% (target); no State client breaker opens\". Hold step 2: \"(no digest changes)\"; step 3: \"aligning needs a delivery\". Scalability and distributed state, Ruralz Control availability: \"a near-zero count sends derived ceilings to the full limit, multiplying hot-key GCRA calls. Only qualified Nodes, keyed by `node.id` in committed state ... may lower it\".",
+"fix": "(1) Add a numbered hold step 0 that runs before any Node connects or re-enrolls: 'For each Cluster whose served Revision uses derived ceilings, until OQ-high-availability-and-disaster-recovery-9 (a) ships: confirm that hot keys above 25% of a shard are `localOnly` in the served Revision. Otherwise, before re-enrolling, shift the Cell's weight to other Cells, or accept the bound below and watch State client breakers.' (2) Add a readiness rule to Local rate-limit fallback or Backups: 'Control-mode Clusters that depend on a rebuild or a list-less restore SHOULD declare per-Node ceilings in advance, because recovery cannot deliver them.' (3) Qualify rebuild step 7 and the 'Control Store and every backup lost' and 'Re-enrollment of every Node' traffic RTO cells: 'plus, with derived ceilings, up to N_reenrolled × 2 × `requests` per key per window and possible shard breaker opening until the count re-qualifies, about 58 minutes (hypothesis), unless OQ-high-availability-and-disaster-recovery-9 (a)'. Remove 'Zero request errors (target)' from the rebuild row, or make it conditional on declared ceilings or OQ-9 (a). (4) In GD-10, add the precondition 'with OQ-high-availability-and-disaster-recovery-9 (a) implemented, or with declared ceilings'. Also add a variant that uses derived ceilings and asserts the stated over-admission bound."
+}
+],
+"non_blocking": [
+{
+"section": "RPO and RTO (row 'Node lost'); Game days GD-1",
+"suggestion": "Pod release on Kubernetes is not automatic for StatefulSet pods on an unreachable host (T4). Under the current option (b) of OQ-high-availability-and-disaster-recovery-2, the '5 minutes' is an on-call response target. Say so ('release by force-delete or out-of-service taint, paged, within 5 minutes (target)'), and have the GD-1 host variant measure detection plus release, not only the 30 s after release."
+},
+{
+"section": "Backups > Taking and checking backups (rules 1 and 5); RPO and RTO",
+"suggestion": "Rule 1 tags the 10-minute copy '(hypothesis)', but the RPO row tags the same figure '(target)'; use one tag. With hourly backups and a copy within 10 minutes, the newest copy is normally at most 70 minutes old. An alert at 75 minutes therefore fires only once the RPO is breached. Consider alerting at 70 minutes (target) so on-call gets warning before the breach."
+},
+{
+"section": "Runbooks > Region loss (non-home, step 2)",
+"suggestion": "Capacity planning bounds the reconnect storm as λ_storm × (c_hs + c_up) ≤ 10% of survivor CPU (target), but step 2 writes only λ_storm × c_hs. Either include c_up or say why the upgrade GCRA term is zero for a regional move."
+},
+{
+"section": "Runbooks > Region loss (home Region, step 1)",
+"suggestion": "Step 1 runs non-home step 5, which reverts empty-plan Rollouts with `ruralz rollout start`. That needs a working Ruralz Control, which is lost in this scenario. Say that step 5 applies only after the restore, or only to Regions served by the restored deployment."
+},
+{
+"section": "RPO and RTO (formula block)",
+"suggestion": "The re-enrollment formula line is tagged (hypothesis), but its parameter legend is tagged (target). Tag the legend values (t_drain about 30 s from ZG-4, the 30 to 60 s slow start) individually, so it is clear which inputs are objectives and which are estimates."
+}
+],
+"ac_results": [
+{
+"ac": "Failure catalog has at least 12 rows covering Node, availability zone, Region, Ruralz Control leader, Raft quorum loss, State Store outage and partition, Git, OCI registry, IdP or JWKS, LLM provider, Plugin crash and DNS, with no blank cells.",
+"pass": true,
+"note": "21 rows (FC-1 to FC-21). The required domains map to FC-1, FC-3, FC-4 and FC-5, FC-6, FC-7, FC-10 and FC-11, FC-14, FC-15, FC-16, FC-17, FC-18 and FC-19. No blank cells."
+},
+{
+"ac": "Degraded modes covers Last-Known-Good, local rate-limit fallback and fail-open or fail-closed behavior, consistent with docs/architecture/04-control-plane-and-gitops.md and docs/architecture/11-scalability-and-distributed-state.md.",
+"pass": true,
+"note": "All three subsections are present. The admission rows, breaker parameters, 5 s Last-Known-Good wait and frozen-count behavior match Scalability (consistency and accuracy bounds, State client) and Control plane (behavior during an outage)."
+},
+{
+"ac": "RPO and RTO contains a table of recovery objectives per component, each tagged (target).",
+"pass": true,
+"note": "The table has 12 component rows, and every row carries (target) objectives. The 'As above' traffic cell in the backup-loss row inherits a (target) cell, but its content is contradicted (see L4X-1)."
+},
+{
+"ac": "Runbooks covers region loss, Ruralz Control rebuild from Git and State Store rebuild.",
+"pass": true,
+"note": "Region loss (non-home and home), Ruralz Control rebuild from Git and State Store rebuild are all present, plus the delivery hold and Raft quorum loss. L4X-1 is a content gap in the rebuild runbook, not a coverage failure."
+},
+{
+"ac": "Game days lists at least eight chaos experiments.",
+"pass": true,
+"note": "15 experiments, GD-1 to GD-15, each with pass criteria and a milestone."
+},
+{
+"ac": "Backups uses ruralz control backup and ruralz control restore.",
+"pass": true,
+"note": "Both appear in Backups; the restore command also appears in the home-Region runbook."
+}
+],
+"foundation_amendments": []
+},
+"rereview:high-availability-and-disaster-recovery:L3": {
+"lens": "L3",
+"verdict": "revise",
+"score": 7,
+"blocking": [
+{
+"id": "L3-1",
+"section": "Runbooks > Holding deliveries during recovery (step 2); Runbooks > Region loss (non-home, step 4)",
+"issue": "Hold step 2 tells the operator to set `requireApproval: true` on every Environment. The Configuration model allows that only when `promotion.from` is also set, and the root Environment of a promotion chain has no `from`. RA-2's `staging` is one example. An operator following step 2 commits an `environments.yaml` that fails validation, or cannot gate the root Environment at all. Region-loss step 4 has the same problem. If the lost Region holds a root-Environment Cluster, \"first commit `requireApproval: true`\" is not possible, so only a merge freeze holds it. The hold does still work for the root Environment, because the recovery ref pins what it renders, but the document never says so. The reader is left with an instruction that cannot be carried out.",
+"evidence": "HA doc, hold step 2: \"Push a recovery ref at that commit, plus a commit setting `requireApproval: true` on every Environment in `control/environments.yaml` (no digest changes)\". Region loss step 4: \"approve nothing under `requireApproval`, else freeze merges to the tracked branch or first commit `requireApproval: true`, a tightening that needs no approval.\" Configuration model, Environment: \"from: staging # required when promotion is set\". Deployment topologies, RA-2: \"`staging` and `prod`, one Cluster each; `prod` `Environment.spec.promotion`: `from: staging`, `requireApproval`\".",
+"fix": "In hold step 2, replace \"on every Environment\" with \"on every Environment with `promotion.from`; a root Environment cannot be gated, so the recovery ref alone pins what it renders\". In Region-loss step 4, replace \"else freeze merges to the tracked branch or first commit `requireApproval: true`\" with \"else commit `requireApproval: true` where `promotion.from` exists, and freeze merges while the lost Region holds a root-Environment Cluster\". Keep the change word-neutral, because the body is at 4,493 of 4,500 words."
+},
+{
+"id": "L3-2",
+"section": "Game days GD-10 (and GD-9 via \"as GD-10\"); Runbooks > Holding deliveries during recovery",
+"issue": "GD-10's pass criteria contradict the document's own prediction for a rebuild. The hold section says that after a rebuild no Node is qualified, so the published Node count can collapse. Derived ceilings then go to the full limit, and hot-key GCRA calls open shard breakers. GD-10 requires that the count drop at most 10% and that no State client breaker opens. A team running GD-10 under the current design, with OQ-high-availability-and-disaster-recovery-9 undecided, fails a drill that gates M2. The document offers no way to pass it.",
+"evidence": "Hold section: \"After a rebuild, or a restore without a revocation list, no Node is qualified, so the first `HeartbeatReply` can collapse the published count until OQ-high-availability-and-disaster-recovery-9 decides\" and \"Hot-key GCRA 2 × requests → up to N_serving × 2 × requests per window, opening shard breakers\". GD-10: \"Every promoted digest equals its Nodes' active digest before reconnect; the published count drops at most 10% (target); no State client breaker opens\". Scalability CE-7 and CE-10 use the 10% criterion only for restarts and failovers where qualification survives in committed state.",
+"fix": "Change GD-10's pass criteria to: \"Every promoted digest equals its Nodes' active digest before reconnect; limits with declared ceilings stay within their fail-open row; the count criterion of CE-10 applies once OQ-high-availability-and-disaster-recovery-9 decides (a)\". Or run GD-10 with declared per-Node ceilings on every `limits[]` entry and drop \"the published count drops at most 10%\" until OQ-9 decides. Mark OQ-9 as blocking for GD-10 as well."
+},
+{
+"id": "L3-3",
+"section": "RPO and RTO (re-enrollment formula and the sentence after it)",
+"issue": "Several performance and scale figures carry no (target) or (hypothesis) tag on their own line, which the style guide and this lens require. The prose sentence about the `Enroll` rate is not inside a code fence, and Deployment topologies tags the same 20-per-second rate as (hypothesis). Two lines of the formula block also carry untagged figures.",
+"evidence": "\"Behind shared egress, `Enroll` limits MUST be keyed so L_src × A reaches 20 per second (OQ-deployment-topologies-15).\" Text block: \"Regional failover   3 missed geo checks × 10 s + API hostname TTL ≤ 60 s + client retry\" and \"Z zones, t_drain about 30 s, L_src the per-source Enroll limit,\", each with no tag on that line. Style guide section 4: \"Every performance or scale figure ... MUST carry `(target)` or `(hypothesis)` on the same line\". Deployment topologies RA-3: \"re-enrolls at about 20 per second per leader (hypothesis)\".",
+"fix": "Write \"reaches 20 per second (hypothesis) (OQ-deployment-topologies-15)\". In the text block, append \"(target)\" to the Regional failover line and to the \"Z zones, t_drain about 30 s\" line. If the word budget requires it, move the existing trailing tags instead of adding new ones."
+}
+],
+"non_blocking": [
+{
+"section": "Runbooks > Region loss (non-home, step 2); Game days GD-14",
+"suggestion": "`λ_storm`, `c_hs` and `C2` are not defined in this document, although the new symbol legend fixed the others. Capacity planning's check is λ_storm × (c_hs + c_up) ≤ 10% of survivor CPU, so this document also leaves out `c_up`. Define them in the legend, or use the full Capacity planning expression."
+},
+{
+"section": "Runbooks > Region loss (non-home, step 4)",
+"suggestion": "With `autoRollback: true`, a revert cannot reach lost Nodes that had already activated the new Revision. Once they exceed the lagging threshold, the Rollout ends `failed` and pages an operator. Add `failed` to \"ends `rolled-back` or `paused`\"."
+},
+{
+"section": "Runbooks > Region loss (home Region, step 1)",
+"suggestion": "Step 1 runs non-home step 5, which needs Ruralz Control and so cannot run until the restore. Say that the hold (step 6) replaces it in this case, or limit step 1 to non-home steps 1 to 3."
+},
+{
+"section": "Runbooks > Ruralz Control rebuild from Git (step 7)",
+"suggestion": "The `mv identity` and restart commands describe a host install. On T4, `${RURALZ_DATA_DIR}` is a volume and a Drain means Pod deletion. Add a T4 clause: wipe `identity/` on the volume, keep `lkg/`, then delete the Pod with the token Secret mounted."
+},
+{
+"section": "Backups > Taking and checking backups (rule 1); RPO and RTO",
+"suggestion": "Rule 1 tags the 10-minute cross-Region copy (hypothesis), but the RPO row tags it (target). Use one tag."
+},
+{
+"section": "Scope and non-goals; Backups rule 2",
+"suggestion": "Release, versioning and compatibility, rule 6, says that this document owns the restore for rollback after finalize. Add a pointer saying that it follows home Region steps 2 to 8 with an N-1 binary and the hold. Nodes are connected in that case, so the \"before any Node connects\" precondition needs a note."
+},
+{
+"section": "Open questions",
+"suggestion": "OQ-2 and OQ-4 carry questions that this document owned (OQ-deployment-topologies-20 and -18) but name control-plane-and-gitops as owner. Record the handoff there at conformance, or keep this document as owner."
+},
+{
+"section": "Whole document",
+"suggestion": "The body is 4,493 of 4,500 words. Make every fix word-neutral, and do not delete text that resolved earlier findings."
+},
+{
+"section": "Front matter / roadmap",
+"suggestion": "verify-docs reports WARN lines only: FC-17, GD-1 to GD-15 and OQ-2 have no roadmap items under M1 to M4."
+}
+],
+"ac_results": [
+{
+"ac": "Failure catalog has at least 12 rows covering Node, availability zone, Region, Ruralz Control leader, Raft quorum loss, State Store outage and partition, Git, OCI registry, IdP or JWKS, LLM provider, Plugin crash and DNS, with no blank cells.",
+"pass": true,
+"note": "21 rows, FC-1 to FC-21, covering every required domain; no blank cells; the machine checks pass."
+},
+{
+"ac": "Degraded modes covers Last-Known-Good, local rate-limit fallback and fail-open or fail-closed behavior, consistent with docs/architecture/04-control-plane-and-gitops.md and docs/architecture/11-scalability-and-distributed-state.md.",
+"pass": true,
+"note": "All three H3s are present. The breaker, fail-open rows, boot wait, certificate lifetime and failureMode defaults match both sources. The symbol legend has been added."
+},
+{
+"ac": "RPO and RTO contains a table of recovery objectives per component, each tagged (target).",
+"pass": true,
+"note": "12 rows, with every objective tagged (target). One nearby prose rate is untagged (L3-3)."
+},
+{
+"ac": "Runbooks covers region loss, Ruralz Control rebuild from Git and State Store rebuild.",
+"pass": true,
+"note": "All three runbooks are present, plus a hold procedure and a quorum runbook. Earlier findings are resolved. The remaining defect is the invalid `requireApproval` instruction for root Environments (L3-1)."
+},
+{
+"ac": "Game days lists at least eight chaos experiments.",
+"pass": true,
+"note": "15 experiments. GD-9 cadence and isolation are fixed. GD-10's criteria contradict the hold section (L3-2)."
+},
+{
+"ac": "Backups uses ruralz control backup and ruralz control restore.",
+"pass": true,
+"note": "Both commands appear with flags that match CLI and API surface, and the other runbook commands match too."
+},
+{
+"ac": "Structure: H2 outline equals Summary, Scope and non-goals, outline_h2, Open questions, exactly and in order.",
+"pass": true,
+"note": "The H2 headings match exactly and are in order."
+},
+{
+"ac": "Required diagrams: flowchart of failure domains and sequenceDiagram of regional failover, each with an italic caption.",
+"pass": true,
+"note": "Figure 1 is a flowchart with 15 nodes; Figure 2 is a sequenceDiagram with the home and non-home branches separated; both have captions."
+},
+{
+"ac": "Length band 1500 to 4500 words; Summary 120 words or fewer.",
+"pass": true,
+"note": "The body is 4,493 words, at the edge of the band; the Summary is 80 words."
+},
+{
+"ac": "Every performance or scale number tagged (target) or (hypothesis).",
+"pass": false,
+"note": "\"L_src × A reaches 20 per second\" is untagged, and two formula lines carry untagged figures (L3-3)."
+},
+{
+"ac": "verify-docs machine checks (min_table_rows, no_blank_cells, has_table, min_list_items, required_terms, forbidden aliases).",
+"pass": true,
+"note": "No FAIL lines, only milestone WARN lines."
+},
+{
+"ac": "Audience (operators, architects) can act without reading sources.",
+"pass": true,
+"note": "Mostly resolved. The remaining gaps (λ_storm, c_hs, C2, the T4 re-enrollment variant) are non-blocking."
+}
+],
+"foundation_amendments": []
+},
+"revise2:capacity-planning": {
+"addressed": [
+"L1-1",
+"L1-2",
+"L1-3",
+"L2-1",
+"L2-2",
+"L3-1",
+"L3-2",
+"L3-3",
+"L4X-8",
+"L4X-13",
+"L4X-15"
+],
+"disputed": []
+},
+"revise:migration-from-krakend": {
+"addressed": [
+"L1-1",
+"L1-2",
+"L1-3",
+"L1-4",
+"L1-5",
+"L1-6",
+"L1-7",
+"L1-8",
+"L1-9",
+"L1-10",
+"L1-11",
+"L2-1",
+"L2-2",
+"L2-3",
+"L2-4",
+"L2-5",
+"L2-6",
+"L2-7",
+"L2-8",
+"L2-9",
+"L3-1",
+"L3-2",
+"L3-3",
+"L3-4",
+"L3-5",
+"L3-6",
+"L3-7",
+"L3-8",
+"L3-9",
+"L3-10",
+"L3-11",
+"L3-12",
+"L3-13",
+"L3-14",
+"L4C-1",
+"L4C-2",
+"L4C-3",
+"L4C-4",
+"L4C-5",
+"L4C-6",
+"L4C-7",
+"L4C-8",
+"L4C-9"
+],
+"disputed": []
+},
+"review:adr-0017:L1": {
+"lens": "L1 feasibility-skeptic",
+"verdict": "revise",
+"score": 6,
+"blocking": [
+{
+"id": "L1-1",
+"section": "Decision outcome",
+"issue": "The ADR does not say how a Node gets a trusted signing time when it verifies a keyless signature offline, so keyless verification cannot be built as written. Fulcio certificates are short-lived, so a verifier that checks them against the current time rejects every keyless signature once the certificate expires. The research records that cosign v3.1.1 moved signing to Rekor v2 with DSSE hashed entries, and that Rekor v2 is a tile-backed log. So the signing time has to come from evidence inside the Sigstore bundle (a transparency-log inclusion proof plus a trusted timestamp) that is checked against transparency-log and timestamp-authority keys in the local trusted root. The ADR requires none of this, and it names no verifier thresholds. An implementer could therefore reject every valid signature, or skip the log and weaken T6.",
+"evidence": "Decision outcome, Offline verification: \"Trust roots, including the Sigstore trusted root for keyless identities, are supplied locally; Nodes never fetch one over TUF at activation.\" Decision table: \"CI at `ruralz bundle push`, with Sigstore (keyless OIDC or a key), stored as an OCI referrer\". Research (docs/_meta/research/licensing-landscape.md): \"v3.1.1 (2026-06-09) made the bundle format the default and moved signing to Rekor v2 with DSSE hashed entries\" and \"Rekor v2 GA 2025-10-10: tile-backed log\".",
+"fix": "Extend the Offline verification rule: \"A keyless signature MUST be a Sigstore bundle carrying a transparency-log inclusion proof and at least one trusted timestamp. The Node checks the certificate against that time, and the log and timestamp keys against its local trusted root; a missing or unverifiable proof or timestamp is RZ-CFG-033. Key-based signatures verify against the configured key.\" Cite ([source](https://github.com/sigstore/cosign/releases)) and ([source](https://blog.sigstore.dev/rekor-v2-ga/)). Add the case to the interoperability job in Confirmation: a cosign 3.1.3 keyless bundle verifies with egress denied."
+},
+{
+"id": "L1-2",
+"section": "Decision outcome",
+"issue": "A Control-mode Node has no defined source for the Sigstore trusted root (Fulcio, transparency-log and timestamp keys) that it needs to verify keyless Plugin signatures at activation. The ADR says trust roots are 'supplied locally'. For Control mode, though, it names only root-signed anchor sets carrying the online keys and the Plugin trust policy. Control plane and GitOps lists the anchor set contents, and they include no Sigstore trusted root. Enrollment delivers no such root either. As written, a Control-mode Node under `enforce` either rejects every keyless-signed Plugin or needs an undocumented local file that nothing distributes or rotates.",
+"evidence": "ADR, Trust policies: \"Control mode: root-signed anchor sets carry the online keys and the Plugin trust policy from Ruralz Control's process configuration, delivered at Enrollment and by `TrustUpdate`.\" ADR, Offline verification: \"Trust roots, including the Sigstore trusted root for keyless identities, are supplied locally\". 04-control-plane-and-gitops.md, Signed content: \"Anchor set: `version`, `storeEpoch`, online keys, server CA fingerprint, Plugin trust policy, optional `compromisedSince`\".",
+"fix": "State where the root comes from in each mode: \"In Control mode the Sigstore trusted root is part of the Plugin trust policy in the root-signed anchor set, so refreshing it is a `TrustUpdate`; in file mode it comes from the Node's process configuration (OQ-security-and-identity-8).\" Because Control plane and GitOps does not list it yet, cite OQ-control-plane-and-gitops-1 as the place to confirm the anchor set contents. Also add a Bad consequence: each Sigstore root refresh in Control mode needs an offline root signing."
+},
+{
+"id": "L1-3",
+"section": "Decision outcome",
+"issue": "The table requires `ruralz bundle build` and `ruralz bundle validate --online` to verify Plugin signatures under `enforce`, and the ADR says an empty trust policy rejects everything. However, the ADR gives no trust policy source for the CLI. Trust policies never live in a Bundle, and the only named locations are Ruralz Control's process configuration and the Node's. The CLI reference defines no trust-policy input either. As written, every CI build of a Bundle that references a Plugin fails with RZ-CFG-033 by default, or the implementer has to invent an unreviewed input. The pack also routes CI merge gating through these commands.",
+"evidence": "Decision table, Plugin artifact row: \"`ruralz bundle build`, `ruralz bundle validate --online`, Ruralz Control at ingest, Nodes at activation | `enforce`; `warn` in `ruralz dev run`\". Trust policies rule: \"Trust policies never live in a Bundle. Under `enforce` an empty trust policy rejects everything\". 02-configuration-model.md: \"CI SHOULD gate merges on `ruralz bundle build` or `validate --online`, which also verify Plugin signatures\".",
+"fix": "Add to the Trust policies rule: \"The CLI reads the same file-mode trust policy source as a Node (OQ-security-and-identity-8, extended to `ruralz bundle build` and `ruralz bundle validate --online`; flag names belong to [CLI and API surface](../reference/01-cli-and-api-surface.md)).\" Also say what happens without one: \"without a trust policy the CLI fails with RZ-CFG-033 and names the missing input\". Do not invent a flag."
+},
+{
+"id": "L1-4",
+"section": "Decision outcome",
+"issue": "Signature discovery has no bounds. The ADR stores signatures as OCI referrers and has Nodes, Ruralz Control and the CLI find and verify them. It gives no limit on how many referrers are listed or tried, on Sigstore bundle size, or on verification time. T6 assumes an adversary who can write to the registry (tampering, retagging). That adversary can attach thousands of junk or oversized referrers to a pinned digest, so every Node that verifies spends unbounded memory and time before it reaches RZ-CFG-033. In Control mode every Node of a Cluster repeats this on the same Rollout. The owning Control plane document bounds the Ruralz Control online check (64 MiB, 30 s), but nothing bounds the Node or CLI path.",
+"evidence": "Decision table: \"with Sigstore (keyless OIDC or a key), stored as an OCI referrer\". Figure 1: \"Full digest, then signature against local trust roots\". The ADR has no limit on referrers, bundle bytes or verification time. 04-control-plane-and-gitops.md bounds only Ruralz Control: \"The online Plugin check dials only allowlisted registries, binds credentials to one host, follows no redirects and stops at 64 MiB or 30 s (target).\"",
+"fix": "Add a rule: \"**Bounds.** Verifiers list referrers filtered by the Sigstore bundle artifact type. They try at most 16 referrers of at most 1 MiB each within 10 s (target), reusing the 64 MiB and 30 s fetch limits (target) of Control plane and GitOps. Anything beyond these limits is RZ-CFG-033. Verification results are cached by artifact digest and trust policy version.\" If the numbers belong to the owning document, reference them as proposed there instead."
+}
+],
+"non_blocking": [
+{
+"section": "Whole document",
+"suggestion": "The body is about 1,492 words against the 1,500-word maximum in adr_common, so the fixes above need offsetting trims. Candidates: shorten Considered options item 1, which repeats the Decision table (keep its two citations). Merge the two P-driver bullets. Shorten the More information Research bullet to one citation pair. Do not remove text that resolved earlier findings."
+},
+{
+"section": "Consequences",
+"suggestion": "Add a Bad consequence for the Key compromise rule: a Node that restarts after an emergency key removal while Ruralz Control is unreachable stays not ready. This is a deliberate exception to P9 (boot Last-Known-Good after a restart), accepted under OQ-control-plane-and-gitops-24 option (a)."
+},
+{
+"section": "Decision outcome",
+"suggestion": "Say explicitly that in Control mode the Plugin trust policy in Ruralz Control's process configuration is only the input to the offline root signing, and that Nodes honor only the root-signed anchor-set copy. As a result, revoking a Plugin publisher (listed in Security and identity as 'Next activation') waits on an offline root signing ceremony."
+},
+{
+"section": "Consequences",
+"suggestion": "The stale-root consequence could say how often a refresh is needed. Rekor v2 uses yearly log shards (licensing-landscape research), so a trusted root older than a year stops verifying new keyless signatures. Consider proposing a `ruralz_node_degraded_info` reason for an aging trusted root to Observability."
+},
+{
+"section": "Confirmation",
+"suggestion": "verify-docs warns that line 113 ('Interoperability job, Planned (M2)') has no matching M2 roadmap item. The roadmap's M2 row says 'OCI registry integration tests and interoperability job'; reusing that wording would clear the WARN."
+},
+{
+"section": "Decision outcome",
+"suggestion": "'What a signature binds' names a promotion signature only implicitly. Control plane and GitOps also signs promotions (Cluster, promotedDigest, storeEpoch, promotionSeq), and those signatures protect Last-Known-Good promotion from replay. Consider naming them in one clause."
+}
+],
+"ac_results": [
+{
+"ac": "Front matter contains id, title, status, date, deciders and related, and status matches this manifest.",
+"pass": true,
+"note": "All six keys are present; status: accepted matches adrs[ADR-0017].status."
+},
+{
+"ac": "H2 headings match adr_common.outline_h2 exactly and in order, and Decision outcome contains the H3 headings Consequences and Confirmation.",
+"pass": true,
+"note": "The six H2 headings are in order; Consequences and Confirmation are H3 headings under Decision outcome. verify-docs reports no FAIL."
+},
+{
+"ac": "Considered options lists at least two options including the chosen one, and each has pros and cons.",
+"pass": true,
+"note": "Five options, each with a Good and a Bad bullet under Pros and cons, and each citing research URLs (options 1, 2, 3 and 5 directly; option 4 is Ruralz-internal)."
+},
+{
+"ac": "Decision outcome states the chosen option as 'Chosen option: ..., because ...' and matches the foundation pack section 7 row for this ADR.",
+"pass": true,
+"note": "'Chosen option: \"Layered signing, verified offline by default\", because ...' matches the pack section 7 Artifact signing row and the 8.14 table. The feasibility gaps L1-1 to L1-4 are details the pack leaves open, not contradictions of the pack."
+},
+{
+"ac": "Confirmation names a concrete verification mechanism (test, lint rule, CI gate or review checklist item).",
+"pass": true,
+"note": "Integration tests, a chaos test, an interoperability job, a FIPS CI job and a review checklist item. The interoperability job should also cover the keyless-timestamp case (L1-1)."
+},
+{
+"ac": "The ADR is linked from docs/adr/README.md and from its owning document.",
+"pass": false,
+"note": "The owning document docs/architecture/08-security-and-identity.md links it twice. docs/adr/README.md does not exist yet: the adr_index generator writes it. This is not a defect in this ADR, but the criterion is not met today."
+}
+],
+"foundation_amendments": [
+"Pack 8.14: name the trust policy source for `ruralz bundle build` and `ruralz bundle validate --online` (proposed: the same process-level source as a file-mode Node, OQ-security-and-identity-8), since the pack makes the CLI a Plugin signature verifier under `enforce`.",
+"Pack 8.14: state that offline keyless verification requires a transparency-log inclusion proof and a trusted timestamp in the Sigstore bundle, and that the Sigstore trusted root reaches Control-mode Nodes inside the root-signed anchor set."
+]
 }
 }

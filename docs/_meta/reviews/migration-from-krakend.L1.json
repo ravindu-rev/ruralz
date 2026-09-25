@@ -1,0 +1,143 @@
+{
+  "lens": "L1 feasibility-skeptic",
+  "verdict": "revise",
+  "score": 6,
+  "blocking": [
+    {
+      "id": "L1-1",
+      "section": "Import tool fidelity levels / Worked import example",
+      "issue": "The exact and equivalent guarantees, and the worked example's clean exit, contradict the document's own statement that KrakenD forwards no client headers or query strings by default while Ruralz forwards them. Every imported Route therefore sends different bytes to its Upstreams, including the client's Authorization header and cookies, but the importer reports no item when input_headers is absent. That silently widens what Upstreams receive.",
+      "evidence": "Line 453: \"`exact` | For every request, the generated configuration yields the same routing, the same decision and the same bytes on the wire as the KrakenD setting did\"; line 140: \"KrakenD forwards nothing by default; Ruralz forwards client headers and query strings unless a Policy removes them\"; line 434: \"items: exact 4, equivalent 13, approximate 3, manual 0\"; line 442: \"exit status 0 (no manual items)\". The research (section 3) confirms `input_headers` default `[]`: \"No client headers are forwarded by default\".",
+      "fix": "Make the forwarding default a per-Route report item, whether or not input_headers is present: a security-flagged `manual` item (OQ-migration-from-krakend-7 option (a)) or an emitted Upstream-scoped `headers` removal once OQ-krakend-ee-parity-matrix-5 closes. Update the worked example's counts, exit status (1) and Route annotation to match, and qualify the `exact`/`equivalent` guarantees to state how forwarded client parameters are treated."
+    },
+    {
+      "id": "L1-2",
+      "section": "Concept mapping / extra_config namespaces (auth/validator propagate_claims)",
+      "issue": "propagate_claims is an endpoint-scope setting, but the document maps it to an Upstream-scoped `headers` Policy. The importer shares one Upstream across endpoints, and endpoint namespaces are not in the dedup key, so the Policy also runs on Routes that do no JWT validation. On those Routes `auth` is null, `auth.claims` fails at runtime, and `headers` defaults to `failureMode: closed`. Requests on Routes that worked in KrakenD then fail with 503.",
+      "evidence": "Line 179: \"`auth/validator` `propagate_claims` | E | Upstream-scoped `headers` Policy with `request.set[].valueExpression` over `auth.claims` | `equivalent`\"; line 127: \"one `Upstream` per distinct combination of host list, service discovery settings, TLS and backend-scope namespaces, so backends that share a host share an Upstream\". Configuration model Variables: `auth` is \"null before auth\"; registry: `headers` \"closed; either\".",
+      "fix": "Map propagate_claims to a Route-scoped `headers` Policy with `request.set[]`. It runs in onRequestHeaders after the auth Filter class, so the claims are available. Alternatively, add endpoint-scope namespaces that emit Upstream Policies to the Upstream dedup key. Either way, guard the Policy with `when: 'auth != null'`."
+    },
+    {
+      "id": "L1-3",
+      "section": "Concept mapping / extra_config namespaces (security/policies)",
+      "issue": "The row maps backend-scope and workflow-scope security/policies to `authz.cel`, which the registry allows only at Gateway and Route scope. Attaching the rule at Upstream scope is RZ-CFG-020, which breaks rule 1 (\"The output validates\"). Attaching it at the Route instead rejects the whole aggregated request, where KrakenD affects only that backend, and the row still claims `approximate`. The `validation/cel` B row already handles this case differently.",
+      "evidence": "Line 189: \"`security/policies` | E, B, W | `authz.cel` `config.rule` for `req` and `jwt` contexts, Planned (M1)\"; foundation pack section 10: \"`authz.cel` | authz | onRequestHeaders, onRequestBody | G, R\"; pack 8.12 rule 4: \"a type at a disallowed scope is RZ-CFG-020\"; line 224 maps `validation/cel` B to \"A validation-class `plugin` Policy at Upstream scope\".",
+      "fix": "Split the row. Map E to Route `authz.cel` (`approximate`). Map B and W to `manual` with a hold, targeting an Upstream-scoped `plugin` Policy with `filterClass: authz`, or a composition step `when` with the semantic difference stated, as the `validation/cel` B row does."
+    },
+    {
+      "id": "L1-4",
+      "section": "Concept mapping / extra_config namespaces (auth/api-keys with auth/validator)",
+      "issue": "Service-scope auth/api-keys becomes a Gateway `auth.api-key` Policy in slot `auth`, and endpoint-scope auth/validator becomes a Route `auth.jwt` Policy in the same slot. Under pack 8.12 the Route Policy replaces the Gateway one. An endpoint that KrakenD protected with both an API key and a JWT would therefore lose its API-key check without any report item, which contradicts rule 2. A Gateway-wide `auth.api-key` also forces API keys on endpoints that KrakenD left open, because KrakenD grants roles per endpoint.",
+      "evidence": "Line 183: \"`auth/api-keys` | S | One `Consumer` per `keys[]` entry ... and a Gateway `auth.api-key` Policy\"; line 177: \"`auth/validator` | E | `auth.jwt` Policy on the `Route`\"; pack 8.12 step 2: \"A Route Policy in the same `slot` as a remaining Gateway Policy replaces it ... All client authentication types share slot `auth`\"; line 463: \"Security controls are never dropped silently.\"",
+      "fix": "Emit `auth.api-key` only on Routes whose KrakenD endpoint carries endpoint-scope `auth/api-keys`, and emit Consumers from the service-scope keys. When an endpoint combines two client authentication namespaces, import it as `manual` with a hold that cites OQ-configuration-model-13, and say so in the api-keys and validator rows."
+    },
+    {
+      "id": "L1-5",
+      "section": "Built-in KrakenD EE plugins / extra_config namespaces / Cutover runbook Stage 3",
+      "issue": "The runbook places Nodes behind the same load balancer as KrakenD, so `source.ip` is the balancer's address until OQ-security-and-identity-6 closes. An imported `ip-filter` denylist then admits every client, which is a security control that silently fails open. An allowlist denies everyone, and a `client_max_rate` keyed on `source.ip` collapses every client into one bucket. The document grades these `approximate` and attaches no hold.",
+      "evidence": "Line 270: \"`ip-filter` | `authz.ip` by CIDR on `source.ip`, Planned (M1) | `equivalent` for direct clients; `approximate` behind proxies\"; line 190: \"`client_max_rate` becomes a second `ratelimit` keyed on the same client attribute (`source.ip` or a `request.headers` entry)\"; line 726: \"Deploy Ruralz Gateway Nodes next to KrakenD behind the same load balancer or ingress\". The parity matrix IP filtering row says: \"until it closes, deployments behind a load balancer SHOULD NOT rely on `source.ip`\".",
+      "fix": "Grade `ip-filter`, `geoip` and IP-keyed `client_max_rate` or bot rules as `manual`. Attach a fail-closed hold to the security ones, security-flag them, and reference OQ-security-and-identity-6. Add a Stage 1 check that no Policy keys on or filters by `source.ip` behind a proxy until trusted-proxy handling exists."
+    },
+    {
+      "id": "L1-6",
+      "section": "Concept mapping / Worked import example (rate limit scope)",
+      "issue": "The report says Ruralz enforces imported router limits across the Cluster. The worked example emits no `stateStore`, however, and the pack then uses `RURALZ_STATE_STORE_URL`, or else `memory`. The importer cannot see that process setting. With `memory` each limit applies per Node, which matches KrakenD, so the report's advice to multiply by the instance count would raise real capacity. A single constant `route.name` key on a busy Route is also a State Store hot key, and the parity matrix bounds such a key at about 25,000 requests per second (hypothesis).",
+      "evidence": "Lines 438-439: \"KrakenD limits each instance to 50 per 1s; Ruralz enforces 50 per 1s across the Cluster; multiply by the KrakenD instance count to keep capacity\". The worked example Gateway (lines 327-341) has no `stateStore`. Pack section 2: \"`RURALZ_STATE_STORE_URL` is the fallback source for Gateway `spec.stateStore.url` when `stateStore` is absent (else `memory` with a startup warning)\"; pack 8.8: \"With the `memory` driver every limit multiplies by the Node count\".",
+      "fix": "Make the rate-limit report text conditional on the driver: per Node with `memory`, Cluster-wide with `redis`. Alternatively, have the importer emit an explicit Gateway `stateStore` whenever it emits `ratelimit`, `quota` or `cache`, reading the URL through `secretRef` `provider: env`, and record the choice. Add the hot-key caveat (parity matrix, OQ-traffic-management-and-resilience-1) to the `qos/ratelimit/router` row and as an option in OQ-migration-from-krakend-12."
+    },
+    {
+      "id": "L1-7",
+      "section": "Cutover runbook / Stage 4 and Rollback",
+      "issue": "The runbook applies SM-4's 1 ms p99 figure to all production traffic, as a shadow exit gate and as a rollback trigger. SM-4 covers only a benchmark reference scenario with a 1 KiB body, JWT and a local bucket, no Plugins and no State Store Policy, at half saturation. Migrated Routes include aggregate composition with whole-body JSON decode and merge, Plugins and large bodies, and the performance document gives such Routes their own budgets. As written, the trigger would fire routine rollbacks on correctly working Routes.",
+      "evidence": "Line 743: \"Gateway-added latency p99 stays at 1 ms or less (target) as SM-4 defines\"; line 761: \"Gateway-added latency p99 | Above 1 ms for 10 minutes (target) | Set the Ruralz weight to 0\". Vision: \"SM-4 and SM-5 use one reference scenario: HTTP/1.1 keep-alive, 1 KiB body, JWT validation and a local token bucket, no Plugins or State Store Policy, at half of saturation RPS\". Performance budgets: \"A Route above the 400 µs stage ceiling (target) gets its own measured budget.\"",
+      "fix": "Replace the absolute figure with a per-Route criterion measured on `ruralz_http_gateway_duration_seconds`: the Stage 4 per-Route p99 baseline becomes the Stage 5 reference, and a regression above that baseline by a stated margin (target) triggers rollback. Cite SM-4 only for reference-scenario Routes."
+    },
+    {
+      "id": "L1-8",
+      "section": "Cutover runbook / Stage 4 shadow traffic and Rollback triggers",
+      "issue": "The shadow exit criterion and the authentication trigger require per-request pairing of KrakenD and Ruralz outcomes, but the runbook's mechanisms cannot provide it. The mirror discards Ruralz responses, and the comparison uses aggregate metrics. During a split each request reaches only one gateway. By design, shadow rate-limit and quota decisions cannot match production: the shadow uses a separate State Store and sees only safe methods, and KrakenD enforces per instance. The auth trigger also fires on ordinary token expiry between two requests.",
+      "evidence": "Line 742: \"Compare per Route, from metrics such as `ruralz_http_request_duration_seconds` and the `RZ-<AREA>-<NNN>` codes against KrakenD's status codes\"; line 743: \"status classes agree for 99.9% or more of mirrored requests per Route (target)\"; line 762: \"Any `RZ-AUTH` rejection on a Route where KrakenD admitted the same client\".",
+      "fix": "Define the correlation mechanism: a request ID the load balancer injects on both copies, with both gateways' access logs joined offline. Otherwise restate the criteria as per-Route status-class distribution differences with a tolerance (target). Exclude `ratelimit`, `quota` and `ai.token-budget` decisions from agreement. Express the auth trigger as an `RZ-AUTH` rejection rate above the KrakenD 401/403 baseline for the same Route over a window (target)."
+    },
+    {
+      "id": "L1-9",
+      "section": "Cutover runbook / Stage 4 to Stage 5",
+      "issue": "Stage 4 puts the shadow Nodes on their own State Store. Stage 5 then shifts client traffic straight to 'Ruralz Gateway' with no step that repoints Nodes at the production State Store or flushes shadow counters, although Stage 6 removes 'the shadow State Store'. The URL is a `secretRef`, and the `env` provider rotates only on restart. The ordered steps therefore leave production traffic on the shadow store, or leave the switch undefined.",
+      "evidence": "Line 740: \"Run shadow Nodes on their own State Store, so mirrored requests never consume production Quotas, Rate Limits or Token Budgets that Stage 5 uses.\"; line 747 starts the weight shift directly; line 776: \"Remove any KrakenD shadow backend configuration and the shadow State Store.\" Configuration model secretRef table: `env` rotation \"Restart\".",
+      "fix": "Add an explicit step at the start of Stage 5 or the end of Stage 4. It either deploys a separate serving Node set whose `stateStore.url` resolves to the production State Store (the shadow set stays mirror-only), or restarts or rotates the Nodes onto it. It then verifies readiness and an empty counter keyspace before any weight above 0. Show the step in Figure 4 and the gate summary."
+    },
+    {
+      "id": "L1-10",
+      "section": "Cutover runbook / Stage 4 (KrakenD traffic shadowing)",
+      "issue": "A KrakenD shadow backend is a backend. It receives the request KrakenD builds for a backend: its own `url_pattern` path, and only the headers and query strings that `input_headers` and `input_query_strings` allow, which is none by default. Pointed at Ruralz Gateway, it sends backend-shaped paths without client credentials, so Routes do not match or auth rejects. That makes the comparison meaningless, and the step does not say how to configure the backend to avoid it.",
+      "evidence": "Line 735: \"KrakenD's own traffic shadowing ... through a shadow backend (`proxy` `shadow` at backend scope ...) that points at Ruralz Gateway.\" The research says `url_pattern` is \"Path only, with no scheme or host\", `input_headers` \"No client headers are forwarded by default\", and backend `input_headers` is \"A second filter per backend\".",
+      "fix": "Either state the required shape, or restrict mirroring to the load balancer. The shape is one shadow backend per endpoint, with `url_pattern` equal to the endpoint path and placeholders, and with the endpoint's `input_headers` and `input_query_strings` widened. Backend-level filters on the real backends then keep their current forwarding. Note that this changes KrakenD configuration and needs a restart."
+    },
+    {
+      "id": "L1-11",
+      "section": "Concept mapping / Endpoint objects and their targets",
+      "issue": "Acceptance criterion 6 fails: four rows quote KrakenD's \"endpoint\" term without the alias escape comment.",
+      "evidence": "Line 163: \"| endpoint `proxy.sequential_propagated_params` and `{resp0_field}` placeholders | ...\" (no `<!-- alias-ok -->`); lines 164, 165 and 168: \"| endpoint `proxy.combiner` |\", \"| endpoint `proxy.static` |\", \"| endpoint `proxy.decompress_gzip` |\" (no escape).",
+      "fix": "Append `<!-- alias-ok -->` to lines 163, 164, 165 and 168, as the neighboring rows already do."
+    }
+  ],
+  "non_blocking": [
+    {
+      "section": "Import tool fidelity levels / Rules that hold at every level",
+      "suggestion": "Rule 3 hashes plain KrakenD API keys with unsalted SHA-256 and commits them to Git in Stage 1. The Configuration model assumes \"SHA-256 digests of high-entropy keys\". The importer should flag keys shorter than a stated entropy floor (target) for reissue, because low-entropy digests in Git can be brute-forced offline."
+    },
+    {
+      "section": "Import tool fidelity levels / Rules that hold at every level",
+      "suggestion": "Rule 6 adds numeric suffixes on name collisions in input order, so inserting a KrakenD endpoint can rename later Routes. A rename is a removal plus an addition, which contradicts rule 5's promise that re-imports diff cleanly. Derive suffixes from a stable hash of the endpoint entry instead."
+    },
+    {
+      "section": "Concept mapping / Top-level keys",
+      "suggestion": "When `timeout` is absent, KrakenD applies its documented 2s default. Write that default explicitly, as the importer already does for `max_header_bytes`, so Routes do not silently inherit a different Ruralz default. Also reconsider grading `max_header_bytes` as `exact`, since Go's MaxHeaderBytes counts differently from a strict header cap, and note the per-connection memory exposure of a 1,000,000-byte limit."
+    },
+    {
+      "section": "Cutover runbook / Rollback",
+      "suggestion": "The 5xx trigger of more than 0.5 percentage points for 5 minutes is noisy at the 1% weight step. Add a minimum request count per window (target) before a trigger can fire."
+    },
+    {
+      "section": "Cutover runbook / Stage 2 and Stage 3",
+      "suggestion": "The CLI reference gives `ruralz test run` a required CASES argument (`ruralz test run CASES --target URL`); include it in the examples. In Stage 3, say how a file-mode Node's active digest is read (`/config/dump` on 9901 or a metric), since `ruralz node list` needs Control mode, Planned (M2)."
+    },
+    {
+      "section": "Whole document",
+      "suggestion": "The body is about 9,200 words against a 9,500 maximum. Keep the fixes concise: for example, fold the four extra per-namespace sentences into existing Notes cells rather than adding new paragraphs."
+    }
+  ],
+  "ac_results": [
+    {
+      "ac": "Concept mapping maps every top-level KrakenD configuration key and at least 20 extra_config namespaces to Ruralz kinds and Policies (KrakenD endpoint to Route, backend to Upstream, extra_config namespaces to Policies).",
+      "pass": true,
+      "note": "All 36 root keys are covered, grouped where their mapping is shared, and 85 namespace rows are present. Some mappings are infeasible or unsafe as written (L1-2, L1-3, L1-4, L1-5)."
+    },
+    {
+      "ac": "Import tool fidelity levels defines the fidelity levels reported by ruralz bundle import krakend (Planned (M2)) and what each guarantees.",
+      "pass": false,
+      "note": "All four levels are defined, but the `exact`/`equivalent` guarantee of the same bytes on the wire cannot hold while client-parameter forwarding differs on every Route, and the worked example contradicts it (L1-1)."
+    },
+    {
+      "ac": "Plugin migration covers both paths: Go plugins to WASM Plugins (TinyGo) or built-in Filters, and Lua to CEL or WASM Plugins.",
+      "pass": true,
+      "note": "Both paths are covered, with Host Function and Capability mappings consistent with the WASM plugin system document."
+    },
+    {
+      "ac": "Cutover runbook gives ordered steps for shadow traffic and side-by-side cutover, including rollback.",
+      "pass": false,
+      "note": "The stages exist, but the switch from the shadow State Store to production is missing (L1-9), the shadow and rollback criteria cannot be measured (L1-7, L1-8), and the KrakenD shadow-backend option does not work as described (L1-10)."
+    },
+    {
+      "ac": "Migration gaps is consistent with the Not planned rows of docs/comparison/01-krakend-ee-parity-matrix.md.",
+      "pass": true,
+      "note": "13 Not planned rows, three of them EE-only, with reasons matching the parity matrix; the partial-parity subset is also consistent."
+    },
+    {
+      "ac": "Quoted KrakenD terminology (endpoint, backend) carries the <!-- alias-ok --> escape.",
+      "pass": false,
+      "note": "Lines 163, 164, 165 and 168 quote KrakenD \"endpoint\" without the escape (L1-11)."
+    }
+  ],
+  "foundation_amendments": []
+}

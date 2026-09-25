@@ -1,108 +1,68 @@
 {
   "lens": "L2",
   "verdict": "revise",
-  "score": 6,
+  "score": 8,
   "blocking": [
     {
-      "id": "L2-1",
-      "section": "Runbooks > Region loss (home Region step 5, line 266) and Runbooks > Ruralz Control rebuild from Git (steps 4 to 6, lines 277 to 279); Game days GD-10 (line 315)",
-      "issue": "The runbooks say an operator can \"approve only up to the commit each Cluster's Nodes serve\", and then claim reconnects deliver nothing and \"traffic never changes\". Control plane and GitOps and the CLI reference do not support this. The Git watcher reads one tracked branch and renders its head. A queued promotion record is replaced by a newer unapproved one. `ruralz rollout approve --env` approves the one queued record for every Cluster of the Environment, never a chosen older commit for each Cluster. After a rebuild or restore in the normal state (staging on commit X+1, prod on X waiting for approval), the only prod record is X+1. The operator cannot approve X. Prod either gets no assignment or takes X+1, which its Nodes then receive on reconnect without a canary. So the rebuild step 6 claim and the GD-10 pass criterion \"No Node changes its active digest\" state as settled something that OQ-high-availability-and-disaster-recovery-3 leaves open.",
-      "evidence": "line 266: \"Under `requireApproval`, approve only up to the commit each Cluster's Nodes serve (rebuild step 4); then their reconnect delivers nothing.\" line 279: \"each Node's `Hello` carries a digest that equals its assignment, so traffic never changes.\" line 315: \"| GD-10 | Rebuild from Git | ... | No Node changes its active digest |\". 04-control-plane-and-gitops.md line 170: \"the target Environment queues a promotion record (source, Environment, digest), which replaces an older unapproved one.\" line 144: \"one tracked branch feeds every Environment\". 01-cli-and-api-surface.md line 201: \"`ruralz rollout approve --env prod` ... approves it for every Cluster of the Environment ... so a record a newer commit replaced is never approved.\"",
-      "fix": "Delete \"approve only up to the commit each Cluster's Nodes serve\" and \"so traffic never changes\". Say plainly what happens: the rebuilt or restored deployment renders the tracked branch head. Environments without `requireApproval` complete empty plans at that head, so their Nodes receive the head Revision without a canary when they reconnect. Environments with `requireApproval` hold one record for the head and have no assignment until someone approves it. Give an interim procedure that works with the existing primitives: before step 5, reset or pin the tracked branch (or a restore branch configured as the Git source) to the commit that rebuild step 4 identified, then move it forward through normal promotion after Nodes reconnect. Make GD-10's pass criterion conditional on that procedure, and point to OQ-high-availability-and-disaster-recovery-3 (restore-hold mode) for the lasting fix."
-    },
-    {
-      "id": "L2-2",
-      "section": "Runbooks > Region loss (non-home step 4 and step 5, lines 257 to 258); Figure 2 (line 239)",
-      "issue": "The runbook says a lost Cluster stops its Environment's promotion, and Figure 2 says to \"pause promotions that need Region B\". Control plane and GitOps builds a plan only from connected Nodes, and an empty plan completes at once. A Rollout already running when Region B is lost does stall: its Nodes lag and the batch fails. But a promotion that reaches the lost Cluster after the loss completes at once with zero members. The Cluster's promoted digest then advances, and when Region B returns its Nodes join late and receive the new Revision without a canary. No REST or CLI verb pauses a promotion: `ruralz rollout pause` acts only on a Rollout that exists, and the Cluster's empty Rollout ends before anyone can pause it. Step 5, \"Nodes redial and receive their assigned Revision\", therefore hides a canary bypass.",
-      "evidence": "line 257: \"Promotions run Clusters one at a time, so a lost Cluster stops its Environment's promotion: pause affected Rollouts with `ruralz rollout pause`\"; line 239: \"Op->>CT: ruralz rollout status per Cluster, pause promotions that need Region B\"; 04-control-plane-and-gitops.md line 260: \"Members | Connected Nodes that ACKed any Revision, or all connected Nodes if none has; others are late.\" line 269: \"Late Nodes join the final batch and never lag; an empty plan completes at once\"; line 304: \"A reconnecting Node receives the Revision its persisted plan assigns\".",
-      "fix": "Rewrite step 4 in two parts. (a) A Rollout that was running when the Region was lost lags, then goes to `rolled-back` or `paused` per `autoRollback`. (b) A promotion that reaches the lost Cluster later completes with an empty plan, and the returning Nodes receive that Revision without a canary. Tell operators to freeze merges to the tracked branch, or to withhold `ruralz rollout approve` under `requireApproval`, until the Region returns. In Figure 2 and step 5, replace \"pause promotions\" with that action. Add an Open question owned by control-plane-and-gitops, or extend OQ-high-availability-and-disaster-recovery-3, to ask for a hold rule for Clusters with zero connected members."
-    },
-    {
-      "id": "L2-3",
-      "section": "Failure catalog FC-11 (line 95); Game days GD-4 (line 309)",
-      "issue": "This document says in Scope and non-goals that Scalability and distributed state owns accuracy bounds, and in Degraded modes that Scalability wins on conflict. Yet it states a new partition over-admission bound, tagged (target), that neither Scalability and distributed state, Traffic management and resilience nor ADR-0008 contains. The symbol N_cut appears nowhere else. GD-4 then uses the invented bound as a pass criterion. That is a new normative figure in a document that does not own it.",
-      "evidence": "line 95: \"per key at most the healthy GCRA bound plus N_cut × ceiling per window (target)\"; line 309: \"Per key at most the healthy GCRA bound plus N_cut × ceiling (target)\"; line 30: \"Non-goals, with owners: accuracy bounds and chaos pass criteria ([Scalability and distributed state]...)\"; the consistency table in 11-scalability-and-distributed-state.md (lines 353 to 375) has no partition row, and a search for \"N_cut\" matches only this document.",
-      "fix": "Either restate FC-11 and GD-4 using an existing Scalability row: the cut-off Nodes fall under the Declared or Derived fail-open ceiling rows, and the connected Nodes under the healthy GCRA row. Or mark the combined bound \"(proposed)\" and add an Open question owned by scalability-and-distributed-state, for example \"Should the bounds table add a partial-partition row, healthy GCRA bound plus N_cut × ceiling per window?\". GD-4 must then reference that question, not state the bound as settled."
-    },
-    {
-      "id": "L2-4",
-      "section": "Runbooks > State Store rebuild step 4 (line 289)",
-      "issue": "The runbook tells operators to change the `stateStore.url` secret value in place, and says a `file` provider rotates it without a restart. Zero-downtime upgrades and hot reload says a new `stateStore` or `secretRef` value follows the new-Cell procedure, because every Node of a Cluster MUST resolve the same State Store. What a Node does with a rotated `stateStore.url` is its open question OQ-zero-downtime-upgrades-and-hot-reload-9, owned by scalability-and-distributed-state, whose option (a) keeps the old connection until restart. Security and identity describes watch-based rotation only for listener and upstream certificates. The step therefore settles an open question owned by another document, and with `env` it deliberately runs a Cluster on two State Store values during the rolling Drain.",
-      "evidence": "line 289: \"Change the value behind `stateStore.url`'s `secretRef`: a `file` provider rotates without a restart; `env` needs a rolling Drain of Nodes, one zone at a time. Rotating a value needs no Rollout.\"; 02-zero-downtime-upgrades-and-hot-reload.md line 375: \"Every Node of a Cluster MUST resolve the same State Store ..., so a new `stateStore` or `secretRef` value follows the new-Cell row (OQ-zero-downtime-upgrades-and-hot-reload-9).\"; line 478: \"OQ-zero-downtime-upgrades-and-hot-reload-9 | What does a Node do when a rotated `stateStore.url` value names another deployment? | (a) Keep the old connection until restart, warning; (b) Redial at once; (c) Require a new Revision\"; 08-security-and-identity.md line 141: \"Listener and upstream certificates from `file` ... rotate by watch without a Rollout\".",
-      "fix": "Make the preferred path to bring the replacement up behind the same `stateStore.url` value (the same DNS name or service address), so no secret changes. If the value must change, either follow the new-Cell row of Zero-downtime upgrades (a new Cell, then shift weight) or, while OQ-zero-downtime-upgrades-and-hot-reload-9 is open, require a rolling Drain for every provider. Cite that question in the step, and delete \"a `file` provider rotates without a restart\"."
-    },
-    {
-      "id": "L2-5",
-      "section": "Failure catalog FC-18 (line 102)",
-      "issue": "The recovery column names `ruralz rollout rollback` for a Plugin crash, with no condition. A Plugin can trap after its Rollout reached `complete`, for example on a rare input. Pack 8.3 and Control plane and GitOps make `complete` terminal, and `ruralz rollout rollback` applies only during `canary`, `progressing` or `paused`; after `complete` it is a disallowed transition (`RZ-CP-008`). The canonical revert of a `complete` Rollout is a new Rollout of the replaced Revision.",
-      "evidence": "line 102: \"| `ruralz rollout rollback`, or fix and roll forward |\"; foundation pack 8.3: \"`complete` | Every non-quarantined Node ACKed; the Cluster's promoted digest advances | Terminal\"; 04-control-plane-and-gitops.md line 308: \"During `canary`, `progressing` or `paused`:\" and line 318: \"A `complete` Rollout is terminal. To revert it, an `operator` passes step-up TOTP and starts a Rollout of the replaced Revision, or chooses Revert in Ruralz Console.\"",
-      "fix": "Replace the cell with: \"During the Rollout, `ruralz rollout rollback`; after `complete`, a revert with `ruralz rollout start` of the replaced Revision (step-up TOTP; `RZ-CP-006` for security-impact diffs); in file mode, CI republishes the previous digest; or fix and roll forward.\" Apply the same condition to FC-20 if a bad Revision is found after `complete`."
+      "id": "L2-6",
+      "section": "Runbooks > Holding deliveries during recovery (step 2, line 236); Runbooks > Region loss (non-home step 4, line 295)",
+      "issue": "New regression from the L2-1 and L2-2 fixes. The hold tells operators to set `requireApproval: true` on every Environment. Region loss step 4 offers committing `requireApproval: true` as a way to hold promotions. The Configuration model allows `promotion.requireApproval` only with `promotion.from`, which is 'required when promotion is set'. A root Environment has no source to promote from, such as `staging` in RA-2 or the only Environment of a single-Environment deployment, so it cannot carry the field. Following step 2 literally puts an invalid `Environment` in `control/environments.yaml`. Ruralz Control then records a failed build for the recovery ref and ingests nothing, so the hold stalls. It is also an invented use of the field: requireApproval gates promotion records, and a root Environment never gets one. Its Rollouts start as soon as it ingests a commit. For such an Environment, the hold works only through where the recovery ref points, and the Region-loss hold only through a merge freeze.",
+      "evidence": "line 236: \"Push a recovery ref at that commit, plus a commit setting `requireApproval: true` on every Environment in `control/environments.yaml` (no digest changes)\"; line 295: \"approve nothing under `requireApproval`, else freeze merges to the tracked branch or first commit `requireApproval: true`, a tightening that needs no approval.\" 02-configuration-model.md line 542: \"from: staging                  # required when promotion is set; the source commit must complete a Rollout there first\"; 04-control-plane-and-gitops.md line 170: \"Once a commit's Revision reached `complete` in every Cluster of `promotion.from`, the target Environment queues a promotion record\"; foundation pack section 9: \"`ruralz rollout approve` | Approve a promotion when `Environment.spec.promotion.requireApproval` is set\".",
+      "fix": "Hold step 2: write \"setting `promotion.requireApproval: true` on every Environment that has `promotion.from` (no digest changes); an Environment without `promotion.from` cannot be gated, so it renders the recovery ref's head directly and is held only by where the ref points.\" Hold step 3: add \"Place the ref at the root Environments' served commit first, since their empty plans complete at whatever the ref names.\" Region loss step 4: replace \"or first commit `requireApproval: true`\" with \"or, for an Environment with `promotion.from`, first commit `promotion.requireApproval: true`, a tightening that needs no approval. An Environment without `promotion.from` is held only by a merge freeze.\""
     }
   ],
   "non_blocking": [
     {
-      "section": "Failure catalog, Detection column (FC-6, FC-7, FC-16); Game days GD-5",
-      "suggestion": "Name the canonical signals from Observability, not descriptions. FC-6 \"Leader change metric on 9902\" becomes `ruralz_control_leader_info`. FC-7 \"stale-replica metric\" becomes `ruralz_control_leader_contact_age_seconds`. FC-16 \"Stale JWKS degradation metric\" becomes reason `jwks_stale` and `ruralz_auth_jwks_age_seconds`. GD-5 \"no `noeviction` alert\" becomes \"no `state_store_eviction_policy` reason\"."
+      "section": "Failure catalog FC-18 (line 104); Runbooks > Region loss step 5 (line 296)",
+      "suggestion": "Control plane and GitOps gives `RZ-CP-006` to a revert for 'An older target, or a diff with `security` impact or a Capability grant'. FC-18 says only \"`RZ-CP-006` if `security`\", and step 5's revert does not mention `RZ-CP-006`. Name all three triggers in FC-18, and tell step 5 that a second `approver` may be needed."
     },
     {
-      "section": "Failure catalog FC-10; Runbooks > State Store rebuild step 1",
-      "suggestion": "`RZ-STS-001` to `RZ-STS-003` appear only when a Policy applies `failureMode: closed` (pack 8.6). With the default `open` Rate Limits, no RZ-STS code is emitted. Make State client breaker state and the `ruralz_state_ops_total` results the primary detection, with the `RZ-STS` codes as a secondary signal from `closed` Token Budgets."
+      "section": "Runbooks > Region loss home step 7 (line 314)",
+      "suggestion": "'a new relay-role token' is not a named artifact in Control plane and GitOps, which describes relays only as holding 'a peer certificate of role `relay`', and OQ-control-plane-and-gitops-15 is about 8092 classes. Either say 'a new `relay`-role peer certificate (issuance: OQ-control-plane-and-gitops-15)' or add a sub-question under OQ-high-availability-and-disaster-recovery-5."
     },
     {
-      "section": "Runbooks > Region loss, home Region steps 4 and 6",
-      "suggestion": "Step 4 runs `ruralz node revoke`, which needs a REST API token. The restore has just invalidated every token, and step 6 recreates them. Move the token or login step before step 4. Also add a step for relays, Planned (M4): the restore drops old peer certificates, so every relay must `ruralz control join` again before the Nodes behind it resume."
+      "section": "Backups > What to protect (line 206)",
+      "suggestion": "'The Control Store holds 50 Revisions per Environment (target)' simplifies the source. Control plane and GitOps says 'Unreferenced Revisions beyond the latest 50 per Environment (target) are deleted', so referenced ones are also kept. Reword to match."
     },
     {
-      "section": "Runbooks > Ruralz Control rebuild from Git step 1",
-      "suggestion": "Without escrowed CAs the rebuild generates a new 8091 server CA. Nodes pin the old CA fingerprint from their anchor set and ignore Enrollment tokens while an identity exists, so they cannot dial the rebuilt deployment. State this in OQ-high-availability-and-disaster-recovery-4, and make escrow of the Node and server CA keys a SHOULD in the Backups \"What to protect\" table."
+      "section": "Runbooks > Region loss home step 1 (line 300)",
+      "suggestion": "Non-home step 5 runs `ruralz rollout status` and `ruralz rollout start` against Ruralz Control. When the home Region is lost, those commands work only after the restore. Say that step 5 runs after home step 8."
     },
     {
-      "section": "Scope and non-goals; Open questions OQ-high-availability-and-disaster-recovery-1 and -2",
-      "suggestion": "When carrying questions, keep every option. OQ-scalability-and-distributed-state-7 option (c), \"Last-Known-Good in images\", is dropped, and so are OQ-deployment-topologies-20 options (c), higher `minReplicas` or zone-replicated volumes, and (d), Nodes as a Deployment. Either list them or say why each was rejected."
-    },
-    {
-      "section": "Figures 1 and 2",
-      "suggestion": "Figure 1 labels Region A as the home Region, while Figure 2's `alt` branch treats the lost Region B as possibly the home Region. Use one convention in both figures, for example by drawing Figure 2's home-Region case as the loss of Region A."
-    },
-    {
-      "section": "Degraded modes > Detached Nodes and Last-Known-Good (line 120)",
-      "suggestion": "The boot refusal after `compromisedSince` is still proposed (OQ-control-plane-and-gitops-24). Cite that question in the row."
-    },
-    {
-      "section": "verify-docs WARN lines",
-      "suggestion": "FC-17, GD-1, GD-6, GD-10 to GD-14 and OQ-high-availability-and-disaster-recovery-2 carry Planned tags that have no matching roadmap items. These are warnings only, but the roadmap document should add the HA and DR runbooks and game days under M1 to M4."
+      "section": "Runbooks > Holding deliveries during recovery (step 3, line 237)",
+      "suggestion": "'pause it' also covers a Rollout that is already `paused`. Say 'pause it if it is not already `paused`'."
     }
   ],
   "ac_results": [
     {
       "ac": "Failure catalog has at least 12 rows covering Node, availability zone, Region, Ruralz Control leader, Raft quorum loss, State Store outage and partition, Git, OCI registry, IdP or JWKS, LLM provider, Plugin crash and DNS, with no blank cells.",
       "pass": true,
-      "note": "The table has 20 rows (FC-1 to FC-20) and covers every required failure with no blank cells. FC-11's partition bound is invented (L2-3), but the row itself is present."
+      "note": "21 rows (FC-1 to FC-21) cover every listed failure: FC-1, 3, 4, 5, 6, 7, 10, 11, 14, 15, 16, 17, 18 and 19. No blank cells. FC-11 now uses the existing Scalability rows."
     },
     {
       "ac": "Degraded modes covers Last-Known-Good, local rate-limit fallback and fail-open or fail-closed behavior, consistent with docs/architecture/04-control-plane-and-gitops.md and docs/architecture/11-scalability-and-distributed-state.md.",
       "pass": true,
-      "note": "All three subsections are present. The Last-Known-Good table matches control plane 'Behavior during a Ruralz Control outage' and pack 8.2 and 8.5. The fallback rows, breaker figures and failureMode defaults match Scalability and the pack section 10 registry."
+      "note": "All three subsections are present. The fallback table matches the Scalability bounds rows, and the breaker values match the State client paragraph."
     },
     {
       "ac": "RPO and RTO contains a table of recovery objectives per component, each tagged (target).",
       "pass": true,
-      "note": "The table has 11 rows with separate RPO, Traffic RTO and Management RTO columns, and every cell with a figure is tagged (target)."
+      "note": "12 rows, each carrying (target)."
     },
     {
       "ac": "Runbooks covers region loss, Ruralz Control rebuild from Git and State Store rebuild.",
       "pass": true,
-      "note": "All three runbooks are present, plus Raft quorum loss. Their content contradicts dependencies in places (L2-1, L2-2, L2-4)."
+      "note": "All three are present, plus the hold and Raft quorum loss. Hold step 2 misuses a field (L2-6)."
     },
     {
       "ac": "Game days lists at least eight chaos experiments.",
       "pass": true,
-      "note": "There are 14 experiments (GD-1 to GD-14), each tagged with a milestone. GD-4 and GD-10 need the fixes in L2-3 and L2-1."
+      "note": "15 experiments (GD-1 to GD-15), each with a milestone."
     },
     {
       "ac": "Backups uses ruralz control backup and ruralz control restore.",
       "pass": true,
-      "note": "Both commands are used. The flags match docs/reference/01-cli-and-api-surface.md (--output-file, --prepare, --data-dir, --advertise, --anchor-set, --backup-key-file, --revocation-list)."
+      "note": "Both are used, and their flags match the CLI reference, including `--revocation-list` and `--prepare`."
     }
   ],
   "foundation_amendments": []

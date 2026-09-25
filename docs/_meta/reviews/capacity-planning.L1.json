@@ -1,129 +1,67 @@
 {
-  "lens": "L1 feasibility-skeptic",
+  "lens": "L1",
   "verdict": "revise",
-  "score": 6,
+  "score": 7,
   "blocking": [
     {
       "id": "L1-1",
-      "section": "Capacity model",
-      "issue": "The flood-case memory floor assumes one in-flight unit per client connection (m_worst = 592 KiB connection + one 320 KiB unit). Over HTTP/2 a capped number of connections can still fill the whole per-Node in-flight ceiling: Data plane allows 250 streams per connection and 20,000 units per Node, each unit up to its 256 KiB header block plus 64 KiB copy buffers. For Example 1 (HTTP/2 over TLS, C_cap 4,500) the real worst case is about 1,243 MiB + 4,500 x 592 KiB + 20,000 x 320 KiB, roughly 9.9 GiB. The planned container is 6 GiB with GOMEMLIMIT 5,530 MiB, so a header or stream flood OOM-kills the Node. P_plg is also left out of the floor.",
-      "evidence": "\"GOMEMLIMIT ≥ max(M_node, M_fix + C_cap × m_worst)       C_cap: L4 connection cap per Node\"; K-13: \"m_worst, flood case per connection: 592 KiB connection plus a 320 KiB unit | 912 KiB (hypothesis)\"; Example 1: \"L4 cap 4,500 connections, above 3,900 per survivor: 1,243 MiB + 4,500 × 912 KiB = 5,251 MiB (target) [H] | 6 GiB, `GOMEMLIMIT` 5,530 MiB (target)\"",
-      "fix": "Split the floor into GOMEMLIMIT ≥ M_fix + m_route × R + P_plg + C_cap × 592 KiB + min(20,000, C_cap × streams per connection) × 320 KiB (hypothesis), with the HTTP/1.1-only case keeping one unit per connection. Recompute Example 1: about 10.1 GiB, so a 12 GiB container (target) [H]. Recompute Example 2 too if its clients may use HTTP/2. Alternatively, keep 6 GiB and add an Open question owned by data-plane (with OQ-deployment-topologies-21 and OQ-capacity-planning-5) for a lower per-Node in-flight unit or HTTP/2 concurrent-stream ceiling. Until that closes, state that an L4 connection cap alone does not bound memory for HTTP/2 listeners."
+      "section": "Headroom and failure capacity",
+      "issue": "Regression in the text that resolved the earlier VM-upgrade finding. The alternative rule says that splitting 90% of VM memory between the two ruralzd processes only halves each C_cap. Under the document's own M_flood, most of the floor does not depend on C_cap. M_fix, M_rej, the unit term min(I_max, C_cap × n_str) × m_u (which stays at I_max for any C_cap ≥ 80, because every listener accepts HTTP/2) and the upstream term together come to 1,245 + 500 + 6,250 + 469 = 8,464 MiB for Example 1 (hypothesis), before any connection is counted. On a 13 GiB VM each process would get about 0.45 × 13,312 = 5,990 MiB of GOMEMLIMIT, which is below the floor even at C_cap = 0. Example 3 is similar: 8,139 MiB against 5,990 MiB. A header or stream flood during a handover therefore pushes live heap past GOMEMLIMIT, and then past host memory, and the host OOM-kills a process mid-Drain. That is the same failure the 2 × container rule was added to prevent.",
+      "evidence": "\"Operators MAY instead split 90% of VM memory between both processes' `GOMEMLIMIT` (target), halving each C_cap.\"; Formulas: \"M_flood = M_fix + m_route × R + P_plg + (K + 2) × s_snap + M_rej + C_cap × m_c\" / \"+ min(I_max, C_cap × n_str) × m_u + min(I_max, Σ_u maxConnections_u) × m_up  (hypothesis)\"; Example 1: \"= 1,245 + 500 + 2,818 + 6,250 + 469 = 11,282 MiB\"; Capacity model: \"so 80 connections can hold all 20,000 units (target): an L4 connection cap alone does not bound memory\"",
+      "fix": "Remove the MAY until OQ-capacity-planning-5 lowers the unit or stream ceiling. Alternatively, restate it as: each process's share, 0.45 × host memory, MUST be at least M_flood evaluated at the reduced C_cap', which gives C_cap' = (0.45 × host − M_flood without the connection term) / m_c (hypothesis). Say that halving memory does not halve C_cap, because the 6,250 MiB unit term is fixed. For Example 1, give the smallest host that allows a split, for example 2 × (8,464 MiB + C_cap' × 592 KiB) / 0.9 (target) [H], or state that no split below the 26 GiB host is possible."
     },
     {
       "id": "L1-2",
-      "section": "Worked examples",
-      "issue": "The reconnect storm from snapshot retirement in Example 3 misreads Data plane. When a third snapshot would be retired, streams pinned to the oldest one \"end at once\" with WebSocket close 1001. The 30 s grace applies only to work still pinned afterwards and does not spread the closes. So up to 200,000 sessions can close in the same instant on every Node (an all-at-once Rollout activates all Nodes together), and the reconnect rate depends only on client backoff. With prompt reconnects, 200,000 handshakes (about 100 vCPU-seconds at 500 µs) and 200,000 upgrade GCRA calls land on one shard. That shard is sized for 8,667 per second and saturates near 100,000 per second (hypothesis). The result is `stateStoreTimeout` expiries, fail-open Rate Limits and handshake CPU far above the 10% rule in Headroom and failure capacity. The State Store storm rows inherit the same understatement.",
-      "evidence": "\"A Hot Reload that retires a third snapshot closes sessions pinned to the oldest one with 1001 ([Data plane](../architecture/03-data-plane.md)), so 200,000 sessions may reconnect within the 30 s grace (target) after every three activations: at most 6,667 handshakes per second (target) [H], which the example absorbs.\"; Data plane rule 4: \"the oldest becomes closing: its streams end at once (WebSocket close 1001 ...). After a grace period of 30 s (target) it becomes ending\"",
-      "fix": "Replace the 30 s grace with an explicit client reconnect window, W_rc (hypothesis), as a planning input. Size handshake CPU as λ_storm = S_pinned / W_rc against the 10%-of-survivor-CPU rule, and size shards for λ_storm upgrade GCRA calls. For Example 3, either show the numbers for a stated W_rc (for example 30 s of client jitter, hypothesis) or require connection-bound Clusters to use `strategy: canary` or batched Rollouts so Nodes retire snapshots at different times. Add an Open question owned by data-plane asking whether closing a snapshot should jitter stream closes across the grace period, as Drain does."
+      "section": "Autoscaling policies",
+      "issue": "The shard and maxReplicas bounds define λ_node as \"one Node's rate at u_z\". Applied literally to Example 3, which is connection-bound, they contradict the example's own results. A 2-vCPU Node at u_z that spends its CPU on upgrades (662 µs each) generates about 2 × 0.53 / 662 µs ≈ 1,611 upgrade GCRA calls per second (hypothesis). Rule 2 then caps maxReplicas at floor(1 × 50,000 / 1,611) = 31, but Example 3 sets maxReplicas to 104. The second n_shard term gives ceil(104 × 1,611 / 50,000) = 4 shards, but Example 3 plans 1. For connection-bound classes λ_node is undefined. An operator following the formulas gets either a MUST violation or four times the shards. Burst upgrade load is already bounded separately by W_rc,min, so the formula as written does not match the model's own storm treatment.",
+      "evidence": "Formulas: \"n_shard = max(ceil((1 + h) × O / (0.5 × q_shard)), ceil(N_max × λ_node × s / (0.5 × q_shard)))  (hypothesis)\" and \"λ_node: one Node's rate at u_z\"; Rule 2: \"maxReplicas MUST NOT exceed floor(n_shard × 0.5 × q_shard / (λ_node × s)) (hypothesis) or 1,000 per Cell (target)\"; Autoscaling table: \"Connection-bound, Example 3 | In-flight units | ... | N, held static | N plus one zone's share, 104 (target)\"; State Store sizing: \"| 3, WebSockets | 56; 6,667 in a storm at W_rc = 30 s (target) [H] | 73; 8,667 (target) [H] | 1 primary, 1 replica (target)\"",
+      "fix": "Define λ_node per workload class. For request-bound classes use V × u_z / c_r. For connection-bound classes use the steady per-Node open rate at the unit threshold, f_z × I_max / (u_s × L), about 0.93 per second for Example 3 (target) [H], and state that burst upgrades are checked only by the W_rc,min rule. Then show Example 3's rule-2 bound, well above 104, and its second n_shard term (1 shard) in the example block. Alternatively, keep the CPU-bound definition and raise Example 3 to 4 shards (target) [H], updating the State Store sizing table, the cost template and maxclients."
     },
     {
       "id": "L1-3",
-      "section": "Autoscaling policies",
-      "issue": "The in-flight-unit signal and the matching re-planning trigger use `ruralz_http_active_requests`. Scalability and Observability define that gauge as counting requests only, labeled by `listener`. It does not count parallel composition steps or stream pumps, and those units are the binding resource here. In Example 3 (u_s = 3) a 50% threshold on the gauge first fires at 10,000 sessions per Node, which is 30,000 units, above the 20,000 ceiling. Nodes therefore return `RZ-RT-005` before the autoscaler or the trigger reacts. Example 1 (4 units per request) under-reads by a factor of 4. The planning input S (\"on streaming Routes\") cannot be read from a listener-only gauge either.",
-      "evidence": "Autoscaling table: \"Connection-bound, Example 3 | In-flight units, connections | `ruralz_listener_open_connections` and `ruralz_http_active_requests` at 50% (target)\"; Re-planning triggers: \"Ceilings | `ruralz_listener_open_connections`, `ruralz_http_active_requests`, `ruralz_node_buffered_bytes` | Above 50% of the ceiling at peak (target)\"; Scalability Autoscaling signals: \"`ruralz_http_active_requests` (requests only) against 20,000\"",
-      "fix": "State that `ruralz_http_active_requests` undercounts units. Set per-class thresholds scaled by units per request: 0.5 × 20,000 / (1 + q_r) for composition Routes, and 0.5 × 20,000 / u_s for WebSocket, which is about 3,333 active requests (target) in Example 3. Add an Open question owned by observability for a per-Node in-flight units gauge (name proposed to Observability) and a per-Route active-streams series, and derive S from `ruralz_http_requests_total` by Route and session duration until they exist."
-    },
-    {
-      "id": "L1-4",
-      "section": "Ruralz Control sizing",
-      "issue": "The replica rule contradicts itself and the dependencies. The formula gives 3 replicas up to 10,000 Nodes. The prose says deployments above 8,000 Nodes SHOULD add a fourth replica as a non-voter, and the re-planning trigger fires at 4,000 streams per survivor. None of them agree. Control plane and GitOps also defines no way to add a non-voter: `ruralz control join` \"adds a voter\", and voters are three or five. Following the text therefore creates an even-sized voter set of four, or a replica the design cannot create. At 10,000 Nodes, losing one of three replicas leaves each survivor exactly at the 5,000-stream shedding onset, so a single failure causes shedding and a reconnect storm.",
-      "evidence": "\"replicas  = max(voters, ceil(N_all / 5,000) + 1)\"; \"deployments above 8,000 Nodes (target) SHOULD add a fourth replica as a non-voter, keeping survivors of a replica loss at 4,000 streams\"; trigger: \"`ruralz_control_connected_nodes` / (replicas − 1); shed reconnects | Above 4,000 (hypothesis)\"; Control plane: \"`ruralz control join` redeems a one-time `admin` token in `Join`, and the leader signs the replica's certificate and adds a voter.\"",
-      "fix": "Use one rule everywhere, for example replicas = max(voters, ceil(N_all / 4,000) + 1) (hypothesis), which matches the 4,000 trigger. Above 8,000 Nodes, reach it with five voters (target), which Control plane already allows, or add an Open question owned by control-plane-and-gitops for a non-voter join path and mark the fourth replica as dependent on it. Update the Formulas block, the Ruralz Control sizing table and the Headroom row to match."
-    },
-    {
-      "id": "L1-5",
       "section": "Capacity model",
-      "issue": "The model has no Upstream-side term. `circuitBreaker.maxConnections` (default 1,024 in-flight attempts per Upstream per Node, which Traffic management says SHOULD exceed attempts per second per Node) and upstream connection memory (m_clear is listed in K-11 but missing from M_node) are both absent. Example 1 sends about 6,500 legs per second per Upstream to each survivor after a zone loss with h, above the 1,024 default. Example 3 holds 5,000 long-lived upstream WebSocket connections per survivor, one Upstream, and adds 24 KiB per session ad hoc even though the formula has no such term. Neither example says what `maxConnections` to set, so the plan can produce `RZ-UP-006` or queued attempts that the CPU and ceiling checks never see.",
-      "evidence": "\"M_node     = M_fix + m_route × R + (1 + h) × (C × m_conn + I × m_unit) / N_s + P_plg\" (m_conn undefined; no upstream term); Example 3: \"1,243 MiB + 5,000 × (96 + 24) KiB\"; Traffic management: \"`maxConnections` SHOULD exceed attempts per second per Node (target)\" and default \"`maxConnections` 1,024\"",
-      "fix": "Add inputs for upstream attempts in flight and per second per Upstream per Node (from k_r, W_r and λ_r). Add a rule that `circuitBreaker.maxConnections` ≥ max(attempts per second, in-flight attempts) per Node on survivors with h (target). Add C_up × m_clear (or m_tls for TLS Upstreams) to M_node, and define m_conn as m_tls or m_clear. Give Example 1 and Example 3 their `maxConnections` values (target). Raise an Open question with multi-protocol on whether an upgraded WebSocket session holds the attempt semaphore for its lifetime."
-    },
-    {
-      "id": "L1-6",
-      "section": "Capacity model",
-      "issue": "Several performance and scale figures carry no (target) or (hypothesis) on their line, which violates style guide section 4 and the lens rule. The formula block states untagged constants: the 20,000 ceilings, the 32 KiB stream share, 15 s heartbeats, 20 Snapshots per second, 50 retained Revisions, the 0.7 memory factor and 10 connections per Node. Figure 1 has an untagged \"30% outage headroom\". The Ruralz Control sizing header states \"3 Environments, 1,200 Nodes, 5,000 Routes\" untagged. The Example 3 lead sentence gives 200,000 sessions untagged, which also fails the acceptance criterion that every number in the worked examples is tagged.",
-      "evidence": "\"N_conn = ceil((1 + h) × C / (f_z × 20,000))\"; \"B      = Σ_r λ_r × W_r × b_r  +  S_sub × 32 KiB\"; \"heartbeats per second = N_all / 15 s\"; \"D_store   = E × 50 × (s_rev + s_diff + s_src) + ...\"; \"hr[\\\"Headroom: zone fraction, 30% outage headroom\\\"]\"; \"| Item | Formula | Example: 3 Environments, 1,200 Nodes, 5,000 Routes |\"; \"A notification service holds 200,000 long-lived WebSocket sessions over TLS\"",
-      "fix": "Add (target) or (hypothesis) on each of these lines, matching the coefficient table's tag for the constant: (target) on the 20,000, 15 s, 50 and 0.7 lines; (hypothesis) on the 32 KiB, 20 Snapshots per second and 10-per-Node lines; (target) in the Figure 1 label, the table header and the Example 3 sentence. Alternatively, replace the literals in the formulas with their coefficient symbols (K-14, K-15, K-17, K-19, K-20) so each value appears only in the tagged table."
-    },
-    {
-      "id": "L1-7",
-      "section": "Headroom and failure capacity",
-      "issue": "The VM upgrade rule sizes the host for two ordinary M_node footprints. Each `ruralzd` process is sized with GOMEMLIMIT at the flood-case floor, and during an ADR-0015 handover the draining process keeps its connections while the new process reserves M_fix plus buffered bytes and state tables. In Example 1, 2 × M_node is 3,350 MiB, but either process may legitimately grow to its 5,530 MiB GOMEMLIMIT, and GOGC=100 alone lets two 1.2 GiB live heaps exceed 3.3 GiB. The host OOM-kills a process mid-upgrade, which defeats the zero-downtime guarantee.",
-      "evidence": "\"| Zero-Downtime Upgrade on a VM | Old and new `ruralzd` share the host during Drain ([ADR-0015](../adr/0015-zero-downtime-upgrades-so-reuseport.md)) | Host memory ≥ 2 × M_node (hypothesis) |\"",
-      "fix": "Require host memory ≥ 2 × the per-process container size (GOMEMLIMIT / 0.9) (hypothesis). Alternatively, require operators to set each process's GOMEMLIMIT so the two sum to about 90% of host memory during handover, with the resulting smaller per-process flood cap stated. Add the Example 1 value, for example a 12 GiB VM for 6 GiB containers (target)."
-    },
-    {
-      "id": "L1-8",
-      "section": "Capacity model",
-      "issue": "The acceptance criterion requires every coefficient to cite Performance budgets and benchmarking. Several coefficients the formulas use have no value there. K-15 cites \"Same, streamed chunk row\", but that PB row holds 1 MiB. The 32 KiB reservation and 128 MiB share come from Data plane. K-18 (128 B per key) cites \"G1\", which records no bytes per key. The Ruralz Control sizing uses s_rev = 1.5 KiB per resource, the 5,000 calls per Node default, u_s = 3, 50 retained Revisions and 20 Enrollments per second, and none of these cite PB. A reader cannot trace these numbers to the owning budget, so the model is not reproducible as written (P10).",
-      "evidence": "K-15: \"Stream share admission, 32 KiB per subscribed stream | About 4,000 streams per Node (hypothesis); not yet a PB row (OQ-capacity-planning-4) | Same, streamed chunk row\"; K-18: \"m_key, State Store bytes per rate-limit or Quota key | 128 B (hypothesis); not yet measured (OQ-capacity-planning-2) | G1\"; Ruralz Control sizing: \"Resources × about 1.5 KiB (hypothesis, OQ-capacity-planning-3)\"",
-      "fix": "Give every constant the formulas use a K-row. Its source cell names the actual owner (Data plane, Control plane and GitOps, Deployment topologies) with a link, plus the PB scenario or Open question that will verify it: K-15 cites Data plane Streaming and OQ-capacity-planning-4, and K-18 and the new s_rev row say \"no PB value yet\" with OQ-capacity-planning-2 and -3. Reword the Coefficients lead so it no longer claims that every coefficient comes from PB, or move these rows into a separately captioned \"interim, not yet in PB\" table."
+      "issue": "This is the remaining part of the earlier coefficient-citation finding (acceptance criterion 3). Most rows now cite PB or name a pending OQ, but three rows still cite no PB row, and two of those are wrong because PB holds the value or its test. K-22's 0.9 GOMEMLIMIT share is PB's GOGC and GOMEMLIMIT rule 1. K-20's estimate error is SM-10, which PB schedules in Suite layers and the Milestone plan, Planned (M3). K-19 (n_keep) and K-22's 0.7 and 0.5 shares name no Open question that adds them to PB, although the Coefficients lead promises one for every row without a PB value. The model cannot be traced to its verifying budget for these constants (P10).",
+      "evidence": "Lead: \"Every coefficient cites [Performance budgets and benchmarking] (PB) or, where PB has no value yet, its owner and the Open question that adds it to PB.\"; \"| K-19 | n_keep, Revisions kept per Environment | 50 (hypothesis) | None | OQ-capacity-planning-9 |\"; \"| K-20 | e, prompt estimate error (SM-10) | 2% (hypothesis) | None | [Vision] ...; OQ-vision-and-positioning-15 |\"; \"| K-22 | `GOMEMLIMIT` share of container; `maxmemory` use; shard GCRA share | 0.9; 0.7; 0.5 (target) | None | [Scale unit]...; Cell sizing |\"; PB GOGC and GOMEMLIMIT: \"operators SHOULD set `GOMEMLIMIT` to about 90% of the container limit (target)\"; PB Suite layers: \"| Control-plane scale and accounting | F1 (SM-9), F2, SM-10 |\"",
+      "fix": "In K-22's PB row, cite [GOGC and GOMEMLIMIT](../architecture/12-performance-budgets-and-benchmarking.md#gogc-and-gomemlimit) for 0.9, and cite G1 (70% script CPU) with \"Pending (OQ-capacity-planning-2)\" for the 0.5 share. For 0.7, write \"Pending\" with an Open question, or cite CE-6. In K-20's PB row, cite the Suite layers or Milestone plan SM-10 run. In K-19, write \"Pending, not a budget; set by OQ-capacity-planning-9\". Also reword the lead so that retention counts are allowed to be policy values owned outside PB."
     }
   ],
   "non_blocking": [
     {
-      "section": "State Store sizing",
-      "suggestion": "Make `maxclients` consistent with the formula `maxclients ≥ 10 × N_max`. Example 3 autoscales to \"N plus one zone's share\" = 104 Nodes, so it needs more than 1,040, not 780. Example 2's maxReplicas is \"Shard bound\", which does not match \"Above 30\". Consider noting that the Redis default of 10,000 already covers these cases."
-    },
-    {
-      "section": "State Store sizing",
-      "suggestion": "The per-Cell limit of \"1,000,000 calls per second\" conflicts with running shards at 50% of q_shard. Sixteen shards at 50,000 give 800,000 per second, or about 615,000 at peak with h. State the effective ceiling or explain the 62.5% figure from Scalability Cell sizing."
-    },
-    {
-      "section": "Worked examples",
-      "suggestion": "Example 3's memory row drops the I × m_unit term of its own formula by claiming pump buffers fit inside the 96 KiB session. Data plane says unsubscribed streams copy through one 32 KiB buffer per direction. Either add 2 × 32 KiB per session (about 5,000 × 184 KiB per survivor, which still fits in 8 GiB) or cite where PB's 96 KiB WebSocket-session figure includes the pumps."
-    },
-    {
-      "section": "Worked examples",
-      "suggestion": "Example 2's overshoot bound omits the AI/LLM gateway's (attempts − 1) × R term for Provider Fallback. State that the example has no fallback candidates, or add the term."
-    },
-    {
       "section": "Capacity model",
-      "suggestion": "Pack 8.13 says no request crosses a Region to reach a State Store, not a Cell. Reword \"since no request crosses a Cell to reach its State Store (pack 8.13)\" to quote the pack accurately, or say that each Cluster uses only its own Cell's State Store."
-    },
-    {
-      "section": "Planning inputs",
-      "suggestion": "`ruralz_http_request_body_bytes` and `ruralz_http_response_body_bytes` carry only a `listener` label and measure wire bodies, so they cannot give β_r or e_r per Route class or merged or decoded sizes. Name the Route-level source (access-log fields or `ruralz bundle render --effective`) or add an Open question for Observability."
-    },
-    {
-      "section": "Cost template",
-      "suggestion": "The Cross-zone traffic row's formula includes \"Upstream legs across zones\", but the quantities count only State Store calls; Example 1 alone has 60,000 legs per second (target). Add the leg term or narrow the formula."
+      "suggestion": "State what C_cap is when the L4 balancer has no per-backend connection cap, as with many cloud network load balancers: C_cap = C_max = 20,000, and M_flood is then about 19.6 GiB plus Plugins (hypothesis). That matches PB's and Data plane's \"worst-case Node ... fitting 32 GiB\", which both attribute to Capacity planning, a value this document never states."
     },
     {
       "section": "Scope and non-goals",
-      "suggestion": "The body is about 4,300 words against a 4,500 maximum, so keep the fixes compact. Moving the formula literals to K-symbols (L1-6) saves words, and nothing that resolves an earlier finding should be cut."
+      "suggestion": "Say explicitly that Deployment topologies Sizing defaults option (b), an L4 cap near 2,500 connections in a 4 GiB container, no longer holds, because the 6,250 MiB unit term applies whatever the cap. Ask that document to update its row, alongside OQ-deployment-topologies-21."
     },
     {
-      "section": "Capacity model",
-      "suggestion": "Define m_conn, used in M_node, in the coefficient table, for example as m_tls for TLS listeners and m_clear otherwise, and state whether C counts upstream connections."
+      "section": "Headroom and failure capacity",
+      "suggestion": "Hot key row: a declared per-Node ceiling lowers λ_key only from 2 × `requests` to `requests`, so it cannot fix a key whose `requests` exceed 25% of a shard. Say so, and align the row with Scalability's MUST on `localOnly` mode (proposed, OQ-traffic-management-and-resilience-1 (c))."
+    },
+    {
+      "section": "Worked examples",
+      "suggestion": "Example 2 memory per stream: spell out that the 80 KiB is the in-flight unit (64 KiB of copy buffers plus headers) plus the 16 KiB prompt. As written, the unit's copy buffers look omitted."
+    },
+    {
+      "section": "Autoscaling policies",
+      "suggestion": "`ruralz_node_buffered_bytes` measures all of `limits.maxBufferedBytes`, not the 25% stream share. Note that the 64 MiB Example 2 threshold is a conservative proxy until the stream-share gauge of OQ-capacity-planning-8 exists."
+    },
+    {
+      "section": "Planning inputs",
+      "suggestion": "Define n_batch for file-mode activations as well. Every Node watching one directory or OCI digest activates at about the same time, so n_batch = N, the same as `all-at-once`."
+    },
+    {
+      "section": "Worked examples",
+      "suggestion": "Tag the remaining configuration-scale figures in the Example 3 prose (\"the 4 h `timeout`\") and in Example 2 (\"attempts = 1\") so acceptance criterion 2 holds without interpretation."
     }
   ],
   "ac_results": [
-    {
-      "ac": "Capacity model gives formulas with named variables for CPU, memory, State Store operations and Ruralz Control sizing.",
-      "pass": true,
-      "note": "All four formula groups exist with named variables. m_conn is undefined and Upstream-side terms are missing (L1-5)."
-    },
-    {
-      "ac": "Worked examples contains three examples as H3s (REST aggregation at 20k rps, AI with 500 concurrent streams, 200k WebSocket connections), every number tagged (target).",
-      "pass": false,
-      "note": "Three H3s are present. Example 3's lead sentence \"holds 200,000 long-lived WebSocket sessions over TLS\" is untagged (L1-6), and Example 1's container and Example 3's storm figures are wrong (L1-1, L1-2)."
-    },
-    {
-      "ac": "Every coefficient cites docs/architecture/12-performance-budgets-and-benchmarking.md.",
-      "pass": false,
-      "note": "K-15 and K-18 cite PB rows that do not contain their values, and s_rev (1.5 KiB), u_s, 5,000 calls per Node, 50 retained Revisions and 20 Enrollments per second have no PB citation (L1-8)."
-    },
-    {
-      "ac": "Sizing inputs, results and headroom are presented in tables.",
-      "pass": true,
-      "note": "Each example has input, result and headroom-check tables."
-    },
-    {
-      "ac": "Re-planning triggers lists measurable triggers.",
-      "pass": true,
-      "note": "Fifteen triggers, each with a metric and threshold. The Ceilings trigger measures requests rather than in-flight units (L1-3)."
-    }
+    {"ac": "Capacity model gives formulas with named variables for CPU, memory, State Store operations and Ruralz Control sizing.", "pass": true, "note": "The Formulas block covers CPU (c_r, U, N_cpu), ceilings, Upstreams, memory (M_node, M_flood, GOMEMLIMIT), State Store (O, n_shard, maxmemory, maxclients), reconnect storms and Ruralz Control (r_min, D_store). λ_node is ambiguous for connection-bound classes (L1-2)."},
+    {"ac": "Worked examples contains three examples as H3s (REST aggregation at 20k rps, AI with 500 concurrent streams, 200k WebSocket connections), every number tagged (target).", "pass": true, "note": "Three H3s with the required subjects. Every derived line carries (target), with [H] where it rests on hypotheses. Minor untagged configuration values (\"4 h `timeout`\", \"attempts = 1\") are listed under non-blocking."},
+    {"ac": "Every coefficient cites docs/architecture/12-performance-budgets-and-benchmarking.md.", "pass": false, "note": "K-19, K-20 and K-22 give \"None\" in the PB row. PB holds the 0.9 GOMEMLIMIT share and schedules SM-10 (L1-3)."},
+    {"ac": "Sizing inputs, results and headroom are presented in tables.", "pass": true, "note": "Each example has an Input table, a Result table and a Headroom check table. The State Store, Ruralz Control and Cost sections are tables too."},
+    {"ac": "Re-planning triggers lists measurable triggers.", "pass": true, "note": "Every row names a metric or a checkable event with a threshold and an action. The metric names exist in Observability."},
+    {"ac": "verify-docs machine checks (grep for this file)", "pass": true, "note": "No FAIL lines. One WARN: the link to ADR-0015 is broken because docs/adr/0015-zero-downtime-upgrades-so-reuseport.md does not exist yet, which --allow-missing permits."}
   ],
   "foundation_amendments": []
 }

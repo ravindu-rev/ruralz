@@ -1,129 +1,68 @@
 {
   "lens": "L4X",
   "verdict": "revise",
-  "score": 5,
+  "score": 7,
   "blocking": [
     {
       "id": "L4X-1",
-      "section": "Runbooks > Ruralz Control rebuild from Git (step 6); Runbooks > Region loss (home Region, steps 3 to 6); RPO and RTO; Game days GD-9 and GD-10",
-      "issue": "Neither recovery runbook says what happens to the published Node count, so both miss a failure on the request path. A rebuild starts with no committed qualification records. A restore without a revocation list makes every Node re-enroll, so none of them counts as qualified. Control plane and GitOps publishes large decreases at once and raises the count by at most 10% per minute, only after a 10-minute qualification. So the first `HeartbeatReply` from the recovered deployment collapses `clusterNodeCount`. Derived per-Node ceilings then jump toward the full limit, and Scalability and distributed state warns that this multiplies hot-key GCRA calls. Failure scenario: a 1,000-Node Cell with a healthy State Store reconnects to a rebuilt Ruralz Control. N_published drops near zero, and each Node's ceiling becomes max(1, 2 × `requests` / N_published). A hot key's GCRA calls rise from about 2 × `requests` per window toward N_serving × 2 × `requests` per window. That opens its shard's breaker, so every co-tenant key on the shard fails open. The count then needs about 10 + ln(100)/ln(1.1), roughly 58 minutes (hypothesis), to climb from 10 back to 1,000. The runbook's claim that traffic never changes, the 'Zero request errors (target)' RTO cells and the GD-9 and GD-10 pass criteria all ignore this.",
-      "evidence": "Rebuild step 6: \"each Node's `Hello` carries a digest that equals its assignment, so traffic never changes.\" RPO and RTO: \"| Control Store and every backup lost | ... | Zero request errors (target) | 8 hours or less, re-enrollment excluded (target) |\". Control plane and GitOps, Replica roles: \"`clusterNodeCount` counts ready Nodes that ACKed a Revision and stayed connected 10 minutes (target); large decreases publish at once, and increases rise at most 10% per minute\". Scalability and distributed state, Ruralz Control availability: \"a near-zero count sends derived ceilings to the full limit, multiplying hot-key GCRA calls.\"",
-      "fix": "Add a step to both runbooks, run before Nodes reconnect. Clusters that use derived ceilings either declare per-Node ceilings first, or the operator confirms that Ruralz Control withholds `clusterNodeCount`, so Nodes keep their last count until the recovered deployment has qualified at least that many Nodes. Add an Open question owned by control-plane-and-gitops, for example OQ-high-availability-and-disaster-recovery-9: 'Should a restored or rebuilt deployment withhold or seed clusterNodeCount (from Hello and heartbeat reports) until qualification catches up?' Options: (a) withhold (proposed); (b) seed from reported Nodes; (c) as written. Add the resulting over-admission bound, or a pointer to a new Scalability row, to the RPO and RTO rows for restore and rebuild. Give GD-9 and GD-10 the CE-7 and CE-10 pass criteria: 'the published count drops at most 10% (target); no State client breaker opens'."
-    },
-    {
-      "id": "L4X-2",
-      "section": "Runbooks > Region loss (non-home, steps 2 and 3); Failure catalog FC-4; Game days GD-14",
-      "issue": "Survivor sizing during a regional failover checks only Node counts and caps scale-out at the 1,000-Node Cell ceiling. Deployment topologies and Scalability and distributed state say the State Store binds long before that, and that pre-provisioning must cover every Cell resource. Failure scenario: two active-active Regions, each Cell with 200 Nodes of 5,000 calls per second (hypothesis) and shards at 50%. Region B is lost, Region A's offered load doubles, and the operator scales Region A's Cell to 400 Nodes, which the runbook allows because it is under 1,000. State Store calls double and shard script CPU passes 70% (target). Breakers open Cell-wide, every Rate Limit fails open and every `closed` Token Budget returns 503, so the surviving Region degrades too. The moved clients' TLS reconnect storm is also never checked against survivor CPU. GD-14 passes on Node capacity alone, so it would not catch this.",
-      "evidence": "Step 2: \"Check survivors against their pre-provisioned R / (R − 1) share of peak (target) and the autoscaler minimums; scale Cells within their ceilings, never above 1,000 Nodes per Cell (target).\" GD-14: \"No cross-Region State Store dial; survivors serve full peak (target)\". Deployment topologies T9: \"SHOULD each hold R / (R − 1) times their peak share (target) ... in every Cell resource, within Cell ceilings: Nodes, State Store calls under 50% of shard capacity (hypothesis), client limits above 10 × N_serving (target)\". Sizing defaults: \"State Store calls per Cell | 1,000,000 per second (hypothesis), binding at about 200 Nodes of 5,000 calls per second (hypothesis)\" and \"`maxReplicas` MUST NOT exceed that bound (hypothesis); autoscaling misses State Store saturation\".",
-      "fix": "Rewrite step 2 as follows: 'Check every Cell resource at the doubled load: Nodes against R / (R − 1) of peak (target); State Store shard script CPU under 70% (target), pre-provisioned at 50% of shard capacity at failover load (hypothesis); server client limit above 10 × N_serving (target); and the reconnect storm λ_storm × c_hs at 10% of survivor CPU or less (target), per Capacity planning. Never scale Nodes past the shard-derived `maxReplicas` bound of Deployment topologies. Add shards before adding Nodes.' Add the State Store and connection checks to FC-4's Behavior cell. Extend GD-14's pass criteria with 'shard script CPU under 70% (target); no State client breaker opens; handshake p99 within C2 (target)'."
-    },
-    {
-      "id": "L4X-3",
-      "section": "Failure catalog; Degraded modes > Detached Nodes and Last-Known-Good; Game days",
-      "issue": "The failure catalog has no row for a secret provider outage (`vault`, or the `kubernetes` provider backed by the Kubernetes API). That outage is a hidden single point of failure for every Node restart and replacement: after a cold start, `/readyz` waits for every `secretRef`. The dependency appears only as one row in the Last-Known-Good table, and no game day exercises it. Failure scenario: a zone loss (FC-3) also takes down a Vault node or the Kubernetes API server, which often happens in the same incident. Replacement and autoscaled Nodes never become ready, rolling upgrades stall with pods not ready, and survivors that are already at 80% CPU (target) get no relief. The document's zone-loss RTO of 30 s (target) is then not met. `discovery: kubernetes` Upstreams also go stale at the same moment.",
-      "evidence": "Degraded modes: \"| Last-Known-Good boot with unresolvable `secretRef` | Not ready until every reference resolves; secrets are never on disk | Keep TLS keys and the State Store URL on `file` or `env` providers |\". Security and identity: \"After a cold start, `/readyz` waits for every reference, so TLS keys and the State Store URL SHOULD use `file` or `env`.\" No FC row names Vault, secret providers or the Kubernetes API.",
-      "fix": "Add row FC-21, 'Secret provider (`vault`, `kubernetes`) or Kubernetes API unavailable'. Blast radius: every restarting, replacement or new Node whose Revision uses those references; `discovery: kubernetes` Upstreams. Behavior: running Nodes keep their resolved values; cold starts stay not ready; discovery keeps the last set (`discovery_stale`). Detection: `/readyz` failure reason and the discovery degraded metric. Recovery: provider recovery; keep TLS keys and `stateStore.url` on `file` or `env`. Add game day GD-15 'Secret provider down during a zone loss' with pass criterion 'Nodes using only `file` or `env` references boot within 30 s (target); others stay not ready and are counted'. Mention the dependency in FC-3."
-    },
-    {
-      "id": "L4X-4",
-      "section": "RPO and RTO; Backups > Taking and checking backups (rules 1 and 5)",
-      "issue": "The monitoring does not enforce the stated RPO. The RPO is 1 hour, but the freshness alert fires only at 2 hours, and it checks the newest backup taken rather than the newest copy in the second Region, which is the one a Region-loss restore uses. Failure scenario: the 10:00 backup fails silently, or its cross-Region copy lags. The home Region is lost at 11:55. The newest usable backup in the surviving Region is from 09:00, so about 3 hours of Enrollments, revocations and Rollout records are lost (RPO missed threefold), and no alert fired. Lost revocations also re-validate revoked Node certificates after the restore.",
-      "evidence": "RPO and RTO: \"| Control Store lost with its Region | Writes since the last backup | 1 hour or less, hourly backups (target) |\". Rule 1: \"Copy each backup to a second Region\". Rule 5: \"Alert when the newest successful backup is older than 2 hours (target).\"",
-      "fix": "Define the Region-loss RPO as the age of the newest verified backup copied to the second Region. Measure freshness there. Alert at the backup interval plus the maximum backup-and-copy duration, for example 75 minutes (target), and page at 2 hours (target). Add a backup duration and copy duration target, for example 10 minutes or less (hypothesis), so the RPO arithmetic is visible. Otherwise, state the RPO honestly as 2 hours (target)."
-    },
-    {
-      "id": "L4X-5",
-      "section": "RPO and RTO (paragraph after the table; row 'Control Store and every backup lost'); Runbooks > Ruralz Control rebuild from Git (step 6)",
-      "issue": "The re-enrollment figures contradict each other, and the largest recovery step has no number. At the stated 20 Nodes per second, 10,000 Nodes (the deployment target) take about 500 s, or 8.3 minutes (hypothesis). That cannot 'dominate' a 4-hour or 8-hour RTO, yet the 8-hour row excludes re-enrollment altogether. The real limits are elsewhere. First, a serving Node ignores Enrollment tokens while it holds an identity, so re-enrollment is a per-zone Drain and restart (OQ-high-availability-and-disaster-recovery-4 (b)). Second, `Enroll` has a per-source rate limit and a lockout. Nodes behind a shared egress NAT (OQ-deployment-topologies-15, blocking for M2) would re-enroll from a handful of source addresses, so the 20 per second rate is unreachable. Failure scenario: 3,000 Nodes behind two NAT addresses re-enroll after a rebuild. The per-source limit and the lockout after 10 failures in 10 minutes throttle them, and re-enrollment runs for hours with no objective to measure it against.",
-      "evidence": "\"Re-enrollment after a restore without a revocation list runs at about 20 Nodes per second per leader (hypothesis), which dominates recovery above a few thousand Nodes\"; \"| Control Store and every backup lost | ... | 8 hours or less, re-enrollment excluded (target) |\". Control plane and GitOps: \"`Enroll` has a per-source rate limit, a 16 KiB message cap and a lockout after 10 failures in 10 minutes (target)\" and the token \"is ignored once `${RURALZ_DATA_DIR}/identity/` holds a valid identity.\"",
-      "fix": "Replace the paragraph with a bound, for example: 'Re-enrollment time ≈ Z waves × (drain deadline + (N / Z) / min(20 per second per leader, per-source Enroll limit × egress addresses) + 30 to 60 s slow-start) (hypothesis); for 10,000 Nodes in three zones with no NAT limit, about 3 × (drain + 167 s + 60 s) (hypothesis).' Add a 'Re-enrollment' RTO row or column, tagged (target). Cite OQ-deployment-topologies-15 and require that the per-source limit is keyed so that bulk re-enrollment behind NAT fits the RTO. Delete 'dominates recovery above a few thousand Nodes' unless the arithmetic supports it."
-    },
-    {
-      "id": "L4X-6",
-      "section": "Runbooks > Region loss (non-home, step 4); Figure 2",
-      "issue": "The runbook's claim that a lost Cluster stops its Environment's promotion contradicts Control plane and GitOps, a dependency. A promotion that reaches the lost Region's Cluster has an empty plan and completes at once, so the promoted digest advances. When the Region returns, all of its Nodes activate that Revision without a canary. L1-1, L2-2 and L3-1 also raise this. Failure scenario at scale: Region B returns and its 1,000 Nodes redial within the 60 s jitter cap (target). They all activate an uncanaried Revision as late Nodes, turning a Region recovery into a Cluster-wide bad-Revision event (FC-20) with a blast radius of the whole Region.",
-      "evidence": "Step 4: \"Promotions run Clusters one at a time, so a lost Cluster stops its Environment's promotion\". Control plane and GitOps, Rollout plan: \"Late Nodes join the final batch and never lag; an empty plan completes at once\".",
-      "fix": "State that a promotion reaching a Cluster with no connected Nodes completes with an empty plan, and that returning Nodes activate its Revision without a canary. While a Region is lost, operators MUST hold promotions into every Environment that has a Cluster there: approve nothing under `requireApproval`, or else freeze merges to the tracked branch. Carry a 'hold returning Clusters until canaried' option into OQ-high-availability-and-disaster-recovery-3. Change Figure 2's 'pause promotions that need Region B' to match."
-    },
-    {
-      "id": "L4X-7",
-      "section": "RPO and RTO (row 'Non-home Region lost'); Failure catalog FC-19",
-      "issue": "The regional failover RTO depends on DNS TTL and health-check detection, but the document gives neither number, so the 5-minute target can be neither derived nor tested. Failure scenario: with a 300 s TTL, a 30 s health-check interval and 3 failures, plus resolvers or client runtimes that hold records past the TTL, clients keep resolving to the dead Region for more than 6 minutes. The 5-minute target (target) is missed, and nothing in the document says so.",
-      "evidence": "\"| Non-home Region lost | That Region's counters and caches | Not recovered: one extra limit per open window (target) | 5 minutes or less, bounded by DNS TTL (target) | Unchanged (target) |\"; FC-19 recovery: \"Fix resolvers; keep TTLs short on gateway names\".",
-      "fix": "State the parameters behind the target. For example: geo health checks every 10 s, failing after 3 misses (target); TTL on API hostnames of 60 s or less (target); traffic RTO ≈ detection plus TTL plus client retry, about 2 minutes (target). Clients that cache beyond the TTL extend it (hypothesis). For anycast, name the withdrawal time instead. Make GD-14 measure the time from Region cut to 99% of requests served by survivors."
-    },
-    {
-      "id": "L4X-8",
-      "section": "Failure catalog FC-1; RPO and RTO (row 'Node lost')",
-      "issue": "The Node-loss recovery promises an automatic replacement within 30 s. On Kubernetes, Deployment topologies runs Nodes as a StatefulSet with a persistent `${RURALZ_DATA_DIR}` volume, and a pod on an unreachable host is not replaced until it is force-deleted or the host is tainted out-of-service. Failure scenario: one Kubernetes host fails. Its Node pod stays Terminating, and its volume stays attached, indefinitely. No replacement starts, and the HPA counts the stranded pod as idle. The cluster runs one Node short until an operator acts, so a second failure in another zone lands on reduced capacity. FC-1 mentions force-deletion only for zone loss (FC-3).",
-      "evidence": "FC-1 recovery: \"Replacement boots Last-Known-Good or its Bundle; a lost `${RURALZ_DATA_DIR}` needs a new Enrollment\"; RPO and RTO: \"Survivors at once; replacement ready within 30 s (target)\". Deployment topologies T4: \"Pods on unreachable nodes count until force-deleted or their nodes removed (`node.kubernetes.io/out-of-service` taint), their zonal volumes stuck; HPA reads them as idle on scale-up\" and \"Node StatefulSet | ... a persistent `${RURALZ_DATA_DIR}` volume\".",
-      "fix": "In FC-1 recovery, add: 'On Kubernetes, force-delete the pod or apply the `node.kubernetes.io/out-of-service` taint (T4); the replacement then reattaches its volume and boots Last-Known-Good.' Measure the 30 s (target) from pod release, and add a separate detection-and-release time, tagged (target), to the Node-lost row, or point to OQ-high-availability-and-disaster-recovery-2 for automation. Add a Kubernetes variant of GD-1 that kills a host rather than a process."
+      "section": "Runbooks > Ruralz Control rebuild from Git (step 7); Runbooks > Holding deliveries during recovery (paragraph after step 4); RPO and RTO (rows 'Control Store and every backup lost' and 'Re-enrollment of every Node'); Game days GD-10",
+      "issue": "Partly resolved. The revision now describes the collapse of the published Node count after a rebuild, or after a restore without a revocation list, and adds OQ-high-availability-and-disaster-recovery-9 (blocking for M2). Three problems remain. (1) The runbooks still have no step for it. The only mitigation is a sentence saying 'declared ceilings avoid it', and during recovery an operator cannot declare ceilings, because the hold forbids digest changes ('aligning needs a delivery'). (2) Three claims in the same document still say traffic is unchanged. Rebuild step 7 says traffic changes only by the draining zone's capacity. The rebuild row's traffic RTO is 'As above', which resolves to 'Zero request errors (target)'. The Re-enrollment row's traffic RTO is 'One zone's capacity drains at a time (target)'. All three contradict the collapse paragraph. (3) Under the current option (c) of OQ-9, GD-10 cannot pass its own criterion, and the document does not say that GD-10 requires option (a). Failure scenario: a 3,000-Node Cell uses derived ceilings and has a hot key at 20% of one shard. Every backup is lost. The zone-a re-enrollment wave brings 1,000 Nodes online on the rebuilt deployment. They have fresh `node.id`s and are unqualified, so their first `HeartbeatReply` carries a near-zero count. Each of those Nodes derives a ceiling of about 2 × `requests`, and hot-key GCRA calls rise from about 2 × `requests` toward 1,000 × 2 × `requests` per window. The shard's State client breakers open, so co-tenant Rate Limits fall back to local buckets and `closed` Token Budgets return `RZ-STS-003`. That is a request error the RTO row says cannot happen. The count then needs about 58 minutes (hypothesis) to recover, and each later zone wave repeats the collapse.",
+      "evidence": "Rebuild step 7: \"Re-enroll Cluster by Cluster, one zone at a time ... Traffic changes only by the draining zone's capacity (target).\" Holding deliveries: \"After a rebuild, or a restore without a revocation list, no Node is qualified, so the first `HeartbeatReply` can collapse the published count until OQ-high-availability-and-disaster-recovery-9 decides; [declared ceilings] avoid it\". RPO and RTO: \"| Control Store and every backup lost | ... | As above | 8 hours or less ...\" where the row above reads \"Zero request errors (target); Node count per the [hold]\"; \"| Re-enrollment of every Node | Enrollment identities | None (target) | One zone's capacity drains at a time (target) |\". GD-10: \"the published count drops at most 10% (target); no State client breaker opens\". Hold step 2: \"(no digest changes)\"; step 3: \"aligning needs a delivery\". Scalability and distributed state, Ruralz Control availability: \"a near-zero count sends derived ceilings to the full limit, multiplying hot-key GCRA calls. Only qualified Nodes, keyed by `node.id` in committed state ... may lower it\".",
+      "fix": "(1) Add a numbered hold step 0 that runs before any Node connects or re-enrolls: 'For each Cluster whose served Revision uses derived ceilings, until OQ-high-availability-and-disaster-recovery-9 (a) ships: confirm that hot keys above 25% of a shard are `localOnly` in the served Revision. Otherwise, before re-enrolling, shift the Cell's weight to other Cells, or accept the bound below and watch State client breakers.' (2) Add a readiness rule to Local rate-limit fallback or Backups: 'Control-mode Clusters that depend on a rebuild or a list-less restore SHOULD declare per-Node ceilings in advance, because recovery cannot deliver them.' (3) Qualify rebuild step 7 and the 'Control Store and every backup lost' and 'Re-enrollment of every Node' traffic RTO cells: 'plus, with derived ceilings, up to N_reenrolled × 2 × `requests` per key per window and possible shard breaker opening until the count re-qualifies, about 58 minutes (hypothesis), unless OQ-high-availability-and-disaster-recovery-9 (a)'. Remove 'Zero request errors (target)' from the rebuild row, or make it conditional on declared ceilings or OQ-9 (a). (4) In GD-10, add the precondition 'with OQ-high-availability-and-disaster-recovery-9 (a) implemented, or with declared ceilings'. Also add a variant that uses derived ceilings and asserts the stated over-admission bound."
     }
   ],
   "non_blocking": [
     {
-      "section": "RPO and RTO (row 'Availability zone lost')",
-      "suggestion": "'Unchanged with three voters in three zones (target)' ignores the case where the lost zone held the leader. Then FC-6 applies: 10 s (target) to accept writes, and gates restart for up to one ACK timeout, 60 s (target). Say 'FC-6 if the leader was in the zone'."
+      "section": "RPO and RTO (row 'Node lost'); Game days GD-1",
+      "suggestion": "Pod release on Kubernetes is not automatic for StatefulSet pods on an unreachable host (T4). Under the current option (b) of OQ-high-availability-and-disaster-recovery-2, the '5 minutes' is an on-call response target. Say so ('release by force-delete or out-of-service taint, paged, within 5 minutes (target)'), and have the GD-1 host variant measure detection plus release, not only the 30 s after release."
     },
     {
-      "section": "Game days",
-      "suggestion": "Every game day runs at staging scale, with at least 10 Nodes (target). Add a scale variant of GD-9 and GD-10 on the F2 driver that emulates 10,000 Nodes (Performance budgets). It should measure the reconnect storm after the name is repointed to restored replicas (5 minutes or less (target), per CE-10), re-enrollment time, and published-count stability. Also add a DNS failure game day (FC-19); the catalog row has none."
+      "section": "Backups > Taking and checking backups (rules 1 and 5); RPO and RTO",
+      "suggestion": "Rule 1 tags the 10-minute copy '(hypothesis)', but the RPO row tags the same figure '(target)'; use one tag. With hourly backups and a copy within 10 minutes, the newest copy is normally at most 70 minutes old. An alert at 75 minutes therefore fires only once the RPO is breached. Consider alerting at 70 minutes (target) so on-call gets warning before the breach."
     },
     {
-      "section": "Failure catalog FC-16",
-      "suggestion": "The IdP and JWKS are usually shared by every Region, so an outage that outlasts cached `max-age` is a global outage of `auth.jwt` Routes, not a per-Cell one. Say so in the blast radius. Suggest issuers publish `max-age` near the 6-hour clamp (target) and run a multi-Region IdP."
+      "section": "Runbooks > Region loss (non-home, step 2)",
+      "suggestion": "Capacity planning bounds the reconnect storm as λ_storm × (c_hs + c_up) ≤ 10% of survivor CPU (target), but step 2 writes only λ_storm × c_hs. Either include c_up or say why the upgrade GCRA term is zero for a regional move."
     },
     {
-      "section": "Failure catalog FC-17",
-      "suggestion": "'About one failed attempt per cooldown per Node (hypothesis)' scales with N: 1,000 Nodes send about 1,000 probes per cooldown to a recovering provider. State the aggregate, and whether it can trip the provider's own rate limits and prolong the outage."
+      "section": "Runbooks > Region loss (home Region, step 1)",
+      "suggestion": "Step 1 runs non-home step 5, which reverts empty-plan Rollouts with `ruralz rollout start`. That needs a working Ruralz Control, which is lost in this scenario. Say that step 5 applies only after the restore, or only to Regions served by the restored deployment."
     },
     {
-      "section": "Backups",
-      "suggestion": "Backups are full hourly snapshots that include Revision content (up to 50 per Environment (target)) and audit segments, but no size or duration bound is given. At 10,000 Nodes and many Environments, a backup plus its cross-Region copy may approach the interval. Add a duration target, and an Open question on incremental backups."
-    },
-    {
-      "section": "RPO and RTO (rows for zone loss and State Store primary lost)",
-      "suggestion": "The 'Lag, 1 s or less (target)' RPO depends on State Store replication, which Ruralz does not control. Tie it to a replication-lag alert and to OQ-scalability-and-distributed-state-12, which covers failover reporting."
-    },
-    {
-      "section": "Runbooks > Region loss (home Region, step 6)",
-      "suggestion": "Before repointing the name Nodes dial, check the restored deployment against ceil(N / 5,000) + 1 replicas (hypothesis), counting relay-served Nodes, so the repoint cannot trigger a mass `shed` (`RZ-CP-010`)."
-    },
-    {
-      "section": "verify-docs",
-      "suggestion": "No FAIL lines. The WARN lines (FC-17, GD-1 to GD-14 and OQ-high-availability-and-disaster-recovery-2 have no matching roadmap items) need the roadmap owner to add game days and restore drills under M1 to M4."
+      "section": "RPO and RTO (formula block)",
+      "suggestion": "The re-enrollment formula line is tagged (hypothesis), but its parameter legend is tagged (target). Tag the legend values (t_drain about 30 s from ZG-4, the 30 to 60 s slow start) individually, so it is clear which inputs are objectives and which are estimates."
     }
   ],
   "ac_results": [
     {
       "ac": "Failure catalog has at least 12 rows covering Node, availability zone, Region, Ruralz Control leader, Raft quorum loss, State Store outage and partition, Git, OCI registry, IdP or JWKS, LLM provider, Plugin crash and DNS, with no blank cells.",
       "pass": true,
-      "note": "20 rows (FC-1 to FC-20); every required failure is present and no cell is blank. The catalog still omits a secret provider or Kubernetes API outage (L4X-3)."
+      "note": "21 rows (FC-1 to FC-21). The required domains map to FC-1, FC-3, FC-4 and FC-5, FC-6, FC-7, FC-10 and FC-11, FC-14, FC-15, FC-16, FC-17, FC-18 and FC-19. No blank cells."
     },
     {
       "ac": "Degraded modes covers Last-Known-Good, local rate-limit fallback and fail-open or fail-closed behavior, consistent with docs/architecture/04-control-plane-and-gitops.md and docs/architecture/11-scalability-and-distributed-state.md.",
       "pass": true,
-      "note": "All three sub-sections are present. Their bounds (N_serving × ceiling, the derived and frozen-count rows, the countless clamp) and the breaker values match Scalability and distributed state, and the detached behavior matches Control plane and GitOps. The count-collapse gap sits in the runbooks (L4X-1)."
+      "note": "All three subsections are present. The admission rows, breaker parameters, 5 s Last-Known-Good wait and frozen-count behavior match Scalability (consistency and accuracy bounds, State client) and Control plane (behavior during an outage)."
     },
     {
       "ac": "RPO and RTO contains a table of recovery objectives per component, each tagged (target).",
       "pass": true,
-      "note": "The table has 11 rows and every objective cell is tagged (target). Some objectives are internally inconsistent (L4X-4, L4X-5, L4X-7)."
+      "note": "The table has 12 component rows, and every row carries (target) objectives. The 'As above' traffic cell in the backup-loss row inherits a (target) cell, but its content is contradicted (see L4X-1)."
     },
     {
       "ac": "Runbooks covers region loss, Ruralz Control rebuild from Git and State Store rebuild.",
       "pass": true,
-      "note": "All three runbooks are present, plus Raft quorum loss. They have correctness gaps at scale (L4X-1, L4X-2, L4X-6)."
+      "note": "Region loss (non-home and home), Ruralz Control rebuild from Git and State Store rebuild are all present, plus the delivery hold and Raft quorum loss. L4X-1 is a content gap in the rebuild runbook, not a coverage failure."
     },
     {
       "ac": "Game days lists at least eight chaos experiments.",
       "pass": true,
-      "note": "14 experiments (GD-1 to GD-14); min_list_items passes."
+      "note": "15 experiments, GD-1 to GD-15, each with pass criteria and a milestone."
     },
     {
       "ac": "Backups uses ruralz control backup and ruralz control restore.",
       "pass": true,
-      "note": "Both commands appear, with a backup example and restore flags matching the CLI reference."
+      "note": "Both appear in Backups; the restore command also appears in the home-Region runbook."
     }
   ],
   "foundation_amendments": []
