@@ -1,0 +1,160 @@
+{
+  "lens": "L2 foundation-auditor",
+  "verdict": "revise",
+  "score": 6,
+  "blocking": [
+    {
+      "id": "L2-1",
+      "section": "Control plane upgrades; Verification runbook",
+      "issue": "The Prepare step, the skew table and the runbook allow Nodes at N before Ruralz Control is upgraded. Release, versioning and compatibility says a Node newer than the Control Store version is outside policy. Its Figure 2 also requires every Node at N-1 before the first replica is replaced. Acceptance criterion 3 requires the skew to match that document.",
+      "evidence": "Line 294: \"1. **Prepare.** Every replica reported a snapshot at the Control Store version and every Node runs N-1 or N\"; line 307: \"| Nodes within one Cluster | Any mix of N and N-1 |\"; line 385: \"| Before | `ruralz version`; `ruralz node list --cluster <name>` | Every Node at N-1 or N; ...\". Release skew table: \"Ruralz Control and Ruralz Gateway Nodes | N-1; N once the Control Store version is N | N-2 or older; newer than the Control Store version\" and \"Nodes within one Cluster | Any mix of N and N-1 | N-2 or older; newer than the Control Store version\"; Release Figure 2: \"Every Node at N-1?\" -> \"Upgrade lagging Nodes to N-1\".",
+      "fix": "Prepare: \"every Node runs N-1 (upgrade any N-2 Node to N-1 first)\". Skew table row: \"Any mix of N and N-1, never newer than the Control Store version\". Split the runbook's Before row in two: \"Before a Ruralz Control upgrade: every Node at N-1\" and \"Before a Node upgrade (after finalize): every Node at N-1 or N\"."
+    },
+    {
+      "id": "L2-2",
+      "section": "Rollback",
+      "issue": "For rollback after finalize, the document cites rule 6 of Ruralz Control upgrades but describes rule 5 (the restore). It also leaves out the Rollout and handover steps that rule 6 assigns to this document. Figure 4 sends a finalized Ruralz Control straight to Restore. If Nodes already run N, that leaves them newer than the restored N-1 Control Store version, which is outside the skew policy.",
+      "evidence": "Line 377: \"After finalize, returning to N-1 is a restore into an empty N-1 deployment that loses later writes and leaves Nodes detached until a revocation list arrives (rule 6 of [Ruralz Control upgrades](...)...): a recovery, not a rollback\"; Figure 4 lines 362-364: \"q1 -- \\\"Ruralz Control\\\" --> q5\" / \"q5 -- \\\"yes\\\" --> r7\". Release rule 6: \"If Nodes have already moved to N, rollback after finalize follows a fixed order. First, while still on the N deployment, roll out to every Cluster a Revision without N-only fields and let it reach `complete` ... Next, return every Node to N-1 by handover ... Only then restore ... Zero-downtime upgrades and hot reload owns the Rollout and handover steps\".",
+      "fix": "Cite rule 5 for the restore's consequences and rule 6 for the order. Add a Rollback table row, \"Ruralz Control after finalize, Nodes at N\", with three steps: (1) `ruralz rollout start` of a Revision without N-only fields to every Cluster until `complete`; (2) hand every Node over to N-1 (or set the N-1 image on Kubernetes); (3) restore per High availability and disaster recovery, first re-applying N-1's `ruralz-crds.yaml` and redeploying relays at N-1. In Figure 4, route q5 \"yes\" through a \"Nodes at N?\" decision to these steps before r7."
+    },
+    {
+      "id": "L2-3",
+      "section": "Guarantees",
+      "issue": "The Zero-Downtime Upgrade glossary row changes the meaning of the pack section 11 definition. That definition describes one mechanism: the new process binds with `SO_REUSEPORT` and reports ready, then the old process Drains. The added clause brings a Kubernetes Pod replacement under the term, but there the old Pod Drains first and a new Pod then boots, with no shared reuseport group (Figure 3: \"Draining --> Booting: old Pod exited\"). Pack section 11 allows rewording only when the meaning is unchanged, and changes after the freeze need an ADR or an Open question (pack section 14).",
+      "evidence": "Line 47: \"| Zero-Downtime Upgrade | Replacing the `ruralzd` binary: the new process binds with `SO_REUSEPORT` and reports ready, then the old process Drains; in place this is a handover, on Kubernetes a Pod replacement |\". Pack section 11: \"Zero-Downtime Upgrade | Replacing the `ruralzd` binary: the new process binds with `SO_REUSEPORT` and reports ready, then the old process Drains.\"",
+      "fix": "Use the pack definition verbatim in the row. Below the table, say that on Kubernetes (T4) the chart replaces Pods by Drain and restart, which keeps the Cluster serving but is not a per-Node Zero-Downtime Upgrade. Rename the Binary upgrades table path \"Replacement\" accordingly. If the term must cover both paths, add an Open question proposing a pack section 11 amendment instead of changing the definition here."
+    },
+    {
+      "id": "L2-4",
+      "section": "Configuration hot reload > Validation gate",
+      "issue": "Step 7 contradicts two documents. It requires the requested Capabilities to equal `Plugin.spec`, but the Configuration model requires only a subset. It also classes every mismatch as deterministic, but Release, versioning and compatibility says an ABI level above the Node's is a NACK that Ruralz Control cannot reproduce, which it treats as transient and quarantines.",
+      "evidence": "Line 78: \"| 7 | Plugin artifacts fetched by digest, signed, with ABI, Phases and Capabilities equal to `Plugin.spec` and an ABI level at or below the Node's ... | RZ-CFG-028, RZ-CFG-033 | Deterministic for a mismatch; transient for a fetch failure |\". Configuration model: \"checks that its ABI and exported Phases equal `spec.abi` and `spec.phases` and that its requested Capabilities are a subset of `spec.capabilities`\". Release, Plugin ABI rule 2: \"an older Node NACKs with RZ-CFG-028, which Ruralz Control cannot reproduce, so it quarantines the Node as transient\".",
+      "fix": "Reword the check: \"ABI and exported Phases equal `spec.abi` and `spec.phases`, requested Capabilities a subset of `spec.capabilities`, ABI level at or below the Node's\". Set the class column to: \"Deterministic for an artifact that disagrees with its spec; transient for a fetch failure or an ABI level above this Node's (not reproducible by Ruralz Control; rule 2 of Plugin ABI versioning)\"."
+    },
+    {
+      "id": "L2-5",
+      "section": "Binary upgrades; Binary upgrades > Kubernetes replacement",
+      "issue": "The document says a Kubernetes rolling update replaces one Pod at a time. Deployment topologies configures the Node StatefulSet with `maxUnavailable` matching the PodDisruptionBudget, which is one zone's share at minimum scale. The document's own reconnect guidance (line 247) also assumes one zone's share at a time.",
+      "evidence": "Line 132: \"| Replacement | Kubernetes (T4) | StatefulSet rolling update: preStop, Drain, new Pod | One Pod at a time, within the PodDisruptionBudget |\"; line 251: \"Each step removes one Pod for about 40 to 45 s (hypothesis)\". Deployment topologies T4: \"Node StatefulSet | `podManagementPolicy: Parallel` ...; `RollingUpdate`, `maxUnavailable` matching the PodDisruptionBudget\" and \"PodDisruptionBudgets | ... for Nodes, one zone's share at minimum scale (target)\".",
+      "fix": "Replace \"One Pod at a time\" with \"Up to `maxUnavailable` Pods at a time, which the chart sets to the PodDisruptionBudget: one zone's share at minimum scale (target)\". Reword line 251 to \"Each step removes up to one zone's share of Pods for about 40 to 45 s (hypothesis)\", and keep the `minReplicas` headroom sentence."
+    },
+    {
+      "id": "L2-6",
+      "section": "Binary upgrades > Long-lived WebSocket and SSE connections; Verification runbook",
+      "issue": "The document ends work at the Drain deadline with `RZ-RT-014` as if that were settled behavior. The Data plane registry, which owns RT codes under pack 8.6, defines `RZ-RT-014` only as the end of a pinned snapshot's grace period, and Release forbids a code changing meaning. Observability's `ruralz_snapshot_retirement_ended_total` also counts `RZ-RT-014` as retirement, so reusing the code blurs that metric and the runbook's 5xx check.",
+      "evidence": "Line 245: \"| Other requests | GOAWAY; `Connection: close` | Finish | `RZ-RT-014` (OQ-zero-downtime-upgrades-and-hot-reload-2) |\"; line 389: \"5xx and `RZ-RT-014` counts\"; OQ-2 option \"(a) Reuse `RZ-RT-014`\". Data plane RZ-RT registry: \"| RZ-RT-014 | 503 before commit; stream ended after | The pinned snapshot's grace period ended |\". Release versioned surfaces: \"Codes never change meaning or get reused\".",
+      "fix": "In the table, write \"503 with an `RZ-RT` code that Data plane registers (OQ-zero-downtime-upgrades-and-hot-reload-2)\" instead of `RZ-RT-014`. In the runbook, count \"5xx, `RZ-RT-014` and the Drain-deadline code\". In OQ-2, replace option (a) with \"(a) Data plane widens RZ-RT-014's registered meaning to cover the Drain deadline; (b) a new `RZ-RT` code (recommended)\"."
+    },
+    {
+      "id": "L2-7",
+      "section": "apiVersion migrations",
+      "issue": "The Convert step's command is missing a flag that the CLI reference requires. According to the CLI reference, conversion renders both trees for each Environment in the required `--environments` file. As written, the command is a usage error (exit 2).",
+      "evidence": "Line 328: \"2. **Convert.** `ruralz bundle render --api-version ruralz/v1beta1 --output-dir <dir>` converts base resources and overlays together\". CLI and API surface: \"`ruralz bundle render --api-version VERSION --output-dir DIR` converts sources instead ... It then renders both trees per Environment in the required `--environments`, exiting 1 unless every diff is empty.\"",
+      "fix": "Write `ruralz bundle render --api-version ruralz/v1beta1 --output-dir <dir> --environments <file>`. Add that it exits 1 unless every Environment's diff is empty, so this step already checks the equal-digest proof that step 3 repeats in CI."
+    }
+  ],
+  "non_blocking": [
+    {
+      "section": "Binary upgrades > Drain timeline defaults",
+      "suggestion": "\"Drain deadline\" has two values. The table puts it at 25 s after SIGTERM (\"20 s after stop-accepting\"), but line 204 says \"45 s against 5 s plus 30 s\", where 30 s is the exit time. Say \"the preStop wait plus the exit bound (Drain deadline plus flush)\", so the MUST matches Deployment topologies' wording and the table."
+    },
+    {
+      "section": "Binary upgrades > In-place handover",
+      "suggestion": "Figure 1 and step 3 hard-code \"8080, 8443 and 9901\". The new process binds every Gateway `listeners[].port` and `admin.port` of the active Revision; name those fields and give 8080, 8443 and 9901 as the defaults (pack section 2)."
+    },
+    {
+      "section": "Configuration hot reload > Validation gate",
+      "suggestion": "Step 6's code list leaves out codes the shared validation library also raises, such as RZ-CFG-016, RZ-CFG-021, RZ-CFG-023, RZ-CFG-030 and RZ-CFG-032. List them, or say \"every code the Configuration model raises from reference resolution onward\", so the enumeration in acceptance criterion 5 is complete. Also mark steps 2 and 3 as not applicable to a watched directory, which has no expected digest and no signature (pack 8.14)."
+    },
+    {
+      "section": "Binary upgrades > Node lifecycle during an upgrade",
+      "suggestion": "Figure 3's state names hard-code N. \"NotReady --> ServingNew\" is wrong for an N-1 rollback that hit RZ-CFG-024, and the Kubernetes path passes through \"Serving on N, old process finishing its Drain\", although no old process remains. Use version-neutral names (\"Serving on the target version\") and a separate end state for the Kubernetes path."
+    },
+    {
+      "section": "Verification runbook",
+      "suggestion": "\"`ruralz_listener_open_connections` per process\": Observability gives this gauge only the `listener` and `protocol` labels. After steering, 9901 reaches only the new process, so the old process cannot be scraped. Name a signal that can be observed, such as the old process's exit time or the log line it writes at Drain end, or add a proposed label through Observability."
+    },
+    {
+      "section": "Summary; Binary upgrades",
+      "suggestion": "\"Hot Reload and binary upgrades are Planned (M1)\": only the in-place handover is Planned (M1); Kubernetes replacement is Planned (M2), and T6 edge sites, listed under the handover path, are Planned (M2) in Deployment topologies. Qualify both places."
+    },
+    {
+      "section": "Binary upgrades > Long-lived WebSocket and SSE connections",
+      "suggestion": "Multi-protocol's Termination per protocol also covers the MQTT embedded broker (DISCONNECT 0x8B, Planned (M4)) and event ingress. Add a row, or state that those are out of scope for this table."
+    },
+    {
+      "section": "Binary upgrades > Kubernetes replacement; Drain timeline defaults",
+      "suggestion": "\"the preStop `sleep` handler, which needs no binary in the image\" and \"EndpointSlice updates, which run concurrently with termination\" go beyond the research file. It lists the handler types, and gives the concurrency point only as its own Analysis. Mark both as analysis, or add the supporting source text to docs/_meta/research/scalability-patterns.md."
+    },
+    {
+      "section": "Control plane upgrades",
+      "suggestion": "The verifier warns that the \"Relays ... Planned (M4)\" step has no matching item under M4 in docs/roadmap/01-roadmap-and-milestones.md. Coordinate with the roadmap owner so that the regional relay upgrade appears there."
+    },
+    {
+      "section": "Guarantees",
+      "suggestion": "ZG-1 says only a stream that outlives K + 1 activations \"and a 30 s grace\" ends. Data plane closes such streams at once and ends only non-stream work after the grace (see L1-3). Align the wording with Data plane's Bounded retirement rule."
+    },
+    {
+      "section": "Whole document",
+      "suggestion": "The body is 4,265 words by the verifier's rule, against a 4,500 maximum. Keep the fixes compact, for example by replacing prose with the added Rollback table row, and do not delete text that resolved earlier findings."
+    }
+  ],
+  "ac_results": [
+    {
+      "ac": "Binary upgrades states the drain timeline defaults (readiness failure, preStop, drain timeout, HTTP/2 GOAWAY) with values tagged (target).",
+      "pass": true,
+      "note": "The Drain timeline defaults table and Figure 2 give readiness failure at 0 s, preStop 5 s, Drain deadline 20 s after stop-accepting and GOAWAY at 5 s plus a final one within 1 s, all tagged (target). Line 204 uses \"Drain deadline\" loosely (non-blocking)."
+    },
+    {
+      "ac": "Binary upgrades defines the strategy for long-lived WebSocket and SSE connections.",
+      "pass": true,
+      "note": "The Long-lived WebSocket and SSE connections table covers close 1001, SSE retry with Last-Event-ID, AI SSE settlement, gRPC and the jitter window. The Drain-deadline code is misused (L2-6)."
+    },
+    {
+      "ac": "Control plane upgrades covers Raft rolling upgrades, and the version skew matches docs/engineering/04-release-versioning-and-compatibility.md (N and N-1).",
+      "pass": false,
+      "note": "The Raft rolling upgrade is covered, but Prepare, the skew table and the runbook allow Nodes at N before the Ruralz Control upgrade, which Release puts outside policy (L2-1)."
+    },
+    {
+      "ac": "Rollback takes three steps or fewer.",
+      "pass": false,
+      "note": "Every listed row has three steps or fewer. However, the after-finalize path that Release rule 6 assigns to this document is missing and misattributed, and Figure 4 goes straight to restore (L2-2), so ZG-8 does not hold for every rollback this document owns."
+    },
+    {
+      "ac": "Configuration hot reload enumerates the validation gate checks and covers atomic swap, partial failure and Plugin hot-swap.",
+      "pass": true,
+      "note": "The 11-step gate table and the Atomic swap, Partial failure and Plugin hot-swap subsections are present, and a table is in the section. Step 7 misstates the Capability rule and its NACK class (L2-4); the step 6 code list is incomplete (non-blocking)."
+    },
+    {
+      "ac": "Binary upgrades follows ADR-0015 (SO_REUSEPORT, drain and readiness gating, no socket passing).",
+      "pass": true,
+      "note": "The in-place handover uses SO_REUSEPORT, CBPF steering, a Unix-socket readiness report and Drain, with socket passing Not planned. The glossary row stretches Zero-Downtime Upgrade to Kubernetes Pod replacement (L2-3)."
+    },
+    {
+      "ac": "machine_checks: required_terms (SO_REUSEPORT, GOAWAY, preStop, readiness, N-1, (target), ADR-0015) and has_table in Configuration hot reload",
+      "pass": true,
+      "note": "The verifier reports no FAIL lines for this document; the only WARNs are missing ADR and HA/DR files and a roadmap M4 cross-check."
+    },
+    {
+      "ac": "H2 outline: Summary, Scope and non-goals, outline_h2 in order, Open questions last",
+      "pass": true,
+      "note": "The H2s match exactly and in order."
+    },
+    {
+      "ac": "Required diagrams: sequenceDiagram (SO_REUSEPORT handoff with drain), gantt (drain timeline defaults), stateDiagram-v2 (Node lifecycle during an upgrade), each captioned",
+      "pass": true,
+      "note": "Figures 1 to 3 are present with italic captions, plus Figure 4, an extra flowchart."
+    },
+    {
+      "ac": "length_words 1500 to 4500; Summary at most 120 words",
+      "pass": true,
+      "note": "The body has 4,265 words by the verifier's countWords rule; the Summary has 106 words."
+    },
+    {
+      "ac": "required_terms (Hot Reload, Drain, Zero-Downtime Upgrade, Revision, Rollout, Last-Known-Good, Plugin, Control Store, State Store, Node) and ADRs ADR-0005, ADR-0006, ADR-0007, ADR-0015 cited",
+      "pass": true,
+      "note": "All terms are present and all four ADRs are linked; front matter adrs and milestone_tags_used are consistent with the body."
+    }
+  ],
+  "foundation_amendments": []
+}

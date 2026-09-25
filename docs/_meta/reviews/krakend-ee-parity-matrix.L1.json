@@ -1,0 +1,128 @@
+{
+  "lens": "L1",
+  "verdict": "revise",
+  "score": 7,
+  "blocking": [
+    {
+      "id": "L1-1",
+      "section": "Services connectivity (Direct WebSockets row, Notes/ADR)",
+      "issue": "The row turns a hypothesis from the owning document into a target and a ceiling. Multi-protocol, the owner, gives an estimated cost of an idle direct session, tagged (hypothesis), and gives no upper bound. The matrix states it as a guaranteed maximum, tagged (target). This contradicts a dependency and misstates a performance figure.",
+      "evidence": "Matrix line 260: \"Session memory of 96 KiB or less (target)\". docs/architecture/07-multi-protocol.md line 293: \"An idle direct session costs about 96 KiB (hypothesis) in buffers and stacks\".",
+      "fix": "Replace the cell text with: \"An idle direct session costs about 96 KiB (hypothesis) ([Multi-protocol](../architecture/07-multi-protocol.md#backpressure-and-per-message-policies))\". Do not state a ceiling unless Performance budgets and benchmarking owns one."
+    },
+    {
+      "id": "L1-2",
+      "section": "Traffic management (Service rate limit and Proxy rate limit rows); Beyond parity (Fail-open distributed Rate Limits row)",
+      "issue": "Two rows map KrakenD's service-wide and proxy limits to a `ratelimit` with a constant key and claim unqualified parity. A constant key is one GCRA key, so every locally admitted request in the Cell runs a Lua EVAL on one State Store shard. That is hidden coordination on the request path. The owning documents treat it as a known failure mode that needs fields not yet decided. Above about 25,000 per second (hypothesis) such a key MUST use `localOnly` mode (OQ-traffic-management-and-resilience-1 (c), amending pack 8.8). Above about 100,000 per second (hypothesis), every Node's shard breaker opens and co-tenant keys apply `failureMode`. A service rate limit is the most likely key to be hot, and the matrix gives evaluators no warning.",
+      "evidence": "Matrix line 284: \"Service rate limit | No | Yes | Planned (M1) | Gateway-scoped `ratelimit` with a constant `config.key` | ([source](...))\"; line 288: \"`ratelimit` with a constant key on each `Route` reaching the `Upstream`\". docs/architecture/09-traffic-management-and-resilience.md line 482: \"Hot constant key saturates a shard | `ratelimit`; co-tenant keys | ... above about 100,000 per second (hypothesis) every Node's shard breaker opens\". docs/architecture/11-scalability-and-distributed-state.md line 294: \"A key whose `requests` exceed 25% of one shard's calls, about 25,000 per second (hypothesis), MUST use `localOnly` mode\".",
+      "fix": "Add this to the Notes/ADR cells of Service rate limit and Proxy rate limit: \"A constant key is one State Store hot key: a limit above about 25,000 requests per second (hypothesis) needs a declared per-Node ceiling or `localOnly` mode, both pending OQ-traffic-management-and-resilience-1 (blocking M1)\". Mark Service rate limit \"Partial parity\" until that Open question closes, and add it to the Partial parity paragraph in Gaps and non-goals. In Beyond parity, qualify \"bounded over-admission\" with \"at most N × per-Node ceiling per window (target), with the ceiling field pending OQ-traffic-management-and-resilience-1\"."
+    },
+    {
+      "id": "L1-3",
+      "section": "Services connectivity (SOAP integration row); Open questions (OQ-krakend-ee-parity-matrix-1)",
+      "issue": "The mechanism cannot be built with the declared CEL environment. The row has `transform.request` and `transform.response` \"read XML envelopes\". The Configuration model exposes bodies to CEL only as JSON (`body` (JSON as `dyn`)). Only the standard library plus the strings and encoders extensions are enabled, and no XML decoder exists anywhere in the design. CEL string functions can build an XML request, but they cannot read an XML response into fields. OQ-krakend-ee-parity-matrix-1 lists \"SOAP envelopes\" among the things its option (a) \"CEL-based schema\" would cover, so the gap is hidden rather than recorded.",
+      "evidence": "Matrix line 258: \"`transform.request` and `transform.response` build and read XML envelopes for an `http` `Upstream`\". docs/architecture/02-configuration-model.md, Variables table: \"`request` | ... `body` (JSON as `dyn`, body Phases and composition only)\"; Limits: \"The standard library plus the strings and encoders extensions are enabled\".",
+      "fix": "Change the Notes/ADR cell to: \"Partial parity: CEL can build the XML request, but reading an XML response needs an XML decoder for `response.body`, which the Configuration model lacks (OQ-krakend-ee-parity-matrix-1); meanwhile a `plugin` Policy\". Add \"XML decoding of bodies\" as an explicit sub-question and option in OQ-krakend-ee-parity-matrix-1. Add SOAP integration to the Partial parity paragraph."
+    },
+    {
+      "id": "L1-4",
+      "section": "Security (Security Policies Engine row, Notes/ADR)",
+      "issue": "The row says KrakenD policy macros such as `geoIP()` \"map to CEL variables\". No geo variable exists. The Configuration model's CEL variables are `request`, `source` (`ip`, `port`, `tlsVersion`, `clientCertSubject`), `route`, `consumer`, `auth`, `response`, `error`, `upstream`, `attempt`, `steps`, `ai`, `duration`, `now` and `self`. `authz.geoip` only allows or denies by country in its own Policy, and header enrichment for Upstreams is an Open question of Security and identity. So a KrakenD rule that combines `geoIP()` with other conditions in one expression cannot be expressed. The row implies a variable that is not defined and hides a parity gap.",
+      "evidence": "Matrix line 174: \"Partial parity: request Phases only. Macros such as `geoIP()` map to CEL variables and `authz.geoip`\". Foundation pack section 10: \"`authz.geoip` allows or denies by ISO 3166 country from a local MaxMind-format database file ... header enrichment for Upstreams is an Open question of Security and identity\".",
+      "fix": "Reword to: \"Partial parity: request Phases only; `geoIP()` maps only to a separate `authz.geoip` country allow or deny, since no CEL variable carries the country, so rules combining geography with other conditions need a `plugin` Policy; other macros map to the `request`, `source` and `auth` CEL variables\". If a country CEL variable is wanted, add an Open question for it. Do not imply that one exists."
+    },
+    {
+      "id": "L1-5",
+      "section": "Observability (Elastic Logstash row, Ruralz mechanism)",
+      "issue": "Acceptance criterion 7 fails. The mechanism cell names no kind, Policy type or Filter from the Configuration model, although the Summary claims \"Each row names the kind, Policy type or Filter that carries it\". The Syntax validation and linting row and the Multi-format configuration row are borderline: each names only \"every kind\".",
+      "evidence": "Matrix line 310: \"| Elastic Logstash | Yes | Yes | Planned (M1) | JSON access log records on stdout, or OTLP logs | ...\".",
+      "fix": "Change the mechanism to \"Access log records from `Gateway` `telemetry.accessLog` as JSON on stdout, or OTLP logs from `Gateway` `telemetry.otlp`\". In the Syntax validation and Multi-format rows, name the kinds (for example \"every kind, from `Gateway` to `Cluster`\")."
+    }
+  ],
+  "non_blocking": [
+    {
+      "section": "Traffic management (Bot detector row)",
+      "suggestion": "KrakenD's bot detector matches allow and deny lists and regex patterns, and caches results in an LRU. Ruralz evaluates one `authz.cel` rule per request with no cache. The Configuration model rejects any expression whose static cost at a nominal 256-byte string exceeds 10,000 units (target, RZ-CFG-015), and cel-go estimates the cost of `matches()` from the string size multiplied by the pattern size, so a realistic combined bot pattern list is likely to fail validation. Run a spike, then mark the row Partial parity and state the practical pattern bound, or point large lists to a `plugin` Policy."
+    },
+    {
+      "section": "Routing (Catchall (fallback upstream) row)",
+      "suggestion": "\"A lowest-ranked `Route`\" does not follow from Data plane precedence. A `when`-only Route has constraint count 1 at rank 5. It ties with any other Route that has no host and no path and sets one constraint, and rank 6 (`metadata.name` byte order) then decides. Say that the catch-all must be the only Route with no host and no path, or that authors must name it to sort last."
+    },
+    {
+      "section": "Services connectivity (WebSockets multiplexer and MCP Gateway rows)",
+      "suggestion": "Multi-protocol keeps one Upstream connection per Route and Endpoint *per Node*, so add \"per Node\". Also note head-of-line risk: direct mode pushes back through TCP, so a slow session on a shared connection can stall its siblings. OQ-multi-protocol-6 should state the envelope's flow-control rule. For MCP Gateway, AI/LLM gateway gives per-client affinity through `ring-hash` on `consumer.name` today, with only per-session affinity left to OQ-ai-llm-gateway-10. Name that mechanism so a stateless data plane is not misread as offering none."
+    },
+    {
+      "section": "Routing (Traffic shadowing/mirroring row)",
+      "suggestion": "Mirroring duplicates the request body and a fire-and-forget leg. State that mirrored legs draw from `limits.maxBufferedBytes` and the in-flight units, and are dropped with a counter when those are exhausted. This makes clear that OQ-traffic-management-and-resilience-12 must not create unbounded goroutines or buffers."
+    },
+    {
+      "section": "Traffic management (Concurrent calls row)",
+      "suggestion": "KrakenD's concurrent calls fire N requests at once. Ruralz hedging waits a delay, is limited to idempotent requests with replayable bodies and spends retry budget. Mark the row Partial parity and note that OQ-traffic-management-and-resilience-5's current option (b) is \"no hedging\"."
+    },
+    {
+      "section": "API governance and monetization (API governance row)",
+      "suggestion": "KrakenD `governance/quota` supports `weight_key` and `weight_strategy` and tiered quotas. Ruralz `quota` has no weighted costs or calendar windows (OQ-traffic-management-and-resilience-10, current option (c)). Since this row moves to M1, mark it Partial parity and cite that Open question."
+    },
+    {
+      "section": "Services connectivity (intro and Not planned rows)",
+      "suggestion": "OQ-multi-protocol-14 covers only AMQP, Google Cloud Pub/Sub and Amazon SQS, and it is still open (current option (a)). Azure Service Bus and Amazon SNS fall under it only as \"cloud queues\", and Lambda falls under OQ-krakend-ee-parity-matrix-10. Say \"six rows under OQ-multi-protocol-14's current option (a) and Lambda under OQ-krakend-ee-parity-matrix-10\", and do not present option (a) as decided."
+    },
+    {
+      "section": "Observability (OpenTelemetry and vendor rows at Planned (M1)); Traffic management (IP filtering row)",
+      "suggestion": "TLS for OTLP export is blocked at M1 by OQ-observability-2, and Observability tickets a cleartext OTLP endpoint (TB-12). Cite OQ-observability-2 on the OpenTelemetry row. For IP filtering, Security and identity says deployments behind a load balancer SHOULD NOT rely on `source.ip` until OQ-security-and-identity-6 closes. Say this in the Notes cell, because most evaluators run behind one."
+    },
+    {
+      "section": "Authentication and authorization (Token revocation bloom filter row)",
+      "suggestion": "KrakenD's bloom filter has constant memory for any number of tokens. State the bound Security and identity sets on the signed revocation list's size and memory, or cite the Open question that owns it, so evaluators can compare scale."
+    }
+  ],
+  "ac_results": [
+    {
+      "ac": "Method and snapshot states the source (krakend.io/features), the snapshot date 2026-09-23 and the edition KrakenD EE 2.13.",
+      "pass": true,
+      "note": "The Method and snapshot prose and its table state all three, with source URLs."
+    },
+    {
+      "ac": "Each of the ten category sections contains a table with columns Feature, KrakenD CE, KrakenD EE, Ruralz status, Ruralz mechanism and Notes/ADR.",
+      "pass": true,
+      "note": "All ten tables have exactly these headers."
+    },
+    {
+      "ac": "Every feature row of docs/_meta/research/krakend-parity.md (153 rows at the snapshot) appears, for at least 120 rows in total.",
+      "pass": true,
+      "note": "153 rows counted, with names verbatim. The verifier reported no FAIL."
+    },
+    {
+      "ac": "No matrix table has a blank cell.",
+      "pass": true,
+      "note": "No blank cells. The verifier passed."
+    },
+    {
+      "ac": "KrakenD CE and KrakenD EE cells use only Yes, Partial, No or N/A, and Ruralz status cells use only Planned (M0) to Planned (M5) or Not planned.",
+      "pass": true,
+      "note": "All values are in the allowed sets. CE and EE values match the research's Both/EE legend."
+    },
+    {
+      "ac": "Every KrakenD EE-only feature is Planned (Mx) and free in Ruralz, or Not planned with a reason in Notes/ADR.",
+      "pass": true,
+      "note": "71 EE-only rows: 68 Planned and 3 Not planned (Lua advanced helpers, NTLM authentication, New Relic native SDK), each with a reason."
+    },
+    {
+      "ac": "Every Ruralz mechanism names a kind, Policy or Filter defined in docs/architecture/02-configuration-model.md.",
+      "pass": false,
+      "note": "The Elastic Logstash mechanism names none (L1-5). The Syntax validation and Multi-format rows say only \"every kind\". The Security Policies Engine row implies an undefined geo CEL variable (L1-4)."
+    },
+    {
+      "ac": "Summary counts gives counts per category and per Ruralz status, and the counts sum to the total number of rows.",
+      "pass": true,
+      "note": "Recomputed from the tables: M0 1, M1 81, M2 19, M3 21, M4 6, M5 12, Not planned 13; total 153; 71 EE-only. Every category row matches."
+    },
+    {
+      "ac": "Gaps and non-goals maps the KrakenD EE support and services offerings to Ruralz Cloud and commercial support.",
+      "pass": true,
+      "note": "The Enterprise support and services table maps all 12 offerings from the research to a channel."
+    }
+  ],
+  "foundation_amendments": []
+}

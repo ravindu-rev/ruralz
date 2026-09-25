@@ -18783,5 +18783,1259 @@
 "L3-8: M1 criterion 7 and M2 criterion 6 now use the feature-based rule. M1 is the 30 rows whose Blocking column names M1, plus OQ-configuration-model-8 and OQ-security-and-identity-2, -3 and -15 (`auth.basic`, `auth.mtls`). M2 is the 47 rows that name M2, plus OQ-tech-stack-and-libraries-24 (`authz.geoip`), OQ-security-and-identity-10 (`vault`) and -28 (`auth.upstream-sigv4`). M3 adds OQ-deployment-topologies-13. M4 adds OQ-deployment-topologies-17 and OQ-system-overview-16. The body is 3,749 words, within the 3,750 maximum. I made room with wording cuts outside the coverage-bearing scope items and checked each cut against the verify-docs milestone check. last_updated is 2026-09-25. For docs/roadmap/01-roadmap-and-milestones.md, verify-docs reports no FAIL; the only non-milestone WARNs are the 2 expected broken links to documents that do not exist yet. markdownlint-cli2 reports 0 issues. verifier_clean: true."
 ],
 "disputed": []
+},
+"write:zero-downtime-upgrades-and-hot-reload": {
+"path": "/home/user/ruralz/docs/operations/02-zero-downtime-upgrades-and-hot-reload.md",
+"word_count": 4265,
+"h2s": [
+"Summary",
+"Scope and non-goals",
+"Guarantees",
+"Configuration hot reload",
+"Binary upgrades",
+"Control plane upgrades",
+"State Store upgrades",
+"apiVersion migrations",
+"Rollback",
+"Verification runbook",
+"Open questions"
+],
+"diagram_count": 4,
+"oq_ids": [
+"OQ-zero-downtime-upgrades-and-hot-reload-1",
+"OQ-zero-downtime-upgrades-and-hot-reload-2",
+"OQ-zero-downtime-upgrades-and-hot-reload-3",
+"OQ-zero-downtime-upgrades-and-hot-reload-4",
+"OQ-zero-downtime-upgrades-and-hot-reload-5",
+"OQ-zero-downtime-upgrades-and-hot-reload-6",
+"OQ-zero-downtime-upgrades-and-hot-reload-7",
+"OQ-zero-downtime-upgrades-and-hot-reload-8",
+"OQ-zero-downtime-upgrades-and-hot-reload-9"
+],
+"verifier_clean": true
+},
+"write:capacity-planning": {
+"path": "/home/user/ruralz/docs/operations/03-capacity-planning.md",
+"word_count": 4330,
+"h2s": [
+"Summary",
+"Scope and non-goals",
+"Planning inputs",
+"Capacity model",
+"Worked examples",
+"Headroom and failure capacity",
+"Autoscaling policies",
+"State Store sizing",
+"Ruralz Control sizing",
+"Cost template",
+"Re-planning triggers",
+"Open questions"
+],
+"diagram_count": 1,
+"oq_ids": [
+"OQ-capacity-planning-1",
+"OQ-capacity-planning-2",
+"OQ-capacity-planning-3",
+"OQ-capacity-planning-4",
+"OQ-capacity-planning-5",
+"OQ-capacity-planning-6"
+],
+"verifier_clean": true
+},
+"review:zero-downtime-upgrades-and-hot-reload:L1": {
+"lens": "L1 feasibility-skeptic",
+"verdict": "revise",
+"score": 5,
+"blocking": [
+{
+"id": "L1-1",
+"section": "Binary upgrades > In-place handover",
+"issue": "The new process joins every SO_REUSEPORT group before it is ready or accepted. Once a TCP socket listens, or a UDP socket binds, the kernel hashes new connections to it. That breaks readiness gating (ADR-0015) and ZG-3 in three ways. First, some 9901 probes reach the new process while it is still warming, and its /readyz returns 503 until warm-up ends. Second, client connections queue on a process that has not been accepted, and if the handover is refused or times out (60 s), the new process exits and its queued connections are reset. Third, half of the in-flight QUIC flows on UDP 8443 break at bind time, even if the handover is later refused. Steering happens only in step 5, which is too late.",
+"evidence": "Line 174: \"3. **Bind and gate.** It binds 8080, 8443 and 9901 with `SO_REUSEPORT` (in-flight QUIC on UDP 8443 is lost), warms, then reports version, format markers and active digest over the owner-only Unix socket\"; line 175: \"A new process not accepted within 60 s (target) exits; the old one never started draining.\"; line 53: \"ZG-3 | An in-place handover refuses no new TCP connection and keeps the Node's `/readyz` at 200 throughout\"",
+"fix": "Specify pinning. The lock holder attaches, at startup and after every listener bind, an `SO_ATTACH_REUSEPORT_CBPF` program to each of its reuseport groups (8080, 8443 TCP and UDP, 9901) that returns its own socket index, so a new binder gets no connection or datagram until step 5 replaces the program with one that returns the new socket's index. Alternatively, the new process creates TCP sockets with x/sys/unix socket and bind and calls listen only after acceptance, but UDP still needs the pin. Update Figure 1 and steps 3 to 5 to match. State that QUIC flows are lost at steering, not at bind. Add a refused-handover case and a 9901 probe check to V-3."
+},
+{
+"id": "L1-2",
+"section": "Binary upgrades > In-place handover; Drain timeline defaults",
+"issue": "In a handover, the old process fails /readyz as soon as it starts draining. CBPF steers only new connections, so a balancer that reuses its health-check connection (a keep-alive HTTP checker) keeps probing the old process, gets 503 and marks the Node down. That violates ZG-3 and the V-3 pass criterion of 200 throughout a handover.",
+"evidence": "Figure 1: \"Old->>Old: accept the queued connections, close listeners, fail readyz\"; Drain table line 190: \"0 s | Readiness failure: `/readyz` returns 503; heartbeats set `draining`\"; line 389: \"200 throughout a handover\"",
+"fix": "Define the handover variant of the readiness step. After steering, the old process first closes its idle 9901 connections, then answers any in-flight admin request with `Connection: close`, and only then reports draining. Its /readyz is never served as 503 on a connection it keeps open, since the accepted new process holds readiness for the Node. Add a keep-alive health checker to V-3."
+},
+{
+"id": "L1-3",
+"section": "Guarantees",
+"issue": "ZG-1 contradicts the document's own Atomic swap text and Data plane. Streams pinned to a snapshot K + 1 activations old are closed at once, with no grace. Only non-stream requests that are still pinned get the 30 s grace before they end with RZ-RT-014.",
+"evidence": "Line 51: \"ZG-1 | A Hot Reload drops no in-flight request; only a stream that outlives K + 1 further activations and a 30 s grace ends, K = 2 (target)\". Data plane: \"When a third would be retired, the oldest becomes closing: its streams end at once (WebSocket close 1001, gRPC trailers ... UNAVAILABLE, an SSE end event with a retry hint). After a grace period of 30 s (target) it becomes ending, and anything still pinned ends with `RZ-RT-014`\"",
+"fix": "Reword ZG-1: \"A Hot Reload drops no in-flight request. A stream pinned to a snapshot K + 1 activations old receives a going-away close at once, and a request still pinned 30 s later (target) ends with RZ-RT-014, K = 2 (target).\" Also note Data plane rule 6: during a burst, activation waits for the closing snapshot to be freed."
+},
+{
+"id": "L1-4",
+"section": "Control plane upgrades; Verification runbook",
+"issue": "The Prepare step allows Nodes at N before Ruralz Control is upgraded. Under the Release skew table, a Node newer than the Control Store version is outside policy, and Release Figure 2 requires every Node at N-1 before the first replica is replaced. The runbook's generic Before row repeats the error.",
+"evidence": "Line 294: \"1. **Prepare.** Every replica reported a snapshot at the Control Store version and every Node runs N-1 or N\"; line 385: \"Every Node at N-1 or N\". Release skew table: \"Ruralz Control and Ruralz Gateway Nodes | N-1; N once the Control Store version is N | N-2 or older; newer than the Control Store version\"; Figure 2: \"Every Node at N-1?\" / \"Upgrade lagging Nodes to N-1\"",
+"fix": "In Prepare, require every Node at N-1 and upgrade any N-2 Node first. Split the runbook Before row into two rows: before a Ruralz Control upgrade (every Node at N-1) and before a Node upgrade after finalize (every Node at N-1 or N)."
+},
+{
+"id": "L1-5",
+"section": "Rollback",
+"issue": "After finalize, Figure 4 sends the operator straight to restore. It omits rule 6 of Ruralz Control upgrades, which Release assigns to this document: while still on N, roll out a Revision without N-only fields to every Cluster until complete, then return every Node to N-1 by handover, and only then restore (re-applying N-1's ruralz-crds.yaml). Following Figure 4 while Nodes run N leaves them newer than the restored Control Store version, which is outside the skew policy.",
+"evidence": "Figure 4: `q5 -- \"yes\" --> r7` with r7 \"Restore: High availability and disaster recovery\"; line 377: \"After finalize, returning to N-1 is a restore into an empty N-1 deployment ... a recovery, not a rollback\". Release rule 6: \"If Nodes have already moved to N, rollback after finalize follows a fixed order ... [Zero-downtime upgrades and hot reload] owns the Rollout and handover steps\"",
+"fix": "Add a Figure 4 branch, \"Nodes already on N?\", that leads to \"Roll out a Revision without N-only fields to every Cluster, then hand over every Node to N-1\" before r7. In the prose, write out the rule 6 Rollout and handover steps that this document owns, with the CRD re-apply order, and link HA/DR for the restore itself."
+},
+{
+"id": "L1-6",
+"section": "Guarantees; Rollback",
+"issue": "ZG-8 promises that every rollback this document owns takes three steps or fewer. Past the binary rollback limit, however, a binary rollback chains a Revision revert (start, a possible RZ-CP-006 approval, status) with a binary rollback (two steps), which makes up to five steps. The revert target is older than the replaced Revision, so RZ-CP-006 approval is likely.",
+"evidence": "Line 58: \"ZG-8 | Every rollback this document owns takes three steps or fewer\"; line 377: \"Past the binary rollback limit, first roll back to a Revision without N-only fields, then the binary.\"; Figure 4: `r5 --> r4`",
+"fix": "Either add a single table row, \"Binary past the rollback limit\", with at most three steps (for example, 1: ruralz rollout start --revision of the pre-adoption Revision plus approval, 2: ruralz rollout status --wait reaches complete, 3: handover or image back to N-1), or narrow ZG-8 to exclude this path and name the path as a two-stage procedure with its own drill (V-6)."
+},
+{
+"id": "L1-7",
+"section": "Binary upgrades > In-place handover (step 6, Move identity)",
+"issue": "The new process presents the same certificate and node.id as the old one. Control Stream state lives in memory on each replica, so a Hello that reaches a different replica before that replica learns the old stream closed can be rejected with RZ-CP-002 (node.id taken). The document does not define what the new process does then. Treated as fatal, the Node stays detached, and Rollouts quarantine it as lagging.",
+"evidence": "Line 177: \"At Drain start the old process sends a last `Heartbeat` with `draining`, closes its Control Stream and releases the lock. The new process takes the lock and dials 8091 with `Hello`\". Control plane and GitOps: \"RZ-CP-002 | `node.id` taken, or `Hello` mismatches the certificate\"",
+"fix": "State that during a handover the new process retries RZ-CP-002 with full-jitter backoff (base 1 s, cap 60 s (target)) while it stays ready. Propose that Ruralz Control let a Hello from the same certificate supersede a stream whose last Heartbeat carried draining, and record that as a new OQ owned by control-plane-and-gitops."
+},
+{
+"id": "L1-8",
+"section": "Binary upgrades > In-place handover (overlap sizing)",
+"issue": "The overlap sizing covers only a second base RSS plus Plugin pools. Every Node ceiling in Data plane is enforced per process: 20,000 connections, 20,000 in-flight units, maxBufferedBytes, maxPluginMemoryBytes (instances reserve their full limit) and (K + 2) snapshots. During the overlap the old process still holds its long-lived connections and buffers while the new process fills its own ceilings, so the Node's worst case roughly doubles. Data plane sizes that worst case at about 19 GiB plus snapshots on a 32 GiB Node, and nothing bounds the combined total.",
+"evidence": "Line 182: \"handover hosts SHOULD keep free memory for a second base RSS, 100 MB plus 2 KB per Route (target), plus its Plugin pools (OQ-zero-downtime-upgrades-and-hot-reload-6)\". Data plane: \"Worst-case Node memory ... about 19 GiB plus snapshots, fitting a 32 GiB Node (hypothesis)\"",
+"fix": "Make the Node-wide ceilings shared across the overlap. The old process reports its live connection, in-flight unit, buffered-byte and Plugin-memory usage in the Unix-socket exchange, and the new process starts at the ceiling minus that usage, rising as the old process drains. If that is rejected, state the 2x worst case with (hypothesis) and add ceiling sharing as an option to OQ-zero-downtime-upgrades-and-hot-reload-6."
+},
+{
+"id": "L1-9",
+"section": "Binary upgrades (path table; Kubernetes replacement)",
+"issue": "The replacement path contradicts Deployment topologies. That document sets the Node StatefulSet's RollingUpdate maxUnavailable to match the PodDisruptionBudget, which is one zone's share at minimum scale, not one Pod. PodDisruptionBudgets limit evictions, not the StatefulSet controller's own rolling update, so \"within the PodDisruptionBudget\" does not bound the update.",
+"evidence": "Line 132: \"Replacement | Kubernetes (T4) | StatefulSet rolling update: preStop, Drain, new Pod | One Pod at a time, within the PodDisruptionBudget\". Deployment topologies T4: \"Node StatefulSet | podManagementPolicy: Parallel ...; RollingUpdate, maxUnavailable matching the PodDisruptionBudget\"; \"PodDisruptionBudgets | ... for Nodes, one zone's share at minimum scale (target)\"",
+"fix": "Align with Deployment topologies. State that each step replaces up to maxUnavailable Pods (one zone's share at minimum scale), recompute the per-step capacity loss and the reconnect load against the 2,000 reconnects per second per Node figure, and bound the update by maxUnavailable, not by the PodDisruptionBudget. If one Pod at a time is intended, raise an OQ against deployment-topologies."
+}
+],
+"non_blocking": [
+{
+"section": "Binary upgrades > Drain timeline defaults",
+"suggestion": "The two-phase GOAWAY cannot be built on net/http's HTTP/2 server: Server.Shutdown sends one GOAWAY with the highest processed stream ID, there is no server-side frame API, and x/net's Server is deprecated (pack 7, ADR-0009). Mark those rows as depending on OQ-3 and state that the default for Planned (M1) is option (a), a single GOAWAY."
+},
+{
+"section": "Configuration hot reload > Validation gate (step 10)",
+"suggestion": "A changed listener on the same port puts two sockets of one process in one reuseport group, and closing the old one drops its queued connections. Prefer keeping the socket and swapping the handler and TLS config, or apply in-process CBPF steering."
+},
+{
+"section": "Configuration hot reload > Atomic swap",
+"suggestion": "State Data plane rule 6: while a snapshot is closing or ending, a pending Revision waits up to the grace plus the ending bound plus compile time. PB-7 applies only without a closing snapshot; check the delay against the 60 s ACK timeout."
+},
+{
+"section": "Binary upgrades > In-place handover",
+"suggestion": "Cover two edge cases: the candidate write failed so the candidate and the active digest differ (refuse at once with a reason instead of looping to the 60 s timeout), and the holder exits during the overlap before acceptance."
+},
+{
+"section": "Binary upgrades > Kubernetes replacement",
+"suggestion": "Research did not verify the Kubernetes version in which the preStop sleep handler became GA. Name the minimum Kubernetes version or give an exec fallback."
+},
+{
+"section": "Binary upgrades > Drain timeline defaults",
+"suggestion": "Use one name for the 25 s drain deadline and the 30 s exit bound; the text says \"5 s plus 30 s\" while the table puts the Drain deadline at 25 s."
+},
+{
+"section": "Binary upgrades > Long-lived WebSocket and SSE connections",
+"suggestion": "Quantify the cost of cutting AI SSE completions at every Drain, which charges the full reservation (hypothesis), and say whether AI Routes should be shifted away before an upgrade."
+},
+{
+"section": "State Store upgrades; Verification runbook",
+"suggestion": "Align the 15 s failover tag: (hypothesis) in the table, (target) in V-7 and CE-5. Also note that ai.semantic-cache bypasses under its default open."
+},
+{
+"section": "apiVersion migrations",
+"suggestion": "Add the --environments flag, which CLI and API surface requires for render --api-version --output-dir; step 3 could then reuse its exit code."
+},
+{
+"section": "Binary upgrades > In-place handover",
+"suggestion": "Say that both processes keep full local token buckets during the overlap, inside Scalability's one-extra-ceiling-per-restart bound."
+}
+],
+"ac_results": [
+{
+"ac": "Binary upgrades states the drain timeline defaults (readiness failure, preStop, drain timeout, HTTP/2 GOAWAY) with values tagged (target).",
+"pass": true,
+"note": "The Drain timeline table and Figure 2 are tagged (target); the two-phase GOAWAY depends on OQ-3."
+},
+{
+"ac": "Binary upgrades defines the strategy for long-lived WebSocket and SSE connections.",
+"pass": true,
+"note": "A per-protocol table covers jittered closes, SSE retry and Last-Event-ID, AI SSE and gRPC."
+},
+{
+"ac": "Control plane upgrades covers Raft rolling upgrades, and the version skew matches docs/engineering/04-release-versioning-and-compatibility.md (N and N-1).",
+"pass": false,
+"note": "Prepare's \"every Node runs N-1 or N\" contradicts Release (L1-4), and Release rule 6's post-finalize ordering is missing (L1-5)."
+},
+{
+"ac": "Rollback takes three steps or fewer.",
+"pass": false,
+"note": "Each row has at most three steps, but the binary rollback past the N-only-field limit chains two rows, up to five steps, which contradicts ZG-8 (L1-6)."
+},
+{
+"ac": "Configuration hot reload enumerates the validation gate checks and covers atomic swap, partial failure and Plugin hot-swap.",
+"pass": true,
+"note": "An 11-step gate table and all subsections are present; ZG-1's wording conflicts with the swap text (L1-3)."
+},
+{
+"ac": "Binary upgrades follows ADR-0015 (SO_REUSEPORT, drain and readiness gating, no socket passing).",
+"pass": false,
+"note": "Readiness gating is broken: the new process joins the reuseport groups before it is ready or accepted (L1-1), and the old process can serve 503 on kept-alive probes (L1-2)."
+}
+],
+"foundation_amendments": [
+"Pack section 7, Upgrades row (ADR-0015): add that the lock holder pins its reuseport groups with an SO_ATTACH_REUSEPORT_CBPF program returning its own socket index until it accepts a handover, so SO_REUSEPORT does not send connections, UDP datagrams or /readyz probes to a new process before readiness gating.",
+"Pack section 8.5: say how a Node's /readyz behaves during an in-place handover, where two processes share one node.id: the draining process must not serve 503 on connections that a balancer keeps alive."
+]
+},
+"write:krakend-ee-parity-matrix": {
+"path": "/home/user/ruralz/docs/comparison/01-krakend-ee-parity-matrix.md",
+"word_count": 6610,
+"h2s": [
+"Summary",
+"Scope and non-goals",
+"Method and snapshot",
+"Legend",
+"CI/CD, GitOps and development tools",
+"Request and response transformation",
+"Security",
+"Routing",
+"Authentication and authorization",
+"AI gateway",
+"Services connectivity",
+"Traffic management",
+"Observability",
+"API governance and monetization",
+"Beyond parity",
+"Gaps and non-goals",
+"Summary counts",
+"Open questions"
+],
+"diagram_count": 2,
+"oq_ids": [
+"OQ-krakend-ee-parity-matrix-1",
+"OQ-krakend-ee-parity-matrix-2",
+"OQ-krakend-ee-parity-matrix-3",
+"OQ-krakend-ee-parity-matrix-4",
+"OQ-krakend-ee-parity-matrix-5",
+"OQ-krakend-ee-parity-matrix-6",
+"OQ-krakend-ee-parity-matrix-7",
+"OQ-krakend-ee-parity-matrix-8",
+"OQ-krakend-ee-parity-matrix-9",
+"OQ-krakend-ee-parity-matrix-10",
+"OQ-krakend-ee-parity-matrix-11",
+"OQ-krakend-ee-parity-matrix-12"
+],
+"verifier_clean": true
+},
+"review:zero-downtime-upgrades-and-hot-reload:L2": {
+"lens": "L2 foundation-auditor",
+"verdict": "revise",
+"score": 6,
+"blocking": [
+{
+"id": "L2-1",
+"section": "Control plane upgrades; Verification runbook",
+"issue": "The Prepare step, the skew table and the runbook allow Nodes at N before Ruralz Control is upgraded. Release, versioning and compatibility says a Node newer than the Control Store version is outside policy. Its Figure 2 also requires every Node at N-1 before the first replica is replaced. Acceptance criterion 3 requires the skew to match that document.",
+"evidence": "Line 294: \"1. **Prepare.** Every replica reported a snapshot at the Control Store version and every Node runs N-1 or N\"; line 307: \"| Nodes within one Cluster | Any mix of N and N-1 |\"; line 385: \"| Before | `ruralz version`; `ruralz node list --cluster <name>` | Every Node at N-1 or N; ...\". Release skew table: \"Ruralz Control and Ruralz Gateway Nodes | N-1; N once the Control Store version is N | N-2 or older; newer than the Control Store version\" and \"Nodes within one Cluster | Any mix of N and N-1 | N-2 or older; newer than the Control Store version\"; Release Figure 2: \"Every Node at N-1?\" -> \"Upgrade lagging Nodes to N-1\".",
+"fix": "Prepare: \"every Node runs N-1 (upgrade any N-2 Node to N-1 first)\". Skew table row: \"Any mix of N and N-1, never newer than the Control Store version\". Split the runbook's Before row in two: \"Before a Ruralz Control upgrade: every Node at N-1\" and \"Before a Node upgrade (after finalize): every Node at N-1 or N\"."
+},
+{
+"id": "L2-2",
+"section": "Rollback",
+"issue": "For rollback after finalize, the document cites rule 6 of Ruralz Control upgrades but describes rule 5 (the restore). It also leaves out the Rollout and handover steps that rule 6 assigns to this document. Figure 4 sends a finalized Ruralz Control straight to Restore. If Nodes already run N, that leaves them newer than the restored N-1 Control Store version, which is outside the skew policy.",
+"evidence": "Line 377: \"After finalize, returning to N-1 is a restore into an empty N-1 deployment that loses later writes and leaves Nodes detached until a revocation list arrives (rule 6 of [Ruralz Control upgrades](...)...): a recovery, not a rollback\"; Figure 4 lines 362-364: q5 \"yes\" --> r7 (Restore). Release rule 6: \"If Nodes have already moved to N, rollback after finalize follows a fixed order. First, while still on the N deployment, roll out to every Cluster a Revision without N-only fields and let it reach `complete` ... Next, return every Node to N-1 by handover ... Only then restore ... Zero-downtime upgrades and hot reload owns the Rollout and handover steps\".",
+"fix": "Cite rule 5 for the restore's consequences and rule 6 for the order. Add a Rollback table row, \"Ruralz Control after finalize, Nodes at N\", with three steps: (1) `ruralz rollout start` of a Revision without N-only fields to every Cluster until `complete`; (2) hand every Node over to N-1 (or set the N-1 image on Kubernetes); (3) restore per High availability and disaster recovery, first re-applying N-1's `ruralz-crds.yaml` and redeploying relays at N-1. In Figure 4, route q5 \"yes\" through a \"Nodes at N?\" decision to these steps before r7."
+},
+{
+"id": "L2-3",
+"section": "Guarantees",
+"issue": "The Zero-Downtime Upgrade glossary row changes the meaning of the pack section 11 definition. That definition describes one mechanism: the new process binds with SO_REUSEPORT and reports ready, then the old process Drains. The added clause brings a Kubernetes Pod replacement under the term, but there the old Pod Drains first and a new Pod then boots, with no shared reuseport group (Figure 3: \"Draining --> Booting: old Pod exited\"). Pack section 11 allows rewording only when the meaning is unchanged, and changes after the freeze need an ADR or an Open question (pack section 14).",
+"evidence": "Line 47: \"| Zero-Downtime Upgrade | Replacing the `ruralzd` binary: the new process binds with `SO_REUSEPORT` and reports ready, then the old process Drains; in place this is a handover, on Kubernetes a Pod replacement |\". Pack section 11: \"Zero-Downtime Upgrade | Replacing the `ruralzd` binary: the new process binds with `SO_REUSEPORT` and reports ready, then the old process Drains.\"",
+"fix": "Use the pack definition verbatim in the row. Below the table, say that on Kubernetes (T4) the chart replaces Pods by Drain and restart, which keeps the Cluster serving but is not a per-Node Zero-Downtime Upgrade. Rename the Binary upgrades table path \"Replacement\" accordingly. If the term must cover both paths, add an Open question proposing a pack section 11 amendment."
+},
+{
+"id": "L2-4",
+"section": "Configuration hot reload > Validation gate",
+"issue": "Step 7 contradicts two documents. It requires the requested Capabilities to equal Plugin.spec, but the Configuration model requires only a subset. It also classes every mismatch as deterministic, but Release, versioning and compatibility says an ABI level above the Node's is a NACK that Ruralz Control cannot reproduce, which it treats as transient and quarantines.",
+"evidence": "Line 78: \"| 7 | Plugin artifacts fetched by digest, signed, with ABI, Phases and Capabilities equal to `Plugin.spec` and an ABI level at or below the Node's ... | RZ-CFG-028, RZ-CFG-033 | Deterministic for a mismatch; transient for a fetch failure |\". Configuration model: \"checks that its ABI and exported Phases equal `spec.abi` and `spec.phases` and that its requested Capabilities are a subset of `spec.capabilities`\". Release, Plugin ABI rule 2: \"an older Node NACKs with RZ-CFG-028, which Ruralz Control cannot reproduce, so it quarantines the Node as transient\".",
+"fix": "Reword the check: \"ABI and exported Phases equal `spec.abi` and `spec.phases`, requested Capabilities a subset of `spec.capabilities`, ABI level at or below the Node's\". Set the class column to: \"Deterministic for an artifact that disagrees with its spec; transient for a fetch failure or an ABI level above this Node's (not reproducible by Ruralz Control; rule 2 of Plugin ABI versioning)\"."
+},
+{
+"id": "L2-5",
+"section": "Binary upgrades; Binary upgrades > Kubernetes replacement",
+"issue": "The document says a Kubernetes rolling update replaces one Pod at a time. Deployment topologies configures the Node StatefulSet with maxUnavailable matching the PodDisruptionBudget, which is one zone's share at minimum scale. The document's own reconnect guidance (line 247) also assumes one zone's share at a time.",
+"evidence": "Line 132: \"| Replacement | Kubernetes (T4) | StatefulSet rolling update: preStop, Drain, new Pod | One Pod at a time, within the PodDisruptionBudget |\"; line 251: \"Each step removes one Pod for about 40 to 45 s (hypothesis)\". Deployment topologies T4: \"Node StatefulSet | `podManagementPolicy: Parallel` ...; `RollingUpdate`, `maxUnavailable` matching the PodDisruptionBudget\" and \"PodDisruptionBudgets | ... for Nodes, one zone's share at minimum scale (target)\".",
+"fix": "Replace \"One Pod at a time\" with \"Up to `maxUnavailable` Pods at a time, which the chart sets to the PodDisruptionBudget: one zone's share at minimum scale (target)\". Reword line 251 to \"Each step removes up to one zone's share of Pods for about 40 to 45 s (hypothesis)\", and keep the minReplicas headroom sentence."
+},
+{
+"id": "L2-6",
+"section": "Binary upgrades > Long-lived WebSocket and SSE connections; Verification runbook",
+"issue": "The document ends work at the Drain deadline with RZ-RT-014 as if that were settled behavior. The Data plane registry, which owns RT codes under pack 8.6, defines RZ-RT-014 only as the end of a pinned snapshot's grace period, and Release forbids a code changing meaning. Observability's ruralz_snapshot_retirement_ended_total also counts RZ-RT-014 as retirement, so reusing the code blurs that metric and the runbook's 5xx check.",
+"evidence": "Line 245: \"| Other requests | GOAWAY; `Connection: close` | Finish | `RZ-RT-014` (OQ-zero-downtime-upgrades-and-hot-reload-2) |\"; line 389: \"5xx and `RZ-RT-014` counts\"; OQ-2 option \"(a) Reuse `RZ-RT-014`\". Data plane RZ-RT registry: \"| RZ-RT-014 | 503 before commit; stream ended after | The pinned snapshot's grace period ended |\". Release versioned surfaces: \"Codes never change meaning or get reused\".",
+"fix": "In the table, write \"503 with an `RZ-RT` code that Data plane registers (OQ-zero-downtime-upgrades-and-hot-reload-2)\" instead of RZ-RT-014. In the runbook, count \"5xx, RZ-RT-014 and the Drain-deadline code\". In OQ-2, replace option (a) with \"(a) Data plane widens RZ-RT-014's registered meaning to cover the Drain deadline; (b) a new RZ-RT code (recommended)\"."
+},
+{
+"id": "L2-7",
+"section": "apiVersion migrations",
+"issue": "The Convert step's command is missing a flag that the CLI reference requires. According to the CLI reference, conversion renders both trees for each Environment in the required --environments file. As written, the command is a usage error (exit 2).",
+"evidence": "Line 328: \"2. **Convert.** `ruralz bundle render --api-version ruralz/v1beta1 --output-dir <dir>` converts base resources and overlays together\". CLI and API surface: \"`ruralz bundle render --api-version VERSION --output-dir DIR` converts sources instead ... It then renders both trees per Environment in the required `--environments`, exiting 1 unless every diff is empty.\"",
+"fix": "Write `ruralz bundle render --api-version ruralz/v1beta1 --output-dir <dir> --environments <file>`. Add that it exits 1 unless every Environment's diff is empty, so this step already checks the equal-digest proof that step 3 repeats in CI."
+}
+],
+"non_blocking": [
+{
+"section": "Binary upgrades > Drain timeline defaults",
+"suggestion": "\"Drain deadline\" has two values. The table puts it at 25 s after SIGTERM, but line 204 says \"45 s against 5 s plus 30 s\", where 30 s is the exit time. Say \"the preStop wait plus the exit bound (Drain deadline plus flush)\"."
+},
+{
+"section": "Binary upgrades > In-place handover",
+"suggestion": "Figure 1 and step 3 hard-code \"8080, 8443 and 9901\". Name the Gateway listeners[].port and admin.port fields of the active Revision, and give 8080, 8443 and 9901 as the defaults."
+},
+{
+"section": "Configuration hot reload > Validation gate",
+"suggestion": "Step 6's code list leaves out codes the shared library also raises (RZ-CFG-016, -021, -023, -030, -032). List them, or say \"every code the Configuration model raises from reference resolution onward\". Also mark steps 2 and 3 as not applicable to an unsigned watched directory."
+},
+{
+"section": "Binary upgrades > Node lifecycle during an upgrade",
+"suggestion": "Figure 3's state names hard-code N. \"NotReady --> ServingNew\" is wrong for an N-1 rollback that hit RZ-CFG-024, and the Kubernetes path passes through \"old process finishing its Drain\", although no old process remains. Use version-neutral names."
+},
+{
+"section": "Verification runbook",
+"suggestion": "\"ruralz_listener_open_connections per process\": the metric has no process label, and after steering 9901 reaches only the new process. Name a signal that can be observed, or add a proposed label through Observability."
+},
+{
+"section": "Summary; Binary upgrades",
+"suggestion": "\"binary upgrades are Planned (M1)\": only the in-place handover is M1; Kubernetes replacement is M2, and T6 edge sites are M2 in Deployment topologies. Qualify both places."
+},
+{
+"section": "Binary upgrades > Long-lived WebSocket and SSE connections",
+"suggestion": "Add the MQTT embedded broker row (DISCONNECT 0x8B, Planned (M4)) from Multi-protocol's Termination per protocol, or state that it is out of scope."
+},
+{
+"section": "Binary upgrades > Kubernetes replacement",
+"suggestion": "The claims \"the preStop sleep handler needs no binary\" and \"EndpointSlice updates run concurrently with termination\" go beyond what scalability-patterns.md sources. Mark both as analysis, or add the source text to the research file."
+},
+{
+"section": "Control plane upgrades",
+"suggestion": "The verifier warns that the relays step (Planned (M4)) has no matching M4 roadmap item. Coordinate with the roadmap owner."
+},
+{
+"section": "Guarantees",
+"suggestion": "Align ZG-1 with Data plane's Bounded retirement rule: streams close at once, and only work still pinned ends after the 30 s grace (see L1-3)."
+},
+{
+"section": "Whole document",
+"suggestion": "The body is 4,265 words by the verifier's rule, against a 4,500 maximum. Keep the fixes compact (for example, a table row) and do not delete text that resolved earlier findings."
+}
+],
+"ac_results": [
+{
+"ac": "Binary upgrades states the drain timeline defaults (readiness failure, preStop, drain timeout, HTTP/2 GOAWAY) with values tagged (target).",
+"pass": true,
+"note": "The table and Figure 2 give 0 s readiness failure, preStop 5 s, a Drain deadline 20 s after stop-accepting and a GOAWAY pair, all tagged (target). Line 204 uses the deadline term loosely (non-blocking)."
+},
+{
+"ac": "Binary upgrades defines the strategy for long-lived WebSocket and SSE connections.",
+"pass": true,
+"note": "Close 1001, SSE retry with Last-Event-ID, AI SSE settlement and the jitter window are defined. The Drain-deadline code is misused (L2-6)."
+},
+{
+"ac": "Control plane upgrades covers Raft rolling upgrades, and the version skew matches docs/engineering/04-release-versioning-and-compatibility.md (N and N-1).",
+"pass": false,
+"note": "Prepare, the skew table and the runbook allow Nodes at N before the Ruralz Control upgrade, which Release puts outside policy (L2-1)."
+},
+{
+"ac": "Rollback takes three steps or fewer.",
+"pass": false,
+"note": "The listed rows have three steps or fewer, but the after-finalize path of Release rule 6 is missing and misattributed, and Figure 4 goes straight to restore (L2-2)."
+},
+{
+"ac": "Configuration hot reload enumerates the validation gate checks and covers atomic swap, partial failure and Plugin hot-swap.",
+"pass": true,
+"note": "The 11-step gate table and all three subsections are present. Step 7 misstates the Capability rule and its NACK class (L2-4)."
+},
+{
+"ac": "Binary upgrades follows ADR-0015 (SO_REUSEPORT, drain and readiness gating, no socket passing).",
+"pass": true,
+"note": "The in-place handover follows ADR-0015, with socket passing Not planned. The glossary row stretches the term to Kubernetes (L2-3)."
+},
+{
+"ac": "machine_checks: required_terms and has_table (Configuration hot reload)",
+"pass": true,
+"note": "The verifier reports no FAIL lines; the only WARNs are missing ADR and HA/DR files and a roadmap M4 cross-check."
+},
+{
+"ac": "H2 outline exact and in order",
+"pass": true,
+"note": "Matches the mandatory H2s plus outline_h2."
+},
+{
+"ac": "Required diagrams present with captions",
+"pass": true,
+"note": "sequenceDiagram, gantt and stateDiagram-v2 are captioned, plus an extra flowchart."
+},
+{
+"ac": "length_words 1500-4500; Summary <= 120 words",
+"pass": true,
+"note": "The body has 4,265 words; the Summary has 106."
+},
+{
+"ac": "required_terms and manifest ADRs cited",
+"pass": true,
+"note": "All terms are present, and ADR-0005, -0006, -0007 and -0015 are linked."
+}
+],
+"foundation_amendments": []
+},
+"review:zero-downtime-upgrades-and-hot-reload:L3": {
+"lens": "L3 acceptance-audience",
+"verdict": "revise",
+"score": 6,
+"blocking": [
+{
+"id": "L3-1",
+"section": "Control plane upgrades; Verification runbook",
+"issue": "The Prepare step, and the runbook's generic Before row, accept Nodes already at N before Ruralz Control is upgraded. In Release, versioning and compatibility, a Node newer than the Control Store version is outside policy, and Figure 2 there gates the first replica replacement on 'Every Node at N-1?'. The version skew therefore does not match the dependency. An operator following this document would start a Ruralz Control upgrade with out-of-policy Nodes. Acceptance criterion 3 fails.",
+"evidence": "Line 294: \"1. **Prepare.** Every replica reported a snapshot at the Control Store version and every Node runs N-1 or N\"; line 385: \"| Before | `ruralz version`; `ruralz node list --cluster <name>` | Every Node at N-1 or N; digests equal the promoted digest |\". Release skew table: \"| Ruralz Control and Ruralz Gateway Nodes | N-1; N once the Control Store version is N | N-2 or older; newer than the Control Store version |\"; Release Figure 2: \"Every Node at N-1?\" / \"Upgrade lagging Nodes to N-1\"",
+"fix": "Prepare: \"Every replica reported a snapshot at the Control Store version, and every Node runs N-1 (upgrade any N-2 Node to N-1 first); take `ruralz control backup` and pause `ruralz bundle push`.\" Split the runbook Before row in two: \"Before a Ruralz Control upgrade: every Node at N-1\" and \"Before a Node upgrade (after finalize): every Node at N-1 or N\"."
+},
+{
+"id": "L3-2",
+"section": "Rollback",
+"issue": "Rule 6 of Ruralz Control upgrades in Release, versioning and compatibility gives this document the Rollout and handover steps for returning to N-1 after finalize once Nodes run N. This document does not state them. Figure 4 goes straight from 'Ruralz Control finalized? yes' to 'Restore', and the prose treats that path as a restore only. An operator whose Nodes already run N would restore an N-1 Control Store behind N Nodes. That is outside the skew policy, and those Nodes may hold N-only fields in Last-Known-Good.",
+"evidence": "Figure 4: \"q5 -- \\\"yes\\\" --> r7\" with r7 \"Restore: High availability and disaster recovery\"; line 377: \"After finalize, returning to N-1 is a restore into an empty N-1 deployment ... a recovery, not a rollback\". Release rule 6: \"First, while still on the N deployment, roll out to every Cluster a Revision without N-only fields and let it reach `complete` ... Next, return every Node to N-1 by handover ... Only then restore ... Zero-downtime upgrades and hot reload owns the Rollout and handover steps\"",
+"fix": "Add a row or subsection 'Ruralz Control after finalize, Nodes at N' with the owned steps: (1) on the N deployment, `ruralz rollout start --cluster <name> --revision sha256:<digest without N-only fields>` for every Cluster until `complete`; (2) hand every Node back to N-1 (in place) or set the N-1 image (Kubernetes); (3) hand off to the restore runbook in High availability and disaster recovery, re-applying N-1's `ruralz-crds.yaml` first on Kubernetes. In Figure 4, add a decision 'Nodes at N?' before r7 that routes through these steps."
+},
+{
+"id": "L3-3",
+"section": "Rollback; Guarantees",
+"issue": "ZG-8 and the section's opening sentence promise that every rollback takes three steps or fewer. Past the binary rollback limit, however, Figure 4 chains r5 to r4, and the prose says to roll back the Revision first and then the binary. The complete-Rollout revert takes three steps and the binary row two, so the path takes up to five steps. The table has no row for this case. Acceptance criterion 4 fails for a path the document itself routes the operator into.",
+"evidence": "Line 58: \"ZG-8 | Every rollback this document owns takes three steps or fewer\"; line 335: \"Every rollback below takes three steps or fewer\"; Figure 4: \"q4 -- \\\"no\\\" --> r5\" and \"r5 --> r4\"; line 377: \"Past the binary rollback limit, first roll back to a Revision without N-only fields, then the binary.\"",
+"fix": "Add a table row 'Binary past the rollback limit' with three steps at most: (1) `ruralz rollout start --cluster <name> --revision sha256:<last digest without N-only fields>` (approval if held, counted inside the step); (2) `ruralz rollout status <rollout-id> --wait` reaches `complete`; (3) the in-place reverse handover or the N-1 image. Alternatively, scope ZG-8 to single-change rollbacks and state that a chained path is two rollbacks run in sequence. Either way, the guarantee and the figure must agree."
+},
+{
+"id": "L3-4",
+"section": "Binary upgrades > In-place handover",
+"issue": "Readiness gating (ADR-0015) is not achieved for traffic. The new process binds 8080, 8443 and 9901 with SO_REUSEPORT in step 3, before it warms and before the old process accepts it. From that bind on, the kernel spreads new connections across both sockets, so clients reach a process that has not passed its gate. If the handover is refused or times out, the new process exits and the connections queued on it are reset. That contradicts ZG-3 and V-3. Acceptance criterion 6 fails on 'readiness gating'.",
+"evidence": "Line 174: \"3. **Bind and gate.** It binds 8080, 8443 and 9901 with `SO_REUSEPORT` (in-flight QUIC on UDP 8443 is lost), warms, then reports version, format markers and active digest\"; line 175: \"A new process not accepted within 60 s (target) exits; the old one never started draining.\"; line 53: \"ZG-3 | An in-place handover refuses no new TCP connection\"",
+"fix": "State how new connections stay off the new sockets until acceptance. For example, the lock holder keeps an `SO_ATTACH_REUSEPORT_CBPF` program on each reuseport group that selects only its own socket, and step 5 swaps it for one that selects the new socket. Alternatively, the new process calls listen only after it is accepted. Reorder Figure 1 and steps 3 to 5 to match. Add a refused-handover case to V-3 with the pass criterion 'zero reset connections'."
+},
+{
+"id": "L3-5",
+"section": "Guarantees; Binary upgrades > Drain timeline defaults",
+"issue": "The document contradicts itself on readiness during a handover. ZG-3 and V-3 promise that /readyz stays at 200 throughout. The Drain timeline, however, applies to every Drain, including one started by an accepted handover, and its first row sets /readyz to 503 at 0 s. Figure 1 also has the old process 'fail readyz'. A balancer health check that reuses its connection to the old process sees 503 and marks the Node down. The document does not say which rule wins, so an operator cannot configure health checks for T5 or T2.",
+"evidence": "Line 186: \"A Drain starts on SIGTERM, on `ruralz node drain` ... or on an accepted handover.\"; line 190: \"| 0 s | Readiness failure: `/readyz` returns 503; heartbeats set `draining` | At once (target) |\"; Figure 1: \"Old->>Old: accept the queued connections, close listeners, fail readyz\"; line 53: \"keeps the Node's `/readyz` at 200 throughout\"; line 389: \"200 throughout a handover\"",
+"fix": "Add a handover variant of the Drain timeline. In a handover, the old process closes its idle 9901 connections and answers in-flight admin requests with `Connection: close` after CBPF steers 9901, so every probe reaches the accepted new process, and it never serves a 503 /readyz on a kept-alive connection. Make the offsets explicit when no SIGTERM and no accept window occur, for example 'deadline 20 s after acceptance (target)'. Add a keep-alive health checker to V-3."
+},
+{
+"id": "L3-6",
+"section": "Binary upgrades (path table; Kubernetes replacement)",
+"issue": "The Kubernetes replacement cadence contradicts Deployment topologies, which this document depends on. That document sets the Node StatefulSet's RollingUpdate maxUnavailable to match the PodDisruptionBudget, which is one zone's share at minimum scale. This document says the update replaces one Pod at a time and sizes the headroom from that.",
+"evidence": "Line 132: \"| Replacement | Kubernetes (T4) | StatefulSet rolling update: preStop, Drain, new Pod | One Pod at a time, within the PodDisruptionBudget |\"; line 251: \"Each step removes one Pod for about 40 to 45 s (hypothesis)\". Deployment topologies: \"| Node StatefulSet | ... `RollingUpdate`, `maxUnavailable` matching the PodDisruptionBudget\" and \"| PodDisruptionBudgets | One `ruralz-control` pod; for Nodes, one zone's share at minimum scale (target) |\"",
+"fix": "Change the Capacity cell to \"Up to `maxUnavailable` Pods at a time, equal to the PodDisruptionBudget (one zone's share at minimum scale, target), per Deployment topologies\". Restate line 251 so that each step removes up to one zone's share for about 40 to 45 s (hypothesis). Note that the PodDisruptionBudget limits evictions, not the StatefulSet controller's own rolling update."
+},
+{
+"id": "L3-7",
+"section": "Guarantees",
+"issue": "ZG-1 misstates the retirement behavior that the document's own Atomic swap paragraph and Data plane define. Streams pinned to the oldest retired snapshot are closed at once when a third retirement occurs. They get no 30 s grace; only whatever is still pinned after the grace ends with RZ-RT-014. An operator planning frequent Hot Reloads would underestimate how many streams are closed.",
+"evidence": "Line 51: \"ZG-1 | A Hot Reload drops no in-flight request; only a stream that outlives K + 1 further activations and a 30 s grace ends, K = 2 (target)\"; line 88: \"a third retirement closes the oldest one's streams (WebSocket 1001, gRPC `UNAVAILABLE`, SSE end with a retry hint) and ends the rest after a 30 s grace (target) with `RZ-RT-014`\"",
+"fix": "Reword ZG-1: \"A Hot Reload drops no in-flight request. When a third snapshot retires, streams pinned to the oldest receive a going-away close at once, and anything still pinned 30 s later (target) ends with RZ-RT-014; K = 2 (target).\""
+}
+],
+"non_blocking": [
+{
+"section": "Binary upgrades > Drain timeline defaults",
+"suggestion": "The 'Drain deadline' is 25 s after SIGTERM in the table, but line 204 compares the grace period against \"5 s plus 30 s\" and calls 30 s the Drain deadline. Use one term."
+},
+{
+"section": "Binary upgrades > Node lifecycle during an upgrade",
+"suggestion": "Figure 3 labels are wrong for a rollback. The rollback handover to N-1 ends in 'Serving on N'. RZ-CFG-024 appears under 'New Pod booting on N', but only an N-1 binary meets it. Use version-neutral labels or add an N-1 rollback branch."
+},
+{
+"section": "Binary upgrades > Long-lived WebSocket and SSE connections",
+"suggestion": "Add the MQTT embedded broker row (DISCONNECT 0x8B, Planned (M4)) from Multi-protocol's Termination per protocol table."
+},
+{
+"section": "Verification runbook",
+"suggestion": "V-4 (CE-2, WebSockets and SSE) is Planned (M1), but these protocols are Planned (M3). Split V-4 by protocol or retag it."
+},
+{
+"section": "Rollback",
+"suggestion": "Give complete commands: `ruralz rollout approve --rollout <id> --digest sha256:<previous>`, `ruralz bundle push --env <env> --environments <file> --oci <reference>` and `ruralz node dump --admin <url>`."
+},
+{
+"section": "apiVersion migrations",
+"suggestion": "Add the required `--environments` flag to `ruralz bundle render --api-version ... --output-dir` in step 2, per the CLI and API surface."
+},
+{
+"section": "Configuration hot reload > Validation gate",
+"suggestion": "Add that warm minimums which can never fit the cap are a validation error (OQ-wasm-plugin-system-9), and name RZ-CFG-021."
+},
+{
+"section": "Control plane upgrades",
+"suggestion": "For T4, note that the `ruralz-control` StatefulSet uses `OnDelete`: move leadership off, then delete one Pod at a time."
+},
+{
+"section": "Binary upgrades > In-place handover",
+"suggestion": "Step 1 implies that SO_REUSEPORT requires the same RURALZ_CONFIG and RURALZ_DATA_DIR. It requires only the same effective user ID; split the sentence."
+},
+{
+"section": "Whole document",
+"suggestion": "verify-docs reports no FAIL lines, only six WARN lines (links to ADR-0015, ADR-0016 and High availability and disaster recovery, which are not written yet, and an M4 relay item missing from the roadmap). Recheck them once those files exist."
+}
+],
+"ac_results": [
+{
+"ac": "Binary upgrades states the drain timeline defaults (readiness failure, preStop, drain timeout, HTTP/2 GOAWAY) with values tagged (target).",
+"pass": true,
+"note": "The Drain timeline table and Figure 2 give every default tagged (target). The handover variant conflicts (L3-5)."
+},
+{
+"ac": "Binary upgrades defines the strategy for long-lived WebSocket and SSE connections.",
+"pass": true,
+"note": "Covers close 1001, SSE retry jitter with Last-Event-ID, the AI SSE exception and gRPC; MQTT is missing (non-blocking)."
+},
+{
+"ac": "Control plane upgrades covers Raft rolling upgrades, and the version skew matches docs/engineering/04-release-versioning-and-compatibility.md (N and N-1).",
+"pass": false,
+"note": "Prepare and the runbook Before row allow Nodes at N before the upgrade, which contradicts the Release skew table and Figure 2 (L3-1)."
+},
+{
+"ac": "Rollback takes three steps or fewer.",
+"pass": false,
+"note": "The chained path past the binary rollback limit takes up to five steps (L3-3); the rule-6 post-finalize steps are missing (L3-2)."
+},
+{
+"ac": "Configuration hot reload enumerates the validation gate checks and covers atomic swap, partial failure and Plugin hot-swap.",
+"pass": true,
+"note": "An 11-step gate table plus the Atomic swap, Partial failure and Plugin hot-swap subsections; ZG-1 misstates retirement (L3-7)."
+},
+{
+"ac": "Binary upgrades follows ADR-0015 (SO_REUSEPORT, drain and readiness gating, no socket passing).",
+"pass": false,
+"note": "The new process binds before it is ready or accepted, so readiness gating does not hold for traffic (L3-4)."
+},
+{
+"ac": "Structure: exact H2 outline and order",
+"pass": true,
+"note": "The H2s match the mandatory first two, outline_h2 and Open questions, in order."
+},
+{
+"ac": "Required diagrams with captions",
+"pass": true,
+"note": "The sequenceDiagram, gantt and stateDiagram-v2 are present with italic captions, plus a flowchart."
+},
+{
+"ac": "Length band 1,500 to 4,500 words",
+"pass": true,
+"note": "About 4,265 body words; the Summary has 106 words."
+},
+{
+"ac": "Every performance or scale number tagged",
+"pass": true,
+"note": "No untagged figures found; vendor figures cite research URLs."
+},
+{
+"ac": "verify-docs has no FAIL lines",
+"pass": true,
+"note": "Six WARN lines only."
+}
+],
+"foundation_amendments": []
+},
+"review:krakend-ee-parity-matrix:L1": {
+"lens": "L1",
+"verdict": "revise",
+"score": 7,
+"blocking": [
+{
+"id": "L1-1",
+"section": "Services connectivity (Direct WebSockets row, Notes/ADR)",
+"issue": "The row turns a hypothesis from the owning document into a target and a ceiling. Multi-protocol, the owner, gives an estimated cost of an idle direct session, tagged (hypothesis), and gives no upper bound. The matrix states it as a guaranteed maximum, tagged (target). This contradicts a dependency and misstates a performance figure.",
+"evidence": "Matrix line 260: \"Session memory of 96 KiB or less (target)\". docs/architecture/07-multi-protocol.md line 293: \"An idle direct session costs about 96 KiB (hypothesis) in buffers and stacks\".",
+"fix": "Replace the cell text with: \"An idle direct session costs about 96 KiB (hypothesis) ([Multi-protocol](../architecture/07-multi-protocol.md#backpressure-and-per-message-policies))\". Do not state a ceiling unless Performance budgets and benchmarking owns one."
+},
+{
+"id": "L1-2",
+"section": "Traffic management (Service rate limit and Proxy rate limit rows); Beyond parity (Fail-open distributed Rate Limits row)",
+"issue": "Two rows map KrakenD's service-wide and proxy limits to a `ratelimit` with a constant key and claim unqualified parity. A constant key is one GCRA key, so every locally admitted request in the Cell runs a Lua EVAL on one State Store shard. That is hidden coordination on the request path. The owning documents treat it as a known failure mode that needs fields not yet decided. Above about 25,000 per second (hypothesis) such a key MUST use `localOnly` mode (OQ-traffic-management-and-resilience-1 (c), amending pack 8.8). Above about 100,000 per second (hypothesis), every Node's shard breaker opens and co-tenant keys apply `failureMode`. A service rate limit is the most likely key to be hot, and the matrix gives evaluators no warning.",
+"evidence": "Matrix line 284: \"Gateway-scoped `ratelimit` with a constant `config.key`\"; line 288: \"`ratelimit` with a constant key on each `Route` reaching the `Upstream`\". 09-traffic-management-and-resilience.md line 482: \"Hot constant key saturates a shard | `ratelimit`; co-tenant keys | ... above about 100,000 per second (hypothesis) every Node's shard breaker opens\". 11-scalability-and-distributed-state.md line 294: \"A key whose `requests` exceed 25% of one shard's calls, about 25,000 per second (hypothesis), MUST use `localOnly` mode\".",
+"fix": "Add this to the Notes/ADR cells of Service rate limit and Proxy rate limit: \"A constant key is one State Store hot key: a limit above about 25,000 requests per second (hypothesis) needs a declared per-Node ceiling or `localOnly` mode, both pending OQ-traffic-management-and-resilience-1 (blocking M1)\". Mark Service rate limit Partial parity until that Open question closes, and add it to the Partial parity paragraph. In Beyond parity, qualify \"bounded over-admission\" with \"at most N × per-Node ceiling per window (target), with the ceiling field pending OQ-traffic-management-and-resilience-1\"."
+},
+{
+"id": "L1-3",
+"section": "Services connectivity (SOAP integration row); Open questions (OQ-krakend-ee-parity-matrix-1)",
+"issue": "The mechanism cannot be built with the declared CEL environment. The row has `transform.request` and `transform.response` \"read XML envelopes\". The Configuration model exposes bodies to CEL only as JSON (`body` (JSON as `dyn`)). Only the standard library plus the strings and encoders extensions are enabled, and no XML decoder exists anywhere in the design. CEL string functions can build an XML request, but they cannot read an XML response into fields. OQ-krakend-ee-parity-matrix-1 lists \"SOAP envelopes\" among the things its option (a) \"CEL-based schema\" would cover, so the gap is hidden rather than recorded.",
+"evidence": "Matrix line 258: \"`transform.request` and `transform.response` build and read XML envelopes for an `http` `Upstream`\". 02-configuration-model.md, Variables table: \"`request` | ... `body` (JSON as `dyn`, body Phases and composition only)\"; Limits: \"The standard library plus the strings and encoders extensions are enabled\".",
+"fix": "Change the Notes/ADR cell to: \"Partial parity: CEL can build the XML request, but reading an XML response needs an XML decoder for `response.body`, which the Configuration model lacks (OQ-krakend-ee-parity-matrix-1); meanwhile a `plugin` Policy\". Add XML body decoding as an explicit sub-question and option in OQ-krakend-ee-parity-matrix-1. Add SOAP integration to the Partial parity paragraph."
+},
+{
+"id": "L1-4",
+"section": "Security (Security Policies Engine row, Notes/ADR)",
+"issue": "The row says KrakenD policy macros such as `geoIP()` \"map to CEL variables\". No geo variable exists among the Configuration model's CEL variables (`request`, `source` with `ip`, `port`, `tlsVersion` and `clientCertSubject`, `route`, `consumer`, `auth`, `response`, `error`, `upstream`, `attempt`, `steps`, `ai`, `duration`, `now`, `self`). `authz.geoip` only allows or denies by country in its own Policy, and header enrichment is an Open question of Security and identity. So a KrakenD rule that combines `geoIP()` with other conditions cannot be expressed. The row implies a variable that is not defined and hides a parity gap.",
+"evidence": "Matrix line 174: \"Partial parity: request Phases only. Macros such as `geoIP()` map to CEL variables and `authz.geoip`\". Foundation pack section 10: \"`authz.geoip` allows or denies by ISO 3166 country from a local MaxMind-format database file ... header enrichment for Upstreams is an Open question of Security and identity\".",
+"fix": "Reword to: \"Partial parity: request Phases only; `geoIP()` maps only to a separate `authz.geoip` country allow or deny, since no CEL variable carries the country, so rules combining geography with other conditions need a `plugin` Policy; other macros map to the `request`, `source` and `auth` CEL variables\". If a country CEL variable is wanted, add an Open question for it."
+},
+{
+"id": "L1-5",
+"section": "Observability (Elastic Logstash row, Ruralz mechanism)",
+"issue": "Acceptance criterion 7 fails. The mechanism cell names no kind, Policy type or Filter from the Configuration model, although the Summary claims each row names one. The Syntax validation and linting row and the Multi-format configuration row are borderline: each names only \"every kind\".",
+"evidence": "Matrix line 310: \"| Elastic Logstash | Yes | Yes | Planned (M1) | JSON access log records on stdout, or OTLP logs | ...\".",
+"fix": "Change the mechanism to \"Access log records from `Gateway` `telemetry.accessLog` as JSON on stdout, or OTLP logs from `Gateway` `telemetry.otlp`\". In the Syntax validation and Multi-format rows, name the kinds (for example \"every kind, from `Gateway` to `Cluster`\")."
+}
+],
+"non_blocking": [
+{
+"section": "Traffic management (Bot detector row)",
+"suggestion": "KrakenD's bot detector matches allow and deny lists and regex patterns, and caches results in an LRU. Ruralz evaluates one `authz.cel` rule per request with no cache. The Configuration model rejects any expression whose static cost at a nominal 256-byte string exceeds 10,000 units (target, RZ-CFG-015), and cel-go estimates the cost of `matches()` from the string size multiplied by the pattern size, so a realistic combined bot pattern list is likely to fail validation. Run a spike, then mark the row Partial parity and state the practical pattern bound, or point large lists to a `plugin` Policy."
+},
+{
+"section": "Routing (Catchall (fallback upstream) row)",
+"suggestion": "\"A lowest-ranked Route\" does not follow from Data plane precedence. A `when`-only Route has constraint count 1 at rank 5. It ties with any other Route that has no host and no path and sets one constraint, and `metadata.name` byte order then decides. Say that the catch-all must be the only Route with no host and no path, or that authors must name it to sort last."
+},
+{
+"section": "Services connectivity (WebSockets multiplexer and MCP Gateway rows)",
+"suggestion": "Multi-protocol keeps one Upstream connection per Route and Endpoint per Node, so add \"per Node\". Also note head-of-line risk: a slow session on a shared connection can stall its siblings through TCP backpressure. For MCP Gateway, name the per-client affinity AI/LLM gateway already provides (`ring-hash` on `consumer.name`), with only per-session affinity left to OQ-ai-llm-gateway-10."
+},
+{
+"section": "Routing (Traffic shadowing/mirroring row)",
+"suggestion": "State that mirrored legs draw from `limits.maxBufferedBytes` and the in-flight units, and are dropped with a counter when those are exhausted. This makes clear that OQ-traffic-management-and-resilience-12 must not create unbounded goroutines or buffers."
+},
+{
+"section": "Traffic management (Concurrent calls row)",
+"suggestion": "KrakenD fires N requests at once. Ruralz hedging waits a delay, is limited to idempotent requests with replayable bodies and spends retry budget. Mark the row Partial parity and note that OQ-traffic-management-and-resilience-5's current option is no hedging."
+},
+{
+"section": "API governance and monetization (API governance row)",
+"suggestion": "KrakenD `governance/quota` supports weighted costs (`weight_key`, `weight_strategy`) and tiers. Ruralz `quota` has no weighted costs or calendar windows (OQ-traffic-management-and-resilience-10, current option (c)). Since this row moves to M1, mark it Partial parity and cite that Open question."
+},
+{
+"section": "Services connectivity (intro and Not planned rows)",
+"suggestion": "OQ-multi-protocol-14 covers only AMQP, Google Cloud Pub/Sub and Amazon SQS, and it is still open. Lambda falls under OQ-krakend-ee-parity-matrix-10. Say six rows fall under OQ-multi-protocol-14's current option (a) and Lambda under OQ-krakend-ee-parity-matrix-10, and do not present option (a) as decided."
+},
+{
+"section": "Observability (OpenTelemetry rows); Traffic management (IP filtering row)",
+"suggestion": "TLS for OTLP export is blocked at M1 by OQ-observability-2, so cite it on the OpenTelemetry row. For IP filtering, Security and identity says deployments behind a load balancer SHOULD NOT rely on `source.ip` until OQ-security-and-identity-6 closes. Say this in the Notes cell."
+},
+{
+"section": "Authentication and authorization (Token revocation bloom filter row)",
+"suggestion": "KrakenD's bloom filter has constant memory. State the bound Security and identity sets on the signed revocation list's size and memory, or cite the Open question that owns it."
+}
+],
+"ac_results": [
+{
+"ac": "Method and snapshot states the source (krakend.io/features), the snapshot date 2026-09-23 and the edition KrakenD EE 2.13.",
+"pass": true,
+"note": "The Method and snapshot prose and its table state all three, with source URLs."
+},
+{
+"ac": "Each of the ten category sections contains a table with columns Feature, KrakenD CE, KrakenD EE, Ruralz status, Ruralz mechanism and Notes/ADR.",
+"pass": true,
+"note": "All ten tables have exactly these headers."
+},
+{
+"ac": "Every feature row of docs/_meta/research/krakend-parity.md (153 rows at the snapshot) appears, for at least 120 rows in total.",
+"pass": true,
+"note": "153 rows counted, with names verbatim. The verifier reported no FAIL."
+},
+{
+"ac": "No matrix table has a blank cell.",
+"pass": true,
+"note": "No blank cells. The verifier passed."
+},
+{
+"ac": "KrakenD CE and KrakenD EE cells use only Yes, Partial, No or N/A, and Ruralz status cells use only Planned (M0) to Planned (M5) or Not planned.",
+"pass": true,
+"note": "All values are in the allowed sets and match the research legend."
+},
+{
+"ac": "Every KrakenD EE-only feature is Planned (Mx) and free in Ruralz, or Not planned with a reason in Notes/ADR.",
+"pass": true,
+"note": "71 EE-only rows: 68 Planned and 3 Not planned, each with a reason."
+},
+{
+"ac": "Every Ruralz mechanism names a kind, Policy or Filter defined in docs/architecture/02-configuration-model.md.",
+"pass": false,
+"note": "The Elastic Logstash mechanism names none (L1-5). The Syntax validation and Multi-format rows say only \"every kind\". The Security Policies Engine row implies an undefined geo CEL variable (L1-4)."
+},
+{
+"ac": "Summary counts gives counts per category and per Ruralz status, and the counts sum to the total number of rows.",
+"pass": true,
+"note": "Recomputed: M0 1, M1 81, M2 19, M3 21, M4 6, M5 12, Not planned 13; total 153; 71 EE-only. Every category row matches."
+},
+{
+"ac": "Gaps and non-goals maps the KrakenD EE support and services offerings to Ruralz Cloud and commercial support.",
+"pass": true,
+"note": "All 12 offerings from the research are mapped to a channel."
+}
+],
+"foundation_amendments": []
+},
+"review:zero-downtime-upgrades-and-hot-reload:L4X": {
+"lens": "L4X",
+"verdict": "revise",
+"score": 5,
+"blocking": [
+{
+"id": "L4X-1",
+"section": "Binary upgrades > In-place handover (Figure 1, steps 3 and 4); Guarantees (ZG-3)",
+"issue": "The new process joins every SO_REUSEPORT group before it is ready or accepted. A TCP socket that listens is in the kernel's reuseport hash at once, so about half of new client connections, and about half of the balancer's new 9901 probe connections, reach a process that is still warming, may still be refused because of a digest change, and may exit after the 60 s timeout. On the refusal and timeout paths, the new process exits with connections still queued on its sockets. That is exactly the failure that HAProxy measured and that this document cites as the reason for CBPF steering: 155 failures per million from sockets closed with queued connections. Probes that reach the new process before it is accepted see a process that is not the lock holder, so the Node's /readyz is not 200 throughout. This breaks the readiness gating of ADR-0015 (pack section 7, Upgrades row: the new process reports ready over a Unix socket before it takes traffic) and ZG-3. At 10x scale, V-3's 1,000 handovers under load would each place connections in queues that nobody accepts whenever a handover is refused after binding (a digest race during a Rollout) or times out.",
+"evidence": "Figure 1: \"New->>K: bind 8080, 8443 and 9901 with SO_REUSEPORT\" followed by \"New->>New: warm pools, readiness checks pass\" and \"alt unknown format marker, digest differs, or timeout ... Old-->>New: refused, New exits\". Step 3: \"It binds 8080, 8443 and 9901 with `SO_REUSEPORT` (in-flight QUIC on UDP 8443 is lost), warms, then reports version, format markers and active digest\". Step 4: \"A new process not accepted within 60 s (target) exits\". ZG-3: \"An in-place handover refuses no new TCP connection and keeps the Node's `/readyz` at 200 throughout\".",
+"fix": "Split bind from listen. In step 3, the new process binds 8080, 8443 and 9901 with SO_REUSEPORT to detect port errors, but it calls listen() only after the old process accepts its ready message. After that, the old process attaches CBPF steering and closes its listeners (steps 5 and 6). State that the old process's /readyz answers every probe until steering is attached, and that a refusal or timeout exits a process that holds no listening socket, so no connection is ever queued to it. Update Figure 1 (move the listen arrow after \"accepted\") and add a V-3 variant that refuses or times out 1,000 handovers under S1 with zero refused connections (target). Replace text rather than add, because about 235 words of headroom remain under the 4,500-word maximum."
+},
+{
+"id": "L4X-2",
+"section": "Binary upgrades > Drain timeline defaults; In-place handover (Figure 1)",
+"issue": "The Drain assumes that balancers stop sending within the fixed 5 s accept window, but nothing bounds the balancer's detection time. External L4 balancers mark a target down only after their probe interval times their unhealthy threshold. After second 5 the old process closes its listeners, so every new connection the balancer sends in the rest of that detection time is refused. This happens on every T5 Drain-and-restart, on every scale-in (Scalability, Warm-up: \"Scale-in is a Drain\") and on edge sites. Across a fleet it means refused connections on every Node that scales in, which contradicts V-4 (\"Zero failed new requests\") and CE-2. In a handover, the old process fails /readyz while a balancer that reuses a keep-alive probe connection to the old process's 9901 keeps probing it, because CBPF steers only new connections. That balancer marks the Node down even though the new process serves, which contradicts ZG-3.",
+"evidence": "Drain table: \"| 0 to 5 s | Accept window while balancers observe `/readyz`; skipped in a handover | 5 s (target) |\"; text: \"the accept window covers external balancers probing `/readyz`\". Figure 1: \"Old->>Old: accept the queued connections, close listeners, fail readyz\". V-4 pass: \"Zero failed new requests; exit within 30 s (target)\".",
+"fix": "Add a MUST: balancer probe interval times unhealthy threshold stays at or below the accept window, 5 s (target). Otherwise the operator lengthens the accept window, which OQ-zero-downtime-upgrades-and-hot-reload-1 must then allow, and the Drain deadline and grace figures move with it. Add a verification row that checks the balancer's detection time. For a handover, state that the old process never answers 503 to probes. Instead, at steering time it closes idle 9901 connections and sends `Connection: close` on the next 9901 response, so the next probe opens a new connection that CBPF steers to the new process. Keep ZG-3 and V-3's \"200 throughout\" and make the mechanism say how that is achieved."
+},
+{
+"id": "L4X-3",
+"section": "Binary upgrades > In-place handover (step 6 and the paragraph after it); Kubernetes replacement; Control plane upgrades; Verification runbook (V-3, V-5)",
+"issue": "Every Node upgrade and every Ruralz Control replica replacement resets Control Streams, but the document ignores the effect on the published Node count. Control plane and GitOps counts only ready Nodes that stayed connected for 10 minutes (target), publishes large decreases at once, and raises the count by at most 10% per minute. A handover sends a `draining` Heartbeat, so the Node leaves the count at once. The new process's stream starts at age 0, so the Node rejoins the count only after 10 minutes plus the ramp. A Kubernetes replacement of one zone's share (L4X-6), or an in-place fleet upgrade finished in under 10 minutes, therefore drops clusterNodeCount by a third, or toward zero. Derived per-Node ceilings then rise to limit / count, or to the full limit. Scalability names this failure: \"a near-zero count sends derived ceilings to the full limit, multiplying hot-key GCRA calls\". Hot-key shards open their breakers, and co-tenant keys fall back to failureMode. The fail-open bound N_serving x max(1, 2 x requests / N_published) grows by the same factor, and recovery takes about 34 minutes (hypothesis, the Scalability lagging-count row). A Ruralz Control rolling upgrade restarts every stream up to three times. The document only asks for Raft catch-up between replicas, and V-5 checks no count or breaker criterion, although CE-7 and CE-10 do. The handover paragraph claims that the only exposure is \"one 15 s heartbeat interval\".",
+"evidence": "Step 6: \"At Drain start the old process sends a last `Heartbeat` with `draining`, closes its Control Stream and releases the lock. The new process takes the lock and dials 8091 with `Hello`\". \"derived ceilings use the full limit until its first `HeartbeatReply`, within one 15 s heartbeat interval (target)\". Control plane step 2: \"wait for `/readyz` on 9902 and Raft catch-up before the next\". V-5 pass: \"Zero request errors; no Node unready\". Control plane and GitOps, Replica roles: \"`clusterNodeCount` counts ready Nodes that ACKed a Revision and stayed connected 10 minutes (target); large decreases publish at once, and increases rise at most 10% per minute\".",
+"fix": "Add a short \"Node count during upgrades\" paragraph with a bound. Until OQ-scalability-and-distributed-state-14 (a) keys qualification by `node.id`, upgrades MUST pace so that at most 10% of a Cluster's Nodes are unqualified at once (target). For 1,000 Nodes that means at least about 100 minutes (hypothesis). Add an Open question owned by control-plane-and-gitops: a handover `Hello` for the same `node.id`, and a handover `draining` Heartbeat, keep the Node's qualification. Between replica replacements, wait until `ruralz_control_connected_nodes` has recovered. Add pass criteria to V-3 and V-5: `ruralz_control_cluster_nodes` drops by at most 10% (target) and no State client breaker opens, matching CE-7 and CE-10. Also mention the node_count_unknown fail-open clamp max(1, requests / 100) (target) for the new process."
+},
+{
+"id": "L4X-4",
+"section": "Binary upgrades > In-place handover (overlap sizing); path table",
+"issue": "The overlap sizing counts only a second base RSS and Plugin pools. Every Node ceiling, however, is per process. For up to 25 s the old process keeps its established and long-lived connections (up to 20,000 TLS connections at 96 KiB, about 1.9 GiB (target)), its in-flight buffers (512 MiB `maxBufferedBytes`), its (K + 2) snapshots and state tables of up to about 475 MiB. Meanwhile the new process accepts every new connection up to its own 20,000 and reserves its own Plugin instances at full limits against its own 2 GiB cap. Two independent GOMEMLIMITs at about 90% of the container or unit memory (Scalability, Scale unit) add up to about 180% of a limit that both processes share. The kernel, not the Go GC, then decides, and an OOM kill of either process drops in-flight requests. That breaks ZG-3 and the \"Capacity ... Unchanged\" claim. The State client also doubles: 2 pipelined plus 8 dedicated connections per shard per process. Upgrading one zone's share of a 1,000-Node Cell adds about 3,330 connections per shard (hypothesis). That exceeds a server client limit sized at 10 x N_serving, which Scalability makes a MUST above 900 Nodes, so connections are refused, breakers open after 5 connect failures and keys fall back to failureMode.",
+"evidence": "\"During the overlap both processes hold a snapshot, Plugin pools and their own `GOMEMLIMIT`, so handover hosts SHOULD keep free memory for a second base RSS, 100 MB plus 2 KB per Route (target), plus its Plugin pools (OQ-zero-downtime-upgrades-and-hot-reload-6).\" Path table: \"| In-place handover | ... | Unchanged; the Node stays ready |\".",
+"fix": "Restate the overlap peak as the old process's loaded working set, which falls to zero by the Drain deadline, plus the new process's base RSS, snapshot, Plugin reservations and the connection and buffer memory for the connections it accepts within 25 s, all as (hypothesis), with a worked figure at 20,000 TLS connections. Add the doubled State client connections and require the server client limit to cover 10 x (N_serving + Nodes in handover) (target). Either lower each process's GOMEMLIMIT and connection ceiling during the overlap, or require handover hosts to be sized for two processes, and record the chosen option in OQ-zero-downtime-upgrades-and-hot-reload-6. Add a V-3 pass criterion: no OOM kill and no State Store connection refusal."
+},
+{
+"id": "L4X-5",
+"section": "Guarantees (ZG-1); Configuration hot reload > Atomic swap",
+"issue": "ZG-1 misstates the retirement rule of Data plane and of this document's own Atomic swap text. When a snapshot becomes closing at the (K + 1)th retirement, its streams end at once, with no grace. The 30 s grace applies only to non-stream requests, which then end with RZ-RT-014. So a Hot Reload can end in-flight requests, and \"drops no in-flight request\" is false. The scale risk is also unaddressed. In an `all-at-once` Rollout, or in file mode where every Node watches one directory, the third activation within one session lifetime closes every WebSocket, SSE and gRPC stream older than three Revisions on every Node in the same second, with no jitter. At 20,000 sessions per Node (target) and 1,000 Nodes, that is up to 20 million simultaneous reconnects (hypothesis) against TLS handshakes, JWKS verification and first-seen GCRA budgets. A rollback plus a re-rollout, which is routine, is enough to reach three activations. The Drain spreads going-away signals over a 10 s window, but retirement does not.",
+"evidence": "ZG-1: \"A Hot Reload drops no in-flight request; only a stream that outlives K + 1 further activations and a 30 s grace ends, K = 2 (target)\". Atomic swap: \"a third retirement closes the oldest one's streams (WebSocket 1001, gRPC `UNAVAILABLE`, SSE end with a retry hint) and ends the rest after a 30 s grace (target) with `RZ-RT-014`\".",
+"fix": "Rewrite ZG-1: \"A Hot Reload ends no in-flight request unless K + 1 = 3 further activations happen during its lifetime (target). Then its streams close at once with a reconnect signal, and other requests end after a 30 s grace with RZ-RT-014.\" Add a sentence with the reconnect burst at one Cluster (hypothesis). Add an Open question owned by data-plane: spread closing-snapshot stream ends over the 10 s jitter window (target), as the Drain does. Add a V-1 case with three Rollouts in quick succession and 20,000 sessions, which passes when reconnects stay spread over the window."
+},
+{
+"id": "L4X-6",
+"section": "Binary upgrades (path table); Binary upgrades > Kubernetes replacement; Long-lived WebSocket and SSE connections",
+"issue": "The replacement path contradicts Deployment topologies, which sets the Node StatefulSet to `RollingUpdate` with `maxUnavailable` matching the PodDisruptionBudget, one zone's share at minimum scale (target). PodDisruptionBudgets bound evictions, not the StatefulSet controller's own updates. Under the topology as configured, one step takes out a whole zone's share, not one Pod. That share consumes the same zone-loss headroom that Scalability sizes for (survivors under 80% CPU). A real zone failure during a step therefore removes 2/Z of capacity, two thirds at Z = 3, and the survivors shed with RZ-RT-005. The reconnect math also changes. The document's \"about 2,000 reconnects per second\" per Node becomes one zone's share times 2,000, about 666,000 per second at 1,000 Nodes (hypothesis), landing on the remaining two thirds of Nodes. Read literally as one Pod at a time, a 1,000-Node Cluster takes about 12.5 hours (hypothesis) at 45 s per step, which the document never states.",
+"evidence": "Path table: \"| Replacement | Kubernetes (T4) | StatefulSet rolling update: preStop, Drain, new Pod | One Pod at a time, within the PodDisruptionBudget |\". Kubernetes replacement: \"Each step removes one Pod for about 40 to 45 s (hypothesis), so `minReplicas` SHOULD hold one zone's share of headroom.\" Deployment topologies: \"`RollingUpdate`, `maxUnavailable` matching the PodDisruptionBudget\" and \"for Nodes, one zone's share at minimum scale (target)\".",
+"fix": "Align the text with Deployment topologies: at most one zone's share per step, and state the upgrade duration (steps x 45 s, hypothesis). Quantify the Cluster-wide reconnect rate at one zone's share and the absorbing load on the survivors. Add a rule: before a T4 upgrade, scale out by one zone's share or confirm that surplus capacity covers it (target), and halt the update on a zone incident, so that an upgrade and a zone loss together stay within the 80% CPU sizing. Tie this to L4X-3, since a zone-share step also moves the published Node count."
+},
+{
+"id": "L4X-7",
+"section": "Control plane upgrades (Prepare step, skew table); Verification runbook (Before row)",
+"issue": "The version skew does not match Release, versioning and compatibility, which acceptance criterion 3 requires. Release classes a Node newer than the Control Store version as outside policy. Its Figure 2 also requires every Node at N-1 (\"Upgrade lagging Nodes to N-1\") before the first replica is replaced. This document's Prepare step and runbook admit Nodes already at N, and its skew row for Nodes within one Cluster drops the outside-policy condition. A Node at N ahead of Ruralz Control can report schema levels that Ruralz Control cannot interpret. An operator following this runbook can also upgrade Nodes first and then find that a replica rollback or a restore leaves Nodes outside policy.",
+"evidence": "Prepare: \"Every replica reported a snapshot at the Control Store version and every Node runs N-1 or N\". Skew table: \"| Nodes within one Cluster | Any mix of N and N-1 |\". Runbook: \"| Before | `ruralz version`; `ruralz node list --cluster <name>` | Every Node at N-1 or N; digests equal the promoted digest |\". Release: \"Nodes within one Cluster | Any mix of N and N-1 | N-2 or older; newer than the Control Store version\".",
+"fix": "Prepare: \"every Node runs N-1, the Control Store version; upgrade lagging Nodes first\". Skew row: \"Any mix of N and N-1, never newer than the Control Store version\". Runbook Before row for a Ruralz Control upgrade: \"Every Node at N-1\". Keep the generic N-1-or-N wording only for a Node upgrade after finalize."
+},
+{
+"id": "L4X-8",
+"section": "Rollback (Figure 4, table, closing paragraph); Guarantees (ZG-8)",
+"issue": "Rollback after finalize cites rule 6 of Ruralz Control upgrades but describes rule 5, the restore. It also omits the two steps that rule 6 assigns to this document: while still on N, roll out a Revision without N-only fields to every Cluster until `complete`, then return every Node to N-1 by handover, and only then restore. Figure 4 sends a finalized Ruralz Control straight to \"Restore\". If Nodes already run N, restoring an N-1 Control Store leaves them newer than the Control Store version, which is outside policy. Their Last-Known-Good may also hold N-only fields that N-1 cannot boot (RZ-CFG-024), so every Node restarted during the recovery stays not ready. That is an availability failure across every Cell the deployment serves. Separately, the path past the binary rollback limit (r5 then r4) chains a three-step Revision revert with a two-step binary rollback, five steps in all. That contradicts ZG-8 and acceptance criterion 4.",
+"evidence": "\"After finalize, returning to N-1 is a restore into an empty N-1 deployment that loses later writes and leaves Nodes detached until a revocation list arrives (rule 6 of [Ruralz Control upgrades](...))\". Figure 4: `q5 -- \"yes\" --> r7` and `r5 --> r4`. ZG-8: \"Every rollback this document owns takes three steps or fewer\".",
+"fix": "Add a rollback row, \"Ruralz Control after finalize, Nodes at N\", with three steps: (1) roll out a Revision without N-only fields to every Cluster and wait for `complete`; (2) hand every Node back to N-1; (3) restore, as High availability and disaster recovery describes. Cite it as rule 6, and describe the Nodes-still-at-N-1 case as rule 5. In Figure 4, route \"finalized\" through \"Nodes at N?\" to the new row. Either make the past-the-limit binary path one three-step row (Revision revert with `--wait`, handover to N-1, confirm), or scope ZG-8 to single-change rollbacks and say that the combined path is two rollbacks."
+},
+{
+"id": "L4X-9",
+"section": "State Store upgrades (table and the paragraph after it); Verification runbook (V-7)",
+"issue": "The planned-upgrade row states its accuracy cost as \"within bounds\" with no number. It does not sequence shards, and it treats a planned change like an unplanned failover. Scalability quantifies a failover with replication lag L as L x the key's admitted rate extra, 100 at 1,000 per second and 100 ms lag (hypothesis). A key first written within the lag restarts with a full tau, up to `requests` extra, and Token Budgets overspend up to L x reserved tokens per second per key. None of this appears. For a Cell at the 16-shard ceiling, failing shards over together puts the whole Cell in failureMode for about 15 s. Failing them over one at a time costs 16 x 15 s, about 4 minutes of `closed` Token Budget 503s spread across keys (hypothesis). The document gives neither figure. While the upgraded replica is down, a zone loss that takes the primary leaves no failover target, which turns an upgrade into a Cell outage for as long as it lasts. V-7 also drops CE-5's scale and reconnect criteria (at least 100 Nodes, every Node reconnected within 10 s).",
+"evidence": "\"| Server patch or minor upgrade | Upgrade the replica, fail over, upgrade the former primary; one Cell at a time, off peak | `failureMode` for about 15 s per failover (hypothesis): Rate Limits fail open within bounds, `closed` Token Budgets return 503 `RZ-STS`; scripts reload on reconnect |\". V-7: \"| V-7 | CE-5: State Store primary killed | `failureMode` for at most 15 s (target) | Planned (M1) |\".",
+"fix": "Say \"one shard at a time within a Cell\". Before failover, wait until the replica has caught up with the primary, so that planned lag is near zero (target). Replace \"within bounds\" with the Scalability failover rows (L x rate; up to `requests` for keys first written within the lag; Token Budget L x reserved tokens per second), and state the per-Cell degraded time as shards x 15 s (hypothesis). Add: upgrade a replica only while a second replica, or the primary's zone, is healthy, and pause on a zone incident. Align V-7 with CE-5: at least 100 Nodes (target), every Node reconnected within 10 s (target), and extra admissions within the lag bound."
+},
+{
+"id": "L4X-10",
+"section": "Configuration hot reload > Validation gate (step 7)",
+"issue": "Step 7 contradicts two documents. The Configuration model requires the artifact's requested Capabilities to be a subset of `spec.capabilities`, not equal to them. Release, versioning and compatibility (Plugin ABI versioning rule 2) says that an ABI level above the Node's is a NACK that Ruralz Control cannot reproduce, so it quarantines the Node as transient. This document classes every mismatch as deterministic. The scale consequence: in a Cluster that mixes N and N-1 Nodes, which the skew policy allows indefinitely, a Rollout of a Plugin that needs the N ABI level quarantines every N-1 Node. When more than max(1, 5% of the batch) of the Nodes are N-1, the batch fails and the Rollout is rolled back or paused. Operators get no warning from this section, because the document calls the failure deterministic.",
+"evidence": "\"| 7 | Plugin artifacts fetched by digest, signed, with ABI, Phases and Capabilities equal to `Plugin.spec` and an ABI level at or below the Node's ([ADR-0005](../adr/0005-plugin-abi-v1.md)) | RZ-CFG-028, RZ-CFG-033 | Deterministic for a mismatch; transient for a fetch failure |\". Configuration model: \"its requested Capabilities are a subset of `spec.capabilities`\".",
+"fix": "Change the row to \"ABI and Phases equal to `Plugin.spec`, requested Capabilities a subset of it, ABI level at or below the Node's\". Classify it as \"Deterministic for a spec mismatch; transient (quarantine) for an ABI level above the Node's until OQ-release-versioning-and-compatibility-4 closes, and for a fetch failure\". Add a sentence repeating Release's MUST NOT: never roll out a Plugin needing a level that some Node of the Cluster lacks."
+},
+{
+"id": "L4X-11",
+"section": "Guarantees (glossary table)",
+"issue": "The Zero-Downtime Upgrade row changes the meaning of the binding pack section 11 definition. The pack allows rewording only when the meaning is unchanged. The added clause brings a Kubernetes Pod replacement under the term, but a replacement neither binds with SO_REUSEPORT beside the old process nor reports ready before the old one Drains: the old Pod Drains first. That blurs the distinction this lens relies on. An in-place handover keeps capacity, while a replacement removes one zone's share (L4X-6).",
+"evidence": "\"| Zero-Downtime Upgrade | Replacing the `ruralzd` binary: the new process binds with `SO_REUSEPORT` and reports ready, then the old process Drains; in place this is a handover, on Kubernetes a Pod replacement |\".",
+"fix": "Restore the pack section 11 text verbatim and describe the Kubernetes path separately, for example as \"Kubernetes replacement, which is a Drain followed by a new Pod, not a Zero-Downtime Upgrade in the pack sense\", or propose a pack amendment through an Open question."
+}
+],
+"non_blocking": [
+{
+"section": "apiVersion migrations",
+"suggestion": "The Convert command omits `--environments`, which the CLI reference requires for `--api-version` conversion (it renders both trees per Environment). As written, it exits 2. Use `ruralz bundle render --api-version ruralz/v1beta1 --output-dir <dir> --environments <file>`."
+},
+{
+"section": "State Store upgrades (layout change row)",
+"suggestion": "\"None with mixed N-1 and N Nodes\" leaves out Release's alternative Quota path: up to 2 x `limit` for one window per Node without the switch signal, for example a detached Node (hypothesis). Name both paths."
+},
+{
+"section": "State Store upgrades (new deployment row)",
+"suggestion": "State the full Scalability bound for a new Cell: one extra `limit` per open window for windows up to 720 h (target). A monthly spend-bearing Quota gets a whole extra allowance, so point to Region-pinned tenants or the Divided pattern for AI spend."
+},
+{
+"section": "Binary upgrades > Long-lived WebSocket and SSE connections",
+"suggestion": "AI completions over SSE are cut at the 20 s Drain deadline (target) and charged the full reservation R. Long reasoning completions routinely exceed 20 s, so a fleet upgrade over-charges every such stream by R minus usage and truncates it. Give an expected count or over-charge (hypothesis), and list a longer AI Drain deadline as an option in OQ-zero-downtime-upgrades-and-hot-reload-1."
+},
+{
+"section": "Configuration hot reload > Plugin hot-swap",
+"suggestion": "At 10,000 Nodes (target), an `all-at-once` Rollout of a new Plugin digest makes every Node pull from the registry at once. Rate-limited pulls become transient NACKs, then quarantine, and can fail the batch. Point to Deployment topologies' regional mirror rule and apply it to Plugin artifacts."
+},
+{
+"section": "Configuration hot reload > Partial failure",
+"suggestion": "When pools warm to 0 at the memory cap, an auth or authz Plugin fails closed (401 or 403) on new requests after an ACKed Rollout. Recommend that canary gates count `RZ-PLG-004` and `RZ-PLG-005`, or that auth and authz pools that cannot warm to at least 1 NACK."
+},
+{
+"section": "Configuration hot reload > Hot Reload versus restart",
+"suggestion": "Changing a `ratelimit` Policy's `requests` starts fresh GCRA state and briefly admits 2 x limit (Traffic management, Decision path). Add this to the Hot Reload effects so operators do not read it as a zero-cost change."
+},
+{
+"section": "Control plane upgrades",
+"suggestion": "With three voters, a zone loss during a replica replacement loses quorum (1 of 3 remain). Recommend five voters for Clusters that upgrade during business hours, or pausing the upgrade on any zone incident, and say that Nodes keep serving throughout."
+},
+{
+"section": "Verification runbook",
+"suggestion": "V-5 runs at 100 Nodes. Add an F2-scale run (10,000 Nodes, target) or reference F2 and CE-10, because shedding and stream re-homing at ceil(N / 5,000) + 1 replicas (hypothesis) only show near capacity. \"None shed\" is also unrealistic at exactly the formula's replica count: loosen it to \"shed Nodes reconnect within 5 minutes (target)\"."
+},
+{
+"section": "Binary upgrades > In-place handover (step 1)",
+"suggestion": "SO_REUSEPORT requires only the same effective user ID. Reword so that the man7 citation does not appear to require the same RURALZ_CONFIG and RURALZ_DATA_DIR."
+},
+{
+"section": "Binary upgrades > Kubernetes replacement",
+"suggestion": "The research file notes that the Kubernetes version in which the preStop `sleep` handler became GA was not verified. Add an Open question or a minimum-version note before relying on it for Planned (M2)."
+},
+{
+"section": "Configuration hot reload > Validation gate (step 4)",
+"suggestion": "A wrong Environment or Cluster binding is reported as RZ-CFG-033, the signature-failure code. Consider an Open question for a dedicated code owned by configuration-model, so that dashboards do not count binding errors as signature failures."
+},
+{
+"section": "Length",
+"suggestion": "The body is about 4,265 words against the 4,500 maximum. Apply the fixes above by replacing sentences, not appending them, and do not remove text that resolved earlier findings."
+}
+],
+"ac_results": [
+{
+"ac": "Binary upgrades states the drain timeline defaults (readiness failure, preStop, drain timeout, HTTP/2 GOAWAY) with values tagged (target).",
+"pass": true,
+"note": "The Drain timeline table and Figure 2 give every value tagged (target). Balancer detection time is unbounded (L4X-2)."
+},
+{
+"ac": "Binary upgrades defines the strategy for long-lived WebSocket and SSE connections.",
+"pass": true,
+"note": "The per-traffic table and the jitter window are present. Zone-share reconnect math is missing (L4X-6), and snapshot-retirement closes have no jitter (L4X-5)."
+},
+{
+"ac": "Control plane upgrades covers Raft rolling upgrades, and the version skew matches docs/engineering/04-release-versioning-and-compatibility.md (N and N-1).",
+"pass": false,
+"note": "Raft rolling upgrades are covered, but the Prepare step, the skew row and the runbook admit Nodes at N before the upgrade, which Release forbids (L4X-7)."
+},
+{
+"ac": "Rollback takes three steps or fewer.",
+"pass": false,
+"note": "The path past the binary rollback limit chains to five steps, and the rule 6 path after finalize is missing (L4X-8)."
+},
+{
+"ac": "Configuration hot reload enumerates the validation gate checks and covers atomic swap, partial failure and Plugin hot-swap.",
+"pass": true,
+"note": "An 11-step gate table, atomic swap, a partial failure table and Plugin hot-swap are present. Step 7 contradicts the Configuration model and Release (L4X-10), and ZG-1 misstates the retirement rule (L4X-5)."
+},
+{
+"ac": "Binary upgrades follows ADR-0015 (SO_REUSEPORT, drain and readiness gating, no socket passing).",
+"pass": false,
+"note": "SO_REUSEPORT, the Drain and the absence of socket passing are present, but the new process listens before it is ready or accepted, so readiness gating does not gate traffic (L4X-1)."
+}
+],
+"foundation_amendments": [
+"Pack section 7, Upgrades row (ADR-0015): add \"the new process binds but calls listen() only after the old process accepts its readiness message, so it takes no connection before it is ready\", so that readiness gating is enforceable at the socket level (L4X-1).",
+"Pack section 8.8 or 8.11, through OQ-scalability-and-distributed-state-11 and -14: state that a Zero-Downtime Upgrade keeps a Node's `node.id` qualified in the published Node count, so that fleet upgrades cannot collapse derived per-Node ceilings (L4X-3)."
+]
+},
+"review:krakend-ee-parity-matrix:L3": {
+"lens": "L3",
+"verdict": "revise",
+"score": 7,
+"blocking": [
+{
+"id": "L3-1",
+"section": "Observability (Elastic Logstash row); Request and response transformation (Gzip compression row); Authentication and authorization (JWT token signing row); Summary",
+"issue": "Acceptance criterion 7 fails. Several Ruralz mechanism cells name no kind, Policy type or Filter defined in the Configuration model. The Elastic Logstash cell names no kind or type. The Gzip compression and JWT token signing cells name only a hypothetical \"built-in ... Policy type\" that the registry does not contain. They also do not name the kind that would carry it, which the document's own Method rule 4 requires. The Summary therefore overclaims when it says every row names its carrier.",
+"evidence": "Line 310: \"| Elastic Logstash | Yes | Yes | Planned (M1) | JSON access log records on stdout, or OTLP logs |\". Line 148: \"A built-in compression Filter registered as a new Policy type\". Line 209: \"A built-in signing Policy type; keys never sit in `plugin` `config`\". Line 30: \"Each row names the kind, Policy type or Filter that carries it.\" Line 62: \"the mechanism names the kind that would carry it\".",
+"fix": "Elastic Logstash: \"Access log records selected by `Gateway` `telemetry.accessLog`, written as JSON on stdout, or OTLP logs from `Gateway` `telemetry.otlp`\". Gzip: \"A `Policy` of a new built-in compression type (OQ-krakend-ee-parity-matrix-3), attached at `Gateway` or `Route` scope and run in `onResponse`\". JWT signing: \"A `Policy` of a new built-in signing type attached to the `Route` (OQ-security-and-identity-11), with keys held as `secretRef` and never in `plugin` `config`\". Keep the Summary sentence only once every row meets it."
+},
+{
+"id": "L3-2",
+"section": "Request and response transformation (Mocked data, Workflows); Routing (Configurable client redirects); AI gateway (LLM routing, multi-routing, and aggregation); Services connectivity (SOAP integration); Traffic management (Concurrent calls); Gaps and non-goals (Partial parity)",
+"issue": "Only eight rows carry the \"Partial parity\" label that evaluators rely on. At least six more planned rows deliver less than the KrakenD feature but carry no label and are missing from the Partial parity paragraph. Workflows covers linear workflows only. Concurrent calls becomes delayed hedging, limited to idempotent, replayable requests. Mocked data, a built-in CE feature, needs a user-written Plugin. Route-issued redirects need a `plugin` Policy. The CEL `body` variable is JSON-only, so the SOAP mechanism cannot read an XML envelope. LLM aggregation is buffered only, under the proposed option of OQ-krakend-ee-parity-matrix-7.",
+"evidence": "Line 376: \"Eight planned rows are narrower than the KrakenD feature\". Line 165: \"for linear workflows | Dependency graphs per OQ-data-plane-3\". Line 278: \"Request hedging on the `Upstream` leg for idempotent, replayable requests\". Line 164: \"A `plugin` Policy that short-circuits a request Phase with a static response\". Line 200: \"Route-issued redirects use a `plugin` Policy\". Line 258: \"build and read XML envelopes\", while 02-configuration-model defines `request.body` as \"(JSON as `dyn`, ...)\". Line 461: \"(a) Buffered aggregation only, no streaming (proposed)\".",
+"fix": "Start each of these six Notes/ADR cells with \"Partial parity:\" followed by what is missing. For SOAP, add XML body decoding as a sub-question of OQ-krakend-ee-parity-matrix-1. Change \"Eight planned rows\" to fourteen and add one sentence per new row to the Partial parity paragraph."
+},
+{
+"id": "L3-3",
+"section": "Services connectivity (intro; Lambda, Azure Service Bus, Amazon SNS rows); Gaps and non-goals (Not planned rows)",
+"issue": "The matrix misstates the scope and status of OQ-multi-protocol-14. That question covers only AMQP, Google Cloud Pub/Sub and Amazon SQS. It is still open, with option (a) marked current, and marked \"Blocking: Yes, for the parity matrix\". The matrix says its option (a) keeps all seven rows out, including Lambda (which the matrix assigns to OQ-krakend-ee-parity-matrix-10) and Azure Service Bus and SNS (not named in the question). It also never records adopting option (a) in \"Decisions these counts record\". Evaluators cannot tell whether these Not planned rows are decided.",
+"evidence": "Line 241: \"the seven Not planned rows are cloud queues and functions with no researched Go library, which OQ-multi-protocol-14 option (a) keeps out of M0 to M5.\" Line 370: \"OQ-multi-protocol-14 option (a) keeps them out of M0 to M5\". 07-multi-protocol.md line 585: \"| OQ-multi-protocol-14 | Should AMQP, Google Cloud Pub/Sub or Amazon SQS join `Upstream.spec.protocol`? | (a) Not planned in M0 to M5 (current); ... | Yes, for the parity matrix |\".",
+"fix": "Rewrite as: \"six brokers and cloud queues under OQ-multi-protocol-14, whose current option (a) this matrix adopts, and Lambda under OQ-krakend-ee-parity-matrix-10.\" Add a bullet to \"Decisions these counts record\" that adopts option (a) and asks Multi-protocol to extend the question to Azure Service Bus and Amazon SNS. Make the same change in the Gaps and non-goals row."
+},
+{
+"id": "L3-4",
+"section": "Method and snapshot (rule 6)",
+"issue": "\"The single public build\" contradicts foundation pack section 1, where the FIPS build is a separate build flavor published as separate artifacts, and \"no enterprise build\" means no feature difference, not a single binary. It also contradicts the matrix's own FIPS row.",
+"evidence": "Line 64: \"Every Planned row is free under Apache-2.0 in the single public build\". Pack section 1: \"published as separate artifacts; \\\"no enterprise build\\\" means no feature difference, not a single binary\". Line 173: \"`GOFIPS140` build flavor of `ruralzd`\".",
+"fix": "Replace with: \"Every Planned row is free under Apache-2.0 with the same feature set in every public build, including the FIPS build (ADR-0002, P1).\""
+}
+],
+"non_blocking": [
+{
+"section": "Services connectivity (Direct WebSockets row)",
+"suggestion": "96 KiB (target) agrees with the Roadmap and Performance budgets but not with Multi-protocol line 293 (\"about 96 KiB (hypothesis)\"). Cite ../architecture/12-performance-budgets-and-benchmarking.md#memory-budget, and flag the upstream tag conflict to Multi-protocol."
+},
+{
+"section": "Security (Security Policies Engine row)",
+"suggestion": "\"Macros such as `geoIP()` map to CEL variables and `authz.geoip`\" implies a geography CEL variable that does not exist. Say that `geoIP()` maps only to a separate `authz.geoip` allow or deny, and that combined rules need a `plugin` Policy."
+},
+{
+"section": "Beyond parity (Embedded MQTT broker row)",
+"suggestion": "The KrakenD claim \"Async agents for AMQP and, in EE, Kafka\" has no URL on its line. Add ([source](https://www.krakend.io/docs/async/amqp/)) and ([source](https://www.krakend.io/features/))."
+},
+{
+"section": "Summary counts",
+"suggestion": "Show evaluators how many Planned rows wait on a blocking Open question. OQ-krakend-ee-parity-matrix-1 gates seven M1 EE-only rows, so the 34% (target) M1 share is contingent."
+},
+{
+"section": "Routing (Catchall row)",
+"suggestion": "Rank 5 counts `when` as a constraint, so a `when`-only Route can tie and lose on `metadata.name`. It is not guaranteed to rank lowest. State the naming rule."
+},
+{
+"section": "API governance and monetization (API governance row)",
+"suggestion": "KrakenD `governance/quota` has `weight_key` and `weight_strategy`, and Ruralz `quota` has no weighted cost. Consider marking the row Partial parity."
+},
+{
+"section": "Method and snapshot (rule 5)",
+"suggestion": "Tag \"At most 10 EE-only rows may be Not planned\" with (target), as line 361 does."
+},
+{
+"section": "Gaps and non-goals (Enterprise support and services)",
+"suggestion": "\"Ruralz sells only two things\": Revington, not the product, earns the revenue. Reword."
+}
+],
+"ac_results": [
+{
+"ac": "Method and snapshot states the source (krakend.io/features), the snapshot date 2026-09-23 and the edition KrakenD EE 2.13.",
+"pass": true,
+"note": "Lines 46-52 state all three, with research-backed URLs."
+},
+{
+"ac": "Each of the ten category sections contains a table with columns Feature, KrakenD CE, KrakenD EE, Ruralz status, Ruralz mechanism and Notes/ADR.",
+"pass": true,
+"note": "All ten category tables have exactly these six columns."
+},
+{
+"ac": "Every feature row of docs/_meta/research/krakend-parity.md (153 rows at the snapshot) appears, for at least 120 rows in total.",
+"pass": true,
+"note": "A script parse finds 153 of 153 research features, verbatim; no verify-docs FAIL."
+},
+{
+"ac": "No matrix table has a blank cell.",
+"pass": true,
+"note": "No empty cells found."
+},
+{
+"ac": "KrakenD CE and KrakenD EE cells use only Yes, Partial, No or N/A, and Ruralz status cells use only Planned (M0) to Planned (M5) or Not planned.",
+"pass": true,
+"note": "All values are allowed, and CE/EE values match the research availability for all 153 rows."
+},
+{
+"ac": "Every KrakenD EE-only feature is Planned (Mx) and free in Ruralz, or Not planned with a reason in Notes/ADR.",
+"pass": true,
+"note": "68 of the 71 EE-only rows are Planned. 3 are Not planned, each with a reason, within SM-3."
+},
+{
+"ac": "Every Ruralz mechanism names a kind, Policy or Filter defined in docs/architecture/02-configuration-model.md.",
+"pass": false,
+"note": "Fails for Elastic Logstash, Gzip compression and JWT token signing (L3-1). The other fields were verified against the kind catalog and registry."
+},
+{
+"ac": "Summary counts gives counts per category and per Ruralz status, and the counts sum to the total number of rows.",
+"pass": true,
+"note": "The recount matches: 1/81/19/21/6/12/13 = 153; EE-only 71. The cumulative shares are correct and tagged."
+},
+{
+"ac": "Gaps and non-goals maps the KrakenD EE support and services offerings to Ruralz Cloud and commercial support.",
+"pass": true,
+"note": "All 12 offerings are mapped with a channel and a rule."
+},
+{
+"ac": "[structural] H2 outline exact and ordered",
+"pass": true,
+"note": "All 18 H2s match."
+},
+{
+"ac": "[structural] Length band 1500-9500; Summary 120 words or fewer",
+"pass": true,
+"note": "About 8,500 words; Summary 117 words."
+},
+{
+"ac": "[structural] Diagrams and captions; performance numbers tagged",
+"pass": true,
+"note": "No diagrams are required; two captioned extras. Performance figures are tagged."
+},
+{
+"ac": "[structural] verify-docs FAIL lines",
+"pass": true,
+"note": "No FAIL lines, only WARN (broken links to unwritten files, milestone heuristics)."
+}
+],
+"foundation_amendments": []
+},
+"review:krakend-ee-parity-matrix:L2": {
+"lens": "L2",
+"verdict": "revise",
+"score": 7,
+"blocking": [
+{
+"id": "L2-1",
+"section": "Security (Security Policies Engine row, Notes/ADR)",
+"issue": "The row maps KrakenD policy macros such as geoIP() to 'CEL variables'. The Configuration model defines no geo variable. Its CEL variables are request, source (ip, port, tlsVersion, clientCertSubject), route, consumer, auth, response, error, upstream, attempt, steps, ai, duration, now and self. A `source.country` variable exists only as option (c) of the open OQ-security-and-identity-14. The row relies on a variable that is not defined, which the style guide section 5 and the pack section 3 forbid.",
+"evidence": "Line 174: \"Partial parity: request Phases only. Macros such as `geoIP()` map to CEL variables and `authz.geoip`\". docs/architecture/02-configuration-model.md, Variables table: \"`source` | `ip`, `port`, `tlsVersion`, `clientCertSubject`\". docs/architecture/08-security-and-identity.md OQ-security-and-identity-14: \"Should `authz.geoip` enrich upstream requests? | (a) No; (b) Header; (c) `source.country`\".",
+"fix": "Replace the sentence with: \"Partial parity: request Phases only. No CEL variable carries the client country, so `geoIP()` conditions become a separate `authz.geoip` Policy that stacks with `authz.cel` and cannot be combined in one expression; a `source.country` variable is option (c) of OQ-security-and-identity-14.\" Add the same point to the Security Policies Engine sentence of the Partial parity paragraph."
+},
+{
+"id": "L2-2",
+"section": "Request and response transformation (Gzip compression row); Authentication and authorization (JWT token signing row)",
+"issue": "Acceptance criterion 7 requires every Ruralz mechanism to name a kind, Policy or Filter defined in the Configuration model. These two mechanisms name only a type that does not exist yet, and neither names the `Policy` kind that rule 4 of Method and snapshot says must carry a missing field. The JWT row does not name any kind as the carrier. It mentions `plugin` only to exclude it.",
+"evidence": "Line 148: \"Gzip compression | No | Yes | Planned (M5) | A built-in compression Filter registered as a new Policy type\". Line 209: \"JWT token signing | Yes | Yes | Planned (M2) | A built-in signing Policy type; keys never sit in `plugin` `config`\". Line 62 (rule 4): \"Where a row needs a field that does not exist yet, the mechanism names the kind that would carry it and the Notes/ADR cell names the Open question.\"",
+"fix": "Gzip compression mechanism: \"A `Policy` of a built-in compression type, not yet in the registry, running in `onResponse` on a `Route` (type per OQ-krakend-ee-parity-matrix-3, a pack section 10 amendment)\". JWT token signing mechanism: \"A `Policy` of a built-in signing type, not yet in the registry, attached to a `Route`, with keys only through `secretRef`, never in `plugin` `config` (type per OQ-security-and-identity-11, option (b), a pack section 10 amendment)\"."
+},
+{
+"id": "L2-3",
+"section": "Summary counts (Decisions these counts record, OQ-vision-and-positioning-5 bullet)",
+"issue": "The matrix says the vision's EE summary table agrees with its rows. It does not. The vision groups the OpenAPI server with the importer and exporter under 'Planned (M1) to Planned (M2)', while this matrix places the OpenAPI server at Planned (M5). The false agreement hides a real conflict in a dependency, which is blocking.",
+"evidence": "Line 448: \"**OQ-vision-and-positioning-5:** the vision's EE summary table agrees with these rows; this matrix governs row by row.\" Line 130: \"OpenAPI server | No | Yes | Planned (M5)\". docs/vision/01-vision-and-positioning.md line 103: \"OpenAPI importer, exporter and server; Postman and DOT generators; dump to disk; ... | Planned (M1) to Planned (M2)\".",
+"fix": "Reword the bullet: \"**OQ-vision-and-positioning-5:** option 'defer to the parity matrix row by row'. The vision's EE summary table differs on one row: it groups the OpenAPI server with Planned (M1) to Planned (M2) tools, while this matrix places it at Planned (M5), with serving per OQ-vision-and-positioning-11; the vision table should move the server to its own row.\" Add that change to option (a) of OQ-krakend-ee-parity-matrix-12, or add a new Open question owned by vision-and-positioning."
+},
+{
+"id": "L2-4",
+"section": "Summary counts (cumulative EE-only table and OQ-roadmap-and-milestones-1 bullet); Open questions (OQ-krakend-ee-parity-matrix-12)",
+"issue": "The document says that moving API governance changes only the Roadmap's M1 and M5 figures. Moving one row from M5 to M1 also raises the cumulative parity figure at every exit from M1 to M4. The matrix's cumulative column therefore contradicts four Roadmap exit statements that it does not mention, and OQ-krakend-ee-parity-matrix-12 option (a) asks for too small an update.",
+"evidence": "Line 447: \"The Roadmap's M1 figure becomes 24 and its M5 figure 12 (OQ-krakend-ee-parity-matrix-12).\" Lines 426 to 429: \"24 | 34% (target)\", \"36 | 51% (target)\", \"54 | 76% (target)\", \"56 | 79% (target)\". Roadmap lines 114, 146, 175, 201: \"23 of 71, 32% (target)\", \"35 of 71, 49% (target)\", \"53 of 71, 75% (target)\", \"55 of 71, 77% (target)\". Line 466 option (a): \"Adopt and update the M1 and M5 parity figures\".",
+"fix": "Change the bullet to: \"The Roadmap's exit figures become M1 24 of 71, 34% (target); M2 36 of 71, 51% (target); M3 54 of 71, 76% (target); M4 56 of 71, 79% (target). M5 adds 12 rows instead of 13 and stays at 68 of 71, 96% (target).\" Make option (a) of OQ-krakend-ee-parity-matrix-12 read \"Adopt, updating the M1 to M4 cumulative parity figures and the M5 row list\"."
+},
+{
+"id": "L2-5",
+"section": "Observability (Elastic Logstash row)",
+"issue": "The mechanism says access log records go to stdout. Observability, the owning document, leaves the access log destination open (OQ-observability-3). Only process logs are defined as JSON lines on stdout. The Custom access log row of this same table also cites OQ-observability-3 for the destination, so the two rows contradict each other.",
+"evidence": "Line 310: \"Elastic Logstash | Yes | Yes | Planned (M1) | JSON access log records on stdout, or OTLP logs\". Line 305: \"Format and destination per OQ-observability-3\". docs/architecture/10-observability.md line 335: \"Destination, format and sampling are OQ-observability-3.\"",
+"fix": "Mechanism: \"Access log records written in `onLog` (destination per OQ-observability-3), or OTLP logs from `Gateway` `telemetry.otlp` through the Collector\". Keep the source link in Notes/ADR."
+}
+],
+"non_blocking": [
+{
+"section": "Method and snapshot (rule 3 and Figure 1)",
+"suggestion": "Rule 3 and Figure 1 say that a row the Roadmap allocates takes the provisional milestone. API governance does not: it moves from M5 to M1. Add an exception to rule 3, such as \"unless an Open question of this matrix moves it (OQ-krakend-ee-parity-matrix-12)\", and a matching edge in Figure 1."
+},
+{
+"section": "Scope and non-goals",
+"suggestion": "The Roadmap's statement that the matrix wins on conflict is in its Scope and non-goals section, not in How parity is counted. Link to ../roadmap/01-roadmap-and-milestones.md#scope-and-non-goals."
+},
+{
+"section": "Services connectivity (Azure Service Bus and Amazon SNS rows); Gaps and non-goals",
+"suggestion": "OQ-multi-protocol-14 names AMQP, Google Cloud Pub/Sub and Amazon SQS only. Either cite Multi-protocol's \"Other brokers (AMQP, cloud queues)\" row for Azure Service Bus and SNS, or ask the owner to widen OQ-multi-protocol-14 to all six rows."
+},
+{
+"section": "CI/CD, GitOps and development tools (Hot-reload row); Beyond parity (Hot Reload row)",
+"suggestion": "Hot Reload swaps the Node's whole compiled snapshot of the active Revision (pack 8.2), not a 'compiled `Route` snapshot' or 'compiled `Route` set'. Reword both cells to: \"atomic swap of the active Revision's compiled snapshot\"."
+},
+{
+"section": "Authentication and authorization (Revoke Server row)",
+"suggestion": "The CLI and API surface REST table has no path for credential revocation: only /api/v1/nodes/{nodeId}/revoke and /api/v1/access exist. Add \"path pending OQ-security-and-identity-4\" to Notes/ADR so readers do not look for an existing endpoint."
+},
+{
+"section": "Open questions (OQ-krakend-ee-parity-matrix-9)",
+"suggestion": "OQ-observability-5 asks about per-Route sampling overrides, not exporter override. Say that exporter override needs a new Observability Open question, or reword it as \"extends OQ-observability-5 to per-Route exporter selection\"."
+},
+{
+"section": "Services connectivity (Direct WebSockets row)",
+"suggestion": "The dependencies disagree: the Roadmap M3 says \"96 KiB or less (target)\", while Multi-protocol says \"about 96 KiB (hypothesis)\" with no ceiling. Follow the owning document, Multi-protocol, as L1-1 asks, and record the Roadmap discrepancy."
+}
+],
+"ac_results": [
+{
+"ac": "Method and snapshot states the source (krakend.io/features), the snapshot date 2026-09-23 and the edition KrakenD EE 2.13.",
+"pass": true,
+"note": "Lines 46 to 52 state all three; the required_terms check passes."
+},
+{
+"ac": "Each of the ten category sections contains a table with columns Feature, KrakenD CE, KrakenD EE, Ruralz status, Ruralz mechanism and Notes/ADR.",
+"pass": true,
+"note": "All ten tables use the exact six-column header."
+},
+{
+"ac": "Every feature row of docs/_meta/research/krakend-parity.md (153 rows at the snapshot) appears, for at least 120 rows in total.",
+"pass": true,
+"note": "A script found all 153 research rows verbatim, each in its research category; the only difference is that 'Authorization and authentication' is spelled 'Authentication and authorization', as the outline requires."
+},
+{
+"ac": "No matrix table has a blank cell.",
+"pass": true,
+"note": "verify-docs reports no FAIL for no_blank_cells."
+},
+{
+"ac": "KrakenD CE and KrakenD EE cells use only Yes, Partial, No or N/A, and Ruralz status cells use only Planned (M0) to Planned (M5) or Not planned.",
+"pass": true,
+"note": "Every CE and EE cell matches research Both = Yes/Yes and EE = No/Yes; the status values are valid."
+},
+{
+"ac": "Every KrakenD EE-only feature is Planned (Mx) and free in Ruralz, or Not planned with a reason in Notes/ADR.",
+"pass": true,
+"note": "68 of the 71 EE-only rows are Planned and 3 are Not planned, each with a reason (Lua advanced helpers, NTLM, New Relic native SDK)."
+},
+{
+"ac": "Every Ruralz mechanism names a kind, Policy or Filter defined in docs/architecture/02-configuration-model.md.",
+"pass": false,
+"note": "Fails for Gzip compression and JWT token signing, which name only unregistered types (L2-2). The Security Policies Engine note depends on a CEL variable that does not exist (L2-1)."
+},
+{
+"ac": "Summary counts gives counts per category and per Ruralz status, and the counts sum to the total number of rows.",
+"pass": true,
+"note": "Rechecked by script: every category row and the Total row (1/81/19/21/6/12/13 = 153; 71 EE-only) match the tables. The cross-document figures in the decisions are wrong (L2-3, L2-4)."
+},
+{
+"ac": "Gaps and non-goals maps the KrakenD EE support and services offerings to Ruralz Cloud and commercial support.",
+"pass": true,
+"note": "All 12 research offerings are mapped to a channel under Enterprise support and services."
+}
+],
+"foundation_amendments": []
+},
+"review:krakend-ee-parity-matrix:L4C": {
+"lens": "L4C claims-auditor",
+"verdict": "revise",
+"score": 8,
+"blocking": [
+{
+"id": "L4C-1",
+"section": "Beyond parity",
+"issue": "Two KrakenD-column claims in the Beyond parity table carry no source URL. L4C requires every competitor statement to cite a URL from docs/_meta/research/. The facts are in the research, but the rows do not cite it. The section intro cites krakend.io/features only for 'no WASM, no control plane, no console beyond the stateless Designer, no GraphQL federation, no HTTP/3'. It does not cover the async-agent claim.",
+"evidence": "Row 'Embedded MQTT broker and topic ingress for Kafka, NATS and MQTT': 'Async agents for AMQP and, in EE, Kafka' (no link). Row 'Web console with RBAC, audit log and Drift detection': 'Stateless Designer only' (no link). The supporting sources are krakend-config-model.md section 2 ('Kafka in async agents arrived in EE 2.13 (https://www.krakend.io/blog/krakend-ee-2.13-release-notes/)') and section 5.5 ('async/amqp ... (https://www.krakend.io/docs/async/amqp/)').",
+"fix": "Append '([source](https://www.krakend.io/docs/async/amqp/)) ([source](https://www.krakend.io/blog/krakend-ee-2.13-release-notes/))' to 'Async agents for AMQP and, in EE, Kafka'. Append '([source](https://www.krakend.io/features/))' to 'Stateless Designer only'."
+},
+{
+"id": "L4C-2",
+"section": "AI gateway",
+"issue": "The section intro dates the KrakenD `ai/llm` namespace to EE 2.11. This contradicts the required research file krakend-config-model.md, which records `ai/llm` as EE since v2.10. krakend-parity.md lists the namespace under the EE 2.11 release notes, so the two research files disagree. The document picks one version without saying so.",
+"evidence": "Matrix: 'KrakenD added the AI Gateway in EE 2.10 ([source](https://www.krakend.io/blog/krakend-ee-2.10-release-notes/)) and the `ai/llm` namespace in EE 2.11 ([source](https://www.krakend.io/blog/krakend-ee-2.11-release-notes/))'. krakend-config-model.md section 5.6: '| `ai/llm` | B | EE (since v2.10) | Unified LLM interface ...'. Section 10.5 heading: 'AI gateway (EE, since v2.10)'. krakend-parity.md line 8: 'EE 2.11 (2025-09-23), `ai/llm` namespace, conditional routing, AWS SigV4'.",
+"fix": "Drop the version claim for `ai/llm`, or state both sources. For example: 'KrakenD added the AI Gateway in EE 2.10 ([source](https://www.krakend.io/blog/krakend-ee-2.10-release-notes/)) and extended it in EE 2.11 ([source](https://www.krakend.io/blog/krakend-ee-2.11-release-notes/)); the research records `ai/llm` under both releases.'"
+},
+{
+"id": "L4C-3",
+"section": "CI/CD, GitOps and development tools; Observability; Gaps and non-goals",
+"issue": "Three sentences say in the present tense that Ruralz 'ships' capabilities, with no Planned (Mx) tag in the sentence. L4C and style guide section 'Feature availability tags' forbid describing any Ruralz capability as shipped: nothing is implemented. The row statuses say Planned, but these sentences read as shipped fact.",
+"evidence": "CI/CD intro: 'Ruralz ships every tool as a free `ruralz` CLI command or through Ruralz Console'. Observability table, ELK Stack dashboard row, Notes/ADR: 'Ruralz ships Grafana dashboards only; a Kibana view is community work'. Gaps and non-goals, Not planned rows table, ELK Stack dashboard: 'Ruralz ships Grafana dashboards only'.",
+"fix": "Reword with tags. CI/CD intro: 'every tool is planned as a free `ruralz` CLI command or Ruralz Console feature, Planned (M0) to Planned (M5) per row'. Both ELK rows: 'Ruralz plans Grafana dashboards only, Planned (M1); a Kibana view is community work'."
+}
+],
+"non_blocking": [
+{
+"section": "Authentication and authorization",
+"suggestion": "The NTLM row cites https://www.krakend.io/docs/enterprise/authentication/ntlm/ for 'NTLM authenticates a TCP connection, breaking pooling, and needs non-FIPS MD4 and HMAC-MD5'. The research records only 'NTLM to Microsoft servers' for that URL, so the citation seems to support a protocol fact the snapshot does not hold. Keep the reason, since it matches Security and identity. Move the link so it supports only the fact that KrakenD offers NTLM, or add the protocol fact to research."
+},
+{
+"section": "Services connectivity",
+"suggestion": "The intro says OQ-multi-protocol-14 option (a) keeps all seven Not planned rows out of M0 to M5. That OQ names only AMQP, Google Cloud Pub/Sub and Amazon SQS, and Lambda has its own OQ-krakend-ee-parity-matrix-10. Name Lambda separately. Ask multi-protocol to widen OQ-multi-protocol-14 to Azure Service Bus and Amazon SNS, or cite the broader 'Other brokers (AMQP, cloud queues)' row of Multi-protocol."
+},
+{
+"section": "Summary counts",
+"suggestion": "Moving API governance from M5 to M1 departs from the Roadmap's M1 list (23 rows) and M5 long-tail list, which names API governance. The move is recorded (OQ-krakend-ee-parity-matrix-12), and the Roadmap defers to this matrix. Make sure the Roadmap's M1 (23 of 71, 32%) and M5 figures are updated at conformance, so the two documents do not publish different parity percentages."
+},
+{
+"section": "Services connectivity",
+"suggestion": "Direct WebSockets gives 'Session memory of 96 KiB or less (target)'. Multi-protocol states 'about 96 KiB (hypothesis)'; Performance budgets and the Roadmap use (target). Cite Performance budgets as the owner of the number, so the tag is traceable."
+},
+{
+"section": "Request and response transformation",
+"suggestion": "The Gzip compression mechanism names 'A built-in compression Filter registered as a new Policy type'. No such Filter or type exists in the Configuration model yet. Rule 4 of Method asks the mechanism to name the kind that would carry it, so write '`Policy` of a new built-in type (OQ-krakend-ee-parity-matrix-3)'. Do the same for the JWT token signing row (OQ-security-and-identity-11)."
+},
+{
+"section": "Observability",
+"suggestion": "OpenTelemetry SaaS authentication is Planned (M5) 'per OQ-observability-2'. That OQ is marked blocking for TLS export at M1. Say which part (authentication headers) waits for M5 and which (TLS client settings) is M1, so readers do not assume authenticated export arrives at M1."
+},
+{
+"section": "Beyond parity",
+"suggestion": "Links to docs/adr/0016-kubernetes-helm-and-crds.md and 03-migration-from-krakend.md are broken today; verify-docs reports them as WARN. They resolve when those documents land. Recheck them before status moves past draft."
+}
+],
+"ac_results": [
+{
+"ac": "Method and snapshot states the source (krakend.io/features), the snapshot date 2026-09-23 and the edition KrakenD EE 2.13.",
+"pass": true,
+"note": "The Method table names the source, the date and 'KrakenD EE 2.13, released 2026-03-12', each with a research URL."
+},
+{
+"ac": "Each of the ten category sections contains a table with columns Feature, KrakenD CE, KrakenD EE, Ruralz status, Ruralz mechanism and Notes/ADR.",
+"pass": true,
+"note": "All ten sections have a six-column table with exactly these headers."
+},
+{
+"ac": "Every feature row of docs/_meta/research/krakend-parity.md (153 rows at the snapshot) appears, for at least 120 rows in total.",
+"pass": true,
+"note": "153 rows copied verbatim; per-category counts 17/25/11/10/12/11/26/13/25/3 match the research."
+},
+{
+"ac": "No matrix table has a blank cell.",
+"pass": true,
+"note": "A script found no empty cell in the ten tables."
+},
+{
+"ac": "KrakenD CE and KrakenD EE cells use only Yes, Partial, No or N/A, and Ruralz status cells use only Planned (M0) to Planned (M5) or Not planned.",
+"pass": true,
+"note": "Every CE/EE cell is Yes or No and every status cell is valid. verify-docs reports no FAIL."
+},
+{
+"ac": "Every KrakenD EE-only feature is Planned (Mx) and free in Ruralz, or Not planned with a reason in Notes/ADR.",
+"pass": true,
+"note": "71 EE-only rows: 68 Planned (M1 24, M2 12, M3 18, M4 2, M5 12). The 3 Not planned rows (Lua advanced helpers, NTLM, New Relic native SDK) each give a reason."
+},
+{
+"ac": "Every Ruralz mechanism names a kind, Policy or Filter defined in docs/architecture/02-configuration-model.md.",
+"pass": true,
+"note": "Every field spot-checked (issuers[], circuitBreaker.*, composition steps, telemetry.accessLog.when, loadBalancing algorithms, cache.prompt.mode, ai.surface) exists in the Configuration model. Missing fields go to OQs. The Gzip and JWT signing rows lean on the generic Policy kind (non-blocking)."
+},
+{
+"ac": "Summary counts gives counts per category and per Ruralz status, and the counts sum to the total number of rows.",
+"pass": true,
+"note": "Recomputed from the tables: M0 1, M1 81, M2 19, M3 21, M4 6, M5 12, Not planned 13 = 153. Each category row matches. The EE-only milestone table (24/12/18/2/12/3 = 71) and its percentages check out."
+},
+{
+"ac": "Gaps and non-goals maps the KrakenD EE support and services offerings to Ruralz Cloud and commercial support.",
+"pass": true,
+"note": "All 12 offerings from the research's enterprise support list appear. Each is mapped to commercial support, Ruralz Cloud or the free project, and none delivers a private feature."
+}
+],
+"foundation_amendments": []
+},
+"write:high-availability-and-disaster-recovery": {
+"path": "/home/user/ruralz/docs/operations/04-high-availability-and-disaster-recovery.md",
+"word_count": 4035,
+"h2s": [
+"Summary",
+"Scope and non-goals",
+"Failure catalog",
+"Degraded modes",
+"RPO and RTO",
+"Backups",
+"Runbooks",
+"Game days",
+"Open questions"
+],
+"diagram_count": 2,
+"oq_ids": [
+"OQ-high-availability-and-disaster-recovery-1",
+"OQ-high-availability-and-disaster-recovery-2",
+"OQ-high-availability-and-disaster-recovery-3",
+"OQ-high-availability-and-disaster-recovery-4",
+"OQ-high-availability-and-disaster-recovery-5",
+"OQ-high-availability-and-disaster-recovery-6",
+"OQ-high-availability-and-disaster-recovery-7",
+"OQ-high-availability-and-disaster-recovery-8"
+],
+"verifier_clean": true
 }
 }
