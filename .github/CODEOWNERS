@@ -1,0 +1,14 @@
+# Code owners (docs/engineering/02-repository-layout-and-conventions.md).
+# One owner approval is required; the approvals check requires two for the
+# paths listed in scripts/ci-approvals.sh.
+* @ravindu-rev
+
+# Configuration model owner: the schema source and the generated schema.
+/pkg/config/ @ravindu-rev
+/api/schema/ @ravindu-rev
+
+# Maintainer review for every no-license-check allowlist edit (ADR-0002).
+/internal/tool/repocheck/nolicensecheck.allow @ravindu-rev
+
+# Binding design inputs change only through foundation pack section 14.
+/docs/_meta/ @ravindu-rev
