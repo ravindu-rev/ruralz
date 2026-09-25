@@ -179,11 +179,26 @@ def emit(out_js):
     print(f'wrote {out_js}: {len(js)} bytes, {len(seed)} seeded labels')
 
 
+def emit_finish(out_js, dirs):
+    """Finish workflow: labels are unique per run, so the seed is simply every result of earlier finish runs."""
+    seed = {}
+    for d in dirs:
+        for r in load_run(d):
+            seed.setdefault(r['label'], r['result'])
+    t = open(os.path.join(HERE, 'ruralz-finish.template.js'), encoding='utf-8').read()
+    js = t.replace('/*__SEED__*/{}', dumps(seed))
+    json.dump(seed, open(os.path.join(HERE, 'finish-seed.json'), 'w', encoding='utf-8'), ensure_ascii=False, indent=0)
+    open(out_js, 'w', encoding='utf-8', newline='\n').write(js)
+    print(f'wrote {out_js}: {len(js)} bytes, {len(seed)} seeded labels')
+
+
 if __name__ == '__main__':
     cmd = sys.argv[1]
     if cmd == 'init':
         init(sys.argv[2])
     elif cmd == 'merge':
         merge(sys.argv[2:])
+    elif cmd == 'emit-finish':
+        emit_finish(sys.argv[2], sys.argv[3:])
     elif cmd == 'emit':
         emit(sys.argv[2])
