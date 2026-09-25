@@ -1,0 +1,106 @@
+{
+  "lens": "L1 feasibility-skeptic",
+  "verdict": "revise",
+  "score": 7,
+  "blocking": [
+    {
+      "id": "L1-2",
+      "section": "Benchmark methodology (Scenarios, O1 arithmetic); Throughput and resources per core (Throughput targets); Budget philosophy (PB-11)",
+      "issue": "O1 now reaches the ceiling, but the PB-11 derivation is still wrong, and it rests on an S3 figure that cannot hold. (1) The arithmetic charges 20,000 rejections/s. Rejections are offered minus goodput, so at the claimed 92% (36,800 rps) there would be 23,200/s. The fixed point is G = (4 vCPU - 60,000 x 16 us) / (100 us - 16 us), about 36,190 rps, which is 90.5% of saturation, not 92%. That leaves 0.5 points of margin. (2) The 16 us is the rejection's p50, but CPU is consumed at the mean. The p99 is 40 us, so the mean is likely above p50. At an 18 us mean, G is about 35,610 rps (89%), which fails PB-11. (3) S3 runs the S2 chain (auth.jwt and ratelimit) and adds TLS 1.3 and HTTP/2. Yet it claims 40,000 rps saturation, which is 100 us per request, against S2's 32,000 rps (125 us per request) on cleartext HTTP/1.1. Go's HTTP/2 server adds a goroutine handoff per stream and serializes writes through the serve loop, so TLS plus HTTP/2 being 20% cheaper per request than cleartext HTTP/1.1 is implausible without a derivation. O1a's '2.2 vCPU', O1b's 60,000 rps offered load and the 0.54 s queueing figure all inherit the 100 us.",
+      "evidence": "\"O1b: 20,000 rejections/s × 16 µs = 0.32 vCPU, 8% of 4 vCPU → goodput 92% of saturation   (target)\"; \"O1b: no delay, 60,000 rps, 150% of S3 saturation\"; \"| `RZ-RT-005` rejection (O1) | Header decode, admission check, 503 write | 16 (target) | 40 (target) | 2 (target) |\"; \"| S2 reference scenario | 32,000 rps or more (target) |\"; \"| S3 HTTP/2 over TLS 1.3 | 40,000 rps or more (target) |\"; \"| S3 | As S2 with 64 connections of up to 64 streams (target) | As S2 | HTTP/2 over TLS 1.3 on 8443 |\"; \"O1a: 20,000 rps admitted + 10,000 rejected/s stays under 2.2 vCPU\"; \"20,000 / 36,800 rps ≈ 0.54 s\"",
+      "fix": "Derive S3 from S2's per-request CPU plus TLS record and HTTP/2 framing adders (hypothesis). For example, about 18 us more gives about 143 us per request and 28,000 rps or more (target). If you keep S3 above S2, show the syscall-amortization numbers that justify it. Give the RZ-RT-005 rejection a mean CPU budget, for example 16 us or less mean (target), measured by the component benchmark, instead of using only p50. Then recompute O1 with G = (C - O x r) / (s - r). With S3 at 143 us, O1b offers 42,000 rps and goodput is about 26,200 rps, which is 93.7% (target) and closes PB-11 with margin. Recompute O1a's CPU (about 3.0 vCPU) and the queueing time (20,000 / G, about 0.76 s, hypothesis), and update OQ-performance-budgets-and-benchmarking-11 to match. If no figure closes, lower PB-11 and show the arithmetic."
+    },
+    {
+      "id": "L1-7",
+      "section": "Benchmark suite and CI gating (Suite layers, Latency job budget)",
+      "issue": "Regression introduced by the L1-6 fix: the 75-minute rotation slots cannot hold what is assigned to them under the document's own duration and gating rules. The Macro p99 gate runs every scenario 'on its night' as an interleaved A/B. The Duration rule then makes each A/B scenario cost 10 runs of 180 s plus 10 warm-ups of 60 s, which is 40 minutes (the S1 and S2 line confirms this: 80 minutes for two). So the 'S3 and S5' slot needs 80 minutes or more, and the 'S6, S6n and S7' slot needs 120 minutes or more, against 75. The saturation-ladder slot needs about 21 steps of 60 s per scenario, starting from 5%, for up to six scenarios (S1, S2, S3, S4, S5, S7), plus the PB-15 and PB-16 points: over 2 hours. The 170-minute total also assumes the minimum 60 s warm-up. Warm-up may extend to 180 s, which alone takes S1 and S2 to 120 minutes, and an invalid run re-runs once. So the Latency job can exceed Testing's 3-hour limit, and the claim that each item runs 'at least weekly' fails.",
+      "evidence": "\"One rotation slot per night                                   75 min (target)\"; \"S3 and S5 | S5x and G1 | O1 and O2 | C1, C2 and R1 | saturation ladders\"; \"with the PB-15 and PB-16 points | S4 (M2) | S6, S6n and S7 (M3)\"; \"S1 and S2 A/B: 2 × (10 runs × 180 s + 10 warm-ups × 60 s)   80 min (target)\"; \"| Macro p99 | Latency job, each scenario on its night; `release` | The same scenario's previous run, re-run interleaved\"; \"extended in 30 s steps up to 180 s until the p99 of three consecutive 10 s windows varies by 5% or less (target)\"; \"**Rate ladder.** Open-loop steps of 5% of the expected saturation, 60 s each (target).\"",
+      "fix": "Publish a slot table sized from the duration rule. Each A/B scenario costs 40 minutes nominal and 60 minutes with the maximum warm-up. Put at most one A/B scenario per 75-minute slot, filled with absolute-criteria runs (O1, O2, C1, C2, R1, G1). Start the ladders at 50% of expected saturation (about 13 steps) and split them across slots. The result is about 11 or 12 slots, so state 'each item runs at least every two weeks (target)', or give the rotating scenarios a shorter A/B design with the statistics consequence stated. Cap warm-up so the worst case, including one re-run of one scenario, fits 180 minutes, and show that worst-case sum. Record the change under OQ-performance-budgets-and-benchmarking-3."
+    },
+    {
+      "id": "L1-8",
+      "section": "Memory budget (PB-6 arithmetic); Benchmark methodology (O2 arithmetic, S2 Bundle comments)",
+      "issue": "New lines added during revision carry performance or scale figures with no (target) or (hypothesis) on the same line, which the style guide requires even inside code blocks. This fails acceptance criterion 1.",
+      "evidence": "\"R = 0               96,468,992                                        <= 100,000,000\"; \"R = 1,000           96,468,992 + 2,097,152 +  2,000,000 = 100,566,144 <= 102,000,000\"; \"R = 17,000          96,468,992 + 2,097,152 + 34,000,000 = 132,566,144 <= 134,000,000\"; \"(CE-3's 200 ms would need 41,000 calls/s to fill 8,192; the 1 s timeout keeps the breaker closed)\"; \"# At 40,000 rps each key sees about 0.4 requests/s, so S5 runs GCRA on every request and denies none.\"; \"# A Zipf variant keeps its hottest key under 25,000 calls/s; single-key runs belong to CE-12.\"",
+      "fix": "Append (target) to the three R lines of the PB-6 block. Append (hypothesis) to the CE-3 line and to the two YAML comment lines, or (target) where the value is a scenario parameter Ruralz commits to."
+    }
+  ],
+  "non_blocking": [
+    {
+      "section": "Memory budget",
+      "suggestion": "L1-1 is resolved: the PB-6 sums close. The decomposition still omits label sets that Observability itemizes and that a loaded Revision always creates: listener and enumeration families (about 0.3 MiB live at 4 stripes), Gateway Policy sets (about 0.18 MiB for the ladder's two Policies), sharded Upstream sets at 1 KiB each (R/10 Upstreams, up to 1,000), and the R/20 authz.cel Policy sets. They fit only because Routes 1 to 1,000 are charged both as sharded sets and at 0.5 KB of unsharded sets, and because admission limits (2,000 per histogram family, 6,000 per counter family) fold most Routes above 2,000. Add one row, 'Fixed per-Revision label sets', with those numbers (hypothesis), and restate the 'about 1.4 MB of margin' after deducting them."
+    },
+    {
+      "section": "Memory budget; Startup and reload time by configuration size",
+      "suggestion": "The compiled snapshot fell from 2 MB to 500 KB per 1,000 Routes, which is 0.5 KB of live heap per Route, but no new basis is given. That 0.5 KB covers the Route struct, trie and host-table entries, per-Phase chain slices and, for one Route in twenty, a cel-go Program, which alone may take several KB (hypothesis). Add a decomposition (hypothesis) that states chains are interned across Routes with identical effective chains. Add an Open question owned by vision-and-positioning that restates the 2 KB-per-Route seed if R1 measures more than 0.5 KB."
+    },
+    {
+      "section": "Throughput and resources per core (Reference hardware)",
+      "suggestion": "'Latency, throughput and memory budgets gate on RH-1 only' contradicts the 'Size and idle RSS' gate in pr-full, which runs on shared runners. State that idle RSS is exempt because it does not depend on the machine, or move that gate to RH-1."
+    },
+    {
+      "section": "Startup and reload time by configuration size (Fleet-level timing)",
+      "suggestion": "With 10,000 emulated Nodes and three replicas, each replica holds about 3,333 streams, so F2 never exercises the '5,000 before shedding' row. Add an F2 step that stops one replica, so the two survivors each hold 5,000, and record shedding with RZ-CP-010."
+    },
+    {
+      "section": "Startup and reload time by configuration size (Hot Reload stages)",
+      "suggestion": "Under S1 at half saturation (2 vCPU), W = 2 compile workers take the Node to 4 of 4 vCPU for about 0.4 to 0.7 s. State the compile window over which the 1.5 ms p99 (hypothesis) is measured, and whether R1 reports the run p99 or the p99 inside that window."
+    },
+    {
+      "section": "Per-stage latency budget",
+      "suggestion": "Observability's gateway-added time excludes client reads and writes, yet the table counts header read and response write CPU toward PB-2 and PB-3. Say that this makes the stage sum conservative against the metric, so a reader does not expect the internal histogram to show those rows."
+    },
+    {
+      "section": "Whole document",
+      "suggestion": "The body is 6,474 words against the 6,500 maximum under the manifest word_count_rule. The L1-2 and L1-7 fixes add a slot table and arithmetic, so make room by tightening prose that resolved no finding, such as restated seeds and duplicated SLO ties. Keep the text that resolved L1-1 and L1-3 to L1-6."
+    }
+  ],
+  "ac_results": [
+    {
+      "ac": "Every performance number is tagged (target) or cites a measurement URL.",
+      "pass": false,
+      "note": "Mostly tagged, but the PB-6 arithmetic lines (R = 0, 1,000 and 17,000), the CE-3 line in the O2 block and two S2 Bundle comments (0.4 requests/s, 25,000 calls/s) have no tag. See L1-8."
+    },
+    {
+      "ac": "Per-stage latency budget gives a microsecond budget per Filter Chain stage in a table.",
+      "pass": true,
+      "note": "The table gives p50 and p99 in microseconds for every Phase, including onChunk, plus the all-in streaming, estimator and rejection rows. The S2 and S1 sums check out: 92 and 285 us for S2, 45 and 177 us for S1."
+    },
+    {
+      "ac": "Throughput and resources per core states the reference hardware.",
+      "pass": true,
+      "note": "RH-1: bare-metal amd64 with fixed frequency, SMT off, a 4-core cpuset and GOMAXPROCS=4; RH-1L, RH-1U and RH-1S alongside, and RH-2 and RH-3 reported only."
+    },
+    {
+      "ac": "Benchmark methodology names the load tool, protocol, duration, percentiles and reference machine, and addresses open-loop load, coordinated omission, warm-up and reproducibility.",
+      "pass": true,
+      "note": "Names oha, vegeta and fortio, the protocol per scenario, 180 s runs, p50 to maximum from HdrHistogram and RH-1, with subsections on open-loop load, coordinated omission, warm-up and reproducibility."
+    },
+    {
+      "ac": "Benchmark suite and CI gating quantifies the regression policy (more than 5% p99 latency or more than 3% alloc/op regression fails, tagged (target)).",
+      "pass": true,
+      "note": "Stated with tags in Regression policy and gates. The job scheduling that runs those gates does not fit its time slots (L1-7)."
+    },
+    {
+      "ac": "Benchmark methodology includes a competitor baseline plan against KrakenD CE, Envoy, APISIX and Kong.",
+      "pass": true,
+      "note": "Competitor baseline plan table, Planned (M4), with cited builds. JWT equivalents for Envoy, APISIX and Kong are deferred to OQ-performance-budgets-and-benchmarking-7."
+    },
+    {
+      "ac": "Budgets tie to the SLOs defined in docs/architecture/10-observability.md.",
+      "pass": true,
+      "note": "The budget catalog maps each PB to SLO-GW-1 through SLO-GW-7 or SLO-CP-1, or to none with a reason, and links 10-observability.md."
+    },
+    {
+      "ac": "The seed targets appear, each tagged (target): p99 added latency 1 ms or less for plain proxying at 10k rps per core; at least 50k rps on 4 vCPU; WASM Plugin call 50 microseconds or less; RSS 100 MB or less plus about 2 KB per Route; hot reload of 5,000 Routes in 500 ms or less.",
+      "pass": true,
+      "note": "The Seed targets table lists all five, each tagged (target)."
+    },
+    {
+      "ac": "Profiling playbook covers pprof, GOGC and GOMEMLIMIT.",
+      "pass": true,
+      "note": "Covers pprof capture commands and a GOGC and GOMEMLIMIT subsection with Ruralz rules."
+    }
+  ],
+  "foundation_amendments": []
+}

@@ -22,7 +22,7 @@ Liveness: the run is alive if its journal.jsonl or any agent-*.jsonl changed in 
 After a run ends or dies:
 
 1. `python3 docs/_meta/run/gen_seed.py merge <run dir>` (every run dir not yet merged).
-2. Apply finished statuses: from the run result, pipe `{path: status}` for docs into `apply_status.py <today>`.
+2. Apply finished statuses: `python3 docs/_meta/run/statuses.py | python3 docs/_meta/run/apply_status.py <today>`.
 3. Commit and push `docs/` (seed.json included) directly to `main` (user decision 2026-09-25: no PRs).
 4. `python3 docs/_meta/run/gen_seed.py emit docs/_meta/run/ruralz-continue.js`, dry-run it (args dryRun true), then relaunch
    with args `{today, repo: /home/user/ruralz, maxConcurrent: 2, dryRun: false}`.

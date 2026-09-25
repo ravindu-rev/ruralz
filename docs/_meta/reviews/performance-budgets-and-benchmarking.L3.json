@@ -1,0 +1,109 @@
+{
+  "lens": "L3",
+  "verdict": "revise",
+  "score": 6,
+  "blocking": [
+    {
+      "id": "L3-1",
+      "section": "Benchmark methodology (Scenarios); Memory budget; Benchmark suite and CI gating (Suite layers); Throughput and resources per core (Reference hardware); Startup and reload time by configuration size (Hot Reload stages)",
+      "issue": "Several performance or scale figures still have no (target) or (hypothesis) tag on their line and no measurement URL. This breaks style guide section 4 and acceptance criterion 1. Most of them came in with the revision: the new S5 key comments, the O1b and O2 arithmetic, the PB-6 sum lines and the F1 row. The previous review treated a figure in a Mermaid node as in scope, so figures in code blocks count too.",
+      "evidence": "Line 314: \"| F1 | SM-9: 100 `ruralzd` processes, three Ruralz Control replicas | PB-13 |\"; line 396: \"# At 40,000 rps each key sees about 0.4 requests/s, so S5 runs GCRA on every request and denies none.\"; line 399: \"# A Zipf variant keeps its hottest key under 25,000 calls/s; single-key runs belong to CE-12.\"; line 320: \"O1b queueing: the fixed ceiling admits 20,000 units, so admitted requests wait about\"; line 324: \"(CE-3's 200 ms would need 41,000 calls/s to fill 8,192; the 1 s timeout keeps the breaker closed)\"; lines 233-235: \"R = 1,000           96,468,992 + 2,097,152 +  2,000,000 = 100,566,144 <= 102,000,000\"; line 475: \"The 2-hour soak exceeds a slot, so it runs in release only.\"; line 164: \"A cloud VM with 4 dedicated vCPUs\"; line 258: \"For 5,000 Routes, idle RH-1 Node:\"; lines 459 and 578: \"metric aggregates at 4 P and 32 P\", \"`ruralz_filter_duration_seconds` at 32 P\".",
+      "fix": "Add a tag to each of these lines. Write \"100 `ruralzd` processes (target)\" in F1. Write \"about 0.4 requests/s (hypothesis)\" and \"under 25,000 calls/s (target)\" in the YAML comments. End lines 320 and 324 and each of lines 233-235 with (target) or (hypothesis). Write \"2-hour soak (target)\", \"4 dedicated vCPUs (target)\", \"For 5,000 Routes (target)\" and \"4 P and 32 P (target)\". Then rescan every line of the document that holds a digit, code blocks included."
+    },
+    {
+      "id": "L3-2",
+      "section": "Benchmark methodology (Scenarios: O1, S6; S2 Bundle); Budget philosophy (Budget catalog: PB-11)",
+      "issue": "New regression from the L3-3 fix. The benchmark Upstream keeps the default `circuitBreaker`, so O1 cannot reach the in-flight ceiling it tests. Traffic management and resilience sets `maxConnections` to 1,024 in-flight attempts per Upstream per Node, and caps one Endpoint at 50% of that, which is 512. Beyond `maxPendingRequests` (256), it answers 503 `RZ-UP-006` at once. O1a holds each admitted request for 1 s at the mock, so it needs about 20,000 upstream attempts in flight. It gets at most about 768, and the rest fail as `RZ-UP-006`. Active requests then never plateau at 20,000, `RZ-RT-005` never fires, and PB-11's 'excess only as `RZ-RT-005`' cannot pass. S6's 1,000 concurrent streams to one mock provider Endpoint also exceed the 512 per-Endpoint cap.",
+      "evidence": "S2 Bundle Upstream: \"endpoints:\\n    - address: \\\"upstream-mock.bench.example:8080\\\"\\n  loadBalancing: {algorithm: round-robin}\\n  timeout: 2s\" (no `circuitBreaker`); O1: \"O1a: mock delay 1 s, 30,000 rps, 150% of what the in-flight ceiling admits\" with pass criteria \"active requests plateau at 20,000\"; PB-11: \"excess only as `RZ-RT-005` (target)\"; S6: \"100 chunks per second on 1,000 streams\". Traffic management and resilience: \"| `circuitBreaker` limits | `maxConnections` 1,024, `maxPendingRequests` 256 ...\", \"| `maxPendingRequests` | Waiters for that semaphore ... | 503 `RZ-UP-006` at once |\", \"An Endpoint holds at most max(8, min(2 × its weighted share, 50%) of `maxConnections`) in-flight attempts\".",
+      "fix": "Give O1 and S6 an overlay that sets the registered `circuitBreaker.maxConnections` and `maxPendingRequests` fields on the mock Upstream. For O1a, at least 40,000 attempts are needed (target), so one Endpoint's 50% share holds 20,000. Alternatively, list several mock Endpoints, and show the per-Endpoint arithmetic. Add 'zero `RZ-UP-006`' to the O1 and S6 pass criteria. State that the mock host holds 20,000 concurrent upstream connections (target), and note which default-circuit-breaker scenarios, such as S1 and S3, stay below 512 attempts in flight."
+    },
+    {
+      "id": "L3-3",
+      "section": "Benchmark suite and CI gating (Suite layers: the Latency job time budget)",
+      "issue": "The L3-5 fix is incomplete. The document asserts that the Latency job fits Testing's 3-hour limit, but its own run rules overflow the rotation slots. The Duration rule gives each gated scenario 5 head and 5 baseline runs of 180 s, each after a 60 s warm-up. That is 10 × 240 s = 40 minutes per scenario. The 'S3 and S5' slot then takes 80 minutes, and the 'S6, S6n and S7' slot takes 120 minutes, against a 75-minute slot. On an S6 night the job totals 80 + 15 + 120 = 215 minutes, over Testing's 'Longest job 3 hours (target)'. The HTTP/3 variant of S3 (M3) adds another 40 minutes to its slot. Warm-up extensions of up to 180 s per run are not budgeted either; in the worst case they take S1 and S2 alone to 120 minutes.",
+      "evidence": "\"S1 and S2 A/B: 2 × (10 runs × 180 s + 10 warm-ups × 60 s)   80 min (target)\"; \"One rotation slot per night                                   75 min (target)\"; \"S3 and S5 | S5x and G1 | O1 and O2 | C1, C2 and R1 | saturation ladders ... | S4 (M2) | S6, S6n and S7 (M3)\"; \"**Duration.** Five measured runs of 180 s per scenario and commit (target), interleaved with the baseline in A, B, A, B order\"; \"**Warm-up.** Each run first offers its rate for 60 s (target), discarded, extended in 30 s steps up to 180 s\"; Testing: \"| `nightly` | Daily, four parallel jobs | Longest job 3 hours (target) |\".",
+      "fix": "Give per-slot arithmetic, and keep every slot within 75 minutes (target). For example, allow at most one 40-minute A/B scenario per slot, plus runs with absolute criteria only. Split S6, S6n, S7 and the S3 HTTP/3 variant into their own slots, and restate the rotation period, for example 'every item at least every 12 nights (target)', or move items to `release`. Budget the warm-up extension, for example with a per-night cap of 10 minutes (target) that aborts and re-queues the slot. Also state which O1, O2, C1 and R1 runs are single runs with absolute criteria rather than A/B pairs. Record the rotation change in OQ-performance-budgets-and-benchmarking-3."
+    },
+    {
+      "id": "L3-4",
+      "section": "Throughput and resources per core (Throughput targets); Benchmark methodology (Scenarios: S3, O1b)",
+      "issue": "S3's saturation contradicts S2's, and O1b is built on the S3 figure. S3 runs the same workload and the same Filter Chain as S2, adding TLS 1.3 and HTTP/2, yet it claims 25% more throughput per vCPU. That would mean 100 µs of CPU per request against S2's 125 µs, with extra work added. No arithmetic explains the gap. An operator who sizes TLS traffic from S3 over-provisions throughput by at least 25%. O1b's 60,000 rps offered load and PB-11's goodput reference both derive from this figure.",
+      "evidence": "\"| S3 | As S2 with 64 connections of up to 64 streams (target) | As S2 | HTTP/2 over TLS 1.3 on 8443 |\"; \"| S2 reference scenario | 32,000 rps or more (target) | 8,000 rps or more (target) |\" and \"| S3 HTTP/2 over TLS 1.3 | 40,000 rps or more (target) | 10,000 rps or more (target) |\"; \"| CPU per 10,000 rps, S2 | 1.25 vCPU or less (target) |\"; O1: \"O1b: no delay, 60,000 rps, 150% of S3 saturation\".",
+      "fix": "Set S3's saturation at or below S2's and show the arithmetic, for example 1.25 vCPU plus TLS record and HTTP/2 framing cost of about X µs per request (hypothesis), giving about 28,000 rps (target). Then recompute O1b's offered rate (150%), the O1b goodput line and PB-11. Alternatively, if 40,000 rps is intended, redefine S3's Filter Chain as S1's, with no Filters, and say so in the Scenarios table."
+    }
+  ],
+  "non_blocking": [
+    {
+      "section": "Benchmark methodology (Scenarios: O1b arithmetic)",
+      "suggestion": "\"20,000 rejections/s × 16 µs = 0.32 vCPU ... goodput 92% of saturation\" is circular. At 92% goodput (36,800 rps), rejections are 60,000 − 36,800 = 23,200/s, which is 0.37 vCPU (9.3%), for about 90.7% goodput. This still meets PB-11, but the margin is thin; show the converged figure. Also note that the 16 µs is the p50 rejection cost."
+    },
+    {
+      "section": "Benchmark methodology (S2 Bundle, S5 key cardinality)",
+      "suggestion": "S5 cycles 100,000 keys. On a single file-mode Node, the first-seen budget is 200 per second (target), so warming every key takes about 500 s, longer than the 180 s maximum warm-up. Under the current conforming option (c) of OQ-traffic-management-and-resilience-20, past-budget keys wait for GCRA, so the claim holds. Under proposed option (a), past-budget keys go local-only for 10 s without GCRA. State that S5 depends on option (c), or add a key pre-warm phase, or lower the cardinality to 10,000 keys (target), which is 50 s at 200 per second."
+    },
+    {
+      "section": "Open questions (OQ-performance-budgets-and-benchmarking-5)",
+      "suggestion": "Observability's Overhead per signal also states \"the 96 MiB idle RSS budget (target)\". Name Observability alongside Tech stack and Testing in OQ-5, so all three documents align on 92 MiB."
+    },
+    {
+      "section": "Benchmark suite and CI gating (Constants the suite verifies)",
+      "suggestion": "\"O1 plateaus, never queues\" reads as contradicting O1b's \"admitted requests wait about ... 0.54 s\". Write 'never queued at admission (`RZ-RT-005` at once)'."
+    },
+    {
+      "section": "Memory budget",
+      "suggestion": "20,000 × 96 KiB is 1.83 GiB, so \"about 1.9 GiB\" rounds up; write 'about 1.8 GiB (target)' or state that the figure is in decimal GB."
+    },
+    {
+      "section": "Scope and non-goals; Reporting",
+      "suggestion": "verify-docs warns that the link to ../operations/03-capacity-planning.md is broken because the file does not exist yet. This is acceptable under --allow-missing, but confirm that the target path matches the manifest entry for Capacity planning."
+    }
+  ],
+  "ac_results": [
+    {
+      "ac": "Every performance number is tagged (target) or cites a measurement URL.",
+      "pass": false,
+      "note": "Untagged figures remain, among them the F1 row's 100 processes, the S5 key comments (0.4 requests/s, 25,000 calls/s), the O1b and O2 arithmetic lines, the PB-6 sum lines, the 2-hour soak, and '4 dedicated vCPUs'. See L3-1."
+    },
+    {
+      "ac": "Per-stage latency budget gives a microsecond budget per Filter Chain stage in a table.",
+      "pass": true,
+      "note": "The table gives p50 and p99 µs and allocations for every Phase, plus the runtime reserve. The sums check out: S2 p99 285 + 715 = 1,000, p50 92 + 58 = 150; S1 45 and 177."
+    },
+    {
+      "ac": "Throughput and resources per core states the reference hardware.",
+      "pass": true,
+      "note": "RH-1, RH-1L/U/S, RH-2 and RH-3 are specified: CPU, frequency, cpuset, NIC, kernel and GOMAXPROCS. The S3 throughput figure contradicts S2 (L3-4), but that does not affect this criterion."
+    },
+    {
+      "ac": "Benchmark methodology names the load tool, protocol, duration, percentiles and reference machine, and addresses open-loop load, coordinated omission, warm-up and reproducibility.",
+      "pass": true,
+      "note": "The section names oha as primary, with vegeta and fortio; gives protocols per scenario, 5 × 180 s runs, p50 to maximum from HdrHistogram, and RH-1; and has subsections on open-loop load, coordinated omission, warm-up and reproducibility."
+    },
+    {
+      "ac": "Benchmark suite and CI gating quantifies the regression policy (more than 5% p99 latency or more than 3% alloc/op regression fails, tagged (target)).",
+      "pass": true,
+      "note": "\"regresses p99 latency by more than 5% (target) or alloc/op by more than 3% (target)\"; the Figure 2 gate node is now tagged."
+    },
+    {
+      "ac": "Benchmark methodology includes a competitor baseline plan against KrakenD CE, Envoy, APISIX and Kong.",
+      "pass": true,
+      "note": "The Competitor baseline plan table covers all four products, and every URL appears in the research files the manifest lists."
+    },
+    {
+      "ac": "Budgets tie to the SLOs defined in docs/architecture/10-observability.md.",
+      "pass": true,
+      "note": "The Budget catalog maps every PB to SLO-GW-1 to SLO-GW-7 or SLO-CP-1, to a related SLO, or to None with an Open question, and links to 10-observability.md#slo-definitions."
+    },
+    {
+      "ac": "The seed targets appear, each tagged (target): p99 added latency 1 ms or less for plain proxying at 10k rps per core; at least 50k rps on 4 vCPU; WASM Plugin call 50 microseconds or less; RSS 100 MB or less plus about 2 KB per Route; hot reload of 5,000 Routes in 500 ms or less.",
+      "pass": true,
+      "note": "The Seed targets table lists all five, each tagged (target). PB-6 now closes arithmetically, with 92 MiB idle and about 1.4 MB of margin at 1,000 Routes."
+    },
+    {
+      "ac": "Profiling playbook covers pprof, GOGC and GOMEMLIMIT.",
+      "pass": true,
+      "note": "It has a symptom-to-profile table, pprof capture commands on 9901, a GOGC and GOMEMLIMIT subsection with sourced facts, and Ruralz rules."
+    }
+  ],
+  "foundation_amendments": []
+}

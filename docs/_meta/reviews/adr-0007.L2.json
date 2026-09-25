@@ -1,0 +1,88 @@
+{
+  "lens": "L2",
+  "verdict": "revise",
+  "score": 8,
+  "blocking": [
+    {
+      "id": "L2-1",
+      "section": "Decision outcome > Confirmation",
+      "issue": "The CI stage reference is wrong. In Repository layout and conventions (CI stages table), `buf lint` runs in stage 2 (Format and lint, Planned (M0)) and `buf breaking` runs in stage 3 (Generated code drift; protos Planned (M2)). The ADR puts both in stage 3, so the verification mechanism named in Confirmation contradicts the document it cites.",
+      "evidence": "Line 139: \"- **`buf lint` and `buf breaking`**, stage 3 of `pr-fast`, Planned (M2): against `main` and the last tag of each supported line ([buf rules](../engineering/02-repository-layout-and-conventions.md#buf-rules)).\" Compare docs/engineering/02-repository-layout-and-conventions.md line 452: \"| 2. Format and lint | `pr-fast` | `gofumpt`, `goimports`, golangci-lint, `buf format`, `buf lint` |\", and line 453: \"| 3. Generated code drift | `pr-fast` | ... `buf breaking` ...\"",
+      "fix": "Rewrite as: \"**`buf lint` (stage 2) and `buf breaking` (stage 3) of `pr-fast`**, Planned (M2) for `ruralz.control.v1`: `buf breaking` runs against `main` and the last tag of each supported line ([buf rules](../engineering/02-repository-layout-and-conventions.md#buf-rules)).\""
+    },
+    {
+      "id": "L2-2",
+      "section": "Decision outcome > Consequences",
+      "issue": "The milestone claim contradicts the tech stack catalog. The catalog gives gRPC ingress (connect) Planned (M3), while the Control Stream is Planned (M2). When the Control Stream lands, `ruralzd` does not \"already\" link connect for gRPC ingress. The Control Stream is the first thing that links connect into `ruralzd`.",
+      "evidence": "Line 130: \"- Good, because `ruralzd` already links connect for gRPC ingress and `ruralz-control` serves it on `net/http`, so no second RPC library or HTTP/2 server appears.\" Compare docs/engineering/01-tech-stack-and-libraries.md line 61 (gRPC ingress row: \"... | None | Planned (M3) |\") and line 66 (Control Stream row: \"... | Planned (M2) |\").",
+      "fix": "Rewrite as: \"Good, because connect is also `ruralzd`'s gRPC ingress library (Planned (M3)), and `ruralz-control` serves it on `net/http`, so the product never links a second RPC library or HTTP/2 server.\""
+    }
+  ],
+  "non_blocking": [
+    {
+      "section": "Decision outcome (Service row) and More information",
+      "suggestion": "Foundation pack section 8.4 lists 8091 authentication as \"mTLS, per-Node enrollment certificate\", and section 2 describes the Control Stream as gRPC \"over mTLS\". The Service row, \"unary `Enroll` (one-time token, server CA pinned)\", states the server-authenticated-TLS exception as already settled. That exception is still a proposed pack amendment (OQ-security-and-identity-31), and the ADR mentions it only in More information. Add \"(pending pack 8.4 amendment, OQ-security-and-identity-31)\" inline in the Service row so the table does not read as a silent deviation from the pack."
+    },
+    {
+      "section": "Decision outcome (Delivery row) and Figure 1",
+      "suggestion": "Pack 8.2 says every snapshot, delta and heartbeat carries the promoted digest, and the owning document's `Snapshot` and `Delta` rows include `promotion`. The Delivery row and the Figure 1 labels (\"Delta with nonce, baseDigest, ops and signature\", \"Snapshot chunks with nonce, offset, totalBytes and signature\") leave it out. Add `promotion` to both, so readers do not conclude that only `HeartbeatReply` carries it."
+    },
+    {
+      "section": "Decision outcome (ACK/NACK row)",
+      "suggestion": "Pack 8.3 says a deterministic NACK \"fails the gate at once\". The ADR, following the owning document, says it fails the gate \"once Ruralz Control reproduces it, else it counts as transient\". The two are compatible, because pack 8.3 defines a deterministic NACK as one that reproduces from the Revision, but add a short clause saying that reproduction is how Ruralz Control applies that definition. Otherwise a pedantic reader may see a softening of the pack."
+    },
+    {
+      "section": "Decision outcome (Figure 2)",
+      "suggestion": "The stale-replica branch shows only \"Last committed assignment only to a Node with no active digest\". The owning document (Fencing stale replicas) also says a stale replica answers other Nodes with nothing, sends `HeartbeatReply` with its last promotion, and after 30 s stale (target) sends `Reconnect` (`rebalance`). Extend the node label or add one node so the figure matches the owning document."
+    },
+    {
+      "section": "Pros and cons of the options",
+      "suggestion": "Make the H3 names match the Considered options wording. Option 3 is \"The same protocol on grpc-go at both ends\" but its H3 is \"Own protocol on grpc-go at both ends\". Option 1's H3 drops `ruralz.control.v1` and \"at both ends\"."
+    },
+    {
+      "section": "Context and problem statement",
+      "suggestion": "\"reconnects that present the active digest\" is attributed to pack sections 8.2 and 8.3, but that rule is in pack section 8.4. Add 8.4 to the parenthetical."
+    },
+    {
+      "section": "Acceptance (ADR index)",
+      "suggestion": "docs/adr/README.md does not exist yet, so the index-link criterion cannot pass. The owning document already links the ADR (lines 24 and 322). Nothing needs to change in this ADR; the ADR index writer (wave 5) must add the ADR-0007 row."
+    }
+  ],
+  "ac_results": [
+    {
+      "ac": "Front matter contains id, title, status, date, deciders and related, and status matches this manifest.",
+      "pass": true,
+      "note": "id ADR-0007, title identical to the manifest title, status accepted (the manifest says accepted), date 2026-09-25, deciders [ruralz-core], and related lists the owning document and the dependencies."
+    },
+    {
+      "ac": "H2 headings match adr_common.outline_h2 exactly and in order, and Decision outcome contains the H3 headings Consequences and Confirmation.",
+      "pass": true,
+      "note": "The six H2 headings are in order, and both H3 headings are present under Decision outcome. verify-docs reports no FAIL line for this file."
+    },
+    {
+      "ac": "Considered options lists at least two options including the chosen one, and each has pros and cons.",
+      "pass": true,
+      "note": "Four options, each with Good and Bad bullets. Every option cites research URLs (connect-go README, buf, the Envoy xDS protocol, the Envoy Gateway concepts page, grpc-go, Consul blocking queries, oras-go), and all of these URLs appear under docs/_meta/research/."
+    },
+    {
+      "ac": "Decision outcome states the chosen option as 'Chosen option: ..., because ...' and matches the foundation pack section 7 row for this ADR.",
+      "pass": true,
+      "note": "The Decision outcome restates the pack section 7 row: own snapshot plus delta protocol, xDS-style ACK/NACK, connect in gRPC mode on both ends, `buf breaking`, not xDS, not go-control-plane. It also agrees with the manifest decision and the tech stack Control Stream row."
+    },
+    {
+      "ac": "Confirmation names a concrete verification mechanism (test, lint rule, CI gate or review checklist item).",
+      "pass": true,
+      "note": "It names buf lint and buf breaking, a dependency admission rule through banned imports, integration, fuzz and chaos tests, and a review checklist item. The CI stage numbering is wrong (see L2-1), but a concrete mechanism is named."
+    },
+    {
+      "ac": "The ADR is linked from docs/adr/README.md and from its owning document.",
+      "pass": false,
+      "note": "docs/architecture/04-control-plane-and-gitops.md links it at lines 24 and 322. docs/adr/README.md does not exist yet (verify-docs: 'ADR index ... does not exist yet'); the index is written in a later wave, so this failure cannot be fixed in this file."
+    }
+  ],
+  "foundation_amendments": [
+    "Pack section 8.4 (8091 row) and section 2 (Control Stream row): record the `Enroll` exception, which uses server-authenticated TLS with a pinned server CA and a one-time token, as proposed in OQ-security-and-identity-31.",
+    "Pack section 8.3: define a deterministic NACK as one Ruralz Control reproduces from the Revision, with a non-reproducing NACK treated as transient, matching the owning document and ADR-0007.",
+    "Pack section 8.4: NACK carries digest, code and class (deterministic or transient), not only digest and code."
+  ]
+}
