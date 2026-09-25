@@ -550,7 +550,7 @@
   {
    "section": "Top-level keys",
    "kind": "default",
-   "value": "`max_header_bytes`: The importer writes KrakenD's value, default `1000000`, explicitly"
+   "value": "`max_header_bytes`: `exact`; `approximate` above `256Ki`; writes `min(value, 256Ki)`; larger headers get 431"
   },
   {
    "section": "Top-level keys",
@@ -1590,7 +1590,12 @@
   {
    "section": "Worked import example",
    "kind": "default",
-   "value": "maxRequestHeaderBytes: 1000000     # KrakenD default, written explicitly"
+   "value": "maxRequestHeaderBytes: 256Ki       # KrakenD default 1000000, capped at the process ceiling"
+  },
+  {
+   "section": "Worked import example",
+   "kind": "claim",
+   "value": "Gateway `ruralz.io/import-fidelity: approximate`, lowest level among its items: max_header_bytes"
   },
   {
    "section": "Worked import example",
@@ -1625,7 +1630,12 @@
   {
    "section": "Worked import example",
    "kind": "number",
-   "value": "items: exact 4, equivalent 13, approximate 3, manual 1"
+   "value": "items: exact 3, equivalent 13, approximate 4, manual 1"
+  },
+  {
+   "section": "Worked import example",
+   "kind": "claim",
+   "value": "approximate /max_header_bytes: KrakenD default 1000000 written as 256Ki, the Ruralz process ceiling; less permissive: header blocks above 256 KiB that KrakenD accepted get a plain 431"
   },
   {
    "section": "Worked import example",

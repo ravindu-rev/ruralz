@@ -560,7 +560,7 @@
   {
    "section": "M1 scope",
    "kind": "library",
-   "value": "JOSE and OIDC libraries"
+   "value": "JOSE library"
   },
   {
    "section": "M1 scope",
@@ -620,7 +620,7 @@
   {
    "section": "M1 exit criteria",
    "kind": "number",
-   "value": "the 33 whose Blocking column names M1 (2026-09-25)"
+   "value": "the 32 whose Blocking column names M1 (2026-09-25)"
   },
   {
    "section": "M1 exit criteria",

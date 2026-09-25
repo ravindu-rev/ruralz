@@ -940,7 +940,7 @@
   {
    "section": "Benchmarks and regression gates",
    "kind": "number",
-   "value": "at 30 allocations (hypothesis), one extra allocation exceeds 3% (target)"
+   "value": "at PB-8's 30 allocations (target), one extra allocation exceeds 3% (target)"
   },
   {
    "section": "Benchmarks and regression gates",
@@ -965,7 +965,7 @@
   {
    "section": "Benchmarks and regression gates",
    "kind": "number",
-   "value": "30 or fewer Ruralz-owned allocations per pass-through HTTP/1.1 request, excluding `net/http` internals (hypothesis)"
+   "value": "30 or fewer Ruralz-owned allocations per pass-through HTTP/1.1 request, excluding `net/http` internals (target)"
   },
   {
    "section": "Benchmarks and regression gates",
@@ -1255,7 +1255,7 @@
   {
    "section": "Release gates",
    "kind": "kind_or_field",
-   "value": "`http3: true` is refused or inert"
+   "value": "`http3: true` is refused, never ignored (deterministic NACK or file-mode load failure), and UDP 8443 is never bound"
   },
   {
    "section": "Release gates",

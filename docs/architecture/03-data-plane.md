@@ -10,14 +10,14 @@ depends_on:
   - docs/architecture/02-configuration-model.md
   - docs/engineering/01-tech-stack-and-libraries.md
 adrs: [ADR-0001, ADR-0004, ADR-0005, ADR-0007, ADR-0008, ADR-0009, ADR-0010, ADR-0011, ADR-0014, ADR-0015, ADR-0017]
-milestone_tags_used: [M1, M2, M3, M4]
+milestone_tags_used: [M1, M2, M3, M4, M5]
 ---
 
 # Data Plane
 
 ## Summary
 
-This document specifies Ruralz Gateway (`ruralzd`), the stateless data plane: concurrency bounds, listeners, Route matching, Filter Chain execution through the fixed Phases, Upstream composition and balancing, and configuration snapshot swaps during Hot Reload that drop no in-flight request. It fixes routing precedence, the admin API on port 9901, the error format, the `RZ-RT` registry and fail-open or fail-closed behavior per Filter class. Nothing is implemented yet; Ruralz Gateway is Planned (M1).
+This document specifies Ruralz Gateway (`ruralzd`), the stateless data plane: concurrency bounds, listeners, Route matching, Filter Chain execution through the fixed Phases, Upstream composition and balancing, and configuration snapshot swaps during Hot Reload that drop no in-flight request. It fixes routing precedence, the `transform.request` and `transform.response` `config` schema, the admin API on port 9901, the error format, the `RZ-RT` registry and fail-open or fail-closed behavior per Filter class. Nothing is implemented yet; Ruralz Gateway is Planned (M1).
 
 ## Scope and non-goals
 
@@ -305,6 +305,63 @@ A subscribed stream reserves 32 KiB (target) from the stream share before commit
 
 A Filter returns continue, respond, or cannot decide (a failed or timed-out State Store call or remote dependency, a Plugin trap or limit, or a runtime error in a Policy `config` CEL field), and `failureMode` then applies ([Failure semantics](#failure-semantics)). Other CEL fields follow the Configuration model's [CEL table](02-configuration-model.md#allowed-places). Each failure increments `ruralz_filter_failures_total` (name proposed to [Observability](10-observability.md)) and marks the span `ruralz.filter.<name>`.
 
+### Transform Policies
+
+`transform.request` and `transform.response`, both Planned (M1), rewrite bodies, headers and the query string with CEL and regular expressions instead of a template language. This section authors their `config` schema (pack 3) and submits it, with a CEL row per expression field, to the [Configuration model](02-configuration-model.md#policy) for registration. Both types are gates ([Body buffering and limits](02-configuration-model.md#body-buffering-and-limits)).
+
+| Field | Contents | `transform.request` | `transform.response` |
+|---|---|---|---|
+| `body` | CEL; a map or list is written as JSON, a string as its bytes | Builds the forwarded request body | Builds the response body |
+| `contentType` | String; default `application/json` | Sets `Content-Type` when `body` is set; required for a string result, such as `text/xml` for a SOAP envelope | Same |
+| `set[]` | `target`, `name`, `valueExpression` (CEL) | `target` is `header`, `query` or `body`; copies body fields into headers or the query string | `target` is `header` or `body` |
+| `remove[]` | `target`, `name` | Drops a header, query parameter or body path | Drops a header or body path |
+| `arrayOps[]` | `op` (`move`, `append` or `delete`), `from`, `to` | Array operations on body paths | Same; the Flatmap row |
+| `replace[]` | `path`, `pattern`, `replacement`, `literal` | Replaces matches in the string at `path`, or in the raw body when `path` is absent | Same |
+
+A body `name`, `path`, `from` or `to` is a dot path into the JSON body: a numeric segment indexes an array, and `*` matches every element, so `move` from `items.*.sku` to `skus` flattens each item's `sku` into one array. `set[]` creates missing objects; `remove[]`, `move` and `delete` on a missing path do nothing. `pattern` is RE2 syntax, compiled at validation by the standard `regexp` package, which has no backreferences and matches in time linear in the input; `replacement` refers to groups as `$1`; the `${1}` form needs the `$${1}` escape of [Environment substitution](02-configuration-model.md#environment-substitution). With `literal: true`, `pattern` and `replacement` are plain strings.
+
+A Policy applies `body`, then `arrayOps[]`, `set[]`, `remove[]` and `replace[]`, each list in order. Every CEL field reads the body as it reached the Policy, so no entry reads another's output, and a later Policy in the chain sees the rewritten body.
+
+| Type and scope | Phase | CEL variables | Output cap |
+|---|---|---|---|
+| `transform.request` at Gateway or Route | `onRequestBody`, once | Base, with `request.body` | `limits.maxRequestBodyBytes` |
+| `transform.request` at Upstream | `onUpstreamRequest`, per leg attempt, from the same buffered input each time | Base, with `request.body`; `upstream` | `limits.maxRequestBodyBytes` |
+| `transform.response` at Gateway or Route | `onResponse`, after any composition merge | Base; `response`, with `body` | `limits.maxResponseBodyBytes` |
+| `transform.response` at Upstream | `onUpstreamResponseBody`, per leg | Base; `response`, with `body`; `upstream` | Step `maxBodyBytes`, else `limits.maxResponseBodyBytes` |
+
+*Base* is the Configuration model's set ([Variables](02-configuration-model.md#variables)). `request.body` and `response.body` are JSON as `dyn`; a body whose `Content-Type` is not `application/json` or a `+json` type is null, so only `replace[]` without `path`, header and query operations and a `body` that ignores it apply. Reading an XML response is OQ-data-plane-17.
+
+Limits: each CEL field has the Configuration model's [cost bounds](02-configuration-model.md#limits), 10,000 units at validation (RZ-CFG-015) and 1,000,000 at runtime (target). A `pattern` over 1 KiB (target) or invalid is RZ-CFG-005, and a Policy holds at most 32 entries across its four lists (target). The rewritten body is reserved from `limits.maxBufferedBytes` like a decoded value; the Node recomputes `Content-Length` and drops `Content-Encoding`, since limits count decoded bytes. Transform Policies never call the State Store.
+
+A CEL runtime error, a JSON operation on a null body, a path through a non-object or an output over its cap is cannot decide: under `closed`, 503 `RZ-RT-011` in a request Phase or 502 `RZ-RT-012` in a response Phase; under `open`, the Policy is skipped and the body passes unchanged. A spent buffer budget stays 503 `RZ-RT-004`.
+
+The schema carries these [KrakenD EE parity](../comparison/01-krakend-ee-parity-matrix.md) rows: request body extractor (`set[]`), request and response Go-template manipulation (`body`), response query language (`body` or `set[]` over `response.body`), regular expression replacements (`replace[]`), Flatmap (`arrayOps[]`), prompt templates on a Route to an `ai` Upstream, Planned (M3), and SOAP request envelopes, Planned (M5).
+
+```yaml
+apiVersion: ruralz/v1alpha1
+kind: Policy
+metadata:
+  name: orders-shape
+spec:
+  type: transform.response
+  config:
+    arrayOps:
+      - op: move
+        from: items.*.sku
+        to: skus
+    set:
+      - target: header
+        name: x-order-total
+        valueExpression: 'string(response.body.total)'
+    remove:
+      - target: body
+        name: internal
+    replace:
+      - path: customer.email
+        pattern: '^[^@]+'
+        replacement: '***'
+```
+
 ## Composition engine
 
 A Route with `composition` instead of `upstreams` calls several Upstreams for one request. One step executor runs every mode; each step is an upstream leg with its own Upstream-scoped Policies, retries and breaker, under the Route `timeout`. A Route has at most `limits.maxCompositionSteps` steps (proposed default 16, target); the Node takes one in-flight unit per parallel step before the first.
@@ -317,7 +374,7 @@ A Route with `composition` instead of `upstreams` calls several Upstreams for on
 
 ### Merge rules
 
-Merging applies to `aggregate` steps and to any step that sets `target`, `select`, `rename` or `group`. Such a body passes `target` (unwrap a nested object), `collection: true` (accept a JSON array), `select` (allowlist fields) and `rename`, then merges under `group` or at the top level; when two steps write one key, the later in list order wins. Merged responses are `application/json` with status 200; a non-JSON body that must merge fails the step.
+Merging applies to `aggregate` steps and to any step that sets `target`, `select`, `rename` or `group`. Such a body passes `target` (unwrap a nested object), `collection: true` (accept a JSON array), `select` (allowlist fields) and `rename`, then merges under `group` or at the top level; when two steps write one key, the later in list order wins. Merged responses are `application/json` with status 200; a non-JSON body that must merge fails the step. Dot-path removals, such as a KrakenD `deny` list, and flatmap array operations belong to a Route-scoped `transform.response`, which runs on the merged body ([Transform Policies](#transform-policies)).
 
 ### Failures and partial responses
 
@@ -408,7 +465,7 @@ stateDiagram-v2
 
 In file mode the loader acts on an atomic directory replacement or after a settle debounce, or pulls an OCI Revision by digest (Planned (M2)), and promotes the candidate to Last-Known-Good on activation; in Control mode it promotes when the active digest equals the Cluster's promoted digest. Boot order follows pack 8.2 and System overview's [Last-Known-Good](01-system-overview.md#last-known-good), with a Control-mode boot wait of up to 5 s (target).
 
-A Drain, on SIGTERM or `ruralz node drain` (OQ-data-plane-4), fails `/readyz`, stops accepting, sends HTTP/2 GOAWAY on every connection and lets in-flight requests finish within a bounded time. A Zero-Downtime Upgrade Drains the old process once a new one on the same ports is ready ([ADR-0015](../adr/0015-zero-downtime-upgrades-so-reuseport.md)). Both are Planned (M1).
+A Drain, on SIGTERM, which `ruralz node drain` sends to a local Node (OQ-data-plane-4, option (b)), fails `/readyz`, stops accepting, sends HTTP/2 GOAWAY on every connection and lets in-flight requests finish within a bounded time. A Zero-Downtime Upgrade Drains the old process once a new one on the same ports is ready ([ADR-0015](../adr/0015-zero-downtime-upgrades-so-reuseport.md)). Both are Planned (M1).
 
 ## Admin endpoints
 
@@ -488,7 +545,6 @@ Latency, allocation, throughput and memory budgets live in [Performance budgets 
 | OQ-data-plane-1 | Should the Bounded resources defaults be configurable, and should `limits.maxRequestHeaderBytes` have a 256 KiB schema maximum (target)? | (a) Fixed defaults and that maximum (current); (b) fields under `Gateway.spec.listeners[]`; (c) `RURALZ_*` settings | configuration-model | No |
 | OQ-data-plane-2 | How is the wildcard host `*.` registered for `Route.spec.match.hosts`? | (a) Schema pattern with one leading `*.` label; (b) a `wildcardHosts` field; (c) exact hosts only | configuration-model | Yes, for Router (M1) |
 | OQ-data-plane-3 | How are workflow compositions declared? | (a) `sequential` with per-step `when` (current); (b) a `workflow` mode with dependencies; (c) nested composition by Route reference | data-plane | No |
-| OQ-data-plane-4 | How does `ruralz node drain` reach a file-mode Node without a drain path on 9901? | (a) An authenticated 9901 path by pack amendment; (b) local SIGTERM only; (c) through Ruralz Control only | cli-and-api-surface | Yes, for `ruralz node drain` (M1) |
 | OQ-data-plane-5 | What caps one chunk (SSE event, WebSocket message, LLM event)? | (a) The fixed default in Bounded resources (current); (b) a Gateway `limits` field; (c) WebSocket frames without reassembly | multi-protocol | No |
 | OQ-data-plane-6 | How does a Node shed load (`RZ-RT-005`)? | (a) The fixed in-flight ceiling (current); (b) a Gateway `limits` field; (c) an adaptive concurrency limiter | data-plane | No |
 | OQ-data-plane-7 | Does health panic mode need a threshold? | (a) All-or-nothing (current); (b) a panic percentage field; (c) fail with an `RZ-UP-<NNN>` code | traffic-management-and-resilience | No |
@@ -500,5 +556,10 @@ Latency, allocation, throughput and memory budgets live in [Performance budgets 
 | OQ-data-plane-14 | Which quic-go settings enforce the HTTP/3 Bounded resources rows (stream caps, receive window, header ceiling, idle timeout, connection refusal at the ceiling), and does quic-go `http3` support `http.ResponseController` read and write deadlines and a per-stream header-read deadline? | (a) quic-go settings and deadlines, verified by the HTTP/3 conformance cases (current); (b) an internal per-stream timer that resets streams where deadlines are missing; (c) `http3: true` refused until both are verified | data-plane | Yes, for HTTP/3 (M3) |
 | OQ-data-plane-15 | How do clients discover HTTP/3? | (a) `Alt-Svc` on `https` responses with the listener port (current); (b) an advertised port or `ma` field on the listener; (c) HTTPS DNS records only, published by operators | data-plane | Yes, for HTTP/3 (M3) |
 | OQ-data-plane-16 | Should a Hot Reload that replaces an `http3` listener keep its QUIC connections? | (a) No; they are lost and clients reconnect (current); (b) keep the UDP socket and QUIC transport when only non-socket settings change; (c) connection-ID steering to the new server | data-plane | No |
+| OQ-data-plane-17 | How does `transform.response` read an XML response body for SOAP integration (the XML sub-question of OQ-krakend-ee-parity-matrix-1)? | (a) A `plugin` Policy for XML responses (current); (b) an XML decoder exposing XML bodies to CEL as `dyn`, a Configuration model change | data-plane | Yes, for the SOAP integration row (M5) |
 
-Closed: OQ-data-plane-11 with option (c), compiled Plugin code in memory only ([ADR-0004](../adr/0004-wasm-runtime-wazero.md)).
+Closed:
+
+- OQ-data-plane-11 with option (c), compiled Plugin code in memory only ([ADR-0004](../adr/0004-wasm-runtime-wazero.md)).
+- OQ-data-plane-4 with option (b), local SIGTERM only, decided by [CLI and API surface](../reference/01-cli-and-api-surface.md): `ruralz node drain` signals the local Node.
+- OQ-krakend-ee-parity-matrix-1 with option (a), decided here: [Transform Policies](#transform-policies) is one CEL-based schema covering body extraction to headers, CEL-built bodies, CEL queries, regular expression replacement, flatmap array operations and XML request building; only its XML response sub-question stays open, as OQ-data-plane-17.

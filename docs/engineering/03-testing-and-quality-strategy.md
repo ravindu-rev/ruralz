@@ -237,9 +237,9 @@ Faults come from container stop, pause and kill, kind pod deletion and a TCP fau
 | SM-10 | AI provider mock: B = 1,000,000 tokens, 200 concurrent streams, 2,000-token prompts, `max_tokens` = 4,096; usage 2% above the estimate on every stream, dropped on 5% of streams (hypothesis) | `nightly` scale job, `release` | Overshoot above the sum of per-stream estimate error, or above 1% of B (hypothesis) | Planned (M3) |
 | Size | Stripped `ruralzd` binary; idle RSS with no Revision loaded | `pr-full` | Above 160 MiB or 89 MiB respectively (target) ([Memory budget](../architecture/12-performance-budgets-and-benchmarking.md#memory-budget)) | Planned (M1) |
 
-The alloc gate runs with `GOGC=off` and fixed `GOMAXPROCS`, so GC cycles cannot empty `sync.Pool` mid-run; at 30 allocations (hypothesis), one extra allocation exceeds 3% (target). Macro runs use open-loop load, because closed-loop generators slow down with the system and hide latency ([source](https://grafana.com/docs/k6/latest/using-k6/scenarios/concepts/open-vs-closed/)) ([source](https://github.com/giltene/wrk2)).
+The alloc gate runs with `GOGC=off` and fixed `GOMAXPROCS`, so GC cycles cannot empty `sync.Pool` mid-run; at PB-8's 30 allocations (target), one extra allocation exceeds 3% (target). Macro runs use open-loop load, because closed-loop generators slow down with the system and hide latency ([source](https://grafana.com/docs/k6/latest/using-k6/scenarios/concepts/open-vs-closed/)) ([source](https://github.com/giltene/wrk2)).
 
-Seeds from the [System overview](../architecture/01-system-overview.md#worked-example-a-rate-limited-route-in-a-brownout): gateway-added p50 of 150 µs or less, p99 of 1 ms or less, from M2 a WASM Plugin Phase call on a pooled instance, deadline interruption enabled, of 50 µs or less at p99 (target); a GCRA round trip of 1 ms or less at p99 and 30 or fewer Ruralz-owned allocations per pass-through HTTP/1.1 request, excluding `net/http` internals (hypothesis). From the [Configuration model](../architecture/02-configuration-model.md#limits): typical match and key expressions under 2 µs at p99 (target). Results publish with commit, hardware and raw histograms (P10); tooling is OQ-testing-and-quality-strategy-2.
+Seeds from the [System overview](../architecture/01-system-overview.md#worked-example-a-rate-limited-route-in-a-brownout): gateway-added p50 of 150 µs or less, p99 of 1 ms or less, from M2 a WASM Plugin Phase call on a pooled instance, deadline interruption enabled, of 50 µs or less at p99 (target); a GCRA round trip of 1 ms or less at p99 and 30 or fewer Ruralz-owned allocations per pass-through HTTP/1.1 request, excluding `net/http` internals (target). From the [Configuration model](../architecture/02-configuration-model.md#limits): typical match and key expressions under 2 µs at p99 (target). Results publish with commit, hardware and raw histograms (P10); tooling is OQ-testing-and-quality-strategy-2.
 
 ## Security scanning
 
@@ -325,7 +325,7 @@ A release candidate becomes a release only when every gate below passes on its e
 | Security scanning | Every check in [Security scanning](#security-scanning) green | Planned (M0) |
 | Compatibility | `buf breaking` against the last tag of each supported release line; a previous-release Node gets a skew-checked Revision (RZ-CFG-024); a Zero-Downtime Upgrade from it fails no requests (target) | Planned (M2) |
 | Docs gate | [verify-docs.mjs](../../scripts/verify-docs.mjs) clean for every changed document | Planned (M0) |
-| FIPS build | The same tests pass on the `GOFIPS140` artifacts, except HTTP/3 cases, which assert `http3: true` is refused or inert (foundation pack section 8.4, OQ-tech-stack-and-libraries-9) | Planned (M5) |
+| FIPS build | The same tests pass on the `GOFIPS140` artifacts, except HTTP/3 cases, which assert `http3: true` is refused, never ignored (deterministic NACK or file-mode load failure), and UDP 8443 is never bound (foundation pack section 8.4, OQ-tech-stack-and-libraries-9) | Planned (M5) |
 
 Signing and SBOM follow [Release, versioning and compatibility](04-release-versioning-and-compatibility.md); the tested commit MUST be the signed commit.
 

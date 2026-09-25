@@ -97,7 +97,7 @@ flowchart LR
 - `ruralz bundle render --api-version` converts through the hub, Planned (M1), and drops comments (OQ-configuration-model-7).
 - Conversion MUST yield the same Revision and an empty `ruralz bundle diff` ([Hub-and-spoke conversion](../architecture/02-configuration-model.md#hub-and-spoke-conversion)); round-trip property tests run from Planned (M1), golden-corpus conversion from Planned (M3).
 - `ruralz bundle validate` reports deprecated fields and apiVersions as RZ-CFG-025 with the removing release; release notes list every deprecation with its removal release.
-- CRDs serve every served version through Ruralz Control's conversion webhook, Planned (M2), so non-storage versions depend on its availability. Before dropping a version, Ruralz Control rewrites stored objects and prunes `status.storedVersions`, needing cluster-scoped RBAC on CRD status.
+- From `ruralz.io/v1beta1`, Planned (M3), CRDs serve every served version through Ruralz Control's conversion webhook, so non-storage versions depend on its availability; while only `ruralz.io/v1alpha1` is served, `conversion.strategy: None` needs none. Before dropping a version, Ruralz Control rewrites stored objects and prunes `status.storedVersions`, needing cluster-scoped RBAC on CRD status.
 
 ## Plugin ABI versioning
 
@@ -186,7 +186,7 @@ Once a Revision uses a field above N-1's levels, a Node restarted on N-1 (a Kube
 
 ### Upgrade order
 
-Ruralz Control moves one minor at a time (rules 3 and 4), replicas one at a time, leadership moved off each first. Skipping a minor is refused: upgrade through each minor in turn. Once every replica reports N, relays move to N one at a time, before finalize, and their Nodes stay on N-1 until after it. After finalize, Nodes take a Zero-Downtime Upgrade ([ADR-0015](../adr/0015-zero-downtime-upgrades-so-reuseport.md), [System overview](../architecture/01-system-overview.md#hot-reload-rollout-and-zero-downtime-upgrade)) from N-1 to N. Pushes pause from the backup, the one rule 5 restores, until finalize, then resume from a CI CLI at N. A chart that deploys Nodes takes two upgrades, Ruralz Control first.
+Ruralz Control moves one minor at a time (rules 3 and 4), replicas one at a time, leadership moved off each first. Skipping a minor is refused: upgrade through each minor in turn. Once every replica reports N, relays move to N one at a time, before finalize, and their Nodes stay on N-1 until after it. After finalize, Nodes move from N-1 to N by handover or, on Kubernetes, Drain and restart ([Zero-downtime upgrades and hot reload](../operations/02-zero-downtime-upgrades-and-hot-reload.md), [ADR-0015](../adr/0015-zero-downtime-upgrades-so-reuseport.md)). Pushes pause from the backup, the one rule 5 restores, until finalize, then resume from a CI CLI at N. A chart that deploys Nodes takes two upgrades, Ruralz Control first.
 
 *Figure 2: upgrading one deployment from N-1 to N without leaving the skew window.*
 
@@ -208,7 +208,7 @@ flowchart TD
     m["Migrations apply as log entries; replicas snapshot and truncate"]
     q["Apply ruralz-crds.yaml if it adds a served version"]
     i["Pin the CI ruralz CLI to N; resume pushes"]
-    j["Zero-Downtime Upgrade of Nodes, one Cluster at a time"]
+    j["Nodes to N by handover or Drain and restart, one Cluster at a time"]
     k["Oldest Node schema level rises; the first N-only field ends binary rollback"]
     p -- "yes" --> a
     p -- "no" --> w

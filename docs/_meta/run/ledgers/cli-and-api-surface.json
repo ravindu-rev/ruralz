@@ -605,7 +605,7 @@
   {
    "section": "Command table",
    "kind": "cli_command",
-   "value": "`ruralz control backup` `--output-file` (required)"
+   "value": "`ruralz control backup` `--output-file` (required), `--revocation-list-file PATH`"
   },
   {
    "section": "Command table",
@@ -814,6 +814,11 @@
   },
   {
    "section": "Bundle verbs in detail",
+   "kind": "claim",
+   "value": "Admin URL diff source: a live Node's `/config/dump`, compared by hand"
+  },
+  {
+   "section": "Bundle verbs in detail",
    "kind": "milestone",
    "value": "`rev-<12 hex>` or `sha256:<64 hex>`: Planned (M2)"
   },
@@ -990,7 +995,7 @@
   {
    "section": "Ruralz Control replica verbs",
    "kind": "decision",
-   "value": "the leader adds it as a non-voter, promoting it to voter once it reaches the leader's commit index, so quorum never counts a stopped replica (proposed, OQ-cli-and-api-surface-14)"
+   "value": "the leader adds it as a non-voter, promoting it to voter once it reaches the leader's commit index, so quorum never counts a stopped replica (adopted by Control plane and GitOps, OQ-cli-and-api-surface-14)"
   },
   {
    "section": "Ruralz Control replica verbs",
@@ -1015,17 +1020,27 @@
   {
    "section": "Ruralz Control replica verbs",
    "kind": "decision",
-   "value": "It resets the snapshot's Raft membership to one voter, this replica at `--advertise` under a new server ID ... (proposed, OQ-cli-and-api-surface-14)"
+   "value": "It resets the snapshot's Raft membership to one voter, this replica at `--advertise` under a new server ID, and drops old peer certificates, so it elects itself; others then run `ruralz control join`"
   },
   {
    "section": "Ruralz Control replica verbs",
    "kind": "claim",
-   "value": "With `--revocation-list PATH`, earlier Node certificates stay valid unless listed; without it, every Node re-enrolls."
+   "value": "With a verified `--revocation-list PATH`, earlier Node certificates stay valid unless listed; without it, every Node re-enrolls."
   },
   {
    "section": "Ruralz Control replica verbs",
    "kind": "decision",
    "value": "The backup key's source is OQ-cli-and-api-surface-9."
+  },
+  {
+   "section": "Ruralz Control replica verbs",
+   "kind": "decision",
+   "value": "OQ-high-availability-and-disaster-recovery-6, option (a): `ruralz control backup --revocation-list-file PATH` also writes the Node revocation list, revoked `node.id`s and certificate serials, signed with the backup's key."
+  },
+  {
+   "section": "Ruralz Control replica verbs",
+   "kind": "cli_command",
+   "value": "`ruralz control backup --revocation-list-file PATH`"
   },
   {
    "section": "Local ruralzd launched by the CLI",
@@ -1250,7 +1265,7 @@
   {
    "section": "Worked example: pull request and promotion",
    "kind": "milestone",
-   "value": "Pull request CI, per Environment (Planned (M1); diff against a Revision Planned (M2))"
+   "value": "Pull request CI, per Environment (Planned (M1); diff against a Revision and ruralz test run Planned (M2))"
   },
   {
    "section": "Worked example: pull request and promotion",
@@ -1565,7 +1580,12 @@
   {
    "section": "REST API on 8090",
    "kind": "api_path",
-   "value": "`/api/v1/replicas` GET, POST; write role: `admin`"
+   "value": "`/api/v1/replicas`, `/api/v1/replicas/{serverId}` GET, POST, DELETE (voter removal); write role: `admin`; DELETE: step-up"
+  },
+  {
+   "section": "REST API on 8090",
+   "kind": "api_path",
+   "value": "`/api/v1/revocations`, `/api/v1/revocations/{entryId}` GET, POST, DELETE (revocation entries, pending OQ-security-and-identity-4); write role: `security-admin`, also for reads; writes: step-up"
   },
   {
    "section": "REST API on 8090",
@@ -1695,7 +1715,7 @@
   {
    "section": "gRPC on 8091: `ruralz.control.v1.ControlStream`",
    "kind": "kind_or_field",
-   "value": "Down: `Snapshot`, `Delta`, `HeartbeatReply`, `TrustUpdate`, `Reconnect`, `RenewResponse`"
+   "value": "Down: `Snapshot`, `Delta`, `HeartbeatReply`, `TrustUpdate`, `RevocationUpdate`, `Reconnect`, `RenewResponse`"
   },
   {
    "section": "gRPC on 8091: `ruralz.control.v1.ControlStream`",
@@ -2120,11 +2140,6 @@
   {
    "section": "Open questions",
    "kind": "decision",
-   "value": "OQ-cli-and-api-surface-14: (a) Adopt (proposed); Blocking: Yes, for Planned (M2)"
-  },
-  {
-   "section": "Open questions",
-   "kind": "decision",
    "value": "Decided here, option (a) unless noted: OQ-configuration-model-7; OQ-configuration-model-10 (no overlay selector in `ruralzd`)"
   },
   {
@@ -2135,7 +2150,7 @@
   {
    "section": "Open questions",
    "kind": "decision",
-   "value": "Decided here, option (a): OQ-wasm-plugin-system-7; OQ-ai-llm-gateway-13; OQ-release-versioning-and-compatibility-6; OQ-testing-and-quality-strategy-8"
+   "value": "Decided here, option (a): OQ-wasm-plugin-system-7; OQ-ai-llm-gateway-13; OQ-release-versioning-and-compatibility-6; OQ-testing-and-quality-strategy-8; OQ-high-availability-and-disaster-recovery-6"
   },
   {
    "section": "Open questions",

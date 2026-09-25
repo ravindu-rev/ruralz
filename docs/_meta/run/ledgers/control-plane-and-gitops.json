@@ -308,6 +308,86 @@
    "value": "answers OQ-observability-11 with option (b): OTLP settings live in the process configuration file, the log level in `RURALZ_LOG_LEVEL`"
   },
   {
+   "section": "Process configuration",
+   "kind": "kind_or_field",
+   "value": "bootstrap.adminCredentialFile: one-time bootstrap credential, such as a chart-generated Secret; unset, the first serve writes one to ${RURALZ_DATA_DIR}/bootstrap-credential, readable only by its user; applies on the first serve on an empty Control Store"
+  },
+  {
+   "section": "Bootstrap credential",
+   "kind": "decision",
+   "value": "decides OQ-deployment-topologies-11: option (b) when `bootstrap.adminCredentialFile` is set, else option (a)"
+  },
+  {
+   "section": "Bootstrap credential",
+   "kind": "claim",
+   "value": "The first `serve` on an empty Control Store stores the credential's hash and audits it"
+  },
+  {
+   "section": "Bootstrap credential",
+   "kind": "api_path",
+   "value": "Bootstrap credential is a bearer credential only for creating the first admin and security-admin at POST /api/v1/access, each enrolling TOTP, and minting join tokens at POST /api/v1/replicas"
+  },
+  {
+   "section": "Bootstrap credential",
+   "kind": "timeout",
+   "value": "It expires 24 hours after that `serve` (target), or once both users exist and every join token it minted is redeemed; each use is audited as the bootstrap principal"
+  },
+  {
+   "section": "Bootstrap credential",
+   "kind": "claim",
+   "value": "A restore or a later `serve` never imports a bootstrap credential"
+  },
+  {
+   "section": "Node process configuration",
+   "kind": "decision",
+   "value": "decides OQ-control-plane-and-gitops-13 with option (a) and OQ-system-overview-19 with `RURALZ_CONFIG` and `oci://`: the scheme of ruralzd's `RURALZ_CONFIG` selects the mode"
+  },
+  {
+   "section": "Node process configuration",
+   "kind": "claim",
+   "value": "The three `*_FILE` variables, read at start, are proposed additions to pack section 2 (OQ-control-plane-and-gitops-27); the token file lies outside `RURALZ_SECRET_ROOT`"
+  },
+  {
+   "section": "Node process configuration",
+   "kind": "kind_or_field",
+   "value": "RURALZ_CONFIG=ruralz-control://HOST:8091: Control mode and the address Nodes dial, a replica or relay"
+  },
+  {
+   "section": "Node process configuration",
+   "kind": "kind_or_field",
+   "value": "RURALZ_CONFIG=oci://REPOSITORY:TAG or oci://REPOSITORY@sha256:<64 hex>: file-mode signed OCI Revision; a tag is polled with jitter and pulled by digest, a digest is pinned"
+  },
+  {
+   "section": "Node process configuration",
+   "kind": "kind_or_field",
+   "value": "RURALZ_CONFIG as a path: a rendered Bundle directory (file mode)"
+  },
+  {
+   "section": "Node process configuration",
+   "kind": "kind_or_field",
+   "value": "RURALZ_ENROLLMENT_TOKEN_FILE: the ruralz node token output (Control mode); ignored once ${RURALZ_DATA_DIR}/identity/ holds a valid identity"
+  },
+  {
+   "section": "Node process configuration",
+   "kind": "kind_or_field",
+   "value": "RURALZ_TRUST_POLICY_FILE: file-mode OCI Revision and Plugin trust policies, deciding OQ-security-and-identity-8 with option (a)"
+  },
+  {
+   "section": "Node process configuration",
+   "kind": "default",
+   "value": "RURALZ_TRUST_POLICY_FILE unset means an empty policy, so `enforce` rejects every signed pull"
+  },
+  {
+   "section": "Node process configuration",
+   "kind": "kind_or_field",
+   "value": "RURALZ_REGISTRY_AUTH_FILE: registry credentials in the container credential file format, each sent only to its host, both modes, deciding OQ-wasm-plugin-system-6 with option (a); mirrors absorb fan-out"
+  },
+  {
+   "section": "Node process configuration",
+   "kind": "failure_mode",
+   "value": "In Control mode, Plugin trust arrives only in anchor sets, and a set `RURALZ_TRUST_POLICY_FILE` is refused at start"
+  },
+  {
    "section": "GitOps model",
    "kind": "claim",
    "value": "Git is the source of truth (P5); Ruralz Console never edits the Control Store directly"
@@ -999,6 +1079,11 @@
   },
   {
    "section": "Enrollment and mTLS",
+   "kind": "kind_or_field",
+   "value": "the Node reads the Enrollment token from `RURALZ_ENROLLMENT_TOKEN_FILE` and dials the `RURALZ_CONFIG` address"
+  },
+  {
+   "section": "Enrollment and mTLS",
    "kind": "error_code",
    "value": "RZ-CP-002"
   },
@@ -1230,7 +1315,7 @@
   {
    "section": "Ruralz Console",
    "kind": "kind_or_field",
-   "value": "Settings actions: rotate key, upload anchor set, join token, remove voter, backup; act: admin, remove voter with step-up; anchor set: security-admin"
+   "value": "Settings actions: rotate key, upload anchor set, join token, transfer leadership, remove voter, finalize, backup; act: admin, remove voter and finalize with step-up; anchor set: security-admin"
   },
   {
    "section": "RBAC and SSO",
@@ -1413,6 +1498,31 @@
    "value": "Adopting OQ-cli-and-api-surface-14 option (a): Join records a pending member; the leader adds it as a non-voter on its first 8092 connection and promotes it to voter once it reaches the commit index"
   },
   {
+   "section": "Leadership transfer",
+   "kind": "decision",
+   "value": "decides OQ-deployment-topologies-6 with options (a) and (b)"
+  },
+  {
+   "section": "Leadership transfer",
+   "kind": "timeout",
+   "value": "On SIGTERM a leader calls Raft `LeadershipTransfer` to the most caught-up voter and waits up to 10 s (target) before exiting; a `postgres` leader releases its lease row"
+  },
+  {
+   "section": "Leadership transfer",
+   "kind": "api_path",
+   "value": "POST /api/v1/replicas/{serverId}/transfer: moves leadership off that replica without stopping it, a no-op unless it leads; also Transfer leadership in Ruralz Console Settings; admin, audited"
+  },
+  {
+   "section": "Leadership transfer",
+   "kind": "error_code",
+   "value": "RZ-CP-004: transfer refused when no other voter is caught up"
+  },
+  {
+   "section": "Leadership transfer",
+   "kind": "claim",
+   "value": "Upgrades, rollbacks and voter removal move leadership this way"
+  },
+  {
    "section": "Removing a voter",
    "kind": "api_path",
    "value": "DELETE /api/v1/replicas/{serverId}"
@@ -1430,7 +1540,7 @@
   {
    "section": "Removing a voter",
    "kind": "error_code",
-   "value": "RZ-CP-019: refused when it names the leader or when the voters left in contact with the leader would not form a majority of the new voter set"
+   "value": "RZ-CP-019: refused when it names the leader (transfer leadership first) or when the voters left in contact with the leader would not form a majority of the new voter set"
   },
   {
    "section": "Removing a voter",
@@ -1501,6 +1611,31 @@
    "section": "Backup, restore and `postgres`",
    "kind": "library",
    "value": "the driver is OQ-tech-stack-and-libraries-20"
+  },
+  {
+   "section": "Finalizing an upgrade",
+   "kind": "decision",
+   "value": "decides OQ-release-versioning-and-compatibility-8 with option (a), without a timed finalize"
+  },
+  {
+   "section": "Finalizing an upgrade",
+   "kind": "api_path",
+   "value": "POST /api/v1/control-store/finalize: commits the version-advance entry; also Finalize in Ruralz Console Settings; admin with step-up TOTP, audited"
+  },
+  {
+   "section": "Finalizing an upgrade",
+   "kind": "error_code",
+   "value": "RZ-CP-021 unless every replica and relay reports N, the 24-hour soak (target) has passed since the last did, and every replica reported its snapshot past the previous version-advance entry"
+  },
+  {
+   "section": "Finalizing an upgrade",
+   "kind": "api_path",
+   "value": "GET /api/v1/control-store: Control Store version, each reported binary version and snapshot, and the soak start; admin"
+  },
+  {
+   "section": "Finalizing an upgrade",
+   "kind": "claim",
+   "value": "Under `postgres`, finalize is one transaction"
   },
   {
    "section": "API summary",
@@ -1575,6 +1710,11 @@
   {
    "section": "API summary",
    "kind": "api_path",
+   "value": "control-store"
+  },
+  {
+   "section": "API summary",
+   "kind": "api_path",
    "value": "access"
   },
   {
@@ -1611,6 +1751,26 @@
    "section": "API summary",
    "kind": "api_path",
    "value": "DELETE /api/v1/replicas/{serverId}: removes a voter; admin with step-up; audited"
+  },
+  {
+   "section": "API summary",
+   "kind": "api_path",
+   "value": "POST /api/v1/replicas/{serverId}/transfer: moves leadership off that replica; admin; audited"
+  },
+  {
+   "section": "API summary",
+   "kind": "api_path",
+   "value": "GET /api/v1/control-store: Control Store version, reported binary versions and snapshots, soak start; admin"
+  },
+  {
+   "section": "API summary",
+   "kind": "api_path",
+   "value": "POST /api/v1/control-store/finalize: commits the version-advance entry; admin with step-up; audited"
+  },
+  {
+   "section": "API summary",
+   "kind": "api_path",
+   "value": "POST /api/v1/access and POST /api/v1/replicas with the bootstrap credential: first admin and security-admin; join tokens; bootstrap principal; audited"
   },
   {
    "section": "API summary",
@@ -1748,6 +1908,11 @@
    "value": "RZ-CP-020: Revocation entries unavailable, or the entry cap is reached"
   },
   {
+   "section": "API summary",
+   "kind": "error_code",
+   "value": "RZ-CP-021: Finalize refused, or a status report from a binary newer than the Control Store version allows is rejected"
+  },
+  {
    "section": "Audit and security",
    "kind": "number",
    "value": "commit through Raft every 250 ms (target) before the write returns"
@@ -1774,8 +1939,13 @@
   },
   {
    "section": "Audit and security",
+   "kind": "claim",
+   "value": "Stolen bootstrap credential: creates only the first admin and security-admin and join tokens; expires within 24 hours (target); audited"
+  },
+  {
+   "section": "Audit and security",
    "kind": "decision",
-   "value": "This document decides OQ-system-overview-9, -11 and -16, OQ-configuration-model-12, OQ-tech-stack-and-libraries-22 and OQ-cli-and-api-surface-14 with option (a), and OQ-observability-11 with option (b)"
+   "value": "This document decides OQ-system-overview-19 with `RURALZ_CONFIG` and `oci://`; OQ-system-overview-9, -11 and -16, OQ-configuration-model-12, OQ-tech-stack-and-libraries-22, OQ-cli-and-api-surface-14, OQ-security-and-identity-8, OQ-wasm-plugin-system-6 and OQ-release-versioning-and-compatibility-8 with option (a), OQ-observability-11 with option (b), and OQ-deployment-topologies-6 and -11 with options (a) and (b)"
   },
   {
    "section": "Open questions",
@@ -1786,11 +1956,6 @@
    "section": "Open questions",
    "kind": "milestone",
    "value": "OQ-control-plane-and-gitops-8: Blocking, for Planned (M2)"
-  },
-  {
-   "section": "Open questions",
-   "kind": "milestone",
-   "value": "OQ-control-plane-and-gitops-13: Blocking, for Planned (M2)"
   },
   {
    "section": "Open questions",
@@ -1809,8 +1974,18 @@
   },
   {
    "section": "Open questions",
+   "kind": "milestone",
+   "value": "OQ-control-plane-and-gitops-27: Blocking, for Planned (M2)"
+  },
+  {
+   "section": "Open questions",
    "kind": "claim",
    "value": "OQ-control-plane-and-gitops-26: How does `Delta` encode `ops` over `ruralz.canonical.v1`? (a) JSON Patch (RFC 6902) on the canonical document; (b) per-resource replace and delete"
+  },
+  {
+   "section": "Open questions",
+   "kind": "claim",
+   "value": "OQ-control-plane-and-gitops-27: Should pack section 2 list `RURALZ_ENROLLMENT_TOKEN_FILE`, `RURALZ_TRUST_POLICY_FILE` and `RURALZ_REGISTRY_AUTH_FILE`? (a) Amend it (proposed); (b) keys in a Node file"
   },
   {
    "section": "Open questions",
@@ -1820,7 +1995,7 @@
   {
    "section": "Open questions",
    "kind": "decision",
-   "value": "Closed: OQ-control-plane-and-gitops-9 (b) and -10, -14, -19, -20, -24 (a), answered by Security and identity, -24 also by ADR-0017; -17 (a), decided by CLI and API surface as `ruralz rollout reject`; -1 (a) (process configuration), -2 (trunk only) and -5 (a newer promotion waits), decided here; -11 (SSO) Planned (M5)"
+   "value": "Closed: OQ-control-plane-and-gitops-9 (b) and -10, -14, -19, -20, -24 (a), answered by Security and identity, -24 also by ADR-0017; -17 (a), decided by CLI and API surface as `ruralz rollout reject`; -1 (a) (process configuration), -2 (trunk only), -5 (a newer promotion waits) and -13 (a) (Node process configuration), decided here; -11 (SSO) Planned (M5)"
   }
  ]
 }

@@ -835,12 +835,12 @@
   {
    "section": "Distributed rate limits",
    "kind": "limit",
-   "value": "A key whose `requests` exceed 25% of one shard's calls, about 25,000 per second (hypothesis), SHOULD use `localOnly` mode once OQ-traffic-management-and-resilience-1 adopts option (c) (proposed, OQ-scalability-and-distributed-state-11); until then it needs a declared per-Node ceiling, a split `config.key` or its own Cell"
+   "value": "A key whose `requests` exceed 25% of one shard's calls, about 25,000 per second (hypothesis), SHOULD set Traffic's `config.localOnly` once OQ-scalability-and-distributed-state-11 amends pack 8.8 (proposed); until then it needs a declared per-Node ceiling, a split `config.key` or its own Cell"
   },
   {
    "section": "Distributed rate limits",
    "kind": "kind_or_field",
-   "value": "localOnly"
+   "value": "config.localOnly"
   },
   {
    "section": "Distributed rate limits",
@@ -850,7 +850,7 @@
   {
    "section": "Distributed rate limits",
    "kind": "limit",
-   "value": "A `localOnly` key (proposed) would never run GCRA, admitting at most N_serving × ceiling per window, even healthy (target)"
+   "value": "A `config.localOnly` key (proposed) would never run GCRA, admitting at most N_serving × ceiling per window, even healthy (target)"
   },
   {
    "section": "Distributed caches",
@@ -1105,7 +1105,7 @@
   {
    "section": "Consistency and accuracy bounds",
    "kind": "number",
-   "value": "`localOnly` hot key: At most N_serving × ceiling per window, healthy or not (target)"
+   "value": "`config.localOnly` Policy's hot key, OQ-scalability-and-distributed-state-11 (proposed): At most N_serving × ceiling per window, healthy or not (target)"
   },
   {
    "section": "Consistency and accuracy bounds",
@@ -1286,6 +1286,11 @@
    "section": "Regional versus global quotas",
    "kind": "number",
    "value": "Divided: At most the sum of shares (target); shares never borrow; Planned (M4)"
+  },
+  {
+   "section": "Regional versus global quotas",
+   "kind": "claim",
+   "value": "Divided Quota example: `consumers/partner-acme.yaml` keeps the example Bundle's Consumer (jwt credential, `daily-tokens`, tags) and adds `daily-requests` (unit requests, limit `${PARTNER_ACME_DAILY_REQUESTS}` per Environment), enforced by `quota` Policy `quota-partner-daily` with `consumerQuota: daily-requests`"
   },
   {
    "section": "Regional versus global quotas",
@@ -1570,7 +1575,7 @@
   {
    "section": "Cell and Cluster bottlenecks",
    "kind": "number",
-   "value": "One hot key: up to 2 × `requests` calls per window; `localOnly` (proposed) above 25% of a shard, about 25,000 per second (hypothesis)"
+   "value": "One hot key: up to 2 × `requests` calls per window; `config.localOnly` (proposed) above 25% of a shard, about 25,000 per second (hypothesis)"
   },
   {
    "section": "Cell and Cluster bottlenecks",
@@ -1665,7 +1670,7 @@
   {
    "section": "Chaos experiments",
    "kind": "milestone",
-   "value": "CE-12: Hot key offered 1,000,000 calls per second, 10 times one shard (hypothesis), then above 25,000 per second as `localOnly` (proposed); GCRA calls at most 2 × N_serving × ceiling per window; script CPU under 70% (target) — Planned (M1)"
+   "value": "CE-12: Hot key offered 1,000,000 calls per second, 10 times one shard (hypothesis), then above 25,000 per second as `config.localOnly` (proposed); GCRA calls at most 2 × N_serving × ceiling per window; script CPU under 70% (target) — Planned (M1)"
   },
   {
    "section": "Chaos experiments",
@@ -1740,7 +1745,7 @@
   {
    "section": "Open questions",
    "kind": "claim",
-   "value": "OQ-scalability-and-distributed-state-11 blocking: Yes, pack 8.7, 8.8 and 8.11 amendment (M1); (a) All (recommended)"
+   "value": "OQ-scalability-and-distributed-state-11 blocking: Yes, pack 8.7, 8.8 and 8.11 amendment (M1); (a) All (recommended); adopts OQ-traffic-management-and-resilience-16 (b), -20 (a), -19 (c), Traffic's `config.localOnly` without GCRA, and the `rzplg:` namespace of OQ-wasm-plugin-system-19 (a)"
   },
   {
    "section": "Open questions",

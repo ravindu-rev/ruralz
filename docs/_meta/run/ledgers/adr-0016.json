@@ -260,12 +260,17 @@
   {
    "section": "Decision outcome",
    "kind": "milestone",
-   "value": "CRD versions: Planned (M2); `ruralz.io/v1beta1` and webhook use Planned (M3)"
+   "value": "CRD versions: Planned (M2); `ruralz.io/v1beta1` and the webhook Planned (M3)"
   },
   {
    "section": "Decision outcome",
    "kind": "port",
    "value": "conversion webhook (port: OQ-deployment-topologies-13)"
+  },
+  {
+   "section": "Decision outcome",
+   "kind": "decision",
+   "value": "While only `ruralz.io/v1alpha1` is served, `conversion.strategy: None` needs no webhook. From `ruralz.io/v1beta1`, every Ruralz Control replica serves the conversion webhook"
   },
   {
    "section": "Decision outcome",
@@ -310,7 +315,7 @@
   {
    "section": "Decision outcome",
    "kind": "milestone",
-   "value": "Conversion webhook on every replica, unused until a second version, Planned (M3)"
+   "value": "Conversion webhook on every replica, from ruralz.io/v1beta1, Planned (M3)"
   },
   {
    "section": "Decision outcome",

@@ -879,6 +879,11 @@
   },
   {
    "section": "Policy",
+   "kind": "claim",
+   "value": "`headers` and `transform.*` run only in Phases their `config` uses"
+  },
+  {
+   "section": "Policy",
    "kind": "failure_mode",
    "value": "`auth.*`, `authz.*` and `plugin` Policies with `filterClass` auth or authz are `closed` only, and `open` there is RZ-CFG-029"
   },
@@ -1078,6 +1083,91 @@
    "value": "RZ-STS"
   },
   {
+   "section": "Registered from feature documents",
+   "kind": "claim",
+   "value": "registered as their feature documents authored them, so each counts as defined here; the authoring section owns runtime semantics"
+  },
+  {
+   "section": "Registered from feature documents",
+   "kind": "decision",
+   "value": "answers OQ-security-and-identity-2, -3 and -18 and OQ-traffic-management-and-resilience-1 with option (a), register as authored"
+  },
+  {
+   "section": "Registered from feature documents",
+   "kind": "kind_or_field",
+   "value": "auth.basic config: none; reads `Authorization: Basic`"
+  },
+  {
+   "section": "Registered from feature documents",
+   "kind": "kind_or_field",
+   "value": "Consumer `credentials.basic`: map keyed by `username`, each with `hash` (`pbkdf2-sha256:<salt>:<key>`, base64url) and `iterations`"
+  },
+  {
+   "section": "Registered from feature documents",
+   "kind": "default",
+   "value": "credentials.basic iterations: default 600,000 (target); allowed 600,000 to 1,000,000"
+  },
+  {
+   "section": "Registered from feature documents",
+   "kind": "kind_or_field",
+   "value": "auth.mtls config: `caCertificate` (required `SecretValue`), `subjects` (set of rules, each exactly one of `subject` or `uriSan`), `crl` (`SecretValue`)"
+  },
+  {
+   "section": "Registered from feature documents",
+   "kind": "kind_or_field",
+   "value": "Consumer `credentials.certificates`: map keyed by `name`, each exactly one of `subject` or `uriSan`"
+  },
+  {
+   "section": "Registered from feature documents",
+   "kind": "kind_or_field",
+   "value": "authz.ip config: `allow`, `deny` (set of CIDRs or bare addresses); both empty is RZ-CFG-005"
+  },
+  {
+   "section": "Registered from feature documents",
+   "kind": "kind_or_field",
+   "value": "authz.geoip config: `allow`, `deny` (set of ISO 3166-1 alpha-2 codes); both empty is RZ-CFG-005"
+  },
+  {
+   "section": "Registered from feature documents",
+   "kind": "kind_or_field",
+   "value": "auth.upstream-sigv4 config: `region`, `service` (both required), `payload` (`signed`, the default, or `unsigned`)"
+  },
+  {
+   "section": "Registered from feature documents",
+   "kind": "timeout",
+   "value": "auth.upstream-oauth2 config.timeout: default 2s (target)"
+  },
+  {
+   "section": "Registered from feature documents",
+   "kind": "kind_or_field",
+   "value": "ratelimit config: `limits[].perNodeCeiling` (integer, 1 to `requests`; unset means derived), `limits[].burst` (integer, 0 to `requests`; default `requests`), `localOnly` (boolean; default false)"
+  },
+  {
+   "section": "Registered from feature documents",
+   "kind": "claim",
+   "value": "`localOnly: true` waits for OQ-scalability-and-distributed-state-11 to amend foundation pack section 8.8"
+  },
+  {
+   "section": "Registered from feature documents",
+   "kind": "error_code",
+   "value": "RZ-CFG-035 (a `credentials.basic` username, or a `credentials.certificates` subject or uriSan, declared by two Consumers)"
+  },
+  {
+   "section": "Registered from feature documents",
+   "kind": "error_code",
+   "value": "RZ-CFG-036 (`credentials.basic[].iterations` outside 600,000 to 1,000,000)"
+  },
+  {
+   "section": "Registered from feature documents",
+   "kind": "error_code",
+   "value": "RZ-CFG-037 (`auth.jwt` `jwksUrl` or `auth.upstream-oauth2` `tokenUrl` not `https`)"
+  },
+  {
+   "section": "Registered from feature documents",
+   "kind": "milestone",
+   "value": "registered fields ship with their type's Planned tag; the Consumer fields with auth.basic and auth.mtls, Planned (M1)"
+  },
+  {
    "section": "Plugin",
    "kind": "decision",
    "value": "ADR-0005: Capabilities are deny-by-default under Plugin ABI v1"
@@ -1120,7 +1210,12 @@
   {
    "section": "Consumer",
    "kind": "kind_or_field",
-   "value": "Consumer spec: tier, credentials (apiKeys, jwt, oauthClients), quotas, tags"
+   "value": "Consumer spec: tier, credentials (apiKeys, jwt, oauthClients, basic, certificates), quotas, tags"
+  },
+  {
+   "section": "Consumer",
+   "kind": "claim",
+   "value": "`basic` and `certificates` are registered from Security and identity (Registered from feature documents)"
   },
   {
    "section": "Consumer",
@@ -1904,8 +1999,23 @@
   },
   {
    "section": "Error codes",
+   "kind": "error_code",
+   "value": "RZ-CFG-035"
+  },
+  {
+   "section": "Error codes",
+   "kind": "error_code",
+   "value": "RZ-CFG-036"
+  },
+  {
+   "section": "Error codes",
+   "kind": "error_code",
+   "value": "RZ-CFG-037"
+  },
+  {
+   "section": "Error codes",
    "kind": "claim",
-   "value": "foundation pack section 8.6 lists RZ-CFG-001 to RZ-CFG-032 at the freeze; sections 8.14 and 8.9 ask it to register RZ-CFG-033 and RZ-CFG-034"
+   "value": "foundation pack section 8.6 lists RZ-CFG-001 to RZ-CFG-032 at the freeze; sections 8.14 and 8.9 ask it to register RZ-CFG-033 and RZ-CFG-034; Security and identity asks for RZ-CFG-035 to RZ-CFG-037"
   },
   {
    "section": "Diagnostics and source map",
@@ -2214,8 +2324,13 @@
   },
   {
    "section": "Complete annotated example Bundle",
+   "kind": "kind_or_field",
+   "value": "control/clusters.yaml: Cluster staging-eu-west (environment staging, region eu-west-1, all-at-once, autoRollback: true) and Cluster prod-eu-west (environment prod, region eu-west-1, canary 10% with 15m bake, autoRollback: true)"
+  },
+  {
+   "section": "Complete annotated example Bundle",
    "kind": "claim",
-   "value": "prod follows through promotion.from after the staging Rollout reaches complete and an approver approves; a direct --env prod push is refused under requireApproval unless process configuration allows it"
+   "value": "ruralz bundle push rolls the staging Revision out to staging-eu-west; prod follows through promotion.from after that staging Rollout reaches complete and an approver approves, then a Rollout delivers the prod Revision to prod-eu-west; a direct --env prod push is refused under requireApproval unless process configuration allows it"
   },
   {
    "section": "Open questions",
@@ -2231,6 +2346,11 @@
    "section": "Open questions",
    "kind": "claim",
    "value": "OQ-configuration-model-2: (b) Optional CRD source, `Planned (M2)`"
+  },
+  {
+   "section": "Open questions",
+   "kind": "claim",
+   "value": "Answered and closed via Registered from feature documents, option (a) each: OQ-security-and-identity-2, -3 and -18 and OQ-traffic-management-and-resilience-1; no submitted field declined"
   }
  ]
 }

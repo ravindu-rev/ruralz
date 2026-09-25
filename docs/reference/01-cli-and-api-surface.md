@@ -135,7 +135,7 @@ Every command from pack 9 and other documents, plus `ruralz rollout reject`; Fig
 | `ruralz node revoke` | Revoke an enrollment identity | `NODE_ID` | Planned (M2) |
 | `ruralz control serve` | Launch a `ruralz-control` replica | `--data-dir PATH`; arguments after `--` pass through | Planned (M2) |
 | `ruralz control join` | Get a new replica's peer certificate | `--data-dir PATH`, `--peer HOST:8092`, `--advertise HOST:8092` (required), `--join-token-file PATH` | Planned (M2) |
-| `ruralz control backup` | Snapshot the Control Store | `--output-file` (required) | Planned (M2) |
+| `ruralz control backup` | Snapshot the Control Store and Node revocation list | `--output-file` (required), `--revocation-list-file PATH` | Planned (M2) |
 | `ruralz control restore` | Restore into an empty deployment | `--data-dir PATH` with `--prepare`, or with `FILE`, `--advertise HOST:8092`, `--anchor-set PATH`, `--backup-key-file PATH`, `--revocation-list PATH` | Planned (M2) |
 | `ruralz version` | Version, commit, flavor, levels | None | Planned (M1) |
 | `ruralz completion` | Shell completion script | `bash`, `zsh`, `fish` or `powershell` | Planned (M1) |
@@ -182,7 +182,7 @@ Environment variables replacing `--control`, `--token-file` and `--admin` await 
 |---|---|---|
 | Directory, such as `./shop-bundle` | A source Bundle rendered with `--env`, or per side with `--from-env` and `--to-env` | Planned (M1) |
 | File | A rendered Bundle or saved `ruralz node dump` output | Planned (M1) |
-| Admin URL, such as `https://node-a.shop.example:9901` | A live Node's `/config/dump`, which shows Drift | Planned (M1) |
+| Admin URL, such as `https://node-a.shop.example:9901` | A live Node's `/config/dump`, compared by hand | Planned (M1) |
 | `rev-<12 hex>` or `sha256:<64 hex>` | A Revision fetched from `revisions` | Planned (M2) |
 | `oci://REPOSITORY@sha256:<64 hex>` | A Revision from `ruralz bundle push --oci`, verified by digest and signature | Planned (M2) |
 
@@ -210,12 +210,14 @@ During a Zero-Downtime Upgrade the lock moves at Drain start; the CLI still awai
 
 `ruralz control join` runs on the new replica's host before `ruralz control serve`. It generates a key pair in `--data-dir` and dials `--peer` pinned to the 8092 server CA's SHA-256 fingerprint from the join token, as with Enrollment tokens (proposed, OQ-cli-and-api-surface-9), never unpinned. It redeems the one-time `admin` token from `--join-token-file`, issued by `/api/v1/replicas`, in `Join` with a certificate request whose SAN is `--advertise`, the replica's own peer address, then stores the certificate chain and peer CA beside the key, which stays local.
 
-`Join` only issues the certificate and records a pending member; no voter set changes. When `ruralz control serve` on that directory first connects over 8092, the leader adds it as a non-voter, promoting it to voter once it reaches the leader's commit index, so quorum never counts a stopped replica (proposed, OQ-cli-and-api-surface-14). `serve` bootstraps a cluster and creates or loads CAs only on an empty Control Store, never on a directory `join` or `restore` wrote.
+`Join` only issues the certificate and records a pending member; no voter set changes. When `ruralz control serve` on that directory first connects over 8092, the leader adds it as a non-voter, promoting it to voter once it reaches the leader's commit index, so quorum never counts a stopped replica ([adopted](../architecture/04-control-plane-and-gitops.md#certificates-and-replica-join), OQ-cli-and-api-surface-14). `serve` bootstraps a cluster and creates or loads CAs only on an empty Control Store, never on a directory `join` or `restore` wrote.
+
+OQ-high-availability-and-disaster-recovery-6, option (a): `ruralz control backup --revocation-list-file PATH` also writes the Node revocation list, revoked `node.id`s and certificate serials, signed with the backup's key.
 
 `ruralz control restore` runs only on the host of an empty Control Store, never through REST ([ADR-0006](../adr/0006-control-store-raft-boltdb.md), proposed):
 
 1. `--prepare --data-dir PATH` generates the new online key there, encrypted under the key-encryption key, and prints its public half for offline root signing.
-2. `FILE --data-dir PATH --advertise HOST:8092 --anchor-set PATH --backup-key-file PATH` verifies and decrypts the backup, requires a root-signed anchor set holding the prepared key, and opens a higher `storeEpoch` before any delivery. It resets the snapshot's Raft membership to one voter, this replica at `--advertise` under a new server ID, and drops old peer certificates, so it elects itself; others then run `ruralz control join` (proposed, OQ-cli-and-api-surface-14). With `--revocation-list PATH`, earlier Node certificates stay valid unless listed; without it, every Node re-enrolls. The backup key's source is OQ-cli-and-api-surface-9.
+2. `FILE --data-dir PATH --advertise HOST:8092 --anchor-set PATH --backup-key-file PATH` verifies and decrypts the backup, requires a root-signed anchor set holding the prepared key, and opens a higher `storeEpoch` before any delivery. It resets the snapshot's Raft membership to one voter, this replica at `--advertise` under a new server ID, and drops old peer certificates, so it elects itself; others then run `ruralz control join`. With a verified `--revocation-list PATH`, earlier Node certificates stay valid unless listed; without it, every Node re-enrolls. The backup key's source is OQ-cli-and-api-surface-9.
 
 ### Local ruralzd launched by the CLI
 
@@ -287,7 +289,7 @@ KrakenD makes its plugin generator, end-to-end testing tool, OpenAPI importer an
 ### Worked example: pull request and promotion
 
 ```bash
-# Pull request CI, per Environment (Planned (M1); diff against a Revision Planned (M2)).
+# Pull request CI, per Environment (Planned (M1); diff against a Revision and ruralz test run Planned (M2)).
 CONTROL="--control https://control.shop.example:8090 --token-file /run/secrets/ruralz-ci-token"
 ruralz bundle validate --environments control/environments.yaml --output json ./bundle   # every Environment
 ruralz bundle build --env prod --environments control/environments.yaml ./bundle
@@ -316,7 +318,7 @@ ruralz rollout status --control https://control.shop.example:8090 --token-file ~
 | `/debug/*`: `/debug/pprof/` | GET | Go runtime profiles; mutex and block only during a `?seconds=` request | Operator token or client certificate | Profiling | Planned (M1) |
 | `/debug/snapshots` | GET | Snapshots with digests and pin counts | Same | Hot Reload debugging | Planned (M1) |
 | `/debug/upstreams` | GET | Endpoint sets, health, ejections and breaker states | Same | Incident response | Planned (M1) |
-| `/config/dump` | GET | Active Revision in `ruralz.canonical.v1` form with its full digest and Last-Known-Good digest; secrets omitted | Same | `ruralz node dump`, `ruralz bundle diff`, Drift detection | Planned (M1) |
+| `/config/dump` | GET | Active Revision in `ruralz.canonical.v1` form with its full digest and Last-Known-Good digest; secrets omitted | Same | `ruralz node dump`, `ruralz bundle diff` | Planned (M1) |
 | `/tap` | GET, streaming | Sampled request and response metadata, credentials redacted | Same | `ruralz dev tap` | Planned (M1) |
 
 Admin paths never change configuration or Node state: a leaked admin token cannot alter routing or drain a Node, but can load a Node via profiles and `/tap`, and heap profiles can hold resolved secrets: guard it like a TLS key. `/tap` and `/config/dump` use is logged.
@@ -379,7 +381,8 @@ The REST API lives under `/api/v1/`, published as OpenAPI and additive within `v
 | `/api/v1/drift` | GET, POST | Drift records; re-deliver, quarantine | `operator` |
 | `/api/v1/audit` | GET | Entries, chain verification, export | `auditor`, also for reads |
 | `/api/v1/changes` | POST | Ruralz Console write-back to Git | `editor` |
-| `/api/v1/replicas` | GET, POST | Replica health; one-time join token | `admin` |
+| `/api/v1/replicas`, `/api/v1/replicas/{serverId}` | GET, POST, DELETE | Replica health; one-time join token; voter removal | `admin`; DELETE: step-up |
+| `/api/v1/revocations`, `/api/v1/revocations/{entryId}` | GET, POST, DELETE | Revocation entries, pending OQ-security-and-identity-4 | `security-admin`, also for reads; writes: step-up |
 | `/api/v1/access` | GET, POST, DELETE | Users, role bindings, API tokens | `admin`, also for reads |
 | `/api/v1/backup` | GET, POST | Encrypted, signed backups; downloads audited | `admin`, also for reads |
 | `/api/v1/hooks/git` | POST | Forge webhook; triggers an authenticated fetch only | Per-source HMAC |
@@ -407,9 +410,9 @@ Nodes dial 8091 and speak `ruralz.control.v1.ControlStream`, a snapshot plus del
 | RPC | Shape | Messages | Credential | Planned |
 |---|---|---|---|---|
 | `Enroll` | Unary | `EnrollRequest` (token, `nodeId`, CSR, version, schema levels) to `EnrollResponse` (certificate chain, server CA, trust root, anchor set, Cluster, Environment) | One-time token over TLS with a pinned server CA | Planned (M2) |
-| `Stream` | Bidirectional | Down: `Snapshot`, `Delta`, `HeartbeatReply`, `TrustUpdate`, `Reconnect`, `RenewResponse`. Up: `Hello`, `Ack`, `Nack`, `Heartbeat`, `RenewRequest` (forwarded to the leader) | Node certificate (mTLS) | Planned (M2) |
+| `Stream` | Bidirectional | Down: `Snapshot`, `Delta`, `HeartbeatReply`, `TrustUpdate`, `RevocationUpdate`, `Reconnect`, `RenewResponse`. Up: `Hello`, `Ack`, `Nack`, `Heartbeat`, `RenewRequest` (forwarded to the leader) | Node certificate (mTLS) | Planned (M2) |
 
-Fields and semantics are in [Control Stream](../architecture/04-control-plane-and-gitops.md#control-stream); a regional relay serves the same service, Planned (M4).
+Semantics are in [Control Stream](../architecture/04-control-plane-and-gitops.md#control-stream); a regional relay serves the same service, Planned (M4).
 
 ### Peer layer on 8092
 
@@ -496,6 +499,5 @@ An invalid Bundle is 1 for `validate`, `render`, `build` and `audit`, whose resu
 | OQ-cli-and-api-surface-11 | Should a setting bind a CLI-launched `ruralzd` to loopback? | (a) A `RURALZ_*` setting by a pack section 2 amendment (proposed); (b) No; use a host firewall | cli-and-api-surface | No |
 | OQ-cli-and-api-surface-12 | Which codes cover an invalid REST request and failed authentication? | (a) Two new `RZ-CP` codes (proposed); (b) Plain 400 and 401 | control-plane-and-gitops | No |
 | OQ-cli-and-api-surface-13 | How does `ruralz.test.v1` express gRPC, WebSocket, SSE, repeated requests and TLS or SNI targets? | (a) Additive `protocol`, `repeat`, `tls` members (proposed); (b) `ruralz.test.v2` | cli-and-api-surface | No |
-| OQ-cli-and-api-surface-14 | Should Control plane and GitOps replace "adds a voter": `Join` records a pending member, made non-voter on first 8092 connection and voter after catch-up; restore resets membership to the local replica? | (a) Adopt (proposed); (b) Join as a `ruralz control serve` mode | control-plane-and-gitops | Yes, for Planned (M2) |
 
-Decided here, option (a) unless noted, for owners to close: OQ-configuration-model-7; OQ-configuration-model-10 (no overlay selector in `ruralzd`); OQ-control-plane-and-gitops-17 (`ruralz rollout reject`); OQ-data-plane-4, option (b) for Planned (M1); OQ-wasm-plugin-system-7; OQ-ai-llm-gateway-13; OQ-release-versioning-and-compatibility-6; OQ-testing-and-quality-strategy-8. Pending pack 8.4 amendments relied on: OQ-security-and-identity-31 (token `Enroll`, token `Join`) and OQ-control-plane-and-gitops-15 (8092 classes and relays).
+Decided here, option (a) unless noted, for owners to close: OQ-configuration-model-7; OQ-configuration-model-10 (no overlay selector in `ruralzd`); OQ-control-plane-and-gitops-17 (`ruralz rollout reject`); OQ-data-plane-4, option (b) for Planned (M1); OQ-wasm-plugin-system-7; OQ-ai-llm-gateway-13; OQ-release-versioning-and-compatibility-6; OQ-testing-and-quality-strategy-8; OQ-high-availability-and-disaster-recovery-6. Pending pack 8.4 amendments relied on: OQ-security-and-identity-31 (token `Enroll`, token `Join`) and OQ-control-plane-and-gitops-15 (8092 classes and relays).

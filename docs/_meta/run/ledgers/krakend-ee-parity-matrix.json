@@ -1250,7 +1250,22 @@
   {
    "section": "Traffic management",
    "kind": "kind_or_field",
-   "value": "`localOnly`"
+   "value": "`config.localOnly`"
+  },
+  {
+   "section": "Traffic management",
+   "kind": "kind_or_field",
+   "value": "`limits[].perNodeCeiling`"
+  },
+  {
+   "section": "Traffic management",
+   "kind": "kind_or_field",
+   "value": "`limits[].burst`"
+  },
+  {
+   "section": "Traffic management",
+   "kind": "kind_or_field",
+   "value": "`hedgeDelay`"
   },
   {
    "section": "Traffic management",
@@ -2710,7 +2725,7 @@
   {
    "section": "Partial parity",
    "kind": "claim",
-   "value": "Service rate limit: A safe hot constant key above about 25,000 requests per second (hypothesis)"
+   "value": "Service rate limit: A constant key above about 25,000 requests per second (hypothesis) without extra declarations: it needs `limits[].perNodeCeiling`, or `config.localOnly` once pack 8.8 is amended"
   },
   {
    "section": "Partial parity",
@@ -2935,7 +2950,7 @@
   {
    "section": "Open questions",
    "kind": "decision",
-   "value": "OQ-krakend-ee-parity-matrix-12 blocking: No"
+   "value": "Closed: OQ-krakend-ee-parity-matrix-12 with option (a), adopted by the Roadmap"
   },
   {
    "section": "Open questions",
@@ -3585,7 +3600,7 @@
   {
    "section": "Traffic management",
    "kind": "decision",
-   "value": "OQ-traffic-management-and-resilience-5's current option is no hedging; its delay field blocks M4"
+   "value": "Hedging awaits `hedgeDelay` (proposed, OQ-traffic-management-and-resilience-5), which blocks M4"
   },
   {
    "section": "Traffic management",
@@ -3620,7 +3635,7 @@
   {
    "section": "Traffic management",
    "kind": "decision",
-   "value": "pending OQ-traffic-management-and-resilience-1 (blocking M1)"
+   "value": "`limits[].perNodeCeiling` or `config.localOnly`, authored in Traffic management and pending registration (OQ-traffic-management-and-resilience-1)"
   },
   {
    "section": "Traffic management",
@@ -3895,12 +3910,12 @@
   {
    "section": "Summary counts",
    "kind": "number",
-   "value": "The Roadmap's exit figures become M1 24 of 71, 34% (target); M2 36 of 71, 51% (target); M3 54 of 71, 76% (target); M4 56 of 71, 79% (target)."
+   "value": "The Roadmap adopted the resulting exit figures (OQ-krakend-ee-parity-matrix-12, closed): M1 24 of 71, 34% (target); M2 36 of 71, 51% (target); M3 54 of 71, 76% (target); M4 56 of 71, 79% (target)."
   },
   {
    "section": "Summary counts",
    "kind": "number",
-   "value": "M5 adds 12 rows instead of 13 and stays at 68 of 71, 96% (target) (OQ-krakend-ee-parity-matrix-12)"
+   "value": "M5 adds 12 rows instead of 13 and stays at 68 of 71, 96% (target)"
   },
   {
    "section": "Summary counts",
@@ -3995,7 +4010,7 @@
   {
    "section": "Open questions",
    "kind": "number",
-   "value": "updating the M1 to M4 cumulative parity figures (24, 36, 54 and 56 of 71)"
+   "value": "cumulative parity of 24, 36, 54 and 56 of 71 at the M1 to M4 exits, and 12 EE-only rows at M5"
   },
   {
    "section": "Open questions",
@@ -4011,6 +4026,26 @@
    "section": "Open questions",
    "kind": "claim",
    "value": "CEL sees `request.body` and `response.body` only as JSON, and only the strings and encoders extensions are enabled"
+  },
+  {
+   "section": "Traffic management",
+   "kind": "decision",
+   "value": "the latter also pending the pack 8.8 amendment, OQ-scalability-and-distributed-state-11 (blocking M1)"
+  },
+  {
+   "section": "Traffic management",
+   "kind": "decision",
+   "value": "`limits[].burst` ([Per-Node ceiling]), authored in Traffic management and pending registration (OQ-traffic-management-and-resilience-1)"
+  },
+  {
+   "section": "Beyond parity",
+   "kind": "decision",
+   "value": "with `limits[].perNodeCeiling` pending registration (OQ-traffic-management-and-resilience-1)"
+  },
+  {
+   "section": "Partial parity",
+   "kind": "decision",
+   "value": "Service rate limit and Proxy rate limit open question: OQ-scalability-and-distributed-state-11"
   }
  ]
 }

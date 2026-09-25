@@ -133,8 +133,28 @@ This document decides OQ-control-plane-and-gitops-1 with option (a): Ruralz Cont
 | `controlStore.driver`, `controlStore.postgres.urlFile` | `raft` (default) or [`postgres`](#backup-restore-and-postgres) once it exists; a change is a Control Store move that opens a new `storeEpoch` | Restart |
 | `api.tlsCertFile`, `api.tlsKeyFile` | 8090 TLS; without them the server CA issues it | Restart |
 | `telemetry.otlp.endpoint`, `telemetry.otlp.caFile` | OTLP traces, metrics and logs, TLS per TB-12; unset means `/metrics` on 9902 and JSON logs on stdout only | Restart |
+| `bootstrap.adminCredentialFile` | One-time [bootstrap credential](#bootstrap-credential), such as a chart-generated Secret; unset, the first `serve` writes one to `${RURALZ_DATA_DIR}/bootstrap-credential`, readable only by its user | First `serve` on an empty Control Store |
 
 Reload means on SIGHUP or file change, validated first: an invalid file keeps the previous settings, logs the error and exports a metric. Every applied change is audited with the file's digest. This answers OQ-observability-11 with option (b): OTLP settings live in this file, the log level in `RURALZ_LOG_LEVEL`.
+
+#### Bootstrap credential
+
+This decides OQ-deployment-topologies-11: option (b) when `bootstrap.adminCredentialFile` is set, else option (a). The first `serve` on an empty Control Store stores the credential's hash and audits it. It is a bearer credential for exactly two things: creating the first `admin` and `security-admin` at `POST /api/v1/access`, each enrolling TOTP, and minting join tokens at `POST /api/v1/replicas`. It expires 24 hours after that `serve` (target), or once both users exist and every join token it minted is redeemed; each use is audited as the bootstrap principal. A restore or a later `serve` never imports one.
+
+### Node process configuration
+
+This decides OQ-control-plane-and-gitops-13 with option (a) and OQ-system-overview-19 with `RURALZ_CONFIG` and `oci://`: the scheme of `ruralzd`'s `RURALZ_CONFIG` selects the mode. The three `*_FILE` variables, read at start, are proposed additions to pack section 2 (OQ-control-plane-and-gitops-27); the token file lies outside `RURALZ_SECRET_ROOT` ([Security and identity](08-security-and-identity.md)).
+
+| Setting | Holds | Mode |
+|---|---|---|
+| `RURALZ_CONFIG=ruralz-control://HOST:8091` | Control mode and the address Nodes dial, a replica or relay | Control |
+| `RURALZ_CONFIG=oci://REPOSITORY:TAG` or `oci://REPOSITORY@sha256:<64 hex>` | A signed OCI Revision: a tag is polled with jitter and pulled by digest, a digest is pinned | File |
+| `RURALZ_CONFIG` as a path | A rendered Bundle directory | File |
+| `RURALZ_ENROLLMENT_TOKEN_FILE` | The `ruralz node token` output; ignored once `${RURALZ_DATA_DIR}/identity/` holds a valid identity | Control |
+| `RURALZ_TRUST_POLICY_FILE` | The OCI Revision and Plugin trust policies, deciding OQ-security-and-identity-8 with option (a); unset means an empty policy, so `enforce` rejects every signed pull | File |
+| `RURALZ_REGISTRY_AUTH_FILE` | Registry credentials in the container credential file format, each sent only to its host, deciding OQ-wasm-plugin-system-6 with option (a); mirrors absorb fan-out | Both |
+
+In Control mode, Plugin trust arrives only in anchor sets, and a set `RURALZ_TRUST_POLICY_FILE` is refused at start.
 
 ## GitOps model
 
@@ -375,7 +395,7 @@ sequenceDiagram
     participant N as New Node
     Op->>CT: ruralz node token for Cluster prod-eu-west
     CT-->>Op: one-time token with server CA and trust root fingerprints
-    Op->>N: token as a secret file or value, OQ-control-plane-and-gitops-13
+    Op->>N: RURALZ_CONFIG and RURALZ_ENROLLMENT_TOKEN_FILE
     N->>N: generate node.id and key pair locally
     N->>CT: Enroll with token and CSR on 8091, server CA pinned
     CT->>CT: leader checks the token hash, quota and cap, consumes, signs, audits
@@ -386,7 +406,7 @@ sequenceDiagram
     N-->>CT: Ack, Node becomes ready
 ```
 
-`ruralz node token` issues a one-time token for one Cluster, stored hashed, valid 1 hour (target), embedding SHA-256 fingerprints of the 8091 server CA and trust root, so the first dial is pinned. The token is a secret, never in a Bundle, and is ignored once `${RURALZ_DATA_DIR}/identity/` holds a valid identity. Private keys never leave the Node.
+`ruralz node token` issues a one-time token for one Cluster, stored hashed, valid 1 hour (target), embedding SHA-256 fingerprints of the 8091 server CA and trust root, so the first dial is pinned. The token is a secret, never in a Bundle; the Node reads it from `RURALZ_ENROLLMENT_TOKEN_FILE` and dials the `RURALZ_CONFIG` address ([Node process configuration](#node-process-configuration)), ignoring it once `${RURALZ_DATA_DIR}/identity/` holds a valid identity. Private keys never leave the Node.
 
 An enrolled `node.id` is rejected (`RZ-CP-002`). `Enroll` has a per-source rate limit, a 16 KiB message cap and a lockout after 10 failures in 10 minutes (target). Certificates live 30 days (target) and renew at two thirds, closing OQ-security-and-identity-16 with option (a). `ruralz node revoke` closes the stream and refuses renewal (delivery: OQ-security-and-identity-4). For scale-out (P4), provisioning jobs mint tokens with a Cluster-scoped API token, under a minting quota and Node cap (OQ-control-plane-and-gitops-19, -23).
 
@@ -487,7 +507,7 @@ Ruralz Console, at `/console` on 8090, calls only the public REST API, so RBAC i
 | Plugins | Digest, ABI, Phases, Capabilities, signatures | None | viewer | None |
 | Audit log | Entries, chain verification | Export | auditor | auditor |
 | Access | Users, role bindings, API tokens | Create, bind, revoke | admin | admin |
-| Settings | Git source, anchor sets, keys, replicas, backups | Rotate key, upload anchor set, join token, remove voter, backup | viewer | admin; remove voter: step-up; anchor set: security-admin |
+| Settings | Git source, anchor sets, keys, replicas, Control Store version, backups | Rotate key, upload anchor set, join token, transfer leadership, remove voter, finalize, backup | viewer | admin; remove voter, finalize: step-up; anchor set: security-admin |
 
 ### RBAC and SSO
 
@@ -531,9 +551,13 @@ Production runs three voters, or five to survive two failures (target); etcd rec
 
 8092 rejects Node CA certificates, and 8091 peer certificates. CA keys are encrypted like the online key. `ruralz control serve` on an empty Control Store generates the CAs or loads supplied ones; `ruralz control join` redeems a one-time `admin` token in `Join`, and the leader signs the replica's certificate and records a pending member. Adopting OQ-cli-and-api-surface-14 option (a), the leader adds it as a non-voter on its first 8092 connection and promotes it to voter once it reaches the commit index, so quorum never counts a stopped replica.
 
+### Leadership transfer
+
+This decides OQ-deployment-topologies-6 with options (a) and (b). On SIGTERM a leader calls Raft `LeadershipTransfer` to the most caught-up voter and waits up to 10 s (target) before exiting; a `postgres` leader releases its lease row. `POST /api/v1/replicas/{serverId}/transfer`, or Transfer leadership in Ruralz Console Settings, does the same without stopping the named replica, a no-op unless it leads: `admin`, audited, refused with `RZ-CP-004` when no other voter is caught up. Upgrades, rollbacks and voter removal move leadership this way.
+
 ### Removing a voter
 
-Replacing a voter after volume or zone loss starts with `DELETE /api/v1/replicas/{serverId}`, or Remove voter in Ruralz Console Settings: `admin` with step-up TOTP, audited, Raft only. A follower forwards it; only the leader acts, as a Raft `RemoveServer` of that server ID, then revokes the replica's peer certificate so the old volume cannot rejoin. It is refused with `RZ-CP-019` when it names the leader (transfer leadership first) or when the voters left in contact with the leader would not form a majority of the new voter set. An `admin` then mints a join token with `POST /api/v1/replicas`. [High availability and disaster recovery](../operations/04-high-availability-and-disaster-recovery.md) decides who calls it (OQ-high-availability-and-disaster-recovery-2).
+Replacing a voter after volume or zone loss starts with `DELETE /api/v1/replicas/{serverId}`, or Remove voter in Ruralz Console Settings: `admin` with step-up TOTP, audited, Raft only. A follower forwards it; only the leader acts, as a Raft `RemoveServer` of that server ID, then revokes the replica's peer certificate so the old volume cannot rejoin. It is refused with `RZ-CP-019` when it names the leader ([transfer leadership](#leadership-transfer) first) or when the voters left in contact with the leader would not form a majority of the new voter set. An `admin` then mints a join token with `POST /api/v1/replicas`. [High availability and disaster recovery](../operations/04-high-availability-and-disaster-recovery.md) decides who calls it (OQ-high-availability-and-disaster-recovery-2).
 
 ### Readiness on port 9902
 
@@ -545,11 +569,15 @@ Per pack 8.5, `/healthz` means the process responds; `/readyz` returns 200 once 
 
 The `postgres` implementation, Planned (M4), keeps everything in PostgreSQL, with leadership as a fenced lease row renewed every 2 s and expiring after 10 s (target). Sequences keep their compare-and-swap in a transaction; moving between Raft and `postgres` opens a new `storeEpoch`. Status forwarding and content placement are OQ-control-plane-and-gitops-22; the driver is OQ-tech-stack-and-libraries-20.
 
+### Finalizing an upgrade
+
+This decides OQ-release-versioning-and-compatibility-8 with option (a), without a timed finalize: `POST /api/v1/control-store/finalize`, or Finalize in Ruralz Console Settings, is `admin` with step-up TOTP, audited. The leader commits the version-advance entry ([Ruralz Control upgrades](../engineering/04-release-versioning-and-compatibility.md#ruralz-control-upgrades)) only if every replica and relay reports N, the 24-hour soak (target) has passed since the last did, and every replica reported its snapshot past the previous version-advance entry; otherwise `RZ-CP-021`. `GET /api/v1/control-store` shows the Control Store version, each reported binary version and snapshot, and the soak start. Under `postgres`, finalize is one transaction.
+
 ## API summary
 
 The REST API on 8090 is versioned under `/api/v1/` and published as OpenAPI; Ruralz Console, the CLI, CI and provisioning use it. Requests carry a session cookie or API token; errors carry `RZ-CP` or `RZ-CFG` codes. Reads need `viewer`.
 
-Resources are `environments` and `clusters` (read only), `promotions`, `revisions` (content, diff, push by `editor`), `rollouts`, `nodes`, `enrollment-tokens`, `trust`, `revocations`, `drift`, `audit`, `changes` (write-back), `replicas`, `access`, `backup` and `hooks/git` (HMAC). Write roles match the Ruralz Console Act column; `audit`, `access`, `backup` and `revocations` also need that role for reads. Operations the sections above add:
+Resources are `environments` and `clusters` (read only), `promotions`, `revisions` (content, diff, push by `editor`), `rollouts`, `nodes`, `enrollment-tokens`, `trust`, `revocations`, `drift`, `audit`, `changes` (write-back), `replicas`, `control-store`, `access`, `backup` and `hooks/git` (HMAC). Write roles match the Ruralz Console Act column; `audit`, `access`, `backup` and `revocations` also need that role for reads. Operations the sections above add:
 
 | Operation | Effect | Role |
 |---|---|---|
@@ -557,6 +585,10 @@ Resources are `environments` and `clusters` (read only), `promotions`, `revision
 | `GET /api/v1/revocations` | Entries per Cluster, sequence, high-water mark, cap use | `security-admin` |
 | `DELETE /api/v1/revocations/{entryId}` | Removes a `kid` entry only; other entries expire or are collected | `security-admin` with step-up; audited as `credential.revoked` |
 | `DELETE /api/v1/replicas/{serverId}` | Removes a voter ([Removing a voter](#removing-a-voter)) | `admin` with step-up; audited |
+| `POST /api/v1/replicas/{serverId}/transfer` | Moves leadership off that replica ([Leadership transfer](#leadership-transfer)) | `admin`; audited |
+| `GET /api/v1/control-store` | Control Store version, reported binary versions and snapshots, soak start | `admin` |
+| `POST /api/v1/control-store/finalize` | Commits the version-advance entry ([Finalizing an upgrade](#finalizing-an-upgrade)) | `admin` with step-up; audited |
+| `POST /api/v1/access`, `POST /api/v1/replicas` with the bootstrap credential | First `admin` and `security-admin`; join tokens ([Bootstrap credential](#bootstrap-credential)) | Bootstrap principal; audited |
 
 The `revocations` operations and `RevocationUpdate` are pending OQ-security-and-identity-4, option (a); until it is decided, the operations return `RZ-CP-020` and Nodes receive no `RevocationUpdate`.
 
@@ -584,6 +616,7 @@ Ports: 8090 REST API, Ruralz Console and webhooks; 8091 Control Stream; 8092 pee
 | RZ-CP-018 | Webhook signature invalid or rate-limited |
 | RZ-CP-019 | Voter removal refused: leader or quorum |
 | RZ-CP-020 | Revocation entries unavailable, or the entry cap is reached |
+| RZ-CP-021 | Finalize refused, or a status report from a binary newer than the Control Store version allows is rejected |
 
 ## Audit and security
 
@@ -599,10 +632,11 @@ Every state change is audited, including logins, REST API writes, Enrollment, ap
 | Compromised Git account or spoofed commit email | Branch protection; authorship from verified signatures, else two approvers |
 | Malicious Bundle author or CRD writer | Registry allowlist; CRD Revisions namespace-bound, gated by promotion and approval, audited |
 | Compromised relay | No signing key; role-limited 8092 classes; reports and names limited to its Clusters; revocable |
+| Stolen bootstrap credential | Creates only the first `admin` and `security-admin` and join tokens; expires within 24 hours (target); audited |
 | Stale restore | Root-signed epoch; revocation list required |
 | Compromised Ruralz Control | Limited to what the online key signs; anchor sets need the offline root |
 
-New crossings, none unauthenticated, map to [System overview](01-system-overview.md#trust-boundaries) boundaries per OQ-control-plane-and-gitops-14: token `Enroll` (TB-5), replica join (TB-11), webhooks, registry and Kubernetes clients, and the relay (TB-13). This document decides OQ-system-overview-9, -11 and -16, OQ-configuration-model-12, OQ-tech-stack-and-libraries-22 and OQ-cli-and-api-surface-14 with option (a), and OQ-observability-11 with option (b).
+New crossings, none unauthenticated, map to [System overview](01-system-overview.md#trust-boundaries) boundaries per OQ-control-plane-and-gitops-14: token `Enroll` (TB-5), replica join (TB-11), webhooks, registry and Kubernetes clients, and the relay (TB-13). This document decides OQ-system-overview-19 with `RURALZ_CONFIG` and `oci://`; OQ-system-overview-9, -11 and -16, OQ-configuration-model-12, OQ-tech-stack-and-libraries-22, OQ-cli-and-api-surface-14, OQ-security-and-identity-8, OQ-wasm-plugin-system-6 and OQ-release-versioning-and-compatibility-8 with option (a), OQ-observability-11 with option (b), and OQ-deployment-topologies-6 and -11 with options (a) and (b).
 
 ## Open questions
 
@@ -614,7 +648,6 @@ New crossings, none unauthenticated, map to [System overview](01-system-overview
 | OQ-control-plane-and-gitops-7 | Forge API integration? | (a) Plain branches (current); (b) GitHub and GitLab adapters | control-plane-and-gitops | No |
 | OQ-control-plane-and-gitops-8 | Where are the online and trust-root keys held? | (a) Control Store, root offline; (b) KMS or Vault | control-plane-and-gitops | Yes, for Planned (M2) |
 | OQ-control-plane-and-gitops-12 | Audit export format? | (a) OpenTelemetry logs; (b) syslog | observability | No |
-| OQ-control-plane-and-gitops-13 | How does a Node get Control mode, address and token? | (a) `RURALZ_CONFIG` URI plus a token file (OQ-system-overview-19); (b) new `RURALZ_*` variables | configuration-model | Yes, for Planned (M2) |
 | OQ-control-plane-and-gitops-15 | Should pack 8.4 add the 8092 classes, relay feed included, and pack 8.3 transitions to `failed`? | (a) Amend (proposed); (b) a forwarding port | control-plane-and-gitops | No |
 | OQ-control-plane-and-gitops-16 | Codes for a non-allowlisted registry, symlinks, gitlinks and LFS pointers? | (a) New RZ-CFG codes; (b) RZ-CFG-028, RZ-CFG-001 | configuration-model | No |
 | OQ-control-plane-and-gitops-18 | Should a revert skip `canary.bake`? | (a) No (current); (b) a field | configuration-model | No |
@@ -623,5 +656,6 @@ New crossings, none unauthenticated, map to [System overview](01-system-overview
 | OQ-control-plane-and-gitops-23 | Node cap and minting quota as fields? | (a) Process configuration (current); (b) `Cluster.spec` fields | configuration-model | No |
 | OQ-control-plane-and-gitops-25 | Which setting holds the encoded Snapshot limit? | (a) Derived from the source size limit (proposed); (b) its own setting | configuration-model | Yes, for Planned (M2) |
 | OQ-control-plane-and-gitops-26 | How does `Delta` encode `ops` over `ruralz.canonical.v1`? | (a) JSON Patch (RFC 6902) on the canonical document; (b) per-resource replace and delete | control-plane-and-gitops | Yes, for Planned (M2) |
+| OQ-control-plane-and-gitops-27 | Should pack section 2 list `RURALZ_ENROLLMENT_TOKEN_FILE`, `RURALZ_TRUST_POLICY_FILE` and `RURALZ_REGISTRY_AUTH_FILE`? | (a) Amend it (proposed); (b) keys in a Node file | control-plane-and-gitops | Yes, for Planned (M2) |
 
-Closed: OQ-control-plane-and-gitops-9 (b) and -10, -14, -19, -20, -24 (a), answered by Security and identity, -24 also by ADR-0017; -17 (a), decided by CLI and API surface as `ruralz rollout reject`; -1 (a) (process configuration), -2 (trunk only) and -5 (a newer promotion waits), decided here; -11 (SSO), settled by Security and identity as Planned (M5).
+Closed: OQ-control-plane-and-gitops-9 (b) and -10, -14, -19, -20, -24 (a), answered by Security and identity, -24 also by ADR-0017; -17 (a), decided by CLI and API surface as `ruralz rollout reject`; -1 (a) (process configuration), -2 (trunk only), -5 (a newer promotion waits) and -13 (a) ([Node process configuration](#node-process-configuration)), decided here; -11 (SSO), settled by Security and identity as Planned (M5).

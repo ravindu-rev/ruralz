@@ -51,7 +51,7 @@ Chosen option: "Helm chart and mirrored CRDs, Gateway API deferred", because it 
 | CRD translation | Server-set `metadata` and `status` are dropped; otherwise only the group changes. One bound namespace becomes one Bundle holding exactly one `Gateway` (RZ-CFG-016); `Environment` and `Cluster` are cluster-scoped. `x-ruralz-validations` become `x-kubernetes-validations` where lowering allows; `${VAR}` in non-string fields is rejected; a status subresource carries `Accepted`, `ResolvedRefs` and `Programmed` ([Status conditions](../architecture/02-configuration-model.md#status-conditions-in-the-crd-path)) | Planned (M2) |
 | Reader | Only the Ruralz Control leader watches CRDs, off until process configuration binds a namespace to an Environment (OQ-control-plane-and-gitops-1). It assembles a namespace into a Bundle and runs the Git pipeline once its object set is quiet for a debounce window, or after a maximum delay (both target values), so one multi-object apply yields one Revision. `ruralzd` never reads CRDs (OQ-configuration-model-2 (a)); without Ruralz Control, Kubernetes installs use T2 | Planned (M2) |
 | CRD source | One primary source per Environment, a Git path or one bound namespace (OQ-system-overview-8 (a) and (b)). Until OQ-deployment-topologies-19 decides, a namespace source shows as Git divergence Drift, is refused under `requireApproval` unless overridden (audited) and never promotes | Planned (M2) |
-| CRD versions | Every Ruralz Control replica serves the conversion webhook (port: OQ-deployment-topologies-13), unused while only `ruralz.io/v1alpha1` is served under `conversion.strategy: None`. A new served version applies only once every replica runs N, and becomes the storage version no earlier than the next minor | Planned (M2); `ruralz.io/v1beta1` and webhook use Planned (M3) |
+| CRD versions | While only `ruralz.io/v1alpha1` is served, `conversion.strategy: None` needs no webhook. From `ruralz.io/v1beta1`, every Ruralz Control replica serves the conversion webhook (port: OQ-deployment-topologies-13). A new served version applies only once every replica runs N, and becomes the storage version no earlier than the next minor | Planned (M2); `ruralz.io/v1beta1` and the webhook Planned (M3) |
 | Gateway API | No conformance work; a later adapter would map Gateway API objects to existing kinds (OQ-vision-and-positioning-4) | Not planned within M0 to M5: mirrored CRDs already expose every feature |
 
 *Figure 1: the CRD path; dashed edges are off the request path.*
@@ -69,7 +69,7 @@ flowchart LR
             asm["Debounce, then assemble one namespace into a Bundle, group ruralz.io to ruralz"]
             pipe["Git pipeline: validate, render, sign Revision, Rollout"]
         end
-        conv["Conversion webhook on every replica, unused until a second version, Planned (M3)"]
+        conv["Conversion webhook on every replica, from ruralz.io/v1beta1, Planned (M3)"]
     end
     nodes["Nodes: ruralzd, no CRD access"]
     helm --> ctl

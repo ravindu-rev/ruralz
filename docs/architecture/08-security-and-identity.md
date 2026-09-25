@@ -267,6 +267,8 @@ spec:
 
 Authored here, proposed for registration (OQ-security-and-identity-18): `auth.upstream-sigv4` requires `config.region` and `config.service`, and `config.payload` is `signed` (default) or `unsigned`; `auth.upstream-oauth2` adds `config.timeout`, default 2 s (target).
 
+Also authored here, Planned (M2) and proposed for registration (OQ-security-and-identity-12, option (b)): `auth.upstream-oauth2` `config.grantType` is `client-credentials` (default) or `jwt-bearer` (RFC 7523). `jwt-bearer` replaces `clientId` and `clientSecret` with `config.serviceAccountKey`, a required `SecretValue` holding a service-account JSON key; per fetch, the Node signs an RS256 assertion with it and posts it to the `https` `tokenUrl`. `config.audience`, when set, requests an ID token for that audience instead of an access token for `scopes`. This serves Google GCP authentication ([source](https://www.krakend.io/docs/enterprise/authentication/gcloud/)).
+
 ### KrakenD authentication parity
 
 Every mechanism is free; the [KrakenD EE parity matrix](../comparison/01-krakend-ee-parity-matrix.md) wins on conflict.
@@ -283,7 +285,7 @@ Every mechanism is free; the [KrakenD EE parity matrix](../comparison/01-krakend
 | Multiple identity providers per endpoint <!-- alias-ok --> | Several `issuers[]` | Planned (M1) |
 | mTLS | `auth.mtls`; `Upstream.spec.tls` | Planned (M1) |
 | NTLM authentication | Not planned: it authenticates a TCP connection, breaking pooling, and uses non-FIPS MD4 and HMAC-MD5 (P1) | Not planned |
-| Google GCP authentication | JWT-bearer grant in `auth.upstream-oauth2` | Planned (M2), pending OQ-security-and-identity-12 |
+| Google GCP authentication | JWT-bearer grant in `auth.upstream-oauth2` ([fields](#upstream-authentication)) | Planned (M2), pending OQ-security-and-identity-12 |
 | AWS SigV4 authentication | `auth.upstream-sigv4` | Planned (M2) |
 
 ### RZ-AUTH decision codes
@@ -326,6 +328,31 @@ spec:
     rule: 'consumer != null && consumer.tier == "gold"'   # Tier gate with existing fields
 ```
 
+### OPA and Cedar schemas
+
+This document authors both engine schemas ([ADR-0011](../adr/0011-expressions-and-authorization-engines.md)), Planned (M2) and proposed for Configuration model registration with OQ-security-and-identity-13, option (c); until then, no example uses them.
+
+| Type | Field | Shape and rule |
+|---|---|---|
+| `authz.opa` | `config.module`, `config.bundle` | Exactly one: an inline Rego module, or an OCI reference pinned by `sha256:<64 hex>` holding modules and data, verified under the Plugin trust policy (proposed) |
+| `authz.opa` | `config.query` | Required Rego reference, for example `data.ruralz.allow`; only `true` allows, and `false`, undefined or a non-boolean is 403 RZ-AUTH-011 |
+| `authz.opa` | `config.data` | Optional inline JSON document served as `data`; with `module` only |
+| `authz.cedar` | `config.policies`, `config.bundle` | Exactly one: inline Cedar policy text, or a pinned OCI reference holding policies and entities, verified as above |
+| `authz.cedar` | `config.entities` | Optional inline Cedar entity JSON (`uid`, `attrs`, `parents`); with `policies` only |
+
+Modules, data, policies and entities are fixed per Revision and count toward the caps above; no engine fetches anything at request time, so changing them is a Revision.
+
+The OPA `input` is fixed: the base CEL variables as JSON, namely `request` (`body` only in `onRequestBody`), `source` (including `ip`), `route`, `consumer`, and `auth` with its `claims`, null where CEL is null.
+
+Cedar requests use a fixed mapping:
+
+- **Principal:** `Ruralz::Consumer::"<consumer.name>"`, with `tier` and `tags` as attributes, when bound; else `Ruralz::Subject::"<iss>#<sub>"` from JWT claims; else `Ruralz::Anonymous::""`.
+- **Action:** `Ruralz::Action::"<method>"`.
+- **Resource:** `Ruralz::Path::"<normalized path>"`, whose parent is `Ruralz::Route::"<route.name>"`, so `resource in Ruralz::Route::"orders"` scopes a rule.
+- **Context:** the remaining `input` fields, claims included.
+
+Ruralz adds the principal and resource entities per request, merging parents with a declared entity of the same `uid`, such as a Consumer in a group. Any policy error in the diagnostics is RZ-AUTH-015, so an erroring `forbid` never admits a request.
+
 ### IP filtering and GeoIP
 
 `authz.ip`, Planned (M1), filters by CIDR on `source.ip`; `authz.geoip`, Planned (M2), by country from a local MaxMind-format database (reader: OQ-tech-stack-and-libraries-24). This document authors both schemas, proposed for Configuration model registration (OQ-security-and-identity-18):
@@ -360,7 +387,7 @@ spec:
   credentials:
     apiKeys:                         # rotation: two named keys during an overlap window
       - name: primary-2026-09
-        hash: "sha256:d1bec0f9342e5607570b2636ed0256023b13be7d7d4bb45e1bed3cfee80dc1b6"
+        hash: "sha256:7f1ea8dd39cc46903ce1e949d43efd9ba5b94b40e98a0583688a2f934dd88058"
       - name: primary-2026-06        # removed after the overlap window
         secretRef: {provider: kubernetes, name: beta-keys, key: previous}
 ```
@@ -572,8 +599,8 @@ Data-plane decisions are telemetry, not audit events. Other evidence:
 | OQ-security-and-identity-9 | Status for failed upstream auth (merges OQ-data-plane-8)? | (a) 401; (b) 503, amending pack 8.10 (proposed); (c) 502 | security-and-identity | Yes |
 | OQ-security-and-identity-10 | How does a Node authenticate to Vault? | (a) Kubernetes; (b) AppRole; (c) Token file | security-and-identity | Yes, for `vault` |
 | OQ-security-and-identity-11 | How is JWT signing served? | (a) Plugin with signing Host Function; (b) Built-in type, amending pack section 10 (proposed) | security-and-identity | Yes, Planned (M2) |
-| OQ-security-and-identity-12 | How is GCP authentication served? | (a) Plugin; (b) JWT-bearer fields (proposed); (c) New type | security-and-identity | Yes, Planned (M2) |
-| OQ-security-and-identity-13 | How do OPA and Cedar get policies? | (a) Inline; (b) OCI; (c) Both | security-and-identity | Yes, Planned (M2) |
+| OQ-security-and-identity-12 | How is GCP authentication served? | (a) Plugin; (b) JWT-bearer fields as authored in [Upstream authentication](#upstream-authentication), for registration (proposed); (c) New type | security-and-identity, configuration-model | Yes, Planned (M2) |
+| OQ-security-and-identity-13 | How do OPA and Cedar get policies? | (a) Inline; (b) OCI; (c) Both, as authored in [OPA and Cedar schemas](#opa-and-cedar-schemas), for registration (proposed) | security-and-identity, configuration-model | Yes, Planned (M2) |
 | OQ-security-and-identity-14 | Should `authz.geoip` enrich upstream requests? | (a) No; (b) Header; (c) `source.country` | security-and-identity | No |
 | OQ-security-and-identity-15 | Are the throttle defaults and residuals acceptable: flood-shared rates, spraying, N × 1 guess per second per username across N Nodes (target), about 8,000 to 16,000 active `auth.basic` clients per hash slot capped at 10,000 per Node (hypothesis), and a post-restart ramp of one hash per active client? | (a) Local throttle (current); (b) Pre-auth `ratelimit` position | security-and-identity | Yes, for `auth.basic` |
 | OQ-security-and-identity-17 | Which fields set client timeouts? | (a) Gateway `limits`; (b) Fixed | data-plane | No |

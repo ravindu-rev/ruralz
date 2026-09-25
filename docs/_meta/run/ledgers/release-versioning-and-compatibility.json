@@ -335,7 +335,12 @@
   {
    "section": "Migration tooling",
    "kind": "milestone",
-   "value": "CRDs serve every served version through Ruralz Control's conversion webhook, Planned (M2)"
+   "value": "From `ruralz.io/v1beta1`, Planned (M3), CRDs serve every served version through Ruralz Control's conversion webhook"
+  },
+  {
+   "section": "Migration tooling",
+   "kind": "decision",
+   "value": "while only `ruralz.io/v1alpha1` is served, `conversion.strategy: None` needs none"
   },
   {
    "section": "Migration tooling",
@@ -790,7 +795,7 @@
   {
    "section": "Upgrade order",
    "kind": "decision",
-   "value": "After finalize, Nodes take a Zero-Downtime Upgrade"
+   "value": "After finalize, Nodes move from N-1 to N by handover or, on Kubernetes, Drain and restart"
   },
   {
    "section": "Upgrade order",

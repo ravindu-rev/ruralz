@@ -109,7 +109,7 @@ The v2.13 schema has 36 root properties, only `version` required ([source](https
 | `sequential_start` | None | `approximate` | Orders async agent registration only |
 | `use_h2c` | None | `manual` | No listener field enables h2c (OQ-migration-from-krakend-2) |
 | `dns_cache_ttl` | `Upstream` `discovery.type: dns` | `approximate` | No DNS refresh field |
-| `max_header_bytes` | `Gateway` `limits.maxRequestHeaderBytes` | `exact` | The importer writes KrakenD's value, default `1000000`, explicitly |
+| `max_header_bytes` | `Gateway` `limits.maxRequestHeaderBytes` | `exact`; `approximate` above `256Ki` | Writes `min(value, 256Ki)`; larger headers get 431 |
 | `max_shutdown_wait_time` | None in the Bundle | `manual` | Process-level Drain bound ([Zero-downtime upgrades and hot reload](../operations/02-zero-downtime-upgrades-and-hot-reload.md)) |
 | `read_timeout`, `read_header_timeout`, `write_timeout`, `idle_timeout` | None | `manual` | No listener timeout fields (OQ-migration-from-krakend-2) |
 | `dialer_timeout`, `dialer_keep_alive`, `dialer_fallback_delay` | None | `approximate` | Connection tuning has no Upstream fields (OQ-migration-from-krakend-3) |
@@ -326,14 +326,14 @@ kind: Gateway
 metadata:
   name: gateway
   annotations:
-    ruralz.io/import-fidelity: exact
+    ruralz.io/import-fidelity: approximate   # lowest level among its items: max_header_bytes
 spec:
   listeners:
     - name: http
       protocol: http
       port: 8080
   limits:
-    maxRequestHeaderBytes: 1000000     # KrakenD default, written explicitly
+    maxRequestHeaderBytes: 256Ki       # KrakenD default 1000000, capped at the process ceiling
   stateStore:                          # rule 8: the Bundle holds a ratelimit Policy
     driver: redis
     url: {secretRef: {provider: env, name: RURALZ_STATE_STORE_URL}}
@@ -431,12 +431,15 @@ The human summary of the fidelity report for the same run:
 
 ```text
 ruralz bundle import krakend: krakend.json -> ./bundle (7 resources)
-items: exact 4, equivalent 13, approximate 3, manual 1
+items: exact 3, equivalent 13, approximate 4, manual 1
 manual       /endpoints/0  [security]
              Route/get-v1-orders-id-summary: KrakenD forwarded no client headers or query strings;
              Ruralz forwards all of them, Authorization and cookies included, until a Policy removes them
 approximate  /cache_ttl
              Policy/cache-ttl-get-v1-orders-id-summary: header written on every response of the Route
+approximate  /max_header_bytes
+             Gateway/gateway: KrakenD default 1000000 written as 256Ki, the Ruralz process ceiling;
+             less permissive: header blocks above 256 KiB that KrakenD accepted get a plain 431
 approximate  /endpoints/0/extra_config/qos~1ratelimit~1router
              Policy/ratelimit-get-v1-orders-id-summary: KrakenD limits each instance to 50 per 1s;
              Ruralz enforces 50 per 1s across the Cluster on the redis State Store (rule 8);
@@ -455,7 +458,7 @@ exit status 1 (1 manual item)
 
 | Level | Guarantee | What the importer does | Operator action before cutover | Examples |
 |---|---|---|---|---|
-| `exact` | Every request gets the same routing, decision and bytes on the wire as under the KrakenD setting, apart from headers each product adds and client parameter forwarding, which each Route's forwarding item covers | Translates field for field | None | `port`, endpoint `method`, `max_header_bytes`, `output_encoding: no-op` <!-- alias-ok --> |
+| `exact` | Every request gets the same routing, decision and bytes on the wire as under the KrakenD setting, apart from headers each product adds and client parameter forwarding, which each Route's forwarding item covers | Translates field for field | None | `port`, endpoint `method`, `output_encoding: no-op` <!-- alias-ok --> |
 | `equivalent` | Same routing, allow or deny decisions, status and payload semantics; only JSON key order and whitespace, header casing and order, and gateway error bodies (`RZ-<AREA>-<NNN>`) differ; forwarding as for `exact` | Translates to a different mechanism with the same observable contract | Check clients that parse KrakenD error bodies | Aggregation with `group`, `select`, `rename`; `auth/client-credentials`; `server/virtualhost`; `security/http` |
 | `approximate` | The Bundle validates and serves traffic; the report states each behavioral difference, such as Cluster-wide instead of per-instance limits, another algorithm, dropped tuning fields or one Gateway-wide value | Emits the nearest configuration and records the difference and whether it is more or less permissive | Accept each difference or adjust values | `qos/ratelimit/router`, `qos/circuit-breaker`, `cache_ttl`, `telemetry/opentelemetry` <!-- alias-ok --> |
 | `manual` | No automatic translation at this release; the behavior is absent unless the operator adds it | Emits no resource for the setting, or a fail-closed hold for security controls, and records the source, reason and recommended target | Implement the recommended target, then remove any hold | Lua scripts, Go plugins, `auth/basic` until its binding field exists, `async/amqp` |

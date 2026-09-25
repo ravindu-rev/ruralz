@@ -278,7 +278,7 @@ sequenceDiagram
 |---|---|
 | Milestone | Planned (M3) |
 | Use cases | Chat, collaboration, live feeds; KrakenD "Direct WebSockets" and "WebSockets multiplexer" parity ([source](https://www.krakend.io/features/)) |
-| Kind mapping | A Route matching the HTTP/1.1 upgrade; `Upstream.spec.protocol: websocket`; session settings are OQ-multi-protocol-6 |
+| Kind mapping | A Route matching the HTTP/1.1 upgrade; `Upstream.spec.protocol: websocket`; mode (direct or multiplexer) and session settings in a proposed `Upstream` `websocket` object (OQ-multi-protocol-6) |
 | Policy applicability | Header-Phase types run once at the upgrade, so `ratelimit` and `quota` admit sessions; `cache` and anything using `onRequestBody` are rejected; data messages run `onChunk` Plugins |
 | Limits | A message read by an `onChunk` subscriber is a chunk, 1 MiB (target), close 1009 beyond; session bounded by Route `timeout` |
 
@@ -296,10 +296,45 @@ Under `failureMode: closed` a failing Plugin closes both sides with 1011; under 
 
 ### Multiplexing
 
-The multiplexer mode (KrakenD's EE multiplexer row, [source](https://www.krakend.io/features/)), Planned (M3), keeps one Upstream connection per Route and Endpoint per Node, wrapping client messages in envelopes with a session identifier; the undefined envelope format blocks it (OQ-multi-protocol-6).
+The multiplexer mode (KrakenD's EE multiplexer row, [source](https://www.krakend.io/features/)), Planned (M3), keeps one Upstream connection per Route and Endpoint per Node, wrapping client messages in envelopes with a session identifier. The proposed `websocket.mode: multiplex` selects it; `direct`, the default, keeps one Upstream connection per client (OQ-multi-protocol-6). The envelope below is fixed by this document, not configurable.
 
-- Phases: the shared dial runs `onUpstreamRequest` and `onUpstreamResponseHeaders` once, so Upstream-scoped Policies run only there. Each client runs the upgrade Phases and `onChunk`; its identity reaches the Upstream only in the open envelope (proposed: Route, Consumer name, selected auth claims).
-- Bounds: each client session takes one in-flight unit; queued outbound bytes are reserved while held, in 32 KiB increments up to 1 MiB per session (target). The shared reader never pauses, so overflow closes only that client with 1013 and `RZ-RT-013`, and a failed reservation or the write deadline closes it with 1013 (code: OQ-multi-protocol-16), each sending a close envelope.
+- Dial: the shared connection offers the subprotocol `ruralz.mux.v1`; an Upstream that does not select it fails the dial as a leg failure. Balancing picks the Endpoint per session. The first session on a Route and Endpoint waits for the shared dial before its 101, so it gets direct mode's retries, breakers and 502; later sessions get 101 after their admission Phases. A shared connection closes 60 s (target) after its last session ends.
+- Phases: the shared dial runs `onUpstreamRequest` and `onUpstreamResponseHeaders` once, so Upstream-scoped Policies run only there. Each client runs the upgrade Phases and `onChunk`; its identity reaches the Upstream only in the `open` envelope.
+- Bounds: each client session takes one in-flight unit; queued outbound bytes are reserved while held, in 32 KiB increments up to 1 MiB per session (target). The shared reader never pauses, so overflow closes only that client with 1013 and `RZ-RT-013`, and a failed reservation or the write deadline closes it with 1013 (code: OQ-multi-protocol-16), each sending a `close` envelope.
+- Client to Upstream: envelopes queue on the shared writer one per session, so a slow Upstream pushes back on every client through TCP. A shared write blocked past the 30 s deadline (target) ends the shared connection as a failure (below).
+
+#### Envelope format
+
+Each envelope is one JSON object in one text frame on the shared connection; nothing crosses it unwrapped.
+
+| Field | In | Content |
+|---|---|---|
+| `type` | All | `open`, `message` or `close` |
+| `session` | All | A ULID the Node assigns at the upgrade, unique across Nodes and never reused |
+| `route`, `consumer`, `claims`, `path` | `open` | The Route name; the Consumer name, or null; the auth claims the proposed `websocket` object selects (OQ-multi-protocol-6), none by default; the request path with its query |
+| `data` | `message` | The client or Upstream message: a text frame as a JSON string, a binary frame base64-encoded |
+| `binary` | `message` | `true` when `data` is base64; omitted for text |
+| `code`, `reason` | `close` | A WebSocket close code and a reason, truncated to fit a close frame |
+
+```text
+{"type": "open", "session": "01K5ZQ8M2V3T9B7C4D6E8F0G1H", "route": "chat-ws", "consumer": "partner-app", "claims": {"sub": "user-42"}, "path": "/v1/chat/ws?room=7"}
+{"type": "message", "session": "01K5ZQ8M2V3T9B7C4D6E8F0G1H", "data": "hello"}
+{"type": "message", "session": "01K5ZQ8M2V3T9B7C4D6E8F0G1H", "data": "AAEC/w==", "binary": true}
+{"type": "close", "session": "01K5ZQ8M2V3T9B7C4D6E8F0G1H", "code": 1000, "reason": ""}
+```
+
+- Order: the Node sends `open` before a session's first `message` and `close` last. Only the Node opens sessions; an Upstream `message` or `close` for an unknown or closed session is dropped.
+- Size: every multiplexed message is a reserved chunk, subscriber or not, since the Node wraps it whole. The 1 MiB cap (target) applies to the decoded payload in each direction: a client message over it closes that client with 1009 and `RZ-RT-013`, and an Upstream one closes that session the same way. The shared connection's read limit, 1,400 KiB (target), fits a base64 payload at the cap with its fields.
+- Protocol errors: a frame that is binary, over the read limit or not a valid envelope, or an Upstream `open`, closes the shared connection with 1002. Every session on a failed or lost shared connection closes with 1011; none moves to a new connection.
+
+| Close starts at | To the client | To the Upstream |
+|---|---|---|
+| Client close frame | The close is echoed | `close` with the client's code and reason; 1005 when the frame had no code, 1006 when the client connection dropped without one |
+| Upstream `close` envelope | A close frame with its code and reason; 1005 as a frame without a code; 1006, 1015 and codes invalid in a close frame as 1011 | Nothing further for that session |
+| Node limit, write deadline, `onChunk` failure, retired snapshot or Drain | 1009, 1013, 1011 or 1001, as in direct mode | `close` with the same code and the `RZ` code as `reason` |
+| Shared connection failure | 1011 | The shared connection closes, 1002 on a protocol error |
+
+The `chat` example runs in direct mode, the default, until the Configuration model adds `websocket.mode`.
 
 ```yaml
 apiVersion: ruralz/v1alpha1
@@ -388,18 +423,31 @@ sequenceDiagram
 | Use cases | HTTP to a log; topics to HTTP, KrakenD's "Kafka async agents" ([source](https://www.krakend.io/features/)) | The same | External brokers; device ingress |
 | Library ([ADR-0013](../adr/0013-messaging-client-libraries.md)) | twmb/franz-go | nats.go `jetstream` | paho.golang `autopaho`; mochi-mqtt broker |
 | Kind mapping | Publish: `path` Route; ingress: `match.topic`; `protocol: kafka`, bootstrap `endpoints`, `messaging.topic`, `messaging.key` as record key | `nats`; topic as subject; no key | `mqtt`; no key; embedded PUBLISH matches `match.topic` |
-| Acknowledgment | All in-sync replicas, idempotent producer ([source](https://github.com/twmb/franz-go)) | Stream `PubAck` | `PUBACK` at QoS 1 |
+| Acknowledgment | All in-sync replicas, idempotent producer ([source](https://github.com/twmb/franz-go)); proposed `acks` ([Advanced Kafka options](#advanced-kafka-options)) | Stream `PubAck` | `PUBACK` at QoS 1 |
 | Consume mapping (OQ-multi-protocol-10) | Consumer group; commit after settle | Durable pull consumer, `Consume()` ([source](https://github.com/nats-io/nats.go/blob/main/jetstream/README.md)); ack after settle | Undecided: without shared subscriptions (unresearched) every Node gets each message |
 | Policy applicability | Publish: request-Phase types except `cache`; ingress: [Topic ingress](#topic-ingress) | Same | Same |
 | Limits | Publish: value within `maxRequestBodyBytes`, bounded producer buffer; ingress: [Topic ingress](#topic-ingress) | nats-server 2.9.0 or newer ([source](https://github.com/nats-io/nats.go/blob/main/jetstream/README.md)); otherwise as Kafka | paho.golang ignores inbound Receive Maximum ([source](https://github.com/eclipse-paho/paho.golang)); embedded: [broker mode](#embedded-mqtt-broker-mode) |
 
-Broker Upstreams reject balancing and health fields ([Validation rules](#validation-rules)); `timeout` bounds one publish and its acknowledgment. Options are OQ-multi-protocol-8, broker credentials OQ-multi-protocol-9.
+Broker Upstreams reject balancing and health fields ([Validation rules](#validation-rules)); `timeout` bounds one publish and its acknowledgment. Further `messaging` options are proposed under OQ-multi-protocol-8, broker credentials under OQ-multi-protocol-9.
 
 ### Publishing from HTTP
 
 A publish Route's body is always a gate within `maxRequestBodyBytes`, since a message is written whole (OQ-multi-protocol-13). `onUpstreamRequest` evaluates `messaging.key` (a CEL error returns 502); the body becomes the value and the W3C trace context a header.
 
 The Node answers 202 once the broker acknowledges, 502 with an `RZ-UP` code when retries are exhausted, and 503 on a full producer buffer, detected without blocking (code: OQ-multi-protocol-16; spike: OQ-multi-protocol-8). franz-go's default linger became 10 ms in v1.20.0, so Nodes set `ProducerLinger(0)` ([source](https://raw.githubusercontent.com/twmb/franz-go/master/CHANGELOG.md)). A Ruralz retry MAY duplicate or reorder records; consumers deduplicate by application key.
+
+### Advanced Kafka options
+
+KrakenD EE 2.13 added advanced Kafka publisher and subscriber settings ([source](https://www.krakend.io/blog/krakend-ee-2.13-release-notes/)). Ruralz covers that Advanced Apache Kafka row, Planned (M4), on the same `kafka` `Upstream` through the `messaging` fields below, proposed as OQ-multi-protocol-8 option (a) until the Configuration model adds them; broker credentials stay with OQ-multi-protocol-9, and consumer-side settings (groups, fetch bounds, start offset) with OQ-multi-protocol-10.
+
+| Proposed field | Values and default | Kafka | NATS and MQTT |
+|---|---|---|---|
+| `messaging.acks` | `all` (default), `leader` or `none` | `all` keeps the idempotent producer; `leader` and `none` need it off (unresearched in franz-go; OQ-multi-protocol-8 spike), and with `none` the 202 means the record was sent, not stored | `all`: JetStream `PubAck` or MQTT QoS 1; `none`: core NATS publish or MQTT QoS 0; `leader` rejected |
+| `messaging.headers` | A map of header name to CEL string, evaluated in `onUpstreamRequest` like `key`; a CEL error returns 502 | Record headers, beside the W3C trace context | NATS message headers; MQTT 5 user properties |
+| `messaging.compression` | `none` (default), `gzip`, `snappy`, `lz4` or `zstd`, the codecs franz-go supports ([source](https://github.com/twmb/franz-go)) | Producer batch compression | Rejected |
+| `messaging.partitioner` | `key-hash` (default) or `round-robin` | `key-hash` hashes `messaging.key`, so one key keeps one partition, and leaves keyless records to franz-go's default spreading (unresearched); `round-robin` ignores the key | Rejected |
+
+A rejected field is a validation error (code: OQ-multi-protocol-13). MQTT retain, a per-broker value-size bound and a deduplication ID stay open in OQ-multi-protocol-8.
 
 ```yaml
 apiVersion: ruralz/v1alpha1
@@ -520,7 +568,7 @@ Ruralz Gateway mediates rather than proxying broker protocols, keeping every mes
 | Kafka | No native Kafka wire-protocol proxying before M4 (pack 7, [ADR-0013](../adr/0013-messaging-client-libraries.md)); Not planned in M0 to M5, revisited at M4 (OQ-multi-protocol-11) | A proxy rewrites metadata and coordinator responses, and Phases would see record batches without a per-message Route |
 | MQTT | Native ingress only through the embedded broker mode, Planned (M4); transparent proxying Not planned | Terminating MQTT gives each PUBLISH a Route; external brokers are `mqtt` Upstreams |
 | NATS | Native client-protocol proxying Not planned | NATS has its own clustering and authorization |
-| Other brokers (AMQP, cloud queues) | Not planned in M0 to M5 | No researched library; KrakenD lists AMQP, Google Cloud Pub/Sub and Amazon SQS ([source](https://www.krakend.io/features/)), a parity gap (OQ-multi-protocol-14) |
+| Other brokers (AMQP, cloud queues) | Not planned in M0 to M5 | No researched library; KrakenD lists AMQP consumer and producer, Azure Service Bus topic and subscription, Google Cloud Pub/Sub, Amazon SNS and Amazon SQS ([source](https://www.krakend.io/features/)), six parity-matrix rows marked Not planned (OQ-multi-protocol-14) |
 
 ## Filter Chain applicability per protocol
 
@@ -574,15 +622,15 @@ Sessions keep their snapshot until it retires ([System overview](01-system-overv
 | OQ-multi-protocol-3 | How does `match.graphql` select a Route before `onRequestHeaders` (answers OQ-system-overview-5)? | (a) Bounded prefix read (proposed); (b) Query string or hash only; (c) An `onRoute` leg selector | multi-protocol | Yes, for Data plane |
 | OQ-multi-protocol-4 | How are subgraphs, the supergraph and REST-to-GraphQL operations declared with deterministic digests? | (a) A `federation` composition mode; (b) `Route.spec.graphql` fields; (c) An external supergraph pinned by digest (proposed); (d) Composition in Ruralz Control | multi-protocol | Yes, for federation |
 | OQ-multi-protocol-5 | How are the GraphQL limits and per-session bounds configured? | (a) A validation-class type (proposed); (b) Route fields; (c) A Plugin | multi-protocol | Yes, for GraphQL limits |
-| OQ-multi-protocol-6 | Where do WebSocket timeouts, compression and multiplexer settings live, and what is the envelope format? | (a) An `Upstream` `websocket` object; (b) Node defaults; (c) A Policy type | multi-protocol | Yes, for the multiplexer |
+| OQ-multi-protocol-6 | Where do the WebSocket mode, timeouts, compression and multiplexer settings live? The envelope is fixed in [Multiplexing](#multiplexing) | (a) An `Upstream` `websocket` object (proposed): `mode: direct \| multiplex` (default `direct`), `claims` (auth claims copied into the `open` envelope), `writeTimeout` and `compression`; (b) Node defaults, direct mode only; (c) A Policy type | multi-protocol | Yes, for the multiplexer |
 | OQ-multi-protocol-7 | How do browser WebSocket sessions and MQTT CONNECT present credentials to `auth.*`? | (a) Map the carrier into what `auth.*` reads; (b) Cookies and passwords only; (c) A Plugin | security-and-identity | Yes, for the embedded broker |
-| OQ-multi-protocol-8 | Which `messaging` options are needed: acknowledgment mode, core NATS, QoS, retain, headers, Kafka-only `key`, a per-broker value-size bound, a retry-stable deduplication ID (unresearched)? Spike: non-blocking franz-go produce | (a) New `messaging` fields; (b) A Policy type; (c) Fixed defaults | multi-protocol | Yes, for event publishing |
+| OQ-multi-protocol-8 | Which `messaging` options are needed: acknowledgment mode (covering core NATS and MQTT QoS), headers, compression, partitioner, retain, a per-broker value-size bound, a retry-stable deduplication ID (unresearched)? Spikes: non-blocking franz-go produce; `acks` below `all` without idempotence | (a) New `messaging` fields (proposed, [Advanced Kafka options](#advanced-kafka-options)): `acks: all \| leader \| none`, `headers` (CEL map), and Kafka-only `compression: none \| gzip \| snappy \| lz4 \| zstd` and `partitioner: key-hash \| round-robin`; retain, the value-size bound and the deduplication ID undecided; (b) A Policy type; (c) Fixed defaults | multi-protocol | Yes, for event publishing |
 | OQ-multi-protocol-9 | How do Nodes authenticate to brokers beyond mutual TLS? | (a) `SecretValue` fields under `messaging`; (b) An `Upstream` credentials object; (c) Mutual TLS only | security-and-identity | Yes, for event publishing |
 | OQ-multi-protocol-10 | How is event ingress declared (answers OQ-configuration-model-11): sources, groups, fetch bounds, poison action and resume (dead-letter or skip-and-count before M4; JetStream `MaxDeliver` or `Term`), the `RZ-PLG` poison split, MQTT listener and connection ceiling, shared subscriptions (unresearched), mixed Routes? Spikes: held PUBACK blocking reads (fallback: PUBACK on receipt); JetStream in-progress acknowledgments and pre-buffer setting (unresearched) | (a) A Gateway event-source list and `mqtt` listener protocol (proposed); (b) `messaging` consumer groups; (c) A new kind | multi-protocol | Yes, for topic ingress |
 | OQ-multi-protocol-11 | Should native Kafka wire proxying follow the M4 review? | (a) Not planned (current); (b) Produce-only, Planned (M5); (c) An external proxy | multi-protocol | No |
 | OQ-multi-protocol-12 | Which Upstream-side choices need fields: h2c or HTTP/3, gRPC health, subgraph subscription transport and read limit? Tech stack SSE row: forwarding only | (a) New `Upstream` fields; (b) Inferred defaults (current); (c) Plugins | multi-protocol | No |
 | OQ-multi-protocol-13 | Which RZ-CFG registrations cover these validation rules, the topic-ingress `overridable: false` and response-Phase cases, and a broker body-gate row? | (a) New codes and row; (b) Widen RZ-CFG-020 | configuration-model | No |
-| OQ-multi-protocol-14 | Should AMQP, Google Cloud Pub/Sub or Amazon SQS join `Upstream.spec.protocol`? | (a) Not planned in M0 to M5 (current); (b) New values by ADR; (c) Plugins | multi-protocol | Yes, for the parity matrix |
+| OQ-multi-protocol-14 | Should AMQP (consumer and producer), Azure Service Bus, Google Cloud Pub/Sub, Amazon SNS or Amazon SQS join `Upstream.spec.protocol`? | (a) Not planned in M0 to M5 (current); (b) New values by ADR; (c) Plugins | multi-protocol | Yes, for the parity matrix |
 | OQ-multi-protocol-15 | Should the 1 MiB (target) chunk cap be configurable? Fixed, it rejects larger gRPC stream messages | (a) Fixed (current); (b) A Gateway `limits` field; (c) A per-Upstream field | configuration-model | Yes, for gRPC streaming |
 | OQ-multi-protocol-16 | Which codes cover unparsable transcoded bodies, upgrades to `http`, plain requests to `websocket` Upstreams, GraphQL prefix misses, timeouts and rejections, SSE buffered timeouts, multiplexer closes and full producer buffers (an `RZ-UP` bulkhead code)? | (a) New codes; (b) Reuse RZ-RT-003 and RZ-RT-009 | data-plane; `RZ-UP`: traffic-management-and-resilience | Yes, for gRPC and GraphQL |
 | OQ-multi-protocol-17 | Pack section 4 amendment: `onChunk` per gRPC message and GraphQL event; `onRequestBody`, `onUpstreamRequest` and admission per GraphQL WebSocket operation; gRPC trailer statuses | (a) Amend (proposed); (b) Plugins only; (c) No WebSocket subscriptions with body-Phase Policies | multi-protocol | Yes, for gRPC and GraphQL |

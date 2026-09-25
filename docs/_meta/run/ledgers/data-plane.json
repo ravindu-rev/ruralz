@@ -23,6 +23,11 @@
    "value": "RZ-RT"
   },
   {
+   "section": "Summary",
+   "kind": "decision",
+   "value": "fixes the `transform.request` and `transform.response` `config` schema"
+  },
+  {
    "section": "Scope and non-goals",
    "kind": "claim",
    "value": "kinds and fields from the Configuration model, which wins on conflict"
@@ -953,6 +958,181 @@
    "value": "ruralz.filter.<name>"
   },
   {
+   "section": "Transform Policies",
+   "kind": "milestone",
+   "value": "`transform.request` and `transform.response`: Planned (M1)"
+  },
+  {
+   "section": "Transform Policies",
+   "kind": "policy_type",
+   "value": "transform.request"
+  },
+  {
+   "section": "Transform Policies",
+   "kind": "policy_type",
+   "value": "transform.response"
+  },
+  {
+   "section": "Transform Policies",
+   "kind": "decision",
+   "value": "Data plane authors the `transform.request` and `transform.response` `config` schema (pack 3) and submits it, with a CEL row per expression field, to the Configuration model for registration"
+  },
+  {
+   "section": "Transform Policies",
+   "kind": "claim",
+   "value": "Both transform types are gates (Body buffering and limits); CEL and regular expressions instead of a template language"
+  },
+  {
+   "section": "Transform Policies",
+   "kind": "kind_or_field",
+   "value": "config.body (CEL; a map or list is written as JSON, a string as its bytes)"
+  },
+  {
+   "section": "Transform Policies",
+   "kind": "kind_or_field",
+   "value": "config.contentType (string; default `application/json`; required for a string `body` result, such as `text/xml` for a SOAP envelope)"
+  },
+  {
+   "section": "Transform Policies",
+   "kind": "kind_or_field",
+   "value": "config.set[] with `target` (`header`, `query` or `body` for `transform.request`; `header` or `body` for `transform.response`), `name`, `valueExpression` (CEL)"
+  },
+  {
+   "section": "Transform Policies",
+   "kind": "kind_or_field",
+   "value": "config.remove[] with `target`, `name`"
+  },
+  {
+   "section": "Transform Policies",
+   "kind": "kind_or_field",
+   "value": "config.arrayOps[] with `op` (`move`, `append` or `delete`), `from`, `to`"
+  },
+  {
+   "section": "Transform Policies",
+   "kind": "kind_or_field",
+   "value": "config.replace[] with `path`, `pattern` (RE2), `replacement`, `literal`; raw body when `path` is absent"
+  },
+  {
+   "section": "Transform Policies",
+   "kind": "decision",
+   "value": "Body paths are dot paths into the JSON body; a numeric segment indexes an array and `*` matches every element"
+  },
+  {
+   "section": "Transform Policies",
+   "kind": "decision",
+   "value": "`set[]` creates missing objects; `remove[]`, `move` and `delete` on a missing path do nothing"
+  },
+  {
+   "section": "Transform Policies",
+   "kind": "library",
+   "value": "`pattern` is RE2 syntax compiled at validation by the standard `regexp` package (no backreferences, linear-time matching)"
+  },
+  {
+   "section": "Transform Policies",
+   "kind": "decision",
+   "value": "`replacement` refers to groups as `$1`; `${1}` needs the `$${1}` escape of Environment substitution; `literal: true` makes `pattern` and `replacement` plain strings"
+  },
+  {
+   "section": "Transform Policies",
+   "kind": "decision",
+   "value": "A Policy applies `body`, then `arrayOps[]`, `set[]`, `remove[]` and `replace[]`, each list in order; every CEL field reads the body as it reached the Policy"
+  },
+  {
+   "section": "Transform Policies",
+   "kind": "decision",
+   "value": "`transform.request` at Gateway or Route: `onRequestBody`, once; CEL variables Base with `request.body`; output cap `limits.maxRequestBodyBytes`"
+  },
+  {
+   "section": "Transform Policies",
+   "kind": "decision",
+   "value": "`transform.request` at Upstream: `onUpstreamRequest`, per leg attempt, from the same buffered input; Base with `request.body`, `upstream`; output cap `limits.maxRequestBodyBytes`"
+  },
+  {
+   "section": "Transform Policies",
+   "kind": "decision",
+   "value": "`transform.response` at Gateway or Route: `onResponse`, after any composition merge; Base and `response` with `body`; output cap `limits.maxResponseBodyBytes`"
+  },
+  {
+   "section": "Transform Policies",
+   "kind": "decision",
+   "value": "`transform.response` at Upstream: `onUpstreamResponseBody`, per leg; Base, `response` with `body`, `upstream`; output cap step `maxBodyBytes`, else `limits.maxResponseBodyBytes`"
+  },
+  {
+   "section": "Transform Policies",
+   "kind": "claim",
+   "value": "`request.body` and `response.body` are JSON as `dyn`; a body whose `Content-Type` is not `application/json` or a `+json` type is null"
+  },
+  {
+   "section": "Transform Policies",
+   "kind": "limit",
+   "value": "CEL cost bounds per transform CEL field: 10,000 units at validation (RZ-CFG-015) and 1,000,000 at runtime (target)"
+  },
+  {
+   "section": "Transform Policies",
+   "kind": "error_code",
+   "value": "RZ-CFG-015"
+  },
+  {
+   "section": "Transform Policies",
+   "kind": "limit",
+   "value": "A `pattern` over 1 KiB (target) or invalid is RZ-CFG-005"
+  },
+  {
+   "section": "Transform Policies",
+   "kind": "error_code",
+   "value": "RZ-CFG-005"
+  },
+  {
+   "section": "Transform Policies",
+   "kind": "limit",
+   "value": "At most 32 entries per transform Policy across `set[]`, `remove[]`, `arrayOps[]` and `replace[]` (target)"
+  },
+  {
+   "section": "Transform Policies",
+   "kind": "claim",
+   "value": "The rewritten body is reserved from `limits.maxBufferedBytes`; the Node recomputes `Content-Length` and drops `Content-Encoding`"
+  },
+  {
+   "section": "Transform Policies",
+   "kind": "claim",
+   "value": "Transform Policies never call the State Store"
+  },
+  {
+   "section": "Transform Policies",
+   "kind": "failure_mode",
+   "value": "Transform cannot decide (CEL runtime error, JSON operation on a null body, path through a non-object, output over its cap): `closed` 503 `RZ-RT-011` in a request Phase or 502 `RZ-RT-012` in a response Phase; `open` skips the Policy and the body passes unchanged"
+  },
+  {
+   "section": "Transform Policies",
+   "kind": "error_code",
+   "value": "RZ-RT-011"
+  },
+  {
+   "section": "Transform Policies",
+   "kind": "error_code",
+   "value": "RZ-RT-012"
+  },
+  {
+   "section": "Transform Policies",
+   "kind": "failure_mode",
+   "value": "A spent buffer budget stays 503 `RZ-RT-004`"
+  },
+  {
+   "section": "Transform Policies",
+   "kind": "claim",
+   "value": "Transform schema carries the KrakenD EE parity rows request body extractor (`set[]`), request and response Go-template manipulation (`body`), response query language (`body` or `set[]` over `response.body`), regular expression replacements (`replace[]`), Flatmap (`arrayOps[]`)"
+  },
+  {
+   "section": "Transform Policies",
+   "kind": "milestone",
+   "value": "Prompt templates on a Route to an `ai` Upstream: Planned (M3)"
+  },
+  {
+   "section": "Transform Policies",
+   "kind": "milestone",
+   "value": "SOAP request envelopes through `transform.request` `body`: Planned (M5)"
+  },
+  {
    "section": "Composition engine",
    "kind": "kind_or_field",
    "value": "composition"
@@ -1011,6 +1191,11 @@
    "section": "Merge rules",
    "kind": "claim",
    "value": "Merged responses are `application/json` with status 200; a non-JSON body that must merge fails the step."
+  },
+  {
+   "section": "Merge rules",
+   "kind": "decision",
+   "value": "Dot-path removals (KrakenD `deny` lists) and flatmap array operations belong to a Route-scoped `transform.response`, which runs on the merged body"
   },
   {
    "section": "Failures and partial responses",
@@ -1310,7 +1495,7 @@
   {
    "section": "Sources, Last-Known-Good and Drain",
    "kind": "decision",
-   "value": "Drain on SIGTERM or `ruralz node drain` (OQ-data-plane-4)"
+   "value": "Drain on SIGTERM, which `ruralz node drain` sends to a local Node (OQ-data-plane-4, option (b))"
   },
   {
    "section": "Sources, Last-Known-Good and Drain",
@@ -1720,11 +1905,6 @@
   {
    "section": "Open questions",
    "kind": "decision",
-   "value": "OQ-data-plane-4: `ruralz node drain` to a file-mode Node without a drain path on 9901; owner cli-and-api-surface; Yes, for `ruralz node drain` (M1)"
-  },
-  {
-   "section": "Open questions",
-   "kind": "decision",
    "value": "OQ-data-plane-5: chunk cap; owner multi-protocol; No"
   },
   {
@@ -1780,7 +1960,22 @@
   {
    "section": "Open questions",
    "kind": "decision",
+   "value": "OQ-data-plane-17: how `transform.response` reads an XML response body for SOAP integration (XML sub-question of OQ-krakend-ee-parity-matrix-1); (a) `plugin` Policy for XML responses (current), (b) XML decoder exposing XML as `dyn`; owner data-plane; Yes, for the SOAP integration row (M5)"
+  },
+  {
+   "section": "Open questions",
+   "kind": "decision",
    "value": "Closed: OQ-data-plane-11 with option (c), compiled Plugin code in memory only (ADR-0004)"
+  },
+  {
+   "section": "Open questions",
+   "kind": "decision",
+   "value": "Closed: OQ-data-plane-4 with option (b), local SIGTERM only, decided by CLI and API surface; `ruralz node drain` signals the local Node"
+  },
+  {
+   "section": "Open questions",
+   "kind": "decision",
+   "value": "Closed: OQ-krakend-ee-parity-matrix-1 with option (a), decided by Data plane: one CEL-based transform schema covering body extraction to headers, CEL-built bodies, CEL queries, regular expression replacement, flatmap array operations and XML request building; XML response sub-question continues as OQ-data-plane-17"
   },
   {
    "section": "Open questions",

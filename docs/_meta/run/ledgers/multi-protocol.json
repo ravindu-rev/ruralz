@@ -918,6 +918,11 @@
    "value": "Extended CONNECT over HTTP/2 or HTTP/3 is Not planned, so listeners never advertise `SETTINGS_ENABLE_CONNECT_PROTOCOL`"
   },
   {
+   "section": "WebSocket",
+   "kind": "kind_or_field",
+   "value": "mode (direct or multiplexer) and session settings in a proposed `Upstream` `websocket` object (OQ-multi-protocol-6)"
+  },
+  {
    "section": "Session lifecycle",
    "kind": "decision",
    "value": "Dial attempts get HTTP retries and breakers, and `onResponse` sending 101 commits the session"
@@ -975,7 +980,7 @@
   {
    "section": "Multiplexing",
    "kind": "decision",
-   "value": "the undefined envelope format blocks it (OQ-multi-protocol-6)"
+   "value": "The envelope below is fixed by this document, not configurable."
   },
   {
    "section": "Multiplexing",
@@ -1051,6 +1056,116 @@
    "section": "Multiplexing",
    "kind": "policy_type",
    "value": "auth.jwt"
+  },
+  {
+   "section": "Multiplexing",
+   "kind": "kind_or_field",
+   "value": "The proposed `websocket.mode: multiplex` selects it; `direct`, the default, keeps one Upstream connection per client (OQ-multi-protocol-6)"
+  },
+  {
+   "section": "Multiplexing",
+   "kind": "decision",
+   "value": "the shared connection offers the subprotocol `ruralz.mux.v1`; an Upstream that does not select it fails the dial as a leg failure"
+  },
+  {
+   "section": "Multiplexing",
+   "kind": "decision",
+   "value": "Balancing picks the Endpoint per session."
+  },
+  {
+   "section": "Multiplexing",
+   "kind": "decision",
+   "value": "The first session on a Route and Endpoint waits for the shared dial before its 101, so it gets direct mode's retries, breakers and 502; later sessions get 101 after their admission Phases."
+  },
+  {
+   "section": "Multiplexing",
+   "kind": "timeout",
+   "value": "A shared connection closes 60 s (target) after its last session ends."
+  },
+  {
+   "section": "Multiplexing",
+   "kind": "timeout",
+   "value": "A shared write blocked past the 30 s deadline (target) ends the shared connection as a failure"
+  },
+  {
+   "section": "Multiplexing",
+   "kind": "decision",
+   "value": "Each envelope is one JSON object in one text frame on the shared connection; nothing crosses it unwrapped."
+  },
+  {
+   "section": "Multiplexing",
+   "kind": "kind_or_field",
+   "value": "| `type` | All | `open`, `message` or `close` |"
+  },
+  {
+   "section": "Multiplexing",
+   "kind": "decision",
+   "value": "A ULID the Node assigns at the upgrade, unique across Nodes and never reused"
+  },
+  {
+   "section": "Multiplexing",
+   "kind": "kind_or_field",
+   "value": "| `route`, `consumer`, `claims`, `path` | `open` |"
+  },
+  {
+   "section": "Multiplexing",
+   "kind": "decision",
+   "value": "a text frame as a JSON string, a binary frame base64-encoded"
+  },
+  {
+   "section": "Multiplexing",
+   "kind": "kind_or_field",
+   "value": "| `binary` | `message` | `true` when `data` is base64; omitted for text |"
+  },
+  {
+   "section": "Multiplexing",
+   "kind": "kind_or_field",
+   "value": "| `code`, `reason` | `close` | A WebSocket close code and a reason, truncated to fit a close frame |"
+  },
+  {
+   "section": "Multiplexing",
+   "kind": "decision",
+   "value": "the Node sends `open` before a session's first `message` and `close` last. Only the Node opens sessions; an Upstream `message` or `close` for an unknown or closed session is dropped."
+  },
+  {
+   "section": "Multiplexing",
+   "kind": "limit",
+   "value": "every multiplexed message is a reserved chunk, subscriber or not"
+  },
+  {
+   "section": "Multiplexing",
+   "kind": "error_code",
+   "value": "a client message over it closes that client with 1009 and `RZ-RT-013`"
+  },
+  {
+   "section": "Multiplexing",
+   "kind": "limit",
+   "value": "The shared connection's read limit, 1,400 KiB (target), fits a base64 payload at the cap with its fields."
+  },
+  {
+   "section": "Multiplexing",
+   "kind": "error_code",
+   "value": "closes the shared connection with 1002. Every session on a failed or lost shared connection closes with 1011; none moves to a new connection."
+  },
+  {
+   "section": "Multiplexing",
+   "kind": "decision",
+   "value": "1005 when the frame had no code, 1006 when the client connection dropped without one"
+  },
+  {
+   "section": "Multiplexing",
+   "kind": "decision",
+   "value": "1005 as a frame without a code; 1006, 1015 and codes invalid in a close frame as 1011"
+  },
+  {
+   "section": "Multiplexing",
+   "kind": "error_code",
+   "value": "`close` with the same code and the `RZ` code as `reason`"
+  },
+  {
+   "section": "Multiplexing",
+   "kind": "decision",
+   "value": "The `chat` example runs in direct mode, the default, until the Configuration model adds `websocket.mode`."
   },
   {
    "section": "Server-Sent Events",
@@ -1223,6 +1338,16 @@
    "value": "Publish: request-Phase types except `cache`"
   },
   {
+   "section": "Kafka, NATS JetStream and MQTT",
+   "kind": "kind_or_field",
+   "value": "proposed `acks` ([Advanced Kafka options](#advanced-kafka-options))"
+  },
+  {
+   "section": "Kafka, NATS JetStream and MQTT",
+   "kind": "decision",
+   "value": "Further `messaging` options are proposed under OQ-multi-protocol-8, broker credentials under OQ-multi-protocol-9."
+  },
+  {
    "section": "Publishing from HTTP",
    "kind": "error_code",
    "value": "a CEL error returns 502"
@@ -1361,6 +1486,96 @@
    "section": "Publishing from HTTP",
    "kind": "timeout",
    "value": "perTryTimeout: 1s"
+  },
+  {
+   "section": "Advanced Kafka options",
+   "kind": "claim",
+   "value": "KrakenD EE 2.13 added advanced Kafka publisher and subscriber settings"
+  },
+  {
+   "section": "Advanced Kafka options",
+   "kind": "milestone",
+   "value": "Ruralz covers that Advanced Apache Kafka row, Planned (M4), on the same `kafka` `Upstream`"
+  },
+  {
+   "section": "Advanced Kafka options",
+   "kind": "decision",
+   "value": "proposed as OQ-multi-protocol-8 option (a) until the Configuration model adds them"
+  },
+  {
+   "section": "Advanced Kafka options",
+   "kind": "decision",
+   "value": "consumer-side settings (groups, fetch bounds, start offset) with OQ-multi-protocol-10"
+  },
+  {
+   "section": "Advanced Kafka options",
+   "kind": "kind_or_field",
+   "value": "messaging.acks"
+  },
+  {
+   "section": "Advanced Kafka options",
+   "kind": "default",
+   "value": "`all` (default), `leader` or `none`"
+  },
+  {
+   "section": "Advanced Kafka options",
+   "kind": "decision",
+   "value": "`all` keeps the idempotent producer; `leader` and `none` need it off (unresearched in franz-go; OQ-multi-protocol-8 spike), and with `none` the 202 means the record was sent, not stored"
+  },
+  {
+   "section": "Advanced Kafka options",
+   "kind": "decision",
+   "value": "`all`: JetStream `PubAck` or MQTT QoS 1; `none`: core NATS publish or MQTT QoS 0; `leader` rejected"
+  },
+  {
+   "section": "Advanced Kafka options",
+   "kind": "kind_or_field",
+   "value": "messaging.headers"
+  },
+  {
+   "section": "Advanced Kafka options",
+   "kind": "error_code",
+   "value": "A map of header name to CEL string, evaluated in `onUpstreamRequest` like `key`; a CEL error returns 502"
+  },
+  {
+   "section": "Advanced Kafka options",
+   "kind": "decision",
+   "value": "NATS message headers; MQTT 5 user properties"
+  },
+  {
+   "section": "Advanced Kafka options",
+   "kind": "kind_or_field",
+   "value": "messaging.compression"
+  },
+  {
+   "section": "Advanced Kafka options",
+   "kind": "default",
+   "value": "`none` (default), `gzip`, `snappy`, `lz4` or `zstd`, the codecs franz-go supports"
+  },
+  {
+   "section": "Advanced Kafka options",
+   "kind": "kind_or_field",
+   "value": "messaging.partitioner"
+  },
+  {
+   "section": "Advanced Kafka options",
+   "kind": "default",
+   "value": "`key-hash` (default) or `round-robin`"
+  },
+  {
+   "section": "Advanced Kafka options",
+   "kind": "decision",
+   "value": "`key-hash` hashes `messaging.key`, so one key keeps one partition, and leaves keyless records to franz-go's default spreading (unresearched); `round-robin` ignores the key"
+  },
+  {
+   "section": "Advanced Kafka options",
+   "kind": "error_code",
+   "value": "A rejected field is a validation error (code: OQ-multi-protocol-13)."
+  },
+  {
+   "section": "Advanced Kafka options",
+   "kind": "decision",
+   "value": "MQTT retain, a per-broker value-size bound and a deduplication ID stay open in OQ-multi-protocol-8."
   },
   {
    "section": "Topic ingress",
@@ -1605,12 +1820,12 @@
   {
    "section": "Native wire-proxy stance",
    "kind": "claim",
-   "value": "KrakenD lists AMQP, Google Cloud Pub/Sub and Amazon SQS"
+   "value": "KrakenD lists AMQP consumer and producer, Azure Service Bus topic and subscription, Google Cloud Pub/Sub, Amazon SNS and Amazon SQS"
   },
   {
    "section": "Native wire-proxy stance",
    "kind": "claim",
-   "value": "a parity gap (OQ-multi-protocol-14)"
+   "value": "six parity-matrix rows marked Not planned (OQ-multi-protocol-14)"
   },
   {
    "section": "Filter Chain applicability per protocol",
@@ -1846,6 +2061,26 @@
    "section": "Open questions",
    "kind": "kind_or_field",
    "value": "federation"
+  },
+  {
+   "section": "Open questions",
+   "kind": "decision",
+   "value": "The envelope is fixed in [Multiplexing](#multiplexing)"
+  },
+  {
+   "section": "Open questions",
+   "kind": "decision",
+   "value": "(a) An `Upstream` `websocket` object (proposed): `mode: direct \\| multiplex` (default `direct`), `claims` (auth claims copied into the `open` envelope), `writeTimeout` and `compression`"
+  },
+  {
+   "section": "Open questions",
+   "kind": "decision",
+   "value": "(a) New `messaging` fields (proposed, [Advanced Kafka options](#advanced-kafka-options)): `acks: all \\| leader \\| none`, `headers` (CEL map), and Kafka-only `compression: none \\| gzip \\| snappy \\| lz4 \\| zstd` and `partitioner: key-hash \\| round-robin`"
+  },
+  {
+   "section": "Open questions",
+   "kind": "claim",
+   "value": "Should AMQP (consumer and producer), Azure Service Bus, Google Cloud Pub/Sub, Amazon SNS or Amazon SQS join `Upstream.spec.protocol`?"
   }
  ]
 }

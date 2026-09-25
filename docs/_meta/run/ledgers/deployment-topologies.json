@@ -370,7 +370,12 @@
   {
    "section": "T4: Kubernetes with Helm, HPA and CRDs",
    "kind": "claim",
-   "value": "any other pod waits not ready for a join token, from the Job at install, else once an `admin` removes its old voter (OQ-deployment-topologies-20), then runs `join`"
+   "value": "any other pod waits not ready for a join token, from the Job at install, else once an `admin`'s `DELETE /api/v1/replicas/{serverId}` removes its old voter, then runs `join`"
+  },
+  {
+   "section": "T4: Kubernetes with Helm, HPA and CRDs",
+   "kind": "api_path",
+   "value": "DELETE /api/v1/replicas/{serverId}"
   },
   {
    "section": "T4: Kubernetes with Helm, HPA and CRDs",
@@ -1025,7 +1030,12 @@
   {
    "section": "Control-mode bootstrap",
    "kind": "failure_mode",
-   "value": "`join` runs only while the data directory lacks a peer certificate; after volume loss, remove the old voter and issue a new token (OQ-deployment-topologies-20)"
+   "value": "`join` runs only while the data directory lacks a peer certificate; after volume loss, `DELETE /api/v1/replicas/{serverId}` removes the old voter, then mint a token"
+  },
+  {
+   "section": "Control-mode bootstrap",
+   "kind": "api_path",
+   "value": "DELETE /api/v1/replicas/{serverId}"
   },
   {
    "section": "Control-mode bootstrap",
@@ -1195,7 +1205,7 @@
   {
    "section": "Sizing defaults",
    "kind": "limit",
-   "value": "1,000,000 per second (hypothesis), binding at about 200 Nodes of 5,000 calls per second (hypothesis)"
+   "value": "800,000 per second (hypothesis), binding at about 160 Nodes of 5,000 calls per second (hypothesis)"
   },
   {
    "section": "Sizing defaults",
@@ -1576,6 +1586,11 @@
    "section": "Open questions",
    "kind": "milestone",
    "value": "OQ-deployment-topologies-20: Blocking? Yes, for the Planned (M2) chart"
+  },
+  {
+   "section": "Open questions",
+   "kind": "claim",
+   "value": "OQ-deployment-topologies-20: does the chart automate replacing a `ruralz-control` replica via `DELETE /api/v1/replicas/{serverId}`, and how are stranded Node pods released; (a) a chart Job holding a standing credential (proposed)"
   },
   {
    "section": "Open questions",

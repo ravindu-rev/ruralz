@@ -246,16 +246,17 @@ Runbooks are Planned per component: Ruralz Control Planned (M2), relays and mult
 
 A Rollout to a Cluster with no connected Nodes has an empty plan and completes at once ([Rollout plan](../architecture/04-control-plane-and-gitops.md#rollout-plan-batches-and-gates)): the promoted digest advances, `promotion.from` counts it `complete`, and returning Nodes activate the Revision without a canary. A restored or rebuilt deployment renders the tracked branch head, possibly untested: without `requireApproval` its plans complete, and with it each Environment holds one record, for the head. Until OQ-high-availability-and-disaster-recovery-3 decides, restores and rebuilds run this hold before any Node connects:
 
-0. After a rebuild or list-less restore, until OQ-high-availability-and-disaster-recovery-9 (a) ships, check each Cluster using derived ceilings: keys above 25% of a shard (hypothesis) should be `localOnly` (OQ-traffic-management-and-resilience-1 (c), proposed). Otherwise, before its Nodes reconnect or re-enroll, shift its weight to other Cells, or accept the bound below and watch State client breakers.
+0. After a rebuild or list-less restore, until OQ-high-availability-and-disaster-recovery-9 (a) ships, check each Cluster using derived ceilings: keys above 25% of a shard (hypothesis) should use `config.localOnly` (proposed, OQ-scalability-and-distributed-state-11). Otherwise, before its Nodes reconnect or re-enroll, shift its weight to other Cells, or accept the bound below and watch State client breakers.
 1. Find each Cluster's served commit with `ruralz bundle diff` against sample Nodes in every zone, passing each candidate's own `control/environments.yaml` (rebuild step 4); after a restore, start from restored assignments' digests.
-2. Push a recovery ref at that commit, plus a commit setting `promotion.requireApproval: true` on every Environment with `promotion.from` (no digest changes), and point Ruralz Control's Git source (process configuration, OQ-control-plane-and-gitops-1) at it; until then, run the replica without a Git source. A root Environment, without `promotion.from`, cannot be gated; the ref alone pins what it renders.
-3. In `promotion.from` order, approve records at or before each Environment's served commit; they complete empty. If Environments serve different commits, advance the ref through them, oldest first, ending at the root Environments' served commit, since their plans complete at whatever it names. Final promoted digests MUST equal served digests. If an Environment's Clusters serve different commits, or a restored Rollout is still `canary`, `progressing` or `paused`, pause it, approve nothing and escalate: aligning needs a delivery, and a stale restored assignment would re-deliver an older Revision.
+2. Push a recovery branch at that commit, plus a commit setting `promotion.requireApproval: true` on every Environment with `promotion.from` (no digest changes), and set Ruralz Control's `git.branch` (process configuration) to it; until then, run the replica without a Git source. A root Environment, without `promotion.from`, cannot be gated; the branch alone pins what it renders.
+3. In `promotion.from` order, approve records at or before each Environment's served commit; they complete empty. If Environments serve different commits, advance the branch through them, oldest first, ending at the root Environments' served commit, since their plans complete at whatever it names. Final promoted digests MUST equal served digests. If an Environment's Clusters serve different commits, or a restored Rollout is still `canary`, `progressing` or `paused`, pause it, approve nothing and escalate: aligning needs a delivery, and a stale restored assignment would re-deliver an older Revision.
 
    ```bash
-   ruralz rollout approve --env prod --digest sha256:<served digest>
+   ruralz rollout approve --control https://control.shop.example:8090 --token-file ~/.ruralz/token \
+     --env prod --digest sha256:<served digest>
    ```
 
-4. After reconnect, confirm with `ruralz node list` that every active digest equals its Cluster's promoted digest; only then is traffic unchanged. Repoint the Git source at the tracked branch and restore normal gates by an approved change, so newer commits get a canary.
+4. After reconnect, confirm with `ruralz node list` that every active digest equals its Cluster's promoted digest; only then is traffic unchanged. Set `git.branch` back to the tracked branch and restore normal gates by an approved change, so newer commits get a canary.
 
 After a rebuild or list-less restore no Node is qualified, so the first `HeartbeatReply` can collapse the published count until OQ-high-availability-and-disaster-recovery-9 decides; [declared ceilings](#local-rate-limit-fallback) avoid it, step 0 bounds it:
 
@@ -360,11 +361,12 @@ For when every backup is lost or unusable. Git keeps configuration; Rollout hist
 7. Re-enroll Cluster by Cluster, one zone at a time, the current answer to OQ-high-availability-and-disaster-recovery-4 and blocked on it; a kept identity ignores tokens and, without escrowed CAs, pins the old 8091 server CA. Traffic changes by the draining zone's capacity (target) and, with derived ceilings, by the [hold step 0](#holding-deliveries-during-recovery) bound for about 58 minutes (hypothesis).
 
    ```bash
+   CONTROL="--control https://control.shop.example:8090 --token-file ${HOME}/.ruralz/token"
    ruralz node drain --data-dir /var/lib/ruralz                   # each Node of the zone
    mv /var/lib/ruralz/identity /var/lib/ruralz/identity.old       # keep lkg/
-   ruralz node token --cluster prod-eu-west --output-file /run/secrets/ruralz-enroll-token
+   ruralz node token $CONTROL --cluster prod-eu-west --output-file /run/secrets/ruralz-enroll-token
    # restart ruralzd with that token; before the next zone:
-   ruralz node list --cluster prod-eu-west                        # active equals promoted digest
+   ruralz node list $CONTROL --cluster prod-eu-west               # active equals promoted digest
    ```
 
 8. Finish hold step 4, then take a backup at once.
@@ -393,7 +395,7 @@ Use when a Cell's State Store deployment is lost, corrupted or configured with e
 ### Raft quorum loss and replica replacement
 
 1. If a majority of voters can return, restart them; the Control Store resumes with zero committed writes lost (target).
-2. To replace one voter after volume or zone loss, an `admin` removes the old voter (mechanism: [OQ-high-availability-and-disaster-recovery-2](#open-questions)), mints a join token at `/api/v1/replicas`, and the new host runs `ruralz control join` then `ruralz control serve`; it votes after catch-up.
+2. To replace one voter after volume or zone loss, an `admin` runs `DELETE /api/v1/replicas/{serverId}` (step-up TOTP; refused for the leader, `RZ-CP-019`), mints a join token at `/api/v1/replicas`, and the new host runs `ruralz control join` then `ruralz control serve`; it votes after catch-up.
 3. If no majority can return, restore the newest backup as in home Region steps 2 to 8, discarding committed writes a surviving minority still holds.
 
 ## Game days
@@ -417,14 +419,14 @@ Game days rehearse runbooks on staging Clusters under open-loop load; the [Chaos
 | GD-13 | Plugin crash | Plugin traps on every call | Node stays up; `failureMode` per Policy; canary rolls back | Planned (M2) |
 | GD-14 | Region evacuation | Cut a Region with its State Store and relay, CE-11 and CE-17 | No cross-Region State Store dial; survivors serve full peak, 99% of requests within 5 minutes (target), script CPU under 70% (target), no breaker open, handshake p99 within C2 (target) | Planned (M4) |
 | GD-15 | Secret provider down | Stop Vault or the Kubernetes API with one zone | Nodes with only `file` or `env` references boot within 30 s (target); others stay not ready | Planned (M2) |
-| GD-16 | Rebuild with derived ceilings | GD-10 without its precondition; one key above 25% of a shard `localOnly` | Digests as GD-10; per key at most N_reenrolled × 2 × `requests` per window (target); no GCRA call for the `localOnly` key | Planned (M2) |
+| GD-16 | Rebuild with derived ceilings | GD-10 without its precondition; one `config.localOnly` key above 25% of a shard | Digests as GD-10; per key at most N_reenrolled × 2 × `requests` per window (target); no GCRA call for that key | Planned (M2) |
 
 ## Open questions
 
 | ID | Question | Options | Owner | Blocking? |
 |---|---|---|---|---|
 | OQ-high-availability-and-disaster-recovery-1 | Carries OQ-system-overview-12: how are break-glass changes made and new Nodes seeded during a Ruralz Control outage? | (a) None (current); (b) seed from a signed OCI Revision, amending pack 8.2 and 8.11 (proposed); (c) an admin override; (d) Last-Known-Good in images | high-availability-and-disaster-recovery | No |
-| OQ-high-availability-and-disaster-recovery-2 | Carries OQ-deployment-topologies-20: how is a voter replaced after volume or zone loss, as `/api/v1/replicas` removes none, and how are stranded Node pods released? | (a) A chart Job removes the voter, mints a join token; runbooks force-delete pods (proposed); (b) manual (current); (c) higher `minReplicas` or zone-replicated volumes; (d) Nodes as a Deployment | control-plane-and-gitops | Yes, for the Planned (M2) chart |
+| OQ-high-availability-and-disaster-recovery-2 | Carries OQ-deployment-topologies-20: who automates voter removal after volume or zone loss, and how are stranded Node pods released? | (a) A chart Job removes the voter, mints a join token; runbooks force-delete pods (proposed); (b) manual removal by an `admin` (current); (c) higher `minReplicas` or zone-replicated volumes; (d) Nodes as a Deployment | high-availability-and-disaster-recovery | Yes, for the Planned (M2) chart |
 | OQ-high-availability-and-disaster-recovery-3 | Should plans with zero or far fewer members than the published Node count stay `pending`, and restored or rebuilt deployments hold deliveries until confirmed? | (a) Complete, plus the runbook hold (current); (b) such plans stay `pending` or `paused` (proposed); (c) a restore-hold mode adopting reported digests; (d) hold returning Clusters until canaried | control-plane-and-gitops | Yes, for Planned (M2) restore |
 | OQ-high-availability-and-disaster-recovery-4 | Carries OQ-deployment-topologies-18: how do serving Nodes re-enroll in bulk after a restore, rebuild or expiry, as a kept identity ignores tokens and pins the old server CA? | (a) Background re-enrollment on `RZ-CP-003` with batched tokens (proposed); (b) rolling Drain and restart per zone (current) | control-plane-and-gitops | Yes, for Planned (M2) restore |
 | OQ-high-availability-and-disaster-recovery-5 | How is a pre-restore deployment fenced when its Region returns? | (a) Operator blocks, then wipes it (current); (b) a root-signed retirement record Nodes and replicas honor | control-plane-and-gitops | Yes, for Planned (M2) restore |

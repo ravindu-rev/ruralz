@@ -813,6 +813,31 @@
    "value": "auth.upstream-oauth2 `config.timeout`, default 2 s (target)"
   },
   {
+   "section": "Upstream authentication",
+   "kind": "kind_or_field",
+   "value": "auth.upstream-oauth2 `config.grantType`: `client-credentials` (default) or `jwt-bearer` (RFC 7523)"
+  },
+  {
+   "section": "Upstream authentication",
+   "kind": "kind_or_field",
+   "value": "auth.upstream-oauth2 `config.serviceAccountKey`: required `SecretValue` for `jwt-bearer`, replacing `clientId` and `clientSecret`"
+  },
+  {
+   "section": "Upstream authentication",
+   "kind": "kind_or_field",
+   "value": "auth.upstream-oauth2 `config.audience`: requests an ID token for that audience instead of an access token for `scopes`"
+  },
+  {
+   "section": "Upstream authentication",
+   "kind": "claim",
+   "value": "jwt-bearer: per fetch, the Node signs an RS256 assertion with the service-account key and posts it to the `https` `tokenUrl`"
+  },
+  {
+   "section": "Upstream authentication",
+   "kind": "milestone",
+   "value": "JWT-bearer fields of `auth.upstream-oauth2`: Planned (M2), proposed for registration (OQ-security-and-identity-12, option (b))"
+  },
+  {
    "section": "KrakenD authentication parity",
    "kind": "milestone",
    "value": "JWT, OpenID Connect, OAuth2: Planned (M1)"
@@ -1076,6 +1101,86 @@
    "section": "Authorization",
    "kind": "kind_or_field",
    "value": "consumer.tier"
+  },
+  {
+   "section": "OPA and Cedar schemas",
+   "kind": "decision",
+   "value": "Engine schemas authored here, Planned (M2), proposed for Configuration model registration with OQ-security-and-identity-13, option (c); no example uses them until then"
+  },
+  {
+   "section": "OPA and Cedar schemas",
+   "kind": "kind_or_field",
+   "value": "authz.opa `config.module` or `config.bundle`: exactly one; inline Rego module, or OCI reference pinned by `sha256:<64 hex>` holding modules and data"
+  },
+  {
+   "section": "OPA and Cedar schemas",
+   "kind": "claim",
+   "value": "OCI engine bundles are verified under the Plugin trust policy (proposed)"
+  },
+  {
+   "section": "OPA and Cedar schemas",
+   "kind": "kind_or_field",
+   "value": "authz.opa `config.query`: required Rego reference, for example `data.ruralz.allow`"
+  },
+  {
+   "section": "OPA and Cedar schemas",
+   "kind": "error_code",
+   "value": "authz.opa: only `true` allows; `false`, undefined or a non-boolean is 403 RZ-AUTH-011"
+  },
+  {
+   "section": "OPA and Cedar schemas",
+   "kind": "kind_or_field",
+   "value": "authz.opa `config.data`: optional inline JSON document served as `data`, with `module` only"
+  },
+  {
+   "section": "OPA and Cedar schemas",
+   "kind": "kind_or_field",
+   "value": "authz.cedar `config.policies` or `config.bundle`: exactly one; inline Cedar policy text, or pinned OCI reference holding policies and entities"
+  },
+  {
+   "section": "OPA and Cedar schemas",
+   "kind": "kind_or_field",
+   "value": "authz.cedar `config.entities`: optional inline Cedar entity JSON (`uid`, `attrs`, `parents`), with `policies` only"
+  },
+  {
+   "section": "OPA and Cedar schemas",
+   "kind": "claim",
+   "value": "Modules, data, policies and entities are fixed per Revision and count toward the caps; no engine fetches at request time, so changing them is a Revision"
+  },
+  {
+   "section": "OPA and Cedar schemas",
+   "kind": "claim",
+   "value": "OPA `input` is fixed: the base CEL variables as JSON (`request`, with `body` only in `onRequestBody`; `source`; `route`; `consumer`; `auth` with `claims`), null where CEL is null"
+  },
+  {
+   "section": "OPA and Cedar schemas",
+   "kind": "term",
+   "value": "Cedar principal: `Ruralz::Consumer::\"<consumer.name>\"` (with `tier` and `tags`) when bound; else `Ruralz::Subject::\"<iss>#<sub>\"` from JWT claims; else `Ruralz::Anonymous::\"\"`"
+  },
+  {
+   "section": "OPA and Cedar schemas",
+   "kind": "term",
+   "value": "Cedar action: `Ruralz::Action::\"<method>\"`"
+  },
+  {
+   "section": "OPA and Cedar schemas",
+   "kind": "term",
+   "value": "Cedar resource: `Ruralz::Path::\"<normalized path>\"` with parent `Ruralz::Route::\"<route.name>\"`"
+  },
+  {
+   "section": "OPA and Cedar schemas",
+   "kind": "term",
+   "value": "Cedar context: the remaining `input` fields, claims included"
+  },
+  {
+   "section": "OPA and Cedar schemas",
+   "kind": "claim",
+   "value": "Ruralz adds principal and resource entities per request, merging parents with a declared entity of the same `uid`"
+  },
+  {
+   "section": "OPA and Cedar schemas",
+   "kind": "failure_mode",
+   "value": "Any Cedar policy error in the diagnostics is RZ-AUTH-015, so an erroring `forbid` never admits a request"
   },
   {
    "section": "IP filtering and GeoIP",
@@ -2246,6 +2351,16 @@
    "section": "Open questions",
    "kind": "claim",
    "value": "OQ-security-and-identity-2, -3 and -18 are registration only, owner configuration-model: (a) Register as authored (proposed); (b) Register with changes"
+  },
+  {
+   "section": "Open questions",
+   "kind": "claim",
+   "value": "OQ-security-and-identity-12 (b) JWT-bearer fields as authored in Upstream authentication, for registration (proposed); owners security-and-identity, configuration-model"
+  },
+  {
+   "section": "Open questions",
+   "kind": "claim",
+   "value": "OQ-security-and-identity-13 (c) Both inline and OCI, as authored in OPA and Cedar schemas, for registration (proposed); owners security-and-identity, configuration-model"
   }
  ]
 }

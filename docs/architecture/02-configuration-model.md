@@ -386,7 +386,7 @@ spec:
 
 No Policy calls the State Store per chunk. `ai.token-budget` reserves, guards and settles as foundation pack section 8.9 fixes ([ADR-0014](../adr/0014-ai-api-surface.md)): one atomic reservation of estimated input plus the output cap in `onRequestBody`, a local count in `onChunk` that ends the stream past the cap and is never billed, and asynchronous settlement with provider-reported usage at `onLog`. An `AIModel` reachable from a Route with an `ai.token-budget` Policy and no `limits.maxOutputTokens` is RZ-CFG-034. `quota` checks in `onRequestHeaders` and settles at `onLog`. Their default postures are OQ-configuration-model-8.
 
-`slot` is the precedence key. `override`-class types default to the registry slot (all client authentication types share `auth`); additive types default to their own name, so they stack unless an author sets `slot` explicitly. In the registry, a Filter class is a position within a Phase, scopes G, R and U are Gateway, Route and Upstream, and slot `name` means the Policy's own name. `failureMode` is overridable only for non-security types: `auth.*` (including the upstream types), `authz.*` and `plugin` Policies with `filterClass` auth or authz are `closed` only, and `open` there is RZ-CFG-029. `headers` and `transform` run only in Phases their `config` uses. Registry defaults are materialized into the canonical form like schema defaults (see [Canonical form and Revision](#canonical-form-and-revision)). How one Route accepts either JWT or an API key in the single `auth` slot is OQ-configuration-model-13.
+`slot` is the precedence key. `override`-class types default to the registry slot (all client authentication types share `auth`); additive types default to their own name, so they stack unless an author sets `slot` explicitly. In the registry, a Filter class is a position within a Phase, scopes G, R and U are Gateway, Route and Upstream, and slot `name` means the Policy's own name. `failureMode` is overridable only for non-security types: `auth.*` (including the upstream types), `authz.*` and `plugin` Policies with `filterClass` auth or authz are `closed` only, and `open` there is RZ-CFG-029. `headers` and `transform.*` run only in Phases their `config` uses. Registry defaults are materialized into the canonical form like schema defaults (see [Canonical form and Revision](#canonical-form-and-revision)). How one Route accepts either JWT or an API key in the single `auth` slot is OQ-configuration-model-13.
 
 The registry below matches foundation pack section 10; its `type` strings are exact, and `rateLimit`, `rate-limit`, `apiKey`, `jwt`, `tokenBudget`, `ipfilter` and `geoip` are never valid spellings.
 
@@ -434,6 +434,24 @@ Each type's full `config` schema is authored by its feature document and registe
 
 A `consumerQuota` that no Consumer in the Bundle defines with the matching `unit` is RZ-CFG-009. At runtime, when `consumer` is null or lacks the named quota, the Policy rejects the request with 403 and an `RZ-RL` or `RZ-AI` code owned by the feature document. That is a decision, so it never uses `RZ-STS`. A Route that must also serve such callers guards the Policy with `when: 'consumer != null && "daily-tokens" in consumer.quotas'`.
 
+#### Registered from feature documents
+
+These fields are registered as their feature documents authored them, so each counts as defined here; the authoring section owns their runtime semantics. This answers OQ-security-and-identity-2, -3 and -18 and OQ-traffic-management-and-resilience-1 with option (a), register as authored.
+
+| `type` or kind | Registered fields | Validation | Authored in |
+|---|---|---|---|
+| `auth.basic` | `config`: none; reads `Authorization: Basic` | Schema only | [Basic and mTLS schemas](08-security-and-identity.md#basic-and-mtls-schemas) |
+| `Consumer`, for `auth.basic` | `credentials.basic`: `map` keyed by `username`, each with `hash` (`pbkdf2-sha256:<salt>:<key>`, base64url) and `iterations`, default 600,000 (target) | A `username` in two Consumers is RZ-CFG-035; `iterations` outside 600,000 to 1,000,000 is RZ-CFG-036 | [Basic and mTLS schemas](08-security-and-identity.md#basic-and-mtls-schemas) |
+| `auth.mtls` | `config.caCertificate` (required `SecretValue`), `config.subjects` (`set` of rules, each exactly one of `subject` or `uriSan`), `config.crl` (`SecretValue`) | A rule with both or neither is RZ-CFG-005 | [Basic and mTLS schemas](08-security-and-identity.md#basic-and-mtls-schemas) |
+| `Consumer`, for `auth.mtls` | `credentials.certificates`: `map` keyed by `name`, each exactly one of `subject` or `uriSan` | A `subject` or `uriSan` in two Consumers is RZ-CFG-035 | [Basic and mTLS schemas](08-security-and-identity.md#basic-and-mtls-schemas) |
+| `authz.ip` | `config.allow`, `config.deny`: `set` of CIDRs or bare addresses | Both empty is RZ-CFG-005 | [IP filtering and GeoIP](08-security-and-identity.md#ip-filtering-and-geoip) |
+| `authz.geoip` | `config.allow`, `config.deny`: `set` of ISO 3166-1 alpha-2 codes | Both empty is RZ-CFG-005 | [IP filtering and GeoIP](08-security-and-identity.md#ip-filtering-and-geoip) |
+| `auth.upstream-sigv4` | `config.region`, `config.service` (both required), `config.payload` (`signed`, the default, or `unsigned`) | Schema only | [Upstream authentication](08-security-and-identity.md#upstream-authentication) |
+| `auth.upstream-oauth2` | `config.timeout`, default `2s` (target) | `tokenUrl`, like `auth.jwt` `jwksUrl`, not `https` is RZ-CFG-037 | [Upstream authentication](08-security-and-identity.md#upstream-authentication) |
+| `ratelimit` | `limits[].perNodeCeiling` (integer, 1 to `requests`; unset means derived), `limits[].burst` (integer, 0 to `requests`; default `requests`), `config.localOnly` (boolean; default `false`) | Out of range is RZ-CFG-005; `localOnly: true` waits for OQ-scalability-and-distributed-state-11 to amend foundation pack section 8.8 | [Per-Node ceiling](09-traffic-management-and-resilience.md#per-node-ceiling) |
+
+Each field ships with its type's Planned tag in the registry, and the `Consumer` fields with `auth.basic` and `auth.mtls`, Planned (M1).
+
 ### Plugin
 
 A WASM artifact and what it may do; Capabilities are deny-by-default under Plugin ABI v1 ([ADR-0005](../adr/0005-plugin-abi-v1.md)).
@@ -474,6 +492,13 @@ spec:
       - issuer: https://login.acme.example
         subject: acme-integration  # or claims: {client_id: acme}
     oauthClients: [{clientId: acme-portal}]   # map keyed by clientId
+    basic:                         # auth.basic; map keyed by username
+      - username: acme-batch
+        hash: "pbkdf2-sha256:p3QSJbD88BiOWUtS-PBuRA:s18LvDc4t_R93uVhQXgqaaBz1bwS7QkQFuZzsLHF95A"
+        iterations: 600000         # 600000 to 1000000; default 600000
+    certificates:                  # auth.mtls; map keyed by name; exactly one of subject | uriSan each
+      - name: batch-client
+        uriSan: spiffe://acme.example/batch
   quotas:                          # map keyed by name
     - name: daily-tokens
       unit: tokens                 # requests | tokens
@@ -482,7 +507,7 @@ spec:
   tags: [partner, eu]              # set
 ```
 
-API keys are stored as SHA-256 digests of high-entropy keys. A retrievable key uses `secretRef`; the Node hashes it at load and keeps only the hash in memory (foundation pack section 3, Consumer row). Because Consumers live in the Bundle, every key change is a new Revision; a runtime Consumer source is OQ-configuration-model-17.
+`basic` and `certificates` are registered from Security and identity ([Registered from feature documents](#registered-from-feature-documents)). API keys are stored as SHA-256 digests of high-entropy keys. A retrievable key uses `secretRef`; the Node hashes it at load and keeps only the hash in memory (foundation pack section 3, Consumer row). Because Consumers live in the Bundle, every key change is a new Revision; a runtime Consumer source is OQ-configuration-model-17.
 
 ### AIProvider
 
@@ -860,8 +885,11 @@ Validating 10,000 resources takes under 2 seconds on a four-core laptop, and the
 | RZ-CFG-032 | Step `maxBodyBytes` values exceed `maxResponseBodyBytes` or leave no default share |
 | RZ-CFG-033 | Signature verification failed for a Revision or Plugin artifact ([ADR-0017](../adr/0017-artifact-signing.md)) |
 | RZ-CFG-034 | `AIModel` reachable from a Route with an `ai.token-budget` Policy sets no `limits.maxOutputTokens` |
+| RZ-CFG-035 | A `credentials.basic` `username`, or a `credentials.certificates` `subject` or `uriSan`, declared by two Consumers |
+| RZ-CFG-036 | `credentials.basic[].iterations` outside 600,000 to 1,000,000 |
+| RZ-CFG-037 | `auth.jwt` `jwksUrl` or `auth.upstream-oauth2` `tokenUrl` is not an `https` URL |
 
-This document owns the RZ-CFG registry (foundation pack section 8.6, which lists RZ-CFG-001 to RZ-CFG-032 at the freeze); sections 8.14 and 8.9 ask it to register RZ-CFG-033 and RZ-CFG-034.
+This document owns the RZ-CFG registry (foundation pack section 8.6, which lists RZ-CFG-001 to RZ-CFG-032 at the freeze); sections 8.14 and 8.9 ask it to register RZ-CFG-033 and RZ-CFG-034, and [Security and identity](08-security-and-identity.md) asks for RZ-CFG-035 to RZ-CFG-037.
 
 ### Diagnostics and source map
 
@@ -1468,6 +1496,17 @@ spec:
 apiVersion: ruralz/v1alpha1
 kind: Cluster
 metadata:
+  name: staging-eu-west
+spec:
+  environment: staging
+  region: eu-west-1
+  rollout:
+    strategy: all-at-once
+    autoRollback: true
+---
+apiVersion: ruralz/v1alpha1
+kind: Cluster
+metadata:
   name: prod-eu-west
 spec:
   environment: prod
@@ -1489,7 +1528,7 @@ ruralz bundle build --env prod --environments control/environments.yaml ./shop-b
 ruralz bundle push $CONTROL --env staging ./shop-bundle
 ```
 
-`ruralz bundle build` produces the Revision and runs the online Plugin check, including Plugin signatures. `ruralz bundle push` sends the source Bundle to Ruralz Control, which re-renders it with the `staging` variables, checks the digest, records and signs the Revision and rolls it out to the `staging` Clusters. `prod` follows through `promotion.from`: once that staging Rollout reaches `complete`, an approver runs `ruralz rollout approve --env prod`, and only then does a Rollout deliver the `prod` Revision to `prod-eu-west`. A direct `--env prod` push is refused under `requireApproval` unless process configuration allows it ([Control plane and GitOps](04-control-plane-and-gitops.md)).
+`ruralz bundle build` produces the Revision and runs the online Plugin check, including Plugin signatures. `ruralz bundle push` sends the source Bundle to Ruralz Control, which re-renders it with the `staging` variables, checks the digest, records and signs the Revision and rolls it out to `staging-eu-west`. `prod` follows through `promotion.from`: once that staging Rollout reaches `complete`, an approver runs `ruralz rollout approve --env prod`, and only then does a Rollout deliver the `prod` Revision to `prod-eu-west`. A direct `--env prod` push is refused under `requireApproval` unless process configuration allows it ([Control plane and GitOps](04-control-plane-and-gitops.md)).
 
 ## Open questions
 
@@ -1508,3 +1547,5 @@ ruralz bundle push $CONTROL --env staging ./shop-bundle
 | OQ-configuration-model-13 | Can one Route accept JWT or API key in the single `auth` slot? | (a) Distinct slots with exclusive `when`; (b) An `auth.any` type; (c) Multi-method auth types | security-and-identity | No |
 | OQ-configuration-model-15 | Should Nodes persist resolved secrets, encrypted, under `${RURALZ_DATA_DIR}/lkg/` and with which key source? | (a) Never; `/readyz` fails until secrets resolve (current); (b) Opt-in, key from a local file or KMS; (c) Only for `file` and `env` providers, which need none | security-and-identity | No |
 | OQ-configuration-model-17 | Should Consumers also come from a runtime source, so key churn needs no Revision and the resource limit does not cap them? | (a) Bundle only; (b) A Ruralz Control Consumer API delivered over the Control Stream; (c) An external identity store behind an auth Policy | security-and-identity | No |
+
+Answered and closed in [Registered from feature documents](#registered-from-feature-documents), option (a) each: OQ-security-and-identity-2, -3 and -18 and OQ-traffic-management-and-resilience-1. This document declined none of the fields submitted for registration.
