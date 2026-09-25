@@ -161,7 +161,7 @@ Status values come from each document's front matter: `draft` (written, not yet 
 | [Control Plane and GitOps](architecture/04-control-plane-and-gitops.md) | `docs/architecture/` | reviewed |
 | [WASM Plugin System](architecture/05-wasm-plugin-system.md) | `docs/architecture/` | reviewed |
 | [AI/LLM Gateway](architecture/06-ai-llm-gateway.md) | `docs/architecture/` | reviewed |
-| [Multi-Protocol Support](architecture/07-multi-protocol.md) | `docs/architecture/` | approved-with-escalations |
+| [Multi-Protocol Support](architecture/07-multi-protocol.md) | `docs/architecture/` | reviewed |
 | [Security and Identity](architecture/08-security-and-identity.md) | `docs/architecture/` | reviewed |
 | [Traffic Management and Resilience](architecture/09-traffic-management-and-resilience.md) | `docs/architecture/` | reviewed |
 | [Observability](architecture/10-observability.md) | `docs/architecture/` | reviewed |
@@ -181,7 +181,7 @@ Status values come from each document's front matter: `draft` (written, not yet 
 | [CLI and API Surface](reference/01-cli-and-api-surface.md) | `docs/reference/` | reviewed |
 | [Roadmap and Milestones](roadmap/01-roadmap-and-milestones.md) | `docs/roadmap/` | reviewed |
 
-Of the 28 documents above, 27 are `reviewed` and one is `approved-with-escalations`. The Glossary is linked under Conventions.
+All 28 documents above are `reviewed`. The Glossary is linked under Conventions.
 
 ## ADR index
 
