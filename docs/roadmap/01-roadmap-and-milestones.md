@@ -104,8 +104,6 @@ Pack name: **M1** Core gateway. M1 ships a file-mode Ruralz Gateway with core Po
 6. The Feature Catalog gives 100% of rows a milestone or a reasoned `Not planned` (target), per SM-2, and 100% of rows tagged Planned (M1) are implemented (target), per SM-3.
 7. Every Open question blocking an M1 feature is closed: the 32 whose Blocking column names M1 (2026-09-25), plus OQ-configuration-model-8 and OQ-security-and-identity-2, -3, -6, -15 and -18 (`auth.basic`, `auth.mtls`, `source.ip`, `authz.ip`), among them OQ-security-and-identity-21, -22, -24, OQ-repository-layout-and-conventions-6 and OQ-release-versioning-and-compatibility-3; OQ-traffic-management-and-resilience-5 and OQ-scalability-and-distributed-state-3 close only their M1 parts (breaker `minimumLegs`; Response Cache).
 
-Capabilities at exit, per the Feature Catalog: Bundle rendering with Environment overlays, `ruralz node dump`, catch-all, header and query string routing, conditional and wildcard Routes, URL rewrite, virtual hosts, `auth.jwt` with multiple identity providers, `auth.api-key`, `auth.basic`, `auth.mtls`, circuit breaking, local and State Store-backed Rate Limits and Quotas, `authz.ip`, `authz.cel`, `overridable: false` governance Policies, `transform.*` request and response manipulation, access logs and linear composition workflows (OQ-data-plane-3).
-
 ## M2 WASM and Control with GitOps
 
 Pack name: **M2** WASM + Control/GitOps. M2 delivers differentiators (1) and (3), Kubernetes packaging and Bundle tooling commands. Serves: Plugin author, Platform engineer running many Clusters.
@@ -137,8 +135,6 @@ Pack name: **M2** WASM + Control/GitOps. M2 delivers differentiators (1) and (3)
 6. Every Open question blocking an M2 feature is closed: the 55 whose Blocking column names M2 (2026-09-25), plus OQ-tech-stack-and-libraries-24 (`authz.geoip`), OQ-security-and-identity-10 (`vault`) and -28 (`auth.upstream-sigv4`), OQ-traffic-management-and-resilience-12 (mirroring), among them OQ-control-plane-and-gitops-1, -13, -25, OQ-security-and-identity-4 (revocation list), OQ-traffic-management-and-resilience-13 (redirects) and OQ-observability-19.
 7. 100% of Feature Catalog rows tagged Planned (M2) are implemented (target), per SM-3.
 
-Capabilities at exit, per the Feature Catalog: `ruralz plugin init`, `ruralz test run`, OpenAPI import and export, Postman and DOT export, `authz.opa` and `authz.cedar`, client redirects, the signed revocation list, GCP and SigV4 authentication, and `authz.geoip`.
-
 ## M3 AI gateway, gRPC, GraphQL, WebSocket and SSE
 
 Pack name: **M3** AI gateway + gRPC/GraphQL/WS/SSE + HTTP/3. M3 delivers differentiator (2) and most of (4); it is the largest milestone (risk R-1). Serves: AI platform engineer.
@@ -167,11 +163,9 @@ Currency budgets are unscheduled until OQ-ai-llm-gateway-7 is decided; M3 offers
 
 Measured and published at exit, not gating: SM-14 (hypothesis).
 
-Capabilities at exit, per the Feature Catalog: the AI/LLM gateway (`AIProvider`, `AIModel`, Provider Fallback, Token Budgets, Semantic Cache, Prompt Cache, cost attribution), the MCP Server, streaming and SSE, gRPC ingress and proxying, WebSocket direct and multiplexed, GraphQL federation and HTTP/3.
-
 ## M4 Event protocols, multi-region and benchmark suite
 
-Pack name: **M4** Event protocols + multi-region + bench suite. M4 completes differentiator (4), spreads Cells across Regions and publishes the bench suite, which measures each release against the Performance Budgets and the previous release (P10).
+Pack name: **M4** Event protocols + multi-region + bench suite. M4 completes differentiator (4), spreads Cells across Regions and publishes the bench suite (P10).
 
 ### M4 scope
 
@@ -187,14 +181,12 @@ Reviewed here, not planned: OQ-scalability-and-distributed-state-1 (GCRA leases;
 ### M4 exit criteria
 
 1. S8 runs nightly for Kafka, NATS and MQTT with published records; messaging integration tests pass 100% of cases (target).
-2. The bench suite publishes reproducible S1, S2 and S5 results on RH-1 for every release, each within its [Performance budgets](../architecture/12-performance-budgets-and-benchmarking.md) value (target) and flagged when it regresses more than the budget allows against the previous release.
+2. The bench suite publishes reproducible S1, S2 and S5 results on RH-1 for every release, each within its [Performance budgets](../architecture/12-performance-budgets-and-benchmarking.md) value (target), with regressions against the previous release flagged.
 3. CE-11, CE-17 and GD-14 pass, and losing one Cell's State Store degrades only that Cell.
 4. OQ-wasm-plugin-system-8 and -17, OQ-multi-protocol-7, -8, -9, -10 and -18, OQ-control-plane-and-gitops-22, OQ-deployment-topologies-17 (Region relay loss), OQ-system-overview-16 (regional Ruralz Control), OQ-traffic-management-and-resilience-5 (M4 part: hedging) and OQ-performance-budgets-and-benchmarking-7 are closed.
 5. 100% of Feature Catalog rows tagged Planned (M4) are implemented (target), per SM-3.
 
 Measured and published at exit, not gating: SM-15 (hypothesis).
-
-Capabilities at exit, per the Feature Catalog: Kafka, NATS and MQTT Upstreams with topic ingress and async agents, multi-region Cells, the proxy-wasm adapter and the optional `postgres` Control Store.
 
 ## M5 Enterprise hardening
 
@@ -204,11 +196,11 @@ Pack name: **M5** Enterprise hardening (SSO/SAML for Ruralz Console, FIPS build,
 
 | Area | Planned (M5) items |
 |---|---|
-| FIPS build | FIPS variant and build flavors from `GOFIPS140`; stage 4 FIPS job fails if quic-go appears; FIPS mode does not cover Wasm, so Plugin cryptography goes through `crypto.use`; OPA v1 gate G3 evidence; UDP 8443 off; vendor-neutral and free signals: FIPS build emits the same OpenTelemetry signals (objective O8) |
+| FIPS build | FIPS variant and build flavors from `GOFIPS140`; stage 4 FIPS job fails if quic-go appears; FIPS mode does not cover Wasm, so Plugin cryptography goes through `crypto.use`; OPA v1 gate G3 evidence; UDP 8443 off; the same OpenTelemetry signals (objective O8) |
 | Console and product | Ruralz Console OIDC and SAML SSO (TB-6), `sso.config.changed`; monetization hooks, no full API management suite; A2A-aware gateway; no feature or edition tiers |
 | Remaining catalog rows | OpenAPI server (OQ-vision-and-positioning-11), faster JSON decoding, gzip compression, JSON Schema response validation, static web server, SOAP integration, intermediary web proxy, OpenTelemetry SaaS authentication, exporter override, advanced logging: each implemented or marked Not planned |
 
-Reviewed here, not planned: produce-only Kafka proxying, Not planned today, M5 being option (b) of OQ-multi-protocol-11; `1.0.0` timing (OQ-release-versioning-and-compatibility-1).
+Not planned today: produce-only Kafka proxying (M5 is option (b) of OQ-multi-protocol-11); `1.0.0` timing (OQ-release-versioning-and-compatibility-1).
 
 ### M5 exit criteria
 
@@ -217,11 +209,9 @@ Reviewed here, not planned: produce-only Kafka proxying, Not planned today, M5 b
 3. Ruralz Console signs in through OIDC and SAML in the one build, and SSO changes reach the audit log.
 4. The Open questions blocking M5 features are closed: OQ-tech-stack-and-libraries-9 and every Feature Catalog Open question whose Blocking column names M5.
 
-Capabilities at exit, per the Feature Catalog: the FIPS build, Ruralz Console OIDC and SAML SSO, monetization hooks and every remaining catalog row, each implemented or marked `Not planned` with a reason.
-
 ## Sequencing
 
-Milestones exit in order; spikes and PDKs MAY start early. A slipping item blocks its milestone's exit unless its owning document moves it, and the exit record lists each move.
+Milestones exit in order; spikes and PDKs MAY start early. A slipping item blocks its milestone's exit unless its owning document moves it.
 
 *Figure 1: relative milestone sequencing M0 to M5 with parallel tracks; axis ticks count relative effort units, not calendar dates.*
 
@@ -263,7 +253,7 @@ gantt
 
 ## Contribution surface
 
-Contributors sign off under the DCO; an Open question closes by pull request to its owner.
+Contributors sign off under the DCO.
 
 | Milestone | Where outside contributors can help |
 |---|---|
