@@ -18,7 +18,7 @@ related:
 
 Ruralz needs small expressions in many fields ([Allowed places](../architecture/02-configuration-model.md#allowed-places)) and authorization richer than one boolean: `authz.cel`, Planned (M1), and `authz.opa` and `authz.cedar`, Planned (M2), all Filter class `authz` and `failureMode: closed` only ([foundation pack section 10](../_meta/foundation-pack.md#10-policy-type-registry)).
 
-Which expression language and authorization engines run inside `CGO_ENABLED=0` binaries ([ADR-0001](0001-implementation-language-go.md)) with bounded cost, compiled once per Revision and validated identically everywhere? KrakenD ships CEL and Lua in both editions but keeps its Security Policies Engine Enterprise-only ([source](https://www.krakend.io/features/)).
+Which expression language and authorization engines run inside `CGO_ENABLED=0` binaries ([ADR-0001](0001-implementation-language-go.md)) with bounded cost, compiled once per Revision and validated identically everywhere?
 
 ## Decision drivers
 
@@ -28,13 +28,13 @@ Which expression language and authorization engines run inside `CGO_ENABLED=0` b
 - **Validate everywhere**: inline policies fail in `ruralz bundle validate`; with OCI delivery (OQ-security-and-identity-13) they fail at Ruralz Control ingest or as a Node NACK.
 - **No extra request-path hop**: P3 allows only declared, timed remote calls ([pack section 8.7](../_meta/foundation-pack.md#87-state-store-round-trips)), and authorization always fails closed (P9) ([Vision](../vision/01-vision-and-positioning.md#principles)).
 - **One custom-code path**: arbitrary logic is a sandboxed Plugin (P6), not a second scripting runtime ([product non-goal 3](../vision/01-vision-and-positioning.md#product-non-goals)).
-- **Free**: the Security Policies Engine equivalent ships in every public build, FIPS included (P1).
+- **Free**: every expression and policy engine ships in every public build, FIPS included (P1).
 
 ## Considered options
 
 1. **CEL inline with OPA and Cedar engines**, and no Lua ([source](https://github.com/cel-expr/cel-go)) ([source](https://github.com/open-policy-agent/opa/blob/main/v1/rego/rego.go)) ([source](https://github.com/cedar-policy/cedar-go/blob/main/README.md)).
 2. **CEL only**: richer rules become `authz`-class `plugin` Policies ([source](https://github.com/google/cel-go/blob/main/policy/README.md)).
-3. **CEL plus embedded Lua**, as KrakenD offers ([source](https://www.krakend.io/features/)).
+3. **CEL plus embedded Lua**: a Lua interpreter linked into `ruralzd` for scripted request and response logic.
 4. **OPA as an external decision service**, such as a sidecar.
 5. **Root `opa/rego` package** instead of `opa/v1/rego` ([source](https://github.com/open-policy-agent/opa/blob/main/rego/rego.go)).
 
@@ -54,7 +54,7 @@ Chosen option: "CEL via cel-go, import path `cel.dev/cel-go`, inline; OPA (`opa/
 | Engine configuration | Engine `config` schemas are unregistered; policy delivery is OQ-security-and-identity-13 | Planned (M2) |
 | Failure | Every `authz.*` type is `failureMode: closed` only (`open` is RZ-CFG-029); a runtime error or deadline, leaving a Policy unable to decide, is 403 RZ-AUTH-015 | Planned (M1) |
 | Binaries | cel-go links into `ruralzd`, `ruralz-control` and `ruralz`, Planned (M1); OPA and cedar-go join all three with `authz.opa` and `authz.cedar`, Planned (M2) (size: OQ-tech-stack-and-libraries-22) | Planned (M1); Planned (M2) |
-| Lua | No Lua runtime; `ruralz bundle import krakend` reports KrakenD Lua as `manual`, for rewrite as CEL or a WASM Plugin | Planned (M2) |
+| Lua | No Lua runtime; scripted logic is written as CEL or a WASM Plugin | Planned (M2) |
 
 *Figure 1: CEL and the engines compile with the Revision and decide on the Node.*
 
@@ -93,7 +93,7 @@ flowchart LR
 
 - Good, because every inline field uses one bounded, typed language that cannot loop or call out.
 - Good, because errors in CEL, and in inline Rego and Cedar, appear in `ruralz bundle validate`, since all three binaries link the same libraries ([Dependency graph](../engineering/01-tech-stack-and-libraries.md#dependency-graph)).
-- Good, because teams reuse Rego or Cedar policies without a sidecar, and the counterpart of KrakenD's Enterprise-only Security Policies Engine is free (P1) ([source](https://www.krakend.io/features/)).
+- Good, because teams reuse Rego or Cedar policies without a sidecar, and policy engines are free in every build (P1).
 - Good, because dropping Lua leaves two extension paths, bounded CEL and sandboxed Plugins (P6).
 - Bad, because only CEL fully meets S4: OPA has a deadline but no cost or allocation limit, and cedar-go has neither.
 - Bad, because three evaluators must be secured and upgraded, and OPA counts against the `ruralzd` 160 MiB stripped binary budget (target).
@@ -125,7 +125,7 @@ flowchart LR
 
 ### CEL plus embedded Lua
 
-- Good, because KrakenD Lua configurations would import more directly ([source](https://www.krakend.io/features/)).
+- Good, because Lua is a familiar scripting language for small request and response transformations.
 - Bad, because Lua is Turing-complete with no static cost bound, duplicates the Plugin path, and no Go Lua runtime has been researched.
 
 ### OPA as an external decision service

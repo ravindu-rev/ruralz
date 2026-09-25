@@ -19,7 +19,7 @@ related:
 
 A Rate Limit is a `ratelimit` Policy (admission class, `onRequestHeaders`, default `failureMode: open`, pack section 10) whose `config.key` (CEL) partitions traffic; each `config.limits[]` entry allows `requests` per `window` ([Configuration model](../architecture/02-configuration-model.md#policy)). Every Node of a Cluster shares one State Store, so a limit holds per Cell (pack section 8.13).
 
-Which algorithm enforces a Cell-wide limit when Nodes are disposable (P4), never wait on a peer (P3) and make at most one blocking State Store round trip per Policy (pack section 8.7), and what happens when the State Store fails? KrakenD sells stateful Redis-backed rate limiting only in EE ([source](https://www.krakend.io/features/)); Ruralz will offer it free, Planned (M1).
+Which algorithm enforces a Cell-wide limit when Nodes are disposable (P4), never wait on a peer (P3) and make at most one blocking State Store round trip per Policy (pack section 8.7), and what happens when the State Store fails? Stateful, State Store-backed rate limiting ships in every build, Planned (M1).
 
 ## Decision drivers
 
@@ -31,12 +31,12 @@ Which algorithm enforces a Cell-wide limit when Nodes are disposable (P4), never
 
 ## Considered options
 
-1. **Local bucket plus GCRA, fail-open**: a token bucket at a per-Node ceiling, then GCRA in one State Store Lua script, the hybrid Envoy documents ([source](https://www.envoyproxy.io/docs/envoy/latest/intro/arch_overview/other_features/global_rate_limiting)).
+1. **Local bucket plus GCRA, fail-open**: a token bucket at a per-Node ceiling, then GCRA in one State Store Lua script.
 2. **Shared limiter only**: GCRA or a token bucket in the State Store on every request, as in Stripe ([source](https://stripe.com/blog/rate-limiters)) and redis_rate ([source](https://github.com/go-redis/redis_rate)).
-3. **Local limits only**: each Node enforces a share of the limit, as Tyk's DRL does ([source](https://tyk.io/docs/api-management/rate-limit/)), or the whole limit, as Kong's default `policy: local` does ([source](https://developer.konghq.com/plugins/rate-limiting/reference/)).
-4. **Shared window counters**: fixed windows as in Kong and Tyk, or Cloudflare's sliding window counter ([source](https://blog.cloudflare.com/counting-things-a-lot-of-different-things/)).
-5. **Leases or asynchronous sync**: Doorman leases ([source](https://github.com/youtube/doorman)), Envoy RLQS assignments ([source](https://www.envoyproxy.io/docs/envoy/latest/configuration/http/http_filters/rate_limit_quota_filter)), Kong `sync_rate` ([source](https://developer.konghq.com/plugins/rate-limiting-advanced/)).
-6. **Local bucket plus GCRA, fail-closed by default**, like Envoy's `failure_mode_deny: true` ([source](https://www.envoyproxy.io/docs/envoy/latest/api-v3/extensions/filters/http/ratelimit/v3/rate_limit.proto)).
+3. **Local limits only**: each Node enforces either a share of the limit or the whole limit.
+4. **Shared window counters**: fixed windows or a sliding window counter ([source](https://blog.cloudflare.com/counting-things-a-lot-of-different-things/)).
+5. **Leases or asynchronous sync**: Doorman leases ([source](https://github.com/youtube/doorman)), quota assignments pushed by a quota service, or local counters synced to the store on an interval.
+6. **Local bucket plus GCRA, fail-closed by default**, denying limited requests while the State Store fails.
 
 ## Decision outcome
 
@@ -49,7 +49,7 @@ Chosen option: "Local bucket plus GCRA, fail-open", because the local bucket ans
 | Per-Node ceiling | Declared on the Policy (field: OQ-traffic-management-and-resilience-1), else the limit divided by the Node count Ruralz Control publishes; with neither (file mode, or a Control-mode Node without a count), the full limit |
 | GCRA | Each locally admitted request runs one `EVALSHA` for all the Policy's limits, reading server `TIME`, updating TATs only if all allow; a deny is 429 `RZ-RL-002`; τ is one `window` |
 | One round trip | Nodes `SCRIPT LOAD` on every primary at connect, reconnect and failover; `NOSCRIPT` applies `failureMode` and schedules a reload, never a second call (pack section 8.7 rule 1) |
-| Over-limit cache | A key GCRA denied stays denied locally until its retry-after, as in envoyproxy/ratelimit ([source](https://github.com/envoyproxy/ratelimit)) |
+| Over-limit cache | A key GCRA denied stays denied locally until its retry-after |
 | Keys | `rz:rl:<policy>:<requests>/<window>:{<SHA-256 of the key value>}`, expiring once idle; the hash tag lets consumptive calls share one script (pack section 8.7 rule 3). The State Store MUST run `noeviction` |
 | State Store failure | A failed, timed-out or unattempted call, or an open State client breaker, applies `failureMode`: `open` (default) admits from the local buckets, which then refill per epoch-aligned `window`, in 60 steps past 1 minute, without carry-over, clamped per [Per-Node ceiling](../architecture/09-traffic-management-and-resilience.md#per-node-ceiling) (derived ceilings unfloored; a Control-mode Node without a count at max(1, `requests` / 100)); `closed` returns 503 `RZ-STS-001` to `RZ-STS-004` |
 | Fail-open bound | At most N × per-Node ceiling per key per window, N being serving Nodes (target), owned by [Scalability and distributed state](../architecture/11-scalability-and-distributed-state.md#consistency-and-accuracy-bounds) |
@@ -84,7 +84,7 @@ flowchart TD
 
 - Good, because a key reaches the State Store at most min(offered, 2 × N × ceiling) times per window (target), a bucket's capacity plus its refill, and local denials cost no round trip.
 - Good, because GCRA stores one TAT per key and needs no drip worker ([source](https://brandur.org/rate-limiting)), and server `TIME` removes Node clock skew from decisions.
-- Bad, because a pinned or unevenly spread key meets its per-Node ceilings before the Cell limit, as Tyk reports for DRL; OQ-traffic-management-and-resilience-16 proposes headroom over pack section 8.8's limit / N.
+- Bad, because a pinned or unevenly spread key meets its per-Node ceilings before the Cell limit, as any per-Node share does under uneven balancing; OQ-traffic-management-and-resilience-16 proposes headroom over pack section 8.8's limit / N.
 - Bad, because each admitted request runs a script, and per-shard script throughput is unmeasured (Valkey 8's 1.19 million per second are `SET`, not `EVAL`, [source](https://valkey.io/blog/unlock-one-million-rps-part2/)). At an assumed 100,000 calls per second per shard (hypothesis), a key spread over many Nodes and admitted above about 25,000 per second (hypothesis) runs GCRA on one shard per request and can open every Node's breaker for it, so co-tenants apply `failureMode` until OQ-traffic-management-and-resilience-1 adds `localOnly` mode.
 - Bad, because a lagging or frozen Node count shifts derived ceilings and their fail-open bound (OQ-traffic-management-and-resilience-19), and file mode without a declared ceiling fails open at N × limit.
 - Bad, because R Regions allow R × each limit, and Redis Active-Active would replicate a TAT last-write-wins ([source](https://redis.io/docs/latest/operate/rs/databases/active-active/develop/data-types/strings/)).
@@ -103,7 +103,7 @@ flowchart TD
 
 ### Local bucket plus GCRA, fail-open
 
-- Good, because Envoy documents local limiting in front of a global service to cut its load ([source](https://www.envoyproxy.io/docs/envoy/latest/intro/arch_overview/other_features/global_rate_limiting)).
+- Good, because local limiting in front of the shared store cuts the store's load, since most denials never leave the Node.
 - Bad, because two limiters, a Node count and a Lua script path must all be correct.
 
 ### Shared limiter only
@@ -114,17 +114,17 @@ flowchart TD
 ### Local limits only
 
 - Good, because no request ever calls the State Store.
-- Bad, because Tyk calls its DRL "unreliable at low rate limits where requests are not fairly balanced" ([source](https://tyk.io/docs/api-management/rate-limit/)), and a limit silently scales with Node count.
+- Bad, because a per-Node share is unreliable at low limits when requests are not fairly balanced across Nodes, and a limit silently scales with Node count.
 
 ### Shared window counters
 
 - Good, because one `INCR` per request is simple and Cloudflare measured 0.003% wrong decisions for sliding windows ([source](https://blog.cloudflare.com/counting-things-a-lot-of-different-things/)).
-- Bad, because fixed windows allow a burst across a window boundary ([source](https://tyk.io/docs/api-management/rate-limit/)), and both still call the store on every request.
+- Bad, because fixed windows allow a burst across a window boundary, and both still call the store on every request.
 
 ### Leases or asynchronous sync
 
 - Good, because Nodes call the store once per lease or sync interval, not per request ([source](https://github.com/youtube/doorman)).
-- Bad, because Kong documents overage growing with node count and sync interval ([source](https://developer.konghq.com/plugins/rate-limiting-advanced/)), and leasing is OQ-system-overview-15.
+- Bad, because overage grows with Node count and sync interval, and leasing is OQ-system-overview-15.
 
 ### Local bucket plus GCRA, fail-closed by default
 

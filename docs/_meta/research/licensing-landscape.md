@@ -17,42 +17,10 @@
 | 2024-03-28 | Valkey | Linux Foundation announces Valkey fork of Redis 7.2.4 under BSD-3-Clause | (https://www.linuxfoundation.org/press/linux-foundation-launches-open-source-valkey-community) |
 | 2024-08-29 | Elasticsearch, Kibana | AGPLv3 added as a third option alongside SSPL and ELv2 | (https://www.elastic.co/blog/elasticsearch-is-open-source-again) |
 | 2025-02-27 | HashiCorp | IBM closes USD 6.4B acquisition | (https://techcrunch.com/2025/02/27/ibm-closes-6-4b-hashicorp-acquisition/) |
-| 2025-03-27 | Kong Gateway 3.10 | Release that deprecates Enterprise "free mode"; OSS images stop at 3.9.x | (https://developer.konghq.com/gateway/version-support-policy/) (https://developer.konghq.com/gateway/breaking-changes/) (https://github.com/Kong/kong/discussions/14628) |
 | 2025-04-23 | OpenTofu | Accepted into CNCF Sandbox | (https://www.cncf.io/projects/opentofu/) |
 | 2025-05-01 | Redis 8.0 | AGPLv3 added as a third license option (RSALv2 / SSPLv1 / AGPLv3) | (https://redis.io/blog/agplv3/) |
 | 2025-10-21 | Valkey 9.0 | GA | (https://www.linuxfoundation.org/press/valkey-9.0-delivers-performance-and-resiliency-for-real-time-workloads) |
-| 2026-03-12 | Tyk AI Studio | Announced open-sourcing (Community Edition) | (https://tyk.io/blog/ai-studio-is-going-open-source-and-why-the-ai-control-plane-must-be-extensible/) |
-| 2026-03-24 | Portkey Gateway | Production gateway merged into the open-source repo (2.0.0 branch, pre-release) | (https://github.com/Portkey-AI/gateway/discussions/1576) |
-| 2026-04-30 | Portkey | Palo Alto Networks announces intent to acquire | (https://tetrate.io/learn/ai/portkey-palo-alto-acquisition) |
 | 2026-05-19 | Valkey 9.1 | Release with Valkey Search 1.2 | (https://www.linuxfoundation.org/press/valkey-enhances-efficiency-security-and-modular-performance-with-9.1-release-and-new-ecosystem-integrations) |
-| 2026-05-29 | Portkey | Palo Alto Networks completes acquisition | (https://www.paloaltonetworks.com/company/press/2026/palo-alto-networks-completes-acquisition-of-portkey-to-secure-ai-agents) |
-| 2026-06-04 | KrakenD CE / Lura | Announces removal of Go plugin support from 3.0 | (https://www.krakend.io/blog/dropping-plugins-support-on-community/) |
-| 2026-09-21 | KrakenD CE | PR #1106 "Drop plugin support" merged into `dev-3.0` | (https://github.com/krakend/krakend-ce/pull/1106) |
-
-## 2. KrakenD: CE vs EE licensing and the 3.0 plugin removal
-
-- KrakenD Community Edition (`krakend/krakend-ce`) is licensed Apache-2.0 (https://github.com/krakend/krakend-ce).
-- The 2026-06-04 blog post states that starting with 3.0, the Community Edition and the Lura Project will no longer support Go plugins, while plugin support continues in the Enterprise Edition (https://www.krakend.io/blog/dropping-plugins-support-on-community/).
-- Reasons given: Go's `plugin` package is effectively in maintenance mode; plugins require exact matching of Go version, dependencies, build flags and C libraries between host and plugin; supporting user-built plugins is an unsustainable support burden; the dependency graph expands the security surface on both glibc and musl builds (https://www.krakend.io/blog/dropping-plugins-support-on-community/).
-- EE keeps plugins because KrakenD "controls the build toolchain end-to-end" with each customer (https://www.krakend.io/blog/dropping-plugins-support-on-community/).
-- Suggested CE replacements: compile custom middleware/handlers into the source, or use Lua; a migration guide is promised with 3.0 (https://www.krakend.io/blog/dropping-plugins-support-on-community/).
-- The implementing PR #1106 (author `thedae`, approved by `kpacha`) merged into `dev-3.0` on 2026-09-21 (https://github.com/krakend/krakend-ce/pull/1106).
-- KrakenD EE is proprietary and license-file gated: a `LICENSE` file (and `LICENSE_DEV` for non-production) is required; with an expired, incorrect or missing license KrakenD will not start, and a running instance shuts down when the license expires (https://www.krakend.io/docs/enterprise/overview/license-file/).
-- The current EE version on the feature matrix is 2.13.10 (https://www.krakend.io/features/).
-- EE-only governance/security features listed on the matrix include the FIPS 140-2 module, Security Policies Engine (ABAC/RBAC), API keys, basic auth, multiple identity providers, IP filtering, tiered rate limiting, token quota management, audit of configuration, OpenAPI importer/exporter, and an end-to-end testing tool (https://www.krakend.io/features/).
-- KrakenD EE pricing is sales-only; the Enterprise page says pricing "isn't linked to the number of APIs or throughput" (https://www.krakend.io/enterprise/).
-
-Implication for Ruralz (analysis, not sourced fact): the plugin removal is a case where an extension point moved from the free to the paid edition. Ruralz's plan to ship its Plugin ABI under Apache-2.0 in every build is a direct contrast.
-
-## 3. Kong: OSS vs Enterprise after 3.10
-
-- The `Kong/kong` repository is licensed Apache-2.0 (https://github.com/Kong/kong).
-- Kong's breaking-changes page for 3.10.0.0 states: "Free mode is deprecated and will be removed in a future 3.x version of Kong Gateway Enterprise. At that point, running Kong Gateway without a license will behave the same as running it with an expired license." (https://developer.konghq.com/gateway/breaking-changes/).
-- A user reported Kong's guidance in the Kong/kong discussion forum: OSS-only images up to 3.9.1 are the last fully free builds, and `kong/kong-gateway:3.10+` without a license behaves as an expired license (https://github.com/Kong/kong/discussions/14628).
-- Kong 3.10 source was released 2025-03-27, but no OSS Docker image for 3.10.0 had been published as of September 2025, and no Kong staff comment appeared in that thread (https://github.com/Kong/kong/discussions/14405).
-- Expired-license behavior: all entity configuration becomes read-only; proxy traffic continues; in DB-less mode and with KIC, new nodes cannot start and restarts fail; Kong Manager warns 15 days ahead and logs at 90 and 30 days (https://developer.konghq.com/gateway/entities/license/).
-- Kong Gateway (Enterprise) release cadence: 3.10 LTS (2025-03-27, full support to 2028-03-31), 3.14 LTS (2026-04-07), 3.15 (2026-07-02), 3.16 (2026-09-15) (https://developer.konghq.com/gateway/version-support-policy/).
-- Kong's version support policy "only applies to Kong Gateway" (Enterprise), not to the OSS build (https://developer.konghq.com/gateway/version-support-policy/).
 
 ## 4. HashiCorp BSL and OpenTofu
 
@@ -79,46 +47,7 @@ Implication for Ruralz (analysis, not sourced fact): the plugin removal is a cas
 
 Relevance to the State Store (analysis): Ruralz talks to Redis/Valkey over the network via a client library (`rueidis`); it does not link or distribute the server, so the server's license choice (BSD / RSAL / SSPL / AGPL) does not propagate to Ruralz binaries. Valkey (BSD-3-Clause) is the backend with no copyleft or source-available terms at all.
 
-## 6. AI-gateway entrants: Portkey and Tyk AI Studio
-
-| Item | Portkey Gateway | Tyk AI Studio | Source |
-|---|---|---|---|
-| Open-source date | 2026-03-24 (production gateway merged to OSS repo, 2.0.0 branch pre-release) | 2026-03-12 (announcement) | (https://github.com/Portkey-AI/gateway/discussions/1576) (https://tyk.io/blog/ai-studio-is-going-open-source-and-why-the-ai-control-plane-must-be-extensible/) |
-| License of OSS part | MIT ("Copyright (c) 2024 Portkey, Inc") | CE: AGPL-3.0; EE: proprietary, license key | (https://raw.githubusercontent.com/Portkey-AI/gateway/main/LICENSE) (https://github.com/TykTechnologies/ai-studio) |
-| Contribution terms | Not stated in fetched material | Tyk CLA required | (https://github.com/TykTechnologies/ai-studio) |
-| Paid-only features | Items marked "Available in hosted and enterprise versions" (for example semantic caching, prompt template management); org management/governance promoted as enterprise | EE-only: budget management/enforcement, advanced SSO (SAML, OIDC), advanced RBAC, audit logging, priority support | (https://github.com/Portkey-AI/gateway) (https://github.com/TykTechnologies/ai-studio) |
-| Free in CE | Gateway core | Core gateway, chat, tools, basic user management and RBAC, cost tracking/analytics | (https://github.com/TykTechnologies/ai-studio) |
-| Ownership change | Acquired by Palo Alto Networks; closed 2026-05-29; becomes the AI gateway for Prisma AIRS | None found | (https://www.paloaltonetworks.com/company/press/2026/palo-alto-networks-completes-acquisition-of-portkey-to-secure-ai-agents) |
-
-- The acquisition price of USD 140M (cash and replacement awards) is reported by Tetrate citing a Palo Alto Networks 10-Q; the Palo Alto press release does not mention price or open source (https://tetrate.io/learn/ai/portkey-palo-alto-acquisition) (https://www.paloaltonetworks.com/company/press/2026/palo-alto-networks-completes-acquisition-of-portkey-to-secure-ai-agents).
-- Tyk Gateway itself is MPL-2.0 except the `ee` folder, which is under a commercial license (https://github.com/TykTechnologies/tyk).
-
-## 7. Governance models: Traefik, Envoy, APISIX
-
-| Project | License | Steward | Governance model | Source |
-|---|---|---|---|---|
-| Traefik Proxy | MIT | Traefik Labs (single vendor) | Vendor-maintained with published maintainer guidelines; 3-4 major versions per year; commercial support by Traefik Labs | (https://github.com/traefik/traefik) |
-| Envoy | Apache-2.0 | CNCF (Graduated; accepted 2017-09-13, graduated 2018-11-28) | Maintainer-based; disputes go to a vote in which senior maintainers get two votes and maintainers one; separate xDS API shepherd role; maintainers commit ~25% of work time and join an on-call rotation | (https://www.cncf.io/projects/envoy/) (https://github.com/envoyproxy/envoy/blob/main/GOVERNANCE.md) |
-| Apache APISIX | Apache-2.0 | Apache Software Foundation, top-level project | ASF meritocracy (PMC/committers); marks held by the ASF | (https://apisix.apache.org/) (https://www.apache.org/foundation/marks/) |
-
-- Traefik's commercial tiers (Hub API Gateway, Hub API Management, AI Gateway add-on) upgrade in place, with API Management unlocked by license upgrade ("no binary swap"); paid tiers add WAF, LDAP/JWT/API-key auth, Vault integration, distributed rate limiting, FIPS 140-2/140-3 and multi-cluster management; no prices are published (https://traefik.io/pricing).
-
 ## 8. Open-core vs cloud-first monetization
-
-### 8.1 API gateway vendors
-
-| Vendor / offering | Published entry pricing | Where SSO / RBAC / audit sit | Source |
-|---|---|---|---|
-| Kong Konnect Plus | Per gateway per month; control plane USD 25-500/month by gateway type; USD 200 per extra 1M requests; USD 100/month per additional LLM model | Plus: RBAC only. Enterprise (custom, annual): SSO and audit logging | (https://konghq.com/pricing) |
-| Tyk (Core / Professional / Enterprise) | Core usage-based, Professional flat-rate, Enterprise custom; no numbers on page; 48-hour Cloud trial | "Advanced governance and security" is Enterprise | (https://tyk.io/pricing/) |
-| API7 Cloud Standard | USD 2 per million API calls + USD 250/gateway group/month + USD 10/service/month; 99.95% control-plane SLA | Not specified on pricing page | (https://api7.ai/pricing) |
-| API7 Enterprise | Annual license by CPU cores | Not specified on pricing page | (https://api7.ai/pricing) |
-| Gravitee APIM | Planet USD 2,500/month (1 production gateway); Galaxy and Universe custom | EE-only (license required): audit trail, custom roles, enterprise OIDC SSO, sharding tags, alert engine, Redis cache, Datadog/TCP reporters, LLM/MCP/A2A proxies | (https://www.gravitee.io/pricing) (https://documentation.gravitee.io/apim/introduction/enterprise-edition) |
-| Zuplo | Free USD 0 (100K requests/month); Builder USD 25/month; Enterprise from USD 1,000/month (annual) | SSO + RBAC and audit logs are Enterprise add-ons; self-hosted/dedicated only on Enterprise | (https://zuplo.com/pricing) |
-| Traefik Hub | Sales-only | FIPS, WAF, advanced auth in paid tiers | (https://traefik.io/pricing) |
-| KrakenD EE | Sales-only; not tied to API count or throughput | RBAC/ABAC policies, API keys, FIPS in EE | (https://www.krakend.io/enterprise/) (https://www.krakend.io/features/) |
-
-Gravitee APIM Community Edition is Apache-2.0; EE is enabled by applying a license to the unified bundle (https://github.com/gravitee-io/gravitee-api-management) (https://documentation.gravitee.io/apim/4.2/getting-started/install-and-upgrade-guides).
 
 ### 8.2 Cloud-first OSS reference companies
 
@@ -129,18 +58,14 @@ Gravitee APIM Community Edition is Apache-2.0; EE is enabled by applying a licen
 
 Free tier limits for Grafana Cloud: 10k active metric series, 50 GB logs, 50 GB traces, 3 active users, 14-day retention (https://grafana.com/pricing/).
 
-### 8.3 What typically stays paid, and what Ruralz gives away
+### 8.3 What typically stays paid in open-core products, and what Ruralz gives away
 
 | Capability | Typically paid at | Ruralz position (from foundation pack) |
 |---|---|---|
-| SSO (SAML/OIDC) for admin UI | Kong Konnect Enterprise (https://konghq.com/pricing); Tyk AI Studio EE (https://github.com/TykTechnologies/ai-studio); Gravitee EE (https://documentation.gravitee.io/apim/introduction/enterprise-edition); Zuplo Enterprise add-on (https://zuplo.com/pricing); Grafana Enterprise (https://grafana.com/docs/grafana/latest/introduction/grafana-enterprise/) | Free; SSO/SAML for Console is `Planned (M5)` |
-| RBAC (fine-grained / custom roles) | Gravitee EE custom roles (https://documentation.gravitee.io/apim/introduction/enterprise-edition); Tyk AI Studio EE advanced RBAC (https://github.com/TykTechnologies/ai-studio); KrakenD EE policies engine (https://www.krakend.io/features/) | Free; RBAC hosted by Ruralz Control |
-| Audit log | Kong Konnect Enterprise (https://konghq.com/pricing); Gravitee EE (https://documentation.gravitee.io/apim/introduction/enterprise-edition); Tyk AI Studio EE (https://github.com/TykTechnologies/ai-studio); Supabase Team (https://supabase.com/pricing) | Free; audit log hosted by Ruralz Control |
-| Control plane / multi-cluster management | Traefik Hub (https://traefik.io/pricing); Tyk dashboard/control plane (https://github.com/TykTechnologies/tyk) | Free; Ruralz Control + Console |
-| FIPS build | KrakenD EE (https://www.krakend.io/features/); Traefik Hub (https://traefik.io/pricing) | Free; FIPS build `Planned (M5)` |
-| Extension/plugin mechanism | KrakenD EE after CE 3.0 (https://www.krakend.io/blog/dropping-plugins-support-on-community/) | Free; WASM Plugins in all builds |
-| AI budget/quota enforcement | Tyk AI Studio EE budgets (https://github.com/TykTechnologies/ai-studio); KrakenD EE token quotas (https://www.krakend.io/features/) | Free; Token Budget via State Store |
-| Managed hosting, SLA, 24/7 support | Every vendor above | Paid: Ruralz Cloud and commercial support (the only revenue lines) |
+| SSO (SAML/OIDC) for admin UI | Grafana Enterprise (https://grafana.com/docs/grafana/latest/introduction/grafana-enterprise/); Supabase Pro and above (https://supabase.com/pricing) | Free; SSO/SAML for Console is `Planned (M5)` |
+| RBAC (fine-grained / custom roles) | Grafana Enterprise fine-grained RBAC (https://grafana.com/docs/grafana/latest/introduction/grafana-enterprise/); Supabase Enterprise custom scoped roles (https://supabase.com/pricing) | Free; RBAC hosted by Ruralz Control |
+| Audit log | Grafana Enterprise auditing (https://grafana.com/docs/grafana/latest/introduction/grafana-enterprise/); Supabase Team (https://supabase.com/pricing) | Free; audit log hosted by Ruralz Control |
+| Managed hosting, SLA, 24/7 support | Grafana Cloud (https://grafana.com/pricing/); Supabase (https://supabase.com/pricing) | Paid: Ruralz Cloud and commercial support (the only revenue lines) |
 
 ## 9. Source-available alternatives (context)
 
@@ -148,7 +73,7 @@ Free tier limits for Grafana Cloud: 10k active metric series, 50 GB logs, 50 GB 
 - HashiCorp's BSL uses a four-year change date to MPL-2.0 (https://www.hashicorp.com/en/bsl).
 - Redis RSALv2 prohibits commercializing or offering Redis as a managed service to third parties; SSPLv1 requires releasing the service's management layers when offered as a service; neither is OSI-approved (https://redis.io/legal/licenses/).
 
-Pattern (analysis): three of the five relicensing companies above (Redis, Elastic, Grafana) settled on AGPLv3 as an OSI-approved defensive license; none returned to a permissive license. Ruralz's choice of Apache-2.0 plus trademark control is the permissive alternative, relying on the Ruralz mark and managed-cloud value rather than copyleft.
+Pattern (analysis): three of the four relicensing companies above (Redis, Elastic, Grafana) settled on AGPLv3 as an OSI-approved defensive license, and HashiCorp chose the source-available BSL; none returned to a permissive license. Ruralz's choice of Apache-2.0 plus trademark control is the permissive alternative, relying on the Ruralz mark and managed-cloud value rather than copyleft.
 
 ## 10. Trademark policies as models for a Revington policy
 
@@ -166,14 +91,14 @@ Elements a Revington policy can borrow (analysis): ASF/LF nominative use and "X 
 
 ## 11. DCO vs CLA
 
-| Dimension | DCO 1.1 | CLA (for example CNCF/EasyCLA, Tyk CLA) | Source |
+| Dimension | DCO 1.1 | CLA (for example CNCF/EasyCLA) | Source |
 |---|---|---|---|
 | Mechanism | `Signed-off-by:` line per commit certifying clauses (a)-(d) | Signed individual and/or corporate agreement before first contribution | (https://developercertificate.org/) (https://helm.sh/blog/helm-dco/) (https://docs.linuxfoundation.org/lfx/easycla/v2-current/getting-started/easycla-faqs) |
 | Contributor friction | Low; no employer paperwork | Corporate CLA signature can take weeks | (https://helm.sh/blog/helm-dco/) |
 | Patent grant | Relies on the project license (Apache-2.0 Section 3) | Explicit in the CLA | (https://helm.sh/blog/helm-dco/) |
 | Relicensing ability for the company | With Apache-2.0 inbound = outbound, contributions arrive under Apache-2.0 (Section 5), which already lets any redistributor, Revington included, sublicense and ship Derivative Works as a whole under additional or different terms (Sections 2 and 4); the contributed code itself stays available under Apache-2.0 | Typically broad (assignment or a broad license grant to the company) | (https://www.apache.org/licenses/LICENSE-2.0) |
 | CNCF practice | Most CNCF projects used DCO (as of 2018) | Exceptions: Kubernetes and gRPC | (https://helm.sh/blog/helm-dco/) |
-| Vendor examples | Helm moved CLA to DCO on 2018-08-27 | Tyk AI Studio requires the Tyk CLA | (https://helm.sh/blog/helm-dco/) (https://github.com/TykTechnologies/ai-studio) |
+| Project examples | Helm moved CLA to DCO on 2018-08-27 | Kubernetes and gRPC kept CLAs as CNCF exceptions | (https://helm.sh/blog/helm-dco/) |
 
 - DCO clause (d) records that contributions and the contributor's personal information are public and "maintained indefinitely" (https://developercertificate.org/).
 - The CNCF considered the patent grant and warranty disclaimers of a CLA already covered by Apache-2.0 when Helm moved to DCO (https://helm.sh/blog/helm-dco/).
@@ -209,19 +134,6 @@ Baseline expectation for a Go gateway shipping images to GHCR in 2026 (analysis 
 
 ## Sources
 
-https://www.krakend.io/blog/dropping-plugins-support-on-community/
-https://github.com/krakend/krakend-ce/pull/1106
-https://github.com/krakend/krakend-ce
-https://www.krakend.io/docs/enterprise/overview/license-file/
-https://www.krakend.io/features/
-https://www.krakend.io/enterprise/
-https://github.com/Kong/kong
-https://developer.konghq.com/gateway/breaking-changes/
-https://github.com/Kong/kong/discussions/14628
-https://github.com/Kong/kong/discussions/14405
-https://developer.konghq.com/gateway/entities/license/
-https://developer.konghq.com/gateway/version-support-policy/
-https://konghq.com/pricing
 https://www.hashicorp.com/blog/hashicorp-adopts-business-source-license
 https://www.hashicorp.com/en/bsl
 https://www.linuxfoundation.org/press/opentofu-announces-general-availability
@@ -236,26 +148,6 @@ https://www.linuxfoundation.org/press/valkey-9.0-delivers-performance-and-resili
 https://www.linuxfoundation.org/press/valkey-enhances-efficiency-security-and-modular-performance-with-9.1-release-and-new-ecosystem-integrations
 https://www.elastic.co/blog/elasticsearch-is-open-source-again
 https://www.elastic.co/pricing/faq/licensing
-https://github.com/Portkey-AI/gateway/discussions/1576
-https://github.com/Portkey-AI/gateway
-https://raw.githubusercontent.com/Portkey-AI/gateway/main/LICENSE
-https://www.paloaltonetworks.com/company/press/2026/palo-alto-networks-completes-acquisition-of-portkey-to-secure-ai-agents
-https://tetrate.io/learn/ai/portkey-palo-alto-acquisition
-https://tyk.io/blog/ai-studio-is-going-open-source-and-why-the-ai-control-plane-must-be-extensible/
-https://github.com/TykTechnologies/ai-studio
-https://github.com/TykTechnologies/tyk
-https://tyk.io/pricing/
-https://github.com/traefik/traefik
-https://traefik.io/pricing
-https://www.cncf.io/projects/envoy/
-https://github.com/envoyproxy/envoy/blob/main/GOVERNANCE.md
-https://apisix.apache.org/
-https://api7.ai/pricing
-https://www.gravitee.io/pricing
-https://documentation.gravitee.io/apim/introduction/enterprise-edition
-https://documentation.gravitee.io/apim/4.2/getting-started/install-and-upgrade-guides
-https://github.com/gravitee-io/gravitee-api-management
-https://zuplo.com/pricing
 https://grafana.com/blog/grafana-loki-tempo-relicensing-to-agplv3/
 https://grafana.com/pricing/
 https://grafana.com/docs/grafana/latest/introduction/grafana-enterprise/
@@ -291,13 +183,6 @@ https://www.goodwinlaw.com/en/insights/publications/2026/09/alerts-lifesciences-
 
 ## Gaps
 
-- **Portkey license conflict:** the repo `LICENSE` file on `main` is MIT (https://raw.githubusercontent.com/Portkey-AI/gateway/main/LICENSE), but Tetrate describes the core as "Apache 2.0 licensed" (https://tetrate.io/learn/ai/portkey-palo-alto-acquisition). The `2.0.0` branch license was not checked separately. The March 2026 discussion post does not state a license.
-- **Portkey price:** the USD 140M figure comes only from Tetrate's secondary citation of a Palo Alto 10-Q; the 10-Q itself was not fetched. No post-acquisition statement on OSS roadmap or license was found.
-- **Kong OSS last version:** Kong's guidance quoted in discussion #14628 names 3.9.1 as the last fully free OSS image, but search snippets refer to a 3.9.3 OSS tag. The fetched GitHub releases page returned 2023/2024 dates for 3.9.x that conflict with Kong's support policy (3.9 released 2025-01-08), so the release-page dates were not used. Whether free mode has been *removed* (not only deprecated) in 3.14-3.16 was not confirmed in Kong docs; the 3.10 text says "deprecated ... will be removed in a future 3.x version".
-- **Kong feature-to-license mapping:** Kong's license page does not list which self-managed features (RBAC, Workspaces, audit logs) need a license; only Konnect pricing (RBAC in Plus; SSO and audit in Enterprise) was verified.
-- **KrakenD 3.0 release date** and the promised migration guide were not found; as of 2026-09-21 the change was on the `dev-3.0` branch only. The blog post does not name the CE license (the repo shows Apache-2.0). KrakenD EE pricing is not public.
-- **Tyk AI Studio:** the raw `LICENSE` fetch returned 404; the AGPL-3.0 (CE) / proprietary (EE) split comes from the repo README. The Tyk blog does not name the license.
-- **API7 Cloud** pricing page does not say where SSO, RBAC or audit logs sit; Tyk and Traefik publish no prices.
 - **Grafana Cloud** pricing page does not map SSO/RBAC/audit to Cloud tiers; the Enterprise-only list is from Grafana Enterprise (self-managed) docs.
 - **OpenSSF Scorecard:** the releases page lists v5.5.0 (2026-04-23) as the latest. The README table lists 19 default checks.
 - **OSPS Baseline:** individual control IDs for signed releases/SBOM/provenance at each level were not extracted from v2026.08.28.
@@ -306,3 +191,4 @@ https://www.goodwinlaw.com/en/insights/publications/2026/09/alerts-lifesciences-
 - **Redis trademark policy on "Red":** verified in the primary text: "Don't put our Mark (or part of our name, e.g., "Red") in your company name, commercial product name, domain name, or social media handle".
 - **DCO and relicensing (corrected 2026-09-23):** an earlier revision of section 11 said a DCO prevents Revington from unilaterally relicensing contributions. The Apache-2.0 text (Sections 2, 4 and 5; https://www.apache.org/licenses/LICENSE-2.0) does not support that for Apache-2.0 inbound contributions, and section 11 now says so. How far "additional or different license terms ... for any such Derivative Works as a whole" reaches in practice (for example, whether a recipient of a proprietary build may still use the Apache-2.0 portions under Apache-2.0) is a legal-interpretation question; no court decision or counsel opinion was consulted.
 - **Apache-2.0 and WASM Plugins linking GPLv2 code:** stated as a question for legal counsel; no authoritative source on WASM module linkage was found.
+

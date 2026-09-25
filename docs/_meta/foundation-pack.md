@@ -2,7 +2,7 @@
 title: Ruralz Foundation Pack
 version: v1
 status: binding
-last_updated: 2026-09-23
+last_updated: 2026-09-25
 ---
 
 # Ruralz Foundation Pack
@@ -14,12 +14,12 @@ This file is **binding** for every document under `docs/`. Writers and reviewers
 | Fact | Value |
 |---|---|
 | Product | **Ruralz**, an open-source API gateway written in Go |
-| Positioning | "KrakenD Enterprise, but better, and fully free": every feature, including the control plane and console, is Apache-2.0 |
+| Positioning | An open-source API gateway where every feature, including the control plane and console, is free (Apache-2.0, no feature gating) |
 | Business model | Revenue only from **Ruralz Cloud** (managed control plane / hosting) and commercial support. No feature gating, no license keys, no "enterprise" build |
 | Legal owner | **Revington** (https://revington.co). Copyright 2026 Revington. "Ruralz" is a trademark of Revington |
 | Source | `https://github.com/ravindu-rev/ruralz` (monorepo); remote `git@github.com:ravindu-rev/ruralz.git` |
 | License | Apache-2.0 for all components; DCO sign-off for contributions |
-| Snapshot date | 2026-09-23 (competitor facts are as of this date) |
+| Snapshot date | 2026-09-23 (external library, license and release facts are as of this date) |
 | Four differentiators (verbatim) | (1) **WASM plugin system**, (2) **AI/LLM gateway**, (3) **built-in control plane + GitOps**, (4) **multi-protocol native** |
 | FIPS build | A build flavor (`GOFIPS140`, Planned (M5)) with the same features and license as the default build, published as separate artifacts; "no enterprise build" means no feature difference, not a single binary |
 | Ruralz Cloud tenancy | One dedicated `ruralz-control` and Control Store per customer; provisioning and billing read only public interfaces (REST API, metrics, OpenTelemetry signals), so no cloud-only hook exists |
@@ -34,7 +34,7 @@ This file is **binding** for every document under `docs/`. Writers and reviewers
 | Web UI | **Ruralz Console** | served by `ruralz-control` at `/console` | "dashboard", "UI", "admin panel" |
 | CLI | `ruralz` | `ruralz <noun> <verb>`; registry in section 9 | `ruralzctl`, `rz` |
 | Go module | `github.com/ravindu-rev/ruralz` | `cmd/ruralzd`, `cmd/ruralz-control`, `cmd/ruralz`, `internal/`, `pkg/`, `api/`, `sdk/` | — |
-| Config unit | **Bundle** (source directory rooted at `ruralz.yaml`) | `apiVersion: ruralz/v1alpha1`; mirrored CRDs use `ruralz.io/v1alpha1` | "krakend.json", "config tree", "manifest" |
+| Config unit | **Bundle** (source directory rooted at `ruralz.yaml`) | `apiVersion: ruralz/v1alpha1`; mirrored CRDs use `ruralz.io/v1alpha1` | "config tree", "manifest" |
 | Immutable built config | **Revision** (content-addressed digest of a Bundle rendered for one Environment; section 8.1) | display `rev-<12 hex>`; wire and storage `sha256:<64 hex>` | "version", "release" (for config) |
 | Configuration a Node serves now | **active Revision** (section 8.2) | the Node's current compiled snapshot | "current config", "live config" |
 | Delivery of a Revision to a Cluster (Control mode only) | **Rollout** | states: `pending`, `canary`, `progressing`, `paused`, `complete`, `rolled-back`, `failed` (section 8.3) | "deploy", "push" |
@@ -55,7 +55,7 @@ This file is **binding** for every document under `docs/`. Writers and reviewers
 | Principles | `P1`..`P10` (defined once in `docs/vision/01-vision-and-positioning.md`) | — | — |
 | ADRs | `ADR-0001`..`ADR-0017`, files `docs/adr/NNNN-<slug>.md` | — | — |
 | Open questions | `OQ-<docslug>-<n>` (e.g., `OQ-data-plane-3`) | — | "TBD", "TODO" |
-| Milestones | **M0** Foundations · **M1** Core parity · **M2** WASM + Control/GitOps · **M3** AI gateway + gRPC/GraphQL/WS/SSE + HTTP/3 · **M4** Event protocols + multi-region + bench suite · **M5** Long-tail parity (SSO/SAML for Console, FIPS build, monetization hooks) | tag features `Planned (Mx)`; features whose design is complete in these docs are still tagged `Planned (Mx)` until implemented | "v1", "v2", "phase 2", "GA" as a milestone |
+| Milestones | **M0** Foundations · **M1** Core gateway · **M2** WASM + Control/GitOps · **M3** AI gateway + gRPC/GraphQL/WS/SSE + HTTP/3 · **M4** Event protocols + multi-region + bench suite · **M5** Enterprise hardening (SSO/SAML for Console, FIPS build, monetization hooks) | tag features `Planned (Mx)`; features whose design is complete in these docs are still tagged `Planned (Mx)` until implemented | "v1", "v2", "phase 2", "GA" as a milestone |
 
 ## 3. Resource model (fixed kinds)
 
@@ -101,7 +101,7 @@ plus the streaming hook **`onChunk`**, invoked per SSE event, WebSocket message,
 
 ## 6. Architecture summary (quote verbatim where a summary is needed)
 
-> Ruralz is an Apache-2.0 API gateway written in Go with two runtime components and one CLI. **Ruralz Gateway (`ruralzd`)** is the stateless data plane: it terminates HTTP/1.1, HTTP/2, HTTP/3, gRPC, GraphQL, WebSocket, SSE and event protocols (Kafka, NATS, MQTT), matches requests to **Routes**, runs an ordered **Filter Chain** of built-in Filters and sandboxed **WASM Plugins**, and forwards to **Upstreams** (including LLM providers) with load balancing, retries and circuit breaking. All shared or durable runtime state (Rate Limits, Quotas, Token Budgets, caches, sessions) lives in an external **State Store** (`redis` for Redis, Valkey or Dragonfly; `memory` for a single Node), and each Policy makes at most one blocking State Store round trip before the response is committed, so Nodes can be added or removed without coordination. **Ruralz Control (`ruralz-control`)** is the optional control plane: it validates Bundles from Git, renders them into immutable content-addressed **Revisions**, and delivers **Rollouts** to one or many **Clusters** over an mTLS gRPC **Control Stream** that each Node dials, with ACK/NACK semantics; it hosts the **Ruralz Console**, RBAC, audit log and Drift detection, and keeps its operational state in a Raft-replicated **Control Store**. Nodes keep serving their active Revision while Ruralz Control is unavailable, boot **Last-Known-Good** configuration after a restart, and can run without Ruralz Control by watching a Bundle directory or pulling a Revision from an OCI registry. Configuration is YAML (JSON accepted) using a Kubernetes-style resource model (`apiVersion: ruralz/v1alpha1`, `kind`, `metadata`, `spec`) validated by a published JSON Schema. The **`ruralz` CLI** validates, diffs, renders, imports, exports and tests Bundles, drives Rollouts, and builds, tests and publishes Plugins. Every feature, including Ruralz Control and Ruralz Console, is free and open source; revenue comes only from a managed cloud and support.
+> Ruralz is an Apache-2.0 API gateway written in Go with two runtime components and one CLI. **Ruralz Gateway (`ruralzd`)** is the stateless data plane: it terminates HTTP/1.1, HTTP/2, HTTP/3, gRPC, GraphQL, WebSocket, SSE and event protocols (Kafka, NATS, MQTT), matches requests to **Routes**, runs an ordered **Filter Chain** of built-in Filters and sandboxed **WASM Plugins**, and forwards to **Upstreams** (including LLM providers) with load balancing, retries and circuit breaking. All shared or durable runtime state (Rate Limits, Quotas, Token Budgets, caches, sessions) lives in an external **State Store** (`redis` for Redis, Valkey or Dragonfly; `memory` for a single Node), and each Policy makes at most one blocking State Store round trip before the response is committed, so Nodes can be added or removed without coordination. **Ruralz Control (`ruralz-control`)** is the optional control plane: it validates Bundles from Git, renders them into immutable content-addressed **Revisions**, and delivers **Rollouts** to one or many **Clusters** over an mTLS gRPC **Control Stream** that each Node dials, with ACK/NACK semantics; it hosts the **Ruralz Console**, RBAC, audit log and Drift detection, and keeps its operational state in a Raft-replicated **Control Store**. Nodes keep serving their active Revision while Ruralz Control is unavailable, boot **Last-Known-Good** configuration after a restart, and can run without Ruralz Control by watching a Bundle directory or pulling a Revision from an OCI registry. Configuration is YAML (JSON accepted) using a Kubernetes-style resource model (`apiVersion: ruralz/v1alpha1`, `kind`, `metadata`, `spec`) validated by a published JSON Schema. The **`ruralz` CLI** validates, diffs, renders, exports and tests Bundles, drives Rollouts, and builds, tests and publishes Plugins. Every feature, including Ruralz Control and Ruralz Console, is free and open source; revenue comes only from a managed cloud and support.
 
 ## 7. Technology decisions (fixed; details in `docs/engineering/01-tech-stack-and-libraries.md` and ADRs)
 
@@ -136,7 +136,7 @@ Rows marked **Corrected at freeze** were proven wrong in the previous pack by th
 | JSON Schema validator | `github.com/santhosh-tekuri/jsonschema/v6` (Apache-2.0): claims draft 2020-12 test-suite compliance, offers a `Vocabulary` API for the `x-ruralz-*` keywords and instance locations for the source map, and builds on the Go 1.26 floor (`docs/_meta/research/tooling-and-licenses.md` section 7). **Selected at freeze** | (tech stack doc; ADR-0003) |
 | Pending selections | Protobuf runtime, ULID, `/metrics` exporter, SigV4 signer, CLI framework, SAML, `postgres` driver (OQ-tech-stack-and-libraries-14 to -20; candidate licenses in `docs/_meta/research/tooling-and-licenses.md` section 8) and a MaxMind database reader for `authz.geoip` (not yet researched). A design MAY assume the capability but MUST NOT name a library until the tech stack document adds a catalog row backed by research | (tech stack doc) |
 
-Other defaults: State Store drivers are `memory` and `redis` only; another driver needs an ADR. Console is a React/TypeScript SPA embedded in `ruralz-control`. No native Kafka/MQTT wire-protocol proxying before M4. KrakenD import (`ruralz bundle import krakend`) is best-effort with declared fidelity levels (`exact`, `equivalent`, `approximate`, `manual`), `Planned (M2)`. The managed cloud is described only in the vision document's Managed cloud section and one hybrid deployment topology; docs MUST NOT describe cloud-only hooks.
+Other defaults: State Store drivers are `memory` and `redis` only; another driver needs an ADR. Console is a React/TypeScript SPA embedded in `ruralz-control`. No native Kafka/MQTT wire-protocol proxying before M4. The managed cloud is described only in the vision document's Managed cloud section and one hybrid deployment topology; docs MUST NOT describe cloud-only hooks.
 
 ## 8. Definitions and system rules
 
@@ -316,7 +316,6 @@ Nouns are fixed: `bundle`, `rollout`, `plugin`, `ai`, `dev`, `node`, `control`, 
 | `ruralz bundle diff` | Compare two rendered states (Bundle, Revision or a Node's `/config/dump`); exit 0, 1 or 2 | Planned (M1); Revision sources Planned (M2) |
 | `ruralz bundle build` | Produce a Revision; runs the online Plugin check unless `--offline` | Planned (M1) |
 | `ruralz bundle push` | Send a source Bundle and expected digest to Ruralz Control, or publish and sign a rendered Revision in an OCI registry | Planned (M2) |
-| `ruralz bundle import krakend` | Best-effort import of a rendered KrakenD configuration with a fidelity report | Planned (M2) |
 | `ruralz bundle import openapi` | Generate Routes and Upstreams from an OpenAPI 3.x document | Planned (M2) |
 | `ruralz bundle export openapi` | Emit an OpenAPI 3.x document for a rendered Bundle's HTTP Routes | Planned (M2) |
 | `ruralz bundle export postman` | Emit a Postman collection for the same Routes | Planned (M2) |
@@ -348,7 +347,7 @@ Nouns are fixed: `bundle`, `rollout`, `plugin`, `ai`, `dev`, `node`, `control`, 
 | `ruralz control backup` | Snapshot the Control Store, including Revision content and audit segments | Planned (M2) |
 | `ruralz control restore` | Restore a Control Store snapshot | Planned (M2) |
 
-Serving an OpenAPI document from Ruralz Gateway (KrakenD's OpenAPI server) is not a CLI command and stays OQ-vision-and-positioning-11.
+Serving an OpenAPI document from Ruralz Gateway is not a CLI command and stays OQ-vision-and-positioning-11.
 
 ## 10. Policy type registry
 
@@ -433,12 +432,12 @@ IP filtering and GeoIP (OQ-vision-and-positioning-10) are built-in types. `authz
 | upstream leg | One Upstream call made for a Route, a weighted target or a composition step; Upstream-scoped Policies run only in that leg's Phases. | configuration-model |
 | Zero-Downtime Upgrade | Replacing the `ruralzd` binary: the new process binds with `SO_REUSEPORT` and reports ready, then the old process Drains. | zero-downtime-upgrades-and-hot-reload |
 
-**Forbidden aliases** (case-insensitive, word boundary; quoting KrakenD terminology is allowed):
+**Forbidden aliases** (case-insensitive, word boundary): names never used for a Ruralz concept. Quoting a third-party term, such as a protocol field name, is allowed.
 
 | Forbidden | Use instead |
 |---|---|
 | backend (as a Ruralz concept) | Upstream |
-| endpoint (KrakenD sense: a published API path) | Route |
+| endpoint (as a name for a published API path) | Route |
 | controller, management plane | Ruralz Control |
 | dashboard | Ruralz Console |
 | sync protocol, config push protocol | Control Stream |
@@ -448,14 +447,14 @@ IP filtering and GeoIP (OQ-vision-and-positioning-10) are built-in types. `authz
 ## 12. Naming conventions
 
 - Files: kebab-case with two-digit prefix inside each folder (`03-data-plane.md`). ADRs: `NNNN-<slug>.md`.
-- CLI: `ruralz <noun> <verb>` from the section 9 registry; formats such as `krakend`, `openapi`, `postman` and `dot` are arguments, not verbs.
+- CLI: `ruralz <noun> <verb>` from the section 9 registry; formats such as `openapi`, `postman` and `dot` are arguments, not verbs.
 - Policy types: the dotted lower-case identifiers of section 10.
 - Proto packages: `ruralz.control.v1`, `ruralz.plugin.v1`. Versioned formats: `ruralz.canonical.v1` (Revision serialization), `ruralz.diff.v1` (diff JSON). Go packages: lower-case singular.
 - Kubernetes labels/annotations: `ruralz.io/<name>`; CRD API group `ruralz.io`.
 
-## 13. KrakenD parity anchor
+## 13. Feature catalog anchor
 
-The KrakenD CE/EE feature table snapshot (2026-09-23, EE 2.13) lives in `docs/_meta/research/krakend-parity.md`. Every EE-only feature MUST appear in `docs/comparison/01-krakend-ee-parity-matrix.md` as free in Ruralz with a milestone, or be explicitly "Not planned" with a reason. KrakenD has no WASM, no control plane, no console, no GraphQL federation and no HTTP/3 in either edition; KrakenD CE 3.0 removes Go plugin support (announced 2026-06-04). The EE plugin generator, end-to-end testing tool, OpenAPI importer and exporter, Postman and DOT generators and dump to disk map to section 9; IP filtering and MaxMind GeoIP map to section 10.
+`docs/features/01-feature-catalog.md` lists every Ruralz feature by category with its milestone (`Planned (Mx)`) or `Not planned` with a reason, the kind, Policy or Filter that implements it, and the owning document. The CLI commands of section 9 and the Policy types of section 10 are its anchors: a feature claimed in any document MUST appear in the catalog.
 
 ## 14. Change control
 

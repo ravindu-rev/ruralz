@@ -34,7 +34,7 @@ Which stack carries these protocols in a `CGO_ENABLED=0` binary ([ADR-0001](0001
 2. **net/http with x/net/http2**: its `Server`, `Transport` and `ConfigureServer`, and the `h2c` package ([source](https://github.com/golang/net/blob/v0.59.0/http2/server_common.go)) ([source](https://pkg.go.dev/golang.org/x/net/http2/h2c)).
 3. **fasthttp**, a server outside `net/http`, on which connect-go cannot serve ([source](https://github.com/connectrpc/connect-go/blob/main/README.md)).
 4. **Standard-library HTTP/3 later**: that code is unexported on Go master, and its proposals are on hold ([source](https://github.com/golang/go/issues/70914)) ([source](https://github.com/golang/go/issues/77440)).
-5. **TCP only**, with HTTP/3 Not planned, as in KrakenD ([source](https://www.krakend.io/features/)).
+5. **TCP only**, with HTTP/3 Not planned.
 
 ## Decision outcome
 
@@ -125,7 +125,7 @@ flowchart LR
 ### TCP only
 
 - Good, because it drops quic-go, its G3 exception and the QUIC loss at upgrade.
-- Bad, because it gives up HTTP/3, which KrakenD lacks ([source](https://www.krakend.io/features/)), and the lossy-network use case that [Multi-protocol](../architecture/07-multi-protocol.md#http11-http2-and-http3) names.
+- Bad, because it gives up HTTP/3 and the lossy-network use case that [Multi-protocol](../architecture/07-multi-protocol.md#http11-http2-and-http3) names.
 
 ## More information
 

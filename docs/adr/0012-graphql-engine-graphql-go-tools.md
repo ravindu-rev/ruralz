@@ -18,7 +18,7 @@ related:
 
 Ruralz Gateway (`ruralzd`) serves GraphQL through `Route.spec.match.graphql` and `Upstream.spec.protocol: graphql` ([Configuration model](../architecture/02-configuration-model.md#route)), Planned (M3). [Multi-protocol](../architecture/07-multi-protocol.md#graphql) defines pass-through, forwarding each operation to one `graphql` Upstream, and federation, planning across subgraph Upstreams. Clients subscribe over `graphql-transport-ws`, `graphql-ws` or SSE; subgraphs over `graphql-transport-ws`.
 
-Which Go library parses, validates, plans and resolves these operations inside a `CGO_ENABLED=0` binary ([ADR-0001](0001-implementation-language-go.md)), while the Router, Filter Chain and buffer accounting stay Ruralz code? Federation is part of the multi-protocol differentiator; KrakenD lacks it ([source](https://www.krakend.io/features/)).
+Which Go library parses, validates, plans and resolves these operations inside a `CGO_ENABLED=0` binary ([ADR-0001](0001-implementation-language-go.md)), while the Router, Filter Chain and buffer accounting stay Ruralz code? Federation is part of the multi-protocol differentiator.
 
 ## Decision drivers
 
@@ -36,7 +36,7 @@ Which Go library parses, validates, plans and resolves these operations inside a
 3. `movio/bramble`, a federation gateway ([source](https://github.com/movio/bramble)).
 4. `graphql-go/graphql`, a port of graphql-js ([source](https://github.com/graphql-go/graphql)).
 5. An external GraphQL router, such as Cosmo Router, as a `graphql` Upstream ([source](https://raw.githubusercontent.com/wundergraph/cosmo/main/router/go.mod)).
-6. No engine: GraphQL forwarded as plain HTTP under HTTP-level Policies, as in KrakenD ([source](https://www.krakend.io/features/)).
+6. No engine: GraphQL forwarded as plain HTTP under HTTP-level Policies.
 
 ## Decision outcome
 

@@ -2,7 +2,7 @@
 title: Vision and Positioning
 status: reviewed
 owner: ruralz-core
-last_updated: 2026-09-23
+last_updated: 2026-09-25
 depends_on:
   - docs/_meta/foundation-pack.md
   - docs/_meta/style-guide.md
@@ -14,145 +14,116 @@ milestone_tags_used: [M0, M1, M2, M3, M4, M5]
 
 ## Summary
 
-This document explains why Ruralz exists, who it serves and how it is positioned: "KrakenD Enterprise, but better, and fully free." It fixes the four differentiators and the principles `P1` to `P10`, which every document inherits, and records the license, business model, non-goals and success metrics. Evaluators should read it to judge fit; it commits to milestone order, and dates live in the [Roadmap](../roadmap/01-roadmap-and-milestones.md). Architects should read it before the [System Overview](../architecture/01-system-overview.md), because design documents MUST NOT contradict `P1` to `P10`. Nothing here is implemented: every capability carries a `Planned (Mx)` tag, and anything unscheduled points to an open question.
+This document explains why Ruralz exists, who it serves and how it is positioned: an open-source API gateway where every feature, including the control plane and console, is free (Apache-2.0, no feature gating). It fixes the four differentiators and the principles `P1` to `P10`, which every document inherits, and records the license, business model, non-goals and success metrics. Evaluators should read it to judge fit; it commits to milestone order, and dates live in the [Roadmap](../roadmap/01-roadmap-and-milestones.md). Architects should read it before the [System Overview](../architecture/01-system-overview.md), because design documents MUST NOT contradict `P1` to `P10`. Nothing here is implemented: every capability carries a `Planned (Mx)` tag.
 
 ## Scope and non-goals
 
-In scope: the sections below, as of 2026-09-23, positioned mainly against KrakenD Community Edition (CE) and Enterprise Edition (EE), with the license per [ADR-0002](../adr/0002-apache-2-license-no-feature-gating.md). Terms follow the frozen [foundation pack](../_meta/foundation-pack.md).
+In scope: the sections below, as of 2026-09-25, with the license per [ADR-0002](../adr/0002-apache-2-license-no-feature-gating.md). Terms follow the frozen [foundation pack](../_meta/foundation-pack.md).
 
-Out of scope: architecture ([System Overview](../architecture/01-system-overview.md)); row-by-row parity (the [KrakenD EE parity matrix](../comparison/01-krakend-ee-parity-matrix.md)); the full landscape ([Market landscape and table stakes](../comparison/02-market-landscape-and-table-stakes.md)); dates ([Roadmap and milestones](../roadmap/01-roadmap-and-milestones.md)); authoritative performance numbers ([Performance budgets and benchmarking](../architecture/12-performance-budgets-and-benchmarking.md)).
+Out of scope: architecture ([System Overview](../architecture/01-system-overview.md)); the capability-by-capability list (the [Feature Catalog](../features/01-feature-catalog.md)); dates ([Roadmap and milestones](../roadmap/01-roadmap-and-milestones.md)); authoritative performance numbers ([Performance budgets and benchmarking](../architecture/12-performance-budgets-and-benchmarking.md)).
 
 ## Problem and why now
 
 ### The problem
 
-Teams choosing an API gateway face a false choice: an open-source core that lacks what production traffic needs, or an enterprise edition that runs only with a valid license. KrakenD is the clearest case. KrakenD CE is Apache-2.0 ([source](https://github.com/krakend/krakend-ce)), but the AI Gateway category, gRPC, SSE, WebSockets, API keys, stateful rate limiting, the Security Policies Engine and OpenAPI tooling are Enterprise-only ([source](https://www.krakend.io/features/)). KrakenD EE will not start without a valid license file and shuts down when it expires ([source](https://www.krakend.io/docs/enterprise/overview/license-file/)).
+Teams running APIs in production need more than a reverse proxy: authentication and authorization, stateful Rate Limits and Quotas shared across Nodes, a way to run custom logic safely, governance for AI traffic, a control plane that rolls configuration out from Git, and native support for the protocols their services actually speak. When those capabilities sit behind a license key, a paid edition or a hosted-only service, a team either pays per feature or assembles a partial platform from separate tools, and it learns the true cost only after its traffic depends on the gateway.
 
-Platform teams now need safe custom logic, AI governance, GitOps and protocol breadth at once. KrakenD has no WASM Plugin runtime, no control plane, no console beyond the stateless Designer, no GraphQL federation and no HTTP/3 ([source](https://www.krakend.io/features/)). Most other vendors sell the missing pieces as a commercial layer. The main exceptions are Apache APISIX, whose AI plugins are Apache-2.0 ([source](https://github.com/apache/apisix)) and gained a semantic cache and distributed token counters in 3.18 ([source](https://apisix.apache.org/blog/2026/08/20/release-apache-apisix-3.18.0/)), and Envoy Gateway, whose free control plane is Kubernetes-native ([source](https://gateway.envoyproxy.io/docs/concepts/)) and whose standalone mode is experimental ([source](https://gateway.envoyproxy.io/docs/tasks/operations/standalone-deployment-mode/)).
+Platform teams now need safe custom logic, AI governance, GitOps and protocol breadth at once, in one Policy model, self-hosted and, where required, air-gapped. Ruralz is designed to provide all of it as one Apache-2.0 project in which no capability is reserved for a paid build.
 
-### Two licensing events that frame 2026
+### What Ruralz answers
 
-**KrakenD CE 3.0 drops Go plugins.** On 2026-06-04 KrakenD announced that from 3.0, KrakenD CE and the Lura Project no longer support Go plugins while EE keeps them, citing toolchain coupling and support burden ([source](https://www.krakend.io/blog/dropping-plugins-support-on-community/)). Pull request #1106 merged the change into `dev-3.0` on 2026-09-21 ([source](https://github.com/krakend/krakend-ce/pull/1106)). The free edition's only compiled-code extension point moves to the paid edition; KrakenD CE keeps Lua and CEL ([source](https://www.krakend.io/features/)).
+Each need maps to one of the four differentiators or to the core gateway:
 
-**Kong 3.10 removes the free Enterprise mode.** Kong's 3.10 release-note text, quoted in discussion #14628, says: "Free mode is no longer available. Running Kong Gateway without a license will now behave the same as running it with an expired license." ([source](https://github.com/Kong/kong/discussions/14628)). Kong's breaking-changes page still calls free mode deprecated, due for removal "in a future 3.x version" ([source](https://developer.konghq.com/gateway/breaking-changes/)). Kong/kong open-source releases stop at 3.9.x ([source](https://github.com/Kong/kong/releases)).
-
-### The wider pattern
-
-Both events continue a series in which free software became gated, closed or source-available.
-
-*Figure 1: licensing and ownership events before the 2026-09-23 snapshot.*
-
-```mermaid
-flowchart LR
-    a["2023-08-10 HashiCorp moves to BSL 1.1"] --> b["2024-03 Redis moves to RSALv2 and SSPLv1"]
-    b --> c["2024-10 Tyk Operator and Tyk Sync close source"]
-    c --> d["2025-03-27 Kong 3.10 ends free mode"]
-    d --> e["2026-05-29 Palo Alto Networks completes Portkey acquisition"]
-    e --> f["2026-06-04 KrakenD announces CE 3.0 drops Go plugins"]
-    f --> g["2026-09-21 KrakenD PR 1106 merged into dev-3.0"]
-```
-
-Sources for Figure 1: HashiCorp ([source](https://www.hashicorp.com/blog/hashicorp-adopts-business-source-license)), Redis ([source](https://redis.io/legal/licenses/)), Tyk ([source](https://github.com/TykTechnologies/tyk-operator)) ([source](https://github.com/TykTechnologies/tyk-sync)), Kong ([source](https://github.com/Kong/kong/discussions/14628)) ([source](https://developer.konghq.com/gateway/version-support-policy/)), Portkey ([source](https://www.paloaltonetworks.com/company/press/2026/palo-alto-networks-completes-acquisition-of-portkey-to-secure-ai-agents)), KrakenD ([source](https://www.krakend.io/blog/dropping-plugins-support-on-community/)) ([source](https://github.com/krakend/krakend-ce/pull/1106)).
+- **Safe custom logic.** Custom code runs as a sandboxed WASM Plugin with deny-by-default Capabilities, never as a native module loaded into the Node process (P6).
+- **AI governance.** LLM traffic is API traffic: providers are Upstreams behind `AIProvider` and `AIModel`, governed by the same Policies, Consumers and State Store as other traffic (P8).
+- **Configuration you can audit.** Git is the source of truth; Ruralz Control builds signed, immutable Revisions and reports anything that differs as Drift (P5).
+- **Protocol breadth without editions.** Every protocol maps onto the same `Route`, `Policy` and Filter Chain model (P7), in the same build.
+- **No lock-in by license.** No binary refuses to start, turns read-only or degrades over a license state, because no license state exists (P1).
 
 ### Why now
 
-- **Extensibility has a gap.** Kong removed beta WASM in 3.11.0.0 ([source](https://developer.konghq.com/gateway/breaking-changes/)), APISIX's proxy-wasm is experimental ([source](https://apisix.apache.org/docs/apisix/wasm/)) and Tyk documents no WASM ([source](https://tyk.io/docs/api-management/plugins/overview)). Envoy Gateway's Wasm ([source](https://gateway.envoyproxy.io/docs/api/extension_types/)) runs outside Kubernetes only in its experimental standalone mode.
-- **AI gateways are consolidating.** Palo Alto Networks owns Portkey ([source](https://www.paloaltonetworks.com/company/press/2026/palo-alto-networks-completes-acquisition-of-portkey-to-secure-ai-agents)); Helicone is in maintenance mode ([source](https://www.helicone.ai/blog/joining-mintlify)).
-- **Translating AI proxies break caching.** LiteLLM ([source](https://github.com/BerriAI/litellm/issues/41424)) and Portkey ([source](https://github.com/Portkey-AI/gateway/issues/1579)) drop `cache_control` on some routes, so buyers need native passthrough beside a unified façade.
-- **The supply-chain bar has risen.** EU Cyber Resilience Act reporting for manufacturers began on 2026-09-11 ([source](https://digital-strategy.ec.europa.eu/en/policies/cra-reporting)).
+- **Custom logic needs a sandbox.** Native extension mechanisms couple custom code to one compiler toolchain and share the Node's address space; a WASM sandbox with declared limits removes both problems, and the wazero runtime lets a Go data plane host it with `CGO_ENABLED=0`.
+- **AI traffic needs the same governance as API traffic.** Token Budgets, Provider Fallback, Prompt Cache marker preservation and cost attribution belong on the request path next to authentication and Rate Limits, not in a separate proxy with its own policy language.
+- **Unified façades must not break caching.** Translating a provider's native request into a common shape can drop provider features such as `cache_control` markers, so Ruralz offers native passthrough beside its OpenAI-compatible façade ([ADR-0014](../adr/0014-ai-api-surface.md)).
+- **The supply-chain bar has risen.** EU Cyber Resilience Act reporting for manufacturers began on 2026-09-11 ([source](https://digital-strategy.ec.europa.eu/en/policies/cra-reporting)); signed Revisions and Plugins ([ADR-0017](../adr/0017-artifact-signing.md)), SBOMs and provenance are part of the design from `M1`.
 
 ## Personas
 
-| Persona | Audience | Situation at the snapshot | Ruralz answer |
+| Persona | Audience | Need | Ruralz answer |
 |---|---|---|---|
-| KrakenD CE operator with custom Go plugins | operators, evaluators | CE 3.0 removes Go plugins ([source](https://www.krakend.io/blog/dropping-plugins-support-on-community/)) | Plugins on Plugin ABI v1, Planned (M2); `ruralz bundle import krakend` with declared fidelity levels, Planned (M2) |
-| KrakenD EE buyer | evaluators, architects | EE stops when its license file expires ([source](https://www.krakend.io/docs/enterprise/overview/license-file/)) | Every EE capability except rows the [parity matrix](../comparison/01-krakend-ee-parity-matrix.md) marks Not planned, Planned (M1) to Planned (M5) |
-| Platform engineer running many Clusters | operators, architects | Tyk Operator and Tyk Sync are closed source ([source](https://github.com/TykTechnologies/tyk-operator)) ([source](https://github.com/TykTechnologies/tyk-sync)) | Ruralz Control and Ruralz Console, Planned (M2) |
-| AI platform engineer | ai-platform-engineers | Kong's AI load balancing ([source](https://developer.konghq.com/plugins/ai-proxy-advanced/)) and token rate limiting ([source](https://developer.konghq.com/plugins/ai-rate-limiting-advanced/)) are AI Gateway Enterprise | `AIProvider`, `AIModel`, Token Budget in the State Store, Semantic Cache, Planned (M3) |
-| Plugin author | plugin-authors | Kong's WASM beta is gone ([source](https://developer.konghq.com/gateway/breaking-changes/)) | Plugin ABI v1, deny-by-default Capabilities, `ruralz plugin init` and `ruralz plugin test`, Planned (M2) |
-| Security engineer | security-engineers | FIPS and the Security Policies Engine are KrakenD EE-only ([source](https://www.krakend.io/features/)) | `secretRef`, Planned (M1); Capabilities, audit log, Revision and Plugin signing ([ADR-0017](../adr/0017-artifact-signing.md)), Planned (M2); FIPS build and Ruralz Console SSO/SAML, Planned (M5) |
-| Contributor | contributors | Tyk AI Studio requires the Tyk CLA ([source](https://github.com/TykTechnologies/ai-studio)) | DCO, no CLA, Apache-2.0 everywhere ([ADR-0002](../adr/0002-apache-2-license-no-feature-gating.md)), Planned (M0) |
+| Platform engineer running many Clusters | operators, architects | One control plane for many Clusters and Environments, driven from Git | Ruralz Control and Ruralz Console with RBAC, audit log and Drift, Planned (M2) |
+| API team lead evaluating a gateway | evaluators, architects | Production features without per-feature licensing or an expiry date | Every capability in the [Feature Catalog](../features/01-feature-catalog.md), free and self-hosted, Planned (M1) to Planned (M5) |
+| AI platform engineer | ai-platform-engineers | Model routing, Provider Fallback, token limits and cost attribution for LLM traffic | `AIProvider`, `AIModel`, Token Budget in the State Store, Semantic Cache, Planned (M3) |
+| Plugin author | plugin-authors | Custom logic in a familiar language without rebuilding the gateway | Plugin ABI v1, deny-by-default Capabilities, `ruralz plugin init` and `ruralz plugin test`, Planned (M2) |
+| Security engineer | security-engineers | Secrets out of configuration, auditable changes, signed artifacts, FIPS | `secretRef`, Planned (M1); Capabilities, audit log, Revision and Plugin signing ([ADR-0017](../adr/0017-artifact-signing.md)), Planned (M2); FIPS build and Ruralz Console SSO/SAML, Planned (M5) |
+| Contributor | contributors | A project whose license will not change under them | DCO, no CLA, Apache-2.0 everywhere ([ADR-0002](../adr/0002-apache-2-license-no-feature-gating.md)), Planned (M0) |
 
-[Migration from KrakenD](../comparison/03-migration-from-krakend.md) owns the migration path.
-
-## Positioning versus KrakenD EE and the market
+## Positioning
 
 ### Positioning statement
 
-Ruralz is "KrakenD Enterprise, but better, and fully free": every feature, including the control plane and console, is Apache-2.0, with no feature gating, no license keys and no "enterprise" build. "Better" means the four differentiators: (1) **WASM plugin system**, (2) **AI/LLM gateway**, (3) **built-in control plane + GitOps**, (4) **multi-protocol native**.
+Ruralz is an open-source API gateway where every feature, including the control plane and console, is free (Apache-2.0, no feature gating): no license keys, no license files and no "enterprise" build. It is for platform, API and AI platform teams that want production gateway capabilities, safe extensibility, GitOps and protocol breadth from one self-hosted project. Its design centers on the four differentiators: (1) **WASM plugin system**, (2) **AI/LLM gateway**, (3) **built-in control plane + GitOps**, (4) **multi-protocol native**.
 
 ### The four differentiators
 
-| # | Differentiator | What Ruralz plans | KrakenD CE and EE at the snapshot | Owning document | Milestone |
-|---|---|---|---|---|---|
-| 1 | WASM plugin system | Sandboxed Plugins on Plugin ABI v1, pulled from OCI by digest and Sigstore-signed ([ADR-0017](../adr/0017-artifact-signing.md)), in any Phase including `onChunk` | Go plugins (EE-only from CE 3.0) and Lua; no WASM ([source](https://www.krakend.io/features/)) | [WASM plugin system](../architecture/05-wasm-plugin-system.md) | Planned (M2); proxy-wasm adapter Planned (M4) ([ADR-0005](../adr/0005-plugin-abi-v1.md)) |
-| 2 | AI/LLM gateway | `AIProvider` and `AIModel`, an OpenAI-compatible façade plus native passthrough ([ADR-0014](../adr/0014-ai-api-surface.md)), Token Budgets and Semantic Cache in the State Store | AI Gateway is EE-only ([source](https://www.krakend.io/features/)) | [AI/LLM gateway](../architecture/06-ai-llm-gateway.md) | Planned (M3) |
-| 3 | built-in control plane + GitOps | Ruralz Control builds and signs Revisions from Git and runs Rollouts over the Control Stream; Ruralz Console, RBAC, audit log, Drift | No control plane; no console beyond the Designer ([source](https://www.krakend.io/features/)) | [Control plane and GitOps](../architecture/04-control-plane-and-gitops.md) | Planned (M2) |
-| 4 | multi-protocol native | HTTP/1.1 to HTTP/3, gRPC, GraphQL federation, WebSocket, SSE, Kafka, NATS and MQTT through per-protocol Phase mappings (P7) | No HTTP/3 or GraphQL federation; gRPC, SSE and WebSockets EE-only ([source](https://www.krakend.io/features/)) | [Multi-protocol](../architecture/07-multi-protocol.md) | gRPC, GraphQL, WebSocket, SSE and HTTP/3 Planned (M3); Kafka, NATS, MQTT Planned (M4) |
+| # | Differentiator | What Ruralz plans | Owning document | Milestone |
+|---|---|---|---|---|
+| 1 | WASM plugin system | Sandboxed Plugins on Plugin ABI v1, pulled from OCI by digest and Sigstore-signed ([ADR-0017](../adr/0017-artifact-signing.md)), in any Phase including `onChunk` | [WASM plugin system](../architecture/05-wasm-plugin-system.md) | Planned (M2); proxy-wasm adapter Planned (M4) ([ADR-0005](../adr/0005-plugin-abi-v1.md)) |
+| 2 | AI/LLM gateway | `AIProvider` and `AIModel`, an OpenAI-compatible façade plus native passthrough ([ADR-0014](../adr/0014-ai-api-surface.md)), Token Budgets and Semantic Cache in the State Store | [AI/LLM gateway](../architecture/06-ai-llm-gateway.md) | Planned (M3) |
+| 3 | built-in control plane + GitOps | Ruralz Control builds and signs Revisions from Git and runs Rollouts over the Control Stream; Ruralz Console, RBAC, audit log, Drift | [Control plane and GitOps](../architecture/04-control-plane-and-gitops.md) | Planned (M2) |
+| 4 | multi-protocol native | HTTP/1.1 to HTTP/3, gRPC, GraphQL federation, WebSocket, SSE, Kafka, NATS and MQTT through per-protocol Phase mappings (P7) | [Multi-protocol](../architecture/07-multi-protocol.md) | gRPC, GraphQL, WebSocket, SSE and HTTP/3 Planned (M3); Kafka, NATS, MQTT Planned (M4) |
 
-### Versus KrakenD EE: what becomes free
+### What is free
 
-These rows cover 39 of the 71 EE-only rows on the KrakenD feature matrix ([source](https://www.krakend.io/features/)). Milestones are provisional (OQ-vision-and-positioning-5); the [parity matrix](../comparison/01-krakend-ee-parity-matrix.md) covers all 71 and takes precedence.
+Everything is free. The groups below show the breadth; the [Feature Catalog](../features/01-feature-catalog.md) lists every capability and takes precedence on milestones.
 
-| KrakenD EE-only group | In Ruralz | Milestone |
+| Capability group | In Ruralz | Milestone |
 |---|---|---|
-| API keys, basic authentication, multiple identity providers per Route | Free, core `Policy` types `auth.api-key`, `auth.basic` and `auth.jwt` | Planned (M1) |
-| Stateful, tiered and service rate limiting | Free, `ratelimit`: local token bucket plus GCRA in the State Store ([ADR-0008](../adr/0008-rate-limiting-local-bucket-and-gcra.md)) | Planned (M1) |
-| IP filtering and GeoIP | Free, built-in `authz.ip`, Planned (M1), and `authz.geoip`, Planned (M2) ([pack section 10](../_meta/foundation-pack.md#10-policy-type-registry)) | Planned (M1) to Planned (M2) |
-| Security Policies Engine | Free: `authz.cel`, Planned (M1); `authz.opa` and `authz.cedar`, Planned (M2) ([ADR-0011](../adr/0011-expressions-and-authorization-engines.md)) | Planned (M1) to Planned (M2) |
-| OpenAPI importer, exporter and server; Postman and DOT generators; dump to disk; end-to-end testing tool; plugin generator | Free CLI commands ([pack section 9](../_meta/foundation-pack.md#9-cli-command-registry)): `ruralz bundle import openapi`, `ruralz bundle export`, `ruralz test run`, `ruralz plugin init`, Planned (M2); `ruralz node dump`, Planned (M1); serving per OQ-vision-and-positioning-11 | Planned (M1) to Planned (M2) |
-| All 11 AI Gateway rows | Free, `AIProvider`, `AIModel`, Token Budget | Planned (M3) |
-| gRPC server and client; streaming and SSE; direct WebSockets and multiplexer | Free, native protocols | Planned (M3) |
-| Token quota enforcement and quota management | Free, Token Budget (`ai.token-budget`) | Planned (M3) |
-| MCP Server | Free; surface per OQ-vision-and-positioning-12 | Planned (M3) |
-| Kafka async agents and advanced Apache Kafka | Free, event protocols | Planned (M4) |
-| FIPS-140-2 cryptography module | Free FIPS build | Planned (M5) |
-| API monetization | Free monetization hooks | Planned (M5) |
+| Authentication | Core `Policy` types `auth.jwt`, `auth.api-key`, `auth.basic` and `auth.mtls`, with multiple identity providers per Route | Planned (M1) |
+| Rate Limits and Quotas | `ratelimit` and `quota`: local token bucket plus GCRA in the State Store ([ADR-0008](../adr/0008-rate-limiting-local-bucket-and-gcra.md)) | Planned (M1) |
+| IP filtering and GeoIP | Built-in `authz.ip`, Planned (M1), and `authz.geoip`, Planned (M2) ([pack section 10](../_meta/foundation-pack.md#10-policy-type-registry)) | Planned (M1) to Planned (M2) |
+| Authorization engines | `authz.cel`, Planned (M1); `authz.opa` and `authz.cedar`, Planned (M2) ([ADR-0011](../adr/0011-expressions-and-authorization-engines.md)) | Planned (M1) to Planned (M2) |
+| Bundle and Plugin tooling | CLI commands ([pack section 9](../_meta/foundation-pack.md#9-cli-command-registry)): `ruralz node dump`, Planned (M1); `ruralz bundle import openapi`, `ruralz bundle export`, `ruralz test run`, `ruralz plugin init`, Planned (M2); serving OpenAPI documents per OQ-vision-and-positioning-11 | Planned (M1) to Planned (M2) |
+| Control plane | Ruralz Control, Ruralz Console, RBAC, audit log, Drift, canary Rollouts | Planned (M2) |
+| AI/LLM gateway | `AIProvider`, `AIModel`, Provider Fallback, Token Budget (`ai.token-budget`), Semantic Cache, cost attribution | Planned (M3) |
+| Streaming protocols | gRPC, GraphQL federation, WebSocket, SSE, HTTP/3 | Planned (M3) |
+| MCP Server | Tools generated from existing Routes; surface per OQ-vision-and-positioning-12 | Planned (M3) |
+| Event protocols | Kafka, NATS and MQTT Upstreams and topic ingress | Planned (M4) |
+| Enterprise hardening | FIPS build, Ruralz Console SSO/SAML, monetization hooks | Planned (M5) |
 
-### The market
+### Open-source model
 
-| Segment | Products (openness; breadth) | Licensing posture at the snapshot | Gap Ruralz targets |
-|---|---|---|---|
-| Enterprise-edition gateways | KrakenD CE (1.0; 0.4) and EE (0; 0.6), Kong Gateway Enterprise (0; 0.8), Tyk (0.2; 0.8) | KrakenD EE's license file gates startup ([source](https://www.krakend.io/docs/enterprise/overview/license-file/)); unlicensed Kong 3.10+ behaves as expired ([source](https://github.com/Kong/kong/discussions/14628)); Tyk's `ee` folder is commercial ([source](https://github.com/TykTechnologies/tyk)) | The same breadth without a license key |
-| Foundation-governed open source | Apache APISIX (1.0; 0.7), Envoy Gateway (1.0; 0.6) | Apache-2.0 ([source](https://github.com/apache/apisix)) ([source](https://github.com/envoyproxy/gateway)); APISIX's multi-cluster control plane, SSO and audit are in commercial API7 Gateway (0; 0.8) ([source](https://docs.api7.ai/api7-gateway/enterprise-features/overview)) | APISIX: a free multi-cluster control plane and production-grade WASM Plugins. Envoy Gateway: production-grade operation outside Kubernetes |
-| Open core | Gravitee APIM (0.4; 0.8) | LLM, MCP and A2A proxies, event entrypoints and connectors, and audit trail are Enterprise-only ([source](https://documentation.gravitee.io/apim/introduction/enterprise-edition.md)) | AI and event protocols without an edition split |
-| SaaS and edge | Zuplo (0; 0.8), Traefik Proxy and Hub (0.6; 0.8) | Zuplo self-hosting is Enterprise-only ([source](https://zuplo.com/pricing)); Traefik's central control plane and AI Gateway are paid in Hub ([source](https://traefik.io/pricing)) | Self-hosting with no feature penalty |
-| AI-only gateways | LiteLLM (0.8; 0.2), Portkey (not plotted), Agent Router (1.0; 0.3) | LiteLLM's SSO, audit logs and RBAC are enterprise features ([source](https://docs.litellm.ai/docs/enterprise)); Portkey's semantic caching is hosted and enterprise only ([source](https://github.com/Portkey-AI/gateway)); Agent Router is Apache-2.0 ([source](https://github.com/theagentrouter/agent-router)) | AI and API traffic under one Policy model |
+Ruralz is developed in the open in one monorepo under Apache-2.0, with DCO sign-off and no CLA. Revington owns the copyright and the Ruralz trademark and earns revenue only from Ruralz Cloud and commercial support, neither of which delivers a feature the public build lacks ([Open source and business model](#open-source-and-business-model)). A feature arrives for everyone at its milestone, or it is `Not planned` with a reason in the Feature Catalog.
 
-*Figure 2: market positioning by openness and capability breadth as of 2026-09-23, scored with the rubric below.*
+*Figure 1: Ruralz capability areas by delivery milestone and scope; points are plans, nothing is shipped.*
 
 ```mermaid
 quadrantChart
-    title Openness versus capability breadth at 2026-09-23
-    x-axis Gated --> Fully open
-    y-axis Narrow --> Broad
-    quadrant-1 Open and broad
-    quadrant-2 Broad but gated
-    quadrant-3 Gated and narrow
-    quadrant-4 Open but narrow
-    "Ruralz M5 plan (not shipped)": [0.95, 0.95]
-    "Ruralz M1 plan (not shipped)": [0.95, 0.23]
-    KrakenD CE: [0.95, 0.41]
-    KrakenD EE: [0.05, 0.59]
-    Kong, API7, Zuplo: [0.05, 0.77]
-    Tyk: [0.23, 0.77]
-    Gravitee APIM: [0.41, 0.77]
-    Traefik: [0.59, 0.77]
-    Apache APISIX: [0.95, 0.68]
-    Envoy Gateway: [0.95, 0.59]
-    Agent Router: [0.95, 0.32]
-    LiteLLM: [0.77, 0.23]
+    title Ruralz capability areas by milestone and scope
+    x-axis Early milestone --> Late milestone
+    y-axis Narrow scope --> Broad scope
+    quadrant-1 Later and broad
+    quadrant-2 Early and broad
+    quadrant-3 Early and narrow
+    quadrant-4 Later and narrow
+    "Core gateway M1": [0.23, 0.9]
+    "Control plane M2": [0.41, 0.72]
+    "WASM Plugins M2": [0.41, 0.55]
+    "AI/LLM gateway M3": [0.59, 0.63]
+    "gRPC GraphQL WS SSE M3": [0.59, 0.5]
+    "Event protocols M4": [0.77, 0.32]
+    "Multi-region Cells M4": [0.77, 0.23]
+    "FIPS and Console SSO M5": [0.95, 0.14]
 ```
 
-Openness is 0 for a proprietary or key-gated core, otherwise 1.0 minus 0.2 per category sold only in a paid layer (control plane, console with SSO or audit, AI, streaming and event protocols, extensibility). Breadth is 0.2 for full core gateway features plus 0.2 per differentiator shipped, 0.1 if partial or experimental. Ruralz scores openness 1.0 (P1) and breadth 1.0 at M5 and 0.2 at M1 (core only). Points sit at 0.05 + 0.9 × score to keep labels inside the chart; scores are maintainer judgment from cited evidence, not measurement.
+The x position is 0.05 + 0.18 × the milestone number. Scope is maintainer judgment (hypothesis) of the share of Ruralz deployments expected to use the area: the core gateway serves every deployment, while multi-region Cells and the FIPS build serve a few.
 
 ### Where Ruralz does not lead
 
-- **Nothing ships yet.** Competitors have years of production use.
-- **APISIX gives AI features away** under Apache-2.0, including the 3.18 semantic cache ([source](https://apisix.apache.org/blog/2026/08/20/release-apache-apisix-3.18.0/)). Ruralz competes on integration: Token Budgets on the same State Store, native passthrough, one Policy model.
-- **Gateway API conformance is behind.** Envoy Gateway, NGINX Gateway Fabric, Traefik Proxy and Gravitee report 1.6.1 ([source](https://gateway-api.sigs.k8s.io/implementations/)); Ruralz defers it (non-goal 7).
-- **Go tail latency.** Garbage-collector pauses may hurt a Go data plane more than C++ Envoy (hypothesis); P10 requires published benchmarks.
-- **The Plugin ecosystem starts at zero.**
+- **Nothing ships yet.** Every capability is a plan until its milestone exits and the Feature Catalog marks it implemented.
+- **Gateway API conformance is deferred.** Ruralz ships a Helm chart and CRDs mirroring its kinds, Planned (M2), and defers Kubernetes Gateway API conformance (non-goal 7, OQ-vision-and-positioning-4).
+- **Go tail latency.** Garbage-collector pauses may hurt a Go data plane's p99 (hypothesis); P10 requires published benchmarks against the [Performance budgets](../architecture/12-performance-budgets-and-benchmarking.md).
+- **The Plugin ecosystem starts at zero.** PDKs and example Plugins arrive in `M2`, and the ecosystem grows only with contributors.
 
 ## Principles
 
@@ -180,17 +151,17 @@ All Ruralz components are Apache-2.0: `ruralzd`, `ruralz-control`, Ruralz Consol
 ### No feature gating
 
 - Ruralz MUST NOT ship license keys, license files, Revington entitlement checks or a separate "enterprise" build.
-- No binary may refuse to start, turn read-only or degrade over a license state, unlike KrakenD EE ([source](https://www.krakend.io/docs/enterprise/overview/license-file/)) and Kong ([source](https://developer.konghq.com/gateway/entities/license/)).
+- No binary may refuse to start, turn read-only or degrade over a license state.
 - Every Filter, Host Function and API MUST work self-hosted and air-gapped, with no Revington-operated service: `AIProvider` pricing tables ship in configuration, and an air-gapped Semantic Cache uses a local embedding `AIProvider` such as `ollama`.
 - Commercial support MUST NOT deliver private features; such work lands upstream under Apache-2.0.
 
 ### Revenue
 
-Revington earns revenue from exactly two lines: **Ruralz Cloud** (see [Managed cloud](#managed-cloud)) and **commercial support**. Ruralz gives away what others charge for: admin console SSO, paid at Kong Konnect Enterprise ([source](https://konghq.com/pricing)); SSO, custom roles and audit trail, paid at Gravitee EE ([source](https://documentation.gravitee.io/apim/introduction/enterprise-edition)); advanced RBAC and audit logging, paid at Tyk AI Studio EE ([source](https://github.com/TykTechnologies/ai-studio)); and multi-cluster control planes, paid at Traefik Hub ([source](https://traefik.io/pricing)). In Ruralz, RBAC, audit log and Ruralz Control are Planned (M2), and Ruralz Console SSO/SAML is Planned (M5).
+Revington earns revenue from exactly two lines: **Ruralz Cloud** (see [Managed cloud](#managed-cloud)) and **commercial support**. Control-plane and identity capabilities stay in the public build: RBAC, audit log and Ruralz Control are Planned (M2), and Ruralz Console SSO/SAML is Planned (M5).
 
 ### Why Apache-2.0 and not copyleft or source-available
 
-Relicensing costs trust: Redis said its 2024 move "hurt our relationship with the Redis community" ([source](https://redis.io/blog/agplv3/)), and HashiCorp's BSL move produced the OpenTofu fork ([source](https://www.linuxfoundation.org/press/opentofu-announces-general-availability)).
+A permissive license with no edition split lets anyone run, embed and extend Ruralz without a legal review of which build they hold, and a license that never changes is what users and contributors can plan around.
 
 - **Patent grant.** Apache-2.0 Section 3 grants each contributor's patent license ([source](https://www.apache.org/licenses/LICENSE-2.0)).
 - **DCO, no CLA.** A DCO certifies that each commit is contributed under the project license ([source](https://developercertificate.org/)), so Revington gets no rights beyond Apache-2.0 and every released version stays Apache-2.0. Future versions stay Apache-2.0 because of P1 and [ADR-0002](../adr/0002-apache-2-license-no-feature-gating.md), not a legal barrier; OQ-vision-and-positioning-9 is the structural safeguard.
@@ -203,7 +174,7 @@ Within `M0` to `M5`, Ruralz deliberately does not attempt the following:
 
 1. **No service mesh.** Ruralz is a north-south and AI gateway: no sidecar, no east-west mesh.
 2. **No full API management suite.** A developer portal, API catalog and billing engine are Not planned because they are separate products; monetization hooks (Planned (M5)) and `ruralz bundle export openapi` (Planned (M2)) let portals integrate.
-3. **No Go `plugin` or shared-object loading, and no Lua.** Custom logic is a WASM Plugin or inline CEL ([ADR-0011](../adr/0011-expressions-and-authorization-engines.md)), avoiding the toolchain coupling KrakenD cited ([source](https://www.krakend.io/blog/dropping-plugins-support-on-community/)).
+3. **No Go `plugin` or shared-object loading, and no Lua.** Custom logic is a WASM Plugin or inline CEL ([ADR-0011](../adr/0011-expressions-and-authorization-engines.md)), avoiding toolchain coupling between custom code and the Ruralz Gateway build.
 4. **No LLM application platform.** Ruralz governs AI traffic; it hosts no models, retrieval pipelines or evaluations.
 5. **No durable event storage.** Kafka, NATS and MQTT Routes (Planned (M4)) mediate and govern traffic; they do not replace a broker.
 6. **No curated WAF rule sets.** Ruralz bundles no OWASP rule set; WAF engines integrate as Plugins.
@@ -219,13 +190,13 @@ SM-4 and SM-5 use one reference scenario: HTTP/1.1 keep-alive, 1 KiB body, JWT v
 | ID | Metric | How it is measured | Value | Milestone |
 |---|---|---|---|---|
 | SM-1 | Features behind a license key or edition | Code search and release audit on every tag | 0 features (target) | Planned (M0), permanent |
-| SM-2 | KrakenD EE-only rows with a milestone or a reasoned "Not planned" | Count in the [parity matrix](../comparison/01-krakend-ee-parity-matrix.md) | 100% of EE-only rows (target) | Planned (M1) |
-| SM-3 | KrakenD EE-only rows implemented | Parity matrix status after each milestone | 100% of rows not marked Not planned, with 10 or fewer Not planned rows (target) | Planned (M5) |
+| SM-2 | Feature Catalog rows with a milestone or a reasoned `Not planned` | Count in the [Feature Catalog](../features/01-feature-catalog.md) | 100% of rows (target) | Planned (M1) |
+| SM-3 | Feature Catalog rows implemented at their milestone's exit | Feature Catalog status after each milestone | 100% of rows tagged that milestone or earlier and not marked `Not planned` (target) | Planned (M1) to Planned (M5) |
 | SM-4 | Gateway-added latency p99, reference scenario | Benchmark suite on reference hardware | 1 ms or less (target) | Planned (M1) |
 | SM-5 | Gateway-added latency p50, reference scenario | Benchmark suite on reference hardware | 150 µs or less (target) | Planned (M1) |
 | SM-6 | WASM Plugin Phase call overhead, pooled instance, deadline interruption enabled, p99 | Per-Phase microbenchmark in CI | 50 µs or less (target) | Planned (M2) |
 | SM-7 | Time from download to first proxied request | Scripted quickstart in CI on a clean machine | 10 minutes or less (target) | Planned (M1) |
-| SM-8 | KrakenD configurations imported by `ruralz bundle import krakend` | Corpus per OQ-vision-and-positioning-13; full-fidelity share reported separately | 90% or more at full or partial fidelity (target) | Planned (M2) |
+| SM-8 | OpenAPI 3.x documents imported by `ruralz bundle import openapi` that validate and render without manual edits | Public OpenAPI corpus in the monorepo, run in CI | 90% or more (target) | Planned (M2) |
 | SM-9 | Rollout convergence in a 100-Node Cluster | `all-at-once` Rollout, Plugins cached: Revision recorded by Ruralz Control to `complete` (last ACK) | 30 s or less at p95 (target) | Planned (M2) |
 | SM-10 | Token Budget overshoot under concurrent streaming | Mock provider; B = 1,000,000 tokens, 200 concurrent streams, 2,000-token prompts, `max_tokens` = 4,096, reservations per P8; the mock reports prompt usage 2% above the gateway estimate and drops usage on 5% of streams | Overshoot at most the sum of per-stream estimate error, and 1% of B or less (hypothesis) | Planned (M3) |
 | SM-11 | Prompt Cache marker preservation on native passthrough | Conformance tests for `cache_control` and equivalents | 100% of test cases (target) | Planned (M3) |
@@ -251,9 +222,9 @@ Revington would operate `ruralz-control`, its Control Store and Ruralz Console, 
 - **Exit.** Customers MUST be able to leave without losing configuration or control-plane state. Bundles live in the customer's Git repository; Control Store state (Rollout history, RBAC, audit log, enrollment, Revisions) leaves through `ruralz control backup` and `ruralz control restore`. State Store counters, such as Token Budget usage, reset on migration. Nodes re-enroll while their active Revision keeps traffic flowing.
 - **Pricing.** Customers pay for operations, availability, Regions and support, never for features.
 
-### Market reference points
+### Open points
 
-Kong Konnect Plus prices per gateway plus USD 200 per extra million requests ([source](https://konghq.com/pricing)); API7 Cloud prices per million calls ([source](https://api7.ai/pricing)); Zuplo reserves self-hosting for Enterprise ([source](https://zuplo.com/pricing)), a gating model Ruralz Cloud rejects. The pricing unit is OQ-vision-and-positioning-1. Revington may be a Cyber Resilience Act manufacturer for Ruralz Cloud ([source](https://digital-strategy.ec.europa.eu/en/policies/cra-reporting)), pending legal review (OQ-vision-and-positioning-6).
+The pricing unit is OQ-vision-and-positioning-1. Revington may be a Cyber Resilience Act manufacturer for Ruralz Cloud ([source](https://digital-strategy.ec.europa.eu/en/policies/cra-reporting)), pending legal review (OQ-vision-and-positioning-6).
 
 ## Open questions
 
@@ -262,13 +233,10 @@ Kong Konnect Plus prices per gateway plus USD 200 per extra million requests ([s
 | OQ-vision-and-positioning-1 | Which pricing unit does Ruralz Cloud use? | Per Node-hour; per Cluster; per million requests; tiers by Region count | Revington product | No |
 | OQ-vision-and-positioning-2 | How strict is the trademark policy for modified builds and "compatible with Ruralz" claims? | ASF-style nominative use; ban for modified builds; certification | Revington legal | No |
 | OQ-vision-and-positioning-3 | When does Ruralz Cloud launch? | After M2; after M3; after M4 | Revington product | No |
-| OQ-vision-and-positioning-4 | Does the conformance gap justify scheduling Gateway API conformance ([ADR-0016](../adr/0016-kubernetes-helm-and-crds.md))? | Keep deferred beyond M5; Planned (M4); Planned (M5) | deployment-topologies | No |
-| OQ-vision-and-positioning-5 | Are the milestones in the KrakenD EE summary table final? | Adopt as written; defer to the parity matrix row by row | ruralz-core | No |
+| OQ-vision-and-positioning-4 | Should Kubernetes Gateway API conformance be scheduled ([ADR-0016](../adr/0016-kubernetes-helm-and-crds.md))? | Keep deferred beyond M5; Planned (M4); Planned (M5) | deployment-topologies | No |
 | OQ-vision-and-positioning-6 | What is Revington's CRA role? | Manufacturer for Ruralz Cloud only; steward for the project; both | Revington legal | No |
 | OQ-vision-and-positioning-7 | What baselines replace the adoption hypotheses SM-14 and SM-15? | Re-baseline after M1; keep; download counts | ruralz-core | No |
-| OQ-vision-and-positioning-8 | How often is the competitor snapshot refreshed? | Each milestone; quarterly; on licensing events | ruralz-core | No |
 | OQ-vision-and-positioning-9 | Should Ruralz stay Revington-stewarded or move to a neutral foundation? | Revington with open governance; a foundation after M3 | Revington leadership | No |
-| OQ-vision-and-positioning-11 | Should Ruralz Gateway serve OpenAPI documents, like KrakenD's OpenAPI server, beyond the [CLI and API surface](../reference/01-cli-and-api-surface.md) export? | Serve from Ruralz Gateway; publish only the `ruralz bundle export openapi` output; Not planned | CLI and API surface owner | No |
+| OQ-vision-and-positioning-11 | Should Ruralz Gateway serve OpenAPI documents beyond the [CLI and API surface](../reference/01-cli-and-api-surface.md) export? | Serve from Ruralz Gateway; publish only the `ruralz bundle export openapi` output; Not planned | CLI and API surface owner | No |
 | OQ-vision-and-positioning-12 | What surface does the MCP Server take, given no MCP kind or Policy type exists? | An `AIModel` or `Route` feature; a Policy type; a Plugin | AI/LLM gateway owner | No |
-| OQ-vision-and-positioning-13 | Which public KrakenD configuration corpus measures SM-8, and who curates it? | Curated repository in the monorepo; community submissions; both | Migration from KrakenD owner | No |
 | OQ-vision-and-positioning-15 | How accurate are prompt estimates per provider for Token Budget reservations (P8, SM-10)? | Count endpoints with per-model correction; local tokenizers; both | AI/LLM gateway owner | No |

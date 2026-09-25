@@ -79,17 +79,17 @@ forbidden_aliases:
   use: Upstream
   sense: backend as a Ruralz concept; for State Store or Control Store implementations write 'State Store backend'
     or 'driver'
-- pattern: \b(?:API|KrakenD|published|public) endpoints?\b
+- pattern: \b(?:API|published|public) endpoints?\b
   use: Route
-  sense: endpoint in the KrakenD sense (a published API path); bare 'Endpoint' is a glossary term (an Upstream target
-    address) and is not flagged
+  sense: endpoint as a name for a published API path; bare 'Endpoint' is a glossary term (an Upstream target address)
+    and is not flagged
 - pattern: (?<!Kubernetes )(?<!Ingress )\bcontrollers?\b
   use: Ruralz Control
   sense: controller as a name for the control plane
 - pattern: \bmanagement planes?\b
   use: Ruralz Control
   sense: management plane as a name for the control plane
-- pattern: (?<!Grafana )(?<!Tyk )(?<!ELK Stack )\bdashboards?\b
+- pattern: (?<!Grafana )(?<!ELK Stack )\bdashboards?\b
   use: Ruralz Console
   sense: dashboard as a name for the Ruralz web UI; Grafana dashboards and third-party product names are exempt
 - pattern: \bsync protocols?\b
@@ -152,11 +152,13 @@ lenses:
       fix. Default to verdict `revise` when uncertain.
   L4C:
     name: claims-auditor
-    prompt: Act as a fact-checker who assumes every external claim is wrong until it is sourced. Every statement
-      about a competitor, vendor, license, release or date MUST cite a URL that appears in a file under docs/_meta/research/
-      and agree with the 2026-09-23 snapshot; no Ruralz capability may be described as Supported or shipped, every
-      Planned tag must name a milestone M0 to M5, and every matrix must have no blank cells and counts that sum.
-      For every blocking finding cite the section name, quote the claim, and name the missing or contradicting source.
+    prompt: Act as a fact-checker who assumes every Ruralz feature and number claim is wrong until it is backed.
+      Every feature claim MUST match docs/features/01-feature-catalog.md and the owning design document; every performance
+      or scale number MUST be tagged (target) or (hypothesis) and agree with docs/architecture/12-performance-budgets-and-benchmarking.md;
+      every statement about a library, license, standard, release or date MUST cite a URL that appears in a file
+      under docs/_meta/research/; no Ruralz capability may be described as Supported or shipped, every Planned tag
+      must name a milestone M0 to M5, and every catalog table must have no blank cells and counts that sum. For
+      every blocking finding cite the section name, quote the claim, and name the missing or contradicting source.
       Default to verdict `revise` when uncertain.
 filter_chain_phases:
 - onRequestHeaders
@@ -177,18 +179,9 @@ audiences:
 - ai-platform-engineers
 - security-engineers
 research_files:
-- path: docs/_meta/research/krakend-parity.md
-  status: present
-  topic: KrakenD CE vs EE feature snapshot 2026-09-23 (153 feature rows)
-- path: docs/_meta/research/competitors-kong-tyk-apisix.md
+- path: docs/_meta/research/ai-provider-apis.md
   status: planned
-  topic: Kong, Tyk, Apache APISIX
-- path: docs/_meta/research/competitors-envoy-zuplo-gravitee.md
-  status: planned
-  topic: Envoy Gateway and Envoy AI Gateway, Zuplo, Gravitee
-- path: docs/_meta/research/ai-gateways.md
-  status: planned
-  topic: AI gateways (Portkey, LiteLLM, vendor AI gateways), provider APIs, MCP and A2A
+  topic: LLM provider APIs (OpenAI, Anthropic, Gemini, Bedrock, Mistral, Ollama), MCP and A2A
 - path: docs/_meta/research/go-libraries-runtime.md
   status: planned
   topic: 'Go libraries: WASM runtime, Raft, State Store client, telemetry, CEL, OPA, Cedar, JOSE, tokenizer'
@@ -200,10 +193,7 @@ research_files:
   topic: Distributed rate limiting, stateless scaling, multi-region and zero-downtime upgrade patterns
 - path: docs/_meta/research/licensing-landscape.md
   status: planned
-  topic: API gateway licensing moves 2025 to 2026
-- path: docs/_meta/research/krakend-config-model.md
-  status: planned
-  topic: KrakenD configuration model, extra_config namespaces, plugin types (for migration and parity)
+  topic: 'Open-source licensing: Apache-2.0, DCO, relicensing and trademark commitments'
 - path: docs/_meta/research/tooling-and-licenses.md
   status: present
   topic: Documentation and supply-chain tooling licenses, Control Store module licenses, YAML 1.2 parser and JSON
@@ -232,8 +222,6 @@ machine_check_kinds:
     link.
   links_all_docs_once: Every manifest doc except ids 1 and 2 is linked exactly once, and every ADR is linked exactly
     once.
-  covers_source_rows: Every value in the Feature column of the tables in source appears as a Feature cell in the
-    tables under table_headings.
   summary_counts_match: Counts in the table under section equal the counts of each status value in column across
     table_headings, and totals sum.
 adr_common:
@@ -310,9 +298,7 @@ docs:
   - docs/operations/02-zero-downtime-upgrades-and-hot-reload.md
   - docs/operations/03-capacity-planning.md
   - docs/operations/04-high-availability-and-disaster-recovery.md
-  - docs/comparison/01-krakend-ee-parity-matrix.md
-  - docs/comparison/02-market-landscape-and-table-stakes.md
-  - docs/comparison/03-migration-from-krakend.md
+  - docs/features/01-feature-catalog.md
   - docs/engineering/01-tech-stack-and-libraries.md
   - docs/engineering/02-repository-layout-and-conventions.md
   - docs/engineering/03-testing-and-quality-strategy.md
@@ -333,14 +319,14 @@ docs:
   acceptance:
   - The file is 150 lines or fewer.
   - Every relative link resolves.
-  - Why Ruralz contrasts Ruralz with KrakenD Enterprise and states that every feature, including Ruralz Control
-    and Ruralz Console, is open source.
+  - Why Ruralz states that Ruralz is an open-source API gateway where every feature, including Ruralz Control and
+    Ruralz Console, is free (Apache-2.0, no feature gating).
   - The text states explicitly that Ruralz is Apache-2.0 and that there is no feature gating.
   - Four differentiators lists the four differentiators verbatim from the foundation pack.
   - Status states that nothing is implemented yet and that features are tagged Planned (Mx).
   - License and governance names Revington (revington.co) as copyright and trademark holder and GitHub ravindu-rev
     as the repository owner.
-  - Every capability claimed also appears in docs/comparison/01-krakend-ee-parity-matrix.md or docs/roadmap/01-roadmap-and-milestones.md.
+  - Every capability claimed also appears in docs/features/01-feature-catalog.md or docs/roadmap/01-roadmap-and-milestones.md.
   machine_checks:
   - kind: max_lines
     value: 150
@@ -356,7 +342,7 @@ docs:
   - kind: links_to
     value:
     - docs/README.md
-    - docs/comparison/01-krakend-ee-parity-matrix.md
+    - docs/features/01-feature-catalog.md
     - docs/roadmap/01-roadmap-and-milestones.md
   required_terms:
   - Ruralz Gateway
@@ -401,9 +387,7 @@ docs:
   - docs/operations/02-zero-downtime-upgrades-and-hot-reload.md
   - docs/operations/03-capacity-planning.md
   - docs/operations/04-high-availability-and-disaster-recovery.md
-  - docs/comparison/01-krakend-ee-parity-matrix.md
-  - docs/comparison/02-market-landscape-and-table-stakes.md
-  - docs/comparison/03-migration-from-krakend.md
+  - docs/features/01-feature-catalog.md
   - docs/engineering/01-tech-stack-and-libraries.md
   - docs/engineering/02-repository-layout-and-conventions.md
   - docs/engineering/03-testing-and-quality-strategy.md
@@ -534,15 +518,12 @@ docs:
   - docs/_meta/foundation-pack.md
   - docs/_meta/style-guide.md
   research:
-  - docs/_meta/research/krakend-parity.md
-  - docs/_meta/research/competitors-kong-tyk-apisix.md
-  - docs/_meta/research/competitors-envoy-zuplo-gravitee.md
-  - docs/_meta/research/ai-gateways.md
+  - docs/_meta/research/ai-provider-apis.md
   - docs/_meta/research/licensing-landscape.md
   outline_h2:
   - Problem and why now
   - Personas
-  - Positioning versus KrakenD EE and the market
+  - Positioning
   - Principles
   - Open source and business model
   - Product non-goals
@@ -550,15 +531,14 @@ docs:
   - Managed cloud
   diagrams:
   - type: quadrantChart
-    subject: market positioning of Ruralz, KrakenD CE and EE, and other gateways by openness and capability breadth
+    subject: Ruralz openness and capability breadth, M1 plan versus M5 plan
   acceptance:
   - 'The four differentiators appear verbatim as in foundation pack section 1: WASM plugin system, AI/LLM gateway,
     built-in control plane + GitOps, multi-protocol native.'
   - Principles defines P1 through P10, each in two sentences or fewer.
   - Product non-goals lists at least five non-goals.
-  - 'Problem and why now cites both 2026 licensing events with URLs from docs/_meta/research/: KrakenD CE 3.0 dropping
-    Go plugins (announced 2026-06-04) and Kong 3.10 ending free mode per its release note (Kong docs still describe
-    free mode as deprecated).'
+  - Problem and why now states the problem Ruralz solves and why an API gateway with every feature free matters
+    now, in Ruralz terms only.
   - Open source and business model states Apache-2.0 for all components, no feature gating or license keys, and
     revenue only from Ruralz Cloud and commercial support.
   - The managed cloud is described only in the Managed cloud section and no other section describes cloud-only hooks.
@@ -580,9 +560,6 @@ docs:
     - P8
     - P9
     - P10
-    - KrakenD CE 3.0
-    - Kong 3.10
-    - '2026-06-04'
     - Apache-2.0
   - kind: min_list_items
     section: Product non-goals
@@ -731,7 +708,7 @@ docs:
   mode: judge-panel
   panel_angles:
   - Kubernetes-native
-  - KrakenD ergonomics
+  - authoring ergonomics
   - diffability and validation first
   depends_on:
   - docs/_meta/foundation-pack.md
@@ -762,8 +739,8 @@ docs:
     a WASM Plugin and a Consumer.
   - CEL expressions and allowed places contains a table of every place CEL is allowed, with the variables available
     in each.
-  - The document states that JSON is accepted as a strict subset of YAML and states the KrakenD import stance (ruralz
-    bundle import krakend, best-effort fidelity levels, Planned (M2)).
+  - The document states that JSON is accepted as a strict subset of YAML, through the same loader, yielding the
+    same Revision digest.
   - Validation and diff semantics specifies the diff output format in both JSON and human-readable form.
   - Secrets are referenced only via secretRef, and env substitution supports ${VAR} and ${VAR:-default}.
   machine_checks:
@@ -782,7 +759,6 @@ docs:
     - ruralz/v1alpha1
     - secretRef
     - overlays/
-    - ruralz bundle import
     - Planned (M2)
   - kind: has_table
     section: CEL expressions and allowed places
@@ -841,14 +817,14 @@ docs:
     subject: dependency graph from cmd/ruralzd, cmd/ruralz-control and cmd/ruralz to the chosen libraries
   acceptance:
   - 'Library catalog has a row, with a source URL present in docs/_meta/research/, for every concern: WASM runtime
-    (wazero), Plugin PDK conventions (Extism-style), HTTP/1.1 and HTTP/2 (net/http; x/net/http2 only for low-level APIs), HTTP/3 (quic-go),
-    gRPC ingress (connectrpc.com/connect) and upstream (grpc-go), telemetry (go.opentelemetry.io/otel with slog
-    bridge), Control Stream (own gRPC with xDS-style ACK/NACK, not go-control-plane), Control Store (hashicorp/raft
-    with raft-boltdb/v2 on bbolt), State Store client (redis/rueidis), Semantic Cache (Redis 8 Vector Sets or valkey-search), GraphQL
-    (wundergraph/graphql-go-tools v2), Kafka (twmb/franz-go), NATS (nats.go/jetstream), MQTT (eclipse-paho/paho.golang
-    and mochi-mqtt), JOSE and OIDC (lestrrat-go/jwx/v4, coreos/go-oidc/v3), expressions (cel-go, import path cel.dev/cel-go), authorization
-    (OPA v1 Rego, cedar-go), tokenizer (tiktoken-go/tokenizer, estimates only), rate limiting (GCRA in Redis Lua
-    plus local token bucket), and the ADR format (MADR 4.0).'
+    (wazero), Plugin PDK conventions (Extism-style), HTTP/1.1 and HTTP/2 (net/http; x/net/http2 only for low-level
+    APIs), HTTP/3 (quic-go), gRPC ingress (connectrpc.com/connect) and upstream (grpc-go), telemetry (go.opentelemetry.io/otel
+    with slog bridge), Control Stream (own gRPC with xDS-style ACK/NACK, not go-control-plane), Control Store (hashicorp/raft
+    with raft-boltdb/v2 on bbolt), State Store client (redis/rueidis), Semantic Cache (Redis 8 Vector Sets or valkey-search),
+    GraphQL (wundergraph/graphql-go-tools v2), Kafka (twmb/franz-go), NATS (nats.go/jetstream), MQTT (eclipse-paho/paho.golang
+    and mochi-mqtt), JOSE and OIDC (lestrrat-go/jwx/v4, coreos/go-oidc/v3), expressions (cel-go, import path cel.dev/cel-go),
+    authorization (OPA v1 Rego, cedar-go), tokenizer (tiktoken-go/tokenizer, estimates only), rate limiting (GCRA
+    in Redis Lua plus local token bucket), and the ADR format (MADR 4.0).'
   - Each Library catalog row gives the chosen library, alternatives, rationale, license, risk and the ADR it links
     to where one exists.
   - Every chosen library license is permissive and compatible with Apache-2.0 distribution; any weak-copyleft license
@@ -955,8 +931,9 @@ docs:
     requests complete on the snapshot they started on).
   - Router includes a routing precedence worked example covering host, path, method and wildcard matches.
   - The streaming path is described for SSE, WebSocket and LLM token streams via onChunk.
-  - The document states that Ruralz Gateway keeps no durable local state other than its enrollment identity,
-    Last-Known-Good configuration and disposable caches (foundation pack section 8.11), and that shared runtime state lives in the State Store.
+  - The document states that Ruralz Gateway keeps no durable local state other than its enrollment identity, Last-Known-Good
+    configuration and disposable caches (foundation pack section 8.11), and that shared runtime state lives in the
+    State Store.
   - Admin endpoints lists at least /healthz, /readyz, /metrics, /debug/*, /config/dump and /tap on port 9901, and
     is the source that docs/reference/01-cli-and-api-surface.md must match.
   - Failure semantics defines fail-open or fail-closed behavior per filter class in a table.
@@ -1140,8 +1117,6 @@ docs:
   - docs/architecture/02-configuration-model.md
   - docs/engineering/01-tech-stack-and-libraries.md
   research:
-  - docs/_meta/research/competitors-kong-tyk-apisix.md
-  - docs/_meta/research/competitors-envoy-zuplo-gravitee.md
   - docs/_meta/research/go-libraries-runtime.md
   outline_h2:
   - Goals and prior art
@@ -1226,7 +1201,7 @@ docs:
   - docs/architecture/02-configuration-model.md
   - docs/engineering/01-tech-stack-and-libraries.md
   research:
-  - docs/_meta/research/ai-gateways.md
+  - docs/_meta/research/ai-provider-apis.md
   - docs/_meta/research/go-libraries-protocols.md
   outline_h2:
   - Personas and scope
@@ -1440,17 +1415,17 @@ docs:
   - type: flowchart
     subject: secret resolution via secretRef
   acceptance:
-  - Every KrakenD CE and EE authentication feature (JWT/OIDC/OAuth2, JWT signing, client credentials, revocation
-    bloom filter, mTLS, basic auth, API keys, revoke server, multiple IdPs per KrakenD endpoint, NTLM, GCP auth,
-    AWS SigV4) is mapped to a Ruralz mechanism with a milestone, or marked Not planned with a reason.
+  - Every authentication feature (JWT/OIDC/OAuth2, JWT signing, client credentials, token revocation, mTLS, basic
+    auth, API keys, multiple identity providers per Route, NTLM, GCP auth, AWS SigV4) is mapped to a Ruralz mechanism
+    with a milestone, or marked Not planned with a reason.
   - Authorization contains a guidance table comparing CEL, OPA (Rego) and Cedar (when to use, cost, milestone),
     consistent with ADR-0011.
   - The FIPS build statement (GOFIPS140) is consistent with docs/engineering/01-tech-stack-and-libraries.md.
   - Revocation states a propagation-time target tagged (target).
   - Compliance contains an audit event catalog with at least 15 events.
   - Transport security covers TLS 1.3, mTLS, certificate rotation and HTTP/3.
-  - Control plane security covers RBAC, SSO (OIDC and SAML), audit, signed Revisions and Plugin artifacts (ADR-0017), SBOM and SLSA
-    provenance.
+  - Control plane security covers RBAC, SSO (OIDC and SAML), audit, signed Revisions and Plugin artifacts (ADR-0017),
+    SBOM and SLSA provenance.
   machine_checks:
   - kind: required_terms
     value:
@@ -1537,10 +1512,9 @@ docs:
     subject: load-balancing Endpoint selection
   acceptance:
   - Rate limiting contains an algorithm table comparing accuracy, cost, multi-node behavior and burst handling (ADR-0008).
-  - Every KrakenD EE routing and traffic feature (catch-all fallback, header and query dynamic routing, conditional
-    routing, wildcard routes, URL rewrite, virtual hosts, client redirects, customizable HTTP circuit breaker, service
-    rate limit, tiered rate limit, stateful rate limit, IP filtering, GeoIP) is mapped to a Ruralz mechanism with
-    a milestone.
+  - Every routing and traffic feature (catch-all fallback, header and query dynamic routing, conditional routing,
+    wildcard routes, URL rewrite, virtual hosts, client redirects, customizable HTTP circuit breaker, service rate
+    limit, tiered rate limit, stateful rate limit, IP filtering, GeoIP) is mapped to a Ruralz mechanism with a milestone.
   - Failure matrix gives fail-open or fail-closed behavior for each dependency failure, including State Store outage.
   - Rate limiting specifies the IETF RateLimit-Policy and RateLimit response header contract.
   - Quotas supports long windows and token-weighted units, including LLM tokens.
@@ -1661,86 +1635,6 @@ docs:
     max: 6500
   notes: Heading 'Dashboards & SLOs' is rendered as 'Grafana dashboards and SLOs' to avoid the forbidden alias for
     Ruralz Console.
-- id: 16
-  slug: market-landscape-and-table-stakes
-  path: docs/comparison/02-market-landscape-and-table-stakes.md
-  title: Market Landscape and Table Stakes
-  audience:
-  - evaluators
-  - architects
-  wave: 2
-  mode: pipeline
-  depends_on:
-  - docs/_meta/foundation-pack.md
-  - docs/_meta/style-guide.md
-  - docs/vision/01-vision-and-positioning.md
-  research:
-  - docs/_meta/research/krakend-parity.md
-  - docs/_meta/research/competitors-kong-tyk-apisix.md
-  - docs/_meta/research/competitors-envoy-zuplo-gravitee.md
-  - docs/_meta/research/ai-gateways.md
-  - docs/_meta/research/licensing-landscape.md
-  outline_h2:
-  - Method and snapshot date
-  - Competitor profiles
-  - Table-stakes matrix
-  - Differentiator reality check
-  - Licensing landscape 2025 to 2026
-  - Implications for milestones
-  diagrams:
-  - type: quadrantChart
-    subject: competitive positioning by extensibility and openness
-  acceptance:
-  - Competitor profiles contains at least nine profiles as H3s (Kong, Tyk, Apache APISIX, Envoy Gateway with Envoy
-    AI Gateway, Zuplo, Gravitee, KrakenD, Portkey, LiteLLM), each citing at least two URLs present in docs/_meta/research/.
-  - Table-stakes matrix has no blank cells.
-  - Differentiator reality check has a 'who already does part' row for each of the four differentiators (proxy-wasm
-    in Kong, APISIX and Envoy; AI gateways including KrakenD EE 2.10+; Konnect and Tyk Dashboard control planes;
-    Tyk GraphQL federation and Gravitee native Kafka).
-  - Licensing landscape 2025 to 2026 lists at least four licensing events with ISO dates and URLs.
-  - Method and snapshot date states the snapshot date 2026-09-23 and the sourcing method.
-  - Implications for milestones maps each finding to a milestone M0 to M5.
-  machine_checks:
-  - kind: min_h3
-    section: Competitor profiles
-    value: 9
-  - kind: min_urls_per_h3
-    section: Competitor profiles
-    value: 2
-  - kind: no_blank_cells
-    table_heading: Table-stakes matrix
-  - kind: min_table_rows
-    table_heading: Differentiator reality check
-    value: 4
-  - kind: min_table_rows
-    table_heading: Licensing landscape 2025 to 2026
-    value: 4
-  - kind: required_terms
-    value:
-    - '2026-09-23'
-    - Kong
-    - Tyk
-    - APISIX
-    - Envoy
-    - Zuplo
-    - Gravitee
-    - KrakenD
-    - Portkey
-    - LiteLLM
-  required_terms:
-  - Ruralz Control
-  - Ruralz Console
-  - Plugin
-  adrs:
-  - ADR-0002
-  lenses:
-  - L1
-  - L2
-  - L3
-  - L4C
-  length_words:
-    min: 1500
-    max: 9500
 - id: 17
   slug: repository-layout-and-conventions
   path: docs/engineering/02-repository-layout-and-conventions.md
@@ -1899,7 +1793,6 @@ docs:
   - docs/architecture/02-configuration-model.md
   - docs/engineering/01-tech-stack-and-libraries.md
   research:
-  - docs/_meta/research/krakend-parity.md
   - docs/_meta/research/licensing-landscape.md
   outline_h2:
   - Semantic versioning
@@ -1920,8 +1813,8 @@ docs:
   - Deprecation and support windows are quantified in months or releases.
   - Plugin ABI versioning states the compatibility rules for ruralz.plugin.v1 (additive changes, major-version bumps).
   - Release artifacts lists binaries, container images, SBOM, signatures and the Helm chart.
-  - Security fix policy states that open source releases receive security fixes immediately and contrasts this with
-    KrakenD CE.
+  - Security fix policy states that open source releases receive security fixes immediately, with no paid-only or
+    delayed fix channel.
   - apiVersion lifecycle and deprecation windows covers ruralz/v1alpha1 through beta and stable with migration tooling.
   machine_checks:
   - kind: has_table
@@ -1934,7 +1827,6 @@ docs:
     - ruralz/v1alpha1
     - ruralz.plugin.v1
     - ruralz.control.v1
-    - KrakenD CE
   required_terms:
   - Plugin ABI
   - Control Stream
@@ -2075,8 +1967,6 @@ docs:
   - docs/architecture/11-scalability-and-distributed-state.md
   research:
   - docs/_meta/research/scalability-patterns.md
-  - docs/_meta/research/competitors-kong-tyk-apisix.md
-  - docs/_meta/research/krakend-config-model.md
   outline_h2:
   - Budget philosophy
   - Per-stage latency budget
@@ -2100,7 +1990,8 @@ docs:
     open-loop load, coordinated omission, warm-up and reproducibility.
   - Benchmark suite and CI gating quantifies the regression policy (more than 5% p99 latency or more than 3% alloc/op
     regression fails, tagged (target)).
-  - Benchmark methodology includes a competitor baseline plan against KrakenD CE, Envoy, APISIX and Kong.
+  - Benchmark methodology includes a baseline plan that measures each release against the Performance Budgets and
+    previous Ruralz releases.
   - Budgets tie to the SLOs defined in docs/architecture/10-observability.md.
   - 'The seed targets appear, each tagged (target): p99 added latency 1 ms or less for plain proxying at 10k rps
     per core; at least 50k rps on 4 vCPU; WASM Plugin call 50 microseconds or less; RSS 100 MB or less plus about
@@ -2115,10 +2006,6 @@ docs:
     - pprof
     - GOGC
     - GOMEMLIMIT
-    - KrakenD CE
-    - Envoy
-    - APISIX
-    - Kong
     - alloc/op
   - kind: has_table
     section: Per-stage latency budget
@@ -2462,12 +2349,12 @@ docs:
     min: 1500
     max: 4500
 - id: 26
-  slug: krakend-ee-parity-matrix
-  path: docs/comparison/01-krakend-ee-parity-matrix.md
-  title: KrakenD Enterprise Parity Matrix
+  slug: feature-catalog
+  path: docs/features/01-feature-catalog.md
+  title: Feature Catalog
   audience:
   - evaluators
-  - architects
+  - contributors
   wave: 3
   mode: pipeline
   depends_on:
@@ -2482,13 +2369,9 @@ docs:
   - docs/architecture/08-security-and-identity.md
   - docs/architecture/09-traffic-management-and-resilience.md
   - docs/architecture/10-observability.md
-  - docs/roadmap/01-roadmap-and-milestones.md
-  research:
-  - docs/_meta/research/krakend-parity.md
-  - docs/_meta/research/krakend-config-model.md
+  research: []
   outline_h2:
-  - Method and snapshot
-  - Legend
+  - How to read this catalog
   - CI/CD, GitOps and development tools
   - Request and response transformation
   - Security
@@ -2499,24 +2382,20 @@ docs:
   - Traffic management
   - Observability
   - API governance and monetization
-  - Beyond parity
-  - Gaps and non-goals
+  - Not planned
   - Summary counts
   diagrams: []
   acceptance:
-  - Method and snapshot states the source (krakend.io/features), the snapshot date 2026-09-23 and the edition KrakenD
-    EE 2.13.
-  - Each of the ten category sections contains a table with columns Feature, KrakenD CE, KrakenD EE, Ruralz status,
-    Ruralz mechanism and Notes/ADR.
-  - Every feature row of docs/_meta/research/krakend-parity.md (153 rows at the snapshot) appears, for at least
-    120 rows in total.
-  - No matrix table has a blank cell.
-  - KrakenD CE and KrakenD EE cells use only Yes, Partial, No or N/A, and Ruralz status cells use only Planned (M0)
-    to Planned (M5) or Not planned.
-  - Every KrakenD EE-only feature is Planned (Mx) and free in Ruralz, or Not planned with a reason in Notes/ADR.
-  - Every Ruralz mechanism names a kind, Policy or Filter defined in docs/architecture/02-configuration-model.md.
+  - How to read this catalog defines the columns Feature, Ruralz status, Ruralz mechanism and Owning doc and the
+    allowed status values.
+  - Each of the ten category sections contains a table with columns Feature, Ruralz status, Ruralz mechanism and
+    Owning doc.
+  - Every row names the feature, its Ruralz status (Planned (M0) to Planned (M5), or Not planned), the mechanism
+    (a kind, Policy or Filter defined in docs/architecture/02-configuration-model.md) and the owning doc as a relative
+    link to a document in this manifest.
+  - Every Not planned row has its reason in Not planned.
+  - No catalog table has a blank cell.
   - Summary counts gives counts per category and per Ruralz status, and the counts sum to the total number of rows.
-  - Gaps and non-goals maps the KrakenD EE support and services offerings to Ruralz Cloud and commercial support.
   machine_checks:
   - kind: min_table_rows_total
     table_headings:
@@ -2556,38 +2435,8 @@ docs:
     - Observability
     - API governance and monetization
     columns:
-    - KrakenD CE
-    - KrakenD EE
-    allowed_pattern: ^(Yes|Partial|No|N/A)$
-  - kind: cell_values_in
-    table_headings:
-    - CI/CD, GitOps and development tools
-    - Request and response transformation
-    - Security
-    - Routing
-    - Authentication and authorization
-    - AI gateway
-    - Services connectivity
-    - Traffic management
-    - Observability
-    - API governance and monetization
-    columns:
     - Ruralz status
     allowed_pattern: ^(Planned \(M[0-5]\)|Not planned)$
-  - kind: covers_source_rows
-    source: docs/_meta/research/krakend-parity.md
-    column: Feature
-    table_headings:
-    - CI/CD, GitOps and development tools
-    - Request and response transformation
-    - Security
-    - Routing
-    - Authentication and authorization
-    - AI gateway
-    - Services connectivity
-    - Traffic management
-    - Observability
-    - API governance and monetization
   - kind: summary_counts_match
     section: Summary counts
     column: Ruralz status
@@ -2602,11 +2451,6 @@ docs:
     - Traffic management
     - Observability
     - API governance and monetization
-  - kind: required_terms
-    value:
-    - '2026-09-23'
-    - EE 2.13
-    - krakend.io/features
   required_terms:
   - Route
   - Upstream
@@ -2630,81 +2474,11 @@ docs:
   - L1
   - L2
   - L3
-  - L4C
   length_words:
     min: 1500
     max: 9500
-  notes: 'The plan''s ''Matrix per 10 KrakenD categories'' is expanded into one H2 per category, named after the
-    categories in krakend-parity.md, so each table is machine-checkable. #6 added to deps for the mechanism AC.'
-- id: 27
-  slug: migration-from-krakend
-  path: docs/comparison/03-migration-from-krakend.md
-  title: Migration from KrakenD
-  audience:
-  - evaluators
-  - operators
-  wave: 3
-  mode: pipeline
-  depends_on:
-  - docs/_meta/foundation-pack.md
-  - docs/_meta/style-guide.md
-  - docs/architecture/02-configuration-model.md
-  - docs/comparison/01-krakend-ee-parity-matrix.md
-  research:
-  - docs/_meta/research/krakend-parity.md
-  - docs/_meta/research/krakend-config-model.md
-  outline_h2:
-  - Concept mapping
-  - Import tool fidelity levels
-  - Plugin migration
-  - Cutover runbook
-  - Migration gaps
-  diagrams: []
-  acceptance:
-  - Concept mapping maps every top-level KrakenD configuration key and at least 20 extra_config namespaces to Ruralz
-    kinds and Policies (KrakenD endpoint to Route, backend to Upstream, extra_config namespaces to Policies).
-  - Import tool fidelity levels defines the fidelity levels reported by ruralz bundle import krakend (Planned (M2))
-    and what each guarantees.
-  - 'Plugin migration covers both paths: Go plugins to WASM Plugins (TinyGo) or built-in Filters, and Lua to CEL
-    or WASM Plugins.'
-  - Cutover runbook gives ordered steps for shadow traffic and side-by-side cutover, including rollback.
-  - Migration gaps is consistent with the Not planned rows of docs/comparison/01-krakend-ee-parity-matrix.md.
-  machine_checks:
-  - kind: min_table_rows
-    table_heading: Concept mapping
-    value: 20
-  - kind: has_table
-    section: Import tool fidelity levels
-  - kind: required_terms
-    value:
-    - extra_config
-    - ruralz bundle import krakend
-    - TinyGo
-    - CEL
-    - Lua
-    - Planned (M2)
-  - kind: links_to
-    value:
-    - docs/comparison/01-krakend-ee-parity-matrix.md
-  required_terms:
-  - Route
-  - Upstream
-  - Policy
-  - Bundle
-  - Plugin
-  - Filter
-  adrs:
-  - ADR-0003
-  - ADR-0005
-  - ADR-0011
-  lenses:
-  - L1
-  - L2
-  - L3
-  - L4C
-  length_words:
-    min: 1500
-    max: 9500
+  notes: One H2 per feature category so each table is machine-checkable; the milestone of each row comes from the
+    owning design document and the roadmap.
 - id: 28
   slug: cli-and-api-surface
   path: docs/reference/01-cli-and-api-surface.md
@@ -2817,7 +2591,6 @@ docs:
   - docs/_meta/foundation-pack.md
   - docs/_meta/style-guide.md
   - docs/vision/01-vision-and-positioning.md
-  - docs/comparison/02-market-landscape-and-table-stakes.md
   - docs/architecture/01-system-overview.md
   - docs/architecture/02-configuration-model.md
   - docs/architecture/03-data-plane.md
@@ -2833,11 +2606,11 @@ docs:
   research: []
   outline_h2:
   - M0 Foundations
-  - M1 Core parity
+  - M1 Core gateway
   - M2 WASM and Control with GitOps
   - M3 AI gateway, gRPC, GraphQL, WebSocket and SSE
   - M4 Event protocols, multi-region and benchmark suite
-  - M5 Long-tail parity
+  - M5 Enterprise hardening
   - Sequencing
   - Risks
   - Contribution surface
@@ -2846,9 +2619,9 @@ docs:
     subject: relative milestone sequencing M0 to M5 without calendar dates
   acceptance:
   - Every Planned (Mx) tag used in any document appears as an item under the corresponding Mx section.
-  - Each milestone section states scope, measurable exit criteria and the KrakenD EE parity percentage tagged (target).
-  - 'Milestone names match the foundation pack: M0 Foundations, M1 Core parity, M2 WASM + Control/GitOps, M3 AI
-    gateway + gRPC/GraphQL/WS/SSE, M4 Event protocols + multi-region + bench suite, M5 Long-tail parity.'
+  - Each milestone section states scope and measurable exit criteria.
+  - 'Milestone names match the foundation pack: M0 Foundations, M1 Core gateway, M2 WASM + Control/GitOps, M3 AI
+    gateway + gRPC/GraphQL/WS/SSE, M4 Event protocols + multi-region + bench suite, M5 Enterprise hardening.'
   - The gantt chart uses relative durations and no calendar dates.
   - Risks is a table with likelihood, impact and mitigation.
   - Contribution surface identifies where outside contributors can help per milestone.
@@ -2876,8 +2649,8 @@ docs:
   length_words:
     min: 1200
     max: 3750
-  notes: The plan's 'M0-M5 (scope, exit criteria, parity %)' is expanded into one H2 per milestone so check 12 can
-    locate each tag under its milestone.
+  notes: The plan's 'M0-M5 (scope, exit criteria)' is expanded into one H2 per milestone so check 12 can locate
+    each tag under its milestone.
 adrs:
 - id: ADR-0001
   path: docs/adr/0001-implementation-language-go.md
@@ -2970,8 +2743,6 @@ adrs:
   - L2
   research:
   - docs/_meta/research/go-libraries-runtime.md
-  - docs/_meta/research/competitors-kong-tyk-apisix.md
-  - docs/_meta/research/competitors-envoy-zuplo-gravitee.md
   decision: Custom capability-based Plugin ABI v1 (ruralz.plugin.v1) with Extism-style memory and Host Function
     conventions and deny-by-default Capabilities; a proxy-wasm compatibility adapter is Planned (M4).
 - id: ADR-0006
@@ -2992,9 +2763,9 @@ adrs:
   - docs/_meta/research/go-libraries-runtime.md
   - docs/_meta/research/scalability-patterns.md
   - docs/_meta/research/tooling-and-licenses.md
-  decision: The Control Store defaults to embedded hashicorp/raft with raft-boltdb/v2 on go.etcd.io/bbolt over a mutual-TLS
-    peer transport on port 8092, admitting MPL-2.0 modules only as named exceptions; a postgres implementation is
-    optional behind an interface, Planned (M4).
+  decision: The Control Store defaults to embedded hashicorp/raft with raft-boltdb/v2 on go.etcd.io/bbolt over a
+    mutual-TLS peer transport on port 8092, admitting MPL-2.0 modules only as named exceptions; a postgres implementation
+    is optional behind an interface, Planned (M4).
 - id: ADR-0007
   path: docs/adr/0007-control-stream-protocol.md
   title: 'Control Stream: own gRPC snapshot and delta protocol with xDS-style ACK/NACK'
@@ -3011,7 +2782,6 @@ adrs:
   - L2
   research:
   - docs/_meta/research/go-libraries-protocols.md
-  - docs/_meta/research/competitors-envoy-zuplo-gravitee.md
   decision: ruralz.control.v1.ControlStream is a purpose-built gRPC snapshot plus delta protocol over mTLS with
     xDS-style ACK/NACK semantics; not xDS and not go-control-plane.
 - id: ADR-0008
@@ -3050,8 +2820,8 @@ adrs:
   research:
   - docs/_meta/research/go-libraries-protocols.md
   - docs/_meta/research/tooling-and-licenses.md
-  decision: Use net/http for HTTP/1.1, HTTP/2 and h2c (Server.Protocols) and quic-go for HTTP/3, Planned (M3);
-    golang.org/x/net/http2 only for non-deprecated low-level APIs; fasthttp is rejected.
+  decision: Use net/http for HTTP/1.1, HTTP/2 and h2c (Server.Protocols) and quic-go for HTTP/3, Planned (M3); golang.org/x/net/http2
+    only for non-deprecated low-level APIs; fasthttp is rejected.
 - id: ADR-0010
   path: docs/adr/0010-telemetry-opentelemetry-first.md
   title: 'Telemetry: OpenTelemetry-first with an slog bridge for logs'
@@ -3086,7 +2856,6 @@ adrs:
   - L2
   research:
   - docs/_meta/research/go-libraries-runtime.md
-  - docs/_meta/research/krakend-parity.md
   decision: CEL (cel-go) for inline expressions; OPA (Rego, v1) and Cedar (cedar-go) as pluggable authorization
     engines; no embedded Lua.
 - id: ADR-0012
@@ -3105,7 +2874,6 @@ adrs:
   - L2
   research:
   - docs/_meta/research/go-libraries-protocols.md
-  - docs/_meta/research/competitors-kong-tyk-apisix.md
   decision: Use the wundergraph/graphql-go-tools v2 engine for GraphQL proxying, federation v1 and v2, and subscriptions.
 - id: ADR-0013
   path: docs/adr/0013-messaging-client-libraries.md
@@ -3123,7 +2891,6 @@ adrs:
   - L2
   research:
   - docs/_meta/research/go-libraries-protocols.md
-  - docs/_meta/research/competitors-envoy-zuplo-gravitee.md
   decision: twmb/franz-go for Kafka, nats.go with jetstream for NATS, eclipse-paho/paho.golang as the MQTT v5 client,
     and mochi-mqtt for the embedded broker mode Planned (M4); no native Kafka or MQTT wire proxying before M4.
 - id: ADR-0014
@@ -3141,8 +2908,7 @@ adrs:
   - L1
   - L2
   research:
-  - docs/_meta/research/ai-gateways.md
-  - docs/_meta/research/krakend-parity.md
+  - docs/_meta/research/ai-provider-apis.md
   decision: Expose an OpenAI-compatible facade and native passthrough (Anthropic Messages, Bedrock, Gemini); provider-reported
     usage is authoritative for billing and tokenizer counts are used only for pre-admission estimates.
 - id: ADR-0015

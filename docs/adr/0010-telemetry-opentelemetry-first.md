@@ -36,8 +36,8 @@ Which layer should packages code against, when OpenTelemetry Go traces and metri
 
 1. **OpenTelemetry-first with an slog bridge**: `go.opentelemetry.io/otel` v1.46.x for traces and metrics ([source](https://github.com/open-telemetry/opentelemetry-go/releases/tag/v1.46.0)); `log/slog` with the `otelslog` bridge v0.20.x for logs ([source](https://github.com/open-telemetry/opentelemetry-go-contrib/blob/main/bridges/otelslog/go.mod)).
 2. **OpenTelemetry for all three signals now**, logs on the v1.47.0-rc.1 Logs API ([source](https://github.com/open-telemetry/opentelemetry-go/releases/tag/v1.47.0-rc.1)).
-3. **Prometheus client for metrics**, `prometheus/client_golang` v1.24.1 ([source](https://github.com/prometheus/client_golang/releases/tag/v1.24.1)), OpenTelemetry traces and plain `slog` logs, as APISIX splits them ([source](https://apisix.apache.org/docs/apisix/plugins/opentelemetry/)) ([source](https://apisix.apache.org/blog/2026/08/20/release-apache-apisix-3.18.0/)).
-4. **Per-vendor exporters**, as KrakenD links InfluxDB and GELF ([source](https://www.krakend.io/docs/telemetry/influxdb-native/)) ([source](https://www.krakend.io/docs/logging/graylog-gelf/)) ([source](https://github.com/krakend/krakend-ce/blob/master/cmd/krakend-ce/main.go)), with an EE-only New Relic SDK ([source](https://www.krakend.io/docs/enterprise/telemetry/newrelic/)) and deprecated OpenCensus ([source](https://www.krakend.io/docs/telemetry/opencensus/)).
+3. **Prometheus client for metrics**, `prometheus/client_golang` v1.24.1 ([source](https://github.com/prometheus/client_golang/releases/tag/v1.24.1)), OpenTelemetry traces and plain `slog` logs.
+4. **Per-vendor exporters**: a native SDK or wire format linked per backend, such as InfluxDB, Graylog GELF or New Relic.
 
 ## Decision outcome
 
@@ -137,12 +137,12 @@ flowchart LR
 ### Prometheus client for metrics
 
 - Good, because `client_golang` is Apache-2.0 ([source](https://github.com/prometheus/client_golang/blob/main/LICENSE)) and widely scraped.
-- Bad, because metrics miss OTLP, so operators run two pipelines, as with APISIX's traces-only plugin ([source](https://apisix.apache.org/docs/apisix/plugins/opentelemetry/)).
+- Bad, because metrics miss OTLP, so operators run two pipelines.
 
 ### Per-vendor exporters
 
 - Good, because vendor features need no Collector.
-- Bad, because each vendor adds a dependency and code path, and KrakenD keeps native SDKs in a paid edition ([source](https://www.krakend.io/docs/enterprise/telemetry/newrelic/)), against P1.
+- Bad, because each vendor adds a dependency, a code path and a test matrix to every build, and exporters age as vendor SDKs are deprecated.
 
 ## More information
 
