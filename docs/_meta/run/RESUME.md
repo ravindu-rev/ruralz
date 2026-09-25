@@ -35,7 +35,8 @@ On a usage-limit hit, the failed agent transcript says "resets h:mm (Asia/Colomb
 
 Runs of `ruralz-finish` (all finish run dirs, oldest first; the seed is rebuilt from all of them):
 
-- /root/.claude/projects/-home-user-ruralz/8a9a4c6e-d048-5961-9dea-7de4711f34d4/subagents/workflows/wf_7bcc09d4-723 (current)
+- /root/.claude/projects/-home-user-ruralz/8a9a4c6e-d048-5961-9dea-7de4711f34d4/subagents/workflows/wf_7bcc09d4-723 (halted on usage limit in round 2)
+- /root/.claude/projects/-home-user-ruralz/8a9a4c6e-d048-5961-9dea-7de4711f34d4/subagents/workflows/wf_c3e482fa-6f5 (current)
 
 After a finish run ends or dies: commit and push `docs/`, then
 `python3 docs/_meta/run/gen_seed.py emit-finish docs/_meta/run/ruralz-finish.js <every finish run dir>` and relaunch with
