@@ -24844,5 +24844,78 @@
 "L2-4"
 ],
 "disputed": []
+},
+"rereview:adr-0009:L1": {
+"lens": "L1",
+"verdict": "revise",
+"score": 7,
+"blocking": [
+{
+"id": "L1-5",
+"section": "Decision outcome (HTTP/3 row)",
+"issue": "New regression in the text added for L1-1. The HTTP/3 row keeps quic-go's stream and header limits 'at or below the HTTP/2 values' (250 streams, a 256 KiB header block) and also claims each QUIC connection fits the 592 KiB per-connection budget (hypothesis). Those two claims cannot both hold. The 592 KiB figure counts one header ceiling per connection, which is right for HTTP/2: net/http reads HEADERS serially on the connection's read loop, and a parsed header block then moves into an in-flight unit's 320 KiB. HTTP/3 does not work that way. quic-go http3 reads each request stream's HEADERS frame in that stream's own goroutine before it calls the handler. As I recall, it sizes the header buffer from the frame's declared length, up to the header limit. Every stream at the incoming-stream cap can therefore hold a header block and a goroutine at the same moment, before the handler runs and before an in-flight unit is taken. At the stated values that is 250 x 256 KiB, about 64 MiB per connection (hypothesis), more than 100 times the budget. With 20,000 connections allowed, the data plane's roughly 19 GiB Node worst case does not hold. The in-flight ceiling does not cap this, and no ReadHeaderTimeout equivalent is named for QUIC streams, so a client that sends header bytes slowly keeps those goroutines and buffers alive. The Confirmation test that 'asserts ... per-connection memory against the data plane budget' would fail as the design stands.",
+"evidence": "\"QUIC connections count against the Node connection ceiling and streams against the in-flight ceiling; quic-go stream, receive-window and header limits stay at or below the HTTP/2 values (target), within the 592 KiB per-connection budget (hypothesis), with deadlines through `http.ResponseController`.\"; data plane Bounded resources: \"Per-connection memory | About 592 KiB before a handler runs (hypothesis): header ceiling, HTTP/2 receive buffer, frame buffer, ...\" and \"HTTP/2 streams per connection | `HTTP2Config.MaxConcurrentStreams` 250 (target)\"",
+"fix": "Stop claiming that HTTP/3 fits the HTTP/2 figure. Proposed replacement wording: 'QUIC connections count against the Node connection ceiling. Since quic-go reads each stream's headers before the handler runs, the HTTP/3 per-connection budget is the incoming-stream cap times the header limit, plus the receive windows, and it gets its own Bounded resources row and HTTP/3 connection ceiling so that the Node worst-case sum still holds (hypothesis). Per-stream header reads get a deadline equal to ReadHeaderTimeout. The quic-go settings and deadline support await research.' Add the separate HTTP/3 row, the HTTP/3 connection ceiling and the header-read deadline to the Data plane item under 'Proposed owning-document amendments'. Keep the Confirmation's HTTP/3 memory assertion, but assert against the new HTTP/3 row. The document is at 1,494 of 1,500 words, so offset the added words by tightening, for example the Figure 1 caption or the 'two HTTP/2 clients' consequence."
+}
+],
+"non_blocking": [
+{
+"section": "Decision outcome (FIPS builds row)",
+"suggestion": "Repository layout and conventions currently says 'No feature tags (P1)'. The row states as a rule that FIPS release builds set `ruralz_fips`, while More information only proposes admitting that tag. Mark it as proposed in the row too, for example 'set the tag `ruralz_fips` (proposed; see More information)', so that the row and the linter policy do not look contradictory."
+},
+{
+"section": "Decision outcome (FIPS builds row) and Confirmation",
+"suggestion": "'never binds UDP 8443' hard-codes the default port. `Gateway.spec.listeners[].port` is configurable, so write 'never binds UDP on an `https` listener's port'."
+},
+{
+"section": "More information (Proposed owning-document amendments)",
+"suggestion": "The Configuration model and pack section 8.4 say that `http3: true` is 'off in FIPS builds', which can be read as ignored. The Configuration model amendment should also reword that sentence to 'rejected by FIPS builds (RZ-CFG code under OQ-tech-stack-and-libraries-9)', so that the owning sources match this ADR's refusal."
+},
+{
+"section": "Decision outcome (FIPS builds row)",
+"suggestion": "Name the Last-Known-Good boot case for OQ-tech-stack-and-libraries-9. A Node that moves from the default build to the FIPS build while its Last-Known-Good Revision sets `http3: true` would refuse its own Last-Known-Good at boot (pack section 8.2)."
+},
+{
+"section": "Confirmation (Protocol conformance suite)",
+"suggestion": "Testing and quality strategy runs only unit tests and JSON golden tests in the floor job. Running the protocol suite 'in floor and release jobs' is a new requirement, so add it to the proposed amendments."
+},
+{
+"section": "Verifier",
+"suggestion": "Three WARN lines report that Planned (M1), (M3) and (M5) items have no matching roadmap entry (lines 49, 87 and 123). They do not block, but the roadmap should gain matching FIPS HTTP/3 refusal and HTTP/3 items."
+}
+],
+"ac_results": [
+{
+"ac": "Front matter contains id, title, status, date, deciders and related, and status matches this manifest.",
+"pass": true,
+"note": "All six keys are present. status is accepted, as in manifest adrs[ADR-0009], the title matches the manifest, and related lists the owning document docs/architecture/03-data-plane.md."
+},
+{
+"ac": "H2 headings match adr_common.outline_h2 exactly and in order, and Decision outcome contains the H3 headings Consequences and Confirmation.",
+"pass": true,
+"note": "The six H2 headings appear in the required order, and ### Consequences and ### Confirmation are under Decision outcome. The verifier reports no FAIL line."
+},
+{
+"ac": "Considered options lists at least two options including the chosen one, and each has pros and cons.",
+"pass": true,
+"note": "There are five options, each with a Pros and cons H3 that has Good and Bad bullets. Every cited URL appears in the research files: go-libraries-runtime, tooling-and-licenses, go-libraries-protocols and krakend-*."
+},
+{
+"ac": "Decision outcome states the chosen option as 'Chosen option: ..., because ...' and matches the foundation pack section 7 row for this ADR.",
+"pass": true,
+"note": "'Chosen option: \"net/http plus quic-go\", because ...' matches the pack section 7 HTTP stack row and the manifest decision. The because clause is now narrowed to the ingress libraries (L1-4 resolved), and the option name is consistent across sections."
+},
+{
+"ac": "Confirmation names a concrete verification mechanism (test, lint rule, CI gate or review checklist item).",
+"pass": true,
+"note": "Concrete mechanisms are named: the forbidigo rule, dependency admission, the pr-full protocol suite with HTTP/3 stream-cap and memory assertions, the FIPS job running `go list -deps -tags ruralz_fips ./cmd/ruralzd` plus a refusal test, and the review checklist. The HTTP/3 memory assertion needs a correct budget to assert against (L1-5)."
+},
+{
+"ac": "The ADR is linked from docs/adr/README.md and from its owning document.",
+"pass": false,
+"note": "docs/architecture/03-data-plane.md links ADR-0009 (Process and concurrency model), which passes. docs/adr/README.md does not exist yet because the wave-5 index generator writes it. This is outside the ADR text and is not a blocking item."
+}
+],
+"foundation_amendments": []
 }
 }
