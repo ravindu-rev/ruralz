@@ -1,0 +1,134 @@
+# golangci-lint configuration (not a Ruralz Bundle). Stage 2 of pr-fast runs
+# every linter below; a finding blocks merge
+# (docs/engineering/02-repository-layout-and-conventions.md).
+version: "2"
+
+run:
+  go: "1.26"
+  build-tags: [integration, e2e]
+
+linters:
+  default: standard
+  enable: [bodyclose, contextcheck, depguard, errorlint, exhaustive, forbidigo,
+           gochecknoinits, gocritic, goheader, gosec, misspell, nilerr, noctx,
+           nolintlint, protogetter, revive, sloglint, spancheck, tagliatelle,
+           unconvert, unparam, usestdlibvars]
+  settings:
+    depguard:
+      rules:
+        # Dependency admission: an import must be the standard library, this
+        # module, or a module with a Tech stack catalog row, added here in the
+        # pull request that first imports it.
+        admitted:
+          list-mode: strict
+          files: ["$all"]
+          allow:
+            - $gostd
+            - github.com/ravindu-rev/ruralz
+        banned:
+          list-mode: lax
+          files: ["$all"]
+          deny:
+            - pkg: github.com/google/cel-go
+              desc: read-only alias path; use cel.dev/cel-go
+            - pkg: log$
+              desc: use log/slog through internal/telemetry (ADR-0010)
+            - pkg: plugin$
+              desc: custom code is a WASM Plugin or CEL, never a Go plugin
+            - pkg: github.com/yuin/gopher-lua
+              desc: no Lua (ADR-0011)
+            - pkg: github.com/Shopify/go-lua
+              desc: no Lua (ADR-0011)
+            - pkg: github.com/aarzilli/golua
+              desc: no Lua (ADR-0011)
+            - pkg: github.com/valyala/fasthttp
+              desc: net/http and quic-go only (ADR-0009)
+        wazero:
+          files: ["$all", "!**/internal/pluginhost/**"]
+          deny:
+            - pkg: github.com/tetratelabs/wazero
+              desc: wazero is wrapped by internal/pluginhost
+        rueidis:
+          files: ["$all", "!**/internal/statestore/redis/**"]
+          deny:
+            - pkg: github.com/redis/rueidis
+              desc: rueidis is wrapped by internal/statestore/redis
+        raft:
+          files: ["$all", "!**/internal/controlstore/raft/**"]
+          deny:
+            - pkg: github.com/hashicorp/raft
+              desc: the MPL-2.0 exception is scoped to internal/controlstore/raft
+        gateway:
+          files: ["**/internal/gateway/**"]
+          deny:
+            - pkg: github.com/ravindu-rev/ruralz/internal/control$
+              desc: the gateway stands alone (P2)
+            - pkg: github.com/ravindu-rev/ruralz/internal/control/
+              desc: the gateway stands alone (P2)
+            - pkg: github.com/ravindu-rev/ruralz/internal/controlstore
+              desc: ruralzd never links the Control Store (P2)
+            - pkg: github.com/ravindu-rev/ruralz/internal/cli
+              desc: the gateway never links the CLI
+        control:
+          files: ["**/internal/control/**"]
+          deny:
+            - pkg: github.com/ravindu-rev/ruralz/internal/gateway
+              desc: Ruralz Control is never on the request path
+        cli:
+          files: ["**/internal/cli/**"]
+          deny:
+            - pkg: github.com/ravindu-rev/ruralz/internal/gateway
+              desc: ruralz dev run launches a local ruralzd instead
+        public:
+          list-mode: strict
+          files: ["**/pkg/**", "**/api/schema/**", "!$test"]
+          allow:
+            - $gostd
+            - github.com/ravindu-rev/ruralz/pkg
+        tools:
+          files: ["$all", "!**/internal/tool/**"]
+          deny:
+            - pkg: github.com/ravindu-rev/ruralz/internal/tool
+              desc: CI tools are never linked into a binary
+    exhaustive:
+      default-signifies-exhaustive: true
+    forbidigo:
+      analyze-types: true
+      forbid:
+        - pattern: ^fmt\.Print(f|ln)?$
+          pkg: ^fmt$
+          msg: fmt.Print* is allowed only in internal/cli; write to an io.Writer
+        - pattern: ^http2\.(Server|Transport)$
+          pkg: ^golang\.org/x/net/http2$
+          msg: deprecated; use the net/http HTTP/2 support (ADR-0009)
+    goheader:
+      values:
+        regexp:
+          CREATION_YEAR: '\d{4}'
+          HOLDER: '.+'
+      template: |-
+        Copyright {{ CREATION_YEAR }} {{ HOLDER }}
+        SPDX-License-Identifier: Apache-2.0
+    misspell:
+      locale: US
+    nolintlint:
+      require-specific: true
+      require-explanation: true
+    tagliatelle:
+      case:
+        rules:
+          json: camel
+  exclusions:
+    generated: lax
+    rules:
+      - linters: [tagliatelle]
+        path-except: '^(pkg|internal)/config/'
+      - linters: [forbidigo]
+        path: '^internal/cli/'
+        text: 'fmt\.Print'
+
+formatters:
+  enable: [gofumpt, goimports]
+  settings:
+    goimports:
+      local-prefixes: [github.com/ravindu-rev/ruralz]

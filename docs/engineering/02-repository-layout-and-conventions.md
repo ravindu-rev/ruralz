@@ -86,9 +86,10 @@ github.com/ravindu-rev/ruralz
 │   ├── signing/                 digest and Sigstore verification, OCI fetch
 │   ├── telemetry/               OpenTelemetry setup, slog bridge, metric and span names
 │   ├── errcode/                 RZ-<AREA>-<NNN> registry
+│   ├── buildinfo/               version, commit and flavor set by -ldflags -X; floor guard file
 │   ├── console/                 embed package; dist/ holds a committed placeholder
 │   ├── gen/proto/               generated protobuf Go code (committed)
-│   └── tool/                    schemagen, repocheck; never linked into a binary
+│   └── tool/                    schemagen, repocheck, commitcheck, depgate; never linked into a binary
 ├── pkg/
 │   └── config/v1alpha1/         public Go types of the ten kinds; schema source
 ├── api/
@@ -102,6 +103,7 @@ github.com/ravindu-rev/ruralz
 ├── test/                        e2e/, conformance/, fixtures/ (Go test suites)
 ├── examples/                    example Bundles, validated in CI
 ├── docs/                        documentation (see Docs as code)
+├── scripts/                     install-tools.sh and CI helper scripts
 ├── .github/                     workflows/, CODEOWNERS, pull request template
 ├── .gitattributes, .gitignore, .golangci.yml, buf.yaml, buf.gen.yaml
 ├── go.mod, go.sum, Makefile
@@ -151,7 +153,9 @@ github.com/ravindu-rev/ruralz
 
 ### Toolchain and modules
 
-The root `go.mod` declares `go 1.26.0` and `toolchain go1.27.1`, as fixed by [ADR-0001](../adr/0001-implementation-language-go.md) and the [version floor](01-tech-stack-and-libraries.md#version-floor) rules; the floor job adds `GOTOOLCHAIN=local` and `GOEXPERIMENT=jsonv2`. Nested modules exist only under `sdk/`. The repository commits no `go.work` file, so CI builds each module the way its users consume it.
+The root `go.mod` declares `go 1.26.0` and `toolchain go1.27.1`, as fixed by [ADR-0001](../adr/0001-implementation-language-go.md) and the [version floor](01-tech-stack-and-libraries.md#version-floor) rules; the floor job adds `GOTOOLCHAIN=local` and `GOEXPERIMENT=jsonv2`. It runs `make floor`, which takes `FLOOR_GOTOOLCHAIN` (default `local`, `go1.26.8` or a newer 1.26 patch elsewhere) and refuses a Go release other than 1.26. The guard file is `internal/buildinfo/floor_guard.go`, whose undefined identifier `floorBuildRequires_GOEXPERIMENT_jsonv2_see_make_floor` names the fix; every binary imports the package.
+
+Binaries embed build metadata with `-ldflags -X` on three variables of `internal/buildinfo`: `version` (the tag without its `v`, default `0.0.0-dev`), `commit` (the full Git commit) and `flavor` (`default`; `fips` Planned (M5)). There is no build date, so a rebuilt tag reproduces identical binaries. Nested modules exist only under `sdk/`. The repository commits no `go.work` file, so CI builds each module the way its users consume it.
 
 Build tools stay out of `go.mod`. Go 1.24 added `tool` directives that put executables into the module graph ([source](https://go.dev/doc/go1.24)), and golangci-lint is GPL-3.0 ([source](https://github.com/golangci/golangci-lint/blob/v2.13.2/LICENSE)), so the linter, buf and other CI tools run as pinned, checksum-verified binaries installed by `make tools`, never as `tool` directives ([license rules](01-tech-stack-and-libraries.md#license-rules)).
 
@@ -170,7 +174,7 @@ Build tools stay out of `go.mod`. Go 1.24 added `tool` directives that put execu
 | Errors | Wrap with `%w`; client-facing errors carry an `RZ-<AREA>-<NNN>` code registered in `internal/errcode` |
 | Logging | `log/slog` through `internal/telemetry` only ([ADR-0010](../adr/0010-telemetry-opentelemetry-first.md)) |
 | Telemetry names | Metrics `ruralz_<component>_<name>_<unit>`, counters ending in `_total`; spans `ruralz.filter.<name>`, `ruralz.upstream.<name>`, `ruralz.route.match` (foundation pack section 2) |
-| State | No `init()` or mutable package-level variables, except tests, generated code, sentinel errors and `go:embed` variables; registries are explicit tables |
+| State | No `init()` or mutable package-level variables, except tests, generated code, sentinel errors, `go:embed` variables and the build metadata the linker sets in `internal/buildinfo`; registries are explicit tables |
 | `unsafe` | Only in packages listed in `.golangci.yml`, each with a reason |
 
 ### golangci-lint linter set
@@ -240,7 +244,9 @@ formatters:
 
 ### Ruralz-specific checks
 
-`internal/tool/repocheck`, a standard-library Go program run in stage 1, Planned (M0), checks what no linter covers: `cmd/` holds wiring only; metric and span names match foundation pack section 2; every `RZ-<AREA>-<NNN>` literal is registered; `pkg/` and `api/schema` expose no third-party types; proto and TypeScript license headers; no `import "C"`; the Ruralz Console placeholder is unchanged. It also runs the no-license-check scan of [ADR-0002](../adr/0002-apache-2-license-no-feature-gating.md) over every file in `cmd/`, `internal/`, `pkg/`, `sdk/` and `console/`: any denylisted identifier, string or hostname absent from the reviewed allowlist file blocks merge (P1).
+`internal/tool/repocheck`, a standard-library Go program run in stage 1, Planned (M0), checks what no linter covers: `cmd/` holds wiring only; metric and span names match foundation pack section 2; every `RZ-<AREA>-<NNN>` literal is registered; `pkg/` and `api/schema` expose no third-party types; proto and TypeScript license headers; no `import "C"`; the Ruralz Console placeholder is unchanged. It also runs the no-license-check scan of [ADR-0002](../adr/0002-apache-2-license-no-feature-gating.md) over every file in `cmd/`, `internal/`, `pkg/`, `sdk/` and `console/`: any denylisted identifier, string or hostname absent from the reviewed allowlist file blocks merge (P1). Terms match ignoring case and the separators `-`, `_` and spaces, so `licenseKey`, `license_key` and `LICENSE-KEY` all match; the allowlist is `internal/tool/repocheck/nolicensecheck.allow`, one `<path or directory/> <term> # <reason>` line per entry. The metric and span name checks start with `internal/telemetry`, Planned (M1), and the Ruralz Console placeholder check with `internal/console`, Planned (M2).
+
+Two more standard-library programs serve stages 1 and 6. `internal/tool/commitcheck` checks DCO sign-off on every non-merge commit of a range and the Conventional Commits title. `internal/tool/depgate` runs G2, G3, the `ruralzd` Raft denylist and the advisory floors ([CI tooling](01-tech-stack-and-libraries.md#ci-tooling)).
 
 ## API and protobuf definitions
 
@@ -294,7 +300,7 @@ The Configuration model publishes one JSON Schema (draft 2020-12) in two views, 
 | Output path | `api/schema/ruralz/v1alpha1/authoring.schema.json` and `api/schema/ruralz/v1alpha1/rendered.schema.json`, each holding one definition per kind |
 | Embedding | Package `api/schema` embeds both files with `go:embed`, so every source-loading path validates against identical bytes |
 | Derived output | CRDs in `deploy/crds/`, generated from the rendered view with group `ruralz.io`, Planned (M2) ([ADR-0016](../adr/0016-kubernetes-helm-and-crds.md), proposed) |
-| Published | The two files ship with every release ([Release artifacts](04-release-versioning-and-compatibility.md)); their `$id` is OQ-repository-layout-and-conventions-4 |
+| Published | Committed under `api/schema/` and embedded in every binary; the two files also ship with every release ([Release artifacts](04-release-versioning-and-compatibility.md)); their `$id` is OQ-repository-layout-and-conventions-4 |
 
 A later apiVersion adds a sibling source package (`pkg/config/v1beta1`) and output directory. Hub types and conversions stay in `internal/config/hub` and `internal/config/convert`, because the hub is never public ([Configuration model](../architecture/02-configuration-model.md#hub-and-spoke-conversion)).
 
@@ -342,6 +348,12 @@ Doc comments become `description`. Marker lines start with `+ruralz:`, are strip
 | `+ruralz:validation=<CEL rule>` | `x-ruralz-validations` | Rule over `self` |
 | `+ruralz:default=<value>` | `default` | `+ruralz:default=true` |
 | `+ruralz:policyType=<type>` | The `config` definition selected by `Policy.spec.type` | `+ruralz:policyType=ratelimit` |
+| `+ruralz:open` | Omits `additionalProperties: false` on a type | A Policy `config` whose feature fields are not all registered |
+| `+ruralz:pattern=`, `minLength=`, `maxLength=`, `minimum=`, `maximum=`, `minItems=` | The standard keyword of the same name | `+ruralz:minItems=1` |
+| `+ruralz:minProperties=<n>` | `minProperties` on a type | On `RouteMatch` |
+| `+ruralz:exactlyOneOf=`, `atMostOneOf=`, `atLeastOneOf=<fields>` | `oneOf`, `not` or `anyOf` over `required` of each field, on a type | `+ruralz:exactlyOneOf=exact,prefix,template,regex` |
+
+Markers on a type declaration apply to its definition; markers on a field apply to its property. schemagen rejects an unknown marker, a list field without `+ruralz:list`, a `SecretValue` or `SecretRef` field without `+ruralz:secret`, an optional bool or number that is not a pointer, and an optional field without `omitempty`.
 
 ### Presence and defaults
 
@@ -421,6 +433,8 @@ Commit messages and pull request titles follow Conventional Commits: `<type>(<sc
 
 A breaking change adds `!` after the scope and a `BREAKING CHANGE:` footer. Footers also carry `Refs: OQ-<docslug>-<n>` or `Refs: ADR-NNNN` when a change implements a decision.
 
+The scope is optional; a change spanning several scopes omits it. A document slug is the file name of a Markdown document under `docs/`, lower-cased, without its extension and numeric prefix: `docs/architecture/03-data-plane.md` is `data-plane` and `docs/glossary.md` is `glossary`. Stage 1 checks `docs` scopes against the files in `docs/`.
+
 ```text
 fix(statestore): skip remaining calls once the request deadline expires
 
@@ -441,9 +455,11 @@ Signed-off-by: Jane Doe <jane@example.com>
 | Size | SHOULD stay under 400 changed lines, excluding generated files (target) |
 | Merge queue | Re-runs every required `pr-fast` and `pr-full` stage on the combined change |
 
+The security-sensitive packages are `internal/filter/auth/`, `internal/filter/authz/`, `internal/signing/` and `internal/pluginhost/`: the auth, authz, signing and Plugin host packages whose gosec suppressions need a security reviewer. The approval count also requires two approvals for the no-license-check allowlist `internal/tool/repocheck/nolicensecheck.allow`, whose edits need maintainer review ([ADR-0002](../adr/0002-apache-2-license-no-feature-gating.md)), and for `.github/`, which holds the workflows that enforce these rules. `scripts/ci-approvals.sh` holds the list.
+
 ## CI stages
 
-The numbered stages are jobs inside the pipelines that [Testing and quality strategy](03-testing-and-quality-strategy.md#test-pyramid) owns: `pr-fast` on every pull request, within 10 minutes (target); `pr-full` on pull requests changing Go code, protos, schemas or examples, within 30 minutes (target); then `main`, `nightly` and `release`. Stages 1 to 11 each call one `make` target, runnable locally except stage 1's approval count; stage 12 also needs signing credentials. Path filters skip stages whose inputs did not change; a pass-through job computes the changed paths itself and MUST report success for each skipped required check. *Go changes* means any `*.go` file, `go.mod`, `go.sum`, `.golangci.yml` or `Makefile`; any change under `.github/workflows/` runs every `pr-fast` and `pr-full` stage.
+The numbered stages are jobs inside the pipelines that [Testing and quality strategy](03-testing-and-quality-strategy.md#test-pyramid) owns: `pr-fast` on every pull request, within 10 minutes (target); `pr-full` on pull requests changing Go code, protos, schemas or examples, within 30 minutes (target); then `main`, `nightly` and `release`. Stages 1 to 11 each call one `make` target, runnable locally except stage 1's approval count; stage 12 also needs signing credentials. The `pr-fast` workflow ends in a job named `pr-fast` that fails when any stage failed and passes when each stage passed or was skipped by its path filter; with the `pr-title` and `approvals` checks it is a required status check. Path filters skip stages whose inputs did not change; a pass-through job computes the changed paths itself and MUST report success for each skipped required check. *Go changes* means any `*.go` file, `go.mod`, `go.sum`, `.golangci.yml` or `Makefile`; any change under `.github/workflows/` runs every `pr-fast` and `pr-full` stage.
 
 | Stage | Pipeline | What runs | Make target | Trigger | Blocks merge | Milestone |
 |---|---|---|---|---|---|---|
@@ -518,10 +534,10 @@ Documentation lives in `docs/` beside the code and is reviewed in the same pull 
 
 | ID | Question | Options | Owner | Blocking? |
 |---|---|---|---|---|
-| OQ-repository-layout-and-conventions-1 | Does the Configuration model accept Go types in `pkg/config/v1alpha1` as the one source that generates both schema views, with the generated schema as the normative artifact? | (a) Go types generate the schema (proposed); (b) Hand-written schema, Go types generated from it | configuration-model | Yes, for the Planned (M0) published schema |
+| OQ-repository-layout-and-conventions-1 | Does the Configuration model accept Go types in `pkg/config/v1alpha1` as the one source that generates both schema views, with the generated schema as the normative artifact? | (a) Go types generate the schema (chosen, 2026-09-25); (b) Hand-written schema, Go types generated from it | configuration-model | No (answered) |
 | OQ-repository-layout-and-conventions-2 | What does the proto package `ruralz.plugin.v1` contain? | (a) Host Function field identifiers, return codes and the artifact config message (proposed); (b) Artifact config only; (c) No proto file, which needs a foundation pack section 12 amendment (OQ-wasm-plugin-system-12) | wasm-plugin-system | Yes, for Planned (M2) |
 | OQ-repository-layout-and-conventions-3 | Which toolchain builds Ruralz Console (package manager, bundler, type checker, test runner, linter)? | (a) A research addendum, then choose here and add the tech stack license and catalog rows (proposed); (b) The same research, then the Control plane and GitOps owner chooses | repository-layout-and-conventions | Yes, for Ruralz Console, Planned (M2) |
 | OQ-repository-layout-and-conventions-4 | What `$id` base URI do the published schema files use, and where are they hosted for editors? | (a) Release asset URLs; (b) A Revington-owned domain; (c) A URN | release-versioning-and-compatibility | No |
 | OQ-repository-layout-and-conventions-5 | Is the OpenAPI document hand-authored or generated from Go handlers? | (a) Hand-authored with a drift test (proposed); (b) Generated after a catalog row | control-plane-and-gitops | No |
 | OQ-repository-layout-and-conventions-6 | Where do linux/arm64 tests run? | (a) Native arm64 runners; (b) Emulation; (c) Native, nightly only | testing-and-quality-strategy | Yes, for stage 8 conformance, Planned (M1) |
-| OQ-repository-layout-and-conventions-7 | Which Go CI tools (golangci-lint v2.13.x, `gofumpt`, `goimports`, govulncheck) get a Tech stack catalog row? | (a) A research addendum, then a CI tooling row (proposed); (b) golangci-lint's bundled formatters only | tech-stack-and-libraries | Yes, for Planned (M0) stages 2 and 6 |
+| OQ-repository-layout-and-conventions-7 | Which Go CI tools (golangci-lint v2.13.x, `gofumpt`, `goimports`, govulncheck) get a Tech stack catalog row? | (a) A research addendum, then a CI tooling row (chosen, 2026-09-25: [CI tooling](01-tech-stack-and-libraries.md#ci-tooling)); (b) golangci-lint's bundled formatters only | tech-stack-and-libraries | No (answered) |

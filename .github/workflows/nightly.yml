@@ -1,0 +1,30 @@
+# Copyright 2026 Revington
+# SPDX-License-Identifier: Apache-2.0
+#
+# Nightly supply chain rescan (stage 6): new advisories can affect code that
+# has not changed.
+name: nightly
+
+on:
+  schedule:
+    - cron: "17 3 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+# No workflow-level GOTOOLCHAIN: setup-go reads the go.mod toolchain line only
+# while GOTOOLCHAIN is unset, then sets GOTOOLCHAIN=local itself.
+
+jobs:
+  supply-chain:
+    name: 6. Supply chain rescan
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+      - run: make supply-chain

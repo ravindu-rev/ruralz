@@ -1,0 +1,12 @@
+# No-license-check allowlist (ADR-0002, SM-1). Every entry needs maintainer
+# review: "<path or dir/> <term> # <reason>". A path ending in "/" covers the
+# directory.
+internal/tool/repocheck/ licensekey # The scan defines and tests its own denylist.
+internal/tool/repocheck/ licensefile # The scan defines and tests its own denylist.
+internal/tool/repocheck/ licenseserver # The scan defines and tests its own denylist.
+internal/tool/repocheck/ licensetoken # The scan defines and tests its own denylist.
+internal/tool/repocheck/ entitlement # The scan defines and tests its own denylist.
+internal/tool/repocheck/ enterpriseedition # The scan defines and tests its own denylist.
+internal/tool/repocheck/ enterpriseonly # The scan defines and tests its own denylist.
+internal/tool/repocheck/ revington.co # The scan defines and tests its own denylist.
+internal/tool/depgate/ licensefile # The license gate (G2) reads the license files of dependencies.

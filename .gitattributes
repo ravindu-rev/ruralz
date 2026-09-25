@@ -1,0 +1,11 @@
+# Line endings are LF on every OS (repository layout and conventions).
+* text=auto eol=lf
+
+*.png binary
+*.jpg binary
+*.gz binary
+*.zip binary
+*.wasm binary
+
+# Generated files: reviewed through their source, diffed in CI stage 3.
+api/schema/**/*.schema.json linguist-generated=true

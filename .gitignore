@@ -6,9 +6,9 @@ Thumbs.db
 .vscode/*
 !.vscode/extensions.json
 
-# Go (future)
-bin/
-dist/
+# Go: pinned CI tools (make tools) and build output (make build)
+/bin/
+/dist/
 *.test
 *.out
 coverage.*

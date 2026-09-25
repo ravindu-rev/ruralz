@@ -4,7 +4,7 @@
 |---|---|
 | Topic | Documentation, build and supply-chain tooling (MADR, markdownlint-cli2, lychee, mermaid, js-yaml, buf, golangci-lint, GoReleaser, cosign and sigstore-go, Syft, oras-go); exact licenses of the Control Store module graph (hashicorp/raft, raft-boltdb/v2, bbolt, go-msgpack/v2, go-hclog and the rest of raft's imports); the wazero repository versus module path; the `golang.org/x/net/http2` deprecation; YAML 1.2 parser and JSON Schema draft 2020-12 validator candidates; other unselected library candidates |
 | Snapshot date | 2026-09-23 |
-| Requested by | Tech-stack escalations L1-2, L2-1, L3-1 (OQ-tech-stack-and-libraries-5) and L1-3, L2-2, L3-2 (OQ-tech-stack-and-libraries-10); OQ-tech-stack-and-libraries-12 and -13; OQ-configuration-model-16 |
+| Requested by | OQ-repository-layout-and-conventions-7 (section 9, 2026-09-25); tech-stack escalations L1-2, L2-1, L3-1 (OQ-tech-stack-and-libraries-5) and L1-3, L2-2, L3-2 (OQ-tech-stack-and-libraries-10); OQ-tech-stack-and-libraries-12 and -13; OQ-configuration-model-16 |
 | Method | Primary sources only, read on 2026-09-23: GitHub REST API through `gh api` (repository license detection, `LICENSE` file text at the pinned tag, release and tag metadata, `go.mod` files, Go source import blocks), the npm registry JSON (`registry.npmjs.org`), the Go module proxy (`proxy.golang.org`, including one module zip), project READMEs and release notes, the Apache License 2.0 text, go.dev release notes and pkg.go.dev. Every license below was checked against the `LICENSE` text, not only the GitHub badge; where GitHub reports `NOASSERTION` the text was read and the result is stated. Release dates are the GitHub release `published_at` (UTC) or npm publish time unless marked "tag date". No Go toolchain was available, so `go list -deps` and `go mod graph` were not run; the import analysis in section 3 comes from reading source files (see Gaps). |
 
 ## 1. Documentation tooling (OQ-tech-stack-and-libraries-5)
@@ -186,6 +186,24 @@ The configuration model requires YAML 1.2 core scalars (`yes` and `on` are strin
 
 - Analysis: crewjam/saml's last tag (2025-04-14) is more than 12 months before the snapshot, so it fails S1. The dependencies of these candidates were not license-checked.
 
+## 9. Go CI tools and GitHub Actions (OQ-repository-layout-and-conventions-7)
+
+Addendum read on 2026-09-25 from primary sources: `LICENSE` files at the pinned tag through `raw.githubusercontent.com`, the golangci-lint release checksums file, the Go module proxy (`proxy.golang.org`, including the x/vuln module zip), pkg.go.dev and `git ls-remote` for action tags.
+
+| Tool | Repository (Go module) | License (SPDX) | LICENSE file | Version pinned | Source |
+|---|---|---|---|---|---|
+| golangci-lint | https://github.com/golangci/golangci-lint | `GPL-3.0` | (https://github.com/golangci/golangci-lint/blob/v2.13.2/LICENSE) | v2.13.2 (2026-08-27), release binary built with go1.27.0 | (https://github.com/golangci/golangci-lint/releases/tag/v2.13.2) |
+| gofumpt | https://github.com/mvdan/gofumpt (`mvdan.cc/gofumpt`) | `BSD-3-Clause` | (https://github.com/mvdan/gofumpt/blob/master/LICENSE) | Bundled in golangci-lint v2.13.2 as a formatter | (https://github.com/golangci/golangci-lint/releases/tag/v2.13.2) |
+| goimports | https://github.com/golang/tools (`golang.org/x/tools`) | `BSD-3-Clause` | (https://github.com/golang/tools/blob/master/LICENSE) | Bundled in golangci-lint v2.13.2 as a formatter | (https://github.com/golangci/golangci-lint/releases/tag/v2.13.2) |
+| govulncheck | https://go.googlesource.com/vuln (`golang.org/x/vuln`) | `BSD-3-Clause` | (https://proxy.golang.org/golang.org/x/vuln/@v/v1.8.0.zip) | v1.8.0 (2026-09-08); its `go.mod` requires Go 1.26.0 | (https://pkg.go.dev/golang.org/x/vuln@v1.8.0/cmd/govulncheck) |
+| actions/checkout | https://github.com/actions/checkout | `MIT` | (https://github.com/actions/checkout/blob/v7.0.1/LICENSE) | v7.0.1, commit `3d3c42e5aac5ba805825da76410c181273ba90b1` | (https://github.com/actions/checkout) |
+| actions/setup-go | https://github.com/actions/setup-go | `MIT` | (https://github.com/actions/setup-go/blob/v7.0.0/LICENSE) | v7.0.0, commit `b7ad1dad31e06c5925ef5d2fc7ad053ef454303e` | (https://github.com/actions/setup-go/blob/v7.0.0/README.md) |
+
+- The golangci-lint release publishes a checksums file with the SHA-256 of every archive (https://github.com/golangci/golangci-lint/releases/tag/v2.13.2); `make tools` pins the linux, darwin and windows values.
+- setup-go v7.0.0 "supports both `go` and `toolchain` directives in `go.mod`. If the `toolchain` directive is present, its version is used", and by default keys its module cache on `go.mod` (https://github.com/actions/setup-go/blob/v7.0.0/README.md).
+- govulncheck type-checks the standard library of the Go release it scans, so a binary built by one Go release fails to load another release's standard library; `make tools` builds it with the module's toolchain. This was observed locally on 2026-09-25, not read from documentation.
+- Analysis: none of these tools is linked into a Ruralz binary, so G2 does not apply to them; golangci-lint stays a separately installed binary for the reason given in section 2.
+
 ## Sources
 
 https://adr.github.io/madr/
@@ -353,6 +371,16 @@ https://github.com/crewjam/saml/tags
 https://github.com/crewjam/saml/blob/main/LICENSE
 https://github.com/jackc/pgx/releases/tag/v5.11.0
 https://github.com/jackc/pgx/blob/master/LICENSE
+https://github.com/golangci/golangci-lint/blob/v2.13.2/LICENSE
+https://github.com/mvdan/gofumpt/blob/master/LICENSE
+https://github.com/golang/tools/blob/master/LICENSE
+https://go.googlesource.com/vuln
+https://proxy.golang.org/golang.org/x/vuln/@v/v1.8.0.zip
+https://pkg.go.dev/golang.org/x/vuln@v1.8.0/cmd/govulncheck
+https://github.com/actions/checkout
+https://github.com/actions/checkout/blob/v7.0.1/LICENSE
+https://github.com/actions/setup-go/blob/v7.0.0/LICENSE
+https://github.com/actions/setup-go/blob/v7.0.0/README.md
 
 ## Gaps
 

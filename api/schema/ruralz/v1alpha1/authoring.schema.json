@@ -1,0 +1,4383 @@
+{
+  "$defs": {
+    "AICredentials": {
+      "additionalProperties": false,
+      "description": "AICredentials authenticate to an LLM provider.",
+      "properties": {
+        "apiKey": {
+          "$ref": "#/$defs/SecretValue",
+          "description": "APIKey is the provider API key.",
+          "x-ruralz-secret": true
+        }
+      },
+      "type": "object"
+    },
+    "AIDialect": {
+      "description": "AIDialect is the wire dialect of an LLM provider.",
+      "enum": [
+        "openai",
+        "anthropic",
+        "gemini",
+        "bedrock",
+        "mistral",
+        "ollama"
+      ],
+      "type": "string"
+    },
+    "AIGuardrailConfig": {
+      "description": "AIGuardrailConfig is the config of an ai.guardrail Policy; its fields await OQ-ai-llm-gateway-4.",
+      "properties": {},
+      "type": "object"
+    },
+    "AIModel": {
+      "additionalProperties": false,
+      "description": "AIModel maps a virtual model name, its metadata.name, to ordered candidates.",
+      "properties": {
+        "apiVersion": {
+          "const": "ruralz/v1alpha1"
+        },
+        "kind": {
+          "const": "AIModel"
+        },
+        "metadata": {
+          "$ref": "#/$defs/ObjectMeta"
+        },
+        "spec": {
+          "$ref": "#/$defs/AIModelSpec"
+        }
+      },
+      "required": [
+        "apiVersion",
+        "kind",
+        "metadata",
+        "spec"
+      ],
+      "type": "object"
+    },
+    "AIModelCache": {
+      "additionalProperties": false,
+      "description": "AIModelCache configures caching for an AIModel.",
+      "properties": {
+        "prompt": {
+          "$ref": "#/$defs/PromptCache",
+          "description": "Prompt configures the provider-side Prompt Cache."
+        },
+        "semantic": {
+          "$ref": "#/$defs/SemanticCache",
+          "description": "Semantic holds Semantic Cache parameters; a Route enables it with an ai.semantic-cache Policy."
+        }
+      },
+      "type": "object"
+    },
+    "AIModelCandidate": {
+      "additionalProperties": false,
+      "description": "AIModelCandidate is one provider model.",
+      "properties": {
+        "model": {
+          "description": "Model is the provider's model identifier.",
+          "type": "string"
+        },
+        "name": {
+          "description": "Name identifies the candidate.",
+          "type": "string"
+        },
+        "provider": {
+          "description": "Provider is the metadata.name of an AIProvider.",
+          "type": "string",
+          "x-ruralz-ref": "AIProvider"
+        },
+        "weight": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "$ref": "#/$defs/Substitution"
+            }
+          ],
+          "description": "Weight applies to the weighted strategy only."
+        },
+        "when": {
+          "description": "When skips the candidate when false.",
+          "type": "string",
+          "x-ruralz-cel": {
+            "result": "bool",
+            "variables": [
+              "request",
+              "source",
+              "route",
+              "consumer",
+              "auth",
+              "now",
+              "ai"
+            ]
+          }
+        }
+      },
+      "required": [
+        "name",
+        "provider",
+        "model"
+      ],
+      "type": "object"
+    },
+    "AIModelLimits": {
+      "additionalProperties": false,
+      "description": "AIModelLimits cap tokens per request.",
+      "properties": {
+        "maxInputTokens": {
+          "anyOf": [
+            {
+              "minimum": 1,
+              "type": "integer"
+            },
+            {
+              "$ref": "#/$defs/Substitution"
+            }
+          ],
+          "description": "MaxInputTokens caps estimated input tokens (RZ-AI-003)."
+        },
+        "maxOutputTokens": {
+          "anyOf": [
+            {
+              "minimum": 1,
+              "type": "integer"
+            },
+            {
+              "$ref": "#/$defs/Substitution"
+            }
+          ],
+          "description": "MaxOutputTokens caps output tokens; required when a Route with ai.token-budget reaches this model (RZ-CFG-034)."
+        }
+      },
+      "type": "object"
+    },
+    "AIModelRef": {
+      "additionalProperties": false,
+      "description": "AIModelRef names an AIModel.",
+      "properties": {
+        "name": {
+          "description": "Name is the metadata.name of an AIModel.",
+          "type": "string",
+          "x-ruralz-ref": "AIModel"
+        }
+      },
+      "required": [
+        "name"
+      ],
+      "type": "object"
+    },
+    "AIModelSpec": {
+      "additionalProperties": false,
+      "description": "AIModelSpec is the spec of an AIModel. Planned (M3).",
+      "properties": {
+        "cache": {
+          "$ref": "#/$defs/AIModelCache",
+          "description": "Cache configures the Prompt Cache and Semantic Cache parameters."
+        },
+        "candidates": {
+          "description": "Candidates are provider models in fallback order.",
+          "items": {
+            "$ref": "#/$defs/AIModelCandidate"
+          },
+          "minItems": 1,
+          "type": "array",
+          "x-ruralz-impact": [
+            "ai"
+          ],
+          "x-ruralz-list": {
+            "key": "name",
+            "type": "orderedMap"
+          }
+        },
+        "limits": {
+          "$ref": "#/$defs/AIModelLimits",
+          "description": "Limits cap tokens per request."
+        },
+        "strategy": {
+          "$ref": "#/$defs/AIModelStrategy",
+          "description": "Strategy selects among candidates."
+        }
+      },
+      "required": [
+        "strategy",
+        "candidates"
+      ],
+      "type": "object"
+    },
+    "AIModelStrategy": {
+      "description": "AIModelStrategy selects among AIModel candidates.",
+      "enum": [
+        "weighted",
+        "latency",
+        "cost",
+        "fallback"
+      ],
+      "type": "string"
+    },
+    "AIProvider": {
+      "additionalProperties": false,
+      "description": "AIProvider is one LLM provider account.",
+      "properties": {
+        "apiVersion": {
+          "const": "ruralz/v1alpha1"
+        },
+        "kind": {
+          "const": "AIProvider"
+        },
+        "metadata": {
+          "$ref": "#/$defs/ObjectMeta"
+        },
+        "spec": {
+          "$ref": "#/$defs/AIProviderSpec"
+        }
+      },
+      "required": [
+        "apiVersion",
+        "kind",
+        "metadata",
+        "spec"
+      ],
+      "type": "object"
+    },
+    "AIProviderSpec": {
+      "additionalProperties": false,
+      "description": "AIProviderSpec is the spec of an AIProvider. Planned (M3).",
+      "properties": {
+        "baseUrl": {
+          "description": "BaseURL overrides the dialect's default base URL; required for ollama.",
+          "type": "string"
+        },
+        "credentials": {
+          "$ref": "#/$defs/AICredentials",
+          "description": "Credentials authenticate to the provider; required except for ollama."
+        },
+        "dialect": {
+          "$ref": "#/$defs/AIDialect",
+          "description": "Dialect is the provider's wire dialect."
+        },
+        "pricing": {
+          "$ref": "#/$defs/Pricing",
+          "description": "Pricing converts provider-reported usage to currency for cost attribution."
+        },
+        "region": {
+          "description": "Region is used for data residency routing.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "dialect"
+      ],
+      "type": "object"
+    },
+    "AISemanticCacheConfig": {
+      "description": "AISemanticCacheConfig is the config of an ai.semantic-cache Policy.",
+      "properties": {
+        "key": {
+          "description": "Key partitions entries, for example per Consumer.",
+          "type": "string",
+          "x-ruralz-cel": {
+            "result": "string",
+            "variables": [
+              "request",
+              "source",
+              "route",
+              "consumer",
+              "auth",
+              "now",
+              "ai"
+            ]
+          }
+        }
+      },
+      "type": "object"
+    },
+    "AISurface": {
+      "description": "AISurface is the API surface an ai Upstream exposes.",
+      "enum": [
+        "openai",
+        "native"
+      ],
+      "type": "string"
+    },
+    "AITokenBudgetConfig": {
+      "description": "AITokenBudgetConfig is the config of an ai.token-budget Policy.",
+      "properties": {
+        "consumerQuota": {
+          "description": "ConsumerQuota names a Consumer quota with unit tokens.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "consumerQuota"
+      ],
+      "type": "object"
+    },
+    "APIKey": {
+      "additionalProperties": false,
+      "allOf": [
+        {
+          "oneOf": [
+            {
+              "required": [
+                "hash"
+              ]
+            },
+            {
+              "required": [
+                "secretRef"
+              ]
+            }
+          ]
+        }
+      ],
+      "description": "APIKey is one API key, given by exactly one of hash or secretRef.",
+      "properties": {
+        "hash": {
+          "description": "Hash is the SHA-256 digest of the key.",
+          "pattern": "^sha256:[0-9a-f]{64}$",
+          "type": "string"
+        },
+        "name": {
+          "description": "Name identifies the key.",
+          "type": "string"
+        },
+        "secretRef": {
+          "$ref": "#/$defs/SecretRef",
+          "description": "SecretRef holds a retrievable key; the Node hashes it at load and keeps only the hash.",
+          "x-ruralz-secret": true
+        }
+      },
+      "required": [
+        "name"
+      ],
+      "type": "object"
+    },
+    "AccessLog": {
+      "additionalProperties": false,
+      "description": "AccessLog configures the access log.",
+      "properties": {
+        "when": {
+          "description": "When writes an entry only when the expression is true.",
+          "type": "string",
+          "x-ruralz-cel": {
+            "result": "bool",
+            "variables": [
+              "request",
+              "source",
+              "route",
+              "consumer",
+              "auth",
+              "now",
+              "response",
+              "upstream",
+              "duration"
+            ]
+          }
+        }
+      },
+      "type": "object"
+    },
+    "ActiveHealthCheck": {
+      "additionalProperties": false,
+      "description": "ActiveHealthCheck probes Endpoints.",
+      "properties": {
+        "healthyThreshold": {
+          "anyOf": [
+            {
+              "minimum": 1,
+              "type": "integer"
+            },
+            {
+              "$ref": "#/$defs/Substitution"
+            }
+          ],
+          "description": "HealthyThreshold is the consecutive successes that mark an Endpoint healthy."
+        },
+        "interval": {
+          "$ref": "#/$defs/Duration",
+          "description": "Interval is the time between probes."
+        },
+        "path": {
+          "description": "Path is the probe path.",
+          "type": "string"
+        },
+        "timeout": {
+          "$ref": "#/$defs/Duration",
+          "description": "Timeout is the probe deadline."
+        },
+        "unhealthyThreshold": {
+          "anyOf": [
+            {
+              "minimum": 1,
+              "type": "integer"
+            },
+            {
+              "$ref": "#/$defs/Substitution"
+            }
+          ],
+          "description": "UnhealthyThreshold is the consecutive failures that mark an Endpoint unhealthy."
+        }
+      },
+      "type": "object"
+    },
+    "Admin": {
+      "additionalProperties": false,
+      "description": "Admin configures the admin listener.",
+      "properties": {
+        "port": {
+          "anyOf": [
+            {
+              "maximum": 65535,
+              "minimum": 1,
+              "type": "integer"
+            },
+            {
+              "$ref": "#/$defs/Substitution"
+            }
+          ],
+          "default": 9901,
+          "description": "Port is the admin TCP port."
+        }
+      },
+      "type": "object"
+    },
+    "ArrayOp": {
+      "additionalProperties": false,
+      "description": "ArrayOp is one JSON array operation.",
+      "properties": {
+        "from": {
+          "description": "From is the source path.",
+          "type": "string"
+        },
+        "op": {
+          "$ref": "#/$defs/ArrayOpKind",
+          "description": "Op is move, append or delete."
+        },
+        "to": {
+          "description": "To is the destination path.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "op"
+      ],
+      "type": "object"
+    },
+    "ArrayOpKind": {
+      "description": "ArrayOpKind is a JSON array operation.",
+      "enum": [
+        "move",
+        "append",
+        "delete"
+      ],
+      "type": "string"
+    },
+    "AuthAPIKeyConfig": {
+      "description": "AuthAPIKeyConfig is the config of an auth.api-key Policy.",
+      "properties": {
+        "header": {
+          "description": "Header carries the API key; it is matched against Consumer apiKeys by hash.",
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "AuthBasicConfig": {
+      "additionalProperties": false,
+      "description": "AuthBasicConfig is the config of an auth.basic Policy; it has no fields and reads Authorization: Basic.",
+      "properties": {},
+      "type": "object"
+    },
+    "AuthJWTConfig": {
+      "description": "AuthJWTConfig is the config of an auth.jwt Policy.",
+      "properties": {
+        "issuers": {
+          "description": "Issuers are the accepted token issuers; the token's iss selects exactly one.",
+          "items": {
+            "$ref": "#/$defs/JWTIssuer"
+          },
+          "minItems": 1,
+          "type": "array",
+          "x-ruralz-list": {
+            "key": "issuer",
+            "type": "map"
+          }
+        }
+      },
+      "required": [
+        "issuers"
+      ],
+      "type": "object"
+    },
+    "AuthMTLSConfig": {
+      "additionalProperties": false,
+      "description": "AuthMTLSConfig is the config of an auth.mtls Policy.",
+      "properties": {
+        "caCertificate": {
+          "$ref": "#/$defs/SecretValue",
+          "description": "CACertificate verifies client certificates.",
+          "x-ruralz-secret": true
+        },
+        "crl": {
+          "$ref": "#/$defs/SecretValue",
+          "description": "CRL is a certificate revocation list.",
+          "x-ruralz-secret": true
+        },
+        "subjects": {
+          "description": "Subjects are the accepted certificate identities.",
+          "items": {
+            "$ref": "#/$defs/CertificateSubject"
+          },
+          "type": "array",
+          "x-ruralz-list": {
+            "type": "set"
+          }
+        }
+      },
+      "required": [
+        "caCertificate"
+      ],
+      "type": "object"
+    },
+    "AuthUpstreamOAuth2Config": {
+      "description": "AuthUpstreamOAuth2Config is the config of an auth.upstream-oauth2 Policy.",
+      "properties": {
+        "clientId": {
+          "description": "ClientID is the OAuth2 client identifier.",
+          "type": "string"
+        },
+        "clientSecret": {
+          "$ref": "#/$defs/SecretValue",
+          "description": "ClientSecret is the OAuth2 client secret.",
+          "x-ruralz-secret": true
+        },
+        "scopes": {
+          "description": "Scopes are the requested scopes.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array",
+          "x-ruralz-list": {
+            "type": "set"
+          }
+        },
+        "timeout": {
+          "$ref": "#/$defs/Duration",
+          "default": "2s",
+          "description": "Timeout bounds a token fetch."
+        },
+        "tokenUrl": {
+          "description": "TokenURL is the token endpoint; it MUST be https (RZ-CFG-037).",
+          "type": "string"
+        }
+      },
+      "required": [
+        "tokenUrl",
+        "clientId",
+        "clientSecret"
+      ],
+      "type": "object"
+    },
+    "AuthUpstreamSigV4Config": {
+      "additionalProperties": false,
+      "description": "AuthUpstreamSigV4Config is the config of an auth.upstream-sigv4 Policy.",
+      "properties": {
+        "payload": {
+          "$ref": "#/$defs/SigV4Payload",
+          "default": "signed",
+          "description": "Payload is signed or unsigned."
+        },
+        "region": {
+          "description": "Region is the AWS region.",
+          "type": "string"
+        },
+        "service": {
+          "description": "Service is the AWS service name.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "region",
+        "service"
+      ],
+      "type": "object"
+    },
+    "AuthzCELConfig": {
+      "description": "AuthzCELConfig is the config of an authz.cel Policy.",
+      "properties": {
+        "rule": {
+          "description": "Rule allows the request when true.",
+          "type": "string",
+          "x-ruralz-cel": {
+            "result": "bool",
+            "variables": [
+              "request",
+              "source",
+              "route",
+              "consumer",
+              "auth",
+              "now"
+            ]
+          }
+        }
+      },
+      "required": [
+        "rule"
+      ],
+      "type": "object"
+    },
+    "AuthzCedarConfig": {
+      "description": "AuthzCedarConfig is the config of an authz.cedar Policy; its fields await OQ-security-and-identity-13.",
+      "properties": {},
+      "type": "object"
+    },
+    "AuthzGeoIPConfig": {
+      "additionalProperties": false,
+      "allOf": [
+        {
+          "anyOf": [
+            {
+              "required": [
+                "allow"
+              ]
+            },
+            {
+              "required": [
+                "deny"
+              ]
+            }
+          ]
+        }
+      ],
+      "description": "AuthzGeoIPConfig is the config of an authz.geoip Policy. Both lists empty is RZ-CFG-005.",
+      "properties": {
+        "allow": {
+          "description": "Allow lists ISO 3166-1 alpha-2 country codes to allow.",
+          "items": {
+            "$ref": "#/$defs/CountryCode"
+          },
+          "type": "array",
+          "x-ruralz-list": {
+            "type": "set"
+          }
+        },
+        "deny": {
+          "description": "Deny lists ISO 3166-1 alpha-2 country codes to deny.",
+          "items": {
+            "$ref": "#/$defs/CountryCode"
+          },
+          "type": "array",
+          "x-ruralz-list": {
+            "type": "set"
+          }
+        }
+      },
+      "type": "object"
+    },
+    "AuthzIPConfig": {
+      "additionalProperties": false,
+      "allOf": [
+        {
+          "anyOf": [
+            {
+              "required": [
+                "allow"
+              ]
+            },
+            {
+              "required": [
+                "deny"
+              ]
+            }
+          ]
+        }
+      ],
+      "description": "AuthzIPConfig is the config of an authz.ip Policy. Both lists empty is RZ-CFG-005.",
+      "properties": {
+        "allow": {
+          "description": "Allow lists CIDRs or bare addresses to allow.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array",
+          "x-ruralz-list": {
+            "type": "set"
+          }
+        },
+        "deny": {
+          "description": "Deny lists CIDRs or bare addresses to deny.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array",
+          "x-ruralz-list": {
+            "type": "set"
+          }
+        }
+      },
+      "type": "object"
+    },
+    "AuthzOPAConfig": {
+      "description": "AuthzOPAConfig is the config of an authz.opa Policy; its fields await OQ-security-and-identity-13.",
+      "properties": {},
+      "type": "object"
+    },
+    "BasicCredential": {
+      "additionalProperties": false,
+      "description": "BasicCredential is one auth.basic user.",
+      "properties": {
+        "hash": {
+          "description": "Hash is pbkdf2-sha256:<salt>:<key> in base64url, with a 16-byte salt and a 32-byte key.",
+          "pattern": "^pbkdf2-sha256:[A-Za-z0-9_-]{22}:[A-Za-z0-9_-]{43}$",
+          "type": "string"
+        },
+        "iterations": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "$ref": "#/$defs/Substitution"
+            }
+          ],
+          "default": 600000,
+          "description": "Iterations is the PBKDF2 iteration count; outside 600000 to 1000000 is RZ-CFG-036."
+        },
+        "username": {
+          "description": "Username is the user name.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "username",
+        "hash"
+      ],
+      "type": "object"
+    },
+    "ByteSize": {
+      "anyOf": [
+        {
+          "minimum": 0,
+          "type": "integer"
+        },
+        {
+          "pattern": "^[0-9]+(\\.[0-9]+)?(k|M|G|T|P|E|Ki|Mi|Gi|Ti|Pi|Ei)$|^[0-9]+$",
+          "type": "string"
+        }
+      ],
+      "description": "A number of bytes: an integer or a Kubernetes quantity such as 64Ki, 10Mi or 1Gi."
+    },
+    "CORSConfig": {
+      "description": "CORSConfig is the config of a cors Policy.",
+      "properties": {
+        "allowMethods": {
+          "description": "AllowMethods are the allowed methods.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array",
+          "x-ruralz-list": {
+            "type": "set"
+          }
+        },
+        "allowOrigins": {
+          "description": "AllowOrigins are the allowed origins.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array",
+          "x-ruralz-list": {
+            "type": "set"
+          }
+        }
+      },
+      "type": "object"
+    },
+    "CacheConfig": {
+      "description": "CacheConfig is the config of a cache (Response Cache) Policy.",
+      "properties": {
+        "key": {
+          "description": "Key partitions entries, for example per Consumer.",
+          "type": "string",
+          "x-ruralz-cel": {
+            "result": "string",
+            "variables": [
+              "request",
+              "source",
+              "route",
+              "consumer",
+              "auth",
+              "now"
+            ]
+          }
+        }
+      },
+      "type": "object"
+    },
+    "Canary": {
+      "additionalProperties": false,
+      "description": "Canary configures the canary step of a Rollout.",
+      "properties": {
+        "bake": {
+          "$ref": "#/$defs/Duration",
+          "description": "Bake is how long the canary runs before the Rollout progresses."
+        },
+        "percent": {
+          "anyOf": [
+            {
+              "maximum": 100,
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "$ref": "#/$defs/Substitution"
+            }
+          ],
+          "description": "Percent is the share of Nodes in the canary step."
+        }
+      },
+      "type": "object"
+    },
+    "Capability": {
+      "description": "Capability is a Plugin ABI v1 Capability; everything not granted is denied.",
+      "enum": [
+        "credentials.read",
+        "request.body.read",
+        "request.headers.read",
+        "response.body.read",
+        "stream.read",
+        "response.send",
+        "state.read",
+        "state.write",
+        "request.headers.write",
+        "request.body.write",
+        "consumer.read",
+        "response.headers.write",
+        "response.body.write",
+        "stream.write",
+        "log.write",
+        "metrics.write",
+        "clock.read",
+        "random.read",
+        "request.metadata.read",
+        "response.headers.read",
+        "context.use",
+        "crypto.use"
+      ],
+      "type": "string"
+    },
+    "Certificate": {
+      "additionalProperties": false,
+      "description": "Certificate is one served certificate and its private key.",
+      "properties": {
+        "certificate": {
+          "$ref": "#/$defs/SecretValue",
+          "description": "Certificate is the PEM certificate chain.",
+          "x-ruralz-secret": true
+        },
+        "name": {
+          "description": "Name identifies the certificate.",
+          "type": "string"
+        },
+        "privateKey": {
+          "$ref": "#/$defs/SecretValue",
+          "description": "PrivateKey is the PEM private key.",
+          "x-ruralz-secret": true
+        }
+      },
+      "required": [
+        "name",
+        "certificate",
+        "privateKey"
+      ],
+      "type": "object"
+    },
+    "CertificateCredential": {
+      "additionalProperties": false,
+      "allOf": [
+        {
+          "oneOf": [
+            {
+              "required": [
+                "subject"
+              ]
+            },
+            {
+              "required": [
+                "uriSan"
+              ]
+            }
+          ]
+        }
+      ],
+      "description": "CertificateCredential is one auth.mtls identity, given by exactly one of subject or uriSan.",
+      "properties": {
+        "name": {
+          "description": "Name identifies the credential.",
+          "type": "string"
+        },
+        "subject": {
+          "description": "Subject is the certificate subject distinguished name.",
+          "type": "string"
+        },
+        "uriSan": {
+          "description": "URISAN is a URI subject alternative name, such as a SPIFFE ID.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "name"
+      ],
+      "type": "object"
+    },
+    "CertificateSubject": {
+      "additionalProperties": false,
+      "allOf": [
+        {
+          "oneOf": [
+            {
+              "required": [
+                "subject"
+              ]
+            },
+            {
+              "required": [
+                "uriSan"
+              ]
+            }
+          ]
+        }
+      ],
+      "description": "CertificateSubject names a certificate by exactly one of subject or uriSan.",
+      "properties": {
+        "subject": {
+          "description": "Subject is the certificate subject distinguished name.",
+          "type": "string"
+        },
+        "uriSan": {
+          "description": "URISAN is a URI subject alternative name, such as a SPIFFE ID.",
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "CircuitBreaker": {
+      "additionalProperties": false,
+      "description": "CircuitBreaker configures the circuit breaker and bulkhead.",
+      "properties": {
+        "consecutiveFailures": {
+          "anyOf": [
+            {
+              "minimum": 1,
+              "type": "integer"
+            },
+            {
+              "$ref": "#/$defs/Substitution"
+            }
+          ],
+          "description": "ConsecutiveFailures opens the breaker."
+        },
+        "failureWhen": {
+          "description": "FailureWhen decides whether an attempt counts as a failure.",
+          "type": "string",
+          "x-ruralz-cel": {
+            "result": "bool",
+            "variables": [
+              "request",
+              "response",
+              "error",
+              "upstream"
+            ]
+          }
+        },
+        "maxConnections": {
+          "anyOf": [
+            {
+              "minimum": 1,
+              "type": "integer"
+            },
+            {
+              "$ref": "#/$defs/Substitution"
+            }
+          ],
+          "description": "MaxConnections caps connections per Endpoint set."
+        },
+        "maxPendingRequests": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "$ref": "#/$defs/Substitution"
+            }
+          ],
+          "description": "MaxPendingRequests caps queued requests."
+        },
+        "openDuration": {
+          "$ref": "#/$defs/Duration",
+          "description": "OpenDuration is how long the breaker stays open."
+        }
+      },
+      "type": "object"
+    },
+    "Cluster": {
+      "additionalProperties": false,
+      "description": "Cluster is a Rollout target: enrolled Nodes that share one Revision. It is read only by Ruralz Control and is never part of a Bundle.",
+      "properties": {
+        "apiVersion": {
+          "const": "ruralz/v1alpha1"
+        },
+        "kind": {
+          "const": "Cluster"
+        },
+        "metadata": {
+          "$ref": "#/$defs/ObjectMeta"
+        },
+        "spec": {
+          "$ref": "#/$defs/ClusterSpec"
+        }
+      },
+      "required": [
+        "apiVersion",
+        "kind",
+        "metadata",
+        "spec"
+      ],
+      "type": "object"
+    },
+    "ClusterRollout": {
+      "additionalProperties": false,
+      "description": "ClusterRollout configures Rollouts to a Cluster.",
+      "properties": {
+        "autoRollback": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "$ref": "#/$defs/Substitution"
+            }
+          ],
+          "description": "AutoRollback ends a failing Rollout in rolled-back; when false it enters paused."
+        },
+        "canary": {
+          "$ref": "#/$defs/Canary",
+          "description": "Canary configures the canary step."
+        },
+        "strategy": {
+          "$ref": "#/$defs/RolloutStrategy",
+          "description": "Strategy is all-at-once or canary."
+        }
+      },
+      "type": "object"
+    },
+    "ClusterSpec": {
+      "additionalProperties": false,
+      "description": "ClusterSpec is the spec of a Cluster. Planned (M2).",
+      "properties": {
+        "environment": {
+          "description": "Environment is the metadata.name of the Cluster's Environment.",
+          "type": "string",
+          "x-ruralz-ref": "Environment"
+        },
+        "region": {
+          "description": "Region is the Cluster's Region.",
+          "type": "string"
+        },
+        "rollout": {
+          "$ref": "#/$defs/ClusterRollout",
+          "description": "Rollout configures how Revisions reach the Cluster."
+        }
+      },
+      "required": [
+        "environment"
+      ],
+      "type": "object"
+    },
+    "Composition": {
+      "additionalProperties": false,
+      "description": "Composition calls several Upstreams for one request.",
+      "properties": {
+        "mode": {
+          "$ref": "#/$defs/CompositionMode",
+          "description": "Mode is aggregate, sequential or conditional."
+        },
+        "steps": {
+          "description": "Steps run in the order the mode defines; more than Gateway limits.maxCompositionSteps is RZ-CFG-031.",
+          "items": {
+            "$ref": "#/$defs/CompositionStep"
+          },
+          "minItems": 1,
+          "type": "array",
+          "x-ruralz-list": {
+            "key": "name",
+            "type": "orderedMap"
+          }
+        }
+      },
+      "required": [
+        "mode",
+        "steps"
+      ],
+      "type": "object"
+    },
+    "CompositionMode": {
+      "description": "CompositionMode is how composition steps run.",
+      "enum": [
+        "aggregate",
+        "sequential",
+        "conditional"
+      ],
+      "type": "string"
+    },
+    "CompositionStep": {
+      "additionalProperties": false,
+      "allOf": [
+        {
+          "oneOf": [
+            {
+              "required": [
+                "path"
+              ]
+            },
+            {
+              "required": [
+                "pathExpression"
+              ]
+            }
+          ]
+        }
+      ],
+      "description": "CompositionStep is one Upstream call in a composition. Each step has exactly one of path or pathExpression.",
+      "properties": {
+        "collection": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "$ref": "#/$defs/Substitution"
+            }
+          ],
+          "default": false,
+          "description": "Collection is true when the body is a JSON array."
+        },
+        "group": {
+          "description": "Group is the key under which the body is merged.",
+          "type": "string"
+        },
+        "maxBodyBytes": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ByteSize"
+            },
+            {
+              "$ref": "#/$defs/Substitution"
+            }
+          ],
+          "description": "MaxBodyBytes caps this step's body; default an equal share of Gateway limits.maxResponseBodyBytes."
+        },
+        "method": {
+          "description": "Method is the HTTP method; default the incoming method.",
+          "type": "string"
+        },
+        "name": {
+          "description": "Name identifies the step.",
+          "type": "string"
+        },
+        "optional": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "$ref": "#/$defs/Substitution"
+            }
+          ],
+          "default": false,
+          "description": "Optional allows a partial response when the step fails."
+        },
+        "path": {
+          "description": "Path is a literal path.",
+          "type": "string"
+        },
+        "pathExpression": {
+          "description": "PathExpression computes the path.",
+          "type": "string",
+          "x-ruralz-cel": {
+            "result": "string",
+            "variables": [
+              "request",
+              "source",
+              "route",
+              "consumer",
+              "auth",
+              "now",
+              "steps"
+            ]
+          }
+        },
+        "rename": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "description": "Rename renames response fields.",
+          "type": "object"
+        },
+        "select": {
+          "description": "Select is an allowlist of response fields.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array",
+          "x-ruralz-list": {
+            "type": "set"
+          }
+        },
+        "target": {
+          "description": "Target unwraps a nested object of the response first.",
+          "type": "string"
+        },
+        "upstream": {
+          "description": "Upstream is the metadata.name of an Upstream.",
+          "type": "string",
+          "x-ruralz-ref": "Upstream"
+        },
+        "when": {
+          "description": "When runs the step only when true; conditional and sequential modes.",
+          "type": "string",
+          "x-ruralz-cel": {
+            "result": "bool",
+            "variables": [
+              "request",
+              "source",
+              "route",
+              "consumer",
+              "auth",
+              "now",
+              "steps"
+            ]
+          }
+        }
+      },
+      "required": [
+        "name",
+        "upstream"
+      ],
+      "type": "object"
+    },
+    "Consumer": {
+      "additionalProperties": false,
+      "description": "Consumer is a caller identity with credentials, a Tier, Quotas and tags.",
+      "properties": {
+        "apiVersion": {
+          "const": "ruralz/v1alpha1"
+        },
+        "kind": {
+          "const": "Consumer"
+        },
+        "metadata": {
+          "$ref": "#/$defs/ObjectMeta"
+        },
+        "spec": {
+          "$ref": "#/$defs/ConsumerSpec"
+        }
+      },
+      "required": [
+        "apiVersion",
+        "kind",
+        "metadata",
+        "spec"
+      ],
+      "type": "object"
+    },
+    "ConsumerSpec": {
+      "additionalProperties": false,
+      "description": "ConsumerSpec is the spec of a Consumer.",
+      "properties": {
+        "credentials": {
+          "$ref": "#/$defs/Credentials",
+          "description": "Credentials identify the Consumer; at least one credential."
+        },
+        "quotas": {
+          "description": "Quotas are named quotas used by quota and ai.token-budget Policies.",
+          "items": {
+            "$ref": "#/$defs/Quota"
+          },
+          "type": "array",
+          "x-ruralz-list": {
+            "key": "name",
+            "type": "map"
+          }
+        },
+        "tags": {
+          "description": "Tags are free-form tags.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array",
+          "x-ruralz-list": {
+            "type": "set"
+          }
+        },
+        "tier": {
+          "description": "Tier is a free-form Tier name read by Policies.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "credentials"
+      ],
+      "type": "object"
+    },
+    "CountryCode": {
+      "description": "CountryCode is an ISO 3166-1 alpha-2 country code.",
+      "pattern": "^[A-Z]{2}$",
+      "type": "string"
+    },
+    "Credentials": {
+      "additionalProperties": false,
+      "description": "Credentials identify a Consumer.",
+      "minProperties": 1,
+      "properties": {
+        "apiKeys": {
+          "description": "APIKeys are API keys, stored hashed.",
+          "items": {
+            "$ref": "#/$defs/APIKey"
+          },
+          "type": "array",
+          "x-ruralz-list": {
+            "key": "name",
+            "type": "map"
+          }
+        },
+        "basic": {
+          "description": "Basic are auth.basic credentials; a username in two Consumers is RZ-CFG-035.",
+          "items": {
+            "$ref": "#/$defs/BasicCredential"
+          },
+          "type": "array",
+          "x-ruralz-list": {
+            "key": "username",
+            "type": "map"
+          }
+        },
+        "certificates": {
+          "description": "Certificates are auth.mtls identities; one in two Consumers is RZ-CFG-035.",
+          "items": {
+            "$ref": "#/$defs/CertificateCredential"
+          },
+          "type": "array",
+          "x-ruralz-list": {
+            "key": "name",
+            "type": "map"
+          }
+        },
+        "jwt": {
+          "description": "JWT binds token subjects or claims per issuer.",
+          "items": {
+            "$ref": "#/$defs/JWTBinding"
+          },
+          "type": "array",
+          "x-ruralz-list": {
+            "key": "issuer",
+            "type": "map"
+          }
+        },
+        "oauthClients": {
+          "description": "OAuthClients are OAuth client identifiers.",
+          "items": {
+            "$ref": "#/$defs/OAuthClient"
+          },
+          "type": "array",
+          "x-ruralz-list": {
+            "key": "clientId",
+            "type": "map"
+          }
+        }
+      },
+      "type": "object"
+    },
+    "Decimal": {
+      "description": "Decimal is a non-negative decimal number written as a string, such as a price, so values never drift through floating point.",
+      "pattern": "^[0-9]+(\\.[0-9]+)?$",
+      "type": "string"
+    },
+    "Discovery": {
+      "additionalProperties": false,
+      "description": "Discovery finds Endpoints.",
+      "properties": {
+        "namespace": {
+          "description": "Namespace is the Kubernetes namespace.",
+          "type": "string"
+        },
+        "port": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/IntOrString"
+            },
+            {
+              "$ref": "#/$defs/Substitution"
+            }
+          ],
+          "description": "Port is a port name or number."
+        },
+        "service": {
+          "description": "Service is the service name.",
+          "type": "string"
+        },
+        "type": {
+          "$ref": "#/$defs/DiscoveryType",
+          "description": "Type is dns or kubernetes."
+        }
+      },
+      "required": [
+        "type"
+      ],
+      "type": "object"
+    },
+    "DiscoveryType": {
+      "description": "DiscoveryType selects a service discovery mechanism.",
+      "enum": [
+        "dns",
+        "kubernetes"
+      ],
+      "type": "string"
+    },
+    "Duration": {
+      "description": "A non-negative duration in Go syntax, such as 50ms, 1m30s or 24h.",
+      "pattern": "^(0|(([0-9]+(\\.[0-9]*)?|\\.[0-9]+)(ns|us|µs|μs|ms|s|m|h))+)$",
+      "type": "string"
+    },
+    "Endpoint": {
+      "additionalProperties": false,
+      "description": "Endpoint is one static address.",
+      "properties": {
+        "address": {
+          "description": "Address is host:port.",
+          "type": "string"
+        },
+        "weight": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "$ref": "#/$defs/Substitution"
+            }
+          ],
+          "description": "Weight is the relative load-balancing weight."
+        }
+      },
+      "required": [
+        "address"
+      ],
+      "type": "object"
+    },
+    "Environment": {
+      "additionalProperties": false,
+      "description": "Environment groups Clusters, defines a promotion path and holds non-secret variables. It is read by Ruralz Control and CLI renders and is never part of a Bundle.",
+      "properties": {
+        "apiVersion": {
+          "const": "ruralz/v1alpha1"
+        },
+        "kind": {
+          "const": "Environment"
+        },
+        "metadata": {
+          "$ref": "#/$defs/ObjectMeta"
+        },
+        "spec": {
+          "$ref": "#/$defs/EnvironmentSpec"
+        }
+      },
+      "required": [
+        "apiVersion",
+        "kind",
+        "metadata",
+        "spec"
+      ],
+      "type": "object"
+    },
+    "EnvironmentSpec": {
+      "additionalProperties": false,
+      "description": "EnvironmentSpec is the spec of an Environment. Every field is optional; CLI renders read only overlay and variables.",
+      "properties": {
+        "overlay": {
+          "description": "Overlay selects overlays/<overlay>/; default the Environment's metadata.name.",
+          "type": "string"
+        },
+        "promotion": {
+          "$ref": "#/$defs/Promotion",
+          "description": "Promotion is the promotion path into this Environment; chains MUST be acyclic (RZ-CFG-022)."
+        },
+        "variables": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "description": "Variables are non-secret values for ${VAR} substitution.",
+          "type": "object"
+        }
+      },
+      "type": "object"
+    },
+    "FailureMode": {
+      "description": "FailureMode is what a Policy does when it cannot decide.",
+      "enum": [
+        "open",
+        "closed"
+      ],
+      "type": "string"
+    },
+    "FilterClass": {
+      "description": "FilterClass is a position within a Phase.",
+      "enum": [
+        "cors",
+        "auth",
+        "authz",
+        "admission",
+        "validation",
+        "cache",
+        "upstream-auth",
+        "transform",
+        "custom"
+      ],
+      "type": "string"
+    },
+    "GRPCMatch": {
+      "additionalProperties": false,
+      "description": "GRPCMatch matches a gRPC service and optional method.",
+      "properties": {
+        "method": {
+          "description": "Method is the method name; default any.",
+          "type": "string"
+        },
+        "service": {
+          "description": "Service is the fully qualified service name.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "service"
+      ],
+      "type": "object"
+    },
+    "Gateway": {
+      "additionalProperties": false,
+      "description": "Gateway holds listeners, TLS, admin, telemetry, global limits, the State Store connection and Gateway-scoped Policies. Exactly one per Bundle, in ruralz.yaml.",
+      "properties": {
+        "apiVersion": {
+          "const": "ruralz/v1alpha1"
+        },
+        "kind": {
+          "const": "Gateway"
+        },
+        "metadata": {
+          "$ref": "#/$defs/ObjectMeta"
+        },
+        "spec": {
+          "$ref": "#/$defs/GatewaySpec"
+        }
+      },
+      "required": [
+        "apiVersion",
+        "kind",
+        "metadata",
+        "spec"
+      ],
+      "type": "object"
+    },
+    "GatewaySpec": {
+      "additionalProperties": false,
+      "description": "GatewaySpec is the spec of a Gateway.",
+      "properties": {
+        "admin": {
+          "$ref": "#/$defs/Admin",
+          "description": "Admin configures the admin listener."
+        },
+        "limits": {
+          "$ref": "#/$defs/Limits",
+          "description": "Limits are Node-wide limits."
+        },
+        "listeners": {
+          "description": "Listeners are the client listeners; at least one.",
+          "items": {
+            "$ref": "#/$defs/Listener"
+          },
+          "minItems": 1,
+          "type": "array",
+          "x-ruralz-list": {
+            "key": "name",
+            "type": "map"
+          }
+        },
+        "policies": {
+          "description": "Policies attaches Gateway-scoped Policies in authored order.",
+          "items": {
+            "$ref": "#/$defs/PolicyRef"
+          },
+          "type": "array",
+          "x-ruralz-list": {
+            "key": "name",
+            "type": "orderedMap"
+          }
+        },
+        "stateStore": {
+          "$ref": "#/$defs/StateStore",
+          "description": "StateStore is the State Store connection. Without it a Node reads RURALZ_STATE_STORE_URL, else uses memory."
+        },
+        "telemetry": {
+          "$ref": "#/$defs/Telemetry",
+          "description": "Telemetry configures OTLP export, trace sampling and the access log."
+        },
+        "trustedProxies": {
+          "description": "TrustedProxies are CIDRs whose forwarding headers set source.ip; default empty. Planned (M1).",
+          "items": {
+            "type": "string"
+          },
+          "type": "array",
+          "x-ruralz-list": {
+            "type": "set"
+          }
+        }
+      },
+      "required": [
+        "listeners"
+      ],
+      "type": "object"
+    },
+    "GraphQLMatch": {
+      "additionalProperties": false,
+      "description": "GraphQLMatch matches a GraphQL operation.",
+      "properties": {
+        "operationName": {
+          "description": "OperationName is the operation name.",
+          "type": "string"
+        },
+        "operationType": {
+          "description": "OperationType is the operation type, such as query.",
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "HeaderMatch": {
+      "additionalProperties": false,
+      "allOf": [
+        {
+          "oneOf": [
+            {
+              "required": [
+                "exact"
+              ]
+            },
+            {
+              "required": [
+                "regex"
+              ]
+            },
+            {
+              "required": [
+                "present"
+              ]
+            }
+          ]
+        }
+      ],
+      "description": "HeaderMatch matches one request header with exactly one form.",
+      "properties": {
+        "exact": {
+          "description": "Exact matches the whole value.",
+          "type": "string"
+        },
+        "name": {
+          "description": "Name is the header name.",
+          "type": "string"
+        },
+        "present": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "$ref": "#/$defs/Substitution"
+            }
+          ],
+          "description": "Present matches on presence alone."
+        },
+        "regex": {
+          "description": "Regex matches an RE2 regular expression.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "name"
+      ],
+      "type": "object"
+    },
+    "HeaderRequestOps": {
+      "description": "HeaderRequestOps are request header operations.",
+      "properties": {
+        "set": {
+          "description": "Set sets request headers.",
+          "items": {
+            "$ref": "#/$defs/HeaderRequestSet"
+          },
+          "type": "array",
+          "x-ruralz-list": {
+            "key": "name",
+            "type": "map"
+          }
+        }
+      },
+      "type": "object"
+    },
+    "HeaderRequestSet": {
+      "allOf": [
+        {
+          "oneOf": [
+            {
+              "required": [
+                "value"
+              ]
+            },
+            {
+              "required": [
+                "valueExpression"
+              ]
+            }
+          ]
+        }
+      ],
+      "description": "HeaderRequestSet sets one request header from exactly one of value or valueExpression.",
+      "properties": {
+        "name": {
+          "description": "Name is the header name.",
+          "type": "string"
+        },
+        "value": {
+          "description": "Value is a literal value.",
+          "type": "string"
+        },
+        "valueExpression": {
+          "description": "ValueExpression computes the value.",
+          "type": "string",
+          "x-ruralz-cel": {
+            "result": "string",
+            "variables": [
+              "request",
+              "source",
+              "route",
+              "consumer",
+              "auth",
+              "now"
+            ]
+          }
+        }
+      },
+      "required": [
+        "name"
+      ],
+      "type": "object"
+    },
+    "HeaderResponseOps": {
+      "description": "HeaderResponseOps are response header operations.",
+      "properties": {
+        "set": {
+          "description": "Set sets response headers.",
+          "items": {
+            "$ref": "#/$defs/HeaderResponseSet"
+          },
+          "type": "array",
+          "x-ruralz-list": {
+            "key": "name",
+            "type": "map"
+          }
+        }
+      },
+      "type": "object"
+    },
+    "HeaderResponseSet": {
+      "allOf": [
+        {
+          "oneOf": [
+            {
+              "required": [
+                "value"
+              ]
+            },
+            {
+              "required": [
+                "valueExpression"
+              ]
+            }
+          ]
+        }
+      ],
+      "description": "HeaderResponseSet sets one response header from exactly one of value or valueExpression.",
+      "properties": {
+        "name": {
+          "description": "Name is the header name.",
+          "type": "string"
+        },
+        "value": {
+          "description": "Value is a literal value.",
+          "type": "string"
+        },
+        "valueExpression": {
+          "description": "ValueExpression computes the value.",
+          "type": "string",
+          "x-ruralz-cel": {
+            "result": "string",
+            "variables": [
+              "request",
+              "source",
+              "route",
+              "consumer",
+              "auth",
+              "now",
+              "response",
+              "upstream"
+            ]
+          }
+        }
+      },
+      "required": [
+        "name"
+      ],
+      "type": "object"
+    },
+    "HeadersConfig": {
+      "description": "HeadersConfig is the config of a headers Policy.",
+      "properties": {
+        "request": {
+          "$ref": "#/$defs/HeaderRequestOps",
+          "description": "Request sets request headers."
+        },
+        "response": {
+          "$ref": "#/$defs/HeaderResponseOps",
+          "description": "Response sets response headers."
+        }
+      },
+      "type": "object"
+    },
+    "HealthCheck": {
+      "additionalProperties": false,
+      "description": "HealthCheck configures health checks.",
+      "properties": {
+        "active": {
+          "$ref": "#/$defs/ActiveHealthCheck",
+          "description": "Active probes Endpoints."
+        },
+        "passive": {
+          "$ref": "#/$defs/PassiveHealthCheck",
+          "description": "Passive ejects Endpoints that fail requests."
+        }
+      },
+      "type": "object"
+    },
+    "IntOrString": {
+      "anyOf": [
+        {
+          "type": "integer"
+        },
+        {
+          "type": "string"
+        }
+      ],
+      "description": "An integer or a string, such as a port number or a port name."
+    },
+    "JWTBinding": {
+      "additionalProperties": false,
+      "allOf": [
+        {
+          "oneOf": [
+            {
+              "required": [
+                "subject"
+              ]
+            },
+            {
+              "required": [
+                "claims"
+              ]
+            }
+          ]
+        }
+      ],
+      "description": "JWTBinding binds a Consumer to tokens of one issuer by exactly one of subject or claims.",
+      "properties": {
+        "claims": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "description": "Claims are expected claim values.",
+          "type": "object"
+        },
+        "issuer": {
+          "description": "Issuer is the token issuer.",
+          "type": "string"
+        },
+        "subject": {
+          "description": "Subject is the expected sub claim.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "issuer"
+      ],
+      "type": "object"
+    },
+    "JWTIssuer": {
+      "description": "JWTIssuer is one accepted token issuer.",
+      "properties": {
+        "audiences": {
+          "description": "Audiences are the accepted aud values.",
+          "items": {
+            "type": "string"
+          },
+          "minItems": 1,
+          "type": "array",
+          "x-ruralz-list": {
+            "type": "set"
+          }
+        },
+        "issuer": {
+          "description": "Issuer is the expected iss claim.",
+          "type": "string"
+        },
+        "jwksUrl": {
+          "description": "JWKSURL is the issuer's JWKS endpoint; it MUST be https (RZ-CFG-037).",
+          "type": "string"
+        }
+      },
+      "required": [
+        "issuer",
+        "jwksUrl",
+        "audiences"
+      ],
+      "type": "object"
+    },
+    "Limits": {
+      "additionalProperties": false,
+      "description": "Limits are Node-wide limits. Limits count bytes after content decoding.",
+      "properties": {
+        "maxBufferedBytes": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ByteSize"
+            },
+            {
+              "$ref": "#/$defs/Substitution"
+            }
+          ],
+          "default": 536870912,
+          "description": "MaxBufferedBytes is the Node-wide budget for all buffered bodies, decoded values included."
+        },
+        "maxCompositionSteps": {
+          "anyOf": [
+            {
+              "minimum": 1,
+              "type": "integer"
+            },
+            {
+              "$ref": "#/$defs/Substitution"
+            }
+          ],
+          "default": 16,
+          "description": "MaxCompositionSteps caps composition.steps per Route."
+        },
+        "maxPluginMemoryBytes": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ByteSize"
+            },
+            {
+              "$ref": "#/$defs/Substitution"
+            }
+          ],
+          "default": 2147483648,
+          "description": "MaxPluginMemoryBytes caps aggregate Plugin memory per Node."
+        },
+        "maxRequestBodyBytes": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ByteSize"
+            },
+            {
+              "$ref": "#/$defs/Substitution"
+            }
+          ],
+          "description": "MaxRequestBodyBytes caps a request body; above it the request gets 413 RZ-RT-003."
+        },
+        "maxRequestHeaderBytes": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ByteSize"
+            },
+            {
+              "$ref": "#/$defs/Substitution"
+            }
+          ],
+          "description": "MaxRequestHeaderBytes caps a request header block; above it the request gets 431 RZ-RT-002."
+        },
+        "maxResponseBodyBytes": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ByteSize"
+            },
+            {
+              "$ref": "#/$defs/Substitution"
+            }
+          ],
+          "default": 10485760,
+          "description": "MaxResponseBodyBytes caps one buffered response, and a Route's step bodies together."
+        }
+      },
+      "type": "object"
+    },
+    "Listener": {
+      "additionalProperties": false,
+      "description": "Listener is one client listener.",
+      "properties": {
+        "hostnames": {
+          "description": "Hostnames limits the listener to these host names.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array",
+          "x-ruralz-list": {
+            "type": "set"
+          }
+        },
+        "http3": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "$ref": "#/$defs/Substitution"
+            }
+          ],
+          "description": "HTTP3 adds HTTP/3 on UDP on the same port; https only. Planned (M3); off in FIPS builds."
+        },
+        "name": {
+          "description": "Name identifies the listener; Routes select listeners by name.",
+          "type": "string"
+        },
+        "port": {
+          "anyOf": [
+            {
+              "maximum": 65535,
+              "minimum": 1,
+              "type": "integer"
+            },
+            {
+              "$ref": "#/$defs/Substitution"
+            }
+          ],
+          "description": "Port is the TCP port."
+        },
+        "protocol": {
+          "$ref": "#/$defs/ListenerProtocol",
+          "description": "Protocol is http or https."
+        },
+        "proxyProtocol": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "$ref": "#/$defs/Substitution"
+            }
+          ],
+          "default": false,
+          "description": "ProxyProtocol, when true, requires PROXY protocol v2 on this listener. Planned (M1)."
+        },
+        "tls": {
+          "$ref": "#/$defs/ListenerTLS",
+          "description": "TLS configures TLS termination; required for https."
+        }
+      },
+      "required": [
+        "name",
+        "protocol",
+        "port"
+      ],
+      "type": "object"
+    },
+    "ListenerProtocol": {
+      "description": "ListenerProtocol is the protocol a Gateway listener terminates.",
+      "enum": [
+        "http",
+        "https"
+      ],
+      "type": "string"
+    },
+    "ListenerTLS": {
+      "additionalProperties": false,
+      "description": "ListenerTLS configures TLS on a listener.",
+      "properties": {
+        "certificates": {
+          "description": "Certificates are the served certificates; required for https.",
+          "items": {
+            "$ref": "#/$defs/Certificate"
+          },
+          "type": "array",
+          "x-ruralz-list": {
+            "key": "name",
+            "type": "map"
+          }
+        },
+        "minVersion": {
+          "$ref": "#/$defs/TLSVersion",
+          "default": "1.3",
+          "description": "MinVersion is the lowest accepted TLS version."
+        }
+      },
+      "type": "object"
+    },
+    "LoadBalancing": {
+      "additionalProperties": false,
+      "description": "LoadBalancing selects an Endpoint per attempt.",
+      "properties": {
+        "algorithm": {
+          "$ref": "#/$defs/LoadBalancingAlgorithm",
+          "description": "Algorithm is round-robin, least-request, ring-hash or random."
+        },
+        "hashKey": {
+          "description": "HashKey is the ring-hash key; required when algorithm is ring-hash.",
+          "type": "string",
+          "x-ruralz-cel": {
+            "result": "string",
+            "variables": [
+              "request",
+              "source",
+              "route",
+              "consumer",
+              "auth",
+              "now"
+            ]
+          }
+        }
+      },
+      "type": "object"
+    },
+    "LoadBalancingAlgorithm": {
+      "description": "LoadBalancingAlgorithm selects an Endpoint.",
+      "enum": [
+        "round-robin",
+        "least-request",
+        "ring-hash",
+        "random"
+      ],
+      "type": "string"
+    },
+    "Messaging": {
+      "additionalProperties": false,
+      "description": "Messaging configures kafka, nats and mqtt Upstreams. Planned (M4).",
+      "properties": {
+        "key": {
+          "description": "Key computes the message key.",
+          "type": "string",
+          "x-ruralz-cel": {
+            "result": "string",
+            "variables": [
+              "request",
+              "source",
+              "route",
+              "consumer",
+              "auth",
+              "now"
+            ]
+          }
+        },
+        "topic": {
+          "description": "Topic is the topic or subject.",
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "ModelPrice": {
+      "additionalProperties": false,
+      "description": "ModelPrice is the price of one provider model, per million tokens.",
+      "properties": {
+        "cachedInputPerMillionTokens": {
+          "$ref": "#/$defs/Decimal",
+          "description": "CachedInputPerMillionTokens is the cached input token price."
+        },
+        "inputPerMillionTokens": {
+          "$ref": "#/$defs/Decimal",
+          "description": "InputPerMillionTokens is the input token price."
+        },
+        "model": {
+          "description": "Model is the provider model identifier.",
+          "type": "string"
+        },
+        "outputPerMillionTokens": {
+          "$ref": "#/$defs/Decimal",
+          "description": "OutputPerMillionTokens is the output token price."
+        }
+      },
+      "required": [
+        "model"
+      ],
+      "type": "object"
+    },
+    "OAuthClient": {
+      "additionalProperties": false,
+      "description": "OAuthClient is one OAuth client identifier.",
+      "properties": {
+        "clientId": {
+          "description": "ClientID is the OAuth client identifier.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "clientId"
+      ],
+      "type": "object"
+    },
+    "OTLP": {
+      "additionalProperties": false,
+      "description": "OTLP configures OTLP export.",
+      "properties": {
+        "endpoint": {
+          "description": "Endpoint is the OTLP collector URL.",
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "ObjectMeta": {
+      "additionalProperties": false,
+      "description": "ObjectMeta identifies a resource. Only name, labels and annotations exist; namespace and status are rejected in Bundle form.",
+      "properties": {
+        "annotations": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "description": "Annotations are free-form string pairs; the ruralz.io/ prefix is reserved.",
+          "type": "object"
+        },
+        "labels": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "description": "Labels are free-form string pairs; the ruralz.io/ prefix is reserved.",
+          "type": "object"
+        },
+        "name": {
+          "description": "Name is unique per kind within a rendered Bundle: an RFC 1123 label of 1 to 63 characters.",
+          "maxLength": 63,
+          "minLength": 1,
+          "pattern": "^[a-z0-9]([-a-z0-9]*[a-z0-9])?$",
+          "type": "string"
+        }
+      },
+      "required": [
+        "name"
+      ],
+      "type": "object"
+    },
+    "PassiveHealthCheck": {
+      "additionalProperties": false,
+      "description": "PassiveHealthCheck ejects Endpoints that fail requests.",
+      "properties": {
+        "consecutiveErrors": {
+          "anyOf": [
+            {
+              "minimum": 1,
+              "type": "integer"
+            },
+            {
+              "$ref": "#/$defs/Substitution"
+            }
+          ],
+          "description": "ConsecutiveErrors matching circuitBreaker.failureWhen eject an Endpoint."
+        },
+        "ejectionTime": {
+          "$ref": "#/$defs/Duration",
+          "description": "EjectionTime is multiplied by the Endpoint's ejection count."
+        }
+      },
+      "type": "object"
+    },
+    "PathMatch": {
+      "additionalProperties": false,
+      "allOf": [
+        {
+          "oneOf": [
+            {
+              "required": [
+                "exact"
+              ]
+            },
+            {
+              "required": [
+                "prefix"
+              ]
+            },
+            {
+              "required": [
+                "template"
+              ]
+            },
+            {
+              "required": [
+                "regex"
+              ]
+            }
+          ]
+        }
+      ],
+      "description": "PathMatch matches the request path with exactly one form.",
+      "properties": {
+        "exact": {
+          "description": "Exact matches the whole path.",
+          "type": "string"
+        },
+        "prefix": {
+          "description": "Prefix matches a path prefix.",
+          "type": "string"
+        },
+        "regex": {
+          "description": "Regex matches an RE2 regular expression.",
+          "type": "string"
+        },
+        "template": {
+          "description": "Template matches a path template such as /v1/orders/{orderId}; captures reach CEL as request.pathParams.",
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "Phase": {
+      "description": "Phase is a Filter Chain Phase (foundation pack section 4).",
+      "enum": [
+        "onRequestHeaders",
+        "onRequestBody",
+        "onRoute",
+        "onUpstreamRequest",
+        "onUpstreamResponseHeaders",
+        "onUpstreamResponseBody",
+        "onResponse",
+        "onLog",
+        "onChunk"
+      ],
+      "type": "string"
+    },
+    "Plugin": {
+      "additionalProperties": false,
+      "description": "Plugin is a WASM artifact and the Capabilities it may use.",
+      "properties": {
+        "apiVersion": {
+          "const": "ruralz/v1alpha1"
+        },
+        "kind": {
+          "const": "Plugin"
+        },
+        "metadata": {
+          "$ref": "#/$defs/ObjectMeta"
+        },
+        "spec": {
+          "$ref": "#/$defs/PluginSpec"
+        }
+      },
+      "required": [
+        "apiVersion",
+        "kind",
+        "metadata",
+        "spec"
+      ],
+      "type": "object"
+    },
+    "PluginABI": {
+      "description": "PluginABI names a Plugin ABI.",
+      "enum": [
+        "ruralz.plugin.v1"
+      ],
+      "type": "string"
+    },
+    "PluginConfig": {
+      "description": "PluginConfig is the config of a plugin Policy: whatever the Plugin's configSchema defines, checked against it at validation.",
+      "type": "object"
+    },
+    "PluginLimits": {
+      "additionalProperties": false,
+      "description": "PluginLimits are the per-Plugin resource limits.",
+      "properties": {
+        "memoryBytes": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ByteSize"
+            },
+            {
+              "$ref": "#/$defs/Substitution"
+            }
+          ],
+          "default": 16777216,
+          "description": "MemoryBytes is the linear memory limit per instance."
+        },
+        "timeout": {
+          "$ref": "#/$defs/Duration",
+          "default": "5ms",
+          "description": "Timeout is the wall-clock limit per call."
+        }
+      },
+      "type": "object"
+    },
+    "PluginSpec": {
+      "additionalProperties": false,
+      "description": "PluginSpec is the spec of a Plugin. Planned (M2).",
+      "properties": {
+        "abi": {
+          "$ref": "#/$defs/PluginABI",
+          "description": "ABI is the Plugin ABI the artifact implements."
+        },
+        "capabilities": {
+          "description": "Capabilities are the granted Capabilities; nothing else is granted.",
+          "items": {
+            "$ref": "#/$defs/Capability"
+          },
+          "type": "array",
+          "x-ruralz-impact": [
+            "plugin",
+            "security"
+          ],
+          "x-ruralz-list": {
+            "type": "set"
+          }
+        },
+        "configSchema": {
+          "description": "ConfigSchema is the JSON Schema for the config of plugin Policies using this Plugin; it may carry x-ruralz-validations.",
+          "type": "object"
+        },
+        "image": {
+          "description": "Image is the OCI reference; it MUST carry an @sha256 digest (RZ-CFG-021), and the tag is informational.",
+          "type": "string",
+          "x-ruralz-impact": [
+            "plugin",
+            "security"
+          ]
+        },
+        "limits": {
+          "$ref": "#/$defs/PluginLimits",
+          "description": "Limits are the per-Plugin resource limits."
+        },
+        "phases": {
+          "description": "Phases are the Filter Chain Phases the Plugin implements.",
+          "items": {
+            "$ref": "#/$defs/Phase"
+          },
+          "minItems": 1,
+          "type": "array",
+          "x-ruralz-list": {
+            "type": "set"
+          }
+        }
+      },
+      "required": [
+        "image",
+        "abi",
+        "phases"
+      ],
+      "type": "object"
+    },
+    "Policy": {
+      "additionalProperties": false,
+      "description": "Policy is named, reusable configuration of one registered type for a Filter or a Plugin.",
+      "properties": {
+        "apiVersion": {
+          "const": "ruralz/v1alpha1"
+        },
+        "kind": {
+          "const": "Policy"
+        },
+        "metadata": {
+          "$ref": "#/$defs/ObjectMeta"
+        },
+        "spec": {
+          "$ref": "#/$defs/PolicySpec"
+        }
+      },
+      "required": [
+        "apiVersion",
+        "kind",
+        "metadata",
+        "spec"
+      ],
+      "type": "object"
+    },
+    "PolicyRef": {
+      "additionalProperties": false,
+      "description": "PolicyRef names a Policy in the same rendered Bundle.",
+      "properties": {
+        "name": {
+          "description": "Name is the metadata.name of a Policy.",
+          "type": "string",
+          "x-ruralz-ref": "Policy"
+        }
+      },
+      "required": [
+        "name"
+      ],
+      "type": "object"
+    },
+    "PolicySpec": {
+      "additionalProperties": false,
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "type": {
+                "const": "auth.jwt"
+              }
+            },
+            "required": [
+              "type"
+            ]
+          },
+          "then": {
+            "properties": {
+              "config": {
+                "$ref": "#/$defs/AuthJWTConfig"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "type": {
+                "const": "auth.api-key"
+              }
+            },
+            "required": [
+              "type"
+            ]
+          },
+          "then": {
+            "properties": {
+              "config": {
+                "$ref": "#/$defs/AuthAPIKeyConfig"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "type": {
+                "const": "auth.basic"
+              }
+            },
+            "required": [
+              "type"
+            ]
+          },
+          "then": {
+            "properties": {
+              "config": {
+                "$ref": "#/$defs/AuthBasicConfig"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "type": {
+                "const": "auth.mtls"
+              }
+            },
+            "required": [
+              "type"
+            ]
+          },
+          "then": {
+            "properties": {
+              "config": {
+                "$ref": "#/$defs/AuthMTLSConfig"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "type": {
+                "const": "authz.cel"
+              }
+            },
+            "required": [
+              "type"
+            ]
+          },
+          "then": {
+            "properties": {
+              "config": {
+                "$ref": "#/$defs/AuthzCELConfig"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "type": {
+                "const": "authz.opa"
+              }
+            },
+            "required": [
+              "type"
+            ]
+          },
+          "then": {
+            "properties": {
+              "config": {
+                "$ref": "#/$defs/AuthzOPAConfig"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "type": {
+                "const": "authz.cedar"
+              }
+            },
+            "required": [
+              "type"
+            ]
+          },
+          "then": {
+            "properties": {
+              "config": {
+                "$ref": "#/$defs/AuthzCedarConfig"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "type": {
+                "const": "authz.ip"
+              }
+            },
+            "required": [
+              "type"
+            ]
+          },
+          "then": {
+            "properties": {
+              "config": {
+                "$ref": "#/$defs/AuthzIPConfig"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "type": {
+                "const": "authz.geoip"
+              }
+            },
+            "required": [
+              "type"
+            ]
+          },
+          "then": {
+            "properties": {
+              "config": {
+                "$ref": "#/$defs/AuthzGeoIPConfig"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "type": {
+                "const": "ratelimit"
+              }
+            },
+            "required": [
+              "type"
+            ]
+          },
+          "then": {
+            "properties": {
+              "config": {
+                "$ref": "#/$defs/RateLimitConfig"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "type": {
+                "const": "quota"
+              }
+            },
+            "required": [
+              "type"
+            ]
+          },
+          "then": {
+            "properties": {
+              "config": {
+                "$ref": "#/$defs/QuotaConfig"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "type": {
+                "const": "validation.json-schema"
+              }
+            },
+            "required": [
+              "type"
+            ]
+          },
+          "then": {
+            "properties": {
+              "config": {
+                "$ref": "#/$defs/ValidationJSONSchemaConfig"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "type": {
+                "const": "cors"
+              }
+            },
+            "required": [
+              "type"
+            ]
+          },
+          "then": {
+            "properties": {
+              "config": {
+                "$ref": "#/$defs/CORSConfig"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "type": {
+                "const": "cache"
+              }
+            },
+            "required": [
+              "type"
+            ]
+          },
+          "then": {
+            "properties": {
+              "config": {
+                "$ref": "#/$defs/CacheConfig"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "type": {
+                "const": "headers"
+              }
+            },
+            "required": [
+              "type"
+            ]
+          },
+          "then": {
+            "properties": {
+              "config": {
+                "$ref": "#/$defs/HeadersConfig"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "type": {
+                "const": "transform.request"
+              }
+            },
+            "required": [
+              "type"
+            ]
+          },
+          "then": {
+            "properties": {
+              "config": {
+                "$ref": "#/$defs/TransformRequestConfig"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "type": {
+                "const": "transform.response"
+              }
+            },
+            "required": [
+              "type"
+            ]
+          },
+          "then": {
+            "properties": {
+              "config": {
+                "$ref": "#/$defs/TransformResponseConfig"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "type": {
+                "const": "auth.upstream-oauth2"
+              }
+            },
+            "required": [
+              "type"
+            ]
+          },
+          "then": {
+            "properties": {
+              "config": {
+                "$ref": "#/$defs/AuthUpstreamOAuth2Config"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "type": {
+                "const": "auth.upstream-sigv4"
+              }
+            },
+            "required": [
+              "type"
+            ]
+          },
+          "then": {
+            "properties": {
+              "config": {
+                "$ref": "#/$defs/AuthUpstreamSigV4Config"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "type": {
+                "const": "ai.token-budget"
+              }
+            },
+            "required": [
+              "type"
+            ]
+          },
+          "then": {
+            "properties": {
+              "config": {
+                "$ref": "#/$defs/AITokenBudgetConfig"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "type": {
+                "const": "ai.semantic-cache"
+              }
+            },
+            "required": [
+              "type"
+            ]
+          },
+          "then": {
+            "properties": {
+              "config": {
+                "$ref": "#/$defs/AISemanticCacheConfig"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "type": {
+                "const": "ai.guardrail"
+              }
+            },
+            "required": [
+              "type"
+            ]
+          },
+          "then": {
+            "properties": {
+              "config": {
+                "$ref": "#/$defs/AIGuardrailConfig"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "type": {
+                "const": "plugin"
+              }
+            },
+            "required": [
+              "type"
+            ]
+          },
+          "then": {
+            "properties": {
+              "config": {
+                "$ref": "#/$defs/PluginConfig"
+              }
+            }
+          }
+        }
+      ],
+      "description": "PolicySpec is the spec of a Policy.",
+      "properties": {
+        "config": {
+          "description": "Config is validated by the schema registered for type.",
+          "type": "object"
+        },
+        "failureMode": {
+          "$ref": "#/$defs/FailureMode",
+          "description": "FailureMode is open or closed; default from the type registry. Security types allow closed only (RZ-CFG-029)."
+        },
+        "filterClass": {
+          "$ref": "#/$defs/FilterClass",
+          "description": "FilterClass places a plugin Policy in the Filter Chain; plugin only, default custom."
+        },
+        "overridable": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "$ref": "#/$defs/Substitution"
+            }
+          ],
+          "default": true,
+          "description": "Overridable, when false on a Gateway Policy, forbids Route replace or exclude."
+        },
+        "plugin": {
+          "description": "Plugin is the metadata.name of a Plugin; required when type is plugin.",
+          "type": "string",
+          "x-ruralz-ref": "Plugin"
+        },
+        "slot": {
+          "description": "Slot is the precedence key; default from the type registry.",
+          "type": "string"
+        },
+        "stateStoreTimeout": {
+          "$ref": "#/$defs/Duration",
+          "description": "StateStoreTimeout bounds State Store calls; default Gateway spec.stateStore.timeout."
+        },
+        "type": {
+          "$ref": "#/$defs/PolicyType",
+          "description": "Type is the registered Policy type; it selects the config schema."
+        },
+        "when": {
+          "description": "When skips the Policy when false.",
+          "type": "string",
+          "x-ruralz-cel": {
+            "result": "bool",
+            "variables": [
+              "request",
+              "source",
+              "route",
+              "consumer",
+              "auth",
+              "now",
+              "response"
+            ]
+          }
+        }
+      },
+      "required": [
+        "type",
+        "config"
+      ],
+      "type": "object"
+    },
+    "PolicyType": {
+      "description": "PolicyType is a registered Policy type (foundation pack section 10).",
+      "enum": [
+        "auth.jwt",
+        "auth.api-key",
+        "auth.basic",
+        "auth.mtls",
+        "authz.cel",
+        "authz.opa",
+        "authz.cedar",
+        "authz.ip",
+        "authz.geoip",
+        "ratelimit",
+        "quota",
+        "validation.json-schema",
+        "cors",
+        "cache",
+        "headers",
+        "transform.request",
+        "transform.response",
+        "auth.upstream-oauth2",
+        "auth.upstream-sigv4",
+        "ai.token-budget",
+        "ai.semantic-cache",
+        "ai.guardrail",
+        "plugin"
+      ],
+      "type": "string"
+    },
+    "Pricing": {
+      "additionalProperties": false,
+      "description": "Pricing is a provider's price table.",
+      "properties": {
+        "currency": {
+          "description": "Currency is an ISO 4217 code.",
+          "pattern": "^[A-Z]{3}$",
+          "type": "string"
+        },
+        "models": {
+          "description": "Models are per-model prices.",
+          "items": {
+            "$ref": "#/$defs/ModelPrice"
+          },
+          "type": "array",
+          "x-ruralz-list": {
+            "key": "model",
+            "type": "map"
+          }
+        },
+        "version": {
+          "description": "Version names the price table.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "currency",
+        "version"
+      ],
+      "type": "object"
+    },
+    "Promotion": {
+      "additionalProperties": false,
+      "description": "Promotion is the promotion path into an Environment.",
+      "properties": {
+        "from": {
+          "description": "From is the metadata.name of the Environment where a source commit must complete a Rollout first.",
+          "type": "string",
+          "x-ruralz-ref": "Environment"
+        },
+        "requireApproval": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "$ref": "#/$defs/Substitution"
+            }
+          ],
+          "description": "RequireApproval holds promotions for approval."
+        }
+      },
+      "required": [
+        "from"
+      ],
+      "type": "object"
+    },
+    "PromptCache": {
+      "additionalProperties": false,
+      "description": "PromptCache configures the provider-side Prompt Cache.",
+      "properties": {
+        "mode": {
+          "$ref": "#/$defs/PromptCacheMode",
+          "description": "Mode is passthrough or disabled."
+        }
+      },
+      "type": "object"
+    },
+    "PromptCacheMode": {
+      "description": "PromptCacheMode is how provider Prompt Cache markers are handled.",
+      "enum": [
+        "passthrough",
+        "disabled"
+      ],
+      "type": "string"
+    },
+    "Quota": {
+      "additionalProperties": false,
+      "description": "Quota is one named Consumer quota.",
+      "properties": {
+        "limit": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "$ref": "#/$defs/Substitution"
+            }
+          ],
+          "description": "Limit is the amount allowed per window."
+        },
+        "name": {
+          "description": "Name identifies the quota.",
+          "type": "string"
+        },
+        "unit": {
+          "$ref": "#/$defs/QuotaUnit",
+          "description": "Unit is requests or tokens."
+        },
+        "window": {
+          "$ref": "#/$defs/Duration",
+          "description": "Window is the window length."
+        }
+      },
+      "required": [
+        "name",
+        "unit",
+        "limit",
+        "window"
+      ],
+      "type": "object"
+    },
+    "QuotaConfig": {
+      "description": "QuotaConfig is the config of a quota Policy.",
+      "properties": {
+        "consumerQuota": {
+          "description": "ConsumerQuota names a Consumer quota with unit requests.",
+          "type": "string"
+        },
+        "key": {
+          "default": "consumer.name",
+          "description": "Key partitions the quota.",
+          "type": "string",
+          "x-ruralz-cel": {
+            "result": "string",
+            "variables": [
+              "request",
+              "source",
+              "route",
+              "consumer",
+              "auth",
+              "now"
+            ]
+          }
+        }
+      },
+      "required": [
+        "consumerQuota"
+      ],
+      "type": "object"
+    },
+    "QuotaUnit": {
+      "description": "QuotaUnit is what a quota counts.",
+      "enum": [
+        "requests",
+        "tokens"
+      ],
+      "type": "string"
+    },
+    "RateLimit": {
+      "description": "RateLimit is one limit window.",
+      "properties": {
+        "burst": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "$ref": "#/$defs/Substitution"
+            }
+          ],
+          "description": "Burst is 0 to requests; default requests."
+        },
+        "perNodeCeiling": {
+          "anyOf": [
+            {
+              "minimum": 1,
+              "type": "integer"
+            },
+            {
+              "$ref": "#/$defs/Substitution"
+            }
+          ],
+          "description": "PerNodeCeiling caps one Node's share, 1 to requests; unset means derived."
+        },
+        "requests": {
+          "anyOf": [
+            {
+              "minimum": 1,
+              "type": "integer"
+            },
+            {
+              "$ref": "#/$defs/Substitution"
+            }
+          ],
+          "description": "Requests is the number of requests allowed per window."
+        },
+        "window": {
+          "$ref": "#/$defs/Duration",
+          "description": "Window is the window length."
+        }
+      },
+      "required": [
+        "requests",
+        "window"
+      ],
+      "type": "object"
+    },
+    "RateLimitConfig": {
+      "description": "RateLimitConfig is the config of a ratelimit Policy.",
+      "properties": {
+        "key": {
+          "description": "Key partitions the limit, for example per Consumer.",
+          "type": "string",
+          "x-ruralz-cel": {
+            "result": "string",
+            "variables": [
+              "request",
+              "source",
+              "route",
+              "consumer",
+              "auth",
+              "now"
+            ]
+          }
+        },
+        "limits": {
+          "description": "Limits are the enforced windows.",
+          "items": {
+            "$ref": "#/$defs/RateLimit"
+          },
+          "minItems": 1,
+          "type": "array",
+          "x-ruralz-list": {
+            "type": "atomic"
+          }
+        },
+        "localOnly": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "$ref": "#/$defs/Substitution"
+            }
+          ],
+          "default": false,
+          "description": "LocalOnly keeps the limit in the Node; it waits for OQ-scalability-and-distributed-state-11."
+        }
+      },
+      "required": [
+        "limits"
+      ],
+      "type": "object"
+    },
+    "Replace": {
+      "additionalProperties": false,
+      "description": "Replace rewrites a string value. A pattern over 1 KiB or not valid RE2 is RZ-CFG-005.",
+      "properties": {
+        "literal": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "$ref": "#/$defs/Substitution"
+            }
+          ],
+          "description": "Literal treats pattern as literal text."
+        },
+        "path": {
+          "description": "Path selects the value.",
+          "type": "string"
+        },
+        "pattern": {
+          "description": "Pattern is an RE2 pattern, or a literal when literal is true.",
+          "maxLength": 1024,
+          "type": "string"
+        },
+        "replacement": {
+          "description": "Replacement is the replacement text.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "path",
+        "pattern"
+      ],
+      "type": "object"
+    },
+    "Retries": {
+      "additionalProperties": false,
+      "description": "Retries configures retries.",
+      "properties": {
+        "attempts": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "$ref": "#/$defs/Substitution"
+            }
+          ],
+          "description": "Attempts counts retries after the first attempt."
+        },
+        "perTryTimeout": {
+          "$ref": "#/$defs/Duration",
+          "description": "PerTryTimeout is the deadline of each attempt."
+        },
+        "retryOn": {
+          "description": "RetryOn decides whether an attempt is retried.",
+          "type": "string",
+          "x-ruralz-cel": {
+            "result": "bool",
+            "variables": [
+              "request",
+              "response",
+              "error",
+              "attempt",
+              "upstream"
+            ]
+          }
+        }
+      },
+      "type": "object"
+    },
+    "RolloutStrategy": {
+      "description": "RolloutStrategy is how a Rollout reaches a Cluster's Nodes.",
+      "enum": [
+        "all-at-once",
+        "canary"
+      ],
+      "type": "string"
+    },
+    "Route": {
+      "additionalProperties": false,
+      "description": "Route matches requests, attaches Policies and forwards to Upstreams, directly or through composition.",
+      "properties": {
+        "apiVersion": {
+          "const": "ruralz/v1alpha1"
+        },
+        "kind": {
+          "const": "Route"
+        },
+        "metadata": {
+          "$ref": "#/$defs/ObjectMeta"
+        },
+        "spec": {
+          "$ref": "#/$defs/RouteSpec"
+        }
+      },
+      "required": [
+        "apiVersion",
+        "kind",
+        "metadata",
+        "spec"
+      ],
+      "type": "object"
+    },
+    "RouteMatch": {
+      "additionalProperties": false,
+      "description": "RouteMatch holds match criteria; at least one is set and all must hold.",
+      "minProperties": 1,
+      "properties": {
+        "graphql": {
+          "$ref": "#/$defs/GraphQLMatch",
+          "description": "GraphQL matches a GraphQL operation. Planned (M3)."
+        },
+        "grpc": {
+          "$ref": "#/$defs/GRPCMatch",
+          "description": "GRPC matches a gRPC service and method. Planned (M3)."
+        },
+        "headers": {
+          "description": "Headers match request headers.",
+          "items": {
+            "$ref": "#/$defs/HeaderMatch"
+          },
+          "type": "array",
+          "x-ruralz-list": {
+            "key": "name",
+            "type": "map"
+          }
+        },
+        "hosts": {
+          "description": "Hosts are host names; an entry may start with one \"*.\" label.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array",
+          "x-ruralz-list": {
+            "type": "set"
+          }
+        },
+        "methods": {
+          "description": "Methods are HTTP methods.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array",
+          "x-ruralz-list": {
+            "type": "set"
+          }
+        },
+        "path": {
+          "$ref": "#/$defs/PathMatch",
+          "description": "Path matches the request path."
+        },
+        "topic": {
+          "description": "Topic matches an event topic. Planned (M4); its ingress declaration is OQ-configuration-model-11.",
+          "type": "string"
+        },
+        "when": {
+          "description": "When is a CEL condition over the request without its body.",
+          "type": "string",
+          "x-ruralz-cel": {
+            "result": "bool",
+            "variables": [
+              "request",
+              "source",
+              "now"
+            ]
+          }
+        }
+      },
+      "type": "object"
+    },
+    "RouteSpec": {
+      "additionalProperties": false,
+      "allOf": [
+        {
+          "oneOf": [
+            {
+              "required": [
+                "upstreams"
+              ]
+            },
+            {
+              "required": [
+                "composition"
+              ]
+            }
+          ]
+        }
+      ],
+      "description": "RouteSpec is the spec of a Route.",
+      "properties": {
+        "composition": {
+          "$ref": "#/$defs/Composition",
+          "description": "Composition calls several Upstreams per request; mutually exclusive with upstreams."
+        },
+        "excludePolicies": {
+          "description": "ExcludePolicies removes inherited Gateway Policies.",
+          "items": {
+            "$ref": "#/$defs/PolicyRef"
+          },
+          "type": "array",
+          "x-ruralz-list": {
+            "key": "name",
+            "type": "map"
+          }
+        },
+        "listeners": {
+          "description": "Listeners names Gateway listeners; default all.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array",
+          "x-ruralz-list": {
+            "type": "set"
+          }
+        },
+        "match": {
+          "$ref": "#/$defs/RouteMatch",
+          "description": "Match selects requests; every criterion must hold."
+        },
+        "policies": {
+          "description": "Policies attaches Route-scoped Policies in authored order.",
+          "items": {
+            "$ref": "#/$defs/PolicyRef"
+          },
+          "type": "array",
+          "x-ruralz-list": {
+            "key": "name",
+            "type": "orderedMap"
+          }
+        },
+        "timeout": {
+          "$ref": "#/$defs/Duration",
+          "description": "Timeout is the whole-request deadline.",
+          "x-ruralz-impact": [
+            "traffic"
+          ]
+        },
+        "upstreams": {
+          "description": "Upstreams are weighted legs; required unless composition is set.",
+          "items": {
+            "$ref": "#/$defs/RouteUpstream"
+          },
+          "type": "array",
+          "x-ruralz-list": {
+            "key": "name",
+            "type": "map"
+          }
+        }
+      },
+      "required": [
+        "match"
+      ],
+      "type": "object"
+    },
+    "RouteUpstream": {
+      "additionalProperties": false,
+      "description": "RouteUpstream is one weighted leg of a Route.",
+      "properties": {
+        "name": {
+          "description": "Name is the metadata.name of an Upstream.",
+          "type": "string",
+          "x-ruralz-ref": "Upstream"
+        },
+        "weight": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "$ref": "#/$defs/Substitution"
+            }
+          ],
+          "default": 1,
+          "description": "Weight splits traffic across entries."
+        }
+      },
+      "required": [
+        "name"
+      ],
+      "type": "object"
+    },
+    "SecretProvider": {
+      "description": "SecretProvider names where a secret value is resolved.",
+      "enum": [
+        "env",
+        "file",
+        "kubernetes",
+        "vault"
+      ],
+      "type": "string"
+    },
+    "SecretRef": {
+      "additionalProperties": false,
+      "description": "SecretRef points to a secret held outside the Bundle.",
+      "properties": {
+        "key": {
+          "description": "Key selects a JSON member, Secret data key or Vault field; unused for env.",
+          "type": "string"
+        },
+        "name": {
+          "description": "Name is the variable, absolute file path, Kubernetes Secret or Vault path.",
+          "minLength": 1,
+          "type": "string"
+        },
+        "provider": {
+          "$ref": "#/$defs/SecretProvider",
+          "description": "Provider resolves the secret: env and file are Planned (M1), kubernetes and vault Planned (M2)."
+        }
+      },
+      "required": [
+        "provider",
+        "name"
+      ],
+      "type": "object"
+    },
+    "SecretValue": {
+      "additionalProperties": false,
+      "description": "SecretValue is a secret field: only a secretRef is accepted, a literal is RZ-CFG-012, and the value is never rendered.",
+      "properties": {
+        "secretRef": {
+          "$ref": "#/$defs/SecretRef",
+          "description": "SecretRef points to the secret."
+        }
+      },
+      "required": [
+        "secretRef"
+      ],
+      "type": "object"
+    },
+    "SemanticCache": {
+      "additionalProperties": false,
+      "description": "SemanticCache holds Semantic Cache parameters.",
+      "properties": {
+        "similarityThreshold": {
+          "anyOf": [
+            {
+              "maximum": 1,
+              "minimum": 0,
+              "type": "number"
+            },
+            {
+              "$ref": "#/$defs/Substitution"
+            }
+          ],
+          "description": "SimilarityThreshold is the minimum similarity, 0 to 1, for a hit."
+        },
+        "ttl": {
+          "$ref": "#/$defs/Duration",
+          "description": "TTL is how long an entry lives."
+        }
+      },
+      "type": "object"
+    },
+    "SigV4Payload": {
+      "description": "SigV4Payload selects whether the payload is signed.",
+      "enum": [
+        "signed",
+        "unsigned"
+      ],
+      "type": "string"
+    },
+    "StateStore": {
+      "additionalProperties": false,
+      "description": "StateStore is the State Store connection.",
+      "properties": {
+        "driver": {
+          "$ref": "#/$defs/StateStoreDriver",
+          "default": "memory",
+          "description": "Driver is memory or redis."
+        },
+        "timeout": {
+          "$ref": "#/$defs/Duration",
+          "description": "Timeout is the per-operation default for Policies."
+        },
+        "topology": {
+          "$ref": "#/$defs/StateStoreTopology",
+          "default": "standalone",
+          "description": "Topology applies to redis only. Planned (M1)."
+        },
+        "url": {
+          "$ref": "#/$defs/SecretValue",
+          "description": "URL is the rueidis connection URL; it may carry credentials.",
+          "x-ruralz-secret": true
+        }
+      },
+      "type": "object"
+    },
+    "StateStoreDriver": {
+      "description": "StateStoreDriver selects the State Store implementation.",
+      "enum": [
+        "memory",
+        "redis"
+      ],
+      "type": "string"
+    },
+    "StateStoreTopology": {
+      "description": "StateStoreTopology is the Redis deployment shape.",
+      "enum": [
+        "standalone",
+        "cluster"
+      ],
+      "type": "string"
+    },
+    "Substitution": {
+      "description": "A value that is exactly one ${VAR} or ${VAR:-default} expression, substituted before the rendered view validates it.",
+      "pattern": "^\\$\\{[A-Za-z_][A-Za-z0-9_]*(:-[^}]*)?\\}$",
+      "type": "string"
+    },
+    "TLSVersion": {
+      "description": "TLSVersion is a minimum TLS protocol version.",
+      "enum": [
+        "1.2",
+        "1.3"
+      ],
+      "type": "string"
+    },
+    "Telemetry": {
+      "additionalProperties": false,
+      "description": "Telemetry configures OpenTelemetry export, trace sampling and the access log.",
+      "properties": {
+        "accessLog": {
+          "$ref": "#/$defs/AccessLog",
+          "description": "AccessLog configures the access log."
+        },
+        "otlp": {
+          "$ref": "#/$defs/OTLP",
+          "description": "OTLP configures OTLP export."
+        },
+        "traceSampling": {
+          "anyOf": [
+            {
+              "maximum": 1,
+              "minimum": 0,
+              "type": "number"
+            },
+            {
+              "$ref": "#/$defs/Substitution"
+            }
+          ],
+          "description": "TraceSampling is the head sampling ratio, 0 to 1."
+        }
+      },
+      "type": "object"
+    },
+    "TransformRequestConfig": {
+      "additionalProperties": false,
+      "description": "TransformRequestConfig is the config of a transform.request Policy. More than 32 entries across set, remove, arrayOps and replace is RZ-CFG-005.",
+      "properties": {
+        "arrayOps": {
+          "description": "ArrayOps edit JSON arrays.",
+          "items": {
+            "$ref": "#/$defs/ArrayOp"
+          },
+          "type": "array",
+          "x-ruralz-list": {
+            "type": "atomic"
+          }
+        },
+        "body": {
+          "description": "Body computes the new body; a map or list is written as JSON, a string as its bytes.",
+          "type": "string",
+          "x-ruralz-cel": {
+            "result": "dyn",
+            "variables": [
+              "request",
+              "source",
+              "route",
+              "consumer",
+              "auth",
+              "now",
+              "upstream"
+            ]
+          }
+        },
+        "contentType": {
+          "default": "application/json",
+          "description": "ContentType is the content type of a computed body.",
+          "type": "string"
+        },
+        "remove": {
+          "description": "Remove removes headers, query parameters or body fields.",
+          "items": {
+            "$ref": "#/$defs/TransformRequestRemove"
+          },
+          "type": "array",
+          "x-ruralz-list": {
+            "type": "atomic"
+          }
+        },
+        "replace": {
+          "description": "Replace rewrites string values with RE2 patterns.",
+          "items": {
+            "$ref": "#/$defs/Replace"
+          },
+          "type": "array",
+          "x-ruralz-list": {
+            "type": "atomic"
+          }
+        },
+        "set": {
+          "description": "Set sets headers, query parameters or body fields.",
+          "items": {
+            "$ref": "#/$defs/TransformRequestSet"
+          },
+          "type": "array",
+          "x-ruralz-list": {
+            "type": "atomic"
+          }
+        }
+      },
+      "type": "object"
+    },
+    "TransformRequestRemove": {
+      "additionalProperties": false,
+      "description": "TransformRequestRemove removes one request value.",
+      "properties": {
+        "name": {
+          "description": "Name is the header, parameter or body path.",
+          "type": "string"
+        },
+        "target": {
+          "$ref": "#/$defs/TransformRequestTarget",
+          "description": "Target is header, query or body."
+        }
+      },
+      "required": [
+        "target",
+        "name"
+      ],
+      "type": "object"
+    },
+    "TransformRequestSet": {
+      "additionalProperties": false,
+      "description": "TransformRequestSet sets one request value.",
+      "properties": {
+        "name": {
+          "description": "Name is the header, parameter or body path.",
+          "type": "string"
+        },
+        "target": {
+          "$ref": "#/$defs/TransformRequestTarget",
+          "description": "Target is header, query or body."
+        },
+        "valueExpression": {
+          "description": "ValueExpression computes the value.",
+          "type": "string",
+          "x-ruralz-cel": {
+            "result": "string",
+            "variables": [
+              "request",
+              "source",
+              "route",
+              "consumer",
+              "auth",
+              "now",
+              "upstream"
+            ]
+          }
+        }
+      },
+      "required": [
+        "target",
+        "name",
+        "valueExpression"
+      ],
+      "type": "object"
+    },
+    "TransformRequestTarget": {
+      "description": "TransformRequestTarget is where a transform.request operation applies.",
+      "enum": [
+        "header",
+        "query",
+        "body"
+      ],
+      "type": "string"
+    },
+    "TransformResponseConfig": {
+      "additionalProperties": false,
+      "description": "TransformResponseConfig is the config of a transform.response Policy. More than 32 entries across set, remove, arrayOps and replace is RZ-CFG-005.",
+      "properties": {
+        "arrayOps": {
+          "description": "ArrayOps edit JSON arrays.",
+          "items": {
+            "$ref": "#/$defs/ArrayOp"
+          },
+          "type": "array",
+          "x-ruralz-list": {
+            "type": "atomic"
+          }
+        },
+        "body": {
+          "description": "Body computes the new body; a map or list is written as JSON, a string as its bytes.",
+          "type": "string",
+          "x-ruralz-cel": {
+            "result": "dyn",
+            "variables": [
+              "request",
+              "source",
+              "route",
+              "consumer",
+              "auth",
+              "now",
+              "response",
+              "upstream"
+            ]
+          }
+        },
+        "contentType": {
+          "default": "application/json",
+          "description": "ContentType is the content type of a computed body.",
+          "type": "string"
+        },
+        "remove": {
+          "description": "Remove removes headers or body fields.",
+          "items": {
+            "$ref": "#/$defs/TransformResponseRemove"
+          },
+          "type": "array",
+          "x-ruralz-list": {
+            "type": "atomic"
+          }
+        },
+        "replace": {
+          "description": "Replace rewrites string values with RE2 patterns.",
+          "items": {
+            "$ref": "#/$defs/Replace"
+          },
+          "type": "array",
+          "x-ruralz-list": {
+            "type": "atomic"
+          }
+        },
+        "set": {
+          "description": "Set sets headers or body fields.",
+          "items": {
+            "$ref": "#/$defs/TransformResponseSet"
+          },
+          "type": "array",
+          "x-ruralz-list": {
+            "type": "atomic"
+          }
+        }
+      },
+      "type": "object"
+    },
+    "TransformResponseRemove": {
+      "additionalProperties": false,
+      "description": "TransformResponseRemove removes one response value.",
+      "properties": {
+        "name": {
+          "description": "Name is the header or body path.",
+          "type": "string"
+        },
+        "target": {
+          "$ref": "#/$defs/TransformResponseTarget",
+          "description": "Target is header or body."
+        }
+      },
+      "required": [
+        "target",
+        "name"
+      ],
+      "type": "object"
+    },
+    "TransformResponseSet": {
+      "additionalProperties": false,
+      "description": "TransformResponseSet sets one response value.",
+      "properties": {
+        "name": {
+          "description": "Name is the header or body path.",
+          "type": "string"
+        },
+        "target": {
+          "$ref": "#/$defs/TransformResponseTarget",
+          "description": "Target is header or body."
+        },
+        "valueExpression": {
+          "description": "ValueExpression computes the value.",
+          "type": "string",
+          "x-ruralz-cel": {
+            "result": "string",
+            "variables": [
+              "request",
+              "source",
+              "route",
+              "consumer",
+              "auth",
+              "now",
+              "response",
+              "upstream"
+            ]
+          }
+        }
+      },
+      "required": [
+        "target",
+        "name",
+        "valueExpression"
+      ],
+      "type": "object"
+    },
+    "TransformResponseTarget": {
+      "description": "TransformResponseTarget is where a transform.response operation applies.",
+      "enum": [
+        "header",
+        "body"
+      ],
+      "type": "string"
+    },
+    "Upstream": {
+      "additionalProperties": false,
+      "description": "Upstream is a target service.",
+      "properties": {
+        "apiVersion": {
+          "const": "ruralz/v1alpha1"
+        },
+        "kind": {
+          "const": "Upstream"
+        },
+        "metadata": {
+          "$ref": "#/$defs/ObjectMeta"
+        },
+        "spec": {
+          "$ref": "#/$defs/UpstreamSpec"
+        }
+      },
+      "required": [
+        "apiVersion",
+        "kind",
+        "metadata",
+        "spec"
+      ],
+      "type": "object"
+    },
+    "UpstreamAI": {
+      "additionalProperties": false,
+      "description": "UpstreamAI configures an ai Upstream. Planned (M3).",
+      "properties": {
+        "models": {
+          "description": "Models are the AIModels this Upstream serves.",
+          "items": {
+            "$ref": "#/$defs/AIModelRef"
+          },
+          "type": "array",
+          "x-ruralz-list": {
+            "key": "name",
+            "type": "map"
+          }
+        },
+        "surface": {
+          "$ref": "#/$defs/AISurface",
+          "description": "Surface is openai or native."
+        }
+      },
+      "type": "object"
+    },
+    "UpstreamProtocol": {
+      "description": "UpstreamProtocol is the protocol an Upstream speaks.",
+      "enum": [
+        "http",
+        "grpc",
+        "graphql",
+        "websocket",
+        "kafka",
+        "nats",
+        "mqtt",
+        "ai"
+      ],
+      "type": "string"
+    },
+    "UpstreamSpec": {
+      "additionalProperties": false,
+      "allOf": [
+        {
+          "not": {
+            "required": [
+              "endpoints",
+              "discovery"
+            ]
+          }
+        }
+      ],
+      "description": "UpstreamSpec is the spec of an Upstream. Endpoints are required unless discovery is set or protocol is ai.",
+      "properties": {
+        "ai": {
+          "$ref": "#/$defs/UpstreamAI",
+          "description": "AI applies to protocol ai only; its models replace endpoints. Planned (M3)."
+        },
+        "circuitBreaker": {
+          "$ref": "#/$defs/CircuitBreaker",
+          "description": "CircuitBreaker configures the circuit breaker."
+        },
+        "discovery": {
+          "$ref": "#/$defs/Discovery",
+          "description": "Discovery finds Endpoints instead of listing them."
+        },
+        "endpoints": {
+          "description": "Endpoints are static addresses.",
+          "items": {
+            "$ref": "#/$defs/Endpoint"
+          },
+          "type": "array",
+          "x-ruralz-list": {
+            "key": "address",
+            "type": "map"
+          }
+        },
+        "healthCheck": {
+          "$ref": "#/$defs/HealthCheck",
+          "description": "HealthCheck configures active and passive health checks."
+        },
+        "loadBalancing": {
+          "$ref": "#/$defs/LoadBalancing",
+          "description": "LoadBalancing selects an Endpoint per attempt."
+        },
+        "messaging": {
+          "$ref": "#/$defs/Messaging",
+          "description": "Messaging applies to kafka, nats and mqtt only. Planned (M4)."
+        },
+        "policies": {
+          "description": "Policies attaches upstream-leg Policies in authored order.",
+          "items": {
+            "$ref": "#/$defs/PolicyRef"
+          },
+          "type": "array",
+          "x-ruralz-list": {
+            "key": "name",
+            "type": "orderedMap"
+          }
+        },
+        "protocol": {
+          "$ref": "#/$defs/UpstreamProtocol",
+          "description": "Protocol is the protocol the Upstream speaks."
+        },
+        "retries": {
+          "$ref": "#/$defs/Retries",
+          "description": "Retries configures retries."
+        },
+        "timeout": {
+          "$ref": "#/$defs/Duration",
+          "description": "Timeout is the per-leg deadline."
+        },
+        "tls": {
+          "$ref": "#/$defs/UpstreamTLS",
+          "description": "TLS configures TLS to the Endpoints."
+        }
+      },
+      "required": [
+        "protocol"
+      ],
+      "type": "object"
+    },
+    "UpstreamTLS": {
+      "additionalProperties": false,
+      "description": "UpstreamTLS configures TLS to Endpoints.",
+      "properties": {
+        "caCertificate": {
+          "$ref": "#/$defs/SecretValue",
+          "description": "CACertificate verifies the Endpoints.",
+          "x-ruralz-secret": true
+        },
+        "clientCertificate": {
+          "$ref": "#/$defs/SecretValue",
+          "description": "ClientCertificate is the client certificate for mTLS.",
+          "x-ruralz-secret": true
+        },
+        "clientKey": {
+          "$ref": "#/$defs/SecretValue",
+          "description": "ClientKey is the client private key for mTLS.",
+          "x-ruralz-secret": true
+        },
+        "sni": {
+          "description": "SNI is the server name sent in the TLS handshake.",
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "ValidationJSONSchemaConfig": {
+      "description": "ValidationJSONSchemaConfig is the config of a validation.json-schema Policy; its fields are not yet registered.",
+      "properties": {},
+      "type": "object"
+    }
+  },
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "kind": {
+            "const": "Gateway"
+          }
+        },
+        "required": [
+          "kind"
+        ]
+      },
+      "then": {
+        "$ref": "#/$defs/Gateway"
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "kind": {
+            "const": "Upstream"
+          }
+        },
+        "required": [
+          "kind"
+        ]
+      },
+      "then": {
+        "$ref": "#/$defs/Upstream"
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "kind": {
+            "const": "Plugin"
+          }
+        },
+        "required": [
+          "kind"
+        ]
+      },
+      "then": {
+        "$ref": "#/$defs/Plugin"
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "kind": {
+            "const": "Policy"
+          }
+        },
+        "required": [
+          "kind"
+        ]
+      },
+      "then": {
+        "$ref": "#/$defs/Policy"
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "kind": {
+            "const": "Consumer"
+          }
+        },
+        "required": [
+          "kind"
+        ]
+      },
+      "then": {
+        "$ref": "#/$defs/Consumer"
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "kind": {
+            "const": "AIProvider"
+          }
+        },
+        "required": [
+          "kind"
+        ]
+      },
+      "then": {
+        "$ref": "#/$defs/AIProvider"
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "kind": {
+            "const": "AIModel"
+          }
+        },
+        "required": [
+          "kind"
+        ]
+      },
+      "then": {
+        "$ref": "#/$defs/AIModel"
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "kind": {
+            "const": "Route"
+          }
+        },
+        "required": [
+          "kind"
+        ]
+      },
+      "then": {
+        "$ref": "#/$defs/Route"
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "kind": {
+            "const": "Environment"
+          }
+        },
+        "required": [
+          "kind"
+        ]
+      },
+      "then": {
+        "$ref": "#/$defs/Environment"
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "kind": {
+            "const": "Cluster"
+          }
+        },
+        "required": [
+          "kind"
+        ]
+      },
+      "then": {
+        "$ref": "#/$defs/Cluster"
+      }
+    }
+  ],
+  "description": "One Ruralz configuration resource. Generated from github.com/ravindu-rev/ruralz/pkg/config/v1alpha1 by internal/tool/schemagen; do not edit.",
+  "properties": {
+    "apiVersion": {
+      "const": "ruralz/v1alpha1"
+    },
+    "kind": {
+      "enum": [
+        "Gateway",
+        "Upstream",
+        "Plugin",
+        "Policy",
+        "Consumer",
+        "AIProvider",
+        "AIModel",
+        "Route",
+        "Environment",
+        "Cluster"
+      ]
+    }
+  },
+  "required": [
+    "apiVersion",
+    "kind",
+    "metadata",
+    "spec"
+  ],
+  "title": "Ruralz ruralz/v1alpha1 resource (authoring view)",
+  "type": "object"
+}

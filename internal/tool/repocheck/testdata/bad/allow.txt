@@ -1,0 +1,2 @@
+# test allowlist
+internal/allowed/ entitlement # fixture
