@@ -1,110 +1,69 @@
 {
   "lens": "L2 foundation-auditor",
-  "verdict": "revise",
-  "score": 6,
-  "blocking": [
-    {
-      "id": "L2-1",
-      "section": "Decision outcome (because-clause); Consequences; Pros and cons of the options (Helm chart and mirrored CRDs, Gateway API deferred)",
-      "issue": "The ADR says the Kubernetes API stays off Nodes and that Nodes hold no watch. The owning document and the tech stack document say otherwise. On Kubernetes, Nodes link client-go and hold watches for `discovery: kubernetes` EndpointSlices and for `provider: kubernetes` secrets. So an API server outage does more than stop new CRD changes. It freezes EndpointSlice discovery and Kubernetes secret refresh. A Node restarted during the outage also cannot resolve a `provider: kubernetes` secretRef, and pack 8.5 then keeps it not ready.",
-      "evidence": "Line 46: \"keeps the Kubernetes API off Nodes and ships with Ruralz Control\"; line 115: \"Good, because an API server outage stops only new CRD changes: Nodes hold no watch and keep their active Revision (P9).\"; line 136: \"Good, because Kubernetes stays optional and off Nodes.\" The owning document docs/operations/01-deployment-topologies.md, T4 RBAC row (line 187), says: \"Nodes: `get` and `watch` on own-namespace Secrets, only for `provider: kubernetes`; `list` and `watch` on `endpointslices.discovery.k8s.io`\". docs/engineering/01-tech-stack-and-libraries.md line 82 says: \"client-go is always linked into `ruralzd` and `ruralz-control`\". Pack 8.5: `/readyz` returns 200 only when \"every `secretRef` it uses has resolved\".",
-      "fix": "Line 46: replace \"keeps the Kubernetes API off Nodes\" with \"keeps CRDs and configuration delivery off Nodes\". Line 115: \"Good, because an API server outage stops new CRD changes, and freezes EndpointSlice discovery and `provider: kubernetes` secret refresh at their last state, while running Nodes keep their active Revision (P9); a Node restarted during the outage stays not ready if it needs a `provider: kubernetes` secret (pack 8.5).\" Line 136: \"Good, because Kubernetes stays optional and configuration delivery stays off Nodes.\" In the Figure 1 label, \"Nodes: ruralzd, no CRD access\" is correct and can stay."
-    },
-    {
-      "id": "L2-2",
-      "section": "Decision outcome (Figure 2)",
-      "issue": "Figure 2 gives `RefNotFound` as a reason for `Accepted` False. In the Configuration model, which is the only source for the status conditions, `RefNotFound` is a false reason of `ResolvedRefs`. `Accepted` has only `InvalidSpec` and `GuardrailViolation`.",
-      "evidence": "Line 101: \"C->>A: Accepted False, InvalidSpec or RefNotFound\". docs/architecture/02-configuration-model.md, Status conditions in the CRD path: \"| `Accepted` | Schema and semantic checks pass | `InvalidSpec`, `GuardrailViolation` |\" and \"| `ResolvedRefs` | Every reference resolves | `RefNotFound`, `PluginDigestMissing` |\".",
-      "fix": "Change line 101 to \"C->>A: Accepted False (InvalidSpec) or ResolvedRefs False (RefNotFound)\"."
-    },
-    {
-      "id": "L2-3",
-      "section": "Decision outcome (Consequences)",
-      "issue": "The Consequences say authors need only namespace-scoped RBAC. The ADR's own CRD translation row, the Configuration model's Kubernetes mapping and the owning document all make `Environment` and `Cluster` cluster-scoped CRDs. Anyone who authors those two kinds needs cluster-scoped RBAC. The owning document also grants `ruralz-control` cluster-scoped CRD status updates, and Migration tooling needs cluster-scoped RBAC on CRD status to prune stored versions.",
-      "evidence": "Line 116: \"Good, because authors need only namespace-scoped RBAC, and no chart component reads Secrets cluster-wide.\" Line 52: \"`Environment` and `Cluster` are cluster-scoped\". docs/architecture/02-configuration-model.md, Kubernetes mapping: \"| `Environment`, `Cluster` | Outside the Bundle | Cluster-scoped CRDs read only by Ruralz Control |\". docs/operations/01-deployment-topologies.md line 187: \"reads of cluster-scoped `Environment` and `Cluster` CRDs, cluster-scoped CRD status updates\".",
-      "fix": "Rewrite line 116 as: \"Good, because authors of Bundle kinds need only namespace-scoped RBAC; only platform operators who author the cluster-scoped `Environment` and `Cluster` objects need cluster-scoped rights, and no chart component reads Secrets cluster-wide.\""
-    }
-  ],
+  "verdict": "accept",
+  "score": 8,
+  "blocking": [],
   "non_blocking": [
     {
-      "section": "Decision outcome (Figure 1); CRD versions row; Consequences",
-      "suggestion": "Figure 1 puts the conversion webhook inside the \"Ruralz Control (ruralz-control) leader\" subgraph. That suggests only the leader serves it. Line 120 says reads fail only \"while every Ruralz Control replica is down\", which suggests every replica serves it. Move `conv` out of the leader subgraph, or label it \"every replica\". Also, with `conversion.strategy: None` the API server never calls the webhook. Say that the webhook ships unused until a second version is served, Planned (M3)."
+      "section": "Pros and cons of the options (CRDs read by every Node)",
+      "suggestion": "Line 156 says \"each Node would add ten CRD informers\". Pack section 3 and the Configuration model Kubernetes mapping make `Cluster` control plane only, \"read only by Ruralz Control\". A file-mode Node would need at most the eight Bundle kinds, plus `Environment` for `${VAR}` values. A word-neutral fix: \"each Node would add eight Bundle-kind informers to the EndpointSlice informers it already holds\"."
     },
     {
-      "section": "Decision outcome (CRDs row)",
-      "suggestion": "Line 51 cites OQ-configuration-model-3 (a) for \"`rz` plus the lower-case kind, except `rzgw` and `rzenv`\". The Configuration model states option (a) as only \"`rzgw`, `rzcluster`\". The ADR matches the owning document's decision, but it should add a Proposed amendment in More information asking the Configuration model to record the full short-name rule when it closes OQ-configuration-model-3."
+      "section": "Considered options (option 4)",
+      "suggestion": "Line 41 cites https://pkg.go.dev/k8s.io/client-go/informers/discovery/v1 for \"dynamic informers, a list-and-watch per kind\". That page covers typed EndpointSlice informers, not dynamic informers. Rephrase to \"through client-go informers, as for EndpointSlices\" so the research URL supports the claim."
     },
     {
-      "section": "Decision outcome (CRD source row)",
-      "suggestion": "OQ-system-overview-8 option (a) reads \"One source per Cluster\". The ADR, like the owning document, decides one primary source per Environment. Say briefly that the Environment is the unit because every Cluster in it shares one Revision (pack 8.1), so readers do not see a mismatch with the OQ wording."
+      "section": "Decision outcome (CRD translation row)",
+      "suggestion": "Line 51 says \"Server-set `metadata` and `status` are dropped; otherwise only the group changes\". The Configuration model rejects `metadata.namespace` in the Bundle form, and `metadata.namespace` is not server-set. Consider \"Server-set `metadata`, `metadata.namespace` and `status` are dropped\" (one extra word)."
     },
     {
-      "section": "Considered options (option 4); Pros and cons",
-      "suggestion": "The URL https://pkg.go.dev/k8s.io/client-go/informers/discovery/v1 documents EndpointSlice informers, not CRD watches. Rephrase so the citation backs only the per-kind list-and-watch cost, or say that CRDs would need dynamic or generated informers."
-    },
-    {
-      "section": "Decision outcome (CRD translation row); Confirmation (Equivalence test)",
-      "suggestion": "The canonical form keeps labels and annotations in the digest; it drops only comments and file names. \"Only the group changes\" also needs the translation to drop server-populated metadata (`namespace`, `uid`, `resourceVersion`, `managedFields`) and `status`, and to decide what happens to tool annotations such as `kubectl.kubernetes.io/last-applied-configuration`. Otherwise the Equivalence test's MUST cannot hold. Coordinate the fix with L1-3."
-    },
-    {
-      "section": "Confirmation",
-      "suggestion": "The Upgrade test has no milestone tag and no owning test section. Tag it Planned (M3), since it only has meaning once `ruralz.io/v1beta1` is served, and mark it (proposed) like the Equivalence test. Also write \"kind (Kubernetes in Docker)\" once, so the tool is not confused with a Ruralz resource kind."
-    },
-    {
-      "section": "verify-docs.mjs",
-      "suggestion": "There are no FAIL lines. Six WARN milestone lines (52, 54, 55, 125, 126 and 127) have no matching M2 item because the roadmap does not exist yet. When the roadmap is written, make sure its M2 section lists the CRD translation, CRD source, CRD versions, the CRD drift gate, the Equivalence test and the kind suite."
+      "section": "More information",
+      "suggestion": "Line 162 says \"client-go is linked into both binaries\". Ruralz has three binaries. Say \"into `ruralzd` and `ruralz-control`\" to match the tech stack catalog row."
     },
     {
       "section": "Whole document (length)",
-      "suggestion": "The prose body, excluding fenced blocks, is about 1,330 words against the 1,500 maximum. The L1 and L2 fixes fit in the remaining space. Do not remove text that resolved earlier findings."
+      "suggestion": "The body is about 1,497 words by the verifier's rule, against a 1,500 maximum. Any edit, including the ones above, must be word-neutral or offset elsewhere. Do not trim the text that resolved the earlier L2-1 to L2-3 findings (lines 45, 104, 118, 119, 138, 162)."
+    },
+    {
+      "section": "Verifier output",
+      "suggestion": "verify-docs prints only WARN lines (milestones), no FAIL lines. The WARNs say M2 and M3 items such as 'CRD translation', 'CRD source', 'CRD versions' and the Confirmation tests are missing from docs/roadmap/01-roadmap-and-milestones.md. The roadmap owner should add them when that document is written."
     }
   ],
   "ac_results": [
     {
       "ac": "Front matter contains id, title, status, date, deciders and related, and status matches this manifest.",
       "pass": true,
-      "note": "All six keys are present. status: proposed and the title match the manifest adrs[] entry for ADR-0016, and date is 2026-09-25."
+      "note": "All six keys are present. The status `proposed`, id ADR-0016 and title match the manifest adrs[] entry exactly."
     },
     {
       "ac": "H2 headings match adr_common.outline_h2 exactly and in order, and Decision outcome contains the H3 headings Consequences and Confirmation.",
       "pass": true,
-      "note": "The six H2 headings appear in the required order, and Consequences and Confirmation are H3s under Decision outcome."
+      "note": "The six H2 headings are in the manifest order. Consequences (line 114) and Confirmation (line 125) sit under Decision outcome."
     },
     {
       "ac": "Considered options lists at least two options including the chosen one, and each has pros and cons.",
       "pass": true,
-      "note": "Four options are listed, including the chosen one, and each has Good and Bad bullets. Every cited URL appears in docs/_meta/research/ (competitors-envoy-zuplo-gravitee.md, competitors-kong-tyk-apisix.md, go-libraries-protocols.md). The client-go citation is loosely matched (non-blocking)."
+      "note": "There are four options, and each has a matching H3 under Pros and cons with Good and Bad bullets. Options 2 to 4 cite URLs found in docs/_meta/research/ (competitors-envoy-zuplo-gravitee.md, competitors-kong-tyk-apisix.md, go-libraries-protocols.md)."
     },
     {
       "ac": "Decision outcome states the chosen option as 'Chosen option: ..., because ...' and matches the foundation pack section 7 row for this ADR.",
       "pass": true,
-      "note": "The wording is right and the decision matches the pack section 7 Kubernetes row: Helm chart and CRDs Planned (M2), group `ruralz.io`, group-only translation, only Ruralz Control watches CRDs, Gateway API deferred. The because-clause \"keeps the Kubernetes API off Nodes\" is inaccurate (L2-1)."
+      "note": "Line 45 uses the required form. It matches the pack section 7 row: Helm chart and mirrored CRDs Planned (M2), group `ruralz.io/v1alpha1` translated by changing only the group, only Ruralz Control watches CRDs, and Gateway API conformance deferred. It also matches the manifest decision."
     },
     {
       "ac": "Confirmation names a concrete verification mechanism (test, lint rule, CI gate or review checklist item).",
       "pass": true,
-      "note": "Confirmation names the CI stage 3 generated-code drift gate (matches the CI stages table, which triggers on `deploy/crds/`), an Equivalence test, the kind end-to-end suite (matches the testing document's kind row), an upgrade test and a review checklist item."
+      "note": "Confirmation names a CI stage 3 drift gate, an equivalence golden test, a kind end-to-end suite, an upgrade test and a review checklist item. Each agrees with the repository layout and testing documents."
     },
     {
       "ac": "The ADR is linked from docs/adr/README.md and from its owning document.",
-      "pass": false,
-      "note": "docs/operations/01-deployment-topologies.md links the ADR (lines 23, 27 and 172, plus adrs[]). docs/adr/README.md does not exist yet: it is written in a later wave, and --allow-missing suppresses the check. The ADR cannot fix this, so it is not a blocking item."
-    },
-    {
-      "ac": "verify-docs.mjs (--allow-missing --skip markdownlint) reports no FAIL line for docs/adr/0016-kubernetes-helm-and-crds.md",
       "pass": true,
-      "note": "No FAIL lines. There are six WARN milestone lines because the roadmap has not been written yet."
-    },
-    {
-      "ac": "Agreement with the owning document, foundation pack and the four foundation documents (canonical names, kinds, fields, ports, OQ and ADR references)",
-      "pass": false,
-      "note": "Ports (8091), names, kinds, the group, OQ references, principle names (P1 to P5, P9) and anchors are consistent. The ADR contradicts the owning document's T4 RBAC row and the tech stack client-go row (L2-1), the Configuration model's status condition reasons (L2-2), and the cluster-scoped CRDs (L2-3). No forbidden aliases or em dashes were found."
-    },
-    {
-      "ac": "Length within adr_common.length_words (400 to 1500)",
-      "pass": true,
-      "note": "The body is about 1,330 words under the verifier's rule, which excludes front matter and fenced blocks."
+      "note": "The owning document docs/operations/01-deployment-topologies.md links the ADR in Scope and in T4. docs/adr/README.md does not exist yet because the index generator writes it in wave 5, and verify-docs with --allow-missing reports no FAIL. Re-check once the index exists."
     }
   ],
-  "foundation_amendments": []
+  "foundation_amendments": [
+    "Configuration model (Kubernetes mapping): say that some `x-ruralz-validations` rules may not lower to `x-kubernetes-validations` (no structural equivalent, over the CEL cost budget, or using Ruralz-only variables) and then run only in Ruralz Control. The ADR's More information proposes this.",
+    "Configuration model: open an Open question on which tool-managed labels and annotations (kubectl last-applied-configuration, Helm, Argo CD) the CRD-to-Bundle translation drops before the digest.",
+    "Deployment topologies: open an Open question on how a namespace source signals a complete object set: (a) debounce only; (b) an expected object-set digest."
+  ]
 }

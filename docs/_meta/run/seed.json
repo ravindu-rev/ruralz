@@ -27250,5 +27250,241 @@
 "Owning document, In-place handover step 5: add the abort rule for a new process that exits after the swap but before the holder closes its listeners, so that ADR-0015's survival claim holds for the whole window.",
 "Tech stack document: add a catalog row for `golang.org/x/sys` (unix), which pack section 7 already names for the Upgrades decision."
 ]
+},
+"revise2:adr-0010": {
+"addressed": [
+"L1-6",
+"L1-7"
+],
+"disputed": []
+},
+"rereview:adr-0015:L2": {
+"lens": "L2 foundation-auditor",
+"verdict": "accept",
+"score": 9,
+"blocking": [],
+"non_blocking": [
+{
+"section": "Decision outcome (rules table, net.ipv4.tcp_migrate_req row, line 50)",
+"suggestion": "The row says \"Complements steering ... Pack section 7 says alternative, pending OQ-zero-downtime-upgrades-and-hot-reload-12 (a)\", while pack section 7 and System overview handover rule 1 say \"(`net.ipv4.tcp_migrate_req` is an alternative)\". The ADR discloses the deviation and ties it to the owning document's OQ-12, as pack section 14 allows, so it is not blocking. Close it at conformance with the foundation amendment."
+},
+{
+"section": "Decision outcome (rules table, Pinning row, line 45)",
+"suggestion": "The Pinning row is tagged Planned (M1) but lists \"UDP 8443\", which exists only with `http3: true`, Planned (M3) (pack 8.4). Consider \"UDP 8443 once HTTP/3 ships, Planned (M3)\". The owning document's step 3 has the same wording, so this is not a contradiction."
+},
+{
+"section": "More information (Related decisions, line 127)",
+"suggestion": "ADR-0009 is described as \"(`net/http` GOAWAY and QUIC loss)\", but ADR-0009 never mentions GOAWAY. Consider \"(`net/http` stack and QUIC loss at upgrade)\"."
+},
+{
+"section": "More information (line 128)",
+"suggestion": "OQ-zero-downtime-upgrades-and-hot-reload-7 blocks only \"Planned (M1) handover on T5\" in the owning document. Consider \"OQ-zero-downtime-upgrades-and-hot-reload-7 (systemd unit, for T5)\"."
+},
+{
+"section": "Length",
+"suggestion": "The body is 1,495 words by the verifier's rule, against the maximum of 1,500. Any additions should replace text rather than add to it, and must not remove text that resolved L2-1 to L2-4."
+}
+],
+"ac_results": [
+{
+"ac": "Front matter contains id, title, status, date, deciders and related, and status matches this manifest.",
+"pass": true,
+"note": "id ADR-0015, title identical to the manifest, status accepted (manifest: accepted), date, deciders and related all present."
+},
+{
+"ac": "H2 headings match adr_common.outline_h2 exactly and in order, and Decision outcome contains the H3 headings Consequences and Confirmation.",
+"pass": true,
+"note": "All six H2s are in order; Consequences and Confirmation are H3s under Decision outcome."
+},
+{
+"ac": "Considered options lists at least two options including the chosen one, and each has pros and cons.",
+"pass": true,
+"note": "Four options, each with Good and Bad bullets."
+},
+{
+"ac": "Decision outcome states the chosen option as 'Chosen option: ..., because ...' and matches the foundation pack section 7 row for this ADR.",
+"pass": true,
+"note": "Matches the Upgrades row: SO_REUSEPORT, Drain, a Unix-socket readiness gate, GOAWAY, CBPF via x/sys/unix, QUIC loss and no socket passing. The tcp_migrate_req 'complement' wording is disclosed and deferred to OQ-12."
+},
+{
+"ac": "Confirmation names a concrete verification mechanism (test, lint rule, CI gate or review checklist item).",
+"pass": true,
+"note": "V-3, V-4 (now split into M1 and M3 tags) and V-6 match the owning document's runbook, and there is a review checklist item."
+},
+{
+"ac": "The ADR is linked from docs/adr/README.md and from its owning document.",
+"pass": true,
+"note": "Half verified. The owning document links ADR-0015. docs/adr/README.md does not exist yet (the wave-5 index generator writes it), so that link could not be checked; the verifier with --allow-missing reports no FAIL."
+},
+{
+"ac": "Length within adr_common.length_words (400 to 1500).",
+"pass": true,
+"note": "1,495 words by the verifier's rule."
+},
+{
+"ac": "Considered options cite research URLs (docs/_meta/research/scalability-patterns.md).",
+"pass": true,
+"note": "Every cited URL and figure appears in the research file."
+},
+{
+"ac": "Canonical names, milestone tags, ports, error codes and ADR references agree with the foundation pack, System overview and owning document; no forbidden aliases; no 'Supported'.",
+"pass": true,
+"note": "Ports, RZ-CP-002, the Drain timings and OQ IDs match the sources; the alias scan is clean. Previous L2-1 to L2-4 are resolved."
+},
+{
+"ac": "verify-docs FAIL lines for this ADR",
+"pass": true,
+"note": "None; only WARN milestone lines, which belong to the roadmap document."
+}
+],
+"foundation_amendments": [
+"Pack section 7 Upgrades row and System overview 'Hot Reload, Rollout and Zero-Downtime Upgrade' rule 1: once OQ-zero-downtime-upgrades-and-hot-reload-12 resolves with (a), replace '(`net.ipv4.tcp_migrate_req` is an alternative)' with '(`net.ipv4.tcp_migrate_req` complements it; handover hosts SHOULD set it, with a 3 s linger (target))'."
+]
+},
+"rereview:adr-0016:L1": {
+"lens": "L1 feasibility-skeptic",
+"verdict": "accept",
+"score": 8,
+"blocking": [],
+"non_blocking": [
+{
+"section": "Decision outcome (CRDs row)",
+"suggestion": "`Plugin.spec.configSchema` is itself a JSON Schema and can legitimately be recursive (the draft 2020-12 meta-schema is). Under \"Lowering inlines `$ref` (recursion fails generation)\", that would fail the Plugin CRD and break \"one CRD per kind, all ten\" and the Coverage driver. State that `Plugin.spec.configSchema` and Policy `config` lower to `x-kubernetes-preserve-unknown-fields: true` and are checked only in Ruralz Control, so recursion never reaches the generator."
+},
+{
+"section": "Decision outcome (Reader row)",
+"suggestion": "The leader's own status writes, and server-set fields such as `resourceVersion` and `managedFields`, raise watch events. State that events which leave the translated object set unchanged neither restart the debounce window nor start a build. Also state that an assembly whose digest equals the namespace's last recorded object-set digest records nothing and starts no Rollout, and that conditions are written only when they change. Without these rules, each condition update during a canary bake re-runs the full pipeline."
+},
+{
+"section": "Decision outcome (Reader row); Confirmation",
+"suggestion": "\"a debounce window, or after a maximum delay (both target values)\" gives no numbers. Add numeric values tagged (target), or name the Open question that will fix them, so that the kind test asserting \"exactly one Revision\" has a concrete apply window to exercise."
+},
+{
+"section": "Decision outcome (CRD translation row)",
+"suggestion": "\"Server-set `metadata` and `status` are dropped\" leaves user-set `metadata.namespace`, `finalizers` and `ownerReferences` in the Bundle. But the Configuration model's envelope accepts only `name`, `labels` and `annotations`, and it rejects `metadata.namespace`. Say instead that metadata other than name, labels and annotations is dropped (or rejected with a named RZ-CFG code), so an object another controller touched does not surface as RZ-CFG-006."
+},
+{
+"section": "Decision drivers (P5); More information",
+"suggestion": "Control plane and GitOps says of the CRD source that \"every Kubernetes user who changed the set is an author\". Watch events carry no userInfo, though, and `managedFields` records only field-manager names, while this ADR's admission is structural schema plus CEL only. Add a Proposed amendment: per-user attribution needs a validating admission webhook or the Kubernetes audit log; otherwise the audit records managers only."
+},
+{
+"section": "Decision outcome (CRDs row)",
+"suggestion": "Add the list lowering. `x-ruralz-list` `map`/`orderedMap` become `x-kubernetes-list-type: map` with `x-kubernetes-list-map-keys: [name]`, `set` becomes `set`, and `atomic` becomes `atomic`, so that server-side apply merges by key as the Configuration model promises. Note that a server-side-apply merge of an `orderedMap` may not preserve authored order, and order is inside the digest."
+},
+{
+"section": "Decision outcome (Consequences)",
+"suggestion": "The third Good bullet lists real degradations: frozen EndpointSlice discovery and secret refresh, and restarted Nodes that stay not ready. Move that clause into a Bad bullet so the balance reads honestly, and keep the P9 point as the Good."
+},
+{
+"section": "More information",
+"suggestion": "The owning document's RBAC row grants `ruralz-control` only \"cluster-scoped CRD status updates\". Writing `Accepted`, `ResolvedRefs` and `Programmed` on namespaced objects needs `update` or `patch` on `<kind>/status` in bound namespaces. Record a Proposed amendment for the Deployment topologies RBAC row."
+},
+{
+"section": "Decision outcome (CRD versions row)",
+"suggestion": "Once a second version is served (Planned (M3)), objects the webhook down-converts carry `ruralz.io/conversion-data`, a reserved prefix, and annotations are inside the digest. State that the translation handles that annotation in the same way whichever version it reads, so the choice of served version cannot change a namespace's digest."
+}
+],
+"ac_results": [
+{
+"ac": "Front matter contains id, title, status, date, deciders and related, and status matches this manifest.",
+"pass": true,
+"note": "All six keys are present; status `proposed` matches the manifest adrs[] entry."
+},
+{
+"ac": "H2 headings match adr_common.outline_h2 exactly and in order, and Decision outcome contains the H3 headings Consequences and Confirmation.",
+"pass": true,
+"note": "The six H2 headings appear in manifest order, and Consequences and Confirmation are under Decision outcome."
+},
+{
+"ac": "Considered options lists at least two options including the chosen one, and each has pros and cons.",
+"pass": true,
+"note": "Four options are listed. Each has Good and Bad bullets under Pros and cons of the options, and options 2 to 4 cite source URLs."
+},
+{
+"ac": "Decision outcome states the chosen option as 'Chosen option: ..., because ...' and matches the foundation pack section 7 row for this ADR.",
+"pass": true,
+"note": "The statement matches pack section 7 on four points: Helm chart and mirrored CRDs, Planned (M2); `ruralz.io/v1alpha1` translated by group only; only Ruralz Control watches CRDs; Gateway API deferred."
+},
+{
+"ac": "Confirmation names a concrete verification mechanism (test, lint rule, CI gate or review checklist item).",
+"pass": true,
+"note": "Confirmation names four mechanisms: the CI stage 3 drift gate, the equivalence test pinned to `kubectl apply --server-side`, the kind suite (CRD admission and cost budget, one Revision per multi-object apply, Node RBAC denial) and a review checklist item."
+},
+{
+"ac": "The ADR is linked from docs/adr/README.md and from its owning document.",
+"pass": false,
+"note": "The owning document links the ADR in its Summary, Scope and T4 sections. docs/adr/README.md does not exist yet: the manifest builds it with docs/README.md in wave 5, the verifier runs with --allow-missing, and this document cannot fix it, so it is not a blocking item for the ADR text."
+}
+],
+"foundation_amendments": []
+},
+"rereview:adr-0016:L2": {
+"lens": "L2 foundation-auditor",
+"verdict": "accept",
+"score": 8,
+"blocking": [],
+"non_blocking": [
+{
+"section": "Pros and cons of the options (CRDs read by every Node)",
+"suggestion": "Line 156 says \"each Node would add ten CRD informers\". Pack section 3 and the Configuration model Kubernetes mapping make `Cluster` control plane only, \"read only by Ruralz Control\". A file-mode Node would need at most the eight Bundle kinds, plus `Environment` for `${VAR}` values. A word-neutral fix: \"each Node would add eight Bundle-kind informers to the EndpointSlice informers it already holds\"."
+},
+{
+"section": "Considered options (option 4)",
+"suggestion": "Line 41 cites https://pkg.go.dev/k8s.io/client-go/informers/discovery/v1 for \"dynamic informers, a list-and-watch per kind\". That page covers typed EndpointSlice informers, not dynamic informers. Rephrase to \"through client-go informers, as for EndpointSlices\" so the research URL supports the claim."
+},
+{
+"section": "Decision outcome (CRD translation row)",
+"suggestion": "Line 51 says \"Server-set `metadata` and `status` are dropped; otherwise only the group changes\". The Configuration model rejects `metadata.namespace` in the Bundle form, and `metadata.namespace` is not server-set. Consider \"Server-set `metadata`, `metadata.namespace` and `status` are dropped\" (one extra word)."
+},
+{
+"section": "More information",
+"suggestion": "Line 162 says \"client-go is linked into both binaries\". Ruralz has three binaries. Say \"into `ruralzd` and `ruralz-control`\" to match the tech stack catalog row."
+},
+{
+"section": "Whole document (length)",
+"suggestion": "The body is about 1,497 words by the verifier's rule, against a 1,500 maximum. Any edit, including the ones above, must be word-neutral or offset elsewhere. Do not trim the text that resolved the earlier L2-1 to L2-3 findings (lines 45, 104, 118, 119, 138, 162)."
+},
+{
+"section": "Verifier output",
+"suggestion": "verify-docs prints only WARN lines (milestones), no FAIL lines. The WARNs say M2 and M3 items such as 'CRD translation', 'CRD source', 'CRD versions' and the Confirmation tests are missing from docs/roadmap/01-roadmap-and-milestones.md. The roadmap owner should add them when that document is written."
+}
+],
+"ac_results": [
+{
+"ac": "Front matter contains id, title, status, date, deciders and related, and status matches this manifest.",
+"pass": true,
+"note": "All six keys are present. The status `proposed`, id ADR-0016 and title match the manifest adrs[] entry exactly."
+},
+{
+"ac": "H2 headings match adr_common.outline_h2 exactly and in order, and Decision outcome contains the H3 headings Consequences and Confirmation.",
+"pass": true,
+"note": "The six H2 headings are in the manifest order. Consequences (line 114) and Confirmation (line 125) sit under Decision outcome."
+},
+{
+"ac": "Considered options lists at least two options including the chosen one, and each has pros and cons.",
+"pass": true,
+"note": "There are four options, and each has a matching H3 under Pros and cons with Good and Bad bullets. Options 2 to 4 cite URLs found in docs/_meta/research/."
+},
+{
+"ac": "Decision outcome states the chosen option as 'Chosen option: ..., because ...' and matches the foundation pack section 7 row for this ADR.",
+"pass": true,
+"note": "Line 45 uses the required form. It matches the pack section 7 row: chart and mirrored CRDs Planned (M2), `ruralz.io/v1alpha1` translated by changing only the group, only Ruralz Control watches CRDs, and Gateway API conformance deferred. It also matches the manifest decision."
+},
+{
+"ac": "Confirmation names a concrete verification mechanism (test, lint rule, CI gate or review checklist item).",
+"pass": true,
+"note": "Confirmation names a CI stage 3 drift gate, an equivalence golden test, a kind end-to-end suite, an upgrade test and a review checklist item. Each agrees with the repository layout and testing documents."
+},
+{
+"ac": "The ADR is linked from docs/adr/README.md and from its owning document.",
+"pass": true,
+"note": "The owning document links the ADR in Scope and in T4. docs/adr/README.md does not exist yet because the index generator writes it in wave 5, and verify-docs with --allow-missing reports no FAIL. Re-check once the index exists."
+}
+],
+"foundation_amendments": [
+"Configuration model (Kubernetes mapping): say that some `x-ruralz-validations` rules may not lower to `x-kubernetes-validations` (no structural equivalent, over the CEL cost budget, or using Ruralz-only variables) and then run only in Ruralz Control. The ADR's More information proposes this.",
+"Configuration model: open an Open question on which tool-managed labels and annotations (kubectl last-applied-configuration, Helm, Argo CD) the CRD-to-Bundle translation drops before the digest.",
+"Deployment topologies: open an Open question on how a namespace source signals a complete object set: (a) debounce only; (b) an expected object-set digest."
+]
 }
 }
