@@ -24917,5 +24917,18 @@
 }
 ],
 "foundation_amendments": []
+},
+"revise:adr-0010": {
+"addressed": [
+"L1-1",
+"L1-2",
+"L1-3",
+"L1-4",
+"L1-5",
+"L2-1",
+"L2-2",
+"L2-3"
+],
+"disputed": []
 }
 }
