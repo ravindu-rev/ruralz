@@ -185,7 +185,7 @@ Of the 28 documents above, 27 are `reviewed` and one is `approved-with-escalatio
 
 ## ADR index
 
-The full ADR index, with the same columns and each record's decision, is [docs/adr/README.md](adr/README.md). ADRs use the MADR format with a Confirmation section; their status is `proposed`, `accepted`, `deprecated` or `superseded-by ADR-NNNN`. Of the 17 ADRs below, 15 are `accepted` and 2 are `proposed`. The owning document is the one that states the decision in full and links the ADR.
+The full ADR index, with the same columns, is [docs/adr/README.md](adr/README.md). ADRs use the MADR format with a Confirmation section; their status is `proposed`, `accepted`, `deprecated` or `superseded-by ADR-NNNN`. Of the 17 ADRs below, 15 are `accepted` and 2 are `proposed`. The owning document is the one that states the decision in full and links the ADR.
 
 | ID | Title | Status | Date | Owning document |
 |---|---|---|---|---|
