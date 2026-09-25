@@ -38,7 +38,7 @@ Non-goals, with owners:
 
 ## Guarantees
 
-These follow from P2, P4, P9 and P10 ([Vision](../vision/01-vision-and-positioning.md#principles)); the [Verification runbook](#verification-runbook) tests them. Owned glossary terms (pack section 11):
+These follow from P2, P4, P9 and P10 ([Vision](../vision/01-vision-and-positioning.md#principles)). Owned glossary terms (pack section 11):
 
 | Term | Meaning |
 |---|---|
@@ -89,7 +89,7 @@ Operators MUST NOT roll out a Plugin needing an ABI level some Node of the Clust
 
 After the gate the loader follows [Compile before swap](../architecture/01-system-overview.md#compile-before-swap); the candidate it writes under `${RURALZ_DATA_DIR}/lkg/` becomes Last-Known-Good on activation in file mode, at the promoted digest in Control mode (pack 8.2).
 
-Requests pin their snapshot until `onLog`. Beyond K = 2 retired snapshots (target) the oldest becomes closing: its streams end at once (WebSocket 1001, gRPC `UNAVAILABLE`, SSE end with a retry hint), and work pinned 30 s later (target) ends with `RZ-RT-014` ([Data plane](../architecture/03-data-plane.md#configuration-snapshots-and-hot-reload)). The latest pending Revision waits for that snapshot's release (rule 6 there), up to 37 s plus the largest Plugin `limits.timeout` (target), within the 60 s ACK timeout (target) while that timeout is under 23 s, pending OQ-data-plane-13: its option (b), keeping System overview's "activation never waits", ends the closing snapshot's pins at once instead.
+Requests pin their snapshot until `onLog`. Beyond K = 2 retired snapshots (target) the oldest becomes closing: its streams end at once (WebSocket 1001, gRPC `UNAVAILABLE`, SSE end with a retry hint), and work pinned 30 s later (target) ends with `RZ-RT-014` ([Data plane](../architecture/03-data-plane.md#configuration-snapshots-and-hot-reload)). The latest pending Revision waits for that snapshot's release, at most rule 6's bound there (target), within the 60 s ACK timeout (target) while the largest Plugin `limits.timeout` is under 23 s, pending OQ-data-plane-13: its option (b), keeping System overview's "activation never waits", ends the closing snapshot's pins at once instead.
 
 An `all-at-once` Rollout, or file-mode Nodes sharing a source, reach a third activation together, a rollback and re-rollout sufficing: up to 20,000 streams per Node (target) close in one second, 20 million per 1,000-Node Cell (hypothesis), until OQ-zero-downtime-upgrades-and-hot-reload-10 jitters them.
 
@@ -184,14 +184,15 @@ sequenceDiagram
 4. **Gate.** Over the owner-only Unix socket under `${RURALZ_DATA_DIR}`, the holder accepts only its active digest, has a newer candidate reloaded and reported again, and refuses an older one, left by a failed candidate write, at once. Probes meanwhile reach only the holder, `/readyz` 200. Unaccepted after 60 s (target), the new process exits; if the holder exits first, the new process takes the lock and listens.
 5. **Steer.** Accepted, the new process listens; the holder swaps each program to select it through `golang.org/x/sys/unix`, keeps accepting for a 3 s linger (target), covering handshakes begun before the swap and one SYN-ACK retransmission, then closes its listeners, losing QUIC connections here. Handover hosts SHOULD set `net.ipv4.tcp_migrate_req=1` (Linux 5.14+, per network namespace) so closing migrates queued children and in-progress handshakes to the new socket, by hash despite CBPF (OQ-zero-downtime-upgrades-and-hot-reload-12).
 6. **Move readiness.** During the linger, closing idle admin connections and answering in-flight admin requests with `Connection: close` moves keep-alive health checkers to the new process, so no balancer sees the Drain's 503.
-7. **Move identity.** At Drain start the old process sends a last `Heartbeat` with `draining`, closes its Control Stream and releases the lock; the new one takes it, dials 8091 with `Hello` and retries `RZ-CP-002` from a replica still holding the old stream with full jitter, base 1 s, cap 60 s (target), staying ready (pack 8.5; OQ-zero-downtime-upgrades-and-hot-reload-11). Only the lock holder writes Last-Known-Good (pack 8.11).
+7. **Move identity.** At Drain start the old process sends a last `Heartbeat` with `draining`, closes its Control Stream and releases the lock; the new one takes it, dials 8091 with `Hello` and retries `RZ-CP-002` from a replica still holding the old stream with full jitter, base 1 s, cap 60 s (target), staying ready (pack 8.5). Only the lock holder writes Last-Known-Good (pack 8.11).
 8. **Drain** on the handover timeline below.
 
 The handover carries no Node-local state, answering OQ-traffic-management-and-resilience-22 with (c) for Planned (M1): both processes keep full local token buckets within the one-extra-ceiling bound; until the new process's first `HeartbeatReply`, within 15 s (target), derived ceilings take the full limit under the clamp max(1, `requests` / 100) (target), reason `node_count_unknown` (OQ-zero-downtime-upgrades-and-hot-reload-5).
 
-Node-wide ceilings are shared: the old process reports connections, in-flight units, buffered bytes, Plugin memory and RSS at acceptance and each second (target); the new one admits each ceiling minus that usage, under a soft memory limit of 90% of the limit minus the old RSS (target). Hosts MUST keep the overlap extra free and State Store client limits MUST cover both (OQ-zero-downtime-upgrades-and-hot-reload-6):
+Node-wide ceilings are shared: the old process reports connections, in-flight units, buffered bytes, Plugin memory and RSS at acceptance and each second (target); the new one admits each ceiling minus that usage, under a soft memory limit of 90% of the limit minus the old RSS (target). Hosts MUST fit two processes until V-3 verifies this sharing, then the overlap extra ([Capacity planning](03-capacity-planning.md#headroom-and-failure-capacity)); State Store client limits MUST cover both:
 
 ```text
+Two processes   host ≥ 2 × container until V-3 verifies sharing                   (hypothesis)
 Overlap extra   second base RSS 100 MB + 2 KB per Route, its (K + 2) snapshots
                 and state tables of 475 MiB: about 0.6 GiB plus snapshots         (hypothesis)
 Shared          20,000 TLS connections × 96 KiB = 1.9 GiB, never doubled          (target)
@@ -207,7 +208,7 @@ Handovers, Drains and replica replacements restart Control Streams, and `cluster
 
 ### Drain timeline defaults
 
-A Drain starts on SIGTERM, `ruralz node drain` or an accepted handover, with fixed defaults in Planned (M1) (OQ-zero-downtime-upgrades-and-hot-reload-1). A handover's Drain starts after the linger and fails `/readyz` like any Drain, unseen since step 6 moved every probe connection, and skips the accept window.
+A Drain starts on SIGTERM, `ruralz node drain` or an accepted handover, with fixed defaults in Planned (M1). A handover's Drain starts after the linger and fails `/readyz` like any Drain, unseen since step 6 moved every probe connection, and skips the accept window.
 
 ```text
 Offset from SIGTERM   Step and default
@@ -288,7 +289,7 @@ Reconnects   a Node holding 20,000 sessions sends about 2,000 per second over th
 
 On T4, Planned (M2), an image change replaces Pods ([T4](01-deployment-topologies.md#t4-kubernetes-with-helm-hpa-and-crds)): preStop and SIGTERM follow the [Drain timeline](#drain-timeline-defaults), and the new Pod boots from the same `${RURALZ_DATA_DIR}` volume by pack 8.2, gating the next step on `/readyz`.
 
-Each step replaces up to `maxUnavailable` Pods, M, one zone's share at minimum scale (target); a PodDisruptionBudget limits evictions, not the StatefulSet's rolling update. Operators MUST first add M Pods or confirm spare capacity, and halt on a zone incident, so a step plus a zone loss keeps survivors under 80% CPU (target). The chart's rolling update cannot pace to 10% of Nodes per 10 minutes, about 100 minutes per Cluster (hypothesis), so on T4 a derived-ceiling Cluster MUST declare per-Node ceilings before an image change ([above](#node-count-during-upgrades)).
+Each step replaces up to `maxUnavailable` Pods, M, one zone's share at minimum scale (target); a PodDisruptionBudget limits evictions, not the StatefulSet's rolling update. Operators MUST first add M Pods or confirm spare capacity, and halt on a zone incident, so a step plus a zone loss keeps survivors under 80% CPU (target). The chart's rolling update cannot pace to 10% of Nodes per 10 minutes, so on T4 a derived-ceiling Cluster MUST declare per-Node ceilings before an image change ([above](#node-count-during-upgrades)).
 
 ```text
 Step         M of N Nodes out for 40 to 45 s; update takes ceil(N / M) × 45 s      (hypothesis)
@@ -329,16 +330,16 @@ stateDiagram-v2
 
 ### Skew and the binary rollback limit
 
-Nodes follow the [skew policy](#control-plane-upgrades) ([version skew](../engineering/04-release-versioning-and-compatibility.md#control-plane-and-data-plane-version-skew)); Rollouts with fields newer than the oldest Node serves are refused (RZ-CFG-024). Rollback to N-1 works only while the active Revision and Last-Known-Good lack N-only fields; otherwise the N-1 process NACKs with RZ-CFG-024, stays not ready and is refused a handover ([Binary rollback limit](../engineering/04-release-versioning-and-compatibility.md#binary-rollback-limit)). Operators SHOULD soak N before adopting a new field and SHOULD NOT upgrade Nodes during a Rollout to their Cluster.
+Nodes follow the [skew policy](../engineering/04-release-versioning-and-compatibility.md#control-plane-and-data-plane-version-skew); Rollouts with fields newer than the oldest Node serves are refused (RZ-CFG-024). Rollback to N-1 works only while the active Revision and Last-Known-Good lack N-only fields; otherwise the N-1 process NACKs with RZ-CFG-024, stays not ready and is refused a handover ([Binary rollback limit](../engineering/04-release-versioning-and-compatibility.md#binary-rollback-limit)). Operators SHOULD soak N before adopting a new field and SHOULD NOT upgrade Nodes during a Rollout to their Cluster.
 
 ## Control plane upgrades
 
 Upgrades follow [Ruralz Control upgrades](../engineering/04-release-versioning-and-compatibility.md#ruralz-control-upgrades) for the `raft` Control Store ([ADR-0006](../adr/0006-control-store-raft-boltdb.md), proposed), Planned (M2). N is the newest binary minor; until finalize the Control Store version stays N-1, and replicas write N-1 formats at N-1 schema levels. One minor at a time:
 
-1. **Prepare.** Every replica reported a snapshot at the Control Store version, and every Node runs N-1 by its `service.version` (upgrade any N-2 Node to N-1 first); take `ruralz control backup` and pause `ruralz bundle push`.
-2. **One replica at a time.** Move leadership off (OQ-deployment-topologies-6), replace the binary with N, and await `/readyz` on 9902, Raft catch-up, a recovered `ruralz_control_connected_nodes` and, where required below, `ruralz_control_cluster_nodes`; three voters keep a quorum of two. A failing replica returns to N-1 and the upgrade stops.
+1. **Prepare.** Every replica reported a snapshot at the Control Store version, and every Node runs N-1 by its `service.version` (upgrade any N-2 Node to N-1 first); take `ruralz control backup` with `--revocation-list-file` and pause `ruralz bundle push`.
+2. **One replica at a time.** Move leadership off (`POST /api/v1/replicas/{serverId}/transfer`), replace the binary with N, and await `/readyz` on 9902, Raft catch-up, a recovered `ruralz_control_connected_nodes` and, where required below, `ruralz_control_cluster_nodes`; three voters keep a quorum of two. A failing replica returns to N-1 and the upgrade stops.
 3. **Regional Ruralz Control relays**, Planned (M4), one at a time; their Nodes stay on N-1.
-4. **Finalize.** After every replica and relay reports N and a 24-hour soak (target), an operator finalizes (OQ-release-versioning-and-compatibility-8); migrations run as log entries and replicas snapshot.
+4. **Finalize.** Once `GET /api/v1/control-store` shows every replica and relay at N and a 24-hour soak (target), an `admin` calls `POST /api/v1/control-store/finalize` (step-up; else `RZ-CP-021`); migrations run as log entries and replicas snapshot.
 5. **After finalize.** Apply `ruralz-crds.yaml` if it adds a served version ([ADR-0016](../adr/0016-kubernetes-helm-and-crds.md), proposed), pin the CI CLI to N, resume pushes, then upgrade Nodes one Cluster at a time.
 
 Replicas over one minor above the Control Store version, or meeting unknown entries, stop before serving. With `postgres`, Planned (M4), finalize and migrations are transactions.
@@ -442,7 +443,7 @@ Commands and milestones: [CLI and API surface](../reference/01-cli-and-api-surfa
 
 | When | Check | Pass |
 |---|---|---|
-| Before a Ruralz Control upgrade | `ruralz version` (the CLI only); `ruralz node list --cluster <name>`; Node versions from `service.version` or inventory until OQ-release-versioning-and-compatibility-4 lets `ruralz node list` show them; `ruralz control backup --output-file <file>` | CLI at N or N-1; every Node at N-1; digests equal the promoted digest; backup off the replicas; pushes paused; derived ceilings declared, or replacements paced |
+| Before a Ruralz Control upgrade | `ruralz version` (the CLI only); `ruralz node list --cluster <name>`; Node versions from `service.version` or inventory until OQ-release-versioning-and-compatibility-4 lets `ruralz node list` show them; `ruralz control backup --output-file <file> --revocation-list-file <file>` | CLI at N or N-1; every Node at N-1; digests equal the promoted digest; backup off the replicas; pushes paused; derived ceilings declared, or replacements paced |
 | Before a Node upgrade, after finalize | `ruralz node list --cluster <name>`; versions as above | Every Node at N-1 or N; digests equal the promoted digest |
 | Before | `terminationGracePeriodSeconds` or `TimeoutStopSec`; balancer probe interval times unhealthy threshold | 45 s and 40 s; detection within 5 s (target) |
 | During a Hot Reload or Rollout | `ruralz rollout status <cluster> --wait`; `ruralz_config_activation_duration_seconds` | No deterministic NACK; activation within the size class budget (target) |
@@ -472,7 +473,7 @@ Commands and milestones: [CLI and API surface](../reference/01-cli-and-api-surfa
 | OQ-zero-downtime-upgrades-and-hot-reload-3 | Can `net/http` send a first GOAWAY before `Server.Shutdown`? | (a) `Shutdown` alone, one GOAWAY (Planned (M1)); (b) Ruralz framing through non-deprecated `x/net/http2` APIs; (c) An upstream change | data-plane | No |
 | OQ-zero-downtime-upgrades-and-hot-reload-4 | Which code NACKs a listener that cannot bind during a Hot Reload? | (a) A new transient `RZ-CFG` code; (b) An `RZ-RT` code | configuration-model | No |
 | OQ-zero-downtime-upgrades-and-hot-reload-5 | Should a handover pass the published Node count, reopening OQ-traffic-management-and-resilience-22? | (a) Count only (proposed); (b) Count and rate-limit key table; (c) Neither (current) | zero-downtime-upgrades-and-hot-reload | No |
-| OQ-zero-downtime-upgrades-and-hot-reload-6 | How do `GOMEMLIMIT` and host memory cover the handover overlap? | (a) Hosts sized for two processes; (b) Shared ceilings, a reduced soft limit and free overlap memory (current); (c) Only hosts without a memory limit | capacity-planning | Yes, for Planned (M1) in-place handover |
+| OQ-zero-downtime-upgrades-and-hot-reload-6 | How do `GOMEMLIMIT` and host memory cover the handover overlap? | (a) Hosts sized for two processes, chosen until V-3; (b) Shared ceilings, a reduced soft limit and free overlap memory, after V-3; (c) Only hosts without a memory limit | capacity-planning | No (answered) |
 | OQ-zero-downtime-upgrades-and-hot-reload-7 | Which systemd directives keep the new process as main process across a handover? | (a) Research, then a shipped unit and helper; (b) Documentation only | release-versioning-and-compatibility | Yes, for Planned (M1) handover on T5 |
 | OQ-zero-downtime-upgrades-and-hot-reload-8 | Should Drain send WebSocket close 1012 Service Restart instead of 1001? | (a) 1001 everywhere (current, as Multi-protocol); (b) 1012 on Drain, 1001 on snapshot retirement | multi-protocol | No |
 | OQ-zero-downtime-upgrades-and-hot-reload-9 | What does a Node do when a rotated `stateStore.url` value names another deployment? | (a) Keep the old connection until restart, warning; (b) Redial at once; (c) Require a new Revision | scalability-and-distributed-state | No |

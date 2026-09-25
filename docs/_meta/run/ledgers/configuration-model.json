@@ -160,7 +160,7 @@
   {
    "section": "Restricted YAML profile",
    "kind": "error_code",
-   "value": "RZ-CFG-001 (non-UTF-8, byte order marks; size limit exceeded)"
+   "value": "RZ-CFG-001 (non-UTF-8, byte order marks; size or depth limit exceeded)"
   },
   {
    "section": "Restricted YAML profile",
@@ -174,8 +174,23 @@
   },
   {
    "section": "Restricted YAML profile",
+   "kind": "limit",
+   "value": "64 nesting levels (target), proposed depth default"
+  },
+  {
+   "section": "Restricted YAML profile",
    "kind": "claim",
-   "value": "A Node never enforces a limit below the CLI default, so no Bundle that passes CI fails on a Node for size"
+   "value": "Depth is counted over `lexer.Tokenize` output before parsing, so over-deep input never reaches the parser"
+  },
+  {
+   "section": "Restricted YAML profile",
+   "kind": "claim",
+   "value": "The depth value and peak loader memory (hypothesis) are OQ-configuration-model-18"
+  },
+  {
+   "section": "Restricted YAML profile",
+   "kind": "claim",
+   "value": "A Node never enforces a limit below the CLI default, so no Bundle that passes CI fails on a Node for size or depth"
   },
   {
    "section": "Restricted YAML profile",
@@ -479,6 +494,16 @@
   },
   {
    "section": "Gateway",
+   "kind": "kind_or_field",
+   "value": "listeners[].proxyProtocol: true requires PROXY protocol v2 on this listener; default false"
+  },
+  {
+   "section": "Gateway",
+   "kind": "kind_or_field",
+   "value": "trustedProxies: set of CIDRs whose forwarding headers set source.ip; default empty"
+  },
+  {
+   "section": "Gateway",
    "kind": "port",
    "value": "8443 (https listener)"
   },
@@ -545,6 +570,11 @@
   {
    "section": "Gateway",
    "kind": "kind_or_field",
+   "value": "stateStore.topology (redis only): standalone | cluster; default standalone"
+  },
+  {
+   "section": "Gateway",
+   "kind": "kind_or_field",
    "value": "stateStore.url: {secretRef: {provider: env, name: RURALZ_STATE_STORE_URL}}"
   },
   {
@@ -586,6 +616,61 @@
    "section": "Gateway",
    "kind": "milestone",
    "value": "`http3: true`: Planned (M3); off in FIPS builds"
+  },
+  {
+   "section": "Gateway",
+   "kind": "milestone",
+   "value": "`trustedProxies` and `listeners[].proxyProtocol`: Planned (M1); semantics owned by Security and identity Client address rule"
+  },
+  {
+   "section": "Gateway",
+   "kind": "error_code",
+   "value": "RZ-CFG-005 (malformed `trustedProxies` CIDR)"
+  },
+  {
+   "section": "Gateway",
+   "kind": "claim",
+   "value": "Every topology that puts Nodes behind a load balancer SHOULD set `trustedProxies` or `proxyProtocol`, or `source.ip` is the balancer address"
+  },
+  {
+   "section": "Gateway",
+   "kind": "decision",
+   "value": "answers OQ-security-and-identity-6 with option (c): CIDR list plus PROXY protocol v2"
+  },
+  {
+   "section": "Gateway",
+   "kind": "milestone",
+   "value": "`stateStore.topology`: Planned (M1)"
+  },
+  {
+   "section": "Gateway",
+   "kind": "decision",
+   "value": "answers OQ-scalability-and-distributed-state-2 with option (a): standalone with replicas, and sharded (cluster); no Sentinel"
+  },
+  {
+   "section": "Gateway",
+   "kind": "claim",
+   "value": "`stateStore.url` uses the rueidis URL form, `rediss://` outside loopback: standalone `rediss://[user:password@]host:port[/db]`; cluster seed list `rediss://host:port?addr=host:port&addr=host:port`"
+  },
+  {
+   "section": "Gateway",
+   "kind": "library",
+   "value": "github.com/redis/rueidis (ForceSingleClient for standalone; cluster client with CLUSTER SLOTS, MOVED/ASK, ShardsRefreshInterval)"
+  },
+  {
+   "section": "Gateway",
+   "kind": "claim",
+   "value": "A standalone URL names an endpoint that follows the primary through failover; on a closed connection the Node reconnects under Scalability reconnect pacing and reloads its scripts"
+  },
+  {
+   "section": "Gateway",
+   "kind": "timeout",
+   "value": "cluster slot map refresh: after a redirect, a closed connection and every 10 s (target) through `ShardsRefreshInterval`"
+  },
+  {
+   "section": "Gateway",
+   "kind": "error_code",
+   "value": "RZ-CFG-026 (resolved `stateStore.url` that does not fit `topology`, such as `master_set`, or `addr` under standalone)"
   },
   {
    "section": "Route",
@@ -641,6 +726,16 @@
    "section": "Route",
    "kind": "error_code",
    "value": "RZ-CFG-023 (two Routes with identical match criteria)"
+  },
+  {
+   "section": "Route",
+   "kind": "kind_or_field",
+   "value": "match.hosts entry may start with one `*.` label (for example `*.shop.example`); any other `*` is RZ-CFG-005; Data plane owns wildcard matching"
+  },
+  {
+   "section": "Route",
+   "kind": "decision",
+   "value": "answers OQ-data-plane-2 with option (a): schema pattern with one leading `*.` label"
   },
   {
    "section": "Route",
@@ -1090,7 +1185,7 @@
   {
    "section": "Registered from feature documents",
    "kind": "decision",
-   "value": "answers OQ-security-and-identity-2, -3 and -18 and OQ-traffic-management-and-resilience-1 with option (a), register as authored"
+   "value": "answers OQ-security-and-identity-2, -3 and -18 and OQ-traffic-management-and-resilience-1 with option (a), register as authored, and registers the Transform Policies schema and CEL rows Data plane submitted"
   },
   {
    "section": "Registered from feature documents",
@@ -1141,6 +1236,16 @@
    "section": "Registered from feature documents",
    "kind": "kind_or_field",
    "value": "ratelimit config: `limits[].perNodeCeiling` (integer, 1 to `requests`; unset means derived), `limits[].burst` (integer, 0 to `requests`; default `requests`), `localOnly` (boolean; default false)"
+  },
+  {
+   "section": "Registered from feature documents",
+   "kind": "kind_or_field",
+   "value": "transform.request, transform.response config: `body` (CEL; map or list written as JSON, string as its bytes), `contentType` (string; default `application/json`), atomic lists `set[]` (`target`: header, query (request only) or body; `name`; `valueExpression`, CEL), `remove[]` (`target`, `name`), `arrayOps[]` (`op`: move, append or delete; `from`; `to`), `replace[]` (`path`, `pattern`, `replacement`, `literal`)"
+  },
+  {
+   "section": "Registered from feature documents",
+   "kind": "limit",
+   "value": "transform `pattern` at most 1 KiB (target) and valid RE2; at most 32 entries across the four lists (target); violations are RZ-CFG-005"
   },
   {
    "section": "Registered from feature documents",
@@ -1531,6 +1636,16 @@
    "section": "Allowed places",
    "kind": "failure_mode",
    "value": "cache and ai.semantic-cache config.key error: Cache bypassed"
+  },
+  {
+   "section": "Allowed places",
+   "kind": "failure_mode",
+   "value": "transform.request config.body (dyn) and config.set[].valueExpression (string): onRequestBody, onUpstreamRequest at Upstream scope; Base with request.body, upstream at Upstream scope; runtime error: Policy `failureMode`; Planned (M1)"
+  },
+  {
+   "section": "Allowed places",
+   "kind": "failure_mode",
+   "value": "transform.response config.body (dyn) and config.set[].valueExpression (string): onResponse, onUpstreamResponseBody at Upstream scope; Base, response with body, upstream at Upstream scope; runtime error: Policy `failureMode`; Planned (M1)"
   },
   {
    "section": "Allowed places",
@@ -2350,7 +2465,27 @@
   {
    "section": "Open questions",
    "kind": "claim",
-   "value": "Answered and closed via Registered from feature documents, option (a) each: OQ-security-and-identity-2, -3 and -18 and OQ-traffic-management-and-resilience-1; no submitted field declined"
+   "value": "Answered and closed here: OQ-security-and-identity-2, -3 and -18 and OQ-traffic-management-and-resilience-1 (option (a) each) plus Data plane Transform Policies submission in Registered from feature documents; OQ-security-and-identity-6 (c) and OQ-scalability-and-distributed-state-2 (a) in Gateway; OQ-data-plane-2 (a) in Route"
+  },
+  {
+   "section": "Open questions",
+   "kind": "claim",
+   "value": "OQ-configuration-model-6 answered by Release, versioning and compatibility; OQ-configuration-model-7 answered by CLI and API surface (option (a), comments lost); both rows removed"
+  },
+  {
+   "section": "Open questions",
+   "kind": "claim",
+   "value": "Still pending registration, fields do not exist yet: OQ-security-and-identity-12 and -13, Planned (M2)"
+  },
+  {
+   "section": "Open questions",
+   "kind": "claim",
+   "value": "OQ-configuration-model-18: nesting-depth default and peak loader memory; (a) 64 levels (proposed); not blocking, 64 applies until measured"
+  },
+  {
+   "section": "Open questions",
+   "kind": "claim",
+   "value": "Other blocking field questions assigned here, open in owners tables: M0 OQ-repository-layout-and-conventions-1; M1 OQ-observability-2, OQ-traffic-management-and-resilience-2, -5, -6, -11, -21, OQ-security-and-identity-22, -24, OQ-scalability-and-distributed-state-3; M2 OQ-security-and-identity-30, OQ-wasm-plugin-system-4, OQ-release-versioning-and-compatibility-12, OQ-control-plane-and-gitops-25, OQ-migration-from-krakend-5; M3 OQ-ai-llm-gateway-3, -16, OQ-multi-protocol-15; M4 OQ-wasm-plugin-system-8; M5 OQ-krakend-ee-parity-matrix-3, -6; OQ-release-versioning-and-compatibility-13 before the first digest-changing fix"
   }
  ]
 }

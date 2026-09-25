@@ -209,7 +209,7 @@ Behind shared egress, `Enroll` limits MUST be keyed so L_src × A reaches 20 per
 |---|---|---|---|
 | Bundle and `control/` directory | Git | Forge replication or a fetchable mirror | Continuous |
 | Control Store, with Revision content, plans, audit segments, encrypted keys and CAs | Ruralz Control | `ruralz control backup`, copied off-cluster and to a second Region | Hourly (target) and before each upgrade |
-| Node revocation list | Control Store | Exported beside each backup (proposed; [OQ-high-availability-and-disaster-recovery-6](#open-questions)) | With each backup |
+| Node revocation list | Control Store | `--revocation-list-file`, copied with the backup | With each backup |
 | Backup key (OQ-cli-and-api-surface-9), offline trust-root key; SHOULD: CA keys and key-encryption key, so a rebuild keeps the 8091 server CA | Operator custody | Offline, never with backups | On rotation |
 | Audit log | Control Store | Export (OQ-control-plane-and-gitops-12) to a separate system; MUST for multi-region, holding revocations after the newest backup | Continuous |
 | Signed Revisions and Plugins in OCI | Registry | Replication or a mirror, by digest | Continuous |
@@ -227,12 +227,13 @@ An external scheduler runs the backup with an `admin` API token (built-in schedu
 ruralz control backup \
   --control https://control.shop.example:8090 \
   --token-file /run/secrets/ruralz-backup-token \
-  --output-file /backups/ruralz-control-2026-09-25T10.bak
+  --output-file /backups/ruralz-control-2026-09-25T10.bak \
+  --revocation-list-file /backups/ruralz-control-2026-09-25T10.revoked
 ```
 
 Rules:
 
-1. Copy each backup to a second Region within 10 minutes of its start (hypothesis), as [RA-3](01-deployment-topologies.md#ra-3-multi-region-active-active-with-cells) requires for multi-region.
+1. Copy each backup and its `.revoked` file to a second Region within 10 minutes of its start (hypothesis), as [RA-3](01-deployment-topologies.md#ra-3-multi-region-active-active-with-cells) requires for multi-region.
 2. Before a Ruralz Control upgrade, back up and pause `ruralz bundle push` until finalize ([upgrades](../engineering/04-release-versioning-and-compatibility.md#ruralz-control-upgrades)); after finalize, rollback restores that backup.
 3. Restore with the binary minor that wrote the backup ([OQ-high-availability-and-disaster-recovery-8](#open-questions)).
 4. Verify each backup's signature and decryption at creation; monthly, restore the newest into an isolated scratch deployment with GD-9 (target), as an unrestored backup is unverified.
@@ -326,25 +327,27 @@ Home Region lost (FC-5), Planned (M4) for multi-region, or a single-Region total
 1. Run non-home steps 1 to 3 and 5 for the home Region's Cells. Restore only if Rollouts, Enrollment, revocations or scale-out cannot wait.
 2. Stop the old replicas, a second, older deployment, from starting on return: scale their StatefulSet to zero or block 8090 to 8092 at the network or DNS, then wipe them ([OQ-high-availability-and-disaster-recovery-5](#open-questions)).
 3. In the surviving Region, prepare a new online key; the offline trust-root holder signs an anchor set holding it.
-4. Before any Node reconnects, restore the newest copy. Its higher `storeEpoch` makes Nodes reject older assignments ([fencing](../architecture/04-control-plane-and-gitops.md#fencing-stale-replicas)), and they verify every signature ([ADR-0017](../adr/0017-artifact-signing.md)); it resets Raft membership to this voter and drops old peer certificates, cutting relays' 8092 feed.
+4. Before any Node reconnects, restore the newest copy with its revocation list. Its higher `storeEpoch` makes Nodes reject older assignments ([fencing](../architecture/04-control-plane-and-gitops.md#fencing-stale-replicas)), and they verify every signature ([ADR-0017](../adr/0017-artifact-signing.md)); it resets Raft membership to this voter and drops old peer certificates, cutting relays' 8092 feed.
 
    ```bash
    ruralz control restore --prepare --data-dir /var/lib/ruralz-control          # step 3
-   ruralz control restore /backups/newest.bak --data-dir /var/lib/ruralz-control \
+   ruralz control restore /backups/ruralz-control-2026-09-25T10.bak \
+     --data-dir /var/lib/ruralz-control \
      --advertise control-b1.shop.example:8092 --anchor-set anchors.signed \
-     --backup-key-file /run/secrets/backup-key --revocation-list revoked.list
+     --backup-key-file /run/secrets/backup-key \
+     --revocation-list /backups/ruralz-control-2026-09-25T10.revoked
    ```
 
 5. Recreate API tokens, then re-issue `ruralz node revoke` for each post-backup revocation in the external audit export; without it, those certificates stay valid until expiry.
 6. Run [hold](#holding-deliveries-during-recovery) steps 0 to 3.
-7. Add two voters (`ruralz control join`, then `ruralz control serve`); repoint forge webhooks and the name Nodes dial (OQ-control-plane-and-gitops-13). Re-join each wiped relay with a new relay-role token (OQ-control-plane-and-gitops-15), or point its Nodes at the restored replicas.
+7. Add two voters (`ruralz control join`, then `ruralz control serve`); repoint forge webhooks, and make the host in Nodes' `RURALZ_CONFIG=ruralz-control://HOST:8091` resolve to the restored replicas. Re-join each wiped relay with a new relay-role token (OQ-control-plane-and-gitops-15), or point its Nodes at the restored replicas.
 8. Finish hold step 4. Nodes enrolled after the backup, lacking Enrollment records, fail `Hello` with `RZ-CP-002` or `RZ-CP-003`: re-enroll them as in rebuild step 7 (OQ-high-availability-and-disaster-recovery-4).
 
 ### Ruralz Control rebuild from Git
 
 For when every backup is lost or unusable. Git keeps configuration; Rollout history, users, bindings, Enrollments, unexported audit entries and `ruralz bundle push` or CRD Revisions are lost.
 
-1. Use the `ruralz-control` and `ruralz` CLI minor that built the served Revisions, per release and deployment records. Start one replica with `ruralz control serve` on an empty data directory, with escrowed CAs or new ones; create the first `admin` and `security-admin` (OQ-deployment-topologies-11).
+1. Use the `ruralz-control` and `ruralz` CLI minor that built the served Revisions, per release and deployment records. Start one replica with `ruralz control serve` on an empty data directory, with escrowed CAs or new ones; create the first `admin` and `security-admin` at `POST /api/v1/access` with the [bootstrap credential](../architecture/04-control-plane-and-gitops.md#bootstrap-credential).
 2. Upload an anchor set signed by the existing offline trust-root key, keeping one root chain; its higher `storeEpoch` lets Nodes accept the new, low sequences.
 3. An `admin` creates at least two `approver` accounts with TOTP, bound per Environment, and registers commit-signing keys; an unsigned commit needs two approvers.
 4. Before Ruralz Control reads Git, render candidate commits against each Cluster's Nodes. Equal commits render equal digests only at the same binary minor and schema levels (OQ-release-versioning-and-compatibility-12); if none matches, hold that Cluster and escalate, never letting its promotion complete. Always pass the candidate's own `control/environments.yaml` with `--environments`, never the Control Store's variables.
@@ -430,10 +433,11 @@ Game days rehearse runbooks on staging Clusters under open-loop load; the [Chaos
 | OQ-high-availability-and-disaster-recovery-3 | Should plans with zero or far fewer members than the published Node count stay `pending`, and restored or rebuilt deployments hold deliveries until confirmed? | (a) Complete, plus the runbook hold (current); (b) such plans stay `pending` or `paused` (proposed); (c) a restore-hold mode adopting reported digests; (d) hold returning Clusters until canaried | control-plane-and-gitops | Yes, for Planned (M2) restore |
 | OQ-high-availability-and-disaster-recovery-4 | Carries OQ-deployment-topologies-18: how do serving Nodes re-enroll in bulk after a restore, rebuild or expiry, as a kept identity ignores tokens and pins the old server CA? | (a) Background re-enrollment on `RZ-CP-003` with batched tokens (proposed); (b) rolling Drain and restart per zone (current) | control-plane-and-gitops | Yes, for Planned (M2) restore |
 | OQ-high-availability-and-disaster-recovery-5 | How is a pre-restore deployment fenced when its Region returns? | (a) Operator blocks, then wipes it (current); (b) a root-signed retirement record Nodes and replicas honor | control-plane-and-gitops | Yes, for Planned (M2) restore |
-| OQ-high-availability-and-disaster-recovery-6 | Which command, format and signature export the revocation list beside a backup? | (a) `ruralz control backup` output (proposed); (b) a REST API export | cli-and-api-surface | Yes, for Planned (M2) restore |
 | OQ-high-availability-and-disaster-recovery-7 | Should Ruralz Control schedule backups itself? | (a) External scheduler (current); (b) process configuration | control-plane-and-gitops | No |
 | OQ-high-availability-and-disaster-recovery-8 | May a newer binary minor restore an older backup? | (a) Same minor only (proposed); (b) N restores N-1, then finalize | release-versioning-and-compatibility | No |
 | OQ-high-availability-and-disaster-recovery-9 | Should a restored or rebuilt deployment withhold or seed `clusterNodeCount` until qualification catches up? | (a) Withhold, so Nodes keep their last count (proposed); (b) seed from `Hello` and heartbeats; (c) as written | control-plane-and-gitops | Yes, for Planned (M2) restore and GD-10 |
 | OQ-high-availability-and-disaster-recovery-10 | May a restore drill sign with a drill-only root no production Node trusts? | (a) Yes (proposed); (b) offline root each drill | control-plane-and-gitops | No |
+
+Closed: OQ-high-availability-and-disaster-recovery-6 with option (a), `--revocation-list-file`, decided by [CLI and API surface](../reference/01-cli-and-api-surface.md).
 
 Dependency: OQ-zero-downtime-upgrades-and-hot-reload-9 (GD-5).

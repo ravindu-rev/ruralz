@@ -110,7 +110,7 @@
   {
    "section": "Capabilities and milestones",
    "kind": "milestone",
-   "value": "MCP gateway and MCP Server (OQ-ai-llm-gateway-10): Planned (M3)"
+   "value": "MCP gateway and MCP Server (Routes, Policies; proposed `ai.mcp`, OQ-ai-llm-gateway-10): Planned (M3)"
   },
   {
    "section": "Capabilities and milestones",
@@ -1700,7 +1700,7 @@
   {
    "section": "MCP and A2A stance",
    "kind": "milestone",
-   "value": "MCP Server: tools generated from existing Routes: Planned (M3)"
+   "value": "MCP Server: tools generated from existing Routes (a proposed `ai.mcp` Policy on its own Route, OQ-ai-llm-gateway-10 option (a)): Planned (M3)"
   },
   {
    "section": "MCP and A2A stance",
@@ -1756,6 +1756,181 @@
    "section": "MCP and A2A stance",
    "kind": "claim",
    "value": "LiteLLM serves A2A 0.3 or 1.0 per agent"
+  },
+  {
+   "section": "MCP Server",
+   "kind": "decision",
+   "value": "MCP Server surface: a built-in `ai.mcp` Policy type, proposed as OQ-ai-llm-gateway-10 option (a) and a pack section 10 amendment; it answers OQ-vision-and-positioning-12"
+  },
+  {
+   "section": "MCP Server",
+   "kind": "claim",
+   "value": "Until the amendment `ai.mcp` is no registered type, so no example Bundle uses it; the Configuration model registers its `config` (OQ-configuration-model-9)"
+  },
+  {
+   "section": "MCP Server",
+   "kind": "policy_type",
+   "value": "ai.mcp"
+  },
+  {
+   "section": "MCP Server",
+   "kind": "default",
+   "value": "ai.mcp (proposed): Filter class transform, Phases onRequestHeaders and onRequestBody, Route scope only, slot `mcp`, `failureMode` closed; closed only, Planned (M3)"
+  },
+  {
+   "section": "MCP Server",
+   "kind": "claim",
+   "value": "An MCP Server Route sets neither `upstreams` nor `composition`; the amendment makes that legal only with `ai.mcp` attached"
+  },
+  {
+   "section": "MCP Server",
+   "kind": "kind_or_field",
+   "value": "serverName"
+  },
+  {
+   "section": "MCP Server",
+   "kind": "kind_or_field",
+   "value": "instructions"
+  },
+  {
+   "section": "MCP Server",
+   "kind": "kind_or_field",
+   "value": "tools (orderedMap keyed by name)"
+  },
+  {
+   "section": "MCP Server",
+   "kind": "kind_or_field",
+   "value": "tools[].route"
+  },
+  {
+   "section": "MCP Server",
+   "kind": "kind_or_field",
+   "value": "tools[].method"
+  },
+  {
+   "section": "MCP Server",
+   "kind": "kind_or_field",
+   "value": "tools[].description"
+  },
+  {
+   "section": "MCP Server",
+   "kind": "kind_or_field",
+   "value": "tools[].inputSchema"
+  },
+  {
+   "section": "MCP Server",
+   "kind": "kind_or_field",
+   "value": "tools[].inputSchemaFrom: openapi"
+  },
+  {
+   "section": "MCP Server",
+   "kind": "kind_or_field",
+   "value": "tools[].outputSchema"
+  },
+  {
+   "section": "MCP Server",
+   "kind": "cli_command",
+   "value": "ruralz bundle export openapi"
+  },
+  {
+   "section": "MCP Server",
+   "kind": "error_code",
+   "value": "RZ-CFG-009"
+  },
+  {
+   "section": "MCP Server",
+   "kind": "error_code",
+   "value": "RZ-CFG-005"
+  },
+  {
+   "section": "MCP Server",
+   "kind": "claim",
+   "value": "Each tool has exactly one of `inputSchema` or `inputSchemaFrom` (RZ-CFG-005); a missing target Route is RZ-CFG-009"
+  },
+  {
+   "section": "MCP Server",
+   "kind": "claim",
+   "value": "A target Route qualifies only when it matches on headers alone (listener shared, a non-wildcard host, `exact` or `template` path, no `headers`, `when`, `grpc`, `graphql` or `topic`), uses `http` Upstreams or `composition` and carries no `ai.mcp`; otherwise a new RZ-CFG code (OQ-ai-llm-gateway-10)"
+  },
+  {
+   "section": "MCP Server",
+   "kind": "claim",
+   "value": "`ai.mcp` answers every `POST` with one JSON body, never an SSE stream, decoded with strict JSON"
+  },
+  {
+   "section": "MCP Server",
+   "kind": "claim",
+   "value": "initialize: negotiated protocol version, `capabilities.tools.listChanged: false`, `serverInfo` with `serverName` and the Revision `rev-<12 hex>`; no `Mcp-Session-Id`"
+  },
+  {
+   "section": "MCP Server",
+   "kind": "claim",
+   "value": "tools/list: every tool of the active Revision in one page, without `nextCursor`"
+  },
+  {
+   "section": "MCP Server",
+   "kind": "claim",
+   "value": "Notifications get 202 with no body; any other method is JSON-RPC error -32601 with `RZ-AI-002`; `GET` and `DELETE` get 405; malformed JSON, a batch or a non-JSON-RPC body is 400 `RZ-AI-002`"
+  },
+  {
+   "section": "MCP Server",
+   "kind": "error_code",
+   "value": "RZ-AI-002"
+  },
+  {
+   "section": "MCP Server",
+   "kind": "claim",
+   "value": "tools/call validates `params.arguments` against the tool schema (-32602 with `RZ-AI-002` for an unknown tool or failing arguments)"
+  },
+  {
+   "section": "MCP Server",
+   "kind": "decision",
+   "value": "tools/call builds an internal request (tool method, first `match.hosts` entry, path with template captures from same-named arguments, remaining arguments as query for GET and DELETE or a JSON body) that the Router matches on headers, so pack section 4 holds and the target Route's whole Filter Chain runs"
+  },
+  {
+   "section": "MCP Server",
+   "kind": "claim",
+   "value": "The internal request copies only `Authorization`, the target Route's `auth.api-key` `header`, `traceparent`, the client address and the verified client certificate, so a tool never grants what the target Route would refuse the caller"
+  },
+  {
+   "section": "MCP Server",
+   "kind": "timeout",
+   "value": "The earlier of both Routes' `timeout` bounds the internal request"
+  },
+  {
+   "section": "MCP Server",
+   "kind": "claim",
+   "value": "The internal request path is proposed to Data plane under OQ-ai-llm-gateway-10; a `ratelimit` on both Routes counts one call twice, by design"
+  },
+  {
+   "section": "MCP Server",
+   "kind": "limit",
+   "value": "The target response is a buffering gate within `maxResponseBodyBytes`; an oversized body is `isError` with 502"
+  },
+  {
+   "section": "MCP Server",
+   "kind": "claim",
+   "value": "A 2xx response becomes one text `content` part plus `structuredContent` when `outputSchema` validates it; any other status becomes `isError: true` with status and body"
+  },
+  {
+   "section": "MCP Server",
+   "kind": "decision",
+   "value": "The MCP Server is stateless: it never issues `Mcp-Session-Id`, so any Node answers any message and no affinity applies"
+  },
+  {
+   "section": "MCP Server",
+   "kind": "claim",
+   "value": "During a Rollout `tools/list` may come from either Revision, and a `tools/call` naming a tool the serving Revision lacks gets -32602"
+  },
+  {
+   "section": "MCP Server",
+   "kind": "decision",
+   "value": "MCP gateway sessions: `ring-hash` on `consumer.name` keeps a Consumer's sessions on one Endpoint; a session moved by an Endpoint change gets the server's 404 and the client starts a new session, so no State Store session map is needed"
+  },
+  {
+   "section": "MCP Server",
+   "kind": "claim",
+   "value": "KrakenD EE declares each MCP tool with its own input and output schemas and an upstream workflow"
   },
   {
    "section": "AI observability",
@@ -2176,6 +2351,11 @@
    "section": "Open questions",
    "kind": "decision",
    "value": "OQ-ai-llm-gateway-10: Blocking Yes, for MCP Server"
+  },
+  {
+   "section": "Open questions",
+   "kind": "decision",
+   "value": "OQ-ai-llm-gateway-10: option (a) proposed: `consumer.name` affinity for the gateway and a sessionless MCP Server through `ai.mcp`, amending pack section 10 and the Route `upstreams` rule"
   },
   {
    "section": "Open questions",

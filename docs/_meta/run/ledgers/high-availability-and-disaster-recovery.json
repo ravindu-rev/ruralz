@@ -845,7 +845,7 @@
         {
             "section": "What to protect",
             "kind": "claim",
-            "value": "Node revocation list exported beside each backup (proposed; OQ-high-availability-and-disaster-recovery-6)"
+            "value": "Node revocation list written by `ruralz control backup --revocation-list-file` and copied with the backup, with each backup"
         },
         {
             "section": "What to protect",
@@ -895,12 +895,12 @@
         {
             "section": "Taking and checking backups",
             "kind": "cli_command",
-            "value": "ruralz control backup --control https://control.shop.example:8090 --token-file /run/secrets/ruralz-backup-token --output-file /backups/ruralz-control-2026-09-25T10.bak"
+            "value": "ruralz control backup --control https://control.shop.example:8090 --token-file /run/secrets/ruralz-backup-token --output-file /backups/ruralz-control-2026-09-25T10.bak --revocation-list-file /backups/ruralz-control-2026-09-25T10.revoked"
         },
         {
             "section": "Taking and checking backups",
             "kind": "timeout",
-            "value": "Copy each backup to a second Region within 10 minutes of its start (hypothesis)"
+            "value": "Copy each backup and its `.revoked` file to a second Region within 10 minutes of its start (hypothesis)"
         },
         {
             "section": "Taking and checking backups",
@@ -1120,12 +1120,12 @@
         {
             "section": "Region loss",
             "kind": "cli_command",
-            "value": "ruralz control restore /backups/newest.bak --data-dir /var/lib/ruralz-control --advertise control-b1.shop.example:8092 --anchor-set anchors.signed"
+            "value": "ruralz control restore /backups/ruralz-control-2026-09-25T10.bak --data-dir /var/lib/ruralz-control --advertise control-b1.shop.example:8092 --anchor-set anchors.signed"
         },
         {
             "section": "Region loss",
             "kind": "cli_command",
-            "value": "ruralz control restore --backup-key-file /run/secrets/backup-key --revocation-list revoked.list"
+            "value": "ruralz control restore --backup-key-file /run/secrets/backup-key --revocation-list /backups/ruralz-control-2026-09-25T10.revoked"
         },
         {
             "section": "Region loss",
@@ -1151,6 +1151,31 @@
             "section": "Region loss",
             "kind": "failure_mode",
             "value": "Nodes enrolled after the backup, lacking Enrollment records, fail `Hello` with `RZ-CP-002` or `RZ-CP-003`"
+        },
+        {
+            "section": "Region loss",
+            "kind": "claim",
+            "value": "Before any Node reconnects, restore the newest copy with its revocation list"
+        },
+        {
+            "section": "Region loss",
+            "kind": "claim",
+            "value": "Home step 7: make the host in Nodes' `RURALZ_CONFIG=ruralz-control://HOST:8091` resolve to the restored replicas"
+        },
+        {
+            "section": "Region loss",
+            "kind": "port",
+            "value": "RURALZ_CONFIG=ruralz-control://HOST:8091"
+        },
+        {
+            "section": "Ruralz Control rebuild from Git",
+            "kind": "api_path",
+            "value": "POST /api/v1/access"
+        },
+        {
+            "section": "Ruralz Control rebuild from Git",
+            "kind": "claim",
+            "value": "Rebuild step 1: create the first `admin` and `security-admin` at `POST /api/v1/access` with the bootstrap credential (Control plane Bootstrap credential)"
         },
         {
             "section": "Ruralz Control rebuild from Git",
@@ -1444,8 +1469,8 @@
         },
         {
             "section": "Open questions",
-            "kind": "claim",
-            "value": "OQ-high-availability-and-disaster-recovery-6: revocation list export; (a) `ruralz control backup` output (proposed); (b) a REST API export; Blocking: Yes, for Planned (M2) restore"
+            "kind": "decision",
+            "value": "Closed: OQ-high-availability-and-disaster-recovery-6 with option (a), `--revocation-list-file`, decided by CLI and API surface"
         },
         {
             "section": "Open questions",

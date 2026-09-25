@@ -505,7 +505,17 @@
   {
    "section": "Top-level keys",
    "kind": "claim",
-   "value": "`enable_mtls` needs a Gateway `auth.mtls` Policy, whose fields are pending (OQ-security-and-identity-3): `manual` with a hold"
+   "value": "`enable_mtls` with `ca_certs` becomes a Gateway `auth.mtls` Policy in its own slot, `config.caCertificate` from `ca_certs`, no `config.subjects`: `approximate`, rejecting per request, not in the handshake"
+  },
+  {
+   "section": "Top-level keys",
+   "kind": "kind_or_field",
+   "value": "config.caCertificate"
+  },
+  {
+   "section": "Top-level keys",
+   "kind": "kind_or_field",
+   "value": "config.subjects"
   },
   {
    "section": "Top-level keys",
@@ -765,6 +775,16 @@
   {
    "section": "KrakenD path entries and their targets",
    "kind": "kind_or_field",
+   "value": "config.arrayOps[]"
+  },
+  {
+   "section": "KrakenD path entries and their targets",
+   "kind": "claim",
+   "value": "`proxy.flatmap_filter` and non-JSON backend `encoding` stay `manual`; reading XML bodies is OQ-data-plane-17"
+  },
+  {
+   "section": "KrakenD path entries and their targets",
+   "kind": "kind_or_field",
    "value": "limits.maxRequestBodyBytes"
   },
   {
@@ -940,12 +960,17 @@
   {
    "section": "extra_config namespaces",
    "kind": "milestone",
-   "value": "`auth/basic`: `auth.basic`, Planned (M1)"
+   "value": "`auth/basic`: `auth.basic` and Consumer `credentials.basic`, Planned (M1)"
   },
   {
    "section": "extra_config namespaces",
    "kind": "claim",
-   "value": "`auth/basic`: Consumer binding field pending (OQ-security-and-identity-2), `manual` with a hold"
+   "value": "`auth/basic`: `credentials.basic` takes only `pbkdf2-sha256` hashes, so passwords are reissued; `manual` with a hold"
+  },
+  {
+   "section": "extra_config namespaces",
+   "kind": "kind_or_field",
+   "value": "credentials.basic"
   },
   {
    "section": "extra_config namespaces",
@@ -956,6 +981,21 @@
    "section": "extra_config namespaces",
    "kind": "milestone",
    "value": "`auth/aws-sigv4`: `auth.upstream-sigv4`, Planned (M2)"
+  },
+  {
+   "section": "extra_config namespaces",
+   "kind": "kind_or_field",
+   "value": "config.region"
+  },
+  {
+   "section": "extra_config namespaces",
+   "kind": "kind_or_field",
+   "value": "config.service"
+  },
+  {
+   "section": "extra_config namespaces",
+   "kind": "claim",
+   "value": "`auth/aws-sigv4`: region and service map to `config.region` and `config.service`; other KrakenD fields are unresearched; `manual`"
   },
   {
    "section": "extra_config namespaces",
@@ -1051,6 +1091,21 @@
    "section": "extra_config namespaces",
    "kind": "claim",
    "value": "on the `redis` State Store of rule 8 Ruralz enforces one Cluster-wide limit"
+  },
+  {
+   "section": "extra_config namespaces",
+   "kind": "kind_or_field",
+   "value": "limits[].burst"
+  },
+  {
+   "section": "extra_config namespaces",
+   "kind": "kind_or_field",
+   "value": "config.localOnly"
+  },
+  {
+   "section": "extra_config namespaces",
+   "kind": "claim",
+   "value": "`qos/ratelimit/router`: `capacity` maps to `limits[].burst`; higher limits need `config.localOnly` (OQ-scalability-and-distributed-state-11)"
   },
   {
    "section": "extra_config namespaces",
@@ -1371,6 +1426,11 @@
    "section": "extra_config namespaces",
    "kind": "milestone",
    "value": "`backend/soap`: `transform.request` XML envelopes, Planned (M5)"
+  },
+  {
+   "section": "extra_config namespaces",
+   "kind": "claim",
+   "value": "`backend/soap`: XML responses per OQ-data-plane-17, `manual`"
   },
   {
    "section": "extra_config namespaces",
@@ -2158,6 +2218,11 @@
    "value": "One blocking State Store call per request"
   },
   {
+   "section": "Lua to CEL or WASM Plugins",
+   "kind": "claim",
+   "value": "Rewrite a JSON body: `transform.request` or `transform.response` per the Data plane Transform Policies schema; no Plugin needed"
+  },
+  {
    "section": "Cutover runbook",
    "kind": "milestone",
    "value": "runbook works in file mode, Planned (M1); Control mode, Planned (M2), adds canary Rollouts"
@@ -2423,6 +2488,16 @@
    "value": "LLM routing: `ai/llm` is `manual` before M3, then `approximate`; aggregation is buffered only"
   },
   {
+   "section": "Partial parity that changes migrated behavior",
+   "kind": "claim",
+   "value": "SOAP integration: CEL cannot read XML responses (OQ-data-plane-17)"
+  },
+  {
+   "section": "Partial parity that changes migrated behavior",
+   "kind": "claim",
+   "value": "Service and Proxy rate limit: a constant key is one State Store hot key (OQ-scalability-and-distributed-state-11; OQ-krakend-ee-parity-matrix-4)"
+  },
+  {
    "section": "Features that arrive after the importer",
    "kind": "claim",
    "value": "KrakenD streaming Routes import `approximate` through the no-op rows, since the reverse proxy exists from Planned (M1)"
@@ -2520,7 +2595,22 @@
   {
    "section": "Open questions",
    "kind": "kind_or_field",
-   "value": "localOnly"
+   "value": "config.localOnly"
+  },
+  {
+   "section": "Open questions",
+   "kind": "kind_or_field",
+   "value": "limits[].perNodeCeiling"
+  },
+  {
+   "section": "Open questions",
+   "kind": "claim",
+   "value": "OQ-migration-from-krakend-1 lists `cors` fields, the `validation.json-schema` schema and `auth.api-key` query-string credentials"
+  },
+  {
+   "section": "Open questions",
+   "kind": "claim",
+   "value": "OQ-migration-from-krakend-12 option (c): declared `limits[].perNodeCeiling` or `config.localOnly` (OQ-scalability-and-distributed-state-11) for hot constant keys"
   }
  ]
 }

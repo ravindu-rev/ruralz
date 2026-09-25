@@ -1699,16 +1699,6 @@
   },
   {
    "section": "Open questions",
-   "kind": "policy_type",
-   "value": "`transform.request`"
-  },
-  {
-   "section": "Open questions",
-   "kind": "policy_type",
-   "value": "`transform.response`"
-  },
-  {
-   "section": "Open questions",
    "kind": "kind_or_field",
    "value": "`config`"
   },
@@ -2895,7 +2885,7 @@
   {
    "section": "Open questions",
    "kind": "decision",
-   "value": "OQ-krakend-ee-parity-matrix-1 blocking: Yes, for the M1 transformation rows; the XML sub-question blocks the M5 SOAP row"
+   "value": "Closed: OQ-krakend-ee-parity-matrix-1 with option (a), decided by Data plane"
   },
   {
    "section": "Open questions",
@@ -3215,7 +3205,7 @@
   {
    "section": "Request and response transformation",
    "kind": "claim",
-   "value": "whose `config` schema is still unauthored (OQ-krakend-ee-parity-matrix-1)"
+   "value": "whose `config` schema is authored in Data plane's [Transform Policies], pending Configuration model registration"
   },
   {
    "section": "Request and response transformation",
@@ -3635,7 +3625,7 @@
   {
    "section": "Traffic management",
    "kind": "decision",
-   "value": "`limits[].perNodeCeiling` or `config.localOnly`, authored in Traffic management and pending registration (OQ-traffic-management-and-resilience-1)"
+   "value": "`limits[].perNodeCeiling` or `config.localOnly` ([Per-Node ceiling]), both registered ([Registered from feature documents]); `localOnly: true` still waits on the pack 8.8 amendment, OQ-scalability-and-distributed-state-11 (blocking M1)"
   },
   {
    "section": "Traffic management",
@@ -3855,7 +3845,7 @@
   {
    "section": "Not planned rows",
    "kind": "decision",
-   "value": "the question names only AMQP, Pub/Sub and SQS, so Multi-protocol is asked to add Azure Service Bus and SNS"
+   "value": "six brokers and cloud queues under OQ-multi-protocol-14, whose current option (a) this matrix adopts"
   },
   {
    "section": "Not planned rows",
@@ -3935,17 +3925,17 @@
   {
    "section": "Summary counts",
    "kind": "decision",
-   "value": "this matrix adopts its current option (a), Not planned in M0 to M5, for AMQP, Google Cloud Pub/Sub and Amazon SQS"
+   "value": "this matrix adopts its current option (a), Not planned in M0 to M5, for all six rows the question names: AMQP consumer and producer, Azure Service Bus, Google Cloud Pub/Sub, Amazon SNS and Amazon SQS"
   },
   {
    "section": "Summary counts",
    "kind": "number",
-   "value": "If neither closes before the M1 exit, M1 reaches 18 of 71, 25% (target), instead of 34% (target)."
+   "value": "Without it, M1 reaches 19 of 71, 27% (target), instead of 34% (target)."
   },
   {
    "section": "Summary counts",
    "kind": "number",
-   "value": "six M1 EE-only rows wait on blocking Open questions"
+   "value": "five M1 EE-only rows, the `transform.*` rows, wait on Configuration model registration of the schema Data plane authored"
   },
   {
    "section": "Summary counts",
@@ -3960,7 +3950,7 @@
   {
    "section": "Open questions",
    "kind": "decision",
-   "value": "(a) Data plane authors one CEL-based schema covering the first five and XML request building (proposed)"
+   "value": "the SOAP XML response part moved to OQ-data-plane-17"
   },
   {
    "section": "Open questions",
@@ -4025,7 +4015,7 @@
   {
    "section": "Open questions",
    "kind": "claim",
-   "value": "CEL sees `request.body` and `response.body` only as JSON, and only the strings and encoders extensions are enabled"
+   "value": "[Transform Policies] is one CEL-based schema covering body extraction to headers, CEL-built bodies, CEL queries, regular expression replacement, flatmap array operations and XML request building"
   },
   {
    "section": "Traffic management",
@@ -4035,17 +4025,117 @@
   {
    "section": "Traffic management",
    "kind": "decision",
-   "value": "`limits[].burst` ([Per-Node ceiling]), authored in Traffic management and pending registration (OQ-traffic-management-and-resilience-1)"
+   "value": "`limits[].burst` ([Per-Node ceiling]), registered ([Registered from feature documents])"
   },
   {
    "section": "Beyond parity",
    "kind": "decision",
-   "value": "with `limits[].perNodeCeiling` pending registration (OQ-traffic-management-and-resilience-1)"
+   "value": "with `limits[].perNodeCeiling` ([Per-Node ceiling]), registered in the Configuration model"
   },
   {
    "section": "Partial parity",
    "kind": "decision",
    "value": "Service rate limit and Proxy rate limit open question: OQ-scalability-and-distributed-state-11"
+  },
+  {
+   "section": "Request and response transformation",
+   "kind": "kind_or_field",
+   "value": "`arrayOps[]`"
+  },
+  {
+   "section": "Request and response transformation",
+   "kind": "kind_or_field",
+   "value": "`set[]`"
+  },
+  {
+   "section": "Request and response transformation",
+   "kind": "kind_or_field",
+   "value": "`body`"
+  },
+  {
+   "section": "Request and response transformation",
+   "kind": "kind_or_field",
+   "value": "`replace[]`"
+  },
+  {
+   "section": "Request and response transformation",
+   "kind": "decision",
+   "value": "Flatmap, request body extractor, Go-template and regular expression rows: `transform.*` fields pending registration"
+  },
+  {
+   "section": "Authentication and authorization",
+   "kind": "kind_or_field",
+   "value": "`credentials.basic`"
+  },
+  {
+   "section": "Authentication and authorization",
+   "kind": "kind_or_field",
+   "value": "`config.caCertificate`"
+  },
+  {
+   "section": "Authentication and authorization",
+   "kind": "kind_or_field",
+   "value": "`credentials.certificates`"
+  },
+  {
+   "section": "Authentication and authorization",
+   "kind": "kind_or_field",
+   "value": "`grantType: jwt-bearer`"
+  },
+  {
+   "section": "Authentication and authorization",
+   "kind": "kind_or_field",
+   "value": "`serviceAccountKey`"
+  },
+  {
+   "section": "Authentication and authorization",
+   "kind": "kind_or_field",
+   "value": "`audience`"
+  },
+  {
+   "section": "Authentication and authorization",
+   "kind": "api_path",
+   "value": "`/api/v1/revocations`"
+  },
+  {
+   "section": "Authentication and authorization",
+   "kind": "decision",
+   "value": "Revoke Server: File-mode delivery; `/api/v1/revocations` awaits OQ-security-and-identity-4"
+  },
+  {
+   "section": "Authentication and authorization",
+   "kind": "decision",
+   "value": "Google GCP authentication: `grantType: jwt-bearer`, `serviceAccountKey`, `audience`, pending registration (OQ-security-and-identity-12)"
+  },
+  {
+   "section": "Services connectivity",
+   "kind": "kind_or_field",
+   "value": "`contentType: text/xml`"
+  },
+  {
+   "section": "Services connectivity",
+   "kind": "claim",
+   "value": "Envelope `ruralz.mux.v1` ([Multiplexing]); settings per OQ-multi-protocol-6"
+  },
+  {
+   "section": "Services connectivity",
+   "kind": "decision",
+   "value": "reading an XML response needs an XML decoder for `response.body`, which the Configuration model lacks (OQ-data-plane-17)"
+  },
+  {
+   "section": "Services connectivity",
+   "kind": "decision",
+   "value": "Azure Service Bus and Amazon SNS: OQ-multi-protocol-14 option (a), adopted here"
+  },
+  {
+   "section": "Partial parity",
+   "kind": "decision",
+   "value": "SOAP integration open question: OQ-data-plane-17"
+  },
+  {
+   "section": "Partial parity",
+   "kind": "claim",
+   "value": "The transformation rows also depend on the `transform.*` `config` schema, authored in Data plane's [Transform Policies], pending Configuration model registration."
   }
  ]
 }

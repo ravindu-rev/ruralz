@@ -184,6 +184,11 @@
   },
   {
    "section": "Replica roles",
+   "kind": "claim",
+   "value": "each published `clusterNodeCount` value is committed through Raft"
+  },
+  {
+   "section": "Replica roles",
    "kind": "number",
    "value": "ready Nodes that ACKed a Revision and stayed connected 10 minutes (target)"
   },
@@ -800,7 +805,12 @@
   {
    "section": "Rollout plan, batches and gates",
    "kind": "default",
-   "value": "Late Nodes join the final batch and never lag; an empty plan completes at once"
+   "value": "Late Nodes join the final batch and never lag; a plan whose members, even none, number below half the last committed `clusterNodeCount` (target) stays `pending`, re-planning as Nodes return, until members reach that share or an `operator` confirms it with `ruralz rollout resume`; only without a committed count does an empty plan complete at once"
+  },
+  {
+   "section": "Rollout plan, batches and gates",
+   "kind": "decision",
+   "value": "OQ-high-availability-and-disaster-recovery-3, option (b): thin or empty plans stay `pending` until Nodes return or an `operator` confirms"
   },
   {
    "section": "Rollout plan, batches and gates",
@@ -935,7 +945,7 @@
   {
    "section": "Control Stream",
    "kind": "kind_or_field",
-   "value": "Hello: activeDigest, lkgDigest, schemaLevels, lastNonce, storeEpoch, assignmentSeq, anchor-set version, revocationSeq; answered with revocation entries after revocationSeq"
+   "value": "Hello: activeDigest, lkgDigest, binaryVersion, schemaLevels, lastNonce, storeEpoch, assignmentSeq, anchor-set version, revocationSeq; answered with revocation entries after revocationSeq"
   },
   {
    "section": "Control Stream",
@@ -1599,6 +1609,11 @@
   },
   {
    "section": "Backup, restore and `postgres`",
+   "kind": "claim",
+   "value": "A restore keeps committed Node counts, so thin plans stay `pending`; a rebuild from Git has none and still needs the High availability and disaster recovery hold"
+  },
+  {
+   "section": "Backup, restore and `postgres`",
    "kind": "milestone",
    "value": "The `postgres` implementation, Planned (M4)"
   },
@@ -1995,7 +2010,22 @@
   {
    "section": "Open questions",
    "kind": "decision",
-   "value": "Closed: OQ-control-plane-and-gitops-9 (b) and -10, -14, -19, -20, -24 (a), answered by Security and identity, -24 also by ADR-0017; -17 (a), decided by CLI and API surface as `ruralz rollout reject`; -1 (a) (process configuration), -2 (trunk only), -5 (a newer promotion waits) and -13 (a) (Node process configuration), decided here; -11 (SSO) Planned (M5)"
+   "value": "Closed: OQ-control-plane-and-gitops-9 (b) and -10, -14, -19, -20, -24 (a), answered by Security and identity, -24 also by ADR-0017; -17 (a), decided by CLI and API surface as `ruralz rollout reject`; -1 (a) (process configuration), -2 (trunk only), -5 (a newer promotion waits) and -13 (a) (Node process configuration), decided here; -11 (SSO) Planned (M5); decided here: OQ-high-availability-and-disaster-recovery-3 (b), OQ-release-versioning-and-compatibility-4 (a) (`binaryVersion` in `Hello`) and OQ-wasm-plugin-system-14 (a) (the `Nack` `class` field)"
+  },
+  {
+   "section": "Open questions",
+   "kind": "milestone",
+   "value": "Also owned here and open: OQ-high-availability-and-disaster-recovery-4, -5 and -9 (Planned (M2) restore)"
+  },
+  {
+   "section": "Open questions",
+   "kind": "milestone",
+   "value": "Also owned here and open: OQ-deployment-topologies-2, -5, -15 and -19, OQ-cli-and-api-surface-3, -8 and -9, OQ-scalability-and-distributed-state-14, OQ-security-and-identity-27, OQ-wasm-plugin-system-13 and OQ-capacity-planning-9 (Planned (M2))"
+  },
+  {
+   "section": "Open questions",
+   "kind": "milestone",
+   "value": "Also owned here and open: OQ-traffic-management-and-resilience-19 (M1)"
   }
  ]
 }

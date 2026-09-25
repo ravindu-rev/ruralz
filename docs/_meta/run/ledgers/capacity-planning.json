@@ -1020,12 +1020,12 @@
   {
    "section": "Headroom and failure capacity",
    "kind": "kind_or_field",
-   "value": "localOnly"
+   "value": "config.localOnly"
   },
   {
    "section": "Headroom and failure capacity",
    "kind": "claim",
-   "value": "`localOnly` is proposed (OQ-traffic-management-and-resilience-1 (c), OQ-scalability-and-distributed-state-11)"
+   "value": "`config.localOnly` is proposed (OQ-scalability-and-distributed-state-11)"
   },
   {
    "section": "Headroom and failure capacity",
@@ -1188,6 +1188,11 @@
    "value": "ADR-0006"
   },
   {
+   "section": "Autoscaling policies",
+   "kind": "kind_or_field",
+   "value": "limits[].perNodeCeiling"
+  },
+  {
    "section": "State Store sizing",
    "kind": "decision",
    "value": "Rate Limits pair a local token bucket with GCRA in one Lua `EVAL` ([ADR-0008](../adr/0008-rate-limiting-local-bucket-and-gcra.md))"
@@ -1305,7 +1310,7 @@
   {
    "section": "State Store sizing",
    "kind": "claim",
-   "value": "not [Cell sizing](../architecture/11-scalability-and-distributed-state.md#cell-sizing)'s 1,000,000 (62.5% of 16 shards)"
+   "value": "matching [Cell sizing](../architecture/11-scalability-and-distributed-state.md#cell-sizing)"
   },
   {
    "section": "State Store sizing",
@@ -1446,6 +1451,11 @@
    "section": "Ruralz Control sizing",
    "kind": "cli_command",
    "value": "ruralz control join"
+  },
+  {
+   "section": "Ruralz Control sizing",
+   "kind": "claim",
+   "value": "Every replica becomes a voter once it catches up after `ruralz control join`"
   },
   {
    "section": "Ruralz Control sizing",

@@ -173,8 +173,8 @@ Per [ADR-0016](../adr/0016-kubernetes-helm-and-crds.md) (proposed), the Helm cha
 
 | Chart object | Rule |
 |---|---|
-| `ruralz-control` StatefulSet | Three pods with volumes; `OnDelete`, leadership moved off first (OQ-deployment-topologies-6). A pod with a peer certificate runs `serve`. On an empty volume only ordinal 0 at first install (no marker ConfigMap, no peer on headless 8092) runs `serve`; any other pod waits not ready for a join token, from the Job at install, else once an `admin`'s `DELETE /api/v1/replicas/{serverId}` removes its old voter, then runs `join` |
-| Bootstrap Secret and Job (proposed) | The chart generates a one-time bootstrap credential Secret, imported as process configuration by ordinal 0's first `serve` (OQ-deployment-topologies-11 (b)); the Job uses it to mint join tokens at `/api/v1/replicas` into Secrets ordinals 1 and 2 mount, then writes the marker; the credential expires once both join (OQ-deployment-topologies-12) |
+| `ruralz-control` StatefulSet | Three pods with volumes; `OnDelete`, leadership moved off first (SIGTERM transfer or `POST /api/v1/replicas/{serverId}/transfer`). A pod with a peer certificate runs `serve`. On an empty volume only ordinal 0 at first install (no marker ConfigMap, no peer on headless 8092) runs `serve`; any other pod waits not ready for a join token, from the Job at install, else once an `admin`'s `DELETE /api/v1/replicas/{serverId}` removes its old voter, then runs `join` |
+| Bootstrap Secret and Job (proposed) | The chart generates a one-time bootstrap credential Secret, imported as process configuration (`bootstrap.adminCredentialFile`) by ordinal 0's first `serve`; the Job uses it to mint join tokens at `/api/v1/replicas` into Secrets ordinals 1 and 2 mount, then writes the marker; the credential expires per Control plane's [Bootstrap credential](../architecture/04-control-plane-and-gitops.md#bootstrap-credential) (OQ-deployment-topologies-12) |
 | `ruralz-control` Services | 8090 behind a load balancer or Ingress; 8091 as L4 passthrough for mTLS; headless 8092; the conversion webhook (port: OQ-deployment-topologies-13, `caBundle` from the server CA) only from `ruralz.io/v1beta1`, Planned (M3), as `conversion.strategy: None` needs none |
 | Node StatefulSet | `podManagementPolicy: Parallel`, so a not-ready pod blocks none; `RollingUpdate`, `maxUnavailable` matching the PodDisruptionBudget; a persistent `${RURALZ_DATA_DIR}` volume |
 | Zone loss | Pods on unreachable nodes count until force-deleted or their nodes removed (`node.kubernetes.io/out-of-service` taint), their zonal volumes stuck; HPA reads them as idle on scale-up (below). The zone-loss procedure force-deletes them, releasing the volumes; replacements re-enroll via Ruralz Control (OQ-deployment-topologies-20) |
@@ -202,7 +202,7 @@ Decisions:
 
 - **OQ-release-versioning-and-compatibility-11:** option (b): separate image tags, two upgrades, Ruralz Control first ([Upgrade order](../engineering/04-release-versioning-and-compatibility.md#upgrade-order)), each `OnDelete` replacement awaiting readiness and Raft catch-up.
 - **OQ-configuration-model-2:** option (a): `ruralzd` never reads CRDs; without Ruralz Control, Nodes use T2.
-- **OQ-system-overview-8:** options (a) and (b) per Environment, whose Clusters share one Revision: one primary source from process configuration (OQ-control-plane-and-gitops-1), a Git path or one bound namespace whose CRD objects are assembled into a Bundle; `ruralz bundle push` stays an audited Drift exception ([other sources](../architecture/04-control-plane-and-gitops.md#ruralz-console-write-back-and-other-sources)). Until OQ-deployment-topologies-19 decides, a namespace source (a digest, not a commit) shows as Git divergence Drift, is refused under `requireApproval` unless overridden (audited), and never promotes.
+- **OQ-system-overview-8:** options (a) and (b) per Environment, whose Clusters share one Revision: one primary source from [process configuration](../architecture/04-control-plane-and-gitops.md#process-configuration), a Git path or one bound namespace whose CRD objects are assembled into a Bundle; `ruralz bundle push` stays an audited Drift exception ([other sources](../architecture/04-control-plane-and-gitops.md#ruralz-console-write-back-and-other-sources)). Until OQ-deployment-topologies-19 decides, a namespace source (a digest, not a commit) shows as Git divergence Drift, is refused under `requireApproval` unless overridden (audited), and never promotes.
 - **OQ-configuration-model-3:** option (a): kind names unchanged; CRDs join category `ruralz`, short names `rz` plus the lower-case kind (`rzroute`, `rzaimodel`), except `rzgw` and `rzenv`.
 
 *Figure 4: T4 in Control mode.*
@@ -262,7 +262,7 @@ flowchart TB
 
 ### T5 and T6: VMs with systemd and edge sites
 
-**T5.** One `ruralzd` service per VM keeps `${RURALZ_DATA_DIR}` on local disk; two per network namespace: Not planned ([listeners](../architecture/11-scalability-and-distributed-state.md#so_reuseport-and-listeners)). `systemctl stop` starts a Drain, so `TimeoutStopSec` MUST exceed the exit bound, 30 s (target) ([Drain timeline](02-zero-downtime-upgrades-and-hot-reload.md#drain-timeline-defaults)). Upgrades hand over through `SO_REUSEPORT` ([ADR-0015](../adr/0015-zero-downtime-upgrades-so-reuseport.md), OQ-deployment-topologies-7).
+**T5.** One `ruralzd` service per VM keeps `${RURALZ_DATA_DIR}` on local disk; two per network namespace: Not planned ([listeners](../architecture/11-scalability-and-distributed-state.md#so_reuseport-and-listeners)). `systemctl stop` starts a Drain, so `TimeoutStopSec` MUST exceed the exit bound, 30 s (target) ([Drain timeline](02-zero-downtime-upgrades-and-hot-reload.md#drain-timeline-defaults)). Upgrades hand over through `SO_REUSEPORT` ([ADR-0015](../adr/0015-zero-downtime-upgrades-so-reuseport.md), [systemd unit](02-zero-downtime-upgrades-and-hot-reload.md#in-place-handover)).
 
 **T6.** A multi-Node site needs a local `redis` State Store; one Node MAY use `memory`. Nodes pull signed Revisions from a site mirror by default, verifying offline, or in Control mode dial 8091 when the uplink allows; certificates live 30 days (target), and a restarted detached Node forgets revocations (OQ-security-and-identity-5).
 
@@ -418,11 +418,11 @@ This order brings up T3, T4, T5 and T10; later Nodes repeat steps 6 to 8.
 
 1. **State Store.** Primary and replica with failover across zones, `noeviction` where limit keys live ([State Store availability](../architecture/11-scalability-and-distributed-state.md#state-store-availability)).
 2. **First replica.** `ruralz control serve` on an empty Control Store creates or loads the CAs and leads, with Git source and Plugin trust policy from [process configuration](../architecture/04-control-plane-and-gitops.md#process-configuration); after install, no replica of any ordinal does.
-3. **First administrators.** Steps 4 and 6 need an `admin` and a `security-admin`; creating the first is OQ-deployment-topologies-11.
+3. **First administrators.** Steps 4 and 6 need an `admin` and a `security-admin`; creating the first uses the [bootstrap credential](../architecture/04-control-plane-and-gitops.md#bootstrap-credential): the chart's Secret in T4, else the `${RURALZ_DATA_DIR}/bootstrap-credential` file step 2 writes.
 4. **More replicas.** An `admin` gets a one-time join token from `POST /api/v1/replicas` or Ruralz Console; on the new host, `ruralz control join --peer <leader>:8092 --advertise <self>:8092 --join-token-file <file>` stores a peer certificate, then `serve` starts a voter once caught up (OQ-cli-and-api-surface-14). `join` runs only while the data directory lacks a peer certificate; after volume loss, `DELETE /api/v1/replicas/{serverId}` removes the old voter, then mint a token.
 5. **Environments and Clusters.** Commit `control/environments.yaml` and `control/clusters.yaml`; one Revision per Environment is signed.
 6. **Enrollment token.** A `security-admin` runs `ruralz node token --cluster prod-eu-west`: one-time, valid 1 hour (target), pinning the 8091 server CA and trust root.
-7. **Node start.** Given Control mode, address and token (OQ-control-plane-and-gitops-13), the Node generates a key pair and calls `Enroll` on 8091.
+7. **Node start.** Started with `RURALZ_CONFIG=ruralz-control://HOST:8091` and `RURALZ_ENROLLMENT_TOKEN_FILE` naming the step 6 token ([Node process configuration](../architecture/04-control-plane-and-gitops.md#node-process-configuration)), the Node generates a key pair and calls `Enroll` on 8091.
 8. **First delivery.** It persists its identity, opens the Control Stream, activates its Cluster's Snapshot and ACKs; `/readyz` returns 200.
 
 *Figure 7: Control-mode bootstrap order.*
@@ -437,7 +437,7 @@ sequenceDiagram
     participant N as New Node
     Op->>R1: ruralz control serve on an empty Control Store
     R1->>R1: generate CAs, elect itself leader
-    Op->>R1: first admin, OQ-deployment-topologies-11
+    Op->>R1: first admin and security-admin with the bootstrap credential
     Op->>R1: POST /api/v1/replicas for a one-time join token
     Op->>R2: ruralz control join with peer, advertise and token file
     R2->>R1: Join over 8092, receive a peer certificate
@@ -490,7 +490,7 @@ Starting points; [Capacity planning](03-capacity-planning.md) replaces them with
 
 | Item | Starting value | Owner |
 |---|---|---|
-| Node container | 4 vCPU (target); 4 GiB (hypothesis) fits only idle TLS connections and default buffered-bytes and state-table budgets; the fixed ceilings' worst case, about 19 GiB plus snapshots, needs 32 GiB (hypothesis, [Performance budgets](../architecture/12-performance-budgets-and-benchmarking.md)). Size memory by `GOMEMLIMIT` below; an L4 connection cap does not bound it (OQ-capacity-planning-5). Plugins add `limits.maxPluginMemoryBytes`, 2 GiB by default (target) | [Memory budget](../architecture/12-performance-budgets-and-benchmarking.md#memory-budget); OQ-deployment-topologies-8 |
+| Node container | 4 vCPU (target); 4 GiB (hypothesis) fits only idle TLS connections and default buffered-bytes and state-table budgets; the fixed ceilings' worst case, about 19 GiB plus snapshots, needs 32 GiB (hypothesis, [Performance budgets](../architecture/12-performance-budgets-and-benchmarking.md)). Size memory by `GOMEMLIMIT` below; an L4 connection cap does not bound it (OQ-capacity-planning-5). Plugins add `limits.maxPluginMemoryBytes`, 2 GiB by default (target) | [Memory budget](../architecture/12-performance-budgets-and-benchmarking.md#memory-budget); [Capacity planning](03-capacity-planning.md) |
 | S2 planning throughput | 16,000 rps per 4-vCPU Node at half saturation (target) | [Throughput targets](../architecture/12-performance-budgets-and-benchmarking.md#throughput-targets) |
 | `GOMEMLIMIT` | At least max(M_node, M_flood), 90% of the container limit (target) | [Capacity planning](03-capacity-planning.md#formulas) |
 | Nodes per Cluster | At least three in two or more equal zones (target), scaling out at 40% CPU with two zones, 53% with three, 60% with four (target); unequal zones at 80% × (N − N_largest_zone) / N (target) | [Autoscaling signals](../architecture/11-scalability-and-distributed-state.md#autoscaling-signals) |
@@ -501,7 +501,7 @@ Starting points; [Capacity planning](03-capacity-planning.md) replaces them with
 | Ruralz Control voters | Three, or five to survive two failures (target) | [Sizing and failover](../architecture/04-control-plane-and-gitops.md#sizing-and-failover) |
 | Ruralz Control replicas; relays per Region | ceil(N / 5,000) + 1 across zones, at least the voters, N counting relay-served Nodes; relays with N_region (hypothesis) | [Scaling Ruralz Control](../architecture/11-scalability-and-distributed-state.md#scaling-ruralz-control-and-the-state-store) |
 | Nodes per Ruralz Control deployment | 10,000, counting every Environment and relay-served Node (target) | [Heartbeat](../architecture/04-control-plane-and-gitops.md#heartbeat-and-backpressure) |
-| `${RURALZ_DATA_DIR}` volume | 1 GiB (hypothesis) | OQ-deployment-topologies-8 |
+| `${RURALZ_DATA_DIR}` volume | 1 GiB (hypothesis) | [Capacity planning](03-capacity-planning.md) |
 | Ruralz Control replica | 2 vCPU and 4 GiB (hypothesis) until F2 measures Snapshots in flight, send queues, Raft log and Revisions | Same |
 
 A first-order example, one Cell at the three-zone threshold; S2 uses the `memory` driver, so `redis` rates await S5 and G1, and 5,000 calls per second per Node (hypothesis) suits only unknown mixes:
@@ -578,14 +578,10 @@ Failure behavior: a lost Region's traffic moves to pre-provisioned capacity. A l
 | OQ-deployment-topologies-2 | How does an autoscaled Control-mode pod get its Enrollment token? | (a) A just-in-time init container with a Cluster-scoped API token (proposed); (b) a pool; (c) a service account credential | control-plane-and-gitops | Yes, for Planned (M2) autoscaling |
 | OQ-deployment-topologies-3 | What happens to scaled-in Nodes' identities and volumes? | (a) Kept until certificates expire (current); (b) revoked after disconnection; (c) deleted and revoked | control-plane-and-gitops | No |
 | OQ-deployment-topologies-4 | What changes serial promotion at the edge (T6)? | (a) Parallel waves (OQ-control-plane-and-gitops-4 (c)); (b) skipping failed Clusters, or lag-tolerant plans; (c) fewer, larger Clusters; (d) file mode (current) | control-plane-and-gitops | No |
-| OQ-deployment-topologies-5 | Can one Ruralz Control serve several Bundles? | (a) Process configuration binds Environments to Bundle paths (proposed; OQ-control-plane-and-gitops-1); (b) no | control-plane-and-gitops | Yes, for Planned (M2) per-team layouts |
-| OQ-deployment-topologies-6 | How is leadership moved off a replica before replacement? | (a) Transfer on SIGTERM (proposed); (b) a REST API action; (c) none | control-plane-and-gitops | Yes, for Planned (M2) upgrades |
-| OQ-deployment-topologies-7 | Should releases ship a systemd unit hosting the `SO_REUSEPORT` handover? | (a) Unit and helper; (b) documentation | zero-downtime-upgrades-and-hot-reload | No |
-| OQ-deployment-topologies-8 | Measured Node, `${RURALZ_DATA_DIR}` and Ruralz Control replica sizes? | (a) From F2, memory runs and Data plane's cache layout (proposed); (b) hypotheses | capacity-planning | No |
+| OQ-deployment-topologies-5 | Can one Ruralz Control serve several Bundles? | (a) [Process configuration](../architecture/04-control-plane-and-gitops.md#process-configuration) binds Environments to Bundle paths (proposed); (b) no | control-plane-and-gitops | Yes, for Planned (M2) per-team layouts |
 | OQ-deployment-topologies-9 | In T10, who holds the offline trust-root key and Plugin trust policy? | (a) The customer (proposed; OQ-control-plane-and-gitops-8); (b) the managed party | security-and-identity | No |
 | OQ-deployment-topologies-10 | How does a managed Ruralz Control reach a forge or registry refusing inbound connections? | (a) Customer CI pushes Bundles and runs the Plugin check; (b) reachable mirrors; (c) both | deployment-topologies | No |
-| OQ-deployment-topologies-11 | How are the first `admin` and `security-admin` created? | (a) The first `ruralz control serve` writes a one-time bootstrap credential (proposed for T3, T5); (b) process configuration imports one (proposed for T4, chart-generated) | security-and-identity | Yes, for Planned (M2) |
-| OQ-deployment-topologies-12 | How do chart ordinals 1 and 2 get join tokens? | (a) A bootstrap Job with OQ-deployment-topologies-11 (b)'s credential (proposed); (b) a manual step | deployment-topologies | Yes, for the Planned (M2) chart |
+| OQ-deployment-topologies-12 | How do chart ordinals 1 and 2 get join tokens? | (a) A bootstrap Job with the bootstrap credential (proposed); (b) a manual step | deployment-topologies | Yes, for the Planned (M2) chart |
 | OQ-deployment-topologies-13 | Which port serves the CRD conversion webhook, absent from pack 8.4? | (a) A new port by pack amendment (proposed); (b) a path on 8090 | deployment-topologies | Yes, before `ruralz.io/v1beta1`, Planned (M3) |
 | OQ-deployment-topologies-14 | How does the chart scale in only below half of every threshold? | (a) Scale-down policies only (current); (b) an external autoscaler | deployment-topologies | No |
 | OQ-deployment-topologies-15 | How are `Enroll` rates and lockouts keyed when Nodes share an egress address? | (a) Source plus the token's Cluster (proposed); (b) per token; (c) an allowed-CIDR exemption | control-plane-and-gitops | Yes, for Planned (M2) autoscaling |
@@ -596,3 +592,5 @@ Failure behavior: a lost Region's traffic moves to pre-provisioned capacity. A l
 | OQ-deployment-topologies-20 | After volume or zone loss, does the chart automate replacing a `ruralz-control` replica via `DELETE /api/v1/replicas/{serverId}`, and how are stranded Node pods released ([HA and DR](04-high-availability-and-disaster-recovery.md))? | (a) A chart Job holding a standing credential removes the voter, mints a join token; runbooks force-delete Node pods (proposed); (b) manual steps; (c) higher `minReplicas` or zone-replicated volumes; (d) Nodes as a Deployment | high-availability-and-disaster-recovery | Yes, for the Planned (M2) chart |
 | OQ-deployment-topologies-21 | Can small Nodes get a lower connection ceiling? | (a) Fixed (current, OQ-data-plane-1 (a)); (b) or (c) of OQ-data-plane-1, with OQ-capacity-planning-5 | data-plane | No |
 | OQ-deployment-topologies-22 | Should a declared per-Node cap bound the derived ceiling, min(derived, cap), not replace it? | (a) Yes (proposed; OQ-traffic-management-and-resilience-1, -19); (b) replace (current) | traffic-management-and-resilience | No |
+
+Closed: OQ-deployment-topologies-6 with options (a) and (b) ([Leadership transfer](../architecture/04-control-plane-and-gitops.md#leadership-transfer)) and -11 with option (b) when `bootstrap.adminCredentialFile` is set, else (a) ([Bootstrap credential](../architecture/04-control-plane-and-gitops.md#bootstrap-credential)), decided by Control plane; -7 (a), a shipped systemd unit and helper, answered by [Zero-downtime upgrades](02-zero-downtime-upgrades-and-hot-reload.md#in-place-handover); -8 (a), measured sizes replacing interim values, answered by [Capacity planning](03-capacity-planning.md).

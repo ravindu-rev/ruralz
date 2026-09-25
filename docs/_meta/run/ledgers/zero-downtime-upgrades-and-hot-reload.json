@@ -325,7 +325,7 @@
   {
    "section": "Atomic swap",
    "kind": "timeout",
-   "value": "up to 37 s plus the largest Plugin `limits.timeout` (target)"
+   "value": "The latest pending Revision waits for that snapshot's release, at most rule 6's bound there (target)"
   },
   {
    "section": "Atomic swap",
@@ -335,7 +335,7 @@
   {
    "section": "Atomic swap",
    "kind": "timeout",
-   "value": "within the 60 s ACK timeout (target) while that timeout is under 23 s, pending OQ-data-plane-13"
+   "value": "within the 60 s ACK timeout (target) while the largest Plugin `limits.timeout` is under 23 s, pending OQ-data-plane-13"
   },
   {
    "section": "Atomic swap",
@@ -694,6 +694,16 @@
   },
   {
    "section": "In-place handover",
+   "kind": "limit",
+   "value": "Hosts MUST fit two processes until V-3 verifies this sharing, then the overlap extra ([Capacity planning](03-capacity-planning.md#headroom-and-failure-capacity))"
+  },
+  {
+   "section": "In-place handover",
+   "kind": "number",
+   "value": "Two processes   host ≥ 2 × container until V-3 verifies sharing (hypothesis)"
+  },
+  {
+   "section": "In-place handover",
    "kind": "number",
    "value": "Overlap extra   second base RSS 100 MB + 2 KB per Route, its (K + 2) snapshots and state tables of 475 MiB: about 0.6 GiB plus snapshots (hypothesis)"
   },
@@ -760,7 +770,7 @@
   {
    "section": "Drain timeline defaults",
    "kind": "milestone",
-   "value": "fixed defaults in Planned (M1) (OQ-zero-downtime-upgrades-and-hot-reload-1)"
+   "value": "fixed defaults in Planned (M1)"
   },
   {
    "section": "Drain timeline defaults",
@@ -955,7 +965,7 @@
   {
    "section": "Kubernetes Drain and restart",
    "kind": "limit",
-   "value": "cannot pace to 10% of Nodes per 10 minutes, about 100 minutes per Cluster (hypothesis)"
+   "value": "cannot pace to 10% of Nodes per 10 minutes"
   },
   {
    "section": "Kubernetes Drain and restart",
@@ -1045,7 +1055,22 @@
   {
    "section": "Control plane upgrades",
    "kind": "cli_command",
+   "value": "take `ruralz control backup` with `--revocation-list-file`"
+  },
+  {
+   "section": "Control plane upgrades",
+   "kind": "cli_command",
    "value": "ruralz bundle push"
+  },
+  {
+   "section": "Control plane upgrades",
+   "kind": "api_path",
+   "value": "/api/v1/replicas/{serverId}/transfer"
+  },
+  {
+   "section": "Control plane upgrades",
+   "kind": "decision",
+   "value": "Move leadership off (`POST /api/v1/replicas/{serverId}/transfer`), replace the binary with N"
   },
   {
    "section": "Control plane upgrades",
@@ -1075,7 +1100,22 @@
   {
    "section": "Control plane upgrades",
    "kind": "timeout",
-   "value": "After every replica and relay reports N and a 24-hour soak (target), an operator finalizes"
+   "value": "Once `GET /api/v1/control-store` shows every replica and relay at N and a 24-hour soak (target), an `admin` calls `POST /api/v1/control-store/finalize` (step-up; else `RZ-CP-021`)"
+  },
+  {
+   "section": "Control plane upgrades",
+   "kind": "api_path",
+   "value": "/api/v1/control-store"
+  },
+  {
+   "section": "Control plane upgrades",
+   "kind": "api_path",
+   "value": "/api/v1/control-store/finalize"
+  },
+  {
+   "section": "Control plane upgrades",
+   "kind": "error_code",
+   "value": "RZ-CP-021"
   },
   {
    "section": "Control plane upgrades",
@@ -1450,7 +1490,12 @@
   {
    "section": "Verification runbook",
    "kind": "cli_command",
-   "value": "ruralz control backup --output-file <file>"
+   "value": "ruralz control backup --output-file <file> --revocation-list-file <file>"
+  },
+  {
+   "section": "Verification runbook",
+   "kind": "cli_command",
+   "value": "--revocation-list-file"
   },
   {
    "section": "Verification runbook",
@@ -1665,7 +1710,7 @@
   {
    "section": "Open questions",
    "kind": "decision",
-   "value": "OQ-6: (b) Shared ceilings, a reduced soft limit and free overlap memory (current); owner capacity-planning; Yes, for Planned (M1) in-place handover"
+   "value": "OQ-6: answered by Capacity planning: (a) Hosts sized for two processes, chosen until V-3; (b) Shared ceilings, a reduced soft limit and free overlap memory, after V-3; owner capacity-planning; No (answered)"
   },
   {
    "section": "Open questions",

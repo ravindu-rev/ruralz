@@ -360,7 +360,12 @@
   {
    "section": "T4: Kubernetes with Helm, HPA and CRDs",
    "kind": "claim",
-   "value": "`ruralz-control` StatefulSet: Three pods with volumes; `OnDelete`, leadership moved off first (OQ-deployment-topologies-6)"
+   "value": "`ruralz-control` StatefulSet: Three pods with volumes; `OnDelete`, leadership moved off first (SIGTERM transfer or `POST /api/v1/replicas/{serverId}/transfer`)"
+  },
+  {
+   "section": "T4: Kubernetes with Helm, HPA and CRDs",
+   "kind": "api_path",
+   "value": "POST /api/v1/replicas/{serverId}/transfer"
   },
   {
    "section": "T4: Kubernetes with Helm, HPA and CRDs",
@@ -380,7 +385,12 @@
   {
    "section": "T4: Kubernetes with Helm, HPA and CRDs",
    "kind": "claim",
-   "value": "Bootstrap Secret and Job (proposed): chart generates a one-time bootstrap credential Secret, imported as process configuration by ordinal 0's first `serve` (OQ-deployment-topologies-11 (b))"
+   "value": "Bootstrap Secret and Job (proposed): chart generates a one-time bootstrap credential Secret, imported as process configuration (`bootstrap.adminCredentialFile`) by ordinal 0's first `serve`"
+  },
+  {
+   "section": "T4: Kubernetes with Helm, HPA and CRDs",
+   "kind": "kind_or_field",
+   "value": "bootstrap.adminCredentialFile"
   },
   {
    "section": "T4: Kubernetes with Helm, HPA and CRDs",
@@ -390,7 +400,7 @@
   {
    "section": "T4: Kubernetes with Helm, HPA and CRDs",
    "kind": "claim",
-   "value": "the credential expires once both join (OQ-deployment-topologies-12)"
+   "value": "the credential expires per Control plane's Bootstrap credential (OQ-deployment-topologies-12)"
   },
   {
    "section": "T4: Kubernetes with Helm, HPA and CRDs",
@@ -655,7 +665,7 @@
   {
    "section": "T5 and T6: VMs with systemd and edge sites",
    "kind": "decision",
-   "value": "Upgrades hand over through `SO_REUSEPORT` ([ADR-0015](../adr/0015-zero-downtime-upgrades-so-reuseport.md), OQ-deployment-topologies-7)"
+   "value": "Upgrades hand over through `SO_REUSEPORT` ([ADR-0015](../adr/0015-zero-downtime-upgrades-so-reuseport.md), [systemd unit](02-zero-downtime-upgrades-and-hot-reload.md#in-place-handover))"
   },
   {
    "section": "T5 and T6: VMs with systemd and edge sites",
@@ -1010,7 +1020,12 @@
   {
    "section": "Control-mode bootstrap",
    "kind": "claim",
-   "value": "creating the first is OQ-deployment-topologies-11"
+   "value": "creating the first uses the bootstrap credential: the chart's Secret in T4, else the `${RURALZ_DATA_DIR}/bootstrap-credential` file step 2 writes"
+  },
+  {
+   "section": "Control-mode bootstrap",
+   "kind": "kind_or_field",
+   "value": "${RURALZ_DATA_DIR}/bootstrap-credential"
   },
   {
    "section": "Control-mode bootstrap",
@@ -1060,7 +1075,17 @@
   {
    "section": "Control-mode bootstrap",
    "kind": "claim",
-   "value": "Given Control mode, address and token (OQ-control-plane-and-gitops-13), the Node generates a key pair and calls `Enroll` on 8091."
+   "value": "Started with `RURALZ_CONFIG=ruralz-control://HOST:8091` and `RURALZ_ENROLLMENT_TOKEN_FILE` naming the step 6 token (Node process configuration), the Node generates a key pair and calls `Enroll` on 8091."
+  },
+  {
+   "section": "Control-mode bootstrap",
+   "kind": "kind_or_field",
+   "value": "RURALZ_CONFIG=ruralz-control://HOST:8091"
+  },
+  {
+   "section": "Control-mode bootstrap",
+   "kind": "kind_or_field",
+   "value": "RURALZ_ENROLLMENT_TOKEN_FILE"
   },
   {
    "section": "Control-mode bootstrap",
@@ -1514,21 +1539,6 @@
   },
   {
    "section": "Open questions",
-   "kind": "milestone",
-   "value": "OQ-deployment-topologies-6: Blocking? Yes, for Planned (M2) upgrades"
-  },
-  {
-   "section": "Open questions",
-   "kind": "decision",
-   "value": "OQ-deployment-topologies-7: Blocking? No"
-  },
-  {
-   "section": "Open questions",
-   "kind": "decision",
-   "value": "OQ-deployment-topologies-8: Blocking? No"
-  },
-  {
-   "section": "Open questions",
    "kind": "decision",
    "value": "OQ-deployment-topologies-9: Blocking? No"
   },
@@ -1536,11 +1546,6 @@
    "section": "Open questions",
    "kind": "decision",
    "value": "OQ-deployment-topologies-10: Blocking? No"
-  },
-  {
-   "section": "Open questions",
-   "kind": "milestone",
-   "value": "OQ-deployment-topologies-11: Blocking? Yes, for Planned (M2)"
   },
   {
    "section": "Open questions",
@@ -1616,6 +1621,21 @@
    "section": "Open questions",
    "kind": "claim",
    "value": "OQ-deployment-topologies-21: Can small Nodes get a lower connection ceiling? (b) or (c) of OQ-data-plane-1, with OQ-capacity-planning-5"
+  },
+  {
+   "section": "Open questions",
+   "kind": "decision",
+   "value": "Closed: OQ-deployment-topologies-6 with options (a) and (b) and -11 with option (b) when `bootstrap.adminCredentialFile` is set, else (a), decided by Control plane"
+  },
+  {
+   "section": "Open questions",
+   "kind": "decision",
+   "value": "Closed: OQ-deployment-topologies-7 (a), a shipped systemd unit and helper, answered by Zero-downtime upgrades"
+  },
+  {
+   "section": "Open questions",
+   "kind": "decision",
+   "value": "Closed: OQ-deployment-topologies-8 (a), measured sizes replacing interim values, answered by Capacity planning"
   }
  ]
 }

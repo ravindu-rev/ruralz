@@ -145,7 +145,7 @@
   {
    "section": "Protocol matrix",
    "kind": "decision",
-   "value": "REST to `grpc` (transcoding) and gRPC to `http` (reverse) need descriptors (OQ-multi-protocol-1)"
+   "value": "REST to `grpc` (transcoding) and gRPC to `http` (reverse) need descriptors from the proposed `grpc.descriptors` (OQ-multi-protocol-1)"
   },
   {
    "section": "Protocol matrix",
@@ -468,6 +468,11 @@
    "value": "native gRPC needs HTTP/2"
   },
   {
+   "section": "gRPC",
+   "kind": "kind_or_field",
+   "value": "descriptors in a proposed `Upstream` `grpc.descriptors` (OQ-multi-protocol-1)"
+  },
+  {
    "section": "Libraries and pass-through",
    "kind": "library",
    "value": "`connectrpc.com/connect` serves gRPC, gRPC-Web and Connect on `net/http`"
@@ -663,6 +668,61 @@
    "value": "timeout: 2s"
   },
   {
+   "section": "HTTP/JSON transcoding and reflection",
+   "kind": "kind_or_field",
+   "value": "kind: Upstream"
+  },
+  {
+   "section": "HTTP/JSON transcoding and reflection",
+   "kind": "kind_or_field",
+   "value": "protocol: grpc"
+  },
+  {
+   "section": "HTTP/JSON transcoding and reflection",
+   "kind": "port",
+   "value": "cart.shop.svc:9000"
+  },
+  {
+   "section": "HTTP/JSON transcoding and reflection",
+   "kind": "kind_or_field",
+   "value": "file: protos/cart.binpb"
+  },
+  {
+   "section": "HTTP/JSON transcoding and reflection",
+   "kind": "decision",
+   "value": "Descriptors come from a proposed `Upstream` field, OQ-multi-protocol-1 option (a), submitted for Configuration model registration"
+  },
+  {
+   "section": "HTTP/JSON transcoding and reflection",
+   "kind": "kind_or_field",
+   "value": "grpc.descriptors"
+  },
+  {
+   "section": "HTTP/JSON transcoding and reflection",
+   "kind": "decision",
+   "value": "The pin sits in the resource, so the Revision digest covers the set"
+  },
+  {
+   "section": "HTTP/JSON transcoding and reflection",
+   "kind": "error_code",
+   "value": "content that does not hash to it is RZ-CFG-027"
+  },
+  {
+   "section": "HTTP/JSON transcoding and reflection",
+   "kind": "decision",
+   "value": "It is allowed on `grpc` Upstreams and, for reverse transcoding, on `http` Upstreams."
+  },
+  {
+   "section": "HTTP/JSON transcoding and reflection",
+   "kind": "error_code",
+   "value": "Without it, validation rejects a transcoding Route ([Validation rules](#validation-rules), code: OQ-multi-protocol-13)"
+  },
+  {
+   "section": "HTTP/JSON transcoding and reflection",
+   "kind": "error_code",
+   "value": "a JSON-codec call on a `match.grpc` Route still gets `UNIMPLEMENTED` at runtime"
+  },
+  {
    "section": "GraphQL",
    "kind": "milestone",
    "value": "| Milestone | Planned (M3) |"
@@ -698,6 +758,11 @@
    "value": "subscriptions end at the Route `timeout`"
   },
   {
+   "section": "GraphQL",
+   "kind": "kind_or_field",
+   "value": "federation through proposed `Route.spec.graphql.supergraph` and `graphql.subgraphs` (OQ-multi-protocol-4)"
+  },
+  {
    "section": "Engine",
    "kind": "library",
    "value": "graphql-go-tools v2 ([ADR-0012]"
@@ -721,6 +786,61 @@
    "section": "Engine",
    "kind": "claim",
    "value": "the engine has no composition package"
+  },
+  {
+   "section": "Engine",
+   "kind": "decision",
+   "value": "Proposed Route fields, OQ-multi-protocol-4 option (c), submitted for Configuration model registration, declare it."
+  },
+  {
+   "section": "Engine",
+   "kind": "kind_or_field",
+   "value": "graphql.supergraph"
+  },
+  {
+   "section": "Engine",
+   "kind": "kind_or_field",
+   "value": "graphql.subgraphs"
+  },
+  {
+   "section": "Engine",
+   "kind": "decision",
+   "value": "`graphql` replaces `upstreams`, as `composition` does."
+  },
+  {
+   "section": "Engine",
+   "kind": "error_code",
+   "value": "([Validation rules](#validation-rules), code: OQ-multi-protocol-13)"
+  },
+  {
+   "section": "Engine",
+   "kind": "decision",
+   "value": "offline for a `file` and at the online stage for an `image`"
+  },
+  {
+   "section": "Engine",
+   "kind": "decision",
+   "value": "REST-to-GraphQL operations stay open."
+  },
+  {
+   "section": "Engine",
+   "kind": "kind_or_field",
+   "value": "name: shop-graph"
+  },
+  {
+   "section": "Engine",
+   "kind": "kind_or_field",
+   "value": "path: {exact: /graphql}"
+  },
+  {
+   "section": "Engine",
+   "kind": "kind_or_field",
+   "value": "file: graphql/shop.supergraph.graphql"
+  },
+  {
+   "section": "Engine",
+   "kind": "timeout",
+   "value": "timeout: 5s"
   },
   {
    "section": "Route selection by operation",
@@ -1898,6 +2018,16 @@
    "value": "composition"
   },
   {
+   "section": "Validation rules",
+   "kind": "decision",
+   "value": "Proposed `grpc.descriptors` on the Upstream | Routes matching HTTP criteria to a `grpc` Upstream; `match.grpc` Routes to an `http` Upstream"
+  },
+  {
+   "section": "Validation rules",
+   "kind": "decision",
+   "value": "Proposed `graphql.supergraph` set, and each subgraph it names mapped once to a `graphql` Upstream | Routes with `graphql`"
+  },
+  {
    "section": "Termination per protocol",
    "kind": "failure_mode",
    "value": "Closed `failureMode` in `onChunk` after commit | SSE `error` event, then end"
@@ -1959,6 +2089,16 @@
   },
   {
    "section": "Open questions",
+   "kind": "kind_or_field",
+   "value": "grpc.descriptors"
+  },
+  {
+   "section": "Open questions",
+   "kind": "decision",
+   "value": "`grpc.descriptors`, a FileDescriptorSet `file` with `digest` or a pinned OCI `image`, on `grpc` and, for reverse transcoding, `http` Upstreams"
+  },
+  {
+   "section": "Open questions",
    "kind": "decision",
    "value": "(a) Bounded prefix read (proposed)"
   },
@@ -1966,6 +2106,21 @@
    "section": "Open questions",
    "kind": "decision",
    "value": "(c) An external supergraph pinned by digest (proposed)"
+  },
+  {
+   "section": "Open questions",
+   "kind": "kind_or_field",
+   "value": "Route.spec.graphql.supergraph"
+  },
+  {
+   "section": "Open questions",
+   "kind": "kind_or_field",
+   "value": "graphql.subgraphs"
+  },
+  {
+   "section": "Open questions",
+   "kind": "decision",
+   "value": "`Route.spec.graphql.supergraph`, a `file` with `digest` or a pinned OCI `image`, and `graphql.subgraphs`, mapping each subgraph name to a `graphql` Upstream; REST-to-GraphQL operations undecided"
   },
   {
    "section": "Open questions",

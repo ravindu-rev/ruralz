@@ -235,7 +235,7 @@
   {
    "section": "Transport security",
    "kind": "claim",
-   "value": "`jwksUrl` and `tokenUrl` MUST be `https` (code: OQ-security-and-identity-18)"
+   "value": "`jwksUrl` and `tokenUrl` MUST be `https` (RZ-CFG-037)"
   },
   {
    "section": "Transport security",
@@ -620,7 +620,7 @@
   {
    "section": "Basic and mTLS schemas",
    "kind": "claim",
-   "value": "This document authors these schemas, all Planned (M1) and proposed for Configuration model registration (OQ-security-and-identity-2 and -3)"
+   "value": "This document authors these schemas, all Planned (M1) and registered in the Configuration model (Registered from feature documents)"
   },
   {
    "section": "Basic and mTLS schemas",
@@ -655,7 +655,7 @@
   {
    "section": "Basic and mTLS schemas",
    "kind": "default",
-   "value": "credentials.basic[].iterations: 600,000 to 1,000,000, default 600,000 (target); outside that range fails validation"
+   "value": "credentials.basic[].iterations: 600,000 to 1,000,000, default 600,000 (target); outside that range is RZ-CFG-036"
   },
   {
    "section": "Basic and mTLS schemas",
@@ -670,7 +670,7 @@
   {
    "section": "Basic and mTLS schemas",
    "kind": "failure_mode",
-   "value": "A `username`, `subject` or `uriSan` declared by two Consumers fails validation"
+   "value": "A `username`, `subject` or `uriSan` declared by two Consumers is RZ-CFG-035"
   },
   {
    "section": "Accepting more than one credential type",
@@ -765,7 +765,7 @@
   {
    "section": "Upstream authentication",
    "kind": "timeout",
-   "value": "a proposed 2 s `timeout` (target)"
+   "value": "a 2 s `timeout` (target)"
   },
   {
    "section": "Upstream authentication",
@@ -805,7 +805,7 @@
   {
    "section": "Upstream authentication",
    "kind": "kind_or_field",
-   "value": "auth.upstream-sigv4: required `config.region`, `config.service`; `config.payload` `signed` (default) or `unsigned` (proposed, OQ-security-and-identity-18)"
+   "value": "auth.upstream-sigv4: required `config.region`, `config.service`; `config.payload` `signed` (default) or `unsigned` (registered in the Configuration model)"
   },
   {
    "section": "Upstream authentication",
@@ -1050,7 +1050,7 @@
   {
    "section": "Authorization",
    "kind": "limit",
-   "value": "1,000 policies and 10,000 entities per Policy (target)"
+   "value": "1,000 policies and 10,000 entities per Policy, ancestor depth at most 8 (target), transitive closure precomputed per Revision"
   },
   {
    "section": "Authorization",
@@ -1235,7 +1235,7 @@
   {
    "section": "IP filtering and GeoIP",
    "kind": "kind_or_field",
-   "value": "authz.ip `config.allow`, `config.deny`: `set` of CIDRs; bare address means /32 or /128; IPv4-mapped IPv6 matches as IPv4 (proposed, OQ-security-and-identity-18)"
+   "value": "authz.ip `config.allow`, `config.deny`: `set` of CIDRs; bare address means /32 or /128; IPv4-mapped IPv6 matches as IPv4 (registered in the Configuration model)"
   },
   {
    "section": "IP filtering and GeoIP",
@@ -1640,7 +1640,7 @@
   {
    "section": "Revocation",
    "kind": "milestone",
-   "value": "Signed revocation entries: Planned (M2), pending OQ-security-and-identity-4 (usernames: -2)"
+   "value": "Signed revocation entries: Planned (M2), pending OQ-security-and-identity-4"
   },
   {
    "section": "Revocation",
@@ -1916,6 +1916,11 @@
    "section": "Signed Revisions and Plugin artifacts",
    "kind": "default",
    "value": "OCI Revision trust policy: `enforce`"
+  },
+  {
+   "section": "Signed Revisions and Plugin artifacts",
+   "kind": "kind_or_field",
+   "value": "OCI Revision trust policy lives in Node process configuration (`RURALZ_TRUST_POLICY_FILE`)"
   },
   {
    "section": "Signed Revisions and Plugin artifacts",
@@ -2230,7 +2235,7 @@
   {
    "section": "Open questions",
    "kind": "number",
-   "value": "OQ-security-and-identity-2 (a): register Consumer `credentials.basic` as authored, with RZ-CFG codes for duplicate usernames and out-of-range `iterations`"
+   "value": "OQ-security-and-identity-2, -3 and -18 answered by the Configuration model with option (a), register as authored"
   },
   {
    "section": "Open questions",
@@ -2294,8 +2299,8 @@
   },
   {
    "section": "Open questions",
-   "kind": "milestone",
-   "value": "OQ-security-and-identity-8 blocking: Yes, Planned (M2)"
+   "kind": "decision",
+   "value": "OQ-security-and-identity-8 answered by Control plane: `RURALZ_TRUST_POLICY_FILE`"
   },
   {
    "section": "Open questions",
@@ -2348,9 +2353,9 @@
    "value": "OQ-security-and-identity-31 blocking: Yes, Planned (M2)"
   },
   {
-   "section": "Open questions",
+   "section": "IP filtering and GeoIP",
    "kind": "claim",
-   "value": "OQ-security-and-identity-2, -3 and -18 are registration only, owner configuration-model: (a) Register as authored (proposed); (b) Register with changes"
+   "value": "IP filtering and GeoIP schemas authored here, registered in the Configuration model (Registered from feature documents)"
   },
   {
    "section": "Open questions",

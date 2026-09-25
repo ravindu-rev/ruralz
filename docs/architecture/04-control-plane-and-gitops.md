@@ -112,7 +112,7 @@ flowchart LR
 
 1. Replicas serve their Nodes from committed assignments, subject to [fencing](#fencing-stale-replicas); Enrollment and renewal go to the leader, or fail with `RZ-CP-004`.
 2. Followers forward `Ack` and `Nack` at once and heartbeat aggregates every 5 s (target) through a bounded queue that drops the oldest.
-3. `clusterNodeCount` counts ready Nodes that ACKed a Revision and stayed connected 10 minutes (target); large decreases publish at once, and increases rise at most 10% per minute, with an alert (target).
+3. `clusterNodeCount` counts ready Nodes that ACKed a Revision and stayed connected 10 minutes (target); large decreases publish at once, and increases rise at most 10% per minute, with an alert (target); each published value is committed through Raft.
 4. 8092 authorizes classes by certificate role, at most 64 MiB/s per peer (target): Raft and write forwarding for Raft members; status forwarding and content replication for replicas; status forwarding, content fetch and the [relay feed](#relay-feed) for relays; and a token `Join` (OQ-control-plane-and-gitops-15). The leader re-authorizes forwarded writes as their original principal.
 
 A new leader restarts open gate windows and evaluates no gate until canary Nodes report or one ACK timeout passes.
@@ -305,7 +305,7 @@ Root rotations form a chain, each link signed by its predecessor; a Node older t
 | Baseline | Nodes on the previous Revision, else the Cluster's prior 15 minutes (target), stored at creation |
 | ACK timeout | 60 s from the last byte sent, then 3 retries before the Node lags and is quarantined (target); Nodes awaiting admission or behind a stale replica are pending |
 | Lagging threshold | More than max(1, 5% of the batch) lagging Nodes fails the batch (target) |
-| Late or zero Nodes | Late Nodes join the final batch and never lag; an empty plan completes at once |
+| Late or zero Nodes | Late Nodes join the final batch and never lag. A plan whose members, even none, number below half the last committed `clusterNodeCount` (target) stays `pending`, re-planning as Nodes return, until members reach that share or an `operator` confirms it with `ruralz rollout resume` (OQ-high-availability-and-disaster-recovery-3, option (b)); only without a committed count does an empty plan complete at once |
 
 Gates read per-Revision request, 5xx and rejection counters from heartbeats, deciding OQ-system-overview-9; no single Node's counters decide a multi-Node gate. Ruralz Control reproduces a claimed deterministic NACK; one that does not reproduce counts as transient and quarantines the Node.
 
@@ -367,7 +367,7 @@ On 8091, `Enroll` needs a valid token and every other RPC a valid, unrevoked Nod
 |---|---|---|---|
 | `EnrollRequest` (RPC `Enroll`) | Node to Ruralz Control | `token`, `nodeId`, `csr`, `version`, `schemaLevels` | `EnrollResponse`, `RZ-CP-001` or `RZ-CP-002`; token consumed |
 | `EnrollResponse` | Ruralz Control to Node | `certificateChain`, `serverCa`, `trustRoot`, `anchorSet`, `cluster`, `environment` | No ACK; the Node checks `trustRoot` against the token |
-| `Hello` | Node to Ruralz Control, first on `Stream` | `activeDigest`, `lkgDigest`, `schemaLevels`, `lastNonce`, `storeEpoch`, `assignmentSeq`, anchor-set `version`, `revocationSeq` | `RZ-CP-002`, `RZ-CP-003`, or anchor updates, then `Delta` or `Snapshot` if needed, and revocation entries after `revocationSeq` |
+| `Hello` | Node to Ruralz Control, first on `Stream` | `activeDigest`, `lkgDigest`, `binaryVersion`, `schemaLevels`, `lastNonce`, `storeEpoch`, `assignmentSeq`, anchor-set `version`, `revocationSeq` | `RZ-CP-002`, `RZ-CP-003`, or anchor updates, then `Delta` or `Snapshot` if needed, and revocation entries after `revocationSeq` |
 | `Snapshot` | Ruralz Control to Node, chunked | `nonce`, `assignment`, `offset`, `totalBytes`, `chunk`, `signature`, `promotion` | Verify, compile, swap, `Ack`; else `Nack`, keeping the active Revision |
 | `Delta` | Ruralz Control to Node | `nonce`, `assignment`, `baseDigest`, `ops`, `signature`, `promotion` | Empty `ops` carries only new signatures; a wrong patched digest is `Nack` RZ-CFG-027; `ops` encoding: OQ-control-plane-and-gitops-26 |
 | `Ack` | Node to Ruralz Control | `nonce`, `digest`, `storeEpoch`, `assignmentSeq` | Means active, not durable; stale nonces are ignored; counts per (`node.id`, `storeEpoch`, `assignmentSeq`), so a `Hello` matching the pending assignment's digest, `storeEpoch` and `assignmentSeq` is its `Ack` ([ADR-0007](../adr/0007-control-stream-protocol.md)) |
@@ -565,7 +565,7 @@ Per pack 8.5, `/healthz` means the process responds; `/readyz` returns 200 once 
 
 ### Backup, restore and `postgres`
 
-`ruralz control backup` writes a Raft snapshot plus referenced content, consistent at one index, encrypted and signed; downloads are audited. `ruralz control restore` runs only from the host CLI into an empty deployment, under three rules: a root-signed anchor set with a new online key opens a higher `storeEpoch` before any delivery; sessions and API tokens are invalidated; and without an operator-supplied revocation list, Node certificates issued before the restore are refused until their Nodes re-enroll, so those Nodes serve detached.
+`ruralz control backup` writes a Raft snapshot plus referenced content, consistent at one index, encrypted and signed; downloads are audited. `ruralz control restore` runs only from the host CLI into an empty deployment, under three rules: a root-signed anchor set with a new online key opens a higher `storeEpoch` before any delivery; sessions and API tokens are invalidated; and without an operator-supplied revocation list, Node certificates issued before the restore are refused until their Nodes re-enroll, so those Nodes serve detached. A restore keeps committed Node counts, so thin plans stay `pending`; a rebuild from Git has none and still needs the [hold](../operations/04-high-availability-and-disaster-recovery.md#holding-deliveries-during-recovery).
 
 The `postgres` implementation, Planned (M4), keeps everything in PostgreSQL, with leadership as a fenced lease row renewed every 2 s and expiring after 10 s (target). Sequences keep their compare-and-swap in a transaction; moving between Raft and `postgres` opens a new `storeEpoch`. Status forwarding and content placement are OQ-control-plane-and-gitops-22; the driver is OQ-tech-stack-and-libraries-20.
 
@@ -648,7 +648,7 @@ New crossings, none unauthenticated, map to [System overview](01-system-overview
 | OQ-control-plane-and-gitops-7 | Forge API integration? | (a) Plain branches (current); (b) GitHub and GitLab adapters | control-plane-and-gitops | No |
 | OQ-control-plane-and-gitops-8 | Where are the online and trust-root keys held? | (a) Control Store, root offline; (b) KMS or Vault | control-plane-and-gitops | Yes, for Planned (M2) |
 | OQ-control-plane-and-gitops-12 | Audit export format? | (a) OpenTelemetry logs; (b) syslog | observability | No |
-| OQ-control-plane-and-gitops-15 | Should pack 8.4 add the 8092 classes, relay feed included, and pack 8.3 transitions to `failed`? | (a) Amend (proposed); (b) a forwarding port | control-plane-and-gitops | No |
+| OQ-control-plane-and-gitops-15 | Should pack 8.4 add the 8092 classes, relay feed included, and pack 8.3 transitions to `failed`, plus `resume` from `pending`? | (a) Amend (proposed); (b) a forwarding port | control-plane-and-gitops | No |
 | OQ-control-plane-and-gitops-16 | Codes for a non-allowlisted registry, symlinks, gitlinks and LFS pointers? | (a) New RZ-CFG codes; (b) RZ-CFG-028, RZ-CFG-001 | configuration-model | No |
 | OQ-control-plane-and-gitops-18 | Should a revert skip `canary.bake`? | (a) No (current); (b) a field | configuration-model | No |
 | OQ-control-plane-and-gitops-21 | Password KDF, and a memory-hard G3 exception? | (a) PBKDF2 (current); (b) argon2id outside FIPS builds | tech-stack-and-libraries | No |
@@ -658,4 +658,6 @@ New crossings, none unauthenticated, map to [System overview](01-system-overview
 | OQ-control-plane-and-gitops-26 | How does `Delta` encode `ops` over `ruralz.canonical.v1`? | (a) JSON Patch (RFC 6902) on the canonical document; (b) per-resource replace and delete | control-plane-and-gitops | Yes, for Planned (M2) |
 | OQ-control-plane-and-gitops-27 | Should pack section 2 list `RURALZ_ENROLLMENT_TOKEN_FILE`, `RURALZ_TRUST_POLICY_FILE` and `RURALZ_REGISTRY_AUTH_FILE`? | (a) Amend it (proposed); (b) keys in a Node file | control-plane-and-gitops | Yes, for Planned (M2) |
 
-Closed: OQ-control-plane-and-gitops-9 (b) and -10, -14, -19, -20, -24 (a), answered by Security and identity, -24 also by ADR-0017; -17 (a), decided by CLI and API surface as `ruralz rollout reject`; -1 (a) (process configuration), -2 (trunk only), -5 (a newer promotion waits) and -13 (a) ([Node process configuration](#node-process-configuration)), decided here; -11 (SSO), settled by Security and identity as Planned (M5).
+Closed: OQ-control-plane-and-gitops-9 (b) and -10, -14, -19, -20, -24 (a), answered by Security and identity, -24 also by ADR-0017; -17 (a), decided by CLI and API surface as `ruralz rollout reject`; -1 (a) (process configuration), -2 (trunk only), -5 (a newer promotion waits) and -13 (a) ([Node process configuration](#node-process-configuration)), decided here; -11 (SSO), settled by Security and identity as Planned (M5). Decided here: OQ-high-availability-and-disaster-recovery-3 (b) ([Rollout plan](#rollout-plan-batches-and-gates)), OQ-release-versioning-and-compatibility-4 (a) (`binaryVersion` in `Hello`) and OQ-wasm-plugin-system-14 (a) (the `Nack` `class` field).
+
+Also owned here and open: OQ-high-availability-and-disaster-recovery-4, -5 and -9 (Planned (M2) restore); OQ-deployment-topologies-2, -5, -15 and -19, OQ-cli-and-api-surface-3, -8 and -9, OQ-scalability-and-distributed-state-14, OQ-security-and-identity-27, OQ-wasm-plugin-system-13 and OQ-capacity-planning-9 (Planned (M2)); OQ-traffic-management-and-resilience-19 (M1).

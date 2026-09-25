@@ -43,7 +43,7 @@ Rows are client protocols, columns `Upstream.spec.protocol` values; `N/A` pairin
 | Topic consumption from Kafka, NATS or MQTT | Planned (M4) | Not planned | Not planned | N/A | Planned (M4) | Planned (M4) | Planned (M4) | N/A |
 | Kafka or NATS wire protocol from clients | N/A | N/A | N/A | N/A | Not planned | Not planned | N/A | N/A |
 
-- REST to `grpc` (transcoding) and gRPC to `http` (reverse) need descriptors (OQ-multi-protocol-1); REST to `graphql` is a fixed-operation adapter (OQ-multi-protocol-4).
+- REST to `grpc` (transcoding) and gRPC to `http` (reverse) need descriptors from the proposed `grpc.descriptors` (OQ-multi-protocol-1); REST to `graphql` is a fixed-operation adapter (OQ-multi-protocol-4).
 - Not planned: GraphQL and gRPC to each other (no schema mapping); MQTT and consumed messages to `grpc` or `graphql` (no message contract, OQ-multi-protocol-10); RPC and sessions to brokers (no per-message Route); SSE from `grpc` (use gRPC-Web or Connect); wire ingress ([stance](#native-wire-proxy-stance)).
 
 ## HTTP/1.1, HTTP/2 and HTTP/3
@@ -89,7 +89,7 @@ Each stream, session or long-lived operation holds one in-flight unit (503 `RZ-R
 |---|---|
 | Milestone | Planned (M3) |
 | Use cases | Service and mobile RPC; browsers through gRPC-Web or Connect; REST clients through transcoding; KrakenD "gRPC Server" and "gRPC Client" parity ([source](https://www.krakend.io/features/)) |
-| Kind mapping | `Route.spec.match.grpc.service`, optional `method`, or `path` and `methods` for transcoding; `Upstream.spec.protocol: grpc` (`http` for reverse transcoding) |
+| Kind mapping | `Route.spec.match.grpc.service`, optional `method`, or `path` and `methods` for transcoding; `Upstream.spec.protocol: grpc` (`http` for reverse transcoding); descriptors in a proposed `Upstream` `grpc.descriptors` (OQ-multi-protocol-1) |
 | Policy applicability | Header-Phase types read metadata as headers; body-Phase types and `cache` only on unary calls (below); `cors` only for browser clients |
 | Limits | Unary messages are bodies; stream messages are chunks (proposed, OQ-multi-protocol-17) failing over 1 MiB (target), even native unary calls without descriptors (OQ-multi-protocol-15); `grpc-timeout` clamped by Route `timeout`; native gRPC needs HTTP/2 |
 
@@ -146,9 +146,28 @@ spec:
     path: {template: "/v1/carts/{cartId}"}
     methods: [GET]
   upstreams:
-    - name: cart          # protocol grpc: the method comes from google.api.http annotations
+    - name: cart          # protocol grpc; google.api.http annotations come from descriptors, whose source is OQ-multi-protocol-1
+  timeout: 2s
+---
+apiVersion: ruralz/v1alpha1
+kind: Upstream
+metadata:
+  name: cart
+spec:
+  protocol: grpc
+  endpoints:
+    - address: "cart.shop.svc:9000"
+  tls:
+    sni: cart.shop.svc
+    caCertificate: {secretRef: {provider: file, name: /etc/ruralz/ca/ca.crt}}
+  grpc:                   # proposed (OQ-multi-protocol-1); not yet a Configuration model field
+    descriptors:
+      file: protos/cart.binpb   # FileDescriptorSet carrying the google.api.http annotations
+      digest: "sha256:92743b066bff8238e590203210b92ddea02e26659db70750d976374a195d257a"
   timeout: 2s
 ```
+
+Descriptors come from a proposed `Upstream` field, OQ-multi-protocol-1 option (a), submitted for Configuration model registration: `grpc.descriptors` holds exactly one of `file`, a Bundle-relative FileDescriptorSet with its `digest`, or `image`, an OCI reference with a required `@sha256:` digest. The pin sits in the resource, so the Revision digest covers the set, and content that does not hash to it is RZ-CFG-027. It is allowed on `grpc` Upstreams and, for reverse transcoding, on `http` Upstreams. Without it, validation rejects a transcoding Route ([Validation rules](#validation-rules), code: OQ-multi-protocol-13), and a JSON-codec call on a `match.grpc` Route still gets `UNIMPLEMENTED` at runtime.
 
 Server reflection is an ordinary `match.grpc` Route for `grpc.reflection.v1.ServerReflection` to one Upstream; a synthesized view depends on OQ-multi-protocol-1.
 
@@ -162,6 +181,7 @@ sequenceDiagram
     participant FC as Filter Chain
     participant TC as Transcoder
     participant UP as cart Upstream, protocol grpc
+    Note over C,UP: depends on OQ-multi-protocol-1, descriptors from the proposed grpc.descriptors
     C->>GW: GET /v1/carts/42 over HTTP/1.1, HTTP/2 or HTTP/3
     GW->>GW: header match fixes Route cart-rest
     GW->>FC: onRequestHeaders, auth and ratelimit
@@ -188,7 +208,7 @@ sequenceDiagram
 |---|---|
 | Milestone | Planned (M3) |
 | Use cases | One API over several services (federation); pass-through with limits; subscriptions; REST clients calling GraphQL |
-| Kind mapping | `Route.spec.match` on `path`, plus `match.graphql` for non-upgrade requests; `Upstream.spec.protocol: graphql` per subgraph or service (federation wiring: OQ-multi-protocol-4) |
+| Kind mapping | `Route.spec.match` on `path`, plus `match.graphql` for non-upgrade requests; `Upstream.spec.protocol: graphql` per subgraph or service; federation through proposed `Route.spec.graphql.supergraph` and `graphql.subgraphs` (OQ-multi-protocol-4) |
 | Policy applicability | Header-Phase types as for HTTP; `onRequestBody` types see each normalized operation; `cache` only for GET with a persisted-query hash |
 | Limits | Rules below; `maxRequestBodyBytes`; subgraph bodies within `maxResponseBodyBytes`; each event a reserved chunk, subscriber or not; subscriptions end at the Route `timeout` |
 
@@ -197,6 +217,29 @@ sequenceDiagram
 The engine is graphql-go-tools v2 ([ADR-0012](../adr/0012-graphql-engine-graphql-go-tools.md)): federation versions 1 and 2, batched entity calls, and subscriptions over graphql-ws, graphql-transport-ws and SSE ([source](https://github.com/wundergraph/graphql-go-tools)).
 
 Pass-through mode forwards each operation to one `graphql` Upstream, enforcing syntax, depth, alias and field-count limits. Federation mode would plan against a supergraph SDL composed outside Ruralz and pinned by digest (OQ-multi-protocol-4), since the engine has no composition package ([source](https://github.com/wundergraph/graphql-go-tools/tree/master/v2)).
+
+Proposed Route fields, OQ-multi-protocol-4 option (c), submitted for Configuration model registration, declare it. `graphql.supergraph` is a Bundle-relative `file` with its `digest` or a pinned OCI `image`, as for `grpc.descriptors`, so the Revision digest covers the SDL. `graphql.subgraphs` is a map keyed by the supergraph's subgraph name whose `upstream` names a `graphql` Upstream. `graphql` replaces `upstreams`, as `composition` does. A missing supergraph or an unmapped, unknown or non-`graphql` subgraph is rejected ([Validation rules](#validation-rules), code: OQ-multi-protocol-13), offline for a `file` and at the online stage for an `image`. REST-to-GraphQL operations stay open.
+
+```yaml
+apiVersion: ruralz/v1alpha1
+kind: Route
+metadata:
+  name: shop-graph
+spec:
+  match:
+    hosts: ["api.shop.example"]
+    path: {exact: /graphql}
+  graphql:                        # proposed (OQ-multi-protocol-4); replaces upstreams
+    supergraph:
+      file: graphql/shop.supergraph.graphql   # composed outside Ruralz
+      digest: "sha256:e04bceaf835317ff75eca9ee121e1e4b6e78e6a65606ce53cc824b97f613f058"
+    subgraphs:                    # map keyed by the supergraph's subgraph name
+      - name: products
+        upstream: products        # protocol graphql
+      - name: reviews
+        upstream: reviews
+  timeout: 5s
+```
 
 ### Route selection by operation
 
@@ -501,7 +544,7 @@ In the async-agent direction, Planned (M4), Nodes consume messages and call Upst
 | Retries | Timeouts, Upstream 408, 429 and 5xx, and `RZ-UP` leg failures retry with capped backoff, at most 5 attempts (target) |
 | Poison message | No matching Route, a value over `maxRequestBodyBytes`, an `authz.*` or validation denial, an `RZ-PLG` trap or limit breach, another Upstream 4xx or a last failed attempt pauses the partition or consumer and raises the `ruralz_ingress_paused_partitions` gauge ([Observability](10-observability.md)); the head message retries every 60 s (target) or on a new Revision; nothing commits silently (OQ-multi-protocol-10) |
 | Pause scope | A Kafka pause stalls one partition; a JetStream pause stalls the durable consumer on every Node, as `AckWait` redelivers the held message elsewhere |
-| JetStream | `Consume()` pre-buffers one message per consumer per Node (target; setting unresearched), so no `AckWait` runs in a local queue. A backpressure hold ends after 60 s (target), letting `AckWait` redeliver (`ruralz_ingress_hold_expiries_total`, proposed), neither an attempt nor a pause. `AckWait` MUST exceed attempts times the Route `timeout` plus backoff and that hold; `MaxDeliver` stays unlimited pending OQ-multi-protocol-10 |
+| JetStream | `Consume()` runs with `PullMaxMessages(1)`, one message per consumer per Node (target), not the 500-message default, and pulls again only after its callback returns, so no `AckWait` runs in a local queue ([source](https://pkg.go.dev/github.com/nats-io/nats.go/jetstream)) ([source](https://raw.githubusercontent.com/nats-io/nats.go/main/jetstream/pull.go)). The server starts `AckWait` when it sends the message and resets it on `InProgress()` ([source](https://raw.githubusercontent.com/nats-io/nats.docs/master/using-nats/developing-with-nats/js/consumers.md)); Nodes never send `InProgress()` (target), so the rule below bounds every hold. A backpressure hold ends after 60 s (target), letting `AckWait` redeliver (`ruralz_ingress_hold_expiries_total`, proposed), neither an attempt nor a pause. `AckWait` MUST exceed attempts times the Route `timeout` plus backoff and that hold; `MaxDeliver` stays at its unlimited default (-1) ([source](https://raw.githubusercontent.com/nats-io/nats.docs/master/nats-concepts/jetstream/consumers.md)) pending OQ-multi-protocol-10 |
 
 Scaling Nodes rebalances through the broker (franz-go's cooperative-sticky and KIP-848 balancers) without Node-to-Node traffic (P3, P4) ([source](https://github.com/twmb/franz-go)) ([source](https://raw.githubusercontent.com/twmb/franz-go/master/CHANGELOG.md)). On Drain a Node stops fetching, settles, commits and leaves the group.
 
@@ -601,6 +644,8 @@ Validation rejects an effective Filter Chain whose Policy or Plugin needs a skip
 | `messaging.key` unset | `nats` and `mqtt` Upstreams | Only Kafka has a record key (OQ-multi-protocol-8) |
 | No `loadBalancing`, `healthCheck`, `discovery` or `circuitBreaker.maxConnections` | `kafka`, `nats` and `mqtt` Upstreams | Broker clients balance and connect themselves |
 | One protocol across `upstreams`; `composition` steps only to `http` | All Routes | Dispatch is per Route |
+| Proposed `grpc.descriptors` on the Upstream | Routes matching HTTP criteria to a `grpc` Upstream; `match.grpc` Routes to an `http` Upstream | Transcoding needs descriptors (OQ-multi-protocol-1) |
+| Proposed `graphql.supergraph` set, and each subgraph it names mapped once to a `graphql` Upstream | Routes with `graphql` | Federation plans only against a pinned supergraph (OQ-multi-protocol-4) |
 
 ### Termination per protocol
 
@@ -617,16 +662,16 @@ Sessions keep their snapshot until it retires ([System overview](01-system-overv
 
 | ID | Question | Options | Owner | Blocking? |
 |---|---|---|---|---|
-| OQ-multi-protocol-1 | Where do gRPC descriptors come from, deterministic per digest (OQ-tech-stack-and-libraries-21)? | (a) A digest-pinned set named by a new `Upstream` field (proposed); (b) Compile-time reflection; (c) Both, reflection only in `ruralz dev run` | multi-protocol | Yes, for gRPC |
+| OQ-multi-protocol-1 | Where do gRPC descriptors come from, deterministic per digest (OQ-tech-stack-and-libraries-21)? | (a) A digest-pinned set named by a new `Upstream` field (proposed, [HTTP/JSON transcoding](#httpjson-transcoding-and-reflection)): `grpc.descriptors`, a FileDescriptorSet `file` with `digest` or a pinned OCI `image`, on `grpc` and, for reverse transcoding, `http` Upstreams; (b) Compile-time reflection; (c) Both, reflection only in `ruralz dev run` | multi-protocol | Yes, for gRPC |
 | OQ-multi-protocol-2 | Does connect-go pass-through hold for trailers, deadlines, stream types, errors and half-duplex HTTP/1.1 streams (OQ-tech-stack-and-libraries-21)? | (a) Generic handlers (proposed); (b) Raw HTTP/2 proxy | multi-protocol | Yes, for gRPC |
 | OQ-multi-protocol-3 | How does `match.graphql` select a Route before `onRequestHeaders` (answers OQ-system-overview-5)? | (a) Bounded prefix read (proposed); (b) Query string or hash only; (c) An `onRoute` leg selector | multi-protocol | Yes, for Data plane |
-| OQ-multi-protocol-4 | How are subgraphs, the supergraph and REST-to-GraphQL operations declared with deterministic digests? | (a) A `federation` composition mode; (b) `Route.spec.graphql` fields; (c) An external supergraph pinned by digest (proposed); (d) Composition in Ruralz Control | multi-protocol | Yes, for federation |
+| OQ-multi-protocol-4 | How are subgraphs, the supergraph and REST-to-GraphQL operations declared with deterministic digests? | (a) A `federation` composition mode; (b) `Route.spec.graphql` fields; (c) An external supergraph pinned by digest (proposed, [Engine](#engine)): `Route.spec.graphql.supergraph`, a `file` with `digest` or a pinned OCI `image`, and `graphql.subgraphs`, mapping each subgraph name to a `graphql` Upstream; REST-to-GraphQL operations undecided; (d) Composition in Ruralz Control | multi-protocol | Yes, for federation |
 | OQ-multi-protocol-5 | How are the GraphQL limits and per-session bounds configured? | (a) A validation-class type (proposed); (b) Route fields; (c) A Plugin | multi-protocol | Yes, for GraphQL limits |
 | OQ-multi-protocol-6 | Where do the WebSocket mode, timeouts, compression and multiplexer settings live? The envelope is fixed in [Multiplexing](#multiplexing) | (a) An `Upstream` `websocket` object (proposed): `mode: direct \| multiplex` (default `direct`), `claims` (auth claims copied into the `open` envelope), `writeTimeout` and `compression`; (b) Node defaults, direct mode only; (c) A Policy type | multi-protocol | Yes, for the multiplexer |
 | OQ-multi-protocol-7 | How do browser WebSocket sessions and MQTT CONNECT present credentials to `auth.*`? | (a) Map the carrier into what `auth.*` reads; (b) Cookies and passwords only; (c) A Plugin | security-and-identity | Yes, for the embedded broker |
 | OQ-multi-protocol-8 | Which `messaging` options are needed: acknowledgment mode (covering core NATS and MQTT QoS), headers, compression, partitioner, retain, a per-broker value-size bound, a retry-stable deduplication ID (unresearched)? Spikes: non-blocking franz-go produce; `acks` below `all` without idempotence | (a) New `messaging` fields (proposed, [Advanced Kafka options](#advanced-kafka-options)): `acks: all \| leader \| none`, `headers` (CEL map), and Kafka-only `compression: none \| gzip \| snappy \| lz4 \| zstd` and `partitioner: key-hash \| round-robin`; retain, the value-size bound and the deduplication ID undecided; (b) A Policy type; (c) Fixed defaults | multi-protocol | Yes, for event publishing |
 | OQ-multi-protocol-9 | How do Nodes authenticate to brokers beyond mutual TLS? | (a) `SecretValue` fields under `messaging`; (b) An `Upstream` credentials object; (c) Mutual TLS only | security-and-identity | Yes, for event publishing |
-| OQ-multi-protocol-10 | How is event ingress declared (answers OQ-configuration-model-11): sources, groups, fetch bounds, poison action and resume (dead-letter or skip-and-count before M4; JetStream `MaxDeliver` or `Term`), the `RZ-PLG` poison split, MQTT listener and connection ceiling, shared subscriptions (unresearched), mixed Routes? Spikes: held PUBACK blocking reads (fallback: PUBACK on receipt); JetStream in-progress acknowledgments and pre-buffer setting (unresearched) | (a) A Gateway event-source list and `mqtt` listener protocol (proposed); (b) `messaging` consumer groups; (c) A new kind | multi-protocol | Yes, for topic ingress |
+| OQ-multi-protocol-10 | How is event ingress declared (answers OQ-configuration-model-11): sources, groups, fetch bounds, poison action and resume (dead-letter or skip-and-count before M4; JetStream `MaxDeliver` or `Term`), the `RZ-PLG` poison split, MQTT listener and connection ceiling, shared subscriptions (unresearched), mixed Routes? Spike: held PUBACK blocking reads (fallback: PUBACK on receipt) | (a) A Gateway event-source list and `mqtt` listener protocol (proposed); (b) `messaging` consumer groups; (c) A new kind | multi-protocol | Yes, for topic ingress |
 | OQ-multi-protocol-11 | Should native Kafka wire proxying follow the M4 review? | (a) Not planned (current); (b) Produce-only, Planned (M5); (c) An external proxy | multi-protocol | No |
 | OQ-multi-protocol-12 | Which Upstream-side choices need fields: h2c or HTTP/3, gRPC health, subgraph subscription transport and read limit? Tech stack SSE row: forwarding only | (a) New `Upstream` fields; (b) Inferred defaults (current); (c) Plugins | multi-protocol | No |
 | OQ-multi-protocol-13 | Which RZ-CFG registrations cover these validation rules, the topic-ingress `overridable: false` and response-Phase cases, and a broker body-gate row? | (a) New codes and row; (b) Widen RZ-CFG-020 | configuration-model | No |

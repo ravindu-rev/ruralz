@@ -123,7 +123,7 @@ Every TLS hop verifies the server certificate; no field disables it. Cleartext, 
 | Client, 8080 | Cleartext, SHOULD serve only redirects or traffic behind a TLS-terminating load balancer | Consumer credentials | Planned (M1) |
 | Upstream, `AIProvider`, State Store, OTLP (TB-3, TB-4, TB-12) | TLS 1.2 or newer with `Upstream.spec.tls`, an `https` URL or `rediss://`; else cleartext | Server verified; optional client certificate; State Store credentials | Planned (M1) |
 | Vault, Kubernetes API (TB-3, TB-7) | TLS 1.2 or newer, never cleartext | Server verified; Vault authentication (OQ-security-and-identity-10); namespace-scoped service account | Planned (M2) |
-| IdP (TB-10) | TLS 1.2 or newer; `jwksUrl` and `tokenUrl` MUST be `https` (code: OQ-security-and-identity-18) | Server verified | Planned (M1) |
+| IdP (TB-10) | TLS 1.2 or newer; `jwksUrl` and `tokenUrl` MUST be `https` (RZ-CFG-037) | Server verified | Planned (M1) |
 | Admin 9901, 9902 (TB-9) | TLS when configured | [Admin ports](#admin-ports) | 9901 Planned (M1); 9902 Planned (M2) |
 | 8091 (TB-5) | TLS 1.3; client certificate required for every RPC except `Enroll`, which uses server-authenticated TLS with a pinned server CA and a one-time token (proposed: OQ-security-and-identity-31) | Node certificate or token | Planned (M2) |
 | 8092 (TB-11) | mTLS, TLS 1.3 only, except token `Join` from a replica without a peer certificate (proposed: OQ-control-plane-and-gitops-15, OQ-security-and-identity-31) | Disjoint CAs, so a Node key cannot join Raft; `Join` redeems a one-time `admin` token over a pinned server CA | Planned (M2) |
@@ -207,7 +207,7 @@ flowchart TD
 
 ### Basic and mTLS schemas
 
-Per pack section 3, this document authors these schemas, all Planned (M1) and proposed for Configuration model registration (OQ-security-and-identity-2 and -3); until then, no example uses them.
+Per pack section 3, this document authors these schemas, all Planned (M1) and registered in the Configuration model ([Registered from feature documents](02-configuration-model.md#registered-from-feature-documents)).
 
 | Type or kind | Field | Shape and rule |
 |---|---|---|
@@ -217,10 +217,10 @@ Per pack section 3, this document authors these schemas, all Planned (M1) and pr
 | `auth.mtls` | `config.crl` | Optional `SecretValue`: PEM CRLs for those CAs, watched; a listed serial is RZ-AUTH-004. Past `nextUpdate`, the last CRL stays enforced and the Node reports a degraded state |
 | `Consumer` | `credentials.basic` | `map` keyed by `username`; each entry holds `hash` and `iterations` |
 | `Consumer` | `credentials.basic[].hash` | `pbkdf2-sha256:<salt>:<key>`, base64url of a 16-byte random salt and a 32-byte PBKDF2-HMAC-SHA-256 key; T19 applies as to key hashes |
-| `Consumer` | `credentials.basic[].iterations` | 600,000 to 1,000,000, default 600,000 (target); outside that range fails validation |
+| `Consumer` | `credentials.basic[].iterations` | 600,000 to 1,000,000, default 600,000 (target); outside that range is RZ-CFG-036 |
 | `Consumer` | `credentials.certificates` | `map` keyed by `name`; each entry holds exactly one of `subject` or `uriSan`, matched exactly against a leaf `auth.mtls` verified |
 
-A leaf MUST carry the `clientAuth` extended key usage. A leaf matching no Consumer sets `auth` and leaves `consumer` null, as for JWT. A `username`, `subject` or `uriSan` declared by two Consumers fails validation, so each credential binds at most one Consumer. The throttle's dummy hash uses the default `iterations`.
+A leaf MUST carry the `clientAuth` extended key usage. A leaf matching no Consumer sets `auth` and leaves `consumer` null, as for JWT. A `username`, `subject` or `uriSan` declared by two Consumers is RZ-CFG-035, so each credential binds at most one Consumer. The throttle's dummy hash uses the default `iterations`.
 
 ### Accepting more than one credential type
 
@@ -261,11 +261,11 @@ spec:
 
 ### Upstream authentication
 
-`auth.upstream-oauth2`, Planned (M1), runs the client credentials grant, refreshing at two thirds of the token lifetime (target). A miss runs one single-flight fetch per Policy and Node within the request deadline and a proposed 2 s `timeout` (target); failure is 401 RZ-AUTH-020.
+`auth.upstream-oauth2`, Planned (M1), runs the client credentials grant, refreshing at two thirds of the token lifetime (target). A miss runs one single-flight fetch per Policy and Node within the request deadline and a 2 s `timeout` (target); failure is 401 RZ-AUTH-020.
 
 `auth.upstream-sigv4`, Planned (M2), records signing parameters in `onUpstreamRequest`; the Node signs at the transport on every attempt, after every Filter, Plugin and dialect translation (hook: OQ-security-and-identity-28). The body is buffered within `limits.maxRequestBodyBytes` or, with `payload: unsigned`, sent as UNSIGNED-PAYLOAD where accepted. For OQ-ai-llm-gateway-12, option (b): this type on the `ai` Upstream, signing only `bedrock` dialect legs.
 
-Authored here, proposed for registration (OQ-security-and-identity-18): `auth.upstream-sigv4` requires `config.region` and `config.service`, and `config.payload` is `signed` (default) or `unsigned`; `auth.upstream-oauth2` adds `config.timeout`, default 2 s (target).
+Authored here and registered in the Configuration model ([Registered from feature documents](02-configuration-model.md#registered-from-feature-documents)): `auth.upstream-sigv4` requires `config.region` and `config.service`, and `config.payload` is `signed` (default) or `unsigned`; `auth.upstream-oauth2` adds `config.timeout`, default 2 s (target).
 
 Also authored here, Planned (M2) and proposed for registration (OQ-security-and-identity-12, option (b)): `auth.upstream-oauth2` `config.grantType` is `client-credentials` (default) or `jwt-bearer` (RFC 7523). `jwt-bearer` replaces `clientId` and `clientSecret` with `config.serviceAccountKey`, a required `SecretValue` holding a service-account JSON key; per fetch, the Node signs an RS256 assertion with it and posts it to the `https` `tokenUrl`. `config.audience`, when set, requests an ID token for that audience instead of an access token for `scopes`. This serves Google GCP authentication ([source](https://www.krakend.io/docs/enterprise/authentication/gcloud/)).
 
@@ -314,7 +314,7 @@ Authorization runs in Filter class `authz`. Each type's slot defaults to its nam
 |---|---|---|---|---|
 | CEL, `authz.cel` | Short rules over claims, Consumer, Tier, method and path; the default | Compiled per Revision; under 2 µs at p99 (target) | RZ-CFG-015; runtime `CostLimit` ([source](https://github.com/cel-expr/cel-go/blob/master/cel/options.go)) | Planned (M1) |
 | OPA (Rego), `authz.opa` | Large or shared data-driven rule sets | `PrepareForEval` per Revision ([source](https://github.com/open-policy-agent/opa/blob/main/v1/rego/rego.go)); under 100 µs at p99 (hypothesis) | Deadline; only allowlisted pure built-ins, so no `http.send`; 16 MiB data per Policy (target) | Planned (M2) |
-| Cedar, `authz.cedar` | Principal, action and resource models with hierarchies | In process; under 100 µs at p99 (hypothesis) | 1,000 policies and 10,000 entities per Policy (target); no schema validator in cedar-go ([source](https://github.com/cedar-policy/cedar-go/blob/main/README.md)) | Planned (M2) |
+| Cedar, `authz.cedar` | Principal, action and resource models with hierarchies | In process; under 100 µs at p99 (hypothesis) | 1,000 policies and 10,000 entities per Policy, ancestor depth at most 8 (target), transitive closure precomputed per Revision; no schema validator in cedar-go ([source](https://github.com/cedar-policy/cedar-go/blob/main/README.md)) | Planned (M2) |
 
 Identical engines compile once, by digest. A Revision-wide ceiling of 64 MiB of compiled engine memory and 50,000 entities (target), reported per snapshot, counts toward snapshot size, so peak engine memory is (K + 2) = 4 times it, 256 MiB (hypothesis) ([System overview](01-system-overview.md#compile-before-swap)); compilation counts against the 2 s compile time budget. `ruralz bundle validate` checks the ceiling (code: OQ-security-and-identity-30), or, with OCI delivery (OQ-security-and-identity-13), Ruralz Control ingest and Node activation, NACKing a violation. CEL SHOULD come first; cedar-go has had no commits since 2026-06-01 ([source](https://github.com/cedar-policy/cedar-go)), so OPA is the fallback.
 
@@ -355,7 +355,7 @@ Ruralz adds the principal and resource entities per request, merging parents wit
 
 ### IP filtering and GeoIP
 
-`authz.ip`, Planned (M1), filters by CIDR on `source.ip`; `authz.geoip`, Planned (M2), by country from a local MaxMind-format database (reader: OQ-tech-stack-and-libraries-24). This document authors both schemas, proposed for Configuration model registration (OQ-security-and-identity-18):
+`authz.ip`, Planned (M1), filters by CIDR on `source.ip`; `authz.geoip`, Planned (M2), by country from a local MaxMind-format database (reader: OQ-tech-stack-and-libraries-24). This document authors both schemas, registered in the Configuration model ([Registered from feature documents](02-configuration-model.md#registered-from-feature-documents)):
 
 | Type | Field | Shape |
 |---|---|---|
@@ -478,7 +478,7 @@ Ruralz Control delivers one signed revocation list to every Node of a Cluster, c
 
 | What is revoked | Mechanism | Propagation | Planned |
 |---|---|---|---|
-| A JWT by `jti`; a subject's older tokens; an IdP key by (issuer, `kid`), forcing a JWKS refetch; an API key hash or `auth.basic` username; a client certificate by issuer and serial (per Policy: `config.crl`) | Signed entry, REST API | 5 s or less at p99 with a fresh mark (target) | Planned (M2), pending OQ-security-and-identity-4 (usernames: -2) |
+| A JWT by `jti`; a subject's older tokens; an IdP key by (issuer, `kid`), forcing a JWKS refetch; an API key hash or `auth.basic` username; a client certificate by issuer and serial (per Policy: `config.crl`) | Signed entry, REST API | 5 s or less at p99 with a fresh mark (target) | Planned (M2), pending OQ-security-and-identity-4 |
 | An API key, file mode | Removed; CI and Hot Reload | No Ruralz target | Planned (M1) |
 | An API key, Control mode | Removed; Rollout | 30 s or less at p95 for 100 Nodes, `all-at-once` (target) (SM-9) | Planned (M2) |
 | An Enrollment identity | `ruralz node revoke` | 5 s or less at p99 (target) | Planned (M2) |
@@ -533,7 +533,7 @@ Tokens, the `Enroll` lockout and certificates follow [Enrollment and mTLS](04-co
 | Trust policy | Contents | Lives in | Default |
 |---|---|---|---|
 | Anchor sets | Online signing keys signed by the offline root, plus the Plugin trust policy | Enrollment and root-signed `TrustUpdate` | Always verified |
-| OCI Revision trust policy | Exact keyless issuer and subject pairs, or keys | Node process configuration (OQ-security-and-identity-8) | `enforce` |
+| OCI Revision trust policy | Exact keyless issuer and subject pairs, or keys | Node process configuration (`RURALZ_TRUST_POLICY_FILE`) | `enforce` |
 | Plugin trust policy | Publisher identities or keys | Ruralz Control process configuration; Node's in file mode | `enforce`; `warn` in `ruralz dev run` |
 
 Under `enforce`, an empty trust policy rejects everything (RZ-CFG-033); identity patterns are opt-in. Verification is offline (pack 8.14); trust policies never live in a Bundle. For OQ-control-plane-and-gitops-9, option (b): verify commit signatures where approvals depend on authorship. For OQ-control-plane-and-gitops-24, option (a): after an emergency key removal, a Node refuses to boot a candidate or Last-Known-Good accepted from that key after `compromisedSince`, staying not ready until the Control Stream delivers; older ones boot.
@@ -589,13 +589,10 @@ Data-plane decisions are telemetry, not audit events. Other evidence:
 | ID | Question | Options | Owner | Blocking? |
 |---|---|---|---|---|
 | OQ-security-and-identity-1 | Which extra `auth.jwt` and `auth.api-key` fields? | (a) Algorithms, clock skew, required claims, per-issuer maximum token lifetime (default 24 hours (target)), duplicate-binding error; (b) Fixed defaults | security-and-identity | Yes, Planned (M1) |
-| OQ-security-and-identity-2 | Does the Configuration model register Consumer `credentials.basic` as authored in [Basic and mTLS schemas](#basic-and-mtls-schemas), with RZ-CFG codes for duplicate usernames and out-of-range `iterations`? | (a) Register as authored (proposed); (b) Register with changes | configuration-model | Yes, for `auth.basic` |
-| OQ-security-and-identity-3 | Does the Configuration model register the `auth.mtls` `config` (Policy CA, subject rules, CRL) and Consumer `credentials.certificates` as authored in [Basic and mTLS schemas](#basic-and-mtls-schemas)? | (a) Register as authored (proposed); (b) Register with changes | configuration-model | Yes, for `auth.mtls` |
 | OQ-security-and-identity-4 | How do revocations bypass the Revision? | (a) Signed entries and high-water mark, Node-signed `Ack`s, watched file, amending pack 8.1 and 8.4 (proposed); (b) State Store; (c) Revisions only | security-and-identity, control-plane-and-gitops | Yes, Planned (M2) |
 | OQ-security-and-identity-5 | Do revocations survive a detached restart? | (a) No; (b) Persisted, amending pack 8.11 | security-and-identity | Yes, Planned (M2) |
 | OQ-security-and-identity-6 | How are trusted proxies declared? | (a) CIDR list; (b) PROXY protocol v2; (c) Both (proposed) | configuration-model (fields), security-and-identity (semantics) | Yes, for `source.ip` users |
 | OQ-security-and-identity-7 | Which settings hold admin credentials? | (a) Three `RURALZ_ADMIN_*` settings, amending pack section 2 (proposed); (b) Gateway fields | security-and-identity | Yes, Planned (M1) |
-| OQ-security-and-identity-8 | Where do file-mode trust policies live? | (a) Process setting; (b) Flags | control-plane-and-gitops | Yes, Planned (M2) |
 | OQ-security-and-identity-9 | Status for failed upstream auth (merges OQ-data-plane-8)? | (a) 401; (b) 503, amending pack 8.10 (proposed); (c) 502 | security-and-identity | Yes |
 | OQ-security-and-identity-10 | How does a Node authenticate to Vault? | (a) Kubernetes; (b) AppRole; (c) Token file | security-and-identity | Yes, for `vault` |
 | OQ-security-and-identity-11 | How is JWT signing served? | (a) Plugin with signing Host Function; (b) Built-in type, amending pack section 10 (proposed) | security-and-identity | Yes, Planned (M2) |
@@ -604,7 +601,6 @@ Data-plane decisions are telemetry, not audit events. Other evidence:
 | OQ-security-and-identity-14 | Should `authz.geoip` enrich upstream requests? | (a) No; (b) Header; (c) `source.country` | security-and-identity | No |
 | OQ-security-and-identity-15 | Are the throttle defaults and residuals acceptable: flood-shared rates, spraying, N × 1 guess per second per username across N Nodes (target), about 8,000 to 16,000 active `auth.basic` clients per hash slot capped at 10,000 per Node (hypothesis), and a post-restart ramp of one hash per active client? | (a) Local throttle (current); (b) Pre-auth `ratelimit` position | security-and-identity | Yes, for `auth.basic` |
 | OQ-security-and-identity-17 | Which fields set client timeouts? | (a) Gateway `limits`; (b) Fixed | data-plane | No |
-| OQ-security-and-identity-18 | Does the Configuration model register the schemas authored above: `authz.ip` and `authz.geoip` `allow` and `deny`; `auth.upstream-sigv4` `region`, `service` and `payload`; upstream-auth `timeout`; an `https` pattern for `jwksUrl` and `tokenUrl`? | (a) Register as authored (proposed); (b) Register with changes | configuration-model | Yes, per type |
 | OQ-security-and-identity-19 | One switch requiring TLS everywhere? | (a) No (current); (b) Gateway field | configuration-model | No |
 | OQ-security-and-identity-20 | Record a `go1.27` build-tag file? | (a) Yes (proposed); (b) Wait | tech-stack-and-libraries | No |
 | OQ-security-and-identity-21 | Reject encoded NUL and backslashes? | (a) Yes (proposed); (b) No | data-plane | Yes, Planned (M1) |
@@ -619,4 +615,4 @@ Data-plane decisions are telemetry, not audit events. Other evidence:
 | OQ-security-and-identity-30 | Which codes reject the engine ceiling and an uncredentialed State Store URL? | (a) New RZ-CFG codes (proposed); (b) RZ-CFG-015 and RZ-CFG-026 | configuration-model | Yes, Planned (M2) |
 | OQ-security-and-identity-31 | Should pack 8.4 (the 8091 and 8092 rows, and the Control Stream row of section 2) and System overview TB-5 read "mTLS with a per-Node enrollment certificate; `Enroll` only: server-authenticated TLS, pinned server CA, one-time token", 8092 and TB-11 add token `Join`, and TB-3, TB-7 and TB-8 add Vault and the Kubernetes API, Git webhooks and the Ruralz Control Kubernetes client, and Ruralz Control's OCI registry client? | (a) Amend (proposed); (b) New TB IDs | system-overview | Yes, Planned (M2) |
 
-OQ-security-and-identity-16 is closed. Answered above: OQ-system-overview-6; OQ-configuration-model-5, -13, -15, -17; OQ-tech-stack-and-libraries-6; OQ-control-plane-and-gitops-9, -10, -14, -19, -20, -24; OQ-wasm-plugin-system-3, -18; OQ-ai-llm-gateway-9, -12. Recommended, pending host documents: OQ-ai-llm-gateway-14 (b); OQ-ai-llm-gateway-19 (b), plus (c) for untrusted tenants; OQ-multi-protocol-7, -9 (a); OQ-observability-4, -7 (b); OQ-release-versioning-and-compatibility-5 (a). For OQ-tech-stack-and-libraries-24, option (a); -17 and -19 need the same research addendum, with OIDC only as the -19 fallback.
+OQ-security-and-identity-16 is closed. Answered by the Configuration model with option (a), register as authored: OQ-security-and-identity-2, -3 and -18. Answered by Control plane: -8, `RURALZ_TRUST_POLICY_FILE`. Answered above: OQ-system-overview-6; OQ-configuration-model-5, -13, -15, -17; OQ-tech-stack-and-libraries-6; OQ-control-plane-and-gitops-9, -10, -14, -19, -20, -24; OQ-wasm-plugin-system-3, -18; OQ-ai-llm-gateway-9, -12. Recommended, pending host documents: OQ-ai-llm-gateway-14 (b); OQ-ai-llm-gateway-19 (b), plus (c) for untrusted tenants; OQ-multi-protocol-7, -9 (a); OQ-observability-4, -7 (b); OQ-release-versioning-and-compatibility-5 (a). For OQ-tech-stack-and-libraries-24, option (a); -17 and -19 need the same research addendum, with OIDC only as the -19 fallback.

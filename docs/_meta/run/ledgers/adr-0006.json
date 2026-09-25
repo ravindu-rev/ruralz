@@ -105,7 +105,7 @@
   {
    "section": "Decision outcome",
    "kind": "decision",
-   "value": "chosen by process configuration (proposed, OQ-control-plane-and-gitops-1), never a kind or field"
+   "value": "chosen by process configuration (`controlStore.driver`), never a kind or field"
   },
   {
    "section": "Decision outcome",
@@ -240,7 +240,7 @@
   {
    "section": "Decision outcome",
    "kind": "decision",
-   "value": "`ruralz control join` redeems a one-time `admin` token in `Join`; the leader signs the peer certificate and adds a voter"
+   "value": "`ruralz control join` redeems a one-time `admin` token in `Join`; the leader signs the peer certificate and records a pending member, a non-voter from its first 8092 connection and a voter once caught up"
   },
   {
    "section": "Decision outcome",
@@ -575,22 +575,12 @@
   {
    "section": "More information",
    "kind": "claim",
-   "value": "Control plane and GitOps SHOULD add the Control Store selection to OQ-control-plane-and-gitops-1"
-  },
-  {
-   "section": "More information",
-   "kind": "claim",
-   "value": "bound how long a never-accepted proposal's objects are kept"
+   "value": "Control plane and GitOps SHOULD bound how long a never-accepted proposal's objects are kept"
   },
   {
    "section": "More information",
    "kind": "claim",
    "value": "reword \"cannot commit\" in Fencing stale replicas as \"cannot have a stale-sequence entry accepted\""
-  },
-  {
-   "section": "More information",
-   "kind": "claim",
-   "value": "Testing and quality strategy SHOULD add the fencing test"
   }
  ]
 }

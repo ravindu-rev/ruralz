@@ -46,7 +46,7 @@ Per P8 ([Principles](../vision/01-vision-and-positioning.md#principles)), AI tra
 | Prompt Cache passthrough and Semantic Cache | `cache.prompt`, `ai.semantic-cache` | Planned (M3) |
 | Guardrail hooks | `ai.guardrail`, `plugin` Policies | Planned (M3) |
 | External guardrail detectors | Remote calls | Not planned: waits for OQ-wasm-plugin-system-5 option (b) |
-| MCP gateway and MCP Server | Routes, Policies (OQ-ai-llm-gateway-10) | Planned (M3) |
+| MCP gateway and MCP Server | Routes, Policies; proposed `ai.mcp` (OQ-ai-llm-gateway-10) | Planned (M3) |
 | A2A-aware gateway | Routes, Policies | Planned (M5) |
 | `gen_ai` telemetry, AI metrics, data residency routing | OpenTelemetry ([ADR-0010](../adr/0010-telemetry-opentelemetry-first.md)); `region`, candidate `when` | Planned (M3) |
 
@@ -487,8 +487,8 @@ MCP and A2A are agent traffic over HTTP (JSON-RPC, SSE), so P7 and P8 apply: Rou
 
 | Capability | Ruralz plan | Milestone |
 |---|---|---|
-| MCP gateway | Streamable HTTP and SSE servers behind Routes and `http` Upstreams; auth Policies; `authz.cel` allow lists; per-client affinity through `ring-hash` on `consumer.name` (per-session: OQ-ai-llm-gateway-10) | Planned (M3) |
-| MCP Server: tools generated from existing Routes | Surface per OQ-ai-llm-gateway-10 | Planned (M3) |
+| MCP gateway | Streamable HTTP and SSE servers behind Routes and `http` Upstreams; auth Policies; `authz.cel` allow lists; per-client affinity through `ring-hash` on `consumer.name` ([Sessions and affinity](#mcp-server)) | Planned (M3) |
+| MCP Server: tools generated from existing Routes | A proposed `ai.mcp` Policy on its own Route ([MCP Server](#mcp-server)), OQ-ai-llm-gateway-10 option (a) | Planned (M3) |
 | stdio MCP servers | A network gateway does not spawn local processes | Not planned |
 | A2A traffic as plain HTTP and SSE | Ordinary Routes | Planned (M3) |
 | A2A-aware gateway | Agent cards, per-skill authorization, usage attribution | Planned (M5) |
@@ -507,6 +507,74 @@ spec:
 ```
 
 Unknown methods, batches, `GET` streams, `DELETE` and client responses are denied, so resources, prompts, sampling and elicitation need rules. The allow list is no security control until strict JSON ([Surface decoder](#surface-decoder)) covers MCP Routes, since a repeated `params.name` could show CEL one tool and the server another (OQ-ai-llm-gateway-16). A2A-aware features wait for M5 because the wire format still moves: LiteLLM serves A2A 0.3 or 1.0 per agent ([source](https://docs.litellm.ai/docs/a2a)).
+
+### MCP Server
+
+Proposed answer to OQ-ai-llm-gateway-10, option (a), and so to OQ-vision-and-positioning-12: a built-in `ai.mcp` Policy type that turns one Route into an MCP Server whose tools are existing Routes. It is submitted as a pack section 10 amendment through that Open question (pack section 14), and the Configuration model registers its `config` as authored here (OQ-configuration-model-9). Until then it is no registered type, so no example Bundle uses it. KrakenD EE declares each tool with its own input and output schemas and an upstream workflow ([source](https://www.krakend.io/docs/enterprise/ai-gateway/mcp-server/)); `ai.mcp` instead points each tool at a Route, so every call runs that Route's Policies.
+
+| Registry column | Proposed value |
+|---|---|
+| Filter class | transform, so the MCP Route's auth, authz (such as the tool allow list above), admission and validation Policies run first |
+| Phases | `onRequestHeaders` (method and header checks) and `onRequestBody` (JSON-RPC); both short-circuit (pack section 4) |
+| Scopes | R only. The Route sets neither `upstreams` nor `composition`; the amendment makes that legal only with `ai.mcp` attached |
+| Slot | `mcp` |
+| `failureMode` | closed; closed only |
+| Planned | Planned (M3) |
+
+| `config` field | Type | Meaning |
+|---|---|---|
+| `serverName` | string, required | `serverInfo.name` in the `initialize` result |
+| `instructions` | string | Optional `instructions` in the `initialize` result |
+| `tools` | `orderedMap` keyed by `name`, required | Tools, in `tools/list` order |
+| `tools[].name` | string, required | MCP tool name, unique within the Policy |
+| `tools[].route` | Route reference, required | Target Route; a missing one is RZ-CFG-009 |
+| `tools[].method` | string | HTTP method; default: the target Route's only `match.methods` entry |
+| `tools[].description` | string, required | Description the model reads |
+| `tools[].inputSchema` | JSON Schema (draft 2020-12) object | Inline schema whose root is `type: object` |
+| `tools[].inputSchemaFrom` | `openapi` | The operation schema `ruralz bundle export openapi` emits for that Route and method: template captures, query parameters and the body schema of an attached `validation.json-schema` Policy, materialized into the canonical form at render so the Revision digest covers it |
+| `tools[].outputSchema` | JSON Schema object | Optional; listed in `tools/list`, and a 2xx JSON body that validates is also returned as `structuredContent` |
+
+Each tool has exactly one of `inputSchema` or `inputSchemaFrom` (RZ-CFG-005). A target Route qualifies only when a request can match it on headers alone: its `listeners` include the MCP Route's listener, `match.hosts` has an entry without `*.`, `match.path` is `exact` or `template`, and it sets no `headers`, `when`, `grpc`, `graphql` or `topic`. It uses `http` Upstreams or `composition` and carries no `ai.mcp` Policy, so dispatch never nests. Any other target is a new RZ-CFG code (OQ-ai-llm-gateway-10).
+
+**Messages.** `ai.mcp` answers every `POST` with one JSON body, never an SSE stream, decoding it with [strict JSON](#surface-decoder):
+
+| Message | Answer |
+|---|---|
+| `initialize` | A protocol version from those the release pins, `capabilities.tools.listChanged: false`, `serverInfo` (`serverName`, and the Revision's `rev-<12 hex>` as version) and `instructions`; no `Mcp-Session-Id` |
+| `ping` | Empty result |
+| `tools/list` | Every tool of the active Revision's compiled table in one page, without `nextCursor`: `name`, `description`, the input schema and any `outputSchema` |
+| `tools/call` | Dispatch, below |
+| Notifications, such as `notifications/initialized` and `notifications/cancelled` | 202 with no body |
+| Any other method | JSON-RPC error -32601 with `RZ-AI-002` in `error.data` |
+| `GET` and `DELETE` | 405: there is no server stream and no session to end |
+| Malformed JSON, a batch or a non-JSON-RPC body | 400, `RZ-AI-002` |
+
+**Dispatch.** For `tools/call`, `ai.mcp` validates `params.arguments` against the tool's schema (JSON-RPC error -32602 with `RZ-AI-002` for an unknown tool or failing arguments). It then builds an internal request: the tool's method, the first `match.hosts` entry as host, the Route's path with template captures filled from same-named arguments (percent-encoded), and the remaining arguments as query parameters for `GET` and `DELETE`, otherwise as a JSON body. It copies only `Authorization`, the target Route's `auth.api-key` `header`, `traceparent`, the client address and the connection's verified client certificate, so the target Route's auth Policies authenticate the same caller and a tool never grants what that Route would refuse them.
+
+The Router matches the internal request on headers like any request, so its Route is fixed before `onRequestHeaders` (pack section 4) and the MCP Route never re-routes. The target Route's whole Filter Chain runs: Gateway and Route Policies (auth, authz, Rate Limits, Quotas, Token Budgets), Upstream Policies and its own access-log record and child span. The internal request crosses no listener or network, and the earlier of both Routes' `timeout` bounds it; its request path is proposed to [Data plane](03-data-plane.md) under OQ-ai-llm-gateway-10. A `ratelimit` on both Routes counts one call twice, by design.
+
+The target's response is a buffering gate within `maxResponseBodyBytes`. A 2xx response becomes a result whose `content` is one text part holding the body, plus `structuredContent` when `outputSchema` validates it. Any other status, including the target Route's 401, 403 or 429 and its `RZ-*` code, becomes a result with `isError: true` carrying status and body, so the model sees the refusal; an oversized body is `isError` with 502. A client disconnect cancels the internal request.
+
+*Figure 4: `tools/call` dispatch from the MCP Server Route onto a target Route.*
+
+```mermaid
+sequenceDiagram
+    participant C as MCP client
+    participant M as MCP Route with ai.mcp
+    participant R as Router
+    participant T as Target Route Filter Chain
+    participant U as Upstream
+    C->>M: POST tools/call with name and arguments
+    M->>M: auth, authz.cel allow list, strict JSON, argument schema
+    M->>R: internal request with method, host, path, query or JSON body
+    R->>T: header match fixes the target Route
+    T->>U: request after its auth, authz, ratelimit and quota Policies
+    U-->>T: response
+    T-->>M: response buffered within maxResponseBodyBytes
+    M-->>C: result with content, structuredContent or isError
+```
+
+**Sessions and affinity.** The MCP Server is stateless: it never issues `Mcp-Session-Id` and keeps no session state, so any Node answers any message and no affinity applies. During a Rollout, consecutive messages may reach Nodes on different Revisions, so `tools/list` may come from either, and a `tools/call` naming a tool the serving Revision lacks gets -32602. Behind the MCP gateway, sessions belong to the proxied server: `ring-hash` on `consumer.name` keeps a Consumer's sessions on one Endpoint while Endpoints are stable. A session moved by an Endpoint change gets that server's 404, on which the MCP client starts a new session, so no State Store session map is needed.
 
 ## AI observability
 
@@ -609,7 +677,7 @@ Residency routing covers only the generation provider; access logs and telemetry
 | OQ-ai-llm-gateway-7 | How are shared or currency budgets expressed? | (a) CEL `key` and limit on `ai.token-budget`; (b) quota `unit: currency`; (c) both | ai-llm-gateway | No |
 | OQ-ai-llm-gateway-8 | Should CEL gain `ai` in `Policy.spec.when` and `region` in candidate `when`? | (a) Both; (b) `ai` only; (c) neither, use separate Routes | configuration-model | No |
 | OQ-ai-llm-gateway-9 | How is residency proven at validation, including embedding, cache, log and telemetry crossings? | (a) Allowed Regions on `AIModel` and embedding, plus a Node Region input (Security and identity chose it); (b) Route constraint; (c) `ruralz bundle audit` of CEL, including client-controlled residency terms | security-and-identity | Yes, for data residency routing |
-| OQ-ai-llm-gateway-10 | What surface do the MCP gateway and MCP Server take (answers OQ-vision-and-positioning-12), with per-session affinity? | (a) Routes, `authz.cel` and an `ai.mcp` type for tools, sessions and MCP Server generation; (b) Plugins only; (c) a new kind | ai-llm-gateway | Yes, for MCP Server |
+| OQ-ai-llm-gateway-10 | What surface do the MCP gateway and MCP Server take (answers OQ-vision-and-positioning-12), with per-session affinity? | (a) Routes, `authz.cel` and `consumer.name` affinity for the gateway; a sessionless MCP Server through a built-in `ai.mcp` type ([MCP Server](#mcp-server)), amending pack section 10 and the Route `upstreams` rule, with an internal request path in Data plane and a new RZ-CFG code for unqualified target Routes (proposed); (b) Plugins only; (c) a new kind | ai-llm-gateway | Yes, for MCP Server |
 | OQ-ai-llm-gateway-11 | Which `semantic-conventions-genai` commit does each release pin, and may content be captured? | (a) Pin, never capture; (b) pin, opt-in field; (c) `ruralz_ai_*` only | observability | No |
 | OQ-ai-llm-gateway-12 | How is Bedrock SigV4 configured (after OQ-tech-stack-and-libraries-17)? | (a) `AIProvider` fields; (b) `auth.upstream-sigv4`; (c) Bedrock API keys only | security-and-identity | Yes, for SigV4 Bedrock |
 | OQ-ai-llm-gateway-13 | What data source does `ruralz ai cost` read? | (a) Access-log usage records; (b) metrics; (c) Ruralz Control aggregation | cli-and-api-surface | No |

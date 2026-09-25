@@ -7,7 +7,7 @@ depends_on:
   - docs/_meta/foundation-pack.md
   - docs/_meta/style-guide.md
 adrs: [ADR-0003, ADR-0005, ADR-0007, ADR-0008, ADR-0011, ADR-0014, ADR-0016, ADR-0017]
-milestone_tags_used: [M0, M1, M2, M3, M4]
+milestone_tags_used: [M0, M1, M2, M3, M4, M5]
 ---
 
 # Configuration Model
@@ -56,7 +56,7 @@ The loader rejects features that let a small edit change distant values or let a
 | Custom tags (`!include`, `!env`) | No, RZ-CFG-004 | One mechanism each for inclusion and substitution |
 | Non-UTF-8, byte order marks | No, RZ-CFG-001 | Identical bytes on every OS |
 
-Size limits are configurable; exceeding one is RZ-CFG-001. The proposed defaults are 64 MiB of source text and 20,000 resources (target). A Node never enforces a limit below the CLI default, so no Bundle that passes CI fails on a Node for size. The loader parses with `github.com/goccy/go-yaml`, with Ruralz code over its AST rejecting anchors, aliases, merge keys and custom tags, and validates with `github.com/santhosh-tekuri/jsonschema/v6`, whose `Vocabulary` API carries the `x-ruralz-*` keywords (foundation pack section 7, selected at the freeze).
+Size and depth limits are configurable; exceeding one is RZ-CFG-001. The proposed defaults are 64 MiB of source text, 20,000 resources and 64 nesting levels (target). Depth is counted over `lexer.Tokenize` output before parsing, so over-deep input never reaches the parser. A Node never enforces a limit below the CLI default, so no Bundle that passes CI fails on a Node for size or depth. The depth value and peak loader memory (hypothesis) are OQ-configuration-model-18. The loader parses with `github.com/goccy/go-yaml`, with Ruralz code over its AST rejecting anchors, aliases, merge keys and custom tags, and validates with `github.com/santhosh-tekuri/jsonschema/v6`, whose `Vocabulary` API carries the `x-ruralz-*` keywords (foundation pack section 7, selected at the freeze).
 
 ### Coming from KrakenD
 
@@ -233,6 +233,7 @@ spec:
       protocol: https              # required: http | https
       port: 8443                   # required
       http3: true                  # https only; adds UDP on the same port
+      proxyProtocol: false         # true requires PROXY protocol v2 on this listener; default false
       hostnames: ["api.shop.example"]   # set
       tls:
         minVersion: "1.3"          # "1.2" | "1.3"; default "1.3"
@@ -240,6 +241,7 @@ spec:
           - name: api-shop
             certificate: {secretRef: {provider: file, name: /etc/ruralz/tls/tls.crt}}
             privateKey: {secretRef: {provider: file, name: /etc/ruralz/tls/tls.key}}
+  trustedProxies: ["10.0.0.0/8"]   # set of CIDRs whose forwarding headers set source.ip; default empty
   admin:
     port: 9901                     # default 9901
   telemetry:
@@ -255,10 +257,15 @@ spec:
     maxPluginMemoryBytes: 1Gi      # Node-wide cap on aggregate Plugin memory; default owned by WASM plugin system
   stateStore:
     driver: redis                  # memory | redis; default memory
+    topology: cluster              # redis only: standalone | cluster; default standalone
     url: {secretRef: {provider: env, name: RURALZ_STATE_STORE_URL}}
     timeout: 50ms                  # per-operation default for Policies
   policies: [{name: cors-default}] # orderedMap keyed by name; Gateway-scoped Policies
 ```
+
+`trustedProxies` and `listeners[].proxyProtocol`, Planned (M1), feed Security's [Client address](08-security-and-identity.md#ip-filtering-and-geoip) rule, which owns their semantics; a malformed CIDR is RZ-CFG-005. Every topology that puts Nodes behind a load balancer SHOULD set one or both, or `source.ip` is the balancer's address. This answers OQ-security-and-identity-6, option (c).
+
+`stateStore.topology`, Planned (M1), answers OQ-scalability-and-distributed-state-2 with option (a), without Sentinel. `url` uses the rueidis URL form ([source](https://github.com/redis/rueidis/blob/main/README.md)), `rediss://` outside loopback: `standalone` takes one endpoint, `rediss://[user:password@]host:port[/db]`; `cluster` takes a seed list, `rediss://host:port?addr=host:port&addr=host:port`. A `standalone` URL names an endpoint that follows the primary through failover, such as a managed service's primary endpoint; the Node sets `ForceSingleClient`, so rueidis never guesses, and on a closed connection reconnects under Scalability's [reconnect pacing](11-scalability-and-distributed-state.md#state-client-and-rz-sts-error-codes) and reloads its scripts. A `cluster` client reads the slot map from any seed with `CLUSTER SLOTS`, follows `MOVED` and `ASK`, and refreshes the map after a redirect, a closed connection and every 10 s (target) through `ShardsRefreshInterval` ([source](https://github.com/redis/rueidis/blob/main/rueidis.go)), so promoted replicas and new shards need no Revision. A resolved URL that does not fit `topology`, such as `master_set`, or `addr` under `standalone`, is RZ-CFG-026 on the Node.
 
 `stateStore.url` is a `SecretValue` because Redis URLs often carry credentials; each Node resolves it, so each Region uses its own State Store under one Revision. Without `stateStore`, `ruralzd` reads `RURALZ_STATE_STORE_URL`, else uses `memory` and logs a warning at startup, because `memory` multiplies every Rate Limit and Quota by the Node count. The proposed defaults are 10 MiB for `maxResponseBodyBytes`, 16 for `maxCompositionSteps` and 512 MiB for `maxBufferedBytes` (target); how they are enforced is in [Body buffering and limits](#body-buffering-and-limits).
 
@@ -306,7 +313,7 @@ spec:
 
 Each step has exactly one of `path` or `pathExpression`; template captures reach steps only through CEL (`request.pathParams`). `aggregate` runs steps in parallel and merges bodies under `group`; `sequential` runs steps in list order and exposes earlier results as `steps`; `conditional` runs the first step whose `when` is true. More steps than `maxCompositionSteps` is RZ-CFG-031.
 
-Two Routes with identical match criteria are RZ-CFG-023; other Route precedence belongs to [Data plane](03-data-plane.md#router). `grpc` and `graphql` matching are `Planned (M3)`, `topic` `Planned (M4)`.
+Two Routes with identical match criteria are RZ-CFG-023; other Route precedence belongs to [Data plane](03-data-plane.md#router). A `match.hosts` entry may start with one `*.` label, as in `*.shop.example`; any other `*` is RZ-CFG-005, and Data plane owns wildcard matching. This answers OQ-data-plane-2, option (a). `grpc` and `graphql` matching are `Planned (M3)`, `topic` `Planned (M4)`.
 
 #### Body buffering and limits
 
@@ -436,7 +443,7 @@ A `consumerQuota` that no Consumer in the Bundle defines with the matching `unit
 
 #### Registered from feature documents
 
-These fields are registered as their feature documents authored them, so each counts as defined here; the authoring section owns their runtime semantics. This answers OQ-security-and-identity-2, -3 and -18 and OQ-traffic-management-and-resilience-1 with option (a), register as authored.
+These fields are registered as their feature documents authored them, so each counts as defined here; the authoring section owns their runtime semantics. This answers OQ-security-and-identity-2, -3 and -18 and OQ-traffic-management-and-resilience-1 with option (a), register as authored, and registers the Transform Policies schema and CEL rows that Data plane submitted.
 
 | `type` or kind | Registered fields | Validation | Authored in |
 |---|---|---|---|
@@ -449,6 +456,7 @@ These fields are registered as their feature documents authored them, so each co
 | `auth.upstream-sigv4` | `config.region`, `config.service` (both required), `config.payload` (`signed`, the default, or `unsigned`) | Schema only | [Upstream authentication](08-security-and-identity.md#upstream-authentication) |
 | `auth.upstream-oauth2` | `config.timeout`, default `2s` (target) | `tokenUrl`, like `auth.jwt` `jwksUrl`, not `https` is RZ-CFG-037 | [Upstream authentication](08-security-and-identity.md#upstream-authentication) |
 | `ratelimit` | `limits[].perNodeCeiling` (integer, 1 to `requests`; unset means derived), `limits[].burst` (integer, 0 to `requests`; default `requests`), `config.localOnly` (boolean; default `false`) | Out of range is RZ-CFG-005; `localOnly: true` waits for OQ-scalability-and-distributed-state-11 to amend foundation pack section 8.8 | [Per-Node ceiling](09-traffic-management-and-resilience.md#per-node-ceiling) |
+| `transform.request`, `transform.response` | `config.body` (CEL; a map or list is written as JSON, a string as its bytes), `config.contentType` (string; default `application/json`), and `atomic` lists `config.set[]` (`target`: `header`, `query` (request only) or `body`; `name`; `valueExpression`, CEL), `config.remove[]` (`target`, `name`), `config.arrayOps[]` (`op`: `move`, `append` or `delete`; `from`; `to`) and `config.replace[]` (`path`, `pattern`, `replacement`, `literal`) | A `pattern` over 1 KiB (target) or not valid RE2, or more than 32 entries across the four lists (target), is RZ-CFG-005 | [Transform Policies](03-data-plane.md#transform-policies) |
 
 Each field ships with its type's Planned tag in the registry, and the `Consumer` fields with `auth.basic` and `auth.mtls`, Planned (M1).
 
@@ -728,6 +736,8 @@ CEL is allowed only in these fields, each marked `x-ruralz-cel`; elsewhere CEL-l
 | `ratelimit`, `quota` `config.key` | string | onRequestHeaders | Base | Policy `failureMode` | Planned (M1) |
 | `headers` `config.*.set[].valueExpression` | string | The operation's Phase | Base; `response`, `upstream` on response operations | Policy `failureMode` | Planned (M1) |
 | `cache` `config.key` | string | onRequestHeaders | Base | Cache bypassed | Planned (M1) |
+| `transform.request` `config.body`, `config.set[].valueExpression` | dyn; string | onRequestBody; onUpstreamRequest at Upstream scope | Base with `request.body`; `upstream` at Upstream scope | Policy `failureMode` | Planned (M1) |
+| `transform.response` `config.body`, `config.set[].valueExpression` | dyn; string | onResponse; onUpstreamResponseBody at Upstream scope | Base, `response` with `body`; `upstream` at Upstream scope | Policy `failureMode` | Planned (M1) |
 | `ai.semantic-cache` `config.key` | string | onRequestBody | Base, `ai` | Cache bypassed | Planned (M3) |
 | `Upstream.spec.loadBalancing.hashKey` | string | Endpoint selection | Base | Random Endpoint | Planned (M1) |
 | `Upstream.spec.retries.retryOn` | bool | After each attempt | `request` (no body), `response`, `error`, `attempt`, `upstream` | No retry | Planned (M1) |
@@ -811,7 +821,7 @@ Values never come from a Cluster, so all Clusters of an Environment run one Revi
 
 One validation library is linked into `ruralz`, `ruralz-control` and `ruralzd`. Given the same overlay and variables, which `--env` guarantees, a Bundle that passes `ruralz bundle validate` in CI passes the offline stages of Ruralz Control ingest and Node activation with identical diagnostics. Offline validation needs no registry, because the inline `Plugin.spec` is authoritative.
 
-`ruralz bundle validate` is offline unless `--online` is set (OQ-configuration-model-10). After a green offline run, five checks can still fail: RZ-CFG-028 (online Plugin check), RZ-CFG-033 (a Plugin or Revision signature), RZ-CFG-024 (Node schema level, at Rollout), RZ-CFG-026 (secret resolution on a Node) and RZ-CFG-027 (a pushed Bundle that re-renders differently). CI SHOULD gate merges on `ruralz bundle build` or `validate --online`, which also verify Plugin signatures; the rest depend on the target and surface as a refused Rollout or a NACK.
+`ruralz bundle validate` is offline unless `--online` is set (OQ-configuration-model-10). After a green offline run, five checks can still fail: RZ-CFG-028 (online Plugin check), RZ-CFG-033 (a Plugin or Revision signature), RZ-CFG-024 (Node schema level, at Rollout), RZ-CFG-026 (secret or State Store URL resolution on a Node) and RZ-CFG-027 (a pushed Bundle that re-renders differently). CI SHOULD gate merges on `ruralz bundle build` or `validate --online`, which also verify Plugin signatures; the rest depend on the target and surface as a refused Rollout or a NACK.
 
 *Figure 3: the Bundle validation pipeline from files to a Revision.*
 
@@ -851,7 +861,7 @@ Validating 10,000 resources takes under 2 seconds on a four-core laptop, and the
 
 | Code | Meaning |
 |---|---|
-| RZ-CFG-001 | Parse error, non-UTF-8, byte order mark, or size limit |
+| RZ-CFG-001 | Parse error, non-UTF-8, byte order mark, or size or depth limit |
 | RZ-CFG-002 | Duplicate key |
 | RZ-CFG-003 | Anchor, alias or merge key |
 | RZ-CFG-004 | Custom tag |
@@ -876,7 +886,7 @@ Validating 10,000 resources takes under 2 seconds on a four-core laptop, and the
 | RZ-CFG-023 | Two Routes with identical match criteria |
 | RZ-CFG-024 | Field newer than the oldest target Node serves |
 | RZ-CFG-025 | Warning: deprecated field or apiVersion |
-| RZ-CFG-026 | `secretRef` unresolvable on a Node |
+| RZ-CFG-026 | `secretRef` unresolvable on a Node, or a resolved `stateStore.url` that does not fit `topology` |
 | RZ-CFG-027 | Digest mismatch: content does not hash to its digest, or a pushed Bundle re-renders differently |
 | RZ-CFG-028 | Plugin artifact unavailable, digest mismatch, or artifact disagrees with its `Plugin.spec` |
 | RZ-CFG-029 | `failureMode` not allowed for the Policy type |
@@ -1003,11 +1013,11 @@ The first served version is `ruralz/v1alpha1`, `Planned (M0)`; it names the sche
 | `ruralz/v1beta1` | Deprecation, not removal; defaults never change | Only in the next version | Automatic, lossless |
 | `ruralz/v1` | Stable; additive only; defaults never change | Never | Automatic from beta |
 
-Deprecation windows belong to [Release, versioning and compatibility](../engineering/04-release-versioning-and-compatibility.md); beta timing is OQ-configuration-model-6.
+Deprecation windows and beta timing belong to [Release, versioning and compatibility](../engineering/04-release-versioning-and-compatibility.md), which answers OQ-configuration-model-6.
 
 ### Hub-and-spoke conversion
 
-Every served version converts to and from one internal hub type per kind, with round trips property-tested for every field; newer-only fields survive down-conversion in the annotation `ruralz.io/conversion-data`. A Bundle MAY mix versions; each resource is merged and defaulted under its own apiVersion before hub conversion. Because the digest covers effective values, converting a Bundle from `ruralz/v1alpha1` to `ruralz/v1beta1` MUST yield the same Revision and an empty `ruralz bundle diff`; the converter writes a field explicitly whenever the source version's default differs from the target's. Deprecated versions and fields raise RZ-CFG-025. `ruralz bundle render --api-version ruralz/v1beta1 --output-dir DIR --environments FILE` writes converted resources and drops comments (OQ-configuration-model-7).
+Every served version converts to and from one internal hub type per kind, with round trips property-tested for every field; newer-only fields survive down-conversion in the annotation `ruralz.io/conversion-data`. A Bundle MAY mix versions; each resource is merged and defaulted under its own apiVersion before hub conversion. Because the digest covers effective values, converting a Bundle from `ruralz/v1alpha1` to `ruralz/v1beta1` MUST yield the same Revision and an empty `ruralz bundle diff`; the converter writes a field explicitly whenever the source version's default differs from the target's. Deprecated versions and fields raise RZ-CFG-025. `ruralz bundle render --api-version ruralz/v1beta1 --output-dir DIR --environments FILE` writes converted resources and drops comments, as [CLI and API surface](../reference/01-cli-and-api-surface.md) decides for OQ-configuration-model-7.
 
 ### Version skew
 
@@ -1538,8 +1548,6 @@ ruralz bundle push $CONTROL --env staging ./shop-bundle
 | OQ-configuration-model-3 | Which CRD short names avoid confusion with Gateway API `Gateway` and Kubernetes clusters? | (a) `rzgw`, `rzcluster`; (b) Prefixed CRD kinds | deployment-topologies | No |
 | OQ-configuration-model-4 | Should Policies gain `targetRefs` or selectors for platform-wide rules? | (a) Never; guardrails suffice; (b) Gateway API adapter only; (c) Native field | configuration-model | No |
 | OQ-configuration-model-5 | Which cloud secret managers get a `secretRef` provider, and when? | (a) `aws`, `gcp`, `azure`; (b) Only via `vault`; (c) A secret-provider Plugin interface | security-and-identity | No |
-| OQ-configuration-model-6 | When does `ruralz/v1beta1` ship? | (a) With the first CRD release; (b) After two milestones without breaking changes | release-versioning-and-compatibility | No |
-| OQ-configuration-model-7 | Should apiVersion migration preserve comments? | (a) Accept loss; (b) Comment-preserving rewrite behind a new CLI verb | cli-and-api-surface | No |
 | OQ-configuration-model-8 | Are the registered default `failureMode` values right for `quota` (open) and `ai.token-budget` (closed)? Reservation, the local streaming guard and settlement at `onLog` are fixed by foundation pack section 8.9 | (a) As registered; (b) Both open; (c) Both closed with a per-Node shadow budget | traffic-management-and-resilience | Yes |
 | OQ-configuration-model-10 | Which flags must the CLI reference add, and may file-mode `ruralzd` select an overlay? | (a) `--env`, `--environments`, `--effective`, `--route`, `--api-version`, `--output`, `--offline` for `build`, `--online` for `validate`, positional FROM TO for `diff`, no `ruralzd` selector; (b) New verbs; (c) Also a `RURALZ_*` overlay variable | cli-and-api-surface | No |
 | OQ-configuration-model-11 | How is event ingress declared for `match.topic`, given `http` and `https` listeners only? | (a) A Gateway `eventSources` list, `Planned (M4)`; (b) Consumer groups on Upstream `messaging`; (c) A new kind | multi-protocol | No |
@@ -1547,5 +1555,8 @@ ruralz bundle push $CONTROL --env staging ./shop-bundle
 | OQ-configuration-model-13 | Can one Route accept JWT or API key in the single `auth` slot? | (a) Distinct slots with exclusive `when`; (b) An `auth.any` type; (c) Multi-method auth types | security-and-identity | No |
 | OQ-configuration-model-15 | Should Nodes persist resolved secrets, encrypted, under `${RURALZ_DATA_DIR}/lkg/` and with which key source? | (a) Never; `/readyz` fails until secrets resolve (current); (b) Opt-in, key from a local file or KMS; (c) Only for `file` and `env` providers, which need none | security-and-identity | No |
 | OQ-configuration-model-17 | Should Consumers also come from a runtime source, so key churn needs no Revision and the resource limit does not cap them? | (a) Bundle only; (b) A Ruralz Control Consumer API delivered over the Control Stream; (c) An external identity store behind an auth Policy | security-and-identity | No |
+| OQ-configuration-model-18 | Which nesting-depth default and peak loader memory (hypothesis) hold for the 64 MiB source limit? | (a) 64 levels, peak memory measured by the hostile-input fixtures (proposed); (b) 32 levels; (c) 256 levels | configuration-model | No; 64 applies until measured |
 
-Answered and closed in [Registered from feature documents](#registered-from-feature-documents), option (a) each: OQ-security-and-identity-2, -3 and -18 and OQ-traffic-management-and-resilience-1. This document declined none of the fields submitted for registration.
+Answered and closed here: in [Registered from feature documents](#registered-from-feature-documents), option (a) each, OQ-security-and-identity-2, -3 and -18 and OQ-traffic-management-and-resilience-1, plus Data plane's Transform Policies submission; in [Gateway](#gateway), OQ-security-and-identity-6 (c) and OQ-scalability-and-distributed-state-2 (a); in [Route](#route), OQ-data-plane-2 (a). Release answers OQ-configuration-model-6 and CLI and API surface OQ-configuration-model-7. Still pending registration, so their fields do not exist yet: OQ-security-and-identity-12 and -13, Planned (M2), whose options are not yet chosen.
+
+Other blocking field questions assigned here stay open in their owners' tables, by blocking milestone: M0, OQ-repository-layout-and-conventions-1; M1, OQ-observability-2, OQ-traffic-management-and-resilience-2, -5, -6, -11 and -21, OQ-security-and-identity-22 and -24, and OQ-scalability-and-distributed-state-3; M2, OQ-security-and-identity-30, OQ-wasm-plugin-system-4, OQ-release-versioning-and-compatibility-12, OQ-control-plane-and-gitops-25 and OQ-migration-from-krakend-5; M3, OQ-ai-llm-gateway-3 and -16 and OQ-multi-protocol-15; M4, OQ-wasm-plugin-system-8; M5, OQ-krakend-ee-parity-matrix-3 and -6; and, before the first digest-changing fix, OQ-release-versioning-and-compatibility-13.
