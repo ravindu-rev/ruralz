@@ -15,7 +15,8 @@ Nothing else from the cloud container is needed.
 
 Runs of `ruralz-continue` (append each run dir here after it ends; all listed ones are already merged):
 
-- /root/.claude/projects/-home-user-ruralz/8a9a4c6e-d048-5961-9dea-7de4711f34d4/subagents/workflows/wf_e5e0b29b-c2e
+- /root/.claude/projects/-home-user-ruralz/8a9a4c6e-d048-5961-9dea-7de4711f34d4/subagents/workflows/wf_e5e0b29b-c2e (merged; halted on usage limit)
+- /root/.claude/projects/-home-user-ruralz/8a9a4c6e-d048-5961-9dea-7de4711f34d4/subagents/workflows/wf_ed957123-cbd (current)
 
 Liveness: the run is alive if its journal.jsonl or any agent-*.jsonl changed in the last ~10 minutes.
 
