@@ -1,174 +1,79 @@
 {
   "lens": "L4C",
   "verdict": "revise",
-  "score": 6,
+  "score": 7,
   "blocking": [
     {
       "id": "L4C-1",
-      "section": "Concept mapping / Endpoint objects and their targets; Worked import example",
-      "issue": "Acceptance criterion 6 fails. Four table rows quote KrakenD's 'endpoint' term as prose without the alias escape comment, which neighboring rows carry. The H3 heading uses the Ruralz glossary term 'Endpoint' (an Upstream address, foundation pack section 11) in KrakenD's published-path sense. A YAML comment inside a code block also uses the KrakenD term, and no escape can be placed there. The forbidden-alias regex misses all of these because it flags only the 'API/KrakenD/published/public endpoint' forms, but the AC is a manual criterion.",
-      "evidence": "Line 163: '| endpoint `proxy.sequential_propagated_params` and `{resp0_field}` placeholders | ... | The importer rewrites each placeholder to a CEL expression |'. Line 164: '| endpoint `proxy.combiner` | None | `manual` | Custom merge logic becomes a `plugin` Policy |'. Line 165: '| endpoint `proxy.static` | ...'. Line 168: '| endpoint `proxy.decompress_gzip` | None | `manual` | Compression type per OQ-krakend-ee-parity-matrix-3 |'. Line 125: '### Endpoint objects and their targets'. Line 414 (yaml): 'key: \"route.name\"   # one limit for the whole Route, as KrakenD's endpoint limit'. Glossary (pack section 11): 'Endpoint | One network address of an Upstream ... never a published API path, which is a Route.'",
-      "fix": "Append ' <!-- alias-ok -->' to the last cell of lines 163, 164, 165 and 168, as on line 162. Rename the H3 to '### KrakenD path entries and their targets' and update the three anchors that point to it (lines 103, 105, 211). Reword the line 414 YAML comment to '# one limit for the whole Route, as KrakenD's router limit'."
+      "section": "Concept mapping / extra_config namespaces (backend/http/client)",
+      "issue": "The `backend/http/client` row grades the whole namespace `equivalent`, which contradicts three things. First, it contradicts the document's own rule 4, because the row admits that `proxy_address` has no target before Planned (M5). Second, it contradicts the root `client_tls` row, which maps the same settings to the same `Upstream.spec.tls` target and grades them `approximate` because cipher and version settings have no field. Third, it asserts KrakenD redirect behavior that the research does not record. The research lists only the sub-key names (`send_body_on_redirect`, `client_tls`, `no_redirect`, `proxy_address`), with no defaults or semantics. So nothing supports the claim that a file with `no_redirect` false or absent behaves like Ruralz passing 3xx responses through. `send_body_on_redirect` is not mapped at all.",
+      "evidence": "Line 230: '| `backend/http/client` | B | `client_tls` to `Upstream.spec.tls`; `no_redirect: true` is the Ruralz default, since 3xx responses pass through | `equivalent` | `proxy_address` per OQ-krakend-ee-parity-matrix-6, Planned (M5) ...'. Line 109: '| `client_tls` | `Upstream.spec.tls` (...) | `approximate` | Cipher and version settings have no Upstream field |'. Line 474 (rule 4): 'Items whose target is not in the running release are `manual`.' Research krakend-config-model.md section 5.5: '`backend/http/client` | B | CE subset since v2.11 (`send_body_on_redirect`). EE adds `client_tls`, `no_redirect`, `proxy_address` | Per-backend HTTP client' (no defaults or behavior recorded).",
+      "fix": "Grade each sub-key separately. `client_tls` is `approximate`, as in the root row. `no_redirect: true` is `equivalent`. `no_redirect` false or absent is `approximate`, with the note 'KrakenD redirect handling is unresearched; Ruralz passes 3xx responses through'. `send_body_on_redirect` is reported unmapped as `approximate`. `proxy_address` is `manual` under rule 4, Planned (M5), OQ-krakend-ee-parity-matrix-6. The alternative is to add these defaults and behaviors to docs/_meta/research/krakend-config-model.md, with the http-client URL, and cite them."
     },
     {
       "id": "L4C-2",
-      "section": "Import tool fidelity levels / Levels and guarantees; Concept mapping / Worked import example",
-      "issue": "The `exact` and `equivalent` guarantees contradict the sourced KrakenD default that the document states itself. The research says that with `input_headers` and `input_query_strings` absent (default `[]`), KrakenD forwards no client headers or query strings. Ruralz forwards them all. Every imported Route therefore sends different bytes to its Upstreams, including `Authorization` and cookies. The worked example has no `input_headers`, yet it grades its Upstreams `equivalent`, reports 'manual 0' and exits 0. That is a security-relevant difference, and the report shows no item for it.",
-      "evidence": "Line 453: '`exact` | For every request, the generated configuration yields the same routing, the same decision and the same bytes on the wire as the KrakenD setting did'. Line 140: 'KrakenD forwards nothing by default; Ruralz forwards client headers and query strings unless a Policy removes them'. Line 859: 'Nothing forwarded unless allowlisted ([source](https://www.krakend.io/schema/v2.13/krakend.json))'. Lines 434 and 442: 'items: exact 4, equivalent 13, approximate 3, manual 0' and 'exit status 0 (no manual items)'. krakend-config-model.md section 3: '`input_headers` | array, `[]` | Case-insensitive allowlist. No client headers are forwarded by default'.",
-      "fix": "Emit one security-flagged report item per Route for the forwarding default, whether or not `input_headers` or `input_query_strings` is present: `manual` under OQ-migration-from-krakend-7 option (a) until OQ-krakend-ee-parity-matrix-5 closes. Update the worked example to show that item, the new counts ('manual 1'), exit status 1 and the Route annotation `manual`. Add a clause to the `exact` and `equivalent` guarantees: 'forwarded client headers and query strings are governed by the zero-trust forwarding item, never by the level of other items'."
-    },
-    {
-      "id": "L4C-3",
-      "section": "Concept mapping / extra_config namespaces (qos/ratelimit/router); Worked import example; Cutover runbook / Stage 5; Migration gaps / Behavior changes to plan for",
-      "issue": "The document says without condition that Ruralz enforces imported limits once across the whole Cluster. Foundation pack sections 2 and 8.8 and the Configuration model make that true only with the `redis` driver. With no Gateway `stateStore` and no `RURALZ_STATE_STORE_URL`, the driver is `memory` and every limit multiplies by the Node count. The worked example emits a `ratelimit` Policy and no `stateStore`, and the report text then states a false Cluster-wide limit. Its advice to 'multiply by the KrakenD instance count' would inflate capacity a second time on `memory`. Stage 0 step 4 states the correct rule, so the document contradicts itself.",
-      "evidence": "Line 190: 'Ruralz enforces one Cluster-wide limit ([OQ-migration-from-krakend-12](#open-questions))'. Lines 438 and 439: 'Ruralz enforces 50 per 1s across the Cluster; multiply by the KrakenD instance count to keep capacity'. Line 857: 'One Cluster-wide limit through the State Store'. Line 749: 'KrakenD per instance and Ruralz Cluster-wide'. The worked-example Gateway (lines 326 to 341) has no `stateStore`. Line 706: 'the `memory` driver multiplies every limit by the Node count'. Pack 8.8: 'With the `memory` driver every limit multiplies by the Node count'. Configuration model Gateway: 'Without `stateStore`, `ruralzd` reads `RURALZ_STATE_STORE_URL`, else uses `memory` ... because `memory` multiplies every Rate Limit and Quota by the Node count'.",
-      "fix": "Add an importer rule: when the output contains any `ratelimit`, `quota` or `cache` Policy, emit Gateway `stateStore: {driver: redis, url: {secretRef: {provider: env, name: RURALZ_STATE_STORE_URL}}}` and list the secret to provision. Show that block in the worked example. Qualify lines 190, 439, 749 and 857 with 'with the `redis` State Store driver; on `memory` each Node enforces the full limit'."
-    },
-    {
-      "id": "L4C-4",
-      "section": "Cutover runbook / Stage 4 shadow traffic; Rollback",
-      "issue": "The shadow exit gate and a rollback trigger apply SM-4 outside the scenario that SM-4 defines. The Vision defines SM-4 for one reference scenario: JWT and a local token bucket, no Plugins or State Store Policy, at half of saturation RPS, excluding Upstream and State Store time. Migrated production traffic includes State Store rate limits, quotas, caches and ported Plugins. The Vision tags a same-zone State Store round trip alone at up to 1 ms p99 (hypothesis). So 'as SM-4 defines' misstates the cited metric, and the 1 ms trigger would roll back healthy cutovers.",
-      "evidence": "Line 743: 'Gateway-added latency p99 stays at 1 ms or less (target) as SM-4 defines'. Line 761: '| Gateway-added latency p99 | Above 1 ms for 10 minutes (target) | Set the Ruralz weight to 0 |'. Vision line 217: 'SM-4 and SM-5 use one reference scenario: HTTP/1.1 keep-alive, 1 KiB body, JWT validation and a local token bucket, no Plugins or State Store Policy, at half of saturation RPS (target). Both exclude Upstream and State Store time, since a same-zone State Store round trip alone may reach 1 ms at p99 (hypothesis).'",
-      "fix": "Drop 'as SM-4 defines'. Make the gate relative to a measured baseline, for example: 'Gateway-added latency p99 per Route, including State Store and Plugin time, no more than the KrakenD p99 for the same Route measured in Stage 4 plus 1 ms (target); SM-4 applies only to its reference scenario ([Vision](../vision/01-vision-and-positioning.md#success-metrics))'. Use the same definition in the rollback trigger row."
-    },
-    {
-      "id": "L4C-5",
-      "section": "Concept mapping / extra_config namespaces (security/policies, governance/quota)",
-      "issue": "Two mappings attach Policy types at scopes that the foundation pack section 10 registry forbids. A type at a disallowed scope is RZ-CFG-020, which breaks rule 1 ('The output validates'). `authz.cel` is G and R only, yet the row maps backend-scope and workflow-scope `security/policies` to it. `quota` is G and R only, yet the `governance/quota` row lists scope B and never says where a backend quota goes. The document already handles the same problem correctly for `validation/cel` B and `qos/ratelimit/proxy` B.",
-      "evidence": "Line 189: '| `security/policies` | E, B, W | `authz.cel` `config.rule` for `req` and `jwt` contexts, Planned (M1) ...'. Line 200: '| `governance/quota` | S, E, B | `quota` Policy with `consumerQuota` ...'. Pack section 10: '| `authz.cel` | authz | onRequestHeaders, onRequestBody | G, R |' and '| `quota` | admission | onRequestHeaders, onLog | G, R |'. Pack 8.12 rule 4: 'a type at a disallowed scope is RZ-CFG-020'. Line 462: 'an `RZ-CFG` error in generated output is an importer defect'. Line 224 handles `validation/cel` B as 'A validation-class `plugin` Policy at Upstream scope | `manual` with a hold'.",
-      "fix": "Split `security/policies` into two rows. First: 'E | `authz.cel` on the `Route` | `approximate` ...'. Second: 'B, W | a `plugin` Policy with `filterClass: authz` at Upstream scope in `onUpstreamRequest`, Planned (M2) | `manual` with a hold', mirroring line 224. In `governance/quota`, add 'B: a Route `quota` on every Route reaching the `Upstream`, as `qos/ratelimit/proxy`', graded `approximate`, or grade B `manual`."
-    },
-    {
-      "id": "L4C-6",
-      "section": "Concept mapping / extra_config namespaces (auth/api-keys S with auth/validator E); Import tool fidelity levels / Rules that hold at every level",
-      "issue": "The `equivalent` grade for service-scope `auth/api-keys` contradicts foundation pack 8.12 and the document's own rule 2. All client authentication types share slot `auth`, so a Route `auth.jwt` imported from endpoint-scope `auth/validator` replaces the Gateway `auth.api-key`. An endpoint that KrakenD protected with both an API key and a JWT therefore loses its API-key check, and the report records no item. The document never cites OQ-configuration-model-13, which owns how one Route accepts or combines two client authentication types.",
-      "evidence": "Line 183: '| `auth/api-keys` | S | One `Consumer` per `keys[]` entry ... and a Gateway `auth.api-key` Policy ... | `equivalent` for `hash: plain`'. Line 177: '| `auth/validator` | E | `auth.jwt` Policy on the `Route` ...'. Line 463: '**Security controls are never dropped silently.**'. Pack 8.12 step 2: 'A Route Policy in the same `slot` as a remaining Gateway Policy replaces it (Route over Gateway) ... All client authentication types share slot `auth`'. Configuration model Policy: 'How one Route accepts either JWT or an API key in the single `auth` slot is OQ-configuration-model-13.'",
-      "fix": "Add to the `auth/api-keys` S row: 'On a Route whose endpoint also sets `auth/validator` or `auth/basic`, the Route `auth` Policy would replace the Gateway `auth.api-key` (pack 8.12), so the importer grades that Route `manual`, attaches a hold and cites OQ-configuration-model-13 <!-- alias-ok -->'. Add the same case to rule 2's list of controls that receive a hold."
-    },
-    {
-      "id": "L4C-7",
-      "section": "Concept mapping / Built-in KrakenD EE plugins (ip-filter); extra_config namespaces (qos/ratelimit/router client_max_rate); Cutover runbook / Stage 3",
-      "issue": "The `ip-filter` grade contradicts the IP filtering row of the parity matrix, which this document depends on. Until OQ-security-and-identity-6 closes, the matrix says deployments behind a load balancer SHOULD NOT rely on `source.ip`. That question is blocking 'for `source.ip` users'. The runbook itself places Nodes behind the same load balancer as KrakenD in Stage 3. There `source.ip` is the balancer's address, so an imported CIDR allowlist either denies every client or admits every client, and a `client_max_rate` keyed on `source.ip` becomes one shared bucket. 'approximate' understates a security-control failure, and no hold is attached.",
-      "evidence": "Line 270: '| `ip-filter` | `authz.ip` by CIDR on `source.ip`, Planned (M1) | `equivalent` for direct clients; `approximate` behind proxies | Trusted proxies per OQ-security-and-identity-6 |'. Line 190: '`client_max_rate` becomes a second `ratelimit` keyed on the same client attribute (`source.ip` or a `request.headers` entry)'. Line 726: 'Deploy Ruralz Gateway Nodes next to KrakenD behind the same load balancer or ingress'. Parity matrix line 290: 'until it closes, deployments behind a load balancer SHOULD NOT rely on `source.ip`'. OQ-security-and-identity-6: 'Yes, for `source.ip` users'.",
-      "fix": "Grade `ip-filter`, and any `security/policies` or `validation/cel` rule that reads the client IP, `manual` with a hold whenever the import cannot confirm direct client connections, until OQ-security-and-identity-6 closes. Grade a `client_max_rate` keyed on `source.ip` `manual` and security-flagged under the same condition. Add a Stage 0 step: 'If Nodes sit behind a load balancer, resolve every `source.ip` item before Stage 3 (OQ-security-and-identity-6)'."
-    },
-    {
-      "id": "L4C-8",
-      "section": "Concept mapping / extra_config namespaces (qos/http-cache, auth/validator); Endpoint objects and their targets (backend encoding)",
-      "issue": "Three rows assert KrakenD behavior that neither research file records, and then grade fidelity on that basis. For `qos/http-cache`, the research lists only the field name `shared` and does not define it. The row nonetheless treats it as selecting a cache key per client, while KrakenD's own caching page describes sharing between backend definitions. For `auth/validator`, the research records no signing algorithms, inline keys or HS256 support. The `equivalent` and `manual` split rests on an unsourced algorithm list. For `safejson`, the research says only 'How the response is parsed', yet the row claims 'Same JSON semantics'.",
-      "evidence": "Line 198: '`shared` selects a constant or per-Consumer `config.key`'. krakend-config-model.md 5.2: '`qos/http-cache` | B | CE | In-memory cache that honours `Cache-Control` (GET/HEAD). Fields: `shared`, `max_items`, `max_size`'. Line 177: '`equivalent` for RS256, PS256, ES256 and EdDSA key sets; `manual` with a hold for HS256 or inline keys'. The auth/validator research row reads only 'JWT validation (E). At S it holds the global JWK HTTP client and cache settings'. Line 147: '| backend `encoding` `json`, `safejson`, `fast-json` | Merge input for composition | `equivalent` | Same JSON semantics |'. The research section 4 says: '`encoding` | `json` (default), `safejson`, ... | How the response is parsed'.",
-      "fix": "Keep only claims the research supports. For `qos/http-cache`, write '`shared` has no Ruralz mapping; its semantics are not in the research', grade the item `approximate` with a report note, and ask the research to record `shared`. For `auth/validator`, grade by what the importer can check, such as 'a `jwk_url` key source is `equivalent`; local key files are `manual` with a hold', and drop the algorithm list, or add an Open question asking the research for KrakenD's algorithm support. For `safejson`, change the grade to `approximate` with 'parse differences for non-object responses are not researched'."
-    },
-    {
-      "id": "L4C-9",
-      "section": "Concept mapping / Endpoint objects and their targets; Built-in KrakenD EE plugins; Lua to CEL or WASM Plugins",
-      "issue": "The L4C lens requires every matrix to have no blank cells. Nine mapping-table rows leave the Notes cell empty; in some of them the cell holds only the alias escape comment.",
-      "evidence": "Blank Notes cells at lines 148 (backend `encoding: no-op`), 150 (backend `group`), 151 (backend `target`), 154 (backend `mapping`), 156 (backend `sd: static`), 160 (backend `input_headers`, `input_query_strings`), 162 (endpoint `proxy.sequential`), 275 (`virtualhost`) and 667 ('Read the time'). For example, line 275 reads '| `virtualhost` | `match.hosts` | `equivalent` | |'.",
-      "fix": "Fill each cell with a short note or 'None'. For example: line 148 'Bytes pass unchanged'; line 150 'Merged under the same key'; line 151 'Applied before `select`'; line 154 'Same keys renamed'; line 156 'One Endpoint per host'; line 160 'Same security-flagged item as the endpoint row'; line 162 'Earlier results reach later steps through `steps`'; line 275 'Host header matching'; line 667 'Clock read once per call'. Keep the existing `<!-- alias-ok -->` comments."
+      "section": "Concept mapping / KrakenD path entries and their targets; extra_config namespaces (auth/validator E); Built-in KrakenD EE plugins",
+      "issue": "Several rows grade KrakenD behavior `equivalent` that neither research file records, and the rows cite no source. This is the same defect as the resolved L4C-8, which covered `safejson`, `qos/http-cache` and algorithms, in rows that fix did not reach. (1) The research does not contain the `{resp0_field}` placeholder syntax. It records only that `sequential_propagated_params` is an accepted key, not its semantics. (2) The research lists the built-in plugins `jwk-aggregator`, `url-rewrite` and `wildcard` by name only, yet the document grades their mapping `equivalent` with specific semantics: per-issuer JWK URLs, a GET or HEAD path rewrite, and prefix matching. (3) The `auth/validator` E row, graded `equivalent`, converts 'role and scope checks' into an `authz.cel` rule. The research records `auth/validator` only as 'JWT validation', with no role or scope fields.",
+      "evidence": "Line 163: '| endpoint `proxy.sequential_propagated_params` and `{resp0_field}` placeholders | Step `pathExpression` over `steps.<name>.body` | `equivalent` | The importer rewrites each placeholder to a CEL expression'. Line 272: '| `jwk-aggregator` | Several `issuers[]` entries in one `auth.jwt` Policy | `equivalent` | Each issuer keeps its own `jwksUrl` |'. Line 275: '| `url-rewrite` | Composition step `path` or `pathExpression` | `equivalent` for `GET` and `HEAD` |'. Line 277: '| `wildcard` | `match.path.prefix` | `equivalent` |'. Line 177: 'role and scope checks become an `authz.cel` rule over `auth.claims` ... `equivalent` for a key-set URL'. Research section 3: 'Endpoint-scope `proxy` accepts `sequential`, `sequential_propagated_params`, ...' (no placeholder syntax). Research section 5.6: 'Built-in EE plugin sub-keys: `geoip`, `ip-filter`, `jwk-aggregator`, `redis-ratelimit`, `static-filesystem`, `url-rewrite`, `virtualhost`, `wildcard`' (names only). Research section 5.1: '`auth/validator` | S, E | CE | JWT validation (E)'.",
+      "fix": "Handle these rows the way the L4C-8 fix handled `safejson`. Grade line 163 `approximate`, with the note 'placeholder syntax and propagation semantics are unresearched; the importer reports each placeholder it rewrites'. Grade `jwk-aggregator`, `url-rewrite` and `wildcard` `approximate`, with the note 'sub-key semantics unresearched (research records names only)'. In the `auth/validator` E row, keep `equivalent` for signature, issuer and audience validation from a key-set URL. Grade the role and scope rule `approximate`, with the note 'KrakenD role and scope fields are unresearched'. Alternatively, add these facts with their KrakenD doc URLs to docs/_meta/research/krakend-config-model.md and cite them on each row."
     }
   ],
   "non_blocking": [
     {
-      "section": "Concept mapping / Core concepts (EE license file row); Migration gaps / Behavior changes (License row)",
-      "suggestion": "The license-file URL (https://www.krakend.io/docs/enterprise/overview/license-file/) appears in docs/_meta/research/licensing-landscape.md and in the parity matrix, but not in this document's manifest research[] files. The citation is valid under the style guide. Consider linking the parity matrix row that already carries it, or ask the manifest owner to add licensing-landscape.md to research[]."
+      "section": "extra_config namespaces (qos/ratelimit/router)",
+      "suggestion": "The IP-keyed `client_max_rate` is now `manual`, but it is not security-flagged, as the previous fix proposed. Mark it security-flagged, or say why a shared bucket behind the load balancer is not a security item, so that Stage 1 step 2 visibly covers it."
     },
     {
-      "section": "Scope and non-goals (KrakenD CE 3.0 bullet)",
-      "suggestion": "The sentence 'CE 3.0 had no release tag at the snapshot' cites PR #1106, which shows only the merge into dev-3.0 on 2026-09-21. The missing tag is a research Gaps observation with no URL. Reword to 'the research found no CE 3.0 release tag at the snapshot; plugin removal merged into `dev-3.0` on 2026-09-21 ([source](https://github.com/krakend/krakend-ce/pull/1106))'."
+      "section": "extra_config namespaces (auth/api-keys S)",
+      "suggestion": "The research lists `hash` values `plain`, `fnv128`, `sha256` and `sha1`, plus `propagate_role`. The row grades `plain` and marks `fnv128`, `sha1` and a `salt` as manual. It says nothing about unsalted `sha256` or `propagate_role`. Grade both explicitly so that no setting is silently dropped."
     },
     {
-      "section": "Concept mapping / extra_config namespaces (intro); Import tool fidelity levels / Input the importer reads",
-      "suggestion": "'KrakenD CE still registers both as aliases' and 'Both legacy spellings map to the v2 names, as in the research alias table' overstate the research. Its Gaps section says CE maps the `github_com/...` and `github.com/...` spellings inconsistently across namespaces and that runtime acceptance of both was not verified. Reword to: 'CE registers one legacy spelling or the other per namespace; the importer accepts both for every namespace as a design choice'."
+      "section": "Import tool fidelity levels / Rules that hold at every level (rule 8)",
+      "suggestion": "'An unresolved URL keeps Nodes not ready (RZ-CFG-026)' is true only for a Node with no active Revision. The Configuration model says the Node rejects the Revision (a NACK in Control mode) and keeps serving its active one. Reword to cover both cases."
     },
     {
-      "section": "Migration gaps / Partial parity that changes migrated behavior",
-      "suggestion": "The intro says these 11 rows are 'the ones an importer run surfaces as `approximate` or `manual`'. The importer also surfaces Martian (DSL) (`manual` for non-header modifiers), Async agents (`manual`), SOAP integration (`manual`), LLM routing (`manual` before M3) and Configurable client redirects. Add those rows or reword to 'these include'."
+      "section": "Core concepts (EE license file); Behavior changes to plan for (License)",
+      "suggestion": "Both rows support the KrakenD license-file claim only through the parity matrix. The underlying URL (https://www.krakend.io/docs/enterprise/overview/license-file/) sits in docs/_meta/research/licensing-landscape.md, which is not in this document's research[]. Either cite that URL directly, or state that the parity matrix is the sourced authority."
     },
     {
-      "section": "Concept mapping / extra_config namespaces (auth/api-keys S)",
-      "suggestion": "The research lists `hash` values `plain`, `fnv128`, `sha256` and `sha1`. The row grades `plain`, `fnv128`, `sha1` and salted hashes, but not unsalted `sha256`. The encoding of KrakenD's `sha256` output (hex or other) is not researched. Grade it `manual` with a hold under OQ-migration-from-krakend-13 until the encoding is confirmed."
+      "section": "Migration gaps / Behavior changes to plan for",
+      "suggestion": "The intro says 'These hold even at `equivalent` fidelity', but the 'Two client credentials on one path' and 'Client address' rows describe `manual` items. Reword it to 'These hold whatever the fidelity level'."
     },
     {
-      "section": "Concept mapping / extra_config namespaces (modifier/request-body-extractor)",
-      "suggestion": "The research gives the `/early` variant at endpoint scope only ('`modifier/request-body-extractor` (+ `/early` at E) | S, E'). The row gives 'S, E' for both. State that `/early` is E only."
-    },
-    {
-      "section": "Concept mapping / extra_config namespaces (backend/http/client)",
-      "suggestion": "The row is graded `equivalent` although `proxy_address` has no field (OQ-krakend-ee-parity-matrix-6) and the CE key `send_body_on_redirect` is not mapped. Grade `approximate` when either key is set."
-    },
-    {
-      "section": "Concept mapping / extra_config namespaces (documentation/openapi, documentation/postman); Cutover runbook Stages 1 and 2",
-      "suggestion": "`ruralz bundle export openapi`, `ruralz bundle export postman`, `ruralz bundle audit` and `ruralz test run` appear without their Planned (M2) tags. Tag them once, for example 'ruralz bundle export openapi, Planned (M2)'."
-    },
-    {
-      "section": "Concept mapping / Top-level keys and Endpoint objects (uncited KrakenD behavior in rows)",
-      "suggestion": "Rows 101 (timeout covers the whole pipe), 117 (default 1000000), 133 (no-op is proxy-only), 139 (zero cache_ttl uses the root value) and 140 (nothing forwarded by default) rely on the section-level schema citation. Row 140 carries a security-flagged claim. Add an inline ([source](https://www.krakend.io/schema/v2.13/krakend.json)) there, as line 859 does."
-    },
-    {
-      "section": "Concept mapping / extra_config namespaces (auth/validator propagate_claims)",
-      "suggestion": "Consider the L1-2 finding. An Upstream-scoped `headers` Policy over `auth.claims` also runs on Routes that share the Upstream but validate no JWT. There `auth` is null, and `headers` defaults to `failureMode: closed`. Map the setting to a Route-scoped `headers` Policy, or guard it with `when: 'auth != null'`."
+      "section": "verify-docs output",
+      "suggestion": "No FAIL lines were emitted. The WARN lines about milestone items missing from the roadmap, and about the KrakenD '/__health/' path at line 735, are informational. The '/__health/' warning is a false positive, because the path is KrakenD's."
     }
   ],
   "ac_results": [
     {
       "ac": "Concept mapping maps every top-level KrakenD configuration key and at least 20 extra_config namespaces to Ruralz kinds and Policies (KrakenD endpoint to Route, backend to Upstream, extra_config namespaces to Policies).",
       "pass": true,
-      "note": "All 36 root properties of the v2.13 schema appear in the Top-level keys table, matching the research count. The namespace table has 85 rows, as stated, and covers the research catalog. The endpoint-to-Route and backend-to-Upstream mapping is explicit. Several individual mappings are wrong (L4C-5, L4C-6, L4C-7), but the coverage criterion is met."
+      "note": "The Top-level keys table covers all 36 root properties from research section 2. The namespace table has 86 rows covering every namespace in research section 5. The Core concepts table maps endpoint to Route and backend to Upstream."
     },
     {
       "ac": "Import tool fidelity levels defines the fidelity levels reported by ruralz bundle import krakend (Planned (M2)) and what each guarantees.",
-      "pass": false,
-      "note": "All four levels are defined with guarantees, importer actions and operator actions. The `exact` and `equivalent` guarantees are false for every imported Route, however, because of the forwarding default, and the worked example reports them anyway (L4C-2). A guarantee that the importer cannot keep does not satisfy the criterion."
+      "pass": true,
+      "note": "Four levels are defined, each with a guarantee, importer action and operator action, and the forwarding caveat is carried into `exact` and `equivalent`. The `backend/http/client` grade still violates rule 4 (L4C-1)."
     },
     {
       "ac": "Plugin migration covers both paths: Go plugins to WASM Plugins (TinyGo) or built-in Filters, and Lua to CEL or WASM Plugins.",
       "pass": true,
-      "note": "The section covers four Go plugin types with targets, eight porting steps using the TinyGo Go PDK, an accessor-to-Host Function table checked against the WASM plugin system document, and Lua layer and use-case tables mapping to CEL or WASM Plugins. The KrakenD claims cite research URLs."
+      "note": "Both subsections are present: the registerer table, the porting steps, the accessor-to-Host Function table, the Lua layer and pattern tables, and the TinyGo Go PDK."
     },
     {
       "ac": "Cutover runbook gives ordered steps for shadow traffic and side-by-side cutover, including rollback.",
       "pass": true,
-      "note": "Stages 0 to 6 have numbered steps, shadowing rules, weighted cutover, a rollback trigger table, rollback steps and a gate summary. The latency gate misapplies SM-4 (L4C-4), and the Stage 3 load balancer placement conflicts with the ip-filter grade (L4C-7). Both are blocking but do not remove the ordered steps."
+      "note": "Stages 0 to 6, the shadowing rules, weighted steps, the relative p99 rollback trigger and a gate summary are all present."
     },
     {
       "ac": "Migration gaps is consistent with the Not planned rows of docs/comparison/01-krakend-ee-parity-matrix.md.",
       "pass": true,
-      "note": "13 Not planned rows, 3 of them EE-only (Lua advanced helpers, NTLM, New Relic native SDK), match the matrix's Not planned rows, with the same reasons and alternatives. The 17-row partial-parity count also matches the matrix."
+      "note": "The document's 13 rows, three of them EE-only, match the parity matrix, where the six-broker row is expanded. The 17 partial-parity rows also match."
     },
     {
       "ac": "Quoted KrakenD terminology (endpoint, backend) carries the <!-- alias-ok --> escape.",
-      "pass": false,
-      "note": "Lines 163, 164, 165 and 168 quote 'endpoint' without the escape. The H3 at line 125 uses 'Endpoint' in the KrakenD sense, and a YAML comment at line 414 uses the KrakenD term (L4C-1)."
-    },
-    {
-      "ac": "machine_check min_table_rows (Concept mapping, 20)",
       "pass": true,
-      "note": "The Core concepts table alone has 27 data rows."
-    },
-    {
-      "ac": "machine_check has_table (Import tool fidelity levels)",
-      "pass": true,
-      "note": "The Levels and guarantees table and the Report, annotation and exit status table are present."
-    },
-    {
-      "ac": "machine_check required_terms (extra_config, ruralz bundle import krakend, TinyGo, CEL, Lua, Planned (M2)) and manifest required_terms (Route, Upstream, Policy, Bundle, Plugin, Filter)",
-      "pass": true,
-      "note": "All terms appear in the body."
-    },
-    {
-      "ac": "machine_check links_to docs/comparison/01-krakend-ee-parity-matrix.md",
-      "pass": true,
-      "note": "The document links it several times, including to the #not-planned-rows and #partial-parity anchors."
-    },
-    {
-      "ac": "verify-docs (--allow-missing --skip markdownlint) has no FAIL line for this document",
-      "pass": true,
-      "note": "No FAIL lines. There are 48 WARN milestones lines, because the Roadmap does not list individual items, and one WARN commands-kinds line for the KrakenD path '/__health/' at line 727, which is a quoted KrakenD path and not a Ruralz admin path."
-    },
-    {
-      "ac": "L4C: every competitor claim cites a URL present in docs/_meta/research/ and agrees with the 2026-09-23 snapshot; no Supported; every Planned tag names M0 to M5",
-      "pass": false,
-      "note": "Every cited URL except the three example hosts is present in a research file. The license-file URL is in licensing-landscape.md. No 'Supported' appears, and every Planned tag names M1 to M5. Three rows assert KrakenD semantics that the research does not record (L4C-8), and nine table cells are blank (L4C-9)."
+      "note": "Every prose or table line that quotes endpoint or backend carries the escape, and the H3 is renamed. The remaining unescaped occurrences are KrakenD JSON keys and RFC 6901 pointers inside code blocks."
     }
   ],
   "foundation_amendments": []

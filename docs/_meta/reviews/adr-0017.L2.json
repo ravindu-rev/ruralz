@@ -1,0 +1,98 @@
+{
+  "lens": "L2 foundation-auditor",
+  "verdict": "revise",
+  "score": 7,
+  "blocking": [
+    {
+      "id": "L2-1",
+      "section": "Decision outcome (Figure 1) and Confirmation",
+      "issue": "Figure 1 and the integration-test Confirmation item name the wrong error codes for Plugin artifacts. Pack 8.14 row 1 and the ADR's own table (line 51) say a Plugin digest mismatch is RZ-CFG-028, not RZ-CFG-027. Figure 1 sends Plugins ('Revisions and Plugins by digest', 'Plugin artifacts by digest') to the verification node, but the reject node lists only RZ-CFG-027 or RZ-CFG-033. The integration test covers 'Revision and Plugin pulls by digest' but asserts only RZ-CFG-027 and RZ-CFG-033. The Configuration model registry (RZ-CFG-027: Revision digest mismatch; RZ-CFG-028: Plugin artifact unavailable, digest mismatch, or disagrees with its Plugin.spec) confirms that RZ-CFG-028 belongs here.",
+      "evidence": "Line 82: `rej[\"RZ-CFG-027 or RZ-CFG-033: reject, NACK in Control mode, keep active Revision\"]`; line 89: `oci -->|\"Revisions and Plugins by digest\"| nf`; line 111: \"the OCI registry container covers Revision and Plugin pulls by digest with Sigstore verification, asserting RZ-CFG-027 and RZ-CFG-033 at each place pack 8.14 names\". Pack 8.14: \"Every fetch checks the full sha256 (RZ-CFG-027, RZ-CFG-028)\". ADR line 51: \"RZ-CFG-027 for Revisions, RZ-CFG-028 for Plugins\".",
+      "fix": "Line 82: change the label to `rej[\"RZ-CFG-027, RZ-CFG-028 or RZ-CFG-033: reject, NACK in Control mode, keep active Revision\"]`. Line 111: change it to \"asserting RZ-CFG-027 (Revision digest), RZ-CFG-028 (Plugin digest) and RZ-CFG-033 (signature) at each place pack 8.14 names\"."
+    },
+    {
+      "id": "L2-2",
+      "section": "Decision drivers",
+      "issue": "The driver attributes a meaning to P6 that P6 does not have. In Vision and positioning, P6 is 'Custom code is sandboxed' (a WASM sandbox, deny-by-default Capabilities, declared limits). It says nothing about supply chain or publisher verification. Security and identity cites it correctly as 'P6 (sandboxed custom code)'. Principles are canonical IDs defined once in the vision document, so a paraphrase that changes their content is a canonical-reference error.",
+      "evidence": "Line 32: \"- **P6, supply chain for custom code**: a Plugin's publisher is checked, not only its bytes.\" Vision, Principles: \"| P6 | Custom code is sandboxed | Plugins run in a WASM sandbox with deny-by-default Capabilities and declared limits ...\".",
+      "fix": "Replace line 32 with: \"- **P6, custom code is sandboxed**: the sandbox limits what a Plugin can do, and signature verification adds a check of who published it, not only its bytes.\" Alternatively, drop the P6 label and keep the driver as \"**Plugin supply chain**: ...\". Also consider writing \"P10, measured, not claimed (a metric for every degraded state)\" on line 31 so that label uses P10's canonical name."
+    },
+    {
+      "id": "L2-3",
+      "section": "Decision outcome (Rules that follow, Failure)",
+      "issue": "'Every signature failure is RZ-CFG-033' does not separate a signature that is invalid or absent (deterministic, reproducible from the artifact) from a registry or referrer fetch that failed or timed out. Pack 8.3 makes an RZ-CFG error a deterministic NACK that fails the gate at once. It classes fetch, resource and timeout failures as transient NACKs, which are retried and then quarantined. WASM plugin system, Failure semantics, draws the same line: 'bad signatures are RZ-CFG-033. Registry outages, timeouts ... are transient NACKs'. As written, a Node that cannot reach the registry holding the Sigstore referrer would send a deterministic RZ-CFG NACK and trigger an immediate rollback, contradicting pack 8.3 and the Plugin document.",
+      "evidence": "Line 59: \"Every signature failure is RZ-CFG-033 ... The Node rejects the artifact before any swap, NACKs in Control mode and keeps its active Revision.\" Pack 8.3: \"A deterministic NACK is an `RZ-CFG-<NNN>` error that reproduces from the Revision ... A transient NACK (fetch, resource, timeout) is retried with backoff, then the Node is marked lagging and quarantined\". 05-wasm-plugin-system.md: \"bad signatures are RZ-CFG-033. Registry outages, timeouts and Node-local compiled-code pressure are transient NACKs\".",
+      "fix": "Extend the Failure rule: \"A signature that is missing from a reachable registry, fails verification or matches no trusted identity is RZ-CFG-033, a deterministic NACK (pack 8.3). A registry or referrer fetch that fails or times out is a transient NACK, retried and then quarantined, as [WASM plugin system](../architecture/05-wasm-plugin-system.md#failure-semantics-and-the-rz-plg-registry) states for Plugin artifacts.\""
+    }
+  ],
+  "non_blocking": [
+    {
+      "section": "Decision outcome (What a signature binds)",
+      "suggestion": "Use the exact signed fields that Control plane and GitOps defines. It lists the assignment signature as covering Cluster, Environment, digest, `rolloutId`, `storeEpoch` and `assignmentSeq`, and the ADR's 'sequence' hides the `storeEpoch` that fences a deposed leader. Also name the promotion signature (Cluster, `promotedDigest`, `storeEpoch`, `promotionSeq`), which protects Last-Known-Good promotion."
+    },
+    {
+      "section": "Decision outcome (What a signature binds)",
+      "suggestion": "Line 62 adds a normative rule: 'each Environment SHOULD use its own signing identity'. The owning document's Signed Revisions and Plugin artifacts section does not state it. Mirror the rule in 08-security-and-identity.md so the ADR and its owning document agree word for word."
+    },
+    {
+      "section": "Decision drivers",
+      "suggestion": "'Stable digests: signing never changes a Revision digest (pack 8.1)': pack 8.1 defines the digest but does not state this rule. The Configuration model's Validation and diff semantics says it ('signing never changes the digest'), so cite that instead."
+    },
+    {
+      "section": "Decision outcome (Key compromise)",
+      "suggestion": "The `compromisedSince` boot refusal narrows pack 8.2 boot order step (3), 'wait up to 5 s ... then Last-Known-Good (detached)', and the P9 statement 'boot Last-Known-Good after a restart'. State this explicitly as an exception accepted under OQ-control-plane-and-gitops-24 option (a), add a matching Bad consequence, and propose the note to pack 8.2 (see foundation_amendments)."
+    },
+    {
+      "section": "Decision outcome (Trust policies)",
+      "suggestion": "'from Ruralz Control's process configuration' presents option (a) of OQ-control-plane-and-gitops-1 as decided, although that question is still open (options: process configuration or `Environment.spec`). Add '(OQ-control-plane-and-gitops-1, option (a) proposed)' inline."
+    },
+    {
+      "section": "Considered options",
+      "suggestion": "Option 4 (Signatures opt-in) is the only option without a citation. One source-backed clause would make every option cite research, for example cosign's opt-in verification ([source](https://github.com/sigstore/cosign))."
+    },
+    {
+      "section": "Confirmation",
+      "suggestion": "verify-docs WARNs on line 113: 'Interoperability job' has no matching M2 roadmap item. The roadmap M2 row reads 'OCI registry integration tests and interoperability job'; reusing that wording clears the WARN."
+    },
+    {
+      "section": "Whole document",
+      "suggestion": "The body is 1,492 words against the 1,500 maximum. Fixes from this review and from L1 will exceed it, so ask for the band to be raised again, or tighten Considered options item 1, which repeats the decision table. Do not remove text that resolved earlier findings."
+    }
+  ],
+  "ac_results": [
+    {
+      "ac": "Front matter contains id, title, status, date, deciders and related, and status matches this manifest.",
+      "pass": true,
+      "note": "id ADR-0017, the title matches the manifest verbatim, status accepted matches adrs[ADR-0017].status, date 2026-09-25, deciders [ruralz-core], and related lists the owning document first."
+    },
+    {
+      "ac": "H2 headings match adr_common.outline_h2 exactly and in order, and Decision outcome contains the H3 headings Consequences and Confirmation.",
+      "pass": true,
+      "note": "The six H2 headings are in exact order, Consequences and Confirmation are H3 headings under Decision outcome, and verify-docs reports no FAIL for this file."
+    },
+    {
+      "ac": "Considered options lists at least two options including the chosen one, and each has pros and cons.",
+      "pass": true,
+      "note": "Five options, including the chosen one. Each has a Good and a Bad bullet under Pros and cons, and the cited URLs appear in docs/_meta/research/ (tooling-and-licenses.md, go-libraries-protocols.md). Option 4 has no citation."
+    },
+    {
+      "ac": "Decision outcome states the chosen option as 'Chosen option: ..., because ...' and matches the foundation pack section 7 row for this ADR.",
+      "pass": true,
+      "note": "'Chosen option: \"Layered signing, verified offline by default\", because ...' matches the pack section 7 Artifact signing row, and the table reproduces pack 8.14. The error-code mismatch in Figure 1 (L2-1) and the NACK classification gap (L2-3) are the remaining inconsistencies."
+    },
+    {
+      "ac": "Confirmation names a concrete verification mechanism (test, lint rule, CI gate or review checklist item).",
+      "pass": true,
+      "note": "It names integration tests, a chaos test, an interoperability job, a FIPS CI job and a review checklist item. The integration-test assertion omits RZ-CFG-028 (L2-1)."
+    },
+    {
+      "ac": "The ADR is linked from docs/adr/README.md and from its owning document.",
+      "pass": false,
+      "note": "The owning document docs/architecture/08-security-and-identity.md links the ADR (Scope and non-goals, Signed Revisions and Plugin artifacts). docs/adr/README.md does not exist yet (the adr_index step writes it), so the criterion is not met today. This is not a defect in the ADR text."
+    }
+  ],
+  "foundation_amendments": [
+    "Pack 8.14: add 'A missing or invalid signature is RZ-CFG-033 (deterministic NACK); a registry or referrer fetch failure is a transient NACK (pack 8.3)', so every verifier classifies signature failures the same way.",
+    "Pack 8.2 boot order: note the exception adopted under OQ-control-plane-and-gitops-24 option (a). A Control-mode Node does not boot a candidate or Last-Known-Good accepted from a key removed after `compromisedSince`, and stays not ready until the Control Stream delivers."
+  ]
+}

@@ -1,144 +1,99 @@
 {
   "lens": "L2 foundation-auditor",
   "verdict": "revise",
-  "score": 6,
+  "score": 8,
   "blocking": [
     {
       "id": "L2-1",
-      "section": "Concept mapping / Endpoint objects and their targets; Worked import example",
-      "issue": "Acceptance criterion 6 fails. Four table rows quote KrakenD's \"endpoint\" term without the alias escape comment, which every neighboring row carries. A YAML comment in the worked example also uses the KrakenD term inside a code block, where the escape cannot be placed. The machine check does not catch these, because the forbidden-alias regex flags only the 'API/KrakenD/published/public endpoint' forms, but the AC is a manual criterion.",
-      "evidence": "Line 163: \"| endpoint `proxy.sequential_propagated_params` and `{resp0_field}` placeholders | Step `pathExpression` over `steps.<name>.body` | `equivalent` | The importer rewrites each placeholder to a CEL expression |\"; line 164: \"| endpoint `proxy.combiner` | None | `manual` | Custom merge logic becomes a `plugin` Policy |\"; line 165: \"| endpoint `proxy.static` | ...\"; line 168: \"| endpoint `proxy.decompress_gzip` | None | `manual` | Compression type per OQ-krakend-ee-parity-matrix-3 |\"; line 414 (yaml block): \"key: \\\"route.name\\\"                  # one limit for the whole Route, as KrakenD's endpoint limit\".",
-      "fix": "Append ` <!-- alias-ok -->` to the last cell of lines 163, 164, 165 and 168, as on line 162. On line 414, reword the YAML comment to \"# one limit for the whole Route, as KrakenD's router limit\" (no KrakenD 'endpoint' inside a code fence)."
+      "section": "Concept mapping / KrakenD path entries and their targets; Migration gaps / Features that arrive after the importer",
+      "issue": "The document gives two different fidelities for KrakenD EE streaming (SSE). The research says KrakenD configures SSE with no namespace: `output_encoding: no-op` on the endpoint, `encoding: no-op` on the backend and a long `timeout`. The document grades that exact shape `exact` with 'bytes stream unchanged'. Yet it lists 'SSE streaming' among the Planned (M3) features that 'import as `manual` (rule 4)'. The Data plane also tags SSE `text/event-stream` flushing Planned (M3), and Multi-protocol says a plain reverse proxy flushes `text/event-stream` only 'per read' before M3. So at the M2 importer release, a streaming endpoint that imports as `exact` does not deliver events the way KrakenD does, and the report says nothing about it.",
+      "evidence": "Line 133: \"| endpoint `output_encoding: no-op` | `Route` with plain `upstreams`; bytes stream unchanged | `exact` | Proxy-only in KrakenD\"; line 148: \"| backend `encoding: no-op` | Plain `upstreams` | `exact` |\"; line 848: \"Items whose target postdates the importer, Planned (M2), import as `manual` (rule 4)\"; line 853: \"| gRPC server and client, direct WebSockets, multiplexer, SSE streaming | `match.grpc`, `grpc` and `websocket` Upstreams, `onChunk` | Planned (M3) |\". Research krakend-config-model.md: \"`sse` | There is no namespace. EE streaming/SSE (since v2.12) is configured with `output_encoding: \\\"no-op\\\"` on the endpoint, `encoding: \\\"no-op\\\"` on the backend, and a long `timeout`\". Data plane: \"| SSE | `text/event-stream` response | `http.ResponseController` flushing | Planned (M3) |\". Multi-protocol: \"HTTP reverse proxy; `text/event-stream` flushes per read | Planned (M1); SSE flushing Planned (M3)\". Parity matrix: \"| Streaming and Server-Sent Events (SSE) | No | Yes | Planned (M3) |\".",
+      "fix": "In the `output_encoding: no-op` row (line 133), add this note: 'a no-op endpoint whose backends are all `encoding: no-op` is KrakenD's streaming configuration; before M3 the importer adds one `approximate` item per such Route, because `text/event-stream` flushes per read, not per event, until SSE, Planned (M3) ([Data plane](../architecture/03-data-plane.md))'. On line 853, replace 'SSE streaming' with 'SSE per-event flushing and `onChunk` Policies', and state that KrakenD streaming Routes import `approximate` through the no-op rows, not `manual`. Rule 4 still holds, because the reverse-proxy target exists from Planned (M1)."
     },
     {
       "id": "L2-2",
-      "section": "Concept mapping / extra_config namespaces (security/policies, governance/quota)",
-      "issue": "Two mappings attach Policy types at scopes that the pack section 10 registry forbids. `authz.cel` is G and R only, so the backend-scope and workflow-scope `security/policies` mapping yields RZ-CFG-020. That breaks rule 1 ('The output validates'). `governance/quota` is listed for S, E and B, but `quota` is G and R only, and the row does not say where a backend-scope quota goes. The document already handles the same problem correctly elsewhere: `validation/cel` B becomes an Upstream-scoped `plugin` Policy, and `qos/ratelimit/proxy` B becomes a Route Policy on every Route that reaches the Upstream.",
-      "evidence": "Line 189: \"| `security/policies` | E, B, W | `authz.cel` `config.rule` for `req` and `jwt` contexts, Planned (M1); ... | `approximate` for plain CEL; ...\"; line 200: \"| `governance/quota` | S, E, B | `quota` Policy with `consumerQuota`; ...\". Foundation pack section 10: \"| `authz.cel` | authz | onRequestHeaders, onRequestBody | G, R |\" and \"| `quota` | admission | onRequestHeaders, onLog | G, R |\". Pack 8.12 rule 4: \"a type at a disallowed scope is RZ-CFG-020\". Line 462: \"an `RZ-CFG` error in generated output is an importer defect\".",
-      "fix": "Split the `security/policies` row into two rows. First: \"E, W | `authz.cel` on the `Route` | `approximate` ...\". Second: \"B | a `plugin` Policy with `filterClass: authz` at Upstream scope in `onUpstreamRequest`, Planned (M2) | `manual` with a hold\", mirroring line 224. In the `governance/quota` row, state \"B: a Route `quota` Policy on every Route reaching the `Upstream`, as `qos/ratelimit/proxy`\" and grade that case `approximate`, or grade it `manual`."
-    },
-    {
-      "id": "L2-3",
-      "section": "Concept mapping / extra_config namespaces (auth/api-keys S with auth/validator E); Import tool fidelity levels / Rules",
-      "issue": "The mapping contradicts pack 8.12 slot precedence and the document's own rule 2. Service-scope `auth/api-keys` becomes a Gateway `auth.api-key` Policy, and endpoint-scope `auth/validator` becomes a Route `auth.jwt` Policy. All client authentication types share slot `auth`, so the Route Policy replaces the Gateway one. An endpoint that KrakenD protected with both an API key and a JWT therefore loses its API-key check, and the report records no item. The document never cites OQ-configuration-model-13, which owns how one Route accepts or combines two client authentication types.",
-      "evidence": "Line 183: \"| `auth/api-keys` | S | One `Consumer` per `keys[]` entry ... and a Gateway `auth.api-key` Policy with `config.header` from `identifier`, Planned (M1) | `equivalent` for `hash: plain`\"; line 177: \"| `auth/validator` | E | `auth.jwt` Policy on the `Route` ...\"; line 463: \"**Security controls are never dropped silently.**\". Pack 8.12 step 2: \"A Route Policy in the same `slot` as a remaining Gateway Policy replaces it (Route over Gateway) ... All client authentication types share slot `auth`\". Configuration model Policy section: \"How one Route accepts either JWT or an API key in the single `auth` slot is OQ-configuration-model-13.\"",
-      "fix": "Add to the `auth/api-keys` S row: \"On a Route whose endpoint also sets `auth/validator` or `auth/basic`, the Route `auth` Policy would replace the Gateway `auth.api-key` (pack 8.12), so the importer grades that Route `manual`, attaches a hold and cites OQ-configuration-model-13.\" Add the same condition to rule 2's list."
-    },
-    {
-      "id": "L2-4",
-      "section": "Concept mapping / Worked import example; Cutover runbook / Stage 5; Migration gaps / Behavior changes to plan for",
-      "issue": "The document states unconditionally that Ruralz enforces imported limits across the whole Cluster. Pack section 2 and 8.8 make that true only with the `redis` driver. With no Gateway `stateStore` and no `RURALZ_STATE_STORE_URL`, the driver is `memory`, and every limit then multiplies by the Node count. The worked example emits a `ratelimit` Policy but no `stateStore`, and no row says the importer emits one for stateless KrakenD limits. The report's advice to 'multiply by the KrakenD instance count' would therefore raise real capacity again on `memory`. Stage 0 step 4 states the correct rule, so the document contradicts itself.",
-      "evidence": "Lines 438-439: \"KrakenD limits each instance to 50 per 1s; Ruralz enforces 50 per 1s across the Cluster; multiply by the KrakenD instance count to keep capacity\"; the worked example Gateway (lines 327-341) has no `stateStore`; line 190: \"Ruralz enforces one Cluster-wide limit\"; line 749: \"KrakenD per instance and Ruralz Cluster-wide\"; line 857: \"One Cluster-wide limit through the State Store\"; line 706: \"the `memory` driver multiplies every limit by the Node count\". Pack section 2: \"`RURALZ_STATE_STORE_URL` is the fallback source for Gateway `spec.stateStore.url` when `stateStore` is absent (else `memory` with a startup warning)\"; pack 8.8: \"With the `memory` driver every limit multiplies by the Node count\".",
-      "fix": "Pick one rule and state it once in rule 3 or a new rule 8. Recommended: \"Whenever the importer emits `ratelimit`, `quota` or `cache`, it writes Gateway `stateStore: {driver: redis, url: {secretRef: {provider: env, name: RURALZ_STATE_STORE_URL}}}` and lists the URL as a value to provision.\" Add that block to the worked-example Gateway. Otherwise make lines 190, 438-439, 749 and 857 conditional: \"Cluster-wide with the `redis` driver; per Node, as in KrakenD, with `memory`\"."
-    },
-    {
-      "id": "L2-5",
-      "section": "Cutover runbook / Stage 4 shadow traffic and Rollback",
-      "issue": "The runbook applies SM-4 to all migrated production traffic, as the shadow exit gate and as a rollback trigger. Vision defines SM-4 only for one benchmark reference scenario that excludes Plugins, State Store Policies, Upstream time and State Store time. The metric the runbook names, `ruralz_http_request_duration_seconds`, is the whole exchange duration, not Gateway-added latency. The Observability metric for Gateway-added time, `ruralz_http_gateway_duration_seconds`, is labeled by `listener`, not by `route`, so a per-Route p99 cannot be read from metrics.",
-      "evidence": "Line 743: \"Gateway-added latency p99 stays at 1 ms or less (target) as SM-4 defines\"; line 761: \"| Gateway-added latency p99 | Above 1 ms for 10 minutes (target) | Set the Ruralz weight to 0 |\"; line 742: \"Compare per Route, from metrics such as `ruralz_http_request_duration_seconds`\". Vision Success metrics: \"SM-4 and SM-5 use one reference scenario: HTTP/1.1 keep-alive, 1 KiB body, JWT validation and a local token bucket, no Plugins or State Store Policy, at half of saturation RPS (target). Both exclude Upstream and State Store time\". Observability: \"| `ruralz_http_gateway_duration_seconds` | Histogram, fast | seconds | `listener` |\" and the access log field \"`gateway_duration` ... Gateway-added time\".",
-      "fix": "Stop citing SM-4 as a production gate. Stage 4 records a per-Route Gateway-added p99 baseline (target) from the access log field `gateway_duration`, or per listener from `ruralz_http_gateway_duration_seconds`. Stage 4's exit and the rollback trigger become \"above that baseline by more than a stated margin for 10 minutes (target)\". Name `ruralz_http_request_duration_seconds` only for end-to-end latency comparison with KrakenD."
-    },
-    {
-      "id": "L2-6",
-      "section": "Concept mapping / Built-in KrakenD EE plugins (ip-filter, geoip); extra_config namespaces (qos/ratelimit/router client_max_rate); Cutover runbook / Stage 3",
-      "issue": "The document contradicts the IP filtering row of the parity matrix, which it depends on. That row says deployments behind a load balancer SHOULD NOT rely on `source.ip` until OQ-security-and-identity-6 closes. The document grades an `ip-filter` import `approximate` behind proxies with no hold and keys `client_max_rate` on `source.ip`. The runbook then places every Node behind the same load balancer as KrakenD. An imported denylist would therefore admit every client, a security control that fails open without any report item, against rule 2.",
-      "evidence": "Line 270: \"| `ip-filter` | `authz.ip` by CIDR on `source.ip`, Planned (M1) | `equivalent` for direct clients; `approximate` behind proxies | Trusted proxies per OQ-security-and-identity-6 |\"; line 190: \"keyed on the same client attribute (`source.ip` or a `request.headers` entry)\"; line 726: \"Deploy Ruralz Gateway Nodes next to KrakenD behind the same load balancer or ingress\". Parity matrix IP filtering row: \"Trusted proxies per OQ-security-and-identity-6; until it closes, deployments behind a load balancer SHOULD NOT rely on `source.ip`\".",
-      "fix": "Grade `ip-filter` and `geoip` behind proxies as `manual`, security-flagged, with a hold, and cite OQ-security-and-identity-6. Grade `source.ip`-keyed `client_max_rate` and `router` `trusted_proxies` as `manual`. Add Stage 1 step 2 text: \"No imported Policy may filter or key on `source.ip` behind a load balancer until OQ-security-and-identity-6 closes.\""
-    },
-    {
-      "id": "L2-7",
-      "section": "Import tool fidelity levels / Levels and guarantees; Concept mapping / Worked import example",
-      "issue": "The `exact` and `equivalent` guarantees conflict with the parity matrix's zero-trust forwarding row and with the document's own line 140. KrakenD forwards no client headers or query strings when `input_headers` is absent, which is the default. Ruralz forwards them. The mapping row, however, raises an item only for the `input_headers` fields, and the worked example has no such fields. Its report then shows no security item and exit status 0, although every Upstream now receives the client's headers, cookies and query strings.",
-      "evidence": "Line 453: \"`exact` | For every request, the generated configuration yields the same routing, the same decision and the same bytes on the wire\"; line 140: \"KrakenD forwards nothing by default; Ruralz forwards client headers and query strings unless a Policy removes them (OQ-migration-from-krakend-7)\"; line 434: \"items: exact 4, equivalent 13, approximate 3, manual 0\"; line 442: \"exit status 0 (no manual items)\". Parity matrix: \"| Zero-trust parameter forwarding | ... Partial parity: KrakenD forwards no client headers by default\".",
-      "fix": "Change line 140 to \"endpoint `input_headers`, `input_query_strings`, present or absent\", so that every Route gets one security-flagged `manual` item for forwarding (OQ-migration-from-krakend-7 option (a)). Update the worked example: counts `manual 1`, a report line for `/endpoints/0` forwarding, and \"exit status 1\". Qualify the `exact` guarantee as \"apart from client parameter forwarding, reported separately per Route\"."
-    },
-    {
-      "id": "L2-8",
-      "section": "Cutover runbook / Stage 2: test before traffic",
-      "issue": "Both `ruralz test run` invocations omit the required `CASES` argument that the CLI and API surface defines. Operators copy runbook commands as written.",
-      "evidence": "Line 720: \"Run the cases with `ruralz test run --target URL` against the production KrakenD\"; line 721: \"Run the same cases with `ruralz test run --bundle ./bundle` against a local `ruralzd`\". CLI command table: \"| `ruralz test run` | Run request and expected-response cases | `CASES`, `--bundle DIR` or `--target URL`, ...\"; CLI worked example: \"ruralz test run --bundle ./bundle --env staging --environments control/environments.yaml ./tests\".",
-      "fix": "Write `ruralz test run ./tests --target URL` on line 720 and `ruralz test run ./tests --bundle ./bundle` on line 721, and say in step 1 that the cases live in `./tests` in `ruralz.test.v1` format."
-    },
-    {
-      "id": "L2-9",
-      "section": "Migration gaps / Partial parity that changes migrated behavior",
-      "issue": "The section says its table lists the parity matrix's partial-parity rows that an importer run surfaces as `approximate` or `manual`, but it leaves out four such rows that the document itself grades that way. The Proxy rate limit entry also drops the parity matrix's second Open question.",
-      "evidence": "Line 817: \"The matrix lists 17 partial-parity rows ... These are the ones an importer run surfaces as `approximate` or `manual`\". Missing rows, with the document's own grades: Martian (DSL), line 215 \"`manual` otherwise\"; Async agents, line 242 \"`async/kafka` ... `manual`\"; SOAP integration, line 239 \"`backend/soap` ... `manual`\"; LLM routing, multi-routing, and aggregation, line 243 \"`ai/llm` ... `manual` before M3; then `approximate`\". Parity matrix Partial parity: \"| Proxy rate limit | Upstream scope, and the same hot-key limit as Service rate limit | OQ-krakend-ee-parity-matrix-4; OQ-traffic-management-and-resilience-1 |\"; line 828 lists only OQ-traffic-management-and-resilience-1.",
-      "fix": "Add four rows: \"Martian (DSL) | Body and query modifiers are `manual` | OQ-krakend-ee-parity-matrix-1\"; \"Async agents | AMQP sources are Not planned; Kafka waits for Planned (M4) | OQ-multi-protocol-14\"; \"SOAP integration | XML responses need a `plugin` Policy | OQ-krakend-ee-parity-matrix-1\"; \"LLM routing, multi-routing, and aggregation | Streamed aggregation is not imported | OQ-krakend-ee-parity-matrix-7\". Add OQ-krakend-ee-parity-matrix-4 to line 828. Alternatively, reword line 817 to \"a selection of\" the rows."
+      "section": "Concept mapping / extra_config namespaces (`backend/http/client`)",
+      "issue": "This row grades the whole namespace `equivalent`, which breaks the document's own rules 4 and 7. First, `proxy_address` has no Ruralz field. It waits for OQ-krakend-ee-parity-matrix-6 and is Planned (M5), so under rule 4 it must be `manual`. Second, the row claims equivalence only for `no_redirect: true`. For `no_redirect: false`, KrakenD follows the redirect and Ruralz returns the 3xx to the client, which is a different observable contract from the `equivalent` definition. Third, the research lists `send_body_on_redirect`, and the row does not map it. An operator reading `equivalent` would expect no action on a backend that relies on an egress proxy.",
+      "evidence": "Line 230: \"| `backend/http/client` | B | `client_tls` to `Upstream.spec.tls`; `no_redirect: true` is the Ruralz default, since 3xx responses pass through | `equivalent` | `proxy_address` per OQ-krakend-ee-parity-matrix-6, Planned (M5)\"; rule 4 (line 474): \"Items whose target is not in the running release are `manual`.\"; rule 7 (line 477): \"a missing value is reported rather than assumed\"; line 463: \"`equivalent` | Same routing, allow or deny decisions, status and payload semantics\". Research: \"`backend/http/client` | B | CE subset since v2.11 (`send_body_on_redirect`). EE adds `client_tls`, `no_redirect`, `proxy_address`\". Parity matrix OQ-krakend-ee-parity-matrix-6: \"Where does an `Upstream` declare an egress HTTP proxy ... Yes, for the M5 intermediary web proxy row\".",
+      "fix": "Change the Fidelity cell to: '`equivalent` for `client_tls` and `no_redirect: true`; `approximate` for `no_redirect: false`, since Ruralz passes the 3xx to the client (OQ-traffic-management-and-resilience-13); `manual` for `proxy_address` (rule 4, OQ-krakend-ee-parity-matrix-6) and `send_body_on_redirect`'."
     }
   ],
   "non_blocking": [
     {
-      "section": "Concept mapping / extra_config namespaces (auth/validator)",
-      "suggestion": "Security and identity requires every `issuers[]` entry to set `audiences` and an `https` `jwksUrl` (\"MUST set `audiences` and an `https` `jwksUrl`\"). A KrakenD `auth/validator` without `audience`, or with an `http` `jwk_url`, therefore cannot import at `equivalent` without failing rule 1. State that such entries import as `manual` with a hold."
+      "section": "Summary",
+      "suggestion": "Line 19 claims the document maps \"every `extra_config` namespace of the v2.13 schema\", while line 173 more carefully claims \"every v2.13 namespace the research records\". Use the second wording in the Summary so the claim does not exceed the research."
     },
     {
-      "section": "Concept mapping / extra_config namespaces (security/http)",
-      "suggestion": "The row covers S and E scope, but its target is a Gateway `headers` Policy with `overridable: false`. Endpoint-scope security headers would then apply to every Route and could not be replaced. Map E to a Route-scoped `headers` Policy."
+      "section": "Cutover runbook / Stage 4 shadow traffic",
+      "suggestion": "Line 745 says shadow Nodes \"never join the serving pool\". Pack section 2 lists 'pool' as a never-write alias for Cluster. Write \"never receive client traffic from the load balancer\" instead."
     },
     {
-      "section": "Concept mapping / extra_config namespaces (auth/validator propagate_claims)",
-      "suggestion": "An Upstream-scoped `headers` Policy on a shared Upstream also runs on Routes without JWT validation, where `auth` is null (Configuration model Variables: \"null before auth\"). Its `valueExpression` then errors, and `headers` defaults to `failureMode: closed`. Use a Route-scoped `headers` Policy, or guard it with `when: 'auth != null'`, as L1-2 also found."
+      "section": "Cutover runbook / Stages 4 and 5; Concept mapping / `router` row",
+      "suggestion": "The `router` row maps `disable_access_log` and `logger_skip_paths` to Gateway `telemetry.accessLog.when`. Stage 4 needs `when` unset for pairing and per-Route `gateway_duration` baselines, and the rollback trigger reads serving Nodes' access logs. Add to Stage 1: during cutover, leave `telemetry.accessLog.when` unset in the Bundle, or restrict it only in ways that keep every request of watched Routes. Note also that changing it changes the Revision digest that Stages 3 and 5 check."
     },
     {
-      "section": "Concept mapping / extra_config namespaces (ai/mcp)",
-      "suggestion": "The parity matrix's MCP Server row cites OQ-ai-llm-gateway-10 for the surface; this document cites OQ-vision-and-positioning-12, the ID the pack names. Cite both so the two documents trace to the same question."
+      "section": "Import tool fidelity levels / Rule 8",
+      "suggestion": "Line 478 says \"an unresolved URL keeps Nodes not ready (RZ-CFG-026)\". The Configuration model says the Node rejects the Revision and keeps serving its active Revision; only a Node without one stays not ready. Say: 'a Node that cannot resolve it rejects the Revision (RZ-CFG-026); a cold Node stays not ready'."
     },
     {
-      "section": "Concept mapping / Core concepts (EE license file); Migration gaps / Behavior changes",
-      "suggestion": "https://www.krakend.io/docs/enterprise/overview/license-file/ appears only in docs/_meta/research/licensing-landscape.md, which is not in this document's research[] list. The style guide accepts any file under docs/_meta/research/, but the run rule asks for the listed research files. Either add licensing-landscape.md to the manifest research[] or cite it explicitly, and leave the final call to L4C."
+      "section": "Plugin migration / Lua to CEL or WASM Plugins; Go plugins table",
+      "suggestion": "The WASM Host Function table limits `request_body_read` and `request_body_replace` to `onRequestBody`, and `response_body_read` and `response_body_replace` to `onUpstreamResponseBody`. That rules out two Plugin targets. First, a `modifier/lua-proxy` `post` body rewrite at Route scope in `onResponse` (line 662, after the aggregate merge). Second, a backend-level request body modifier as an Upstream-scoped Plugin in `onUpstreamRequest` (lines 566 and 663). For those rows, name `transform.response` or `transform.request` as the only body target, or add an Open question."
     },
     {
-      "section": "Concept mapping / Top-level keys (tls)",
-      "suggestion": "Ruralz `tls.minVersion` accepts only \"1.2\" or \"1.3\". Say that a KrakenD `min_version` below TLS12 is raised and graded `approximate`, and map `tls.disabled: true` (a key in the research) explicitly."
+      "section": "Concept mapping / extra_config namespaces (`auth/api-keys` S)",
+      "suggestion": "The research lists `propagate_role` at service level, but the document does not map it. Map it to a Route `headers` Policy whose `request.set[].valueExpression` reads `consumer.tags`, or grade it `manual`."
     },
     {
-      "section": "Cutover runbook / Stage 3",
-      "suggestion": "In file mode `ruralz node list` is not available (Planned (M2), Control mode). Say that the active digest is read with `ruralz node dump` or `/config/dump` on 9901."
+      "section": "Concept mapping / Built-in KrakenD EE plugins (`url-rewrite`)",
+      "suggestion": "Line 275 grades only `GET` and `HEAD`. Add '`approximate` for methods with a body (OQ-migration-from-krakend-16)', as line 144 does for `url_pattern` rewrites."
     },
     {
-      "section": "Cutover runbook / Stage 4 and Stage 5",
-      "suggestion": "L1-8, L1-9 and L1-10 are still open: per-request pairing, the switch from the shadow State Store to production given `secretRef` `provider: env` restart rotation, and the KrakenD shadow-backend shape. Resolve them in the same revision."
+      "section": "Concept mapping / extra_config namespaces (`qos/http-cache`)",
+      "suggestion": "Line 199 maps a backend-scope cache to a \"Route `cache` Policy\" without saying which Routes get it. State 'on every Route reaching the `Upstream`', as the `governance/quota` and `qos/ratelimit/proxy` rows do, and note that an aggregate Route then caches the merged response, not one backend call."
     },
     {
-      "section": "Whole document",
-      "suggestion": "The body is 9,201 words by the verifier's rule, against a maximum of 9,500, and the fixes above add roughly 250 to 350 words. Keep new cells terse. Do not delete text that resolved earlier findings."
+      "section": "Import tool fidelity levels / SM-8 paragraph",
+      "suggestion": "Line 467 says \"every import holds forwarding items\". The word 'holds' collides with the hold term of rule 2, and forwarding items carry no hold, so write 'has'. Also, while every import has a `manual` forwarding item, the proposed SM-8 definition scores 0% of the corpus. Say this explicitly in OQ-migration-from-krakend-10 so that the M2 exit risk is visible."
     },
     {
-      "section": "Verifier output",
-      "suggestion": "verify-docs.mjs printed no FAIL line for this document. It printed 48 WARN milestones lines, which the roadmap must eventually cover, and one WARN commands-kinds for the KrakenD path `/__health/` on line 727. That path is KrakenD's, not a Ruralz admin path, so no change is needed. An inline note would still help reviewers."
+      "section": "Cutover runbook / Stage 3 deploy dark",
+      "suggestion": "Step 3 compares the Node's active digest with the one `ruralz bundle build` printed. The Configuration model says a file-mode Cluster with more than one Node SHOULD load rendered Bundles or OCI Revisions. State that Nodes load the rendered Bundle or pull the pushed Revision by digest, so that the comparison holds."
+    },
+    {
+      "section": "Concept mapping / Core concepts",
+      "suggestion": "Line 64 cites ADR-0003 for 'Content-addressed, verified by digest'. Digest verification belongs to pack section 8.1 and ADR-0017, so cite those, and keep ADR-0003 for the configuration format."
     }
   ],
   "ac_results": [
     {
       "ac": "Concept mapping maps every top-level KrakenD configuration key and at least 20 extra_config namespaces to Ruralz kinds and Policies (KrakenD endpoint to Route, backend to Upstream, extra_config namespaces to Policies).",
       "pass": true,
-      "note": "All 36 root keys from research section 2 are covered, grouped where their mapping is shared. The namespace table has 85 rows. Core concepts map endpoint to Route and backend to Upstream. Some targets break registry scopes or slot precedence (L2-2, L2-3), but coverage is complete."
+      "note": "All 36 root properties are mapped (lines 97-123), and 86 namespace rows are mapped (lines 177-262). The `backend/http/client` row is graded against the document's own rules (L2-2)."
     },
     {
       "ac": "Import tool fidelity levels defines the fidelity levels reported by ruralz bundle import krakend (Planned (M2)) and what each guarantees.",
-      "pass": false,
-      "note": "All four levels are defined and the command and flags match the CLI document. However, the `exact` and `equivalent` guarantees and the worked example's exit status 0 contradict the forwarding default (L2-7), and the rate-limit report text contradicts pack 8.8 (L2-4)."
+      "pass": true,
+      "note": "The four levels have guarantees, importer actions and operator actions. Eight rules, the report, annotation and exit statuses are consistent with the CLI exit codes. The `exact` guarantee now excludes client parameter forwarding."
     },
     {
       "ac": "Plugin migration covers both paths: Go plugins to WASM Plugins (TinyGo) or built-in Filters, and Lua to CEL or WASM Plugins.",
       "pass": true,
-      "note": "Both paths are covered. Host Function names, Capabilities, Phases, the Go PDK module path and default limits (5 ms, 16 MiB, 32 MiB (hypothesis)) all match the WASM plugin system document."
+      "note": "Both paths are covered, with an accessor-to-Host Function table and a Lua layer and use-case mapping. Two Plugin body targets conflict with Host Function Phases (non-blocking)."
     },
     {
       "ac": "Cutover runbook gives ordered steps for shadow traffic and side-by-side cutover, including rollback.",
-      "pass": false,
-      "note": "The stages and rollback are ordered. However, the latency gate and trigger misapply SM-4 and name a metric that cannot measure Gateway-added latency per Route (L2-5), the `ruralz test run` commands omit the required CASES argument (L2-8), and the Stage 3 load-balancer placement conflicts with imported `source.ip` controls (L2-6)."
+      "pass": true,
+      "note": "Stages 0-6 each have ordered steps, followed by a rollback trigger table and a gate summary. SM-4 is no longer used as a production gate. `ruralz test run` now passes `CASES`."
     },
     {
       "ac": "Migration gaps is consistent with the Not planned rows of docs/comparison/01-krakend-ee-parity-matrix.md.",
       "pass": true,
-      "note": "All 13 Not planned rows are present, 3 of them EE-only, and their reasons match the parity matrix. The partial-parity subset is incomplete against its own claim (L2-9), but that is outside this criterion."
+      "note": "The 13 Not planned features, 3 of them EE-only, match the matrix. All 17 partial-parity rows are now covered, and OQ-krakend-ee-parity-matrix-4 is cited."
     },
     {
       "ac": "Quoted KrakenD terminology (endpoint, backend) carries the <!-- alias-ok --> escape.",
-      "pass": false,
-      "note": "Lines 163, 164, 165 and 168 quote KrakenD 'endpoint' without the escape, and the YAML comment on line 414 uses the term inside a code fence (L2-1)."
+      "pass": true,
+      "note": "Every prose and table line that quotes 'endpoint' or 'backend' carries the escape. The YAML comment was reworded. The only remaining unescaped quotes are inside the KrakenD JSON block, which line 283 marks as verbatim."
     }
   ],
   "foundation_amendments": []

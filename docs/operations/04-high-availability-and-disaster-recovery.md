@@ -1,6 +1,6 @@
 ---
 title: High Availability and Disaster Recovery
-status: draft
+status: reviewed
 owner: ruralz-core
 last_updated: 2026-09-25
 depends_on:
@@ -86,6 +86,7 @@ N              Nodes per Ruralz Control deployment
 N_serving      a Cell's serving Nodes
 N_published    the published Node count; N_frozen that count frozen by an outage
 N_reenrolled   unqualified Nodes re-enrolled or reconnected after a rebuild or list-less restore
+list-less      a restore without the Node revocation list, which also loses qualification
 ceiling        a limits[] entry's per-Node ceiling; requests its Cell-wide limit per window
 ```
 

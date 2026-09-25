@@ -1,0 +1,106 @@
+{
+  "lens": "L2",
+  "verdict": "revise",
+  "score": 7,
+  "blocking": [
+    {
+      "id": "L2-1",
+      "section": "Decision outcome > Confirmation",
+      "issue": "The round-trip test asserts a count that contradicts pack section 8.7 rule 3 and the ADR's own Keys row. Rule 3 says consumptive calls run as one script when their keys share a hash slot. The Keys row says the `{<SHA-256 of the key value>}` hash tag lets them share one script. So two `ratelimit` Policies with the same key value on one Route (for example `ratelimit-global` and `ratelimit-orders` in the Configuration model example) make one call between them, not one each. A conforming implementation would fail the test as written.",
+      "evidence": "Line 98: \"- **Round-trip test**, Planned (M1): a counting State Store proxy asserts zero commands for local denials and exactly one per admitted request per Policy.\" Line 54 (Keys row): \"the hash tag lets consumptive calls share one script (pack section 8.7 rule 3)\". Pack 8.7 rule 3: \"one script when their keys share a hash slot, otherwise sequential round trips\".",
+      "fix": "Rewrite as: \"- **Round-trip test**, Planned (M1): a counting State Store proxy asserts zero commands for local denials and over-limit cache hits, at most one blocking call per admitted request per Policy, and one shared script when consumptive keys share a hash slot (pack section 8.7 rules 1 and 3).\""
+    },
+    {
+      "id": "L2-2",
+      "section": "Decision drivers; Decision outcome; Decision outcome > Consequences",
+      "issue": "The ADR says the chosen option shields shards and lists hot-key protection as a driver. Its Consequences never say that a key spread across many Nodes, such as a busy service limit, still saturates its shard. The owning document's Failure matrix gives the saturation outcome, and Scalability and distributed state adds a MUST for `localOnly` mode above about 25,000 `requests` per second (hypothesis). By omitting both, the ADR claims more than its owning documents and hides the main open dependency (OQ-traffic-management-and-resilience-1 (c)).",
+      "evidence": "Line 29: \"- **Hot-key protection**: one busy key must not starve its shard's co-tenants.\" Line 45: \"because the local bucket answers most denials and shields shards without a round trip\". Compare docs/architecture/09-traffic-management-and-resilience.md, Failure matrix: \"| Hot constant key saturates a shard | `ratelimit`; co-tenant keys | Up to N × ceiling calls per window; above about 100,000 per second (hypothesis) every Node's shard breaker opens and co-tenants apply `failureMode` |\". Compare docs/architecture/11-scalability-and-distributed-state.md line 294: \"A key whose `requests` exceed 25% of one shard's calls, about 25,000 per second (hypothesis), MUST use `localOnly` mode, option (c) of OQ-traffic-management-and-resilience-1\".",
+      "fix": "In line 45, change \"shields shards without a round trip\" to \"shields shards from pinned clients without a round trip\". Replace the Consequences bullet at line 89 with: \"- Bad, because each admitted request runs a script, and per-shard script throughput is unmeasured (Valkey 8's 1.19 million per second are `SET`, not `EVAL`, [source](https://valkey.io/blog/unlock-one-million-rps-part2/)). The owning document assumes about 100,000 calls per second per shard (hypothesis), so a key spread over many Nodes with more than about 25,000 `requests` per second saturates its shard and co-tenants apply `failureMode`, until `localOnly` mode (OQ-traffic-management-and-resilience-1) exists.\""
+    },
+    {
+      "id": "L2-3",
+      "section": "Decision outcome (Per-Node ceiling and State Store failure rows; Figure 1)",
+      "issue": "The ADR says fail-open admits \"within the local buckets\", with the full limit as the ceiling when a Node has no declared ceiling and no count. The owning document and Scalability and distributed state clamp the buckets while GCRA fails. Derived ceilings drop to the unfloored max(1, 2 × `requests` / N_published) per aligned window. A Control-mode Node without a count, whose normal ceiling is the full limit, drops to max(1, `requests` / 100). Read literally, the ADR lets a Control-mode Node without a count fail open at the full limit, so N_countless Nodes admit N_countless × limit. The owning document admits N_countless × max(1, `requests` / 100). This contradicts the owning document's Failure matrix row and the bounds table.",
+      "evidence": "Line 50: \"never learned from peers; with neither, as in file mode, the full limit\". Line 55: \"`open` (default) admits within the local buckets\". Line 78: \"fm -- \\\"open, default\\\" --> ok2[\\\"Admit within the local buckets\\\"]\". Compare docs/architecture/09-traffic-management-and-resilience.md line 256: \"admit[\\\"Admit from unfloored local buckets (target)\\\"]\", and line 264: \"A Control-mode Node without a count clamps to max(1, `requests` / 100) (target)\". Failure matrix: \"a Node restarted meanwhile has none: full-limit ceiling, fail-open clamp max(1, `requests` / 100) per window\". Compare docs/architecture/11-scalability-and-distributed-state.md, Consistency and accuracy bounds: \"| Rate Limit, fail-open | Control-mode Node without a count | N_countless × max(1, `requests` / 100) per window ...\".",
+      "fix": "Replace the State Store failure row's rule with: \"A failed or timed-out call, or an open State client breaker, applies `failureMode`: `open` (default) admits from the local buckets, which [Per-Node ceiling](../architecture/09-traffic-management-and-resilience.md#per-node-ceiling) clamps while GCRA fails (derived ceilings unfloored; a Control-mode Node without a count at max(1, `requests` / 100)); `closed` returns 503 `RZ-STS-<NNN>`\". In the Per-Node ceiling row, change \"with neither, as in file mode, the full limit\" to \"with neither (file mode, or a Control-mode Node without a count), the full limit\". Relabel Figure 1 node ok2 as \"Admit from the clamped local buckets\"."
+    },
+    {
+      "id": "L2-4",
+      "section": "Context and problem statement",
+      "issue": "The sentence uses the present tense for a feature that does not exist yet. Nothing is implemented, so style guide section 4 and pack section 2 require the `Planned (Mx)` framing for every Ruralz capability. \"Ruralz ships it free\" states shipped status.",
+      "evidence": "Line 22: \"KrakenD sells stateful Redis-backed rate limiting only in EE ([source](https://www.krakend.io/features/)); Ruralz ships it free.\"",
+      "fix": "Rewrite the clause as \"; Ruralz will offer it free, Planned (M1).\" or \"; in Ruralz it is planned free for everyone.\""
+    }
+  ],
+  "non_blocking": [
+    {
+      "section": "Whole document (length band)",
+      "suggestion": "Counted with the verifier's countWords, the body is 1,493 words, so only 7 words remain under the 1,500 maximum. The L2-1 to L2-3 fixes add about 50 words, so shorten text that resolved no earlier finding (this is the first review of ADR-0008) to make room. Candidates: the parenthetical glosses of each OQ in the More information 'Pending amendments' bullet, the second clause of the Dependency admission Confirmation bullet, and the Option 1 line's repeated Envoy citation, which the Option 1 Pros already carry."
+    },
+    {
+      "section": "Decision outcome (State Store failure row, Figure 1)",
+      "suggestion": "Scalability and distributed state ('State client and RZ-STS error codes') registers concrete codes: RZ-STS-001 (timeout), RZ-STS-002 (connection error or error reply, including `NOSCRIPT`) and RZ-STS-003 (breaker open, call skipped). Name them in place of the pattern `RZ-STS-<NNN>`, for example \"`closed` returns 503 `RZ-STS-001` to `RZ-STS-003`\", so readers do not take the pack's format pattern for an unassigned code."
+    },
+    {
+      "section": "Decision outcome (Figure 1)",
+      "suggestion": "Step 1 of the owning document's Decision path and its Figure 3 start with `when` (false skips the Policy) before `config.key` is evaluated. Figure 1 starts at `config.key`. Add a `when` decision node so the two figures agree."
+    },
+    {
+      "section": "Considered options (option 3)",
+      "suggestion": "\"each Node enforces a share of the limit, as Tyk's DRL ... and Kong's default `policy: local`\" is accurate for Tyk, whose DRL divides the limit across gateways according to scalability-patterns.md. For Kong the research records only that `policy: local` is the default and counts per node, so each node enforces the full limit, which is the 'limit silently scales with Node count' the option's Bad bullet describes. Rewrite as \"each Node enforces a share of the limit, as Tyk's DRL does, or the whole limit, as Kong's default `policy: local` does\"."
+    },
+    {
+      "section": "Considered options (option 1) and Pros and cons",
+      "suggestion": "Envoy's page says local limiting \"can be used in conjunction with global rate limiting to reduce load\" (scalability-patterns.md). It does not recommend the hybrid. Change \"the hybrid Envoy recommends\" to \"the hybrid Envoy documents\"."
+    },
+    {
+      "section": "Pros and cons of the options",
+      "suggestion": "Option 6 is \"Option 1 failing closed by default\" but its H3 is \"Local bucket plus GCRA, fail-closed by default\". Use one label in both places so readers can match each option to its pros and cons."
+    },
+    {
+      "section": "Decision drivers; Consequences; Pros and cons",
+      "suggestion": "Pack section 2 lists \"shard\" among the words never to use for a Cell. The ADR uses \"shard\" only in the Redis Cluster sense, as documents 09 and 11 do, but write \"State Store shard\" at first use (line 29) so a pedantic reader cannot mistake it for the forbidden Cell alias."
+    },
+    {
+      "section": "Acceptance (ADR index)",
+      "suggestion": "docs/adr/README.md does not exist yet, so the index-link criterion cannot pass. The owning document already links this ADR at lines 20 and 200. Nothing changes in this ADR; the ADR index writer must add the ADR-0008 row."
+    },
+    {
+      "section": "More information",
+      "suggestion": "The owning document's first-seen budget (Decision path step 3) and the Node-wide 1,048,576-entry cap on buckets and over-limit entries (target) bound per-Node memory for this decision. The ADR mentions neither, apart from OQ-20. If the word budget allows, add a short pointer to [Decision path](../architecture/09-traffic-management-and-resilience.md#decision-path) for them."
+    }
+  ],
+  "ac_results": [
+    {
+      "ac": "Front matter contains id, title, status, date, deciders and related, and status matches this manifest.",
+      "pass": true,
+      "note": "id ADR-0008. The title matches the manifest title exactly. status is accepted, as in the manifest. date is 2026-09-25, deciders is [ruralz-core], and related lists the owning document, the foundation pack, the tech stack, documents 11, 02 and 01."
+    },
+    {
+      "ac": "H2 headings match adr_common.outline_h2 exactly and in order, and Decision outcome contains the H3 headings Consequences and Confirmation.",
+      "pass": true,
+      "note": "The six H2 headings appear in the required order, and Consequences and Confirmation are H3 headings under Decision outcome. verify-docs prints no FAIL line for this file, and the body is 1,493 words (band 400 to 1,500)."
+    },
+    {
+      "ac": "Considered options lists at least two options including the chosen one, and each has pros and cons.",
+      "pass": true,
+      "note": "Six options, including the chosen one. Each has an H3 under Pros and cons with Good and Bad bullets, and every option cites URLs that appear in docs/_meta/research/scalability-patterns.md (Envoy, Stripe, redis_rate, Tyk, Kong, Cloudflare, Doorman, RLQS). Option 6's H3 label differs from its option name (non-blocking)."
+    },
+    {
+      "ac": "Decision outcome states the chosen option as 'Chosen option: ..., because ...' and matches the foundation pack section 7 row for this ADR.",
+      "pass": true,
+      "note": "It reads \"Chosen option: \\\"Local bucket plus GCRA, fail-open\\\", because ...\". The option matches the pack section 7 row and section 8.8: a local token bucket at the per-Node ceiling, GCRA in one Lua `EVAL` (as `EVALSHA`), fail-open by default, configurable per Policy, and over-admission bounded by N × per-Node ceiling. It also matches the manifest decision. The rules under it diverge from the owning document on fail-open clamps (L2-3)."
+    },
+    {
+      "ac": "Confirmation names a concrete verification mechanism (test, lint rule, CI gate or review checklist item).",
+      "pass": true,
+      "note": "It names integration tests in `pr-full`, a round-trip test, chaos experiments CE-3, CE-4, CE-5, CE-12 and CE-15, dependency admission and a review checklist item. The round-trip test's assertion contradicts pack 8.7 rule 3 (L2-1), but concrete mechanisms are named."
+    },
+    {
+      "ac": "The ADR is linked from docs/adr/README.md and from its owning document.",
+      "pass": false,
+      "note": "docs/architecture/09-traffic-management-and-resilience.md links the ADR at lines 20 and 200. docs/adr/README.md does not exist yet (it is written in a later wave), so this criterion fails, and the failure cannot be fixed in this file."
+    }
+  ],
+  "foundation_amendments": []
+}

@@ -1,6 +1,6 @@
 ---
 title: Migration from KrakenD
-status: draft
+status: reviewed
 owner: ruralz-core
 last_updated: 2026-09-25
 depends_on:
@@ -16,24 +16,23 @@ milestone_tags_used: [M1, M2, M3, M4, M5]
 
 ## Summary
 
-This is the migration guide from KrakenD Community Edition (CE) and Enterprise Edition (EE) to Ruralz. It maps every top-level KrakenD configuration key and every `extra_config` namespace of the v2.13 schema to Ruralz kinds, fields and Policy types. It defines the four fidelity levels that `ruralz bundle import krakend`, Planned (M2), reports, sets the two plugin migration paths, gives a cutover runbook with shadow traffic, side-by-side cutover and rollback, and lists the gaps. Evaluators use it to size a migration; operators use it to run one. Nothing is implemented yet.
+This guide takes KrakenD Community Edition (CE) and Enterprise Edition (EE) configurations to Ruralz. It maps every top-level key and `extra_config` namespace of the v2.13 schema to Ruralz kinds, fields and Policy types, defines the four fidelity levels that `ruralz bundle import krakend`, Planned (M2), reports, sets two plugin migration paths, gives a cutover runbook with shadow traffic, side-by-side cutover and rollback, and lists the gaps. Nothing is implemented yet.
 
 ## Scope and non-goals
 
-In scope: KrakenD CE v2.13.11 ([source](https://github.com/krakend/krakend-ce/releases)) and KrakenD EE 2.13 ([source](https://www.krakend.io/blog/krakend-ee-2.13-release-notes/)) configurations as of the 2026-09-23 snapshot, described by the v2.13 JSON Schema ([source](https://www.krakend.io/schema/v2.13/krakend.json)); the key mapping; the design of `ruralz bundle import krakend`; porting Go plugins and Lua; the cutover runbook; and migration gaps. The [Configuration model](../architecture/02-configuration-model.md#coming-from-krakend) fixes the core mapping and delegates level definitions and the full mapping to this document. Every statement about what the importer "emits" or a Node "does" describes planned behavior tagged `Planned (Mx)`.
+In scope: KrakenD CE v2.13.11 ([source](https://github.com/krakend/krakend-ce/releases)) and EE 2.13 ([source](https://www.krakend.io/blog/krakend-ee-2.13-release-notes/)) configurations at the 2026-09-23 snapshot, per the v2.13 JSON Schema ([source](https://www.krakend.io/schema/v2.13/krakend.json)). The [Configuration model](../architecture/02-configuration-model.md#coming-from-krakend) fixes the core mapping and delegates level definitions and the full mapping here. What the importer "emits" or a Node "does" is planned behavior.
 
 Non-goals:
 
 - **Parity decisions.** The [KrakenD EE parity matrix](01-krakend-ee-parity-matrix.md) owns them; this document follows its status column.
 - **Field design.** Kinds, fields and Policy types belong to the [Configuration model](../architecture/02-configuration-model.md#kind-catalog); a missing field becomes an Open question, never an invented field.
 - **Pre-2.0 KrakenD configurations.** They are first converted with KrakenD's `krakend-config-migrator` ([source](https://www.krakend.io/docs/configuration/migrating/)).
-- **KrakenD CE 3.0 beyond Go plugin removal.** The research found no CE 3.0 release tag at the snapshot and did not investigate other configuration changes on the `dev-3.0` branch, into which plugin removal was merged ([source](https://github.com/krakend/krakend-ce/pull/1106)).
+- **KrakenD CE 3.0 beyond Go plugin removal.** No CE 3.0 release tag existed at the snapshot, and other changes on the `dev-3.0` branch, where plugin removal was merged ([source](https://github.com/krakend/krakend-ce/pull/1106)), are uninvestigated.
 - **Performance comparisons.** KrakenD's published benchmarks use the pre-2.0 `"version": 1` format ([source](https://www.krakend.io/docs/benchmarks/local/)); comparative numbers wait for the [Performance budgets and benchmarking](../architecture/12-performance-budgets-and-benchmarking.md) bench suite, Planned (M4).
-- **Commercial migration help.** A support offering; the importer stays free ([parity matrix](01-krakend-ee-parity-matrix.md#enterprise-support-and-services)).
 
-KrakenD vocabulary appears verbatim where it names KrakenD objects: a KrakenD "endpoint" is a Ruralz `Route` and a KrakenD "backend" is a Ruralz `Upstream` plus, when a request fans out, a composition step. Lines that quote those KrakenD terms carry the alias escape comment. <!-- alias-ok -->
+KrakenD vocabulary appears verbatim where it names KrakenD objects: a KrakenD "endpoint" is a Ruralz `Route`, and a KrakenD "backend" is a Ruralz `Upstream` plus, when a request fans out, a composition step. <!-- alias-ok -->
 
-*Figure 1: the migration path from a KrakenD configuration to a decommissioned KrakenD, with the rollback edge back to KrakenD.*
+*Figure 1: the migration path from a KrakenD configuration to decommission, with rollback edges.*
 
 ```mermaid
 flowchart LR
@@ -54,7 +53,7 @@ flowchart LR
 
 ## Concept mapping
 
-A KrakenD configuration is one file: a service object, an `endpoints` array with backends, and `extra_config` namespaces at five scopes ([source](https://www.krakend.io/schema/v2.13/krakend.json)). A Ruralz Bundle is a directory of resources: one `Gateway`, one `Route` per published path and method, and named `Upstream` and `Policy` resources attached by reference ([Configuration model](../architecture/02-configuration-model.md#resource-model)). A built-in Filter or a WASM Plugin implements each `Policy`. <!-- alias-ok -->
+A KrakenD configuration is one file: a service object, an `endpoints` array with backends, and `extra_config` namespaces at five scopes ([source](https://www.krakend.io/schema/v2.13/krakend.json)). A Ruralz Bundle is a directory of resources: one `Gateway`, one `Route` per published path and method, and named `Upstream` and `Policy` resources attached by reference ([Configuration model](../architecture/02-configuration-model.md#resource-model)). <!-- alias-ok -->
 
 ### Core concepts
 
@@ -76,12 +75,8 @@ A KrakenD configuration is one file: a service object, an `endpoints` array with
 | KrakenD nodes sharing only a file ([source](https://www.krakend.io/docs/deploying/clustering/)) | A `Cluster` of Nodes sharing one Revision | Planned (M1) file mode; Planned (M2) Control mode | Digest-verified |
 | Go plugins (`.so`) | WASM `Plugin` attached by a `plugin` Policy, or a built-in Filter | Planned (M2) | [Plugin migration](#plugin-migration) |
 | Lua scripts | CEL fields or a WASM `Plugin` | Planned (M1) CEL; Planned (M2) Plugins | No Lua runtime ([ADR-0011](../adr/0011-expressions-and-authorization-engines.md)) |
-| CEL in `validation/cel` and `security/policies` | `authz.cel` `config.rule`, `Policy.spec.when`, step `when` | Planned (M1) | cel-go, cost-checked at validation |
 | API keys listed in the file | One `Consumer` per key with a hashed `credentials.apiKeys` entry and an `auth.api-key` Policy | Planned (M1) | Never stored plain |
 | Tier header in rate limits and quotas | `Consumer.spec.tier` read by `Policy.spec.when`, or a CEL `when` over `request.headers` | Planned (M1) | [Namespace table](#extra_config-namespaces) |
-| Named Redis connection pools | Gateway `stateStore` (`driver: redis`) | Planned (M1) | One State Store per Cell |
-| Quota processors | `quota` Policy against `Consumer` `quotas`; `ai.token-budget` for tokens | Planned (M1); tokens Planned (M3) | Weighted costs are partial parity |
-| Async agents | `Route` `match.topic` with a `kafka`, `nats` or `mqtt` `Upstream` | Planned (M4) | Ingress declaration per OQ-configuration-model-11 |
 | `/__health/` on the service port | `/healthz` and `/readyz` on the `ruralzd` admin port | Planned (M1) | Load balancer checks move to the admin port |
 | `/__stats/` and extended metrics | `/metrics` on the admin port and OTLP export | Planned (M1) | Metric names `ruralz_<component>_<name>_<unit>` |
 | `/__debug/` and `/__echo/` | `ruralz dev tap` over `/tap` on the admin port | Planned (M1) | Redacted traffic metadata |
@@ -130,7 +125,7 @@ An endpoint entry requires `endpoint` and `backend`; a backend requires only `ur
 |---|---|---|---|
 | endpoint `endpoint` | `match.path.template` when the path holds `{placeholders}`, else `match.path.exact` | `exact` | Case-sensitive in KrakenD ([source](https://www.krakend.io/schema/v2.13/krakend.json)); matching per [Data plane](../architecture/03-data-plane.md) <!-- alias-ok --> |
 | endpoint `method` | `match.methods: [<method>]` | `exact` | One method per entry, default `GET` ([source](https://www.krakend.io/docs/endpoints/)) <!-- alias-ok --> |
-| endpoint `output_encoding: no-op` | `Route` with plain `upstreams`; bytes stream unchanged | `exact` | Proxy-only in KrakenD <!-- alias-ok --> |
+| endpoint `output_encoding: no-op` | `Route` with plain `upstreams`; bytes stream unchanged | `exact`; `approximate` for streaming | Proxy-only in KrakenD. A no-op endpoint whose backends are all `encoding: no-op` is KrakenD's streaming configuration ([source](https://www.krakend.io/docs/enterprise/endpoints/streaming/)); before M3 the importer adds one `approximate` item per such Route, because `text/event-stream` flushes per read, not per event, until SSE, Planned (M3) ([Data plane](../architecture/03-data-plane.md)) <!-- alias-ok --> |
 | endpoint `output_encoding: json` or `fast-json` | Plain `upstreams` for one backend without manipulation; `composition.mode: aggregate` otherwise | `equivalent` | JSON key order and whitespace may differ <!-- alias-ok --> |
 | endpoint `output_encoding: json-collection` | `composition.mode: aggregate` with step `collection: true` | `approximate` | Array framing follows the Ruralz merge <!-- alias-ok --> |
 | endpoint `output_encoding` `xml`, `yaml`, `negotiate`, `string` | None | `manual` | No re-encoding (OQ-krakend-ee-parity-matrix-2) <!-- alias-ok --> |
@@ -160,7 +155,7 @@ An endpoint entry requires `endpoint` and `backend`; a backend requires only `ur
 | backend `input_headers`, `input_query_strings` | As the endpoint rows | `manual`, security-flagged | Folded into the Route's forwarding item <!-- alias-ok --> |
 | backend `extra_config` | Upstream-scoped Policies or `Upstream` fields | Per namespace | Upstream-scoped Policies run only in that upstream leg <!-- alias-ok --> |
 | endpoint `proxy.sequential` | `composition.mode: sequential` | `equivalent` | Steps run in list order <!-- alias-ok --> |
-| endpoint `proxy.sequential_propagated_params` and `{resp0_field}` placeholders | Step `pathExpression` over `steps.<name>.body` | `equivalent` | The importer rewrites each placeholder to a CEL expression <!-- alias-ok --> |
+| endpoint `proxy.sequential_propagated_params` and the placeholders it propagates | Step `pathExpression` over `steps.<name>.body` | `approximate` | Placeholder syntax and propagation semantics are unresearched (the research records only the key); the importer reports each placeholder it rewrites to a CEL expression <!-- alias-ok --> |
 | endpoint `proxy.combiner` | None | `manual` | Custom merge logic becomes a `plugin` Policy <!-- alias-ok --> |
 | endpoint `proxy.static` | A `plugin` Policy that short-circuits with a static response | `manual` | Built-in static responses per OQ-krakend-ee-parity-matrix-3 <!-- alias-ok --> |
 | `proxy.flatmap_filter` | `transform.response` | `manual` | `config` schema per OQ-krakend-ee-parity-matrix-1 ([source](https://www.krakend.io/docs/backends/flatmap/)) |
@@ -170,11 +165,11 @@ An endpoint entry requires `endpoint` and `backend`; a backend requires only `ur
 
 ### extra_config namespaces
 
-The 86 rows cover every v2.13 namespace the research records, split by scope where mappings differ: S service, E endpoint, B backend, W workflow, A async agent ([source](https://www.krakend.io/schema/v2.13/krakend.json)). Editions, marked inconsistently ([source](https://www.krakend.io/features/)), do not change the mapping, since every Ruralz target is free (P1). Both legacy spellings, `github_com/...` and `github.com/...`, normalize to the v2 names, as KrakenD CE registers both ([source](https://github.com/krakend/krakend-ce/blob/master/cmd/krakend-ce/main.go)). <!-- alias-ok -->
+The 87 rows cover every v2.13 namespace the research records, split by scope where mappings differ: S service, E endpoint, B backend, W workflow, A async agent ([source](https://www.krakend.io/schema/v2.13/krakend.json)). Editions, marked inconsistently ([source](https://www.krakend.io/features/)), do not change the mapping, since every Ruralz target is free (P1). Both legacy spellings, `github_com/...` and `github.com/...`, normalize to the v2 names, as KrakenD CE registers both ([source](https://github.com/krakend/krakend-ce/blob/master/cmd/krakend-ce/main.go)). <!-- alias-ok -->
 
 | Namespace | Scope | Ruralz target | Fidelity | Notes |
 |---|---|---|---|---|
-| `auth/validator` | E | `auth.jwt` Policy on the `Route` with `issuers[]` (`issuer`, `jwksUrl`, `audiences`); role and scope checks become an `authz.cel` rule over `auth.claims`, Planned (M1) | `equivalent` for a key-set URL whose algorithms Ruralz accepts (RS256, PS256, ES256, EdDSA per the [parity matrix](01-krakend-ee-parity-matrix.md#authentication-and-authorization)); `manual` with a hold for local keys, other algorithms, or an endpoint that also sets `auth/api-keys` or `auth/basic` | One `auth` slot per Route (OQ-configuration-model-13); [Security and identity](../architecture/08-security-and-identity.md#jwt-and-oidc) ([source](https://www.krakend.io/docs/authorization/jwt-validation/)) <!-- alias-ok --> |
+| `auth/validator` | E | `auth.jwt` Policy on the `Route` with `issuers[]` (`issuer`, `jwksUrl`, `audiences`); role and scope checks become an `authz.cel` rule over `auth.claims`, Planned (M1) | `equivalent` for signature, issuer and audience checks from a key-set URL whose algorithms Ruralz accepts (RS256, PS256, ES256, EdDSA per the [parity matrix](01-krakend-ee-parity-matrix.md#authentication-and-authorization)); `approximate` for the role and scope rule, since KrakenD role and scope fields are unresearched; `manual` with a hold for local keys, other algorithms, or an endpoint that also sets `auth/api-keys` or `auth/basic` | One `auth` slot per Route (OQ-configuration-model-13); [Security and identity](../architecture/08-security-and-identity.md#jwt-and-oidc) ([source](https://www.krakend.io/docs/authorization/jwt-validation/)) <!-- alias-ok --> |
 | `auth/validator` | S | None: Nodes fetch and cache issuer keys under Security and identity rules | `approximate` | KrakenD holds the global key-set client and cache settings here |
 | `auth/validator` `propagate_claims` | E | Route-scoped `headers` Policy with `request.set[].valueExpression` over `auth.claims` and `when: 'auth != null'`, run in `onRequestHeaders` after the auth Filter class | `equivalent` | Route scope keeps it off Routes that share the Upstream without JWT validation; named in KrakenD's LLM routing guide ([source](https://www.krakend.io/docs/enterprise/ai-gateway/llm-routing/)) |
 | `auth/signer` | E | A built-in JWT signing type, not yet in the registry, Planned (M2) | `manual` | OQ-security-and-identity-11 ([source](https://www.krakend.io/docs/authorization/jwt-signing/)) |
@@ -203,7 +198,7 @@ The 86 rows cover every v2.13 namespace the research records, split by scope whe
 | `security/bot-detector` | S, E | `authz.cel` `config.rule` matching `request.headers["user-agent"]` | `approximate` | Long pattern lists exceeding the CEL cost bound need a `plugin` Policy ([source](https://www.krakend.io/docs/throttling/botdetector/)) |
 | `security/cors` | S, E | `cors` Policy with `allowOrigins` and `allowMethods`, Gateway or Route scope | `equivalent` when only those are set; `approximate` otherwise | Other fields wait for OQ-migration-from-krakend-1 ([source](https://www.krakend.io/docs/service-settings/cors/)) |
 | `security/http` | S, E | `headers` Policy with `response.set[]` for each security header, on the `Gateway` with `overridable: false` (S) or on the `Route` (E) | `equivalent` | HSTS, HPKP, clickjacking and similar headers ([source](https://www.krakend.io/docs/service-settings/security/)) |
-| `router` | S | `max_payload` to `limits.maxRequestBodyBytes`; `logger_skip_paths` and `disable_access_log` to `telemetry.accessLog.when`; `health_path` to 9901 `/readyz` | `approximate`; `manual` for `trusted_proxies` and `remote_ip_headers` | Those two wait for OQ-security-and-identity-6; `return_error_msg` follows the Ruralz error format ([source](https://www.krakend.io/docs/service-settings/router-options/)) |
+| `router` | S | `max_payload` to `limits.maxRequestBodyBytes`; `logger_skip_paths` and `disable_access_log` to a `telemetry.accessLog.when` expression the report carries, unwritten, for use after cutover Stage 6; `health_path` to 9901 `/readyz` | `approximate`; `manual` for `trusted_proxies` and `remote_ip_headers` | Those two wait for OQ-security-and-identity-6; `return_error_msg` follows the Ruralz error format ([source](https://www.krakend.io/docs/service-settings/router-options/)) |
 | `server/virtualhost` | S | `Route` `match.hosts` with listener `hostnames` | `equivalent` | ([source](https://www.krakend.io/docs/enterprise/service-settings/virtual-hosts/)) |
 | `server/static-filesystem` | S | Built-in static-content type, Planned (M5) | `manual` | OQ-krakend-ee-parity-matrix-3 ([source](https://www.krakend.io/docs/enterprise/endpoints/serve-static-content/)) |
 | `grpc` | S | `Route` `match.grpc` and `grpc` Upstreams, Planned (M3) | `manual` | Descriptor source per OQ-multi-protocol-1 ([source](https://www.krakend.io/docs/enterprise/grpc/server/)) |
@@ -221,13 +216,14 @@ The 86 rows cover every v2.13 namespace the research records, split by scope whe
 | `modifier/response-body` | E, B | `transform.response` literal or regular expression replacement | `manual` | ([source](https://www.krakend.io/docs/enterprise/endpoints/content-replacer/)) |
 | `modifier/request-body-extractor` and its `/early` variant | S, E | `transform.request` copying body fields to headers or the query string | `manual` | New in 2.13 ([source](https://www.krakend.io/docs/enterprise/endpoints/request-body-extractor/)) |
 | `modifier/response-headers` | S | Gateway `headers` Policy `response.set[]` | `equivalent` for set operations; `approximate` otherwise | ([source](https://www.krakend.io/docs/enterprise/service-settings/response-headers-modifier/)) |
-| `validation/cel` | E, W | `authz.cel` `config.rule` on the `Route` | `approximate` | Variables are rewritten; the rejection status follows Ruralz authz codes ([source](https://www.krakend.io/docs/endpoints/common-expression-language-cel/)) |
+| `validation/cel` | E | `authz.cel` `config.rule` on the `Route` | `approximate` | Variables are rewritten; the rejection status follows Ruralz authz codes ([source](https://www.krakend.io/docs/endpoints/common-expression-language-cel/)) |
+| `validation/cel` | W | A step `when` over `steps`, Planned (M1), where skipping the leg is acceptable, or an Upstream-scoped `plugin` Policy with `filterClass: validation`, Planned (M2) | `manual` with a hold | KrakenD aborts one backend call; a Route `authz.cel` would reject the whole aggregated request and cannot read `steps` <!-- alias-ok --> |
 | `validation/cel` | B | A validation-class `plugin` Policy at Upstream scope | `manual` with a hold | Response checks have no built-in type <!-- alias-ok --> |
 | `validation/json-schema` | E, W | `validation.json-schema` Policy on the `Route`, Planned (M1) | `manual` with a hold until the schema field is registered, then `equivalent` | OQ-migration-from-krakend-1 ([source](https://www.krakend.io/docs/endpoints/json-schema/)) |
 | `validation/response-json-schema` | E, B | `validation.json-schema` in response Phases, Planned (M5) | `manual` | OQ-krakend-ee-parity-matrix-3 ([source](https://www.krakend.io/docs/enterprise/endpoints/response-schema-validator/)) |
 | `workflow` | B | `composition.mode: sequential` with step `when` | `approximate` for linear workflows; `manual` for nested workflows | Nesting is unlimited in KrakenD ([source](https://www.krakend.io/docs/enterprise/endpoints/workflows/)) |
 | `backend/http` | B | Upstream statuses pass through; step `optional` | `approximate` | `return_error_code` and `return_error_details` differ from the `RZ-<AREA>-<NNN>` format ([source](https://www.krakend.io/docs/backends/detailed-errors/)) <!-- alias-ok --> |
-| `backend/http/client` | B | `client_tls` to `Upstream.spec.tls`; `no_redirect: true` is the Ruralz default, since 3xx responses pass through | `equivalent` | `proxy_address` per OQ-krakend-ee-parity-matrix-6, Planned (M5) ([source](https://www.krakend.io/docs/backends/http-client/)) <!-- alias-ok --> |
+| `backend/http/client` | B | `client_tls` to `Upstream.spec.tls`; `proxy_address` to an egress field, Planned (M5) | `equivalent` for `no_redirect: true`; `approximate` for `client_tls`, as the root row, for `no_redirect` false or absent, and for `send_body_on_redirect`, reported unmapped; `manual` for `proxy_address` (rule 4) | KrakenD redirect handling is unresearched (the research records sub-key names only); Ruralz passes 3xx responses to the client (OQ-traffic-management-and-resilience-13); egress field per OQ-krakend-ee-parity-matrix-6 ([source](https://www.krakend.io/docs/backends/http-client/)) <!-- alias-ok --> |
 | `backend/graphql` | B | `graphql` Upstream, Planned (M3); REST-to-GraphQL request building through `transform.request` | `manual` | ([source](https://www.krakend.io/docs/backends/graphql/)) <!-- alias-ok --> |
 | `backend/grpc` | B | `grpc` Upstream, Planned (M3) | `manual` | Transcoding descriptors per OQ-multi-protocol-1 ([source](https://www.krakend.io/docs/enterprise/backends/grpc/)) <!-- alias-ok --> |
 | `backend/lambda` | B | None: Not planned | `manual` | OQ-krakend-ee-parity-matrix-10 ([source](https://www.krakend.io/docs/backends/lambda/)) <!-- alias-ok --> |
@@ -263,18 +259,18 @@ The 86 rows cover every v2.13 namespace the research records, split by scope whe
 
 ### Built-in KrakenD EE plugins
 
-KrakenD EE ships built-in plugins under the plugin namespaces: `geoip`, `ip-filter`, `jwk-aggregator`, `redis-ratelimit`, `static-filesystem`, `url-rewrite`, `virtualhost` and `wildcard` under `plugin/http-server`, and `content-replacer`, `ip-filter` and `response-schema-validator` under `plugin/req-resp-modifier` ([source](https://www.krakend.io/docs/extending/http-server-plugins/)) ([source](https://www.krakend.io/docs/extending/plugin-modifiers/)). Being configuration, not code, they map to built-in types.
+KrakenD EE ships built-in plugins under the plugin namespaces: `geoip`, `ip-filter`, `jwk-aggregator`, `redis-ratelimit`, `static-filesystem`, `url-rewrite`, `virtualhost` and `wildcard` under `plugin/http-server`, and `content-replacer`, `ip-filter` and `response-schema-validator` under `plugin/req-resp-modifier` ([source](https://www.krakend.io/docs/extending/http-server-plugins/)) ([source](https://www.krakend.io/docs/extending/plugin-modifiers/)). Being configuration, not code, they map to built-in types; the research records only their names, so mappings that depend on sub-key semantics are `approximate`.
 
 | KrakenD built-in plugin | Ruralz target | Fidelity | Notes |
 |---|---|---|---|
 | `geoip` | `authz.geoip`, Planned (M2) | `manual`, security-flagged, with a hold | The country comes from `source.ip`, as for `ip-filter`; header enrichment for Upstreams is an Open question of Security and identity |
 | `ip-filter` | `authz.ip` by CIDR on `source.ip`, Planned (M1) | `manual`, security-flagged, with a hold | Behind a load balancer `source.ip` is the balancer's address until OQ-security-and-identity-6 closes, so a denylist admits and an allowlist denies every client ([parity matrix](01-krakend-ee-parity-matrix.md#traffic-management)); the hold goes only once Nodes see client addresses directly or that question closes |
-| `jwk-aggregator` | Several `issuers[]` entries in one `auth.jwt` Policy | `equivalent` | Each issuer keeps its own `jwksUrl` |
+| `jwk-aggregator` | Several `issuers[]` entries in one `auth.jwt` Policy | `approximate` | Sub-key semantics unresearched |
 | `redis-ratelimit` | `ratelimit` on the `redis` driver | `approximate` | Deprecated since EE 2.8 ([source](https://www.krakend.io/docs/enterprise/throttling/global-rate-limit/)) |
 | `static-filesystem` | Built-in static-content type, Planned (M5) | `manual` | OQ-krakend-ee-parity-matrix-3 |
-| `url-rewrite` | Composition step `path` or `pathExpression` | `equivalent` for `GET` and `HEAD` | OQ-traffic-management-and-resilience-13 |
+| `url-rewrite` | Composition step `path` or `pathExpression` | `approximate` | Sub-key semantics unresearched; OQ-traffic-management-and-resilience-13 |
 | `virtualhost` | `match.hosts` | `equivalent` | Host header matching |
-| `wildcard` | `match.path.prefix` | `equivalent` | Wildcard hosts per OQ-data-plane-2 |
+| `wildcard` | `match.path.prefix` | `approximate` | Sub-key semantics unresearched; wildcard hosts per OQ-data-plane-2 |
 | `content-replacer` | `transform.response` | `manual` | OQ-krakend-ee-parity-matrix-1 |
 | `response-schema-validator` | `validation.json-schema` in response Phases, Planned (M5) | `manual` | OQ-krakend-ee-parity-matrix-3 |
 
@@ -497,7 +493,6 @@ spec:
 | Output | Content | Where |
 |---|---|---|
 | Bundle | `ruralz.yaml` with the `Gateway`, and one file per kind under `routes/`, `upstreams/`, `policies/`, `consumers/` and `ai/` | `DIR` |
-| Annotation | `ruralz.io/import-fidelity`: the lowest level among the resource's items | `metadata.annotations` |
 | Report, human form | Counts per level; each `approximate` and `manual` item with its RFC 6901 pointer into the source, target resource, difference or reason, and a documentation link; values to provision | Standard output |
 | Report, JSON form | The same items plus the `exact` and `equivalent` ones, a `security` flag per item and the list of `secretRef` values to provision | A hidden file under `DIR`, skipped by the Bundle loader; format per OQ-migration-from-krakend-8 |
 | Exit status | 0 when no item is `manual`; 1 when any item is `manual`; 2 when the input is unreadable, is not JSON or has a `version` other than `3` | [Exit codes](../reference/01-cli-and-api-surface.md#exit-codes) |
@@ -507,9 +502,7 @@ spec:
 - **Rendered JSON only.** KrakenD recommends `.json`, and its linter reads only JSON ([source](https://www.krakend.io/docs/configuration/supported-formats/)); other formats are converted first (OQ-migration-from-krakend-9).
 - **Flexible Configuration rendered first.** CE templating writes the rendered file when `FC_OUT` is set ([source](https://github.com/krakend/krakend-flexibleconfig/blob/master/template.go)); EE Extended Flexible Configuration has an `out` setting in `flexible_config.json` ([source](https://www.krakend.io/docs/enterprise/configuration/flexible-config/)). A failed template makes KrakenD CE parse the raw file instead ([source](https://github.com/krakend/krakend-flexibleconfig/blob/master/template.go)), so the operator MUST confirm the rendered file holds no template syntax.
 - **Environment overrides applied.** `KRAKEND_<UPPERCASE_KEY>` overrides root values at runtime ([source](https://www.krakend.io/docs/configuration/environment-vars/)), invisibly to the importer, so the operator writes production values into the file.
-- **Legacy namespaces normalized** to the v2 names ([source](https://github.com/krakend/krakend-ce/blob/master/cmd/krakend-ce/main.go)).
 - **Comment keys ignored.** Keys starting with `@`, `$`, `_` or `#` are schema comments ([source](https://www.krakend.io/schema/v2.13/krakend.json)), skipped silently.
-- **Reserved paths.** `/__health/`, `/__debug/`, `/__echo/`, `/__catchall` and `/__stats/` are reserved ([source](https://www.krakend.io/schema/v2.13/krakend.json)) and mapped as in [Core concepts](#core-concepts).
 
 *Figure 2: the import pipeline from a rendered KrakenD file to a Bundle and a fidelity report.*
 
@@ -536,7 +529,7 @@ flowchart TD
 
 ## Plugin migration
 
-KrakenD offers two custom-code paths: Go plugins loaded from `.so` files built with `-buildmode=plugin` against the same Go version as KrakenD ([source](https://www.krakend.io/docs/extending/http-server-plugins/)), and Lua scripts run by `gopher-lua`, "a Lua5.1(+ goto statement in Lua5.2) VM" ([source](https://github.com/yuin/gopher-lua)). KrakenD CE 3.0 drops Go plugins, announced on 2026-06-04 ([source](https://www.krakend.io/blog/dropping-plugins-support-on-community/)). Ruralz loads neither (vision non-goal 3, [ADR-0011](../adr/0011-expressions-and-authorization-engines.md)), so custom code migrates along two paths:
+KrakenD offers two custom-code paths: Go plugins, `.so` files built with `-buildmode=plugin` against KrakenD's Go version ([source](https://www.krakend.io/docs/extending/http-server-plugins/)), and Lua scripts run by `gopher-lua`, "a Lua5.1(+ goto statement in Lua5.2) VM" ([source](https://github.com/yuin/gopher-lua)). KrakenD CE 3.0 drops Go plugins, announced on 2026-06-04 ([source](https://www.krakend.io/blog/dropping-plugins-support-on-community/)). Ruralz loads neither (vision non-goal 3, [ADR-0011](../adr/0011-expressions-and-authorization-engines.md)), so:
 
 1. **Go plugins** become a built-in Filter configured by a `Policy` where one exists, else a sandboxed WASM `Plugin` on the Go PDK compiled by TinyGo, or another PDK language ([ADR-0005](../adr/0005-plugin-abi-v1.md)).
 2. **Lua scripts** become CEL in a registered field where the script only decides or computes a value, else a WASM `Plugin`.
@@ -559,12 +552,12 @@ flowchart TD
 
 ### Go plugins to built-in Filters or WASM Plugins
 
-| KrakenD plugin type | Registerer and namespace | Typical use | Ruralz target | Planned |
-|---|---|---|---|---|
-| HTTP server (router layer) | `HandlerRegisterer`, `plugin/http-server` ([source](https://github.com/luraproject/lura/blob/master/transport/http/server/plugin/plugin.go)) | Authentication, IP or geography checks, rewrites, custom responses | Built-in `auth.*`, `authz.ip`, `authz.geoip`, `headers` or `cors`; else a Route-scoped `plugin` Policy that short-circuits with `response_send` | Planned (M1) built-ins; Planned (M2) Plugins |
-| HTTP client (replaces the backend client) | `ClientRegisterer`, `plugin/http-client` ([source](https://github.com/luraproject/lura/blob/master/transport/http/client/plugin/plugin.go)) | Custom transports, signing, protocol bridges | Built-in `Upstream` protocols and upstream-auth types; else a separate service behind an `http` Upstream, since Plugins make no outbound calls | Planned (M1) to Planned (M4) <!-- alias-ok --> |
-| Request and response modifier | `ModifierRegisterer`, `plugin/req-resp-modifier` ([source](https://www.krakend.io/docs/extending/plugin-modifiers/)) | Header and body edits, validation | `headers` or `transform.*`; else a `plugin` Policy in body or header Phases, Upstream-scoped for backend-level modifiers | Planned (M1) built-ins; Planned (M2) Plugins <!-- alias-ok --> |
-| Middleware (EE) | `MiddlewareRegisterer`, `plugin/middleware` ([source](https://www.krakend.io/docs/enterprise/extending/middleware-plugins/)) | Proxy-layer wrappers around endpoint or backend calls | A `plugin` Policy at the matching scope and Phases | Planned (M2) <!-- alias-ok --> |
+| KrakenD plugin type | Registerer and namespace | Ruralz target | Planned |
+|---|---|---|---|
+| HTTP server (router layer) | `HandlerRegisterer`, `plugin/http-server` ([source](https://github.com/luraproject/lura/blob/master/transport/http/server/plugin/plugin.go)) | Built-in `auth.*`, `authz.ip`, `authz.geoip`, `headers` or `cors`; else a Route-scoped `plugin` Policy that short-circuits with `response_send` | Planned (M1) built-ins; Planned (M2) Plugins |
+| HTTP client (replaces the backend client) | `ClientRegisterer`, `plugin/http-client` ([source](https://github.com/luraproject/lura/blob/master/transport/http/client/plugin/plugin.go)) | Built-in `Upstream` protocols and upstream-auth types; else a separate service behind an `http` Upstream, since Plugins make no outbound calls | Planned (M1) to Planned (M4) <!-- alias-ok --> |
+| Request and response modifier | `ModifierRegisterer`, `plugin/req-resp-modifier` ([source](https://www.krakend.io/docs/extending/plugin-modifiers/)) | `headers` or `transform.*`; else a `plugin` Policy in body or header Phases, Upstream-scoped for backend-level modifiers | Planned (M1) built-ins; Planned (M2) Plugins <!-- alias-ok --> |
+| Middleware (EE) | `MiddlewareRegisterer`, `plugin/middleware` ([source](https://www.krakend.io/docs/enterprise/extending/middleware-plugins/)) | A `plugin` Policy at the matching scope and Phases | Planned (M2) <!-- alias-ok --> |
 
 Porting steps for a Go plugin that becomes a WASM Plugin:
 
@@ -653,7 +646,7 @@ spec:
 
 ### Lua to CEL or WASM Plugins
 
-KrakenD runs Lua at three layers, `modifier/lua-endpoint` (router, `pre` only), `modifier/lua-proxy` (`pre` and `post`) and `modifier/lua-backend` (`pre`, `post` and `skip_next`), with helpers such as `custom_error` and `http_response.new`, plus EE-only encoding, hashing and time helpers ([source](https://www.krakend.io/docs/endpoints/lua/)). KrakenD compiles Lua "in every execution" ([source](https://www.krakend.io/docs/deploying/server-dimensioning/)); Ruralz compiles CEL once per Revision and pre-instantiates Plugins. <!-- alias-ok -->
+KrakenD runs Lua at three layers, `modifier/lua-endpoint` (router, `pre` only), `modifier/lua-proxy` (`pre` and `post`) and `modifier/lua-backend` (`pre`, `post` and `skip_next`), with helpers such as `custom_error` and `http_response.new`, plus EE-only encoding, hashing and time helpers ([source](https://www.krakend.io/docs/endpoints/lua/)). <!-- alias-ok -->
 
 | KrakenD Lua layer | Ruralz Phase and scope | Notes |
 |---|---|---|
@@ -667,18 +660,18 @@ KrakenD runs Lua at three layers, `modifier/lua-endpoint` (router, `pre` only), 
 |---|---|---|---|
 | Reject a request on a header, path or query condition, often with `custom_error` | `authz.cel` `config.rule`; or `Policy.spec.when` to skip a Policy | `response_send` with the custom status and body | A custom status or body needs a Plugin (OQ-migration-from-krakend-15) |
 | Reject on a body field | `authz.cel` in `onRequestBody` over `request.body` | `request_body_read` | Buffered within `limits.maxRequestBodyBytes` |
-| Set or copy a header | `headers` `request.set[]` or `response.set[]` with `valueExpression` | `request_header_set`, `response_header_set` | CEL covers most cases |
+| Set or copy a header | `headers` `request.set[]` or `response.set[]` with `valueExpression` | `request_header_set`, `response_header_set` | None |
 | Rewrite a JSON body | `transform.request` or `transform.response`, `config` per OQ-krakend-ee-parity-matrix-1 | `request_body_replace`, `response_body_replace` | A Plugin until the transform schema exists |
 | Choose whether to call a backend (`skip_next`) | Composition step `when` | Not needed | `conditional` or `sequential` mode <!-- alias-ok --> |
 | Call another URL with `http_response.new` | A composition step to an `Upstream` for that service | Not available: no outbound calls | OQ-wasm-plugin-system-5 |
 | Hash, HMAC or encode | CEL strings and encoders extensions for base64 | `crypto_digest`, `crypto_hmac` (`crypto.use`) | Host cryptography, FIPS-ready |
 | Read the time | CEL `now` | `clock_now` (`clock.read`) | `now` is the request start time |
 | Keep state across requests | `ratelimit`, `quota`, `cache` | `state_get`, `state_incr` | One blocking State Store call per request |
-| Reload scripts with `live` | Hot Reload of a new Revision | A new `Plugin.spec.image` digest | Reviewed as diffs |
+| Reload scripts with `live` | Hot Reload of a new Revision | A new `Plugin.spec.image` digest | None |
 
 ## Cutover runbook
 
-The runbook moves client traffic from KrakenD to Ruralz Gateway in stages, keeping KrakenD warm and unchanged until the retention period ends, so rollback is a traffic shift and never a redeploy. It works with Nodes in file mode, Planned (M1), which the importer's Planned (M2) timing already allows; Control mode, Planned (M2), adds canary Rollouts for later configuration changes ([System overview](../architecture/01-system-overview.md#deployment-modes)). Every figure below is a proposed default that operators tune.
+The runbook moves client traffic from KrakenD to Ruralz Gateway in stages, keeping KrakenD warm and unchanged until the retention period ends, so rollback is a traffic shift and never a redeploy. It works in file mode, Planned (M1); Control mode, Planned (M2), adds canary Rollouts for later changes ([System overview](../architecture/01-system-overview.md#deployment-modes)). Every figure below is a proposed default.
 
 *Figure 4: cutover stages; every stage after Prepared can return to KrakenD serving all traffic.*
 
@@ -719,8 +712,9 @@ stateDiagram-v2
 1. Run `ruralz bundle import krakend krakend.json --output-dir ./bundle` and keep the report with the change record.
 2. Resolve every `manual` item. Security-flagged items, including each Route's client parameter forwarding item, MUST be resolved or explicitly accepted by the service owner before Stage 3, and every hold Policy MUST be replaced, not deleted alone. Until OQ-security-and-identity-6 closes, no Policy may filter on or key by `source.ip` while Nodes sit behind a load balancer.
 3. Confirm the Gateway `stateStore` of rule 8, then review every `approximate` item and record the decision: accept, adjust values (for example multiply a per-instance rate limit by the KrakenD instance count), or implement a closer mechanism.
-4. Provision each `secretRef` value the report lists.
-5. Run `ruralz bundle validate`, `ruralz bundle audit` and `ruralz bundle render --effective --route NAME` for the busiest Routes, and commit the Bundle to Git (P5).
+4. Keep `telemetry.accessLog.when` unset, or logging every request on migrated Routes, so shadow and serving Nodes share one digest; defer the imported `disable_access_log` or `logger_skip_paths` expression, and any errors-only filter, to Stage 6. Pairing, baselines and most rollback triggers need one record per request.
+5. Provision each `secretRef` value the report lists.
+6. Run `ruralz bundle validate`, `ruralz bundle audit` and `ruralz bundle render --effective --route NAME` for the busiest Routes, and commit the Bundle to Git (P5).
 
 ### Stage 2: test before traffic
 
@@ -734,6 +728,7 @@ stateDiagram-v2
 1. Deploy the serving Ruralz Gateway Nodes next to KrakenD behind the same load balancer or ingress, with a weight of zero and `RURALZ_STATE_STORE_URL` naming the production State Store.
 2. Point load balancer health checks at `/readyz` on admin port 9901 instead of KrakenD's `/__health/`; the admin bind and authentication default is OQ-system-overview-6.
 3. Confirm every Node reports ready, the active Revision digest matches the one `ruralz bundle build` printed, and `ruralz dev tap` shows smoke-test requests on the expected Routes.
+4. Size log shipping for full access logging through Stage 5, possibly tens of MB per second per Node (hypothesis) ([Observability](../architecture/10-observability.md#access-logs)), and confirm each Node writes one record per smoke-test request.
 
 ### Stage 4: shadow traffic
 
@@ -744,28 +739,29 @@ Shadowing rules:
 1. Mirror only safe methods (`GET`, `HEAD`, `OPTIONS`). A mirrored `POST`, `PUT`, `PATCH` or `DELETE` would repeat writes on production Upstreams; mirror unsafe methods only to Upstreams that point at non-production copies. A Route with no mirrored traffic, because it serves only unsafe methods or the load balancer cannot mirror, is gated by its Stage 2 cases and enters Stage 5 at the 1% step (target) under closer watch.
 2. Shadow Nodes use the shadow State Store through their own `RURALZ_STATE_STORE_URL` and never join the serving pool, so mirrored requests never consume the production Quotas, Rate Limits or Token Budgets that serving Nodes use.
 3. Confirm Upstream capacity for the mirrored share and extra `auth.upstream-oauth2` token fetches.
-4. Pair requests: the load balancer stamps one W3C `traceparent` on each request before mirroring and logs it with KrakenD's path and status. Shadow Nodes, with `telemetry.accessLog.when` unset, log the same trace ID as `trace_id` beside `route`, `status` and `code`. An offline join on the trace ID gives per-request status-class agreement; where the load balancer cannot stamp and log one, compare per-Route status-class shares instead.
+4. Pair requests: the load balancer stamps one W3C `traceparent` on each request before mirroring and logs it with KrakenD's path and status. Shadow Nodes, logging every request (Stage 1 step 4), log the same trace ID as `trace_id` beside `route`, `status` and `code`. An offline join on the trace ID gives per-request status-class agreement; where the load balancer cannot stamp and log one, compare per-Route status-class shares instead.
 5. Exclude `ratelimit`, `quota` and `ai.token-budget` decisions from agreement; the shadow State Store, safe-method subset and per-instance KrakenD limits make them differ by design.
 6. Record each Route's Gateway-added p99, from the access log `gateway_duration` field ([Observability](../architecture/10-observability.md#access-logs)), as its Stage 5 baseline; it counts Filters and Plugins, not Upstream or State Store time.
-7. Exit when, over at least 24 hours (target) of mirrored traffic, each Route meets one test and every disagreement is explained by an accepted report item: paired status classes agree for 99.9% or more of requests (target), or, unpaired, each status class's share differs from KrakenD's by 0.1 percentage points or less (target).
+7. Discard incomplete windows: a window in which `ruralz_telemetry_logs_dropped_total{stream="access",reason="queue_full"}` rises on any Node raises an alert and counts toward neither the exit gate nor a baseline.
+8. Exit when, over at least 24 hours (target) of mirrored traffic, each Route meets one test and every disagreement is explained by an accepted report item: paired status classes agree for 99.9% or more of requests (target), or, unpaired, each status class's share differs from KrakenD's by 0.1 percentage points or less (target).
 
 ### Stage 5: side-by-side cutover
 
 1. Before any weight above 0, confirm that every serving Node is ready on the expected digest and resolves the production State Store, which no shadow Node has used; with `provider: env`, a changed `RURALZ_STATE_STORE_URL` takes effect only after a Node restart.
 2. Shift client traffic by load balancer weight in steps of 1%, 5%, 25%, 50% and 100% (target), baking each step for at least 1 hour and one daily peak before the next (target). DNS weighting is a poor fit, because resolver caching delays rollback.
 3. Keep session affinity for long-lived connections such as WebSocket, Planned (M3), so shifts move only new sessions.
-4. Account for split enforcement. While both gateways serve traffic, each enforces its own limits: KrakenD per instance and Ruralz Cluster-wide on the rule 8 State Store. Admitted traffic can reach the sum of both, so either accept the temporary excess or scale each gateway's limits by its weight.
+4. Account for split enforcement. While both gateways serve traffic, each enforces its own limits, KrakenD per instance and Ruralz Cluster-wide on the rule 8 State Store, so admitted traffic can exceed one limit. KrakenD keeps its full limits throughout, so a rollback needs no KrakenD limit change and the excess is bounded by the Ruralz share. Either accept it or lower only the Ruralz `ratelimit` and `quota` values through a new Revision per weight step, reviewed with `ruralz bundle diff` and covered by the bad configuration change trigger.
 5. Expect Quotas to restart: KrakenD counters are not migrated, so a Consumer can get up to one extra window allowance; where that matters, lower the first window's `quota` `limit`.
 6. Watch the rollback triggers continuously; any trigger returns the weight to KrakenD before investigation.
 7. At 100% (target), keep KrakenD running and unchanged for the retention period, 14 days (target).
 
 ### Rollback
 
-Rollback is a traffic shift first; configuration rollback inside Ruralz comes later. Each trigger compares one Route over one window, from the load balancer's logs and the serving Nodes' access logs, and fires only with at least 1,000 requests in the window (target).
+Rollback is a traffic shift first; configuration rollback inside Ruralz comes later. Each trigger compares one Route over one window against KrakenD's side in the load balancer's logs, and fires only with at least 1,000 requests in the window (target). The 5xx trigger reads `ruralz_http_requests_total{route,status_class}`; the others read access logs, so a window with `queue_full` drops (Stage 4 rule 7) raises an alert, holds the weight step and cannot clear a trigger.
 
 | Trigger | Threshold (proposed) | Action |
 |---|---|---|
-| 5xx rate on Ruralz Gateway above KrakenD's for the same Routes | More than 0.5 percentage points for 5 minutes (target) | Set the Ruralz weight to 0 |
+| 5xx rate on Ruralz Gateway, from `ruralz_http_requests_total`, above KrakenD's for the same Routes | More than 0.5 percentage points for 5 minutes (target) | Set the Ruralz weight to 0 |
 | Gateway-added p99 of a Route, from `gateway_duration` | More than 50% above its Stage 4 baseline for 10 minutes (target); Routes without shadow data use their first 1% bake as baseline | Set the Ruralz weight to 0 |
 | Authentication or authorization disagreement | The Route's `RZ-AUTH` 401 and 403 rate differs from KrakenD's 401 and 403 rate in the same window by more than 0.1 percentage points for 5 minutes (target) | Set the Ruralz weight to 0; treat a lower Ruralz rate as a security incident |
 | State Store degraded | `RZ-STS` rejections, or `ruralz_filter_failures_total` with mode `open` above its Stage 4 rate | Set the Ruralz weight to 0, then restore the State Store |
@@ -782,17 +778,18 @@ Steps:
 
 1. After the retention period without a trigger, remove KrakenD from the load balancer, then scale it to zero, keeping its last image and rendered file for 90 days (target).
 2. Remove the shadow Node set and the shadow State Store.
-3. Lift the configuration freeze; later changes go through Git, `ruralz bundle diff` review and, in Control mode, canary Rollouts.
+3. Apply any access log filter deferred in Stage 1.
+4. Lift the configuration freeze; later changes go through Git, `ruralz bundle diff` review and, in Control mode, canary Rollouts.
 
 ### Gate summary
 
 | Stage | Entry gate | Exit gate |
 |---|---|---|
 | 0 Prepare | Decision to migrate | Rendered file, custom code inventory, freeze date, State Stores |
-| 1 Import and review | Rendered file | No unresolved `manual` item; every `approximate` item decided; Bundle validates |
+| 1 Import and review | Rendered file | No unresolved `manual` item; every `approximate` item decided; access logging unfiltered; Bundle validates |
 | 2 Test before traffic | Validated Bundle | Case suite passes against KrakenD and against local `ruralzd` |
-| 3 Deploy dark | Passing case suite | Serving Nodes ready on the expected digest and the production State Store |
-| 4 Shadow traffic | Ready serving Nodes; shadow Node set on the shadow State Store | Stage 4 exit criteria met; per-Route baselines recorded |
+| 3 Deploy dark | Passing case suite | Serving Nodes ready on the expected digest and the production State Store; one access log record per request, with log shipping sized |
+| 4 Shadow traffic | Ready serving Nodes; shadow Node set on the shadow State Store | Stage 4 exit criteria met over windows without access log drops; per-Route baselines recorded |
 | 5 Side-by-side cutover | Shadow exit; serving Nodes confirmed on the production State Store | 100% weight baked, no trigger (target) |
 | 6 Decommission | Retention period ended | KrakenD removed |
 
@@ -845,20 +842,16 @@ The matrix lists 17 partial-parity rows ([Partial parity](01-krakend-ee-parity-m
 
 ### Features that arrive after the importer
 
-Items whose target postdates the importer, Planned (M2), import as `manual` (rule 4); their Routes wait or stay on KrakenD longer.
+Items whose target postdates the importer, Planned (M2), import as `manual` (rule 4); their Routes wait or stay on KrakenD longer. KrakenD streaming Routes are the exception: they import `approximate` through the no-op rows, since the reverse proxy exists from Planned (M1).
 
 | KrakenD feature group | Ruralz target | Planned |
 |---|---|---|
 | AI Gateway (`ai/llm`), token quotas, MCP Server | `AIProvider`, `AIModel`, `ai.token-budget` | Planned (M3) |
-| gRPC server and client, direct WebSockets, multiplexer, SSE streaming | `match.grpc`, `grpc` and `websocket` Upstreams, `onChunk` | Planned (M3) |
+| gRPC server and client, direct WebSockets, multiplexer, SSE per-event flushing and `onChunk` Policies | `match.grpc`, `grpc` and `websocket` Upstreams, `onChunk` | Planned (M3) |
 | GraphQL adapter | `graphql` Upstreams | Planned (M3) |
 | Async agents, Kafka and NATS publishers and subscribers | `match.topic`, `kafka` and `nats` Upstreams | Planned (M4) |
 | Concurrent calls | Hedging | Planned (M4) |
 | Static web server, SOAP, response JSON Schema validation, intermediary web proxy, OpenTelemetry SaaS authentication, advanced logging, Moesif | Per the parity matrix | Planned (M5) |
-
-### Settings without a Ruralz field
-
-Settings with no [Configuration model](../architecture/02-configuration-model.md#kind-catalog) field import as `manual` or `approximate` until OQ-migration-from-krakend-1 to OQ-migration-from-krakend-6 add one: server settings, transport tuning, the telemetry service name, TLS with system roots, nested `allow` paths, `deny` lists and `config` fields.
 
 ### Behavior changes to plan for
 
@@ -866,16 +859,11 @@ These hold even at `equivalent` fidelity:
 
 | Area | KrakenD | Ruralz | Plan |
 |---|---|---|---|
-| Configuration changes | Restart; blue/green recommended ([source](https://www.krakend.io/docs/deploying/)) | Hot Reload, Planned (M1); canary Rollouts, Planned (M2) | Review changes in Git with `ruralz bundle diff` |
 | Rate limit scope | Stateless limits apply per instance ([source](https://www.krakend.io/docs/throttling/cluster/)) | One Cluster-wide limit through the `redis` State Store of rule 8 ([ADR-0008](../adr/0008-rate-limiting-local-bucket-and-gcra.md)) | Recompute limits as totals |
-| State Store failure | Redis-backed limits block by default ([source](https://www.krakend.io/docs/enterprise/throttling/global-rate-limit/)) | `ratelimit` fails open by default; the importer writes `failureMode: closed` where KrakenD blocked | Decide per Policy |
 | Header forwarding | Nothing forwarded unless allowlisted ([source](https://www.krakend.io/schema/v2.13/krakend.json)) | Forwarded unless a Policy removes it | Resolve before Stage 3 |
 | Two client credentials on one path | Both namespaces are valid on one endpoint ([source](https://www.krakend.io/schema/v2.13/krakend.json)) | One `auth` slot Policy per Route (OQ-configuration-model-13) | Decide per Route which check stays, or keep the Route on KrakenD <!-- alias-ok --> |
 | Client address | Router settings `trusted_proxies` and `remote_ip_headers` ([source](https://www.krakend.io/docs/service-settings/router-options/)) | `source.ip` is the load balancer until OQ-security-and-identity-6 closes | Enforce IP rules at the load balancer until then |
-| Health checks | `/__health/` on the service port | `/healthz` and `/readyz` on 9901 | Update load balancers in Stage 3 |
-| Error bodies | KrakenD error formats ([source](https://www.krakend.io/docs/backends/detailed-errors/)) | `RZ-<AREA>-<NNN>` codes in the Data plane error format | Update clients that parse gateway errors |
 | API key storage | Inline, plain or hashed ([source](https://www.krakend.io/docs/enterprise/authentication/api-keys/)) | SHA-256 digests in `Consumer` resources; every key change is a new Revision | Reissue keys stored with other hashes |
-| License | EE needs a valid license file ([parity matrix](01-krakend-ee-parity-matrix.md#non-goals-of-this-matrix)) | None (P1) | Remove license handling from deployment |
 
 ## Open questions
 

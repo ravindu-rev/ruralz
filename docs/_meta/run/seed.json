@@ -23741,5 +23741,1108 @@
 "Pack 8.14: name the trust policy source for `ruralz bundle build` and `ruralz bundle validate --online` (proposed: the same process-level source as a file-mode Node, OQ-security-and-identity-8), since the pack makes the CLI a Plugin signature verifier under `enforce`.",
 "Pack 8.14: state that offline keyless verification requires a transparency-log inclusion proof and a trusted timestamp in the Sigstore bundle, and that the Sigstore trusted root reaches Control-mode Nodes inside the root-signed anchor set."
 ]
+},
+"revise2:high-availability-and-disaster-recovery": {
+"addressed": [
+"L1-6",
+"L2-6",
+"L3-1",
+"L3-2",
+"L3-3",
+"L4X-1"
+],
+"disputed": []
+},
+"rereview:migration-from-krakend:L1": {
+"lens": "L1 feasibility-skeptic",
+"verdict": "revise",
+"score": 7,
+"blocking": [
+{
+"id": "L1-12",
+"section": "Cutover runbook / Stage 4 shadow traffic and Rollback",
+"issue": "Stage 4 pairing, the per-Route p99 baseline and every rollback trigger now read the Ruralz access log, but nothing guarantees that log is complete. First, `Gateway.spec.telemetry.accessLog.when` is a Bundle field covered by the Revision digest, and the importer itself writes it from KrakenD `router` `disable_access_log` and `logger_skip_paths`. Shadow Nodes therefore cannot run with it 'unset' unless they run a different Revision from the serving Nodes, which Stage 5 checks against 'the expected digest'. Serving Nodes that keep the imported `when`, or the errors-only `when` Observability tells busy Nodes to set, write no record for most requests, so the p99 and RZ-AUTH-rate triggers cannot fire. Second, the access log queue is bounded (8,192 records or 4 MiB, target) and drops records with reason `queue_full` under load, which biases per-Route p99 and rates at the moment rollback matters most. No metric replaces the log: `ruralz_http_gateway_duration_seconds` carries only a `listener` label, so no per-Route p99 can be derived from metrics.",
+"evidence": "Line 747: \"Shadow Nodes, with `telemetry.accessLog.when` unset, log the same trace ID as `trace_id` beside `route`, `status` and `code`.\" Line 764: \"Each trigger compares one Route over one window, from the load balancer's logs and the serving Nodes' access logs\". Line 206: \"`logger_skip_paths` and `disable_access_log` to `telemetry.accessLog.when`\". Line 754: \"confirm that every serving Node is ready on the expected digest\". Observability, Access logs: \"Without it every request is logged, possibly tens of MB per second per Node (hypothesis), so busy Nodes SHOULD set an errors-only `when`\" and \"when either is exhausted the record drops with reason `queue_full`\". Observability metrics catalog: \"`ruralz_http_gateway_duration_seconds` | Histogram, fast | seconds | `listener`\".",
+"fix": "In Stage 1, require the cutover Bundle to leave `telemetry.accessLog.when` unset, or set it to one that logs every request on migrated Routes, for both shadow and serving Nodes. Both sets then run one digest. Apply the imported `disable_access_log` or `logger_skip_paths` value only after Stage 6, and record it as an `approximate` item that says so. Size log shipping for full logging through the cutover (hypothesis). Add a validity rule to Stage 4 and to Rollback: a window whose `ruralz_telemetry_logs_dropped_total{stream=\"access\",reason=\"queue_full\"}` is non-zero for the Node does not count toward the exit gate or baseline, and it raises an alert. Compute the 5xx trigger from `ruralz_http_requests_total{route,status_class}` so it does not depend on logs. Alternatively, open an Open question with Observability for a per-Route gateway-added histogram."
+},
+{
+"id": "L1-13",
+"section": "Cutover runbook / Stage 5 step 4 (split enforcement)",
+"issue": "The option to 'scale each gateway's limits by its weight' contradicts the runbook's core rollback guarantee. Scaling KrakenD's limits means editing and restarting KrakenD during the configuration freeze. KrakenD then no longer runs 'unchanged and fully sized'. On a rollback it takes 100% of the traffic with limits scaled for its reduced share, so it throttles legitimate clients at the moment it must absorb all of them. Scaling the Ruralz limits means publishing a new Revision at every weight step, and this step does not acknowledge that.",
+"evidence": "Line 757: \"Admitted traffic can reach the sum of both, so either accept the temporary excess or scale each gateway's limits by its weight.\" Line 681: \"keeping KrakenD warm and unchanged until the retention period ends, so rollback is a traffic shift and never a redeploy\". Line 713: \"Freeze KrakenD configuration from Stage 3 until decommission\". Line 776: \"Shift the weight back to KrakenD at the load balancer; unchanged and fully sized, it serves all traffic at once.\"",
+"fix": "Remove KrakenD from the scaling option. State that KrakenD keeps its full limits throughout, so the temporary excess is bounded by the Ruralz share, and that operators either accept it or lower only the Ruralz `ratelimit` and `quota` values through a new Revision per weight step. That Revision goes through `ruralz bundle diff`, and the 'bad configuration change' trigger covers it. Say that a rollback does not need a limit change on KrakenD."
+},
+{
+"id": "L1-14",
+"section": "Concept mapping / extra_config namespaces (validation/cel at workflow scope)",
+"issue": "This is the same defect as the resolved L1-3, still present in the neighboring `validation/cel` row. A workflow-scope `validation/cel` aborts only that workflow, which is one backend call of the parent endpoint. The row maps it to a Route `authz.cel`, which rejects the whole aggregated request before any leg runs. `authz.cel` also sees only the Base variables (no `steps`), so a workflow expression that reads an earlier step's response cannot be expressed at all. The row still claims `approximate` and does not state either difference. That breaks the `approximate` guarantee that 'the report states each behavioral difference'. The `security/policies` B, W row and the `validation/cel` B row already treat this case as `manual` with a hold.",
+"evidence": "Line 224: \"`validation/cel` | E, W | `authz.cel` `config.rule` on the `Route` | `approximate` | Variables are rewritten; the rejection status follows Ruralz authz codes\". Line 190: \"`security/policies` | B, W | ... `manual` with a hold | ... on the Route it would reject the whole aggregated request, not one backend call\". Configuration model, Allowed places: \"`authz.cel` `config.rule` | bool | onRequestHeaders or onRequestBody | Base\". Line 464: \"`approximate` | ... the report states each behavioral difference\".",
+"fix": "Split the row. Map E to Route `authz.cel` (`approximate`). Map W to `manual` with a hold, targeting a step `when` over `steps` where skipping the leg is acceptable, or an Upstream-scoped `plugin` Policy with `filterClass: validation`, as the B row does, and state the whole-request versus one-leg difference."
+}
+],
+"non_blocking": [
+{
+"section": "Cutover runbook / Stage 4",
+"suggestion": "Stage 3 deploys only the serving Nodes. Add an explicit Stage 4 step that deploys the shadow Node set, points its RURALZ_STATE_STORE_URL at the shadow State Store, and verifies readiness and the same Revision digest before mirroring starts."
+},
+{
+"section": "Cutover runbook / Stage 4 rule 7",
+"suggestion": "Give the shadow exit gate a minimum per-Route sample, for example 1,000 mirrored requests (target), as the rollback triggers have. A Route that saw 10 mirrored requests in 24 hours otherwise passes 99.9% agreement vacuously; route it to the unmirrored-Route path at the 1% step."
+},
+{
+"section": "Cutover runbook / Stage 4 rule 4",
+"suggestion": "State that the load balancer overwrites any client-supplied traceparent before mirroring. Clients that reuse or forge trace IDs would otherwise create duplicate join keys."
+},
+{
+"section": "Concept mapping / extra_config namespaces (security/bot-detector)",
+"suggestion": "An `authz.cel` runtime error denies. A rule that indexes `request.headers[\"user-agent\"]` therefore rejects every client that sends no User-Agent. Have the importer write a guard such as `!(\"user-agent\" in request.headers) || ...`, or state the difference in the report."
+},
+{
+"section": "Import tool fidelity levels / Rules (rule 8)",
+"suggestion": "RZ-CFG-026 makes a Node reject the Revision and keep its active one. 'An unresolved URL keeps Nodes not ready' holds only for a Node's first load; on a Hot Reload the Node stays ready on the old Revision. Say both."
+},
+{
+"section": "Import tool fidelity levels / Rules (rule 2)",
+"suggestion": "A service-scope `auth/api-keys` item with `fnv128`, `sha1` or a salt now yields only Consumers. A Gateway-wide `overridable: false` hold for it would deny Routes that never had a key check. Place such holds only on Routes whose endpoint carries `auth/api-keys`."
+},
+{
+"section": "Built-in KrakenD EE plugins / Behavior changes to plan for",
+"suggestion": "Reconcile line 271, where the `ip-filter` hold goes only when Nodes see client addresses or OQ-security-and-identity-6 closes, with line 874, where the plan is to enforce IP rules at the load balancer. Say whether moving the rule to the load balancer lets the operator remove the hold."
+},
+{
+"section": "Cutover runbook / Rollback",
+"suggestion": "Routes that reach 1,000 requests per window only at later weight steps have no active triggers at 1%. State that such Routes are watched by the aggregate 5xx trigger across all Routes until they reach the minimum."
+}
+],
+"ac_results": [
+{
+"ac": "Concept mapping maps every top-level KrakenD configuration key and at least 20 extra_config namespaces to Ruralz kinds and Policies (KrakenD endpoint to Route, backend to Upstream, extra_config namespaces to Policies).",
+"pass": true,
+"note": "All 36 root properties of research section 2 appear in Top-level keys. The namespace table has 86 rows. Core concepts maps endpoint to Route and backend to Upstream. The validation/cel W mapping is defective (L1-14) but present."
+},
+{
+"ac": "Import tool fidelity levels defines the fidelity levels reported by ruralz bundle import krakend (Planned (M2)) and what each guarantees.",
+"pass": true,
+"note": "The four levels are defined with guarantees, importer action and operator action. The exact and equivalent guarantees are now qualified for client parameter forwarding, and exit statuses are defined."
+},
+{
+"ac": "Plugin migration covers both paths: Go plugins to WASM Plugins (TinyGo) or built-in Filters, and Lua to CEL or WASM Plugins.",
+"pass": true,
+"note": "Both subsections are present, with a decision flowchart, accessor-to-Host-Function table, Lua layer-to-Phase table and worked examples."
+},
+{
+"ac": "Cutover runbook gives ordered steps for shadow traffic and side-by-side cutover, including rollback.",
+"pass": true,
+"note": "Stages 0 to 6 with gate summary and a rollback table are present. The trigger mechanism depends on a complete access log (L1-12), and the split-enforcement option contradicts the rollback guarantee (L1-13)."
+},
+{
+"ac": "Migration gaps is consistent with the Not planned rows of docs/comparison/01-krakend-ee-parity-matrix.md.",
+"pass": true,
+"note": "The document lists 13 Not planned rows, 3 of them EE-only, with the same reasons and alternatives as the parity matrix. It lists the matrix's 17 partial-parity rows."
+},
+{
+"ac": "Quoted KrakenD terminology (endpoint, backend) carries the <!-- alias-ok --> escape.",
+"pass": true,
+"note": "Former L1-11 is resolved: lines 163 to 169 carry the escape. The remaining unescaped matches are URLs, namespace identifiers, Ruralz `endpoints` fields and code blocks. verify-docs reports no FAIL for this file, only WARN lines."
+}
+],
+"foundation_amendments": []
+},
+"rereview:migration-from-krakend:L2": {
+"lens": "L2 foundation-auditor",
+"verdict": "revise",
+"score": 8,
+"blocking": [
+{
+"id": "L2-1",
+"section": "Concept mapping / KrakenD path entries and their targets; Migration gaps / Features that arrive after the importer",
+"issue": "The document gives two different fidelities for KrakenD EE streaming (SSE). The research says KrakenD configures SSE with no namespace: `output_encoding: no-op` on the endpoint, `encoding: no-op` on the backend and a long `timeout`. The document grades that exact shape `exact` with 'bytes stream unchanged'. Yet it lists 'SSE streaming' among the Planned (M3) features that 'import as `manual` (rule 4)'. The Data plane also tags SSE `text/event-stream` flushing Planned (M3), and Multi-protocol says a plain reverse proxy flushes `text/event-stream` only 'per read' before M3. So at the M2 importer release, a streaming endpoint that imports as `exact` does not deliver events the way KrakenD does, and the report says nothing about it.",
+"evidence": "Line 133: \"| endpoint `output_encoding: no-op` | `Route` with plain `upstreams`; bytes stream unchanged | `exact` | Proxy-only in KrakenD\"; line 148: \"| backend `encoding: no-op` | Plain `upstreams` | `exact` |\"; line 848: \"Items whose target postdates the importer, Planned (M2), import as `manual` (rule 4)\"; line 853: \"| gRPC server and client, direct WebSockets, multiplexer, SSE streaming | `match.grpc`, `grpc` and `websocket` Upstreams, `onChunk` | Planned (M3) |\". Research krakend-config-model.md: \"`sse` | There is no namespace. EE streaming/SSE (since v2.12) is configured with `output_encoding: \"no-op\"` on the endpoint, `encoding: \"no-op\"` on the backend, and a long `timeout`\". Data plane: \"| SSE | `text/event-stream` response | `http.ResponseController` flushing | Planned (M3) |\". Multi-protocol: \"HTTP reverse proxy; `text/event-stream` flushes per read | Planned (M1); SSE flushing Planned (M3)\". Parity matrix: \"| Streaming and Server-Sent Events (SSE) | No | Yes | Planned (M3) |\".",
+"fix": "In the `output_encoding: no-op` row (line 133), add this note: 'a no-op endpoint whose backends are all `encoding: no-op` is KrakenD's streaming configuration; before M3 the importer adds one `approximate` item per such Route, because `text/event-stream` flushes per read, not per event, until SSE, Planned (M3) ([Data plane](../architecture/03-data-plane.md))'. On line 853, replace 'SSE streaming' with 'SSE per-event flushing and `onChunk` Policies', and state that KrakenD streaming Routes import `approximate` through the no-op rows, not `manual`. Rule 4 still holds, because the reverse-proxy target exists from Planned (M1)."
+},
+{
+"id": "L2-2",
+"section": "Concept mapping / extra_config namespaces (`backend/http/client`)",
+"issue": "This row grades the whole namespace `equivalent`, which breaks the document's own rules 4 and 7. First, `proxy_address` has no Ruralz field. It waits for OQ-krakend-ee-parity-matrix-6 and is Planned (M5), so under rule 4 it must be `manual`. Second, the row claims equivalence only for `no_redirect: true`. For `no_redirect: false`, KrakenD follows the redirect and Ruralz returns the 3xx to the client, which is a different observable contract from the `equivalent` definition. Third, the research lists `send_body_on_redirect`, and the row does not map it. An operator reading `equivalent` would expect no action on a backend that relies on an egress proxy.",
+"evidence": "Line 230: \"| `backend/http/client` | B | `client_tls` to `Upstream.spec.tls`; `no_redirect: true` is the Ruralz default, since 3xx responses pass through | `equivalent` | `proxy_address` per OQ-krakend-ee-parity-matrix-6, Planned (M5)\"; rule 4 (line 474): \"Items whose target is not in the running release are `manual`.\"; rule 7 (line 477): \"a missing value is reported rather than assumed\"; line 463: \"`equivalent` | Same routing, allow or deny decisions, status and payload semantics\". Research: \"`backend/http/client` | B | CE subset since v2.11 (`send_body_on_redirect`). EE adds `client_tls`, `no_redirect`, `proxy_address`\". Parity matrix OQ-krakend-ee-parity-matrix-6: \"Where does an `Upstream` declare an egress HTTP proxy ... Yes, for the M5 intermediary web proxy row\".",
+"fix": "Change the Fidelity cell to: '`equivalent` for `client_tls` and `no_redirect: true`; `approximate` for `no_redirect: false`, since Ruralz passes the 3xx to the client (OQ-traffic-management-and-resilience-13); `manual` for `proxy_address` (rule 4, OQ-krakend-ee-parity-matrix-6) and `send_body_on_redirect`'."
+}
+],
+"non_blocking": [
+{
+"section": "Summary",
+"suggestion": "Line 19 claims the document maps \"every `extra_config` namespace of the v2.13 schema\", while line 173 more carefully claims \"every v2.13 namespace the research records\". Use the second wording in the Summary so the claim does not exceed the research."
+},
+{
+"section": "Cutover runbook / Stage 4 shadow traffic",
+"suggestion": "Line 745 says shadow Nodes \"never join the serving pool\". Pack section 2 lists 'pool' as a never-write alias for Cluster. Write \"never receive client traffic from the load balancer\" instead."
+},
+{
+"section": "Cutover runbook / Stages 4 and 5; Concept mapping / `router` row",
+"suggestion": "The `router` row maps `disable_access_log` and `logger_skip_paths` to Gateway `telemetry.accessLog.when`. Stage 4 needs `when` unset for pairing and per-Route `gateway_duration` baselines, and the rollback trigger reads serving Nodes' access logs. Add to Stage 1: during cutover, leave `telemetry.accessLog.when` unset in the Bundle, or restrict it only in ways that keep every request of watched Routes. Note also that changing it changes the Revision digest that Stages 3 and 5 check."
+},
+{
+"section": "Import tool fidelity levels / Rule 8",
+"suggestion": "Line 478 says \"an unresolved URL keeps Nodes not ready (RZ-CFG-026)\". The Configuration model says the Node rejects the Revision and keeps serving its active Revision; only a Node without one stays not ready. Say: 'a Node that cannot resolve it rejects the Revision (RZ-CFG-026); a cold Node stays not ready'."
+},
+{
+"section": "Plugin migration / Lua to CEL or WASM Plugins; Go plugins table",
+"suggestion": "The WASM Host Function table limits `request_body_read` and `request_body_replace` to `onRequestBody`, and `response_body_read` and `response_body_replace` to `onUpstreamResponseBody`. That rules out two Plugin targets. First, a `modifier/lua-proxy` `post` body rewrite at Route scope in `onResponse` (line 662, after the aggregate merge). Second, a backend-level request body modifier as an Upstream-scoped Plugin in `onUpstreamRequest` (lines 566 and 663). For those rows, name `transform.response` or `transform.request` as the only body target, or add an Open question."
+},
+{
+"section": "Concept mapping / extra_config namespaces (`auth/api-keys` S)",
+"suggestion": "The research lists `propagate_role` at service level, but the document does not map it. Map it to a Route `headers` Policy whose `request.set[].valueExpression` reads `consumer.tags`, or grade it `manual`."
+},
+{
+"section": "Concept mapping / Built-in KrakenD EE plugins (`url-rewrite`)",
+"suggestion": "Line 275 grades only `GET` and `HEAD`. Add '`approximate` for methods with a body (OQ-migration-from-krakend-16)', as line 144 does for `url_pattern` rewrites."
+},
+{
+"section": "Concept mapping / extra_config namespaces (`qos/http-cache`)",
+"suggestion": "Line 199 maps a backend-scope cache to a \"Route `cache` Policy\" without saying which Routes get it. State 'on every Route reaching the `Upstream`', as the `governance/quota` and `qos/ratelimit/proxy` rows do, and note that an aggregate Route then caches the merged response, not one backend call."
+},
+{
+"section": "Import tool fidelity levels / SM-8 paragraph",
+"suggestion": "Line 467 says \"every import holds forwarding items\". The word 'holds' collides with the hold term of rule 2, and forwarding items carry no hold, so write 'has'. Also, while every import has a `manual` forwarding item, the proposed SM-8 definition scores 0% of the corpus. Say this explicitly in OQ-migration-from-krakend-10 so that the M2 exit risk is visible."
+},
+{
+"section": "Cutover runbook / Stage 3 deploy dark",
+"suggestion": "Step 3 compares the Node's active digest with the one `ruralz bundle build` printed. The Configuration model says a file-mode Cluster with more than one Node SHOULD load rendered Bundles or OCI Revisions. State that Nodes load the rendered Bundle or pull the pushed Revision by digest, so that the comparison holds."
+},
+{
+"section": "Concept mapping / Core concepts",
+"suggestion": "Line 64 cites ADR-0003 for 'Content-addressed, verified by digest'. Digest verification belongs to pack section 8.1 and ADR-0017, so cite those, and keep ADR-0003 for the configuration format."
+}
+],
+"ac_results": [
+{
+"ac": "Concept mapping maps every top-level KrakenD configuration key and at least 20 extra_config namespaces to Ruralz kinds and Policies (KrakenD endpoint to Route, backend to Upstream, extra_config namespaces to Policies).",
+"pass": true,
+"note": "All 36 root properties are mapped (lines 97-123), and 86 namespace rows are mapped (lines 177-262). The `backend/http/client` row is graded against the document's own rules (L2-2)."
+},
+{
+"ac": "Import tool fidelity levels defines the fidelity levels reported by ruralz bundle import krakend (Planned (M2)) and what each guarantees.",
+"pass": true,
+"note": "The four levels have guarantees, importer actions and operator actions. Eight rules, the report, annotation and exit statuses are consistent with the CLI exit codes. The `exact` guarantee now excludes client parameter forwarding."
+},
+{
+"ac": "Plugin migration covers both paths: Go plugins to WASM Plugins (TinyGo) or built-in Filters, and Lua to CEL or WASM Plugins.",
+"pass": true,
+"note": "Both paths are covered, with an accessor-to-Host Function table and a Lua layer and use-case mapping. Two Plugin body targets conflict with Host Function Phases (non-blocking)."
+},
+{
+"ac": "Cutover runbook gives ordered steps for shadow traffic and side-by-side cutover, including rollback.",
+"pass": true,
+"note": "Stages 0-6 each have ordered steps, followed by a rollback trigger table and a gate summary. SM-4 is no longer used as a production gate. `ruralz test run` now passes `CASES`."
+},
+{
+"ac": "Migration gaps is consistent with the Not planned rows of docs/comparison/01-krakend-ee-parity-matrix.md.",
+"pass": true,
+"note": "The 13 Not planned features, 3 of them EE-only, match the matrix. All 17 partial-parity rows are now covered, and OQ-krakend-ee-parity-matrix-4 is cited."
+},
+{
+"ac": "Quoted KrakenD terminology (endpoint, backend) carries the <!-- alias-ok --> escape.",
+"pass": true,
+"note": "Every prose and table line that quotes 'endpoint' or 'backend' carries the escape. The YAML comment was reworded. The only remaining unescaped quotes are inside the KrakenD JSON block, which line 283 marks as verbatim."
+}
+],
+"foundation_amendments": []
+},
+"rereview:migration-from-krakend:L3": {
+"lens": "L3 acceptance-audience",
+"verdict": "revise",
+"score": 8,
+"blocking": [
+{
+"id": "L3-15",
+"section": "Cutover runbook / Stage 4 shadow traffic; Rollback; Concept mapping / extra_config namespaces (router)",
+"issue": "New regression from the L3-4 and L3-5 fixes. Stage 4 pairing, the per-Route p99 baselines and the Rollback p99 trigger all need one access log record per request, because per-Route Gateway-added time exists only in the access log `gateway_duration` field. The `ruralz_http_gateway_duration_seconds` metric carries only a `listener` label. The runbook assumes `telemetry.accessLog.when` is unset but has no step that makes it so. The importer itself writes `when` from KrakenD `disable_access_log` and `logger_skip_paths`. `when` is a Gateway field in the Bundle, so shadow and serving Nodes share it. Observability also advises busy Nodes to set an errors-only `when`. With `disable_access_log: true`, imported as a `when` that suppresses records, shadow Nodes log nothing and the per-request join has no data. With an errors-only `when`, the Stage 4 baseline and the Stage 5 p99 trigger are computed over error responses only. The runbook also never says that serving Nodes need unfiltered logs at 100% weight, or how large that log volume gets.",
+"evidence": "Line 747: \"Shadow Nodes, with `telemetry.accessLog.when` unset, log the same trace ID as `trace_id` beside `route`, `status` and `code`.\"; line 749: \"Record each Route's Gateway-added p99, from the access log `gateway_duration` field ... as its Stage 5 baseline\"; line 764: \"Each trigger compares one Route over one window, from the load balancer's logs and the serving Nodes' access logs\"; line 769: \"| Gateway-added p99 of a Route, from `gateway_duration` | More than 50% above its Stage 4 baseline ...\"; line 206: \"`logger_skip_paths` and `disable_access_log` to `telemetry.accessLog.when`\"; Observability, Access logs: \"Without it every request is logged, possibly tens of MB per second per Node (hypothesis), so busy Nodes SHOULD set an errors-only `when`\"; Observability metrics catalog: \"| `ruralz_http_gateway_duration_seconds` | Histogram, fast | seconds | `listener` |\".",
+"fix": "Add a Stage 3 step: \"Remove any `telemetry.accessLog.when` from the Gateway, including one the importer wrote from `disable_access_log` or `logger_skip_paths`, so shadow and serving Nodes log every request through Stage 5. Size the log pipeline for tens of MB per second per Node (hypothesis). Restore the filter in Stage 6.\" In Stage 4 rule 4, replace \"with `telemetry.accessLog.when` unset\" with a reference to that step. Add the item to the Gate summary Stage 3 exit gate. The document is at about 9,488 of 9,500 counted words, so offset the roughly 60 added words by tightening prose that did not resolve an earlier finding, for example the Summary or the Scope paragraph. Do not remove text that fixed L3-1 to L3-14."
+}
+],
+"non_blocking": [
+{
+"section": "Migration gaps / Behavior changes to plan for (Header forwarding); Cutover runbook / Stage 1",
+"suggestion": "The forwarding item appears on every Route. The Plan cell says \"Resolve before Stage 3\", but the only mechanism is \"None yet\". Name the path that is available at M2: an Upstream-scoped `plugin` Policy that calls `request_header_remove` (`request.headers.write`, `onUpstreamRequest`) for parameters KrakenD did not allowlist. Otherwise, the service owner's explicit acceptance. Say whether an accepted item satisfies the Stage 1 exit gate \"No unresolved `manual` item\"."
+},
+{
+"section": "Concept mapping / extra_config namespaces (auth/api-keys S)",
+"suggestion": "The research lists `hash` values `plain`, `fnv128`, `sha256` and `sha1`. The fidelity cell covers `plain`, `fnv128`, `sha1` and salted keys, but not unsalted `sha256`, which could map directly to a `sha256:<hex>` digest. State its level. Also say what happens to `propagate_role`."
+},
+{
+"section": "Cutover runbook / Stage 4 shadowing rule 1",
+"suggestion": "Stage 5 shifts one load balancer weight for all Routes, so every Route enters at 1%. As written, \"enters Stage 5 at the 1% step (target) under closer watch\" adds no gate. Either define a per-Route hold at 1% (for example, a longer bake measured on that Route's request count) or say what \"closer watch\" means."
+},
+{
+"section": "Cutover runbook / Rollback (State Store degraded)",
+"suggestion": "The baseline for `ruralz_filter_failures_total` mode `open` comes from shadow Nodes on a separate shadow State Store. Their failure rate need not match the production State Store's. Consider an absolute threshold with a (target) tag, or a baseline taken from the first 1% bake."
+},
+{
+"section": "Import tool fidelity levels / Levels and guarantees (SM-8)",
+"suggestion": "Under the proposed definition, every import is excluded from partial fidelity until OQ-krakend-ee-parity-matrix-5 closes, and that question is not blocking. Consider asking the parity matrix owner to mark it blocking for M2, so the M2 exit criterion 3 stays reachable independently of OQ-migration-from-krakend-10."
+},
+{
+"section": "Cutover runbook / Stage 2 step 3",
+"suggestion": "State that `ruralz test run --bundle` passes `RURALZ_STATE_STORE_URL` to the `ruralzd` it launches. Otherwise use `--secret-overrides FILE`, which CLI and API surface documents for `secretRef` values in local runs."
+}
+],
+"ac_results": [
+{
+"ac": "Concept mapping maps every top-level KrakenD configuration key and at least 20 extra_config namespaces to Ruralz kinds and Policies (KrakenD endpoint to Route, backend to Upstream, extra_config namespaces to Policies).",
+"pass": true,
+"note": "The Top-level keys table covers all 36 root properties listed in research section 2. The extra_config table has 86 rows. Scope splits now respect the pack section 10 scopes (L3-9 resolved), and propagate_claims is Route-scoped with an auth guard (L3-11 resolved)."
+},
+{
+"ac": "Import tool fidelity levels defines the fidelity levels reported by ruralz bundle import krakend (Planned (M2)) and what each guarantees.",
+"pass": true,
+"note": "Four levels are defined, each with a guarantee. The `exact` and `equivalent` guarantees now carve out client parameter forwarding. Each Route gets a security-flagged `manual` forwarding item whether or not `input_headers` is set. The worked example shows manual 1 and exit status 1 (L3-2 resolved). Rule 8 emits a redis stateStore (L3-3 resolved)."
+},
+{
+"ac": "Plugin migration covers both paths: Go plugins to WASM Plugins (TinyGo) or built-in Filters, and Lua to CEL or WASM Plugins.",
+"pass": true,
+"note": "Both paths are covered: the Go plugin registerer table, porting steps with TinyGo and the Go PDK, an accessor-to-Host-Function table, and the Lua layer and use-case tables."
+},
+{
+"ac": "Cutover runbook gives ordered steps for shadow traffic and side-by-side cutover, including rollback.",
+"pass": true,
+"note": "The ordered stages, request pairing, the unsafe-method gate, the relative p99 and auth triggers, and the separate shadow Node set on its own State Store resolve L3-4 to L3-7 and L3-12. The criterion passes, but the access-log precondition for the measurements is still missing (L3-15)."
+},
+{
+"ac": "Migration gaps is consistent with the Not planned rows of docs/comparison/01-krakend-ee-parity-matrix.md.",
+"pass": true,
+"note": "All 13 Not planned rows are listed individually, with the same three EE-only flags (Lua advanced helpers, NTLM, New Relic) and the same reasons. The partial parity table now covers all 17 matrix rows, with Service and Proxy rate limit merged and OQ-krakend-ee-parity-matrix-4 added (L3-13 resolved)."
+},
+{
+"ac": "Quoted KrakenD terminology (endpoint, backend) carries the <!-- alias-ok --> escape.",
+"pass": true,
+"note": "Every prose and table line that quotes endpoint or backend carries the escape. The remaining unescaped hits are URLs, namespace identifiers such as `modifier/lua-endpoint`, JSON keys in the verbatim KrakenD block (declared on line 283) and RFC 6901 pointers. The YAML comment now reads \"router limit\" (L3-1 resolved)."
+},
+{
+"ac": "H2 outline equals mandatory first two + outline_h2 + mandatory last, in order.",
+"pass": true,
+"note": "The H2s are, in order: Summary, Scope and non-goals, Concept mapping, Import tool fidelity levels, Plugin migration, Cutover runbook, Migration gaps, Open questions."
+},
+{
+"ac": "Length band 1500 to 9500 words (manifest word_count_rule).",
+"pass": true,
+"note": "About 9,488 counted words, with fenced code and HTML comments excluded. This is inside the band but 12 words under the maximum, so any added text must be offset."
+},
+{
+"ac": "Every performance or scale number carries (target) or (hypothesis); verify-docs has no FAIL line for this document.",
+"pass": true,
+"note": "Runbook thresholds, sandbox limits, the 25,000 requests per second hot-key figure and the SM-8 90% target are tagged. verify-docs prints WARN lines only (milestones, and the `/__health/` admin path), with no FAIL. Every cited URL appears in krakend-parity.md or krakend-config-model.md (L3-14 resolved)."
+}
+],
+"foundation_amendments": []
+},
+"review:adr-0017:L2": {
+"lens": "L2 foundation-auditor",
+"verdict": "revise",
+"score": 7,
+"blocking": [
+{
+"id": "L2-1",
+"section": "Decision outcome (Figure 1) and Confirmation",
+"issue": "Figure 1 and the integration-test Confirmation item name the wrong error codes for Plugin artifacts. Pack 8.14 row 1 and the ADR's own table (line 51) say a Plugin digest mismatch is RZ-CFG-028, not RZ-CFG-027. Figure 1 sends Plugins ('Revisions and Plugins by digest', 'Plugin artifacts by digest') to the verification node, but the reject node lists only RZ-CFG-027 or RZ-CFG-033. The integration test covers 'Revision and Plugin pulls by digest' but asserts only RZ-CFG-027 and RZ-CFG-033. The Configuration model registry (RZ-CFG-027: Revision digest mismatch; RZ-CFG-028: Plugin artifact unavailable, digest mismatch, or disagrees with its Plugin.spec) confirms that RZ-CFG-028 belongs here.",
+"evidence": "Line 82: `rej[\"RZ-CFG-027 or RZ-CFG-033: reject, NACK in Control mode, keep active Revision\"]`; line 89: `oci -->|\"Revisions and Plugins by digest\"| nf`; line 111: \"the OCI registry container covers Revision and Plugin pulls by digest with Sigstore verification, asserting RZ-CFG-027 and RZ-CFG-033 at each place pack 8.14 names\". Pack 8.14: \"Every fetch checks the full sha256 (RZ-CFG-027, RZ-CFG-028)\". ADR line 51: \"RZ-CFG-027 for Revisions, RZ-CFG-028 for Plugins\".",
+"fix": "Line 82: change the label to `rej[\"RZ-CFG-027, RZ-CFG-028 or RZ-CFG-033: reject, NACK in Control mode, keep active Revision\"]`. Line 111: change it to \"asserting RZ-CFG-027 (Revision digest), RZ-CFG-028 (Plugin digest) and RZ-CFG-033 (signature) at each place pack 8.14 names\"."
+},
+{
+"id": "L2-2",
+"section": "Decision drivers",
+"issue": "The driver attributes a meaning to P6 that P6 does not have. In Vision and positioning, P6 is 'Custom code is sandboxed' (a WASM sandbox, deny-by-default Capabilities, declared limits). It says nothing about supply chain or publisher verification. Security and identity cites it correctly as 'P6 (sandboxed custom code)'. Principles are canonical IDs defined once in the vision document, so a paraphrase that changes their content is a canonical-reference error.",
+"evidence": "Line 32: \"- **P6, supply chain for custom code**: a Plugin's publisher is checked, not only its bytes.\" Vision, Principles: \"| P6 | Custom code is sandboxed | Plugins run in a WASM sandbox with deny-by-default Capabilities and declared limits ...\".",
+"fix": "Replace line 32 with: \"- **P6, custom code is sandboxed**: the sandbox limits what a Plugin can do, and signature verification adds a check of who published it, not only its bytes.\" Alternatively, drop the P6 label and keep the driver as \"**Plugin supply chain**: ...\". Also consider writing \"P10, measured, not claimed (a metric for every degraded state)\" on line 31 so that label uses P10's canonical name."
+},
+{
+"id": "L2-3",
+"section": "Decision outcome (Rules that follow, Failure)",
+"issue": "'Every signature failure is RZ-CFG-033' does not separate a signature that is invalid or absent (deterministic, reproducible from the artifact) from a registry or referrer fetch that failed or timed out. Pack 8.3 makes an RZ-CFG error a deterministic NACK that fails the gate at once. It classes fetch, resource and timeout failures as transient NACKs, which are retried and then quarantined. WASM plugin system, Failure semantics, draws the same line: 'bad signatures are RZ-CFG-033. Registry outages, timeouts ... are transient NACKs'. As written, a Node that cannot reach the registry holding the Sigstore referrer would send a deterministic RZ-CFG NACK and trigger an immediate rollback, contradicting pack 8.3 and the Plugin document.",
+"evidence": "Line 59: \"Every signature failure is RZ-CFG-033 ... The Node rejects the artifact before any swap, NACKs in Control mode and keeps its active Revision.\" Pack 8.3: \"A deterministic NACK is an `RZ-CFG-<NNN>` error that reproduces from the Revision ... A transient NACK (fetch, resource, timeout) is retried with backoff, then the Node is marked lagging and quarantined\". 05-wasm-plugin-system.md: \"bad signatures are RZ-CFG-033. Registry outages, timeouts and Node-local compiled-code pressure are transient NACKs\".",
+"fix": "Extend the Failure rule: \"A signature that is missing from a reachable registry, fails verification or matches no trusted identity is RZ-CFG-033, a deterministic NACK (pack 8.3). A registry or referrer fetch that fails or times out is a transient NACK, retried and then quarantined, as [WASM plugin system](../architecture/05-wasm-plugin-system.md#failure-semantics-and-the-rz-plg-registry) states for Plugin artifacts.\""
+}
+],
+"non_blocking": [
+{
+"section": "Decision outcome (What a signature binds)",
+"suggestion": "Use the exact signed fields that Control plane and GitOps defines. It lists the assignment signature as covering Cluster, Environment, digest, `rolloutId`, `storeEpoch` and `assignmentSeq`, and the ADR's 'sequence' hides the `storeEpoch` that fences a deposed leader. Also name the promotion signature (Cluster, `promotedDigest`, `storeEpoch`, `promotionSeq`), which protects Last-Known-Good promotion."
+},
+{
+"section": "Decision outcome (What a signature binds)",
+"suggestion": "Line 62 adds a normative rule: 'each Environment SHOULD use its own signing identity'. The owning document's Signed Revisions and Plugin artifacts section does not state it. Mirror the rule in 08-security-and-identity.md so the ADR and its owning document agree word for word."
+},
+{
+"section": "Decision drivers",
+"suggestion": "'Stable digests: signing never changes a Revision digest (pack 8.1)': pack 8.1 defines the digest but does not state this rule. The Configuration model's Validation and diff semantics says it ('signing never changes the digest'), so cite that instead."
+},
+{
+"section": "Decision outcome (Key compromise)",
+"suggestion": "The `compromisedSince` boot refusal narrows pack 8.2 boot order step (3), 'wait up to 5 s ... then Last-Known-Good (detached)', and the P9 statement 'boot Last-Known-Good after a restart'. State this explicitly as an exception accepted under OQ-control-plane-and-gitops-24 option (a), add a matching Bad consequence, and propose the note to pack 8.2 (see foundation_amendments)."
+},
+{
+"section": "Decision outcome (Trust policies)",
+"suggestion": "'from Ruralz Control's process configuration' presents option (a) of OQ-control-plane-and-gitops-1 as decided, although that question is still open (options: process configuration or `Environment.spec`). Add '(OQ-control-plane-and-gitops-1, option (a) proposed)' inline."
+},
+{
+"section": "Considered options",
+"suggestion": "Option 4 (Signatures opt-in) is the only option without a citation. One source-backed clause would make every option cite research, for example cosign's opt-in verification ([source](https://github.com/sigstore/cosign))."
+},
+{
+"section": "Confirmation",
+"suggestion": "verify-docs WARNs on line 113: 'Interoperability job' has no matching M2 roadmap item. The roadmap M2 row reads 'OCI registry integration tests and interoperability job'; reusing that wording clears the WARN."
+},
+{
+"section": "Whole document",
+"suggestion": "The body is 1,492 words against the 1,500 maximum. Fixes from this review and from L1 will exceed it, so ask for the band to be raised again, or tighten Considered options item 1, which repeats the decision table. Do not remove text that resolved earlier findings."
+}
+],
+"ac_results": [
+{
+"ac": "Front matter contains id, title, status, date, deciders and related, and status matches this manifest.",
+"pass": true,
+"note": "id ADR-0017, the title matches the manifest verbatim, status accepted matches adrs[ADR-0017].status, date 2026-09-25, deciders [ruralz-core], and related lists the owning document first."
+},
+{
+"ac": "H2 headings match adr_common.outline_h2 exactly and in order, and Decision outcome contains the H3 headings Consequences and Confirmation.",
+"pass": true,
+"note": "The six H2 headings are in exact order, Consequences and Confirmation are H3 headings under Decision outcome, and verify-docs reports no FAIL for this file."
+},
+{
+"ac": "Considered options lists at least two options including the chosen one, and each has pros and cons.",
+"pass": true,
+"note": "Five options, including the chosen one. Each has a Good and a Bad bullet under Pros and cons, and the cited URLs appear in docs/_meta/research/ (tooling-and-licenses.md, go-libraries-protocols.md). Option 4 has no citation."
+},
+{
+"ac": "Decision outcome states the chosen option as 'Chosen option: ..., because ...' and matches the foundation pack section 7 row for this ADR.",
+"pass": true,
+"note": "'Chosen option: \"Layered signing, verified offline by default\", because ...' matches the pack section 7 Artifact signing row, and the table reproduces pack 8.14. The error-code mismatch in Figure 1 (L2-1) and the NACK classification gap (L2-3) are the remaining inconsistencies."
+},
+{
+"ac": "Confirmation names a concrete verification mechanism (test, lint rule, CI gate or review checklist item).",
+"pass": true,
+"note": "It names integration tests, a chaos test, an interoperability job, a FIPS CI job and a review checklist item. The integration-test assertion omits RZ-CFG-028 (L2-1)."
+},
+{
+"ac": "The ADR is linked from docs/adr/README.md and from its owning document.",
+"pass": false,
+"note": "The owning document docs/architecture/08-security-and-identity.md links the ADR (Scope and non-goals, Signed Revisions and Plugin artifacts). docs/adr/README.md does not exist yet (the adr_index step writes it), so the criterion is not met today. This is not a defect in the ADR text."
+}
+],
+"foundation_amendments": [
+"Pack 8.14: add 'A missing or invalid signature is RZ-CFG-033 (deterministic NACK); a registry or referrer fetch failure is a transient NACK (pack 8.3)', so every verifier classifies signature failures the same way.",
+"Pack 8.2 boot order: note the exception adopted under OQ-control-plane-and-gitops-24 option (a). A Control-mode Node does not boot a candidate or Last-Known-Good accepted from a key removed after `compromisedSince`, and stays not ready until the Control Stream delivers."
+]
+},
+"rereview:migration-from-krakend:L4C": {
+"lens": "L4C",
+"verdict": "revise",
+"score": 7,
+"blocking": [
+{
+"id": "L4C-1",
+"section": "Concept mapping / extra_config namespaces (backend/http/client)",
+"issue": "The `backend/http/client` row grades the whole namespace `equivalent`, which contradicts three things. First, it contradicts the document's own rule 4, because the row admits that `proxy_address` has no target before Planned (M5). Second, it contradicts the root `client_tls` row, which maps the same settings to the same `Upstream.spec.tls` target and grades them `approximate` because cipher and version settings have no field. Third, it asserts KrakenD redirect behavior that the research does not record. The research lists only the sub-key names (`send_body_on_redirect`, `client_tls`, `no_redirect`, `proxy_address`), with no defaults or semantics. So nothing supports the claim that a file with `no_redirect` false or absent behaves like Ruralz passing 3xx responses through. `send_body_on_redirect` is not mapped at all.",
+"evidence": "Line 230: '| `backend/http/client` | B | `client_tls` to `Upstream.spec.tls`; `no_redirect: true` is the Ruralz default, since 3xx responses pass through | `equivalent` | `proxy_address` per OQ-krakend-ee-parity-matrix-6, Planned (M5) ...'. Line 109: '| `client_tls` | `Upstream.spec.tls` (...) | `approximate` | Cipher and version settings have no Upstream field |'. Line 474 (rule 4): 'Items whose target is not in the running release are `manual`.' Research krakend-config-model.md section 5.5: '`backend/http/client` | B | CE subset since v2.11 (`send_body_on_redirect`). EE adds `client_tls`, `no_redirect`, `proxy_address` | Per-backend HTTP client' (no defaults or behavior recorded).",
+"fix": "Grade each sub-key separately. `client_tls` is `approximate`, as in the root row. `no_redirect: true` is `equivalent`. `no_redirect` false or absent is `approximate`, with the note 'KrakenD redirect handling is unresearched; Ruralz passes 3xx responses through'. `send_body_on_redirect` is reported unmapped as `approximate`. `proxy_address` is `manual` under rule 4, Planned (M5), OQ-krakend-ee-parity-matrix-6. The alternative is to add these defaults and behaviors to docs/_meta/research/krakend-config-model.md, with the http-client URL, and cite them."
+},
+{
+"id": "L4C-2",
+"section": "Concept mapping / KrakenD path entries and their targets; extra_config namespaces (auth/validator E); Built-in KrakenD EE plugins",
+"issue": "Several rows grade KrakenD behavior `equivalent` that neither research file records, and the rows cite no source. This is the same defect as the resolved L4C-8, which covered `safejson`, `qos/http-cache` and algorithms, in rows that fix did not reach. (1) The research does not contain the `{resp0_field}` placeholder syntax. It records only that `sequential_propagated_params` is an accepted key, not its semantics. (2) The research lists the built-in plugins `jwk-aggregator`, `url-rewrite` and `wildcard` by name only, yet the document grades their mapping `equivalent` with specific semantics: per-issuer JWK URLs, a GET or HEAD path rewrite, and prefix matching. (3) The `auth/validator` E row, graded `equivalent`, converts 'role and scope checks' into an `authz.cel` rule. The research records `auth/validator` only as 'JWT validation', with no role or scope fields.",
+"evidence": "Line 163: '| endpoint `proxy.sequential_propagated_params` and `{resp0_field}` placeholders | Step `pathExpression` over `steps.<name>.body` | `equivalent` | The importer rewrites each placeholder to a CEL expression'. Line 272: '| `jwk-aggregator` | Several `issuers[]` entries in one `auth.jwt` Policy | `equivalent` | Each issuer keeps its own `jwksUrl` |'. Line 275: '| `url-rewrite` | Composition step `path` or `pathExpression` | `equivalent` for `GET` and `HEAD` |'. Line 277: '| `wildcard` | `match.path.prefix` | `equivalent` |'. Line 177: 'role and scope checks become an `authz.cel` rule over `auth.claims` ... `equivalent` for a key-set URL'. Research section 3: 'Endpoint-scope `proxy` accepts `sequential`, `sequential_propagated_params`, ...' (no placeholder syntax). Research section 5.6: 'Built-in EE plugin sub-keys: `geoip`, `ip-filter`, `jwk-aggregator`, `redis-ratelimit`, `static-filesystem`, `url-rewrite`, `virtualhost`, `wildcard`' (names only). Research section 5.1: '`auth/validator` | S, E | CE | JWT validation (E)'.",
+"fix": "Handle these rows the way the L4C-8 fix handled `safejson`. Grade line 163 `approximate`, with the note 'placeholder syntax and propagation semantics are unresearched; the importer reports each placeholder it rewrites'. Grade `jwk-aggregator`, `url-rewrite` and `wildcard` `approximate`, with the note 'sub-key semantics unresearched (research records names only)'. In the `auth/validator` E row, keep `equivalent` for signature, issuer and audience validation from a key-set URL. Grade the role and scope rule `approximate`, with the note 'KrakenD role and scope fields are unresearched'. Alternatively, add these facts with their KrakenD doc URLs to docs/_meta/research/krakend-config-model.md and cite them on each row."
+}
+],
+"non_blocking": [
+{
+"section": "extra_config namespaces (qos/ratelimit/router)",
+"suggestion": "The IP-keyed `client_max_rate` is now `manual`, but it is not security-flagged, as the previous fix proposed. Mark it security-flagged, or say why a shared bucket behind the load balancer is not a security item, so that Stage 1 step 2 visibly covers it."
+},
+{
+"section": "extra_config namespaces (auth/api-keys S)",
+"suggestion": "The research lists `hash` values `plain`, `fnv128`, `sha256` and `sha1`, plus `propagate_role`. The row grades `plain` and marks `fnv128`, `sha1` and a `salt` as manual. It says nothing about unsalted `sha256` or `propagate_role`. Grade both explicitly so that no setting is silently dropped."
+},
+{
+"section": "Import tool fidelity levels / Rules that hold at every level (rule 8)",
+"suggestion": "'An unresolved URL keeps Nodes not ready (RZ-CFG-026)' is true only for a Node with no active Revision. The Configuration model says the Node rejects the Revision (a NACK in Control mode) and keeps serving its active one. Reword to cover both cases."
+},
+{
+"section": "Core concepts (EE license file); Behavior changes to plan for (License)",
+"suggestion": "Both rows support the KrakenD license-file claim only through the parity matrix. The underlying URL (https://www.krakend.io/docs/enterprise/overview/license-file/) sits in docs/_meta/research/licensing-landscape.md, which is not in this document's research[]. Either cite that URL directly, or state that the parity matrix is the sourced authority."
+},
+{
+"section": "Migration gaps / Behavior changes to plan for",
+"suggestion": "The intro says 'These hold even at `equivalent` fidelity', but the 'Two client credentials on one path' and 'Client address' rows describe `manual` items. Reword it to 'These hold whatever the fidelity level'."
+},
+{
+"section": "verify-docs output",
+"suggestion": "No FAIL lines were emitted. The WARN lines about milestone items missing from the roadmap, and about the KrakenD '/__health/' path at line 735, are informational. The '/__health/' warning is a false positive, because the path is KrakenD's."
+}
+],
+"ac_results": [
+{
+"ac": "Concept mapping maps every top-level KrakenD configuration key and at least 20 extra_config namespaces to Ruralz kinds and Policies (KrakenD endpoint to Route, backend to Upstream, extra_config namespaces to Policies).",
+"pass": true,
+"note": "The Top-level keys table covers all 36 root properties from research section 2. The namespace table has 86 rows covering every namespace in research section 5. The Core concepts table maps endpoint to Route and backend to Upstream."
+},
+{
+"ac": "Import tool fidelity levels defines the fidelity levels reported by ruralz bundle import krakend (Planned (M2)) and what each guarantees.",
+"pass": true,
+"note": "Four levels are defined, each with a guarantee, importer action and operator action, and the forwarding caveat is carried into `exact` and `equivalent`. The `backend/http/client` grade still violates rule 4 (L4C-1)."
+},
+{
+"ac": "Plugin migration covers both paths: Go plugins to WASM Plugins (TinyGo) or built-in Filters, and Lua to CEL or WASM Plugins.",
+"pass": true,
+"note": "Both subsections are present: the registerer table, the porting steps, the accessor-to-Host Function table, the Lua layer and pattern tables, and the TinyGo Go PDK."
+},
+{
+"ac": "Cutover runbook gives ordered steps for shadow traffic and side-by-side cutover, including rollback.",
+"pass": true,
+"note": "Stages 0 to 6, the shadowing rules, weighted steps, the relative p99 rollback trigger and a gate summary are all present."
+},
+{
+"ac": "Migration gaps is consistent with the Not planned rows of docs/comparison/01-krakend-ee-parity-matrix.md.",
+"pass": true,
+"note": "The document's 13 rows, three of them EE-only, match the parity matrix, where the six-broker row is expanded. The 17 partial-parity rows also match."
+},
+{
+"ac": "Quoted KrakenD terminology (endpoint, backend) carries the <!-- alias-ok --> escape.",
+"pass": true,
+"note": "Every prose or table line that quotes endpoint or backend carries the escape, and the H3 is renamed. The remaining unescaped occurrences are KrakenD JSON keys and RFC 6901 pointers inside code blocks."
+}
+],
+"foundation_amendments": []
+},
+"review:adr-0008:L1": {
+"lens": "L1 feasibility-skeptic",
+"verdict": "revise",
+"score": 6,
+"blocking": [
+{
+"id": "L1-1",
+"section": "Decision outcome (Local bucket, State Store failure and Fail-open bound rows; Figure 1) and Consequences",
+"issue": "The fail-open bound cannot hold with the local bucket the ADR describes. A token bucket whose capacity and refill both equal the per-Node ceiling admits up to its full capacity at once, then another ceiling's worth of refill within the same window: up to 2 × ceiling per Node per window. So while the State Store fails, a key can get up to 2 × N × ceiling per window, not N × ceiling. The ADR itself counts GCRA's τ = window as 2 × `requests`, but it treats the bucket as if it had no burst. The owning document closes this gap only for derived ceilings: 'while GCRA fails each derived-ceiling bucket holds ... tokens per epoch-aligned window, without carry-over'. The ADR leaves that rule out. The same factor of 2 applies to the untagged State Store call bound in Consequences.",
+"evidence": "Local bucket row: \"One token bucket per key and `limits[]` entry at the per-Node ceiling\". State Store failure row: \"`open` (default) admits within the local buckets\". Fail-open bound row: \"At most N × per-Node ceiling per key per window, N being serving Nodes (target)\". Consequences: \"a key reaches the State Store at most min(offered, N × ceiling) times per window\". Owning document, Per-Node ceiling: \"while GCRA fails each derived-ceiling bucket holds max(1, 2 × `requests` / N_published) tokens per epoch-aligned window, without carry-over\"; decision path figure: \"Admit from unfloored local buckets (target)\".",
+"fix": "Change the State Store failure row to: \"A failed or timed-out call, or an open State client breaker, applies `failureMode`: `open` (default) admits from the local buckets, which while calls fail refill once per epoch-aligned `window` without carry-over; `closed` returns 503 `RZ-STS-<NNN>`\". Relabel Figure 1's `ok2` node \"Admit from aligned-window local buckets\". In Consequences, change the bound to \"at most min(offered, 2 × N × ceiling) times per window (target), a bucket's capacity plus its refill\". Keep the total length at or under 1,500 words (the body has 1,490 now) by cutting duplicated text, for example \", the cached form of `EVAL`,\" in the GCRA row. Also list the aligned-window refill for declared ceilings as a pack 8.8 amendment in More information."
+},
+{
+"id": "L1-2",
+"section": "Decision drivers (Hot-key protection), Decision outcome rationale, Consequences and Confirmation (CE-12, CE-15)",
+"issue": "The chosen option does not meet the Hot-key protection driver for keys spread across many Nodes, and the ADR claims it does. Each locally admitted request runs GCRA. A busy constant key, such as a service limit, spread across N Nodes therefore sends up to N × ceiling (about the full limit) script calls per window to one shard. At 1,000,000 requests per second, that is 10 times the roughly 100,000 calls per second the ADR itself assumes a shard can serve. Every Node's breaker for that shard then opens, and co-tenant keys fall to `failureMode`. The owning document and Scalability and distributed state say such keys MUST use `localOnly`, which exists only as a proposal (OQ-traffic-management-and-resilience-1 (c), OQ-scalability-and-distributed-state-11). Confirmation cites CE-12, which checks that result through `localOnly`, and CE-15, which checks a first-seen budget. Under option (c), the conforming behavior this ADR follows, neither mechanism exists.",
+"evidence": "Decision drivers: \"**Hot-key protection**: one busy key must not starve its shard's co-tenants.\" Decision outcome: \"the local bucket answers most denials and shields shards without a round trip\". Consequences: \"so a pinned abusive client never loads a shard\". Confirmation: \"CE-12 and CE-15 ... hot keys and key floods stay within their bounds\". Scalability and distributed state, Hot keys: \"A key whose `requests` exceed 25% of one shard's calls, about 25,000 per second (hypothesis), MUST use `localOnly` mode\"; CE-12: \"then above it as `localOnly` (hypothesis) | ... no co-tenant breaker opens\". Owning document Failure matrix: \"above about 100,000 per second (hypothesis) every Node's shard breaker opens and co-tenants apply `failureMode`\".",
+"fix": "Add a Consequences bullet: \"Bad, because a key spread over many Nodes and admitted above about 25,000 per second (hypothesis) runs GCRA on one shard for every request; until OQ-traffic-management-and-resilience-1 adds `localOnly`, it can open every Node's breaker for that shard's co-tenants.\" Narrow the driver or the rationale to \"shields shards from denied and pinned traffic\". In Confirmation, say that CE-12 and CE-15 verify the proposed amendments in OQ-scalability-and-distributed-state-11. For the conforming design, confirm with CE-3, CE-4 and CE-5 plus an integration check that a hot key over the shard hypothesis opens the breaker and co-tenants apply `failureMode`. Make the change word-neutral, for example by merging the \"Nodes stay disposable\" Good bullet into the No coordination driver."
+},
+{
+"id": "L1-3",
+"section": "Decision outcome (One round trip and Code rows)",
+"issue": "The NOSCRIPT behavior contradicts a depends_on document, and the library helper most implementers would reach for breaks it. The tech stack Library catalog row, which the ADR cites in Confirmation, specifies \"`EVALSHA` with `NOSCRIPT` fallback\". The conventional reading, and what rueidis's `Lua.Exec` helper does, is to retry with `EVAL` when `EVALSHA` returns NOSCRIPT. That retry is a second blocking round trip in the same request and breaks pack 8.7 rule 1. The ADR says only \"Ruralz scripts over rueidis\" and does not forbid that helper. It also does not reconcile its rule with the catalog wording. Two sources then disagree about the request-path round-trip count.",
+"evidence": "One round trip row: \"`NOSCRIPT` applies `failureMode` and schedules a reload, never a second call (pack section 8.7 rule 1)\". Code row: \"Ruralz scripts over rueidis ([source](https://github.com/redis/rueidis))\". docs/engineering/01-tech-stack-and-libraries.md Library catalog: \"`EVALSHA` with `NOSCRIPT` fallback\".",
+"fix": "Change the Code row to: \"Ruralz scripts sent as raw `EVALSHA` through rueidis `Do`, never `Lua.Exec`, whose `EVAL` retry on `NOSCRIPT` is a second round trip; the reload is single-flight per shard\". In More information, add that the Library catalog's \"`NOSCRIPT` fallback\" means this `failureMode` path, and list it as a tech stack correction. Keep the change word-neutral by dropping \"; redis_rate is bound to go-redis and not linked\": the catalog row and the Dependency admission bullet in Confirmation already cover it."
+},
+{
+"id": "L1-4",
+"section": "Decision outcome (Local bucket and Over-limit cache rows)",
+"issue": "Per-Node state has no memory bound. The rules create one token bucket per key per `limits[]` entry and one over-limit entry per denied key. Keys come from CEL over client input such as `source.ip`, so cardinality is attacker-controlled. The ADR states no cap, no eviction and no accounting for what eviction costs. An evicted bucket restarts full, which is an extra ceiling per eviction. An implementation built from this ADR alone grows these maps without limit under a key-rotation flood. The owning document bounds them, and the ADR is silent.",
+"evidence": "Local bucket row: \"One token bucket per key and `limits[]` entry at the per-Node ceiling\". Over-limit cache row: \"A key GCRA denied stays denied locally until its retry-after\". Owning document, Decision path: \"Buckets, local-only and over-limit entries share a Node-wide 1,048,576 entries, about 64 MiB (target), in [Data plane](03-data-plane.md)'s CLOCK-evicted shards, surviving Hot Reloads.\" Scalability and distributed state: \"Rate Limit | Node restart | At most one extra ceiling per key per restarted Node (target)\".",
+"fix": "Add a row: \"Local state | Buckets and over-limit entries share Data plane's Node-wide, CLOCK-evicted table of 1,048,576 entries, about 64 MiB (target), and survive Hot Reload; an evicted bucket restarts full, adding at most one ceiling per eviction, and GCRA still bounds the Cell\". Offset the words elsewhere, for example by shortening Considered option 6 to \"**Local bucket plus GCRA, fail-closed by default**, like Envoy's `failure_mode_deny: true` ([source](...))\", which also makes its label match its H3."
+}
+],
+"non_blocking": [
+{
+"section": "Pros and cons of the options (Local limits only; Local bucket plus GCRA, fail-open)",
+"suggestion": "Option 3 is rejected partly because Tyk's DRL is \"unreliable at low rate limits where requests are not fairly balanced\". With pack 8.8's limit / N ceiling, the chosen option has the same weakness: local buckets deny an unevenly spread key before GCRA would. With an accurate count and balanced load, the sum of the ceilings equals the limit, so the per-request GCRA call binds only when the count lags, in file mode, or with declared or headroom ceilings. State this in the chosen option's Bad bullet, and tie it to OQ-traffic-management-and-resilience-16 so the comparison is fair."
+},
+{
+"section": "Decision outcome (Per-Node ceiling row)",
+"suggestion": "The owning document gives a Control-mode Node without a count a fail-open clamp of max(1, `requests` / 100) and the degraded reason `node_count_unknown`. The ADR says only \"with neither, as in file mode, the full limit\". Either mention the clamp or point to the owning document's Per-Node ceiling section, so no reader applies N × limit to Control-mode Nodes restarted during a Ruralz Control outage."
+},
+{
+"section": "Decision outcome (One round trip row)",
+"suggestion": "Say how scripts reach every primary in cluster mode, for example `SCRIPT LOAD` to each node rueidis lists. Scripts are not replicated to replicas, so failover is detected only through `NOSCRIPT`. Under `failureMode: closed`, each Node × shard then returns 503 `RZ-STS-002` until its single-flight reload completes. Bound that burst, or accept it as a Bad consequence."
+},
+{
+"section": "Decision outcome (Local bucket row)",
+"suggestion": "A hot key on one Node puts every goroutine that serves it on one bucket. Specify a lock-free CAS update or per-shard striping, and add a contention benchmark to Confirmation (Performance budgets and benchmarking owns the figure)."
+},
+{
+"section": "Decision outcome (GCRA row)",
+"suggestion": "No research file shows that a script can call `TIME` before writes (effects replication) on Redis 8, Valkey and Dragonfly, or how Dragonfly's declared-keys rule applies. Add a research row, or add an Open question in the owning document, before M1. Also note that a failover to a replica with a skewed clock shifts TATs."
+},
+{
+"section": "Considered options (option 1)",
+"suggestion": "\"the hybrid Envoy recommends\" goes further than the research quote (\"can be used in conjunction with global rate limiting to reduce load\"). Write \"the hybrid Envoy documents\"."
+},
+{
+"section": "Decision outcome (Keys row)",
+"suggestion": "Because `<requests>/<window>` is part of the key, changing a limit starts fresh GCRA state and briefly allows 2 × limit. The owning document says so, and the ADR should add it as a Bad consequence."
+},
+{
+"section": "Pros and cons of the options (Shared window counters)",
+"suggestion": "The research file does not state the fixed-window boundary burst for Tyk. Cite a source that shows it, or attribute it as general analysis."
+},
+{
+"section": "Whole document",
+"suggestion": "The body has 1,490 words against the 1,500 maximum (adr_common.length_words), so every fix above must be word-neutral. The verify-docs run with --allow-missing --skip markdownlint printed no FAIL line for this file."
+}
+],
+"ac_results": [
+{
+"ac": "Front matter contains id, title, status, date, deciders and related, and status matches this manifest.",
+"pass": true,
+"note": "All six keys are present. The status `accepted` and the title match the manifest adrs[] entry."
+},
+{
+"ac": "H2 headings match adr_common.outline_h2 exactly and in order, and Decision outcome contains the H3 headings Consequences and Confirmation.",
+"pass": true,
+"note": "The six H2 headings are in the required order. Consequences and Confirmation are H3 headings under Decision outcome."
+},
+{
+"ac": "Considered options lists at least two options including the chosen one, and each has pros and cons.",
+"pass": true,
+"note": "Six options, each with a Good and a Bad bullet under Pros and cons. Option 6 is labelled \"Option 1 failing closed by default\" in the list but has a differently worded H3 (see L1-4 fix). Every option cites a URL that appears in docs/_meta/research/."
+},
+{
+"ac": "Decision outcome states the chosen option as 'Chosen option: ..., because ...' and matches the foundation pack section 7 row for this ADR.",
+"pass": true,
+"note": "The sentence is present and names the pack section 7 row and section 8.8: local bucket at a per-Node ceiling, GCRA in one script, fail-open by default, `failureMode` per Policy. The stated N × ceiling bound is not achievable by the described bucket (L1-1), but the wording matches the row."
+},
+{
+"ac": "Confirmation names a concrete verification mechanism (test, lint rule, CI gate or review checklist item).",
+"pass": true,
+"note": "Confirmation names integration tests in `pr-full`, a round-trip counting proxy test, chaos experiments, a dependency admission gate and a review checklist item. CE-12 and CE-15 verify proposed amendments rather than this design (L1-2)."
+},
+{
+"ac": "The ADR is linked from docs/adr/README.md and from its owning document.",
+"pass": false,
+"note": "docs/architecture/09-traffic-management-and-resilience.md links ADR-0008 in Summary and Algorithm choice. docs/adr/README.md does not exist yet: it is written in a later wave with docs/README.md. The index half cannot pass, but that file is outside this ADR, so this is not a blocking item."
+}
+],
+"foundation_amendments": [
+"Pack 8.8: state that while State Store calls fail, local buckets refill once per epoch-aligned window without carry-over, for both declared and derived ceilings. Otherwise a token bucket whose capacity equals the ceiling admits up to 2 × N × ceiling per window, above the stated N × per-Node ceiling bound.",
+"Pack section 7 Rate limiting row and the tech stack Library catalog: replace \"single Lua EVAL\" / \"`EVALSHA` with `NOSCRIPT` fallback\" with \"one `EVALSHA` per Policy; `NOSCRIPT` applies `failureMode` and triggers a single-flight reload, never an `EVAL` retry\" (pack 8.7 rule 1)."
+]
+},
+"review:adr-0008:L2": {
+"lens": "L2",
+"verdict": "revise",
+"score": 7,
+"blocking": [
+{
+"id": "L2-1",
+"section": "Decision outcome > Confirmation",
+"issue": "The round-trip test asserts a count that contradicts pack section 8.7 rule 3 and the ADR's own Keys row. Rule 3 says consumptive calls run as one script when their keys share a hash slot. The Keys row says the `{<SHA-256 of the key value>}` hash tag lets them share one script. So two `ratelimit` Policies with the same key value on one Route (for example `ratelimit-global` and `ratelimit-orders` in the Configuration model example) make one call between them, not one each. A conforming implementation would fail the test as written.",
+"evidence": "Line 98: \"- **Round-trip test**, Planned (M1): a counting State Store proxy asserts zero commands for local denials and exactly one per admitted request per Policy.\" Line 54 (Keys row): \"the hash tag lets consumptive calls share one script (pack section 8.7 rule 3)\". Pack 8.7 rule 3: \"one script when their keys share a hash slot, otherwise sequential round trips\".",
+"fix": "Rewrite as: \"- **Round-trip test**, Planned (M1): a counting State Store proxy asserts zero commands for local denials and over-limit cache hits, at most one blocking call per admitted request per Policy, and one shared script when consumptive keys share a hash slot (pack section 8.7 rules 1 and 3).\""
+},
+{
+"id": "L2-2",
+"section": "Decision drivers; Decision outcome; Decision outcome > Consequences",
+"issue": "The ADR says the chosen option shields shards and lists hot-key protection as a driver. Its Consequences never say that a key spread across many Nodes, such as a busy service limit, still saturates its shard. The owning document's Failure matrix gives the saturation outcome, and Scalability and distributed state adds a MUST for `localOnly` mode above about 25,000 `requests` per second (hypothesis). By omitting both, the ADR claims more than its owning documents and hides the main open dependency (OQ-traffic-management-and-resilience-1 (c)).",
+"evidence": "Line 29: \"- **Hot-key protection**: one busy key must not starve its shard's co-tenants.\" Line 45: \"because the local bucket answers most denials and shields shards without a round trip\". Compare docs/architecture/09-traffic-management-and-resilience.md, Failure matrix: \"| Hot constant key saturates a shard | `ratelimit`; co-tenant keys | Up to N × ceiling calls per window; above about 100,000 per second (hypothesis) every Node's shard breaker opens and co-tenants apply `failureMode` |\". Compare docs/architecture/11-scalability-and-distributed-state.md line 294: \"A key whose `requests` exceed 25% of one shard's calls, about 25,000 per second (hypothesis), MUST use `localOnly` mode, option (c) of OQ-traffic-management-and-resilience-1\".",
+"fix": "In line 45, change \"shields shards without a round trip\" to \"shields shards from pinned clients without a round trip\". Replace the Consequences bullet at line 89 with: \"- Bad, because each admitted request runs a script, and per-shard script throughput is unmeasured (Valkey 8's 1.19 million per second are `SET`, not `EVAL`, [source](https://valkey.io/blog/unlock-one-million-rps-part2/)). The owning document assumes about 100,000 calls per second per shard (hypothesis), so a key spread over many Nodes with more than about 25,000 `requests` per second saturates its shard and co-tenants apply `failureMode`, until `localOnly` mode (OQ-traffic-management-and-resilience-1) exists.\""
+},
+{
+"id": "L2-3",
+"section": "Decision outcome (Per-Node ceiling and State Store failure rows; Figure 1)",
+"issue": "The ADR says fail-open admits \"within the local buckets\", with the full limit as the ceiling when a Node has no declared ceiling and no count. The owning document and Scalability and distributed state clamp the buckets while GCRA fails. Derived ceilings drop to the unfloored max(1, 2 × `requests` / N_published) per aligned window. A Control-mode Node without a count, whose normal ceiling is the full limit, drops to max(1, `requests` / 100). Read literally, the ADR lets a Control-mode Node without a count fail open at the full limit, so N_countless Nodes admit N_countless × limit. The owning document admits N_countless × max(1, `requests` / 100). This contradicts the owning document's Failure matrix row and the bounds table.",
+"evidence": "Line 50: \"never learned from peers; with neither, as in file mode, the full limit\". Line 55: \"`open` (default) admits within the local buckets\". Line 78: \"Admit within the local buckets\". Compare docs/architecture/09-traffic-management-and-resilience.md line 256: \"Admit from unfloored local buckets (target)\", and line 264: \"A Control-mode Node without a count clamps to max(1, `requests` / 100) (target)\". Failure matrix: \"a Node restarted meanwhile has none: full-limit ceiling, fail-open clamp max(1, `requests` / 100) per window\". Compare docs/architecture/11-scalability-and-distributed-state.md, Consistency and accuracy bounds: \"| Rate Limit, fail-open | Control-mode Node without a count | N_countless × max(1, `requests` / 100) per window ...\".",
+"fix": "Replace the State Store failure row's rule with: \"A failed or timed-out call, or an open State client breaker, applies `failureMode`: `open` (default) admits from the local buckets, which [Per-Node ceiling](../architecture/09-traffic-management-and-resilience.md#per-node-ceiling) clamps while GCRA fails (derived ceilings unfloored; a Control-mode Node without a count at max(1, `requests` / 100)); `closed` returns 503 `RZ-STS-<NNN>`\". In the Per-Node ceiling row, change \"with neither, as in file mode, the full limit\" to \"with neither (file mode, or a Control-mode Node without a count), the full limit\". Relabel Figure 1 node ok2 as \"Admit from the clamped local buckets\"."
+},
+{
+"id": "L2-4",
+"section": "Context and problem statement",
+"issue": "The sentence uses the present tense for a feature that does not exist yet. Nothing is implemented, so style guide section 4 and pack section 2 require the `Planned (Mx)` framing for every Ruralz capability. \"Ruralz ships it free\" states shipped status.",
+"evidence": "Line 22: \"KrakenD sells stateful Redis-backed rate limiting only in EE ([source](https://www.krakend.io/features/)); Ruralz ships it free.\"",
+"fix": "Rewrite the clause as \"; Ruralz will offer it free, Planned (M1).\" or \"; in Ruralz it is planned free for everyone.\""
+}
+],
+"non_blocking": [
+{
+"section": "Whole document (length band)",
+"suggestion": "Counted with the verifier's countWords, the body is 1,493 words, so only 7 words remain under the 1,500 maximum. The L2-1 to L2-3 fixes add about 50 words, so shorten text that resolved no earlier finding (this is the first review of ADR-0008) to make room. Candidates: the parenthetical glosses of each OQ in the More information 'Pending amendments' bullet, the second clause of the Dependency admission Confirmation bullet, and the Option 1 line's repeated Envoy citation, which the Option 1 Pros already carry."
+},
+{
+"section": "Decision outcome (State Store failure row, Figure 1)",
+"suggestion": "Scalability and distributed state ('State client and RZ-STS error codes') registers concrete codes: RZ-STS-001 (timeout), RZ-STS-002 (connection error or error reply, including `NOSCRIPT`) and RZ-STS-003 (breaker open, call skipped). Name them in place of the pattern `RZ-STS-<NNN>`, for example \"`closed` returns 503 `RZ-STS-001` to `RZ-STS-003`\"."
+},
+{
+"section": "Decision outcome (Figure 1)",
+"suggestion": "Step 1 of the owning document's Decision path and its Figure 3 start with `when` (false skips the Policy) before `config.key` is evaluated. Figure 1 starts at `config.key`. Add a `when` decision node so the two figures agree."
+},
+{
+"section": "Considered options (option 3)",
+"suggestion": "\"each Node enforces a share of the limit, as Tyk's DRL ... and Kong's default `policy: local`\" is accurate for Tyk, whose DRL divides the limit across gateways. For Kong the research records only that `policy: local` is the default and counts per node, so each node enforces the full limit. Rewrite as \"each Node enforces a share of the limit, as Tyk's DRL does, or the whole limit, as Kong's default `policy: local` does\"."
+},
+{
+"section": "Considered options (option 1) and Pros and cons",
+"suggestion": "Envoy's page says local limiting \"can be used in conjunction with global rate limiting to reduce load\". It does not recommend the hybrid. Change \"the hybrid Envoy recommends\" to \"the hybrid Envoy documents\"."
+},
+{
+"section": "Pros and cons of the options",
+"suggestion": "Option 6 is \"Option 1 failing closed by default\" but its H3 is \"Local bucket plus GCRA, fail-closed by default\". Use one label in both places."
+},
+{
+"section": "Decision drivers; Consequences; Pros and cons",
+"suggestion": "Pack section 2 lists \"shard\" among the words never to use for a Cell. The ADR uses it only in the Redis Cluster sense, as documents 09 and 11 do, but write \"State Store shard\" at first use (line 29) to avoid ambiguity."
+},
+{
+"section": "Acceptance (ADR index)",
+"suggestion": "docs/adr/README.md does not exist yet, so the index-link criterion cannot pass. The owning document already links this ADR at lines 20 and 200. Nothing changes in this ADR; the ADR index writer must add the ADR-0008 row."
+},
+{
+"section": "More information",
+"suggestion": "The owning document's first-seen budget (Decision path step 3) and the Node-wide 1,048,576-entry cap (target) bound per-Node memory for this decision. The ADR mentions neither, apart from OQ-20. If the word budget allows, add a short pointer to the Decision path for them."
+}
+],
+"ac_results": [
+{
+"ac": "Front matter contains id, title, status, date, deciders and related, and status matches this manifest.",
+"pass": true,
+"note": "id ADR-0008. The title matches the manifest exactly. status is accepted, as in the manifest. date is 2026-09-25, deciders is [ruralz-core], and related lists the owning document, the foundation pack, the tech stack, and documents 11, 02 and 01."
+},
+{
+"ac": "H2 headings match adr_common.outline_h2 exactly and in order, and Decision outcome contains the H3 headings Consequences and Confirmation.",
+"pass": true,
+"note": "The six H2 headings appear in the required order, and both H3 headings are present. verify-docs prints no FAIL line for this file, and the body is 1,493 words (band 400 to 1,500)."
+},
+{
+"ac": "Considered options lists at least two options including the chosen one, and each has pros and cons.",
+"pass": true,
+"note": "Six options, each with Good and Bad bullets and research URLs from scalability-patterns.md. Option 6's H3 label differs from its option name (non-blocking)."
+},
+{
+"ac": "Decision outcome states the chosen option as 'Chosen option: ..., because ...' and matches the foundation pack section 7 row for this ADR.",
+"pass": true,
+"note": "It reads 'Chosen option: \"Local bucket plus GCRA, fail-open\", because ...' and matches pack section 7 and section 8.8 and the manifest decision. The rules under it diverge from the owning document on fail-open clamps (L2-3)."
+},
+{
+"ac": "Confirmation names a concrete verification mechanism (test, lint rule, CI gate or review checklist item).",
+"pass": true,
+"note": "It names integration tests in pr-full, a round-trip test, chaos experiments CE-3, CE-4, CE-5, CE-12 and CE-15, dependency admission and a review checklist item. The round-trip test's assertion contradicts pack 8.7 rule 3 (L2-1)."
+},
+{
+"ac": "The ADR is linked from docs/adr/README.md and from its owning document.",
+"pass": false,
+"note": "The owning document links the ADR at lines 20 and 200. docs/adr/README.md does not exist yet (it is written in a later wave), so this criterion fails, and the failure cannot be fixed in this file."
+}
+],
+"foundation_amendments": []
+},
+"review:adr-0010:L1": {
+"lens": "L1",
+"verdict": "revise",
+"score": 6,
+"blocking": [
+{
+"id": "L1-1",
+"section": "Decision outcome (Logs row, Figure 1) and Decision drivers (Never on the critical path)",
+"issue": "The stdout log path is synchronous and has no bound, and the ADR never says where access logs, the busiest log stream, enter it. Figure 1 sends `log/slog handler` straight to `JSON lines on stdout`, and only the bridge output passes the bounded queue. A standard `slog` JSON handler writes to its `io.Writer` under a mutex on the caller's goroutine. `slog.NewMultiHandler`, which the Consequences cite, calls every handler in turn on that same goroutine, and the `otelslog` handler converts the record there too. So any request-path `slog` call, such as a Plugin trap warning during an error storm or anything at `RURALZ_LOG_LEVEL=debug`, contends on one process-wide lock, and it blocks outright when stdout is a full pipe (Docker's default log mode blocks). That breaks the ADR's own driver and the owning document's O2 rule. The owning document keeps access logs off the request goroutine: the request copies fields into a pooled record, a worker encodes it, and the queue is bounded to 8,192 records and 4 MiB with `queue_full` drops, within 8 allocations and 2 µs p99 (target). The ADR's single-path rule 'Code logs only through `log/slog`' with 'JSON lines on stdout always' leaves room to put access logs through the synchronous multi-handler, which cannot meet those budgets.",
+"evidence": "\"| Logs | Code logs only through `log/slog` via `internal/telemetry`: JSON lines on stdout always, plus OTLP logs through `otelslog` and a bounded processor when an endpoint is set; ...\"; Figure 1 edges \"slog --> out\" and \"br --> q\"; driver \"**Never on the critical path (P3)**: telemetry never blocks, slows or fails a request; queues are bounded and drop with a counter\". Owning document, Access logs: \"The request goroutine evaluates `when` and copies every field, truncated, into a pooled record buffer for a worker to encode\".",
+"fix": "Extend the Logs row: 'No request goroutine runs a writing handler. Access log records are copied into pooled records in a bounded queue (8,192 records and 4 MiB, target, per Observability), and one worker encodes each record once for stdout and hands it to the bridge. Process logs go through a non-blocking `slog` handler that enqueues into a bounded queue drained by the one goroutine that owns stdout. Both queues drop with `ruralz_telemetry_logs_dropped_total{stream, reason=\"queue_full\"}`.' Redraw Figure 1 so that `slog` feeds a bounded log queue before both `out` and `br`. Add a Confirmation item, Planned (M1): a test that blocks the stdout pipe and asserts that request latency stays within budget while drops are counted."
+},
+{
+"id": "L1-2",
+"section": "Decision outcome (Logs and Export rows) and More information",
+"issue": "The owning document's audit export contradicts the ADR's logging rule and is missing from the decision. For OQ-control-plane-and-gitops-12, Observability chooses OpenTelemetry logs for the audit log. The Ruralz Control leader exports committed audit entries keyed by Raft index, treats an OTLP partial success as failure, retries until acknowledged and never drops. None of that can go through `log/slog`: a `slog` handler returns no export acknowledgement and cannot advance a Raft high-water mark. It cannot use the ADR's queues either, since those drop on `queue_full` or `export_error`. The audit export therefore has to call the OTLP log exporter directly, and that exporter belongs to the pre-stable Logs SDK. This is the one correctness-critical consumer of the release-candidate code the ADR otherwise keeps behind the bridge. The ADR states no rule for it, no consequence and no Confirmation, and its review checklist would flag the audit exporter as a violation.",
+"evidence": "ADR: \"Code logs only through `log/slog` via `internal/telemetry`\" and \"spans and logs pass Ruralz queues that drop with `queue_full` or `export_error` counts\"; checklist: \"calling `go.opentelemetry.io/otel/log` outside `internal/telemetry`, MUST amend this ADR\". Owning document, Control plane observability: \"The leader exports batches keyed by Raft index ... an OTLP partial success counts as failure. Export retries, so it lags and never drops, unlike TB-12 (OQ-observability-19)\".",
+"fix": "Add a Decision outcome row: 'Audit export | The Ruralz Control leader calls the OTLP log exporter directly from `internal/telemetry`, bypassing `slog` and the drop queues. Batches are keyed by Raft index, retried until acknowledged, and a partial success counts as failure; this is the TB-12 exception in OQ-observability-19 | Planned (M2)'. Add a Bad consequence: the audit exporter depends on the pre-stable Logs SDK and OTLP log exporter until v1.47.0. Add a Confirmation item, Planned (M2): an at-least-once test across a leader failover with a Collector that returns partial success. Scope the logging rule to 'Code logs only through `log/slog`, except the audit exporter'."
+},
+{
+"id": "L1-3",
+"section": "Decision drivers (One correlation key) and Consequences",
+"issue": "The ADR claims exemplars but provides no mechanism for them. Choosing 'Ruralz-owned aggregates, not SDK synchronous instruments' gives up the SDK's exemplar reservoirs. The owning document's aggregates are striped atomic counters, eight per 64-byte line, and integer histogram sums added with `atomic.AddUint64`, updated with no lock. An exemplar is a trace ID, span ID, value and timestamp, 40 bytes or more, and a lock-free counter cannot hold it. Nothing in the ADR or in Observability defines exemplar storage, its concurrency, or which requests record it. The metrics memory model (300 bytes per histogram label set, hypothesis) leaves exemplars out. Exporting them over `/metrics` needs OpenMetrics exposition from an exporter that is still unselected. As written, the 'Good' consequence cannot be built.",
+"evidence": "\"**One correlation key**: the trace ID links spans, logs, exemplars and the `requestId` of every problem document\"; \"Good, because the trace ID is the single correlation key across spans, access log records, exemplars and `requestId`.\"; \"| Metrics | Values live in Ruralz-owned aggregates, not SDK synchronous instruments, and both the OTLP reader and the `/metrics` exporter read them ...\"",
+"fix": "Either add an exemplar rule to the Metrics row, for example: 'Sampled requests only write one exemplar slot per histogram label set per collection, through a sequence lock off the unsampled path; the exemplar is exported through the SDK interface of OQ-observability-16 and OpenMetrics on `/metrics`; slot memory is added to the histogram series assumption (hypothesis)', and a Confirmation benchmark item. Or drop exemplars from the driver and the consequence, and add a proposed owning-document Open question on exemplar support."
+},
+{
+"id": "L1-4",
+"section": "Decision outcome (Export and Resource rows)",
+"issue": "The ADR does not say whether the SDK's environment configuration is honored, and that creates a second configuration path outside the Revision. To my knowledge, the OpenTelemetry Go SDK and OTLP exporters fill every setting not passed as an option from `OTEL_*` variables. Examples are `OTEL_EXPORTER_OTLP_HEADERS`, `_CERTIFICATE`, `_INSECURE`, `_TIMEOUT` and `_COMPRESSION`, `OTEL_TRACES_SAMPLER`, and `OTEL_BSP_*`. `sdktrace.WithResource` also merges `resource.Environment()`, so `OTEL_RESOURCE_ATTRIBUTES` adds resource attributes the Resource row does not allow. Pack section 2 limits process settings to `RURALZ_*`, and pack 8.1 says equal digests mean equal behavior except for `secretRef` values and `RURALZ_*` settings. Two Nodes on one Revision could export with different headers, TLS or resource attributes. An operator's pod environment would also quietly answer OQ-observability-2, which is blocking for TLS export at M1 and still open.",
+"evidence": "\"| Export | OTLP only when `Gateway.spec.telemetry.otlp.endpoint` is set, over TLS on boundary TB-12; ...\"; \"| Resource | `service.name`, `service.version`, `service.instance.id` (`node.id` or replica) and, in Control mode, Cluster and Environment; never the active Revision |\"; \"Bad, because OTLP TLS client settings and authentication have no configuration field yet (OQ-observability-2, blocking for TLS export at M1)\".",
+"fix": "Add to the Export row: '`internal/telemetry` builds every provider, processor and exporter with explicit options, and builds the resource without the environment detector. `OTEL_*` process variables are ignored; `${OTEL_...}` substitution at render time stays valid.' Alternatively, name the variables that are honored as an explicit answer to OQ-observability-2. Add a Confirmation item, Planned (M1): a golden test that starts `ruralzd` with `OTEL_RESOURCE_ATTRIBUTES`, `OTEL_EXPORTER_OTLP_HEADERS` and `OTEL_TRACES_SAMPLER` set and asserts byte-identical resource, headers and sampling."
+},
+{
+"id": "L1-5",
+"section": "Decision outcome (paragraph after Chosen option), Consequences, More information",
+"issue": "The ADR does not settle what happens when v1.47.0 ships, and its answer conflicts with a document it depends on. The Decision outcome says logs 'move to the OpenTelemetry Logs API' after a revisit, while the Consequences say call sites never change and only the bridge wiring changes. That means `slog` plus `otelslog` stays permanently. Pack section 7 and the manifest decision say the bridge is used 'until' the Logs API is stable. The tech stack Watch list, a depends_on document, says the 'Logs SDK replaces the bridge'. An implementer cannot tell whether the bridge is temporary, which decides whether `otelslog` belongs in `internal/telemetry` for good and whether the review checklist item on `go.opentelemetry.io/otel/log` will fire at v1.47.0.",
+"evidence": "\"Logs move to the OpenTelemetry Logs API only after its stable release ... through a revisit of this ADR\"; \"Good, because call sites never change when logs move to the stable Logs API: `log/slog` is the standard library\"; \"so bridge wiring inside `internal/telemetry` changes at v1.47.0\". Tech stack Watch list: \"| OTel Logs API | Release candidate ... | v1.47.0 stable | Logs SDK replaces the bridge |\". Pack section 7: \"`slog` bridge (`otelslog`) for logs until the OTel Go Logs API is stable\".",
+"fix": "State the end state once, for example: 'At v1.47.0 the stable Logs SDK replaces the pre-stable SDK behind the bridge. Package call sites stay on `log/slog`, and `otelslog` stays as the `slog`-to-Logs-API adapter inside `internal/telemetry`. \"Until\" in pack section 7 refers to the pre-stable SDK dependency.' Add to More information a proposed tech stack Watch list amendment ('Fallback: stable Logs SDK behind the bridge; `slog` call sites unchanged') and a proposed pack section 7 wording, or record the disagreement as an Open question in the owning document."
+}
+],
+"non_blocking": [
+{
+"section": "Decision outcome (Traces row)",
+"suggestion": "'unsampled requests create no spans' is loose with the OTel SDK: `tracer.Start` with a drop decision still allocates a non-recording span and a context value, and to my knowledge the default SDK ID generator serializes on a mutex. State that `internal/telemetry` makes the sampling decision (with the two per-Node caps) before it calls the SDK, and installs a lock-free per-connection ID generator through `sdktrace.WithIDGenerator`. That keeps the unsampled budget of 1 µs and two allocations (target) in the owning document."
+},
+{
+"section": "Decision outcome (Export row)",
+"suggestion": "Name the OTLP transport and exporter modules. The owning document's example uses 4317 (OTLP/gRPC), and the OTLP/gRPC exporters link grpc-go into `ruralzd` at M1, although its catalog row is Planned (M3) and it adds a second HTTP/2 stack (S6). Choosing OTLP/HTTP (`otlptracehttp`, `otlpmetrichttp`, `otlploghttp`) avoids that, and the research notes that v1.46.0 added `http/json` to `otlptracehttp`."
+},
+{
+"section": "Decision outcome (Resource row)",
+"suggestion": "State how providers are rebuilt after Enrollment (the owning document says 'Providers rebuild once after Enrollment'): spans started on the old tracer provider must finish and flush without blocking a request."
+},
+{
+"section": "Considered options (option 3)",
+"suggestion": "The second APISIX citation (the 3.18.0 release blog) supports only the version. The research ties it to AI features, not telemetry. Keep only the plugin-page URL for the 'traces only' claim, or cite the research row that says so."
+},
+{
+"section": "Length",
+"suggestion": "The body is 1,483 of 1,500 words by the manifest counting rule. The fixes above need room, so shorten the Pros and cons bullets that repeat the Consequences (the v1.47.0-rc.1 points) or the More information owning-document bullet. Do not cut rule content."
+},
+{
+"section": "More information",
+"suggestion": "Also propose the depguard rule for any OTLP log exporter module (see L1-2), so the audit-export exception is lint-checked, not only covered by the review checklist."
+}
+],
+"ac_results": [
+{
+"ac": "Front matter contains id, title, status, date, deciders and related, and status matches this manifest.",
+"pass": true,
+"note": "All six keys are present; status `accepted` and the title match the manifest adrs[] entry."
+},
+{
+"ac": "H2 headings match adr_common.outline_h2 exactly and in order, and Decision outcome contains the H3 headings Consequences and Confirmation.",
+"pass": true,
+"note": "Six H2 headings are in order; both H3 headings are present; verify-docs reports no FAIL."
+},
+{
+"ac": "Considered options lists at least two options including the chosen one, and each has pros and cons.",
+"pass": true,
+"note": "Four options, each with Good and Bad bullets under Pros and cons, and each cites research URLs."
+},
+{
+"ac": "Decision outcome states the chosen option as 'Chosen option: ..., because ...' and matches the foundation pack section 7 row for this ADR.",
+"pass": true,
+"note": "The wording and the choice match. What happens to the bridge after the Logs API is stable is ambiguous against the pack's 'until' (L1-5)."
+},
+{
+"ac": "Confirmation names a concrete verification mechanism (test, lint rule, CI gate or review checklist item).",
+"pass": true,
+"note": "Depguard `log$`, sloglint and spancheck, repocheck, catalog gates, the cardinality test, the PB-10 benchmark, the Compose end-to-end test and a review checklist item. There is none yet for non-blocking stdout, the audit export or OTEL_* isolation (L1-1, L1-2, L1-4)."
+},
+{
+"ac": "The ADR is linked from docs/adr/README.md and from its owning document.",
+"pass": false,
+"note": "The owning document links it. docs/adr/README.md does not exist yet (the index generator runs in a later wave), so this cannot pass now and is not a defect in the ADR."
+}
+],
+"foundation_amendments": [
+"Section 7 Telemetry row: state the post-v1.47.0 end state explicitly, e.g. '`log/slog` call sites with the `otelslog` bridge; the bridge feeds the stable OTel Go Logs SDK from v1.47.0', so that 'until' is not read as removing the bridge (see L1-5)."
+]
+},
+"revise2:migration-from-krakend": {
+"addressed": [
+"L1-12",
+"L1-13",
+"L1-14",
+"L2-1",
+"L2-2",
+"L3-15",
+"L4C-1",
+"L4C-2"
+],
+"disputed": []
+},
+"review:adr-0010:L2": {
+"lens": "L2",
+"verdict": "revise",
+"score": 7,
+"blocking": [
+{
+"id": "L2-1",
+"section": "Decision outcome (Export and Logs rows, lines 49-50) and Confirmation (review checklist item, line 110)",
+"issue": "The ADR's export rule leaves out the one exception in the owning document. Observability rule O2 says bounded queues drop with a counter and 'only the audit export lags instead (OQ-observability-19)'. Control plane observability picks OpenTelemetry logs for the audit log: the leader exports batches keyed by Raft index, retries, 'lags and never drops'. The ADR states without exception that 'spans and logs pass Ruralz queues that drop' and that 'Code logs only through `log/slog`'. It never mentions OQ-observability-19, which is blocking for Planned (M2). Its review checklist would also flag the audit exporter, which has to call the OTLP log exporter directly and cannot go through `slog`. So the ADR does not match its owning document. It also hides that the System overview TB-12 row ('Drop on failure') is still being amended.",
+"evidence": "ADR line 50: \"| Export | OTLP only when `Gateway.spec.telemetry.otlp.endpoint` is set, over TLS on boundary TB-12; spans and logs pass Ruralz queues that drop with `queue_full` or `export_error` counts; ...\"; line 49: \"Code logs only through `log/slog` via `internal/telemetry`\"; line 110: \"calling `go.opentelemetry.io/otel/log` outside `internal/telemetry`, MUST amend this ADR\". Owning document, O2: \"Bounded span and log queues drop with a counter (TB-12); only the audit export lags instead (OQ-observability-19)\"; Control plane observability: \"Export retries, so it lags and never drops, unlike TB-12 (OQ-observability-19)\". System overview TB-12: \"Drop on failure\".",
+"fix": "Add a Decision outcome row: '| Audit export | The Ruralz Control leader exports committed audit entries as OTLP logs from `internal/telemetry`, bypassing `slog` and the drop queues: batches keyed by Raft index, retried until acknowledged, a partial success counts as failure; lags and never drops, the TB-12 exception proposed in OQ-observability-19 | Planned (M2) |'. Scope the Logs row to 'Code logs only through `log/slog` via `internal/telemetry`, except the audit export'. Add 'except the audit export' to the Export row's drop sentence. Add a Bad consequence saying the audit export depends on the pre-stable OTLP log exporter and on OQ-observability-19, which is blocking for Planned (M2). Add a Figure 1 node for the audit export, drawn as a dashed edge to the OTLP exporter."
+},
+{
+"id": "L2-2",
+"section": "Decision drivers (One correlation key, line 31) and Consequences (line 90)",
+"issue": "The ADR's correlation key contradicts the owning document. Observability O6 makes the key the pair (`trace_id`, server `span_id`) and leaves telling apart requests that share a trace ID to OQ-observability-13. The ADR says the trace ID alone is 'the single correlation key'. A client that sends one sampled `traceparent` on several requests shares one trace ID across all of them, so the trace ID alone cannot pick out one access log record or problem document.",
+"evidence": "ADR line 31: \"**One correlation key**: the trace ID links spans, logs, exemplars and the `requestId` of every problem document\"; line 90: \"Good, because the trace ID is the single correlation key across spans, access log records, exemplars and `requestId`.\" Owning document O6: \"(`trace_id`, server `span_id`) links logs, spans and exemplars; `requestId` carries the trace ID ([Data plane](03-data-plane.md#error-response-format)); the span ID is OQ-observability-13\".",
+"fix": "Line 31: '**One correlation key**: (`trace_id`, server `span_id`) links spans, logs and exemplars, and the `requestId` of every problem document carries the trace ID; adding the span ID to `requestId` is OQ-observability-13 (rule O6 of [Observability](../architecture/10-observability.md#observability-principles))'. Line 90: 'Good, because one key, the trace ID with the server span ID (O6), correlates spans, access log records, exemplars and `requestId`.'"
+},
+{
+"id": "L2-3",
+"section": "Decision outcome (paragraph after Chosen option, line 43), Consequences (lines 89 and 92), More information (line 140)",
+"issue": "What happens to logs at v1.47.0 disagrees with a depends_on document, and the ADR never states the end state. The tech stack Watch list, which the ADR links as the trigger, says the stable 'Logs SDK replaces the bridge'. The ADR's Consequences say call sites never change and 'bridge wiring inside `internal/telemetry` changes', so `slog` plus `otelslog` stays. The Decision outcome says logs 'move to the OpenTelemetry Logs API'. Pack section 7 and the manifest decision say the bridge is used 'until' the Logs API is stable. An implementer cannot tell whether `otelslog` is temporary or permanent.",
+"evidence": "ADR line 43: \"Logs move to the OpenTelemetry Logs API only after its stable release ... through a revisit of this ADR that the [Watch list](...) triggers\"; line 89: \"Good, because call sites never change when logs move to the stable Logs API\"; line 92: \"so bridge wiring inside `internal/telemetry` changes at v1.47.0\". Tech stack Watch list: \"| OTel Logs API | Release candidate (...) | v1.47.0 stable | Logs SDK replaces the bridge |\". Pack section 7: \"`slog` bridge (`otelslog`) for logs until the OTel Go Logs API is stable\".",
+"fix": "State the end state once in Decision outcome, for example: 'At v1.47.0 the stable Logs API and SDK replace the release-candidate SDK behind the bridge; package call sites stay on `log/slog`, and `otelslog` stays inside `internal/telemetry` as the adapter from `slog` to the Logs API.' Add to More information: 'Proposed tech stack Watch list amendment: Fallback reads \"Stable Logs SDK behind the `otelslog` bridge; `slog` call sites unchanged\"'. If the intent is to drop the bridge instead, say that call sites move to `go.opentelemetry.io/otel/log` and remove the line 89 consequence."
+}
+],
+"non_blocking": [
+{
+"section": "Decision drivers (Stable call sites, line 28)",
+"suggestion": "The linked Banned imports section bans only `log`, and depguard confines only wazero, rueidis and `hashicorp/raft` to wrapper packages. Nothing yet keeps OpenTelemetry inside `internal/telemetry`. Reword to 'library churn SHOULD stay inside `internal/telemetry` (lint rule proposed in More information)'."
+},
+{
+"section": "More information (line 141)",
+"suggestion": "'Proposed owning-document amendment' names Repository layout and conventions, which is not this ADR's owning document (Observability is). Write 'Proposed amendment to Repository layout and conventions (owner of depguard rules)', and include the OTLP exporter modules in the depguard rule."
+},
+{
+"section": "Decision outcome vs Considered options and Pros and cons",
+"suggestion": "Use one option title in three places. Right now they are 'OpenTelemetry-first' (option 1), 'OpenTelemetry-first: the OpenTelemetry Go SDK for traces and metrics, ...' (Chosen option) and 'OpenTelemetry-first with an slog bridge' (Pros and cons H3)."
+},
+{
+"section": "Considered options (option 4, line 39)",
+"suggestion": "Datadog, InfluxDB and GELF have no citation. Only the New Relic and OpenCensus claims do. Add research-backed URLs such as https://www.krakend.io/docs/telemetry/influxdb-native/ and https://github.com/krakend/krakend-ce/blob/master/cmd/krakend-ce/main.go."
+},
+{
+"section": "Context and Decision drivers (P3, lines 20 and 27)",
+"suggestion": "P3 is 'No control-plane or peer dependency on the request path'. It does not forbid request-path waits in general. Cite Observability rule O2 as the source of 'telemetry never blocks', and cite P3 only for its 'asynchronous, bounded and droppable' wording."
+},
+{
+"section": "Consequences (line 99)",
+"suggestion": "Add the owning document's qualifier: '40 MiB or less live heap, up to 80 MiB RSS, no `/tap` subscriber (target)'."
+},
+{
+"section": "Consequences (line 97)",
+"suggestion": "'have no tagged release' is supported by https://github.com/open-telemetry/semantic-conventions-genai, not by the tree/main/docs/gen-ai URL, which supports only 'Development'. Cite both."
+},
+{
+"section": "Decision outcome (Export row) and Considered options (option 3)",
+"suggestion": "Say that rejecting option 3 does not settle OQ-tech-stack-and-libraries-16, where client_golang is still a `/metrics` exporter candidate. Scope the Export row to Nodes, since Ruralz Control's OTLP settings are OQ-observability-11."
+},
+{
+"section": "verify-docs WARN lines (Confirmation, lines 104-108)",
+"suggestion": "Five milestone WARNs: the roadmap has no M0 or M1 items for the linters, repocheck, catalog gates, cardinality test and benchmark gate. They are not FAILs; the roadmap owner should add those items."
+},
+{
+"section": "Cross-lens note",
+"suggestion": "The L1 non-blocking note on the APISIX 3.18.0 citation does not hold. competitors-kong-tyk-apisix.md section 8 cites that URL for 'Metrics via the Prometheus plugin', which supports option 3. Keep both citations."
+}
+],
+"ac_results": [
+{
+"ac": "Front matter contains id, title, status, date, deciders and related, and status matches this manifest.",
+"pass": true,
+"note": "All six keys are present. id, title and status `accepted` match the manifest entry."
+},
+{
+"ac": "H2 headings match adr_common.outline_h2 exactly and in order, and Decision outcome contains the H3 headings Consequences and Confirmation.",
+"pass": true,
+"note": "The six H2 headings are in order and both H3 headings are present. verify-docs reports no FAIL."
+},
+{
+"ac": "Considered options lists at least two options including the chosen one, and each has pros and cons.",
+"pass": true,
+"note": "There are four options, each with Good and Bad bullets. Every URL is found under docs/_meta/research/."
+},
+{
+"ac": "Decision outcome states the chosen option as 'Chosen option: ..., because ...' and matches the foundation pack section 7 row for this ADR.",
+"pass": true,
+"note": "The form is correct and matches the pack section 7 Telemetry row. The end state after v1.47.0 still conflicts with the tech stack Watch list (L2-3)."
+},
+{
+"ac": "Confirmation names a concrete verification mechanism (test, lint rule, CI gate or review checklist item).",
+"pass": true,
+"note": "It names depguard `log$`, sloglint and spancheck, repocheck, catalog CI gates, the cardinality test, the PB-10 gate, the e2e Collector test and a review checklist item. Each one exists in the cited documents."
+},
+{
+"ac": "The ADR is linked from docs/adr/README.md and from its owning document.",
+"pass": false,
+"note": "Observability links ADR-0010 in its Summary and in rule O1. docs/adr/README.md does not exist yet: the manifest has it written in a later wave with docs/README.md. This is not a defect of the ADR text."
+}
+],
+"foundation_amendments": [
+"Section 7 Telemetry row: say what 'until the OTel Go Logs API is stable' means for the bridge, for example 'logs through `log/slog` with the `otelslog` bridge; the bridge feeds the release-candidate Logs SDK until OpenTelemetry Go v1.47.0 ships it stable', so ADR-0010, the tech stack Watch list and Observability describe one end state (see L2-3)."
+]
+},
+"revise:adr-0009": {
+"addressed": [
+"L1-1: The HTTP/3 row now counts QUIC connections against the Node connection ceiling and QUIC streams against the in-flight ceiling. It keeps quic-go's stream, receive-window and header limits at or below the HTTP/2 values (target), inside the 592 KiB per-connection budget (hypothesis), with deadlines through http.ResponseController, and says the quic-go settings and deadline support await research. Two related additions: a Data plane amendment for HTTP/3 Bounded resources rows plus an Open question, and a Confirmation item for HTTP/3 conformance cases that assert the QUIC stream cap and per-connection memory against the data plane budget.",
+"L1-2: Decided that a FIPS Node refuses, never ignores, a Revision with http3: true. A new 'FIPS builds' row names the build tag ruralz_fips, which the HTTP/3 package excludes with //go:build !ruralz_fips, and says a FIPS ruralzd never binds UDP 8443. The proposed form is a deterministic NACK in Control mode or a load failure in file mode, with an RZ-CFG code. That form is routed to OQ-tech-stack-and-libraries-9 and the Configuration model registration is listed as a proposed amendment. The FIPS job now runs `go list -deps -tags ruralz_fips ./cmd/ruralzd` and tests assert rejection. Only the exact form is routed to the OQ, because of ADR-0001's open question and L2-1.",
+"L1-3: The Upstream layer row now states that HTTP2Config.StrictMaxConcurrentRequests is false, so a server's stream limit opens another connection. Each attempt first takes a circuitBreaker.maxConnections slot, and waiters on that slot count toward maxPendingRequests (Traffic management, Circuit breakers), so nothing queues unseen inside http.Transport. The change is recorded as a proposed Data plane Upstream layer amendment.",
+"L1-4: The 'because' clause is narrowed to the ingress libraries: connect-go (pack section 7), and coder/websocket and http.ResponseController SSE flushing (Library catalog).",
+"L2-1: The 'refused or inert' wording is gone. FIPS tests assert that a FIPS ruralzd never binds UDP 8443 and rejects http3: true with the code that OQ-tech-stack-and-libraries-9 settles. A new Consequences bullet reads 'Bad, because FIPS builds lack HTTP/3, a feature difference that foundation pack section 1 and P1 otherwise forbid, allowed only by pack section 8.4 until OQ-tech-stack-and-libraries-9 closes (ADR-0001)'.",
+"L2-2: Same fix as L1-4, using the suggested wording with the Library catalog link.",
+"L2-3: The driver now reads 'soft criterion S3 favors net/http handlers and context.Context cancellation'.",
+"L2-4: Covered by the L1-1 changes: the Bounded resources driver now names HTTP/3, the HTTP/3 row gives the ceilings and says the settings await research, and a Data plane amendment asks for HTTP/3 Bounded resources rows plus an Open question on the quic-go limits and ResponseController deadline support."
+],
+"disputed": []
+},
+"revise:adr-0007": {
+"addressed": [
+"L1-1",
+"L1-2",
+"L1-3",
+"L2-1",
+"L2-2"
+],
+"disputed": []
+},
+"revise:adr-0006": {
+"addressed": [
+"L1-1",
+"L1-2",
+"L1-3",
+"L2-1",
+"L2-2"
+],
+"disputed": []
+},
+"revise:adr-0004": {
+"addressed": [
+"L1-1",
+"L1-2",
+"L2-1"
+],
+"disputed": []
+},
+"revise:adr-0005": {
+"addressed": [
+"L1-1: I added a rule to the State Store row. In upstream-leg Phases, later attempts and steps replay the first result for the same Host Function and key, with no round trip. Parallel steps serialize on it. A call with a different key still returns ERR_BUDGET, so a Plugin never silently gets a result for the wrong key. I also added a Bad consequence and a conformance case: an Upstream-scoped state.read Plugin with one retry, or with two aggregate steps, gets no RZ-PLG-006. Figure 1's State Store node now says the result is replayed. The run rules only let me edit this one file, so OQ-wasm-plugin-system-20 is not yet in the owning document. More information records it as 'Proposed to the owning document', with option (a) replay (chosen here) and option (b) forbid state.* at Upstream scope (RZ-CFG-020).",
+"L1-2: The Results row now excepts request_body_read and response_body_read (which take an offset) and chunk_read. These return the bytes written, 0 at the end, so a guest streams a body through a fixed buffer. The Figure 2 caption now says it shows a header read only. The conformance bullet adds a body larger than limits.memoryBytes, read in fixed-size chunks without RZ-PLG-003.",
+"L1-3: The adapter row now says a pinned call waits for its instance at most the 1 ms (target) pool wait, then fails with RZ-PLG-005. A trap fails every context pinned to that instance, each under its own Policy's failureMode. The Consequences bullet now says 'recycling and fault radius open (OQ-wasm-plugin-system-17)'. More information describes OQ-17 the same way. I added a Planned (M4) adapter conformance bullet: a trapping context does not affect contexts on other instances, and pinned waits respect the 1 ms bound (target).",
+"L2-1: I applied the three wordings. The Request-path driver now says no remote call that its Policy does not declare (pack section 8.7 rule 6), and that Plugin ABI v1 excludes outbound calls (OQ-wasm-plugin-system-5). The proxy-wasm con now treats outbound calls as undeclared remote calls under rule 6, and timers and shared queues as outside the per-request model (Host Function table, Excluded rule). The Revisit bullet now names the Policy-declared timeout and failureMode that the Configuration model does not define yet (OQ-wasm-plugin-system-5).",
+"L2-2: The Results row names the body and chunk read exception (bytes written, 0 at the end). The Figure 2 caption says body and chunk reads return bytes written instead.",
+"L2-3: The Figure 1 caption now reads 'every Host Function import ... passes one Capability gate; WASI imports follow the shim'. The Ambient authority row now says that args_* and environ_* return zero entries and proc_exit traps (RZ-PLG-001), all ungated.",
+"Non-blocking suggestions applied: ERR_BUDGET added to Figure 1's sticky node, with an edge from the State Store node for a second blocking call. The Evolution row now excepts optional guest JSON fields (OQ-release-versioning-and-compatibility-10) and says rz_abi_version() stays 1. Option 2 now reads 'as used by Kong's 3.4 beta and APISIX's wasm-nginx-module', with sources. The Extism go-sdk repository URL now sits next to the 2025-05-14 date. The engine-based PDK bullet is quantified from Sizing: parked bound 12, audit threshold 16, needs a 4 GiB cap. A note under OQ-wasm-plugin-system-8 says to measure SDK-built filters' import sets before M4. The Context now uses P6's 'fails its own Filter' framing through the drivers.",
+"Length: the new content took the body to about 1,890 words, over the 1,500 maximum. I brought it back to 1,493 by merging repeated text, not by deleting earlier fixes. The Context prior-art sentence was shortened, keeping its KrakenD and Kong sources. Confirmation now has one 'Planned (M2) unless tagged' lead-in. Some redundant links and parentheticals were shortened. The verifier (--skip markdownlint) shows no FAIL lines for this file. Its WARN lines are about the roadmap document, which does not exist yet. markdownlint-cli2 reports 0 issues. Only docs/adr/0005-plugin-abi-v1.md was edited."
+],
+"disputed": []
+},
+"revise:adr-0014": {
+"addressed": [
+"L1-1",
+"L1-2",
+"L1-3",
+"L1-4",
+"L2-1",
+"L2-2",
+"L2-3",
+"L2-4",
+"L2-5",
+"suggestion: Surface decoder row now reads 'before any `onRequestBody` Policy, after the `onRequestHeaders` Policies'",
+"suggestion: the Native edits row is relabeled 'Native request edits'",
+"suggestion: the Consequences sentence now cites Coder #29563 in place of Portkey #1579",
+"suggestion: a Consequences bullet now says an overestimating correction can end streams with RZ-AI-008 below the provider cap, with the tolerance under OQ-ai-llm-gateway-15; E still depends on OQ-ai-llm-gateway-2",
+"suggestion: Prompt Cache fidelity driver now adds 'unless `cache.prompt.mode: disabled`'",
+"suggestion: the Proposed amendment in More information now links Banned imports",
+"suggestion: front matter related now also lists 12-performance-budgets-and-benchmarking.md, 10-observability.md and 03-testing-and-quality-strategy.md (status and date unchanged)",
+"suggestion: the first More information bullet no longer repeats links the body already gives, and wording elsewhere is tightened without removing text from earlier fixes; the body stays within the 1500-word maximum",
+"verifier_clean: true. verify-docs reports no FAIL lines for docs/adr/0014-ai-api-surface.md, and markdownlint-cli2 reports 0 issues. One WARN remains: the milestones check finds no matching roadmap M3 item for the Validation bullet's Planned (M3) tag, which L2-5 requires. Only the file this task names was edited: /home/user/ruralz/docs/adr/0014-ai-api-surface.md"
+],
+"disputed": []
+},
+"revise:adr-0013": {
+"addressed": [
+"L1-1",
+"L1-2",
+"L1-3",
+"L1-4",
+"L2-1",
+"L2-2"
+],
+"disputed": []
+},
+"revise:adr-0012": {
+"addressed": [
+"L1-1",
+"L1-2",
+"L1-3",
+"L1-4",
+"L1-5",
+"L1-6",
+"L1-7",
+"L2-1",
+"L2-2",
+"L2-3",
+"L2-4",
+"L2-5",
+"L2-6",
+"L2-7"
+],
+"disputed": []
+},
+"write:adr-0016": {
+"path": "/home/user/ruralz/docs/adr/0016-kubernetes-helm-and-crds.md",
+"word_count": 1330,
+"h2s": [
+"Context and problem statement",
+"Decision drivers",
+"Considered options",
+"Decision outcome",
+"Pros and cons of the options",
+"More information"
+],
+"diagram_count": 2,
+"oq_ids": [
+"OQ-configuration-model-2",
+"OQ-configuration-model-3",
+"OQ-release-versioning-and-compatibility-11",
+"OQ-deployment-topologies-1",
+"OQ-deployment-topologies-13",
+"OQ-deployment-topologies-19",
+"OQ-control-plane-and-gitops-1",
+"OQ-system-overview-8",
+"OQ-vision-and-positioning-4"
+],
+"verifier_clean": true
+},
+"revise:adr-0011": {
+"addressed": [
+"L1-1",
+"L1-2",
+"L1-3",
+"L1-4",
+"L1-5",
+"L2-1",
+"L2-2",
+"L2-3",
+"L2-4"
+],
+"disputed": []
+},
+"write:adr-0015": {
+"path": "/home/user/ruralz/docs/adr/0015-zero-downtime-upgrades-so-reuseport.md",
+"word_count": 1407,
+"h2s": [
+"Context and problem statement",
+"Decision drivers",
+"Considered options",
+"Decision outcome",
+"Pros and cons of the options",
+"More information"
+],
+"diagram_count": 1,
+"oq_ids": [
+"OQ-zero-downtime-upgrades-and-hot-reload-1",
+"OQ-zero-downtime-upgrades-and-hot-reload-3",
+"OQ-zero-downtime-upgrades-and-hot-reload-5",
+"OQ-zero-downtime-upgrades-and-hot-reload-6",
+"OQ-zero-downtime-upgrades-and-hot-reload-7",
+"OQ-zero-downtime-upgrades-and-hot-reload-11",
+"OQ-zero-downtime-upgrades-and-hot-reload-12",
+"OQ-system-overview-18"
+],
+"verifier_clean": true
+},
+"revise:adr-0017": {
+"addressed": [
+"L1-1: Offline verification rule now requires a keyless signature to be a Sigstore bundle with a transparency-log inclusion proof and at least one trusted timestamp. The certificate is checked against that time, and the log and timestamp keys against the local trusted root. A missing or unverifiable proof or timestamp is RZ-CFG-033, and key-based signatures verify against the configured key. Cites cosign releases (Rekor v2 since v3.1.1) and the Rekor v2 GA blog (tile-backed log, yearly shards). The Confirmation interoperability job now covers keyless bundles verifying with egress denied.",
+"L1-2: The Sigstore trusted root (Fulcio, log and timestamp keys) sits in the anchor-set Plugin trust policy in Control mode and is refreshed by TrustUpdate, with the anchor-set contents to confirm under OQ-control-plane-and-gitops-1. In file mode it comes from process configuration (OQ-security-and-identity-8). Added a Bad consequence: in Control mode each refresh, like revoking a Plugin publisher, waits on an offline root signing.",
+"L1-3: Trust policies rule: the file-mode process-configuration source (OQ-security-and-identity-8) is also read by `ruralz bundle build` and `ruralz bundle validate --online`. Flag names are left to CLI and API surface, and no flag is invented. Without a trust policy the CLI fails with RZ-CFG-033 and names the missing input.",
+"L1-4: Added a Bounds rule: verifiers list only Sigstore bundle referrers and try at most 16 of at most 1 MiB each within 10 s (target), inside the 64 MiB / 30 s fetch limits (target) of Control plane and GitOps, proposed there for Nodes and the CLI. No valid signature within the count and size limits is RZ-CFG-033. A timeout is transient, which keeps the rule consistent with L2-3. Results are cached by artifact digest and trust policy version. The integration tests now assert the referrer bounds.",
+"L2-1: The Figure 1 reject node now reads 'RZ-CFG-027, RZ-CFG-028 or RZ-CFG-033'. The integration-test item asserts RZ-CFG-027 (Revision digest), RZ-CFG-028 (Plugin digest) and RZ-CFG-033 (signature).",
+"L2-2: The P6 driver now reads 'P6, custom code is sandboxed: the sandbox limits what a Plugin does; signatures add who published it'. The P10 driver uses the canonical name 'P10, measured, not claimed'.",
+"L2-3: The Failure rule now separates the two cases. A signature missing from a reachable registry, invalid, or matching no trusted identity is RZ-CFG-033, a deterministic NACK (pack 8.3). A failed or timed-out registry or referrer fetch is a transient NACK, retried then quarantined, with a link to WASM plugin system#failure-semantics-and-the-rz-plg-registry."
+],
+"disputed": []
+},
+"revise:adr-0008": {
+"addressed": [
+"L1-1",
+"L1-2",
+"L1-3",
+"L1-4",
+"L2-1",
+"L2-2",
+"L2-3",
+"L2-4"
+],
+"disputed": []
 }
 }

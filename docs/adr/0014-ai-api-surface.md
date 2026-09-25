@@ -11,47 +11,50 @@ related:
   - docs/architecture/02-configuration-model.md
   - docs/engineering/01-tech-stack-and-libraries.md
   - docs/vision/01-vision-and-positioning.md
+  - docs/architecture/12-performance-budgets-and-benchmarking.md
+  - docs/architecture/10-observability.md
+  - docs/engineering/03-testing-and-quality-strategy.md
 ---
 
 # ADR-0014: AI API surface: OpenAI-compatible facade plus native passthrough, provider usage authoritative
 
 ## Context and problem statement
 
-Differentiator (2), the AI/LLM gateway, runs inside Ruralz Gateway: an `Upstream` with `protocol: ai` lists the `AIModel` resources clients may name in `ai.models` and picks a client-facing surface with `ai.surface` (`openai` or `native`); each `AIModel` maps to `AIProvider` candidates whose `dialect` is `openai`, `anthropic`, `gemini`, `bedrock`, `mistral` or `ollama` ([Configuration model](../architecture/02-configuration-model.md#upstream)). Nothing is implemented; AI traffic is Planned (M3).
+Differentiator (2), the AI/LLM gateway, runs inside Ruralz Gateway: an `Upstream` with `protocol: ai` lists client-nameable `AIModel` resources in `ai.models` and picks the client surface with `ai.surface` (`openai` or `native`); each `AIModel` maps to `AIProvider` candidates of `dialect` `openai`, `anthropic`, `gemini`, `bedrock`, `mistral` or `ollama` ([Configuration model](../architecture/02-configuration-model.md#upstream)). Nothing is implemented; AI traffic is Planned (M3).
 
-Two questions need one answer. Which wire format do clients speak? And which token count is authoritative for Token Budgets, cost and exports? Translating proxies that rebuild requests from typed schemas drop Prompt Cache markers ([source](https://github.com/BerriAI/litellm/issues/41424)) ([source](https://github.com/coder/coder/pull/29563)), and no local tokenizer matches every provider: `tiktoken-go/tokenizer` embeds OpenAI encodings only ([source](https://pkg.go.dev/github.com/tiktoken-go/tokenizer)), and Anthropic publishes no tokenizer ([source](https://platform.claude.com/docs/en/build-with-claude/token-counting)).
+Two questions need one answer: which wire format clients speak, and which token count is authoritative for Token Budgets, cost and exports. Translating proxies that rebuild requests from typed schemas drop Prompt Cache markers ([source](https://github.com/BerriAI/litellm/issues/41424)) ([source](https://github.com/coder/coder/pull/29563)), and no local tokenizer matches every provider: `tiktoken-go/tokenizer` embeds OpenAI encodings only ([source](https://pkg.go.dev/github.com/tiktoken-go/tokenizer)), and Anthropic publishes no tokenizer ([source](https://platform.claude.com/docs/en/build-with-claude/token-counting)).
 
 ## Decision drivers
 
 - **P8, AI traffic is API traffic**: the same Routes, Policies, Consumers and State Store govern AI calls ([Principles](../vision/01-vision-and-positioning.md#principles)).
-- **Prompt Cache fidelity**: native requests keep every cache marker in 100% of conformance cases (target; SM-11).
-- **Budget safety**: reservation, streaming guard and settlement follow [pack 8.9](../_meta/foundation-pack.md#89-token-budgets-adr-0014), with overshoot bounded as pack 8.9 and the owning document's [Settlement](../architecture/06-ai-llm-gateway.md#settlement) state (hypothesis; SM-10).
-- **P3 round trips**: one blocking State Store call per Policy before commit, none in `onChunk`; any other remote call is declared on its Policy.
+- **Prompt Cache fidelity**: unless `cache.prompt.mode: disabled`, native requests keep every cache marker in 100% of conformance cases (target; SM-11).
+- **Budget safety**: reservation, streaming guard and settlement follow [pack 8.9](../_meta/foundation-pack.md#89-token-budgets-adr-0014); overshoot is at most the sum of concurrent input-estimate errors plus (attempts - 1) x R per concurrent request, plus unstreamed hidden reasoning (OQ-ai-llm-gateway-17) (hypothesis; SM-10), as [Settlement](../architecture/06-ai-llm-gateway.md#settlement) states; pack 8.9 omits both extra terms (OQ-ai-llm-gateway-15).
+- **P3, no control-plane or peer dependency on the request path**: one blocking State Store call per Policy before commit, none in `onChunk`; any other remote call is declared on its Policy.
 - **Client portability**: SDKs written for OpenAI Chat Completions reach every dialect.
-- **P1, self-hosted and air-gapped**: prices ship in `AIProvider.spec.pricing`; no Revington service supplies prices or counts.
-- **Bounded work**: gateway-added time to first token of 1 ms or less at p99 for bodies up to 16 KiB (target).
+- **P1 and P2, everything is free and the gateway stands alone**: prices ship in `AIProvider.spec.pricing`; no Revington service or entitlement supplies prices or counts.
+- **Bounded work**: gateway-added time to first token of 1 ms or less at p99 for bodies up to 16 KiB, excluding State Store, embedding, provider and estimator time (target; PB-12 in [Performance budgets and benchmarking](../architecture/12-performance-budgets-and-benchmarking.md)).
 
 ## Considered options
 
 1. **OpenAI-compatible façade plus native passthrough, provider usage authoritative**: both surfaces, as Kong offers native formats beside its OpenAI default ([source](https://developer.konghq.com/plugins/ai-proxy/)) and Cloudflare serves OpenAI-compatible and Anthropic formats ([source](https://developers.cloudflare.com/ai-gateway/changelog/)).
 2. **OpenAI-compatible façade only**: one translated surface, as in Agent Router's "single OpenAI-compatible API across 16 providers" ([source](https://theagentrouter.ai/release-notes/)).
 3. **Native passthrough only**: vendor APIs forwarded unchanged, like KrakenD EE's no-op passthrough ([source](https://www.krakend.io/docs/enterprise/ai-gateway/llm-routing/)).
-4. **Gateway tokenizer counts as the billing source**: Token Budgets and cost read local counts, although Anthropic publishes no tokenizer and offers only a count endpoint ([source](https://platform.claude.com/docs/en/build-with-claude/token-counting)).
+4. **Gateway tokenizer counts as the billing source**: Token Budgets and cost read local counts; Anthropic offers only a count endpoint ([source](https://platform.claude.com/docs/en/build-with-claude/token-counting)).
 5. **Post-response charging without reservation**: Kong uses provider-returned token data, and "The cost ... is only reflected during the next request" ([source](https://developer.konghq.com/plugins/ai-rate-limiting-advanced/)); Agent Router checks usage already charged, then charges actual usage ([source](https://theagentrouter.ai/docs/capabilities/traffic/usage-based-ratelimiting/)).
 
 ## Decision outcome
 
-Chosen option: "OpenAI-compatible façade plus native passthrough, provider usage authoritative", because it is the only option that keeps provider-side Prompt Cache markers intact for native clients while giving OpenAI-SDK clients one surface across dialects, and because only the provider's own usage matches what the provider bills. This matches the foundation pack section 7 AI surface row: tokenizer counts serve only pre-admission estimates and the per-request streaming guard, and Token Budgets reserve and settle per section 8.9. The [AI/LLM gateway](../architecture/06-ai-llm-gateway.md#unified-api) owns the mechanism:
+Chosen option: "OpenAI-compatible façade plus native passthrough, provider usage authoritative", because only it keeps Prompt Cache markers intact for native clients while giving OpenAI-SDK clients one surface across dialects, and only provider usage matches what providers bill. This matches the foundation pack section 7 AI surface row: tokenizer counts serve only pre-admission estimates and the streaming guard; Token Budgets reserve and settle per section 8.9. The [AI/LLM gateway](../architecture/06-ai-llm-gateway.md#unified-api) owns the mechanism:
 
 | Concern | Rule | Planned |
 |---|---|---|
-| Surface decoder | At the start of `onRequestBody`, before any Policy: strict JSON (invalid UTF-8 or repeated members are `RZ-AI-002`), `model` resolved in `ai.models` (`RZ-AI-001`), C computed, E only when a reader needs it | Planned (M3) |
+| Surface decoder | At the start of `onRequestBody`, before any `onRequestBody` Policy, after the `onRequestHeaders` Policies: strict JSON (invalid UTF-8 or repeated members are `RZ-AI-002`), `model` resolved in `ai.models` (`RZ-AI-001`), C computed, E only when a reader needs it; assumes the Route has exactly one upstream leg and no `composition` (proposed validation code: OQ-ai-llm-gateway-16) | Planned (M3) |
 | `surface: openai` | Chat Completions, streamed or not, embeddings and the model list, translated to each candidate's dialect and back to OpenAI chunks ending `data: [DONE]`; an inexpressible feature is `RZ-AI-002`; Responses API Planned (M4) | Planned (M3) |
 | `surface: native` | Only the operations in [Native APIs, caps and events](../architecture/06-ai-llm-gateway.md#native-apis-caps-and-events), including Anthropic Messages, Gemini and Bedrock Converse; bytes edited in place, never re-serialized from a typed schema; all candidates share one dialect (code: OQ-ai-llm-gateway-3); Bedrock InvokeModel Planned (M4) | Planned (M3) |
-| Native edits | Only: rewrite `model` or the model path segment; write C into the cap field and remove the others; set `stream_options.include_usage` on streamed Chat Completions; keep only allowlisted headers and query parameters before credentials attach; redact in place for `ai.guardrail`; remove cache markers under `cache.prompt.mode: disabled` | Planned (M3) |
+| Native request edits | Only: rewrite `model` or the model path segment; write C into the cap field and remove the others; set `stream_options.include_usage` on streamed Chat Completions; keep only allowlisted headers and query parameters before credentials attach; redact in place for `ai.guardrail`; remove cache markers under `cache.prompt.mode: disabled` | Planned (M3) |
 | Usage | Provider-reported usage, read per attempt keeping each field's latest value, since Anthropic `message_delta.usage` is cumulative ([source](https://platform.claude.com/docs/en/build-with-claude/streaming)), is authoritative for settlement, cost and every export | Planned (M3) |
 | Tokenizer | `tiktoken-go/tokenizer` computes E (`o200k_base` times the candidates' largest per-dialect correction, OQ-ai-llm-gateway-2) and the `onChunk` guard count; never billed; no count call on the request path | Planned (M3) |
-| Token Budget | C is the client cap, else `limits.maxOutputTokens`; R = E + C, reserved in one atomic State Store call only if the budget covers all of R (`RZ-AI-006`); the guard ends the stream past C (`RZ-AI-008`); `onLog` charges usage and releases the rest, or charges all of R and emits a degraded-state metric when usage is missing | Planned (M3) |
+| Token Budget | C is the client cap, else `limits.maxOutputTokens`; R = E + C, reserved in one atomic State Store call only if the budget covers all of R (`RZ-AI-006`); the guard ends the stream past C (`RZ-AI-008`); `onLog` charges usage summed over attempts, plus all of R once per request if an attempt lacked usage (degraded-state metric), and releases the rest; budgeted Routes allow 2 attempts (target) and stop Provider Fallback with `RZ-AI-005` once that charge reaches R | Planned (M3) |
 | Credentials | `credentials.apiKey` through `secretRef`, attached at the transport after the last `onUpstreamRequest` Filter | Planned (M3) |
 
 *Figure 1: one request through the chosen surface and accounting; dashed edges are asynchronous.*
@@ -80,15 +83,15 @@ flowchart LR
 
 ### Consequences
 
-- Good, because native passthrough cannot drop a field it never parses into a type, the failure behind LiteLLM #41424 ([source](https://github.com/BerriAI/litellm/issues/41424)) and Portkey #1579 ([source](https://github.com/Portkey-AI/gateway/issues/1579)).
-- Good, because an OpenAI-SDK client can fall back from `anthropic` to `openai` candidates on the façade without code changes.
-- Good, because budgets and cost records use the fields providers bill, and cost records carry the Revision digest and `pricing.version`, so re-pricing needs no Revington service (P1).
-- Good, because the guard counts locally, so `onChunk` never calls the State Store (pack 8.7).
+- Good, because native passthrough cannot drop a field it never parses into a type, the failure behind LiteLLM #41424 ([source](https://github.com/BerriAI/litellm/issues/41424)) and Coder #29563 ([source](https://github.com/coder/coder/pull/29563)).
+- Good, because OpenAI-SDK clients fall back across dialects on the façade without code changes.
+- Good, because budgets and cost records use billed fields, and cost records carry the Revision digest and `pricing.version`, so re-pricing needs no Revington service (P1, P2).
+- Good, because the local guard keeps State Store calls out of `onChunk` (pack 8.7).
 - Bad, because two surfaces double the fixtures: every native API needs cap, commit-event and usage cases, and the façade drops cache markers for `openai`, `mistral`, `gemini` and `ollama`, counted by `ruralz_ai_cache_markers_dropped_total` (name owned by [Observability](../architecture/10-observability.md)).
 - Bad, because Provider Fallback behind `surface: native` stays within one dialect.
-- Bad, because non-OpenAI estimates are corrected guesses: Claude Opus 4.7 and later produce about 30% more tokens for the same text ([source](https://platform.claude.com/docs/en/build-with-claude/token-counting)), so E and the guard drift until OQ-ai-llm-gateway-2 closes.
+- Bad, because non-OpenAI estimates are corrected guesses: Claude Opus 4.7 and later produce about 30% more tokens for the same text ([source](https://platform.claude.com/docs/en/build-with-claude/token-counting)), so E and the guard drift until OQ-ai-llm-gateway-2 closes, and an overestimate can end streams with `RZ-AI-008` below the provider cap (tolerance: OQ-ai-llm-gateway-15).
 - Bad, because OpenAI omits the usage chunk on interrupted streams ([source](https://github.com/openai/openai-python/blob/main/src/openai/types/chat/chat_completion_stream_options_param.py)), and such streams are charged all of R.
-- Bad, because a non-streamed façade response is buffered within `maxResponseBodyBytes`, and a larger one fails with 502 `RZ-AI-013`.
+- Bad, because non-streamed façade responses are buffered, and one beyond `maxResponseBodyBytes` fails with 502 `RZ-AI-013`.
 - Bad, because hidden reasoning is never streamed, so only the provider's cap bounds it (OQ-ai-llm-gateway-17).
 
 ### Confirmation
@@ -97,7 +100,7 @@ flowchart LR
 - **Token Budget property test**, Planned (M3): reservation, per-attempt settlement and the overshoot bound hold ([Required properties](../engineering/03-testing-and-quality-strategy.md#required-properties)).
 - **SM-10 scale job**, Planned (M3): the [AI provider mock](../engineering/03-testing-and-quality-strategy.md#ai-provider-mock) drops usage on some streams, and settlement MUST charge all of R.
 - **Fuzzing**, Planned (M3): per-dialect stream parsers extract the fixture's final usage or report it missing ([Fuzzing](../engineering/03-testing-and-quality-strategy.md#fuzzing)).
-- **Validation**: `ruralz bundle validate` rejects a Token-Budgeted `AIModel` without `limits.maxOutputTokens` (RZ-CFG-034).
+- **Validation**, Planned (M3): `ruralz bundle validate` rejects a Token-Budgeted `AIModel` without `limits.maxOutputTokens` (RZ-CFG-034, [Error codes](../architecture/02-configuration-model.md#error-codes)).
 - **Review checklist item**: a pull request that bills, budgets or exports token counts from anything but provider usage, or re-serializes a native body, MUST amend this ADR.
 
 ## Pros and cons of the options
@@ -125,12 +128,12 @@ flowchart LR
 ### Post-response charging without reservation
 
 - Good, because it needs no estimate at admission.
-- Bad, because every concurrent stream admitted before settlement can overshoot the budget by its full output, which the reservation of R bounds under pack 8.9.
+- Bad, because every concurrent stream admitted before settlement can overshoot the budget by its full output, which the reservation of R bounds per attempt.
 
 ## More information
 
-- Owning document: [AI/LLM gateway](../architecture/06-ai-llm-gateway.md), sections [Native passthrough](../architecture/06-ai-llm-gateway.md#native-passthrough), [Token accounting](../architecture/06-ai-llm-gateway.md#token-accounting) and [Settlement](../architecture/06-ai-llm-gateway.md#settlement); the rules come from [foundation pack section 8.9](../_meta/foundation-pack.md#89-token-budgets-adr-0014) and the tokenizer row of [Tech stack and libraries](../engineering/01-tech-stack-and-libraries.md#library-catalog).
+- Owning document: [AI/LLM gateway](../architecture/06-ai-llm-gateway.md); tokenizer: [Tech stack and libraries](../engineering/01-tech-stack-and-libraries.md#library-catalog).
 - Related decisions: [ADR-0008](0008-rate-limiting-local-bucket-and-gcra.md) (request-rate limits in `onRequestHeaders`), [ADR-0010](0010-telemetry-opentelemetry-first.md) (`gen_ai` telemetry) and [ADR-0011](0011-expressions-and-authorization-engines.md) (candidate `when` expressions).
-- Open questions that refine, not reverse, this decision: OQ-ai-llm-gateway-1 (client caps above `limits.maxOutputTokens`), OQ-ai-llm-gateway-2 with OQ-vision-and-positioning-15 and OQ-tech-stack-and-libraries-11 (estimate corrections; provider count endpoints, which have their own rate limits ([source](https://platform.claude.com/docs/en/build-with-claude/token-counting)), would be declared remote calls), OQ-ai-llm-gateway-3 (mixed dialects, InvokeModel) and OQ-ai-llm-gateway-16 (registrations). The `failureMode` default of `ai.token-budget` stays OQ-configuration-model-8.
-- OQ-ai-llm-gateway-15 proposes charging R per attempt without usage and releasing R when no attempt ran; its option (b) is an ADR amending this one, so until it closes, pack 8.9 applies as written.
-- Proposed amendment: Repository layout and conventions SHOULD add a depguard rule confining `tiktoken-go/tokenizer` to the estimator and streaming-guard package, so no billing path can import it.
+- Open questions that refine, not reverse, this decision: OQ-ai-llm-gateway-1 (client caps above `limits.maxOutputTokens`), OQ-ai-llm-gateway-2 with OQ-vision-and-positioning-15 and OQ-tech-stack-and-libraries-11 (estimate corrections; rate-limited provider count endpoints ([source](https://platform.claude.com/docs/en/build-with-claude/token-counting)) would be declared remote calls), OQ-ai-llm-gateway-3 (mixed dialects, InvokeModel) and OQ-ai-llm-gateway-16 (registrations). The `failureMode` default of `ai.token-budget` stays OQ-configuration-model-8.
+- OQ-ai-llm-gateway-15 proposes charging R per attempt without usage and releasing R when no attempt ran; its option (b) amends this ADR, and until it closes pack 8.9 applies as written.
+- Proposed amendment: [Banned imports](../engineering/02-repository-layout-and-conventions.md#banned-imports) SHOULD add a depguard rule confining `tiktoken-go/tokenizer` to the estimator and streaming-guard package, so no billing path can import it.
