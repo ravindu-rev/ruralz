@@ -30,3 +30,14 @@ After a run ends or dies:
    with args `{today, repo: /home/user/ruralz, maxConcurrent: 2, dryRun: false}`.
 
 On a usage-limit hit, the failed agent transcript says "resets h:mm (Asia/Colombo)": relaunch after that time.
+
+## Finish phase (waves complete 2026-09-25 13:3x UTC; all 39 items reviewed)
+
+Runs of `ruralz-finish` (all finish run dirs, oldest first; the seed is rebuilt from all of them):
+
+- /root/.claude/projects/-home-user-ruralz/8a9a4c6e-d048-5961-9dea-7de4711f34d4/subagents/workflows/wf_7bcc09d4-723 (current)
+
+After a finish run ends or dies: commit and push `docs/`, then
+`python3 docs/_meta/run/gen_seed.py emit-finish docs/_meta/run/ruralz-finish.js <every finish run dir>` and relaunch with
+args = contents of `docs/_meta/run/finish-args.json` plus `{today, repo: /home/user/ruralz, maxConcurrent: 2, dryRun: false}`.
+When it completes: run `node scripts/verify-docs.mjs` (full) and fix errors, then wrap-up per the plan (overview doc, cleanup of docs/_meta/run/).
