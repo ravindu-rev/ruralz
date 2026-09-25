@@ -1,61 +1,32 @@
 {
   "lens": "L1 feasibility-skeptic",
   "verdict": "revise",
-  "score": 6,
+  "score": 8,
   "blocking": [
     {
-      "id": "L1-1",
+      "id": "L1-5",
       "section": "Decision outcome",
-      "issue": "The ADR does not say how a Node gets a trusted signing time when it verifies a keyless signature offline, so keyless verification cannot be built as written. Fulcio certificates are short-lived, so a verifier that checks them against the current time rejects every keyless signature once the certificate expires. The research records that cosign v3.1.1 moved signing to Rekor v2 with DSSE hashed entries, and that Rekor v2 is a tile-backed log. So the signing time has to come from evidence inside the Sigstore bundle (a transparency-log inclusion proof plus a trusted timestamp) that is checked against transparency-log and timestamp-authority keys in the local trusted root. The ADR requires none of this, and it names no verifier thresholds. An implementer could therefore reject every valid signature, or skip the log and weaken T6.",
-      "evidence": "Decision outcome, Offline verification: \"Trust roots, including the Sigstore trusted root for keyless identities, are supplied locally; Nodes never fetch one over TUF at activation.\" Decision table: \"CI at `ruralz bundle push`, with Sigstore (keyless OIDC or a key), stored as an OCI referrer\". Research (docs/_meta/research/licensing-landscape.md): \"v3.1.1 (2026-06-09) made the bundle format the default and moved signing to Rekor v2 with DSSE hashed entries\" and \"Rekor v2 GA 2025-10-10: tile-backed log\".",
-      "fix": "Extend the Offline verification rule: \"A keyless signature MUST be a Sigstore bundle carrying a transparency-log inclusion proof and at least one trusted timestamp. The Node checks the certificate against that time, and the log and timestamp keys against its local trusted root; a missing or unverifiable proof or timestamp is RZ-CFG-033. Key-based signatures verify against the configured key.\" Cite ([source](https://github.com/sigstore/cosign/releases)) and ([source](https://blog.sigstore.dev/rekor-v2-ga/)). Add the case to the interoperability job in Confirmation: a cosign 3.1.3 keyless bundle verifies with egress denied."
-    },
-    {
-      "id": "L1-2",
-      "section": "Decision outcome",
-      "issue": "A Control-mode Node has no defined source for the Sigstore trusted root (Fulcio, transparency-log and timestamp keys) that it needs to verify keyless Plugin signatures at activation. The ADR says trust roots are 'supplied locally'. For Control mode, though, it names only root-signed anchor sets carrying the online keys and the Plugin trust policy. Control plane and GitOps lists the anchor set contents, and they include no Sigstore trusted root. Enrollment delivers no such root either. As written, a Control-mode Node under `enforce` either rejects every keyless-signed Plugin or needs an undocumented local file that nothing distributes or rotates.",
-      "evidence": "ADR, Trust policies: \"Control mode: root-signed anchor sets carry the online keys and the Plugin trust policy from Ruralz Control's process configuration, delivered at Enrollment and by `TrustUpdate`.\" ADR, Offline verification: \"Trust roots, including the Sigstore trusted root for keyless identities, are supplied locally\". 04-control-plane-and-gitops.md, Signed content: \"Anchor set: `version`, `storeEpoch`, online keys, server CA fingerprint, Plugin trust policy, optional `compromisedSince`\".",
-      "fix": "State where the root comes from in each mode: \"In Control mode the Sigstore trusted root is part of the Plugin trust policy in the root-signed anchor set, so refreshing it is a `TrustUpdate`; in file mode it comes from the Node's process configuration (OQ-security-and-identity-8).\" Because Control plane and GitOps does not list it yet, cite OQ-control-plane-and-gitops-1 as the place to confirm the anchor set contents. Also add a Bad consequence: each Sigstore root refresh in Control mode needs an offline root signing."
-    },
-    {
-      "id": "L1-3",
-      "section": "Decision outcome",
-      "issue": "The table requires `ruralz bundle build` and `ruralz bundle validate --online` to verify Plugin signatures under `enforce`, and the ADR says an empty trust policy rejects everything. However, the ADR gives no trust policy source for the CLI. Trust policies never live in a Bundle, and the only named locations are Ruralz Control's process configuration and the Node's. The CLI reference defines no trust-policy input either. As written, every CI build of a Bundle that references a Plugin fails with RZ-CFG-033 by default, or the implementer has to invent an unreviewed input. The pack also routes CI merge gating through these commands.",
-      "evidence": "Decision table, Plugin artifact row: \"`ruralz bundle build`, `ruralz bundle validate --online`, Ruralz Control at ingest, Nodes at activation | `enforce`; `warn` in `ruralz dev run`\". Trust policies rule: \"Trust policies never live in a Bundle. Under `enforce` an empty trust policy rejects everything\". 02-configuration-model.md: \"CI SHOULD gate merges on `ruralz bundle build` or `validate --online`, which also verify Plugin signatures\".",
-      "fix": "Add to the Trust policies rule: \"The CLI reads the same file-mode trust policy source as a Node (OQ-security-and-identity-8, extended to `ruralz bundle build` and `ruralz bundle validate --online`; flag names belong to [CLI and API surface](../reference/01-cli-and-api-surface.md)).\" Also say what happens without one: \"without a trust policy the CLI fails with RZ-CFG-033 and names the missing input\". Do not invent a flag."
-    },
-    {
-      "id": "L1-4",
-      "section": "Decision outcome",
-      "issue": "Signature discovery has no bounds. The ADR stores signatures as OCI referrers and has Nodes, Ruralz Control and the CLI find and verify them. It gives no limit on how many referrers are listed or tried, on Sigstore bundle size, or on verification time. T6 assumes an adversary who can write to the registry (tampering, retagging). That adversary can attach thousands of junk or oversized referrers to a pinned digest, so every Node that verifies spends unbounded memory and time before it reaches RZ-CFG-033. In Control mode every Node of a Cluster repeats this on the same Rollout. The owning Control plane document bounds the Ruralz Control online check (64 MiB, 30 s), but nothing bounds the Node or CLI path.",
-      "evidence": "Decision table: \"with Sigstore (keyless OIDC or a key), stored as an OCI referrer\". Figure 1: \"Full digest, then signature against local trust roots\". The ADR has no limit on referrers, bundle bytes or verification time. 04-control-plane-and-gitops.md bounds only Ruralz Control: \"The online Plugin check dials only allowlisted registries, binds credentials to one host, follows no redirects and stops at 64 MiB or 30 s (target).\"",
-      "fix": "Add a rule: \"**Bounds.** Verifiers list referrers filtered by the Sigstore bundle artifact type. They try at most 16 referrers of at most 1 MiB each within 10 s (target), reusing the 64 MiB and 30 s fetch limits (target) of Control plane and GitOps. Anything beyond these limits is RZ-CFG-033. Verification results are cached by artifact digest and trust policy version.\" If the numbers belong to the owning document, reference them as proposed there instead."
+      "issue": "The new Bounds rule credits Control plane and GitOps with proposing the 64 MiB and 30 s fetch limits for Nodes and the CLI, but that document does not do so. It applies them only to Ruralz Control's online Plugin check, and nothing there mentions Node or CLI fetches, referrers or Sigstore bundles. Someone implementing the Node or CLI verifier who follows the link will find no limit for their path, so the ADR and its dependency now disagree about who owns the bound. This is a new regression introduced by the L1-4 fix. The per-referrer limits in the ADR (16, 1 MiB, 10 s) are fine; only the attribution is false.",
+      "evidence": "ADR, Decision outcome, Bounds: \"Verifiers list only Sigstore bundle referrers and try at most 16 of at most 1 MiB each within 10 s (target), inside the 64 MiB and 30 s fetch limits (target) of [Control plane and GitOps](../architecture/04-control-plane-and-gitops.md#building-and-recording-a-revision), proposed there for Nodes and the CLI.\" 04-control-plane-and-gitops.md, Building and recording a Revision (line 236), the only statement of these limits: \"The online Plugin check dials only allowlisted registries, binds credentials to one host, follows no redirects and stops at 64 MiB or 30 s (target).\"",
+      "fix": "Make the ADR the source of the extension, not Control plane and GitOps. Replace \"inside the 64 MiB and 30 s fetch limits (target) of [Control plane and GitOps](...#building-and-recording-a-revision), proposed there for Nodes and the CLI.\" with \"inside the 64 MiB and 30 s fetch limits (target) that [Control plane and GitOps](...#building-and-recording-a-revision) sets for the online Plugin check, which this ADR extends to Nodes and the CLI.\" This adds about 7 words, and the body is at about 1,499 of 1,500, so trim the same amount elsewhere. For example, shorten the Figure 1 caption to \"*Figure 1: signers and Node verification points.*\". Do not trim the L1-1 to L1-4 text or the degraded-metric example."
     }
   ],
   "non_blocking": [
     {
-      "section": "Whole document",
-      "suggestion": "The body is about 1,492 words against the 1,500-word maximum in adr_common, so the fixes above need offsetting trims. Candidates: shorten Considered options item 1, which repeats the Decision table (keep its two citations). Merge the two P-driver bullets. Shorten the More information Research bullet to one citation pair. Do not remove text that resolved earlier findings."
-    },
-    {
-      "section": "Consequences",
-      "suggestion": "Add a Bad consequence for the Key compromise rule: a Node that restarts after an emergency key removal while Ruralz Control is unreachable stays not ready. This is a deliberate exception to P9 (boot Last-Known-Good after a restart), accepted under OQ-control-plane-and-gitops-24 option (a)."
+      "section": "Decision outcome",
+      "suggestion": "Bounds: \"Results are cached by artifact digest and trust policy version\". A file-mode trust policy in process configuration has no `version`; only anchor sets do. Key the cache by a content hash of the effective trust policy, including the Sigstore trusted root, so a publisher removal or root refresh invalidates it in both modes."
     },
     {
       "section": "Decision outcome",
-      "suggestion": "Say explicitly that in Control mode the Plugin trust policy in Ruralz Control's process configuration is only the input to the offline root signing, and that Nodes honor only the root-signed anchor-set copy. As a result, revoking a Plugin publisher (listed in Security and identity as 'Next activation') waits on an offline root signing ceremony."
-    },
-    {
-      "section": "Consequences",
-      "suggestion": "The stale-root consequence could say how often a refresh is needed. Rekor v2 uses yearly log shards (licensing-landscape research), so a trusted root older than a year stops verifying new keyless signatures. Consider proposing a `ruralz_node_degraded_info` reason for an aging trusted root to Observability."
-    },
-    {
-      "section": "Confirmation",
-      "suggestion": "verify-docs warns that line 113 ('Interoperability job, Planned (M2)') has no matching M2 roadmap item. The roadmap's M2 row says 'OCI registry integration tests and interoperability job'; reusing that wording would clear the WARN."
+      "suggestion": "Trust policies: \"which without one fail with RZ-CFG-033 naming the missing input\". Limit this to Bundles that reference a Plugin (or to a pushed Revision). Otherwise a Plugin-free Bundle fails `ruralz bundle build` in CI for want of a trust policy it never uses."
     },
     {
       "section": "Decision outcome",
-      "suggestion": "'What a signature binds' names a promotion signature only implicitly. Control plane and GitOps also signs promotions (Cluster, promotedDigest, storeEpoch, promotionSeq), and those signatures protect Last-Known-Good promotion from replay. Consider naming them in one clause."
+      "suggestion": "Bounds: with a 16-referrer cap, a registry writer can attach 16 junk referrers so the valid signature is never tried. The result fails closed, which is correct, but the verifier could list referrers newest first, or try those whose certificate identity matches the trust policy first, so a leftover junk referrer does not cause a deterministic NACK."
+    },
+    {
+      "section": "Decision outcome",
+      "suggestion": "Offline verification: Rekor v2 gives no integrated log timestamp, so in practice the \"trusted timestamp\" comes from an RFC 3161 timestamp authority. Say so in a few words so the verifier is configured to require signed timestamps rather than observer or log time."
     }
   ],
   "ac_results": [
@@ -67,31 +38,32 @@
     {
       "ac": "H2 headings match adr_common.outline_h2 exactly and in order, and Decision outcome contains the H3 headings Consequences and Confirmation.",
       "pass": true,
-      "note": "The six H2 headings are in order; Consequences and Confirmation are H3 headings under Decision outcome. verify-docs reports no FAIL."
+      "note": "The six H2 headings are in order, and Consequences and Confirmation are H3 headings under Decision outcome. verify-docs prints no FAIL line for this file (TOTAL PASS)."
     },
     {
       "ac": "Considered options lists at least two options including the chosen one, and each has pros and cons.",
       "pass": true,
-      "note": "Five options, each with a Good and a Bad bullet under Pros and cons, and each citing research URLs (options 1, 2, 3 and 5 directly; option 4 is Ruralz-internal)."
+      "note": "There are five options, each with Good and Bad bullets. Every option cites research URLs from tooling-and-licenses.md or go-libraries-protocols.md."
     },
     {
       "ac": "Decision outcome states the chosen option as 'Chosen option: ..., because ...' and matches the foundation pack section 7 row for this ADR.",
       "pass": true,
-      "note": "'Chosen option: \"Layered signing, verified offline by default\", because ...' matches the pack section 7 Artifact signing row and the 8.14 table. The feasibility gaps L1-1 to L1-4 are details the pack leaves open, not contradictions of the pack."
+      "note": "'Chosen option: \"Layered signing, verified offline by default\", because ...' matches the pack section 7 Artifact signing row and the 8.14 table. The earlier L1-1 to L1-4 gaps are now filled: timestamp and inclusion proof, the trusted-root source per mode, the CLI trust policy source, and the bounds."
     },
     {
       "ac": "Confirmation names a concrete verification mechanism (test, lint rule, CI gate or review checklist item).",
       "pass": true,
-      "note": "Integration tests, a chaos test, an interoperability job, a FIPS CI job and a review checklist item. The interoperability job should also cover the keyless-timestamp case (L1-1)."
+      "note": "Integration tests (now including the referrer bounds), a chaos test, an interoperability job covering cosign 3.1.3 keyless bundles with egress denied, a FIPS CI job and a review checklist item."
     },
     {
       "ac": "The ADR is linked from docs/adr/README.md and from its owning document.",
       "pass": false,
-      "note": "The owning document docs/architecture/08-security-and-identity.md links it twice. docs/adr/README.md does not exist yet: the adr_index generator writes it. This is not a defect in this ADR, but the criterion is not met today."
+      "note": "docs/architecture/08-security-and-identity.md links the ADR. docs/adr/README.md does not exist yet because the adr_index generator writes it, so this is not a defect in the ADR, but the criterion is not met today."
     }
   ],
   "foundation_amendments": [
-    "Pack 8.14: name the trust policy source for `ruralz bundle build` and `ruralz bundle validate --online` (proposed: the same process-level source as a file-mode Node, OQ-security-and-identity-8), since the pack makes the CLI a Plugin signature verifier under `enforce`.",
-    "Pack 8.14: state that offline keyless verification requires a transparency-log inclusion proof and a trusted timestamp in the Sigstore bundle, and that the Sigstore trusted root reaches Control-mode Nodes inside the root-signed anchor set."
+    "Pack 8.14: name the trust policy source for `ruralz bundle build` and `ruralz bundle validate --online` (the same process-level source as a file-mode Node, OQ-security-and-identity-8), since the pack makes the CLI a Plugin signature verifier under `enforce`.",
+    "Pack 8.14: state that offline keyless verification requires a transparency-log inclusion proof and a trusted timestamp in the Sigstore bundle, and that the Sigstore trusted root reaches Control-mode Nodes inside the root-signed anchor set.",
+    "Pack 8.2 Boot order step (3): add the `compromisedSince` exception that ADR-0017, Security and identity and Control plane and GitOps adopt (OQ-control-plane-and-gitops-24, option (a)). A Control-mode Node does not boot a candidate or Last-Known-Good accepted from a removed key after `compromisedSince` and stays not ready until the Control Stream delivers. Today the ADR declares this exception to pack 8.2 and P9, but the pack does not contain it."
   ]
 }

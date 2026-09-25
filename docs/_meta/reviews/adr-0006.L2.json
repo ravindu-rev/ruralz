@@ -1,79 +1,65 @@
 {
   "lens": "L2",
   "verdict": "revise",
-  "score": 7,
+  "score": 8,
   "blocking": [
     {
       "id": "L2-1",
-      "section": "Decision outcome (Transport and Membership rows, Figure 1)",
-      "issue": "The ADR treats port 8092 as one peer-certificate-only Raft transport, which contradicts its owning document. Control plane and GitOps, Replica roles 4, makes 8092 a peer layer that authorizes classes by certificate role: Raft and write forwarding for members; status forwarding and content replication for replicas; content fetch and the relay feed for `relay`-role certificates; and a token `Join`. Its Certificates and replica join section says `ruralz control join` redeems a one-time `admin` token in `Join` before the joining replica has any peer certificate. The ADR contradicts this in three places. The Transport row admits 'Ruralz Control peer certificates only'. The Membership row has `ruralz control join` add a voter over that same port. Figure 1 sends content replication through the node that the Transport row reserves for `raft.NetworkTransport`, and it omits the forwarding, relay-feed and Join classes.",
-      "evidence": "Line 49: \"`raft.NetworkTransport` over a Ruralz mutual-TLS stream layer on `crypto/tls`, never the built-in TCP layer, on 8092 (...); Ruralz Control peer certificates only, Node certificates rejected (TB-11)\" / line 51: \"`ruralz control join` adds a voter over 8092\" / lines 71, 84-85: \"tls[\\\"Mutual-TLS stream layer on 8092\\\"]\", \"cas --> tls\", \"tls -.->|\\\"Raft and content replication\\\"| peers\" / owning document, Replica roles 4: \"8092 authorizes classes by certificate role ... and a token `Join` (OQ-control-plane-and-gitops-15)\" / owning document, Certificates and replica join: \"`ruralz control join` redeems a one-time `admin` token in `Join`, and the leader signs the replica's certificate and adds a voter\"",
-      "fix": "Transport row: \"A Ruralz mutual-TLS stream layer on `crypto/tls` on 8092, never the built-in TCP layer ([Control Store transport](...)), hands Raft-class connections from voter peer certificates to `raft.NetworkTransport`. The other classes (forwarding, content, relay feed and a token `Join`) follow [Replica roles](../architecture/04-control-plane-and-gitops.md#replica-roles) (OQ-control-plane-and-gitops-15). Node certificates are always rejected (TB-11).\" Membership row: \"`ruralz control join` redeems a one-time `admin` token in `Join` on 8092; the leader signs the peer certificate and adds a voter\". Figure 1: rename `tls` to \"Peer layer 8092: classes by certificate role\", add an edge `raft --> tls` labeled \"Raft class\", and relabel the peers edge \"Raft, forwarding, content and relay classes\". The body is at 1,481 of 1,500 words, so keep the net change within the band. For example, drop the ALPN clause from the Proposed amendments bullet, because OQ-control-plane-and-gitops-15 is now cited in the row."
-    },
-    {
-      "id": "L2-2",
-      "section": "Decision outcome (`postgres` row)",
-      "issue": "The `postgres` row states content placement as decided, which contradicts binding foundation pack section 2. Section 2 defines the Control Store, `postgres` included, as metadata 'plus digest-addressed Revision content and audit segments on Ruralz Control replicas'. The owning document leaves content placement and status forwarding under `postgres` open as OQ-control-plane-and-gitops-22, whose proposed option (a) would amend pack section 2, and whose option (b) is '8092 without Raft'. The row states 'Everything in PostgreSQL' and '8092 is unused' as rules and does not mark either as pending. OQ-22 appears only in More information. Under pack section 14, a deviation from the pack stays an Open question until it is decided.",
-      "evidence": "Line 54: \"Everything in PostgreSQL over TLS; leadership is a fenced lease row renewed every 2 s and expiring after 10 s (target); sequence checks run in a transaction; 8092 is unused; switching implementations opens a new `storeEpoch`\" / foundation pack section 2 Control Store row: \"plus digest-addressed Revision content and audit segments on Ruralz Control replicas\" / owning document Open questions: \"OQ-control-plane-and-gitops-22 | Status forwarding and content placement under `postgres`, amending pack section 2? | (a) PostgreSQL tables (proposed); (b) 8092 without Raft\"",
-      "fix": "Replace the start of the row with: \"Metadata in PostgreSQL over TLS; content placement and status forwarding stay OQ-control-plane-and-gitops-22 (proposed: PostgreSQL tables, amending pack section 2), and 8092 stays unused (pack section 8.4) unless that question picks option (b); ...\". Keep the lease, transaction and `storeEpoch` clauses. To stay within 1,500 words, shorten the More information entry to \"OQ-control-plane-and-gitops-22\" without its parenthetical."
+      "section": "Decision outcome (Transport row)",
+      "issue": "This is a regression from the revision, and the wording came from my own earlier L2-1 fix. The Transport row now admits Raft-class connections only 'from voter peer certificates'. That contradicts the owning document, which grants the Raft class to Raft members. It also contradicts the release document, which has non-voter replicas taking part in Raft. The Peer CA issues one '8092 peer' certificate role (plus `relay`), so no certificate records voter status. A joining replica catches up before it votes, per the High availability and disaster recovery document's 'it votes after catch-up'. Under the rule as written, its AppendEntries traffic would sit outside the Raft class. L1-1 reports the same defect; one fix resolves both findings.",
+      "evidence": "ADR line 48: \"Only Raft-class connections from voter peer certificates reach `raft.NetworkTransport` via its `Accept`\" / owning document, Replica roles 4: \"Raft and write forwarding for Raft members\" / owning document, Certificates and replica join: \"| 8092 peer | Peer CA | 90 days (target) |\" / 04-release-versioning-and-compatibility.md, Ruralz Control upgrades 1: \"Each replica, voter or non-voter, and each regional relay\" / 04-high-availability-and-disaster-recovery.md line 396: \"it votes after catch-up\"",
+      "fix": "Replace \"from voter peer certificates\" with \"from peer-role certificates, never relay,\" so the row matches the owning document's certificate roles and leaves membership checks to raft. The body is at 1,498 of 1,500 words, so offset the added word by changing \"Node certificates are always rejected (TB-11)\" to \"Node certificates are rejected (TB-11)\". This is the same fix as L1-1."
     }
   ],
   "non_blocking": [
     {
-      "section": "Consequences (quorum loss bullet)",
-      "suggestion": "The bullet cites System overview TB-11, and TB-11 says 'Quorum loss stops writes only'. Reword it as \"quorum loss stops writes, logins and Enrollment included, with `RZ-CP-004`\", and add a link to [Sizing and failover](../architecture/04-control-plane-and-gitops.md#sizing-and-failover). The claim then agrees with both sources."
+      "section": "Decision outcome (Transport row)",
+      "suggestion": "\"names each connection's class, proposed by ALPN\" is a new mechanism that appears in neither the owning document nor pack section 8.4. Pack 8.4 contrasts the dedicated port with 'ALPN multiplexing on 8091', so readers may mix up the two uses. Tie it explicitly to OQ-control-plane-and-gitops-15, e.g. \"class named by ALPN (proposed for OQ-control-plane-and-gitops-15)\". Alternatively, move it to the Proposed amendments bullet when the word budget allows."
     },
     {
-      "section": "Decision outcome (Interface row)",
-      "suggestion": "'Ruralz Control's process configuration selects one' states as decided something the owning document still treats as proposed (OQ-control-plane-and-gitops-1 option (a)). The ADR itself proposes adding the Control Store selection to OQ-1. Append \"(proposed, OQ-control-plane-and-gitops-1)\"."
+      "section": "Decision outcome (Membership row)",
+      "suggestion": "\"one voter, tolerating none, only for single-host and development installs\" is a supported topology that the owning document never defines. Sizing and failover gives only three or five voters, and Deployment topologies lists no single-replica Ruralz Control. Either mark it \"(proposed)\" and add it to the Proposed amendments for Control plane and GitOps, or drop the clause."
     },
     {
-      "section": "Decision outcome (Chosen option rationale)",
-      "suggestion": "'the only researched library that ships consensus, a pure-Go log store, a network transport and a file snapshot store together' is weak against research section 6: dragonboat also has a built-in transport, snapshotting and Pebble storage. The tech stack document's Alternatives not chosen table rejects dragonboat on S1 ('no release since 2023'). Qualify the claim as 'of the researched libraries that pass S1'. L1-3 gives the same fix."
-    },
-    {
-      "section": "Considered options / Decision outcome / Pros and cons of the options",
-      "suggestion": "The chosen option has three different labels: option 1's long text, the quoted 'embedded `hashicorp/raft` with `raft-boltdb/v2` on bbolt, `postgres` optional', and the H3 'hashicorp/raft with raft-boltdb/v2 on bbolt'. MADR readers match these by name. Use one short label in all three places, and bold it at the start of option 1."
-    },
-    {
-      "section": "Considered options (option 4)",
-      "suggestion": "Pack section 7 says a design MUST NOT name a library before it has a catalog row. The prose already avoids naming the `postgres` driver, but the link URL names jackc/pgx. Keep the prose unnamed as it is, and point the parenthetical at OQ-tech-stack-and-libraries-20 so the pending status is explicit."
+      "section": "Consequences (cross-Region voters bullet)",
+      "suggestion": "verify-docs prints a WARN (not a FAIL) for line 120: 'Planned (M4)' has no matching M4 item in the roadmap. The ADR needs no change. The roadmap's M4 section should list the regional Ruralz Control relay when it is written or conformed."
     }
   ],
   "ac_results": [
     {
       "ac": "Front matter contains id, title, status, date, deciders and related, and status matches this manifest.",
       "pass": true,
-      "note": "All six keys are present. The title matches the manifest verbatim. Status `proposed` matches the manifest and the foundation pack section 7 'ADR-0006 (proposed)'. The date 2026-09-25 is ISO."
+      "note": "All six keys are present. The id is ADR-0006, and the title matches the manifest verbatim. Status `proposed` matches both the manifest and pack section 7 'ADR-0006 (proposed)'. The date 2026-09-25 is ISO. `related` lists the owning document, the foundation pack and the tech stack document."
     },
     {
       "ac": "H2 headings match adr_common.outline_h2 exactly and in order, and Decision outcome contains the H3 headings Consequences and Confirmation.",
       "pass": true,
-      "note": "The six H2s are exact and in order, and both H3s sit under Decision outcome. `node scripts/verify-docs.mjs --allow-missing --skip markdownlint` prints no FAIL line for this file. The body is 1,481 words, within the band of 400 to 1,500."
+      "note": "The six H2 headings are exact and in order, and Consequences and Confirmation sit under Decision outcome. verify-docs prints no FAIL line for this file, only the roadmap milestone WARN. The body is 1,498 words by the verifier's rule, inside the 400 to 1,500 band."
     },
     {
       "ac": "Considered options lists at least two options including the chosen one, and each has pros and cons.",
       "pass": true,
-      "note": "There are four options, each with Good and Bad bullets. Every URL cited appears in docs/_meta/research (go-libraries-runtime.md, tooling-and-licenses.md, scalability-patterns.md). The labels are inconsistent; see non-blocking."
+      "note": "There are four options, each with Good and Bad bullets under a matching H3. The chosen option's label is now the same in Considered options, Decision outcome and the H3. The cited URLs appear in go-libraries-runtime.md sections 6, scalability-patterns.md section 8.1 and tooling-and-licenses.md section 3, and the versions, dates and commit counts match those files."
     },
     {
       "ac": "Decision outcome states the chosen option as 'Chosen option: ..., because ...' and matches the foundation pack section 7 row for this ADR.",
       "pass": true,
-      "note": "The format is correct. The pack section 7 elements all match: hashicorp/raft, raft-boltdb/v2 v2.4.2 or newer on bbolt, mutual TLS on 8092, the four named MPL-2.0 exceptions, the MIT modules, and `postgres` behind an interface, Planned (M4). The `postgres` row's content placement conflicts with pack section 2 (L2-2), and the 8092 description conflicts with the owning document (L2-1)."
+      "note": "The statement uses the required form. It matches pack section 7: hashicorp/raft with raft-boltdb/v2 v2.4.2 or newer on go.etcd.io/bbolt, a mutual-TLS peer transport on 8092, and the four named MPL-2.0 exceptions. It keeps bbolt, go-msgpack/v2, go-hclog and go-metrics as MIT, and `postgres` stays optional behind an interface, Planned (M4). The earlier L2-1 and L2-2 conflicts are resolved: 8092 classes now follow Replica roles with OQ-control-plane-and-gitops-15 cited, and `postgres` content placement stays OQ-control-plane-and-gitops-22. The new voter-certificate regression is L2-1."
     },
     {
       "ac": "Confirmation names a concrete verification mechanism (test, lint rule, CI gate or review checklist item).",
       "pass": true,
-      "note": "It names the license gate (stage 6 of `pr-fast`), the `ruralzd` Raft denylist, the depguard rule, the version floor with govulncheck, and the integration, chaos and fencing tests. It also names a review checklist item. All agree with Repository layout and conventions and with Testing and quality strategy."
+      "note": "It names the license gate (stage 6 of `pr-fast`), the `ruralzd` Raft denylist, depguard, the `require` version floor and govulncheck. It also names the container-free integration tests, the chaos tests, the fencing test and a review checklist item. Each agrees with Repository layout and conventions (CI stages, Banned imports) and with Testing and quality strategy (Integration tests, Chaos testing)."
     },
     {
       "ac": "The ADR is linked from docs/adr/README.md and from its owning document.",
       "pass": false,
-      "note": "The owning document links it (Scope and non-goals; Control Store and high availability). docs/adr/README.md does not exist yet, because the manifest writes it with docs/README.md in a later wave. The ADR cannot fix this, so it is not a blocking item here. Re-check once the index exists."
+      "note": "The owning document links the ADR in Scope and non-goals and in Control Store and high availability. docs/adr/README.md does not exist yet: the manifest's adr_index writes it with docs/README.md in a later wave. The ADR cannot fix this, so it is not blocking here. Re-check once the index exists."
     }
   ],
   "foundation_amendments": [
-    "Pack section 8.4, 8092 row: the authentication cell 'mTLS with Ruralz Control peer certificates; Node certificates rejected' omits the token `Join` and the `relay` role that Control plane and GitOps defines. Amend it per OQ-control-plane-and-gitops-15.",
-    "Pack section 2, Control Store row: state where Revision content and audit segments live under `postgres` once OQ-control-plane-and-gitops-22 is decided."
+    "Pack section 8.4, 8092 row: the authentication cell 'mTLS with Ruralz Control peer certificates; Node certificates rejected' omits the token `Join`, the `relay` role and the non-Raft classes that Control plane and GitOps defines. Amend it per OQ-control-plane-and-gitops-15.",
+    "Pack section 2, Control Store row: state where Revision content and audit segments live under `postgres` once OQ-control-plane-and-gitops-22 is decided.",
+    "Tech stack and libraries, Control Store transport: 'peers present Ruralz Control peer certificates' and '`ruralz control join` adds a replica over it' should name the certificate-less token `Join` and the class-by-role peer layer, per OQ-control-plane-and-gitops-15, so that the section agrees with the owning document and this ADR."
   ]
 }

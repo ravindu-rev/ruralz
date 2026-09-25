@@ -1,68 +1,43 @@
 {
   "lens": "L1",
   "verdict": "revise",
-  "score": 6,
+  "score": 7,
   "blocking": [
     {
-      "id": "L1-1",
-      "section": "Decision outcome (Logs row, Figure 1) and Decision drivers (Never on the critical path)",
-      "issue": "The stdout log path is synchronous and has no bound, and the ADR never says where access logs, the busiest log stream, enter it. Figure 1 sends `log/slog handler` straight to `JSON lines on stdout`, and only the bridge output passes the bounded queue. A standard `slog` JSON handler writes to its `io.Writer` under a mutex on the caller's goroutine. `slog.NewMultiHandler`, which the Consequences cite, calls every handler in turn on that same goroutine, and the `otelslog` handler converts the record there too. So any request-path `slog` call, such as a Plugin trap warning during an error storm or anything at `RURALZ_LOG_LEVEL=debug`, contends on one process-wide lock, and it blocks outright when stdout is a full pipe (Docker's default log mode blocks). That breaks the ADR's own driver and the owning document's O2 rule. The owning document keeps access logs off the request goroutine: the request copies fields into a pooled record, a worker encodes it, and the queue is bounded to 8,192 records and 4 MiB with `queue_full` drops, within 8 allocations and 2 µs p99 (target). The ADR's single-path rule 'Code logs only through `log/slog`' with 'JSON lines on stdout always' leaves room to put access logs through the synchronous multi-handler, which cannot meet those budgets.",
-      "evidence": "\"| Logs | Code logs only through `log/slog` via `internal/telemetry`: JSON lines on stdout always, plus OTLP logs through `otelslog` and a bounded processor when an endpoint is set; ...\"; Figure 1 edges \"slog --> out\" and \"br --> q\"; driver \"**Never on the critical path (P3)**: telemetry never blocks, slows or fails a request; queues are bounded and drop with a counter\". Owning document, Access logs: \"The request goroutine evaluates `when` and copies every field, truncated, into a pooled record buffer for a worker to encode\".",
-      "fix": "Extend the Logs row: 'No request goroutine runs a writing handler. Access log records are copied into pooled records in a bounded queue (8,192 records and 4 MiB, target, per Observability), and one worker encodes each record once for stdout and hands it to the bridge. Process logs go through a non-blocking `slog` handler that enqueues into a bounded queue drained by the one goroutine that owns stdout. Both queues drop with `ruralz_telemetry_logs_dropped_total{stream, reason=\"queue_full\"}`.' Redraw Figure 1 so that `slog` feeds a bounded log queue before both `out` and `br`. Add a Confirmation item, Planned (M1): a test that blocks the stdout pipe and asserts that request latency stays within budget while drops are counted."
+      "id": "L1-6",
+      "section": "Decision outcome (Export row) and Confirmation (Environment golden test)",
+      "issue": "The fix for the earlier L1-4 cannot be built as written. The ADR says the resource is built with no environment detector, so `OTEL_*` variables are ignored. In OpenTelemetry Go, though, the public `WithResource` option of all three providers merges `resource.Environment()` into the resource it is given. This holds for `sdk/trace` (provider.go), `sdk/metric` (config.go) and `sdk/log` (provider.go), where the code is `cfg.resource, err = resource.Merge(resource.Environment(), r)` (checked on main). Leaving `WithResource` out does not help, because the default is `resource.Default()`, which also reads the environment. So `OTEL_RESOURCE_ATTRIBUTES` and `OTEL_SERVICE_NAME` still add keys to every exported span, metric and log record, even when `internal/telemetry` passes a resource built by hand. Two Nodes on one Revision can then export different resources, which breaks the ADR's 'One configuration source' driver (pack 8.1). The planned golden test that sets `OTEL_RESOURCE_ATTRIBUTES` and expects a byte-identical resource would fail.",
+      "evidence": "Export row: \"Providers, processors and exporters get explicit options and the resource no environment detector, so `OTEL_*` process variables are ignored; `${OTEL_...}` render-time substitution stays valid\"; Confirmation: \"**Environment golden test**, Planned (M1): with `OTEL_RESOURCE_ATTRIBUTES`, `OTEL_EXPORTER_OTLP_HEADERS` and `OTEL_TRACES_SAMPLER` set, `ruralzd` exports a byte-identical resource, headers and sampling.\" Driver: \"**One configuration source**: Nodes on one Revision differ only in `secretRef` values and `RURALZ_*` settings (pack section 8.1).\"",
+      "fix": "Replace the Export row sentence with: '`ruralzd` and `ruralz-control` remove every `OTEL_*` variable from their own process environment (`os.Unsetenv`) at startup, before any SDK constructor runs, because the SDK's `WithResource` always merges `resource.Environment()`. Providers, processors and exporters then take explicit options. `${OTEL_...}` substitution is unaffected, because it runs at render time (`ruralz bundle render`) and file-mode `ruralzd` loads an already rendered Bundle ([Configuration model](../architecture/02-configuration-model.md#environment-substitution)).' Leave the golden test as it is. It now checks this rule, and it SHOULD also assert that `os.Getenv(\"OTEL_RESOURCE_ATTRIBUTES\")` is empty once startup finishes."
     },
     {
-      "id": "L1-2",
-      "section": "Decision outcome (Logs and Export rows) and More information",
-      "issue": "The owning document's audit export contradicts the ADR's logging rule and is missing from the decision. For OQ-control-plane-and-gitops-12, Observability chooses OpenTelemetry logs for the audit log. The Ruralz Control leader exports committed audit entries keyed by Raft index, treats an OTLP partial success as failure, retries until acknowledged and never drops. None of that can go through `log/slog`: a `slog` handler returns no export acknowledgement and cannot advance a Raft high-water mark. It cannot use the ADR's queues either, since those drop on `queue_full` or `export_error`. The audit export therefore has to call the OTLP log exporter directly, and that exporter belongs to the pre-stable Logs SDK. This is the one correctness-critical consumer of the release-candidate code the ADR otherwise keeps behind the bridge. The ADR states no rule for it, no consequence and no Confirmation, and its review checklist would flag the audit exporter as a violation.",
-      "evidence": "ADR: \"Code logs only through `log/slog` via `internal/telemetry`\" and \"spans and logs pass Ruralz queues that drop with `queue_full` or `export_error` counts\"; checklist: \"calling `go.opentelemetry.io/otel/log` outside `internal/telemetry`, MUST amend this ADR\". Owning document, Control plane observability: \"The leader exports batches keyed by Raft index ... an OTLP partial success counts as failure. Export retries, so it lags and never drops, unlike TB-12 (OQ-observability-19)\".",
-      "fix": "Add a Decision outcome row: 'Audit export | The Ruralz Control leader calls the OTLP log exporter directly from `internal/telemetry`, bypassing `slog` and the drop queues. Batches are keyed by Raft index, retried until acknowledged, and a partial success counts as failure; this is the TB-12 exception in OQ-observability-19 | Planned (M2)'. Add a Bad consequence: the audit exporter depends on the pre-stable Logs SDK and OTLP log exporter until v1.47.0. Add a Confirmation item, Planned (M2): an at-least-once test across a leader failover with a Collector that returns partial success. Scope the logging rule to 'Code logs only through `log/slog`, except the audit exporter'."
-    },
-    {
-      "id": "L1-3",
-      "section": "Decision drivers (One correlation key) and Consequences",
-      "issue": "The ADR claims exemplars but provides no mechanism for them. Choosing 'Ruralz-owned aggregates, not SDK synchronous instruments' gives up the SDK's exemplar reservoirs. The owning document's aggregates are striped atomic counters, eight per 64-byte line, and integer histogram sums added with `atomic.AddUint64`, updated with no lock. An exemplar is a trace ID, span ID, value and timestamp, 40 bytes or more, and a lock-free counter cannot hold it. Nothing in the ADR or in Observability defines exemplar storage, its concurrency, or which requests record it. The metrics memory model (300 bytes per histogram label set, hypothesis) leaves exemplars out. Exporting them over `/metrics` needs OpenMetrics exposition from an exporter that is still unselected. As written, the 'Good' consequence cannot be built.",
-      "evidence": "\"**One correlation key**: the trace ID links spans, logs, exemplars and the `requestId` of every problem document\"; \"Good, because the trace ID is the single correlation key across spans, access log records, exemplars and `requestId`.\"; \"| Metrics | Values live in Ruralz-owned aggregates, not SDK synchronous instruments, and both the OTLP reader and the `/metrics` exporter read them ...\"",
-      "fix": "Either add an exemplar rule to the Metrics row, for example: 'Sampled requests only write one exemplar slot per histogram label set per collection, through a sequence lock off the unsampled path; the exemplar is exported through the SDK interface of OQ-observability-16 and OpenMetrics on `/metrics`; slot memory is added to the histogram series assumption (hypothesis)', and a Confirmation benchmark item. Or drop exemplars from the driver and the consequence, and add a proposed owning-document Open question on exemplar support."
-    },
-    {
-      "id": "L1-4",
-      "section": "Decision outcome (Export and Resource rows)",
-      "issue": "The ADR does not say whether the SDK's environment configuration is honored, and that creates a second configuration path outside the Revision. To my knowledge, the OpenTelemetry Go SDK and OTLP exporters fill every setting not passed as an option from `OTEL_*` variables. Examples are `OTEL_EXPORTER_OTLP_HEADERS`, `_CERTIFICATE`, `_INSECURE`, `_TIMEOUT` and `_COMPRESSION`, `OTEL_TRACES_SAMPLER`, and `OTEL_BSP_*`. `sdktrace.WithResource` also merges `resource.Environment()`, so `OTEL_RESOURCE_ATTRIBUTES` adds resource attributes the Resource row does not allow. Pack section 2 limits process settings to `RURALZ_*`, and pack 8.1 says equal digests mean equal behavior except for `secretRef` values and `RURALZ_*` settings. Two Nodes on one Revision could export with different headers, TLS or resource attributes. An operator's pod environment would also quietly answer OQ-observability-2, which is blocking for TLS export at M1 and still open.",
-      "evidence": "\"| Export | OTLP only when `Gateway.spec.telemetry.otlp.endpoint` is set, over TLS on boundary TB-12; ...\"; \"| Resource | `service.name`, `service.version`, `service.instance.id` (`node.id` or replica) and, in Control mode, Cluster and Environment; never the active Revision |\"; \"Bad, because OTLP TLS client settings and authentication have no configuration field yet (OQ-observability-2, blocking for TLS export at M1)\".",
-      "fix": "Add to the Export row: '`internal/telemetry` builds every provider, processor and exporter with explicit options, and builds the resource without the environment detector. `OTEL_*` process variables are ignored; `${OTEL_...}` substitution at render time stays valid.' Alternatively, name the variables that are honored as an explicit answer to OQ-observability-2. Add a Confirmation item, Planned (M1): a golden test that starts `ruralzd` with `OTEL_RESOURCE_ATTRIBUTES`, `OTEL_EXPORTER_OTLP_HEADERS` and `OTEL_TRACES_SAMPLER` set and asserts byte-identical resource, headers and sampling."
-    },
-    {
-      "id": "L1-5",
-      "section": "Decision outcome (paragraph after Chosen option), Consequences, More information",
-      "issue": "The ADR does not settle what happens when v1.47.0 ships, and its answer conflicts with a document it depends on. The Decision outcome says logs 'move to the OpenTelemetry Logs API' after a revisit, while the Consequences say call sites never change and only the bridge wiring changes. That means `slog` plus `otelslog` stays permanently. Pack section 7 and the manifest decision say the bridge is used 'until' the Logs API is stable. The tech stack Watch list, a depends_on document, says the 'Logs SDK replaces the bridge'. An implementer cannot tell whether the bridge is temporary, which decides whether `otelslog` belongs in `internal/telemetry` for good and whether the review checklist item on `go.opentelemetry.io/otel/log` will fire at v1.47.0.",
-      "evidence": "\"Logs move to the OpenTelemetry Logs API only after its stable release ... through a revisit of this ADR\"; \"Good, because call sites never change when logs move to the stable Logs API: `log/slog` is the standard library\"; \"so bridge wiring inside `internal/telemetry` changes at v1.47.0\". Tech stack Watch list: \"| OTel Logs API | Release candidate ... | v1.47.0 stable | Logs SDK replaces the bridge |\". Pack section 7: \"`slog` bridge (`otelslog`) for logs until the OTel Go Logs API is stable\".",
-      "fix": "State the end state once, for example: 'At v1.47.0 the stable Logs SDK replaces the pre-stable SDK behind the bridge. Package call sites stay on `log/slog`, and `otelslog` stays as the `slog`-to-Logs-API adapter inside `internal/telemetry`. \"Until\" in pack section 7 refers to the pre-stable SDK dependency.' Add to More information a proposed tech stack Watch list amendment ('Fallback: stable Logs SDK behind the bridge; `slog` call sites unchanged') and a proposed pack section 7 wording, or record the disagreement as an Open question in the owning document."
+      "id": "L1-7",
+      "section": "Decision outcome (Audit export row)",
+      "issue": "The audit export mechanism resolves L1-2's rule but cannot produce correct records as written. The Exporter's `Export` method takes `[]sdklog.Record`. In `sdk/log`, `Record` has setters for timestamp, severity, body, attributes and trace context. Its `resource` and `scope` fields, however, are unexported and are set only when a Logger emits the record: `Resource()` returns `r.resource`, and no `SetResource` or `SetScope` exists (sdk/log/record.go, checked on main). If the leader 'calls the OTLP log exporter directly' with records it builds itself, every audit record goes out with no resource and no scope. It then loses `service.name`, `service.instance.id` and the Cluster and Environment attributes that the Resource row requires in Control mode. The row also never says how an acknowledgement reaches the Raft high-water mark. `log.Logger.Emit` returns nothing, so records that go through a Logger and a BatchProcessor, the normal path, can never report a failed export.",
+      "evidence": "\"| Audit export | The Ruralz Control leader calls the OTLP log exporter directly, bypassing `slog` and the drop queues: batches keyed by Raft index, retried until acknowledged, partial success counted as failure; it lags, never drops (TB-12 exception proposed in OQ-observability-19) | Planned (M2) |\"; Resource row: \"plus Cluster and Environment in Control mode\".",
+      "fix": "Change the Audit export row to: 'The leader emits each committed entry through a dedicated `sdklog.LoggerProvider` that carries the Resource-row resource and has only a synchronous capture Processor, with no BatchProcessor. The capture Processor clones each record into the current batch. The leader then calls the OTLP log exporter's `Export` itself and advances the high-water mark only when `Export` returns a nil error; the HTTP exporter returns a partial success as an error. Batches are keyed by Raft index, retried until acknowledged, and lag instead of dropping (TB-12 exception proposed in OQ-observability-19).' Extend the Audit export test so that it also asserts the resource attributes on the records the Collector receives."
     }
   ],
   "non_blocking": [
     {
-      "section": "Decision outcome (Traces row)",
-      "suggestion": "'unsampled requests create no spans' is loose with the OTel SDK: `tracer.Start` with a drop decision still allocates a non-recording span and a context value, and to my knowledge the default SDK ID generator serializes on a mutex. State that `internal/telemetry` makes the sampling decision (with the two per-Node caps) before it calls the SDK, and installs a lock-free per-connection ID generator through `sdktrace.WithIDGenerator`. That keeps the unsampled budget of 1 µs and two allocations (target) in the owning document."
+      "section": "Decision outcome (Exemplars row)",
+      "suggestion": "A sequence lock allows only one writer at a time, and concurrent sampled requests can hit the same histogram label set, up to both per-Node caps. As written, a second writer would spin, and that breaks the driver 'no request goroutine waits on a lock'. Add: 'a writer takes the slot with one compare-and-swap of the sequence from even to odd, or skips the exemplar if that fails; readers retry on an odd or changed sequence.'"
+    },
+    {
+      "section": "Decision outcome (Logs row) and Figure 1",
+      "suggestion": "One worker both owns stdout and feeds the bridge (`wrk --> out`, `wrk --> br`). A blocked stdout pipe therefore also stops OTLP log export, and both streams fall to `queue_full`. Say whether that coupling is intended. If it is not, hand each record to the bridge before the stdout write, or give the stdout write its own small bounded buffer. The wording 'encodes each once for stdout and the bridge' is also loose: the bridge needs a rebuilt `slog.Record` and an `otelslog` conversion. Say that this cost counts toward the 5% CPU row (hypothesis)."
+    },
+    {
+      "section": "Decision outcome (Exemplars row) and More information",
+      "suggestion": "The exemplar slot, its sequence lock and its memory are not in Observability, and the Cardinality and overhead budgets memory model (300 bytes per histogram label set, about 22.2 MiB of metrics, hypothesis) leaves them out. Add a proposed Observability amendment to More information that adds the slot size (about 64 bytes per histogram label set, hypothesis) to that model. Otherwise the ADR adds a mechanism that its owning document does not describe."
     },
     {
       "section": "Decision outcome (Export row)",
-      "suggestion": "Name the OTLP transport and exporter modules. The owning document's example uses 4317 (OTLP/gRPC), and the OTLP/gRPC exporters link grpc-go into `ruralzd` at M1, although its catalog row is Planned (M3) and it adds a second HTTP/2 stack (S6). Choosing OTLP/HTTP (`otlptracehttp`, `otlpmetrichttp`, `otlploghttp`) avoids that, and the research notes that v1.46.0 added `http/json` to `otlptracehttp`."
+      "suggestion": "Name the OTLP transport. The owning document's example uses port 4317 (OTLP/gRPC), and the gRPC exporters would link grpc-go into `ruralzd` at M1, although grpc-go's catalog row is Planned (M3). OTLP/HTTP (`otlptracehttp`, `otlpmetrichttp`, `otlploghttp`) avoids that dependency. This remains open from the previous review."
     },
     {
-      "section": "Decision outcome (Resource row)",
-      "suggestion": "State how providers are rebuilt after Enrollment (the owning document says 'Providers rebuild once after Enrollment'): spans started on the old tracer provider must finish and flush without blocking a request."
-    },
-    {
-      "section": "Considered options (option 3)",
-      "suggestion": "The second APISIX citation (the 3.18.0 release blog) supports only the version. The research ties it to AI features, not telemetry. Keep only the plugin-page URL for the 'traces only' claim, or cite the research row that says so."
-    },
-    {
-      "section": "Length",
-      "suggestion": "The body is 1,483 of 1,500 words by the manifest counting rule. The fixes above need room, so shorten the Pros and cons bullets that repeat the Consequences (the v1.47.0-rc.1 points) or the More information owning-document bullet. Do not cut rule content."
-    },
-    {
-      "section": "More information",
-      "suggestion": "Also propose the depguard rule for any OTLP log exporter module (see L1-2), so the audit-export exception is lint-checked, not only covered by the review checklist."
+      "section": "verify-docs output",
+      "suggestion": "verify-docs reports no FAIL lines. Its WARN lines say that no roadmap item matches the Planned (M0), (M1), (M2) and (M5) tags. Check them again once docs/roadmap/01-roadmap-and-milestones.md exists."
     }
   ],
   "ac_results": [
@@ -74,30 +49,30 @@
     {
       "ac": "H2 headings match adr_common.outline_h2 exactly and in order, and Decision outcome contains the H3 headings Consequences and Confirmation.",
       "pass": true,
-      "note": "Six H2 headings are in order; both H3 headings are present; verify-docs reports no FAIL."
+      "note": "The six H2 headings are in order, and both H3 headings are under Decision outcome. verify-docs reports no FAIL."
     },
     {
       "ac": "Considered options lists at least two options including the chosen one, and each has pros and cons.",
       "pass": true,
-      "note": "Four options, each with Good and Bad bullets under Pros and cons, and each cites research URLs."
+      "note": "Four options, each with Good and Bad bullets and research URLs."
     },
     {
       "ac": "Decision outcome states the chosen option as 'Chosen option: ..., because ...' and matches the foundation pack section 7 row for this ADR.",
       "pass": true,
-      "note": "The wording and the choice match. What happens to the bridge after the Logs API is stable is ambiguous against the pack's 'until' (L1-5)."
+      "note": "The Chosen option sentence matches the title of option 1. The End state paragraph reconciles 'until' in pack section 7 and proposes wording for it."
     },
     {
       "ac": "Confirmation names a concrete verification mechanism (test, lint rule, CI gate or review checklist item).",
       "pass": true,
-      "note": "Depguard `log$`, sloglint and spancheck, repocheck, catalog gates, the cardinality test, the PB-10 benchmark, the Compose end-to-end test and a review checklist item. There is none yet for non-blocking stdout, the audit export or OTEL_* isolation (L1-1, L1-2, L1-4)."
+      "note": "Lint, catalog gates, cardinality, benchmark, blocked stdout, environment golden, end-to-end and audit export tests, plus a checklist item. As written, the environment golden test would fail (L1-6)."
     },
     {
       "ac": "The ADR is linked from docs/adr/README.md and from its owning document.",
       "pass": false,
-      "note": "The owning document links it. docs/adr/README.md does not exist yet (the index generator runs in a later wave), so this cannot pass now and is not a defect in the ADR."
+      "note": "Observability links the ADR twice. docs/adr/README.md does not exist yet because the index generator runs in a later wave, so this is not a defect in the ADR."
     }
   ],
   "foundation_amendments": [
-    "Section 7 Telemetry row: state the post-v1.47.0 end state explicitly, e.g. '`log/slog` call sites with the `otelslog` bridge; the bridge feeds the stable OTel Go Logs SDK from v1.47.0', so that 'until' is not read as removing the bridge (see L1-5)."
+    "Section 7 Telemetry row: state the post-v1.47.0 end state, for example '`slog` bridge (`otelslog`) for logs, over a pre-stable Logs SDK until OTel Go v1.47.0', as proposed in the ADR's More information."
   ]
 }

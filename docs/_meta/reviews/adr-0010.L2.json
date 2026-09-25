@@ -1,105 +1,67 @@
 {
   "lens": "L2",
-  "verdict": "revise",
-  "score": 7,
-  "blocking": [
-    {
-      "id": "L2-1",
-      "section": "Decision outcome (Export and Logs rows, lines 49-50) and Confirmation (review checklist item, line 110)",
-      "issue": "The ADR's export rule leaves out the one exception in the owning document. Observability rule O2 says bounded queues drop with a counter and 'only the audit export lags instead (OQ-observability-19)'. Control plane observability picks OpenTelemetry logs for the audit log: the leader exports batches keyed by Raft index, retries, 'lags and never drops'. The ADR states without exception that 'spans and logs pass Ruralz queues that drop' and that 'Code logs only through `log/slog`'. It never mentions OQ-observability-19, which is blocking for Planned (M2). Its review checklist would also flag the audit exporter, which has to call the OTLP log exporter directly and cannot go through `slog`. So the ADR does not match its owning document. It also hides that the System overview TB-12 row ('Drop on failure') is still being amended.",
-      "evidence": "ADR line 50: \"| Export | OTLP only when `Gateway.spec.telemetry.otlp.endpoint` is set, over TLS on boundary TB-12; spans and logs pass Ruralz queues that drop with `queue_full` or `export_error` counts; ...\"; line 49: \"Code logs only through `log/slog` via `internal/telemetry`\"; line 110: \"calling `go.opentelemetry.io/otel/log` outside `internal/telemetry`, MUST amend this ADR\". Owning document, Observability principles O2: \"Bounded span and log queues drop with a counter (TB-12); only the audit export lags instead (OQ-observability-19)\"; Control plane observability: \"Export retries, so it lags and never drops, unlike TB-12 (OQ-observability-19)\". System overview TB-12: \"Drop on failure\".",
-      "fix": "Add a Decision outcome row: '| Audit export | The Ruralz Control leader exports committed audit entries as OTLP logs from `internal/telemetry`, bypassing `slog` and the drop queues: batches keyed by Raft index, retried until acknowledged, a partial success counts as failure; lags and never drops, the TB-12 exception proposed in OQ-observability-19 | Planned (M2) |'. Scope the Logs row to 'Code logs only through `log/slog` via `internal/telemetry`, except the audit export'. Add 'except the audit export' to the Export row's drop sentence. Add a Bad consequence saying the audit export depends on the pre-stable OTLP log exporter and on OQ-observability-19, which is blocking for Planned (M2). Add a Figure 1 node for the audit export, drawn as a dashed edge to the OTLP exporter."
-    },
-    {
-      "id": "L2-2",
-      "section": "Decision drivers (One correlation key, line 31) and Consequences (line 90)",
-      "issue": "The ADR's correlation key contradicts the owning document. Observability O6 makes the key the pair (`trace_id`, server `span_id`) and leaves telling apart requests that share a trace ID to OQ-observability-13. The ADR says the trace ID alone is 'the single correlation key'. A client that sends one sampled `traceparent` on several requests shares one trace ID across all of them, so the trace ID alone cannot pick out one access log record or problem document. The access log table in the owning document carries both `trace_id` and `span_id` (O6) for this reason.",
-      "evidence": "ADR line 31: \"**One correlation key**: the trace ID links spans, logs, exemplars and the `requestId` of every problem document\"; line 90: \"Good, because the trace ID is the single correlation key across spans, access log records, exemplars and `requestId`.\" Owning document O6: \"(`trace_id`, server `span_id`) links logs, spans and exemplars; `requestId` carries the trace ID ([Data plane](03-data-plane.md#error-response-format)); the span ID is OQ-observability-13\".",
-      "fix": "Line 31: '**One correlation key**: (`trace_id`, server `span_id`) links spans, logs and exemplars, and the `requestId` of every problem document carries the trace ID; adding the span ID to `requestId` is OQ-observability-13 (rule O6 of [Observability](../architecture/10-observability.md#observability-principles))'. Line 90: 'Good, because one key, the trace ID with the server span ID (O6), correlates spans, access log records, exemplars and `requestId`.'"
-    },
-    {
-      "id": "L2-3",
-      "section": "Decision outcome (paragraph after Chosen option, line 43), Consequences (lines 89 and 92), More information (line 140)",
-      "issue": "What happens to logs at v1.47.0 disagrees with a depends_on document, and the ADR never states the end state. The tech stack Watch list, which the ADR links as the trigger, says the stable 'Logs SDK replaces the bridge'. The ADR's Consequences say call sites never change and 'bridge wiring inside `internal/telemetry` changes', so `slog` plus `otelslog` stays. The Decision outcome says logs 'move to the OpenTelemetry Logs API'. Foundation pack section 7 and the manifest decision say the bridge is used 'until' the Logs API is stable. An implementer cannot tell whether `otelslog` is temporary or permanent, and the Watch list row the ADR relies on says the opposite of its Consequences.",
-      "evidence": "ADR line 43: \"Logs move to the OpenTelemetry Logs API only after its stable release ... through a revisit of this ADR that the [Watch list](...) triggers\"; line 89: \"Good, because call sites never change when logs move to the stable Logs API: `log/slog` is the standard library\"; line 92: \"so bridge wiring inside `internal/telemetry` changes at v1.47.0\". Tech stack Watch list: \"| OTel Logs API | Release candidate (...) | v1.47.0 stable | Logs SDK replaces the bridge |\". Pack section 7: \"`slog` bridge (`otelslog`) for logs until the OTel Go Logs API is stable\".",
-      "fix": "State the end state once in Decision outcome, for example: 'At v1.47.0 the stable Logs API and SDK replace the release-candidate SDK behind the bridge; package call sites stay on `log/slog`, and `otelslog` stays inside `internal/telemetry` as the adapter from `slog` to the Logs API.' Add to More information: 'Proposed tech stack Watch list amendment: Fallback reads \"Stable Logs SDK behind the `otelslog` bridge; `slog` call sites unchanged\"'. If the intent is to drop the bridge instead, say that call sites move to `go.opentelemetry.io/otel/log` and remove the line 89 consequence."
-    }
-  ],
+  "verdict": "accept",
+  "score": 9,
+  "blocking": [],
   "non_blocking": [
     {
-      "section": "Decision drivers (Stable call sites, line 28)",
-      "suggestion": "The linked Banned imports section bans only `log`, and depguard confines only wazero, rueidis and `hashicorp/raft` to wrapper packages. Nothing yet keeps OpenTelemetry inside `internal/telemetry`. Reword to 'library churn SHOULD stay inside `internal/telemetry` (lint rule proposed in More information)', so the driver does not state a rule that does not exist yet as a fact."
+      "section": "Consequences (O6 bullet)",
+      "suggestion": "\"Good, because (`trace_id`, server `span_id`) correlates spans, access log records, exemplars and `requestId` (O6)\" says more than O6 does, because `requestId` carries only the trace ID and the span ID is OQ-observability-13. Suggested wording: \"Good, because (`trace_id`, server `span_id`) correlates spans, access log records and exemplars, and `requestId` carries the trace ID (O6)\". The Decision drivers bullet already says this correctly."
     },
     {
-      "section": "More information (line 141)",
-      "suggestion": "'Proposed owning-document amendment' names Repository layout and conventions, which is not this ADR's owning document (Observability is). Write 'Proposed amendment to Repository layout and conventions (owner of depguard rules)', and include the OTLP exporter modules in the depguard rule."
+      "section": "Decision outcome (Audit export row) vs Confirmation (review checklist item) and More information (depguard proposal)",
+      "suggestion": "The checklist amends the ADR when an OTLP log exporter is used \"outside `internal/telemetry` or beyond the audit export\". The proposed depguard rule confines OTLP exporter modules to `internal/telemetry`. The Audit export row never says which package the leader's exporter lives in. Add \"from `internal/telemetry`\" to the row so that all three statements agree."
     },
     {
-      "section": "Decision outcome (Chosen option, line 43) vs Considered options and Pros and cons",
-      "suggestion": "Use one option title in three places. Right now they are 'OpenTelemetry-first' (option 1), 'OpenTelemetry-first: the OpenTelemetry Go SDK for traces and metrics, ...' (Chosen option) and 'OpenTelemetry-first with an slog bridge' (Pros and cons H3). MADR expects the chosen-option string to match an option title exactly."
+      "section": "Decision drivers (Gates bullet)",
+      "suggestion": "\"Gates G1 to G3 and S2: pure Go, compatible license, Go 1.26 floor\" leaves out G3, which the tech stack Selection criteria define as \"cryptographic primitives come only from Go `crypto/...` ... Go Cryptographic Module\". G3 matters here because OTLP export over TLS must work in the FIPS build. Add \"crypto through the Go Cryptographic Module\"."
     },
     {
-      "section": "Considered options (option 4, line 39)",
-      "suggestion": "Datadog, InfluxDB and GELF have no citation. Only the New Relic and OpenCensus claims do. Add the research-backed URLs, for example https://www.krakend.io/docs/telemetry/influxdb-native/ (krakend-config-model.md) and https://github.com/krakend/krakend-ce/blob/master/cmd/krakend-ce/main.go (krakend-gelf)."
+      "section": "Decision outcome (Metrics row) vs ADR-0006 Telemetry row",
+      "suggestion": "ADR-0006 says \"a Ruralz go-metrics `MetricSink` forwards Raft metrics to OpenTelemetry for `/metrics` on 9902\". This ADR says metric values live in \"Ruralz-owned aggregates, not SDK synchronous instruments\". State once, here or in More information, that the Raft sink records into Ruralz aggregates, so the two ADRs cannot be read as allowing SDK instruments on Ruralz Control."
     },
     {
-      "section": "Context and Decision drivers (P3, lines 20 and 27)",
-      "suggestion": "P3 is 'No control-plane or peer dependency on the request path'. It does not forbid request-path waits in general, since it allows one blocking State Store round trip. Cite rule O2 of Observability as the source of 'telemetry never blocks', and cite P3 only for its 'asynchronous, bounded and droppable' wording."
+      "section": "Length",
+      "suggestion": "By the verifier's rule (body prose without fenced code), the body is about 1,498 words against the adr_common maximum of 1,500. Future fixes have almost no room left. Any addition needs a matching tightening of text that no earlier blocking finding asked for, such as parts of the Figure 1 labels or the Considered options wording. Text that resolved L2-1 to L2-3 must stay."
     },
     {
-      "section": "Consequences (line 99)",
-      "suggestion": "Add the owning document's qualifier to the memory figure: '40 MiB or less live heap, up to 80 MiB RSS, no `/tap` subscriber (target)'."
-    },
-    {
-      "section": "Consequences (line 97)",
-      "suggestion": "'have no tagged release' is supported by https://github.com/open-telemetry/semantic-conventions-genai (the source Observability uses), not by the `tree/main/docs/gen-ai` URL, which supports only 'Development'. Cite both."
-    },
-    {
-      "section": "Decision outcome (Export row) and Considered options (option 3)",
-      "suggestion": "Say that rejecting option 3 (client_golang as the metrics API) does not settle OQ-tech-stack-and-libraries-16, where client_golang is still a `/metrics` exporter candidate. Scope the Export row to Nodes, since Ruralz Control has no `Gateway` resource and its OTLP settings are OQ-observability-11."
-    },
-    {
-      "section": "verify-docs WARN lines (Confirmation, lines 104-108)",
-      "suggestion": "Five milestone WARNs: the roadmap has no M0 items for linters or repocheck and no M1 items for the catalog gates, cardinality test or benchmark gate. They are not FAILs, but the roadmap owner should add those items, or the ADR should cite the owning roadmap entries."
-    },
-    {
-      "section": "Cross-lens note",
-      "suggestion": "The L1 non-blocking note on the APISIX 3.18.0 citation does not hold. `competitors-kong-tyk-apisix.md` section 8 cites that URL for 'Metrics via the Prometheus plugin', which supports the option 3 claim that APISIX uses Prometheus for metrics. Keep both citations."
+      "section": "verify-docs WARN lines (Decision drivers line 26, Exemplars row line 52, Consequences line 104, Confirmation lines 115-120)",
+      "suggestion": "There are nine milestone WARNs and no FAILs. The roadmap has no M0 item for the linters and repocheck, no M1 items for the exemplar, catalog, cardinality, benchmark, blocked-stdout and environment tests, no M2 audit export item and no M5 FIPS telemetry item. The roadmap owner should add them. This is not a defect in the ADR."
     }
   ],
   "ac_results": [
     {
       "ac": "Front matter contains id, title, status, date, deciders and related, and status matches this manifest.",
       "pass": true,
-      "note": "All six keys are present. id ADR-0010, the title and status `accepted` match the manifest adrs[] entry. The date is 2026-09-25."
+      "note": "All six keys are present. id is ADR-0010 and title is 'Telemetry: OpenTelemetry-first with an slog bridge for logs'. Status `accepted` matches the manifest adrs[] entry. The date is 2026-09-25, and related includes the owning document docs/architecture/10-observability.md."
     },
     {
       "ac": "H2 headings match adr_common.outline_h2 exactly and in order, and Decision outcome contains the H3 headings Consequences and Confirmation.",
       "pass": true,
-      "note": "The six H2 headings are in manifest order, and Consequences and Confirmation sit under Decision outcome. verify-docs reports no FAIL for this file."
+      "note": "The six H2 headings appear in manifest order. Consequences and Confirmation are H3 headings under Decision outcome, and the single H1 matches the title. verify-docs reports no FAIL for this file."
     },
     {
       "ac": "Considered options lists at least two options including the chosen one, and each has pros and cons.",
       "pass": true,
-      "note": "There are four options, the chosen one included, each with Good and Bad bullets. Every option cites research-backed URLs, all found under docs/_meta/research/."
+      "note": "Four options, the chosen one included. Each has an H3 under Pros and cons with Good and Bad bullets. All 17 cited URLs appear in docs/_meta/research/ files (go-libraries-runtime, tooling-and-licenses, krakend-config-model, competitors-kong-tyk-apisix, ai-gateways)."
     },
     {
       "ac": "Decision outcome states the chosen option as 'Chosen option: ..., because ...' and matches the foundation pack section 7 row for this ADR.",
       "pass": true,
-      "note": "The form is correct and matches the pack section 7 Telemetry row. The end state after v1.47.0 still conflicts with the tech stack Watch list (L2-3), and the chosen-option string differs from the option titles (non-blocking)."
+      "note": "The line reads 'Chosen option: \"OpenTelemetry-first with an slog bridge\", because ...', which exactly matches the option 1 title and its H3. It agrees with the pack section 7 Telemetry row and the manifest decision. The ADR states its reading of 'until' in the End state paragraph and proposes a pack section 7 clarification, which resolves the earlier L2-3 ambiguity."
     },
     {
       "ac": "Confirmation names a concrete verification mechanism (test, lint rule, CI gate or review checklist item).",
       "pass": true,
-      "note": "It names the depguard `log$` rule, sloglint and spancheck, repocheck, catalog CI gates, the cardinality test, the PB-10 benchmark gate, the end-to-end Collector test and a review checklist item. Each one exists in the cited documents."
+      "note": "It names the depguard `log$` rule, sloglint and spancheck, repocheck, the catalog CI gates, the 1,000-Hot-Reload cardinality test, the PB-10 benchmark gate, the blocked stdout test, the environment golden test, the end-to-end Collector test, the audit export failover test and a review checklist item. Each one exists in, or matches, the cited Repository layout, Performance budgets, Testing and Observability documents."
     },
     {
       "ac": "The ADR is linked from docs/adr/README.md and from its owning document.",
       "pass": false,
-      "note": "docs/architecture/10-observability.md links ADR-0010 in its Summary and in rule O1. docs/adr/README.md does not exist yet: the manifest has it written alongside docs/README.md in a later wave. This is not a defect of the ADR text."
+      "note": "docs/architecture/10-observability.md links ADR-0010 in its Summary and in rule O1. docs/adr/README.md does not exist yet: the manifest has the index generator write it alongside docs/README.md in a later wave. This is not a defect in the ADR text."
     }
   ],
   "foundation_amendments": [
-    "Section 7 Telemetry row: say what 'until the OTel Go Logs API is stable' means for the bridge, for example 'logs through `log/slog` with the `otelslog` bridge; the bridge feeds the release-candidate Logs SDK until OpenTelemetry Go v1.47.0 ships it stable', so ADR-0010, the tech stack Watch list and Observability describe one end state (see L2-3)."
+    "Section 7 Telemetry row: state the end state of the bridge, as ADR-0010 More information proposes, for example '`slog` bridge (`otelslog`) for logs, over a pre-stable Logs SDK until OTel Go v1.47.0; `slog` call sites and the bridge stay after it', so that the pack, the tech stack Watch list ('Logs SDK replaces the bridge') and ADR-0010 describe one end state."
   ]
 }

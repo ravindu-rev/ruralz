@@ -1,79 +1,68 @@
 {
   "lens": "L1 feasibility-skeptic",
   "verdict": "revise",
-  "score": 7,
+  "score": 8,
   "blocking": [
     {
       "id": "L1-1",
-      "section": "Decision outcome (rules table, row Time); Confirmation",
-      "issue": "The Time rule says wazero enforces limits.timeout as a plain per-call context deadline. The owning document requires that the call timer stop while the guest is parked in its one State Store call. A context deadline cannot be paused. In wazero, WithCloseOnContextDone starts a watcher goroutine per Call that closes the module when ctx.Done() fires, and the same ctx reaches Host Functions. If the rule is built as written with context.WithTimeout, a parked state.* call is killed at 5 ms and its instance is closed. During a State Store brownout (50 ms stateStoreTimeout in the owning document's Sizing table), every parked instance then becomes RZ-PLG-002 and is discarded. That produces the refill storm and fault-breaker trip the parked-bound design exists to prevent, and it contradicts the owning document's Default limits row.",
-      "evidence": "ADR Time row: \"`WithCloseOnContextDone(true)` with a per-call deadline from `limits.timeout`, default 5 ms (target)\". Owning document, Default limits: \"Wall-clock time per call (`limits.timeout`) | 5 ms (target) | Stopped while parked\"; Runtime rule 7: \"During its one State Store call the guest is parked, timer stopped\".",
-      "fix": "Reword the Time row to name a mechanism that can pause: \"`WithCloseOnContextDone(true)` on a cancel-only per-call context (context.WithCancel of the request context); a host timer of `limits.timeout` cancels it, is stopped while the guest is parked in its State Store call and resumes with the remaining time; the State Store call uses its own `stateStoreTimeout` context (pack section 8.7)\". Add a Confirmation limit case to the Plugin ABI conformance bullet: a parked `state_get` that lasts longer than `limits.timeout` returns to the guest without RZ-PLG-002, and the same guest then looping past the remaining time gets RZ-PLG-002."
-    },
-    {
-      "id": "L1-2",
-      "section": "Decision outcome (rules table, row Memory); Consequences",
-      "issue": "The Memory row fixes only the page cap. It does not choose the linear-memory backing store, so the claim that Gateway limits.maxPluginMemoryBytes caps the Node cannot be shown to hold for process memory. With wazero defaults, linear memory is a Go-heap byte slice that grows by reallocation and copy. Each memory.grow briefly holds both the old and the new slice, and the old one stays as garbage until the next GC. Because this memory is live Go heap, it also raises the GOGC heap target: 2 GiB of Plugin memory can push the heap target to about 4 GiB under GOGC=100. Resident memory can therefore exceed the Node cap by up to 2x, which breaks the owning document's \"Full reservation makes the Node cap a hard bound\" rule and P6's \"never crashes the Node\" under a container memory limit. Research section 2.2 names the two wazero knobs that decide this (WithMemoryCapacityFromMax and experimental.MemoryAllocator), but the ADR mentions neither.",
-      "evidence": "ADR Memory row: \"`WithMemoryLimitPages` from `limits.memoryBytes`, default 16 MiB (target), replacing wazero's 65536-page (4 GiB) default ([source](https://github.com/wazero/wazero/blob/main/config.go)); Gateway `limits.maxPluginMemoryBytes` caps the Node\". Research go-libraries-runtime.md section 2.2: \"`WithMemoryCapacityFromMax(true)` allocates the maximum eagerly\" and \"`experimental.MemoryAllocator` lets the host supply the `LinearMemory` backing store\".",
-      "fix": "In the Memory row, choose and cite one backing store (research URLs config.go and experimental/memory.go). Either use `WithMemoryCapacityFromMax(true)`, which allocates eagerly, matches full reservation and avoids reallocation copies, or use an `experimental.MemoryAllocator` that reserves `limits.memoryBytes` outside the Go heap. State how the Node sets GOMEMLIMIT relative to maxPluginMemoryBytes. If the choice needs a benchmark first, add it to OQ-wasm-plugin-system-16 and add a Bad consequence for the resident-memory overhead (hypothesis). Add a Confirmation test: at the Node cap, with instances growing to their limit, resident memory stays within the cap plus the stated headroom (target)."
+      "section": "Decision outcome (rules table, row Memory); Consequences; Confirmation (Node memory bound)",
+      "issue": "Still open from the previous L1-2. The backing store is now chosen and cited: WithMemoryCapacityFromMax(true), which wazero main allocates as make([]byte, min, cap) with cap equal to the clamped limit, so growth never copies. That part is fixed. The GOMEMLIMIT rule still cannot be implemented or tested. (1) The 'non-Plugin budget' has no value or source, so a Node cannot evaluate 'MUST cover ... else the Node reports a degraded state'. (2) An unset GOMEMLIMIT (math.MaxInt64) trivially 'covers' the cap, so the check passes in the very configuration where the resident-memory problem is worst. Performance budgets rule 1 verifies budgets at GOGC=100 without GOMEMLIMIT. In that case the 2 GiB of eagerly reserved linear memory is live Go heap, and the heap goal lets non-Plugin garbage grow by about as much again before a collection. (3) The Confirmation test checks resident memory against 'the stated GOMEMLIMIT headroom', but the ADR states no headroom anywhere, so the test has no pass criterion.",
+      "evidence": "Memory row: \"`GOMEMLIMIT` MUST cover Gateway `limits.maxPluginMemoryBytes` plus the non-Plugin budget, else the Node reports a degraded state\". Confirmation: \"at the Node cap, with every instance at its limit, resident memory stays within the cap plus the stated `GOMEMLIMIT` headroom (target)\". Performance budgets and benchmarking, GOGC and GOMEMLIMIT rule 1: \"Budgets are verified at `GOGC=100` without `GOMEMLIMIT`\". Capacity planning: \"M_node  = M_fix + m_route × R + P_plg + ...\" and \"GOMEMLIMIT ≥ max(M_node, M_flood);  container = GOMEMLIMIT / 0.9\".",
+      "fix": "Anchor the rule on the existing capacity model instead of an undefined budget. Keep the change word-neutral, since the body is at 1,496 of 1,500 words; tighten wording in the same row rather than deleting text that closed earlier findings. Memory row: \"`GOMEMLIMIT` MUST be at least M_node of [Capacity planning](../operations/03-capacity-planning.md), which counts this cap once; with a Plugin pool active and `GOMEMLIMIT` unset or below the cap plus M_fix, the Node reports `ruralz_node_degraded_info{reason=\\\"plugin_memlimit\\\"}` (proposed to Observability)\". Consequence: \"without `GOMEMLIMIT`, resident memory can exceed M_node by up to the live heap, reserved Plugin memory included (hypothesis)\". Confirmation: \"at the Node cap, with every instance at its limit and `GOMEMLIMIT` = M_node, resident memory stays at or below `GOMEMLIMIT` / 0.9 (target)\"."
     }
   ],
   "non_blocking": [
     {
-      "section": "Decision outcome (rows Runtimes and cache, Compilation); Consequences",
-      "suggestion": "In wazero main, a module's cache ID hashes the Wasm bytes, the listeners and the ensure-termination flag, not the memory limit (internal/wasm/module.go AssignModuleID). A shared NewCompilationCache engine keeps compiled modules reference-counted and frees them when the last CompiledModule.Close runs (internal/engine/wazevo/engine.go DeleteCompiledModule). As a result, \"once per digest and memory limit\" compiles native code only once per digest; the second runtime gets a cache hit. The 4 x Wasm bytes accounting per digest and limit is therefore conservative, and Retire can free code through Close. Add these files to the research (section 2.2) and use them to answer the \"free one module early\" part of OQ-wasm-plugin-system-16. Also state that Retire calls CompiledModule.Close so the refcount reaches zero, since the shared engine otherwise lives until Cache.Close."
+      "section": "Decision outcome (row Time)",
+      "suggestion": "Say that the `stateStoreTimeout` context is derived from the per-call cancel-only context. Then a client cancel or the Route deadline aborts a parked call, and the effective timeout is the smaller of `stateStoreTimeout` and the time left in the request, as pack section 8.7 rule 2 requires. A context derived from `context.Background()` would outlive the request."
+    },
+    {
+      "section": "Consequences",
+      "suggestion": "wazero native code has no Go async-preemption safe points, so a stop-the-world phase waits for running guest calls (up to `limits.timeout`, proposed maximum 1 s). A tight `GOMEMLIMIT` makes garbage collection more frequent, which increases this exposure. Consider one clause that links it to the owning document's 'Gateway-added p99 with long guest calls during garbage collection' budget and OQ-wasm-plugin-system-16, which already asks whether garbage collection can preempt guest code."
     },
     {
       "section": "Decision outcome (row Engine)",
-      "suggestion": "wazero.NewRuntimeConfig() falls back silently to the interpreter where the compiler is unsupported, which would miss SM-6 by about 10x. Say that internal/pluginhost uses NewRuntimeConfigCompiler() and that ruralzd refuses to activate Plugins, reporting a degraded state, when the compiler is unavailable. Add this to the review checklist item."
+      "suggestion": "Name the degraded reason for the missing-compiler case, for example `ruralz_node_degraded_info{reason=\"plugin_compiler_unavailable\"}` (proposed to Observability), so operators can tell it apart from `plugin_signature_off` and `plugin_parked_bound_low`. wazero's compiler also depends on CPU features, not only on GOARCH, so detect support rather than assume it on amd64 and arm64."
     },
     {
-      "section": "Consequences (third Good bullet)",
-      "suggestion": "\"a Hot Reload that keeps a digest reuses its compiled code and pools\" is too broad. The owning document shares a pool only for equal digest, canonical `config` and limits (Runtime rule 3). Reword to \"reuses its compiled code, and its pools when `config` and limits are also unchanged\"."
-    },
-    {
-      "section": "Decision outcome (row Time) and Consequences",
-      "suggestion": "WithCloseOnContextDone starts one watcher goroutine and one channel per Call (internal/wasm/module_instance.go). This is bounded by concurrent calls but is a fixed per-call cost inside the 50 us SM-6 budget. State that SM-6 includes it, beside the #2466 loop-check overhead that the Bad consequence already names."
-    },
-    {
-      "section": "Decision outcome (row Memory)",
-      "suggestion": "Say how a `limits.memoryBytes` value that is not a multiple of 64 KiB maps to WithMemoryLimitPages: round down, or reject with the code proposed in OQ-wasm-plugin-system-9. Without that rule, Nodes and audit may compute N differently."
+      "section": "Pros and cons of the options (mosn proxy-wasm-go-host)",
+      "suggestion": "verify-docs WARN: line 127 carries Planned (M4) without a matching item under M4 in docs/roadmap/01-roadmap-and-milestones.md. Add the proxy-wasm adapter item to the roadmap, or confirm that the tag matches the existing roadmap wording."
     },
     {
       "section": "Acceptance (index link)",
-      "suggestion": "docs/adr/README.md does not exist yet, so the index half of acceptance criterion 6 fails. The index generator (manifest docs id 2, adr_index) must produce it; the ADR itself needs no change."
+      "suggestion": "docs/adr/README.md does not exist yet. The index generator (adr_index, written with docs/README.md) must produce it; the ADR itself needs no change."
     }
   ],
   "ac_results": [
     {
       "ac": "Front matter contains id, title, status, date, deciders and related, and status matches this manifest.",
       "pass": true,
-      "note": "id ADR-0004, title, status accepted (matches the manifest), date 2026-09-25, deciders, related all present."
+      "note": "id ADR-0004, title \"WASM runtime: wazero\", status accepted (matches the manifest), date 2026-09-25, deciders [ruralz-core], related list present."
     },
     {
       "ac": "H2 headings match adr_common.outline_h2 exactly and in order, and Decision outcome contains the H3 headings Consequences and Confirmation.",
       "pass": true,
-      "note": "All six H2 headings are present in order; Consequences and Confirmation are H3 under Decision outcome. verify-docs reports no FAIL line for this file."
+      "note": "The six H2 headings appear in order; Consequences and Confirmation are H3 under Decision outcome. verify-docs reports no FAIL line for this file, only one milestones WARN. Body is 1,496 words against the 400 to 1,500 band."
     },
     {
       "ac": "Considered options lists at least two options including the chosen one, and each has pros and cons.",
       "pass": true,
-      "note": "Four options (wazero, wasmtime-go, Extism go-sdk, mosn proxy-wasm-go-host), each with Good and Bad bullets and research-backed URLs."
+      "note": "Four options, each with Good and Bad bullets. Every cited URL appears in go-libraries-runtime.md or tooling-and-licenses.md."
     },
     {
       "ac": "Decision outcome states the chosen option as 'Chosen option: ..., because ...' and matches the foundation pack section 7 row for this ADR.",
       "pass": true,
-      "note": "\"Chosen option: \\\"wazero, imported as `github.com/tetratelabs/wazero`\\\", because ...\"; it repeats repository github.com/wazero/wazero and module path github.com/tetratelabs/wazero, as in pack section 7."
+      "note": "\"Chosen option: \\\"wazero, imported as `github.com/tetratelabs/wazero`\\\", because ...\". It restates repository github.com/wazero/wazero and module path github.com/tetratelabs/wazero, as in pack section 7."
     },
     {
       "ac": "Confirmation names a concrete verification mechanism (test, lint rule, CI gate or review checklist item).",
       "pass": true,
-      "note": "depguard import rule, G1 cross-build and license gate, Plugin ABI conformance in pr-full, SM-6 microbenchmark gate, fuzzing, govulncheck and a review checklist item. The pause-while-parked case (L1-1) and a memory-bound case (L1-2) are missing."
+      "note": "depguard, G1 cross-build and license gate, ABI conformance with the new parked-timer case (closes the previous L1-1), Node memory bound, SM-6 gate, fuzzing, govulncheck and a review checklist. The Node memory bound test has no numeric criterion (see L1-1)."
     },
     {
       "ac": "The ADR is linked from docs/adr/README.md and from its owning document.",
       "pass": false,
-      "note": "The owning document links it (Runtime section: \"[ADR-0004](../adr/0004-wasm-runtime-wazero.md)\"), but docs/adr/README.md does not exist yet. That file is produced by the index generator, not by this ADR."
+      "note": "The owning document links it in Runtime, \"[ADR-0004](../adr/0004-wasm-runtime-wazero.md)\". docs/adr/README.md does not exist yet; the index generator produces it, not this ADR."
     }
   ],
   "foundation_amendments": []

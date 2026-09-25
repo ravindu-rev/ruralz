@@ -1,104 +1,44 @@
 {
-  "lens": "L1 feasibility-skeptic",
+  "lens": "L1",
   "verdict": "revise",
-  "score": 6,
+  "score": 7,
   "blocking": [
     {
       "id": "L1-1",
-      "section": "Context and problem statement; Decision drivers; Decision outcome; Pros and cons of the options (Native Kafka wire-protocol proxying)",
-      "issue": "The ADR says per-message routing is what P7 requires, and it rejects wire proxying as 'breaking P7'. P7 in the vision document maps a session to the request Phases and each message to onChunk. It does not give each message a Route. The owning document labels per-message routing through the request Phases a P7 exception and leaves it pending OQ-multi-protocol-18. Its option (b) is the P7-conforming shape: a session Route, with each message handled as onChunk. The ADR therefore contradicts the vision document and the owning document. It also rests its main rejection of option 7 on a misreading of P7. A wire proxy could conform to P7 by mapping a connection to the request Phases and record batches to onChunk. The real objections are the rewriting of metadata and coordinator responses, and that no per-message Route, Consumer or request-Phase Policy exists.",
-      "evidence": "ADR line 19: \"Each message stays inside the Route, Policy and Filter Chain model (P7)\". Line 29: \"- **One Filter Chain (P7)**: each message needs a Route; record batches seen by a wire proxy do not have one.\" Line 43: \"and mediation keeps every message on a Route.\" Line 141: \"its Phases see record batches with no per-message Route, breaking P7.\" Vision, Principles: \"| P7 | Protocols are native | Every protocol maps onto the same `Route`, `Policy` and Filter Chain model through a documented Phase mapping: a session maps to the request Phases, each message to `onChunk`\". Owning doc, Topic ingress: \"Each message is a request on the Route whose `match.topic` matches, headers as headers and value as body, running the request Phases (a P7 exception: OQ-multi-protocol-18).\" OQ-multi-protocol-18: \"Should an ADR record the P7 exception for per-message routing ... (b) A session Route at CONNECT, PUBLISH as `onChunk`, conforming to P7\".",
-      "fix": "Rewrite the driver as: \"- **Per-message governance (P7 exception, OQ-multi-protocol-18)**: each HTTP publish has a Route, and topic ingress and embedded PUBLISH run each message through the request Phases of a `match.topic` Route. The owning document records this as a P7 exception until OQ-multi-protocol-18 closes. A wire proxy sees record batches with no per-message Route or Consumer.\" In Context, replace \"(P7)\" with \"(a P7 exception pending OQ-multi-protocol-18)\". In the Chosen option sentence, write \"mediation keeps every message on a Route (P7 exception, OQ-multi-protocol-18)\". Rewrite the option 7 Bad bullet as: \"Bad, because a proxy rewrites metadata and coordinator responses, and its Phases see record batches with no per-message Route or Consumer. Under P7 those records would reach Policies only as `onChunk`, where `authz.*`, `ratelimit` and `quota` do not run.\""
+      "section": "Decision outcome (Kafka row); Decision outcome > Confirmation",
+      "issue": "This is a regression from the L1-4 fix. The Kafka row now holds each record's `maxBufferedBytes` reservation until franz-go resolves its produce promise, even after the request has failed, but nothing bounds how long that takes. No record-delivery timeout is set, and the record is not tied to the request context. `maxBufferedBytes` is one budget per Node, shared with every HTTP gate and stream. During a Kafka outage, records whose publishes already returned 502 keep their reservations until franz-go gives up, if it ever does, while new publishes keep adding records until `MaxBufferedRecords` is reached. Every unrelated Route on the Node then gets 503 `RZ-RT-004`. One broker outage takes down the whole Node, and the Confirmation test cannot catch this: it checks only that reserved bytes stay within `maxBufferedBytes`, which the reservation rule makes true by construction.",
+      "evidence": "Kafka row: \"`MaxBufferedRecords` bounds the producer buffer ([source](https://github.com/twmb/franz-go/blob/master/docs/producing-and-consuming.md)), and each record keeps its `maxBufferedBytes` reservation until franz-go resolves its produce promise, even after the request has failed, so the Node budget bounds producer memory\". Confirmation: \"With the Kafka container paused, publishes end in 503 or 502 while the Node's reserved bytes stay within `maxBufferedBytes`\". Configuration model, Body buffering and limits: \"Across requests, all of it is reserved from `maxBufferedBytes`, one budget per Node: a gate that cannot reserve gets the 503 above\".",
+      "fix": "Append to the Kafka row: \"each record is produced with its request context and a delivery timeout no longer than the Upstream `timeout` (setting unresearched; OQ-multi-protocol-8 spike), so an unsent record fails when its request ends and a sent one resolves within a bounded time\". Add a Bad consequence: \"Bad, because until the OQ-multi-protocol-8 spike confirms that bound, records held during a broker outage keep Node-wide `maxBufferedBytes` reservations after their requests fail, which can refuse unrelated Routes with 503 `RZ-RT-004`.\" Extend the paused-Kafka Confirmation sentence: \"... and an `http` Route on the same Node keeps answering 200, and reservations return to zero within the Upstream `timeout` after the last publish\"."
     },
     {
       "id": "L1-2",
-      "section": "Decision outcome (MQTT embedded broker row); Decision outcome > Consequences; Decision outcome > Confirmation",
-      "issue": "The embedded broker's core contract is still an unconfirmed spike in the owning document. That contract is: a QoS 1 PUBACK is sent only after the Upstream call settles, with up to ReceiveMaximum 16 (target) PUBLISHes in flight per connection. The research file lists mochi-mqtt's hooks but shows no way to defer a PUBACK asynchronously. Suppose the broker processes a client's packets in order and sends PUBACK when the publish hook returns. Then holding PUBACK for a Route timeout blocks that connection's reads, including PINGREQ and later PUBLISHes. ReceiveMaximum 16 then gives at most one in-flight PUBLISH, and the documented fallback, PUBACK on receipt, weakens acknowledgment to receipt by the Node, before any Upstream call. The ADR states neither this risk nor the fallback. It does not name the hook that turns a PUBLISH into a request. Its Confirmation checks only PUBACK codes. The chosen library may not support the design, and the ADR presents the ReceiveMaximum setting as a Good consequence.",
-      "evidence": "ADR row: \"| MQTT embedded broker | `github.com/mochi-mqtt/server/v2` v2.7.x, core and auth packages only | `OnConnectAuthenticate` and `OnACLCheck` hooks (CONNECT credentials: OQ-multi-protocol-7); no persistent sessions, ...\". Consequences: \"Good, because mochi-mqtt passes the Paho interoperability tests and exposes `MaximumPacketSize` and `ReceiveMaximum` ..., which the embedded broker sets to at most `maxRequestBodyBytes` and to 16 (target).\" Confirmation: \"and embedded broker PUBACK codes with a Paho client.\" Owning doc, Embedded MQTT broker mode: \"| Acknowledgment | QoS 1 PUBACK after the Upstream call settles, reason code set in `onResponse`\". OQ-multi-protocol-10: \"Spikes: held PUBACK blocking reads (fallback: PUBACK on receipt)\". Research section on mochi-mqtt lists hook events (`OnPublish`, `OnQosPublish`, ...) and capabilities, but says nothing about deferring acknowledgments.",
-      "fix": "Add to Consequences: \"- Bad, because no research shows that mochi-mqtt can hold a QoS 1 PUBACK until the Upstream call settles without blocking that connection's reads. If it cannot, `ReceiveMaximum` 16 (target) allows one in-flight PUBLISH per connection, and the OQ-multi-protocol-10 fallback, PUBACK on receipt, weakens acknowledgment to receipt by the Node.\" In the MQTT embedded broker row, add: \"PUBLISH enters its Route from a publish hook such as `OnPublish`; PUBACK timing follows the OQ-multi-protocol-10 spike\". Add a Confirmation bullet: \"- **Held-PUBACK spike**, Planned (M4), before the embedded broker ships: one connection sends 16 QoS 1 PUBLISHes to a Route whose Upstream answers slowly. The test asserts 16 concurrent Upstream calls and a PINGRESP within the keep-alive. If it fails, the fallback applies and this ADR is amended.\""
-    },
-    {
-      "id": "L1-3",
       "section": "Decision outcome (MQTT client row)",
-      "issue": "Every Node dials each `mqtt` Upstream through autopaho, but the ADR fixes neither the MQTT client identifier nor whether session and queue state persist. The research shows paho.golang offers session state persistence, a `Queue`, `CleanStartOnInitialConnection` and `SessionExpiryInterval`. The catalog cites 'session persistence' as a reason to select it. Suppose all Nodes present one client identifier derived from the Revision. An MQTT server disconnects the older connection when the same identifier connects again, so Nodes would take over each other's sessions in a reconnect loop across the Cluster. That is hidden coordination between Nodes, and it contradicts P4. This takeover rule comes from the MQTT specification, not from the research file, so a spike must confirm it. A persistent session or a file-backed queue would also keep durable state outside pack section 8.11 and leave orphaned broker sessions on scale-in.",
-      "evidence": "ADR row: \"| MQTT client | `github.com/eclipse/paho.golang` v0.23.x, `autopaho` | `mqtt` Upstreams; QoS 1 publishes await `PUBACK`; the consume mapping is undecided (OQ-multi-protocol-10) |\". Research (go-libraries-protocols.md, paho.golang): \"v0.20 introduced session state persistence and full QoS 1/2 support\" and \"autopaho `ClientConfig` fields include ... `CleanStartOnInitialConnection`, `SessionExpiryInterval` and `Queue`\". Tech stack catalog: \"MQTT v5, session persistence, QoS 1 and 2\". Vision P4: \"Nodes hold no durable state beyond their enrollment identity, Last-Known-Good configuration and disposable Plugin caches, and join or leave a Cluster without coordinating with other Nodes.\" Pack 8.11: \"A Node persists only the following under `${RURALZ_DATA_DIR}`\".",
-      "fix": "Add to the MQTT client row: \"each Node connects with its own client identifier derived from `node.id` and the Upstream name, with `CleanStartOnInitialConnection` true, `SessionExpiryInterval` 0 and an in-memory `Queue`, so no session or queue state outlives the connection or the Node (P4, pack 8.11)\". Extend the integration-test Confirmation bullet: \"two Nodes publishing to one Mosquitto broker see no session-takeover disconnects\". If the owning document must decide this first, add it under OQ-multi-protocol-8 as a proposed amendment in More information, and add a Bad consequence that the rule is pending."
-    },
-    {
-      "id": "L1-4",
-      "section": "Decision drivers (Acknowledged publishing); Decision outcome (Kafka row)",
-      "issue": "The ADR's own driver requires the client to report buffer limits. The Kafka row never says what bounds the franz-go producer buffer, or how long a buffered record's bytes stay reserved. A value can be as large as `maxRequestBodyBytes` (10 MiB proposed), so a bound on the record count alone allows gigabytes. When a publish times out, the request returns 502 and releases its `maxBufferedBytes` reservation. franz-go may still hold the record and send it later. Producer memory then escapes the Node-wide budget during a slow-broker incident, which is exactly when the buffer fills. As written, the design has no bound on producer memory.",
-      "evidence": "ADR driver: \"- **Acknowledged publishing**: the Node answers 202 only after the broker acknowledges, so the client MUST report acknowledgment and buffer limits.\" Kafka row: \"`messaging.key` is the record key; idempotent producer, acknowledgment from all in-sync replicas; `ProducerLinger(0)` on Routes that await it, ...; ingress uses consumer groups ...\" (no buffer bound). Consequences: \"non-blocking produce on a full franz-go buffer awaits the OQ-multi-protocol-8 spike\". Owning doc, Kafka, NATS JetStream and MQTT: \"| Limits | Publish: value within `maxRequestBodyBytes`, bounded producer buffer\". Research: \"`ManualFlushing` with `MaxBufferedRecords` is available for batching\". Configuration model, Body buffering and limits: \"Across requests, all of it is reserved from `maxBufferedBytes`, one budget per Node\".",
-      "fix": "Add to the Kafka row: \"the producer buffer is bounded by `MaxBufferedRecords` (research). Each record keeps its `maxBufferedBytes` reservation until franz-go resolves its produce promise, even after a 502 timeout, so the Node budget bounds producer memory. A byte bound on the franz-go buffer is part of the OQ-multi-protocol-8 spike.\" Add to the integration-test Confirmation: \"with the Kafka container paused, publishes end in 503 or 502 while the Node's reserved bytes stay within `maxBufferedBytes`\"."
+      "issue": "This is also a regression from the revision. The MQTT client row now tells autopaho to use an in-memory `Queue`, but it gives the queue no bound and does not say whether publishes pass through it. If they do, then while the external broker is down every publish is queued in memory. That memory is not reserved from `maxBufferedBytes`, and it is not released when the request times out with 502. Queued messages are then sent after the client has already seen a failure. This is the MQTT twin of the Kafka producer-buffer finding that L1-4 resolved: Node memory can grow without bound during a broker outage. The research names only the `Queue` field and gives no bound for it.",
+      "evidence": "MQTT client row: \"each Node connects with its own client identifier derived from `node.id` and the Upstream name, `CleanStartOnInitialConnection` true, `SessionExpiryInterval` 0 and an in-memory `Queue`, so no session or queue state outlives the connection (P4, pack 8.11; ...)\". Research: \"autopaho `ClientConfig` fields include ... `CleanStartOnInitialConnection`, `SessionExpiryInterval` and `Queue`\" (no bound documented). ADR driver: \"the client MUST report acknowledgment and buffer limits\".",
+      "fix": "Add to the MQTT client row: \"QoS 1 publishes go directly on the connection, never through the `Queue`, so a disconnected client fails the attempt at once (502 `RZ-UP`) and nothing is held after the request ends; if autopaho cannot publish without the queue (unresearched; OQ-multi-protocol-8 spike), each queued message keeps its `maxBufferedBytes` reservation until it is sent or dropped, and the queue is bounded\". Extend the integration-test Confirmation: \"with the Mosquitto container paused, `mqtt` publishes end in 502 within the Upstream `timeout` and the Node's reserved bytes return to zero\"."
     }
   ],
   "non_blocking": [
     {
+      "section": "Decision outcome (MQTT client row); More information",
+      "suggestion": "The row marks the client-identifier and session rule as \"proposed for Multi-protocol under OQ-multi-protocol-8\", but More information lists only the depguard amendment. Add a second bullet: \"Proposed amendment: [Multi-protocol](../architecture/07-multi-protocol.md#kafka-nats-jetstream-and-mqtt) SHOULD adopt the per-Node MQTT client identifier and non-persistent session rule (OQ-multi-protocol-8)\". Then the owning document can pick it up."
+    },
+    {
+      "section": "Decision outcome (NATS row)",
+      "suggestion": "The owning document calls the one-message `Consume()` pre-buffer \"setting unresearched\" and an OQ-multi-protocol-10 spike. Add \"(setting unresearched; OQ-multi-protocol-10 spike)\" to the NATS row so readers do not take it as a confirmed library capability."
+    },
+    {
       "section": "Decision outcome (Kafka row)",
-      "suggestion": "`ProducerLinger` is a franz-go client option, not a per-record or per-Route setting. Every publish Route awaits the acknowledgment, so 'on Routes that await it' either has no effect or implies one client per Route. The owning document says 'Nodes set `ProducerLinger(0)`'. Write: '`ProducerLinger(0)` on every producer client (one per `kafka` Upstream)'."
-    },
-    {
-      "section": "Decision outcome (Kafka row); Consequences",
-      "suggestion": "Committing after settle works badly with cooperative or KIP-848 revocation. A partition can hold a message through up to 5 attempts (target), or a paused head message retried every 60 s (target). If the revoke callback waits for settlement, it can outlast the group's rebalance timeout and the member is expelled. State that on revocation a Node abandons unsettled messages without committing them, so the new owner redelivers them at least once, and that it never blocks the revocation beyond the group timeout."
-    },
-    {
-      "section": "Decision outcome > Confirmation",
-      "suggestion": "Consequences depends on 'only an import rule' to keep mochi-mqtt's Redis (go-redis v8), Badger and Pebble hooks out of `ruralzd`. That rule is only a proposed amendment in More information. Badger or Pebble would also persist broker state on the Node, against P4. Until the depguard rule exists, extend the review checklist item: 'or imports any mochi-mqtt package other than the core and auth packages'."
-    },
-    {
-      "section": "Pros and cons of the options (External MQTT brokers only)",
-      "suggestion": "This option is also the mochi-mqtt watch-list fallback ('Separate broker via paho.golang'). Device ingress would then depend on the undecided MQTT consume mapping, where every Node gets each message without shared subscriptions (OQ-multi-protocol-10). Add that to the Bad bullet, so the fallback's cost is visible when the watch-list trigger fires."
-    },
-    {
-      "section": "Decision outcome (Figure 1)",
-      "suggestion": "The protocol matrix lets embedded MQTT and topic ingress reach `kafka`, `nats` and `mqtt` Upstreams, not only `http`. The figure shows only `ti -.-> up` (http Upstream). Label that node 'http, kafka, nats or mqtt Upstream', or say in the caption that only the http case is drawn."
-    },
-    {
-      "section": "Decision outcome (MQTT client row)",
-      "suggestion": "Pack section 7 writes `eclipse-paho/paho.golang`, the repository, and the row writes the module path `github.com/eclipse/paho.golang`. Both are correct according to the research, but write them as the catalog does: 'repository `eclipse-paho/paho.golang`, module `github.com/eclipse/paho.golang`'."
-    },
-    {
-      "section": "Whole document (length)",
-      "suggestion": "By the verifier's rule the body is about 1,400 words, against a maximum of 1,500. The four fixes add about 150 words. Keep them compact. If the body goes over, shorten the first More information bullet first, because it repeats owning-document links the body already gives. Do not cut text that answers these findings."
-    },
-    {
-      "section": "Acceptance criterion 6",
-      "suggestion": "docs/adr/README.md does not exist yet (verifier WARN missing-doc). The owning document links the ADR in its Kafka section and its wire-proxy table. When the index is written, it must link ADR-0013."
+      "suggestion": "The research mentions `MaxBufferedRecords` only together with `ManualFlushing` for batching. Say that the Node uses it without `ManualFlushing` to cap buffered records, or cite that capability as unresearched under the OQ-multi-protocol-8 spike."
     }
   ],
   "ac_results": [
-    {
-      "ac": "Front matter contains id, title, status, date, deciders and related, and status matches this manifest.",
-      "pass": true,
-      "note": "All six keys are present. status: accepted matches the manifest, and the title matches the manifest title verbatim."
-    },
-    {
-      "ac": "H2 headings match adr_common.outline_h2 exactly and in order, and Decision outcome contains the H3 headings Consequences and Confirmation.",
-      "pass": true,
-      "note": "The six H2 headings are exact and in order (lines 17, 23, 31, 41, 106, 143). Consequences and Confirmation are H3 headings under Decision outcome. The verifier prints no FAIL line for this file."
-    },
-    {
-      "ac": "Considered options lists at least two options including the chosen one, and each has pros and cons.",
-      "pass": true,
-      "note": "Seven options, including the chosen one, each with research URLs and Good and Bad bullets. The rejection of option 7 misstates P7 (L1-1)."
-    },
-    {
-      "ac": "Decision outcome states the chosen option as 'Chosen option: ..., because ...' and matches the foundation pack section 7 row for this ADR.",
-      "pass": true,
-      "note": "It uses the required form and matches the pack section 7 Messaging row and the rule of no native Kafka or MQTT wire-protocol proxying before M4. It also matches the manifest decision, embedded broker Planned (M4) included."
-    },
-    {
-      "ac": "Confirmation names a concrete verification mechanism (test, lint rule, CI gate or review checklist item).",
-      "pass": true,
-      "note": "It names testcontainers integration tests in pr-full, the G1 cross-build and G2 license gate, the quarterly health review, govulncheck and a review checklist item. Two gaps remain: the held-PUBACK behaviour (L1-2) and the producer-memory bound (L1-4) are not tested."
-    },
-    {
-      "ac": "The ADR is linked from docs/adr/README.md and from its owning document.",
-      "pass": false,
-      "note": "docs/architecture/07-multi-protocol.md links it twice. docs/adr/README.md does not exist yet, so the index half cannot pass. That file is outside this ADR, so it is not raised as a blocking item."
-    }
+    {"ac": "Front matter contains id, title, status, date, deciders and related, and status matches this manifest.", "pass": true, "note": "All six keys are present; status is accepted, as in the manifest adrs[] entry, and the title matches the manifest title."},
+    {"ac": "H2 headings match adr_common.outline_h2 exactly and in order, and Decision outcome contains the H3 headings Consequences and Confirmation.", "pass": true, "note": "All six H2 headings appear in order, and both required H3 headings are present. verify-docs reports no FAIL line for this file."},
+    {"ac": "Considered options lists at least two options including the chosen one, and each has pros and cons.", "pass": true, "note": "There are seven options, each citing research URLs, and each has Good and Bad bullets under Pros and cons."},
+    {"ac": "Decision outcome states the chosen option as 'Chosen option: ..., because ...' and matches the foundation pack section 7 row for this ADR.", "pass": true, "note": "The Chosen option sentence names franz-go, nats.go jetstream, paho.golang autopaho and embedded mochi-mqtt, mediation only. This matches the pack section 7 Messaging row and its rule of no Kafka or MQTT wire-protocol proxying before M4."},
+    {"ac": "Confirmation names a concrete verification mechanism (test, lint rule, CI gate or review checklist item).", "pass": true, "note": "It names testcontainers integration tests, the held-PUBACK spike, the G1 cross-build and G2 license gates, govulncheck and a review checklist item. The paused-Kafka and MQTT assertions need strengthening (L1-1, L1-2)."},
+    {"ac": "The ADR is linked from docs/adr/README.md and from its owning document.", "pass": true, "note": "The owning document links the ADR in its Library row and in the Native wire-proxy stance table. docs/adr/README.md does not exist yet: the index generator writes it later (wave 5), and verify-docs --allow-missing reports no failure."}
   ],
-  "foundation_amendments": [
-    "Vision P7 says 'a session maps to the request Phases, each message to `onChunk`'. The multi-protocol design, ADR-0013 and the pack section 3 `topic` match instead route each consumed message and each embedded PUBLISH through the request Phases of a `match.topic` Route. Close OQ-multi-protocol-18 and either amend P7 and pack section 4 to record the per-message exception, or switch to its option (b), so the P7 claims in the owning document and this ADR share one meaning."
-  ]
+  "foundation_amendments": []
 }

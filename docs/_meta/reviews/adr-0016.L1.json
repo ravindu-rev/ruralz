@@ -1,0 +1,111 @@
+{
+  "lens": "L1 feasibility-skeptic",
+  "verdict": "revise",
+  "score": 6,
+  "blocking": [
+    {
+      "id": "L1-1",
+      "section": "Decision outcome; Consequences; Pros and cons of the options (Helm chart and mirrored CRDs)",
+      "issue": "The ADR says the Kubernetes API stays off Nodes and that Nodes hold no watch. The owning document, the tech stack document and the Configuration model all say otherwise. Nodes link client-go and hold Kubernetes watches for `discovery: kubernetes` EndpointSlices and for `provider: kubernetes` secrets. So an API server outage does more than stop CRD changes: it freezes EndpointSlice discovery and Kubernetes secret refresh. A Node restarted during the outage also cannot resolve a `provider: kubernetes` secretRef, and pack 8.5 then keeps it not ready.",
+      "evidence": "Line 46: \"keeps the Kubernetes API off Nodes and ships with Ruralz Control\"; line 115: \"Good, because an API server outage stops only new CRD changes: Nodes hold no watch and keep their active Revision (P9).\"; line 136: \"Good, because Kubernetes stays optional and off Nodes.\" These contradict docs/operations/01-deployment-topologies.md T4 RBAC row: \"Nodes: `get` and `watch` on own-namespace Secrets, only for `provider: kubernetes`; `list` and `watch` on `endpointslices.discovery.k8s.io`\". They also contradict docs/engineering/01-tech-stack-and-libraries.md line 82: \"client-go is always linked into `ruralzd` and `ruralz-control`\".",
+      "fix": "Change line 46 to \"keeps CRDs and configuration delivery off Nodes\". Change line 115 to: \"Good, because an API server outage stops new CRD changes and freezes EndpointSlice discovery and Kubernetes secret refresh at their last state, while running Nodes keep their active Revision (P9); a Node restarted during it stays not ready if it needs a `provider: kubernetes` secret.\" Change line 136 to \"configuration delivery stays off Nodes\". In the option 4 Bad bullet, say that the ten CRD informers would add to the EndpointSlice informers Nodes already hold."
+    },
+    {
+      "id": "L1-2",
+      "section": "Decision outcome (Reader row, Figure 2)",
+      "issue": "Kubernetes applies a multi-object change one object at a time, and so do Helm and Argo CD. The ADR assembles a Bundle and starts Rollouts on every watch event, so it can build, sign and roll out an intermediate object set that is valid but unintended. Example: an `auth.jwt` Policy moves from the Gateway to the Routes. If the Gateway object is applied first, the intermediate Revision has Routes with no authentication, and it can reach canary Nodes. Applying N objects can also produce up to N Revisions and N superseding Rollouts, which churns canary bakes and gates. Neither the ADR nor the owning document defines a batching, quiescence or commit rule, so a consistent build from a namespace cannot be confirmed.",
+      "evidence": "Line 53: \"It assembles the object set into a Bundle and runs the Git pipeline.\" Figure 2: \"A-->>C: watch event\" / \"C->>C: assemble the namespace, full validation pipeline\" / \"C->>C: record and sign the Revision, start Rollouts\". The Configuration model's Status conditions section only notes that \"Related objects reach Kubernetes admission in any order\".",
+      "fix": "Add to the Reader row: \"The leader builds a namespace only after its object set has been quiet for a debounce window and at most after a maximum delay (both target values), so one multi-object apply yields one Revision.\" Because a commit marker would be a new field or annotation, add a Proposed amendment in More information: Deployment topologies SHOULD open an Open question on how a namespace source signals a complete object set (options: debounce only; an expected object-set digest, like `ruralz bundle push`). Add a Bad consequence that non-atomic applies can briefly expose intermediate sets until that question closes. Add a Confirmation case to the kind suite: apply a multi-object change in random order, then assert that exactly one Revision is recorded."
+    },
+    {
+      "id": "L1-3",
+      "section": "Decision drivers; Consequences; Confirmation (Equivalence test); More information",
+      "issue": "Labels and annotations are inside the Revision digest: the Configuration model's canonical form drops only comments and file names. Tools that apply objects add metadata. The ADR's own path, `kubectl apply`, adds `kubectl.kubernetes.io/last-applied-configuration`. Helm adds `app.kubernetes.io/managed-by` and `meta.helm.sh/*`. Argo CD adds tracking annotations. So a namespace render cannot match the Git digest, which breaks the decision driver, a Good consequence and the MUST in the Equivalence test. The ADR does notice the gap, but only as a SHOULD-level proposal in More information, and the Confirmation gate is written as if the gap were closed.",
+      "evidence": "Line 29: \"equal rendered resources MUST yield one Revision digest from any source\"; line 113: \"the same rendered resources yield the same Revision and diagnostics from Git or a namespace\"; line 126: \"applied as CRD objects to a bound namespace in the kind environment, MUST yield the digest and RZ-CFG diagnostics of its Git render\"; line 162: \"Proposed amendment: Deployment topologies SHOULD add an Open question on which Kubernetes-managed labels and annotations the translation drops\"; Figure 2 label: \"kubectl apply\".",
+      "fix": "Keep the proposed amendment and make its impact explicit. Add a Bad consequence: \"until that question closes, client-side `kubectl apply`, Helm and Argo CD metadata change the digest, so namespace and Git renders of equal resources differ\". Pin the Equivalence test to `kubectl apply --server-side` with no tool labels or annotations until the drop rule is decided, and state that the test MUST be extended to Helm- and client-side-applied objects once the rule exists. Alternatively, name the Configuration model as owner of the drop rule, since it owns canonical form."
+    },
+    {
+      "id": "L1-4",
+      "section": "Decision outcome (Figure 2)",
+      "issue": "Figure 2 reports `RefNotFound` as a reason for `Accepted False`. The Configuration model places `RefNotFound` under `ResolvedRefs`, and `Accepted` has only `InvalidSpec` and `GuardrailViolation` as false reasons.",
+      "evidence": "Figure 2: \"C->>A: Accepted False, InvalidSpec or RefNotFound\". docs/architecture/02-configuration-model.md, Status conditions in the CRD path: \"| `Accepted` | Schema and semantic checks pass | `InvalidSpec`, `GuardrailViolation` |\" and \"| `ResolvedRefs` | Every reference resolves | `RefNotFound`, `PluginDigestMissing` |\".",
+      "fix": "Change the message to \"C->>A: Accepted False (InvalidSpec) or ResolvedRefs False (RefNotFound)\"."
+    },
+    {
+      "id": "L1-5",
+      "section": "Decision outcome (CRDs and CRD translation rows); Confirmation",
+      "issue": "The ADR generates the CRDs from the rendered draft 2020-12 JSON Schema view and emits every `x-ruralz-validations` rule as an `x-kubernetes-validations` rule. It gives no lowering rule for either step. Kubernetes structural schemas reject `$ref`, `$defs`, `patternProperties` and `dependencies`. The API server also rejects any CEL rule whose estimated cost exceeds its budget, which unbounded lists or strings without `maxItems` or `maxLength` can trigger, and Kubernetes CEL has no Ruralz-specific variables. As written, the Planned (M2) generator may produce CRDs that the API server refuses, or it may silently drop checks. The drift gate only compares generated bytes, so it would catch neither case.",
+      "evidence": "Line 51: \"generated into `deploy/crds/` from the rendered JSON Schema view: one CRD per kind, all ten\"; line 52: \"`x-ruralz-validations` become `x-kubernetes-validations`\"; line 125: \"CI stage 3 in `pr-fast` regenerates `deploy/crds/` and fails on `git diff --exit-code`\".",
+      "fix": "Add a lowering rule to the CRDs row: \"`$ref` is inlined (a recursive schema fails generation); keywords with no structural equivalent, and rules over the Kubernetes CEL cost budget or using Ruralz-only variables, are enforced only by Ruralz Control, and the generator lists every such check.\" Add to Confirmation: \"the kind suite applies every generated CRD to the API server and fails on any rejection or cost-budget error\". Record a Proposed amendment asking the Configuration model to note in its Kubernetes mapping table that not every rule is emitted."
+    }
+  ],
+  "non_blocking": [
+    {
+      "section": "Decision outcome (CRD versions row); Figure 1; Pros and cons",
+      "suggestion": "With `conversion.strategy: None` the API server never calls the webhook. So \"Ruralz Control serves the conversion webhook ... with `conversion.strategy: None`\", the Figure 1 edge \"conversion requests\" and the Bad bullet \"Ruralz must run the conversion webhook\" only become true once a second version is served, Planned (M3). Say that the webhook Service ships unused in M2, which also matches OQ-deployment-topologies-13 blocking only before `ruralz.io/v1beta1`."
+    },
+    {
+      "section": "Decision outcome (CRD translation row); Consequences",
+      "suggestion": "Each Rollout step rewrites `Programmed` on every object in the namespace, so status writes grow with object count times state changes. A namespace with 1,000 Routes at client-go's default 5 QPS (hypothesis) would take minutes per change. State that Ruralz Control writes only changed conditions with `observedGeneration`, at a bounded client rate, or add this as a Bad consequence."
+    },
+    {
+      "section": "Considered options",
+      "suggestion": "Option (c) of OQ-configuration-model-2, a separate watcher process that writes Bundle directories for file-mode Nodes, is a real alternative for Kubernetes users without Ruralz Control. Add it, or say why it is excluded; it would give option 1's \"without Ruralz Control, Kubernetes installs use T2\" a considered alternative."
+    },
+    {
+      "section": "Considered options (option 4)",
+      "suggestion": "The EndpointSlice informer URL (pkg.go.dev/k8s.io/client-go/informers/discovery/v1) supports informers in general but not CRD watching. Say that CRDs would need dynamic or generated informers, or rephrase the citation so it backs only the list-and-watch cost."
+    },
+    {
+      "section": "Whole document (length)",
+      "suggestion": "The body is 1,412 words against the 1,500 maximum, so only 88 words remain. Write the fixes compactly, for example by folding the L1-1 and L1-3 consequences into existing bullets. Do not remove text that resolved earlier findings."
+    },
+    {
+      "section": "Decision outcome (Reader row)",
+      "suggestion": "After a leader change, the new leader re-lists every bound namespace. State that it recomputes the object-set digest and builds no Revision when the digest matches the last recorded one, so failover does not start duplicate Rollouts."
+    }
+  ],
+  "ac_results": [
+    {
+      "ac": "Front matter contains id, title, status, date, deciders and related, and status matches this manifest.",
+      "pass": true,
+      "note": "All six keys are present. status: proposed matches the manifest, and the title matches the manifest title."
+    },
+    {
+      "ac": "H2 headings match adr_common.outline_h2 exactly and in order, and Decision outcome contains the H3 headings Consequences and Confirmation.",
+      "pass": true,
+      "note": "The six H2 headings are in order, and Consequences and Confirmation are H3s under Decision outcome."
+    },
+    {
+      "ac": "Considered options lists at least two options including the chosen one, and each has pros and cons.",
+      "pass": true,
+      "note": "There are four options, each with Good and Bad bullets. Every cited URL appears in docs/_meta/research/ (competitors-envoy-zuplo-gravitee.md, competitors-kong-tyk-apisix.md, go-libraries-protocols.md)."
+    },
+    {
+      "ac": "Decision outcome states the chosen option as 'Chosen option: ..., because ...' and matches the foundation pack section 7 row for this ADR.",
+      "pass": true,
+      "note": "The wording is right and the decision matches the pack row: Helm chart and CRDs Planned (M2), group `ruralz.io`, group-only translation, only Ruralz Control watches, Gateway API deferred. However, the because-clause \"keeps the Kubernetes API off Nodes\" is inaccurate (L1-1)."
+    },
+    {
+      "ac": "Confirmation names a concrete verification mechanism (test, lint rule, CI gate or review checklist item).",
+      "pass": true,
+      "note": "Names CI stage 3 drift gate, the kind end-to-end suite, an upgrade test and a review checklist item. The Equivalence test cannot pass as written (L1-3), and no check catches CRDs the API server rejects (L1-5)."
+    },
+    {
+      "ac": "The ADR is linked from docs/adr/README.md and from its owning document.",
+      "pass": false,
+      "note": "docs/operations/01-deployment-topologies.md links the ADR. docs/adr/README.md does not exist yet: it is written with docs/README.md in a later wave, and --allow-missing suppresses the check. This cannot be fixed in the ADR, so it is not a blocking item."
+    },
+    {
+      "ac": "verify-docs.mjs FAIL lines for this file",
+      "pass": true,
+      "note": "No FAIL lines. There are six WARN milestones lines: lines 52, 54, 55, 125, 126 and 127 have no matching M2 item in the not-yet-written roadmap."
+    },
+    {
+      "ac": "Agreement with owning document, foundation pack and foundation documents",
+      "pass": false,
+      "note": "The ADR contradicts the owning document's T4 RBAC row and the tech stack client-go row (L1-1), and the Configuration model's status condition reasons (L1-4)."
+    }
+  ],
+  "foundation_amendments": []
+}

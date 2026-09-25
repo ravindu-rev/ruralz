@@ -1,118 +1,72 @@
 {
   "lens": "L2",
-  "verdict": "revise",
-  "score": 6,
-  "blocking": [
-    {
-      "id": "L2-1",
-      "section": "Decision outcome (Limits row, line 51); Figure 1 (node lim, line 66)",
-      "issue": "The Limits row applies complexity to every operation. That contradicts the owning document, where complexity applies in federation mode only and pass-through uses a field-count limit. It also contradicts this ADR's own Context (line 19).",
-      "evidence": "Line 51: \"| Limits | Depth, alias and complexity checks run per normalized operation before any subgraph call, with the Multi-protocol defaults; settings are OQ-multi-protocol-5 |\". Line 19: \"pass-through, which forwards each operation to one `graphql` Upstream under depth, alias and field-count limits\". 07-multi-protocol.md, Depth, complexity and persisted queries: \"| Complexity | ... federation mode only | 5,000 points (target) |\"; Engine: \"Pass-through mode ... enforcing syntax, depth, alias and field-count limits\".",
-      "fix": "Replace the rule cell with: \"Depth and alias limits in both modes, field count in pass-through mode and complexity in federation mode only, run per operation after fragment expansion and before any subgraph call, with the Multi-protocol defaults; settings are OQ-multi-protocol-5\". Relabel Figure 1 node `lim` as \"Ruralz depth, alias, field-count and complexity checks\"."
-    },
-    {
-      "id": "L2-2",
-      "section": "Decision drivers (Runtime configuration, line 27); Decision outcome (Federation row, line 50)",
-      "issue": "The ADR treats the GraphQL schema and supergraph as Revision content and states the supergraph source as a settled rule. `02-configuration-model.md` defines no schema, supergraph or subgraph field: GraphQL appears only as `Route.spec.match.graphql` (`operationType`, `operationName`) and `Upstream.spec.protocol: graphql`. OQ-multi-protocol-4 is still open and Blocking for federation, with option (c) only proposed. The owning document says federation \"would\" plan against an external supergraph. An accepted ADR that writes the proposed option as a rule, and implies Revision content that the Configuration model does not define, goes further than the binding sources allow.",
-      "evidence": "Line 27: \"**Runtime configuration**: a Revision, not a rebuilt binary, carries schemas and Routes, and Hot Reload activates it (P5).\" Line 50: \"| Federation | Plans against a supergraph SDL composed outside Ruralz and pinned by digest, since v2 has no composition package (OQ-multi-protocol-4) |\". Owning doc, Engine: \"Federation mode would plan against a supergraph SDL composed outside Ruralz and pinned by digest (OQ-multi-protocol-4)\". OQ-multi-protocol-4 options: \"(a) A `federation` composition mode; (b) `Route.spec.graphql` fields; (c) An external supergraph pinned by digest (proposed); (d) Composition in Ruralz Control\".",
-      "fix": "Line 27: \"**Runtime configuration**: a Revision, not a rebuilt binary, carries Routes and, once OQ-multi-protocol-4 decides how they are declared, subgraph and supergraph schemas; Hot Reload activates it (P5).\" Line 50: \"Would plan against a supergraph SDL composed outside Ruralz and pinned by digest, the proposed option (c) of OQ-multi-protocol-4, since v2 has no composition package; the declaring field is not yet in the Configuration model\". Add to More information a Proposed amendment that OQ-multi-protocol-4 also covers the pass-through schema source, if pass-through validates operations against one. Do not name a field."
-    },
-    {
-      "id": "L2-3",
-      "section": "Consequences (Bad, composition, line 88)",
-      "issue": "The ADR accepts that a supergraph could pass `ruralz bundle validate` and still fail as a Node NACK. This breaks the Configuration model's validation contract. Validation and diff semantics guarantees that a Bundle passing `ruralz bundle validate` passes the offline stages of Node activation with identical diagnostics, and it lists exactly five checks that can still fail afterward (RZ-CFG-028, -033, -024, -026, -027). A planner-only rejection would be a sixth. The tech stack Dependency graph also states that GraphQL document errors \"surface in `ruralz bundle validate`, not as Node NACKs\". The ADR's own driver (line 29) promises the same errors in all three binaries.",
-      "evidence": "Line 88: \"a supergraph that only the planner rejects may surface as a Node NACK rather than a `ruralz bundle validate` error.\" 02-configuration-model.md: \"a Bundle that passes `ruralz bundle validate` in CI passes the offline stages of Ruralz Control ingest and Node activation with identical diagnostics ... After a green offline run, five checks can still fail\". Tech stack: \"such errors surface in `ruralz bundle validate`, not as Node NACKs (size cost: OQ-tech-stack-and-libraries-22)\". Line 29: \"`ruralz`, `ruralz-control` and `ruralzd` report the same GraphQL errors\".",
-      "fix": "Keep the contract. Let `ruralz-control` and `ruralz` also link `engine/plan` for supergraph planning checks only (never `engine/resolve`, datasources or `subscription`), update the ruralz-control/ruralz row and the Confirmation checklist item to match, and replace the Bad clause with \"and planning checks add `engine/plan` to Ruralz Control and the CLI (size: OQ-tech-stack-and-libraries-22)\". If that is rejected, add a Proposed amendment asking the Configuration model to register a sixth post-offline failure with its RZ-CFG code through an Open question, and mark the gap as pending that amendment instead of accepting it silently."
-    },
-    {
-      "id": "L2-4",
-      "section": "Decision outcome, Figure 1 (lines 55 to 78)",
-      "issue": "Figure 1 contradicts the Phase mapping in the owning document in three ways. (1) The whole Filter Chain is one box before parsing and normalization, but the owning document runs `onRequestBody` on the normalized operation and `onUpstreamRequest` per subgraph fetch, after planning. (2) Subscriptions go `wrap --> sub --> ds` and skip normalization, the limits and `engine/plan`, but the owning document requires each `subscribe` to run `onRequestBody`, the checks and per-subgraph `onUpstreamRequest`. (3) No upstream-leg Phase appears between `ds` and `up`, although the Transport row and Good consequence 2 depend on it.",
-      "evidence": "Line 75: `gw --> fc --> wrap --> norm --> lim --> plan --> res --> ds --> up`; line 76: `wrap --> sub --> ds`. Owning doc Figure 2: \"onRequestHeaders, then onRequestBody on the normalized operation\"; Subscriptions: \"each `subscribe` is proposed to run `onRequestBody`, the checks below and per-subgraph `onUpstreamRequest`\"; Filter Chain applicability: `onRequestBody` \"Normalized operation\", `onUpstreamRequest` \"Per subgraph fetch\" and \"Per subgraph subscription\".",
-      "fix": "Redraw with nodes such as: `fcreq[\"onRequestHeaders\"]` before `norm`; `fcbody[\"onRequestBody on the normalized operation\"]` between `norm` and `lim`; `leg[\"upstream leg: onUpstreamRequest per subgraph fetch or subscription\"]` between `ds` and `up`. Route subscriptions as `sub --> norm` (per `subscribe`, OQ-multi-protocol-17), so they share `norm`, `fcbody`, `lim` and `plan`. Keep the diagram at or under 25 nodes and update the caption."
-    },
-    {
-      "id": "L2-5",
-      "section": "Decision outcome (Advisory floor row, line 53); Confirmation (Advisory floor, line 97)",
-      "issue": "The milestone tag conflicts with the roadmap and with when the module arrives. The explicit gorilla/websocket `require` is tagged Planned (M0), but graphql-go-tools, the only module that brings gorilla/websocket in, lands with GraphQL at M3 (the roadmap M3 row: \"GraphQL module, limits and transport in `ruralzd`, `ruralz-control` and `ruralz`\"). The verifier flags the line.",
-      "evidence": "Line 53: \"| Advisory floor | Explicit `require` of `gorilla/websocket` v1.5.3 over the v1.5.1 pin ... | Planned (M0) |\". Line 97: \"**Advisory floor**, Planned (M0): the explicit `require` holds `gorilla/websocket` at v1.5.3 or newer\". Verifier: \"WARN milestones docs/adr/0012-graphql-engine-graphql-go-tools.md:97 'Advisory floor, : the explicit require' is Planned (M0) but has no matching item under the M0 section of docs/roadmap/01-roadmap-and-milestones.md\".",
-      "fix": "Retag both as Planned (M3), \"in the pull request that first adds graphql-go-tools to `go.mod`\". Keep `govulncheck` on every pull request, Planned (M0), per Update policy, as the mechanism that enforces the floor once the module is linked."
-    },
-    {
-      "id": "L2-6",
-      "section": "Confirmation (Dependency admission, line 95)",
-      "issue": "The ADR misstates the tech stack Admission mechanism. Admission (tech stack Figure 3) checks G1, G2, G3, govulncheck and a catalog row. It has no step that rejects modules listed in Alternatives not chosen, whose \"Never\" is a value in the \"Revisit if\" column, not a gate. gqlgen, bramble and graphql-go are MIT and pure Go, so Admission as written would admit them. The confirmation mechanism the ADR names does not exist.",
-      "evidence": "Line 95: \"gqlgen, bramble and graphql-go are listed \\\"Never\\\" under [Alternatives not chosen](...), so [Admission](...) rejects them.\" Tech stack Alternatives not chosen header: \"| Alternative | Concern | Why not chosen | Revisit if | Source |\" with \"Never\" in Revisit if. Admission: \"A new direct dependency MUST get a catalog row in the same pull request.\"",
-      "fix": "Rewrite as: \"**Dependency admission**, Planned (M0): the GraphQL catalog row cites this ADR, and a depguard banned-import rule for `github.com/99designs/gqlgen`, `github.com/movio/bramble` and `github.com/graphql-go/graphql` (Proposed amendment to Repository layout and conventions) fails any pull request that imports them.\" Add that rule to the depguard amendment in More information."
-    },
-    {
-      "id": "L2-7",
-      "section": "Decision drivers (line 28); Consequences (Good, line 84); Confirmation (line 96)",
-      "issue": "The driver claims gates G1 to G3, and the tech stack requires every dependency to pass all three. The ADR assesses G1 and G2 but says nothing about G3, the crypto denylist behind the FIPS build (`GOFIPS140`, pack section 1). No Confirmation item covers it, even though graphql-go-tools pulls in two WebSocket libraries and connect.",
-      "evidence": "Line 28: \"**Gates G1 to G3** and criteria S1, S2, S6 and S7\". Line 84: \"so it passes G2, S1 and S2; G1 awaits the CI cross-build.\" Line 96: \"**G1 cross-build and license gate**, Planned (M0): confirm pure Go and MIT over the linked package set.\" Tech stack Selection criteria: \"| G3 | Cryptographic primitives come only from Go `crypto/...` ... | `go list -deps` crypto denylist in CI, Planned (M0); FIPS CI job, Planned (M5) |\".",
-      "fix": "End line 84 with \"; G1 and G3 await the CI cross-build and crypto denylist\". Change line 96 to \"**G1 cross-build, G3 crypto denylist and license gate**, Planned (M0), plus the FIPS CI job, Planned (M5): confirm pure Go, Go-module-only cryptography and MIT over the linked package set including graphql-go-tools\"."
-    }
-  ],
+  "verdict": "accept",
+  "score": 8,
+  "blocking": [],
   "non_blocking": [
     {
-      "section": "Consequences (Bad, gorilla/websocket, line 87)",
-      "suggestion": "OQ-tech-stack-and-libraries-6 asks only about \"Two JOSE stacks (jwx, go-jose via go-oidc)\". Tech stack Selection criteria attaches the gorilla/websocket S6 exception to it, but the OQ row does not cover it. Link [Selection criteria](../engineering/01-tech-stack-and-libraries.md#selection-criteria) for the accepted exception, and add a Proposed amendment asking the tech stack to widen OQ-6 or open a WebSocket-specific OQ."
+      "section": "Length (whole body)",
+      "suggestion": "By the manifest word_count_rule (prose after front matter, fenced code excluded) the body has about 1,499 words, against the adr_common maximum of 1,500. Any further edit must cost no words. Mermaid labels are free, so fixes to Figure 1 do not count against the band. Do not delete text that resolved L2-1 to L2-7."
     },
     {
-      "section": "Decision outcome (ruralz-control, ruralz row, line 49)",
-      "suggestion": "The row matches the tech stack catalog (\"import only `ast` and `astvalidation`\"). It conflicts with tech stack Figure 2 (\"graphql-go-tools parser and validation\") and with research, where lexer and parser are separate packages from `ast` (see L1-1). Add a Proposed amendment so the tech stack aligns its catalog row with its Figure 2, and use the same wording in this ADR."
+      "section": "Decision outcome (opening paragraph, line 43)",
+      "suggestion": "\"It matches foundation pack section 7 and the [Library catalog]\" overstates the match. The catalog row reads \"Ruralz Control and CLI import only `ast` and `astvalidation`\", while this ADR's `ruralz-control`, `ruralz` row adds the lexer, parser, normalization and `engine/plan`. The More information amendment already covers the change. Make the sentence word-neutral: \"It matches foundation pack section 7; the [Library catalog] row changes as proposed below.\""
     },
     {
-      "section": "Decision drivers (Bounded memory, line 30)",
-      "suggestion": "The owning document's Limits row also bounds subgraph bodies \"within `maxResponseBodyBytes`\" together. Name both Gateway `limits` fields, `maxBufferedBytes` and `maxResponseBodyBytes`, so the driver matches the owning document."
+      "section": "Decision outcome (`ruralz-control`, `ruralz` row, line 49); More information",
+      "suggestion": "The spike \"planning without transports\" has no fallback. If `engine/plan` turns out to need `graphql_datasource` federation configuration, or transitively links `engine/resolve` (see L1-1), the \"never `engine/resolve`\" rule and the Review checklist set would both need to change. Name the fallback that keeps the Configuration model validation contract. For example: widen the linked set to the datasource configuration packages, still without transports or `subscription`, and amend the depguard rule. Do not accept a sixth post-offline failure."
     },
     {
-      "section": "Context and problem statement (line 21)",
-      "suggestion": "Research records only that Kong's GraphQL Rate Limiting Advanced page has \"no federation mention\". Rephrase \"Kong documents only an Enterprise GraphQL rate-limiting plugin\" to \"Kong's researched GraphQL plugin is the Enterprise GraphQL Rate Limiting Advanced, with no federation mention\"."
+      "section": "Decision drivers (Runtime configuration, line 27); More information (OQ-multi-protocol-4 amendment, line 146)",
+      "suggestion": "Offline `ruralz bundle validate` can plan against the supergraph only if its SDL is Bundle content. \"Offline validation needs no registry\" in the Configuration model rules out a registry fetch there. If OQ-multi-protocol-4 option (c) instead fetches an external artifact by digest, the planning check becomes an online check like RZ-CFG-028. Add to the existing OQ-multi-protocol-4 amendment that the pinned SDL must be readable offline from the Bundle, or else register an online check through the Configuration model. Name no field."
     },
     {
-      "section": "Considered options (option 6, line 39)",
-      "suggestion": "krakend-parity.md lists GraphQL as available in both KrakenD editions, without federation. \"GraphQL forwarded as plain HTTP ... as in KrakenD\" misdescribes KrakenD's GraphQL support. Write \"with no federation, which KrakenD lacks in either edition\"."
+      "section": "Decision outcome, Figure 1 (lines 58 to 84)",
+      "suggestion": "Figure 1 has 16 nodes and mermaid labels are outside the word count. Adding `onRoute` (once per operation) and `onChunk` per resolved event on the subscription path would complete \"where each operation meets the Filter Chain\" for the owning document's GraphQL columns. Figure 1 also sends pass-through from `lim` straight to `leg`, so it shows no component that opens the upstream `graphql-transport-ws` for a pass-through subscription (see L1-2). Label that edge with its transport or its Open question."
     },
     {
-      "section": "More information (line 137)",
-      "suggestion": "ADR-0009 never mentions GraphQL. Describe it as \"(the `net/http` and quic-go listeners)\" rather than \"(the listeners that carry GraphQL)\"."
+      "section": "Decision drivers (Gates, line 28)",
+      "suggestion": "The driver lists S1 to S4, S6 and S7 but leaves out S5 (\"Protocol completeness (federation, KIP coverage, MQTT v5)\"). S5 is the criterion federation versions 1 and 2 answer, and the Protocol conformance suite confirms it. Write \"S1 to S7\" in place of \"S1 to S4, S6 and S7\", which saves words."
     },
     {
-      "section": "Length",
-      "suggestion": "The body is about 1,310 words by the manifest word_count_rule, against the 1,500 maximum. Pay for the fixes by merging the option 1 pros and cons, which repeat Consequences, and do not cut the Rules table."
+      "section": "Confirmation (G1, G3 and license gate, line 101)",
+      "suggestion": "\"Go-module-only cryptography\" does not use the tech stack's G3 wording and could be read as any Go module. G3 reads \"Cryptographic primitives come only from Go `crypto/...` or from `golang.org/x/crypto` packages that delegate to the Go Cryptographic Module\". Write \"cryptography only via the Go Cryptographic Module\"."
+    },
+    {
+      "section": "Pros and cons (gqlgen, line 117)",
+      "suggestion": "\"so a Revision's schema would need a rebuild\" presumes that a Revision carries a GraphQL schema. The Configuration model does not define one yet (OQ-multi-protocol-4). Use the hedged wording from line 27: \"so a schema change would need a rebuilt binary rather than a new Revision, breaking P5\"."
     }
   ],
   "ac_results": [
     {
       "ac": "Front matter contains id, title, status, date, deciders and related, and status matches this manifest.",
       "pass": true,
-      "note": "All six keys are present. id ADR-0012, the title and status: accepted match the manifest adrs[] entry."
+      "note": "All six keys are present. id ADR-0012, the title 'GraphQL engine: wundergraph/graphql-go-tools v2' and status: accepted match the manifest adrs[] entry."
     },
     {
       "ac": "H2 headings match adr_common.outline_h2 exactly and in order, and Decision outcome contains the H3 headings Consequences and Confirmation.",
       "pass": true,
-      "note": "The six H2 headings are exact and in order, and both H3 headings are under Decision outcome. The verifier reports no FAIL, only a milestones WARN at line 97."
+      "note": "The six H2 headings are exact and in order, and Consequences and Confirmation are H3 headings under Decision outcome. The filtered verify-docs run prints no FAIL or WARN line for this file, and the verifier reports TOTAL PASS."
     },
     {
       "ac": "Considered options lists at least two options including the chosen one, and each has pros and cons.",
       "pass": true,
-      "note": "Six options, including the chosen one. Each has Good and Bad bullets under Pros and cons, and every cited URL is in go-libraries-protocols.md, competitors-kong-tyk-apisix.md or krakend-parity.md."
+      "note": "There are six options, including graphql-go-tools v2. Each has Good and Bad bullets under Pros and cons of the options, and every option cites research URLs."
     },
     {
       "ac": "Decision outcome states the chosen option as 'Chosen option: ..., because ...' and matches the foundation pack section 7 row for this ADR.",
       "pass": true,
-      "note": "It quotes the section 7 GraphQL decision verbatim: \"`github.com/wundergraph/graphql-go-tools/v2` engine (federation versions 1 and 2, subscriptions)\"."
+      "note": "Line 43 reads: Chosen option: \"`github.com/wundergraph/graphql-go-tools/v2` engine (federation versions 1 and 2, subscriptions)\", because ... This is the section 7 GraphQL decision verbatim."
     },
     {
       "ac": "Confirmation names a concrete verification mechanism (test, lint rule, CI gate or review checklist item).",
       "pass": true,
-      "note": "It names the protocol conformance suite, govulncheck, the CI size check and a review checklist item. The Dependency admission mechanism is misstated (L2-6), G3 is missing (L2-7), and the advisory floor milestone is wrong (L2-5)."
+      "note": "Confirmation names a depguard banned-import rule, the G1 cross-build, the G3 crypto denylist and license gate, the FIPS CI job, govulncheck, the Protocol conformance suite in pr-full, the CI size check and a review checklist item. Each is tagged with its milestone."
     },
     {
       "ac": "The ADR is linked from docs/adr/README.md and from its owning document.",
       "pass": false,
-      "note": "docs/architecture/07-multi-protocol.md links it in the Engine section. docs/adr/README.md does not exist yet, so the index half fails. That file is outside this ADR, so this is not raised as a blocking item against it."
+      "note": "docs/architecture/07-multi-protocol.md links it (Engine section, and adrs front matter). docs/adr/README.md does not exist yet: the index generator writes it later, and the verifier runs with --allow-missing. The index half therefore fails. The fix is outside this ADR, so it is not a blocking item."
     }
   ],
   "foundation_amendments": []

@@ -1,125 +1,91 @@
 {
   "lens": "L1 feasibility-skeptic",
   "verdict": "revise",
-  "score": 7,
+  "score": 8,
   "blocking": [
     {
-      "id": "L1-1",
-      "section": "Decision outcome (ACK/NACK row, Reconnect row, Figure 2)",
-      "issue": "An ACK can be lost, and the ADR has no way to recover it. The rules tie an ACK to one per-stream nonce. The stream can break after the Node activates but before its Ack reaches the Raft ACK bitmap: a replica crashes holding forwarded Acks, a leader fails over inside the 250 ms bitmap commit window, or the follower queue drops entries. When the Node reconnects, its Hello shows active digest equal to the assigned digest, so Figure 2 sends nothing and no Ack is ever produced. The Rollout engine then waits out the ACK timeout and retries, and the Node is quarantined as lagging even though it runs the right Revision. A replica or leader failure during a batch can therefore push the lagging count past max(1, 5% of the batch) and roll back or pause a healthy Rollout. That undercuts the Decision drivers' claim that stale replies are recognizable and the chaos claim that reconnecting Nodes get only their planned Revision without false failures.",
-      "evidence": "ACK/NACK row: \"Every configuration message carries a `nonce`; `Ack` means active, not durable; `Nack` keeps the active Revision and carries `code` and `class`; stale nonces are ignored\". Figure 2: `same{\"Active digest equals the assigned digest?\"}` -> `none[\"Send nothing, HeartbeatReply carries the promotion\"]`. Owning document, Replica roles: \"Followers forward `Ack` and `Nack` at once and heartbeat aggregates every 5 s (target) through a bounded queue that drops the oldest\"; Rollout plan: \"ACKs commit as bitmaps every 250 ms (target)\".",
-      "fix": "Make the ACK record level-triggered, the same way Last-Known-Good promotion already is. Add to the ACK/NACK row: \"Ruralz Control records an ACK per (`node.id`, `storeEpoch`, `assignmentSeq`), not per stream. A `Hello` or `Heartbeat` whose active digest, `storeEpoch` and `assignmentSeq` match the Node's pending assignment counts as its `Ack`, so a lost `Ack` never makes a Node lag.\" Label Figure 2's 'Send nothing' branch as recording the implicit ACK. Add a container-free test to Confirmation: kill the replica holding a forwarded Ack before the bitmap commit, and the Node is still counted ACKed after it reconnects."
-    },
-    {
-      "id": "L1-2",
-      "section": "Decision outcome (rationale) and Consequences",
-      "issue": "The rationale depends on a milestone order that is wrong. The Control Stream is Planned (M2). gRPC ingress through connect is Planned (M3), so `ruralzd` does not 'already' link connect when the Control Stream ships: the Control Stream is what brings connect into both binaries. grpc-go is also linked into `ruralzd` for upstream clients from M3, so by M3 `ruralzd` carries both libraries under either option. The difference that actually decides the choice is on `ruralz-control`: one `net/http` HTTP/2 server with connect, against grpc-go's native server or its limited `ServeHTTP`. 'It adds no RPC library' holds only for the catalog, not for either binary.",
-      "evidence": "Decision outcome: \"and it adds no RPC library.\" Consequences: \"Good, because `ruralzd` already links connect for gRPC ingress and `ruralz-control` serves it on `net/http`, so no second RPC library or HTTP/2 server appears.\" Tech stack library catalog: gRPC ingress `connectrpc.com/connect` ... \"Planned (M3)\"; gRPC upstream client grpc-go ... \"Planned (M3)\". System overview: \"gRPC via `connectrpc.com/connect`, WebSocket, SSE Planned (M3)\".",
-      "fix": "In the Decision outcome, replace \"it adds no RPC library\" with \"it uses the catalog's connect for every Ruralz-authored RPC and needs no second HTTP/2 server in `ruralz-control`\". Rewrite the Consequences bullet as: \"Good, because connect, the catalog's gRPC ingress library (Planned (M3)), enters both binaries with the Control Stream at Planned (M2) and gRPC ingress reuses it later; `ruralz-control` serves 8091 on `net/http`, so it runs no second HTTP/2 server.\""
-    },
-    {
-      "id": "L1-3",
-      "section": "Decision outcome (Delivery row, ACK/NACK row, Figure 2)",
-      "issue": "A Node whose base content is corrupted can never recover. Ruralz Control cannot reproduce a Delta digest mismatch from the Revision, so under the ADR's own rule it counts as transient and is retried. The Figure 2 tree picks the transport only from the size of the change from the active digest. The retry is therefore the same Delta, which fails the same way until the Node is quarantined. The owning document reconciles RZ-CFG-027 with a Snapshot, and the ADR contradicts it by leaving that fallback out.",
-      "evidence": "Delivery row: \"`Delta` (`baseDigest`, `ops`) is used when the change encodes within 1 MiB (target), and a result that mismatches the digest is `Nack` RZ-CFG-027\". ACK/NACK row: \"a deterministic `Nack` fails the gate once Ruralz Control reproduces it, else it counts as transient\". Figure 2: `small{\"Change encodes within 1 MiB (target)?\"}` -- yes --> `delta`. Owning document, Drift detection: \"Local tampering | ... | `Nack` RZ-CFG-027, audit event | `Snapshot`; repeats quarantine\".",
-      "fix": "Append to the Delivery row: \"after a `Nack` RZ-CFG-027 for a `Delta`, or a `Hello` whose Last-Known-Good or active content fails re-hash, the next delivery to that Node is a full `Snapshot`\". In Figure 2, add a decision before 'small' (\"Last Delta to this Node NACKed RZ-CFG-027?\" yes -> snap). Extend the Confirmation integration test from \"a mismatching `Delta` NACKed with RZ-CFG-027\" to \"... and followed by a `Snapshot` that the Node ACKs\"."
+      "id": "L1-4",
+      "section": "Decision outcome (ACK/NACK row, Figure 1, Figure 2)",
+      "issue": "This is a regression from the L1-1 fix. The implicit ACK and the reconnect branch compare only the digest, not (`storeEpoch`, `assignmentSeq`). The owning document relies on assignments that keep the digest and change only signatures and sequences. Key rotation re-signs assignments 'at the next sequences, sent as a `Delta` with empty `ops`', and emergency removal opens a higher `storeEpoch` and re-signs 'at once, awaiting no ACK'. Suppose that empty-ops Delta is lost or the stream breaks. (1) The next Heartbeat reports the unchanged digest and is counted as the Ack, so the ACK timeout never re-sends it. (2) On reconnect, Figure 2's `same` test is true (active digest equals the assigned digest), so the replica records an implicit Ack and sends nothing. The Node therefore never gets the re-signed assignment. Under rotation, it keeps reporting the old `signingKeyId`, so step 3 (old key retires) stalls. Under emergency removal, it keeps an assignment accepted from the compromised key after `compromisedSince`. After its next restart it refuses to boot that Last-Known-Good and stays not ready until the Control Stream delivers. That is the P9 outage the re-sign was meant to prevent. The ACK row even says the record is keyed 'per (`node.id`, `storeEpoch`, `assignmentSeq`)', but the match it describes ignores both keys. And the owning document's `Heartbeat` does not carry them.",
+      "evidence": "ACK/NACK row: \"`Ack` means active, not durable, and counts per (`node.id`, `storeEpoch`, `assignmentSeq`), not per stream: a `Hello` or `Heartbeat` reporting the pending assignment's digest is its `Ack`, so a lost `Ack` never makes a Node lag.\" Figure 2: `same{\"Active digest equals the assigned digest?\"}` -- yes --> `none[\"Record the implicit Ack, send nothing; HeartbeatReply carries the promotion\"]`. Figure 1: `alt active digest already assigned` / `R->>R: record the implicit Ack for this assignment` / `R-->>N: nothing to send`. Owning document, Revision signing, Rotation: \"re-signs retained Revisions, assignments and promotions at the next sequences, sent as a `Delta` with empty `ops`. (3) The old key retires once those Nodes report the new `signingKeyId`\"; Emergency removal: \"opening a higher `storeEpoch` ... re-signs at once, awaiting no ACK. A Node refuses to boot a candidate or Last-Known-Good whose assignment or promotion it accepted from that key after `compromisedSince`\". Owning document, message table: `Heartbeat` fields are \"`activeDigest`, `lkgDigest`, `signingKeyId` per digest, `schemaLevels`, `ready`, `draining`, counters per `rolloutId`\" (no `storeEpoch` or `assignmentSeq`).",
+      "fix": "In the ACK/NACK row, replace \"a `Hello` or `Heartbeat` reporting the pending assignment's digest is its `Ack`\" with \"a `Hello` matching the pending assignment's digest, `storeEpoch` and `assignmentSeq` is its `Ack`, and a Node re-ACKs a re-sent assignment it already runs\". Retries then recover a lost Ack while the stream stays up, and Heartbeat no longer counts. If Heartbeat-based ACKs are wanted, add to More information's Proposed amendments that the owning document's `Heartbeat` gains `storeEpoch` and `assignmentSeq`, and match on all three. In Figure 2, relabel `same` as \"Active digest, storeEpoch and assignmentSeq equal the committed assignment?\"; a Node that is only behind on sequence then falls through to the Delta branch (empty `ops`). In Figure 1, relabel the first alt as \"active digest and sequences already current\". In Confirmation's integration tests, add \"a Node that missed an empty-ops re-sign `Delta` receives it after reconnecting\". The body is about 1,499 words under the verifier's rule, against a maximum of 1,500, and Mermaid labels do not count. Keep the prose change close to word-neutral, and do not remove text that resolved L1-1 to L1-3."
     }
   ],
   "non_blocking": [
     {
+      "section": "Confirmation (Dependency admission and forbidigo)",
+      "suggestion": "\"forbidigo bans grpc-go server APIs in `ruralz-control`\" is stated as a current fact, but the Repository layout linter table limits forbidigo to `fmt.Print*` and the deprecated `x/net/http2` `Server` and `Transport`. The tech stack's Figure 2 shows `ruralz-control` does not link grpc-go at all, so a depguard rule banning `google.golang.org/grpc` under `cmd/ruralz-control` and `internal/control/...` is simpler. Add either rule to the Proposed amendments for Repository layout and conventions, next to the go-control-plane ban."
+    },
+    {
+      "section": "Decision outcome (Delivery row) and Figure 2",
+      "suggestion": "Ruralz Control cannot tell from a `Hello` that 'Last-Known-Good or active content fails re-hash', because the owning document's `Hello` has no such field. Its Drift table instead reports a local re-hash failure as `Nack` RZ-CFG-027. Say that the Node reports it that way, for example \"after a `Nack` RZ-CFG-027 for a `Delta` or a local re-hash\", so the decision in Figure 2 reads a signal the protocol actually carries."
+    },
+    {
+      "section": "Figure 2 (hello node)",
+      "suggestion": "\"this Stream supersedes older ones for its node.id\" can hold only within one replica. A half-open stream on another replica is not seen until HTTP/2 pings or the leader's status view catch it. Scope the rule to the replica, or add that the leader keys ACK and status by `node.id` so a duplicate stream on another replica changes nothing."
+    },
+    {
       "section": "Decision outcome (Flow control row)",
-      "suggestion": "Define 'configuration message' for a chunked Snapshot: all chunks of one nonce count as one message. Say what happens when a newer assignment arrives mid-Snapshot: the replica finishes it and supersedes it, or aborts it with a reset nonce. 'A newer assignment replaces an unsent one' does not cover a Snapshot that is partly sent."
-    },
-    {
-      "section": "Decision outcome (ACK/NACK and Reconnect rows)",
-      "suggestion": "Specify nonce uniqueness across replicas and reconnects (for example, 128-bit random, or derived from `storeEpoch`, `assignmentSeq` and a stream ID). Otherwise a new replica can reuse a value that `lastNonce` in `Hello` treats as already seen."
-    },
-    {
-      "section": "Decision outcome (Service row)",
-      "suggestion": "State what happens to duplicate streams for one `node.id`: during an ADR-0015 handover, or while a half-open stream on another replica has not yet been caught by HTTP/2 pings. A newer authenticated stream should supersede older ones, and ACK state should be keyed by `node.id` and sequence, not by stream (see L1-1)."
+      "suggestion": "\"a newer assignment replaces an unsent one\" does not cover a Snapshot that is partly sent. State whether the replica finishes it and then supersedes it, or aborts it and starts the newer one under a new nonce."
     },
     {
       "section": "Decision outcome (Transport row)",
-      "suggestion": "`ReadTimeout` and `WriteTimeout` are server-wide on `http.Server`, so disabling them on 8091 also removes them from the unauthenticated unary `Enroll`. Keep `ReadHeaderTimeout` and `IdleTimeout`, and set per-request deadlines for `Enroll` with `http.ResponseController`, alongside `WithRequestGate` and the 16 KiB cap."
-    },
-    {
-      "section": "Consequences (pacing bullet) and Decision drivers",
-      "suggestion": "The 5-minute (target) largest-batch figure silently assumes a Snapshot size and a number of stream-serving replicas. Cite the owning document's 20 Snapshots/s per replica (hypothesis) and a typical Snapshot size, or state that most deliveries are Deltas. Also note that 10,000 Nodes at about 5,000 streams per replica (hypothesis) leaves no headroom when one of two serving replicas is down, so N+1 sizing applies."
-    },
-    {
-      "section": "Decision outcome (Delivery row) and Figure 1",
-      "suggestion": "Pack 8.2 says every snapshot and delta carries the promoted digest, and the owning document's `Snapshot` and `Delta` rows include `promotion`. Figure 1's Snapshot and Delta labels and the Delivery row mention only the HeartbeatReply; add `promotion` to them."
-    },
-    {
-      "section": "Decision outcome (Delivery row)",
-      "suggestion": "Say that a Node checks `totalBytes` against its derived Snapshot limit before buffering any chunk (OQ-control-plane-and-gitops-25). This bounds Node memory for chunked Snapshots and does not depend only on the 2 MiB per-message cap."
-    },
-    {
-      "section": "Confirmation",
-      "suggestion": "grpc-go is a catalog module (upstream client), so dependency admission does not stop `grpc.NewServer` in `ruralz-control`. Add a depguard or forbidigo rule that bans grpc-go server APIs under `cmd/ruralz-control` and the control packages, alongside the review checklist item."
-    },
-    {
-      "section": "Pros and cons of the options (Node polling)",
-      "suggestion": "\"no nonce ties an ACK to one delivery\" is a weak con, because a poll response could carry `assignmentSeq` just as the stream does. Lead instead with the real costs: delivery latency tied to the poll window, no server-side pacing or `Reconnect`, and one extra fetch per delivery."
-    },
-    {
-      "section": "Length",
-      "suggestion": "The body is 1,433 words under the verifier's rule, against a 400 to 1,500 band. The fixes for L1-1 to L1-3 need about 60 to 80 words. Keep them compact and do not delete text that resolved earlier findings."
+      "suggestion": "`ReadTimeout` and `WriteTimeout` are server-wide on `http.Server`, so disabling them on 8091 also removes them from the unauthenticated unary `Enroll`. Keep `ReadHeaderTimeout` and `IdleTimeout`, and bound `Enroll` with a per-request deadline through `http.ResponseController`."
     }
   ],
   "ac_results": [
     {
       "ac": "Front matter contains id, title, status, date, deciders and related, and status matches this manifest.",
       "pass": true,
-      "note": "All six keys are present. The title matches manifest adrs[ADR-0007] verbatim, and status is accepted as in the manifest. related includes the owning document."
+      "note": "All six keys are present. The title matches manifest adrs[ADR-0007] verbatim, status is accepted, and related includes the owning document."
     },
     {
       "ac": "H2 headings match adr_common.outline_h2 exactly and in order, and Decision outcome contains the H3 headings Consequences and Confirmation.",
       "pass": true,
-      "note": "The six H2s appear in order, and both H3s sit under Decision outcome. The verifier's outline and adr checks pass."
+      "note": "The six H2 headings appear in order, and Consequences and Confirmation sit under Decision outcome. The verifier reports no FAIL."
     },
     {
       "ac": "Considered options lists at least two options including the chosen one, and each has pros and cons.",
       "pass": true,
-      "note": "There are four options (own protocol on connect, xDS through go-control-plane, own protocol on grpc-go, Node polling), and each has Good and Bad bullets with research URLs."
+      "note": "There are four options. Each has Good and Bad bullets under Pros and cons of the options."
     },
     {
       "ac": "Decision outcome states the chosen option as 'Chosen option: ..., because ...' and matches the foundation pack section 7 row for this ADR.",
       "pass": true,
-      "note": "The format is correct, and the substance matches the pack section 7 Control Stream row and the manifest decision: own snapshot plus delta protocol, xDS-style ACK/NACK, connect in gRPC mode on both ends, buf breaking, not xDS and not go-control-plane. The 'because' clause rests on a wrong milestone premise (L1-2), which does not contradict the row itself."
+      "note": "The format is correct, and the substance matches the pack section 7 Control Stream row and the manifest decision. The L1-2 rationale is fixed: the ADR now says it \"uses the catalog's connect for every Ruralz-authored RPC, needing no second HTTP/2 server in `ruralz-control`\"."
     },
     {
       "ac": "Confirmation names a concrete verification mechanism (test, lint rule, CI gate or review checklist item).",
       "pass": true,
-      "note": "It names buf lint and buf breaking in pr-fast stage 3, dependency admission through banned imports, container-free integration tests, fuzz targets per message type, a chaos test on leader failover, and a review checklist item. The lost-ACK and Delta-fallback tests are missing (L1-1, L1-3)."
+      "note": "It names buf lint and buf breaking in pr-fast stages 2 and 3, dependency admission, container-free integration tests (now including the lost-ACK and RZ-CFG-027-then-Snapshot cases), fuzzing, chaos testing and a review checklist item. The forbidigo rule is not yet defined in Repository layout (non-blocking)."
     },
     {
       "ac": "The ADR is linked from docs/adr/README.md and from its owning document.",
       "pass": false,
-      "note": "The owning document links ADR-0007 in Scope and non-goals and in Control Stream. docs/adr/README.md does not exist yet; manifest adr_index says it is written with docs/README.md in a later wave. Not blocking for this ADR."
+      "note": "The owning document links ADR-0007 in Scope and non-goals and in Control Stream. docs/adr/README.md does not exist yet: manifest adr_index says it is written with docs/README.md later. Not blocking for this ADR."
     },
     {
       "ac": "verify-docs.mjs (--allow-missing --skip markdownlint) reports no FAIL line for docs/adr/0007-control-stream-protocol.md",
       "pass": true,
-      "note": "The filtered output is empty and every check passes. The body is 1,433 words by the verifier's rule, inside the 400 to 1,500 band."
+      "note": "The filtered output has only four WARN milestones lines, for roadmap items that do not exist yet, and no FAIL. The body is about 1,499 words, inside the 400 to 1,500 band."
     },
     {
       "ac": "Considered options cite research URLs",
       "pass": true,
-      "note": "Every cited URL appears under docs/_meta/research/, and the claims match the sources: connect and grpc-go facts in go-libraries-runtime.md, xDS facts in scalability-patterns.md, Consul blocking and oras-go in go-libraries-protocols.md, and Agent Router and Envoy Gateway in competitors-envoy-zuplo-gravitee.md."
+      "note": "Every URL in the ADR appears under docs/_meta/research/. The spot-checked claims match: 29 against 112 commits (go-libraries-runtime.md), and 4 MB to 25 MB at 2,000 routes (competitors-envoy-zuplo-gravitee.md)."
     },
     {
       "ac": "ADR agrees with the owning document, the foundation pack and the four foundation documents",
       "pass": false,
-      "note": "It agrees on ports, dial direction, message names, 1 MiB and 2 MiB limits, 15 s heartbeat, backoff, fencing, the v2 window and not-xDS. It departs from the owning document's RZ-CFG-027 to Snapshot reconciliation (L1-3) and from the tech stack's M3 milestone for connect ingress (L1-2)."
+      "note": "L1-1, L1-2 and L1-3 are resolved: the level-triggered ACK, the milestone-correct connect rationale, and the RZ-CFG-027-to-Snapshot fallback that matches the Drift table. The new digest-only implicit ACK and reconnect test conflict with the owning document's key rotation and emergency re-sign, which deliver same-digest assignments at new sequences (L1-4)."
     },
     {
       "ac": "Canonical names only, no forbidden aliases, Planned (Mx) tags, every figure tagged (target) or (hypothesis)",
       "pass": true,
-      "note": "The ADR has no forbidden alias, 'Supported', placeholder or em dash. Every rule row is tagged Planned (M2), with the relay Planned (M4). Every scale or size figure carries (target) or (hypothesis) or a source URL on the same line."
+      "note": "There are no forbidden aliases and no 'Supported'. Rules are Planned (M2), and relays are Planned (M4). Numeric figures carry (target), (hypothesis) or a source."
     }
   ],
   "foundation_amendments": [
-    "Pack section 8.4 (optional clarification): after 'Reconnects ... present the active digest', add 'and assignment sequence; Ruralz Control records an ACK when they match the Node's assignment', so ACK state is level-triggered like Last-Known-Good promotion in section 8.2."
+    "Pack section 8.4 (optional clarification): after 'Reconnects ... present the active digest', add 'and assignment sequence; Ruralz Control counts a match of digest, storeEpoch and assignmentSeq as the ACK and re-sends a same-digest assignment with a newer sequence', so ACK state is level-triggered like Last-Known-Good promotion in section 8.2 without skipping signature-only re-signs."
   ]
 }

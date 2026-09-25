@@ -1,73 +1,40 @@
 {
   "lens": "L1 feasibility-skeptic",
   "verdict": "revise",
-  "score": 6,
+  "score": 8,
   "blocking": [
     {
-      "id": "L1-1",
-      "section": "Decision outcome (Local bucket, State Store failure and Fail-open bound rows; Figure 1) and Consequences",
-      "issue": "The fail-open bound cannot hold with the local bucket the ADR describes. A token bucket whose capacity and refill both equal the per-Node ceiling admits up to its full capacity at once, then another ceiling's worth of refill within the same window: up to 2 × ceiling per Node per window. So while the State Store fails, a key can get up to 2 × N × ceiling per window, not N × ceiling. The ADR itself counts GCRA's τ = window as 2 × `requests`, but it treats the bucket as if it had no burst. The owning document closes this gap only for derived ceilings: 'while GCRA fails each derived-ceiling bucket holds ... tokens per epoch-aligned window, without carry-over'. The ADR leaves that rule out. The same factor of 2 applies to the untagged State Store call bound in Consequences.",
-      "evidence": "Local bucket row: \"One token bucket per key and `limits[]` entry at the per-Node ceiling\". State Store failure row: \"`open` (default) admits within the local buckets\". Fail-open bound row: \"At most N × per-Node ceiling per key per window, N being serving Nodes (target)\". Consequences: \"a key reaches the State Store at most min(offered, N × ceiling) times per window\". Owning document, Per-Node ceiling: \"while GCRA fails each derived-ceiling bucket holds max(1, 2 × `requests` / N_published) tokens per epoch-aligned window, without carry-over\"; decision path figure: \"Admit from unfloored local buckets (target)\".",
-      "fix": "Change the State Store failure row to: \"A failed or timed-out call, or an open State client breaker, applies `failureMode`: `open` (default) admits from the local buckets, which while calls fail refill once per epoch-aligned `window` without carry-over; `closed` returns 503 `RZ-STS-<NNN>`\". Relabel Figure 1's `ok2` node \"Admit from aligned-window local buckets\". In Consequences, change the bound to \"at most min(offered, 2 × N × ceiling) times per window (target), a bucket's capacity plus its refill\". Keep the total length at or under 1,500 words (the body has 1,490 now) by cutting duplicated text, for example \", the cached form of `EVAL`,\" in the GCRA row. Also list the aligned-window refill for declared ceilings as a pack 8.8 amendment in More information."
-    },
-    {
-      "id": "L1-2",
-      "section": "Decision drivers (Hot-key protection), Decision outcome rationale, Consequences and Confirmation (CE-12, CE-15)",
-      "issue": "The chosen option does not meet the Hot-key protection driver for keys spread across many Nodes, and the ADR claims it does. Each locally admitted request runs GCRA. A busy constant key, such as a service limit, spread across N Nodes therefore sends up to N × ceiling (about the full limit) script calls per window to one shard. At 1,000,000 requests per second, that is 10 times the roughly 100,000 calls per second the ADR itself assumes a shard can serve. Every Node's breaker for that shard then opens, and co-tenant keys fall to `failureMode`. The owning document and Scalability and distributed state say such keys MUST use `localOnly`, which exists only as a proposal (OQ-traffic-management-and-resilience-1 (c), OQ-scalability-and-distributed-state-11). Confirmation cites CE-12, which checks that result through `localOnly`, and CE-15, which checks a first-seen budget. Under option (c), the conforming behavior this ADR follows, neither mechanism exists.",
-      "evidence": "Decision drivers: \"**Hot-key protection**: one busy key must not starve its shard's co-tenants.\" Decision outcome: \"the local bucket answers most denials and shields shards without a round trip\". Consequences: \"so a pinned abusive client never loads a shard\". Confirmation: \"CE-12 and CE-15 ... hot keys and key floods stay within their bounds\". Scalability and distributed state, Hot keys: \"A key whose `requests` exceed 25% of one shard's calls, about 25,000 per second (hypothesis), MUST use `localOnly` mode\"; CE-12: \"then above it as `localOnly` (hypothesis) | ... no co-tenant breaker opens\". Owning document Failure matrix: \"above about 100,000 per second (hypothesis) every Node's shard breaker opens and co-tenants apply `failureMode`\".",
-      "fix": "Add a Consequences bullet: \"Bad, because a key spread over many Nodes and admitted above about 25,000 per second (hypothesis) runs GCRA on one shard for every request; until OQ-traffic-management-and-resilience-1 adds `localOnly`, it can open every Node's breaker for that shard's co-tenants.\" Narrow the driver or the rationale to \"shields shards from denied and pinned traffic\". In Confirmation, say that CE-12 and CE-15 verify the proposed amendments in OQ-scalability-and-distributed-state-11. For the conforming design, confirm with CE-3, CE-4 and CE-5 plus an integration check that a hot key over the shard hypothesis opens the breaker and co-tenants apply `failureMode`. Make the change word-neutral, for example by merging the \"Nodes stay disposable\" Good bullet into the No coordination driver."
-    },
-    {
-      "id": "L1-3",
-      "section": "Decision outcome (One round trip and Code rows)",
-      "issue": "The NOSCRIPT behavior contradicts a depends_on document, and the library helper most implementers would reach for breaks it. The tech stack Library catalog row, which the ADR cites in Confirmation, specifies \"`EVALSHA` with `NOSCRIPT` fallback\". The conventional reading, and what rueidis's `Lua.Exec` helper does, is to retry with `EVAL` when `EVALSHA` returns NOSCRIPT. That retry is a second blocking round trip in the same request and breaks pack 8.7 rule 1. The ADR says only \"Ruralz scripts over rueidis\" and does not forbid that helper. It also does not reconcile its rule with the catalog wording. Two sources then disagree about the request-path round-trip count.",
-      "evidence": "One round trip row: \"`NOSCRIPT` applies `failureMode` and schedules a reload, never a second call (pack section 8.7 rule 1)\". Code row: \"Ruralz scripts over rueidis ([source](https://github.com/redis/rueidis))\". docs/engineering/01-tech-stack-and-libraries.md Library catalog: \"`EVALSHA` with `NOSCRIPT` fallback\".",
-      "fix": "Change the Code row to: \"Ruralz scripts sent as raw `EVALSHA` through rueidis `Do`, never `Lua.Exec`, whose `EVAL` retry on `NOSCRIPT` is a second round trip; the reload is single-flight per shard\". In More information, add that the Library catalog's \"`NOSCRIPT` fallback\" means this `failureMode` path, and list it as a tech stack correction. Keep the change word-neutral by dropping \"; redis_rate is bound to go-redis and not linked\": the catalog row and the Dependency admission bullet in Confirmation already cover it."
-    },
-    {
-      "id": "L1-4",
-      "section": "Decision outcome (Local bucket and Over-limit cache rows)",
-      "issue": "Per-Node state has no memory bound. The rules create one token bucket per key per `limits[]` entry and one over-limit entry per denied key. Keys come from CEL over client input such as `source.ip`, so cardinality is attacker-controlled. The ADR states no cap, no eviction and no accounting for what eviction costs. An evicted bucket restarts full, which is an extra ceiling per eviction. An implementation built from this ADR alone grows these maps without limit under a key-rotation flood. The owning document bounds them, and the ADR is silent.",
-      "evidence": "Local bucket row: \"One token bucket per key and `limits[]` entry at the per-Node ceiling\". Over-limit cache row: \"A key GCRA denied stays denied locally until its retry-after\". Owning document, Decision path: \"Buckets, local-only and over-limit entries share a Node-wide 1,048,576 entries, about 64 MiB (target), in [Data plane](03-data-plane.md)'s CLOCK-evicted shards, surviving Hot Reloads.\" Scalability and distributed state: \"Rate Limit | Node restart | At most one extra ceiling per key per restarted Node (target)\".",
-      "fix": "Add a row: \"Local state | Buckets and over-limit entries share Data plane's Node-wide, CLOCK-evicted table of 1,048,576 entries, about 64 MiB (target), and survive Hot Reload; an evicted bucket restarts full, adding at most one ceiling per eviction, and GCRA still bounds the Cell\". Offset the words elsewhere, for example by shortening Considered option 6 to \"**Local bucket plus GCRA, fail-closed by default**, like Envoy's `failure_mode_deny: true` ([source](...))\", which also makes its label match its H3."
+      "id": "L1-5",
+      "section": "Decision outcome (State Store failure row) and More information",
+      "issue": "The revision fixed L1-1, but two of its new statements now disagree with the owning document, and the ADR does not flag either one. (1) Refill timing. The ADR refills fail-open buckets once per aligned window. The owning document refills them in 60 steps once a window is longer than 1 minute. For a `1h` limit, the ADR's rule lets a key spend a full hourly ceiling in the first second of each hour, and twice in a few seconds across an hour boundary. The owning document spreads that ceiling across the hour. Implementers get two different specs. The L1-1 fix wording caused this. (2) Call bound. The ADR now says a key reaches the State Store up to 2 × N × ceiling times per window. That is correct, since a bucket's capacity plus its refill is 2 × ceiling. The owning document and Scalability and distributed state still say N × ceiling. The ADR lists the Library catalog wording as a correction but not this one, so the conflict stays silent.",
+      "evidence": "ADR State Store failure row: \"`open` (default) admits from the local buckets, which then refill once per epoch-aligned `window` without carry-over\". Owning document, Per-Node ceiling: \"each derived-ceiling bucket holds max(1, 2 × `requests` / N_published) tokens per epoch-aligned window, without carry-over, refilled in 60 steps past 1 minute (target)\". ADR Consequences: \"a key reaches the State Store at most min(offered, 2 × N × ceiling) times per window (target), a bucket's capacity plus its refill\". Owning document, Decision path: \"A key reaches the State Store at most min(offered, N × ceiling) times per window.\" Scalability and distributed state, Hot keys: \"A key reaches the State Store at most min(offered, N_serving × ceiling) times per window\". ADR More information lists only: \"Tech stack correction: the Library catalog's \"`NOSCRIPT` fallback\" means the `failureMode` path above\".",
+      "fix": "In the State Store failure row, replace \"which then refill once per epoch-aligned `window` without carry-over\" with \"which then refill per epoch-aligned `window`, in 60 steps past 1 minute, without carry-over\" (+5 words). Replace the More information bullet \"Tech stack correction: ...\" with \"Corrections: the Library catalog's \"`NOSCRIPT` fallback\" means the `failureMode` path above, never an `EVAL` retry; the owning document's and Scalability's N × ceiling call bound is 2 × N × ceiling\" (about +11 words). Offset the words by dropping \", as pack sections 7 and 8.8 fix\" from the Chosen option sentence (-7): the Fail-open bound row already cites pack 8.8. The body would go from 1,489 to about 1,498 words, still at or under the 1,500 maximum. Do not cut any text that resolved L1-1 to L1-4."
     }
   ],
   "non_blocking": [
     {
-      "section": "Pros and cons of the options (Local limits only; Local bucket plus GCRA, fail-open)",
-      "suggestion": "Option 3 is rejected partly because Tyk's DRL is \"unreliable at low rate limits where requests are not fairly balanced\". With pack 8.8's limit / N ceiling, the chosen option has the same weakness: local buckets deny an unevenly spread key before GCRA would. With an accurate count and balanced load, the sum of the ceilings equals the limit, so the per-request GCRA call binds only when the count lags, in file mode, or with declared or headroom ceilings. State this in the chosen option's Bad bullet, and tie it to OQ-traffic-management-and-resilience-16 so the comparison is fair."
+      "section": "Decision outcome (Code row)",
+      "suggestion": "No file in docs/_meta/research/ records that rueidis `Lua.Exec` retries with `EVAL` on `NOSCRIPT`. go-libraries-protocols.md even quotes Redis advice that clients should fall back to `EVAL`. Add a research row or a source link for rueidis's script helper, so the ban on `Lua.Exec` rests on evidence, not just on the review."
     },
     {
-      "section": "Decision outcome (Per-Node ceiling row)",
-      "suggestion": "The owning document gives a Control-mode Node without a count a fail-open clamp of max(1, `requests` / 100) and the degraded reason `node_count_unknown`. The ADR says only \"with neither, as in file mode, the full limit\". Either mention the clamp or point to the owning document's Per-Node ceiling section, so no reader applies N × limit to Control-mode Nodes restarted during a Ruralz Control outage."
+      "section": "Decision outcome (Local state row)",
+      "suggestion": "\"an evicted bucket restarts full, at most one extra ceiling per eviction\" is unbounded in count while the State Store fails, because nothing bounds evictions per key. CLOCK keeps a busy key referenced, so this is unlikely. Still, say that a key evicted during fail-open restarts its aligned-window allowance, not a fresh continuous bucket. The owning document's separate local-only segment only matters under option (a)."
     },
     {
-      "section": "Decision outcome (One round trip row)",
-      "suggestion": "Say how scripts reach every primary in cluster mode, for example `SCRIPT LOAD` to each node rueidis lists. Scripts are not replicated to replicas, so failover is detected only through `NOSCRIPT`. Under `failureMode: closed`, each Node × shard then returns 503 `RZ-STS-002` until its single-flight reload completes. Bound that burst, or accept it as a Bad consequence."
+      "section": "Decision outcome (State Store failure row)",
+      "suggestion": "Say what happens in the window when fail-open starts. GCRA may already have admitted up to 2 × `requests` Cell-wide in that window, before the switch to aligned-window buckets adds up to N × ceiling. The per-window bound therefore holds from the first full aligned window after failure detection. A few words, or a pointer to Scalability and distributed state's bounds table, would close this."
     },
     {
-      "section": "Decision outcome (Local bucket row)",
-      "suggestion": "A hot key on one Node puts every goroutine that serves it on one bucket. Specify a lock-free CAS update or per-shard striping, and add a contention benchmark to Confirmation (Performance budgets and benchmarking owns the figure)."
+      "section": "Decision drivers (Hot-key protection)",
+      "suggestion": "The driver is still stated without qualification, while the Consequences admit that the conforming design misses it for spread keys above about 25,000 per second (hypothesis). Consider \"Hot-key protection: denied and pinned traffic must not load a shard; spread hot keys need `localOnly` (OQ-traffic-management-and-resilience-1)\"."
     },
     {
-      "section": "Decision outcome (GCRA row)",
-      "suggestion": "No research file shows that a script can call `TIME` before writes (effects replication) on Redis 8, Valkey and Dragonfly, or how Dragonfly's declared-keys rule applies. Add a research row, or add an Open question in the owning document, before M1. Also note that a failover to a replica with a skewed clock shifts TATs."
-    },
-    {
-      "section": "Considered options (option 1)",
-      "suggestion": "\"the hybrid Envoy recommends\" goes further than the research quote (\"can be used in conjunction with global rate limiting to reduce load\"). Write \"the hybrid Envoy documents\"."
-    },
-    {
-      "section": "Decision outcome (Keys row)",
-      "suggestion": "Because `<requests>/<window>` is part of the key, changing a limit starts fresh GCRA state and briefly allows 2 × limit. The owning document says so, and the ADR should add it as a Bad consequence."
-    },
-    {
-      "section": "Pros and cons of the options (Shared window counters)",
-      "suggestion": "The research file does not state the fixed-window boundary burst for Tyk. Cite a source that shows it, or attribute it as general analysis."
+      "section": "Decision outcome (GCRA row) versus pack section 7",
+      "suggestion": "Pack section 7 says \"single Lua EVAL\" and the ADR says \"one `EVALSHA`\". Now that \", the cached form of `EVAL`,\" is gone, add the `EVALSHA` wording to the pending pack section 7 correction in More information, so the L2 lens does not read it as a deviation."
     },
     {
       "section": "Whole document",
-      "suggestion": "The body has 1,490 words against the 1,500 maximum (adr_common.length_words), so every fix above must be word-neutral. The verify-docs run with --allow-missing --skip markdownlint printed no FAIL line for this file."
+      "suggestion": "L1-1 to L1-4 are resolved: aligned-window fail-open refill, the 2 × N × ceiling call bound, the hot-key Bad consequence, CE-12 and CE-15 reframed, raw `EVALSHA` through rueidis `Do`, and the Local state row. The body counts 1,489 words against the 1,500 maximum. The verify-docs run with --allow-missing --skip markdownlint printed no FAIL line for this file."
     }
   ],
   "ac_results": [
@@ -84,26 +51,27 @@
     {
       "ac": "Considered options lists at least two options including the chosen one, and each has pros and cons.",
       "pass": true,
-      "note": "Six options, each with a Good and a Bad bullet under Pros and cons. Option 6 is labelled \"Option 1 failing closed by default\" in the list but has a differently worded H3 (see L1-4 fix). Every option cites a URL that appears in docs/_meta/research/."
+      "note": "Six options, each with a matching H3 and Good and Bad bullets. Option 6's label now matches its H3. Every cited URL appears in docs/_meta/research/."
     },
     {
       "ac": "Decision outcome states the chosen option as 'Chosen option: ..., because ...' and matches the foundation pack section 7 row for this ADR.",
       "pass": true,
-      "note": "The sentence is present and names the pack section 7 row and section 8.8: local bucket at a per-Node ceiling, GCRA in one script, fail-open by default, `failureMode` per Policy. The stated N × ceiling bound is not achievable by the described bucket (L1-1), but the wording matches the row."
+      "note": "The sentence is present and matches the row: local bucket at a per-Node ceiling, GCRA in one Lua script, fail-open by default with the N × ceiling bound, `failureMode` per Policy. The row says `EVAL` and the ADR says `EVALSHA`; see the non-blocking note."
     },
     {
       "ac": "Confirmation names a concrete verification mechanism (test, lint rule, CI gate or review checklist item).",
       "pass": true,
-      "note": "Confirmation names integration tests in `pr-full`, a round-trip counting proxy test, chaos experiments, a dependency admission gate and a review checklist item. CE-12 and CE-15 verify proposed amendments rather than this design (L1-2)."
+      "note": "Confirmation names integration tests, including a hot-key breaker check, a counting-proxy round-trip test, CE-3, CE-4 and CE-5, a dependency admission check and a review checklist item. CE-12 and CE-15 are now correctly tied to the proposed amendments."
     },
     {
       "ac": "The ADR is linked from docs/adr/README.md and from its owning document.",
       "pass": false,
-      "note": "docs/architecture/09-traffic-management-and-resilience.md links ADR-0008 in Summary and Algorithm choice. docs/adr/README.md does not exist yet: it is written in a later wave with docs/README.md. The index half cannot pass, but that file is outside this ADR, so this is not a blocking item."
+      "note": "The owning document links ADR-0008 in Summary and Algorithm choice. docs/adr/README.md does not exist yet because the index generator writes it in a later wave, so this half cannot pass. It is outside this ADR, so it is not blocking."
     }
   ],
   "foundation_amendments": [
-    "Pack 8.8: state that while State Store calls fail, local buckets refill once per epoch-aligned window without carry-over, for both declared and derived ceilings. Otherwise a token bucket whose capacity equals the ceiling admits up to 2 × N × ceiling per window, above the stated N × per-Node ceiling bound.",
-    "Pack section 7 Rate limiting row and the tech stack Library catalog: replace \"single Lua EVAL\" / \"`EVALSHA` with `NOSCRIPT` fallback\" with \"one `EVALSHA` per Policy; `NOSCRIPT` applies `failureMode` and triggers a single-flight reload, never an `EVAL` retry\" (pack 8.7 rule 1)."
+    "Pack 8.8: while State Store calls fail, local buckets refill per epoch-aligned window without carry-over (in 60 steps past 1 minute, as in Traffic management and resilience's Per-Node ceiling), for declared and derived ceilings alike; otherwise a token bucket admits up to 2 × N × ceiling per window.",
+    "Pack section 7 Rate limiting row and the tech stack Library catalog: replace \"single Lua EVAL\" / \"`EVALSHA` with `NOSCRIPT` fallback\" with \"one `EVALSHA` per Policy; `NOSCRIPT` applies `failureMode` and triggers a single-flight reload, never an `EVAL` retry\" (pack 8.7 rule 1).",
+    "Traffic management and resilience (Decision path) and Scalability and distributed state (Hot keys): the State Store call bound per key is min(offered, 2 × N × ceiling) per window (a bucket's capacity plus its refill), not N × ceiling."
   ]
 }

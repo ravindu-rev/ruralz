@@ -1,87 +1,73 @@
 {
   "lens": "L2 foundation-auditor",
   "verdict": "revise",
-  "score": 7,
+  "score": 8,
   "blocking": [
     {
       "id": "L2-1",
-      "section": "Decision drivers (Request-path rules); Pros and cons of the options (proxy-wasm as the primary ABI); More information (Revisit bullet)",
-      "issue": "The ADR misstates P3 and pack section 8.7 rule 6 in three places. P3 and rule 6 do not forbid remote calls before commit. They require any such call to be declared on the Policy with a timeout and a `failureMode`. Excluding outbound calls is a stricter design choice by the owning document (Excluded rule, OQ-wasm-plugin-system-5), not a rule of P3. As a result, the Revisit bullet claims that admitting outbound calls \"would only add Host Functions within v1\". That contradicts rule 6 and P3: the change would also need a per-Policy timeout and `failureMode` declaration. The Configuration model defines no such field on `Plugin` or `Policy`, so the Revisit path silently depends on an undefined field. The proxy-wasm con also says timers and shared queues \"break pack section 8.7 rule 6\", but rule 6 covers only remote calls, and timers and shared queues are not remote calls.",
-      "evidence": "L32: \"**Request-path rules (P3)**: at most one blocking State Store call per Plugin Policy before commit, none in `onChunk`, no outbound calls.\" L138: \"its outbound calls, timers and shared queues break pack section 8.7 rule 6.\" L154: \"admitting outbound calls would only add Host Functions within v1.\" Pack section 8.7 rule 6: \"Any other remote call before commit, such as a Semantic Cache embedding call to an `AIProvider`, is declared on the Policy with a timeout and `failureMode`.\" Vision P3: \"Other remote calls ... are declared on the Policy with a timeout and `failureMode` (P9).\"",
-      "fix": "L32: change to \"at most one blocking State Store call per Plugin Policy before commit, none in `onChunk`, and no remote call that is not declared on its Policy (pack section 8.7 rule 6); Plugin ABI v1 excludes outbound calls (OQ-wasm-plugin-system-5)\". L138: change to \"and its outbound calls are remote calls that no Policy declares with a timeout and `failureMode` (pack section 8.7 rule 6), while its timers and shared queues fall outside the per-request model ([Host Function table](../architecture/05-wasm-plugin-system.md#host-function-table), Excluded rule)\". L154: change to \"admitting outbound calls would add Host Functions within v1, plus a Policy-declared timeout and `failureMode` (pack section 8.7 rule 6) that the Configuration model does not define yet (OQ-wasm-plugin-system-5)\"."
-    },
-    {
-      "id": "L2-2",
-      "section": "Decision outcome (rules table, row Results; Figure 2 caption)",
-      "issue": "The Results row states the output-buffer rule as universal. The owning document makes body and chunk reads an exception: they take an offset (bodies) and return the bytes written, 0 at the end. `request_body_read` and `response_body_read` take `(offset i64, o, c)`. The ADR's review checklist freezes the \"memory convention\", so this wording would freeze a convention that contradicts the owning document's Contract and Host Function table. L1-2 raises the feasibility side. This finding covers the contradiction with the owning document, which is blocking under the L2 lens on its own.",
-      "evidence": "L53: \"an output write above its capacity writes nothing and returns the full length\". Owning document, Contract, row Output buffers: \"Writes to `(o, c)` return the full length; above `c`, nothing was written and the guest retries. Body and chunk reads return bytes written, 0 at the end\". Host Function table: \"`request_body_read` | `(offset i64, o, c)`\".",
-      "fix": "Append this to the Results row: \"; body and chunk reads (`request_body_read`, `response_body_read` at an offset, `chunk_read`) instead return the bytes written, 0 at the end\". Change the Figure 2 caption to \"*Figure 2: the Extism-style buffer convention for one header read inside a Phase; body and chunk reads return bytes written instead.*\"."
-    },
-    {
-      "id": "L2-3",
-      "section": "Decision outcome (Figure 1 caption; row Ambient authority)",
-      "issue": "The Figure 1 caption says that every guest import passes one Capability gate. The owning document's WASI shim table lists imports whose Capability is \"None\": `args_*` and `environ_*` succeed with zero entries, `proc_exit` traps with `RZ-PLG-001`, and other `fd_*`, `path_*`, `sock_*` and `poll_oneoff` fail. The owning document states the exception directly: every Host Function requires exactly one Capability, and WASI imports follow the shim table. The ADR's Ambient authority row leaves out the ungated imports. Because the review checklist forbids adding \"an ambient import\", the ADR needs to name these imports so that the frozen contract matches the owning document.",
-      "evidence": "L63: \"*Figure 1: every guest import, native or through the proxy-wasm adapter, passes one Capability gate.*\" L57: \"a `wasi_snapshot_preview1` shim maps log, clock and random calls to their Capabilities and fails file and socket calls\". Owning document, Host Function table: \"Every Host Function requires exactly one Capability, WASI imports follow the shim table\"; WASI shim table: \"`args_*`, `environ_*` | None | Success, zero entries\" and \"`proc_exit` | None | Trap, `RZ-PLG-001`\".",
-      "fix": "Change the caption to \"*Figure 1: every Host Function import, native or through the proxy-wasm adapter, passes one Capability gate; WASI imports follow the shim.*\" Append this to the Ambient authority row: \"; `args_*` and `environ_*` return zero entries and `proc_exit` traps (`RZ-PLG-001`), all ungated ([Host Function table](../architecture/05-wasm-plugin-system.md#host-function-table))\"."
+      "section": "Decision outcome (rules table, row State Store); Consequences (Upstream-scoped bullet); More information (Open questions bullet)",
+      "issue": "This is a new regression from the L1-1 revision. The State Store row presents the upstream replay rule as settled Plugin ABI v1 behavior, and the table's lead-in says the rules follow the owning [Contract]. The owning document has no such rule. Its State Store rule reads 'One blocking call per Plugin Policy per request before commit ... a second returns `ERR_BUDGET`', so under the owning document the second attempt's call returns `ERR_BUDGET`, which is sticky (`RZ-PLG-006`). The ADR instead replays the first result. The row also cites OQ-wasm-plugin-system-20 as if it already existed, but the owning document's Open questions table ends at OQ-wasm-plugin-system-19. Only More information admits that the question is merely 'Proposed to the owning document'. An accepted ADR that freezes a rule its owning document contradicts, and cites an Open question ID that does not resolve, fails the requirement that the ADR agree with its owning document. The replay design itself is consistent with pack section 8.7 rule 1 and is not in dispute. Only its status is wrong.",
+      "evidence": "L44: \"Rules, Planned (M2) unless tagged, per the owning [Contract](../architecture/05-wasm-plugin-system.md#contract):\". L55: \"in upstream-leg Phases later attempts and steps replay the first result for the same Host Function and key without a round trip, parallel steps serializing (OQ-wasm-plugin-system-20)\". L155: \"Proposed to the owning document: OQ-wasm-plugin-system-20\". Owning document, Host Function rules: \"**State Store.** One blocking call per Plugin Policy per request before commit (pack section 8.7), in chain order; a second returns `ERR_BUDGET`.\" Its Open questions table ends at \"OQ-wasm-plugin-system-19\".",
+      "fix": "Preferred fix, outside this file: the owning document adds OQ-wasm-plugin-system-20 to its Open questions, with options (a) replay and (b) forbid `state.*` at Upstream scope, and adds the replay clause to its State Store rule. Until that happens, mark the clause in this ADR as a proposal. This costs 3 net words and keeps the body within 1,500. In L55, replace \"in upstream-leg Phases later attempts and steps replay the first result for the same Host Function and key without a round trip, parallel steps serializing (OQ-wasm-plugin-system-20)\" with \"in upstream-leg Phases, as proposed in OQ-wasm-plugin-system-20, later attempts and steps replay the first result for the same Host Function and key without a round trip, parallel steps serializing\". Leave the More information sentence unchanged. It already records the proposal and both options."
     }
   ],
   "non_blocking": [
     {
-      "section": "Figure 1",
-      "suggestion": "L77 \"ERR_PHASE or ERR_DENIED: RZ-PLG-006\" omits `ERR_BUDGET`, which the Capabilities row (L56) and the owning document call sticky. Change it to \"ERR_PHASE, ERR_BUDGET or ERR_DENIED: RZ-PLG-006\", or add an edge from the State Store node for a second blocking call."
+      "section": "Consequences (engine-based PDK bullet)",
+      "suggestion": "L112 \"gets a parked bound of 12\" should use the owning document's term. The Sizing table gives \"parked bound 14\" for the same 64 MiB Plugin at N = 16, R = 2, and 12 is the *guaranteed* parked bound, N - ceil(N/4), which the audit threshold of 16 uses. Write \"has a guaranteed parked bound of 12\". This adds one word, so offset it elsewhere."
     },
     {
-      "section": "Decision outcome (row Evolution)",
-      "suggestion": "L60 \"anything else needs `ruralz.plugin.v2`\" states as settled what Release, versioning and compatibility leaves open. Its table has \"New optional fields in guest JSON | Pending OQ-release-versioning-and-compatibility-10 | No\" and says levels rise while \"`rz_abi_version()` still returns 1\". Write: \"anything else needs `ruralz.plugin.v2`, except optional guest JSON fields (OQ-release-versioning-and-compatibility-10); `rz_abi_version()` stays 1\". More information then explains why it cites that Open question."
+      "section": "Decision outcome (row proxy-wasm, Planned (M4)) vs Consequences (last bullet)",
+      "suggestion": "The row fixes the fault radius: \"a trap fails every context pinned to that instance\". The Consequences bullet says \"recycling and fault radius open (OQ-wasm-plugin-system-17)\". Both follow from the owning document: rule 8 discards a faulted instance, and state lives in guest memory. Consider \"with recycling and narrowing the fault radius open\" so the two do not read as contradicting each other."
     },
     {
-      "section": "Context and problem statement",
-      "suggestion": "L24 paraphrases P6 as \"a faulty Plugin fails only its own Policy\", but P6 says \"a faulty Plugin fails its own Filter, not the Node\". The meaning matches WG-2 in the owning document. Consider quoting P6's wording or citing WG-2 for the Policy-level phrasing."
-    },
-    {
-      "section": "Pros and cons of the options (Extism's ABI)",
-      "suggestion": "L145 cites the go.mod URL for \"last commit was 2025-05-14\". In the research, that date comes from the repository URL (go-libraries-runtime.md table row, https://github.com/extism/go-sdk), and go.mod supports only the wazero v1.9.0 pin. Add the repository URL next to the date."
+      "section": "More information (Open questions bullet)",
+      "suggestion": "Option (b), \"forbid `state.*` at Upstream scope (RZ-CFG-020)\", stretches RZ-CFG-020 beyond its registered meaning: \"Policy type or Plugin Phases not allowed at the scope\" (Configuration model). A Capability-based scope ban would extend that code. Say \"(extending RZ-CFG-020)\" when OQ-wasm-plugin-system-20 is added to the owning document."
     },
     {
       "section": "Whole document (length)",
-      "suggestion": "The body is about 1,486 words by the verifier's rule, against a 1,500 maximum. The blocking fixes here and in L1 add roughly 150 words, so the ADR will exceed the band. Do not delete earlier fixes. Instead, make room by cutting repeated text. The prior-art sentence in Context repeats the proxy-wasm cons with the same three URLs and could shrink to one clause pointing to Pros and cons. The inline \"Planned (M2)\" on each Confirmation bullet could become one lead-in, \"All Planned (M2) unless tagged\". If the band still cannot hold the required content, raise it as a manifest amendment."
+      "suggestion": "The verifier counts 1,493 body words against the 1,500 maximum. Any further edit must be net-neutral. The L2-1 fix above adds 3 words. Do not recover space by deleting text that resolved earlier findings (L1-1 to L1-3, earlier L2-1 to L2-3)."
+    },
+    {
+      "section": "Milestone tags (verifier WARN lines 58, 110, 123, 155)",
+      "suggestion": "The roadmap has no M2 item for the PDKs and no M4 items for the proxy-wasm adapter yet. The tags match the owning document and the pack, so this is a roadmap gap, not an ADR defect. Flag it to the roadmap author."
     }
   ],
   "ac_results": [
     {
       "ac": "Front matter contains id, title, status, date, deciders and related, and status matches this manifest.",
       "pass": true,
-      "note": "id ADR-0005. The title matches the manifest verbatim. status accepted matches the manifest. date is 2026-09-25, deciders [ruralz-core], and related lists the owning document first. The H1 equals 'ADR-0005: ' plus the title."
+      "note": "id is ADR-0005, and the title matches the manifest verbatim. status is accepted, matching the manifest. date is 2026-09-25 and deciders is [ruralz-core]. related lists the owning document first. The H1 is 'ADR-0005: ' plus the title."
     },
     {
       "ac": "H2 headings match adr_common.outline_h2 exactly and in order, and Decision outcome contains the H3 headings Consequences and Confirmation.",
       "pass": true,
-      "note": "The six H2 headings appear in the manifest order. Consequences (L107) and Confirmation (L119) are H3 headings under Decision outcome. verify-docs prints no FAIL line for this file."
+      "note": "All six H2 headings appear in manifest order. Consequences (L105) and Confirmation (L118) are H3 headings under Decision outcome. verify-docs prints no FAIL line for this file, only four milestone WARN lines."
     },
     {
       "ac": "Considered options lists at least two options including the chosen one, and each has pros and cons.",
       "pass": true,
-      "note": "There are three options, each citing research URLs: extism.org PDK, the Kong 3.4 blog, APISIX wasm, mosn proxy-wasm-go-host and extism/go-sdk. Each option has Good and Bad bullets under Pros and cons of the options."
+      "note": "The ADR considers three options, each citing research URLs. All cited URLs appear under docs/_meta/research/: extism.org PDK, the Kong 3.4 blog, APISIX wasm, mosn proxy-wasm-go-host and extism/go-sdk. Each option has Good and Bad bullets under Pros and cons of the options."
     },
     {
       "ac": "Decision outcome states the chosen option as 'Chosen option: ..., because ...' and matches the foundation pack section 7 row for this ADR.",
       "pass": true,
-      "note": "The Chosen option text is the manifest decision verbatim and matches the pack section 7 Plugin ABI row (custom capability-based, Extism-style memory and Host Function conventions, proxy-wasm adapter Planned (M4)). The rules table has contradictions (L2-1 to L2-3), but the chosen option itself matches."
+      "note": "The Chosen option text is the manifest decision verbatim. It matches the pack section 7 Plugin ABI row: a custom capability-based ABI with Extism-style memory and Host Function conventions, and a proxy-wasm adapter Planned (M4). The State Store row's status problem (L2-1) does not affect the chosen option."
     },
     {
       "ac": "Confirmation names a concrete verification mechanism (test, lint rule, CI gate or review checklist item).",
       "pass": true,
-      "note": "Confirmation names the Plugin ABI conformance suite in pr-full (matching the Testing and quality strategy Conformance suites row), the online Plugin check (RZ-CFG-028), Host Function fuzzing per Host Function group, the SM-6 microbenchmark gate and a review checklist item."
+      "note": "Confirmation names five mechanisms: the Plugin ABI conformance suite in pr-full (matching the Testing and quality strategy Conformance suites row), adapter conformance Planned (M4), the online Plugin check (RZ-CFG-028), Host Function fuzzing, and the SM-6 microbenchmark gate. It also adds a review checklist item."
     },
     {
       "ac": "The ADR is linked from docs/adr/README.md and from its owning document.",
       "pass": false,
-      "note": "The owning document links it twice, in Contract and in proxy-wasm stance. docs/adr/README.md does not exist yet. It is produced by the index step, so this is not a blocking item against the ADR text."
+      "note": "The owning document links the ADR in Contract and in proxy-wasm stance. docs/adr/README.md does not exist yet because the index step produces it, so this is not a blocking item against the ADR text."
     },
     {
       "ac": "adr_common.length_words band 400 to 1,500",
       "pass": true,
-      "note": "About 1,486 body words by the manifest word_count_rule, so within the band but with almost no headroom (see non-blocking)."
+      "note": "The verifier's countWords gives 1,493 body words, which is within the band with 7 words of headroom."
     }
   ],
   "foundation_amendments": []

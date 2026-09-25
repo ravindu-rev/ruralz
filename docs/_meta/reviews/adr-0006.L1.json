@@ -1,54 +1,44 @@
 {
   "lens": "L1",
   "verdict": "revise",
-  "score": 6,
+  "score": 8,
   "blocking": [
     {
       "id": "L1-1",
-      "section": "Decision outcome (Consensus row, Figure 2), Consequences, Confirmation (Fencing test)",
-      "issue": "The fencing argument confuses Raft commit with state-machine acceptance, so the safety claim is false and the Confirmation test cannot be built as written. In hashicorp/raft every entry that reaches a voter quorum commits. The FSM only decides whether to accept it, and `ApplyFuture.Response()` returns that verdict. A deposed leader's entry can also commit later. Example: leader L1 proposes assignment A at sequence n+1, replicates it to follower F, then is partitioned. F wins the election with A in its log and signs its own assignment B at n+1. A precedes B in the log, so A commits and applies and B is rejected, although B is also committed. Two consequences follow. (1) 'replicas serve Nodes only committed entries' would let a replica deliver B, which carries a valid leader signature at (storeEpoch, n+1). The Node-side highest-pair check cannot tell A from B, so two Nodes could activate different assignments at the same sequence. Only state the FSM accepted may be served. (2) A new leader that signs its next sequence before its FSM has applied the entries from earlier terms is rejected on every proposal. The design needs the leader services to start after `raft.Barrier()` on election, and it needs a rule that a proposal whose FSM response is a rejection is re-read and re-signed. Figure 2 also shows the FSM applying before the quorum commit, which is the reverse of Raft's order. The owning document's 'so a deposed leader cannot commit' has the same imprecision, so the ADR should state the rule precisely and propose the amendment.",
-      "evidence": "Consensus row: \"The state machine applies an assignment or promotion only at the current sequence plus one; replicas serve Nodes only committed entries\" / Consequences: \"Good, because the apply-time sequence check fences a deposed leader: its stale-sequence entry never commits, so no replica delivers it.\" / Figure 2: \"R->>R: apply only if the sequence is current plus one\" followed by \"R-->>S: committed on a voter quorum\" / Confirmation: \"**Fencing test**, Planned (M2): a deposed leader's proposal at a stale sequence never commits\"",
-      "fix": "Consensus row: replace the clause with \"replicas serve Nodes only assignments and promotions the state machine accepted, never a committed entry it rejected; leader services start only after `raft.Barrier()` on election, and a rejected proposal is re-read and re-signed at the next sequence\". Consequence: \"Good, because the apply-time sequence check fences a deposed leader: of two signed entries at one sequence only the first in log order is accepted, and no replica delivers the other.\" Figure 2: put \"R-->>R: committed on a voter quorum\" before \"R->>R: accept only if the sequence is current plus one\", then \"R-->>S: accepted assignment\". Confirmation: \"a deposed leader's entry at a sequence already taken is committed but never accepted or delivered, and a new leader proposes only after Barrier\". Add a Proposed amendments item asking Control plane and GitOps to reword 'cannot commit' as 'cannot have a stale-sequence entry accepted'. The body is at 1,481 of 1,500 words, so shorten the existing clauses rather than append."
-    },
-    {
-      "id": "L1-2",
-      "section": "Decision outcome (Transport and Membership rows, Figure 1)",
-      "issue": "Port 8092 cannot work as described. `raft.NewNetworkTransport` owns its `StreamLayer`: it calls `Accept()` in a loop and decodes every accepted connection as a Raft RPC. Figure 1 also sends content replication through the same 'Mutual-TLS stream layer on 8092', and the owning document adds write forwarding, status forwarding, the relay feed and a token `Join` on that port. Unless a demultiplexer sits in front of NetworkTransport, non-Raft traffic reaches the Raft decoder. The Transport row also admits 'Ruralz Control peer certificates only'. The Membership row says `ruralz control join` adds a voter over 8092, but a joining replica has no peer certificate yet: the owning document says it 'redeems a one-time `admin` token in `Join`, and the leader signs the replica's certificate'. With the client-certificate requirement the Transport row implies, the TLS handshake for `Join` fails, so the ADR contradicts itself and its owning document. The relay role certificate, Planned (M4), also needs class limits that 'peer certificates only' does not express.",
-      "evidence": "Transport row: \"`raft.NetworkTransport` over a Ruralz mutual-TLS stream layer on `crypto/tls`, never the built-in TCP layer, on 8092 ...; Ruralz Control peer certificates only, Node certificates rejected (TB-11)\" / Membership row: \"`ruralz control join` adds a voter over 8092\" / Figure 1: \"cas --> tls\" and \"tls -.->|\\\"Raft and content replication\\\"| peers\" / owning document, Replica roles 4: \"8092 authorizes classes by certificate role ... and a token `Join` (OQ-control-plane-and-gitops-15)\"",
-      "fix": "Rewrite the Transport row: \"A Ruralz mutual-TLS stream layer on `crypto/tls` listens on 8092 and names each connection's class, proposed by ALPN (OQ-control-plane-and-gitops-15). It hands only Raft-class connections from voter peer certificates to `raft.NetworkTransport` through its `Accept`, and gives the other classes their own connections. Only `Join` accepts a one-time token without a client certificate (`VerifyClientCertIfGiven`). Node certificates are always rejected (TB-11).\" In Figure 1, label the edge \"Raft, content and forwarding classes\". Remove the now-redundant ALPN clause from the Proposed amendments bullet to stay within 1,500 words."
-    },
-    {
-      "id": "L1-3",
-      "section": "Decision outcome (Chosen option rationale)",
-      "issue": "The main reason given for the choice contradicts the ADR's own Pros and cons and the research. Dragonboat also ships consensus, a built-in transport, Pebble log storage and built-in snapshotting and log compaction, so hashicorp/raft is not 'the only researched library' that ships these together. What actually separates them is S1: dragonboat has had no release since 2023 and its master is unstable. As written, the reader can refute the decision from the ADR's own dragonboat section.",
-      "evidence": "Decision outcome: \"because it is the only researched library that ships consensus, a pure-Go log store, a network transport and a file snapshot store together\" / Pros and cons, dragonboat: \"Good, because it is Apache-2.0 with built-in transport, snapshotting and log compaction\" / research go-libraries-runtime.md section 6: dragonboat Transport \"Built in, pluggable\", Log storage \"Pebble by default\", Snapshots \"Built-in snapshotting and log compaction\"",
-      "fix": "Replace with: \"because, of the researched libraries with a release in the last 12 months (S1), it is the only one that ships consensus, a pure-Go log store, a network transport and a file snapshot store together (sources as now); it released v1.8.0 on 2026-09-16; ...\". The word count stays about the same."
+      "section": "Decision outcome (Transport row)",
+      "issue": "Regression from the transport rewrite. The rule that admits Raft-class connections only 'from voter peer certificates' cannot be implemented as written, and it contradicts the owning document. No certificate records voter status: the owning document's certificate table issues one '8092 peer' certificate from the Peer CA, plus a 'relay' role certificate. Voter status therefore has to come from the Raft configuration, and a replica that is joining has none. After `Join`, the leader signs the replica's certificate, calls AddVoter and dials it with AppendEntries. A stream layer on the new replica that checks the literal rule has no configuration yet to find the leader in, so it refuses the connection and the join never completes. A replica restored from backup, or one bootstrapping the first configuration, meets the same chicken-and-egg problem. Replica roles item 4 of the owning document grants Raft 'for Raft members'. The release document's Ruralz Control upgrades rule 1 also names non-voter replicas, which are Raft members and receive AppendEntries. What the stream layer can check is the certificate role (Peer CA, role peer, never relay).",
+      "evidence": "Transport row: \"Only Raft-class connections from voter peer certificates reach `raft.NetworkTransport` via its `Accept`\" / owning document, Replica roles 4: \"Raft and write forwarding for Raft members\" / owning document, Certificates and replica join: \"| 8092 peer | Peer CA | 90 days (target) |\" and \"the leader signs the replica's certificate and adds a voter\" / 04-release-versioning-and-compatibility.md, Ruralz Control upgrades 1: \"Each replica, voter or non-voter, and each regional relay\"",
+      "fix": "Replace \"from voter peer certificates\" with \"from peer-role certificates, never relay,\". This adds two words, and the body is at 1,498 of 1,500 words. To stay in the band, also change \"Node certificates are always rejected (TB-11)\" to \"Node certificates are rejected (TB-11)\". Leave membership checks to raft itself, which ignores RPCs from unknown terms and servers."
     }
   ],
   "non_blocking": [
     {
-      "section": "Decision outcome (Telemetry row)",
-      "suggestion": "hashicorp/raft reports commit time, FSM apply time, leader changes and snapshot metrics through the global hashicorp/go-metrics registry, and the default sink discards them. Only the hclog-to-slog adapter is decided. Add that a Ruralz go-metrics `MetricSink` forwards them to OpenTelemetry for `/metrics` on 9902, so quorum loss and leader churn get the degraded-state metric P10 requires. It must not use go-metrics' Prometheus or Circonus sink packages, because the Circonus sink would link the MPL-2.0 go-cleanhttp and fail the license gate, and the `/metrics` exporter is unselected (OQ-tech-stack-and-libraries-16)."
+      "section": "Decision outcome (Figure 1)",
+      "suggestion": "The edges `iface --> fsm` and `fsm --> raft` show the state machine feeding hashicorp/raft. In hashicorp/raft, writes go `raft.Apply`, then the log and quorum commit, then `FSM.Apply`, while reads come from the FSM. Draw `iface --> raft --> fsm`, with a separate read edge `iface --> fsm`, so the storage figure matches the Raft order that Figure 2 now shows correctly."
     },
     {
-      "section": "Decision outcome (Content store row) and owning document per-peer cap",
-      "suggestion": "Say that Raft traffic never shares a connection, or the 64 MiB/s per-peer budget, with content replication. Otherwise a large Revision fetch can delay AppendEntries heartbeats past the 1000 ms timeout and cause needless elections."
+      "section": "Decision outcome (Consensus row)",
+      "suggestion": "Say that leader services stop on leadership loss (the `LeaderCh` false edge), and that a proposal returning `ErrLeadershipLost` is treated as unknown: it may still commit, and it is neither re-signed nor reported as rejected. The rejection rule currently covers only an FSM rejection returned by `ApplyFuture.Response()`."
     },
     {
-      "section": "Decision outcome (Content store and Snapshots rows)",
-      "suggestion": "State that a replica serves an assignment only once its referenced content objects are local and verified. This matters after `InstallSnapshot` or a join, when the FSM references digests the replica has not fetched yet. Also state that deletion of unreferenced Revisions, beyond the latest 50, is itself a Raft entry, so a backup 'consistent at one index' never finds content missing."
+      "section": "Consequences (bbolt file size)",
+      "suggestion": "'only rejoining with an empty store reclaims space' overstates the cost. bbolt reuses freed pages, so the file stays at its high-water mark instead of growing without bound, and an offline copy with `bbolt.Compact` on a stopped replica also reclaims space. Consider 'bbolt reuses but never returns freed pages; reclaiming space needs an offline compaction or a rejoin'."
     },
     {
-      "section": "Consequences (commit index)",
-      "suggestion": "v1.8.0 persists the commit index only when the LogStore implements raft's commit-tracking interface. The research says raft-boltdb/v2 v2.4.2 is the 'matching release' but does not confirm it implements that interface. Qualify the claim, for example 'when the log store supports it', or have the Planned (M2) integration test confirm it."
+      "section": "Consequences (cross-Region voters)",
+      "suggestion": "Every commit is slower across Regions because it waits for a quorum round trip, not because of the etcd election-timeout advice. That advice explains why timeouts, and so failover, grow. Reword to 'each commit waits for a cross-Region quorum round trip, and etcd advises election timeouts of ten or more round trips'."
     },
     {
-      "section": "Decision outcome (Membership row)",
-      "suggestion": "The PostgreSQL con relies on single-host Raft installs. The Membership row lists only three or five voters. Say that one voter is allowed for single-host and development installs, with no failure tolerance, so the self-contained-install driver also covers one replica."
+      "section": "Decision outcome (Transport row) and owning document",
+      "suggestion": "A replica that redeems a token in `Join` has no client certificate. It must still authenticate 8092's server certificate, for example through a Peer CA fingerprint embedded in the one-time `admin` token, as Node tokens pin the 8091 server CA. The ADR and the owning document do not say this. Add it to the Proposed amendments for Control plane and GitOps, or to OQ-control-plane-and-gitops-15."
     },
     {
-      "section": "Decision outcome (Log and stable store row)",
-      "suggestion": "bbolt files do not shrink after raft-boltdb truncates the log, and Consul operators report this. Name a bound, or say that `ruralz control backup` then `restore` compacts the file, and record the growth as a Bad consequence."
+      "section": "More information (Proposed amendments)",
+      "suggestion": "The owning document also says 'Replicas serve their Nodes from committed assignments' in Replica roles 1, and labels an edge 'committed assignments' in its Figure 1. Extend the reword request to both, as 'accepted assignments', so every place matches the fencing rule."
+    },
+    {
+      "section": "Decision outcome (Snapshots and Backup rows)",
+      "suggestion": "State that a backup pins the content referenced at its index while it copies, so a later Revision-deletion entry applied during the backup cannot remove an object the backup still needs."
     }
   ],
   "ac_results": [
@@ -60,7 +50,7 @@
     {
       "ac": "H2 headings match adr_common.outline_h2 exactly and in order, and Decision outcome contains the H3 headings Consequences and Confirmation.",
       "pass": true,
-      "note": "The six H2s are in order, and both H3s are under Decision outcome."
+      "note": "The six H2 headings are present in order, and Consequences and Confirmation are H3 headings under Decision outcome."
     },
     {
       "ac": "Considered options lists at least two options including the chosen one, and each has pros and cons.",
@@ -70,40 +60,40 @@
     {
       "ac": "Decision outcome states the chosen option as 'Chosen option: ..., because ...' and matches the foundation pack section 7 row for this ADR.",
       "pass": true,
-      "note": "The format and the pack section 7 Control Store row match: raft-boltdb/v2 v2.4.2 or newer on bbolt, mTLS on 8092, named MPL-2.0 exceptions, and postgres Planned (M4). The rationale text is faulty; see L1-3."
+      "note": "The format is correct. The decision matches the pack section 7 Control Store row: raft-boltdb/v2 v2.4.2 or newer on bbolt, mutual TLS on 8092, four named MPL-2.0 exceptions and postgres Planned (M4). The rationale is now correctly limited by S1, so the earlier L1-3 finding is resolved."
     },
     {
       "ac": "Confirmation names a concrete verification mechanism (test, lint rule, CI gate or review checklist item).",
       "pass": true,
-      "note": "It names the license gate, the Raft denylist, depguard, the version floor with govulncheck, integration, chaos and fencing tests, and a checklist item. The fencing test's wording cannot be implemented as written (L1-1)."
+      "note": "Confirmation names: the stage 6 license gate and Raft denylist, depguard, the version floor with govulncheck, the container-free integration test (Node certificates and certificate-less connections outside Join refused), chaos tests, a fencing test that can be built (committed but never accepted, proposals only after Barrier), and a review checklist item."
     },
     {
       "ac": "The ADR is linked from docs/adr/README.md and from its owning document.",
       "pass": false,
-      "note": "The owning document links it (Scope and non-goals; Control Store and high availability). docs/adr/README.md does not exist yet: the verifier reports it as a missing index that the wave-5 index generator will write. This is not a defect in this ADR, so it is not blocking."
+      "note": "The owning document links it from Scope and non-goals and from Control Store and high availability. docs/adr/README.md does not exist yet. The wave-5 index generator writes it, and the verifier treats it as missing under --allow-missing. This is not a defect in this ADR and not blocking."
     },
     {
       "ac": "verify-docs.mjs reports no FAIL line for docs/adr/0006-control-store-raft-boltdb.md",
       "pass": true,
-      "note": "The filtered output is empty. The body is 1,481 words by the verifier's rule, inside the 400 to 1,500 band, which leaves about 19 words of headroom."
+      "note": "No FAIL lines. There is one WARN (milestones, line 120: Planned (M4) regional relay with no matching roadmap item), which the not-yet-written roadmap resolves. The body is 1,498 words by the verifier's countWords, inside the 400 to 1,500 band."
     },
     {
       "ac": "Considered options cite research URLs",
       "pass": true,
-      "note": "All 20 distinct URLs appear in docs/_meta/research/, and the claims match go-libraries-runtime.md section 6, scalability-patterns.md section 8.1 and tooling-and-licenses.md section 3."
+      "note": "All 23 distinct URLs appear in docs/_meta/research/. The claims match go-libraries-runtime.md section 6 (versions, dates, commit counts, transport, storage and snapshot fields, dragonboat's unstable master), scalability-patterns.md section 8.1 (etcd tuning) and tooling-and-licenses.md section 3 (licenses)."
     },
     {
       "ac": "ADR agrees with the owning document, the foundation pack and the four foundation documents",
       "pass": false,
-      "note": "It mostly agrees on ports, data placement, storeEpoch, postgres lease timings, relay form and the 1 MiB entry target. It contradicts the owning document's token Join on 8092 (L1-2), and its fencing statement is technically wrong (L1-1)."
+      "note": "It agrees on ports, data placement, content quorum, fencing with storeEpoch and sequences, stale-replica serving, postgres lease timings, backup and restore, the relay role and TB-11. It now states the accept-versus-commit rule precisely and proposes the owning-document reword. One point remains: 'voter peer certificates' contradicts the owning document's 'Raft members' and its single peer certificate type (L1-1). The token Join without a client certificate departs from the pack 8.4 authentication cell, but it follows the owning document and routes the change through OQ-control-plane-and-gitops-15 (foundation amendment below), so it is not blocking."
     },
     {
       "ac": "Canonical names only, no forbidden aliases, Planned (Mx) tags, no Supported",
       "pass": true,
-      "note": "No forbidden alias, placeholder, em dash or 'Supported' was found. Every element is tagged Planned (M0), (M2) or (M4)."
+      "note": "No forbidden alias, 'database', 'Supported', TBD or em dash was found. Every element carries Planned (M0), (M2) or (M4), and performance figures are tagged (target) or (hypothesis)."
     }
   ],
   "foundation_amendments": [
-    "Pack 8.4, 8092 row: the authentication cell 'mTLS with Ruralz Control peer certificates; Node certificates rejected' should also admit the one-time-token Join class and the role-limited relay certificate, and the purpose cell should list the peer classes, per OQ-control-plane-and-gitops-15. Otherwise the pack forbids the replica join that section 9 (`ruralz control join`) requires."
+    "Pack 8.4, 8092 row: the authentication cell 'mTLS with Ruralz Control peer certificates; Node certificates rejected' should also admit the one-time-token `Join` class (no client certificate, server pinned by the token) and the role-limited `relay` certificate, Planned (M4). The purpose cell should list the peer classes, per OQ-control-plane-and-gitops-15. As written, the pack forbids the certificate-less replica join that section 9's `ruralz control join` requires."
   ]
 }

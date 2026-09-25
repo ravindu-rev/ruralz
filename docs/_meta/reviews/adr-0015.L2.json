@@ -1,0 +1,109 @@
+{
+  "lens": "L2 foundation-auditor",
+  "verdict": "revise",
+  "score": 6,
+  "blocking": [
+    {
+      "id": "L2-1",
+      "section": "Decision outcome (rules table, Bind, not listen row, line 45; Figure 1, line 63)",
+      "issue": "The ADR leaves out the CBPF pinning step that the owning document requires before the new process binds. In the owning document, the holder's SO_ATTACH_REUSEPORT_CBPF programs select the holder's own sockets from startup and after every bind, UDP 8443 included, until steering. Its Binary upgrades table names the mechanism 'SO_REUSEPORT with CBPF pinning and steering'. The ADR only has the new process bind and 'not listen'. A bound UDP 8443 socket joins the reuseport group at bind, and TCP sockets join it at listen before the swap, so without pinning the kernel can hash traffic to a process the holder has not accepted or steered to. That conflicts with the ADR's 'Bind, not listen' guarantee and with owning document step 3.",
+      "evidence": "ADR line 45: \"then binds every `listeners` `port` and `admin.port` with `SO_REUSEPORT`, but does not listen\"; ADR line 63: \"New->>K: bind with SO_REUSEPORT, no listen\". Owning doc step 3: \"The holder's `SO_ATTACH_REUSEPORT_CBPF` programs, one per group with UDP 8443 included, select its own sockets until step 5.\" Owning doc Figure 1: \"Old->>K: at startup and after every bind, CBPF program selecting its own sockets\" and \"New->>K: listen on TCP ports, still pinned to Old\". Owning doc Binary upgrades table: \"`SO_REUSEPORT` with CBPF pinning and steering\".",
+      "fix": "Append to the Bind, not listen row: \"Until steering, the holder's `SO_ATTACH_REUSEPORT_CBPF` programs, one per reuseport group with UDP 8443 included, pin every group to its own sockets; it sets them at startup and after every bind.\" In Figure 1, add \"Old->>K: CBPF programs pin each group to the holder's sockets\" as the first message, and change \"New->>K: listen\" to \"New->>K: listen, still pinned to Old\"."
+    },
+    {
+      "id": "L2-2",
+      "section": "Decision outcome (rules table, Drain row, line 50; Figure 1) and Decision drivers (No refused connections)",
+      "issue": "The owning document's step 6, Move readiness, is missing. As written, the ADR says a handover's Drain fails /readyz with 503. CBPF steering moves only new connections. A keep-alive health checker still connected to the old process's 9901 therefore sees the 503, which contradicts the ADR's driver 'balancer probes see /readyz 200 throughout a handover', its own V-3 pass condition, and the owning document's ZG-3. The owning document also says a handover's Drain starts after the linger and skips the accept window, and the ADR does not say this either.",
+      "evidence": "ADR line 26: \"balancer probes see `/readyz` 200 throughout a handover\"; ADR line 50: \"| Drain | `/readyz` 503, stop accepting, ...\"; ADR V-3: \"with a keep-alive health checker on 9901 ... every probe returning 200\". Owning doc step 6: \"During the linger, closing idle admin connections and answering in-flight admin requests with `Connection: close` moves keep-alive health checkers to the new process, so no balancer sees the Drain's 503.\" Owning doc Drain timeline defaults: \"A handover's Drain starts after the linger and fails `/readyz` like any Drain, unseen since step 6 moved every probe connection, and skips the accept window.\"",
+      "fix": "Add a row after Steering: \"| Readiness move | During the linger the holder closes idle admin connections and answers in-flight admin requests with `Connection: close`, so keep-alive health checkers reconnect to the new process; the handover's Drain then fails `/readyz` unseen and skips the accept window | Planned (M1) |\". In Figure 1, add \"Old->>Old: close idle admin connections, Connection close on admin responses\" before \"close listeners after the 3 s linger\"."
+    },
+    {
+      "id": "L2-3",
+      "section": "Decision outcome / Confirmation (V-4, line 92)",
+      "issue": "The milestone tag is wrong. V-4 is tagged Planned (M1) as a whole, but it exercises WebSocket and SSE connections, which are Planned (M3) in the foundation pack (M3 includes WS/SSE) and in the owning document's V-4 row. The ADR's own Drain row splits the tags correctly.",
+      "evidence": "ADR line 92: \"**V-4**, Planned (M1): SIGTERM a Node holding HTTP/2, WebSocket and SSE connections.\" Owning doc V-4: \"| Planned (M1); WebSockets and SSE Planned (M3) |\". Pack section 2 Milestones: \"**M3** AI gateway + gRPC/GraphQL/WS/SSE + HTTP/3\".",
+      "fix": "Change to: \"**V-4**, Planned (M1); WebSocket and SSE Planned (M3): SIGTERM a Node holding HTTP/2, WebSocket and SSE connections.\""
+    },
+    {
+      "id": "L2-4",
+      "section": "Decision drivers (Independent processes, line 27)",
+      "issue": "The driver says the processes share 'no versioned socket protocol, only ... a small readiness message'. That contradicts Release, versioning and compatibility, which the ADR itself links: its Versioned surfaces table lists the Unix-socket readiness message as a versioned surface with format markers. It also contradicts the owning document, where the old process sends usage reports at acceptance and every second, and the ADR's own Consequences, which say the processes exchange 'a ready message and usage reports'.",
+      "evidence": "ADR line 27: \"share no in-memory state and no versioned socket protocol, only the kernel, a file lock and a small readiness message\". ADR line 81: \"the processes exchange only a ready message and usage reports, never descriptors or counters\". Release doc Versioned surfaces: \"| Node handover and identity | `${RURALZ_DATA_DIR}` file lock, candidate, Unix-socket readiness message; ... | ... format changes are additive or version-marked |\". Owning doc: \"the old process reports connections, in-flight units, buffered bytes, Plugin memory and RSS at acceptance and each second (target)\".",
+      "fix": "Reword to: \"**Independent processes**: the old and new binaries share no in-memory state and no descriptors. They share only the kernel's reuseport groups, a file lock and a version-marked Unix-socket readiness message with per-second usage reports (a [Versioned surface](../engineering/04-release-versioning-and-compatibility.md#versioned-surfaces)), so skew stays within N-1 (...)\"."
+    }
+  ],
+  "non_blocking": [
+    {
+      "section": "Context and problem statement (line 20)",
+      "suggestion": "8080, 8443 and 9901 are defaults (pack section 2 'Default ports'), and Gateway `listeners[].port` and `admin.port` can change them. Write \"listens by default on 8080, 8443 ...\" so this matches the Bind row, which binds the configured ports."
+    },
+    {
+      "section": "Decision outcome (Chosen option rationale, line 41)",
+      "suggestion": "'it is the only option that refuses no new connection' holds unconditionally only with `net.ipv4.tcp_migrate_req=1`. The owning document's ZG-3 and this ADR's own Consequences allow resets of handshakes that need a second SYN-ACK retransmission when the setting is 0 (hypothesis). Qualify the claim, for example 'refuses no new connection (with tcp_migrate_req=1, else only twice-retransmitted handshakes reset, hypothesis)'."
+    },
+    {
+      "section": "Decision outcome (Readiness gating row)",
+      "suggestion": "Add the two cases the owning document covers in step 4. First, the holder accepts only its active digest and has a newer candidate reloaded and reported again. Second, if the holder exits first, the new process takes the lock and listens."
+    },
+    {
+      "section": "Decision outcome (Identity row)",
+      "suggestion": "Say 'in Control mode' before 'dials 8091'. File-mode handover hosts (T2) have no Control Stream, and pack section 8.11 ties the Control Stream to Control mode."
+    },
+    {
+      "section": "Decision outcome (Drain row)",
+      "suggestion": "The row times everything from SIGTERM. For a handover, the owning document starts the Drain at the linger's end, with the deadline 20 s later, 23 s after steering (target). Add that clause so the row covers both triggers."
+    },
+    {
+      "section": "Decision outcome (net.ipv4.tcp_migrate_req row)",
+      "suggestion": "The row adopts the owning document's 'SHOULD set, complement' stance, while pack section 7 and System overview handover rule 1 still say 'is an alternative'. The row does cite OQ-zero-downtime-upgrades-and-hot-reload-12, so this is escalated rather than a silent contradiction. Consider marking the row 'pending OQ-...-12 (a)' so readers do not treat it as frozen."
+    },
+    {
+      "section": "More information",
+      "suggestion": "Status is `accepted`, but OQ-zero-downtime-upgrades-and-hot-reload-6 (overlap memory) and -7 (systemd unit) are marked 'Yes, for Planned (M1)' blocking in the owning document. List them as blocking follow-ups here so the acceptance scope is clear."
+    },
+    {
+      "section": "Length",
+      "suggestion": "The body is about 1,407 words (verify-docs countWords) against the 1,500 maximum. Write the fixes for L2-1 and L2-2 compactly, for example by folding pinning into the existing Bind row. Do not delete text that resolved earlier findings."
+    },
+    {
+      "section": "verify-docs",
+      "suggestion": "No FAIL lines. Seven WARN milestone lines (lines 45 to 48 and 91 to 93) report that the Roadmap's M1 section has no matching items. The Roadmap has not been written yet (--allow-missing), so these are not document defects, but check them again once the Roadmap exists."
+    }
+  ],
+  "ac_results": [
+    {
+      "ac": "Front matter contains id, title, status, date, deciders and related, and status matches this manifest.",
+      "pass": true,
+      "note": "All six keys are present. status: accepted matches the manifest. The title matches the manifest title verbatim."
+    },
+    {
+      "ac": "H2 headings match adr_common.outline_h2 exactly and in order, and Decision outcome contains the H3 headings Consequences and Confirmation.",
+      "pass": true,
+      "note": "The six H2 headings are exact and in order. Consequences and Confirmation are H3 headings under Decision outcome."
+    },
+    {
+      "ac": "Considered options lists at least two options including the chosen one, and each has pros and cons.",
+      "pass": true,
+      "note": "Four options, and each has an H3 under Pros and cons with at least one Good and one Bad. Research URLs from scalability-patterns.md are cited: man7 socket.7, the HAProxy blog and management guide, Envoy hot_restart, NGINX control, net/http Server.Shutdown, and Kubernetes lifecycle hooks."
+    },
+    {
+      "ac": "Decision outcome states the chosen option as 'Chosen option: ..., because ...' and matches the foundation pack section 7 row for this ADR.",
+      "pass": true,
+      "note": "The phrasing is exact and the chosen option name matches option 1. The content matches the pack section 7 Upgrades row: SO_REUSEPORT, Drain, readiness over a Unix socket under ${RURALZ_DATA_DIR}, GOAWAY, CBPF through golang.org/x/sys/unix, QUIC loss, and no socket passing. The one difference is tcp_migrate_req, framed as a complement rather than an alternative, which is escalated through OQ-zero-downtime-upgrades-and-hot-reload-12. The mechanism details still differ from the owning document (L2-1, L2-2)."
+    },
+    {
+      "ac": "Confirmation names a concrete verification mechanism (test, lint rule, CI gate or review checklist item).",
+      "pass": true,
+      "note": "Lab tests V-3, V-4 and V-6 from the owning document's Verification runbook, plus a review checklist item. V-4's milestone tag is wrong (L2-3)."
+    },
+    {
+      "ac": "The ADR is linked from docs/adr/README.md and from its owning document.",
+      "pass": false,
+      "note": "The owning document links ADR-0015 in its Summary and in Binary upgrades. docs/adr/README.md does not exist yet (a later wave; verify ran with --allow-missing), so this part cannot pass. It is a README dependency, not a defect in this ADR."
+    }
+  ],
+  "foundation_amendments": [
+    "Pack section 7 Upgrades row and System overview handover rule 1: resolve OQ-zero-downtime-upgrades-and-hot-reload-12 with option (a). Replace '(`net.ipv4.tcp_migrate_req` is an alternative)' with '(`net.ipv4.tcp_migrate_req=1` SHOULD be set as a complement, with a 3 s accept linger (target))'.",
+    "Pack section 7 Upgrades row: 'SO_ATTACH_REUSEPORT_CBPF steering ... empties the closing listener's accept queue' is imprecise. Steering stops new enqueues on the old socket, and the old process's accept linger drains the queue. Reword to 'CBPF pinning, then steering, stops new enqueues on the closing listener, whose accept queue empties during a linger'."
+  ]
+}

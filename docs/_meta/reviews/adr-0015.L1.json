@@ -1,0 +1,66 @@
+{
+  "lens": "L1 feasibility-skeptic",
+  "verdict": "accept",
+  "score": 8,
+  "blocking": [],
+  "non_blocking": [
+    {
+      "section": "Decision outcome (Steering row); Consequences (first Good bullet)",
+      "suggestion": "The ADR claims the holder keeps serving if the new process crashes 'before the holder closes its listeners'. The Steering row, however, closes the listeners unconditionally after the 3 s linger. Suppose the new process dies during the linger, after the swap. The CBPF index then falls out of range and the kernel falls back to hashing, so the holder gets connections again, but it still closes its listeners at the linger's end, and the Node refuses connections. Add an abort rule to the Steering row, and to owning document step 5: 'If the new process's Unix socket closes before the holder closes its listeners, the holder re-pins each group to its own sockets, keeps its listeners and ends the handover.' Or narrow the claim to 'before steering'."
+    },
+    {
+      "section": "Decision outcome (Pinning row)",
+      "suggestion": "'At startup and after every bind' does not say which bind triggers a re-pin. The holder cannot observe another process's bind, and a stale program from a previous or aborted handover can return index 1, which a newly bound UDP 8443 socket then takes. Say that the holder attaches its pinning program when it takes the file lock, after each of its own binds, and after ending an aborted handover. Also say it accepts one candidate at a time, so no third socket shifts the indexes."
+    },
+    {
+      "section": "Consequences (WebSocket, SSE and QUIC bullet)",
+      "suggestion": "QUIC connections do not reconnect over the 10 s jitter window. All of them are lost at once when the holder closes UDP 8443 at the end of the linger. Split the bullet: WebSocket and SSE reconnect over the jitter window (target), and QUIC clients all reconnect when the listeners close (OQ-system-overview-18)."
+    },
+    {
+      "section": "Decision outcome (Readiness gating row)",
+      "suggestion": "Carried over: `sun_path` is limited to 108 bytes, so a long `RURALZ_DATA_DIR` can make the Unix socket bind fail. Bind through a relative path after `chdir`, or record the limit as an Open question in the owning document."
+    },
+    {
+      "section": "Verify script",
+      "suggestion": "`node scripts/verify-docs.mjs --allow-missing --skip markdownlint` reports no FAIL lines for this file. It reports 11 WARN milestone lines (lines 45 to 51, 97 to 99 and 128) because docs/roadmap/01-roadmap-and-milestones.md has no matching M1 items yet. Recheck them after the roadmap is written."
+    }
+  ],
+  "ac_results": [
+    {
+      "ac": "Front matter contains id, title, status, date, deciders and related, and status matches this manifest.",
+      "pass": true,
+      "note": "All six keys are present. Status 'accepted' and the title match the manifest adrs[] entry, and the H1 matches the title."
+    },
+    {
+      "ac": "H2 headings match adr_common.outline_h2 exactly and in order, and Decision outcome contains the H3 headings Consequences and Confirmation.",
+      "pass": true,
+      "note": "The six H2 headings appear in order. Consequences and Confirmation are H3 headings under Decision outcome. The verifier reports no structural FAIL."
+    },
+    {
+      "ac": "Considered options lists at least two options including the chosen one, and each has pros and cons.",
+      "pass": true,
+      "note": "There are four options, and each has Good and Bad bullets. They cite research URLs from docs/_meta/research/scalability-patterns.md: HAProxy, the HAProxy management guide, Envoy hot restart, NGINX control, socket(7) and the Kubernetes lifecycle hooks page."
+    },
+    {
+      "ac": "Decision outcome states the chosen option as 'Chosen option: ..., because ...' and matches the foundation pack section 7 row for this ADR.",
+      "pass": true,
+      "note": "The format is correct. The 'because' clause now rests on process independence and ZG-3, which fixes L1-4. The ADR matches pack section 7 on SO_REUSEPORT, Drain, readiness gating over a Unix socket under ${RURALZ_DATA_DIR}, GOAWAY, CBPF through x/sys/unix, QUIC loss and no socket passing. The pack calls `tcp_migrate_req` an alternative, while the ADR calls it a complement. The ADR states this divergence openly and defers it to OQ-zero-downtime-upgrades-and-hot-reload-12."
+    },
+    {
+      "ac": "Confirmation names a concrete verification mechanism (test, lint rule, CI gate or review checklist item).",
+      "pass": true,
+      "note": "The lab tests V-3, V-4 and V-6 plus a review checklist item. V-3's pass condition and V-4's split milestone tag now match the owning document's Verification runbook."
+    },
+    {
+      "ac": "The ADR is linked from docs/adr/README.md and from its owning document.",
+      "pass": false,
+      "note": "The owning document links the ADR from its Summary and Binary upgrades sections. docs/adr/README.md does not exist yet: under the manifest's adr_index, it is written with docs/README.md in a later wave, so this is not a defect in the ADR text."
+    }
+  ],
+  "foundation_amendments": [
+    "Pack section 7 Upgrades row and System overview handover rule 1: replace '(`net.ipv4.tcp_migrate_req` is an alternative)' with 'hosts SHOULD also set `net.ipv4.tcp_migrate_req=1`, with a 3 s linger (target), as a complement to CBPF steering', per OQ-zero-downtime-upgrades-and-hot-reload-12 option (a).",
+    "Pack section 7 Upgrades row: add that the lock holder pins each reuseport group, UDP 8443 included, to its own sockets with a CBPF program until the swap. The row currently says only that steering empties the closing accept queue, but a bound UDP socket joins the group at bind time.",
+    "Owning document, In-place handover step 5: add the abort rule for a new process that exits after the swap but before the holder closes its listeners, so that ADR-0015's survival claim holds for the whole window.",
+    "Tech stack document: add a catalog row for `golang.org/x/sys` (unix), which pack section 7 already names for the Upgrades decision."
+  ]
+}

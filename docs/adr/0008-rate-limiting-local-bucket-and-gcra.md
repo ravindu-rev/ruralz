@@ -40,7 +40,7 @@ Which algorithm enforces a Cell-wide limit when Nodes are disposable (P4), never
 
 ## Decision outcome
 
-Chosen option: "Local bucket plus GCRA, fail-open", because the local bucket answers most denials and shields shards from denied and pinned traffic without a round trip, GCRA keeps one timestamp per key and is exact within one store ([source](https://brandur.org/rate-limiting)), and fail-open, Stripe's default too ([source](https://stripe.com/blog/rate-limiters)), stays bounded by the local buckets, as pack sections 7 and 8.8 fix. Rules, all Planned (M1):
+Chosen option: "Local bucket plus GCRA, fail-open", because the local bucket answers most denials and shields shards from denied and pinned traffic without a round trip, GCRA keeps one timestamp per key and is exact within one store ([source](https://brandur.org/rate-limiting)), and fail-open, Stripe's default too ([source](https://stripe.com/blog/rate-limiters)), stays bounded by the local buckets. Rules, all Planned (M1):
 
 | Aspect | Rule |
 |---|---|
@@ -51,7 +51,7 @@ Chosen option: "Local bucket plus GCRA, fail-open", because the local bucket ans
 | One round trip | Nodes `SCRIPT LOAD` on every primary at connect, reconnect and failover; `NOSCRIPT` applies `failureMode` and schedules a reload, never a second call (pack section 8.7 rule 1) |
 | Over-limit cache | A key GCRA denied stays denied locally until its retry-after, as in envoyproxy/ratelimit ([source](https://github.com/envoyproxy/ratelimit)) |
 | Keys | `rz:rl:<policy>:<requests>/<window>:{<SHA-256 of the key value>}`, expiring once idle; the hash tag lets consumptive calls share one script (pack section 8.7 rule 3). The State Store MUST run `noeviction` |
-| State Store failure | A failed or timed-out call, or an open State client breaker, applies `failureMode`: `open` (default) admits from the local buckets, which then refill once per epoch-aligned `window` without carry-over, clamped per [Per-Node ceiling](../architecture/09-traffic-management-and-resilience.md#per-node-ceiling) (derived ceilings unfloored; a Control-mode Node without a count at max(1, `requests` / 100)); `closed` returns 503 `RZ-STS-001` to `RZ-STS-003` |
+| State Store failure | A failed, timed-out or unattempted call, or an open State client breaker, applies `failureMode`: `open` (default) admits from the local buckets, which then refill per epoch-aligned `window`, in 60 steps past 1 minute, without carry-over, clamped per [Per-Node ceiling](../architecture/09-traffic-management-and-resilience.md#per-node-ceiling) (derived ceilings unfloored; a Control-mode Node without a count at max(1, `requests` / 100)); `closed` returns 503 `RZ-STS-001` to `RZ-STS-004` |
 | Fail-open bound | At most N × per-Node ceiling per key per window, N being serving Nodes (target), owned by [Scalability and distributed state](../architecture/11-scalability-and-distributed-state.md#consistency-and-accuracy-bounds) |
 | `config.key` error | `failureMode`: `open` admits unmetered, `closed` returns 503 `RZ-RL-005` |
 | `memory` driver | Limits multiply by the Node count; a Node warns when its Cluster reports several |
@@ -74,10 +74,10 @@ flowchart TD
     gcra -- "allow" --> ok["Admit"]
     gcra -- "deny" --> cache["Cache the deny until retry-after"]
     cache --> d2
-    gcra -- "error, timeout or NOSCRIPT" --> fm{"failureMode"}
+    gcra -- "error, timeout, NOSCRIPT or not attempted" --> fm{"failureMode"}
     brk -- "yes" --> fm
     fm -- "open, default" --> ok2["Admit from the clamped, aligned-window local buckets"]
-    fm -- "closed" --> r503["503 RZ-STS-001 to RZ-STS-003"]
+    fm -- "closed" --> r503["503 RZ-STS-001 to RZ-STS-004"]
 ```
 
 ### Consequences
@@ -136,5 +136,5 @@ flowchart TD
 - Owning document: [Traffic management and resilience](../architecture/09-traffic-management-and-resilience.md#rate-limiting), with [Per-Node ceiling](../architecture/09-traffic-management-and-resilience.md#per-node-ceiling) and the [Failure matrix](../architecture/09-traffic-management-and-resilience.md#failure-matrix).
 - Related decisions: [ADR-0014](0014-ai-api-surface.md) (Token Budgets fail closed) and [ADR-0007](0007-control-stream-protocol.md) (Control Stream carrying the Node count).
 - Pending pack section 8.8 amendments: OQ-traffic-management-and-resilience-1, -16, -19 and -20, OQ-scalability-and-distributed-state-11, and aligned-window fail-open refill for declared ceilings too.
-- Tech stack correction: the Library catalog's "`NOSCRIPT` fallback" means the `failureMode` path above, never an `EVAL` retry.
+- Corrections: the Library catalog's "`NOSCRIPT` fallback" means the `failureMode` path above, never an `EVAL` retry; Traffic management's and Scalability's N × ceiling call bound is 2 × N × ceiling.
 - Revisit when OQ-system-overview-15 chooses leases or per-shard script throughput is measured.

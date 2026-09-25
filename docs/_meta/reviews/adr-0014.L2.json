@@ -1,107 +1,72 @@
 {
   "lens": "L2 foundation-auditor",
   "verdict": "revise",
-  "score": 7,
+  "score": 8,
   "blocking": [
     {
       "id": "L2-1",
-      "section": "Decision drivers; Decision outcome > Consequences",
-      "issue": "The ADR gives principle P1 the wrong name and meaning. Principles are defined once, in the vision document (pack section 2), and P1 there is 'Everything is free'. Running with no Revington service is P2, 'The gateway stands alone'. The P3 driver also uses an invented label ('P3 round trips'), not P3's canonical name.",
-      "evidence": "ADR line 31: \"- **P1, self-hosted and air-gapped**: prices ship in `AIProvider.spec.pricing`; no Revington service supplies prices or counts.\" Line 85: \"so re-pricing needs no Revington service (P1).\" Line 29: \"- **P3 round trips**: one blocking State Store call per Policy before commit\". Vision, Principles: \"| P1 | Everything is free | ... No code path checks a Ruralz license, license key or Revington entitlement. |\", \"| P2 | The gateway stands alone | Ruralz Gateway serves traffic from a Bundle directory or an OCI pull, with no control plane present.\" and \"| P3 | No control-plane or peer dependency on the request path | ... each Policy makes at most one blocking, timed State Store round trip before the response is committed\".",
-      "fix": "Line 31: \"- **P1 and P2, everything is free and the gateway stands alone**: prices ship in `AIProvider.spec.pricing`; no Revington service or entitlement supplies prices or counts.\" Line 85: change \"(P1)\" to \"(P1, P2)\". Line 29: \"- **P3, no control-plane or peer dependency on the request path**: one blocking State Store call per Policy before commit, ...\"."
-    },
-    {
-      "id": "L2-2",
-      "section": "Decision drivers (Bounded work)",
-      "issue": "The time-to-first-token figure drops the exclusions that the owning document and PB-12 attach to it. As written, the figure contradicts both sources, and it would count the Token Budget State Store reservation and the tokenizer estimate (about 400 µs, hypothesis, per the performance document) against the 1 ms target.",
-      "evidence": "ADR line 32: \"- **Bounded work**: gateway-added time to first token of 1 ms or less at p99 for bodies up to 16 KiB (target).\" Owning doc, Streaming: \"Gateway-added time to first token for bodies up to 16 KiB, excluding State Store, embedding, provider and estimator time: 1 ms or less at p99 (target)\". 12-performance-budgets-and-benchmarking.md: \"| PB-12 | Gateway-added time to first token, bodies up to 16 KiB, p99, excluding State Store, embedding, provider and estimator time | 1 ms or less (target) |\".",
-      "fix": "Replace with: \"- **Bounded work**: gateway-added time to first token of 1 ms or less at p99 for bodies up to 16 KiB, excluding State Store, embedding, provider and estimator time (target; PB-12 in [Performance budgets and benchmarking](../architecture/12-performance-budgets-and-benchmarking.md)).\""
-    },
-    {
-      "id": "L2-3",
-      "section": "Decision outcome table (Surface decoder row)",
-      "issue": "The row says the decoder runs 'before any Policy'. By the fixed Phase order (pack section 4) and the Policy registry (pack section 10), `auth.*`, `ratelimit`, `quota` and `cors` Policies have already run in `onRequestHeaders` before `onRequestBody` starts. The owning document limits the claim to `onRequestBody` Policies. The ADR also contradicts itself, since More information places ADR-0008 request-rate limits in `onRequestHeaders`.",
-      "evidence": "ADR line 48: \"| Surface decoder | At the start of `onRequestBody`, before any Policy: strict JSON ...\". Owning doc, Surface decoder: \"The `ai` Upstream's surface decoder runs at the start of `onRequestBody`, before any `onRequestBody` Policy\". Pack section 10: \"| `ratelimit` | admission | onRequestHeaders |\" and \"| `auth.jwt`, `auth.api-key`, `auth.basic`, `auth.mtls` | auth | onRequestHeaders |\". ADR line 133: \"[ADR-0008](...) (request-rate limits in `onRequestHeaders`)\".",
-      "fix": "Change \"before any Policy\" to \"before any `onRequestBody` Policy, after the `onRequestHeaders` Policies\"."
-    },
-    {
-      "id": "L2-4",
-      "section": "Decision drivers (Budget safety); Decision outcome table (Token Budget row)",
-      "issue": "The ADR says the overshoot is bounded 'as pack 8.9 and the owning document's Settlement state', as if the two sources gave one bound. They give different bounds. The owning document adds a term for extra attempts and one for hidden reasoning, and keeps the extra-attempt term finite with a 2-attempt cap on budgeted Routes that stops Provider Fallback with `RZ-AI-005`. The Token Budget row leaves out that cap and the owning document's per-request settlement rule ('All of R once per request, plus usage other attempts reported'). An implementer who reads only the ADR's normative table gets a different settlement rule and no attempt cap.",
-      "evidence": "ADR line 28: \"with overshoot bounded as pack 8.9 and the owning document's [Settlement](...) state (hypothesis; SM-10)\". Line 54: \"`onLog` charges usage and releases the rest, or charges all of R and emits a degraded-state metric when usage is missing\". Pack 8.9: \"| Overshoot bound | At most the sum of input-estimate errors across concurrent requests (hypothesis; SM-10) |\". Owning doc, Settlement: \"plus (attempts - 1) x R per concurrent request ([Model routing](#model-routing); hypothesis), plus, while OQ-ai-llm-gateway-17 is open, hidden reasoning above C on `gemini` and `ollama`\" and \"| Attempt reached the provider, no usage read | ... | All of R once per request, plus usage other attempts reported |\". Model routing: \"Routes with `ai.token-budget` allow 2 attempts (target) and stop Provider Fallback with `RZ-AI-005` once the attempts' usage, counting R for an attempt without usage, reaches R.\"",
-      "fix": "Budget safety: \"... overshoot at most the sum of concurrent input-estimate errors plus (attempts - 1) x R per concurrent request and, while OQ-ai-llm-gateway-17 is open, hidden reasoning above C on `gemini` and `ollama` (hypothesis; SM-10), as [Settlement](../architecture/06-ai-llm-gateway.md#settlement) states; pack 8.9 omits the extra terms until OQ-ai-llm-gateway-15 closes.\" In the Token Budget row, replace the `onLog` clause with: \"`onLog` charges usage summed over attempts, plus all of R once per request if an attempt lacked usage (degraded-state metric), and releases the rest; budgeted Routes allow 2 attempts (target) and stop Provider Fallback with `RZ-AI-005` once that charge reaches R\"."
-    },
-    {
-      "id": "L2-5",
-      "section": "Decision outcome > Confirmation (Validation bullet)",
-      "issue": "Every other Confirmation bullet that describes product behavior carries a milestone tag. The Validation bullet describes an unimplemented `ruralz bundle validate` check and has none. The task rules and the style guide (section 4) require a `Planned (Mx)` tag on unimplemented features. `ruralz bundle validate` is Planned (M1), and `AIModel`, with its RZ-CFG-034 check, is Planned (M3).",
-      "evidence": "ADR line 100: \"- **Validation**: `ruralz bundle validate` rejects a Token-Budgeted `AIModel` without `limits.maxOutputTokens` (RZ-CFG-034).\" Compare line 96: \"- **Protocol conformance suite**, Planned (M3): ...\". Owning doc: \"Both kinds and `ruralz ai models` are Planned (M3).\"",
-      "fix": "\"- **Validation**, Planned (M3): `ruralz bundle validate` rejects a Token-Budgeted `AIModel` without `limits.maxOutputTokens` (RZ-CFG-034, [Error codes](../architecture/02-configuration-model.md#error-codes)).\""
+      "section": "Decision outcome table (Token Budget row)",
+      "issue": "This is a regression from the wording the previous L2-4 fix proposed. As written, the settlement rule charges nothing and releases all of R when a reservation is followed by no provider attempt, because 'usage summed over attempts' is 0 and no attempt 'lacked usage'. That case covers a guardrail block, RZ-AI-004 and a Semantic Cache hit. The owning document and pack 8.9 charge all of R in that case today. Releasing R there is only a proposal of OQ-ai-llm-gateway-15, and the ADR's own More information says that proposal does not apply until OQ-15 closes. So the normative row contradicts the owning document, pack 8.9 and the ADR itself.",
+      "evidence": "ADR line 57: \"`onLog` charges usage summed over attempts, plus all of R once per request if an attempt lacked usage (degraded-state metric), and releases the rest\". Owning doc, Settlement: \"| No provider attempt after reservation | Guardrail block, `RZ-AI-004`, Semantic Cache hit | All of R (pack 8.9); proposed: nothing (OQ-ai-llm-gateway-15; ...) | None |\". Pack 8.9: \"When usage is missing (interrupted stream, no usage reported), charge all of R\". ADR line 138: \"OQ-ai-llm-gateway-15 proposes charging R per attempt without usage and releasing R when no attempt ran; ... until it closes pack 8.9 applies as written.\"",
+      "fix": "Line 57: change \"plus all of R once per request if an attempt lacked usage (degraded-state metric), and releases the rest\" to \"plus all of R once per request if an attempt lacked usage (degraded-state metric) or none ran, and releases the rest\" (+3 words). The body is exactly at the 1,500-word maximum, so offset the added words in text that no earlier finding depends on. Line 88: \"budgets and cost records use billed fields, and cost records carry\" becomes \"budgets and cost use billed fields; cost records carry\" (-2). Line 137: \"The `failureMode` default of `ai.token-budget` stays OQ-configuration-model-8.\" becomes \"`ai.token-budget`'s default `failureMode` stays OQ-configuration-model-8.\" (-2)."
     }
   ],
   "non_blocking": [
     {
-      "section": "Decision outcome > Consequences",
-      "suggestion": "The research attributes the typed-schema root cause only to Coder #29563 and LiteLLM #41424 (ai-gateways.md section 6: 'Common root cause in the verified cases'). Portkey #1579 is recorded only as 'cache_control blocks stripped when routing to Vertex AI Anthropic models'. Drop Portkey #1579 from the 'never parses into a type' sentence, or cite Coder #29563 in its place."
+      "section": "Decision drivers (Budget safety)",
+      "suggestion": "Previous L2-4 is resolved in substance, but the bound is still not quoted exactly. Line 31 says \"plus unstreamed hidden reasoning (OQ-ai-llm-gateway-17) ... as [Settlement] states\". Settlement actually says \"hidden reasoning above C on `gemini` and `ollama`\", because on Anthropic Messages C is written to `max_tokens`, \"which also bounds thinking\". Also, \"pack 8.9 omits both extra terms (OQ-ai-llm-gateway-15)\" credits OQ-15 with both terms, although OQ-17 owns the hidden-reasoning term. The recommended wording, if words can be found, is: \"plus `gemini` and `ollama` hidden reasoning above C (hypothesis; SM-10), as [Settlement] states; pack 8.9 omits both extra terms (OQ-ai-llm-gateway-15, OQ-ai-llm-gateway-17)\" (+4 words). This is not blocking because the ADR's bound is looser, so it is still safe, and L1 raised the same point as non-blocking."
     },
     {
-      "section": "Considered options (options 2 and 3)",
-      "suggestion": "The research lists Agent Router with Anthropic-format endpoints as well (v0.6 Anthropic endpoint, v1.1 `/anthropic/v1/messages/count_tokens`), and KrakenD EE with a 'Unified LLM interface' besides no-op backends. Neither product is single-surface. Say that the quote shows the translated surface ('like Agent Router's façade'), or note that most researched gateways, including these two, offer both surfaces. That also supports option 1."
+      "section": "Decision outcome table (Surface decoder row)",
+      "suggestion": "Line 51 adds \"assumes the Route has exactly one upstream leg and no `composition` (proposed validation code: OQ-ai-llm-gateway-16)\". The owning document's Surface decoder section does not state this constraint, and OQ-ai-llm-gateway-16 option (a) does not list the code, although the OQ asks generally which AI registrations to add. The Configuration model allows several `upstreams` or `composition` on any Route. This is not a contradiction, but when the owning document is next revised it should add the constraint and the code to OQ-16 so that the two documents agree."
     },
     {
-      "section": "More information",
-      "suggestion": "\"Repository layout and conventions\" is named without a link. Style guide section 6 requires relative Markdown links, and sibling ADRs link [Banned imports](../engineering/02-repository-layout-and-conventions.md#banned-imports). Add the link. Also consider naming the target package, as the ADR-0004 and ADR-0011 rules do."
+      "section": "Decision outcome > Confirmation (Validation bullet)",
+      "suggestion": "The verifier WARN at line 103 ('Planned (M3) but has no matching item under the M3 section of docs/roadmap/01-roadmap-and-milestones.md') is not a FAIL. The roadmap's M3 section should list AI configuration validation (RZ-CFG-034) when the roadmap is next revised."
     },
     {
-      "section": "Decision drivers (Prompt Cache fidelity)",
-      "suggestion": "Add \"unless `cache.prompt.mode: disabled`\". The owning document's guarantee has this exception, and the Native edits row of this ADR removes markers under it."
+      "section": "Length",
+      "suggestion": "The body is exactly 1,500 words by the verifier's rule (front matter, fences and comments excluded), which is the adr_common maximum. Any future addition must be offset in the same revision, without removing text that resolved an earlier blocking finding."
     },
     {
-      "section": "Decision outcome table (Tokenizer row)",
-      "suggestion": "No per-dialect correction field exists in the Configuration model until OQ-ai-llm-gateway-2 closes (blocking for SM-10). State the interim M3 behavior, for example a correction of 1, or say that E depends on OQ-ai-llm-gateway-2, so the row does not read as a decided configuration input."
-    },
-    {
-      "section": "Front matter",
-      "suggestion": "related could add docs/architecture/12-performance-budgets-and-benchmarking.md, docs/architecture/10-observability.md and docs/engineering/03-testing-and-quality-strategy.md, which the body cites for PB-12, the metric name and every Confirmation mechanism."
-    },
-    {
-      "section": "Whole document (length)",
-      "suggestion": "The body is 1,448 words by the verifier's rule, against the 1,500 maximum. The fixes for L2-1 to L2-5 add about 90 words. Keep them, and make room by merging the first More information bullet, which repeats owning-document links the body already gives. Do not cut text that resolved earlier findings."
+      "section": "Acceptance criterion 6",
+      "suggestion": "docs/adr/README.md does not exist yet. When the ADR index is written, it must link ADR-0014."
     }
   ],
   "ac_results": [
     {
       "ac": "Front matter contains id, title, status, date, deciders and related, and status matches this manifest.",
       "pass": true,
-      "note": "All six keys are present. status: accepted matches the manifest, and the title matches the manifest title exactly."
+      "note": "All six keys are present. status: accepted and the title ('...OpenAI-compatible facade plus native passthrough, provider usage authoritative') match the manifest entry, and every related path exists."
     },
     {
       "ac": "H2 headings match adr_common.outline_h2 exactly and in order, and Decision outcome contains the H3 headings Consequences and Confirmation.",
       "pass": true,
-      "note": "The six H2 headings are exact and in order, both H3 headings are under Decision outcome, and the verifier reports no FAIL line for this file."
+      "note": "The six H2 headings are exact and in order, and Consequences and Confirmation are H3 headings under Decision outcome. The verifier reports no FAIL for this file."
     },
     {
       "ac": "Considered options lists at least two options including the chosen one, and each has pros and cons.",
       "pass": true,
-      "note": "Five options including the chosen one, each with Good and Bad bullets and research URLs from ai-gateways.md and krakend-parity.md. Characterizations of options 2 and 3 could be sharper (non-blocking)."
+      "note": "Five options are listed, including the chosen one, and each has Good and Bad bullets under Pros and cons. Every URL appears in a docs/_meta/research/ file."
     },
     {
       "ac": "Decision outcome states the chosen option as 'Chosen option: ..., because ...' and matches the foundation pack section 7 row for this ADR.",
-      "pass": true,
-      "note": "It uses the required form, the chosen name equals option 1, and it matches the pack section 7 AI surface row: façade plus native passthrough (Anthropic Messages, Bedrock, Gemini), provider usage authoritative, tokenizer only for estimates and the streaming guard, and 8.9 reservation and settlement."
+      "pass": false,
+      "note": "The 'Chosen option: \"...\", because ...' form and the section 7 AI surface row match. However, section 7 says 'Token Budget reservation and settlement per section 8.9', and the Token Budget row (line 57) releases R when no provider attempt ran, where pack 8.9 and the owning document charge all of R (L2-1)."
     },
     {
       "ac": "Confirmation names a concrete verification mechanism (test, lint rule, CI gate or review checklist item).",
       "pass": true,
-      "note": "It names the protocol conformance suite, the Token Budget property test, the SM-10 scale job, AI stream-parser fuzzing, RZ-CFG-034 validation and a review checklist item. Each exists in 03-testing-and-quality-strategy.md or 02-configuration-model.md. The Validation bullet lacks a milestone tag (L2-5)."
+      "note": "It names the protocol conformance suite, the Token Budget property test, the SM-10 scale job, fuzzing, RZ-CFG-034 validation (now tagged Planned (M3)) and a review checklist item. Each links to an existing anchor in 03-testing-and-quality-strategy.md or 02-configuration-model.md."
     },
     {
       "ac": "The ADR is linked from docs/adr/README.md and from its owning document.",
       "pass": false,
-      "note": "docs/architecture/06-ai-llm-gateway.md links the ADR in its Summary and Unified API sections. docs/adr/README.md does not exist yet, so the index half fails. That file is outside this ADR, so this is not a blocking item against it."
+      "note": "docs/architecture/06-ai-llm-gateway.md links the ADR. docs/adr/README.md does not exist yet, so the index half fails. That file is outside this ADR's scope, so this is not a blocking item against the ADR."
     }
   ],
   "foundation_amendments": [
-    "Pack section 8.9 'Overshoot bound' covers only input-estimate errors. The owning document and the testing strategy add (attempts - 1) x R per concurrent request, and hidden reasoning above C on gemini and ollama, with a 2-attempt cap on budgeted Routes. Amend 8.9 through OQ-ai-llm-gateway-15 so that the pack, ADR-0014 and SM-10 state one bound."
+    "Pack section 8.9: the Settlement row's 'When usage is missing (interrupted stream, no usage reported)' should state explicitly that a reservation followed by no provider attempt (guardrail block, RZ-AI-004, Semantic Cache hit) is charged all of R until OQ-ai-llm-gateway-15 decides otherwise.",
+    "Pack section 8.9 'Overshoot bound' still covers only input-estimate errors. It should add (attempts - 1) x R per concurrent request under the 2-attempt cap (OQ-ai-llm-gateway-15) and hidden reasoning above C on gemini and ollama (OQ-ai-llm-gateway-17), so that the pack, ADR-0014, the owning document and SM-10 state one bound."
   ]
 }
