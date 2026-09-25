@@ -17757,5 +17757,1031 @@
 }
 ],
 "foundation_amendments": []
+},
+"revise:deployment-topologies": {
+"addressed": [
+"L1-1",
+"L1-2",
+"L1-3",
+"L1-4",
+"L1-5",
+"L1-6",
+"L1-7",
+"L1-8",
+"L1-9",
+"L2-1",
+"L2-2",
+"L2-3",
+"L2-4",
+"L2-5",
+"L2-6",
+"L3-1",
+"L3-2",
+"L3-3",
+"L3-4",
+"L3-5",
+"L4X-1",
+"L4X-2",
+"L4X-3",
+"L4X-4",
+"L4X-5",
+"L4X-6",
+"L4X-7",
+"L4X-8",
+"L4X-9",
+"L4X-10",
+"L4X-11",
+"L4X-12",
+"L4X-13"
+],
+"disputed": []
+},
+"review:adr-0012:L2": {
+"lens": "L2",
+"verdict": "revise",
+"score": 6,
+"blocking": [
+{
+"id": "L2-1",
+"section": "Decision outcome (Limits row, line 51); Figure 1 (node lim, line 66)",
+"issue": "The Limits row applies complexity to every operation. That contradicts the owning document, where complexity applies in federation mode only and pass-through uses a field-count limit. It also contradicts this ADR's own Context (line 19).",
+"evidence": "Line 51: \"| Limits | Depth, alias and complexity checks run per normalized operation before any subgraph call, with the Multi-protocol defaults; settings are OQ-multi-protocol-5 |\". Line 19: \"pass-through, which forwards each operation to one `graphql` Upstream under depth, alias and field-count limits\". 07-multi-protocol.md, Depth, complexity and persisted queries: \"| Complexity | ... federation mode only | 5,000 points (target) |\"; Engine: \"Pass-through mode ... enforcing syntax, depth, alias and field-count limits\".",
+"fix": "Replace the rule cell with: \"Depth and alias limits in both modes, field count in pass-through mode and complexity in federation mode only, run per operation after fragment expansion and before any subgraph call, with the Multi-protocol defaults; settings are OQ-multi-protocol-5\". Relabel Figure 1 node `lim` as \"Ruralz depth, alias, field-count and complexity checks\"."
+},
+{
+"id": "L2-2",
+"section": "Decision drivers (Runtime configuration, line 27); Decision outcome (Federation row, line 50)",
+"issue": "The ADR treats the GraphQL schema and supergraph as Revision content and states the supergraph source as a settled rule. `02-configuration-model.md` defines no schema, supergraph or subgraph field: GraphQL appears only as `Route.spec.match.graphql` (`operationType`, `operationName`) and `Upstream.spec.protocol: graphql`. OQ-multi-protocol-4 is still open and Blocking for federation, with option (c) only proposed. The owning document says federation \"would\" plan against an external supergraph. An accepted ADR that writes the proposed option as a rule, and implies Revision content that the Configuration model does not define, goes further than the binding sources allow.",
+"evidence": "Line 27: \"**Runtime configuration**: a Revision, not a rebuilt binary, carries schemas and Routes, and Hot Reload activates it (P5).\" Line 50: \"| Federation | Plans against a supergraph SDL composed outside Ruralz and pinned by digest, since v2 has no composition package (OQ-multi-protocol-4) |\". Owning doc, Engine: \"Federation mode would plan against a supergraph SDL composed outside Ruralz and pinned by digest (OQ-multi-protocol-4)\". OQ-multi-protocol-4 options: \"(a) A `federation` composition mode; (b) `Route.spec.graphql` fields; (c) An external supergraph pinned by digest (proposed); (d) Composition in Ruralz Control\".",
+"fix": "Line 27: \"**Runtime configuration**: a Revision, not a rebuilt binary, carries Routes and, once OQ-multi-protocol-4 decides how they are declared, subgraph and supergraph schemas; Hot Reload activates it (P5).\" Line 50: \"Would plan against a supergraph SDL composed outside Ruralz and pinned by digest, the proposed option (c) of OQ-multi-protocol-4, since v2 has no composition package; the declaring field is not yet in the Configuration model\". Add to More information a Proposed amendment that OQ-multi-protocol-4 also covers the pass-through schema source, if pass-through validates operations against one. Do not name a field."
+},
+{
+"id": "L2-3",
+"section": "Consequences (Bad, composition, line 88)",
+"issue": "The ADR accepts that a supergraph could pass `ruralz bundle validate` and still fail as a Node NACK. This breaks the Configuration model's validation contract. Validation and diff semantics guarantees that a Bundle passing `ruralz bundle validate` passes the offline stages of Node activation with identical diagnostics, and it lists exactly five checks that can still fail afterward (RZ-CFG-028, -033, -024, -026, -027). A planner-only rejection would be a sixth. The tech stack Dependency graph also states that GraphQL document errors surface in `ruralz bundle validate`, not as Node NACKs. The ADR's own driver (line 29) promises the same errors in all three binaries.",
+"evidence": "Line 88: \"a supergraph that only the planner rejects may surface as a Node NACK rather than a `ruralz bundle validate` error.\" 02-configuration-model.md: \"a Bundle that passes `ruralz bundle validate` in CI passes the offline stages of Ruralz Control ingest and Node activation with identical diagnostics ... After a green offline run, five checks can still fail\". Tech stack: \"such errors surface in `ruralz bundle validate`, not as Node NACKs (size cost: OQ-tech-stack-and-libraries-22)\". Line 29: \"`ruralz`, `ruralz-control` and `ruralzd` report the same GraphQL errors\".",
+"fix": "Keep the contract. Let `ruralz-control` and `ruralz` also link `engine/plan` for supergraph planning checks only (never `engine/resolve`, datasources or `subscription`), update the ruralz-control/ruralz row and the Confirmation checklist item to match, and replace the Bad clause with \"and planning checks add `engine/plan` to Ruralz Control and the CLI (size: OQ-tech-stack-and-libraries-22)\". If that is rejected, add a Proposed amendment asking the Configuration model to register a sixth post-offline failure with its RZ-CFG code through an Open question, and mark the gap as pending that amendment instead of accepting it silently."
+},
+{
+"id": "L2-4",
+"section": "Decision outcome, Figure 1 (lines 55 to 78)",
+"issue": "Figure 1 contradicts the Phase mapping in the owning document in three ways. (1) The whole Filter Chain is one box before parsing and normalization, but the owning document runs `onRequestBody` on the normalized operation and `onUpstreamRequest` per subgraph fetch, after planning. (2) Subscriptions go `wrap --> sub --> ds` and skip normalization, the limits and `engine/plan`, but the owning document requires each `subscribe` to run `onRequestBody`, the checks and per-subgraph `onUpstreamRequest`. (3) No upstream-leg Phase appears between `ds` and `up`, although the Transport row and Good consequence 2 depend on it.",
+"evidence": "Line 75: `gw --> fc --> wrap --> norm --> lim --> plan --> res --> ds --> up`; line 76: `wrap --> sub --> ds`. Owning doc Figure 2: \"onRequestHeaders, then onRequestBody on the normalized operation\"; Subscriptions: \"each `subscribe` is proposed to run `onRequestBody`, the checks below and per-subgraph `onUpstreamRequest`\"; Filter Chain applicability: `onRequestBody` \"Normalized operation\", `onUpstreamRequest` \"Per subgraph fetch\" and \"Per subgraph subscription\".",
+"fix": "Redraw with nodes such as: `fcreq[\"onRequestHeaders\"]` before `norm`; `fcbody[\"onRequestBody on the normalized operation\"]` between `norm` and `lim`; `leg[\"upstream leg: onUpstreamRequest per subgraph fetch or subscription\"]` between `ds` and `up`. Route subscriptions as `sub --> norm` (per `subscribe`, OQ-multi-protocol-17), so they share `norm`, `fcbody`, `lim` and `plan`. Keep the diagram at or under 25 nodes and update the caption."
+},
+{
+"id": "L2-5",
+"section": "Decision outcome (Advisory floor row, line 53); Confirmation (Advisory floor, line 97)",
+"issue": "The milestone tag conflicts with the roadmap and with when the module arrives. The explicit gorilla/websocket `require` is tagged Planned (M0), but graphql-go-tools, the only module that brings gorilla/websocket in, lands with GraphQL at M3 (the roadmap M3 row: \"GraphQL module, limits and transport in `ruralzd`, `ruralz-control` and `ruralz`\"). The verifier flags the line.",
+"evidence": "Line 53: \"| Advisory floor | Explicit `require` of `gorilla/websocket` v1.5.3 over the v1.5.1 pin ... | Planned (M0) |\". Line 97: \"**Advisory floor**, Planned (M0): the explicit `require` holds `gorilla/websocket` at v1.5.3 or newer\". Verifier: \"WARN milestones docs/adr/0012-graphql-engine-graphql-go-tools.md:97 'Advisory floor, : the explicit require' is Planned (M0) but has no matching item under the M0 section of docs/roadmap/01-roadmap-and-milestones.md\".",
+"fix": "Retag both as Planned (M3), \"in the pull request that first adds graphql-go-tools to `go.mod`\". Keep `govulncheck` on every pull request, Planned (M0), per Update policy, as the mechanism that enforces the floor once the module is linked."
+},
+{
+"id": "L2-6",
+"section": "Confirmation (Dependency admission, line 95)",
+"issue": "The ADR misstates the tech stack Admission mechanism. Admission (tech stack Figure 3) checks G1, G2, G3, govulncheck and a catalog row. It has no step that rejects modules listed in Alternatives not chosen, whose \"Never\" is a value in the \"Revisit if\" column, not a gate. gqlgen, bramble and graphql-go are MIT and pure Go, so Admission as written would admit them. The confirmation mechanism the ADR names does not exist.",
+"evidence": "Line 95: \"gqlgen, bramble and graphql-go are listed \\\"Never\\\" under [Alternatives not chosen](...), so [Admission](...) rejects them.\" Tech stack Alternatives not chosen header: \"| Alternative | Concern | Why not chosen | Revisit if | Source |\" with \"Never\" in Revisit if. Admission: \"A new direct dependency MUST get a catalog row in the same pull request.\"",
+"fix": "Rewrite as: \"**Dependency admission**, Planned (M0): the GraphQL catalog row cites this ADR, and a depguard banned-import rule for `github.com/99designs/gqlgen`, `github.com/movio/bramble` and `github.com/graphql-go/graphql` (Proposed amendment to Repository layout and conventions) fails any pull request that imports them.\" Add that rule to the depguard amendment in More information."
+},
+{
+"id": "L2-7",
+"section": "Decision drivers (line 28); Consequences (Good, line 84); Confirmation (line 96)",
+"issue": "The driver claims gates G1 to G3, and the tech stack requires every dependency to pass all three. The ADR assesses G1 and G2 but says nothing about G3, the crypto denylist behind the FIPS build (`GOFIPS140`, pack section 1). No Confirmation item covers it, even though graphql-go-tools pulls in two WebSocket libraries and connect.",
+"evidence": "Line 28: \"**Gates G1 to G3** and criteria S1, S2, S6 and S7\". Line 84: \"so it passes G2, S1 and S2; G1 awaits the CI cross-build.\" Line 96: \"**G1 cross-build and license gate**, Planned (M0): confirm pure Go and MIT over the linked package set.\" Tech stack Selection criteria: \"| G3 | Cryptographic primitives come only from Go `crypto/...` ... | `go list -deps` crypto denylist in CI, Planned (M0); FIPS CI job, Planned (M5) |\".",
+"fix": "End line 84 with \"; G1 and G3 await the CI cross-build and crypto denylist\". Change line 96 to \"**G1 cross-build, G3 crypto denylist and license gate**, Planned (M0), plus the FIPS CI job, Planned (M5): confirm pure Go, Go-module-only cryptography and MIT over the linked package set including graphql-go-tools\"."
+}
+],
+"non_blocking": [
+{
+"section": "Consequences (Bad, gorilla/websocket, line 87)",
+"suggestion": "OQ-tech-stack-and-libraries-6 asks only about \"Two JOSE stacks (jwx, go-jose via go-oidc)\". Tech stack Selection criteria attaches the gorilla/websocket S6 exception to it, but the OQ row does not cover it. Link Selection criteria for the accepted exception, and add a Proposed amendment asking the tech stack to widen OQ-6 or open a WebSocket-specific OQ."
+},
+{
+"section": "Decision outcome (ruralz-control, ruralz row, line 49)",
+"suggestion": "The row matches the tech stack catalog (\"import only `ast` and `astvalidation`\"). It conflicts with tech stack Figure 2 (\"graphql-go-tools parser and validation\") and with research, where lexer and parser are separate packages from `ast` (see L1-1). Add a Proposed amendment so the tech stack aligns its catalog row with its Figure 2, and use the same wording in this ADR."
+},
+{
+"section": "Decision drivers (Bounded memory, line 30)",
+"suggestion": "The owning document's Limits row also bounds subgraph bodies \"within `maxResponseBodyBytes`\" together. Name both Gateway `limits` fields, `maxBufferedBytes` and `maxResponseBodyBytes`, so the driver matches the owning document."
+},
+{
+"section": "Context and problem statement (line 21)",
+"suggestion": "Research records only that Kong's GraphQL Rate Limiting Advanced page has \"no federation mention\". Rephrase \"Kong documents only an Enterprise GraphQL rate-limiting plugin\" to \"Kong's researched GraphQL plugin is the Enterprise GraphQL Rate Limiting Advanced, with no federation mention\"."
+},
+{
+"section": "Considered options (option 6, line 39)",
+"suggestion": "krakend-parity.md lists GraphQL as available in both KrakenD editions, without federation. \"GraphQL forwarded as plain HTTP ... as in KrakenD\" misdescribes KrakenD's GraphQL support. Write \"with no federation, which KrakenD lacks in either edition\"."
+},
+{
+"section": "More information (line 137)",
+"suggestion": "ADR-0009 never mentions GraphQL. Describe it as \"(the `net/http` and quic-go listeners)\" rather than \"(the listeners that carry GraphQL)\"."
+},
+{
+"section": "Length",
+"suggestion": "The body is about 1,310 words by the manifest word_count_rule, against the 1,500 maximum. Pay for the fixes by merging the option 1 pros and cons, which repeat Consequences, and do not cut the Rules table."
+}
+],
+"ac_results": [
+{
+"ac": "Front matter contains id, title, status, date, deciders and related, and status matches this manifest.",
+"pass": true,
+"note": "All six keys are present. id ADR-0012, the title and status: accepted match the manifest adrs[] entry."
+},
+{
+"ac": "H2 headings match adr_common.outline_h2 exactly and in order, and Decision outcome contains the H3 headings Consequences and Confirmation.",
+"pass": true,
+"note": "The six H2 headings are exact and in order, and both H3 headings are under Decision outcome. The verifier reports no FAIL, only a milestones WARN at line 97."
+},
+{
+"ac": "Considered options lists at least two options including the chosen one, and each has pros and cons.",
+"pass": true,
+"note": "Six options, including the chosen one. Each has Good and Bad bullets under Pros and cons, and every cited URL is in go-libraries-protocols.md, competitors-kong-tyk-apisix.md or krakend-parity.md."
+},
+{
+"ac": "Decision outcome states the chosen option as 'Chosen option: ..., because ...' and matches the foundation pack section 7 row for this ADR.",
+"pass": true,
+"note": "It quotes the section 7 GraphQL decision verbatim: \"`github.com/wundergraph/graphql-go-tools/v2` engine (federation versions 1 and 2, subscriptions)\"."
+},
+{
+"ac": "Confirmation names a concrete verification mechanism (test, lint rule, CI gate or review checklist item).",
+"pass": true,
+"note": "It names the protocol conformance suite, govulncheck, the CI size check and a review checklist item. The Dependency admission mechanism is misstated (L2-6), G3 is missing (L2-7), and the advisory floor milestone is wrong (L2-5)."
+},
+{
+"ac": "The ADR is linked from docs/adr/README.md and from its owning document.",
+"pass": false,
+"note": "docs/architecture/07-multi-protocol.md links it in the Engine section. docs/adr/README.md does not exist yet, so the index half fails. That file is outside this ADR, so this is not raised as a blocking item against it."
+}
+],
+"foundation_amendments": []
+},
+"revise:roadmap-and-milestones": {
+"addressed": [
+"L1-1",
+"L1-2",
+"L1-3",
+"L1-4",
+"L1-5",
+"L1-6",
+"L1-7",
+"L2-1",
+"L2-2",
+"L2-3",
+"L2-4",
+"L2-5",
+"L2-6",
+"L2-7",
+"L3-2",
+"L3-3",
+"L3-4",
+"L3-5",
+"L3-6",
+"L3-7"
+],
+"disputed": [
+{
+"id": "L3-1",
+"reason": "Partly applied, one part disputed. Applied: a new H3 'Reading the scope tables' under Scope and non-goals that links each code family to its owner (SM/P, PB/RH-1/S/O/C/R/G/F scenarios, CE, TB, topology T1-T10, threat T13/T20, objective O8, F-n, gate G1-G3). Colliding codes are now qualified ('gate G1' vs 'scenarios ... G1', 'topology T2' vs 'threats T13 and T20', 'objective O8'). CI stages are listed with no gaps: M0 has stages 1 to 7, M1 has 9 to 13, and stage 8 is in M2. Personas moved from item lists to one 'Serves:' line per milestone. Every cited example was rewritten: the Multi-protocol 'Anything else' row, CLI verbs without `--env`, hostile-input and upstream test suites, TLS to the IdP JWKS endpoint (TB-10), QUIC handshakes in `ruralz_listener_tls_handshake_duration_seconds`, WebSocket session memory of 96 KiB or less, the FIPS build emitting the same OpenTelemetry signals (objective O8), and the fixed Route rule. Disputed: expanding every remaining compact keyword item into a full self-explaining phrase, for example the Control Store 'interface, consensus, snapshots, transport...' and Control Stream 'service, delivery... trust, evolution' lists. The binding manifest maximum is 3,750 words, and the body is now 3,749. When I tested longer phrasing of these items, the verify-docs milestone coverage WARNs rose from 65 to over 120, because that check matches the owning documents' exact short labels. The short items were kept so that acceptance criterion 1 still holds (milestone WARNs fell from 65 to 51) within the word limit."
+}
+]
+},
+"rereview:deployment-topologies:L1": {
+"lens": "L1 feasibility-skeptic",
+"verdict": "revise",
+"score": 7,
+"blocking": [
+{
+"id": "L1-10",
+"section": "Topology catalog (T4 chart object table, `ruralz-control` StatefulSet row) and Bootstrap and enrollment (Control-mode bootstrap step 2)",
+"issue": "This regression comes from the L1-1 fix. The chart keys bootstrap on pod ordinal, not on install state. Per Control plane and GitOps, `ruralz control serve` on an empty Control Store generates new CAs and leads. So if ordinal 0 ever restarts on an empty volume after install, it bootstraps a second, independent single-voter deployment with a new trust root. That happens when an operator deletes the PVC of a zonal volume stuck in a lost zone (the pod is otherwise unschedulable under `DoNotSchedule` spread), or after storage loss. Ordinals 1 and 2 still hold quorum, but the 8090 and 8091 Services now load-balance across two deployments: split brain after install. Operators and CI writing through the 8090 Service can land on the rogue leader. The old ordinal-0 voter also stays in the Raft configuration. For ordinals 1 and 2, the doc does not say that `join` runs only when the volume holds no peer certificate. Re-running `join` on every restart would need a fresh one-time token each time, and the bootstrap Job's credential is one-time. So a replaced replica can never rejoin unattended.",
+"evidence": "\"Only ordinal 0 runs `ruralz control serve` on an empty Control Store; ordinals 1 and 2 run `ruralz control join`, then `serve`\" and \"2. **First replica.** `ruralz control serve` on an empty Control Store creates or loads the CAs and leads ... No other replica runs `serve` on an empty store.\" Control plane doc: \"`ruralz control serve` on an empty Control Store generates the CAs or loads supplied ones\". Chart row: \"`topologySpreadConstraints` on the zone label for every pod, `maxSkew: 1`, `whenUnsatisfiable: DoNotSchedule`\".",
+"fix": "Key bootstrap on install state, not on ordinal. A pod runs `serve` on an empty store only on first install, for example while a chart-held bootstrap marker is absent and no peer answers on the headless 8092 Service. Otherwise any pod with an empty volume, ordinal 0 included, stays not ready until an `admin` removes its old voter and it runs `join` with a new token. State that `join` runs only when the volume holds no peer certificate. Add an Open question for replacing a replica after volume loss: (a) a chart Job that removes the stale voter and mints a new join token under a standing credential (proposed), or (b) a documented manual step. Link it to High availability and disaster recovery."
+},
+{
+"id": "L1-11",
+"section": "Sizing defaults (Node container row and first-order example) and Topology catalog (T4 HorizontalPodAutoscaler row)",
+"issue": "The L1-4 fix sized the container for idle TLS connections plus the default budgets (about 3.2 GiB). The dependency's worst case at the same default, non-configurable ceilings is about 19 GiB plus snapshots, sized for a 32 GiB Node. Each connection can hold about 592 KiB before a handler runs, and each in-flight unit about 320 KiB. The connection ceiling is fixed at 20,000 (OQ-data-plane-1 option (a) is current) and the Node gives no way to lower it. So a 4 GiB container with `GOMEMLIMIT` at about 3.6 GiB is OOM-killed by about 6,000 connections that hold large header blocks and HTTP/2 receive buffers. Because the balancer spreads the same pattern to every Node, the pods crash-loop together and the Cluster loses its capacity. The HPA connection threshold of 10,000 per Node (about 5.6 GiB of per-connection memory) scales out only after the container has already passed its memory. That is unbounded memory against the container limit, and it contradicts Performance budgets.",
+"evidence": "\"Node container | 4 vCPU (target) and 4 GiB (hypothesis): Performance budgets' 2.2 GiB (target) excludes Plugins and full state tables\" and \"→ 4 GiB container; Performance budgets' informational run: 2.5 GiB (target)\" and \"`minReplicas` holds the headroom and, without an adapter, peak connections / 10,000 (target)\". Performance doc: \"Worst-case Node | About 19 GiB plus snapshots, fitting 32 GiB (hypothesis)\". Data plane: \"Per-connection memory | About 592 KiB before a handler runs (hypothesis)\" and \"about 19 GiB plus snapshots, fitting a 32 GiB Node (hypothesis) ..., else the connection ceiling is lowered first\".",
+"fix": "In the Node container row, state that 4 GiB (hypothesis) covers idle TLS connections plus the default buffered-bytes and state-table budgets only. The default ceilings' worst case is about 19 GiB plus snapshots, sized for 32 GiB (hypothesis, Performance budgets). Give two options: (a) size Nodes for the worst case, or (b) keep 4 GiB and cap connections per Node at the L4 balancer so that connections × 592 KiB plus in-flight units × 320 KiB plus 1.24 GiB of budgets stays under `GOMEMLIMIT`, roughly 2,500 connections (hypothesis), with the HPA connection threshold at half that cap. Add an Open question asking Data plane for a configurable connection ceiling (OQ-data-plane-1 (b) or (c)). Keep OQ-deployment-topologies-8 for measured values."
+},
+{
+"id": "L1-12",
+"section": "Topology catalog (T4 Bootstrap Job and RBAC rows) and Open questions (OQ-deployment-topologies-11, -12)",
+"issue": "The two proposed options that make the chart's bootstrap unattended do not fit together, so the L1-1 fix cannot be built as proposed. OQ-11 (a) has the first `serve` write a one-time bootstrap credential. That credential lands inside ordinal 0's container or volume. OQ-12 (a) has the bootstrap Job read an `admin` credential from a Kubernetes Secret. Nothing moves the credential from ordinal 0 into that Secret: the RBAC row gives `ruralz-control` no right to create or update Secrets, and Helm cannot learn a value generated at runtime. Under the proposed options, ordinals 1 and 2 wait for join tokens forever.",
+"evidence": "\"Bootstrap Job (proposed) | Mints their join tokens at `/api/v1/replicas` with a one-time `admin` credential from a Secret (OQ-deployment-topologies-12)\"; \"OQ-deployment-topologies-11 | How is the first `admin` and `security-admin` created? | (a) The first `ruralz control serve` writes a one-time bootstrap credential (proposed); (b) process configuration\"; RBAC row: \"`ruralz-control`: `list` and `watch` on `ruralz.io` CRDs in bound namespaces, reads of cluster-scoped `Environment` and `Cluster` CRDs, cluster-scoped CRD status updates. None reads Secrets cluster-wide\".",
+"fix": "Close the path for the chart. One way: the chart generates the one-time bootstrap credential into a Secret, and ordinal 0 imports it through process configuration at its first `serve` (OQ-11 option (b) for T4). The Job reads the same Secret, and the credential is invalidated after its first use or once both joins finish. The other way: grant `ruralz-control` `create` on one named Secret in its own namespace, and add that to the RBAC row. Record which option OQ-11 proposes per topology."
+}
+],
+"non_blocking": [
+{
+"section": "Whole document (length)",
+"suggestion": "The body is 4,499 words under the manifest's word_count_rule, against a maximum of 4,500. The fixes above need room made by tightening prose elsewhere, for example by merging the T9 relay sentences or shortening the T10 bullets. Do not delete text that resolved L1-1 to L1-9 or earlier findings from other lenses."
+},
+{
+"section": "Topology catalog (T4 Node StatefulSet row)",
+"suggestion": "`RollingUpdate` with `maxUnavailable` on a StatefulSet depends on the MaxUnavailableStatefulSet feature, which is not GA on every supported Kubernetes version. Without it, updates replace one pod at a time and wait for Ready, so one Control-mode pod stuck not ready stalls a 30-pod upgrade. State the minimum Kubernetes version or the fallback."
+},
+{
+"section": "Sizing defaults (Nodes per Cluster row)",
+"suggestion": "\"At least three in at least two equal zones\" cannot hold, because three Nodes do not split into two equal zones. Write \"four in two equal zones, or three in three (target)\" to match RA-1."
+},
+{
+"section": "Sizing defaults (State Store shards row and example)",
+"suggestion": "Say why the per-shard planning load is 50% (the hot-key margin in Scalability) while the Cell ceiling of 1,000,000 calls/s uses 62.5% of 16 shards. At 50%, 16 shards give 800,000 calls/s, so the two figures disagree unless the difference is explained."
+},
+{
+"section": "Bootstrap and enrollment (step 4) and Figure 4",
+"suggestion": "In the chart, `ruralz control join --peer` targets the headless 8092 Service, which does not know the leader. State whether followers forward `Join` to the leader or the chart resolves the leader first. Add Helm edges to the ordinal 1 and 2 pods and to the bootstrap Job in Figure 4."
+}
+],
+"ac_results": [
+{
+"ac": "Topology catalog covers dev single binary, file mode, Cluster with Ruralz Control, Kubernetes (Helm, HPA, CRDs), VM with systemd, edge, per-team, multi-cluster, multi-region, and hybrid managed Ruralz Control with self-hosted Nodes.",
+"pass": true,
+"note": "T1 to T10 are all in the catalog table, which has 10 rows, with H3 detail for each."
+},
+{
+"ac": "Each topology states when to use it, components, failure domains, configuration delivery and scaling.",
+"pass": true,
+"note": "The catalog table has a column for each of the five, filled for every row."
+},
+{
+"ac": "Network and ports matches the foundation pack ports (8080, 8443 TCP and UDP, 9901, 8090, 8091).",
+"pass": true,
+"note": "The ports table lists 8080, 8443 TCP, 8443 UDP Planned (M3), 9901, 8090, 8091, 8092 and 9902, matching pack 8.4. The conversion webhook port is correctly left as OQ-deployment-topologies-13."
+},
+{
+"ac": "The Kubernetes stance matches ADR-0016 (Helm chart and CRDs mirroring kinds Planned (M2), Gateway API conformance deferred).",
+"pass": true,
+"note": "T4 states the Helm chart and CRDs mirroring the ten kinds as Planned (M2), with Gateway API conformance deferred. Only Ruralz Control reads CRDs."
+},
+{
+"ac": "The hybrid topology uses the same open source binaries with no feature gating.",
+"pass": true,
+"note": "T10's \"Same binaries (P1)\" bullet says there is no fork, patch, license key, feature gating or cloud-only hook."
+},
+{
+"ac": "Reference architectures presents three reference architectures as H3s.",
+"pass": true,
+"note": "RA-1, RA-2 and RA-3 are H3s."
+},
+{
+"ac": "verify-docs (--allow-missing --skip markdownlint) FAIL lines for this document",
+"pass": true,
+"note": "No FAIL lines. The WARN lines are for links to documents and ADRs not yet written, and for missing roadmap items for T10 (M2) and OQ-13 (M3)."
+}
+],
+"foundation_amendments": [
+"Pack 8.4: add a port or 8090 path for the Kubernetes CRD conversion webhook served by `ruralz-control` (OQ-deployment-topologies-13), required before a second CRD version is served, Planned (M3)."
+]
+},
+"rereview:deployment-topologies:L2": {
+"lens": "L2 foundation-auditor",
+"verdict": "revise",
+"score": 8,
+"blocking": [
+{
+"id": "L2-7",
+"section": "Reference architectures (RA-1)",
+"issue": "Regression from the L2-6 fix. The rewrite adds `--environments` to validate and build, but it drops 'to an OCI registry' from `ruralz bundle push` and gives push no flags. The CLI and API surface table makes `--env` required for push. Without `--oci REFERENCE`, push sends the source Bundle to Ruralz Control, and RA-1 has no Ruralz Control. Push is also a Bundle reader, so with no Ruralz Control it needs `--environments` for `--env` to resolve (Configuration model, Environment substitution). As written, the RA-1 publish step fails, so file-mode Nodes never get a signed Revision to pull.",
+"evidence": "Line 526: \"| Configuration | CI runs `ruralz bundle validate` and `ruralz bundle build --env prod`, both with `--environments control/environments.yaml`, then `ruralz bundle push` | Nodes poll with jitter, pull by digest, verify offline |\". 01-cli-and-api-surface.md line 107: \"| `ruralz bundle push` | Send source to Ruralz Control, or a signed Revision to OCI | `[DIR]`, `--env` (required), `--oci REFERENCE`, `--key PATH` (else Sigstore keyless) |\"; line 191: \"Without `--oci`, `ruralz bundle push` uploads the source Bundle with the CLI's digest; Ruralz Control re-renders it ... With `--oci` it publishes the rendered, Sigstore-signed Revision for file-mode Nodes\". Global flags: \"`--environments FILE` | Local `Environment` resources; without it, `--env` fetches from Ruralz Control\".",
+"fix": "Replace the Configuration cell (word-neutral; the body is at 4,499 of 4,500 words) with: \"CI: `ruralz bundle validate`, `ruralz bundle build` and `ruralz bundle push --oci REF`, each with `--env prod --environments control/environments.yaml`\". Optionally write `ruralz bundle push --oci` in the T2 OCI row of Configuration delivery per topology (line 468) too."
+}
+],
+"non_blocking": [
+{
+"section": "Topology catalog (T3)",
+"suggestion": "Line 128, \"During an outage (P3) Nodes keep serving and restarted ones boot Last-Known-Good\", cites the wrong principle. That behavior is P9 (Fail static). P3 covers only the request path. Change it to (P9), or to (P3, P9)."
+},
+{
+"section": "Reference architectures (RA-3)",
+"suggestion": "\"at about 20 per second per leader (hypothesis)\" for bulk re-enrollment has no source in any depends_on document. Control plane and GitOps gives 20 Snapshots/s per replica (hypothesis), not an Enroll rate. Either say it is derived from that figure, or move the rate into OQ-deployment-topologies-18."
+},
+{
+"section": "Topology catalog (T4 chart objects)",
+"suggestion": "The Node StatefulSet row relies on `RollingUpdate` with `maxUnavailable`. For StatefulSets, that field sits behind the Kubernetes MaxUnavailableStatefulSet feature gate. It is not generally available, and no research file backs it. Add a fallback: `maxUnavailable: 1` semantics, or a partitioned update. Or add the gate's status to OQ-deployment-topologies-1."
+},
+{
+"section": "Whole document",
+"suggestion": "The body is at 4,499 words by the verify-docs counter, against a 4,500 maximum. Any further fix must be word-neutral or shorter. Do not remove text that resolved earlier blocking findings (L1, L3, L4X and L2-1 to L2-6)."
+},
+{
+"section": "Whole document",
+"suggestion": "verify-docs reports only WARNs and no FAILs. Links to documents not yet written are broken (ADR-0015, ADR-0016, and operations 02, 03 and 04). Roadmap items are missing for T10 (M2) and OQ-deployment-topologies-13 (M3). Recheck both when those documents land."
+}
+],
+"ac_results": [
+{
+"ac": "Topology catalog covers dev single binary, file mode, Cluster of Nodes with Ruralz Control, Kubernetes (Helm, HPA, CRDs), VM with systemd, edge, per-team, multi-cluster, multi-region, and hybrid managed Ruralz Control with self-hosted Nodes.",
+"pass": true,
+"note": "Rows T1 to T10 of the catalog table cover all ten, and min_table_rows (10) passes."
+},
+{
+"ac": "Each topology states when to use it, components, failure domains, configuration delivery and scaling.",
+"pass": true,
+"note": "The catalog table has a column for each attribute, with no blank cells. The H3s T1 to T10 expand each row."
+},
+{
+"ac": "Network and ports matches the foundation pack ports (8080, 8443 TCP and UDP, 9901, 8090, 8091).",
+"pass": true,
+"note": "Each of 8080, 8443 TCP, 8443 UDP, 9901, 8090 and 8091 has its own row matching pack 8.4. 8092 now says 'unused with `postgres`', and it marks relays and token Join as pending OQ-control-plane-and-gitops-15 (L2-2 resolved). 9902 is included."
+},
+{
+"ac": "The Kubernetes stance matches ADR-0016 (Helm chart and CRDs mirroring kinds Planned (M2), Gateway API conformance deferred).",
+"pass": true,
+"note": "Line 174 matches pack 7: Helm chart and CRDs mirroring the ten kinds, Planned (M2); `ruralz.io/v1alpha1` differs only in group; Gateway API conformance deferred. Only Ruralz Control watches CRDs. The ADR-0016 file does not exist yet (WARN only)."
+},
+{
+"ac": "The hybrid topology uses the same open source binaries with no feature gating.",
+"pass": true,
+"note": "The T10 bullet 'Same binaries (P1)' names the public `ruralzd` and `ruralz-control` images, with no fork, patch, license key, feature gating or cloud-only hook. This matches pack 1 and pack 7."
+},
+{
+"ac": "Reference architectures presents three reference architectures as H3s.",
+"pass": true,
+"note": "RA-1, RA-2 and RA-3 are H3s, and min_h3 passes. RA-1's publish command is wrong (L2-7), but the criterion is about structure."
+}
+],
+"foundation_amendments": [
+"Pack 8.4: add the 8092 classes (relay feed, content fetch, status forwarding and token Join) as OQ-control-plane-and-gitops-15 proposes. The deployment topology port table, T9 and RA-3 mark them as pending on it.",
+"Pack 8.4: name the port and Service on which `ruralz-control` serves the Kubernetes CRD conversion webhook (OQ-deployment-topologies-13). 04-release-versioning-and-compatibility.md assumes this webhook, and pack 8.4 lists none today."
+]
+},
+"rereview:deployment-topologies:L3": {
+"lens": "L3 acceptance-audience",
+"verdict": "revise",
+"score": 8,
+"blocking": [
+{
+"id": "L3-6",
+"section": "Reference architectures (RA-1, Configuration row)",
+"issue": "An operator following RA-1 literally cannot publish a Revision. RA-1 is file mode with OCI pull and no Ruralz Control, but its CI step ends in a bare `ruralz bundle push`. The CLI reference makes `--env` required for push. Without `--oci REFERENCE`, push uploads the source Bundle to Ruralz Control, which RA-1 does not have. Push also does not list `--environments`, so `--env` would fetch the Environment from Ruralz Control. As written, the command fails (no `--env`) or targets the wrong system (no `--oci`). This regression was raised as L2-7 in the previous round and is still present. It also breaks the audience criterion: the reference architecture is the operator's recipe.",
+"evidence": "Doc RA-1: \"CI runs `ruralz bundle validate` and `ruralz bundle build --env prod`, both with `--environments control/environments.yaml`, then `ruralz bundle push`\". CLI and API surface command table: \"`ruralz bundle push` | Send source to Ruralz Control, or a signed Revision to OCI | `[DIR]`, `--env` (required), `--oci REFERENCE`, `--key PATH` (else Sigstore keyless)\"; line 191: \"Without `--oci`, `ruralz bundle push` uploads the source Bundle with the CLI's digest; Ruralz Control re-renders it\"; line 163: \"`--environments FILE` | Local `Environment` resources; without it, `--env` fetches from Ruralz Control (Planned (M2))\".",
+"fix": "Change the RA-1 cell to: 'then `ruralz bundle push --env prod --oci <registry>/<repository>`, signing with Sigstore'. In the same cell, or as a new Open question (for example OQ-deployment-topologies-20, owner cli-and-api-surface, Blocking: Yes, for Planned (M2) OCI pull), state that push needs `--environments` to render without Ruralz Control. Apply the same flags wherever T1 and T2 or Figure 2 imply a file-mode push. The body is at about 4,499 of 4,500 words, so offset the few added words by trimming text that resolved no finding. The Scope sentence '[T4] decides five questions...' and Figure 1's second caption clause are candidates."
+}
+],
+"non_blocking": [
+{
+"section": "Topology catalog (T4 chart object table, RBAC row)",
+"suggestion": "The `ruralz-control` grants cover only 'cluster-scoped CRD status updates'. The Configuration model gives every namespaced CRD object a 'Status subresource with conditions', so Ruralz Control also needs `update` or `patch` on `<kind>/status` in each bound namespace. Migration tooling rewrites stored objects before a version is dropped, Planned (M3), which needs `update` on the objects themselves plus `patch` on `customresourcedefinitions/status`. List those three grants explicitly so the chart's Roles are complete."
+},
+{
+"section": "Topology catalog (T4 `ruralz-control` StatefulSet row; Bootstrap Job row; OQ-deployment-topologies-11 and -12)",
+"suggestion": "Two L1 findings still stand for the operator. First (L1-10): 'Only ordinal 0 runs `ruralz control serve` on an empty Control Store' means that if ordinal 0 loses its volume, it bootstraps a second deployment with new CAs, and every pinned Node fails. Say that the chart's ordinal 0 serves on an empty store only at first install, for example when a Helm install-time marker is present, and otherwise joins. Second (L1-12): OQ-11 (a) writes the bootstrap credential inside ordinal 0, but OQ-12 (a) reads it from a Secret. Name how it reaches the Secret, or change one of the options."
+},
+{
+"section": "Topology catalog (T4 decision on OQ-system-overview-8) versus T7 and OQ-deployment-topologies-5",
+"suggestion": "The decision already gives each Environment its own primary source, 'a Git path, or one bound namespace'. In effect, one Ruralz Control then serves several Bundles. T7 says a shared Ruralz Control waits for OQ-deployment-topologies-5, and OQ-5 keeps option (b) 'no'. If OQ-5 closes as (b), it contradicts the decision. Narrow OQ-5 to what is still open, for example several Git repositories or credentials per deployment, or state that the decision implies OQ-5 (a)."
+},
+{
+"section": "Topology catalog (T4 decision item 1) and Configuration delivery per topology (T4 row)",
+"suggestion": "Tell the operator what 'shows as Git divergence Drift' means in practice. Per Control plane and GitOps, the result is a permanent Drift alert whose severity rises after one hour (target) and which is never reconciled, for every Cluster of a namespace-sourced Environment until OQ-deployment-topologies-19 closes. Also say what happens when a namespace-sourced Environment sets `promotion.from`: rejected at load, and with which code, or ignored. 'Never takes part' leaves this open."
+},
+{
+"section": "Topology catalog (Figure 4)",
+"suggestion": "Services 8090, 8091 and 8092 draw edges only to ordinal 0. T3 says every replica serves 8090 and 8091, and the headless 8092 Service addresses all peers. Point those Service edges at both replica nodes (c0 and cn) so operators do not read the 8091 Service as leader-only."
+},
+{
+"section": "Bootstrap and enrollment (step 1)",
+"suggestion": "Carry over the RFC 2119 levels from State Store availability. `noeviction` is a MUST where limit, Quota or Token Budget keys live. The step currently has no keyword and names only limit keys."
+},
+{
+"section": "Topology catalog (T9)",
+"suggestion": "Scalability's Topologies table also lists Active-standby (counters start empty) and File-mode Regions (each Region pulls one signed Revision from an OCI mirror). T9 and Figure 1 offer multi-region only under Control mode. One sentence pointing to both would close that gap."
+},
+{
+"section": "Whole document (length)",
+"suggestion": "The body is about 4,499 words against the 4,500 maximum (verify-docs rule: prose and table cells, no fences). Any further fix needs an offsetting trim of text that resolved no earlier finding. Keep the L3-1 to L3-5 fix sentences: bootstrap steps 3 and 4, the T10 Crossings bullet, the Figure 6 caption, decision items (1) to (3), the RBAC row and the Node StatefulSet volume."
+},
+{
+"section": "Topology catalog (Planned tags)",
+"suggestion": "verify-docs warns that T10 Planned (M2) and OQ-deployment-topologies-13 Planned (M3) have no matching roadmap item. Ask the roadmap owner to add the hybrid topology under M2."
+}
+],
+"ac_results": [
+{
+"ac": "Topology catalog covers dev single binary, file mode, Cluster of Nodes with Ruralz Control, Kubernetes (Helm, HPA, CRDs), VM with systemd, edge, per-team, multi-cluster, multi-region, and hybrid managed Ruralz Control with self-hosted Nodes.",
+"pass": true,
+"note": "Rows T1 to T10 map one to one onto the ten required topologies, and each has an H3 treatment. min_table_rows 10 passes."
+},
+{
+"ac": "Each topology states when to use it, components, failure domains, configuration delivery and scaling.",
+"pass": true,
+"note": "All five columns are filled for all ten rows. The earlier weak cells are fixed: T7 Scaling now reads 'Clusters per team; voters too with a Ruralz Control each', and T10 Failure domain names management and traffic domains. Configuration delivery per topology now has a T6 Control mode row, and T7 is covered by the 'T3, T5, T7 to T10' row."
+},
+{
+"ac": "Network and ports matches the foundation pack ports (8080, 8443 TCP and UDP, 9901, 8090, 8091).",
+"pass": true,
+"note": "8080, 8443 TCP, 8443 UDP (Planned (M3), now with Consumer credentials), 9901, 8090, 8091, 8092 and 9902 match pack 8.4 processes and authentication. 8090 adds HMAC for forge webhooks, per Control plane and GitOps. The flow table now lists write-back pushes and CRD status updates."
+},
+{
+"ac": "The Kubernetes stance matches ADR-0016 (Helm chart and CRDs mirroring kinds Planned (M2), Gateway API conformance deferred).",
+"pass": true,
+"note": "T4 states the chart `oci://ghcr.io/ravindu-rev/charts/ruralz` and the CRDs mirroring the ten kinds, Planned (M2), with Gateway API conformance deferred (OQ-vision-and-positioning-4: beyond M5). This matches pack 7, the Configuration model's Kubernetes mapping and Release artifacts. Only Ruralz Control watches CRDs (OQ-configuration-model-2 (a))."
+},
+{
+"ac": "The hybrid topology uses the same open source binaries with no feature gating.",
+"pass": true,
+"note": "The T10 'Same binaries (P1)' bullet covers the public `ruralzd` and `ruralz-control` images and rules out a fork, patch, license key, feature gating or cloud-only hook. One tenant per deployment matches pack 1 and Vision's Managed cloud rules."
+},
+{
+"ac": "Reference architectures presents three reference architectures as H3s.",
+"pass": true,
+"note": "RA-1, RA-2 and RA-3 are H3s, each with a component table and failure behavior, so min_h3 3 passes. RA-1's push command is wrong (L3-6)."
+},
+{
+"ac": "H2 outline equals mandatory first two + outline_h2 + Open questions, exactly and in order.",
+"pass": true,
+"note": "The H2s are Summary, Scope and non-goals, Topology catalog, Network and ports, Bootstrap and enrollment, Configuration delivery per topology, Sizing defaults, Reference architectures, Open questions. This matches exactly."
+},
+{
+"ac": "Every required Mermaid diagram is present, captioned, and within 25 nodes.",
+"pass": true,
+"note": "Five required flowcharts are present: Figure 2 (dev single binary and file mode), Figure 3 (Cluster with Ruralz Control), Figure 4 (Kubernetes with Helm, HPA and CRDs), Figure 5 (multi-region Cells) and Figure 6 (hybrid, with all crossings drawn). Each has an italic caption, and the largest, Figure 4, has 19 nodes. Figures 1 and 7 are extras; Figure 7 now includes the first-admin and `serve` steps."
+},
+{
+"ac": "Length within manifest band 1500-4500 words; Summary 120 words or fewer.",
+"pass": true,
+"note": "The body is about 4,499 words by the verify-docs rule (no length FAIL), which leaves no headroom (see non-blocking). The Summary has 64 words."
+},
+{
+"ac": "Every performance or scale number carries (target) or (hypothesis).",
+"pass": true,
+"note": "Every figure is tagged, including the T6 timing block, the Enroll lockout and CE-9 rate, relay and replica formulas, and the worked sizing block. Untagged numbers are counts or configuration values only."
+},
+{
+"ac": "verify-docs (--allow-missing --skip markdownlint) reports no FAIL for this document; required_terms present; no forbidden aliases.",
+"pass": true,
+"note": "The run gives only WARN lines: nine links to ADR and operations files that do not exist yet, and two milestone lines with no roadmap match. There are no FAIL lines. All required terms are present: Node, Cluster, Environment, Region, Cell, Ruralz Gateway, Ruralz Control, Control Stream, Bundle, State Store, 8080, 8443, 9901, 8090, 8091, ADR-0016 and Planned (M2)."
+},
+{
+"ac": "The declared audience (operators, architects) can act on the document without reading its sources.",
+"pass": false,
+"note": "All five earlier gaps are closed. Control-mode bootstrap now runs join, then serve, with the first-admin OQ-11. T10 lists every crossing and its credentials. The namespace-source rules are stated. The Node volume is persistent. RBAC lists both principals. One gap remains: RA-1's CI command `ruralz bundle push` lacks `--oci` and `--env`, so it targets Ruralz Control, which RA-1 does not have (L3-6)."
+}
+],
+"foundation_amendments": []
+},
+"rereview:deployment-topologies:L4X": {
+"lens": "L4X",
+"verdict": "revise",
+"score": 7,
+"blocking": [
+{
+"id": "L4X-14",
+"section": "Topology catalog (T4 HorizontalPodAutoscaler row) and Reference architectures (RA-2 Nodes row)",
+"issue": "This is a regression from the L4X-5 fix. Per-Node ceilings of at most `requests` / `maxReplicas` apply to healthy admission, not only to fail-open. Pack 8.8 and Traffic management run every locally admitted request through the local bucket at the per-Node ceiling first, and a request the bucket denies gets a 429 without ever reaching GCRA. At RA-2's minimum of 6 pods, the Cell therefore admits at most 6 x `requests` / 30 = 20% of every declared limit while the State Store is healthy. A client pinned to one Node through a long-lived HTTP/2 connection gets 1/30 of its limit. A small limit such as 10 per `1s` falls below one token per window per Node (0.33). The document states the fail-open bound it avoids (10 x `requests`) but not the under-admission it causes, which is an accuracy bound with no number.",
+"evidence": "T4 HPA row: \"Control-mode Clusters SHOULD declare per-Node ceilings of at most `requests` / `maxReplicas` (target; OQ-traffic-management-and-resilience-1)\". RA-2: \"| Nodes | HorizontalPodAutoscaler, 6 to 30 pods, at least two per zone (target) | Per-Node ceilings at most `requests` / 30 (target), else fail-open admits up to 10 x `requests` ...\". Pack 8.8: \"Requests the local bucket denies never reach the State Store\". Traffic management, Decision path step 4: \"Each `limits[]` entry has a local token bucket at its per-Node ceiling; all must hold a token, else 429 `RZ-RL-001`\". Traffic management, Per-Node ceiling: the derived formula has a floor, \"max(10, ceil(2 x `requests` / N_published))\", because \"the floor serves pinned clients\". A declared requests / N_max ceiling has no floor.",
+"fix": "Next to both rows, state the healthy bound: \"with a declared ceiling c, a healthy Cell admits at most min(`requests`, N_serving x c) per window, so c = `requests` / `maxReplicas` admits `minReplicas` / `maxReplicas` of `requests` at minimum scale (20% at 6 of 30, target), and a client pinned to one Node gets c\". Make the trade-off explicit per limit: pick c between `requests` / N_max (fail-open at most `requests`, healthy N_min / N_max) and 2 x `requests` / N_min (healthy exact, fail-open up to 2 x N_max / N_min x `requests`). Recommend declared ceilings only where that under-admission is acceptable, or a narrower HPA range (min / max of at least 0.5) for Clusters with strict limits. Never declare c below one token per window. Add an Open question (owner traffic-management-and-resilience, linked to OQ-traffic-management-and-resilience-1 and -19) on a declared cap that bounds the derived ceiling, min(derived, cap), rather than replacing it."
+},
+{
+"id": "L4X-15",
+"section": "Reference architectures (RA-2 State Store row)",
+"issue": "RA-2 autoscales Nodes from 6 to 30 but provisions the State Store with no shard count, and the wording implies one primary. It also never bounds `maxReplicas` by State Store capacity. Using the document's own per-Node figure and one GCRA per request (the Sizing example), 6 Nodes at the threshold already offer about 101,760 calls/s. That exceeds the 50,000 calls/s GCRA margin of one shard and matches its full capacity of about 100,000 (hypothesis). At 30 Nodes the load is about 509,000 calls/s. At 10x load the HPA adds Nodes while the single shard saturates, the breakers open, and every Rate Limit in the Cell fails open. The HPA cannot see this bottleneck, because Scalability makes State Store saturation a Cell sizing signal, not an autoscaling signal.",
+"evidence": "RA-2: \"| State Store | One per Cluster, primary and replica across zones | Each Cluster is a Cell |\" and \"6 to 30 pods\". Sizing example: \"Per-Node capacity 32,000 rps x 0.53 ~ 16,960 rps per 4-vCPU Node\" and \"Shards ceil(78,000 / 50,000 at 50% of a shard) = 2\". Scalability: \"State Store saturation is a Cell sizing signal: more Nodes add State Store load\" and \"Shard script throughput | About 100,000 calls per second (hypothesis) | Breakers open\".",
+"fix": "Give RA-2's State Store row a shard count derived from `maxReplicas`: shards = ceil(`maxReplicas` x per-Node rps x blocking State Store calls per request / 50,000), for example ceil(30 x 16,960 x 1 / 50,000) = 11 shards, each with a replica across zones (hypothesis), within the 16-shard Cell ceiling (target). Alternatively cap `maxReplicas` at what the provisioned shards carry. Add a T4 or Sizing rule: the HPA's `maxReplicas` MUST NOT exceed shards x 50,000 / (per-Node rps x calls per request) (hypothesis), and State Store script CPU is alerted as the Cell sizing signal."
+},
+{
+"id": "L4X-16",
+"section": "Topology catalog (T4 Node StatefulSet and HorizontalPodAutoscaler rows) and Reference architectures (RA-2 failure behavior)",
+"issue": "The zone-loss claim ignores how the chosen StatefulSet and HPA behave. When a zone is lost, StatefulSet pods on unreachable nodes are not replaced: they stay Terminating or Unknown until the node object is deleted or the pods are force-deleted. Their persistent `${RURALZ_DATA_DIR}` volumes are zonal, so replacements cannot bind outside the lost zone anyway. The HPA still counts those pods as replicas and, on scale-up, treats pods without metrics as 0% usage. With 2 of RA-2's 6 pods stranded and the 53% three-zone target, the HPA scales out only once survivors average about 87.5% CPU (4x / (6 x 53%) > 1.1 tolerance) (hypothesis). That is above the 80% survivor ceiling the design relies on, so growth in load during a zone outage (for example, the daily peak) gets no autoscaling response until survivors are already overloaded.",
+"evidence": "Node StatefulSet row: \"`podManagementPolicy: Parallel` ...; a persistent `${RURALZ_DATA_DIR}` volume\". Zone spread row: \"`whenUnsatisfiable: DoNotSchedule`\". RA-2: \"a lost zone leaves at least four Nodes under 80% CPU (target)\". Scalability, Gateway availability: \"sized so that losing the largest zone keeps survivors under 80% CPU (target)\". The document says nothing about stranded StatefulSet pods, zonal volumes, or HPA missing-metric handling.",
+"fix": "Add to T4 and to RA-2's failure behavior: \"after a zone loss, Node pods on unreachable Kubernetes nodes stay counted until force-deleted or their nodes are removed (for example with the `node.kubernetes.io/out-of-service` taint); HPA treats them as 0% on scale-up, so survivors reach about 87.5% CPU before scale-out (hypothesis)\". Then do one of the following: (a) give the zone-loss procedure a step that force-deletes stranded Node pods and releases their zonal PVCs, with the new pods re-enrolling (Control mode needs Ruralz Control for them); (b) raise `minReplicas` so survivors of a zone loss stay under 80% with the observed growth during the outage; or (c) use zone-replicated volumes. Add an Open question (owner high-availability-and-disaster-recovery) on the stranded-pod procedure and on whether Nodes stay a StatefulSet or become a Deployment with per-pod PVCs."
+}
+],
+"non_blocking": [
+{
+"section": "Sizing defaults (Nodes per Cluster row)",
+"suggestion": "\"At least three in at least two equal zones\" is impossible, because three Nodes cannot split into two equal zones. Write \"at least three Nodes in at least two zones (target); equal zones need four in two or three in three\". The unequal-zone formula already covers 2+1."
+},
+{
+"section": "Topology catalog (T4 HorizontalPodAutoscaler row)",
+"suggestion": "Give `behavior.scaleDown` a stabilization window and period as numbers tagged (target), for example 300 s and one zone's share per 60 s. \"Stabilizes\" states no bound."
+},
+{
+"section": "Topology catalog (T4 Node StatefulSet row)",
+"suggestion": "A StatefulSet `RollingUpdate.maxUnavailable` depends on the Kubernetes MaxUnavailableStatefulSet feature. State the fallback, which is one pod at a time, and the Kubernetes version assumption, citing a research-file URL once one exists."
+},
+{
+"section": "Reference architectures (RA-1 failure behavior)",
+"suggestion": "Add the State Store failover and fail-open bound. File mode without declared ceilings admits up to N_serving x `requests` = 4 x `requests` per window (target) while the State Store fails, and the Cell applies `failureMode` for about 15 s during a failover (hypothesis)."
+},
+{
+"section": "Reference architectures (RA-3 failure behavior)",
+"suggestion": "The re-enrollment rate of about 20 per second per leader (hypothesis) has no source. Name the benchmark that will measure it (F2 or a new F-scenario), and state the resulting duration, for example 10,000 Nodes in about 500 s (hypothesis), plus the per-source Enroll limits behind NAT."
+},
+{
+"section": "Topology catalog (T10) and Open questions (OQ-deployment-topologies-13)",
+"suggestion": "verify-docs WARNs: T10 Planned (M2) and OQ-deployment-topologies-13 Planned (M3) have no matching roadmap items, and several target documents and ADRs do not exist yet. These pass under --allow-missing but should be reconciled when the roadmap is written."
+}
+],
+"ac_results": [
+{
+"ac": "Topology catalog covers dev single binary, file mode, Cluster of Nodes with Ruralz Control, Kubernetes (Helm, HPA, CRDs), VM with systemd, edge, per-team, multi-cluster, multi-region, and hybrid managed Ruralz Control with self-hosted Nodes.",
+"pass": true,
+"note": "Rows T1 to T10 cover all ten."
+},
+{
+"ac": "Each topology states when to use it, components, failure domains, configuration delivery and scaling.",
+"pass": true,
+"note": "Every row fills every column, and the T2, T8 and T9 scaling cells now carry the Cell and deployment ceilings."
+},
+{
+"ac": "Network and ports matches the foundation pack ports (8080, 8443 TCP and UDP, 9901, 8090, 8091).",
+"pass": true,
+"note": "Matches pack 8.4, including 8092 and 9902."
+},
+{
+"ac": "The Kubernetes stance matches ADR-0016 (Helm chart and CRDs mirroring kinds Planned (M2), Gateway API conformance deferred).",
+"pass": true
+},
+{
+"ac": "The hybrid topology uses the same open source binaries with no feature gating.",
+"pass": true,
+"note": "T10 'Same binaries (P1)' bullet."
+},
+{
+"ac": "Reference architectures presents three reference architectures as H3s.",
+"pass": true,
+"note": "RA-1, RA-2 and RA-3."
+},
+{
+"ac": "Machine checks and H2 order (min_table_rows 10, required_terms, min_h3 3; mandatory H2s plus outline_h2 in order); verify-docs has no FAIL lines",
+"pass": true,
+"note": "Only WARN lines (broken links to planned documents, roadmap milestone matches); no FAIL; length within band."
+}
+],
+"foundation_amendments": []
+},
+"rereview:roadmap-and-milestones:L1": {
+"lens": "L1 feasibility-skeptic",
+"verdict": "revise",
+"score": 8,
+"blocking": [
+{
+"id": "L1-8",
+"section": "M2 WASM and Control with GitOps (M2 exit criteria); M3 AI gateway, gRPC, GraphQL, WebSocket and SSE (M3 exit criteria); M4 Event protocols, multi-region and benchmark suite (M4 exit criteria)",
+"issue": "The Open-question gates are wrong or incomplete, so M3 and M4 could exit with a blocking decision still open. At M2, 45 Open questions currently have a Blocking column that names M2, not 41. The M3 list leaves out OQ-deployment-topologies-13: `ruralz/v1beta1`, listed in M3 scope, needs a CRD conversion webhook port that pack 8.4 lacks, so shipping it needs a pack amendment. The M4 list leaves out OQ-deployment-topologies-17, which decides how Nodes behave when every relay in their Region is lost, and the relay is an M4 scope item. verify-docs also WARNs that 'OQ-deployment-topologies-13' is Planned (M3) but has no item under M3.",
+"evidence": "M2 criterion 6: \"Every Open question whose Blocking column names M2 is closed, 41 at this snapshot\". The 45 such rows include OQ-security-and-identity-26, -27, -30, -31 (\"Yes, Planned (M2)\") and OQ-deployment-topologies-19 (\"Yes, for the Planned (M2) CRD source\"). M3 criterion 6: \"The Open questions blocking M3 features are closed: 12 in AI/LLM gateway, 10 in Multi-protocol, OQ-tech-stack-and-libraries-21, OQ-system-overview-5 with OQ-multi-protocol-3, OQ-scalability-and-distributed-state-3 (Semantic Cache part) and OQ-testing-and-quality-strategy-6 and -7.\" Deployment topologies: \"| OQ-deployment-topologies-13 | Which port serves the CRD conversion webhook, absent from pack 8.4? | ... | Yes, before `ruralz.io/v1beta1`, Planned (M3) |\". M4 criterion 4 lists OQ-wasm-plugin-system-8 and -17 ... OQ-performance-budgets-and-benchmarking-7, but not \"| OQ-deployment-topologies-17 | What do Nodes do when every relay in their Region is lost? | ... | Yes, for Planned (M4) |\".",
+"fix": "In M2 criterion 6, change \"41 at this snapshot\" to \"45 at this snapshot\". In M3 criterion 6, add \"and OQ-deployment-topologies-13 (conversion webhook port, pack 8.4 amendment, before `ruralz/v1beta1`)\". In M4 criterion 4, add \"OQ-deployment-topologies-17 (Region relay loss)\" after OQ-control-plane-and-gitops-22. The body is at 3,749 of 3,750 words, so make room without touching earlier fixes: for example, delete \"Gateway API conformance deferred;\" from the M2 Kubernetes row, which is not a planned item and already appears on the M4 'Reviewed here, not planned' line."
+}
+],
+"non_blocking": [
+{
+"section": "Risks (R-6)",
+"suggestion": "\"the S4 loop-heavy variant gates M2\": Performance budgets names the S4 variants \"a load step; a long-running guest\" (constants table), not a loop-heavy variant, and it is a constants check rather than a PB gate. Write \"the S4 long-running-guest variant\", or add an Open question asking Performance budgets to define a loop-heavy S4 variant."
+},
+{
+"section": "M2 WASM and Control with GitOps (M2 scope, Kubernetes row)",
+"suggestion": "\"OQ-configuration-model-2\" sits among 'Planned (M2) items' but has no milestone. Deployment topologies answers it with option (a): `ruralzd` never reads CRDs. Write \"`ruralzd` never reads CRDs (OQ-configuration-model-2, option (a))\" or drop it. The same applies to \"Gateway API conformance deferred\"."
+},
+{
+"section": "M3 AI gateway, gRPC, GraphQL, WebSocket and SSE (M3 scope, Operations row)",
+"suggestion": "OQ-market-landscape-and-table-stakes-7 (Blocking No) asks whether gRPC pass-through should come earlier (R-2). It is not an M3 item. Move it to a 'Reviewed here, not planned' line, as the M4 and M5 sections do."
+},
+{
+"section": "M1 Core parity (M1 scope, Quality row)",
+"suggestion": "CE-1 to CE-6, CE-12, CE-15 and CE-16 are Planned (M1) in Scalability, but Repository layout stage 12 says \"chaos and scale Planned (M2)\". State which job runs the M1 chaos experiments, or add an Open question so the two owning documents agree."
+},
+{
+"section": "M2 WASM and Control with GitOps (M2 exit criteria)",
+"suggestion": "Criterion 5 gates M2 on OpenSSF Scorecard 8.0 or higher (hypothesis). Some Scorecard checks, such as Contributors, depend on outside organizations. Name the checks the project controls, or record a fallback if the hypothesis fails, as was done for SM-14 and SM-15."
+},
+{
+"section": "Whole document",
+"suggestion": "The body is about 3,749 words against the 3,750 maximum. Every future fix must replace text of similar length, and must not remove the text that resolved L1-1 to L1-7."
+}
+],
+"ac_results": [
+{
+"ac": "Every Planned (Mx) tag used in any document appears as an item under the corresponding Mx section.",
+"pass": true,
+"note": "verify-docs reports 0 FAIL lines for this document and about 50 heuristic milestone WARNs. Spot checks show most are wording mismatches for items that are present (T10 hybrid, S7 gRPC unary, Bedrock InvokeModel, Control Stream and Host Function fuzzing, the markdownlint-cli2 pin). The one real gap is OQ-deployment-topologies-13 at M3. Its item, `ruralz/v1beta1`, is listed, but its blocking decision is missing from the exit criteria (L1-8)."
+},
+{
+"ac": "Each milestone section states scope, measurable exit criteria and the KrakenD EE parity percentage tagged (target).",
+"pass": true,
+"note": "All six sections have a scope table, numbered exit criteria and a parity line tagged (target). Parity arithmetic rechecked: 23, 35, 53, 55 and 68 of 71, with 86% for the 61-row floor. SM-14 and SM-15 are now reported, not gating. The M2, M3 and M4 Open-question gates are miscounted or incomplete (L1-8)."
+},
+{
+"ac": "Milestone names match the foundation pack: M0 Foundations, M1 Core parity, M2 WASM + Control/GitOps, M3 AI gateway + gRPC/GraphQL/WS/SSE, M4 Event protocols + multi-region + bench suite, M5 Long-tail parity.",
+"pass": true,
+"note": "The 'Pack name' lines quote pack section 1 verbatim, including '+ HTTP/3' for M3 and the M5 parenthetical. The H2s match manifest outline_h2 in order."
+},
+{
+"ac": "The gantt chart uses relative durations and no calendar dates.",
+"pass": true,
+"note": "The chart uses dateFormat X, relative 'Nd' durations, todayMarker off, and a caption saying the ticks are relative effort units. The gRPC and GraphQL spike now starts after m1, which matches R-1 ('during M2')."
+},
+{
+"ac": "Risks is a table with likelihood, impact and mitigation.",
+"pass": true,
+"note": "R-1 to R-10 have Likelihood, Impact and Mitigation columns. R-6 now cites wazero issue #422 for missing fuel metering and #2466 for the 10 to 20x deadline cost, both of which appear in go-libraries-runtime.md. The R-8 and R-9 URLs and dates match the research files."
+},
+{
+"ac": "Contribution surface identifies where outside contributors can help per milestone.",
+"pass": true,
+"note": "The table has one row per milestone from M0 to M5, plus the DCO sign-off rule."
+}
+],
+"foundation_amendments": []
+},
+"rereview:roadmap-and-milestones:L2": {
+"lens": "L2 foundation-auditor",
+"verdict": "revise",
+"score": 7,
+"blocking": [
+{
+"id": "L2-1",
+"section": "M0 Foundations / M0 scope (CI stages 1 to 7 row, stage 2)",
+"issue": "The line says wazero and cel-go are banned imports. Pack section 7 fixes both as the selected WASM runtime (ADR-0004) and expression engine (ADR-0011). The actual M0 rules are narrower. depguard rejects `github.com/tetratelabs/wazero` only outside `internal/pluginhost`. For cel-go it rejects only the read-only alias `github.com/google/cel-go`; the canonical path is `cel.dev/cel-go`. Lua runtimes are also banned, and the row does not say so.",
+"evidence": "L69: \"2. format and lint: golangci-lint linters (`sloglint`), `golang.org/x/net/http2` forbidigo rule, banned imports (wazero, cel-go)\" vs ADR-0004 L93: \"Import rule, Planned (M0): depguard rejects `github.com/tetratelabs/wazero` outside `internal/pluginhost`\" and ADR-0011 L107: \"Banned imports, Planned (M0): depguard rejects `github.com/google/cel-go` ... and any Lua runtime\"; pack section 7: \"CEL via cel-go, import path `cel.dev/cel-go` (`google/cel-go` is a read-only alias)\".",
+"fix": "Replace \"banned imports (wazero, cel-go)\" with \"depguard import rules: `github.com/tetratelabs/wazero` only in `internal/pluginhost`; the `github.com/google/cel-go` alias and any Lua runtime banned\"."
+},
+{
+"id": "L2-2",
+"section": "M4 Event protocols, multi-region and benchmark suite / M4 exit criteria (criterion 2)",
+"issue": "Criterion 2 requires S5 results for every baseline. Performance budgets, a dependency, says KrakenD CE S5 is not run because Redis-backed limits are Enterprise-only. As written, M4 cannot exit.",
+"evidence": "L196: \"2. The bench suite publishes reproducible S1, S2 and S5 results for Ruralz and each baseline from this repository.\" vs 12-performance-budgets-and-benchmarking.md Competitor baseline plan, KrakenD CE row, S5 column: \"Not run: Redis-backed limits are Enterprise-only\".",
+"fix": "Rewrite criterion 2 as: \"The bench suite publishes reproducible S1, S2 and S5 results for Ruralz and each baseline in the Performance budgets competitor baseline plan (KrakenD CE S5 not run: Redis-backed limits are Enterprise-only), with each baseline's version, edition and configuration.\""
+},
+{
+"id": "L2-3",
+"section": "M1, M2, M3 and M4 scope tables (Observability coverage)",
+"issue": "Acceptance criterion 1 still fails for Observability, a dependency. Several Planned (M2) to (M4) catalog rows, degraded reasons and propagation tags appear under no milestone. The M2 Operations row lists seven degraded states, but Observability tags an eighth, `node_count_unknown`, as Planned (M2), and the row omits it. The M1 Observability row lists no degraded reasons, although Observability tags them Planned (M1).",
+"evidence": "10-observability.md L142: \"`ruralz_plugin_*`, `ruralz_node_detached_seconds`, `ruralz_node_revocation_mark_age_seconds` and `ruralz_node_control_stream_reconnects_total`, Planned (M2); `ruralz_http_session_duration_seconds` and `ruralz_sse_buffered_total`, Planned (M3); and `ruralz_ingress_paused_partitions` and `ruralz_ingress_hold_expiries_total`, Planned (M4)\"; L252 \"`node_count_unknown` ... Planned (M2)\"; L244 \"`semantic_cache_unsupported` ... Planned (M3)\"; L229 \"Reasons are Planned (M1) unless tagged\"; L266 \"traceparent ... gRPC from Planned (M3), Kafka, NATS and MQTT 5 from Planned (M4)\". Roadmap: grep finds none of these metric names, `node_count_unknown` or `semantic_cache_unsupported`. L135 lists degraded states without `node_count_unknown`.",
+"fix": "M1 Observability: add \"`ruralz_node_degraded_info` with the Planned (M1) degraded reasons (`lkg_boot`, `state_store_breaker_open` and the rest of the Observability table)\". M2: add `node_count_unknown` to the degraded states and a new Observability row naming `ruralz_plugin_*`, `ruralz_node_detached_seconds`, `ruralz_node_revocation_mark_age_seconds` and `ruralz_node_control_stream_reconnects_total`. M3 Operations: add `ruralz_http_session_duration_seconds`, `ruralz_sse_buffered_total`, `semantic_cache_unsupported` and traceparent injection into gRPC legs. M4 Event protocols: add `ruralz_ingress_paused_partitions`, `ruralz_ingress_hold_expiries_total` and traceparent injection into Kafka, NATS and MQTT 5."
+},
+{
+"id": "L2-4",
+"section": "M3 exit criteria (criterion 6), M4 exit criteria (criterion 4), M3 scope",
+"issue": "The M3 and M4 exit criteria each list the Open questions that must close. Both lists leave out an Open question that Deployment topologies marks blocking for that milestone. The verifier still warns about OQ-deployment-topologies-13. M3 scope names `ruralz/v1beta1` but not the `ruralz.io/v1beta1` CRD version it gates. Previous item L2-6 asked for the remaining WARNs to be triaged; this WARN points to a real item.",
+"evidence": "L172: \"6. The Open questions blocking M3 features are closed: 12 in AI/LLM gateway, 10 in Multi-protocol, OQ-tech-stack-and-libraries-21, ... OQ-testing-and-quality-strategy-6 and -7.\" and L198 (M4 list) vs 01-deployment-topologies.md L577: \"OQ-deployment-topologies-13 | Which port serves the CRD conversion webhook ... | Yes, before `ruralz.io/v1beta1`, Planned (M3)\" and L581: \"OQ-deployment-topologies-17 | What do Nodes do when every relay in their Region is lost? ... | Yes, for Planned (M4)\"; verifier: \"WARN milestones docs/operations/01-deployment-topologies.md:577 'OQ-deployment-topologies-13' is Planned (M3) but has no matching item under the M3 section\".",
+"fix": "Add OQ-deployment-topologies-13 to M3 exit criterion 6, and add \"`ruralz.io/v1beta1` CRDs with the conversion webhook (OQ-deployment-topologies-13)\" to the M3 Operations row. Add OQ-deployment-topologies-17 (relay loss) to M4 exit criterion 4."
+},
+{
+"id": "L2-5",
+"section": "M2 WASM and Control with GitOps / M2 scope (Kubernetes row)",
+"issue": "This is residual from the earlier L2-5. A non-blocking Open question sits in the \"Planned (M2) items\" table without its current answer. OQ-configuration-model-2's option (b), a file-mode CRD source, is the Planned (M2) option. Deployment topologies answers with option (a): `ruralzd` never reads CRDs. Listing the question as an M2 item reads as scheduling option (b).",
+"evidence": "L134: \"... Helm chart in `deploy/` (OQ-deployment-topologies-1); Gateway API conformance deferred; OQ-configuration-model-2 |\" vs 02-configuration-model.md L1492: \"OQ-configuration-model-2 | Should file-mode `ruralzd` watch Ruralz CRDs without Ruralz Control? | (a) No; (b) Optional CRD source, `Planned (M2)`; ... | deployment-topologies | No\" and 01-deployment-topologies.md L195: \"OQ-configuration-model-2: option (a): `ruralzd` never reads CRDs; without Ruralz Control, Nodes use T2.\"",
+"fix": "Replace \"OQ-configuration-model-2\" in the M2 Kubernetes row with \"only Ruralz Control watches CRDs; file-mode `ruralzd` never reads them (OQ-configuration-model-2, option (a) per Deployment topologies)\"."
+}
+],
+"non_blocking": [
+{
+"section": "M4 scope",
+"suggestion": "Hedging, which Traffic management tags Planned (M4) at L148, appears only in exit criterion 4 as \"OQ-traffic-management-and-resilience-5 (M4 part: hedging)\". Add \"hedged requests (OQ-traffic-management-and-resilience-5)\" to an M4 scope row."
+},
+{
+"section": "M3 scope (Operations row)",
+"suggestion": "Describe OQ-market-landscape-and-table-stakes-7 by its actual question, \"earlier gRPC passthrough\", with its current answer \"keep Planned (M3)\". The current gloss is \"gaps in the Ruralz column: gRPC\". Better still, keep it only in Risks R-2, since it is not an M3 item."
+},
+{
+"section": "M1 scope (Quality row) and M2 scope (Quality row)",
+"suggestion": "Repository layout tags CI stage 12's chaos and scale jobs and stage 11's kind runs as Planned (M2). Qualify \"12. nightly\" and \"11. end-to-end\" in M1 as \"(chaos, scale and kind jobs in M2)\", and name those jobs in M2 Quality. CE-1 to CE-6 in M1 then need a stated runner."
+},
+{
+"section": "M2 scope (Configuration coverage)",
+"suggestion": "Name `Environment` in Ruralz Control (Configuration model L107: \"Planned (M2) in Ruralz Control\") in an M2 row. Today only promotions and `Cluster` appear."
+},
+{
+"section": "M3 scope",
+"suggestion": "Name the `onChunk` Phase explicitly. Data plane L289 tags its three sources Planned (M3)."
+}
+],
+"ac_results": [
+{
+"ac": "Every Planned (Mx) tag used in any document appears as an item under the corresponding Mx section.",
+"pass": false,
+"note": "Earlier gaps are fixed: CE-1, -2 and -6 are in M1; CE-8 and -9, `ruralz rollout reject`, the 9902 endpoints, T2 and T4 are in M2; benchmark publication is in M1. New gaps remain: Observability M1 to M4 metric rows, degraded reasons and traceparent tags (L2-3), and OQ-deployment-topologies-13 and -17 plus `ruralz.io/v1beta1` (L2-4). The verifier reports no FAIL lines and 53 WARN lines. Most WARNs are sentence-fragment noise; the -13 WARN is a real gap."
+},
+{
+"ac": "Each milestone section states scope, measurable exit criteria and the KrakenD EE parity percentage tagged (target).",
+"pass": true,
+"note": "Each of M0 to M5 has a scope table, numbered exit criteria and a \"KrakenD EE parity at exit: N of 71, P% (target)\" line. The increments add up: 0, 23, 35, 53, 55, 68. M4 criterion 2 contradicts Performance budgets (L2-2), but it is still measurable."
+},
+{
+"ac": "Milestone names match the foundation pack: M0 Foundations, M1 Core parity, M2 WASM + Control/GitOps, M3 AI gateway + gRPC/GraphQL/WS/SSE, M4 Event protocols + multi-region + bench suite, M5 Long-tail parity.",
+"pass": true,
+"note": "Each section quotes the pack name verbatim on its \"Pack name:\" line, including \"+ HTTP/3\" for M3 and the M5 parenthetical. The H2s match the manifest outline_h2."
+},
+{
+"ac": "The gantt chart uses relative durations and no calendar dates.",
+"pass": true,
+"note": "It uses `dateFormat X`, `axisFormat %j` and relative `after` dependencies, and its caption says the ticks are relative effort units."
+},
+{
+"ac": "Risks is a table with likelihood, impact and mitigation.",
+"pass": true,
+"note": "R-1 to R-10 fill the ID, Risk, Likelihood, Impact and Mitigation columns. R-6 now cites wazero issue #422 for no fuel metering and #2466 for the `WithCloseOnContextDone` cost. Both URLs are in go-libraries-runtime.md."
+},
+{
+"ac": "Contribution surface identifies where outside contributors can help per milestone.",
+"pass": true,
+"note": "The table has one row per milestone, M0 to M5."
+}
+],
+"foundation_amendments": []
+},
+"rereview:roadmap-and-milestones:L3": {
+"lens": "L3 acceptance-audience",
+"verdict": "revise",
+"score": 7,
+"blocking": [
+{
+"id": "L3-2",
+"section": "M1 Core parity; M2 WASM and Control with GitOps; M3 AI gateway, gRPC, GraphQL, WebSocket and SSE; M4 Event protocols, multi-region and benchmark suite (scope tables)",
+"issue": "Still partly open. Every item cited in the first review is now present, and verify-docs milestone WARNs fell to 51 with no FAIL. A few WARN lines still name real Planned (Mx) items that no milestone section lists. That breaks acceptance criterion 1. It also contradicts the document's own promise in Scope and non-goals: 'a WARN naming a real item is fixed here'.",
+"evidence": "AI/LLM gateway line 189: \"Bedrock InvokeModel, Planned (M4) | `POST /model/{modelId}/invoke`, `/invoke-with-response-stream`\", but M4 Other lists only \"`surface: native` Bedrock `POST /model/{modelId}/invoke`\". Release line 336: \"adds a served version, such as `ruralz.io/v1beta1` when `ruralz/v1beta1` ships, Planned (M3)\", but M3 Operations lists only \"`ruralz/v1beta1`\". Traffic management line 148: \"A hedge sends a second attempt ... Planned (M4)\", but hedging is absent from the M4 scope table and appears only inside an Open-question clause of M4 exit criterion 4. Observability line 142: \"`ruralz_plugin_*`, `ruralz_node_detached_seconds`, `ruralz_node_revocation_mark_age_seconds` and `ruralz_node_control_stream_reconnects_total`, Planned (M2); `ruralz_http_session_duration_seconds` and `ruralz_sse_buffered_total`, Planned (M3); and `ruralz_ingress_paused_partitions` and `ruralz_ingress_hold_expiries_total`, Planned (M4)\". None of these metrics appears in M2, M3 or M4. Repository layout line 397: \"A Go test meta-validates both files against draft 2020-12 ... and validates every Bundle under `examples/`, Planned (M1)\", which is absent from M1. ADR-0010 line 139: \"Ruralz Control, Planned (M2), exports like a Node\", which is absent from M2.",
+"fix": "Make short additions that fit the word budget. M4 Other: '`POST /model/{modelId}/invoke` and `/invoke-with-response-stream`'. M3 Operations: '`ruralz/v1beta1` and the CRD served version `ruralz.io/v1beta1`'. M4 Other: 'request hedging (Traffic management)'. M2 Ruralz Control: 'OTLP export like a Node; metrics `ruralz_plugin_*` and the three Control-mode `ruralz_node_*` metrics'. M3 Operations: '`ruralz_http_session_duration_seconds`, `ruralz_sse_buffered_total`'. M4 Event protocols: '`ruralz_ingress_*` metrics'. M1 Configuration: 'schema meta-validation test over `examples/`'. To stay at or under 3,750 words, compress wording that resolved no finding, for example 'macro p99 and macro latency' becomes 'macro latency'. Keep the rewrites that resolved L3-1."
+},
+{
+"id": "L3-8",
+"section": "M1 exit criteria (7); M2 exit criteria (6); M3 exit criteria (6); M4 exit criteria (4)",
+"issue": "Newly identified. The Open-question clauses in the exit criteria contradict the owning documents, so a contributor who checks exit readiness works from wrong lists. M2 gives the wrong count. M3 and M4 each omit a question whose Blocking column names that milestone. M1 and M2 count only the questions that name the milestone, so they leave out questions that block a milestone feature by name. M3 uses the feature-based rule, so the milestones are inconsistent.",
+"evidence": "M2 criterion 6: \"Every Open question whose Blocking column names M2 is closed, 41 at this snapshot\". The sources hold 45 such rows, including OQ-security-and-identity-26, -27, -30 and -31 (\"Yes, Planned (M2)\") and OQ-deployment-topologies-19 (\"Yes, for the Planned (M2) CRD source\"). M3 criterion 6 omits Deployment topologies line 577: \"OQ-deployment-topologies-13 | Which port serves the CRD conversion webhook ... | Yes, before `ruralz.io/v1beta1`, Planned (M3)\". M4 criterion 4 omits line 581: \"OQ-deployment-topologies-17 | What do Nodes do when every relay in their Region is lost? ... | Yes, for Planned (M4)\", and also omits OQ-system-overview-16 (\"Yes, for multi-region\"). Feature blockers the M1 and M2 counts miss: OQ-security-and-identity-2 and -15 (\"Yes, for `auth.basic`\"), OQ-security-and-identity-3 (\"Yes, for `auth.mtls`\"), OQ-tech-stack-and-libraries-24 (\"Yes, for `authz.geoip`\"), OQ-security-and-identity-10 (\"Yes, for `vault`\"), OQ-security-and-identity-28 (\"Yes, for `auth.upstream-sigv4`\").",
+"fix": "Change '41' to '45' in M2 criterion 6. Add OQ-deployment-topologies-13 to M3 criterion 6. Add OQ-deployment-topologies-17 and OQ-system-overview-16 to M4 criterion 4. Rephrase M1 criterion 7 and M2 criterion 6 on the M3 model, for example 'Every Open question blocking an M1 feature is closed: the 30 whose Blocking column names M1, plus OQ-configuration-model-8 and OQ-security-and-identity-2, -3 and -15 (`auth.basic`, `auth.mtls`)'. For M2, add OQ-tech-stack-and-libraries-24, OQ-security-and-identity-10 and -28 in the same way."
+}
+],
+"non_blocking": [
+{
+"section": "Scope tables (L3-1 dispute)",
+"suggestion": "The L3-1 dispute is accepted. The new 'Reading the scope tables' H3, the qualified codes, the gap-free CI stage numbering, the 'Serves:' lines and the rewritten examples resolve the finding within the binding 3,750-word maximum. A few fragments are still opaque to an evaluator and could be reworded when words allow: 'HTTP/2 settings, deadlines, other servers (admin)', 'Dependency admission (catalog row, rate limiting, no fasthttp)', the bare 'F-13, F-15', and 'OQ-market-landscape-and-table-stakes-7 (gaps in the Ruralz column: gRPC)'."
+},
+{
+"section": "Risks (R-6)",
+"suggestion": "The mitigation says 'the S4 loop-heavy variant gates M2', but Performance budgets names its S4 variants 'a load step; a long-running guest'. Use the owner's name, 'the S4 long-running-guest variant'."
+},
+{
+"section": "M4 Event protocols, multi-region and benchmark suite; M5 Long-tail parity",
+"suggestion": "M0 to M3 each have a 'Serves:' line, but M4 and M5 have none. Add one, for example 'Serves: Platform engineer running many Clusters, KrakenD EE buyer' for M4 and 'Serves: KrakenD EE buyer, Security engineer' for M5."
+},
+{
+"section": "M2 WASM and Control with GitOps (Kubernetes row)",
+"suggestion": "'Gateway API conformance deferred' is a non-commitment inside the 'Planned (M2) items' table. Move it to a 'Reviewed here, not planned' line, as M4 does."
+}
+],
+"ac_results": [
+{
+"ac": "Every Planned (Mx) tag used in any document appears as an item under the corresponding Mx section.",
+"pass": false,
+"note": "Every first-round gap is fixed, and verify-docs shows 51 milestone WARNs and no FAIL. Real gaps remain: Bedrock `/invoke-with-response-stream` (M4), CRD `ruralz.io/v1beta1` (M3), request hedging (M4), the M2, M3 and M4 metric catalog rows, schema meta-validation (M1) and Ruralz Control OTLP export (M2). See L3-2."
+},
+{
+"ac": "Each milestone section states scope, measurable exit criteria and the KrakenD EE parity percentage tagged (target).",
+"pass": false,
+"note": "Scope tables and parity lines are present and tagged. Parity counts are cumulative and consistent: 0, 23, 35, 53, 55 and 68 of 71, and the M1 row list sums to 23. The M5 FIPS criterion now matches Performance budgets, and M0 now has an Open-question criterion. However, the Open-question exit criteria contradict their sources: M2 says 41 where the sources hold 45, M3 omits OQ-deployment-topologies-13, and M4 omits -17. See L3-8."
+},
+{
+"ac": "Milestone names match the foundation pack: M0 Foundations, M1 Core parity, M2 WASM + Control/GitOps, M3 AI gateway + gRPC/GraphQL/WS/SSE, M4 Event protocols + multi-region + bench suite, M5 Long-tail parity.",
+"pass": true,
+"note": "Each section opens with a 'Pack name:' line matching pack section 2 verbatim, including '+ HTTP/3' for M3 and the parenthetical for M5. The gantt labels use the same names."
+},
+{
+"ac": "The gantt chart uses relative durations and no calendar dates.",
+"pass": true,
+"note": "Figure 1 uses `dateFormat X` with relative `after` dependencies and effort-unit durations. It has no calendar dates, and its caption states that the ticks are relative effort units."
+},
+{
+"ac": "Risks is a table with likelihood, impact and mitigation.",
+"pass": true,
+"note": "R-1 to R-10 have Likelihood, Impact and Mitigation columns. The R-6 sources are corrected (issues #422 and #2466), and both URLs are in go-libraries-runtime.md."
+},
+{
+"ac": "Contribution surface identifies where outside contributors can help per milestone.",
+"pass": true,
+"note": "The table has one row for each of M0 to M5, plus the DCO and Open-question pull request rule."
+},
+{
+"ac": "Structure and machine checks: H2 outline and order, required gantt with caption, length band, required terms, tags on performance and scale figures, verify-docs FAIL lines",
+"pass": true,
+"note": "The H2s are exactly Summary, Scope and non-goals, the 9 outline_h2 entries, then Open questions. The gantt is captioned. verify-docs emits no FAIL for this document, so the length (about 3,749 of 3,750), Risks table, required terms and alias checks pass. Every performance or scale figure is tagged or cites a measurement URL. Two link WARNs point at documents not yet written (the parity matrix and ADR-0016), which --allow-missing permits."
+}
+],
+"foundation_amendments": []
+},
+"review:adr-0013:L1": {
+"lens": "L1 feasibility-skeptic",
+"verdict": "revise",
+"score": 6,
+"blocking": [
+{
+"id": "L1-1",
+"section": "Context and problem statement; Decision drivers; Decision outcome; Pros and cons of the options (Native Kafka wire-protocol proxying)",
+"issue": "The ADR says per-message routing is what P7 requires, and it rejects wire proxying as 'breaking P7'. P7 in the vision document maps a session to the request Phases and each message to onChunk. It does not give each message a Route. The owning document labels per-message routing through the request Phases a P7 exception and leaves it pending OQ-multi-protocol-18. Its option (b) is the P7-conforming shape: a session Route, with each message handled as onChunk. The ADR therefore contradicts the vision document and the owning document. It also rests its main rejection of option 7 on a misreading of P7. A wire proxy could conform to P7 by mapping a connection to the request Phases and record batches to onChunk. The real objections are the rewriting of metadata and coordinator responses, and that no per-message Route, Consumer or request-Phase Policy exists.",
+"evidence": "ADR line 19: \"Each message stays inside the Route, Policy and Filter Chain model (P7)\". Line 29: \"- **One Filter Chain (P7)**: each message needs a Route; record batches seen by a wire proxy do not have one.\" Line 43: \"and mediation keeps every message on a Route.\" Line 141: \"its Phases see record batches with no per-message Route, breaking P7.\" Vision, Principles: \"| P7 | Protocols are native | Every protocol maps onto the same `Route`, `Policy` and Filter Chain model through a documented Phase mapping: a session maps to the request Phases, each message to `onChunk`\". Owning doc, Topic ingress: \"Each message is a request on the Route whose `match.topic` matches, headers as headers and value as body, running the request Phases (a P7 exception: OQ-multi-protocol-18).\" OQ-multi-protocol-18: \"(b) A session Route at CONNECT, PUBLISH as `onChunk`, conforming to P7\".",
+"fix": "Rewrite the driver as: \"- **Per-message governance (P7 exception, OQ-multi-protocol-18)**: each HTTP publish has a Route, and topic ingress and embedded PUBLISH run each message through the request Phases of a `match.topic` Route. The owning document records this as a P7 exception until OQ-multi-protocol-18 closes. A wire proxy sees record batches with no per-message Route or Consumer.\" In Context, replace \"(P7)\" with \"(a P7 exception pending OQ-multi-protocol-18)\". In the Chosen option sentence, write \"mediation keeps every message on a Route (P7 exception, OQ-multi-protocol-18)\". Rewrite the option 7 Bad bullet as: \"Bad, because a proxy rewrites metadata and coordinator responses, and its Phases see record batches with no per-message Route or Consumer. Under P7 those records would reach Policies only as `onChunk`, where `authz.*`, `ratelimit` and `quota` do not run.\""
+},
+{
+"id": "L1-2",
+"section": "Decision outcome (MQTT embedded broker row); Decision outcome > Consequences; Decision outcome > Confirmation",
+"issue": "The embedded broker's core contract is still an unconfirmed spike in the owning document. That contract is: a QoS 1 PUBACK is sent only after the Upstream call settles, with up to ReceiveMaximum 16 (target) PUBLISHes in flight per connection. The research file lists mochi-mqtt's hooks but shows no way to defer a PUBACK asynchronously. Suppose the broker processes a client's packets in order and sends PUBACK when the publish hook returns. Then holding PUBACK for a Route timeout blocks that connection's reads, including PINGREQ and later PUBLISHes. ReceiveMaximum 16 then gives at most one in-flight PUBLISH, and the documented fallback, PUBACK on receipt, weakens acknowledgment to receipt by the Node, before any Upstream call. The ADR states neither this risk nor the fallback. It does not name the hook that turns a PUBLISH into a request. Its Confirmation checks only PUBACK codes. The chosen library may not support the design, and the ADR presents the ReceiveMaximum setting as a Good consequence.",
+"evidence": "ADR row: \"| MQTT embedded broker | `github.com/mochi-mqtt/server/v2` v2.7.x, core and auth packages only | `OnConnectAuthenticate` and `OnACLCheck` hooks (CONNECT credentials: OQ-multi-protocol-7); ...\". Consequences: \"Good, because mochi-mqtt passes the Paho interoperability tests and exposes `MaximumPacketSize` and `ReceiveMaximum` ..., which the embedded broker sets to at most `maxRequestBodyBytes` and to 16 (target).\" Confirmation: \"and embedded broker PUBACK codes with a Paho client.\" Owning doc, Embedded MQTT broker mode: \"| Acknowledgment | QoS 1 PUBACK after the Upstream call settles, reason code set in `onResponse`\". OQ-multi-protocol-10: \"Spikes: held PUBACK blocking reads (fallback: PUBACK on receipt)\". The research section on mochi-mqtt lists hook events and capabilities but says nothing about deferring acknowledgments.",
+"fix": "Add to Consequences: \"- Bad, because no research shows that mochi-mqtt can hold a QoS 1 PUBACK until the Upstream call settles without blocking that connection's reads. If it cannot, `ReceiveMaximum` 16 (target) allows one in-flight PUBLISH per connection, and the OQ-multi-protocol-10 fallback, PUBACK on receipt, weakens acknowledgment to receipt by the Node.\" In the MQTT embedded broker row, add: \"PUBLISH enters its Route from a publish hook such as `OnPublish`; PUBACK timing follows the OQ-multi-protocol-10 spike\". Add a Confirmation bullet: \"- **Held-PUBACK spike**, Planned (M4), before the embedded broker ships: one connection sends 16 QoS 1 PUBLISHes to a Route whose Upstream answers slowly. The test asserts 16 concurrent Upstream calls and a PINGRESP within the keep-alive. If it fails, the fallback applies and this ADR is amended.\""
+},
+{
+"id": "L1-3",
+"section": "Decision outcome (MQTT client row)",
+"issue": "Every Node dials each `mqtt` Upstream through autopaho, but the ADR fixes neither the MQTT client identifier nor whether session and queue state persist. The research shows paho.golang offers session state persistence, a `Queue`, `CleanStartOnInitialConnection` and `SessionExpiryInterval`. The catalog cites 'session persistence' as a reason to select it. Suppose all Nodes present one client identifier derived from the Revision. An MQTT server disconnects the older connection when the same identifier connects again, so Nodes would take over each other's sessions in a reconnect loop across the Cluster. That is hidden coordination between Nodes, and it contradicts P4. This takeover rule comes from the MQTT specification, not from the research file, so a spike must confirm it. A persistent session or a file-backed queue would also keep durable state outside pack section 8.11 and leave orphaned broker sessions on scale-in.",
+"evidence": "ADR row: \"| MQTT client | `github.com/eclipse/paho.golang` v0.23.x, `autopaho` | `mqtt` Upstreams; QoS 1 publishes await `PUBACK`; the consume mapping is undecided (OQ-multi-protocol-10) |\". Research: \"v0.20 introduced session state persistence and full QoS 1/2 support\" and \"autopaho `ClientConfig` fields include ... `CleanStartOnInitialConnection`, `SessionExpiryInterval` and `Queue`\". Tech stack catalog: \"MQTT v5, session persistence, QoS 1 and 2\". Vision P4: \"Nodes hold no durable state beyond their enrollment identity, Last-Known-Good configuration and disposable Plugin caches, and join or leave a Cluster without coordinating with other Nodes.\" Pack 8.11: \"A Node persists only the following under `${RURALZ_DATA_DIR}`\".",
+"fix": "Add to the MQTT client row: \"each Node connects with its own client identifier derived from `node.id` and the Upstream name, with `CleanStartOnInitialConnection` true, `SessionExpiryInterval` 0 and an in-memory `Queue`, so no session or queue state outlives the connection or the Node (P4, pack 8.11)\". Extend the integration-test Confirmation bullet: \"two Nodes publishing to one Mosquitto broker see no session-takeover disconnects\". If the owning document must decide this first, add it under OQ-multi-protocol-8 as a proposed amendment in More information, and add a Bad consequence that the rule is pending."
+},
+{
+"id": "L1-4",
+"section": "Decision drivers (Acknowledged publishing); Decision outcome (Kafka row)",
+"issue": "The ADR's own driver requires the client to report buffer limits. The Kafka row never says what bounds the franz-go producer buffer, or how long a buffered record's bytes stay reserved. A value can be as large as `maxRequestBodyBytes` (10 MiB proposed), so a bound on the record count alone allows gigabytes. When a publish times out, the request returns 502 and releases its `maxBufferedBytes` reservation. franz-go may still hold the record and send it later. Producer memory then escapes the Node-wide budget during a slow-broker incident, which is exactly when the buffer fills. As written, the design has no bound on producer memory.",
+"evidence": "ADR driver: \"- **Acknowledged publishing**: the Node answers 202 only after the broker acknowledges, so the client MUST report acknowledgment and buffer limits.\" Kafka row: \"`messaging.key` is the record key; idempotent producer, acknowledgment from all in-sync replicas; `ProducerLinger(0)` on Routes that await it, ...\" (no buffer bound). Consequences: \"non-blocking produce on a full franz-go buffer awaits the OQ-multi-protocol-8 spike\". Owning doc: \"| Limits | Publish: value within `maxRequestBodyBytes`, bounded producer buffer\". Research: \"`ManualFlushing` with `MaxBufferedRecords` is available for batching\". Configuration model: \"Across requests, all of it is reserved from `maxBufferedBytes`, one budget per Node\".",
+"fix": "Add to the Kafka row: \"the producer buffer is bounded by `MaxBufferedRecords` (research). Each record keeps its `maxBufferedBytes` reservation until franz-go resolves its produce promise, even after a 502 timeout, so the Node budget bounds producer memory. A byte bound on the franz-go buffer is part of the OQ-multi-protocol-8 spike.\" Add to the integration-test Confirmation: \"with the Kafka container paused, publishes end in 503 or 502 while the Node's reserved bytes stay within `maxBufferedBytes`\"."
+}
+],
+"non_blocking": [
+{
+"section": "Decision outcome (Kafka row)",
+"suggestion": "`ProducerLinger` is a franz-go client option, not a per-record or per-Route setting. Every publish Route awaits the acknowledgment, so 'on Routes that await it' either has no effect or implies one client per Route. The owning document says 'Nodes set `ProducerLinger(0)`'. Write: '`ProducerLinger(0)` on every producer client (one per `kafka` Upstream)'."
+},
+{
+"section": "Decision outcome (Kafka row); Consequences",
+"suggestion": "Committing after settle works badly with cooperative or KIP-848 revocation. A partition can hold a message through up to 5 attempts (target), or a paused head message retried every 60 s (target). If the revoke callback waits for settlement, it can outlast the group's rebalance timeout and the member is expelled. State that on revocation a Node abandons unsettled messages without committing them, so the new owner redelivers them at least once, and that it never blocks the revocation beyond the group timeout."
+},
+{
+"section": "Decision outcome > Confirmation",
+"suggestion": "Consequences depends on 'only an import rule' to keep mochi-mqtt's Redis (go-redis v8), Badger and Pebble hooks out of `ruralzd`. That rule is only a proposed amendment in More information. Badger or Pebble would also persist broker state on the Node, against P4. Until the depguard rule exists, extend the review checklist item: 'or imports any mochi-mqtt package other than the core and auth packages'."
+},
+{
+"section": "Pros and cons of the options (External MQTT brokers only)",
+"suggestion": "This option is also the mochi-mqtt watch-list fallback. Device ingress would then depend on the undecided MQTT consume mapping, where every Node gets each message without shared subscriptions (OQ-multi-protocol-10). Add that to the Bad bullet, so the fallback's cost is visible when the watch-list trigger fires."
+},
+{
+"section": "Decision outcome (Figure 1)",
+"suggestion": "The protocol matrix lets embedded MQTT and topic ingress reach `kafka`, `nats` and `mqtt` Upstreams, not only `http`. The figure shows only the http Upstream edge. Label that node 'http, kafka, nats or mqtt Upstream', or say in the caption that only the http case is drawn."
+},
+{
+"section": "Decision outcome (MQTT client row)",
+"suggestion": "Pack section 7 writes `eclipse-paho/paho.golang`, the repository, and the row writes the module path `github.com/eclipse/paho.golang`. Both are correct according to the research, but write them as the catalog does: 'repository `eclipse-paho/paho.golang`, module `github.com/eclipse/paho.golang`'."
+},
+{
+"section": "Whole document (length)",
+"suggestion": "By the verifier's rule the body is about 1,400 words, against a maximum of 1,500. The four fixes add about 150 words. Keep them compact. If the body goes over, shorten the first More information bullet first, because it repeats owning-document links the body already gives. Do not cut text that answers these findings."
+},
+{
+"section": "Acceptance criterion 6",
+"suggestion": "docs/adr/README.md does not exist yet (verifier WARN missing-doc). The owning document links the ADR. When the index is written, it must link ADR-0013."
+}
+],
+"ac_results": [
+{
+"ac": "Front matter contains id, title, status, date, deciders and related, and status matches this manifest.",
+"pass": true,
+"note": "All six keys are present. status: accepted matches the manifest, and the title matches the manifest title verbatim."
+},
+{
+"ac": "H2 headings match adr_common.outline_h2 exactly and in order, and Decision outcome contains the H3 headings Consequences and Confirmation.",
+"pass": true,
+"note": "The six H2 headings are exact and in order. Consequences and Confirmation are H3 headings under Decision outcome. The verifier prints no FAIL line for this file."
+},
+{
+"ac": "Considered options lists at least two options including the chosen one, and each has pros and cons.",
+"pass": true,
+"note": "Seven options, including the chosen one, each with research URLs and Good and Bad bullets. The rejection of option 7 misstates P7 (L1-1)."
+},
+{
+"ac": "Decision outcome states the chosen option as 'Chosen option: ..., because ...' and matches the foundation pack section 7 row for this ADR.",
+"pass": true,
+"note": "It uses the required form and matches the pack section 7 Messaging row and the rule of no native Kafka or MQTT wire-protocol proxying before M4."
+},
+{
+"ac": "Confirmation names a concrete verification mechanism (test, lint rule, CI gate or review checklist item).",
+"pass": true,
+"note": "It names testcontainers integration tests in pr-full, the G1 and G2 gates, the quarterly health review, govulncheck and a review checklist item. The held-PUBACK behaviour (L1-2) and the producer-memory bound (L1-4) are not tested."
+},
+{
+"ac": "The ADR is linked from docs/adr/README.md and from its owning document.",
+"pass": false,
+"note": "docs/architecture/07-multi-protocol.md links it. docs/adr/README.md does not exist yet, so the index half cannot pass. That file is outside this ADR, so it is not raised as a blocking item."
+}
+],
+"foundation_amendments": [
+"Vision P7 says 'a session maps to the request Phases, each message to `onChunk`'. The multi-protocol design, ADR-0013 and the pack section 3 `topic` match instead route each consumed message and each embedded PUBLISH through the request Phases of a `match.topic` Route. Close OQ-multi-protocol-18 and either amend P7 and pack section 4 to record the per-message exception, or switch to its option (b), so the P7 claims in the owning document and this ADR share one meaning."
+]
+},
+"revise2:deployment-topologies": {
+"addressed": [
+"L1-10",
+"L1-11",
+"L1-12",
+"L2-7",
+"L3-6",
+"L4X-14",
+"L4X-15",
+"L4X-16"
+],
+"disputed": []
+},
+"review:adr-0013:L2": {
+"lens": "L2 foundation-auditor",
+"verdict": "revise",
+"score": 7,
+"blocking": [
+{
+"id": "L2-1",
+"section": "Context and problem statement (line 19); Decision drivers (line 29); Decision outcome (line 43); Pros and cons of the options > Native Kafka wire-protocol proxying (line 141)",
+"issue": "The ADR treats a per-message Route as what P7 requires and rejects wire proxying for 'breaking P7'. The vision document defines P7 differently: a session maps to the request Phases, and each message maps to `onChunk`. The owning document says per-message routing through the request Phases is a P7 exception and leaves it open in OQ-multi-protocol-18. That open question's option (b), a session Route with each message as `onChunk`, is the shape that conforms to P7. The ADR therefore contradicts a foundation document (vision P7) and the owning document's Topic ingress section. It also never cites OQ-multi-protocol-18, which is the open question this decision depends on.",
+"evidence": "Line 19: \"Each message stays inside the Route, Policy and Filter Chain model (P7)\". Line 29: \"- **One Filter Chain (P7)**: each message needs a Route; record batches seen by a wire proxy do not have one.\" Line 43: \"and mediation keeps every message on a Route.\" Line 141: \"its Phases see record batches with no per-message Route, breaking P7.\" Vision, Principles: \"| P7 | Protocols are native | Every protocol maps onto the same `Route`, `Policy` and Filter Chain model through a documented Phase mapping: a session maps to the request Phases, each message to `onChunk`\". Owning document, Topic ingress: \"Each message is a request on the Route whose `match.topic` matches, headers as headers and value as body, running the request Phases (a P7 exception: OQ-multi-protocol-18).\"",
+"fix": "Line 19: replace \"(P7)\" with \"(a P7 exception pending OQ-multi-protocol-18)\". Line 29: replace the driver with \"- **Per-message governance (P7 exception, OQ-multi-protocol-18)**: publish, topic ingress and embedded PUBLISH run each message through the request Phases of a Route; a wire proxy sees record batches with no per-message Route or Consumer.\" Line 43: write \"mediation keeps every message on a Route (a P7 exception, OQ-multi-protocol-18)\". Line 141: replace \"breaking P7\" with \"so records would reach Policies only as `onChunk` under P7, where `authz.*`, `ratelimit` and `quota` do not run\"."
+},
+{
+"id": "L2-2",
+"section": "Decision outcome, Kafka row (line 47)",
+"issue": "The ADR limits `ProducerLinger(0)` to Routes that await the acknowledgment. The owning document applies it to every Node without condition, and every publish Route answers 202 only after the acknowledgment. An acknowledgment mode is only a proposed option in OQ-multi-protocol-8. The conditional wording implies Routes that do not wait for the acknowledgment. That contradicts the owning document, which the ADR must agree with. It also treats a franz-go client option as a Route setting.",
+"evidence": "Line 47: \"`ProducerLinger(0)` on Routes that await it, since v1.20.0 made the default linger 10 ms\". Owning document, Publishing from HTTP: \"franz-go's default linger became 10 ms in v1.20.0, so Nodes set `ProducerLinger(0)`\" and \"The Node answers 202 once the broker acknowledges\". OQ-multi-protocol-8 lists \"acknowledgment mode\" as an open `messaging` option.",
+"fix": "Replace the clause with \"`ProducerLinger(0)` on every franz-go producer client, since every publish Route awaits the acknowledgment (an acknowledgment mode is OQ-multi-protocol-8)\". This agrees with the owning document and still satisfies the catalog's \"on Routes that await the acknowledgment\"."
+}
+],
+"non_blocking": [
+{
+"section": "Context and problem statement; Decision outcome (Kafka and NATS rows)",
+"suggestion": "Pack section 3 says the ingress declaration for `match.topic` is OQ-configuration-model-11, and the owning document puts the Kafka and JetStream consume mapping under OQ-multi-protocol-10 as well as the MQTT one. Tag the Kafka and NATS ingress clauses with \"(declaration: OQ-multi-protocol-10, OQ-configuration-model-11)\", as the MQTT row and the Figure 1 caption already do."
+},
+{
+"section": "Decision outcome > Confirmation (line 101)",
+"suggestion": "\"the three rows marked 'Pending CI'\" is ambiguous, because the Library catalog has many Pending CI rows. Name them: \"the NATS, MQTT client and MQTT embedded broker rows, marked Pending CI\". The Kafka row is Verified."
+},
+{
+"section": "Decision outcome > Confirmation (lines 102 to 104)",
+"suggestion": "Nothing is implemented yet. The tech stack Update policy gives `govulncheck` a Planned (M0) tag, and this ADR's bullet has no tag. Add \"Planned (M0)\" to the `govulncheck` bullet, and give the review checklist item a milestone, such as Planned (M4) when the first messaging code lands."
+},
+{
+"section": "Decision outcome, MQTT client row (line 49)",
+"suggestion": "Pack section 7 names `eclipse-paho/paho.golang`. The row gives only the module path `github.com/eclipse/paho.golang`. Write it as the catalog does: \"repository `eclipse-paho/paho.golang`, module `github.com/eclipse/paho.golang`\"."
+},
+{
+"section": "Pros and cons of the options (H3 headings)",
+"suggestion": "The H3 headings shorten the option names given in Considered options. For example, \"franz-go, nats.go jetstream, paho.golang and mochi-mqtt\" stands for the option \"franz-go, nats.go `jetstream`, paho.golang `autopaho` and embedded mochi-mqtt, mediation only\", and \"IBM/sarama\" for \"IBM/sarama for Kafka\". In MADR the headings repeat the option titles. Align them, or at least give the chosen option its full title."
+},
+{
+"section": "Consequences (line 96)",
+"suggestion": "\"OQ-multi-protocol-8, -9, -10\" abbreviates the IDs. The pack tolerates range shorthand, but writing the three full IDs keeps the text grep-able and matches the style guide's `OQ-<docslug>-<n>` form."
+},
+{
+"section": "Decision outcome (Figure 1)",
+"suggestion": "The protocol matrix lets topic ingress and embedded PUBLISH reach `kafka`, `nats` and `mqtt` Upstreams, but the figure draws only `http Upstream`. Relabel the node \"http, kafka, nats or mqtt Upstream\", or say in the caption that only the http case is drawn."
+},
+{
+"section": "Whole document (length)",
+"suggestion": "The body is about 1,435 words by the manifest word_count_rule, against the adr_common maximum of 1,500. The L2 fixes add roughly 60 words and L1's fixes more. Shorten repeated owning-document links in More information first. Do not cut text that resolves a blocking finding."
+},
+{
+"section": "Acceptance criterion 6",
+"suggestion": "docs/adr/README.md does not exist yet (verifier WARN missing-doc). The owning document links ADR-0013 in its Kafka, NATS JetStream and MQTT table and its Native wire-proxy stance table. The index must link ADR-0013 when it is written."
+}
+],
+"ac_results": [
+{
+"ac": "Front matter contains id, title, status, date, deciders and related, and status matches this manifest.",
+"pass": true,
+"note": "All six keys are present. The id, the title (identical to the manifest title) and `status: accepted` match the manifest adrs[] entry."
+},
+{
+"ac": "H2 headings match adr_common.outline_h2 exactly and in order, and Decision outcome contains the H3 headings Consequences and Confirmation.",
+"pass": true,
+"note": "The six H2 headings are exact and in order. Consequences (line 85) and Confirmation (line 98) are H3 headings under Decision outcome. The verifier prints no FAIL line for this file."
+},
+{
+"ac": "Considered options lists at least two options including the chosen one, and each has pros and cons.",
+"pass": true,
+"note": "There are seven options, including the chosen one. Each cites a research URL and has Good and Bad bullets. Option 7 is rejected on a misreading of P7 (L2-1), and the H3 names are shortened (non-blocking)."
+},
+{
+"ac": "Decision outcome states the chosen option as 'Chosen option: ..., because ...' and matches the foundation pack section 7 row for this ADR.",
+"pass": true,
+"note": "Line 43 uses the required form. The libraries match the pack section 7 Messaging row and the manifest decision, including the embedded broker at Planned (M4) and no native Kafka or MQTT wire proxying before M4. The because-clause needs the P7-exception qualifier (L2-1)."
+},
+{
+"ac": "Confirmation names a concrete verification mechanism (test, lint rule, CI gate or review checklist item).",
+"pass": true,
+"note": "It names testcontainers integration tests in `pr-full`, the G1 cross-build and G2 license gate, the quarterly health review, `govulncheck` and a review checklist item. Two of these have no milestone tag (non-blocking)."
+},
+{
+"ac": "The ADR is linked from docs/adr/README.md and from its owning document.",
+"pass": false,
+"note": "docs/architecture/07-multi-protocol.md links ADR-0013 twice. docs/adr/README.md does not exist yet, so the index half fails. The fix is outside this ADR, so it is not a blocking item here."
+}
+],
+"foundation_amendments": [
+"Vision P7 maps 'a session ... to the request Phases, each message to `onChunk`'. Multi-protocol topic ingress, embedded PUBLISH and this ADR instead route each message through the request Phases of a `match.topic` Route. The owning document's Native wire-proxy stance also says, without qualification, that mediation keeps every message 'inside the Route and Filter Chain model (P7)'. Close OQ-multi-protocol-18 so that P7 means one thing: either amend P7 and pack section 4 to record the per-message exception, or adopt its option (b)."
+]
+},
+"revise2:roadmap-and-milestones": {
+"addressed": [
+"L1-8: M2 criterion 6 now reads 'Every Open question blocking an M2 feature is closed: the 47 whose Blocking column names M2 at this snapshot...'. I recounted the Open questions tables in every document on 2026-09-25 and found 47 rows, not 45. The count includes OQ-security-and-identity-26/-27/-30/-31 and OQ-deployment-topologies-19. M3 criterion 6 adds OQ-deployment-topologies-13 (conversion webhook port, pack 8.4 amendment). M4 criterion 4 adds OQ-deployment-topologies-17 (Region relay loss). I kept 'Gateway API conformance' in the M2 Kubernetes row and reworded it to 'no Gateway API conformance (deferred)'. Deleting it would have brought back a verify-docs milestone WARN, because Vision non-goal 7 carries a Planned (M2) tag for it. The words came from other cuts instead.",
+"L2-1: CI stage 2 now reads 'depguard import rules: `github.com/tetratelabs/wazero` only in `internal/pluginhost`; the `github.com/google/cel-go` alias and any Lua runtime banned'. This cleared the ADR-0004 and ADR-0011 WARNs.",
+"L2-2: M4 criterion 2 now limits S5 to the baselines in the Performance budgets competitor baseline plan, with a link to it, and says KrakenD CE S5 is not run because Redis-backed limits are Enterprise-only.",
+"L2-3: M1 Observability adds `ruralz_node_degraded_info` with the M1 reasons (`lkg_boot`, `state_store_breaker_open`). M2 Operations adds `node_count_unknown`, and a new M2 Observability row names `ruralz_plugin_*`, `ruralz_node_detached_seconds`, `ruralz_node_revocation_mark_age_seconds` and `ruralz_node_control_stream_reconnects_total`. M3 Operations adds `ruralz_http_session_duration_seconds`, `ruralz_sse_buffered_total`, `semantic_cache_unsupported` and traceparent injection into gRPC legs. M4 Event protocols adds `ruralz_ingress_paused_partitions`, `ruralz_ingress_hold_expiries_total` and traceparent injection into Kafka, NATS and MQTT 5.",
+"L2-4: OQ-deployment-topologies-13 is now in M3 criterion 6 and in the M3 Operations row, which also names `ruralz.io/v1beta1` with its conversion webhook. OQ-deployment-topologies-17 is now in M4 criterion 4. The verifier no longer WARNs about OQ-deployment-topologies-13.",
+"L2-5: The M2 Kubernetes row no longer lists a bare OQ-configuration-model-2. It now reads 'only Ruralz Control watches CRDs (OQ-configuration-model-2, option (a))'.",
+"L3-2: M4 Other now names Bedrock `/invoke-with-response-stream` and says Claude-family bodies only (OQ-ai-llm-gateway-3), and adds request hedging (Traffic management). M3 Operations adds `ruralz-crds.yaml` serving `ruralz.io/v1beta1`. M2 Ruralz Control adds 'OTLP export like a Node'. M1 Configuration adds the Go test that meta-validates both schema files and `examples/`. The metrics are covered under L2-3. Five more milestone WARNs cleared: ADR-0010:139, AI gateway:189, repository layout:397, release:336 and deployment topologies:592. No new WARN appeared, and the milestone WARN count fell from 49 to 44.",
+"L3-8: M1 criterion 7 and M2 criterion 6 now use the feature-based rule. M1 is the 30 rows whose Blocking column names M1, plus OQ-configuration-model-8 and OQ-security-and-identity-2, -3 and -15 (`auth.basic`, `auth.mtls`). M2 is the 47 rows that name M2, plus OQ-tech-stack-and-libraries-24 (`authz.geoip`), OQ-security-and-identity-10 (`vault`) and -28 (`auth.upstream-sigv4`). M3 adds OQ-deployment-topologies-13. M4 adds OQ-deployment-topologies-17 and OQ-system-overview-16. The body is 3,749 words, within the 3,750 maximum. I made room with wording cuts outside the coverage-bearing scope items and checked each cut against the verify-docs milestone check. last_updated is 2026-09-25. For docs/roadmap/01-roadmap-and-milestones.md, verify-docs reports no FAIL; the only non-milestone WARNs are the 2 expected broken links to documents that do not exist yet. markdownlint-cli2 reports 0 issues. verifier_clean: true."
+],
+"disputed": []
 }
 }

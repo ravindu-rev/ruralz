@@ -1,143 +1,62 @@
 {
   "lens": "L1 feasibility-skeptic",
   "verdict": "revise",
-  "score": 6,
+  "score": 7,
   "blocking": [
     {
-      "id": "L1-1",
-      "section": "Topology catalog (T4 chart object table) and Bootstrap and enrollment",
-      "issue": "The Helm chart cannot bring up a three-voter Control Store unattended as written. The chart declares three identical ruralz-control StatefulSet pods, but bootstrap step 3 needs a human admin to create a join token in Ruralz Console before `ruralz control join` can run, and no first-admin credential is defined. If every pod runs `ruralz control serve` on an empty volume, each one generates its own CAs and elects itself leader. The result is three independent single-voter deployments with disjoint trust roots (split brain at install time).",
-      "evidence": "\"`ruralz-control` StatefulSet | Three pods, one per zone, each with a persistent volume; `OnDelete` updates...\" and \"3. **More replicas.** An `admin` creates a one-time join token in Ruralz Console Settings; `ruralz control join` redeems it over 8092 and the leader adds a voter.\" The CLI reference adds that join \"runs on the new replica's host before `ruralz control serve`\" with a token \"issued by `/api/v1/replicas`\".",
-      "fix": "Add a chart row and a T4 paragraph saying that only ordinal 0 runs `ruralz control serve` on an empty Control Store. Ordinals 1 and 2 start with `ruralz control join` using a token from a bootstrap mechanism, and they never run serve on an empty store. Add an Open question (e.g., OQ-deployment-topologies-11) for (a) a chart bootstrap Job that mints join tokens through `/api/v1/replicas` with a one-time bootstrap admin credential from a Secret (proposed), or (b) a manual post-install step. Add a second Open question for how the first `admin` identity is created. Show the ordinal-0/ordinal-N split in Figure 7 or in the T4 text."
+      "id": "L1-10",
+      "section": "Topology catalog (T4 chart object table, `ruralz-control` StatefulSet row) and Bootstrap and enrollment (Control-mode bootstrap step 2)",
+      "issue": "This regression comes from the L1-1 fix. The chart keys bootstrap on pod ordinal, not on install state. Per Control plane and GitOps, `ruralz control serve` on an empty Control Store generates new CAs and leads. So if ordinal 0 ever restarts on an empty volume after install, it bootstraps a second, independent single-voter deployment with a new trust root. That happens when an operator deletes the PVC of a zonal volume stuck in a lost zone (the pod is otherwise unschedulable under `DoNotSchedule` spread), or after storage loss. Ordinals 1 and 2 still hold quorum, but the 8090 and 8091 Services now load-balance across two deployments: split brain after install. Operators and CI writing through the 8090 Service can land on the rogue leader. The old ordinal-0 voter also stays in the Raft configuration. For ordinals 1 and 2, the doc does not say that `join` runs only when the volume holds no peer certificate. Re-running `join` on every restart would need a fresh one-time token each time, and the bootstrap Job's credential is one-time. So a replaced replica can never rejoin unattended.",
+      "evidence": "\"Only ordinal 0 runs `ruralz control serve` on an empty Control Store; ordinals 1 and 2 run `ruralz control join`, then `serve`\" and \"2. **First replica.** `ruralz control serve` on an empty Control Store creates or loads the CAs and leads ... No other replica runs `serve` on an empty store.\" Control plane doc: \"`ruralz control serve` on an empty Control Store generates the CAs or loads supplied ones\". Chart row: \"`topologySpreadConstraints` on the zone label for every pod, `maxSkew: 1`, `whenUnsatisfiable: DoNotSchedule`\".",
+      "fix": "Key bootstrap on install state, not on ordinal. A pod runs `serve` on an empty store only on first install, for example while a chart-held bootstrap marker is absent and no peer answers on the headless 8092 Service. Otherwise any pod with an empty volume, ordinal 0 included, stays not ready until an `admin` removes its old voter and it runs `join` with a new token. State that `join` runs only when the volume holds no peer certificate. Add an Open question for replacing a replica after volume loss: (a) a chart Job that removes the stale voter and mints a new join token under a standing credential (proposed), or (b) a documented manual step. Link it to [High availability and disaster recovery](04-high-availability-and-disaster-recovery.md)."
     },
     {
-      "id": "L1-2",
-      "section": "Topology catalog (T4 chart object table, Node StatefulSet and HorizontalPodAutoscaler rows)",
-      "issue": "Nodes are deployed as an HPA-scaled StatefulSet, but the doc does not set podManagementPolicy. The Kubernetes default, OrderedReady, creates pods one at a time and waits for each to become Ready. A Control-mode Node is Ready only after Enrollment and its first Snapshot. So scale-out bursts are serialized, and one pod stuck not ready (token failure, Enroll lockout, or a Ruralz Control outage) blocks every later scale-out step. That coordination between Nodes contradicts P4.",
-      "evidence": "\"Node StatefulSet | A persistent volume for `${RURALZ_DATA_DIR}`, which rescheduled Control-mode pods MUST keep...\" and \"HorizontalPodAutoscaler | ... its minimum holds the headroom Node count\"",
-      "fix": "In the Node StatefulSet row, require `podManagementPolicy: Parallel`, with `updateStrategy` RollingUpdate and maxUnavailable held by the PodDisruptionBudget. State that one not-ready pod never blocks the creation of other pods. Show `Parallel` in Figure 4's Node StatefulSet label."
+      "id": "L1-11",
+      "section": "Sizing defaults (Node container row and first-order example) and Topology catalog (T4 HorizontalPodAutoscaler row)",
+      "issue": "The L1-4 fix sized the container for idle TLS connections plus the default budgets (about 3.2 GiB). The dependency's worst case at the same default, non-configurable ceilings is about 19 GiB plus snapshots, sized for a 32 GiB Node. Each connection can hold about 592 KiB before a handler runs, and each in-flight unit about 320 KiB. The connection ceiling is fixed at 20,000 (OQ-data-plane-1 option (a) is current) and the Node gives no way to lower it. So a 4 GiB container with `GOMEMLIMIT` at about 3.6 GiB is OOM-killed by about 6,000 connections that hold large header blocks and HTTP/2 receive buffers. Because the balancer spreads the same pattern to every Node, the pods crash-loop together and the Cluster loses its capacity. The HPA connection threshold of 10,000 per Node (about 5.6 GiB of per-connection memory) scales out only after the container has already passed its memory. That is unbounded memory against the container limit, and it contradicts Performance budgets.",
+      "evidence": "\"Node container | 4 vCPU (target) and 4 GiB (hypothesis): Performance budgets' 2.2 GiB (target) excludes Plugins and full state tables\" and \"→ 4 GiB container; Performance budgets' informational run: 2.5 GiB (target)\" and \"`minReplicas` holds the headroom and, without an adapter, peak connections / 10,000 (target)\". Performance doc: \"Worst-case Node | About 19 GiB plus snapshots, fitting 32 GiB (hypothesis)\". Data plane: \"Per-connection memory | About 592 KiB before a handler runs (hypothesis)\" and \"about 19 GiB plus snapshots, fitting a 32 GiB Node (hypothesis) ..., else the connection ceiling is lowered first\".",
+      "fix": "In the Node container row, state that 4 GiB (hypothesis) covers idle TLS connections plus the default buffered-bytes and state-table budgets only. The default ceilings' worst case is about 19 GiB plus snapshots, sized for 32 GiB (hypothesis, Performance budgets). Give two options: (a) size Nodes for the worst case, or (b) keep 4 GiB and cap connections per Node at the L4 balancer so that connections × 592 KiB plus in-flight units × 320 KiB plus 1.24 GiB of budgets stays under `GOMEMLIMIT`, roughly 2,500 connections (hypothesis), with the HPA connection threshold at half that cap. Add an Open question asking Data plane for a configurable connection ceiling (OQ-data-plane-1 (b) or (c)). Keep OQ-deployment-topologies-8 for measured values."
     },
     {
-      "id": "L1-3",
-      "section": "Topology catalog (T4) and Network and ports",
-      "issue": "The T4 design leaves out the CRD conversion webhook that its dependencies say Ruralz Control serves. The Kubernetes API server must dial ruralz-control for conversion. That is an inbound connection with no port, Service, caBundle or flow row here. The release document also requires cluster-scoped RBAC on CRD status, and the chart's RBAC covers only Node secret reads. As written, the chart cannot serve a second CRD version, and it does not show that non-storage versions depend on Ruralz Control being available.",
-      "evidence": "Configuration model: \"On Kubernetes, CRDs serve all versions with one storage version and Ruralz Control serves the conversion webhook.\" Release doc: \"CRDs serve every served version through Ruralz Control's conversion webhook, Planned (M2), so non-storage versions depend on its availability... needing cluster-scoped RBAC on CRD status.\" Deployment doc flow table lists only \"CRD watch | Ruralz Control leader | Kubernetes API\"; the Secrets row grants only \"`get` and `watch` in the Node's namespace only\".",
-      "fix": "Add a chart row: a conversion-webhook Service on ruralz-control (port: new Open question, since pack 8.4 lists none; option (a) a path on 8090, (b) a dedicated port through a pack amendment), a caBundle from the server CA, and `conversion.strategy: None` while only `ruralz.io/v1alpha1` is served. Add a flow row 'Conversion webhook | Kubernetes API server | ruralz-control | T4'. Add an RBAC row for Ruralz Control: watch CRDs in bound namespaces, read cluster-scoped Environment and Cluster CRDs, update CRD status. State that CRD reads in non-storage versions fail while every replica is down."
-    },
-    {
-      "id": "L1-4",
-      "section": "Sizing defaults (Node container row) and Reference architectures",
-      "issue": "The starting Node container memory is a misquote of Performance budgets. It drops the caveat 'or full state tables' and adds neither the default buffered-bytes budget nor the state tables. The doc also sets GOMEMLIMIT to about 90% of the container limit. A 2.2 GiB container then gives GOMEMLIMIT of about 2 GiB. The worst case at default limits is 1.83 GiB of TLS connections, 256 MiB base, 512 MiB of buffered bytes and about 475 MiB of state tables, roughly 3 GiB. That runs the GC continuously or gets the pod OOM-killed exactly at the 20,000-connection ceiling the row promises.",
-      "evidence": "Deployment doc: \"Node container | 4 vCPU (target) and at least 2.2 GiB of memory for 20,000 TLS connections without Plugins (target)\" and \"`GOMEMLIMIT` | About 90% of the container memory limit (target)\". Performance doc: \"Container memory for 20,000 TLS connections | 2.2 GiB or more (target), without Plugins or full state tables\". Scalability doc: \"Buffered bytes | 512 MiB proposed default (target)\" and limits that \"add ... about 475 MiB (target)\".",
-      "fix": "Restore the full caveat, then give a starting value that covers the default ceilings. For example: 2.2 GiB + 512 MiB buffered bytes + 475 MiB state tables ≈ 3.2 GiB (hypothesis), or 2.2 GiB with a lowered `limits.maxBufferedBytes`. Add one line: with Plugins, add the `limits.maxPluginMemoryBytes` cap (2 GiB default, WASM plugin system). Keep OQ-deployment-topologies-8 for measured values."
-    },
-    {
-      "id": "L1-5",
-      "section": "Sizing defaults (first-order example)",
-      "issue": "The worked example gets State Store load from Node count times a generic per-Node coefficient instead of from request rate. S2 attaches `ratelimit` at the Gateway, and pack 8.8 says each locally admitted request runs GCRA. So 60,000 rps of S2-like traffic makes about 60,000 GCRA calls/s, and 78,000 with the 30% headroom, not 30,000. At the Scalability doc's 62.5% utilization of about 100,000 calls/s per shard (≈62,500), the headroom case needs two shards, not one. The example also carries S2's 32,000 rps saturation over to a `redis` Cell, but S2 is benchmarked on the `memory` driver. The per-Node figure is therefore a hypothesis, not a (target).",
-      "evidence": "\"State Store calls             6 × 5,000 = 30,000 calls/s, one shard with a replica  (hypothesis)\" and \"Per-Node capacity at 53% CPU  32,000 rps × 0.53 ≈ 16,960 rps per 4-vCPU Node        (target)\". Performance doc S2: \"`auth.jwt` and `ratelimit` at the Gateway, `memory` driver\". Pack 8.8: \"each locally admitted request runs GCRA in one Lua `EVAL` in the State Store\".",
-      "fix": "Replace the State Store line with calls = peak rps × blocking State Store calls per request, e.g. '60,000 × 1 GCRA = 60,000 calls/s; 78,000 with headroom > 62,500 per shard at 62.5% → 2 shards with replicas (hypothesis)'. Retag the per-Node line (hypothesis), noting that S2 runs the `memory` driver and that a `redis` Cell's per-Node throughput waits for an S2-with-redis or S5 measurement (Capacity planning)."
-    },
-    {
-      "id": "L1-6",
-      "section": "Topology catalog (T8) and Sizing defaults",
-      "issue": "The doc presents 1,000 Nodes as the Cell split point but leaves out the Cell ceiling that binds first. The Scalability doc states that the 1,000,000 State Store calls/s per Cell ceiling binds at about 200 Nodes. An operator who follows T8 and the sizing table would grow a Cell to 1,000 Nodes and saturate its State Store at one fifth of that. Every Rate Limit would then fail open and every closed Token Budget would reject across the whole Cell.",
-      "evidence": "Deployment doc: \"A Cell reaching 1,000 Nodes (target) splits in two\" and \"Nodes per Cell | 1,000 at most (target)\". Scalability doc: \"At 5,000 State Store calls per second per Node (hypothesis), the 1,000,000-call ceiling binds at 200 Nodes, before the Node ceiling\".",
-      "fix": "Change T8 to 'A Cell splits in two when any Cell sizing ceiling would be exceeded: 1,000 Nodes (target) or 1,000,000 State Store calls/s (hypothesis), which binds first at about 200 Nodes of 5,000 calls/s each (hypothesis)'. Add a 'State Store calls per second per Cell' row to Sizing defaults, linking Cell sizing."
-    },
-    {
-      "id": "L1-7",
-      "section": "Reference architectures (RA-1) and Sizing defaults (Nodes per Cluster row)",
-      "issue": "RA-1 puts three VMs in two zones. That means zones of two and one, and it has no autoscaler. Losing the two-VM zone leaves one Node carrying all traffic. The zone-derived CPU threshold (40% at two zones) holds only for equal zones, so a survivor at 3 × 40% = 120% CPU is overloaded. The same flaw carries into the sizing row, which quotes 'at least three in at least two zones' without the equal-zone condition.",
-      "evidence": "\"Nodes | Three VMs in two zones, systemd (T5)\" and \"Nodes per Cluster | At least three in at least two zones (target)\". Scalability doc: \"sized so that losing the largest zone keeps survivors under 80% CPU (target), which the zone-derived threshold ... enforces for equal zones\".",
-      "fix": "Change RA-1 to four VMs, two per zone, or three VMs across three zones. Add to the Nodes per Cluster row: 'with equal Node counts per zone; with unequal zones, size so the largest zone's loss keeps survivors under 80% CPU (target)'. Give RA-1's static peak CPU per Node explicitly (e.g., 40% or less at two equal zones (target)), since VMs without an autoscaler must be pre-sized."
-    },
-    {
-      "id": "L1-8",
-      "section": "Topology catalog (T10, Figure 6 caption and Outbound only bullet)",
-      "issue": "The hybrid boundary claim contradicts Control plane and GitOps. The Ruralz Control builder runs an online Plugin check against allowlisted OCI registries whenever it records a Revision. A managed Ruralz Control therefore also dials the customer's Plugin registry. With a private registry that accepts no inbound connections, every build that references a Plugin fails. The doc covers only the Git case (OQ-deployment-topologies-10).",
-      "evidence": "\"*Figure 6: hybrid topology; only the Control Stream and Git reads cross the boundary.*\" versus Control plane doc: \"bld -.->|\\\"online Plugin check\\\"| oci\" and \"The online Plugin check dials only allowlisted registries...\"; the same document's Figure 3 shows \"r1 -.->|\\\"online Plugin check\\\"| oci\".",
-      "fix": "Add the OCI registry to Figure 6 with an edge from Ruralz Control labelled 'online Plugin check', correct the caption to 'the Control Stream, Git reads and Plugin registry checks', and widen OQ-deployment-topologies-10 to cover private registries: (a) a registry reachable from the managed side, (b) a mirror, (c) customer CI pushes with the check done in CI."
-    },
-    {
-      "id": "L1-9",
-      "section": "Bootstrap and enrollment (Enrollment per topology, closing sentence)",
-      "issue": "The Enroll lockout is keyed by source address. That becomes a shared failure domain in the topologies this doc recommends. In T10 all customer Nodes dial out through one NAT, and many T4 clusters SNAT egress. Ten failed Enrolls from any Nodes (expired tokens after an outage, or reused tokens from StatefulSet init containers) lock out Enrollment for the whole Cluster. Meanwhile new Nodes without Last-Known-Good stay not ready. The stated mitigation does not follow, because pre-minting tokens does not reduce failures, and the per-source rate limit still throttles bursts.",
-      "evidence": "\"`Enroll` locks out a source after 10 failures in 10 minutes (target), so scale-out bursts SHOULD mint tokens before pods start.\" and \"**Outbound only.** Nodes dial 8091 over mTLS, so customer firewalls open no inbound port.\"",
-      "fix": "State that behind NAT or SNAT many Nodes share one Enroll source, so the lockout and rate limit apply per egress address. Add an Open question for keying the lockout by token or Cluster instead of source, or for an exemption per allowed CIDR. Replace the non-sequitur with a concrete rule: size the per-source Enroll rate limit above the largest expected scale-out burst per egress address (target), and alert on RZ-CP-001 bursts."
+      "id": "L1-12",
+      "section": "Topology catalog (T4 Bootstrap Job and RBAC rows) and Open questions (OQ-deployment-topologies-11, -12)",
+      "issue": "The two proposed options that make the chart's bootstrap unattended do not fit together, so the L1-1 fix cannot be built as proposed. OQ-11 (a) has the first `serve` write a one-time bootstrap credential. That credential lands inside ordinal 0's container or volume. OQ-12 (a) has the bootstrap Job read an `admin` credential from a Kubernetes Secret. Nothing moves the credential from ordinal 0 into that Secret: the RBAC row gives `ruralz-control` no right to create or update Secrets, and Helm cannot learn a value generated at runtime. Under the proposed options, ordinals 1 and 2 wait for join tokens forever.",
+      "evidence": "\"Bootstrap Job (proposed) | Mints their join tokens at `/api/v1/replicas` with a one-time `admin` credential from a Secret (OQ-deployment-topologies-12)\"; \"OQ-deployment-topologies-11 | How is the first `admin` and `security-admin` created? | (a) The first `ruralz control serve` writes a one-time bootstrap credential (proposed); (b) process configuration\"; RBAC row: \"`ruralz-control`: `list` and `watch` on `ruralz.io` CRDs in bound namespaces, reads of cluster-scoped `Environment` and `Cluster` CRDs, cluster-scoped CRD status updates. None reads Secrets cluster-wide\".",
+      "fix": "Close the path for the chart. One way: the chart generates the one-time bootstrap credential into a Secret, and ordinal 0 imports it through process configuration at its first `serve` (OQ-11 option (b) for T4). The Job reads the same Secret, and the credential is invalidated after its first use or once both joins finish. The other way: grant `ruralz-control` `create` on one named Secret in its own namespace, and add that to the RBAC row. Record which option OQ-11 proposes per topology."
     }
   ],
   "non_blocking": [
     {
-      "section": "Open questions (OQ-deployment-topologies-4)",
-      "suggestion": "'about 30 s per 100-Node Cluster (target) plus bake' is SM-9's convergence figure and does not hold under `strategy: canary`. There, each of the three batches after the canary is gated for max(30 s, 3 × 15 s heartbeat) = 45 s (target), so a Cluster takes about 135 s plus `canary.bake`. With 300 edge Clusters at bake 15m, one promotion takes about 86 hours (hypothesis). Quote those figures."
+      "section": "Whole document (length)",
+      "suggestion": "The body is 4,499 words under the manifest's word_count_rule, against a maximum of 4,500. The fixes above need room made by tightening prose elsewhere, for example by merging the T9 relay sentences or shortening the T10 bullets. Do not delete text that resolved L1-1 to L1-9 or earlier findings from other lenses."
     },
     {
-      "section": "Topology catalog (T6 edge)",
-      "suggestion": "Low-traffic edge Clusters under `strategy: canary` hit the 200-request minimum sample, and a thin canary gate pauses. That stalls the serial promotion of every later Cluster. Recommend `all-at-once` or file mode for low-traffic sites, or add the case to OQ-deployment-topologies-4."
+      "section": "Topology catalog (T4 Node StatefulSet row)",
+      "suggestion": "`RollingUpdate` with `maxUnavailable` on a StatefulSet depends on the MaxUnavailableStatefulSet feature, which is not GA on every supported Kubernetes version. Without it, updates replace one pod at a time and wait for Ready, so one Control-mode pod stuck not ready stalls a 30-pod upgrade. State the minimum Kubernetes version or the fallback."
     },
     {
-      "section": "Topology catalog (T4 HorizontalPodAutoscaler row)",
-      "suggestion": "Repeat Scalability's rule that autoscaled Control-mode Clusters SHOULD declare per-Node ceilings until OQ-traffic-management-and-resilience-19 closes, because the published Node count rises at most 10% per minute after scale-out. Without it, an HPA burst over-admits by up to 20 × `requests` (hypothesis)."
+      "section": "Sizing defaults (Nodes per Cluster row)",
+      "suggestion": "\"At least three in at least two equal zones\" cannot hold, because three Nodes do not split into two equal zones. Write \"four in two equal zones, or three in three (target)\" to match RA-1."
     },
     {
-      "section": "Topology catalog (T2 row, 'Add Nodes freely')",
-      "suggestion": "Qualify this. In file mode without a declared per-Node ceiling the ceiling equals the full limit (pack 8.8), so fail-open over-admission grows with Node count. Recommend declared ceilings for T2 Clusters."
+      "section": "Sizing defaults (State Store shards row and example)",
+      "suggestion": "Say why the per-shard planning load is 50% (the hot-key margin in Scalability) while the Cell ceiling of 1,000,000 calls/s uses 62.5% of 16 shards. At 50%, 16 shards give 800,000 calls/s, so the two figures disagree unless the difference is explained."
     },
     {
-      "section": "Network and ports (closing paragraph)",
-      "suggestion": "'Across Regions only 8091, 8092, telemetry and configured Upstream traffic cross' contradicts RA-3's 'Backups copied to the second Region'. It also leaves out Git fetches and OCI pulls when the forge or registry sits in another Region. List them or say 'configuration and data-plane request traffic'."
-    },
-    {
-      "section": "Topology catalog (T5)",
-      "suggestion": "Add the systemd equivalent of the Kubernetes termination rule: `TimeoutStopSec` MUST exceed the Drain deadline. Otherwise systemd SIGKILLs a draining Node."
-    },
-    {
-      "section": "Topology catalog (T2 OCI pull)",
-      "suggestion": "With hundreds of Nodes, polling a registry reference is a fan-out onto the registry. Give a poll interval with jitter (target), and note the registry rate limits or a per-Cell pull-through mirror."
-    },
-    {
-      "section": "Sizing defaults (Ruralz Control replica resources)",
-      "suggestion": "Show the basis for 4 GiB (hypothesis): 256 MiB of Snapshots in flight, per-stream send queues of 4 messages over 5,000 streams (shared encodings), the Raft log and the content store for the 50 retained Revisions per Environment. That way the F2 job measures the right terms."
-    },
-    {
-      "section": "Whole document",
-      "suggestion": "The body is about 4,470 words against the 4,500 maximum. Write the blocking fixes compactly, as table rows or one sentence each, and do not delete earlier content to make room."
+      "section": "Bootstrap and enrollment (step 4) and Figure 4",
+      "suggestion": "In the chart, `ruralz control join --peer` targets the headless 8092 Service, which does not know the leader. State whether followers forward `Join` to the leader or the chart resolves the leader first. Add Helm edges to the ordinal 1 and 2 pods and to the bootstrap Job in Figure 4."
     }
   ],
   "ac_results": [
-    {
-      "ac": "Topology catalog covers dev single binary, file mode, Cluster of Nodes with Ruralz Control, Kubernetes (Helm, HPA, CRDs), VM with systemd, edge, per-team, multi-cluster, multi-region, and hybrid managed Ruralz Control with self-hosted Nodes.",
-      "pass": true,
-      "note": "T1 to T10 cover all ten, in a 10-row table (machine check min_table_rows 10 passes)."
-    },
-    {
-      "ac": "Each topology states when to use it, components, failure domains, configuration delivery and scaling.",
-      "pass": true,
-      "note": "The catalog table has the columns When to use, Components, Failure domain, Configuration delivery and Scaling for every row. T4's scaling content is incomplete (L1-2) but present."
-    },
-    {
-      "ac": "Network and ports matches the foundation pack ports (8080, 8443 TCP and UDP, 9901, 8090, 8091).",
-      "pass": true,
-      "note": "All five ports plus 8092 and 9902 match pack 8.4. The missing conversion-webhook flow (L1-3) is a separate gap."
-    },
-    {
-      "ac": "The Kubernetes stance matches ADR-0016 (Helm chart and CRDs mirroring kinds Planned (M2), Gateway API conformance deferred).",
-      "pass": true,
-      "note": "The T4 opening sentence and the OQ-vision-and-positioning-4 decision match pack section 7. The ADR-0016 file does not exist yet (verifier WARN only)."
-    },
-    {
-      "ac": "The hybrid topology uses the same open source binaries with no feature gating.",
-      "pass": true,
-      "note": "The T10 bullet 'Same binaries, no feature gating (P1)' names both public images."
-    },
-    {
-      "ac": "Reference architectures presents three reference architectures as H3s.",
-      "pass": true,
-      "note": "RA-1, RA-2 and RA-3 are H3s (min_h3 3 passes). RA-1's layout is infeasible as sized (L1-7)."
-    }
+    {"ac": "Topology catalog covers dev single binary, file mode, Cluster with Ruralz Control, Kubernetes (Helm, HPA, CRDs), VM with systemd, edge, per-team, multi-cluster, multi-region, and hybrid managed Ruralz Control with self-hosted Nodes.", "pass": true, "note": "T1 to T10 are all in the catalog table, which has 10 rows, with H3 detail for each."},
+    {"ac": "Each topology states when to use it, components, failure domains, configuration delivery and scaling.", "pass": true, "note": "The catalog table has a column for each of the five, filled for every row."},
+    {"ac": "Network and ports matches the foundation pack ports (8080, 8443 TCP and UDP, 9901, 8090, 8091).", "pass": true, "note": "The ports table lists 8080, 8443 TCP, 8443 UDP Planned (M3), 9901, 8090, 8091, 8092 and 9902, matching pack 8.4. The conversion webhook port is correctly left as OQ-deployment-topologies-13."},
+    {"ac": "The Kubernetes stance matches ADR-0016 (Helm chart and CRDs mirroring kinds Planned (M2), Gateway API conformance deferred).", "pass": true, "note": "T4 states the Helm chart and CRDs mirroring the ten kinds as Planned (M2), with Gateway API conformance deferred. Only Ruralz Control reads CRDs."},
+    {"ac": "The hybrid topology uses the same open source binaries with no feature gating.", "pass": true, "note": "T10's \"Same binaries (P1)\" bullet says there is no fork, patch, license key, feature gating or cloud-only hook."},
+    {"ac": "Reference architectures presents three reference architectures as H3s.", "pass": true, "note": "RA-1, RA-2 and RA-3 are H3s."},
+    {"ac": "verify-docs (--allow-missing --skip markdownlint) FAIL lines for this document", "pass": true, "note": "No FAIL lines. The WARN lines are for links to documents and ADRs not yet written, and for missing roadmap items for T10 (M2) and OQ-13 (M3)."}
   ],
   "foundation_amendments": [
-    "Pack 8.4 lists no port for the CRD conversion webhook that the Configuration model says Ruralz Control serves. Either name its port or path (e.g., a path on 8090) or record that CRD conversion shares an existing listener (see L1-3)."
+    "Pack 8.4: add a port or 8090 path for the Kubernetes CRD conversion webhook served by `ruralz-control` (OQ-deployment-topologies-13), required before a second CRD version is served, Planned (M3)."
   ]
 }

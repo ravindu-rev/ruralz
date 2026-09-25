@@ -1,157 +1,90 @@
 {
-  "lens": "L4X scale-adversary",
+  "lens": "L4X",
   "verdict": "revise",
-  "score": 5,
+  "score": 7,
   "blocking": [
     {
-      "id": "L4X-1",
-      "section": "Topology catalog (T2 and T8 rows, T7 and T8 text) and Sizing defaults",
-      "issue": "The document names 1,000 Nodes as the only Cell ceiling and says file-mode Clusters scale freely. It leaves out the Cell ceiling that binds first. Scalability and distributed state says the 1,000,000 State Store calls/s ceiling binds at about 200 Nodes, and that above 900 Nodes the server client limit must exceed 10 × N_serving. The document also omits the 10,000-Node ceiling per Ruralz Control deployment from the T8 scaling path.",
-      "evidence": "T2 row, Scaling cell: \"Add Nodes freely\". T8 text: \"A Cell reaching 1,000 Nodes (target) splits in two\". The Sizing defaults table lists \"Nodes per Cell | 1,000 at most (target)\" and \"State Store shards per Cell | 16 at most (target), memory at 70% of `maxmemory` (target)\" but has no calls/s row. Scalability doc: \"At 5,000 State Store calls per second per Node (hypothesis), the 1,000,000-call ceiling binds at 200 Nodes, before the Node ceiling\" and \"Connections per shard | 10 × N_serving, 10,000 at 1,000 Nodes (hypothesis) | Refused connections | Server client limit above 10 × N_serving, a MUST above 900 Nodes (target)\".",
-      "fix": "Add three Sizing defaults rows, each linked to Cell sizing and Cell and Cluster bottlenecks. (1) \"State Store calls per second per Cell: 1,000,000 (hypothesis), binding at about 200 Nodes at 5,000 calls/s per Node (hypothesis)\". (2) \"State Store server client limit above 10 × N_serving, a MUST above 900 Nodes (target)\". (3) \"Nodes per Ruralz Control deployment 10,000, counting every Environment and relay-served Node (target)\". Change the T8 sentence to \"A Cell splits when any Cell ceiling saturates: 1,000 Nodes (target), 16 shards (target) or 1,000,000 State Store calls/s (hypothesis), whichever comes first\". Replace the T2 Scaling cell with \"Add Nodes up to the Cell ceilings, then add Cells\". Change the T8 Scaling cell to \"Add Clusters, then Cells, up to 10,000 Nodes per Ruralz Control deployment (target)\"."
+      "id": "L4X-14",
+      "section": "Topology catalog (T4 HorizontalPodAutoscaler row) and Reference architectures (RA-2 Nodes row)",
+      "issue": "This is a regression from the L4X-5 fix. Per-Node ceilings of at most `requests` / `maxReplicas` apply to healthy admission, not only to fail-open. Pack 8.8 and Traffic management run every locally admitted request through the local bucket at the per-Node ceiling first, and a request the bucket denies gets a 429 without ever reaching GCRA. At RA-2's minimum of 6 pods, the Cell therefore admits at most 6 x `requests` / 30 = 20% of every declared limit while the State Store is healthy. A client pinned to one Node through a long-lived HTTP/2 connection gets 1/30 of its limit. A small limit such as 10 per `1s` falls below one token per window per Node (0.33). The document states the fail-open bound it avoids (10 x `requests`) but not the under-admission it causes, which is an accuracy bound with no number.",
+      "evidence": "T4 HPA row: \"Control-mode Clusters SHOULD declare per-Node ceilings of at most `requests` / `maxReplicas` (target; OQ-traffic-management-and-resilience-1)\". RA-2: \"| Nodes | HorizontalPodAutoscaler, 6 to 30 pods, at least two per zone (target) | Per-Node ceilings at most `requests` / 30 (target), else fail-open admits up to 10 x `requests` ...\". Pack 8.8: \"Requests the local bucket denies never reach the State Store\". Traffic management, Decision path step 4: \"Each `limits[]` entry has a local token bucket at its per-Node ceiling; all must hold a token, else 429 `RZ-RL-001`\". Traffic management, Per-Node ceiling: the derived formula has a floor, \"max(10, ceil(2 x `requests` / N_published))\", because \"the floor serves pinned clients\". A declared requests / N_max ceiling has no floor.",
+      "fix": "Next to both rows, state the healthy bound: \"with a declared ceiling c, a healthy Cell admits at most min(`requests`, N_serving x c) per window, so c = `requests` / `maxReplicas` admits `minReplicas` / `maxReplicas` of `requests` at minimum scale (20% at 6 of 30, target), and a client pinned to one Node gets c\". Make the trade-off explicit per limit: pick c between `requests` / N_max (fail-open at most `requests`, healthy N_min / N_max) and 2 x `requests` / N_min (healthy exact, fail-open up to 2 x N_max / N_min x `requests`). Recommend declared ceilings only where that under-admission is acceptable, or a narrower HPA range (min / max of at least 0.5) for Clusters with strict limits. Never declare c below one token per window. Add an Open question (owner traffic-management-and-resilience, linked to OQ-traffic-management-and-resilience-1 and -19) on a declared cap that bounds the derived ceiling, min(derived, cap), rather than replacing it."
     },
     {
-      "id": "L4X-2",
-      "section": "Sizing defaults (first-order example)",
-      "issue": "The worked example gets State Store load from a per-Node coefficient instead of the request rate, and it provisions one shard. S2 attaches `ratelimit` at the Gateway, and pack 8.8 runs one GCRA EVAL for each locally admitted request. At the stated peak the load is up to 60,000 calls/s, and 78,000 with the headroom traffic. Scalability caps GCRA keys at 50% of a shard of about 100,000 calls/s (hypothesis), so one shard is already over its margin at peak. The per-Node capacity also comes from S2 saturation, which Performance budgets measures with the `memory` driver. It therefore leaves out the State client CPU of a `redis`-backed Node.",
-      "evidence": "\"State Store calls             6 × 5,000 = 30,000 calls/s, one shard with a replica  (hypothesis)\" and \"Peak                          60,000 rps of S2-like traffic                         (hypothesis)\". Pack 8.8: \"each locally admitted request runs GCRA in one Lua `EVAL` in the State Store\". Performance doc S2: \"`auth.jwt` and `ratelimit` at the Gateway, `memory` driver\". Scalability: \"GCRA keys then stay at 50% of a shard, leaving margin under the 70% script CPU target\" and \"Shard script throughput | About 100,000 calls per second (hypothesis) | Breakers open\".",
-      "fix": "Rewrite the State Store line from the request rate: \"State Store calls ≈ admitted rps × blocking State Store calls per request = 60,000 × 1 = 60,000 calls/s at peak, 78,000 with headroom (hypothesis) → ceil(78,000 / 50,000) = 2 shards, each with a replica (hypothesis)\". Add a sentence saying that S2's 32,000 rps saturation uses the `memory` driver. A `redis`-backed Node's capacity waits for the S5 and G1 results, so the per-Node line is an upper bound (hypothesis). Keep the 5,000 calls/s per Node coefficient only as Scalability's fallback for an unknown request mix."
+      "id": "L4X-15",
+      "section": "Reference architectures (RA-2 State Store row)",
+      "issue": "RA-2 autoscales Nodes from 6 to 30 but provisions the State Store with no shard count, and the wording implies one primary. It also never bounds `maxReplicas` by State Store capacity. Using the document's own per-Node figure and one GCRA per request (the Sizing example), 6 Nodes at the threshold already offer about 101,760 calls/s. That exceeds the 50,000 calls/s GCRA margin of one shard and matches its full capacity of about 100,000 (hypothesis). At 30 Nodes the load is about 509,000 calls/s. At 10x load the HPA adds Nodes while the single shard saturates, the breakers open, and every Rate Limit in the Cell fails open. The HPA cannot see this bottleneck, because Scalability makes State Store saturation a Cell sizing signal, not an autoscaling signal.",
+      "evidence": "RA-2: \"| State Store | One per Cluster, primary and replica across zones | Each Cluster is a Cell |\" and \"6 to 30 pods\". Sizing example: \"Per-Node capacity 32,000 rps x 0.53 ~ 16,960 rps per 4-vCPU Node\" and \"Shards ceil(78,000 / 50,000 at 50% of a shard) = 2\". Scalability: \"State Store saturation is a Cell sizing signal: more Nodes add State Store load\" and \"Shard script throughput | About 100,000 calls per second (hypothesis) | Breakers open\".",
+      "fix": "Give RA-2's State Store row a shard count derived from `maxReplicas`: shards = ceil(`maxReplicas` x per-Node rps x blocking State Store calls per request / 50,000), for example ceil(30 x 16,960 x 1 / 50,000) = 11 shards, each with a replica across zones (hypothesis), within the 16-shard Cell ceiling (target). Alternatively cap `maxReplicas` at what the provisioned shards carry. Add a T4 or Sizing rule: the HPA's `maxReplicas` MUST NOT exceed shards x 50,000 / (per-Node rps x calls per request) (hypothesis), and State Store script CPU is alerted as the Cell sizing signal."
     },
     {
-      "id": "L4X-3",
-      "section": "Topology catalog (T4 chart objects: HorizontalPodAutoscaler)",
-      "issue": "The chart's HorizontalPodAutoscaler scales on CPU only. Scalability requires scaling out on the first of five signals, and scaling in only when all five are under half their thresholds. Connection-bound workloads such as SSE, WebSocket and LLM streaming reach the 20,000 connection or in-flight ceiling at low CPU, so the HPA never scales out. The HPA's default scale-in also removes Nodes on CPU alone, which causes Drain and reconnect waves on connection-heavy Clusters.",
-      "evidence": "\"| HorizontalPodAutoscaler | Zone-derived CPU threshold of [Autoscaling signals](...); its minimum holds the headroom Node count; custom metrics need an operator-chosen metrics adapter |\". Scalability: \"Scale out on the first signal over its threshold; scale in only when all are under half of it.\" The signal table also lists `ruralz_http_active_requests`, `ruralz_listener_open_connections` and `ruralz_node_buffered_bytes` at 50% of their ceilings, plus gateway-added p99 latency.",
-      "fix": "Change the HPA row as follows. The chart's HPA declares every Scalability signal: CPU as a Resource metric, and in-flight units, connections, buffered bytes and gateway-added p99 as Pods metrics under those metric names, each at the Scalability threshold (target). The chart sets `behavior.scaleDown` with a stabilization window and removes at most one zone's share of Nodes per period (target). Without a metrics adapter, `minReplicas` MUST cover peak connections / 10,000 (target), which is 50% of the 20,000 ceiling. Add an Open question on how the chart expresses the 'scale in only under half' rule, since HPA takes the maximum recommendation across metrics (owner deployment-topologies)."
-    },
-    {
-      "id": "L4X-4",
-      "section": "Topology catalog (T4 chart objects) and Reference architectures (RA-1, RA-2)",
-      "issue": "The zone-loss guarantees assume equal zones, but nothing enforces equal zones. The chart sets no topology spread constraints for Node or `ruralz-control` pods. HPA-added pods can land in one zone, and the Node PodDisruptionBudget has no number. RA-1 puts three VMs in two zones, so its zones hold two and one Nodes. The zone-derived threshold is valid only for equal zones.",
-      "evidence": "RA-2: \"StatefulSet with HorizontalPodAutoscaler, minimum six pods, two per zone (target)\" and \"a lost zone leaves at least four Nodes, which the three-zone CPU threshold keeps under 80% CPU (target)\". PDB row: \"Nodes limited so survivors stay under the CPU threshold\". RA-1: \"Three VMs in two zones, systemd (T5)\". Scalability: \"sized so that losing the largest zone keeps survivors under 80% CPU (target), which the zone-derived threshold ... enforces for equal zones\".",
-      "fix": "Add a chart row: Node and `ruralz-control` pods carry `topologySpreadConstraints` on the zone label with `maxSkew: 1` and `whenUnsatisfiable: DoNotSchedule`. Give the Node PodDisruptionBudget a number, for example `maxUnavailable` equal to the Nodes of one zone at minimum scale (target). Change RA-1 to four VMs, two per zone, or to three VMs in three zones. State the general threshold for unequal zones: scale out at 80% × (N − N_largest_zone) / N (target)."
-    },
-    {
-      "id": "L4X-5",
-      "section": "Topology catalog (T4) and Reference architectures (RA-2)",
-      "issue": "T4 and RA-2 autoscale Control-mode Clusters but never apply Scalability's rule for derived per-Node ceilings. The published Node count rises at most 10% per minute after a 10-minute qualification. An HPA burst during a State Store failure therefore admits up to about 20 × `requests` per key to Upstreams and AI providers, a bound the document never states.",
-      "evidence": "The document never mentions per-Node Rate Limit ceilings; it has only the CPU threshold and headroom. Scalability: \"Until OQ-traffic-management-and-resilience-19 closes, autoscaled Control-mode Clusters SHOULD declare per-Node ceilings ... c SHOULD be at most `requests` / N_max for the largest autoscaled Node count (target)\" and \"Scale-out while the count lags | That formula: 20 × `requests` for about 34 minutes from 10 to 100 Nodes (hypothesis)\".",
-      "fix": "Add this to the T4 HPA row and the RA-2 Nodes row: \"Autoscaled Control-mode Clusters SHOULD declare per-Node Rate Limit ceilings of at most `requests` / N_max, where N_max is the HPA `maxReplicas` (target); the field is OQ-traffic-management-and-resilience-1\". Link Scalability's Warm-up section. Give RA-2 an explicit `maxReplicas`, and state the fail-open over-admission bound while the count lags."
-    },
-    {
-      "id": "L4X-6",
-      "section": "Open questions (OQ-deployment-topologies-4) and Topology catalog (T6)",
-      "issue": "The serial-promotion timing figure has no source and contradicts Control plane and GitOps. That document sets batches of 25%, 25% and then 50%, each canary batch gated for max(30 s, 3 × heartbeatInterval), with 15 s heartbeats. The time per Cluster is therefore bake + about 135 s, independent of Node count, and not 30 s per 100 Nodes. The figure makes fleet-wide delivery look about an order of magnitude faster than it is.",
-      "evidence": "\"Serial promotion slows Environments with hundreds of edge Clusters, about 30 s per 100-Node Cluster (target) plus bake.\" Control plane and GitOps: \"Batches | 25%, 25%, then 50% of the rest (target); under `canary`, each gated for max(30 s, 3 × `heartbeatInterval`) (target)\" and \"Nodes heartbeat every 15 s (target)\". No depends_on document contains a \"30 s per 100-Node\" figure.",
-      "fix": "Replace the figure with the derived one: \"per canary Cluster, `canary.bake` + 3 × max(30 s, 3 × heartbeatInterval) ≈ bake + 135 s at 15 s heartbeats (target), plus ACK time; one `all-at-once` batch otherwise\". Add a worked total, for example 500 edge Clusters with a 15-minute bake ≈ 500 × 17.25 min ≈ 6 days (hypothesis). Make OQ-deployment-topologies-4 blocking for T6 Control mode at Planned (M2), or recommend file mode from site mirrors above a stated site count."
-    },
-    {
-      "id": "L4X-7",
-      "section": "Topology catalog (T6 edge, Control mode mostly detached)",
-      "issue": "T6 presents Control mode with intermittent uplinks as a normal delivery choice. It ignores that an uplink lost mid-Rollout makes every Node at that site lag. Several lagging Nodes fail the batch, the Rollout ends `rolled-back` or `paused`, and the Environment's serial promotion then stops for every later site. One flaky site link can freeze delivery to hundreds of sites.",
-      "evidence": "\"**Control mode, mostly detached.** Nodes dial 8091 when the uplink allows and serve detached otherwise.\" Control plane and GitOps: \"ACK timeout | 60 s from the last byte sent, then 3 retries before the Node lags and is quarantined\", \"Lagging threshold | More than max(1, 5% of the batch) lagging Nodes fails the batch\" and \"A Rollout ending `rolled-back` or `failed` stops its promotion\"; also \"Clusters take one promotion at a time in lexical order\".",
-      "fix": "Add a sentence to T6: \"A site that loses its uplink mid-Rollout lags as a unit; with two or more Nodes it fails its batch and stops the Environment's promotion for every later Cluster until an `operator` retries\". Make file mode from site mirrors the default for intermittent sites, or group sites into several Environments. Add an Open question (owner control-plane-and-gitops) on lag-tolerant plans or promotions that skip a failed Cluster for edge Environments."
-    },
-    {
-      "id": "L4X-8",
-      "section": "Topology catalog (T9) and Reference architectures (RA-3)",
-      "issue": "The regional relay is drawn and sized as a single instance, with no stream capacity limit and no stated behavior on relay loss. A relay is subject to the same 5,000 streams per replica (hypothesis). If relay-served Nodes fall back to the home Region, the home replicas must hold them, but the replica formula does not say which Nodes N counts.",
-      "evidence": "RA-3: \"| Second Region | One or more Cells and a regional Ruralz Control relay | Nodes dial the relay on 8091; the relay feeds from the home Region on 8092 |\" and \"| Cells | One Cluster and one State Store each, at most 1,000 Nodes (target) |\". Sizing: \"Ruralz Control replicas | ceil(N / 5,000) + 1 across zones, never below the voter count (hypothesis)\". Control plane and GitOps: \"a replica 5,000 streams and 20 Snapshots/s (hypothesis)\".",
-      "fix": "Add a sizing row: \"Relays per Region: ceil(N_region / 5,000) + 1 across zones (hypothesis)\". Show at least two relays in RA-3. State that N in the replica formula counts every Node the deployment serves, relay-served Nodes included. Add an Open question (owner control-plane-and-gitops) on what Nodes do when every relay in a Region is lost: (a) stay detached; (b) fall back to the home Region, with the home replica count covering them."
-    },
-    {
-      "id": "L4X-9",
-      "section": "Reference architectures (RA-3 failure behavior) and Bootstrap and enrollment",
-      "issue": "RA-3 says Rollouts and Enrollment resume once `ruralz control restore` runs in the surviving Region. Under Control plane and GitOps, a restore without an operator-supplied revocation list refuses every Node certificate issued before it. Every surviving Node then serves detached until it re-enrolls, one token and one leader-only Enroll per Node. At a fleet of several thousand Nodes that is an unbounded recovery with no Rollout path for a fix. RA-2 and RA-3 also give no backup frequency, so the restore point is unbounded.",
-      "evidence": "RA-3: \"losing the home Region also stops Rollouts and Enrollment everywhere until `ruralz control restore` runs in the surviving Region\". Enrollment table T9 row: \"As T3, and after a restore opens a new `storeEpoch`\". Control plane and GitOps: \"without an operator-supplied revocation list, Node certificates issued before the restore are refused until their Nodes re-enroll, so those Nodes serve detached\" and \"Enrollment and renewal go to the leader\". RA-2: \"`ruralz control backup` scheduled to off-cluster storage\".",
-      "fix": "Add three things to RA-3. (1) The revocation list is exported with every backup, and the restore MUST supply it so existing Node certificates stay accepted. (2) A backup interval (target) for RA-2 and RA-3, stated as the restore point. (3) Without the list, re-enrollment proceeds at a stated rate per leader (hypothesis), with tokens minted in bulk under the minting quota. Add an Open question for the bulk re-enrollment procedure (owner high-availability-and-disaster-recovery)."
-    },
-    {
-      "id": "L4X-10",
-      "section": "Topology catalog (T9) and Reference architectures (RA-3 Capacity row)",
-      "issue": "Pre-provisioning for Region loss covers only Node counts. When a Region fails, the surviving Region's Cells also take R / (R − 1) times the State Store GCRA calls, connections per shard and Node count. A State Store sized for its own share saturates during the failover itself, which opens breakers and fails every Rate Limit in the Cell open. The doubled Node count can also cross the per-Cell Node or calls/s ceilings.",
-      "evidence": "RA-3: \"| Capacity | Each Region pre-provisioned for R / (R − 1) of its peak share: 100% of global peak with two Regions (target) | Autoscaler minimums hold it |\". The T9 row reads \"Cells per Region; R / (R − 1) pre-provisioning\". Scalability: \"State Store saturation is a Cell sizing signal: more Nodes add State Store load\" and \"State Store calls per second per Cell | 1,000,000 ...\".",
-      "fix": "Extend the RA-3 Capacity row and the T9 text to all Cell resources. Each surviving Region's Cells hold R / (R − 1) × their peak State Store calls under 50% of shard capacity (hypothesis), with server client limits above 10 × the pre-provisioned N_serving (target). Enough Cells stay within the 1,000-Node (target) and 1,000,000 calls/s (hypothesis) ceilings at that load."
-    },
-    {
-      "id": "L4X-11",
-      "section": "Bootstrap and enrollment (Enrollment per topology, closing sentence)",
-      "issue": "The mitigation misreads the Enroll limits. Control plane and GitOps puts a per-source rate limit and a per-source failure lockout on `Enroll`. Behind the single SNAT or NAT egress common in T4 and required in T10's outbound-only layout, an HPA burst counts as one source. Pre-minting tokens only raises the chance of expired-token failures, since tokens are valid 1 hour (target). Ten such failures lock out the whole Cluster's scale-out for 10 minutes.",
-      "evidence": "\"`Enroll` locks out a source after 10 failures in 10 minutes (target), so scale-out bursts SHOULD mint tokens before pods start.\" Control plane and GitOps: \"`Enroll` has a per-source rate limit, a 16 KiB message cap and a lockout after 10 failures in 10 minutes (target)\". Scalability CE-9: \"Scale from 10 to 100 Nodes in 2 minutes (target)\".",
-      "fix": "Replace the sentence. Enroll admits per source at a rate that MUST cover the HPA's largest step, for example 90 Enrolls in 2 minutes for CE-9 (target). Tokens SHOULD be minted just in time by the init container, not pre-minted into pools that expire. Behind shared NAT, a lockout blocks every Node of the Cluster. Add an Open question (owner control-plane-and-gitops) on the per-source rate value and on keying the lockout by source plus token Cluster."
-    },
-    {
-      "id": "L4X-12",
-      "section": "Topology catalog (T2, T4 Node StatefulSet row, T6) and Configuration delivery per topology",
-      "issue": "File-mode OCI delivery has unbounded fan-out and makes the registry a hidden single point of failure. Every Node polls a reference with no stated interval or jitter. A new digest makes every Node pull and activate at once, so registry load is N / interval with an N-way pull burst. The chart also lets file-mode Nodes use ephemeral volumes when the registry is reachable at boot. During a registry outage, a node-pool rotation then turns every rescheduled pod not ready, which contradicts Scalability's MUST.",
-      "evidence": "\"| T2 OCI, T6 mirror | Git, built by CI | `ruralz bundle push`; Nodes poll a reference and pull by digest |\". The Node StatefulSet row says: \"file mode MAY use an ephemeral volume if its registry is reachable at boot\". Scalability: \"Nodes that may be rescheduled MUST keep `${RURALZ_DATA_DIR}` on persistent storage, since an `emptyDir` pod loses its identity and Last-Known-Good\".",
-      "fix": "State registry load as N / poll interval, plus one pull per Node for each new digest (hypothesis). Require a jittered poll with backoff; the setting's name and default go to an Open question with OQ-system-overview-19. Recommend a registry mirror per Region or site above a stated Node count (hypothesis). Remove the ephemeral-volume MAY so that every Node that may be rescheduled keeps a persistent `${RURALZ_DATA_DIR}`."
-    },
-    {
-      "id": "L4X-13",
-      "section": "Sizing defaults (Node container and GOMEMLIMIT rows)",
-      "issue": "The Node memory starting value misquotes Performance budgets. It drops the 'or full state tables' caveat and omits the default buffered-bytes budget. With `GOMEMLIMIT` at about 90% of a 2.2 GiB container, a Node that reaches its own 20,000-connection ceiling under 10x load has about 2 GiB for roughly 3.2 GiB of worst-case demand. It then thrashes the GC or is OOM-killed, and the failure cascades as load shifts to the survivors.",
-      "evidence": "\"| Node container | 4 vCPU (target) and at least 2.2 GiB of memory for 20,000 TLS connections without Plugins (target) |\" and \"| `GOMEMLIMIT` | About 90% of the container memory limit (target) |\". Performance doc: \"Container memory for 20,000 TLS connections | 2.2 GiB or more (target), without Plugins or full state tables\". Scalability: \"Buffered bytes | 512 MiB proposed default (target)\" and limits that \"add ... about 475 MiB (target)\".",
-      "fix": "Restore the caveat. Give the starting value as 20,000 × 96 KiB + 256 MiB + `limits.maxBufferedBytes` + about 475 MiB of state tables ≈ 3.2 GiB (hypothesis), rounded up to 4 GiB (hypothesis). Cite Performance budgets' 2.5 GiB informational run until the benchmark measures a value."
+      "id": "L4X-16",
+      "section": "Topology catalog (T4 Node StatefulSet and HorizontalPodAutoscaler rows) and Reference architectures (RA-2 failure behavior)",
+      "issue": "The zone-loss claim ignores how the chosen StatefulSet and HPA behave. When a zone is lost, StatefulSet pods on unreachable nodes are not replaced: they stay Terminating or Unknown until the node object is deleted or the pods are force-deleted. Their persistent `${RURALZ_DATA_DIR}` volumes are zonal, so replacements cannot bind outside the lost zone anyway. The HPA still counts those pods as replicas and, on scale-up, treats pods without metrics as 0% usage. With 2 of RA-2's 6 pods stranded and the 53% three-zone target, the HPA scales out only once survivors average about 87.5% CPU (4x / (6 x 53%) > 1.1 tolerance) (hypothesis). That is above the 80% survivor ceiling the design relies on, so growth in load during a zone outage (for example, the daily peak) gets no autoscaling response until survivors are already overloaded.",
+      "evidence": "Node StatefulSet row: \"`podManagementPolicy: Parallel` ...; a persistent `${RURALZ_DATA_DIR}` volume\". Zone spread row: \"`whenUnsatisfiable: DoNotSchedule`\". RA-2: \"a lost zone leaves at least four Nodes under 80% CPU (target)\". Scalability, Gateway availability: \"sized so that losing the largest zone keeps survivors under 80% CPU (target)\". The document says nothing about stranded StatefulSet pods, zonal volumes, or HPA missing-metric handling.",
+      "fix": "Add to T4 and to RA-2's failure behavior: \"after a zone loss, Node pods on unreachable Kubernetes nodes stay counted until force-deleted or their nodes are removed (for example with the `node.kubernetes.io/out-of-service` taint); HPA treats them as 0% on scale-up, so survivors reach about 87.5% CPU before scale-out (hypothesis)\". Then do one of the following: (a) give the zone-loss procedure a step that force-deletes stranded Node pods and releases their zonal PVCs, with the new pods re-enrolling (Control mode needs Ruralz Control for them); (b) raise `minReplicas` so survivors of a zone loss stay under 80% with the observed growth during the outage; or (c) use zone-replicated volumes. Add an Open question (owner high-availability-and-disaster-recovery) on the stranded-pod procedure and on whether Nodes stay a StatefulSet or become a Deployment with per-pod PVCs."
     }
   ],
   "non_blocking": [
     {
-      "section": "Whole document (length)",
-      "suggestion": "The body has 4,473 words against the 4,500 maximum, counted as scripts/verify-docs.mjs counts them. The fixes above add content, so they must fit in the band without deleting text that resolved earlier findings. Put the new figures in existing table rows rather than new paragraphs, and shorten the Figure 1 decision-tree prose and the five T4 OQ-decision bullets, which restate their source questions."
+      "section": "Sizing defaults (Nodes per Cluster row)",
+      "suggestion": "\"At least three in at least two equal zones\" is impossible, because three Nodes cannot split into two equal zones. Write \"at least three Nodes in at least two zones (target); equal zones need four in two or three in three\". The unequal-zone formula already covers 2+1."
     },
     {
-      "section": "Topology catalog (T10)",
-      "suggestion": "Say that during a managed-side outage, new or restarted T10 Nodes without Last-Known-Good stay not ready. In T10, 30% headroom (target) and a persistent `${RURALZ_DATA_DIR}` are therefore the customer's only capacity protection, and they should be stated at MUST level for that topology."
+      "section": "Topology catalog (T4 HorizontalPodAutoscaler row)",
+      "suggestion": "Give `behavior.scaleDown` a stabilization window and period as numbers tagged (target), for example 300 s and one zone's share per 60 s. \"Stabilizes\" states no bound."
     },
     {
-      "section": "Topology catalog (T3, T6)",
-      "suggestion": "Node certificates live 30 days and renew at two thirds (target). A Ruralz Control or quorum outage longer than about 10 days (target) therefore expires every Node certificate in the fleet within the same window, forcing a mass re-enrollment. State this in T3 and T10, and link it to the HA runbook."
+      "section": "Topology catalog (T4 Node StatefulSet row)",
+      "suggestion": "A StatefulSet `RollingUpdate.maxUnavailable` depends on the Kubernetes MaxUnavailableStatefulSet feature. State the fallback, which is one pod at a time, and the Kubernetes version assumption, citing a research-file URL once one exists."
     },
     {
-      "section": "Topology catalog (T4 ruralz-control Services)",
-      "suggestion": "The 8091 L4 passthrough Service does not rebalance existing streams. After an `OnDelete` replacement, the last-replaced replica holds few streams while the others sit near 5,000 (hypothesis). Note that only shedding and `Reconnect` (`rebalance`) redistribute streams, and consider a periodic rebalance Open question."
+      "section": "Reference architectures (RA-1 failure behavior)",
+      "suggestion": "Add the State Store failover and fail-open bound. File mode without declared ceilings admits up to N_serving x `requests` = 4 x `requests` per window (target) while the State Store fails, and the Cell applies `failureMode` for about 15 s during a failover (hypothesis)."
     },
     {
-      "section": "Sizing defaults",
-      "suggestion": "The per-Node planning throughput row gives 16,000 rps at half saturation, but the worked example uses 16,960 rps at 53% CPU. Use one convention, and say which value the HPA threshold and which value capacity planning use."
+      "section": "Reference architectures (RA-3 failure behavior)",
+      "suggestion": "The re-enrollment rate of about 20 per second per leader (hypothesis) has no source. Name the benchmark that will measure it (F2 or a new F-scenario), and state the resulting duration, for example 10,000 Nodes in about 500 s (hypothesis), plus the per-source Enroll limits behind NAT."
+    },
+    {
+      "section": "Topology catalog (T10) and Open questions (OQ-deployment-topologies-13)",
+      "suggestion": "verify-docs WARNs: T10 Planned (M2) and OQ-deployment-topologies-13 Planned (M3) have no matching roadmap items, and several target documents and ADRs do not exist yet. These pass under --allow-missing but should be reconciled when the roadmap is written."
     }
   ],
   "ac_results": [
     {
       "ac": "Topology catalog covers dev single binary, file mode, Cluster of Nodes with Ruralz Control, Kubernetes (Helm, HPA, CRDs), VM with systemd, edge, per-team, multi-cluster, multi-region, and hybrid managed Ruralz Control with self-hosted Nodes.",
       "pass": true,
-      "note": "T1 to T10 cover all ten, and the catalog table has 10 data rows."
+      "note": "Rows T1 to T10 cover all ten."
     },
     {
       "ac": "Each topology states when to use it, components, failure domains, configuration delivery and scaling.",
-      "pass": false,
-      "note": "All five columns are filled, but several Scaling and Failure domain statements are wrong under load. T2 says \"Add Nodes freely\" and T8 splits only at 1,000 Nodes, ignoring the 1,000,000 calls/s Cell ceiling (L4X-1). T9 pre-provisions Nodes only (L4X-10). T6 omits the lagging-promotion failure domain (L4X-7)."
+      "pass": true,
+      "note": "Every row fills every column, and the T2, T8 and T9 scaling cells now carry the Cell and deployment ceilings."
     },
     {
       "ac": "Network and ports matches the foundation pack ports (8080, 8443 TCP and UDP, 9901, 8090, 8091).",
       "pass": true,
-      "note": "All five appear with the pack's processes and authentication, plus 8092 and 9902. The relay use of 8092 still needs the pack 8.4 amendment of OQ-control-plane-and-gitops-15, which L2 raised."
+      "note": "Matches pack 8.4, including 8092 and 9902."
     },
     {
       "ac": "The Kubernetes stance matches ADR-0016 (Helm chart and CRDs mirroring kinds Planned (M2), Gateway API conformance deferred).",
-      "pass": true,
-      "note": "Stated in the Summary and in T4."
+      "pass": true
     },
     {
       "ac": "The hybrid topology uses the same open source binaries with no feature gating.",
       "pass": true,
-      "note": "The T10 bullet \"Same binaries, no feature gating (P1)\" names both public images."
+      "note": "T10 'Same binaries (P1)' bullet."
     },
     {
       "ac": "Reference architectures presents three reference architectures as H3s.",
       "pass": true,
-      "note": "RA-1, RA-2 and RA-3 are H3s. Their failure behavior has zone and Region gaps (L4X-4, L4X-9, L4X-10)."
+      "note": "RA-1, RA-2 and RA-3."
     },
     {
-      "ac": "verify-docs.mjs FAIL lines for this document",
+      "ac": "Machine checks and H2 order (min_table_rows 10, required_terms, min_h3 3; mandatory H2s plus outline_h2 in order); verify-docs has no FAIL lines",
       "pass": true,
-      "note": "No FAIL lines, only WARN lines for links to documents not yet written and for roadmap milestone matching. Word count is 4,473 of the 1,500 to 4,500 band."
+      "note": "Only WARN lines (broken links to planned documents, roadmap milestone matches); no FAIL; length within band."
     }
   ],
   "foundation_amendments": []

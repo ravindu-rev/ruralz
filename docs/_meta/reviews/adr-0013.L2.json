@@ -1,0 +1,94 @@
+{
+  "lens": "L2 foundation-auditor",
+  "verdict": "revise",
+  "score": 7,
+  "blocking": [
+    {
+      "id": "L2-1",
+      "section": "Context and problem statement (line 19); Decision drivers (line 29); Decision outcome (line 43); Pros and cons of the options > Native Kafka wire-protocol proxying (line 141)",
+      "issue": "The ADR treats a per-message Route as what P7 requires and rejects wire proxying for 'breaking P7'. The vision document defines P7 differently: a session maps to the request Phases, and each message maps to `onChunk`. The owning document says per-message routing through the request Phases is a P7 exception and leaves it open in OQ-multi-protocol-18. That open question's option (b), a session Route with each message as `onChunk`, is the shape that conforms to P7. The ADR therefore contradicts a foundation document (vision P7) and the owning document's Topic ingress section. It also never cites OQ-multi-protocol-18, which is the open question this decision depends on.",
+      "evidence": "Line 19: \"Each message stays inside the Route, Policy and Filter Chain model (P7)\". Line 29: \"- **One Filter Chain (P7)**: each message needs a Route; record batches seen by a wire proxy do not have one.\" Line 43: \"and mediation keeps every message on a Route.\" Line 141: \"its Phases see record batches with no per-message Route, breaking P7.\" Vision, Principles: \"| P7 | Protocols are native | Every protocol maps onto the same `Route`, `Policy` and Filter Chain model through a documented Phase mapping: a session maps to the request Phases, each message to `onChunk`\". Owning document, Topic ingress: \"Each message is a request on the Route whose `match.topic` matches, headers as headers and value as body, running the request Phases (a P7 exception: OQ-multi-protocol-18).\"",
+      "fix": "Line 19: replace \"(P7)\" with \"(a P7 exception pending OQ-multi-protocol-18)\". Line 29: replace the driver with \"- **Per-message governance (P7 exception, OQ-multi-protocol-18)**: publish, topic ingress and embedded PUBLISH run each message through the request Phases of a Route; a wire proxy sees record batches with no per-message Route or Consumer.\" Line 43: write \"mediation keeps every message on a Route (a P7 exception, OQ-multi-protocol-18)\". Line 141: replace \"breaking P7\" with \"so records would reach Policies only as `onChunk` under P7, where `authz.*`, `ratelimit` and `quota` do not run\"."
+    },
+    {
+      "id": "L2-2",
+      "section": "Decision outcome, Kafka row (line 47)",
+      "issue": "The ADR limits `ProducerLinger(0)` to Routes that await the acknowledgment. The owning document applies it to every Node without condition, and every publish Route answers 202 only after the acknowledgment. An acknowledgment mode is only a proposed option in OQ-multi-protocol-8. The conditional wording implies Routes that do not wait for the acknowledgment. That contradicts the owning document, which the ADR must agree with. It also treats a franz-go client option as a Route setting.",
+      "evidence": "Line 47: \"`ProducerLinger(0)` on Routes that await it, since v1.20.0 made the default linger 10 ms\". Owning document, Publishing from HTTP: \"franz-go's default linger became 10 ms in v1.20.0, so Nodes set `ProducerLinger(0)`\" and \"The Node answers 202 once the broker acknowledges\". OQ-multi-protocol-8 lists \"acknowledgment mode\" as an open `messaging` option.",
+      "fix": "Replace the clause with \"`ProducerLinger(0)` on every franz-go producer client, since every publish Route awaits the acknowledgment (an acknowledgment mode is OQ-multi-protocol-8)\". This agrees with the owning document and still satisfies the catalog's \"on Routes that await the acknowledgment\"."
+    }
+  ],
+  "non_blocking": [
+    {
+      "section": "Context and problem statement; Decision outcome (Kafka and NATS rows)",
+      "suggestion": "Pack section 3 says the ingress declaration for `match.topic` is OQ-configuration-model-11, and the owning document puts the Kafka and JetStream consume mapping under OQ-multi-protocol-10 as well as the MQTT one. Tag the Kafka and NATS ingress clauses with \"(declaration: OQ-multi-protocol-10, OQ-configuration-model-11)\", as the MQTT row and the Figure 1 caption already do."
+    },
+    {
+      "section": "Decision outcome > Confirmation (line 101)",
+      "suggestion": "\"the three rows marked 'Pending CI'\" is ambiguous, because the Library catalog has many Pending CI rows. Name them: \"the NATS, MQTT client and MQTT embedded broker rows, marked Pending CI\". The Kafka row is Verified."
+    },
+    {
+      "section": "Decision outcome > Confirmation (lines 102 to 104)",
+      "suggestion": "Nothing is implemented yet. The tech stack Update policy gives `govulncheck` a Planned (M0) tag, and this ADR's bullet has no tag. Add \"Planned (M0)\" to the `govulncheck` bullet, and give the review checklist item a milestone, such as Planned (M4) when the first messaging code lands."
+    },
+    {
+      "section": "Decision outcome, MQTT client row (line 49)",
+      "suggestion": "Pack section 7 names `eclipse-paho/paho.golang`. The row gives only the module path `github.com/eclipse/paho.golang`. Write it as the catalog does: \"repository `eclipse-paho/paho.golang`, module `github.com/eclipse/paho.golang`\"."
+    },
+    {
+      "section": "Pros and cons of the options (H3 headings)",
+      "suggestion": "The H3 headings shorten the option names given in Considered options. For example, \"franz-go, nats.go jetstream, paho.golang and mochi-mqtt\" stands for the option \"franz-go, nats.go `jetstream`, paho.golang `autopaho` and embedded mochi-mqtt, mediation only\", and \"IBM/sarama\" for \"IBM/sarama for Kafka\". In MADR the headings repeat the option titles. Align them, or at least give the chosen option its full title."
+    },
+    {
+      "section": "Consequences (line 96)",
+      "suggestion": "\"OQ-multi-protocol-8, -9, -10\" abbreviates the IDs. The pack tolerates range shorthand, but writing the three full IDs keeps the text grep-able and matches the style guide's `OQ-<docslug>-<n>` form."
+    },
+    {
+      "section": "Decision outcome (Figure 1)",
+      "suggestion": "The protocol matrix lets topic ingress and embedded PUBLISH reach `kafka`, `nats` and `mqtt` Upstreams, but the figure draws only `http Upstream`. Relabel the node \"http, kafka, nats or mqtt Upstream\", or say in the caption that only the http case is drawn."
+    },
+    {
+      "section": "Whole document (length)",
+      "suggestion": "The body is about 1,435 words by the manifest word_count_rule, against the adr_common maximum of 1,500. The L2 fixes add roughly 60 words and L1's fixes more. Shorten repeated owning-document links in More information first. Do not cut text that resolves a blocking finding."
+    },
+    {
+      "section": "Acceptance criterion 6",
+      "suggestion": "docs/adr/README.md does not exist yet (verifier WARN missing-doc). The owning document links ADR-0013 in its Kafka, NATS JetStream and MQTT table and its Native wire-proxy stance table. The index must link ADR-0013 when it is written."
+    }
+  ],
+  "ac_results": [
+    {
+      "ac": "Front matter contains id, title, status, date, deciders and related, and status matches this manifest.",
+      "pass": true,
+      "note": "All six keys are present. The id, the title (identical to the manifest title) and `status: accepted` match the manifest adrs[] entry."
+    },
+    {
+      "ac": "H2 headings match adr_common.outline_h2 exactly and in order, and Decision outcome contains the H3 headings Consequences and Confirmation.",
+      "pass": true,
+      "note": "The six H2 headings are exact and in order. Consequences (line 85) and Confirmation (line 98) are H3 headings under Decision outcome. The verifier prints no FAIL line for this file."
+    },
+    {
+      "ac": "Considered options lists at least two options including the chosen one, and each has pros and cons.",
+      "pass": true,
+      "note": "There are seven options, including the chosen one. Each cites a research URL and has Good and Bad bullets. Option 7 is rejected on a misreading of P7 (L2-1), and the H3 names are shortened (non-blocking)."
+    },
+    {
+      "ac": "Decision outcome states the chosen option as 'Chosen option: ..., because ...' and matches the foundation pack section 7 row for this ADR.",
+      "pass": true,
+      "note": "Line 43 uses the required form. The libraries match the pack section 7 Messaging row and the manifest decision, including the embedded broker at Planned (M4) and no native Kafka or MQTT wire proxying before M4. The because-clause needs the P7-exception qualifier (L2-1)."
+    },
+    {
+      "ac": "Confirmation names a concrete verification mechanism (test, lint rule, CI gate or review checklist item).",
+      "pass": true,
+      "note": "It names testcontainers integration tests in `pr-full`, the G1 cross-build and G2 license gate, the quarterly health review, `govulncheck` and a review checklist item. Two of these have no milestone tag (non-blocking)."
+    },
+    {
+      "ac": "The ADR is linked from docs/adr/README.md and from its owning document.",
+      "pass": false,
+      "note": "docs/architecture/07-multi-protocol.md links ADR-0013 twice. docs/adr/README.md does not exist yet, so the index half fails. The fix is outside this ADR, so it is not a blocking item here."
+    }
+  ],
+  "foundation_amendments": [
+    "Vision P7 maps 'a session ... to the request Phases, each message to `onChunk`'. Multi-protocol topic ingress, embedded PUBLISH and this ADR instead route each message through the request Phases of a `match.topic` Route. The owning document's Native wire-proxy stance also says, without qualification, that mediation keeps every message 'inside the Route and Filter Chain model (P7)'. Close OQ-multi-protocol-18 so that P7 means one thing: either amend P7 and pack section 4 to record the per-message exception, or adopt its option (b)."
+  ]
+}
