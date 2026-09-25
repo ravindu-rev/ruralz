@@ -2,7 +2,7 @@
 title: Ruralz Documentation Style Guide
 version: v1
 status: binding
-last_updated: 2026-09-23
+last_updated: 2026-09-25
 ---
 
 # Ruralz Documentation Style Guide
@@ -39,7 +39,7 @@ milestone_tags_used: [M1, M2]
    - First: `## Summary` (120 words or fewer; states what the document decides and who should read it).
    - Second: `## Scope and non-goals`.
    - Last: `## Open questions` (a table with columns `ID | Question | Options | Owner | Blocking?`; IDs are `OQ-<docslug>-<n>`). Write `None.` if empty.
-4. Use tables for comparisons, catalogs, matrices, and any list with three or more attributes per item.
+4. Use tables for catalogs, matrices, and any list with three or more attributes per item.
 5. RFC 2119 keywords (`MUST`, `SHOULD`, `MAY`) in capitals for normative statements.
 
 ## 3. Diagrams
@@ -55,8 +55,9 @@ milestone_tags_used: [M1, M2]
 ## 4. Numbers, claims, and citations
 
 - Every performance or scale figure (latency, throughput, memory, connections, percentages) MUST carry `(target)` or `(hypothesis)` on the same line, unless the same line cites a URL to a measurement.
-- Competitor and vendor claims MUST cite a URL that appears in a file under `docs/_meta/research/`. Format: `([source](https://...))`.
-- Dates are ISO `YYYY-MM-DD`. The competitor snapshot date is 2026-09-23.
+- Claims about external libraries, standards, licenses and releases MUST cite a URL that appears in a file under `docs/_meta/research/`. Format: `([source](https://...))`.
+- Documents describe only Ruralz: its features and its design, stated on their own terms.
+- Dates are ISO `YYYY-MM-DD`. The research snapshot date is 2026-09-23.
 - Feature availability tags: `Planned (Mx)` where `Mx` is `M0`..`M5`; `Not planned` with a reason; never `Supported` for anything not yet implemented (nothing is implemented yet).
 
 ## 5. Terminology and naming
@@ -74,7 +75,7 @@ milestone_tags_used: [M1, M2]
 - Code fences always declare a language (`yaml`, `go`, `bash`, `json`, `protobuf`, `mermaid`, `text`).
 - Cross-references are relative Markdown links: `[ADR-0003](../adr/0003-configuration-format.md)`, `[Data plane](03-data-plane.md#router)`. Never bare paths.
 - No placeholders: `TODO`, `TBD`, `XXX`, `lorem`, `???`. Unknowns go to Open questions.
-- Length guidance: architecture documents 2,500 to 6,500 words; operations documents 1,500 to 4,500; comparison documents as long as the tables require; ADRs 400 to 1,500. The manifest `length_words` band of each document is binding (maximums raised about 25% on 2026-09-25 so review fixes add content instead of trading against earlier fixes).
+- Length guidance: architecture documents 2,500 to 6,500 words; operations documents 1,500 to 4,500; the feature catalog as long as its tables require; ADRs 400 to 1,500. The manifest `length_words` band of each document is binding (maximums raised about 25% on 2026-09-25 so review fixes add content instead of trading against earlier fixes).
 
 ## 7. ADR format (MADR 4.0 minimal plus `Confirmation`)
 

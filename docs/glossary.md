@@ -48,7 +48,7 @@ Terms sort alphabetically, ignoring case. "Canonical spelling" gives the exact c
 | active Revision | The Revision whose compiled snapshot a Node serves now; replaced only by an atomic swap after validation and kept while the Node is detached from Ruralz Control. | active Revision (lower-case "active") | current config, live config | [System overview: Compile before swap](architecture/01-system-overview.md#compile-before-swap) |
 | AIModel | A Bundle kind naming a virtual model that clients request, mapped to ordered provider candidates with a strategy, token limits and cache settings. | AIModel (kind `AIModel`) | None | [AI/LLM gateway: AIProvider, AIModel and dialect translation matrix](architecture/06-ai-llm-gateway.md#aiprovider-aimodel-and-dialect-translation-matrix) |
 | AIProvider | A Bundle kind for one LLM provider account: dialect, base URL, credentials through `secretRef`, Region and pricing table. | AIProvider (kind `AIProvider`) | None | [AI/LLM gateway: AIProvider, AIModel and dialect translation matrix](architecture/06-ai-llm-gateway.md#aiprovider-aimodel-and-dialect-translation-matrix) |
-| Bundle | A source directory rooted at `ruralz.yaml` holding the resources delivered to Nodes, with optional `overlays/<env>/`; it renders into one Revision per Environment. | Bundle | krakend.json, config tree, manifest | [Configuration model: Bundle layout and merge](architecture/02-configuration-model.md#bundle-layout-and-merge) |
+| Bundle | A source directory rooted at `ruralz.yaml` holding the resources delivered to Nodes, with optional `overlays/<env>/`; it renders into one Revision per Environment. | Bundle | config tree, manifest | [Configuration model: Bundle layout and merge](architecture/02-configuration-model.md#bundle-layout-and-merge) |
 | Capability | A named permission in `Plugin.spec.capabilities` that lets a Plugin call one class of Host Functions; anything not granted is denied. | Capability | None | [WASM plugin system: Capabilities and sandboxing](architecture/05-wasm-plugin-system.md#capabilities-and-sandboxing) |
 | Cell | The blast-radius unit: one Cluster and the State Store it uses in one Region, optionally with a regional Ruralz Control; no request crosses Regions to reach a State Store. | Cell | shard, partition | [Scalability and distributed state: Cells and blast radius](architecture/11-scalability-and-distributed-state.md#cells-and-blast-radius) |
 | Cluster | A control-plane-only kind: a set of enrolled Nodes in one Environment that share one Revision and form one Rollout target. | Cluster (kind `Cluster`) | fleet, pool | [Configuration model: Cluster](architecture/02-configuration-model.md#cluster) |
@@ -81,7 +81,7 @@ Terms sort alphabetically, ignoring case. "Canonical spelling" gives the exact c
 | Response Cache | The `cache` Policy: HTTP-semantics response caching in the State Store, looked up before the Upstream call and stored asynchronously after commit. | Response Cache | None | [Traffic management and resilience: Response caching](architecture/09-traffic-management-and-resilience.md#response-caching) |
 | Revision | The immutable SHA-256 digest of one Bundle rendered for one Environment in `ruralz.canonical.v1` form; displayed as `rev-<12 hex>`, verified in full. | Revision (display `rev-<12 hex>`, wire `sha256:<64 hex>`) | version, release (for configuration) | [Configuration model: Canonical form and Revision](architecture/02-configuration-model.md#canonical-form-and-revision) |
 | Rollout | Ruralz Control delivering one Revision to one Cluster under the Cluster's `spec.rollout` plan with per-Node ACK/NACK; file-mode delivery is not a Rollout. | Rollout | deploy, push | [Control plane and GitOps: Rollout plan, batches and gates](architecture/04-control-plane-and-gitops.md#rollout-plan-batches-and-gates) |
-| Route | A Bundle kind that matches requests and sends them through attached Policies to one or more Upstreams, directly or by composition. | Route (kind `Route`) | endpoint in the KrakenD sense, API endpoint | [Configuration model: Route](architecture/02-configuration-model.md#route) |
+| Route | A Bundle kind that matches requests and sends them through attached Policies to one or more Upstreams, directly or by composition. | Route (kind `Route`) | endpoint as a name for a published API path, API endpoint | [Configuration model: Route](architecture/02-configuration-model.md#route) |
 | Ruralz Console | The React and TypeScript web UI embedded in `ruralz-control`, served at `/console` on port 8090. | Ruralz Console | dashboard, UI, admin panel | [Control plane and GitOps: Ruralz Console](architecture/04-control-plane-and-gitops.md#ruralz-console) |
 | Ruralz Control | The optional control plane, binary `ruralz-control`: builds Revisions from Git, runs Rollouts over the Control Stream, and hosts Ruralz Console, RBAC, audit log and Drift detection. | Ruralz Control (binary `ruralz-control`) | controller, management plane, control server | [Control plane and GitOps: Responsibilities and non-responsibilities](architecture/04-control-plane-and-gitops.md#responsibilities-and-non-responsibilities) |
 | Ruralz Gateway | The stateless data plane, binary `ruralzd`; each running process is a Node that terminates client protocols, runs the Filter Chain and forwards to Upstreams. | Ruralz Gateway (binary `ruralzd`) | the proxy, data plane binary | [System overview: Component map](architecture/01-system-overview.md#component-map) |
@@ -96,19 +96,19 @@ Terms sort alphabetically, ignoring case. "Canonical spelling" gives the exact c
 
 ## Forbidden aliases
 
-These aliases are forbidden, in any capitalization, in prose, inline code and Mermaid blocks of every document under `docs/` outside `docs/_meta/`. Other fenced code, such as a KrakenD JSON sample, may quote them.
+These aliases are forbidden, in any capitalization, in prose, inline code and Mermaid blocks of every document under `docs/` outside `docs/_meta/`. These are names never used for Ruralz concepts. Other fenced code, such as a third-party protocol sample, may quote them.
 
 | Forbidden | Use instead | Notes |
 |---|---|---|
 | backend (as a Ruralz concept) | Upstream | For a State Store or Control Store implementation, write "State Store backend" or "driver" |
-| endpoint in the KrakenD sense: a published API path | Route | Bare "Endpoint" is the glossary term for an Upstream target address and is not flagged |
+| endpoint as a name for a published API path | Route | Bare "Endpoint" is the glossary term for an Upstream target address and is not flagged |
 | controller, management plane | Ruralz Control | "Kubernetes controller" and "Ingress controller" are exempt |
 | dashboard | Ruralz Console | Grafana dashboards and third-party product names are exempt |
 | sync protocol, config push protocol | Control Stream | Applies to any name for the protocol between Ruralz Control and Nodes |
 | cache cluster | State Store | Applies to any name for shared runtime state |
 | extension, module (for WASM) | Plugin | The WASM specification term "module" may be quoted inside runtime internals |
 
-**Quotation.** A forbidden alias may appear only when quoting, for example KrakenD terminology in a migration mapping or a third-party product name, never to name a Ruralz concept.
+**Quotation.** A forbidden alias may appear only when quoting, for example a third-party protocol field or product name, never to name a Ruralz concept.
 
 Forbidden aliases in the Terms table that this table does not list, such as "fleet" for Cluster, come from the foundation pack canonical names and are enforced by review.
 

@@ -32,7 +32,7 @@ How does a new process take over listeners, readiness and identity across N-1 an
 ## Considered options
 
 1. **`SO_REUSEPORT` with CBPF steering, Drain and readiness gating**: the new process binds the same ports, allowed when both share the effective user ID ([source](https://man7.org/linux/man-pages/man7/socket.7.html)), and reports ready; the old one then steers new connections to it and Drains.
-2. **Listener socket passing** over a Unix socket: HAProxy passes listening descriptors with `SCM_RIGHTS` ([source](https://www.haproxy.com/blog/truly-seamless-reloads-with-haproxy-no-more-hacks)) ([source](https://docs.haproxy.org/3.2/management.html)), Envoy hot restart fetches listen sockets and transfers counters ([source](https://www.envoyproxy.io/docs/envoy/latest/intro/arch_overview/operations/hot_restart)), and NGINX's `USR2` starts a new master sharing the listeners ([source](https://nginx.org/en/docs/control.html)).
+2. **Listener socket passing** over a Unix socket: the old process hands its listening descriptors to the new one with `SCM_RIGHTS` ([source](https://man7.org/linux/man-pages/man7/unix.7.html)), optionally with counters, or starts the new process as a child that inherits them.
 3. **Plain `SO_REUSEPORT` without steering**: close the old listeners once the new process is ready.
 4. **Drain and restart only**: stop the old process, then start the new one, while balancers move traffic to other Nodes.
 
@@ -108,8 +108,8 @@ sequenceDiagram
 
 ### Listener socket passing
 
-- Good, because the listening socket and its accept queue never close, so HAProxy's seamless reload avoids those failures ([source](https://www.haproxy.com/blog/truly-seamless-reloads-with-haproxy-no-more-hacks)).
-- Bad, because both binaries must speak a descriptor protocol across N-1 and N, and Envoy's per-worker reuse_port handover can drop queued connections when concurrency drops ([source](https://www.envoyproxy.io/docs/envoy/latest/intro/arch_overview/operations/hot_restart)).
+- Good, because the listening socket and its accept queue never close, so no connection waits in a queue that disappears.
+- Bad, because both binaries must speak a descriptor protocol across N-1 and N, and a per-worker `SO_REUSEPORT` handover can drop queued connections when the new process runs fewer workers.
 
 ### Plain SO_REUSEPORT without steering
 

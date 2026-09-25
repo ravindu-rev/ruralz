@@ -18,7 +18,7 @@ related:
 
 Ruralz Gateway (`ruralzd`) mediates event protocols, all Planned (M4): an HTTP Route publishes to a `kafka`, `nats` or `mqtt` Upstream, topic ingress consumes messages and calls Upstreams through a `match.topic` Route (declaration: OQ-multi-protocol-10, OQ-configuration-model-11), and an embedded MQTT broker mode turns each device PUBLISH into a request ([Multi-protocol](../architecture/07-multi-protocol.md#kafka-nats-jetstream-and-mqtt)). Each message stays inside the Route, Policy and Filter Chain model, and Ruralz stores no events (product non-goal 5, [Vision](../vision/01-vision-and-positioning.md#product-non-goals)).
 
-Which Go libraries speak Kafka, NATS JetStream and MQTT inside a `CGO_ENABLED=0` binary, and should Ruralz Gateway proxy broker wire protocols, as Gravitee's Enterprise Edition does ([source](https://documentation.gravitee.io/apim/introduction/enterprise-edition.md))?
+Which Go libraries speak Kafka, NATS JetStream and MQTT inside a `CGO_ENABLED=0` binary, and should Ruralz Gateway also proxy broker wire protocols?
 
 ## Decision drivers
 
@@ -36,7 +36,7 @@ Which Go libraries speak Kafka, NATS JetStream and MQTT inside a `CGO_ENABLED=0`
 4. **Legacy JetStream API in the `nats` package** ([source](https://github.com/nats-io/nats.go)).
 5. **paho.mqtt.golang as the MQTT client** ([source](https://github.com/eclipse-paho/paho.mqtt.golang)).
 6. **External MQTT brokers only**, the watch-list fallback ([source](https://pkg.go.dev/github.com/mochi-mqtt/server/v2?tab=versions)).
-7. **Native Kafka wire-protocol proxying**, as in Gravitee's Kafka Gateway ([source](https://documentation.gravitee.io/apim/kafka-gateway.md)).
+7. **Native Kafka wire-protocol proxying**: `ruralzd` speaks the Kafka protocol to clients and forwards to brokers ([source](https://kafka.apache.org/protocol)).
 
 ## Decision outcome
 
@@ -92,7 +92,7 @@ flowchart LR
 - Bad, because paho.golang and mochi-mqtt fail S1 ([source](https://pkg.go.dev/github.com/eclipse/paho.golang?tab=versions)) ([source](https://pkg.go.dev/github.com/mochi-mqtt/server/v2?tab=versions)); the [Watch list](../engineering/01-tech-stack-and-libraries.md#watch-list) names fallbacks.
 - Bad, because paho.golang is pre-1.0, MQTT 5 only and ignores the server's inbound Receive Maximum ([source](https://github.com/eclipse-paho/paho.golang)), so `mqtt` Upstreams need an MQTT 5 broker.
 - Bad, because mochi-mqtt's Redis (go-redis v8), Badger and Pebble storage hooks ship in the same module ([source](https://github.com/mochi-mqtt/server)), so only an import rule keeps them out of `ruralzd`.
-- Bad, because Kafka and NATS wire-protocol clients cannot connect, and AMQP, Google Cloud Pub/Sub and Amazon SQS stay a parity gap (OQ-multi-protocol-14).
+- Bad, because Kafka and NATS wire-protocol clients cannot connect, and AMQP, Google Cloud Pub/Sub and Amazon SQS stay unsupported (OQ-multi-protocol-14).
 - Bad, because the MQTT consume mapping, broker credentials and `messaging` options stay open (OQ-multi-protocol-8, OQ-multi-protocol-9, OQ-multi-protocol-10), and non-blocking produce and the Kafka delivery timeout await the OQ-multi-protocol-8 spike; until then, records held in a broker outage keep Node-wide `maxBufferedBytes` reservations after their requests fail and can refuse unrelated Routes with 503 `RZ-RT-004`.
 
 ### Confirmation
@@ -138,7 +138,7 @@ flowchart LR
 
 ### Native Kafka wire-protocol proxying
 
-- Good, because existing Kafka clients would connect unchanged ([source](https://documentation.gravitee.io/apim/kafka-gateway.md)).
+- Good, because existing Kafka clients would connect unchanged.
 - Bad, because a proxy rewrites metadata and coordinator responses, and its Phases see record batches with no per-message Route or Consumer, reaching Policies only as `onChunk` (P7), where `authz.*`, `ratelimit` and `quota` do not run.
 
 ## More information

@@ -22,7 +22,7 @@ related:
 
 Differentiator (2), the AI/LLM gateway, runs inside Ruralz Gateway: an `Upstream` with `protocol: ai` lists client-nameable `AIModel` resources in `ai.models` and picks the client surface with `ai.surface` (`openai` or `native`); each `AIModel` maps to `AIProvider` candidates of `dialect` `openai`, `anthropic`, `gemini`, `bedrock`, `mistral` or `ollama` ([Configuration model](../architecture/02-configuration-model.md#upstream)). Nothing is implemented; AI traffic is Planned (M3).
 
-Two questions need one answer: which wire format clients speak, and which token count is authoritative for Token Budgets, cost and exports. Translating proxies that rebuild requests from typed schemas drop Prompt Cache markers ([source](https://github.com/BerriAI/litellm/issues/41424)) ([source](https://github.com/coder/coder/pull/29563)), and no local tokenizer matches every provider: `tiktoken-go/tokenizer` embeds OpenAI encodings only ([source](https://pkg.go.dev/github.com/tiktoken-go/tokenizer)), and Anthropic publishes no tokenizer ([source](https://platform.claude.com/docs/en/build-with-claude/token-counting)).
+Two questions need one answer: which wire format clients speak, and which token count is authoritative for Token Budgets, cost and exports. A proxy that rebuilds requests from typed schemas can drop Prompt Cache markers such as Anthropic `cache_control` that its types omit, and no local tokenizer matches every provider: `tiktoken-go/tokenizer` embeds OpenAI encodings only ([source](https://pkg.go.dev/github.com/tiktoken-go/tokenizer)), and Anthropic publishes no tokenizer ([source](https://platform.claude.com/docs/en/build-with-claude/token-counting)).
 
 ## Decision drivers
 
@@ -36,11 +36,11 @@ Two questions need one answer: which wire format clients speak, and which token 
 
 ## Considered options
 
-1. **OpenAI-compatible façade plus native passthrough, provider usage authoritative**: both surfaces, as Kong offers native formats beside its OpenAI default ([source](https://developer.konghq.com/plugins/ai-proxy/)) and Cloudflare serves OpenAI-compatible and Anthropic formats ([source](https://developers.cloudflare.com/ai-gateway/changelog/)).
-2. **OpenAI-compatible façade only**: one translated surface, as in Agent Router's "single OpenAI-compatible API across 16 providers" ([source](https://theagentrouter.ai/release-notes/)).
-3. **Native passthrough only**: vendor APIs forwarded unchanged, like KrakenD EE's no-op passthrough ([source](https://www.krakend.io/docs/enterprise/ai-gateway/llm-routing/)).
+1. **OpenAI-compatible façade plus native passthrough, provider usage authoritative**: both surfaces, chosen per Upstream by `ai.surface`, with billing from the usage each provider returns.
+2. **OpenAI-compatible façade only**: one translated surface, the OpenAI Chat Completions format, for every dialect.
+3. **Native passthrough only**: vendor APIs forwarded unchanged, with no translation layer.
 4. **Gateway tokenizer counts as the billing source**: Token Budgets and cost read local counts; Anthropic offers only a count endpoint ([source](https://platform.claude.com/docs/en/build-with-claude/token-counting)).
-5. **Post-response charging without reservation**: Kong uses provider-returned token data, and "The cost ... is only reflected during the next request" ([source](https://developer.konghq.com/plugins/ai-rate-limiting-advanced/)); Agent Router checks usage already charged, then charges actual usage ([source](https://theagentrouter.ai/docs/capabilities/traffic/usage-based-ratelimiting/)).
+5. **Post-response charging without reservation**: admission checks usage already charged, then charges provider-returned usage after the response, so a request's cost is reflected only from the next request on.
 
 ## Decision outcome
 
@@ -83,7 +83,7 @@ flowchart LR
 
 ### Consequences
 
-- Good, because native passthrough cannot drop a field it never parses into a type, the failure behind LiteLLM #41424 ([source](https://github.com/BerriAI/litellm/issues/41424)) and Coder #29563 ([source](https://github.com/coder/coder/pull/29563)).
+- Good, because native passthrough cannot drop a field it never parses into a type, so cache markers and new provider fields survive.
 - Good, because OpenAI-SDK clients fall back across dialects on the façade without code changes.
 - Good, because budgets and cost use billed fields; cost records carry the Revision digest and `pricing.version`, so re-pricing needs no Revington service (P1, P2).
 - Good, because the local guard keeps State Store calls out of `onChunk` (pack 8.7).
@@ -113,7 +113,7 @@ flowchart LR
 ### OpenAI-compatible façade only
 
 - Good, because one decoder and one fixture set cover every client.
-- Bad, because rebuilding from typed parameters dropped `cache_control` markers in Coder's interceptor ([source](https://github.com/coder/coder/pull/29563)), and translation loses provider features such as Bedrock `guardrailConfig` ([source](https://docs.aws.amazon.com/bedrock/latest/APIReference/API_runtime_ConverseStream.html)).
+- Bad, because rebuilding from typed parameters drops `cache_control` markers the types omit, and translation loses provider features such as Bedrock `guardrailConfig` ([source](https://docs.aws.amazon.com/bedrock/latest/APIReference/API_runtime_ConverseStream.html)).
 
 ### Native passthrough only
 
