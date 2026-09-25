@@ -13,8 +13,8 @@ on:
 permissions:
   contents: read
 
-env:
-  GOTOOLCHAIN: local
+# No workflow-level GOTOOLCHAIN: setup-go reads the go.mod toolchain line only
+# while GOTOOLCHAIN is unset, then sets GOTOOLCHAIN=local itself.
 
 jobs:
   pr-title:
