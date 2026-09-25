@@ -35,7 +35,7 @@ Which Go library parses, validates, plans and resolves these operations inside a
 2. `99designs/gqlgen`, a schema-first code-generation server framework ([source](https://github.com/99designs/gqlgen)).
 3. `movio/bramble`, a federation gateway ([source](https://github.com/movio/bramble)).
 4. `graphql-go/graphql`, a port of graphql-js ([source](https://github.com/graphql-go/graphql)).
-5. An external GraphQL router, such as Cosmo Router, as a `graphql` Upstream ([source](https://raw.githubusercontent.com/wundergraph/cosmo/main/router/go.mod)).
+5. An external GraphQL router as a `graphql` Upstream.
 6. No engine: GraphQL forwarded as plain HTTP under HTTP-level Policies.
 
 ## Decision outcome
@@ -88,7 +88,7 @@ flowchart LR
 
 - Good, because one engine covers pass-through, federation versions 1 and 2 and subgraph subscriptions, and its validation packages run in all three binaries.
 - Good, because Ruralz keeps listeners, the Router, the Filter Chain and client framing, and every upstream fetch and subscription gets upstream-leg Phases ([applicability](../architecture/07-multi-protocol.md#filter-chain-applicability-per-protocol)).
-- Good, because it is MIT-licensed, its v2 `go.mod` declares `go 1.25.0` with no C dependencies ([source](https://raw.githubusercontent.com/wundergraph/graphql-go-tools/master/v2/go.mod)), it tagged seven releases in 14 days ([source](https://github.com/wundergraph/graphql-go-tools/releases)) and Cosmo Router runs on it ([source](https://raw.githubusercontent.com/wundergraph/cosmo/main/router/go.mod)), so it passes G2, S1 and S2 (G1 and G3: Confirmation).
+- Good, because it is MIT-licensed, its v2 `go.mod` declares `go 1.25.0` with no C dependencies ([source](https://raw.githubusercontent.com/wundergraph/graphql-go-tools/master/v2/go.mod)), it tagged seven releases in 14 days ([source](https://github.com/wundergraph/graphql-go-tools/releases)) so it passes G2, S1 and S2 (G1 and G3: Confirmation).
 - Bad, because paying WunderGraph customers steer its features ([source](https://github.com/wundergraph/graphql-go-tools)), and that pace suggests API churn, which the S7 wrapper absorbs under the [Update policy](../engineering/01-tech-stack-and-libraries.md#update-policy).
 - Bad, because it pins `gorilla/websocket` v1.5.1, inside the GO-2026-6278 range ([source](https://pkg.go.dev/vuln/GO-2026-6278)), beside coder/websocket: an accepted S6 exception ([Selection criteria](../engineering/01-tech-stack-and-libraries.md#selection-criteria)) that OQ-tech-stack-and-libraries-6 does not yet cover.
 - Bad, because it has no composition package ([source](https://github.com/wundergraph/graphql-go-tools/tree/master/v2)), so federation waits on OQ-multi-protocol-4, and planning checks add `engine/plan` and `graphql_datasource`, which imports gorilla/websocket, to Ruralz Control and the CLI (size: OQ-tech-stack-and-libraries-22).
@@ -130,7 +130,7 @@ flowchart LR
 ### External GraphQL router as an Upstream
 
 - Good, because Ruralz would link no GraphQL engine.
-- Bad, because subgraph calls would bypass the Filter Chain, breaking P7, operators would run a second product, and no router license was researched ([source](https://raw.githubusercontent.com/wundergraph/cosmo/main/router/go.mod)).
+- Bad, because subgraph calls would bypass the Filter Chain, breaking P7, operators would run a second product, and no router license was researched.
 
 ### Opaque HTTP pass-through
 

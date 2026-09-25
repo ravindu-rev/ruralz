@@ -80,10 +80,10 @@ Ruralz ADR-0008 already fixes fail-open by default, configurable per Policy (fou
 
 | Mechanism | How listeners survive | Existing connections | Key parameters / caveats |
 |---|---|---|---|
-| `SO_REUSEPORT` (Linux 3.9+) | New process binds the same address; kernel distributes TCP connections across listener sockets; all binders need the same effective UID (https://man7.org/linux/man-pages/man7/socket.7.html) | Old process drains | HAProxy measured "155 connection failures for one million connections after 180 reloads" (10 reloads/s at 55,000 conn/s) using SO_REUSEPORT alone, caused by closing sockets with queued connections (https://www.haproxy.com/blog/truly-seamless-reloads-with-haproxy-no-more-hacks) |
+| `SO_REUSEPORT` (Linux 3.9+) | New process binds the same address; kernel distributes TCP connections across listener sockets; all binders need the same effective UID (https://man7.org/linux/man-pages/man7/socket.7.html) | Old process drains | **Analysis:** closing a listener socket fails the connections still queued on it, so reloads under load can drop connections |
 | Go `net/http` | n/a (application level) | `Server.Shutdown` waits for active requests but does not handle hijacked connections such as WebSockets; `RegisterOnShutdown` callbacks let the application notify them (https://pkg.go.dev/net/http#Server.Shutdown) | `SetKeepAlivesEnabled(false)` stops keep-alive reuse (https://pkg.go.dev/net/http#Server.Shutdown) |
 
-- Ruralz ADR-0015 chose `SO_REUSEPORT` + drain + readiness gating and no socket passing in v1 (foundation pack). **Analysis:** the HAProxy measurement is the documented residual risk of that choice at high reload rates.
+- Ruralz ADR-0015 chose `SO_REUSEPORT` + drain + readiness gating and no socket passing in v1 (foundation pack). **Analysis:** connections queued on a closing listener are the residual risk of that choice at high reload rates.
 
 ### 4.2 HTTP/2 GOAWAY and draining
 
@@ -193,7 +193,6 @@ https://docs.aws.amazon.com/wellarchitected/latest/reducing-scope-of-impact-with
 https://docs.aws.amazon.com/wellarchitected/latest/reducing-scope-of-impact-with-cell-based-architecture/cell-sizing.html
 https://docs.aws.amazon.com/wellarchitected/latest/reducing-scope-of-impact-with-cell-based-architecture/cell-routing.html
 https://man7.org/linux/man-pages/man7/socket.7.html
-https://www.haproxy.com/blog/truly-seamless-reloads-with-haproxy-no-more-hacks
 https://www.rfc-editor.org/rfc/rfc9113.html
 https://github.com/grpc/grpc-go/blob/master/internal/transport/http2_server.go
 https://kubernetes.io/docs/concepts/workloads/pods/pod-lifecycle/

@@ -26,7 +26,6 @@ Sources per row: graphql-go-tools (https://github.com/wundergraph/graphql-go-too
 - Subscriptions over graphql-ws, graphql-transport-ws and SSE (https://github.com/wundergraph/graphql-go-tools); the `subscription` package "implements GraphQL Subscriptions over WebSockets and SSE" (https://github.com/wundergraph/graphql-go-tools/tree/master/v2).
 - Package layout: `ast`, `astvalidation`, `astnormalization`, `engine/plan`, `engine/resolve`, `engine/datasource/graphql_datasource` (federation-aware), `engine/datasource/staticdatasource` (https://github.com/wundergraph/graphql-go-tools/tree/master/v2).
 - Stated limit: "graphql-go-tools is not a GraphQL server by itself"; it is a library for building routers and gateways (https://github.com/wundergraph/graphql-go-tools/tree/master/v2).
-- It is the foundation of WunderGraph Cosmo Router (https://github.com/wundergraph/graphql-go-tools); Cosmo Router's go.mod requires `github.com/wundergraph/graphql-go-tools/v2 v2.22.1` with `go 1.25.0` (https://raw.githubusercontent.com/wundergraph/cosmo/main/router/go.mod).
 - v2 go.mod declares `go 1.25.0` and depends on `github.com/coder/websocket v1.8.14`, `github.com/gorilla/websocket v1.5.1` and `connectrpc.com/connect v1.19.2` (https://raw.githubusercontent.com/wundergraph/graphql-go-tools/master/v2/go.mod).
 - Maintenance is funded by paying WunderGraph customers, who steer features (https://github.com/wundergraph/graphql-go-tools).
 - Recent changes: v2.22.0 (2026-09-20) added private-key support for response caching and cache tag invalidation; v2.22.1 (2026-09-21) fixed SSE transport context callbacks; v2.21.0 (2026-09-16) added caching in multi fetches (https://github.com/wundergraph/graphql-go-tools/releases).
@@ -81,7 +80,6 @@ Sources: franz-go features (https://github.com/twmb/franz-go); franz-go EOS guid
 - sarama supports "the two latest stable releases of Kafka and Go" with a 2-month grace period; 12.5k stars (https://github.com/IBM/sarama).
 - sarama v1.60.1 (2026-07-29) added a cooperative sticky assignor and `TransactionClusterAdmin` for KIP-664 (https://github.com/IBM/sarama/releases).
 - kafka-go requires Go 1.15+ per its README and states that newer Kafka API features "may not yet be implemented" (https://github.com/segmentio/kafka-go).
-- Cosmo Router pins `github.com/twmb/franz-go v1.16.1` (https://raw.githubusercontent.com/wundergraph/cosmo/main/router/go.mod).
 
 ## 3. NATS: nats.go and jetstream
 
@@ -106,7 +104,6 @@ Sources: franz-go features (https://github.com/twmb/franz-go); franz-go EOS guid
 - KeyValue and ObjectStore are built on JetStream streams, with watchers and history (https://github.com/nats-io/nats.go/blob/main/jetstream/README.md).
 - v1.54.0 added `MultipathTCP()` and `ConnectedDomain()`, and fixed a header-parsing panic and a `Messages()` iterator issue after reconnects (https://github.com/nats-io/nats.go/releases).
 - v1.53.0 added `WithPublishAsyncAckHandler` and fixed WebSocket connections with custom paths (https://github.com/nats-io/nats.go/releases).
-- Cosmo Router pins `github.com/nats-io/nats.go v1.50.0` (https://raw.githubusercontent.com/wundergraph/cosmo/main/router/go.mod).
 
 ## 4. MQTT
 
@@ -154,7 +151,7 @@ Sources per row: gorilla (https://github.com/gorilla/websocket) (https://pkg.go.
 - gorilla/websocket passes the Autobahn server tests (https://github.com/gorilla/websocket). Its package docs describe permessage-deflate (RFC 7692) as experimental and limited (no context takeover), and allow one concurrent reader and one concurrent writer per connection (https://pkg.go.dev/github.com/gorilla/websocket).
 - GO-2026-6278 / GHSA-w67g-5rqw-f597 (published 2026-08-25, status "unreviewed") reports a weak PRNG for mask keys; it affects versions before v1.5.3 and is fixed in v1.5.3 (https://pkg.go.dev/vuln/GO-2026-6278). The pkg.go.dev versions tab flags v1.5.2 and earlier (not v1.5.3), which matches the advisory's range (https://pkg.go.dev/github.com/gorilla/websocket?tab=versions).
 - Issue #370, "New maintainers needed" (opened 2018-04-01), was closed on 2022-12-09; the README does not reference it (https://github.com/gorilla/websocket/issues/370).
-- Cosmo Router and graphql-go-tools v2 both pin gorilla/websocket v1.5.1, which is inside the GO-2026-6278 affected range (https://raw.githubusercontent.com/wundergraph/cosmo/main/router/go.mod) (https://raw.githubusercontent.com/wundergraph/graphql-go-tools/master/v2/go.mod) (https://pkg.go.dev/vuln/GO-2026-6278).
+- graphql-go-tools v2 pins gorilla/websocket v1.5.1, which is inside the GO-2026-6278 affected range (https://raw.githubusercontent.com/wundergraph/graphql-go-tools/master/v2/go.mod) (https://pkg.go.dev/vuln/GO-2026-6278).
 - coder/websocket was formerly nhooyr.io/websocket and was "adopted by Coder in 2024". It has zero dependencies, first-class `context.Context`, concurrent writes, a `net.Conn` wrapper, `wsjson`, RFC 7692 permessage-deflate and Wasm compilation, and it passes Autobahn (https://github.com/coder/websocket).
 - coder/websocket claims its masking is 1.75x faster than gorilla's in pure Go (https://github.com/coder/websocket).
 - coder/websocket v1.8.14 (2025-09-05) added `ErrMessageTooBig`; v1.8.13 (2025-03-14) added ping/pong callbacks to `AcceptOptions`/`DialOptions` (https://pkg.go.dev/github.com/coder/websocket?tab=versions).
@@ -322,7 +319,6 @@ https://github.com/wundergraph/graphql-go-tools
 https://github.com/wundergraph/graphql-go-tools/releases
 https://github.com/wundergraph/graphql-go-tools/tree/master/v2
 https://raw.githubusercontent.com/wundergraph/graphql-go-tools/master/v2/go.mod
-https://raw.githubusercontent.com/wundergraph/cosmo/main/router/go.mod
 https://github.com/99designs/gqlgen
 https://github.com/99designs/gqlgen/releases
 https://github.com/movio/bramble
