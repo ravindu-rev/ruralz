@@ -114,7 +114,7 @@ sequenceDiagram
 ### Plain SO_REUSEPORT without steering
 
 - Good, because it is simplest, needing no CBPF program.
-- Bad, because HAProxy measured 155 failures per million connections over 180 reloads from sockets closed with queued connections ([source](https://www.haproxy.com/blog/truly-seamless-reloads-with-haproxy-no-more-hacks)).
+- Bad, because closing the old listeners resets connections still queued in their accept queues, so every reload fails a small share of connections.
 
 ### Drain and restart only
 

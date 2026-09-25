@@ -20,7 +20,7 @@ related:
 
 ## Context and problem statement
 
-Ruralz runs without Kubernetes (P2), but topology T4 in [Deployment topologies](../operations/01-deployment-topologies.md#t4-kubernetes-with-helm-hpa-and-crds) installs it with a chart and declares configuration as Kubernetes objects. Envoy Gateway, NGINX Gateway Fabric, Traefik Proxy and the Gravitee Kubernetes Operator report Gateway API v1.6.1 conformance ([source](https://gateway-api.sigs.k8s.io/implementations/)). Tyk made its Operator closed source in 2024-10 ([source](https://github.com/TykTechnologies/tyk-operator)), and from v1.0 it requires a license key ([source](https://tyk.io/docs/5.6/product-stack/tyk-operator/release-notes/operator-1.0/)).
+Ruralz runs without Kubernetes (P2), but topology T4 in [Deployment topologies](../operations/01-deployment-topologies.md#t4-kubernetes-with-helm-hpa-and-crds) installs it with a chart and declares configuration as Kubernetes objects. Gateway API, the Kubernetes routing specification, is at v1.6.1 and publishes a conformance suite ([source](https://gateway-api.sigs.k8s.io/implementations/)). Under P1, Kubernetes-native authoring MUST NOT sit behind a license key.
 
 The [Configuration model](../architecture/02-configuration-model.md#kubernetes-mapping) already uses the Kubernetes envelope, and Kubernetes rejects a CRD group without a dot. The question: which Kubernetes API carries configuration, and who reads it, without a second schema, a second Revision pipeline, or CRD access on Nodes?
 
@@ -36,8 +36,8 @@ The [Configuration model](../architecture/02-configuration-model.md#kubernetes-m
 ## Considered options
 
 1. **Helm chart and mirrored CRDs, Gateway API deferred**: one CRD per kind in `ruralz.io/v1alpha1`, watched only by Ruralz Control.
-2. **Gateway API conformance first**: `GatewayClass`, `Gateway` and `HTTPRoute` carry configuration, with Ruralz Policies as policy CRDs attached through `targetRefs`, the model of Envoy Gateway ([source](https://gateway.envoyproxy.io/docs/concepts/)) ([source](https://gateway.envoyproxy.io/docs/api/extension_types/)) and Agent Router ([source](https://theagentrouter.ai/docs/capabilities/traffic/quota-policy/)).
-3. **Helm chart only**: Kubernetes installs use Git or OCI sources (T2, T3); no CRDs, so no Kubernetes-native authoring, which Tyk now sells under license ([source](https://tyk.io/docs/5.6/product-stack/tyk-operator/release-notes/operator-1.0/)).
+2. **Gateway API conformance first**: `GatewayClass`, `Gateway` and `HTTPRoute` carry configuration, with Ruralz Policies as policy CRDs attached through `targetRefs` ([source](https://gateway-api.sigs.k8s.io/reference/policy-attachment/)).
+3. **Helm chart only**: Kubernetes installs use Git or OCI sources (T2, T3); no CRDs, so no Kubernetes-native authoring.
 4. **CRDs read by every Node**: `ruralzd` watches CRDs through dynamic informers, a list-and-watch per kind ([source](https://pkg.go.dev/k8s.io/client-go/informers/discovery/v1)), option (b) of OQ-configuration-model-2.
 
 ## Decision outcome
@@ -117,7 +117,7 @@ sequenceDiagram
 - Good, because every feature is reachable with `kubectl` and GitOps tooling, free under P1.
 - Good, because an API server outage stops new CRD changes and freezes EndpointSlice discovery and `provider: kubernetes` secret refresh at their last state, while running Nodes keep their active Revision (P9); a Node restarted meanwhile stays not ready if it needs such a secret (pack 8.5).
 - Good, because authors of Bundle kinds need only namespace-scoped RBAC; only authors of cluster-scoped `Environment` and `Cluster` objects need cluster-scoped rights, and no chart component reads Secrets cluster-wide.
-- Bad, because Ruralz stays off the Gateway API conformance list while competitors report v1.6.1 ([source](https://gateway-api.sigs.k8s.io/implementations/)), and users learn Ruralz kinds instead of a portable `HTTPRoute`.
+- Bad, because Ruralz stays off the Gateway API conformance list until it implements the specification ([source](https://gateway-api.sigs.k8s.io/implementations/)), and users learn Ruralz kinds instead of a portable `HTTPRoute`.
 - Bad, because admission checks only the structural schema and emitted `x-kubernetes-validations`: reference and slot errors appear only as conditions after apply, and Plugin `configSchema` rules run only in Ruralz Control, since Policy `config` is schemaless in the CRD.
 - Bad, because until the proposed Open questions below close, client-side `kubectl apply`, Helm and Argo CD metadata change the digest of equal resources, and a non-atomic apply slower than the debounce window can expose an intermediate object set.
 - Bad, because once a second version is served, reads in a non-storage version fail while every Ruralz Control replica is down.
@@ -140,15 +140,15 @@ sequenceDiagram
 
 ### Gateway API conformance first
 
-- Good, because conformance is what evaluators compare, with v1.6.0 making TCPRoute and UDPRoute GA ([source](https://github.com/kubernetes-sigs/gateway-api/releases/tag/v1.6.0)).
-- Bad, because AI models, Token Budgets and WASM Plugins still need implementation-specific policy CRDs, as Envoy Gateway's `EnvoyExtensionPolicy` shows ([source](https://gateway.envoyproxy.io/docs/api/extension_types/)).
+- Good, because conformance gives users a portable, well-known API, with v1.6.0 making TCPRoute and UDPRoute GA ([source](https://github.com/kubernetes-sigs/gateway-api/releases/tag/v1.6.0)).
+- Bad, because AI models, Token Budgets and WASM Plugins still need implementation-specific policy CRDs beside the standard resources.
 - Bad, because `targetRefs` attach in reverse, so a new Policy could silently change any Route, which forward references forbid ([Attachment and precedence](../architecture/02-configuration-model.md#attachment-and-precedence)).
 - Bad, because Bundles outside Kubernetes (P2) would still need the Ruralz kinds, leaving two models.
 
 ### Helm chart only
 
 - Good, because it needs no CRD watch or conversion webhook.
-- Bad, because Kubernetes users get no native authoring, a gap vendors gate ([source](https://github.com/TykTechnologies/tyk-operator)).
+- Bad, because Kubernetes users get no native authoring and must manage Bundles outside the cluster API.
 
 ### CRDs read by every Node
 
