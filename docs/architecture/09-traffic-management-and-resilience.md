@@ -517,6 +517,7 @@ Pack 8.6 assigns `UP` and `RL` here ([body format](03-data-plane.md#error-respon
 | RZ-UP-008 | 503 | Endpoint set empty |
 | RZ-UP-009 | Not applicable | Upstream failed after commit; the stream ended with an error |
 | RZ-UP-010 | 502 | Buffered plain `upstreams` response over its cap (area per OQ-data-plane-9) |
+| RZ-UP-011 | 502 | A merged or non-final composition step got a non-2xx response |
 | RZ-RL-001 | 429 | Denied by a local token bucket |
 | RZ-RL-002 | 429 | Denied by GCRA or the over-limit cache |
 | RZ-RL-003 | 429 | Consumer quota exhausted |

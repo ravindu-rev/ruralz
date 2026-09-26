@@ -284,6 +284,7 @@ Client messages are generic; metric names are proposed to [Observability](10-obs
 | RZ-AUTH-005 | 401 | Unknown `kid` |
 | RZ-AUTH-006 | 401 | No usable keys for the issuer |
 | RZ-AUTH-007 | 429 | Authentication throttled |
+| RZ-AUTH-008 | 421 | An `auth.mtls` Route was reached over a connection that requested no client certificate |
 | RZ-AUTH-010 to RZ-AUTH-014 | 403 | Denied by `authz.cel`, `authz.opa`, `authz.cedar`, `authz.ip` or `authz.geoip` |
 | RZ-AUTH-015 | 403 | Authorization could not decide |
 | RZ-AUTH-016 | 401 or 403 | Rejected by a `plugin` Policy of class `auth` (401) or `authz` (403) |
