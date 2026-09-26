@@ -204,6 +204,31 @@ Addendum read on 2026-09-25 from primary sources: `LICENSE` files at the pinned 
 - govulncheck type-checks the standard library of the Go release it scans, so a binary built by one Go release fails to load another release's standard library; `make tools` builds it with the module's toolchain. This was observed locally on 2026-09-25, not read from documentation.
 - Analysis: none of these tools is linked into a Ruralz binary, so G2 does not apply to them; golangci-lint stays a separately installed binary for the reason given in section 2.
 
+## 10. M1 modules: metrics exposition, OTLP transport, JOSE and CEL transitive modules
+
+Addendum read on 2026-09-26 from primary sources: the Go module proxy (`proxy.golang.org`: `.info` release times, `@v/list`, `@latest`, `.mod` files and module zips, the zips fetched by `go mod download` and read in the module cache, including each `LICENSE` text), `go list -deps` run with go1.27.1 and `CGO_ENABLED=0` inside the Ruralz module (the section 5 requirements of the M1 integration architecture), and pkg.go.dev for two standard-library packages.
+
+| Module | Version (proxy time) | License (SPDX, from the zip's `LICENSE`) | Facts | Source |
+|---|---|---|---|---|
+| `go.opentelemetry.io/otel/exporters/prometheus` | v0.68.0 (2026-08-25) | `Apache-2.0` | `go.mod` declares `go 1.25.0` and requires `github.com/prometheus/client_golang` v1.24.1, `github.com/prometheus/common` v0.70.1 and `github.com/prometheus/otlptranslator` v1.0.0; `config.go` defaults the translation strategy to `otlptranslator.UnderscoreEscapingWithSuffixes` and offers `WithRegisterer`, `WithProducer`, `WithTranslationStrategy`, `WithoutScopeInfo` and `WithoutTargetInfo` | (https://proxy.golang.org/go.opentelemetry.io/otel/exporters/prometheus/@v/v0.68.0.mod) (https://proxy.golang.org/go.opentelemetry.io/otel/exporters/prometheus/@v/v0.68.0.zip) |
+| `github.com/prometheus/client_golang` | v1.24.1 (2026-07-24) | `Apache-2.0` | Required by the exporter at exactly this version | (https://proxy.golang.org/github.com/prometheus/client_golang/@v/v1.24.1.zip) |
+| `github.com/prometheus/common` | v0.71.0 (2026-08-31) | `Apache-2.0` | `@latest` on 2026-09-26; minimal version selection raises the exporter's v0.70.1 to it | (https://proxy.golang.org/github.com/prometheus/common/@v/v0.71.0.zip) (https://proxy.golang.org/github.com/prometheus/common/@latest) |
+| `github.com/prometheus/otlptranslator` | v1.0.0 (2025-09-09) | `Apache-2.0` | `@v/list` holds only v0.0.1, v0.0.2 and v1.0.0; v1.0.0 is `@latest`; `strategy.go` defines `UnderscoreEscapingWithoutSuffixes` | (https://proxy.golang.org/github.com/prometheus/otlptranslator/@v/list) (https://proxy.golang.org/github.com/prometheus/otlptranslator/@v/v1.0.0.zip) |
+| `go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracegrpc` | v1.46.0 | `Apache-2.0` | `go.mod` requires `google.golang.org/grpc` v1.83.1 and `go.opentelemetry.io/proto/otlp` v1.11.0 | (https://proxy.golang.org/go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracegrpc/@v/v1.46.0.mod) |
+| `google.golang.org/grpc` | v1.84.0 (2026-09-17) | `Apache-2.0` | `go.mod` requires `golang.org/x/sys` v0.47.0 | (https://proxy.golang.org/google.golang.org/grpc/@v/v1.84.0.mod) |
+| `go.opentelemetry.io/proto/otlp` | v1.11.0 (2026-07-22) | `Apache-2.0` | Generated OTLP protocol types, including the `collector/{trace,metrics,logs}/v1` services | (https://proxy.golang.org/go.opentelemetry.io/proto/otlp/@v/v1.11.0.zip) |
+| `cel.dev/expr` | v0.25.2 (2026-03-12) | `Apache-2.0` | cel-go v0.32.0's `go.mod` requires v0.25.1; the Ruralz module resolves v0.25.2; `@latest` is v0.25.3 (2026-07-29) | (https://proxy.golang.org/cel.dev/cel-go/@v/v0.32.0.mod) (https://proxy.golang.org/cel.dev/expr/@v/v0.25.2.zip) (https://proxy.golang.org/cel.dev/expr/@latest) |
+| `github.com/lestrrat-go/dsig` | v1.4.0 (2026-08-20) | `MIT` | Required by jwx v4.5.0 | (https://proxy.golang.org/github.com/lestrrat-go/jwx/v4/@v/v4.5.0.mod) (https://proxy.golang.org/github.com/lestrrat-go/dsig/@v/v1.4.0.zip) |
+| `github.com/lestrrat-go/option/v3` | v3.0.0-alpha1 (2026-04-06) | `MIT` | Required by jwx v4.5.0; a pre-release, and `@latest` of its module | (https://proxy.golang.org/github.com/lestrrat-go/option/v3/@v/v3.0.0-alpha1.zip) (https://proxy.golang.org/github.com/lestrrat-go/option/v3/@latest) |
+| `github.com/valyala/fastjson` | v1.6.10 (2026-02-21) | `MIT` | Required by jwx v4.5.0 | (https://proxy.golang.org/github.com/valyala/fastjson/@v/v1.6.10.zip) |
+| `golang.org/x/sys` | v0.48.0 (2026-08-31) | `BSD-3-Clause` (section 3.1) | Package `unix` defines `SO_PEERCRED` and `GetsockoptUcred` (peer credentials of a Unix socket), `SO_ATTACH_REUSEPORT_CBPF`, `CLONE_NEWNET` (a new network namespace, for `SysProcAttr.Cloneflags`), and `SIOCSIFFLAGS` with `NewIfreq` and `IoctlIfreq` (setting interface flags, such as bringing `lo` up); per-namespace sysctls are writes to `/proc/sys` files and need no x/sys API | (https://proxy.golang.org/golang.org/x/sys/@v/v0.48.0.zip) |
+
+- `go list -deps` of `github.com/lestrrat-go/jwx/v4/jwk`, `/jws` and `/jwa` links exactly four modules: jwx v4.5.0, dsig v1.4.0, option/v3 v3.0.0-alpha1 and fastjson v1.6.10. `golang.org/x/crypto`, which jwx's `go.mod` requires (v0.56.0), is not linked through these packages.
+- `go list -deps` of `google.golang.org/grpc` includes `golang.org/x/sys/unix`, and `go list -deps` of `otlptracegrpc` includes the OTLP `collector/trace/v1`, `common/v1`, `resource/v1` and `trace/v1` packages.
+- `go list -deps` of `cel.dev/cel-go/cel` includes `cel.dev/expr`, `github.com/antlr4-go/antlr/v4`, `go.yaml.in/yaml/v3`, `golang.org/x/exp`, `google.golang.org/genproto/googleapis/{api,rpc}` and `google.golang.org/protobuf`.
+- The standard library `flag` package documents that "Flag parsing stops just before the first non-flag argument" (https://pkg.go.dev/flag). `crypto/rand` "implements a cryptographically secure random number generator" (https://pkg.go.dev/crypto/rand).
+- Analysis: otlptranslator's newest release (v1.0.0, 2025-09-09) is more than 12 months older than the 2026-09-23 snapshot, so it fails tech-stack criterion S1; the exporter requires it. `option/v3` is a pre-release that jwx v4.5.0 requires. Both are MIT or Apache-2.0, so G2 holds for every module in this section.
+
 ## Sources
 
 https://adr.github.io/madr/
@@ -381,6 +406,27 @@ https://github.com/actions/checkout
 https://github.com/actions/checkout/blob/v7.0.1/LICENSE
 https://github.com/actions/setup-go/blob/v7.0.0/LICENSE
 https://github.com/actions/setup-go/blob/v7.0.0/README.md
+https://proxy.golang.org/go.opentelemetry.io/otel/exporters/prometheus/@v/v0.68.0.mod
+https://proxy.golang.org/go.opentelemetry.io/otel/exporters/prometheus/@v/v0.68.0.zip
+https://proxy.golang.org/github.com/prometheus/client_golang/@v/v1.24.1.zip
+https://proxy.golang.org/github.com/prometheus/common/@v/v0.71.0.zip
+https://proxy.golang.org/github.com/prometheus/common/@latest
+https://proxy.golang.org/github.com/prometheus/otlptranslator/@v/list
+https://proxy.golang.org/github.com/prometheus/otlptranslator/@v/v1.0.0.zip
+https://proxy.golang.org/go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracegrpc/@v/v1.46.0.mod
+https://proxy.golang.org/google.golang.org/grpc/@v/v1.84.0.mod
+https://proxy.golang.org/go.opentelemetry.io/proto/otlp/@v/v1.11.0.zip
+https://proxy.golang.org/cel.dev/cel-go/@v/v0.32.0.mod
+https://proxy.golang.org/cel.dev/expr/@v/v0.25.2.zip
+https://proxy.golang.org/cel.dev/expr/@latest
+https://proxy.golang.org/github.com/lestrrat-go/jwx/v4/@v/v4.5.0.mod
+https://proxy.golang.org/github.com/lestrrat-go/dsig/@v/v1.4.0.zip
+https://proxy.golang.org/github.com/lestrrat-go/option/v3/@v/v3.0.0-alpha1.zip
+https://proxy.golang.org/github.com/lestrrat-go/option/v3/@latest
+https://proxy.golang.org/github.com/valyala/fastjson/@v/v1.6.10.zip
+https://proxy.golang.org/golang.org/x/sys/@v/v0.48.0.zip
+https://pkg.go.dev/flag
+https://pkg.go.dev/crypto/rand
 
 ## Gaps
 
@@ -394,4 +440,5 @@ https://github.com/actions/setup-go/blob/v7.0.0/README.md
 - **YAML parser conformance.** The YAML Test Suite figures for goccy/go-yaml are self-reported in its README as of 2024-12-15, and no independent run was made. No candidate documents an option that rejects anchors, aliases or merge keys, so the restricted profile's rejection logic is assumed to be Ruralz code over the AST. That rejection logic is not verified against any library.
 - **JSON Schema compliance.** santhosh-tekuri/jsonschema's compliance is shown as Bowtie badges in its README, and the Bowtie report was not fetched. kaptinlin/jsonschema's `go 1.27.0` directive was read on `main`, not at the v0.9.9 tag. google/jsonschema-go's support for custom keywords and source positions was not checked.
 - **xeipuuv/gojsonschema license.** GitHub detects no license file, and the repository was not examined further.
+- **M1 addendum (section 10).** Licenses were read from the module zips served by the Go module proxy, not from GitHub tags; release times are proxy `Time` values. Linked sets come from `go list -deps` of the named packages only, not of a built `ruralzd`, which the M1 license gate (stage 6) checks.
 - **MADR 4.0 release notes.** Only the release tag, the site and the license files were read. What changed between 3.0.0 and 4.0.0 was not recorded.
