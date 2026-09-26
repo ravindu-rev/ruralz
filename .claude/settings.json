@@ -1,0 +1,56 @@
+{
+  "$schema": "https://json.schemastore.org/claude-code-settings.json",
+  "permissions": {
+    "allow": [
+      "Bash(go version)",
+      "Bash(go env)",
+      "Bash(go env GO*)",
+      "Bash(go list *)",
+      "Bash(go build *)",
+      "Bash(go vet *)",
+      "Bash(go test *)",
+      "Bash(go generate *)",
+      "Bash(go mod verify)",
+      "Bash(go run ./internal/tool/repocheck *)",
+      "Bash(go run ./internal/tool/commitcheck *)",
+      "Bash(go run ./internal/tool/depgate *)",
+      "Bash(make help)",
+      "Bash(make hygiene)",
+      "Bash(make generate)",
+      "Bash(make build)",
+      "Bash(make test)",
+      "Bash(make floor FLOOR_GOTOOLCHAIN=go1.26.8)",
+      "Bash(git status *)",
+      "Bash(git ls-files *)",
+      "PowerShell(go version)",
+      "PowerShell(go env)",
+      "PowerShell(go env GO*)",
+      "PowerShell(go list *)",
+      "PowerShell(go build *)",
+      "PowerShell(go vet *)",
+      "PowerShell(go test *)",
+      "PowerShell(go generate *)",
+      "PowerShell(go mod verify)",
+      "PowerShell(go run ./internal/tool/repocheck *)",
+      "PowerShell(go run ./internal/tool/commitcheck *)",
+      "PowerShell(go run ./internal/tool/depgate *)",
+      "PowerShell(git status *)",
+      "PowerShell(git ls-files *)"
+    ],
+    "ask": [
+      "Bash(git push *)",
+      "PowerShell(git push *)",
+      "Edit(/docs/_meta/**)",
+      "Edit(/go.mod)",
+      "Edit(/.github/**)",
+      "Edit(/internal/tool/repocheck/nolicensecheck.allow)",
+      "Edit(/internal/filter/auth/**)",
+      "Edit(/internal/filter/authz/**)",
+      "Edit(/internal/signing/**)",
+      "Edit(/internal/pluginhost/**)"
+    ],
+    "deny": [
+      "Edit(/api/schema/ruralz/**)"
+    ]
+  }
+}
