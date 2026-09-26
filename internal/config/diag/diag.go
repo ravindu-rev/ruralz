@@ -10,6 +10,7 @@
 package diag
 
 import (
+	"bytes"
 	"cmp"
 	"encoding/json"
 	"io"
@@ -20,7 +21,10 @@ import (
 )
 
 // Severity is error or warning. Warnings (RZ-CFG-013, RZ-CFG-025) never
-// change a command's exit code.
+// change a command's exit code. Every Severity other than SeverityWarning,
+// including the zero value, is an error: String prints it as "error" and
+// HasErrors and FirstErrorCode count it, so a Diagnostic built without a
+// Severity blocks a Revision rather than printing as an error and passing.
 type Severity uint8
 
 // Severities.
@@ -31,7 +35,7 @@ const (
 	SeverityWarning
 )
 
-// String returns "error" or "warning".
+// String returns "warning" for SeverityWarning and "error" otherwise.
 func (s Severity) String() string {
 	if s == SeverityWarning {
 		return "warning"
@@ -149,10 +153,13 @@ func isBare(s string) bool {
 }
 
 // String returns the human form: fields joined by ".", a field not
-// matching [A-Za-z_$][A-Za-z0-9_$-]* written ["<json>"], keyed entries
-// [<keyField>=<key>], set elements [item=<value>], atomic entries [<n>];
-// a key or item not matching [A-Za-z0-9_./:@*-]+ is JSON-quoted and object
-// items print as canonical JSON.
+// matching [A-Za-z_$][A-Za-z0-9_$-]* written ["<json string>"], keyed
+// entries [<keyField>=<key>], set elements [item=<value>], atomic entries
+// [<n>]; a key or item not matching [A-Za-z0-9_./:@*-]+ is JSON-quoted and
+// object items print as canonical JSON. Field names, keys and items are
+// quoted by one JSON encoder without HTML escaping, so every quoted string
+// is valid JSON (invalid UTF-8 becomes U+FFFD) and quotes alike in both
+// forms (01 req 48).
 func (p Path) String() string {
 	var b strings.Builder
 	for i, e := range p {
@@ -164,9 +171,10 @@ func (p Path) String() string {
 				}
 				b.WriteString(e.Name)
 			} else {
-				b.WriteString(`[`)
-				b.WriteString(strconv.Quote(e.Name))
-				b.WriteString(`]`)
+				q, _ := marshal(e.Name)
+				b.WriteByte('[')
+				b.Write(q)
+				b.WriteByte(']')
 			}
 		case ElemIndex:
 			b.WriteByte('[')
@@ -191,7 +199,7 @@ func quoteValue(s string) string {
 	if isBare(s) {
 		return s
 	}
-	q, _ := json.Marshal(s)
+	q, _ := marshal(s)
 	return string(q)
 }
 
@@ -202,12 +210,24 @@ func itemText(v any) string {
 	case json.RawMessage:
 		return string(t)
 	default:
-		b, err := json.Marshal(t)
+		b, err := marshal(t)
 		if err != nil {
 			return "?"
 		}
 		return string(b)
 	}
+}
+
+// marshal is json.Marshal without HTML escaping, so paths print "<" and
+// "&" as authored in both forms, like every other member of WriteJSON.
+func marshal(v any) ([]byte, error) {
+	var buf bytes.Buffer
+	enc := json.NewEncoder(&buf)
+	enc.SetEscapeHTML(false)
+	if err := enc.Encode(v); err != nil {
+		return nil, err
+	}
+	return bytes.TrimSuffix(buf.Bytes(), []byte("\n")), nil
 }
 
 // MarshalJSON returns the JSON form: an array of strings (fields), integers
@@ -227,7 +247,7 @@ func (p Path) MarshalJSON() ([]byte, error) {
 			out = append(out, map[string]any{"item": e.Item})
 		}
 	}
-	return json.Marshal(out)
+	return marshal(out)
 }
 
 // Related is a secondary location, such as the first of two duplicates.
@@ -261,10 +281,14 @@ type Diagnostic struct {
 // List is an ordered set of diagnostics.
 type List []Diagnostic
 
-// HasErrors reports whether any diagnostic has error severity.
+// HasErrors reports whether any diagnostic has error severity: any
+// Severity but SeverityWarning, matching Severity.String.
 func (l List) HasErrors() bool {
-	return slices.ContainsFunc(l, func(d Diagnostic) bool { return d.Severity == SeverityError })
+	return slices.ContainsFunc(l, Diagnostic.isError)
 }
+
+// isError reports whether d blocks a Revision (01 req 47, 51).
+func (d Diagnostic) isError() bool { return d.Severity != SeverityWarning }
 
 // Sort orders by (environment, file, line, column, code, path, message).
 func (l List) Sort() {
@@ -281,10 +305,11 @@ func (l List) Sort() {
 	})
 }
 
-// FirstErrorCode returns the code of the first error after Sort, or "".
+// FirstErrorCode returns the code of the first error after Sort, or "";
+// errors are counted as HasErrors counts them.
 func (l List) FirstErrorCode() string {
 	for _, d := range l {
-		if d.Severity == SeverityError {
+		if d.isError() {
 			return d.Code
 		}
 	}
