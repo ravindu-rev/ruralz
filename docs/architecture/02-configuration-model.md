@@ -887,6 +887,10 @@ Validating 10,000 resources takes under 2 seconds on a four-core laptop, and the
 | RZ-CFG-035 | A `credentials.basic` `username`, or a `credentials.certificates` `subject` or `uriSan`, declared by two Consumers |
 | RZ-CFG-036 | `credentials.basic[].iterations` outside 600,000 to 1,000,000 |
 | RZ-CFG-037 | `auth.jwt` `jwksUrl` or `auth.upstream-oauth2` `tokenUrl` is not an `https` URL |
+| RZ-CFG-038 | Effective Filter Chain combines a `cache` Policy with an `onRequestBody` authorization, validation or Plugin auth or authz Policy (OQ-traffic-management-and-resilience-21 (a)) |
+| RZ-CFG-039 | A listener or admin port could not be bound during activation; the active Revision keeps serving (OQ-zero-downtime-upgrades-and-hot-reload-4 (a)) |
+| RZ-CFG-040 | A resource uses a feature this Node release does not serve |
+| RZ-CFG-041 | A `secretRef` is used for two destinations (secret-to-destination binding) (OQ-security-and-identity-22 (a)) |
 
 This document owns the RZ-CFG registry (foundation pack section 8.6, which lists RZ-CFG-001 to RZ-CFG-032 at the freeze); sections 8.14 and 8.9 ask it to register RZ-CFG-033 and RZ-CFG-034, and [Security and identity](08-security-and-identity.md) asks for RZ-CFG-035 to RZ-CFG-037.
 

@@ -1,0 +1,51 @@
+[
+  {
+    "code": "RZ-CFG-009",
+    "severity": "error",
+    "file": "routes/orders-summary.yaml",
+    "line": 23,
+    "column": 19,
+    "resource": {
+      "kind": "Route",
+      "name": "orders-summary"
+    },
+    "path": [
+      "spec",
+      "composition",
+      "steps",
+      {
+        "name": "stock"
+      },
+      "upstream"
+    ],
+    "message": "Upstream \"inventroy\" not found",
+    "hint": "did you mean \"inventory\"?"
+  },
+  {
+    "code": "RZ-CFG-019",
+    "severity": "error",
+    "file": "routes/cart-grpc.yaml",
+    "line": 11,
+    "column": 7,
+    "resource": {
+      "kind": "Route",
+      "name": "cart-grpc"
+    },
+    "path": [
+      "spec",
+      "excludePolicies",
+      {
+        "name": "ratelimit-global"
+      }
+    ],
+    "message": "cannot exclude a Policy with overridable: false",
+    "related": [
+      {
+        "file": "policies/common.yaml",
+        "line": 46,
+        "column": 3,
+        "message": "declared in"
+      }
+    ]
+  }
+]

@@ -1,0 +1,1 @@
+{"status":"not_ready","reasons":[{"reason":"no_revision"},{"reason":"secrets_unresolved","code":"RZ-CFG-026","detail":"file:/run/secrets/tls.pem is unreadable"},{"reason":"listeners_unbound","code":"RZ-CFG-039"},{"reason":"draining"}]}

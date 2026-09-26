@@ -24,7 +24,28 @@ linters:
           files: ["$all"]
           allow:
             - $gostd
+            # depguard drops go/... from $gostd once a go.opentelemetry.io
+            # entry shares the "go" prefix; list the standard go/ tree.
+            - go/
             - github.com/ravindu-rev/ruralz
+            # M1 modules; each has a Tech stack catalog row
+            # (docs/engineering/01-tech-stack-and-libraries.md).
+            - cel.dev/cel-go
+            - cel.dev/expr
+            - github.com/goccy/go-yaml
+            - github.com/lestrrat-go/jwx/v4
+            - github.com/prometheus/client_golang
+            - github.com/prometheus/common
+            - github.com/prometheus/otlptranslator
+            - github.com/redis/rueidis
+            - github.com/santhosh-tekuri/jsonschema/v6
+            - github.com/testcontainers/testcontainers-go
+            - go.opentelemetry.io/contrib/bridges/otelslog
+            - go.opentelemetry.io/otel
+            - go.opentelemetry.io/proto/otlp
+            - golang.org/x/net/http2
+            - golang.org/x/sys/unix
+            - google.golang.org/grpc
         banned:
           list-mode: lax
           files: ["$all"]
@@ -53,6 +74,108 @@ linters:
           deny:
             - pkg: github.com/redis/rueidis
               desc: rueidis is wrapped by internal/statestore/redis
+        goyaml:
+          files: ["$all", "!**/internal/config/profile/**"]
+          deny:
+            - pkg: github.com/goccy/go-yaml
+              desc: the restricted YAML profile is the only YAML parser and emitter
+        jsonschema:
+          files: ["$all", "!**/internal/config/schemaview/**", "!**/internal/filter/validation/jsonschema/**"]
+          deny:
+            - pkg: github.com/santhosh-tekuri/jsonschema
+              desc: wrapped by internal/config/schemaview and validation.json-schema
+        celgo:
+          files: ["$all", "!**/internal/cel/**"]
+          deny:
+            - pkg: cel.dev/cel-go
+              desc: CEL is reached through internal/expr contracts implemented by internal/cel
+            - pkg: cel.dev/expr
+              desc: CEL is reached through internal/expr contracts implemented by internal/cel
+        jwx:
+          files: ["$all", "!**/internal/filter/auth/jwt/**"]
+          deny:
+            - pkg: github.com/lestrrat-go/jwx
+              desc: JOSE is confined to internal/filter/auth/jwt
+        jwxpackages:
+          files: ["$all"]
+          deny:
+            - pkg: github.com/lestrrat-go/jwx/v4/jwt
+              desc: links jwe and golang.org/x/crypto (G3); decode claims with internal/jsonval
+            - pkg: github.com/lestrrat-go/jwx/v4/jwe
+              desc: no JWE in ruralzd; links golang.org/x/crypto (G3)
+            - pkg: github.com/lestrrat-go/jwx/v4$
+              desc: import only jwk, jws and jwa
+        otel:
+          files: ["$all", "!**/internal/telemetry/**", "!**/internal/testkit/otlpsink/**"]
+          deny:
+            - pkg: go.opentelemetry.io
+              desc: OpenTelemetry is confined to internal/telemetry (ADR-0010)
+            - pkg: github.com/prometheus
+              desc: /metrics exposition is internal/telemetry's
+            - pkg: google.golang.org/grpc
+              desc: gRPC links only for OTLP export in internal/telemetry until M3
+        xsys:
+          files: ["$all", "!**/internal/gateway/reuseport/**", "!**/internal/gateway/handover/**", "!**/internal/testkit/proc/**"]
+          deny:
+            - pkg: golang.org/x/sys
+              desc: socket steering, peer credentials and test namespaces only
+        xnet:
+          files: ["$all", "!**/test/conformance/protocol/**"]
+          deny:
+            - pkg: golang.org/x/net
+              desc: x/net/http2 Framer is for the protocol conformance suite only
+        testcontainers:
+          files: ["$all", "!$test", "!**/internal/statestore/statestoretest/redisserver/**"]
+          deny:
+            - pkg: github.com/testcontainers
+              desc: test tooling, never linked into a binary
+        testsupport:
+          files: ["$all", "!$test", "!**/internal/testkit/**", "!**/test/**", "!**/internal/statestore/statestoretest/**", "!**/internal/filter/filtertest/**", "!**/internal/clock/clocktest/**", "!**/internal/cel/celtest/**", "!**/internal/gateway/handler/handlertest/**"]
+          deny:
+            - pkg: github.com/ravindu-rev/ruralz/internal/testkit
+              desc: test support is imported by tests only
+            - pkg: github.com/ravindu-rev/ruralz/internal/statestore/statestoretest
+              desc: test support is imported by tests only
+            - pkg: github.com/ravindu-rev/ruralz/internal/filter/filtertest
+              desc: test support is imported by tests only
+            - pkg: github.com/ravindu-rev/ruralz/internal/clock/clocktest
+              desc: test support is imported by tests only
+            - pkg: github.com/ravindu-rev/ruralz/internal/cel/celtest
+              desc: test support is imported by tests only
+            - pkg: github.com/ravindu-rev/ruralz/internal/gateway/handler/handlertest
+              desc: test support is imported by tests only
+        secretresolver:
+          files: ["**/internal/cli/**", "**/internal/config/**", "**/internal/control/**", "**/internal/filter/**"]
+          deny:
+            - pkg: github.com/ravindu-rev/ruralz/internal/secret/resolver
+              desc: only ruralzd resolves secrets; others read secret.Store
+        config:
+          files: ["**/internal/config/**", "**/internal/expr/**", "**/internal/cel/**"]
+          deny:
+            - pkg: github.com/ravindu-rev/ruralz/internal/gateway
+              desc: the configuration pipeline runs in every binary
+            - pkg: github.com/ravindu-rev/ruralz/internal/filter
+              desc: filters depend on configuration, not the reverse; checks are injected
+            - pkg: github.com/ravindu-rev/ruralz/internal/statestore
+              desc: the configuration pipeline never talks to a State Store
+            - pkg: github.com/ravindu-rev/ruralz/internal/cli
+              desc: the configuration pipeline is shared by all binaries
+        filter:
+          files: ["**/internal/filter/**", "**/internal/identity/**", "**/internal/statestore/**"]
+          deny:
+            - pkg: github.com/ravindu-rev/ruralz/internal/gateway
+              desc: filters and stores are data-plane neutral; the gateway implements their contracts
+            - pkg: github.com/ravindu-rev/ruralz/internal/cli
+              desc: the CLI is never linked into filters
+        contracts:
+          list-mode: strict
+          files: ["**/internal/phase/**", "**/internal/expr/**", "**/internal/clock/*.go", "**/internal/problem/**", "**/internal/adminapi/**", "**/internal/telemetry/catalog/**", "**/internal/telemetry/emit/**", "**/internal/config/diag/**", "**/internal/config/revision/**", "!$test"]
+          allow:
+            - $gostd
+            - github.com/ravindu-rev/ruralz/pkg/config/v1alpha1
+            - github.com/ravindu-rev/ruralz/internal/phase
+            - github.com/ravindu-rev/ruralz/internal/errcode
+            - github.com/ravindu-rev/ruralz/internal/telemetry/catalog
         raft:
           files: ["$all", "!**/internal/controlstore/raft/**"]
           deny:
@@ -79,6 +202,8 @@ linters:
           deny:
             - pkg: github.com/ravindu-rev/ruralz/internal/gateway
               desc: ruralz dev run launches a local ruralzd instead
+            - pkg: github.com/ravindu-rev/ruralz/internal/statestore/
+              desc: the CLI never opens a State Store driver
         public:
           list-mode: strict
           files: ["**/pkg/**", "**/api/schema/**", "!$test"]
@@ -111,6 +236,13 @@ linters:
         SPDX-License-Identifier: Apache-2.0
     misspell:
       locale: US
+    sloglint:
+      no-global: all
+      context: scope
+      static-msg: true
+      no-raw-keys: false
+      key-naming-case: snake
+      forbidden-keys: [time, level, msg, source]
     nolintlint:
       require-specific: true
       require-explanation: true

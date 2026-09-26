@@ -533,6 +533,10 @@ Codes 011 to 015 go beyond pack 8.6's "before any Upstream" meaning of `RT`; tha
 | RZ-RT-013 | None; stream ended | A streamed chunk exceeded its cap |
 | RZ-RT-014 | 503 before commit; stream ended after | The pinned snapshot's grace period ended |
 | RZ-RT-015 | 502 | A composition step failed on a CEL runtime error or a body over `maxBodyBytes` |
+| RZ-RT-016 | 503 before commit; stream ended after | The Drain deadline was reached (OQ-zero-downtime-upgrades-and-hot-reload-2 (b)) |
+| RZ-RT-017 | 400 | Request target or framing rejected by request hardening |
+| RZ-RT-018 | 504 | An `only-if-cached` request missed the Response Cache |
+| RZ-RT-019 | 503 | The admin `/tap` subscriber limit is reached |
 
 ## Performance budgets
 
