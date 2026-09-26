@@ -85,8 +85,9 @@ func (f *Fake) Set(t time.Time) {
 		ft := f.timers[0]
 		f.timers = f.timers[1:]
 		f.now = ft.at
+		at := ft.at
 		f.mu.Unlock()
-		ft.fire(false)
+		ft.fire(false, at)
 	}
 }
 
@@ -98,15 +99,18 @@ func (f *Fake) Pending() int {
 }
 
 // add arms ft to fire after d; d <= 0 fires it at once without arming.
+// ft.at is written only under f.mu, and the fire time is read under it too,
+// so a Reset on one goroutine never races an Advance on another.
 func (f *Fake) add(ft *fakeTimer, d time.Duration) *fakeTimer {
 	f.mu.Lock()
 	ft.at = f.now.Add(max(d, 0))
+	at := ft.at
 	if d > 0 {
 		f.timers = append(f.timers, ft)
 	}
 	f.mu.Unlock()
 	if d <= 0 {
-		ft.fire(true)
+		ft.fire(true, at)
 	}
 	return ft
 }
@@ -124,14 +128,15 @@ func (f *Fake) remove(ft *fakeTimer) bool {
 
 type fakeTimer struct {
 	f  *Fake
-	at time.Time
+	at time.Time // guarded by f.mu
 	ch chan time.Time
 	fn func()
 }
 
-// fire delivers the timer: a channel send that never blocks, or the
-// callback (in a new goroutine when async, as time.AfterFunc does).
-func (t *fakeTimer) fire(async bool) {
+// fire delivers the timer with its fire time at, which the caller read under
+// f.mu: a channel send that never blocks, or the callback (in a new
+// goroutine when async, as time.AfterFunc does).
+func (t *fakeTimer) fire(async bool, at time.Time) {
 	switch {
 	case t.fn != nil && async:
 		go t.fn()
@@ -139,7 +144,7 @@ func (t *fakeTimer) fire(async bool) {
 		t.fn()
 	default:
 		select {
-		case t.ch <- t.at:
+		case t.ch <- at:
 		default:
 		}
 	}

@@ -17,6 +17,7 @@ import (
 	"log/slog"
 	"net/http"
 	"net/netip"
+	"reflect"
 	"sync"
 	"time"
 
@@ -174,7 +175,11 @@ func (c *ConnTLS) PeerCertificates() []*x509.Certificate {
 }
 
 // ConnCache is a small per-connection memo (at most 8 entries), safe for
-// concurrent HTTP/2 streams.
+// concurrent HTTP/2 streams. Keys are non-nil comparable values, such as a
+// string or a [32]byte digest, compared with ==. A nil key, or one that
+// cannot be compared (a slice, a map, a func, or a struct, array or
+// interface holding one), is never stored and never found, so the caller
+// recomputes instead of panicking.
 type ConnCache struct {
 	mu   sync.Mutex
 	keys [8]any
@@ -182,25 +187,44 @@ type ConnCache struct {
 	next int
 }
 
-// Get returns the value stored under key.
+// Get returns the value stored under key; a nil or uncomparable key misses.
 func (c *ConnCache) Get(key any) (any, bool) {
+	if !cacheable(key) {
+		return nil, false
+	}
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	for i, k := range c.keys {
-		if k != nil && k == key {
+		if k == key {
 			return c.vals[i], true
 		}
 	}
 	return nil, false
 }
 
-// Put stores v under key, evicting the oldest entry when full.
+// Put stores v under key, replacing the value of a stored key in place and
+// otherwise evicting the oldest entry when full; a nil or uncomparable key
+// is not stored.
 func (c *ConnCache) Put(key, v any) {
+	if !cacheable(key) {
+		return
+	}
 	c.mu.Lock()
 	defer c.mu.Unlock()
+	for i, k := range c.keys {
+		if k == key {
+			c.vals[i] = v
+			return
+		}
+	}
 	c.keys[c.next], c.vals[c.next] = key, v
 	c.next = (c.next + 1) % len(c.keys)
 }
+
+// cacheable reports whether key is non-nil and == on it cannot panic: it is
+// comparable down to the dynamic values it holds. Empty slots (nil) then
+// never equal a lookup key.
+func cacheable(key any) bool { return reflect.ValueOf(key).Comparable() }
 
 // Message is the HTTP message a Phase acts on: the client request
 // (onRequestHeaders, onRequestBody, onRoute), the leg's outgoing request
