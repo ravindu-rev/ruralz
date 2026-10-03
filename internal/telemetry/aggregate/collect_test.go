@@ -88,11 +88,14 @@ func goldenRegistry(t testing.TB) *Registry {
 		Routes:    []string{"orders", "users", "legacy"},
 		Upstreams: []string{"orders-svc", "users-svc"},
 		Policies:  gatewayPolicies(),
+		// Every Route is cached, so the golden covers the cache family.
+		CachedRoutes: []string{"orders", "users", "legacy"},
 	}
 	p1, b1 := admitBind(t, r, shape)
 	p1.Route("legacy").Requests.Inc(0, 200) // ends with the fold
 	clk.Advance(time.Second)
 	shape.Routes = []string{"orders", "users"}
+	shape.CachedRoutes = shape.Routes
 	p2, _ := admitBind(t, r, shape)
 	b1.Retire() // legacy retires, past the ceiling of 20 series: folds
 	p1.Route("legacy").Requests.Inc(1, 404)

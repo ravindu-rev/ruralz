@@ -11,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/ravindu-rev/ruralz/internal/telemetry/catalog"
 	"github.com/ravindu-rev/ruralz/internal/telemetry/emit"
 )
 
@@ -38,11 +39,16 @@ type normShape struct {
 	routes    []string
 	upstreams []string
 	policies  []emit.PolicyShape
+	// cached holds the Routes with a cache Policy (Shape.CachedRoutes).
+	cached map[string]bool
 }
 
 // normalize sorts every list by name bytes, sorts and deduplicates each
-// Policy's codes, and rejects empty, reserved and duplicate names, so any
-// permutation of a Shape admits identically (spec 09 test 21).
+// Policy's codes, and rejects empty, reserved and duplicate names and a
+// cached Route that is not a Route, so any permutation of a Shape admits
+// identically (spec 09 test 21). A cached Route may repeat (a Route with
+// cache Policies at two scopes): it is marked once, as Policy codes are
+// deduplicated.
 func normalize(s emit.Shape) (normShape, error) {
 	var n normShape
 	var err error
@@ -51,6 +57,13 @@ func normalize(s emit.Shape) (normShape, error) {
 	}
 	if n.routes, err = sortedNames("Route", s.Routes); err != nil {
 		return n, err
+	}
+	n.cached = make(map[string]bool, len(s.CachedRoutes))
+	for _, name := range s.CachedRoutes {
+		if _, ok := slices.BinarySearch(n.routes, name); !ok {
+			return n, fmt.Errorf("%w: cached Route %q is not a Route", ErrShape, name)
+		}
+		n.cached[name] = true
 	}
 	if n.upstreams, err = sortedNames("Upstream", s.Upstreams); err != nil {
 		return n, err
@@ -144,15 +157,18 @@ func (r *Registry) decide(n normShape) []unit {
 			units = append(units, u)
 		}
 	}
-	units = r.decideResources(b, units, roleRoute, n.routes, b.lim.StripedRoutes)
-	return r.decideResources(b, units, roleUpstream, n.upstreams, b.lim.StripedUpstreams)
+	units = r.decideResources(b, units, roleRoute, n.routes, n.cached, b.lim.StripedRoutes)
+	return r.decideResources(b, units, roleUpstream, n.upstreams, nil, b.lim.StripedUpstreams)
 }
 
 // decideResources appends the units of the Routes or Upstreams in names.
-func (r *Registry) decideResources(b *budget, units []unit, kind role, names []string, stripedCap int) []unit {
+// Only the Routes in cached get ruralz_cache_requests_total label sets
+// (spec 09 req 45): the others' cache handles stay no-ops and spend none
+// of that family's budget.
+func (r *Registry) decideResources(b *budget, units []unit, kind role, names []string, cached map[string]bool, stripedCap int) []unit {
 	for _, name := range names {
 		for _, f := range r.fams {
-			if f.role != kind {
+			if f.role != kind || (f.cat.Name == catalog.CacheRequestsTotal && !cached[name]) {
 				continue
 			}
 			u := unit{fam: f, kind: kind, res: name, phases: []int8{-1}, fan: f.n}

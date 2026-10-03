@@ -106,7 +106,7 @@ func TestHotPathZeroAllocs_Req47(t *testing.T) {
 		"node code":     func() { r.Node().NodeResponses.Inc(0, "RZ-RT-005") },
 		"gauge set":     func() { h.up.HealthyEndpoints.Set(3) },
 		"gateway timer": func() {
-			var g GatewayTimer
+			var g emit.GatewayTimer
 			g.Reset(epoch())
 			g.Enter(epoch().Add(time.Microsecond))
 			g.Leave(epoch().Add(2 * time.Microsecond))
@@ -201,6 +201,7 @@ func bigRegistry(b *testing.B) *Registry {
 		for i := range routes {
 			s.Routes = append(s.Routes, fmt.Sprintf("%sr%04d", prefix, i))
 		}
+		s.CachedRoutes = s.Routes
 		for i := range upstreams {
 			s.Upstreams = append(s.Upstreams, fmt.Sprintf("%su%04d", prefix, i))
 		}
@@ -329,21 +330,6 @@ func BenchmarkAdmit5000Routes(b *testing.B) {
 			b.Fatal(err)
 		}
 		r.Bind(pl).Release()
-	}
-}
-
-// BenchmarkGatewayTimer measures one request's excluded sections.
-func BenchmarkGatewayTimer(b *testing.B) {
-	var g GatewayTimer
-	start := time.Now()
-	b.ReportAllocs()
-	for b.Loop() {
-		g.Reset(start)
-		g.Enter(start.Add(time.Microsecond))
-		g.Leave(start.Add(2 * time.Microsecond))
-		g.Enter(start.Add(3 * time.Microsecond))
-		g.Leave(start.Add(4 * time.Microsecond))
-		g.Result(start.Add(5 * time.Microsecond))
 	}
 }
 

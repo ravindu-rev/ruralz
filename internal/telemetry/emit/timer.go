@@ -1,13 +1,11 @@
 // Copyright 2026 Revington
 // SPDX-License-Identifier: Apache-2.0
 
-package aggregate
+package emit
 
 import (
 	"sync/atomic"
 	"time"
-
-	"github.com/ravindu-rev/ruralz/internal/telemetry/emit"
 )
 
 // Excluded-section word: the depth in the high 16 bits, and in the low
@@ -26,7 +24,7 @@ const (
 // One word packs the excluded depth and the start of the current excluded
 // run and is updated by compare and swap, so sections nest and parallel
 // legs overlap safely; the zero value is ready after Reset. It implements
-// emit.Excluder and is meant to live in a pooled per-request structure.
+// Excluder and is meant to live in a pooled per-request structure.
 //
 // A caller reads the clock before its compare and swap lands, so with
 // parallel legs the swaps can land in another order than the clock
@@ -51,7 +49,7 @@ type GatewayTimer struct {
 	anomaly  atomic.Bool
 }
 
-var _ emit.Excluder = (*GatewayTimer)(nil)
+var _ Excluder = (*GatewayTimer)(nil)
 
 // Reset starts a new measurement at start; call it before any Enter.
 func (g *GatewayTimer) Reset(start time.Time) {
@@ -181,7 +179,7 @@ func (g *GatewayTimer) Result(end time.Time) (time.Duration, bool) {
 
 // Observe records the result into h on stripe s, or counts skipped when
 // it is a clock anomaly.
-func (g *GatewayTimer) Observe(end time.Time, s emit.Stripe, h emit.Histogram, skipped emit.Counter) (time.Duration, bool) {
+func (g *GatewayTimer) Observe(end time.Time, s Stripe, h Histogram, skipped Counter) (time.Duration, bool) {
 	d, ok := g.Result(end)
 	if !ok {
 		skipped.Add(s, 1)

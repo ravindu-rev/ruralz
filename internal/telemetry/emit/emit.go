@@ -7,13 +7,17 @@
 // it on Ruralz-owned aggregates and the OpenTelemetry SDK; no other
 // package imports OpenTelemetry. Recording methods take no locks, allocate
 // nothing and never block; loggers are *slog.Logger values from
-// internal/telemetry (tests pass slog.New(slog.DiscardHandler)).
+// internal/telemetry (tests pass slog.New(slog.DiscardHandler)). It also
+// provides GatewayTimer, the excluded-section clock of gateway-added time,
+// and OriginOf, the origin classification of listener requests, so the
+// recording sites need no other telemetry package.
 package emit
 
 import (
 	"context"
 	"log/slog"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/ravindu-rev/ruralz/internal/phase"
@@ -71,6 +75,28 @@ const (
 	OriginDependency
 	NumOrigins
 )
+
+// OriginOf returns the origin label index of a response for
+// ruralz_http_listener_requests_total (spec 09 req 44): OriginUpstream
+// when the status was passed through from an Upstream response;
+// OriginDependency for a Node-generated response with an RZ-UP-* code or
+// RZ-AI-004, RZ-AI-005 or RZ-AI-013 (the Upstream or provider could not
+// answer); OriginNode for every other Node-generated response, RZ-STS
+// codes and responses without a code included.
+func OriginOf(code string, fromUpstream bool) int {
+	switch {
+	case fromUpstream:
+		return OriginUpstream
+	case strings.HasPrefix(code, "RZ-UP-"):
+		return OriginDependency
+	}
+	switch code {
+	case "RZ-AI-004", "RZ-AI-005", "RZ-AI-013":
+		return OriginDependency
+	default:
+		return OriginNode
+	}
+}
 
 // Connection results: accepted, tls_failure, refused.
 const (
@@ -311,6 +337,11 @@ type Shape struct {
 	Routes    []string
 	Upstreams []string
 	Policies  []PolicyShape
+	// CachedRoutes are the names (a subset of Routes) of the Routes whose
+	// effective chain holds a cache Policy at any scope. Only these get
+	// ruralz_cache_requests_total label sets; every other Route's
+	// RouteMetrics.Cache holds no-op handles.
+	CachedRoutes []string
 }
 
 // PolicyShape describes one Policy for admission.
@@ -411,7 +442,11 @@ type UpstreamAttrs struct {
 // are precomputed at compile time (catalog.FilterSpanName).
 type Tracer interface {
 	// Decide extracts traceparent and tracestate, applies the ratio and the
-	// root and parent caps, and fills d; it never allocates.
+	// root and parent caps, and fills d. It allocates nothing except the
+	// combined value when a request carries several tracestate field lines
+	// that are valid together: one allocation, since RFC 9110 requires the
+	// lines to be combined and Decision.TraceState is a single string.
+	// Invalid client input allocates nothing.
 	Decide(h http.Header, ratio float64, d *Decision)
 	StartServer(ctx context.Context, d *Decision, method string, a ServerAttrs) (context.Context, Span)
 	StartRouteMatch(ctx context.Context) (context.Context, Span)

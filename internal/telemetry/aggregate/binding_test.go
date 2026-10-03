@@ -72,9 +72,9 @@ func TestRetiringAndRelease_Req56(t *testing.T) {
 	b1.Retire() // idempotent
 	pts = collectNow(t, r, clk)
 	live1, ret1 := seriesState(t, pts)
-	// Route families: 5 + 16 + 5 series per Route.
-	if ret1 != 26 {
-		t.Errorf("retiring = %v, want 26", ret1)
+	// Route families: 5 + 16 series per Route without a cache Policy.
+	if ret1 != 21 {
+		t.Errorf("retiring = %v, want 21", ret1)
 	}
 	if live1 != live0 {
 		t.Errorf("live = %v, want %v (one Route live)", live1, live0)
@@ -113,13 +113,15 @@ func TestRetiringAndRelease_Req56(t *testing.T) {
 // fold; their series end, their handles record into _overflow, and the
 // overflow series never rises by a folded set's accumulated value.
 func TestRetiringCeilingFoldsOldest_Req56(t *testing.T) {
-	// One Route's counter families: 5 + 5 series; histograms 16. Ceiling
-	// 30 holds one retiring Route (26 series).
+	// One cached Route's counter families: 5 + 5 series (requests and
+	// cache); histograms 16. Ceiling 30 holds one retiring Route (26
+	// series).
 	r, clk := newTestRegistry(t, func(o *Options) { o.Limits = Limits{Retiring: 30} })
 	var plans []*Plan
 	var binds []emit.Binding
 	for i := range 4 {
-		p, b := admitBind(t, r, emit.Shape{Routes: []string{fmt.Sprintf("r%d", i)}})
+		name := []string{fmt.Sprintf("r%d", i)}
+		p, b := admitBind(t, r, emit.Shape{Routes: name, CachedRoutes: name})
 		p.Route(fmt.Sprintf("r%d", i)).Requests.Inc(0, 200)
 		p.Route(fmt.Sprintf("r%d", i)).Requests.Inc(0, 200)
 		if i > 0 {
@@ -144,9 +146,11 @@ func TestRetiringCeilingFoldsOldest_Req56(t *testing.T) {
 	if got := mustGet(t, pts, reqKey(Overflow, "2xx")).value; got != 0 {
 		t.Errorf("overflow = %v, want 0: folding never carries values", got)
 	}
-	folded := mustGet(t, pts, fmt.Sprintf(`%s{instrument=%q}`, catalog.TelemetryFoldedLabelSets, catalog.HTTPRequestsTotal)).value
-	if folded != 10 {
-		t.Errorf("folded label sets = %v, want 10", folded)
+	for _, fam := range []string{catalog.HTTPRequestsTotal, catalog.CacheRequestsTotal} {
+		folded := mustGet(t, pts, fmt.Sprintf(`%s{instrument=%q}`, catalog.TelemetryFoldedLabelSets, fam)).value
+		if folded != 10 {
+			t.Errorf("%s folded label sets = %v, want 10", fam, folded)
+		}
 	}
 	// A request still pinned to r0's snapshot records into _overflow.
 	plans[0].Route("r0").Requests.Inc(1, 200)
@@ -333,7 +337,7 @@ func TestFoldingNeverCarriesValues_Test22(t *testing.T) {
 					names = append(names, fmt.Sprintf("r%d", rng.IntN(12)))
 				}
 				names = dedupe(names)
-				pl, err := r.Admit(emit.Shape{Routes: names})
+				pl, err := r.Admit(emit.Shape{Routes: names, CachedRoutes: names})
 				if err != nil {
 					t.Fatal(err)
 				}
@@ -426,6 +430,7 @@ func TestReloadSequenceReturnsToSingleRevision_Req56(t *testing.T) {
 		for i := range routes {
 			s.Routes = append(s.Routes, fmt.Sprintf("g%d-r%d", gen, i))
 		}
+		s.CachedRoutes = s.Routes
 		return s
 	}
 	var pinned []emit.Binding

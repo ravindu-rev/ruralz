@@ -1,17 +1,21 @@
 // Copyright 2026 Revington
 // SPDX-License-Identifier: Apache-2.0
 
-package aggregate
+package emit
 
 import (
+	"math/rand/v2"
 	"slices"
 	"sync"
 	"testing"
 	"time"
-
-	"github.com/ravindu-rev/ruralz/internal/telemetry/catalog"
-	"github.com/ravindu-rev/ruralz/internal/telemetry/emit"
 )
+
+// epoch is the fixed start of every timer test.
+func epoch() time.Time { return time.Date(2026, 9, 26, 12, 0, 0, 0, time.UTC) }
+
+// testRand returns a deterministic generator for property tests.
+func testRand(a, b uint64) *rand.Rand { return rand.New(rand.NewPCG(a, b)) } //nolint:gosec // G404: reproducible test data, not security.
 
 // timerEvent is one Enter (in) or Leave at an offset from the start.
 type timerEvent struct {
@@ -77,32 +81,34 @@ func TestGatewayTimer_Test15(t *testing.T) {
 	}
 }
 
-// Observe records the result, or counts a clock anomaly in
-// ruralz_http_gateway_duration_skipped_total (spec 09 req 54).
-func TestGatewayTimerObserve_Req54(t *testing.T) {
-	r, clk := newTestRegistry(t, nil)
-	pl, b := admitBind(t, r, emit.Shape{Listeners: []string{"l"}})
-	defer b.Release()
-	h := pl.Listener("l").GatewayDuration
-	skipped := r.Node().GatewayDurationSkipped
+// recorder is a Histogram and Counter that keeps what it was given.
+type recorder struct {
+	values []uint64
+	adds   uint64
+}
+
+func (r *recorder) Record(_ Stripe, v uint64)                     { r.values = append(r.values, v) }
+func (r *recorder) RecordExemplar(_ Stripe, v uint64, _ Exemplar) { r.values = append(r.values, v) }
+func (r *recorder) Add(_ Stripe, n uint64)                        { r.adds += n }
+
+// Observe records the result in nanoseconds, or counts a clock anomaly in
+// the skipped counter instead (spec 09 req 54).
+func TestGatewayTimerObserve(t *testing.T) {
+	var h, skipped recorder
 	var g GatewayTimer
 	g.Reset(epoch())
 	g.Enter(epoch().Add(time.Millisecond))
 	g.Leave(epoch().Add(3 * time.Millisecond))
-	if d, ok := g.Observe(epoch().Add(3100*time.Microsecond), 0, h, skipped); !ok || d != 1100*time.Microsecond {
-		t.Errorf("Observe = %v, %v", d, ok)
+	if d, ok := g.Observe(epoch().Add(3100*time.Microsecond), 1, &h, &skipped); !ok || d != 1100*time.Microsecond {
+		t.Errorf("Observe = %v, %v; want 1.1ms, true", d, ok)
 	}
 	g.Reset(epoch())
 	g.Leave(epoch())
-	if _, ok := g.Observe(epoch().Add(time.Millisecond), 0, h, skipped); ok {
-		t.Error("anomaly recorded")
+	if d, ok := g.Observe(epoch().Add(time.Millisecond), 1, &h, &skipped); ok || d != 0 {
+		t.Errorf("Observe after a leave at depth 0 = %v, %v; want 0, false", d, ok)
 	}
-	pts := collectNow(t, r, clk)
-	if p := mustGet(t, pts, catalog.HTTPGatewayDurationSeconds+`{listener="l"}`); p.count != 1 || !approx(p.sum, 0.0011) {
-		t.Errorf("gateway duration = %+v", p)
-	}
-	if got := mustGet(t, pts, catalog.HTTPGatewayDurationSkippedTotal+`{reason="clock_anomaly"}`).value; got != 1 {
-		t.Errorf("skipped = %v", got)
+	if len(h.values) != 1 || h.values[0] != uint64(1100*time.Microsecond) || skipped.adds != 1 {
+		t.Errorf("recorded %v, skipped %d; want [1100000], 1", h.values, skipped.adds)
 	}
 }
 
@@ -301,4 +307,19 @@ func FuzzGatewayTimer(f *testing.F) {
 		}
 		runIntervals(t, iv, time.Duration(end%1100))
 	})
+}
+
+// BenchmarkGatewayTimer measures one request's excluded sections.
+func BenchmarkGatewayTimer(b *testing.B) {
+	var g GatewayTimer
+	start := time.Now()
+	b.ReportAllocs()
+	for b.Loop() {
+		g.Reset(start)
+		g.Enter(start.Add(time.Microsecond))
+		g.Leave(start.Add(2 * time.Microsecond))
+		g.Enter(start.Add(3 * time.Microsecond))
+		g.Leave(start.Add(4 * time.Microsecond))
+		g.Result(start.Add(5 * time.Microsecond))
+	}
 }

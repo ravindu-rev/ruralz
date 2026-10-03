@@ -126,13 +126,14 @@ func BenchmarkUnsampledTrace(b *testing.B) {
 }
 
 // BenchmarkSampledTrace15Spans is spec 09 test 44: the 15 spans of the
-// orders-summary trace (target 60 allocations, 30 µs; export excluded).
-// The SDK required by spec 09 req 1 allocates at least 4 times per span
-// (the recording span, its context, its attribute slice and its
-// snapshot), so 15 spans cost 60 or more before this package adds its
-// span wrappers, the server span's parent and name, and the injected
-// headers; the target cannot be met on this SDK, which the observability
-// document does not record yet (reported to its owner).
+// orders-summary trace (target at most 90 allocations, 30 µs; export
+// excluded). The SDK required by spec 09 req 1 allocates at least 4 times
+// per span (the recording span, its context, its attribute slice and its
+// snapshot), so 15 spans cost 60 before this package adds its span
+// wrappers and the server span's share. The lead's decision (architecture
+// 2.16, R-69) sets the target at 6 allocations per span, the SDK's 4 plus
+// at most 2 by Ruralz; the 30 µs target holds on the reference hardware
+// and is not a per-pull-request gate.
 func BenchmarkSampledTrace15Spans(b *testing.B) {
 	tr := newTracer(b, Options{QueueSize: 1 << 16, BatchSize: 4096, BatchInterval: time.Millisecond})
 	tr.SetExporter(discardExporter{})

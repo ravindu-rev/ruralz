@@ -188,7 +188,7 @@ func (r *Registry) newGroup(f *family, s groupSpec) *group {
 		if f.role == roleNode {
 			codes, capacity = r.codes, r.nodeCodeCapacity()
 		}
-		t := newCodeTable(codes, capacity, r.validCode, r.logger)
+		t := newCodeTable(f.cat.Name, codes, capacity, r.validCode, r.logger)
 		g.code = &codeGroup{
 			table: t,
 			base:  slices.Concat(base, []attribute.KeyValue{attribute.String(labelResult, f.result[1])}),
@@ -197,7 +197,7 @@ func (r *Registry) newGroup(f *family, s groupSpec) *group {
 		}
 	case layoutCode:
 		g.code = &codeGroup{
-			table: newCodeTable(r.codes, r.nodeCodeCapacity(), r.validCode, r.logger),
+			table: newCodeTable(f.cat.Name, r.codes, r.nodeCodeCapacity(), r.validCode, r.logger),
 			base:  base,
 		}
 	case layoutValues, layoutStatus, layoutListenerRequests, layoutAttempts, layoutRevisionInfo, layoutComputed:

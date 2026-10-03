@@ -9,9 +9,7 @@
 // rules, cache-line striped counters and gauges, integer histograms with
 // exemplar slots, and collection into metricdata through an
 // sdkmetric.Producer that both the OTLP reader and the Prometheus exporter
-// read (OQ-observability-16 (a)). It also provides GatewayTimer, the
-// excluded-section clock of gateway-added time, and OriginOf, the origin
-// classification of listener requests; both depend only on emit.
+// read (OQ-observability-16 (a)).
 //
 // Request-path recording takes no lock, allocates nothing and never
 // blocks: a handle loads one atomic pointer (its label set, or _overflow

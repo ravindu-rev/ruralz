@@ -35,7 +35,6 @@ var (
 	_ emit.AuthDecisions    = (*authH)(nil)
 	_ emit.UpstreamAttempts = (*attemptsH)(nil)
 	_ emit.ListenerRequests = (*listenerReqH)(nil)
-	_ emit.Excluder         = (*GatewayTimer)(nil)
 )
 
 // epoch is the fake clock's start.

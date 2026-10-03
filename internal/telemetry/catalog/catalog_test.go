@@ -402,7 +402,7 @@ func TestSpansAndKeys(t *testing.T) {
 	keys := []string{
 		KeyComponent, KeyNodeID, KeyRevision, KeyTraceID, KeySpanID, KeyCode, KeyError, KeyFile, KeyLine,
 		KeyColumn, KeyResourceKind, KeyResourceName, KeyPath, KeyProvider, KeyReference, KeyShard, KeyPolicy,
-		KeyUpstream, KeyListener, KeyReason,
+		KeyUpstream, KeyListener, KeyReason, KeyPhase, KeyPanicType, KeyStack, KeyErrorType, KeyMetric,
 	}
 	snake := regexp.MustCompile(`^[a-z]+(_[a-z]+)*$`)
 	seen := map[string]bool{}

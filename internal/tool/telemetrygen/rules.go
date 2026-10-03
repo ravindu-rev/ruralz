@@ -213,9 +213,10 @@ func m1Rules() []alertRule {
 			// at their first admission, so this rule deliberately omits the
 			// rare-event clause "or (x > 0 unless x offset 15m)", which would
 			// ticket every new Node (every Pod of a rollout) whose first
-			// admission folds. Spec 09 req 72 and test 43 ask every rule to
-			// fire on an event recorded before the first scrape; that conflict
-			// is a change request to the Observability document's owner.
+			// admission folds. It is not a rare-event rule (architecture
+			// 2.16), so neither that clause of spec 09 req 72 nor the
+			// event-before-the-first-scrape case of req 72 and test 43
+			// applies to it.
 			name: "RuralzSeriesFolded", severity: severityTicket, dashboard: dashTelemetry,
 			expr:    fmt.Sprintf("delta(%s[15m]) > 0", catalog.TelemetryFoldedLabelSets),
 			summary: "Node {{ $labels.instance }} folded new {{ $labels.instrument }} label sets into _overflow",

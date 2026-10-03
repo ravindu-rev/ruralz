@@ -380,4 +380,9 @@ const (
 	KeyUpstream     = "upstream"
 	KeyListener     = "listener"
 	KeyReason       = "reason"
+	KeyPhase        = "phase"
+	KeyPanicType    = "panic_type"
+	KeyStack        = "stack"
+	KeyErrorType    = "error_type"
+	KeyMetric       = "metric" // a metric family name
 )

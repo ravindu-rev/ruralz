@@ -305,6 +305,63 @@ func TestUnmatchedRoute_Req41(t *testing.T) {
 	}
 }
 
+// Spec 09 req 45 (architecture 2.11): a Bundle that mixes cached and
+// uncached Routes pre-creates ruralz_cache_requests_total label sets for
+// the cached ones only. The uncached Routes' cache handles record nothing
+// and spend none of the family's budget; a cached name that is not a Route
+// is rejected, and a repeated one counts once.
+func TestCachedRoutes_Req45(t *testing.T) {
+	// The cache family fits one Route; the uncached a and b come first in
+	// admission order but take none of it.
+	r, clk := newTestRegistry(t, func(o *Options) { o.Limits = Limits{CounterFamily: 5} })
+	pl, bind := admitBind(t, r, emit.Shape{Routes: []string{"c", "a", "b"}, CachedRoutes: []string{"c"}})
+	defer bind.Release()
+	if got := pl.Folded(catalog.CacheRequestsTotal); got != 0 {
+		t.Errorf("cache folded = %d, want 0", got)
+	}
+	for _, name := range []string{"a", "b", "c"} {
+		pl.Route(name).Cache[emit.CacheHit].Add(0, 1)
+	}
+	pts := collectNow(t, r, clk)
+	got := familySeries(pts, catalog.CacheRequestsTotal)
+	for _, res := range []string{"hit", "miss", "bypass", "stale", "stale_error"} {
+		mustGet(t, pts, fmt.Sprintf(`%s{result=%q,route="c"}`, catalog.CacheRequestsTotal, res))
+		mustGet(t, pts, fmt.Sprintf(`%s{result=%q,route="_overflow"}`, catalog.CacheRequestsTotal, res))
+	}
+	if len(got) != 2*emit.NumCacheResults {
+		t.Errorf("cache label sets = %d, want %d for c and _overflow", len(got), 2*emit.NumCacheResults)
+	}
+	if v := mustGet(t, pts, catalog.CacheRequestsTotal+`{result="hit",route="c"}`).value; v != 1 {
+		t.Errorf("c hit = %v, want 1", v)
+	}
+	if v := mustGet(t, pts, catalog.CacheRequestsTotal+`{result="hit",route="_overflow"}`).value; v != 0 {
+		t.Errorf("_overflow hit = %v, want 0 (uncached Routes record nothing)", v)
+	}
+	// Without a cached Route the family has no label set at all.
+	r2, clk2 := newTestRegistry(t, nil)
+	_, bind2 := admitBind(t, r2, emit.Shape{Routes: []string{"a"}})
+	defer bind2.Release()
+	if got := familySeries(collectNow(t, r2, clk2), catalog.CacheRequestsTotal); len(got) != 0 {
+		t.Errorf("cache label sets without a cached Route: %v", got)
+	}
+	for _, s := range []emit.Shape{
+		{Routes: []string{"a"}, CachedRoutes: []string{"b"}},
+		{CachedRoutes: []string{"a"}},
+		{Routes: []string{"a"}, CachedRoutes: []string{""}},
+		{Routes: []string{"a"}, CachedRoutes: []string{"_overflow"}},
+	} {
+		if _, err := r.Admit(s); !errors.Is(err, ErrShape) {
+			t.Errorf("Admit(%+v) err = %v, want ErrShape", s, err)
+		}
+	}
+	// A Route with cache Policies at two scopes may be listed twice.
+	once := decisionString(decideShape(t, r, emit.Shape{Routes: []string{"a", "b"}, CachedRoutes: []string{"a"}}))
+	twice := decisionString(decideShape(t, r, emit.Shape{Routes: []string{"a", "b"}, CachedRoutes: []string{"a", "a"}}))
+	if once != twice {
+		t.Errorf("repeated cached Route admits\n%s\nwant\n%s", twice, once)
+	}
+}
+
 // Unknown names record nothing; reserved, empty and duplicate names are
 // rejected.
 func TestAdmitNamesAndErrors(t *testing.T) {
@@ -348,9 +405,10 @@ func TestStripingDecisions_Req49(t *testing.T) {
 		}
 	})
 	shape := emit.Shape{
-		Listeners: []string{"l1", "l2"},
-		Routes:    []string{"r3", "r1", "r2"},
-		Upstreams: []string{"u2", "u1"},
+		Listeners:    []string{"l1", "l2"},
+		Routes:       []string{"r3", "r1", "r2"},
+		CachedRoutes: []string{"r1"},
+		Upstreams:    []string{"u2", "u1"},
 		Policies: []emit.PolicyShape{
 			{Name: "g-rl", Type: "ratelimit", Phases: phases(phase.OnRequestHeaders), Gateway: true},
 			{Name: "g-q", Type: "quota", Phases: phases(phase.OnRequestHeaders), Gateway: true},
@@ -478,6 +536,11 @@ func randomShape(rng *rand.Rand, n int) emit.Shape {
 		Routes:    names("r", rng.IntN(n+1)),
 		Upstreams: names("u", rng.IntN(n+1)),
 	}
+	for _, name := range s.Routes {
+		if rng.IntN(2) == 0 {
+			s.CachedRoutes = append(s.CachedRoutes, name)
+		}
+	}
 	for _, name := range names("p", rng.IntN(n+1)) {
 		p := emit.PolicyShape{
 			Name:    name,
@@ -506,7 +569,10 @@ func permute(rng *rand.Rand, s emit.Shape) emit.Shape {
 		rng.Shuffle(len(out), func(i, j int) { out[i], out[j] = out[j], out[i] })
 		return out
 	}
-	o := emit.Shape{Listeners: shuffle(s.Listeners), Routes: shuffle(s.Routes), Upstreams: shuffle(s.Upstreams)}
+	o := emit.Shape{
+		Listeners: shuffle(s.Listeners), Routes: shuffle(s.Routes), Upstreams: shuffle(s.Upstreams),
+		CachedRoutes: shuffle(s.CachedRoutes),
+	}
 	for _, p := range s.Policies {
 		p.Codes = shuffle(p.Codes)
 		o.Policies = append(o.Policies, p)

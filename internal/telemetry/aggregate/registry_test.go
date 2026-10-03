@@ -169,8 +169,11 @@ func TestNodeResponsesCodes_Req45(t *testing.T) {
 	if n := strings.Count(logs.String(), "metric code label not recorded"); n != 1 {
 		t.Errorf("drop logged %d times, want once: %s", n, logs.String())
 	}
-	// Keys are catalog constants (spec 09 req 63): code and reason.
-	for _, want := range []string{"level=DEBUG", catalog.KeyCode + "=RZ-XX-999", catalog.KeyReason + "=" + dropUnregistered} {
+	// Keys are catalog constants (spec 09 req 63): metric, code and reason.
+	for _, want := range []string{
+		"level=DEBUG", catalog.KeyMetric + "=" + catalog.HTTPNodeResponsesTotal, catalog.KeyCode + "=RZ-XX-999",
+		catalog.KeyReason + "=" + dropUnregistered,
+	} {
 		if !strings.Contains(logs.String(), want) {
 			t.Errorf("log %q lacks %q", logs.String(), want)
 		}
@@ -184,13 +187,14 @@ func TestNodeResponsesCodes_Req45(t *testing.T) {
 func TestCodeTableFullLogsReason(t *testing.T) {
 	var logs bytes.Buffer
 	logger := slog.New(slog.NewTextHandler(&logs, &slog.HandlerOptions{Level: slog.LevelDebug}))
-	tab := newCodeTable([]string{"RZ-RT-001"}, 1, func(string) bool { return true }, logger)
+	tab := newCodeTable(catalog.AuthDecisionsTotal, []string{"RZ-RT-001"}, 1, func(string) bool { return true }, logger)
 	tab.inc("RZ-RT-002")
 	tab.inc("RZ-RT-003")
 	if n := strings.Count(logs.String(), "metric code label not recorded"); n != 1 {
 		t.Fatalf("drop logged %d times, want once: %s", n, logs.String())
 	}
-	if !strings.Contains(logs.String(), catalog.KeyReason+"="+dropTableFull) {
+	if !strings.Contains(logs.String(), catalog.KeyReason+"="+dropTableFull) ||
+		!strings.Contains(logs.String(), catalog.KeyMetric+"="+catalog.AuthDecisionsTotal) {
 		t.Errorf("log = %s", logs.String())
 	}
 }
@@ -231,7 +235,7 @@ func TestSyntacticCodes(t *testing.T) {
 // holds; installation races resolve to one entry per code.
 func TestCodeTableCapacityAndRaces(t *testing.T) {
 	valid := func(string) bool { return true }
-	tab := newCodeTable([]string{"A"}, 3, valid, nil)
+	tab := newCodeTable("test", []string{"A"}, 3, valid, nil)
 	for _, c := range []string{"A", "B", "C", "D", "E"} {
 		tab.inc(c)
 	}
@@ -242,7 +246,7 @@ func TestCodeTableCapacityAndRaces(t *testing.T) {
 	if len(got) != 3 {
 		t.Fatalf("entries = %v, want 3 (capacity)", got)
 	}
-	race := newCodeTable(nil, 64, valid, nil)
+	race := newCodeTable("test", nil, 64, valid, nil)
 	done := make(chan struct{})
 	for w := range 8 {
 		go func() {

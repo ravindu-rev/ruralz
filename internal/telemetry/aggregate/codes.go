@@ -37,6 +37,7 @@ type codeEntry struct {
 // 45). A code the registry does not accept, or one past the table's
 // capacity, records nothing and is logged once per table.
 type codeTable struct {
+	name   string // the metric family, named in the drop record
 	slots  []atomic.Pointer[codeEntry]
 	mask   uint32
 	max    int32
@@ -53,15 +54,16 @@ const (
 	dropTableFull    = "table_full"
 )
 
-// newCodeTable returns a table holding at most capacity codes (at least
-// the pre-created ones), pre-populated with codes.
-func newCodeTable(codes []string, capacity int, valid func(string) bool, logger *slog.Logger) *codeTable {
+// newCodeTable returns a table of family name holding at most capacity
+// codes (at least the pre-created ones), pre-populated with codes.
+func newCodeTable(name string, codes []string, capacity int, valid func(string) bool, logger *slog.Logger) *codeTable {
 	capacity = max(capacity, len(codes))
 	size := 16
 	for size < 2*capacity {
 		size *= 2
 	}
 	t := &codeTable{
+		name:   name,
 		slots:  make([]atomic.Pointer[codeEntry], size),
 		mask:   uint32(size - 1), //nolint:gosec // G115: size is a small power of two.
 		max:    int32(capacity),  //nolint:gosec // G115: at most the registered code count plus spare.
@@ -157,7 +159,7 @@ func (t *codeTable) drop(code, reason string) {
 		return
 	}
 	t.logger.LogAttrs(context.Background(), slog.LevelDebug, "metric code label not recorded",
-		slog.String(catalog.KeyCode, code), slog.String(catalog.KeyReason, reason))
+		slog.String(catalog.KeyMetric, t.name), slog.String(catalog.KeyCode, code), slog.String(catalog.KeyReason, reason))
 }
 
 // entries appends the table's entries to dst.
