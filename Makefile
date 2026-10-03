@@ -265,7 +265,7 @@ else
 	RURALZ_CHAOS_SCALE=$(CHAOS_SCALE) go test -tags e2e -p 1 -timeout $(CHAOS_TIMEOUT) $(TEST_FLAGS) ./test/chaos/...
 endif
 
-chaos-scale: ## Chaos at target scale on a larger runner (CE-5 at 100 Nodes, CE-12, CE-15), run by chaos-scale.yml
+chaos-scale: ## Chaos at target scale on RH-1 (CE-5 at 100 Nodes, CE-12, CE-15), run by chaos-scale.yml
 	$(MAKE) --no-print-directory chaos CHAOS_SCALE=target
 
 bench-latency: ## Stage 11 Latency job on RH-1: macro scenarios, budgets, gates and records (tag e2e, test/bench/harness)

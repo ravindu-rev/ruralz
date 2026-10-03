@@ -86,7 +86,8 @@ jobs:
       matrix:
         include:
           - leg: linux/amd64 process
-            runner: ubuntu-latest
+            # ubuntu-24.04 keeps redis-server 7.0.15 (tech stack CI tooling row).
+            runner: ubuntu-24.04
             statestore: process
           - leg: linux/arm64 process
             runner: ubuntu-24.04-arm

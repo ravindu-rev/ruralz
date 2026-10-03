@@ -40,7 +40,8 @@ concurrency:
 jobs:
   e2e:
     name: 10. End-to-end
-    runs-on: ubuntu-latest
+    # ubuntu-24.04 keeps redis-server 7.0.15 (tech stack CI tooling row).
+    runs-on: ubuntu-24.04
     timeout-minutes: 50
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -55,6 +56,7 @@ jobs:
           sudo apt-get install -y --no-install-recommends redis-server
           sudo systemctl disable --now redis-server
           echo "RURALZ_TEST_REDIS_SERVER=$(command -v redis-server)" >>"$GITHUB_ENV"
+          redis-server --version
       - name: End-to-end suite as root
         # Root lets the air-gapped start and the handover runs use private
         # network namespaces (11 req 40, 44); the runner's Go and caches are
