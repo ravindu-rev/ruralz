@@ -21,6 +21,7 @@ import (
 	tracepb "go.opentelemetry.io/proto/otlp/trace/v1"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/connectivity"
 	"google.golang.org/grpc/encoding"
 	"google.golang.org/grpc/metadata"
 	"google.golang.org/grpc/status"
@@ -327,6 +328,15 @@ func TestConnections(t *testing.T) { // 09 test 40: the old connection closes
 	}
 	if st := s.Stats(); st.OpenConnections != 0 || st.Connections != 2 {
 		t.Fatalf("after Down: %+v", st)
+	}
+	// cc2 may not have read the end of the connection Down closed yet. An
+	// export on that dead transport fails with Unavailable, which
+	// wait-for-ready does not cover, so wait until the client sees it.
+	ctx := ctxTimeout(t, 20*time.Second)
+	for st := cc2.GetState(); st == connectivity.Ready; st = cc2.GetState() {
+		if !cc2.WaitForStateChange(ctx, st) {
+			t.Fatal("the client never saw Down close its connection")
+		}
 	}
 	if err := s.SetMode(Accept{}); err != nil {
 		t.Fatal(err)
