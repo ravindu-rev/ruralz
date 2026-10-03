@@ -1,0 +1,15 @@
+Usage: ruralz <noun> <verb> [ARGS] [FLAGS]
+
+Commands:
+  bundle build     Build a Revision, print its digest
+  bundle diff      Compare FROM with TO
+  bundle render    Render one Environment's one-file Bundle
+  bundle validate  Offline validation, source-mapped diagnostics
+  completion       Print a shell completion script
+  dev run          Local ruralzd with Hot Reload
+  dev tap          Stream redacted /tap metadata
+  node drain       Drain the local ruralzd
+  node dump        Save /config/dump, secrets omitted
+  version          Version, commit, flavor, levels
+
+Run 'ruralz help <command>' or 'ruralz <command> --help' for details.

@@ -1,0 +1,19 @@
+Usage: ruralz bundle diff FROM TO [FLAGS]
+
+Compare FROM with TO.
+
+Arguments:
+  FROM  Bundle directory, file, saved dump or admin URL
+  TO    Same forms as FROM
+
+Flags:
+  --admin-token-file PATH  Operator admin token file
+  --ca-file PATH           Extra trust anchors (PEM)
+  --client-cert PATH       Client certificate for admin mTLS
+  --client-key PATH        Key of --client-cert
+  --env NAME               Environment to render with (needs --environments)
+  --environments FILE      Local Environment resources
+  --from-env NAME          Environment of FROM
+  --help                   Print this help
+  --output text|json       Output format (text or json, default text)
+  --to-env NAME            Environment of TO

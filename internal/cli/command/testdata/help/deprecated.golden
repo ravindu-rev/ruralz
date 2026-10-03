@@ -1,0 +1,9 @@
+Usage: ruralz node old [FLAGS]
+
+An old verb.
+
+Deprecated: use ruralz node new
+
+Flags:
+  --dir DIR  Old directory flag (deprecated: use --data-dir)
+  --help     Print this help

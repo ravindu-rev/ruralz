@@ -1,0 +1,15 @@
+Usage: ruralz dev run [DIR] [FLAGS]
+
+Local ruralzd with Hot Reload.
+
+Arguments:
+  DIR  Bundle directory or one-file Bundle (default .)
+
+Flags:
+  --env NAME                Environment to render with (needs --environments)
+  --environments FILE       Local Environment resources
+  --ephemeral-ports         Replace every port with a free one
+  --help                    Print this help
+  --output text|json        Output format (text or json, default text)
+  --ready-timeout DURATION  How long to wait for /readyz (default 30s)
+  --secret-overrides FILE   Local files replacing secretRefs

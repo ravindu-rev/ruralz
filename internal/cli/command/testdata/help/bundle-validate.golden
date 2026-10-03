@@ -1,0 +1,13 @@
+Usage: ruralz bundle validate [DIR] [FLAGS]
+
+Offline validation, source-mapped diagnostics.
+
+Arguments:
+  DIR  Bundle directory or one-file Bundle (default .)
+
+Flags:
+  --env NAME           Environment to render with (needs --environments)
+  --environments FILE  Local Environment resources
+  --help               Print this help
+  --online             Also check Plugin artifacts
+  --output text|json   Output format (text or json, default text)

@@ -1,0 +1,6 @@
+Usage: ruralz ai <verb> [ARGS] [FLAGS]
+
+Verbs:
+  cost  Cost attribution.
+
+Run 'ruralz ai <verb> --help' for details.

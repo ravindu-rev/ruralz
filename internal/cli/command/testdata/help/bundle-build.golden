@@ -1,0 +1,14 @@
+Usage: ruralz bundle build [DIR] [FLAGS]
+
+Build a Revision, print its digest.
+
+Arguments:
+  DIR  Bundle directory or one-file Bundle (default .)
+
+Flags:
+  --env NAME           Environment to render with (needs --environments)
+  --environments FILE  Local Environment resources
+  --help               Print this help
+  --offline            Skip the online Plugin check
+  --output text|json   Output format (text or json, default text)
+  --output-file PATH   Write the canonical content to PATH

@@ -1,0 +1,9 @@
+Usage: ruralz ai cost [FILE...] [FLAGS]
+
+Cost attribution.
+
+Arguments:
+  FILE  Usage records
+
+Flags:
+  --help  Print this help
