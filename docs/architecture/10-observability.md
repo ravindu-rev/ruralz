@@ -249,6 +249,7 @@ Reasons are Planned (M1) unless tagged.
 | `header_limit_capped` | The header limit exceeds the process ceiling |
 | `snapshot_ending_overdue` | A snapshot stays ending past the zero-pin bound of [Data plane](03-data-plane.md#configuration-snapshots-and-hot-reload), so no newer Revision activates; pages |
 | `secret_rotation_failed`, `jwks_stale` | A secret rotation or JWKS fetch fails; the last value serves |
+| `crl_stale` | An `auth.mtls` CRL is past its `nextUpdate`; the last CRL stays enforced ([Security and identity](08-security-and-identity.md#basic-and-mtls-schemas)) |
 | `cleartext_hop` | `ruralz_security_cleartext_hops` is above 0; alerts only for `state_store`, `telemetry` and `admin` ([Alert rules](#alert-rules)) |
 | `node_count_unknown` | A derived Rate Limit ceiling lacks the published Node count; Planned (M2) |
 | `revocation_sequence_gap` | A revocation sequence gap, or a mark older than 30 s (target); Planned (M2) |

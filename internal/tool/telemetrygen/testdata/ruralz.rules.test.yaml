@@ -1,0 +1,563 @@
+# Copyright 2026 Revington
+# SPDX-License-Identifier: Apache-2.0
+#
+# promtool unit tests of the generated alert rules (spec 09 test 43; 09 req 72):
+# every alerted series exists at 0 from process start and raises nothing
+# (09 req 45); each M1 rule fires on its event, including an event recorded
+# before the first scrape, except RuralzSeriesFolded, which alerts on new
+# folding only as OBS writes it; each burn-rate rule fires at its page and
+# ticket rates. TestPromtoolRules (integration tag) runs "promtool check
+# rules" and "promtool test rules" on a copy of this file next to a freshly
+# generated ruralz.rules.yaml; TestPromtoolFixtureCoverage checks that the
+# pre-created series below cover every catalog reason, hop, write kind and
+# foldable family.
+#
+# Histogram bounds use the le form Prometheus 3 stores for both scrape
+# formats (0.001, 0.00015, 2.0), whatever the text exposition printed.
+rule_files:
+  - ruralz.rules.yaml
+evaluation_interval: 1m
+tests:
+  # Process start: every enumeration label set an alert rule references
+  # exists at 0 (09 req 45, 57). No rule fires.
+  - name: pre-created zero series raise nothing
+    interval: 1m
+    input_series:
+      - series: 'ruralz_node_degraded_info{instance="n1",reason="lkg_boot"}'
+        values: '0x40'
+      - series: 'ruralz_node_degraded_info{instance="n1",reason="lkg_write_failed"}'
+        values: '0x40'
+      - series: 'ruralz_node_degraded_info{instance="n1",reason="state_store_memory_fallback"}'
+        values: '0x40'
+      - series: 'ruralz_node_degraded_info{instance="n1",reason="state_store_unauthenticated"}'
+        values: '0x40'
+      - series: 'ruralz_node_degraded_info{instance="n1",reason="state_store_breaker_open"}'
+        values: '0x40'
+      - series: 'ruralz_node_degraded_info{instance="n1",reason="state_store_eviction_policy"}'
+        values: '0x40'
+      - series: 'ruralz_node_degraded_info{instance="n1",reason="upstream_panic"}'
+        values: '0x40'
+      - series: 'ruralz_node_degraded_info{instance="n1",reason="discovery_stale"}'
+        values: '0x40'
+      - series: 'ruralz_node_degraded_info{instance="n1",reason="balancer_budget"}'
+        values: '0x40'
+      - series: 'ruralz_node_degraded_info{instance="n1",reason="probes_skipped"}'
+        values: '0x40'
+      - series: 'ruralz_node_degraded_info{instance="n1",reason="header_limit_capped"}'
+        values: '0x40'
+      - series: 'ruralz_node_degraded_info{instance="n1",reason="snapshot_ending_overdue"}'
+        values: '0x40'
+      - series: 'ruralz_node_degraded_info{instance="n1",reason="secret_rotation_failed"}'
+        values: '0x40'
+      - series: 'ruralz_node_degraded_info{instance="n1",reason="jwks_stale"}'
+        values: '0x40'
+      - series: 'ruralz_node_degraded_info{instance="n1",reason="cleartext_hop"}'
+        values: '0x40'
+      - series: 'ruralz_node_degraded_info{instance="n1",reason="telemetry_export_failing"}'
+        values: '0x40'
+      - series: 'ruralz_node_degraded_info{instance="n1",reason="crl_stale"}'
+        values: '0x40'
+      - series: 'ruralz_security_cleartext_hops{instance="n1",hop="client"}'
+        values: '0x40'
+      - series: 'ruralz_security_cleartext_hops{instance="n1",hop="upstream"}'
+        values: '0x40'
+      - series: 'ruralz_security_cleartext_hops{instance="n1",hop="state_store"}'
+        values: '0x40'
+      - series: 'ruralz_security_cleartext_hops{instance="n1",hop="telemetry"}'
+        values: '0x40'
+      - series: 'ruralz_security_cleartext_hops{instance="n1",hop="admin"}'
+        values: '0x40'
+      - series: 'ruralz_state_writes_dropped_total{instance="n1",kind="refund"}'
+        values: '0x40'
+      - series: 'ruralz_state_writes_dropped_total{instance="n1",kind="cache_set"}'
+        values: '0x40'
+      - series: 'ruralz_state_writes_dropped_total{instance="n1",kind="cache_invalidate"}'
+        values: '0x40'
+      - series: 'ruralz_telemetry_folded_label_sets{instance="n1",instrument="ruralz_http_requests_total"}'
+        values: '0x40'
+      - series: 'ruralz_telemetry_folded_label_sets{instance="n1",instrument="ruralz_http_request_duration_seconds"}'
+        values: '0x40'
+      - series: 'ruralz_telemetry_folded_label_sets{instance="n1",instrument="ruralz_filter_duration_seconds"}'
+        values: '0x40'
+      - series: 'ruralz_telemetry_folded_label_sets{instance="n1",instrument="ruralz_filter_short_circuits_total"}'
+        values: '0x40'
+      - series: 'ruralz_telemetry_folded_label_sets{instance="n1",instrument="ruralz_filter_failures_total"}'
+        values: '0x40'
+      - series: 'ruralz_telemetry_folded_label_sets{instance="n1",instrument="ruralz_auth_decisions_total"}'
+        values: '0x40'
+      - series: 'ruralz_telemetry_folded_label_sets{instance="n1",instrument="ruralz_auth_jwks_age_seconds"}'
+        values: '0x40'
+      - series: 'ruralz_telemetry_folded_label_sets{instance="n1",instrument="ruralz_auth_upstream_token_age_seconds"}'
+        values: '0x40'
+      - series: 'ruralz_telemetry_folded_label_sets{instance="n1",instrument="ruralz_auth_upstream_refresh_failures_total"}'
+        values: '0x40'
+      - series: 'ruralz_telemetry_folded_label_sets{instance="n1",instrument="ruralz_ratelimit_decisions_total"}'
+        values: '0x40'
+      - series: 'ruralz_telemetry_folded_label_sets{instance="n1",instrument="ruralz_ratelimit_bucket_evictions_total"}'
+        values: '0x40'
+      - series: 'ruralz_telemetry_folded_label_sets{instance="n1",instrument="ruralz_quota_decisions_total"}'
+        values: '0x40'
+      - series: 'ruralz_telemetry_folded_label_sets{instance="n1",instrument="ruralz_cache_requests_total"}'
+        values: '0x40'
+      - series: 'ruralz_telemetry_folded_label_sets{instance="n1",instrument="ruralz_cache_store_skipped_total"}'
+        values: '0x40'
+      - series: 'ruralz_telemetry_folded_label_sets{instance="n1",instrument="ruralz_upstream_attempts_total"}'
+        values: '0x40'
+      - series: 'ruralz_telemetry_folded_label_sets{instance="n1",instrument="ruralz_upstream_attempt_duration_seconds"}'
+        values: '0x40'
+      - series: 'ruralz_telemetry_folded_label_sets{instance="n1",instrument="ruralz_upstream_retries_total"}'
+        values: '0x40'
+      - series: 'ruralz_telemetry_folded_label_sets{instance="n1",instrument="ruralz_upstream_retry_budget_exhausted_total"}'
+        values: '0x40'
+      - series: 'ruralz_telemetry_folded_label_sets{instance="n1",instrument="ruralz_upstream_breaker_state_info"}'
+        values: '0x40'
+      - series: 'ruralz_telemetry_folded_label_sets{instance="n1",instrument="ruralz_upstream_ejections_total"}'
+        values: '0x40'
+      - series: 'ruralz_telemetry_folded_label_sets{instance="n1",instrument="ruralz_upstream_healthy_endpoints"}'
+        values: '0x40'
+      - series: 'ruralz_telemetry_folded_label_sets{instance="n1",instrument="ruralz_upstream_probes_skipped_total"}'
+        values: '0x40'
+      - series: 'ruralz_telemetry_folded_label_sets{instance="n1",instrument="ruralz_upstream_degraded_info"}'
+        values: '0x40'
+      - series: 'ruralz_telemetry_folded_label_sets{instance="n1",instrument="ruralz_upstream_cel_errors_total"}'
+        values: '0x40'
+      - series: 'ruralz_telemetry_folded_label_sets{instance="n1",instrument="ruralz_upstream_pool_connections"}'
+        values: '0x40'
+    alert_rule_test:
+      - eval_time: 1m
+        alertname: RuralzNodeDegradedPage
+        exp_alerts: []
+      - eval_time: 1m
+        alertname: RuralzNodeDegraded
+        exp_alerts: []
+      - eval_time: 1m
+        alertname: RuralzCleartextHop
+        exp_alerts: []
+      - eval_time: 1m
+        alertname: RuralzGatewayP50
+        exp_alerts: []
+      - eval_time: 1m
+        alertname: RuralzStateWritesDropped
+        exp_alerts: []
+      - eval_time: 1m
+        alertname: RuralzSeriesFolded
+        exp_alerts: []
+      - eval_time: 1m
+        alertname: RuralzErrorBudgetBurnPage
+        exp_alerts: []
+      - eval_time: 1m
+        alertname: RuralzErrorBudgetBurnTicket
+        exp_alerts: []
+      - eval_time: 20m
+        alertname: RuralzNodeDegradedPage
+        exp_alerts: []
+      - eval_time: 20m
+        alertname: RuralzNodeDegraded
+        exp_alerts: []
+      - eval_time: 20m
+        alertname: RuralzCleartextHop
+        exp_alerts: []
+      - eval_time: 20m
+        alertname: RuralzGatewayP50
+        exp_alerts: []
+      - eval_time: 20m
+        alertname: RuralzStateWritesDropped
+        exp_alerts: []
+      - eval_time: 20m
+        alertname: RuralzSeriesFolded
+        exp_alerts: []
+      - eval_time: 20m
+        alertname: RuralzErrorBudgetBurnPage
+        exp_alerts: []
+      - eval_time: 20m
+        alertname: RuralzErrorBudgetBurnTicket
+        exp_alerts: []
+      - eval_time: 40m
+        alertname: RuralzNodeDegradedPage
+        exp_alerts: []
+      - eval_time: 40m
+        alertname: RuralzNodeDegraded
+        exp_alerts: []
+      - eval_time: 40m
+        alertname: RuralzCleartextHop
+        exp_alerts: []
+      - eval_time: 40m
+        alertname: RuralzGatewayP50
+        exp_alerts: []
+      - eval_time: 40m
+        alertname: RuralzStateWritesDropped
+        exp_alerts: []
+      - eval_time: 40m
+        alertname: RuralzSeriesFolded
+        exp_alerts: []
+      - eval_time: 40m
+        alertname: RuralzErrorBudgetBurnPage
+        exp_alerts: []
+      - eval_time: 40m
+        alertname: RuralzErrorBudgetBurnTicket
+        exp_alerts: []
+
+  # A paging reason raised at 2 minutes pages after 5 minutes and never
+  # tickets; a ticket reason tickets; cleartext_hop does neither (it has its
+  # own rule).
+  - name: degraded reasons
+    interval: 1m
+    input_series:
+      - series: 'ruralz_node_degraded_info{instance="n1",reason="state_store_breaker_open"}'
+        values: '0 0 1x30'
+      - series: 'ruralz_node_degraded_info{instance="n1",reason="crl_stale"}'
+        values: '0 0 1x30'
+      - series: 'ruralz_node_degraded_info{instance="n1",reason="cleartext_hop"}'
+        values: '0 0 1x30'
+    alert_rule_test:
+      - eval_time: 5m
+        alertname: RuralzNodeDegradedPage
+        exp_alerts: []
+      - eval_time: 10m
+        alertname: RuralzNodeDegradedPage
+        exp_alerts:
+          - exp_labels:
+              severity: page
+              instance: n1
+              reason: state_store_breaker_open
+            exp_annotations:
+              dashboard: Ruralz Gateway overview
+              summary: 'Node n1 is degraded: state_store_breaker_open'
+      - eval_time: 10m
+        alertname: RuralzNodeDegraded
+        exp_alerts:
+          - exp_labels:
+              severity: ticket
+              instance: n1
+              reason: crl_stale
+            exp_annotations:
+              dashboard: Ruralz Gateway overview
+              summary: 'Node n1 is degraded: crl_stale'
+
+  # Reasons raised before the first scrape (the series start at 1, such as
+  # lkg_boot at boot) fire too: the page after 5 minutes, the ticket after
+  # 5 minutes, neither before.
+  - name: degraded reasons before the first scrape
+    interval: 1m
+    input_series:
+      - series: 'ruralz_node_degraded_info{instance="n2",reason="lkg_boot"}'
+        values: '1x30'
+      - series: 'ruralz_node_degraded_info{instance="n2",reason="upstream_panic"}'
+        values: '1x30'
+    alert_rule_test:
+      - eval_time: 4m
+        alertname: RuralzNodeDegradedPage
+        exp_alerts: []
+      - eval_time: 4m
+        alertname: RuralzNodeDegraded
+        exp_alerts: []
+      - eval_time: 10m
+        alertname: RuralzNodeDegradedPage
+        exp_alerts:
+          - exp_labels:
+              severity: page
+              instance: n2
+              reason: upstream_panic
+            exp_annotations:
+              dashboard: Ruralz Gateway overview
+              summary: 'Node n2 is degraded: upstream_panic'
+      - eval_time: 10m
+        alertname: RuralzNodeDegraded
+        exp_alerts:
+          - exp_labels:
+              severity: ticket
+              instance: n2
+              reason: lkg_boot
+            exp_annotations:
+              dashboard: Ruralz Gateway overview
+              summary: 'Node n2 is degraded: lkg_boot'
+
+  # Only state_store, telemetry and admin hops ticket, after 15 minutes.
+  - name: cleartext hops
+    interval: 1m
+    input_series:
+      - series: 'ruralz_security_cleartext_hops{instance="n1",hop="admin"}'
+        values: '1x30'
+      - series: 'ruralz_security_cleartext_hops{instance="n1",hop="client"}'
+        values: '1x30'
+      - series: 'ruralz_security_cleartext_hops{instance="n1",hop="upstream"}'
+        values: '2x30'
+    alert_rule_test:
+      - eval_time: 10m
+        alertname: RuralzCleartextHop
+        exp_alerts: []
+      - eval_time: 20m
+        alertname: RuralzCleartextHop
+        exp_alerts:
+          - exp_labels:
+              severity: ticket
+              instance: n1
+              hop: admin
+            exp_annotations:
+              dashboard: Node runtime and configuration
+              summary: Node n1 has a cleartext admin hop
+
+  # SLO-GW-3 threshold rule: 30% of requests within 150 us tickets after
+  # 30 minutes; 80% does not.
+  - name: gateway-added time p50
+    interval: 1m
+    input_series:
+      - series: 'ruralz_http_gateway_duration_seconds_bucket{instance="n1",listener="public",le="0.00015"}'
+        values: '0+30x100'
+      - series: 'ruralz_http_gateway_duration_seconds_count{instance="n1",listener="public"}'
+        values: '0+100x100'
+      - series: 'ruralz_http_gateway_duration_seconds_bucket{instance="n2",listener="public",le="0.00015"}'
+        values: '0+30x100'
+      - series: 'ruralz_http_gateway_duration_seconds_count{instance="n2",listener="public"}'
+        values: '0+100x100'
+    alert_rule_test:
+      - eval_time: 20m
+        alertname: RuralzGatewayP50
+        exp_alerts: []
+      - eval_time: 45m
+        alertname: RuralzGatewayP50
+        exp_alerts:
+          - exp_labels:
+              severity: ticket
+            exp_annotations:
+              dashboard: SLO burn rates
+              summary: 'Fewer than half of the requests spend at most 150 µs in the gateway (SLO-GW-3)'
+  - name: gateway-added time p50 within objective
+    interval: 1m
+    input_series:
+      - series: 'ruralz_http_gateway_duration_seconds_bucket{instance="n1",listener="public",le="0.00015"}'
+        values: '0+80x100'
+      - series: 'ruralz_http_gateway_duration_seconds_count{instance="n1",listener="public"}'
+        values: '0+100x100'
+    alert_rule_test:
+      - eval_time: 45m
+        alertname: RuralzGatewayP50
+        exp_alerts: []
+
+  # Dropped writes counted before the first scrape (the series starts at 1)
+  # and still growing ticket after 10 minutes; a kind at 0 does not.
+  - name: dropped State Store writes
+    interval: 1m
+    input_series:
+      - series: 'ruralz_state_writes_dropped_total{instance="n1",kind="refund"}'
+        values: '1+1x30'
+      - series: 'ruralz_state_writes_dropped_total{instance="n1",kind="cache_set"}'
+        values: '0x30'
+    alert_rule_test:
+      - eval_time: 5m
+        alertname: RuralzStateWritesDropped
+        exp_alerts: []
+      - eval_time: 15m
+        alertname: RuralzStateWritesDropped
+        exp_alerts:
+          - exp_labels:
+              severity: ticket
+              instance: n1
+              kind: refund
+            exp_annotations:
+              dashboard: State Store, Rate Limits and Quotas
+              summary: Node n1 drops refund State Store writes
+
+  # New folding only (OBS "Alert rules"): a Node whose first admission
+  # folds by design, before the first scrape (the series starts at 3 and
+  # stays), raises nothing; the same Node folding more later tickets through
+  # delta; a fold after start tickets; a steady count stops firing.
+  - name: folded series
+    interval: 1m
+    input_series:
+      - series: 'ruralz_telemetry_folded_label_sets{instance="n1",instrument="ruralz_http_requests_total"}'
+        values: '3x40'
+      - series: 'ruralz_telemetry_folded_label_sets{instance="n1",instrument="ruralz_http_request_duration_seconds"}'
+        values: '3x9 5x30'
+      - series: 'ruralz_telemetry_folded_label_sets{instance="n1",instrument="ruralz_filter_duration_seconds"}'
+        values: '0x19 2x20'
+    alert_rule_test:
+      - eval_time: 5m
+        alertname: RuralzSeriesFolded
+        exp_alerts: []
+      - eval_time: 15m
+        alertname: RuralzSeriesFolded
+        exp_alerts:
+          - exp_labels:
+              severity: ticket
+              instance: n1
+              instrument: ruralz_http_request_duration_seconds
+            exp_annotations:
+              dashboard: Telemetry health
+              summary: Node n1 folded new ruralz_http_request_duration_seconds label sets into _overflow
+      - eval_time: 25m
+        alertname: RuralzSeriesFolded
+        exp_alerts:
+          - exp_labels:
+              severity: ticket
+              instance: n1
+              instrument: ruralz_filter_duration_seconds
+            exp_annotations:
+              dashboard: Telemetry health
+              summary: Node n1 folded new ruralz_filter_duration_seconds label sets into _overflow
+      - eval_time: 40m
+        alertname: RuralzSeriesFolded
+        exp_alerts: []
+
+  # SLO-GW-1: 5% Node-generated 5xx pages (above 14 x 0.05%) and tickets
+  # (above 6 x 0.05%); upstream 5xx never count.
+  - name: SLO-GW-1 burn rate
+    interval: 1m
+    input_series:
+      - series: 'ruralz_http_listener_requests_total{instance="n1",listener="public",protocol="http1",status_class="2xx",origin="upstream"}'
+        values: '0+90x120'
+      - series: 'ruralz_http_listener_requests_total{instance="n1",listener="public",protocol="http1",status_class="5xx",origin="upstream"}'
+        values: '0+5x120'
+      - series: 'ruralz_http_listener_requests_total{instance="n1",listener="public",protocol="http1",status_class="5xx",origin="node"}'
+        values: '0+5x120'
+    alert_rule_test:
+      - eval_time: 70m
+        alertname: RuralzErrorBudgetBurnPage
+        exp_alerts:
+          - exp_labels:
+              severity: page
+              slo: SLO-GW-1
+            exp_annotations:
+              dashboard: SLO burn rates
+              summary: SLO-GW-1 (Node-generated 5xx responses) burns its 30-day error budget 14 times too fast over 1h and 5m
+      - eval_time: 70m
+        alertname: RuralzErrorBudgetBurnTicket
+        exp_alerts:
+          - exp_labels:
+              severity: ticket
+              slo: SLO-GW-1
+            exp_annotations:
+              dashboard: SLO burn rates
+              summary: SLO-GW-1 (Node-generated 5xx responses) burns its 30-day error budget 6 times too fast over 6h and 30m
+  - name: SLO-GW-1 within budget
+    interval: 1m
+    input_series:
+      - series: 'ruralz_http_listener_requests_total{instance="n1",listener="public",protocol="http1",status_class="2xx",origin="upstream"}'
+        values: '0+999x120'
+      - series: 'ruralz_http_listener_requests_total{instance="n1",listener="public",protocol="http1",status_class="5xx",origin="node"}'
+        values: '0+1x120'
+    alert_rule_test:
+      - eval_time: 70m
+        alertname: RuralzErrorBudgetBurnPage
+        exp_alerts: []
+      - eval_time: 70m
+        alertname: RuralzErrorBudgetBurnTicket
+        exp_alerts: []
+
+  # SLO-GW-2: half of the requests above 1 ms burns at 50 times the budget.
+  - name: SLO-GW-2 burn rate
+    interval: 1m
+    input_series:
+      - series: 'ruralz_http_gateway_duration_seconds_bucket{instance="n1",listener="public",le="0.001"}'
+        values: '0+50x120'
+      - series: 'ruralz_http_gateway_duration_seconds_bucket{instance="n1",listener="public",le="0.00015"}'
+        values: '0+50x120'
+      - series: 'ruralz_http_gateway_duration_seconds_count{instance="n1",listener="public"}'
+        values: '0+100x120'
+    alert_rule_test:
+      - eval_time: 70m
+        alertname: RuralzErrorBudgetBurnPage
+        exp_alerts:
+          - exp_labels:
+              severity: page
+              slo: SLO-GW-2
+            exp_annotations:
+              dashboard: SLO burn rates
+              summary: SLO-GW-2 (Gateway-added time within 1 ms) burns its 30-day error budget 14 times too fast over 1h and 5m
+      - eval_time: 70m
+        alertname: RuralzErrorBudgetBurnTicket
+        exp_alerts:
+          - exp_labels:
+              severity: ticket
+              slo: SLO-GW-2
+            exp_annotations:
+              dashboard: SLO burn rates
+              summary: SLO-GW-2 (Gateway-added time within 1 ms) burns its 30-day error budget 6 times too fast over 6h and 30m
+
+  # SLO-GW-5: slow GCRA round trips page; slow script_multi round trips are
+  # excluded from the SLI.
+  - name: SLO-GW-5 burn rate
+    interval: 1m
+    input_series:
+      - series: 'ruralz_state_call_duration_seconds_bucket{instance="n1",op="gcra",le="0.001"}'
+        values: '0+50x120'
+      - series: 'ruralz_state_call_duration_seconds_count{instance="n1",op="gcra"}'
+        values: '0+100x120'
+      - series: 'ruralz_state_call_duration_seconds_bucket{instance="n1",op="script_multi",le="0.001"}'
+        values: '0x120'
+      - series: 'ruralz_state_call_duration_seconds_count{instance="n1",op="script_multi"}'
+        values: '0+100x120'
+    alert_rule_test:
+      - eval_time: 70m
+        alertname: RuralzErrorBudgetBurnPage
+        exp_alerts:
+          - exp_labels:
+              severity: page
+              slo: SLO-GW-5
+            exp_annotations:
+              dashboard: SLO burn rates
+              summary: SLO-GW-5 (GCRA State Store round trips within 1 ms) burns its 30-day error budget 14 times too fast over 1h and 5m
+  - name: SLO-GW-5 script_multi excluded
+    interval: 1m
+    input_series:
+      - series: 'ruralz_state_call_duration_seconds_bucket{instance="n1",op="gcra",le="0.001"}'
+        values: '0+100x120'
+      - series: 'ruralz_state_call_duration_seconds_count{instance="n1",op="gcra"}'
+        values: '0+100x120'
+      - series: 'ruralz_state_call_duration_seconds_bucket{instance="n1",op="script_multi",le="0.001"}'
+        values: '0x120'
+      - series: 'ruralz_state_call_duration_seconds_count{instance="n1",op="script_multi"}'
+        values: '0+100x120'
+    alert_rule_test:
+      - eval_time: 70m
+        alertname: RuralzErrorBudgetBurnPage
+        exp_alerts: []
+
+  # SLO-GW-6: half of the compiles of up to 10,000 Routes over 2 s pages;
+  # compiles of more than 10,000 Routes are excluded.
+  - name: SLO-GW-6 burn rate
+    interval: 1m
+    input_series:
+      - series: 'ruralz_config_activation_duration_seconds_bucket{instance="n1",stage="compile",size_class="le1000",le="2.0"}'
+        values: '0+1x120'
+      - series: 'ruralz_config_activation_duration_seconds_count{instance="n1",stage="compile",size_class="le1000"}'
+        values: '0+2x120'
+      - series: 'ruralz_config_activation_duration_seconds_bucket{instance="n1",stage="compile",size_class="gt10000",le="2.0"}'
+        values: '0x120'
+      - series: 'ruralz_config_activation_duration_seconds_count{instance="n1",stage="compile",size_class="gt10000"}'
+        values: '0+2x120'
+    alert_rule_test:
+      - eval_time: 70m
+        alertname: RuralzErrorBudgetBurnPage
+        exp_alerts:
+          - exp_labels:
+              severity: page
+              slo: SLO-GW-6
+            exp_annotations:
+              dashboard: SLO burn rates
+              summary: SLO-GW-6 (Compile of up to 10,000 Routes within 2 s) burns its 30-day error budget 14 times too fast over 1h and 5m
+
+  # SLO-GW-7: 5% of spans and records dropped pages (above 14 x 0.1%).
+  - name: SLO-GW-7 burn rate
+    interval: 1m
+    input_series:
+      - series: 'ruralz_telemetry_spans_total{instance="n1"}'
+        values: '0+100x120'
+      - series: 'ruralz_telemetry_spans_dropped_total{instance="n1",reason="queue_full"}'
+        values: '0+10x120'
+      - series: 'ruralz_telemetry_spans_dropped_total{instance="n1",reason="export_error"}'
+        values: '0x120'
+      - series: 'ruralz_telemetry_logs_total{instance="n1",stream="access"}'
+        values: '0+100x120'
+      - series: 'ruralz_telemetry_logs_dropped_total{instance="n1",stream="access",reason="queue_full"}'
+        values: '0x120'
+    alert_rule_test:
+      - eval_time: 70m
+        alertname: RuralzErrorBudgetBurnPage
+        exp_alerts:
+          - exp_labels:
+              severity: page
+              slo: SLO-GW-7
+            exp_annotations:
+              dashboard: SLO burn rates
+              summary: SLO-GW-7 (Spans and log records exported) burns its 30-day error budget 14 times too fast over 1h and 5m
