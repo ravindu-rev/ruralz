@@ -1,0 +1,2053 @@
+[
+ {
+  "id": "WP-01",
+  "title": "Core contracts, lint rules and code registrations",
+  "wave": 1,
+  "dirs": [
+   "internal/clock/",
+   "internal/phase/",
+   "internal/problem/",
+   "internal/config/diag/",
+   "internal/config/tree/",
+   "internal/config/revision/",
+   "internal/config/hub/",
+   "internal/secret/*.go (package root only)",
+   "internal/expr/",
+   "internal/telemetry/catalog/",
+   "internal/telemetry/emit/",
+   "internal/statestore/*.go (package root only)",
+   "internal/filter/*.go (package root only)",
+   "internal/filter/filtertest/",
+   "internal/gateway/snapshot/",
+   "internal/adminapi/",
+   "internal/errcode/",
+   ".golangci.yml",
+   "docs/architecture/02-configuration-model.md (RZ-CFG registry rows only)",
+   "docs/architecture/03-data-plane.md (RZ-RT registry rows only)",
+   "docs/architecture/08-security-and-identity.md (RZ-AUTH registry row only)",
+   "docs/architecture/09-traffic-management-and-resilience.md (RZ-UP registry row only)",
+   "docs/engineering/01-tech-stack-and-libraries.md (library catalog rows and OQ-tech-stack-and-libraries-15, -16, -18 rows only)"
+  ],
+  "dependsOn": [],
+  "specs": [
+   "00-architecture.md",
+   "01-config-load.md",
+   "02-config-revision.md",
+   "03-cel.md",
+   "04-dataplane-core.md",
+   "05-upstream-traffic.md",
+   "06-security.md",
+   "07-transform.md",
+   "08-statestore.md",
+   "09-observability.md",
+   "10-cli.md"
+  ],
+  "scope": "Commit the section 2 sources verbatim (clock, clocktest, phase, problem, diag, tree, revision, hub, secret, expr, catalog, emit, statestore, filter, filtertest, snapshot, adminapi, errcode error.go), including the revision's contract additions: filter PolicyState, Finisher, Retry, Component, Replayer, Stripe and RouteMetrics, Registry components (R-39, R-40, R-44, R-45, R-43, R-56); snapshot Outbound, RequestBody, BeginLeg/LegRun, RequestState, LegRunner, Binding, LegChains, Route.Protocol (R-41, R-42, R-58, R-59); hub PolicyCheck/Checks and SecretUse.Destination (R-34, R-49); statestore label mapping and stripe; emit State Store label indexes; clocktest zero-duration timers; secret empty values and Node-wide watches (R-55); tree set-item paths; filtertest Store and ReplayFunc. Add the listed unit tests. Register RZ-CFG-038/039/040/041, RZ-RT-016..019, RZ-UP-011, RZ-AUTH-008 in errcode and the four registry documents (TestMatchesDocs green); replace the depguard block and add sloglint settings (section 1.3); in the tech stack catalog add the Metrics exposition row (OTel Prometheus exporter v0.68.x with client_golang v1.24.x, prometheus/common v0.71.x, otlptranslator v1.0.x), mark ULID own code and CLI stdlib flag, move the grpc-go row's first use to M1 (OTLP export), widen the x/sys row to SO_PEERCRED and test namespaces, list jwx transitive modules, otlp proto and cel.dev/expr, and close OQ-tech-stack-and-libraries-15/-16/-18. Contracts only: 01 M 47-50; 02 2.2 4-8, 2.6 29-34; 03 B 9-16 (place table); 04 H 49-53 (types); 05 F 31, G 33 (contract parts); 06 2.14 87-92 (redacting value); 08 2.1-2.4 (API), 2.12 68 (MAC key field); 09 2.6, 2.16 74-78 (catalog); 10 2.2 (problem Document).",
+  "size": "L"
+ },
+ {
+  "id": "WP-02",
+  "title": "Strict JSON value library",
+  "wave": 2,
+  "dirs": [
+   "internal/jsonval/"
+  ],
+  "dependsOn": [
+   "WP-01"
+  ],
+  "specs": [
+   "07-transform.md",
+   "02-config-revision.md",
+   "06-security.md",
+   "05-upstream-traffic.md"
+  ],
+  "scope": "Strict RFC 8259 scanner with byte offsets (line/column), duplicate member names, surrogate and UTF-8 checks, depth limit and cost accounting against a budget; mutable tree (object member order kept), deterministic encoder (no HTML escaping), RFC 8785 number formatting helper for canonical form, JSON media-type test. 07 H 56-68, I 69-73; used by 02 2.5 decode, 06 2.3 claims, 05 K merge. Fuzz target FuzzDecode; //go:build go1.27 oracle test against encoding/json/jsontext.",
+  "size": "M"
+ },
+ {
+  "id": "WP-03",
+  "title": "Schema index",
+  "wave": 2,
+  "dirs": [
+   "internal/config/schemaidx/"
+  ],
+  "dependsOn": [
+   "WP-01"
+  ],
+  "specs": [
+   "02-config-revision.md",
+   "01-config-load.md"
+  ],
+  "scope": "Stdlib navigation of api/schema rendered.schema.json: $ref resolution, properties/items/additionalProperties/allOf/if-then dispatch, x-ruralz-* annotations (+ruralz:default, impact, open, cel, secret, keyed lists, since), Lookup(path)/Walk/Info used by overlay (keyed merge), subst (forbidden positions), defaults, canonical, diff (impact classes) and render (R-3). Tests read markers from the generated schema at run time, never from hard-coded lists (R-62). 02 2.2-2.4 support, 2.14 75-76; 01 F 23-25, G 26-31, I 36-37 support.",
+  "size": "M"
+ },
+ {
+  "id": "WP-04",
+  "title": "Policy type registry",
+  "wave": 2,
+  "dirs": [
+   "internal/config/registry/"
+  ],
+  "dependsOn": [
+   "WP-01"
+  ],
+  "specs": [
+   "01-config-load.md",
+   "02-config-revision.md",
+   "06-security.md",
+   "07-transform.md",
+   "05-upstream-traffic.md"
+  ],
+  "scope": "FP 10 table for every v1alpha1 PolicyType: filter class, Phases (cache stays onRequestHeaders and onResponse, R-40), allowed scopes, slot, default and allowed failureMode (RZ-CFG-029 data; quota open, ai.token-budget closed per OQ-configuration-model-8 (a)), served-in-this-release flag (RZ-CFG-040 for plugin, authz.opa, authz.cedar, authz.geoip, auth.upstream-sigv4, ai.*), typed config constructor NewConfig keyed by existing config type names (R-7, R-62), materialized filterClass (authored different value RZ-CFG-005). 01 J 39-40; 02 2.7 35-38; 06 2.1 1-11 (class rules); 07 A 1-9; 05 T 97 (registration parts).",
+  "size": "M"
+ },
+ {
+  "id": "WP-05",
+  "title": "Route match primitives and request normalization",
+  "wave": 2,
+  "dirs": [
+   "internal/routematch/"
+  ],
+  "dependsOn": [
+   "WP-01"
+  ],
+  "specs": [
+   "04-dataplane-core.md",
+   "06-security.md"
+  ],
+  "scope": "Host tables (exact, *. wildcard per OQ-data-plane-2 (a), any), segment trie helpers, template grammar CheckTemplate (RZ-CFG-005), prefix on segment boundaries, match identity Key (RZ-CFG-023), precedence comparator; NormalizePath (reject %00, backslash, %5C, control bytes, bad escapes: RZ-RT-017; unreserved decoding, dot segments, %2F kept) and NormalizeHost (R-35). 04 C 23-24, D 26-31; 06 OQ-security-and-identity-21 (a). Fuzz targets FuzzNormalizePath, FuzzTemplate.",
+  "size": "S"
+ },
+ {
+  "id": "WP-06",
+  "title": "Identity, Consumer index and auth helpers",
+  "wave": 2,
+  "dirs": [
+   "internal/identity/",
+   "internal/filter/auth/*.go (package root only)"
+  ],
+  "dependsOn": [
+   "WP-01"
+  ],
+  "specs": [
+   "06-security.md"
+  ],
+  "scope": "Consumer compile to expr.Consumer (tier, tags, labels, quotas), credential Index (API key digests, JWT issuer+subject/claims, OAuth client_id else azp per OQ-security-and-identity-24 (a), basic usernames, certificate subjects/uriSan), KeyIndex for secretRef-held keys (copy-on-write on rotation through Node-wide watches, R-55), double match 401 RZ-AUTH-002, static checks RZ-CFG-035/036, Revoker hook (M2). filter/auth helpers: WWW-Authenticate challenges, decision recording into emit.AuthDecisions, second-binding rule (06 rule 2). 06 2.1 1-11, 2.2 12-22.",
+  "size": "M"
+ },
+ {
+  "id": "WP-07",
+  "title": "Secret resolver",
+  "wave": 2,
+  "dirs": [
+   "internal/secret/resolver/"
+  ],
+  "dependsOn": [
+   "WP-01"
+  ],
+  "specs": [
+   "01-config-load.md",
+   "06-security.md",
+   "04-dataplane-core.md"
+  ],
+  "scope": "Implements secret.Resolver: env provider (RURALZ_SECRET_ prefix rule) and file provider under RURALZ_SECRET_ROOT (no symlink escape, owner and mode checks, rule 5; refuse to start when the root contains the data dir, admin TLS dir, token files or the MAC key file), per-kind size caps (4 MiB, CRL 16 MiB) and PEM/key validation by secret.Kind (RZ-CFG-026 interim for short API keys and uncredentialed State Store URLs), Resolve per Revision, Activate/Current, Node-wide watch table keyed by Ref that survives Activate (R-55), 2 s poll with fan-out, rotation failure metric and secret_rotation_failed degraded reason, cold-start retry with backoff. 01 L 42-46; 06 2.14 87-92; 04 A 3.",
+  "size": "M"
+ },
+ {
+  "id": "WP-08",
+  "title": "CEL type adapters",
+  "wave": 2,
+  "dirs": [
+   "internal/cel/celtypes/"
+  ],
+  "dependsOn": [
+   "WP-01"
+  ],
+  "specs": [
+   "03-cel.md"
+  ],
+  "scope": "cel-go type provider and ref.Val adapters for the expr views (request with lazy headers, query and pathParams; source; route; consumer; auth; response; error; upstream; attempt; steps; ai placeholder), expr.Value implementation over natives (map, list, string, json.Number, bool, null) with ascending-key iteration, AppendBody and Native. 03 C 17-25.",
+  "size": "M"
+ },
+ {
+  "id": "WP-09",
+  "title": "Telemetry aggregates",
+  "wave": 2,
+  "dirs": [
+   "internal/telemetry/aggregate/"
+  ],
+  "dependsOn": [
+   "WP-01"
+  ],
+  "specs": [
+   "09-observability.md"
+  ],
+  "scope": "Implements emit.Meter and the metric handle interfaces: registry from catalog.Families, admission Plan per Revision with cardinality budget, folding to _overflow and retiring, Binding per snapshot (Retire, Release; R-58), cache-line striped counters and gauges, histograms with catalog bounds and exemplar slots, State Store handles as fixed arrays by emit.StateOp*/StateResult*/Write* (R-56), pre-created series at 0, collection into metricdata via an sdkmetric.Producer (OQ-observability-16 (a)). 09 2.6 39-46, 2.7 47-54, 2.8 55-56. The Node-level cardinality test is WP-91's.",
+  "size": "L"
+ },
+ {
+  "id": "WP-10",
+  "title": "Tracing",
+  "wave": 2,
+  "dirs": [
+   "internal/telemetry/tracing/"
+  ],
+  "dependsOn": [
+   "WP-01"
+  ],
+  "specs": [
+   "09-observability.md",
+   "04-dataplane-core.md"
+  ],
+  "scope": "Implements emit.Tracer and emit.Span: W3C traceparent/tracestate parse and format, root sampling at traceSampling (default 0.01) with parent respect and lock-free GCRA caps, request ID = trace ID, ID generator on crypto/rand, span caps and bounded processor queue, span names from catalog (server, ruralz.route.match, ruralz.filter.<name>, upstream), attribute sets, Inject for upstream legs, unsampled counter. 09 2.4 27-32, 2.5 33-38.",
+  "size": "M"
+ },
+ {
+  "id": "WP-11",
+  "title": "Process logs and access logs",
+  "wave": 2,
+  "dirs": [
+   "internal/telemetry/logsink/",
+   "internal/telemetry/accesslog/"
+  ],
+  "dependsOn": [
+   "WP-01"
+  ],
+  "specs": [
+   "09-observability.md",
+   "04-dataplane-core.md"
+  ],
+  "scope": "logsink: slog.Handler with catalog keys, level from RURALZ_LOG_LEVEL, redaction of secret values and credential headers, bounded stdout worker with drop counter. accesslog: implements emit.AccessLog with pooled records, field truncation, JSON encoder (stable member order), query never logged; accessLog.when is evaluated by the handler (R-48). 09 2.11 61-65, 2.12 66-68; 04 L 79.",
+  "size": "M"
+ },
+ {
+  "id": "WP-12",
+  "title": "Telemetry gates, alert rules and dashboards",
+  "wave": 2,
+  "dirs": [
+   "internal/tool/telemetrygen/",
+   "internal/tool/repocheck/",
+   "deploy/grafana/",
+   "docs/architecture/10-observability.md (crl_stale degraded reason row only)"
+  ],
+  "dependsOn": [
+   "WP-01"
+  ],
+  "specs": [
+   "09-observability.md"
+  ],
+  "scope": "telemetrygen generates deploy/grafana/rules/ruralz.rules.yaml from catalog alert rules (go:generate directive in its own package) and checks dashboards; an in-package drift test (TestGeneratedUpToDate) regenerates in memory and compares with the committed files, so stage 5 catches drift without a Makefile change (WP-27 also adds deploy/grafana to the make generate diff); repocheck gains metric-name, label and span-name checks against the catalog, and a doc check of metric names and degraded reasons in docs/architecture/10-observability.md (every catalog name already appears there except crl_stale, whose row this package adds, R-37), plus testdata/bad cases; promtool check and test rules (09 test 43, integration tag, skipped without promtool); dashboards for the M1 SLOs. 09 2.15 71-73, 2.16 74, 75, 77, 78.",
+  "size": "S"
+ },
+ {
+  "id": "WP-13",
+  "title": "State Store base: breaker, keys, memory driver, test fake",
+  "wave": 2,
+  "dirs": [
+   "internal/statestore/breaker/",
+   "internal/statestore/keys/",
+   "internal/statestore/memory/",
+   "internal/statestore/statestoretest/*.go (package root only)"
+  ],
+  "dependsOn": [
+   "WP-01"
+  ],
+  "specs": [
+   "08-statestore.md",
+   "05-upstream-traffic.md"
+  ],
+  "scope": "breaker: lock-free per-shard breaker and full-jitter reconnect pacer on clock (08 2.2 19-22). keys: key layout rz:rl:, rz:qt:, rz:rc:, rzplg: reserved, escaping, hash tags and CRC16 slots, generation keys, entry MAC over \"rz1\" || key || field || entry with Deps.MACKey (08 2.6 47-51, 2.12 68; R-49). memory: memory driver implementing statestore.Store with GCRA, quota reserve/refund, cache get/set/meta/generation and leases with the Lua semantics, bounded entries, metrics by OpKind.Label on the RequestBudget stripe, 0-allocation single GCRA (08 2.9 58-60, 2.5 semantics 39-46). statestoretest: failure-injecting fake Store and the driver conformance suite shared with redis (08 6.1-6.3).",
+  "size": "L"
+ },
+ {
+  "id": "WP-14",
+  "title": "Process identity, data dir and settings",
+  "wave": 2,
+  "dirs": [
+   "internal/ulid/",
+   "internal/nodedir/",
+   "internal/gateway/setting/"
+  ],
+  "dependsOn": [
+   "WP-01"
+  ],
+  "specs": [
+   "04-dataplane-core.md",
+   "10-cli.md",
+   "08-statestore.md",
+   "06-security.md"
+  ],
+  "scope": "ulid on crypto/rand (48-bit ms + 80 random). nodedir: layout (dirs 0700, files 0600), node.id, lock via stdlib syscall.Flock in a unix file with a !unix stub returning errors.ErrUnsupported (R-60), holder.json ruralz.holder.v1 with pidNamespace (OQ-cli-and-api-surface-10 (a)), ReadHolderAt for the CLI, lkg/ and handover.sock paths, DefaultRoot. setting: RURALZ_* parsing and validation (exit 2 rules, secret root overlap refusal), RURALZ_STATE_STORE_MAC_KEY_FILE (absolute path, owner-only mode, at least 32 bytes, read at start, outside RURALZ_SECRET_ROOT; R-49, 08 req 68). 04 A 1-7; 10 2.11 93-97 (holder reading).",
+  "size": "S"
+ },
+ {
+  "id": "WP-15",
+  "title": "Client address",
+  "wave": 2,
+  "dirs": [
+   "internal/clientaddr/"
+  ],
+  "dependsOn": [
+   "WP-01"
+  ],
+  "specs": [
+   "06-security.md",
+   "04-dataplane-core.md"
+  ],
+  "scope": "PROXY v2 reader and net.Listener wrapper (first-bytes deadline, LOCAL command, TLV skip), trusted-proxy resolution from Forwarded and X-Forwarded-For (OQ-security-and-identity-6 (c)), source.ip with IPv4-mapped unmapping, forwarding-header rewrite toward Upstreams (untrusted peer overwrite, X-Forwarded-Host/Proto). 06 2.8 58-63; 04 B 16-18. Fuzz target FuzzProxyV2.",
+  "size": "M"
+ },
+ {
+  "id": "WP-16",
+  "title": "Egress guard and TLS configuration",
+  "wave": 2,
+  "dirs": [
+   "internal/egress/",
+   "internal/tlsconf/"
+  ],
+  "dependsOn": [
+   "WP-01"
+  ],
+  "specs": [
+   "06-security.md"
+  ],
+  "scope": "egress: SSRF guard with RURALZ_FETCH_ALLOW prefixes, guarded dialer and HTTP client for jwksUrl and tokenUrl fetches and Upstream connections (0.0.0.0/8, ::/128, loopback, link-local and fd00:ec2::254, with their IPv4-mapped, NAT64 and IPv4-compatible forms, blocked unless allowed, per redirect hop; RFC 1918 allowed; State Store and OTLP connections not guarded; a client option that follows no redirect at all for destination-bound secrets, R-49). tlsconf: listener (TLS 1.3 default, 1.2 opt), upstream, State Store, OTLP and admin *tls.Config builders, cipher list, SNI certificate index over secret.Store (read per handshake), client-certificate request mode. 06 2.11 74-78, 2.12 79-83, 2.13 84-86.",
+  "size": "M"
+ },
+ {
+  "id": "WP-17",
+  "title": "Admin authentication, redaction and digest checks",
+  "wave": 2,
+  "dirs": [
+   "internal/adminauth/",
+   "internal/redact/",
+   "internal/signing/"
+  ],
+  "dependsOn": [
+   "WP-01"
+  ],
+  "specs": [
+   "06-security.md",
+   "04-dataplane-core.md"
+  ],
+  "scope": "adminauth: RURALZ_ADMIN_TOKEN_FILE, RURALZ_ADMIN_METRICS_TOKEN_FILE, RURALZ_ADMIN_TLS_DIR (OQ-security-and-identity-7 (a)), constant-time bearer check, loopback cleartext rule, 401 with RZ-AUTH-001/002. redact: credential-header set per snapshot, helpers for /tap and slog. signing: Verifier interface and DigestOnly (RZ-CFG-027), ParseDigest (rejects rev-..., uppercase, wrong lengths), VerifyArtifact (streaming SHA-256 with a size limit, RZ-CFG-028; the Plugin half of the roadmap's digest checks, wired to fetched artifacts in M2, R-50), Sigstore slot for M2. 06 2.15 93-96, 2.16 97-98; 04 K 70.",
+  "size": "S"
+ },
+ {
+  "id": "WP-18",
+  "title": "HTTP field rules and structured fields",
+  "wave": 2,
+  "dirs": [
+   "internal/httpfield/",
+   "internal/sfv/"
+  ],
+  "dependsOn": [
+   "WP-01"
+  ],
+  "specs": [
+   "07-transform.md",
+   "05-upstream-traffic.md",
+   "04-dataplane-core.md"
+  ],
+  "scope": "httpfield: RFC 9110 token and value tables, protected names, hop-by-hop predicate (Connection-named fields), order-preserving query editor. sfv: RFC 9651 list serializer for RateLimit-Policy and RateLimit fields. 07 E 33-37; 05 N 67-68; 04 C 22.",
+  "size": "S"
+ },
+ {
+  "id": "WP-19",
+  "title": "Admission and body buffering",
+  "wave": 2,
+  "dirs": [
+   "internal/gateway/admission/",
+   "internal/gateway/body/"
+  ],
+  "dependsOn": [
+   "WP-01"
+  ],
+  "specs": [
+   "04-dataplane-core.md",
+   "05-upstream-traffic.md",
+   "07-transform.md"
+  ],
+  "scope": "admission: in-flight units (20,000, one atomic add, 503 RZ-RT-005), pre-routing write limiter (2,000), connection ceiling counting listener wrapper, externally reduced ceilings during handover. body: Node buffer budget (maxBufferedBytes, 25% stream share, 32 KiB increments, carried across reloads), gate reader with maxRequestBodyBytes (413 RZ-RT-003), tee with limit, limited reader, decoded-value reservations (4x cap), snapshot.RequestBody implementation over the gate or the client stream (replayable when empty, gated or unread; Open per attempt or step; Buffered for GetBody; R-41). 04 B 11, C 19-20, G 46-48; 05 F 31, K 54 (step replay); 07 I 69-73.",
+  "size": "M"
+ },
+ {
+  "id": "WP-20",
+  "title": "Filter Chain executor",
+  "wave": 2,
+  "dirs": [
+   "internal/gateway/executor/"
+  ],
+  "dependsOn": [
+   "WP-01"
+  ],
+  "specs": [
+   "04-dataplane-core.md",
+   "05-upstream-traffic.md",
+   "07-transform.md",
+   "06-security.md",
+   "08-statestore.md"
+  ],
+  "scope": "Runs snapshot.Chain per Phase over snapshot.RequestState (R-42): Enter before every call, once-per-request when evaluation recorded with SetWhen, auth-all-skipped 401 RZ-AUTH-001, Result handling (Retry only in onUpstreamResponseHeaders, R-44), failureMode table by class and Phase with codes, short-circuit rules, response Phases reversed, onLog in request order, Finish for every Finisher that ran (R-40), Consumptive batching (Prepare, one Store.Consume, Complete, Undo) with per-member PolicyState and RequestBudget, recovered panics as CannotDecide, LegHooks.BeginLeg/LegRun over RequestState.Leg (concurrent legs share nothing mutable; End runs leg Finish), filter metrics on the request stripe and spans. 04 F 39-45; 05 G 33 (Filter retry), Q 91-93; 07 B 10-19; 06 2.1 rule 1; 08 2.3 27-38.",
+  "size": "L"
+ },
+ {
+  "id": "WP-21",
+  "title": "Snapshot holder and retirement",
+  "wave": 2,
+  "dirs": [
+   "internal/gateway/retire/"
+  ],
+  "dependsOn": [
+   "WP-01"
+  ],
+  "specs": [
+   "04-dataplane-core.md",
+   "09-observability.md"
+  ],
+  "scope": "Holder with atomic.Pointer and the pin protocol (load, increment stripe, re-load, retry), stripe assignment, K = 2 retired bound, closing and 30 s grace, ending protocol walking Pins with bounded goroutines (deadlines and mark ended under Mu, then cancel; R-73), Binding.Retire at retirement and Binding.Release at zero pins (R-58), resource close at zero pins unless shared by a newer snapshot, snapshot_ending_overdue degraded reason, retired-snapshots gauge, /debug/snapshots view (adminapi). 04 H 49-54; 09 2.8 55-56 (retire hooks).",
+  "size": "M"
+ },
+ {
+  "id": "WP-22",
+  "title": "Endpoint balancing",
+  "wave": 2,
+  "dirs": [
+   "internal/gateway/upstream/balance/"
+  ],
+  "dependsOn": [
+   "WP-01"
+  ],
+  "specs": [
+   "05-upstream-traffic.md"
+  ],
+  "scope": "Four algorithms (round robin with weights, least request, random, consistent hash ring with bounded load) with schedule and ring builders over a uint64 key (the hashKey value is evaluated by WP-46), ejection-aware selection, balancer budget planner (warning per OQ-traffic-management-and-resilience-23 (b)). 05 C 10-13, 15-17 and the ring structure of 14.",
+  "size": "M"
+ },
+ {
+  "id": "WP-23",
+  "title": "Discovery and health",
+  "wave": 2,
+  "dirs": [
+   "internal/gateway/upstream/discovery/",
+   "internal/gateway/upstream/health/"
+  ],
+  "dependsOn": [
+   "WP-01"
+  ],
+  "specs": [
+   "05-upstream-traffic.md"
+  ],
+  "scope": "discovery: static host re-resolution, DNS A/AAAA and SRV with TTL clamps and backoff, Resolver interface, discovery_stale degraded reason. health: passive ejection (consecutive failures, max ejection percent), active prober with probe slots, stall and suspect handling, probes-skipped counter and reason. 05 B 5-9, D 18-23.",
+  "size": "M"
+ },
+ {
+  "id": "WP-24",
+  "title": "Resilience primitives",
+  "wave": 2,
+  "dirs": [
+   "internal/gateway/upstream/resilience/"
+  ],
+  "dependsOn": [
+   "WP-01"
+  ],
+  "specs": [
+   "05-upstream-traffic.md"
+  ],
+  "scope": "Own Config structs (filled by upstream core from v1alpha1): retry policy with retryOn program (expr.DefaultRetryOn default) or a Filter retry request, backoff full jitter uniform(0, min(250 ms, 25 ms x 2^(n-1))), retry budget max(3, 20%), circuit breaker with consecutiveFailures, failureRatio, minimumLegs 20, halfOpenSuccesses 3, openDuration (OQ-traffic-management-and-resilience-5 (a)), failureWhen, bulkhead (maxConnections 1024, maxPendingRequests 256), error kinds and RZ-UP code selection, deadline arithmetic. 05 E 24-26, G 32-35, H 36-38, I 39-40.",
+  "size": "M"
+ },
+ {
+  "id": "WP-25",
+  "title": "CLI framework and completion",
+  "wave": 2,
+  "dirs": [
+   "internal/cli/command/",
+   "internal/cli/completion/"
+  ],
+  "dependsOn": [
+   "WP-01"
+  ],
+  "specs": [
+   "10-cli.md"
+  ],
+  "scope": "Spec/Command model, interspersed stdlib flag parsing with flag specs for help and completion, IO streams, exit codes (0/1/2/3, ExitError, Interrupted on SIGINT), --output text|json and NDJSON writers, atomic file write, bash/zsh/fish/PowerShell completion generators. 10 2.1 1-12, 2.2 13-24, 2.14 106-108.",
+  "size": "M"
+ },
+ {
+  "id": "WP-26",
+  "title": "Test kit base",
+  "wave": 2,
+  "dirs": [
+   "internal/testkit/binaries/",
+   "internal/testkit/proc/",
+   "internal/testkit/pki/",
+   "internal/testkit/faultproxy/",
+   "internal/testkit/canary/",
+   "internal/testkit/promtext/",
+   "internal/testkit/benchrecord/",
+   "internal/testkit/corpus/"
+  ],
+  "dependsOn": [
+   "WP-01"
+  ],
+  "specs": [
+   "11-ops-quality.md"
+  ],
+  "scope": "binaries (build ruralzd/ruralz with the release flags including -s -w (R-52) or RURALZ_TEST_BIN_DIR, -overlay variants), proc (start/signal/wait, bounded log rings, /proc sampling, InNetNS re-exec with x/sys), pki (test CA, server and client certs), faultproxy (pass, delay, black-hole, reset, refuse, switch upstream; OQ-scalability-and-distributed-state-10 (a)), canary (multi-encoding leak scan), promtext (scrape and parse), benchrecord (ruralz.bench.v1 record and schema check), corpus (fuzz seeds from test/conformance/config golden and negative corpora, tolerant of absent dirs). 11 section 3, D 27, I 77 (record format).",
+  "size": "L"
+ },
+ {
+  "id": "WP-27",
+  "title": "CI pipelines, make targets and gates",
+  "wave": 2,
+  "dirs": [
+   "Makefile",
+   ".gitattributes",
+   ".github/workflows/pr-fast.yml",
+   ".github/workflows/pr-full.yml",
+   ".github/workflows/main.yml",
+   ".github/workflows/nightly.yml",
+   "scripts/install-tools.sh",
+   "scripts/update-test-suites.sh",
+   "scripts/ci-changes.sh",
+   "scripts/ci-approvals.sh",
+   "internal/tool/benchgate/",
+   "internal/tool/sizegate/",
+   "internal/tool/fuzzplan/"
+  ],
+  "dependsOn": [
+   "WP-01"
+  ],
+  "specs": [
+   "11-ops-quality.md",
+   "09-observability.md"
+  ],
+  "scope": "Make targets (each tolerant of suites not present yet): integration, gates, e2e, nightly (NIGHTLY_JOB=fuzz|chaos|latency), fuzz, chaos, chaos-scale, t5, image-checks, bench-latency, soak, release, release-dry-run, release-gates, quickstart; build and release ldflags add -s -w (R-52, 11 risk 15); generate diffs api/schema/ruralz and deploy/grafana (09 req 72). main.yml runs stage 10 (make e2e with the leak assertions) and make quickstart on a clean runner (11 req 5, 33); pr-full stages 7-10 with the aggregator job pr-full (11 req 4) and the stage 8 matrix: linux/amd64 and ubuntu-24.04-arm process legs (OQ-repository-layout-and-conventions-6 (a)) plus a linux/amd64 container leg with RURALZ_TEST_STATESTORE=container for the State Store flavors (11 req 29, 08 6.4 item 10), where make integration also runs systemd-analyze verify (11 req 86, first part); stage 5 adds ./test/conformance/config/... to linux, floor and CLI jobs; nightly Fuzz, Chaos (at least 10 Nodes), Latency (rh-1 label, failing with an explicit 'RH-1 not provisioned' annotation until WP-97) jobs; pr-fast, pr-full, main and nightly accept workflow_call with all: true (11 req 11). .gitattributes adds test/fixtures/**/raw/** -text (11 req 20). scripts/update-test-suites.sh refreshes the pinned YAML Test Suite and JSON-Schema-Test-Suite tarballs with SOURCE and LICENSE files (11 req 18). install-tools.sh pins promtool, oha, vegeta, cosign v3.1.3, Syft v1.52.0, actionlint by SHA-256. benchgate (alloc/op A/B, four-of-five), sizegate (160 MiB stripped, 89 MiB idle RSS), fuzzplan (list, shard, run). 11 A 1-11, B 18, 20, D 28, I 62-68 (gates).",
+  "size": "L"
+ },
+ {
+  "id": "WP-28",
+  "title": "Schema and configuration types",
+  "wave": 2,
+  "dirs": [
+   "pkg/config/v1alpha1/",
+   "api/schema/",
+   "internal/tool/schemagen/"
+  ],
+  "dependsOn": [
+   "WP-01"
+  ],
+  "specs": [
+   "02-config-revision.md",
+   "01-config-load.md",
+   "05-upstream-traffic.md",
+   "06-security.md",
+   "07-transform.md",
+   "08-statestore.md",
+   "09-observability.md"
+  ],
+  "scope": "Additive-only v1alpha1 changes (no Go type, field or JSON name renamed or removed, R-62) and regenerated schema: +ruralz:default markers (stateStore.timeout 50ms, limits.maxRequestBodyBytes 10Mi, maxRequestHeaderBytes 64Ki, auth.api-key header x-api-key, telemetry.traceSampling 0.01, OQ-traffic-management-and-resilience-6 static defaults incl. healthCheck.active values); circuitBreaker.minimumLegs, failureRatio, halfOpenSuccesses; Gateway.spec.stateStore.cache (OQ-scalability-and-distributed-state-3 (a)); telemetry.otlp.tls with the UpstreamTLS shape (OQ-observability-2 (a)); ratelimit config.localOnly (OQ-scalability-and-distributed-state-11 (a)); validation.json-schema config.schema (inline draft 2020-12, 07 J 74); headers add/remove shape (OQ-configuration-model-19 (a)); drop +ruralz:required on transform Replace.Path; +ruralz:impact markers; CircuitBreaker doc fix. No auth.jwt field changes (R-32); OQ-configuration-model-19 (a) is applied to the fields M1 builds (validation.json-schema config.schema, headers add/remove), while other feature-authored fields (auth.api-key config.query, ratelimit responseHeaders and cost, and the rest of that row) are registered with their features later, their configs staying open. 02 2.3 9-14, 2.14 75-76; 05 A 4, T 97; 07 J 74-77; 08 2.1 6; 09 OQ rows.",
+  "size": "M"
+ },
+ {
+  "id": "WP-29",
+  "title": "Docs: configuration model, foundation pack, system overview",
+  "wave": 2,
+  "dirs": [
+   "docs/architecture/02-configuration-model.md",
+   "docs/_meta/foundation-pack.md",
+   "docs/architecture/01-system-overview.md",
+   "docs/glossary.md"
+  ],
+  "dependsOn": [
+   "WP-01"
+  ],
+  "specs": [
+   "00-architecture.md",
+   "01-config-load.md",
+   "02-config-revision.md",
+   "03-cel.md",
+   "07-transform.md"
+  ],
+  "scope": "Record adopted options and field text: OQ-configuration-model-8 (a), -18 (a), -19 (a) applied to the fields M1 builds, the other feature-authored fields registered with their features; fields of WP-28 (stateStore.cache, otlp.tls, minimumLegs/failureRatio/halfOpenSuccesses, localOnly, validation.json-schema config.schema registration, headers add/remove, default markers); RZ-CFG-041 and the secret-to-destination binding rule in the validation section (R-49); stage ownership of codes (R-46); pack amendments under pack section 14: 8.6 RT meaning (OQ-data-plane-9 (a)), 8.7/8.8/8.11 (OQ-scalability-and-distributed-state-11 (a), OQ-traffic-management-and-resilience-16 (b), -19 (c), -20 (a)), section 2 and 5 settings (OQ-security-and-identity-7 (a), -22 (a) including RURALZ_STATE_STORE_MAC_KEY_FILE and the binding), OQ-vision-and-positioning-10 row; CEL 50 ms comprehension cap (03 risk 1); RZ-CFG-040 meaning.",
+  "size": "M"
+ },
+ {
+  "id": "WP-30",
+  "title": "Docs: data plane, security, zero-downtime, CLI reference, topologies",
+  "wave": 2,
+  "dirs": [
+   "docs/architecture/03-data-plane.md",
+   "docs/architecture/08-security-and-identity.md",
+   "docs/operations/01-deployment-topologies.md",
+   "docs/operations/02-zero-downtime-upgrades-and-hot-reload.md",
+   "docs/reference/01-cli-and-api-surface.md"
+  ],
+  "dependsOn": [
+   "WP-01"
+  ],
+  "specs": [
+   "00-architecture.md",
+   "04-dataplane-core.md",
+   "06-security.md",
+   "10-cli.md"
+  ],
+  "scope": "Close OQ-data-plane-2 (a), -8 (a), -9 (a); OQ-security-and-identity-1 (b), -6 (c), -7 (a), -9 (a for M1), -15 (a), -21 (a), -22 (a) with the M1 definitions of R-49 (Secrets rules 5 to 7 become binding; new rule for the destination binding and RZ-CFG-041; T10 and T18 rows point at the built MAC and binding), -24 (a), confirm -2/-3/-18; OQ-zero-downtime-upgrades-and-hot-reload-7 (a) and record -1 (a), -2 (b), -3 (a), -4 (a), -12 (a); OQ-cli-and-api-surface-10 (a) with holder.json members; document RZ-RT-017 hardening, /readyz, /tap (R-24), /debug/snapshots, lkg layout, handover protocol, drain timeline, sd_notify READY timing (11 risk 9), admin settings, JWT fixed defaults, the T5 unit and its verification job.",
+  "size": "M"
+ },
+ {
+  "id": "WP-32",
+  "title": "Docs: engineering, performance, vision, features, ADRs",
+  "wave": 2,
+  "dirs": [
+   "docs/engineering/02-repository-layout-and-conventions.md",
+   "docs/engineering/03-testing-and-quality-strategy.md",
+   "docs/engineering/04-release-versioning-and-compatibility.md",
+   "docs/engineering/01-tech-stack-and-libraries.md (CI tooling rows and OQ-tech-stack-and-libraries-25 only)",
+   "docs/architecture/12-performance-budgets-and-benchmarking.md",
+   "docs/vision/01-vision-and-positioning.md",
+   "docs/features/01-feature-catalog.md",
+   "docs/adr/"
+  ],
+  "dependsOn": [
+   "WP-01"
+  ],
+  "specs": [
+   "00-architecture.md",
+   "11-ops-quality.md"
+  ],
+  "scope": "Close OQ-performance-budgets-and-benchmarking-1 (a), -2 (b, owner decision recorded; provisioning is WP-97), -6 (a), record -3 (a), -4 (a); OQ-release-versioning-and-compatibility-3 (a); OQ-repository-layout-and-conventions-6 (a), record -4 (b); OQ-testing-and-quality-strategy-2 (c), record -1, -3, -4, -5 (a); OQ-tech-stack-and-libraries-25 (a). CI tooling rows before first use (11 req 10, 76, risk 11): cosign v3.1.3, Syft v1.52.0, actionlint, promtool, oha v1.16.0, vegeta, actions/attest-build-provenance, actions/attest-sbom, actions/upload-artifact, actions/download-artifact, docker/setup-buildx-action and the runner's docker buildx CLI, the CA source image golang:1.27.1-bookworm by digest, the testcontainers images (redis:8, valkey/valkey:9.0.x, dragonfly) and the OpenTelemetry Collector image for WP-95, the self-hosted RH-1 runner for chaos-scale (OQ-testing-and-quality-strategy-11 (b)). Layout doc: new packages, layers and depguard rules of section 1; testing doc: process harness as the end-to-end implementation, Compose and the image air-gapped start in CI (R-51), container State Store matrix, node integration suites; release doc: -s -w release builds (R-52), release.yml stages and gates; ADR-0018 superseding ADR-0010 (exporter, external producer, otel confinement) and ADR-0019 superseding ADR-0011 (50 ms comprehension stop, closing OQ-configuration-model-21 (a)), both at the user's request of 2026-10-03, written at the wave-2 boundary; feature catalog milestones (SM-2).",
+  "size": "M"
+ },
+ {
+  "id": "WP-83",
+  "title": "Docs: roadmap amendments for M1",
+  "wave": 2,
+  "dirs": [
+   "docs/roadmap/01-roadmap-and-milestones.md"
+  ],
+  "dependsOn": [
+   "WP-01"
+  ],
+  "specs": [
+   "00-architecture.md",
+   "11-ops-quality.md"
+  ],
+  "scope": "Record in the M1 section, as dated notes with reason and owner (no scope change): end-to-end runs on the process harness everywhere, with the Docker Compose file-mode test (quickstart, --effective --route, bundle diff against /config/dump, Zero-Downtime Upgrade) and a real OpenTelemetry Collector plus the air-gapped image start in CI (R-51, WP-95); Plugin artifact digest checks: verifier in M1, no Plugin artifact is fetched or used in M1, wiring with Plugin fetch in M2 (R-50); State Store matrix: local process flavor, container flavors Redis 8, Valkey 9.0.1+, Dragonfly and clusters in CI stage 8 (WP-85, WP-27); exit criteria 2 and 3, the soak and CE-12 at 1,000,000 calls per second need RH-1 (OQ-performance-budgets-and-benchmarking-2 (b), WP-97), and CE-5 at 100 Nodes and CE-15 at target rate also run on RH-1 (OQ-testing-and-quality-strategy-11 (b), WP-80).",
+  "size": "S"
+ },
+ {
+  "id": "WP-84",
+  "title": "Test kit mocks and OTLP sink",
+  "wave": 2,
+  "dirs": [
+   "internal/testkit/mockup/",
+   "internal/testkit/mockidp/",
+   "internal/testkit/otlpsink/"
+  ],
+  "dependsOn": [
+   "WP-01"
+  ],
+  "specs": [
+   "11-ops-quality.md",
+   "09-observability.md",
+   "06-security.md"
+  ],
+  "scope": "mockup (HTTP/1.1, h2c, TLS mock upstream with programmable body size, delay distribution, status, reset, slow body, echo, request log; TLS config passed in), mockidp (JWKS with rotating RS256/ES256 keys and Cache-Control, OAuth2 client-credentials token endpoint, JWT minting on stdlib crypto), otlpsink (in-process OTLP/gRPC collector over TLS or h2c recording traces, logs and metrics, span-order queries, raw bytes for canary scans), self-contained on go.opentelemetry.io/proto/otlp and grpc with no internal/telemetry import (R-53). 11 section 3.",
+  "size": "M"
+ },
+ {
+  "id": "WP-31",
+  "title": "Docs: traffic, observability, scalability",
+  "wave": 3,
+  "dirs": [
+   "docs/architecture/09-traffic-management-and-resilience.md",
+   "docs/architecture/10-observability.md",
+   "docs/architecture/11-scalability-and-distributed-state.md"
+  ],
+  "dependsOn": [
+   "WP-01",
+   "WP-12"
+  ],
+  "specs": [
+   "00-architecture.md",
+   "05-upstream-traffic.md",
+   "08-statestore.md",
+   "09-observability.md"
+  ],
+  "scope": "Close OQ-traffic-management-and-resilience-2 (c), -5 (a, M1 part), -6 (c with (a) values), -11 (a), -16 (b), -19 (c), -20 (a), -21 (a), record -23 (b); OQ-scalability-and-distributed-state-2 (a), -3 (a, M1 part), -10 (a), -11 (a); OQ-observability-2 (a), -16 (a), record -1 (a); RZ-RT-005 counting rule (R-23), /metrics exporter wording, accessLog.when evaluation point (R-48), Lua library ruralz_v1 (R-20), entry MAC scope and key setting (R-49), Filter retry requests (R-44), Response Cache post-response work (R-40) and revalidation replay (R-43); observability S17: Compose with a Collector runs in CI (R-51). Wave 2 boundary decisions: record OQ-observability-22 in docs/architecture/10-observability.md as `| OQ-observability-22 | What does a sampled 15-span trace cost on the OpenTelemetry SDK? | (a) 90 allocations, 30 \u00b5s on the reference hardware (proposed); (b) 60 allocations with a Ruralz span recorder | observability | No |`, change the Overhead table cell to \"90 or fewer (target)\" and the Estimates sentence \"4 allocations per span\" to \"4 SDK allocations per span plus up to 2 by Ruralz\" (R-69); add one sentence in OBS \"Alert rules\" stating that RuralzSeriesFolded alerts on new folding only and is exempt from the first-event test (R-70); record the memory driver bounds (08 risk 15) with N_c = 1 in docs/architecture/11-scalability-and-distributed-state.md, and say in TMR \"Response caching\" rule 3 that N_c applies to shared stores (R-72); state in TMR \"Load balancing\" both exceptions to the 10 s rebuild interval (the first structure over a non-empty set; a budget plan that lowers v or starts a fallback) and that a ring in fallback returns to ring-hash only when the plan gives it at least 128 virtual nodes per Endpoint (target) (R-74).",
+  "size": "M"
+ },
+ {
+  "id": "WP-33",
+  "title": "Restricted YAML and JSON profile",
+  "wave": 3,
+  "dirs": [
+   "internal/config/profile/",
+   "test/fixtures/yaml-test-suite/"
+  ],
+  "dependsOn": [
+   "WP-01",
+   "WP-02"
+  ],
+  "specs": [
+   "01-config-load.md",
+   "02-config-revision.md",
+   "11-ops-quality.md"
+  ],
+  "scope": "Byte pre-checks (UTF-8, BOM, size), incremental scanner token pass (depth 64, MaxDocumentTokens 1,000,000, anchors/aliases/merge keys RZ-CFG-003, custom tags RZ-CFG-004), per-document parse with duplicate keys RZ-CFG-002, YAML 1.2 core scalar typing into tree.Node with positions (KindFloat text stored in RFC 8259 syntax: drop a leading '+', put a '0' before a leading '.', drop a '.' with no fraction digits, strip leading zeros of the integer part keeping one digit, never through float64; R-64), JSON front end on jsonval, restricted-profile Encode with the R-45 quoting rule (R-29); YAML Test Suite vendored with scripts/update-test-suites.sh and run (integration tag) against expected-failures.txt with the ratchet. 01 B 7-14, C 15; 02 2.8 43-49 (emitter); 11 B 18. Fuzz FuzzLoadYAML (memory bounded under alias bombs).",
+  "size": "L"
+ },
+ {
+  "id": "WP-34",
+  "title": "CEL module",
+  "wave": 3,
+  "dirs": [
+   "internal/cel/*.go (package root only)",
+   "internal/cel/celtest/",
+   "internal/cel/testdata/"
+  ],
+  "dependsOn": [
+   "WP-01",
+   "WP-02",
+   "WP-08"
+  ],
+  "specs": [
+   "03-cel.md"
+  ],
+  "scope": "Implements expr.Compiler/Builder/Program/Value on cel.dev/cel-go v0.32.0: one environment per place and site refinement, standard library plus strings and encoders only, Check with RZ-CFG-014/015 messages, static cost at nominal sizes (10,000 ceiling, unbounded handling), runtime cost limit 1,000,000 with ContextEval under min(deadline, 50 ms) for comprehensions, runtime error kinds and per-place rules, program cache across snapshots (ProgramSet), ReferencesRequestBody, Default for retryOn/failureWhen, DecodeJSON on jsonval enforcing only the budget it is given (callers pass filter.DecodedLimitFactor times the raw limit, R-63), PrepareRoute and PrepareConsumer delegating to celtypes.PrepareRoute and PrepareConsumer (also in celtest); the place-to-annotation test maps each headers place to its shared schema definition (HeaderRequestSet, HeaderResponseSet), which covers set[] and add[] entries. 03 A 1-8, B 9-16, D 26-30, E 31-37, F 38-42, G 43-46, H 47-49, I 50-52, J 53-54. Fuzz FuzzCompile and cost estimator target. Node-level runtime error matrix is WP-91's.",
+  "size": "L"
+ },
+ {
+  "id": "WP-35",
+  "title": "Schema validation view",
+  "wave": 3,
+  "dirs": [
+   "internal/config/schemaview/",
+   "test/fixtures/json-schema-test-suite/"
+  ],
+  "dependsOn": [
+   "WP-01",
+   "WP-03",
+   "WP-28"
+  ],
+  "specs": [
+   "01-config-load.md",
+   "11-ops-quality.md"
+  ],
+  "scope": "Compile the rendered view once with jsonschema/v6 (Draft 2020-12, refusing loader, x-ruralz-* vocabulary), validate resource trees, map errors to diag.Path with RZ-CFG-005/006/012 and nearest-name hints; JSON-Schema-Test-Suite vendored with scripts/update-test-suites.sh and run over tests/draft2020-12 without optional/ except the formats Ruralz uses (R-31); schema meta test (both schema files and examples/, 11 req 19). 01 H 32-35; 11 B 18-19.",
+  "size": "M"
+ },
+ {
+  "id": "WP-36",
+  "title": "Overlays and substitution",
+  "wave": 3,
+  "dirs": [
+   "internal/config/overlay/",
+   "internal/config/subst/"
+  ],
+  "dependsOn": [
+   "WP-01",
+   "WP-03"
+  ],
+  "specs": [
+   "01-config-load.md"
+  ],
+  "scope": "overlay: strategic merge with keyed lists and $patch (delete, replace), identity rules RZ-CFG-008/030. subst: ${VAR} and ${VAR:-default} scan, forbidden positions RZ-CFG-011, undefined RZ-CFG-010, re-typing by schema, $${ escaping, secret-like names and credential literals RZ-CFG-013, never injects structure. 01 F 23-25, G 26-31. Fuzz FuzzSubst, FuzzOverlay; property: substitution never injects structure.",
+  "size": "M"
+ },
+ {
+  "id": "WP-37",
+  "title": "Defaults, normalization and conversion",
+  "wave": 3,
+  "dirs": [
+   "internal/config/defaults/",
+   "internal/config/convert/"
+  ],
+  "dependsOn": [
+   "WP-01",
+   "WP-02",
+   "WP-03",
+   "WP-04",
+   "WP-28"
+  ],
+  "specs": [
+   "02-config-revision.md",
+   "01-config-load.md"
+  ],
+  "scope": "Stage G (R-8): materialize +ruralz:default and registry defaults only inside present parents, normalization (sets sorted, durations and sizes canonical, host case), decode into v1alpha1 kinds and registry config types (RZ-CFG-005 on decode failure), RZ-CFG-005 number range via jsonval.CheckNumber on non-canonical trees after scalar normalization (02 req 16, 02 test plan item 3; R-64), hub.Bundle construction, conversion registry (identity for v1alpha1, round-trip property); idempotent on canonical input (R-47). 02 2.2 4-8, 2.3 9-14, 2.4 15-20, 2.10 53-54; 01 I 36-38.",
+  "size": "M"
+ },
+ {
+  "id": "WP-38",
+  "title": "Precedence and effective chains",
+  "wave": 3,
+  "dirs": [
+   "internal/config/precedence/"
+  ],
+  "dependsOn": [
+   "WP-01",
+   "WP-04"
+  ],
+  "specs": [
+   "02-config-revision.md",
+   "04-dataplane-core.md"
+  ],
+  "scope": "Stage I, sole owner of RZ-CFG-018/019/020/029/038 (R-46): build hub.Chain per Route (client Phases and per-Upstream legs) from Gateway, Route and Upstream attachments with slots, replaces/excludes, overridable, CheckPolicies for failureMode, Phase placement including authz.cel body detection through an injected oracle, cache guardrail (OQ-traffic-management-and-resilience-21 (a)), leg order rule, Removed reasons, Rows() for render --effective. 02 2.7 35-42; 04 F 40. Property: precedence laws.",
+  "size": "M"
+ },
+ {
+  "id": "WP-39",
+  "title": "Canonical form",
+  "wave": 3,
+  "dirs": [
+   "internal/config/canonical/"
+  ],
+  "dependsOn": [
+   "WP-01",
+   "WP-02"
+  ],
+  "specs": [
+   "02-config-revision.md",
+   "04-dataplane-core.md",
+   "10-cli.md"
+  ],
+  "scope": "Stage L: ruralz.canonical.v1 encoder over the materialized tree (RFC 8785 ordering and numbers, no HTML escaping, CEL text byte-exact), strict decoder on jsonval to []tree.Resource with RoleCanonical for pipeline.FromResources (R-47; RZ-CFG-024 for a newer producer; no integer range rule on canonical content, R-64), /config/dump document (AppendDump, injected into the admin server, R-57), digest wiring with revision. 02 2.5 21-28, 2.6 29-34, 2.13 73-74. Fuzz FuzzCanonical (parse, canonicalize, parse identical); property: reorder invariance.",
+  "size": "M"
+ },
+ {
+  "id": "WP-40",
+  "title": "Telemetry runtime",
+  "wave": 3,
+  "dirs": [
+   "internal/telemetry/*.go (package root only)"
+  ],
+  "dependsOn": [
+   "WP-09",
+   "WP-10",
+   "WP-11",
+   "WP-16",
+   "WP-28",
+   "WP-84"
+  ],
+  "specs": [
+   "09-observability.md",
+   "04-dataplane-core.md"
+  ],
+  "scope": "Runtime: environment scrub of OTEL_*, resource (service.name ruralzd, version, instance id = node.id, semconv v1.43.0 schema URL), providers, OTLP/gRPC trace, metric and log pipelines with bounded queues and otlp.tls via tlsconf (OQ-observability-2 (a)), otelslog bridge, /metrics handler over a private prometheus registry with the exporter and producer (bounded, OpenMetrics exemplars; injected into the admin server), degraded set and cleartext hops implementing emit.NodeStatus, Apply per Revision, Shutdown with 5 s flush, logger factory, runtime metrics. Metric name identity gate (09 req 76; 09 tests 32 and 33): a golden over one fixed registry, exported through /metrics as text 0.0.4 and OpenMetrics (test 32) and through OTLP into internal/testkit/otlpsink (test 33, ResourceMetrics normalized with protojson), asserting that the two metric name sets are equal. 09 2.1 1-8, 2.2 9-14, 2.3 15-26, 2.9 57-58, 2.10 59-60, 2.14 70; 09 tests 36-38.",
+  "size": "L"
+ },
+ {
+  "id": "WP-42",
+  "title": "Router",
+  "wave": 3,
+  "dirs": [
+   "internal/gateway/router/"
+  ],
+  "dependsOn": [
+   "WP-05"
+  ],
+  "specs": [
+   "04-dataplane-core.md"
+  ],
+  "scope": "Implements snapshot.Router per listener: host tiers, path trie, candidate filters (methods, headers, when) over routematch.Criteria built with routematch.CriteriaOf (R-68), precedence total order, match.when errors RZ-RT-006, span ruralz.route.match, compile of 10,000 Routes within budget, zero-allocation Match. 04 D 26-33. Fuzz FuzzRouterMatch against a reference matcher.",
+  "size": "M"
+ },
+ {
+  "id": "WP-43",
+  "title": "Per-request exchange",
+  "wave": 3,
+  "dirs": [
+   "internal/gateway/exchange/"
+  ],
+  "dependsOn": [
+   "WP-15",
+   "WP-18",
+   "WP-19"
+  ],
+  "specs": [
+   "04-dataplane-core.md",
+   "07-transform.md",
+   "06-security.md",
+   "05-upstream-traffic.md"
+  ],
+  "scope": "Pooled per-request state implementing filter.Exchange, filter.Message (client request, leg request, leg response, client response) and snapshot.RequestState (R-42): Enter/SetLeg, when decisions, per-Policy PolicyState slots (R-39), Stripe and RouteMetrics (R-56), leg views from Leg(upstream, step) with a Vars copy (upstream fields replaced), private slots and span, pooled and released; lazy expr.Vars population, header views joined per RFC 9110, body access through gates and budget, SetBody (Content-Length, Content-Encoding and digest removal), Decoded via expr.Compiler.DecodeJSON with budget filter.DecodedLimitFactor times the raw limit (R-63), identity once, rate-limit field accumulation, tee, ReplaceResponse, Final, access-record feed, an embedded emit.GatewayTimer (gateway_duration exclusion), reset for reuse. 04 E 34-38, G 46-48; 07 D 26-32, G 44-55 (message side); 06 2.1 rule 2.",
+  "size": "L"
+ },
+ {
+  "id": "WP-44",
+  "title": "Listeners, servers and SO_REUSEPORT",
+  "wave": 3,
+  "dirs": [
+   "internal/gateway/listener/",
+   "internal/gateway/reuseport/"
+  ],
+  "dependsOn": [
+   "WP-15",
+   "WP-16",
+   "WP-19",
+   "WP-21"
+  ],
+  "specs": [
+   "04-dataplane-core.md",
+   "06-security.md"
+  ],
+  "scope": "Listener set keyed by snapshot.ListenerKey: http.Server per listener (Protocols HTTP/1.1 + h2c or TLS h2, fixed timeouts, header limits), connection ceiling wrapper, PROXY v2 via clientaddr, TLS GetConfigForClient from the snapshot published by the retire holder (SNI, client-cert request mode, GOAWAY on mode change), Binder for activation (RZ-CFG-039 on failure), reuseport bind-without-listen and CBPF self-steering (Linux; stubs elsewhere). 04 B 9-18; 06 2.11 74-78.",
+  "size": "M"
+ },
+ {
+  "id": "WP-45",
+  "title": "Admin server, tap and readiness",
+  "wave": 3,
+  "dirs": [
+   "internal/gateway/admin/",
+   "internal/gateway/tap/",
+   "internal/gateway/readiness/"
+  ],
+  "dependsOn": [
+   "WP-17"
+  ],
+  "specs": [
+   "04-dataplane-core.md",
+   "09-observability.md",
+   "10-cli.md"
+  ],
+  "scope": "Admin mux on admin.port (own server, never DefaultServeMux): /healthz, /readyz (adminapi reasons), /metrics, /config/dump and /debug/upstreams as injected handlers (R-57), /debug/snapshots, /debug/pprof, /tap NDJSON hub with per-subscriber sampling, dropped lines and subscriber limit RZ-RT-019 (R-24), readiness reason set, adminauth middleware, problem errors. 04 K 69-75, J 60-61; 09 2.13 69.",
+  "size": "M"
+ },
+ {
+  "id": "WP-46",
+  "title": "Upstream runtimes and attempt loop",
+  "wave": 3,
+  "dirs": [
+   "internal/gateway/upstream/*.go (package root only)"
+  ],
+  "dependsOn": [
+   "WP-15",
+   "WP-16",
+   "WP-18",
+   "WP-19",
+   "WP-22",
+   "WP-23",
+   "WP-24",
+   "WP-28"
+  ],
+  "specs": [
+   "05-upstream-traffic.md",
+   "04-dataplane-core.md",
+   "06-security.md"
+  ],
+  "scope": "Upstream manager and runtimes carried over by identity (discovery, health trackers, pickers, breaker, bulkhead, retry budget), transports per Upstream (pools, TLS via tlsconf, guarded dialer), Run scheduler, attempt loop Do(ctx, leg request, snapshot.LegRun) with deadlines and per-try timeouts, retries (retryOn, Filter Retry, replayable RequestBody, backoff), hashKey evaluation once per leg with random-Endpoint fallback and ruralz_upstream_cel_errors_total{field=\"hashKey\"} (05 req 14), failureWhen, error classification and RZ-UP codes, outgoing request build (hop-by-hop removal, forwarding headers per clientaddr, Host = Endpoint authority or sni per R-28, Tracer.Inject, GetBody only for buffered bodies), pool metrics, upstream_panic and balancer_budget reasons. 05 A 1-4, C 14, E 24-26, F 27-31, G 32-35, J 41, R 94-95; 06 2.12 (upstream TLS).",
+  "size": "L"
+ },
+ {
+  "id": "WP-47",
+  "title": "auth.jwt and JWKS",
+  "wave": 3,
+  "dirs": [
+   "internal/filter/auth/jwt/"
+  ],
+  "dependsOn": [
+   "WP-02",
+   "WP-06",
+   "WP-16"
+  ],
+  "specs": [
+   "06-security.md"
+  ],
+  "scope": "auth.jwt Factory and Filter: compact parser, alg allow list RS256/PS256/ES256/EdDSA, jws verification with jwk/jws/jwa only (no jwt/jwe packages), claims decoded with jsonval, fixed skew 60 s and 24 h lifetime (R-32), audiences, issuer config, Consumer binding via identity; jwks subpackage: Node-wide JWKS manager as a filter.Component (fetch through egress, cache-control clamp, refresh, prefetch, limiter, jwks_stale degraded, age metric). 06 2.3 23-33, 2.4 34-40.",
+  "size": "L"
+ },
+ {
+  "id": "WP-48",
+  "title": "auth.api-key and auth.basic",
+  "wave": 3,
+  "dirs": [
+   "internal/filter/auth/apikey/",
+   "internal/filter/auth/basic/"
+  ],
+  "dependsOn": [
+   "WP-06"
+  ],
+  "specs": [
+   "06-security.md"
+  ],
+  "scope": "auth.api-key: header source only (default x-api-key; config.query is not registered in M1, 06 section 8 and OQ-configuration-model-19), digest lookup through the identity index, constant-time compare. auth.basic: PBKDF2 verify (iterations 600,000..1,000,000), Node-wide throttle as a filter.Component with success cache, per-source and per-username buckets, bounded hash queue, 429 RZ-AUTH-007 (OQ-security-and-identity-15 (a)). 06 2.5 41-44 and api-key rows of 2.2.",
+  "size": "M"
+ },
+ {
+  "id": "WP-49",
+  "title": "auth.mtls, authz.ip and cors",
+  "wave": 3,
+  "dirs": [
+   "internal/filter/auth/mtls/",
+   "internal/filter/authz/ip/",
+   "internal/filter/cors/"
+  ],
+  "dependsOn": [
+   "WP-06",
+   "WP-16",
+   "WP-18"
+  ],
+  "specs": [
+   "06-security.md"
+  ],
+  "scope": "auth.mtls: CA and CRL compile from secrets with Node-wide watches kept across carry-over (R-55; crl_stale reason), chain verification with per-connection ConnCache, RFC 4514 subject and SAN extraction, 421 RZ-AUTH-008 without a requested certificate. authz.ip: allow/deny prefix trie over source.ip, both-empty and CIDR checks. cors: preflight 204, origin matching, credentials rules, RZ-RT-008. 06 2.6 45-52, 2.8 58-63 (Filter side), 2.9 64-67.",
+  "size": "M"
+ },
+ {
+  "id": "WP-50",
+  "title": "auth.upstream-oauth2",
+  "wave": 3,
+  "dirs": [
+   "internal/filter/auth/upstreamoauth2/"
+  ],
+  "dependsOn": [
+   "WP-02",
+   "WP-16"
+  ],
+  "specs": [
+   "06-security.md"
+  ],
+  "scope": "Client-credentials token sources shared Node-wide by (tokenUrl, client, scopes) in a token registry filter.Component, fetch through egress with https only (RZ-CFG-037 checked in validate) and no redirect (the client secret goes only to its tokenUrl origin, R-49), refresh ahead of expiry with jitter, single flight, failure 401 RZ-AUTH-020 (OQ-data-plane-8 (a)), Authorization injection in onUpstreamRequest, age and refresh-failure metrics. 06 2.10 68-73.",
+  "size": "M"
+ },
+ {
+  "id": "WP-51",
+  "title": "validation.json-schema",
+  "wave": 3,
+  "dirs": [
+   "internal/filter/validation/jsonschema/"
+  ],
+  "dependsOn": [
+   "WP-02",
+   "WP-28"
+  ],
+  "specs": [
+   "07-transform.md"
+  ],
+  "scope": "Factory compiling config.schema with jsonschema/v6 (refusing loader, Go regexp, draft 2020-12, size and fan-out bounds), instance decode with jsonval under the buffer budget (decoded values at most filter.DecodedLimitFactor times the raw limit, R-63), onRequestBody validation with 400 RZ-RT-009 and keyword-location detail, exported Check (hub.PolicyCheck) for offline RZ-CFG-005. 07 J 74-77, K 78-84.",
+  "size": "M"
+ },
+ {
+  "id": "WP-52",
+  "title": "Test kit load generation and balancing",
+  "wave": 3,
+  "dirs": [
+   "internal/testkit/l4lb/",
+   "internal/testkit/loadgen/"
+  ],
+  "dependsOn": [
+   "WP-26"
+  ],
+  "specs": [
+   "11-ops-quality.md"
+  ],
+  "scope": "l4lb (readyz-probing TCP balancer with redispatch, idle timeout and connection-to-backend attribution), loadgen (open-loop HTTP/1.1, h2c and h2 load, coordinated-omission-free log-linear histogram, key sources, Missed accounting, validity check). 11 section 3, F 32 (harness parts).",
+  "size": "M"
+ },
+ {
+  "id": "WP-53",
+  "title": "Examples",
+  "wave": 3,
+  "dirs": [
+   "examples/"
+  ],
+  "dependsOn": [
+   "WP-28"
+  ],
+  "specs": [
+   "11-ops-quality.md",
+   "01-config-load.md"
+  ],
+  "scope": "examples/quickstart (SM-7 path, quickstart.sh with RURALZ_FETCH_ALLOW), examples/file-mode (T2/T5 Bundle with overlays and systemd install README), examples/shop-bundle (CM example verbatim) and examples/control (environments.yaml, clusters.yaml) using only v1alpha1 fields; README per example. 11 M 106-109.",
+  "size": "S"
+ },
+ {
+  "id": "WP-54",
+  "title": "Release tooling and packaging",
+  "wave": 3,
+  "dirs": [
+   "internal/tool/releasekit/",
+   "internal/tool/depgate/",
+   "deploy/container/",
+   "deploy/systemd/"
+  ],
+  "dependsOn": [
+   "WP-27"
+  ],
+  "specs": [
+   "11-ops-quality.md",
+   "06-security.md"
+  ],
+  "scope": "releasekit (package, checksums, notes with budgets and skipped gates, verify manifest, reproducibility compare); depgate notices subcommand and testkit/tool denylist per binary, jwx and testcontainers transitive license classification (go.yaml.in/yaml/v3, option/v3); Dockerfile (scratch, released binaries, CA bundle per OQ-tech-stack-and-libraries-25 (a)); systemd unit, env file, sysctl drop-in and ruralzd-handover helper (OQ-zero-downtime-upgrades-and-hot-reload-7 (a)). Workflows are WP-96's. 11 J 83-85, K 88-89, L 91-94, 99-100, 103.",
+  "size": "M"
+ },
+ {
+  "id": "WP-65",
+  "title": "State Store manager and post-commit queue",
+  "wave": 3,
+  "dirs": [
+   "internal/statestore/manager/",
+   "internal/statestore/postcommit/"
+  ],
+  "dependsOn": [
+   "WP-13",
+   "WP-28"
+  ],
+  "specs": [
+   "08-statestore.md",
+   "05-upstream-traffic.md"
+  ],
+  "scope": "manager: effective configuration resolution (driver, topology, url secretRef, RURALZ_STATE_STORE_URL, memory fallback degraded), drivers keyed by Role with the cache connection (R-19), created through injected statestore.Opener per DriverKind (R-54) with Deps.MACKey from the setting (R-49), reuse on unchanged config, snapshot.StoreHandle with retain/release (Handle is a pointer type; a snapshot gets a new handle per role or the previous instance carried over without a second Retain, which stays for post-commit queue items; 2.14), SetNodeCount hook (M2), shutdown order. postcommit: 64,000-item four-class queue with byte caps, eight writers, batch 64, drop counters by Write label, flush at Drain within 5 s. 08 2.1 1-6, 2.8 55-57, 2.10 61-63.",
+  "size": "M"
+ },
+ {
+  "id": "WP-85",
+  "title": "State Store test servers and container flavors",
+  "wave": 3,
+  "dirs": [
+   "internal/statestore/statestoretest/redisserver/",
+   "internal/statestore/statestoretest/respproxy/"
+  ],
+  "dependsOn": [
+   "WP-26"
+  ],
+  "specs": [
+   "08-statestore.md",
+   "11-ops-quality.md"
+  ],
+  "scope": "redisserver: process flavor launching local redis-server (RURALZ_TEST_REDIS_SERVER or PATH) as standalone, replica with scripted failover (REPLICAOF NO ONE behind a faultproxy address), TLS (testkit/pki), ACL user, three-primary cluster (CLUSTER MEET, ADDSLOTSRANGE); container flavor on testcontainers-go v0.44.0 with images pinned by digest: Redis 8, Valkey 9.0.1 or newer, Dragonfly, three-primary Redis and Valkey clusters; selection RURALZ_TEST_STATESTORE=process|container (process when a binary is found, container when Docker answers, else skip with a reason). respproxy: RESP command counting and fault proxy on testkit/faultproxy (tap). 11 E 29 (flavors, CI wiring through WP-27's stage 8 container leg); 08 6.4 (launchers), risk 10; 11 E 31 (counting proxy).",
+  "size": "L"
+ },
+ {
+  "id": "WP-88",
+  "title": "Response Cache revalidation and coalescing",
+  "wave": 3,
+  "dirs": [
+   "internal/filter/cache/revalidate/",
+   "internal/filter/cache/coalesce/"
+  ],
+  "dependsOn": [
+   "WP-13"
+  ],
+  "specs": [
+   "05-upstream-traffic.md",
+   "08-statestore.md"
+  ],
+  "scope": "revalidate: Node-wide pool as a filter.Component (256-entry queue, 4 workers, drop when full), partition lease through statestore.CacheLease (SET NX PX 5000; never released by refresh or end-stale, it only expires, R-71), replay through filter.Replayer with If-None-Match/If-Modified-Since, 304 refresh under the lease, variant delete otherwise (05 req 86, R-43). coalesce: miss coalescing for up to 4,096 (U, P, V) keys, leader and followers, per-follower deadline, fallback to own fetch (05 req 88). 05 P 86, 88.",
+  "size": "M"
+ },
+ {
+  "id": "WP-41",
+  "title": "Redis State Store driver",
+  "wave": 4,
+  "dirs": [
+   "internal/statestore/redis/"
+  ],
+  "dependsOn": [
+   "WP-13",
+   "WP-16",
+   "WP-85"
+  ],
+  "specs": [
+   "08-statestore.md",
+   "05-upstream-traffic.md",
+   "11-ops-quality.md"
+  ],
+  "scope": "rueidis client with the required options, Ruralz dialer (net.Dialer with tlsconf.StateStore, not the egress guard, spec 06 req 84; dials only the URL's host, R-49), URL validation (credentials rule, topology fit RZ-CFG-026), ruralz_v1.lua library (R-20; scripts f and x never DEL the revalidation lease, which only expires, R-71) with SCRIPT LOAD per primary, EVALSHA only, NOSCRIPT to RZ-STS-002 plus single-flight reload, 8,192 in-flight ceiling, per-shard breaker and pacing, cluster slot map and same-slot verification, INFO memory poller and store-byte admission rules (N_c = 1,000 in M1; only the memory driver uses 1, R-72), entry MAC (keys), metrics by OpKind.Label and RoundTrip.Label on the request stripe (R-56), degraded reasons. 08 2.1 1-12, 2.2 13-26, 2.5 39-46, 2.7 52-54, 2.11 64-67, 2.12 68-69.",
+  "size": "L"
+ },
+ {
+  "id": "WP-55",
+  "title": "Loader",
+  "wave": 4,
+  "dirs": [
+   "internal/config/loader/"
+  ],
+  "dependsOn": [
+   "WP-03",
+   "WP-33",
+   "WP-36"
+  ],
+  "specs": [
+   "01-config-load.md"
+  ],
+  "scope": "Stages A to E: sources (directory, one-file Bundle, stdin for CLI), discovery and .ruralzignore, limits (files, bytes, depth), envelope and identity (kind, apiVersion, name rules, RZ-CFG-007/008/016/017), Environments for CLI renders (RZ-CFG-022 promotion cycles, R-46), overlay application, substitution with Options.Variables, bounded worker parallelism. 01 A 1-6, D 16-20, E 21-22, N 51-55, O 56.",
+  "size": "M"
+ },
+ {
+  "id": "WP-56",
+  "title": "Semantic validation",
+  "wave": 4,
+  "dirs": [
+   "internal/config/validate/"
+  ],
+  "dependsOn": [
+   "WP-04",
+   "WP-05",
+   "WP-06",
+   "WP-38"
+  ],
+  "specs": [
+   "01-config-load.md",
+   "02-config-revision.md",
+   "03-cel.md",
+   "05-upstream-traffic.md",
+   "06-security.md",
+   "07-transform.md"
+  ],
+  "scope": "Stages H, J, K (R-46: never 018/019/020/029/038) and the ruralzd-only serve check: reference resolution (RZ-CFG-009), cross-resource rules (listeners, hosts via routematch, identical match RZ-CFG-023 over routematch.Criteria built with routematch.CriteriaOf (R-68), composition limits RZ-CFG-031/032, https certificate presence, jwksUrl/tokenUrl https RZ-CFG-037, identity static checks), RZ-CFG-034 over each Route's hub.Chain at stage K (01 J row 034, gated by 01 req 51), secret use collection with kinds, destinations (AIProvider credentials.apiKey bound to its baseUrl origin already in M1, R-49) and source positions (hub.SecretUse.Loc from the tree node, as for CELUse.Loc) and the binding check RZ-CFG-041 (R-49), CEL sites (expr.Site from chains; one site per headers set[] and add[] entry, 07 req 24) checked with expr.Compiler, injected hub.Checks (R-34). The serve check RZ-CFG-040 is a separate pass that the pipeline runs after stage M only with Options.Serving (R-75); it covers the complete M1 list of section 0 item 8 (Policy types with Served false: plugin, authz.opa, authz.cedar, authz.geoip, auth.upstream-sigv4, ai.*; every Plugin, AIProvider and AIModel resource, referenced or not, at kind; an Upstream spec.protocol other than http and spec.discovery.type kubernetes; Gateway listeners[].http3 true; Route match.grpc, match.graphql and match.topic), each reported at the field with 'is not served by this release (Planned (Mx))' as registry.CheckServed does. 01 J 39-40, K 41; 02 2.7 (validation side); 03 D 26-30 (sites); 05 T 97; 06 2.2 static rules, 2.14 (binding); 07 C 20-25, F 38-43 (via Checks).",
+  "size": "L"
+ },
+ {
+  "id": "WP-57",
+  "title": "Diff",
+  "wave": 4,
+  "dirs": [
+   "internal/config/diff/"
+  ],
+  "dependsOn": [
+   "WP-03",
+   "WP-39"
+  ],
+  "specs": [
+   "02-config-revision.md",
+   "10-cli.md"
+  ],
+  "scope": "Structural diff of two canonical Revisions keyed by identity and keyed lists, impact classes from +ruralz:impact (security class per OQ-security-and-identity-22 (a), including secret destination changes, 02 R-64/R-66), stable ordering, text and JSON models consumed by the CLI. 02 2.12 58-72. Property: diff laws (identity, symmetry, composition).",
+  "size": "M"
+ },
+ {
+  "id": "WP-58",
+  "title": "Render",
+  "wave": 4,
+  "dirs": [
+   "internal/config/render/"
+  ],
+  "dependsOn": [
+   "WP-33",
+   "WP-37",
+   "WP-38",
+   "WP-39"
+  ],
+  "specs": [
+   "02-config-revision.md",
+   "10-cli.md"
+  ],
+  "scope": "bundle render outputs: rendered Bundle (profile.Encode, $${ preserved), --effective --route NAME table from precedence Rows, --api-version conversion (identity in M1), build artifact (canonical plus digest). 02 2.8 43-49, 2.9 50-52, 2.10 53-54, 2.11 55-57. Property: render idempotence with $${.",
+  "size": "M"
+ },
+ {
+  "id": "WP-59",
+  "title": "authz.cel and headers",
+  "wave": 4,
+  "dirs": [
+   "internal/filter/authz/cel/",
+   "internal/filter/header/"
+  ],
+  "dependsOn": [
+   "WP-06",
+   "WP-18",
+   "WP-28",
+   "WP-34"
+  ],
+  "specs": [
+   "06-security.md",
+   "07-transform.md",
+   "03-cel.md"
+  ],
+  "scope": "authz.cel: rule at PlaceAuthzCELRule, 403 RZ-AUTH-010, undecided RZ-AUTH-015, onRequestBody placement when the rule reads request.body. headers: Factory, Filter and exported Check (hub.PolicyCheck) for request and response add/set/remove with CEL values (add[] valueExpressions compiled at the same places as set[], PlaceHeadersRequestValue and PlaceHeadersResponseValue, with RuleFailureMode; a nil Value is absent and a non-nil \"\" an explicit empty value, R-62), protected and hop-by-hop names refused, Upstream-scope forwarding-header edits only. 06 2.7 53-57; 07 A 1-9 (headers), C 20-25, D 26-32.",
+  "size": "M"
+ },
+ {
+  "id": "WP-60",
+  "title": "Transforms",
+  "wave": 4,
+  "dirs": [
+   "internal/filter/transform/"
+  ],
+  "dependsOn": [
+   "WP-02",
+   "WP-18",
+   "WP-28",
+   "WP-34"
+  ],
+  "specs": [
+   "07-transform.md",
+   "03-cel.md"
+  ],
+  "scope": "Shared engine (Spec, Check, Compile, Program.Handle), dotpath grammar and tree operations on jsonval, request and response Factories (subpackages request and response) with exported Check (hub.PolicyCheck), body rewrite with budget reservation (decoded values at most filter.DecodedLimitFactor times the raw limit, R-63) and header recomputation, query and path edits, per-attempt isolation on leg views at Upstream scope, failure semantics RZ-RT-011/012. 07 F 38-43, G 44-55, H 56-68, I 69-73, L 85-88, M 89-91. Fuzz FuzzDotPath.",
+  "size": "L"
+ },
+ {
+  "id": "WP-61",
+  "title": "ratelimit",
+  "wave": 4,
+  "dirs": [
+   "internal/filter/ratelimit/"
+  ],
+  "dependsOn": [
+   "WP-13",
+   "WP-18",
+   "WP-28",
+   "WP-34"
+  ],
+  "specs": [
+   "05-upstream-traffic.md",
+   "08-statestore.md"
+  ],
+  "scope": "Consumptive Filter: key program, Node-wide key table as a filter.Component with local token buckets at the per-Node ceiling (OQ-traffic-management-and-resilience-16 (b)), first-seen budget and local-only entries (-20 (a)), config.localOnly (OQ-scalability-and-distributed-state-11 (a)), GCRA calls through statestore.Call, tokens taken kept in PolicyState for Undo (R-39), fail-open windows, RZ-RL-001/002/005, RateLimit fields via AddRateLimitField (R-18), metrics. 05 M 56-66, N 67-68. Property: admission with a deterministic clock.",
+  "size": "L"
+ },
+ {
+  "id": "WP-62",
+  "title": "quota",
+  "wave": 4,
+  "dirs": [
+   "internal/filter/quota/"
+  ],
+  "dependsOn": [
+   "WP-13",
+   "WP-18",
+   "WP-34"
+  ],
+  "specs": [
+   "05-upstream-traffic.md",
+   "08-statestore.md"
+  ],
+  "scope": "Consumptive Filter for unit requests: key program, Consumer quotas read from expr.Consumer.QuotaByName (a missing Consumer or quota is 403 RZ-RL-004), reservation with key digest and window start kept in PolicyState (R-39), denial cache, refunds in onLog through the post-commit Enqueuer when a later Policy rejected or the final code is RZ-UP-005/006/008, Finish releases the state, failureMode open default (OQ-configuration-model-8 (a)), RZ-RL-003/004, RateLimit fields. 05 O 69-74.",
+  "size": "M"
+ },
+ {
+  "id": "WP-63",
+  "title": "Response Cache Filter",
+  "wave": 4,
+  "dirs": [
+   "internal/filter/cache/*.go (package root only)"
+  ],
+  "dependsOn": [
+   "WP-13",
+   "WP-18",
+   "WP-34",
+   "WP-88"
+  ],
+  "specs": [
+   "05-upstream-traffic.md",
+   "08-statestore.md"
+  ],
+  "scope": "cache Filter (Phases onRequestHeaders and onResponse, plus Finisher, R-40): RFC 9111 shared-cache directives, key program (error bypasses), partitions by principal, pipelined lookup with lookup state in PolicyState (R-39), hot layer, coalescing (WP-88), stale-while-revalidate enqueue (WP-88), stale-if-error (ReplaceResponse), only-if-cached 504 RZ-RT-018, tee in onResponse and store in Finish (CacheStore through the post-commit queue), unsafe-method invalidation in Finish (05 req 85), hit reservation release, store-byte admission (OQ-traffic-management-and-resilience-11 (a) with interim rules), ruralz_cache_requests_total through Exchange.RouteMetrics (R-56), uses BuildEnv.CacheStore (cache role). 05 P 75-85, 87, 89-90; 08 2.7 52-54 (admission use).",
+  "size": "L"
+ },
+ {
+  "id": "WP-64",
+  "title": "Composition",
+  "wave": 4,
+  "dirs": [
+   "internal/gateway/composition/"
+  ],
+  "dependsOn": [
+   "WP-02",
+   "WP-19",
+   "WP-34",
+   "WP-46"
+  ],
+  "specs": [
+   "05-upstream-traffic.md",
+   "03-cel.md"
+  ],
+  "scope": "snapshot.Forwarder for composition Routes: aggregate, sequential and conditional modes, step when and steps variables, per-step units and buffer reservations (decoded step bodies at most filter.DecodedLimitFactor times the step's maxBodyBytes, R-63), step legs through the upstream attempt loop with one LegRun each (BeginLeg; concurrent aggregate legs share nothing mutable, R-42), gated client body replayed to every step that sends one (05 req 54), merge under group with jsonval, partial responses (ruralz-partial), RZ-UP-011, RZ-RT-010, RZ-RT-015. 05 K 42-55.",
+  "size": "L"
+ },
+ {
+  "id": "WP-66",
+  "title": "Request handler and replay",
+  "wave": 4,
+  "dirs": [
+   "internal/gateway/handler/",
+   "internal/gateway/replay/"
+  ],
+  "dependsOn": [
+   "WP-05",
+   "WP-15",
+   "WP-18",
+   "WP-19",
+   "WP-20",
+   "WP-21",
+   "WP-42",
+   "WP-43",
+   "WP-45"
+  ],
+  "specs": [
+   "04-dataplane-core.md",
+   "09-observability.md",
+   "05-upstream-traffic.md"
+  ],
+  "scope": "handler: http.Handler implementing the 04 req 34 order: unit, deadlines, pin, trace, header limit and count, framing and path/host normalization per 3.4 step 4 (CONNECT 404 RZ-RT-001 first; routematch.NormalizePath(routematch.RequestPath(r.URL)); errors through errcode.CodeOf and errcode.Status, RZ-RT-017 or RZ-RT-001), source.ip, match, dispatch table keyed by Route.Protocol (R-59), Route deadline, early 413, executor client Phases, Outbound fill and Forward (R-41), onResponse, problem documents for generated responses, RateLimit field append (sfv), commit under PinnedRequest.Mu with RZ-RT-014/016, streaming copy with pooled buffers, onLog and Finish, metrics on the stripe (Reset of the exchange's emit.GatewayTimer at request start and Observe(end, stripe, ListenerMetrics.GatewayDuration, Node().GatewayDurationSkipped) at the end; ListenerMetrics.Requests.Inc(stripe, protocol, status, emit.OriginOf(code, fromUpstream))), accessLog.when evaluation and access record (R-48), tap publish; handlertest package with AllocsPerRun fixtures for the bench suite. replay: filter.Replayer pinning the published snapshot, Route and LegChains lookup, synthetic exchange, one leg through Snapshot.Legs (R-43). 04 C 19-25, E 34-38, L 76-80; 05 P 86 (replay side); 09 2.12 66-68 (when).",
+  "size": "L"
+ },
+ {
+  "id": "WP-67",
+  "title": "Drain and sd_notify",
+  "wave": 4,
+  "dirs": [
+   "internal/gateway/drain/",
+   "internal/gateway/sdnotify/"
+  ],
+  "dependsOn": [
+   "WP-14",
+   "WP-19",
+   "WP-21",
+   "WP-44",
+   "WP-45"
+  ],
+  "specs": [
+   "04-dataplane-core.md",
+   "11-ops-quality.md"
+  ],
+  "scope": "drain: SIGTERM/SIGINT timeline (readiness off, STOPPING=1, lock release, 5 s stop accepting with one GOAWAY, 25 s deadline via the ending protocol with RZ-RT-016, flush hooks, exit by 30 s, second signal jumps), timelines parameterized for the handover holder. sdnotify: READY=1 after the first boot attempt with STATUS= reason (11 risk 9), STOPPING=1, MAINPID=. 04 A 8, J 60-62; 11 G 46 (hooks).",
+  "size": "M"
+ },
+ {
+  "id": "WP-68",
+  "title": "CLI admin client",
+  "wave": 4,
+  "dirs": [
+   "internal/cli/adminclient/"
+  ],
+  "dependsOn": [
+   "WP-16",
+   "WP-25",
+   "WP-39"
+  ],
+  "specs": [
+   "10-cli.md"
+  ],
+  "scope": "Admin URL validation (loopback cleartext guard), TLS from RURALZ_ADMIN_TLS_DIR or flags, bearer token file, no redirects, 256 MiB dump cap, problem document errors, /config/dump decode through canonical, /tap NDJSON stream with dropped lines, /readyz. 10 2.8 62-69.",
+  "size": "M"
+ },
+ {
+  "id": "WP-86",
+  "title": "Plain-upstreams forwarder and upstream debug",
+  "wave": 4,
+  "dirs": [
+   "internal/gateway/upstream/forward/"
+  ],
+  "dependsOn": [
+   "WP-46"
+  ],
+  "specs": [
+   "05-upstream-traffic.md",
+   "04-dataplane-core.md"
+  ],
+  "scope": "snapshot.Forwarder for plain upstreams: weighted leg pick (RZ-UP-008 when every weight is 0), BeginLeg per leg, attempt loop call, response streaming with bulkhead slot release, UpstreamResponse fields for logs; snapshot.LegRunner per snapshot for replay (R-43); /debug/upstreams JSON handler injected into the admin server (R-57). 05 C 10 (weighted splits), F 27-30, S 96.",
+  "size": "M"
+ },
+ {
+  "id": "WP-87",
+  "title": "Test kit topology",
+  "wave": 4,
+  "dirs": [
+   "internal/testkit/topology/"
+  ],
+  "dependsOn": [
+   "WP-26",
+   "WP-52",
+   "WP-84",
+   "WP-85"
+  ],
+  "specs": [
+   "11-ops-quality.md"
+  ],
+  "scope": "Compose the test kit into T1, T2, T5-host and chaos topologies of Nodes, State Store (redisserver behind faultproxy), mocks, IdP and OTLP sink, with per-Node port overlays rendered through ${E2E_*} variables, symlink swap, restart, handover, scrape and canary scan; cleanup on t.Cleanup (Drain, then kill after 35 s, logs kept on failure). 11 section 3, F 32, 42-43.",
+  "size": "M"
+ },
+ {
+  "id": "WP-69",
+  "title": "Configuration pipeline facade",
+  "wave": 5,
+  "dirs": [
+   "internal/config/pipeline/"
+  ],
+  "dependsOn": [
+   "WP-34",
+   "WP-35",
+   "WP-37",
+   "WP-39",
+   "WP-55",
+   "WP-56"
+  ],
+  "specs": [
+   "01-config-load.md",
+   "02-config-revision.md",
+   "03-cel.md"
+  ],
+  "scope": "Run(ctx, Options) for stages A to M with gating and full-stage collection, Options (sources, Environment, Variables, Compiler, Checks as hub.Checks, limits, worker count, and Serving, set only by ruralzd, which runs config/validate's serve check RZ-CFG-040 after stage M, R-75), FromResources re-entering at stage F from canonical content with the byte-identity and digest check (R-47), hub.Validated output with Revision, SecretUses (with destinations) and CEL sites; identical diagnostics for every binary. 01 N 51-55; 02 2.1 1-3, 2.15 77-78.",
+  "size": "M"
+ },
+ {
+  "id": "WP-70",
+  "title": "Snapshot compiler",
+  "wave": 5,
+  "dirs": [
+   "internal/gateway/compile/"
+  ],
+  "dependsOn": [
+   "WP-06",
+   "WP-34",
+   "WP-42",
+   "WP-46",
+   "WP-47",
+   "WP-48",
+   "WP-49",
+   "WP-50",
+   "WP-51",
+   "WP-59",
+   "WP-60",
+   "WP-61",
+   "WP-62",
+   "WP-63",
+   "WP-64",
+   "WP-65",
+   "WP-86"
+  ],
+  "specs": [
+   "04-dataplane-core.md",
+   "05-upstream-traffic.md",
+   "06-security.md",
+   "07-transform.md",
+   "03-cel.md"
+  ],
+  "scope": "hub.Validated plus secret.Store to snapshot.Snapshot: Consumers, CEL Builder seeded with the previous ProgramSet, Compiler.PrepareConsumer for every compiled Consumer and Compiler.PrepareRoute for every Route once its expr.Route is filled, one Filter per (Policy, scope, Phase set) via filter.Registry with carry-over by identity and canonical config, BuildEnv.Replayer, compiled Policies with When and SpanName, BodyNeeds, Route.Protocol (R-59), LegChains by Upstream and Legs (R-43), Routers, forwarders (upstream/forward, composition), listener TLS and RequestClientCert, Gateway limits (header cap, header_limit_capped), metric Plan (Shape.CachedRoutes filled from each Route's effective chains, hub.Chain), State Store handles (a new handle per snapshot and role, or the previous instance carried over without retaining it again, 2.14); W workers yielding every 100 us (OQ-performance-budgets-and-benchmarking-6 (a)). 04 I 55-56 (compile part); 05 A 1-4 (compile); 06 2.11 (listener TLS).",
+  "size": "L"
+ },
+ {
+  "id": "WP-71",
+  "title": "Built-in Filter tables",
+  "wave": 5,
+  "dirs": [
+   "internal/filter/builtin/"
+  ],
+  "dependsOn": [
+   "WP-47",
+   "WP-48",
+   "WP-49",
+   "WP-50",
+   "WP-51",
+   "WP-59",
+   "WP-60",
+   "WP-61",
+   "WP-62",
+   "WP-63",
+   "WP-88"
+  ],
+  "specs": [
+   "07-transform.md",
+   "00-architecture.md"
+  ],
+  "scope": "builtin.New(Deps) returns a *filter.Registry with every served PolicyType's Factory and the Node-wide Components (JWKS manager, token registry, basic throttle, rate-limit key table, cache revalidation pool; R-45) for ruralzd; builtin/checks.Table() returns hub.Checks for headers, transform.request, transform.response and validation.json-schema, importing only those packages so the CLI links no JOSE or State Store code (R-34); tests that the served set equals the registry served flags and that checks do not import jwt or statestore drivers (go list -deps).",
+  "size": "S"
+ },
+ {
+  "id": "WP-72",
+  "title": "CLI node commands",
+  "wave": 5,
+  "dirs": [
+   "internal/cli/node/"
+  ],
+  "dependsOn": [
+   "WP-14",
+   "WP-68"
+  ],
+  "specs": [
+   "10-cli.md"
+  ],
+  "scope": "node drain (Linux only: read holder.json, verify PID namespace, start time and the FLOCK WRITE line in /proc/locks, signal through a pidfd, await the PID; darwin and windows exit 2 per 10 req 97) and node dump (/config/dump to file or stdout). 10 2.11 93-100, 2.12 101-103.",
+  "size": "S"
+ },
+ {
+  "id": "WP-89",
+  "title": "Zero-Downtime handover",
+  "wave": 5,
+  "dirs": [
+   "internal/gateway/handover/"
+  ],
+  "dependsOn": [
+   "WP-14",
+   "WP-19",
+   "WP-21",
+   "WP-26",
+   "WP-44",
+   "WP-45",
+   "WP-52",
+   "WP-67"
+  ],
+  "specs": [
+   "04-dataplane-core.md",
+   "11-ops-quality.md"
+  ],
+  "scope": "ruralz.handover.v1 over handover.sock with SO_PEERCRED: ready, refused (older candidate, unknown_marker, draining, 60 s timeout), reload, accepted, 1 s usage reports, listening, CBPF steering swap, 3 s linger, released; shared ceilings from usage reports, cgroup soft memory limit, successor MAINPID then READY, holder Drain through gateway/drain; format marker constant in its own file for -overlay variants. 04 A 8, J 62-68; 11 G 44-45 (hooks).",
+  "size": "L"
+ },
+ {
+  "id": "WP-73",
+  "title": "Activation, Hot Reload and Last-Known-Good",
+  "wave": 6,
+  "dirs": [
+   "internal/gateway/reload/",
+   "internal/gateway/lkg/",
+   "internal/gateway/source/"
+  ],
+  "dependsOn": [
+   "WP-07",
+   "WP-14",
+   "WP-17",
+   "WP-21",
+   "WP-44",
+   "WP-45",
+   "WP-69",
+   "WP-70"
+  ],
+  "specs": [
+   "04-dataplane-core.md",
+   "02-config-revision.md",
+   "01-config-load.md"
+  ],
+  "scope": "Loader goroutine with pending slot and K gate (Holder.WaitActivate before compiling the latest pending Revision, 3.3 step 2), verify, pipeline with Options.Serving set on every run, including LKG and handover through FromResources (R-75), secret resolution (hub.SecretUse.Loc copied into secret.Use.Loc for RZ-CFG-026 positions), compile, bind via listener Binder, Binding set then publish (R-58), resolver Activate, LKG store (content and pointers, fsync protocol, format markers, cleanup, retry with lkg_write_failed), boot order incl. lkg_boot through FromResources, file-mode polling watcher (R-36) and SIGHUP, readiness reasons, activation metrics and revision info. 04 I 55-59; 01 N (runtime gating).",
+  "size": "L"
+ },
+ {
+  "id": "WP-74",
+  "title": "CLI bundle commands",
+  "wave": 6,
+  "dirs": [
+   "internal/cli/bundle/"
+  ],
+  "dependsOn": [
+   "WP-25",
+   "WP-34",
+   "WP-57",
+   "WP-58",
+   "WP-68",
+   "WP-69",
+   "WP-71"
+  ],
+  "specs": [
+   "10-cli.md",
+   "02-config-revision.md"
+  ],
+  "scope": "bundle validate, render (rendered, --effective --route, --api-version, --output-dir), diff (paths, URL sides via adminclient, impact summary), build (online Plugin stage behind OnlineChecker: RZ-CFG-028 per Plugin in M1); Environment selection, sources and limits flags, text and JSON outputs with exit codes. No command sets pipeline.Options.Serving, so the verbatim example Bundle validates, renders, diffs and builds without RZ-CFG-040 (R-75). 10 2.3 25-34, 2.4 35-39, 2.5 40-48, 2.6 49-57, 2.7 58-61.",
+  "size": "L"
+ },
+ {
+  "id": "WP-75",
+  "title": "Configuration conformance and golden corpus",
+  "wave": 6,
+  "dirs": [
+   "test/conformance/config/"
+  ],
+  "dependsOn": [
+   "WP-26",
+   "WP-53",
+   "WP-57",
+   "WP-58",
+   "WP-69",
+   "WP-71"
+  ],
+  "specs": [
+   "11-ops-quality.md",
+   "01-config-load.md",
+   "02-config-revision.md"
+  ],
+  "scope": "Golden corpus (canonical bytes, digests, render and effective outputs, diagnostics text and JSON) recorded after WP-28 defaults land (R-25 freeze), JSON subset, loader, hostile-input and negative corpora with exact codes and paths (every offline RZ-CFG code including 034 and 041; RZ-CFG-040 is Node-only, so the corpus never sets Options.Serving, R-75), examples validation through the pipeline; untagged tests in stage 5 on linux, floor and CLI platforms with identical digests. Cross-binary diagnostics equality is WP-79's. 11 B 12-17; 02 2.16 79.",
+  "size": "L"
+ },
+ {
+  "id": "WP-76",
+  "title": "ruralzd wiring",
+  "wave": 7,
+  "dirs": [
+   "internal/gateway/*.go (package root only)",
+   "cmd/ruralzd/"
+  ],
+  "dependsOn": [
+   "WP-07",
+   "WP-14",
+   "WP-34",
+   "WP-40",
+   "WP-41",
+   "WP-44",
+   "WP-45",
+   "WP-46",
+   "WP-53",
+   "WP-65",
+   "WP-66",
+   "WP-67",
+   "WP-70",
+   "WP-71",
+   "WP-73",
+   "WP-86",
+   "WP-89"
+  ],
+  "specs": [
+   "04-dataplane-core.md",
+   "09-observability.md",
+   "08-statestore.md",
+   "06-security.md"
+  ],
+  "scope": "gateway.Run supervisor: settings (MAC key file), telemetry Runtime, data dir and lock, handover successor path, admin server with injected /metrics, /config/dump (canonical AppendDump over the published snapshot) and /debug/upstreams handlers (R-57), State Store manager with memory.Open and redis.Open (R-54), secret resolver, upstream manager, builtin.New with Deps and the replay service, running every filter.Component, resolver poller, upstream scheduler and post-commit writers on owned goroutines (R-45), CEL compiler, reload loop, listener set, signal handling (SIGHUP rescan, SIGTERM/SIGINT drain), shutdown order (components cancelled after the last snapshot retired), exit codes 0/1/2; cmd/ruralzd stays wiring only. The real gateway.Run never prints sizegate's M0 stub message ('Ruralz Gateway is not implemented yet; it is Planned (M1)'). Lead step at the wave 7 merge (convention 7; WP-76 may not edit internal/tool/sizegate, 4.1 rule 1): delete notImplemented, stubMessage and the skip branches in internal/tool/sizegate/rss.go and main.go, the 'M0 stub' table cases and TestNotImplemented in sizegate_test.go, and the -annotate skip-warning path (keep -annotate accepted as a no-op, or delete it together with ANNOTATE_FLAG in the Makefile); from then on the 89 MiB idle RSS gate is enforced. 04 A 1-4, I 58, J 60-63 (wiring).",
+  "size": "L"
+ },
+ {
+  "id": "WP-77",
+  "title": "CLI launcher, dev commands and root",
+  "wave": 7,
+  "dirs": [
+   "internal/cli/launch/",
+   "internal/cli/dev/",
+   "internal/cli/*.go (package root only)",
+   "cmd/ruralz/"
+  ],
+  "dependsOn": [
+   "WP-25",
+   "WP-58",
+   "WP-68",
+   "WP-72",
+   "WP-74"
+  ],
+  "specs": [
+   "10-cli.md"
+  ],
+  "scope": "launch: private dir, render to one-file Bundle with atomic rename, watch and re-render, ephemeral ports mapping line, secret overrides, child ruralzd process and readiness, SIGTERM then SIGKILL, exit 130; dev run and dev tap; root Run with SignalContext, registry, root and noun help, planned-command table, version, completion wiring. 10 2.9 70-85, 2.10 86-92, 2.13 104-105, 2.15 109-112.",
+  "size": "L"
+ },
+ {
+  "id": "WP-78",
+  "title": "Cross-package property suites",
+  "wave": 7,
+  "dirs": [
+   "test/property/"
+  ],
+  "dependsOn": [
+   "WP-26",
+   "WP-37",
+   "WP-42",
+   "WP-57",
+   "WP-58",
+   "WP-69",
+   "WP-73"
+  ],
+  "specs": [
+   "11-ops-quality.md",
+   "02-config-revision.md"
+  ],
+  "scope": "testing.F properties spanning packages: YAML and JSON digest equality and reorder invariance through pipeline.Run, conversion round trip through convert and canonical, render idempotence through the pipeline, diff laws over pipeline outputs, LKG file-mode property through reload with a fake source; seeds from testkit/corpus; each target registered for the nightly fuzz plan. Package-level targets stay with their owners (WP-33, 34, 36, 38, 39, 42, 57, 58, 61). 11 D 25-27.",
+  "size": "M"
+ },
+ {
+  "id": "WP-79",
+  "title": "End-to-end suite",
+  "wave": 8,
+  "dirs": [
+   "test/e2e/"
+  ],
+  "dependsOn": [
+   "WP-52",
+   "WP-53",
+   "WP-76",
+   "WP-77",
+   "WP-87"
+  ],
+  "specs": [
+   "11-ops-quality.md",
+   "10-cli.md"
+  ],
+  "scope": "Scenarios 1, 2, 6, 7; one end-to-end test per M1 command (10 section 6.6); stage 8 process-level ruralz bundle validate over examples/ per Environment (integration tag, 11 req 1); cross-binary diagnostics equality (ruralz vs ruralzd, 11 req 16) on M1-servable fixtures or excluding RZ-CFG-040 (R-75); secret leak canaries in every run (11 req 39); air-gapped process variant (11 req 40); T1 real-binary dev run and T2 topologies; Hot Reload and LKG (11 req 38); handover and Drain verification with zero failed requests (11 G 44, 46-48, reduced counts); quickstart under 10 minutes (SM-7). 11 F 32-43, G 44-48.",
+  "size": "L"
+ },
+ {
+  "id": "WP-80",
+  "title": "Chaos experiments and chaos at scale",
+  "wave": 8,
+  "dirs": [
+   "test/chaos/*.go (package root only)",
+   "test/chaos/testdata/",
+   ".github/workflows/chaos-scale.yml"
+  ],
+  "dependsOn": [
+   "WP-41",
+   "WP-52",
+   "WP-76",
+   "WP-87"
+  ],
+  "specs": [
+   "11-ops-quality.md",
+   "08-statestore.md",
+   "05-upstream-traffic.md"
+  ],
+  "scope": "CE-1 to CE-6, CE-12, CE-15, CE-16 with faultproxy, signals and redis commands, at a scale chosen by RURALZ_CHAOS_SCALE=reduced|nightly|target (localOnly and first-seen assertions per OQ-scalability-and-distributed-state-11 (a)); every asserted degraded state visible as a metric. chaos-scale.yml (weekly, workflow_dispatch, workflow_call) on the self-hosted RH-1 runner, runs-on [self-hosted, rh-1] (OQ-testing-and-quality-strategy-11 (b), user decision 2026-10-03), serialized with the latency rotation; until the repository variable RH1_PROVISIONED is true it fails with the 'RH-1 not provisioned' annotation nightly.yml uses: CE-5 with at least 100 Nodes (11 req 54), CE-15 at 100,000 new keys per second (req 57) and CE-12 at 1,000,000 calls per second (WP-97 provisions RH-1). 11 H 49-58.",
+  "size": "L"
+ },
+ {
+  "id": "WP-81",
+  "title": "Benchmark harness, gates and records",
+  "wave": 8,
+  "dirs": [
+   "test/bench/harness/",
+   "test/bench/allocgate.json",
+   "test/bench/record.schema.json"
+  ],
+  "dependsOn": [
+   "WP-26",
+   "WP-27",
+   "WP-52",
+   "WP-66",
+   "WP-76"
+  ],
+  "specs": [
+   "11-ops-quality.md",
+   "04-dataplane-core.md",
+   "09-observability.md"
+  ],
+  "scope": "Macro harness with a LoadTool adapter (oha primary with --latency-correction, vegeta cross-check for S1; OQ-performance-budgets-and-benchmarking-1 (a)), measurement rules (rate ladder, warm-up stability, five interleaved A/B runs, validity checks; 11 req 73), macro p99 gate and absolute gate over every budget, throughput target, scenario criterion and constants row (req 74), latency job rotation (req 75), result records and publication (req 77), budget table for PB-1 to PB-4, PB-6 to PB-11, PB-14 to PB-16 with SLO links (req 71), soak driver (S2 at half saturation for 2 hours, RSS drift and goroutines; req 79), memory runs (req 78), component and CEL benchmark registration (req 80), PB-7 and PB-8 measurement hooks, cold-start and Hot Reload ladder measurements (req 81), budget export for releasekit notes (req 99); allocgate.json lists every package benchmark with owners, including BenchmarkSampledTrace15Spans (internal/telemetry/tracing, owner WP-10) at 90 allocs/op (R-69); record.schema.json. The harness is host-agnostic and dry-runs locally with the Go generator (numbers informational). 11 I 62-80.",
+  "size": "L"
+ },
+ {
+  "id": "WP-82",
+  "title": "Protocol conformance",
+  "wave": 8,
+  "dirs": [
+   "test/conformance/protocol/"
+  ],
+  "dependsOn": [
+   "WP-26",
+   "WP-76"
+  ],
+  "specs": [
+   "11-ops-quality.md",
+   "04-dataplane-core.md",
+   "06-security.md"
+  ],
+  "scope": "HTTP/1.1 and HTTP/2 wire suite with x/net/http2 Framer and hpack: framing rejections RZ-RT-017, header limits, hop-by-hop removal, h2c prior knowledge, GOAWAY on drain, Host and X-Forwarded-Host per R-28, encoded NUL and backslash and percent-encoded control bytes (OQ-security-and-identity-21 (a)), PROXY v2 LOCAL accepted whatever its family byte (R-65), TLS cases. 11 C 21-24.",
+  "size": "M"
+ },
+ {
+  "id": "WP-90",
+  "title": "Benchmark scenarios, R1 generator and functional variants",
+  "wave": 8,
+  "dirs": [
+   "test/bench/scenarios/",
+   "test/bench/gen/",
+   "test/bench/functional/"
+  ],
+  "dependsOn": [
+   "WP-69",
+   "WP-76",
+   "WP-87"
+  ],
+  "specs": [
+   "11-ops-quality.md",
+   "04-dataplane-core.md",
+   "05-upstream-traffic.md"
+  ],
+  "scope": "Scenario Bundles S1, S2 (PBB verbatim with the lab-host overlay), S3, S5, S5x, O1 (O1a, O1b), O2, C1, C2, G1 and the soak scenario, using only CM fields, validated in stage 5 through pipeline.Run with recorded digests (11 req 69-70); R1 ladder generator for R = 100 to 17,000 with the alternating Revisions (req 81); functional reduced-scale variants run locally and in the nightly job with pass criteria scaled from req 72 (O1 admitted plus RZ-RT-005 within offered, O2 in-flight plateau at a lowered ceiling with skipped counted, C1 connection memory rows, C2 existing-connection p99 under a handshake burst) and the constants runs of req 82 at reduced scale (stream 251 refused, plain 431, pre-routing writes, K = 2 under activations, 512 MiB buffered bytes flood, rate-limit key table, post-commit queue, State Store in-flight). 11 I 69-72, 81-82.",
+  "size": "L"
+ },
+ {
+  "id": "WP-91",
+  "title": "Node integration: CEL and telemetry",
+  "wave": 8,
+  "dirs": [
+   "test/integration/cel/",
+   "test/integration/telemetry/"
+  ],
+  "dependsOn": [
+   "WP-26",
+   "WP-76",
+   "WP-84",
+   "WP-85"
+  ],
+  "specs": [
+   "03-cel.md",
+   "09-observability.md",
+   "11-ops-quality.md"
+  ],
+  "scope": "Against a built ruralzd (integration tag, stage 8): the per-place CEL runtime-error matrix (03 test 25: RZ-RT-006 without fallthrough, RZ-AUTH-010/015, RZ-RL-004/005, RZ-RT-011/012/015, ruralz_upstream_cel_errors_total per field, accessLog.when error writes the entry, Policy.spec.when errors under closed and open, asserted through ruralz_filter_failures_total{phase,mode}, the access log failure_modes and the ruralz.filter.<name> span attributes ruralz.failure_mode and error.type, with no span event, R-67) with memory and redis drivers; Hot Reload rejecting RZ-CFG-014 and reusing programs (03 test 26); ADR10 blocked-stdout test (09 test 39); telemetry Hot Reload A to B to none (09 test 40); the roadmap cardinality test: 1,000 Hot Reloads of a 1,000-Route Bundle with pinned streams (09 test 41, req 56); gateway_duration excludes the GCRA round trip (09 test 42).",
+  "size": "M"
+ },
+ {
+  "id": "WP-92",
+  "title": "Node integration: security",
+  "wave": 8,
+  "dirs": [
+   "test/integration/security/"
+  ],
+  "dependsOn": [
+   "WP-26",
+   "WP-76",
+   "WP-84",
+   "WP-85"
+  ],
+  "specs": [
+   "06-security.md",
+   "11-ops-quality.md"
+  ],
+  "scope": "06 6.5 against ruralzd with TLS listeners: JWKS rotation, stale keys and prefetch; mTLS request-mode switch on Hot Reload with GOAWAY and 421; upstream TLS and mTLS, wrong CA RZ-UP-002; auth.upstream-oauth2 single fetch under 200 concurrent requests and forced expiry; State Store TLS with requirepass, state_store_unauthenticated, uncredentialed non-loopback URL RZ-CFG-026; admin 9901 matrix over real sockets; basic-auth throttle under load; secret-to-destination binding (a Bundle reusing a key as clientSecret rejected, RZ-CFG-041) and entry MAC with RURALZ_STATE_STORE_MAC_KEY_FILE (tampered entries are misses) (R-49).",
+  "size": "M"
+ },
+ {
+  "id": "WP-93",
+  "title": "Node integration: State Store and round trip",
+  "wave": 8,
+  "dirs": [
+   "test/integration/statestore/"
+  ],
+  "dependsOn": [
+   "WP-26",
+   "WP-41",
+   "WP-76",
+   "WP-85"
+  ],
+  "specs": [
+   "05-upstream-traffic.md",
+   "08-statestore.md",
+   "11-ops-quality.md"
+  ],
+  "scope": "Node-level State Store scenarios per available flavor (process locally; container flavors in the CI stage 8 leg): NOSCRIPT after SCRIPT FLUSH applies failureMode with exactly one command and reloads off path (05 test 30, 11 req 30); cluster same-slot script, different-slot sequential stop at first deny, never CROSSSLOT (05 test 31); a full post-commit queue drops with counters and never delays the response (11 req 30); the ADR8 round-trip test through respproxy between a Node and redis-server: zero commands for local denials and over-limit or denial-cache hits, at most one blocking command per admitted request per Policy, one shared script for same-slot keys, two pipelined commands per cache lookup (05 test 34, 08 6.4 item 9, 11 req 31).",
+  "size": "M"
+ },
+ {
+  "id": "WP-94",
+  "title": "T5 systemd verification",
+  "wave": 8,
+  "dirs": [
+   "test/t5/",
+   ".github/workflows/t5-systemd.yml"
+  ],
+  "dependsOn": [
+   "WP-52",
+   "WP-54",
+   "WP-76",
+   "WP-87",
+   "WP-89"
+  ],
+  "specs": [
+   "11-ops-quality.md",
+   "04-dataplane-core.md"
+  ],
+  "scope": "systemd-analyze verify of deploy/systemd with ExecStart rewritten to a built binary (integration tag, stage 8 through make integration, skipped with a reason without systemd-analyze); live test (build tag t5) run by t5-systemd.yml on a GitHub-hosted Ubuntu runner with sudo (weekly, workflow_dispatch, workflow_call): install the unit and helper, start with a valid Bundle and with none, 20 systemctl reload handovers under load with the 9901 keep-alive checker (zero failed requests, MainPID equals the successor, old PID exits by 28 s), a refused handover (non-zero reload, service stays on the old PID), systemctl stop within 40 s with status 0, systemctl kill -s SIGKILL then automatic restart booting Last-Known-Good (11 req 86; OQ-zero-downtime-upgrades-and-hot-reload-7 (a) evidence before 0.1.0).",
+  "size": "M"
+ },
+ {
+  "id": "WP-95",
+  "title": "Compose end-to-end and air-gapped image start",
+  "wave": 8,
+  "dirs": [
+   "test/compose/",
+   ".github/workflows/image-checks.yml"
+  ],
+  "dependsOn": [
+   "WP-53",
+   "WP-54",
+   "WP-76",
+   "WP-77",
+   "WP-84"
+  ],
+  "specs": [
+   "11-ops-quality.md",
+   "09-observability.md"
+  ],
+  "scope": "Docker Compose file-mode suite (build tag compose): ruralzd image built from dist binaries with deploy/container/Dockerfile (or a given image digest), redis, a mock upstream image built from testkit/mockup, and an OpenTelemetry Collector with a file exporter; covers the roadmap scenarios (quickstart, --effective --route, bundle diff against /config/dump, Zero-Downtime Upgrade) and 09 test 48 (spans, metrics and logs reach the Collector; the requestId of a 404 finds its access-log line and trace); air-gapped image variant: the image by digest on a Docker --internal network with only the fixtures, every M1 feature path serving (11 req 40). image-checks.yml runs nightly and via workflow_call with an image-digest input (stage 12). R-51.",
+  "size": "M"
+ },
+ {
+  "id": "WP-99",
+  "title": "Game-day drills and failure rows",
+  "wave": 8,
+  "dirs": [
+   "test/chaos/gameday/"
+  ],
+  "dependsOn": [
+   "WP-41",
+   "WP-52",
+   "WP-76",
+   "WP-87"
+  ],
+  "specs": [
+   "11-ops-quality.md",
+   "08-statestore.md",
+   "05-upstream-traffic.md",
+   "06-security.md"
+  ],
+  "scope": "GD-1 to GD-5 automated drills (restart RTO, zone loss with scripted failover, black-hole, partition, State Store rebuild), failure rows FC-16 (JWKS unreachable), FC-19 (DNS failure with the stdlib DNS responder), FC-20 (file mode), FC-21 (file secret missing at cold start), and the TQ row 'Upstream Endpoints reset or slowed' with RZ-UP codes; run by the nightly Chaos job. 11 H 59-61.",
+  "size": "M"
+ },
+ {
+  "id": "WP-96",
+  "title": "Stage 12 release workflows and gates",
+  "wave": 9,
+  "dirs": [
+   ".github/workflows/release.yml",
+   ".github/workflows/release-build.yml",
+   ".github/workflows/release-verify.yml",
+   "internal/tool/releasegate/"
+  ],
+  "dependsOn": [
+   "WP-27",
+   "WP-54",
+   "WP-79",
+   "WP-80",
+   "WP-81",
+   "WP-82",
+   "WP-90",
+   "WP-91",
+   "WP-92",
+   "WP-93",
+   "WP-94",
+   "WP-95",
+   "WP-99"
+  ],
+  "specs": [
+   "11-ops-quality.md",
+   "06-security.md"
+  ],
+  "scope": "release.yml on v* tags (release candidates and releases): re-run pr-fast, pr-full, main and nightly on the tagged commit through workflow_call with all: true (11 req 7, 11), including the secret leak assertions of stage 10 (req 39); t5-systemd.yml and chaos-scale.yml on the candidate; release gates on the candidate commit through releasegate (req 105: every stage green, golden byte-exact, conformance 100%, zero open fuzz-crasher issues and a seed per fixed crasher, every chaos experiment passed on this commit, security scanning green, benchmarks within 5% p99 and 3% alloc/op of the previous release or, for 0.1.0, the absolute budgets from WP-97 records, else a 'Skipped gates' entry with an Environment reviewer's approval); the ADR2 release audit per tag (req 100: repocheck no-license scan, depgate G2/G3 per binary and platform, LICENSE, NOTICE and THIRD_PARTY_LICENSES per archive and image); release-build.yml reusable workflow (stage 4 flags with -s -w, archives, SHA256SUMS, schema assets, Syft CycloneDX 1.7 SBOMs, cosign keyless signing, GitHub attestations, images pushed by digest; req 88-97, 104 permissions, Environment release); image-checks.yml with the release image digest (Compose and air-gapped image start; req 40); release-verify.yml (req 98); GitHub Release as a draft until every gate and verification passes, then published (req 101). releasegate is a stdlib tool with a fake GitHub API in tests. The lead deletes internal/tool/modpin before this wave (R-61).",
+  "size": "L"
+ },
+ {
+  "id": "WP-97",
+  "title": "RH-1 provisioning, budget runs and soak",
+  "wave": 9,
+  "dirs": [
+   "deploy/benchhost/"
+  ],
+  "dependsOn": [
+   "WP-81",
+   "WP-90"
+  ],
+  "specs": [
+   "11-ops-quality.md",
+   "00-architecture.md"
+  ],
+  "scope": "Maintainer package (4.1 rule 7): provision RH-1 per the PBB hardware spec under OQ-performance-budgets-and-benchmarking-2 (b) (rented bare metal, owner decision), with host preparation scripts (cpusets, governor, sysctls, NIC settings, fingerprint check) under deploy/benchhost/, and register an ephemeral self-hosted runner labeled rh-1 that runs only scheduled or dispatched jobs from protected branches and tags, never pull-request code; run the nightly Latency rotation (11 req 75), the gating runs of PB-1 to PB-4, PB-6 to PB-11, PB-14 to PB-16 (req 71-74), the soak (req 79), CE-12 at 1,000,000 calls per second with the RH-1 State Store host (req 56), publish the records (req 77) and export the budget results for the 0.1.0 notes (req 99).",
+  "size": "M"
+ },
+ {
+  "id": "WP-98",
+  "title": "0.1.0 release candidate, cut and repository settings",
+  "wave": 10,
+  "dirs": [
+   "scripts/repo-settings.sh",
+   "docs/engineering/04-release-versioning-and-compatibility.md (release runbook section only)"
+  ],
+  "dependsOn": [
+   "WP-96"
+  ],
+  "specs": [
+   "11-ops-quality.md"
+  ],
+  "scope": "Maintainer package (4.1 rule 7): scripts/repo-settings.sh applies and reads back, through gh api, the branch protection of main and develop with pr-fast and pr-full as required checks and the merge queue (11 req 4), the GitHub Environment release with required reviewers from outside the author's team and tag deployment rules (req 104, 105), GHCR package write for the release image job only; the release runbook section records the steps. Then tag v0.1.0-rc.1 (signed release candidate) at least 2 weeks before v0.1.0 (req 90), run release.yml on it and fix until green, and tag v0.1.0; confirm SM-12 (100% of artifacts signed) with release-verify (exit criterion 1). Release notes carry WP-97's budget results, or list the latency gate under 'Skipped gates' with its approver when RH-1 is not provisioned (M1 then ships 0.1.0 but does not exit, criteria 2 and 3).",
+  "size": "S"
+ }
+]

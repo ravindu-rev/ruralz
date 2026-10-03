@@ -1,0 +1,1737 @@
+[
+ {
+  "n": 131,
+  "action": "forward",
+  "targets": [
+   "WP-81"
+  ],
+  "duplicateOf": 0,
+  "summary": "allocgate.json schema and the bench-latency and soak make targets that WP-81's harness must fit",
+  "change": "internal/tool/benchgate (WP-27, done) reads test/bench/allocgate.json and rejects unknown fields and trailing data. Top level: runs (default 10), threshold (default 0.03; absent means the default, and 0 is allowed), gomaxprocs (default 4), benchmarks. Each benchmark entry has package (exactly one './'-prefixed package dir, no '...'), pattern (a -test.bench regexp, required; package plus pattern must be unique), benchtime (a fixed count '<N>x', default 2000x), and optional maxAllocs (absolute cap, such as PB-8's 30), owner, budget (such as 'PB-8') and note. benchgate reads the head's copy, so scripts/ci-approvals.sh requires two approvals for any change to the file. make bench-latency installs oha and vegeta and runs `go test -tags e2e -p 1 -run '^TestLatency' -timeout 175m ./test/bench/harness/...` with RURALZ_BENCH_OHA and RURALZ_BENCH_VEGETA (tool paths in bin/) and RURALZ_BENCH_RECORDS (records dir, default dist/bench, which `releasekit notes -budgets` reads); make soak reruns it with -run '^TestSoak' and a 150m timeout. Harness tests therefore carry //go:build e2e and are named TestLatency* or TestSoak*; the target prints a skip line until test/bench/harness has a _test.go file."
+ },
+ {
+  "n": 132,
+  "action": "forward",
+  "targets": [
+   "WP-54"
+  ],
+  "duplicateOf": 0,
+  "summary": "releasekit subcommand contract as the Makefile already calls it",
+  "change": "make release-dry-run (WP-27, fixed by 4.1 rule 3) runs from the repo root. Step 1 removes dist/release, then runs `go run ./internal/tool/releasekit package -dist dist -out dist/release -version V -commit C`, which writes the archives, dist/notices/<bin>_<os>_<arch>/ for the Dockerfile (recreate it on every run; only dist/release is removed), the schema assets and release-manifest.json. Step 2 runs Syft itself (`syft scan file:<archive> -o cyclonedx-json@1.7=<archive>.cdx.json` for each .tar.gz and .zip). Step 3 runs `releasekit checksums -dir dist/release`, then `releasekit notes -from <previous v* tag, or the literal root> -to HEAD -budgets dist/bench -skipped <FILE or ''> -out dist/release/NOTES.md` (an empty -skipped means no skipped gates), then `releasekit verify -manifest dist/release/release-manifest.json`, and finally `cd dist/release && sha256sum -c --quiet SHA256SUMS`, so SHA256SUMS must be GNU format with names relative to dist/release; the .cdx.json files already exist when checksums runs, so decide and document whether they are listed. make release then runs `cosign sign-blob --yes --bundle dist/release/SHA256SUMS.sigstore.json dist/release/SHA256SUMS`, so releasekit never signs, never runs Syft and never runs sha256sum. Exit 1 on findings and 2 on usage or I/O errors (tools-ci convention); the target skips packaging while internal/tool/releasekit has no .go files."
+ },
+ {
+  "n": 133,
+  "action": "forward",
+  "targets": [
+   "WP-96"
+  ],
+  "duplicateOf": 0,
+  "summary": "Inputs, permissions and the RH-1 skipped gate that release.yml must handle",
+  "change": "pr-fast, pr-full, main and nightly each expose workflow_call with a boolean input `all`. pr-full also takes `bench-base` (the alloc/op baseline ref: pass the previous release tag, or '' for 0.1.0, which checks only the absolute caps), and nightly also takes `fuzztime` (default 15m). release.yml calls each with all: true and grants what the called jobs declare: contents, pull-requests and issues read for pr-full; actions: read plus issues: write for nightly, which opens nightly-failure and fuzz-crasher issues. Nightly's Latency job fails with an 'RH-1 not provisioned' annotation until the repository variable RH1_PROVISIONED is 'true' (WP-97). A candidate without RH-1 must therefore record Latency and the RH-1 budget gates under 'Skipped gates', with the Environment reviewer's approval, instead of failing or passing silently. make release-gates runs `go run ./internal/tool/releasegate $(RELEASEGATE_FLAGS)` and skips while the package has no .go files, so pass releasegate's flags through RELEASEGATE_FLAGS."
+ },
+ {
+  "n": 134,
+  "action": "forward",
+  "targets": [
+   "WP-33",
+   "WP-35"
+  ],
+  "duplicateOf": 0,
+  "summary": "Layout the vendoring script writes for the YAML and JSON-Schema test suites",
+  "change": "scripts/update-test-suites.sh (WP-27) pins each suite by commit and by the SHA-256 of `git archive`. It vendors test/fixtures/yaml-test-suite/data/<ID>/... from the data-2022-01-17 release, without its name/ and tags/ symlink indexes, and test/fixtures/json-schema-test-suite/data/tests/draft2020-12/ and data/remotes/ at commit 5b0ee16. Each suite directory also gets LICENSE and SOURCE (MIT). The script replaces only data/, LICENSE and SOURCE, so keep test/fixtures/yaml-test-suite/expected-failures.txt (and any JSON skip list) next to data/, never inside it; run `scripts/update-test-suites.sh yaml` (WP-33) or `scripts/update-test-suites.sh json-schema` (WP-35) and commit the output. .gitattributes stores both data/** trees byte for byte (-text, linguist-vendored), so runners must not normalize line endings. The suite's remotes/ files answer http://localhost:1234/ references: WP-35's test runner preloads them as in-memory resources (the production schemaview compiler keeps its refusing loader) or skips refRemote cases with a recorded reason."
+ },
+ {
+  "n": 135,
+  "action": "forward",
+  "targets": [
+   "WP-80",
+   "WP-94",
+   "WP-95",
+   "WP-99"
+  ],
+  "duplicateOf": 0,
+  "summary": "Make targets, tags and env the chaos-scale, T5 and image-checks workflows call",
+  "change": "Your workflows call make targets that WP-27 already defined (4.1 rule 3); each target skips while its suite directory has no _test.go file. make chaos-scale runs `RURALZ_CHAOS_SCALE=target go test -tags e2e -p 1 -timeout 170m ./test/chaos/...` (nightly's Chaos job uses CHAOS_SCALE=nightly; the local default is reduced), so every suite under test/chaos, test/chaos/gameday (WP-99) included, carries //go:build e2e and reads RURALZ_CHAOS_SCALE (reduced, nightly or target). make t5 runs `go test -tags t5 -p 1 -timeout 60m ./test/t5/...` (the live test is //go:build t5), and make image-checks runs `go test -tags compose -p 1 -timeout 60m ./test/compose/...` (//go:build compose). Stage 8 (make integration: `go test -race -tags integration,netgo,osusergo ./...` with bin/ on PATH) runs no systemd-analyze itself: WP-94's //go:build integration test under test/t5 provides `systemd-analyze verify` and skips with a reason when the tool is missing. TEST_FLAGS passes extra go test flags (such as -run). Each workflow exposes workflow_call so that release.yml (WP-96) can call it."
+ },
+ {
+  "n": 136,
+  "action": "docfix",
+  "targets": [
+   "docs/architecture/12-performance-budgets-and-benchmarking.md",
+   "docs/engineering/03-testing-and-quality-strategy.md"
+  ],
+  "duplicateOf": 0,
+  "summary": "CI tooling rows already exist; document the perf-override label rule and RH1_PROVISIONED",
+  "change": "The CI tooling rows are already in the uncommitted WP-32 working tree: docs/engineering/01-tech-stack-and-libraries.md lines 348-354 list actionlint v1.7.12, promtool from Prometheus v3.15.0, oha v1.16.0, vegeta v12.13.0, cosign v3.1.3, Syft v1.52.0 with CycloneDX 1.7, upload-artifact v7.0.1 043fb46d and download-artifact v8.0.1 3e5f45b2. Only the two rules are missing from docs. In doc 12 'Regression policy and gates', replace 'An override needs recorded maintainer approval;' with 'An override needs recorded maintainer approval: in `pr-full` it is the `perf-override` label applied by a maintainer (repository role admin or maintain) other than the author, after which the gates job reports failures without failing (`scripts/ci-approvals.sh perf-override`);'. In doc 12 'Reference hardware' (line 169) and in doc 03's Test pyramid Latency row (line 60), state that the job runs on `rh-1` only once the repository variable `RH1_PROVISIONED` is `true`, which is set after the runner is registered (WP-97), and until then fails with the 'RH-1 not provisioned' annotation. WP-32 owns these documents and is done: edit the working-tree versions, bump last_updated, and commit them with WP-32's other edits."
+ },
+ {
+  "n": 137,
+  "action": "forward",
+  "targets": [
+   "WP-97"
+  ],
+  "duplicateOf": 0,
+  "summary": "After registering the rh-1 runner, set the repository variable RH1_PROVISIONED=true",
+  "change": "nightly.yml selects runs-on [self-hosted, rh-1] for the Latency job only when the repository variable RH1_PROVISIONED is 'true'; otherwise the job runs on ubuntu-latest and fails with an 'RH-1 not provisioned' error annotation. After registering the ephemeral rh-1 runner (protected branches and tags only, never pull-request code), set the variable through Settings > Secrets and variables > Actions > Variables, or with `gh api -X POST repos/ravindu-rev/ruralz/actions/variables -f name=RH1_PROVISIONED -f value=true`. Record that in WP-97's evidence, and unset the variable if the runner is retired. This is a repository-administration step that the user or a maintainer executes (4.1 rule 7), not an engineer agent."
+ },
+ {
+  "n": 138,
+  "action": "forward",
+  "targets": [
+   "WP-54"
+  ],
+  "duplicateOf": 0,
+  "summary": "dist/ layout before releasekit package; never archive the ruralz-control stub",
+  "change": "When `releasekit package` runs, dist/<os>_<arch>/ holds three binaries. ruralzd is there for linux/amd64 and linux/arm64 (production) and for darwin/arm64 and darwin/amd64 (development-only archives built by release-dry-run, not by stage 4). ruralz is there for linux/{amd64,arm64}, darwin/{arm64,amd64} and windows/amd64 (ruralz.exe, archived as .zip). ruralz-control is there for linux/{amd64,arm64}; it is the M2 stub and package must not archive it (11 req 91: no ruralz-control archive until M2). dist/ also holds non-platform directories (dist/bench, dist/fuzz, dist/notices and the -out directory dist/release itself), so package reads only directories named <os>_<arch> and fails when an expected binary is missing instead of skipping it. Add a test over a fake dist tree that contains those extra directories and the ruralz-control binaries."
+ },
+ {
+  "n": 139,
+  "action": "arch",
+  "targets": [
+   "architecture",
+   "wps.json"
+  ],
+  "duplicateOf": 0,
+  "summary": "Make WP-76 drop the stub message; lead removes sizegate's M0-stub skip at the wave 7 merge",
+  "change": "Add to WP-76 in 4.4 and in wps.json that the real gateway.Run never prints 'Ruralz Gateway is not implemented yet; it is Planned (M1)' (sizegate's stubMessage). Its 'Done when' should include `make gates GATES=size` measuring idle RSS on Linux. Add a lead step at the wave 7 merge (convention 7), because WP-76 may not edit internal/tool/sizegate (4.1 rule 1). In that step the lead deletes notImplemented, stubMessage and the skip branches in internal/tool/sizegate/rss.go and main.go, plus the 'M0 stub' table cases and TestNotImplemented in sizegate_test.go. The lead also removes the -annotate skip-warning path, either keeping -annotate accepted as a no-op or deleting it together with ANNOTATE_FLAG in the Makefile, which passes -annotate under GitHub Actions. From then on the 89 MiB idle RSS gate is enforced."
+ },
+ {
+  "n": 140,
+  "action": "done",
+  "targets": [],
+  "duplicateOf": 0,
+  "summary": "Stage 5 trigger already widened to test/conformance/config/ (uncommitted WP-32 edit)",
+  "change": "Done in the working tree: in docs/engineering/02-repository-layout-and-conventions.md, CI stage 5's trigger now reads 'Go changes, `examples/` or `test/conformance/config/`', and its description covers the untagged configuration conformance suite on the CLI platforms. scripts/ci-changes.sh line 60 implements the same filter for stage 5 and the floor job. These WP-32 edits are not committed yet: HEAD db067ab has no WP-32 commit and msgs-B.json omits WP-32, so the lead must commit WP-32's seven modified documents."
+ },
+ {
+  "n": 141,
+  "action": "docfix",
+  "targets": [
+   "docs/engineering/02-repository-layout-and-conventions.md",
+   "docs/architecture/12-performance-budgets-and-benchmarking.md"
+  ],
+  "duplicateOf": 0,
+  "summary": "Document the allocgate.json two-approval rule and that perf-override does not re-run pr-full",
+  "change": "Doc 02, 'Pull request rules' (line 515): extend 'The approval count also requires two approvals for ... and for `.github/`, ...' with: 'and for the alloc/op gate list `test/bench/allocgate.json`, because `benchgate` reads the head's copy, so raising a cap or the threshold, or dropping an entry, would otherwise loosen the stage 9 gate without the `perf-override` label (11 req 66)'. Doc 12, 'Regression policy and gates', directly after the override sentence that request 136 adds: 'Applying the label does not re-run `pr-full`; a maintainer re-runs its gates job, whose summary says so.' WP-32 owns both documents and is done: edit the uncommitted working-tree versions and bump last_updated."
+ },
+ {
+  "n": 142,
+  "action": "repometa",
+  "targets": [
+   "CONTRIBUTING.md",
+   "AGENTS.md",
+   ".claude/rules/tools-ci.md"
+  ],
+  "duplicateOf": 0,
+  "summary": "Bring the contributor and agent guides up to the M1 make targets, tools and approval list",
+  "change": "CONTRIBUTING.md: `make tools` installs golangci-lint, govulncheck, actionlint and promtool. In its target table, lint adds actionlint, generate also diffs the alert rules and Grafana dashboards (deploy/grafana), build adds -s -w, and test includes ./test/conformance/config. Add rows for integration (8), gates (9, GATES=alloc|size), e2e and quickstart (10), nightly with NIGHTLY_JOB=fuzz|chaos|latency plus fuzz, chaos and bench-latency (11), chaos-scale, soak, t5 and image-checks (their own workflows), and release-dry-run, release and release-gates (12); add test/bench/allocgate.json to its two-approval list. AGENTS.md: add a stages 8 to 12 row to the Commands table, noting that integration, bench-latency, release-dry-run and release download tools; the Lint row says it needs golangci-lint and actionlint in bin/; add test/bench/allocgate.json to the two-approval list in 'Commits and pull requests'. .claude/rules/tools-ci.md: list the stage 8 to 12 targets beside stages 1 to 6, add actionlint, promtool, oha, vegeta, cosign and syft to the pinned-tool list, say that examples/ and test/conformance/config/ changes trigger stage 5 and the floor job, and add test/bench/allocgate.json and the perf-override subcommand to the ci-approvals.sh line; replace 'nightly.yml only reruns stage 6 ... Planned (M1)' with the Fuzz (eight shards), Chaos, Latency (rh-1 when RH1_PROVISIONED=true) and stage 6 rescan jobs, and drop the stale 'Not implemented yet: metric and span name checks' item, since WP-12 added them to repocheck. Commit with a `chore:` title."
+ },
+ {
+  "n": 77,
+  "action": "done",
+  "targets": [],
+  "duplicateOf": 0,
+  "summary": "Header line of WP-14's list; no contract change requested",
+  "change": "Informational header only: WP-14 requests no change to a WP-01 contract. Its actionable items are requests 78 to 83, classified separately."
+ },
+ {
+  "n": 78,
+  "action": "forward",
+  "targets": [
+   "WP-76",
+   "WP-65"
+  ],
+  "duplicateOf": 0,
+  "summary": "How gateway.Run consumes gateway/setting (Load, Usage, Unused, FetchAllow, Protected, MACKey)",
+  "change": "In gateway.Run(ctx, args, stdout, stderr), call `setting.Load(args, os.LookupEnv)` with the args cmd/ruralzd passes (os.Args[1:]; Run never reads os.Args itself). On error, write the error and `setting.Usage` to stderr and return `setting.ExitCode(err)`, which is 2 for a *setting.Error and 1 otherwise. Log each name in `Settings.Unused` at warn as unused in file mode. Build the egress guard with `egress.ParseAllow(s.FetchAllow)` (not egress.FromEnv, so the environment is read once), and create the secret resolver with `resolver.Config{Root: s.SecretRoot, Protected: ...}`, converting each `setting.ProtectedPath{Setting, Path}` from `s.Protected()` into a `resolver.Protected{Setting, Path}`. Pass `s.MACKey.Bytes()` (a copy; nil when unset) to the State Store manager: WP-65 accepts that []byte and puts it in `statestore.Deps.MACKey` for every driver it opens (R-49). Never log the key; MACKey's text forms print [REDACTED]."
+ },
+ {
+  "n": 79,
+  "action": "forward",
+  "targets": [
+   "WP-76"
+  ],
+  "duplicateOf": 0,
+  "summary": "Data dir, node.id, lock and holder wiring with nodedir and ulid",
+  "change": "After loading settings, call `d, err := nodedir.Open(s.DataDir)`, which creates root, identity/ and lkg/ with mode 0700 and refuses a non-directory, a directory not owned by the euid, or a world-writable one. Then call `id, err := d.NodeID(func() (ulid.ULID, error) { return ulid.New(clk.Now(), nil) })`, which reads or creates identity/node-id once; nil entropy means crypto/rand. Next call `lk, err := d.TryLock()`: errors.Is(err, nodedir.ErrLocked) means a live holder, so take the handover successor path on Linux (WP-89) or exit 1 with 'data dir in use' elsewhere; errors.ErrUnsupported means a platform without flock. As holder, call `h, herr := nodedir.NewHolder(id, buildinfo.Get().Version)`, log herr if set (the record is still returned), then call `lk.WriteHolder(h)`. Keep the *nodedir.Lock reachable for the process lifetime: store it in the supervisor and hand it to drain and lkg, because a garbage-collected Lock closes its file and drops the flock. The Drain's lk.Release() also removes holder.json."
+ },
+ {
+  "n": 80,
+  "action": "forward",
+  "targets": [
+   "WP-73"
+  ],
+  "duplicateOf": 0,
+  "summary": "Write and remove lkg/ files only through Lock.WriteFile and Lock.Remove",
+  "change": "Write and delete every file under lkg/ (content, pointers, candidate) only through the holder's *nodedir.Lock. `lk.WriteFile(\"lkg/<name>\", data)` writes atomically (temp file, fsync, rename, fsync of the directory) with mode 0600 and refuses lock, holder.json and identity/node-id. `lk.Remove(\"lkg/<name>\")` treats a missing file as success. Both fail with nodedir.ErrReleased once the Drain (WP-67) has called Lock.Release at Drain start, and Release waits for an in-flight write, so no LKG write can follow the release (spec 04 req 7). Treat ErrReleased as 'stop writing': no retry and no lkg_write_failed. A handover successor holds no Lock and writes nothing under lkg/ until it takes the lock; reads may use Dir.LKGPath()."
+ },
+ {
+  "n": 81,
+  "action": "forward",
+  "targets": [
+   "WP-72"
+  ],
+  "duplicateOf": 0,
+  "summary": "Holder reading API for ruralz node drain; NodeID is ulid.ULID",
+  "change": "Read the holder with `nodedir.ReadHolderAt(root)`, where root is RURALZ_DATA_DIR or nodedir.DefaultRoot. It opens with O_NOFOLLOW and caps the file at nodedir.MaxHolderBytes. errors.Is(err, nodedir.ErrNoHolder) (which also matches fs.ErrNotExist) maps to exit 2 with 'no lock holder recorded in <dir>', and errors.Is(err, nodedir.ErrHolderInvalid) maps to exit 2 with 'unreadable holder record' (10 req 96.1). `Holder.NodeID` is a `ulid.ULID`, not the string of spec 04 section 3: it encodes as the 26-character JSON string and prints with %s, so cli/node needs no ulid import to print it (add ulid to its 1.2 row only if you parse one). The record also carries StartTime (0 where /proc is absent) and PIDNamespace (omitted when empty) for the start-time and namespace checks."
+ },
+ {
+  "n": 82,
+  "action": "docfix",
+  "targets": [
+   "docs/architecture/03-data-plane.md"
+  ],
+  "duplicateOf": 0,
+  "summary": "Document the data dir owner and world-writable refusal rules nodedir enforces",
+  "change": "In 'Durable and shared state', after 'Only the lock holder writes `holder.json` and `lkg/`, with directories 0700 and files 0600.', add: '`ruralzd` creates `${RURALZ_DATA_DIR}`, `identity/` and `lkg/` with mode 0700 when missing, and refuses to start when any of them is not a directory, is not owned by the effective user, or is writable by all users (mode bit 0002, with or without the sticky bit), since another user could then replace the lock, `holder.json` or Last-Known-Good; a group-writable mode is accepted, because the group is the operator's choice (for example systemd `StateDirectoryMode=0770`).' This records internal/nodedir's behavior (nodedir.go Open, dir_unix.go checkDir); spec 04 section 3 named only the owner rule. WP-30 owns the document and is done; bump last_updated."
+ },
+ {
+  "n": 83,
+  "action": "docfix",
+  "targets": [
+   "docs/architecture/08-security-and-identity.md"
+  ],
+  "duplicateOf": 0,
+  "summary": "Record the MAC key file rules (owner, mode, final newline) in Secrets rule 9; leave the foundation pack row",
+  "change": "In 'Secrets' rule 9, replace '(an absolute path, owner-only, 32 bytes or more, outside the secret root, read at start)' with '(an absolute path outside the secret root to a regular file owned by the effective user or root, with no group or other permission bits such as 0600 or 0400, read at start; the key is the file content without one final LF or CR LF, and it must hold at least 32 bytes without it)'. Then add: 'Generate the key as text, for example `openssl rand -hex 32`: about one random 32-byte binary key in 256 ends in byte 0x0A and would be read as 31 bytes.' This is what internal/gateway/setting enforces (mackey.go readMACKey, mode_unix.go). Leave the docs/_meta/foundation-pack.md section 2 row unchanged: 'owner-only mode, at least 32 bytes' stays true, and editing it would be a two-approval docs/_meta change for no gain. WP-30 owns the document and is done; bump last_updated."
+ },
+ {
+  "n": 84,
+  "action": "contract",
+  "targets": [
+   "internal/secret"
+  ],
+  "duplicateOf": 0,
+  "summary": "State in the Store contract that Get publishes a poll's values before watchers run and keeps them on watcher failure",
+  "change": "Extend the secret.Store doc comments in internal/secret/secret.go (doc only). Get returns a new value as soon as the resolver publishes it. Within one poll the resolver publishes every changed reference of the active Store before it calls any watcher, so fn can Get the other half of a pair and see this poll's value. A watcher's error or panic never withdraws a published value: Get keeps returning it, and only that watcher keeps its last value and counts a failure. A file value that fails a use check of the active Store is never published: Get keeps the last good value and secret_rotation_failed is raised. This is the current behavior (resolver poll.go refreshLocked publishes the cell, and resolver.go cycle runs fanout after poll); mirror the sentence on the resolver's store.Get and add a resolver test where a watcher of ref A observes, through Get, ref B's value from the same poll."
+ },
+ {
+  "n": 85,
+  "action": "forward",
+  "targets": [
+   "WP-40",
+   "WP-44",
+   "WP-46",
+   "WP-70"
+  ],
+  "duplicateOf": 0,
+  "summary": "Decision: tlsconf stays free of v1alpha1; callers convert with secret.RefOf into CertSpec and ClientSpec",
+  "change": "Lead decision: the tlsconf row of 1.2 stays 'secret, errcode' (no v1alpha1), so the v1alpha1-typed signatures that spec 06 section 3 sketches are not built. Listener certificates become `[]tlsconf.CertSpec{Name, Certificate: secret.RefOf(c.Certificate), PrivateKey: secret.RefOf(c.PrivateKey)}` for `tlsconf.BuildCertIndex(specs, store)`, then `tlsconf.NewListenerState(tlsconf.ListenerOptions{MinVersion, Certs, RequestClientCert})`; the snapshot compiler does this conversion. Upstream.spec.tls and telemetry.otlp.tls become `tlsconf.ClientSpec{SNI, CACertificate, ClientCertificate, ClientKey *secret.Ref}` for `tlsconf.Upstream(spec, store)` and `tlsconf.OTLP(&spec, store)` (nil spec: system roots). The owner calls Close on the CertIndex or ClientConfig when it retires it, which stops its secret watches."
+ },
+ {
+  "n": 86,
+  "action": "contract",
+  "targets": [
+   "internal/secret",
+   "internal/tlsconf",
+   "internal/secret/resolver"
+  ],
+  "duplicateOf": 0,
+  "summary": "Clear the stuck secret_rotation_failed after a cert and key rotate in separate polls: allow re-entrant Watch, re-register in tlsconf",
+  "change": "Adopt neither (a) nor (b): both need new API, either an owner grouping or a WatchPair method that every secret.Store implementation must add. (1) internal/secret, doc only: state on Store.Watch that fn runs on the resolver goroutine with no resolver lock held, so fn may call Watch and any stop function, its own included. A Watch registered inside fn starts at the current version and does not receive the value being delivered; after a stop of the running watcher, fn's result is ignored. The resolver already behaves so (TestWatchEdgeCases covers stop from fn); add a resolver test for Watch from fn. (2) internal/tlsconf (WP-16 is done, so change it now): in CertIndex.rotate and the ClientConfig rotation, remember per half whether its last callback returned an error. When a later callback forms a valid pair, re-register each failed sibling half: call its stop, then `secrets.Watch(ref, sameFn)`, and replace the stored stop so Close still stops it. That clears the watcher's secret_rotation_failed source, while ruralz_config_secret_rotation_failures_total keeps the one counted failure. Add tests: a certificate rotated in poll 1 and its key in poll 2 leaves no degraded reason after poll 2, and a key that never arrives keeps the reason raised."
+ },
+ {
+  "n": 87,
+  "action": "done",
+  "targets": [],
+  "duplicateOf": 0,
+  "summary": "Resolver no longer gives a reused reference a new cell; carried-over Stores follow the active cell",
+  "change": "Already resolved in WP-07's committed resolver. Resolve never gives a new cell to a reference the active Store holds. A failed (stale) cell keeps its identity: a value the new uses accept becomes a pending value of the new Store, and Activate applies it to the shared cell. See internal/secret/resolver/resolve.go (the Resolve doc and retry: 'The cell is never replaced: a Store kept by a carried-over owner or a retired snapshot keeps seeing current values') and resolver.go settleLocked. The Store contract already says values follow rotations (internal/secret/secret.go lines 127-131). tlsconf's fallback to the last delivered value is now redundant but harmless; no change needed."
+ },
+ {
+  "n": 88,
+  "action": "arch",
+  "targets": [
+   "architecture",
+   "wps.json"
+  ],
+  "duplicateOf": 0,
+  "summary": "Align the egress row, WP-16 scope (and WP-41's dialer) with spec 06 req 37/84-86 and 05 req 9",
+  "change": "Edit 00-architecture.md and wps.json to match spec 06 req 37 and 84-86, spec 05 req 9 and the committed internal/egress package doc. 1.2 egress row responsibility becomes: 'SSRF guard (RURALZ_FETCH_ALLOW) for Bundle destinations (jwksUrl, tokenUrl, Upstream Endpoints, DNS results, health probes); guarded dialer and https-only client: JWKS follows at most 3 https-to-https redirects across origins, each hop re-checked; no redirect when ClientOptions.Destination is set or MaxRedirects is 0'. In WP-16's scope (4.4 and wps.json), replace 'guarded dialer and HTTP client for IdP, JWKS, token and OTLP fetches (private, loopback, link-local and metadata ranges blocked unless allowed, per redirect hop;' with 'guarded dialer and HTTP client for jwksUrl and tokenUrl fetches and Upstream connections (0.0.0.0/8, ::/128, loopback, link-local and fd00:ec2::254, with their IPv4-mapped, NAT64 and IPv4-compatible forms, blocked unless allowed, per redirect hop; RFC 1918 allowed; State Store and OTLP connections not guarded;'. For consistency, also change WP-41's scope 'Ruralz dialer (egress, tlsconf; dials only the URL's host, R-49)' to 'Ruralz dialer (net.Dialer with tlsconf.StateStore, not the egress guard, spec 06 req 84; dials only the URL's host, R-49)' and drop egress from the statestore/redis row of 1.2; otherwise WP-41 would refuse a loopback State Store such as stage 8's local redis-server. No code change."
+ },
+ {
+  "n": 89,
+  "action": "forward",
+  "targets": [
+   "WP-44"
+  ],
+  "duplicateOf": 0,
+  "summary": "OnHandshake is gone: measure handshake duration and tls_failure around the listener's own handshake",
+  "change": "tlsconf.ServerOptions has only State, and the tlsconf.Server configuration does not observe handshakes: crypto/tls has no post-handshake hook, and VerifyConnection runs before the client's last flight. Measure spec 06 req 77 around the listener's own (*tls.Conn).HandshakeContext call: a nil error observes ruralz_listener_tls_handshake_duration_seconds from accept, and an error counts ruralz_listener_connections_total{result='tls_failure'}. On the Go 1.26 floor, net/http handshakes a *tls.Conn itself with no completion hook, so complete the handshake (bounded by the listener's handshake timeout) before handing the *tls.Conn to http.Server, which then skips its own. Do this per connection off the Accept loop, on goroutines the listener owns and bounds by the connection ceiling, so a slow client cannot stall accepts. Build tls.Server over the connection wrapper that implements tlsconf.ClientCertRecorder, so GetConfigForClient can record the request mode on the NetConn chain."
+ },
+ {
+  "n": 5,
+  "action": "arch",
+  "targets": [
+   "architecture"
+  ],
+  "duplicateOf": 0,
+  "summary": "Decision: keep the decoded-value stop at 4x the raw limit (jsonval cost), one constant in filter",
+  "change": "Add the next 2.16 row (R-63): keep the oversize stop at 4 times the raw limit the body arrived under, measured as the jsonval cost of the values actually built. docs/architecture/02-configuration-model.md 'Body buffering and limits' (target) and its per-request bound of 150 MiB counting decoded values already state this; MaxCostPerByte times the limit would let one 10 MiB body reserve up to 330 MiB of the 512 MiB maxBufferedBytes and void that bound. Accepted consequence: dense bodies become oversized inside the raw limit (arrays of one-digit numbers above about a quarter of it, arrays of empty objects above about a fifth, short-member objects above about 0.38), while typical documents (about 3 times) fit at the full limit. The errors stay those of 07 req 15: 413 RZ-RT-003 on the request, 502 RZ-UP-010 on a plain upstreams response, RZ-RT-015 for a composition step; 07 T8 stays as written. Single source: add `const DecodedLimitFactor = 4` to internal/filter (WP-01 contract, additive, cited by Message.Decoded's comment). WP-43 (Message.Decoded through expr.Compiler.DecodeJSON), WP-51, WP-60, WP-64 and the gateway body reservations pass budget = DecodedLimitFactor times the raw limit (maxRequestBodyBytes, maxResponseBodyBytes or the step's maxBodyBytes), while WP-34's DecodeJSON only enforces the budget it is given (cel may not import filter). Also add one sentence to 02-configuration-model.md 'Body buffering and limits' (WP-29 is done): the charge depends on density, about 3 times for typical JSON and up to about 21 times for degenerate arrays, so such bodies fail as oversized well below the raw limit."
+ },
+ {
+  "n": 6,
+  "action": "arch",
+  "targets": [
+   "architecture",
+   "wps.json"
+  ],
+  "duplicateOf": 0,
+  "summary": "Record number canonicalization: stage G range check via CheckNumber, canonical content exempt; plus float text syntax gap",
+  "change": "Add the next 2.16 row (R-64). jsonval.AppendCanonicalNumber is total over finite literals and idempotent: integer literals beyond \u00b1(2^53\u22121) are rounded through the double path as encoding/json/jsontext does (11e17 becomes 1100000000000000000), and WP-39's verification step 31(b) relies on that idempotence. Spec 02 req 16 (RZ-CFG-005 'integer outside the I-JSON range', also for literals that overflow a double) is raised only in stage G: after scalar normalization, so a ByteSize normalized above 2^53 is caught, WP-37 calls jsonval.CheckNumber on every KindInt and KindFloat node of resources whose role is not tree.RoleCanonical. Canonical content (canonical.Decode output re-entering through pipeline.FromResources, R-47) is exempt: an integer-looking literal above 2^53 there, such as 123456789012345680000, is the RFC 8785 form of a double, so neither WP-39's strict decoder nor stage G applies the range rule to it. In 1.2, add jsonval to the config/defaults, config/convert row; in wps.json, add WP-02 to WP-37's dependsOn and 'RZ-CFG-005 number range via jsonval.CheckNumber on non-canonical trees (02 req 16, 02 test plan item 3)' to its scope, and add 'no integer range rule on canonical content (R-64)' to WP-39's scope. A related gap belongs in the same row: tree.Node.Text keeps 'the source text of a float', but YAML 1.2 core floats such as .5, 1. or +1.5 are not RFC 8259 numbers, so Node.JSONValue, CheckNumber and AppendCanonicalNumber would reject them. Decide that WP-33 stores KindFloat text in RFC 8259 syntax (drop a leading '+', put a '0' before a leading '.', drop a '.' with no fraction digits, never round-trip through float64), amend the Node.Text doc comment in internal/config/tree (WP-01, doc only), and forward this to WP-33."
+ },
+ {
+  "n": 7,
+  "action": "forward",
+  "targets": [
+   "WP-34",
+   "WP-47",
+   "WP-51",
+   "WP-60",
+   "WP-64"
+  ],
+  "duplicateOf": 0,
+  "summary": "jsonval *Object index cost and read-only sharing rules for consumers",
+  "change": "An *Object with more than 8 members keeps a name index that Decode, Clone and every mutation maintain. Decode charges CostIndexEntry (48) per member for that index, so for large objects the *Object form costs more than Options.MapObjects (map[string]any); budgets and reservations must use the cost Decode returns for the form you actually build. Reads (Len, At, All, Index, Get, Has) never write, so one decoded tree may be shared read-only by any number of goroutines (the shared decoded body of 03 req 25 and 07 req 56). Any mutation (Set, SetAt, Delete, DeleteAt, Sort, transforms, merge) needs exclusive access, so call Clone (jsonval.Clone or Object.Clone) before editing a shared tree. MaxCostPerByte (33) bounds cost per input byte; the oversize budget multiple is the one recorded in 2.16 for request 5 (4 times the raw limit)."
+ },
+ {
+  "n": 143,
+  "action": "done",
+  "targets": [],
+  "duplicateOf": 0,
+  "summary": "headers Phase rule already counts add[] and remove[]",
+  "change": "Already resolved in WP-04. internal/config/registry/phases.go headersPhases uses hasListEntry, which counts every non-empty slice field of the request and response sides (set, add and remove), so new operation lists are picked up without naming them. TestPhasesHeadersAddRemove in internal/config/registry/phases_test.go covers add and remove at Route, Upstream and Gateway scope."
+ },
+ {
+  "n": 144,
+  "action": "forward",
+  "targets": [
+   "WP-36",
+   "WP-37"
+  ],
+  "duplicateOf": 0,
+  "summary": "Treat $defs/JSONSchemaDocument (config.schema) as one opaque, atomic value",
+  "change": "The rendered schema's $defs/JSONSchemaDocument (validation.json-schema config.schema: type [object, boolean], no properties) is opaque. Detect it through schemaidx: its Node has Def() == \"JSONSchemaDocument\" (Def follows the $ref), and every position below it is Info.Free with a nil Node. WP-36 overlay: an overlay value at that node replaces the base value whole and never merges recursively (docs/architecture/02-configuration-model.md Overlays table, 'Replaced whole as one atomic value'; 07 req 74). WP-36 subst: string scalars inside are substituted like any other free string (a literal ${ is written $${) and are never re-typed. WP-37: normalize its object keys generically (02 req 18), materialize no defaults inside it, and keep every list inside in authored order (schemaidx ListNone is atomic, 02 req 17). Add tests: an overlay that changes one keyword replaces the whole document, and normalization keeps the order of `enum` and `required`."
+ },
+ {
+  "n": 145,
+  "action": "forward",
+  "targets": [
+   "WP-35"
+  ],
+  "duplicateOf": 0,
+  "summary": "RZ-CFG-005 messages for type [object, boolean] and the OTLP endpoint pattern",
+  "change": "Two schema shapes from WP-28 need clear RZ-CFG-005 messages (01 req 33). (1) A `type` failure at $defs/JSONSchemaDocument (validation.json-schema config.schema), whose `type` is the array [object, boolean]: name every allowed type ('must be an object or a boolean'), and join the types of any type array this way. (2) A `pattern` failure at $defs/OTLP property endpoint (`^https?://[^/?#@\\s]+/?$`, 09 req 17): give syntax text, as the Duration and ByteSize messages do, rather than the regex: 'an http or https URL with a host and an optional port, no path other than /, and no user information, query or fragment'. Select that message by schema location (Def \"OTLP\", property endpoint), not by regex text, and add both cases to the error-mapping goldens. Errors inside the document's own keywords belong to WP-51's offline Check, not to schemaview."
+ },
+ {
+  "n": 146,
+  "action": "forward",
+  "targets": [
+   "WP-65",
+   "WP-70"
+  ],
+  "duplicateOf": 0,
+  "summary": "stateStore.cache shape: always redis, no own timeout, destination state-store",
+  "change": "WP-28 fixed Gateway.spec.stateStore.cache as $defs/StateStoreCache = {topology (StateStoreTopology, default standalone), url (required SecretValue, x-ruralz-secret, impact security)}. It has no driver field and no timeout field. WP-65: when cache is set, open the RoleCache driver with statestore.Config{Role: RoleCache, Driver: DriverRedis (always), Topology from cache.topology, URL = resolved cache.url, DefaultTimeout = the main stateStore.timeout (default 50ms), Source: SourceGateway}. RURALZ_STATE_STORE_URL and the memory fallback apply to the main role only. When cache is absent, the cache shares the main handle under the interim rules and logs the startup WARN (R-19). cache.url's secret destination is state-store (R-49), so its dialer dials only that URL's host. WP-70: a cache Policy's effective stateStoreTimeout (BuildEnv.StateStoreTimeout) defaults to the main stateStore.timeout even when stateStore.cache is set, and BuildEnv.CacheStore is the RoleCache handle when present, else the main handle."
+ },
+ {
+  "n": 147,
+  "action": "forward",
+  "targets": [
+   "WP-56"
+  ],
+  "duplicateOf": 0,
+  "summary": "05 req 97 cross-field rules are stage H checks; both-or-neither also covers telemetry.otlp.tls",
+  "change": "The schema does not encode the 05 req 97 cross-field rules (WP-28 added only the fields and their minimums), so stage H raises each of them as RZ-CFG-005: ring-hash without hashKey; dns discovery without service or port; perNodeCeiling outside 1..requests and burst outside 0..requests; and tls.clientCertificate without clientKey, or the reverse. The certificate rule applies to every UpstreamTLS value, which now includes Gateway spec.telemetry.otlp.tls (09 req 18), at paths spec.telemetry.otlp.tls.clientCertificate and clientKey. Report it offline in every binary (ruralz bundle validate included), so WP-40's runtime is never the first place this error is found. Add a test case for the otlp.tls path."
+ },
+ {
+  "n": 148,
+  "action": "forward",
+  "targets": [
+   "WP-31"
+  ],
+  "duplicateOf": 0,
+  "summary": "Document WP-28's committed field shapes in docs 09, 10 and 11",
+  "change": "WP-29 already documented the new fields in docs/architecture/02-configuration-model.md. The OQ-configuration-model-20 part of this request is #149 (docfix), and the repository-layout Markers part is #150 (docfix). For docs 09, 10 and 11, document WP-28's committed shapes. Circuit breaker (OQ-traffic-management-and-resilience-5 (a)): minimumLegs 20, failureRatio 0.5 (0 to 1), halfOpenSuccesses 3. Schema defaults (OQ-traffic-management-and-resilience-6): circuitBreaker maxConnections 1024 (in-flight attempts per Upstream per Node), maxPendingRequests 256, consecutiveFailures 5, openDuration 30s; healthCheck.passive consecutiveErrors 5 and ejectionTime 30s; healthCheck.active path /, interval 10s, timeout 2s, healthyThreshold 2, unhealthyThreshold 3; endpoints[].weight 1; loadBalancing.algorithm least-request; retries.attempts 1. Gateway stateStore.cache = {topology (default standalone), url (required secret)}: always redis, with no timeout of its own, so cache Policies default to stateStore.timeout (OQ-scalability-and-distributed-state-3 (a)); the ratelimit localOnly text follows OQ-scalability-and-distributed-state-11 (a). telemetry.otlp.tls uses the Upstream tls shape (sni, caCertificate, clientCertificate, clientKey; certificate and key both or neither) for OQ-observability-2 (a). Also document the endpoint pattern ^https?://[^/?#@\\s]+/?$, amend the Observability Scope sentence that lists 'three telemetry fields', and give traceSampling its default of 0.01."
+ },
+ {
+  "n": 149,
+  "action": "docfix",
+  "targets": [
+   "docs/architecture/02-configuration-model.md"
+  ],
+  "duplicateOf": 0,
+  "summary": "Close OQ-configuration-model-20 with (a) and reword the authoring-view and CRD text",
+  "change": "In docs/architecture/02-configuration-model.md: (1) Close the OQ-configuration-model-20 row in place: '(a) Add the alternative to every constrained substitutable string (chosen, 2026-10-03); (b) Keep non-string scalars only', with Blocking? set to 'No (answered)'. schemagen already implements (a) (internal/tool/schemagen/generate.go, substitutable), and spec 01 section 7 adopts it. (2) Line 117: 'The authoring view, used by editors and for raw source files, gives the `${VAR}` alternative (a string matching `^\\$\\{[A-Za-z_][A-Za-z0-9_]*(:-[^}]*)?\\}$`) to every value that permits substitution and that the expression would otherwise fail: a non-string scalar, or a string constrained by an enum or a pattern.' (3) After it, add: 'A Policy whose `spec.type` is a `${VAR}` expression matches no `config` dispatch branch in the authoring view, so its `config` is checked only in the rendered view after substitution.' TestSubstitutedPolicyType in internal/tool/schemagen/m1_test.go pins this. (4) Line 125: change 'string fields may still carry `${VAR}`' to 'unconstrained string fields may still carry `${VAR}`'. Line 132, row label: '`${VAR}` in non-string fields and in enum- or pattern-constrained strings'. Keep the manifest word band (net zero) and bump last_updated."
+ },
+ {
+  "n": 150,
+  "action": "docfix",
+  "targets": [
+   "docs/engineering/02-repository-layout-and-conventions.md"
+  ],
+  "duplicateOf": 0,
+  "summary": "Repository-layout doc: ${VAR} rule wording and the four new schemagen marker rules",
+  "change": "WP-32's edit to this file is still uncommitted in the working tree and lacks both points, so fold the fix into that commit if possible. (1) In 'Presence and defaults' (working-tree line 425), replace 'The authoring view adds the `${VAR}` alternative to every substitutable non-string scalar.' with 'The authoring view adds the `${VAR}` alternative to every substitutable non-string scalar and to every substitutable string constrained by an enum or a pattern (OQ-configuration-model-20 (a)).' (2) In 'Markers' (line 413), extend 'schemagen rejects ...' with the M1 rules that internal/tool/schemagen/generate.go enforces: a `+ruralz:secret` field without a `+ruralz:impact` that includes `security`; a `+ruralz:default` value that fails its field's own `pattern`, `minLength`, `maxLength`, `minimum` or `maximum`; a `+ruralz:default` on a `+ruralz:required` field; and a second `+ruralz:impact` marker on one field, or impact classes not listed once each in ascending byte order. Keep the word band."
+ },
+ {
+  "n": 151,
+  "action": "repometa",
+  "targets": [
+   ".claude/rules/config-schema.md"
+  ],
+  "duplicateOf": 0,
+  "summary": "Update config-schema rules with the new schemagen rules; drop the stale OQ-20 bullet",
+  "change": "In .claude/rules/config-schema.md, under 'Field rules schemagen enforces', add four bullets: (1) a `+ruralz:secret` field also carries `+ruralz:impact` including `security`; (2) a `+ruralz:default` value must satisfy the field's own `pattern`, `minLength`, `maxLength`, `minimum` and `maximum`; (3) a `+ruralz:required` field takes no `+ruralz:default`; (4) `+ruralz:impact` appears once per field, with each class once in ascending byte order (`ai`, `metadata`, `plugin`, `routing`, `security`, `traffic`). In the Markers table, add to the impact row 'one marker per field; classes unique and ascending', and to the default row 'never on a required field; must satisfy the field's keywords'. Under 'Known open questions', delete the OQ-configuration-model-20 bullet: the generator already gives enum- and pattern-constrained strings the alternative, so the bullet is wrong today. Commit as `chore:` with or after #149."
+ },
+ {
+  "n": 152,
+  "action": "arch",
+  "targets": [
+   "architecture"
+  ],
+  "duplicateOf": 0,
+  "summary": "Record in R-62 the four string-to-*string field changes and their consumer rules",
+  "change": "Append to R-62 in 00-architecture 2.16: 'Exception recorded at the wave 2 boundary: four optional string fields became *string with unchanged JSON names, under doc 02 Presence and defaults and 07 req 23: AuthAPIKeyConfig.Header (default x-api-key, 06 req 15), ActiveHealthCheck.Path (default /, 05 req 4), HeaderRequestSet.Value and HeaderResponseSet.Value (no default). WP-37 materializes the two defaults only inside a present parent, so consumers read through the pointer and apply the same default when the pointer, the config or the parent object is nil. WP-48 (auth.api-key) uses x-api-key; WP-46 maps healthCheck.active.path to health.Policy.Path as \"/\" when nil. WP-59 (headers, including its offline Check) treats a nil Value as absent, in which case valueExpression is set, and a non-nil \"\" as an explicit empty field value.' The pkg/config/v1alpha1 package doc already records this, so no code change is needed."
+ },
+ {
+  "n": 153,
+  "action": "reject",
+  "targets": [],
+  "duplicateOf": 0,
+  "summary": "Fallback (restore the M0 ${VAR} rule) is unnecessary",
+  "change": "Unnecessary: #149 (docfix to the configuration model) and #150 (docfix to the repository-layout doc) adopt OQ-configuration-model-20 (a) this wave, as spec 01 section 7 proposes. Restoring the M0 rule would make the documented `${OTEL_EXPORTER_OTLP_ENDPOINT:-...}` endpoint, and every `${VAR}` duration or enum value, fail editor validation. It would also need an ad hoc exception. Keep the committed schema."
+ },
+ {
+  "n": 70,
+  "action": "contract",
+  "targets": [
+   "internal/statestore"
+  ],
+  "duplicateOf": 0,
+  "summary": "Document Status.EvictionPolicy Yes/No/Unknown semantics",
+  "change": "In internal/statestore/statestore.go, add a doc comment to Status.EvictionPolicy: 'EvictionPolicy reports maxmemory-policy noeviction (08 req 51). Yes: every shard's latest INFO memory reading reports noeviction. No: any shard reports another policy; state_store_eviction_policy is raised while a ratelimit or quota Policy uses this store. Unknown: no shard reports another policy, but some reading lacks the field or has not arrived; no reason is raised and the driver logs one WARN. The memory driver reports Yes.' The precedence No > Unknown > Yes follows 08 req 51, where a missing field never raises the reason. This is a doc-only change; WP-41 and WP-65 code against it."
+ },
+ {
+  "n": 71,
+  "action": "contract",
+  "targets": [
+   "internal/statestore"
+  ],
+  "duplicateOf": 0,
+  "summary": "Document GCRALimit.Burst as used as given; the Filter defaults it",
+  "change": "In internal/statestore/statestore.go, document GCRALimit.Burst: 'Burst is used as given: tau = Burst \u00d7 Window / Requests, so 0 means no burst tolerance (after the first admission, one per emission interval T). Drivers never default it. The ratelimit Filter (WP-61) sets Burst = Requests when config.limits[].burst is unset (05 reqs 57 and 60); v1alpha1 Burst is *int64 with no schema default.' This is a doc-only change."
+ },
+ {
+  "n": 72,
+  "action": "contract",
+  "targets": [
+   "internal/statestore"
+  ],
+  "duplicateOf": 0,
+  "summary": "Document Write.Timeout: effective Policy timeout, zero means not attempted",
+  "change": "In internal/statestore/statestore.go, document Write.Timeout: 'Timeout is the effective stateStoreTimeout of the Policy that enqueued the write (08 req 56; the per-request RequestBudget does not apply). The enqueuing Filter sets it from BuildEnv.StateStoreTimeout: quota refunds (WP-62), cache stores and invalidations (WP-63), revalidation lease writes (WP-88). Zero means the write is not attempted, and drivers answer it with ErrNotAttempted, RZ-STS-004 (08 req 6). The post-commit queue (WP-65) passes it unchanged.' The request names WP-65 as the setter, but the queue cannot know a Policy's timeout; the Filter that builds the Write sets it."
+ },
+ {
+  "n": 73,
+  "action": "arch",
+  "targets": [
+   "architecture"
+  ],
+  "duplicateOf": 0,
+  "summary": "Lead decision: refresh and end-stale never release the revalidation lease",
+  "change": "Add an R-row to 00-architecture 2.16 (08 req 45 is silent on this): 'Neither refresh after a 304 (script f, LeaseRefresh) nor end of the stale window (script x, LeaseEndStale) deletes the lease. The 5 s revalidation lease, like the 1 s fill lease, only expires (PX). Reason: the lease bounds revalidation of a partition to one per 5 s across Nodes (05 req 86, \"takes the lease or gives up\"), so a Node that read the stale entry before the refresh gives up instead of revalidating again. The cost is bounded: stores of that partition are skipped for the rest of the 5 s (target). The memory driver already behaves this way; WP-41's f and x scripts never DEL rz:rc:{U:P}:lease, and WP-88 issues no release.' Pass the rule to the WP-41 and WP-88 notes. Optionally, extend conformance case cache/refresh-and-end-stale to assert that a take with another token still fails after a refresh until 5 s after the take."
+ },
+ {
+  "n": 74,
+  "action": "arch",
+  "targets": [
+   "architecture"
+  ],
+  "duplicateOf": 0,
+  "summary": "Lead decision: N_c = 1 for the memory driver's store admission",
+  "change": "Adopt this, with corrected numbers. Add an R-row: 'The memory driver uses N_c = 1 in store admission, because its store has one writer, its own Node. redis keeps N_c = N_published, or 1,000 without one (always 1,000 in M1). This overrides 08 reqs 53 and 58 and 05 req 84 for memory only.' At the default 64 MiB that admits min(2% \u00d7 64 MiB / 10 s, 4 MiB/s) = 134,217 bytes per second, or 1,342,170 bytes per 10 s reading, not the 20 KB/s the request states. The lead applies it at the wave boundary: storeNodes = 1 in internal/statestore/memory/memory.go, with a comment citing the R-row, and TestAdmitStoreBytes rescaled (1e9 maxmemory: 2,000,000 B/s and 20,000,000 per reading; default store: 1,342,170; recheck the 4 MiB/s cap case). Forward to WP-31: docs/architecture/11-scalability-and-distributed-state.md records the memory driver bounds (08 risk 15) with N_c = 1, and doc 09 'Response caching' rule 3 says N_c applies to shared stores."
+ },
+ {
+  "n": 75,
+  "action": "contract",
+  "targets": [
+   "internal/statestore"
+  ],
+  "duplicateOf": 0,
+  "summary": "Document CacheLease.TTL (refresh only) and the lease fields",
+  "change": "In internal/statestore/statestore.go, add doc comments to CacheLease: 'TTL applies only to LeaseRefresh, where it extends the partition as CacheStore.TTL does (the larger of the remaining TTL and the entry TTL, capped at 25 h). LeaseTake ignores it, because the revalidation lease is fixed at 5 s (08 req 45, SET NX PX 5000); LeaseEndStale ignores it too. Refresh and end-stale act only while the lease holds Token, and neither releases the lease, which expires after its 5 s (see the R-row of #73).' Also document Token (identifies the holder), Entry (the refreshed entry bytes, LeaseRefresh only) and Variant. Conformance cases cache/revalidation-lease and cache/refresh-and-end-stale already pin this for memory and for WP-41."
+ },
+ {
+  "n": 76,
+  "action": "arch",
+  "targets": [
+   "architecture"
+  ],
+  "duplicateOf": 0,
+  "summary": "Allow statestore/memory to import telemetry/catalog",
+  "change": "In 00-architecture 1.2, add telemetry/catalog to the May import list of the statestore/memory row. It is L0 under L3, the redis driver row already lists it, and no depguard rule restricts it. Do not re-export log keys from telemetry/emit, which would duplicate the catalog. Follow-up for the lead at the wave boundary: internal/statestore/memory/memory.go:337 uses catalog.KeyCode instead of the literal \"code\"."
+ },
+ {
+  "n": 164,
+  "action": "contract",
+  "targets": [
+   "internal/errcode"
+  ],
+  "duplicateOf": 0,
+  "summary": "Drop the stale OQ status note from RZ-AUTH-020's Meaning",
+  "change": "In internal/errcode/errcode.go, set RZ-AUTH-020's Meaning to 'Upstream credential not obtained or signed'. OQ-security-and-identity-9 is closed with (a), and the registry row in docs/architecture/08-security-and-identity.md already reads '(pack 8.10, OQ-security-and-identity-9 (a))'. Status 401 is unchanged, and no test pins the Meaning text."
+ },
+ {
+  "n": 165,
+  "action": "docfix",
+  "targets": [
+   "docs/architecture/01-system-overview.md"
+  ],
+  "duplicateOf": 0,
+  "summary": "System overview: conform retirement text and the tcp_migrate_req wording to the closed OQs",
+  "change": "(1) Line 340: replace the text from 'activation never waits' to the end of that sentence with: 'When a third would be retired, the oldest becomes closing: its streams end at once with per-stream closes (WebSocket 1001, an SSE end with a retry hint), never an HTTP/2 GOAWAY (OQ-data-plane-12 (a)). A grace period is never cut short: the loader keeps only the latest pending Revision and activates it once that snapshot is freed (OQ-data-plane-13 (a); [Data plane](03-data-plane.md#why-no-in-flight-request-is-dropped)).' (2) Line 425: replace '(`net.ipv4.tcp_migrate_req` is an alternative)' with '; hosts SHOULD also set `net.ipv4.tcp_migrate_req`, which complements steering, and the old process keeps accepting through a 3 s linger (target) (OQ-zero-downtime-upgrades-and-hot-reload-12 (a))'. Line 422's 'Drains with HTTP/2 GOAWAY' concerns the Drain and stays. The foundation pack and ADR-0015 parts of this request are user decisions (#168, #169). Keep the word band and bump last_updated."
+ },
+ {
+  "n": 166,
+  "action": "forward",
+  "targets": [
+   "WP-67",
+   "WP-82",
+   "WP-66"
+  ],
+  "duplicateOf": 0,
+  "summary": "Test expectations: single NO_ERROR GOAWAY; RZ-RT-017 only for framing the handler sees",
+  "change": "Drain: the Node does not send 04 req 63's GOAWAY pair with last stream ID 2^31-1. Go's http.Server.Shutdown sends one GOAWAY with NO_ERROR naming the highest client stream it processed (go1.27.1 net/http/internal/http2/server.go, startGracefulShutdownInternal and goAway with maxClientStreamID). docs/operations/02-zero-downtime-upgrades-and-hot-reload.md now says 'one GOAWAY, from Server.Shutdown alone'. WP-67 and WP-82 assert exactly one GOAWAY, code NO_ERROR, the last processed stream ID, and that the streams up to it complete. Framing (11 risk 7): for HTTP/1.1, net/http removes Transfer-Encoding from Request.Header (setting Request.TransferEncoding), drops Content-Length when the body is chunked, and answers any other or repeated transfer coding with 501 before a handler runs (net/http/transfer.go parseTransferEncoding and fixLength). WP-66 therefore detects framing from Request.TransferEncoding and ContentLength, never from the header map. WP-82 expects 400 RZ-RT-017 only for framing that reaches the handler, and net/http's own 400 or 501, with no RZ code, for the rest; none of it is forwarded (docs/architecture/03-data-plane.md, 'unless net/http refused it first')."
+ },
+ {
+  "n": 167,
+  "action": "docfix",
+  "targets": [
+   "docs/architecture/01-system-overview.md"
+  ],
+  "duplicateOf": 165,
+  "summary": "System overview line 340 retirement wording (same as #165)",
+  "change": "Same edit as #165 (1): replace 'activation never waits ... HTTP/2 GOAWAY ...' on line 340 with per-stream closes (OQ-data-plane-12 (a)) and the rule that the latest pending Revision waits and a grace period is never cut short (OQ-data-plane-13 (a)), linking Data plane #why-no-in-flight-request-is-dropped."
+ },
+ {
+  "n": 168,
+  "action": "user",
+  "targets": [],
+  "duplicateOf": 0,
+  "summary": "Amend foundation pack section 7 Upgrades row for OQ-zero-downtime-upgrades-and-hot-reload-12 (a)?",
+  "change": "Question: should docs/_meta/foundation-pack.md:143 (section 7 Upgrades row) be amended to OQ-zero-downtime-upgrades-and-hot-reload-12 (a)? It is a docs/_meta change and needs two approvals. Options: (a) replace '(`net.ipv4.tcp_migrate_req` is an alternative)' with '(hosts SHOULD also set `net.ipv4.tcp_migrate_req`, which complements steering; the old process accepts through a 3 s linger (target))', citing the closed OQ in docs/operations/02-zero-downtime-upgrades-and-hot-reload.md as the section 14 authorization; (b) leave the row until a later binding-docs pass, so the pack keeps contradicting ADR-0015's decision table and the owning document. Recommendation: (a). ADR-0015's chosen option already says complement and SHOULD, and .claude/rules/adr.md requires the pack row to match the ADR. The system overview line 425 part is applied under #165."
+ },
+ {
+  "n": 169,
+  "action": "user",
+  "targets": [],
+  "duplicateOf": 0,
+  "summary": "ADR-0015 line 50 'pending' note: leave, errata-edit, or supersede?",
+  "change": "Question: ADR-0015 (accepted) line 50 still says 'Pack section 7 says alternative, pending OQ-zero-downtime-upgrades-and-hot-reload-12 (a)'. An accepted ADR changes only through a superseding ADR made at the user's explicit request (.claude/rules/adr.md). Options: (a) leave ADR-0015 unchanged: its decision cell already states the adopted (a) ('Complements steering ... SHOULD'), and the trailing clause reads as a dated note; (b) authorize a one-off errata edit that deletes that clause once #168 amends the pack; (c) supersede ADR-0015 with a new ADR, which is disproportionate for a status note. Recommendation: (a), or (b) if the user wants the ADR text exact. No agent edits the ADR without that approval."
+ },
+ {
+  "n": 170,
+  "action": "user",
+  "targets": [],
+  "duplicateOf": 0,
+  "summary": "Add a research addendum for the Go net/http framing and Shutdown GOAWAY behaviors?",
+  "change": "Question: add a docs/_meta/research addendum (two approvals) so the docs may state two Go net/http behaviors: HTTP/1.1 framing normalized before handlers, and Server.Shutdown's single NO_ERROR GOAWAY naming the last processed stream. Options: (a) add to docs/_meta/research/go-libraries-runtime.md a bullet citing pkg.go.dev/net/http (Server.Shutdown, Request.TransferEncoding) and the go1.27.1 sources net/http/transfer.go (parseTransferEncoding, fixLength) and net/http/internal/http2/server.go (startGracefulShutdownInternal, goAway); a later docs pass then cites it; (b) keep the docs silent on Go internals, as WP-30 left them, with the WP-66, WP-67 and WP-82 tests from #166 pinning the behavior. Recommendation: (b). These are implementation details of one Go release that can change, the tests catch any change, and no M1 decision depends on the docs stating them."
+ },
+ {
+  "n": 1,
+  "action": "docfix",
+  "targets": [
+   "docs/architecture/08-security-and-identity.md"
+  ],
+  "duplicateOf": 0,
+  "summary": "Add OQ-security-and-identity-32 on Forwarded versus X-Forwarded-For precedence",
+  "change": "Add an Open questions row OQ-security-and-identity-32 (31 is the highest used). Question: 'With `trustedProxies`, `Forwarded` wins whenever present, so a client behind a trusted proxy that manages only `X-Forwarded-For` sets `source.ip` with `Forwarded: for=<addr>`, or collapses it to the proxy with `Forwarded: proto=https` or `Forwarded: ,`. Which field should a trusted hop's address come from?' Options: '(a) A per-prefix setting on `trustedProxies` naming the field each proxy manages (schema change); (b) Prefer `X-Forwarded-For` and read `Forwarded` only when it is absent; (c) Keep `Forwarded` preferred and require trusted proxies to remove or overwrite a client's `Forwarded` (current)'. Owner: security-and-identity. Blocking?: No. In the Client address paragraph (line 359), add 'A trusted proxy that does not manage `Forwarded` MUST remove or overwrite a client's `Forwarded` field (OQ-security-and-identity-32)', matching internal/clientaddr/doc.go. Keep the word band."
+ },
+ {
+  "n": 2,
+  "action": "arch",
+  "targets": [
+   "architecture"
+  ],
+  "duplicateOf": 0,
+  "summary": "Lead decision: accept PROXY v2 LOCAL with any family byte (interop)",
+  "change": "Add an R-row: 'PROXY v2 LOCAL: a LOCAL header is accepted whatever its family/transport byte. Its address block is skipped within the 4,096-byte cap and the TCP peer is used, as the PROXY v2 specification requires of receivers (discard the protocol block, including the family). UDP and UNIX families still close the connection with PROXY. This overrides the literal 04 req 16.' LOCAL discards the addresses, so accepting it adds no spoofing risk, while refusing it fails proxy health checks that send LOCAL with a non-UNSPEC family. The lead applies the one-line change at the wave boundary in internal/clientaddr/proxyv2.go: skip the family check when the command is LOCAL, update the comment that cites 04 req 16, and flip the test that refuses LOCAL with UDP or UNIX. WP-82's PROXY cases then expect acceptance. No design doc states family rules, so no doc change is needed."
+ },
+ {
+  "n": 3,
+  "action": "forward",
+  "targets": [
+   "WP-46"
+  ],
+  "duplicateOf": 0,
+  "summary": "Outgoing request build must meet clientaddr.Rewrite's preconditions",
+  "change": "Build each attempt's header to meet clientaddr.Rewrite's documented preconditions (internal/clientaddr/rewrite.go). Per attempt, start from a fresh clone of the leg's client header, using http.Header{} when it is nil: http.Header(nil).Clone() returns nil, and Rewrite panics with 'clientaddr: Rewrite called with a nil http.Header'. Next, remove hop-by-hop fields with httpfield.StripHopByHop(h, httpfield.TowardUpstream); the handler already ran StripConnectionOptions at admission. Then call clientaddr.Rewrite(h, f) exactly once, and only after that add the Node's own fields (traceparent). Never reuse a rewritten header for a retry, because with a trusted peer a second Rewrite appends the peer to X-Forwarded-For again. Add a retry test asserting one peer entry per attempt."
+ },
+ {
+  "n": 4,
+  "action": "forward",
+  "targets": [
+   "WP-44"
+  ],
+  "duplicateOf": 0,
+  "summary": "ListenerOptions.Clock must track wall time",
+  "change": "clientaddr.ListenerOptions.Clock must track wall time, because Clock.Now()+Timeout goes to net.Conn.SetReadDeadline, which the OS enforces against the real clock. A fake seeded at a fixed date refuses every PROXY connection at once, or never times out. Production passes clock.Real() (WP-76 wiring); tests pass clock.Real() or clocktest.New(clock.Real().Now()). The gateway/listener row in 1.2 does not list clock, so take a clientaddr.TimeSource (clock.Clock satisfies it) through the listener's options instead of importing clock."
+ },
+ {
+  "n": 120,
+  "action": "arch",
+  "targets": [
+   "architecture"
+  ],
+  "duplicateOf": 0,
+  "summary": "Allow the cli root to import clock",
+  "change": "In 00-architecture 1.2, add `clock` to the May import list of the L7 `cli` (package root) row, so WP-77 can wire command.NewIO(..., clock.Real().Now, ...) without calling time.Now (convention 4). Keep `cli/command` clock-free: IO.Now stays an injected func() time.Time. No .golangci.yml change is needed, because the cli depguard rule denies only gateway and statestore."
+ },
+ {
+  "n": 121,
+  "action": "forward",
+  "targets": [
+   "WP-77"
+  ],
+  "duplicateOf": 0,
+  "summary": "CLI root wiring over the WP-25 framework",
+  "change": "Wire the WP-25 framework into the CLI root. cli.SignalContext delegates to command.SignalContext, and cmd/ruralz/main.go calls it instead of signal.NotifyContext (still only imports and func main). cli.Run calls command.Execute(ctx, command.NewIO(stdout, stderr, os.Environ(), clock.Real().Now, runtime.GOOS), \"ruralz\", Registry(), args); the clock import comes from #120's 1.2 change. Registry() returns every command Spec, plus completion.Spec(\"ruralz\", Registry) and one noun-description row per noun (a one-word Spec with only a Summary). A unit test runs command.Check(Registry()). Add help goldens (root, each noun, each verb) and completion goldens (bash, zsh, fish, powershell) over the real Registry()."
+ },
+ {
+  "n": 122,
+  "action": "forward",
+  "targets": [
+   "WP-68"
+  ],
+  "duplicateOf": 0,
+  "summary": "adminclient.ProblemError implements command.ProblemDocument",
+  "change": "adminclient.ProblemError must implement command.ProblemDocument (internal/cli/command/exit.go): Error() plus ProblemJSON() []byte, which returns the problem document bytes exactly as received. command.Execute finds it with errors.AsType[command.ProblemDocument], so declare the methods on the type you actually return (for example, pointer receivers and a returned *ProblemError, possibly wrapped with %w). Under --output json, Execute then prints the document to stdout and the one-line summary to stderr (10 req 23). Add a test that goes through command.Execute."
+ },
+ {
+  "n": 18,
+  "action": "arch",
+  "targets": [
+   "architecture"
+  ],
+  "duplicateOf": 0,
+  "summary": "Allow config/schemaidx to import jsonval (one RFC 8785 encoder)",
+  "change": "In 00-architecture 1.2, add `jsonval` to the May import list of the config/schemaidx row. jsonval is L0 under L2, the graph stays acyclic, and the config depguard rule does not restrict it. At the wave boundary the lead, or a WP-03 follow-up, makes AppendItemJSON and ItemElem delegate to jsonval.AppendCanonicalNumber and jsonval.CompareUTF16, and deletes appendNumber, appendES6 and compareUTF16 from internal/config/schemaidx/lookup.go. Keep the existing tests and add one differential test, so schemaidx and WP-39's config/canonical (which already lists jsonval) share one RFC 8785 number form and key order. Until then the local copy stays; a probe verified it matches jsonval."
+ },
+ {
+  "n": 8,
+  "action": "arch",
+  "targets": [
+   "architecture"
+  ],
+  "duplicateOf": 0,
+  "summary": "Add clock and telemetry/catalog to the gateway/executor row in architecture 1.2",
+  "change": "In 00-architecture.md section 1.2, row `L3 | gateway/executor`, change \"May import\" to `filter, gateway/snapshot, expr, phase, statestore, telemetry/emit, telemetry/catalog, clock, errcode, v1alpha1`. I checked `go list` on internal/gateway/executor: it imports exactly clock, errcode, expr, filter, gateway/snapshot, phase, statestore, telemetry/catalog, telemetry/emit and v1alpha1. clock and telemetry/catalog are L0, so the graph stays acyclic and never goes upward. Convention 4 requires clock, and the catalog supplies AttrOutcome, AttrFailureMode, AttrState*, Ops(), KeyPolicy and KeyError. No depguard rule and no code change are needed."
+ },
+ {
+  "n": 9,
+  "action": "forward",
+  "targets": [
+   "WP-47",
+   "WP-48",
+   "WP-49"
+  ],
+  "duplicateOf": 0,
+  "summary": "Auth Filters must expose Challenge(); no new filter.Challenger is needed",
+  "change": "No SPI change is needed. WP-06 (committed) already defines the documented auth.Challenger in internal/filter/auth/auth.go:69-77, and *auth.Decider implements Challenge() (decider.go:63). The executor asserts an identical executor.Challenger on p.Filter (run.go:195) for the 401 RZ-AUTH-001 of Security rule 1. Note for WP-47, WP-48 and WP-49: the Filter value your Factory returns MUST have its own `Challenge() string` method. Get it by embedding *auth.Decider anonymously (promoted method) or by forwarding to it. A Decider held in a named field is invisible to the executor's type assertion, and the 401 then carries no WWW-Authenticate. Build the Decider with auth.NewAuth(m, challenge): auth.jwt uses auth.ChallengeJWT, auth.api-key uses auth.APIKeyChallenge(auth.APIKeyHeader(cfg.Header)), auth.basic uses auth.ChallengeBasic, and auth.mtls uses \"\" (no challenge, a documented deviation). Add a unit test per type asserting that p.Filter.(interface{ Challenge() string }) succeeds with the expected value."
+ },
+ {
+  "n": 10,
+  "action": "contract",
+  "targets": [
+   "internal/filter"
+  ],
+  "duplicateOf": 0,
+  "summary": "Document the optional ErrorType() convention on filter.Result.Err",
+  "change": "In internal/filter/filter.go, replace the Result.Err doc comment with: \"// Err is the cause of CannotDecide: logged at debug level and classified as the span's error.type, never sent to the client. A Filter names the error.type by returning or wrapping an error with an `ErrorType() string` method (found with errors.As). Its value is one of cel_error, invalid_value, null_body, path_error, output_cap, result_type or internal (spec 07 req 86), or the executor's own state_store, buffer_budget, too_large or invalid_result. Any other value is recorded as internal, so the attribute never carries request data. Without such an error the executor maps *expr.EvalError to cel_error, *statestore.Error to state_store, ErrBudget to buffer_budget, ErrTooLarge to too_large, a recovered panic to internal, and an outcome the Phase does not allow to invalid_result; anything else is internal.\" Mirror the text in 00-architecture.md 2.13. This is a doc-only change: errorType and knownErrorType in internal/gateway/executor/executor.go:347-388 already behave this way. It must land before WP-51, WP-59, WP-60, WP-61 and WP-62 build their CannotDecide causes."
+ },
+ {
+  "n": 11,
+  "action": "contract",
+  "targets": [
+   "internal/telemetry/catalog"
+  ],
+  "duplicateOf": 0,
+  "summary": "Add KeyPhase, KeyPanicType, KeyStack, KeyErrorType process-log keys to the catalog",
+  "change": "In internal/telemetry/catalog/catalog.go, add to the \"Process log keys\" const block: KeyPhase = \"phase\", KeyPanicType = \"panic_type\", KeyStack = \"stack\", KeyErrorType = \"error_type\". Add the four names to the keys slice in catalog_test.go (lines 402-406), which checks snake_case, uniqueness and the slog built-in keys; none of the four collides. Mirror the block in 00-architecture.md 2.10. In the same change, switch internal/gateway/executor/executor.go logPanic (lines 329-331) and logUndecided (lines 341-342) from the raw literals to these constants; WP-20 is done, so the lead makes this edit. WP-46 can reuse KeyPanicType and KeyStack for upstream_panic logs. This is not resolved yet: the catalog has only KeyComponent through KeyReason."
+ },
+ {
+  "n": 12,
+  "action": "arch",
+  "targets": [
+   "architecture"
+  ],
+  "duplicateOf": 0,
+  "summary": "Fix class defaults for cannot-decide without a Filter code: auth RZ-AUTH-002, admission/cache RZ-RT-011, widened meanings",
+  "change": "Lead decision: spec 04 req 43 names only Filter codes for auth, admission and cache. A cannot decide with no Filter code (in M1, a recovered panic, or filter.Undecided(\"\", err)) takes these defaults, which executor.go and filter/auth NewAuth already use, so no Go behavior changes: auth gets 401 RZ-AUTH-002, admission and cache get 503 RZ-RT-011, and custom (M2) gets RZ-PLG-001 at 503 or 502. Record it in four places. (1) 00-architecture.md 2.16: a new R-row \"Class default when a Filter supplies no code\". (2) internal/errcode/errcode.go Meaning strings: RZ-RT-011 becomes \"A Policy could not decide under `closed` without a code of its own: `cors`, `validation.json-schema`, `headers`, `transform.*`, or a recovered fault in an admission or cache Policy\", and RZ-AUTH-002 becomes \"Credential invalid, no matching Consumer, a second binding, or an auth Policy that could not decide without a code\". (3) The same meanings in docs/architecture/03-data-plane.md:555 and docs/architecture/08-security-and-identity.md:289. (4) One sentence under the 03-data-plane Failure semantics table, keeping the word count net zero: \"A Filter that cannot decide without supplying a code, such as after a recovered panic, takes 401 `RZ-AUTH-002` (auth) or 503 `RZ-RT-011` (admission, cache).\" problem's RT-011 title \"Policy could not decide\" already fits, and failure_test.go's requestRow does not change. Not chosen: a new \"Authentication could not decide\" AUTH code, which would need a new number plus edits to filter/auth and the executor; 2.3 prefers reusing codes."
+ },
+ {
+  "n": 13,
+  "action": "contract",
+  "targets": [
+   "internal/filter"
+  ],
+  "duplicateOf": 0,
+  "summary": "Amend filter.Consumptive.Undo doc to cover pending members before a local deny",
+  "change": "In internal/filter/filter.go, Consumptive, replace \"// Undo returns local tokens when an earlier member denied.\" with: \"// Undo returns the local tokens Prepare took when the member will not be completed. That happens when an earlier member denied or failed closed (spec 05 req 64), or when the member was waiting for its round trip and a later member's Prepare denied or failed closed locally, so the round trip was never sent. Complete never runs for a member that gets Undo. A member that decided in Prepare gets Undo only when an earlier member denied or failed closed.\" This matches internal/gateway/executor/batch.go: undo(ms, ctxs, false) after a local deny undoes only pending members, and undo(ms[i+1:], ctxs[i+1:], true) after a Complete deny also undoes later locally admitted members. Then shorten batch.go step 1 (lines 49-55) to cite the doc instead of the pending contract request. It must land before WP-61 (ratelimit) and WP-62 (quota)."
+ },
+ {
+  "n": 14,
+  "action": "contract",
+  "targets": [
+   "internal/telemetry/catalog"
+  ],
+  "duplicateOf": 11,
+  "summary": "Repeat of the catalog process-log keys request",
+  "change": "Same change as request 11: add KeyPhase \"phase\", KeyPanicType \"panic_type\", KeyStack \"stack\" and KeyErrorType \"error_type\" to the catalog's process log keys and to catalog_test.go's key list, then switch executor.go:329-331 and 341-342 to the constants. Still open: the catalog has none of them."
+ },
+ {
+  "n": 15,
+  "action": "arch",
+  "targets": [
+   "architecture"
+  ],
+  "duplicateOf": 8,
+  "summary": "Repeat of the executor 1.2 imports request",
+  "change": "Same change as request 8: the 1.2 row for gateway/executor lists telemetry/catalog and clock. No code change follows."
+ },
+ {
+  "n": 16,
+  "action": "arch",
+  "targets": [
+   "architecture"
+  ],
+  "duplicateOf": 12,
+  "summary": "Repeat of the class-default code request",
+  "change": "Same decision as request 12. Keep CodeAuthUndecided = RZ-AUTH-002 and CodeUndecided = RZ-RT-011, and widen the RZ-AUTH-002 and RZ-RT-011 meanings in internal/errcode, in the 03-data-plane and 08-security registry rows, and with a Failure semantics note, recorded as a 2.16 R-row. executor.go constants and failure_test.go's requestRow stay as they are."
+ },
+ {
+  "n": 17,
+  "action": "arch",
+  "targets": [
+   "architecture",
+   "wps.json"
+  ],
+  "duplicateOf": 0,
+  "summary": "Accept span attributes instead of a span event for spec.when errors; no emit.Span.Event in M1",
+  "change": "Lead decision: keep what is built. Spec 03 req 43's \"event on ruralz.filter.<name>\" for a Policy.spec.when runtime error is satisfied by marking that span, as docs/architecture/03-data-plane.md:309 says (\"marks the span ruralz.filter.<name>\"). Under closed, the Policy's call span carries ruralz.failure_mode=closed and error.type (cel_error, or internal after a panic). Under open, a span of its own ends with outcome skipped, ruralz.failure_mode=open and error.type. ruralz_filter_failures_total{phase=<first Phase reached>,mode} and the access log failure_modes are also recorded (cursor.go whenFailed). emit.Span gets no Event method in M1: adding a method to the interface breaks tracing's span, noopSpan and noopServer (WP-10) and the executor fakes. Revisit it in M3 with the onChunk span event (10-observability.md:286). Record this as a new R-row in 00-architecture.md 2.16. In wps.json, add to WP-91's scope: \"Policy.spec.when errors are asserted through ruralz_filter_failures_total{phase,mode}, the access log failure_modes and the ruralz.filter.<name> span attributes ruralz.failure_mode and error.type, with no span event (R-<n>)\"."
+ },
+ {
+  "n": 90,
+  "action": "user",
+  "targets": [],
+  "duplicateOf": 0,
+  "summary": "Approve a docs/_meta research addendum for the 21 uncited CI tooling URLs",
+  "change": "Question for the user: will you approve a docs/_meta/ research addendum (two approvals; a research addendum needs no ADR or foundation pack section 14 entry) so WP-32's CI tooling rows can merge? .claude/rules/docs.md requires every license or release claim to cite a URL already in docs/_meta/research/*. I checked: of the URLs WP-32 added to docs/engineering/01-tech-stack-and-libraries.md (still uncommitted in the working tree), exactly 21 are missing from docs/_meta/research/. They are the 17 listed here plus github.com/cli/cli/blob/trunk/LICENSE, jqlang/jq/blob/jq-1.7/COPYING, systemd/systemd/blob/main/LICENSES/README.md and docker/compose/blob/main/LICENSE. Options: (a) Approve: add a section dated 2026-10-03 to docs/_meta/research/tooling-and-licenses.md recording each URL with the fact it supports (version or license), plus the action SHAs verified with git ls-remote: upload-artifact v7.0.1 043fb46d1a93c77aae656e7c1c64a875d1fc6a0a, download-artifact v8.0.1 3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c, attest-build-provenance v4.2.2 4d101475d8b20a2381f78447822ac1eab6504dd8, attest-sbom v4.1.0 c604332985a26aa8cf1bdc465b92731239ec6b9e, setup-buildx-action v4.4.1 f87e5991a6d7451dcb8d9637bfbc97413f497069. It lands in the same pull request as the rows. (b) Decline: strip those rows and facts. That leaves tools and actions that WP-27's workflows already use without the row 11 req 10 and 76 require before first use. Recommendation: (a)."
+ },
+ {
+  "n": 91,
+  "action": "user",
+  "targets": [],
+  "duplicateOf": 0,
+  "summary": "Superseding ADR-0018 for ADR-0010, or drop the amendment from WP-32's scope",
+  "change": "Question for the user: ADR-0010 (accepted) still says the /metrics exporter is unselected (docs/adr/0010-telemetry-opentelemetry-first.md:107) and that OQ-observability-16 blocks M1 metrics (:106). Meanwhile the tech stack row and OQ-tech-stack-and-libraries-16 (a) chose the OTel Prometheus exporter with WithProducer. An accepted ADR changes only through a superseding ADR, which needs your explicit request, so WP-32's \"ADR-0010 amendment\" cannot be done in place. Options: (1) You ask for ADR-0018 (for example \"Telemetry metrics export: external producer and OTel Prometheus exporter\") superseding ADR-0010. WP-32 writes docs/adr/0018-*.md per .claude/skills/new-adr/SKILL.md, adds the docs/adr/README.md row and count, and changes only ADR-0010's status to superseded-by ADR-0018. The lead adds the manifest adrs entry, the foundation pack section 7 row and the docs/README.md link (docs/_meta/: two approvals plus a section 14 entry). (2) No ADR change. ADR-0010's decision, OpenTelemetry-first, is unchanged, and its text says only OQ-observability-16 option (c) would amend it; option (a), external producer, is the one adopted. Its \"Bad\" bullets are dated consequences that point at the open questions that now answer them. The lead removes \"ADR-0010 amendment (exporter, external producer, otel confinement)\" from WP-32's scope in 00-architecture.md 4.4 and wps.json, and \"ADR-0010 amendment WP-32\" from the section 6 OQ-observability-16 row. WP-31 closes OQ-observability-16 (a) at docs/architecture/10-observability.md:618, and the confinement rule stays in the layout doc's depguard section. Recommendation: (2), because it needs no docs/_meta change and the decision itself did not change."
+ },
+ {
+  "n": 92,
+  "action": "user",
+  "targets": [],
+  "duplicateOf": 0,
+  "summary": "Schema $id on revington.co conflicts with the no-license-check scan; defer $id past M1",
+  "change": "Question for the user (nolicensecheck.allow, two approvals; nothing is needed for M1): WP-32's uncommitted edits close OQ-repository-layout-and-conventions-4 with (b), a Revington-owned domain for the published schema $id (02-repository-layout-and-conventions.md:597; 04-release-versioning-and-compatibility.md:67 and 362). That domain is revington.co (foundation pack line 19), which repocheck rejects under cmd/, internal/, pkg/, sdk/ and console/. So neither internal/tool/schemagen nor a go:generate line in pkg/config/v1alpha1 could carry it. Today schemagen emits no $id, no M1 work package adds one, and 11 req 94 copies the schema files byte for byte and calls the $id non-blocking. Options: (a) No $id in M1. 0.1.0 ships the schemas as today, and the later change that adds the $id brings the allow entry `internal/tool/schemagen/ revington.co # schema $id base URI, never fetched (OQ-repository-layout-and-conventions-4 (b))` for your approval. (b) Add the $id now with that allow entry, as a WP-28 follow-up that regenerates api/schema (TestCommittedSchemaIsCurrent). (c) Reopen OQ-4 for a URN, which needs no allow entry. Under (a) or (b) the host also reaches every binary through the go:embed schema views. ADR-0002's scan does not inspect those, but they touch its intent. Recommendation: (a)."
+ },
+ {
+  "n": 93,
+  "action": "repometa",
+  "targets": [
+   ".github/workflows/pr-full.yml",
+   ".github/workflows/main.yml",
+   ".github/workflows/nightly.yml"
+  ],
+  "duplicateOf": 0,
+  "summary": "Pin redis-server-installing CI jobs to ubuntu-24.04 so redis-server stays 7.0.15",
+  "change": "Pin the jobs that apt-install redis-server to `ubuntu-24.04`, so the process flavor keeps the redis-server 7.0.15 that convention 3 and the tech stack row (\"7.0.15 on Ubuntu 24.04\") name. The runner-images README says ubuntu-latest moves to 26.04 in November 2026. WP-27 is done, and .github/ edits need two approvals. Edits: in pr-full.yml, the integration matrix leg `linux/amd64 process` gets `runner: ubuntu-24.04` (line 89; the arm leg already uses ubuntu-24.04-arm, and the container leg installs no redis-server). In main.yml, job `e2e` (line 43) gets `runs-on: ubuntu-24.04`. In nightly.yml, job `chaos` (line 177) gets `runs-on: ubuntu-24.04`. Add a one-line comment at each citing the tech stack row, and add the `redis-server --version` step that pr-full already has to the other two jobs. Forward to WP-80 (chaos-scale.yml) and any later workflow that installs redis-server: use ubuntu-24.04 too. A later move to 26.04 is a deliberate change that updates the row."
+ },
+ {
+  "n": 94,
+  "action": "user",
+  "targets": [],
+  "duplicateOf": 91,
+  "summary": "Repeat of the ADR-0010 amendment decision",
+  "change": "Same user question as request 91: ADR-0018 superseding ADR-0010 (option 1), or remove \"ADR-0010 amendment\" from WP-32's scope and leave ADR-0010 unchanged (option 2, recommended). WP-32's word count of ADR-0010 (1,539) also rules out any in-place addition."
+ },
+ {
+  "n": 95,
+  "action": "user",
+  "targets": [],
+  "duplicateOf": 90,
+  "summary": "Repeat of the research addendum request, with the 4 runner-image license URLs added",
+  "change": "Same user question as request 90, covering the full set of 21 URLs, including the cli/cli, jqlang/jq, systemd/systemd and docker/compose license sources. The CI tooling intro no longer claims a 2026-10-03 check, so the addendum is a hard precondition for merging WP-32's tech stack rows."
+ },
+ {
+  "n": 96,
+  "action": "user",
+  "targets": [],
+  "duplicateOf": 0,
+  "summary": "Choose a host for CE-5 at 100 Nodes and CE-15: org larger runner or RH-class self-hosted",
+  "change": "Question for the user (runner provisioning and repository settings; blocks M1 exit criterion 5): where do CE-5 at 100 Nodes and CE-15 at 100,000 new keys per second (target) run? `gh api repos/ravindu-rev/ruralz` confirms owner.type User, and GitHub larger runners need an organization on a Team or Enterprise Cloud plan. This is OQ-testing-and-quality-strategy-11 in WP-32's uncommitted 03-testing-and-quality-strategy.md:352, with (a) marked current. Options: (a) Move the repository to such an organization. This costs per-minute billing, and it either renames the Go module path github.com/ravindu-rev/ruralz (go.mod, every import, AGENTS.md, docs) or leaves it resting on a GitHub redirect. (b) Run them on an RH-class self-hosted host: RH-1 itself (WP-97 provisions it under OQ-performance-budgets-and-benchmarking-2 (b), for protected-branch scheduled jobs only, and one runner serializes chaos-scale with the latency rotation) or a second rented host. Recommendation: (b) on RH-1. Follow-ups if (b): WP-32's fix pass marks OQ-testing-and-quality-strategy-11 (b) chosen and updates the Runners row and line 231. The lead changes WP-80's scope in 00-architecture.md 4.4 and wps.json to run chaos-scale.yml on [self-hosted, rh-1], with the RH1_PROVISIONED fallback annotation nightly.yml already uses. The lead also drops \"the larger runner group for chaos-scale\" from WP-98's scope and updates the WP-83 roadmap note (\"run on a GitHub larger runner\") as a docfix."
+ },
+ {
+  "n": 97,
+  "action": "user",
+  "targets": [],
+  "duplicateOf": 91,
+  "summary": "Repeat of the ADR-0010 contradiction finding",
+  "change": "Same user question as request 91. ADR-0010:106-107 contradicts OQ-tech-stack-and-libraries-16 (a). Either the user asks for ADR-0018 superseding ADR-0010, or WP-32 drops the amendment and WP-31 closes OQ-observability-16 (a) at 10-observability.md:618 (recommended)."
+ },
+ {
+  "n": 98,
+  "action": "user",
+  "targets": [],
+  "duplicateOf": 90,
+  "summary": "Repeat of the research addendum requirement for the 21 URLs",
+  "change": "Same user question as request 90. I confirmed that exactly these 21 URLs from the uncommitted tech stack diff are missing from docs/_meta/research/*, and that every other new URL is already there. The CI tooling rows must not merge without the addendum."
+ },
+ {
+  "n": 44,
+  "action": "contract",
+  "targets": [
+   "internal/telemetry/emit"
+  ],
+  "duplicateOf": 0,
+  "summary": "Move GatewayTimer from telemetry/aggregate into telemetry/emit so gateway/exchange and gateway/handler can embed it",
+  "change": "Add internal/telemetry/emit/timer.go containing GatewayTimer (Reset, Enter, Leave, Result, Observe), its unexported word constants and storeMax, moved verbatim from internal/telemetry/aggregate/timer.go. It imports only sync/atomic and time, which the depguard `contracts` rule allows; add `var _ Excluder = (*GatewayTimer)(nil)`. Move TestGatewayTimer_Test15, TestGatewayTimerSwapOrder_Req54, TestGatewayTimerConcurrentLegs, TestGatewayTimerUnion_Test26, FuzzGatewayTimer, the helpers they use (timerEvent, unionMeasure, runIntervals, an epoch helper) and BenchmarkGatewayTimer into emit. TestGatewayTimerObserve_Req54 needs aggregate's newTestRegistry, so it stays in aggregate and is rewritten against emit.GatewayTimer; the same goes for the bench_test.go:109 use. Delete aggregate/timer.go, remove GatewayTimer from aggregate's package doc (registry.go:12) and from helpers_test.go:38, and update the architecture 1.2 emit row and the 2.11 listing (this supersedes spec 09's placement in internal/telemetry). The gateway/exchange and gateway/handler rows need no change. Option (b) is rejected because it would couple gateway packages to the OTel-backed aggregate. Consumers: WP-43 embeds an emit.GatewayTimer in the pooled exchange, and WP-66 calls Reset at request start and Observe(end, stripe, ListenerMetrics.GatewayDuration, Node().GatewayDurationSkipped) at the end. A separate gap remains for the lead to decide before wave 3. No committed contract passes the request's Excluder to the upstream attempt loop (snapshot.Outbound has no Excluder field), to Store.Consume round trips (statestore.RequestBudget carries only the stripe), or to a Filter's declared remote call (filter.Exchange has no Excluder)."
+ },
+ {
+  "n": 45,
+  "action": "contract",
+  "targets": [
+   "internal/telemetry/emit"
+  ],
+  "duplicateOf": 0,
+  "summary": "Add emit.Shape.CachedRoutes so only Routes with a cache Policy get ruralz_cache_requests_total label sets",
+  "change": "Append `CachedRoutes []string` to emit.Shape. Doc comment: the names (a subset of Routes) of Routes whose effective chain holds a `cache` Policy at any scope; only these get ruralz_cache_requests_total label sets, and every other Route's RouteMetrics.Cache holds no-op handles. This keeps Shape.Routes []string unchanged; the requested RouteShape{Name, Cache} would change that field's type, which is not additive. Lead follow-up in internal/telemetry/aggregate (WP-09 is done): admit.go admits the cache family only for CachedRoutes and rejects a name that is not in Routes with ErrShape, and admit_test covers a Bundle that mixes cached and uncached Routes. Record in architecture 2.11 that spec 09 req 45 pre-creates cache label sets only for cached Routes, so 5,000 uncached Routes no longer use up the family's 6,000-set budget. Add to WP-70's wps.json scope: fill Shape.CachedRoutes from each Route's effective chains (hub.Chain) when building the metric Plan."
+ },
+ {
+  "n": 46,
+  "action": "forward",
+  "targets": [
+   "WP-40"
+  ],
+  "duplicateOf": 0,
+  "summary": "Release contract of aggregate.Producer for the OTLP exporter wrapper and the /metrics handler",
+  "change": "aggregate.Registry.Producer() returns *aggregate.Producer, an sdkmetric.Producer that pools its collection structures (09 req 51). Release points: (1) the Ruralz wrapper around the OTLP metric exporter calls Producer.ReleaseResource(rm) on the *metricdata.ResourceMetrics once its inner Export returns; (2) the /metrics handler wraps the Producer it passes to prometheus.WithProducer, records the []metricdata.ScopeMetrics that each Produce call returns during one Gather, and calls Producer.Release on each one after Gather and encoding finish. Release each result at most once. Data that is never released is abandoned after 30 s, which is safe but loses pooling. Test both release points: heap must not grow over repeated scrapes and exports."
+ },
+ {
+  "n": 47,
+  "action": "arch",
+  "targets": [
+   "architecture"
+  ],
+  "duplicateOf": 0,
+  "summary": "List otel attribute and sdk/instrumentation (plus test-only exporter imports) in the telemetry/aggregate 1.2 row",
+  "change": "In 00-architecture.md 1.2 (and arch/pkgs.py line 45), set the telemetry/aggregate row's Third party column to: otel attribute, otel sdk/instrumentation, otel sdk/metric (with metricdata); tests also use otel exporters/prometheus, prometheus client_golang and otlptranslator for the Prometheus name-set check. All of these come from section 5 modules (go.opentelemetry.io/otel v1.46.0 with sdk and sdk/metric; exporters/prometheus v0.68.0; client_golang; otlptranslator). depguard already admits them under internal/telemetry/**, so .golangci.yml does not change."
+ },
+ {
+  "n": 48,
+  "action": "arch",
+  "targets": [
+   "architecture"
+  ],
+  "duplicateOf": 0,
+  "summary": "Let telemetry/aggregate import phase and v1alpha1 instead of adding a catalog type-to-family table",
+  "change": "Decision: do not add a catalog-level Policy-type-to-family table. catalog is an L0 naming package with no imports, so the table would only move the duplicated type strings. Instead, add `phase` and `v1alpha1` to the telemetry/aggregate row's May-import list in 1.2 and in arch/pkgs.py line 45. Both are L0, and emit already imports phase (which imports v1alpha1), so no cycle or upward edge appears; aggregate has no strict depguard rule, so .golangci.yml does not change. Optional lead cleanup in WP-09's family.go: replace typeAuthJWT, typeUpstreamOAuth2, typeRateLimit, typeQuota and typeCache with string(v1alpha1.PolicyType*), and phaseOnUpstreamRequest/phaseOnLog with phase.OnUpstreamRequest/phase.OnLog (or Phase.CanShortCircuit), then drop the pin test. Until that cleanup, the existing pin test keeps the copies correct."
+ },
+ {
+  "n": 49,
+  "action": "contract",
+  "targets": [
+   "internal/telemetry/emit"
+  ],
+  "duplicateOf": 44,
+  "summary": "Repeat of #44: GatewayTimer is unreachable from exchange and handler; move it into emit before WP-43/WP-66",
+  "change": "Same request as #44; apply #44's change (move GatewayTimer and its movable tests into internal/telemetry/emit, keep the registry-based Observe test in aggregate against emit.GatewayTimer, delete aggregate/timer.go, update 1.2 and 2.11). It must land at this wave boundary: WP-43 (wave 3) already needs it, before WP-66."
+ },
+ {
+  "n": 50,
+  "action": "contract",
+  "targets": [
+   "internal/telemetry/emit"
+  ],
+  "duplicateOf": 0,
+  "summary": "Move OriginOf (spec 09 req 44) into emit beside the Origin constants",
+  "change": "Add `func OriginOf(code string, fromUpstream bool) int` to internal/telemetry/emit next to OriginUpstream/OriginNode/OriginDependency, moved verbatim from internal/telemetry/aggregate/origin.go; it imports only strings. Move TestOriginOf_Test12 into emit's tests: it imports errcode and catalog, which is fine because the `contracts` depguard rule excludes tests. Delete aggregate/origin.go and origin_test.go and the OriginOf mention in aggregate's package doc (registry.go:13), and add OriginOf to the 1.2 emit row text. WP-66 then records ruralz_http_listener_requests_total with ListenerMetrics.Requests.Inc(stripe, protocol, status, emit.OriginOf(code, fromUpstream)), with no copy of the rule in the handler."
+ },
+ {
+  "n": 51,
+  "action": "contract",
+  "targets": [
+   "internal/telemetry/catalog"
+  ],
+  "duplicateOf": 0,
+  "summary": "Add catalog.KeyMetric = \"metric\" so the dropped-code DEBUG record names the family",
+  "change": "Add `KeyMetric = \"metric\"` (a metric family name) to the process log key const block in internal/telemetry/catalog/catalog.go, and add it to the key list in catalog_test.go's snake_case uniqueness check. Lead follow-up in internal/telemetry/aggregate (WP-09 is done): give codeTable a family-name field (pass f.cat.Name from the two newCodeTable calls in group.go), add slog.String(catalog.KeyMetric, name) to the one-time DEBUG record in codes.go drop(), and extend the expectation in registry_test.go."
+ },
+ {
+  "n": 52,
+  "action": "forward",
+  "targets": [
+   "WP-31"
+  ],
+  "duplicateOf": 0,
+  "summary": "Record the measured metrics live heap (33.3 MiB vs ~22 MiB model) as an OQ-observability row",
+  "change": "Add an Open questions row to docs/architecture/10-observability.md (next free number, OQ-observability-22 at this writing) and cite it from the 'Overhead per signal' metrics memory paragraph. Figures from WP-09's BenchmarkCollect125k (spec 09 test 46, risk 1): at S = 8 and 125,743 series, live heap is 33.3 MiB against the modelled ~22 MiB (8.3 MiB aggregates + 8.3 MiB collection + 5.4 MiB striping). The overrun is in the aggregates: 25.5 MiB against a modelled 13.7 MiB, including the handles and plans of both bound Revisions and one attribute.Set per label set. The pooled collection is about 7.8 MiB, under the model, and the heap does not grow with a fifth reader (33.64 vs 33.65 MiB). Note that 'All telemetry' then exceeds the 40 MiB telemetry live-heap seed adopted in OQ-observability-17 (a). Options: (a) adopt the measured figure and revisit the seeds with Performance budgets; (b) cut aggregate overhead, for example by building attribute sets at collection or sharing plans between bound Revisions; (c) lower admission limits or the retiring ceiling."
+ },
+ {
+  "n": 53,
+  "action": "contract",
+  "targets": [
+   "internal/telemetry/emit"
+  ],
+  "duplicateOf": 45,
+  "summary": "Restatement of #45, #46, #47 and #48",
+  "change": "Nothing new here. Apply the classifications of the requests it restates: #45 (contract: emit.Shape.CachedRoutes), #46 (forward to WP-40: Producer release points), #47 (arch: otel attribute and sdk/instrumentation in the aggregate 1.2 row) and #48 (arch: aggregate may import phase and v1alpha1; no catalog table)."
+ },
+ {
+  "n": 60,
+  "action": "forward",
+  "targets": [
+   "WP-40"
+  ],
+  "duplicateOf": 0,
+  "summary": "Feed ruralz_telemetry_logs_* from logsink/accesslog Stats via counter handles synced before each collection",
+  "change": "emit.NodeMetrics has no handles for ruralz_telemetry_logs_total{stream} or ruralz_telemetry_logs_dropped_total{stream,reason}, so read logsink.Sink.Stats() and accesslog.Writer.Stats() (Produced, QueueFull, ExportError). aggregate.Registry.GaugeFunc refuses counter families (registry_test 'func on counter'). Instead, get counter handles with Registry.Counter(catalog.TelemetryLogsTotal, stream) and Registry.Counter(catalog.TelemetryLogsDroppedTotal, stream, \"queue_full\"|\"export_error\"), with label values in catalog order. Before each collection, add the Stats deltas since the last sync. A good place is the Producer wrapper that WP-40 registers on the PeriodicReader and the Prometheus exporter; serialize the sync and keep the last totals. No emit change is needed. If this proves awkward, ask the lead for an additive aggregate.Registry.CounterFunc instead."
+ },
+ {
+  "n": 61,
+  "action": "forward",
+  "targets": [
+   "WP-40",
+   "WP-73",
+   "WP-76"
+  ],
+  "duplicateOf": 0,
+  "summary": "Wiring of logsink.Sink and accesslog.Writer: one Sink, per-swap revision and credential headers, bridges, drain order",
+  "change": "Use one logsink.Sink per process: logsink.New with Options.Access set to the accesslog.Writer and Options.TraceContext reading the tracing span context. Sink.Run is the only stdout goroutine and runs on a goroutine the supervisor owns (WP-76). After each snapshot swap, call Sink.SetRevision(display) and Sink.SetCredentialHeaders(that Revision's auth.api-key header names), for example from Runtime.Apply, which WP-73 calls after publish. Implement logsink.Bridge over otelslog and accesslog.Bridge (event.name = accesslog.EventName, timestamp = record Start, observed timestamp = Observed), installed when an OTLP endpoint is configured. The Exported.Dropped flag keeps each record counted as dropped at most once (09 req 65). At Drain (Runtime.Shutdown), cancel Run's context, wait up to 5 s, then call Close on both the Sink and the Writer."
+ },
+ {
+  "n": 62,
+  "action": "forward",
+  "targets": [
+   "WP-81"
+  ],
+  "duplicateOf": 0,
+  "summary": "Gate BenchmarkProcessLogDisabled at 0 allocs; BenchmarkAccessLogSubmit currently allocates 1/op",
+  "change": "WP-81 owns test/bench/allocgate.json (WP-27 does not). Register internal/telemetry/logsink BenchmarkProcessLogDisabled at maxAllocs 0; it measures 0 allocs/op. Also register internal/telemetry/accesslog BenchmarkAccessLogSubmit, but note that it currently measures 1 alloc/op (50 B/op on go1.27.1). The cause is the test helper fullRecord (internal/telemetry/accesslog/helpers_test.go:53), which appends to the nil FailureModes that Acquire returns; this contradicts the benchmark's own 'this part allocates 0' comment. Gate it at maxAllocs 0 only once the lead has fixed the benchmark to assign a reused FailureModes slice (as WP-66 will); otherwise gate it at maxAllocs 1. Owner of both entries: telemetry (WP-11)."
+ },
+ {
+  "n": 63,
+  "action": "forward",
+  "targets": [
+   "WP-43",
+   "WP-66"
+  ],
+  "duplicateOf": 0,
+  "summary": "Assign a reused per-request FailureModes slice to access records; Submit copies it",
+  "change": "accesslog.Writer.Acquire returns a record whose FailureModes is nil. Submit copies the entries and never keeps the slice, and the record is zeroed when it returns to the pool. The access-record feed (WP-43) or the handler (WP-66) should assign its own reused per-request []emit.FailureModeEntry (at most 8 entries) instead of appending to the nil field, which keeps records with failure modes at zero allocations in steady state. Strings in the record must still be immutable values, never views of pooled buffers (emit.AccessRecord doc)."
+ },
+ {
+  "n": 101,
+  "action": "forward",
+  "targets": [
+   "WP-66"
+  ],
+  "duplicateOf": 0,
+  "summary": "Call httpfield.StripConnectionOptions at admission before the client request Phases",
+  "change": "At admission, before the client request Phases run, call httpfield.StripConnectionOptions(r.Header). It removes Connection and every end-to-end field it names, so a client's 'Connection: X-Shop-Consumer' cannot remove a field that a Gateway- or Route-scoped headers Policy sets for the Upstream. It keeps the fixed hop-by-hop fields, TE included; the leg build (WP-46) strips those. If the handler inspects Upgrade or Connection (for example to serve upgrades as ordinary requests, 04 req 22), do that before the strip."
+ },
+ {
+  "n": 102,
+  "action": "forward",
+  "targets": [
+   "WP-46"
+  ],
+  "duplicateOf": 0,
+  "summary": "Strip hop-by-hop fields with an explicit Direction on leg requests and Upstream responses",
+  "change": "At outgoing request build, call httpfield.StripHopByHop(h, httpfield.TowardUpstream), then add the forwarding headers (clientaddr) and traceparent (Tracer.Inject) after the strip. On every Upstream response, call httpfield.StripHopByHop(h, httpfield.TowardClient) before LegRun.OnUpstreamResponseHeaders and the response Phases, so an Upstream's Connection field cannot remove fields a response Policy sets. Composition steps use the same attempt loop, so this covers them. Always pass an explicit Direction: the zero value drops both Expect and TE (internal/httpfield/hopbyhop.go)."
+ },
+ {
+  "n": 21,
+  "action": "arch",
+  "targets": [
+   "architecture",
+   "wps.json"
+  ],
+  "duplicateOf": 0,
+  "summary": "Keep MatchKey(*Criteria); add a shared routematch.CriteriaOf(*v1alpha1.RouteMatch) and v1alpha1 to the routematch row",
+  "change": "Decision: keep MatchKey(*routematch.Criteria), which follows the 1.2 table and keeps the key independent of the API types. Add one shared converter so WP-42 and WP-56 do not each copy fields. Add `v1alpha1` to the routematch row in 1.2 and arch/pkgs.py line 26; both are L0, v1alpha1 imports only the standard library, and phase already imports it. The lead then adds `func CriteriaOf(m *v1alpha1.RouteMatch) Criteria` to internal/routematch. It uses struct conversions for PathMatch, HeaderMatch, GRPCMatch and GraphQLMatch, whose field sets are identical, so a field that diverges breaks compilation. A test compares the field names of RouteMatch and Criteria by reflection. Record this in the 1.2 row text ('match identity Key over Criteria; CriteriaOf'), note that it overrides spec 04 section 3's MatchKey(*v1alpha1.RouteMatch), and add 'build routematch.Criteria with routematch.CriteriaOf' to the WP-42 and WP-56 scopes in wps.json."
+ },
+ {
+  "n": 22,
+  "action": "arch",
+  "targets": [
+   "architecture"
+  ],
+  "duplicateOf": 0,
+  "summary": "Normalization input is routematch.RequestPath(r.URL), not r.URL.EscapedPath()",
+  "change": "In 3.4 step 4, write the normalization as `routematch.NormalizePath(routematch.RequestPath(r.URL))`, and state that this supersedes 04 req 23's input `r.URL.EscapedPath()`. Reason: on Go 1.27.1, EscapedPath re-escapes the decoded Path when the raw path holds a byte net/url will not leave unescaped ('{', '|', '\"', non-ASCII). '/a%2Fb/{x}' then becomes '/a/b/%7Bx%7D' and the encoded slash splits a segment; TestRequestPath covers this. RequestPath returns u.RawPath when set and EscapedPath otherwise, without allocating. docs/architecture/03-data-plane.md already says 'from the escaped target', so no document needs editing. WP-66 follows the updated 3.4."
+ },
+ {
+  "n": 23,
+  "action": "arch",
+  "targets": [
+   "architecture"
+  ],
+  "duplicateOf": 0,
+  "summary": "3.4 step 4: CONNECT is 404 RZ-RT-001 first; NormalizePath errors map through errcode (017 or 001)",
+  "change": "Rewrite 3.4 step 4 as follows. Before normalization, a CONNECT request (HTTP/1.1 or HTTP/2 extended CONNECT) gets 404 RZ-RT-001 (04 req 22); otherwise its empty path would normalize to '/' and match a prefix '/' Route. A NormalizePath error is answered with the code and status it carries, via errcode.CodeOf and errcode.Status: errors matching routematch.ErrRejected are 400 RZ-RT-017, and routematch.ErrAsteriskForm (`OPTIONS *`) is 404 RZ-RT-001. Both are pre-routing responses (04 req 20: 5 s write deadline, no Filter Chain). WP-66 implements step 4 this way."
+ },
+ {
+  "n": 24,
+  "action": "arch",
+  "targets": [
+   "architecture",
+   "wps.json"
+  ],
+  "duplicateOf": 0,
+  "summary": "OQ-security-and-identity-21 (a) wording: raw or percent-encoded control bytes",
+  "change": "In section 6, row OQ-security-and-identity-21 (line 7445; the request says 3.6), change '(and raw control bytes, invalid escapes)' to '(and raw or percent-encoded control bytes, invalid escapes)'. This matches 04 req 23 ('any other control byte'), docs/architecture/03-data-plane.md 'Compiled structure', 08-security-and-identity.md 'Request hardening' and the shipped NormalizePath (RejectEncodedControlByte), so the code stays as it is. In WP-82's scope in wps.json, add 'percent-encoded control bytes' next to 'encoded NUL and backslash' so the protocol suite covers it."
+ },
+ {
+  "n": 25,
+  "action": "forward",
+  "targets": [
+   "WP-66",
+   "WP-82",
+   "WP-42"
+  ],
+  "duplicateOf": 0,
+  "summary": "Test OPTIONS * end to end (404 RZ-RT-001) at the handler and in the protocol suite, not in the Router",
+  "change": "An `OPTIONS *` (asterisk-form) request never reaches the Router: routematch.NormalizePath returns routematch.ErrAsteriskForm, which carries RZ-RT-001. WP-66 must test end to end that `OPTIONS *` gets 404 RZ-RT-001 as a pre-routing response with no Filter Chain. WP-82's protocol suite should send it on the wire over HTTP/1.1. A Router-level (WP-42) test of an unmatched '*' path does not exercise the real path and is not required."
+ },
+ {
+  "n": 111,
+  "action": "forward",
+  "targets": [
+   "WP-31"
+  ],
+  "duplicateOf": 0,
+  "summary": "Correct the TMR example: 1,000 rings of 64 Endpoints build at v = 245 (about 239 MiB), not 244/238",
+  "change": "In docs/architecture/09-traffic-management-and-resilience.md 'Load balancing', replace 'all build at v = 244, about 238 MiB (hypothesis)' with 'all build at v = 245, about 239 MiB (hypothesis)'. The normative formula with no round-robin schedules gives floor((256 MiB \u2212 16 MiB) \u00f7 (16 B \u00d7 64,000)) = floor(245.76) = 245, and 245 \u00d7 16 B \u00d7 64,000 = 250,880,000 B \u2248 239.3 MiB. The code pins 245 in TestPlanBudgetFormula (internal/gateway/upstream/balance/budget_test.go:41). Spec 05 test plan item 11's 'v = 244' has the same error."
+ },
+ {
+  "n": 112,
+  "action": "forward",
+  "targets": [
+   "WP-31"
+  ],
+  "duplicateOf": 0,
+  "summary": "Document that balancer quotas sum exactly to the structure size (n_i rounding does not)",
+  "change": "In TMR 'Load balancing', make the schedule and ring sizing explicit so that they do not imply n_i = max(1, round(w_i \u00d7 L / \u03a3w)). That formula need not sum to L: 2,000 equal Endpoints would give 66,000 slots, above the 256 KiB maximum. Quotas are apportioned to sum exactly to the structure size; each Endpoint of weight above 0 gets at least one slot, and every quota is within one slot of its rounded share unless the at-least-one floor forces extra slots elsewhere. Weight-0 Endpoints get no slots (quotas() in internal/gateway/upstream/balance/endpoint.go). This supersedes the n_i wording of spec 05 reqs 12 and 14."
+ },
+ {
+  "n": 113,
+  "action": "docfix",
+  "targets": [
+   "docs/architecture/02-configuration-model.md"
+  ],
+  "duplicateOf": 0,
+  "summary": "Record Endpoint weight 0 semantics (standby; all-zero means all weigh 1); keep schema minimum 0",
+  "change": "In the 'Upstream' sketch of docs/architecture/02-configuration-model.md, change the endpoints weight comment (line 342, `weight: 1  # default 1`) to: `# default 1; weight 0 is never picked while another Endpoint weighs more, and if every weight is 0 all weigh 1`. This is the rule internal/gateway/upstream/balance applies to static and SRV weights alike (05 req 6). Keep the schema minimum at 0: raising it to 1 would remove the SRV-consistent standby meaning and is a pkg/ schema change that needs two approvals. WP-31 may repeat the sentence in TMR 'Load balancing'."
+ },
+ {
+  "n": 114,
+  "action": "forward",
+  "targets": [
+   "WP-46"
+  ],
+  "duplicateOf": 0,
+  "summary": "Committed balance API that the Upstream runtimes code against (Set-based selection)",
+  "change": "This describes the balance API as committed; balance/doc.go is the reference, and it supersedes the Picker-interface proposal in spec 05 section 3. Construction: New(Config{Algorithm, VirtualNodes, Fallback, Endpoints in Normalize form, Payload, Rand, Now}) returns (*Balancer, error). Balancer methods: SetEndpoints(eps, payload), SetPlan(v, fallback), Load() *Set, RebuildDue(now), NextRebuild(), Rebuild(ctx, *BuildGate, now) (driven by the manager's scheduler with NewBuildGate(8)), and Info() for /debug/upstreams. Per attempt, load one Set and build the View from Set.Payload() (the per-Endpoint state published with that list), so View indexes and Choice.Index refer to the same list. Then call Set.Select(HashKey(key), src, view), or Set.SelectRandom(src, view) when hashKey fails; there is no Balancer.Select. View has Grade(i) Grade (use GradeOf(down, avoid)) and Load(i) int64 (LoadCounter.Score(now) or the runtime's own count); Choice has Index, Grade, Panic() and Relaxed(); ErrNoEndpoints maps to 503 RZ-UP-008. Budget side: PlanBudget/Replan(prev, budget, schedules, rings map[name]count), Plan.VirtualNodes(name), Plan.Warnings() (configuration warnings, OQ-traffic-management-and-resilience-23 (b)) and Plan.Degraded() (balancer_budget), plus ScheduleBytes and RingBytes for sizing. Also exported: NewSplit/Split.Pick, EndpointCap and HashKey."
+ },
+ {
+  "n": 115,
+  "action": "forward",
+  "targets": [
+   "WP-46"
+  ],
+  "duplicateOf": 114,
+  "summary": "Update to #114: selection goes through Balancer.Load() -> *Set; Balancer.Select is gone",
+  "change": "Same subject as #114, and it corrects #114's 'Balancer.Select/SelectRandom' lines. #114's note already includes the Set-based flow from the committed code: Balancer.Load() returns a *balance.Set, the View and the Choice.Index mapping come from Set.Payload() (published through Config.Payload or SetEndpoints(eps, payload)), and Set.Select or Set.SelectRandom runs the pick. Forward only #114's note. In WP-46's scope, read 'pickers' as balance.Balancer."
+ },
+ {
+  "n": 116,
+  "action": "arch",
+  "targets": [
+   "architecture"
+  ],
+  "duplicateOf": 0,
+  "summary": "Extension point for locality-aware balancing and slow start is the Algorithm enum plus pick dispatch",
+  "change": "In 1.2's 'Extension points left for M2+' paragraph, add: '`balance.Algorithm` and the Picker build and pick dispatch take locality-aware balancing and slow start (OQ-traffic-management-and-resilience-8): a new algorithm adds an enum value, a builder and a dispatch case; `balance.Picker` is a concrete immutable struct, not an interface.' This supersedes the 'balance.Picker interface' entry in spec 05 section 8's deferred table."
+ },
+ {
+  "n": 117,
+  "action": "arch",
+  "targets": [
+   "architecture",
+   "wps.json"
+  ],
+  "duplicateOf": 0,
+  "summary": "Confirm both exceptions to the 10 s rebuild interval (first non-empty structure; budget shrink or fallback)",
+  "change": "Decision: confirm both exceptions. Add a 2.16 R-row (next free number) reconciling 05 req 16 with req 17. Balancer structures rebuild at most every 10 s per Upstream, with two exceptions. (a) The first structure over a non-empty set, for an Upstream whose set was empty since it was built: this is not a rebuild, and waiting would serve 503 RZ-UP-008 for up to 10 s. (b) A budget plan that lowers v or starts a fallback builds as soon as a BuildGate slot is free: req 17 and TMR already say 'lower v at once', which puts the Node memory budget ahead of the rate limit. The limit of 8 builds at a time per Node still applies. Add to WP-31's scope in wps.json: state both exceptions in TMR 'Load balancing'. No OQ row is needed."
+ },
+ {
+  "n": 118,
+  "action": "arch",
+  "targets": [
+   "architecture",
+   "wps.json"
+  ],
+  "duplicateOf": 0,
+  "summary": "Confirm fallback rings return to ring-hash only when the plan gives V >= 128",
+  "change": "Decision: confirm, and record it in the same 2.16 R-row as #117. A ring leaving fallback counts as a raise under 05 req 17's 'raise only when it can double', so it returns to ring-hash only when the fresh plan fits it at V \u2265 2 \u00d7 64 = 128. Between 64 and 127 it stays on weighted random, which avoids fallback flapping. Add to WP-31's scope in wps.json: TMR 'Load balancing' says 'a ring in fallback returns to ring-hash only when the plan gives it at least 128 virtual nodes per Endpoint (target)'."
+ },
+ {
+  "n": 119,
+  "action": "done",
+  "targets": [],
+  "duplicateOf": 0,
+  "summary": "Informational: balance package is about 4,850 lines against the ~3,000-line M guideline",
+  "change": "Informational only. WP-22's internal/gateway/upstream/balance is committed, at about 4,850 lines with tests against roughly 3,000 for size M (4.1 rule 5); the growth came from review tests (Set snapshot, degraded walk, Replan tables and fuzz). Rule 5 is a planning guideline, not a gate, and no future work package uses this note, so nothing changes."
+ },
+ {
+  "n": 154,
+  "action": "arch",
+  "targets": [
+   "architecture",
+   "wps.json"
+  ],
+  "duplicateOf": 0,
+  "summary": "Make RZ-CFG-040 a ruralzd-only check so the CLI accepts the verbatim example Bundle",
+  "change": "Lead decision: only the pipeline run of a serving Node raises RZ-CFG-040. `ruralz bundle validate|render|diff|build` never raise it, so the verbatim `examples/shop-bundle` runs stages A to M in the CLI and keeps its digest, its `--effective` table and its CEL checks. Grounds: 01 S1 and risk 28 (CLI validate and build --offline must accept Plugin, AI kinds, grpc and kubernetes discovery; the Node rejects them), 03 S19 and req 37 (later-milestone places are type-checked, which cannot happen if stage H stops the run), 11 req 13 and 106 and risk 3 ('golden digests use the verbatim Bundle through the CLI only'), 02 req 52 and 79, 05 req 1 (refused at activation), R-50 ('Plugins are RZ-CFG-040 on Nodes and RZ-CFG-028 at bundle build') and the CM meaning 'this Node release'. Architecture edits: (1) section 0 item 8 says ruralzd activation refuses such a Revision with RZ-CFG-040 while the CLI validates it structurally. (2) In 3.1, `pipeline.Options` gains `Serving bool`, set only by ruralzd (activation, and LKG and handover through FromResources); RZ-CFG-040 leaves rows H and K, and a new row after M reads 'serve (ruralzd only) | config/validate | unserved features (item 163) | RZ-CFG-040', running after the digest so the offline diagnostics stay identical in every binary. (3) Scopes: WP-56 builds the check as a separate pass, WP-69 adds Options.Serving, WP-73 sets it, WP-74 and WP-75 never set it, and WP-79's cross-binary diagnostics equality (11 req 16) uses M1-servable fixtures or excludes RZ-CFG-040. Docfix to follow in docs/architecture/02-configuration-model.md (WP-29 is done): Figure 3 moves 040 from boxes H and K into boxes O and P, and the sentence 'only codes whose stage follows the digest can fail, such as RZ-CFG-026' adds RZ-CFG-040."
+ },
+ {
+  "n": 155,
+  "action": "docfix",
+  "targets": [
+   "docs/architecture/01-system-overview.md"
+  ],
+  "duplicateOf": 0,
+  "summary": "Align System overview 'Compile before swap' retirement text with OQ-data-plane-12 (a) and -13 (a)",
+  "change": "Still unfixed at line 340. In 'Compile before swap', replace 'At most K = 2 retired snapshots are kept (target); activation never waits, so at the limit streams pinned to the oldest get an immediate graceful close (WebSocket 1001, HTTP/2 GOAWAY, or an SSE end with a retry hint).' with this text: 'At most K = 2 retired snapshots are kept, plus at most one closing or ending (target). When a third would be retired, the oldest becomes closing: its streams end at once (WebSocket 1001, gRPC `UNAVAILABLE` trailers, an SSE end with a retry hint), and after a 30 s grace period (target) requests still pinned end with `RZ-RT-014`. An activation that would need a second closing snapshot waits until that one is freed, so grace is never cut short (OQ-data-plane-13 (a)), and GOAWAY is not used for retirement (OQ-data-plane-12 (a)); [Data plane](03-data-plane.md#why-no-in-flight-request-is-dropped) owns the rules.' WP-29 owns this file and is finished, and no future work package owns it, so the lead applies the edit (commit `docs(system-overview): ...`)."
+ },
+ {
+  "n": 156,
+  "action": "user",
+  "targets": [],
+  "duplicateOf": 0,
+  "summary": "Pack section 7 Upgrades row: tcp_migrate_req complements CBPF steering (OQ-ZDU-12 (a))",
+  "change": "Question for the user: should the Upgrades row in foundation pack section 7 change '(`net.ipv4.tcp_migrate_req` is an alternative)' (docs/_meta/foundation-pack.md line 143) to say that tcp_migrate_req complements CBPF steering, that handover hosts SHOULD set it, and that the holder lingers 3 s, as OQ-zero-downtime-upgrades-and-hot-reload-12 (a) decided? This is a docs/_meta change under pack section 14 and needs two approvals. ADR-0015 already says 'Complements steering' in its rule table (line 50), so no superseding ADR is needed; only the pack row is out of date. Option (a), recommended: amend the pack row now, which restores the match between ADR and pack row that .claude/rules/adr.md requires; the lead (or a WP-29 follow-up) edits the row and records it in section 14. Option (b): keep the row and reopen OQ-ZDU-12 in the zero-downtime document."
+ },
+ {
+  "n": 157,
+  "action": "arch",
+  "targets": [
+   "architecture"
+  ],
+  "duplicateOf": 0,
+  "summary": "3.1: stage E raises 010, 011, 013 (not 012); 013 stays at E only",
+  "change": "Correct 3.1 row E: replace 'RZ-CFG-010 to 013' with 'RZ-CFG-010, 011, 013'. Stage E never raises 012, because inside an x-ruralz-secret subtree only RZ-CFG-011 is reported (01 req 28); 012 stays at stage F only (schema mapping keyed on x-ruralz-secret, 01 S8 and risk 6). Confirm RZ-CFG-013 at stage E only. WP-36's scope already gives config/subst both detectors (secret-like variable names, and the credential-shaped literal list of the 01 J row for 013). The architecture overrides 01 J's placement because subst already walks every string with its schemaidx position (InSecret, x-ruralz-cel); content entering through FromResources skips A to E and needs no warning. Add this as a sentence under the 3.1 table. Docfix to follow in the CM (WP-29 is done): Figure 3 box E '010 to 013' becomes '010, 011, 013'."
+ },
+ {
+  "n": 158,
+  "action": "contract",
+  "targets": [
+   "internal/expr"
+  ],
+  "duplicateOf": 0,
+  "summary": "Document that the headers places cover both set[] and add[] entries; add no PlaceIDs",
+  "change": "Add no PlaceIDs. The generated schema uses one definition per side for set[] and add[] entries (`HeaderRequestSet`, `HeaderResponseSet`), each with one x-ruralz-cel annotation on valueExpression, and the package rule that each PlaceID maps to exactly one schema annotation (21 places, 21 annotations) must hold. Change doc comments only: PlaceHeadersRequestValue covers the valueExpression of every `config.request.set[]` and `add[]` entry (schema definition HeaderRequestSet), and PlaceHeadersResponseValue does the same for `config.response` (HeaderResponseSet). The ID strings stay as they are. Notes that go with the change: WP-56 emits one expr.Site per add[] entry, exactly as for set[] (07 req 24); WP-59 compiles add[] valueExpressions at the same places with RuleFailureMode; WP-34's place-to-annotation test maps each headers place to its shared definition."
+ },
+ {
+  "n": 159,
+  "action": "arch",
+  "targets": [
+   "architecture",
+   "wps.json"
+  ],
+  "duplicateOf": 0,
+  "summary": "3.1: add RZ-CFG-034 at stage K and fix the 'exactly one stage' column header",
+  "change": "In 3.1, row K becomes 'K effective-chain rules and Plugin config | config/validate | RZ-CFG-034 over each Route's hub.Chain (01 J row 034, SHOULD in M1, gated by 01 req 51); plugin Policy config hook kept for M2 | RZ-CFG-034'. Add RZ-CFG-034 to WP-56's scope in 4.4 and in wps.json. Rename the column 'Codes (each raised by exactly one stage)' to 'Codes' and add under the table: 'RZ-CFG-001 (A, B), 005 (F, G, H) and 008 (C, D) are raised by several stages for different rules; R-46 fixes the codes only stage I raises.' After item 157, 012 is no longer listed at E. After item 154, 040 moves to the ruralzd-only serving row, so it is no longer listed twice. Under item 154, RZ-CFG-034 can fire in the CLI, so WP-75 adds a negative fixture for it; the CM example's AIModels set maxOutputTokens, so the golden entry still passes."
+ },
+ {
+  "n": 160,
+  "action": "arch",
+  "targets": [
+   "architecture"
+  ],
+  "duplicateOf": 0,
+  "summary": "R-49: list AIProvider apiKey destination (baseUrl origin, M3); 'API keys' means Consumer API keys",
+  "change": "Amend R-49 so the transmitting destinations are: `auth.upstream-oauth2` `clientSecret` (origin of its tokenUrl), `stateStore.url` and `stateStore.cache.url` (state-store), and `AIProvider` `credentials.apiKey` (origin of its baseUrl, transmitted from M3). 'API keys' in the local list means Consumer API keys. WP-56's stage H assigns the AIProvider destination already in M1. Under item 154 the CLI validates AIProvider resources, and RZ-CFG-041 results must not change when M3 serves them (CM 'Secret-to-destination binding', pack section 5). Docfix to follow in docs/architecture/08-security-and-identity.md Secrets rule 8 (WP-30 is done): after 'Each `secretRef` use has one static destination' insert ': `auth.upstream-oauth2` `config.clientSecret` the origin of its `tokenUrl`, `stateStore.url` and `stateStore.cache.url` the State Store, and, Planned (M3), `AIProvider` `credentials.apiKey` the origin of its `baseUrl`; every other secret (TLS keys, CA bundles, CRLs, Consumer API keys) never leaves the Node'."
+ },
+ {
+  "n": 161,
+  "action": "forward",
+  "targets": [
+   "WP-36"
+  ],
+  "duplicateOf": 0,
+  "summary": "Overlay: replace a JSONSchemaDocument value whole; detect it by schemaidx Def(), no new marker",
+  "change": "config/overlay treats the value at any position whose schema node is the `JSONSchemaDocument` definition (`validation.json-schema` `config.schema`) as one atomic value: an overlay value replaces it whole and nothing inside it is merged (CM Overlays table row 'Value of the schema's JSONSchemaDocument definition'; 07 req 74). Detect it by definition name through schemaidx: `info.Node.Def() == \"JSONSchemaDocument\"`, where Node.Def returns the nearest $defs name. No new x-ruralz schema marker is added, because the CM keyword table defines five and the lead does not invent one, so WP-28 and WP-29 need no change. Add an overlay test in which the base and overlay schemas share keys and the result equals the overlay's schema exactly."
+ },
+ {
+  "n": 162,
+  "action": "user",
+  "targets": [],
+  "duplicateOf": 0,
+  "summary": "OQ-configuration-model-21: supersede ADR-0011 for the 50 ms comprehension stop, or not",
+  "change": "Question for the user: should ADR-0011 record the 50 ms (target) stop for comprehensions that can reach the runtime cost limit (OQ-configuration-model-21)? ADR-0011 is accepted, so it changes only through a new ADR that supersedes it, on the user's explicit request (/new-adr); WP-32 cannot amend it. Option (a): supersede ADR-0011 with an ADR that adds the 50 ms stop to its 'CEL cost' row, then close OQ-CM-21 with (a). Option (b): keep ADR-0011 and close OQ-CM-21 with (b). The 50 ms stop is a stricter, temporary bound inside ADR-0011's request-deadline bound (03 risk 1: it is removed once cel-go's quadratic cost tracking is fixed), and CM 'Limits' stays its authority. Recommendation: (b). A superseding ADR for a temporary workaround costs a full ADR, and the runtime behavior is the same either way (WP-34 uses ContextEval under min(deadline, 50 ms)); the lead then updates the OQ-CM-21 row in the configuration model."
+ },
+ {
+  "n": 163,
+  "action": "arch",
+  "targets": [
+   "architecture",
+   "wps.json"
+  ],
+  "duplicateOf": 0,
+  "summary": "Fix the complete M1 list of features the Node rejects with RZ-CFG-040",
+  "change": "Record in section 0 item 8 and in WP-56's scope (4.4 and wps.json) the complete M1 list for the ruralzd serving check of item 154. Each finding is reported at the field with 'is not served by this release (Planned (Mx))', as registry.CheckServed already does. The list: (1) Policy types with Served false: plugin, authz.opa, authz.cedar, authz.geoip, auth.upstream-sigv4 and ai.*. (2) Every Plugin (M2), AIProvider and AIModel (M3) resource, referenced or not, reported at `kind`. (3) An Upstream `spec.protocol` other than `http`, and Upstream `spec.discovery.type: kubernetes` (M2). (4) Gateway `listeners[].http3: true` (M3). (5) Route `match.grpc` and `match.graphql` (M3) and `match.topic` (M4). Grounds: section 0 item 8; 05 req 1 and risk 23 (non-http protocols and kubernetes discovery are refused at activation, and the code was left open); 11 risk 3 (`http3: true` must be rejected with a code, not ignored); CM 'Scope of kinds' (Plugin and AI kinds Planned). Unreferenced resources fail too: the rule stays a static per-resource check, and their secretRefs would otherwise still be resolved on the Node. Not RZ-CFG-040: the `kubernetes` and `vault` secret providers (RZ-CFG-026 'Planned (M2)', 01 section 8), `x-ruralz-validations` rules (not evaluated in M1) and unknown fields (RZ-CFG-006, 01 risk 16). The CM row may keep 'for example'."
+ },
+ {
+  "n": 103,
+  "action": "reject",
+  "targets": [],
+  "duplicateOf": 0,
+  "summary": "No generation counter on snapshot.PinnedRequest",
+  "change": "Not needed. retire's walk set (pending and active claims tagged per walk) is correct and race-tested. Unpin touches it only while a walk runs (`h.walking != 0`), and then waits at most for one short callback (deadlines and cancel under rec.Mu). The wait also guarantees that no callback uses rec.RC after ServeHTTP returned, which a stale-callback generation check would have to re-establish under rec.Mu anyway. Adding the field now would mean reworking finished WP-21 code for no observable gain. If it is ever wanted, it is additive and internal to retire (Pin and Unpin bump it), so WP-66 does not depend on it."
+ },
+ {
+  "n": 104,
+  "action": "forward",
+  "targets": [
+   "WP-66"
+  ],
+  "duplicateOf": 0,
+  "summary": "Handler contract with retire: Cancel/RC before Pin, Unpin rules, commit checks Ended under Mu",
+  "change": "Set rec.Cancel (the request root context's cancel) and rec.RC (http.NewResponseController over this ResponseWriter) before Holder.Pin, and keep them unchanged until Holder.Unpin returns. Call Unpin before ServeHTTP returns and never while holding rec.Mu: Unpin may wait for a running ending callback, which takes rec.Mu. Commit under rec.Mu, and set rec.Committed only when rec.Ended == snapshot.EndNone. Otherwise write the 503 problem document with retire.Code(rec.Ended) (RZ-RT-014 at grace end, RZ-RT-016 at the Drain deadline), or wrap retire.EndError(rec.Ended), as architecture 3.4 step 9 says. Add handler tests that end a request between routing and commit (expect 503 with the code) and one after commit (expect a reset stream or closed connection)."
+ },
+ {
+  "n": 105,
+  "action": "arch",
+  "targets": [
+   "architecture"
+  ],
+  "duplicateOf": 0,
+  "summary": "3.3 step 2 gate: 'fewer than K retired, or none closing or ending'",
+  "change": "Reword 3.3 step 2 to: 'Gate: activate only when fewer than K = 2 snapshots are retired, or none is closing or ending (04 req 54); otherwise wait, never cutting grace short.' With 'and', the activation that makes the (K + 1)th retirement could never run, so no snapshot would ever become closing, contradicting 3.3 step 9 and 04 req 52. With 'or', at most one snapshot is closing or ending at a time. 04 req 54 and test-plan item 12 already say 'or', and retire.Holder.canActivateLocked (internal/gateway/retire/publish.go:127) implements it. Once the architecture is fixed, the comment there that points at the old wording can be trimmed (optional). Add to WP-73's notes: call Holder.WaitActivate before compiling the latest pending Revision."
+ },
+ {
+  "n": 106,
+  "action": "arch",
+  "targets": [
+   "architecture"
+  ],
+  "duplicateOf": 0,
+  "summary": "Ending callback order: mark and move deadlines under Mu, then cancel",
+  "change": "Adopt WP-21's order. Reword the end of 3.3 step 9 to: '... the retirer walks its pinned requests (Pins.Each). For each it moves the connection deadlines and marks the request ended under the request's Mu (uncommitted: read deadline in the past and write deadline 5 s ahead, so the handler writes 503 RZ-RT-014; committed: both in the past, so the stream resets), then cancels its root context.' Add a 2.16 R-row stating that this replaces the order of steps (1) and (2) in 04 req 53. Marking first guarantees that a handler woken by the cancel sees Ended when it commits (04 req 38) and writes the end code, not its own cancellation error; the client sees no other difference, and retire's endOne already does this. Docfix to follow in docs/architecture/03-data-plane.md 'Why no in-flight request is dropped' rule 5 (WP-30 is done): swap sub-steps 1 and 2 so the mutex step comes first and the cancel second."
+ },
+ {
+  "n": 107,
+  "action": "contract",
+  "targets": [
+   "internal/gateway/snapshot"
+  ],
+  "duplicateOf": 0,
+  "summary": "StoreHandle doc: released once when last holder is freed; compare by identity; no re-Retain on carry-over",
+  "change": "Extend the StoreHandle doc comment in internal/gateway/snapshot/snapshot.go with this text. 'internal/gateway/retire releases each StoreHandle instance exactly once, when the last live snapshot holding it is freed. Instances are compared by identity, so implementations must be comparable pointer types: a value that cannot be compared is treated as unshared and released at every free. One instance set as both StateStore and CacheStore counts once. The snapshot compiler therefore either opens a new handle per snapshot and role (one reference each) or carries the previous snapshot's instance over without retaining it again. Retaining a carried-over instance once per snapshot leaks references, and the old driver never closes (08 req 61).' This matches the retire package documentation and reconcile.go `unshared`. The rule binds WP-70 (gateway/compile) and WP-65 (statestore/manager, which owns Handle.Retain; the 'WP-58' in the request is Render). WP-65's Handle must be a pointer, and Retain stays for post-commit queue items (08 section 3.1, 'retained by Enqueue')."
+ },
+ {
+  "n": 108,
+  "action": "forward",
+  "targets": [
+   "WP-66",
+   "WP-76",
+   "WP-40"
+  ],
+  "duplicateOf": 0,
+  "summary": "One stripe source for pins and metrics: Holder.ConnStripe; wiring passes NewStripe and S",
+  "change": "The handler takes one stripe per connection from retire.Holder.ConnStripe, offset per request with Holder.RequestStripe(conn, streamID), and uses it for both Holder.Pin and every metric handle. It never calls emit.Meter.NewStripe itself. WP-76 computes the stripe count S once with retire.StripeCount() (min(GOMAXPROCS at start, 8)). It passes S as retire.Config.Stripes and, through WP-40's Runtime options, as the aggregate registry's stripe count (aggregate Config.Stripes; its default 0 means the same value). It also sets retire.Config.NewStripe = meter.NewStripe, so pins and metrics share one round robin (04 req 50). WP-40 accepts or exposes that stripe count so both sides agree."
+ },
+ {
+  "n": 109,
+  "action": "forward",
+  "targets": [
+   "WP-67",
+   "WP-76"
+  ],
+  "duplicateOf": 0,
+  "summary": "Shutdown order at the Drain deadline: EndAll(EndDrain), Close, then cancel Components",
+  "change": "At the Drain deadline (25 s, or at once on a second signal): call retire.Holder.EndAll(ctx, snapshot.EndDrain), then Holder.Close(ctx), then cancel the Node-wide filter.Components (architecture 3.7: Components stop after the last snapshot retired). From the first EndAll on, Holder.Pin ends every newly pinned request before returning: Ended is set to the first EndAll's reason, deadlines are moved and the context is canceled. Close therefore waits only for handlers that are already answering 503 RZ-RT-016. Use the same order in the handover holder's timeline."
+ },
+ {
+  "n": 110,
+  "action": "forward",
+  "targets": [
+   "WP-66"
+  ],
+  "duplicateOf": 0,
+  "summary": "Pin contract: never Pin under rec.Mu; reset Ended/Committed on reuse; honor Ended after Pin",
+  "change": "Never call Holder.Pin while holding rec.Mu: after EndAll, Pin runs rec's ending on this goroutine, and that takes rec.Mu. When a pooled snapshot.PinnedRequest is reused, reset rec.Ended to snapshot.EndNone and rec.Committed to false, and set the new Cancel and RC before Pin. After Pin returns, rec.Ended may already be set by EndAll's lasting reason (Drain). In that case start no work and honor it at commit like any other ending: a 503 problem document with retire.Code(rec.Ended)."
+ },
+ {
+  "n": 64,
+  "action": "reject",
+  "targets": [],
+  "duplicateOf": 0,
+  "summary": "Keep alert rules in telemetrygen and Validate in repocheck",
+  "change": "Keep the current split. Architecture 2.10, the committed catalog contract, has no AlertRules or Validate. The M1 rules are built from catalog constants in internal/tool/telemetrygen/rules.go, and 09 req 77 (d) runs as validateCatalog in internal/tool/repocheck/telemetry.go, which meets 09 reqs 72 and 77. These two tools are the only consumers, so moving the code into an L0 WP-01 package would churn the contract and two finished packages with no production benefit."
+ },
+ {
+  "n": 65,
+  "action": "repometa",
+  "targets": [
+   ".gitattributes"
+  ],
+  "duplicateOf": 0,
+  "summary": "Mark generated Grafana dashboards linguist-generated",
+  "change": "Still missing. In .gitattributes, under '# Generated files: reviewed through their source, diffed in CI stage 3.', add `deploy/grafana/dashboards/*.json linguist-generated=true` after `deploy/grafana/rules/*.yaml linguist-generated=true`. The eight dashboards are written by internal/tool/telemetrygen (outputDirs rules and dashboards) and drift-checked by TestGeneratedUpToDate and by make generate. WP-27 owns the file and is finished, so the lead applies it (commit as `chore: ...`)."
+ },
+ {
+  "n": 66,
+  "action": "arch",
+  "targets": [
+   "wps.json",
+   "architecture"
+  ],
+  "duplicateOf": 0,
+  "summary": "Assign 09 req 76 and tests 32-33 (metric name identity gate) to WP-40",
+  "change": "In wps.json and in WP-40's 4.4 entry, add '09 req 76; 09 tests 32 and 33'. That is a golden over one fixed registry, exported through /metrics as text 0.0.4 and OpenMetrics (test 32) and through OTLP into internal/testkit/otlpsink (test 33, ResourceMetrics normalized with protojson), asserting that the two metric name sets are equal. WP-40 already owns the Prometheus exporter and the OTLP pipelines and depends on WP-84 (otlpsink) and WP-09. Tool packages cannot import otel or prometheus (depguard otel rule). Change WP-12's '09 2.16 74-78' to '09 2.16 74, 75, 77, 78'."
+ },
+ {
+  "n": 67,
+  "action": "arch",
+  "targets": [
+   "architecture",
+   "wps.json"
+  ],
+  "duplicateOf": 0,
+  "summary": "RuralzSeriesFolded keeps OBS expression; exempt from rare-event clause and first-event test",
+  "change": "Add a 2.16 R-row: 'RuralzSeriesFolded keeps OBS's exact expression `delta(ruralz_telemetry_folded_label_sets[15m]) > 0` (new folding only, since large Bundles fold by design). It is not a rare-event rule, so the `or (x > 0 unless x offset <window>)` clause of 09 req 72 and the first-event-before-first-scrape case of req 72 and test 43 do not apply to it.' This settles the conflict inside spec 09, since req 72 also requires OBS's exact expressions. It matches the committed deploy/grafana/rules/ruralz.rules.yaml and docs/architecture/10-observability.md line 471, so no OQ-observability row is needed. Add to WP-31's scope in wps.json and 4.4: one sentence in OBS 'Alert rules' stating that RuralzSeriesFolded alerts on new folding only and is exempt from the first-event test."
+ },
+ {
+  "n": 68,
+  "action": "reject",
+  "targets": [],
+  "duplicateOf": 64,
+  "summary": "Repeat of 64 (AlertRules/Validate in catalog)",
+  "change": "Same request as 64 ('unchanged from the previous pass'). Keep the rule table in internal/tool/telemetrygen and validateCatalog in internal/tool/repocheck; architecture 2.10 has neither, and only these two tools consume them."
+ },
+ {
+  "n": 69,
+  "action": "repometa",
+  "targets": [
+   ".gitattributes"
+  ],
+  "duplicateOf": 65,
+  "summary": "Repeat of 65 (dashboards linguist-generated)",
+  "change": "Same request as 65: add `deploy/grafana/dashboards/*.json linguist-generated=true` after the rules line in the 'Generated files' block of .gitattributes."
+ },
+ {
+  "n": 40,
+  "action": "contract",
+  "targets": [
+   "internal/expr"
+  ],
+  "duplicateOf": 0,
+  "summary": "Add Compiler.PrepareRoute/PrepareConsumer so compile can fill Route/Consumer.Prepared",
+  "change": "Add two methods to expr.Compiler. `PrepareRoute(r *Route)`: 'caches r's converted CEL values in r.Prepared; the snapshot compiler calls it once per snapshot for every Route before any evaluation reads r, and r must not change afterwards'. `PrepareConsumer(c *Consumer)`: the same for a compiled Consumer. Reword the Route.Prepared and Consumer.Prepared comments to: 'set only by Compiler.PrepareRoute / PrepareConsumer; nil is valid, and the CEL implementation then converts on selection'. No committed type implements expr.Compiler, so nothing breaks. The hook has to live on the contract because gateway/compile may import neither internal/cel nor cel/celtypes (its 1.2 row). WP-34 implements the methods by delegating to celtypes.PrepareRoute and PrepareConsumer, also in celtest; WP-70 calls them after identity builds the Consumers and after it fills each Route's expr.Route."
+ },
+ {
+  "n": 41,
+  "action": "contract",
+  "targets": [
+   "internal/expr"
+  ],
+  "duplicateOf": 0,
+  "summary": "Make expr.JoinedHeader deterministic with ASCII folding like celtypes",
+  "change": "Align expr.JoinedHeader with celtypes' joinedHeader (internal/cel/celtypes/headers.go). Try the exact http.CanonicalHeaderKey key first. Otherwise scan the keys with an ASCII-only case fold instead of strings.EqualFold's Unicode folding, preferring a canonical key, then the smallest key in byte order. Join repeated lines with ', '. Update the doc comment to say the choice is deterministic (03 req 6.3). Add unit tests: two non-canonical keys that fold to the same name return the same result on every call, and a key containing the Kelvin sign U+212A does not match 'k'. celtypes' FuzzHeaderLookup can then compare over arbitrary maps, not only canonical ones (optional follow-up)."
+ },
+ {
+  "n": 42,
+  "action": "forward",
+  "targets": [
+   "WP-34"
+  ],
+  "duplicateOf": 0,
+  "summary": "Reject construction of Ruralz object types in CEL as RZ-CFG-014",
+  "change": "In internal/cel's Check, after type-checking, walk the checked AST (celast.PreOrderVisit over checked.NativeRep().Expr()). Report RZ-CFG-014 for every node where e.Kind() == celast.StructKind and celtypes.IsObjectType(e.AsStruct().TypeName()) is true, for example `ruralz.Error{kind: \"connect\"}`, `.ruralz.Error{}` and `[ruralz.Upstream{name: \"a\"}]`. Such a Bundle then fails at configuration time, instead of failing every evaluation with celtypes.ErrUnsupported and the place's runtime rule (such as 500 RZ-RT-006). Well-known types (`google.protobuf.Duration{seconds: 1}`) and type comparisons (`type(request) == ruralz.Request`) stay legal. TestIsObjectType in internal/cel/celtypes/eval_test.go shows the walk and the cases. Keep the celtypes runtime guard in Provider.NewValue as defense in depth."
+ },
+ {
+  "n": 43,
+  "action": "forward",
+  "targets": [
+   "WP-34",
+   "WP-91"
+  ],
+  "duplicateOf": 0,
+  "summary": "cel-go 'no such key' text can carry request data; map errors by kind, never copy text",
+  "change": "A missing map key, whether constant or computed (`request.headers[request.method]`), fails inside cel-go's attribute qualifier with the text 'no such key: <key>', not through celtypes.ErrNoSuchKey, and the key can be request data. internal/cel must classify runtime errors by kind (no such key, null, type, cost limit, interrupt) and build its own messages. It must never copy cel-go error text into EvalError.Error(), problem documents, logs or span events; only Detail may carry it (03 test 10). Add a 03 test 10 case with a computed key that holds a canary value (WP-34). In WP-91's runtime-error matrix, assert that the canary is absent from responses and logs."
+ },
+ {
+  "n": 99,
+  "action": "reject",
+  "targets": [],
+  "duplicateOf": 0,
+  "summary": "No revision.FromSum constructor now",
+  "change": "Not needed now. signing.digestOf runs once per artifact verification, off the request path, and no wave 3 or later package needs to build a Digest from a raw sum: canonical, LKG and the pipeline all use revision.Sum over canonical bytes. signing could even drop the conversion by comparing the raw sum with want.Bytes() and formatting the mismatch from hex. Keeping Sum and Parse as the only constructors keeps every Digest derived from canonical bytes or validated text. If M2's streaming Plugin fetch wants FromSum, it is an additive one-line change then."
+ },
+ {
+  "n": 100,
+  "action": "done",
+  "targets": [],
+  "duplicateOf": 0,
+  "summary": "No catalog registration needed for adminauth log keys",
+  "change": "No change: the request's condition does not hold, because logsink does not enforce catalog keys. internal/telemetry/logsink/handler.go gives fixed slots only to the seven record keys of 09 req 63; slotOf returns -1 for any other key, which is then written as is. repocheck has no log-key check, and .golangci.yml sets sloglint no-raw-keys: false with snake_case key naming, which adminauth's local constants (peer, credential, subject, setting) satisfy. adminauth's 1.2 row correctly leaves out telemetry/catalog."
+ },
+ {
+  "n": 171,
+  "action": "arch",
+  "targets": [
+   "architecture"
+  ],
+  "duplicateOf": 0,
+  "summary": "1.2 test kit row: list otlpsink's test-only OTel SDK imports; exempt testkit from clock rule",
+  "change": "Change the Third party cell of the 1.2 row for testkit/mockup, testkit/mockidp and testkit/otlpsink to: 'otlp proto, grpc (`otlpsink`); in `otlpsink` tests only, the OTel SDK (`otel`, `otel/sdk`, `sdk/metric`, `otel/log`, `sdk/log`) and the otlptracegrpc, otlpmetricgrpc and otlploggrpc exporters (client interop test)'. Add `internal/testkit/otlpsink` (tests only) to the 'Imported by' cells of those OTel rows in section 5. No .golangci.yml change is needed, because the depguard otel rule already exempts `**/internal/testkit/otlpsink/**`. Amend convention 0.4: 'Packages under internal/testkit/ and test/ that stand in for external systems or the network may use real time (time.Now, timers, tickers); where a test must control time they take a Now or Clock in their Config, as mockidp's Config.Now does.' This also covers faultproxy (WP-26). Production packages keep the clock rule."
+ },
+ {
+  "n": 26,
+  "action": "contract",
+  "targets": [
+   "internal/expr",
+   "internal/identity",
+   "internal/cel/celtypes"
+  ],
+  "duplicateOf": 0,
+  "summary": "Add a by-name quota map to expr.Consumer (spec 06 req 21), filled by identity",
+  "change": "In internal/expr/expr.go `type Consumer`, add after `Quotas`: `QuotaByName map[string]v1alpha1.Quota` with the comment \"QuotaByName holds spec.quotas by name for the quota and ai.token-budget Policies (spec 06 requirement 21); nil when there are none; shared by every snapshot reader, read only; CEL reads Quotas, not this field.\" expr already imports v1alpha1, so the change is additive. Also mirror it in the architecture 2.7 code block. In internal/identity/consumer.go, CompileConsumer fills the field (first entry wins on a duplicate quota name, as CompileConsumers does today), and Consumers.Quota reads the view's map instead of keeping a second `quotas` table. In internal/cel/celtypes/alloc_test.go celFields(), add `\"QuotaByName\": \"\"` to the expr.Consumer row (not a CEL field, like Prepared) so TestDoneWhenEveryFieldReachable still passes. WP-62 then reads `x.Identity().Consumer.QuotaByName[cfg.ConsumerQuota]`, and a missing Consumer or quota gives 403 RZ-RL-004. Arch follow-up while there: the 1.2 rows of filter/quota, filter/ratelimit, filter/cache, filter/auth/*, filter/authz/ip, filter/cors and filter/auth/upstreamoauth2 omit v1alpha1, but each must type-assert BuildEnv.Config to its v1alpha1 config type, so add v1alpha1 to those rows."
+ },
+ {
+  "n": 27,
+  "action": "contract",
+  "targets": [
+   "internal/gateway/executor"
+  ],
+  "duplicateOf": 0,
+  "summary": "Executor: closed-failure 401 of an auth-class Policy must carry its WWW-Authenticate challenge",
+  "change": "In internal/gateway/executor/cursor.go fail(), branch `case ph.CanShortCircuit():`, after status and code are set, check four things: !sentinel, p.Class == phase.ClassAuth, status == http.StatusUnauthorized, and p.Filter implements executor.Challenger with a non-empty Challenge() v. When all hold, return `&filter.Response{Status: status, Code: code, Header: http.Header{\"Www-Authenticate\": {v}}}`. This is the same lookup authRule does at run.go:195, but it adds only the failing Policy's own challenge, as auth.Decider.Deny does. Spec 06 req 8 requires a challenge on every 401. auth.Decider.Undecided (internal/filter/auth/decider.go:138-153) already documents that the executor supplies it, and the auth Filters return Undecided for their 401 RZ-AUTH-002/005/006 closed failures. Add a failure_test.go case: an auth-class fake Challenger returning filter.Undecided(\"RZ-AUTH-006\", err) yields 401 RZ-AUTH-006 with the challenge and still counts ruralz_filter_failures_total{mode=closed}. In the same test, an empty challenge (auth.mtls) adds no header, and authz 403s and sentinel failures (ErrBudget, ErrTooLarge) stay without the header. Land it now, because WP-47/48/49 (wave 3) and WP-66 (wave 4) rely on it."
+ },
+ {
+  "n": 28,
+  "action": "forward",
+  "targets": [
+   "WP-43"
+  ],
+  "duplicateOf": 0,
+  "summary": "SetIdentity must fill Vars.Auth, Vars.Consumer (and mTLS subject); foreign claims Values are already supported",
+  "change": "WP-43: on the client view, Exchange.SetIdentity(id) refuses a second binding with filter.ErrSecondBinding. Otherwise it must fill the CEL activation: Vars.Auth = &expr.Auth{Method: id.Method, Claims: id.Claims}, Vars.Consumer = id.Consumer (nil, so CEL null, when unbound) and, for auth.mtls, Vars.Source.ClientCertSubject = id.CertSubject (the expr.Source doc comment). If Vars is already populated for the current Phase (a `when` evaluated before the auth Policy ran), update it at once, so later Policies' `when` and CEL in the same Phase see the identity. Leg Vars copies taken afterwards inherit it. Before authentication, and on Routes without an auth-class Policy, Auth and Consumer stay nil (spec 06 req 4). id.Claims may be an expr.Value implemented outside internal/cel (auth.EmptyClaims(), whose Native() is an empty map): store it as is, without conversion. celtypes already accepts foreign Values through Native() (celtypes.ToVal in internal/cel/celtypes/value.go, test \"claims from a foreign Value\" in value_test.go), so the WP-08 half of this note is done."
+ },
+ {
+  "n": 29,
+  "action": "forward",
+  "targets": [
+   "WP-70",
+   "WP-47",
+   "WP-48",
+   "WP-49"
+  ],
+  "duplicateOf": 0,
+  "summary": "Credential index sharing: per-compile BuildEnv.Shared, IndexHolder carry-over, Release from Close",
+  "change": "WP-70: give every snapshot compile its own filter.BuildEnv.Shared. It is a concurrency-safe, single-flight memo shared by all W workers of that compile and dropped afterwards. Build snapshot.Consumers and every BuildEnv.Consumers from one identity.CompileBundle(validated.Bundle).Map(), so the identity.Index from auth.AcquireIndex returns the same *expr.Consumer pointers the snapshot holds. On a failed or abandoned compile, Close (filter.Closer) every Filter already built so its index reference is released; otherwise a KeyIndex keeps its secret watches, or a later acquirer gets auth.ErrIndexClosed. WP-47/48/49 (auth.jwt, auth.api-key, auth.basic, auth.mtls): call auth.AcquireIndex(env) in Build, including when reusing env.Previous, because Consumers can change without the Policy changing. Each must implement auth.IndexHolder (`CredentialIndex() *identity.Index`, returning the held index) so the next compile carries the KeyIndex over (R-55), and call Index.Release() exactly once from Close."
+ },
+ {
+  "n": 30,
+  "action": "contract",
+  "targets": [
+   "internal/gateway/executor"
+  ],
+  "duplicateOf": 27,
+  "summary": "Same as 27: exact executor fix and test for the closed-failure 401 challenge",
+  "change": "Same change as request 27. In internal/gateway/executor/cursor.go fail(), `ph.CanShortCircuit()` branch: when !sentinel, p.Class == phase.ClassAuth, status == http.StatusUnauthorized and `p.Filter.(Challenger).Challenge()` is non-empty, set Header `http.Header{\"Www-Authenticate\": {v}}` on the returned *filter.Response. Add the executor test: filter.Undecided(\"RZ-AUTH-006\", err) from an auth-class fake Challenger gives 401 RZ-AUTH-006 with the challenge and counts ruralz_filter_failures_total{mode=closed}, and an empty challenge (auth.mtls) adds no header."
+ },
+ {
+  "n": 31,
+  "action": "contract",
+  "targets": [
+   "internal/filter"
+  ],
+  "duplicateOf": 0,
+  "summary": "Precise Principal doc comment in filter.Identity, plus doc 08 principal text and OQ-security-and-identity-32",
+  "change": "internal/filter (WP-01): replace the filter.Identity.Principal comment (filter.go:141-143) with the following text. \"Principal is the non-secret cache partition key (spec 06 requirement 22): the bound Consumer's name; else, for jwt with a non-empty string sub, \\\"jwt:\\\" + iss + \\\"#\\\" + sub, with \\\"%\\\" and \\\"#\\\" in iss percent-encoded as %25 and %23 so the encoding is one-to-one; else, for mtls with a non-empty subject, \\\"mtls:\\\" + the leaf's RFC 4514 subject; else \\\"\\\": no principal, never a partition key (OQ-security-and-identity-32). Treat it as opaque.\" Mirror the text in the architecture 2.13 code block; it matches internal/identity/principal.go. In the same pass, docfix docs/architecture/08-security-and-identity.md (WP-30 is done). Define the principal in the 'Consumers and tiers' Cache partitioning row, and add this Open questions row: `| OQ-security-and-identity-32 | What partitions an unbound identity without a subject? | (a) No principal; such requests are never cached (current); (b) Fall back to client_id or azp for JWT and the URI SAN for mTLS, merging every user of one client application whose IdP omits sub | security-and-identity | No |`. 32 is the next free number (the highest used is 31). Keep the net word count at zero, bump last_updated, and batch this with item 36's edit of the same file. Optionally align spec 06 req 22 with the same text."
+ },
+ {
+  "n": 32,
+  "action": "forward",
+  "targets": [
+   "WP-63",
+   "WP-31"
+  ],
+  "duplicateOf": 0,
+  "summary": "Response Cache: an empty Principal on an authenticated Route bypasses lookup and store",
+  "change": "WP-63 (cache Filter, 05 req 79): this rule applies on a Route whose effective chain holds an auth-class Policy and whose cache config has no config.key. A request whose filter.Identity.Principal is \"\" (an unbound token without a string sub, or an unbound certificate with an empty subject) MUST bypass both lookup and store, counted as ruralz_cache_requests_total{result=\"bypass\"}. Never use \"\" as a partition there, because it would share entries across clients and issuers. On Routes without an auth-class Policy, the partition stays \"\" as req 79 says. Treat Principal as an opaque string (it may hold a percent-encoded iss) and never rebuild it from iss and sub. Unsafe-method invalidation (05 req 85) is keyed by URI generation, not partition, and still runs. WP-31: in docs/architecture/09-traffic-management-and-resilience.md, extend the Response caching 'Principal' row: an authenticated request without a principal bypasses the cache (OQ-security-and-identity-32, which the lead records in doc 08)."
+ },
+ {
+  "n": 33,
+  "action": "contract",
+  "targets": [
+   "pkg/config/v1alpha1",
+   "internal/tool/schemagen"
+  ],
+  "duplicateOf": 0,
+  "summary": "Schema: reject a credentials.jwt entry with an empty subject or empty claims",
+  "change": "The marker as requested does not work today: schemagen accepts minProperties only on structs (generate.go:485), and fieldSchema rejects it on a field (generate.go:630, isValueMarker). So first extend internal/tool/schemagen to accept `+ruralz:minProperties=N` on map-typed fields only, emitting \"minProperties\": N, with a schemagen test; knownMarker already lists the marker (source.go:166). Then, in pkg/config/v1alpha1/consumer.go JWTBinding, add `// +ruralz:minLength=1` to Subject and `// +ruralz:minProperties=1` to Claims. Run `go generate ./pkg/config/v1alpha1` and commit the regenerated api/schema files (TestCommittedSchemaIsCurrent); the pkg/ and api/ change needs two approvals. Valid Bundles do not change: identity.Check already rejects the same entries with the same RZ-CFG-005 at the same .subject or .claims path, so keep that check (it covers callers that skip schema validation) and update its comment, which says the schema admits the entry. Do it now, before WP-35's schema view tests and WP-75's negative corpus pin the current messages."
+ },
+ {
+  "n": 34,
+  "action": "contract",
+  "targets": [
+   "internal/expr",
+   "internal/identity",
+   "internal/cel/celtypes"
+  ],
+  "duplicateOf": 26,
+  "summary": "Repeat of 26: by-name quota map on expr.Consumer",
+  "change": "Same as request 26: add `QuotaByName map[string]v1alpha1.Quota` to expr.Consumer, filled by identity.CompileConsumer, with `\"QuotaByName\": \"\"` added to celtypes' celFields. With the field in place, WP-62 does not need the BuildEnv.Bundle workaround described here."
+ },
+ {
+  "n": 123,
+  "action": "forward",
+  "targets": [
+   "WP-81"
+  ],
+  "duplicateOf": 0,
+  "summary": "Publish test/bench/record.schema.json from benchrecord.Schema() with a byte-for-byte sync test",
+  "change": "WP-81: publish test/bench/record.schema.json as a byte-for-byte copy of benchrecord.Schema(), which is embedded from internal/testkit/benchrecord/record.schema.json. Add a test in a WP-81 package (for example test/bench/harness) that fails when the two differ; benchrecord's own tests already check the schema against the Go type. The relativePath rule rejects backslashes. benchrecord.Decode and ReadFile apply every schema rule (including the rejection of null and of inner '..' elements) identically on every platform, so the dry run and the record checks may validate records with benchrecord in Go instead of a JSON Schema validator."
+ },
+ {
+  "n": 124,
+  "action": "done",
+  "targets": [],
+  "duplicateOf": 0,
+  "summary": "Makefile LDFLAGS already has -s -w (R-52)",
+  "change": "Already resolved. Makefile:46-52 defines `LDFLAGS := -s -w -X .../buildinfo.version=... -X ...commit=... -X ...flavor=...` with the R-52 comment. Every stage 4, size-gate and release recipe passes `-trimpath -ldflags '$(LDFLAGS)'` (Makefile:160, 166, 213, 311), matching binaries.LDFlags (internal/testkit/binaries/binaries.go:93-95). The rest is informational. RURALZ_TEST_BIN_DIR is already honored by testkit/binaries. sizegate (internal/tool/sizegate/size.go) reads only GOOS and GOARCH from debug/buildinfo and checks no strip state, so nothing relies on -ldflags being recorded under -trimpath; a future strip check would inspect the ELF .symtab and .debug_* sections."
+ },
+ {
+  "n": 125,
+  "action": "forward",
+  "targets": [
+   "WP-85"
+  ],
+  "duplicateOf": 0,
+  "summary": "Build FaultProxy and CountingProxy in respproxy on testkit/faultproxy",
+  "change": "WP-85: build statestoretest.FaultProxy and CountingProxy (spec 08's names) on internal/testkit/faultproxy instead of a second TCP proxy. Put them in internal/statestore/statestoretest/respproxy (architecture 1.2 and WP-85 scope): the statestoretest root may import only statestore and clock. Use faultproxy.Config.ConnTap for per-connection RESP command parsing (it returns each connection's own TapFunc, so parser state stays per connection) and Config.Tap for stateless counting. Proxy.SetConnMode and Proxy.Conns give the per-connection rules spec 08 asks for, and Proxy.SetUpstream gives scripted failover. A switch between Delay distributions, directly or through Pass or Blackhole, applies the new distribution at once."
+ },
+ {
+  "n": 126,
+  "action": "forward",
+  "targets": [
+   "WP-79",
+   "WP-87",
+   "WP-89",
+   "WP-91"
+  ],
+  "duplicateOf": 0,
+  "summary": "proc.InNetNS usage: NetNSChild first, skip on ErrChildSkipped",
+  "change": "Users of proc.InNetNS (internal/testkit/proc) must call proc.NetNSChild(t) first in the test. When it returns true, run the body inside the namespace and return; the child brings loopback up and applies the sysctls there, because Go cannot run setup code between fork and exec. In the parent, check `if errors.Is(err, proc.ErrChildSkipped) { t.Skip(err) }` before treating err as a failure: ErrChildSkipped carries the child's skip reason, for example redis-server missing or no CAP_SYS_ADMIN. The child always runs with -test.v=true. Follow the pattern at internal/testkit/proc/netns.go:73-86 (for example tcp_migrate_req 1 and 0 in the handover tests); it needs Linux and root or CAP_SYS_ADMIN, so keep a skip path for runners without them."
+ },
+ {
+  "n": 127,
+  "action": "forward",
+  "targets": [
+   "WP-81"
+  ],
+  "duplicateOf": 123,
+  "summary": "Repeat of 123 with relativePath and Decode details",
+  "change": "Merged into request 123, whose note already carries these details. WP-81 publishes test/bench/record.schema.json from benchrecord.Schema() with a byte-for-byte test. relativePath rejects backslashes, and benchrecord.Decode applies every schema rule identically on every platform, so the dry run may validate records in Go."
+ },
+ {
+  "n": 128,
+  "action": "forward",
+  "targets": [
+   "WP-85"
+  ],
+  "duplicateOf": 125,
+  "summary": "Repeat of 125 with the Delay-switch detail",
+  "change": "Merged into request 125, which carries the Delay detail. WP-85 builds FaultProxy and CountingProxy on testkit/faultproxy, using ConnTap for per-connection RESP parsing, Tap for counting, SetConnMode and Conns for per-connection rules and SetUpstream for failover. Switching between Delay distributions applies the new one at once."
+ },
+ {
+  "n": 129,
+  "action": "forward",
+  "targets": [
+   "WP-79",
+   "WP-87",
+   "WP-89",
+   "WP-91"
+  ],
+  "duplicateOf": 126,
+  "summary": "Repeat of 126 with ErrChildSkipped handling",
+  "change": "Merged into request 126. Call proc.NetNSChild(t) first, and skip on errors.Is(err, proc.ErrChildSkipped) before treating an InNetNS error as a failure. The child always runs with -test.v=true."
+ },
+ {
+  "n": 130,
+  "action": "forward",
+  "targets": [
+   "WP-79",
+   "WP-80",
+   "WP-85",
+   "WP-87",
+   "WP-89",
+   "WP-91",
+   "WP-92",
+   "WP-93",
+   "WP-94",
+   "WP-99"
+  ],
+  "duplicateOf": 0,
+  "summary": "proc.Process.WaitOutput matches per line",
+  "change": "proc.Process.WaitOutput (internal/testkit/proc/proc.go:289-298) matches per line. The pattern is applied to each stdout and stderr line on its own, newline included, and to the growing unterminated last line, so a match never spans lines. Write single-line patterns (use (?m) for ^ and $ anchors) and never expect a multi-line match. Lines longer than proc.MaxLineBytes (64 KiB) are matched in pieces, so for long JSON log lines wait on a short, distinctive fragment rather than a pattern that could straddle a split."
+ },
+ {
+  "n": 54,
+  "action": "forward",
+  "targets": [
+   "WP-40"
+  ],
+  "duplicateOf": 0,
+  "summary": "How the telemetry Runtime wires tracing.Options, exporters and shutdown",
+  "change": "WP-40: build the tracer with tracing.New(tracing.Options{...}). Pass Clock, the shared Resource (the same *resource.Resource the meter and logger providers use; never resource.Default()) and OnExport. Fill Counters from the aggregate registry. Spans comes from aggregate.Registry.Counter(catalog.TelemetrySpansTotal). DroppedQueueFull and DroppedExportError come from Counter(catalog.TelemetrySpansDroppedTotal, \"queue_full\" or \"export_error\"). UnsampledRoot and UnsampledParent come from Counter(catalog.TelemetryTracesUnsampledTotal, \"rate_cap_root\" or \"rate_cap_parent\"). On Apply, install or swap the OTLP span exporter with Tracer.SetExporter. nil stops span creation while decisions and propagation continue, and the returned previous exporter is the Runtime's to shut down, off the request path and within its 5 s bound (spec 09 req 24). At Drain, call Tracer.Shutdown(ctx) with the 5 s flush deadline (req 25)."
+ },
+ {
+  "n": 55,
+  "action": "done",
+  "targets": [],
+  "duplicateOf": 0,
+  "summary": "No emit.Span rename or AddEvent needed in M1",
+  "change": "Informational; no M1 change, as the request says. The server span gets its '<method> <route>' name through SetAttr(catalog.AttrRoute, ...) (internal/telemetry/tracing/span.go:118-128, renamed at End), which meets spec 09 req 33-34. The span event for a failureMode: closed onChunk ending (docs/architecture/10-observability.md line 286) is M3 work (spec 09 req 37, convention 8). No package in waves 3-10 consumes it; the M3 onChunk owner extends emit.Span then."
+ },
+ {
+  "n": 56,
+  "action": "reject",
+  "targets": [],
+  "duplicateOf": 0,
+  "summary": "No catalog attribute for the onChunk chunk count in M1",
+  "change": "Not for M1. onChunk spans are M3 (spec 09 req 37, convention 8), and StartChunk has no M1 caller. Neither doc 10 (\"with chunk count\", line 286) nor the foundation pack names the attribute, so registering a catalog key now would invent a telemetry name, which AGENTS.md forbids. The M3 onChunk owner registers it together with its document."
+ },
+ {
+  "n": 57,
+  "action": "contract",
+  "targets": [
+   "internal/telemetry/emit"
+  ],
+  "duplicateOf": 0,
+  "summary": "Correct emit.Tracer.Decide allocation comment for combined tracestate lines",
+  "change": "In internal/telemetry/emit/emit.go:413-414 (Tracer.Decide), replace \"and fills d; it never allocates.\" with the following text. \"and fills d. It allocates nothing except the combined value when a request carries several tracestate field lines that are valid together: one allocation, since RFC 9110 requires the lines to be combined and Decision.TraceState is a single string. Invalid client input allocates nothing.\" Mirror it in the architecture 2.11 code block. This is a doc-comment change only: internal/telemetry/tracing/tracer.go:210-216 already behaves and documents this way."
+ },
+ {
+  "n": 58,
+  "action": "arch",
+  "targets": [
+   "architecture",
+   "wps.json"
+  ],
+  "duplicateOf": 0,
+  "summary": "Lead decision: sampled 15-span trace budget becomes 90 allocations; record OQ-observability-22",
+  "change": "Lead decision; record it as a new section 2.16 row. Spec 09 req 38, req 70 and test 44 set a 15-span sampled-trace target of 60 allocations, which equals the OpenTelemetry SDK floor of 4 per recording span (newRecordingSpan, context.WithValue, the SetAttributes slice, the snapshot) before any Ruralz code; 89 allocations were measured. The target becomes at most 90 allocations: 6 per span, the SDK's 4 plus at most 2 for Ruralz's span wrapper and the server span's share, export excluded. The 30 \u00b5s CPU target stays as a target on the RH-1 reference hardware, checked in WP-97's runs; the 42-63 \u00b5s were measured on a shared 4-vCPU machine, so it is not a per-PR gate. The rejected alternative, keeping 60 by replacing SDK recording spans with a Ruralz recorder, conflicts with spec 09 req 1. wps.json: WP-31's scope gains recording OQ-observability-22 (next free; the highest used is 21) in docs/architecture/10-observability.md as `| OQ-observability-22 | What does a sampled 15-span trace cost on the OpenTelemetry SDK? | (a) 90 allocations, 30 \u00b5s on the reference hardware (proposed); (b) 60 allocations with a Ruralz span recorder | observability | No |`, plus changing the Overhead table cell to \"90 or fewer (target)\" and the Estimates sentence \"4 allocations per span\" to \"4 SDK allocations per span plus up to 2 by Ruralz\". WP-81's scope gains listing BenchmarkSampledTrace15Spans (internal/telemetry/tracing, owner WP-10) in allocgate.json at 90 allocs/op; once the row lands, update the stale comment at internal/telemetry/tracing/bench_test.go:128-135."
+ },
+ {
+  "n": 59,
+  "action": "reject",
+  "targets": [],
+  "duplicateOf": 0,
+  "summary": "No emit.Span.SetRoute method",
+  "change": "Unnecessary. Architecture 2.11 deliberately gives emit.Span only SetAttr, SpanID and End, and the route renaming through SetAttr(catalog.AttrRoute) meets spec 09 req 33-34. Spec 09 req 35's \"no per-request concatenation\" is about ruralz.filter span names. The concatenation happens only on sampled requests (capped at 1,500 per second) and saves one allocation, which does not close the gap that request 58 resolves through the target. Adding the method would change every emit.Span implementation and fake, and would add a per-Route, per-method name table to the snapshot contract."
+ },
+ {
+  "n": 35,
+  "action": "contract",
+  "targets": [
+   "internal/secret",
+   "internal/config/hub",
+   "internal/secret/resolver"
+  ],
+  "duplicateOf": 0,
+  "summary": "Add a source location to secret.Use and hub.SecretUse so RZ-CFG-026 diagnostics carry file:line:column",
+  "change": "Additive WP-01 change, mirroring hub.CELUse.Loc. Add `Loc diag.Location` (\"the secretRef's source position; zero when unknown, such as canonical re-entry\") to secret.Use (internal/secret/secret.go:113) and hub.SecretUse (internal/config/hub/hub.go:291). Update the architecture 2.8 and 2.9 code blocks to match. In internal/secret/resolver/resolve.go:196, set `Location: u.Loc` in the RZ-CFG-026 diagnostic, and add a resolver test that a Use with Loc prints file:line:column. Forward: WP-56 fills hub.SecretUse.Loc at stage H from the tree node's position, as for CELUse.Loc, and WP-73 copies it into secret.Use.Loc when it converts the hub uses for the resolver."
+ },
+ {
+  "n": 36,
+  "action": "docfix",
+  "targets": [
+   "docs/architecture/08-security-and-identity.md"
+  ],
+  "duplicateOf": 0,
+  "summary": "Document the secret file mode rule in Secrets rule 5",
+  "change": "In docs/architecture/08-security-and-identity.md, 'Secrets' rule 5, add: \"On Unix, a `file` secret writable by group or others is RZ-CFG-026; any owner is accepted.\" This matches internal/secret/resolver/file.go:335-345 (errWritable). Do not name resolver.Config.FileOwners, which is a Go option with no setting. Change nothing for symbolic links: rule 5 already requires the path to lie under RURALZ_SECRET_ROOT before and after resolving symlinks, and the code now follows that for absolute links too. Keep the manifest word band (tighten rule 5 or nearby text so the net change is zero), bump last_updated, batch it with item 31's edit of the same file, and commit as docs(security-and-identity)."
+ },
+ {
+  "n": 37,
+  "action": "forward",
+  "targets": [
+   "WP-53",
+   "WP-95",
+   "WP-76"
+  ],
+  "duplicateOf": 0,
+  "summary": "Create secret files 0600/0644 in quickstart and Compose; no owner allow-list setting",
+  "change": "WP-53 (examples/quickstart, the examples/file-mode README) and WP-95 (Compose suite with bind-mounted secrets): create secret files with an explicit mode 0600 or 0644 (chmod or install -m), never relying on umask. On hosts with umask 002 new files are 0664, and the resolver refuses any file writable by group or others with RZ-CFG-026. Any owner is accepted, so Compose bind mounts resolve whatever their host UID. WP-76: leave resolver.Config.FileOwners empty, and do not add a RURALZ_* owner allow-list setting: no document defines one, and inventing settings is forbidden. If it is ever needed, propose it through an Open questions row."
+ },
+ {
+  "n": 38,
+  "action": "forward",
+  "targets": [
+   "WP-41"
+  ],
+  "duplicateOf": 0,
+  "summary": "Redis driver uses the resolver's literal loopback rule",
+  "change": "WP-41: the credentials check in redis URL validation and the state_store_unauthenticated degraded reason (spec 08 req 8) must use the same literal loopback rule as internal/secret/resolver/check.go:275-285 (isLoopbackLiteral). Loopback means `localhost` in any case, an IPv4 literal in 127.0.0.0/8, or ::1. IPv4-mapped forms such as ::ffff:127.0.0.1 are not loopback, even though netip's IsLoopback counts them, and DNS results never count. Apply the rule to the URL host and to every `addr` query host. The redis row cannot import secret/resolver, so implement an identical function and reuse the resolver's test table."
+ },
+ {
+  "n": 39,
+  "action": "docfix",
+  "targets": [
+   "docs/architecture/08-security-and-identity.md"
+  ],
+  "duplicateOf": 36,
+  "summary": "Earlier version of 36 (secret file rules) plus the WP-95 chmod note",
+  "change": "Covered by request 36: document in rule 5 that a group- or other-writable file is RZ-CFG-026 and that any owner is accepted. Point (c) on absolute symlinks needs no doc change, because rule 5 already says \"before and after resolving symlinks\", and the os.Root and EvalSymlinks details are implementation. The chmod 0600/0644 note for the quickstart and Compose is forwarded in request 37."
+ },
+ {
+  "n": 19,
+  "action": "forward",
+  "targets": [
+   "WP-37",
+   "WP-56"
+  ],
+  "duplicateOf": 0,
+  "summary": "filterClass: R-7 materializes it on every Policy; CheckFilterClass is the only rule",
+  "change": "WP-37 (stage G defaults and convert) and WP-56 (stage H validate): architecture R-7 overrides 01 J 39's RZ-CFG-005 row ('filterClass only for plugin') and 01 note 9. The registry materializes spec.filterClass on every Policy, so neither stage may reject a non-plugin Policy whose authored filterClass restates its registry class. registry.Registry.CheckFilterClass (internal/config/registry/policy.go:150-165) is the only filterClass rule. It reports RZ-CFG-005 for a differing value on a non-plugin type, or a non-class value on plugin. Call it once per Policy at stage H (WP-56) and add the source Location to its diagnostic, which carries Resource, Path and Message. Add no other filterClass check in defaults, convert or validate."
+ },
+ {
+  "n": 20,
+  "action": "forward",
+  "targets": [
+   "WP-38",
+   "WP-56",
+   "WP-59",
+   "WP-69"
+  ],
+  "duplicateOf": 0,
+  "summary": "Registry.Phases needs the CEL body oracle and correctly typed Config",
+  "change": "Callers of registry.Registry.Phases (WP-38 precedence, WP-56 validate, WP-59 authz.cel Factory) and WP-69, which injects the oracle into precedence, must follow two rules. First, Phases fails with registry.ErrNoBodyOracle when an authz.cel Policy has a non-empty config.rule and the BodyOracle argument is nil. Pass the CEL compiler, the expr.Compiler value that internal/cel implements, which has ReferencesRequestBody, on every Phases call that can see authz.cel, and never nil in a binary. Second, Phases rejects an Attachment.Config whose type is not the Policy type's config type, for every type and before the scope rule. Pass hub.Resource.Config exactly as stage G decoded it (the registry's NewConfig pointer type, such as *v1alpha1.AuthzCELConfig), or nil."
+ }
+]
