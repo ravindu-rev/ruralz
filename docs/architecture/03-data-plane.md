@@ -2,7 +2,7 @@
 title: Data Plane
 status: reviewed
 owner: ruralz-core
-last_updated: 2026-09-26
+last_updated: 2026-10-03
 depends_on:
   - docs/_meta/foundation-pack.md
   - docs/_meta/style-guide.md
@@ -41,7 +41,7 @@ Ruralz Gateway keeps no durable local state other than its enrollment identity, 
 | Plugin artifacts, Planned (M2) | `${RURALZ_DATA_DIR}/cache/oci/sha256/` | Disposable; refetched and verified |
 | Snapshots, compiled Plugin code, token buckets, Endpoint health, breakers, pools | Memory | Yes |
 
-Only the lock holder writes `holder.json` and `lkg/`, with directories 0700 and files 0600. This document owns the cache layout. Compiled Plugin code stays in memory only, in one wazero `NewCompilationCache()` and never a cache directory, because no signature covers persisted native code; a restart recompiles verified artifacts ([ADR-0004](../adr/0004-wasm-runtime-wazero.md), [WASM plugin system](05-wasm-plugin-system.md#runtime)). Pack 8.11 still lists compiled modules as disposable caches (OQ-wasm-plugin-system-16).
+Only the lock holder writes `holder.json` and `lkg/`, with directories 0700 and files 0600. `ruralzd` creates `${RURALZ_DATA_DIR}`, `identity/` and `lkg/` with mode 0700 when missing, and refuses to start when any is not a directory, not owned by the effective user, or world-writable (mode bit 0002, sticky or not), since another user could replace the lock, `holder.json` or Last-Known-Good; group write access is accepted as the operator's choice. This document owns the cache layout. Compiled Plugin code stays in memory, in one wazero `NewCompilationCache()`, never a cache directory, because no signature covers persisted native code; a restart recompiles verified artifacts ([ADR-0004](../adr/0004-wasm-runtime-wazero.md), [WASM plugin system](05-wasm-plugin-system.md#runtime)). Pack 8.11 still lists compiled modules as disposable caches (OQ-wasm-plugin-system-16).
 
 ### Goroutines
 
@@ -161,9 +161,9 @@ A header block above the 256 KiB process ceiling (target) is refused by `net/htt
 
 Conflicting framing (both `Transfer-Encoding` and `Content-Length`, or a coding other than `chunked`) and hop-by-hop fields are never forwarded; the handler answers such framing with 400 `RZ-RT-017` unless `net/http` refused it first, and `CONNECT` matches no Route.
 
-HTTP/3 uses quic-go, pre-1.0 with `http3` API breaks in v0.63.0, behind an internal interface ([source](https://github.com/quic-go/quic-go/releases/tag/v0.63.0)), with 0-RTT off ([ADR-0009](../adr/0009-http-stack-net-http-quic-go.md)). The quic-go settings enforcing the HTTP/3 rows of [Bounded resources](#bounded-resources), and its deadline support, are OQ-data-plane-14. Binary upgrades lose in-flight QUIC connections (OQ-system-overview-18), and so does a Hot Reload that replaces an `https` listener with `http3: true`, because the new server holds no state for them (OQ-data-plane-16).
+HTTP/3 uses quic-go, pre-1.0 with `http3` API breaks in v0.63.0, behind an internal interface ([source](https://github.com/quic-go/quic-go/releases/tag/v0.63.0)), with 0-RTT off ([ADR-0009](../adr/0009-http-stack-net-http-quic-go.md)). The quic-go settings enforcing the HTTP/3 rows of [Bounded resources](#bounded-resources), and its deadline support, are OQ-data-plane-14. Binary upgrades lose in-flight QUIC connections (OQ-system-overview-18), and so does a Hot Reload that replaces an `https` listener with `http3: true` (OQ-data-plane-16).
 
-With `http3: true`, the `https` listener adds `Alt-Svc: h3=":<port>"; ma=3600` (target) to every HTTP/1.1 and HTTP/2 response after `onResponse`, so clients discover HTTP/3. HTTPS DNS records are left to operators, and a balancer mapping UDP to another port needs another advertised port (OQ-data-plane-15). A FIPS build never advertises HTTP/3. When a Revision turns `http3` off, the header stops at once; a client with a cached entry falls back to TCP after a failed QUIC attempt until `ma` expires.
+With `http3: true`, the `https` listener adds `Alt-Svc: h3=":<port>"; ma=3600` (target) to every HTTP/1.1 and HTTP/2 response after `onResponse`. HTTPS DNS records are left to operators, and a balancer mapping UDP to another port needs another advertised port (OQ-data-plane-15). A FIPS build never advertises HTTP/3. When a Revision turns `http3` off, the header stops at once; a client with a cached entry falls back to TCP after a failed QUIC attempt until `ma` expires.
 
 Each `https` listener picks a certificate by SNI from `tls.certificates`; `GetCertificate` reads `secretRef` values from the secret store and other TLS settings from the current snapshot, so reloads and rotations reach new handshakes only.
 The Route `timeout` bounds a whole SSE stream or WebSocket, so streaming Routes need a large value. Time-to-first-byte and idle limits are OQ-data-plane-10.
@@ -306,7 +306,7 @@ A subscribed stream reserves 32 KiB (target) from the stream share before commit
 
 ### Error handling
 
-A Filter returns continue, respond, or cannot decide (a failed or timed-out State Store call or remote dependency, a Plugin trap or limit, or a runtime error in a Policy `config` CEL field), and `failureMode` then applies ([Failure semantics](#failure-semantics)). Other CEL fields follow the Configuration model's [CEL table](02-configuration-model.md#allowed-places). Each failure increments `ruralz_filter_failures_total` (name proposed to [Observability](10-observability.md)) and marks the span `ruralz.filter.<name>`.
+A Filter returns continue, respond, or cannot decide (a failed or timed-out State Store call or remote dependency, a Plugin trap or limit, or a runtime error in a Policy `config` CEL field), and `failureMode` then applies ([Failure semantics](#failure-semantics)). Other CEL fields follow the Configuration model's [CEL table](02-configuration-model.md#allowed-places). Each failure increments `ruralz_filter_failures_total` ([Observability](10-observability.md)) and marks the span `ruralz.filter.<name>`.
 
 ### Transform Policies
 
@@ -419,19 +419,19 @@ A failure before step 4 NACKs in Control mode, logs in file mode, and leaves the
 
 In-flight requests complete on the snapshot they started on; retirement ends only a request that outlives K + 1 further activations and then a full grace period. A **stream** is an upgraded WebSocket, a bidirectional gRPC call, an SSE response or a response with `onChunk` subscribed; anything else is a **request**, bounded by its Route `timeout`.
 
-1. **One pin per request.** The request goroutine pins the snapshot before routing and keeps it until `onLog`. Pins are cache-line-padded counter stripes: a goroutine loads the pointer, increments its stripe and re-loads the pointer, undoing and retrying if it changed. The retirer swaps the pointer, then waits for the stripes to sum to zero, so no request runs on a freed snapshot.
+1. **One pin per request.** The request goroutine pins the snapshot before routing and keeps it until `onLog`. Pins are cache-line-padded counter stripes: a goroutine loads the pointer, increments its stripe and re-loads it, undoing and retrying if it changed. The retirer swaps the pointer, then waits for the stripes to sum to zero, so no request runs on a freed snapshot.
 2. **Close only resources.** The garbage collector reclaims snapshot memory; at zero pins the retirer closes only pools and Plugin instances no newer snapshot shares.
 3. **Listeners stay bound.** An added listener opens before the swap; a removed one stops accepting after it while its connections finish.
-4. **Bounded retirement.** At most K = 2 retired snapshots are kept (target). When a third would be retired, the oldest becomes closing: its streams end at once (WebSocket close 1001, gRPC trailers with `grpc-status` `UNAVAILABLE`, an SSE end event with a retry hint). After a grace period of 30 s (target) it becomes ending, and anything still pinned ends with `RZ-RT-014`, counted by `ruralz_snapshot_retirement_ended_total` (name proposed to [Observability](10-observability.md)).
+4. **Bounded retirement.** At most K = 2 retired snapshots are kept (target). When a third would be retired, the oldest becomes closing: its streams end at once (WebSocket close 1001, gRPC `UNAVAILABLE` trailers, an SSE end event with a retry hint). After a grace period of 30 s (target) it becomes ending, and anything still pinned ends with `RZ-RT-014`, counted by `ruralz_snapshot_retirement_ended_total` ([Observability](10-observability.md)).
 5. **Ending protocol.** At pin time each request registers a callback on its pin stripe's retirement context, run on its own goroutine because a handler blocked in I/O cannot reach a panic. At grace end the retirer cancels those contexts; each callback:
-   1. Cancels the request's root context, aborting Upstream and State Store I/O.
-   2. Under a per-request mutex the handler also takes, sets past read and write deadlines through `http.ResponseController` (before commit, a write deadline 5 s ahead (target) so the handler can write 503 `RZ-RT-014`), resetting the HTTP/2 stream or closing the HTTP/1.1 connection; a hijacked WebSocket is closed directly.
+   1. Under a per-request mutex the handler also takes, sets past read and write deadlines through `http.ResponseController` (before commit, a write deadline 5 s ahead (target) so the handler can write 503 `RZ-RT-014`), resetting the HTTP/2 stream or closing the HTTP/1.1 connection; a hijacked WebSocket is closed directly.
+   2. Then cancels the request's root context, aborting Upstream and State Store I/O.
    3. Leaves guest calls to the Plugin `limits.timeout`, enforced by [WASM plugin system](05-wasm-plugin-system.md), since wazero stops a running guest only with `WithCloseOnContextDone`, reported 10 to 20x slower on loop-heavy guests ([source](https://github.com/wazero/wazero/issues/2466)).
 
    Zero pins are expected within 5 s plus the largest Plugin `limits.timeout` plus 1 s (target); a snapshot pinned longer stays ending as a degraded state, never freed early.
 6. **Grace never cut short.** At most one snapshot is closing or ending. The loader keeps only the latest pending Revision and activates it once that snapshot is freed, so a burst of activations delays the last by at most the grace period, the ending bound and compile time (target) (OQ-data-plane-13 (a)).
 
-GOAWAY is not used for retirement, since it is connection-wide and lets streams finish (OQ-data-plane-12 (a)). Resources close, and a pending Revision compiles, only at zero pins, so no live goroutine reaches a freed snapshot and peak configuration memory is (K + 2) times the snapshot size (hypothesis).
+GOAWAY is not used for retirement, since it is connection-wide and lets streams finish (OQ-data-plane-12 (a)). Resources close, and a pending Revision compiles, only at zero pins, so no goroutine reaches a freed snapshot and peak configuration memory is (K + 2) snapshots (hypothesis).
 
 *Figure 4: a configuration snapshot through a Hot Reload.*
 
@@ -524,7 +524,7 @@ Each `/tap` subscriber samples exchanges at its own `?sample=` rate in (0, 1], d
 | transform | `headers`, `transform.request`, `transform.response` | closed; either | 503 `RZ-RT-011` | Skip | `closed`: 502 `RZ-RT-012`; `open`: skip |
 | custom | `plugin` with `filterClass: custom` (the default) | closed; either | 503 `RZ-PLG-<NNN>` | Skip | `closed`: 502 `RZ-PLG-<NNN>`; `open`: skip |
 
-A `plugin` Policy with another `filterClass` takes that class's position and row, with `RZ-PLG-<NNN>` on a trap or limit (pack 8.6); its `failureMode` defaults to `closed`, and `open` is allowed except for auth and authz (pack 10). After commit, an `onChunk` failure ends the stream under `closed` (SSE `error` event, WebSocket close 1011, HTTP/2 `RST_STREAM`) and passes the chunk under `open`. A decision never uses `RZ-STS-<NNN>`. Dependency failures follow System overview's [boundary table](01-system-overview.md#failure-semantics-at-component-boundaries), each a degraded-state metric (P10).
+A `plugin` Policy with another `filterClass` takes that class's position and row, with `RZ-PLG-<NNN>` on a trap or limit (pack 8.6); its `failureMode` defaults to `closed`, and `open` is allowed except for auth and authz (pack 10). After commit, an `onChunk` failure ends the stream under `closed` (SSE `error` event, WebSocket close 1011, HTTP/2 `RST_STREAM`) and passes the chunk under `open`. A decision never uses `RZ-STS-<NNN>`. A Filter that cannot decide without supplying a code, such as after a recovered panic, takes 401 `RZ-AUTH-002` (auth) or 503 `RZ-RT-011` (admission, cache). Dependency failures follow System overview's [boundary table](01-system-overview.md#failure-semantics-at-component-boundaries), each a degraded-state metric (P10).
 
 ### Error response format
 
@@ -552,7 +552,7 @@ gRPC requests get the matching `grpc-status` and upgraded WebSockets a close cod
 | RZ-RT-008 | 403 | Rejected by a `cors` Policy |
 | RZ-RT-009 | 400 | Rejected by a `validation.json-schema` Policy |
 | RZ-RT-010 | 404 | `conditional` composition: no step's `when` is true |
-| RZ-RT-011 | 503 | A `cors`, `validation.json-schema`, `headers` or `transform.*` Policy could not decide under `closed` |
+| RZ-RT-011 | 503 | A Policy could not decide under `closed` without a code of its own: `cors`, `validation.json-schema`, `headers`, `transform.*`, or a recovered fault in an admission or cache Policy |
 | RZ-RT-012 | 502 | A response-Phase Policy failed under `closed` |
 | RZ-RT-013 | None; stream ended | A streamed chunk exceeded its cap |
 | RZ-RT-014 | 503 before commit; stream ended after | The pinned snapshot's grace period ended |
@@ -584,5 +584,5 @@ Latency, allocation, throughput and memory budgets live in [Performance budgets 
 Closed:
 
 - OQ-data-plane-2 (a), [Compiled structure](#compiled-structure); -4 (b) ([CLI and API surface](../reference/01-cli-and-api-surface.md)); -6 (a), [Bounded resources](#bounded-resources); -8 (a), merged into OQ-security-and-identity-9 ([Failure semantics](#failure-semantics)); -9 (a), [RZ-RT registry](#rz-rt-registry); -11 (c), [state](#durable-and-shared-state).
-- OQ-data-plane-12 and -13 (a), [retirement](#why-no-in-flight-request-is-dropped); reported to System overview's owner for conforming [Compile before swap](01-system-overview.md#compile-before-swap).
+- OQ-data-plane-12 and -13 (a), [retirement](#why-no-in-flight-request-is-dropped), conformed in System overview's [Compile before swap](01-system-overview.md#compile-before-swap).
 - OQ-feature-catalog-1 (a), decided here ([Transform Policies](#transform-policies)); its XML response part stays open as OQ-data-plane-17.

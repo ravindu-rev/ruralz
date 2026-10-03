@@ -337,7 +337,7 @@ The config loader, off the request path:
 6. Writes the Revision and its canonical source under `${RURALZ_DATA_DIR}/lkg/` as a candidate.
 7. Retires the old snapshot.
 
-A failure before step 4 NACKs with `RZ-CFG-<NNN>` and leaves the running snapshot untouched. At most K = 2 retired snapshots are kept (target); activation never waits, so at the limit streams pinned to the oldest get an immediate graceful close (WebSocket 1001, HTTP/2 GOAWAY, or an SSE end with a retry hint).
+A failure before step 4 NACKs with `RZ-CFG-<NNN>` and leaves the running snapshot untouched. At most K = 2 retired snapshots are kept, plus at most one closing or ending (target). When a third would be retired, the oldest becomes closing: its streams end at once with per-stream closes (WebSocket 1001, gRPC `UNAVAILABLE` trailers, an SSE end with a retry hint), never an HTTP/2 GOAWAY (OQ-data-plane-12 (a)), and after a 30 s grace period (target) requests still pinned end with `RZ-RT-014`. A grace period is never cut short: the loader keeps only the latest pending Revision and activates it once that snapshot is freed (OQ-data-plane-13 (a)); [Data plane](03-data-plane.md#why-no-in-flight-request-is-dropped) owns the rules.
 
 Building router structures and chains for 10,000 Routes takes 2 s or less on one core (target), excluding cold Plugin compilation. Peak configuration memory is (K + 2) times snapshot size (hypothesis); [Data plane](03-data-plane.md) owns the numbers.
 
@@ -422,7 +422,7 @@ The Helm chart and CRDs are Planned (M2) ([ADR-0016](../adr/0016-kubernetes-helm
 
 A **Hot Reload** activates a Revision on one Node without a restart. A **Zero-Downtime Upgrade** replaces the `ruralzd` binary: the new process binds the same ports with `SO_REUSEPORT` and reports ready, then the old one Drains with HTTP/2 GOAWAY ([ADR-0015](../adr/0015-zero-downtime-upgrades-so-reuseport.md)). Both are Planned (M1); [Zero-downtime upgrades and hot reload](../operations/02-zero-downtime-upgrades-and-hot-reload.md) owns procedures. Handover rules:
 
-1. Before closing a TCP listener, `SO_ATTACH_REUSEPORT_CBPF` (through `golang.org/x/sys/unix`) steers new connections to the new socket while the old accept queue empties (`net.ipv4.tcp_migrate_req` is an alternative).
+1. Before closing a TCP listener, `SO_ATTACH_REUSEPORT_CBPF` (through `golang.org/x/sys/unix`) steers new connections to the new socket while the old accept queue empties; hosts SHOULD also set `net.ipv4.tcp_migrate_req`, which complements steering, and the old process keeps accepting through a 3 s linger (target) (OQ-zero-downtime-upgrades-and-hot-reload-12 (a)).
 2. In-flight QUIC connections on UDP 8443 are lost and reconnect (OQ-system-overview-18).
 3. Only the process holding the file lock on `${RURALZ_DATA_DIR}` writes Last-Known-Good and holds the Control Stream for its `node.id`; the old process releases it at Drain start. A new process that finds a live holder boots the holder's active Revision from its verified candidate ([Compile before swap](#compile-before-swap) step 6) without a boot wait.
 4. The new process reports readiness to the old one over a Unix socket under `${RURALZ_DATA_DIR}`; CBPF steers 9901 to whichever process keeps serving.
