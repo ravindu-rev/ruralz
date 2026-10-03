@@ -2,7 +2,7 @@
 title: System Overview
 status: reviewed
 owner: ruralz-core
-last_updated: 2026-09-23
+last_updated: 2026-10-03
 depends_on:
   - docs/_meta/foundation-pack.md
   - docs/_meta/style-guide.md
@@ -247,7 +247,7 @@ Before commit, each Policy makes at most one blocking round trip (pack 8.7), tim
 
 ### Worked example: a rate-limited Route in a brownout
 
-A Route carries a global Rate Limit (pack 8.8): a local token bucket at a per-Node ceiling, declared on the Policy or derived from the Node count Ruralz Control publishes (never learned from peers), then GCRA in one Lua `EVAL` per locally admitted request (leases: OQ-system-overview-15). When the State Store slows down:
+A Route carries a global Rate Limit (pack 8.8): a local token bucket at a per-Node ceiling, declared on the Policy or derived from the Node count Ruralz Control publishes (never learned from peers), then GCRA in one Lua `EVAL` per locally admitted request, except for `config.localOnly` Policies and first-seen keys past the Node's budget (leases: OQ-system-overview-15). When the State Store slows down:
 
 1. GCRA calls hit the deadline and the Rate Limit fails open; admission per key is at most N serving Nodes times the per-Node ceiling per window (target), a bound [Scalability and distributed state](11-scalability-and-distributed-state.md) owns.
 2. The State client's breaker opens, so later requests pay no timeout.
@@ -479,8 +479,8 @@ flowchart LR
 |---|---|---|---|
 | TB-1 | Client to Ruralz Gateway (8080, 8443) | TLS or QUIC; hashed API keys, JWT, OAuth or mTLS | Authentication fails closed |
 | TB-2 | Filter Chain to Plugin | wazero isolation; declared Capabilities only | Trap fails the call, never the Node |
-| TB-3 | Ruralz Gateway to Upstreams and AIProviders | TLS or mTLS; credentials via `secretRef` | Breakers, bounded retries, fallback |
-| TB-4 | Ruralz Gateway to State Store | TLS and authentication; contents are never configuration | `failureMode` within the deadline |
+| TB-3 | Ruralz Gateway to Upstreams and AIProviders | TLS or mTLS; credentials via `secretRef`, each sent only to its declared destination (pack 5) | Breakers, bounded retries, fallback |
+| TB-4 | Ruralz Gateway to State Store | TLS and authentication; contents are never configuration; with `RURALZ_STATE_STORE_MAC_KEY_FILE` set, cached entries carry an HMAC checked on read (pack 2) | `failureMode` within the deadline |
 | TB-5 | Node to Ruralz Control (8091) | mTLS with a per-Node enrollment certificate; Revisions signed by Ruralz Control, always verified against Enrollment trust anchors ([ADR-0017](../adr/0017-artifact-signing.md)) | NACK; keep active Revision |
 | TB-6 | Operators to Ruralz Control (8090) | Sessions or tokens, RBAC, audit log; Ruralz Console SSO/SAML Planned (M5) | Deny by default |
 | TB-7 | Ruralz Control to Git | Credentials from Ruralz Control's process configuration, never a Bundle | Invalid content never becomes a Revision |

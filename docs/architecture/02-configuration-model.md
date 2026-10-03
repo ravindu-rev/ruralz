@@ -2,7 +2,7 @@
 title: Configuration Model
 status: reviewed
 owner: ruralz-core
-last_updated: 2026-09-25
+last_updated: 2026-10-03
 depends_on:
   - docs/_meta/foundation-pack.md
   - docs/_meta/style-guide.md
@@ -56,7 +56,9 @@ The loader rejects features that let a small edit change distant values or let a
 | Custom tags (`!include`, `!env`) | No, RZ-CFG-004 | One mechanism each for inclusion and substitution |
 | Non-UTF-8, byte order marks | No, RZ-CFG-001 | Identical bytes on every OS |
 
-Size and depth limits are configurable; exceeding one is RZ-CFG-001. The proposed defaults are 64 MiB of source text, 20,000 resources and 64 nesting levels (target). Depth is counted over `lexer.Tokenize` output before parsing, so over-deep input never reaches the parser. A Node never enforces a limit below the CLI default, so no Bundle that passes CI fails on a Node for size or depth. The depth value and peak loader memory (hypothesis) are OQ-configuration-model-18. The loader parses with `github.com/goccy/go-yaml`, with Ruralz code over its AST rejecting anchors, aliases, merge keys and custom tags, and validates with `github.com/santhosh-tekuri/jsonschema/v6`, whose `Vocabulary` API carries the `x-ruralz-*` keywords (foundation pack section 7, selected at the freeze).
+Size and depth limits are configurable; exceeding one is RZ-CFG-001. The defaults are 64 MiB of source text, 20,000 resources and 64 nesting levels (target). Depth is counted over `lexer.Tokenize` output before parsing, so over-deep input never reaches the parser. A Node never enforces a limit below the CLI default, so no Bundle that passes CI fails on a Node for size or depth. The depth default answers OQ-configuration-model-18 with option (a); the hostile-input fixtures measure peak loader memory (hypothesis).
+
+The loader parses with `github.com/goccy/go-yaml`, with Ruralz code over its AST rejecting anchors, aliases, merge keys and custom tags, and validates with `github.com/santhosh-tekuri/jsonschema/v6`, whose `Vocabulary` API carries the `x-ruralz-*` keywords (foundation pack section 7, selected at the freeze).
 
 ### OpenAPI, Postman and test tooling
 
@@ -234,21 +236,27 @@ spec:
   admin:
     port: 9901                     # default 9901
   telemetry:
-    otlp: {endpoint: "https://otel-collector:4317"}   # TLS per TB-12
-    traceSampling: 0.05            # ratio 0 to 1
+    otlp:                          # OTLP over gRPC
+      endpoint: "https://otel-collector:4317"   # http or https, host, optional port (default 4317), no path; unset: no export
+      tls:                         # https only; the Upstream tls shape: sni, caCertificate, clientCertificate, clientKey
+        caCertificate: {secretRef: {provider: file, name: /etc/ruralz/otel/ca.crt}}
+    traceSampling: 0.05            # ratio 0 to 1; default 0.01
     accessLog: {when: "response.status >= 400"}   # CEL
   limits:
-    maxRequestBodyBytes: 10Mi
-    maxRequestHeaderBytes: 64Ki
-    maxResponseBodyBytes: 10Mi     # cap on one buffered response, and on a Route's step bodies together
-    maxCompositionSteps: 16        # cap on composition.steps per Route
-    maxBufferedBytes: 512Mi        # Node-wide budget for all buffered bodies, decoded values included
-    maxPluginMemoryBytes: 1Gi      # Node-wide cap on aggregate Plugin memory; default owned by WASM plugin system
+    maxRequestBodyBytes: 10Mi      # default 10Mi
+    maxRequestHeaderBytes: 64Ki    # default 64Ki
+    maxResponseBodyBytes: 10Mi     # default 10Mi; cap on one buffered response, and on a Route's step bodies together
+    maxCompositionSteps: 16        # default 16; cap on composition.steps per Route
+    maxBufferedBytes: 512Mi        # default 512Mi; Node-wide budget for all buffered bodies, decoded values included
+    maxPluginMemoryBytes: 1Gi      # Node-wide cap on aggregate Plugin memory; schema default 2Gi; WASM plugin system owns the value
   stateStore:
     driver: redis                  # memory | redis; default memory
     topology: cluster              # redis only: standalone | cluster; default standalone
     url: {secretRef: {provider: env, name: RURALZ_STATE_STORE_URL}}
-    timeout: 50ms                  # per-operation default for Policies
+    timeout: 50ms                  # default 50ms; the default of every Policy's stateStoreTimeout
+    cache:                         # optional second redis connection, used only by the Response Cache
+      topology: standalone         # standalone | cluster; default standalone
+      url: {secretRef: {provider: env, name: RURALZ_SECRET_CACHE_URL}}   # required; same URL form as url
   policies: [{name: cors-default}] # orderedMap keyed by name; Gateway-scoped Policies
 ```
 
@@ -256,9 +264,13 @@ spec:
 
 `stateStore.topology`, Planned (M1), answers OQ-scalability-and-distributed-state-2 with option (a), without Sentinel. `url` uses the rueidis URL form ([source](https://github.com/redis/rueidis/blob/main/README.md)), `rediss://` outside loopback: `standalone` takes one endpoint, `rediss://[user:password@]host:port[/db]`; `cluster` takes a seed list, `rediss://host:port?addr=host:port&addr=host:port`. A `standalone` URL names an endpoint that follows the primary through failover, such as a managed service's primary endpoint; the Node sets `ForceSingleClient`, so rueidis never guesses, and on a closed connection reconnects under Scalability's [reconnect pacing](11-scalability-and-distributed-state.md#state-client-and-rz-sts-error-codes) and reloads its scripts. A `cluster` client reads the slot map from any seed with `CLUSTER SLOTS`, follows `MOVED` and `ASK`, and refreshes the map after a redirect, a closed connection and every 10 s (target) through `ShardsRefreshInterval` ([source](https://github.com/redis/rueidis/blob/main/rueidis.go)), so promoted replicas and new shards need no Revision. A resolved URL that does not fit `topology`, such as `master_set`, or `addr` under `standalone`, is RZ-CFG-026 on the Node.
 
-`stateStore.url` is a `SecretValue` because Redis URLs often carry credentials; each Node resolves it, so each Region uses its own State Store under one Revision. Without `stateStore`, `ruralzd` reads `RURALZ_STATE_STORE_URL`, else uses `memory` and logs a warning at startup, because `memory` multiplies every Rate Limit and Quota by the Node count. The proposed defaults are 10 MiB for `maxResponseBodyBytes`, 16 for `maxCompositionSteps` and 512 MiB for `maxBufferedBytes` (target); how they are enforced is in [Body buffering and limits](#body-buffering-and-limits).
+`stateStore.url` is a `SecretValue` because Redis URLs often carry credentials; each Node resolves it, so each Region uses its own State Store under one Revision. Without `stateStore`, `ruralzd` reads `RURALZ_STATE_STORE_URL`, else uses `memory` and logs a warning at startup, because `memory` multiplies every Rate Limit and Quota by the Node count. Sketch comments give the schema defaults (target); [Body buffering and limits](#body-buffering-and-limits) enforces the limits.
 
-`limits.maxPluginMemoryBytes` caps aggregate Plugin memory per Node; at the cap new instances are refused (`RZ-PLG` under the Policy's `failureMode`). [WASM plugin system](05-wasm-plugin-system.md) owns its default (foundation pack section 8.11). `http3: true` is `Planned (M3)` and off in FIPS builds.
+`stateStore.cache`, Planned (M1), answers OQ-scalability-and-distributed-state-3 with option (a): a second `redis` connection under the rules above, used only by the Response Cache, so cache entries never evict limit keys. Without it the Response Cache shares the main one under Scalability's [interim rules](11-scalability-and-distributed-state.md#distributed-caches) and a startup warning.
+
+`telemetry.otlp.tls`, Planned (M1), answers OQ-observability-2 with option (a); without it an `https` collector is verified against system roots, and an `http` one is a reported cleartext hop ([Observability](10-observability.md)). Authentication headers come later.
+
+[WASM plugin system](05-wasm-plugin-system.md) owns the value and the cap behavior of `limits.maxPluginMemoryBytes` (foundation pack section 8.11). `http3: true` is `Planned (M3)` and off in FIPS builds.
 
 ### Route
 
@@ -327,25 +339,28 @@ spec:
   protocol: http                   # required: http | grpc | graphql | websocket | kafka | nats | mqtt | ai
   endpoints:                       # required unless discovery or protocol ai; map keyed by address
     - address: "orders.shop.svc:8080"
-      weight: 1
+      weight: 1                    # default 1
   discovery:                       # alternative to endpoints
     type: kubernetes               # dns | kubernetes
     service: orders
     namespace: shop
     port: http                     # port name or number
-  loadBalancing: {algorithm: ring-hash, hashKey: 'request.headers["x-user"]'}   # round-robin | least-request | ring-hash | random
+  loadBalancing: {algorithm: ring-hash, hashKey: 'request.headers["x-user"]'}   # round-robin | least-request | ring-hash | random; default least-request
   healthCheck:
-    active: {path: /healthz, interval: 10s, timeout: 2s, healthyThreshold: 2, unhealthyThreshold: 3}
-    passive: {consecutiveErrors: 5, ejectionTime: 30s}
+    active: {path: /healthz, interval: 10s, timeout: 2s, healthyThreshold: 2, unhealthyThreshold: 3}   # defaults /, 10s, 2s, 2, 3
+    passive: {consecutiveErrors: 5, ejectionTime: 30s}   # defaults 5, 30s
   retries:
-    attempts: 2
+    attempts: 2                    # retries after the first attempt; default 1
     perTryTimeout: 1s
     retryOn: 'error != null ? error.kind in ["connect", "reset"] : response.status in [502, 503]'   # CEL
   circuitBreaker:
-    maxConnections: 1024
-    maxPendingRequests: 256
-    consecutiveFailures: 5
-    openDuration: 30s
+    maxConnections: 1024           # in-flight attempts per Upstream per Node; default 1024
+    maxPendingRequests: 256        # attempts waiting for a slot; default 256
+    consecutiveFailures: 5         # run of failed legs that opens the breaker; default 5
+    minimumLegs: 20                # legs a rolling 10 s window needs before it may open; default 20
+    failureRatio: 0.5              # failed share of that window it also needs, 0 to 1; default 0.5
+    openDuration: 30s              # default 30s
+    halfOpenSuccesses: 3           # successful probe legs that close a half-open breaker; default 3
     failureWhen: 'error != null || response.status >= 500'   # CEL
   tls:
     sni: orders.shop.svc
@@ -359,6 +374,8 @@ spec:
 ```
 
 `ai.models` replaces `endpoints` for `ai`, and `ring-hash` requires `hashKey`. Kubernetes discovery watches EndpointSlices, avoiding DNS TTL lag. `http` and `dns` discovery are `Planned (M1)`; `kubernetes` discovery `Planned (M2)`; `grpc`, `graphql`, `websocket` and `ai` `Planned (M3)`; `kafka`, `nats`, `mqtt` and `messaging` `Planned (M4)`.
+
+Sketch comments give the schema defaults, the static values of OQ-traffic-management-and-resilience-6 (c) (target); computed defaults stay out of the canonical form ([Deadlines](09-traffic-management-and-resilience.md#deadlines)). The breaker guards `minimumLegs`, `failureRatio` and `halfOpenSuccesses`, Planned (M1), answer OQ-traffic-management-and-resilience-5 with option (a); [Circuit breakers](09-traffic-management-and-resilience.md#circuit-breakers) owns their semantics.
 
 ### Policy
 
@@ -374,13 +391,13 @@ spec:
   stateStoreTimeout: 50ms          # default: Gateway spec.stateStore.timeout
   when: 'request.method != "OPTIONS"'   # CEL; the Policy is skipped when false
   plugin: geo-block                # required when type is plugin
-  filterClass: authz               # plugin only; default custom
+  filterClass: authz               # default: the registry class (custom for plugin); only plugin may choose another
   config: {}                       # required; validated by the type's schema
 ```
 
-`failureMode` applies whenever the Filter or Plugin cannot decide: a State Store call fails or exceeds `stateStoreTimeout` ([ADR-0008](../adr/0008-rate-limiting-local-bucket-and-gcra.md)), a remote dependency such as a JWKS URL fails, a Plugin traps or exceeds limits, or a CEL expression errors at runtime; for types without dependencies, such as `cors`, only CEL errors. Its effect per Phase is foundation pack section 8.10: before commit, `closed` rejects (401 or 403 for auth and authz types, otherwise 503; 502 in a response Phase) with a code chosen per section 8.6, and `open` skips the Policy; after commit, `closed` ends an `onChunk` stream and `open` passes the chunk; an `onLog` failure only reaches telemetry. Each failure increments `ruralz_filter_failures_total` by Policy, Phase and mode (name proposed to [Observability](10-observability.md)).
+`failureMode` applies whenever the Filter or Plugin cannot decide: a State Store call fails or exceeds `stateStoreTimeout` ([ADR-0008](../adr/0008-rate-limiting-local-bucket-and-gcra.md)), a remote dependency such as a JWKS URL fails, a Plugin traps or exceeds limits, or a CEL expression errors at runtime; for types without dependencies, such as `cors`, only CEL errors. Its effect in each Phase, before and after commit, is foundation pack section 8.10, with codes chosen per section 8.6. Each failure increments `ruralz_filter_failures_total` by Policy, Phase and mode (name proposed to [Observability](10-observability.md)).
 
-No Policy calls the State Store per chunk. `ai.token-budget` reserves, guards and settles as foundation pack section 8.9 fixes ([ADR-0014](../adr/0014-ai-api-surface.md)): one atomic reservation of estimated input plus the output cap in `onRequestBody`, a local count in `onChunk` that ends the stream past the cap and is never billed, and asynchronous settlement with provider-reported usage at `onLog`. An `AIModel` reachable from a Route with an `ai.token-budget` Policy and no `limits.maxOutputTokens` is RZ-CFG-034. `quota` checks in `onRequestHeaders` and settles at `onLog`. Their default postures are OQ-configuration-model-8.
+No Policy calls the State Store per chunk. `ai.token-budget` reserves in `onRequestBody`, guards the stream locally in `onChunk` and settles at `onLog`, as foundation pack section 8.9 fixes ([ADR-0014](../adr/0014-ai-api-surface.md)). An `AIModel` reachable from a Route with an `ai.token-budget` Policy and no `limits.maxOutputTokens` is RZ-CFG-034. `quota` checks in `onRequestHeaders` and settles at `onLog`. `quota` defaults to `open` and `ai.token-budget` to `closed`, as registered (OQ-configuration-model-8 (a)).
 
 `slot` is the precedence key. `override`-class types default to the registry slot (all client authentication types share `auth`); additive types default to their own name, so they stack unless an author sets `slot` explicitly. In the registry, a Filter class is a position within a Phase, scopes G, R and U are Gateway, Route and Upstream, and slot `name` means the Policy's own name. `failureMode` is overridable only for non-security types: `auth.*` (including the upstream types), `authz.*` and `plugin` Policies with `filterClass` auth or authz are `closed` only, and `open` there is RZ-CFG-029. `headers` and `transform.*` run only in Phases their `config` uses. Registry defaults are materialized into the canonical form like schema defaults (see [Canonical form and Revision](#canonical-form-and-revision)). How one Route accepts either JWT or an API key in the single `auth` slot is OQ-configuration-model-13.
 
@@ -412,21 +429,24 @@ The Semantic Cache has one switch: a Route caches only when it attaches an `ai.s
 
 `authz.ip` allows or denies by CIDR on the client address (proxy handling: [Security and identity](08-security-and-identity.md)); `authz.geoip` by ISO 3166 country from a local MaxMind-format database, whose reader is a pending selection (foundation pack sections 7 and 10).
 
-Each type's full `config` schema is authored by its feature document and registered and published by this document, and a registered `config` field counts as defined here for style guide section 5 (foundation pack section 3). The fields this document uses in the CEL table and the example Bundle are fixed here, and feature documents MUST keep them:
+Each type's full `config` schema is authored by its feature document and registered and published by this document, and a registered `config` field counts as defined here for style guide section 5 (foundation pack section 3). The fields this document authors or uses in the CEL table and the example Bundle are fixed here, and feature documents MUST keep them:
 
 | `type` | `config` fields fixed here |
 |---|---|
 | `cors` | `allowOrigins`, `allowMethods` |
 | `auth.jwt` | `issuers[]` with `issuer`, `jwksUrl`, `audiences` |
-| `auth.api-key` | `header` (matched against Consumer `apiKeys` by hash) |
+| `auth.api-key` | `header` (default `x-api-key`; matched against Consumer `apiKeys` by hash) |
 | `authz.cel` | `rule` (CEL) |
 | `ratelimit` | `key` (CEL), `limits[]` with `requests`, `window` |
 | `quota` | `consumerQuota` (a Consumer quota with `unit: requests`), `key` (CEL; default `consumer.name`) |
 | `cache`, `ai.semantic-cache` | `key` (CEL; partitions entries, for example per Consumer) |
-| `headers` | `request.set[]`, `response.set[]` with `name` and exactly one of `value` or `valueExpression` (CEL) |
+| `headers` | `request` and `response`, each with `set[]` (`map` keyed by `name`), `add[]` (`atomic`) and `remove[]` (`set` of names); `set[]` and `add[]` entries have `name` and exactly one of `value` or `valueExpression` (CEL) |
+| `validation.json-schema` | `schema` (required): an inline JSON Schema draft 2020-12 document, an object or a boolean |
 | `ai.token-budget` | `consumerQuota` (a Consumer quota with `unit: tokens`) |
 | `auth.upstream-oauth2` | `tokenUrl`, `clientId`, `clientSecret` (`SecretValue`), `scopes` |
 | `plugin` | Whatever the Plugin's `configSchema` defines |
+
+A `headers` side applies `remove[]`, then `set[]` (one field line per name), then `add[]` (one more line). Invalid or Node-managed names such as `host`, two entries of one list whose names are equal ignoring case, invalid values and more than 32 entries (target) across all lists of the Policy are RZ-CFG-005. Validation compiles a `validation.json-schema` `schema` as draft 2020-12 with `$ref` inside the document, `format` as an annotation and RE2 patterns, within 256 KiB and 1,024 applicator branches (target), else RZ-CFG-005.
 
 A `consumerQuota` that no Consumer in the Bundle defines with the matching `unit` is RZ-CFG-009. At runtime, when `consumer` is null or lacks the named quota, the Policy rejects the request with 403 and an `RZ-RL` or `RZ-AI` code owned by the feature document. That is a decision, so it never uses `RZ-STS`. A Route that must also serve such callers guards the Policy with `when: 'consumer != null && "daily-tokens" in consumer.quotas'`.
 
@@ -444,10 +464,10 @@ These fields are registered as their feature documents authored them, so each co
 | `authz.geoip` | `config.allow`, `config.deny`: `set` of ISO 3166-1 alpha-2 codes | Both empty is RZ-CFG-005 | [IP filtering and GeoIP](08-security-and-identity.md#ip-filtering-and-geoip) |
 | `auth.upstream-sigv4` | `config.region`, `config.service` (both required), `config.payload` (`signed`, the default, or `unsigned`) | Schema only | [Upstream authentication](08-security-and-identity.md#upstream-authentication) |
 | `auth.upstream-oauth2` | `config.timeout`, default `2s` (target) | `tokenUrl`, like `auth.jwt` `jwksUrl`, not `https` is RZ-CFG-037 | [Upstream authentication](08-security-and-identity.md#upstream-authentication) |
-| `ratelimit` | `limits[].perNodeCeiling` (integer, 1 to `requests`; unset means derived), `limits[].burst` (integer, 0 to `requests`; default `requests`), `config.localOnly` (boolean; default `false`) | Out of range is RZ-CFG-005; `localOnly: true` waits for OQ-scalability-and-distributed-state-11 to amend foundation pack section 8.8 | [Per-Node ceiling](09-traffic-management-and-resilience.md#per-node-ceiling) |
-| `transform.request`, `transform.response` | `config.body` (CEL; a map or list is written as JSON, a string as its bytes), `config.contentType` (string; default `application/json`), and `atomic` lists `config.set[]` (`target`: `header`, `query` (request only) or `body`; `name`; `valueExpression`, CEL), `config.remove[]` (`target`, `name`), `config.arrayOps[]` (`op`: `move`, `append` or `delete`; `from`; `to`) and `config.replace[]` (`path`, `pattern`, `replacement`, `literal`) | A `pattern` over 1 KiB (target) or not valid RE2, or more than 32 entries across the four lists (target), is RZ-CFG-005 | [Transform Policies](03-data-plane.md#transform-policies) |
+| `ratelimit` | `limits[].perNodeCeiling` (integer, 1 to `requests`; unset means derived), `limits[].burst` (integer, 0 to `requests`; default `requests`), `config.localOnly` (boolean; default `false`) | Out of range is RZ-CFG-005; `localOnly` follows foundation pack section 8.8 as OQ-scalability-and-distributed-state-11 (a) amends it | [Per-Node ceiling](09-traffic-management-and-resilience.md#per-node-ceiling) |
+| `transform.request`, `transform.response` | `config.body` (CEL; a map or list is written as JSON, a string as its bytes), `config.contentType` (string; default `application/json`), and `atomic` lists `config.set[]` (`target`: `header`, `query` (request only) or `body`; `name`; `valueExpression`, CEL), `config.remove[]` (`target`, `name`), `config.arrayOps[]` (`op`: `move`, `append` or `delete`; `from`; `to`) and `config.replace[]` (`path`, optional, else the raw body; `pattern`, `replacement`, `literal`) | A `pattern` over 1 KiB (target) or not valid RE2, or more than 32 entries across the four lists (target), is RZ-CFG-005 | [Transform Policies](03-data-plane.md#transform-policies) |
 
-Each field ships with its type's Planned tag in the registry, and the `Consumer` fields with `auth.basic` and `auth.mtls`, Planned (M1).
+Each field ships with its type's Planned tag in the registry, and the `Consumer` fields with `auth.basic` and `auth.mtls`, Planned (M1). Still open until registered with their features (OQ-configuration-model-19 (a)), so their types' `config` admits unknown members: `ratelimit` `config.responseHeaders`, `config.cost` and `limits[].when`; `auth.api-key` `config.query`; `ai.semantic-cache` `config.embedding`; the `authz.opa` and `authz.cedar` configs; the `auth.upstream-oauth2` `jwt-bearer` fields.
 
 ### Plugin
 
@@ -628,6 +648,7 @@ Base files form a union and never patch each other. A duplicate identity is RZ-C
 | `map` list | Merged by key; new keys added |
 | `orderedMap` list | Merged by key in place; new keys appended at the end; a first entry `{$patch: replace}` replaces the whole list, which is how an overlay reorders |
 | `set` or `atomic` list, scalar | Replaced |
+| Value of the schema's `JSONSchemaDocument` definition (`validation.json-schema` `config.schema`) | Replaced whole as one atomic value |
 | `null` | Field removed, then defaulted |
 | List entry `$patch: delete` | Keyed entry removed |
 | Annotation `ruralz.io/patch: replace` or `delete` | `spec` replaced whole, or resource removed |
@@ -723,7 +744,7 @@ CEL is allowed only in these fields, each marked `x-ruralz-cel`; elsewhere CEL-l
 | `Route.spec.composition.steps[].when` | bool | Before the step | Base, `steps` | Step fails; `optional` decides | Planned (M1) |
 | `authz.cel` `config.rule` | bool | onRequestHeaders or onRequestBody | Base | Deny | Planned (M1) |
 | `ratelimit`, `quota` `config.key` | string | onRequestHeaders | Base | Policy `failureMode` | Planned (M1) |
-| `headers` `config.*.set[].valueExpression` | string | The operation's Phase | Base; `response`, `upstream` on response operations | Policy `failureMode` | Planned (M1) |
+| `headers` `config.*.set[].valueExpression`, `config.*.add[].valueExpression` | string | The operation's Phase | Base; `response`, `upstream` on response operations | Policy `failureMode` | Planned (M1) |
 | `cache` `config.key` | string | onRequestHeaders | Base | Cache bypassed | Planned (M1) |
 | `transform.request` `config.body`, `config.set[].valueExpression` | dyn; string | onRequestBody; onUpstreamRequest at Upstream scope | Base with `request.body`; `upstream` at Upstream scope | Policy `failureMode` | Planned (M1) |
 | `transform.response` `config.body`, `config.set[].valueExpression` | dyn; string | onResponse; onUpstreamResponseBody at Upstream scope | Base, `response` with `body`; `upstream` at Upstream scope | Policy `failureMode` | Planned (M1) |
@@ -758,6 +779,8 @@ Expressions are parsed, type-checked against their place's environment and cost-
 
 Cost has a static bound and a runtime bound. `cel-go` treats `dyn` values and unsized strings, lists and maps as unbounded, so Ruralz supplies a size estimator: every string reached from a variable, typed or `dyn`, counts at a nominal 256 bytes and every list or map at 32 entries (target). RZ-CFG-015 rejects an expression whose estimate at nominal sizes exceeds 10,000 cost units (target), catching nested comprehensions. Cost that grows with input size is bounded at runtime, and every input is capped by a Gateway limit ([Body buffering and limits](#body-buffering-and-limits)). Evaluation stops with a runtime error at 1,000,000 units through the `cel-go` runtime cost limit (target).
 
+As `cel-go` cost tracking slows with the square of a comprehension's length (hypothesis), an expression that can reach the limit and holds a comprehension also stops at 50 ms or the request deadline, whichever is first (target), via `ContextEval` interrupt checks ([source](https://github.com/cel-expr/cel-go/blob/master/cel/program.go)), tightening [ADR-0011](../adr/0011-expressions-and-authorization-engines.md)'s request-deadline bound (OQ-configuration-model-21); either stop is a runtime error.
+
 The example Bundle, including the `split` and `exists` rule in `authz-orders`, is in the golden corpus and MUST pass RZ-CFG-015. Programs compile once per Revision; typical match and key expressions evaluate in under 2 µs at p99 (target).
 
 ## Secrets and environment variables
@@ -778,12 +801,14 @@ password:
 
 | Provider | `name` means | `key` means | Rotation | Planned |
 |---|---|---|---|---|
-| `env` | `ruralzd` process variable | Unused | Restart | Planned (M1) |
-| `file` | Absolute path | Optional JSON key | File watch | Planned (M1) |
+| `env` | `ruralzd` process variable: `RURALZ_STATE_STORE_URL` or a name starting `RURALZ_SECRET_` | Unused | Restart | Planned (M1) |
+| `file` | Absolute path under `RURALZ_SECRET_ROOT` (default `/etc/ruralz`) | Optional JSON key | File watch | Planned (M1) |
 | `kubernetes` | Secret in the Node's namespace | Data key | API watch | Planned (M2) |
 | `vault` | Secret path | Field | Lease renewal | Planned (M2) |
 
-Cloud secret managers are OQ-configuration-model-5. Only Nodes resolve secrets, at load and on rotation, and keep resolved values in memory across Hot Reloads. A literal in a `SecretValue` field is RZ-CFG-012; a credential-shaped literal elsewhere warns (RZ-CFG-013). An unresolvable reference is RZ-CFG-026: the Node rejects the Revision (a NACK in Control mode) and keeps serving its active Revision. A failed rotation keeps the last value and increments `ruralz_config_secret_rotation_failures_total`. Rotating a value needs no Rollout; changing the reference is a normal diff with impact `security`.
+Cloud secret managers are OQ-configuration-model-5. Only Nodes resolve secrets, at load and on rotation, and keep resolved values in memory across Hot Reloads. A literal in a `SecretValue` field is RZ-CFG-012; a credential-shaped literal elsewhere warns (RZ-CFG-013). An unresolvable reference, including an `env` or `file` name outside those limits (OQ-security-and-identity-22 (a)), is RZ-CFG-026: the Node rejects the Revision (a NACK in Control mode) and keeps serving its active Revision.
+
+A failed rotation keeps the last value and increments `ruralz_config_secret_rotation_failures_total`. Rotating a value needs no Rollout; changing the reference is a normal diff with impact `security`.
 
 Last-Known-Good holds configuration only; resolved secret values are never written to disk. A Node that cold-starts from Last-Known-Good resolves every `secretRef` first, and `/readyz` fails, with retries and backoff, until all resolve. Critical secrets, such as TLS keys and the State Store URL, SHOULD therefore come from `file` or `env`. Encrypted persistence of resolved secrets under `${RURALZ_DATA_DIR}/lkg/` is OQ-configuration-model-15.
 
@@ -810,43 +835,49 @@ Values never come from a Cluster, so all Clusters of an Environment run one Revi
 
 One validation library is linked into `ruralz`, `ruralz-control` and `ruralzd`. Given the same overlay and variables, which `--env` guarantees, a Bundle that passes `ruralz bundle validate` in CI passes the offline stages of Ruralz Control ingest and Node activation with identical diagnostics. Offline validation needs no registry, because the inline `Plugin.spec` is authoritative.
 
-`ruralz bundle validate` is offline unless `--online` is set (OQ-configuration-model-10). After a green offline run, five checks can still fail: RZ-CFG-028 (online Plugin check), RZ-CFG-033 (a Plugin or Revision signature), RZ-CFG-024 (Node schema level, at Rollout), RZ-CFG-026 (secret or State Store URL resolution on a Node) and RZ-CFG-027 (a pushed Bundle that re-renders differently). CI SHOULD gate merges on `ruralz bundle build` or `validate --online`, which also verify Plugin signatures; the rest depend on the target and surface as a refused Rollout or a NACK.
+`ruralz bundle validate` is offline unless `--online` is set (OQ-configuration-model-10). After a green offline run, only codes whose [stage](#error-codes) follows the digest can fail, such as RZ-CFG-026 for a secret a Node cannot resolve. CI SHOULD gate merges on `ruralz bundle build` or `validate --online`, which also verify Plugin signatures; the rest depend on the target and surface as a refused Rollout or a NACK.
 
-*Figure 3: the Bundle validation pipeline from files to a Revision.*
+*Figure 3: the Bundle validation pipeline from files to a Revision, with the RZ-CFG codes each stage raises.*
 
 ```mermaid
 flowchart TD
-    A["Discover files under ruralz.yaml"] --> B["Parse strict YAML 1.2 profile and JSON"]
-    B --> C["Base union and identity check"]
-    C --> D["Apply overlays/env with the base apiVersion"]
-    D --> E["Substitute VAR and VAR:-default"]
-    E --> F["Rendered JSON Schema 2020-12 per kind and apiVersion"]
-    F --> G["Materialize defaults and convert to hub form"]
-    G --> H["Resolve references"]
-    H --> I["Compute effective Filter Chains, slots, guardrails"]
-    I --> J["Compile CEL and check cost"]
-    J --> K["Check inline Plugin spec and Policy config"]
-    K --> L["Canonicalize as ruralz.canonical.v1"]
-    L --> M["Revision sha256 digest, displayed as rev-12hex"]
-    B -- error --> X["Diagnostics RZ-CFG-NNN with source map"]
+    A["A. Discover files under ruralz.yaml: 001"] --> B["B. Parse strict YAML 1.2 profile and JSON: 001 to 004"]
+    B --> C["C. Base union, identity check, environments file: 007, 008, 016, 017, 022"]
+    C --> D["D. Apply overlays/env with the base apiVersion: 008, 030"]
+    D --> E["E. Substitute VAR and VAR:-default: 010 to 013"]
+    E --> F["F. Rendered JSON Schema 2020-12 per kind and apiVersion: 005, 006, 012"]
+    F --> G["G. Materialize defaults and convert to hub form: 005, 025"]
+    G --> H["H. References, cross-resource rules, secret destinations, unserved features: 005, 009, 021, 023, 031, 032, 035 to 037, 040, 041"]
+    H --> I["I. Compute effective Filter Chains, slots, guardrails: 018 to 020, 029, 038"]
+    I --> J["J. Compile CEL and check cost: 014, 015"]
+    J --> K["K. Check effective-chain rules, inline Plugin spec and Policy config: 034, 040"]
+    K --> L["L. Canonicalize as ruralz.canonical.v1"]
+    L --> M["M. Revision sha256 digest, displayed as rev-12hex"]
+    A -- error --> X["Diagnostics RZ-CFG-NNN with source map"]
+    B -- error --> X
+    C -- error --> X
     D -- error --> X
+    E -- error --> X
     F -- error --> X
+    G -- error --> X
     H -- error --> X
     I -- error --> X
     J -- error --> X
     K -- error --> X
-    M --> Q["Online: fetch Plugin artifacts by digest, verify signatures, check ABI, Phases, Capabilities"]
+    M --> Q["Online: fetch Plugin artifacts by digest, verify signatures, check ABI, Phases, Capabilities: 028, 033"]
     Q -- "error RZ-CFG-028 or RZ-CFG-033" --> X
-    Q --> N["Ruralz Control records and signs the Revision, checks Node schema level"]
-    Q --> O["File-mode ruralzd loads; an OCI Revision is first verified by digest and signature"]
-    N --> P["Node verifies digest and signature, re-validates, repeats the online check, resolves secretRef, ACK or NACK"]
+    Q --> N["Ruralz Control records and signs the Revision, checks Node schema level: 024, 027"]
+    Q --> O["File-mode ruralzd loads, resolves secretRef and binds listeners; an OCI Revision is first verified by digest and signature: 024, 026, 027, 033, 039"]
+    N --> P["Node verifies digest and signature, re-validates, repeats the online check, resolves secretRef, binds listeners, ACK or NACK: 024, 026, 027, 033, 039"]
 ```
 
-Stages up to the digest run offline and report every error in one run. The online stage never changes the digest: it fetches each Plugin artifact by digest and checks that its ABI and exported Phases equal `spec.abi` and `spec.phases` and that its requested Capabilities are a subset of `spec.capabilities`. `ruralz bundle build` runs it unless `--offline` is set, `ruralz bundle validate` only with `--online`, Ruralz Control at ingest and Nodes at activation, where a failure is a NACK. Every failure is RZ-CFG-028. Signatures follow [ADR-0017](../adr/0017-artifact-signing.md) (foundation pack section 8.14): the online stage and Nodes verify Plugin signatures; Ruralz Control signs each Revision it records, CI signs a Revision it pushes to OCI, and Nodes verify before activation. A watched Bundle directory is unsigned, every signature failure is RZ-CFG-033, and signing never changes the digest.
+Stages up to the digest run offline and report every error in one run. The online stage never changes the digest: it fetches each Plugin artifact by digest and checks that its ABI and exported Phases equal `spec.abi` and `spec.phases` and that its requested Capabilities are a subset of `spec.capabilities`. `ruralz bundle build` runs it unless `--offline` is set, `ruralz bundle validate` only with `--online`, Ruralz Control at ingest and Nodes at activation, where a failure is a NACK. Every failure is RZ-CFG-028. Signatures follow [ADR-0017](../adr/0017-artifact-signing.md) and foundation pack section 8.14; every signature failure is RZ-CFG-033, and signing never changes the digest.
 
-Validating 10,000 resources takes under 2 seconds on a four-core laptop, and the 20,000-resource default limit under 4 seconds (target). The Node compile budget is separate ([System overview](01-system-overview.md)). On a Node the pipeline gates every Hot Reload; a failed render keeps the active Revision serving (foundation pack section 8.2). In Control mode a Node receives the canonical JSON, skips parsing and merge, and re-runs the checks from reference resolution onward, with peak validation memory under four times the canonical size (target).
+Validating 10,000 resources takes under 2 seconds on a four-core laptop, and the 20,000-resource default limit under 4 seconds (target). The Node compile budget is separate ([System overview](01-system-overview.md)). On a Node the pipeline gates every Hot Reload; a failed render keeps the active Revision serving (foundation pack section 8.2). A Node that loads canonical JSON, such as Last-Known-Good, a handover candidate or a Control-mode Revision, skips stages A to E, re-runs F to M and rejects content whose recomputed canonical bytes differ (RZ-CFG-027), with peak validation memory under four times the canonical size (target).
 
 ### Error codes
+
+Figure 3 names the stage that raises each code. Only stage I raises RZ-CFG-018, -019, -020, -029 and -038, and RZ-CFG-022 comes only from stage C's `--environments` file.
 
 | Code | Meaning |
 |---|---|
@@ -889,10 +920,14 @@ Validating 10,000 resources takes under 2 seconds on a four-core laptop, and the
 | RZ-CFG-037 | `auth.jwt` `jwksUrl` or `auth.upstream-oauth2` `tokenUrl` is not an `https` URL |
 | RZ-CFG-038 | Effective Filter Chain combines a `cache` Policy with an `onRequestBody` authorization, validation or Plugin auth or authz Policy (OQ-traffic-management-and-resilience-21 (a)) |
 | RZ-CFG-039 | A listener or admin port could not be bound during activation; the active Revision keeps serving (OQ-zero-downtime-upgrades-and-hot-reload-4 (a)) |
-| RZ-CFG-040 | A resource uses a feature this Node release does not serve |
+| RZ-CFG-040 | A resource uses a feature this Node release does not serve (in M1, for example `plugin`, `authz.opa`, `authz.cedar`, `authz.geoip`, `auth.upstream-sigv4` and `ai.*` Policies, Upstreams not `http`) |
 | RZ-CFG-041 | A `secretRef` is used for two destinations (secret-to-destination binding) (OQ-security-and-identity-22 (a)) |
 
-This document owns the RZ-CFG registry (foundation pack section 8.6, which lists RZ-CFG-001 to RZ-CFG-032 at the freeze); sections 8.14 and 8.9 ask it to register RZ-CFG-033 and RZ-CFG-034, and [Security and identity](08-security-and-identity.md) asks for RZ-CFG-035 to RZ-CFG-037.
+This document owns the RZ-CFG registry (foundation pack section 8.6).
+
+### Secret-to-destination binding
+
+Stage H gives each `secretRef` use a static destination (OQ-security-and-identity-22 (a)): `auth.upstream-oauth2` `config.clientSecret` its `tokenUrl` origin, `stateStore.url` and `stateStore.cache.url` the State Store, and, Planned (M3), `AIProvider` `credentials.apiKey` its `baseUrl` origin. Every other secret, such as a TLS key, CA bundle, CRL or Consumer API key, is `local` and never leaves the Node. One reference used with two destinations is RZ-CFG-041, so no Bundle can send a Consumer API key to a `tokenUrl`. The Node sends a value only to its destination, following no token redirect; adding a reference or moving a destination is a `security` change in diffs.
 
 ### Diagnostics and source map
 
@@ -1541,17 +1576,18 @@ ruralz bundle push $CONTROL --env staging ./shop-bundle
 | OQ-configuration-model-3 | Which CRD short names avoid confusion with Gateway API `Gateway` and Kubernetes clusters? | (a) `rzgw`, `rzcluster`; (b) Prefixed CRD kinds | deployment-topologies | No |
 | OQ-configuration-model-4 | Should Policies gain `targetRefs` or selectors for platform-wide rules? | (a) Never; guardrails suffice; (b) Gateway API adapter only; (c) Native field | configuration-model | No |
 | OQ-configuration-model-5 | Which cloud secret managers get a `secretRef` provider, and when? | (a) `aws`, `gcp`, `azure`; (b) Only via `vault`; (c) A secret-provider Plugin interface | security-and-identity | No |
-| OQ-configuration-model-8 | Are the registered default `failureMode` values right for `quota` (open) and `ai.token-budget` (closed)? Reservation, the local streaming guard and settlement at `onLog` are fixed by foundation pack section 8.9 | (a) As registered; (b) Both open; (c) Both closed with a per-Node shadow budget | traffic-management-and-resilience | Yes |
+| OQ-configuration-model-8 | Are the registered default `failureMode` values right for `quota` (open) and `ai.token-budget` (closed)? | (a) As registered (chosen, 2026-09-26); (b) Both open; (c) Both closed with a per-Node shadow budget | traffic-management-and-resilience | No (answered) |
 | OQ-configuration-model-10 | Which flags must the CLI reference add, and may file-mode `ruralzd` select an overlay? | (a) `--env`, `--environments`, `--effective`, `--route`, `--api-version`, `--output`, `--offline` for `build`, `--online` for `validate`, positional FROM TO for `diff`, no `ruralzd` selector; (b) New verbs; (c) Also a `RURALZ_*` overlay variable | cli-and-api-surface | No |
 | OQ-configuration-model-11 | How is event ingress declared for `match.topic`, given `http` and `https` listeners only? | (a) A Gateway `eventSources` list, `Planned (M4)`; (b) Consumer groups on Upstream `messaging`; (c) A new kind | multi-protocol | No |
 | OQ-configuration-model-12 | Do Clusters need per-Cluster render-time values? | (a) No; Node-local `secretRef` suffices; (b) `Cluster.spec.variables`, one Revision per Cluster; (c) One Environment per Region | control-plane-and-gitops | No |
 | OQ-configuration-model-13 | Can one Route accept JWT or API key in the single `auth` slot? | (a) Distinct slots with exclusive `when`; (b) An `auth.any` type; (c) Multi-method auth types | security-and-identity | No |
 | OQ-configuration-model-15 | Should Nodes persist resolved secrets, encrypted, under `${RURALZ_DATA_DIR}/lkg/` and with which key source? | (a) Never; `/readyz` fails until secrets resolve (current); (b) Opt-in, key from a local file or KMS; (c) Only for `file` and `env` providers, which need none | security-and-identity | No |
 | OQ-configuration-model-17 | Should Consumers also come from a runtime source, so key churn needs no Revision and the resource limit does not cap them? | (a) Bundle only; (b) A Ruralz Control Consumer API delivered over the Control Stream; (c) An external identity store behind an auth Policy | security-and-identity | No |
-| OQ-configuration-model-18 | Which nesting-depth default and peak loader memory (hypothesis) hold for the 64 MiB source limit? | (a) 64 levels, peak memory measured by the hostile-input fixtures (proposed); (b) 32 levels; (c) 256 levels | configuration-model | No; 64 applies until measured |
-| OQ-configuration-model-19 | Which feature-authored `config` fields are registered next? Feature documents author fields this document has not registered, such as `ratelimit` `config.responseHeaders`, `config.cost` and `limits[].when`, `auth.api-key` `config.query`, `ai.semantic-cache` `config.embedding`, the `authz.opa` and `authz.cedar` configs and the `auth.upstream-oauth2` `jwt-bearer` fields. Until then the published schema leaves the `config` of each type whose fields are fixed here only in part, or not at all, open to unknown members, and closes the configs registered in full from feature documents | (a) Register each type's fields as its feature document authored them, then close its `config` (proposed); (b) Keep those configs open until M2 | configuration-model | No |
+| OQ-configuration-model-18 | Which nesting-depth default and peak loader memory (hypothesis) hold for the 64 MiB source limit? | (a) 64 levels, peak memory measured by the hostile-input fixtures (chosen, 2026-09-26); (b) 32 levels; (c) 256 levels | configuration-model | No (answered) |
+| OQ-configuration-model-19 | Which feature-authored `config` fields are registered next, and which `config` schemas stay open to unknown members meanwhile? | (a) Register each type's fields as its feature document authored them, then close its `config` (chosen, 2026-09-26: M1 registers and closes `validation.json-schema` `config.schema` and `headers` `add[]` and `remove[]`; the rest, listed under [Registered from feature documents](#registered-from-feature-documents), register with their features); (b) Keep those configs open until M2 | configuration-model | No (answered) |
 | OQ-configuration-model-20 | Should the authoring view also accept a `${VAR}` expression in string fields constrained by an enum or a pattern, such as `failureMode`, durations and `tls.minVersion`? Substitution is allowed there, but the authoring view adds the alternative only to non-string scalars, so editors reject such raw sources | (a) Add the alternative to every constrained substitutable string (proposed); (b) Keep non-string scalars only | configuration-model | No |
+| OQ-configuration-model-21 | Should ADR-0011 record the 50 ms (target) comprehension stop of [Limits](#limits), which tightens its request-deadline bound? | (a) Amend ADR-0011 (current); (b) Keep the request deadline alone | ruralz-core | No |
 
 Answered and closed here: in [Registered from feature documents](#registered-from-feature-documents), option (a) each, OQ-security-and-identity-2, -3 and -18 and OQ-traffic-management-and-resilience-1, plus Data plane's Transform Policies submission; in [Gateway](#gateway), OQ-security-and-identity-6 (c) and OQ-scalability-and-distributed-state-2 (a); in [Route](#route), OQ-data-plane-2 (a). Release answers OQ-configuration-model-6 and CLI and API surface OQ-configuration-model-7. Still pending registration, so their fields do not exist yet: OQ-security-and-identity-12 and -13, Planned (M2), whose options are not yet chosen.
 
-Other blocking field questions assigned here stay open in their owners' tables, by blocking milestone: M0, none (OQ-repository-layout-and-conventions-1 is answered in [Schema keywords that drive tooling](#schema-keywords-that-drive-tooling)); M1, OQ-observability-2, OQ-traffic-management-and-resilience-2, -5, -6, -11 and -21, OQ-security-and-identity-22 and -24, and OQ-scalability-and-distributed-state-3; M2, OQ-security-and-identity-30, OQ-wasm-plugin-system-4, OQ-release-versioning-and-compatibility-12 and OQ-control-plane-and-gitops-25; M3, OQ-ai-llm-gateway-3 and -16 and OQ-multi-protocol-15; M4, OQ-wasm-plugin-system-8; M5, OQ-feature-catalog-3 and -6; and, before the first digest-changing fix, OQ-release-versioning-and-compatibility-13.
+Blocking field questions assigned here stay open in their owners' tables, except the M1 ones, decided above or needing no field: M2, OQ-security-and-identity-30, OQ-wasm-plugin-system-4, OQ-release-versioning-and-compatibility-12 and OQ-control-plane-and-gitops-25; M3, OQ-ai-llm-gateway-3 and -16 and OQ-multi-protocol-15; M4, OQ-wasm-plugin-system-8; M5, OQ-feature-catalog-3 and -6; before the first digest-changing fix, OQ-release-versioning-and-compatibility-13. The only M0 one, OQ-repository-layout-and-conventions-1, is answered in [Schema keywords that drive tooling](#schema-keywords-that-drive-tooling).
