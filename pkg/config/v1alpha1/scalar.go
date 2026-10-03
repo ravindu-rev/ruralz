@@ -198,6 +198,43 @@ func (v *IntOrString) UnmarshalJSON(data []byte) error {
 	return nil
 }
 
+// JSONSchemaDocument is an inline JSON Schema document (draft 2020-12): a
+// JSON object or a boolean, kept as its JSON text. schemagen publishes it as
+// the definition JSONSchemaDocument, which accepts any object or boolean;
+// the document's own keywords are checked when its Policy is validated, not
+// by the Ruralz schema.
+type JSONSchemaDocument json.RawMessage
+
+// MarshalJSON returns the document text unchanged; an empty document
+// encodes as null.
+func (d JSONSchemaDocument) MarshalJSON() ([]byte, error) {
+	if len(d) == 0 {
+		return []byte("null"), nil
+	}
+	return d, nil
+}
+
+// UnmarshalJSON keeps a copy of an object or boolean. JSON null leaves the
+// document unchanged, as encoding/json does for other types. The object text
+// is checked here too, so a direct call never stores invalid JSON that
+// MarshalJSON would later fail on; any error leaves the document unchanged.
+func (d *JSONSchemaDocument) UnmarshalJSON(data []byte) error {
+	data = bytes.TrimSpace(data)
+	switch {
+	case bytes.Equal(data, []byte("null")):
+		return nil
+	case len(data) > 0 && data[0] == '{':
+		if !json.Valid(data) {
+			return errors.New("a JSON Schema document must be valid JSON")
+		}
+	case bytes.Equal(data, []byte("true")), bytes.Equal(data, []byte("false")):
+	default:
+		return errors.New("a JSON Schema document must be an object or a boolean")
+	}
+	*d = append((*d)[:0], data...)
+	return nil
+}
+
 // Decimal is a non-negative decimal number written as a string, such as a
 // price, so values never drift through floating point.
 // +ruralz:pattern=^[0-9]+(\.[0-9]+)?$
@@ -232,7 +269,9 @@ type SecretRef struct {
 }
 
 // SecretValue is a secret field: only a secretRef is accepted, a literal is
-// RZ-CFG-012, and the value is never rendered.
+// RZ-CFG-012, and the value is never rendered. Every SecretValue field
+// carries the security impact class, so adding or changing a reference is a
+// security change in diffs.
 type SecretValue struct {
 	// SecretRef points to the secret.
 	// +ruralz:required

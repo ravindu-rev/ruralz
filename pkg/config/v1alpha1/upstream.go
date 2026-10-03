@@ -39,20 +39,27 @@ type UpstreamSpec struct {
 	// Discovery finds Endpoints instead of listing them.
 	Discovery *Discovery `json:"discovery,omitempty"`
 	// LoadBalancing selects an Endpoint per attempt.
+	// +ruralz:impact=traffic
 	LoadBalancing *LoadBalancing `json:"loadBalancing,omitempty"`
-	// HealthCheck configures active and passive health checks.
+	// HealthCheck configures active and passive health checks; passive ejection runs even without it.
+	// +ruralz:impact=traffic
 	HealthCheck *HealthCheck `json:"healthCheck,omitempty"`
 	// Retries configures retries.
+	// +ruralz:impact=traffic
 	Retries *Retries `json:"retries,omitempty"`
-	// CircuitBreaker configures the circuit breaker.
+	// CircuitBreaker configures the circuit breaker and the in-flight ceiling.
+	// +ruralz:impact=traffic
 	CircuitBreaker *CircuitBreaker `json:"circuitBreaker,omitempty"`
-	// TLS configures TLS to the Endpoints.
+	// TLS configures TLS to the Endpoints; without it the Upstream is a cleartext hop.
+	// +ruralz:impact=security
 	TLS *UpstreamTLS `json:"tls,omitempty"`
-	// Timeout is the per-leg deadline.
+	// Timeout is the per-leg deadline; default the Route's timeout.
+	// +ruralz:impact=traffic
 	Timeout *Duration `json:"timeout,omitempty"`
 	// Messaging applies to kafka, nats and mqtt only. Planned (M4).
 	Messaging *Messaging `json:"messaging,omitempty"`
 	// AI applies to protocol ai only; its models replace endpoints. Planned (M3).
+	// +ruralz:impact=ai
 	AI *UpstreamAI `json:"ai,omitempty"`
 	// Policies attaches upstream-leg Policies in authored order.
 	// +ruralz:list=orderedMap,key=name
@@ -65,6 +72,7 @@ type Endpoint struct {
 	// +ruralz:required
 	Address string `json:"address"`
 	// Weight is the relative load-balancing weight.
+	// +ruralz:default=1
 	// +ruralz:minimum=0
 	Weight *int32 `json:"weight,omitempty"`
 }
@@ -111,6 +119,7 @@ const (
 // LoadBalancing selects an Endpoint per attempt.
 type LoadBalancing struct {
 	// Algorithm is round-robin, least-request, ring-hash or random.
+	// +ruralz:default=least-request
 	Algorithm *LoadBalancingAlgorithm `json:"algorithm,omitempty"`
 	// HashKey is the ring-hash key; required when algorithm is ring-hash.
 	// +ruralz:cel=request,source,route,consumer,auth,now:string
@@ -125,18 +134,24 @@ type HealthCheck struct {
 	Passive *PassiveHealthCheck `json:"passive,omitempty"`
 }
 
-// ActiveHealthCheck probes Endpoints.
+// ActiveHealthCheck probes Endpoints; its presence turns probing on. A probe
+// is GET path, and a status of 200 to 399 within timeout succeeds.
 type ActiveHealthCheck struct {
 	// Path is the probe path.
-	Path string `json:"path,omitempty"`
+	// +ruralz:default=/
+	Path *string `json:"path,omitempty"`
 	// Interval is the time between probes.
+	// +ruralz:default=10s
 	Interval *Duration `json:"interval,omitempty"`
 	// Timeout is the probe deadline.
+	// +ruralz:default=2s
 	Timeout *Duration `json:"timeout,omitempty"`
 	// HealthyThreshold is the consecutive successes that mark an Endpoint healthy.
+	// +ruralz:default=2
 	// +ruralz:minimum=1
 	HealthyThreshold *int32 `json:"healthyThreshold,omitempty"`
 	// UnhealthyThreshold is the consecutive failures that mark an Endpoint unhealthy.
+	// +ruralz:default=3
 	// +ruralz:minimum=1
 	UnhealthyThreshold *int32 `json:"unhealthyThreshold,omitempty"`
 }
@@ -144,54 +159,81 @@ type ActiveHealthCheck struct {
 // PassiveHealthCheck ejects Endpoints that fail requests.
 type PassiveHealthCheck struct {
 	// ConsecutiveErrors matching circuitBreaker.failureWhen eject an Endpoint.
+	// +ruralz:default=5
 	// +ruralz:minimum=1
 	ConsecutiveErrors *int32 `json:"consecutiveErrors,omitempty"`
 	// EjectionTime is multiplied by the Endpoint's ejection count.
+	// +ruralz:default=30s
 	EjectionTime *Duration `json:"ejectionTime,omitempty"`
 }
 
 // Retries configures retries.
 type Retries struct {
 	// Attempts counts retries after the first attempt.
+	// +ruralz:default=1
 	// +ruralz:minimum=0
 	Attempts *int32 `json:"attempts,omitempty"`
-	// PerTryTimeout is the deadline of each attempt.
+	// PerTryTimeout is the deadline of each attempt; default the leg time left divided by the retries left plus one.
 	PerTryTimeout *Duration `json:"perTryTimeout,omitempty"`
-	// RetryOn decides whether an attempt is retried.
+	// RetryOn decides whether an attempt is retried; default a method-dependent rule over connect and reset errors and status 503.
 	// +ruralz:cel=request,response,error,attempt,upstream:bool
 	RetryOn string `json:"retryOn,omitempty"`
 }
 
-// CircuitBreaker configures the circuit breaker and bulkhead.
+// CircuitBreaker configures the circuit breaker and the bulkhead of an
+// Upstream, each kept per Upstream per Node.
 type CircuitBreaker struct {
-	// MaxConnections caps connections per Endpoint set.
+	// MaxConnections caps in-flight attempts per Upstream per Node, HTTP/2 streams included; an attempt takes a slot before it is sent and holds it until its response body closes.
+	// +ruralz:default=1024
 	// +ruralz:minimum=1
 	MaxConnections *int32 `json:"maxConnections,omitempty"`
-	// MaxPendingRequests caps queued requests.
+	// MaxPendingRequests caps attempts waiting for an in-flight slot; when the queue is full an attempt gets 503 RZ-UP-006 at once.
+	// +ruralz:default=256
 	// +ruralz:minimum=0
 	MaxPendingRequests *int32 `json:"maxPendingRequests,omitempty"`
-	// ConsecutiveFailures opens the breaker.
+	// ConsecutiveFailures is the run of failed legs that opens the breaker, together with failureRatio of at least minimumLegs legs in a rolling 10 s window.
+	// +ruralz:default=5
 	// +ruralz:minimum=1
 	ConsecutiveFailures *int32 `json:"consecutiveFailures,omitempty"`
-	// OpenDuration is how long the breaker stays open.
+	// MinimumLegs is the number of legs a rolling 10 s window needs before the breaker may open.
+	// +ruralz:default=20
+	// +ruralz:minimum=1
+	MinimumLegs *int32 `json:"minimumLegs,omitempty"`
+	// FailureRatio is the share of failed legs in the window, 0 to 1, that the breaker also needs to open.
+	// +ruralz:default=0.5
+	// +ruralz:minimum=0
+	// +ruralz:maximum=1
+	FailureRatio *float64 `json:"failureRatio,omitempty"`
+	// OpenDuration is how long the breaker stays open, jittered by 20% either way, before it lets one probe leg through.
+	// +ruralz:default=30s
 	OpenDuration *Duration `json:"openDuration,omitempty"`
-	// FailureWhen decides whether an attempt counts as a failure.
+	// HalfOpenSuccesses is the run of successful probe legs that closes a half-open breaker; a failed probe reopens it.
+	// +ruralz:default=3
+	// +ruralz:minimum=1
+	HalfOpenSuccesses *int32 `json:"halfOpenSuccesses,omitempty"`
+	// FailureWhen decides whether an attempt or leg counts as a failure; default any error, or status 502, 503 or 504.
 	// +ruralz:cel=request,response,error,upstream:bool
 	FailureWhen string `json:"failureWhen,omitempty"`
 }
 
-// UpstreamTLS configures TLS to Endpoints.
+// UpstreamTLS configures the client side of a TLS connection, to an
+// Upstream's Endpoints or to the OTLP collector: TLS 1.2 or newer, the
+// server certificate always verified. Set clientCertificate and clientKey
+// together, or neither.
 type UpstreamTLS struct {
-	// SNI is the server name sent in the TLS handshake.
+	// SNI is the server name sent in the TLS handshake and verified in the server certificate.
 	SNI string `json:"sni,omitempty"`
-	// CACertificate verifies the Endpoints.
+	// CACertificate is a PEM bundle that verifies the server instead of the system roots.
 	// +ruralz:secret
+	// +ruralz:impact=security
 	CACertificate *SecretValue `json:"caCertificate,omitempty"`
-	// ClientCertificate is the client certificate for mTLS.
+	// ClientCertificate is the PEM client certificate chain for mTLS.
 	// +ruralz:secret
+	// +ruralz:impact=security
 	ClientCertificate *SecretValue `json:"clientCertificate,omitempty"`
-	// ClientKey is the client private key for mTLS.
+	// ClientKey is the PEM client private key for mTLS.
 	// +ruralz:secret
+	// +ruralz:impact=security
 	ClientKey *SecretValue `json:"clientKey,omitempty"`
 }
 

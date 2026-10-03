@@ -255,6 +255,15 @@ func TestRuleViolations(t *testing.T) {
 		{reflect.TypeFor[NoOmitempty](), "optional field needs omitempty"},
 		{reflect.TypeFor[ValueDefault](), "a field with a default must be a pointer"},
 		{reflect.TypeFor[BadEnumDefault](), "is not a Mode value"},
+		// Rules added for M1 (06 rule 90; defaults valid by construction).
+		{reflect.TypeFor[SecretNoImpact](), "needs +ruralz:impact with security"},
+		{reflect.TypeFor[RequiredDefault](), "a required field takes no default"},
+		{reflect.TypeFor[RangeDefault](), "above the maximum"},
+		{reflect.TypeFor[PatternDefault](), "does not match the pattern"},
+		{reflect.TypeFor[LengthDefault](), "longer than maxLength"},
+		{reflect.TypeFor[ImpactOrder](), "ascending order"},
+		{reflect.TypeFor[ImpactUnknown](), "unknown impact class"},
+		{reflect.TypeFor[ImpactTwice](), "given twice"},
 	}
 	for _, c := range cases {
 		_, err := generate(input{source: info, resources: []reflect.Type{c.typ}}, rendered)

@@ -27,9 +27,11 @@ type AIProviderSpec struct {
 	// Dialect is the provider's wire dialect.
 	// +ruralz:required
 	Dialect AIDialect `json:"dialect"`
-	// BaseURL overrides the dialect's default base URL; required for ollama.
+	// BaseURL overrides the dialect's default base URL; required for ollama. It is where credentials.apiKey is sent.
+	// +ruralz:impact=ai,security
 	BaseURL string `json:"baseUrl,omitempty"`
 	// Credentials authenticate to the provider; required except for ollama.
+	// +ruralz:impact=ai,security
 	Credentials *AICredentials `json:"credentials,omitempty"`
 	// Region is used for data residency routing.
 	Region string `json:"region,omitempty"`
@@ -41,6 +43,7 @@ type AIProviderSpec struct {
 type AICredentials struct {
 	// APIKey is the provider API key.
 	// +ruralz:secret
+	// +ruralz:impact=security
 	APIKey *SecretValue `json:"apiKey,omitempty"`
 }
 

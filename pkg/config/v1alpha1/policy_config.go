@@ -40,8 +40,9 @@ type JWTIssuer struct {
 // +ruralz:policyType=auth.api-key
 // +ruralz:open
 type AuthAPIKeyConfig struct {
-	// Header carries the API key; it is matched against Consumer apiKeys by hash.
-	Header string `json:"header,omitempty"`
+	// Header names the request header that carries the API key, matched case-insensitively; the key is matched against Consumer apiKeys by hash.
+	// +ruralz:default=x-api-key
+	Header *string `json:"header,omitempty"`
 }
 
 // AuthBasicConfig is the config of an auth.basic Policy; it has no fields
@@ -55,12 +56,14 @@ type AuthMTLSConfig struct {
 	// CACertificate verifies client certificates.
 	// +ruralz:required
 	// +ruralz:secret
+	// +ruralz:impact=security
 	CACertificate SecretValue `json:"caCertificate"`
 	// Subjects are the accepted certificate identities.
 	// +ruralz:list=set
 	Subjects []CertificateSubject `json:"subjects,omitempty"`
 	// CRL is a certificate revocation list.
 	// +ruralz:secret
+	// +ruralz:impact=security
 	CRL *SecretValue `json:"crl,omitempty"`
 }
 
@@ -138,7 +141,7 @@ type RateLimitConfig struct {
 	// +ruralz:minItems=1
 	// +ruralz:list=atomic
 	Limits []RateLimit `json:"limits"`
-	// LocalOnly keeps the limit in the Node; it waits for OQ-scalability-and-distributed-state-11.
+	// LocalOnly keeps the limit in each Node's local buckets and never calls the State Store, so a Cell admits at most the Node count times the per-Node ceiling per window, even when the State Store is healthy (OQ-scalability-and-distributed-state-11 (a)).
 	// +ruralz:default=false
 	LocalOnly *bool `json:"localOnly,omitempty"`
 }
@@ -175,10 +178,13 @@ type QuotaConfig struct {
 }
 
 // ValidationJSONSchemaConfig is the config of a validation.json-schema
-// Policy; its fields are not yet registered.
+// Policy, which validates JSON request bodies (400 RZ-RT-009 on failure).
 // +ruralz:policyType=validation.json-schema
-// +ruralz:open
-type ValidationJSONSchemaConfig struct{}
+type ValidationJSONSchemaConfig struct {
+	// Schema is the inline JSON Schema (draft 2020-12) a request body must match: an object or a boolean. Its $ref resolves only within the document, formats are annotations, patterns are RE2, and an invalid schema is RZ-CFG-005. Environment substitution applies to its strings, so a literal ${ is written $${.
+	// +ruralz:required
+	Schema JSONSchemaDocument `json:"schema"`
+}
 
 // CORSConfig is the config of a cors Policy.
 // +ruralz:policyType=cors
@@ -201,57 +207,66 @@ type CacheConfig struct {
 	Key string `json:"key,omitempty"`
 }
 
-// HeadersConfig is the config of a headers Policy.
+// HeadersConfig is the config of a headers Policy. Each side applies its
+// remove, then set, then add entries; more than 32 entries across all lists
+// is RZ-CFG-005.
 // +ruralz:policyType=headers
-// +ruralz:open
 type HeadersConfig struct {
-	// Request sets request headers.
+	// Request edits request headers.
 	Request *HeaderRequestOps `json:"request,omitempty"`
-	// Response sets response headers.
+	// Response edits response headers.
 	Response *HeaderResponseOps `json:"response,omitempty"`
 }
 
 // HeaderRequestOps are request header operations.
-// +ruralz:open
 type HeaderRequestOps struct {
-	// Set sets request headers.
+	// Set replaces every field line of each named request header with one line.
 	// +ruralz:list=map,key=name
 	Set []HeaderRequestSet `json:"set,omitempty"`
+	// Add appends one request header field line per entry, keeping existing lines.
+	// +ruralz:list=atomic
+	Add []HeaderRequestSet `json:"add,omitempty"`
+	// Remove deletes every field line of each named request header.
+	// +ruralz:list=set
+	Remove []string `json:"remove,omitempty"`
 }
 
-// HeaderRequestSet sets one request header from exactly one of value or
-// valueExpression.
+// HeaderRequestSet is one request header entry of set or add: a name and
+// exactly one of value or valueExpression.
 // +ruralz:exactlyOneOf=value,valueExpression
-// +ruralz:open
 type HeaderRequestSet struct {
 	// Name is the header name.
 	// +ruralz:required
 	Name string `json:"name"`
-	// Value is a literal value.
-	Value string `json:"value,omitempty"`
+	// Value is a literal value; it may be empty.
+	Value *string `json:"value,omitempty"`
 	// ValueExpression computes the value.
 	// +ruralz:cel=request,source,route,consumer,auth,now:string
 	ValueExpression string `json:"valueExpression,omitempty"`
 }
 
 // HeaderResponseOps are response header operations.
-// +ruralz:open
 type HeaderResponseOps struct {
-	// Set sets response headers.
+	// Set replaces every field line of each named response header with one line.
 	// +ruralz:list=map,key=name
 	Set []HeaderResponseSet `json:"set,omitempty"`
+	// Add appends one response header field line per entry, keeping existing lines.
+	// +ruralz:list=atomic
+	Add []HeaderResponseSet `json:"add,omitempty"`
+	// Remove deletes every field line of each named response header.
+	// +ruralz:list=set
+	Remove []string `json:"remove,omitempty"`
 }
 
-// HeaderResponseSet sets one response header from exactly one of value or
-// valueExpression.
+// HeaderResponseSet is one response header entry of set or add: a name and
+// exactly one of value or valueExpression.
 // +ruralz:exactlyOneOf=value,valueExpression
-// +ruralz:open
 type HeaderResponseSet struct {
 	// Name is the header name.
 	// +ruralz:required
 	Name string `json:"name"`
-	// Value is a literal value.
-	Value string `json:"value,omitempty"`
+	// Value is a literal value; it may be empty.
+	Value *string `json:"value,omitempty"`
 	// ValueExpression computes the value.
 	// +ruralz:cel=request,source,route,consumer,auth,now,response,upstream:string
 	ValueExpression string `json:"valueExpression,omitempty"`
@@ -405,9 +420,8 @@ type ArrayOp struct {
 // Replace rewrites a string value. A pattern over 1 KiB or not valid RE2 is
 // RZ-CFG-005.
 type Replace struct {
-	// Path selects the value.
-	// +ruralz:required
-	Path string `json:"path"`
+	// Path selects the string value; without it the raw body is rewritten.
+	Path string `json:"path,omitempty"`
 	// Pattern is an RE2 pattern, or a literal when literal is true.
 	// +ruralz:required
 	// +ruralz:maxLength=1024
@@ -422,8 +436,9 @@ type Replace struct {
 // +ruralz:policyType=auth.upstream-oauth2
 // +ruralz:open
 type AuthUpstreamOAuth2Config struct {
-	// TokenURL is the token endpoint; it MUST be https (RZ-CFG-037).
+	// TokenURL is the token endpoint and the only destination of clientSecret; it MUST be https (RZ-CFG-037).
 	// +ruralz:required
+	// +ruralz:impact=security
 	TokenURL string `json:"tokenUrl"`
 	// ClientID is the OAuth2 client identifier.
 	// +ruralz:required
@@ -431,6 +446,7 @@ type AuthUpstreamOAuth2Config struct {
 	// ClientSecret is the OAuth2 client secret.
 	// +ruralz:required
 	// +ruralz:secret
+	// +ruralz:impact=security
 	ClientSecret SecretValue `json:"clientSecret"`
 	// Scopes are the requested scopes.
 	// +ruralz:list=set

@@ -103,6 +103,7 @@ type PolicySpec struct {
 	Slot string `json:"slot,omitempty"`
 	// Overridable, when false on a Gateway Policy, forbids Route replace or exclude.
 	// +ruralz:default=true
+	// +ruralz:impact=security
 	Overridable *bool `json:"overridable,omitempty"`
 	// FailureMode is open or closed; default from the type registry. Security types allow closed only (RZ-CFG-029).
 	FailureMode *FailureMode `json:"failureMode,omitempty"`
@@ -114,7 +115,7 @@ type PolicySpec struct {
 	// Plugin is the metadata.name of a Plugin; required when type is plugin.
 	// +ruralz:ref=Plugin
 	Plugin string `json:"plugin,omitempty"`
-	// FilterClass places a plugin Policy in the Filter Chain; plugin only, default custom.
+	// FilterClass places the Policy in the Filter Chain; default the type registry's class, custom for plugin. Only a plugin Policy may choose its class; any other type may only restate its registry class (RZ-CFG-005).
 	FilterClass *FilterClass `json:"filterClass,omitempty"`
 	// Config is validated by the schema registered for type.
 	// +ruralz:required

@@ -9,17 +9,23 @@ type GatewaySpec struct {
 	// +ruralz:required
 	// +ruralz:minItems=1
 	// +ruralz:list=map,key=name
+	// +ruralz:impact=routing
 	Listeners []Listener `json:"listeners"`
 	// TrustedProxies are CIDRs whose forwarding headers set source.ip; default empty. Planned (M1).
 	// +ruralz:list=set
+	// +ruralz:impact=security
 	TrustedProxies []string `json:"trustedProxies,omitempty"`
 	// Admin configures the admin listener.
+	// +ruralz:impact=security
 	Admin *Admin `json:"admin,omitempty"`
 	// Telemetry configures OTLP export, trace sampling and the access log.
+	// +ruralz:impact=metadata
 	Telemetry *Telemetry `json:"telemetry,omitempty"`
 	// Limits are Node-wide limits.
+	// +ruralz:impact=traffic
 	Limits *Limits `json:"limits,omitempty"`
 	// StateStore is the State Store connection. Without it a Node reads RURALZ_STATE_STORE_URL, else uses memory.
+	// +ruralz:impact=traffic
 	StateStore *StateStore `json:"stateStore,omitempty"`
 	// Policies attaches Gateway-scoped Policies in authored order.
 	// +ruralz:list=orderedMap,key=name
@@ -54,11 +60,13 @@ type Listener struct {
 	HTTP3 *bool `json:"http3,omitempty"`
 	// ProxyProtocol, when true, requires PROXY protocol v2 on this listener. Planned (M1).
 	// +ruralz:default=false
+	// +ruralz:impact=security
 	ProxyProtocol *bool `json:"proxyProtocol,omitempty"`
 	// Hostnames limits the listener to these host names.
 	// +ruralz:list=set
 	Hostnames []string `json:"hostnames,omitempty"`
 	// TLS configures TLS termination; required for https.
+	// +ruralz:impact=security
 	TLS *ListenerTLS `json:"tls,omitempty"`
 }
 
@@ -91,10 +99,12 @@ type Certificate struct {
 	// Certificate is the PEM certificate chain.
 	// +ruralz:required
 	// +ruralz:secret
+	// +ruralz:impact=security
 	Certificate SecretValue `json:"certificate"`
 	// PrivateKey is the PEM private key.
 	// +ruralz:required
 	// +ruralz:secret
+	// +ruralz:impact=security
 	PrivateKey SecretValue `json:"privateKey"`
 }
 
@@ -113,6 +123,7 @@ type Telemetry struct {
 	// OTLP configures OTLP export.
 	OTLP *OTLP `json:"otlp,omitempty"`
 	// TraceSampling is the head sampling ratio, 0 to 1.
+	// +ruralz:default=0.01
 	// +ruralz:minimum=0
 	// +ruralz:maximum=1
 	TraceSampling *float64 `json:"traceSampling,omitempty"`
@@ -120,10 +131,14 @@ type Telemetry struct {
 	AccessLog *AccessLog `json:"accessLog,omitempty"`
 }
 
-// OTLP configures OTLP export.
+// OTLP configures OTLP export over gRPC.
 type OTLP struct {
-	// Endpoint is the OTLP collector URL.
+	// Endpoint is the OTLP/gRPC collector URL: http or https, a host and an optional port (default 4317), without path, user information, query or fragment. Unset, the Node exports nothing over OTLP.
+	// +ruralz:pattern=^https?://[^/?#@\s]+/?$
 	Endpoint string `json:"endpoint,omitempty"`
+	// TLS configures the client side of an https endpoint: server name, trust anchors and a client certificate. Without it an https endpoint is verified against the system roots.
+	// +ruralz:impact=security
+	TLS *UpstreamTLS `json:"tls,omitempty"`
 }
 
 // AccessLog configures the access log.
@@ -136,8 +151,10 @@ type AccessLog struct {
 // Limits are Node-wide limits. Limits count bytes after content decoding.
 type Limits struct {
 	// MaxRequestBodyBytes caps a request body; above it the request gets 413 RZ-RT-003.
+	// +ruralz:default=10Mi
 	MaxRequestBodyBytes *ByteSize `json:"maxRequestBodyBytes,omitempty"`
 	// MaxRequestHeaderBytes caps a request header block; above it the request gets 431 RZ-RT-002.
+	// +ruralz:default=64Ki
 	MaxRequestHeaderBytes *ByteSize `json:"maxRequestHeaderBytes,omitempty"`
 	// MaxResponseBodyBytes caps one buffered response, and a Route's step bodies together.
 	// +ruralz:default=10Mi
@@ -186,7 +203,27 @@ type StateStore struct {
 	Topology *StateStoreTopology `json:"topology,omitempty"`
 	// URL is the rueidis connection URL; it may carry credentials.
 	// +ruralz:secret
+	// +ruralz:impact=security
 	URL *SecretValue `json:"url,omitempty"`
-	// Timeout is the per-operation default for Policies.
+	// Timeout is the default of every Policy spec.stateStoreTimeout; 0 means no State Store call is attempted (RZ-STS-004).
+	// +ruralz:default=50ms
 	Timeout *Duration `json:"timeout,omitempty"`
+	// Cache is a second connection that serves only the Response Cache. Without it the cache shares this connection under the State Store memory protection rules, and a Node warns at startup when it shares it with limit Policies.
+	Cache *StateStoreCache `json:"cache,omitempty"`
+}
+
+// StateStoreCache is the State Store connection of the Response Cache
+// (OQ-scalability-and-distributed-state-3 (a)): a redis deployment separate
+// from the main State Store, so cache entries never evict Rate Limit, Quota
+// or Token Budget keys. Cache Policies still default their
+// stateStoreTimeout to the main connection's timeout.
+type StateStoreCache struct {
+	// Topology is the redis deployment shape.
+	// +ruralz:default=standalone
+	Topology *StateStoreTopology `json:"topology,omitempty"`
+	// URL is the rueidis connection URL of the cache deployment; it may carry credentials.
+	// +ruralz:required
+	// +ruralz:secret
+	// +ruralz:impact=security
+	URL SecretValue `json:"url"`
 }

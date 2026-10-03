@@ -15,7 +15,17 @@
 // are markers: they are stripped from the description and emit schema
 // keywords. Optional booleans and numbers, and optional fields whose default
 // is not the Go zero value, are pointers so that an explicit false or 0
-// survives decoding.
+// survives decoding. A +ruralz:default value must satisfy the field's own
+// keywords, and every +ruralz:secret field also carries +ruralz:impact with
+// security; schemagen rejects the types otherwise.
+//
+// Four string fields became pointers in M1 under that presence rule.
+// AuthAPIKeyConfig.Header and ActiveHealthCheck.Path carry schema defaults
+// (x-api-key and /) that the loader materializes only inside a present
+// parent, so code reading them dereferences the pointer and applies the
+// same default when the parent object is absent. HeaderRequestSet.Value and
+// HeaderResponseSet.Value have no default: the pointer tells an explicit
+// empty value from an absent one.
 package v1alpha1
 
 //go:generate go run ../../../internal/tool/schemagen -out ../../../api/schema/ruralz/v1alpha1

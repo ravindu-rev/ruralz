@@ -6,15 +6,19 @@ package v1alpha1
 // ConsumerSpec is the spec of a Consumer.
 type ConsumerSpec struct {
 	// Tier is a free-form Tier name read by Policies.
+	// +ruralz:impact=traffic
 	Tier string `json:"tier,omitempty"`
 	// Credentials identify the Consumer; at least one credential.
 	// +ruralz:required
+	// +ruralz:impact=security
 	Credentials Credentials `json:"credentials"`
 	// Quotas are named quotas used by quota and ai.token-budget Policies.
 	// +ruralz:list=map,key=name
+	// +ruralz:impact=traffic
 	Quotas []Quota `json:"quotas,omitempty"`
 	// Tags are free-form tags.
 	// +ruralz:list=set
+	// +ruralz:impact=metadata
 	Tags []string `json:"tags,omitempty"`
 }
 
@@ -49,6 +53,7 @@ type APIKey struct {
 	Hash string `json:"hash,omitempty"`
 	// SecretRef holds a retrievable key; the Node hashes it at load and keeps only the hash.
 	// +ruralz:secret
+	// +ruralz:impact=security
 	SecretRef *SecretRef `json:"secretRef,omitempty"`
 }
 
