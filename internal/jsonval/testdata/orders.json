@@ -1,0 +1,71 @@
+{
+  "orderId": "ord-7f3a9c21",
+  "status": "confirmed",
+  "customer": {
+    "id": 48213,
+    "name": "Kari Nordmann",
+    "email": "kari.nordmann@example.com",
+    "tier": "gold",
+    "note": "Leave at the door æøå"
+  },
+  "items": [
+    {
+      "sku": "SKU-1001",
+      "title": "Espresso beans 1 kg",
+      "qty": 2,
+      "price": 24.5,
+      "internal": {
+        "cost": 11.2,
+        "supplier": "sup-17"
+      }
+    },
+    {
+      "sku": "SKU-2040",
+      "title": "Milk frother",
+      "qty": 1,
+      "price": 39.99,
+      "internal": {
+        "cost": 17.0,
+        "supplier": "sup-03"
+      }
+    },
+    {
+      "sku": "SKU-3310",
+      "title": "Ceramic cup \"large\"",
+      "qty": 4,
+      "price": 8.25,
+      "internal": {
+        "cost": 2.1,
+        "supplier": "sup-21"
+      }
+    }
+  ],
+  "total": 121.99,
+  "currency": "NOK",
+  "shipping": {
+    "method": "express",
+    "address": {
+      "street": "Karl Johans gate 1",
+      "city": "Oslo",
+      "postcode": "0154",
+      "country": "NO"
+    },
+    "eta": "2026-09-28T12:00:00Z"
+  },
+  "flags": [
+    true,
+    false,
+    null
+  ],
+  "tags": [
+    "coffee",
+    "kitchen",
+    "gift"
+  ],
+  "meta": {
+    "source": "web",
+    "campaign": null,
+    "version": 3,
+    "trace": "4bf92f3577b34da6a3ce929d0e0e4736"
+  }
+}
