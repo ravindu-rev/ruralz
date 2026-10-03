@@ -34,6 +34,10 @@ Authority: `docs/architecture/02-configuration-model.md` owns kinds, fields, Pol
 - `SecretValue` and `SecretRef` fields carry `+ruralz:secret`, except the `SecretRef` field inside `SecretValue` itself, which must not.
 - Map keys are strings. No anonymous structs, no struct types from other packages, no embedded fields outside resource types.
 - A typed string `const` block becomes the type's `enum`, in source order. Doc comments become `description`; write them as user-facing text.
+- A `+ruralz:secret` field also carries `+ruralz:impact` including `security`.
+- A `+ruralz:default` value must satisfy the field's own `pattern`, `minLength`, `maxLength`, `minimum` and `maximum`.
+- A `+ruralz:required` field takes no `+ruralz:default`.
+- `+ruralz:impact` appears once per field, each class once and in ascending byte order (`ai`, `metadata`, `plugin`, `routing`, `security`, `traffic`).
 
 ## Markers (compact)
 
@@ -44,13 +48,14 @@ Authority: `docs/architecture/02-configuration-model.md` owns kinds, fields, Pol
 | `ref=<Kind>` | field | `x-ruralz-ref`; value must be a Kind constant |
 | `cel=<vars>:<bool\|string\|dyn>` | field | `x-ruralz-cel` |
 | `list=<map\|orderedMap\|set\|atomic>[,key=<field>]` | slice field | `x-ruralz-list`; `map` and `orderedMap` need a key, `set` and `atomic` must not have one |
-| `impact=<classes>` | field | `x-ruralz-impact`; classes `routing`, `security`, `traffic`, `plugin`, `ai`, `metadata` |
+| `impact=<classes>` | field | `x-ruralz-impact`; classes `routing`, `security`, `traffic`, `plugin`, `ai`, `metadata`; one marker per field, classes unique and ascending |
 | `since=<n>` | field | `x-ruralz-since`, n of 1 or more |
 | `validation=<CEL rule>` | field, repeatable | Appends to `x-ruralz-validations` |
-| `default=<value>` | pointer field | `default`, typed (Duration canonical string, byte sizes as integers, quoted strings allowed) |
+| `default=<value>` | pointer field | `default`, typed (Duration canonical string, byte sizes as integers, quoted strings allowed); never on a required field; must satisfy the field's keywords |
 | `policyType=<type>` | config struct | Selects the config by `Policy.spec.type` |
 | `open` | struct | Omits `additionalProperties: false` |
-| `minProperties=<n>`, `exactlyOneOf=`, `atMostOneOf=`, `atLeastOneOf=<json fields>` | struct | Presence constraints over existing JSON field names |
+| `minProperties=<n>` | struct, or map-typed field | The standard keyword, on the object schema |
+| `exactlyOneOf=`, `atMostOneOf=`, `atLeastOneOf=<json fields>` | struct | Presence constraints over existing JSON field names |
 | `pattern=`, `minLength=`, `maxLength=`, `minimum=`, `maximum=`, `minItems=` | field or named string type | The standard keyword |
 
 An unknown marker, or a marker given a value it does not take (or missing one it needs), fails generation (`internal/tool/schemagen/source.go`).
@@ -69,5 +74,4 @@ A new kind would also need a `Kind` constant in `pkg/config/v1alpha1/meta.go` (s
 
 ## Known open questions
 
-- OQ-configuration-model-20: pattern or enum constrained strings (Duration, `failureMode`, `tls.minVersion`) get no `${VAR}` alternative in the authoring view.
 - The docs say schemagen reads comments with `go/doc`; the code uses `go/parser` and `go/ast`. Trust the code.

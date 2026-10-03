@@ -19,3 +19,4 @@ test/fixtures/json-schema-test-suite/data/** -text linguist-vendored
 # Generated files: reviewed through their source, diffed in CI stage 3.
 api/schema/**/*.schema.json linguist-generated=true
 deploy/grafana/rules/*.yaml linguist-generated=true
+deploy/grafana/dashboards/*.json linguist-generated=true

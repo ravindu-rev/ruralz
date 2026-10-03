@@ -23,7 +23,7 @@ package x
 
 - The build constraint line, when present, goes after the header and a blank line (`internal/buildinfo/floor_guard.go:1-6`). Build tags are only platform, Go version, `goexperiment`, and `integration` or `e2e` on `_test.go` files; never feature tags.
 - Packages are lower-case, singular, no underscores, never `util`, `common` or `misc`. Files are `lower_snake.go` with tests beside them.
-- Imports: standard library, then third-party modules, then `github.com/ravindu-rev/ruralz/...`, each group separated by a blank line (goimports with that local prefix, then gofumpt; `make fmt`). At M0 no third-party module is admitted, so files have at most two groups.
+- Imports: standard library, then third-party modules, then `github.com/ravindu-rev/ruralz/...`, each group separated by a blank line (goimports with that local prefix, then gofumpt; `make fmt`). Third-party modules are only those in the depguard `admitted` list of `.golangci.yml`.
 - Doc comments are full sentences starting with the identifier; exported identifiers are documented (revive). American spelling (misspell, locale US): `license`, never `licence`.
 - Keep comments where they explain why. Do not write denied no-license-check terms in comments either (see `AGENTS.md`).
 
@@ -33,7 +33,7 @@ package x
 - Each binary's `internal/<pkg>` exposes `Run(ctx context.Context, args []string, stdout, stderr io.Writer) int`; `cmd/<binary>/main.go` only wires it (`cmd/ruralz/main.go:17-22`). Parse flags inside `internal/` with a `flag.FlagSet` (`internal/cli/cli.go:58-67`).
 - Exit codes are named constants that never change once released: `ExitOK = 0`, `ExitNegative = 1`, `ExitNoResult = 2` (`internal/cli/cli.go:19-28`). A binary that is still Planned writes its milestone to stderr and returns `ExitNotImplemented` (2) (`internal/gateway/gateway.go:17-27`); a Planned `ruralz` command does the same with `ExitNoResult`.
 - Built-in Filters (M1) map from the Policy type: dots become slashes, hyphens drop (`auth.api-key` is `internal/filter/auth/apikey`); `headers` is `internal/filter/header`; `plugin` is `internal/pluginhost`.
-- Wrapped libraries (depguard, `.golangci.yml:46-60`): wazero only in `internal/pluginhost`, rueidis only in `internal/statestore/redis`, `hashicorp/raft` only in `internal/controlstore/raft`.
+- Wrapped libraries (the confinement rules in the depguard section of `.golangci.yml`): for example wazero only in `internal/pluginhost`, rueidis only in `internal/statestore/redis`, cel-go only in `internal/cel`, jwx only in `internal/filter/auth/jwt`, OpenTelemetry only in `internal/telemetry` and `internal/testkit/otlpsink`, and `hashicorp/raft` only in `internal/controlstore/raft`.
 
 ## State, context, errors, output
 
@@ -43,7 +43,7 @@ package x
 - Wrap with `fmt.Errorf("...: %w", err)`; match with `errors.Is` and `errors.As` (errorlint). Messages are lower-case without a trailing period.
 - Client-facing errors carry a registered `RZ-<AREA>-<NNN>` code. Take the area from the foundation pack section 8.6 table (CFG configuration, RT request handling before any Upstream, UP Upstream legs, AUTH, RL, PLG, AI, CP Ruralz Control, STS). When a Policy rejects a request, use STS if a State Store call failed under `failureMode: closed`, PLG if a Plugin trapped, otherwise the Policy type's area; a decision such as a denial never uses STS.
 - Discard write errors explicitly: `_, _ = fmt.Fprintf(stderr, ...)`. Data goes to stdout, usage and errors to stderr.
-- No logging exists yet. `log` is banned; `log/slog` arrives through `internal/telemetry` in M1 with metric names `ruralz_<component>_<name>_<unit>` (counters end `_total`) and spans `ruralz.filter.<name>`, `ruralz.upstream.<name>`, `ruralz.route.match`.
+- `log` is banned; process logs use `log/slog` through `internal/telemetry/logsink`, with keys from `internal/telemetry/catalog`; metric names are `ruralz_<component>_<name>_<unit>` (counters end `_total`) and spans `ruralz.filter.<name>`, `ruralz.upstream.<name>`, `ruralz.route.match`.
 - JSON: the standard library (a third-party JSON module is a dependency like any other); camelCase tags (tagliatelle checks `pkg/config` and `internal/config`). No `unsafe`: no package is allow-listed for it.
 - Switches over enums cover every value or have a `default` (exhaustive).
 
