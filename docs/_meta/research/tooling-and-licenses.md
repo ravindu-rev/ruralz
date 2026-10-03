@@ -2,9 +2,9 @@
 
 | Field | Value |
 |---|---|
-| Topic | Documentation, build and supply-chain tooling (MADR, markdownlint-cli2, lychee, mermaid, js-yaml, buf, golangci-lint, GoReleaser, cosign and sigstore-go, Syft, oras-go); exact licenses of the Control Store module graph (hashicorp/raft, raft-boltdb/v2, bbolt, go-msgpack/v2, go-hclog and the rest of raft's imports); the wazero repository versus module path; the `golang.org/x/net/http2` deprecation; YAML 1.2 parser and JSON Schema draft 2020-12 validator candidates; other unselected library candidates |
+| Topic | Documentation, build and supply-chain tooling (MADR, markdownlint-cli2, lychee, mermaid, js-yaml, buf, golangci-lint, GoReleaser, cosign and sigstore-go, Syft, oras-go); exact licenses of the Control Store module graph (hashicorp/raft, raft-boltdb/v2, bbolt, go-msgpack/v2, go-hclog and the rest of raft's imports); the wazero repository versus module path; the `golang.org/x/net/http2` deprecation; YAML 1.2 parser and JSON Schema draft 2020-12 validator candidates; other unselected library candidates; CI tools, GitHub Actions, runner image packages, container images and GitHub-hosted runners (section 11) |
 | Snapshot date | 2026-09-23 |
-| Requested by | OQ-repository-layout-and-conventions-7 (section 9, 2026-09-25); tech-stack escalations L1-2, L2-1, L3-1 (OQ-tech-stack-and-libraries-5) and L1-3, L2-2, L3-2 (OQ-tech-stack-and-libraries-10); OQ-tech-stack-and-libraries-12 and -13; OQ-configuration-model-16 |
+| Requested by | OQ-repository-layout-and-conventions-7 (section 9, 2026-09-25); the tech-stack CI tooling rows (section 11, 2026-10-03); tech-stack escalations L1-2, L2-1, L3-1 (OQ-tech-stack-and-libraries-5) and L1-3, L2-2, L3-2 (OQ-tech-stack-and-libraries-10); OQ-tech-stack-and-libraries-12 and -13; OQ-configuration-model-16 |
 | Method | Primary sources only, read on 2026-09-23: GitHub REST API through `gh api` (repository license detection, `LICENSE` file text at the pinned tag, release and tag metadata, `go.mod` files, Go source import blocks), the npm registry JSON (`registry.npmjs.org`), the Go module proxy (`proxy.golang.org`, including one module zip), project READMEs and release notes, the Apache License 2.0 text, go.dev release notes and pkg.go.dev. Every license below was checked against the `LICENSE` text, not only the GitHub badge; where GitHub reports `NOASSERTION` the text was read and the result is stated. Release dates are the GitHub release `published_at` (UTC) or npm publish time unless marked "tag date". No Go toolchain was available, so `go list -deps` and `go mod graph` were not run; the import analysis in section 3 comes from reading source files (see Gaps). |
 
 ## 1. Documentation tooling (OQ-tech-stack-and-libraries-5)
@@ -229,6 +229,61 @@ Addendum read on 2026-09-26 from primary sources: the Go module proxy (`proxy.go
 - The standard library `flag` package documents that "Flag parsing stops just before the first non-flag argument" (https://pkg.go.dev/flag). `crypto/rand` "implements a cryptographically secure random number generator" (https://pkg.go.dev/crypto/rand).
 - Analysis: otlptranslator's newest release (v1.0.0, 2025-09-09) is more than 12 months older than the 2026-09-23 snapshot, so it fails tech-stack criterion S1; the exporter requires it. `option/v3` is a pre-release that jwx v4.5.0 requires. Both are MIT or Apache-2.0, so G2 holds for every module in this section.
 
+## 11. CI tools, actions, container images and runners
+
+Addendum read on 2026-10-03 from primary sources: `LICENSE` files at the pinned tag through `raw.githubusercontent.com`, GitHub file pages through an HTML page fetch, the Go module proxy (`proxy.golang.org`: `.info` release times and module zips, including each `LICENSE` text), `git ls-remote` for tags, the actions/runner-images Ubuntu 24.04 README, packages.ubuntu.com and its copyright file, sources.debian.org, Docker Hub and docs.github.com.
+
+### 11.1 Tools and GitHub Actions
+
+| Tool | Repository (Go module) | License (SPDX) | LICENSE file | Version pinned | Source |
+|---|---|---|---|---|---|
+| actionlint | https://github.com/rhysd/actionlint (`github.com/rhysd/actionlint`) | `MIT` | (https://proxy.golang.org/github.com/rhysd/actionlint/@v/v1.7.12.zip) | v1.7.12 (proxy time 2026-03-30); its `go.mod` declares `go 1.25.0` | (https://proxy.golang.org/github.com/rhysd/actionlint/@v/v1.7.12.zip) |
+| promtool | https://github.com/prometheus/prometheus (`cmd/promtool`) | `Apache-2.0` | (https://raw.githubusercontent.com/prometheus/prometheus/v3.15.0/LICENSE) | Prometheus v3.15.0; the tag contains `cmd/promtool/main.go` | (https://raw.githubusercontent.com/prometheus/prometheus/v3.15.0/cmd/promtool/main.go) |
+| vegeta | https://github.com/tsenart/vegeta (`github.com/tsenart/vegeta/v12`) | `MIT` | (https://proxy.golang.org/github.com/tsenart/vegeta/v12/@v/v12.13.0.zip) | v12.13.0 (proxy time 2025-10-31) | (https://proxy.golang.org/github.com/tsenart/vegeta/v12/@v/v12.13.0.zip) |
+| actions/upload-artifact | https://github.com/actions/upload-artifact | `MIT` | (https://raw.githubusercontent.com/actions/upload-artifact/v7.0.1/LICENSE) | v7.0.1, commit `043fb46d1a93c77aae656e7c1c64a875d1fc6a0a` | (https://github.com/actions/upload-artifact) |
+| actions/download-artifact | https://github.com/actions/download-artifact | `MIT` | (https://raw.githubusercontent.com/actions/download-artifact/v8.0.1/LICENSE) | v8.0.1, commit `3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c` | (https://github.com/actions/download-artifact) |
+| actions/attest-build-provenance | https://github.com/actions/attest-build-provenance | `MIT` | (https://raw.githubusercontent.com/actions/attest-build-provenance/v4.2.2/LICENSE) | v4.2.2, commit `4d101475d8b20a2381f78447822ac1eab6504dd8` | (https://github.com/actions/attest-build-provenance) |
+| actions/attest-sbom | https://github.com/actions/attest-sbom | `MIT` | (https://raw.githubusercontent.com/actions/attest-sbom/v4.1.0/LICENSE) | v4.1.0, commit `c604332985a26aa8cf1bdc465b92731239ec6b9e` | (https://github.com/actions/attest-sbom) |
+| docker/setup-buildx-action | https://github.com/docker/setup-buildx-action | `Apache-2.0` | (https://raw.githubusercontent.com/docker/setup-buildx-action/v4.4.1/LICENSE) | v4.4.1, commit `f87e5991a6d7451dcb8d9637bfbc97413f497069` | (https://github.com/docker/setup-buildx-action) |
+
+- `git ls-remote` returned each action commit above for `refs/tags/<tag>` with no peeled `^{}` entry, so each tag points directly at that commit.
+- Syft v1.52.0 sets `const DefaultVersion = "1.7"` in `syft/format/internal/cyclonedxutil/versions.go` and maps it to `cyclonedx.SpecVersion1_7`; its `SupportedVersions` lists CycloneDX 1.2 to 1.7 for `cyclonedx-json` and adds 1.0 and 1.1 for `cyclonedx-xml` (https://github.com/anchore/syft/blob/v1.52.0/syft/format/internal/cyclonedxutil/versions.go).
+
+### 11.2 Runner image software and distribution packages
+
+The runner versions come from the Ubuntu 24.04 runner image README, read at image version 20260927.320.1 (OS version 24.04.5 LTS).
+
+| Tool or package | Version | License (SPDX) | License file | Source |
+|---|---|---|---|---|
+| GitHub CLI | 2.101.0 | `MIT` | (https://github.com/cli/cli/blob/trunk/LICENSE) | (https://github.com/actions/runner-images/blob/main/images/ubuntu/Ubuntu2404-Readme.md) |
+| jq | 1.7 in the tools list; apt package `1.7.1-3ubuntu0.24.04.2` | `MIT` for jq itself ("jq is copyright (C) 2012 Stephen Dolan"); `COPYING` also names CC BY 3.0 for the documentation, David M. Gay's `dtoa.c` and `g_fmt.c` notices, the ICU License for decNumber and a 2-clause BSD notice from the Royal Institute of Technology (KTH) | (https://github.com/jqlang/jq/blob/jq-1.7/COPYING) | (https://github.com/actions/runner-images/blob/main/images/ubuntu/Ubuntu2404-Readme.md) |
+| systemd (`systemd-analyze`) | 255.4-1ubuntu8.17 | `LGPL-2.1-or-later` | (https://github.com/systemd/systemd/blob/main/LICENSES/README.md) | (https://github.com/actions/runner-images/blob/main/images/ubuntu/Ubuntu2404-Readme.md) |
+| Docker Compose | 2.38.2 | `Apache-2.0` | (https://github.com/docker/compose/blob/main/LICENSE) | (https://github.com/actions/runner-images/blob/main/images/ubuntu/Ubuntu2404-Readme.md) |
+| Docker Buildx | 0.37.1 | `Apache-2.0` | (https://raw.githubusercontent.com/docker/buildx/v0.37.1/LICENSE) | (https://github.com/actions/runner-images/blob/main/images/ubuntu/Ubuntu2404-Readme.md) |
+| `redis-server` (Ubuntu 24.04 `noble`, universe; absent from the runner image README) | `5:7.0.15-1ubuntu0.24.04.4` (upstream 7.0.15) | `BSD-3-Clause` (`Files: *`); other stanzas name BSD-2-Clause for the LZF sources and MIT for the bundled Lua (`deps/lua/*`) | (https://changelogs.ubuntu.com/changelogs/pool/universe/r/redis/redis_7.0.15-1ubuntu0.24.04.4/copyright) | (https://packages.ubuntu.com/noble/redis-server) |
+| `ca-certificates` (Debian 12 `bookworm`) | `20230311+deb12u1` | `MPL-2.0` for `mozilla/certdata.txt` and `mozilla/nssckbi.h` ("Mozilla Contributors"); `GPL-2.0-or-later` (`GPL-2+`) for the other files (`debian/*`, `examples/*`, `Makefile`, `mozilla/*`, `sbin/*`) | (https://sources.debian.org/data/main/c/ca-certificates/20230311%2Bdeb12u1/debian/copyright) | (https://sources.debian.org/data/main/c/ca-certificates/20230311%2Bdeb12u1/debian/copyright) |
+
+- The systemd licensing README says the sources are LGPL-2.1-or-later "unless otherwise noted", and that "compiled programs and all shared or static libraries include sources under LGPL-2.1-or-later along with more permissive licenses, and are effectively licensed LGPL-2.1-or-later". The exception is `systemd-udevd` and the other udev programs, which are "effectively licensed GPL-2.0-or-later" (https://github.com/systemd/systemd/blob/main/LICENSES/README.md).
+- The runner image README announces that the "`ubuntu-latest` label will use Ubuntu 26.04 in November 2026" (https://github.com/actions/runner-images/blob/main/images/ubuntu/Ubuntu2404-Readme.md).
+
+### 11.3 Container images
+
+| Image | Version | License (SPDX) | Facts | Source |
+|---|---|---|---|---|
+| `golang` (Docker Official Image) | `1.27.1-bookworm` | Not recorded; only the CA bundle is used (`ca-certificates` in section 11.2) | Docker Hub lists `1.27.1-bookworm`, `1.27-bookworm`, `1-bookworm` and `bookworm` as one Simple Tags entry, built from docker-library/golang `1.27/bookworm/Dockerfile` | (https://hub.docker.com/_/golang) |
+| `otel/opentelemetry-collector` | 0.161.0 | `Apache-2.0` | The `otelcol` distribution manifest at v0.161.0 builds "OpenTelemetry Collector" version 0.161.0, with `otlpreceiver` among its receivers and the contrib `fileexporter` among its exporters; the distribution's goreleaser file publishes per-architecture images `otel/opentelemetry-collector:{{ .Version }}-<arch>` and an `otel/opentelemetry-collector:{{ .Version }}` manifest list over them | (https://raw.githubusercontent.com/open-telemetry/opentelemetry-collector-releases/v0.161.0/distributions/otelcol/manifest.yaml) (https://raw.githubusercontent.com/open-telemetry/opentelemetry-collector-releases/v0.161.0/distributions/otelcol/.goreleaser.yaml) (https://raw.githubusercontent.com/open-telemetry/opentelemetry-collector-releases/v0.161.0/LICENSE) |
+| Dragonfly | License read on `main` | `BUSL-1.1` | Licensor "DragonflyDB, Ltd."; Change Date 2030-11-01; Change License Apache-2.0; the Additional Use Grant permits production use only "as part of your own product or service, provided it is not an in-memory data store product or service", and not "as a Service" | (https://raw.githubusercontent.com/dragonflydb/dragonfly/main/LICENSE.md) |
+
+### 11.4 GitHub-hosted runners
+
+- The GitHub-hosted runners reference lists the workflow labels `ubuntu-latest` (Linux x64), `ubuntu-24.04-arm` (Linux arm64), `windows-latest` (Windows x64), `macos-15-intel` (macOS Intel) and `macos-latest` (macOS arm64, M1) for both public and private repositories (https://docs.github.com/en/actions/reference/runners/github-hosted-runners).
+- "Use of the standard GitHub-hosted runners is free and unlimited on public repositories"; private repositories use the account's free minutes and then per-minute rates (https://docs.github.com/en/actions/reference/runners/github-hosted-runners).
+- Larger runners "are only available for organizations and enterprises using the GitHub Team or GitHub Enterprise Cloud plans". They "are not eligible for the use of included minutes on private repositories", and for both private and public repositories "they will always be billed at the per-minute rate" (https://docs.github.com/en/actions/concepts/runners/larger-runners).
+- The larger runners reference lists general sizes from 2 to 96 CPUs, among them 16 CPUs with 64 GB of RAM and 600 GB of SSD on x64 or arm64, for Ubuntu or Windows (https://docs.github.com/en/actions/reference/runners/larger-runners).
+- Analysis: none of these tools, actions or images is linked into a Ruralz binary, so G2 does not apply to them (section 9). The tech-stack row lets only `ca-certificates.crt` from the `golang:1.27.1-bookworm` stage enter the Ruralz image; its "CA data MPL-2.0" matches the Debian copyright stanza for `mozilla/certdata.txt`.
+- Analysis: the runner image versions in section 11.2 are unpinned and can change with any image release. After `ubuntu-latest` moves to Ubuntu 26.04 in November 2026, the distribution-package versions (systemd and the jq apt package) will no longer be the `noble` values recorded here.
+- Analysis: the BSL 1.1 text grants the right to "make non-production use of the Licensed Work"; the stage 8 container leg runs the Dragonfly image as a test dependency and does not redistribute it.
+
 ## Sources
 
 https://adr.github.io/madr/
@@ -427,6 +482,38 @@ https://proxy.golang.org/github.com/valyala/fastjson/@v/v1.6.10.zip
 https://proxy.golang.org/golang.org/x/sys/@v/v0.48.0.zip
 https://pkg.go.dev/flag
 https://pkg.go.dev/crypto/rand
+https://proxy.golang.org/github.com/rhysd/actionlint/@v/v1.7.12.zip
+https://raw.githubusercontent.com/prometheus/prometheus/v3.15.0/LICENSE
+https://raw.githubusercontent.com/prometheus/prometheus/v3.15.0/cmd/promtool/main.go
+https://proxy.golang.org/github.com/tsenart/vegeta/v12/@v/v12.13.0.zip
+https://github.com/actions/upload-artifact
+https://raw.githubusercontent.com/actions/upload-artifact/v7.0.1/LICENSE
+https://github.com/actions/download-artifact
+https://raw.githubusercontent.com/actions/download-artifact/v8.0.1/LICENSE
+https://github.com/actions/attest-build-provenance
+https://raw.githubusercontent.com/actions/attest-build-provenance/v4.2.2/LICENSE
+https://github.com/actions/attest-sbom
+https://raw.githubusercontent.com/actions/attest-sbom/v4.1.0/LICENSE
+https://github.com/docker/setup-buildx-action
+https://raw.githubusercontent.com/docker/setup-buildx-action/v4.4.1/LICENSE
+https://github.com/anchore/syft/blob/v1.52.0/syft/format/internal/cyclonedxutil/versions.go
+https://github.com/actions/runner-images/blob/main/images/ubuntu/Ubuntu2404-Readme.md
+https://github.com/cli/cli/blob/trunk/LICENSE
+https://github.com/jqlang/jq/blob/jq-1.7/COPYING
+https://github.com/systemd/systemd/blob/main/LICENSES/README.md
+https://github.com/docker/compose/blob/main/LICENSE
+https://raw.githubusercontent.com/docker/buildx/v0.37.1/LICENSE
+https://packages.ubuntu.com/noble/redis-server
+https://changelogs.ubuntu.com/changelogs/pool/universe/r/redis/redis_7.0.15-1ubuntu0.24.04.4/copyright
+https://sources.debian.org/data/main/c/ca-certificates/20230311%2Bdeb12u1/debian/copyright
+https://hub.docker.com/_/golang
+https://raw.githubusercontent.com/open-telemetry/opentelemetry-collector-releases/v0.161.0/distributions/otelcol/manifest.yaml
+https://raw.githubusercontent.com/open-telemetry/opentelemetry-collector-releases/v0.161.0/distributions/otelcol/.goreleaser.yaml
+https://raw.githubusercontent.com/open-telemetry/opentelemetry-collector-releases/v0.161.0/LICENSE
+https://raw.githubusercontent.com/dragonflydb/dragonfly/main/LICENSE.md
+https://docs.github.com/en/actions/reference/runners/github-hosted-runners
+https://docs.github.com/en/actions/concepts/runners/larger-runners
+https://docs.github.com/en/actions/reference/runners/larger-runners
 
 ## Gaps
 
@@ -442,3 +529,5 @@ https://pkg.go.dev/crypto/rand
 - **xeipuuv/gojsonschema license.** GitHub detects no license file, and the repository was not examined further.
 - **M1 addendum (section 10).** Licenses were read from the module zips served by the Go module proxy, not from GitHub tags; release times are proxy `Time` values. Linked sets come from `go list -deps` of the named packages only, not of a built `ruralzd`, which the M1 license gate (stage 6) checks.
 - **MADR 4.0 release notes.** Only the release tag, the site and the license files were read. What changed between 3.0.0 and 4.0.0 was not recorded.
+- **CI tooling addendum (section 11): access.** The GitHub REST API was not available for the action repositories on 2026-10-03, so action release dates were not recorded; the commit SHAs come from `git ls-remote`. The research environment could not download the `github.com/.../blob/...` pages directly, so they were read through an HTML page fetch and checked against `raw.githubusercontent.com` at the same ref. The `golang:1.27.1-bookworm` image was not pulled, so its `ca-certificates` revision was not compared with `20230311+deb12u1`.
+- **CI tooling addendum (section 11): versions.** The runner image README on `main` changes with every image release; the values recorded are those of image 20260927.320.1. The GitHub CLI, Docker Compose and jq license texts were read at `trunk`, `main` and `jq-1.7`, and the texts at v2.101.0, v2.38.2 and `jq-1.7.1` are identical. systemd's licensing README was read on `main`; at v255 it states the same LGPL-2.1-or-later default for sources but lacks the sentence on compiled programs. The Dragonfly license was read on `main`, not at a pinned image, and its BSL text lets the Change Date vary per version.
