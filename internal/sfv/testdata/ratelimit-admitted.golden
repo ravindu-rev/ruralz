@@ -1,0 +1,1 @@
+"ratelimit-global";r=999;t=1, "ratelimit-gold.1";r=99;t=1, "ratelimit-gold.2";r=4999;t=60, "quota-monthly";r=9950;t=2592000
