@@ -46,7 +46,7 @@ func (g *gate) String() string {
 	return g.buf.String()
 }
 
-// ADR-0010 "Blocked stdout test", 09 req 67 and 70, WP-11 done-when: with
+// ADR-0018 "Blocked stdout test", 09 req 67 and 70, WP-11 done-when: with
 // stdout blocked, Submit and process logging never block; the access log
 // drops beyond its bounds with queue_full; one worker writes both streams
 // as whole lines once stdout drains.

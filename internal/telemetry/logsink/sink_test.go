@@ -116,7 +116,7 @@ func TestWriteErrorCountsLostLines_Req62(t *testing.T) {
 	}
 }
 
-// ADR-0010 "Blocked stdout test", 09 req 61 and 70, WP-11 done-when: a
+// ADR-0018 "Blocked stdout test", 09 req 61 and 70, WP-11 done-when: a
 // stdout nobody reads never blocks the logging goroutine; records beyond
 // the queue drop with queue_full; after the pipe unblocks the worker
 // writes what it held and Run returns on cancel.
@@ -270,7 +270,7 @@ func (f *fakeStream) Flushed(lost int) {
 	f.flushed = append(f.flushed, lost)
 }
 
-// ADR-0010 row Logs: one worker owns stdout for both streams; lines never
+// ADR-0018 row Logs: one worker owns stdout for both streams; lines never
 // interleave and a lost write is attributed to the stream that lost it.
 func TestAccessStream_Req62(t *testing.T) {
 	st := newFakeStream()

@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 // Package logsink is the process-log half of the Ruralz logging pipeline
-// (docs/architecture/10-observability.md "Process logs"; ADR-0010 row
+// (docs/architecture/10-observability.md "Process logs"; ADR-0018 row
 // Logs; spec 09 requirements 61 to 65, spec 04 requirement 79).
 //
 // A Sink owns stdout. Its Handler is the only slog.Handler of ruralzd: it
@@ -70,7 +70,7 @@ const (
 const entryOverhead = 320
 
 // Stream is a second record queue drained by the Sink's worker, so one
-// goroutine owns stdout for both log streams (ADR-0010 row Logs).
+// goroutine owns stdout for both log streams (ADR-0018 row Logs).
 // internal/telemetry/accesslog.Writer implements it. Next, Flushed and
 // Pending are called from the worker only. The Stream counts its own
 // losses; when its owner gives up on a worker blocked in a write, the

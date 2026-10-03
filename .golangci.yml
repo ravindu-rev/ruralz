@@ -53,15 +53,15 @@ linters:
             - pkg: github.com/google/cel-go
               desc: read-only alias path; use cel.dev/cel-go
             - pkg: log$
-              desc: use log/slog through internal/telemetry (ADR-0010)
+              desc: use log/slog through internal/telemetry (ADR-0018)
             - pkg: plugin$
               desc: custom code is a WASM Plugin or CEL, never a Go plugin
             - pkg: github.com/yuin/gopher-lua
-              desc: no Lua (ADR-0011)
+              desc: no Lua (ADR-0019)
             - pkg: github.com/Shopify/go-lua
-              desc: no Lua (ADR-0011)
+              desc: no Lua (ADR-0019)
             - pkg: github.com/aarzilli/golua
-              desc: no Lua (ADR-0011)
+              desc: no Lua (ADR-0019)
             - pkg: github.com/valyala/fasthttp
               desc: net/http and quic-go only (ADR-0009)
         wazero:
@@ -109,7 +109,7 @@ linters:
           files: ["$all", "!**/internal/telemetry/**", "!**/internal/testkit/otlpsink/**"]
           deny:
             - pkg: go.opentelemetry.io
-              desc: OpenTelemetry is confined to internal/telemetry (ADR-0010)
+              desc: OpenTelemetry is confined to internal/telemetry (ADR-0018)
             - pkg: github.com/prometheus
               desc: /metrics exposition is internal/telemetry's
             - pkg: google.golang.org/grpc

@@ -1,7 +1,7 @@
 // Copyright 2026 Revington
 // SPDX-License-Identifier: Apache-2.0
 
-// Package expr is the contract of Ruralz CEL expressions (ADR-0011): the
+// Package expr is the contract of Ruralz CEL expressions (ADR-0019): the
 // places where CEL is allowed, the site of one occurrence, compiled
 // programs, the activation (Vars) and its request views, and runtime
 // errors. It imports no CEL library: internal/cel implements Compiler,
