@@ -1,0 +1,38 @@
+{
+  "snapshots": [
+    {
+      "state": "active",
+      "revision": "rev-4b7ce0b8e984",
+      "digest": "sha256:4b7ce0b8e9845ea42b17cb3f6ad629edb858be1dc5a2e3ac64b90f06bb7d2e62",
+      "pins": 3,
+      "activatedAt": "2026-09-26T12:03:00.75Z"
+    },
+    {
+      "state": "retired",
+      "revision": "rev-34d4ef5d76af",
+      "digest": "sha256:34d4ef5d76af5eb4569a4f78ee79709083aec757c4a5545bea82a8ca8d58b673",
+      "pins": 1,
+      "activatedAt": "2026-09-26T12:02:00.5Z",
+      "retiredAt": "2026-09-26T12:03:00.75Z"
+    },
+    {
+      "state": "retired",
+      "revision": "rev-4990ff99be21",
+      "digest": "sha256:4990ff99be213c83fdc8397bfca008af54807ffa699ce10bb132bada6347fbf3",
+      "pins": 1,
+      "activatedAt": "2026-09-26T12:01:00.25Z",
+      "retiredAt": "2026-09-26T12:02:00.5Z"
+    },
+    {
+      "state": "ending",
+      "revision": "rev-d9d719b27480",
+      "digest": "sha256:d9d719b27480b55cd4918020e7473e716ed3569c8adafe926cf9b10b4f8ef064",
+      "pins": 1,
+      "activatedAt": "2026-09-26T12:00:00Z",
+      "retiredAt": "2026-09-26T12:01:00.25Z",
+      "graceEndsAt": "2026-09-26T12:03:30.75Z"
+    }
+  ],
+  "pending": null,
+  "lastKnownGood": null
+}
