@@ -625,6 +625,15 @@ func (g *generator) fieldSchema(parent reflect.Type, f reflect.StructField, d do
 			annotations["x-ruralz-since"] = n
 		case "validation":
 			annotations["x-ruralz-validations"] = append(asList(annotations["x-ruralz-validations"]), schema{"rule": m.value})
+		case "minProperties":
+			// On a field only for a map, the field's own value; a struct
+			// takes it as a type marker (structDef).
+			if elem.Kind() != reflect.Map {
+				return nil, false, errors.New("+ruralz:minProperties on a field is only for maps")
+			}
+			if n, err := strconv.Atoi(m.value); err != nil || n < 0 {
+				return nil, false, fmt.Errorf("+ruralz:minProperties=%s: want a non-negative integer", m.value)
+			}
 		case "default":
 		default:
 			if !isValueMarker(m.name) {
@@ -650,6 +659,10 @@ func (g *generator) fieldSchema(parent reflect.Type, f reflect.StructField, d do
 	value = shallowCopy(value)
 	if err := applyValueMarkers(value, d, "field"); err != nil {
 		return nil, false, err
+	}
+	if m, ok := d.get("minProperties"); ok {
+		n, _ := strconv.Atoi(m.value) // checked with the markers above
+		value["minProperties"] = n
 	}
 	if m, ok := d.get("default"); ok {
 		dv, err := g.defaultValue(f.Type, m.value)

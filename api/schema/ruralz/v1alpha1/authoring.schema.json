@@ -2193,6 +2193,7 @@
             "type": "string"
           },
           "description": "Claims are expected claim values.",
+          "minProperties": 1,
           "type": "object"
         },
         "issuer": {
@@ -2201,6 +2202,7 @@
         },
         "subject": {
           "description": "Subject is the expected sub claim.",
+          "minLength": 1,
           "type": "string"
         }
       },

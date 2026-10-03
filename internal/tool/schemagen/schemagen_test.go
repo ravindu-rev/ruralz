@@ -159,6 +159,8 @@ func TestKeywords(t *testing.T) {
 		{[]string{"$defs", "RateLimitConfig", "properties", "limits", "minItems"}, `1`},
 		{[]string{"$defs", "PathMatch", "allOf"}, `[{"oneOf":[{"required":["exact"]},{"required":["prefix"]},{"required":["template"]},{"required":["regex"]}]}]`},
 		{[]string{"$defs", "UpstreamSpec", "allOf"}, `[{"not":{"required":["endpoints","discovery"]}}]`},
+		{[]string{"$defs", "JWTBinding", "properties", "subject", "minLength"}, `1`},
+		{[]string{"$defs", "JWTBinding", "properties", "claims", "minProperties"}, `1`},
 	}
 	for _, c := range cases {
 		got, err := json.Marshal(dig(t, s, c.path...))
@@ -180,6 +182,38 @@ func TestKeywords(t *testing.T) {
 	dispatch := dig(t, s, "$defs", "PolicySpec", "allOf").([]any)
 	if len(dispatch) != 23 {
 		t.Errorf("PolicySpec dispatches %d types, want 23", len(dispatch))
+	}
+}
+
+func TestFieldMinProperties(t *testing.T) {
+	// +ruralz:minProperties on a map field emits minProperties on the
+	// field's object schema, in both views.
+	info, err := parseSources([]string{"fixture_test.go"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, v := range []view{authoring, rendered} {
+		out, err := generate(input{source: info, resources: []reflect.Type{reflect.TypeFor[MapMinProperties]()}}, v)
+		if err != nil {
+			t.Fatal(err)
+		}
+		s := decode(t, out)
+		for field, want := range map[string]string{
+			"claims":  `{"additionalProperties":{"type":"string"},"description":"Claims needs an entry.","minProperties":1,"type":"object"}`,
+			"weights": `2`,
+		} {
+			p := dig(t, s, "$defs", "MapMinPropertiesSpec", "properties", field)
+			if field == "weights" {
+				p = p.(map[string]any)["minProperties"]
+			}
+			got, err := json.Marshal(p)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if string(got) != want {
+				t.Errorf("view %v: %s = %s, want %s", v, field, got, want)
+			}
+		}
 	}
 }
 
@@ -264,6 +298,9 @@ func TestRuleViolations(t *testing.T) {
 		{reflect.TypeFor[ImpactOrder](), "ascending order"},
 		{reflect.TypeFor[ImpactUnknown](), "unknown impact class"},
 		{reflect.TypeFor[ImpactTwice](), "given twice"},
+		// minProperties on a field is for maps only.
+		{reflect.TypeFor[StringMinProperties](), "minProperties on a field is only for maps"},
+		{reflect.TypeFor[NegMinProperties](), "want a non-negative integer"},
 	}
 	for _, c := range cases {
 		_, err := generate(input{source: info, resources: []reflect.Type{c.typ}}, rendered)

@@ -40,8 +40,13 @@ type CertSpec struct {
 // pair that parses and matches replaces the entry for the following
 // handshakes; a value that does not parse or whose key does not match
 // keeps the last pair and returns an error from the watch callback, which
-// the resolver counts in ruralz_config_secret_rotation_failures_total. The
-// owner (the snapshot holding the index) calls Close when it retires.
+// the resolver counts in ruralz_config_secret_rotation_failures_total. A
+// half whose callback failed, such as a certificate renewed in an earlier
+// poll than its key, is registered again once the other half's callback
+// forms a valid pair with that half's current Store value (rewatch), so
+// the resolver's secret_rotation_failed reason clears with the pair
+// instead of at the next renewal. The owner (the snapshot holding the
+// index) calls Close when it retires.
 type CertIndex struct {
 	table   atomic.Pointer[certTable]
 	secrets secret.Store // read by rotations for the other half of a pair
@@ -50,7 +55,7 @@ type CertIndex struct {
 	entries []*certEntry // name order
 	ready   bool         // initial values parsed
 	closed  bool
-	stops   []func()
+	stops   []func() // entry i's certificate at 2i, its key at 2i+1
 }
 
 // certEntry is one certificate: the latest value known of each half
@@ -62,6 +67,73 @@ type certEntry struct {
 	certSeen        bool // a rotation delivered certVal during setup
 	keySeen         bool
 	pair            *tls.Certificate
+	cert, key       half // the watches of the two halves
+}
+
+// half is the watch of one half of a certificate and key pair (a CertIndex
+// entry, a ClientConfig client pair): its reference, its callback, the
+// index of its stop in the owner's stops and whether its last callback
+// failed. ref, fn and stop are set before the watch is registered and
+// never change; failed is guarded by the owner's mutex.
+type half struct {
+	ref    secret.Ref
+	fn     func(secret.Value) error
+	stop   int
+	failed bool
+}
+
+// renewable marks sibling, the other half of a pair that a callback just
+// formed, as no longer failed and returns it for rewatch when its last
+// callback failed and the pair used its current Store value (current, see
+// rotatePair); otherwise it returns nil. A pair formed with the sibling's
+// last known value instead leaves the sibling's watch, and its raised
+// reason, in place: the Store may hold a value of the sibling that its
+// callback has not examined yet, such as a newer key published in the same
+// poll as a certificate that pairs with the previous key, and a new watch
+// would start at that value's version and skip it (secret.Store.Watch), so
+// a value that does not match would be neither counted nor raised (spec 06
+// requirement 76). The sibling's own callback then examines it. Callers
+// hold the owner's mutex.
+func renewable(sibling *half, current bool) *half {
+	if !sibling.failed || !current {
+		return nil
+	}
+	sibling.failed = false
+	return sibling
+}
+
+// rewatch registers h again after the other half's callback formed a
+// valid pair with h's current Store value while h's last callback had
+// failed (renewable; spec 06 requirement 76). The resolver keeps the
+// secret_rotation_failed source of a failed watcher raised until that
+// watcher accepts a later value of its own reference, which for a
+// certificate renewed in an earlier poll than its key is the next renewal.
+// A stopped watch drops its source, and a new watch with the same callback
+// starts at the current value, which the pair already holds
+// (secret.Store.Watch); the counted failure stays counted. mu guards
+// *stops and *closed and is not held while rewatch calls the Store; a
+// Close meanwhile stops the new registration.
+func rewatch(mu *sync.Mutex, closed *bool, stops *[]func(), secrets secret.Store, h *half) {
+	mu.Lock()
+	if *closed {
+		mu.Unlock()
+		return
+	}
+	stale := (*stops)[h.stop]
+	(*stops)[h.stop] = nil
+	mu.Unlock()
+	if stale != nil {
+		stale()
+	}
+	renewed := secrets.Watch(h.ref, h.fn)
+	mu.Lock()
+	if !*closed {
+		(*stops)[h.stop], renewed = renewed, nil
+	}
+	mu.Unlock()
+	if renewed != nil {
+		renewed()
+	}
 }
 
 // certTable is the immutable lookup structure published per change.
@@ -99,10 +171,10 @@ func BuildCertIndex(certs []CertSpec, secrets secret.Store) (*CertIndex, error) 
 	// deadlock with the build. A rotation delivered meanwhile wins over the
 	// value read by Get, and every later rotation fires again.
 	stops := make([]func(), 0, 2*len(specs))
-	for _, e := range ix.entries {
-		stops = append(stops,
-			secrets.Watch(e.spec.Certificate, func(v secret.Value) error { return ix.rotate(e, true, v) }),
-			secrets.Watch(e.spec.PrivateKey, func(v secret.Value) error { return ix.rotate(e, false, v) }))
+	for i, e := range ix.entries {
+		e.cert = half{ref: e.spec.Certificate, stop: 2 * i, fn: func(v secret.Value) error { return ix.rotate(e, true, v) }}
+		e.key = half{ref: e.spec.PrivateKey, stop: 2*i + 1, fn: func(v secret.Value) error { return ix.rotate(e, false, v) }}
+		stops = append(stops, secrets.Watch(e.cert.ref, e.cert.fn), secrets.Watch(e.key.ref, e.key.fn))
 	}
 	type initial struct {
 		cert, key     secret.Value
@@ -160,29 +232,46 @@ func BuildCertIndex(certs []CertSpec, secrets secret.Store) (*CertIndex, error) 
 
 // rotate applies a rotated certificate (isCert) or private key value v
 // (spec 06 requirement 76): v is paired by rotatePair, and only a value
-// that pairs with neither known value of the other half is a failure.
+// that pairs with neither known value of the other half is a failure. A
+// valid pair formed with the other half's current Store value registers
+// that half again when its last callback failed (renewable, rewatch).
 func (ix *CertIndex) rotate(e *certEntry, isCert bool, v secret.Value) error {
 	ix.mu.Lock()
-	defer ix.mu.Unlock()
-	if ix.closed {
-		return nil
+	renew, err := ix.rotateLocked(e, isCert, v)
+	ix.mu.Unlock()
+	if renew != nil {
+		rewatch(&ix.mu, &ix.closed, &ix.stops, ix.secrets, renew)
 	}
+	return err
+}
+
+// rotateLocked records v and publishes the pair it forms. It returns the
+// other half for rotate to register again when renewable selects it.
+// Callers hold ix.mu.
+func (ix *CertIndex) rotateLocked(e *certEntry, isCert bool, v secret.Value) (*half, error) {
+	if ix.closed {
+		return nil, nil
+	}
+	self, sibling := &e.cert, &e.key
 	if isCert {
 		e.certVal, e.certSeen = v, true
 	} else {
 		e.keyVal, e.keySeen = v, true
+		self, sibling = &e.key, &e.cert
 	}
 	if !ix.ready {
-		return nil // the build parses it
+		return nil, nil // the build parses it
 	}
 	other, last := e.spec.PrivateKey, e.keyVal
 	if !isCert {
 		other, last = e.spec.Certificate, e.certVal
 	}
-	pair, used, err := rotatePair(ix.secrets, v, isCert, other, last)
+	pair, used, current, err := rotatePair(ix.secrets, v, isCert, other, last)
 	if err != nil {
-		return fmt.Errorf("tls certificate %q: %w", e.spec.Name, err)
+		self.failed = true
+		return nil, fmt.Errorf("tls certificate %q: %w", e.spec.Name, err)
 	}
+	self.failed = false
 	if isCert {
 		e.keyVal = used
 	} else {
@@ -190,7 +279,7 @@ func (ix *CertIndex) rotate(e *certEntry, isCert bool, v secret.Value) error {
 	}
 	e.pair = pair
 	ix.publishLocked()
-	return nil
+	return renewable(sibling, current), nil
 }
 
 // rotatePair parses the rotated half v of a certificate and key pair
@@ -202,9 +291,11 @@ func (ix *CertIndex) rotate(e *certEntry, isCert bool, v secret.Value) error {
 // up whichever watcher runs first. When that value does not pair (or
 // secrets no longer holds other), last is tried: a Store kept by a
 // carried-over owner can hold an older value than the one its watches
-// follow. It returns the pair and the other half's value used; on failure
-// the error of the first pairing tried, which never repeats secret bytes.
-func rotatePair(secrets secret.Store, v secret.Value, vIsCert bool, other secret.Ref, last secret.Value) (*tls.Certificate, secret.Value, error) {
+// follow. It returns the pair, the other half's value used and whether
+// that value is the one secrets holds now (current; false when last was
+// used); on failure the error of the first pairing tried, which never
+// repeats secret bytes.
+func rotatePair(secrets secret.Store, v secret.Value, vIsCert bool, other secret.Ref, last secret.Value) (*tls.Certificate, secret.Value, bool, error) {
 	parse := func(o secret.Value) (*tls.Certificate, error) {
 		if vIsCert {
 			return parseKeyPair(v.Reveal(), o.Reveal())
@@ -216,10 +307,10 @@ func rotatePair(secrets secret.Store, v secret.Value, vIsCert bool, other secret
 		if cur, ok := secrets.Get(other); ok {
 			pair, err := parse(cur)
 			if err == nil {
-				return pair, cur, nil
+				return pair, cur, true, nil
 			}
 			if sameValue(cur, last) {
-				return nil, secret.Value{}, err
+				return nil, secret.Value{}, false, err
 			}
 			firstErr = err
 		}
@@ -229,9 +320,9 @@ func rotatePair(secrets secret.Store, v secret.Value, vIsCert bool, other secret
 		if firstErr != nil {
 			err = firstErr
 		}
-		return nil, secret.Value{}, err
+		return nil, secret.Value{}, false, err
 	}
-	return pair, last, nil
+	return pair, last, false, nil
 }
 
 // sameValue reports whether a and b hold the same bytes; the copies it

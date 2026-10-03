@@ -117,6 +117,9 @@ type Use struct {
 	Resource diag.ResourceID
 	// Path is the key-aware path of the field.
 	Path diag.Path
+	// Loc is the secretRef's source position; zero when unknown, such as
+	// canonical re-entry.
+	Loc diag.Location
 	// Kind selects the default check and size cap.
 	Kind Kind
 	// Check is an extra consumer check (such as a State Store URL fitting
@@ -131,16 +134,34 @@ type Use struct {
 // snapshot keeps seeing current values.
 type Store interface {
 	// Get returns the latest resolved value of r, rotations included;
-	// false when r is not one of the Store's uses.
+	// false when r is not one of the Store's uses. Get returns a new value
+	// as soon as the resolver publishes it. Within one poll the resolver
+	// publishes every changed reference of the active Store before it
+	// calls any watcher, so a watcher can Get the other half of a pair
+	// (a certificate and its key) and see this poll's value. A watcher's
+	// error or panic never withdraws a published value: Get keeps
+	// returning it, and only that watcher keeps its last value and counts
+	// a failure. A file value that fails a use check of the active Store
+	// is never published by a poll of that Store: Get keeps the last good
+	// value and secret_rotation_failed is raised. A value published before
+	// Activate, by a poll of the previously active Store, that the uses of
+	// the newly active Store refuse stays served, as the only value the
+	// reference has; it counts a rotation failure and raises
+	// secret_rotation_failed until a value they accept is read
+	// (Resolver.Activate).
 	Get(r Ref) (Value, bool)
 	// Watch registers fn for rotations of r. Registrations are Node-wide,
 	// keyed by Ref and owned by the resolver: they survive Activate of a
 	// later Store (a Filter carried over through BuildEnv.Previous keeps
 	// its watch), fire whenever the active Store polls r, and stay silent
 	// while no active Store references r. fn runs on the resolver's
-	// goroutine and must not block; an fn error keeps the watcher's last
-	// value and counts a rotation failure. stop unregisters and is called
-	// from the Filter's Close.
+	// goroutine with no resolver lock held and must not block; an fn error
+	// keeps the watcher's last value and counts a rotation failure. fn may
+	// call Watch and any stop function, its own included. A Watch
+	// registered inside fn starts at the current version of its reference
+	// and does not receive the value being delivered; after a stop of the
+	// running watcher, fn's result is ignored. stop unregisters and is
+	// called from the Filter's Close.
 	Watch(r Ref, fn func(Value) error) (stop func())
 }
 

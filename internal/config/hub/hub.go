@@ -297,6 +297,9 @@ type SecretUse struct {
 	Resource diag.ResourceID
 	// Path is the key-aware path.
 	Path diag.Path
+	// Loc is the secretRef's source position; zero when unknown, such as
+	// canonical re-entry.
+	Loc diag.Location
 	// Destination is where the Node transmits the resolved value
 	// (secret-to-destination binding, OQ-security-and-identity-22 (a)):
 	// DestinationLocal for verification material that never leaves the

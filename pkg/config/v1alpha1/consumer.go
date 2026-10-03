@@ -65,8 +65,10 @@ type JWTBinding struct {
 	// +ruralz:required
 	Issuer string `json:"issuer"`
 	// Subject is the expected sub claim.
+	// +ruralz:minLength=1
 	Subject string `json:"subject,omitempty"`
 	// Claims are expected claim values.
+	// +ruralz:minProperties=1
 	Claims map[string]string `json:"claims,omitempty"`
 }
 

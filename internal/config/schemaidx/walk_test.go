@@ -7,13 +7,13 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"math"
 	"slices"
 	"strings"
 	"testing"
 
 	"github.com/ravindu-rev/ruralz/internal/config/diag"
 	"github.com/ravindu-rev/ruralz/internal/config/tree"
+	"github.com/ravindu-rev/ruralz/internal/jsonval"
 )
 
 const thing = `{
@@ -382,16 +382,41 @@ func TestAppendItemJSON(t *testing.T) {
 		{nil, "null"},
 		{parseTree(t, `{"\u20ac":1,"\r":2,"\ufb33":3,"1":4,"\ud83d\ude00":5,"\u0080":6,"\u00f6":7}`), "{\"\\r\":2,\"1\":4,\"\u0080\":6,\"\u00f6\":7,\"\u20ac\":1,\"\U0001F600\":5,\"\uFB33\":3}"},
 		{parseTree(t, `[[],{}]`), `[[],{}]`},
+		// Key order: a prefix first, a surrogate pair before U+FB33.
+		{parseTree(t, `{"ab":1,"a":2,"\ufb33":3,"\ud83d\ude00":4}`), "{\"a\":2,\"ab\":1,\"\U0001F600\":4,\"\uFB33\":3}"},
+		{num("4.9406564584124654e-324"), "5e-324"}, // math.SmallestNonzeroFloat64
 	} {
 		if got := string(AppendItemJSON(nil, tc.in)); got != tc.want {
 			t.Errorf("AppendItemJSON = %s, want %s", got, tc.want)
 		}
 	}
-	if compareUTF16("a", "ab") >= 0 || compareUTF16("ab", "a") <= 0 || compareUTF16("\U0001F600", "\uFB33") >= 0 || compareUTF16("x", "x") != 0 {
-		t.Error("compareUTF16 order")
-	}
-	if got := string(appendES6(nil, math.SmallestNonzeroFloat64)); got != "5e-324" {
-		t.Errorf("appendES6 = %s", got)
+}
+
+func TestAppendItemJSONMatchesJSONVal(t *testing.T) {
+	// Differential: a set element's item form is the RFC 8785 form that
+	// config/canonical writes through jsonval.AppendCanonical, so number
+	// form and member order cannot diverge between diagnostics and the
+	// canonical form.
+	for _, src := range []string{
+		`0`, `-0`, `-0.0`, `1.0`, `1E2`, `1e-7`, `0.000001`, `1e20`, `1e21`, `-1.5e-9`, `4.50`,
+		`333333333.3333333`, `5e-324`, `4.9406564584124654e-324`, `1e-400`, `1.7976931348623157e308`,
+		`9007199254740991`, `-9007199254740991`, `9007199254740992`, `9007199254740993`,
+		`12345678901234567890`, `1000000000000000000000`, `11e17`, `123456789012345680000`,
+		`"\"\\/\u007f\u2028\ud83d\ude00\b\t\n\f\r\u001f<>&"`,
+		`{"\u20ac":1,"\r":2,"\ufb33":3,"1":4,"\ud83d\ude00":5,"\u0080":6,"\u00f6":7,"":8,"ab":9,"a":10}`,
+		`[1.50,{"b":[true,false,null],"a":{"y":2.0,"x":1e2}},[],{}]`,
+	} {
+		v, _, err := jsonval.Decode([]byte(src), jsonval.Options{})
+		if err != nil {
+			t.Fatalf("jsonval.Decode(%s): %v", src, err)
+		}
+		want, err := jsonval.AppendCanonical(nil, v)
+		if err != nil {
+			t.Fatalf("jsonval.AppendCanonical(%s): %v", src, err)
+		}
+		if got := AppendItemJSON(nil, parseTree(t, src)); string(got) != string(want) {
+			t.Errorf("AppendItemJSON(%s) = %s, jsonval.AppendCanonical = %s", src, got, want)
+		}
 	}
 }
 

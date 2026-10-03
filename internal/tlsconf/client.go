@@ -41,8 +41,12 @@ type ClientSpec struct {
 // CertIndex, so a pair renewed together is never a failure. A value that
 // does not parse, or whose key matches neither known value of the other
 // half, keeps the last one and fails its watch callback, which the
-// resolver counts as a rotation failure. The owner (the Upstream runtime
-// or the telemetry runtime) calls Close when it drops the configuration.
+// resolver counts as a rotation failure; once the other half's callback
+// forms a valid pair with the failed half's current Store value, the
+// failed half is registered again (renewable, rewatch), so
+// secret_rotation_failed clears with the pair. The owner (the Upstream
+// runtime or the telemetry runtime) calls Close when it drops the
+// configuration.
 type ClientConfig struct {
 	cur     atomic.Pointer[tls.Config]
 	pair    atomic.Pointer[tls.Certificate]
@@ -55,6 +59,7 @@ type ClientConfig struct {
 	keySeen                bool
 	ready, closed          bool
 	stops                  []func()
+	cert, key              half // the watches of the client pair's halves
 }
 
 // Upstream builds the TLS configuration of an Upstream with a tls block
@@ -93,9 +98,9 @@ func newClientConfig(spec ClientSpec, secrets secret.Store) (*ClientConfig, erro
 		stops = append(stops, secrets.Watch(*spec.CACertificate, func(v secret.Value) error { return c.rotate(slotCA, v) }))
 	}
 	if spec.ClientCertificate != nil {
-		stops = append(stops,
-			secrets.Watch(*spec.ClientCertificate, func(v secret.Value) error { return c.rotate(slotCert, v) }),
-			secrets.Watch(*spec.ClientKey, func(v secret.Value) error { return c.rotate(slotKey, v) }))
+		c.cert = half{ref: *spec.ClientCertificate, stop: len(stops), fn: func(v secret.Value) error { return c.rotate(slotCert, v) }}
+		c.key = half{ref: *spec.ClientKey, stop: len(stops) + 1, fn: func(v secret.Value) error { return c.rotate(slotKey, v) }}
+		stops = append(stops, secrets.Watch(c.cert.ref, c.cert.fn), secrets.Watch(c.key.ref, c.key.fn))
 	}
 	var ca, cert, key secret.Value
 	var caOK, certOK, keyOK bool
@@ -164,12 +169,26 @@ const (
 	slotKey
 )
 
-// rotate records a rotated value and rebuilds the part it belongs to.
+// rotate records a rotated value and rebuilds the part it belongs to. A
+// valid client pair formed with the other half's current Store value
+// registers that half again when its last callback failed (renewable,
+// rewatch).
 func (c *ClientConfig) rotate(s slot, v secret.Value) error {
 	c.mu.Lock()
-	defer c.mu.Unlock()
+	renew, err := c.rotateLocked(s, v)
+	c.mu.Unlock()
+	if renew != nil {
+		rewatch(&c.mu, &c.closed, &c.stops, c.secrets, renew)
+	}
+	return err
+}
+
+// rotateLocked records v and rebuilds its part; for the client pair it
+// returns the half to register again (rotatePairLocked). Callers hold
+// c.mu.
+func (c *ClientConfig) rotateLocked(s slot, v secret.Value) (*half, error) {
 	if c.closed {
-		return nil
+		return nil, nil
 	}
 	switch s {
 	case slotCA:
@@ -180,33 +199,38 @@ func (c *ClientConfig) rotate(s slot, v secret.Value) error {
 		c.keyVal, c.keySeen = v, true
 	}
 	if !c.ready {
-		return nil // the build parses it
+		return nil, nil // the build parses it
 	}
 	if s == slotCA {
-		return c.buildLocked(slotCA)
+		return nil, c.buildLocked(slotCA)
 	}
 	return c.rotatePairLocked(s == slotCert, v)
 }
 
 // rotatePairLocked pairs a rotated client certificate (isCert) or key v
 // with the other half (rotatePair) and publishes the pair. On error the
-// published pair is unchanged. Callers hold c.mu.
-func (c *ClientConfig) rotatePairLocked(isCert bool, v secret.Value) error {
+// published pair is unchanged. It returns the other half to register
+// again when renewable selects it. Callers hold c.mu.
+func (c *ClientConfig) rotatePairLocked(isCert bool, v secret.Value) (*half, error) {
+	self, sibling := &c.cert, &c.key
 	other, last := *c.spec.ClientKey, c.keyVal
 	if !isCert {
+		self, sibling = &c.key, &c.cert
 		other, last = *c.spec.ClientCertificate, c.certVal
 	}
-	pair, used, err := rotatePair(c.secrets, v, isCert, other, last)
+	pair, used, current, err := rotatePair(c.secrets, v, isCert, other, last)
 	if err != nil {
-		return fmt.Errorf("tls.clientCertificate: %w", err)
+		self.failed = true
+		return nil, fmt.Errorf("tls.clientCertificate: %w", err)
 	}
+	self.failed = false
 	if isCert {
 		c.keyVal = used
 	} else {
 		c.certVal = used
 	}
 	c.pair.Store(pair)
-	return nil
+	return renewable(sibling, current), nil
 }
 
 // buildLocked parses the CA bundle (slotCA) and publishes a configuration,

@@ -105,7 +105,8 @@ const (
 	KindBool
 	// KindInt is an integer; Text holds its normalized decimal form.
 	KindInt
-	// KindFloat is a non-integer number; Text holds its source text.
+	// KindFloat is a non-integer number; Text holds its source text in
+	// RFC 8259 number syntax (see Node.Text).
 	KindFloat
 	// KindString is a string; Text holds the decoded value.
 	KindString
@@ -146,7 +147,15 @@ type Node struct {
 	// Pos is where the value starts.
 	Pos Pos
 	// Text is the string value, the normalized decimal of an integer or
-	// the source text of a float.
+	// the source text of a float. A float's text is in RFC 8259 number
+	// syntax, so JSONValue, jsonval.CheckNumber and
+	// jsonval.AppendCanonicalNumber accept it: the loader rewrites a YAML
+	// 1.2 core float that is not an RFC 8259 number (.5, 1., +1.5) by
+	// dropping a leading '+', putting a '0' before a leading '.' and
+	// dropping a '.' with no fraction digits (0.5, 1, 1.5), and never
+	// round-trips it through float64. Leading zeros of the integer part,
+	// which RFC 8259 also excludes, are stripped keeping one digit (01.5
+	// is 1.5).
 	Text string
 	// Bool is the value of a KindBool node.
 	Bool bool

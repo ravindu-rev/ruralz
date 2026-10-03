@@ -126,6 +126,21 @@ func TestDiagnosticShape(t *testing.T) {
 	}
 }
 
+func TestDiagnosticLocation(t *testing.T) {
+	// The secretRef's source position (secret.Use.Loc) is the diagnostic's
+	// file:line:column; a zero Loc prints "-" (TestDiagnosticShape).
+	h := newHarness(t, nil)
+	u := use(envRef("HOME"), secret.KindOpaque)
+	u.Loc = diag.Location{File: "gateway.yaml", Line: 7, Column: 9}
+	d := h.resolveDiags(u)[0]
+	if d.Location != u.Loc {
+		t.Errorf("location = %+v, want %+v", d.Location, u.Loc)
+	}
+	if got := diagText(diag.List{d}); !strings.HasPrefix(got, "gateway.yaml:7:9 error RZ-CFG-026 Gateway/edge spec.stateStore.url: secretRef env:HOME: ") {
+		t.Errorf("text = %q", got)
+	}
+}
+
 func TestEveryFailingUseReported(t *testing.T) {
 	// Spec 01 req 44: every failing use is reported, not only the first;
 	// two uses of one reference with different kinds are checked apart.

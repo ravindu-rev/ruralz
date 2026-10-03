@@ -308,6 +308,152 @@ func TestCertIndexRotationOnePollReq76(t *testing.T) {
 	}
 }
 
+// TestCertIndexSeparatePollsClearReasonReq76 renews a certificate in one
+// poll and its key in the next: the certificate's callback fails once
+// (counted, the resolver raises secret_rotation_failed for its watch), and
+// the key's poll, which completes the pair, registers the certificate's
+// watch again, so no degraded reason is left (secret.Store.Watch). A key
+// that never arrives keeps the reason raised, and so does a valid pair of
+// another entry.
+func TestCertIndexSeparatePollsClearReasonReq76(t *testing.T) {
+	f := newIndexFixture(t)
+	spec := f.add(t, "main", leafOpts{cn: "v1", dns: []string{"a.test"}})
+	other := f.add(t, "other", leafOpts{cn: "o1", dns: []string{"b.test"}})
+	ix, err := BuildCertIndex([]CertSpec{spec, other}, f.store)
+	if err != nil {
+		t.Fatal(err)
+	}
+	v2 := f.ca.issue(t, leafOpts{cn: "v2", dns: []string{"a.test"}})
+	if n := f.store.rotate(spec.Certificate, v2.certPEM); n != 1 || f.store.raised() != 1 {
+		t.Fatalf("certificate in its own poll: %d failures, %d raised; want 1 and 1", n, f.store.raised())
+	}
+	if n := f.store.rotate(spec.PrivateKey, v2.keyPEM); n != 0 {
+		t.Fatalf("key in the next poll: %d failures", n)
+	}
+	if got := served(t, ix, "a.test"); got != "v2" {
+		t.Fatalf("served %q, want v2", got)
+	}
+	if r := f.store.raised(); r != 0 {
+		t.Fatalf("after the pair completed: %d reasons raised, want 0", r)
+	}
+	if n := f.store.failures.Load(); n != 1 || f.store.watching() != 4 {
+		t.Fatalf("failures %d (want 1 kept), watches %d (want 4)", n, f.store.watching())
+	}
+	// The registered-again watch follows the next renewal.
+	v3 := f.ca.issue(t, leafOpts{cn: "v3", dns: []string{"a.test"}})
+	if n := f.store.rotateTogether(update{spec.Certificate, v3.certPEM}, update{spec.PrivateKey, v3.keyPEM}); n != 0 {
+		t.Fatalf("renewal in one poll: %d failures", n)
+	}
+	if got := served(t, ix, "a.test"); got != "v3" {
+		t.Fatalf("served %q, want v3", got)
+	}
+
+	// The key never arrives: the reason stays raised, also when another
+	// entry rotates and when a key that does not match arrives.
+	v4 := f.ca.issue(t, leafOpts{cn: "v4", dns: []string{"a.test"}})
+	f.store.rotate(spec.Certificate, v4.certPEM)
+	o2 := f.ca.issue(t, leafOpts{cn: "o2", dns: []string{"b.test"}})
+	if n := f.store.rotateTogether(update{other.Certificate, o2.certPEM}, update{other.PrivateKey, o2.keyPEM}); n != 0 {
+		t.Fatalf("other entry: %d failures", n)
+	}
+	if r := f.store.raised(); r != 1 {
+		t.Fatalf("certificate without its key: %d reasons raised, want 1", r)
+	}
+	stray := f.ca.issue(t, leafOpts{cn: "stray", dns: []string{"a.test"}})
+	if n := f.store.rotate(spec.PrivateKey, stray.keyPEM); n != 1 || f.store.raised() != 2 {
+		t.Fatalf("mismatched key: %d failures, %d raised; want 1 and 2", n, f.store.raised())
+	}
+	if got := served(t, ix, "a.test"); got != "v3" {
+		t.Fatalf("served %q, want v3", got)
+	}
+
+	// Close stops the watches registered again too.
+	ix.Close()
+	if f.store.watching() != 0 || f.store.raised() != 0 {
+		t.Fatalf("after Close: %d watches, %d raised", f.store.watching(), f.store.raised())
+	}
+}
+
+// TestCertIndexNewerSiblingValueReq76 renews one half alone (its callback
+// fails), then, in one poll, the other half's matching value together with
+// a newer value of the first half that matches nothing. The pair is formed
+// with the first half's last delivered value, so the first half's watch is
+// not registered again: a new registration would start at the newer
+// value's version and skip it. Its own callback examines that value, which
+// counts a second failure and keeps the reason raised. The next value of
+// the other half, which pairs with the first half's current value,
+// registers it again and clears the reason. Both reference orders are
+// covered (the resolver delivers in reference order).
+func TestCertIndexNewerSiblingValueReq76(t *testing.T) {
+	for _, certFirst := range []bool{false, true} {
+		name := "key alone, then certificate with a newer key"
+		if certFirst {
+			name = "certificate alone, then key with a newer certificate"
+		}
+		t.Run(name, func(t *testing.T) {
+			f := newIndexFixture(t)
+			spec := f.add(t, "main", leafOpts{cn: "v1", dns: []string{"a.test"}})
+			ix, err := BuildCertIndex([]CertSpec{spec}, f.store)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer ix.Close()
+			v2 := f.ca.issue(t, leafOpts{cn: "v2", dns: []string{"a.test"}})
+			v3 := f.ca.issue(t, leafOpts{cn: "v3", dns: []string{"a.test"}})
+			alone, other := spec.PrivateKey, spec.Certificate
+			alone2, other2, alone3, other3 := v2.keyPEM, v2.certPEM, v3.keyPEM, v3.certPEM
+			if certFirst {
+				alone, other = other, alone
+				alone2, other2, alone3, other3 = other2, alone2, other3, alone3
+			}
+			if n := f.store.rotate(alone, alone2); n != 1 || f.store.raised() != 1 {
+				t.Fatalf("first half alone: %d failures, %d raised; want 1 and 1", n, f.store.raised())
+			}
+			if n := f.store.rotateTogether(update{other, other2}, update{alone, alone3}); n != 1 {
+				t.Fatalf("other half with a newer first half: %d failures, want 1 (the newer value)", n)
+			}
+			if got := served(t, ix, "a.test"); got != "v2" {
+				t.Fatalf("served %q, want v2", got)
+			}
+			if n, r := f.store.failures.Load(), f.store.raised(); n != 2 || r != 1 {
+				t.Fatalf("after the newer value: %d failures, %d raised; want 2 and 1", n, r)
+			}
+			if n := f.store.rotate(other, other3); n != 0 {
+				t.Fatalf("other half matching the current value: %d failures", n)
+			}
+			if got := served(t, ix, "a.test"); got != "v3" {
+				t.Fatalf("served %q, want v3", got)
+			}
+			if n, r, w := f.store.failures.Load(), f.store.raised(), f.store.watching(); n != 2 || r != 0 || w != 2 {
+				t.Fatalf("after the pair completed: %d failures, %d raised, %d watches; want 2, 0 and 2", n, r, w)
+			}
+		})
+	}
+}
+
+// TestCertIndexRewatchAfterClose registers a failed half again while the
+// index closes: the registration is stopped, so Close leaves no watch.
+func TestCertIndexRewatchAfterClose(t *testing.T) {
+	f := newIndexFixture(t)
+	spec := f.add(t, "main", leafOpts{cn: "v1", dns: []string{"a.test"}})
+	ix, err := BuildCertIndex([]CertSpec{spec}, f.store)
+	if err != nil {
+		t.Fatal(err)
+	}
+	h := &ix.entries[0].cert
+	f.store.onWatch = func(secret.Ref, func(secret.Value) error) { ix.Close() }
+	rewatch(&ix.mu, &ix.closed, &ix.stops, f.store, h)
+	if f.store.watching() != 0 {
+		t.Fatalf("%d watches after Close", f.store.watching())
+	}
+	// Once closed, nothing is registered.
+	f.store.onWatch = nil
+	rewatch(&ix.mu, &ix.closed, &ix.stops, f.store, h)
+	if f.store.watching() != 0 {
+		t.Fatalf("%d watches after a rewatch of a closed index", f.store.watching())
+	}
+}
+
 // TestCertIndexRotationFallbackReq76 pairs a rotated value with the other
 // half's latest value delivered to the index when the Store reports the
 // other reference unresolved or still holds an older value than the
@@ -359,8 +505,8 @@ func TestCertIndexRotationFallbackReq76(t *testing.T) {
 	// Without a Store only the latest value is tried.
 	f := newIndexFixture(t)
 	l := f.ca.issue(t, leafOpts{cn: "solo", dns: []string{"a.test"}})
-	pair, used, err := rotatePair(nil, secret.NewValue(l.certPEM), true, ref("unused"), secret.NewValue(l.keyPEM))
-	if err != nil || pair.Leaf.Subject.CommonName != "solo" || used.Len() != len(l.keyPEM) {
+	pair, used, current, err := rotatePair(nil, secret.NewValue(l.certPEM), true, ref("unused"), secret.NewValue(l.keyPEM))
+	if err != nil || pair.Leaf.Subject.CommonName != "solo" || used.Len() != len(l.keyPEM) || current {
 		t.Fatalf("rotatePair without a Store: %v", err)
 	}
 }

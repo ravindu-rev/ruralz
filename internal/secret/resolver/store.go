@@ -100,7 +100,20 @@ type store struct {
 var _ secret.Store = (*store)(nil)
 
 // Get returns the current value of r, rotations included; false when r is
-// not one of the Store's uses. It takes no lock and does not allocate.
+// not one of the Store's uses. It takes no lock and does not allocate. A
+// new value is returned as soon as it is published: within one cycle the
+// poll publishes every changed reference of the active Store
+// (refreshLocked) before fanout calls any watcher, so a watcher can Get
+// the other half of a pair and see this poll's value. A watcher's error or
+// panic never withdraws a published value: Get keeps returning it, and
+// only that watcher keeps its last value and counts a failure. A file
+// value that fails a use check of the active Store is never published by
+// a poll of that Store (refreshLocked): Get keeps the last good value and
+// secret_rotation_failed is raised. A value published before Activate, by
+// a poll of the previously active Store, that s's uses refuse stays
+// served, as the only value the reference has; it counts a rotation
+// failure and raises secret_rotation_failed until a value they accept is
+// read (Resolver.Activate, recheckLocked).
 func (s *store) Get(r secret.Ref) (secret.Value, bool) {
 	c, ok := s.cells[r]
 	if !ok {
@@ -125,7 +138,11 @@ func (s *store) value(r secret.Ref, c *cell) *cellValue {
 // goroutine whenever the active Store holds a value of r the registration
 // has not seen and stays silent while no active Store holds r. fn must not
 // block; an fn error keeps the watcher's last value and counts a rotation
-// failure. Register the watch before reading the initial value with Get,
+// failure. fn runs with no Resolver lock held, so it may call Watch and
+// any stop function, its own included: a Watch made inside fn starts at
+// the current version of r in s and does not receive the value being
+// delivered, and once the running watcher is stopped its result is
+// ignored. Register the watch before reading the initial value with Get,
 // so no rotation is lost between them. stop unregisters and may be called
 // more than once; fn may still run once if stop races a delivery already
 // under way.

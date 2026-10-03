@@ -30,6 +30,10 @@ const (
 	KindLengthDefault   Kind = "LengthDefault"
 	KindMissingTag      Kind = "MissingTag"
 	KindDashTag         Kind = "DashTag"
+	// Kinds of the field minProperties rule.
+	KindMapMinProperties    Kind = "MapMinProperties"
+	KindStringMinProperties Kind = "StringMinProperties"
+	KindNegMinProperties    Kind = "NegMinProperties"
 )
 
 // Meta is the fixture metadata.
@@ -332,4 +336,46 @@ type DashTag struct {
 type DashTagSpec struct {
 	// A is skipped.
 	A string `json:"-"`
+}
+
+// MapMinProperties puts minProperties on map fields.
+type MapMinProperties struct {
+	Metadata Meta                 `json:"metadata"`
+	Spec     MapMinPropertiesSpec `json:"spec"`
+}
+
+// MapMinPropertiesSpec has map fields with at least one entry.
+type MapMinPropertiesSpec struct {
+	// Claims needs an entry.
+	// +ruralz:minProperties=1
+	Claims map[string]string `json:"claims,omitempty"`
+	// Weights needs two entries.
+	// +ruralz:minProperties=2
+	Weights map[string]int32 `json:"weights,omitempty"`
+}
+
+// StringMinProperties puts minProperties on a string field.
+type StringMinProperties struct {
+	Metadata Meta                    `json:"metadata"`
+	Spec     StringMinPropertiesSpec `json:"spec"`
+}
+
+// StringMinPropertiesSpec has minProperties on a non-map field.
+type StringMinPropertiesSpec struct {
+	// A is a string.
+	// +ruralz:minProperties=1
+	A string `json:"a,omitempty"`
+}
+
+// NegMinProperties gives a map field a negative minProperties.
+type NegMinProperties struct {
+	Metadata Meta                 `json:"metadata"`
+	Spec     NegMinPropertiesSpec `json:"spec"`
+}
+
+// NegMinPropertiesSpec has a negative minProperties.
+type NegMinPropertiesSpec struct {
+	// M is a map.
+	// +ruralz:minProperties=-1
+	M map[string]string `json:"m,omitempty"`
 }

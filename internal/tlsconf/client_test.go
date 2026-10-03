@@ -270,6 +270,107 @@ func TestUpstreamClientPairOnePollReq79(t *testing.T) {
 	}
 }
 
+// TestUpstreamClientPairSeparatePollsReq79 renews the client certificate
+// in one poll and its key in the next: the failed certificate watch is
+// registered again once the key completes the pair, so no
+// secret_rotation_failed reason is left while the counted failure stays;
+// a key that never arrives keeps the reason raised (spec 06 requirements
+// 76 and 79).
+func TestUpstreamClientPairSeparatePollsReq79(t *testing.T) {
+	f := newUpstreamFixture(t)
+	up, err := Upstream(f.spec(), f.store)
+	if err != nil {
+		t.Fatal(err)
+	}
+	presented := func() string { return up.pair.Load().Leaf.Subject.CommonName }
+	v2 := f.clientCA.issue(t, leafOpts{cn: "node-v2", eku: []x509.ExtKeyUsage{x509.ExtKeyUsageClientAuth}})
+	if n := f.store.rotate(ref("client.crt"), v2.certPEM); n != 1 || f.store.raised() != 1 {
+		t.Fatalf("certificate in its own poll: %d failures, %d raised; want 1 and 1", n, f.store.raised())
+	}
+	if n := f.store.rotate(ref("client.key"), v2.keyPEM); n != 0 {
+		t.Fatalf("key in the next poll: %d failures", n)
+	}
+	if got := presented(); got != "node-v2" || f.store.raised() != 0 || f.store.failures.Load() != 1 {
+		t.Fatalf("after the pair completed: %q, %d raised, %d failures; want node-v2, 0, 1", got, f.store.raised(), f.store.failures.Load())
+	}
+	if f.store.watching() != 3 {
+		t.Fatalf("%d watches, want 3", f.store.watching())
+	}
+
+	// The key half fails first this time; a CA rotation does not clear it,
+	// the certificate's poll does.
+	v3 := f.clientCA.issue(t, leafOpts{cn: "node-v3", eku: []x509.ExtKeyUsage{x509.ExtKeyUsageClientAuth}})
+	f.store.rotate(ref("client.key"), v3.keyPEM)
+	if n := f.store.rotate(ref("up-ca"), newCA(t, "replacement").pem); n != 0 || f.store.raised() != 1 {
+		t.Fatalf("CA rotation: %d failures, %d raised; want 0 and 1", n, f.store.raised())
+	}
+	f.store.rotate(ref("client.crt"), v3.certPEM)
+	if got := presented(); got != "node-v3" || f.store.raised() != 0 {
+		t.Fatalf("after the pair completed: %q, %d raised", got, f.store.raised())
+	}
+
+	// A key that never arrives keeps the reason raised.
+	v4 := f.clientCA.issue(t, leafOpts{cn: "node-v4", eku: []x509.ExtKeyUsage{x509.ExtKeyUsageClientAuth}})
+	f.store.rotate(ref("client.crt"), v4.certPEM)
+	if got := presented(); got != "node-v3" || f.store.raised() != 1 {
+		t.Fatalf("certificate without its key: %q, %d raised", got, f.store.raised())
+	}
+	up.Close()
+	if f.store.watching() != 0 {
+		t.Fatalf("%d watches after Close", f.store.watching())
+	}
+}
+
+// TestUpstreamClientPairNewerSiblingValueReq79 is
+// TestCertIndexNewerSiblingValueReq76 for the client pair: a pair formed
+// with a half's last delivered value leaves that half's watch registered,
+// so a newer value of it published in the same poll is examined, counted
+// and raised; a pair formed with its current value registers it again and
+// clears the reason (spec 06 requirements 76 and 79).
+func TestUpstreamClientPairNewerSiblingValueReq79(t *testing.T) {
+	for _, certFirst := range []bool{false, true} {
+		name := "key alone, then certificate with a newer key"
+		if certFirst {
+			name = "certificate alone, then key with a newer certificate"
+		}
+		t.Run(name, func(t *testing.T) {
+			f := newUpstreamFixture(t)
+			up, err := Upstream(f.spec(), f.store)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer up.Close()
+			presented := func() string { return up.pair.Load().Leaf.Subject.CommonName }
+			client := leafOpts{eku: []x509.ExtKeyUsage{x509.ExtKeyUsageClientAuth}}
+			client.cn = "node-v2"
+			v2 := f.clientCA.issue(t, client)
+			client.cn = "node-v3"
+			v3 := f.clientCA.issue(t, client)
+			alone, other := ref("client.key"), ref("client.crt")
+			alone2, other2, alone3, other3 := v2.keyPEM, v2.certPEM, v3.keyPEM, v3.certPEM
+			if certFirst {
+				alone, other = other, alone
+				alone2, other2, alone3, other3 = other2, alone2, other3, alone3
+			}
+			if n := f.store.rotate(alone, alone2); n != 1 || f.store.raised() != 1 {
+				t.Fatalf("first half alone: %d failures, %d raised; want 1 and 1", n, f.store.raised())
+			}
+			if n := f.store.rotateTogether(update{other, other2}, update{alone, alone3}); n != 1 {
+				t.Fatalf("other half with a newer first half: %d failures, want 1 (the newer value)", n)
+			}
+			if got, n, r := presented(), f.store.failures.Load(), f.store.raised(); got != "node-v2" || n != 2 || r != 1 {
+				t.Fatalf("after the newer value: %q, %d failures, %d raised; want node-v2, 2 and 1", got, n, r)
+			}
+			if n := f.store.rotate(other, other3); n != 0 {
+				t.Fatalf("other half matching the current value: %d failures", n)
+			}
+			if got, n, r, w := presented(), f.store.failures.Load(), f.store.raised(), f.store.watching(); got != "node-v3" || n != 2 || r != 0 || w != 3 {
+				t.Fatalf("after the pair completed: %q, %d failures, %d raised, %d watches; want node-v3, 2, 0 and 3", got, n, r, w)
+			}
+		})
+	}
+}
+
 func TestUpstreamErrorsReq79(t *testing.T) {
 	f := newUpstreamFixture(t)
 	f.store.put(ref("garbage"), []byte("-----BEGIN CERTIFICATE-----\nAAAA\n-----END CERTIFICATE-----\n"))

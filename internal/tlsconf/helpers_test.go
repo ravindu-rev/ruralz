@@ -157,11 +157,19 @@ func (ca *testCA) issue(t testing.TB, o leafOpts) leaf {
 
 // fakeStore is a secret.Store whose values the test sets and rotates. A
 // rotation updates the value, then calls the watchers outside the lock and
-// counts their errors as rotation failures, as the resolver does.
+// counts their errors as rotation failures, as the resolver does. Like the
+// resolver, every value has a version, a registration starts at the
+// current version of its reference and is called only with a later one
+// (so a watch registered during a delivery does not receive the value
+// being delivered), it skips a watcher stopped before its turn and keeps a
+// watcher's secret_rotation_failed source raised from a failed callback
+// until the watcher accepts a value or stops (raised).
 type fakeStore struct {
 	mu       sync.Mutex
 	vals     map[secret.Ref]secret.Value
-	watchers map[secret.Ref]map[int]func(secret.Value) error
+	versions map[secret.Ref]uint64 // of vals
+	version  uint64                // last version handed out
+	watchers map[secret.Ref]map[int]*fakeWatch
 	next     int
 	failures atomic.Int64
 	// onWatch, when set, runs after a registration (outside the lock),
@@ -169,10 +177,19 @@ type fakeStore struct {
 	onWatch func(r secret.Ref, fn func(secret.Value) error)
 }
 
+// fakeWatch is one registration of a fakeStore; seen and failed are
+// guarded by fakeStore.mu.
+type fakeWatch struct {
+	fn     func(secret.Value) error
+	seen   uint64 // the last version delivered, or current at registration
+	failed bool   // the last callback failed
+}
+
 func newFakeStore() *fakeStore {
 	return &fakeStore{
 		vals:     map[secret.Ref]secret.Value{},
-		watchers: map[secret.Ref]map[int]func(secret.Value) error{},
+		versions: map[secret.Ref]uint64{},
+		watchers: map[secret.Ref]map[int]*fakeWatch{},
 	}
 }
 
@@ -195,9 +212,9 @@ func (s *fakeStore) Watch(r secret.Ref, fn func(secret.Value) error) func() {
 	id := s.next
 	s.next++
 	if s.watchers[r] == nil {
-		s.watchers[r] = map[int]func(secret.Value) error{}
+		s.watchers[r] = map[int]*fakeWatch{}
 	}
-	s.watchers[r][id] = fn
+	s.watchers[r][id] = &fakeWatch{fn: fn, seen: s.versions[r]}
 	hook := s.onWatch
 	s.mu.Unlock()
 	if hook != nil {
@@ -213,7 +230,16 @@ func (s *fakeStore) Watch(r secret.Ref, fn func(secret.Value) error) func() {
 func (s *fakeStore) put(r secret.Ref, b []byte) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	s.vals[r] = secret.NewValue(b)
+	s.setLocked(r, b)
+}
+
+// setLocked stores b as the value of r at a new version and returns the
+// value and its version. Callers hold s.mu.
+func (s *fakeStore) setLocked(r secret.Ref, b []byte) (secret.Value, uint64) {
+	s.version++
+	v := secret.NewValue(b)
+	s.vals[r], s.versions[r] = v, s.version
+	return v, s.version
 }
 
 // rotate sets a new value and fires the watchers (one reference changed
@@ -231,29 +257,33 @@ type update struct {
 
 // rotateTogether is one resolver poll that changed several references: it
 // sets every new value first, then fires the watchers of each reference in
-// the order given (secret/resolver updates every cell before its fanout).
-// It returns the number of watcher errors.
+// the order given (secret/resolver updates every cell before its fanout,
+// which goes in reference order). It returns the number of watcher errors.
 func (s *fakeStore) rotateTogether(us ...update) int {
 	vals := make([]secret.Value, len(us))
+	versions := make([]uint64, len(us))
 	s.mu.Lock()
 	for i, u := range us {
-		vals[i] = secret.NewValue(u.val)
-		s.vals[u.ref] = vals[i]
+		vals[i], versions[i] = s.setLocked(u.ref, u.val)
 	}
 	s.mu.Unlock()
 	failed := 0
 	for i, u := range us {
-		failed += s.fire(u.ref, vals[i])
+		failed += s.fire(u.ref, vals[i], versions[i])
 	}
 	return failed
 }
 
-// deliver fires the watchers of r with b but leaves the value Get returns
-// unchanged: a Store holding an older value than the one its watches
-// follow (secret/resolver gives a new Store a new cell after a refused
-// rotation, while a carried-over owner keeps the old Store).
+// deliver fires the watchers of r with b at a new version but leaves the
+// value Get returns unchanged: a Store holding an older value than the one
+// its watches follow (secret/resolver gives a new Store a new cell after a
+// refused rotation, while a carried-over owner keeps the old Store).
 func (s *fakeStore) deliver(r secret.Ref, b []byte) int {
-	return s.fire(r, secret.NewValue(b))
+	s.mu.Lock()
+	s.version++
+	version := s.version
+	s.mu.Unlock()
+	return s.fire(r, secret.NewValue(b), version)
 }
 
 // drop removes the value of r: Get reports false.
@@ -261,25 +291,69 @@ func (s *fakeStore) drop(r secret.Ref) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	delete(s.vals, r)
+	delete(s.versions, r)
 }
 
-// fire calls the watchers of r with v outside the lock and counts their
-// errors.
-func (s *fakeStore) fire(r secret.Ref, v secret.Value) int {
+// fire calls the watchers of r that have not seen version with v, outside
+// the lock, and counts their errors. As in the resolver's fanout, the
+// registrations are those of r when its turn comes: one made by an
+// earlier watcher of the same poll starts at the current version and is
+// skipped.
+func (s *fakeStore) fire(r secret.Ref, v secret.Value, version uint64) int {
 	s.mu.Lock()
-	fns := make([]func(secret.Value) error, 0, len(s.watchers[r]))
-	for _, fn := range s.watchers[r] {
-		fns = append(fns, fn)
+	ws := make([]*fakeWatch, 0, len(s.watchers[r]))
+	for _, w := range s.watchers[r] {
+		ws = append(ws, w)
 	}
 	s.mu.Unlock()
 	failed := 0
-	for _, fn := range fns {
-		if err := fn(v); err != nil {
+	for _, w := range ws {
+		if !s.due(r, w, version) {
+			continue // stopped by an earlier watcher of this delivery, or seen
+		}
+		err := w.fn(v)
+		s.mu.Lock()
+		w.seen = version
+		w.failed = err != nil
+		s.mu.Unlock()
+		if err != nil {
 			failed++
 			s.failures.Add(1)
 		}
 	}
 	return failed
+}
+
+// due reports whether w is still a registration of r that has not seen
+// version.
+func (s *fakeStore) due(r secret.Ref, w *fakeWatch, version uint64) bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if w.seen >= version {
+		return false
+	}
+	for _, x := range s.watchers[r] {
+		if x == w {
+			return true
+		}
+	}
+	return false
+}
+
+// raised returns the number of registrations whose last callback failed:
+// the secret_rotation_failed sources the resolver would hold for them.
+func (s *fakeStore) raised() int {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	n := 0
+	for _, m := range s.watchers {
+		for _, w := range m {
+			if w.failed {
+				n++
+			}
+		}
+	}
+	return n
 }
 
 // combinedPEM is one PEM file holding a leaf's certificate and key, used

@@ -36,8 +36,8 @@ import (
 
 // RZ codes this package puts on diagnostics and errors. The stage that
 // raises each one is fixed by architecture R-46: stage G or H for
-// CodeFilterClass, stage I for CodeScope and CodeFailureMode, stage H and K
-// for CodeUnserved.
+// CodeFilterClass, stage I for CodeScope and CodeFailureMode, and the
+// ruralzd serve check after stage M for CodeUnserved (R-75).
 const (
 	// CodeFilterClass is RZ-CFG-005 for an authored filterClass the
 	// registry rejects (02 req 38): on a type other than plugin, a value

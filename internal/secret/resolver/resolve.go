@@ -196,6 +196,7 @@ func (rs *resolution) fail(u secret.Use, reason error) {
 	d := diag.Diagnostic{
 		Code:     CodeUnresolvable,
 		Severity: diag.SeverityError,
+		Location: u.Loc,
 		Path:     slices.Clone(u.Path),
 		Message:  "secretRef " + u.Ref.String() + ": " + reason.Error(),
 	}

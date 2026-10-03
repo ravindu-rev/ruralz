@@ -560,6 +560,116 @@ func TestWatchEdgeCases(t *testing.T) {
 	}
 }
 
+func TestWatcherGetsSamePollValues(t *testing.T) {
+	// secret.Store.Get: within one poll every changed reference of the
+	// active Store is published before any watcher runs, so the watcher of
+	// either half of a pair reads the other half's new value through Get,
+	// whichever runs first. A watcher's error or panic never withdraws a
+	// published value.
+	h := newHarness(t, nil)
+	h.write("tls.crt", "crt-1")
+	h.write("tls.key", "key-1")
+	crt, key := fileRef(h.path("tls.crt"), ""), fileRef(h.path("tls.key"), "")
+	st := h.resolve(use(crt, secret.KindOpaque), use(key, secret.KindOpaque))
+	h.r.Activate(st)
+	var seen []string // the cycle runs on the test goroutine
+	defer st.Watch(crt, func(v secret.Value) error {
+		seen = append(seen, "crt watcher: "+string(v.Reveal())+" "+get(t, st, key))
+		return errors.New("refused")
+	})()
+	defer st.Watch(crt, func(secret.Value) error { panic("boom") })()
+	defer st.Watch(key, func(v secret.Value) error {
+		seen = append(seen, "key watcher: "+get(t, st, crt)+" "+string(v.Reveal()))
+		return nil
+	})()
+	h.write("tls.crt", "crt-2")
+	h.write("tls.key", "key-2")
+	h.cycle()
+	if want := []string{"crt watcher: crt-2 key-2", "key watcher: crt-2 key-2"}; !slices.Equal(seen, want) {
+		t.Errorf("watchers saw %q, want %q", seen, want)
+	}
+	if got := get(t, st, crt); got != "crt-2" {
+		t.Errorf("Get after failed watchers = %q, want crt-2", got)
+	}
+	if n := h.fileN.value(); n != 2 {
+		t.Errorf("failures = %d, want 2 (the error and the panic)", n)
+	}
+}
+
+func TestWatchFromWatcher(t *testing.T) {
+	// secret.Store.Watch: fn runs with no Resolver lock held, so it may
+	// call Watch and stop. A Watch registered inside fn starts at the
+	// current version and does not receive the value being delivered; a
+	// watcher stopped by another one's fn is not called. Stopping a failed
+	// watcher and registering its fn again clears its
+	// secret_rotation_failed source while the failure stays counted (the
+	// certificate and key pattern of internal/tlsconf).
+	h := newHarness(t, nil)
+	h.write("a", "a1")
+	h.write("b", "b1")
+	refA, refB := fileRef(h.path("a"), ""), fileRef(h.path("b"), "")
+	st := h.resolve(use(refA, secret.KindOpaque), use(refB, secret.KindOpaque))
+	h.r.Activate(st)
+
+	// A failed watcher of b, re-registered by the watcher of a below.
+	failing := &recorder{fail: func(s string) error {
+		if s == "b2" {
+			return errors.New("no pair yet")
+		}
+		return nil
+	}}
+	var stopFailing func()
+	stopFailing = st.Watch(refB, failing.fn)
+	h.write("b", "b2")
+	h.cycle()
+	if raised := h.status.raised(); len(raised) != 1 || h.fileN.value() != 1 {
+		t.Fatalf("after the failed delivery: raised %v, failures %d", raised, h.fileN.value())
+	}
+
+	later, other, skipped := &recorder{}, &recorder{}, &recorder{}
+	var stopLater, stopOther, stopSkipped func()
+	calls := 0
+	stopSelf := st.Watch(refA, func(secret.Value) error {
+		calls++
+		if calls == 1 {
+			stopSkipped() // registered after this watcher: not called
+			stopLater = st.Watch(refA, later.fn)
+			stopOther = st.Watch(refB, other.fn)
+			stopFailing()
+			stopFailing = st.Watch(refB, failing.fn)
+		}
+		return nil
+	})
+	defer stopSelf()
+	stopSkipped = st.Watch(refA, skipped.fn)
+	h.write("a", "a2")
+	h.cycle()
+	h.cycle()
+	if calls != 1 || len(later.values()) != 0 || len(other.values()) != 0 || len(skipped.values()) != 0 || len(failing.values()) != 0 {
+		t.Fatalf("calls %d, later %v, other %v, skipped %v, re-registered %v; want one call and no delivery",
+			calls, later.values(), other.values(), skipped.values(), failing.values())
+	}
+	if raised := h.status.raised(); len(raised) != 0 || h.fileN.value() != 1 {
+		t.Errorf("after re-registration: raised %v, failures %d; want none raised, 1 counted", raised, h.fileN.value())
+	}
+	if n := h.r.watchCount(); n != 4 {
+		t.Errorf("watches = %d, want 4", n)
+	}
+
+	// The watches registered inside fn follow later rotations.
+	h.write("a", "a3")
+	h.write("b", "b3")
+	h.cycle()
+	if !slices.Equal(later.values(), []string{"a3"}) || !slices.Equal(other.values(), []string{"b3"}) ||
+		!slices.Equal(failing.values(), []string{"b3"}) || len(skipped.values()) != 0 || calls != 2 {
+		t.Errorf("later %v, other %v, re-registered %v, skipped %v, calls %d",
+			later.values(), other.values(), failing.values(), skipped.values(), calls)
+	}
+	stopLater()
+	stopOther()
+	stopFailing()
+}
+
 func TestStoreGetUnknown(t *testing.T) {
 	h := newHarness(t, nil)
 	if v, ok := h.resolve().Get(envRef("RURALZ_SECRET_NONE")); ok || !v.IsZero() {

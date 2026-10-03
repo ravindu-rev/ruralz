@@ -6,15 +6,13 @@ package schemaidx
 import (
 	"encoding/json"
 	"errors"
-	"math"
 	"slices"
 	"strconv"
 	"strings"
-	"unicode/utf16"
-	"unicode/utf8"
 
 	"github.com/ravindu-rev/ruralz/internal/config/diag"
 	"github.com/ravindu-rev/ruralz/internal/config/tree"
+	"github.com/ravindu-rev/ruralz/internal/jsonval"
 )
 
 // ErrSkipChildren is returned by a WalkFunc to skip the children of the
@@ -435,10 +433,13 @@ func (w *walker) descend(inst *tree.Node, static *Node, parent Info, how edge, e
 // AppendItemJSON appends n as RFC 8785 JSON, the diag.Item form of an
 // object or array set element: members sorted by UTF-16 code units, no
 // whitespace, strings escaped per RFC 8785, and every number in the
-// ECMAScript form of its double value (an integer of at most 15 digits is
-// its normalized decimal; a longer one, which 02 req 16 rejects later,
-// becomes the decimal of its nearest double, as RFC 8785 prescribes). A
-// literal that is not a finite double is written unchanged.
+// ECMAScript form of its double value (an integer within ±(2^53−1) is its
+// normalized decimal; a larger one, which 02 req 16 rejects later in
+// authored configuration, becomes the decimal of its nearest double, as
+// RFC 8785 prescribes). The number form and the member order are
+// jsonval.AppendCanonicalNumber and jsonval.CompareUTF16, which
+// config/canonical uses too. A literal outside the RFC 8259 grammar, or
+// one that overflows a double, is written unchanged.
 func AppendItemJSON(dst []byte, n *tree.Node) []byte {
 	if n == nil {
 		return append(dst, "null"...)
@@ -452,7 +453,7 @@ func AppendItemJSON(dst []byte, n *tree.Node) []byte {
 		return appendJCSString(dst, n.Text)
 	case tree.KindMap:
 		members := slices.Clone(n.Members)
-		slices.SortStableFunc(members, func(a, b tree.Member) int { return compareUTF16(a.Key, b.Key) })
+		slices.SortStableFunc(members, func(a, b tree.Member) int { return jsonval.CompareUTF16(a.Key, b.Key) })
 		dst = append(dst, '{')
 		for i, m := range members {
 			if i > 0 {
@@ -477,18 +478,16 @@ func AppendItemJSON(dst []byte, n *tree.Node) []byte {
 	}
 }
 
-// maxExactDigits is the most decimal digits every integer of which a double
-// holds exactly.
-const maxExactDigits = 15
-
-// appendItemNumber writes the RFC 8785 form of a number node. The
-// normalized decimal of a KindInt with at most 15 digits already is that
-// form.
+// appendItemNumber writes the RFC 8785 form of a number node: the
+// jsonval.AppendCanonicalNumber form, which config/canonical also writes. A
+// literal outside the RFC 8259 grammar or one that overflows a double is
+// written unchanged.
 func appendItemNumber(dst []byte, n *tree.Node) []byte {
-	if n.Kind == tree.KindInt && len(strings.TrimPrefix(n.Text, "-")) <= maxExactDigits && n.Text != "-0" {
+	out, err := jsonval.AppendCanonicalNumber(dst, json.Number(n.Text))
+	if err != nil {
 		return append(dst, n.Text...)
 	}
-	return appendNumber(dst, n.Text)
+	return out
 }
 
 // canonicalNumber returns the RFC 8785 text of a number node, without
@@ -500,62 +499,6 @@ func canonicalNumber(n *tree.Node) string {
 		return n.Text
 	}
 	return string(b)
-}
-
-// appendNumber writes a number literal in the ECMAScript
-// Number.prototype.toString form of its double value (RFC 8785 3.2.2.3);
-// a literal that does not parse as a finite double is written unchanged.
-func appendNumber(dst []byte, lit string) []byte {
-	f, err := strconv.ParseFloat(lit, 64)
-	if err != nil || math.IsInf(f, 0) || math.IsNaN(f) {
-		return append(dst, lit...)
-	}
-	return appendES6(dst, f)
-}
-
-func appendES6(dst []byte, f float64) []byte {
-	if f == 0 {
-		return append(dst, '0')
-	}
-	if f < 0 {
-		dst = append(dst, '-')
-		f = -f
-	}
-	// Shortest round-trip digits d1...dk and exponent: f = 0.d1...dk * 10^n.
-	e := strconv.FormatFloat(f, 'e', -1, 64)
-	mant, exp, _ := strings.Cut(e, "e")
-	digits := strings.Replace(mant, ".", "", 1)
-	x, _ := strconv.Atoi(exp)
-	k, n := len(digits), x+1
-	switch {
-	case k <= n && n <= 21:
-		dst = append(dst, digits...)
-		for range n - k {
-			dst = append(dst, '0')
-		}
-	case 0 < n && n <= 21:
-		dst = append(dst, digits[:n]...)
-		dst = append(dst, '.')
-		dst = append(dst, digits[n:]...)
-	case -6 < n && n <= 0:
-		dst = append(dst, "0."...)
-		for range -n {
-			dst = append(dst, '0')
-		}
-		dst = append(dst, digits...)
-	default:
-		dst = append(dst, digits[0])
-		if k > 1 {
-			dst = append(dst, '.')
-			dst = append(dst, digits[1:]...)
-		}
-		dst = append(dst, 'e')
-		if n-1 >= 0 {
-			dst = append(dst, '+')
-		}
-		dst = strconv.AppendInt(dst, int64(n-1), 10)
-	}
-	return dst
 }
 
 // appendJCSString writes s quoted per RFC 8785 3.2.2.2: only '"', '\' and
@@ -585,30 +528,4 @@ func appendJCSString(dst []byte, s string) []byte {
 		}
 	}
 	return append(dst, '"')
-}
-
-// compareUTF16 orders strings by their UTF-16 code units (RFC 8785 3.2.3).
-func compareUTF16(a, b string) int {
-	for a != "" && b != "" {
-		ra, na := utf8.DecodeRuneInString(a)
-		rb, nb := utf8.DecodeRuneInString(b)
-		if ra != rb {
-			// Distinct runes differ in their first code unit, or are two
-			// surrogate pairs with one high surrogate.
-			ua, ub := utf16Units(ra), utf16Units(rb)
-			if ua[0] != ub[0] {
-				return int(ua[0]) - int(ub[0])
-			}
-			return int(ua[1]) - int(ub[1])
-		}
-		a, b = a[na:], b[nb:]
-	}
-	return len(a) - len(b)
-}
-
-func utf16Units(r rune) []uint16 {
-	if r1, r2 := utf16.EncodeRune(r); r1 != utf8.RuneError {
-		return []uint16{uint16(r1), uint16(r2)} //nolint:gosec // G115: surrogates are 16-bit values.
-	}
-	return []uint16{uint16(r)} //nolint:gosec // G115: a BMP rune fits 16 bits.
 }
