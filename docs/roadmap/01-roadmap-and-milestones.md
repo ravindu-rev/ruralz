@@ -2,7 +2,7 @@
 title: Roadmap and Milestones
 status: reviewed
 owner: ruralz-core
-last_updated: 2026-09-25
+last_updated: 2026-10-03
 depends_on:
   - docs/_meta/foundation-pack.md
   - docs/_meta/style-guide.md
@@ -49,6 +49,7 @@ Codes by owner:
 | Threat T13, T20 | [Security and identity](../architecture/08-security-and-identity.md#threat-model-and-trust-boundaries) |
 | Objective O8 | [Observability](../architecture/10-observability.md#observability-principles) |
 | Gate G1 to G3 | [Tech stack](../engineering/01-tech-stack-and-libraries.md#selection-criteria) |
+| WP-n M1 work packages | [M1 notes](#m1-notes) |
 
 ## M0 Foundations
 
@@ -91,7 +92,7 @@ Pack name: **M1** Core gateway. M1 ships a file-mode Ruralz Gateway with core Po
 | Traffic and state | `ratelimit` with local token bucket and GCRA ([ADR-0008](../adr/0008-rate-limiting-local-bucket-and-gcra.md)), distributed rate limiting with State Store-backed counters, `quota` in `requests`; API governance (`quota`, `overridable: false` Gateway Policies); `cache` (Response Cache), retries, circuit breaker, health checks, catch-all fallback, header and query string routing, wildcard routes, service discovery (`dns`, static `endpoints`) for `http` Upstreams, weighted splits, composition; `memory` and `redis` drivers (tested on Valkey 9.0.1 or newer, Dragonfly), single-Region Cells; `headers`, `transform.request`, `transform.response`, `validation.json-schema` |
 | Observability | OpenTelemetry telemetry: traces, export, conventions, resource; traceparent injection with its sampling decision; metrics exposition (`/metrics`) including `ruralz_listener_tls_handshake_duration_seconds`; logs; catalog gates; cardinality test; ULID `node.id`; `ruralz_node_degraded_info` with M1 reasons such as `lkg_boot` and `state_store_breaker_open` |
 | Quality | Property tests; protocol conformance suite in `pr-full` (HTTP/1.1, HTTP/2); integration tests; round-trip test; fuzzing; Docker Compose end-to-end test in file mode (quickstart, `--effective --route`, `ruralz bundle diff` against Node `/config/dump`, Zero-Downtime Upgrade); air-gapped start; chaos experiments CE-1 to CE-6, CE-12, CE-15, CE-16; CI stages 8. integration and conformance, 9. regression gates, 10. end-to-end, 11. nightly, 12. release |
-| Budgets | PB-1 to PB-4, PB-6 to PB-9, PB-10, PB-11, PB-14, PB-15, PB-16; scenarios S1 plain proxying, S2 reference, S3, S5, S5x, O1, O2, C1, C2, R1, G1; microbenchmarks; soak; alloc/op, size and idle RSS gates; macro p99 and macro latency; absolute budgets and criteria; component and CEL benchmarks; binary and CI size check; nightly and release runs publish records (P10) |
+| Budgets | PB-1 to PB-4, PB-6 to PB-11, PB-14 to PB-16; scenarios S1 plain proxying, S2 reference, S3, S5, S5x, O1, O2, C1, C2, R1, G1; microbenchmarks; soak; alloc/op, size and idle RSS gates; macro p99 and macro latency; absolute budgets and criteria; component and CEL benchmarks; binary and CI size check; nightly and release runs publish records (P10) |
 | Release | Release `0.1.0`: binaries, container images, checksums, SBOM, signatures, provenance, notes, release audit per tag; `cmd/ruralzd`, `cmd/ruralz`, `test/`, `examples/` |
 
 ### M1 exit criteria
@@ -102,7 +103,19 @@ Pack name: **M1** Core gateway. M1 ships a file-mode Ruralz Gateway with core Po
 4. The scripted quickstart reaches a first proxied request in 10 minutes or less (target), per SM-7.
 5. The golden corpus is byte-exact; conformance passes 100% of cases for shipped features (target); no fuzz crasher is open; every M1 command in pack section 9 has an end-to-end test; CE-1 to CE-6, CE-12, CE-15, CE-16 and GD-1 to GD-5 pass.
 6. The Feature Catalog gives 100% of rows a milestone or a reasoned `Not planned` (target), per SM-2, and 100% of rows tagged Planned (M1) are implemented (target), per SM-3.
-7. Every Open question blocking an M1 feature is closed: the 32 whose Blocking column names M1 (2026-09-25), plus OQ-configuration-model-8 and OQ-security-and-identity-2, -3, -6, -15 and -18 (`auth.basic`, `auth.mtls`, `source.ip`, `authz.ip`), among them OQ-security-and-identity-21, -22, -24, OQ-repository-layout-and-conventions-6 and OQ-release-versioning-and-compatibility-3; OQ-traffic-management-and-resilience-5 and OQ-scalability-and-distributed-state-3 close only their M1 parts (breaker `minimumLegs`; Response Cache).
+7. Every Open question blocking an M1 feature is closed: the 32 whose Blocking column names M1 (2026-09-25), plus OQ-configuration-model-8 and OQ-security-and-identity-2, -3, -6, -15 and -18 (`auth.basic`, `auth.mtls`, `source.ip`, `authz.ip`); OQ-traffic-management-and-resilience-5 and OQ-scalability-and-distributed-state-3 close only their M1 parts (breaker `minimumLegs`; Response Cache).
+
+### M1 notes
+
+These notes change no scope item or exit criterion.
+
+| Date | Item | Reason | Resolution | Owner |
+|---|---|---|---|---|
+| 2026-09-26 | Quality: Docker Compose end-to-end test; air-gapped start | Not every machine has a Docker daemon | The process harness runs end-to-end tests everywhere; the Compose file-mode suite, with a real OpenTelemetry Collector, and the air-gapped image start run nightly and in stage 12 ([End-to-end tests](../engineering/03-testing-and-quality-strategy.md#end-to-end-tests)) | WP-79 (`test/e2e/`); WP-95 (`test/compose/`) |
+| 2026-09-26 | Security: Plugin artifact digest checks | Plugins are Planned (M2) | The verifier (RZ-CFG-028) ships in M1 with tests; no M1 path fetches a Plugin artifact, and fetch wiring lands in M2 ([Error codes](../architecture/02-configuration-model.md#error-codes)) | WP-17 (`internal/signing/`) |
+| 2026-09-26 | Traffic and state: `redis` driver on Valkey, Dragonfly | A local `redis-server` is not Valkey or Dragonfly | The `process` flavor runs wherever a `redis-server` binary is found (else skips with a reason); Redis 8, Valkey, Dragonfly and the clusters run in the stage 8 container leg ([Integration tests](../engineering/03-testing-and-quality-strategy.md#integration-tests)) | WP-85 (`internal/statestore/statestoretest/redisserver/`); WP-27 (`.github/workflows/pr-full.yml`) |
+| 2026-09-26 | Exit criteria 2, 3 and 5 (CE-12); Budgets: soak | Each needs the RH-1 hosts | RH-1 is rented bare metal (OQ-performance-budgets-and-benchmarking-2 option (b); [Reference hardware](../architecture/12-performance-budgets-and-benchmarking.md#reference-hardware)); until it runs them, exit criteria 2 and 3, and the CE-12 part of exit criterion 5, stay open | WP-97 (`deploy/benchhost/`) |
+| 2026-09-26 | Exit criterion 5 (CE-5, CE-15) | Both exceed the nightly Chaos job's scale | Every chaos experiment runs at reduced scale locally and at 10 Nodes (target) in the nightly Chaos job; a weekly larger-runner job runs CE-5 and CE-15 at target scale ([Chaos testing](../engineering/03-testing-and-quality-strategy.md#chaos-testing)) | WP-80 (`test/chaos/`, `.github/workflows/chaos-scale.yml`) |
 
 ## M2 WASM and Control with GitOps
 
@@ -242,9 +255,9 @@ gantt
 | ID | Risk | Likelihood | Impact | Mitigation |
 |---|---|---|---|---|
 | R-1 | M3 bundles AI, four protocols and HTTP/3, and slips whole | High | High | gRPC and GraphQL spikes during M2; per-track exit (OQ-roadmap-and-milestones-3) |
-| R-2 | gRPC waits for M3, so earlier evaluations needing it exclude Ruralz | High | Medium | gRPC and GraphQL spikes during M2 (R-1); per-track exit (OQ-roadmap-and-milestones-3) |
+| R-2 | gRPC waits for M3, so earlier evaluations needing it exclude Ruralz | High | Medium | As R-1 |
 | R-3 | Go garbage collection breaks 1 ms p99 (target) | Medium | High | M1 macro gate on RH-1, `GOMEMLIMIT` guidance, `default.pgo` in M4 |
-| R-4 | RH-1 is unfunded, so no M1 macro gate runs | Medium | High | Decide OQ-performance-budgets-and-benchmarking-2 before M1 |
+| R-4 | RH-1 is unfunded, so no M1 macro gate runs | Medium | High | Rented bare metal ([M1 notes](#m1-notes)) |
 | R-5 | Pack amendments to sections 8.7, 8.8, 8.10 and 8.11 stall | High | Medium | One amendment round before M1 (OQ-scalability-and-distributed-state-11, OQ-security-and-identity-9) |
 | R-6 | wazero has no fuel metering ([source](https://github.com/wazero/wazero/issues/422)); deadline interruption (`WithCloseOnContextDone`) costs 10 to 20x on loop-heavy guests ([source](https://github.com/wazero/wazero/issues/2466)), threatening SM-6 and PB-5 | Medium | High | Deadlines and Host Function call budgets (WASM plugin system's answer to OQ-tech-stack-and-libraries-8); S4 loop-heavy variant gates M2; revisit per [ADR-0004](../adr/0004-wasm-runtime-wazero.md) |
 | R-7 | Non-OpenAI token estimates miss SM-10 | Medium | Medium | Provider-reported usage stays authoritative; calibration (OQ-ai-llm-gateway-2) |
