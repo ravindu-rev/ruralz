@@ -20,12 +20,26 @@ This directory holds the working plan the M1 Core gateway implementation follows
 ## State on 2026-10-03
 
 - `develop` holds waves 1 and 2: WP-01 to WP-30, WP-83 and WP-84, the two test-race fixes, the wave-2 boundary decisions (R-63 to R-75 in code, architecture and docs), and the M1 guide updates in `AGENTS.md`, `CONTRIBUTING.md` and `.claude/rules/`.
-- Documentation the user approved at the wave-2 boundary: the CI tooling research addendum, ADR-0018 superseding ADR-0010, ADR-0019 superseding ADR-0011, the foundation pack Upgrades row, and the rest of WP-32 (see "Documentation status" below).
-- Waves 3 to 10 are not started. Wave 3 has 25 work packages: WP-31, 33 to 40, 42 to 54, 65, 85 and 88. None depends on another in the same wave. WP-31 owns `docs/architecture/09`, `10` and `11`, which the ADR work also edits, so run it after that work is committed.
+- The documentation the user approved at the wave-2 boundary is committed (see "Documentation status" below).
+- Waves 3 to 10 are not started. Wave 3 has 25 work packages: WP-31, 33 to 40, 42 to 54, 65, 85 and 88. None depends on another in the same wave. WP-31 owns `docs/architecture/09`, `10` and `11`; the ADR work that also edited them is committed, so it can run with the rest (it is not in `runs/w3-args-*.json`; add it to one run).
 
 ## Documentation status
 
-Filled in at hand-off; see the latest commit touching this file.
+Committed on 2026-10-03, so wave 2 is complete including WP-32:
+
+- `e58c058` the CI tooling research addendum (section 11 of `docs/_meta/research/tooling-and-licenses.md`).
+- `dc9a0a0` ADR-0018 superseding ADR-0010 and ADR-0019 superseding ADR-0011, with their indexes, manifest entries and foundation pack rows; OQ-observability-16 (a) and OQ-configuration-model-21 (a) closed; the foundation pack Upgrades row adopts OQ-zero-downtime-upgrades-and-hot-reload-12 (a).
+- `43168ff` WP-32: the engineering, performance, release, feature and vision documents, and the roadmap M1 note; OQ-testing-and-quality-strategy-11 (b) closed (chaos at scale on RH-1).
+- `7d16103` the depguard messages and Go comments now cite ADR-0018 and ADR-0019.
+
+Small items left for a later pass (none blocks wave 3):
+
+- `docs/_meta/manifest.yaml` per-document `adrs` lists still name ADR-0010 or ADR-0011 for documents that now cite ADR-0018 or ADR-0019 (cosmetic; two approvals).
+- Foundation pack section 7 "Pending selections" still lists ULID and the CLI framework, which OQ-tech-stack-and-libraries-15 and -18 already answer (two approvals and a section 14 entry).
+- OQ-observability-2 in `docs/architecture/10-observability.md` still reads blocking although the configuration model adopted `telemetry.otlp.tls`: WP-31 closes it.
+- `docs/engineering/01-tech-stack-and-libraries.md` says the Go floor moves "only by ADR-0001 amendment"; reword to "an ADR superseding ADR-0001".
+- ADR-0018 "More information" links the layout document's `#import-boundaries` anchor; the OpenTelemetry confinement row sits under `#banned-imports`.
+- Architecture section 2 code blocks lag a few committed contract fixes (the `clocktest` fire race fix, `ConnCache.Put`, `diag` escaping); the committed Go code wins (architecture section 2 note).
 
 ## How a wave runs
 
