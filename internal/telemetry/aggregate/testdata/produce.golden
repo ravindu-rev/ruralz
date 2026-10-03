@@ -1,0 +1,512 @@
+scope github.com/ravindu-rev/ruralz/internal/telemetry "v0.1.0-test"
+# ruralz_http_requests_total counter {requests} monotonic=true cumulative=true
+ruralz_http_requests_total{route="_overflow",status_class="1xx"} 0 start=0s
+ruralz_http_requests_total{route="_overflow",status_class="2xx"} 0 start=0s
+ruralz_http_requests_total{route="_overflow",status_class="3xx"} 0 start=0s
+ruralz_http_requests_total{route="_overflow",status_class="4xx"} 1 start=0s
+ruralz_http_requests_total{route="_overflow",status_class="5xx"} 0 start=0s
+ruralz_http_requests_total{route="_unmatched",status_class="1xx"} 0 start=0s
+ruralz_http_requests_total{route="_unmatched",status_class="2xx"} 0 start=0s
+ruralz_http_requests_total{route="_unmatched",status_class="3xx"} 0 start=0s
+ruralz_http_requests_total{route="_unmatched",status_class="4xx"} 1 start=0s
+ruralz_http_requests_total{route="_unmatched",status_class="5xx"} 0 start=0s
+ruralz_http_requests_total{route="orders",status_class="1xx"} 0 start=0s
+ruralz_http_requests_total{route="orders",status_class="2xx"} 2 start=0s
+ruralz_http_requests_total{route="orders",status_class="3xx"} 0 start=0s
+ruralz_http_requests_total{route="orders",status_class="4xx"} 1 start=0s
+ruralz_http_requests_total{route="orders",status_class="5xx"} 0 start=0s
+ruralz_http_requests_total{route="users",status_class="1xx"} 0 start=0s
+ruralz_http_requests_total{route="users",status_class="2xx"} 0 start=0s
+ruralz_http_requests_total{route="users",status_class="3xx"} 0 start=0s
+ruralz_http_requests_total{route="users",status_class="4xx"} 0 start=0s
+ruralz_http_requests_total{route="users",status_class="5xx"} 0 start=0s
+# ruralz_http_listener_requests_total counter {requests} monotonic=true cumulative=true
+ruralz_http_listener_requests_total{listener="internal",origin="upstream",protocol="http1",status_class="1xx"} 0 start=0s
+ruralz_http_listener_requests_total{listener="internal",origin="node",protocol="http1",status_class="1xx"} 0 start=0s
+ruralz_http_listener_requests_total{listener="internal",origin="dependency",protocol="http1",status_class="1xx"} 0 start=0s
+ruralz_http_listener_requests_total{listener="internal",origin="upstream",protocol="http1",status_class="2xx"} 0 start=0s
+ruralz_http_listener_requests_total{listener="internal",origin="node",protocol="http1",status_class="2xx"} 0 start=0s
+ruralz_http_listener_requests_total{listener="internal",origin="dependency",protocol="http1",status_class="2xx"} 0 start=0s
+ruralz_http_listener_requests_total{listener="internal",origin="upstream",protocol="http1",status_class="3xx"} 0 start=0s
+ruralz_http_listener_requests_total{listener="internal",origin="node",protocol="http1",status_class="3xx"} 0 start=0s
+ruralz_http_listener_requests_total{listener="internal",origin="dependency",protocol="http1",status_class="3xx"} 0 start=0s
+ruralz_http_listener_requests_total{listener="internal",origin="upstream",protocol="http1",status_class="4xx"} 0 start=0s
+ruralz_http_listener_requests_total{listener="internal",origin="node",protocol="http1",status_class="4xx"} 0 start=0s
+ruralz_http_listener_requests_total{listener="internal",origin="dependency",protocol="http1",status_class="4xx"} 0 start=0s
+ruralz_http_listener_requests_total{listener="internal",origin="upstream",protocol="http1",status_class="5xx"} 0 start=0s
+ruralz_http_listener_requests_total{listener="internal",origin="node",protocol="http1",status_class="5xx"} 0 start=0s
+ruralz_http_listener_requests_total{listener="internal",origin="dependency",protocol="http1",status_class="5xx"} 0 start=0s
+ruralz_http_listener_requests_total{listener="internal",origin="upstream",protocol="http2",status_class="1xx"} 0 start=0s
+ruralz_http_listener_requests_total{listener="internal",origin="node",protocol="http2",status_class="1xx"} 0 start=0s
+ruralz_http_listener_requests_total{listener="internal",origin="dependency",protocol="http2",status_class="1xx"} 0 start=0s
+ruralz_http_listener_requests_total{listener="internal",origin="upstream",protocol="http2",status_class="2xx"} 0 start=0s
+ruralz_http_listener_requests_total{listener="internal",origin="node",protocol="http2",status_class="2xx"} 0 start=0s
+ruralz_http_listener_requests_total{listener="internal",origin="dependency",protocol="http2",status_class="2xx"} 0 start=0s
+ruralz_http_listener_requests_total{listener="internal",origin="upstream",protocol="http2",status_class="3xx"} 0 start=0s
+ruralz_http_listener_requests_total{listener="internal",origin="node",protocol="http2",status_class="3xx"} 0 start=0s
+ruralz_http_listener_requests_total{listener="internal",origin="dependency",protocol="http2",status_class="3xx"} 0 start=0s
+ruralz_http_listener_requests_total{listener="internal",origin="upstream",protocol="http2",status_class="4xx"} 0 start=0s
+ruralz_http_listener_requests_total{listener="internal",origin="node",protocol="http2",status_class="4xx"} 0 start=0s
+ruralz_http_listener_requests_total{listener="internal",origin="dependency",protocol="http2",status_class="4xx"} 0 start=0s
+ruralz_http_listener_requests_total{listener="internal",origin="upstream",protocol="http2",status_class="5xx"} 0 start=0s
+ruralz_http_listener_requests_total{listener="internal",origin="node",protocol="http2",status_class="5xx"} 0 start=0s
+ruralz_http_listener_requests_total{listener="internal",origin="dependency",protocol="http2",status_class="5xx"} 0 start=0s
+ruralz_http_listener_requests_total{listener="public",origin="upstream",protocol="http1",status_class="1xx"} 0 start=0s
+ruralz_http_listener_requests_total{listener="public",origin="node",protocol="http1",status_class="1xx"} 0 start=0s
+ruralz_http_listener_requests_total{listener="public",origin="dependency",protocol="http1",status_class="1xx"} 0 start=0s
+ruralz_http_listener_requests_total{listener="public",origin="upstream",protocol="http1",status_class="2xx"} 1 start=0s
+ruralz_http_listener_requests_total{listener="public",origin="node",protocol="http1",status_class="2xx"} 0 start=0s
+ruralz_http_listener_requests_total{listener="public",origin="dependency",protocol="http1",status_class="2xx"} 0 start=0s
+ruralz_http_listener_requests_total{listener="public",origin="upstream",protocol="http1",status_class="3xx"} 0 start=0s
+ruralz_http_listener_requests_total{listener="public",origin="node",protocol="http1",status_class="3xx"} 0 start=0s
+ruralz_http_listener_requests_total{listener="public",origin="dependency",protocol="http1",status_class="3xx"} 0 start=0s
+ruralz_http_listener_requests_total{listener="public",origin="upstream",protocol="http1",status_class="4xx"} 0 start=0s
+ruralz_http_listener_requests_total{listener="public",origin="node",protocol="http1",status_class="4xx"} 0 start=0s
+ruralz_http_listener_requests_total{listener="public",origin="dependency",protocol="http1",status_class="4xx"} 0 start=0s
+ruralz_http_listener_requests_total{listener="public",origin="upstream",protocol="http1",status_class="5xx"} 0 start=0s
+ruralz_http_listener_requests_total{listener="public",origin="node",protocol="http1",status_class="5xx"} 0 start=0s
+ruralz_http_listener_requests_total{listener="public",origin="dependency",protocol="http1",status_class="5xx"} 0 start=0s
+ruralz_http_listener_requests_total{listener="public",origin="upstream",protocol="http2",status_class="1xx"} 0 start=0s
+ruralz_http_listener_requests_total{listener="public",origin="node",protocol="http2",status_class="1xx"} 0 start=0s
+ruralz_http_listener_requests_total{listener="public",origin="dependency",protocol="http2",status_class="1xx"} 0 start=0s
+ruralz_http_listener_requests_total{listener="public",origin="upstream",protocol="http2",status_class="2xx"} 0 start=0s
+ruralz_http_listener_requests_total{listener="public",origin="node",protocol="http2",status_class="2xx"} 0 start=0s
+ruralz_http_listener_requests_total{listener="public",origin="dependency",protocol="http2",status_class="2xx"} 0 start=0s
+ruralz_http_listener_requests_total{listener="public",origin="upstream",protocol="http2",status_class="3xx"} 0 start=0s
+ruralz_http_listener_requests_total{listener="public",origin="node",protocol="http2",status_class="3xx"} 0 start=0s
+ruralz_http_listener_requests_total{listener="public",origin="dependency",protocol="http2",status_class="3xx"} 0 start=0s
+ruralz_http_listener_requests_total{listener="public",origin="upstream",protocol="http2",status_class="4xx"} 0 start=0s
+ruralz_http_listener_requests_total{listener="public",origin="node",protocol="http2",status_class="4xx"} 0 start=0s
+ruralz_http_listener_requests_total{listener="public",origin="dependency",protocol="http2",status_class="4xx"} 0 start=0s
+ruralz_http_listener_requests_total{listener="public",origin="upstream",protocol="http2",status_class="5xx"} 0 start=0s
+ruralz_http_listener_requests_total{listener="public",origin="node",protocol="http2",status_class="5xx"} 0 start=0s
+ruralz_http_listener_requests_total{listener="public",origin="dependency",protocol="http2",status_class="5xx"} 1 start=0s
+# ruralz_http_node_responses_total counter {responses} monotonic=true cumulative=true
+ruralz_http_node_responses_total{code="RZ-RT-001"} 1 start=0s
+# ruralz_http_request_duration_seconds histogram s bounds=[0.001 0.005 0.01 0.025 0.05 0.1 0.25 0.5 1 2.5 5 10 60] cumulative=true
+ruralz_http_request_duration_seconds{route="_overflow"} count=0 sum=0 buckets=[0 0 0 0 0 0 0 0 0 0 0 0 0 0] start=0s
+ruralz_http_request_duration_seconds{route="_unmatched"} count=0 sum=0 buckets=[0 0 0 0 0 0 0 0 0 0 0 0 0 0] start=0s
+ruralz_http_request_duration_seconds{route="orders"} count=2 sum=0.0035 buckets=[1 1 0 0 0 0 0 0 0 0 0 0 0 0] start=0s exemplar=0.0025@1.5s trace=4bf92f3577b34da6a3ce929d0e0e4736 span=00f067aa0ba902b7
+ruralz_http_request_duration_seconds{route="users"} count=0 sum=0 buckets=[0 0 0 0 0 0 0 0 0 0 0 0 0 0] start=0s
+# ruralz_http_gateway_duration_seconds histogram s bounds=[1e-05 2.5e-05 5e-05 0.0001 0.00015 0.00025 0.0005 0.001 0.0025 0.005 0.01 0.025 0.1] cumulative=true
+ruralz_http_gateway_duration_seconds{listener="internal"} count=0 sum=0 buckets=[0 0 0 0 0 0 0 0 0 0 0 0 0 0] start=0s
+ruralz_http_gateway_duration_seconds{listener="public"} count=1 sum=0.00012 buckets=[0 0 0 0 1 0 0 0 0 0 0 0 0 0] start=0s
+# ruralz_http_gateway_duration_skipped_total counter {requests} monotonic=true cumulative=true
+ruralz_http_gateway_duration_skipped_total{reason="clock_anomaly"} 0 start=0s
+# ruralz_http_request_body_bytes histogram By bounds=[64 256 1024 4096 16384 65536 262144 1.048576e+06 4.194304e+06 1.6777216e+07 6.7108864e+07 2.68435456e+08 1.073741824e+09] cumulative=true
+ruralz_http_request_body_bytes{listener="internal"} count=0 sum=0 buckets=[0 0 0 0 0 0 0 0 0 0 0 0 0 0] start=0s
+ruralz_http_request_body_bytes{listener="public"} count=1 sum=512 buckets=[0 0 1 0 0 0 0 0 0 0 0 0 0 0] start=0s
+# ruralz_http_response_body_bytes histogram By bounds=[64 256 1024 4096 16384 65536 262144 1.048576e+06 4.194304e+06 1.6777216e+07 6.7108864e+07 2.68435456e+08 1.073741824e+09] cumulative=true
+ruralz_http_response_body_bytes{listener="internal"} count=0 sum=0 buckets=[0 0 0 0 0 0 0 0 0 0 0 0 0 0] start=0s
+ruralz_http_response_body_bytes{listener="public"} count=1 sum=70000 buckets=[0 0 0 0 0 0 1 0 0 0 0 0 0 0] start=0s
+# ruralz_http_active_requests gauge {requests}
+ruralz_http_active_requests{listener="internal"} 0 start=0s
+ruralz_http_active_requests{listener="public"} 1 start=0s
+# ruralz_listener_open_connections gauge {connections}
+ruralz_listener_open_connections{listener="internal",protocol="http1"} 0 start=0s
+ruralz_listener_open_connections{listener="internal",protocol="http2"} 0 start=0s
+ruralz_listener_open_connections{listener="public",protocol="http1"} 2 start=0s
+ruralz_listener_open_connections{listener="public",protocol="http2"} 0 start=0s
+# ruralz_listener_connections_total counter {connections} monotonic=true cumulative=true
+ruralz_listener_connections_total{listener="internal",protocol="http1",result="accepted"} 0 start=0s
+ruralz_listener_connections_total{listener="internal",protocol="http1",result="tls_failure"} 0 start=0s
+ruralz_listener_connections_total{listener="internal",protocol="http1",result="refused"} 0 start=0s
+ruralz_listener_connections_total{listener="internal",protocol="http2",result="accepted"} 0 start=0s
+ruralz_listener_connections_total{listener="internal",protocol="http2",result="tls_failure"} 0 start=0s
+ruralz_listener_connections_total{listener="internal",protocol="http2",result="refused"} 0 start=0s
+ruralz_listener_connections_total{listener="public",protocol="http1",result="accepted"} 3 start=0s
+ruralz_listener_connections_total{listener="public",protocol="http1",result="tls_failure"} 0 start=0s
+ruralz_listener_connections_total{listener="public",protocol="http1",result="refused"} 0 start=0s
+ruralz_listener_connections_total{listener="public",protocol="http2",result="accepted"} 0 start=0s
+ruralz_listener_connections_total{listener="public",protocol="http2",result="tls_failure"} 0 start=0s
+ruralz_listener_connections_total{listener="public",protocol="http2",result="refused"} 0 start=0s
+# ruralz_listener_tls_handshake_duration_seconds histogram s bounds=[0.001 0.005 0.01 0.025 0.05 0.1 0.25 0.5 1 2.5 5 10 60] cumulative=true
+ruralz_listener_tls_handshake_duration_seconds{listener="internal"} count=0 sum=0 buckets=[0 0 0 0 0 0 0 0 0 0 0 0 0 0] start=0s
+ruralz_listener_tls_handshake_duration_seconds{listener="public"} count=1 sum=0.003 buckets=[0 1 0 0 0 0 0 0 0 0 0 0 0 0] start=0s
+# ruralz_filter_duration_seconds histogram s bounds=[1e-05 2.5e-05 5e-05 0.0001 0.00015 0.00025 0.0005 0.001 0.0025 0.005 0.01 0.025 0.1] cumulative=true
+ruralz_filter_duration_seconds{phase="onRequestHeaders",policy="_overflow"} count=0 sum=0 buckets=[0 0 0 0 0 0 0 0 0 0 0 0 0 0] start=0s
+ruralz_filter_duration_seconds{phase="onRequestBody",policy="_overflow"} count=0 sum=0 buckets=[0 0 0 0 0 0 0 0 0 0 0 0 0 0] start=0s
+ruralz_filter_duration_seconds{phase="onRoute",policy="_overflow"} count=0 sum=0 buckets=[0 0 0 0 0 0 0 0 0 0 0 0 0 0] start=0s
+ruralz_filter_duration_seconds{phase="onUpstreamRequest",policy="_overflow"} count=0 sum=0 buckets=[0 0 0 0 0 0 0 0 0 0 0 0 0 0] start=0s
+ruralz_filter_duration_seconds{phase="onUpstreamResponseHeaders",policy="_overflow"} count=0 sum=0 buckets=[0 0 0 0 0 0 0 0 0 0 0 0 0 0] start=0s
+ruralz_filter_duration_seconds{phase="onUpstreamResponseBody",policy="_overflow"} count=0 sum=0 buckets=[0 0 0 0 0 0 0 0 0 0 0 0 0 0] start=0s
+ruralz_filter_duration_seconds{phase="onResponse",policy="_overflow"} count=0 sum=0 buckets=[0 0 0 0 0 0 0 0 0 0 0 0 0 0] start=0s
+ruralz_filter_duration_seconds{phase="onLog",policy="_overflow"} count=0 sum=0 buckets=[0 0 0 0 0 0 0 0 0 0 0 0 0 0] start=0s
+ruralz_filter_duration_seconds{phase="onChunk",policy="_overflow"} count=0 sum=0 buckets=[0 0 0 0 0 0 0 0 0 0 0 0 0 0] start=0s
+ruralz_filter_duration_seconds{phase="onRequestHeaders",policy="cors-default"} count=0 sum=0 buckets=[0 0 0 0 0 0 0 0 0 0 0 0 0 0] start=0s
+ruralz_filter_duration_seconds{phase="onResponse",policy="cors-default"} count=0 sum=0 buckets=[0 0 0 0 0 0 0 0 0 0 0 0 0 0] start=0s
+ruralz_filter_duration_seconds{phase="onResponse",policy="headers-default"} count=1 sum=9e-06 buckets=[1 0 0 0 0 0 0 0 0 0 0 0 0 0] start=0s
+ruralz_filter_duration_seconds{phase="onRequestHeaders",policy="jwt-default"} count=1 sum=4e-05 buckets=[0 0 1 0 0 0 0 0 0 0 0 0 0 0] start=0s
+ruralz_filter_duration_seconds{phase="onRequestHeaders",policy="quota-default"} count=0 sum=0 buckets=[0 0 0 0 0 0 0 0 0 0 0 0 0 0] start=0s
+ruralz_filter_duration_seconds{phase="onLog",policy="quota-default"} count=0 sum=0 buckets=[0 0 0 0 0 0 0 0 0 0 0 0 0 0] start=0s
+ruralz_filter_duration_seconds{phase="onRequestHeaders",policy="ratelimit-default"} count=0 sum=0 buckets=[0 0 0 0 0 0 0 0 0 0 0 0 0 0] start=0s
+# ruralz_filter_short_circuits_total counter {responses} monotonic=true cumulative=true
+ruralz_filter_short_circuits_total{phase="onRequestHeaders",policy="_overflow",status_class="1xx"} 0 start=0s
+ruralz_filter_short_circuits_total{phase="onRequestHeaders",policy="_overflow",status_class="2xx"} 0 start=0s
+ruralz_filter_short_circuits_total{phase="onRequestHeaders",policy="_overflow",status_class="3xx"} 0 start=0s
+ruralz_filter_short_circuits_total{phase="onRequestHeaders",policy="_overflow",status_class="4xx"} 0 start=0s
+ruralz_filter_short_circuits_total{phase="onRequestHeaders",policy="_overflow",status_class="5xx"} 0 start=0s
+ruralz_filter_short_circuits_total{phase="onRequestBody",policy="_overflow",status_class="1xx"} 0 start=0s
+ruralz_filter_short_circuits_total{phase="onRequestBody",policy="_overflow",status_class="2xx"} 0 start=0s
+ruralz_filter_short_circuits_total{phase="onRequestBody",policy="_overflow",status_class="3xx"} 0 start=0s
+ruralz_filter_short_circuits_total{phase="onRequestBody",policy="_overflow",status_class="4xx"} 0 start=0s
+ruralz_filter_short_circuits_total{phase="onRequestBody",policy="_overflow",status_class="5xx"} 0 start=0s
+ruralz_filter_short_circuits_total{phase="onRoute",policy="_overflow",status_class="1xx"} 0 start=0s
+ruralz_filter_short_circuits_total{phase="onRoute",policy="_overflow",status_class="2xx"} 0 start=0s
+ruralz_filter_short_circuits_total{phase="onRoute",policy="_overflow",status_class="3xx"} 0 start=0s
+ruralz_filter_short_circuits_total{phase="onRoute",policy="_overflow",status_class="4xx"} 0 start=0s
+ruralz_filter_short_circuits_total{phase="onRoute",policy="_overflow",status_class="5xx"} 0 start=0s
+ruralz_filter_short_circuits_total{phase="onUpstreamRequest",policy="_overflow",status_class="1xx"} 0 start=0s
+ruralz_filter_short_circuits_total{phase="onUpstreamRequest",policy="_overflow",status_class="2xx"} 0 start=0s
+ruralz_filter_short_circuits_total{phase="onUpstreamRequest",policy="_overflow",status_class="3xx"} 0 start=0s
+ruralz_filter_short_circuits_total{phase="onUpstreamRequest",policy="_overflow",status_class="4xx"} 0 start=0s
+ruralz_filter_short_circuits_total{phase="onUpstreamRequest",policy="_overflow",status_class="5xx"} 0 start=0s
+ruralz_filter_short_circuits_total{phase="onRequestHeaders",policy="cors-default",status_class="1xx"} 0 start=0s
+ruralz_filter_short_circuits_total{phase="onRequestHeaders",policy="cors-default",status_class="2xx"} 0 start=0s
+ruralz_filter_short_circuits_total{phase="onRequestHeaders",policy="cors-default",status_class="3xx"} 0 start=0s
+ruralz_filter_short_circuits_total{phase="onRequestHeaders",policy="cors-default",status_class="4xx"} 0 start=0s
+ruralz_filter_short_circuits_total{phase="onRequestHeaders",policy="cors-default",status_class="5xx"} 0 start=0s
+ruralz_filter_short_circuits_total{phase="onRequestHeaders",policy="jwt-default",status_class="1xx"} 0 start=0s
+ruralz_filter_short_circuits_total{phase="onRequestHeaders",policy="jwt-default",status_class="2xx"} 0 start=0s
+ruralz_filter_short_circuits_total{phase="onRequestHeaders",policy="jwt-default",status_class="3xx"} 0 start=0s
+ruralz_filter_short_circuits_total{phase="onRequestHeaders",policy="jwt-default",status_class="4xx"} 1 start=0s
+ruralz_filter_short_circuits_total{phase="onRequestHeaders",policy="jwt-default",status_class="5xx"} 0 start=0s
+ruralz_filter_short_circuits_total{phase="onRequestHeaders",policy="quota-default",status_class="1xx"} 0 start=0s
+ruralz_filter_short_circuits_total{phase="onRequestHeaders",policy="quota-default",status_class="2xx"} 0 start=0s
+ruralz_filter_short_circuits_total{phase="onRequestHeaders",policy="quota-default",status_class="3xx"} 0 start=0s
+ruralz_filter_short_circuits_total{phase="onRequestHeaders",policy="quota-default",status_class="4xx"} 0 start=0s
+ruralz_filter_short_circuits_total{phase="onRequestHeaders",policy="quota-default",status_class="5xx"} 0 start=0s
+ruralz_filter_short_circuits_total{phase="onRequestHeaders",policy="ratelimit-default",status_class="1xx"} 0 start=0s
+ruralz_filter_short_circuits_total{phase="onRequestHeaders",policy="ratelimit-default",status_class="2xx"} 0 start=0s
+ruralz_filter_short_circuits_total{phase="onRequestHeaders",policy="ratelimit-default",status_class="3xx"} 0 start=0s
+ruralz_filter_short_circuits_total{phase="onRequestHeaders",policy="ratelimit-default",status_class="4xx"} 0 start=0s
+ruralz_filter_short_circuits_total{phase="onRequestHeaders",policy="ratelimit-default",status_class="5xx"} 0 start=0s
+# ruralz_filter_failures_total counter {failures} monotonic=true cumulative=true
+ruralz_filter_failures_total{mode="open",phase="onRequestHeaders",policy="_overflow"} 0 start=0s
+ruralz_filter_failures_total{mode="closed",phase="onRequestHeaders",policy="_overflow"} 0 start=0s
+ruralz_filter_failures_total{mode="open",phase="onRequestBody",policy="_overflow"} 0 start=0s
+ruralz_filter_failures_total{mode="closed",phase="onRequestBody",policy="_overflow"} 0 start=0s
+ruralz_filter_failures_total{mode="open",phase="onRoute",policy="_overflow"} 0 start=0s
+ruralz_filter_failures_total{mode="closed",phase="onRoute",policy="_overflow"} 0 start=0s
+ruralz_filter_failures_total{mode="open",phase="onUpstreamRequest",policy="_overflow"} 0 start=0s
+ruralz_filter_failures_total{mode="closed",phase="onUpstreamRequest",policy="_overflow"} 0 start=0s
+ruralz_filter_failures_total{mode="open",phase="onUpstreamResponseHeaders",policy="_overflow"} 0 start=0s
+ruralz_filter_failures_total{mode="closed",phase="onUpstreamResponseHeaders",policy="_overflow"} 0 start=0s
+ruralz_filter_failures_total{mode="open",phase="onUpstreamResponseBody",policy="_overflow"} 0 start=0s
+ruralz_filter_failures_total{mode="closed",phase="onUpstreamResponseBody",policy="_overflow"} 0 start=0s
+ruralz_filter_failures_total{mode="open",phase="onResponse",policy="_overflow"} 0 start=0s
+ruralz_filter_failures_total{mode="closed",phase="onResponse",policy="_overflow"} 0 start=0s
+ruralz_filter_failures_total{mode="open",phase="onChunk",policy="_overflow"} 0 start=0s
+ruralz_filter_failures_total{mode="closed",phase="onChunk",policy="_overflow"} 0 start=0s
+ruralz_filter_failures_total{mode="open",phase="onRequestHeaders",policy="cors-default"} 0 start=0s
+ruralz_filter_failures_total{mode="closed",phase="onRequestHeaders",policy="cors-default"} 0 start=0s
+ruralz_filter_failures_total{mode="open",phase="onResponse",policy="cors-default"} 0 start=0s
+ruralz_filter_failures_total{mode="closed",phase="onResponse",policy="cors-default"} 0 start=0s
+ruralz_filter_failures_total{mode="open",phase="onResponse",policy="headers-default"} 0 start=0s
+ruralz_filter_failures_total{mode="closed",phase="onResponse",policy="headers-default"} 0 start=0s
+ruralz_filter_failures_total{mode="open",phase="onRequestHeaders",policy="jwt-default"} 0 start=0s
+ruralz_filter_failures_total{mode="closed",phase="onRequestHeaders",policy="jwt-default"} 0 start=0s
+ruralz_filter_failures_total{mode="open",phase="onRequestHeaders",policy="quota-default"} 0 start=0s
+ruralz_filter_failures_total{mode="closed",phase="onRequestHeaders",policy="quota-default"} 0 start=0s
+ruralz_filter_failures_total{mode="open",phase="onRequestHeaders",policy="ratelimit-default"} 0 start=0s
+ruralz_filter_failures_total{mode="closed",phase="onRequestHeaders",policy="ratelimit-default"} 0 start=0s
+# ruralz_auth_decisions_total counter {decisions} monotonic=true cumulative=true
+ruralz_auth_decisions_total{code="",policy="_overflow",result="allow"} 0 start=0s
+ruralz_auth_decisions_total{code="",policy="jwt-default",result="allow"} 1 start=0s
+ruralz_auth_decisions_total{code="RZ-AUTH-001",policy="jwt-default",result="deny"} 1 start=0s
+# ruralz_auth_jwks_age_seconds gauge s
+ruralz_auth_jwks_age_seconds{policy="_overflow"} 0 start=0s
+ruralz_auth_jwks_age_seconds{policy="jwt-default"} 30 start=0s
+# ruralz_security_cleartext_hops gauge {hops}
+ruralz_security_cleartext_hops{hop="client"} 1 start=0s
+ruralz_security_cleartext_hops{hop="upstream"} 0 start=0s
+ruralz_security_cleartext_hops{hop="state_store"} 0 start=0s
+ruralz_security_cleartext_hops{hop="telemetry"} 0 start=0s
+ruralz_security_cleartext_hops{hop="admin"} 0 start=0s
+# ruralz_ratelimit_decisions_total counter {decisions} monotonic=true cumulative=true
+ruralz_ratelimit_decisions_total{policy="_overflow",result="allow"} 0 start=0s
+ruralz_ratelimit_decisions_total{policy="_overflow",result="deny_local"} 0 start=0s
+ruralz_ratelimit_decisions_total{policy="_overflow",result="deny_global"} 0 start=0s
+ruralz_ratelimit_decisions_total{policy="_overflow",result="fail_open"} 0 start=0s
+ruralz_ratelimit_decisions_total{policy="ratelimit-default",result="allow"} 2 start=0s
+ruralz_ratelimit_decisions_total{policy="ratelimit-default",result="deny_local"} 0 start=0s
+ruralz_ratelimit_decisions_total{policy="ratelimit-default",result="deny_global"} 0 start=0s
+ruralz_ratelimit_decisions_total{policy="ratelimit-default",result="fail_open"} 0 start=0s
+# ruralz_ratelimit_bucket_evictions_total counter {entries} monotonic=true cumulative=true
+ruralz_ratelimit_bucket_evictions_total{policy="_overflow"} 0 start=0s
+ruralz_ratelimit_bucket_evictions_total{policy="ratelimit-default"} 0 start=0s
+# ruralz_quota_decisions_total counter {decisions} monotonic=true cumulative=true
+ruralz_quota_decisions_total{policy="_overflow",result="allow"} 0 start=0s
+ruralz_quota_decisions_total{policy="_overflow",result="deny"} 0 start=0s
+ruralz_quota_decisions_total{policy="_overflow",result="no_quota"} 0 start=0s
+ruralz_quota_decisions_total{policy="_overflow",result="fail_open"} 0 start=0s
+ruralz_quota_decisions_total{policy="quota-default",result="allow"} 1 start=0s
+ruralz_quota_decisions_total{policy="quota-default",result="deny"} 0 start=0s
+ruralz_quota_decisions_total{policy="quota-default",result="no_quota"} 0 start=0s
+ruralz_quota_decisions_total{policy="quota-default",result="fail_open"} 0 start=0s
+# ruralz_cache_requests_total counter {requests} monotonic=true cumulative=true
+ruralz_cache_requests_total{result="hit",route="_overflow"} 0 start=0s
+ruralz_cache_requests_total{result="miss",route="_overflow"} 0 start=0s
+ruralz_cache_requests_total{result="bypass",route="_overflow"} 0 start=0s
+ruralz_cache_requests_total{result="stale",route="_overflow"} 0 start=0s
+ruralz_cache_requests_total{result="stale_error",route="_overflow"} 0 start=0s
+ruralz_cache_requests_total{result="hit",route="legacy"} 0 start=0s
+ruralz_cache_requests_total{result="miss",route="legacy"} 0 start=0s
+ruralz_cache_requests_total{result="bypass",route="legacy"} 0 start=0s
+ruralz_cache_requests_total{result="stale",route="legacy"} 0 start=0s
+ruralz_cache_requests_total{result="stale_error",route="legacy"} 0 start=0s
+ruralz_cache_requests_total{result="hit",route="orders"} 0 start=0s
+ruralz_cache_requests_total{result="miss",route="orders"} 1 start=0s
+ruralz_cache_requests_total{result="bypass",route="orders"} 0 start=0s
+ruralz_cache_requests_total{result="stale",route="orders"} 0 start=0s
+ruralz_cache_requests_total{result="stale_error",route="orders"} 0 start=0s
+ruralz_cache_requests_total{result="hit",route="users"} 0 start=0s
+ruralz_cache_requests_total{result="miss",route="users"} 0 start=0s
+ruralz_cache_requests_total{result="bypass",route="users"} 0 start=0s
+ruralz_cache_requests_total{result="stale",route="users"} 0 start=0s
+ruralz_cache_requests_total{result="stale_error",route="users"} 0 start=0s
+# ruralz_upstream_attempts_total counter {attempts} monotonic=true cumulative=true
+ruralz_upstream_attempts_total{error="none",status_class="1xx",upstream="_overflow"} 0 start=0s
+ruralz_upstream_attempts_total{error="none",status_class="2xx",upstream="_overflow"} 0 start=0s
+ruralz_upstream_attempts_total{error="none",status_class="3xx",upstream="_overflow"} 0 start=0s
+ruralz_upstream_attempts_total{error="none",status_class="4xx",upstream="_overflow"} 0 start=0s
+ruralz_upstream_attempts_total{error="none",status_class="5xx",upstream="_overflow"} 0 start=0s
+ruralz_upstream_attempts_total{error="connect",status_class="5xx",upstream="_overflow"} 0 start=0s
+ruralz_upstream_attempts_total{error="timeout",status_class="5xx",upstream="_overflow"} 0 start=0s
+ruralz_upstream_attempts_total{error="reset",status_class="5xx",upstream="_overflow"} 0 start=0s
+ruralz_upstream_attempts_total{error="tls",status_class="5xx",upstream="_overflow"} 0 start=0s
+ruralz_upstream_attempts_total{error="none",status_class="1xx",upstream="orders-svc"} 0 start=0s
+ruralz_upstream_attempts_total{error="none",status_class="2xx",upstream="orders-svc"} 1 start=0s
+ruralz_upstream_attempts_total{error="none",status_class="3xx",upstream="orders-svc"} 0 start=0s
+ruralz_upstream_attempts_total{error="none",status_class="4xx",upstream="orders-svc"} 0 start=0s
+ruralz_upstream_attempts_total{error="none",status_class="5xx",upstream="orders-svc"} 0 start=0s
+ruralz_upstream_attempts_total{error="connect",status_class="5xx",upstream="orders-svc"} 0 start=0s
+ruralz_upstream_attempts_total{error="timeout",status_class="5xx",upstream="orders-svc"} 1 start=0s
+ruralz_upstream_attempts_total{error="reset",status_class="5xx",upstream="orders-svc"} 0 start=0s
+ruralz_upstream_attempts_total{error="tls",status_class="5xx",upstream="orders-svc"} 0 start=0s
+ruralz_upstream_attempts_total{error="none",status_class="1xx",upstream="users-svc"} 0 start=0s
+ruralz_upstream_attempts_total{error="none",status_class="2xx",upstream="users-svc"} 0 start=0s
+ruralz_upstream_attempts_total{error="none",status_class="3xx",upstream="users-svc"} 0 start=0s
+ruralz_upstream_attempts_total{error="none",status_class="4xx",upstream="users-svc"} 0 start=0s
+ruralz_upstream_attempts_total{error="none",status_class="5xx",upstream="users-svc"} 0 start=0s
+ruralz_upstream_attempts_total{error="connect",status_class="5xx",upstream="users-svc"} 0 start=0s
+ruralz_upstream_attempts_total{error="timeout",status_class="5xx",upstream="users-svc"} 0 start=0s
+ruralz_upstream_attempts_total{error="reset",status_class="5xx",upstream="users-svc"} 0 start=0s
+ruralz_upstream_attempts_total{error="tls",status_class="5xx",upstream="users-svc"} 0 start=0s
+# ruralz_upstream_attempt_duration_seconds histogram s bounds=[0.001 0.005 0.01 0.025 0.05 0.1 0.25 0.5 1 2.5 5 10 60] cumulative=true
+ruralz_upstream_attempt_duration_seconds{upstream="_overflow"} count=0 sum=0 buckets=[0 0 0 0 0 0 0 0 0 0 0 0 0 0] start=0s
+ruralz_upstream_attempt_duration_seconds{upstream="orders-svc"} count=1 sum=0.0009 buckets=[1 0 0 0 0 0 0 0 0 0 0 0 0 0] start=0s
+ruralz_upstream_attempt_duration_seconds{upstream="users-svc"} count=0 sum=0 buckets=[0 0 0 0 0 0 0 0 0 0 0 0 0 0] start=0s
+# ruralz_upstream_retries_total counter {retries} monotonic=true cumulative=true
+ruralz_upstream_retries_total{upstream="_overflow"} 0 start=0s
+ruralz_upstream_retries_total{upstream="orders-svc"} 1 start=0s
+ruralz_upstream_retries_total{upstream="users-svc"} 0 start=0s
+# ruralz_upstream_retry_budget_exhausted_total counter {retries} monotonic=true cumulative=true
+ruralz_upstream_retry_budget_exhausted_total{upstream="_overflow"} 0 start=0s
+ruralz_upstream_retry_budget_exhausted_total{upstream="orders-svc"} 0 start=0s
+ruralz_upstream_retry_budget_exhausted_total{upstream="users-svc"} 0 start=0s
+# ruralz_upstream_breaker_state_info gauge 1
+ruralz_upstream_breaker_state_info{state="closed",upstream="_overflow"} 0 start=0s
+ruralz_upstream_breaker_state_info{state="open",upstream="_overflow"} 0 start=0s
+ruralz_upstream_breaker_state_info{state="half_open",upstream="_overflow"} 0 start=0s
+ruralz_upstream_breaker_state_info{state="closed",upstream="orders-svc"} 1 start=0s
+ruralz_upstream_breaker_state_info{state="open",upstream="orders-svc"} 0 start=0s
+ruralz_upstream_breaker_state_info{state="half_open",upstream="orders-svc"} 0 start=0s
+ruralz_upstream_breaker_state_info{state="closed",upstream="users-svc"} 0 start=0s
+ruralz_upstream_breaker_state_info{state="open",upstream="users-svc"} 0 start=0s
+ruralz_upstream_breaker_state_info{state="half_open",upstream="users-svc"} 0 start=0s
+# ruralz_upstream_ejections_total counter {ejections} monotonic=true cumulative=true
+ruralz_upstream_ejections_total{reason="passive",upstream="_overflow"} 0 start=0s
+ruralz_upstream_ejections_total{reason="active",upstream="_overflow"} 0 start=0s
+ruralz_upstream_ejections_total{reason="passive",upstream="orders-svc"} 0 start=0s
+ruralz_upstream_ejections_total{reason="active",upstream="orders-svc"} 0 start=0s
+ruralz_upstream_ejections_total{reason="passive",upstream="users-svc"} 0 start=0s
+ruralz_upstream_ejections_total{reason="active",upstream="users-svc"} 0 start=0s
+# ruralz_upstream_healthy_endpoints gauge {endpoints}
+ruralz_upstream_healthy_endpoints{upstream="_overflow"} 0 start=0s
+ruralz_upstream_healthy_endpoints{upstream="orders-svc"} 3 start=0s
+ruralz_upstream_healthy_endpoints{upstream="users-svc"} 0 start=0s
+# ruralz_upstream_probes_skipped_total counter {probes} monotonic=true cumulative=true
+ruralz_upstream_probes_skipped_total{upstream="_overflow"} 0 start=0s
+ruralz_upstream_probes_skipped_total{upstream="orders-svc"} 0 start=0s
+ruralz_upstream_probes_skipped_total{upstream="users-svc"} 0 start=0s
+# ruralz_upstream_degraded_info gauge 1
+ruralz_upstream_degraded_info{reason="panic",upstream="_overflow"} 0 start=0s
+ruralz_upstream_degraded_info{reason="discovery_stale",upstream="_overflow"} 0 start=0s
+ruralz_upstream_degraded_info{reason="balancer_budget",upstream="_overflow"} 0 start=0s
+ruralz_upstream_degraded_info{reason="panic",upstream="orders-svc"} 0 start=0s
+ruralz_upstream_degraded_info{reason="discovery_stale",upstream="orders-svc"} 0 start=0s
+ruralz_upstream_degraded_info{reason="balancer_budget",upstream="orders-svc"} 0 start=0s
+ruralz_upstream_degraded_info{reason="panic",upstream="users-svc"} 0 start=0s
+ruralz_upstream_degraded_info{reason="discovery_stale",upstream="users-svc"} 0 start=0s
+ruralz_upstream_degraded_info{reason="balancer_budget",upstream="users-svc"} 0 start=0s
+# ruralz_upstream_cel_errors_total counter {errors} monotonic=true cumulative=true
+ruralz_upstream_cel_errors_total{field="hashKey",upstream="_overflow"} 0 start=0s
+ruralz_upstream_cel_errors_total{field="retryOn",upstream="_overflow"} 0 start=0s
+ruralz_upstream_cel_errors_total{field="failureWhen",upstream="_overflow"} 0 start=0s
+ruralz_upstream_cel_errors_total{field="hashKey",upstream="orders-svc"} 0 start=0s
+ruralz_upstream_cel_errors_total{field="retryOn",upstream="orders-svc"} 0 start=0s
+ruralz_upstream_cel_errors_total{field="failureWhen",upstream="orders-svc"} 0 start=0s
+ruralz_upstream_cel_errors_total{field="hashKey",upstream="users-svc"} 0 start=0s
+ruralz_upstream_cel_errors_total{field="retryOn",upstream="users-svc"} 0 start=0s
+ruralz_upstream_cel_errors_total{field="failureWhen",upstream="users-svc"} 0 start=0s
+# ruralz_upstream_pool_connections gauge {connections}
+ruralz_upstream_pool_connections{state="idle",upstream="_overflow"} 0 start=0s
+ruralz_upstream_pool_connections{state="active",upstream="_overflow"} 0 start=0s
+ruralz_upstream_pool_connections{state="idle",upstream="orders-svc"} 4 start=0s
+ruralz_upstream_pool_connections{state="active",upstream="orders-svc"} 0 start=0s
+ruralz_upstream_pool_connections{state="idle",upstream="users-svc"} 0 start=0s
+ruralz_upstream_pool_connections{state="active",upstream="users-svc"} 0 start=0s
+# ruralz_state_call_duration_seconds histogram s bounds=[1e-05 2.5e-05 5e-05 0.0001 0.00015 0.00025 0.0005 0.001 0.0025 0.005 0.01 0.025 0.1] cumulative=true
+ruralz_state_call_duration_seconds{op="gcra"} count=1 sum=0.0007 buckets=[0 0 0 0 0 0 0 1 0 0 0 0 0 0] start=0s
+ruralz_state_call_duration_seconds{op="quota"} count=0 sum=0 buckets=[0 0 0 0 0 0 0 0 0 0 0 0 0 0] start=0s
+ruralz_state_call_duration_seconds{op="cache_get"} count=0 sum=0 buckets=[0 0 0 0 0 0 0 0 0 0 0 0 0 0] start=0s
+ruralz_state_call_duration_seconds{op="script_multi"} count=0 sum=0 buckets=[0 0 0 0 0 0 0 0 0 0 0 0 0 0] start=0s
+ruralz_state_call_duration_seconds{op="pipeline"} count=0 sum=0 buckets=[0 0 0 0 0 0 0 0 0 0 0 0 0 0] start=0s
+ruralz_state_call_duration_seconds{op="cache_set"} count=0 sum=0 buckets=[0 0 0 0 0 0 0 0 0 0 0 0 0 0] start=0s
+ruralz_state_call_duration_seconds{op="cache_invalidate"} count=0 sum=0 buckets=[0 0 0 0 0 0 0 0 0 0 0 0 0 0] start=0s
+ruralz_state_call_duration_seconds{op="refund"} count=0 sum=0 buckets=[0 0 0 0 0 0 0 0 0 0 0 0 0 0] start=0s
+# ruralz_state_calls_total counter {calls} monotonic=true cumulative=true
+ruralz_state_calls_total{op="gcra",result="ok"} 1 start=0s
+ruralz_state_calls_total{op="gcra",result="error"} 0 start=0s
+ruralz_state_calls_total{op="gcra",result="timeout"} 0 start=0s
+ruralz_state_calls_total{op="gcra",result="skipped"} 0 start=0s
+ruralz_state_calls_total{op="quota",result="ok"} 0 start=0s
+ruralz_state_calls_total{op="quota",result="error"} 0 start=0s
+ruralz_state_calls_total{op="quota",result="timeout"} 0 start=0s
+ruralz_state_calls_total{op="quota",result="skipped"} 0 start=0s
+ruralz_state_calls_total{op="cache_get",result="ok"} 0 start=0s
+ruralz_state_calls_total{op="cache_get",result="error"} 0 start=0s
+ruralz_state_calls_total{op="cache_get",result="timeout"} 0 start=0s
+ruralz_state_calls_total{op="cache_get",result="skipped"} 0 start=0s
+ruralz_state_calls_total{op="script_multi",result="ok"} 0 start=0s
+ruralz_state_calls_total{op="script_multi",result="error"} 0 start=0s
+ruralz_state_calls_total{op="script_multi",result="timeout"} 0 start=0s
+ruralz_state_calls_total{op="script_multi",result="skipped"} 0 start=0s
+ruralz_state_calls_total{op="pipeline",result="ok"} 0 start=0s
+ruralz_state_calls_total{op="pipeline",result="error"} 0 start=0s
+ruralz_state_calls_total{op="pipeline",result="timeout"} 0 start=0s
+ruralz_state_calls_total{op="pipeline",result="skipped"} 0 start=0s
+ruralz_state_calls_total{op="cache_set",result="ok"} 0 start=0s
+ruralz_state_calls_total{op="cache_set",result="error"} 0 start=0s
+ruralz_state_calls_total{op="cache_set",result="timeout"} 0 start=0s
+ruralz_state_calls_total{op="cache_set",result="skipped"} 0 start=0s
+ruralz_state_calls_total{op="cache_invalidate",result="ok"} 0 start=0s
+ruralz_state_calls_total{op="cache_invalidate",result="error"} 0 start=0s
+ruralz_state_calls_total{op="cache_invalidate",result="timeout"} 0 start=0s
+ruralz_state_calls_total{op="cache_invalidate",result="skipped"} 0 start=0s
+ruralz_state_calls_total{op="refund",result="ok"} 0 start=0s
+ruralz_state_calls_total{op="refund",result="error"} 0 start=0s
+ruralz_state_calls_total{op="refund",result="timeout"} 0 start=0s
+ruralz_state_calls_total{op="refund",result="skipped"} 0 start=0s
+# ruralz_state_ops_total counter {operations} monotonic=true cumulative=true
+ruralz_state_ops_total{kind="gcra"} 0 start=0s
+ruralz_state_ops_total{kind="quota"} 0 start=0s
+ruralz_state_ops_total{kind="cache_get"} 0 start=0s
+ruralz_state_ops_total{kind="script_multi"} 0 start=0s
+ruralz_state_ops_total{kind="pipeline"} 0 start=0s
+ruralz_state_ops_total{kind="cache_set"} 0 start=0s
+ruralz_state_ops_total{kind="cache_invalidate"} 0 start=0s
+ruralz_state_ops_total{kind="refund"} 0 start=0s
+# ruralz_state_writes_dropped_total counter {writes} monotonic=true cumulative=true
+ruralz_state_writes_dropped_total{kind="refund"} 0 start=0s
+ruralz_state_writes_dropped_total{kind="cache_set"} 0 start=0s
+ruralz_state_writes_dropped_total{kind="cache_invalidate"} 0 start=0s
+# ruralz_state_write_queue_items gauge {items}
+ruralz_state_write_queue_items{} 0 start=0s
+# ruralz_config_revision_info gauge 1
+ruralz_config_revision_info{revision="rev-0123456789ab",role="active"} 1 start=1s
+# ruralz_config_activations_total counter {activations} monotonic=true cumulative=true
+ruralz_config_activations_total{code="",result="activated"} 2 start=0s
+# ruralz_config_activation_duration_seconds histogram s bounds=[0.01 0.05 0.1 0.25 0.5 1 2 5 10 30 60 120 3600] cumulative=true
+ruralz_config_activation_duration_seconds{size_class="le1000",stage="verify"} count=0 sum=0 buckets=[0 0 0 0 0 0 0 0 0 0 0 0 0 0] start=0s
+ruralz_config_activation_duration_seconds{size_class="le10000",stage="verify"} count=0 sum=0 buckets=[0 0 0 0 0 0 0 0 0 0 0 0 0 0] start=0s
+ruralz_config_activation_duration_seconds{size_class="gt10000",stage="verify"} count=0 sum=0 buckets=[0 0 0 0 0 0 0 0 0 0 0 0 0 0] start=0s
+ruralz_config_activation_duration_seconds{size_class="le1000",stage="plugin_compile"} count=0 sum=0 buckets=[0 0 0 0 0 0 0 0 0 0 0 0 0 0] start=0s
+ruralz_config_activation_duration_seconds{size_class="le10000",stage="plugin_compile"} count=0 sum=0 buckets=[0 0 0 0 0 0 0 0 0 0 0 0 0 0] start=0s
+ruralz_config_activation_duration_seconds{size_class="gt10000",stage="plugin_compile"} count=0 sum=0 buckets=[0 0 0 0 0 0 0 0 0 0 0 0 0 0] start=0s
+ruralz_config_activation_duration_seconds{size_class="le1000",stage="compile"} count=1 sum=0.25 buckets=[0 0 0 1 0 0 0 0 0 0 0 0 0 0] start=0s
+ruralz_config_activation_duration_seconds{size_class="le10000",stage="compile"} count=0 sum=0 buckets=[0 0 0 0 0 0 0 0 0 0 0 0 0 0] start=0s
+ruralz_config_activation_duration_seconds{size_class="gt10000",stage="compile"} count=0 sum=0 buckets=[0 0 0 0 0 0 0 0 0 0 0 0 0 0] start=0s
+ruralz_config_activation_duration_seconds{size_class="le1000",stage="swap"} count=0 sum=0 buckets=[0 0 0 0 0 0 0 0 0 0 0 0 0 0] start=0s
+ruralz_config_activation_duration_seconds{size_class="le10000",stage="swap"} count=0 sum=0 buckets=[0 0 0 0 0 0 0 0 0 0 0 0 0 0] start=0s
+ruralz_config_activation_duration_seconds{size_class="gt10000",stage="swap"} count=0 sum=0 buckets=[0 0 0 0 0 0 0 0 0 0 0 0 0 0] start=0s
+ruralz_config_activation_duration_seconds{size_class="le1000",stage="total"} count=0 sum=0 buckets=[0 0 0 0 0 0 0 0 0 0 0 0 0 0] start=0s
+ruralz_config_activation_duration_seconds{size_class="le10000",stage="total"} count=0 sum=0 buckets=[0 0 0 0 0 0 0 0 0 0 0 0 0 0] start=0s
+ruralz_config_activation_duration_seconds{size_class="gt10000",stage="total"} count=0 sum=0 buckets=[0 0 0 0 0 0 0 0 0 0 0 0 0 0] start=0s
+# ruralz_config_retired_snapshots gauge {snapshots}
+ruralz_config_retired_snapshots{} 0 start=0s
+# ruralz_snapshot_retirement_ended_total counter {requests} monotonic=true cumulative=true
+ruralz_snapshot_retirement_ended_total{} 0 start=0s
+# ruralz_config_secret_rotation_failures_total counter {failures} monotonic=true cumulative=true
+ruralz_config_secret_rotation_failures_total{provider="env"} 0 start=0s
+ruralz_config_secret_rotation_failures_total{provider="file"} 0 start=0s
+ruralz_config_secret_rotation_failures_total{provider="kubernetes"} 0 start=0s
+ruralz_config_secret_rotation_failures_total{provider="vault"} 0 start=0s
+# ruralz_node_degraded_info gauge 1
+ruralz_node_degraded_info{reason="lkg_boot"} 0 start=0s
+ruralz_node_degraded_info{reason="lkg_write_failed"} 0 start=0s
+ruralz_node_degraded_info{reason="state_store_memory_fallback"} 0 start=0s
+ruralz_node_degraded_info{reason="state_store_unauthenticated"} 0 start=0s
+ruralz_node_degraded_info{reason="state_store_breaker_open"} 0 start=0s
+ruralz_node_degraded_info{reason="state_store_eviction_policy"} 0 start=0s
+ruralz_node_degraded_info{reason="upstream_panic"} 0 start=0s
+ruralz_node_degraded_info{reason="discovery_stale"} 0 start=0s
+ruralz_node_degraded_info{reason="balancer_budget"} 0 start=0s
+ruralz_node_degraded_info{reason="probes_skipped"} 0 start=0s
+ruralz_node_degraded_info{reason="header_limit_capped"} 0 start=0s
+ruralz_node_degraded_info{reason="snapshot_ending_overdue"} 0 start=0s
+ruralz_node_degraded_info{reason="secret_rotation_failed"} 0 start=0s
+ruralz_node_degraded_info{reason="jwks_stale"} 0 start=0s
+ruralz_node_degraded_info{reason="cleartext_hop"} 1 start=0s
+ruralz_node_degraded_info{reason="telemetry_export_failing"} 0 start=0s
+ruralz_node_degraded_info{reason="crl_stale"} 0 start=0s
+# ruralz_node_buffered_bytes gauge By
+ruralz_node_buffered_bytes{} 0 start=0s
+# ruralz_telemetry_spans_total counter {spans} monotonic=true cumulative=true
+ruralz_telemetry_spans_total{} 0 start=0s
+# ruralz_telemetry_spans_dropped_total counter {spans} monotonic=true cumulative=true
+ruralz_telemetry_spans_dropped_total{reason="queue_full"} 0 start=0s
+ruralz_telemetry_spans_dropped_total{reason="export_error"} 0 start=0s
+# ruralz_telemetry_traces_unsampled_total counter {traces} monotonic=true cumulative=true
+ruralz_telemetry_traces_unsampled_total{reason="rate_cap_root"} 0 start=0s
+ruralz_telemetry_traces_unsampled_total{reason="rate_cap_parent"} 0 start=0s
+# ruralz_telemetry_logs_total counter {records} monotonic=true cumulative=true
+ruralz_telemetry_logs_total{stream="access"} 0 start=0s
+ruralz_telemetry_logs_total{stream="process"} 0 start=0s
+# ruralz_telemetry_logs_dropped_total counter {records} monotonic=true cumulative=true
+ruralz_telemetry_logs_dropped_total{reason="queue_full",stream="access"} 0 start=0s
+ruralz_telemetry_logs_dropped_total{reason="export_error",stream="access"} 0 start=0s
+ruralz_telemetry_logs_dropped_total{reason="queue_full",stream="process"} 0 start=0s
+ruralz_telemetry_logs_dropped_total{reason="export_error",stream="process"} 0 start=0s
+# ruralz_telemetry_folded_label_sets gauge {label_sets}
+ruralz_telemetry_folded_label_sets{instrument="ruralz_http_requests_total"} 5 start=0s
+ruralz_telemetry_folded_label_sets{instrument="ruralz_http_request_duration_seconds"} 1 start=0s
+ruralz_telemetry_folded_label_sets{instrument="ruralz_filter_duration_seconds"} 0 start=0s
+ruralz_telemetry_folded_label_sets{instrument="ruralz_filter_short_circuits_total"} 0 start=0s
+ruralz_telemetry_folded_label_sets{instrument="ruralz_filter_failures_total"} 0 start=0s
+ruralz_telemetry_folded_label_sets{instrument="ruralz_auth_decisions_total"} 0 start=0s
+ruralz_telemetry_folded_label_sets{instrument="ruralz_auth_jwks_age_seconds"} 0 start=0s
+ruralz_telemetry_folded_label_sets{instrument="ruralz_auth_upstream_token_age_seconds"} 0 start=0s
+ruralz_telemetry_folded_label_sets{instrument="ruralz_auth_upstream_refresh_failures_total"} 0 start=0s
+ruralz_telemetry_folded_label_sets{instrument="ruralz_ratelimit_decisions_total"} 0 start=0s
+ruralz_telemetry_folded_label_sets{instrument="ruralz_ratelimit_bucket_evictions_total"} 0 start=0s
+ruralz_telemetry_folded_label_sets{instrument="ruralz_quota_decisions_total"} 0 start=0s
+ruralz_telemetry_folded_label_sets{instrument="ruralz_cache_requests_total"} 0 start=0s
+ruralz_telemetry_folded_label_sets{instrument="ruralz_cache_store_skipped_total"} 0 start=0s
+ruralz_telemetry_folded_label_sets{instrument="ruralz_upstream_attempts_total"} 0 start=0s
+ruralz_telemetry_folded_label_sets{instrument="ruralz_upstream_attempt_duration_seconds"} 0 start=0s
+ruralz_telemetry_folded_label_sets{instrument="ruralz_upstream_retries_total"} 0 start=0s
+ruralz_telemetry_folded_label_sets{instrument="ruralz_upstream_retry_budget_exhausted_total"} 0 start=0s
+ruralz_telemetry_folded_label_sets{instrument="ruralz_upstream_breaker_state_info"} 0 start=0s
+ruralz_telemetry_folded_label_sets{instrument="ruralz_upstream_ejections_total"} 0 start=0s
+ruralz_telemetry_folded_label_sets{instrument="ruralz_upstream_healthy_endpoints"} 0 start=0s
+ruralz_telemetry_folded_label_sets{instrument="ruralz_upstream_probes_skipped_total"} 0 start=0s
+ruralz_telemetry_folded_label_sets{instrument="ruralz_upstream_degraded_info"} 0 start=0s
+ruralz_telemetry_folded_label_sets{instrument="ruralz_upstream_cel_errors_total"} 0 start=0s
+ruralz_telemetry_folded_label_sets{instrument="ruralz_upstream_pool_connections"} 0 start=0s
+# ruralz_telemetry_series gauge {series}
+ruralz_telemetry_series{state="live"} 1263 start=0s
+ruralz_telemetry_series{state="retiring"} 5 start=0s
+# ruralz_tap_events_dropped_total counter {events} monotonic=true cumulative=true
+ruralz_tap_events_dropped_total{} 0 start=0s
