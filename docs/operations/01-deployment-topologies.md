@@ -2,7 +2,7 @@
 title: Deployment Topologies
 status: reviewed
 owner: ruralz-core
-last_updated: 2026-09-25
+last_updated: 2026-09-26
 depends_on:
   - docs/_meta/foundation-pack.md
   - docs/_meta/style-guide.md
@@ -79,7 +79,7 @@ flowchart TD
 
 ### T1 and T2: development and file mode
 
-`ruralz dev run` renders the source Bundle by atomic rename into a private directory for a local `ruralzd`, which Hot Reloads and keeps its active Revision on a failed render ([CLI](../reference/01-cli-and-api-surface.md#local-ruralzd-launched-by-the-cli)). macOS `ruralzd` is development-only; Windows has none.
+`ruralz dev run` runs a local `ruralzd` on a private rendered copy of the source Bundle ([CLI](../reference/01-cli-and-api-surface.md#local-ruralzd-launched-by-the-cli)); macOS `ruralzd` is development-only, and Windows has none.
 
 File-mode `ruralzd` applies no overlay, so every watched directory SHOULD hold the same `ruralz bundle render --env <env>` output, trusting the filesystem. OCI Revisions are Sigstore-signed by `ruralz bundle push --oci`, verified by each Node, `enforce` by default ([ADR-0017](../adr/0017-artifact-signing.md), pack 8.14; reference variable: OQ-system-overview-19). Nodes MUST poll with jitter and backoff (OQ-deployment-topologies-16); as a registry serves N / interval polls plus one pull per Node per digest (hypothesis), a local mirror SHOULD serve above 100 Nodes per Region or site (hypothesis).
 
@@ -183,7 +183,7 @@ Per [ADR-0016](../adr/0016-kubernetes-helm-and-crds.md) (proposed), the Helm cha
 | Probes | `/readyz` and `/healthz` on 9901, or 9902 for `ruralz-control` |
 | HorizontalPodAutoscaler | [Autoscaling signals](../architecture/11-scalability-and-distributed-state.md#autoscaling-signals) at their thresholds (target): CPU as a Resource metric, the rest as adapter Pods metrics, connections at 10,000 (target). `behavior.scaleDown` removes at most one zone's share per stabilized period (target); half-threshold scale-in is OQ-deployment-topologies-14. `minReplicas` holds the headroom and, without an adapter, peak connections / threshold; State Store shards bound `maxReplicas` ([Sizing defaults](#sizing-defaults)). As the Node count lags ([Warm-up](../architecture/11-scalability-and-distributed-state.md#warm-up)), Control-mode Clusters SHOULD declare per-Node ceilings c, below |
 | PodDisruptionBudgets | One `ruralz-control` pod; for Nodes, one zone's share at minimum scale (target) |
-| Termination | `terminationGracePeriodSeconds` MUST exceed the preStop wait plus the exit bound (Drain deadline plus flush) |
+| Termination | `terminationGracePeriodSeconds` per the [Drain timeline](02-zero-downtime-upgrades-and-hot-reload.md#drain-timeline-defaults) |
 | RBAC | Nodes: `get` and `watch` on own-namespace Secrets, only for `provider: kubernetes`; `list` and `watch` on `endpointslices.discovery.k8s.io` via a Role per Upstream namespace (OQ-deployment-topologies-1). `ruralz-control`: `list` and `watch` on `ruralz.io` CRDs in bound namespaces, reads of cluster-scoped `Environment` and `Cluster` CRDs, cluster-scoped CRD status updates. Bootstrap Job, in its namespace: `get` on the bootstrap Secret, `create` on token Secrets and the marker. None reads Secrets cluster-wide |
 
 Declared ceilings bind healthy admission too (pack 8.8): pick c per limit between the bounds below, at least one token per window, and declare `requests` / `maxReplicas` only where that under-admission is acceptable, else narrow the HPA range to `minReplicas` / `maxReplicas` ≥ 0.5. A declared cap on the derived ceiling: OQ-deployment-topologies-22.
@@ -262,7 +262,15 @@ flowchart TB
 
 ### T5 and T6: VMs with systemd and edge sites
 
-**T5.** One `ruralzd` service per VM keeps `${RURALZ_DATA_DIR}` on local disk; two per network namespace: Not planned ([listeners](../architecture/11-scalability-and-distributed-state.md#so_reuseport-and-listeners)). `systemctl stop` starts a Drain, so `TimeoutStopSec` MUST exceed the exit bound, 30 s (target) ([Drain timeline](02-zero-downtime-upgrades-and-hot-reload.md#drain-timeline-defaults)). Upgrades hand over through `SO_REUSEPORT` ([ADR-0015](../adr/0015-zero-downtime-upgrades-so-reuseport.md), [systemd unit](02-zero-downtime-upgrades-and-hot-reload.md#in-place-handover)).
+**T5.** One `ruralzd` service per VM keeps `${RURALZ_DATA_DIR}` on local disk; two per network namespace: Not planned ([listeners](../architecture/11-scalability-and-distributed-state.md#so_reuseport-and-listeners)). Linux `ruralzd` archives ship `deploy/systemd/`, Planned (M1):
+
+| File | Contents |
+|---|---|
+| `ruralzd.service` | `Type=notify`, `NotifyAccess=all`; data directory `/var/lib/ruralz` and admin token (a systemd credential) outside `RURALZ_SECRET_ROOT`; `ExecReload` runs the helper; `TimeoutStopSec=40` |
+| `ruralzd-handover` | Starts the new binary in the unit's cgroup; exits 0 once `holder.json` names it, 1 if it exits first, and stops it and exits 1 after 75 s (target) |
+| `ruralzd.env`, `99-ruralzd.conf` | Example `EnvironmentFile`; sysctl `net.ipv4.tcp_migrate_req = 1` |
+
+`systemctl reload ruralzd` after replacing the binary runs the [handover](02-zero-downtime-upgrades-and-hot-reload.md#handover-under-systemd); `systemctl stop` Drains both processes during one, so `TimeoutStopSec` MUST exceed the 30 s exit bound (target) ([Drain timeline](02-zero-downtime-upgrades-and-hot-reload.md#drain-timeline-defaults)).
 
 **T6.** A multi-Node site needs a local `redis` State Store; one Node MAY use `memory`. Nodes pull signed Revisions from a site mirror by default, verifying offline, or in Control mode dial 8091 when the uplink allows; certificates live 30 days (target), and a restarted detached Node forgets revocations (OQ-security-and-identity-5).
 
@@ -593,4 +601,4 @@ Failure behavior: a lost Region's traffic moves to pre-provisioned capacity. A l
 | OQ-deployment-topologies-21 | Can small Nodes get a lower connection ceiling? | (a) Fixed (current, OQ-data-plane-1 (a)); (b) or (c) of OQ-data-plane-1, with OQ-capacity-planning-5 | data-plane | No |
 | OQ-deployment-topologies-22 | Should a declared per-Node cap bound the derived ceiling, min(derived, cap), not replace it? | (a) Yes (proposed; OQ-traffic-management-and-resilience-1, -19); (b) replace (current) | traffic-management-and-resilience | No |
 
-Closed: OQ-deployment-topologies-6 with options (a) and (b) ([Leadership transfer](../architecture/04-control-plane-and-gitops.md#leadership-transfer)) and -11 with option (b) when `bootstrap.adminCredentialFile` is set, else (a) ([Bootstrap credential](../architecture/04-control-plane-and-gitops.md#bootstrap-credential)), decided by Control plane; -7 (a), a shipped systemd unit and helper, answered by [Zero-downtime upgrades](02-zero-downtime-upgrades-and-hot-reload.md#in-place-handover); -8 (a), measured sizes replacing interim values, answered by [Capacity planning](03-capacity-planning.md).
+Closed: OQ-deployment-topologies-6 (a) and (b) ([Leadership transfer](../architecture/04-control-plane-and-gitops.md#leadership-transfer)) and -11 (b) when `bootstrap.adminCredentialFile` is set, else (a) ([Bootstrap credential](../architecture/04-control-plane-and-gitops.md#bootstrap-credential)), decided by Control plane; -7 (a), [T5](#t5-and-t6-vms-with-systemd-and-edge-sites); -8 (a), [Capacity planning](03-capacity-planning.md).

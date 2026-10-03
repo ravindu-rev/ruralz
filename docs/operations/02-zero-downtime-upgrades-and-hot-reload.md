@@ -2,7 +2,7 @@
 title: Zero-Downtime Upgrades and Hot Reload
 status: reviewed
 owner: ruralz-core
-last_updated: 2026-09-25
+last_updated: 2026-09-26
 depends_on:
   - docs/_meta/foundation-pack.md
   - docs/_meta/style-guide.md
@@ -46,11 +46,9 @@ These follow from P2, P4, P9 and P10 ([Vision](../vision/01-vision-and-positioni
 | Drain | Graceful shutdown of a Node: readiness fails, listeners stop accepting, HTTP/2 GOAWAY is sent, and in-flight requests finish within a bounded time |
 | Zero-Downtime Upgrade | Replacing the `ruralzd` binary: the new process binds with `SO_REUSEPORT` and reports ready, then the old process Drains |
 
-In place it is a handover; a Kubernetes (T4) Drain and restart keeps the Cluster serving but is not a per-Node Zero-Downtime Upgrade.
-
 | ID | Guarantee | Verified by |
 |---|---|---|
-| ZG-1 | A Hot Reload ends no in-flight request unless K + 1 = 3 further activations occur during it, K = 2 (target): its streams then get a going-away close at once, and a request still pinned 30 s later (target) ends with `RZ-RT-014` | V-1, V-2 |
+| ZG-1 | A Hot Reload ends no in-flight request unless K + 1 = 3 further activations occur during it, K = 2 (target) ([Atomic swap](#atomic-swap)) | V-1, V-2 |
 | ZG-2 | A Revision failing the validation gate never changes what a Node serves | V-1 |
 | ZG-3 | With `net.ipv4.tcp_migrate_req=1`, an in-place handover refuses or resets no new TCP connection and balancer probes always see `/readyz` 200; without it, only handshakes needing a second SYN-ACK retransmission can be reset (hypothesis) | V-3 |
 | ZG-4 | A Drain signals every long-lived connection first and ends all work within 30 s of SIGTERM (target) | V-4 |
@@ -80,7 +78,7 @@ The Node re-runs the [Configuration model](../architecture/02-configuration-mode
 | 7 | Plugin artifacts fetched by digest and signed; ABI and exported Phases equal `spec.abi` and `spec.phases`, requested Capabilities a subset of `spec.capabilities`, ABI level at or below the Node's ([ADR-0005](../adr/0005-plugin-abi-v1.md)) | RZ-CFG-028, RZ-CFG-033 | Deterministic for a spec mismatch; transient for a fetch failure or a level above the Node's, not reproducible ([rule 2](../engineering/04-release-versioning-and-compatibility.md#plugin-abi-versioning)) |
 | 8 | Every `secretRef` resolves on this Node | RZ-CFG-026 | Transient, not reproducible |
 | 9 | Compile Routers, Filter Chains, CEL and Plugins once per digest | The failing check's code | Deterministic; a compile timeout transient |
-| 10 | Bind added or changed listeners; a reused port's CBPF program steers to the new socket before the old one closes | OQ-zero-downtime-upgrades-and-hot-reload-4 | Transient |
+| 10 | Bind added or changed listeners; a reused port's CBPF program steers to the new socket before the old one closes | RZ-CFG-039 | Transient |
 | 11 | Warm new connection and Plugin pools | None: a pool that does not fit warms to 0; `RZ-PLG` under `failureMode` follows | Not applicable |
 
 Operators MUST NOT roll out a Plugin needing an ABI level some Node of the Cluster lacks: such Nodes are quarantined.
@@ -89,7 +87,7 @@ Operators MUST NOT roll out a Plugin needing an ABI level some Node of the Clust
 
 After the gate the loader follows [Compile before swap](../architecture/01-system-overview.md#compile-before-swap); the candidate it writes under `${RURALZ_DATA_DIR}/lkg/` becomes Last-Known-Good on activation in file mode, at the promoted digest in Control mode (pack 8.2).
 
-Requests pin their snapshot until `onLog`. Beyond K = 2 retired snapshots (target) the oldest becomes closing: its streams end at once (WebSocket 1001, gRPC `UNAVAILABLE`, SSE end with a retry hint), and work pinned 30 s later (target) ends with `RZ-RT-014` ([Data plane](../architecture/03-data-plane.md#configuration-snapshots-and-hot-reload)). The latest pending Revision waits for that snapshot's release, at most rule 6's bound there (target), within the 60 s ACK timeout (target) while the largest Plugin `limits.timeout` is under 23 s, pending OQ-data-plane-13: its option (b), keeping System overview's "activation never waits", ends the closing snapshot's pins at once instead.
+Requests pin their snapshot until `onLog`; beyond K = 2 retired snapshots (target), [Data plane](../architecture/03-data-plane.md#configuration-snapshots-and-hot-reload) ends the oldest's streams at once and work still pinned 30 s later (target) with `RZ-RT-014`. The latest pending Revision waits for that snapshot's release, at most rule 6's bound there (target), within the 60 s ACK timeout (target) while the largest Plugin `limits.timeout` is under 23 s.
 
 An `all-at-once` Rollout, or file-mode Nodes sharing a source, reach a third activation together, a rollback and re-rollout sufficing: up to 20,000 streams per Node (target) close in one second, 20 million per 1,000-Node Cell (hypothesis), until OQ-zero-downtime-upgrades-and-hot-reload-10 jitters them.
 
@@ -179,17 +177,17 @@ sequenceDiagram
 ```
 
 1. **Start** with the same `RURALZ_CONFIG`, `RURALZ_DATA_DIR` and effective user ID, as `SO_REUSEPORT` requires ([source](https://man7.org/linux/man-pages/man7/socket.7.html)); a live lock holder means handover ([handover rules](../architecture/01-system-overview.md#hot-reload-rollout-and-zero-downtime-upgrade)).
-2. **Boot** the holder's active Revision without the boot wait (pack 8.2), through the full gate; an unknown format marker refuses the handover ([Versioned surfaces](../engineering/04-release-versioning-and-compatibility.md#versioned-surfaces)).
+2. **Boot** the holder's active Revision without the boot wait (pack 8.2), through the full gate.
 3. **Bind, not listen.** Binding each `listeners` `port` and `admin.port` catches port errors; listening only once accepted queues nothing on a process that may exit. The holder's `SO_ATTACH_REUSEPORT_CBPF` programs, one per group with UDP 8443 included, select its own sockets until step 5.
-4. **Gate.** Over the owner-only Unix socket under `${RURALZ_DATA_DIR}`, the holder accepts only its active digest, has a newer candidate reloaded and reported again, and refuses an older one, left by a failed candidate write, at once. Probes meanwhile reach only the holder, `/readyz` 200. Unaccepted after 60 s (target), the new process exits; if the holder exits first, the new process takes the lock and listens.
-5. **Steer.** Accepted, the new process listens; the holder swaps each program to select it through `golang.org/x/sys/unix`, keeps accepting for a 3 s linger (target), covering handshakes begun before the swap and one SYN-ACK retransmission, then closes its listeners, losing QUIC connections here. Handover hosts SHOULD set `net.ipv4.tcp_migrate_req=1` (Linux 5.14+, per network namespace) so closing migrates queued children and in-progress handshakes to the new socket, by hash despite CBPF (OQ-zero-downtime-upgrades-and-hot-reload-12).
+4. **Gate.** The [handover protocol](#handover-protocol) runs over the owner-only `${RURALZ_DATA_DIR}/handover.sock`, the peer's user checked by `SO_PEERCRED`; probes meanwhile reach only the holder, `/readyz` 200. Unaccepted after 60 s (target), the new process exits 1; if the holder exits first, the new process takes the lock and listens.
+5. **Steer.** Accepted, the new process listens; the holder swaps each program to select it through `golang.org/x/sys/unix`, keeps accepting for a 3 s linger (target), covering handshakes begun before the swap and one SYN-ACK retransmission, then closes its listeners, losing QUIC connections. Hosts SHOULD set `net.ipv4.tcp_migrate_req=1` (Linux 5.14+, per network namespace), complementing steering, so closing migrates queued children and in-progress handshakes to the new socket, by hash despite CBPF.
 6. **Move readiness.** During the linger, closing idle admin connections and answering in-flight admin requests with `Connection: close` moves keep-alive health checkers to the new process, so no balancer sees the Drain's 503.
 7. **Move identity.** At Drain start the old process sends a last `Heartbeat` with `draining`, closes its Control Stream and releases the lock; the new one takes it, dials 8091 with `Hello` and retries `RZ-CP-002` from a replica still holding the old stream with full jitter, base 1 s, cap 60 s (target), staying ready (pack 8.5). Only the lock holder writes Last-Known-Good (pack 8.11).
 8. **Drain** on the handover timeline below.
 
 The handover carries no Node-local state, answering OQ-traffic-management-and-resilience-22 with (c) for Planned (M1): both processes keep full local token buckets within the one-extra-ceiling bound; until the new process's first `HeartbeatReply`, within 15 s (target), derived ceilings take the full limit under the clamp max(1, `requests` / 100) (target), reason `node_count_unknown` (OQ-zero-downtime-upgrades-and-hot-reload-5).
 
-Node-wide ceilings are shared: the old process reports connections, in-flight units, buffered bytes, Plugin memory and RSS at acceptance and each second (target); the new one admits each ceiling minus that usage, under a soft memory limit of 90% of the limit minus the old RSS (target). Hosts MUST fit two processes until V-3 verifies this sharing, then the overlap extra ([Capacity planning](03-capacity-planning.md#headroom-and-failure-capacity)); State Store client limits MUST cover both:
+Node-wide ceilings are shared: the new process admits each ceiling minus the holder's reported `usage`, under a soft memory limit of 90% of the limit minus the old RSS (target). Hosts MUST fit two processes until V-3 verifies this sharing, then the overlap extra ([Capacity planning](03-capacity-planning.md#headroom-and-failure-capacity)); State Store client limits MUST cover both:
 
 ```text
 Two processes   host ≥ 2 × container until V-3 verifies sharing                   (hypothesis)
@@ -200,7 +198,24 @@ State clients   2 pipelined + 8 dedicated per shard per process; server limit
                 10 × (N_serving + Nodes in handover) per shard                    (target)
 ```
 
-This answers OQ-deployment-topologies-7 with (a), a shipped systemd unit and helper (OQ-zero-downtime-upgrades-and-hot-reload-7); until then `systemctl stop` and start is a Drain and restart.
+### Handover protocol
+
+`ruralz.handover.v1` messages are newline-delimited JSON; `markers` name format versions ([Versioned surfaces](../engineering/04-release-versioning-and-compatibility.md#versioned-surfaces)).
+
+| From | Message | Meaning |
+|---|---|---|
+| New process | `ready` with `version`, `pid`, `markers` (`handover`, `lkg`, `holder`, `canonical`) and `activeDigest` | Verified, compiled, warmed and bound, not listening |
+| Holder | `refused` with `reason` `unknown_marker`, `older_candidate` (left by a failed candidate write), `draining` or `busy` | The new process exits 1 holding no listening socket |
+| Holder | `reload` with `digest` | A newer holder candidate: reload it, then send `ready` again |
+| Holder | `accepted` when `activeDigest` is the holder's, then `usage` every 1 s (target) | `connections`, `inflightUnits`, `bufferedBytes`, `pluginMemoryBytes`, `rssBytes` for shared ceilings |
+| New process | `listening` | Its sockets joined the groups; the holder steers to them |
+| Holder | `released` | Lock released at Drain start |
+
+### Handover under systemd
+
+Linux `ruralzd` archives ship a systemd unit and helper ([T5](01-deployment-topologies.md#t5-and-t6-vms-with-systemd-and-edge-sites)), so `systemctl reload ruralzd` after a binary replacement runs this handover, Planned (M1). Under `Type=notify`, a process that took the lock at start sends `READY=1` after its first boot attempt, ready or not, with `STATUS=` naming the readiness reason, so a start never waits on usable configuration (pack 8.2); a handover successor sends nothing until it takes the lock, then `MAINPID=<pid>` and `READY=1`; `STOPPING=1` marks Drain start.
+
+CI stage 8 runs `systemd-analyze verify` on the unit. The weekly `t5-systemd.yml` job, also run on demand and from `release.yml`, starts the unit with and without a valid Bundle and runs 20 reload handovers under load with a keep-alive checker on 9901 (no failed request, `MainPID` moved, the old process gone within 28 s (target)), a refused handover, `systemctl stop` exiting 0 within 40 s (target) and a SIGKILL restart booting Last-Known-Good. It MUST pass before the `0.1.0` release candidate; until then the fallback is `systemctl stop` and `start`.
 
 ### Node count during upgrades
 
@@ -208,35 +223,34 @@ Handovers, Drains and replica replacements restart Control Streams, and `cluster
 
 ### Drain timeline defaults
 
-A Drain starts on SIGTERM, `ruralz node drain` or an accepted handover, with fixed defaults in Planned (M1). A handover's Drain starts after the linger and fails `/readyz` like any Drain, unseen since step 6 moved every probe connection, and skips the accept window.
+A Drain starts on SIGTERM or SIGINT (`ruralz node drain` sends SIGTERM) or an accepted handover, with fixed defaults, Planned (M1); a second signal jumps to the deadline. A handover's Drain starts after the linger, its `/readyz` failure unseen since step 6 moved every probe connection, and skips the accept window.
 
 ```text
 Offset from SIGTERM   Step and default
 Handover              Drain from the linger's end; deadline 20 s later, 23 s after steering (target)
 Before, Kubernetes    preStop sleep hook: 5 s                                           (target)
-0 s                   readiness failure at once: /readyz returns 503, heartbeats
-                      set draining                                                      (target)
+0 s                   readiness failure at once: /readyz returns 503 draining;
+                      STOPPING=1; lock and holder.json released; heartbeats set
+                      draining                                                          (target)
 0 to 5 s              accept window while balancers observe /readyz: 5 s                (target)
-5 s                   stop accepting; first HTTP/2 GOAWAY (last stream ID 2^31-1,
-                      NO_ERROR); Connection: close on HTTP/1.1; idle connections close  (target)
-5 to 6 s              final GOAWAY after one PING round trip, 1 s at most; Planned (M1)
-                      sends one GOAWAY (OQ-zero-downtime-upgrades-and-hot-reload-3 (a))  (target)
+5 s                   stop accepting: Server.Shutdown sends one HTTP/2 GOAWAY
+                      (NO_ERROR); Connection: close on HTTP/1.1; idle connections close  (target)
 5 to 15 s             going-away signals to long-lived connections, spread uniformly
                       over the 10 s jitter window                                       (target)
 25 s                  Drain deadline, 20 s after stop-accepting: remaining work ends
-                      through the Data plane ending protocol                            (target)
-25 to 30 s            flush the post-commit queue and telemetry, 5 s at most, then exit;
-                      exit bound 30 s after SIGTERM                                     (target)
+                      with RZ-RT-016 through the Data plane ending protocol             (target)
+25 to 30 s            flush the post-commit queue and telemetry, 5 s at most, then exit
+                      0; exit bound 30 s after SIGTERM                                  (target)
 Kubernetes            terminationGracePeriodSeconds 45 s                                (target)
 systemd               TimeoutStopSec 40 s                                               (target)
 ```
 
-The GOAWAY pair follows RFC 9113 ([source](https://www.rfc-editor.org/rfc/rfc9113.html)); `Server.Shutdown` ignores hijacked connections such as WebSockets ([source](https://pkg.go.dev/net/http#Server.Shutdown)), so the Drain tracks them.
+The Drain sends one GOAWAY, from `Server.Shutdown` alone, not the RFC 9113 pair ([source](https://www.rfc-editor.org/rfc/rfc9113.html)); `Server.Shutdown` ignores hijacked connections such as WebSockets ([source](https://pkg.go.dev/net/http#Server.Shutdown)), so the Drain tracks them.
 
 Kubernetes runs preStop before SIGTERM inside the grace period ([source](https://kubernetes.io/docs/concepts/containers/container-lifecycle-hooks/)), 30 s by default ([source](https://kubernetes.io/docs/concepts/workloads/pods/pod-lifecycle/)), too short here:
 `terminationGracePeriodSeconds` MUST exceed the preStop wait plus the exit bound (Drain deadline plus flush), 45 s against 5 s plus 30 s (target), as `TimeoutStopSec` exceeds 30 s (target).
 preStop covers EndpointSlice updates, which by analysis run concurrently with termination ([source](https://kubernetes.io/docs/concepts/services-networking/endpoint-slices/)).
-External balancers MUST detect a failed `/readyz` within the accept window, probe interval times unhealthy threshold at most 5 s (target); slower ones need OQ-zero-downtime-upgrades-and-hot-reload-1 (b) or (c) to lengthen it.
+External balancers MUST detect a failed `/readyz` within the accept window, probe interval times unhealthy threshold at most 5 s (target); slower ones meet refused connections.
 Routes with a `timeout` above the 20 s request deadline (target) are cut at it.
 
 *Figure 2: drain timeline defaults on Kubernetes, seconds from Pod deletion (target).*
@@ -256,8 +270,7 @@ gantt
     Accept window for balancer probes         :l1, 5, 5s
     Stopped accepting                         :l2, 10, 25s
     section HTTP/2 and HTTP/1.1
-    First GOAWAY and Connection close         :milestone, g1, 10, 0s
-    Final GOAWAY after one round trip         :g2, 10, 1s
+    One GOAWAY and Connection close           :milestone, g1, 10, 0s
     section Long-lived connections
     WebSocket 1001 and SSE end, jittered      :s1, 10, 10s
     section In-flight work
@@ -278,7 +291,7 @@ Long-lived connections never migrate, so they end early with a jittered reconnec
 | AI completions over SSE from `ai` Upstreams | Keep flowing: a cut without usage charges the full reservation (pack 8.9) | Keep flowing | Ended; charged per pack 8.9 |
 | gRPC streams | GOAWAY; new calls go elsewhere | Keep flowing | Trailers with `UNAVAILABLE` |
 | MQTT embedded broker sessions | Keep flowing | MQTT 5 DISCONNECT 0x8B; 3.1.1 connection closed | Closed |
-| Other requests | GOAWAY; `Connection: close` | Finish | 503 with an `RZ-RT` code that Data plane registers (OQ-zero-downtime-upgrades-and-hot-reload-2) |
+| Other requests | GOAWAY; `Connection: close` | Finish | 503 `RZ-RT-016` before commit, else a reset |
 
 ```text
 Reconnects   a Node holding 20,000 sessions sends about 2,000 per second over the
@@ -352,7 +365,7 @@ ruralz CLI                  N or N-1; ruralz bundle push at the Control Store ve
 Nodes within one Cluster    any mix of N and N-1, never newer than the Control Store version
 ```
 
-A replaced replica fails `/readyz` and sends `Reconnect` (`drain`); its Nodes redial with full jitter, base 1 s, cap 60 s (target), staying ready (pack 8.5, [ADR-0007](../adr/0007-control-stream-protocol.md)); Rollouts resume from the persisted plan; ceil(Nodes / 5,000) + 1 replicas (hypothesis) avoid shedding. Until OQ-scalability-and-distributed-state-14 (a) closes, each replacement unqualifies its Nodes: for a derived-ceiling Cluster the operator MUST declare per-Node ceilings first or, between replacements, wait until `ruralz_control_cluster_nodes` regains its pre-step value, about 10 minutes plus the ramp, after a drop of about 1 / replicas (hypothesis).
+A replaced replica fails `/readyz` and sends `Reconnect` (`drain`); its Nodes redial as in [handover](#in-place-handover) step 7, staying ready (pack 8.5, [ADR-0007](../adr/0007-control-stream-protocol.md)); Rollouts resume from the persisted plan; ceil(Nodes / 5,000) + 1 replicas (hypothesis) avoid shedding. Until OQ-scalability-and-distributed-state-14 (a) closes, each replacement unqualifies its Nodes: for a derived-ceiling Cluster the operator MUST declare per-Node ceilings first or, between replacements, wait until `ruralz_control_cluster_nodes` regains its pre-step value, about 10 minutes plus the ramp, after a drop of about 1 / replicas (hypothesis).
 
 ## State Store upgrades
 
@@ -447,7 +460,7 @@ Commands and milestones: [CLI and API surface](../reference/01-cli-and-api-surfa
 | Before a Node upgrade, after finalize | `ruralz node list --cluster <name>`; versions as above | Every Node at N-1 or N; digests equal the promoted digest |
 | Before | `terminationGracePeriodSeconds` or `TimeoutStopSec`; balancer probe interval times unhealthy threshold | 45 s and 40 s; detection within 5 s (target) |
 | During a Hot Reload or Rollout | `ruralz rollout status <cluster> --wait`; `ruralz_config_activation_duration_seconds` | No deterministic NACK; activation within the size class budget (target) |
-| During a handover or Drain | Balancer view of `/readyz`; 5xx, `RZ-RT-014` and Drain-deadline code counts; the old process's exit log | 200 throughout a handover; no connection left at the deadline |
+| During a handover or Drain | Balancer view of `/readyz`; 5xx, `RZ-RT-014` and `RZ-RT-016` counts; the old process's exit log | 200 throughout a handover; no connection left at the deadline |
 | During any upgrade (Ruralz Control count: next row) | `ruralz_control_cluster_nodes`; `ruralz_node_degraded_info{reason="state_store_breaker_open"}` | No breaker opens; paced derived-ceiling Clusters: count drops at most 10% (target); declared ceilings: count ungated, first-seen GCRA calls within Scalability's per-Cell budget (target) |
 | During a Ruralz Control upgrade | `/readyz` on 9902; `ruralz_control_connected_nodes`; `ruralz_control_cluster_nodes` | Every Node reconnected, none shed; count down at most the replaced replica's share until OQ-scalability-and-distributed-state-14 (a) and, with derived ceilings, regained before the next replica |
 | After | `ruralz node list`; `ruralz_control_drift_nodes`; `ruralz_node_degraded_info` | No Drift and no new degraded reason |
@@ -468,15 +481,13 @@ Commands and milestones: [CLI and API surface](../reference/01-cli-and-api-surfa
 
 | ID | Question | Options | Owner | Blocking? |
 |---|---|---|---|---|
-| OQ-zero-downtime-upgrades-and-hot-reload-1 | Where are the Drain timings and handover timeout set? | (a) Fixed defaults (current); (b) `RURALZ_*` settings (pack amendment); (c) Gateway `spec` fields | configuration-model | No |
-| OQ-zero-downtime-upgrades-and-hot-reload-2 | Which code ends work still running at the drain deadline? | (a) Widen `RZ-RT-014`'s registered meaning to the Drain deadline; (b) A new `RZ-RT` code (recommended) | data-plane | No |
-| OQ-zero-downtime-upgrades-and-hot-reload-3 | Can `net/http` send a first GOAWAY before `Server.Shutdown`? | (a) `Shutdown` alone, one GOAWAY (Planned (M1)); (b) Ruralz framing through non-deprecated `x/net/http2` APIs; (c) An upstream change | data-plane | No |
-| OQ-zero-downtime-upgrades-and-hot-reload-4 | Which code NACKs a listener that cannot bind during a Hot Reload? | (a) A new transient `RZ-CFG` code; (b) An `RZ-RT` code | configuration-model | No |
 | OQ-zero-downtime-upgrades-and-hot-reload-5 | Should a handover pass the published Node count, reopening OQ-traffic-management-and-resilience-22? | (a) Count only (proposed); (b) Count and rate-limit key table; (c) Neither (current) | zero-downtime-upgrades-and-hot-reload | No |
-| OQ-zero-downtime-upgrades-and-hot-reload-6 | How do `GOMEMLIMIT` and host memory cover the handover overlap? | (a) Hosts sized for two processes, chosen until V-3; (b) Shared ceilings, a reduced soft limit and free overlap memory, after V-3; (c) Only hosts without a memory limit | capacity-planning | No (answered) |
-| OQ-zero-downtime-upgrades-and-hot-reload-7 | Which systemd directives keep the new process as main process across a handover? | (a) Research, then a shipped unit and helper; (b) Documentation only | release-versioning-and-compatibility | Yes, for Planned (M1) handover on T5 |
 | OQ-zero-downtime-upgrades-and-hot-reload-8 | Should Drain send WebSocket close 1012 Service Restart instead of 1001? | (a) 1001 everywhere (current, as Multi-protocol); (b) 1012 on Drain, 1001 on snapshot retirement | multi-protocol | No |
 | OQ-zero-downtime-upgrades-and-hot-reload-9 | What does a Node do when a rotated `stateStore.url` value names another deployment? | (a) Keep the old connection until restart, warning; (b) Redial at once; (c) Require a new Revision | scalability-and-distributed-state | No |
 | OQ-zero-downtime-upgrades-and-hot-reload-10 | Should closing-snapshot stream ends spread over the 10 s jitter window (target)? | (a) Spread (proposed); (b) At once (current) | data-plane | No |
 | OQ-zero-downtime-upgrades-and-hot-reload-11 | Should a `Hello` with the same certificate supersede a stream whose last `Heartbeat` carried `draining`, keeping the 10-minute qualification? | (a) Supersede and keep (proposed); (b) Supersede only; (c) Neither: retry `RZ-CP-002`, pace upgrades (current) | control-plane-and-gitops | No |
-| OQ-zero-downtime-upgrades-and-hot-reload-12 | Should pack section 7 and ADR-0015 make `net.ipv4.tcp_migrate_req` a complement to CBPF steering, with a linger, not an alternative? | (a) Complement, SHOULD set, 3 s linger (target) (proposed, used here); (b) Alternative (pack section 7) | system-overview | No |
+
+Closed:
+
+- OQ-zero-downtime-upgrades-and-hot-reload-1 (a), [timeline](#drain-timeline-defaults); -2 (b), `RZ-RT-016`; -3 (a), one GOAWAY; -4 (a), RZ-CFG-039 ([Validation gate](#validation-gate)); -6, (a) until V-3, then (b) ([Capacity planning](03-capacity-planning.md#headroom-and-failure-capacity)); -7 (a), [systemd](#handover-under-systemd).
+- OQ-zero-downtime-upgrades-and-hot-reload-12 (a), [In-place handover](#in-place-handover); reported to the pack section 7 and ADR-0015 owners for conforming.

@@ -2,7 +2,7 @@
 title: CLI and API Surface
 status: reviewed
 owner: ruralz-core
-last_updated: 2026-09-25
+last_updated: 2026-09-26
 depends_on:
   - docs/_meta/foundation-pack.md
   - docs/_meta/style-guide.md
@@ -169,7 +169,7 @@ Flags mean the same everywhere; tokens come only from files, staying out of shel
 
 With `--environments` and no `--env`, `ruralz bundle validate` and `ruralz bundle audit` run once per Environment in the file, as forge CI expects, exiting with the worst code; diagnostics and findings gain `environment` (proposed, OQ-cli-and-api-surface-1). Other Bundle readers exit 2 there.
 
-Environment variables replacing `--control`, `--token-file` and `--admin` await a pack section 2 amendment (OQ-cli-and-api-surface-2).
+Environment variables replacing `--control`, `--token-file` and `--admin` are OQ-cli-and-api-surface-2.
 
 ### Bundle verbs in detail
 
@@ -193,15 +193,26 @@ Without `--oci`, `ruralz bundle push` uploads the source Bundle with the CLI's d
 
 ### Rollout, promotion and Node verbs
 
-`ruralz rollout start` serves reverts, needing an `operator` with step-up TOTP ([Rollout states](../architecture/04-control-plane-and-gitops.md#rollout-states)), and prints the Rollout ID. A revert to an older target, or with `security` impact or a Capability grant, gets `RZ-CP-006` until another `approver` approves, and exits 3. The held revert waits as a `pending` Rollout whose ID is printed (proposed, OQ-cli-and-api-surface-8; contradicts "A Rollout exists only after approval" until control-plane-and-gitops decides). Under option (a) it is the Cluster's active Rollout for `RZ-CP-009` until `ruralz rollout approve --rollout ROLLOUT_ID --digest sha256:DIGEST` (`POST /api/v1/rollouts/{id}/approve`) releases it or `ruralz rollout reject` with the same flags (`/reject`) discards it. Under option (b), exit 3 prints the promotion record ID for `ruralz rollout approve --env`.
+`ruralz rollout start` serves reverts, needing an `operator` with step-up TOTP ([Rollout states](../architecture/04-control-plane-and-gitops.md#rollout-states)), and prints the Rollout ID. A revert to an older target, or with `security` impact or a Capability grant, gets `RZ-CP-006` until another `approver` approves, and exits 3. The held revert waits as a `pending` Rollout whose ID is printed (proposed, OQ-cli-and-api-surface-8). Under option (a) it is the Cluster's active Rollout for `RZ-CP-009` until `ruralz rollout approve --rollout ROLLOUT_ID --digest sha256:DIGEST` (`POST /api/v1/rollouts/{id}/approve`) releases it or `ruralz rollout reject` with the same flags (`/reject`) discards it. Under option (b), exit 3 prints the promotion record ID for `ruralz rollout approve --env`.
 
-`ruralz rollout status` reads a ULID as a Rollout ID, anything else as a Cluster, following its active, else latest, Rollout. `--wait` polls every 5 s, backing off to 30 s (target), honors `Retry-After` on `RZ-CP-010`, and stops at `complete` (exit 0), `rolled-back` or `failed` (1), `paused` (3, with the reason; not terminal, it awaits a person) or `--timeout` (2).
+`ruralz rollout status` reads a ULID as a Rollout ID, anything else as a Cluster, following its active, else latest, Rollout. `--wait` polls every 5 s, backing off to 30 s (target), honors `Retry-After` on `RZ-CP-010`, and stops at `complete` (exit 0), `rolled-back` or `failed` (1), `paused` (3, with the reason; it awaits a person) or `--timeout` (2).
 
 `ruralz rollout approve --env prod` shows the queued record's source, digest and diff impact, then approves it for every Cluster of the Environment, sending the displayed digest on a terminal, else `--digest`, so a record a newer commit replaced is never approved. `ruralz rollout reject` follows the same rules; the server enforces separation of duties (`RZ-CP-007`).
 
-`ruralz node drain` takes OQ-data-plane-4 option (b) for Planned (M1): a local SIGTERM starts a Drain, like a process manager ([ADR-0015](../adr/0015-zero-downtime-upgrades-so-reuseport.md)). The holder of the file lock on `${RURALZ_DATA_DIR}` records its PID and start time there (OQ-cli-and-api-surface-10); the CLI checks it against `/proc/locks` and `/proc/<pid>/stat`, signals only that process and awaits its exit up to `--timeout`. No holder, a stale record, another PID namespace or a denied signal exits 2.
+`ruralz node drain` takes OQ-data-plane-4 option (b) for Planned (M1): a local SIGTERM starts a Drain, like a process manager ([ADR-0015](../adr/0015-zero-downtime-upgrades-so-reuseport.md)). The process holding the `flock` on `${RURALZ_DATA_DIR}/lock` writes `holder.json` beside it atomically on taking it (OQ-cli-and-api-surface-10 (a)); readers ignore unknown members:
 
-During a Zero-Downtime Upgrade the lock moves at Drain start; the CLI still awaits the signaled process. Under Kubernetes delete the Pod; under systemd, `systemctl stop`. A remote drain is OQ-cli-and-api-surface-4. `ruralz node token` output is a secret, never in a Bundle.
+| Member | Contents |
+|---|---|
+| `format` | `ruralz.holder.v1` |
+| `pid` | Process ID in the holder's PID namespace |
+| `startTime` | Field 22 of `/proc/<pid>/stat`, clock ticks since boot, so a reused PID never matches |
+| `nodeId` | The Node's `node.id` |
+| `version` | The holder's build version |
+| `pidNamespace` | `readlink /proc/self/ns/pid`, such as `pid:[4026531836]`; omitted without `/proc` |
+
+The CLI checks, in order, the `format`, its own `pidNamespace`, a live process with that `startTime` and the holder's `FLOCK` `WRITE` line on the `lock` inode in `/proc/locks`, then signals only that process and awaits its exit up to `--timeout`. No holder, a stale record, another PID namespace or a denied signal exits 2.
+
+During a Zero-Downtime Upgrade the lock moves at Drain start; the CLI still awaits the signaled process. Under Kubernetes, delete the Pod; under systemd, `systemctl stop`. A remote drain is OQ-cli-and-api-surface-4. `ruralz node token` output is a secret, never in a Bundle.
 
 ### Ruralz Control replica verbs
 
@@ -226,10 +237,10 @@ OQ-high-availability-and-disaster-recovery-6, option (a): `ruralz control backup
 |---|---|
 | Rendering | DIR is rendered for `--env`, or from the process environment, into a private temporary directory. `ruralz dev run` re-renders on each source change, swapping the file by atomic rename; `ruralzd` Hot Reloads it, keeping its active Revision if a render fails |
 | Ports | `ruralz test run --bundle`, and `ruralz dev run --ephemeral-ports`, rewrite every listener `port` and `admin.port` to free ports, printing the mapping, so parallel CI jobs never collide; otherwise a busy port exits 2 |
-| Secrets | `--secret-overrides FILE` maps a `secretRef` `provider:name` to a local file, copied into the private directory as `provider: file` under `RURALZ_SECRET_ROOT` (proposed: OQ-security-and-identity-22). Any other unresolvable reference keeps `/readyz` at 503: exit 2, RZ-CFG-026 |
+| Secrets | `--secret-overrides FILE` maps a `secretRef` `provider:name` to a local file, copied into the private directory as `provider: file` under `RURALZ_SECRET_ROOT` ([Secrets](../architecture/08-security-and-identity.md#secrets) rule 5). `RURALZ_FETCH_ALLOW` defaults to loopback, for local mocks. Any other unresolvable reference keeps `/readyz` at 503: exit 2, RZ-CFG-026 |
 | Digest | A rewritten file is a test render, reported as `testDigest` beside the unmodified Revision digest |
 | Bind address | Unchanged; loopback-only is OQ-cli-and-api-surface-11 |
-| Node state | A temporary `RURALZ_DATA_DIR`, removed on exit, and an operator token via `RURALZ_ADMIN_TOKEN_FILE` (proposed: OQ-security-and-identity-7), its path printed for `ruralz dev tap` |
+| Node state | A temporary `RURALZ_DATA_DIR`, removed on exit, and an operator token via `RURALZ_ADMIN_TOKEN_FILE`, its path printed for `ruralz dev tap`; admin is plain HTTP, so the token works only from loopback |
 | Readiness | The CLI awaits 200 from the chosen admin port's `/readyz`; after `--ready-timeout`, default 30 s (target), it prints the reasons and exits 2 |
 
 ### Plugin, AI and development verbs
@@ -238,7 +249,7 @@ OQ-wasm-plugin-system-7, option (a): `ruralz dev run` loads Plugins only by dige
 
 OQ-ai-llm-gateway-13, option (a): `ruralz ai cost` reads access log records' `ai` object, as metrics carry no Consumer label. `--group-by` takes `consumer`, `tier`, `route`, `aimodel` or `provider`. Totals are per currency, unconverted and `approximate`, listing unpriced requests apart; records an errors-only `accessLog.when` skipped are missing (OQ-cli-and-api-surface-6).
 
-`/tap` admits at most 4 subscribers with 1 MiB buffers, costing about 2 µs per sampled event (target) whatever `--route` filters; `ruralz dev tap` exits 2 when refused and warns of dropped events.
+`/tap` admits at most 4 subscribers with 1 MiB buffers, costing about 2 µs per sampled event (target) whatever `--route` filters; `ruralz dev tap` exits 2 when refused (503 `RZ-RT-019`) and warns on each `{"dropped":N}` line.
 
 ### Test case format
 
@@ -303,12 +314,12 @@ ruralz rollout status --control https://control.shop.example:8090 --token-file ~
 
 ## Ruralz Gateway admin API
 
-`ruralzd` serves admin on `Gateway.spec.admin.port`, default 9901. This table matches [Admin endpoints](../architecture/03-data-plane.md#admin-endpoints) in Data plane, which owns the semantics; a path added there MUST be added here. `/debug/*` names every path under `/debug/`.
+`ruralzd` serves admin on `Gateway.spec.admin.port`, default 9901. This table matches Data plane's [Admin endpoints](../architecture/03-data-plane.md#admin-endpoints), which owns the semantics; a path added there MUST be added here.
 
 | Path on 9901 | Method | Returns | Authentication | Used by | Planned |
 |---|---|---|---|---|---|
 | `/healthz` | GET | 200 while the process responds | MAY be open | Liveness probes | Planned (M1) |
-| `/readyz` | GET | 200 only with an active validated Revision, every `secretRef` resolved, listeners bound and no Drain; else 503 with JSON reasons; never fails for a lost Control Stream | MAY be open | Probes, local `ruralzd` launcher | Planned (M1) |
+| `/readyz` | GET | 200 when ready, else 503 with reasons; never fails for a lost Control Stream | MAY be open | Probes, local `ruralzd` launcher | Planned (M1) |
 | `/metrics` | GET | `ruralz_<component>_<name>_<unit>` metrics (exporter: OQ-tech-stack-and-libraries-16) | Metrics token, operator token or client certificate | Scrapers | Planned (M1) |
 | `/debug/*`: `/debug/pprof/` | GET | Go runtime profiles; mutex and block only during a `?seconds=` request | Operator token or client certificate | Profiling | Planned (M1) |
 | `/debug/snapshots` | GET | Snapshots with digests and pin counts | Same | Hot Reload debugging | Planned (M1) |
@@ -316,7 +327,7 @@ ruralz rollout status --control https://control.shop.example:8090 --token-file ~
 | `/config/dump` | GET | Active Revision in `ruralz.canonical.v1` form with its full digest and Last-Known-Good digest; secrets omitted | Same | `ruralz node dump`, `ruralz bundle diff` | Planned (M1) |
 | `/tap` | GET, streaming | Sampled request and response metadata, credentials redacted | Same | `ruralz dev tap` | Planned (M1) |
 
-Admin paths never change configuration or Node state: a leaked admin token cannot alter routing or drain a Node, but can load a Node via profiles and `/tap`, and heap profiles can hold resolved secrets: guard it like a TLS key. `/tap` and `/config/dump` use is logged.
+Admin paths never change configuration or Node state: a leaked admin token cannot alter routing or drain a Node, but can load a Node via profiles and `/tap`, and heap profiles can hold resolved secrets: guard it like a TLS key.
 
 ### Ruralz Control admin API on 9902
 
@@ -324,7 +335,7 @@ Admin paths never change configuration or Node state: a leaked admin token canno
 
 ### Admin API conventions
 
-Responses are JSON except `/metrics` and `/debug/pprof/`; `/tap` streams one JSON object per sampled exchange. Errors are RFC 9457 problem documents with `code` and `requestId`.
+Responses are JSON except `/metrics` and `/debug/pprof/`, with bodies fixed by [Admin endpoints](../architecture/03-data-plane.md#admin-endpoints); the CLI ignores unknown members. Errors are RFC 9457 problem documents with `code` and `requestId`; the code of an admin 404 or 405 is OQ-data-plane-18.
 
 ## Ruralz Control REST and gRPC APIs
 
@@ -420,8 +431,8 @@ Every surface denies by default; only `/healthz` and `/readyz` MAY be open (pack
 | Surface | Port | Credential | Authorization | On failure | Planned |
 |---|---|---|---|---|---|
 | Admin `/healthz`, `/readyz` | 9901, 9902 | None | None | Not applicable | Planned (M1); 9902 Planned (M2) |
-| Admin `/metrics` | 9901, 9902 | Metrics or operator token, or client certificate, on every interface including loopback | Read-only | 401 | Planned (M1); 9902 Planned (M2) |
-| Admin `/debug/*`, `/config/dump`, `/tap` | 9901 (`/debug/*` also 9902) | Operator token or client certificate; off without an operator token | Read-only | 401 | Planned (M1); 9902 Planned (M2) |
+| Admin `/metrics` | 9901, 9902 | Metrics or operator token, or client certificate, on every interface including loopback | Read-only | 401 RZ-AUTH-001 or RZ-AUTH-002 | Planned (M1); 9902 Planned (M2) |
+| Admin `/debug/*`, `/config/dump`, `/tap` | 9901 (`/debug/*` also 9902) | Operator token or client certificate; off without an operator token | Read-only | Same | Planned (M1); 9902 Planned (M2) |
 | REST API | 8090 | Session cookie (Ruralz Console) or API token, TLS 1.3 by default | Roles bound globally, per Environment or per Cluster; step-up TOTP for approvals, reverts, trust uploads and Access changes | 401 for failed authentication (code: OQ-cli-and-api-surface-12); `RZ-CP-007` for RBAC or separation-of-duties denials; audited | Planned (M2) |
 | Forge webhook | 8090 `/api/v1/hooks/git` | Per-source HMAC | Triggers an authenticated fetch only | `RZ-CP-018` | Planned (M2) |
 | Control Stream `Enroll` | 8091 | One-time token, pinned server CA (pack 8.4 amendment proposed: OQ-security-and-identity-31) | One Cluster; token consumed | `RZ-CP-001` (token rejected), `RZ-CP-002` (`node.id` already enrolled); lockout per [Enrollment and mTLS](../architecture/04-control-plane-and-gitops.md#enrollment-and-mtls) | Planned (M2) |
@@ -430,7 +441,7 @@ Every surface denies by default; only `/healthz` and `/readyz` MAY be open (pack
 
 ### Admin API
 
-Admin credentials are Node process settings, never Bundle fields. [Security and identity](../architecture/08-security-and-identity.md#admin-ports) decided OQ-system-overview-6 (admin ports bind all interfaces for kubelet probes) and proposes `RURALZ_ADMIN_METRICS_TOKEN_FILE`, `RURALZ_ADMIN_TOKEN_FILE` and `RURALZ_ADMIN_TLS_DIR` (OQ-security-and-identity-7). Tokens are compared in constant time, accepted only over TLS or loopback; the CLI sends `--admin-token-file` as a bearer token, never in cleartext beyond loopback, or presents `--client-cert` and `--client-key`.
+Admin credentials are Node process settings, never Bundle fields ([Admin ports](../architecture/08-security-and-identity.md#admin-ports)); admin ports bind all interfaces for kubelet probes (OQ-system-overview-6). The CLI sends `--admin-token-file` as a bearer token, never in cleartext beyond loopback, or presents `--client-cert` and `--client-key`.
 
 ### REST API
 
@@ -490,9 +501,8 @@ An invalid Bundle is 1 for `validate`, `render`, `build` and `audit`, whose resu
 | OQ-cli-and-api-surface-7 | Where does the CLI read OCI registry credentials? Nodes share the gap (OQ-wasm-plugin-system-6). | (a) The standard container credential file; (b) A flag naming a file | cli-and-api-surface | Yes, for Planned (M2) |
 | OQ-cli-and-api-surface-8 | How is a revert held by `RZ-CP-006` recorded, when a Rollout exists only after approval? | (a) A `pending` Rollout, active for `RZ-CP-009`, released by `/approve` or discarded by `/reject` (proposed); (b) A promotion record whose ID exit 3 prints | control-plane-and-gitops | Yes, for Planned (M2) |
 | OQ-cli-and-api-surface-9 | What is the `ruralz-control` data directory layout, which key protects backups, and does the join token pin the 8092 server CA? | (a) `RURALZ_DATA_DIR`; a configured backup key with an offline copy; a pinned fingerprint (proposed); (b) Backups encrypted to an operator key | control-plane-and-gitops | Yes, for Planned (M2) |
-| OQ-cli-and-api-surface-10 | Where does the lock holder record its PID and start time? | (a) A file under `${RURALZ_DATA_DIR}` (proposed); (b) Beside the readiness Unix socket | data-plane | Yes, for `ruralz node drain` (M1) |
 | OQ-cli-and-api-surface-11 | Should a setting bind a CLI-launched `ruralzd` to loopback? | (a) A `RURALZ_*` setting by a pack section 2 amendment (proposed); (b) No; use a host firewall | cli-and-api-surface | No |
 | OQ-cli-and-api-surface-12 | Which codes cover an invalid REST request and failed authentication? | (a) Two new `RZ-CP` codes (proposed); (b) Plain 400 and 401 | control-plane-and-gitops | No |
 | OQ-cli-and-api-surface-13 | How does `ruralz.test.v1` express gRPC, WebSocket, SSE, repeated requests and TLS or SNI targets? | (a) Additive `protocol`, `repeat`, `tls` members (proposed); (b) `ruralz.test.v2` | cli-and-api-surface | No |
 
-Decided here, option (a) unless noted, for owners to close: OQ-configuration-model-7; OQ-configuration-model-10 (no overlay selector in `ruralzd`); OQ-control-plane-and-gitops-17 (`ruralz rollout reject`); OQ-data-plane-4, option (b) for Planned (M1); OQ-wasm-plugin-system-7; OQ-ai-llm-gateway-13; OQ-release-versioning-and-compatibility-6; OQ-testing-and-quality-strategy-8; OQ-high-availability-and-disaster-recovery-6. Pending pack 8.4 amendments relied on: OQ-security-and-identity-31 (token `Enroll`, token `Join`) and OQ-control-plane-and-gitops-15 (8092 classes and relays).
+Closed: OQ-cli-and-api-surface-10 (a), [`holder.json`](#rollout-promotion-and-node-verbs). Decided here, option (a) unless noted, for owners to close: OQ-configuration-model-7 and -10 (no overlay selector in `ruralzd`); OQ-control-plane-and-gitops-17 (`ruralz rollout reject`); OQ-wasm-plugin-system-7; OQ-ai-llm-gateway-13; OQ-release-versioning-and-compatibility-6; OQ-testing-and-quality-strategy-8; OQ-high-availability-and-disaster-recovery-6. Pending pack 8.4 amendments relied on: OQ-security-and-identity-31 (token `Enroll`, token `Join`) and OQ-control-plane-and-gitops-15 (8092 classes and relays).
