@@ -2,7 +2,7 @@
 title: Feature Catalog
 status: reviewed
 owner: ruralz-core
-last_updated: 2026-09-25
+last_updated: 2026-10-03
 depends_on:
   - docs/_meta/foundation-pack.md
   - docs/_meta/style-guide.md
@@ -21,9 +21,10 @@ depends_on:
   - docs/operations/02-zero-downtime-upgrades-and-hot-reload.md
   - docs/vision/01-vision-and-positioning.md
   - docs/engineering/01-tech-stack-and-libraries.md
+  - docs/engineering/04-release-versioning-and-compatibility.md
   - docs/reference/01-cli-and-api-surface.md
   - docs/roadmap/01-roadmap-and-milestones.md
-adrs: [ADR-0002, ADR-0003, ADR-0004, ADR-0005, ADR-0007, ADR-0008, ADR-0009, ADR-0010, ADR-0011, ADR-0012, ADR-0013, ADR-0014, ADR-0015, ADR-0016, ADR-0017]
+adrs: [ADR-0002, ADR-0003, ADR-0004, ADR-0005, ADR-0007, ADR-0008, ADR-0009, ADR-0012, ADR-0013, ADR-0014, ADR-0015, ADR-0016, ADR-0017, ADR-0018, ADR-0019]
 milestone_tags_used: [M0, M1, M2, M3, M4, M5]
 ---
 
@@ -105,7 +106,8 @@ Ruralz treats configuration as code: a Bundle in Git is validated, rendered, dif
 | Configuration diff | Planned (M1) | `ruralz bundle diff` compares Bundles, files or a Node's `/config/dump`, exiting 0, 1 or 2; Revision sources Planned (M2) | [Configuration model: Diff semantics](../architecture/02-configuration-model.md#diff-semantics) |
 | Revision build | Planned (M1) | `ruralz bundle build` produces a Revision whose `sha256` digest covers the rendered Bundle, with an online Plugin check unless `--offline` | [Control plane and GitOps: Building and recording a Revision](../architecture/04-control-plane-and-gitops.md#building-and-recording-a-revision) |
 | Hot Reload with Last-Known-Good boot | Planned (M1) | Atomic swap of the active Revision's compiled snapshot on every Node; `ruralz dev run` watches a local Bundle; a Node boots from Last-Known-Good when no source answers | [Data plane: Configuration snapshots and hot reload](../architecture/03-data-plane.md#configuration-snapshots-and-hot-reload) |
-| Zero-Downtime Upgrade of `ruralzd` | Planned (M1) | In-place handover through `SO_REUSEPORT` and Drain on VMs and file-mode hosts; edge sites Planned (M2) ([ADR-0015](../adr/0015-zero-downtime-upgrades-so-reuseport.md)) | [Zero-downtime upgrades and hot reload: Binary upgrades](../operations/02-zero-downtime-upgrades-and-hot-reload.md#binary-upgrades) |
+| Zero-Downtime Upgrade of `ruralzd` | Planned (M1) | In-place handover through `SO_REUSEPORT` and Drain on VMs and file-mode hosts, where the shipped systemd unit runs it on `systemctl reload`; edge sites Planned (M2) ([ADR-0015](../adr/0015-zero-downtime-upgrades-so-reuseport.md)) | [Zero-downtime upgrades and hot reload: Binary upgrades](../operations/02-zero-downtime-upgrades-and-hot-reload.md#binary-upgrades) |
+| Graceful Drain | Planned (M1) | SIGTERM, `systemctl stop` or `ruralz node drain`: `/readyz` fails at once, new connections stop at 5 s, work still running at the 25 s Drain deadline ends with `RZ-RT-016`, and the Node exits by 30 s (target) | [Zero-downtime upgrades and hot reload: Drain timeline defaults](../operations/02-zero-downtime-upgrades-and-hot-reload.md#drain-timeline-defaults) |
 | Configuration dump | Planned (M1) | `ruralz node dump` saves a Node's active Revision from `/config/dump` with secrets omitted | [Data plane: Admin endpoints](../architecture/03-data-plane.md#admin-endpoints) |
 | GitOps with Ruralz Control | Planned (M2) | Ruralz Control watches the Git repository, validates pull requests and builds a Revision per Environment; `ruralz bundle push` sends a source Bundle or publishes a signed Revision to an OCI registry | [Control plane and GitOps: GitOps model](../architecture/04-control-plane-and-gitops.md#gitops-model) |
 | Canary Rollouts with automatic rollback | Planned (M2) | `Cluster` `spec.rollout` (`all-at-once` or `canary`, `autoRollback`); Control Stream ACK and NACK; `ruralz rollout start`, `ruralz rollout status`, `ruralz rollout pause`, `ruralz rollout resume` and `ruralz rollout rollback` | [Control plane and GitOps: Rollout plan, batches and gates](../architecture/04-control-plane-and-gitops.md#rollout-plan-batches-and-gates) |
@@ -127,7 +129,7 @@ Ruralz treats configuration as code: a Bundle in Git is validated, rendered, dif
 
 ## Request and response transformation
 
-Ruralz shapes traffic with `Route` composition, CEL ([ADR-0011](../adr/0011-expressions-and-authorization-engines.md)) and the `headers`, `transform.request` and `transform.response` Policy types, whose `config` schema is authored in Data plane's Transform Policies, pending Configuration model registration. Anything these cannot express runs in a WASM `Plugin` ([ADR-0004](../adr/0004-wasm-runtime-wazero.md), [ADR-0005](../adr/0005-plugin-abi-v1.md)).
+Ruralz shapes traffic with `Route` composition, CEL ([ADR-0019](../adr/0019-expressions-authorization-comprehension-stop.md)) and the `headers`, `transform.request` and `transform.response` Policy types, whose `config` schemas the Configuration model registers from Data plane's Transform Policies. Anything these cannot express runs in a WASM `Plugin` ([ADR-0004](../adr/0004-wasm-runtime-wazero.md), [ADR-0005](../adr/0005-plugin-abi-v1.md)).
 
 | Feature | Status | Mechanism | Design |
 |---|---|---|---|
@@ -157,7 +159,7 @@ Ruralz shapes traffic with `Route` composition, CEL ([ADR-0011](../adr/0011-expr
 
 ## Security
 
-Browser protections are one Gateway `headers` Policy with `overridable: false`, so no Route can drop them. Supply-chain features sign every Revision and Plugin artifact with Sigstore ([ADR-0017](../adr/0017-artifact-signing.md)), and the FIPS build is a build flavor with the same features and license.
+Browser protections are one Gateway `headers` Policy with `overridable: false`, so no Route can drop them. Supply-chain features sign every release artifact from M1 and every Revision and Plugin artifact from M2 with Sigstore ([ADR-0017](../adr/0017-artifact-signing.md)), and the FIPS build is a build flavor with the same features and license.
 
 | Feature | Status | Mechanism | Design |
 |---|---|---|---|
@@ -167,7 +169,10 @@ Browser protections are one Gateway `headers` Policy with `overridable: false`, 
 | CORS | Planned (M1) | `cors` Policy with `allowOrigins` and `allowMethods`, first in the chain; preflights skip authentication | [Configuration model: Policy](../architecture/02-configuration-model.md#policy) |
 | Upstream forwarding control | Planned (M1) | Upstream-scoped `headers` Policies remove client headers; `auth.api-key` and `auth.basic` strip their credential; an allowlist per OQ-feature-catalog-5 | [Security and identity: Request hardening](../architecture/08-security-and-identity.md#request-hardening) |
 | Pre-authentication throttling for Basic credentials | Planned (M1) | A per-Node throttle with a success cache, username buckets and a bounded hash queue in front of `auth.basic` verification | [Security and identity: Pre-authentication throttling](../architecture/08-security-and-identity.md#pre-authentication-throttling) |
-| Secrets by reference | Planned (M1) | `secretRef` with `env` and `file` sources; `kubernetes` and `vault` sources Planned (M2) | [Configuration model: secretRef](../architecture/02-configuration-model.md#secretref) |
+| Secrets by reference | Planned (M1) | `secretRef` with `env` and `file` sources, each transmitting field bound to one destination (`RZ-CFG-041` on reuse elsewhere); `kubernetes` and `vault` sources Planned (M2) | [Configuration model: secretRef](../architecture/02-configuration-model.md#secretref) |
+| Admin port authentication | Planned (M1) | Admin port 9901 accepts bearer tokens from `RURALZ_ADMIN_TOKEN_FILE` and, for `/metrics` only, `RURALZ_ADMIN_METRICS_TOKEN_FILE`, or mTLS from `RURALZ_ADMIN_TLS_DIR` | [Security and identity: Admin ports](../architecture/08-security-and-identity.md#admin-ports) |
+| State Store entry integrity | Planned (M1) | Cached State Store entries carry an HMAC keyed by `RURALZ_STATE_STORE_MAC_KEY_FILE`; a tampered entry is a miss | [Security and identity: Secrets](../architecture/08-security-and-identity.md#secrets) |
+| Signed releases with SBOMs and provenance | Planned (M1) | Keyless Sigstore signatures over `SHA256SUMS` and the `ghcr.io/ravindu-rev/ruralzd` images, CycloneDX 1.7 SBOMs and SLSA Build Level 3 provenance per archive and image | [Release, versioning and compatibility: Release artifacts](../engineering/04-release-versioning-and-compatibility.md#release-artifacts) |
 | Signed Revisions and Plugin artifacts | Planned (M2) | Digest pinning and Sigstore signatures verified by every Node before activation | [Security and identity: Signed Revisions and Plugin artifacts](../architecture/08-security-and-identity.md#signed-revisions-and-plugin-artifacts) |
 | Plugin sandbox | Planned (M2) | Deny-by-default Capabilities, memory and time limits per `Plugin`, no filesystem access | [Security and identity: Plugin sandbox](../architecture/08-security-and-identity.md#plugin-sandbox) |
 | Node Enrollment over mTLS | Planned (M2) | `ruralz node token` issues a one-time Enrollment token; the Control Stream runs over mTLS; `ruralz node revoke` revokes a Node identity | [Security and identity: Enrollment](../architecture/08-security-and-identity.md#enrollment) |
@@ -180,7 +185,7 @@ The header match fixes the Route before `onRequestHeaders`; body-dependent crite
 | Feature | Status | Mechanism | Design |
 |---|---|---|---|
 | Pass-through proxying | Planned (M1) | A `Route` with `upstreams` streams request and response bodies unchanged | [Data plane: Upstream layer](../architecture/03-data-plane.md#upstream-layer) |
-| Virtual hosts | Planned (M1) | `Route` `match.hosts` with listener `hostnames`; wildcard hosts per OQ-data-plane-2 | [Data plane: Router](../architecture/03-data-plane.md#router) |
+| Virtual hosts | Planned (M1) | `Route` `match.hosts` with listener `hostnames`; a wildcard host has one leading `*.` label (OQ-data-plane-2, option (a)) | [Data plane: Router](../architecture/03-data-plane.md#router) |
 | Path matching with prefixes, templates and regular expressions | Planned (M1) | `Route` `match.path` with `prefix`, `template` or `regex`, plus `match.methods` | [Data plane: Precedence](../architecture/03-data-plane.md#precedence) |
 | Header and query string routing | Planned (M1) | `Route` `match.headers`, `match.when` over `request.query`, or `conditional` composition; CEL `match.when` sees no body | [Data plane: Router](../architecture/03-data-plane.md#router) |
 | Conditional routing | Planned (M1) | `Route` `composition.mode: conditional` with CEL step `when` | [Data plane: Composition engine](../architecture/03-data-plane.md#composition-engine) |
@@ -193,7 +198,7 @@ The header match fixes the Route before `onRequestHeaders`; body-dependent crite
 
 ## Authentication and authorization
 
-Client authentication types share slot `auth` and fail closed; authorization types run after authentication in request Phases ([ADR-0011](../adr/0011-expressions-and-authorization-engines.md)). Upstream authentication types share slot `upstream-auth` on an `Upstream`.
+Client authentication types share slot `auth` and fail closed; authorization types run after authentication in request Phases ([ADR-0019](../adr/0019-expressions-authorization-comprehension-stop.md)). Upstream authentication types share slot `upstream-auth` on an `Upstream`.
 
 | Feature | Status | Mechanism | Design |
 |---|---|---|---|
@@ -281,15 +286,16 @@ Ruralz rate limiting is a local token bucket at a per-Node ceiling plus GCRA in 
 | Route rate limits | Planned (M1) | Route-scoped `ratelimit` with `limits[]` (`requests`, `window`) and CEL `config.key` | [Traffic management and resilience: Rate limiting](../architecture/09-traffic-management-and-resilience.md#rate-limiting) |
 | Spike arrest and burst | Planned (M1) | `ratelimit` `limits[]` with a short `window` and `limits[].burst` | [Traffic management and resilience: Per-Node ceiling](../architecture/09-traffic-management-and-resilience.md#per-node-ceiling) |
 | Distributed rate limits with bounded over-admission | Planned (M1) | `ratelimit` with GCRA on the `redis` State Store driver, failing open by default; over-admission at most N × per-Node ceiling per window (target) through `limits[].perNodeCeiling` | [Scalability and distributed state: Distributed rate limits](../architecture/11-scalability-and-distributed-state.md#distributed-rate-limits) |
-| Service-wide rate limit | Planned (M1) | Gateway-scoped `ratelimit` with a constant `config.key`; above about 25,000 requests per second (hypothesis) it needs `limits[].perNodeCeiling` or `config.localOnly`, whose pack 8.8 amendment is OQ-scalability-and-distributed-state-11 | [Traffic management and resilience: Service and tiered limits](../architecture/09-traffic-management-and-resilience.md#service-and-tiered-limits) |
+| Service-wide rate limit | Planned (M1) | Gateway-scoped `ratelimit` with a constant `config.key`; above about 25,000 requests per second (hypothesis) it needs `limits[].perNodeCeiling` or `config.localOnly` (OQ-scalability-and-distributed-state-11, option (a)) | [Traffic management and resilience: Service and tiered limits](../architecture/09-traffic-management-and-resilience.md#service-and-tiered-limits) |
 | Tiered rate limits | Planned (M1) | One `ratelimit` per Tier guarded by `Policy.spec.when` on `consumer.tier` (OQ-traffic-management-and-resilience-4) | [Traffic management and resilience: Service and tiered limits](../architecture/09-traffic-management-and-resilience.md#service-and-tiered-limits) |
 | Upstream protection limits | Planned (M1) | A `ratelimit` with a constant key on each `Route` reaching the `Upstream`, plus `circuitBreaker.maxPendingRequests`; Upstream scope per OQ-feature-catalog-4 | [Traffic management and resilience: Circuit breakers](../architecture/09-traffic-management-and-resilience.md#circuit-breakers) |
 | RateLimit response headers | Planned (M1) | Structured Field `RateLimit` and `RateLimit-Policy` headers on limited Routes | [Traffic management and resilience: RateLimit response headers](../architecture/09-traffic-management-and-resilience.md#ratelimit-response-headers) |
-| Circuit breakers and bulkheads | Planned (M1) | `Upstream` `circuitBreaker` (`consecutiveFailures`, `openDuration`, `maxConnections`) with CEL `failureWhen` over `response.status` and `error`; an open breaker fails fast with an `RZ-UP` code | [Traffic management and resilience: Circuit breakers](../architecture/09-traffic-management-and-resilience.md#circuit-breakers) |
+| Circuit breakers and bulkheads | Planned (M1) | `Upstream` `circuitBreaker` (`consecutiveFailures`, `minimumLegs`, `failureRatio`, `openDuration`, `halfOpenSuccesses`, `maxConnections`) with CEL `failureWhen` over `response.status` and `error`; an open breaker fails fast with an `RZ-UP` code | [Traffic management and resilience: Circuit breakers](../architecture/09-traffic-management-and-resilience.md#circuit-breakers) |
 | Health checks and outlier detection | Planned (M1) | Active probes and passive ejection per Node on each `Upstream` | [Traffic management and resilience: Health checking and outlier detection](../architecture/09-traffic-management-and-resilience.md#health-checking-and-outlier-detection) |
 | Granular timeouts | Planned (M1) | `Route` `timeout`, `Upstream` `timeout`, `retries.perTryTimeout` and Policy `stateStoreTimeout`, nested per request, leg and attempt | [Traffic management and resilience: Deadlines](../architecture/09-traffic-management-and-resilience.md#deadlines) |
 | Retries with a retry budget | Planned (M1) | `retries.attempts` and CEL `retryOn` with full-jitter backoff; in-flight retries capped at max(3, 20% of in-flight originals) (target) | [Traffic management and resilience: Retries](../architecture/09-traffic-management-and-resilience.md#retries) |
-| IP filtering | Planned (M1) | `authz.ip` by CIDR on `source.ip`; trusted proxies per OQ-security-and-identity-6, and until it closes, deployments behind a load balancer SHOULD NOT rely on `source.ip` | [Security and identity: IP filtering and GeoIP](../architecture/08-security-and-identity.md#ip-filtering-and-geoip) |
+| Load shedding | Planned (M1) | A fixed ceiling of 20,000 in-flight units per Node (target); a request past it gets 503 `RZ-RT-005` at once, never queued | [Data plane: Bounded resources](../architecture/03-data-plane.md#bounded-resources) |
+| IP filtering | Planned (M1) | `authz.ip` by CIDR on `source.ip`, which `Gateway` `trustedProxies` and listener `proxyProtocol` (PROXY protocol v2) derive behind load balancers (OQ-security-and-identity-6, option (c)) | [Security and identity: IP filtering and GeoIP](../architecture/08-security-and-identity.md#ip-filtering-and-geoip) |
 | User-agent filtering | Planned (M1) | `authz.cel` `config.rule` matching `request.headers["user-agent"]`; a list beyond the `RZ-CFG-015` cost bound of 10,000 units (target) uses a `plugin` Policy | [Security and identity: Authorization](../architecture/08-security-and-identity.md#authorization) |
 | GeoIP filtering | Planned (M2) | `authz.geoip` by ISO 3166 country from a local MaxMind-format database; reader per OQ-tech-stack-and-libraries-24; a `source.country` CEL variable per OQ-security-and-identity-14 | [Security and identity: IP filtering and GeoIP](../architecture/08-security-and-identity.md#ip-filtering-and-geoip) |
 | Request hedging | Planned (M4) | A second attempt to another Endpoint after a delay, for idempotent methods with replayable bodies, spending retry budget; `hedgeDelay` per OQ-traffic-management-and-resilience-5 | [Traffic management and resilience: Hedging](../architecture/09-traffic-management-and-resilience.md#hedging) |
@@ -297,11 +303,11 @@ Ruralz rate limiting is a local token bucket at a per-Node ceiling plus GCRA in 
 
 ## Observability
 
-Ruralz is OpenTelemetry-first ([ADR-0010](../adr/0010-telemetry-opentelemetry-first.md)): a Node exports OTLP to the operator's OpenTelemetry Collector, which owns delivery to any backend, so no vendor SDK is linked.
+Ruralz is OpenTelemetry-first ([ADR-0018](../adr/0018-telemetry-opentelemetry-prometheus-exporter.md)): a Node exports OTLP to the operator's OpenTelemetry Collector, which owns delivery to any backend, so no vendor SDK is linked.
 
 | Feature | Status | Mechanism | Design |
 |---|---|---|---|
-| OpenTelemetry tracing | Planned (M1) | `Gateway` `telemetry.otlp.endpoint` and `traceSampling`; TLS for OTLP export per OQ-observability-2, blocking M1 | [Observability: Tracing](../architecture/10-observability.md#tracing) |
+| OpenTelemetry tracing | Planned (M1) | `Gateway` `telemetry.otlp.endpoint`, `telemetry.otlp.tls` (OQ-observability-2, option (a)) and `traceSampling` | [Observability: Tracing](../architecture/10-observability.md#tracing) |
 | Spans per Filter and upstream leg | Planned (M1) | Spans `ruralz.filter.<name>`, `ruralz.upstream.<name>` and `ruralz.route.match`; per-Route sampling per OQ-observability-5 | [Observability: Span model](../architecture/10-observability.md#span-model) |
 | Trace context propagation | Planned (M1) | `traceparent` and `tracestate` injected into every HTTP leg; gRPC legs Planned (M3); Kafka, NATS and MQTT 5 legs Planned (M4) | [Observability: Propagation](../architecture/10-observability.md#propagation) |
 | Prometheus metrics | Planned (M1) | `/metrics` on admin port 9901 with `ruralz_<component>_<name>_<unit>` metrics labeled by `Route` and `Upstream` | [Observability: Metrics catalog](../architecture/10-observability.md#metrics-catalog) |
@@ -335,7 +341,7 @@ These features are deliberately outside M0 to M5. Each stays reviewable, and a r
 | Feature | Reason | Alternative |
 |---|---|---|
 | Feature-gated editions, license keys or entitlement checks | Every feature is Apache-2.0 in every public build (P1, [ADR-0002](../adr/0002-apache-2-license-no-feature-gating.md)) | Commercial support and Ruralz Cloud, which sell help and operations, never features |
-| An embedded scripting language runtime, such as Lua | CEL covers expressions with static cost bounds and WASM Plugins cover code; a third runtime would duplicate both ([ADR-0011](../adr/0011-expressions-and-authorization-engines.md)) | CEL fields or a WASM `Plugin`, Planned (M2) |
+| An embedded scripting language runtime, such as Lua | CEL covers expressions with static cost bounds and WASM Plugins cover code; a third runtime would duplicate both ([ADR-0019](../adr/0019-expressions-authorization-comprehension-stop.md)) | CEL fields or a WASM `Plugin`, Planned (M2) |
 | Native Go plugins or shared-object loading | Couples extensions to the exact Go toolchain and runs them unsandboxed in the Node (vision non-goal 3) | A WASM `Plugin`, Planned (M2) |
 | A configuration template language | Overlays and `${VAR}` substitution keep every render deterministic and schema-checked ([ADR-0003](../adr/0003-configuration-format.md)) | `overlays/<env>/` and `Environment` variables, Planned (M1) |
 | Configuration formats other than YAML and JSON (TOML, HCL, properties files) | One loader and one schema yield one Revision digest; HCL has a weak schema and IDE story and no CRD path (ADR-0003) | YAML 1.2, or JSON as its strict subset |
@@ -343,7 +349,7 @@ These features are deliberately outside M0 to M5. Each stays reviewable, and a r
 | A serverless function invocation protocol | No researched invocation library or `Upstream.spec.protocol` value (OQ-feature-catalog-10) | An `http` `Upstream` to an HTTP-reachable function |
 | AMQP brokers and cloud queues (AMQP consumers and producers, Azure Service Bus, Google Cloud Pub/Sub, Amazon SNS, Amazon SQS) | No researched Go library (OQ-multi-protocol-14, option (a)) | `kafka`, `nats` or `mqtt` Upstreams, or a bridge |
 | Native broker wire-protocol proxying (Kafka, transparent MQTT, NATS client protocol) | A wire proxy would hide messages from the Route and Filter Chain model (P7); Kafka proxying is revisited at M4 (OQ-multi-protocol-11) | Mediated `kafka`, `nats` and `mqtt` Upstreams and the embedded MQTT broker mode, Planned (M4) |
-| Vendor-specific telemetry SDKs and native exporters | OpenTelemetry-first: one OTLP path, with delivery owned by the Collector ([ADR-0010](../adr/0010-telemetry-opentelemetry-first.md)) | OTLP through the OpenTelemetry Collector, Planned (M1) |
+| Vendor-specific telemetry SDKs and native exporters | OpenTelemetry-first: one OTLP path, with delivery owned by the Collector ([ADR-0018](../adr/0018-telemetry-opentelemetry-prometheus-exporter.md)) | OTLP through the OpenTelemetry Collector, Planned (M1) |
 | Prebuilt dashboards for tools other than Grafana | Ruralz maintains one dashboard pack; other views are community work | JSON access logs and OTLP signals in any backend |
 | Kubernetes Gateway API conformance | Deferred by [ADR-0016](../adr/0016-kubernetes-helm-and-crds.md) (proposed) in favor of CRDs that mirror every kind | Ruralz CRDs and the Helm chart, Planned (M2) |
 | Developer portal, API catalog and billing engine | Ruralz is a gateway, not a full API management suite (vision non-goal 2) | Monetization hooks, Planned (M5), feeding external tools |
@@ -354,17 +360,17 @@ Counts of catalog rows per category and milestone; each row sums across to its T
 
 | Category | M0 | M1 | M2 | M3 | M4 | M5 | Total |
 |---|---|---|---|---|---|---|---|
-| CI/CD, GitOps and development tools | 1 | 10 | 15 | 0 | 0 | 2 | 28 |
+| CI/CD, GitOps and development tools | 1 | 11 | 15 | 0 | 0 | 2 | 29 |
 | Request and response transformation | 0 | 16 | 3 | 0 | 1 | 3 | 23 |
-| Security | 0 | 7 | 3 | 0 | 0 | 1 | 11 |
+| Security | 0 | 10 | 3 | 0 | 0 | 1 | 14 |
 | Routing | 0 | 9 | 2 | 0 | 0 | 0 | 11 |
 | Authentication and authorization | 0 | 9 | 5 | 0 | 0 | 0 | 14 |
 | AI gateway | 0 | 0 | 0 | 22 | 0 | 1 | 23 |
 | Services connectivity | 0 | 2 | 1 | 10 | 7 | 3 | 23 |
-| Traffic management | 0 | 13 | 1 | 0 | 2 | 0 | 16 |
+| Traffic management | 0 | 14 | 1 | 0 | 2 | 0 | 17 |
 | Observability | 0 | 10 | 1 | 1 | 0 | 3 | 15 |
 | API governance and monetization | 0 | 3 | 0 | 0 | 0 | 1 | 4 |
-| Total | 1 | 79 | 31 | 33 | 10 | 14 | 168 |
+| Total | 1 | 84 | 31 | 33 | 10 | 14 | 173 |
 
 Not planned: 13 features, listed in [Not planned](#not-planned).
 
@@ -372,15 +378,15 @@ Not planned: 13 features, listed in [Not planned](#not-planned).
 
 ```mermaid
 flowchart LR
-    C["168 planned features, all free"] --> M0["Planned (M0): 1"]
-    C --> M1["Planned (M1): 79"]
+    C["173 planned features, all free"] --> M0["Planned (M0): 1"]
+    C --> M1["Planned (M1): 84"]
     C --> M2["Planned (M2): 31"]
     C --> M3["Planned (M3): 33"]
     C --> M4["Planned (M4): 10"]
     C --> M5["Planned (M5): 14"]
 ```
 
-Rows tagged Planned (M1) that wait on Configuration model registration of the `transform.*` `config` schema, authored in Data plane's Transform Policies: request body fields to headers or query, CEL-built Upstream request bodies, CEL response shaping and queries, regular expression replacement and array operations.
+M1 exit criterion 6 holds when every Planned (M1) row works in the `0.1.0` release; a Policy type or protocol of a later milestone fails validation with `RZ-CFG-040` until its release serves it.
 
 ## Open questions
 

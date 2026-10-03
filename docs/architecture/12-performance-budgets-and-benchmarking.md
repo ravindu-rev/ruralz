@@ -2,7 +2,7 @@
 title: Performance Budgets and Benchmarking
 status: reviewed
 owner: ruralz-core
-last_updated: 2026-09-25
+last_updated: 2026-10-03
 depends_on:
   - docs/_meta/foundation-pack.md
   - docs/_meta/style-guide.md
@@ -15,7 +15,7 @@ depends_on:
   - docs/vision/01-vision-and-positioning.md
   - docs/engineering/01-tech-stack-and-libraries.md
   - docs/engineering/03-testing-and-quality-strategy.md
-adrs: [ADR-0001, ADR-0004, ADR-0005, ADR-0008, ADR-0009, ADR-0010]
+adrs: [ADR-0001, ADR-0004, ADR-0005, ADR-0008, ADR-0009, ADR-0018]
 milestone_tags_used: [M1, M2, M3, M4, M5]
 ---
 
@@ -29,12 +29,12 @@ This document owns every Ruralz Performance Budget: the latency, throughput, all
 
 In scope: budget values, reference hardware, scenarios, load tools, measurement rules, regression thresholds, delegated constants, profiling and reporting. "Pack 8.7" names a section of the [foundation pack](../_meta/foundation-pack.md). Values here win on conflict with [System overview](01-system-overview.md), [Data plane](03-data-plane.md#performance-budgets), [WASM plugin system](05-wasm-plugin-system.md#performance-model), [Observability](10-observability.md) and [Scalability and distributed state](11-scalability-and-distributed-state.md).
 
-It answers OQ-observability-17 in [Memory budget](#memory-budget), and OQ-testing-and-quality-strategy-2 and -10 in [Benchmark suite and CI gating](#benchmark-suite-and-ci-gating); their owners close them at conformance.
+It answers OQ-observability-17 in [Memory budget](#memory-budget) and OQ-testing-and-quality-strategy-10 in [Benchmark suite and CI gating](#benchmark-suite-and-ci-gating); Testing closed OQ-testing-and-quality-strategy-2 with this document's option (c).
 
 Non-goals, with owners:
 
 - SLO objectives, metric names and alert rules: [Observability](10-observability.md#slo-definitions).
-- CI stages, jobs and gate placement: [Testing and quality strategy](../engineering/03-testing-and-quality-strategy.md#benchmarks-and-regression-gates); the placements below are proposals (OQ-performance-budgets-and-benchmarking-3).
+- CI stages, jobs and gate placement: [Testing and quality strategy](../engineering/03-testing-and-quality-strategy.md#benchmarks-and-regression-gates), which adopted the placements below (OQ-performance-budgets-and-benchmarking-3).
 - Sizing formulas: [Capacity planning](../operations/03-capacity-planning.md), from the results published here.
 - Accuracy bounds of shared state: [Scalability and distributed state](11-scalability-and-distributed-state.md#consistency-and-accuracy-bounds).
 - Kinds and fields: the [Configuration model](02-configuration-model.md); benchmark Bundles use only its fields.
@@ -107,7 +107,7 @@ The table splits PB-2 and PB-3 (S2), and PB-1 (S1, without the S2 Filters), into
 | `onUpstreamResponseBody` | None; `transform.response` on 1 KiB when attached | 0; 30 attached (target) | 0; 100 attached (target) | 0 (target) |
 | `onResponse` | Header finalization; `cors` response side when attached | 2 (target) | 8 (target) | 2 (target) |
 | Response write | 1 KiB through the 32 KiB buffer | 8 (target) | 30 (target) | 2 (target) |
-| `onLog` | Metrics, trace decision, one access-log record ([ADR-0010](../adr/0010-telemetry-opentelemetry-first.md)) | 5 (target) | 15 (target) | 10: 0 metrics, 2 tracing, 8 access log (target) |
+| `onLog` | Metrics, trace decision, one access-log record ([ADR-0018](../adr/0018-telemetry-opentelemetry-prometheus-exporter.md)) | 5 (target) | 15 (target) | 10: 0 metrics, 2 tracing, 8 access log (target) |
 | `onChunk` | One built-in Filter per chunk, such as the Token Budget guard and its count | 3 per chunk (target) | 15 per chunk (target) | 0 (target) |
 | Streaming chunk, all-in (S6) | Upstream read and wakeup 3 (hypothesis), SSE parse 1, `onChunk` 3, client write and flush 3 (hypothesis), bookkeeping 2 | 12 per chunk (target) | 40 per chunk (target) | 0 (target) |
 | Token estimate (S6) | `tiktoken-go/tokenizer`, M3 tokenizer benchmark | 25 per KiB (hypothesis) | 50 per KiB (hypothesis) | Reported |
@@ -157,14 +157,16 @@ flowchart TD
 
 ### Reference hardware
 
-Latency, throughput and memory budgets gate on RH-1 only; PB-13, the F2 rows and SM-10 measure fan-out and accounting, not CPU, so they gate on Testing's dedicated general runners.
+Latency, throughput and memory budgets gate on RH-1, and from M2 on RH-2 too; PB-13, the F2 rows and SM-10 measure fan-out and accounting, not CPU, so they gate on Testing's dedicated general runners.
 
 | ID | Role | Specification | Use |
 |---|---|---|---|
 | RH-1 | Reference machine | Bare-metal linux/amd64, one socket, 16 or more physical cores at a fixed 3.0 GHz or more, turbo, deep C-states and SMT off, 64 GiB of RAM, a 25 Gbit/s NIC, the current Linux LTS kernel (target) | `ruralzd` in a cgroup v2 cpuset of 4 cores on the NIC's NUMA node, `GOMAXPROCS=4`; interrupts elsewhere |
 | RH-1L, RH-1U, RH-1S | Load generator; mock and Collector sink; State Store | Same specification and switch; round trip p99 of 50 µs or less (hypothesis) | RH-1S runs one Valkey primary in a 4-core cpuset (target) |
-| RH-2 | linux/arm64 ([tech stack](../engineering/01-tech-stack-and-libraries.md#static-builds)) | Same rules | Reported; gating is OQ-performance-budgets-and-benchmarking-4 |
+| RH-2 | linux/arm64 ([tech stack](../engineering/01-tech-stack-and-libraries.md#static-builds)) | Same rules | Reported in M1; gates from M2 |
 | RH-3 | Reproduction profile | A cloud VM with 4 dedicated vCPUs (target) | Published, never gated |
+
+RH-1 is rented bare metal meeting this specification (owner decision); Revington-owned hardware stays the long-term home. Its self-hosted runner, labeled `rh-1`, runs only jobs of protected branches and tags (scheduled, dispatched, or called by `release.yml`), never pull-request code. The Latency job and the [weekly `chaos-scale.yml`](../engineering/03-testing-and-quality-strategy.md#chaos-testing) run on `rh-1`, serialized, once the repository variable `RH1_PROVISIONED` is `true`, set after registration; until then each fails with an "RH-1 not provisioned" annotation and no RH-1 budget is measured.
 
 Results record the CPU microarchitecture and never compare across generations: Green Tea GC gains about 10% more on Ice Lake and Zen 4 or newer ([source](https://go.dev/doc/go1.26)). With SMT off, "per core" and "per vCPU" name one figure. The seeds measure 4 vCPU together:
 
@@ -218,7 +220,7 @@ At the S1 latency point of 40,000 rps on RH-1 (target):
 
 ## Memory budget
 
-RSS comes from cgroup accounting, live heap from `ruralz_runtime_heap_bytes`. "Idle settle" means no connections for 120 s (target); at `GOGC=100` the runtime keeps freed heap up to about the heap goal, twice the live heap (hypothesis), so each RSS slope is twice its live slope.
+RSS comes from cgroup accounting in RH-1 records and from `VmRSS` in the stage 9 gate on shared runners, live heap from `ruralz_runtime_heap_bytes`. "Idle settle" means no connections for 120 s (target); at `GOGC=100` the runtime keeps freed heap up to about the heap goal, twice the live heap (hypothesis), so each RSS slope is twice its live slope.
 
 | Component | Budget | Basis |
 |---|---|---|
@@ -295,7 +297,7 @@ under S1 at half saturation, 5,000 Routes: reload 1 s or less (target),
                          gateway-added p99 1.5 ms or less (hypothesis)
 ```
 
-The loader's W = max(1, `GOMAXPROCS`/2) workers yield at least every 100 µs of work (target), so requests never wait behind a compile slice (OQ-performance-budgets-and-benchmarking-6). A 2 MiB Plugin's cold compile takes up to 1 s on one core (hypothesis) ([WASM plugin system](05-wasm-plugin-system.md#performance-model)), so `plugin_compile` is outside PB-7 and SLO-GW-6.
+The loader's W = max(1, `GOMAXPROCS`/2) workers yield at least every 100 µs of work (target), so requests never wait behind a compile slice (OQ-performance-budgets-and-benchmarking-6, adopted). A 2 MiB Plugin's cold compile takes up to 1 s on one core (hypothesis) ([WASM plugin system](05-wasm-plugin-system.md#performance-model)), so `plugin_compile` is outside PB-7 and SLO-GW-6.
 
 ### Control-plane scale timing
 
@@ -322,7 +324,7 @@ Each scenario runs one Revision rendered from a checked-in Bundle, so equal dige
 | S3 | As S2 with 64 connections of up to 64 streams (target) | As S2 | HTTP/2 over TLS 1.3 on 8443 | Planned (M1); HTTP/3 Planned (M3) |
 | S4 | As S1 | A header-only Rust PDK Plugin in `onRequestHeaders` | HTTP/1.1 | Planned (M2) |
 | S5 | As S1 | `ratelimit` on the `redis` driver, Valkey on RH-1S | HTTP/1.1 | Planned (M1) |
-| S5x | As S5, 500 µs ± 100 µs of normal delay added each way on RH-1S (target), tool per OQ-testing-and-quality-strategy-3 | As S5, with `stateStoreTimeout: 10ms` (target) | HTTP/1.1 | Planned (M1) |
+| S5x | As S5, 500 µs ± 100 µs of normal delay added each way on RH-1S (target) by the Ruralz fault proxy (OQ-testing-and-quality-strategy-3) | As S5, with `stateStoreTimeout: 10ms` (target) | HTTP/1.1 | Planned (M1) |
 | S6 | Mock `openai` provider, 100 chunks per second on 1,000 streams, 16 KiB prompts (target); passes only with zero `RZ-UP-006` | `ai.token-budget`, `memory` driver | SSE | Planned (M3) |
 | S6n | S6 without `ai.token-budget`, `limits.maxInputTokens` or a `cost` strategy, so no estimate runs (hypothesis) | None | SSE | Planned (M3) |
 | S7 | Unary calls with a 1 KiB message (target) | None | gRPC on 8443 | Planned (M3) |
@@ -447,7 +449,7 @@ A closed-loop generator starts a request only after the previous one finishes, s
 Every Ruralz macro run is open-loop:
 
 - The generator offers a fixed arrival rate and measures each latency from the intended send time.
-- Tools: oha, MIT-licensed at v1.16.0, is primary for HTTP/1.1, HTTP/2 and HTTP/3, with a fixed rate (`-q`) and `--latency-correction` ([source](https://github.com/hatoo/oha)) ([source](https://github.com/hatoo/oha/releases)); vegeta, MIT-licensed and open-loop through `-rate`, cross-checks S1 ([source](https://github.com/tsenart/vegeta)); fortio, Apache-2.0 with a fixed `-qps` and gRPC, drives S7 ([source](https://github.com/fortio/fortio)). Catalog rows: OQ-performance-budgets-and-benchmarking-1.
+- Tools: oha, MIT-licensed at v1.16.0, is primary for HTTP/1.1, HTTP/2 and HTTP/3, with a fixed rate (`-q`) and `--latency-correction` ([source](https://github.com/hatoo/oha)) ([source](https://github.com/hatoo/oha/releases)); vegeta, MIT-licensed and open-loop through `-rate`, cross-checks S1 ([source](https://github.com/tsenart/vegeta)); fortio, Apache-2.0 with a fixed `-qps` and gRPC, drives S7 ([source](https://github.com/fortio/fortio)). oha and vegeta have [CI tooling](../engineering/01-tech-stack-and-libraries.md#ci-tooling) rows; fortio's lands with S7.
 - HdrHistogram's `recordValueWithExpectedInterval` back-fills samples when a tool records raw service times ([source](https://github.com/HdrHistogram/HdrHistogram)).
 - A run is valid only if the achieved rate stays within 0.5% of the offered rate (target), counting `RZ-RT-005` in O1, the generator and mock stay below 70% CPU (target), and the mock's p99 beyond its configured delay stays at 200 µs or less (target).
 
@@ -484,7 +486,7 @@ Every layer runs in a stage or `nightly` job of [Testing and quality strategy](.
 | Microbenchmarks | `go test -bench -benchmem`; `testing.AllocsPerRun` around Router, Filter Chain executor, CEL, canonicalization, validation and the Plugin Phase call | Shared runners, `pr-full` | Planned (M1); Plugin Phase call Planned (M2) |
 | Component benchmarks | Loader compile ladder, JWT per algorithm, token bucket shards, `RZ-RT-005` rejection, metric aggregates at 4 P and 32 P (target); tokenizer, Planned (M3) | RH-1, `nightly` Latency job | Planned (M1) |
 | Scenarios | S1 to S8, S5x, S6n, O1, O2, C1, C2, R1, G1, constants tests | RH-1 hosts, Latency job: S1 and S2 nightly, the rest in the slot rotation | Planned (M1) to Planned (M4) |
-| Control-plane scale and accounting | F1 (SM-9), F2, SM-10 | Dedicated general runners, `nightly` Scale job (F2: OQ-performance-budgets-and-benchmarking-3) | Planned (M2) to Planned (M3) |
+| Control-plane scale and accounting | F1 (SM-9), F2, SM-10 | Dedicated general runners, `nightly` Scale job | Planned (M2) to Planned (M3) |
 | Soak | S2 at half saturation for 2 hours (target): RSS drift of 2% or less after 10 minutes, flat goroutines (target) | RH-1, `release` | Planned (M1) |
 | Release trend | The M4 bench suite: S1, S2, S5 and S6 of each release against the budgets and the previous releases, on the same hosts and Bundles | RH-1, `release` | Planned (M4) |
 
@@ -525,10 +527,10 @@ A change fails when it regresses p99 latency by more than 5% (target) or alloc/o
 | alloc/op | `pr-full` | Merge base, interleaved, 10 runs each (target), `GOGC=off`, fixed `GOMAXPROCS` | Median alloc/op above the base by more than 3% (target), or PB-8 exceeded | Planned (M1) |
 | Macro p99 | Latency job, each scenario on its night; `release` | The same scenario's previous run, re-run interleaved; for `release`, the previous release | Median-of-runs p99, external or internal, above the baseline by more than 5% (target), with four of five pairs slower | Planned (M1) |
 | Absolute budgets and criteria | Latency job; `release` | Budget catalog, throughput targets, scenario criteria, constants table | Any missed | Planned (M1) |
-| Size and idle RSS | `pr-full` | Fixed values | Stripped binary above 160 MiB or idle RSS above 89 MiB (target) | Planned (M1) |
+| Size and idle RSS | `pr-full` | Fixed values | Stripped release binary above 160 MiB, or idle `VmRSS` after the settle above 89 MiB (target) | Planned (M1) |
 | Control-plane scale and accounting | Scale job; `release` | PB-13, the F2 rows, SM-10 | Any missed | Planned (M2) to Planned (M3) |
 
-The 3% alloc/op threshold is deliberately strict: at PB-8's 30 allocations (target), one extra allocation is 3.3% and fails. A failing `pr-full` gate blocks merge; a failing `nightly` gate opens an issue and blocks the next release ([Repository layout and conventions](../engineering/02-repository-layout-and-conventions.md)). An override needs recorded maintainer approval; loosening a value edits this document (BP-7).
+The 3% alloc/op threshold is deliberately strict: at PB-8's 30 allocations (target), one extra allocation is 3.3% and fails. A failing `pr-full` gate blocks merge; a failing `nightly` gate opens an issue and blocks the next release ([Repository layout and conventions](../engineering/02-repository-layout-and-conventions.md)). An override needs recorded maintainer approval: in `pr-full` it is the `perf-override` label applied by a maintainer (repository role admin or maintain) other than the author, after which the gates job reports failures without failing (`scripts/ci-approvals.sh perf-override`); loosening a value edits this document (BP-7). Applying the label does not re-run `pr-full`; a maintainer re-runs its gates job, whose summary says so.
 
 *Figure 2: the benchmark pipeline from load generator to CI gate and report.*
 
@@ -571,7 +573,7 @@ flowchart LR
 
 ### Statistics and runners
 
-For OQ-testing-and-quality-strategy-2 this document chooses option (c): alloc/op on shared runners, because allocation counts do not depend on the machine under `GOGC=off` with fixed `GOMAXPROCS`, and latency only on RH-1 bare metal. Comparisons use medians across interleaved runs plus the four-of-five pair rule, which needs no distribution assumption. An inconclusive run (noise above 2%) (target) re-runs once in the next night's slot, then opens an issue; the statistics tool awaits a catalog row (OQ-performance-budgets-and-benchmarking-1).
+For OQ-testing-and-quality-strategy-2 this document chooses option (c): alloc/op on shared runners, because allocation counts do not depend on the machine under `GOGC=off` with fixed `GOMAXPROCS`, and latency only on RH-1 bare metal. Comparisons use medians across interleaved runs plus the four-of-five pair rule, which needs no distribution assumption. An inconclusive run (noise above 2%) (target) re-runs once in the next night's slot, then opens an issue; a statistics tool joins only after research (OQ-performance-budgets-and-benchmarking-1).
 
 For OQ-testing-and-quality-strategy-10 this document chooses option (a): 100 `ruralzd` processes, each in its own network namespace as [Scalability and distributed state](11-scalability-and-distributed-state.md#scale-unit) requires, on four dedicated runners (target), with three Ruralz Control replicas on separate runners. SM-9 measures control-plane fan-out, so no request traffic runs, and kind is excluded because Kubernetes scheduling adds noise.
 
@@ -666,7 +668,7 @@ Ruralz rules:
 
 ### Result record
 
-Every run writes one machine-readable record:
+Every run writes one `ruralz.bench.v1` record, checked against `test/bench/record.schema.json`:
 
 | Field | Content |
 |---|---|
@@ -692,12 +694,12 @@ Operators compare budgets and SLOs on the same metrics in the SLO burn rates Gra
 
 | ID | Question | Options | Owner | Blocking? |
 |---|---|---|---|---|
-| OQ-performance-budgets-and-benchmarking-1 | Which load tools (oha, vegeta, fortio, wrk2) and A/B statistics tool get tech stack catalog rows? | (a) oha, vegeta, fortio, then a researched statistics tool (proposed); (b) wrk2 as primary; (c) a Ruralz Go generator | tech-stack-and-libraries | Yes, for the M1 macro gate |
-| OQ-performance-budgets-and-benchmarking-2 | How is RH-1 provisioned and funded? | (a) Revington-owned bare metal; (b) rented bare metal; (c) cloud VMs, more repetitions | performance-budgets-and-benchmarking | Yes, for the M1 macro gate |
-| OQ-performance-budgets-and-benchmarking-3 | Does Testing adopt these gate placements: the interleaved re-run baseline, the Latency job's nine-slot rotation (items at most nine nights apart, replacing weekly) with component benchmarks, the `release` soak and F2 in the Scale job? | (a) All (proposed); (b) previous nightly result, S1 and S2 only | testing-and-quality-strategy | Yes, for the M2 F2 gate |
-| OQ-performance-budgets-and-benchmarking-4 | When does linux/arm64 (RH-2) gate? | (a) From M2 (proposed); (b) from M1 | testing-and-quality-strategy | No |
-| OQ-performance-budgets-and-benchmarking-5 | Tech stack and Testing state a 96 MiB idle RSS gate; this document sets 89 MiB (target) to fit the 100 MB seed with every sharded label set. Do they align? | (a) Align to 89 MiB (proposed); (b) restate the seed in binary units | tech-stack-and-libraries | No |
-| OQ-performance-budgets-and-benchmarking-6 | Does the config loader adopt W = max(1, `GOMAXPROCS`/2) workers yielding every 100 µs (target)? | (a) Yes, fixed (proposed); (b) all cores at boot; (c) a field | data-plane | Yes, for PB-7 (M1) |
+| OQ-performance-budgets-and-benchmarking-1 | Which load tools (oha, vegeta, fortio, wrk2) and A/B statistics tool get tech stack catalog rows? | (a) oha, vegeta, fortio, then a researched statistics tool (chosen, 2026-10-03); (b) wrk2 as primary; (c) a Ruralz Go generator | tech-stack-and-libraries | No (answered) |
+| OQ-performance-budgets-and-benchmarking-2 | How is RH-1 provisioned and funded? | (a) Revington-owned bare metal; (b) rented bare metal, (a) long term (chosen by the owner, 2026-10-03); (c) cloud VMs, more repetitions | performance-budgets-and-benchmarking | No (answered) |
+| OQ-performance-budgets-and-benchmarking-3 | Does Testing adopt these gate placements: the interleaved re-run baseline, the Latency job's nine-slot rotation (items at most nine nights apart, replacing weekly) with component benchmarks, the `release` soak and F2 in the Scale job? | (a) All (chosen, 2026-10-03); (b) previous nightly result, S1 and S2 only | testing-and-quality-strategy | No (answered) |
+| OQ-performance-budgets-and-benchmarking-4 | When does linux/arm64 (RH-2) gate? | (a) From M2 (chosen, 2026-10-03); (b) from M1 | testing-and-quality-strategy | No (answered) |
+| OQ-performance-budgets-and-benchmarking-5 | Tech stack and Testing state a 96 MiB idle RSS gate; this document sets 89 MiB (target) to fit the 100 MB seed with every sharded label set. Do they align? | (a) Align to 89 MiB (chosen by Tech stack, 2026-09-25); (b) restate the seed in binary units | tech-stack-and-libraries | No (answered) |
+| OQ-performance-budgets-and-benchmarking-6 | Does the config loader adopt W = max(1, `GOMAXPROCS`/2) workers yielding every 100 µs (target)? | (a) Yes, fixed (chosen, 2026-10-03); (b) all cores at boot; (c) a field | data-plane | No (answered) |
 | OQ-performance-budgets-and-benchmarking-8 | Which JWT algorithm defines SM-4, whose cost it dominates? | (a) RS256, 2,048-bit (current); (b) ES256; (c) both, gating the slower | vision-and-positioning | No |
 | OQ-performance-budgets-and-benchmarking-9 | Should Observability add a time-to-first-token SLO (PB-12) and an estimator duration metric? | (a) Both; (b) lab budget on S6n only (current) | observability | No |
 | OQ-performance-budgets-and-benchmarking-10 | Sharded label sets cost about 2 KiB per Route and per Upstream at 8 stripes, 5.4 MiB in all (hypothesis); should PB-6 scale with stripes? | (a) No, the 89 MiB base holds 4 stripes (current); (b) a per-stripe allowance | observability | No |

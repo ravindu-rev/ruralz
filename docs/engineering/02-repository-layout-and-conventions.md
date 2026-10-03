@@ -2,14 +2,14 @@
 title: Repository Layout and Conventions
 status: reviewed
 owner: ruralz-core
-last_updated: 2026-09-25
+last_updated: 2026-10-03
 depends_on:
   - docs/_meta/foundation-pack.md
   - docs/_meta/style-guide.md
   - docs/architecture/01-system-overview.md
   - docs/architecture/02-configuration-model.md
   - docs/engineering/01-tech-stack-and-libraries.md
-adrs: [ADR-0001, ADR-0002, ADR-0003, ADR-0005, ADR-0007, ADR-0009, ADR-0010, ADR-0016]
+adrs: [ADR-0001, ADR-0002, ADR-0003, ADR-0005, ADR-0007, ADR-0009, ADR-0016, ADR-0018]
 milestone_tags_used: [M0, M1, M2, M3, M4, M5]
 ---
 
@@ -25,7 +25,7 @@ In scope: the subjects the Summary lists, plus the Ruralz Console source locatio
 
 Non-goals:
 
-- Library selection, license admission and version floors, owned by [Tech stack and libraries](01-tech-stack-and-libraries.md); this document names no library linked into a binary without a catalog row there; Go CI tools await OQ-repository-layout-and-conventions-7.
+- Library selection, license admission and version floors, owned by [Tech stack and libraries](01-tech-stack-and-libraries.md); this document names no linked library without a catalog row there, and no CI tool without a CI tooling row.
 - Test layers, thresholds and the pipelines `pr-fast`, `pr-full`, `main`, `nightly` and `release`, owned by [Testing and quality strategy](03-testing-and-quality-strategy.md).
 - Versions, release artifacts, signing and SBOMs, owned by [Release, versioning and compatibility](04-release-versioning-and-compatibility.md).
 - JSON Schema content (kinds, fields, defaults, `x-ruralz-*` values), owned by the [Configuration model](../architecture/02-configuration-model.md); this document owns the generation mechanism and paths.
@@ -74,22 +74,27 @@ github.com/ravindu-rev/ruralz
 │   ├── ruralz-control/          main package of Ruralz Control
 │   └── ruralz/                  main package of the CLI
 ├── internal/
-│   ├── gateway/                 listener, router, chain, upstream, admin, loader
-│   ├── control/                 api, rollout, drift, enroll, gitsource
+│   ├── gateway/                 ruralzd supervisor; snapshot, handler, exchange, executor, router,
+│   │                            listener, upstream, admin, reload, lkg, drain, handover (Package layers)
+│   ├── control/                 api, rollout, drift, enroll, gitsource (M0 stub until Planned (M2))
 │   ├── controlstore/            raft (default), postgres (Planned (M4))
 │   ├── controlstream/           client (Node side), server (Ruralz Control side)
-│   ├── cli/                     one package per noun: bundle, rollout, plugin, ai, dev, node, control, test
-│   ├── config/                  loader, profile, overlay, subst, validate, hub, convert, canonical, diff
-│   ├── filter/                  built-in Filters, one package per Policy type
-│   ├── pluginhost/              wazero host, Host Functions, Capability gate
-│   ├── statestore/              memory, redis
-│   ├── signing/                 digest and Sigstore verification, OCI fetch
-│   ├── telemetry/               OpenTelemetry setup, slog bridge, metric and span names
+│   ├── cli/                     root, command, completion, adminclient; one package per noun
+│   ├── config/                  diag, tree, hub, revision, stages loader to canonical, pipeline
+│   ├── expr/, cel/              CEL contracts (stdlib only) and the cel-go implementation
+│   ├── filter/                  Filter SPI; built-in Filters, one package per Policy type; builtin
+│   ├── pluginhost/              wazero host, Host Functions, Capability gate (Planned (M2))
+│   ├── statestore/              State Store API; breaker, keys, memory, redis, manager, postcommit
+│   ├── secret/, identity/       secretRef contracts and resolver; Consumers and credential indexes
+│   ├── signing/                 digest verification; Sigstore and OCI fetch Planned (M2)
+│   ├── telemetry/               catalog, emit handles, aggregates, tracing, logs, OTLP runtime
+│   ├── clock/, phase/, problem/ leaf contracts: clock, Phases and Filter classes, RFC 9457 writer
 │   ├── errcode/                 RZ-<AREA>-<NNN> registry
 │   ├── buildinfo/               version, commit and flavor set by -ldflags -X; floor guard file
 │   ├── console/                 embed package; dist/ holds a committed placeholder
 │   ├── gen/proto/               generated protobuf Go code (committed)
-│   └── tool/                    schemagen, repocheck, commitcheck, depgate; never linked into a binary
+│   ├── testkit/                 test support: binaries, processes, PKI, fault proxy, mocks, load
+│   └── tool/                    CI programs (Package layers); never linked into a binary
 ├── pkg/
 │   └── config/v1alpha1/         public Go types of the ten kinds; schema source
 ├── api/
@@ -99,8 +104,9 @@ github.com/ravindu-rev/ruralz
 │   └── openapi/                 REST API description for /api/v1/
 ├── sdk/                         Plugin PDKs: go/, rust/, typescript/, dotnet/
 ├── console/                     Ruralz Console TypeScript source
-├── deploy/                      helm/ chart, crds/ (generated), container build files
-├── test/                        e2e/, conformance/, fixtures/ (Go test suites)
+├── deploy/                      container/, systemd/, grafana/, benchhost/; helm/ chart, crds/ (generated)
+├── test/                        conformance/, integration/, property/, e2e/, compose/, t5/, chaos/,
+│                                bench/, fixtures/
 ├── examples/                    example Bundles, validated in CI
 ├── docs/                        documentation (see Docs as code)
 ├── scripts/                     install-tools.sh and CI helper scripts
@@ -114,7 +120,7 @@ github.com/ravindu-rev/ruralz
 
 | Path | Contents | Owning document | Milestone |
 |---|---|---|---|
-| `cmd/ruralzd` | `main` for Ruralz Gateway: flags, process settings (`RURALZ_*`), wiring | [Data plane](../architecture/03-data-plane.md) | Planned (M1) |
+| `cmd/ruralzd` | `main` for Ruralz Gateway: wiring only; `internal/gateway/setting` parses `RURALZ_*` | [Data plane](../architecture/03-data-plane.md) | Planned (M1) |
 | `cmd/ruralz-control` | `main` for Ruralz Control | [Control plane and GitOps](../architecture/04-control-plane-and-gitops.md) | Planned (M2) |
 | `cmd/ruralz` | `main` for the CLI | [CLI and API surface](../reference/01-cli-and-api-surface.md) | Planned (M1) |
 | `internal/` | Every non-public Go package; the default home for new code | Feature documents (content); this document (boundaries) | Planned (M0) |
@@ -122,20 +128,56 @@ github.com/ravindu-rev/ruralz
 | `api/` | Protos, generated JSON Schema, OpenAPI; the importable `api/schema` package has the same promise as `pkg/` | This document (layout); contract owners (content) | Planned (M0) schema; Planned (M2) protos |
 | `sdk/` | Plugin PDKs; the Go PDK is its own module, tagged `sdk/go/vX.Y.Z` on its own SemVer | [WASM plugin system](../architecture/05-wasm-plugin-system.md#sdk-matrix) | Planned (M2) Go and Rust; Planned (M3) TypeScript; Planned (M4) C# |
 | `console/` | Ruralz Console source, a React and TypeScript SPA | [Control plane and GitOps](../architecture/04-control-plane-and-gitops.md) (content); this document (toolchain) | Planned (M2) |
-| `deploy/` | Helm chart, CRDs ([ADR-0016](../adr/0016-kubernetes-helm-and-crds.md), proposed), container build files | [Deployment topologies](../operations/01-deployment-topologies.md) | Planned (M2) |
-| `test/`, `examples/` | End-to-end and conformance suites, fixtures; example Bundles | [Testing and quality strategy](03-testing-and-quality-strategy.md) | Planned (M1) |
+| `deploy/` | Dockerfile, systemd unit and helper, alert rules and Grafana dashboards, RH-1 host setup; Helm chart, CRDs ([ADR-0016](../adr/0016-kubernetes-helm-and-crds.md), proposed) | [Deployment topologies](../operations/01-deployment-topologies.md) | Planned (M1); chart and CRDs Planned (M2) |
+| `test/`, `examples/` | Suites needing built binaries or a State Store, fixtures; example Bundles | [Testing and quality strategy](03-testing-and-quality-strategy.md) | Planned (M1) |
 
 ### Where Go code goes
 
 - New code starts in `internal/`. A move to `pkg/` needs approval from the [Release, versioning and compatibility](04-release-versioning-and-compatibility.md) owner, because `pkg/` becomes a SemVer promise at `1.0.0`.
-- `cmd/<binary>` holds only `main.go` and flag definitions; repocheck fails on logic there.
+- `cmd/<binary>` holds only `main.go` with `func main`; flags and logic live under `internal/`, and repocheck fails on anything else.
 - Built-in Filters map from the Policy `type` (foundation pack section 10) to a path: dots become slashes, hyphens are dropped (`auth.api-key` in `internal/filter/auth/apikey`). `headers` lives in `internal/filter/header` (Go packages are singular); `plugin` maps to `internal/pluginhost`.
-- depguard confines three libraries to their wrapper package (tech stack criterion S7): wazero to `internal/pluginhost`, rueidis to `internal/statestore/redis` (including the Semantic Cache vector client), `hashicorp/raft` to `internal/controlstore/raft`.
+- depguard confines each wrapped library to its package (tech stack criterion S7), as [Banned imports](#banned-imports) lists; rueidis stays in `internal/statestore/redis`, including the Semantic Cache vector client.
 - The shared validation library in `internal/config` links into all three binaries, so `ruralz bundle validate`, Ruralz Control ingest and Node activation give identical offline diagnostics for the same overlay and variables; online checks can still fail later ([Configuration model](../architecture/02-configuration-model.md#validation-and-diff-semantics)).
 
 ### Ruralz Console assets
 
-`internal/console` embeds `all:dist` with `go:embed`. Only a placeholder `internal/console/dist/index.html` is committed, so `go build ./...` compiles on a fresh clone without Node.js, and `ruralz-control` then serves it at `/console`, stating that Ruralz Console was not built. Stages 7 and 12 write the production build over it before building `ruralz-control`. The root `.gitignore` MUST anchor its `dist/` rule as `/dist/` and add `internal/console/dist/*` and `!internal/console/dist/index.html`, so only the placeholder is tracked. Planned (M2).
+`internal/console` embeds `all:dist` with `go:embed`. Only a placeholder `internal/console/dist/index.html` is committed, so `go build ./...` compiles on a fresh clone without Node.js and `ruralz-control` serves it at `/console`, stating that Ruralz Console was not built; stages 7 and 12 overwrite it before building `ruralz-control`. The root `.gitignore` MUST anchor `/dist/` and add `internal/console/dist/*` and `!internal/console/dist/index.html`. Planned (M2).
+
+### Package layers
+
+M1 packages, Planned (M1), form layers L0 to L8. The rule is "acyclic, never upward": a package imports only packages of its own layer or a lower one. Test support and CI tools sit outside the layers and may import any production package; production code never imports them. The map lists every M1 package; paths are under `internal/` unless they start with `pkg/`, `api/`, `cmd/` or `test/`.
+
+```text
+L8    cmd/ruralzd -> gateway    cmd/ruralz -> cli    cmd/ruralz-control -> control (M0 stub)
+L7    gateway (Run)    cli (root)    control (M0 stub)
+L6    gateway/{reload,lkg,source}    cli/{bundle,launch,dev}
+L5    config/pipeline    gateway/{handler,handover,compile}    filter/builtin    filter/builtin/checks    cli/node
+L4    config/{loader,validate,diff,render}    gateway/{composition,drain,replay}    gateway/upstream/forward
+      cli/adminclient
+L3    cel    telemetry (Runtime)    config/{profile,schemaview,overlay,subst,defaults,convert,precedence,canonical}
+      statestore/{memory,redis,manager,postcommit}
+      gateway/{executor,exchange,retire,router,listener,reuseport,tap,readiness,admin,upstream}
+      filter/auth/{jwt,jwt/jwks,apikey,basic,mtls,upstreamoauth2}    filter/authz/{ip,cel}    filter/cors
+      filter/validation/jsonschema    filter/header    filter/transform{,/dotpath,/request,/response}
+      filter/{ratelimit,quota,cache}    filter/cache/{revalidate,coalesce}
+L2    config/{schemaidx,registry}    identity    filter/auth    secret/resolver    cel/celtypes
+      telemetry/{aggregate,tracing,logsink,accesslog}    statestore/{breaker,keys}    nodedir
+      gateway/{setting,admission,body,sdnotify}    gateway/upstream/{balance,discovery,health,resilience}
+      clientaddr    egress    tlsconf    adminauth    redact    signing    cli/{command,completion}
+L1    expr    secret    config/{tree,hub}    telemetry/emit    statestore    filter    gateway/snapshot
+L0    errcode    buildinfo    clock    phase    problem    adminapi    config/{diag,revision}    telemetry/catalog
+      ulid    jsonval    httpfield    sfv    routematch    pkg/config/v1alpha1    api/schema
+test  clock/clocktest    filter/filtertest    cel/celtest    gateway/handler/handlertest
+      statestore/statestoretest{,/redisserver,/respproxy}
+      testkit/{binaries,proc,pki,faultproxy,canary,promtext,benchrecord,corpus}
+      testkit/{mockup,mockidp,otlpsink,l4lb,loadgen,topology}
+      test/{conformance/config,conformance/protocol,property,e2e,chaos,chaos/gameday,compose,t5}
+      test/integration/{cel,telemetry,security,statestore}    test/bench/{harness,scenarios,gen,functional}
+tool  tool/{repocheck,commitcheck,depgate,schemagen,telemetrygen,benchgate,sizegate,fuzzplan}
+      tool/{releasekit,releasegate}    tool/modpin (temporary module pins, removed within M1)
+```
+
+Wiring injects what an import would climb for: the admin server's `/metrics`, `/config/dump` and `/debug/upstreams` handlers, the State Store drivers' openers, and the pipeline's offline Policy checks (`checks.Table()`) and CEL compiler.
 
 ### Import boundaries
 
@@ -143,10 +185,16 @@ github.com/ravindu-rev/ruralz
 |---|---|---|
 | `internal/gateway/...` never imports `internal/control/...`, `internal/controlstore/...` or `internal/cli/...` | P2: the gateway stands alone ([Vision](../vision/01-vision-and-positioning.md#principles)); `ruralzd` never links Raft | depguard; the stage 6 Raft denylist over `go list -deps ./cmd/ruralzd` also catches transitive imports |
 | `internal/control/...` never imports `internal/gateway/...` | Ruralz Control is never on the request path | depguard |
+| `internal/config/...`, `internal/expr` and `internal/cel` never import `internal/gateway`, `internal/filter`, `internal/statestore` or `internal/cli` | Every binary runs one configuration pipeline; Policy checks are injected | depguard `config` |
+| `internal/filter/...`, `internal/identity` and `internal/statestore/...` never import `internal/gateway` or `internal/cli` | The gateway implements their contracts | depguard `filter` |
+| Only `ruralzd` imports `internal/secret/resolver` | Only Nodes resolve secret values | depguard `secretresolver` |
+| Leaf contracts (`phase`, `expr`, `clock`, `problem`, `adminapi`, `telemetry/{catalog,emit}`, `config/{diag,revision}`) import only the standard library, `pkg/config/v1alpha1`, `phase`, `errcode` and `telemetry/catalog` | Every layer builds on them | depguard `contracts` (strict) |
+| Production code never imports test support (`internal/testkit`, `*test` packages) or `internal/tool` | Nothing test-only ships | depguard `testsupport` and `tools`; stage 6 |
+| Every third-party import is on the admitted list, which mirrors the catalog rows | Admission ([tech stack](01-tech-stack-and-libraries.md#admission)) | depguard `admitted` (strict) |
 | `pkg/...` imports only the standard library and other `pkg/...` packages | No third-party or internal type leaks into public API (S7) | depguard; exported-API check in repocheck |
 | `sdk/...` never imports the root module | PDKs compile to WASM guests with their own toolchains and versions | Separate modules; stage 3 builds each |
 | No `import "C"` anywhere | `CGO_ENABLED=0` static binaries ([ADR-0001](../adr/0001-implementation-language-go.md)); a `CGO_ENABLED=0` build silently excludes such files | repocheck source scan; stage 4 cross-build |
-| `internal/cli/...` never imports `internal/gateway/...` | `ruralz dev run` launches a local `ruralzd` (foundation pack section 9) | depguard |
+| `internal/cli/...` never imports `internal/gateway/...` or a State Store driver | `ruralz dev run` launches a local `ruralzd` (foundation pack section 9) | depguard `cli` |
 | No `plugin` standard package, no Lua | Custom code is a WASM Plugin or CEL (product non-goal 3) | depguard |
 
 ## Go conventions and linters
@@ -171,8 +219,9 @@ Build tools stay out of `go.mod`. Go 1.24 added `tool` directives that put execu
 | Build constraints | Platform, Go version and `goexperiment` constraints (such as the floor guard file), plus test-only tags `integration` (stage 8) and `e2e` (stage 10) on `_test.go` files. No feature tags (P1) |
 | Context | First parameter of any function that blocks or calls the network or the State Store; never stored in a struct |
 | Goroutines | Each has an owner that cancels and waits for it; every channel, queue and pool is bounded (System overview) |
-| Errors | Wrap with `%w`; client-facing errors carry an `RZ-<AREA>-<NNN>` code registered in `internal/errcode` |
-| Logging | `log/slog` through `internal/telemetry` only ([ADR-0010](../adr/0010-telemetry-opentelemetry-first.md)) |
+| Errors | Wrap with `%w`; client-facing errors carry an `RZ-<AREA>-<NNN>` code registered in `internal/errcode`, map to a status through it and leave through `problem.Write` (RFC 9457) |
+| Time | Code that measures or schedules time takes an `internal/clock.Clock`; only `clock.Real` calls `time.Now`; tests use `clocktest.Fake` |
+| Logging | `log/slog` through `internal/telemetry` only ([ADR-0018](../adr/0018-telemetry-opentelemetry-prometheus-exporter.md)) |
 | Telemetry names | Metrics `ruralz_<component>_<name>_<unit>`, counters ending in `_total`; spans `ruralz.filter.<name>`, `ruralz.upstream.<name>`, `ruralz.route.match` (foundation pack section 2) |
 | State | No `init()` or mutable package-level variables, except tests, generated code, sentinel errors, `go:embed` variables and the build metadata the linker sets in `internal/buildinfo`; registries are explicit tables |
 | `unsafe` | Only in packages listed in `.golangci.yml`, each with a reason |
@@ -192,7 +241,7 @@ golangci-lint v2.13.x ([source](https://github.com/golangci/golangci-lint/releas
 | `gochecknoinits`, `gocritic`, `unparam`, `unconvert`, `usestdlibvars` | No `init()`; style, performance and simplification |
 | `goheader` | Go license header: any holder, SPDX line required; repocheck covers proto and TypeScript |
 | `gosec` | Security diagnostics; suppressing one in auth, authz, signing or Plugin host packages needs a security reviewer |
-| `misspell`, `revive`, `sloglint` | American English; documented exports; consistent `slog` keys |
+| `misspell`, `revive`, `sloglint` | American English; documented exports; `slog` with no global logger, static messages and `snake_case` keys |
 | `nolintlint` | Every suppression is specific and explained |
 | `protogetter`, `spancheck` | Protobuf getters; spans ended with errors recorded |
 | `tagliatelle` | `camelCase` JSON tags matching YAML keys, scoped to `pkg/config` and `internal/config`, because provider and OAuth2 wire formats (`max_tokens`, `access_token`) are snake_case |
@@ -237,16 +286,24 @@ formatters:
 | Import | Use instead | Reason |
 |---|---|---|
 | `github.com/google/cel-go` | `cel.dev/cel-go` | Read-only alias path (foundation pack section 7) |
-| `log` (depguard rule `log$`) | `log/slog` via `internal/telemetry` | One structured logging path (ADR-0010) |
+| `log` (depguard rule `log$`) | `log/slog` via `internal/telemetry` | One structured logging path (ADR-0018) |
 | `github.com/tetratelabs/wazero` outside `internal/pluginhost` | `internal/pluginhost` | S7 wrapping; `ruralz plugin test` runs Plugins through the same host package as `ruralzd` |
 | `github.com/hashicorp/raft` outside `internal/controlstore/raft` | `internal/controlstore` interface | MPL-2.0 exception scoped to the Control Store ([license rules](01-tech-stack-and-libraries.md#license-rules)) |
+| `github.com/goccy/go-yaml` outside `internal/config/profile` | `internal/config/profile` | The restricted YAML profile is the only YAML parser and emitter |
+| `github.com/santhosh-tekuri/jsonschema` outside `internal/config/schemaview` and `internal/filter/validation/jsonschema` | Those two packages | S7 wrapping |
+| `cel.dev/cel-go`, `cel.dev/expr` outside `internal/cel` | `internal/expr` contracts | Everything else codes against the contracts |
+| `github.com/lestrrat-go/jwx` outside `internal/filter/auth/jwt`; its `jwt`, `jwe` and root packages anywhere | `jwk`, `jws` and `jwa` there | The others link `golang.org/x/crypto` (G3) |
+| `go.opentelemetry.io`, `github.com/prometheus`, `google.golang.org/grpc` outside `internal/telemetry` and `internal/testkit/otlpsink` | `internal/telemetry` handles | [ADR-0018](../adr/0018-telemetry-opentelemetry-prometheus-exporter.md) confinement |
+| `golang.org/x/sys` outside `internal/gateway/reuseport`, `internal/gateway/handover`, `internal/testkit/proc`; `golang.org/x/net` outside `test/conformance/protocol` | Standard library | Socket steering, peer credentials, test namespaces; the HTTP/2 `Framer` in tests |
+| `github.com/testcontainers` outside tests and `internal/statestore/statestoretest/redisserver` | That launcher | Test tooling, never linked |
+| `encoding/json/v2`, `encoding/json/jsontext` outside `//go:build go1.27` test oracles | `internal/jsonval` | Standard only from Go 1.27, above the [version floor](01-tech-stack-and-libraries.md#version-floor) |
 | Any module without a catalog row | Add a row in the same pull request | [Dependency admission](01-tech-stack-and-libraries.md#admission) |
 
 ### Ruralz-specific checks
 
-`internal/tool/repocheck`, a standard-library Go program run in stage 1, Planned (M0), checks what no linter covers: `cmd/` holds wiring only; metric and span names match foundation pack section 2; every `RZ-<AREA>-<NNN>` literal is registered; `pkg/` and `api/schema` expose no third-party types; proto and TypeScript license headers; no `import "C"`; the Ruralz Console placeholder is unchanged. It also runs the no-license-check scan of [ADR-0002](../adr/0002-apache-2-license-no-feature-gating.md) over every file in `cmd/`, `internal/`, `pkg/`, `sdk/` and `console/`: any denylisted identifier, string or hostname absent from the reviewed allowlist file blocks merge (P1). Terms match ignoring case and the separators `-`, `_` and spaces, so `licenseKey`, `license_key` and `LICENSE-KEY` all match; the allowlist is `internal/tool/repocheck/nolicensecheck.allow`, one `<path or directory/> <term> # <reason>` line per entry. The metric and span name checks start with `internal/telemetry`, Planned (M1), and the Ruralz Console placeholder check with `internal/console`, Planned (M2).
+`internal/tool/repocheck`, a standard-library Go program run in stage 1, Planned (M0), checks what no linter covers: `cmd/` holds wiring only; metric and span names match foundation pack section 2; every `RZ-<AREA>-<NNN>` literal is registered; `pkg/` and `api/schema` expose no third-party types; proto and TypeScript license headers; no `import "C"`; the Ruralz Console placeholder is unchanged. It also runs the no-license-check scan of [ADR-0002](../adr/0002-apache-2-license-no-feature-gating.md) over every file in `cmd/`, `internal/`, `pkg/`, `sdk/` and `console/`: any denylisted identifier, string or hostname absent from the reviewed allowlist file blocks merge (P1). Terms match ignoring case and the separators `-`, `_` and spaces, so `licenseKey`, `license_key` and `LICENSE-KEY` all match; the allowlist is `internal/tool/repocheck/nolicensecheck.allow`, one `<path or directory/> <term> # <reason>` line per entry. From Planned (M1), it also checks `internal/telemetry/catalog` and every `ruralz_*` name under `docs/architecture/` against the [Observability](../architecture/10-observability.md#metrics-catalog) metrics and degraded-state tables; the Ruralz Console check starts with `internal/console`, Planned (M2).
 
-Two more standard-library programs serve stages 1 and 6. `internal/tool/commitcheck` checks DCO sign-off on every non-merge commit of a range and the Conventional Commits title. `internal/tool/depgate` runs G2, G3, the `ruralzd` Raft denylist and the advisory floors ([CI tooling](01-tech-stack-and-libraries.md#ci-tooling)).
+Other standard-library programs: `internal/tool/commitcheck` checks DCO sign-off on every non-merge commit of a range and the Conventional Commits title; `internal/tool/depgate` runs G2, G3, the `ruralzd` Raft denylist and the advisory floors ([CI tooling](01-tech-stack-and-libraries.md#ci-tooling)), from M1 also denies test support and `internal/tool` in every binary and prints each artifact's `THIRD_PARTY_LICENSES`; `telemetrygen` generates alert rules and Grafana dashboards (stage 3 drift); `benchgate` and `sizegate` gate stage 9, `fuzzplan` shards nightly fuzzing, and `releasekit` and `releasegate` package and gate stage 12.
 
 ## API and protobuf definitions
 
@@ -350,10 +407,10 @@ Doc comments become `description`. Marker lines start with `+ruralz:`, are strip
 | `+ruralz:policyType=<type>` | The `config` definition selected by `Policy.spec.type` | `+ruralz:policyType=ratelimit` |
 | `+ruralz:open` | Omits `additionalProperties: false` on a type | A Policy `config` whose feature fields are not all registered |
 | `+ruralz:pattern=`, `minLength=`, `maxLength=`, `minimum=`, `maximum=`, `minItems=` | The standard keyword of the same name | `+ruralz:minItems=1` |
-| `+ruralz:minProperties=<n>` | `minProperties` on a type | On `RouteMatch` |
+| `+ruralz:minProperties=<n>` | `minProperties` on a type or a map-typed field | On `RouteMatch` |
 | `+ruralz:exactlyOneOf=`, `atMostOneOf=`, `atLeastOneOf=<fields>` | `oneOf`, `not` or `anyOf` over `required` of each field, on a type | `+ruralz:exactlyOneOf=exact,prefix,template,regex` |
 
-Markers on a type declaration apply to its definition; markers on a field apply to its property. schemagen rejects an unknown marker, a list field without `+ruralz:list`, a `SecretValue` or `SecretRef` field without `+ruralz:secret`, an optional bool or number that is not a pointer, and an optional field without `omitempty`.
+Markers on a type declaration apply to its definition; markers on a field apply to its property. schemagen rejects an unknown marker, a list field without `+ruralz:list`, a `SecretValue` or `SecretRef` field without `+ruralz:secret`, an optional bool or number that is not a pointer, an optional field without `omitempty`, a `+ruralz:secret` field without a `+ruralz:impact` that includes `security`, a `+ruralz:default` value that fails its field's own `pattern`, `minLength`, `maxLength`, `minimum` or `maximum`, a `+ruralz:default` on a `+ruralz:required` field, and a second `+ruralz:impact` marker on one field, or impact classes not listed once each in ascending byte order.
 
 ### Presence and defaults
 
@@ -365,7 +422,7 @@ A Go zero value cannot tell an absent field from an explicit `false` or `0`, so,
 - The `ruralz.canonical.v1` encoder is schema-driven, never relying on `encoding/json` `omitempty`: it writes materialized defaults and omits a field with `x-ruralz-since` above 0 only when it equals its default ([canonical form](../architecture/02-configuration-model.md#canonical-form-and-revision)).
 - A golden test proves that an explicit `overridable: false` survives canonicalization and changes the Revision.
 
-A named string type with a `const` block becomes an `enum`; `Duration` and byte-size types get the syntax the Configuration model defines. The authoring view adds the `${VAR}` alternative to every substitutable non-string scalar. RZ-CFG-011 forbids substitution in keys, `apiVersion`, `kind`, `metadata.name` and `ref`, `secret` or `cel` fields; schemagen hard-codes the envelope fields and reads the markers for the rest.
+A named string type with a `const` block becomes an `enum`; `Duration` and byte-size types get the syntax the Configuration model defines. The authoring view adds the `${VAR}` alternative to every substitutable non-string scalar and to every substitutable string constrained by an enum or a pattern (OQ-configuration-model-20 (a)). RZ-CFG-011 forbids substitution in keys, `apiVersion`, `kind`, `metadata.name` and `ref`, `secret` or `cel` fields; schemagen hard-codes the envelope fields and reads the markers for the rest.
 
 The example uses only Configuration model fields; marker values are illustrative.
 
@@ -412,7 +469,7 @@ type PolicySpec struct {
 
 ### DCO sign-off
 
-Ruralz uses the Developer Certificate of Origin, not a CLA ([ADR-0002](../adr/0002-apache-2-license-no-feature-gating.md)). Every commit MUST carry a `Signed-off-by:` trailer whose name and email match the commit author, which certifies DCO 1.1 ([source](https://developercertificate.org/)). `git commit -s` adds the trailer; `git rebase --signoff` repairs a branch. Stage 1 rejects a pull request if any commit lacks a matching sign-off. The weekly dependency update bot ([Update policy](01-tech-stack-and-libraries.md#update-policy)) MUST sign off as its bot identity.
+Ruralz uses the Developer Certificate of Origin, not a CLA ([ADR-0002](../adr/0002-apache-2-license-no-feature-gating.md)). Every commit MUST carry a `Signed-off-by:` trailer whose name and email match the commit author, which certifies DCO 1.1 ([source](https://developercertificate.org/)). `git commit -s` adds the trailer; `git rebase --signoff` repairs a branch. Stage 1 rejects a pull request with any commit lacking a matching sign-off. The weekly dependency update bot ([Update policy](01-tech-stack-and-libraries.md#update-policy)) MUST sign off as its bot identity.
 
 The DCO keeps contributor paperwork low ([source](https://helm.sh/blog/helm-dco/)) but is not what keeps Ruralz free: Apache-2.0 lets a redistributor ship later derivative works under other terms ([source](https://www.apache.org/licenses/LICENSE-2.0)), so that commitment comes from P1 and ADR-0002. The DCO check is Planned (M0).
 
@@ -433,7 +490,7 @@ Commit messages and pull request titles follow Conventional Commits: `<type>(<sc
 
 A breaking change adds `!` after the scope and a `BREAKING CHANGE:` footer. Footers also carry `Refs: OQ-<docslug>-<n>` or `Refs: ADR-NNNN` when a change implements a decision.
 
-The scope is optional; a change spanning several scopes omits it. A document slug is the file name of a Markdown document under `docs/`, lower-cased, without its extension and numeric prefix: `docs/architecture/03-data-plane.md` is `data-plane` and `docs/glossary.md` is `glossary`. Stage 1 checks `docs` scopes against the files in `docs/`.
+A change spanning several scopes omits the scope. A document slug is the file name of a Markdown document under `docs/`, lower-cased, without its extension and numeric prefix: `docs/architecture/03-data-plane.md` is `data-plane` and `docs/glossary.md` is `glossary`. Stage 1 checks `docs` scopes against the files in `docs/`.
 
 ```text
 fix(statestore): skip remaining calls once the request deadline expires
@@ -455,28 +512,28 @@ Signed-off-by: Jane Doe <jane@example.com>
 | Size | SHOULD stay under 400 changed lines, excluding generated files (target) |
 | Merge queue | Re-runs every required `pr-fast` and `pr-full` stage on the combined change |
 
-The security-sensitive packages are `internal/filter/auth/`, `internal/filter/authz/`, `internal/signing/` and `internal/pluginhost/`: the auth, authz, signing and Plugin host packages whose gosec suppressions need a security reviewer. The approval count also requires two approvals for the no-license-check allowlist `internal/tool/repocheck/nolicensecheck.allow`, whose edits need maintainer review ([ADR-0002](../adr/0002-apache-2-license-no-feature-gating.md)), and for `.github/`, which holds the workflows that enforce these rules. `scripts/ci-approvals.sh` holds the list.
+The security-sensitive packages, whose gosec suppressions need a security reviewer, are `internal/filter/auth/`, `internal/filter/authz/`, `internal/signing/` and `internal/pluginhost/`. The approval count also requires two approvals for the no-license-check allowlist `internal/tool/repocheck/nolicensecheck.allow`, whose edits need maintainer review ([ADR-0002](../adr/0002-apache-2-license-no-feature-gating.md)), for `.github/`, which holds the workflows that enforce these rules, and for the alloc/op gate list `test/bench/allocgate.json`, because `benchgate` reads the head's copy, so raising a cap or the threshold, or dropping an entry, would otherwise loosen the stage 9 gate without the `perf-override` label ([Regression policy and gates](../architecture/12-performance-budgets-and-benchmarking.md#regression-policy-and-gates)). `scripts/ci-approvals.sh` holds the list.
 
 ## CI stages
 
-The numbered stages are jobs inside the pipelines that [Testing and quality strategy](03-testing-and-quality-strategy.md#test-pyramid) owns: `pr-fast` on every pull request, within 10 minutes (target); `pr-full` on pull requests changing Go code, protos, schemas or examples, within 30 minutes (target); then `main`, `nightly` and `release`. Stages 1 to 11 each call one `make` target, runnable locally except stage 1's approval count; stage 12 also needs signing credentials. The `pr-fast` workflow ends in a job named `pr-fast` that fails when any stage failed and passes when each stage passed or was skipped by its path filter; with the `pr-title` and `approvals` checks it is a required status check. Path filters skip stages whose inputs did not change; a pass-through job computes the changed paths itself and MUST report success for each skipped required check. *Go changes* means any `*.go` file, `go.mod`, `go.sum`, `.golangci.yml` or `Makefile`; any change under `.github/workflows/` runs every `pr-fast` and `pr-full` stage.
+The numbered stages are jobs inside the pipelines that [Testing and quality strategy](03-testing-and-quality-strategy.md#test-pyramid) owns: `pr-fast` on every pull request, within 10 minutes (target); `pr-full` on pull requests changing Go code, protos, schemas or examples, within 30 minutes (target); then `main`, `nightly` and `release`. Stages 1 to 11 each call one `make` target, runnable locally except stage 1's approval count; stage 12 also needs signing credentials. The `pr-fast` workflow ends in a job named `pr-fast` that fails when any stage failed and passes when each stage passed or was skipped by its path filter; with the `pr-title` and `approvals` checks it is a required status check. Path filters skip stages whose inputs did not change; a pass-through job computes the changed paths itself and MUST report success for each skipped required check. *Go changes* means any `*.go` file, `go.mod`, `go.sum`, `.golangci.yml`, `Makefile` or `scripts/` file; any change under `.github/workflows/` runs every `pr-fast` and `pr-full` stage.
 
 | Stage | Pipeline | What runs | Make target | Trigger | Blocks merge | Milestone |
 |---|---|---|---|---|---|---|
 | 1. Commit hygiene | `pr-fast` | DCO sign-off on the pull request's own commits, also on merge queue runs; Conventional Commits title; repocheck with the no-license-check scan; a separate approval count job that gates only merge, never other stages | `make hygiene` | Every pull request | Yes | Planned (M0) |
-| 2. Format and lint | `pr-fast` | `gofumpt`, `goimports`, golangci-lint, `buf format`, `buf lint` | `make lint` | Go or proto changes | Yes | Planned (M0) |
-| 3. Generated code drift | `pr-fast` | `go generate ./...` and `buf generate`, then `git diff --exit-code`; `buf breaking`; builds and license-gates each `sdk/` module's lockfile (G2) | `make generate` | Changes under `pkg/`, `api/`, `internal/gen/`, `internal/tool/`, `sdk/` or `deploy/crds/`, or to `buf.yaml`, `buf.gen.yaml` or `go.mod` | Yes | Planned (M0) schema; Planned (M2) protos and PDKs |
-| 4. Build | `pr-fast` | Three binaries for linux/amd64 and linux/arm64 with `CGO_ENABLED=0`, `-trimpath` and `-ldflags -X` metadata (G1); CLI for darwin/arm64, darwin/amd64 and windows/amd64; floor job; FIPS job with `GOFIPS140` | `make build` | Go changes | Yes | Planned (M0); FIPS job Planned (M5) |
-| 5. Unit tests | `pr-fast` | `go test -race -shuffle=on ./...` with cgo and `netgo,osusergo`, plus the same tests under `CGO_ENABLED=0` without `-race`, in the release and floor jobs, with identical JSON golden files; CLI unit and golden tests also on darwin/arm64, darwin/amd64 and windows/amd64, with identical digests | `make test` | Go changes or `examples/` | Yes | Planned (M0) |
+| 2. Format and lint | `pr-fast` | `gofumpt`, `goimports`, golangci-lint, actionlint, `buf format`, `buf lint` | `make lint` | Go or proto changes | Yes | Planned (M0) |
+| 3. Generated code drift | `pr-fast` | `go generate ./...` (schema, telemetrygen alert rules and Grafana dashboards) and `buf generate`, then `git diff --exit-code`; `buf breaking`; builds and license-gates each `sdk/` module's lockfile (G2) | `make generate` | Changes under `pkg/`, `api/`, `internal/gen/`, `internal/tool/`, `internal/telemetry/catalog/`, `sdk/`, `deploy/crds/` or `deploy/grafana/`, or to `buf.yaml`, `buf.gen.yaml` or `go.mod` | Yes | Planned (M0) schema; Planned (M1) telemetrygen; Planned (M2) protos and PDKs |
+| 4. Build | `pr-fast` | Three binaries for linux/amd64 and linux/arm64 with `CGO_ENABLED=0`, `-trimpath`, `-ldflags -X` metadata (G1) and, from M1, `-s -w`; CLI for darwin/arm64, darwin/amd64 and windows/amd64; floor job; FIPS job with `GOFIPS140` | `make build` | Go changes | Yes | Planned (M0); FIPS job Planned (M5) |
+| 5. Unit tests | `pr-fast` | `go test -race -shuffle=on ./...` with cgo and `netgo,osusergo`, plus the same tests under `CGO_ENABLED=0` without `-race`, in the release and floor jobs, with identical JSON golden files; CLI unit and golden tests, plus the untagged configuration conformance suite, also on darwin/arm64, darwin/amd64 and windows/amd64, with identical digests | `make test` | Go changes, `examples/` or `test/conformance/config/` | Yes | Planned (M0) |
 | 6. Supply chain | `pr-fast` | `go mod verify`, govulncheck, license gate (G2) over `go list -deps -test=false` per binary, crypto denylist (G3), `ruralzd` Raft denylist | `make supply-chain` | Every pull request; nightly rescan | Yes | Planned (M0) |
 | 7. Ruralz Console | `pr-fast` | Type check, lint, unit tests, lockfile license gate (G2, ADR-0002), production build into `internal/console/dist`, then a `ruralz-control` build | `make console` | Changes under `console/` or `internal/console/` | Yes | Planned (M2) |
-| 8. Integration and conformance | `pr-full` | `go test -race -tags integration ./...`: testcontainers-go v0.44.x ([source](https://github.com/testcontainers/testcontainers-go)) brokers; the three conformance suites; YAML Test Suite and JSON-Schema-Test-Suite (ADR-0003); `ruralz bundle validate` on `examples/`; `ruralz plugin test` on each PDK scaffold | `make integration` | Go, proto, schema or `examples/` changes | Yes | Planned (M1) Redis and Valkey; Planned (M2) Plugin ABI suite and scaffolds; Planned (M4) Kafka, NATS and MQTT |
-| 9. Regression gates | `pr-full` | alloc/op gate; `ruralzd` size and idle RSS gate, at the testing document's thresholds | `make gates` | Go changes | Yes | Planned (M1) |
-| 10. End-to-end | `main` | `go test -tags e2e ./test/e2e/...` on Docker Compose and kind; secret leak tests | `make e2e` | Every merge to `main` | No; blocks the next release | Planned (M1); kind Planned (M2) |
-| 11. Nightly | `nightly` | Fuzz, chaos, scale and latency jobs; supply chain rescan | `make nightly` | Schedule | No; opens an issue and blocks the next release | Planned (M1), including the M1 chaos experiments; control-plane chaos and scale jobs Planned (M2) |
-| 12. Release | `release` | Release gates, the ADR-0002 release audit and air-gapped start, then build, sign and publish ([Release](04-release-versioning-and-compatibility.md)) | `make release` | Release candidate tag | Not applicable | Planned (M1) |
+| 8. Integration and conformance | `pr-full` | `go test -race -tags integration ./...`: the three conformance suites; YAML Test Suite and JSON-Schema-Test-Suite (ADR-0003); State Store and Node integration suites; `ruralz bundle validate` on `examples/`; `systemd-analyze verify` of the unit; promtool alert rule checks; Dockerfile check; `ruralz plugin test` on each PDK scaffold. Legs: linux/amd64 and native linux/arm64 with a local `redis-server`; a linux/amd64 container leg on testcontainers-go v0.44.x ([source](https://github.com/testcontainers/testcontainers-go)) | `make integration` | Go, proto, schema, `examples/`, `test/` or `deploy/` changes | Yes | Planned (M1) State Store matrix; Planned (M2) Plugin ABI suite and scaffolds; Planned (M4) Kafka, NATS and MQTT |
+| 9. Regression gates | `pr-full` | alloc/op gate; `ruralzd` size and idle RSS gate on both architectures, at the testing document's thresholds | `make gates` | Go changes | Yes | Planned (M1) |
+| 10. End-to-end | `main` | `go test -tags e2e ./test/e2e/...` on the process harness, kind from M2; secret leak tests; the quickstart on a clean runner | `make e2e` | Every merge to `main` | No; blocks the next release | Planned (M1); kind Planned (M2) |
+| 11. Nightly | `nightly` | Fuzz, chaos and latency jobs, scale from M2; supply chain rescan; Compose and air-gapped image checks | `make nightly` | Schedule | No; opens an issue and blocks the next release | Planned (M1), including the M1 chaos experiments; control-plane chaos and scale jobs Planned (M2) |
+| 12. Release | `release` | Re-runs every other stage, then release gates, then build, sign, audit and air-gapped start, then publish ([Release](04-release-versioning-and-compatibility.md#release-pipeline)) | `make release` | Release candidate or release tag | Not applicable | Planned (M1) |
 
-Stage 5 never passes `integration` or `e2e`, so it never compiles the Docker-dependent suites. Race jobs enable cgo for test binaries only; the `CGO_ENABLED=0` job tests the shipped configuration. Shipped binaries come only from stage 12, which uses stage 4's `CGO_ENABLED=0` and `-trimpath` flags. Before opening a pull request, run `make hygiene lint generate build test supply-chain`, plus `make integration` when Docker is available.
+Stage 5 never passes `integration` or `e2e`, so it skips suites needing a State Store, Docker or built binaries. Race jobs enable cgo for test binaries only; the `CGO_ENABLED=0` job tests the shipped configuration. Shipped binaries come only from stage 12, with stage 4's flags, so the size gate measures them. `pr-fast`, `pr-full`, `main` and `nightly` accept `workflow_call` with `all: true`, disabling path filters; `t5-systemd.yml` (systemd as PID 1), `chaos-scale.yml` (`rh-1`) and `image-checks.yml` (Docker) have their own triggers; stage 12 calls them too. Before opening a pull request, run `make hygiene lint generate build test supply-chain`, plus `make integration` with a local `redis-server`.
 
 *Figure 3: CI stages by pipeline; stages 1 to 9 start in parallel, and stages 2 to 9 never wait for stage 1's approval count.*
 
@@ -493,8 +550,8 @@ flowchart LR
   s8["8 Integration and conformance, pr-full"]
   s9["9 Regression gates: alloc/op, size, pr-full"]
   mq["Merge queue: re-runs required stages"]
-  s10["10 End-to-end, main"]
-  s11["11 Nightly: fuzz, chaos, scale, latency"]
+  s10["10 End-to-end on the process harness, main"]
+  s11["11 Nightly: fuzz, chaos, latency, image checks"]
   s12["12 Release on candidate tag"]
   pr --> s1
   pr --> s2
@@ -521,7 +578,7 @@ flowchart LR
 
 ## Docs as code
 
-Documentation lives in `docs/` beside the code and is reviewed in the same pull requests. Folders follow the manifest: `README.md` and `glossary.md` at the root, `vision/`, `architecture/`, `engineering/`, `operations/`, `features/`, `reference/`, `roadmap/`, `adr/` (MADR 4.0 plus `Confirmation` ([source](https://github.com/adr/madr/releases/tag/4.0.0)), indexed by the [ADR index](../adr/README.md)) and `_meta/` (binding inputs and research).
+Documentation lives in `docs/` and is reviewed in the same pull requests as code. Folders follow the manifest: `README.md` and `glossary.md` at the root, `vision/`, `architecture/`, `engineering/`, `operations/`, `features/`, `reference/`, `roadmap/`, `adr/` (MADR 4.0 plus `Confirmation` ([source](https://github.com/adr/madr/releases/tag/4.0.0)), indexed by the [ADR index](../adr/README.md)) and `_meta/` (binding inputs and research).
 
 ### Rules
 
@@ -537,7 +594,7 @@ Documentation lives in `docs/` beside the code and is reviewed in the same pull 
 | OQ-repository-layout-and-conventions-1 | Does the Configuration model accept Go types in `pkg/config/v1alpha1` as the one source that generates both schema views, with the generated schema as the normative artifact? | (a) Go types generate the schema (chosen, 2026-09-25); (b) Hand-written schema, Go types generated from it | configuration-model | No (answered) |
 | OQ-repository-layout-and-conventions-2 | What does the proto package `ruralz.plugin.v1` contain? | (a) Host Function field identifiers, return codes and the artifact config message (proposed); (b) Artifact config only; (c) No proto file, which needs a foundation pack section 12 amendment (OQ-wasm-plugin-system-12) | wasm-plugin-system | Yes, for Planned (M2) |
 | OQ-repository-layout-and-conventions-3 | Which toolchain builds Ruralz Console (package manager, bundler, type checker, test runner, linter)? | (a) A research addendum, then choose here and add the tech stack license and catalog rows (proposed); (b) The same research, then the Control plane and GitOps owner chooses | repository-layout-and-conventions | Yes, for Ruralz Console, Planned (M2) |
-| OQ-repository-layout-and-conventions-4 | What `$id` base URI do the published schema files use, and where are they hosted for editors? | (a) Release asset URLs; (b) A Revington-owned domain; (c) A URN | release-versioning-and-compatibility | No |
+| OQ-repository-layout-and-conventions-4 | What `$id` base URI do the published schema files use, and where are they hosted for editors? | (a) Release asset URLs; (b) A Revington-owned domain, an identifier that no binary fetches (chosen, 2026-10-03: [Release artifacts](04-release-versioning-and-compatibility.md#release-artifacts)); (c) A URN | release-versioning-and-compatibility | No (answered) |
 | OQ-repository-layout-and-conventions-5 | Is the OpenAPI document hand-authored or generated from Go handlers? | (a) Hand-authored with a drift test (proposed); (b) Generated after a catalog row | control-plane-and-gitops | No |
-| OQ-repository-layout-and-conventions-6 | Where do linux/arm64 tests run? | (a) Native arm64 runners; (b) Emulation; (c) Native, nightly only | testing-and-quality-strategy | Yes, for stage 8 conformance, Planned (M1) |
+| OQ-repository-layout-and-conventions-6 | Where do linux/arm64 tests run? | (a) Native `ubuntu-24.04-arm` runners in stages 8 and 9 of `pr-full`, falling back to (c) if unavailable (chosen, 2026-10-03); (b) Emulation; (c) Native, nightly only | testing-and-quality-strategy | No (answered) |
 | OQ-repository-layout-and-conventions-7 | Which Go CI tools (golangci-lint v2.13.x, `gofumpt`, `goimports`, govulncheck) get a Tech stack catalog row? | (a) A research addendum, then a CI tooling row (chosen, 2026-09-25: [CI tooling](01-tech-stack-and-libraries.md#ci-tooling)); (b) golangci-lint's bundled formatters only | tech-stack-and-libraries | No (answered) |
