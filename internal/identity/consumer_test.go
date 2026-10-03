@@ -13,7 +13,8 @@ import (
 )
 
 // Tests for spec 06 requirement 21 (the compiled Consumer: name, tier,
-// tags, labels, quota names, plus a by-name quota map) and the Revoker
+// tags, labels, quota names, plus the by-name quota map QuotaByName that
+// Consumers.Quota reads) and the Revoker
 // hook of requirements 31 and 40 (M1 never revokes).
 
 func TestReq21CompileConsumer(t *testing.T) {
@@ -39,10 +40,28 @@ func TestReq21CompileConsumer(t *testing.T) {
 				name: "partner-beta", tier: "gold",
 				tags: []string{"eu", "partner"}, labels: map[string]string{"team": "b2b"},
 				quotas: []string{"daily-tokens", "monthly"},
+				quotaByName: map[string]v1alpha1.Quota{
+					"monthly":      {Name: "monthly", Unit: v1alpha1.QuotaUnitRequests, Limit: 10},
+					"daily-tokens": {Name: "daily-tokens", Unit: v1alpha1.QuotaUnitTokens, Limit: 20},
+				},
 			},
 		},
 		{
-			name: "empty collections are non-nil",
+			name: "duplicate quota name keeps the first",
+			in: &v1alpha1.Consumer{
+				Metadata: v1alpha1.ObjectMeta{Name: "dup"},
+				Spec: v1alpha1.ConsumerSpec{Quotas: []v1alpha1.Quota{
+					{Name: "monthly", Unit: v1alpha1.QuotaUnitRequests, Limit: 1},
+					{Name: "monthly", Unit: v1alpha1.QuotaUnitTokens, Limit: 2},
+				}},
+			},
+			want: wantConsumer{
+				name: "dup", tags: []string{}, labels: map[string]string{}, quotas: []string{"monthly"},
+				quotaByName: map[string]v1alpha1.Quota{"monthly": {Name: "monthly", Unit: v1alpha1.QuotaUnitRequests, Limit: 1}},
+			},
+		},
+		{
+			name: "empty collections are non-nil, no quota map",
 			in:   &v1alpha1.Consumer{Metadata: v1alpha1.ObjectMeta{Name: "anon"}},
 			want: wantConsumer{name: "anon", tags: []string{}, labels: map[string]string{}, quotas: []string{}},
 		},
@@ -50,7 +69,7 @@ func TestReq21CompileConsumer(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			c := CompileConsumer(tt.in)
-			got := wantConsumer{name: c.Name, tier: c.Tier, tags: c.Tags, labels: c.Labels, quotas: c.Quotas}
+			got := wantConsumer{name: c.Name, tier: c.Tier, tags: c.Tags, labels: c.Labels, quotas: c.Quotas, quotaByName: c.QuotaByName}
 			if !reflect.DeepEqual(got, tt.want) {
 				t.Fatalf("CompileConsumer = %+v, want %+v", got, tt.want)
 			}
@@ -62,10 +81,11 @@ func TestReq21CompileConsumer(t *testing.T) {
 }
 
 type wantConsumer struct {
-	name, tier string
-	tags       []string
-	labels     map[string]string
-	quotas     []string
+	name, tier  string
+	tags        []string
+	labels      map[string]string
+	quotas      []string
+	quotaByName map[string]v1alpha1.Quota
 }
 
 // The view never aliases the Bundle: editing the source after compile
@@ -73,13 +93,17 @@ type wantConsumer struct {
 func TestReq21CompileConsumerCopies(t *testing.T) {
 	src := &v1alpha1.Consumer{
 		Metadata: v1alpha1.ObjectMeta{Name: "a", Labels: map[string]string{"k": "v"}},
-		Spec:     v1alpha1.ConsumerSpec{Tags: []string{"b", "a"}},
+		Spec: v1alpha1.ConsumerSpec{
+			Tags:   []string{"b", "a"},
+			Quotas: []v1alpha1.Quota{{Name: "q", Unit: v1alpha1.QuotaUnitRequests, Limit: 5}},
+		},
 	}
 	c := CompileConsumer(src)
 	src.Metadata.Labels["k"] = "changed"
 	src.Spec.Tags[0] = "z"
-	if c.Labels["k"] != "v" || c.Tags[0] != "a" || c.Tags[1] != "b" {
-		t.Fatalf("view aliases its source: labels %v tags %v", c.Labels, c.Tags)
+	src.Spec.Quotas[0].Limit = 6
+	if c.Labels["k"] != "v" || c.Tags[0] != "a" || c.Tags[1] != "b" || c.QuotaByName["q"].Limit != 5 {
+		t.Fatalf("view aliases its source: labels %v tags %v quotas %v", c.Labels, c.Tags, c.QuotaByName)
 	}
 }
 
@@ -122,6 +146,12 @@ func TestReq21ConsumersQuotaMap(t *testing.T) {
 		}
 		if ok && (q.Window != day || q.Unit != v1alpha1.QuotaUnitTokens) {
 			t.Errorf("Quota(%s, %s) = %+v", tt.consumer, tt.quota, q)
+		}
+		// Quota reads the view's map, which the quota Policies read directly.
+		if c, found := cs.Get(tt.consumer); found {
+			if vq, vok := c.QuotaByName[tt.quota]; vok != ok || vq != q {
+				t.Errorf("view QuotaByName[%s] = %+v, %v; Quota gave %+v, %v", tt.quota, vq, vok, q, ok)
+			}
 		}
 	}
 }

@@ -229,6 +229,44 @@ func TestJoinedHeader(t *testing.T) {
 	}
 }
 
+// TestJoinedHeaderDeterministic checks maps built by direct assignment (03
+// req 6.3): a canonical key wins, else the smallest key in byte order, on
+// every call, and folding is ASCII only.
+func TestJoinedHeaderDeterministic(t *testing.T) {
+	tests := []struct {
+		name, key, want string
+		h               http.Header
+	}{
+		{"smallest non-canonical key", "X-dup", "upper", http.Header{"x-dup": {"lower"}, "X-DUP": {"upper"}, "x-Dup": {"mixed"}}},
+		{"canonical key before a smaller one", "x-dup", "canonical", http.Header{"X-Dup": {"canonical"}, "X-DUP": {"upper"}}},
+		{"name that is not a token", "a B", "second", http.Header{"a b": {"first"}, "A b": {"second"}}},
+		{"same-length key that differs", "X-dup", "dup", http.Header{"x-dug": {"dug"}, "x-dup": {"dup"}}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			for range 100 {
+				if got, ok := JoinedHeader(tt.h, tt.key); !ok || got != tt.want {
+					t.Fatalf("JoinedHeader(%q) = %q, %v; want %q", tt.key, got, ok, tt.want)
+				}
+			}
+		})
+	}
+	// The Kelvin sign folds to ASCII "k" under Unicode rules only.
+	const kelvinSign = "\u212a"
+	kelvin := http.Header{kelvinSign: {"kelvin"}}
+	if !strings.EqualFold(kelvinSign, "k") {
+		t.Fatal("strings.EqualFold no longer folds the Kelvin sign; the case below proves nothing")
+	}
+	for _, key := range []string{"k", "K"} {
+		if got, ok := JoinedHeader(kelvin, key); ok {
+			t.Errorf("JoinedHeader(%q) = %q over a Kelvin sign key; want absent", key, got)
+		}
+	}
+	if got, ok := JoinedHeader(kelvin, kelvinSign); !ok || got != "kelvin" {
+		t.Errorf("JoinedHeader(Kelvin sign) = %q, %v; want the exact key", got, ok)
+	}
+}
+
 func TestSteps(t *testing.T) {
 	var s Steps
 	if _, ok := s.Get("stock"); ok || len(s.Names()) != 0 {

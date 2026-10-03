@@ -13,7 +13,7 @@ import (
 )
 
 // maxStackKey is the longest name canonicalized on the stack; a longer name
-// is found by the case-insensitive scan alone.
+// is canonicalized by http.CanonicalHeaderKey, which may allocate.
 const maxStackKey = 128
 
 // headerSource is a response or step header map as CEL reads it (03 req
@@ -83,36 +83,38 @@ func rawHeaders(h http.Header, hideHost bool) map[string]string {
 }
 
 // joinedHeader returns the field named name as CEL sees it, with the
-// semantics of expr.JoinedHeader: the canonical key first, else a key equal
-// to name under ASCII case folding (the canonical one, then the smallest,
-// so the choice is deterministic). The canonical key is built on the stack,
-// so a hit on a single-valued field allocates nothing.
+// semantics of expr.JoinedHeader: the exact http.CanonicalHeaderKey key
+// first (name itself when name is not a token), else the smallest key in
+// byte order equal to name under ASCII case folding, so the choice is
+// deterministic. A canonical key that folds to name is that exact key, so
+// the scan never meets one. The canonical key of a name up to maxStackKey
+// bytes is built on the stack, so a hit on a single-valued field allocates
+// nothing; a longer name allocates it.
 func joinedHeader(h http.Header, name string) (string, bool) {
 	if len(h) == 0 {
 		return "", false
 	}
+	var vs []string
+	var ok bool
 	if len(name) <= maxStackKey {
 		var buf [maxStackKey]byte
 		key := canonicalKey(buf[:0], name)
-		if vs, ok := h[string(key)]; ok {
-			return joinValues(vs), true
+		vs, ok = h[string(key)]
+	} else {
+		vs, ok = h[http.CanonicalHeaderKey(name)]
+	}
+	if !ok {
+		best := ""
+		for k, v := range h {
+			if asciiEqualFold(k, name) && (!ok || k < best) {
+				vs, best, ok = v, k, true
+			}
 		}
 	}
-	var best []string
-	bestKey, bestCanonical, found := "", false, false
-	for k, vs := range h {
-		if !asciiEqualFold(k, name) {
-			continue
-		}
-		c := isCanonical(k)
-		if !found || c && !bestCanonical || c == bestCanonical && k < bestKey {
-			best, bestKey, bestCanonical, found = vs, k, c, true
-		}
-	}
-	if !found {
+	if !ok {
 		return "", false
 	}
-	return joinValues(best), true
+	return joinValues(vs), true
 }
 
 // joinValues joins field lines with ", " (RFC 9110 section 5.3).

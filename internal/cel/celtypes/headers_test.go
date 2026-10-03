@@ -109,7 +109,7 @@ func TestReq19Host(t *testing.T) {
 }
 
 // TestReq19NonCanonicalKeys checks maps built by direct assignment: lookup
-// prefers the canonical key, then the smallest key, every time.
+// prefers the exact canonical key, then the smallest key, every time.
 func TestReq19NonCanonicalKeys(t *testing.T) {
 	h := http.Header{"x-a": {"lower"}, "X-a": {"mixed"}, "X-B": {"canonical"}, "x-b": {"lower"}}
 	for range 50 {
@@ -132,13 +132,26 @@ func TestReq19NonCanonicalKeys(t *testing.T) {
 	if len(raw) != 2 || raw["x-a"] != "mixed" || raw["x-b"] != "canonical" {
 		t.Errorf("raw = %v", raw)
 	}
-	// Long names use the scan alone, still preferring a canonical key.
+	// Long names, canonicalized off the stack, still try the exact
+	// http.CanonicalHeaderKey key first: the canonical key of a token, and
+	// name itself when it is not a token, before a smaller folded key.
 	long := strings.Repeat("a", maxStackKey+10)
 	canon := textproto.CanonicalMIMEHeaderKey(long)
 	h2 := http.Header{canon: {"c"}, strings.ToUpper(long): {"u"}}
 	if got, _ := joinedHeader(h2, long); got != "c" {
 		t.Errorf("long name = %q, want the canonical key's value", got)
 	}
+	longSpace := "a " + strings.Repeat("b", maxStackKey-1)
+	h3 := http.Header{longSpace: {"exact"}, "A " + strings.Repeat("b", maxStackKey-1): {"upper"}}
+	for range 50 {
+		if got, _ := joinedHeader(h3, longSpace); got != "exact" {
+			t.Fatalf("long name that is not a token = %q, want the exact key's value", got)
+		}
+	}
+	if got, ok := joinedHeader(h3, strings.ToUpper(longSpace)); !ok || got != "upper" {
+		t.Errorf("long name with no exact key = %q, %v; want the smallest folded key's value", got, ok)
+	}
+	checkHeaderLookup(t, h3, longSpace)
 	if got, ok := joinedHeader(http.Header{}, "a"); ok || got != "" {
 		t.Errorf("empty header found %q", got)
 	}

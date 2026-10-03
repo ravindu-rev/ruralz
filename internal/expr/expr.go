@@ -31,6 +31,12 @@ type PlaceID string
 // The 21 places of docs/architecture/02-configuration-model.md "Allowed
 // places". A test in internal/cel maps each one to exactly one schema
 // annotation.
+//
+// PlaceHeadersRequestValue covers the valueExpression of every
+// config.request.set[] and add[] entry (schema definition HeaderRequestSet),
+// and PlaceHeadersResponseValue does the same for config.response
+// (HeaderResponseSet): set[] and add[] share one definition per side, so the
+// set[] spelling of the ID names both.
 const (
 	PlaceRouteMatchWhen         PlaceID = "Route.spec.match.when"
 	PlacePolicyWhen             PlaceID = "Policy.spec.when"
@@ -290,6 +296,14 @@ type Compiler interface {
 	// claims). built is the size charged to limits.maxBufferedBytes; past
 	// budget it returns ErrTooLarge.
 	DecodeJSON(data []byte, budget int64) (v Value, built int64, err error)
+	// PrepareRoute caches r's converted CEL values in r.Prepared; the
+	// snapshot compiler calls it once per snapshot for every Route before
+	// any evaluation reads r, and r must not change afterwards.
+	PrepareRoute(r *Route)
+	// PrepareConsumer does the same for a compiled Consumer: it caches c's
+	// converted CEL values in c.Prepared, once per snapshot, before any
+	// evaluation reads c, and c must not change afterwards.
+	PrepareConsumer(c *Consumer)
 }
 
 // Default CEL sources of Upstream.spec.retries.retryOn and
@@ -460,8 +474,8 @@ type Route struct {
 	Name string
 	// Labels are metadata.labels.
 	Labels map[string]string
-	// Prepared is owned by the CEL implementation: converted values cached
-	// once per snapshot by Compiler preparation, never set by other code.
+	// Prepared is set only by Compiler.PrepareRoute; nil is valid, and the
+	// CEL implementation then converts on selection.
 	Prepared any
 }
 
@@ -478,7 +492,13 @@ type Consumer struct {
 	Labels map[string]string
 	// Quotas are the names of spec.quotas, sorted.
 	Quotas []string
-	// Prepared is owned by the CEL implementation, like Route.Prepared.
+	// QuotaByName holds spec.quotas by name for the quota and
+	// ai.token-budget Policies (spec 06 requirement 21); nil when there are
+	// none; shared by every snapshot reader, read only; CEL reads Quotas,
+	// not this field.
+	QuotaByName map[string]v1alpha1.Quota
+	// Prepared is set only by Compiler.PrepareConsumer; nil is valid, and
+	// the CEL implementation then converts on selection.
 	Prepared any
 }
 
@@ -579,13 +599,18 @@ func (v *Vars) Reset() { *v = Vars{} }
 
 // JoinedHeader returns a request or response header as CEL sees it: the
 // lookup is case-insensitive and repeated field lines are joined by ", ".
+// The exact http.CanonicalHeaderKey key wins, so a canonical key is always
+// preferred; otherwise, among the keys equal to name under ASCII case
+// folding (field names are ASCII, so Unicode folding never applies), the
+// smallest in byte order wins. The choice is deterministic (03 requirement
+// 6.3) and equals the CEL implementation's.
 func JoinedHeader(h http.Header, name string) (string, bool) {
 	vs, ok := h[http.CanonicalHeaderKey(name)]
 	if !ok {
+		best := ""
 		for k, v := range h {
-			if strings.EqualFold(k, name) {
-				vs, ok = v, true
-				break
+			if asciiEqualFold(k, name) && (!ok || k < best) {
+				vs, best, ok = v, k, true
 			}
 		}
 	}
@@ -596,4 +621,25 @@ func JoinedHeader(h http.Header, name string) (string, bool) {
 		return vs[0], true
 	}
 	return strings.Join(vs, ", "), true
+}
+
+// asciiEqualFold reports whether a and b are equal under ASCII case folding.
+func asciiEqualFold(a, b string) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i := range len(a) {
+		if asciiLower(a[i]) != asciiLower(b[i]) {
+			return false
+		}
+	}
+	return true
+}
+
+// asciiLower lowers an ASCII upper-case letter.
+func asciiLower(c byte) byte {
+	if 'A' <= c && c <= 'Z' {
+		return c + 'a' - 'A'
+	}
+	return c
 }

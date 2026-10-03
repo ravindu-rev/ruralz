@@ -23,7 +23,8 @@ import (
 // nothing for fields an expression does not select (03 req 19, 20, 23).
 
 // celFields maps each view's Go fields to the CEL field that reads it.
-// Prepared is the CEL implementation's cache, not a variable field.
+// Prepared is the CEL implementation's cache and QuotaByName is for the
+// quota Policies (CEL reads Quotas); neither is a variable field.
 func celFields() map[reflect.Type]map[string]string {
 	return map[reflect.Type]map[string]string{
 		reflect.TypeFor[expr.Vars](): {
@@ -37,7 +38,7 @@ func celFields() map[reflect.Type]map[string]string {
 		},
 		reflect.TypeFor[expr.Source]():       {"IP": "ip", "Port": "port", "TLSVersion": "tlsVersion", "ClientCertSubject": "clientCertSubject"},
 		reflect.TypeFor[expr.Route]():        {"Name": "name", "Labels": "labels", "Prepared": ""},
-		reflect.TypeFor[expr.Consumer]():     {"Name": "name", "Tier": "tier", "Tags": "tags", "Labels": "labels", "Quotas": "quotas", "Prepared": ""},
+		reflect.TypeFor[expr.Consumer]():     {"Name": "name", "Tier": "tier", "Tags": "tags", "Labels": "labels", "Quotas": "quotas", "QuotaByName": "", "Prepared": ""},
 		reflect.TypeFor[expr.Auth]():         {"Method": "method", "Claims": "claims"},
 		reflect.TypeFor[expr.Response]():     {"Status": "status", "Header": "headers", "Body": "body"},
 		reflect.TypeFor[expr.AttemptError](): {"Kind": "kind"},

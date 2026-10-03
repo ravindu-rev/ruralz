@@ -176,60 +176,57 @@ func numericEqual(a, b any) bool {
 	}
 }
 
-// isASCII reports a string of ASCII bytes.
-func isASCII(s string) bool {
-	for i := range len(s) {
-		if s[i] >= 0x80 {
-			return false
-		}
-	}
-	return true
-}
-
 // FuzzHeaderLookup checks joinedHeader against expr.JoinedHeader over maps
-// built by http.Header.Add; ASCII names only, since expr folds Unicode and
-// field names are ASCII. request.headers hides Host, the other header maps
-// show it (03 req 19).
+// built by http.Header.Add and by direct assignment, with any bytes: both
+// fold ASCII only and choose among non-canonical keys deterministically (03
+// req 6.3). request.headers hides Host, the other header maps show it (03
+// req 19).
 func FuzzHeaderLookup(f *testing.F) {
 	f.Add("X-Tenant", "accept", "x-tenant")
 	f.Add("a b", "A b", "a B")
 	f.Add("Host", "x", "HOST")
 	f.Add("content-type", "Content-Type", "CONTENT-TYPE")
+	f.Add("x-DUP", "X-dup", "x-dup")
+	f.Add("\u212a", "x-dup", "k")
+	// A name over maxStackKey bytes that is not a token: the exact key wins
+	// over a smaller folded one, as in expr.JoinedHeader.
+	longSpace := "a " + strings.Repeat("b", maxStackKey-1)
+	f.Add(longSpace, "A "+strings.Repeat("b", maxStackKey-1), longSpace)
 	f.Fuzz(func(t *testing.T, k1, k2, name string) {
-		if !isASCII(k1) || !isASCII(k2) || !isASCII(name) {
-			return
-		}
-		h := http.Header{}
-		h.Add(k1, "v1")
-		h.Add(k2, "v2")
-		got, ok := joinedHeader(h, name)
-		if rv, found := (requestHeaderSource{&h}).lookup(name); isHost(name) && found {
-			t.Fatalf("Host visible in request.headers as %v", rv)
-		} else if !isHost(name) && (found != ok || found && rv != types.String(got)) {
-			t.Fatalf("request.headers[%q] = %v, %v; joinedHeader = %q, %v", name, rv, found, got, ok)
-		}
-		if rv, found := (headerSource{&h}).lookup(name); found != ok || found && rv != types.String(got) {
-			t.Fatalf("response.headers[%q] = %v, %v; joinedHeader = %q, %v", name, rv, found, got, ok)
-		}
-		matches := 0
-		for k := range h {
-			if strings.EqualFold(k, name) {
-				matches++
-			}
-		}
-		want, wantOK := expr.JoinedHeader(h, name)
-		if matches <= 1 && (got != want || ok != wantOK) {
-			t.Fatalf("joinedHeader(%q) = %q, %v; expr.JoinedHeader = %q, %v", name, got, ok, want, wantOK)
-		}
-		if again, _ := joinedHeader(h, name); again != got {
-			t.Fatalf("lookup not deterministic: %q then %q", got, again)
-		}
-		for _, hideHost := range []bool{false, true} {
-			if len(headerNames(h, hideHost)) != headerSize(h, hideHost) {
-				t.Fatalf("headerSize(%v) %d, names %v", hideHost, headerSize(h, hideHost), headerNames(h, hideHost))
-			}
+		added := http.Header{}
+		added.Add(k1, "v1")
+		added.Add(k2, "v2")
+		raw := http.Header{k1: {"v1"}}
+		raw[k2] = append(raw[k2], "v2")
+		for _, h := range []http.Header{added, raw} {
+			checkHeaderLookup(t, h, name)
 		}
 	})
+}
+
+// checkHeaderLookup compares every header lookup path for name over h.
+func checkHeaderLookup(t *testing.T, h http.Header, name string) {
+	t.Helper()
+	got, ok := joinedHeader(h, name)
+	if rv, found := (requestHeaderSource{&h}).lookup(name); isHost(name) && found {
+		t.Fatalf("Host visible in request.headers as %v", rv)
+	} else if !isHost(name) && (found != ok || found && rv != types.String(got)) {
+		t.Fatalf("request.headers[%q] = %v, %v; joinedHeader = %q, %v", name, rv, found, got, ok)
+	}
+	if rv, found := (headerSource{&h}).lookup(name); found != ok || found && rv != types.String(got) {
+		t.Fatalf("response.headers[%q] = %v, %v; joinedHeader = %q, %v", name, rv, found, got, ok)
+	}
+	if want, wantOK := expr.JoinedHeader(h, name); got != want || ok != wantOK {
+		t.Fatalf("joinedHeader(%q) = %q, %v; expr.JoinedHeader = %q, %v over %q", name, got, ok, want, wantOK, h)
+	}
+	if again, _ := joinedHeader(h, name); again != got {
+		t.Fatalf("lookup not deterministic: %q then %q", got, again)
+	}
+	for _, hideHost := range []bool{false, true} {
+		if len(headerNames(h, hideHost)) != headerSize(h, hideHost) {
+			t.Fatalf("headerSize(%v) %d, names %v", hideHost, headerSize(h, hideHost), headerNames(h, hideHost))
+		}
+	}
 }
 
 // FuzzCanonicalKey checks the stack canonicalization against

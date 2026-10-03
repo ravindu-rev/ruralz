@@ -53,10 +53,10 @@ type first struct {
 //     credentials.jwt: a client identifier binds only through the
 //     Consumer's own jwt issuers.
 //   - RZ-CFG-005: a credentials.jwt entry with an empty subject and no
-//     claims (`claims: {}` or `subject: ""`). The schema's exactlyOneOf
-//     admits it, yet it binds no token: the index never reads it as "every
-//     token of the issuer", and the author is told instead of the entry
-//     silently doing nothing.
+//     claims (`claims: {}` or `subject: ""`). The schema rejects both
+//     forms (minLength 1, minProperties 1); this check covers callers that
+//     skip schema validation. Such an entry binds no token: the index
+//     never reads it as "every token of the issuer".
 //
 // Duplicate API key hashes and duplicate (issuer, subject) or (issuer,
 // clientId) pairs have no static code: the runtime answers them with 401
