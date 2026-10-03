@@ -1,0 +1,119 @@
+# Copyright 2026 Revington
+# SPDX-License-Identifier: Apache-2.0
+#
+# main: CI stage 10 on every merge to main (docs/engineering/02-repository-layout-and-conventions.md,
+# "CI stages"), 45 minutes (target). The end-to-end suite runs on the process
+# harness with the secret leak assertions in every run (11 req 5, 39), and
+# the quickstart script goes from a release archive to a first proxied
+# request on a clean runner (SM-7, 11 req 33). A failure does not block
+# merge but blocks the next release. release.yml re-runs it on the tagged
+# commit through workflow_call (11 req 11); main has no path filters, so
+# `all` changes nothing.
+name: main
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      all:
+        description: Accepted for symmetry with pr-fast and pr-full; main has no path filters
+        type: boolean
+        default: false
+  workflow_call:
+    inputs:
+      all:
+        description: Accepted for symmetry with pr-fast and pr-full; main has no path filters
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: main-${{ github.ref }}
+  cancel-in-progress: false
+
+# No workflow-level GOTOOLCHAIN: setup-go reads the go.mod toolchain line only
+# while GOTOOLCHAIN is unset, then sets GOTOOLCHAIN=local itself.
+
+jobs:
+  e2e:
+    name: 10. End-to-end
+    runs-on: ubuntu-latest
+    timeout-minutes: 50
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+      - name: Install redis-server for the State Store process
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends redis-server
+          sudo systemctl disable --now redis-server
+          echo "RURALZ_TEST_REDIS_SERVER=$(command -v redis-server)" >>"$GITHUB_ENV"
+      - name: End-to-end suite as root
+        # Root lets the air-gapped start and the handover runs use private
+        # network namespaces (11 req 40, 44); the runner's Go and caches are
+        # kept.
+        run: |
+          sudo --preserve-env env "PATH=$PATH" "HOME=$HOME" \
+            "GOCACHE=$(go env GOCACHE)" "GOMODCACHE=$(go env GOMODCACHE)" make e2e
+
+  quickstart-archive:
+    name: 10. Quickstart archive
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    outputs:
+      archive: ${{ steps.pick.outputs.archive }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          # Tags and history give the version and the archive timestamps.
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+      - run: make release-dry-run
+      - id: pick
+        run: |
+          archive=$(compgen -G 'dist/release/ruralzd_*_linux_amd64.tar.gz' | head -n 1 || true)
+          if [[ -z "$archive" ]]; then
+            echo "no ruralzd linux/amd64 archive yet (release tooling not present): the quickstart job is skipped"
+            echo "archive=" >>"$GITHUB_OUTPUT"
+            exit 0
+          fi
+          mkdir -p "$RUNNER_TEMP/quickstart"
+          cp "$archive" dist/release/SHA256SUMS "$RUNNER_TEMP/quickstart/"
+          echo "archive=$(basename "$archive")" >>"$GITHUB_OUTPUT"
+      - if: steps.pick.outputs.archive != ''
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: quickstart-archive
+          path: ${{ runner.temp }}/quickstart/
+          if-no-files-found: error
+          retention-days: 7
+
+  quickstart:
+    # A fresh runner without Go: only the archive, its SHA256SUMS and the
+    # repository's examples/quickstart (11 req 33).
+    name: 10. Quickstart on a clean runner
+    needs: quickstart-archive
+    if: needs.quickstart-archive.outputs.archive != ''
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: quickstart-archive
+          path: ${{ runner.temp }}/quickstart
+      - env:
+          RURALZ_QUICKSTART_ARCHIVE: ${{ runner.temp }}/quickstart/${{ needs.quickstart-archive.outputs.archive }}
+        run: make quickstart

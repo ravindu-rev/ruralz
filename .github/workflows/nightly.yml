@@ -1,14 +1,49 @@
 # Copyright 2026 Revington
 # SPDX-License-Identifier: Apache-2.0
 #
-# Nightly supply chain rescan (stage 6): new advisories can affect code that
-# has not changed.
+# nightly: CI stage 11 (docs/engineering/03-testing-and-quality-strategy.md,
+# "Test pyramid"; 11 req 6, 28), four parallel jobs, the longest 3 hours
+# (target):
+#   Fuzz     every Fuzz target for 15 minutes, eight targets per shard on
+#            general runners; the grown corpus ($GOCACHE/fuzz) is kept as an
+#            artifact and restored the next night.
+#   Chaos    every M1 chaos experiment, failure row and drill against at
+#            least 10 Nodes (CHAOS_SCALE=nightly).
+#   Latency  RH-1 only (self-hosted runner label rh-1), alone on the machine.
+#            Until WP-97 registers it and sets the repository variable
+#            RH1_PROVISIONED=true, the job fails with an explicit
+#            "RH-1 not provisioned" annotation (OQ-performance-budgets-and-benchmarking-2).
+#   Supply chain rescan (stage 6): new advisories can affect unchanged code.
+# A failure opens a nightly-failure issue (a fuzz crasher opens a
+# fuzz-crasher issue with the failing input) and blocks the next release.
+# release.yml re-runs it on the tagged commit through workflow_call (11 req
+# 11) and grants actions: read and issues: write; nightly has no path
+# filters, so `all` changes nothing.
 name: nightly
 
 on:
   schedule:
     - cron: "17 3 * * *"
   workflow_dispatch:
+    inputs:
+      all:
+        description: Accepted for symmetry with pr-fast and pr-full; nightly has no path filters
+        type: boolean
+        default: false
+      fuzztime:
+        description: Fuzzing time per target
+        type: string
+        default: 15m
+  workflow_call:
+    inputs:
+      all:
+        description: Accepted for symmetry with pr-fast and pr-full; nightly has no path filters
+        type: boolean
+        default: false
+      fuzztime:
+        description: Fuzzing time per target
+        type: string
+        default: 15m
 
 permissions:
   contents: read
@@ -17,6 +52,172 @@ permissions:
 # while GOTOOLCHAIN is unset, then sets GOTOOLCHAIN=local itself.
 
 jobs:
+  fuzz-plan:
+    name: 11. Fuzz plan
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    outputs:
+      shards: ${{ steps.plan.outputs.shards }}
+      count: ${{ steps.plan.outputs.count }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+      - id: plan
+        run: |
+          go run ./internal/tool/fuzzplan list
+          shards=$(go run ./internal/tool/fuzzplan matrix)
+          echo "shards=$shards" >>"$GITHUB_OUTPUT"
+          echo "count=$(jq length <<<"$shards")" >>"$GITHUB_OUTPUT"
+          echo "fuzz shards: $shards"
+
+  fuzz:
+    name: 11. Fuzz shard ${{ matrix.shard }}
+    needs: fuzz-plan
+    if: needs.fuzz-plan.outputs.shards != '[]'
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: ${{ fromJSON(needs.fuzz-plan.outputs.shards) }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+    permissions:
+      contents: read
+      actions: read
+    env:
+      FUZZ_SHARD: ${{ matrix.shard }}
+      FUZZ_SHARDS: ${{ needs.fuzz-plan.outputs.count }}
+      FUZZTIME: ${{ inputs.fuzztime || '15m' }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+      - name: Restore the corpus of the previous night
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          RUN_ID: ${{ github.run_id }}
+        run: |
+          cache="$(go env GOCACHE)/fuzz"
+          mkdir -p "$cache"
+          # A GitHub API error must not fail the shard before any fuzzing.
+          if ! prev=$(gh run list --repo "$REPO" --workflow nightly.yml --status completed --limit 20 \
+            --json databaseId --jq "[.[] | select(.databaseId != $RUN_ID)][0].databaseId // empty"); then
+            echo "::warning title=Fuzz corpus not restored::cannot list previous nightly runs: starting from the seed corpora"
+            exit 0
+          fi
+          if [[ -z "$prev" ]]; then
+            echo "no previous nightly run: starting from the seed corpora"
+            exit 0
+          fi
+          if ! gh run download "$prev" --repo "$REPO" --pattern 'fuzz-corpus-*' --dir "$RUNNER_TEMP/corpus-in"; then
+            echo "run $prev kept no fuzz corpus: starting from the seed corpora"
+            exit 0
+          fi
+          find "$RUNNER_TEMP/corpus-in" -name corpus.tar -type f | while read -r t; do
+            tar -xf "$t" -C "$cache"
+          done
+          echo "restored the corpus of run $prev"
+      - name: Fuzz
+        env:
+          FUZZ_REPORT: ${{ runner.temp }}/fuzz/report.json
+        run: |
+          # The fuzztime input reaches go test as one argument (the Makefile
+          # reads it from the environment); reject anything but a duration
+          # or an iteration count anyway.
+          if [[ ! "$FUZZTIME" =~ ^([0-9]+(ms|s|m|h))+$|^[1-9][0-9]*x$ ]]; then
+            echo "::error title=Invalid fuzztime::fuzztime must be a duration such as 15m or a count such as 500x"
+            exit 2
+          fi
+          make nightly NIGHTLY_JOB=fuzz
+      - name: Keep the grown corpus
+        if: always()
+        run: |
+          cache="$(go env GOCACHE)/fuzz"
+          mkdir -p "$RUNNER_TEMP/corpus-out" "$cache"
+          go run ./internal/tool/fuzzplan shard -index "$FUZZ_SHARD" -shards "$FUZZ_SHARDS" -corpus >"$RUNNER_TEMP/corpus-dirs"
+          (cd "$cache" && while read -r d; do if [[ -d "$d" ]]; then printf '%s\n' "$d"; fi; done <"$RUNNER_TEMP/corpus-dirs" |
+            tar -cf "$RUNNER_TEMP/corpus-out/corpus.tar" -T -)
+      - if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: fuzz-corpus-${{ matrix.shard }}
+          path: ${{ runner.temp }}/corpus-out/corpus.tar
+          if-no-files-found: warn
+          retention-days: 14
+      - name: Collect crashers
+        if: failure()
+        env:
+          REPORT: ${{ runner.temp }}/fuzz/report.json
+        run: |
+          out="$RUNNER_TEMP/crashers"
+          mkdir -p "$out/files"
+          if [[ ! -f "$REPORT" ]]; then exit 0; fi
+          cp "$REPORT" "$out/report.json"
+          jq -r '.targets[].crashers[]?' "$REPORT" | while read -r f; do
+            mkdir -p "$out/files/$(dirname "$f")"
+            cp "$f" "$out/files/$f"
+          done
+      - if: failure()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: fuzz-crashers-${{ matrix.shard }}
+          path: ${{ runner.temp }}/crashers/
+          if-no-files-found: ignore
+          retention-days: 90
+
+  chaos:
+    name: 11. Chaos
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+      - name: Install redis-server for the State Store process
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends redis-server
+          sudo systemctl disable --now redis-server
+          echo "RURALZ_TEST_REDIS_SERVER=$(command -v redis-server)" >>"$GITHUB_ENV"
+      - run: make nightly NIGHTLY_JOB=chaos
+
+  latency:
+    name: 11. Latency
+    # The self-hosted RH-1 runner runs only scheduled or dispatched jobs of
+    # protected refs, never pull-request code (WP-97).
+    runs-on: ${{ vars.RH1_PROVISIONED == 'true' && fromJSON('["self-hosted", "rh-1"]') || 'ubuntu-latest' }}
+    timeout-minutes: 180
+    steps:
+      - name: RH-1 check
+        if: vars.RH1_PROVISIONED != 'true'
+        run: |
+          echo "::error title=RH-1 not provisioned::The Latency job runs only on the self-hosted rh-1 runner (OQ-performance-budgets-and-benchmarking-2 (b), WP-97). Set the repository variable RH1_PROVISIONED=true once the runner is registered; until then M1 exit criteria 2 and 3 stay open."
+          exit 1
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+      - run: make nightly NIGHTLY_JOB=latency
+      - if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: bench-records
+          path: dist/bench/
+          if-no-files-found: ignore
+          retention-days: 90
+
   supply-chain:
     name: 6. Supply chain rescan
     runs-on: ubuntu-latest
@@ -28,3 +229,83 @@ jobs:
         with:
           go-version-file: go.mod
       - run: make supply-chain
+
+  issues:
+    name: Nightly issues
+    needs: [fuzz-plan, fuzz, chaos, latency, supply-chain]
+    if: always() && contains(needs.*.result, 'failure')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      actions: read
+      issues: write
+    steps:
+      - if: needs.fuzz.result == 'failure'
+        continue-on-error: true
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          pattern: fuzz-crashers-*
+          path: ${{ runner.temp }}/crashers
+      - name: Open or update issues
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          RUN_ID: ${{ github.run_id }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          SHA: ${{ github.sha }}
+        run: |
+          gh label create nightly-failure --color B60205 --description "A nightly job failed; blocks the next release" --force
+          gh label create fuzz-crasher --color D93F0B --description "A fuzz target found a failing input; blocks the next release" --force
+
+          # upsert <label> <title> <body file>: comment on the open issue with
+          # this exact title, or open one.
+          upsert() {
+            local n
+            n=$(gh issue list --label "$1" --state open --limit 200 --json number,title \
+              --jq ".[] | select(.title == \"$2\") | .number" | head -n 1)
+            if [[ -n "$n" ]]; then
+              gh issue comment "$n" --body-file "$3"
+            else
+              gh issue create --label "$1" --title "$2" --body-file "$3"
+            fi
+          }
+
+          body="$RUNNER_TEMP/body.md"
+          crasher_shards=" "
+          mkdir -p "$RUNNER_TEMP/crashers"
+          while read -r report; do
+            dir=$(dirname "$report")
+            shard=$(jq -r .shard "$report")
+            while IFS=$'\t' read -r pkg name file; do
+              crasher_shards+="$shard "
+              {
+                echo "Fuzz target \`$name\` in \`$pkg\` found a failing input in the nightly run $RUN_URL (commit $SHA)."
+                echo
+                echo "Commit the input as \`$file\` (a regression seed) before its fix merges (11 req 27). Open fuzz-crasher issues block the next release."
+                echo
+                echo '`````text'
+                head -c 65536 "$dir/files/$file"
+                echo
+                echo '`````'
+              } >"$body"
+              upsert fuzz-crasher "fuzz crasher: $pkg $name" "$body"
+            done < <(jq -r '.targets[] | .package as $p | .name as $n | .crashers[]? | [$p, $n, .] | @tsv' "$report")
+          done < <(find "$RUNNER_TEMP/crashers" -name report.json -type f)
+
+          # Under release.yml (workflow_call) the run is the release run: its
+          # job list also holds pr-fast, pr-full and main jobs, and called
+          # job names carry a "<caller job> / " prefix. Keep only this
+          # workflow's jobs (stage 11 and the stage 6 rescan), named without
+          # the prefix, so issue titles match the scheduled runs.
+          gh run view "$RUN_ID" --json jobs --jq '.jobs[] | select(.conclusion == "failure") | .name' |
+            while read -r name; do
+              job=${name##* / }
+              if [[ ! "$job" =~ ^11\.\ |^6\.\ Supply\ chain\ rescan$ ]]; then
+                continue # not a nightly job
+              fi
+              if [[ "$job" =~ ^11\.\ Fuzz\ shard\ ([0-9]+)$ && "$crasher_shards" == *" ${BASH_REMATCH[1]} "* ]]; then
+                continue # reported as fuzz-crasher issues
+              fi
+              printf 'The nightly job "%s" failed in %s (commit %s). A nightly failure blocks the next release.\n' "$job" "$RUN_URL" "$SHA" >"$body"
+              upsert nightly-failure "nightly failure: $job" "$body"
+            done

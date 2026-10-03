@@ -1,0 +1,216 @@
+# Copyright 2026 Revington
+# SPDX-License-Identifier: Apache-2.0
+#
+# pr-full: CI stages 8 and 9 (docs/engineering/02-repository-layout-and-conventions.md,
+# "CI stages"; docs/engineering/03-testing-and-quality-strategy.md, "Test
+# pyramid"), 30 minutes (target). Stage 7 (Ruralz Console) is Planned (M2)
+# and stage 10 runs in main.yml. Path filters (scripts/ci-changes.sh) skip
+# stages whose inputs did not change; the pr-full job aggregates every stage
+# and is a required status check like pr-fast, so skipped stages never leave
+# a required check pending (11 req 4). release.yml re-runs it on the tagged
+# commit through workflow_call with all: true (11 req 11); the caller grants
+# contents, pull-requests and issues read.
+name: pr-full
+
+on:
+  pull_request:
+  merge_group:
+  push:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      all:
+        description: Run every stage regardless of the path filters
+        type: boolean
+        default: false
+      bench-base:
+        description: Baseline ref of the alloc/op gate; empty checks the absolute caps only
+        type: string
+        default: ""
+  workflow_call:
+    inputs:
+      all:
+        description: Run every stage regardless of the path filters (release.yml passes true)
+        type: boolean
+        default: false
+      bench-base:
+        description: Baseline ref of the alloc/op gate, such as the previous release tag; empty checks the absolute caps only
+        type: string
+        default: ""
+
+permissions:
+  contents: read
+
+concurrency:
+  group: pr-full-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+# No workflow-level GOTOOLCHAIN: setup-go reads the go.mod toolchain line only
+# while GOTOOLCHAIN is unset, then sets GOTOOLCHAIN=local itself.
+
+jobs:
+  changes:
+    name: Path filters
+    runs-on: ubuntu-latest
+    outputs:
+      integration: ${{ steps.paths.outputs.integration }}
+      gates: ${{ steps.paths.outputs.gates }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - id: paths
+        env:
+          ALL: ${{ inputs.all }}
+          EVENT: ${{ github.event_name }}
+          PR_BASE: ${{ github.event.pull_request.base.sha }}
+          PR_HEAD: ${{ github.event.pull_request.head.sha }}
+          MG_BASE: ${{ github.event.merge_group.base_sha }}
+          MG_HEAD: ${{ github.event.merge_group.head_sha }}
+          PUSH_BEFORE: ${{ github.event.before }}
+        run: bash scripts/ci-changes.sh
+
+  integration:
+    # linux/amd64 and native linux/arm64 (OQ-repository-layout-and-conventions-6
+    # (a)) with the local redis-server process flavor, plus a linux/amd64 leg
+    # running the State Store container flavors (Redis 8, Valkey 9.0.1 or
+    # newer, Dragonfly, three-primary clusters) on the runner's Docker (11
+    # req 1, 2, 29). make integration also verifies the systemd unit with
+    # systemd-analyze (11 req 86).
+    name: 8. Integration and conformance (${{ matrix.leg }})
+    needs: changes
+    if: needs.changes.outputs.integration == 'true'
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - leg: linux/amd64 process
+            runner: ubuntu-latest
+            statestore: process
+          - leg: linux/arm64 process
+            runner: ubuntu-24.04-arm
+            statestore: process
+          - leg: linux/amd64 container
+            runner: ubuntu-latest
+            statestore: container
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 40
+    env:
+      RURALZ_TEST_STATESTORE: ${{ matrix.statestore }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+      - name: Install redis-server for the process flavor
+        if: matrix.statestore == 'process'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends redis-server
+          # The suites launch their own servers on free ports.
+          sudo systemctl disable --now redis-server
+          echo "RURALZ_TEST_REDIS_SERVER=$(command -v redis-server)" >>"$GITHUB_ENV"
+          redis-server --version
+      - run: make integration
+
+  gates:
+    # alloc/op on the shared linux/amd64 runner (OQ-testing-and-quality-strategy-2
+    # (c)); the stripped size of both platforms and the idle RSS of the
+    # native binary on each architecture (11 req 3, 64 to 68).
+    name: 9. Regression gates (${{ matrix.leg }})
+    needs: changes
+    if: needs.changes.outputs.gates == 'true'
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - leg: linux/amd64 alloc/op, size and idle RSS
+            runner: ubuntu-latest
+            gates: alloc size
+          - leg: linux/arm64 size and idle RSS
+            runner: ubuntu-24.04-arm
+            gates: size
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      issues: read
+      pull-requests: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+      - name: Baseline and perf-override approval
+        env:
+          CALLED: ${{ inputs.all != null }}
+          CALL_BASE: ${{ inputs.bench-base }}
+          EVENT: ${{ github.event_name }}
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          PR_BASE: ${{ github.event.pull_request.base.sha }}
+          MG_BASE: ${{ github.event.merge_group.base_sha }}
+          MG_HEAD_REF: ${{ github.event.merge_group.head_ref }}
+          PUSH_BEFORE: ${{ github.event.before }}
+        run: |
+          pr=""
+          if [[ "$CALLED" == true ]]; then
+            base=$CALL_BASE
+          else
+            case "$EVENT" in
+              pull_request) base=$PR_BASE; pr=$PR_NUMBER ;;
+              merge_group)
+                base=$MG_BASE
+                pr=$(sed -nE 's|.*/pr-([0-9]+)-[0-9a-f]+$|\1|p' <<<"$MG_HEAD_REF") ;;
+              *)
+                base=""
+                if [[ -n "$PUSH_BEFORE" && "$PUSH_BEFORE" != 0000000000000000000000000000000000000000 ]]; then base=$PUSH_BEFORE; fi ;;
+            esac
+          fi
+          # bench-base is a free-form input: allow only ref characters, so
+          # it cannot add lines to $GITHUB_ENV or reach git as an option.
+          if [[ ! "$base" =~ ^([A-Za-z0-9_.@^~][A-Za-z0-9_./@^~-]*)?$ ]]; then
+            echo "::error title=Invalid bench-base::bench-base must be a git ref such as v0.1.0 or origin/main"
+            exit 2
+          fi
+          echo "BENCH_BASE=$base" >>"$GITHUB_ENV"
+          echo "alloc/op baseline: ${base:-none, absolute caps only}"
+          # A perf-override label applied by a maintainer records the
+          # approval of an override (11 req 66).
+          if [[ -n "$pr" ]] && PR=$pr bash scripts/ci-approvals.sh perf-override; then
+            echo "GATES_OVERRIDE=1" >>"$GITHUB_ENV"
+            echo "perf-override approved on #$pr by a maintainer" >>"$GITHUB_STEP_SUMMARY"
+          fi
+      - env:
+          GATES: ${{ matrix.gates }}
+        run: make gates
+      - name: Perf-override hint
+        # pull_request runs only on opened, synchronize and reopened, so
+        # applying the label does not re-run this job by itself.
+        if: failure() && github.event_name == 'pull_request' && env.GATES_OVERRIDE == ''
+        run: |
+          msg="If a gate failed (not a tool error), a maintainer other than the author can accept it with the perf-override label (11 req 66). Applying the label does not re-run pr-full: after it is applied, re-run this job."
+          echo "::notice title=perf-override::$msg"
+          printf '\n%s\n' "$msg" >>"$GITHUB_STEP_SUMMARY"
+
+  pr-full:
+    name: pr-full
+    if: always()
+    needs: [changes, integration, gates]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Every stage passed or was skipped by its path filter
+        env:
+          RESULTS: ${{ join(needs.*.result, ' ') }}
+        run: |
+          echo "results: $RESULTS"
+          for r in $RESULTS; do
+            if [[ "$r" != success && "$r" != skipped ]]; then exit 1; fi
+          done

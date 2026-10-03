@@ -7,5 +7,15 @@
 *.zip binary
 *.wasm binary
 
+# Fixtures that must keep CRLF line endings or a byte order mark live under
+# a raw/ directory and are stored byte for byte (golden tests, 11 req 20).
+test/fixtures/**/raw/** -text
+
+# Upstream conformance suites vendored by scripts/update-test-suites.sh are
+# stored byte for byte, as their pinned archive digests describe them.
+test/fixtures/yaml-test-suite/data/** -text linguist-vendored
+test/fixtures/json-schema-test-suite/data/** -text linguist-vendored
+
 # Generated files: reviewed through their source, diffed in CI stage 3.
 api/schema/**/*.schema.json linguist-generated=true
+deploy/grafana/rules/*.yaml linguist-generated=true
