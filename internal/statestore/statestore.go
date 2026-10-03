@@ -190,7 +190,12 @@ const (
 type GCRALimit struct {
 	Requests int64
 	Window   time.Duration
-	Burst    int64
+	// Burst is used as given: tau = Burst × Window / Requests, so 0 means
+	// no burst tolerance (after the first admission, one per emission
+	// interval T). Drivers never default it. The ratelimit Filter (WP-61)
+	// sets Burst = Requests when config.limits[].burst is unset (05 reqs 57
+	// and 60); v1alpha1 Burst is *int64 with no schema default.
+	Burst int64
 }
 
 // GCRAOutcome is one limit's state after the decision.
@@ -296,19 +301,40 @@ const (
 	LeaseEndStale
 )
 
-// CacheLease takes, uses or ends the partition lease.
+// CacheLease takes, uses or ends the partition's revalidation lease.
+// Refresh and end-stale act only while the lease holds Token, and neither
+// releases the lease, which expires after its 5 s (R-71).
 type CacheLease struct {
-	Key     CacheKey
+	// Key is the partition the lease guards.
+	Key CacheKey
+	// Variant is the variant LeaseRefresh refreshes and LeaseEndStale
+	// deletes; LeaseTake ignores it.
 	Variant Digest
-	Mode    LeaseMode
-	Token   uint64
-	Entry   []byte
-	TTL     time.Duration
+	// Mode selects the operation.
+	Mode LeaseMode
+	// Token identifies the holder: LeaseTake stores it, and LeaseRefresh
+	// and LeaseEndStale act only while the lease still holds it.
+	Token uint64
+	// Entry is the refreshed entry bytes, LeaseRefresh only.
+	Entry []byte
+	// TTL applies only to LeaseRefresh, where it extends the partition as
+	// CacheStore.TTL does (the larger of the remaining TTL and the entry
+	// TTL, capped at 25 h). LeaseTake ignores it, because the revalidation
+	// lease is fixed at 5 s (08 req 45, SET NX PX 5000); LeaseEndStale
+	// ignores it too.
+	TTL time.Duration
 }
 
 // Write is one post-commit write.
 type Write struct {
-	Kind       OpKind // OpRefund, OpCacheSet, OpCacheInvalidate
+	Kind OpKind // OpRefund, OpCacheSet, OpCacheInvalidate
+	// Timeout is the effective stateStoreTimeout of the Policy that
+	// enqueued the write (08 req 56; the per-request RequestBudget does not
+	// apply). The enqueuing Filter sets it from BuildEnv.StateStoreTimeout:
+	// quota refunds (WP-62), cache stores and invalidations (WP-63),
+	// revalidation lease writes (WP-88). Zero means the write is not
+	// attempted, and drivers answer it with ErrNotAttempted, RZ-STS-004 (08
+	// req 6). The post-commit queue (WP-65) passes it unchanged.
 	Timeout    time.Duration
 	Refund     Refund
 	Cache      CacheStore
@@ -369,9 +395,17 @@ type Store interface {
 // Status feeds degraded reasons and the cleartext gauge.
 type Status struct {
 	BreakerNotClosed bool
-	EvictionPolicy   Tristate
-	Cleartext        bool
-	Unauthenticated  bool
+	// EvictionPolicy reports maxmemory-policy noeviction (08 req 51). Yes:
+	// every shard's latest INFO memory reading reports noeviction. No: any
+	// shard reports another policy; state_store_eviction_policy is raised
+	// while a ratelimit or quota Policy uses this store. Unknown: no shard
+	// reports another policy, but some reading lacks the field or has not
+	// arrived; no reason is raised and the driver logs one WARN. The
+	// precedence is No, then Unknown, then Yes. The memory driver reports
+	// Yes.
+	EvictionPolicy  Tristate
+	Cleartext       bool
+	Unauthenticated bool
 }
 
 // Tristate is yes, no or unknown.

@@ -7,11 +7,13 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+
+	"github.com/ravindu-rev/ruralz/pkg/config/v1alpha1"
 )
 
 // Criteria are a Route's match criteria, a field-for-field mirror of
-// v1alpha1.RouteMatch (Route.spec.match); the package table admits no
-// import of the configuration types, so callers copy the fields.
+// v1alpha1.RouteMatch (Route.spec.match), so [MatchKey] stays independent of
+// the API types (R-68). Callers build it with [CriteriaOf].
 type Criteria struct {
 	// Hosts are host entries; empty matches any host.
 	Hosts []string
@@ -69,6 +71,47 @@ type GraphQLCriteria struct {
 	OperationType string
 	// OperationName is the operation name.
 	OperationName string
+}
+
+// CriteriaOf returns the Criteria of m, the one converter the Router and
+// configuration validation share (R-68). The nested criteria are struct
+// conversions of v1alpha1.PathMatch, HeaderMatch, GRPCMatch and
+// GraphQLMatch, whose field sets are identical, so a field that diverges
+// breaks compilation. The result shares no memory with m; a nil m gives
+// the zero Criteria.
+func CriteriaOf(m *v1alpha1.RouteMatch) Criteria {
+	if m == nil {
+		return Criteria{}
+	}
+	c := Criteria{
+		Hosts:   slices.Clone(m.Hosts),
+		Methods: slices.Clone(m.Methods),
+		Topic:   m.Topic,
+		When:    m.When,
+	}
+	if m.Path != nil {
+		p := PathCriteria(*m.Path)
+		c.Path = &p
+	}
+	if m.Headers != nil {
+		c.Headers = make([]HeaderCriteria, len(m.Headers))
+		for i := range m.Headers {
+			c.Headers[i] = HeaderCriteria(m.Headers[i])
+			if pr := m.Headers[i].Present; pr != nil {
+				v := *pr
+				c.Headers[i].Present = &v
+			}
+		}
+	}
+	if m.GRPC != nil {
+		g := GRPCCriteria(*m.GRPC)
+		c.GRPC = &g
+	}
+	if m.GraphQL != nil {
+		g := GraphQLCriteria(*m.GraphQL)
+		c.GraphQL = &g
+	}
+	return c
 }
 
 // Key is the canonical identity of a Route's match criteria. Two Routes

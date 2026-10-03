@@ -140,6 +140,29 @@ func TestReadHeader(t *testing.T) {
 			in:   v2(0x20, 0x00, tlvs),
 			want: Header{Command: CommandLocal, Family: FamilyUnspec, Len: 16 + len(tlvs)},
 		},
+		// R-65 overrides the literal 04 req 16: LOCAL is accepted whatever
+		// its family byte, as the PROXY v2 text has receivers do, and its
+		// address block is skipped within the cap.
+		{
+			name: "R-65 LOCAL with a UDP family",
+			in:   v2(0x20, 0x12, nil),
+			want: Header{Command: CommandLocal, Family: Family(0x12), Len: 16},
+		},
+		{
+			name: "R-65 LOCAL with a UDP6 family and its block",
+			in:   v2(0x20, 0x22, make([]byte, 36)),
+			want: Header{Command: CommandLocal, Family: Family(0x22), Len: 16 + 36},
+		},
+		{
+			name: "R-65 LOCAL with a UNIX family and its block",
+			in:   v2(0x20, 0x31, make([]byte, 216)),
+			want: Header{Command: CommandLocal, Family: Family(0x31), Len: 16 + 216},
+		},
+		{
+			name: "R-65 LOCAL with an unknown family",
+			in:   v2(0x20, 0x41, make([]byte, 5)),
+			want: Header{Command: CommandLocal, Family: Family(0x41), Len: 16 + 5},
+		},
 		{name: "req16 bad signature", in: append([]byte("\r\n\r\n\x00\r\nQUIX\n"), 0x21, 0x11, 0, 12), wantErr: ErrSignature},
 		{name: "req16 v1 text header", in: []byte("PROXY TCP4 203.0.113.7 192.0.2.1 51000 443\r\n"), wantErr: ErrSignature},
 		{name: "req16 plain HTTP request", in: []byte("GET / HTTP/1.1\r\nHost: a\r\n\r\n"), wantErr: ErrSignature},
@@ -152,10 +175,8 @@ func TestReadHeader(t *testing.T) {
 		{name: "req16 UDP6 family", in: v2(0x21, 0x22, make([]byte, 36)), wantErr: ErrFamily},
 		{name: "req16 UNIX stream family", in: v2(0x21, 0x31, make([]byte, 216)), wantErr: ErrFamily},
 		{name: "req16 UNIX datagram family", in: v2(0x21, 0x32, make([]byte, 216)), wantErr: ErrFamily},
-		// 04 req 16 refuses UDP and UNIX families whatever the command,
-		// stricter than the PROXY protocol text for LOCAL (deliberate).
-		{name: "req16 UDP family with LOCAL", in: v2(0x20, 0x12, nil), wantErr: ErrFamily},
-		{name: "req16 UNIX family with LOCAL", in: v2(0x20, 0x31, make([]byte, 216)), wantErr: ErrFamily},
+		{name: "R-65 LOCAL above the cap", in: v2Len(0x20, 0x31, MaxVariableLen+1, nil), wantErr: ErrLength},
+		{name: "R-65 LOCAL with a truncated UNIX block", in: v2Len(0x20, 0x31, 216, make([]byte, 100)), wantErr: io.ErrUnexpectedEOF},
 		{name: "req16 unknown family", in: v2(0x21, 0x41, make([]byte, 12)), wantErr: ErrFamily},
 		{name: "req16 AF_INET with UNSPEC transport", in: v2(0x21, 0x10, make([]byte, 12)), wantErr: ErrFamily},
 		{name: "req16 AF_UNSPEC only with LOCAL", in: v2(0x21, 0x00, nil), wantErr: ErrFamily},

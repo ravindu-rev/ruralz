@@ -16,14 +16,15 @@
 //
 // [ReadHeader] reads exactly one v2 header from a reader, never a byte past
 // it, so the next byte is the TLS ClientHello or the HTTP request line (04
-// req 16, 06 req 61). It accepts version 2 with the LOCAL or PROXY command
-// and the TCP4 or TCP6 family (AF_UNSPEC only with LOCAL), reads and
-// discards TLVs without parsing them, and rejects everything else with an
-// error wrapping [ErrMalformed]: a missing or wrong signature (a v1 text
-// header included), another version, command, family or transport (a UDP
-// or UNIX family byte also with LOCAL, as 04 req 16 states), a variable
-// part above [MaxVariableLen] bytes or too short for its addresses, and a
-// truncated header.
+// req 16, 06 req 61). It accepts version 2 with the PROXY command and the
+// TCP4 or TCP6 family, or with the LOCAL command and any family byte, whose
+// address block it skips (R-65, overriding the literal 04 req 16, as the
+// PROXY v2 text has receivers discard it). It reads and discards TLVs
+// without parsing them, and rejects everything else with an error wrapping
+// [ErrMalformed]: a missing or wrong signature (a v1 text header included),
+// another version or command, a PROXY header with another family or
+// transport (UDP, UNIX, AF_UNSPEC), a variable part above [MaxVariableLen]
+// bytes or too short for its addresses, and a truncated header.
 //
 // [NewListener] wraps a net.Listener for a listener with proxyProtocol:
 // true. Accept never reads: each [Conn] reads its header on its first Read

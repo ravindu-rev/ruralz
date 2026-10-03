@@ -6,9 +6,10 @@
 // (internal/config/validate) and the CLI share (R-35; spec 04 sections C and
 // D; docs/architecture/03-data-plane.md "Router").
 //
-// The package is a leaf: it imports only internal/errcode and the standard
-// library, allocates nothing on the request path for already-normal input,
-// and keeps no state.
+// The package is a leaf: it imports only internal/errcode,
+// pkg/config/v1alpha1 (for [CriteriaOf], R-68) and the standard library,
+// allocates nothing on the request path for already-normal input, and
+// keeps no state.
 //
 // # Request normalization
 //
@@ -60,7 +61,8 @@
 // RZ-CFG-023 (04 req 31). [Compare] orders [Rank] values by the six
 // precedence ranks, a total order (04 req 31).
 //
-// The package takes [Criteria], a field-for-field mirror of
-// v1alpha1.RouteMatch, because the architecture package table admits only
-// internal/errcode as an import; callers copy the fields.
+// [MatchKey] takes [Criteria], a field-for-field mirror of
+// v1alpha1.RouteMatch, so the key stays independent of the API types; the
+// Router and validation build it with [CriteriaOf] (R-68, which overrides
+// spec 04 section 3's MatchKey(*v1alpha1.RouteMatch)).
 package routematch

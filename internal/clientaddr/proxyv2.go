@@ -64,7 +64,8 @@ func (c Command) String() string {
 // Family is the address family and transport byte (byte 14).
 type Family uint8
 
-// Families accepted by ReadHeader; UDP and UNIX families are refused.
+// Families accepted by ReadHeader with PROXY; UDP and UNIX families are
+// refused with PROXY. LOCAL is accepted with any family byte (R-65).
 const (
 	// FamilyUnspec is AF_UNSPEC, accepted with LOCAL only.
 	FamilyUnspec Family = 0x00
@@ -117,8 +118,8 @@ var (
 	ErrVersion = fmt.Errorf("%w: version is not 2", ErrMalformed)
 	// ErrCommand reports a command other than LOCAL or PROXY.
 	ErrCommand = fmt.Errorf("%w: command is neither LOCAL nor PROXY", ErrMalformed)
-	// ErrFamily reports a family other than TCP4 or TCP6 (UDP, UNIX or
-	// unknown), or AF_UNSPEC with PROXY.
+	// ErrFamily reports a PROXY header whose family is not TCP4 or TCP6
+	// (UDP, UNIX, AF_UNSPEC or unknown); LOCAL never fails with it.
 	ErrFamily = fmt.Errorf("%w: unsupported address family", ErrMalformed)
 	// ErrLength reports a variable part above MaxVariableLen or shorter
 	// than the family's address block.
@@ -162,26 +163,9 @@ func ReadHeader(r io.Reader) (Header, error) {
 	if n > MaxVariableLen {
 		return Header{}, fmt.Errorf("%w: %d bytes above the %d-byte cap", ErrLength, n, MaxVariableLen)
 	}
-	var need int
-	switch h.Family {
-	case FamilyTCP4:
-		need = tcp4AddrLen
-	case FamilyTCP6:
-		need = tcp6AddrLen
-	case FamilyUnspec:
-		if h.Command != CommandLocal {
-			return Header{}, fmt.Errorf("%w (%s with %s)", ErrFamily, h.Family, h.Command)
-		}
-	default:
-		// Deliberately stricter than the PROXY protocol text, which has a
-		// receiver accept LOCAL with any family byte: 04 req 16 refuses
-		// UDP and UNIX families whatever the command, so LOCAL is
-		// accepted only with AF_UNSPEC, TCP4 or TCP6.
-		return Header{}, fmt.Errorf("%w (%s)", ErrFamily, h.Family)
-	}
-	if h.Command == CommandLocal {
-		// LOCAL discards the address block; its length only has to fit.
-		need = 0
+	need, err := addrLen(h.Command, h.Family)
+	if err != nil {
+		return Header{}, err
 	}
 	if n < need {
 		return Header{}, fmt.Errorf("%w: %d bytes, %s needs %d", ErrLength, n, h.Family, need)
@@ -207,6 +191,26 @@ func ReadHeader(r io.Reader) (Header, error) {
 	}
 	h.Len += n
 	return h, nil
+}
+
+// addrLen returns the length of the address block ReadHeader parses. LOCAL
+// discards its block whatever the family byte, as the PROXY v2 text has
+// receivers do (R-65, overriding the literal 04 req 16): the block is
+// skipped within MaxVariableLen and the TCP peer stays the peer. PROXY
+// needs TCP4 or TCP6; UDP, UNIX, AF_UNSPEC and unknown families close the
+// connection.
+func addrLen(c Command, f Family) (int, error) {
+	if c == CommandLocal {
+		return 0, nil
+	}
+	switch f {
+	case FamilyTCP4:
+		return tcp4AddrLen, nil
+	case FamilyTCP6:
+		return tcp6AddrLen, nil
+	default:
+		return 0, fmt.Errorf("%w (%s with %s)", ErrFamily, f, c)
+	}
 }
 
 // readSigned fills the fixed part, rejecting the first byte that departs

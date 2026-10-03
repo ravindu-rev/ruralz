@@ -17,10 +17,10 @@ import (
 // req 53 (Response Cache store admission on the memory reading).
 
 func TestAdmitStoreBytes(t *testing.T) {
-	// Spec 08 reqs 53 and 58, spec 05 req 84. maxmemory 1,000,000,000:
-	// c = min(2% of maxmemory per 10 s / N_c, 4 MiB/s) = 2,000 bytes per
-	// second with N_c = 1,000 (always in M1), so 20,000 bytes between
-	// readings every 10 s, or 2,000 every 1 s above 50%.
+	// Spec 08 reqs 53 and 58, spec 05 req 84, with N_c = 1 for the memory
+	// driver (R-72). maxmemory 1,000,000,000: c = min(2% of maxmemory per
+	// 10 s / N_c, 4 MiB/s) = 2,000,000 bytes per second, so 20,000,000
+	// bytes between readings every 10 s, or 2,000,000 every 1 s above 50%.
 	const mb = 1_000_000 // 0.1% of maxmemory
 	f := newFixture(t, Options{MaxCacheBytes: 1000 * mb}, nil)
 	defer f.d.bytes.Store(0)
@@ -32,21 +32,21 @@ func TestAdmitStoreBytes(t *testing.T) {
 		n       int
 		want    bool
 	}{
-		{"first reading, within budget", 0, 0, 15_000, true},
-		{"over the remaining budget", 0, 0, 6_000, false},
-		{"rest of the budget", 0, 0, 5_000, true},
+		{"first reading, within budget", 0, 0, 15_000_000, true},
+		{"over the remaining budget", 0, 0, 6_000_000, false},
+		{"rest of the budget", 0, 0, 5_000_000, true},
 		{"budget spent", 0, 0, 1, false},
 		{"no reading yet: still spent", 9 * time.Second, 0, 1, false},
-		{"new reading renews the budget", time.Second, 0, 20_000, true},
+		{"new reading renews the budget", time.Second, 0, 20_000_000, true},
 		{"grew 15% of maxmemory: skip", 10 * time.Second, 150 * mb, 1, false},
 		{"grew 5%: still skipping until under 2%", 10 * time.Second, 200 * mb, 1, false},
 		{"grew 1%: admits again", 10 * time.Second, 210 * mb, 1, true},
 		{"grew 9%: no skip", 10 * time.Second, 300 * mb, 1, true},
 		{"grew 9% again", 10 * time.Second, 390 * mb, 1, true},
 		{"grew 9% once more", 10 * time.Second, 480 * mb, 1, true},
-		{"above 50%: 1 s readings, 2,000 bytes", 10 * time.Second, 510 * mb, 2_001, false},
-		{"above 50%: the 2,000 bytes", 0, 510 * mb, 2_000, true},
-		{"above 50%: next reading after 1 s", time.Second, 515 * mb, 1_999, true},
+		{"above 50%: 1 s readings, 2,000,000 bytes", 10 * time.Second, 510 * mb, 2_000_001, false},
+		{"above 50%: the 2,000,000 bytes", 0, 510 * mb, 2_000_000, true},
+		{"above 50%: next reading after 1 s", time.Second, 515 * mb, 1_999_999, true},
 		{"above 70%: skip", time.Second, 710 * mb, 1, false},
 		{"back under 70%", time.Second, 600 * mb, 0, true},
 	}
@@ -57,15 +57,17 @@ func TestAdmitStoreBytes(t *testing.T) {
 			t.Fatalf("%s: AdmitStoreBytes(%d) = %v, want %v", s.name, s.n, got, s.want)
 		}
 	}
-	// The default 64 MiB store admits 64 MiB × 2% / 10 s / 1,000, 134
-	// bytes per second in whole bytes: 1,340 bytes per 10 s reading.
+	// The default 64 MiB store admits 64 MiB × 2% / 10 s / N_c (N_c = 1) =
+	// 134,217 bytes per second in whole bytes: 1,342,170 bytes per 10 s
+	// reading.
 	def := newFixture(t, Options{}, nil)
-	if !def.d.AdmitStoreBytes(k, 1340) || def.d.AdmitStoreBytes(k, 1) {
-		t.Fatal("default store budget is not 1,340 bytes per 10 s reading")
+	if !def.d.AdmitStoreBytes(k, 1_342_170) || def.d.AdmitStoreBytes(k, 1) {
+		t.Fatal("default store budget is not 1,342,170 bytes per 10 s reading")
 	}
-	// The 4 MiB per second cap applies to a large store (64 MiB × 2% /
-	// 10 s / 1,000 is under it; 4 TiB would not be).
-	big := newFixture(t, Options{MaxCacheBytes: 4 << 40}, nil)
+	// The 4 MiB per second cap applies from 2,097,152,000 bytes of
+	// maxmemory (2% / 10 s of it is 4 MiB): 1,000,000,000 is under it
+	// (above), 4 GiB is over it and admits 40 MiB per 10 s reading.
+	big := newFixture(t, Options{MaxCacheBytes: 4 << 30}, nil)
 	if !big.d.AdmitStoreBytes(k, 40<<20) || big.d.AdmitStoreBytes(k, 1) {
 		t.Fatal("per-second cap of 4 MiB not applied to 10 s of budget")
 	}

@@ -167,22 +167,32 @@ func TestConnProxyHeaderMappedSource(t *testing.T) {
 	}
 }
 
-// TestConnLocal: LOCAL keeps the TCP peer (04 req 16).
+// TestConnLocal: LOCAL keeps the TCP peer (04 req 16), whatever its
+// family byte (R-65).
 func TestConnLocal(t *testing.T) {
-	l := listen(t, ListenerOptions{Clock: clock.Real()})
-	client, c := pair(t, l)
-	write(t, client, append(local(), 'x'))
-	if _, err := c.Read(make([]byte, 1)); err != nil {
-		t.Fatal(err)
-	}
-	if h, ok := c.Header(); !ok || h.Command != CommandLocal {
-		t.Fatalf("Header = %+v, %v", h, ok)
-	}
-	if got := c.Peer(); got != tcpPeer(t, client) {
-		t.Errorf("Peer = %v, want the TCP peer %v", got, tcpPeer(t, client))
-	}
-	if got := c.RemoteAddr().String(); got != client.LocalAddr().String() {
-		t.Errorf("RemoteAddr = %s, want %s", got, client.LocalAddr())
+	for name, in := range map[string][]byte{
+		"AF_UNSPEC":        local(),
+		"UNIX with block":  v2(0x20, 0x31, make([]byte, 216)),
+		"UDP with no body": v2(0x20, 0x12, nil),
+	} {
+		t.Run(name, func(t *testing.T) {
+			l := listen(t, ListenerOptions{Clock: clock.Real()})
+			client, c := pair(t, l)
+			write(t, client, append(in, 'x'))
+			b := make([]byte, 1)
+			if _, err := c.Read(b); err != nil || b[0] != 'x' {
+				t.Fatalf("Read = %q, %v; want the byte after the header", b, err)
+			}
+			if h, ok := c.Header(); !ok || h.Command != CommandLocal {
+				t.Fatalf("Header = %+v, %v", h, ok)
+			}
+			if got := c.Peer(); got != tcpPeer(t, client) {
+				t.Errorf("Peer = %v, want the TCP peer %v", got, tcpPeer(t, client))
+			}
+			if got := c.RemoteAddr().String(); got != client.LocalAddr().String() {
+				t.Errorf("RemoteAddr = %s, want %s", got, client.LocalAddr())
+			}
+		})
 	}
 }
 

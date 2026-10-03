@@ -30,6 +30,7 @@ func FuzzProxyV2(f *testing.F) {
 		local(),
 		v2(0x20, 0x00, []byte("junk")),
 		v2(0x20, 0x11, make([]byte, 12)),
+		v2(0x20, 0x31, make([]byte, 216)),
 		v2(0x21, 0x12, make([]byte, 12)),
 		v2(0x21, 0x31, make([]byte, 216)),
 		v2(0x11, 0x11, make([]byte, 12)),

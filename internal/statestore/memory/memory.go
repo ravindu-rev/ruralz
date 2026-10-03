@@ -37,6 +37,7 @@ import (
 	"github.com/ravindu-rev/ruralz/internal/clock"
 	"github.com/ravindu-rev/ruralz/internal/statestore"
 	"github.com/ravindu-rev/ruralz/internal/statestore/keys"
+	"github.com/ravindu-rev/ruralz/internal/telemetry/catalog"
 	"github.com/ravindu-rev/ruralz/internal/telemetry/emit"
 )
 
@@ -334,7 +335,7 @@ func (d *Driver) Consume(ctx context.Context, rb *statestore.RequestBudget, call
 	if skewed >= 0 && d.skewLog.allow(d.node.Now()) {
 		q := &group[skewed].Quota
 		d.logger.WarnContext(ctx, "state store clock skew beyond half a quota window; call failed",
-			"code", statestore.ErrFailed.Code(), "quota", q.Name, "window", q.Window.String())
+			catalog.KeyCode, statestore.ErrFailed.Code(), "quota", q.Name, "window", q.Window.String())
 	}
 	return n
 }
@@ -500,18 +501,19 @@ const (
 	growClearPct  = 2
 	storeSharePct = 2 // of maxmemory per 10 s, divided by N_c
 	maxStoreRate  = 4 << 20
-	// storeNodes is N_c: 1,000 without a published Node count, always in
-	// M1 (spec 08 req 53, spec 05 req 84), on the memory reading too
-	// (spec 08 req 58: the cache rules apply unchanged).
-	storeNodes = 1000
+	// storeNodes is N_c. A memory store has one writer, its own Node, so
+	// N_c = 1 (R-72, overriding spec 08 reqs 53 and 58 and spec 05 req 84
+	// for memory only): at the default 64 MiB that admits 134,217 bytes
+	// per second. redis keeps N_c = N_published, or 1,000 without one.
+	storeNodes = 1
 )
 
 // AdmitStoreBytes applies the Response Cache memory rules (spec 08 req
 // 53): skip above 70% of maxmemory, skip while the store grew by more than
 // 10% of maxmemory between readings until growth falls under 2%, and
 // otherwise allow at most min(2% of maxmemory per 10 s / N_c, 4 MiB per
-// second) bytes between readings. Readings are taken every 10 s, or every
-// 1 s above 50%.
+// second) bytes between readings, with N_c = 1 (R-72). Readings are taken
+// every 10 s, or every 1 s above 50%.
 func (d *Driver) AdmitStoreBytes(_ statestore.CacheKey, n int) bool {
 	now := d.server.Now()
 	a := &d.admit

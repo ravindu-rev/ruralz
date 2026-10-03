@@ -60,9 +60,10 @@ type Options struct {
 	// the body arrived under (07 req 58; 03 req 25; 04 req 47, all
 	// "target"). Because cost grows with density (see CostValue), a budget
 	// of 4 times the raw limit rejects dense bodies well inside that limit:
-	// an array of one-digit numbers fails at about a quarter of it. A caller
-	// that must accept every body its raw limit admits passes
-	// MaxCostPerByte times that limit.
+	// an array of one-digit numbers fails at about a quarter of it.
+	// Request-path callers still pass filter.DecodedLimitFactor (4) times
+	// the raw limit and accept that (architecture R-63); MaxCostPerByte
+	// times the limit would admit every body the raw limit admits.
 	MaxCost int64
 	// AllowDuplicateNames resolves duplicate member names "last wins" (07
 	// req 58; 03 req 25): the member keeps its first position and takes the
