@@ -2,14 +2,14 @@
 title: Traffic Management and Resilience
 status: reviewed
 owner: ruralz-core
-last_updated: 2026-09-25
+last_updated: 2026-10-03
 depends_on:
   - docs/_meta/foundation-pack.md
   - docs/_meta/style-guide.md
   - docs/architecture/01-system-overview.md
   - docs/architecture/02-configuration-model.md
   - docs/engineering/01-tech-stack-and-libraries.md
-adrs: [ADR-0008, ADR-0011, ADR-0014]
+adrs: [ADR-0008, ADR-0014, ADR-0019]
 milestone_tags_used: [M1, M2, M3, M4]
 ---
 
@@ -452,7 +452,7 @@ spec:
   timeout: 3s
 ```
 
-Routing features build on Route matching and composition, all free and Planned (M1) unless noted. A catch-all fallback is a Route matching only `when: "true"`, ranked by [precedence](03-data-plane.md#precedence); header and query routing use `match.headers`, `match.when` over `request.query` or `composition.mode: conditional` with CEL ([ADR-0011](../adr/0011-expressions-and-authorization-engines.md)); wildcard routes use `match.path` `prefix`, `template` or `regex` (wildcard hosts: OQ-data-plane-2); virtual hosts use `match.hosts` with listener `hostnames`. URL rewrite is a composition step `path` or `pathExpression` (plain `upstreams`: OQ-traffic-management-and-resilience-13). Upstream 3xx responses pass through; Route-issued redirects use a `plugin` Policy, Planned (M2), with built-in fields under OQ-traffic-management-and-resilience-13. A service-wide Rate Limit is a `ratelimit` with a constant `config.key`, and a tiered one is one `ratelimit` per Tier guarded by `when`. IP filtering is `authz.ip`, Planned (M1), and GeoIP `authz.geoip`, Planned (M2) ([Security](08-security-and-identity.md)).
+Routing features build on Route matching and composition, all free and Planned (M1) unless noted. A catch-all fallback is a Route matching only `when: "true"`, ranked by [precedence](03-data-plane.md#precedence); header and query routing use `match.headers`, `match.when` over `request.query` or `composition.mode: conditional` with CEL ([ADR-0019](../adr/0019-expressions-authorization-comprehension-stop.md)); wildcard routes use `match.path` `prefix`, `template` or `regex` (wildcard hosts: OQ-data-plane-2); virtual hosts use `match.hosts` with listener `hostnames`. URL rewrite is a composition step `path` or `pathExpression` (plain `upstreams`: OQ-traffic-management-and-resilience-13). Upstream 3xx responses pass through; Route-issued redirects use a `plugin` Policy, Planned (M2), with built-in fields under OQ-traffic-management-and-resilience-13. A service-wide Rate Limit is a `ratelimit` with a constant `config.key`, and a tiered one is one `ratelimit` per Tier guarded by `when`. IP filtering is `authz.ip`, Planned (M1), and GeoIP `authz.geoip`, Planned (M2) ([Security](08-security-and-identity.md)).
 
 ## Overload protection
 

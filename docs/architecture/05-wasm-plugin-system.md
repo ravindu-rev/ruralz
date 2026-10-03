@@ -2,14 +2,14 @@
 title: WASM Plugin System
 status: reviewed
 owner: ruralz-core
-last_updated: 2026-09-25
+last_updated: 2026-10-03
 depends_on:
   - docs/_meta/foundation-pack.md
   - docs/_meta/style-guide.md
   - docs/architecture/01-system-overview.md
   - docs/architecture/02-configuration-model.md
   - docs/engineering/01-tech-stack-and-libraries.md
-adrs: [ADR-0001, ADR-0004, ADR-0005, ADR-0011, ADR-0017]
+adrs: [ADR-0001, ADR-0004, ADR-0005, ADR-0017, ADR-0019]
 milestone_tags_used: [M2, M3, M4, M5]
 ---
 
@@ -37,7 +37,7 @@ Non-goals:
 
 | ID | Goal | Principle |
 |---|---|---|
-| WG-1 | Custom logic in any Phase, including `onChunk`, without Go plugins or Lua ([ADR-0011](../adr/0011-expressions-and-authorization-engines.md)) | P6, P7 |
+| WG-1 | Custom logic in any Phase, including `onChunk`, without Go plugins or Lua ([ADR-0019](../adr/0019-expressions-authorization-comprehension-stop.md)) | P6, P7 |
 | WG-2 | A faulty Plugin fails only its own Policy | P6, P9 |
 | WG-3 | Pure Go host that builds with `CGO_ENABLED=0` ([ADR-0001](../adr/0001-implementation-language-go.md)) | P4 |
 | WG-4 | Deny-by-default Capabilities | P6 |

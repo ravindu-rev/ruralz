@@ -9,7 +9,7 @@ depends_on:
   - docs/architecture/01-system-overview.md
   - docs/architecture/02-configuration-model.md
   - docs/engineering/01-tech-stack-and-libraries.md
-adrs: [ADR-0001, ADR-0002, ADR-0004, ADR-0005, ADR-0007, ADR-0008, ADR-0011, ADR-0014, ADR-0017]
+adrs: [ADR-0001, ADR-0002, ADR-0004, ADR-0005, ADR-0007, ADR-0008, ADR-0014, ADR-0017, ADR-0019]
 milestone_tags_used: [M1, M2, M3, M4, M5]
 ---
 
@@ -17,7 +17,7 @@ milestone_tags_used: [M1, M2, M3, M4, M5]
 
 ## Summary
 
-This document defines how Ruralz protects traffic, identities, secrets and configuration, from the threat model through authorization with CEL, OPA and Cedar to audit events. It owns the `RZ-AUTH` registry, ADR-0011 and ADR-0017. Nothing is implemented yet: every capability is Planned (Mx). Read it before exposing a Node or granting a Plugin a Capability.
+This document defines how Ruralz protects traffic, identities, secrets and configuration, from the threat model through authorization with CEL, OPA and Cedar to audit events. It owns the `RZ-AUTH` registry, ADR-0017 and ADR-0019. Nothing is implemented yet: every capability is Planned (Mx). Read it before exposing a Node or granting a Plugin a Capability.
 
 ## Scope and non-goals
 
@@ -300,15 +300,15 @@ Client messages are generic.
 
 ## Authorization
 
-Authorization runs in Filter class `authz`. Each type's slot defaults to its name, so Policies stack and all must allow; a deny returns 403 and an evaluation error RZ-AUTH-015. [ADR-0011](../adr/0011-expressions-and-authorization-engines.md) fixes CEL inline, OPA and Cedar as pluggable engines, and no Lua.
+Authorization runs in Filter class `authz`. Each type's slot defaults to its name, so Policies stack and all must allow; a deny returns 403, an evaluation error RZ-AUTH-015. [ADR-0019](../adr/0019-expressions-authorization-comprehension-stop.md) fixes inline CEL, pluggable OPA and Cedar engines, and no Lua.
 
 | Engine | When to use | Cost per request | Guardrails | Planned |
 |---|---|---|---|---|
-| CEL, `authz.cel` | Short rules over claims, Consumer, Tier, method and path; the default | Compiled per Revision; under 2 µs at p99 (target) | RZ-CFG-015; runtime `CostLimit` ([source](https://github.com/cel-expr/cel-go/blob/master/cel/options.go)) | Planned (M1) |
+| CEL, `authz.cel` | Short rules over claims, Consumer, Tier, method and path; the default | Compiled per Revision; under 2 µs at p99 (target) | RZ-CFG-015; runtime `CostLimit` ([source](https://github.com/cel-expr/cel-go/blob/master/cel/options.go)), 50 ms comprehension stop (target) | Planned (M1) |
 | OPA (Rego), `authz.opa` | Large or shared data-driven rule sets | `PrepareForEval` per Revision ([source](https://github.com/open-policy-agent/opa/blob/main/v1/rego/rego.go)); under 100 µs at p99 (hypothesis) | Deadline; only allowlisted pure built-ins, so no `http.send`; 16 MiB data per Policy (target) | Planned (M2) |
 | Cedar, `authz.cedar` | Principal, action and resource models with hierarchies | In process; under 100 µs at p99 (hypothesis) | 1,000 policies and 10,000 entities per Policy, ancestor depth at most 8 (target), transitive closure precomputed per Revision; no schema validator in cedar-go ([source](https://github.com/cedar-policy/cedar-go/blob/main/README.md)) | Planned (M2) |
 
-Identical engines compile once, by digest. A Revision-wide ceiling of 64 MiB of compiled engine memory and 50,000 entities (target), reported per snapshot, counts toward snapshot size, so peak engine memory is (K + 2) = 4 times it, 256 MiB (hypothesis) ([System overview](01-system-overview.md#compile-before-swap)); compilation counts against the 2 s compile time budget. `ruralz bundle validate` checks the ceiling (code: OQ-security-and-identity-30), or, with OCI delivery (OQ-security-and-identity-13), Ruralz Control ingest and Node activation, NACKing a violation. CEL SHOULD come first; cedar-go has had no commits since 2026-06-01 ([source](https://github.com/cedar-policy/cedar-go)), so OPA is the fallback.
+Identical engines compile once, by digest. A Revision-wide ceiling of 64 MiB of compiled engine memory and 50,000 entities (target), reported per snapshot, counts toward snapshot size, so peak engine memory is (K + 2) = 4 times it, 256 MiB (hypothesis) ([System overview](01-system-overview.md#compile-before-swap)); compilation counts against the 2 s compile time budget. `ruralz bundle validate` checks the ceiling (code: OQ-security-and-identity-30), or, with OCI delivery (OQ-security-and-identity-13), Ruralz Control ingest and Node activation, NACKing violations. CEL SHOULD come first; cedar-go is idle since 2026-06-01 ([source](https://github.com/cedar-policy/cedar-go)), so OPA is the fallback.
 
 ```yaml
 apiVersion: ruralz/v1alpha1
@@ -322,7 +322,7 @@ spec:
 
 ### OPA and Cedar schemas
 
-This document authors both engine schemas ([ADR-0011](../adr/0011-expressions-and-authorization-engines.md)), Planned (M2) and proposed for Configuration model registration with OQ-security-and-identity-13 (c); until then, no example uses them.
+This document authors both engine schemas ([ADR-0019](../adr/0019-expressions-authorization-comprehension-stop.md)), Planned (M2) and proposed for Configuration model registration with OQ-security-and-identity-13 (c); until then, no example uses them.
 
 | Type | Field | Shape and rule |
 |---|---|---|

@@ -6,7 +6,7 @@ last_updated: 2026-10-03
 depends_on:
   - docs/_meta/foundation-pack.md
   - docs/_meta/style-guide.md
-adrs: [ADR-0001, ADR-0003, ADR-0004, ADR-0005, ADR-0006, ADR-0007, ADR-0008, ADR-0009, ADR-0010, ADR-0014, ADR-0015, ADR-0016, ADR-0017]
+adrs: [ADR-0001, ADR-0003, ADR-0004, ADR-0005, ADR-0006, ADR-0007, ADR-0008, ADR-0009, ADR-0014, ADR-0015, ADR-0016, ADR-0017, ADR-0018]
 milestone_tags_used: [M1, M2, M3, M4, M5]
 ---
 
@@ -414,7 +414,7 @@ The Helm chart and CRDs are Planned (M2) ([ADR-0016](../adr/0016-kubernetes-helm
 
 ### System-wide rules
 
-- Telemetry is OpenTelemetry-first with a `slog` bridge ([ADR-0010](../adr/0010-telemetry-opentelemetry-first.md)); metrics are named `ruralz_<component>_<name>_<unit>` ([Observability](10-observability.md)).
+- Telemetry is OpenTelemetry-first with a `slog` bridge ([ADR-0018](../adr/0018-telemetry-opentelemetry-prometheus-exporter.md)); metrics are named `ruralz_<component>_<name>_<unit>` ([Observability](10-observability.md)).
 - Errors are `RZ-<AREA>-<NNN>`, with areas and the selection rule in pack 8.6; [Data plane](03-data-plane.md) owns the response format.
 - Security types (`auth.*`, `authz.*`, auth or authz `plugin` Policies) are `failureMode: closed` only; `open` there is `RZ-CFG-029` (pack 8.10).
 

@@ -2,7 +2,7 @@
 title: CLI and API Surface
 status: reviewed
 owner: ruralz-core
-last_updated: 2026-09-26
+last_updated: 2026-10-03
 depends_on:
   - docs/_meta/foundation-pack.md
   - docs/_meta/style-guide.md
@@ -10,7 +10,7 @@ depends_on:
   - docs/architecture/03-data-plane.md
   - docs/architecture/04-control-plane-and-gitops.md
   - docs/architecture/05-wasm-plugin-system.md
-adrs: [ADR-0003, ADR-0006, ADR-0007, ADR-0015, ADR-0017]
+adrs: [ADR-0003, ADR-0006, ADR-0007, ADR-0015, ADR-0017, ADR-0018]
 milestone_tags_used: [M1, M2, M3, M4, M5]
 ---
 
@@ -320,7 +320,7 @@ ruralz rollout status --control https://control.shop.example:8090 --token-file ~
 |---|---|---|---|---|---|
 | `/healthz` | GET | 200 while the process responds | MAY be open | Liveness probes | Planned (M1) |
 | `/readyz` | GET | 200 when ready, else 503 with reasons; never fails for a lost Control Stream | MAY be open | Probes, local `ruralzd` launcher | Planned (M1) |
-| `/metrics` | GET | `ruralz_<component>_<name>_<unit>` metrics (exporter: OQ-tech-stack-and-libraries-16) | Metrics token, operator token or client certificate | Scrapers | Planned (M1) |
+| `/metrics` | GET | `ruralz_<component>_<name>_<unit>` metrics (exporter: [ADR-0018](../adr/0018-telemetry-opentelemetry-prometheus-exporter.md)) | Metrics token, operator token or client certificate | Scrapers | Planned (M1) |
 | `/debug/*`: `/debug/pprof/` | GET | Go runtime profiles; mutex and block only during a `?seconds=` request | Operator token or client certificate | Profiling | Planned (M1) |
 | `/debug/snapshots` | GET | Snapshots with digests and pin counts | Same | Hot Reload debugging | Planned (M1) |
 | `/debug/upstreams` | GET | Endpoint sets, health, ejections and breaker states | Same | Incident response | Planned (M1) |

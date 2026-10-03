@@ -1,7 +1,7 @@
 ---
 id: ADR-0010
 title: "Telemetry: OpenTelemetry-first with an slog bridge for logs"
-status: accepted
+status: superseded-by ADR-0018
 date: 2026-09-25
 deciders: [ruralz-core]
 related:

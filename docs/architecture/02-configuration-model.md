@@ -6,7 +6,7 @@ last_updated: 2026-10-03
 depends_on:
   - docs/_meta/foundation-pack.md
   - docs/_meta/style-guide.md
-adrs: [ADR-0003, ADR-0005, ADR-0007, ADR-0008, ADR-0011, ADR-0014, ADR-0016, ADR-0017]
+adrs: [ADR-0003, ADR-0005, ADR-0007, ADR-0008, ADR-0011, ADR-0014, ADR-0016, ADR-0017, ADR-0019]
 milestone_tags_used: [M0, M1, M2, M3, M4, M5]
 ---
 
@@ -730,7 +730,7 @@ Client-leg Policies run once per request, upstream-leg Policies once per leg. On
 
 ## CEL expressions and allowed places
 
-Inline expressions use CEL via `cel-go` ([ADR-0011](../adr/0011-expressions-and-authorization-engines.md)); there is no Lua or template language, and OPA and Cedar sit behind `authz.opa` and `authz.cedar`. Use cases that would need a scripting language go to CEL or a WASM Plugin.
+Inline expressions use CEL via `cel-go` ([ADR-0019](../adr/0019-expressions-authorization-comprehension-stop.md)); there is no Lua or template language, and OPA and Cedar sit behind `authz.opa` and `authz.cedar`. Use cases that would need a scripting language go to CEL or a WASM Plugin.
 
 ### Allowed places
 
@@ -777,9 +777,9 @@ CEL is allowed only in these fields, each marked `x-ruralz-cel`; elsewhere CEL-l
 
 Expressions are parsed, type-checked against their place's environment and cost-estimated at validation; a syntax, type or unavailable-variable error (such as `response` in a Route match) is RZ-CFG-014. The standard library plus the strings and encoders extensions are enabled, with no side effects, I/O or randomness.
 
-Cost has a static bound and a runtime bound. `cel-go` treats `dyn` values and unsized strings, lists and maps as unbounded, so Ruralz supplies a size estimator: every string reached from a variable, typed or `dyn`, counts at a nominal 256 bytes and every list or map at 32 entries (target). RZ-CFG-015 rejects an expression whose estimate at nominal sizes exceeds 10,000 cost units (target), catching nested comprehensions. Cost that grows with input size is bounded at runtime, and every input is capped by a Gateway limit ([Body buffering and limits](#body-buffering-and-limits)). Evaluation stops with a runtime error at 1,000,000 units through the `cel-go` runtime cost limit (target).
+Cost has a static bound and a runtime bound. `cel-go` treats `dyn` values and unsized strings, lists and maps as unbounded, so Ruralz supplies a size estimator: every string reached from a variable, typed or `dyn`, counts at a nominal 256 bytes and every list or map at 32 entries (target). RZ-CFG-015 rejects an expression whose estimate at nominal sizes exceeds 10,000 cost units (target), catching nested comprehensions. Cost growing with input size is bounded at runtime, and a Gateway limit caps every input ([Body buffering and limits](#body-buffering-and-limits)). Evaluation stops with a runtime error at 1,000,000 units through the `cel-go` cost limit (target).
 
-As `cel-go` cost tracking slows with the square of a comprehension's length (hypothesis), an expression that can reach the limit and holds a comprehension also stops at 50 ms or the request deadline, whichever is first (target), via `ContextEval` interrupt checks ([source](https://github.com/cel-expr/cel-go/blob/master/cel/program.go)), tightening [ADR-0011](../adr/0011-expressions-and-authorization-engines.md)'s request-deadline bound (OQ-configuration-model-21); either stop is a runtime error.
+As `cel-go` cost tracking slows with the square of a comprehension's length (hypothesis), an expression that can reach the limit and holds a comprehension also stops at 50 ms or the request deadline, whichever is first (target), via `ContextEval` interrupt checks ([source](https://github.com/cel-expr/cel-go/blob/master/cel/program.go)), until the tracking is linear ([ADR-0019](../adr/0019-expressions-authorization-comprehension-stop.md)); either stop is a runtime error.
 
 The example Bundle, including the `split` and `exists` rule in `authz-orders`, is in the golden corpus and MUST pass RZ-CFG-015. Programs compile once per Revision; typical match and key expressions evaluate in under 2 µs at p99 (target).
 
@@ -1586,7 +1586,7 @@ ruralz bundle push $CONTROL --env staging ./shop-bundle
 | OQ-configuration-model-18 | Which nesting-depth default and peak loader memory (hypothesis) hold for the 64 MiB source limit? | (a) 64 levels, peak memory measured by the hostile-input fixtures (chosen, 2026-09-26); (b) 32 levels; (c) 256 levels | configuration-model | No (answered) |
 | OQ-configuration-model-19 | Which feature-authored `config` fields are registered next, and which `config` schemas stay open to unknown members meanwhile? | (a) Register each type's fields as its feature document authored them, then close its `config` (chosen, 2026-09-26: M1 registers and closes `validation.json-schema` `config.schema` and `headers` `add[]` and `remove[]`; the rest, listed under [Registered from feature documents](#registered-from-feature-documents), register with their features); (b) Keep those configs open until M2 | configuration-model | No (answered) |
 | OQ-configuration-model-20 | Should the authoring view also accept a `${VAR}` expression in string fields constrained by an enum or a pattern, such as `failureMode`, durations and `tls.minVersion`? | (a) Add the alternative to every constrained substitutable string (chosen, 2026-10-03); (b) Keep non-string scalars only | configuration-model | No (answered) |
-| OQ-configuration-model-21 | Should ADR-0011 record the 50 ms (target) comprehension stop of [Limits](#limits), which tightens its request-deadline bound? | (a) Amend ADR-0011 (current); (b) Keep the request deadline alone | ruralz-core | No |
+| OQ-configuration-model-21 | Should ADR-0011 record the 50 ms (target) comprehension stop of [Limits](#limits), which tightens its request-deadline bound? | (a) Supersede ADR-0011 (chosen, 2026-10-03: [ADR-0019](../adr/0019-expressions-authorization-comprehension-stop.md)); (b) Keep the request deadline alone | ruralz-core | No (answered) |
 
 Answered and closed here: in [Registered from feature documents](#registered-from-feature-documents), option (a) each, OQ-security-and-identity-2, -3 and -18 and OQ-traffic-management-and-resilience-1, plus Data plane's Transform Policies submission; in [Gateway](#gateway), OQ-security-and-identity-6 (c) and OQ-scalability-and-distributed-state-2 (a); in [Route](#route), OQ-data-plane-2 (a). Release answers OQ-configuration-model-6 and CLI and API surface OQ-configuration-model-7. Still pending registration, so their fields do not exist yet: OQ-security-and-identity-12 and -13, Planned (M2), whose options are not yet chosen.
 

@@ -1,7 +1,7 @@
 ---
 id: ADR-0011
 title: "Expressions and authorization: CEL inline, OPA and Cedar engines, no Lua"
-status: accepted
+status: superseded-by ADR-0019
 date: 2026-09-25
 deciders: [ruralz-core]
 related:

@@ -53,7 +53,7 @@ This file is **binding** for every document under `docs/`. Writers and reviewers
 | Trace spans | `ruralz.filter.<name>`, `ruralz.upstream.<name>`, `ruralz.route.match` | None | None |
 | Error codes | `RZ-<AREA>-<NNN>`; areas `CFG`, `RT`, `UP`, `AUTH`, `RL`, `PLG`, `AI`, `CP`, `STS`, with meanings and registry owners in section 8.6 | None | None |
 | Principles | `P1`..`P10` (defined once in `docs/vision/01-vision-and-positioning.md`) | None | None |
-| ADRs | `ADR-0001`..`ADR-0017`, files `docs/adr/NNNN-<slug>.md` | None | None |
+| ADRs | `ADR-0001`..`ADR-0019`, files `docs/adr/NNNN-<slug>.md` | None | None |
 | Open questions | `OQ-<docslug>-<n>` (e.g., `OQ-data-plane-3`) | None | "TBD", "TODO" |
 | Milestones | **M0** Foundations · **M1** Core gateway · **M2** WASM + Control/GitOps · **M3** AI gateway + gRPC/GraphQL/WS/SSE + HTTP/3 · **M4** Event protocols + multi-region + bench suite · **M5** Enterprise hardening (SSO/SAML for Console, FIPS build, monetization hooks) | tag features `Planned (Mx)`; features whose design is complete in these docs are still tagged `Planned (Mx)` until implemented | "v1", "v2", "phase 2", "GA" as a milestone |
 
@@ -135,12 +135,12 @@ Rows marked **Corrected at freeze** were proven wrong in the previous pack by th
 | Control Stream | Own gRPC snapshot+delta protocol with xDS-style ACK/NACK, built with `connectrpc.com/connect` in gRPC mode on both ends; protos gated by `buf breaking`; NOT xDS, NOT go-control-plane | ADR-0007 |
 | Rate limiting | Local token bucket per Node at a per-Node ceiling + GCRA in the State Store (single Lua EVAL); fail-open by default with over-admission bounded by N × per-Node ceiling, configurable per Policy (section 8.8) | ADR-0008 |
 | HTTP stack | `net/http` (HTTP/1.1, HTTP/2, h2c via `Server.Protocols`) + `quic-go` for HTTP/3 (Planned (M3)); `golang.org/x/net/http2` only for non-deprecated low-level APIs, because its `Server` and `Transport` are deprecated in x/net v0.59.0; no fasthttp. **Corrected at freeze** | ADR-0009 |
-| Telemetry | OpenTelemetry-first (traces, metrics); `slog` bridge (`otelslog`) for logs until the OTel Go Logs API is stable | ADR-0010 |
-| Expressions / authz | CEL via cel-go, import path `cel.dev/cel-go` (`google/cel-go` is a read-only alias), inline; OPA (`opa/v1/rego`) and Cedar (`cedar-go`) as pluggable authz engines; no Lua. **Corrected at freeze** | ADR-0011 |
+| Telemetry | OpenTelemetry-first (traces, metrics); `slog` bridge (`otelslog`) for logs, over a pre-stable Logs SDK until OTel Go v1.47.0; `/metrics` through the OpenTelemetry Prometheus exporter on a private `client_golang` registry, fed by an external producer of Ruralz-owned aggregates; only `internal/telemetry` (and the `internal/testkit/otlpsink` test collector) imports OpenTelemetry | ADR-0018 |
+| Expressions / authz | CEL via cel-go, import path `cel.dev/cel-go` (`google/cel-go` is a read-only alias), inline, with a 50 ms (target) stop for comprehensions that can reach the runtime cost limit; OPA (`opa/v1/rego`) and Cedar (`cedar-go`) as pluggable authz engines; no Lua. **Corrected at freeze** | ADR-0019 |
 | GraphQL | `github.com/wundergraph/graphql-go-tools/v2` engine (federation versions 1 and 2, subscriptions) | ADR-0012 |
 | Messaging | `twmb/franz-go` (Kafka), `nats.go/jetstream`, `eclipse-paho/paho.golang` (MQTT 5 client) + `mochi-mqtt` embedded broker mode `Planned (M4)` | ADR-0013 |
 | AI surface | OpenAI-compatible façade **and** native passthrough (Anthropic Messages, Bedrock, Gemini); provider-reported usage is authoritative for billing; tokenizer counts only for pre-admission estimates and the per-request streaming guard; Token Budget reservation and settlement per section 8.9 | ADR-0014 |
-| Upgrades | `SO_REUSEPORT` + graceful Drain + readiness gating (the new process reports ready over a Unix socket under `${RURALZ_DATA_DIR}`); HTTP/2 GOAWAY; `SO_ATTACH_REUSEPORT_CBPF` steering through `golang.org/x/sys/unix` empties the closing listener's accept queue (`net.ipv4.tcp_migrate_req` is an alternative); in-flight QUIC connections on UDP 8443 are lost and reconnect; no listener socket passing between processes | ADR-0015 |
+| Upgrades | `SO_REUSEPORT` + graceful Drain + readiness gating (the new process reports ready over a Unix socket under `${RURALZ_DATA_DIR}`); HTTP/2 GOAWAY; `SO_ATTACH_REUSEPORT_CBPF` steering through `golang.org/x/sys/unix` empties the closing listener's accept queue; hosts SHOULD also set `net.ipv4.tcp_migrate_req`, which complements steering, and the old process accepts through a 3 s linger (target); in-flight QUIC connections on UDP 8443 are lost and reconnect; no listener socket passing between processes | ADR-0015 |
 | Kubernetes | Helm chart + CRDs mirroring the kinds `Planned (M2)`, API group `ruralz.io` (`ruralz.io/v1alpha1`, translated to the Bundle `ruralz/v1alpha1` by changing only the group); only Ruralz Control watches CRDs; Gateway API conformance deferred | ADR-0016 (proposed) |
 | Artifact signing | Digest verification always; Ruralz Control signs Revisions; CI and Plugin publishers sign with Sigstore; Nodes verify by default (section 8.14) | ADR-0017 |
 | gRPC ingress / upstream | `connectrpc.com/connect` (gRPC, gRPC-Web, Connect on `net/http`); `grpc-go` for upstream clients | (tech stack doc) |
@@ -151,7 +151,7 @@ Rows marked **Corrected at freeze** were proven wrong in the previous pack by th
 | Semantic cache | Redis 8 Vector Sets or valkey-search 1.2 on the same State Store deployment through dedicated connections, never the auto-pipelined rate-limit and quota connections. Servers without either (Dragonfly, Valkey below 9.0.1) cannot serve it: the Policy then behaves as a State Store failure under its `failureMode` (default `open`, cache bypassed) and the Node reports a degraded state. **Corrected at freeze** | (AI doc) |
 | YAML 1.2 parser | `github.com/goccy/go-yaml` (MIT): the only researched candidate that claims YAML 1.2-only scalar resolution and rejects duplicate keys by default; the restricted profile's rejection of anchors, aliases, merge keys and custom tags is Ruralz code over its AST (`docs/_meta/research/tooling-and-licenses.md` section 6). **Selected at freeze** | (tech stack doc; ADR-0003) |
 | JSON Schema validator | `github.com/santhosh-tekuri/jsonschema/v6` (Apache-2.0): claims draft 2020-12 test-suite compliance, offers a `Vocabulary` API for the `x-ruralz-*` keywords and instance locations for the source map, and builds on the Go 1.26 floor (`docs/_meta/research/tooling-and-licenses.md` section 7). **Selected at freeze** | (tech stack doc; ADR-0003) |
-| Pending selections | Protobuf runtime, ULID, `/metrics` exporter, SigV4 signer, CLI framework, SAML, `postgres` driver (OQ-tech-stack-and-libraries-14 to -20; candidate licenses in `docs/_meta/research/tooling-and-licenses.md` section 8) and a MaxMind database reader for `authz.geoip` (not yet researched). A design MAY assume the capability but MUST NOT name a library until the tech stack document adds a catalog row backed by research | (tech stack doc) |
+| Pending selections | Protobuf runtime, ULID, SigV4 signer, CLI framework, SAML, `postgres` driver (OQ-tech-stack-and-libraries-14, -15 and -17 to -20; candidate licenses in `docs/_meta/research/tooling-and-licenses.md` section 8) and a MaxMind database reader for `authz.geoip` (not yet researched). A design MAY assume the capability but MUST NOT name a library until the tech stack document adds a catalog row backed by research | (tech stack doc) |
 
 Other defaults: State Store drivers are `memory` and `redis` only; another driver needs an ADR. Console is a React/TypeScript SPA embedded in `ruralz-control`. No native Kafka/MQTT wire-protocol proxying before M4. The managed cloud is described only in the vision document's Managed cloud section and one hybrid deployment topology; docs MUST NOT describe cloud-only hooks.
 
@@ -484,6 +484,7 @@ IP filtering and GeoIP (OQ-vision-and-positioning-10) are built-in types. `authz
 - History: the previous version was authored on 2026-09-23, before the research files existed. This version was frozen on 2026-09-23 after the System overview and Configuration model judge panels and the Vision and Tech stack reviews; it decides 114 amendment proposals (61 distinct), and its research actions and two library selections were completed against `docs/_meta/research/tooling-and-licenses.md` and the corrected section 11 of `docs/_meta/research/licensing-landscape.md`. All Wave 2 and Wave 3 documents are written against it, and a later step conforms the four foundation documents to it.
 - After the freeze, changes require an ADR or an entry in the owning document's Open questions.
 - 2026-09-26: the M1 architecture adopted the options in the amendments table below; each amended passage names its question, and the owning documents close the rows.
+- 2026-10-03: ADR-0018 supersedes ADR-0010 and ADR-0019 supersedes ADR-0011, and the Upgrades row adopts OQ-zero-downtime-upgrades-and-hot-reload-12 (a); the second amendments table below lists these changes.
 
 Open questions this freeze decides; owners close them during conformance:
 
@@ -518,6 +519,14 @@ Amendments adopted on 2026-09-26 for M1 through the owning documents' Open quest
 | OQ-security-and-identity-22 | (a) `RURALZ_SECRET_ROOT`, the `RURALZ_SECRET_` prefix, `RURALZ_FETCH_ALLOW`, the `security` impact class, secret-to-destination binding (RZ-CFG-041; `AIProvider` `credentials.apiKey` to its `baseUrl` origin, Planned (M3)) and the State Store entry MAC key `RURALZ_STATE_STORE_MAC_KEY_FILE` | 2, 5 |
 | OQ-configuration-model-8 | (a) As registered: `quota` open, `ai.token-budget` closed | 8.9, 10 |
 | OQ-cli-and-api-surface-10 | (a) The lock holder writes `holder.json` (`ruralz.holder.v1`) beside the `lock` | 8.11, 11 |
+
+Amendments adopted on 2026-10-03:
+
+| Open question | Adopted option | Sections amended |
+|---|---|---|
+| OQ-observability-16 | (a) An external producer exports Ruralz-owned aggregates; ADR-0018 supersedes ADR-0010 and also records OQ-tech-stack-and-libraries-16 (a), the OpenTelemetry Prometheus exporter, and the confinement of OpenTelemetry imports | 2, 7 (Telemetry, Pending selections) |
+| OQ-configuration-model-21 | (a) ADR-0019 supersedes ADR-0011, adding the 50 ms (target) comprehension stop | 2, 7 (Expressions / authz) |
+| OQ-zero-downtime-upgrades-and-hot-reload-12 | (a) Hosts SHOULD also set `net.ipv4.tcp_migrate_req`, which complements steering; the old process accepts through a 3 s linger (target); ADR-0015 is unchanged | 7 (Upgrades) |
 
 Research actions, required before the dependent work and not waived for CI-only tooling. Status as of 2026-09-23:
 

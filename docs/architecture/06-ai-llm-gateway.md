@@ -2,14 +2,14 @@
 title: AI/LLM Gateway
 status: reviewed
 owner: ruralz-core
-last_updated: 2026-09-25
+last_updated: 2026-10-03
 depends_on:
   - docs/_meta/foundation-pack.md
   - docs/_meta/style-guide.md
   - docs/architecture/01-system-overview.md
   - docs/architecture/02-configuration-model.md
   - docs/engineering/01-tech-stack-and-libraries.md
-adrs: [ADR-0005, ADR-0008, ADR-0010, ADR-0011, ADR-0014]
+adrs: [ADR-0005, ADR-0008, ADR-0014, ADR-0018, ADR-0019]
 milestone_tags_used: [M1, M3, M4, M5]
 ---
 
@@ -48,7 +48,7 @@ Per P8 ([Principles](../vision/01-vision-and-positioning.md#principles)), AI tra
 | External guardrail detectors | Remote calls | Not planned: waits for OQ-wasm-plugin-system-5 option (b) |
 | MCP gateway and MCP Server | Routes, Policies; proposed `ai.mcp` (OQ-ai-llm-gateway-10) | Planned (M3) |
 | A2A-aware gateway | Routes, Policies | Planned (M5) |
-| `gen_ai` telemetry, AI metrics, data residency routing | OpenTelemetry ([ADR-0010](../adr/0010-telemetry-opentelemetry-first.md)); `region`, candidate `when` | Planned (M3) |
+| `gen_ai` telemetry, AI metrics, data residency routing | OpenTelemetry ([ADR-0018](../adr/0018-telemetry-opentelemetry-prometheus-exporter.md)); `region`, candidate `when` | Planned (M3) |
 
 ## Unified API
 
@@ -193,7 +193,7 @@ Each row allows the listed operations and query parameters, with fixtures for ca
 
 Model routing runs in `onRoute`. Body-dependent criteria choose only among the `AIModel`'s candidates, never another Route (pack section 4):
 
-1. Evaluate each candidate's `when` (CEL over base variables and `ai`; [ADR-0011](../adr/0011-expressions-and-authorization-engines.md)); a runtime error skips it.
+1. Evaluate each candidate's `when` (CEL over base variables and `ai`; [ADR-0019](../adr/0019-expressions-authorization-comprehension-stop.md)); a runtime error skips it.
 2. Order eligible candidates by `strategy`, skipping open breakers and cooling candidates, and attempt the first.
 
 | `strategy` | Order of attempts | Signal |
@@ -578,7 +578,7 @@ sequenceDiagram
 
 ## AI observability
 
-Telemetry is OpenTelemetry-first ([ADR-0010](../adr/0010-telemetry-opentelemetry-first.md)); each attempt is a `ruralz.upstream.<name>` span with `gen_ai.provider.name` and `gen_ai.usage.*` attributes ([source](https://github.com/open-telemetry/semantic-conventions-genai/blob/main/docs/gen-ai/gen-ai-spans.md)); the server span carries the virtual model and fallback chain; content attributes such as `gen_ai.input.messages` are off by default. They have no tagged release ([source](https://github.com/open-telemetry/semantic-conventions-genai)), so each release pins a commit (OQ-ai-llm-gateway-11) and `ruralz_ai_*` metrics are the stable contract.
+Telemetry is OpenTelemetry-first ([ADR-0018](../adr/0018-telemetry-opentelemetry-prometheus-exporter.md)); each attempt is a `ruralz.upstream.<name>` span with `gen_ai.provider.name` and `gen_ai.usage.*` attributes ([source](https://github.com/open-telemetry/semantic-conventions-genai/blob/main/docs/gen-ai/gen-ai-spans.md)); the server span carries the virtual model and fallback chain; content attributes such as `gen_ai.input.messages` are off by default. They have no tagged release ([source](https://github.com/open-telemetry/semantic-conventions-genai)), so each release pins a commit (OQ-ai-llm-gateway-11) and `ruralz_ai_*` metrics are the stable contract.
 
 [Observability](10-observability.md#ai-metrics) owns AI metric names, types and labels; model labels are `aimodel`, `provider` and `model`. New proposals: `ruralz_ai_abandoned_attempts_total` and `ruralz_ai_failed_attempts_total` (Counter; `provider`, `model`), `ruralz_ai_semantic_cache_store_skipped_total` (Counter; `route`, `reason`), and `reason` values `abandoned`, `error_status` and `oversized` on `ruralz_ai_usage_missing_total`.
 

@@ -9,7 +9,7 @@ depends_on:
   - docs/architecture/01-system-overview.md
   - docs/architecture/02-configuration-model.md
   - docs/engineering/01-tech-stack-and-libraries.md
-adrs: [ADR-0001, ADR-0004, ADR-0005, ADR-0007, ADR-0008, ADR-0009, ADR-0010, ADR-0011, ADR-0014, ADR-0015, ADR-0017]
+adrs: [ADR-0001, ADR-0004, ADR-0005, ADR-0007, ADR-0008, ADR-0009, ADR-0014, ADR-0015, ADR-0017, ADR-0018, ADR-0019]
 milestone_tags_used: [M1, M2, M3, M4, M5]
 ---
 
@@ -178,7 +178,7 @@ The config loader compiles one Router per listener into the snapshot:
 
 1. **Host tables.** An exact-host hash map (lowercased, port stripped), a wildcard table of `*.` suffixes by length, and an any-host list. A `match.hosts` entry holds at most one leading `*.` label and no other `*`, else RZ-CFG-005 (OQ-data-plane-2 (a)); `*.` matches one or more leading labels, never the bare suffix.
 2. **Path index per host entry.** A segment trie for `exact` and `template`, `prefix` on segment boundaries, and `regex` last, with the standard `regexp` package.
-3. **Candidate filters.** `methods`, `headers`, `grpc` (exact `/service/method`, or a `/service/` prefix without `method`) and the compiled `when` ([ADR-0011](../adr/0011-expressions-and-authorization-engines.md)).
+3. **Candidate filters.** `methods`, `headers`, `grpc` (exact `/service/method`, or a `/service/` prefix without `method`) and the compiled `when` ([ADR-0019](../adr/0019-expressions-authorization-comprehension-stop.md)).
 
 Paths are normalized first, from the escaped target, for the Router, CEL, `authz.*`, logs, `/tap` and the forwarded request. `%00`, a raw or encoded backslash, another control byte or an invalid escape is 400 `RZ-RT-017` (OQ-security-and-identity-21 (a)); otherwise unreserved escapes are decoded and dot segments removed (RFC 3986), clamping at `/`, and `%2F` never splits a segment. Hosts are case-insensitive, paths case-sensitive; repeated and trailing slashes are kept, significant for `exact` and `template`.
 
@@ -488,7 +488,7 @@ The admin listener binds `Gateway.spec.admin.port`, default 9901, on all interfa
 |---|---|---|---|---|---|
 | `/healthz` | GET | 200 `{"status":"ok"}` while the process responds | MAY be open | Liveness probes | Planned (M1) |
 | `/readyz` | GET | 200 only with an active validated Revision, every `secretRef` resolved, listeners bound and no Drain, else 503; never fails for a lost Control Stream | MAY be open | Readiness probes | Planned (M1) |
-| `/metrics` | GET | `ruralz_<component>_<name>_<unit>` metrics (exporter: OQ-tech-stack-and-libraries-16) | Metrics token, operator token or client certificate | Scrapers | Planned (M1) |
+| `/metrics` | GET | `ruralz_<component>_<name>_<unit>` metrics (exporter: [ADR-0018](../adr/0018-telemetry-opentelemetry-prometheus-exporter.md)) | Metrics token, operator token or client certificate | Scrapers | Planned (M1) |
 | `/debug/*`: `/debug/pprof/` | GET | Go runtime profiles, including the goroutine leak profile, GA in Go 1.27 ([source](https://go.dev/doc/go1.27)); mutex and block profiling only during a `?seconds=` request | Operator token or client certificate | Profiling | Planned (M1) |
 | `/debug/snapshots` | GET | Active, retired, closing and ending snapshots with digests and pin counts | Same | Hot Reload debugging | Planned (M1) |
 | `/debug/upstreams` | GET | Endpoint sets, health, ejections and breaker states | Same | Incident response | Planned (M1) |
@@ -528,7 +528,7 @@ A `plugin` Policy with another `filterClass` takes that class's position and row
 
 ### Error response format
 
-This document owns the error response format (pack 8.6): an RFC 9457 problem document (`application/problem+json`) with extension members `code` and `requestId`, the request's OpenTelemetry trace ID ([ADR-0010](../adr/0010-telemetry-opentelemetry-first.md)).
+This document owns the error response format (pack 8.6): an RFC 9457 problem document (`application/problem+json`) with extension members `code` and `requestId`, the request's OpenTelemetry trace ID ([ADR-0018](../adr/0018-telemetry-opentelemetry-prometheus-exporter.md)).
 
 ```json
 {"title": "No matching Route", "status": 404, "code": "RZ-RT-001", "requestId": "4bf92f3577b34da6a3ce929d0e0e4736"}

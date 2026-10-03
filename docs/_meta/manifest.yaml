@@ -408,7 +408,7 @@ docs:
     H3 that links at least four documents in reading order.
   - Document status is a table listing every document with its status from front matter (draft, reviewed, approved
     or approved-with-escalations).
-  - ADR index lists all 17 ADRs with ID, title, status and owning document, and links docs/adr/README.md.
+  - ADR index lists all 19 ADRs with ID, title, status and owning document, and links docs/adr/README.md.
   - Conventions summarizes the style guide rules readers need (milestone tags, (target) and (hypothesis) tags, Open
     question IDs, canonical names) and links docs/_meta/style-guide.md and docs/glossary.md.
   machine_checks:
@@ -427,7 +427,7 @@ docs:
     section: Document status
   - kind: min_table_rows
     table_heading: ADR index
-    value: 17
+    value: 19
   - kind: links_to
     value:
     - docs/adr/README.md
@@ -454,6 +454,8 @@ docs:
   - ADR-0015
   - ADR-0016
   - ADR-0017
+  - ADR-0018
+  - ADR-0019
   lenses:
   - L2
   - L3
@@ -572,6 +574,7 @@ docs:
   - State Store
   adrs:
   - ADR-0002
+  - ADR-0019
   lenses:
   - L1
   - L2
@@ -689,6 +692,7 @@ docs:
   - ADR-0009
   - ADR-0010
   - ADR-0014
+  - ADR-0018
   lenses:
   - L1
   - L2
@@ -784,6 +788,7 @@ docs:
   - ADR-0011
   - ADR-0014
   - ADR-0016
+  - ADR-0019
   lenses:
   - L1
   - L2
@@ -882,6 +887,8 @@ docs:
   - ADR-0012
   - ADR-0013
   - ADR-0014
+  - ADR-0018
+  - ADR-0019
   lenses:
   - L1
   - L2
@@ -987,6 +994,8 @@ docs:
   - ADR-0009
   - ADR-0010
   - ADR-0015
+  - ADR-0018
+  - ADR-0019
   lenses:
   - L1
   - L2
@@ -1176,6 +1185,7 @@ docs:
   - ADR-0001
   - ADR-0004
   - ADR-0005
+  - ADR-0019
   lenses:
   - L1
   - L2
@@ -1279,6 +1289,8 @@ docs:
   - ADR-0008
   - ADR-0010
   - ADR-0014
+  - ADR-0018
+  - ADR-0019
   lenses:
   - L1
   - L2
@@ -1419,7 +1431,7 @@ docs:
     auth, API keys, multiple identity providers per Route, NTLM, GCP auth, AWS SigV4) is mapped to a Ruralz mechanism
     with a milestone, or marked Not planned with a reason.
   - Authorization contains a guidance table comparing CEL, OPA (Rego) and Cedar (when to use, cost, milestone),
-    consistent with ADR-0011.
+    consistent with ADR-0019.
   - The FIPS build statement (GOFIPS140) is consistent with docs/engineering/01-tech-stack-and-libraries.md.
   - Revocation states a propagation-time target tagged (target).
   - Compliance contains an audit event catalog with at least 15 events.
@@ -1465,6 +1477,7 @@ docs:
   - ADR-0007
   - ADR-0011
   - ADR-0017
+  - ADR-0019
   lenses:
   - L1
   - L2
@@ -1548,6 +1561,7 @@ docs:
   adrs:
   - ADR-0008
   - ADR-0011
+  - ADR-0019
   lenses:
   - L1
   - L2
@@ -1626,6 +1640,7 @@ docs:
   adrs:
   - ADR-0010
   - ADR-0014
+  - ADR-0018
   lenses:
   - L1
   - L2
@@ -1699,6 +1714,7 @@ docs:
   - ADR-0001
   - ADR-0002
   - ADR-0003
+  - ADR-0018
   lenses:
   - L1
   - L2
@@ -1767,6 +1783,7 @@ docs:
   - ADR-0001
   - ADR-0005
   - ADR-0014
+  - ADR-0019
   lenses:
   - L1
   - L2
@@ -2023,6 +2040,7 @@ docs:
   - ADR-0004
   - ADR-0009
   - ADR-0010
+  - ADR-0018
   lenses:
   - L1
   - L2
@@ -2470,6 +2488,8 @@ docs:
   - ADR-0013
   - ADR-0014
   - ADR-0016
+  - ADR-0018
+  - ADR-0019
   lenses:
   - L1
   - L2
@@ -2570,6 +2590,7 @@ docs:
   - ADR-0003
   - ADR-0006
   - ADR-0007
+  - ADR-0018
   lenses:
   - L1
   - L2
@@ -2825,7 +2846,7 @@ adrs:
 - id: ADR-0010
   path: docs/adr/0010-telemetry-opentelemetry-first.md
   title: 'Telemetry: OpenTelemetry-first with an slog bridge for logs'
-  status: accepted
+  status: superseded-by ADR-0018
   owning_doc: docs/architecture/10-observability.md
   wave: 2
   mode: pipeline
@@ -2843,7 +2864,7 @@ adrs:
 - id: ADR-0011
   path: docs/adr/0011-expressions-and-authorization-engines.md
   title: 'Expressions and authorization: CEL inline, OPA and Cedar engines, no Lua'
-  status: accepted
+  status: superseded-by ADR-0019
   owning_doc: docs/architecture/08-security-and-identity.md
   wave: 2
   mode: pipeline
@@ -2965,3 +2986,45 @@ adrs:
   decision: Every Revision and Plugin artifact is verified by its full sha256 digest; Ruralz Control signs Revisions
     in Control mode, CI and Plugin publishers sign OCI artifacts with Sigstore, and Nodes verify signatures offline
     before activation by default.
+- id: ADR-0018
+  path: docs/adr/0018-telemetry-opentelemetry-prometheus-exporter.md
+  title: 'Telemetry: OpenTelemetry-first with an slog bridge and the OpenTelemetry Prometheus exporter'
+  status: accepted
+  owning_doc: docs/architecture/10-observability.md
+  wave: 2
+  mode: pipeline
+  depends_on:
+  - docs/_meta/foundation-pack.md
+  - docs/_meta/style-guide.md
+  - docs/engineering/01-tech-stack-and-libraries.md
+  - docs/adr/0010-telemetry-opentelemetry-first.md
+  lenses:
+  - L1
+  - L2
+  research:
+  - docs/_meta/research/go-libraries-runtime.md
+  - docs/_meta/research/tooling-and-licenses.md
+  decision: Supersedes ADR-0010, keeping OpenTelemetry for traces and metrics and log/slog with the otelslog bridge
+    for logs; /metrics uses the OpenTelemetry Prometheus exporter on a private client_golang registry, fed by an
+    external producer of Ruralz-owned aggregates; OpenTelemetry imports stay in internal/telemetry and the internal/testkit/otlpsink
+    test collector.
+- id: ADR-0019
+  path: docs/adr/0019-expressions-authorization-comprehension-stop.md
+  title: 'Expressions and authorization: CEL inline with a comprehension stop, OPA and Cedar engines, no Lua'
+  status: accepted
+  owning_doc: docs/architecture/08-security-and-identity.md
+  wave: 2
+  mode: pipeline
+  depends_on:
+  - docs/_meta/foundation-pack.md
+  - docs/_meta/style-guide.md
+  - docs/engineering/01-tech-stack-and-libraries.md
+  - docs/adr/0011-expressions-and-authorization-engines.md
+  lenses:
+  - L1
+  - L2
+  research:
+  - docs/_meta/research/go-libraries-runtime.md
+  decision: Supersedes ADR-0011, keeping CEL (cel-go) inline, OPA (Rego, v1) and Cedar (cedar-go) as pluggable authorization
+    engines and no embedded Lua; a CEL expression that can reach the runtime cost limit and holds a comprehension
+    also stops at min(request deadline, 50 ms) (target) until cel-go tracks comprehension cost linearly.

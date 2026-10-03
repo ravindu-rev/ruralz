@@ -2,14 +2,14 @@
 title: Observability
 status: reviewed
 owner: ruralz-core
-last_updated: 2026-09-25
+last_updated: 2026-10-03
 depends_on:
   - docs/_meta/foundation-pack.md
   - docs/_meta/style-guide.md
   - docs/architecture/01-system-overview.md
   - docs/architecture/02-configuration-model.md
   - docs/engineering/01-tech-stack-and-libraries.md
-adrs: [ADR-0007, ADR-0008, ADR-0010, ADR-0014, ADR-0016, ADR-0017]
+adrs: [ADR-0007, ADR-0008, ADR-0014, ADR-0016, ADR-0017, ADR-0018]
 milestone_tags_used: [M1, M2, M3, M4, M5]
 ---
 
@@ -17,7 +17,7 @@ milestone_tags_used: [M1, M2, M3, M4, M5]
 
 ## Summary
 
-This document fixes how Ruralz Gateway and Ruralz Control report what they do: metrics, spans with W3C Trace Context propagation, logs, AI telemetry on the OpenTelemetry `gen_ai` conventions, Grafana dashboards, alerts, SLOs for Performance Budget values, debugging tools, and cardinality and overhead budgets. Telemetry is OpenTelemetry-first ([ADR-0010](../adr/0010-telemetry-opentelemetry-first.md)), never blocks a request and carries no secrets or payloads. Operators and contributors read it before wiring collectors or adding instruments.
+This document fixes how Ruralz Gateway and Ruralz Control report what they do: metrics, spans with W3C Trace Context propagation, logs, AI telemetry on the OpenTelemetry `gen_ai` conventions, Grafana dashboards, alerts, SLOs for Performance Budget values, debugging tools, and cardinality and overhead budgets. Telemetry is OpenTelemetry-first ([ADR-0018](../adr/0018-telemetry-opentelemetry-prometheus-exporter.md)), never blocks a request and carries no secrets or payloads. Operators and contributors read it before wiring collectors or adding instruments.
 
 ## Scope and non-goals
 
@@ -31,7 +31,7 @@ P10 requires OpenTelemetry signals and a metric for every degraded state; P3 for
 
 | ID | Rule | Consequence |
 |---|---|---|
-| O1 | OpenTelemetry first: traces and metrics through the OpenTelemetry Go SDK, logs through `log/slog` and the `otelslog` bridge ([ADR-0010](../adr/0010-telemetry-opentelemetry-first.md)) | One layer feeds OTLP and `/metrics` |
+| O1 | OpenTelemetry first: traces and metrics through the OpenTelemetry Go SDK, logs through `log/slog` and the `otelslog` bridge ([ADR-0018](../adr/0018-telemetry-opentelemetry-prometheus-exporter.md)) | One layer feeds OTLP and `/metrics` |
 | O2 | Telemetry never blocks, slows or fails a request | Bounded span and log queues drop with a counter (TB-12); only the audit export lags instead (OQ-observability-19) |
 | O3 | Every degraded state is a metric | `ruralz_node_degraded_info` with a fixed `reason` |
 | O4 | No secrets, credentials or payloads in any signal | No resolved secret, credential header, query string (`url.full`, `url.query`) or body reaches a signal or `/tap` (threat T9, [Security and identity](08-security-and-identity.md)) |
@@ -40,9 +40,9 @@ P10 requires OpenTelemetry signals and a metric for every degraded state; P3 for
 | O7 | Pay only for what is attached or sampled | Unsampled requests create no spans; `/tap` without a subscriber costs one atomic load |
 | O8 | Self-hosted and air-gapped | No phone-home; the FIPS build (Planned (M5)) emits the same signals (P1) |
 
-The Go SDK's traces and metrics are stable; its Logs API is a release candidate, expected stable in v1.47.0 ([source](https://github.com/open-telemetry/opentelemetry-go/blob/main/README.md)) ([source](https://github.com/open-telemetry/opentelemetry-go/releases/tag/v1.47.0-rc.1)), so logs keep the bridge. For OQ-tech-stack-and-libraries-16 this document recommends one `/metrics` exporter reading the OTLP aggregates, with a CI golden test for identical names.
+The Go SDK's traces and metrics are stable; its Logs API is a release candidate, expected stable in v1.47.0 ([source](https://github.com/open-telemetry/opentelemetry-go/blob/main/README.md)) ([source](https://github.com/open-telemetry/opentelemetry-go/releases/tag/v1.47.0-rc.1)), so logs keep the bridge. `/metrics` is the OpenTelemetry Prometheus exporter on a private `client_golang` registry, golden-tested for identical names; only `internal/telemetry` and `internal/testkit/otlpsink` import OpenTelemetry ([ADR-0018](../adr/0018-telemetry-opentelemetry-prometheus-exporter.md)).
 
-Metric values live in Ruralz-owned aggregates, not SDK synchronous instruments, kept by name across Hot Reloads and read by both exporters, so each operation aggregates once and Ruralz ends series (SDK interface: OQ-observability-16). A label set is hot by reach, when every request on a Node may record into it, whatever its label kind. Hot label sets shard into S = min(`GOMAXPROCS` at start, 8) stripes (target) padded to 64-byte cache lines, chosen at compile time within caps (target):
+Metric values live in Ruralz-owned aggregates, not SDK synchronous instruments, kept by name across Hot Reloads and read by both exporters through one external producer, so each operation aggregates once and Ruralz ends series. A label set is hot by reach, when every request on a Node may record into it, whatever its label kind. Hot label sets shard into S = min(`GOMAXPROCS` at start, 8) stripes (target) padded to 64-byte cache lines, chosen at compile time within caps (target):
 
 - listener-scoped and enumeration-only families: at most 1,000 counter or gauge series and 64 histogram label sets (target);
 - label sets of Gateway-scoped Policies, which every Route inherits (five in the [Configuration model worked example](02-configuration-model.md#worked-example)), bounded by Gateway Policies × Phases: at most 1,024 counter series and 256 histogram label sets (target);
@@ -615,7 +615,7 @@ With the Route histogram at its limit it is about 82,400 (hypothesis): about 8.2
 | OQ-observability-13 | How does `requestId` tell apart requests sharing a trace ID? | (a) `<trace-id>-<span-id>`; (b) a `spanId` member | data-plane | No |
 | OQ-observability-14 | Should heartbeats add latency histograms for Rollout gates, beside the request, 5xx and rejection counters they carry? | (a) No (current); (b) Yes | control-plane-and-gitops | No |
 | OQ-observability-15 | May Go runtime metrics keep SDK names outside pack 2? | (a) No, `ruralz_runtime_*` (current); (b) pack amendment | tech-stack-and-libraries | No |
-| OQ-observability-16 | Which OpenTelemetry Go SDK interface exports Ruralz aggregates and ends series, at what cost? | (a) External producer; (b) callback instruments; (c) Ruralz encoders, needing an ADR-0010 amendment | tech-stack-and-libraries | Yes, for M1 metrics |
+| OQ-observability-16 | Which OpenTelemetry Go SDK interface exports Ruralz aggregates and ends series, at what cost? | (a) External producer (chosen, 2026-10-03: [ADR-0018](../adr/0018-telemetry-opentelemetry-prometheus-exporter.md)); (b) callback instruments; (c) Ruralz encoders | tech-stack-and-libraries | No (answered) |
 | OQ-observability-17 | Do 50,000 requests per second (hypothesis), the idle RSS budget and 40 MiB of telemetry live heap, up to 80 MiB RSS at `GOGC=100` (target), fit together? | (a) Adopt as seeds, chosen by [Performance budgets and benchmarking](12-performance-budgets-and-benchmarking.md#memory-budget) with idle RSS lowered from 96 to 89 MiB (target); (b) lower admission limits, shard caps or the retiring ceiling; (c) raise the idle budget; (d) ship a documented `GOMEMLIMIT` that the M1 benchmark uses | performance-budgets-and-benchmarking | No (answered) |
 | OQ-observability-18 | How is a State Store failover rollback or lost Cell reported? | (a) State Store monitoring (current); (b) Ruralz Control | scalability-and-distributed-state | No |
 | OQ-observability-19 | Should TB-12 in System overview exempt the audit export, which retries from the Control Store and never drops? | (a) Failure column "Drop on failure; audit export lags" (proposed); (b) a separate boundary | system-overview | Yes, for Planned (M2) |
