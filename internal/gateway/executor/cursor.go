@@ -7,6 +7,7 @@ import (
 	"context"
 	"errors"
 	"log/slog"
+	"net/http"
 	"time"
 
 	"github.com/ravindu-rev/ruralz/internal/filter"
@@ -192,7 +193,9 @@ func (c *cursor) settle(ctx context.Context, p *snapshot.Policy, ph phase.Phase,
 // request Phase with the class status and the Filter's code or the class
 // default, ends the stream in onChunk, and replaces an Upstream response
 // in a response Phase with 502 (the cache store is skipped instead). A
-// response that is already generated is never replaced again.
+// closed-failure 401 of an auth-class Policy carries that Policy's own
+// challenge (spec 06 req 8). A response that is already generated is
+// never replaced again.
 func (c *cursor) fail(ctx context.Context, p *snapshot.Policy, ph phase.Phase, r filter.Result, span emit.Span, gen bool) (verdict, *filter.Response) {
 	var (
 		mode     = modeOf(p)
@@ -200,6 +203,7 @@ func (c *cursor) fail(ctx context.Context, p *snapshot.Policy, ph phase.Phase, r
 		code     = r.Code
 		sentinel bool
 		act      = next
+		header   http.Header
 	)
 	switch {
 	case r.Err == nil:
@@ -224,6 +228,7 @@ func (c *cursor) fail(ctx context.Context, p *snapshot.Policy, ph phase.Phase, r
 			if code == "" {
 				code = rule.reqCode
 			}
+			header = challenge(p, status)
 		}
 		act = respond
 	case ph == phase.OnChunk:
@@ -262,7 +267,28 @@ func (c *cursor) fail(ctx context.Context, p *snapshot.Policy, ph phase.Phase, r
 		return next, nil
 	}
 	endSpan(span, emit.OutcomeCannotDecide, string(modeValue(mode)), status, code, errType)
-	return act, &filter.Response{Status: status, Code: code}
+	return act, &filter.Response{Status: status, Code: code, Header: header}
+}
+
+// challenge returns the WWW-Authenticate header of a closed failure of p
+// that responds with status in a request Phase (spec 06 req 8: every 401
+// carries a challenge): p's own Challenger.Challenge, as auth.Decider.Deny
+// adds it, when p is auth-class, status is 401 and the challenge is not
+// empty (auth.mtls has none); nil otherwise. Security rule 1 (authRule)
+// instead lists the challenge of every auth-class Policy.
+func challenge(p *snapshot.Policy, status int) http.Header {
+	if p.Class != phase.ClassAuth || status != http.StatusUnauthorized {
+		return nil
+	}
+	ch, ok := p.Filter.(Challenger)
+	if !ok {
+		return nil
+	}
+	v := ch.Challenge()
+	if v == "" {
+		return nil
+	}
+	return http.Header{"Www-Authenticate": {v}}
 }
 
 // validStatus reports a final HTTP status a Filter may respond with.

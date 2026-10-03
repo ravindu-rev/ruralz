@@ -118,12 +118,11 @@ func (h *Holder) CanActivate() bool {
 	return !h.closed && h.canActivateLocked()
 }
 
-// canActivateLocked is the activation gate of spec 04 req 54 and test plan
-// item 12: fewer than K retired, or none closing or ending. Architecture
-// 3.3 step 2 words it "fewer than K retired and none closing or ending";
-// that gate would refuse the activation that makes a (K + 1)th
-// retirement, so no snapshot could ever become closing (req 52,
-// architecture 3.3 step 9). Req 54 is followed.
+// canActivateLocked is the activation gate of spec 04 req 54, test plan
+// item 12 and architecture 3.3 step 2: fewer than K retired, or none
+// closing or ending. With "and" the activation that makes a (K + 1)th
+// retirement could never run, so no snapshot would become closing (req
+// 52, architecture 3.3 step 9).
 func (h *Holder) canActivateLocked() bool {
 	return h.countLocked(StateRetired) < h.k || h.countLocked(StateClosing)+h.countLocked(StateEnding) == 0
 }

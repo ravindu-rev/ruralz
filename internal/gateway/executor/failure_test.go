@@ -636,8 +636,9 @@ func TestLegClosedFailureEndsOnlyTheLeg(t *testing.T) {
 }
 
 func TestClassDefaultsForGeneratedResponseStatus(t *testing.T) {
-	// The generated response carries no body and no header: the handler
-	// writes the problem document for Code (filter.Response contract).
+	// The generated response carries no body and, outside an auth-class
+	// 401 (TestClosedFailureChallenge), no header: the handler writes the
+	// problem document for Code (filter.Response contract).
 	h := newHarness(t)
 	ch, _ := h.single(spec{
 		name: "p", class: phase.ClassCORS,
@@ -647,6 +648,65 @@ func TestClassDefaultsForGeneratedResponseStatus(t *testing.T) {
 	out := h.runPhase(phase.OnRequestHeaders, ch, "")
 	if out.resp == nil || out.resp.Body != nil || out.resp.Header != nil || out.resp.Status != http.StatusServiceUnavailable {
 		t.Fatalf("response = %+v", out.resp)
+	}
+}
+
+func TestClosedFailureChallenge(t *testing.T) {
+	// Spec 06 req 8: every 401 carries WWW-Authenticate. An auth-class
+	// Policy that fails closed in a request Phase answers with its own
+	// challenge, as auth.Decider.Deny does, whether the Filter supplied the
+	// code or the class default applies (a recovered panic included). An
+	// empty challenge (auth.mtls), a Filter without one, another class's
+	// failure and the SPI sentinels add no header. Each still counts
+	// ruralz_filter_failures_total{mode=closed} (spec 04 req 44).
+	const challengeValue = `Bearer realm="ruralz"`
+	tests := []struct {
+		name      string
+		class     phase.Class
+		ph        phase.Phase
+		challenge string
+		// plain is a Filter that does not implement Challenger.
+		plain  bool
+		res    result
+		want   want
+		header string
+	}{
+		{"auth code", phase.ClassAuth, phase.OnRequestHeaders, challengeValue, false, undecided("RZ-AUTH-006"), want{401, "RZ-AUTH-006"}, challengeValue},
+		{"auth class default", phase.ClassAuth, phase.OnRequestBody, challengeValue, false, undecided(""), want{401, CodeAuthUndecided}, challengeValue},
+		{"auth panic", phase.ClassAuth, phase.OnRequestHeaders, challengeValue, false, panics, want{401, CodeAuthUndecided}, challengeValue},
+		{"auth empty challenge", phase.ClassAuth, phase.OnRequestHeaders, "", false, undecided("RZ-AUTH-006"), want{401, "RZ-AUTH-006"}, ""},
+		{"auth without Challenger", phase.ClassAuth, phase.OnRequestHeaders, "", true, undecided("RZ-AUTH-006"), want{401, "RZ-AUTH-006"}, ""},
+		{"authz", phase.ClassAuthz, phase.OnRequestHeaders, challengeValue, false, undecided(""), want{403, "RZ-AUTH-015"}, ""},
+		{"upstream-auth", phase.ClassUpstreamAuth, phase.OnUpstreamRequest, challengeValue, false, undecided(""), want{401, "RZ-AUTH-020"}, ""},
+		{"budget", phase.ClassAuth, phase.OnRequestHeaders, challengeValue, false, failWith(filter.ErrBudget), want{503, "RZ-RT-004"}, ""},
+		{"too large", phase.ClassAuth, phase.OnRequestBody, challengeValue, false, failWith(filter.ErrTooLarge), want{413, "RZ-RT-003"}, ""},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			h := newHarness(t)
+			m, pr := newProbe()
+			ff := fakeFilter{name: "p", ev: h.ev, script: map[phase.Phase]result{tt.ph: tt.res}}
+			var f filter.Filter = &challengeFilter{fakeFilter: ff, challenge: tt.challenge}
+			if tt.plain {
+				f = &ff
+			}
+			ch, p := h.single(spec{name: "p", class: tt.class, f: f}, tt.ph)
+			p.Metrics = m
+			out := h.runPhase(tt.ph, ch, "")
+			if got(out.resp) != tt.want.String() {
+				t.Fatalf("response = %s, want %s", got(out.resp), tt.want)
+			}
+			hv := out.resp.Header.Values("WWW-Authenticate")
+			switch {
+			case tt.header == "" && len(out.resp.Header) != 0:
+				t.Fatalf("header = %v, want none", out.resp.Header)
+			case tt.header != "" && (len(hv) != 1 || hv[0] != tt.header):
+				t.Fatalf("WWW-Authenticate = %q, want %q", hv, tt.header)
+			}
+			if pr.failures(tt.ph, emit.ModeClosed) != 1 {
+				t.Fatal("the closed failure is not counted")
+			}
+		})
 	}
 }
 

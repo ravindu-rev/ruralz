@@ -50,12 +50,8 @@ const batchContexts = 8
 //  1. In chain order, each admitted member's Prepare runs every Node-local
 //     step on its own PolicyState. A member that decides locally is
 //     settled at once; a local deny or a closed failure ends the batch
-//     with zero State Store commands, and the members still waiting get
-//     Undo. Those members come before the denier in chain order, and their
-//     round trips are never sent; the filter.Consumptive.Undo doc names
-//     only "an earlier member denied", and a contract request to the
-//     filter SPI owner extends it to this case (spec 05 req 64 covers the
-//     members after the deny).
+//     with zero State Store commands, and the members still waiting for
+//     their round trips get Undo (filter.Consumptive.Undo).
 //  2. The prepared calls go to Store.Consume in chain order with the
 //     request's RequestBudget: one round trip for the longest prefix whose
 //     keys share a hash slot, repeated for the rest, so each member makes

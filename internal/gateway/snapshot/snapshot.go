@@ -77,6 +77,17 @@ type Snapshot struct {
 }
 
 // StoreHandle is a snapshot's reference to a State Store driver.
+//
+// internal/gateway/retire releases each StoreHandle instance exactly once,
+// when the last live snapshot holding it is freed. Instances are compared
+// by identity, so implementations must be comparable pointer types: a
+// value that cannot be compared is treated as unshared and released at
+// every free. One instance set as both StateStore and CacheStore counts
+// once. The snapshot compiler therefore either opens a new handle per
+// snapshot and role (one reference each) or carries the previous
+// snapshot's instance over without retaining it again. Retaining a
+// carried-over instance once per snapshot leaks references, and the old
+// driver never closes (08 req 61).
 type StoreHandle interface {
 	Store() statestore.Store
 	Enqueuer() statestore.Enqueuer
@@ -193,8 +204,9 @@ type Route struct {
 	// Listeners are the bound listener names.
 	Listeners []string
 	// Protocol is the protocol of the Route's Upstreams; the handler's
-	// dispatch table is keyed by it. M1 serves only http (validation
-	// rejects every other protocol with RZ-CFG-040); M3 and M4 add handlers.
+	// dispatch table is keyed by it. M1 serves only http (the ruralzd serve
+	// check rejects every other protocol with RZ-CFG-040, R-75); M3 and M4
+	// add handlers.
 	Protocol v1alpha1.UpstreamProtocol
 	// Timeout is the effective Route timeout (15 s default in M1).
 	Timeout time.Duration

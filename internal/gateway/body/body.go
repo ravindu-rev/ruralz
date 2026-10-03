@@ -11,7 +11,8 @@
 //     gates cannot take (spec 04 req 47). The gauge records each change on
 //     the holder's request stripe.
 //   - Account charges one holder's bytes (decoded values, rewritten bodies)
-//     to the budget, with the 4x decoded-value cap (spec 07 reqs 69-71).
+//     to the budget, with the decoded-value cap of DecodedFactor times the
+//     raw limit (spec 07 reqs 69-71, architecture R-63).
 //   - ReadGate reads a whole body within its limit (a gate); Tee copies a
 //     streaming response for the Response Cache and stops quietly past its
 //     limit or the budget (spec 04 req 46); Limited cuts a streamed body at
@@ -40,9 +41,10 @@ const (
 	Increment = 32 << 10
 	// DefaultMaxBufferedBytes is the default limits.maxBufferedBytes.
 	DefaultMaxBufferedBytes = 512 << 20
-	// DecodedFactor bounds a decoded value: at most 4 times the raw limit
-	// its body arrived under; beyond it is oversized.
-	DecodedFactor = 4
+	// DecodedFactor bounds a decoded value: at most filter.DecodedLimitFactor
+	// (4) times the raw limit its body arrived under; beyond it is
+	// oversized (architecture R-63).
+	DecodedFactor = filter.DecodedLimitFactor
 	// PoolMax is the largest buffer returned to a pool; larger ones are left
 	// to the garbage collector, so a pool never pins large bodies. Gates
 	// and tees pool arrays of exactly one or two increments (PoolMax).

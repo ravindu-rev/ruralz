@@ -160,8 +160,8 @@ func (h *Holder) endPinned(ctx context.Context, s *snapshot.Snapshot, reason sna
 // resets the HTTP/2 stream or closes the HTTP/1.1 connection. A request
 // already ended is left alone.
 //
-// Spec 04 req 53 and architecture 3.3 step 9 list the cancel first; this
-// order is deliberate. Marking before canceling means a handler woken by
+// Spec 04 req 53 lists the cancel first; architecture R-73 (3.3 step 9)
+// adopts this order instead. Marking before canceling means a handler woken by
 // the cancellation always sees Ended when it commits under rec.Mu (req
 // 38), so it writes the 503 with the end code instead of its own
 // cancellation error. Both steps run before the callback returns, so the

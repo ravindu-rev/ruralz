@@ -119,7 +119,8 @@ var (
 // Challenger is implemented by auth-class Filters that answer a missing
 // credential with a WWW-Authenticate challenge (spec 06 rule 8). The 401
 // RZ-AUTH-001 of Security rule 1 carries the challenge of every auth-class
-// Policy in the chain.
+// Policy in the chain, and the 401 of an auth-class Policy that fails
+// closed in a request Phase carries that Policy's own challenge.
 type Challenger interface {
 	// Challenge returns the WWW-Authenticate field value, "" for none.
 	Challenge() string
@@ -326,9 +327,9 @@ func (e *Executor) evalWhen(ctx context.Context, p *snapshot.Policy, ph phase.Ph
 func (e *Executor) logPanic(ctx context.Context, p *snapshot.Policy, ph phase.Phase, v any) {
 	e.logger.LogAttrs(ctx, slog.LevelError, "filter panic recovered",
 		slog.String(catalog.KeyPolicy, p.Name),
-		slog.String("phase", ph.String()),
-		slog.String("panic_type", fmt.Sprintf("%T", v)),
-		slog.String("stack", string(debug.Stack())))
+		slog.String(catalog.KeyPhase, ph.String()),
+		slog.String(catalog.KeyPanicType, fmt.Sprintf("%T", v)),
+		slog.String(catalog.KeyStack, string(debug.Stack())))
 }
 
 // logUndecided records the cause of a cannot decide at debug level.
@@ -338,8 +339,8 @@ func (e *Executor) logUndecided(ctx context.Context, p *snapshot.Policy, ph phas
 	}
 	e.logger.LogAttrs(ctx, slog.LevelDebug, "filter could not decide",
 		slog.String(catalog.KeyPolicy, p.Name),
-		slog.String("phase", ph.String()),
-		slog.String("error_type", errType),
+		slog.String(catalog.KeyPhase, ph.String()),
+		slog.String(catalog.KeyErrorType, errType),
 		slog.Any(catalog.KeyError, err))
 }
 
