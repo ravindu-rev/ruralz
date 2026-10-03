@@ -127,9 +127,12 @@ func TestSetSnapshotUnderChurn(t *testing.T) {
 			b := mustNew(t, Config{Algorithm: alg, VirtualNodes: 64, Endpoints: first, Payload: newRuntimeState(first, func(int) bool { return false })})
 			ctx, cancel := context.WithCancel(context.Background())
 			var bad, picks atomic.Int64
-			var wg sync.WaitGroup
+			var wg, started sync.WaitGroup
+			started.Add(4)
 			for g := range uint64(4) {
 				wg.Go(func() {
+					ran := sync.OnceFunc(started.Done)
+					defer ran()
 					for k := uint64(0); ctx.Err() == nil; k++ {
 						set := b.Load()
 						st, ok := set.Payload().(*runtimeState)
@@ -147,9 +150,13 @@ func TestSetSnapshotUnderChurn(t *testing.T) {
 							return
 						}
 						picks.Add(1)
+						ran()
 					}
 				})
 			}
+			// Every attempt goroutine makes one pick before the churn starts;
+			// otherwise a fast loop can end before any of them is scheduled.
+			started.Wait()
 			gate := NewBuildGate(2)
 			now := t0
 			for round := range 300 {
