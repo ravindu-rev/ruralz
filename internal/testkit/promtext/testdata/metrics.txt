@@ -1,0 +1,38 @@
+# HELP ruralz_config_activations_total Configuration activations by result.
+# TYPE ruralz_config_activations_total counter
+ruralz_config_activations_total{code="",result="activated"} 3
+ruralz_config_activations_total{code="RZ-CFG-005",result="rejected"} 1
+ruralz_config_activations_total{code="RZ-CFG-027",result="rejected"} 0
+# HELP ruralz_node_degraded_info Degraded reasons currently raised (1) or cleared (0).
+# TYPE ruralz_node_degraded_info gauge
+ruralz_node_degraded_info{reason="lkg_boot"} 1
+ruralz_node_degraded_info{reason="state_store_breaker_open"} 0
+# HELP ruralz_http_gateway_duration_seconds Gateway-added time per request.
+# TYPE ruralz_http_gateway_duration_seconds histogram
+ruralz_http_gateway_duration_seconds_bucket{route="orders",le="0.0005"} 10
+ruralz_http_gateway_duration_seconds_bucket{route="orders",le="0.001"} 60
+ruralz_http_gateway_duration_seconds_bucket{route="orders",le="0.005"} 90
+ruralz_http_gateway_duration_seconds_bucket{route="orders",le="+Inf"} 100
+ruralz_http_gateway_duration_seconds_sum{route="orders"} 0.123
+ruralz_http_gateway_duration_seconds_count{route="orders"} 100
+ruralz_http_gateway_duration_seconds_bucket{route="users",le="0.0005"} 0
+ruralz_http_gateway_duration_seconds_bucket{route="users",le="0.001"} 40
+ruralz_http_gateway_duration_seconds_bucket{route="users",le="0.005"} 90
+ruralz_http_gateway_duration_seconds_bucket{route="users",le="+Inf"} 100
+ruralz_http_gateway_duration_seconds_sum{route="users"} 0.2
+ruralz_http_gateway_duration_seconds_count{route="users"} 100
+# HELP ruralz_runtime_goroutines Live goroutines.
+# TYPE ruralz_runtime_goroutines gauge
+ruralz_runtime_goroutines 42
+# HELP rpc_latency_seconds A summary.
+# TYPE rpc_latency_seconds summary
+rpc_latency_seconds{quantile="0.5"} 0.01
+rpc_latency_seconds{quantile="0.99"} 0.2
+rpc_latency_seconds_sum 12.5
+rpc_latency_seconds_count 1000
+# HELP target_info Target metadata with an escaped "help" \\ line\nsecond line.
+# TYPE target_info gauge
+target_info{service_name="ruralzd",note="quote \" backslash \\ newline \n end"} 1
+# A plain comment that is ignored.
+untyped_metric{a="1"} -Inf 1700000000000
+another_untyped NaN

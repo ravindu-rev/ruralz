@@ -1,0 +1,131 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/ravindu-rev/ruralz/test/bench/record.schema.json",
+  "title": "ruralz.bench.v1 benchmark result record",
+  "description": "One record per macro or component benchmark run (performance budgets and benchmarking, Result record). Durations are integer nanoseconds.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["format", "identity", "environment", "load", "latency", "resources", "validity", "budgets"],
+  "properties": {
+    "format": {"const": "ruralz.bench.v1"},
+    "identity": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["scenario", "kind", "commit", "version", "baseline", "revisionDigest", "toolchain", "startedAt"],
+      "properties": {
+        "scenario": {"type": "string", "minLength": 1},
+        "kind": {"enum": ["macro", "component"]},
+        "commit": {"type": "string", "pattern": "^[0-9a-f]{7,64}$"},
+        "version": {"type": "string", "minLength": 1},
+        "baseline": {"type": "string"},
+        "revisionDigest": {"type": "string", "pattern": "^(sha256:[0-9a-f]{64})?$"},
+        "toolchain": {"type": "string", "minLength": 1},
+        "startedAt": {"type": "string", "format": "date-time"}
+      }
+    },
+    "environment": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["hardwareProfile", "microarchitecture", "kernel", "cpuset", "nic", "gomaxprocs", "gogc", "gomemlimit", "sysctls"],
+      "properties": {
+        "hardwareProfile": {"type": "string"},
+        "microarchitecture": {"type": "string"},
+        "kernel": {"type": "string", "minLength": 1},
+        "cpuset": {"type": "string"},
+        "nic": {"type": "string"},
+        "gomaxprocs": {"type": "integer", "minimum": 1},
+        "gogc": {"type": "string", "minLength": 1},
+        "gomemlimit": {"type": "string"},
+        "sysctls": {"type": "object", "additionalProperties": {"type": "string"}}
+      }
+    },
+    "load": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["tool", "version", "commandLine", "offeredRate", "achievedRate", "connections", "keyCardinality", "keyDistribution", "injectedDelay"],
+      "properties": {
+        "tool": {"type": "string"},
+        "version": {"type": "string"},
+        "commandLine": {"type": "string"},
+        "offeredRate": {"type": "number", "minimum": 0},
+        "achievedRate": {"type": "number", "minimum": 0},
+        "connections": {"type": "integer", "minimum": 0},
+        "keyCardinality": {"type": "integer", "minimum": 0},
+        "keyDistribution": {"type": "string"},
+        "injectedDelay": {"type": "string"}
+      }
+    },
+    "latency": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["external", "internal", "histogramFiles"],
+      "properties": {
+        "external": {"$ref": "#/$defs/percentiles"},
+        "internal": {"$ref": "#/$defs/percentiles"},
+        "histogramFiles": {"type": "array", "items": {"$ref": "#/$defs/relativePath"}}
+      }
+    },
+    "resources": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["cpuPerRequestNs", "gcCpuShare", "rssLoadBytes", "rssIdleBytes", "liveHeapBytes", "allocsPerOp", "cpuProfileFiles"],
+      "properties": {
+        "cpuPerRequestNs": {"type": "integer", "minimum": 0},
+        "gcCpuShare": {"type": "number", "minimum": 0, "maximum": 1},
+        "rssLoadBytes": {"type": "integer", "minimum": 0},
+        "rssIdleBytes": {"type": "integer", "minimum": 0},
+        "liveHeapBytes": {"type": "integer", "minimum": 0},
+        "allocsPerOp": {"type": "number", "minimum": 0},
+        "cpuProfileFiles": {"type": "array", "items": {"$ref": "#/$defs/relativePath"}}
+      }
+    },
+    "validity": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["rateError", "generatorCpu", "mockCpu", "noiseCv", "drops", "verdict"],
+      "properties": {
+        "rateError": {"type": "number", "minimum": 0},
+        "generatorCpu": {"type": "number", "minimum": 0, "maximum": 1},
+        "mockCpu": {"type": "number", "minimum": 0, "maximum": 1},
+        "noiseCv": {"type": "number", "minimum": 0},
+        "drops": {"type": "integer", "minimum": 0},
+        "verdict": {"enum": ["valid", "invalid", "inconclusive"]}
+      }
+    },
+    "budgets": {
+      "type": "array",
+      "items": {"$ref": "#/$defs/budget"}
+    }
+  },
+  "$defs": {
+    "percentiles": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["p50Ns", "p90Ns", "p99Ns", "p999Ns", "maxNs"],
+      "properties": {
+        "p50Ns": {"type": "integer", "minimum": 0},
+        "p90Ns": {"type": "integer", "minimum": 0},
+        "p99Ns": {"type": "integer", "minimum": 0},
+        "p999Ns": {"type": "integer", "minimum": 0},
+        "maxNs": {"type": "integer", "minimum": 0}
+      }
+    },
+    "relativePath": {
+      "type": "string",
+      "minLength": 1,
+      "not": {"pattern": "(^/)|(^\\.\\.(/|$))|(/\\.\\.(/|$))|\\\\"}
+    },
+    "budget": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "value", "result", "slo", "verdict"],
+      "properties": {
+        "id": {"type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$"},
+        "value": {"type": "string", "minLength": 1},
+        "result": {"type": "string"},
+        "slo": {"type": "string"},
+        "verdict": {"enum": ["pass", "fail", "skipped"]}
+      }
+    }
+  }
+}
