@@ -356,34 +356,48 @@ func TestStripConnectionOptionsDoesNotAllocate(t *testing.T) {
 	}
 }
 
-// adversarialHeader is the review case for 07 req 33: n fields and a
-// Connection value of size bytes made of short options that name none of
-// them, "a,b,a,b,..." so that no option repeats the one before it.
-func adversarialHeader(n, size int) (http.Header, []string) {
+// adversarialHeader is the header of the review case for 07 req 33: n
+// fields that no Connection option of the long-Connection test and
+// benchmark names.
+func adversarialHeader(n int) http.Header {
 	h := make(http.Header, n+1)
 	for i := range n {
 		h["X-Field-"+strconv.Itoa(i)] = []string{"v"}
 	}
-	conn := strings.Repeat("a,b,", size/4)
-	return h, []string{conn}
+	return h
 }
 
 // TestStripHopByHopLongConnectionDoesNotAllocate checks that a long
 // Connection value against 250 fields costs no allocation per option (07
-// req 33); field C shares the options' length, so every option is looked
-// up. The time bound is BenchmarkStripHopByHopLongConnection.
+// req 33). In the alternating case field C shares the options' length, but
+// the one-byte seen set lets only the first "a" and "b" reach a lookup. In
+// the distinct case field A1 shares the two-letter options' length and
+// none of them names it, so every option is canonicalized and looked up.
+// The time bound is BenchmarkStripHopByHopLongConnection.
 func TestStripHopByHopLongConnectionDoesNotAllocate(t *testing.T) {
-	h, conn := adversarialHeader(250, 64<<10)
-	h["C"] = []string{"v"}
-	allocs := testing.AllocsPerRun(10, func() {
-		h["Connection"] = conn
-		StripHopByHop(h, TowardUpstream)
-		if len(h) != 251 {
-			t.Fatalf("StripHopByHop left %d fields, want 251", len(h))
-		}
-	})
-	if allocs != 0 {
-		t.Errorf("allocations = %v, want 0", allocs)
+	for _, tc := range []struct {
+		name string
+		key  string // a field whose length the options share
+		conn string
+	}{
+		{"alternating", "C", strings.Repeat("a,b,", 64<<10/4)},
+		{"distinct", "A1", distinctOptions(64 << 10)},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			h := adversarialHeader(250)
+			h[tc.key] = []string{"v"}
+			conn := []string{tc.conn}
+			allocs := testing.AllocsPerRun(10, func() {
+				h["Connection"] = conn
+				StripHopByHop(h, TowardUpstream)
+				if len(h) != 251 {
+					t.Fatalf("StripHopByHop left %d fields, want 251", len(h))
+				}
+			})
+			if allocs != 0 {
+				t.Errorf("allocations = %v, want 0", allocs)
+			}
+		})
 	}
 }
 

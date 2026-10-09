@@ -175,6 +175,11 @@ type fakeStore struct {
 	// onWatch, when set, runs after a registration (outside the lock),
 	// to simulate a rotation racing a build.
 	onWatch func(r secret.Ref, fn func(secret.Value) error)
+	// beforeWatch, when set, runs at the start of Watch, before the
+	// registration and outside the lock, to simulate a value published
+	// between rotatePair's Get and the rewatch registration, such as a
+	// concurrent Activate settling a pending value.
+	beforeWatch func(r secret.Ref)
 }
 
 // fakeWatch is one registration of a fakeStore; seen and failed are
@@ -208,6 +213,12 @@ func (s *fakeStore) Get(r secret.Ref) (secret.Value, bool) {
 }
 
 func (s *fakeStore) Watch(r secret.Ref, fn func(secret.Value) error) func() {
+	s.mu.Lock()
+	before := s.beforeWatch
+	s.mu.Unlock()
+	if before != nil {
+		before(r)
+	}
 	s.mu.Lock()
 	id := s.next
 	s.next++
@@ -284,6 +295,17 @@ func (s *fakeStore) deliver(r secret.Ref, b []byte) int {
 	version := s.version
 	s.mu.Unlock()
 	return s.fire(r, secret.NewValue(b), version)
+}
+
+// poll fires the current value of r to the watchers that have not seen
+// its version: the next resolver poll after a value was published without
+// a fanout (Resolver.Activate settling a pending value). It returns the
+// number of watcher errors.
+func (s *fakeStore) poll(r secret.Ref) int {
+	s.mu.Lock()
+	v, version := s.vals[r], s.versions[r]
+	s.mu.Unlock()
+	return s.fire(r, v, version)
 }
 
 // drop removes the value of r: Get reports false.

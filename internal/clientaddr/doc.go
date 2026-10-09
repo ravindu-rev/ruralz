@@ -76,13 +76,13 @@
 // there, and an unparsable entry the walk does reach collapses the result
 // to a proxy address rather than to a client-supplied one (04 section 9
 // risk 8). That does not hold for a header a trusted proxy passes through
-// untouched. Because Forwarded wins
-// whenever it has content (06 req 60, proposed), a client behind a proxy
-// that manages only X-Forwarded-For, the default of many load balancers
-// and reverse proxies, chooses source.ip outright with its own Forwarded
-// field ("for=10.0.0.5"), or collapses it to the proxy with one that has
-// no usable for parameter ("proto=https", ","). Operators of such proxies
-// must make them remove or overwrite a client's Forwarded field.
+// untouched. Because Forwarded wins whenever it has content (06 req 60,
+// proposed), a client behind a proxy that manages only X-Forwarded-For,
+// the default of many load balancers and reverse proxies, chooses
+// source.ip outright with its own Forwarded field ("for=10.0.0.5"), or
+// collapses it to the proxy with one that has no usable for parameter
+// ("proto=https", ","). Operators of such proxies must make them remove or
+// overwrite a client's Forwarded field.
 //
 // # Forwarding headers toward Upstreams
 //

@@ -77,12 +77,15 @@ func BenchmarkStripHopByHopLongConnection(b *testing.B) {
 		{"alternating/256KiB", strings.Repeat("a,b,", 256<<10/4), ""},
 		{"alternating-looked-up/64KiB", strings.Repeat("a,b,", 64<<10/4), "C"},
 		{"alternating-looked-up/256KiB", strings.Repeat("a,b,", 256<<10/4), "C"},
-		{"distinct-looked-up/64KiB", distinctOptions(64 << 10), "Ab"},
+		// The key must not be one of the options: "Ab" is named by "ab"
+		// and deleted in the first iteration, so later iterations would
+		// look nothing up.
+		{"distinct-looked-up/64KiB", distinctOptions(64 << 10), "A1"},
 		{"repeated/64KiB", strings.Repeat("a,", 64<<10/2), ""},
 		{"long-options/64KiB", strings.Repeat(long+","+long+"y,", 64<<10/(2*len(long)+3)), strings.Repeat("Z", 300)},
 	} {
 		b.Run(bc.name, func(b *testing.B) {
-			h, _ := adversarialHeader(250, 0)
+			h := adversarialHeader(250)
 			if bc.key != "" {
 				h[bc.key] = []string{"v"}
 			}

@@ -230,7 +230,7 @@ func (c *ClientConfig) rotatePairLocked(isCert bool, v secret.Value) (*half, err
 		c.certVal = used
 	}
 	c.pair.Store(pair)
-	return renewable(sibling, current), nil
+	return renewable(sibling, used, current), nil
 }
 
 // buildLocked parses the CA bundle (slotCA) and publishes a configuration,

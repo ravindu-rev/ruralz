@@ -80,10 +80,14 @@ type half struct {
 	fn     func(secret.Value) error
 	stop   int
 	failed bool
+	// paired is the value of this half that the other half's last valid
+	// pair used (renewable); guarded by the owner's mutex.
+	paired secret.Value
 }
 
 // renewable marks sibling, the other half of a pair that a callback just
-// formed, as no longer failed and returns it for rewatch when its last
+// formed, as no longer failed, records used, the sibling's value the pair
+// used, as sibling.paired, and returns it for rewatch when its last
 // callback failed and the pair used its current Store value (current, see
 // rotatePair); otherwise it returns nil. A pair formed with the sibling's
 // last known value instead leaves the sibling's watch, and its raised
@@ -94,11 +98,12 @@ type half struct {
 // a value that does not match would be neither counted nor raised (spec 06
 // requirement 76). The sibling's own callback then examines it. Callers
 // hold the owner's mutex.
-func renewable(sibling *half, current bool) *half {
+func renewable(sibling *half, used secret.Value, current bool) *half {
 	if !sibling.failed || !current {
 		return nil
 	}
 	sibling.failed = false
+	sibling.paired = used
 	return sibling
 }
 
@@ -108,31 +113,46 @@ func renewable(sibling *half, current bool) *half {
 // secret_rotation_failed source of a failed watcher raised until that
 // watcher accepts a later value of its own reference, which for a
 // certificate renewed in an earlier poll than its key is the next renewal.
-// A stopped watch drops its source, and a new watch with the same callback
-// starts at the current value, which the pair already holds
-// (secret.Store.Watch); the counted failure stays counted. mu guards
-// *stops and *closed and is not held while rewatch calls the Store; a
-// Close meanwhile stops the new registration.
+// A stopped watch drops its source; the counted failure stays counted.
+//
+// A new watch starts at the current version of its reference
+// (secret.Store.Watch), so rewatch registers it first and then confirms
+// that the Store still holds h.paired, the value the pair used: the Store
+// may have published another value of h after rotatePair read it, such as
+// a pending value that a concurrent Resolver.Activate settled, and the new
+// watch would skip that value. When the Store still holds h.paired, the
+// stale watch is stopped and the new one kept. When the value moved, or
+// the Store no longer holds the reference, the new registration is stopped
+// and the stale one kept, with h marked failed again: the stale watch last
+// examined an older version, so it examines the moved value on the next
+// poll, which Activate kicks. A poll in the short overlap of the two
+// registrations may call h's callback through both. mu guards *stops,
+// *closed and h's failed and paired, and is not held while rewatch calls
+// the Store; a Close meanwhile stops the new registration.
 func rewatch(mu *sync.Mutex, closed *bool, stops *[]func(), secrets secret.Store, h *half) {
 	mu.Lock()
 	if *closed {
 		mu.Unlock()
 		return
 	}
-	stale := (*stops)[h.stop]
-	(*stops)[h.stop] = nil
+	used := h.paired
 	mu.Unlock()
-	if stale != nil {
-		stale()
-	}
 	renewed := secrets.Watch(h.ref, h.fn)
+	cur, ok := secrets.Get(h.ref)
+	moved := !ok || !sameValue(cur, used)
 	mu.Lock()
-	if !*closed {
-		(*stops)[h.stop], renewed = renewed, nil
+	stop := renewed
+	switch {
+	case *closed:
+	case moved:
+		h.failed = true
+	default:
+		stop = (*stops)[h.stop]
+		(*stops)[h.stop] = renewed
 	}
 	mu.Unlock()
-	if renewed != nil {
-		renewed()
+	if stop != nil {
+		stop()
 	}
 }
 
@@ -279,7 +299,7 @@ func (ix *CertIndex) rotateLocked(e *certEntry, isCert bool, v secret.Value) (*h
 	}
 	e.pair = pair
 	ix.publishLocked()
-	return renewable(sibling, current), nil
+	return renewable(sibling, used, current), nil
 }
 
 // rotatePair parses the rotated half v of a certificate and key pair

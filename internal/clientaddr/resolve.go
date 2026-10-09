@@ -217,13 +217,21 @@ func parseHost(v string, obf bool) (netip.Addr, bool) {
 
 // parseIP parses an address once its characters are plausible, so that
 // words such as "unknown" never reach netip.ParseAddr, whose error
-// allocates.
+// allocates. A zone (plausibleIP has checked it is non-empty) is cut off
+// before parsing, because clean drops it anyway and netip.ParseAddr
+// interns every zone it parses, which allocates for each zone the process
+// has not seen. A zone is accepted only on an IPv6 address, so 1.2.3.4%x
+// stays unparsable.
 func parseIP(s string) (netip.Addr, bool) {
 	if !plausibleIP(s) {
 		return netip.Addr{}, false
 	}
-	a, err := netip.ParseAddr(s)
-	return a, err == nil
+	addr, _, zoned := strings.Cut(s, "%")
+	a, err := netip.ParseAddr(addr)
+	if err != nil || zoned && !a.Is6() {
+		return netip.Addr{}, false
+	}
+	return a, true
 }
 
 // plausibleIP reports whether s is made of hex digits, dots and colons up

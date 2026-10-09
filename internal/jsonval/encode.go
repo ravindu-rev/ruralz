@@ -55,10 +55,11 @@ type EncodeOptions struct {
 	// MaxBytes, when positive, limits the bytes one Append call adds:
 	// encoding stops with ErrOutputTooLarge as soon as the output would
 	// pass it, so an output cap (07 req 70; 05 req 47) is enforced without
-	// building the oversized body first. Strings, member names and number
-	// literals are refused before they are copied, escapes are checked as
-	// they are written, and other tokens add at most a few dozen bytes, so
-	// a refused Append leaves at most MaxBytes plus that much in dst.
+	// building the oversized body first. Strings, member names, number
+	// literals and the opening bracket of every array and object are
+	// refused before they are written, escapes are checked as they are
+	// written, and other tokens add at most a few dozen bytes, so a refused
+	// Append leaves at most MaxBytes plus that much in dst.
 	MaxBytes int
 }
 
@@ -230,6 +231,12 @@ func (e *Encoder) array(dst []byte, a []any, depth int) ([]byte, error) {
 	if depth >= maxEncodeDepth {
 		return dst, ErrDepth
 	}
+	// Refuse the opening bracket when not even the empty form fits, so a
+	// chain of nested arrays or objects stops at the limit instead of
+	// writing one bracket per level before the innermost value is checked.
+	if e.limit-len(dst) < 2 {
+		return dst, ErrOutputTooLarge
+	}
 	dst = append(dst, '[')
 	for i, v := range a {
 		if i > 0 {
@@ -255,6 +262,12 @@ func (e *Encoder) compare() func(a, b string) int {
 func (e *Encoder) object(dst []byte, o *Object, depth int) ([]byte, error) {
 	if depth >= maxEncodeDepth {
 		return dst, ErrDepth
+	}
+	// Refuse the opening bracket when not even the empty form fits, so a
+	// chain of nested arrays or objects stops at the limit instead of
+	// writing one bracket per level before the innermost value is checked.
+	if e.limit-len(dst) < 2 {
+		return dst, ErrOutputTooLarge
 	}
 	ms := o.members
 	dst = append(dst, '{')
@@ -291,6 +304,12 @@ func (e *Encoder) object(dst []byte, o *Object, depth int) ([]byte, error) {
 func (e *Encoder) mapObject(dst []byte, m map[string]any, depth int) ([]byte, error) {
 	if depth >= maxEncodeDepth {
 		return dst, ErrDepth
+	}
+	// Refuse the opening bracket when not even the empty form fits, so a
+	// chain of nested arrays or objects stops at the limit instead of
+	// writing one bracket per level before the innermost value is checked.
+	if e.limit-len(dst) < 2 {
+		return dst, ErrOutputTooLarge
 	}
 	base := len(e.keys)
 	for k := range m {

@@ -454,6 +454,96 @@ func TestCertIndexRewatchAfterClose(t *testing.T) {
 	}
 }
 
+// TestCertIndexRewatchRacesSettledValue publishes another value of a
+// failed half between rotatePair's Get and the rewatch registration, as a
+// concurrent Resolver.Activate settling a pending value does (spec 06
+// requirement 76). A new registration would start at that value's version
+// and skip it, so rewatch keeps the stale watch and marks the half failed
+// again: the next poll examines the value, which does not match, counts a
+// failure and keeps the reason raised. In the control, where nothing is
+// published meanwhile, the stale watch is replaced and the reason drops.
+func TestCertIndexRewatchRacesSettledValue(t *testing.T) {
+	for _, settled := range []bool{true, false} {
+		name := "key settled before the registration"
+		if !settled {
+			name = "control"
+		}
+		t.Run(name, func(t *testing.T) {
+			f := newIndexFixture(t)
+			spec := f.add(t, "main", leafOpts{cn: "v1", dns: []string{"a.test"}})
+			ix, err := BuildCertIndex([]CertSpec{spec}, f.store)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer ix.Close()
+			keyFailed := func() bool {
+				ix.mu.Lock()
+				defer ix.mu.Unlock()
+				return ix.entries[0].key.failed
+			}
+			v2 := f.ca.issue(t, leafOpts{cn: "v2", dns: []string{"a.test"}})
+			v3 := f.ca.issue(t, leafOpts{cn: "v3", dns: []string{"a.test"}})
+			if n := f.store.rotate(spec.PrivateKey, v2.keyPEM); n != 1 || f.store.raised() != 1 {
+				t.Fatalf("key alone: %d failures, %d raised; want 1 and 1", n, f.store.raised())
+			}
+			if settled {
+				// A key that matches neither certificate is published
+				// without a fanout just before the key's rewatch registers.
+				f.store.beforeWatch = func(r secret.Ref) {
+					if r == spec.PrivateKey {
+						f.store.beforeWatch = nil
+						f.store.put(spec.PrivateKey, v3.keyPEM)
+					}
+				}
+			}
+			// The certificate pairs with the Store's key-2 and selects the
+			// key half for rewatch.
+			if n := f.store.rotate(spec.Certificate, v2.certPEM); n != 0 {
+				t.Fatalf("certificate matching the key: %d failures", n)
+			}
+			if got := served(t, ix, "a.test"); got != "v2" {
+				t.Fatalf("served %q, want v2", got)
+			}
+			wantRaised := 0
+			if settled {
+				wantRaised = 1 // the key's stale watch, kept
+			}
+			if failed, r, w := keyFailed(), f.store.raised(), f.store.watching(); failed != settled || r != wantRaised || w != 2 {
+				t.Fatalf("after the pair: key failed %v, %d raised, %d watches; want %v, %d and 2", failed, r, w, settled, wantRaised)
+			}
+			// The next poll of the key examines the settled value through
+			// the stale watch; in the control nothing is due.
+			wantFailed := 0
+			if settled {
+				wantFailed = 1
+			}
+			if n := f.store.poll(spec.PrivateKey); n != wantFailed {
+				t.Fatalf("next poll of the key: %d failures, want %d", n, wantFailed)
+			}
+			if n, r := f.store.failures.Load(), f.store.raised(); n != int64(1+wantFailed) || r != wantRaised {
+				t.Fatalf("after the next poll: %d failures, %d raised; want %d and %d", n, r, 1+wantFailed, wantRaised)
+			}
+			if got := served(t, ix, "a.test"); got != "v2" {
+				t.Fatalf("served %q, want v2", got)
+			}
+			if !settled {
+				return
+			}
+			// The certificate that pairs with the settled key registers the
+			// key again and clears the reason.
+			if n := f.store.rotate(spec.Certificate, v3.certPEM); n != 0 {
+				t.Fatalf("certificate matching the settled key: %d failures", n)
+			}
+			if got := served(t, ix, "a.test"); got != "v3" {
+				t.Fatalf("served %q, want v3", got)
+			}
+			if failed, r, w := keyFailed(), f.store.raised(), f.store.watching(); failed || r != 0 || w != 2 {
+				t.Fatalf("after the pair with the settled key: key failed %v, %d raised, %d watches; want false, 0 and 2", failed, r, w)
+			}
+		})
+	}
+}
+
 // TestCertIndexRotationFallbackReq76 pairs a rotated value with the other
 // half's latest value delivered to the index when the Store reports the
 // other reference unresolved or still holds an older value than the

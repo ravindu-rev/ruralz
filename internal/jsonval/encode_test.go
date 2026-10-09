@@ -382,6 +382,15 @@ func TestAppendMaxBytesBeforeCopying(t *testing.T) {
 	long := strings.Repeat("n", 1<<20)
 	ctl := strings.Repeat("\x01", 1000)
 	mixed := strings.Repeat("ab\n", 400)
+	// Chains of 9,991 levels, under maxEncodeDepth: each opening bracket
+	// is refused once it cannot fit, so the chain stops at the limit
+	// instead of writing one bracket per level.
+	var deepArray any = []any{}
+	var deepObject any = map[string]any{}
+	for range 9990 {
+		deepArray = []any{deepArray}
+		deepObject = map[string]any{"a": deepObject}
+	}
 	cases := []struct {
 		name         string
 		max          int
@@ -398,6 +407,8 @@ func TestAppendMaxBytesBeforeCopying(t *testing.T) {
 		{"long control name", 1024, map[string]any{ctl: 1}, ErrOutputTooLarge},
 		{"long mixed string", 1024, mixed, ErrOutputTooLarge},
 		{"long escaped value after a name", 1024, map[string]any{"k": ctl}, ErrOutputTooLarge},
+		{"deep array chain", 10, deepArray, ErrOutputTooLarge},
+		{"deep object chain", 10, deepObject, ErrOutputTooLarge},
 	}
 	cases[2].v.(*Object).Set(long, 1)
 	for _, c := range cases {

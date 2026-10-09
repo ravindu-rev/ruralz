@@ -202,6 +202,34 @@ func TestResolveAllocations(t *testing.T) {
 	}
 }
 
+// TestResolveAllocationsFreshZone: a zoned IPv6 entry costs nothing even
+// when every request carries a zone the process has not seen, because the
+// zone is cut off before netip.ParseAddr, which would intern it. Each
+// header is used once, and the two lists use different zones, so neither
+// sees a zone the other interned; AllocsPerRun makes one warm-up call more
+// than its count.
+func TestResolveAllocationsFreshZone(t *testing.T) {
+	tr := testTrusted()
+	peer := netip.MustParseAddrPort("10.0.0.1:443")
+	const runs = 100
+	for name, format := range map[string][2]string{
+		"x-forwarded-for": {"X-Forwarded-For", "1.1.1.1, fe80::1%%x%d"},
+		"forwarded":       {"Forwarded", `for="[fe80::1%%f%d]"`},
+	} {
+		hs := make([]http.Header, runs+1)
+		for i := range hs {
+			hs[i] = hdr(format[0], fmt.Sprintf(format[1], i))
+		}
+		k := 0
+		if n := testing.AllocsPerRun(runs, func() { _ = tr.Resolve(peer, hs[k]); k++ }); n != 0 {
+			t.Errorf("%s: %v allocations per Resolve, want 0", name, n)
+		}
+		if k != len(hs) {
+			t.Fatalf("%s: %d calls, want %d", name, k, len(hs))
+		}
+	}
+}
+
 // TestResolveAllocationBound pins the documented exceptions to the
 // zero-allocation rule: one allocation per backslash-escaped Forwarded for
 // value, and one for the entry netip.ParseAddr rejects, which ends the
@@ -251,6 +279,10 @@ func TestParseXFFEntry(t *testing.T) {
 		{"[1.2.3.4]", ""},
 		{"[::ffff:1.2.3.4]:1", "1.2.3.4"},
 		{"fe80::1%25eth0", "fe80::1"},
+		{"1.2.3.4%eth0", ""},
+		{"::ffff:1.2.3.4%eth0", "1.2.3.4"},
+		{"fe80::1%", ""},
+		{"[1.2.3.4%x]", ""},
 		{"host.example:80", ""},
 		{"unknown", ""},
 		{"_hidden", ""},
