@@ -210,6 +210,68 @@ func TestRefusedRotationKeepsCellShared(t *testing.T) {
 			t.Errorf("failures %d, raised %v", h.fileN.value(), h.status.raised())
 		}
 	})
+	t.Run("file unreadable before Activate", func(t *testing.T) {
+		// A failure independent of the uses (the file removed), polled
+		// between Resolve and Activate, is counted once; the pending value
+		// is applied and secret_rotation_failed never clears until the
+		// file reads well again.
+		h, ref, s1, _ := refusedRotation(t)
+		s2 := h.resolve(use(ref, secret.KindOpaque))
+		if err := os.Remove(filepath.Join(h.root, "k")); err != nil {
+			t.Fatal(err)
+		}
+		h.cycle() // counted: 2
+		h.r.Activate(s2)
+		if len(h.status.raised()) != 1 {
+			t.Errorf("raised %v at Activate", h.status.raised())
+		}
+		h.cycle()
+		if a, b := get(t, s1, ref), get(t, s2, ref); a != "short" || b != "short" {
+			t.Errorf("retained %q, active %q", a, b)
+		}
+		if h.fileN.value() != 2 || len(h.status.raised()) != 1 {
+			t.Errorf("failures %d, raised %v", h.fileN.value(), h.status.raised())
+		}
+		h.write("k", "short")
+		h.cycle()
+		if h.fileN.value() != 2 || len(h.status.raised()) != 0 {
+			t.Errorf("after the file returns: failures %d, raised %v", h.fileN.value(), h.status.raised())
+		}
+	})
+	t.Run("same file state refused before Activate", func(t *testing.T) {
+		// The poll between Resolve and Activate examines the very file
+		// state Resolve read and the active uses refuse it: counted once.
+		// The new uses accept it, so Activate clears the failure record
+		// and secret_rotation_failed with it.
+		h := newHarness(t, nil)
+		key := strings.Repeat("k", 30)
+		h.write("k", key)
+		ref := fileRef(h.path("k"), "")
+		s1 := h.resolve(use(ref, secret.KindAPIKey))
+		h.r.Activate(s1)
+		h.cycle()
+		if err := os.Remove(filepath.Join(h.root, "k")); err != nil {
+			t.Fatal(err)
+		}
+		h.cycle() // the file is missing: counted: 1
+		h.write("k", "short")
+		s2 := h.resolve(use(ref, secret.KindOpaque))
+		h.cycle() // the state Resolve read, refused by KindAPIKey: counted: 2
+		if h.fileN.value() != 2 || len(h.status.raised()) != 1 {
+			t.Fatalf("before Activate: failures %d, raised %v", h.fileN.value(), h.status.raised())
+		}
+		h.r.Activate(s2)
+		if len(h.status.raised()) != 0 {
+			t.Errorf("raised %v at Activate", h.status.raised())
+		}
+		h.cycle()
+		if a, b := get(t, s1, ref), get(t, s2, ref); a != "short" || b != "short" {
+			t.Errorf("retained %q, active %q", a, b)
+		}
+		if h.fileN.value() != 2 || len(h.status.raised()) != 0 {
+			t.Errorf("failures %d, raised %v", h.fileN.value(), h.status.raised())
+		}
+	})
 	t.Run("rotation accepted before Activate", func(t *testing.T) {
 		// A rotation the active uses accept, polled before Activate,
 		// supersedes the pending value; a watch made on the new Store

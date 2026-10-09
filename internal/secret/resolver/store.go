@@ -33,12 +33,15 @@ type cellValue struct {
 // pendingValue is a refused rotation a Revision's uses accept: the value
 // Resolve read for a shared cell whose last examination failed, applied to
 // the cell when that Revision's Store is activated (spec 01 requirement
-// 46; see Resolver.settleLocked).
+// 46; see Resolver.settleLocked). Activate applies the value but keeps the
+// cell's failure record when a poll examined another file state after
+// Resolve (the cell's fingerprint matches neither baseFP nor fp).
 type pendingValue struct {
-	cv   *cellValue  // the value, at a version allocated by Resolve
-	base uint64      // the cell's version when Resolve read the file
-	fp   fingerprint // the file state Resolve read
-	at   time.Time   // when Resolve read it
+	cv     *cellValue  // the value, at a version allocated by Resolve
+	base   uint64      // the cell's version when Resolve read the file
+	baseFP fingerprint // the cell's fingerprint (its last examination) when Resolve read the file
+	fp     fingerprint // the file state Resolve read
+	at     time.Time   // when Resolve read it
 }
 
 // newCell returns a cell holding b at version v.

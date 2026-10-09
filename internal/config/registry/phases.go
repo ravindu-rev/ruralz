@@ -133,11 +133,13 @@ func scopeList(set phase.ScopeSet) string {
 //     onRequestHeaders and onResponse, R-40).
 //
 // An empty result subscribes the Policy to nothing: it gets no chain row.
-// Phases fails with ErrUnknownType for an unregistered type, with
-// ErrNoBodyOracle as above, and with a plain error for a nil Policy, the
-// zero Scope or a Config whose type is not the type's config type (for
-// every type, not only those whose Phases depend on config). These are
-// programming errors, checked before the scope rule.
+// Phases fails with ErrUnknownType for an unregistered type, and with a
+// plain error for a nil Policy, the zero Scope or a Config whose type is
+// not the type's config type (for every type, not only those whose Phases
+// depend on config); these programming errors are checked before the
+// scope rule. ErrNoBodyOracle, also a programming error, is raised only
+// within an allowed scope, so authz.cel at a disallowed scope reports the
+// ScopeError even without a BodyOracle.
 func (r *Registry) Phases(a Attachment, body BodyOracle) (phase.Set, error) {
 	if a.Policy == nil {
 		return 0, errors.New("registry: Phases of a nil Policy")

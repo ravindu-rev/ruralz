@@ -591,7 +591,7 @@ func normalizeIntegers(t *tree.Node, s *Node) {
 	case tree.KindMap:
 		sel := s.Select(t)
 		for _, m := range t.Members {
-			child, _, _ := memberSchema(sel, false, m.Key)
+			child, _, _, _ := memberSchema(sel, false, m.Key)
 			normalizeIntegers(m.Value, child)
 		}
 	case tree.KindList:

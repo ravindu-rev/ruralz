@@ -87,6 +87,24 @@ func TestFieldsSeq(t *testing.T) {
 			t.Errorf("early stop after %d fields", n)
 		}
 	}
+	// A break at any position stops the enumeration, including one at a
+	// field just before an annotating dispatch branch is emitted: a later
+	// call of yield would panic (range function continued iteration).
+	for _, src := range []string{keywordSchema, synthetic} {
+		x := mustLoad(t, src)
+		total := len(x.Fields())
+		for stop := 1; stop <= total; stop++ {
+			n := 0
+			for range x.FieldsSeq() {
+				if n++; n == stop {
+					break
+				}
+			}
+			if n != stop {
+				t.Errorf("break after field %d of %d: %d fields yielded", stop, total, n)
+			}
+		}
+	}
 	// A yielded Field owns its Where: changing it changes no other field
 	// of the same enumeration (several fields share one dispatch).
 	var withWhere []Field

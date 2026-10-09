@@ -38,17 +38,18 @@ type Info struct {
 	// NoSubstitution reports a position where ${VAR} is forbidden
 	// (RZ-CFG-011, 01 req 28) and render writes no $${ escape (02 req 46):
 	// apiVersion, kind, metadata.name, x-ruralz-ref and x-ruralz-cel
-	// fields and the elements of such array fields, and the whole
-	// x-ruralz-secret subtree. Mapping keys are always forbidden and are
-	// not positions.
+	// fields, the elements of such array fields and the values of such
+	// typed maps, and the whole x-ruralz-secret subtree. Mapping keys are
+	// always forbidden and are not positions.
 	NoSubstitution bool
 	// PathImpact is the union of x-ruralz-impact from the resource root
 	// to this node (02 req 64).
 	PathImpact Impact
 
 	// refOrCEL reports an x-ruralz-ref or x-ruralz-cel position, or an
-	// element of one: its own elements inherit it, as the generator gives
-	// the elements of such a list no ${VAR} alternative.
+	// element or typed-map value of one: its own elements and values
+	// inherit it, as the generator passes noSubst into slice items and map
+	// values.
 	refOrCEL bool
 }
 
@@ -64,21 +65,30 @@ type edge struct {
 	free bool
 	// elem reports a list element.
 	elem bool
+	// value reports a typed-map value: a member resolved through
+	// additionalProperties (Values), not a declared property.
+	value bool
 	// envelope reports apiVersion, kind or metadata.name.
 	envelope bool
 }
 
-// edgeOf describes the child position e. parentDepth is the depth of the
-// parent (0 for the resource root), parentName its member name.
-func edgeOf(e diag.PathElem, free bool, parentDepth int, parentName string) edge {
-	return edge{free: free, elem: e.Kind != diag.ElemField, envelope: envelopeFixed(e, parentDepth, parentName)}
+// edgeOf describes the child position e; value reports a typed-map value
+// (memberSchema). parentDepth is the depth of the parent (0 for the
+// resource root), parentName its member name.
+func edgeOf(e diag.PathElem, free, value bool, parentDepth int, parentName string) edge {
+	return edge{
+		free:     free,
+		elem:     e.Kind != diag.ElemField,
+		value:    value,
+		envelope: envelopeFixed(e, parentDepth, parentName),
+	}
 }
 
 // step computes the Info of a child position of i whose schema, with
 // dispatch applied to the child instance, is sel.
 func (i Info) step(sel *Node, how edge) Info {
 	out := Info{Node: sel, Free: how.free, InSecret: i.InSecret, PathImpact: i.PathImpact}
-	out.refOrCEL = how.elem && i.refOrCEL
+	out.refOrCEL = (how.elem || how.value) && i.refOrCEL
 	if sel != nil {
 		out.InSecret = out.InSecret || sel.kw.Secret
 		out.PathImpact |= sel.kw.Impact
@@ -106,21 +116,22 @@ func envelopeFixed(e diag.PathElem, parentDepth int, parentName string) bool {
 
 // memberSchema resolves the schema of member name (typed-map values when not
 // declared). It reports free for an undeclared member of an open object
-// or of free content, and ok false when the schema does not allow it.
-func memberSchema(parent *Node, parentFree bool, name string) (child *Node, free, ok bool) {
+// or of free content, value for a typed-map value, and ok false when the
+// schema does not allow it.
+func memberSchema(parent *Node, parentFree bool, name string) (child *Node, free, value, ok bool) {
 	if parent == nil {
-		return nil, parentFree, true
+		return nil, parentFree, false, true
 	}
 	if c, ok := parent.Property(name); ok {
-		return c, false, true
+		return c, false, false, true
 	}
 	if v, ok := parent.Values(); ok {
-		return v, false, true
+		return v, false, true, true
 	}
 	if parent.Open() {
-		return nil, true, true
+		return nil, true, false, true
 	}
-	return nil, false, false
+	return nil, false, false, false
 }
 
 // itemSchema resolves the schema of array elements.
@@ -170,17 +181,12 @@ func (x *Index) resolve(kind string, res *tree.Node, path diag.Path, wantPath bo
 	parentName := ""
 	for depth, e := range path {
 		var child *Node
-		var free bool
+		var free, value bool
 		switch e.Kind {
 		case diag.ElemField:
-			var isValue bool
-			child, free, ok = memberSchema(node, info.Free, e.Name)
-			if node != nil {
-				_, declared := node.Property(e.Name)
-				isValue = !declared && node.addl != nil
-			}
+			child, free, value, ok = memberSchema(node, info.Free, e.Name)
 			if wantPath {
-				if isValue {
+				if value {
 					sp.WriteString("{}")
 				} else {
 					if sp.Len() > 0 {
@@ -201,7 +207,7 @@ func (x *Index) resolve(kind string, res *tree.Node, path diag.Path, wantPath bo
 			return Info{}, "", false
 		}
 		node = child.Select(inst)
-		info = info.step(node, edgeOf(e, free, depth, parentName))
+		info = info.step(node, edgeOf(e, free, value, depth, parentName))
 		parentName = ""
 		if e.Kind == diag.ElemField {
 			parentName = e.Name
@@ -396,11 +402,11 @@ func (w *walker) visit(inst *tree.Node, static *Node, parent Info, how edge, nam
 		for i := 0; i < len(inst.Members); i++ {
 			m := inst.Members[i]
 			e := diag.Field(m.Key)
-			child, free, ok := memberSchema(node, info.Free, m.Key)
+			child, free, value, ok := memberSchema(node, info.Free, m.Key)
 			if !ok {
-				child, free = nil, false
+				child, free, value = nil, false, false
 			}
-			if err := w.descend(m.Value, child, info, edgeOf(e, free, depth, name), e, m.Key); err != nil {
+			if err := w.descend(m.Value, child, info, edgeOf(e, free, value, depth, name), e, m.Key); err != nil {
 				return err
 			}
 		}
@@ -411,7 +417,7 @@ func (w *walker) visit(inst *tree.Node, static *Node, parent Info, how edge, nam
 		}
 		for i := 0; i < len(inst.Items); i++ {
 			e := ItemElem(node, inst.Items[i], i)
-			if err := w.descend(inst.Items[i], child, info, edgeOf(e, free, depth, name), e, ""); err != nil {
+			if err := w.descend(inst.Items[i], child, info, edgeOf(e, free, false, depth, name), e, ""); err != nil {
 				return err
 			}
 		}

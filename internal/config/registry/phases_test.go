@@ -211,7 +211,8 @@ func TestPhasesHeadersAddRemove(t *testing.T) {
 // TestPhasesAuthzCEL is 02 req 13a (test 17 "body oracle both ways") and
 // 06 req 56: onRequestBody iff the rule references request.body, never
 // both; a rule without an oracle is ErrNoBodyOracle, not a guess; authz.opa
-// and authz.cedar stay in onRequestHeaders in M1.
+// and authz.cedar stay in onRequestHeaders in M1; a disallowed scope is
+// reported before a missing oracle.
 func TestPhasesAuthzCEL(t *testing.T) {
 	oracle := fakeOracle{
 		`request.body.amount < 100`: nil,
@@ -252,6 +253,12 @@ func TestPhasesAuthzCEL(t *testing.T) {
 				}
 			}
 		})
+	}
+	// Scope before oracle: authz.cel at Upstream without an oracle is the
+	// RZ-CFG-020 ScopeError, not ErrNoBodyOracle.
+	bodyRule := &v1alpha1.AuthzCELConfig{Rule: `request.body.amount < 100`}
+	if _, err := phasesOf(t, v1alpha1.PolicyTypeAuthzCEL, ups, bodyRule, nil); !errors.As(err, new(*ScopeError)) || errors.Is(err, ErrNoBodyOracle) {
+		t.Errorf("at Upstream without an oracle: err = %v, want a ScopeError", err)
 	}
 	for _, typ := range []v1alpha1.PolicyType{v1alpha1.PolicyTypeAuthzOPA, v1alpha1.PolicyTypeAuthzCedar} {
 		got, err := phasesOf(t, typ, rt, decode(t, typ, `{}`), oracle)

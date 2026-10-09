@@ -53,11 +53,14 @@ const (
 // ("{}"), depth first with members in name order. Below an object with
 // if/then/else dispatch it adds the positions each rule changes when it
 // alone matches, then those the else branches change when none matches,
-// each with its Dispatch appended to Where. A recursive schema is
-// listed once per cycle. Consumers enumerate markers from it instead of
-// hard-coding field lists (R-62): defaults, keyed lists, CEL places,
-// secrets, references and impact classes. Load bounds the enumeration
-// (at most 65,536 fields), so the result is always complete.
+// each with its Dispatch appended to Where. When a branch adds
+// x-ruralz-* keywords to the dispatched object itself, that object is
+// listed again at its path with the Dispatch, so Fields reports every
+// marker Lookup and Walk apply. A recursive schema is listed once per
+// cycle. Consumers enumerate markers from it instead of hard-coding field
+// lists (R-62): defaults, keyed lists, CEL places, secrets, references
+// and impact classes. Load bounds the enumeration (at most 65,536
+// fields), so the result is always complete.
 func (x *Index) Fields() []Field {
 	return slices.Collect(x.FieldsSeq())
 }
@@ -149,14 +152,32 @@ func (e *enumerator) visit(n *Node, where []Dispatch) {
 }
 
 // variant visits the positions that the dispatch result for mask changes.
+// It does nothing once the consumer stopped the enumeration, since a
+// FieldsSeq yield must not be called again after it returned false.
 func (e *enumerator) variant(n *Node, mask []byte, where []Dispatch) {
+	if e.stopped {
+		return
+	}
 	v, ok := n.variants[string(mask)]
 	if !ok {
 		v = n.runtimeVariant(mask)
 	}
 	if v != n {
+		if !sameKeywords(v.kw, n.kw) {
+			if !e.emit(e.kind, e.path, v, where) {
+				e.stopped = true
+				return
+			}
+		}
 		e.children(v, n, where)
 	}
+}
+
+// sameKeywords reports equal annotations; mergeKeywords only adds, so equal
+// Validations lengths mean equal lists.
+func sameKeywords(a, b Keywords) bool {
+	return a.List == b.List && a.ListKey == b.ListKey && a.Ref == b.Ref && a.Secret == b.Secret &&
+		a.CEL == b.CEL && a.Impact == b.Impact && a.Since == b.Since && len(a.Validations) == len(b.Validations)
 }
 
 // children visits the members, elements and values of n; with base set it

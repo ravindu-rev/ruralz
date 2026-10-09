@@ -154,6 +154,25 @@ func TestReq20StaticChecks(t *testing.T) {
 	}
 }
 
+func TestReq20JWTBindsNothingMessages(t *testing.T) {
+	// The subject wording fits an absent subject and `subject: ""` alike
+	// (the typed view cannot tell them apart); an empty claims map is
+	// named at .claims.
+	l := Diagnostics(bundleOf(consumer("a", withSubject("https://none", ""),
+		withClaims("https://idp", map[string]string{}))), nil)
+	if len(l) != 2 {
+		t.Fatalf("findings = %v", l)
+	}
+	for i, want := range []string{
+		`jwt binding for issuer "https://none" has no subject or claims and binds no token: set subject or at least one claim`,
+		`jwt binding for issuer "https://idp" has an empty claims map and binds no token: set subject or at least one claim`,
+	} {
+		if l[i].Message != want {
+			t.Errorf("message %d = %q, want %q", i, l[i].Message, want)
+		}
+	}
+}
+
 func TestReq20CheckLocations(t *testing.T) {
 	b := bundleOf(
 		consumer("a", withBasic("shared", cfgBasicHash, nil)),

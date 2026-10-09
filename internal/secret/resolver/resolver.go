@@ -333,6 +333,14 @@ func (r *Resolver) Activate(s secret.Store) {
 // pending one, which st's Get and watchers may already have taken, it is
 // published again at a new version so they converge on it, and
 // recheckLocked checks it against st's uses.
+//
+// Applying a pending value clears the cell's failure record when the
+// cell's last examination is the one Resolve saw, or is of the file state
+// Resolve read (which failed only against the older Store's uses or size
+// cap, and st's uses accept it). When a poll examined another file state
+// after Resolve and that state failed too, the cell keeps the record, so
+// secret_rotation_failed stays raised and the failure is not counted
+// twice.
 func (r *Resolver) settleLocked(ctx context.Context, st *store) {
 	pm := st.pending.Load()
 	if pm == nil {
@@ -348,7 +356,14 @@ func (r *Resolver) settleLocked(ctx context.Context, st *store) {
 		switch {
 		case cur.version == p.base && c.failed:
 			c.cur.Store(p.cv)
-			c.examined(p.fp, p.at)
+			if c.fp == p.baseFP || c.fp == p.fp {
+				c.examined(p.fp, p.at)
+			}
+			// Otherwise a poll of an older Store examined another file
+			// state since Resolve, and it failed: the cell keeps that
+			// record, so secret_rotation_failed stays raised, and the poll
+			// Activate starts (c.racy, set for failed cells) re-reads that
+			// state against st's uses without counting it again.
 			r.log.InfoContext(ctx, msgRotated,
 				slog.String(catalog.KeyProvider, string(ref.Provider)),
 				slog.String(catalog.KeyReference, ref.String()))

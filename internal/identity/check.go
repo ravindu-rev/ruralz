@@ -52,11 +52,12 @@ type first struct {
 //   - RZ-CFG-005: credentials.oauthClients on a Consumer without
 //     credentials.jwt: a client identifier binds only through the
 //     Consumer's own jwt issuers.
-//   - RZ-CFG-005: a credentials.jwt entry with an empty subject and no
-//     claims (`claims: {}` or `subject: ""`). The schema rejects both
-//     forms (minLength 1, minProperties 1); this check covers callers that
-//     skip schema validation. Such an entry binds no token: the index
-//     never reads it as "every token of the issuer".
+//   - RZ-CFG-005: a credentials.jwt entry that sets neither a non-empty
+//     subject nor a claim (subject absent or `""`, claims absent or `{}`).
+//     The schema rejects each such form (oneOf required subject or
+//     claims, minLength 1, minProperties 1); this check covers callers
+//     that skip schema validation. Such an entry binds no token:
+//     the index never reads it as "every token of the issuer".
 //
 // Duplicate API key hashes and duplicate (issuer, subject) or (issuer,
 // clientId) pairs have no static code: the runtime answers them with 401
@@ -126,7 +127,7 @@ func Check(b *hub.Bundle, loc Locator, add func(diag.Diagnostic)) {
 				continue
 			}
 			entry := creds.Append(diag.Field("jwt"), diag.Keyed("issuer", j.Issuer))
-			p, what := entry.Append(diag.Field("subject")), "an empty subject"
+			p, what := entry.Append(diag.Field("subject")), "no subject or claims"
 			if j.Claims != nil {
 				p, what = entry.Append(diag.Field("claims")), "an empty claims map"
 			}

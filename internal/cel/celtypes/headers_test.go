@@ -185,10 +185,10 @@ func validName(s string) bool {
 
 // TestASCIIFolding checks that folding is ASCII only.
 func TestASCIIFolding(t *testing.T) {
-	if asciiEqualFold("Key", "Key") || asciiEqualFold("ab", "abc") || !asciiEqualFold("X-Ab", "x-aB") {
+	if asciiEqualFold("\u212aey", "Key") || asciiEqualFold("ab", "abc") || !asciiEqualFold("X-Ab", "x-aB") {
 		t.Error("asciiEqualFold")
 	}
-	if asciiLower("X-Ab") != "x-ab" || asciiLower("x-ab") != "x-ab" || asciiLower("ÉA") != "Éa" {
+	if asciiLower("X-Ab") != "x-ab" || asciiLower("x-ab") != "x-ab" || asciiLower("\u00c9A") != "\u00c9a" {
 		t.Error("asciiLower")
 	}
 }

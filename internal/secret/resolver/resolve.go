@@ -339,10 +339,11 @@ func (rs *resolution) retry(c *cell, content []byte, fp fingerprint) *pendingVal
 		clear(cur)
 		if changed && rs.passes(c.ref, val) {
 			return &pendingValue{
-				cv:   &cellValue{val: secret.NewValue(val), version: rs.r.nextVersionLocked()},
-				base: base.version,
-				fp:   fp,
-				at:   rs.now,
+				cv:     &cellValue{val: secret.NewValue(val), version: rs.r.nextVersionLocked()},
+				base:   base.version,
+				baseFP: c.fp,
+				fp:     fp,
+				at:     rs.now,
 			}
 		}
 	}

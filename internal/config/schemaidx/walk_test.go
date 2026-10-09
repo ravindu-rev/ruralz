@@ -432,6 +432,8 @@ const keywordSchema = `{"properties":{"kind":{"enum":["K"]}},
         "x-ruralz-cel":{"variables":["request"],"result":"bool"}},
       "objs":{"type":"array","items":{"type":"object","properties":{"n":{"type":"string"}}},"x-ruralz-ref":"K"},
       "plain":{"type":"array","items":{"type":"string"}},
+      "m":{"type":"object","additionalProperties":{"type":"string"},"x-ruralz-ref":"K"},
+      "pm":{"type":"object","additionalProperties":{"type":"string"}},
       "v":{"type":"object","properties":{"type":{"type":"string"},"val":{"type":"string"}},"allOf":[
         {"if":{"properties":{"type":{"const":"s"}},"required":["type"]},
          "then":{"x-ruralz-secret":true,"x-ruralz-impact":["security"]},
@@ -442,8 +444,9 @@ func TestBranchAndArrayKeywords(t *testing.T) {
 	// 01 req 28 and 02 req 64: keywords on a then or else branch object
 	// count for the dispatched position and its subtree like keywords on
 	// the field; the elements of an x-ruralz-ref or x-ruralz-cel array
-	// (nested arrays included) are forbidden positions too, while members
-	// of an object element are not. Walk and Lookup agree.
+	// (nested arrays included) and the values of an x-ruralz-ref typed map
+	// are forbidden positions too, while members of an object element are
+	// not. Walk and Lookup agree.
 	x := mustLoad(t, keywordSchema)
 	type want struct {
 		secret, noSubst bool
@@ -454,7 +457,8 @@ func TestBranchAndArrayKeywords(t *testing.T) {
 		paths map[string]want
 	}{
 		{
-			`{"kind":"K","spec":{"names":["a"],"rules":[["x"]],"objs":[{"n":"y"}],"plain":["p"],"v":{"type":"s","val":"q"}}}`,
+			`{"kind":"K","spec":{"names":["a"],"rules":[["x"]],"objs":[{"n":"y"}],"plain":["p"],"v":{"type":"s","val":"q"},` +
+				`"m":{"a":"x"},"pm":{"b":"y"}}}`,
 			map[string]want{
 				"spec.names":         {noSubst: true},
 				"spec.names[item=a]": {noSubst: true},
@@ -466,6 +470,9 @@ func TestBranchAndArrayKeywords(t *testing.T) {
 				"spec.v":             {secret: true, noSubst: true, impact: ImpactSecurity},
 				"spec.v.type":        {secret: true, noSubst: true, impact: ImpactSecurity},
 				"spec.v.val":         {secret: true, noSubst: true, impact: ImpactSecurity},
+				"spec.m":             {noSubst: true},
+				"spec.m.a":           {noSubst: true},
+				"spec.pm.b":          {},
 			},
 		},
 		{
@@ -523,5 +530,58 @@ func TestBranchAndArrayKeywords(t *testing.T) {
 	}
 	if l, _ := x.Lookup("K", res, pathOf("spec", "v", "val")); l != val {
 		t.Errorf("Lookup after the edit %+v, Walk %+v", l, val)
+	}
+}
+
+func TestFieldsReportBranchKeywords(t *testing.T) {
+	// R-62: a then or else branch that annotates the dispatched object
+	// itself lists that object again with its Dispatch, so Fields reports
+	// the secret, reference and impact markers Lookup and Walk apply.
+	x := mustLoad(t, keywordSchema)
+	var got []Field
+	for _, f := range x.Fields() {
+		if f.Path == "spec.v" && len(f.Where) > 0 {
+			got = append(got, f)
+		}
+	}
+	type want struct {
+		secret bool
+		ref    string
+		impact Impact
+	}
+	wants := map[string]want{
+		`type="s"`: {secret: true, impact: ImpactSecurity},
+		`type="r"`: {ref: "K", impact: ImpactTraffic},
+		"none":     {impact: ImpactTraffic},
+	}
+	if len(got) != len(wants) {
+		t.Fatalf("Fields lists spec.v under %d dispatches, want %d: %+v", len(got), len(wants), got)
+	}
+	for _, f := range got {
+		d := f.Where[len(f.Where)-1]
+		key := "none"
+		if d.Conditions != nil {
+			if len(d.Conditions) != 1 {
+				t.Errorf("spec.v: conditions %+v", d.Conditions)
+				continue
+			}
+			key = fmt.Sprintf("%s=%q", d.Conditions[0].Member, d.Conditions[0].Value)
+		}
+		w, ok := wants[key]
+		if !ok {
+			t.Errorf("spec.v under an unexpected dispatch %s", key)
+			continue
+		}
+		delete(wants, key)
+		if kw := f.Node.Keywords(); kw.Secret != w.secret || kw.Ref != w.ref || kw.Impact != w.impact {
+			t.Errorf("spec.v under %s: secret %v ref %q impact %s; want %+v", key, kw.Secret, kw.Ref, kw.Impact, w)
+		}
+		res, path := instanceFor(f)
+		if info, ok := x.Lookup(f.Kind, res, path); !ok || info.Node != f.Node {
+			t.Errorf("spec.v under %s: Lookup %+v %v resolves another node", key, info, ok)
+		}
+	}
+	if len(wants) > 0 {
+		t.Errorf("spec.v not listed under %v", wants)
 	}
 }
