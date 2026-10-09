@@ -1,0 +1,14 @@
+{
+ "ids": [
+  "WP-85",
+  "WP-53"
+ ],
+ "reported": [],
+ "titles": {},
+ "reviews": {},
+ "extra": {
+  "WP-85": "Notes from the wave-2 boundary: contract change requests forwarded to this work package, with the lead's decisions. The architecture and wps.json already reflect the decisions; these notes give detail.\n- [CR 125 from WP-26] WP-85: build statestoretest.FaultProxy and CountingProxy (spec 08's names) on internal/testkit/faultproxy instead of a second TCP proxy. Put them in internal/statestore/statestoretest/respproxy (architecture 1.2 and WP-85 scope): the statestoretest root may import only statestore and clock. Use faultproxy.Config.ConnTap for per-connection RESP command parsing (it returns each connection's own TapFunc, so parser state stays per connection) and Config.Tap for stateless counting. Proxy.SetConnMode and Proxy.Conns give the per-connection rules spec 08 asks for, and Proxy.SetUpstream gives scripted failover. A switch between Delay distributions, directly or through Pass or Blackhole, applies the new distribution at once.\n- [CR 130 from WP-26] proc.Process.WaitOutput (internal/testkit/proc/proc.go:289-298) matches per line. The pattern is applied to each stdout and stderr line on its own, newline included, and to the growing unterminated last line, so a match never spans lines. Write single-line patterns (use (?m) for ^ and $ anchors) and never expect a multi-line match. Lines longer than proc.MaxLineBytes (64 KiB) are matched in pieces, so for long JSON log lines wait on a short, distinctive fragment rather than a pattern that could straddle a split. A capture can also come from a line still being written, because the unterminated last line is matched as it grows: end any pattern that captures a value from a complete line with `\\n` (for example `listening on (\\S+)\\n`), since `$`, even under (?m), also matches at the end of a partial line.",
+  "WP-53": "Notes from the wave-2 boundary: contract change requests forwarded to this work package, with the lead's decisions. The architecture and wps.json already reflect the decisions; these notes give detail.\n- [CR 37 from WP-07] WP-53 (examples/quickstart, the examples/file-mode README) and WP-95 (Compose suite with bind-mounted secrets): create secret files with an explicit mode 0600 or 0644 (chmod or install -m), never relying on umask. On hosts with umask 002 new files are 0664, and the resolver refuses any file writable by group or others with RZ-CFG-026. Any owner is accepted, so Compose bind mounts resolve whatever their host UID. WP-76: leave resolver.Config.FileOwners empty, and do not add a RURALZ_* owner allow-list setting: no document defines one, and inventing settings is forbidden. If it is ever needed, propose it through an Open questions row."
+ },
+ "deferMinor": true
+}

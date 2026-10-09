@@ -1,0 +1,13 @@
+{
+ "ids": [
+  "WP-39",
+  "WP-51"
+ ],
+ "reported": [],
+ "titles": {},
+ "reviews": {},
+ "extra": {
+  "WP-51": "Notes from the wave-2 boundary: contract change requests forwarded to this work package, with the lead's decisions. The architecture and wps.json already reflect the decisions; these notes give detail.\n- [CR 7 from WP-02] An *Object with more than 8 members keeps a name index that Decode, Clone and every mutation maintain. Decode charges CostIndexEntry (48) per member for that index, so for large objects the *Object form costs more than Options.MapObjects (map[string]any); budgets and reservations must use the cost Decode returns for the form you actually build. Reads (Len, At, All, Index, Get, Has) never write, so one decoded tree may be shared read-only by any number of goroutines (the shared decoded body of 03 req 25 and 07 req 56). Any mutation (Set, SetAt, Delete, DeleteAt, Sort, transforms, merge) needs exclusive access, so call Clone (jsonval.Clone or Object.Clone) before editing a shared tree. MaxCostPerByte (33) bounds cost per input byte; the oversize budget multiple is the one recorded in 2.16 for request 5 (4 times the raw limit)."
+ },
+ "deferMinor": true
+}

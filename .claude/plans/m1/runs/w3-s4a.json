@@ -1,0 +1,14 @@
+{
+ "ids": [
+  "WP-43",
+  "WP-42"
+ ],
+ "reported": [],
+ "titles": {},
+ "reviews": {},
+ "extra": {
+  "WP-43": "Notes from the wave-2 boundary: contract change requests forwarded to this work package, with the lead's decisions. The architecture and wps.json already reflect the decisions; these notes give detail.\n- [CR 63 from WP-11] accesslog.Writer.Acquire returns a record whose FailureModes is nil. Submit copies the entries and never keeps the slice, and the record is zeroed when it returns to the pool. The access-record feed (WP-43) or the handler (WP-66) should assign its own reused per-request []emit.FailureModeEntry (at most 8 entries) instead of appending to the nil field, which keeps records with failure modes at zero allocations in steady state. Strings in the record must still be immutable values, never views of pooled buffers (emit.AccessRecord doc).\n- [CR 28 from WP-06] WP-43: on the client view, Exchange.SetIdentity(id) refuses a second binding with filter.ErrSecondBinding. Otherwise it must fill the CEL activation: Vars.Auth = &expr.Auth{Method: id.Method, Claims: id.Claims}, Vars.Consumer = id.Consumer (nil, so CEL null, when unbound) and, for auth.mtls, Vars.Source.ClientCertSubject = id.CertSubject (the expr.Source doc comment). If Vars is already populated for the current Phase (a `when` evaluated before the auth Policy ran), update it at once, so later Policies' `when` and CEL in the same Phase see the identity. Leg Vars copies taken afterwards inherit it. Before authentication, and on Routes without an auth-class Policy, Auth and Consumer stay nil (spec 06 req 4). id.Claims may be an expr.Value implemented outside internal/cel (auth.EmptyClaims(), whose Native() is an empty map): store it as is, without conversion. celtypes already accepts foreign Values through Native() (celtypes.ToVal in internal/cel/celtypes/value.go, test \"claims from a foreign Value\" in value_test.go), so the WP-08 half of this note is done.",
+  "WP-42": "Notes from the wave-2 boundary: contract change requests forwarded to this work package, with the lead's decisions. The architecture and wps.json already reflect the decisions; these notes give detail.\n- [CR 25 from WP-05] An `OPTIONS *` (asterisk-form) request never reaches the Router: routematch.NormalizePath returns routematch.ErrAsteriskForm, which carries RZ-RT-001. WP-66 must test end to end that `OPTIONS *` gets 404 RZ-RT-001 as a pre-routing response with no Filter Chain. WP-82's protocol suite should send it on the wire over HTTP/1.1. A Router-level (WP-42) test of an unmatched '*' path does not exercise the real path and is not required."
+ },
+ "deferMinor": true
+}

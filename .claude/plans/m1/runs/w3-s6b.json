@@ -1,0 +1,13 @@
+{
+ "ids": [
+  "WP-49",
+  "WP-50"
+ ],
+ "reported": [],
+ "titles": {},
+ "reviews": {},
+ "extra": {
+  "WP-49": "Notes from the wave-2 boundary: contract change requests forwarded to this work package, with the lead's decisions. The architecture and wps.json already reflect the decisions; these notes give detail.\n- [CR 9 from WP-20] No SPI change is needed. WP-06 (committed) already defines the documented auth.Challenger in internal/filter/auth/auth.go:69-77, and *auth.Decider implements Challenge() (decider.go:63). The executor asserts an identical executor.Challenger on p.Filter (run.go:195) for the 401 RZ-AUTH-001 of Security rule 1. Note for WP-47, WP-48 and WP-49: the Filter value your Factory returns MUST have its own `Challenge() string` method. Get it by embedding *auth.Decider anonymously (promoted method) or by forwarding to it. A Decider held in a named field is invisible to the executor's type assertion, and the 401 then carries no WWW-Authenticate. Build the Decider with auth.NewAuth(m, challenge): auth.jwt uses auth.ChallengeJWT, auth.api-key uses auth.APIKeyChallenge(auth.APIKeyHeader(cfg.Header)), auth.basic uses auth.ChallengeBasic, and auth.mtls uses \"\" (no challenge, a documented deviation). Add a unit test per type asserting that p.Filter.(interface{ Challenge() string }) succeeds with the expected value.\n- [CR 29 from WP-06] WP-70: give every snapshot compile its own filter.BuildEnv.Shared. It is a concurrency-safe, single-flight memo shared by all W workers of that compile and dropped afterwards. Build snapshot.Consumers and every BuildEnv.Consumers from one identity.CompileBundle(validated.Bundle).Map(), so the identity.Index from auth.AcquireIndex returns the same *expr.Consumer pointers the snapshot holds. On a failed or abandoned compile, Close (filter.Closer) every Filter already built so its index reference is released; otherwise a KeyIndex keeps its secret watches, or a later acquirer gets auth.ErrIndexClosed. WP-47/48/49 (auth.jwt, auth.api-key, auth.basic, auth.mtls): call auth.AcquireIndex(env) in Build, including when reusing env.Previous, because Consumers can change without the Policy changing. Each must implement auth.IndexHolder (`CredentialIndex() *identity.Index`, returning the held index) so the next compile carries the KeyIndex over (R-55), and call Index.Release() exactly once from Close."
+ },
+ "deferMinor": true
+}

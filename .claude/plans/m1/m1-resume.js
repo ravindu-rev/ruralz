@@ -19,6 +19,11 @@ const extra = args.extra || {}
 const reported = new Set(args.reported || [])
 const titles = args.titles || {}
 const savedReviews = args.reviews || {}
+// deferMinor: run a fix round only for blocker or major findings; minor findings are
+// returned in full (remainingMinor) for one batched cleanup at the end of the wave.
+const deferMinor = !!args.deferMinor
+// maxRounds: per work package cap on fix and re-review rounds (default 2).
+const maxRounds = args.maxRounds || {}
 const reportFile = (id) => `${M1}/reports/${id}.json`
 
 const RULES = `
@@ -142,7 +147,7 @@ const results = await pipeline(ids,
     let { impl, review } = prev
     const rounds = []
     let current = review
-    for (let round = 1; round <= 2 && current && (blocking(current) || current.findings.length > 0); round++) {
+    for (let round = 1; round <= (maxRounds[id] || 2) && current && (blocking(current) || (!deferMinor && current.findings.length > 0)); round++) {
       const fix = await agent(fixPrompt(id, current), { label: `fix${round}:${id}`, phase: 'Fix', schema: IMPL_SCHEMA })
       const again = await agent(rereviewPrompt(id, current, fix), { label: `rereview${round}:${id}`, phase: 'Re-review', schema: REVIEW_SCHEMA })
       rounds.push({ fix, review: again })
@@ -175,7 +180,7 @@ return results.map((r, i) => {
     firstReview: r.review ? { verdict: r.review.verdict, counts: ['blocker', 'major', 'minor'].map(s => r.review.findings.filter(f => f.severity === s).length) } : null,
     finalVerdict: r.final?.verdict,
     remaining: (r.final?.findings || []).filter(f => f.severity !== 'minor'),
-    remainingMinor: (r.final?.findings || []).filter(f => f.severity === 'minor').length,
+    remainingMinor: (r.final?.findings || []).filter(f => f.severity === 'minor'),
     commit: r.commit,
   }
 })

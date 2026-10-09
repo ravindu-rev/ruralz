@@ -1,0 +1,12 @@
+{
+ "ids": [
+  "WP-33"
+ ],
+ "reported": [],
+ "titles": {},
+ "reviews": {},
+ "extra": {
+  "WP-33": "Notes from the wave-2 boundary: contract change requests forwarded to this work package, with the lead's decisions. The architecture and wps.json already reflect the decisions; these notes give detail.\n- [CR 134 from WP-27] scripts/update-test-suites.sh (WP-27) pins each suite by commit and by the SHA-256 of `git archive`. It vendors test/fixtures/yaml-test-suite/data/<ID>/... from the data-2022-01-17 release, without its name/ and tags/ symlink indexes, and test/fixtures/json-schema-test-suite/data/tests/draft2020-12/ and data/remotes/ at commit 5b0ee16. Each suite directory also gets LICENSE and SOURCE (MIT). The script replaces only data/, LICENSE and SOURCE, so keep test/fixtures/yaml-test-suite/expected-failures.txt (and any JSON skip list) next to data/, never inside it; run `scripts/update-test-suites.sh yaml` (WP-33) or `scripts/update-test-suites.sh json-schema` (WP-35) and commit the output. .gitattributes stores both data/** trees byte for byte (-text, linguist-vendored), so runners must not normalize line endings. The suite's remotes/ files answer http://localhost:1234/ references: WP-35's test runner preloads them as in-memory resources (the production schemaview compiler keeps its refusing loader) or skips refRemote cases with a recorded reason."
+ },
+ "deferMinor": true
+}

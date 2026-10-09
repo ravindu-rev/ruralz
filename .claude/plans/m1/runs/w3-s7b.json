@@ -1,0 +1,13 @@
+{
+ "ids": [
+  "WP-52",
+  "WP-54"
+ ],
+ "reported": [],
+ "titles": {},
+ "reviews": {},
+ "extra": {
+  "WP-54": "Notes from the wave-2 boundary: contract change requests forwarded to this work package, with the lead's decisions. The architecture and wps.json already reflect the decisions; these notes give detail.\n- [CR 132 from WP-27] make release-dry-run (WP-27, fixed by 4.1 rule 3) runs from the repo root. Step 1 removes dist/release, then runs `go run ./internal/tool/releasekit package -dist dist -out dist/release -version V -commit C`, which writes the archives, dist/notices/<bin>_<os>_<arch>/ for the Dockerfile (recreate it on every run; only dist/release is removed), the schema assets and release-manifest.json. Step 2 runs Syft itself (`syft scan file:<archive> -o cyclonedx-json@1.7=<archive>.cdx.json` for each .tar.gz and .zip). Step 3 runs `releasekit checksums -dir dist/release`, then `releasekit notes -from <previous v* tag, or the literal root> -to HEAD -budgets dist/bench -skipped <FILE or ''> -out dist/release/NOTES.md` (an empty -skipped means no skipped gates), then `releasekit verify -manifest dist/release/release-manifest.json`, and finally `cd dist/release && sha256sum -c --quiet SHA256SUMS`, so SHA256SUMS must be GNU format with names relative to dist/release; the .cdx.json files already exist when checksums runs, so decide and document whether they are listed. make release then runs `cosign sign-blob --yes --bundle dist/release/SHA256SUMS.sigstore.json dist/release/SHA256SUMS`, so releasekit never signs, never runs Syft and never runs sha256sum. Exit 1 on findings and 2 on usage or I/O errors (tools-ci convention); the target skips packaging while internal/tool/releasekit has no .go files.\n- [CR 138 from WP-27] When `releasekit package` runs, dist/<os>_<arch>/ holds three binaries. ruralzd is there for linux/amd64 and linux/arm64 (production) and for darwin/arm64 and darwin/amd64 (development-only archives built by release-dry-run, not by stage 4). ruralz is there for linux/{amd64,arm64}, darwin/{arm64,amd64} and windows/amd64 (ruralz.exe, archived as .zip). ruralz-control is there for linux/{amd64,arm64}; it is the M2 stub and package must not archive it (11 req 91: no ruralz-control archive until M2). dist/ also holds non-platform directories (dist/bench, dist/fuzz, dist/notices and the -out directory dist/release itself), so package reads only directories named <os>_<arch> and fails when an expected binary is missing instead of skipping it. Add a test over a fake dist tree that contains those extra directories and the ruralz-control binaries."
+ },
+ "deferMinor": true
+}

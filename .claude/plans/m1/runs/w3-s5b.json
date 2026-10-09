@@ -1,0 +1,13 @@
+{
+ "ids": [
+  "WP-65",
+  "WP-88"
+ ],
+ "reported": [],
+ "titles": {},
+ "reviews": {},
+ "extra": {
+  "WP-65": "Notes from the wave-2 boundary: contract change requests forwarded to this work package, with the lead's decisions. The architecture and wps.json already reflect the decisions; these notes give detail.\n- [CR 78 from WP-14] In gateway.Run(ctx, args, stdout, stderr), call `setting.Load(args, os.LookupEnv)` with the args cmd/ruralzd passes (os.Args[1:]; Run never reads os.Args itself). On error, write the error and `setting.Usage` to stderr and return `setting.ExitCode(err)`, which is 2 for a *setting.Error and 1 otherwise. Log each name in `Settings.Unused` at warn as unused in file mode. Build the egress guard with `egress.ParseAllow(s.FetchAllow)` (not egress.FromEnv, so the environment is read once), and create the secret resolver with `resolver.Config{Root: s.SecretRoot, Protected: ...}`, converting each `setting.ProtectedPath{Setting, Path}` from `s.Protected()` into a `resolver.Protected{Setting, Path}`. Pass `s.MACKey.Bytes()` (a copy; nil when unset) to the State Store manager: WP-65 accepts that []byte and puts it in `statestore.Deps.MACKey` for every driver it opens (R-49). Never log the key; MACKey's text forms print [REDACTED].\n- [CR 146 from WP-28] WP-28 fixed Gateway.spec.stateStore.cache as $defs/StateStoreCache = {topology (StateStoreTopology, default standalone), url (required SecretValue, x-ruralz-secret, impact security)}. It has no driver field and no timeout field. WP-65: when cache is set, open the RoleCache driver with statestore.Config{Role: RoleCache, Driver: DriverRedis (always), Topology from cache.topology, URL = resolved cache.url, DefaultTimeout = the main stateStore.timeout (default 50ms), Source: SourceGateway}. RURALZ_STATE_STORE_URL and the memory fallback apply to the main role only. When cache is absent, the cache shares the main handle under the interim rules and logs the startup WARN (R-19). cache.url's secret destination is state-store (R-49), so its dialer dials only that URL's host. WP-70: a cache Policy's effective stateStoreTimeout (BuildEnv.StateStoreTimeout) defaults to the main stateStore.timeout even when stateStore.cache is set, and BuildEnv.CacheStore is the RoleCache handle when present, else the main handle."
+ },
+ "deferMinor": true
+}
