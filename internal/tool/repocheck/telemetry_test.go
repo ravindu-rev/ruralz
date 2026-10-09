@@ -188,6 +188,11 @@ func TestPick(t *testing.T) {
 		{"Gauge; Counter for cycles", runtime, 0, []string{";"}, "Gauge", true},
 		{"Gauge; Counter for cycles", runtime, 1, []string{";"}, "Gauge", true},
 		{"Gauge; Counter for cycles", runtime, 2, []string{";"}, "Counter", true},
+		// Exceptions win over one part per name.
+		{"Gauge; Counter for cycles; Gauge for heap", runtime, 1, []string{";"}, "Gauge", true},
+		{"Gauge; Counter for cycles; Gauge for heap", runtime, 2, []string{";"}, "Counter", true},
+		{"Gauge; Counter for f_items", []string{"ruralz_e", "ruralz_f_items_total"}, 0, []string{";"}, "Gauge", true},
+		{"Gauge; Counter for f_items", []string{"ruralz_e", "ruralz_f_items_total"}, 1, []string{";"}, "Counter", true},
 		// Ambiguous: neither one part per name nor exceptions that name one.
 		{"Gauge; Counter", runtime, 2, []string{";"}, "", false},
 		{"Gauge; Counter for nothing", runtime, 0, []string{";"}, "", false},
@@ -197,6 +202,39 @@ func TestPick(t *testing.T) {
 		if got != tc.want || ok != tc.wantOK {
 			t.Errorf("pick(%q, %d of %d) = %q, %v, want %q, %v", tc.cell, tc.index, len(tc.names), got, ok, tc.want, tc.wantOK)
 		}
+	}
+}
+
+// TestCodeGateSeveralTypes covers 09 req 74 for a Type cell that lists
+// kinds without one part per name: the row is ambiguous, reported once,
+// and its kinds are not matched by substring.
+func TestCodeGateSeveralTypes(t *testing.T) {
+	names := []string{catalog.RuntimeGoroutines, catalog.RuntimeHeapBytes, catalog.RuntimeGCCyclesTotal}
+	obs := obsCatalog{metrics: map[string]obsMetric{}}
+	for i, n := range names {
+		obs.metrics[n] = obsMetric{
+			line: 7, heading: gatewayMetricsHeading, index: i, names: names,
+			typ: "Gauge, Counter, Gauge", unit: "goroutines, bytes, cycles", labels: "none",
+		}
+	}
+	var cv catalogView
+	for _, f := range linkedCatalog().families {
+		if slices.Contains(names, f.Name) {
+			cv.families = append(cv.families, f)
+		}
+	}
+	if len(cv.families) != len(names) {
+		t.Fatalf("catalog families = %v, want %v", cv.families, names)
+	}
+	got := codeGate(obs, cv)
+	n := 0
+	for _, f := range got {
+		if strings.Contains(f.msg, "names several types") {
+			n++
+		}
+	}
+	if n != 1 {
+		t.Errorf("findings = %v, want one naming several types", got)
 	}
 }
 

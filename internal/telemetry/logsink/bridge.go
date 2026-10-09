@@ -30,10 +30,10 @@ func (s *Sink) exported(e *entry, dropped bool) Exported {
 		switch {
 		case rset&(1<<k) != 0:
 			if a, ok := s.prepareSlot(rs[k]); ok {
-				framing = append(framing, slog.Attr{Key: slotKey(k), Value: a.Value})
+				framing = append(framing, slog.Attr{Key: slotKey(k), Value: s.exportSlot(k, a.Value, creds)})
 			}
 		case st.slotSet&(1<<k) != 0:
-			framing = append(framing, slog.Attr{Key: slotKey(k), Value: st.slots[k].Value})
+			framing = append(framing, slog.Attr{Key: slotKey(k), Value: s.exportSlot(k, st.slots[k].Value, creds)})
 		case k == slotComponent && st.component != "":
 			framing = append(framing, slog.String(slotKey(k), st.component))
 		case k == slotRevision && e.revision != "":
@@ -82,4 +82,21 @@ func (s *Sink) exported(e *entry, dropped bool) Exported {
 	r.AddAttrs(framing...)
 	r.AddAttrs(inner...)
 	return Exported{Record: r, TraceID: e.traceID, SpanID: e.spanID, HasTrace: e.hasTrace, Dropped: dropped}
+}
+
+// exportSlot mirrors appendSlotValue for the Bridge: a group value's
+// members pass through prepare under the slot key (ReplaceAttr with groups
+// [slot key], credential-name redaction, the empty-Attr rule).
+func (s *Sink) exportSlot(k int, v slog.Value, creds *credSet) slog.Value {
+	if v.Kind() != slog.KindGroup {
+		return v
+	}
+	groups := []string{slotKey(k)}
+	out := make([]slog.Attr, 0, len(v.Group()))
+	for _, c := range v.Group() {
+		if p, ok := s.prepare(groups, c, false, creds); ok {
+			out = append(out, p)
+		}
+	}
+	return slog.GroupValue(out...)
 }

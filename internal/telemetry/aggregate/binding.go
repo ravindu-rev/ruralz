@@ -112,7 +112,8 @@ func (r *Registry) leaveRetiring(g *group) {
 
 // Retire implements emit.Binding: the snapshot is retired or closing. A
 // label set no live snapshot references becomes retiring; past the
-// Node-wide retiring ceiling the oldest retiring sets fold into _overflow.
+// Node-wide retiring ceiling the oldest foldable retiring sets fold into
+// _overflow.
 func (b *Binding) Retire() {
 	r := b.r
 	r.mu.Lock()
@@ -136,7 +137,9 @@ func (b *Binding) retire() {
 		g.state = stRetiring
 		// Every retiring series counts against the ceiling, listener ones
 		// included; only foldable groups queue to be folded (listener
-		// families never fold, req 55).
+		// families never fold, req 55). Retiring listener series alone can
+		// therefore keep retiringSeries above Limits.Retiring with an empty
+		// queue; enforceCeiling then stops (see Limits.Retiring).
 		r.retiringSeries += g.ceil
 		if g.foldable() {
 			g.qpos = len(r.queue)

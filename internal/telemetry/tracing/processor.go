@@ -199,6 +199,7 @@ func (p *Processor) enter() bool {
 }
 
 // ForceFlush exports every span queued when it is called, bounded by ctx.
+// A Shutdown that cancels the worker cuts it short with ErrClosed.
 func (p *Processor) ForceFlush(ctx context.Context) error {
 	if p.closed.Load() {
 		return ErrClosed
@@ -223,10 +224,11 @@ func (p *Processor) ForceFlush(ctx context.Context) error {
 // (spans left when ctx ends are dropped and counted as export_error, spec
 // 09 req 25), stops the worker and shuts the current exporter down. When
 // ctx is already done it still stops the worker, counts every queued span
-// and shuts the exporter down; it waits for an export in flight to see
-// the cancellation, which a sdktrace.SpanExporter must honor. When it
-// returns, every span counted in spans_total was exported or counted as
-// dropped. Later calls return nil.
+// and shuts the exporter down; it waits for an export in flight, a
+// ForceFlush's included, to see the cancellation, which a
+// sdktrace.SpanExporter must honor. When it returns, every span counted
+// in spans_total was exported or counted as dropped. Later calls return
+// nil.
 func (p *Processor) Shutdown(ctx context.Context) error {
 	err := ErrClosed
 	p.stopOnce.Do(func() {
@@ -281,7 +283,18 @@ func (p *Processor) run(ctx context.Context) {
 			_ = p.drain(ctx, &batch, drainAll)
 			p.timer.Reset(p.interval)
 		case r := <-p.flushes:
-			r.done <- p.drain(r.ctx, &batch, drainAll) //nolint:contextcheck // a flush is bounded by its caller's context
+			// A flush runs on its caller's context, also cut short when
+			// Shutdown cancels the worker's, so Shutdown stays bounded by
+			// its own ctx.
+			fctx, stop := context.WithCancel(r.ctx)
+			unreg := context.AfterFunc(ctx, stop)
+			err := p.drain(fctx, &batch, drainAll) //nolint:contextcheck // a flush is bounded by its caller's context
+			unreg()
+			stop()
+			if err != nil && ctx.Err() != nil && r.ctx.Err() == nil {
+				err = ErrClosed
+			}
+			r.done <- err
 		case r := <-p.stop:
 			r.done <- p.drain(r.ctx, &batch, drainFinal) //nolint:contextcheck // Shutdown is bounded by its caller's context
 			return

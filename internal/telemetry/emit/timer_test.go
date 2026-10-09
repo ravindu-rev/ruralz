@@ -140,6 +140,12 @@ func TestGatewayTimerSwapOrder_Req54(t *testing.T) {
 		{"late enter clamped to the last run", []timerEvent{
 			{1 * ms, true}, {4 * ms, false}, {8 * ms, true}, {3 * ms, true}, {10 * ms, false}, {9 * ms, false},
 		}, 20 * ms, 11 * ms},
+		// Leg A read 40 and was preempted before its closing swap while
+		// leg B entered at 45 and left at 50: the run closes at B's 50, so
+		// the gap [40, 45] counts as excluded. The union [10, 40] and
+		// [45, 50] would give 65 ms; the timer gives 60 ms, an over-count
+		// bounded by A's preemption.
+		{"closing leave preempted across another section", []timerEvent{{10 * ms, true}, {45 * ms, true}, {50 * ms, false}, {40 * ms, false}}, 100 * ms, 60 * ms},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

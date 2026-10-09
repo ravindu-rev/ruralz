@@ -8,8 +8,10 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io/fs"
 	"log/slog"
 	"math"
+	"net"
 	"net/http"
 	"net/url"
 	"slices"
@@ -286,10 +288,12 @@ func TestProcessURLRedaction_Req4(t *testing.T) {
 		slog.Any(catalog.KeyError, fmt.Errorf("refresh: %w", uerr)),
 		slog.Any("joined", errors.Join(errors.New("first"), uerr)),
 		slog.Any("nil_request", (*http.Request)(nil)),
+		slog.Any("query", url.Values{"token": {"q3-secret"}}),
+		slog.Any("errs", []error{uerr, nil}),
 	)
 	drain(s)
 	got := out.String()
-	for _, leak := range []string{"pw-secret", "q-secret", "q2-secret", "frag", "user:"} {
+	for _, leak := range []string{"pw-secret", "q-secret", "q2-secret", "q3-secret", "frag", "user:"} {
 		if strings.Contains(got, leak) {
 			t.Errorf("%q leaked: %s", leak, got)
 		}
@@ -307,6 +311,12 @@ func TestProcessURLRedaction_Req4(t *testing.T) {
 	}
 	if m["nil_request"] != "<nil>" {
 		t.Errorf("nil_request = %v", m["nil_request"])
+	}
+	if m["query"] != "[REDACTED]" {
+		t.Errorf("query = %v", m["query"])
+	}
+	if errs, _ := m["errs"].([]any); len(errs) != 2 || errs[0] != `Post "https://idp.example/token": connection refused` || errs[1] != nil {
+		t.Errorf("errs = %v", m["errs"])
 	}
 }
 
@@ -379,6 +389,37 @@ func TestProcessURLErrorPanics(t *testing.T) {
 	m := object(t, line)
 	if m["nil_url_error"] != "<nil>" || m["panicking"] != "!PANIC: boom" || m["nil_inner"] != `Get "http://h/": <nil>` {
 		t.Errorf("line = %s", line)
+	}
+}
+
+// 09 req 4 and 65: a typed-nil error whose Unwrap dereferences its
+// receiver neither panics in Handle or WithAttrs nor breaks the
+// accounting; it is written as slog.JSONHandler writes it.
+func TestProcessTypedNilErrors(t *testing.T) {
+	s, out := newSink(t, Options{})
+	s.Logger("x").ErrorContext(t.Context(), "m",
+		slog.Any("path_error", error((*fs.PathError)(nil))),
+		slog.Any("op_error", error((*net.OpError)(nil))),
+		slog.Any("joined", errors.Join(errors.New("a"), (*fs.PathError)(nil))),
+	)
+	s.Logger("x").With(slog.Any("with_error", error((*fs.PathError)(nil)))).InfoContext(t.Context(), "w")
+	drain(s)
+	lines := out.lines(t)
+	if len(lines) != 2 {
+		t.Fatalf("lines = %q", lines)
+	}
+	m := object(t, lines[0])
+	if m["path_error"] != "<nil>" || m["op_error"] != "<nil>" {
+		t.Errorf("line = %s", lines[0])
+	}
+	if j, _ := m["joined"].(string); !strings.HasPrefix(j, "!PANIC:") {
+		t.Errorf("joined = %v", m["joined"])
+	}
+	if w := object(t, lines[1]); w["with_error"] != "<nil>" {
+		t.Errorf("line = %s", lines[1])
+	}
+	if st := s.Stats(); st.Produced != uint64(len(lines))+st.QueueFull {
+		t.Errorf("stats = %+v, lines = %d", st, len(lines))
 	}
 }
 

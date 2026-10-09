@@ -105,7 +105,15 @@ func (t *codeTable) inc(code string) {
 }
 
 // install is the slow path of the first record of a code that has no
-// entry yet, starting at empty slot h.
+// entry yet, starting at empty slot h. It reserves a place in count before
+// installing, so concurrent first records of different codes never hold
+// more than max entries, which the retiring ceiling (group ceil) relies
+// on. A reservation that loses to an entry for the same code is returned;
+// one past max re-probes for an entry of the same code that a concurrent
+// first record installed in the last place, and otherwise drops the
+// record. Near capacity, a reservation held briefly by such a losing
+// record can therefore drop the first record of a code that would have
+// fit once it is returned.
 //
 //go:noinline
 func (t *codeTable) install(h uint32, code string) {
@@ -113,7 +121,19 @@ func (t *codeTable) install(h uint32, code string) {
 		t.drop(code, dropUnregistered)
 		return
 	}
-	if t.count.Load() >= t.max {
+	if t.count.Add(1) > t.max {
+		t.count.Add(-1)
+		for range t.slots {
+			o := t.slots[h].Load()
+			if o == nil {
+				break
+			}
+			if o.code == code {
+				o.n.Add(1)
+				return
+			}
+			h = (h + 1) & t.mask
+		}
 		t.drop(code, dropTableFull)
 		return
 	}
@@ -121,15 +141,16 @@ func (t *codeTable) install(h uint32, code string) {
 	e.n.Store(1)
 	for range t.slots {
 		if t.slots[h].CompareAndSwap(nil, e) {
-			t.count.Add(1)
 			return
 		}
 		if o := t.slots[h].Load(); o.code == code {
+			t.count.Add(-1)
 			o.n.Add(1)
 			return
 		}
 		h = (h + 1) & t.mask
 	}
+	t.count.Add(-1)
 	t.drop(code, dropTableFull)
 }
 

@@ -36,10 +36,16 @@ const (
 // Enter read the clock before the run's start but swapped after it moves
 // the start back to its own offset, never below floor (the end of the
 // last closed run, raised before the closing swap). Runs therefore never
-// overlap and stay within the sections' hull. The one residual error is
-// an under-count: a section that enters and leaves entirely while the
-// leg closing the run is preempted between its maxLeave read and its
-// swap may end the run early.
+// overlap and stay within the sections' hull. The residual error is
+// bounded by a preemption between a leg's clock read and its swap, in
+// both directions: a section that enters and leaves entirely while the
+// closing leg is preempted after its maxLeave read may end the run early
+// (excluded time under-counted); a closing leg preempted between its
+// clock read and its swap while another section enters and leaves closes
+// the run at that section's leave, so the gap before that section counts
+// as excluded (over-counted); and a closing swap that fails leaves floor
+// raised to an end that never closed, which can stop a later stale Enter
+// from moving a run start back (under-counted).
 type GatewayTimer struct {
 	start    time.Time
 	word     atomic.Uint64

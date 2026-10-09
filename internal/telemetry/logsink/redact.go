@@ -154,15 +154,28 @@ func redactURLString(s string) string {
 }
 
 // hasURLError reports whether err's tree holds a *url.Error, without
-// allocating.
-func hasURLError(err error) bool {
+// allocating. A panicking Unwrap (a typed-nil error such as
+// (*fs.PathError)(nil)) reports true, so freeze sends the value through
+// redactErrorText, which writes "<nil>" or a "!PANIC:" text as
+// slog.JSONHandler does.
+func hasURLError(err error) (found bool) {
+	defer func() {
+		if recover() != nil {
+			found = true
+		}
+	}()
+	return walkURLError(err)
+}
+
+// walkURLError is hasURLError without the recover.
+func walkURLError(err error) bool {
 	for err != nil {
 		switch x := err.(type) { //nolint:errorlint // walks the tree by hand to stay allocation-free.
 		case *url.Error:
 			return true
 		case interface{ Unwrap() []error }:
 			for _, e := range x.Unwrap() {
-				if hasURLError(e) {
+				if walkURLError(e) {
 					return true
 				}
 			}
@@ -230,8 +243,9 @@ func redactURLError(text string, x *url.Error) string {
 
 // mutable reports whether a value must be frozen before it is queued: a
 // LogValuer (resolved on the calling goroutine, so secret.Value becomes
-// [REDACTED] at once), a header map, request or URL (redacted), a byte
-// slice (copied), a pointer to one of these, or an error carrying a URL.
+// [REDACTED] at once), a header map, parsed query, request or URL
+// (redacted), a byte slice (copied), a pointer to one of these, or an
+// error or error slice carrying a URL.
 func mutable(v slog.Value) bool {
 	switch v.Kind() {
 	case slog.KindLogValuer:
@@ -246,8 +260,10 @@ func mutable(v slog.Value) bool {
 	case slog.KindAny:
 		switch x := v.Any().(type) {
 		case http.Header, *http.Header, map[string][]string, *map[string][]string,
-			*http.Request, url.URL, *url.URL, **url.URL, []byte, *[]byte:
+			*http.Request, url.URL, *url.URL, **url.URL, []byte, *[]byte, url.Values, *url.Values:
 			return true
+		case []error:
+			return slices.ContainsFunc(x, hasURLError)
 		case error:
 			return hasURLError(x)
 		}
@@ -324,6 +340,20 @@ func freezeAny(v slog.Value, c *credSet) slog.Value {
 			return slog.AnyValue(nil)
 		}
 		return slog.AnyValue(bytes.Clone(*x))
+	case url.Values, *url.Values:
+		// A parsed query string never reaches a signal (09 req 4).
+		return slog.StringValue(secret.Redacted)
+	case []error:
+		if !slices.ContainsFunc(x, hasURLError) {
+			break
+		}
+		out := make([]any, len(x))
+		for i, e := range x {
+			if e != nil {
+				out[i] = redactErrorText(e)
+			}
+		}
+		return slog.AnyValue(out)
 	case error:
 		if hasURLError(x) {
 			return slog.StringValue(redactErrorText(x))

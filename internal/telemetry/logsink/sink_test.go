@@ -365,6 +365,52 @@ func recordAttrs(r slog.Record) map[string]string {
 	return m
 }
 
+// 09 req 4 and 61, 06 req 92: a slot filled with a group value (from the
+// record or from WithAttrs) has its credential-named members redacted and
+// passed to ReplaceAttr under the slot key on stdout and on the bridge.
+func TestBridgeSlotGroupRedacted_Req61(t *testing.T) {
+	var mu sync.Mutex
+	calls := map[[2]string]int{}
+	s, out := newSink(t, Options{ReplaceAttr: func(groups []string, a slog.Attr) slog.Attr {
+		mu.Lock()
+		defer mu.Unlock()
+		calls[[2]string{strings.Join(groups, "."), a.Key}]++
+		return a
+	}})
+	b := &recordingBridge{}
+	s.SetBridge(b)
+	slog.New(s.Handler("")).Info("m", slog.Group(catalog.KeyError, slog.String("authorization", "Bearer LEAK1")))
+	// x_api_key names the x-api-key credential header: redaction ignores
+	// the '-' and '_' spelling.
+	slog.New(s.Handler("").WithAttrs([]slog.Attr{slog.Group(catalog.KeyCode, slog.String("x_api_key", "LEAK2"))})).Info("m2")
+	drain(s)
+	lines := out.lines(t)
+	if len(lines) != 2 {
+		t.Fatalf("lines = %q", lines)
+	}
+	for _, l := range lines {
+		if strings.Contains(l, "LEAK1") || strings.Contains(l, "LEAK2") || !strings.Contains(l, "[REDACTED]") {
+			t.Errorf("line = %s", l)
+		}
+	}
+	if len(b.got) != 2 {
+		t.Fatalf("bridge got %d records", len(b.got))
+	}
+	if got := recordAttrs(b.got[0].Record)["error.authorization"]; got != "[REDACTED]" {
+		t.Errorf("bridge error.authorization = %q", got)
+	}
+	if got := recordAttrs(b.got[1].Record)["code.x_api_key"]; got != "[REDACTED]" {
+		t.Errorf("bridge code.x_api_key = %q", got)
+	}
+	mu.Lock()
+	defer mu.Unlock()
+	for _, k := range [][2]string{{catalog.KeyError, "authorization"}, {catalog.KeyCode, "x_api_key"}} {
+		if calls[k] != 2 {
+			t.Errorf("ReplaceAttr%v called %d times, want 2 (stdout and bridge); calls = %v", k, calls[k], calls)
+		}
+	}
+}
+
 // 09 req 61, 62: after the stdout write each record goes once to the OTLP
 // bridge, with framing members as attributes, groups applied, trace IDs
 // separate and node_id left to the resource.

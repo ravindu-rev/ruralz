@@ -49,6 +49,10 @@ type Limits struct {
 	// Revision is the series one Revision admits (100,000).
 	Revision int
 	// Retiring is the Node-wide ceiling of retiring series (25,000).
+	// Listener and enumeration-only series count against it but never
+	// fold (09 req 55), so retiring listener groups alone can hold the
+	// retiring count above it once no foldable group is left to fold: the
+	// ceiling bounds what folding can reclaim, not the listener share.
 	Retiring int
 	// ListenerStripedSeries and ListenerStripedHistograms cap the striped
 	// listener and enumeration-only counter or gauge series (1,000) and

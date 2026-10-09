@@ -296,6 +296,50 @@ func TestProcessorForceFlushDeadline(t *testing.T) {
 	}
 }
 
+// TestProcessorShutdownDuringForceFlush covers req 25: a ForceFlush on a
+// context without deadline whose export is stalled does not hold Shutdown
+// past its own ctx; the flush returns ErrClosed and every span is
+// exported or counted.
+func TestProcessorShutdownDuringForceFlush(t *testing.T) {
+	f := newProcFixture(t, ProcessorOptions{QueueSize: 16, ExportTimeout: 10 * time.Second})
+	f.exp.block = make(chan struct{}) // a stalled collector that honors ctx
+	f.end(ended(5, "s"))
+	flushed := make(chan error, 1)
+	go func() { flushed <- f.p.ForceFlush(context.Background()) }()
+	deadline := time.Now().Add(5 * time.Second)
+	for len(f.p.queue) > 0 { // the flush took the spans: its export is stalled
+		if time.Now().After(deadline) {
+			t.Fatal("flush never started")
+		}
+		time.Sleep(time.Millisecond)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Millisecond)
+	defer cancel()
+	start := time.Now()
+	if err := f.p.Shutdown(ctx); !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("Shutdown = %v, want deadline exceeded", err)
+	}
+	if d := time.Since(start); d > 5*time.Second {
+		t.Fatalf("Shutdown took %v, bounded by the flush's export timeout", d)
+	}
+	select {
+	case err := <-flushed:
+		if !errors.Is(err, ErrClosed) {
+			t.Fatalf("ForceFlush = %v, want ErrClosed", err)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("ForceFlush did not return")
+	}
+	b, _ := f.exp.got()
+	exported := 0
+	for _, n := range b {
+		exported += n
+	}
+	if got := uint64(exported) + f.c.export.Load(); got != 5 || f.c.spans.Load() != 5 {
+		t.Fatalf("exported %d + export_error %d != spans_total %d", exported, f.c.export.Load(), f.c.spans.Load())
+	}
+}
+
 // TestProcessorConcurrentOnEnd runs OnEnd from many goroutines against a
 // small queue (with -race): every span is either exported or counted.
 func TestProcessorConcurrentOnEnd(t *testing.T) {

@@ -428,9 +428,11 @@ func (s *Sink) leaf(groups []string, a slog.Attr, top bool, creds *credSet) (slo
 	return a, true
 }
 
-// prepareSlot applies ReplaceAttr and redaction to a slot attribute; the
-// slot keeps its key whatever ReplaceAttr returns, and a zero result
-// empties the slot.
+// prepareSlot applies ReplaceAttr to a scalar slot value; the slot keeps
+// its key whatever ReplaceAttr returns, and a zero result empties the
+// slot. A group value is returned unchanged: its members get ReplaceAttr
+// (groups [slot key]) and credential-name redaction where it is encoded
+// (appendSlotValue, exportSlot).
 func (s *Sink) prepareSlot(a slog.Attr) (slog.Attr, bool) {
 	key := a.Key
 	a.Value = a.Value.Resolve()
@@ -501,11 +503,11 @@ func (s *Sink) appendRecord(dst []byte, e *entry) []byte {
 		case rset&(1<<k) != 0:
 			if a, ok := s.prepareSlot(rs[k]); ok {
 				dst = appendKey(dst, slotKey(k))
-				dst = s.appendSlotValue(dst, a.Value, creds)
+				dst = s.appendSlotValue(dst, k, a.Value, creds)
 			}
 		case st.slotSet&(1<<k) != 0:
 			dst = appendKey(dst, slotKey(k))
-			dst = s.appendSlotValue(dst, st.slots[k].Value, creds)
+			dst = s.appendSlotValue(dst, k, st.slots[k].Value, creds)
 		default:
 			dst = s.appendDefaultSlot(dst, e, k)
 		}
@@ -552,13 +554,18 @@ func scanSlots(a slog.Attr, rs *[numSlots]slog.Attr, rset *uint8) {
 	}
 }
 
-// appendSlotValue encodes the value of a slot filled by an attribute; a
-// group value becomes an object whose members follow the attribute rules.
-func (s *Sink) appendSlotValue(dst []byte, v slog.Value, creds *credSet) []byte {
+// appendSlotValue encodes the value of slot k filled by an attribute; a
+// group value becomes an object whose members follow the attribute rules,
+// with ReplaceAttr seeing the groups [slot key].
+func (s *Sink) appendSlotValue(dst []byte, k int, v slog.Value, creds *credSet) []byte {
 	if v.Kind() == slog.KindGroup {
+		var groups []string
+		if s.replace != nil {
+			groups = []string{slotKey(k)} // only with ReplaceAttr, so the path stays allocation-free without it
+		}
 		dst = append(dst, '{')
 		for _, c := range v.Group() {
-			dst = s.appendAttr(dst, nil, c, false, creds)
+			dst = s.appendAttr(dst, groups, c, false, creds)
 		}
 		return append(dst, '}')
 	}

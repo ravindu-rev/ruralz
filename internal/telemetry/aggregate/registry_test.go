@@ -10,6 +10,7 @@ import (
 	"log/slog"
 	"runtime"
 	"strings"
+	"sync"
 	"testing"
 
 	"github.com/ravindu-rev/ruralz/internal/phase"
@@ -231,8 +232,10 @@ func TestSyntacticCodes(t *testing.T) {
 	}
 }
 
-// A code table never exceeds its capacity and never loses a code it
-// holds; installation races resolve to one entry per code.
+// A code table filled one record at a time stops at its capacity, and
+// racing records never lose a code it holds: installation races resolve
+// to one entry per code. TestCodeTableCapacityUnderRace covers the
+// capacity under racing first records.
 func TestCodeTableCapacityAndRaces(t *testing.T) {
 	valid := func(string) bool { return true }
 	tab := newCodeTable("test", []string{"A"}, 3, valid, nil)
@@ -270,6 +273,28 @@ func TestCodeTableCapacityAndRaces(t *testing.T) {
 	}
 	if len(seen) != 32 || total != 8000 {
 		t.Errorf("entries %d total %d, want 32 and 8000", len(seen), total)
+	}
+}
+
+// Racing first records of more distinct codes than the capacity never
+// install more entries than the capacity, and count matches the entries
+// once they settle.
+func TestCodeTableCapacityUnderRace(t *testing.T) {
+	for range 200 {
+		tab := newCodeTable("test", nil, 4, func(string) bool { return true }, nil)
+		start := make(chan struct{})
+		var wg sync.WaitGroup
+		for w := range 16 {
+			wg.Go(func() {
+				<-start
+				tab.inc(fmt.Sprintf("C%02d", w))
+			})
+		}
+		close(start)
+		wg.Wait()
+		if n := len(tab.entries(nil)); n > 4 || int32(n) != tab.count.Load() {
+			t.Fatalf("entries = %d, count = %d, want at most 4 and equal", n, tab.count.Load())
+		}
 	}
 }
 

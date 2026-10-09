@@ -17,13 +17,16 @@
 // Redaction and copying cover these value types, directly or through one
 // pointer: LogValuer (resolved at once), http.Header and
 // map[string][]string (copied, credential headers [REDACTED]),
-// *http.Request (method, host and path only), url.URL and *url.URL (no
-// user information, query or fragment), []byte (copied) and errors
-// holding a *url.Error (text with the URL redacted). Any other value is
-// queued by reference and encoded with encoding/json on the worker, as
-// given: a reference value (slice, map, pointer, struct holding one) must
-// not change once logged, and a struct that holds a header map or URL is
-// not redacted, so log those fields directly.
+// url.Values (a parsed query, written as [REDACTED]), *http.Request
+// (method, host and path only), url.URL and *url.URL (no user
+// information, query or fragment), []byte (copied), and errors and
+// []error holding a *url.Error (text with the URL redacted). Any other
+// value is queued by reference and encoded with encoding/json on the
+// worker, as given: a reference value (slice, map, pointer, struct
+// holding one) must not change once logged, and a struct that holds a
+// header map, URL or error is not redacted, so log those fields directly.
+// An error whose own text quotes a *url.Error's text again (with %q, say)
+// escapes the URL twice; that spelling is not found and not redacted.
 //
 // One worker goroutine (Run) drains the process queue and, when present,
 // a second Stream (the access log of internal/telemetry/accesslog), encodes

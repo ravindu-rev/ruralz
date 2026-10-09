@@ -207,17 +207,21 @@ func parseObsCatalog(lines []string) (obsCatalog, []finding) {
 // Split at the first of seps it holds, it gives either one part per name
 // ("operations, writes") or a value for every name followed by exceptions
 // of the form "<value> for <word>" for the names containing word ("Gauge;
-// Counter for cycles"). Any other split is ambiguous: ok is false.
+// Counter for cycles"). When any part after the first has the "<value> for
+// <word>" form, the cell is read as a value with exceptions even if it has
+// one part per name. Any other split is ambiguous: ok is false.
 func pick(cell string, names []string, index int, seps ...string) (value string, ok bool) {
 	if len(names) < 2 {
 		return strings.TrimSpace(cell), true
 	}
 	for _, sep := range seps {
 		parts := strings.Split(cell, sep)
-		switch {
-		case len(parts) == 1:
+		if len(parts) == 1 {
 			continue
-		case len(parts) == len(names):
+		}
+		// A part of the form "<value> for <word>" makes the cell a value
+		// with exceptions, whatever the part count.
+		if len(parts) == len(names) && !slices.ContainsFunc(parts[1:], func(p string) bool { return strings.Contains(p, " for ") }) {
 			return strings.TrimSpace(parts[index]), true
 		}
 		value = strings.TrimSpace(parts[0])
@@ -349,6 +353,19 @@ func codeGate(obs obsCatalog, cv catalogView) []finding {
 			continue
 		}
 		typ, typOK := cell(m, "Type", m.typ, ";")
+		kinds := 0
+		for _, k := range []string{"counter", "gauge", "histogram"} {
+			if strings.Contains(typ, k) {
+				kinds++
+			}
+		}
+		if typOK && kinds > 1 {
+			typOK = false
+			if key := fmt.Sprint(m.line, "Type"); !ambiguous[key] {
+				ambiguous[key] = true
+				at(m.line, "the Type cell %q names several types for %s; give one part per name or \"<value> for <word>\" exceptions", m.typ, strings.Join(m.names, ", "))
+			}
+		}
 		switch {
 		case !typOK: // reported once for the row
 		case !strings.Contains(typ, kindWord(f.Kind)):

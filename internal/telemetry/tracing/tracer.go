@@ -189,7 +189,10 @@ func (t *Tracer) ForceFlush(ctx context.Context) error { return t.provider.Force
 // Shutdown stops span creation, flushes the queued spans within ctx (spec
 // 09 req 25), stops the processor's worker and shuts the current exporter
 // down. When ctx is already done the worker still stops and every queued
-// span is counted as dropped (Processor.Shutdown).
+// span is counted as dropped (Processor.Shutdown). Its bound relies on the
+// exporter honoring ctx, as a sdktrace.SpanExporter must: it waits for an
+// export in flight, including one of a ForceFlush, to see the
+// cancellation.
 func (t *Tracer) Shutdown(ctx context.Context) error {
 	t.enabled.Store(false)
 	// The processor first: the SDK's TracerProvider.Shutdown returns
