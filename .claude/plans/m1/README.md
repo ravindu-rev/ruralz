@@ -51,7 +51,8 @@ Small items left for a later pass (none blocks wave 3):
    - verify with `git show --no-renames --name-only --format= HEAD`, then push `develop`.
 3. At the wave boundary, run the whole-tree checks: `go build ./...`, `go vet ./...`, `bin/golangci-lint run ./...` and `fmt --diff`, `go run ./internal/tool/repocheck`, `go run ./internal/tool/depgate`, `go mod verify`, `go generate ./...` with no diff, `CGO_ENABLED=1 go test -race -shuffle=on -tags netgo,osusergo ./...`, `CGO_ENABLED=0 go test -shuffle=on ./...` and `make floor FLOOR_GOTOOLCHAIN=go1.26.8`. Fix a failing or flaky test at its root cause, never by skipping it.
 4. Collect every package's `contractRequests`, triage them read-only (the same action classes as `triage.json`), ask the user only what is theirs to decide (ADRs, `docs/_meta/`, `nolicensecheck.allow`, runners, repository settings), apply the rest with `m1-apply.js`, record decisions in `specs/00-architecture.md` 2.16 and `arch/wps.json`, and add notes for later packages to `forwards.json`.
-5. Agents sometimes build a binary into the repository root (`go build ./internal/tool/x` without `-o`); delete such stray files before committing.
+5. Signing in a Claude Code cloud container: its global git config (`/root/.gitconfig`) sets `commit.gpgsign`, `gpg.ssh.program=/tmp/code-sign` and its own key, so a plain `git commit -S` is signed with the environment's key, not the user's. Before committing, set repository-local `gpg.format ssh`, `gpg.ssh.program /usr/bin/ssh-keygen` (install `openssh-client` if it is missing) and `user.signingkey` to the user's key, then check that `git log --format='%G? %GK'` shows `G` and the user's key fingerprint.
+6. Agents sometimes build a binary into the repository root (`go build ./internal/tool/x` without `-o`); delete such stray files before committing.
 
 ## Working rules from the user
 
