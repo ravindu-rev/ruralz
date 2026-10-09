@@ -1,0 +1,32 @@
+{
+ "ids": [
+  "WP-33"
+ ],
+ "reported": [
+  "WP-33"
+ ],
+ "titles": {
+  "WP-33": "feat(config): add the restricted YAML and JSON profile"
+ },
+ "reviews": {
+  "WP-33": {
+   "verdict": "fix",
+   "findings": [
+    {
+     "severity": "blocker",
+     "where": "internal/config/profile/tokens.go:183-199 and 313-378 (TagType case and the depth algorithm in structure; 01 req 9; 01 test plan FuzzProfileYAML, heap growth under 256 MiB for 1 MiB inputs; 11 req 17, 26). The fixes did not cause this: it was there before them and I found it during this re-review.",
+     "issue": "goccy nests a block-mapping key written at the same column under the empty, `!!map`-tagged value before it. `a: !!map\\nb: 1` parses with no findings to {a:{b:1}}. In YAML 1.2, b is a sibling of a, and a is an empty node tagged !!map. The same happens for `a: !!map # c\\nb: 1`, `? a\\n: !!map\\nb: 1`, `- !!map\\na: 1` and `a:\\n  - !!map\\n  b: 1`. The depth algorithm counts by column, so it sees one level while goccy recurses once per line. Measured (overlay test): 255 lines of `kN: !!map` per column, just under splitAt 256, across 63 columns makes a 712 KB input. It parses with no findings to a tree of depth 16,066 against MaxDepth 64, in 6.0 s with 1,679 MiB peak heap. The cost is goccy parser.(*context).withChild, which concatenates path strings, so it grows with depth squared. On one column, 255 lines are accepted at depth 256, but 256 lines take the split parse and fail with \"unexpected scalar value\". So the result also depends on the mapping's width. Finding 2's fix now admits the tagged-key form too (`!!str k0: !!map\\n!!str k1: !!map ...`), which behaves the same way. TestHostileInputsBounded and FuzzLoadYAML do not cover this shape.",
+     "fix": "In the token pass, in block context: when a tag is the last non-comment token on its line and the next non-comment token starts at a column at or left of the innermost block frame's column, fail with RZ-CFG-001 at the tag (for example \"a tagged node has no value\"). Allow one exception: a SequenceEntryType at the column of a mapping frame, which is a compact sequence value (`a: !!seq\\n- x`). Document-level tags (empty stack: `--- !!map\\na: 1`, `!!map\\na: 1`) are unaffected. Add rows that must be RZ-CFG-001: `a: !!map\\nb: 1`, `a: !!map # c\\nb: 1`, `? a\\n: !!map\\nb: 1`, `- !!map\\na: 1`, `a:\\n  - !!map\\n  b: 1`, `!!str a: !!map\\n!!str b: 1`. Add rows that must still parse: `a: !!seq\\n- x`, `--- !!map\\na: 1`, `a: !!map\\n  b: 1`. Add the 63-column x 255-line shape, padded to 1 MiB, to TestHostileInputsBounded with peak-heap and depth assertions, and as a FuzzLoadYAML seed."
+    }
+   ],
+   "summary": "Second re-review of WP-33 found one blocker present since the first implementation: tagged empty block nodes let goccy nest same-column siblings, bypassing the depth limit with quadratic cost."
+  }
+ },
+ "extra": {
+  "WP-33": "Notes from the wave-2 boundary: contract change requests forwarded to this work package, with the lead's decisions. The architecture and wps.json already reflect the decisions; these notes give detail.\n- [CR 134 from WP-27] scripts/update-test-suites.sh (WP-27) pins each suite by commit and by the SHA-256 of `git archive`. It vendors test/fixtures/yaml-test-suite/data/<ID>/... from the data-2022-01-17 release, without its name/ and tags/ symlink indexes, and test/fixtures/json-schema-test-suite/data/tests/draft2020-12/ and data/remotes/ at commit 5b0ee16. Each suite directory also gets LICENSE and SOURCE (MIT). The script replaces only data/, LICENSE and SOURCE, so keep test/fixtures/yaml-test-suite/expected-failures.txt (and any JSON skip list) next to data/, never inside it; run `scripts/update-test-suites.sh yaml` (WP-33) or `scripts/update-test-suites.sh json-schema` (WP-35) and commit the output. .gitattributes stores both data/** trees byte for byte (-text, linguist-vendored), so runners must not normalize line endings. The suite's remotes/ files answer http://localhost:1234/ references: WP-35's test runner preloads them as in-memory resources (the production schemaview compiler keeps its refusing loader) or skips refRemote cases with a recorded reason."
+ },
+ "deferMinor": true,
+ "maxRounds": {
+  "WP-33": 2
+ }
+}
