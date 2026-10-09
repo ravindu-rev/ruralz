@@ -2,7 +2,7 @@
 title: Performance Budgets and Benchmarking
 status: reviewed
 owner: ruralz-core
-last_updated: 2026-10-03
+last_updated: 2026-10-09
 depends_on:
   - docs/_meta/foundation-pack.md
   - docs/_meta/style-guide.md
@@ -157,13 +157,13 @@ flowchart TD
 
 ### Reference hardware
 
-Latency, throughput and memory budgets gate on RH-1, and from M2 on RH-2 too; PB-13, the F2 rows and SM-10 measure fan-out and accounting, not CPU, so they gate on Testing's dedicated general runners.
+Latency, throughput and memory budgets gate on RH-1, plus RH-2 from M2, except idle RSS (stage 9, shared runners, both architectures) and fan-out and accounting rows PB-13, F2 and SM-10 (Testing's dedicated general runners).
 
 | ID | Role | Specification | Use |
 |---|---|---|---|
 | RH-1 | Reference machine | Bare-metal linux/amd64, one socket, 16 or more physical cores at a fixed 3.0 GHz or more, turbo, deep C-states and SMT off, 64 GiB of RAM, a 25 Gbit/s NIC, the current Linux LTS kernel (target) | `ruralzd` in a cgroup v2 cpuset of 4 cores on the NIC's NUMA node, `GOMAXPROCS=4`; interrupts elsewhere |
 | RH-1L, RH-1U, RH-1S | Load generator; mock and Collector sink; State Store | Same specification and switch; round trip p99 of 50 µs or less (hypothesis) | RH-1S runs one Valkey primary in a 4-core cpuset (target) |
-| RH-2 | linux/arm64 ([tech stack](../engineering/01-tech-stack-and-libraries.md#static-builds)) | Same rules | Reported in M1; gates from M2 |
+| RH-2 | linux/arm64 ([tech stack](../engineering/01-tech-stack-and-libraries.md#static-builds)) | Same rules | Reported once provisioned; gates from M2 |
 | RH-3 | Reproduction profile | A cloud VM with 4 dedicated vCPUs (target) | Published, never gated |
 
 RH-1 is rented bare metal meeting this specification (owner decision); Revington-owned hardware stays the long-term home. Its self-hosted runner, labeled `rh-1`, runs only jobs of protected branches and tags (scheduled, dispatched, or called by `release.yml`), never pull-request code. The Latency job and the [weekly `chaos-scale.yml`](../engineering/03-testing-and-quality-strategy.md#chaos-testing) run on `rh-1`, serialized, once the repository variable `RH1_PROVISIONED` is `true`, set after registration; until then each fails with an "RH-1 not provisioned" annotation and no RH-1 budget is measured.

@@ -2,7 +2,7 @@
 title: Testing and Quality Strategy
 status: reviewed
 owner: ruralz-core
-last_updated: 2026-10-03
+last_updated: 2026-10-09
 depends_on:
   - docs/_meta/foundation-pack.md
   - docs/_meta/style-guide.md
@@ -234,7 +234,7 @@ Faults come from process signals, `redis` commands and the Ruralz TCP fault prox
 
 [Performance budgets and benchmarking](../architecture/12-performance-budgets-and-benchmarking.md) owns values, hardware, load tools and both thresholds; this document places the gates. Each seed budget gates from its component's milestone, the Plugin Phase call from M2 (SM-6); the M4 bench suite extends them.
 
-**Regression policy.** A change fails when its alloc/op exceeds the merge base's by more than 3% (target), benchmarked interleaved with the head in one `pr-full` job, at least 10 runs each (target), on shared runners. Latency gates on RH-1, never on shared runners (OQ-testing-and-quality-strategy-2, option (c)): a change fails when its median-of-runs p99 is more than 5% (target) above the same scenario's previous run, re-run interleaved, with four of five pairs slower; `release` compares with the previous release on the same hosts. RH-2 (linux/arm64) results are reported in M1 and gate from M2 (OQ-performance-budgets-and-benchmarking-4, option (a)). These placements, the Latency job's slot rotation, the `release` soak and F2 in the Scale job adopt OQ-performance-budgets-and-benchmarking-3, option (a).
+**Regression policy.** A change fails when its alloc/op exceeds the merge base's by more than 3% (target), benchmarked interleaved with the head in one `pr-full` job, at least 10 runs each (target), on shared runners. Latency gates on RH-1, never on shared runners (OQ-testing-and-quality-strategy-2, option (c)): a change fails when its median-of-runs p99 is more than 5% (target) above the same scenario's previous run, re-run interleaved, with four of five pairs slower; `release` compares with the previous release on the same hosts. RH-2 (linux/arm64) results are reported once provisioned and gate from M2 (OQ-performance-budgets-and-benchmarking-4, option (a)). These placements, the Latency job's slot rotation, the `release` soak and F2 in the Scale job adopt OQ-performance-budgets-and-benchmarking-3, option (a).
 
 | Gate | Measures | Stage | Fails when | Milestone |
 |---|---|---|---|---|

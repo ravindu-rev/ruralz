@@ -2,7 +2,7 @@
 title: Repository Layout and Conventions
 status: reviewed
 owner: ruralz-core
-last_updated: 2026-10-03
+last_updated: 2026-10-09
 depends_on:
   - docs/_meta/foundation-pack.md
   - docs/_meta/style-guide.md
@@ -516,7 +516,7 @@ The security-sensitive packages, whose gosec suppressions need a security review
 
 ## CI stages
 
-The numbered stages are jobs inside the pipelines that [Testing and quality strategy](03-testing-and-quality-strategy.md#test-pyramid) owns: `pr-fast` on every pull request, within 10 minutes (target); `pr-full` on pull requests changing Go code, protos, schemas or examples, within 30 minutes (target); then `main`, `nightly` and `release`. Stages 1 to 11 each call one `make` target, runnable locally except stage 1's approval count; stage 12 also needs signing credentials. The `pr-fast` workflow ends in a job named `pr-fast` that fails when any stage failed and passes when each stage passed or was skipped by its path filter; with the `pr-title` and `approvals` checks it is a required status check. Path filters skip stages whose inputs did not change; a pass-through job computes the changed paths itself and MUST report success for each skipped required check. *Go changes* means any `*.go` file, `go.mod`, `go.sum`, `.golangci.yml`, `Makefile` or `scripts/` file; any change under `.github/workflows/` runs every `pr-fast` and `pr-full` stage.
+The numbered stages are jobs inside the pipelines that [Testing and quality strategy](03-testing-and-quality-strategy.md#test-pyramid) owns: `pr-fast` on every pull request, within 10 minutes (target); `pr-full` on Go, proto, schema, `examples/`, `test/` or `deploy/` changes and merge queue runs, within 30 minutes (target); then `main`, `nightly` and `release`. Stages 1 to 11 each call one `make` target, runnable locally except stage 1's approval count; stage 12 also needs signing credentials. The `pr-fast` workflow ends in a job named `pr-fast` that passes only when each stage passed or was skipped by its path filter; with the `pr-title` and `approvals` checks it is a required status check. Path filters skip stages whose inputs did not change; a pass-through job computes the changed paths itself and MUST report success for each skipped required check. *Go changes* means any `*.go` file, `go.mod`, `go.sum`, `.golangci.yml`, `Makefile` or `scripts/` file; any change under `.github/workflows/` runs every `pr-fast` and `pr-full` stage.
 
 | Stage | Pipeline | What runs | Make target | Trigger | Blocks merge | Milestone |
 |---|---|---|---|---|---|---|

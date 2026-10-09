@@ -2,7 +2,7 @@
 title: Tech Stack and Libraries
 status: reviewed
 owner: ruralz-core
-last_updated: 2026-10-03
+last_updated: 2026-10-09
 depends_on:
   - docs/_meta/foundation-pack.md
   - docs/_meta/style-guide.md
@@ -371,7 +371,7 @@ G2, G3, the `ruralzd` Raft denylist and the advisory floors run as `internal/too
 | paho.golang | Last tag 2025-09-06 ([source](https://pkg.go.dev/github.com/eclipse/paho.golang?tab=versions)) | v5 defect unfixed for a quarter | Public fork |
 | cedar-go | No commits since 2026-06-01 ([source](https://github.com/cedar-policy/cedar-go)) | Unfixed security issue | OPA only; fork |
 | boltdb/bolt | Archived; last push 2018-03-02 ([source](https://github.com/boltdb/bolt)) | Advisory against v1.3.1 | Fork raft-boltdb/v2 without `MigrateToV2` |
-| OTel Logs API | Release candidate ([source](https://github.com/open-telemetry/opentelemetry-go/releases/tag/v1.47.0-rc.1)) | v1.47.0 stable | Logs SDK replaces the bridge |
+| OTel Logs API | Release candidate ([source](https://github.com/open-telemetry/opentelemetry-go/releases/tag/v1.47.0-rc.1)) | v1.47.0 stable | Stable SDK behind the bridge |
 
 ### Documentation tooling
 

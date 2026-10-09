@@ -2,7 +2,7 @@
 title: Configuration Model
 status: reviewed
 owner: ruralz-core
-last_updated: 2026-10-03
+last_updated: 2026-10-09
 depends_on:
   - docs/_meta/foundation-pack.md
   - docs/_meta/style-guide.md
@@ -877,7 +877,7 @@ Validating 10,000 resources takes under 2 seconds on a four-core laptop, and the
 
 ### Error codes
 
-Figure 3 names the stage that raises each code. Only stage I raises RZ-CFG-018, -019, -020, -029 and -038, and RZ-CFG-022 comes only from stage C's `--environments` file.
+Figure 3 names the stages that raise each code. Only stage I raises RZ-CFG-018, -019, -020, -029 and -038, and RZ-CFG-022 comes only from stage C's `--environments` file.
 
 | Code | Meaning |
 |---|---|

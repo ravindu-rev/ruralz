@@ -2,7 +2,7 @@
 title: Security and Identity
 status: reviewed
 owner: ruralz-core
-last_updated: 2026-10-03
+last_updated: 2026-10-09
 depends_on:
   - docs/_meta/foundation-pack.md
   - docs/_meta/style-guide.md
@@ -466,7 +466,7 @@ Rate Limits run after `auth` and never see failed attempts, so a throttle, Plann
 
 **Eviction.** At 100 new usernames per second, evicting a live bucket takes 1,000 s (hypothesis), 100 times its refill; an evicted bucket returns full, adding at most 10 guesses per username per 1,000 s (hypothesis).
 
-Residuals (T1), accepted for M1 (OQ-security-and-identity-15 (a)): no fixed lockout, but a flood shares the username's rate with its owner, exempt only through the success cache; spraying across usernames is bounded only by the hash queue, shown by per-cause refusal counters; credentials stored at a non-default iteration count differ in timing from the dummy hash; the capacity bound and the restart ramp above.
+Residuals (T1), accepted for M1 (OQ-security-and-identity-15 (a)): no lockout, but a flood shares the username's rate with its owner, exempt only through the success cache; spraying across usernames is bounded only by the hash queue, shown by per-cause refusal counters proposed to [Observability](10-observability.md); credentials at a non-default iteration count differ in timing from the dummy hash; the capacity bound and restart ramp above.
 
 ## Revocation
 
@@ -546,7 +546,7 @@ For OQ-system-overview-6: 9901 and 9902 bind all interfaces for kubelet probes, 
 | `RURALZ_ADMIN_METRICS_TOKEN_FILE` | The metrics token | `/metrics` |
 | `RURALZ_ADMIN_TLS_DIR` | `tls.crt` and `tls.key` for admin TLS, optional `ca.crt` | Certificates chaining to `ca.crt` with `clientAuth` usage: `/metrics`, plus operator paths while an operator token is set |
 
-A token file is a regular file holding 22 to 4,096 bytes of RFC 6750 `b64token` characters once trailing whitespace is trimmed; any other token file, or a TLS directory without `tls.crt` or `tls.key`, refuses start (exit 2). Token files are re-read on change, so a rotated token applies without a restart and an invalid one keeps the last valid token; the TLS directory is read at start.
+A token file is a regular file holding 22 to 4,096 RFC 6750 `b64token` characters after trimming trailing whitespace; any other token file, or a TLS directory without `tls.crt` or `tls.key`, refuses start (exit 2). Token files, unlike the TLS directory, are re-read on change: rotation needs no restart, an invalid file keeps the last valid token, and removing one revokes its token until a valid file returns.
 
 Bearer tokens are compared in constant time over SHA-256 digests and accepted only over TLS or from a loopback peer; without the operator token, `/tap`, `/config/dump` and `/debug/*` are off. Failures are 401 problem documents with RZ-AUTH-001 (no credential) or RZ-AUTH-002 (invalid) and `WWW-Authenticate: Bearer realm="ruralz-admin"`; admin without TLS is a reported cleartext hop. `/tap` and `/config/dump` use is logged with path, peer and credential kind, never the token.
 
