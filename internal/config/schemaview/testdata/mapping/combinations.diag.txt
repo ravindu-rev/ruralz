@@ -1,0 +1,3 @@
+routes/combinations.json:6:23 error RZ-CFG-005 Route/orders spec.match.path: exactly one of exact, prefix, template, regex is allowed, found exact and prefix
+routes/combinations.json:10:9 error RZ-CFG-005 Route/orders spec.composition.steps[name=stock]: exactly one of path, pathExpression is allowed, found path and pathExpression
+routes/combinations.json:11:9 error RZ-CFG-005 Route/orders spec.composition.steps[name=price]: exactly one of path, pathExpression is required

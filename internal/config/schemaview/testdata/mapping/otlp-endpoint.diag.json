@@ -1,0 +1,20 @@
+[
+  {
+    "code": "RZ-CFG-005",
+    "severity": "error",
+    "file": "routes/otlp-endpoint.json",
+    "line": 8,
+    "column": 28,
+    "resource": {
+      "kind": "Gateway",
+      "name": "edge"
+    },
+    "path": [
+      "spec",
+      "telemetry",
+      "otlp",
+      "endpoint"
+    ],
+    "message": "must be an http or https URL with a host and an optional port, no path other than /, and no user information, query or fragment"
+  }
+]

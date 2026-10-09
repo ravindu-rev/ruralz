@@ -1,0 +1,1 @@
+routes/at-least-one.json:7:15 error RZ-CFG-005 Policy/office-only spec.config: at least one of allow, deny is required

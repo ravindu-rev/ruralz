@@ -1,0 +1,3 @@
+routes/unknown-field.json:6:5 error RZ-CFG-006 Upstream/inventory metadata.namespace: unknown field "namespace": Bundles have no namespace
+routes/unknown-field.json:8:3 error RZ-CFG-006 Upstream/inventory status: unknown field "status": only Ruralz Control writes status
+routes/unknown-field.json:12:5 error RZ-CFG-006 Upstream/inventory spec.timout: unknown field "timout" (did you mean "timeout"?)

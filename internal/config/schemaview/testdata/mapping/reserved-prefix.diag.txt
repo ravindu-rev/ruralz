@@ -1,0 +1,2 @@
+routes/reserved-prefix.json:6:36 error RZ-CFG-005 Route/catalog metadata.labels["ruralz.io/tier"]: label key "ruralz.io/tier" uses the reserved prefix ruralz.io/
+routes/reserved-prefix.json:7:56 error RZ-CFG-005 Route/catalog metadata.annotations["ruralz.io/owner"]: annotation key "ruralz.io/owner" uses the reserved prefix ruralz.io/ (only ruralz.io/conversion-data may use the prefix)

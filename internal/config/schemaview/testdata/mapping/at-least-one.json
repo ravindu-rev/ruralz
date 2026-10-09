@@ -1,0 +1,9 @@
+{
+  "apiVersion": "ruralz/v1alpha1",
+  "kind": "Policy",
+  "metadata": {"name": "office-only"},
+  "spec": {
+    "type": "authz.ip",
+    "config": {}
+  }
+}

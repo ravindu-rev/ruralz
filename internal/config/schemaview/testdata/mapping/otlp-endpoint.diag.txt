@@ -1,0 +1,1 @@
+routes/otlp-endpoint.json:8:28 error RZ-CFG-005 Gateway/edge spec.telemetry.otlp.endpoint: must be an http or https URL with a host and an optional port, no path other than /, and no user information, query or fragment

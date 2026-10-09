@@ -1,0 +1,37 @@
+[
+  {
+    "code": "RZ-CFG-005",
+    "severity": "error",
+    "file": "routes/reserved-prefix.json",
+    "line": 6,
+    "column": 36,
+    "resource": {
+      "kind": "Route",
+      "name": "catalog"
+    },
+    "path": [
+      "metadata",
+      "labels",
+      "ruralz.io/tier"
+    ],
+    "message": "label key \"ruralz.io/tier\" uses the reserved prefix ruralz.io/"
+  },
+  {
+    "code": "RZ-CFG-005",
+    "severity": "error",
+    "file": "routes/reserved-prefix.json",
+    "line": 7,
+    "column": 56,
+    "resource": {
+      "kind": "Route",
+      "name": "catalog"
+    },
+    "path": [
+      "metadata",
+      "annotations",
+      "ruralz.io/owner"
+    ],
+    "message": "annotation key \"ruralz.io/owner\" uses the reserved prefix ruralz.io/",
+    "hint": "only ruralz.io/conversion-data may use the prefix"
+  }
+]

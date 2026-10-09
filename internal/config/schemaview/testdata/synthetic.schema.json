@@ -1,0 +1,90 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "required": ["apiVersion", "kind", "metadata", "spec"],
+  "properties": {
+    "apiVersion": {"const": "test/v1"},
+    "kind": {"enum": ["Thing", "Other"]}
+  },
+  "allOf": [
+    {"if": {"properties": {"kind": {"const": "Thing"}}, "required": ["kind"]}, "then": {"$ref": "#/$defs/Thing"}},
+    {"if": {"properties": {"kind": {"const": "Other"}}, "required": ["kind"]}, "then": {"$ref": "#/$defs/Other"}}
+  ],
+  "$defs": {
+    "Meta": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name"],
+      "properties": {
+        "name": {"type": "string"},
+        "labels": {"type": "object", "additionalProperties": {"type": "string"}},
+        "annotations": {"type": "object", "additionalProperties": {"type": "string"}}
+      }
+    },
+    "Thing": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["apiVersion", "kind", "metadata", "spec"],
+      "properties": {
+        "apiVersion": {"const": "test/v1"},
+        "kind": {"const": "Thing"},
+        "metadata": {"$ref": "#/$defs/Meta"},
+        "spec": {"$ref": "#/$defs/ThingSpec"}
+      }
+    },
+    "Other": {
+      "type": "object",
+      "required": ["apiVersion", "kind", "metadata", "spec"],
+      "properties": {
+        "apiVersion": {"const": "test/v1"},
+        "kind": {"const": "Other"},
+        "metadata": {"$ref": "#/$defs/Meta"},
+        "spec": {"type": "object"}
+      }
+    },
+    "Secret": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["ref"],
+      "properties": {
+        "ref": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["id"],
+          "properties": {"id": {"type": "string", "pattern": "^[a-z]+$"}, "n": {"type": "integer"}}
+        }
+      }
+    },
+    "ThingSpec": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "count": {"type": "integer", "multipleOf": 5, "exclusiveMinimum": 0, "exclusiveMaximum": 100},
+        "ratio": {"type": "number", "minimum": 0.5, "maximum": 1.5},
+        "tags": {"type": "array", "items": {"type": "string"}, "maxItems": 2, "uniqueItems": true},
+        "attrs": {"type": "object", "maxProperties": 1},
+        "never": false,
+        "either": {"oneOf": [{"type": "string"}, {"type": "integer", "minimum": 5}]},
+        "overlap": {"oneOf": [{"type": "integer", "minimum": 1}, {"type": "integer", "maximum": 10}]},
+        "notString": {"not": {"type": "string"}},
+        "atMost": {"type": "object", "not": {"anyOf": [{"required": ["a", "b"]}, {"required": ["a", "c"]}, {"required": ["b", "c"]}]}},
+        "notAll": {"type": "object", "not": {"required": ["a", "b", "c"]}},
+        "anyNum": {"anyOf": [{"type": "integer", "minimum": 10}, {"type": "string", "maxLength": 3}]},
+        "fixed": {"const": {"a": 1}},
+        "has": {"type": "array", "contains": {"const": "x"}},
+        "hasTwo": {"type": "array", "contains": {"const": "x"}, "minContains": 2, "maxContains": 3},
+        "dep": {"type": "object", "dependentRequired": {"a": ["b"]}},
+        "color": {"enum": ["red", "green", 3]},
+        "secret": {"$ref": "#/$defs/Secret", "x-ruralz-secret": true},
+        "opaque": {"type": "object", "x-ruralz-secret": true, "additionalProperties": {"type": "integer"}},
+        "keyed": {
+          "type": "array",
+          "items": {"type": "object", "properties": {"name": {"type": "string"}, "v": {"type": "integer"}}},
+          "x-ruralz-list": {"type": "map", "key": "name"}
+        },
+        "set": {"type": "array", "items": {}, "x-ruralz-list": {"type": "set"}},
+        "free": {"type": "object"}
+      }
+    }
+  }
+}

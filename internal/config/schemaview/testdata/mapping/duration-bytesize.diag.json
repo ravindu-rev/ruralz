@@ -1,0 +1,70 @@
+[
+  {
+    "code": "RZ-CFG-005",
+    "severity": "error",
+    "file": "routes/duration-bytesize.json",
+    "line": 8,
+    "column": 30,
+    "resource": {
+      "kind": "Gateway",
+      "name": "edge"
+    },
+    "path": [
+      "spec",
+      "limits",
+      "maxRequestBodyBytes"
+    ],
+    "message": "must be an integer or quantity such as 10Mi"
+  },
+  {
+    "code": "RZ-CFG-005",
+    "severity": "error",
+    "file": "routes/duration-bytesize.json",
+    "line": 9,
+    "column": 31,
+    "resource": {
+      "kind": "Gateway",
+      "name": "edge"
+    },
+    "path": [
+      "spec",
+      "limits",
+      "maxResponseBodyBytes"
+    ],
+    "message": "must be an integer or quantity such as 10Mi"
+  },
+  {
+    "code": "RZ-CFG-005",
+    "severity": "error",
+    "file": "routes/duration-bytesize.json",
+    "line": 10,
+    "column": 27,
+    "resource": {
+      "kind": "Gateway",
+      "name": "edge"
+    },
+    "path": [
+      "spec",
+      "limits",
+      "maxBufferedBytes"
+    ],
+    "message": "must be an integer or quantity such as 10Mi"
+  },
+  {
+    "code": "RZ-CFG-005",
+    "severity": "error",
+    "file": "routes/duration-bytesize.json",
+    "line": 12,
+    "column": 51,
+    "resource": {
+      "kind": "Gateway",
+      "name": "edge"
+    },
+    "path": [
+      "spec",
+      "stateStore",
+      "timeout"
+    ],
+    "message": "must be a Go duration such as 50ms"
+  }
+]

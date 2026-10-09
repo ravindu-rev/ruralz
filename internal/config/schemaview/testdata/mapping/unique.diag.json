@@ -1,0 +1,85 @@
+[
+  {
+    "code": "RZ-CFG-005",
+    "severity": "error",
+    "file": "routes/unique.json",
+    "line": 7,
+    "column": 33,
+    "resource": {
+      "kind": "Route",
+      "name": "catalog"
+    },
+    "path": [
+      "spec",
+      "match",
+      "hosts",
+      {
+        "item": "shop.example"
+      }
+    ],
+    "message": "duplicate element \"shop.example\" in a set",
+    "related": [
+      {
+        "file": "routes/unique.json",
+        "line": 7,
+        "column": 17,
+        "message": "first element at"
+      }
+    ]
+  },
+  {
+    "code": "RZ-CFG-005",
+    "severity": "error",
+    "file": "routes/unique.json",
+    "line": 8,
+    "column": 34,
+    "resource": {
+      "kind": "Route",
+      "name": "catalog"
+    },
+    "path": [
+      "spec",
+      "match",
+      "methods",
+      {
+        "item": "GET"
+      }
+    ],
+    "message": "duplicate element \"GET\" in a set",
+    "related": [
+      {
+        "file": "routes/unique.json",
+        "line": 8,
+        "column": 19,
+        "message": "first element at"
+      }
+    ]
+  },
+  {
+    "code": "RZ-CFG-005",
+    "severity": "error",
+    "file": "routes/unique.json",
+    "line": 11,
+    "column": 62,
+    "resource": {
+      "kind": "Route",
+      "name": "catalog"
+    },
+    "path": [
+      "spec",
+      "policies",
+      {
+        "name": "jwt"
+      }
+    ],
+    "message": "duplicate entry: name \"jwt\" is already used by an earlier entry",
+    "related": [
+      {
+        "file": "routes/unique.json",
+        "line": 11,
+        "column": 27,
+        "message": "first entry at"
+      }
+    ]
+  }
+]

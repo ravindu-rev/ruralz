@@ -1,0 +1,2 @@
+routes/required.json:1:1 error RZ-CFG-005 Route/: missing required field spec
+routes/required.json:4:15 error RZ-CFG-005 Route/ metadata: missing required field name

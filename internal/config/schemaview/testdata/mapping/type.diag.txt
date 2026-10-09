@@ -1,0 +1,3 @@
+routes/type.json:7:32 error RZ-CFG-005 Gateway/edge spec.listeners[name=http].port: must be an integer, not a string
+routes/type.json:8:16 error RZ-CFG-005 Gateway/edge spec.listeners[name=8443].name: must be a string, not an integer (quote the value to make it a string)
+routes/type.json:10:23 error RZ-CFG-005 Gateway/edge spec.admin.port: must be at most 65535

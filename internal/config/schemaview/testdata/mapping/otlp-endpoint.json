@@ -1,0 +1,11 @@
+{
+  "apiVersion": "ruralz/v1alpha1",
+  "kind": "Gateway",
+  "metadata": {"name": "edge"},
+  "spec": {
+    "listeners": [{"name": "http", "port": 8080, "protocol": "http"}],
+    "telemetry": {
+      "otlp": {"endpoint": "https://user:secret@collector.example:4317/v1/traces?x=1"}
+    }
+  }
+}

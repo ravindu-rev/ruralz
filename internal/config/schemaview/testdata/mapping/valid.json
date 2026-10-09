@@ -1,0 +1,9 @@
+{
+  "apiVersion": "ruralz/v1alpha1",
+  "kind": "Policy",
+  "metadata": {"name": "cors"},
+  "spec": {
+    "type": "cors",
+    "config": {"allowOrigins": ["https://shop.example"], "maxAge": 600}
+  }
+}

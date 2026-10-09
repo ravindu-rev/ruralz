@@ -1,0 +1,35 @@
+[
+  {
+    "code": "RZ-CFG-005",
+    "severity": "error",
+    "file": "routes/at-most-one.json",
+    "line": 5,
+    "column": 11,
+    "resource": {
+      "kind": "Upstream",
+      "name": "inventory"
+    },
+    "path": [
+      "spec"
+    ],
+    "message": "at most one of endpoints, discovery is allowed, found endpoints and discovery"
+  },
+  {
+    "code": "RZ-CFG-005",
+    "severity": "error",
+    "file": "routes/at-most-one.json",
+    "line": 8,
+    "column": 79,
+    "resource": {
+      "kind": "Upstream",
+      "name": "inventory"
+    },
+    "path": [
+      "spec",
+      "discovery",
+      "port"
+    ],
+    "message": "must be an integer or a string, not a boolean",
+    "hint": "quote the value to make it a string"
+  }
+]

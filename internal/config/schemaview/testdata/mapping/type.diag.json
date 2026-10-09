@@ -1,0 +1,60 @@
+[
+  {
+    "code": "RZ-CFG-005",
+    "severity": "error",
+    "file": "routes/type.json",
+    "line": 7,
+    "column": 32,
+    "resource": {
+      "kind": "Gateway",
+      "name": "edge"
+    },
+    "path": [
+      "spec",
+      "listeners",
+      {
+        "name": "http"
+      },
+      "port"
+    ],
+    "message": "must be an integer, not a string"
+  },
+  {
+    "code": "RZ-CFG-005",
+    "severity": "error",
+    "file": "routes/type.json",
+    "line": 8,
+    "column": 16,
+    "resource": {
+      "kind": "Gateway",
+      "name": "edge"
+    },
+    "path": [
+      "spec",
+      "listeners",
+      {
+        "name": "8443"
+      },
+      "name"
+    ],
+    "message": "must be a string, not an integer",
+    "hint": "quote the value to make it a string"
+  },
+  {
+    "code": "RZ-CFG-005",
+    "severity": "error",
+    "file": "routes/type.json",
+    "line": 10,
+    "column": 23,
+    "resource": {
+      "kind": "Gateway",
+      "name": "edge"
+    },
+    "path": [
+      "spec",
+      "admin",
+      "port"
+    ],
+    "message": "must be at most 65535"
+  }
+]

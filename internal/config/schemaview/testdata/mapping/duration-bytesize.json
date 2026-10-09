@@ -1,0 +1,14 @@
+{
+  "apiVersion": "ruralz/v1alpha1",
+  "kind": "Gateway",
+  "metadata": {"name": "edge"},
+  "spec": {
+    "listeners": [{"name": "http", "port": 8080, "protocol": "http"}],
+    "limits": {
+      "maxRequestBodyBytes": "10MB",
+      "maxResponseBodyBytes": -1,
+      "maxBufferedBytes": true
+    },
+    "stateStore": {"driver": "memory", "timeout": "50 ms"}
+  }
+}
