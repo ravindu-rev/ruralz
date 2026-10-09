@@ -277,6 +277,7 @@ The runner versions come from the Ubuntu 24.04 runner image README, read at imag
 ### 11.4 GitHub-hosted runners
 
 - The GitHub-hosted runners reference lists the workflow labels `ubuntu-latest` (Linux x64), `ubuntu-24.04-arm` (Linux arm64), `windows-latest` (Windows x64), `macos-15-intel` (macOS Intel) and `macos-latest` (macOS arm64, M1) for both public and private repositories (https://docs.github.com/en/actions/reference/runners/github-hosted-runners).
+- 2026-10-09: the same reference lists the workflow label `ubuntu-24.04` for Linux x64, next to `ubuntu-latest`, `ubuntu-22.04` and `ubuntu-26.04`, for both public and private repositories (https://docs.github.com/en/actions/reference/runners/github-hosted-runners).
 - "Use of the standard GitHub-hosted runners is free and unlimited on public repositories"; private repositories use the account's free minutes and then per-minute rates (https://docs.github.com/en/actions/reference/runners/github-hosted-runners).
 - Larger runners "are only available for organizations and enterprises using the GitHub Team or GitHub Enterprise Cloud plans". They "are not eligible for the use of included minutes on private repositories", and for both private and public repositories "they will always be billed at the per-minute rate" (https://docs.github.com/en/actions/concepts/runners/larger-runners).
 - The larger runners reference lists general sizes from 2 to 96 CPUs, among them 16 CPUs with 64 GB of RAM and 600 GB of SSD on x64 or arm64, for Ubuntu or Windows (https://docs.github.com/en/actions/reference/runners/larger-runners).
@@ -297,6 +298,7 @@ https://github.com/DavidAnson/markdownlint-cli2
 https://github.com/DavidAnson/markdownlint-cli2/blob/main/LICENSE
 https://github.com/DavidAnson/markdownlint-cli2/tags
 https://registry.npmjs.org/markdownlint-cli2
+https://github.com/DavidAnson/markdownlint
 https://github.com/DavidAnson/markdownlint/blob/main/LICENSE
 https://registry.npmjs.org/markdownlint
 https://github.com/lycheeverse/lychee
@@ -451,7 +453,6 @@ https://github.com/crewjam/saml/tags
 https://github.com/crewjam/saml/blob/main/LICENSE
 https://github.com/jackc/pgx/releases/tag/v5.11.0
 https://github.com/jackc/pgx/blob/master/LICENSE
-https://github.com/golangci/golangci-lint/blob/v2.13.2/LICENSE
 https://github.com/mvdan/gofumpt/blob/master/LICENSE
 https://github.com/golang/tools/blob/master/LICENSE
 https://go.googlesource.com/vuln
@@ -482,9 +483,12 @@ https://proxy.golang.org/github.com/valyala/fastjson/@v/v1.6.10.zip
 https://proxy.golang.org/golang.org/x/sys/@v/v0.48.0.zip
 https://pkg.go.dev/flag
 https://pkg.go.dev/crypto/rand
+https://github.com/rhysd/actionlint
 https://proxy.golang.org/github.com/rhysd/actionlint/@v/v1.7.12.zip
+https://github.com/prometheus/prometheus
 https://raw.githubusercontent.com/prometheus/prometheus/v3.15.0/LICENSE
 https://raw.githubusercontent.com/prometheus/prometheus/v3.15.0/cmd/promtool/main.go
+https://github.com/tsenart/vegeta
 https://proxy.golang.org/github.com/tsenart/vegeta/v12/@v/v12.13.0.zip
 https://github.com/actions/upload-artifact
 https://raw.githubusercontent.com/actions/upload-artifact/v7.0.1/LICENSE

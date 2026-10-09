@@ -2,7 +2,7 @@
 title: Ruralz Foundation Pack
 version: v1
 status: binding
-last_updated: 2026-10-03
+last_updated: 2026-10-09
 ---
 
 # Ruralz Foundation Pack
@@ -71,7 +71,7 @@ This file is **binding** for every document under `docs/`. Writers and reviewers
 | `RURALZ_SECRET_ROOT` | The only directory `file` references resolve under: absolute, default `/etc/ruralz`. A Node refuses to start when it contains `${RURALZ_DATA_DIR}`, `RURALZ_ADMIN_TLS_DIR`, either admin token file, the MAC key file or, Planned (M2), the Enrollment token file or Vault credential |
 | `RURALZ_SECRET_*` | The only names `env` references resolve, besides `RURALZ_STATE_STORE_URL` |
 | `RURALZ_FETCH_ALLOW` | Comma-separated addresses and CIDRs that Node connections made for the Bundle may reach although the Node otherwise refuses unspecified, loopback, link-local and cloud metadata addresses; the entry `env-proxy` honors proxy variables, and an unparsable entry refuses start |
-| `RURALZ_STATE_STORE_MAC_KEY_FILE` | Optional State Store entry MAC key: an absolute path, owner-only mode, at least 32 bytes, outside `RURALZ_SECRET_ROOT`. With it, every entry the Node stores for others (Response Cache entries in M1) carries an HMAC-SHA-256 tag, and a missing or wrong tag reads as a miss; rotating the key needs a restart and turns existing entries into misses |
+| `RURALZ_STATE_STORE_MAC_KEY_FILE` | Optional State Store entry MAC key: an absolute path, owner-only mode, at least 32 bytes, outside `RURALZ_SECRET_ROOT`. With it, every opaque entry the Node stores for others (Response Cache entries in M1) carries an HMAC-SHA-256 tag (counters carry none), and a missing or wrong tag reads as a miss; rotating the key needs a restart and turns existing entries into misses |
 
 ## 3. Resource model (fixed kinds)
 
@@ -151,7 +151,7 @@ Rows marked **Corrected at freeze** were proven wrong in the previous pack by th
 | Semantic cache | Redis 8 Vector Sets or valkey-search 1.2 on the same State Store deployment through dedicated connections, never the auto-pipelined rate-limit and quota connections. Servers without either (Dragonfly, Valkey below 9.0.1) cannot serve it: the Policy then behaves as a State Store failure under its `failureMode` (default `open`, cache bypassed) and the Node reports a degraded state. **Corrected at freeze** | (AI doc) |
 | YAML 1.2 parser | `github.com/goccy/go-yaml` (MIT): the only researched candidate that claims YAML 1.2-only scalar resolution and rejects duplicate keys by default; the restricted profile's rejection of anchors, aliases, merge keys and custom tags is Ruralz code over its AST (`docs/_meta/research/tooling-and-licenses.md` section 6). **Selected at freeze** | (tech stack doc; ADR-0003) |
 | JSON Schema validator | `github.com/santhosh-tekuri/jsonschema/v6` (Apache-2.0): claims draft 2020-12 test-suite compliance, offers a `Vocabulary` API for the `x-ruralz-*` keywords and instance locations for the source map, and builds on the Go 1.26 floor (`docs/_meta/research/tooling-and-licenses.md` section 7). **Selected at freeze** | (tech stack doc; ADR-0003) |
-| Pending selections | Protobuf runtime, ULID, SigV4 signer, CLI framework, SAML, `postgres` driver (OQ-tech-stack-and-libraries-14, -15 and -17 to -20; candidate licenses in `docs/_meta/research/tooling-and-licenses.md` section 8) and a MaxMind database reader for `authz.geoip` (not yet researched). A design MAY assume the capability but MUST NOT name a library until the tech stack document adds a catalog row backed by research | (tech stack doc) |
+| Pending selections | Protobuf runtime, SigV4 signer, SAML, `postgres` driver (OQ-tech-stack-and-libraries-14, -17, -19 and -20; candidate licenses in `docs/_meta/research/tooling-and-licenses.md` section 8) and a MaxMind database reader for `authz.geoip` (not yet researched). A design MAY assume the capability but MUST NOT name a library until the tech stack document adds a catalog row backed by research | (tech stack doc) |
 
 Other defaults: State Store drivers are `memory` and `redis` only; another driver needs an ADR. Console is a React/TypeScript SPA embedded in `ruralz-control`. No native Kafka/MQTT wire-protocol proxying before M4. The managed cloud is described only in the vision document's Managed cloud section and one hybrid deployment topology; docs MUST NOT describe cloud-only hooks.
 
@@ -225,7 +225,7 @@ A dedicated Raft port, not ALPN multiplexing on 8091, keeps Nodes off peer traff
 | Area | Meaning | Registry owner |
 |---|---|---|
 | `CFG` | Configuration parse, validation, render, digest, secret resolution, activation, and Plugin artifact or signature checks, including a feature the running release does not serve (RZ-CFG-040); RZ-CFG-001 to RZ-CFG-041 in M1 | configuration-model |
-| `RT` | Request and response handling on a Node outside Upstream legs (OQ-data-plane-9 (a)): Route matching and deadline errors, request size limits and hardening, Node buffer budget or overload, CORS, schema-validation and cache-only rejections, request- and response-Phase Policy failures, composition failures, streamed-chunk caps, admin `/tap` limits, and requests ended by a snapshot's grace period or a Drain | data-plane |
+| `RT` | Request and response handling on a Node outside Upstream legs (OQ-data-plane-9 (a)): Route matching and deadline errors, request size limits and hardening, Node buffer budget or overload, CORS, schema-validation and cache-only rejections, request- and response-Phase Policy failures, composition failures, streamed-chunk caps, admin `/tap` limits, unknown admin paths and methods, and requests ended by a snapshot's grace period or a Drain | data-plane |
 | `UP` | Upstream legs: connect, TLS, timeout, reset, open breaker, retries exhausted, mid-stream failure | traffic-management-and-resilience |
 | `AUTH` | Authentication and authorization decisions, including `authz.*` denials and upstream credential failures | security-and-identity |
 | `RL` | Rate Limit and Quota decisions (429; 403 for a missing Consumer quota) | traffic-management-and-resilience |
@@ -485,6 +485,8 @@ IP filtering and GeoIP (OQ-vision-and-positioning-10) are built-in types. `authz
 - After the freeze, changes require an ADR or an entry in the owning document's Open questions.
 - 2026-09-26: the M1 architecture adopted the options in the amendments table below; each amended passage names its question, and the owning documents close the rows.
 - 2026-10-03: ADR-0018 supersedes ADR-0010 and ADR-0019 supersedes ADR-0011, and the Upgrades row adopts OQ-zero-downtime-upgrades-and-hot-reload-12 (a); the second amendments table below lists these changes.
+- 2026-10-09: the section 7 Pending selections row drops ULID and the CLI framework, which OQ-tech-stack-and-libraries-15 and -18 answer in the tech stack document (own code in `internal/ulid`; the standard library `flag`).
+- 2026-10-09: the section 2 Process settings row for `RURALZ_STATE_STORE_MAC_KEY_FILE` limits the entry MAC to opaque entries, as Security and identity Secrets rule 9 states; the OQ-traffic-management-and-resilience-16 amendment row now states the fail-open clamp and the "past one minute" refill of section 8.8; section 8.6 `RT` adds unknown admin paths and methods (`RZ-RT-020`, `RZ-RT-021`, OQ-data-plane-18 (b)); the manifest drops ADR-0010 and ADR-0011 from the `adrs` lists of documents that now cite only ADR-0018 and ADR-0019.
 
 Open questions this freeze decides; owners close them during conformance:
 
@@ -512,7 +514,7 @@ Amendments adopted on 2026-09-26 for M1 through the owning documents' Open quest
 |---|---|---|
 | OQ-data-plane-9 | (a) `RT` covers request and response handling on a Node outside Upstream legs | 8.6 |
 | OQ-scalability-and-distributed-state-11 | (a) All: OQ-traffic-management-and-resilience-16 (b), -19 (c) and -20 (a), `config.localOnly`, and the `rzplg:` namespace with its own write class | 8.7, 8.8, 8.11, 11 |
-| OQ-traffic-management-and-resilience-16 | (b) Derived ceiling with 2× headroom and a floor of 10; fail-open refill in 60 steps per aligned window (target) | 8.8 |
+| OQ-traffic-management-and-resilience-16 | (b) Derived ceiling with 2× headroom and a floor of 10; fail-open clamp max(1, 2 × limit / N_published) per epoch-aligned window, refilled in 60 steps past one minute (target) | 8.8 |
 | OQ-traffic-management-and-resilience-19 | (c) Node count persisted under `${RURALZ_DATA_DIR}` and handed over; file mode has no count, a full-limit ceiling and 200 first-seen keys per second (target), not degraded | 8.8, 8.11, 11 |
 | OQ-traffic-management-and-resilience-20 | (a) First-seen keys past the budget get local-only entries at the per-Node ceiling in their own segment | 8.8 |
 | OQ-security-and-identity-7 | (a) `RURALZ_ADMIN_TOKEN_FILE`, `RURALZ_ADMIN_METRICS_TOKEN_FILE`, `RURALZ_ADMIN_TLS_DIR` | 2 |
