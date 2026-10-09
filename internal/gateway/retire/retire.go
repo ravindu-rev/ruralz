@@ -140,14 +140,18 @@ type Config struct {
 func StripeCount() int { return min(max(runtime.GOMAXPROCS(0), 1), MaxStripes) }
 
 // Holder publishes the active snapshot and retires the previous ones. Pin,
-// Unpin, Active, ConnStripe and RequestStripe are the request path: they
-// take no lock (except the per-stripe list lock of snapshot.Pins) and
-// allocate nothing. Every other method runs off the request path. A Holder
-// is safe for concurrent use.
+// Unpin, Active, ConnStripe and RequestStripe are the request path and
+// allocate nothing. In the steady state they take only the per-stripe list
+// lock of snapshot.Pins. While an ending walk runs, Pin's retry and Unpin
+// also take the Holder-wide walkSet lock, and Unpin waits for an ending
+// callback acting on its record; after EndAll, Pin takes rec.Mu and calls
+// rec.Cancel to end the request as it pins. The caller therefore must not
+// hold rec.Mu around Pin or Unpin. Every other method runs off the request
+// path. A Holder is safe for concurrent use.
 type Holder struct {
 	cur     atomic.Pointer[snapshot.Snapshot]
-	walking atomic.Int32  // ending walks in progress
-	endAll  atomic.Uint32 // the first EndAll's snapshot.EndReason; 0 before
+	walking atomic.Int32 // ending walks in progress
+	drained atomic.Bool  // set by the first EndAll (Drain deadline)
 	kick    chan struct{}
 	stripes int
 	_       [32]byte // keep the connection counter off the read-mostly line
@@ -276,9 +280,9 @@ func (h *Holder) Active() *snapshot.Snapshot { return h.cur.Load() }
 // removes rec and retries.
 //
 // After EndAll a request is ended as it pins (spec 04 req 63): Pin marks
-// rec with the first EndAll's reason, moves its deadlines and cancels its
-// context before it returns, so the handler answers 503 with the reason's
-// code (RZ-RT-016 at the Drain deadline) without starting any work.
+// rec with EndDrain, moves its deadlines and cancels its context before it
+// returns, so the handler answers 503 with RZ-RT-016 without starting any
+// work.
 //
 // A retry removes rec from a snapshot the retirer may already be ending;
 // that happens only when the pointer was loaded before a retirement and
@@ -292,8 +296,8 @@ func (h *Holder) Pin(stripe emit.Stripe, rec *snapshot.PinnedRequest) *snapshot.
 		}
 		s.Pins.Add(int(stripe), rec)
 		if h.cur.Load() == s {
-			if r := h.endAll.Load(); r != 0 {
-				h.endAtPin(rec, snapshot.EndReason(r), stripe) //nolint:gosec // G115: set from a snapshot.EndReason.
+			if h.drained.Load() {
+				h.endAtPin(rec)
 			}
 			return s
 		}

@@ -252,18 +252,20 @@ func TestWhenErrorMarksEveryCallOutcome(t *testing.T) {
 	// Spec 03 req 43: under closed the Policy runs after a when error and
 	// its call's span carries the applied mode and the error.type whatever
 	// the call answers (respond, retry); a call that cannot decide itself
-	// keeps its own error.type. In onLog there is no span, only the count.
+	// keeps its own error.type and is a second closed failure of p in the
+	// Phase. In onLog there is no span, only the count.
 	tests := []struct {
 		name    string
 		ph      phase.Phase
 		res     result
 		outcome string
 		errType string
+		fails   int
 	}{
-		{"respond", phase.OnRequestBody, respondWith(403, "RZ-AUTH-010"), emit.OutcomeRespond, errTypeCEL},
-		{"retry", phase.OnUpstreamResponseHeaders, outcome(filter.Retry), emit.OutcomeContinue, errTypeCEL},
-		{"cannot decide", phase.OnRoute, failWith(filter.ErrBudget), emit.OutcomeCannotDecide, errTypeBudget},
-		{"onLog", phase.OnLog, nil, "", ""},
+		{"respond", phase.OnRequestBody, respondWith(403, "RZ-AUTH-010"), emit.OutcomeRespond, errTypeCEL, 1},
+		{"retry", phase.OnUpstreamResponseHeaders, outcome(filter.Retry), emit.OutcomeContinue, errTypeCEL, 1},
+		{"cannot decide", phase.OnRoute, failWith(filter.ErrBudget), emit.OutcomeCannotDecide, errTypeBudget, 2},
+		{"onLog", phase.OnLog, nil, "", "", 1},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -279,8 +281,14 @@ func TestWhenErrorMarksEveryCallOutcome(t *testing.T) {
 			if out.leg != nil {
 				st = out.leg
 			}
-			if len(st.fails) == 0 || st.fails[0] != (failRec{"p", tt.ph, v1alpha1.FailureModeClosed}) || pr.failures(tt.ph, emit.ModeClosed) < 1 {
-				t.Fatalf("when failure not recorded: %+v", st.fails)
+			want := failRec{"p", tt.ph, v1alpha1.FailureModeClosed}
+			ok := len(st.fails) == tt.fails && pr.failures(tt.ph, emit.ModeClosed) == int64(tt.fails)
+			for _, f := range st.fails {
+				ok = ok && f == want
+			}
+			if !ok {
+				t.Fatalf("failures recorded %+v, counted %d; want %d of %+v", st.fails,
+					pr.failures(tt.ph, emit.ModeClosed), tt.fails, want)
 			}
 			if len(h.ev.list()) != 1 {
 				t.Fatalf("calls %v, want the Policy to run once", h.ev.list())

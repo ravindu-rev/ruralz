@@ -486,7 +486,9 @@ type EndpointStatus struct {
 	Healthy bool
 	// Ejected reports a passive ejection in force.
 	Ejected bool
-	// EjectedUntil is when the ejection ends (zero when not ejected).
+	// EjectedUntil is when the ejection ends: the reading passed to Status
+	// plus the remaining ejection time, so a wall-clock step since the
+	// Tracker started does not shift it (zero when not ejected).
 	EjectedUntil time.Time
 	// Ejections is the current (decayed) ejection count.
 	Ejections int
@@ -520,7 +522,7 @@ func (t *Tracker) Status(now time.Time) []EndpointStatus {
 		}
 		if u := e.ejectedUntil.Load(); u > n {
 			s.Ejected = true
-			s.EjectedUntil = t.base.Add(time.Duration(u)).UTC()
+			s.EjectedUntil = now.Add(time.Duration(u - n)).UTC()
 		}
 		out[i] = s
 	}

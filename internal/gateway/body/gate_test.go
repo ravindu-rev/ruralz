@@ -116,6 +116,9 @@ func TestReq46ReadGate(t *testing.T) {
 			if !bytes.Equal(g.Bytes(), data) || g.Len() != len(data) {
 				t.Fatalf("read %d bytes, want %d", g.Len(), len(data))
 			}
+			if b := g.Bytes(); cap(b) != len(b) {
+				t.Fatalf("Bytes: cap %d, len %d; want the capacity cut to the length", cap(b), len(b))
+			}
 			if g.Reserved() != tt.reserved || bud.GateUsed() != tt.reserved {
 				t.Fatalf("reserved %d (budget %d), want %d", g.Reserved(), bud.GateUsed(), tt.reserved)
 			}

@@ -517,7 +517,7 @@ func TestReq71ReplaceAliasedBody(t *testing.T) {
 			if g := a.Buffered(); cap(g) != len(g) {
 				t.Fatalf("Buffered: cap %d, len %d; want the capacity cut to the length", cap(g), len(g))
 			}
-			cur := a.own.Bytes() // the gate's slice, with its spare capacity
+			cur := a.own.b // the gate's slice, with its spare capacity
 			gateArray := cur
 			if cap(gateArray) <= len(gateArray) {
 				t.Fatalf("the gate has no spare capacity (cap %d)", cap(gateArray))

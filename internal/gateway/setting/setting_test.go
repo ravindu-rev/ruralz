@@ -202,10 +202,15 @@ func TestLoadExit2(t *testing.T) {
 	// A 0600 key owned by another account, which could rewrite it.
 	foreign := filepath.Join(f.base, "keys", "foreign.key")
 	writeFile(t, foreign, macKeyBytes, 0o600)
-	asRoot := unix && os.Geteuid() == 0
-	if asRoot {
+	canChown := unix && os.Geteuid() == 0
+	if canChown {
 		if err := os.Chown(foreign, 65534, 65534); err != nil {
-			t.Fatal(err)
+			// A user namespace that does not map uid 65534 (rootless
+			// containers, unshare -r) refuses the chown; skip only the
+			// foreign-owner case, as nodedir's TestOpenRejectsForeignOwner
+			// does.
+			t.Logf("chown %s: %v: skipping the foreign-owner case", foreign, err)
+			canChown = false
 		}
 	}
 	// A data dir reached through a link into the secret root.
@@ -306,7 +311,7 @@ func TestLoadExit2(t *testing.T) {
 		{name: "mac key missing", env: good.with(EnvStateStoreMACKeyFile, filepath.Join(f.base, "none")), setting: EnvStateStoreMACKeyFile, want: ErrMACKeyFile},
 		{name: "mac key directory", env: good.with(EnvStateStoreMACKeyFile, filepath.Dir(f.key)), setting: EnvStateStoreMACKeyFile, want: ErrMACKeyFile, msg: "has mode d"},
 		{name: "mac key FIFO does not block", env: good.with(EnvStateStoreMACKeyFile, fifo), setting: EnvStateStoreMACKeyFile, want: ErrMACKeyFile, msg: "has mode p", skip: !hasFIFO},
-		{name: "mac key owned by another user", env: good.with(EnvStateStoreMACKeyFile, foreign), setting: EnvStateStoreMACKeyFile, want: ErrMACKeyOwner, msg: "owned by uid 65534", skip: !asRoot},
+		{name: "mac key owned by another user", env: good.with(EnvStateStoreMACKeyFile, foreign), setting: EnvStateStoreMACKeyFile, want: ErrMACKeyOwner, msg: "owned by uid 65534", skip: !canChown},
 		{name: "mac key group readable", env: good.with(EnvStateStoreMACKeyFile, groupReadable), setting: EnvStateStoreMACKeyFile, want: ErrMACKeyMode, msg: "chmod 0600", skip: !unix},
 		{name: "mac key other readable", env: good.with(EnvStateStoreMACKeyFile, otherReadable), setting: EnvStateStoreMACKeyFile, want: ErrMACKeyMode, skip: !unix},
 		{name: "mac key group executable", env: good.with(EnvStateStoreMACKeyFile, groupExec), setting: EnvStateStoreMACKeyFile, want: ErrMACKeyMode, skip: !unix},

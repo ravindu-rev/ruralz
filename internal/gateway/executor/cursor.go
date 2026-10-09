@@ -122,7 +122,9 @@ func (c *cursor) admit(ctx context.Context, p *snapshot.Policy, ph phase.Phase) 
 // returned error.type and the applied mode; under open, where no call
 // follows, a span of its own records the skip. An auth-class Policy is
 // closed only (modeOf), so an erroring when never counts as skipped for
-// Security rule 1.
+// Security rule 1. Under closed, a cannot-decide from the same call is a
+// second failure of p in ph, recorded and counted again, so failure_modes
+// can name p twice.
 func (c *cursor) whenFailed(ctx context.Context, p *snapshot.Policy, ph phase.Phase, err error) (skip bool, errType string) {
 	mode := modeOf(p)
 	errType = errorType(err)

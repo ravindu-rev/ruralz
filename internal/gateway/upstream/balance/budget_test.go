@@ -163,8 +163,10 @@ func TestReplan(t *testing.T) {
 // TestReplanFallback covers 05 req 17's fallback under Endpoint-set
 // changes: rings fall back at once when v = 64 no longer fits and return as
 // soon as the fresh plan needs fewer fallbacks at v ≥ 2 × 64, whatever the
-// previous V; meanwhile v follows the doubling rule over the remaining
-// rings. The room holds 64 virtual nodes for 120 Endpoints.
+// previous V; v follows the doubling rule throughout, so neither a ring
+// falling back nor one returning raises it by less than double over a
+// previous plan that built rings. The room holds 64 virtual nodes for 120
+// Endpoints.
 func TestReplanFallback(t *testing.T) {
 	budget := CopyOnWriteReserve + 16*64*120
 	base := map[string]int{"a": 100, "b": 50, "c": 50, "d": 10} // a falls back, V 69
@@ -188,11 +190,15 @@ func TestReplanFallback(t *testing.T) {
 		// Restoring would leave v below 128: the fallback and V stay.
 		{"return below 2 x 64 waits", base, map[string]int{"a": 5, "b": 50, "c": 50, "d": 10}, []string{"a"}, 69},
 		{"return at 2 x 64", base, map[string]int{"a": 5, "b": 5, "c": 5}, nil, 512},
+		// a fell back at V 101; it returns, and the fresh V 153 is below
+		// double, so V stays 101.
+		{"return holds V below double", map[string]int{"a": 100, "b": 40, "c": 26, "d": 10}, map[string]int{"a": 5, "b": 30, "c": 10, "d": 5}, nil, 101},
 		// The fallback stays, the remaining rings shrink: v doubles.
 		{"raise while a ring stays back", base, map[string]int{"a": 100, "b": 10, "c": 10, "d": 10}, []string{"a"}, 256},
 		{"no raise below double", base, map[string]int{"a": 100, "b": 40, "c": 40, "d": 10}, []string{"a"}, 69},
-		// v = 64 no longer fits: one more ring falls back at once.
-		{"overflow falls back at once", base, map[string]int{"a": 100, "b": 80, "c": 50, "d": 10}, []string{"a", "b"}, 128},
+		// v = 64 no longer fits: one more ring falls back at once, and V
+		// keeps 69 because 128 < 2 × 69.
+		{"overflow falls back at once", base, map[string]int{"a": 100, "b": 80, "c": 50, "d": 10}, []string{"a", "b"}, 69},
 		// A fallback ring removed from the Revision leaves the plan.
 		{"removed ring", base, map[string]int{"b": 50, "c": 50, "d": 10}, nil, 69},
 	}

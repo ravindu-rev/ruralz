@@ -8,6 +8,7 @@ import (
 	"errors"
 	"io"
 	"net/http"
+	"slices"
 
 	"github.com/ravindu-rev/ruralz/internal/telemetry/emit"
 )
@@ -15,8 +16,8 @@ import (
 // Buffer is a gated body: the whole body, read before anything was
 // forwarded. Its backing array is reserved from the budget (Gate kind) in
 // whole increments before it is allocated, so the reservation always
-// covers the memory the gate holds (cap(Bytes()) <= Reserved()). The
-// reservation lasts until Release.
+// covers the memory the gate holds (the backing array's capacity is at most
+// Reserved()). The reservation lasts until Release.
 type Buffer struct {
 	bud    *Budget
 	b      []byte
@@ -26,8 +27,13 @@ type Buffer struct {
 }
 
 // Bytes returns the body; nil or empty for an empty body. The slice is
-// valid until Release.
-func (g *Buffer) Bytes() []byte { return g.b }
+// valid until Release. Its capacity is its length, so appending to it never
+// writes into the gate's spare capacity. It and every slice derived from
+// it, body[:0] included, still share the gate's array, which Release
+// returns to the budget's pool for the next gate on the Node. A caller that
+// keeps a body derived from it past Release, such as a replaced response
+// body, must copy it first, as Request.Replace does.
+func (g *Buffer) Bytes() []byte { return slices.Clip(g.b) }
 
 // Len returns the body length.
 func (g *Buffer) Len() int { return len(g.b) }

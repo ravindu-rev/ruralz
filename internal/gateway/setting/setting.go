@@ -99,9 +99,10 @@ once at start:
   RURALZ_SECRET_ROOT               root of file secrets (default /etc/ruralz)
   RURALZ_FETCH_ALLOW               addresses and CIDRs Bundle fetches may reach
   RURALZ_STATE_STORE_URL           State Store URL when the Gateway names none
-  RURALZ_STATE_STORE_MAC_KEY_FILE  State Store entry MAC key: owner-only (0600 or
-                                   0400), 32 bytes or more; one final newline
-                                   is not part of the key
+  RURALZ_STATE_STORE_MAC_KEY_FILE  State Store entry MAC key: owned by you or
+                                   root, owner-only (0600 or 0400), 32 bytes
+                                   or more; one final newline is not part of
+                                   the key
   RURALZ_ADMIN_TOKEN_FILE          admin operator token
   RURALZ_ADMIN_METRICS_TOKEN_FILE  admin /metrics token
   RURALZ_ADMIN_TLS_DIR             admin TLS directory (tls.crt, tls.key, ca.crt)

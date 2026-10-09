@@ -286,8 +286,10 @@ func (s *Source) isClosed() bool {
 // returns when ctx ends. Each refresh waits for the delay the previous one
 // returned, including a Refresh the caller ran before Run (the compile-time
 // refresh, 05 req 5), so Run never repeats a lookup early; with no refresh
-// yet, Run refreshes at once. A source without names to resolve, or a
-// closed one, just waits for ctx.
+// yet, Run refreshes at once. A Refresh made while Run sleeps is seen when
+// Run wakes: a later due time sends it back to sleep, and an earlier one
+// (such as a failure's backoff) takes effect only then. A source without
+// names to resolve, or a closed one, just waits for ctx.
 func (s *Source) Run(ctx context.Context, onChange func(*Set)) {
 	seen := s.Current().Version
 	for ctx.Err() == nil {
@@ -298,7 +300,8 @@ func (s *Source) Run(ctx context.Context, onChange func(*Set)) {
 		}
 		if wait > 0 {
 			// Sleep fails only when ctx ends, which ends the loop. A Refresh
-			// during the sleep may have moved the due time: check again.
+			// during the sleep may have moved the due time later: check
+			// again (an earlier due time waits for this sleep to end).
 			if s.clk.Sleep(ctx, wait) != nil {
 				return
 			}

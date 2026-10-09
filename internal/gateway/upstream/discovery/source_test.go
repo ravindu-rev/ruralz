@@ -828,8 +828,9 @@ func TestRunAfterCompileRefresh(t *testing.T) {
 	}
 }
 
-// TestRunFollowsLatestRefresh: a Refresh called while Run sleeps moves
-// Run's next lookup to the delay that Refresh returned.
+// TestRunFollowsLatestRefresh: a Refresh called while Run sleeps that
+// moves the due time later sends Run back to sleep until that Refresh's
+// delay, with no lookup in between.
 func TestRunFollowsLatestRefresh(t *testing.T) {
 	clk := &sleepClock{Fake: clocktest.New(epoch())}
 	h := newHarness(t, Spec{DNS: &DNSSpec{Service: "s", Port: 80}}, func(o *Options) {

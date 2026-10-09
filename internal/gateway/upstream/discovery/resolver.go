@@ -47,7 +47,8 @@ func notFound(err error) bool {
 // valid domain name and returns the remaining ones together with a
 // *net.DNSError that is neither not-found, timeout nor temporary. Such an
 // answer is good; the dropped records are unusable like those selectSRV
-// ignores. Without remaining records the error stands.
+// ignores. Without remaining records the error stands, an ordinary
+// failure rather than an empty answer (package documentation).
 func malformedOnly(err error, records []*net.SRV) bool {
 	if len(records) == 0 {
 		return false

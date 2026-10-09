@@ -76,6 +76,10 @@ func TestTrackerWallClockStep(t *testing.T) {
 				if got := m.healthyG.v.Load(); got != 3 || !tr.View(clk.Fake.Now()).Down(0) {
 					t.Fatalf("ejection %d ended early: healthy gauge %d", n, got)
 				}
+				at := clk.Fake.Now()
+				if st := tr.Status(at); !st[0].Ejected || !st[0].EjectedUntil.Equal(at.Add(time.Millisecond)) {
+					t.Fatalf("ejection %d: Status ejectedUntil %v at %v, want 1ms later", n, st[0].EjectedUntil, at)
+				}
 				clk.Advance(time.Millisecond)
 				if got := m.healthyG.v.Load(); got != 4 || log.last() != [2]int{4, 4} || clk.Pending() != 0 {
 					t.Fatalf("ejection %d did not end after %v: gauge %d, OnHealthy %v, %d timers",

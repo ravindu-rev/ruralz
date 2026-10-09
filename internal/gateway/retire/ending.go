@@ -14,7 +14,6 @@ import (
 	"github.com/ravindu-rev/ruralz/internal/errcode"
 	"github.com/ravindu-rev/ruralz/internal/gateway/snapshot"
 	"github.com/ravindu-rev/ruralz/internal/telemetry/catalog"
-	"github.com/ravindu-rev/ruralz/internal/telemetry/emit"
 )
 
 // RZ codes of the ending protocol (spec 04 reqs 52, 53 and 63): 503 before
@@ -27,8 +26,9 @@ const (
 // ErrEnded is the cause EndError wraps.
 var ErrEnded = errors.New("retire: request ended by the ending protocol")
 
-// ErrEndReason rejects EndAll with snapshot.EndNone.
-var ErrEndReason = errors.New("retire: end reason is none")
+// ErrEndReason rejects EndAll with any reason but snapshot.EndDrain: grace
+// endings come only from the retirer.
+var ErrEndReason = errors.New("retire: EndAll takes only the drain end reason")
 
 // Code returns the RZ code of an end reason: RZ-RT-014 for EndGrace,
 // RZ-RT-016 for EndDrain and "" for EndNone.
@@ -74,19 +74,22 @@ func pastDeadline() time.Time { return time.Unix(1, 0) }
 // RZ-RT-016 (spec 04 req 63). It blocks until every started callback has
 // finished and returns how many requests it ended; when ctx ends first it
 // stops starting callbacks and returns ctx's error with the count so far.
+// It takes snapshot.EndDrain only and returns ErrEndReason for any other
+// reason.
 //
 // The end is sticky: from the first EndAll on, every request that pins
-// (connections stay open until Close) is ended inside Pin with the first
-// EndAll's reason, so no work starts after the Drain deadline. The
-// supervisor calls EndAll, then Close (package documentation).
+// (connections stay open until Close) is ended inside Pin with RZ-RT-016,
+// so no work starts after the Drain deadline. The latch is set before ctx
+// is checked, so it holds even when ctx is already done and nothing was
+// walked. The supervisor calls EndAll, then Close (package documentation).
 func (h *Holder) EndAll(ctx context.Context, reason snapshot.EndReason) (int, error) {
-	if reason == snapshot.EndNone {
+	if reason != snapshot.EndDrain {
 		return 0, ErrEndReason
 	}
 	// Set before the live list is read: a Pin that misses the flag added
 	// its record before the walk below locks that stripe, so one of the two
 	// ends it.
-	h.endAll.CompareAndSwap(0, uint32(reason))
+	h.drained.Store(true)
 	h.mu.Lock()
 	snaps := make([]*snapshot.Snapshot, 0, len(h.live))
 	for _, t := range h.live {
@@ -180,14 +183,11 @@ func (h *Holder) endOne(r *snapshot.PinnedRequest, reason snapshot.EndReason, wa
 
 // endAtPin ends a request that pinned after EndAll, on the request's own
 // goroutine inside Pin (no walk can hold rec yet, and a walk that visits
-// it later finds it ended). Grace endings are counted like the walk's.
-func (h *Holder) endAtPin(r *snapshot.PinnedRequest, reason snapshot.EndReason, stripe emit.Stripe) {
-	cancel, ok := h.mark(r, reason)
+// it later finds it ended).
+func (h *Holder) endAtPin(r *snapshot.PinnedRequest) {
+	cancel, _ := h.mark(r, snapshot.EndDrain)
 	if cancel != nil {
 		cancel()
-	}
-	if ok && reason == snapshot.EndGrace {
-		h.endedC.Add(stripe, 1)
 	}
 }
 

@@ -97,7 +97,9 @@ func plan(budget, schedules int64, rings map[string]int, held map[string]bool) P
 // fallbacks stay and V, planned over the remaining rings, drops at once when
 // the previous V no longer fits and rises only when it can double. A
 // previous plan that built no ring (every ring in fallback, or none with
-// Endpoints) sets no baseline for V. A zero prev plans afresh.
+// Endpoints) sets no baseline for V. A zero prev plans afresh. Whichever
+// branch applies, V rises over a previous plan that built rings only when
+// it can double.
 func Replan(prev Plan, budget, schedules int64, rings map[string]int) Plan {
 	fresh := PlanBudget(budget, schedules, rings)
 	if prev.V == 0 {
@@ -110,11 +112,11 @@ func Replan(prev Plan, budget, schedules int64, rings map[string]int) Plan {
 		}
 	}
 	if len(fresh.Fallback) < len(held) && fresh.V >= 2*MinVirtualNodes {
-		return fresh
+		return holdV(prev, fresh, rings)
 	}
 	kept := plan(budget, schedules, rings, held)
 	if len(kept.Fallback) > len(held) {
-		return fresh
+		return holdV(prev, fresh, rings)
 	}
 	if prev.RingBytes == 0 || kept.V >= 2*prev.V {
 		return kept
@@ -126,6 +128,17 @@ func Replan(prev Plan, budget, schedules int64, rings map[string]int) Plan {
 		return kept
 	}
 	return at
+}
+
+// holdV keeps prev.V in p when p would raise V over a previous plan that
+// built rings by less than double (05 req 17); a smaller V always fits.
+func holdV(prev, p Plan, rings map[string]int) Plan {
+	if prev.RingBytes == 0 || p.V <= prev.V || p.V >= 2*prev.V {
+		return p
+	}
+	p.V = prev.V
+	p.RingBytes = ringsBytes(rings, activeRings(rings, p.Fallback), prev.V)
+	return p
 }
 
 // ringOrder returns the ring names largest first, ties by name.

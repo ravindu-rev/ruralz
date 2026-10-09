@@ -152,12 +152,12 @@ func TestReq63EndAllDrain(t *testing.T) {
 	if x.ended.n.Load() != 0 {
 		t.Fatal("a Drain ending counted as a retirement ending")
 	}
-	if n, err := x.h.EndAll(context.Background(), snapshot.EndGrace); err != nil || n != 0 {
-		t.Fatalf("second EndAll = %d, %v; want 0 (first reason wins)", n, err)
+	if n, err := x.h.EndAll(context.Background(), snapshot.EndDrain); err != nil || n != 0 {
+		t.Fatalf("repeated EndAll = %d, %v; want 0, nil", n, err)
 	}
 	for _, p := range []pinned{pa, pb1, pb2} {
 		if ended(p.rec) != snapshot.EndDrain || p.cancels.Load() != 1 {
-			t.Fatal("a second EndAll changed or re-canceled an ended request")
+			t.Fatal("a repeated EndAll changed or re-canceled an ended request")
 		}
 		x.unpin(p)
 	}
@@ -167,6 +167,9 @@ func TestReq63EndAllErrors(t *testing.T) {
 	x := newHarness(t, Config{}, false)
 	if _, err := x.h.EndAll(context.Background(), snapshot.EndNone); !errors.Is(err, ErrEndReason) {
 		t.Fatalf("EndAll(EndNone) = %v, want ErrEndReason", err)
+	}
+	if _, err := x.h.EndAll(context.Background(), snapshot.EndGrace); !errors.Is(err, ErrEndReason) {
+		t.Fatalf("EndAll(EndGrace) = %v, want ErrEndReason", err)
 	}
 	x.publish(newSnap("a", nil))
 	p := x.pin(0)
@@ -179,6 +182,13 @@ func TestReq63EndAllErrors(t *testing.T) {
 	if ended(p.rec) != snapshot.EndNone {
 		t.Fatal("a canceled EndAll ended a request")
 	}
+	// The latch holds although nothing was walked: a request that pins now
+	// is ended at once.
+	q := x.pin(1)
+	if ended(q.rec) != snapshot.EndDrain || q.cancels.Load() != 1 {
+		t.Fatalf("pin after a canceled EndAll: ended %d, cancels %d; want EndDrain once", ended(q.rec), q.cancels.Load())
+	}
+	x.unpin(q)
 	x.unpin(p)
 }
 
@@ -347,17 +357,17 @@ func TestReq53StaleClaimOfAReusedRecord(t *testing.T) {
 }
 
 // TestReq63PinAfterEndAllIsEnded: once EndAll ran, a request that pins on
-// a connection that is still open is ended inside Pin with the first
-// EndAll's reason (deadlines moved, context canceled), so Close does not
-// wait for new work.
+// a connection that is still open is ended inside Pin with EndDrain
+// (deadlines moved, context canceled), so Close does not wait for new
+// work.
 func TestReq63PinAfterEndAllIsEnded(t *testing.T) {
 	x := newHarness(t, Config{}, true)
 	x.publish(newSnap("a", nil))
 	if n, err := x.h.EndAll(context.Background(), snapshot.EndDrain); err != nil || n != 0 {
 		t.Fatalf("EndAll = %d, %v; want 0, nil", n, err)
 	}
-	if n, err := x.h.EndAll(context.Background(), snapshot.EndGrace); err != nil || n != 0 {
-		t.Fatalf("second EndAll = %d, %v; want 0, nil", n, err)
+	if n, err := x.h.EndAll(context.Background(), snapshot.EndDrain); err != nil || n != 0 {
+		t.Fatalf("repeated EndAll = %d, %v; want 0, nil", n, err)
 	}
 	w := &deadlineWriter{}
 	var cancels atomic.Int32
@@ -367,7 +377,7 @@ func TestReq63PinAfterEndAllIsEnded(t *testing.T) {
 		t.Fatal("Pin after EndAll returned nil")
 	}
 	if ended(rec) != snapshot.EndDrain || cancels.Load() != 1 {
-		t.Fatalf("pin after EndAll: ended %d, cancels %d; want EndDrain (the first reason) once", ended(rec), cancels.Load())
+		t.Fatalf("pin after EndAll: ended %d, cancels %d; want EndDrain once", ended(rec), cancels.Load())
 	}
 	read, write := w.deadlines()
 	if len(read) != 1 || len(write) != 1 || !read[0].Before(time.Now()) {
@@ -389,18 +399,19 @@ func TestReq63PinAfterEndAllIsEnded(t *testing.T) {
 	}
 }
 
-// TestReq52PinAfterGraceEndAllIsCounted: a sticky EndAll with EndGrace
-// counts a request ended at pin time in
-// ruralz_snapshot_retirement_ended_total, like the walk does.
-func TestReq52PinAfterGraceEndAllIsCounted(t *testing.T) {
+// TestReq63EndAllRejectsGrace: grace endings come only from the retirer,
+// so EndAll(EndGrace) is refused and sets no latch: a request pinned
+// afterwards is not ended and nothing is counted in
+// ruralz_snapshot_retirement_ended_total.
+func TestReq63EndAllRejectsGrace(t *testing.T) {
 	x := newHarness(t, Config{}, false)
 	x.publish(newSnap("a", nil))
-	if _, err := x.h.EndAll(context.Background(), snapshot.EndGrace); err != nil {
-		t.Fatal(err)
+	if n, err := x.h.EndAll(context.Background(), snapshot.EndGrace); !errors.Is(err, ErrEndReason) || n != 0 {
+		t.Fatalf("EndAll(EndGrace) = %d, %v; want 0, ErrEndReason", n, err)
 	}
 	p := x.pin(1)
-	if ended(p.rec) != snapshot.EndGrace || p.cancels.Load() != 1 || x.ended.n.Load() != 1 {
-		t.Fatalf("ended %d, cancels %d, counter %d; want EndGrace, 1, 1", ended(p.rec), p.cancels.Load(), x.ended.n.Load())
+	if ended(p.rec) != snapshot.EndNone || p.cancels.Load() != 0 || x.ended.n.Load() != 0 {
+		t.Fatalf("ended %d, cancels %d, counter %d; want EndNone, 0, 0", ended(p.rec), p.cancels.Load(), x.ended.n.Load())
 	}
 	x.unpin(p)
 }

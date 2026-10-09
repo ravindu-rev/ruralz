@@ -85,14 +85,32 @@ func BenchmarkBuildRoundRobin(b *testing.B) {
 // Upstream-layer budget, target below 20 µs). TestDegradedWalk gates the
 // grades a degraded pick makes at O(E).
 func benchPanic(b *testing.B, alg Algorithm) {
+	benchDegraded(b, alg, ones, func(int) Grade { return Down })
+}
+
+// benchPanicSkewed is the slowest degraded pick 05 req 14 allows (one full
+// pass): Endpoint 377 weighs 1 against 1,000 and alone holds the lowest
+// grade present (Down among DownAvoided), so after the O(E) grading the
+// walk resumes over up to one pass of slots to reach its single slot.
+// It is reported, not gated, and can exceed the 20 µs target.
+func benchPanicSkewed(b *testing.B, alg Algorithm) {
+	const light = 377
+	benchDegraded(b, alg,
+		func(i int) uint32 { return []uint32{1000, 1}[b2i(i == light)] },
+		func(i int) Grade { return []Grade{DownAvoided, Down}[b2i(i == light)] })
+}
+
+// benchDegraded measures one selection over 1,000 Endpoints of weights w
+// and grades g at v = 64.
+func benchDegraded(b *testing.B, alg Algorithm, w func(int) uint32, g func(int) Grade) {
 	const n = 1000
-	bal, err := New(Config{Algorithm: alg, VirtualNodes: MinVirtualNodes, Endpoints: eps(n, ones), Now: t0})
+	bal, err := New(Config{Algorithm: alg, VirtualNodes: MinVirtualNodes, Endpoints: eps(n, w), Now: t0})
 	if err != nil {
 		b.Fatal(err)
 	}
 	grades := make([]Grade, n)
 	for i := range grades {
-		grades[i] = Down
+		grades[i] = g(i)
 	}
 	v := &staticView{grades: grades, loads: make([]int64, n)}
 	ks := make([]uint64, 1024)
@@ -113,3 +131,6 @@ func BenchmarkPickRoundRobinPanic(b *testing.B)   { benchPanic(b, RoundRobin) }
 func BenchmarkPickLeastRequestPanic(b *testing.B) { benchPanic(b, LeastRequest) }
 func BenchmarkPickRingHashPanic(b *testing.B)     { benchPanic(b, RingHash) }
 func BenchmarkPickRandomPanic(b *testing.B)       { benchPanic(b, Random) }
+
+func BenchmarkPickRoundRobinPanicSkewed(b *testing.B) { benchPanicSkewed(b, RoundRobin) }
+func BenchmarkPickRingHashPanicSkewed(b *testing.B)   { benchPanicSkewed(b, RingHash) }

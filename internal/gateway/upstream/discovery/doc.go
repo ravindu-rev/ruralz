@@ -30,7 +30,13 @@
 // within 1 s to 60 s rather than 30 s while the set is empty; the 30 s
 // schedule resumes with the next non-empty answer. An SRV answer from
 // which the resolver dropped records with malformed target names is a good
-// answer made of the remaining records.
+// answer made of the remaining records. When it dropped every record, the
+// lookup error stands: an ordinary failure that keeps the last set, unlike
+// an answer whose records all name unusable targets (such as "."), which
+// is an empty answer. net.DNSError marks malformed records only by its
+// message, so the error cannot be told from other permanent failures, and
+// a response the resolver cannot read whole more likely means a broken
+// server than a withdrawn service.
 //
 // Each Source holds the Node reason under a source of its own (the
 // Upstream name and an instance suffix), so a Source replaced by a Hot

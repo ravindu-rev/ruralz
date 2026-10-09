@@ -161,8 +161,9 @@ type Outcome struct {
 	// Expired is true when the leg or Route deadline expired during the
 	// leg, for example during a backoff.
 	Expired bool
-	// Gate is the gate that refused the leg, or its attempt, before any
-	// attempt ran; it is ignored once an attempt ran.
+	// Gate is the gate that refused the leg's last attempt that could not
+	// start (StartAttempt or AbandonAttempt); it decides the code only when
+	// no attempt ran (SelectCode).
 	Gate Gate
 }
 
