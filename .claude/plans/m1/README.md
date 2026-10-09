@@ -6,7 +6,7 @@ This directory holds the working plan the M1 Core gateway implementation follows
 
 | Path | What it is |
 |---|---|
-| `specs/00-architecture.md` | The binding integration architecture: section 0 conventions, 1.2 package table with allowed imports, 1.3 lint rules, 2 shared contracts (the committed WP-01 Go code wins where it differs), 2.16 resolved conflicts R-1 to R-75, 3 data flow, 4.1 work package rules, 4.4 every work package's Owns, Depends on, Scope and Done when, and the exit criteria map |
+| `specs/00-architecture.md` | The binding integration architecture: section 0 conventions, 1.2 package table with allowed imports, 1.3 lint rules, 2 shared contracts (the committed WP-01 Go code wins where it differs), 2.16 resolved conflicts R-1 to R-76, 3 data flow, 4.1 work package rules, 4.4 every work package's Owns, Depends on, Scope and Done when, and the exit criteria map |
 | `specs/01-*.md` to `specs/11-*.md` | Area specs with numbered requirements; "04 req 34" means spec 04, requirement 34 |
 | `arch/wps.json` | The 99 work packages: `id`, `title`, `wave`, `dirs` (the paths it owns), `dependsOn`, `specs`, `scope`, `size` |
 | `user-decisions.md` | The user's decisions at the wave-2 boundary |
@@ -17,29 +17,29 @@ This directory holds the working plan the M1 Core gateway implementation follows
 | `m1-gov.js` | Documentation and ADR units with dependencies (`after`) |
 | `runs/w3-args-A.json`, `runs/w3-args-B.json` | Ready arguments for wave 3 (24 work packages with their forward notes); WP-31 is not in them |
 
-## State on 2026-10-03
+## State on 2026-10-09
 
-- `develop` holds waves 1 and 2: WP-01 to WP-30, WP-83 and WP-84, the two test-race fixes, the wave-2 boundary decisions (R-63 to R-75 in code, architecture and docs), and the M1 guide updates in `AGENTS.md`, `CONTRIBUTING.md` and `.claude/rules/`.
-- The documentation the user approved at the wave-2 boundary is committed (see "Documentation status" below).
-- Waves 3 to 10 are not started. Wave 3 has 25 work packages: WP-31, 33 to 40, 42 to 54, 65, 85 and 88. None depends on another in the same wave. WP-31 owns `docs/architecture/09`, `10` and `11`; the ADR work that also edited them is committed, so it can run with the rest (it is not in `runs/w3-args-*.json`; add it to one run).
+- `develop` holds waves 1 and 2, complete: WP-01 to WP-30, WP-32, WP-83 and WP-84, the two test-race fixes, the wave-2 boundary decisions (R-63 to R-75 in code, architecture and docs), the M1 guide updates in `AGENTS.md`, `CONTRIBUTING.md` and `.claude/rules/`, the documentation below, and the wave-2 completion of 2026-10-09.
+- On 2026-10-09 every commit on `develop` after `main` was rewritten so the user is author and committer, each is signed with the user's SSH key, and none carries a `Co-Authored-By` trailer; commit hashes before that date no longer exist.
+- Waves 3 to 10 are not started. Wave 3 has 25 work packages: WP-31, 33 to 40, 42 to 54, 65, 85 and 88. None depends on another in the same wave. WP-31 owns `docs/architecture/09`, `10` and `11`; it is not in `runs/w3-args-*.json`, so add it to one run.
 
-## Documentation status
+## Wave-2 documentation and completion
 
-Committed on 2026-10-03, so wave 2 is complete including WP-32:
+Documentation the user approved at the wave-2 boundary (2026-10-03):
 
-- `e58c058` the CI tooling research addendum (section 11 of `docs/_meta/research/tooling-and-licenses.md`).
-- `dc9a0a0` ADR-0018 superseding ADR-0010 and ADR-0019 superseding ADR-0011, with their indexes, manifest entries and foundation pack rows; OQ-observability-16 (a) and OQ-configuration-model-21 (a) closed; the foundation pack Upgrades row adopts OQ-zero-downtime-upgrades-and-hot-reload-12 (a).
-- `43168ff` WP-32: the engineering, performance, release, feature and vision documents, and the roadmap M1 note; OQ-testing-and-quality-strategy-11 (b) closed (chaos at scale on RH-1).
-- `7d16103` the depguard messages and Go comments now cite ADR-0018 and ADR-0019.
+- `5951fe5` the CI tooling research addendum (section 11 of `docs/_meta/research/tooling-and-licenses.md`).
+- `a824944` ADR-0018 superseding ADR-0010 and ADR-0019 superseding ADR-0011, with their indexes, manifest entries and foundation pack rows; OQ-observability-16 (a) and OQ-configuration-model-21 (a) closed; the foundation pack Upgrades row adopts OQ-zero-downtime-upgrades-and-hot-reload-12 (a).
+- `fc9087e` WP-32: the engineering, performance, release, feature and vision documents, and the roadmap M1 note; OQ-testing-and-quality-strategy-11 (b) closed (chaos at scale on RH-1).
+- `8cc7f32` the depguard messages and Go comments cite ADR-0018 and ADR-0019.
+
+Wave-2 completion (2026-10-09): the 91 minor findings the wave-2 reviews left open and five lead items were triaged; 68 were fixed and 28 skipped, each skip because it was already fixed, a documented deviation, owned by a later work package (its note is in `forwards.json` or its scope), or not worth changing. The user also decided OQ-data-plane-18 (b): admin 404 is `RZ-RT-020` and admin 405 is `RZ-RT-021`; and approved the `docs/_meta` corrections listed in `user-decisions.md` item 6.
 
 Small items left for a later pass (none blocks wave 3):
 
-- `docs/_meta/manifest.yaml` per-document `adrs` lists still name ADR-0010 or ADR-0011 for documents that now cite ADR-0018 or ADR-0019 (cosmetic; two approvals).
-- Foundation pack section 7 "Pending selections" still lists ULID and the CLI framework, which OQ-tech-stack-and-libraries-15 and -18 already answer (two approvals and a section 14 entry).
 - OQ-observability-2 in `docs/architecture/10-observability.md` still reads blocking although the configuration model adopted `telemetry.otlp.tls`: WP-31 closes it.
-- `docs/engineering/01-tech-stack-and-libraries.md` says the Go floor moves "only by ADR-0001 amendment"; reword to "an ADR superseding ADR-0001".
-- ADR-0018 "More information" links the layout document's `#import-boundaries` anchor; the OpenTelemetry confinement row sits under `#banned-imports`.
-- Architecture section 2 code blocks lag a few committed contract fixes (the `clocktest` fire race fix, `ConnCache.Put`, `diag` escaping); the committed Go code wins (architecture section 2 note).
+- ADR-0018 "More information" links the layout document's `#import-boundaries` anchor; the OpenTelemetry confinement row sits under `#banned-imports`. The ADR is accepted, so the link stays until a superseding ADR.
+- ADR-0019 superseded ADR-0011 without two of its More information items, and no other document holds them: (1) the proposed amendment that the repository layout document ban the root `opa/rego` import and confine OPA and cedar-go to one `internal/` wrapper package (a depguard rule in `.golangci.yml` with a row in `docs/engineering/02-repository-layout-and-conventions.md`); (2) the research action to extend `docs/_meta/research/go-libraries-runtime.md` section 9.2 on OPA prepared-query transactions and topdown deadline handling. Both are due before `authz.opa` and `authz.cedar` work (Planned (M2)); the accepted ADR bodies stay unchanged.
+- `docs/architecture/08-security-and-identity.md` Cache partitioning row says sharing across principals needs a field (OQ-security-and-identity-25) and also that `config.key` replaces the principal; closing OQ-security-and-identity-25 in line with `docs/architecture/09-traffic-management-and-resilience.md` (spec 05 section 9 item 1) removes the tension. It blocks nothing in M1.
 
 ## How a wave runs
 

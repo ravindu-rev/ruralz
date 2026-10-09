@@ -152,7 +152,7 @@ Mandatory boundaries (lint-enforced, 1.3): `ruralzd` (`internal/gateway/...`) ne
 | L4 | `gateway/replay` | `filter.Replayer`: pins the published snapshot, runs one Upstream leg on a synthetic exchange | gateway/retire, gateway/executor, gateway/exchange, gateway/snapshot, filter, errcode | none | WP-66 |
 | L4 | `cli/adminclient` | Admin URL rules, TLS, token, problem documents, `/config/dump`, `/tap`, `/readyz` | cli/command, problem, adminapi, config/canonical, tlsconf | none | WP-68 |
 | L5 | `config/pipeline` | One entry for stages A to M in every binary; `FromResources` (re-entry at stage F) for Last-Known-Good and handover | config/loader, config/schemaview, config/defaults, config/convert, config/validate, config/precedence, config/canonical, config/revision, config/hub, config/tree, config/diag, expr, secret | none | WP-69 |
-| L5 | `gateway/handler` | `http.Handler`: admission, pin, normalization, match, dispatch by `Route.Protocol`, commit, onLog, `accessLog.when` | gateway/router, gateway/exchange, gateway/executor, gateway/retire, gateway/admission, gateway/body, gateway/snapshot, gateway/tap, routematch, clientaddr, sfv, problem, expr, telemetry/emit, errcode | none | WP-66 |
+| L5 | `gateway/handler` | `http.Handler`: admission, pin, normalization, match, dispatch by `Route.Protocol`, commit, onLog, `accessLog.when` | gateway/router, gateway/exchange, gateway/executor, gateway/retire, gateway/admission, gateway/body, gateway/snapshot, gateway/tap, routematch, clientaddr, httpfield, sfv, problem, expr, telemetry/emit, errcode | none | WP-66 |
 | L5 | `gateway/handover` | Handover protocol `ruralz.handover.v1`, usage reports, steering | nodedir, gateway/drain, gateway/listener, gateway/reuseport, gateway/retire, gateway/admission, gateway/readiness, gateway/sdnotify, clock, telemetry/emit, errcode | x/sys/unix | WP-89 |
 | L5 | `gateway/compile` | `hub.Validated` to `*snapshot.Snapshot`, carry-over, bounded workers | gateway/snapshot, gateway/router, gateway/upstream, gateway/upstream/forward, gateway/composition, config/hub, filter, identity, expr, secret, statestore, telemetry/emit, telemetry/catalog, tlsconf, clock, phase, v1alpha1 | none | WP-70 |
 | L5 | `filter/builtin` | `builtin.New(Deps)`: `*filter.Registry` of every served type with its Node-wide Components (`ruralzd` only) | filter, filter/auth/jwt, filter/auth/jwt/jwks, filter/auth/apikey, filter/auth/basic, filter/auth/mtls, filter/authz/ip, filter/cors, filter/auth/upstreamoauth2, filter/validation/jsonschema, filter/authz/cel, filter/header, filter/transform/request, filter/transform/response, filter/ratelimit, filter/quota, filter/cache, filter/cache/revalidate, egress, tlsconf, statestore, clock, telemetry/emit | none | WP-71 |
@@ -353,7 +353,7 @@ Stage 6 (`depgate`, WP-54) adds `internal/testkit`, `internal/tool` and every `*
 
 ## 2. Shared core types and interfaces (WP-01)
 
-The blocks below are the complete wave 1 sources. They were compiled in a scratch copy of the repository with the `.golangci.yml` of section 1.3: `go build ./...`, `go vet ./...`, `golangci-lint run ./...` (0 issues, golangci-lint v2.13.2), `golangci-lint fmt --diff`, repocheck and the `internal/errcode` tests (with the registry rows of 2.3 added to the four owning documents) all pass, and scratch tests of the revised behavior (zero-duration fake timers, empty secret values, set-item paths, State Store label indexes against `catalog.Ops()`) pass under `-race`. WP-01 commits them verbatim (extracted mechanically from this document), adds unit tests (listed per package) and nothing else; its session effort is the tests, the lint block and the document rows (about 2,500 lines), not the 5,600 lines of pasted sources.
+The blocks below are the complete wave 1 sources. They were compiled in a scratch copy of the repository with the `.golangci.yml` of section 1.3: `go build ./...`, `go vet ./...`, `golangci-lint run ./...` (0 issues, golangci-lint v2.13.2), `golangci-lint fmt --diff`, repocheck and the `internal/errcode` tests (with the registry rows of 2.3 added to the four owning documents) all pass, and scratch tests of the revised behavior (zero-duration fake timers, empty secret values, set-item paths, State Store label indexes against `catalog.Ops()`) pass under `-race`. WP-01 commits them verbatim (extracted mechanically from this document), adds unit tests (listed per package) and nothing else; its session effort is the tests, the lint block and the document rows (about 2,500 lines), not the 5,600 lines of pasted sources. Where a block and the committed Go source differ, the committed source wins; the lead re-syncs the blocks at wave boundaries.
 
 Rules for every later work package:
 
@@ -528,8 +528,9 @@ func (f *Fake) Set(t time.Time) {
 		ft := f.timers[0]
 		f.timers = f.timers[1:]
 		f.now = ft.at
+		at := ft.at
 		f.mu.Unlock()
-		ft.fire(false)
+		ft.fire(false, at)
 	}
 }
 
@@ -541,15 +542,18 @@ func (f *Fake) Pending() int {
 }
 
 // add arms ft to fire after d; d <= 0 fires it at once without arming.
+// ft.at is written only under f.mu, and the fire time is read under it too,
+// so a Reset on one goroutine never races an Advance on another.
 func (f *Fake) add(ft *fakeTimer, d time.Duration) *fakeTimer {
 	f.mu.Lock()
 	ft.at = f.now.Add(max(d, 0))
+	at := ft.at
 	if d > 0 {
 		f.timers = append(f.timers, ft)
 	}
 	f.mu.Unlock()
 	if d <= 0 {
-		ft.fire(true)
+		ft.fire(true, at)
 	}
 	return ft
 }
@@ -567,14 +571,15 @@ func (f *Fake) remove(ft *fakeTimer) bool {
 
 type fakeTimer struct {
 	f  *Fake
-	at time.Time
+	at time.Time // guarded by f.mu
 	ch chan time.Time
 	fn func()
 }
 
-// fire delivers the timer: a channel send that never blocks, or the
-// callback (in a new goroutine when async, as time.AfterFunc does).
-func (t *fakeTimer) fire(async bool) {
+// fire delivers the timer with its fire time at, which the caller read under
+// f.mu: a channel send that never blocks, or the callback (in a new
+// goroutine when async, as time.AfterFunc does).
+func (t *fakeTimer) fire(async bool, at time.Time) {
 	switch {
 	case t.fn != nil && async:
 		go t.fn()
@@ -582,7 +587,7 @@ func (t *fakeTimer) fire(async bool) {
 		t.fn()
 	default:
 		select {
-		case t.ch <- t.at:
+		case t.ch <- at:
 		default:
 		}
 	}
@@ -910,7 +915,7 @@ func Status(code string) int {
 }
 ```
 
-Rows added to the `Registry()` table of `internal/errcode/errcode.go` (in ID order):
+Rows added to the `All()` table of `internal/errcode/errcode.go` (in ID order):
 
 ```go
 		{ID: "RZ-CFG-038", Area: AreaCFG, Meaning: "Effective Filter Chain combines a `cache` Policy with an `onRequestBody` authorization, validation or Plugin auth or authz Policy"},
@@ -921,6 +926,8 @@ Rows added to the `Registry()` table of `internal/errcode/errcode.go` (in ID ord
 		{ID: "RZ-RT-017", Area: AreaRT, Status: 400, Meaning: "Request target or framing rejected by request hardening"},
 		{ID: "RZ-RT-018", Area: AreaRT, Status: 504, Meaning: "An `only-if-cached` request missed the Response Cache"},
 		{ID: "RZ-RT-019", Area: AreaRT, Status: 503, Meaning: "The admin `/tap` subscriber limit is reached"},
+		{ID: "RZ-RT-020", Area: AreaRT, Status: 404, Meaning: "No admin endpoint at this path"},
+		{ID: "RZ-RT-021", Area: AreaRT, Status: 405, Meaning: "Method not allowed on this admin endpoint"},
 		{ID: "RZ-UP-011", Area: AreaUP, Status: 502, Meaning: "A merged or non-final composition step got a non-2xx response"},
 		{ID: "RZ-AUTH-008", Area: AreaAUTH, Status: 421, Meaning: "An `auth.mtls` Route was reached over a connection that requested no client certificate"},
 ```
@@ -930,7 +937,7 @@ Registry rows added by WP-01 to the owning documents (same wording; parentheses 
 | Document | Rows |
 |---|---|
 | `docs/architecture/02-configuration-model.md` (after RZ-CFG-037) | RZ-CFG-038 (OQ-traffic-management-and-resilience-21 (a)); RZ-CFG-039 (OQ-zero-downtime-upgrades-and-hot-reload-4 (a)); RZ-CFG-040; RZ-CFG-041 (OQ-security-and-identity-22 (a), R-49) |
-| `docs/architecture/03-data-plane.md` (after RZ-RT-015) | RZ-RT-016 (OQ-zero-downtime-upgrades-and-hot-reload-2 (b)); RZ-RT-017; RZ-RT-018; RZ-RT-019 |
+| `docs/architecture/03-data-plane.md` (after RZ-RT-015) | RZ-RT-016 (OQ-zero-downtime-upgrades-and-hot-reload-2 (b)); RZ-RT-017; RZ-RT-018; RZ-RT-019; RZ-RT-020 and RZ-RT-021 (OQ-data-plane-18 (b), user decision 2026-10-09) |
 | `docs/architecture/08-security-and-identity.md` (after RZ-AUTH-007) | RZ-AUTH-008 |
 | `docs/architecture/09-traffic-management-and-resilience.md` (after RZ-UP-010) | RZ-UP-011 |
 
@@ -1030,6 +1037,10 @@ func Title(code string, status int) string {
 		return "Not in cache"
 	case "RZ-RT-019":
 		return "Tap subscriber limit reached"
+	case "RZ-RT-020":
+		return "No admin endpoint"
+	case "RZ-RT-021":
+		return "Method not allowed on admin endpoint"
 	}
 	if t := http.StatusText(status); t != "" {
 		return t
@@ -1143,6 +1154,7 @@ One model for every binary. The text form is one line, `<file>:<line>:<column> <
 package diag
 
 import (
+	"bytes"
 	"cmp"
 	"encoding/json"
 	"io"
@@ -1153,7 +1165,10 @@ import (
 )
 
 // Severity is error or warning. Warnings (RZ-CFG-013, RZ-CFG-025) never
-// change a command's exit code.
+// change a command's exit code. Every Severity other than SeverityWarning,
+// including the zero value, is an error: String prints it as "error" and
+// HasErrors and FirstErrorCode count it, so a Diagnostic built without a
+// Severity blocks a Revision rather than printing as an error and passing.
 type Severity uint8
 
 // Severities.
@@ -1164,7 +1179,7 @@ const (
 	SeverityWarning
 )
 
-// String returns "error" or "warning".
+// String returns "warning" for SeverityWarning and "error" otherwise.
 func (s Severity) String() string {
 	if s == SeverityWarning {
 		return "warning"
@@ -1282,10 +1297,13 @@ func isBare(s string) bool {
 }
 
 // String returns the human form: fields joined by ".", a field not
-// matching [A-Za-z_$][A-Za-z0-9_$-]* written ["<json>"], keyed entries
-// [<keyField>=<key>], set elements [item=<value>], atomic entries [<n>];
-// a key or item not matching [A-Za-z0-9_./:@*-]+ is JSON-quoted and object
-// items print as canonical JSON.
+// matching [A-Za-z_$][A-Za-z0-9_$-]* written ["<json string>"], keyed
+// entries [<keyField>=<key>], set elements [item=<value>], atomic entries
+// [<n>]; a key or item not matching [A-Za-z0-9_./:@*-]+ is JSON-quoted and
+// object items print as canonical JSON. Field names, keys and items are
+// quoted by one JSON encoder without HTML escaping, so every quoted string
+// is valid JSON (invalid UTF-8 becomes U+FFFD) and quotes alike in both
+// forms (01 req 48).
 func (p Path) String() string {
 	var b strings.Builder
 	for i, e := range p {
@@ -1297,9 +1315,10 @@ func (p Path) String() string {
 				}
 				b.WriteString(e.Name)
 			} else {
-				b.WriteString(`[`)
-				b.WriteString(strconv.Quote(e.Name))
-				b.WriteString(`]`)
+				q, _ := marshal(e.Name)
+				b.WriteByte('[')
+				b.Write(q)
+				b.WriteByte(']')
 			}
 		case ElemIndex:
 			b.WriteByte('[')
@@ -1324,7 +1343,7 @@ func quoteValue(s string) string {
 	if isBare(s) {
 		return s
 	}
-	q, _ := json.Marshal(s)
+	q, _ := marshal(s)
 	return string(q)
 }
 
@@ -1335,12 +1354,24 @@ func itemText(v any) string {
 	case json.RawMessage:
 		return string(t)
 	default:
-		b, err := json.Marshal(t)
+		b, err := marshal(t)
 		if err != nil {
 			return "?"
 		}
 		return string(b)
 	}
+}
+
+// marshal is json.Marshal without HTML escaping, so paths print "<" and
+// "&" as authored in both forms, like every other member of WriteJSON.
+func marshal(v any) ([]byte, error) {
+	var buf bytes.Buffer
+	enc := json.NewEncoder(&buf)
+	enc.SetEscapeHTML(false)
+	if err := enc.Encode(v); err != nil {
+		return nil, err
+	}
+	return bytes.TrimSuffix(buf.Bytes(), []byte("\n")), nil
 }
 
 // MarshalJSON returns the JSON form: an array of strings (fields), integers
@@ -1360,7 +1391,7 @@ func (p Path) MarshalJSON() ([]byte, error) {
 			out = append(out, map[string]any{"item": e.Item})
 		}
 	}
-	return json.Marshal(out)
+	return marshal(out)
 }
 
 // Related is a secondary location, such as the first of two duplicates.
@@ -1394,10 +1425,14 @@ type Diagnostic struct {
 // List is an ordered set of diagnostics.
 type List []Diagnostic
 
-// HasErrors reports whether any diagnostic has error severity.
+// HasErrors reports whether any diagnostic has error severity: any
+// Severity but SeverityWarning, matching Severity.String.
 func (l List) HasErrors() bool {
-	return slices.ContainsFunc(l, func(d Diagnostic) bool { return d.Severity == SeverityError })
+	return slices.ContainsFunc(l, Diagnostic.isError)
 }
+
+// isError reports whether d blocks a Revision (01 req 47, 51).
+func (d Diagnostic) isError() bool { return d.Severity != SeverityWarning }
 
 // Sort orders by (environment, file, line, column, code, path, message).
 func (l List) Sort() {
@@ -1414,10 +1449,11 @@ func (l List) Sort() {
 	})
 }
 
-// FirstErrorCode returns the code of the first error after Sort, or "".
+// FirstErrorCode returns the code of the first error after Sort, or "";
+// errors are counted as HasErrors counts them.
 func (l List) FirstErrorCode() string {
 	for _, d := range l {
-		if d.Severity == SeverityError {
+		if d.isError() {
 			return d.Code
 		}
 	}
@@ -2187,7 +2223,7 @@ Tests (WP-01): `Parse` rejects upper-case hex, wrong length and missing prefix; 
 // Copyright 2026 Revington
 // SPDX-License-Identifier: Apache-2.0
 
-// Package expr is the contract of Ruralz CEL expressions (ADR-0011): the
+// Package expr is the contract of Ruralz CEL expressions (ADR-0019): the
 // places where CEL is allowed, the site of one occurrence, compiled
 // programs, the activation (Vars) and its request views, and runtime
 // errors. It imports no CEL library: internal/cel implements Compiler,
@@ -2984,8 +3020,13 @@ type Store interface {
 	// error or panic never withdraws a published value: Get keeps
 	// returning it, and only that watcher keeps its last value and counts
 	// a failure. A file value that fails a use check of the active Store
-	// is never published: Get keeps the last good value and
-	// secret_rotation_failed is raised.
+	// is never published by a poll of that Store: Get keeps the last good
+	// value and secret_rotation_failed is raised. A value published before
+	// Activate, by a poll of the previously active Store, that the uses of
+	// the newly active Store refuse stays served, as the only value the
+	// reference has; it counts a rotation failure and raises
+	// secret_rotation_failed until a value they accept is read
+	// (Resolver.Activate).
 	Get(r Ref) (Value, bool)
 	// Watch registers fn for rotations of r. Registrations are Node-wide,
 	// keyed by Ref and owned by the resolver: they survive Activate of a
@@ -4975,6 +5016,7 @@ import (
 	"log/slog"
 	"net/http"
 	"net/netip"
+	"reflect"
 	"sync"
 	"time"
 
@@ -5155,7 +5197,11 @@ func (c *ConnTLS) PeerCertificates() []*x509.Certificate {
 }
 
 // ConnCache is a small per-connection memo (at most 8 entries), safe for
-// concurrent HTTP/2 streams.
+// concurrent HTTP/2 streams. Keys are non-nil comparable values, such as a
+// string or a [32]byte digest, compared with ==. A nil key, or one that
+// cannot be compared (a slice, a map, a func, or a struct, array or
+// interface holding one), is never stored and never found, so the caller
+// recomputes instead of panicking.
 type ConnCache struct {
 	mu   sync.Mutex
 	keys [8]any
@@ -5163,25 +5209,44 @@ type ConnCache struct {
 	next int
 }
 
-// Get returns the value stored under key.
+// Get returns the value stored under key; a nil or uncomparable key misses.
 func (c *ConnCache) Get(key any) (any, bool) {
+	if !cacheable(key) {
+		return nil, false
+	}
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	for i, k := range c.keys {
-		if k != nil && k == key {
+		if k == key {
 			return c.vals[i], true
 		}
 	}
 	return nil, false
 }
 
-// Put stores v under key, evicting the oldest entry when full.
+// Put stores v under key, replacing the value of a stored key in place and
+// otherwise evicting the oldest entry when full; a nil or uncomparable key
+// is not stored.
 func (c *ConnCache) Put(key, v any) {
+	if !cacheable(key) {
+		return
+	}
 	c.mu.Lock()
 	defer c.mu.Unlock()
+	for i, k := range c.keys {
+		if k == key {
+			c.vals[i] = v
+			return
+		}
+	}
 	c.keys[c.next], c.vals[c.next] = key, v
 	c.next = (c.next + 1) % len(c.keys)
 }
+
+// cacheable reports whether key is non-nil and == on it cannot panic: it is
+// comparable down to the dynamic values it holds. Empty slots (nil) then
+// never equal a lookup key.
+func cacheable(key any) bool { return reflect.ValueOf(key).Comparable() }
 
 // Message is the HTTP message a Phase acts on: the client request
 // (onRequestHeaders, onRequestBody, onRoute), the leg's outgoing request
@@ -6082,8 +6147,9 @@ type Route struct {
 	// Listeners are the bound listener names.
 	Listeners []string
 	// Protocol is the protocol of the Route's Upstreams; the handler's
-	// dispatch table is keyed by it. M1 serves only http (validation
-	// rejects every other protocol with RZ-CFG-040); M3 and M4 add handlers.
+	// dispatch table is keyed by it. M1 serves only http (the ruralzd serve
+	// check rejects every other protocol with RZ-CFG-040, R-75); M3 and M4
+	// add handlers.
 	Protocol v1alpha1.UpstreamProtocol
 	// Timeout is the effective Route timeout (15 s default in M1).
 	Timeout time.Duration
@@ -6515,7 +6581,7 @@ Each resolution is binding for every work package; the reason follows the dash.
 | R-23 | Access logging of RZ-RT-005 rejections | Counted in `ruralz_http_node_responses_total` with code RZ-RT-005, never access-logged (no Route, no pin, bounded cost); WP-31 amends OBS. |
 | R-24 | `/tap` sampling: 04 per-subscriber sample; 09 `{"dropped":N}` line | Both: all requests are offered, each subscriber samples, and a subscriber that falls behind gets one `{"dropped":N}` line (`adminapi.TapDropped`). |
 | R-25 | `holder.json` members | 04's members plus `pidNamespace` (10), format `ruralz.holder.v1`. |
-| R-26 | `flock` implementation: 04 and 10 via x/sys | `internal/nodedir` uses stdlib `syscall.Flock` (`//go:build linux || darwin`); x/sys is limited to `reuseport`, `handover` (`SO_PEERCRED`) and `testkit/proc`. |
+| R-26 | `flock` implementation: 04 and 10 via x/sys | `internal/nodedir` uses stdlib `syscall.Flock` (build constraint linux or darwin, widened to Unix by R-60); x/sys is limited to `reuseport`, `handover` (`SO_PEERCRED`) and `testkit/proc`. |
 | R-27 | Problem `detail` position | Last member (`title`, `status`, `code`, `requestId`, `detail`). |
 | R-28 | Upstream `Host`: 05 Endpoint authority or `sni`; 11 conformance case expected the client authority | 05 wins; the client authority travels in `X-Forwarded-Host`; WP-82 adjusts the case. |
 | R-29 | YAML emitters: 01 restricted-profile encoder; 02 render emitter | One emitter, `profile.Encode`, with 02's quoting rule R-45; golden output never depends on a library release. |
@@ -6549,7 +6615,7 @@ Each resolution is binding for every work package; the reason follows the dash.
 | R-57 | Admin server importing `config/canonical` and the Upstream layer | `/config/dump`, `/metrics` and `/debug/upstreams` are injected handlers; WP-45 stays independent of WP-39 and WP-86. |
 | R-58 | `emit.Binding` returned by `Meter.Bind` had no home | `snapshot.Snapshot.Binding`. |
 | R-59 | Dispatch "keyed by Upstream protocol" with no protocol on the Route | `snapshot.Route.Protocol`, the protocol of the Route's Upstreams. The `ruralzd` serve check rejects every Upstream protocol but `http` with RZ-CFG-040 (R-75), so every Route a Node serves in M1 is `http`; the one-protocol-per-Route rule lands with the M3 handlers. |
-| R-60 | `nodedir` uses `syscall.Flock` under `linux || darwin` but the CLI (windows/amd64) links it | `nodedir` keeps paths, `holder.json` and `node.id` platform-neutral; `Lock` has a `unix` implementation and a `!unix` stub returning `errors.ErrUnsupported`; `ruralz node drain` is Linux-only (10 req 93). `make build` cross-compiles `ruralz` for windows. |
+| R-60 | `nodedir` uses `syscall.Flock` under linux or darwin but the CLI (windows/amd64) links it | `nodedir` keeps paths, `holder.json` and `node.id` platform-neutral; `Lock` has a `unix` implementation and a `!unix` stub returning `errors.ErrUnsupported`; `ruralz node drain` is Linux-only (10 req 93). `make build` cross-compiles `ruralz` for windows. |
 | R-61 | `go mod tidy` at wave boundaries drops modules not yet imported | The lead adds every section 5 module before wave 2 together with `internal/tool/modpin/modpin.go` (`//go:build tools`, one blank import per direct module); `go mod tidy` keeps pinned requirements and nothing links them (verified in a scratch copy: `go build`, `go vet`, `go test`, golangci-lint and repocheck all pass with the pin file present). The lead deletes the file before wave 9, once every module has a real importer. |
 | R-62 | WP-03 and WP-04 run in parallel with WP-28, which changes schema markers and config shapes | WP-28 is additive only (new fields and markers; no Go type, field or JSON name renamed or removed). WP-03 reads markers from the generated schema at test time and WP-04 keys its table by existing config type names, so both are correct against either schema; the wave-end integration run (convention 7) re-runs them on the merged tree. Exception recorded at the wave 2 boundary: four optional string fields became `*string` with unchanged JSON names, under doc 02 Presence and defaults and 07 req 23: `AuthAPIKeyConfig.Header` (default `x-api-key`, 06 req 15), `ActiveHealthCheck.Path` (default `/`, 05 req 4), `HeaderRequestSet.Value` and `HeaderResponseSet.Value` (no default). WP-37 materializes the two defaults only inside a present parent, so consumers read through the pointer and apply the same default when the pointer, the config or the parent object is nil. WP-48 (`auth.api-key`) uses `x-api-key`; WP-46 maps `healthCheck.active.path` to `health.Policy.Path` as `"/"` when nil. WP-59 (`headers`, including its offline `Check`) treats a nil `Value` as absent, in which case `valueExpression` is set, and a non-nil `""` as an explicit empty field value. |
 | R-63 | Decoded-value stop for JSON bodies: 07 req 15 and 58, 03 req 25, 04 req 47, 05 req 47 and `Message.Decoded` stop at 4 times the raw limit in built-value size, which `jsonval` measures at about 3 times the raw bytes for typical documents and up to about 21 times for degenerate arrays (`jsonval.MaxCostPerByte` = 33 bounds it) | The stop stays at 4 times the raw limit the body arrived under, measured as the `jsonval` cost of the values actually built, as docs/architecture/02-configuration-model.md "Body buffering and limits" and its per-request bound of 150 MiB counting decoded values already state; `MaxCostPerByte` times the limit would let one 10 MiB body reserve up to 330 MiB of the 512 MiB `maxBufferedBytes` and void that bound. One constant: `filter.DecodedLimitFactor = 4` (WP-01 contract, additive, cited by `Message.Decoded`). WP-43 (`Message.Decoded` through `expr.Compiler.DecodeJSON`), WP-51, WP-60, WP-64 and the gateway body reservations pass budget = `DecodedLimitFactor` times the raw limit (`maxRequestBodyBytes`, `maxResponseBodyBytes` or the step's `maxBodyBytes`); WP-34's `DecodeJSON` only enforces the budget it is given (`cel` may not import `filter`). Accepted consequence: dense bodies become oversized inside the raw limit (arrays of one-digit numbers above about a quarter of it, arrays of empty objects above about a fifth, short-member objects above about 0.38 of it), while typical documents fit at the full limit. The errors stay those of 07 req 15: 413 RZ-RT-003 on the request, 502 RZ-UP-010 on a plain `upstreams` response, RZ-RT-015 for a composition step; 07 T8 stays as written. |
@@ -6565,6 +6631,7 @@ Each resolution is binding for every work package; the reason follows the dash.
 | R-73 | Ending callback order: 04 req 53 cancels the request's root context (step 1) before it moves the deadlines and marks the request ended under `Mu` (step 2) | Steps (1) and (2) swap: under the request's `Mu` the retirer moves the connection deadlines and marks the request ended, then cancels its root context (3.3 step 9). Marking first guarantees that a handler woken by the cancel sees `Ended` when it commits (04 req 38) and writes the end code, not its own cancellation error; the client sees no other difference. `retire`'s `endOne` already does this; docs/architecture/03-data-plane.md "Why no in-flight request is dropped" rule 5 swaps its sub-steps to match. |
 | R-74 | Balancer rebuild interval: 05 req 16 rebuilds structures at most every 10 s per Upstream; 05 req 17 lowers v at once and raises it only when it can double | Structures rebuild at most every 10 s per Upstream, with two exceptions: (a) the first structure over a non-empty set, for an Upstream whose set was empty since it was built, is not a rebuild (waiting would serve 503 RZ-UP-008 for up to 10 s); (b) a budget plan that lowers v or starts a fallback builds as soon as a `BuildGate` slot is free, which puts the Node memory budget ahead of the rate limit (req 17 and TMR say "lower v at once"). The limit of 8 builds at a time per Node still applies. A ring leaving fallback counts as a raise under req 17's "raise only when it can double": it returns to `ring-hash` only when the fresh plan gives it V ≥ 2 × 64 = 128 virtual nodes per Endpoint, and between 64 and 127 it stays on weighted random, which avoids fallback flapping. WP-31 states both rules in TMR "Load balancing"; no OQ row is needed. |
 | R-75 | RZ-CFG-040 placement: section 0 item 8 and 3.1 put it at stages H and K, which run in every binary, so the verbatim example Bundle (`plugin` Policies, gRPC and `ai` Upstreams, `ai.*` types) would fail `ruralz bundle validate` and `ruralz bundle build`; 01 S1 and risk 28, 03 S19 and req 37, 11 req 13 and 106 and risk 3, 02 req 52 and 79 need its digest, golden entry, `--effective` table and CEL checks through the CLI | Only the pipeline run of a serving Node raises RZ-CFG-040: `pipeline.Options.Serving`, set only by `ruralzd` (activation, and Last-Known-Good and handover through `FromResources`), adds the serve check after stage M, so the offline diagnostics, the canonical bytes and the digest are identical in every binary (3.1). The `ruralz bundle` commands (`validate`, `render`, `diff`, `build`) never raise it, so the verbatim `examples/shop-bundle` runs stages A to M in the CLI and keeps its digest, its `--effective` table and its CEL checks. This also follows 05 req 1 (refused at activation), R-50 and the configuration model's meaning "this Node release". The complete M1 list is section 0 item 8. WP-56 builds the check as a separate pass, WP-69 adds `Options.Serving`, WP-73 sets it, WP-74 and WP-75 never set it, and WP-79's cross-binary diagnostics equality (11 req 16) uses M1-servable fixtures or excludes RZ-CFG-040. |
+| R-76 | Connection-named fields: 05 req 28 removes `Connection` and the fields it names from "the client request headers as the request Phases left them", so a client's `Connection: X-Shop-Consumer` would remove a field a Gateway- or Route-scoped `headers` Policy sets for the Upstream | The handler (WP-66) calls `httpfield.StripConnectionOptions(r.Header)` at admission, after the header limits and framing checks and before the client request Phases. It removes `Connection` and every end-to-end field it names, so request Phases and CEL `request.headers` never see them and a field a Policy sets is always forwarded. Anything that reads `Upgrade` or `Connection` (04 req 22: upgrades served as ordinary requests) reads it before the strip. The fixed hop-by-hop fields, `TE` included, stay until the leg build: WP-46 calls `StripHopByHop(TowardUpstream)` on a fresh per-attempt clone before `clientaddr.Rewrite`, and `StripHopByHop(TowardClient)` on every Upstream response before the response Phases (05 req 30). The client fields removed are those 05 req 28 removes; only the point of removal moves earlier, which 04 req 22 ("never forwarded") allows. |
 
 ## 3. Data flow
 
@@ -6626,7 +6693,7 @@ Secret rotation is not a reload: the resolver polls every 2 s and fans out throu
 1. Take an in-flight unit (`admission`); full: 503 RZ-RT-005 at once (counted, not logged, R-23).
 2. Pin the active snapshot (stripe from the connection, load, increment, re-load) and register the `PinnedRequest`.
 3. Trace context and `requestId` (`emit.Tracer.Decide`, W3C `traceparent`), server span when sampled.
-4. Header size and count (431 RZ-RT-002) and framing. Before normalization, a CONNECT request (HTTP/1.1, or HTTP/2 extended CONNECT) gets 404 RZ-RT-001 (04 req 22); otherwise its empty path would normalize to `/` and match a prefix `/` Route. Path normalization is `routematch.NormalizePath(routematch.RequestPath(r.URL))`, which supersedes 04 req 23's input `r.URL.EscapedPath()`: on Go 1.27.1 `EscapedPath` re-escapes the decoded `Path` when the raw path holds a byte `net/url` will not leave unescaped (`{`, `|`, `"`, non-ASCII), so `/a%2Fb/{x}` would become `/a/b/%7Bx%7D` and the encoded slash would split a segment; `RequestPath` returns `u.RawPath` when set and `EscapedPath` otherwise, without allocating. A `NormalizePath` error is answered with the code and status it carries (`errcode.CodeOf`, `errcode.Status`): errors matching `routematch.ErrRejected` are 400 RZ-RT-017, and `routematch.ErrAsteriskForm` (`OPTIONS *`) is 404 RZ-RT-001. Then host (`routematch.NormalizeHost`) and listener `hostnames` (404 RZ-RT-001), `source.ip` (`clientaddr`: PROXY v2 peer, LOCAL accepted whatever its family (R-65), trusted proxies, forwarding headers). Every rejection in this step is a pre-routing response (04 req 20: 5 s write deadline, no Filter Chain).
+4. Header size and count (431 RZ-RT-002) and framing. Then `httpfield.StripConnectionOptions(r.Header)` removes `Connection` and the fields it names before any Phase runs (R-76); the fixed hop-by-hop fields stay for the leg build (3.5). Before normalization, a CONNECT request (HTTP/1.1, or HTTP/2 extended CONNECT) gets 404 RZ-RT-001 (04 req 22); otherwise its empty path would normalize to `/` and match a prefix `/` Route. Path normalization is `routematch.NormalizePath(routematch.RequestPath(r.URL))`, which supersedes 04 req 23's input `r.URL.EscapedPath()`: on Go 1.27.1 `EscapedPath` re-escapes the decoded `Path` when the raw path holds a byte `net/url` will not leave unescaped (`{`, `|`, `"`, non-ASCII), so `/a%2Fb/{x}` would become `/a/b/%7Bx%7D` and the encoded slash would split a segment; `RequestPath` returns `u.RawPath` when set and `EscapedPath` otherwise, without allocating. A `NormalizePath` error is answered with the code and status it carries (`errcode.CodeOf`, `errcode.Status`): errors matching `routematch.ErrRejected` are 400 RZ-RT-017, and `routematch.ErrAsteriskForm` (`OPTIONS *`) is 404 RZ-RT-001. Then host (`routematch.NormalizeHost`) and listener `hostnames` (404 RZ-RT-001), `source.ip` (`clientaddr`: PROXY v2 peer, LOCAL accepted whatever its family (R-65), trusted proxies, forwarding headers). Every rejection in this step is a pre-routing response (04 req 20: 5 s write deadline, no Filter Chain).
 5. Route match (`snapshot.Router.Match`, span `ruralz.route.match`): no match 404 RZ-RT-001, `match.when` runtime error 500 RZ-RT-006. Pre-routing responses run no Filter Chain (5 s write deadline, at most 2,000 concurrent).
 6. Dispatch by `Route.Protocol` (only `http` in M1). Route deadline `t0 + timeout`; declared `Content-Length` over `maxRequestBodyBytes`: 413 RZ-RT-003 without reading.
 7. The exchange is initialized from the pool (`gateway/exchange`, implementing `snapshot.RequestState` and `filter.Exchange`), and the executor runs the client Phases from `snapshot.Route.Chain`, calling `RequestState.Enter` before every Filter call so `Message`, `Vars`, `PolicyState` and `Annotate` refer to that Policy:
@@ -7190,7 +7257,7 @@ A stale hit within `stale-while-revalidate` is served at once; the `cache` Filte
 - **Owns**: `internal/gateway/admin/`; `internal/gateway/tap/`; `internal/gateway/readiness/`
 - **Depends on**: WP-17
 - **Specs**: `04-dataplane-core.md`, `09-observability.md`, `10-cli.md`
-- **Scope**: Admin mux on admin.port (own server, never DefaultServeMux): /healthz, /readyz (adminapi reasons), /metrics, /config/dump and /debug/upstreams as injected handlers (R-57), /debug/snapshots, /debug/pprof, /tap NDJSON hub with per-subscriber sampling, dropped lines and subscriber limit RZ-RT-019 (R-24), readiness reason set, adminauth middleware, problem errors. 04 K 69-75, J 60-61; 09 2.13 69.
+- **Scope**: Admin mux on admin.port (own server, never DefaultServeMux): /healthz, /readyz (adminapi reasons), /metrics, /config/dump and /debug/upstreams as injected handlers (R-57), /debug/snapshots, /debug/pprof, /tap NDJSON hub with per-subscriber sampling, dropped lines and subscriber limit RZ-RT-019 (R-24), readiness reason set, adminauth middleware, problem errors; any other path is 404 RZ-RT-020 and any other method 405 RZ-RT-021 (OQ-data-plane-18 (b)). 04 K 69-75, J 60-61; 09 2.13 69.
 - **Done when**: Endpoint contract tests with adminapi types and fake injected handlers; tap backpressure test.
 
 ##### WP-46 Upstream runtimes and attempt loop (L)
@@ -7384,7 +7451,7 @@ A stale hit within `stale-while-revalidate` is served at once; the `cache` Filte
 - **Owns**: `internal/gateway/handler/`; `internal/gateway/replay/`
 - **Depends on**: WP-05, WP-15, WP-18, WP-19, WP-20, WP-21, WP-42, WP-43, WP-45
 - **Specs**: `04-dataplane-core.md`, `09-observability.md`, `05-upstream-traffic.md`
-- **Scope**: handler: http.Handler implementing the 04 req 34 order: unit, deadlines, pin, trace, header limit and count, framing and path/host normalization per 3.4 step 4 (CONNECT 404 RZ-RT-001 first; routematch.NormalizePath(routematch.RequestPath(r.URL)); errors through errcode.CodeOf and errcode.Status, RZ-RT-017 or RZ-RT-001), source.ip, match, dispatch table keyed by Route.Protocol (R-59), Route deadline, early 413, executor client Phases, Outbound fill and Forward (R-41), onResponse, problem documents for generated responses, RateLimit field append (sfv), commit under PinnedRequest.Mu with RZ-RT-014/016, streaming copy with pooled buffers, onLog and Finish, metrics on the stripe (Reset of the exchange's emit.GatewayTimer at request start and Observe(end, stripe, ListenerMetrics.GatewayDuration, Node().GatewayDurationSkipped) at the end; ListenerMetrics.Requests.Inc(stripe, protocol, status, emit.OriginOf(code, fromUpstream))), accessLog.when evaluation and access record (R-48), tap publish; handlertest package with AllocsPerRun fixtures for the bench suite. replay: filter.Replayer pinning the published snapshot, Route and LegChains lookup, synthetic exchange, one leg through Snapshot.Legs (R-43). 04 C 19-25, E 34-38, L 76-80; 05 P 86 (replay side); 09 2.12 66-68 (when).
+- **Scope**: handler: http.Handler implementing the 04 req 34 order: unit, deadlines, pin, trace, header limit and count, framing and path/host normalization per 3.4 step 4 (CONNECT 404 RZ-RT-001 first; routematch.NormalizePath(routematch.RequestPath(r.URL)); errors through errcode.CodeOf and errcode.Status, RZ-RT-017 or RZ-RT-001), Connection-option strip at admission before the client Phases (httpfield.StripConnectionOptions, R-76), source.ip, match, dispatch table keyed by Route.Protocol (R-59), Route deadline, early 413, executor client Phases, Outbound fill and Forward (R-41), onResponse, problem documents for generated responses, RateLimit field append (sfv), commit under PinnedRequest.Mu with RZ-RT-014/016, streaming copy with pooled buffers, onLog and Finish, metrics on the stripe (Reset of the exchange's emit.GatewayTimer at request start and Observe(end, stripe, ListenerMetrics.GatewayDuration, Node().GatewayDurationSkipped) at the end; ListenerMetrics.Requests.Inc(stripe, protocol, status, emit.OriginOf(code, fromUpstream))), accessLog.when evaluation and access record (R-48), tap publish; handlertest package with AllocsPerRun fixtures for the bench suite. replay: filter.Replayer pinning the published snapshot, Route and LegChains lookup, synthetic exchange, one leg through Snapshot.Legs (R-43). 04 C 19-25, E 34-38, L 76-80; 05 P 86 (replay side); 09 2.12 66-68 (when).
 - **Done when**: In-process tests with httptest upstreams and a fake Forwarder; replay test proves the snapshot stays pinned until the leg ends; PB-8 AllocsPerRun at or under 30.
 
 ##### WP-67 Drain and sd_notify (M)
@@ -7618,7 +7685,7 @@ A stale hit within `stale-while-revalidate` is served at once; the `cache` Filte
 - **Owns**: `deploy/benchhost/`
 - **Depends on**: WP-81, WP-90
 - **Specs**: `11-ops-quality.md`, `00-architecture.md`
-- **Scope**: Maintainer package (4.1 rule 7): provision RH-1 per the PBB hardware spec under OQ-performance-budgets-and-benchmarking-2 (b) (rented bare metal, owner decision), with host preparation scripts (cpusets, governor, sysctls, NIC settings, fingerprint check) under deploy/benchhost/, and register an ephemeral self-hosted runner labeled rh-1 that runs only scheduled or dispatched jobs from protected branches and tags, never pull-request code; run the nightly Latency rotation (11 req 75), the gating runs of PB-1 to PB-4, PB-6 to PB-11, PB-14 to PB-16 (req 71-74), the soak (req 79), CE-12 at 1,000,000 calls per second with the RH-1 State Store host (req 56), publish the records (req 77) and export the budget results for the 0.1.0 notes (req 99).
+- **Scope**: Maintainer package (4.1 rule 7): provision RH-1 per the PBB hardware spec under OQ-performance-budgets-and-benchmarking-2 (b) (rented bare metal, owner decision), with host preparation scripts (cpusets, governor, sysctls, NIC settings, fingerprint check) under deploy/benchhost/, and register an ephemeral self-hosted runner labeled rh-1 that runs only jobs of protected branches and tags (scheduled, dispatched, or called by release.yml), never pull-request code; run the nightly Latency rotation (11 req 75), the gating runs of PB-1 to PB-4, PB-6 to PB-11, PB-14 to PB-16 (req 71-74), the soak (req 79), CE-12 at 1,000,000 calls per second with the RH-1 State Store host (req 56), publish the records (req 77) and export the budget results for the 0.1.0 notes (req 99).
 - **Done when**: Latency job green on rh-1 with published records showing PB-1 to PB-4 and PB-7 met (exit criteria 2 and 3), soak and CE-12 full-rate results recorded; until funded, the job fails with the 'RH-1 not provisioned' annotation and exit criteria 2 and 3 stay open.
 
 #### Wave 10: Release candidate and 0.1.0 cut
@@ -7673,7 +7740,7 @@ M1 exit criterion 7 requires every open question blocking an M1 feature to be cl
 | OQ-configuration-model-8 | (a) as registered: `quota` open, `ai.token-budget` closed | Registry defaults (WP-04), materialized in canonical form | WP-29 (`docs/architecture/02-configuration-model.md`) |
 | OQ-data-plane-2 | (a) at most one leading `*.` label, no other `*` | `routematch.CheckTemplate`/host rules, RZ-CFG-005 (WP-05, WP-56) | WP-30 (`docs/architecture/03-data-plane.md`) |
 | OQ-data-plane-8 with OQ-security-and-identity-9 | (a) 401 RZ-AUTH-020 for a failed `upstream-auth` Policy in M1 (pack 8.10 binding; (b) 503 needs a pack amendment and is a one-row registry change later) | Status only through `errcode.Status` (WP-50, WP-20) | WP-30 (`03-data-plane.md`, `08-security-and-identity.md`) |
-| OQ-data-plane-9 | (a) pack 8.6 `RT` means request and response handling on a Node outside Upstream legs | RZ-RT-011 to 019 stay in `RT` | WP-30 (row), WP-29 (pack 8.6) |
+| OQ-data-plane-9 | (a) pack 8.6 `RT` means request and response handling on a Node outside Upstream legs | RZ-RT-011 to 021 stay in `RT` | WP-30 (row), WP-29 (pack 8.6) |
 | OQ-observability-2 | (a) `telemetry.otlp` fields, M1 limited to `otlp.tls` with the `UpstreamTLS` shape (`sni`, `caCertificate`, `clientCertificate`, `clientKey`); authentication headers later | Schema (WP-28), OTLP client TLS via `tlsconf` (WP-40), cleartext hop reason when absent | WP-31 (`docs/architecture/10-observability.md`), field text WP-29 |
 | OQ-observability-16 | (a) external producer (`sdkmetric.Producer`) over Ruralz-owned aggregates | `telemetry/aggregate` (WP-09), exporter wiring (WP-40), cardinality test (WP-91) | WP-31, ADR-0010 amendment WP-32 |
 | OQ-performance-budgets-and-benchmarking-1 | (a) oha primary, vegeta cross-check, fortio (M3); a statistics tool after research | `LoadTool` adapter in the macro harness (WP-81); tools pinned (WP-27); CI tooling rows (WP-32) | WP-32 (`docs/architecture/12-performance-budgets-and-benchmarking.md`) |
