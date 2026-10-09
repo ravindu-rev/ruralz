@@ -46,8 +46,8 @@ Small items left for a later pass (none blocks wave 3):
 1. Launch `m1-resume.js` in two concurrent runs of about 12 work packages each (the container has 4 CPUs, and a workflow runs at most CPUs minus 2 agents at once). Put the large (`size: L`) packages first. Build `extra` from `forwards.json`.
 2. When a run finishes, read each package's `finalVerdict`. For every `pass`, the lead commits only the files inside that package's `dirs` (match `git status --porcelain --untracked-files=all` against `wps.json`), in dependency order, after `go build`, `go vet` and the tests of those packages pass:
    - title validated with `go run ./internal/tool/commitcheck title -title "<title>"` (allowed scopes in `AGENTS.md`);
-   - `git -c commit.gpgsign=false commit -s -F <msg> --pathspec-from-file=<list>` so another package's staged files are never swept in;
-   - message body of 2 to 6 lines, then `Refs: WP-xx (M1 architecture)` and the `Co-Authored-By` trailer `CLAUDE.md` asks for;
+   - `git commit -S -s -F <msg> --pathspec-from-file=<list>` (signed with the user's SSH signing key) so another package's staged files are never swept in;
+   - message body of 2 to 6 lines, then `Refs: WP-xx (M1 architecture)`; no `Co-Authored-By` trailer;
    - verify with `git show --no-renames --name-only --format= HEAD`, then push `develop`.
 3. At the wave boundary, run the whole-tree checks: `go build ./...`, `go vet ./...`, `bin/golangci-lint run ./...` and `fmt --diff`, `go run ./internal/tool/repocheck`, `go run ./internal/tool/depgate`, `go mod verify`, `go generate ./...` with no diff, `CGO_ENABLED=1 go test -race -shuffle=on -tags netgo,osusergo ./...`, `CGO_ENABLED=0 go test -shuffle=on ./...` and `make floor FLOOR_GOTOOLCHAIN=go1.26.8`. Fix a failing or flaky test at its root cause, never by skipping it.
 4. Collect every package's `contractRequests`, triage them read-only (the same action classes as `triage.json`), ask the user only what is theirs to decide (ADRs, `docs/_meta/`, `nolicensecheck.allow`, runners, repository settings), apply the rest with `m1-apply.js`, record decisions in `specs/00-architecture.md` 2.16 and `arch/wps.json`, and add notes for later packages to `forwards.json`.
@@ -55,6 +55,6 @@ Small items left for a later pass (none blocks wave 3):
 
 ## Working rules from the user
 
-- Commit directly to `develop`; no pull requests. The author comes from the repository git config (Ravindu Wijegunawardhana). Commits carry `Signed-off-by` (`-s`) and the `Co-Authored-By` trailer from `CLAUDE.md`.
+- Commit directly to `develop`; no pull requests. The author comes from the repository git config (Ravindu Wijegunawardhana). Commits carry `Signed-off-by` (`-s`), are signed with the user's SSH signing key (`-S`), and carry no `Co-Authored-By` trailer.
 - Multi-agent workflows are approved for all remaining M1 waves.
 - After M1 come M1 integration, end-to-end tests and docs, then M2.
