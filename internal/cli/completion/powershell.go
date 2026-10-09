@@ -21,11 +21,10 @@ import (
 // same): a CompletionResult cannot have an empty text, so
 // CommandCompletion.CompleteInput throws when it converts the empty
 // string (pwsh 7.4 and 7.6: "the value of argument completionText is
-// null"). PSReadLine
-// swallows the exception and shows no completion, which is the intent;
-// another host calling TabExpansion2, such as an editor, sees the
-// exception instead. Returning nothing would fall back to path
-// completion. TestPowerShellBehaviorReq107 pins this behavior.
+// null"). PSReadLine swallows the exception and shows no completion,
+// which is the intent; another host calling TabExpansion2, such as an
+// editor, sees the exception instead. Returning nothing would fall back
+// to path completion. TestPowerShellBehaviorReq107 pins this behavior.
 func writePowerShell(b *bytes.Buffer, m *model) {
 	p := m.program
 	fmt.Fprintf(b, `# PowerShell completion for %[1]s

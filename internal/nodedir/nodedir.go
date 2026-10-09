@@ -213,7 +213,7 @@ func (d *Dir) NodeID(gen func() (ulid.ULID, error)) (ulid.ULID, error) {
 // readNodeID reads a node-id file: 26 characters, optionally followed by
 // one "\n".
 func readNodeID(path string) (ulid.ULID, error) {
-	data, err := readLimited(path, 64)
+	data, err := readLimited(path, 64, false)
 	if err != nil {
 		return ulid.ULID{}, err
 	}
@@ -231,8 +231,11 @@ func readNodeID(path string) (ulid.ULID, error) {
 // readLimited reads the regular file path, refusing more than limit
 // bytes. On Unix the open neither follows a final symbolic link nor
 // blocks on a FIFO or device (openNoFollow), and the type check uses the
-// opened file, so the checked file is the read file.
-func readLimited(path string, limit int64) ([]byte, error) {
+// opened file, so the checked file is the read file. With oneLink it also
+// refuses a file with more than one hard link (Unix; checkOneLink).
+// node-id never sets it: createExclusive links the file into place before
+// removing its temporary name, so a reader racing it can see two links.
+func readLimited(path string, limit int64, oneLink bool) ([]byte, error) {
 	f, err := openNoFollow(path)
 	if err != nil {
 		return nil, err
@@ -244,6 +247,11 @@ func readLimited(path string, limit int64) ([]byte, error) {
 	}
 	if !fi.Mode().IsRegular() {
 		return nil, fmt.Errorf("nodedir: %s is not a regular file (mode %v)", path, fi.Mode())
+	}
+	if oneLink {
+		if err := checkOneLink(fi); err != nil {
+			return nil, fmt.Errorf("nodedir: %s %w", path, err)
+		}
 	}
 	data, err := io.ReadAll(io.LimitReader(f, limit+1))
 	if err != nil {

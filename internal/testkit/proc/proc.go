@@ -291,10 +291,16 @@ func (p *Process) LogPaths() (stdout, stderr string) { return p.outPath, p.errPa
 // with the output the rings still hold. re is matched against each line,
 // newline included, on its own, and against the unterminated last line as
 // it grows, so a match never spans lines; a line longer than MaxLineBytes
-// is matched in pieces. Each byte is read and matched once (the last line
-// again as it grows), so waiting costs time in proportion to the output
-// written, not to the ring size, and does not slow a chatty process. It
-// fails when ctx ends or the process exits without a match.
+// is matched in pieces. Because the unterminated last line is matched as
+// it grows (so a prompt can match), a match can come from a line that is
+// still being written: when a line reaches the ring in two writes,
+// `listening on (\S+)` can capture a prefix such as "127.0". A pattern
+// that captures a value from a complete line must end with `\n`; `$`,
+// even under (?m), also matches at the end of a partial line. Each byte
+// is read and matched once (the last line again as it grows), so waiting
+// costs time in proportion to the output written, not to the ring size,
+// and does not slow a chatty process. It fails when ctx ends or the
+// process exits without a match.
 func (p *Process) WaitOutput(ctx context.Context, re *regexp.Regexp) ([]string, error) {
 	ms := []*lineMatcher{{r: p.stdout, re: re}, {r: p.stderr, re: re}}
 	defer func() {

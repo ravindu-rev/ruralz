@@ -19,8 +19,9 @@
 // Every request is counted and, unless disabled, kept in a bounded
 // request log (method, URI, headers, framing, body prefix, protocol,
 // TLS), which secret leak tests scan for credentials a Node must strip
-// (11 req 39); Stats.LogEvicted and Request.BodyTruncated tell such a
-// scan whether the log dropped anything.
+// (11 req 39); Stats.LogEvicted and Request.BodyTruncated, with the
+// conditions on Request, tell such a scan whether the log dropped
+// anything.
 //
 // Goroutines: the http.Server's serve loop and its per-connection
 // goroutines, owned by the Server; Close, or the end of the Start
@@ -122,7 +123,8 @@ type Stats struct {
 	Connections, OpenConnections int64
 	// LogEvicted counts logged requests dropped from the full request
 	// log to make room for newer ones (ClearRequests is not counted). A
-	// leak scan over Requests is incomplete unless it is 0.
+	// leak scan over Requests is incomplete unless it is 0 (see Request
+	// for the other conditions).
 	LogEvicted int64
 }
 

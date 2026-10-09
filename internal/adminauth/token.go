@@ -162,8 +162,8 @@ type tokenFile struct {
 	cur atomic.Pointer[digest]
 
 	// mu serializes refreshes; the request path only tries it, and waits
-	// for a refresh in progress only when the presented token matched
-	// nothing.
+	// for a refresh in progress (then refreshes itself) only when the
+	// presented token matched nothing.
 	mu sync.Mutex
 	// seen is the file info of the last read, or of the last stat whose
 	// read failed (nil after a failed stat).
@@ -221,11 +221,15 @@ func (tf *tokenFile) tryRefresh() (refreshResult, error) {
 	return tf.refreshLocked(false)
 }
 
-// wait returns once the refresh in progress, if any, has published its
-// result. It never starts a refresh.
-func (tf *tokenFile) wait() {
+// refreshAfterBusy is the request-path refresh after tryRefresh found
+// another refresh in progress. It waits for that refresh to publish and
+// then refreshes itself, because the other refresh may have run os.Stat
+// before the rename the presented token comes from. When the file is
+// unchanged it costs one stat.
+func (tf *tokenFile) refreshAfterBusy() (refreshResult, error) {
 	tf.mu.Lock()
 	defer tf.mu.Unlock()
+	return tf.refreshLocked(false)
 }
 
 // reload re-reads the file whatever its info says.

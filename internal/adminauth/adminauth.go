@@ -321,9 +321,11 @@ func (a *Authenticator) admits(class Class, k Kind) bool {
 // matchToken refreshes the token files and compares the presented token's
 // digest with both configured digests in constant time. When the token
 // matches nothing while another request was refreshing a file, that
-// refresh may be publishing a rotated token: matchToken waits for it and
-// compares again, without starting a second refresh, so a request with
-// the new token is not refused right after a rotation.
+// refresh may be publishing a rotated token, or may have checked the file
+// just before the rotation: matchToken waits for that refresh and then
+// refreshes the file itself (one stat when it is unchanged) before
+// comparing again, so a request with the new token is not refused right
+// after a rotation.
 func (a *Authenticator) matchToken(ctx context.Context, tok string) Kind {
 	d := sha256.Sum256([]byte(tok))
 	opBusy := a.operator != nil && a.refresh(ctx, EnvTokenFile, a.operator)
@@ -331,10 +333,12 @@ func (a *Authenticator) matchToken(ctx context.Context, tok string) Kind {
 	k := a.compare(&d)
 	if k == KindNone && (opBusy || mBusy) {
 		if opBusy {
-			a.operator.wait()
+			res, err := a.operator.refreshAfterBusy()
+			a.logRefresh(ctx, EnvTokenFile, a.operator, res, err)
 		}
 		if mBusy {
-			a.metrics.wait()
+			res, err := a.metrics.refreshAfterBusy()
+			a.logRefresh(ctx, EnvMetricsTokenFile, a.metrics, res, err)
 		}
 		k = a.compare(&d)
 	}
@@ -369,21 +373,36 @@ const (
 // whether another refresh of tf was in progress.
 func (a *Authenticator) refresh(ctx context.Context, env string, tf *tokenFile) (inProgress bool) {
 	res, err := tf.tryRefresh()
-	if res == busy || a.log == nil {
-		return res == busy
+	if res == busy {
+		return true
+	}
+	a.logRefresh(ctx, env, tf, res, err)
+	return false
+}
+
+// logRefresh logs the outcome of a refresh of tf, the file of setting env.
+// A failure names whether a token is still in use: after a revocation no
+// valid token is kept.
+func (a *Authenticator) logRefresh(ctx context.Context, env string, tf *tokenFile, res refreshResult, err error) {
+	if a.log == nil {
+		return
 	}
 	switch res {
 	case unchanged, busy:
 	case rotated:
 		a.log.LogAttrs(ctx, slog.LevelInfo, "admin token rotated", slog.String(keySetting, env))
 	case failed:
+		if tf.cur.Load() == nil {
+			a.log.LogAttrs(ctx, slog.LevelWarn, "admin token rotation failed, no token in use",
+				slog.String(keySetting, env), slog.String(keyError, err.Error()))
+			break
+		}
 		a.log.LogAttrs(ctx, slog.LevelWarn, "admin token rotation failed, keeping the last valid token",
 			slog.String(keySetting, env), slog.String(keyError, err.Error()))
 	case revoked:
 		a.log.LogAttrs(ctx, slog.LevelWarn, "admin token file removed, token revoked",
 			slog.String(keySetting, env), slog.String(keyError, err.Error()))
 	}
-	return false
 }
 
 // certificate reports the client certificate of r: its subject, whether

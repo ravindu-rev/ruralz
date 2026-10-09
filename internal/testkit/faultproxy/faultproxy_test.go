@@ -306,7 +306,10 @@ func TestDelaySwitchDistribution(t *testing.T) {
 				cs := p.Conns()
 				return len(cs) == 1 && cs[0].Upstream != ""
 			})
-			time.Sleep(50 * time.Millisecond) // let the up pump queue the chunk
+			waitFor(t, "chunk queued under Delay", func() bool { return p.queuedUp.Load() == 4 })
+			if s := p.Stats(); s.BytesUp != 0 {
+				t.Fatalf("the chunk was forwarded before the switch: BytesUp %d", s.BytesUp)
+			}
 			if err := p.SetMode(tt.between); err != nil {
 				t.Fatal(err)
 			}
@@ -317,7 +320,7 @@ func TestDelaySwitchDistribution(t *testing.T) {
 					t.Fatalf("flushed bytes = %q, %v", buf, err)
 				}
 			} else {
-				time.Sleep(50 * time.Millisecond) // let the pump drop the queue
+				waitFor(t, "queue dropped", func() bool { return p.queuedUp.Load() == 0 })
 			}
 			if err := p.SetMode(Delay{Mean: 10 * time.Millisecond}); err != nil {
 				t.Fatal(err)

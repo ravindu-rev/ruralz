@@ -12,12 +12,11 @@
 // incoming metadata (headers), the peer address, the connection's
 // sequence number and the TLS state; Stats counts connections opened and
 // open now, so a test sees an exporter close its old connection (09 test
-// 40). Spans,
-// log records and metrics are also kept flattened with their resource and
-// scope, and the span queries order a trace by start time (ties in
-// arrival order): Trace, SpanNames, Children, Roots and FormatTree answer
-// "which spans, in which order, under which parent" (09 test 34, 11 req
-// 34).
+// 40). Spans, log records and metrics are also kept flattened with their
+// resource and scope, and the span queries order a trace by start time
+// (ties in arrival order): Trace, SpanNames, Children, Roots and
+// FormatTree answer "which spans, in which order, under which parent" (09
+// test 34, 11 req 34).
 //
 // Modes script collector failures for exporter tests (09 tests 37, 38):
 // Accept records and answers OK; Reject answers every export with a gRPC

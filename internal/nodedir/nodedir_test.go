@@ -334,13 +334,13 @@ func TestReadLimited(t *testing.T) {
 	if err := os.WriteFile(p, bytes.Repeat([]byte("x"), 10), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if b, err := readLimited(p, 10); err != nil || len(b) != 10 {
+	if b, err := readLimited(p, 10, false); err != nil || len(b) != 10 {
 		t.Fatalf("readLimited(10) = %d bytes, %v", len(b), err)
 	}
-	if _, err := readLimited(p, 9); err == nil {
+	if _, err := readLimited(p, 9, false); err == nil {
 		t.Fatal("readLimited(9) accepted 10 bytes")
 	}
-	if _, err := readLimited(filepath.Dir(p), 9); err == nil {
+	if _, err := readLimited(filepath.Dir(p), 9, false); err == nil {
 		t.Fatal("reading a directory succeeded")
 	}
 }

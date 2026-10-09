@@ -38,6 +38,18 @@ func openNoFollow(path string) (*os.File, error) {
 	return os.OpenFile(path, os.O_RDONLY|syscall.O_NONBLOCK|syscall.O_NOCTTY|syscall.O_NOFOLLOW, 0) //nolint:gosec // G304: a fixed name under the data directory.
 }
 
+// checkOneLink refuses a file with more than one hard link. holder.json is
+// always written by rename (WriteFileAtomic), so it has exactly one; a
+// hard link planted in its place passes O_NOFOLLOW and the regular-file
+// check, and where fs.protected_hardlinks is off it could make a reader
+// running as root (ruralz node drain) echo another file's content.
+func checkOneLink(fi fs.FileInfo) error {
+	if st, ok := fi.Sys().(*syscall.Stat_t); ok && st.Nlink != 1 {
+		return fmt.Errorf("has %d hard links, want 1", st.Nlink)
+	}
+	return nil
+}
+
 // syncDir fsyncs a directory so a rename or link in it is durable.
 func syncDir(dir string) error {
 	f, err := os.Open(dir) //nolint:gosec // G304: a directory under the data directory.

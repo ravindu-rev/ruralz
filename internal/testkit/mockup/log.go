@@ -16,9 +16,12 @@ import (
 // the log; Body holds at most Config.MaxLoggedBody bytes.
 //
 // A leak scan over the log (11 req 39: the canary API key must never
-// reach the mock Upstream) is complete only when nothing was dropped:
-// Stats().LogEvicted is 0 and no Request has BodyTruncated set. Size
-// Config.LogSize and Config.MaxLoggedBody for the run, or check both.
+// reach the mock Upstream) is complete only when every request of the
+// scanned window was logged whole: Config.LogSize is not negative (a
+// negative size disables the log), ClearRequests was not called during
+// the window, Stats().LogEvicted is 0 and no Request has BodyTruncated
+// set. Size Config.LogSize and Config.MaxLoggedBody for the run, or check
+// these conditions.
 type Request struct {
 	// Seq numbers requests from 1 in arrival order (after the body was
 	// read), logged or not.

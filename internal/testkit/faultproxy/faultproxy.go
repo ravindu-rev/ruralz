@@ -217,6 +217,7 @@ type Proxy struct {
 	rng   *rand.Rand
 
 	accepted, active, resets, bytesUp, bytesDown atomic.Int64
+	queuedUp                                     atomic.Int64 // bytes the client-to-upstream pumps hold queued; tests wait on it
 }
 
 // Start listens and starts proxying. The proxy closes when ctx ends or
@@ -755,8 +756,17 @@ func (pm *pump) wait(t time.Time) bool {
 	return true
 }
 
+// setQueued records that the pump holds n bytes queued.
+func (pm *pump) setQueued(n int) {
+	if pm.dir == Up {
+		pm.c.p.queuedUp.Add(int64(n - pm.queued))
+	}
+	pm.queued = n
+}
+
 // run forwards until the source ends or the connection is aborted.
 func (pm *pump) run() {
+	defer pm.setQueued(0) // an ended pump forwards nothing it still holds
 	eof := false
 	for {
 		seen := pm.generation()
@@ -771,7 +781,8 @@ func (pm *pump) run() {
 			pm.c.reset()
 			return
 		case Blackhole:
-			pm.queue, pm.queued = nil, 0
+			pm.queue = nil
+			pm.setQueued(0)
 		case Pass:
 			if err := pm.flush(time.Time{}); err != nil {
 				pm.c.abortFrom(err)
@@ -851,7 +862,7 @@ func (pm *pump) handle(b []byte) error {
 		}
 		pm.lastDue = due
 		pm.queue = append(pm.queue, chunk{b: slices.Clone(b), due: due})
-		pm.queued += len(b)
+		pm.setQueued(pm.queued + len(b))
 	}
 	// Blackhole drops; Reset and Refuse are handled by the loop.
 	return nil
@@ -863,7 +874,7 @@ func (pm *pump) flush(now time.Time) error {
 		ch := pm.queue[0]
 		pm.queue[0] = chunk{}
 		pm.queue = pm.queue[1:]
-		pm.queued -= len(ch.b)
+		pm.setQueued(pm.queued - len(ch.b))
 		if err := pm.forward(ch.b); err != nil {
 			return err
 		}

@@ -21,5 +21,8 @@ func openNoFollow(path string) (*os.File, error) {
 	return os.Open(path) //nolint:gosec // G304: a fixed name under the data directory.
 }
 
+// checkOneLink accepts every file: link counts are not checked here.
+func checkOneLink(fs.FileInfo) error { return nil }
+
 // syncDir is a no-op: directories cannot be fsynced here.
 func syncDir(string) error { return nil }

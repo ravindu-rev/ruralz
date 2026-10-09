@@ -13,6 +13,7 @@ import (
 	"os/exec"
 	"runtime"
 	"slices"
+	"strings"
 	"syscall"
 
 	"golang.org/x/sys/unix"
@@ -40,10 +41,17 @@ func RunInNetNS(ctx context.Context, o NetNSOptions) (int, error) {
 	if err != nil {
 		return -1, fmt.Errorf("proc: %w", err)
 	}
-	args := append([]string{"-test.run=" + RunPattern(o.TestName), "-test.count=1"}, o.Args...)
 	// Verbose output carries the result line that tells a pass from a
-	// skip; it comes last so it wins over o.Args.
-	args = append(args, "-test.v=true")
+	// skip. -test.v=true comes before o.Args so it is parsed even when
+	// o.Args holds "--" or a positional argument (flag parsing stops
+	// there), and a -test.v entry in o.Args is dropped so it cannot turn
+	// verbose output off again.
+	args := []string{"-test.run=" + RunPattern(o.TestName), "-test.count=1", "-test.v=true"}
+	for _, a := range o.Args {
+		if !isVerboseFlag(a) {
+			args = append(args, a)
+		}
+	}
 	cmd := exec.CommandContext(ctx, exe, args...) //nolint:gosec // G204: re-executing this test binary
 	cmd.Env = append(os.Environ(), EnvInNetNS+"=1", EnvNetNSSysctls+"="+enc)
 	cmd.Env = append(cmd.Env, o.Env...)
@@ -64,6 +72,18 @@ func RunInNetNS(ctx context.Context, o NetNSOptions) (int, error) {
 	runtime.UnlockOSThread()
 	res.finish()
 	return res.outcome(err, tail.bytes())
+}
+
+// isVerboseFlag reports whether the command-line argument a sets -test.v
+// (-test.v, --test.v, -test.v=false and so on).
+func isVerboseFlag(a string) bool {
+	name, ok := strings.CutPrefix(a, "-")
+	if !ok {
+		return false
+	}
+	name = strings.TrimPrefix(name, "-")
+	name, _, _ = strings.Cut(name, "=")
+	return name == "test.v"
 }
 
 // SetupNetNS brings the loopback interface up (SIOCSIFFLAGS) and writes

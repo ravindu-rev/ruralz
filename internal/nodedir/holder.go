@@ -111,11 +111,12 @@ func DecodeHolder(data []byte) (Holder, error) {
 // locking anything else, for ruralz node drain (spec 10 requirements 95
 // and 96). A missing record matches ErrNoHolder and fs.ErrNotExist; an
 // unparsable one matches ErrHolderInvalid, and so does, without blocking
-// or reading through it, a holder.json that is a symbolic link, a FIFO or
-// anything else but a regular file (on Unix).
+// or reading through it, a holder.json that is a symbolic link, a hard
+// link (more than one link), a FIFO or anything else but a regular file
+// (on Unix).
 func ReadHolderAt(root string) (Holder, error) {
 	path := filepath.Join(root, HolderFile)
-	data, err := readLimited(path, MaxHolderBytes)
+	data, err := readLimited(path, MaxHolderBytes, true)
 	switch {
 	case errors.Is(err, os.ErrNotExist):
 		return Holder{}, fmt.Errorf("%w in %s: %w", ErrNoHolder, root, err)

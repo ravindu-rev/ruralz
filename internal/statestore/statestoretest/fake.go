@@ -102,7 +102,12 @@ type Fake struct {
 	// call without one (tests pass keys.SlotOf): adjacent calls then merge
 	// while their slots are equal, as on the real drivers, so round-trip
 	// counts match them. Nil merges adjacent consumptive calls with an
-	// equal config.key digest.
+	// equal config.key digest. Slot must not merge calls that Inner
+	// answers in separate round trips: when one of Inner's chunks fails,
+	// the later calls of the Fake's group stay not done without an error,
+	// where a real driver fails every call of the group (RZ-STS-002).
+	// keys.SlotOf with the memory driver as Inner groups exactly as Inner
+	// does.
 	Slot func(c *statestore.Call) int
 	// Clock is the Node clock of per-request deadlines; nil means
 	// clock.Real().
@@ -416,7 +421,8 @@ func (f *Fake) answerConsume(ctx context.Context, rb *statestore.RequestBudget, 
 		}
 	case f.Inner != nil:
 		// Inner merges at least the calls Fake merges unless a custom Slot
-		// merges more; then the group still stops at a deny or failure.
+		// merges more; then the group still stops at a deny or failure,
+		// and the calls after a failed chunk carry no error (see Slot).
 		for _, c := range group {
 			c.Done, c.Err = false, nil
 		}

@@ -21,10 +21,9 @@ import (
 // -h, -help and --help at any level, "help", "help help" and
 // "help <noun> [<verb>]" print that level's help to stdout and exit 0
 // ("help help" prints the root help, which explains help); a bare
-// invocation prints
-// the root help to stderr and exits 2. Usage errors print
-// "<program> <path>: <problem>" and "Run '<program> <path> --help' for
-// usage." to stderr and exit 2. Planned commands exit 2 naming their
+// invocation prints the root help to stderr and exits 2. Usage errors
+// print "<program> <path>: <problem>" and "Run '<program> <path> --help'
+// for usage." to stderr and exit 2. Planned commands exit 2 naming their
 // milestone; a Platform refusal exits 2 before any other work. A command's
 // error prints one line "<program> <path>: <message>" and maps to its exit
 // code through Code; an ExitError without a cause adds nothing to that

@@ -628,6 +628,10 @@ func TestLineMatcher(t *testing.T) { // review finding: WaitOutput matches line 
 		// joined to "c\n" into a false "abc".
 		{"dropped bytes split the line", 2, []string{"ab", "XXc\n"}, `^abc`, nil, 0},
 		{"no drop joins the line", 8, []string{"ab", "XXc\n"}, `^abXXc`, []string{"abXXc"}, 1},
+		{"capture waits for the newline", 1 << 10, []string{"listening on 127.0", ".0.1:80\n"}, `listening on (\S+)\n`, []string{"listening on 127.0.0.1:80\n", "127.0.0.1:80"}, 1},
+		// The documented hazard: without the trailing \n, the partial
+		// line already matches and the capture is cut short.
+		{"partial capture without a newline", 1 << 10, []string{"listening on 127.0", ".0.1:80\n"}, `listening on (\S+)`, []string{"listening on 127.0", "127.0"}, 0},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

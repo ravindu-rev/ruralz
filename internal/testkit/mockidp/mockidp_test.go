@@ -394,6 +394,17 @@ func TestTokenEndpoint(t *testing.T) { // 06 req 69 to 71: client credentials gr
 				if (tc.name == "wrong secret" || tc.name == "unencoded secret") && a.header.Get("WWW-Authenticate") == "" {
 					t.Fatal("no WWW-Authenticate on a Basic failure")
 				}
+				// A request refused for its body size still records the
+				// Basic credentials it presented (the canary destination
+				// of 11 req 39).
+				if tc.name == "too large" {
+					reqs := s.TokenRequests()
+					r := reqs[len(reqs)-1]
+					if r.Status != http.StatusRequestEntityTooLarge || r.AuthMethod != "client_secret_basic" || r.ClientID != id || r.ClientSecret != secret ||
+						r.RawClientSecret == "" || r.RawClientSecret != url.QueryEscape(secret) {
+						t.Fatalf("413 record: status %d, method %q, id %q, secret %q, raw secret %q", r.Status, r.AuthMethod, r.ClientID, r.ClientSecret, r.RawClientSecret)
+					}
+				}
 				return
 			}
 			var tr tokenResponse

@@ -52,7 +52,9 @@ type NetNSOptions struct {
 	Sysctls map[string]string
 	// Args are extra test flags for the child, for example
 	// -test.timeout=2m. -test.v is always true, because the verbose result
-	// line tells a pass from a skip.
+	// line tells a pass from a skip: it is passed before Args, so a "--"
+	// or a positional argument in Args does not keep it from being
+	// parsed, and a -test.v entry in Args is dropped.
 	Args []string
 	// Env is appended to the child's environment (it inherits the
 	// parent's, unlike Start).

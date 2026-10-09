@@ -164,6 +164,23 @@ func TestTokenRotationPickedUp(t *testing.T) {
 	if authAs(t, a, "/metrics", tokM) != KindMetrics {
 		t.Fatal("revoking the operator token dropped the metrics token")
 	}
+	// Re-created with an invalid token while revoked: nothing is admitted,
+	// and the failure record says that no token is in use rather than
+	// claiming to keep the last valid one.
+	kept := len(logs.lines("admin token rotation failed, keeping the last valid token"))
+	writeFile(t, dir, "operator", "too-short")
+	if authAs(t, a, "/tap", tokE) != KindNone {
+		t.Fatal("the revoked token admitted after an invalid re-create")
+	}
+	if authAs(t, a, "/tap", "too-short") != KindNone {
+		t.Fatal("an invalid re-created token admitted")
+	}
+	if n := len(logs.lines("admin token rotation failed, no token in use")); n != 1 {
+		t.Fatalf("%d no-token failure records:\n%s", n, logs.String())
+	}
+	if n := len(logs.lines("admin token rotation failed, keeping the last valid token")); n != kept {
+		t.Fatalf("%d keeping-the-last-token records, want %d:\n%s", n, kept, logs.String())
+	}
 	tokF := "rotated-F-" + strings.Repeat("f", 40)
 	writeFile(t, dir, "operator", tokF)
 	if authAs(t, a, "/tap", tokF) != KindOperator || authAs(t, a, "/tap", tokE) != KindNone {
@@ -356,8 +373,10 @@ func TestRotationUnderConcurrentRequests(t *testing.T) {
 
 // TestNoRefusalRightAfterRotation: requests presenting the new token right
 // after an atomic rename are all admitted, also those whose refresh found
-// another refresh in progress (they wait for it instead of comparing with
-// the old digest).
+// another refresh in progress (they wait for it and then refresh the file
+// themselves instead of comparing with the old digest). Background
+// requests with the metrics token refresh the operator file too, so some
+// of those refreshes ran their stat before a rename.
 func TestNoRefusalRightAfterRotation(t *testing.T) {
 	dir := t.TempDir()
 	p := writeFile(t, dir, "operator", operatorToken)
@@ -366,6 +385,23 @@ func TestNoRefusalRightAfterRotation(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	var stop atomic.Bool
+	var bg sync.WaitGroup
+	for range 4 {
+		bg.Go(func() {
+			for !stop.Load() {
+				if authAs(t, a, "/metrics", metricsToken) != KindMetrics {
+					t.Error("the metrics token refused")
+					return
+				}
+			}
+		})
+	}
+	stopBackground := sync.OnceFunc(func() {
+		stop.Store(true)
+		bg.Wait()
+	})
+	defer stopBackground()
 	const rounds, workers = 200, 8
 	var refused atomic.Int64
 	for i := range rounds {
@@ -384,6 +420,7 @@ func TestNoRefusalRightAfterRotation(t *testing.T) {
 		close(start)
 		wg.Wait()
 	}
+	stopBackground()
 	if n := refused.Load(); n != 0 {
 		t.Fatalf("%d of %d requests with the current token refused right after a rotation", n, rounds*workers)
 	}
@@ -391,8 +428,8 @@ func TestNoRefusalRightAfterRotation(t *testing.T) {
 
 // TestWaitForRefreshInProgress drives the wait path deterministically: a
 // request whose refresh finds another in progress, and whose token
-// matches nothing yet, waits for it and is admitted with the token that
-// refresh publishes.
+// matches nothing yet, waits for it, then refreshes the file itself, and
+// is admitted with the token that refresh published.
 func TestWaitForRefreshInProgress(t *testing.T) {
 	dir := t.TempDir()
 	p := writeFile(t, dir, "operator", operatorToken)
@@ -428,6 +465,38 @@ func TestWaitForRefreshInProgress(t *testing.T) {
 	defer a.operator.mu.Unlock()
 	if authAs(t, a, "/tap", next) != KindOperator {
 		t.Fatal("the current token refused while a refresh is in progress")
+	}
+}
+
+// TestBusyRefreshThatMissedTheRename: a refresh in progress that ran its
+// stat before the rename publishes nothing new. A request with the new
+// token that found it busy waits for it and then refreshes the file
+// itself, so it is admitted instead of refused with RZ-AUTH-002.
+func TestBusyRefreshThatMissedTheRename(t *testing.T) {
+	dir := t.TempDir()
+	p := writeFile(t, dir, "operator", operatorToken)
+	a, err := New(Settings{TokenFile: p}, Options{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	a.operator.mu.Lock() // a refresh that already ran its stat
+	next := "missed-rename-" + strings.Repeat("m", 30)
+	replace(t, p, next)
+	got := make(chan Kind, 1)
+	go func() { got <- authAs(t, a, "/tap", next) }()
+	select {
+	case k := <-got:
+		t.Fatalf("the request did not wait for the refresh in progress: %v", k)
+	case <-time.After(50 * time.Millisecond):
+	}
+	a.operator.mu.Unlock() // that refresh ends without publishing the rename
+	select {
+	case k := <-got:
+		if k != KindOperator {
+			t.Fatalf("kind %v, want the renamed token admitted", k)
+		}
+	case <-time.After(10 * time.Second):
+		t.Fatal("the request never finished")
 	}
 }
 

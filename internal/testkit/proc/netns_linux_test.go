@@ -156,6 +156,11 @@ func TestInNetNS(t *testing.T) { // 11 test plan item 11: InNetNS child sees onl
 	if _, err := InNetNS(ctx, "TestInNetNSChildSkipsSub", nil); err != nil {
 		t.Fatalf("parent of a skipped subtest = %v, want a pass", err)
 	}
+	// Flag parsing stops at "--" or a positional argument in Args; the
+	// verbose flag comes before them, so a passing child is still a pass.
+	if _, err := RunInNetNS(ctx, NetNSOptions{TestName: "TestInNetNSChildSkipsSub", Args: []string{"-test.v=false", "--", "positional"}}); err != nil {
+		t.Fatalf("passing child with \"--\" in Args = %v, want a pass", err)
+	}
 	if _, err := InNetNS(ctx, "TestInNetNSChild", map[string]string{"bad/name": "1"}); err == nil {
 		t.Fatal("bad sysctl name: want error")
 	}
@@ -165,6 +170,18 @@ func TestInNetNS(t *testing.T) { // 11 test plan item 11: InNetNS child sees onl
 	// A child whose setup fails reports it.
 	if _, err := InNetNS(ctx, "TestInNetNSChild", map[string]string{"net.ipv4.no_such_sysctl": "1"}); !errors.Is(err, ErrChildFailed) {
 		t.Fatalf("unknown sysctl in the child = %v", err)
+	}
+}
+
+func TestIsVerboseFlag(t *testing.T) {
+	for a, want := range map[string]bool{
+		"-test.v": true, "--test.v": true, "-test.v=false": true, "--test.v=test2json": true,
+		"test.v": false, "---test.v": false, "-test.vet=off": false, "-test.timeout=2m": false,
+		"--": false, "-": false, "": false, "positional": false,
+	} {
+		if got := isVerboseFlag(a); got != want {
+			t.Errorf("isVerboseFlag(%q) = %v, want %v", a, got, want)
+		}
 	}
 }
 

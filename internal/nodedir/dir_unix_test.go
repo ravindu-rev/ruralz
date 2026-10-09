@@ -191,6 +191,23 @@ func TestReadersRefuseSpecialFiles(t *testing.T) {
 	}
 }
 
+// TestReadHolderAtRefusesHardLink: a hard link planted in place of
+// holder.json is refused before its content is parsed or echoed.
+func TestReadHolderAtRefusesHardLink(t *testing.T) {
+	root := t.TempDir()
+	target := filepath.Join(t.TempDir(), "other.json")
+	if err := os.WriteFile(target, []byte(`{"format":"TOPSECRET-VALUE"}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Link(target, filepath.Join(root, HolderFile)); err != nil {
+		t.Skipf("hard link: %v", err)
+	}
+	_, err := ReadHolderAt(root)
+	if !errors.Is(err, ErrHolderInvalid) || strings.Contains(err.Error(), "TOPSECRET") || !strings.Contains(err.Error(), "hard links") {
+		t.Errorf("ReadHolderAt = %v; want ErrHolderInvalid naming the link count, without the content", err)
+	}
+}
+
 // TestOpenRejectsForeignOwner needs root to hand the directory to another
 // user.
 func TestOpenRejectsForeignOwner(t *testing.T) {

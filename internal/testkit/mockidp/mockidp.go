@@ -141,7 +141,8 @@ type TokenRequest struct {
 	Method     string
 	Header     http.Header
 	RemoteAddr string
-	// Form is the decoded request body.
+	// Form is the decoded request body; nil for a body refused as too
+	// large (413), whose record still carries the Basic credentials.
 	Form url.Values
 	// AuthMethod is "client_secret_basic", "client_secret_post" or ""
 	// (none, or both: Basic credentials together with a client_secret
@@ -702,6 +703,17 @@ func (s *Server) serveToken(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) answerToken(w http.ResponseWriter, r *http.Request, o Override, rec *TokenRequest) int {
+	// The Basic credentials are recorded before the body is read, so a
+	// request refused for its body size still carries them.
+	basicID, basicSecret, basic := r.BasicAuth()
+	if basic {
+		rec.AuthMethod = "client_secret_basic"
+		rec.RawClientID, rec.RawClientSecret = basicID, basicSecret
+		var idOK, secretOK bool
+		rec.ClientID, idOK = formDecode(basicID)
+		rec.ClientSecret, secretOK = formDecode(basicSecret)
+		rec.MalformedCredentials = !idOK || !secretOK
+	}
 	body, err := io.ReadAll(http.MaxBytesReader(w, r.Body, maxTokenBody))
 	if err != nil {
 		return writeJSON(w, http.StatusRequestEntityTooLarge, tokenError{Error: "invalid_request", Description: "body too large"})
@@ -709,19 +721,10 @@ func (s *Server) answerToken(w http.ResponseWriter, r *http.Request, o Override,
 	form, formErr := url.ParseQuery(string(body))
 	rec.Form = form
 	rec.GrantType, rec.Scope = form.Get("grant_type"), form.Get("scope")
-	basicID, basicSecret, basic := r.BasicAuth()
 	_, postID := form["client_id"]
 	_, postSecret := form["client_secret"]
 	both := basic && postSecret
-	switch {
-	case basic:
-		rec.AuthMethod = "client_secret_basic"
-		rec.RawClientID, rec.RawClientSecret = basicID, basicSecret
-		var idOK, secretOK bool
-		rec.ClientID, idOK = formDecode(basicID)
-		rec.ClientSecret, secretOK = formDecode(basicSecret)
-		rec.MalformedCredentials = !idOK || !secretOK
-	case postID || postSecret:
+	if !basic && (postID || postSecret) {
 		rec.AuthMethod = "client_secret_post"
 		rec.ClientID, rec.ClientSecret = form.Get("client_id"), form.Get("client_secret")
 		rec.RawClientID, rec.RawClientSecret = rec.ClientID, rec.ClientSecret
