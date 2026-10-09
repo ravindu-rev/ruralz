@@ -196,11 +196,11 @@ integration: $(PROMTOOL) ## Stage 8: integration and conformance suites (tag int
 # always reports both the alloc/op and the size and idle RSS values (11 req
 # 68); the recipe exits with the highest status: 1 gate failure, 2 tool
 # error. The gate tools are built first so their 1 and 2 survive (go run
-# turns every failure into 1).
+# turns every failure into 1); a gate tool that does not build exits 2.
 gates: ## Stage 9: alloc/op A/B gate (benchgate) and stripped size and idle RSS gate (sizegate); GATES=alloc or GATES=size runs one
 	for g in $(GATES); do case $$g in alloc | size) ;; *) echo "gates: unknown gate $$g (want alloc or size)" >&2; exit 2 ;; esac; done
 	tools=$$(mktemp -d); trap 'rm -rf "$$tools"' EXIT; \
-	go build -o "$$tools/" ./internal/tool/benchgate ./internal/tool/sizegate; \
+	go build -o "$$tools/" ./internal/tool/benchgate ./internal/tool/sizegate || exit 2; \
 	rc=0; \
 	worst() { if (( $$1 > rc )); then rc=$$1; fi; }; \
 	if [[ " $(GATES) " == *" alloc "* ]]; then \

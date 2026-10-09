@@ -21,9 +21,10 @@
 // is skipped with a line until WP-76 wires the data plane; -annotate (set by
 // the Makefile under GitHub Actions) also prints the skip as a ::warning
 // workflow command. Both values go to the report and to -summary
-// ($GITHUB_STEP_SUMMARY). -override (a perf-override label applied by a
-// maintainer, 11 req 66) reports failures and passes. Exit status: 0 pass,
-// 1 gate failure, 2 tool error.
+// ($GITHUB_STEP_SUMMARY); after a tool error -summary still gets the sizes
+// measured so far and a Tool error row. -override (a perf-override label
+// applied by a maintainer, 11 req 66) reports failures and passes. Exit
+// status: 0 pass, 1 gate failure, 2 tool error.
 package main
 
 import (
@@ -98,11 +99,21 @@ func run(ctx context.Context, clk clock.Clock, args []string, stdout, stderr io.
 
 	failed := false
 	var sizes []sizeResult
+	// toolError reports a tool error once measurement started; the summary
+	// still gets the sizes measured so far (11 req 68).
+	toolError := func(msg string) int {
+		_, _ = fmt.Fprintln(stderr, "sizegate:", msg)
+		if *summary != "" {
+			if err := appendSummary(*summary, sizes, nil, false, msg); err != nil {
+				_, _ = fmt.Fprintln(stderr, "sizegate:", err)
+			}
+		}
+		return 2
+	}
 	for _, b := range binaries {
 		r, err := checkSize(b, *maxSize)
 		if err != nil {
-			_, _ = fmt.Fprintln(stderr, "sizegate:", err)
-			return 2
+			return toolError(err.Error())
 		}
 		sizes = append(sizes, r)
 		failed = failed || r.failed()
@@ -122,8 +133,7 @@ func run(ctx context.Context, clk clock.Clock, args []string, stdout, stderr io.
 				}
 			}
 			if bin == "" {
-				_, _ = fmt.Fprintf(stderr, "sizegate: -idle-rss: no -binary is built for %s; pass -rss-binary\n", host)
-				return 2
+				return toolError(fmt.Sprintf("-idle-rss: no -binary is built for %s; pass -rss-binary", host))
 			}
 		}
 		r, err := measureIdle(ctx, clk, idleOptions{
@@ -131,8 +141,7 @@ func run(ctx context.Context, clk clock.Clock, args []string, stdout, stderr io.
 			settle: *settle, window: *window, interval: *interval, limit: *maxRSS,
 		})
 		if err != nil {
-			_, _ = fmt.Fprintln(stderr, "sizegate: idle RSS:", err)
-			return 2
+			return toolError("idle RSS: " + err.Error())
 		}
 		rss = &r
 		failed = failed || r.failed()
@@ -149,7 +158,7 @@ func run(ctx context.Context, clk clock.Clock, args []string, stdout, stderr io.
 	}
 
 	if *summary != "" {
-		if err := appendSummary(*summary, sizes, rss, failed && *override); err != nil {
+		if err := appendSummary(*summary, sizes, rss, failed && *override, ""); err != nil {
 			_, _ = fmt.Fprintln(stderr, "sizegate:", err)
 			return 2
 		}
@@ -185,8 +194,9 @@ func orUnknown(s string) string {
 	return s
 }
 
-// appendSummary appends both values to the job summary (11 req 68).
-func appendSummary(path string, sizes []sizeResult, rss *rssResult, overridden bool) error {
+// appendSummary appends both values to the job summary (11 req 68), and a
+// Tool error row when toolErr is not empty.
+func appendSummary(path string, sizes []sizeResult, rss *rssResult, overridden bool, toolErr string) error {
 	var b strings.Builder
 	b.WriteString("### Size and idle RSS gate\n\n| Check | Binary | Value | Limit | Result |\n|---|---|---|---|---|\n")
 	for _, r := range sizes {
@@ -200,6 +210,10 @@ func appendSummary(path string, sizes []sizeResult, rss *rssResult, overridden b
 			fmt.Fprintf(&b, "| Idle RSS after %v (max of %d samples) | `%s` | %s (%d bytes) | %s | %s |\n",
 				rss.settle, len(rss.samples), rss.path, mib(rss.max), rss.max, mib(rss.limit), passFail(rss.failed()))
 		}
+	}
+	if toolErr != "" {
+		cell := strings.NewReplacer("|", `\|`, "\r", " ", "\n", " ").Replace(toolErr)
+		fmt.Fprintf(&b, "| Tool error | | %s | | error |\n", cell)
 	}
 	if overridden {
 		b.WriteString("\nFailures accepted: the perf-override label was applied by a maintainer (11 req 66).\n")

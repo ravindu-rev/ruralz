@@ -195,8 +195,9 @@ jobs:
 
   latency:
     name: 11. Latency
-    # The self-hosted RH-1 runner runs only scheduled or dispatched jobs of
-    # protected refs, never pull-request code (WP-97).
+    # The self-hosted RH-1 runner runs only jobs of protected branches and
+    # tags (scheduled, dispatched, or called by release.yml), never
+    # pull-request code (WP-97).
     runs-on: ${{ vars.RH1_PROVISIONED == 'true' && fromJSON('["self-hosted", "rh-1"]') || 'ubuntu-latest' }}
     timeout-minutes: 180
     steps:

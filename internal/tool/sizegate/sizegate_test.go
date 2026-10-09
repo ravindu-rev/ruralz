@@ -273,7 +273,8 @@ func script(t *testing.T, body string) string {
 
 // TestIdleRSS runs the gate against real processes with a short settle:
 // an idle process passes, a 1-byte limit fails, the override passes, the M0
-// stub is skipped and a crash is a tool error (11 req 66, 68).
+// stub is skipped and a crash is a tool error, whose summary still reports
+// what was measured (11 req 66, 68).
 func TestIdleRSS(t *testing.T) {
 	if runtime.GOOS != "linux" {
 		t.Skip("VmRSS needs /proc")
@@ -282,20 +283,21 @@ func TestIdleRSS(t *testing.T) {
 	stub := `echo "ruralzd 0.0.0-dev (commit unknown, flavor default): Ruralz Gateway is not implemented yet; it is Planned (M1)" >&2; exit 2`
 	self := []string{"-binary", os.Args[0], "-idle-rss", "-env", childEnv + "=idle"}
 	for _, tc := range []struct {
-		name     string
-		args     []string
-		wantCode int
-		wantOut  []string
+		name        string
+		args        []string
+		wantCode    int
+		wantOut     []string
+		wantSummary []string
 	}{
-		{"idle process passes", append(self, short...), 0, []string{"idle RSS of", "over 2 samples", "pass"}},
-		{"limit exceeded fails", append(append(self, short...), "-max-rss", "1"), 1, []string{"FAIL"}},
-		{"override passes", append(append(self, short...), "-max-rss", "1", "-override"), 0, []string{"FAIL", "failures accepted"}},
-		{"M0 stub is skipped", append([]string{"-idle-rss", "-rss-binary", script(t, stub)}, short...), 0, []string{"skip idle RSS", "not implemented yet"}},
-		{"M0 stub skip is annotated", append([]string{"-idle-rss", "-annotate", "-rss-binary", script(t, stub)}, short...), 0, []string{"skip idle RSS", "::warning title=Idle RSS gate skipped::"}},
-		{"other exit 2 is a tool error", append([]string{"-idle-rss", "-rss-binary", script(t, `echo "listener: not implemented yet" >&2; exit 2`)}, short...), 2, nil},
-		{"stub message with another status is a tool error", append([]string{"-idle-rss", "-rss-binary", script(t, `echo "Ruralz Gateway is not implemented yet; it is Planned (M1)" >&2; exit 1`)}, short...), 2, nil},
-		{"crash is a tool error", append([]string{"-idle-rss", "-rss-binary", script(t, "echo crashed >&2; exit 3")}, short...), 2, nil},
-		{"no host binary is a tool error", []string{"-binary", sparse(t, 10), "-idle-rss"}, 2, nil},
+		{"idle process passes", append(self, short...), 0, []string{"idle RSS of", "over 2 samples", "pass"}, []string{"Idle RSS"}},
+		{"limit exceeded fails", append(append(self, short...), "-max-rss", "1"), 1, []string{"FAIL"}, []string{"Idle RSS"}},
+		{"override passes", append(append(self, short...), "-max-rss", "1", "-override"), 0, []string{"FAIL", "failures accepted"}, []string{"Idle RSS"}},
+		{"M0 stub is skipped", append([]string{"-idle-rss", "-rss-binary", script(t, stub)}, short...), 0, []string{"skip idle RSS", "not implemented yet"}, []string{"Idle RSS"}},
+		{"M0 stub skip is annotated", append([]string{"-idle-rss", "-annotate", "-rss-binary", script(t, stub)}, short...), 0, []string{"skip idle RSS", "::warning title=Idle RSS gate skipped::"}, []string{"Idle RSS"}},
+		{"other exit 2 is a tool error", append([]string{"-idle-rss", "-rss-binary", script(t, `echo "listener: not implemented yet" >&2; exit 2`)}, short...), 2, nil, []string{"| Tool error |"}},
+		{"stub message with another status is a tool error", append([]string{"-idle-rss", "-rss-binary", script(t, `echo "Ruralz Gateway is not implemented yet; it is Planned (M1)" >&2; exit 1`)}, short...), 2, nil, []string{"| Tool error |"}},
+		{"crash is a tool error", append([]string{"-idle-rss", "-rss-binary", script(t, "echo crashed >&2; exit 3")}, short...), 2, nil, []string{"| Tool error |"}},
+		{"no host binary is a tool error", []string{"-binary", sparse(t, 10), "-idle-rss"}, 2, nil, []string{"| Tool error |", "Stripped size"}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			summary := filepath.Join(t.TempDir(), "summary.md")
@@ -312,13 +314,13 @@ func TestIdleRSS(t *testing.T) {
 			if annotated := slices.Contains(tc.args, "-annotate"); annotated != strings.Contains(stdout.String(), "::warning") {
 				t.Errorf("-annotate %v, but stdout:\n%s", annotated, stdout.String())
 			}
-			if code != 2 {
-				md, err := os.ReadFile(summary) //nolint:gosec // Test reads its own temporary file.
-				if err != nil {
-					t.Fatal(err)
-				}
-				if !strings.Contains(string(md), "Idle RSS") {
-					t.Errorf("summary lacks the idle RSS row:\n%s", md)
+			md, err := os.ReadFile(summary) //nolint:gosec // Test reads its own temporary file.
+			if err != nil {
+				t.Fatal(err)
+			}
+			for _, want := range tc.wantSummary {
+				if !strings.Contains(string(md), want) {
+					t.Errorf("summary lacks %q:\n%s", want, md)
 				}
 			}
 		})
@@ -373,5 +375,40 @@ func TestRunUsage(t *testing.T) {
 		if code := run(context.Background(), clock.Real(), args, &stdout, &stderr); code != 2 {
 			t.Errorf("run(%q) = %d, want 2", args, code)
 		}
+	}
+}
+
+// TestToolErrorSummary: a tool error after measurement started still
+// appends the sizes measured so far and a Tool error row, whose text stays
+// in one table cell (11 req 68).
+func TestToolErrorSummary(t *testing.T) {
+	summary := filepath.Join(t.TempDir(), "summary.md")
+	measured := sparse(t, 10)
+	absent := filepath.Join(t.TempDir(), "absent")
+	var stdout, stderr bytes.Buffer
+	args := []string{"-binary", measured, "-binary", absent, "-summary", summary}
+	if code := run(context.Background(), clock.Real(), args, &stdout, &stderr); code != 2 {
+		t.Fatalf("exit %d, want 2\nstderr:\n%s", code, stderr.String())
+	}
+	md, err := os.ReadFile(summary) //nolint:gosec // Test reads its own temporary file.
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{"| Stripped size (platform unknown) | `" + measured + "` |", "| Tool error | | ", absent} {
+		if !strings.Contains(string(md), want) {
+			t.Errorf("summary lacks %q:\n%s", want, md)
+		}
+	}
+
+	escaped := filepath.Join(t.TempDir(), "escaped.md")
+	if err := appendSummary(escaped, nil, nil, false, "a|b\r\nc"); err != nil {
+		t.Fatal(err)
+	}
+	md, err = os.ReadFile(escaped) //nolint:gosec // Test reads its own temporary file.
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := "| Tool error | | a\\|b  c | | error |\n"; !strings.Contains(string(md), want) {
+		t.Errorf("summary lacks %q:\n%s", want, md)
 	}
 }
