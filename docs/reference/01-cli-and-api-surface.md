@@ -2,7 +2,7 @@
 title: CLI and API Surface
 status: reviewed
 owner: ruralz-core
-last_updated: 2026-10-03
+last_updated: 2026-10-09
 depends_on:
   - docs/_meta/foundation-pack.md
   - docs/_meta/style-guide.md
@@ -335,7 +335,7 @@ Admin paths never change configuration or Node state: a leaked admin token canno
 
 ### Admin API conventions
 
-Responses are JSON except `/metrics` and `/debug/pprof/`, with bodies fixed by [Admin endpoints](../architecture/03-data-plane.md#admin-endpoints); the CLI ignores unknown members. Errors are RFC 9457 problem documents with `code` and `requestId`; the code of an admin 404 or 405 is OQ-data-plane-18.
+Responses are JSON except `/metrics` and `/debug/pprof/`, with bodies fixed by [Admin endpoints](../architecture/03-data-plane.md#admin-endpoints); the CLI ignores unknown members. Errors are RFC 9457 problem documents with `code` and `requestId`; an admin 404 carries `RZ-RT-020` and a 405 `RZ-RT-021`.
 
 ## Ruralz Control REST and gRPC APIs
 

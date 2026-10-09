@@ -2,7 +2,7 @@
 title: Data Plane
 status: reviewed
 owner: ruralz-core
-last_updated: 2026-10-03
+last_updated: 2026-10-09
 depends_on:
   - docs/_meta/foundation-pack.md
   - docs/_meta/style-guide.md
@@ -159,7 +159,7 @@ h2c is prior knowledge only ([source](https://go.dev/doc/go1.24)); the `x/net/ht
 
 A header block above the 256 KiB process ceiling (target) is refused by `net/http` before any handler, with a plain 431. Below it, the handler returns 431 `RZ-RT-002` as a problem document for a block over the pinned snapshot's `limits.maxRequestHeaderBytes` or more than 256 fields (target); a larger Revision value is capped, as a degraded state.
 
-Conflicting framing (both `Transfer-Encoding` and `Content-Length`, or a coding other than `chunked`) and hop-by-hop fields are never forwarded; the handler answers such framing with 400 `RZ-RT-017` unless `net/http` refused it first, and `CONNECT` matches no Route.
+Conflicting framing (both `Transfer-Encoding` and `Content-Length`, or a coding other than `chunked`) and hop-by-hop fields are never forwarded; conflicting framing that reaches the handler gets 400 `RZ-RT-017`, and `CONNECT` matches no Route.
 
 HTTP/3 uses quic-go, pre-1.0 with `http3` API breaks in v0.63.0, behind an internal interface ([source](https://github.com/quic-go/quic-go/releases/tag/v0.63.0)), with 0-RTT off ([ADR-0009](../adr/0009-http-stack-net-http-quic-go.md)). The quic-go settings enforcing the HTTP/3 rows of [Bounded resources](#bounded-resources), and its deadline support, are OQ-data-plane-14. Binary upgrades lose in-flight QUIC connections (OQ-system-overview-18), and so does a Hot Reload that replaces an `https` listener with `http3: true` (OQ-data-plane-16).
 
@@ -495,7 +495,7 @@ The admin listener binds `Gateway.spec.admin.port`, default 9901, on all interfa
 | `/config/dump` | GET | The active Revision in `ruralz.canonical.v1` form with its full digest and the Last-Known-Good digest; `secretRef` shown, secrets omitted | Same | `ruralz node dump`, `ruralz bundle diff`, Drift detection | Planned (M1) |
 | `/tap` | GET, streaming | Sampled request and response metadata, credentials redacted; a fifth subscriber gets 503 `RZ-RT-019` | Same | `ruralz dev tap` | Planned (M1) |
 
-`/debug/*` names every path under `/debug/`; a new one MUST be added here. Other paths are 404 and other methods 405, as problem documents (code: OQ-data-plane-18). Admin endpoints never change configuration, so a leaked admin token cannot alter routing.
+`/debug/*` names every path under `/debug/`; a new one MUST be added here. Other paths are 404 `RZ-RT-020` and other methods 405 `RZ-RT-021`, as problem documents. Admin endpoints never change configuration, so a leaked admin token cannot alter routing.
 
 Bodies are versioned: members are only added, and readers ignore unknown ones.
 
@@ -561,6 +561,8 @@ gRPC requests get the matching `grpc-status` and upgraded WebSockets a close cod
 | RZ-RT-017 | 400 | Request target or framing rejected by request hardening |
 | RZ-RT-018 | 504 | An `only-if-cached` request missed the Response Cache |
 | RZ-RT-019 | 503 | The admin `/tap` subscriber limit is reached |
+| RZ-RT-020 | 404 | No admin endpoint at this path |
+| RZ-RT-021 | 405 | Method not allowed on this admin endpoint |
 
 ## Performance budgets
 
@@ -579,10 +581,10 @@ Latency, allocation, throughput and memory budgets live in [Performance budgets 
 | OQ-data-plane-15 | How do clients discover HTTP/3? | (a) `Alt-Svc` on `https` responses with the listener port (current); (b) an advertised port or `ma` field on the listener; (c) HTTPS DNS records only, published by operators | data-plane | Yes, for HTTP/3 (M3) |
 | OQ-data-plane-16 | Should a Hot Reload that replaces an `http3` listener keep its QUIC connections? | (a) No; they are lost and clients reconnect (current); (b) keep the UDP socket and QUIC transport when only non-socket settings change; (c) connection-ID steering to the new server | data-plane | No |
 | OQ-data-plane-17 | How does `transform.response` read an XML response body for SOAP integration? | (a) A `plugin` Policy for XML responses (current); (b) an XML decoder exposing XML bodies to CEL as `dyn`, a Configuration model change | data-plane | Yes, for the SOAP integration row (M5) |
-| OQ-data-plane-18 | Which code do admin 404 and 405 problem documents carry? | (a) None, no `code` member (current); (b) a new `RZ-RT` code each | data-plane | No |
 
 Closed:
 
 - OQ-data-plane-2 (a), [Compiled structure](#compiled-structure); -4 (b) ([CLI and API surface](../reference/01-cli-and-api-surface.md)); -6 (a), [Bounded resources](#bounded-resources); -8 (a), merged into OQ-security-and-identity-9 ([Failure semantics](#failure-semantics)); -9 (a), [RZ-RT registry](#rz-rt-registry); -11 (c), [state](#durable-and-shared-state).
 - OQ-data-plane-12 and -13 (a), [retirement](#why-no-in-flight-request-is-dropped), conformed in System overview's [Compile before swap](01-system-overview.md#compile-before-swap).
+- OQ-data-plane-18 (b), `RZ-RT-020` and `RZ-RT-021` in [Admin endpoints](#admin-endpoints).
 - OQ-feature-catalog-1 (a), decided here ([Transform Policies](#transform-policies)); its XML response part stays open as OQ-data-plane-17.

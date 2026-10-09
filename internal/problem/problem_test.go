@@ -245,6 +245,8 @@ func TestNew(t *testing.T) {
 		{"RZ-RT-016", 500, "Node draining"},                  // StatusNote: the caller sets 503
 		{"RZ-RT-014", 500, "Configuration snapshot retired"}, // StatusNote: the caller sets 503
 		{"RZ-RT-019", 503, "Tap subscriber limit reached"},
+		{"RZ-RT-020", 404, "No admin endpoint"},
+		{"RZ-RT-021", 405, "Method not allowed on admin endpoint"},
 		{"RZ-AUTH-001", 401, "Unauthorized"}, // generic by status
 		{"RZ-AUTH-008", 421, "Misdirected Request"},
 		{"RZ-AUTH-013", 403, "Forbidden"},

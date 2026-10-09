@@ -175,6 +175,8 @@ func All() []Code {
 		{ID: "RZ-RT-017", Area: AreaRT, Status: 400, Meaning: "Request target or framing rejected by request hardening"},
 		{ID: "RZ-RT-018", Area: AreaRT, Status: 504, Meaning: "An `only-if-cached` request missed the Response Cache"},
 		{ID: "RZ-RT-019", Area: AreaRT, Status: 503, Meaning: "The admin `/tap` subscriber limit is reached"},
+		{ID: "RZ-RT-020", Area: AreaRT, Status: 404, Meaning: "No admin endpoint at this path"},
+		{ID: "RZ-RT-021", Area: AreaRT, Status: 405, Meaning: "Method not allowed on this admin endpoint"},
 		{ID: "RZ-UP-001", Area: AreaUP, Status: 502, Meaning: "Connect failed or dial timed out, no retry"},
 		{ID: "RZ-UP-002", Area: AreaUP, Status: 502, Meaning: "TLS handshake or verification failed or timed out, no retry"},
 		{ID: "RZ-UP-003", Area: AreaUP, Status: 504, Meaning: "Deadline expired, or the final attempt timed out"},

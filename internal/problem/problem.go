@@ -89,6 +89,10 @@ func Title(code string, status int) string {
 		return "Not in cache"
 	case "RZ-RT-019":
 		return "Tap subscriber limit reached"
+	case "RZ-RT-020":
+		return "No admin endpoint"
+	case "RZ-RT-021":
+		return "Method not allowed on admin endpoint"
 	}
 	if t := http.StatusText(status); t != "" {
 		return t
