@@ -13,6 +13,7 @@ This directory holds the working plan the M1 Core gateway implementation follows
 | `crs-all.json`, `triage.json` | The 171 wave-2 contract change requests and the lead's decision for each (`action`: contract, arch, forward, docfix, repometa, user, done, reject) |
 | `forwards.json` | Notes for later work packages, keyed by WP id; pass them to the wave script as `extra` |
 | `m1-resume.js` | Wave workflow: per work package implement, adversarial review, fix and re-review (up to two rounds). Args: `ids`, `extra`; `reported`, `titles` and `reviews` resume packages whose engineer report or review is already saved. The agent commit stage is off (`args.commit` unset); the lead commits |
+| `m1-harden.js` | Hardening loop for one package that keeps failing review (written for WP-33 in S1): finish the last fix, then four review lenses (depth and cost, narrow versus split differential, spec and valid input, tests and code), merge, independent reproduction of each blocker or major finding, fix, and repeat until a round confirms none (at most three rounds) |
 | `m1-apply.js` | Applies triaged decisions per unit (owned paths, then review and fix) |
 | `m1-gov.js` | Documentation and ADR units with dependencies (`after`) |
 | `wave3-plan.md` | How wave 3 runs: nine small sections that each fit in one usage window, with the run order, the per-section procedure and a progress table |
