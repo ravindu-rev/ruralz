@@ -11,7 +11,7 @@ export const meta = {
 
 const REPO = '/home/user/ruralz'
 const M1 = `${REPO}/.claude/plans/m1`
-const SP = '/tmp/claude-0/-home-user-ruralz/758d7ca3-81cf-5fbc-a967-12d97bce3d6b/scratchpad/yamldecision'
+const SP = '/tmp/claude-0/-home-user-ruralz/0aabfe6e-34a6-51d2-9b9b-23886b703760/scratchpad/yamldecision'
 const BRIEF = `${M1}/yaml-parser-decision.md`
 
 const CONTEXT = `
