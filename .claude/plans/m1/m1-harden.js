@@ -14,7 +14,12 @@ const REPO = '/home/user/ruralz'
 const M1 = '/home/user/ruralz/.claude/plans/m1'
 const ARCH = `${M1}/specs/00-architecture.md`
 const WPS = `${M1}/arch/wps.json`
-const MAX_ROUNDS = 3
+// args (all optional): findingsFile (a JSON file), or findings and minors, start the loop with a fix of already verified
+// findings instead of the Finish step; history lists findings fixed in earlier runs;
+// maxRounds caps the review rounds (default 3). A round that confirms findings is fixed
+// only when another round follows, so the last round reviews and verifies only.
+const A = args || {}
+const MAX_ROUNDS = A.maxRounds || 3
 
 const RULES = `
 Repository: ${REPO} (Go module github.com/ravindu-rev/ruralz, branch develop). Ruralz is an API gateway; milestone M1 is being implemented from a reviewed design:
@@ -98,7 +103,7 @@ Read the current code and tests, finish anything the interrupted pass left incom
 const reviewPrompt = (lens, round, history) => `${RULES}
 You are an adversarial reviewer of WP-33 (round ${round}), lens: ${lens.title}. Default to skepticism; your job is to find real defects before this lands. Do NOT modify any repository file.
 ${lens.focus}
-${history ? `Findings already raised and fixed in this loop (do not re-report them unless the fix is incomplete or broke something; say so explicitly if so):\n${history.slice(0, 6000)}` : ''}
+${history ? `Findings already raised and fixed in this loop (do not re-report them unless the fix is incomplete or broke something; say so explicitly if so):\n${history.slice(0, 12000)}` : ''}
 Severity: blocker = a required behavior is wrong or missing, a bound can be broken, an accepted tree differs from YAML 1.2 meaning or between narrow and split parse, or a check fails; major = a likely bug, a false rejection of valid in-profile YAML without a documented reason, or a significant test gap; minor = style or small improvement. Every blocker and major finding must include the exact input or command that shows it and what you observed. verdict is "pass" only if there are no blocker or major findings.`
 
 const mergePrompt = (reviews) => `${RULES}
@@ -119,12 +124,28 @@ Minor findings:
 ${JSON.stringify(minors, null, 1).slice(0, 8000)}
 Stay inside internal/config/profile/ and test/fixtures/yaml-test-suite/. Then run the full scoped checks until green: go build and go vet (plain and -tags integration), go test -race -count=1 -cover -shuffle=on ./internal/config/profile/..., CGO_ENABLED=0 go test -count=1 -tags integration ./internal/config/profile/..., a FuzzLoadYAML run of at least 60s, bin/golangci-lint run (plain and --build-tags integration), bin/golangci-lint fmt ./internal/config/profile/..., and go run ./internal/tool/repocheck. Return the structured report.`
 
-phase('Finish')
-const finish = await agent(finishPrompt(), { label: 'finish:WP-33', phase: 'Finish', schema: IMPL_SCHEMA })
+let finish = null
+let history = A.history || ''
+let lastMinors = []
+if (A.findingsFile) {
+  // findingsFile: a JSON file { findings, minors, history } of findings verified in an earlier run.
+  phase('Fix')
+  finish = await agent(`${RULES}
+You are the engineer for WP-33, fixing verified review findings. Read ${A.findingsFile}: "findings" were each reproduced by an independent verifier (their evidence field shows how); fix every one at its root cause, with a test that fails without the fix. "minors" are minor findings: fix each one that is plainly correct and explain any you reject in deviations. "history" lists findings fixed in earlier rounds; do not regress them.
+Stay inside internal/config/profile/ and test/fixtures/yaml-test-suite/. Then run the full scoped checks until green: go build and go vet (plain and -tags integration), go test -race -count=1 -cover -shuffle=on ./internal/config/profile/..., CGO_ENABLED=0 go test -count=1 -tags integration ./internal/config/profile/..., a FuzzLoadYAML run of at least 120s with -parallel 3 (it must pass), bin/golangci-lint run (plain and --build-tags integration), bin/golangci-lint fmt ./internal/config/profile/..., and go run ./internal/tool/repocheck. Return the structured report.`, { label: 'fix0:WP-33', phase: 'Fix', schema: IMPL_SCHEMA })
+  history += `\nThe findings in ${A.findingsFile} ("findings" and "minors") were fixed just before this review; its "history" lists earlier rounds. Read that file before reviewing.`
+  if (finish && finish.deviations && finish.deviations.length) history += `\nEngineer deviations:\n` + JSON.stringify(finish.deviations, null, 1).slice(0, 4000)
+} else if (A.findings && A.findings.length) {
+  phase('Fix')
+  finish = await agent(fixPrompt(A.findings, A.minors || []), { label: 'fix0:WP-33', phase: 'Fix', schema: IMPL_SCHEMA })
+  history += `\nFixed just before this review:\n` + JSON.stringify(A.findings.map(f => ({ severity: f.severity, where: f.where, issue: String(f.issue).slice(0, 600) })), null, 1)
+  if (finish && finish.deviations && finish.deviations.length) history += `\nEngineer deviations:\n` + JSON.stringify(finish.deviations, null, 1).slice(0, 2500)
+} else {
+  phase('Finish')
+  finish = await agent(finishPrompt(), { label: 'finish:WP-33', phase: 'Finish', schema: IMPL_SCHEMA })
+}
 
 const rounds = []
-let history = ''
-let lastMinors = []
 let clean = false
 for (let round = 1; round <= MAX_ROUNDS; round++) {
   const reviews = (await parallel(LENSES.map(lens => () =>
