@@ -1,0 +1,62 @@
+[
+ {
+  "id": "WP-33",
+  "status": "done",
+  "commitTitle": "feat(config): add the restricted YAML and JSON profile",
+  "summary": "See the engineer report at /home/user/ruralz/.claude/plans/m1/reports/WP-33.json.",
+  "paths": [
+   "internal/config/profile/tokens.go",
+   "internal/config/profile/doc.go",
+   "internal/config/profile/yaml_test.go",
+   "internal/config/profile/edge_test.go",
+   "internal/config/profile/hostile_test.go",
+   "internal/config/profile/fuzz_test.go",
+   "internal/config/profile/columns.go",
+   "internal/config/profile/yaml.go",
+   "internal/config/profile/yamltestsuite_integration_test.go",
+   "test/fixtures/yaml-test-suite/expected-failures.txt"
+  ],
+  "checks": "All run from /home/user/ruralz:\n- go build ./internal/config/profile/ and go vet ./internal/config/profile/ (plain, and with -tags integration): ok.\n- go test -race -count=1 -cover ./internal/config/profile/: ok in 130.6s, 95.2% statement coverage. columns.go is 100%. tokens.go: run, tagWithoutValue, start, scalar and property are 100%, structure 97.7%.\n- go test -race -count=1 -tags integration -run 'TestYAMLTestSuite|TestSplit|TestMultiLine|TestColumns|TestTagged' ./internal/config/profile/: ok. YAML Test Suite: 402 cases, 314 pass, 88 expected failures, ratchet unchanged.\n- go test -count=1 -tags integration ./internal/config/profile/: ok.\n- CGO_ENABLED=0 go test -shuffle=on -count=1 ./internal/config/profile/: ok.\n- go test -run '^$' -fuzz '^FuzzLoadYAML$' -fuzztime 90s ./internal/config/profile/: PASS, 531,704 execs, including the new depth assertion.\n- bin/golangci-lint fmt ./internal/config/profile/...: no changes.\n- bin/golangci-lint run ./internal/config/profile/... (default tags and --build-tags integration): 0 issues.\n- go run ./internal/tool/repocheck: exit 0.\n\nThe temporary test files I used to explore the token streams are deleted.",
+  "contractRequests": [
+   "Spec 01 req 8 (and the configuration-model 'Restricted YAML profile' section, which WP-33 does not own) lists the token-pass RZ-CFG-001 rejections as %YAML, InvalidType, depth and token count only. The implementation also rejects block sequence entries or a lone plain '-' inside flow collections, a node with two tags, and now a tag that ends its line before a token at or left of its block collection's column (goccy nests that token under the tagged node). The owning doc should list these, or record them as an OQ row."
+  ],
+  "deviations": [
+   "Second allowed case beyond the finding's one: the ':' of an explicit key that has no value yet, at the mapping's column (`? !!str\\n: v`), is allowed. goccy parses it correctly to {\"\": v}, YAML 1.2 accepts it, and it carries no depth risk, so rejecting it would refuse valid input. A ':' after a key that already has its value (`a: !!map\\n: 1`) still fails.",
+   "The compact-sequence case is read strictly: a '-' is allowed only when the innermost block collection is a mapping and the '-' is exactly at its column. Inputs such as `a:\\n  - !!seq\\n- x` and `x:\\n  a: !!seq\\n- y`, which goccy misnests (to {a:[[x]]} and {x:{a:[y]}}), are rejected at the tag.",
+   "For a custom tag with no value (`a: !e\\nb: 1`), the RZ-CFG-004 report comes first and RZ-CFG-001 follows at the same position, so the user sees both.",
+   "The row `!!str a: !!map\\n!!str b: 1` expects RZ-CFG-001@1:9, not 1:10. goccy gives the second tag on a line a column one short. This quirk already exists and other TestTagChains rows assert it.",
+   "Five existing TestSplitEdgeCases rows (`a: !!str\\nb: 1`, `- !!str\\n- x`, `a:\\n  b: !!str\\nc: 1`, `a: !!str # c\\nb: 1`, `a:\\n  - !!str\\n  - x`) now report RZ-CFG-001 at the tag instead of at the next token. goccy already rejected them, so only the position changed. Valid YAML 1.2 such as `a: !!str\\nb: 1` ({a: \"\", b: 1}) stays rejected, as it was before.",
+   "Blocker scope: the check also catches a ':' after a flow collection that spans lines (`[a,\\n b]: c`), because keyStart no longer moves inside flow collections. A flow collection key spanning lines is the same multi-line implicit key. Documents with such keys were already rejected as non-scalar keys, so no accepted document changes.",
+   "Blocker scope: the new ':' check is also skipped once t.errs > 0, for the same reason as the minor finding on tagWithoutValue. A file with a finding is never parsed, so the check would only stop the collection of RZ-CFG-003/004.",
+   "The new rule also refuses an empty implicit key after a value on an earlier line (`: a\\n: b`, `a: 1\\n: y`). That is valid YAML 1.2, but it is the same token shape as the ladder (`a:\\n  - \"x\"\\n:` is an empty key in YAML 1.2, while goccy reads it as a key and nests), and goccy already refused these. YAML Test Suite 2JQS, NKF9 and S3PD therefore move from reviewed:goccy to the new profile:implicit-key reason, the same correction the finding asked for FH7J. 6PBE stays profile:complex-key: goccy scans its `?\\n- a` as a plain scalar.",
+   "Two existing expectations changed because the token pass now finds the multi-line plain-scalar key before goccy's own error. TestSplitEdgeCases `: v\\nz: 1` is now RZ-CFG-001@2:2 (was 1:1). TestSyntaxError's `a: 1\\n b: 2` moved to TestMultiLineImplicitKey (RZ-CFG-001@2:3); TestSyntaxError now uses `a:\\n  b: 1\\n c: 2` (goccy error at 3:2).",
+   "Column fix: the corrected columns are used for every reported position (tree and diagnostics) and for the depth algorithm. The token objects keep goccy's raw columns, because goccy's parser, the split parse's goccy-matching column checks and chomp.go's header map compare those raw columns with each other. Several pinned columns in TestTagMismatch and TestTagChains moved one column right to their real positions (for example `a: !!str !!str x` is now 1:10)."
+  ],
+  "firstReview": {
+   "verdict": "fix",
+   "counts": [
+    1,
+    0,
+    0
+   ]
+  },
+  "finalVerdict": "fix",
+  "remaining": [
+   {
+    "severity": "blocker",
+    "where": "internal/config/profile/tokens.go:475-478 (MappingValueType else branch, case for an open explicit '?' entry); 01 req 8, 9; 11 req 17, 26. This is the same defect class as the previous blocker. The exception the previous review proposed was too broad, and the engineer implemented it exactly as written.",
+    "issue": "A ':' is accepted when the frame at the ':' column has an open '?' entry (colon < 0). goccy does not group that ':' with the '?'. It groups it with the token just before it. So a node that starts after the '?' key, on a later and deeper line, becomes a multi-line implicit key: a block sequence, a second scalar or a tag. goccy nests it at its own column, while the token pass closes back to the '?' column, so the token pass undercounts the depth again.\n\nReproduced through the scoped package with an -overlay probe, using parse/Parse with default Options. The ladder repeats `<c-1 spaces>? \"a\"\\n<c+1 spaces>` + k copies of `- ` + `\"b\"\\n<c-1 spaces>:\\n`, with c starting at 1 and growing by 2k+4 each time:\n- k=31, 32 repetitions: 100,640 bytes give no finding and an accepted tree of depth 1,056.\n- k=63-r over 62 repetitions: 515,468 bytes give no finding and depth 2,139, which is 33 times DefaultMaxDepth, at 11 MiB peak heap.\n\nThe token pass never counts more than 64.\n\nThe result also depends on the mapping's width:\n- `? \"a\"\\n  - \"b\"\\n:\\n` gives {a:[{b:n}]} on the narrow parse, but RZ-CFG-001@2:3 \"value is not allowed in this context\" at split threshold 1.\n- With 300 sibling keys before the 100 KB ladder, default Options give RZ-CFG-001@302:3.\n\nMore rows that are accepted on the narrow parse and refused by the split parse, all invalid YAML 1.2:\n- `? \"a\"\\n  \"b\"\\n:\\n` gives {a:{b:n}}.\n- `? \"a\"\\n  !!str\\n:\\n` gives {a:{\"\":n}}.\n- `x:\\n  ? \"a\"\\n    - \"b\"\\n  :\\n`\n- `- ? \"a\"\\n    - \"b\"\\n  :\\n`\n\nSo the report's claim for 11 req 17 and 26, that accepted trees are bounded by MaxDepth, does not hold. TestHostileInputsBounded and FuzzLoadYAML do not cover this shape.",
+    "fix": "Let a ':' complete the open '?' entry only when goccy will group it with that entry:\n(a) the block() call for the ':' closed no block frame opened after the '?', so the explicit key holds no block collection;\n(b) at most one node started after the '?'. For example, record keyStartIdx at the first start() after the '?' and require it to be unchanged at the ':'.\nOtherwise stop the file with RZ-CFG-001 at the ':'.\n\nAdd these rows at split thresholds -1, 0 and 1:\n- RZ-CFG-001 at the ':': the five rows above and the two ladders.\n- Must still parse: `? \"x\"\\n: y\\n`, `? |\\n  k\\n: v\\n`, `? >\\n: v\\n`, `? !!str\\n: v\\n`, `? !!str \"a\"\\n: v\\n`, and `? a\\n  b\\n: v\\n`, which gives {\"a b\": v}.\n\nThe `? - a\\n  - b\\n: c` row will then report at the ':' instead of 1:3.\n\nAdd the 100 KB ladder (k=31, 32 repetitions) and the 515 KB variable ladder to TestHostileInputsBounded and as FuzzLoadYAML seeds."
+   }
+  ],
+  "remainingMinor": [
+   {
+    "severity": "minor",
+    "where": "internal/config/profile/tokens.go:441-448 and 454-457 (a '?' entry with more tokens on its line); edge_test.go TestSplitEdgeCases. This was there before the fixes and they did not cause it.",
+    "issue": "goccy pairs '?' with the next token only, so extra tokens on the '?' line are misread. On the narrow parse:\n- `? \"q\"k\\n` gives {q:\"k\"}: goccy invents a value without a ':'.\n- `a:\\n  ? \"q\"''\\n` gives {a:{q:\"\"}}.\n- `? k:\\n` gives {k:n}. This is valid YAML 1.2 with the complex key {k: null}, and the profile should reject it as RZ-CFG-001 (profile:complex-key). The narrow parse instead accepts a different tree with no finding.\n\nThe split parse refuses all of these with RZ-CFG-001, so whether such a file is accepted depends on the mapping's width. TestSplitEdgeCases exists to rule that out.",
+    "fix": "In the token pass, stop the file with RZ-CFG-001 in two cases:\n- a '?' entry whose line holds a second node after its key;\n- an implicit-key ':' on the '?' line inside an open '?' entry, which is a complex key.\n\nAlternatively, send such mappings to the split parse whatever their width. Add these rows to TestSplitEdgeCases and TestMultiLineImplicitKey."
+   }
+  ],
+  "commit": null
+ }
+]

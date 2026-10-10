@@ -1,0 +1,44 @@
+{
+ "ids": [
+  "WP-33"
+ ],
+ "reported": [
+  "WP-33"
+ ],
+ "titles": {
+  "WP-33": "feat(config): add the restricted YAML and JSON profile"
+ },
+ "reviews": {
+  "WP-33": {
+   "verdict": "fix",
+   "findings": [
+    {
+     "severity": "blocker",
+     "where": "internal/config/profile (yaml.go, where goccy's AST becomes the tree; 01 req 9; 11 req 17, 26). Lead finding: three reviews in a row found a new input shape that goccy nests deeper than the column-based token pass counts (tagged empty nodes, then explicit '?' entries).",
+     "issue": "The guarantee that an accepted tree is no deeper than Options.MaxDepth rests only on the token pass predicting goccy's nesting. Each shape it mispredicts is a new bypass, so fixing shapes one at a time does not close the class.",
+     "fix": "Keep the token pass as the cost bound and fix the '?' shapes below as the reviewer describes, then add a second layer: while converting goccy's AST to the tree, track the nesting depth and fail the document with RZ-CFG-001 at the first node deeper than Options.MaxDepth (the same message family as the token-pass depth finding). Apply it on both the narrow and the split parse, so the result does not depend on the mapping's width. Test it directly with a shape the token pass undercounts (an internal test that bypasses or weakens the token-pass check, or one of the ladders from the finding below before the token-pass fix), assert the RZ-CFG-001 and that no tree is returned, and keep the hostile-input heap and time bounds. Keep the YAML Test Suite ratchet, coverage and fuzz targets green, and stay inside internal/config/profile/ and test/fixtures/yaml-test-suite/."
+    },
+    {
+     "severity": "blocker",
+     "where": "internal/config/profile/tokens.go:475-478 (MappingValueType else branch, case for an open explicit '?' entry); 01 req 8, 9; 11 req 17, 26. This is the same defect class as the previous blocker. The exception the previous review proposed was too broad, and the engineer implemented it exactly as written.",
+     "issue": "A ':' is accepted when the frame at the ':' column has an open '?' entry (colon < 0). goccy does not group that ':' with the '?'. It groups it with the token just before it. So a node that starts after the '?' key, on a later and deeper line, becomes a multi-line implicit key: a block sequence, a second scalar or a tag. goccy nests it at its own column, while the token pass closes back to the '?' column, so the token pass undercounts the depth again.\n\nReproduced through the scoped package with an -overlay probe, using parse/Parse with default Options. The ladder repeats `<c-1 spaces>? \"a\"\\n<c+1 spaces>` + k copies of `- ` + `\"b\"\\n<c-1 spaces>:\\n`, with c starting at 1 and growing by 2k+4 each time:\n- k=31, 32 repetitions: 100,640 bytes give no finding and an accepted tree of depth 1,056.\n- k=63-r over 62 repetitions: 515,468 bytes give no finding and depth 2,139, which is 33 times DefaultMaxDepth, at 11 MiB peak heap.\n\nThe token pass never counts more than 64.\n\nThe result also depends on the mapping's width:\n- `? \"a\"\\n  - \"b\"\\n:\\n` gives {a:[{b:n}]} on the narrow parse, but RZ-CFG-001@2:3 \"value is not allowed in this context\" at split threshold 1.\n- With 300 sibling keys before the 100 KB ladder, default Options give RZ-CFG-001@302:3.\n\nMore rows that are accepted on the narrow parse and refused by the split parse, all invalid YAML 1.2:\n- `? \"a\"\\n  \"b\"\\n:\\n` gives {a:{b:n}}.\n- `? \"a\"\\n  !!str\\n:\\n` gives {a:{\"\":n}}.\n- `x:\\n  ? \"a\"\\n    - \"b\"\\n  :\\n`\n- `- ? \"a\"\\n    - \"b\"\\n  :\\n`\n\nSo the report's claim for 11 req 17 and 26, that accepted trees are bounded by MaxDepth, does not hold. TestHostileInputsBounded and FuzzLoadYAML do not cover this shape.",
+     "fix": "Let a ':' complete the open '?' entry only when goccy will group it with that entry:\n(a) the block() call for the ':' closed no block frame opened after the '?', so the explicit key holds no block collection;\n(b) at most one node started after the '?'. For example, record keyStartIdx at the first start() after the '?' and require it to be unchanged at the ':'.\nOtherwise stop the file with RZ-CFG-001 at the ':'.\n\nAdd these rows at split thresholds -1, 0 and 1:\n- RZ-CFG-001 at the ':': the five rows above and the two ladders.\n- Must still parse: `? \"x\"\\n: y\\n`, `? |\\n  k\\n: v\\n`, `? >\\n: v\\n`, `? !!str\\n: v\\n`, `? !!str \"a\"\\n: v\\n`, and `? a\\n  b\\n: v\\n`, which gives {\"a b\": v}.\n\nThe `? - a\\n  - b\\n: c` row will then report at the ':' instead of 1:3.\n\nAdd the 100 KB ladder (k=31, 32 repetitions) and the 515 KB variable ladder to TestHostileInputsBounded and as FuzzLoadYAML seeds."
+    },
+    {
+     "severity": "minor",
+     "where": "internal/config/profile/tokens.go:441-448 and 454-457 (a '?' entry with more tokens on its line); edge_test.go TestSplitEdgeCases. This was there before the fixes and they did not cause it.",
+     "issue": "goccy pairs '?' with the next token only, so extra tokens on the '?' line are misread. On the narrow parse:\n- `? \"q\"k\\n` gives {q:\"k\"}: goccy invents a value without a ':'.\n- `a:\\n  ? \"q\"''\\n` gives {a:{q:\"\"}}.\n- `? k:\\n` gives {k:n}. This is valid YAML 1.2 with the complex key {k: null}, and the profile should reject it as RZ-CFG-001 (profile:complex-key). The narrow parse instead accepts a different tree with no finding.\n\nThe split parse refuses all of these with RZ-CFG-001, so whether such a file is accepted depends on the mapping's width. TestSplitEdgeCases exists to rule that out.",
+     "fix": "In the token pass, stop the file with RZ-CFG-001 in two cases:\n- a '?' entry whose line holds a second node after its key;\n- an implicit-key ':' on the '?' line inside an open '?' entry, which is a complex key.\n\nAlternatively, send such mappings to the split parse whatever their width. Add these rows to TestSplitEdgeCases and TestMultiLineImplicitKey."
+    }
+   ],
+   "summary": "The first targeted fix closed the tagged-empty-node blocker; its re-review found the same class through explicit ? entries. Fix those, and add a post-parse depth guard so accepted trees are bounded by MaxDepth whatever the token pass predicts."
+  }
+ },
+ "extra": {
+  "WP-33": "Notes from the wave-2 boundary: contract change requests forwarded to this work package, with the lead's decisions. The architecture and wps.json already reflect the decisions; these notes give detail.\n- [CR 134 from WP-27] scripts/update-test-suites.sh (WP-27) pins each suite by commit and by the SHA-256 of `git archive`. It vendors test/fixtures/yaml-test-suite/data/<ID>/... from the data-2022-01-17 release, without its name/ and tags/ symlink indexes, and test/fixtures/json-schema-test-suite/data/tests/draft2020-12/ and data/remotes/ at commit 5b0ee16. Each suite directory also gets LICENSE and SOURCE (MIT). The script replaces only data/, LICENSE and SOURCE, so keep test/fixtures/yaml-test-suite/expected-failures.txt (and any JSON skip list) next to data/, never inside it; run `scripts/update-test-suites.sh yaml` (WP-33) or `scripts/update-test-suites.sh json-schema` (WP-35) and commit the output. .gitattributes stores both data/** trees byte for byte (-text, linguist-vendored), so runners must not normalize line endings. The suite's remotes/ files answer http://localhost:1234/ references: WP-35's test runner preloads them as in-memory resources (the production schemaview compiler keeps its refusing loader) or skips refRemote cases with a recorded reason."
+ },
+ "deferMinor": true,
+ "maxRounds": {
+  "WP-33": 2
+ }
+}
