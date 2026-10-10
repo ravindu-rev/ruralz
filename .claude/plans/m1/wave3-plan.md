@@ -68,7 +68,7 @@ Optional, off by default (each trades some quality for tokens; try one in a sect
 
 | Section | Packages committed | Not passed (moved to S9) | Agent usage | Commits | Date |
 |---|---|---|---|---|---|
-| S1 | | | | | |
+| S1 | WP-35 `79154e9`, WP-36 `196619b`, WP-33 `086e74d` | None; WP-33 landed with five open findings (four blockers, one major) pending the YAML parser decision | About $315 to $377: 1,067M cache read and 20.4M other tokens over six runs (runs a and b, two targeted fixes, the hardening loop and one targeted round) | 3 package commits, 7 plan commits | 2026-10-09 to 2026-10-10 |
 | S2 | | | | | |
 | S3 | | | | | |
 | S4 | | | | | |
@@ -77,3 +77,9 @@ Optional, off by default (each trades some quality for tokens; try one in a sect
 | S7 | | | | | |
 | S8 | | | | | |
 | S9 | | | | | |
+
+### S1 notes
+
+- WP-35 and WP-36 passed in one run each, at about $22 to $27 per size unit, above the $17 estimate.
+- WP-33 never came back clean. Its reviews kept finding new places where goccy/go-yaml v1.19.2 departs from YAML 1.2 or costs more than the token pass predicts: confirmed blocker or major findings went 12, 8, 4 and 5 over the hardening loop (`m1-harden.js`) and one targeted round. The package grew to about 6,200 production lines, most of them workarounds. The user chose to commit it with the five open findings (`runs/w3-s1a-harden2-result.json`) and to weigh a parser change; the decision brief is `yaml-parser-decision.md`.
+- A container restart stopped one fix run mid-way; its edits survived on disk and the next run finished them. Back up uncommitted package trees in the scratchpad during long runs.

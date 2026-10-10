@@ -20,11 +20,11 @@ This directory holds the working plan the M1 Core gateway implementation follows
 | `runs/w3-s<N><a\|b>.json` | Ready arguments for each wave-3 section's two runs (package IDs, their notes from `forwards.json`, `deferMinor`) |
 | `tools/usage.py`, `tools/wordcount.py` | Agent token usage per workflow run, and the manifest word count of a document |
 
-## State on 2026-10-09
+## State on 2026-10-10
 
 - `develop` holds waves 1 and 2, complete: WP-01 to WP-30, WP-32, WP-83 and WP-84, the two test-race fixes, the wave-2 boundary decisions (R-63 to R-75 in code, architecture and docs), the M1 guide updates in `AGENTS.md`, `CONTRIBUTING.md` and `.claude/rules/`, the documentation below, and the wave-2 completion of 2026-10-09.
 - On 2026-10-09 every commit on `develop` after `main` was rewritten so the user is author and committer, each is signed with the user's SSH key, and none carries a `Co-Authored-By` trailer; commit hashes before that date no longer exist.
-- Waves 3 to 10 are not started. Wave 3 has 25 work packages: WP-31, 33 to 40, 42 to 54, 65, 85 and 88. None depends on another in the same wave. Run wave 3 by `wave3-plan.md`: nine sections, each committed and pushed before the next; WP-31 runs in S9, after every wave-3 code package.
+- Wave 3 is in progress by `wave3-plan.md` (nine sections, each committed and pushed before the next; WP-31 runs in S9). Section S1 is done (2026-10-10): WP-33, WP-35 and WP-36 are committed. WP-33 carries five open findings (`runs/w3-s1a-harden2-result.json`) until the user decides the YAML parser question (`yaml-parser-decision.md`). Waves 4 to 10 are not started.
 
 ## Wave-2 documentation and completion
 
