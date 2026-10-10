@@ -14,6 +14,8 @@ This directory holds the working plan the M1 Core gateway implementation follows
 | `forwards.json` | Notes for later work packages, keyed by WP id; pass them to the wave script as `extra` |
 | `m1-resume.js` | Wave workflow: per work package implement, adversarial review, fix and re-review (up to two rounds). Args: `ids`, `extra`; `reported`, `titles` and `reviews` resume packages whose engineer report or review is already saved. The agent commit stage is off (`args.commit` unset); the lead commits |
 | `m1-harden.js` | Hardening loop for one package that keeps failing review (written for WP-33 in S1): finish the last fix, then four review lenses (depth and cost, narrow versus split differential, spec and valid input, tests and code), merge, independent reproduction of each blocker or major finding, fix, and repeat until a round confirms none (at most three rounds) |
+| `m1-section.js` | Section script: implement each package, then the four-lens review, reproduction and fix loop of `m1-harden.js` per package (at most three review rounds); heavier and slower than `m1-resume.js` |
+| `m1-yaml-decision.js` | Research for the YAML parser decision: history of the WP-33 findings, a go-yaml v4 prototype, hand-written parser feasibility, upstream state and repository changes, then a brief at `yaml-parser-decision.md`, two critiques and a revision |
 | `m1-apply.js` | Applies triaged decisions per unit (owned paths, then review and fix) |
 | `m1-gov.js` | Documentation and ADR units with dependencies (`after`) |
 | `wave3-plan.md` | How wave 3 runs: nine small sections that each fit in one usage window, with the run order, the per-section procedure and a progress table |
@@ -24,7 +26,7 @@ This directory holds the working plan the M1 Core gateway implementation follows
 
 - `develop` holds waves 1 and 2, complete: WP-01 to WP-30, WP-32, WP-83 and WP-84, the two test-race fixes, the wave-2 boundary decisions (R-63 to R-75 in code, architecture and docs), the M1 guide updates in `AGENTS.md`, `CONTRIBUTING.md` and `.claude/rules/`, the documentation below, and the wave-2 completion of 2026-10-09.
 - On 2026-10-09 every commit on `develop` after `main` was rewritten so the user is author and committer, each is signed with the user's SSH key, and none carries a `Co-Authored-By` trailer; commit hashes before that date no longer exist.
-- Wave 3 is in progress by `wave3-plan.md` (nine sections, each committed and pushed before the next; WP-31 runs in S9). Section S1 is done (2026-10-10): WP-33, WP-35 and WP-36 are committed. WP-33 carries five open findings (`runs/w3-s1a-harden2-result.json`) until the user decides the YAML parser question (`yaml-parser-decision.md`). Waves 4 to 10 are not started.
+- Wave 3 is in progress by `wave3-plan.md` (nine sections, each committed and pushed before the next; WP-31 runs in S9). Section S1 is done (2026-10-10): WP-33, WP-35 and WP-36 are committed. WP-33 carries five open findings (`runs/w3-s1a-harden2-result.json`) until the user decides the YAML parser question (research script `m1-yaml-decision.js`, not yet run to the end). Work stops after S1 until the user resumes it; S2's run files are ready (`runs/w3-s2a.json`, `runs/w3-s2b.json`) for `m1-resume.js` or `m1-section.js`. Waves 4 to 10 are not started.
 
 ## Wave-2 documentation and completion
 
