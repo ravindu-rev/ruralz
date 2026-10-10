@@ -201,6 +201,9 @@ func TestPassAndTaps(t *testing.T) { // 11 test plan item 7: pass
 	c := dial(t, p.Addr())
 	mustEcho(t, c, "hello", "hello")
 	mustEcho(t, c, "world", "world")
+	// The byte counters move after each write completes, so the client can
+	// read the echo before BytesDown counts it.
+	waitFor(t, "byte counters", func() bool { s := p.Stats(); return s.BytesUp == 10 && s.BytesDown == 10 })
 	st := p.Stats()
 	if st.Accepted != 1 || st.Active != 1 || st.BytesUp != 10 || st.BytesDown != 10 || st.Reset != 0 {
 		t.Fatalf("Stats = %+v", st)

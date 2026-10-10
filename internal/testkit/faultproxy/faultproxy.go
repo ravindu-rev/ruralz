@@ -185,7 +185,8 @@ type Stats struct {
 	// Reset counts connections the proxy reset (Reset and Refuse modes,
 	// MaxConns overflow, failed upstream dials).
 	Reset int64
-	// BytesUp and BytesDown count forwarded bytes.
+	// BytesUp and BytesDown count forwarded bytes. Each write is counted
+	// after it completes, so a peer can read bytes before they appear here.
 	BytesUp, BytesDown int64
 }
 
