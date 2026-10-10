@@ -59,6 +59,14 @@ Small items left for a later pass (none blocks wave 3):
 5. Signing in a Claude Code cloud container: its global git config (`/root/.gitconfig`) sets `commit.gpgsign`, `gpg.ssh.program=/tmp/code-sign` and its own key, so a plain `git commit -S` is signed with the environment's key, not the user's. Before committing, set repository-local `gpg.format ssh`, `gpg.ssh.program /usr/bin/ssh-keygen` (install `openssh-client` if it is missing) and `user.signingkey` to the user's key, then check that `git log --format='%G? %GK'` shows `G` and the user's key fingerprint.
 6. Agents sometimes build a binary into the repository root (`go build ./internal/tool/x` without `-o`); delete such stray files before committing.
 
+## Starting a workflow run
+
+The workflow harness gives every agent, verbatim, the user message that triggered the turn in which the run launched, as "the only user voice in this task". It marks the script's prompt text as carrying no user authority, so quoted consent in a prompt does not count, and Claude Code blocks such an edit as instruction poisoning. On 2026-10-10 the S2 runs and the YAML research launched in a turn that answered an `AskUserQuestion` choice. Every agent saw only the user's earlier message ("Do not start any workflow, section or package until I say which") and refused. The runs wrote no files, cost about $8 to $12, and the review loop still gave WP-38 a `pass` verdict on no code.
+
+- Launch or resume a run only in the turn of a typed user message that names it, such as "Run S2 with m1-resume.js and the YAML parser research". An `AskUserQuestion` answer is not relayed. A later message, such as a status question, becomes the relayed request for any run launched or resumed in its turn.
+- Never paste the signing key into a message that starts a run: every agent receives it verbatim. Send it in a message of its own.
+- `m1-resume.js` and `m1-section.js` stop a package whose engineer or fix round returns nothing or `blocked` with no files, and report `finalVerdict: blocked` with `stoppedAt`; never commit or record such a package. `m1-yaml-decision.js` stops before the brief unless every researcher reports `status: done`.
+
 ## Working rules from the user
 
 - Commit directly to `develop`; no pull requests. The author comes from the repository git config (Ravindu Wijegunawardhana). Commits carry `Signed-off-by` (`-s`), are signed with the user's SSH signing key (`-S`), and carry no `Co-Authored-By` trailer.

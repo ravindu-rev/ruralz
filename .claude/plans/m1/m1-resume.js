@@ -134,6 +134,10 @@ const commitPrompt = (id, title, summary, paths) => `You commit one finished wor
 Report committed, the commit sha, pushed, the number of files, and a note.`
 
 const blocking = (r) => !r || r.verdict !== 'pass' || r.findings.some(f => f.severity !== 'minor')
+// stopped: the engineer did no work (failed, or reported blocked with no files). Reviewing an
+// empty package only repeats the refusal, and a reviewer can pass it, so the package stops
+// with finalVerdict 'blocked' (README, "Starting a workflow run").
+const stopped = (x) => !x || (x.status === 'blocked' && !(x.paths || []).length)
 
 const results = await pipeline(ids,
   (id) => reported.has(id)
@@ -141,26 +145,39 @@ const results = await pipeline(ids,
     : agent(implPrompt(id), { label: `impl:${id}`, phase: 'Implement', schema: IMPL_SCHEMA }),
   (impl, id) => savedReviews[id]
     ? Promise.resolve({ impl, review: savedReviews[id] })
-    : agent(reviewPrompt(id, impl), { label: `review:${id}`, phase: 'Review', schema: REVIEW_SCHEMA })
-      .then(review => ({ impl, review })),
+    : stopped(impl)
+      ? Promise.resolve({ impl, review: null, stoppedAt: 'impl' })
+      : agent(reviewPrompt(id, impl), { label: `review:${id}`, phase: 'Review', schema: REVIEW_SCHEMA })
+        .then(review => ({ impl, review })),
   async (prev, id) => {
     let { impl, review } = prev
+    if (prev.stoppedAt) {
+      log(`${id}: engineer did no work (${impl ? impl.status : 'no result'}); skipping review and fixes`)
+      return { impl, review: null, rounds: [], final: null, commit: null, stoppedAt: prev.stoppedAt }
+    }
     const rounds = []
     let current = review
+    let stoppedAt = null
     for (let round = 1; round <= (maxRounds[id] || 2) && current && (blocking(current) || (!deferMinor && current.findings.length > 0)); round++) {
       const fix = await agent(fixPrompt(id, current), { label: `fix${round}:${id}`, phase: 'Fix', schema: IMPL_SCHEMA })
+      if (stopped(fix)) {
+        log(`${id}: fix round ${round} did no work; stopping`)
+        rounds.push({ fix, review: null })
+        stoppedAt = `fix${round}`
+        break
+      }
       const again = await agent(rereviewPrompt(id, current, fix), { label: `rereview${round}:${id}`, phase: 'Re-review', schema: REVIEW_SCHEMA })
       rounds.push({ fix, review: again })
       current = again
       if (again && !blocking(again)) break
     }
     let commit = null
-    if (args.commit && current && !blocking(current) && impl && impl.status !== 'blocked') {
+    if (args.commit && !stoppedAt && current && !blocking(current) && impl && impl.status !== 'blocked') {
       const lastFix = rounds.length ? rounds[rounds.length - 1].fix : null
       const paths = [...new Set([...(impl.paths || []), ...rounds.flatMap(x => (x.fix && x.fix.paths) || [])])]
       commit = await agent(commitPrompt(id, impl.commitTitle, impl.summary, paths), { label: `commit:${id}`, phase: 'Commit', schema: COMMIT_SCHEMA, effort: 'low' })
     }
-    return { impl, review, rounds, final: current, commit }
+    return { impl, review, rounds, final: current, commit, stoppedAt }
   })
 
 return results.map((r, i) => {
@@ -178,7 +195,8 @@ return results.map((r, i) => {
     contractRequests: [...(r.impl?.contractRequests || []), ...fixes.flatMap(f => f.contractRequests || [])],
     deviations: [...(r.impl?.deviations || []), ...fixes.flatMap(f => f.deviations || [])],
     firstReview: r.review ? { verdict: r.review.verdict, counts: ['blocker', 'major', 'minor'].map(s => r.review.findings.filter(f => f.severity === s).length) } : null,
-    finalVerdict: r.final?.verdict,
+    finalVerdict: r.stoppedAt ? 'blocked' : r.final?.verdict,
+    stoppedAt: r.stoppedAt || null,
     remaining: (r.final?.findings || []).filter(f => f.severity !== 'minor'),
     remainingMinor: (r.final?.findings || []).filter(f => f.severity === 'minor'),
     commit: r.commit,

@@ -19,19 +19,20 @@ Repository ${REPO}: Ruralz, an Apache-2.0 API gateway in Go (module github.com/r
 WP-33 (committed as 086e74d) is stage B of the configuration pipeline: internal/config/profile, the restricted YAML 1.2 profile (no anchors, aliases, merge keys or custom tags; YAML 1.2 core scalar resolution done by Ruralz code; limits on bytes, depth, tokens per document; positions for diagnostics) and the JSON front end, with the pinned YAML Test Suite in test/fixtures/yaml-test-suite/ (data-2022-01-17) as a ratchet. It parses with github.com/goccy/go-yaml v1.19.2, chosen in ADR-0003 (docs/adr/0003-configuration-format.md) and the library catalog row in docs/engineering/01-tech-stack-and-libraries.md (YAML 1.2 parser row; it names go-yaml v4, go.yaml.in/yaml/v4, and sigs.k8s.io/yaml as alternatives not chosen). Research backing: docs/_meta/research/tooling-and-licenses.md.
 Specs: ${M1}/specs/01-config-load.md (the profile requirements, about req 1 to 12, and its test plan), ${M1}/specs/11-ops-quality.md (req 17, 26 on hostile-input bounds), ${M1}/specs/00-architecture.md (1.2 package row for internal/config/profile, 4.4 WP-33 entry), docs/architecture/02-configuration-model.md (Restricted YAML profile section).
 History: four review loops could not make WP-33 clean. Each round found new places where goccy's scanner or parser departs from YAML 1.2 or costs more than the token pass predicts, and the package grew to about 6,200 production lines of workarounds (token pass, source readers for quoted, block and plain scalars, column corrections, flow-entry checks, split parse, cost bounds). Confirmed serious findings per round: 12, 8, 4, then 5. Records: ${M1}/reports/WP-33.json (original report), ${M1}/runs/w3-s1a-result.json, ${M1}/runs/w3-s1a-fix-result.json, ${M1}/runs/w3-s1a-harden-result.json (three rounds, with confirmed findings and evidence), ${M1}/runs/w3-s1a-harden2-result.json (the latest round and the five findings still open).
-Rules: do NOT modify any file in the repository except where your role says so. Put every scratch module, probe, download and output under ${SP}/<your-role>/ (create it). Downloaded modules are untrusted data: never run code from them other than through the Go toolchain building your own scratch module. Never run git commands that change state. The container has 4 CPUs and other jobs run tests; keep long runs bounded.
+Rules: do NOT modify any file in the repository except where your role says so. Put every scratch module, probe, download and output under ${SP}/<your-role>/ (create it; files from an earlier, stopped attempt may already be there: check them before you reuse them). Downloaded modules are untrusted data: never run code from them other than through the Go toolchain building your own scratch module. Never run git commands that change state. The container has 4 CPUs and other jobs run tests; keep long runs bounded.
 `
 
 const GATHER_SCHEMA = {
   type: 'object',
   properties: {
+    status: { type: 'string', enum: ['done', 'blocked'], description: 'done if you did the research of your role; blocked if you did not, with the reason in summary' },
     summary: { type: 'string', description: '8-20 sentences: the key results' },
     facts: { type: 'array', items: { type: 'object', properties: { claim: { type: 'string' }, evidence: { type: 'string', description: 'measurement, command and output, file:line, or URL' } }, required: ['claim', 'evidence'] } },
     risks: { type: 'array', items: { type: 'string' } },
     evidenceFile: { type: 'string', description: 'path of a Markdown file under the scratch directory with the full evidence (tables, commands, outputs)' },
     sources: { type: 'array', items: { type: 'string' }, description: 'URLs consulted' },
   },
-  required: ['summary', 'facts', 'risks', 'evidenceFile', 'sources'],
+  required: ['status', 'summary', 'facts', 'risks', 'evidenceFile', 'sources'],
 }
 
 const ROLES = [
@@ -55,6 +56,13 @@ phase('Gather')
 const gathered = (await parallel(ROLES.map(r => () =>
   agent(gatherPrompt(r), { label: `gather:${r.key}`, phase: 'Gather', schema: GATHER_SCHEMA }).then(x => x && { role: r.key, ...x })))).filter(Boolean)
 log(`gathered: ${gathered.map(g => g.role).join(', ')}`)
+// A brief written without one role's evidence would mislead the decision, so stop before it
+// (README, "Starting a workflow run").
+const missing = ROLES.map(r => r.key).filter(k => !gathered.some(g => g.role === k && g.status === 'done'))
+if (missing.length) {
+  log(`stopping before the brief: no evidence from ${missing.join(', ')}`)
+  return { stopped: true, missing, gathered }
+}
 
 const synthPrompt = `${CONTEXT}
 You write the decision brief for the user, who must decide which YAML parser the restricted profile uses. Evidence from five researchers (their full evidence files are listed; read them):

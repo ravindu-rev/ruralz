@@ -176,12 +176,18 @@ Minor findings:
 ${JSON.stringify(minors, null, 1).slice(0, 8000)}
 Re-run the scoped checks until green (go build, go vet, go test -race -count=1 -cover -shuffle=on, CGO_ENABLED=0 go test -count=1, bin/golangci-lint run, bin/golangci-lint fmt, go run ./internal/tool/repocheck, and the fuzz targets for at least 60s each). Return the structured report.`
 
+// stopped: the engineer did no work (failed, or reported blocked with no files). Reviewing an
+// empty package only repeats the refusal, so the package stops with finalVerdict 'blocked'
+// (README, "Starting a workflow run").
+const stopped = (x) => !x || (x.status === 'blocked' && !(x.paths || []).length)
+
 const harden = async (id, impl) => {
   const MAX = maxRounds[id] || 3
   const rounds = []
   let history = ''
   let minors = []
   let clean = false
+  let stoppedAt = null
   for (let round = 1; round <= MAX; round++) {
     const reviews = (await parallel(LENSES.map(lens => () =>
       agent(lensPrompt(id, lens, round, impl, history), { label: `review${round}:${lens.key}:${id}`, phase: 'Review', schema: REVIEW_SCHEMA })
@@ -206,23 +212,36 @@ const harden = async (id, impl) => {
     if (round === MAX) { rounds.push({ round, reviews, verdicts, confirmed, minors }); break }
     const fix = await agent(hardenFixPrompt(id, confirmed.map(x => ({ ...x.finding, evidence: x.verdict.evidence })), minors), { label: `fix${round}:${id}`, phase: 'Fix', schema: FIX_SCHEMA })
     rounds.push({ round, reviews, verdicts, confirmed, minors, fix })
-    history += `\nRound ${round} fixed:\n` + JSON.stringify(confirmed.map(x => ({ severity: x.verdict.severity, where: x.finding.where, issue: String(x.finding.issue).slice(0, 500) })), null, 1)
+    if (stopped(fix)) { log(`${id}: fix round ${round} did no work; stopping`); stoppedAt = `fix${round}`; break }
+    history +=`\nRound ${round} fixed:\n` + JSON.stringify(confirmed.map(x => ({ severity: x.verdict.severity, where: x.finding.where, issue: String(x.finding.issue).slice(0, 500) })), null, 1)
     if (fix && fix.deviations && fix.deviations.length) history += `\nEngineer deviations in round ${round}:\n` + JSON.stringify(fix.deviations, null, 1).slice(0, 2000)
     minors = []
   }
-  return { rounds, clean, minors }
+  return { rounds, clean, minors, stoppedAt }
 }
 
 const results = await pipeline(ids,
   (id) => reported.has(id)
     ? Promise.resolve({ status: 'done', commitTitle: titles[id] || `feat: add ${id}`, summary: `See the engineer report at ${reportFile(id)}.`, paths: [], reportFile: reportFile(id) })
     : agent(implPrompt(id), { label: `impl:${id}`, phase: 'Implement', schema: IMPL_SCHEMA }),
-  async (impl, id) => ({ impl, h: await harden(id, impl) }))
+  async (impl, id) => {
+    if (stopped(impl)) {
+      log(`${id}: engineer did no work (${impl ? impl.status : 'no result'}); skipping review and fixes`)
+      return { impl, h: { rounds: [], clean: false, minors: [], stoppedAt: 'impl' } }
+    }
+    return { impl, h: await harden(id, impl) }
+  })
 
 return results.map((r, i) => {
   const id = ids[i]
   if (!r) return { id, error: 'pipeline failed' }
   const { impl, h } = r
+  if (h.stoppedAt === 'impl') {
+    return {
+      id, status: impl?.status, summary: impl?.summary, paths: impl?.paths || [], deviations: impl?.deviations || [],
+      contractRequests: impl?.contractRequests || [], clean: false, finalVerdict: 'blocked', stoppedAt: 'impl', rounds: [], remaining: [], remainingMinor: [],
+    }
+  }
   const fixes = h.rounds.map(x => x.fix).filter(Boolean)
   const last = h.rounds[h.rounds.length - 1]
   return {
@@ -236,7 +255,8 @@ return results.map((r, i) => {
     contractRequests: [...(impl?.contractRequests || []), ...fixes.flatMap(f => f.contractRequests || [])],
     deviations: [...(impl?.deviations || []), ...fixes.flatMap(f => f.deviations || [])],
     clean: h.clean,
-    finalVerdict: h.clean ? 'pass' : 'fix',
+    finalVerdict: h.stoppedAt ? 'blocked' : h.clean ? 'pass' : 'fix',
+    stoppedAt: h.stoppedAt || null,
     rounds: h.rounds.map(x => ({
       round: x.round,
       lenses: x.reviews.map(v => ({ lens: v.lens, verdict: v.verdict, counts: ['blocker', 'major', 'minor'].map(s => v.findings.filter(f => f.severity === s).length) })),
