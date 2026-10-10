@@ -1,0 +1,8 @@
+name: YAML Test Suite
+url: https://github.com/yaml/yaml-test-suite
+ref: data-2022-01-17
+commit: 6e6c296ae9c9d2d5c4134b4b64d01b29ac19ff6f
+sha256: a3c650ace58892c224040216860ada4fa76596989f3c61c6f972d93a188144ca
+sha256-of: git archive --format=tar 6e6c296ae9c9d2d5c4134b4b64d01b29ac19ff6f
+license: MIT (License of v2022-01-17, commit 45db50aecf9b1520f8258938c88f396e96f30831, sha256 c9562189164244554a69ab3f29d2d93ed9492c165723aaaa5fffc932cdbbfc85)
+updated-by: scripts/update-test-suites.sh
