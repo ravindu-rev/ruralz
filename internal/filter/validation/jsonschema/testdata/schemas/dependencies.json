@@ -1,0 +1,8 @@
+{
+  "type": "object",
+  "dependencies": {
+    "card": ["cvv", "expiry"],
+    "ship": {"required": ["address"], "properties": {"address": {"type": "string"}}}
+  },
+  "properties": {"cvv": {"type": "integer"}}
+}

@@ -1,0 +1,14 @@
+{
+  "$id": "https://example.com/tree.json",
+  "$dynamicAnchor": "node",
+  "type": "object",
+  "required": ["value"],
+  "properties": {
+    "value": {"type": "integer"},
+    "children": {"type": "array", "items": {"$dynamicRef": "#node"}, "maxItems": 4},
+    "meta": {"$ref": "meta.json"}
+  },
+  "$defs": {
+    "meta": {"$id": "meta.json", "type": "object", "additionalProperties": {"type": "string"}}
+  }
+}
