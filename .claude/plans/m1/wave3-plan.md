@@ -69,7 +69,7 @@ Optional, off by default (each trades some quality for tokens; try one in a sect
 | Section | Packages committed | Not passed (moved to S9) | Agent usage | Commits | Date |
 |---|---|---|---|---|---|
 | S1 | WP-35 `79154e9`, WP-36 `196619b`, WP-33 `086e74d` | None; WP-33 landed with five open findings (four blockers, one major) pending the YAML parser decision | About $315 to $377: 1,067M cache read and 20.4M other tokens over six runs (runs a and b, two targeted fixes, the hardening loop and one targeted round) | 3 package commits, 7 plan commits | 2026-10-09 to 2026-10-10 |
-| S2 | | | | | |
+| S2 | WP-37 `fd7c4c5`, WP-38 `67c4950`, WP-39 `97ef9de` | WP-51: two major findings left after two fix rounds (`runs/w3-s2b-result.json`); uncommitted, waiting on the user | About $84 to $100: 281M cache read and 4.6M other tokens over two runs (`wf_17b12695-0d2`, `wf_56f4cb3c-e49`), plus about $4 to $6 for the refused first launch | 3 package commits, 1 plan commit | 2026-10-10 to 2026-10-11 |
 | S3 | | | | | |
 | S4 | | | | | |
 | S5 | | | | | |
@@ -88,3 +88,8 @@ Optional, off by default (each trades some quality for tokens; try one in a sect
 ### S2 notes
 
 - First launch (2026-10-10, runs `wf_8470aecb-8e5` and `wf_adf4574f-4d3`, with the YAML research `wf_4768d0a2-a79`): every agent refused because the go-ahead was an `AskUserQuestion` answer, which the harness does not relay. No files were written; S2 is not started. Cause, cost and the guards added to the scripts: `README.md`, "Starting a workflow run".
+- Second launch (2026-10-10, in the turn of the user's typed "can we also implement s2?", next to the YAML research): every engineer built its package. WP-37 passed after one fix round (two majors fixed), WP-38 and WP-39 passed their first review, at about $21 to $25 per size unit. Minor findings deferred to S9: WP-37 3, WP-38 6, WP-39 7 (among them: `AppendDump` writes invalid JSON for a zero Revision; the WP-39 goldens predate stage G).
+- WP-51 did not pass: after two fix rounds two majors remain. (1) The working-set reservation leaves out jsonschema/v6's unevaluated-tracking maps, so an accepted schema with `unevaluatedProperties` over a long in-place `$ref` chain holds more memory than it reserved. (2) The second fix round reserves CPU-time units (enum comparisons, pattern matching) as bytes of `maxBufferedBytes`, so valid bodies far under `maxRequestBodyBytes` get 413 (a 96 KB array checked against a 600-value `enum`). Its tree stays uncommitted in the working tree, with a backup in the session scratchpad, until the user decides.
+- Whole-tree checks after S2 passed on a clean worktree of `97ef9de` (build, vet, lint, format, repocheck, depgate, `go mod verify`, generate, race, `CGO_ENABLED=0`, Go 1.26 floor; 88 test packages each). The WP-37 agent left a `defaults.test` binary in the repository root (README step 6); it was deleted.
+- Notes for later sections: WP-45 (S4) gets the `/config/dump` note from WP-39 in `forwards.json` and `runs/w3-s4b.json`. The other 31 contract requests (spec 02 and 07 text, architecture 1.2 import rows, WP-51's compile and body guards as OQ rows, the null-in-free-content rule, the consumers' canonical and precedence API, `scripts/ci-approvals.sh`) wait for S8.
+- The backup loop named its files by hour and minute, so after midnight it deleted the newest backups as the oldest; name backups with the date.

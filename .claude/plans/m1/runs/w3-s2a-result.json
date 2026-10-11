@@ -1,0 +1,196 @@
+[
+ {
+  "id": "WP-37",
+  "status": "done",
+  "commitTitle": "feat(config): add stage G defaults, normalization and conversion",
+  "summary": "WP-37 is built: stage G of the configuration pipeline, in two new packages. internal/config/convert is the conversion registry. It has a Converter interface that works on generic tree.Node envelopes, including partial overlay documents with $patch and ${VAR}, and an identity converter for ruralz/v1alpha1. The registry reports RZ-CFG-007 for an unserved apiVersion, strips the ruralz.io/conversion-data annotation from the hub form, and holds the RZ-CFG-025 deprecation table from 02 req 76 (empty in M1). internal/config/defaults is stage G itself, and its four steps run in this order:\n- Materialize writes every schema default (table-free, read from schemaidx) and the registry defaults slot, failureMode and filterClass (for every type, per R-7) into present objects only. Materialized nodes get StyleDefaulted and the parent's position.\n- convert.ToHub converts the tree to the hub form.\n- Normalize rewrites Duration, ByteSize and Decimal values, writes integral numbers at integer positions as integer text, and lower-cases host names. It sorts set and map lists and object members in RFC 8785 order. Duplicates that only appear after normalization are RZ-CFG-005, and so is any number the canonical form would not keep (R-64 range rule, skipped for RoleCanonical files). The JSONSchemaDocument value is treated as opaque data (CR 144).\n- Decode fills the v1alpha1 kind structs and the registry config types. A decode failure is located by a reflect walk, so the RZ-CFG-005 diagnostic sits at the exact field with a message that is the same with or without GOEXPERIMENT=jsonv2.\n\nStage.Resource and Stage.Run (a bounded worker pool, all goroutines joined, ctx checked between resources) build the hub.Resource values and the hub.Bundle. Tests cover:\n- every schema default, plus a check that the schema defaults equal the +ruralz:default markers in pkg/config/v1alpha1;\n- registry defaults for all 23 Policy types;\n- the scalar, number, host and list tables;\n- a golden of the example Bundle;\n- determinism across 1, 2 and 8 workers, idempotence on stage G's own output (R-47), and reorder invariance;\n- a round trip of every schema field through each registered converter;\n- linear scaling up to 12,000 members per object or list;\n- fuzz targets FuzzStageIdempotent, FuzzIntegerText and FuzzConversionRoundTrip, plus benchmarks.",
+  "paths": [
+   "internal/config/convert/convert.go",
+   "internal/config/convert/convert_test.go",
+   "internal/config/convert/helpers_test.go",
+   "internal/config/convert/roundtrip_test.go",
+   "internal/config/defaults/defaults.go",
+   "internal/config/defaults/materialize.go",
+   "internal/config/defaults/normalize.go",
+   "internal/config/defaults/scalar.go",
+   "internal/config/defaults/decode.go",
+   "internal/config/defaults/helpers_test.go",
+   "internal/config/defaults/materialize_test.go",
+   "internal/config/defaults/normalize_test.go",
+   "internal/config/defaults/decode_test.go",
+   "internal/config/defaults/stage_test.go",
+   "internal/config/defaults/property_test.go",
+   "internal/config/defaults/scale_test.go",
+   "internal/config/defaults/bench_test.go",
+   "internal/config/defaults/testdata/bundle/ruralz.json",
+   "internal/config/defaults/testdata/bundle/upstreams/orders.json",
+   "internal/config/defaults/testdata/bundle/upstreams/inventory.json",
+   "internal/config/defaults/testdata/bundle/policies/common.json",
+   "internal/config/defaults/testdata/bundle/policies/cors.json",
+   "internal/config/defaults/testdata/bundle/policies/jwt.json",
+   "internal/config/defaults/testdata/bundle/policies/quota.json",
+   "internal/config/defaults/testdata/bundle/policies/validate.json",
+   "internal/config/defaults/testdata/bundle/policies/token.json",
+   "internal/config/defaults/testdata/bundle/policies/headers.json",
+   "internal/config/defaults/testdata/bundle/consumers/partner.json",
+   "internal/config/defaults/testdata/bundle/routes/orders.json",
+   "internal/config/defaults/testdata/bundle/routes/inventory.json",
+   "internal/config/defaults/testdata/golden/bundle.txt",
+   "internal/config/defaults/testdata/fuzz/FuzzStageIdempotent/cbbad75732661f48",
+   "internal/config/defaults/work.go",
+   "internal/config/defaults/chunk.go",
+   "internal/config/defaults/work_test.go",
+   "internal/config/defaults/chunk_test.go",
+   "internal/config/convert/deprecations_test.go"
+  ],
+  "requirements": "Implemented, with numbered references cited in the test names and comments:\n- 02 2.2 req 4: RZ-CFG-007 for an unserved apiVersion, raised in convert and repeated in the stage for resources that re-enter at stage F.\n- 02 req 5: callers always go through the converter registry; M1 has one identity converter.\n- 02 req 6: conversion works on generic trees and accepts partial documents.\n- 02 req 7: the ConversionDataAnnotation constant exists and the strip step runs.\n- 02 req 8: defaults are materialized under the source schema before conversion; the round trip of every schema field is tested.\n- 02 2.3 reqs 9 to 12: schema defaults only inside present parents, table-free; defaults inside list entries and typed-map values; Policy config defaults by type dispatch; no defaults for plugin configs or configSchema; registry defaults on every Policy (R-7).\n- 02 req 13: the registry table is consumed through internal/config/registry.\n- 02 2.4 reqs 15 to 20: scalar normalization, the number range rule, set/map/orderedMap/atomic lists, generic normalization of free content, presence kept, idempotence.\n- 02 2.10 reqs 53 and 54, registry side: Registry.Convert on partial documents, RZ-CFG-007 for an unserved target, and the full ToHub then FromHub path for identity. The CLI command itself belongs to WP-58.\n- 01 I reqs 36 to 38: defaults marked defaulted at the parent's position; integer text at integer positions; typed decode with RZ-CFG-005 at the failing field.\n- R-64 (range check skipped for canonical content), R-47 (idempotent on canonical input), R-62 (header x-api-key and healthCheck.active.path / defaults only inside a present parent).\n- CR 144: the JSONSchemaDocument value gets no defaults, keeps its list order, and has its keys and numbers normalized.\n- CR 19: no filterClass check anywhere in stage G.\n- Also built: 02 req 76, the lifecycle table and RZ-CFG-025 warnings, placed in convert as the spec asks, although section 2.14 is not in this package's listed scope.\n\nNot part of stage G and not built here:\n- 02 req 14 (RZ-CFG-020) is stage I, owned by WP-38.\n- RZ-CFG-005 for filterClass is registry.CheckFilterClass at stage H, owned by WP-56.\n- The `render --api-version` command and its exit codes are WP-58.\n- Canonical bytes and digest goldens are WP-39.",
+  "checks": "All checks scoped to the two owned packages, ./internal/config/defaults/... and ./internal/config/convert/... :\n- bin/golangci-lint fmt: no changes left.\n- bin/golangci-lint run: 0 issues.\n- go build: ok.\n- go vet: ok.\n- go test -race -count=1 -shuffle=on -cover: ok. Coverage: defaults 96.3%, convert 99.2%. New files: work.go 100% per function; chunk.go 87.5\u2013100% per function.\n- CGO_ENABLED=0 go test -count=1 -shuffle=on: ok.\n- go run ./internal/tool/repocheck: exit 0.\n- Go 1.26 floor: GOTOOLCHAIN=go1.26.8 GOEXPERIMENT=jsonv2 go test -count=1 on both packages: ok.\n- Fuzzing, all PASS with no crashers written:\n  - FuzzChunkedDecode: 45s on go1.27.1, 30s with GOEXPERIMENT=jsonv2, 60s on go1.26.8 with jsonv2 (about 1.5 million execs in that run).\n  - FuzzStageIdempotent: 20s on go1.27.1, 30s on go1.26.8 with jsonv2.\n- Repeat runs: go test -race -count=3 -run 'TestScaleLinear|TestRunDiagnosticBudget': ok.\n- Benchmarks:\n  - BenchmarkScale: map list 4.06 ms at 1,500 entries vs 28.5 ms at 12,000; labels 1.50 ms vs 11.7 ms.\n  - BenchmarkDeprecations: 1.44 ms at 1,000 entries vs 17.9 ms at 8,000.\n  - Stage G time for the 12,000-member cases is about the same with and without the chunker (8\u201334 ms either way).\n\nNot run: whole-tree make targets, because the hard rules confine me to my own packages.",
+  "contractRequests": [
+   "WP-39 (canonical) and the spec owner: 02 req 19 says a JSON null in the hub is an internal error, and 02 req 24 says null is never emitted. That cannot hold for free content. Inside open configs, plugin configs, Plugin configSchema and the JSONSchemaDocument value, null is valid data: draft 2020-12 `const: null`, `enum: [null]` and `default: null` all pass stage F. Stage G keeps these nulls. The canonical encoder must emit null at free positions; 'null never emitted' should be read as 'never at a schema-typed position'.",
+   "WP-69 (pipeline) and WP-39: the R-64 exemption is read from the file table. Stage G skips the range rule for a resource when files.File(res.Start.File).Role == tree.RoleCanonical. Canonical.Decode output re-entering through FromResources therefore needs a Start position in a file registered with RoleCanonical, and the pipeline must pass that FileTable to defaults.Stage.Run or Stage.Resource. Without it the content counts as authored and the range rule applies. The same rule makes hub.Source.File empty for canonical content.",
+   "WP-28 or WP-29 (schema or configuration model): add a schema marker or a configuration-model sentence for host-name fields, so host-case normalization (Route spec.match.hosts, Gateway spec.listeners[].hostnames, ASCII lower case) no longer needs stage G to identify those fields by $defs name (RouteMatch.hosts, Listener.hostnames).",
+   "Stage F (internal/config/schemaview, WP-35) and docs/architecture/02-configuration-model.md (with spec 02 req 19): state that JSON null is rejected in free content too, meaning undeclared members of +ruralz:open configs, plugin configs, Plugin spec.configSchema and the validation.json-schema config.schema (JSONSchemaDocument). Stage G now reports it as RZ-CFG-005 at the null's key-aware path. State that inline JSON Schema documents cannot use null literals in M1 (for example \"enum\": [null], \"const\": null, \"default\": null), or define a canonical representation for them. Stage F could report this first, so the CLI shows it alongside the other schema findings.",
+   "Pipeline (WP-69, internal/config/pipeline): Stage.Run now enforces the 01 req 50 cap within stage G. It returns at most defaults.MaxDiagnostics diagnostics plus one RZ-CFG-001 with the same message as diag.Collector. The pipeline should add this list to its run-wide Collector and stop once the result holds RZ-CFG-001 or Collector.Full(). If the 10,000 cap must cover all stages together rather than each stage, Run needs a remaining-budget argument (for example an Options field or an extra parameter). That would be an additive change for this package.",
+   "pkg/config/v1alpha1 JSONSchemaDocument.UnmarshalJSON runs json.Valid over the whole inline schema in one call, which no worker can yield inside (01 req 53). About 1 ms for a 500 KB document. If 100 \u00b5s must hold for inline schemas too, that check needs a validator that can be stopped part-way, or should move to stage F, which already validates the document."
+  ],
+  "deviations": [
+   "Host-case normalization comes from the WP-37 scope ('host case'), not from a numbered requirement. It lower-cases only the ASCII letters of Route spec.match.hosts and Gateway spec.listeners[].hostnames, which is how the Router compares hosts (routematch.NormalizeHost) and what RFC 4343 allows. Ports and trailing dots stay as authored. It is the only normalization not driven by the schema: the two fields are identified by $defs name because no marker exists.",
+   "Normalize sorts the members of every object in the hub tree into RFC 8785 order, not only those of open configs (02 req 18). This makes materialized trees equal regardless of authored member order (01 property P1). Canonical bytes do not change.",
+   "In 01 req 36, filterClass is materialized only for plugin. This follows R-7 and CR 19 instead: filterClass is materialized for every type, and stage G adds no filterClass check.",
+   "01 req 53 asks for a yield once 100 \u00b5s of work have passed. internal/clock is not in this package's allowed imports, so workers call runtime.Gosched between resources and every 4,096 nodes instead of using a timer.",
+   "Stage G reports duplicate list entries only when normalization creates them (for example 90s and 1m30s in one set, or A.example and a.example). Authored duplicates are stage F's (01 req 34). Stage G only runs on resources that passed stage F, so nothing is reported twice.",
+   "The typed Policy config is decoded only from the members the schema declares, so an undeclared member of an open config whose name differs from a field only in letter case (encoding/json matches names case-insensitively) cannot override that field. Policy.Spec.Config, the raw JSON, still holds every member.",
+   "Conversion-data contract for future (M3) converters: a spoke's ToHub consumes the annotation it reads, including an annotations or metadata object its FromHub created. Registry.ToHub then strips any leftover annotation and removes an annotations object that the strip leaves empty.",
+   "Finding 2: when the run hits the cap, which diagnostics are kept can depend on the worker count, as with the diag.Collector contract. Below the cap the output is unchanged and deterministic (TestRunDeterministic still passes). The RZ-CFG-001 entry has no file, so after sorting it comes first, as in diag.Collector.List().",
+   "Finding 3: one encoding/json call cannot yield inside. Decode now splits values into pieces of at most 256 nodes: struct members and map members in batches, slice elements in batches copied into place, and a large value decoded straight into its field when the member name is exactly one field's JSON name. Four kinds of value stay one unit: (a) a value whose type has its own UnmarshalJSON, now called directly with the compact JSON text, so json.RawMessage is a plain copy but JSONSchemaDocument still runs json.Valid; (b) interfaces and arrays; (c) a large member whose field is promoted, ambiguous or has a ,string tag (no v1alpha1 type has one); (d) nulls and values whose JSON type does not match their Go type. appendJSON now rejects number text outside the RFC 8259 grammar, so a directly called UnmarshalJSON always receives valid JSON.",
+   "Finding 4: TestScaleLinear compares bytes allocated, like internal/config/canonical's test. It catches per-member allocation (paths, indexes, copies) but not a per-member scan that allocates nothing, which tree.Node.Get scans are. BenchmarkScale times the same shapes for that.",
+   "Finding 6: instead of validating each default alone, the test runs stage F (schemaview.Set.Validate) on the minimal resource before and after Materialize. It requires that no new finding appears, which also catches problems reported at the parent level. A negative control proves the check detects an out-of-range or off-enum default."
+  ],
+  "firstReview": {
+   "verdict": "fix",
+   "counts": [
+    0,
+    2,
+    4
+   ]
+  },
+  "finalVerdict": "pass",
+  "stoppedAt": null,
+  "remaining": [],
+  "remainingMinor": [
+   {
+    "severity": "minor",
+    "where": "internal/config/defaults/chunk.go:39-42,63-66 (an interface target is always decoded whole) and decode.go:39-44; 01 req 53 (remainder of earlier minor finding 3)",
+    "issue": "Most of the time-based yield fix holds, but Decode still runs a single encoding/json call for large values at interface (any) positions. These are the member values of v1alpha1.PluginConfig (map[string]any) and of Plugin spec.configSchema (map[string]any). JSONSchemaDocument.UnmarshalJSON is a similar case: it runs json.Valid over the whole inline schema between two timer reads. I probed with go test -overlay, using an instrumented copy of work.go that records the longest gap between two check() calls; no repo files were touched. A plugin Policy config {\"x\": [12,000 small objects]} and a Plugin configSchema of the same size each ran about 31 ms between timer reads, inside one whole() encoding/json call. A validation.json-schema enum of 30,000 strings ran about 0.5 ms inside unmarshaler(). Typed shapes behave as intended: the 12,000-label, 12,000-endpoint Upstream had a longest gap of 0.4 ms. Two statements are therefore not true for plugin configs and configSchema: the package doc's 'Large values are decoded in pieces of at most 256 nodes', and the claim in the report that Decode is split. With a large source, one any-valued member can run for hundreds of milliseconds without yielding.",
+    "fix": "Split interface targets in the chunker. When the target is a nil interface and the node is a KindMap or KindList, build a map[string]any or []any directly. Decode each member or element through c.decode into a fresh any value, and set the result into the interface. Leaves give exactly what encoding/json with UseNumber gives: json.Number, string, bool, or nil. Add a plugin-config case and a Plugin configSchema case to TestChunkedDecodeSplits and TestChunkedDecodeEqualsWhole. For JSONSchemaDocument, accept the json.Valid cost and document it in the package comment and in chunker's doc. pkg/ is not WP-37's to change, so if that cost matters, raise a request against the pkg owner."
+   },
+   {
+    "severity": "minor",
+    "where": "internal/config/defaults/scale_test.go:70-97 (TestScaleLinear)",
+    "issue": "The switch to comparing allocated bytes removed the wall-clock dependence, but the test can no longer see the regression class its own comment names: 'a per-member Get, Select or ItemElem would make stage G quadratic'. Those scans allocate nothing. I probed with an overlay that added `_, _ = n.Get(m.Key)` per member to normalizer.visit. BenchmarkScale then reported labels at 4.6 ms for 1,500 members and 234 ms for 12,000 (51x for 8x the members); open config members and json schema document showed the same. TestScaleLinear still passed, with byte ratios of 7.7 to 8.4. As written, it guards only against per-member copies, paths and indexes.",
+    "fix": "Make the comment accurate: it detects per-member allocation, not scans. Back it with a measure that does not depend on the machine and that counts the stage's own lookups. For example, send the stage's per-member Get, Select and ItemElem calls through a small helper that increments a counter on work (only Run-local state, so no package-level variables), and assert that counter scales by about 8x. Alternatively, have internal/tool/benchgate enforce the BenchmarkScale n:8n ratio."
+   },
+   {
+    "severity": "minor",
+    "where": "02 req 19 / docs/architecture/02-configuration-model.md (contract change request from earlier major finding 1)",
+    "issue": "The code fix is complete. Normalize reports RZ-CFG-005 at every KindNull, Resource returns nil, and FuzzStageIdempotent asserts that an accepted tree holds no null. This makes a user-visible restriction: JSON Schema documents in validation.json-schema configs and Plugin configSchema can no longer contain null literals such as \"default\": null, \"const\": null or \"enum\": [..., null], and plugin configs can no longer carry null values. Neither docs/architecture/02-configuration-model.md nor stage F says so. The relayed engineer report is cut off, so I could not confirm that the requested contract change request was actually raised.",
+    "fix": "Confirm that the engineer's report raises the contract change request. Doc 02 and stage F (schemaview) should state that null is rejected in free content and in inline or plugin JSON Schema documents in M1, or else define a representation for null. Record it as an OQ-configuration-model-<n> row if it is not settled."
+   }
+  ],
+  "commit": null
+ },
+ {
+  "id": "WP-38",
+  "status": "done",
+  "commitTitle": "feat(config): add stage I precedence and effective Filter Chains",
+  "summary": "I built WP-38 in internal/config/precedence/. It is stage I of the configuration pipeline. A Resolver (New(reg, Options{Body, Files})) builds a hub.Chain for every Route. Each chain holds the client Phases plus one leg per Upstream, and lists removed Gateway Policies with replaced ones before excluded ones. The chain is built from Gateway, Route and Upstream attachments using slots, excludePolicies/replacement and overridable. Phase placement comes from registry.Phases: authz.cel uses the injected body oracle, and headers, transform.* and plugin follow their configs. Entries are ordered by class, then scope, then position. Response Phases and onChunk run in reverse; onLog keeps request order. Legs follow first appearance in spec.upstreams (by name) or composition steps (authored order).\n\nStage I is the only stage that raises RZ-CFG-018/019/020/038 (Resolve) and RZ-CFG-029 (CheckPolicies, once per Policy whether attached or not). Run combines both into one sorted list. Diagnostics carry file:line:column through the tree positions, or through an optional FileTable. RZ-CFG-019 points to where `overridable: false` is declared using diag.Related, so the text form reproduces the configuration model's Diagnostics example byte for byte (`routes/cart-grpc.yaml:11:7 ... (declared in policies/common.yaml:46:3)`).\n\nUnresolved references (RZ-CFG-009) are skipped without a diagnostic. The Gateway list and each Upstream list are checked once. Phase selection runs once per (Policy, scope). Work runs on a bounded worker pool that Resolve owns and waits for, and the result does not depend on scheduling. Rows(c, b) produces the render --effective rows using the 02 req 51 reason templates and JSON member order.\n\nTests:\n- The worked example: orders-summary rows equal the configuration model's table (12 rows).\n- Text and JSON goldens for all three example Routes. The example Bundle is copied verbatim from the configuration model into testdata.\n- 21 YAML fixtures covering every case of 02 test 16, each with file, line and column.\n- Unit tests for Phase selection (test 17), ordering (test 18), replace/exclude, slots per scope, the cache guardrail, programming errors, locator fallbacks, the worker pool, determinism and concurrent use.\n- FuzzPrecedenceInvariants (02 test 30, precedence laws).\n- BenchmarkResolve over 5,000 Routes.\n- A scale test with 3,000-member lists.",
+  "paths": [
+   "internal/config/precedence/precedence.go",
+   "internal/config/precedence/resolve.go",
+   "internal/config/precedence/locate.go",
+   "internal/config/precedence/rows.go",
+   "internal/config/precedence/parallel.go",
+   "internal/config/precedence/helpers_test.go",
+   "internal/config/precedence/builder_test.go",
+   "internal/config/precedence/workedexample_test.go",
+   "internal/config/precedence/fixtures_test.go",
+   "internal/config/precedence/resolve_test.go",
+   "internal/config/precedence/rows_test.go",
+   "internal/config/precedence/locate_test.go",
+   "internal/config/precedence/parallel_test.go",
+   "internal/config/precedence/fuzz_test.go",
+   "internal/config/precedence/scale_test.go",
+   "internal/config/precedence/bench_test.go",
+   "internal/config/precedence/testdata/shop-bundle/",
+   "internal/config/precedence/testdata/golden/",
+   "internal/config/precedence/testdata/fixtures/"
+  ],
+  "requirements": "Implemented:\n- 02 req 35.1 to 35.5, including R-15 (RZ-CFG-018 checked within each list only) and R-16 (re-listing a Gateway Policy counts as a replacement; excluding a Policy the Gateway does not attach gives no diagnostic).\n- 02 req 36 (Entry.Overridable materialized), 37 (RZ-CFG-029 through CheckPolicies), 39 (RZ-CFG-038 cache guardrail), 40 (unresolved references skipped with no diagnostic, every other Route still processed), 41 (leg order) and 42 (hub.Chain is the single source of the data plane arrays and of Rows).\n- 02 req 2 (stage I placement), 13a (authz.cel Phase through the injected oracle) and 14 (plugin Phase-scope rule, via registry.Phases).\n- 02 req 51 and 52 (Rows: order, reason templates, JSON member order).\n- 04 F 40 (pre-resolved per-Phase execution order).\n- 03 req 11 (Entry.FirstPhase available to stage J).\n- 02 tests: 15 (shop-bundle chains and goldens), 16 (one fixture per case), 17, 18, 30 (FuzzPrecedenceInvariants).\n- 02 section 6 benchmark: Resolve over 5,000 Routes.\n- CR 20: hub.Resource.Config is passed as decoded, the oracle is required, and ErrNoBodyOracle and config-type errors are surfaced as programming errors.\n- OQ-traffic-management-and-resilience-21 (a).\n\n\"Done when\" holds: the worked-example chain golden, one fixture per code of 02 test 16, and the property seeds all pass (plus a 30 s fuzz run with no failures).\n\nIn scope but not raised here:\n- 02 req 38 (an authored filterClass that differs from the registry class, RZ-CFG-005). Per R-46 and R-7 that code belongs to stage G/H through registry.CheckFilterClass. Stage I only uses registry.EffectiveClass, which ignores an invalid authored class for non-plugin types.",
+  "checks": "All scoped to internal/config/precedence:\n- `go build ./internal/config/precedence/...`: ok.\n- `go vet ./internal/config/precedence/`: ok.\n- `go test -race -shuffle=on -count=2 -cover ./internal/config/precedence/`: ok, coverage 98.4% of statements (target 90%).\n- `CGO_ENABLED=0 go test -shuffle=on -count=1 ./internal/config/precedence/`: ok.\n- `GOTOOLCHAIN=go1.26.8 GOEXPERIMENT=jsonv2 go test -count=1 ./internal/config/precedence/`: ok (Go 1.26 floor).\n- `go test -run XXX -fuzz FuzzPrecedenceInvariants -fuzztime 30s ./internal/config/precedence/`: about 469k execs, no failures; no corpus files were written.\n- `go test -run XXX -bench . ./internal/config/precedence/`:\n  - BenchmarkResolve, 5,000 Routes: about 35 ms/op with 1 worker and 33 ms/op with 4 workers, 25 MB/op, 72k allocs/op.\n  - BenchmarkRows: about 12 \u00b5s/op.\n- `bin/golangci-lint run ./internal/config/precedence/...`: 0 issues.\n- `bin/golangci-lint fmt --diff ./internal/config/precedence/...`: no diff.\n- `go run ./internal/tool/repocheck`: exit 0, no findings.\n\nNo whole-tree or state-changing git commands were run.",
+  "contractRequests": [
+   "Architecture 1.2 row for config/precedence: add config/tree and pkg/config/v1alpha1 to 'May import'. The package reads typed Gateway, Route, Upstream, Policy and Plugin objects. It also takes an optional *tree.FileTable (Options.Files) and reads tree positions and tree.StyleDefaulted for diagnostic locations. `expr` can be dropped from the row: the injected oracle is typed registry.BodyOracle, which expr.Compiler satisfies (asserted in TestCompilerIsBodyOracle).",
+   "Spec 02 section 3 precedence API differs from what was built; please re-sync the text. Built: New(reg *registry.Registry, Options{Body registry.BodyOracle; Files *tree.FileTable}). Resolve(ctx, *hub.Bundle, workers) (map[string]*hub.Chain, diag.List, error), whose error covers ctx.Err(), registry.ErrNoBodyOracle, ErrUnknownType and a config of the wrong type. CheckPolicies(*hub.Bundle) diag.List. Run(ctx, b, workers), which combines both into one sorted list. Rows is a package function, Rows(c *hub.Chain, b *hub.Bundle) []Row, because hub.Chain is a WP-01 type and cannot take a method. Row has fields Phase, Leg, Policy, Type, FilterClass, Slot, From, Reason with JSON tags in the 02 req 52 order.",
+   "WP-69 (pipeline facade): build the Resolver with Options{Body: the expr.Compiler, Files: the loader's FileTable} and call Run at stage I. Without Files, positions fall back to hub.Resource.Source.File for nodes in the resource's own file, and to the resource start for overlay-added nodes.",
+   "WP-58 (render): Rows(chain, bundle) gives the --effective rows. The removed rows take their type and filterClass from the Bundle's materialized Policy, so render needs no registry.",
+   "docs/architecture/02-configuration-model.md (WP-29/WP-31 owners): the RZ-CFG-038 message has no documented wording. The proposed text, pinned by goldens, is: 'Response Cache Policy \"<c>\" is combined with Policy \"<p>\" (<type>, Filter class <class>), which runs in onRequestBody: a cache hit would skip it'. The RZ-CFG-019 replace wording (02 req 35.2, proposed) is implemented as written. Its 'declared in' location is a diag.Related entry, which the text form prints exactly as in the CM example."
+  ],
+  "deviations": [
+   "Imports internal/config/tree and pkg/config/v1alpha1, which are not in the 1.2 row, and does not import internal/expr (see contract requests). No lint rule is affected.",
+   "Resolve returns a third value, an error, for programming errors and context cancellation. Spec 02 section 3 lists only (chains, diags).",
+   "02 req 2 and 40 are read as: skip each unresolved reference (a missing Policy, Plugin or Upstream) silently and still compute the Route's chain from the references that did resolve. The Route is not dropped. Diagnostics stay exact and every other error is still reported in one run. The pipeline stops after stage H errors, so these partial chains never reach a Validated result.",
+   "Cascade control (no rule in the specs): an entry rejected with RZ-CFG-020, the second entry of a slot (RZ-CFG-018), or a Route Policy whose replacement of a locked Gateway Policy is refused (RZ-CFG-019) is left out of the chain. A locked Gateway Policy stays in the chain after RZ-CFG-019. One mistake therefore yields one finding.",
+   "Leg order sorts spec.upstreams by name itself. On stage-G output this has no effect, because map sorting already did it. It keeps 02 req 41 true for callers that pass unnormalized typed objects.",
+   "Tests parse YAML fixtures through internal/config/profile, using only its exported Parse and FormatYAML, as the S1 note allows. Typed objects are built by JSON-decoding tree.JSONValue(), because WP-37's defaults/convert packages are not committed. If WP-33's parser changes, fixture positions are the first thing to recheck."
+  ],
+  "firstReview": {
+   "verdict": "pass",
+   "counts": [
+    0,
+    0,
+    6
+   ]
+  },
+  "finalVerdict": "pass",
+  "stoppedAt": null,
+  "remaining": [],
+  "remainingMinor": [
+   {
+    "severity": "minor",
+    "where": "internal/config/precedence/precedence.go:62-63, locate.go:9, resolve.go:17, rows.go:13 (architecture 1.2 row for config/precedence)",
+    "issue": "The package imports internal/config/tree (for Options.Files and to walk hub.Resource.Tree) and pkg/config/v1alpha1. Neither is in its 1.2 'May import' list, which names config/hub, config/registry, config/diag, phase and expr. Both are lower layers and create no cycle, and depguard does not enforce the row, so lint passes. It still breaks the rule that a package imports 'only those its row in 1.2 lists'.",
+    "fix": "Send a contract change request to add config/tree and v1alpha1 to the config/precedence row in 1.2 (the package cannot avoid either: hub.Object returns *v1alpha1 types and hub.Resource.Tree is a *tree.Node). Mention it in the WP report."
+   },
+   {
+    "severity": "minor",
+    "where": "internal/config/precedence/precedence.go:88-94 (Options.Body)",
+    "issue": "Resolve calls Options.Body.ReferencesRequestBody from several worker goroutines (selectAll on the forEach pool), but the Options doc never says the oracle must be safe for concurrent use. expr.Compiler is documented as safe, so production callers are fine. A custom oracle, such as a test stub or a future wrapper, that is not safe would race without any warning.",
+    "fix": "Add to the Options.Body doc: 'Body must be safe for concurrent use: Resolve calls it from up to workers goroutines.'"
+   },
+   {
+    "severity": "minor",
+    "where": "internal/config/precedence/rows.go:72-77",
+    "issue": "Rows builds its own registry.New() to find the Filter class of a removed Policy that has no materialized filterClass. It ignores the registry the Resolver was built with, so a Resolver made with a non-default registry could print a different class for removed rows than for live entries. After stage G this path is effectively dead, because filterClass is always materialized.",
+    "fix": "Use only the materialized p.Spec.FilterClass and leave FilterClass empty otherwise, or make Rows a method on *Resolver (or pass the registry in) so live and removed rows use one registry."
+   },
+   {
+    "severity": "minor",
+    "where": "internal/config/precedence/scale_test.go:71,76",
+    "issue": "TestScale uses time.Now and time.Since. They only feed t.Logf, but architecture section 0 item 4 says time.Now appears only in clock.Real, and tests must not depend on wall-clock time. The test also claims the run 'stays linear' without asserting it.",
+    "fix": "Remove the timing log, or use b.Elapsed in a benchmark. If linearity matters, assert an allocation or operation count instead of time."
+   },
+   {
+    "severity": "minor",
+    "where": "internal/config/precedence/bench_test.go:19-43",
+    "issue": "BenchmarkResolve's Bundle has no positioned trees and no FileTable, so the locator path is never measured. In the pipeline, the per-entry tree walk and the FileTable mutex taken on every Location call (tree.FileTable.Location locks t.mu) run for every attachment. The 5,000-Route figure (about 35 ms/op) therefore understates the real stage I cost and hides lock contention between workers.",
+    "fix": "Give the benchmark Bundle Gateway, Route and Upstream trees (as listTree does in scale_test.go) and pass a FileTable in Options, so the 02 section 6 benchmark covers the production path."
+   },
+   {
+    "severity": "minor",
+    "where": "internal/config/precedence/fuzz_test.go:126-185 (checkInvariants)",
+    "issue": "The property checks soundness only: a locked Policy is never removed, and no RZ-CFG-019 is raised for excluding an overridable Policy. It does not check completeness: that every exclusion or same-slot replacement of an attached overridable:false Gateway Policy raises RZ-CFG-019. It also never checks the one-Policy-per-slot law on each Upstream leg, only on the client leg. If either broke, for example 019 being dropped on replace, the fuzz target would not catch it (the unit tests and fixtures still would).",
+    "fix": "For each Route, compute the attached locked Gateway Policies and assert one RZ-CFG-019 for every excludePolicies entry naming one and for every resolved, scope-valid Route entry in its slot. Run the same slot-uniqueness check over every c.Legs[i].Phases."
+   }
+  ],
+  "commit": null
+ }
+]
