@@ -1,0 +1,12 @@
+{
+  "apiVersion": "ruralz/v1alpha1",
+  "kind": "Route",
+  "metadata": {"name": "orders-create"},
+  "spec": {
+    "match": {"hosts": ["API.shop.example"], "methods": ["POST"], "path": {"exact": "/orders"}},
+    "timeout": "5s",
+    "upstreams": [{"name": "orders"}],
+    "policies": [{"name": "order-schema"}, {"name": "quota-partner"}, {"name": "headers-security"}],
+    "excludePolicies": [{"name": "cors-default"}]
+  }
+}

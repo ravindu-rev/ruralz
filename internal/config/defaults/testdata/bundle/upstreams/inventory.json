@@ -1,0 +1,6 @@
+{
+  "apiVersion": "ruralz/v1alpha1",
+  "kind": "Upstream",
+  "metadata": {"name": "inventory"},
+  "spec": {"protocol": "http", "discovery": {"type": "dns", "service": "inventory.internal", "port": "http"}}
+}

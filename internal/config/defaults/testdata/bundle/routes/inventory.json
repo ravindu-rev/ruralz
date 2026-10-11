@@ -1,0 +1,6 @@
+{
+  "apiVersion": "ruralz/v1alpha1",
+  "kind": "Route",
+  "metadata": {"name": "inventory"},
+  "spec": {"match": {"path": {"prefix": "/inventory"}}, "upstreams": [{"name": "inventory", "weight": 3}, {"name": "orders"}]}
+}

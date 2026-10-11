@@ -1,0 +1,6 @@
+{
+  "apiVersion": "ruralz/v1alpha1",
+  "kind": "Policy",
+  "metadata": {"name": "cors-default"},
+  "spec": {"type": "cors", "config": {"allowOrigins": ["https://www.shop.example", "https://admin.shop.example"], "allowMethods": ["POST", "GET"]}}
+}
