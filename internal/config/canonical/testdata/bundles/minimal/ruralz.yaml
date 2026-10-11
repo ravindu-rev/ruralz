@@ -1,0 +1,45 @@
+# A minimal Bundle: one Gateway, one Route and one Upstream, with labels,
+# a CEL expression holding HTML characters, non-ASCII text and numbers.
+apiVersion: ruralz/v1alpha1
+kind: Gateway
+metadata:
+  name: edge
+  labels:
+    team: platform
+    région: eu-west
+spec:
+  listeners:
+    - name: http
+      protocol: http
+      port: 8080
+  telemetry:
+    traceSampling: 0.050
+    accessLog:
+      when: 'response.status >= 400 && duration > duration("1s")'
+---
+apiVersion: ruralz/v1alpha1
+kind: Upstream
+metadata:
+  name: orders
+spec:
+  protocol: http
+  endpoints:
+    - address: "orders.shop.svc:8080"
+      weight: 2
+  timeout: 2s
+---
+apiVersion: ruralz/v1alpha1
+kind: Route
+metadata:
+  name: orders
+  annotations:
+    description: "Orders <v1> & friends"
+spec:
+  match:
+    hosts: ["api.shop.example"]
+    path: {prefix: /v1/orders}
+    methods: [GET]
+  upstreams:
+    - name: orders
+      weight: 1
+  timeout: 4s

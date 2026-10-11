@@ -1,0 +1,15 @@
+apiVersion: ruralz/v1alpha1
+kind: Route
+metadata:
+  name: support-chat
+spec:
+  match:
+    hosts: ["api.shop.example"]
+    path: {exact: /v1/chat/completions}
+    methods: [POST]
+  policies:
+    - name: apikey-partner              # auth.api-key, slot auth: replaces jwt-default
+    - name: token-budget-partner        # no ai.semantic-cache: this Cell's State Store holds Token Budget keys
+  upstreams:
+    - name: llm
+  timeout: 120s                         # long-running streamed completions; onChunk per token chunk

@@ -1,0 +1,18 @@
+{
+  "apiVersion": "ruralz/v1alpha1",
+  "kind": "Policy",
+  "metadata": {
+    "name": "geo-block-default"
+  },
+  "spec": {
+    "type": "plugin",
+    "plugin": "geo-block",
+    "filterClass": "authz",
+    "failureMode": "closed",
+    "config": {
+      "denyCountries": [
+        "AQ"
+      ]
+    }
+  }
+}

@@ -1,0 +1,34 @@
+{
+  "apiVersion": "ruralz/v1alpha1",
+  "kind": "Route",
+  "metadata": {
+    "name": "support-chat"
+  },
+  "spec": {
+    "match": {
+      "hosts": [
+        "api.shop.example"
+      ],
+      "path": {
+        "exact": "/v1/chat/completions"
+      },
+      "methods": [
+        "POST"
+      ]
+    },
+    "policies": [
+      {
+        "name": "apikey-partner"
+      },
+      {
+        "name": "token-budget-partner"
+      }
+    ],
+    "upstreams": [
+      {
+        "name": "llm"
+      }
+    ],
+    "timeout": "120s"
+  }
+}
