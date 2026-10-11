@@ -4,11 +4,12 @@
 package jsonschema
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
+	"runtime"
 	"strings"
 	"testing"
-	"time"
 
 	"github.com/ravindu-rev/ruralz/internal/filter"
 	"github.com/ravindu-rev/ruralz/internal/phase"
@@ -58,6 +59,10 @@ func workCases() []struct{ name, schema, body string } {
 	for i := range 20 {
 		distinct = append(distinct, fmt.Sprintf("1.%02d%se-999", i, strings.Repeat("7", 110)))
 	}
+	longs := make([]string, 2000)
+	for i := range longs {
+		longs[i] = fmt.Sprintf("1.%04d%se-999", i, strings.Repeat("7", 100))
+	}
 	var objects strings.Builder
 	objects.WriteByte('[')
 	for i := range 5000 {
@@ -70,13 +75,16 @@ func workCases() []struct{ name, schema, body string } {
 	return []struct{ name, schema, body string }{
 		{"members, allOf of references", allOfRefs(100, `{"minProperties":0}`), wideObject(5000)},
 		{"string copies, allOf of references", allOfRefs(20, `{"minLength":0}`), `"` + strings.Repeat("a", 256<<10) + `"`},
+		{"multi-byte lengths, allOf of references", allOfRefs(20, `{"maxLength":100000000}`), `"` + strings.Repeat("é€😀", 20<<10) + `"`},
 		{"enum of 600 strings", `{"items":{"enum":[` + strings.Join(enum, ",") + `]}}`, denseArray(2000, `"v599"`, 0)},
 		{"enum of 600 strings, failing", `{"items":{"enum":[` + strings.Join(enum, ",") + `]}}`, denseArray(2000, `"x"`, 0)},
 		{"short numbers", `{"items":{"minimum":0,"maximum":1e9,"type":"integer"}}`, denseArray(20000, `12345`, 0)},
 		{"const array", `{"allOf":[` + strings.TrimSuffix(strings.Repeat(`{"const":[`+strings.Join(nums, ",")+`]},`, 20), ",") + `]}`, `[` + strings.Join(nums, ",") + `]`},
+		{"const array, long literals", `{"allOf":[` + strings.TrimSuffix(strings.Repeat(`{"const":[`+strings.Join(longs, ",")+`]},`, 20), ",") + `]}`, `[` + strings.Join(longs, ",") + `]`},
 		{"enum of numbers, long literals", `{"items":{"enum":[` + strings.Join(nums[:300], ",") + `]}}`, denseArray(50, longNumber, 0)},
 		{"uniqueItems pairwise", `{"items":{"uniqueItems":true}}`, denseArray(50, `[`+strings.Join(distinct, ",")+`]`, 0)},
 		{"uniqueItems hashed objects", `{"uniqueItems":true}`, objects.String()},
+		{"uniqueItems colliding arrays", `{"uniqueItems":true}`, "[" + strings.Join(splits(strings.Repeat("a\x04", 9)+"a"), ",") + "]"},
 		{"unevaluated names along a chain", unevaluatedChain(100, "unevaluatedProperties"), wideObject(1000)},
 		{"unevaluated indexes along a chain", strings.Replace(unevaluatedChain(100, "unevaluatedItems"), "minProperties", "minItems", 1), denseArray(2000, `1`, 0)},
 		{"unanchored pattern", `{"items":{"pattern":"a$"}}`, denseArray(16, `"`+strings.Repeat("a", 16384)+`"`, 0)},
@@ -92,35 +100,23 @@ func workCases() []struct{ name, schema, body string } {
 	}
 }
 
-// TestWorkCoversTime checks the work model (proposed, package
+// BenchmarkWorkModel measures the work model (proposed, package
 // documentation "Work bound", 07 section 9 item 21) against the library:
-// for every way the library's work grows, validating the body takes no
-// more nanoseconds than the work units the scan charges. A timing test:
-// skipped under -race, and the best of several runs, retried, so a busy
-// machine does not fail it.
-func TestWorkCoversTime(t *testing.T) {
-	if raceEnabled {
-		t.Skip("-race slows the library, the model is calibrated without it")
-	}
+// for every way the library's work grows, it reports the nanoseconds
+// validating the body takes per work unit the scan charges (ns/unit),
+// which must stay below 1 on the reference machine. A benchmark, not a
+// test: the ratio depends on the machine and its load (review finding,
+// no wall-clock time in unit tests); TestWorkCharges pins the model
+// itself.
+func BenchmarkWorkModel(b *testing.B) {
 	for _, tc := range workCases() {
-		t.Run(tc.name, func(t *testing.T) {
-			s := mustCompile(t, tc.schema)
-			v, scan := scanBody(t, s, tc.body)
-			best := time.Duration(1<<63 - 1)
-			for range 3 {
-				for range 3 {
-					start := time.Now()
-					_ = s.root.Validate(v)
-					best = min(best, time.Since(start))
-				}
-				if best.Nanoseconds() <= scan.work {
-					break
-				}
+		b.Run(tc.name, func(b *testing.B) {
+			s := mustCompile(b, tc.schema)
+			v, scan := scanBody(b, s, tc.body)
+			for b.Loop() {
+				_ = s.root.Validate(v)
 			}
-			t.Logf("estimate %d units, measured %v (%.2f)", scan.work, best, float64(best.Nanoseconds())/float64(scan.work))
-			if best.Nanoseconds() > scan.work {
-				t.Errorf("validation took %v, the work model charges %d units", best, scan.work)
-			}
+			b.ReportMetric(float64(b.Elapsed().Nanoseconds())/float64(b.N)/float64(scan.work), "ns/unit")
 		})
 	}
 }
@@ -129,6 +125,8 @@ func TestWorkCoversTime(t *testing.T) {
 // evaluation's weight, the cycle check, the location copies, and the terms
 // that grow with the value (string bytes, number literals, members, the
 // unevaluated copies, the pairwise uniqueItems comparisons).
+//
+// Requirements: 07 section 9 item 21.
 func TestWorkCharges(t *testing.T) {
 	const kw = evalUnits + keywordUnits
 	for _, tc := range []struct {
@@ -136,18 +134,25 @@ func TestWorkCharges(t *testing.T) {
 		want               int64
 	}{
 		{"string", `{"type":"string"}`, `"abc"`, kw + scopeUnits + 3*copyUnits},
+		// Minor review finding: the runes of a string are counted per byte.
+		{"lengths", `{"minLength":1}`, `"é"`, kw + scopeUnits + 2*(copyUnits+lengthByteUnits)},
 		{"members", `{"minProperties":0}`, `{"a":1,"b":2}`, kw + scopeUnits + 2*memberUnits},
 		{"number", `{"minimum":0}`, `1.5`, kw + scopeUnits + numberUnits + 3*numberByteUnits},
 		{"pattern", `{"pattern":"^a"}`, `"aaaa"`, kw + matchUnits + 4*matchInstUnits + scopeUnits + 4*(copyUnits+byteUnits+2*queueUnits)},
 		{"enum of strings", `{"enum":["ab","cd"]}`, `"x"`, kw + 2*compareUnits + scopeUnits + copyUnits},
 		{"enum of numbers", `{"enum":[1,2]}`, `3`, kw + 2*(compareUnits+numberUnits+numberByteUnits) + scopeUnits + 2*(numberUnits+numberByteUnits)},
+		// A number nested in a const value compares with a nested body
+		// number, charged at the costliest literal (minor review finding).
+		{"nested const number", `{"const":[1.5]}`, `[1.5]`, kw + 2*compareUnits + numberUnits + 3*numberByteUnits + maxNumberWork + scopeUnits},
 		{
 			"unevaluated names", `{"unevaluatedProperties":true}`, `{"a":1}`,
-			evalUnits + scopeUnits + memberUnits + unevalPropUnits + evalUnits + scopeUnits + 2*locationUnits,
+			// The member's true schema cannot fail: no error unit.
+			evalUnits + scopeUnits + memberUnits + unevalPropUnits + evalUnits + scopeUnits + locationUnits,
 		},
 		{
+			// Each of the 2 items is compared with the other one.
 			"pairwise uniqueItems", `{"uniqueItems":true}`, `["a","b"]`,
-			kw + scopeUnits + 2*(hashUnits+locationUnits+scopeUnits+(copyUnits+hashByteUnits)+(pairwiseItems-1)*compareUnits),
+			kw + scopeUnits + 2*(hashUnits+locationUnits+scopeUnits+(copyUnits+hashByteUnits)+compareUnits),
 		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -158,12 +163,96 @@ func TestWorkCharges(t *testing.T) {
 	}
 }
 
+// splits returns the arrays of strings that split s at each subset of its
+// \u0004 characters, which the library's uniqueItems hash cannot tell
+// apart: it writes a string as the byte 4 and its bytes, with no length.
+func splits(s string) []string {
+	parts := strings.Split(s, "\x04")
+	var out []string
+	for mask := range 1 << (len(parts) - 1) {
+		var items []string
+		cur := parts[0]
+		for i, p := range parts[1:] {
+			if mask&(1<<i) != 0 {
+				items = append(items, cur)
+				cur = p
+			} else {
+				cur += "\x04" + p
+			}
+		}
+		items = append(items, cur)
+		quoted := make([]string, len(items))
+		for i, it := range items {
+			quoted[i] = `"` + strings.ReplaceAll(it, "\x04", `\u0004`) + `"`
+		}
+		out = append(out, "["+strings.Join(quoted, ",")+"]")
+	}
+	return out
+}
+
+// TestUniqueItemsComparisons is the regression test of the minor review
+// finding on the uniqueItems hash (validator util.go duplicates and
+// writeHash): past pairwiseItems items the library compares an item with
+// the earlier items of its hash bucket, and its hash of a value keeps
+// neither a number's sign nor the bounds of an array's or object's parts,
+// so distinct items can share a bucket. Arrays and objects may share one
+// with every other item, a decimal with the few numbers whose numerator
+// and denominator bytes concatenate alike; strings, booleans, nulls and
+// integers (with their negation) never. 2,048 distinct arrays that all
+// share one bucket are charged every pair, over the work limit when the
+// body is at the raw limit.
+//
+// Requirements: 07 section 9 item 21.
+func TestUniqueItemsComparisons(t *testing.T) {
+	for _, tc := range []struct {
+		body string
+		want int64
+	}{
+		{denseArray(5, `"x"`, 0), 4},
+		{`[` + strings.TrimSuffix(strings.Repeat(`"a",`, 30), ",") + `]`, 1},
+		{`[` + strings.TrimSuffix(strings.Repeat(`-12,`, 30), ",") + `]`, 1},
+		{`[` + strings.TrimSuffix(strings.Repeat(`1.25,`, 29), ",") + `,true,null]`, 2 * ((4+1)/2 + 3)},
+		{`[` + strings.TrimSuffix(strings.Repeat(`"a",`, 29), ",") + `,[]]`, 29},
+	} {
+		v, _ := decodeInstance(t, tc.body).([]any)
+		if got := comparisons(v); got != tc.want {
+			t.Errorf("comparisons(%.40s) = %d, want %d", tc.body, got, tc.want)
+		}
+	}
+	colliding := splits(strings.Repeat("a\x04", 11) + "a")
+	body := "[" + strings.Join(colliding, ",") + "]"
+	s := mustCompile(t, `{"uniqueItems":true}`)
+	_, scan := scanBody(t, s, body)
+	n := int64(len(colliding))
+	if scan.work < n*(n-1)*compareUnits {
+		t.Errorf("%d colliding arrays: work %d, want every pair charged (%d)", n, scan.work, n*(n-1)*compareUnits)
+	}
+	// At a raw limit of the body itself, the square of the array is over
+	// the work limit.
+	f := buildFilter(t, `{"uniqueItems":true}`, int64(len(body)))
+	x, _ := exchange("application/json", []byte(body))
+	if r := f.Handle(t.Context(), phase.OnRequestBody, x); !errors.Is(r.Err, errWorkTooLarge) {
+		t.Errorf("Handle(%d colliding arrays) = %+v, want the work ErrTooLarge", n, r)
+	}
+	f = buildFilter(t, `{"uniqueItems":true}`, 1<<20)
+	// 10,000 distinct strings share no bucket: cheap, and valid.
+	strs := make([]string, 10000)
+	for i := range strs {
+		strs[i] = fmt.Sprintf(`"s%d"`, i)
+	}
+	if r := handle(t, f, "["+strings.Join(strs, ",")+"]"); r.Outcome != filter.Continue {
+		t.Errorf("10,000 distinct strings: %+v, want Continue", r)
+	}
+}
+
 // TestHandleWorkBound is the regression test of the review finding that
 // validation work grows with the value as well as with the evaluations:
 // through Factory.Build and Handle at the 10 MiB default, bodies that
 // would take seconds of uncancellable work (many evaluations at a wide
 // object or a long string, comparisons with a large const) are
 // filter.ErrTooLarge before the library runs, without reserving anything.
+//
+// Requirements: 07 section 9 item 21.
 func TestHandleWorkBound(t *testing.T) {
 	var nums []string
 	for i := range 20000 {
@@ -190,31 +279,64 @@ func TestHandleWorkBound(t *testing.T) {
 	}
 }
 
-// TestHandleAcceptsLargeBodies covers the other review finding: work is
-// never reserved from limits.maxBufferedBytes, so at the 10 MiB default a
-// valid 7 MiB string under a pattern and a valid 0.7 MiB array of enum
-// values (100,000 items, near what the error tree of a failing one allows)
-// pass, reserving only the decoded values and the memory validation may
-// hold.
+// lineSchema validates arrays of line items, the review finding's plain
+// object-array schema.
+const lineSchema = `{"type":"array","items":{"type":"object","required":["sku","qty"],"properties":{"sku":{"type":"string","minLength":1},` +
+	`"qty":{"type":"integer","minimum":1,"maximum":1000},"price":{"type":"number","exclusiveMinimum":0}}}}`
+
+// TestHandleAcceptsLargeBodies is the regression test of the review
+// findings that valid ordinary bodies were refused far inside the raw
+// limit (architecture R-63: typical documents fit at the full limit; 07
+// reqs 13, 15 and 80): through Factory.Build and Handle at the 10 MiB
+// default, an order-item array at 80% of the limit and a line-item array
+// at 69% pass, the decoded values (about 4.9 and 5.7 times the body) being
+// what limits them; a long string under a pattern, a base64-class string
+// and an array of enum values pass too. A valid body reserves the decoded
+// values, with the bytes their maps, arrays and strings hold beyond the
+// decoder's charge (TestHandleReservesDecodedMaps), and the decision
+// pass's working set, never the location pass's, and at most twice the
+// heap Handle holds at its peak; work is never reserved.
 func TestHandleAcceptsLargeBodies(t *testing.T) {
 	enum := make([]string, 600)
 	for i := range enum {
 		enum[i] = fmt.Sprintf(`"v%d"`, i)
 	}
-	for _, tc := range []struct{ name, schema, body string }{
-		{"long string under a pattern", `{"type":"string","pattern":"^a"}`, `"` + strings.Repeat("a", 7<<20) + `"`},
-		{"long string under a character class", `{"type":"string","pattern":"^[A-Za-z0-9+/]*={0,2}$"}`, `"` + strings.Repeat("QUJD", 2<<20) + `"`},
-		{"array of enum values", `{"type":"array","items":{"enum":[` + strings.Join(enum, ",") + `]}}`, denseArray(100000, `"v599"`, 0)},
+	// The fractions do not depend on the limit: under -race, which slows
+	// the library tenfold, a tenth of the default limit and of the bodies.
+	limit, scale, raw := int64(10<<20), 1, int64(0)
+	if raceEnabled {
+		limit, scale, raw = 1<<20, 10, 1<<20
+	}
+	for _, tc := range []struct {
+		name, schema, body string
+		fraction           float64
+	}{
+		{"order items", recordsSchema, records(171000 / scale), 0.79},
+		{"line items", lineSchema, denseArray(176000/scale, `{"sku":"ABC-12345","qty":2,"price":9.99}`, 0), 0.68},
+		{"long string under a pattern", `{"type":"string","pattern":"^a"}`, `"` + strings.Repeat("a", 7<<20/scale) + `"`, 0.7},
+		{"long string under a character class", `{"type":"string","pattern":"^[A-Za-z0-9+/]*={0,2}$"}`, `"` + strings.Repeat("QUJD", 2<<20/scale) + `"`, 0.8},
+		{"array of enum values", `{"type":"array","items":{"enum":[` + strings.Join(enum, ",") + `]}}`, denseArray(100000/scale, `"v599"`, 0), 0.06},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			f := buildFilter(t, tc.schema, 0)
+			if got := float64(len(tc.body)) / float64(limit); got < tc.fraction {
+				t.Fatalf("body is %.2f of the limit, want at least %.2f", got, tc.fraction)
+			}
+			f := buildFilter(t, tc.schema, raw)
 			x, _ := exchange("application/json", []byte(tc.body))
 			px := &peakExchange{Exchange: x}
-			if r := f.Handle(t.Context(), phase.OnRequestBody, px); r.Outcome != filter.Continue {
+			var r filter.Result
+			peak := peakHeap(func() any { r = f.Handle(t.Context(), phase.OnRequestBody, px); return r })
+			if r.Outcome != filter.Continue {
 				t.Fatalf("Handle = %+v, want Continue", r)
 			}
 			_, scan := scanBody(t, f.schema, tc.body)
-			t.Logf("body %d bytes: reserved %d, work %d of %d", len(tc.body), px.peak, scan.work, f.maxWork)
+			t.Logf("body %d bytes: reserved %d, peak %.0f, work %d of %d", len(tc.body), px.peak, peak, scan.work, f.limits.work)
+			if float64(px.peak) > 2*peak+gcSlack {
+				t.Errorf("reserved %d, more than twice the peak %.0f", px.peak, peak)
+			}
+			if _, cost, _ := f.decode([]byte(tc.body)); px.peak != cost+scan.extra+scan.decideMemory() {
+				t.Errorf("reserved %d, want the decoded values %d, their maps and arrays %d and the decision pass's working set %d", px.peak, cost, scan.extra, scan.decideMemory())
+			}
 			if x.Budget.Reserved != 0 {
 				t.Errorf("reservation left: %d", x.Budget.Reserved)
 			}
@@ -222,11 +344,160 @@ func TestHandleAcceptsLargeBodies(t *testing.T) {
 	}
 }
 
+// TestHandleReservesDecodedMaps is the regression test of the review
+// finding that the decoded values were reserved at the decoder's cost,
+// which leaves out the hash table of every object (internal/jsonval
+// charges a one-member object 80 bytes; it holds 336) and the spare
+// capacity of every array: through Factory.Build and Handle at the 10 MiB
+// default, valid arrays of one-, two- and nine-member objects and of
+// five-item arrays, and one wide object, at about a quarter of the limit,
+// held up to 3.8 times what Handle reserved (07 req 82, architecture R-63,
+// filter.Exchange.Reserve). The reservation now covers the decoded tree,
+// measured exactly after a collection; for the arrays the heap at
+// Handle's peak stays within it but for the collector's pacing and its
+// spans' free slots (peakHeap collects at 10% growth; measured up to 1.22
+// times, so the check allows 1.4). A wide object's map leaves the tables it
+// outgrew to the collector while the decoder builds it, before anything is
+// reserved, so only its decoded tree is compared, as for an array of
+// 33-byte strings, whose backing array, large next to its strings, the
+// decoder outgrows several times; strings are charged their allocation
+// size class.
+func TestHandleReservesDecodedMaps(t *testing.T) {
+	limit, scale, raw := int64(10<<20), 1, int64(0)
+	if raceEnabled {
+		limit, scale, raw = 1<<19, 20, 1<<19
+	}
+	nine := `{"a":1,"b":2,"c":3,"d":4,"e":5,"f":6,"g":7,"h":8,"i":9}`
+	for _, tc := range []struct {
+		name, schema, body string
+		fraction           float64
+		peak               bool
+	}{
+		{"one member", `{"type":"array","items":{"type":"object"}}`, denseArray(340000/scale, `{"a":1}`, 0), 0.25, true},
+		{"one typed member", `{"type":"array","items":{"type":"object","properties":{"a":{"type":"integer"}}}}`, denseArray(340000/scale, `{"a":1}`, 0), 0.25, true},
+		{"two members", `{"type":"array","items":{"type":"object","required":["id","ok"],"properties":{"id":{"type":"integer"},"ok":{"type":"boolean"}}}}`, denseArray(150000/scale, `{"id":7,"ok":true}`, 0), 0.25, true},
+		{"nine members", `{"type":"array","items":{"type":"object"}}`, denseArray(50000/scale, nine, 0), 0.25, true},
+		{"five items", `{"type":"array","items":{"type":"array"}}`, denseArray(150000/scale, `[1,2,3,4,5]`, 0), 0.15, true},
+		// Strings of 33 bytes take the 48-byte size class.
+		{"strings", `{"type":"array","items":{"type":"string"}}`, denseArray(80000/scale, `"`+strings.Repeat("s", 33)+`"`, 0), 0.25, false},
+		{"one wide object", `{"type":"object"}`, wideObject(250000 / scale), 0.2, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := float64(len(tc.body)) / float64(limit); got < tc.fraction {
+				t.Fatalf("body is %.2f of the limit, want at least %.2f", got, tc.fraction)
+			}
+			f := buildFilter(t, tc.schema, raw)
+			body := []byte(tc.body)
+			x, _ := exchange("application/json", body)
+			px := &peakExchange{Exchange: x}
+			var r filter.Result
+			peak := peakHeap(func() any { r = f.Handle(t.Context(), phase.OnRequestBody, px); return r })
+			if r.Outcome != filter.Continue {
+				t.Fatalf("Handle = %+v, want Continue", r)
+			}
+			var before, after runtime.MemStats
+			runtime.GC()
+			runtime.ReadMemStats(&before)
+			v, cost, err := f.decode(body)
+			runtime.GC()
+			runtime.ReadMemStats(&after)
+			runtime.KeepAlive(v)
+			if err != nil {
+				t.Fatal(err)
+			}
+			live := growth(after.HeapAlloc, before.HeapAlloc)
+			_, scan := scanBody(t, f.schema, tc.body)
+			if raceEnabled {
+				// The race detector turns off the allocator's packing of
+				// small strings: each takes a size class of its own.
+				live -= 16 * shortStrings(v)
+			}
+			t.Logf("decoded tree %d, charged %d and %d for its maps, arrays and strings; reserved %d, peak %.0f (%.2f)", live, cost, scan.extra, px.peak, peak, peak/float64(px.peak))
+			if live > cost+scan.extra {
+				t.Errorf("the decoded tree holds %d bytes, Handle reserves %d for it", live, cost+scan.extra)
+			}
+			if tc.peak && peak > 1.4*float64(px.peak)+gcSlack {
+				t.Errorf("Handle held %.0f bytes at its peak, reserved %d", peak, px.peak)
+			}
+		})
+	}
+	// The model: a map of up to 8 members is one group of 8 slots, larger
+	// ones a power of two slots filled to at most 7/8, and past one table
+	// of 1,024 slots, 96 bytes per member.
+	for _, tc := range []struct{ n, want int64 }{
+		{0, 0}, {1, 256}, {8, 32}, {9, 16*mapSlotBytes*5/4 + mapTableBytes - 9*32}, {897, 897 * (96 - 32)},
+	} {
+		if got := mapExtra(tc.n); got != tc.want {
+			t.Errorf("mapExtra(%d) = %d, want %d", tc.n, got, tc.want)
+		}
+	}
+	// A string: its size class from 16 bytes, whole pages past 32 KiB.
+	for _, tc := range []struct{ n, want int64 }{{0, 0}, {15, 0}, {16, 0}, {17, 7}, {33, 15}, {32 << 10, 0}, {32<<10 + 1, 8<<10 - 1}} {
+		if got := stringExtra(tc.n); got != tc.want {
+			t.Errorf("stringExtra(%d) = %d, want %d", tc.n, got, tc.want)
+		}
+	}
+	// An array: the capacity append grows it to up to 1,023 items, then at
+	// most two thirds spare up to 4,095, 0.31 past.
+	for _, tc := range []struct{ n, want int64 }{{0, 0}, {1, 16}, {5, 3 * 16}, {33, 38 * 16}, {1023, 0}, {1536, 1152 * 16}, {8192, 3072 * 16}} {
+		if got := arrayExtra(tc.n); got != tc.want {
+			t.Errorf("arrayExtra(%d) = %d, want %d", tc.n, got, tc.want)
+		}
+	}
+}
+
+// shortStrings counts the strings, member names and number literals of v
+// shorter than 16 bytes.
+func shortStrings(v any) int64 {
+	switch t := v.(type) {
+	case string:
+		return int64(min(len(t)/16, 1) ^ 1)
+	case json.Number:
+		return int64(min(len(t)/16, 1) ^ 1)
+	case []any:
+		n := int64(0)
+		for _, e := range t {
+			n += shortStrings(e)
+		}
+		return n
+	case map[string]any:
+		n := int64(0)
+		for k, e := range t {
+			n += int64(min(len(k)/16, 1)^1) + shortStrings(e)
+		}
+		return n
+	default:
+		return 0
+	}
+}
+
 // TestWorkLimit covers the work limit (proposed): WorkPerByte work units
 // per byte of maxRequestBodyBytes, the 10 MiB default when unset, and
-// below the saturation of the counts however large the limit.
+// below the saturation of the counts however large the limit; a body at
+// the limit validates, one unit above it is filter.ErrTooLarge, and past
+// the limit a number out of range is still the deterministic 400 (minor
+// review findings).
+//
+// Requirements: 07 section 9 item 21.
 func TestWorkLimit(t *testing.T) {
-	if got := buildFilter(t, `true`, testLimit).maxWork; got != WorkPerByte*testLimit {
+	body := records(50)
+	f := buildFilter(t, recordsSchema, testLimit)
+	_, scan := scanBody(t, f.schema, body)
+	f.limits.work = scan.work
+	if r := handle(t, f, body); r.Outcome != filter.Continue {
+		t.Errorf("Handle at the work limit = %+v, want Continue", r)
+	}
+	f.limits.work = scan.work - 1
+	if r := handle(t, f, body); !errors.Is(r.Err, errWorkTooLarge) {
+		t.Errorf("Handle one unit past the work limit = %+v, want the work ErrTooLarge", r)
+	}
+	// The scan goes on past the work limit for the numbers: the last
+	// record's quantity is out of range.
+	f.limits.work = scan.work / 4
+	if got := detailOf(t, handle(t, f, strings.Replace(body, `"qty":50,`, `"qty":1e1001,`, 1))); got != DetailNumber {
+		t.Errorf("a number out of range past the work limit: %q, want %q", got, DetailNumber)
+	}
+	if got := buildFilter(t, `true`, testLimit).limits.work; got != WorkPerByte*testLimit {
 		t.Errorf("maxWork = %d, want %d", got, WorkPerByte*testLimit)
 	}
 	if got := workLimit(0); got != WorkPerByte*10<<20 {
@@ -235,10 +506,12 @@ func TestWorkLimit(t *testing.T) {
 	if got := workLimit(1 << 62); got > maxWorkLimit || got < maxWorkLimit-WorkPerByte {
 		t.Errorf("workLimit(1<<62) = %d, want just under %d", got, int64(countCap))
 	}
-	// A count that saturates is over any limit.
+	// A count that saturates is over any limit (without states, the
+	// depth bound applies).
 	s := mustCompile(t, `true`)
+	s.work.states = nil
 	s.work.at[0][dimWork] = countCap
-	r := handle(t, newFilter(s, 400, 0, workLimit(1<<62)), `{}`)
+	r := handle(t, newFilter(s, 400, bodyLimits{work: workLimit(1 << 62)}), `{}`)
 	if !errors.Is(r.Err, errWorkTooLarge) {
 		t.Errorf("Handle with a saturated count = %+v, want the work ErrTooLarge", r)
 	}

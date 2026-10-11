@@ -76,6 +76,12 @@ func TestHandleMatrix(t *testing.T) {
 		{"number out of range", "application/json", `{"id":1e1001}`, DetailNumber},
 		{"long number", "application/json", `{"id":` + strings.Repeat("7", MaxNumberBytes+1) + `}`, DetailNumber},
 		{"exponent math/big refuses", "application/json", `{"id":1E1000001}`, DetailNumber},
+		// A number no keyword parses is never refused (minor review
+		// finding): "x" meets no schema, the tags' items compare no
+		// number.
+		{"unparsed number", "application/json", `{"id":1,"x":` + strings.Repeat("9", 130) + `,"tags":[]}`, ""},
+		{"number below unparsed members", "application/json", `{"id":1,"x":{"y":[1e5000]}}`, ""},
+		{"number where a string is due", "application/json", `{"id":1,"tags":[1e5000]}`, DetailMismatch + " at /properties/tags/items/type"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			x, m := exchange(tc.ct, []byte(tc.body))
@@ -122,43 +128,56 @@ func TestHandleBooleanSchemas(t *testing.T) {
 }
 
 // TestHandleOversize covers R-63 and 07 reqs 15 and 80: decoded values
-// and the validator's working set (proposed) past filter.DecodedLimitFactor
-// times maxRequestBodyBytes are filter.ErrTooLarge (413 RZ-RT-003 through
-// the executor); at the budget they pass; an unset limit is the 10 MiB
-// default.
+// past filter.DecodedLimitFactor times maxRequestBodyBytes, and (proposed)
+// a decision pass that may hold more than WorkingSetFactor times it besides
+// them, are filter.ErrTooLarge (413 RZ-RT-003 through the executor), each
+// counted on its own (review finding: the decoded limit counts the decoded
+// values only); at either budget the body is decided; an unset limit is
+// the 10 MiB default.
 func TestHandleOversize(t *testing.T) {
 	body := `[` + strings.Repeat(`1,`, 999) + `1]` // 1,000 one-digit numbers
 	// Each element costs CostValue + CostString + 1 = 33; the array 40.
-	// The working set is one error unit and one evaluation's stack at the
-	// root: no subschema reaches the items.
-	const cost = 40 + 1000*33 + errorBytes + stackBytes
+	const cost = 40 + 1000*33
 	atBudget := buildFilter(t, `{"type":"array"}`, cost/filter.DecodedLimitFactor)
-	if got := atBudget.maxCost; got != cost {
-		t.Fatalf("maxCost = %d, want %d", got, cost)
+	if got := atBudget.limits.decoded; got != cost {
+		t.Fatalf("decoded limit = %d, want %d", got, cost)
 	}
 	if r := handle(t, atBudget, body); r.Outcome != filter.Continue {
 		t.Fatalf("body at the decoded budget: %+v", r)
 	}
 	over := buildFilter(t, `{"type":"array"}`, cost/filter.DecodedLimitFactor-1)
 	r := handle(t, over, body)
-	if r.Outcome != filter.CannotDecide || r.Code != "" || !errors.Is(r.Err, filter.ErrTooLarge) || !errors.Is(r.Err, errWorkingSetTooLarge) {
-		t.Fatalf("working set over the decoded budget: %+v, want CannotDecide with ErrTooLarge", r)
-	}
-	tiny := buildFilter(t, `{"type":"array"}`, 1000/filter.DecodedLimitFactor)
-	r = handle(t, tiny, body)
 	if r.Outcome != filter.CannotDecide || r.Code != "" || !errors.Is(r.Err, filter.ErrTooLarge) || !errors.Is(r.Err, errDecodedTooLarge) {
 		t.Fatalf("decoded values over the decoded budget: %+v, want CannotDecide with ErrTooLarge", r)
 	}
+	// Every item may fail 8 branches: the decision pass's working set is
+	// far above the decoded values, under its own limit.
+	schema := `{"items":` + oneOfConsts(8) + `}`
+	_, scan := scanBody(t, mustCompile(t, schema), body)
+	limit := (scan.decideMemory() + WorkingSetFactor - 1) / WorkingSetFactor
+	if cost > filter.DecodedLimitFactor*(limit-1) {
+		t.Fatalf("the working set %d does not exceed the decoded values %d", scan.decideMemory(), cost)
+	}
+	if got := detailOf(t, handle(t, buildFilter(t, schema, limit), body)); !strings.HasPrefix(got, DetailMismatch) {
+		t.Fatalf("working set at its limit: detail %q, want a mismatch", got)
+	}
+	r = handle(t, buildFilter(t, schema, limit-1), body)
+	if r.Outcome != filter.CannotDecide || r.Code != "" || !errors.Is(r.Err, filter.ErrTooLarge) || !errors.Is(r.Err, errWorkingSetTooLarge) {
+		t.Fatalf("working set over its limit: %+v, want CannotDecide with ErrTooLarge", r)
+	}
 	// An unset limit fails closed: the configuration default of 10 MiB
 	// (07 section 9 item 24), never an unbounded decode.
-	if unset := buildFilter(t, `{"type":"array"}`, 0); unset.maxCost != filter.DecodedLimitFactor*10<<20 {
-		t.Errorf("an unset limit gives decode budget %d, want %d", unset.maxCost, filter.DecodedLimitFactor*10<<20)
+	if unset := buildFilter(t, `{"type":"array"}`, 0); unset.limits != limitsOf(10<<20) || unset.limits.decoded != filter.DecodedLimitFactor*10<<20 {
+		t.Errorf("an unset limit gives %+v, want the limits of 10 MiB", unset.limits)
 	}
 	if got := decodedLimit(-1); got != filter.DecodedLimitFactor*10<<20 {
 		t.Errorf("decodedLimit(-1) = %d", got)
 	}
 	if got := decodedLimit(1 << 62); got != math.MaxInt64/filter.DecodedLimitFactor*filter.DecodedLimitFactor {
 		t.Errorf("decodedLimit overflow = %d, want the largest budget", got)
+	}
+	if got := limitsOf(testLimit); got.workingSet != WorkingSetFactor*testLimit || got.work != WorkPerByte*testLimit {
+		t.Errorf("limitsOf(%d) = %+v", testLimit, got)
 	}
 }
 
@@ -212,21 +231,73 @@ func TestMismatchDetailCap(t *testing.T) {
 	}
 }
 
-// recordingExchange records Reserve calls and can fail them.
+// recordingExchange records Reserve calls and can fail them: every one,
+// or from the reserveFrom-th on.
 type recordingExchange struct {
 	*filtertest.Exchange
-	onReserve  func(int64)
-	reserveErr error
+	onReserve   func(int64)
+	reserveErr  error
+	reserveFrom int
+	calls       int
 }
 
 func (x *recordingExchange) Reserve(n int64) error {
+	x.calls++
 	if x.onReserve != nil {
 		x.onReserve(n)
 	}
-	if x.reserveErr != nil {
+	if x.reserveErr != nil && x.calls >= x.reserveFrom {
 		return x.reserveErr
 	}
 	return x.Exchange.Reserve(n)
+}
+
+// TestHandleNumberPaths covers the narrowed number bounds (proposed,
+// minor review finding): a body number is refused only where the library
+// may parse it: a numeric keyword or the integer type at its own path, a
+// uniqueItems array above it, or a const or enum value holding arrays or
+// objects compared with a value above it.
+//
+// Requirements: 07 req 80.
+func TestHandleNumberPaths(t *testing.T) {
+	for _, tc := range []struct {
+		schema, body string
+		refused      bool
+	}{
+		{`{"properties":{"price":{"minimum":0}}}`, `{"price":1,"id":` + strings.Repeat("9", 130) + `}`, false},
+		{`{"properties":{"price":{"minimum":0}}}`, `{"price":1e1001}`, true},
+		{`{"properties":{"n":{"type":"integer"}}}`, `{"n":1e1001}`, true},
+		{`{"properties":{"n":{"type":"number"}}}`, `{"n":1e1001}`, false},
+		{`{"properties":{"l":{"uniqueItems":true}}}`, `{"l":[{"a":[1e1001]}]}`, true},
+		{`{"properties":{"c":{"const":{"a":[1]}}}}`, `{"c":{"a":[1e1001]}}`, true},
+		{`{"properties":{"c":{"const":"a"}}}`, `{"c":1e1001,"d":1e1001}`, false},
+		{`{"properties":{"c":{"enum":[1,2]}}}`, `{"c":1e1001}`, true},
+	} {
+		got := handle(t, buildFilter(t, tc.schema, testLimit), tc.body)
+		refused := got.Outcome == filter.Respond && got.Response.Detail == DetailNumber
+		if refused != tc.refused {
+			t.Errorf("schema %s, body %.60s: %+v, want refused %v", tc.schema, tc.body, got.Response, tc.refused)
+		}
+	}
+}
+
+// TestHandleCanceled covers the minor review finding that validation,
+// which the library cannot stop, started for a request that had ended
+// (07 section 9 item 21): a canceled context is cannot decide with its
+// error, before anything is reserved.
+func TestHandleCanceled(t *testing.T) {
+	f := buildFilter(t, matrixSchema, testLimit)
+	ctx, cancel := context.WithCancel(t.Context())
+	cancel()
+	x, _ := exchange("application/json", []byte(`{"id":1}`))
+	px := &peakExchange{Exchange: x}
+	r := f.Handle(ctx, phase.OnRequestBody, px)
+	if r.Outcome != filter.CannotDecide || !errors.Is(r.Err, context.Canceled) {
+		t.Errorf("Handle with a canceled context = %+v, want CannotDecide with context.Canceled", r)
+	}
+	if px.peak != 0 {
+		t.Errorf("reserved %d", px.peak)
+	}
 }
 
 // TestHandleUnavailable covers 07 req 13: a body the message cannot
@@ -351,7 +422,8 @@ func (s *fakeShared) Get(key any, build func() (any, error)) (any, error) {
 }
 
 // TestBuild covers the Factory (07 reqs 75, 77): RZ-CFG-005 errors, carry
-// over through Previous, sharing within a snapshot, and the status taken
+// over through Previous, sharing within a snapshot, also of a Schema
+// carried over unchanged (minor review finding), and the status taken
 // from the registry.
 func TestBuild(t *testing.T) {
 	ctx := t.Context()
@@ -401,7 +473,7 @@ func TestBuild(t *testing.T) {
 	e = env(matrixSchema, 2*testLimit)
 	e.Previous = first
 	got, err = Factory{}.Build(ctx, e)
-	if err != nil || got == filter.Filter(first) || got.(*Filter).schema != first.schema || got.(*Filter).maxCost != 2*filter.DecodedLimitFactor*testLimit {
+	if err != nil || got == filter.Filter(first) || got.(*Filter).schema != first.schema || got.(*Filter).limits.decoded != 2*filter.DecodedLimitFactor*testLimit {
 		t.Errorf("carry over with new limits = %+v, %v", got, err)
 	}
 	// A changed document compiles anew.
@@ -438,7 +510,51 @@ func TestBuild(t *testing.T) {
 	if _, err := (Factory{}).Build(ctx, e); err == nil {
 		t.Error("a foreign shared value was accepted")
 	}
+	// Minor review findings: the previous Schema reused under new limits
+	// is shared with the snapshot's other Policies of the same document,
+	// and an error of Shared itself is not a schema finding.
+	shared = &fakeShared{}
+	e = env(matrixSchema, 2*testLimit)
+	e.Previous, e.Shared = first, shared
+	if _, err := (Factory{}).Build(ctx, e); err != nil {
+		t.Fatal(err)
+	}
+	e = env(" "+matrixSchema, testLimit)
+	e.Shared = shared
+	if got, err := (Factory{}).Build(ctx, e); err != nil || got.(*Filter).schema != first.schema || shared.builds != 1 {
+		t.Errorf("another Policy of the same document = %v, builds %d, want the previous Schema", err, shared.builds)
+	}
+	// The same with the limits unchanged: the previous Filter itself is
+	// carried over, and its Schema still serves the others.
+	shared = &fakeShared{}
+	e = env(matrixSchema, testLimit)
+	e.Previous, e.Shared = first, shared
+	if got, err := (Factory{}).Build(ctx, e); err != nil || got != filter.Filter(first) {
+		t.Fatalf("unchanged carry over = %v, %v, want the previous Filter", got, err)
+	}
+	e = env(" "+matrixSchema, 2*testLimit)
+	e.Shared = shared
+	if got, err := (Factory{}).Build(ctx, e); err != nil || got.(*Filter).schema != first.schema || shared.builds != 1 {
+		t.Errorf("another Policy of a carried-over document = %v, builds %d, want the previous Schema", err, shared.builds)
+	}
+	e = env(matrixSchema, testLimit)
+	e.Previous, e.Shared = first, failingShared{err: errors.New("snapshot compile canceled")}
+	if _, err := (Factory{}).Build(ctx, e); err == nil {
+		t.Error("an unchanged carry over hid a Shared failure")
+	}
+	canceled := errors.New("snapshot compile canceled")
+	e = env(`{"type":"boolean"}`, testLimit)
+	e.Shared = failingShared{err: canceled}
+	_, err = Factory{}.Build(ctx, e)
+	if code, coded := errcode.CodeOf(err); !errors.Is(err, canceled) || coded {
+		t.Errorf("a Shared failure = %v (code %q), want it unchanged", err, code)
+	}
 }
+
+// failingShared is a filter.Shared that fails.
+type failingShared struct{ err error }
+
+func (s failingShared) Get(any, func() (any, error)) (any, error) { return nil, s.err }
 
 // TestGoldenProblemDocuments is 07 T14: the RZ-RT-009 problem document of
 // every detail, as internal/problem writes it, byte for byte.

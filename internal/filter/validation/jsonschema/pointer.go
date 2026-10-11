@@ -124,16 +124,43 @@ func lookup(doc any, p string) (any, bool) {
 
 // comparePointers orders JSON Pointers token by token: two decimal tokens
 // by numeric value (so "/allOf/2" precedes "/allOf/10"), others bytewise,
-// and a pointer before every pointer it prefixes.
+// and a pointer before every pointer it prefixes; a string that is not a
+// pointer orders as the root. It allocates nothing: the location walk
+// compares a pointer at every leaf of an error tree.
 func comparePointers(a, b string) int {
-	ta, _ := splitPointer(a)
-	tb, _ := splitPointer(b)
-	for i := 0; i < len(ta) && i < len(tb); i++ {
-		if c := compareTokens(ta[i], tb[i]); c != 0 {
+	if a != "" && a[0] != '/' {
+		a = ""
+	}
+	if b != "" && b[0] != '/' {
+		b = ""
+	}
+	for a != "" && b != "" {
+		var ta, tb string
+		ta, a = nextToken(a)
+		tb, b = nextToken(b)
+		if c := compareTokens(ta, tb); c != 0 {
 			return c
 		}
 	}
-	return len(ta) - len(tb)
+	// At least one has no tokens left: it prefixes the other.
+	switch {
+	case a != "":
+		return 1
+	case b != "":
+		return -1
+	default:
+		return 0
+	}
+}
+
+// nextToken splits the first escaped token off p, a pointer starting with
+// "/", and returns it with the rest of the pointer.
+func nextToken(p string) (tok, rest string) {
+	p = p[1:]
+	if i := strings.IndexByte(p, '/'); i >= 0 {
+		return p[:i], p[i:]
+	}
+	return p, ""
 }
 
 func compareTokens(a, b string) int {

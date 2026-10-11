@@ -90,7 +90,7 @@ func TestJSONSchemaTestSuite(t *testing.T) {
 				}
 				continue
 			}
-			f := newFilter(s, 400, 0, 0)
+			f := newFilter(s, 400, bodyLimits{})
 			for _, tc := range g.Tests {
 				cases++
 				v, _, err := jsonval.Decode(tc.Data, jsonval.Options{MapObjects: true})

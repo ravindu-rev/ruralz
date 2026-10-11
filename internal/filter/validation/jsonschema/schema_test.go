@@ -70,7 +70,7 @@ func TestCompileSchemaRefusesRemoteReferences(t *testing.T) {
 
 // TestCompilerLoaderBackstop skips the walk to prove the compiler itself
 // asks only the refusing loader, and that a refused load is reported at
-// every reference that leaves the document.
+// every reference that leaves the document (07 req 75).
 func TestCompilerLoaderBackstop(t *testing.T) {
 	const schema = `{"properties":{"a":{"$ref":"https://example.com/a"},"b":{"$ref":"file:///etc/passwd"},"c":{"$ref":"#/$defs/c"}},"$defs":{"c":true}}`
 	p, issues := prepare([]byte(schema))
@@ -131,6 +131,9 @@ func TestCompileSchemaFindings(t *testing.T) {
 		{"wrong keyword type", `{"type":5}`, "/type", "invalid JSON Schema"},
 		{"number exponent", `{"minimum":1e-1001}`, "/minimum", "out of range"},
 		{"number in const data", `{"const":{"a":[1e2000]}}`, "/const/a/0", "out of range"},
+		{"number in enum data", `{"enum":["a",1e-2000]}`, "/enum/1", "out of range"},
+		{"integer keyword", `{"properties":{"a":{"minLength":1e2000}}}`, "/properties/a/minLength", "out of range"},
+		{"number behind a reference", `{"$ref":"#/x","x":{"maxItems":1e2000}}`, "/x/maxItems", "out of range"},
 		{"long number", `{"maximum":` + strings.Repeat("1", MaxNumberBytes+1) + `}`, "/maximum", "out of range"},
 		{"duplicate $id", `{"$defs":{"a":{"$id":"urn:a"},"b":{"$id":"urn:a"}}}`, "/$defs/b/$id", `already the identifier of the schema at "/$defs/a"`},
 		{"root $id repeated", `{"$id":"https://example.com/s","$defs":{"a":{"$id":"https://example.com/s"}}}`, "/$defs/a/$id", "already the identifier"},
@@ -180,10 +183,16 @@ func TestCompileSchemaAccepts(t *testing.T) {
 		{"reference into an unknown keyword", `{"$ref":"#/components/s","components":{"s":{"type":"boolean"}}}`, `true`, `1`},
 		{"Go regexp", `{"pattern":"^\\p{Lu}[a-z]+$"}`, `"Ab"`, `"ab"`},
 		{"exact numbers", `{"maximum":1e400,"multipleOf":0.1}`, `0.3`, `1e401`},
+		// Realistic recursive schemas (review finding): accepted with a
+		// nesting limit.
+		{"rich text", richText, quotes(3), `{"type":"doc","content":[{"type":"table"}]}`},
+		{"component tree", componentTree, `{"kind":"row","children":[{"text":"a"},{"kind":"column","children":[]}]}`, `{"kind":"row"}`},
+		// Annotations and unknown keywords are never parsed (07 req 76).
+		{"annotation numbers", `{"x-ruralz-note":1e2000,"examples":[` + strings.Repeat("9", 130) + `],"default":1e-5000,"type":"string"}`, `"x"`, `1`},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			s := mustCompile(t, tc.schema)
-			f := newFilter(s, 400, 0, 0)
+			f := newFilter(s, 400, bodyLimits{})
 			if tc.valid != "" {
 				if r := handle(t, f, tc.valid); r.Outcome != filter.Continue {
 					t.Errorf("valid body %s: %+v", tc.valid, r.Response)
@@ -231,6 +240,17 @@ func TestFanOut(t *testing.T) {
 		{"fan-out through a reference", `{"$defs":{"d":` + nestedAnyOf(10) + `},"allOf":[{"$ref":"#/$defs/d"},true]}`, "/allOf"},
 		{"recursive anyOf counted once", `{"$defs":{"t":{"anyOf":[{"type":"null"},{"items":{"$ref":"#/$defs/t"}},{"items":{"type":"string"}}]}},"$ref":"#/$defs/t"}`, ""},
 		{"unreferenced definition", `{"$defs":{"bomb":` + nestedAnyOf(11) + `}}`, "/$defs/bomb/anyOf"},
+		// Review finding: the fan-out of a path through a cycle does not
+		// depend on the order of members. /allOf/1 -> b -> /properties/x ->
+		// a -> /anyOf/1 -> 4^4 repeats no schema: 2*2*2*256.
+		{"cycle entered first through a", cycleDefs(`{"$ref":"#/$defs/a"},{"$ref":"#/$defs/b"}`), "/allOf"},
+		{"cycle entered first through b", cycleDefs(`{"$ref":"#/$defs/b"},{"$ref":"#/$defs/a"}`), "/allOf"},
+		{"cycle and a sibling", cycleDefs(`{"$ref":"#/$defs/b"},true`), "/allOf"},
+		{"cycle and a sibling reference", wideCycle(`{"$ref":"#/$defs/a","properties":{"y":{"$ref":"#/$defs/b"}}`), "/$defs/b/anyOf"},
+		{"cycle alone", wideCycle(`{"properties":{"y":{"$ref":"#/$defs/b"}}`), "/$defs/b/anyOf"},
+		// Minor review finding: of two independent crossings, the one whose
+		// pointer sorts first, though b is visited, and crosses, first.
+		{"two crossings", `{"$ref":"#/$defs/b","$defs":{"a":` + branches(1025, "oneOf") + `,"b":` + branches(1025, "anyOf") + `}}`, "/$defs/a/oneOf"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			issues := compileIssues(t, tc.schema)
@@ -244,6 +264,75 @@ func TestFanOut(t *testing.T) {
 				t.Fatalf("issues = %+v, want one fan-out finding at %s", issues, tc.ptr)
 			}
 		})
+	}
+}
+
+// fourWay returns anyOf of four branches nested depth deep: a fan-out of
+// 4^depth.
+func fourWay(depth int) string {
+	s := `{"type":"string"}`
+	for range depth {
+		s = `{"anyOf":[` + strings.Repeat(s+",", 3) + s + `]}`
+	}
+	return s
+}
+
+// cycleDefs returns a schema applying members in an allOf, with a and b
+// definitions referring to each other through a two-branch anyOf each, a
+// also to a fan-out of 256.
+func cycleDefs(members string) string {
+	return `{"allOf":[` + members + `],"$defs":{"a":{"anyOf":[{"$ref":"#/$defs/b"},` + fourWay(4) + `]},` +
+		`"b":{"anyOf":[{"properties":{"x":{"$ref":"#/$defs/a"}}},true]}}}`
+}
+
+// wideCycle returns root members with definitions a and b in one cycle: b
+// an anyOf of 512 branches whose first refers to a, a an anyOf whose
+// second branch fans out to 512, so the path through b's first branch and
+// a's second fans out to 524,288 without repeating a schema.
+func wideCycle(root string) string {
+	branches := make([]string, 511)
+	for i := range branches {
+		branches[i] = fmt.Sprintf(`{"const":%d}`, i)
+	}
+	return root + `,"$defs":{"b":{"anyOf":[{"$ref":"#/$defs/a"},` + strings.Join(branches, ",") + `]},` +
+		`"a":{"anyOf":[{"properties":{"x":{"$ref":"#/$defs/b"}}},` + nestedAnyOf(9) + `]}}}`
+}
+
+// TestFanOutBound covers the upper bound the fan-out (07 req 75) takes
+// when the paths within a component of mutually referring schemas take
+// more than its step budget: the product of each schema's largest factor
+// and the largest fan-out leaving the component, which can only refuse
+// more.
+// Here a hub refers to three anyOf schemas of 32 branches whose only way
+// on is back to the hub: no path takes more than two of them (1,024, at
+// the bound), the upper bound all three.
+func TestFanOutBound(t *testing.T) {
+	branches := strings.TrimSuffix(strings.Repeat(`{"type":"null"},`, 31), ",")
+	schema := `{"$ref":"#/$defs/h","$defs":{"h":{"properties":{"a":{"$ref":"#/$defs/s1"},"b":{"$ref":"#/$defs/s2"},"c":{"$ref":"#/$defs/s3"}}},` +
+		`"s1":{"anyOf":[{"$ref":"#/$defs/h"},` + branches + `]},"s2":{"anyOf":[{"$ref":"#/$defs/h"},` + branches + `]},"s3":{"anyOf":[{"$ref":"#/$defs/h"},` + branches + `]}}}`
+	if issues := compileIssues(t, schema); len(issues) > 0 {
+		t.Fatalf("exact: %+v, want none", issues)
+	}
+	// Minor review finding: the bound counts the fan-out leaving the
+	// component. Here the factors inside it multiply to 2, and the path out
+	// through its anyOf to a fan-out of 1,024 makes 2,048: refused exactly
+	// and by the bound alike.
+	exit := `{"$ref":"#/$defs/h","$defs":{"h":{"properties":{"a":{"$ref":"#/$defs/s"}}},"s":{"anyOf":[{"$ref":"#/$defs/h"},` + nestedAnyOf(10) + `]}}}`
+	for _, tc := range []struct {
+		schema string
+		exact  bool
+	}{{schema, false}, {exit, true}} {
+		root := libraryCompile(t, tc.schema)
+		for _, steps := range []int{fanOutSteps, 0} {
+			in := newInspector()
+			in.steps = steps
+			in.visit(root, "")
+			in.fanOut()
+			refused := len(in.issues) == 1 && strings.Contains(in.issues[0].Message, "fan out")
+			if refused != (tc.exact || steps == 0) {
+				t.Errorf("%.40s with %d steps: %+v", tc.schema, steps, in.issues)
+			}
+		}
 	}
 }
 
@@ -275,6 +364,8 @@ func TestSizeBound(t *testing.T) {
 
 // TestSubschemaBound covers MaxSubschemas (proposed): positions include
 // the root, and references into unknown keywords count too.
+//
+// Requirements: 07 req 75.
 func TestSubschemaBound(t *testing.T) {
 	props := func(n int) string {
 		var b strings.Builder
@@ -304,6 +395,8 @@ func TestSubschemaBound(t *testing.T) {
 
 // TestIssueCap checks that at most MaxIssues findings are reported, in
 // document order.
+//
+// Requirements: 07 req 75.
 func TestIssueCap(t *testing.T) {
 	var b strings.Builder
 	b.WriteString(`{"properties":{`)
@@ -329,6 +422,8 @@ func TestIssueCap(t *testing.T) {
 
 // TestMetaIssuesDeterministic checks that meta-schema findings do not
 // depend on the library's map iteration order.
+//
+// Requirements: 07 req 75.
 func TestMetaIssuesDeterministic(t *testing.T) {
 	const schema = `{"properties":{"a":{"type":5},"b":{"minLength":"x"},"c":{"required":"y"},"d":{"enum":3}}}`
 	first := compileIssues(t, schema)
@@ -369,8 +464,37 @@ func TestSchemaRawAndSum(t *testing.T) {
 	}
 }
 
+// TestComparesNumbers pins the one source of the document-wide flag that
+// applies the number bounds where the scan cannot follow a body path
+// (minor review finding): every keyword through which the library parses
+// a body number, wherever its schema is; a type list without integer and
+// keywords that parse only schema numbers do not set it.
+//
+// Requirements: 07 req 80.
+func TestComparesNumbers(t *testing.T) {
+	for _, tc := range []struct {
+		schema string
+		want   bool
+	}{
+		{`{"const":"a"}`, true},
+		{`{"enum":["a"]}`, true},
+		{`{"uniqueItems":true}`, true},
+		{`{"type":["string","integer"]}`, true},
+		{`{"not":{"multipleOf":2}}`, true},
+		{`{"$defs":{"unused":{"exclusiveMinimum":0}}}`, true},
+		{`{"items":{"maximum":1}}`, true},
+		{`{"type":["string","number"]}`, false},
+		{`{"minLength":1,"maxItems":2,"uniqueItems":false}`, false},
+	} {
+		if got := mustCompile(t, tc.schema).ComparesNumbers(); got != tc.want {
+			t.Errorf("ComparesNumbers(%s) = %v, want %v", tc.schema, got, tc.want)
+		}
+	}
+}
+
 // TestInspectorBackstop skips the walk to prove the compiled-graph check
-// still refuses a bundled meta-schema and a non-2020-12 resource.
+// still refuses a bundled meta-schema and a non-2020-12 resource (07 req
+// 75).
 func TestInspectorBackstop(t *testing.T) {
 	for _, tc := range []struct{ schema, ptr, msg string }{
 		{`{"properties":{"a":{"$ref":"https://json-schema.org/draft/2020-12/schema"}}}`, "/properties/a/$ref", "outside the schema document"},
@@ -395,6 +519,8 @@ func TestInspectorBackstop(t *testing.T) {
 
 // TestMessage checks that findings are one line without the compile URL,
 // cut at a rune boundary.
+//
+// Requirements: 07 req 75.
 func TestMessage(t *testing.T) {
 	if got := message("a\n b\t\tc " + baseURL + "#/x \"" + baseURL + "\""); got != `a b c #/x "#"` {
 		t.Errorf("message = %q", got)

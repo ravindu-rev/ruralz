@@ -4,13 +4,13 @@
 package jsonschema
 
 import (
+	"fmt"
 	"math/rand/v2"
 	"regexp"
 	"regexp/syntax"
 	"slices"
 	"strings"
 	"testing"
-	"time"
 )
 
 // costPatterns are patterns with an input that keeps their run queue
@@ -59,6 +59,8 @@ func program(t testing.TB, expr string) *syntax.Prog {
 // ones such as the e-mail pattern, keep a small queue, a repetition of a
 // class keeps one entry per position, and past its budget the bound is
 // the whole program.
+//
+// Requirements: 07 section 9 item 21.
 func TestQueueBound(t *testing.T) {
 	for _, tc := range []struct {
 		pattern  string
@@ -94,7 +96,8 @@ func TestQueueBound(t *testing.T) {
 // builds on input, with the closure the bound uses.
 func simulate(prog *syntax.Prog, input string) int {
 	anchored := prog.StartCond()&syntax.EmptyBeginText != 0
-	q := closure(prog, []int{prog.Start})
+	cl := closer{prog: prog, mark: make([]uint32, len(prog.Inst))}
+	q := cl.closure([]int{prog.Start}, nil)
 	best := len(q)
 	for _, r := range input {
 		var next []int
@@ -109,7 +112,7 @@ func simulate(prog *syntax.Prog, input string) int {
 		if len(next) == 0 {
 			break
 		}
-		q = closure(prog, next)
+		q = cl.closure(next, nil)
 		best = max(best, len(q))
 	}
 	return best
@@ -118,7 +121,7 @@ func simulate(prog *syntax.Prog, input string) int {
 // TestQueueBoundCoversInputs checks the character classes of the bound:
 // on inputs drawn from runes at and around every class boundary, case
 // folds included, the simulation never builds a queue the bound does not
-// allow.
+// allow (07 section 9 item 21, the proposed work bound).
 func TestQueueBoundCoversInputs(t *testing.T) {
 	rng := rand.New(rand.NewPCG(1, 2)) //nolint:gosec // G404: fixed-seed inputs make the test deterministic; nothing here is secret.
 	for _, tc := range costPatterns() {
@@ -143,7 +146,8 @@ func TestQueueBoundCoversInputs(t *testing.T) {
 }
 
 // TestClassRepsFold checks that a case-folded rune brings its whole fold
-// orbit into the classes: k, K and the Kelvin sign.
+// orbit into the classes: k, K and the Kelvin sign (07 section 9 item 21,
+// the proposed work bound).
 func TestClassRepsFold(t *testing.T) {
 	reps := classReps(program(t, `(?i)k`))
 	for _, r := range []rune{'K', 'k', 'K', '\n'} {
@@ -153,14 +157,13 @@ func TestClassRepsFold(t *testing.T) {
 	}
 }
 
-// TestPatternCostCoversMatch checks the pattern model against Go's
-// regexp: matching each pattern's adversarial input of 8 bytes to 16 KiB
-// takes no more nanoseconds than fixed plus perByte work units per byte.
-// A timing test: skipped under -race, best of several runs, retried.
-func TestPatternCostCoversMatch(t *testing.T) {
-	if raceEnabled {
-		t.Skip("-race slows the matcher, the model is calibrated without it")
-	}
+// BenchmarkPatternModel measures the pattern model against Go's regexp:
+// for each pattern's adversarial input of 8 bytes to 16 KiB it reports the
+// nanoseconds a match takes per work unit of fixed plus perByte per byte
+// (ns/unit), which must stay below 1 on the reference machine. A
+// benchmark, not a test, for the reason BenchmarkWorkModel gives;
+// TestQueueBound and TestQueueBoundCoversInputs pin the model.
+func BenchmarkPatternModel(b *testing.B) {
 	for _, tc := range costPatterns() {
 		c := newPatternCosts().of(tc.pattern)
 		re := regexp.MustCompile(tc.pattern)
@@ -168,33 +171,85 @@ func TestPatternCostCoversMatch(t *testing.T) {
 		last := string(rs[len(rs)-1])
 		for _, size := range []int{8, 64, 1024, 16384} {
 			s := tc.input + strings.Repeat(last, max(0, size-len(tc.input))/len(last))
-			runs := max(1, 20000/size)
-			limit := float64(c.fixed + c.perByte*len(s))
-			var best float64
-			for range 3 {
-				best = 1e18
-				for range 3 {
-					start := time.Now()
-					for range runs {
-						re.MatchString(s)
-					}
-					best = min(best, float64(time.Since(start).Nanoseconds())/float64(runs))
+			b.Run(fmt.Sprintf("%.20s/%d", tc.pattern, size), func(b *testing.B) {
+				for b.Loop() {
+					re.MatchString(s)
 				}
-				if best <= limit {
-					break
-				}
-			}
-			if best > limit {
-				t.Errorf("pattern %.30q on %d bytes: %.0f ns, the model charges %.0f units", tc.pattern, len(s), best, limit)
-			}
+				units := float64(c.fixed + c.perByte*len(s))
+				b.ReportMetric(float64(b.Elapsed().Nanoseconds())/float64(b.N)/units, "ns/unit")
+			})
 		}
 	}
 }
 
-// BenchmarkPatternCost times the exploration of the costliest pattern
-// within one pattern's budget.
+// altPattern returns an alternation of n two-rune literals of distinct
+// CJK runes, which the parser cannot merge into one class: every queue of
+// the unanchored program holds the start's thousands of alternatives, and
+// every literal's rune is a class of its own.
+func altPattern(n int) string {
+	var b strings.Builder
+	r := rune(0x4e00)
+	for i := range n {
+		if i > 0 {
+			b.WriteByte('|')
+		}
+		b.WriteRune(r)
+		b.WriteRune(r + 1)
+		r += 2
+	}
+	return b.String()
+}
+
+// TestQueueBoundBudget is the regression test of the review finding that
+// the exploration checked its budget only between queues: one queue of an
+// alternation of 4,000 two-rune literals scanned every class
+// representative with a closure of the whole start each, 61 times the
+// budget at 1,000 literals, 244 times at 2,000, and compile times grew
+// with the square of the pattern (07 F6, a compile returns within 1 s).
+// The steps the exploration charges now stay within its budget plus one
+// representative's closure and the setup, the classes and the start's
+// closure, and the bound is then the whole program. Steps, not time, so
+// the test is deterministic.
+func TestQueueBoundBudget(t *testing.T) {
+	for _, expr := range []string{altPattern(4000), `^(?:` + altPattern(4000) + `)$`, altPattern(300), `[a-z]{1000}x`} {
+		prog := program(t, expr)
+		n := len(prog.Inst)
+		budget := patternBudget
+		q := queueBound(prog, &budget)
+		spent := patternBudget - budget
+		if limit := patternBudget + len(classReps(prog)) + 5*n; spent > limit {
+			t.Errorf("queueBound(%.20q, %d instructions) spent %d steps, want at most %d", expr, n, spent, limit)
+		}
+		if budget < 0 && q != n {
+			t.Errorf("queueBound(%.20q) = %d past its budget, want the program's %d", expr, q, n)
+		}
+	}
+	// A document's patterns share regexpBudget: past it every pattern costs
+	// its whole program without being explored.
+	pc := newPatternCosts()
+	for i := range 20 {
+		if c := pc.of(altPattern(1000 + i)); c.perByte < queueUnits*c.insts {
+			t.Fatalf("pattern %d: per byte %d, want the whole program's %d", i, c.perByte, queueUnits*c.insts)
+		}
+	}
+	if pc.budget > 0 {
+		t.Errorf("document budget left %d after 20 exploded patterns, want it spent", pc.budget)
+	}
+}
+
+// BenchmarkPatternCost times the exploration of the costliest patterns
+// within one pattern's budget: a long repetition of a class, and an
+// alternation of 4,000 literals, unanchored and anchored (review finding).
 func BenchmarkPatternCost(b *testing.B) {
-	for b.Loop() {
-		newPatternCosts().of(`[a-z]{1000}x`)
+	for _, tc := range []struct{ name, expr string }{
+		{"repetition", `[a-z]{1000}x`},
+		{"alternation", altPattern(4000)},
+		{"anchored alternation", `^(?:` + altPattern(4000) + `)$`},
+	} {
+		b.Run(tc.name, func(b *testing.B) {
+			for b.Loop() {
+				newPatternCosts().of(tc.expr)
+			}
+		})
 	}
 }

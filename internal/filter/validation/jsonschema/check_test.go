@@ -78,7 +78,8 @@ func TestCheckPaths(t *testing.T) {
 	}
 }
 
-// TestCheckSkips covers the resources Check leaves to other stages.
+// TestCheckSkips covers the resources Check leaves to other stages (07
+// req 75: Check reports config.schema findings only).
 func TestCheckSkips(t *testing.T) {
 	for _, r := range []*hub.Resource{
 		nil,
@@ -104,6 +105,8 @@ func TestCheckSkips(t *testing.T) {
 // TestGoldenCheckDiagnostics compares the text and JSON diagnostic forms
 // of Check findings with goldens, so ruralz, ruralzd and ruralz-control
 // print them byte-identically.
+//
+// Requirements: 07 req 75 and T14.
 func TestGoldenCheckDiagnostics(t *testing.T) {
 	cases := []struct{ name, schema string }{
 		{"multiple", `{"$schema":"http://json-schema.org/draft-07/schema#","properties":{"zip":{"pattern":"^(?!0)"},"n":{"minimum":1e-5000}},"items":{"$ref":"file:///etc/passwd"}}`},

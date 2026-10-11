@@ -4,15 +4,19 @@
 package jsonschema
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"math"
+	"net/http"
 	"runtime"
 	"runtime/debug"
 	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
+
+	sjs "github.com/santhosh-tekuri/jsonschema/v6"
 
 	"github.com/ravindu-rev/ruralz/internal/filter"
 	"github.com/ravindu-rev/ruralz/internal/filter/filtertest"
@@ -98,11 +102,43 @@ func unevaluatedChain(links int, keyword string) string {
 	return b.String()
 }
 
+// unionSchema returns an order with an id, a plain array of tags and a
+// payment that is a oneOf of k object variants: the costly union of the
+// review finding next to a cheap sibling array.
+func unionSchema(k int) string {
+	variants := make([]string, k)
+	for i := range variants {
+		variants[i] = fmt.Sprintf(`{"type":"object","required":["type","amount","currency"],"additionalProperties":false,`+
+			`"properties":{"type":{"const":"m%d"},"amount":{"type":"number","minimum":0,"maximum":1000000,"multipleOf":0.01},`+
+			`"currency":{"type":"string","pattern":"^[A-Z]{3}$","minLength":3,"maxLength":3},`+
+			`"reference":{"type":"string","maxLength":64},"note":{"type":"string","maxLength":256}}}`, i)
+	}
+	return `{"type":"object","required":["id"],"properties":{"id":{"type":"string"},` +
+		`"tags":{"type":"array","items":{"type":"string","maxLength":32}},"payment":{"oneOf":[` + strings.Join(variants, ",") + `]}}}`
+}
+
+// unionBody returns a valid order of unionSchema with n tags of form tag.
+func unionBody(n int, tag string) string {
+	tags := make([]string, n)
+	for i := range tags {
+		tags[i] = fmt.Sprintf(tag, i)
+	}
+	return `{"id":"ord_1","payment":{"type":"m0","amount":10.5,"currency":"EUR"},"tags":[` + strings.Join(tags, ",") + `]}`
+}
+
 // workingSetCases are dense bodies, each against a schema that fails at
 // every value in a different way, or (the unevaluated shapes) holds the
 // library's copies of member names or item indexes along a reference
-// chain.
+// chain, or (the ordinary shapes) a valid or failing order body.
 func workingSetCases() []struct{ name, schema, body string } {
+	// denseArray, with a quarter of the items under -race, which slows the
+	// library tenfold: the trees are measured exactly at any size.
+	denseArray := func(n int, item string, depth int) string {
+		if raceEnabled {
+			n = max(n/4, 1)
+		}
+		return denseArray(n, item, depth)
+	}
 	var required, members []string
 	for i := range 50 {
 		required = append(required, fmt.Sprintf(`"r%02d"`, i))
@@ -129,8 +165,13 @@ func workingSetCases() []struct{ name, schema, body string } {
 		{"if then else", `{"items":{"if":{"type":"string"},"then":{"minLength":2,"pattern":"^a"},"else":{"type":"null"}}}`, denseArray(20000, `"x"`, 0)},
 		{"deep type", itemsDeep(60, `{"type":"integer"}`), denseArray(5000, `"x"`, 60)},
 		{"deep oneOf", itemsDeep(30, oneOfConsts(4)), denseArray(5000, `"x"`, 30)},
+		{"nested minItems", itemsDeep(3, `{"type":"integer"}`)[:0] + `{"minItems":2,"items":{"minItems":2,"items":{"minItems":2,"items":{"type":"integer"}}}}`, denseArray(5000, `[["x"]]`, 0)},
 		{"unevaluated names along a chain", unevaluatedChain(100, "unevaluatedProperties"), wideObject(2000)},
 		{"unevaluated indexes along a chain", strings.Replace(unevaluatedChain(100, "unevaluatedItems"), "minProperties", "minItems", 1), denseArray(40000, `1`, 0)},
+		{"records, valid", recordsSchema, records(20000)},
+		{"records, members missing", recordsSchema, denseArray(20000, `{"qty":1}`, 0)},
+		{"records, members failing", recordsSchema, denseArray(20000, `{"sku":"","qty":0.5,"price":-1}`, 0)},
+		{"union next to tags, failing", unionSchema(12), unionBody(20000, `"%040d"`)},
 	}
 }
 
@@ -166,7 +207,7 @@ func peakHeap(f func() any) float64 {
 func scanBody(t testing.TB, s *Schema, body string) (any, *bodyScan) {
 	t.Helper()
 	v := decodeInstance(t, body)
-	scan := &bodyScan{ws: &s.work, numbers: s.numbers, memLimit: math.MaxInt64 - 1, workLimit: maxWorkLimit}
+	scan := &bodyScan{ws: &s.work, numbers: s.numbers, workLimit: maxWorkLimit}
 	scan.scan(v)
 	if scan.bad {
 		t.Fatalf("body has a number out of range")
@@ -176,27 +217,138 @@ func scanBody(t testing.TB, s *Schema, body string) (any, *bodyScan) {
 
 // gcSlack is the garbage the collector may leave in use between two
 // collections while peakHeap runs it often (GOGC 10, with a heap minimum
-// of 0.4 MiB), which a sample of the heap in use cannot tell from live
-// memory.
+// of 0.4 MiB), and the garbage allocated while it marks, which a sample of
+// the heap in use cannot tell from live memory: the library allocates an
+// error kind, a scope and an index string at every evaluation and drops
+// them.
 const gcSlack = 1 << 20
 
+// liveProbe is the x-probe keyword of the test vocabulary: each time an
+// evaluation reaches it, it collects the heap fully and records the
+// largest live heap it measured.
+type liveProbe struct{ live uint64 }
+
+// Validate measures the live heap.
+func (p *liveProbe) Validate(*sjs.ValidatorContext, any) {
+	var m runtime.MemStats
+	runtime.GC()
+	runtime.ReadMemStats(&m)
+	p.live = max(p.live, m.HeapAlloc)
+}
+
+// probeURL names the measuring wrapper of decisionTree.
+const probeURL = "https://schema.ruralz.invalid/probe.json"
+
+// decisionTree returns the bytes of the error tree the decision pass holds
+// for v under schema, measured from inside the pass when the tree is
+// complete: the wrapper validates the document for a boolean result, as
+// the decision pass does, under an anyOf that keeps the document's errors
+// while it evaluates its second branch, whose x-probe keyword collects the
+// heap and measures it. It is 0 for a valid v.
+func decisionTree(t testing.TB, schema string, v any) int64 {
+	t.Helper()
+	probe := &liveProbe{}
+	doc, err := sjs.UnmarshalJSON(strings.NewReader(schema))
+	if err != nil {
+		t.Fatal(err)
+	}
+	c := sjs.NewCompiler()
+	c.DefaultDraft(sjs.Draft2020)
+	c.UseLoader(refusingLoader{})
+	c.AssertVocabs()
+	c.RegisterVocabulary(&sjs.Vocabulary{
+		URL: "https://schema.ruralz.invalid/vocab/probe",
+		Compile: func(_ *sjs.CompilerContext, obj map[string]any) (sjs.SchemaExt, error) {
+			if _, ok := obj["x-probe"]; ok {
+				return probe, nil
+			}
+			return nil, nil
+		},
+	})
+	wrapper := map[string]any{"not": map[string]any{"anyOf": []any{map[string]any{"$ref": baseURL}, map[string]any{"x-probe": true}}}}
+	if err := c.AddResource(baseURL, doc); err != nil {
+		t.Fatal(err)
+	}
+	if err := c.AddResource(probeURL, wrapper); err != nil {
+		t.Fatal(err)
+	}
+	measure, err := c.Compile(probeURL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var m runtime.MemStats
+	runtime.GC()
+	runtime.ReadMemStats(&m)
+	_ = measure.Validate(v)
+	if probe.live == 0 {
+		return 0
+	}
+	return growth(probe.live, m.HeapAlloc)
+}
+
+// growth returns after - before, two heap sizes, as an int64.
+func growth(after, before uint64) int64 {
+	if after < before {
+		return -growth(before, after)
+	}
+	return int64(min(after-before, math.MaxInt64))
+}
+
+// locationTree returns the bytes of the error tree the location pass
+// returns for v, which holds every error it collected.
+func locationTree(s *Schema, v any) int64 {
+	var before, after runtime.MemStats
+	runtime.GC()
+	runtime.ReadMemStats(&before)
+	err := s.root.Validate(v)
+	runtime.GC()
+	runtime.ReadMemStats(&after)
+	runtime.KeepAlive(err)
+	return growth(after.HeapAlloc, before.HeapAlloc)
+}
+
+// treeSlack covers what a measured tree holds besides the errors: the
+// frames on the path to the measuring keyword and the collector's own
+// bookkeeping.
+const treeSlack = 64 << 10
+
 // TestWorkingSetCoversPeak covers the working-set bound (proposed, 07
-// reqs 80 and 82, section 9 item 21, architecture R-63): for dense bodies
-// of every error shape, and for the unevaluated-tracking copies the
-// library makes along a reference chain (review finding: copies of every
-// member name at every link, live together), the heap in use at its peak
-// while the library validates stays within what Handle reserves besides
-// the decoded values, give or take the collector's slack.
+// reqs 80 and 82, section 9 item 21, architecture R-63) of both passes:
+// for dense bodies of every error shape, the unevaluated-tracking copies
+// the library makes along a reference chain, and ordinary order bodies,
+// valid or failing.
+//
+//   - The error tree the decision pass holds, measured exactly from inside
+//     it, stays within what the scan charges it (review finding: a valid
+//     body is charged the decision pass's tree, never the location
+//     pass's).
+//   - The error tree the location pass returns, measured exactly, stays
+//     within what the scan charges it.
+//   - The heap in use at its peak while the location pass validates stays
+//     within its whole working set, give or take the collector's slack:
+//     that covers the stack, the unevaluated copies and the transient
+//     copies, which the decision pass holds alike. A sample of the
+//     decision pass's peak would mostly measure the garbage the library
+//     allocates and drops in it (error kinds, scopes, parsed numbers).
 func TestWorkingSetCoversPeak(t *testing.T) {
 	for _, tc := range workingSetCases() {
 		t.Run(tc.name, func(t *testing.T) {
 			s := mustCompile(t, tc.schema)
 			v, scan := scanBody(t, s, tc.body)
-			reserved := scan.memory()
+			decide, locate := decisionTree(t, tc.schema, v), locationTree(s, v)
+			t.Logf("decision tree %d of %d (%.2f), location tree %d of %d (%.2f), per body byte %.1f and %.1f",
+				decide, scan.decide, float64(decide)/float64(max(scan.decide, 1)), locate, scan.locate,
+				float64(locate)/float64(max(scan.locate, 1)), float64(scan.decide)/float64(len(tc.body)), float64(scan.locate)/float64(len(tc.body)))
+			if decide > scan.decide+treeSlack {
+				t.Errorf("the decision pass held an error tree of %d bytes, the scan charges %d", decide, scan.decide)
+			}
+			if locate > scan.locate+treeSlack {
+				t.Errorf("the location pass held an error tree of %d bytes, the scan charges %d", locate, scan.locate)
+			}
 			peak := peakHeap(func() any { return s.root.Validate(v) })
-			t.Logf("reserved %d, peak %.0f (%.2f)", reserved, peak, peak/float64(reserved))
-			if peak > float64(reserved+gcSlack) {
-				t.Errorf("validation held %.0f bytes at its peak, the reservation is %d", peak, reserved)
+			t.Logf("location pass: reserved %d, peak %.0f (%.2f)", scan.locateMemory(), peak, peak/float64(scan.locateMemory()))
+			if peak > float64(scan.locateMemory()+gcSlack) {
+				t.Errorf("the location pass held %.0f bytes at its peak, the reservation is %d", peak, scan.locateMemory())
 			}
 		})
 	}
@@ -206,10 +358,12 @@ func TestWorkingSetCoversPeak(t *testing.T) {
 // finding on the unevaluated-tracking maps: under unevaluatedProperties
 // the library copies every member name at every in-place evaluation of a
 // reference chain, and all the copies are live at once. Through
-// Factory.Build and Handle at the 10 MiB default, a 26 KB object against a
+// Factory.Build and Handle at the 10 MiB default, a 19 KB object against a
 // 1,000-link chain (about 140 MB of copies) is oversized before the
 // library runs; with a 64 MiB limit, the 100-link chain validates with the
 // heap at its peak within the reservation.
+//
+// Requirements: 07 reqs 80 to 82 and architecture R-63.
 func TestHandleBoundsUnevaluatedMemory(t *testing.T) {
 	body := wideObject(2000)
 	f := buildFilter(t, unevaluatedChain(1000, "unevaluatedProperties"), 0)
@@ -225,7 +379,6 @@ func TestHandleBoundsUnevaluatedMemory(t *testing.T) {
 	f = buildFilter(t, unevaluatedChain(100, "unevaluatedProperties"), 64<<20)
 	x, _ = exchange("application/json", []byte(body))
 	px := &peakExchange{Exchange: x}
-	v := decodeInstance(t, body)
 	peak := peakHeap(func() any { return f.Handle(t.Context(), phase.OnRequestBody, px) })
 	if px.peak == 0 {
 		t.Fatal("nothing reserved")
@@ -237,7 +390,6 @@ func TestHandleBoundsUnevaluatedMemory(t *testing.T) {
 	if _, scan := scanBody(t, f.schema, body); scan.path < 100*2000*propMapEntry {
 		t.Errorf("the path charges %d bytes, less than the 100 copies of 2,000 names", scan.path)
 	}
-	runtime.KeepAlive(v)
 }
 
 // peakExchange records the largest reservation.
@@ -255,28 +407,25 @@ func (x *peakExchange) Reserve(n int64) error {
 }
 
 // TestHandleBoundsValidationMemory is the regression test of the
-// working-set bound: a dense failing array against an 8-way oneOf
-// allocates within a small multiple of what Handle reserved, and a larger
-// one is refused as oversized before the library runs, allocating no more
-// than its decode.
+// working-set bound (proposed, 07 reqs 80 to 82, architecture R-63)
+// through Handle: a dense failing array against an 8-way oneOf, validated
+// in both passes, holds at its peak no more than Handle reserved, and a
+// larger one is refused as oversized before the library runs, allocating
+// no more than its decode.
 func TestHandleBoundsValidationMemory(t *testing.T) {
 	schema := `{"type":"array","items":` + oneOfConsts(8) + `}`
 	f := buildFilter(t, schema, 4<<20)
 	body := []byte(denseArray(5000, `"x"`, 0))
 	x, _ := exchange("application/json", body)
 	px := &peakExchange{Exchange: x}
-	var before, after runtime.MemStats
-	runtime.GC()
-	runtime.ReadMemStats(&before)
-	r := f.Handle(t.Context(), phase.OnRequestBody, px)
-	runtime.ReadMemStats(&after)
+	var r filter.Result
+	peak := peakHeap(func() any { r = f.Handle(t.Context(), phase.OnRequestBody, px); return r })
 	if got := detailOf(t, r); got != DetailMismatch+" at /items/oneOf/0/const" {
 		t.Fatalf("detail = %q", got)
 	}
-	allocated := float64(after.TotalAlloc - before.TotalAlloc)
-	t.Logf("allocated %.0f, reserved %d (%.2f)", allocated, px.peak, allocated/float64(px.peak))
-	if px.peak == 0 || allocated > 3*float64(px.peak) {
-		t.Errorf("Handle allocated %.0f bytes, reserved %d: want at most 3 times the reservation", allocated, px.peak)
+	t.Logf("peak %.0f, reserved %d (%.2f)", peak, px.peak, peak/float64(px.peak))
+	if px.peak == 0 || peak > float64(px.peak+gcSlack) {
+		t.Errorf("Handle held %.0f bytes at its peak, reserved %d", peak, px.peak)
 	}
 	if x.Budget.Reserved != 0 {
 		t.Errorf("reservation left: %d", x.Budget.Reserved)
@@ -284,6 +433,7 @@ func TestHandleBoundsValidationMemory(t *testing.T) {
 
 	// 1,000,000 items at the 10 MiB default: the decode fits (33 MiB of
 	// the 40 MiB budget), validation could hold gigabytes.
+	var before, after runtime.MemStats
 	big := []byte(denseArray(1_000_000, `"x"`, 0))
 	f = buildFilter(t, schema, 0)
 	allocs := func(run func()) float64 {
@@ -308,40 +458,74 @@ func TestHandleBoundsValidationMemory(t *testing.T) {
 }
 
 // TestWorkingSetCharges pins the working-set model (proposed) on small
-// bodies: every value is charged its depth's error units at errorBytes
-// plus locationBytes per level, the path the stack at stackBytes per
-// evaluation and the unevaluated copies, and the largest string copy;
-// work terms never add to it.
+// bodies. The decision pass is charged decideErrorBytes per error unit of
+// the value's kind and per group error, an object one member's errors per
+// evaluation with member keywords (finding: a valid body is not charged a
+// failing body's location-bearing tree); the location pass errorBytes plus
+// locationBytes per level per unit, the name lists and a failing numeric
+// keyword's rational; the path the stack at stackBytes per evaluation
+// (the decision pass's wrapper adds decideFrames), the unevaluated copies
+// and the names additionalProperties false lists; the transient the
+// largest string an evaluation copies. Work terms never add to them.
+//
+// Requirements: 07 reqs 80 to 82 and architecture R-63.
 func TestWorkingSetCharges(t *testing.T) {
 	enum := make([]string, 40)
 	for i := range enum {
 		enum[i] = fmt.Sprintf(`"v%d"`, i)
 	}
-	const at0, at1, at2 = errorBytes, errorBytes + locationBytes, errorBytes + 2*locationBytes
+	const (
+		at0, at1 = errorBytes, errorBytes + locationBytes
+		e        = decideErrorBytes
+		wrapper  = decideFrames * stackBytes
+	)
 	for _, tc := range []struct {
-		name, schema, body   string
-		mem, path, transient int64
+		name, schema, body              string
+		decide, locate, path, transient int64
 	}{
-		{"no subschema below the root", `{"type":"array"}`, `[1,2]`, at0, stackBytes, 0},
-		{"true", `true`, `{"a":[1]}`, at0, stackBytes, 0},
-		{"items", `{"items":{"type":"string"}}`, `["a","bc"]`, at0 + 2*at1, 2 * stackBytes, 2},
-		{"type list", `{"type":["string","null","array","object","boolean","integer","number"]}`, `"x"`, 2 * at0, stackBytes, 1},
-		{"required list", `{"required":["a","b","c","d","e","f","g"]}`, `{}`, 3 * at0, stackBytes, 0},
-		{"enum comparisons hold no memory", `{"enum":[` + strings.Join(enum, ",") + `]}`, `"x"`, at0, stackBytes, 1},
-		{"assertions", `{"minLength":1,"maxLength":3}`, `"x"`, 2 * at0, stackBytes, 1},
-		{"reference", `{"$ref":"#/$defs/s","$defs":{"s":{"type":"string"}}}`, `"x"`, 2 * at0, 2 * stackBytes, 1},
-		{"if and the costlier of then and else", `{"if":{"type":"string"},"then":{"minLength":2},"else":{"allOf":[true,true]}}`, `"x"`, (1 + 1 + 3) * at0, 5 * stackBytes, 1},
-		{"property names", `{"propertyNames":{"maxLength":3}}`, `{"ab":1}`, at0 + 2*at1, 2 * stackBytes, 2},
-		{"additional members", `{"additionalProperties":false}`, `{"a":1,"b":2}`, at0 + 2*at1, 2 * stackBytes, 0},
-		{"unevaluated names", `{"unevaluatedProperties":true}`, `{"a":1,"b":2}`, at0 + 2*at1, 2*stackBytes + propMapBase + 2*propMapEntry, 0},
-		{"unevaluated indexes", `{"unevaluatedItems":true}`, `[1,2]`, at0 + 2*at1, 2*stackBytes + itemMapBase + 2*itemMapEntry, 0},
-		{"unique items", `{"uniqueItems":true}`, `[{"a":1},{"b":2}]`, at0, 3*stackBytes + hashNameBytes, 0},
-		{"rational", `{"items":{"minimum":0}}`, `[1e-10]`, at0 + at1 + ratBytes + 8, 2 * stackBytes, 0},
+		{"no subschema below the root", `{"type":"array"}`, `{"a":[1,2]}`, e, at0, stackBytes + wrapper, 0},
+		{"a type that accepts the value's kind", `{"type":["array","object"]}`, `[1,2]`, 0, 0, stackBytes + wrapper, 0},
+		{"true never fails", `true`, `{"a":[1]}`, 0, 0, stackBytes + wrapper, 0},
+		// Two failing items and the group of the array's evaluation.
+		{"items", `{"items":{"type":"string"}}`, `[1,2]`, 3 * e, 2 * at1, 2*stackBytes + wrapper, 0},
+		{"type list", `{"type":["null","array","object","boolean","integer","number"]}`, `"x"`, e, 2 * at0, stackBytes + wrapper, 1},
+		{"required list", `{"required":["a","b","c","d","e","f","g"]}`, `{}`, e, 3 * at0, stackBytes + wrapper, 0},
+		{"enum comparisons hold no memory", `{"enum":[` + strings.Join(enum, ",") + `]}`, `"x"`, e, at0, stackBytes + wrapper, 1},
+		{"lengths that hold", `{"minLength":1,"maxLength":3}`, `"xyz"`, 0, 0, stackBytes + wrapper, 3},
+		{"lengths in characters", `{"maxLength":1}`, `"é"`, 0, 0, stackBytes + wrapper, 2},
+		{"two failing lengths and a group", `{"minLength":2,"maxLength":0}`, `"x"`, 3 * e, 2 * at0, stackBytes + wrapper, 1},
+		{"a keyword of another kind", `{"minLength":1,"maximum":3}`, `""`, e, at0, stackBytes + wrapper, 0},
+		{"reference", `{"$ref":"#/$defs/s","$defs":{"s":{"type":"string"}}}`, `1`, 2 * e, 2 * at0, 2*stackBytes + wrapper, 0},
+		// if, then and else all count, then failing on its length and else
+		// on its applicator; the applicators run only when nothing else
+		// failed.
+		{"if, then and else", `{"if":{"type":"string"},"then":{"minLength":2},"else":{"allOf":[true,true]}}`, `"x"`, 2 * e, 2 * at0, 5*stackBytes + wrapper, 1},
+		// A failing name: its errors, located at the name, and the error
+		// naming it, in either pass; the object's group.
+		{"property names", `{"propertyNames":{"maxLength":3}}`, `{"abcd":1}`, e + 2*at0, at1 + at0, 2*stackBytes + wrapper, 4},
+		{"additional members", `{"additionalProperties":false}`, `{"a":1,"b":2}`, e + e, at0 + 2*at1, 2*stackBytes + 2*listedNameBytes + wrapper, 0},
+		// The group the evaluation keeping every member's errors may add.
+		{"unevaluated names", `{"unevaluatedProperties":true}`, `{"a":1,"b":2}`, e, 0, 2*stackBytes + propMapBase + 2*propMapEntry + wrapper, 0},
+		{"unevaluated indexes", `{"unevaluatedItems":true}`, `[1,2]`, e, 0, 2*stackBytes + itemMapBase + 2*itemMapEntry + wrapper, 0},
+		{"unique items", `{"uniqueItems":true}`, `[{"a":1},{"b":2}]`, e, at0, 3*stackBytes + hashNameBytes + wrapper, 0},
+		{"rational", `{"items":{"minimum":0}}`, `[1e-10]`, 2 * e, at1 + ratBytes + 8, 2*stackBytes + wrapper, 0},
+		// One member's errors for the one evaluation looping over them,
+		// or else the required failure: never both.
+		{
+			"one member of an object", `{"type":"object","required":["a"],"properties":{"a":{"type":"string","minLength":2,"pattern":"^x"},"b":{"type":"integer"}}}`,
+			// The integer type may fail on any number.
+			`{"a":"x","b":1}`, 3 * e, 2*at0 + 3*at1, 2*stackBytes + wrapper, matcherBytes + matcherInstBytes*4,
+		},
+		// A string an evaluation reaches, even true's, is copied; one that
+		// no evaluation reaches is no transient copy.
+		{"a string true reaches", `{"items":false,"prefixItems":[true]}`, `["` + strings.Repeat("a", 64) + `"]`, e, 0, 2*stackBytes + wrapper, 64},
+		{"a member no schema reaches", `{"properties":{"a":true}}`, `{"b":"` + strings.Repeat("a", 64) + `"}`, 0, 0, stackBytes + wrapper, 0},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			_, scan := scanBody(t, mustCompile(t, tc.schema), tc.body)
-			if scan.mem != tc.mem || scan.path != tc.path || scan.transient != tc.transient {
-				t.Errorf("errors, path, transient = %d, %d, %d, want %d, %d, %d", scan.mem, scan.path, scan.transient, tc.mem, tc.path, tc.transient)
+			if scan.decide != tc.decide || scan.locate != tc.locate || scan.path != tc.path || scan.transient != tc.transient {
+				t.Errorf("decide, locate, path, transient = %d, %d, %d, %d, want %d, %d, %d, %d",
+					scan.decide, scan.locate, scan.path, scan.transient, tc.decide, tc.locate, tc.path, tc.transient)
 			}
 		})
 	}
@@ -354,10 +538,157 @@ func TestWorkingSetCharges(t *testing.T) {
 	if want := int64(21 * dupItemBytes); scan.transient != want {
 		t.Errorf("transient = %d, want the duplicates map's %d", scan.transient, want)
 	}
+	// Nine evaluations looping over the members with nine different
+	// outcomes after the loop (dependentRequired lists of 0 to 8 names),
+	// more than a state details: each still keeps one member's errors, at
+	// most the largest of them. Units: the root's allOf; the 8 groups of
+	// the loops that may collect two errors; the 36 after the loops; and
+	// 9 members' worth of 9 failing types.
+	var branches, members []string
+	for i := range 9 {
+		var deps []string
+		for j := range i {
+			deps = append(deps, fmt.Sprintf(`"d%d":["x"]`, j))
+		}
+		branches = append(branches, `{"patternProperties":{"^m":{"type":"string"}},"dependentRequired":{`+strings.Join(deps, ",")+`}}`)
+	}
+	for i := range 20 {
+		members = append(members, fmt.Sprintf(`"m%d":%d`, i, i))
+	}
+	_, scan = scanBody(t, mustCompile(t, `{"allOf":[`+strings.Join(branches, ",")+`]}`), `{`+strings.Join(members, ",")+`}`)
+	if want := int64((1 + 8 + 36 + 9*9) * e); scan.decide != want {
+		t.Errorf("decide = %d, want %d", scan.decide, want)
+	}
+}
+
+// TestPathStates is the regression test of the review finding that every
+// value at a depth was charged the costliest member class at that depth:
+// a 12-way union of payment objects next to a plain array of tags made
+// every tag as costly as the union, so a valid 49 KB order was 413 at the
+// 10 MiB default (07 req 80, architecture R-63). Each value is now charged
+// the schemas of its own path: the union adds the same to the scan
+// whatever the number of tags, a tag costs what it costs without the
+// union, and a valid order with 300,000 tags (3.4 MB) passes at the
+// default with its reservation within twice its measured peak.
+func TestPathStates(t *testing.T) {
+	s := mustCompile(t, unionSchema(12))
+	noUnion := mustCompile(t, strings.Replace(unionSchema(0), `,"payment":{"oneOf":[]}`, "", 1))
+	extra := func(n int) (decide, locate, work int64) {
+		body := unionBody(n, `"tag%d"`)
+		_, with := scanBody(t, s, body)
+		_, without := scanBody(t, noUnion, strings.Replace(body, `"payment":{"type":"m0","amount":10.5,"currency":"EUR"},`, "", 1))
+		return with.decide - without.decide, with.locate - without.locate, with.work - without.work
+	}
+	d1, l1, w1 := extra(1000)
+	d5, l5, w5 := extra(5000)
+	if d1 != d5 || l1 != l5 || w1 != w5 {
+		t.Errorf("the union adds %d, %d, %d with 1,000 tags and %d, %d, %d with 5,000: want the same", d1, l1, w1, d5, l5, w5)
+	}
+	body := unionBody(300000, `"tag%d"`)
+	f := buildFilter(t, unionSchema(12), 0)
+	x, _ := exchange("application/json", []byte(body))
+	px := &peakExchange{Exchange: x}
+	var r filter.Result
+	peak := peakHeap(func() any { r = f.Handle(t.Context(), phase.OnRequestBody, px); return r })
+	if r.Outcome != filter.Continue {
+		t.Fatalf("Handle(%d bytes) = %+v, want Continue", len(body), r)
+	}
+	t.Logf("body %d bytes: reserved %d (decoded values included), peak %.0f", len(body), px.peak, peak)
+	if float64(px.peak) > 2*peak+gcSlack {
+		t.Errorf("reserved %d, more than twice the peak %.0f", px.peak, peak)
+	}
+}
+
+// TestHandleLocationPass covers the two passes (proposed, 07 reqs 13, 18
+// and 81): a valid body runs the decision pass only, reserving its working
+// set with the decoded values; a failing body gets the location of the
+// failing keyword when the location pass fits the working-set limit, its
+// work the work limit with the first pass's, and its reservation the
+// budget, and otherwise DetailMismatch alone, a decision, never 413 or
+// 503.
+func TestHandleLocationPass(t *testing.T) {
+	small := records(10)
+	failing := strings.Replace(small, `"qty":1,`, `"qty":0,`, 1)
+	f := buildFilter(t, recordsSchema, 0)
+	var reserves []int64
+	run := func(f *Filter, body string, refuse int) filter.Result {
+		t.Helper()
+		reserves = nil
+		x := &recordingExchange{Exchange: &filtertest.Exchange{}, onReserve: func(n int64) { reserves = append(reserves, n) }}
+		x.Msg = &filtertest.Message{Hdr: http.Header{"Content-Type": {"application/json"}}, Raw: []byte(body)}
+		if refuse > 0 {
+			x.reserveFrom, x.reserveErr = refuse, filter.ErrBudget
+		}
+		r := f.Handle(t.Context(), phase.OnRequestBody, x)
+		if x.Budget.Reserved != 0 {
+			t.Errorf("reservation left: %d", x.Budget.Reserved)
+		}
+		return r
+	}
+	_, scan := scanBody(t, f.schema, small)
+	_, cost, err := f.decode([]byte(small))
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := cost + scan.extra + scan.decideMemory()
+	if r := run(f, small, 0); r.Outcome != filter.Continue || len(reserves) != 1 || reserves[0] != want {
+		t.Errorf("valid body: %+v, reserved %v, want Continue reserving %d once", r, reserves, want)
+	}
+	if got := detailOf(t, run(f, failing, 0)); got != DetailMismatch+" at /$defs/item/properties/qty/minimum" || len(reserves) != 2 {
+		t.Errorf("failing body: %q, reserved %v, want the location after two reservations", got, reserves)
+	}
+	// The location pass's reservation refused: the decision stands.
+	if got := detailOf(t, run(f, failing, 2)); got != DetailMismatch {
+		t.Errorf("location reservation refused: %q, want DetailMismatch alone", got)
+	}
+	// The location pass over the working-set limit, or the two passes
+	// over the work limit: the decision alone.
+	tight := buildFilter(t, recordsSchema, 0)
+	_, fs := scanBody(t, tight.schema, failing)
+	tight.limits.workingSet = fs.decideMemory()
+	if got := detailOf(t, run(tight, failing, 0)); got != DetailMismatch || len(reserves) != 1 {
+		t.Errorf("location over the working-set limit: %q, reserved %v, want DetailMismatch alone", got, reserves)
+	}
+	tight = buildFilter(t, recordsSchema, 0)
+	tight.limits.work = 2*fs.work + fs.walk - 1
+	if got := detailOf(t, run(tight, failing, 0)); got != DetailMismatch {
+		t.Errorf("two passes and the walk over the work limit: %q, want DetailMismatch alone", got)
+	}
+	tight.limits.work = 2*fs.work + fs.walk
+	if got := detailOf(t, run(tight, failing, 0)); got == DetailMismatch {
+		t.Errorf("two passes and the walk at the work limit: %q, want the location", got)
+	}
+	// A request that ends between the passes gets the decision alone.
+	x, _ := exchange("application/json", []byte(failing))
+	if got := detailOf(t, f.Handle(&endingContext{Context: t.Context(), live: 1}, phase.OnRequestBody, x)); got != DetailMismatch {
+		t.Errorf("context ended between the passes: %q, want DetailMismatch alone", got)
+	}
+	// Should the passes disagree, the decision pass's refusal stands.
+	disagree := librarySchema(t, `true`)
+	disagree.decide = libraryCompile(t, `true`)
+	if got := detailOf(t, handle(t, newFilter(disagree, 400, limitsOf(testLimit)), `{}`)); got != DetailMismatch {
+		t.Errorf("passes that disagree: %q, want DetailMismatch alone", got)
+	}
+}
+
+// endingContext is a context whose Err is nil for its first live calls
+// and context.Canceled after.
+type endingContext struct {
+	context.Context
+	live int
+}
+
+func (c *endingContext) Err() error {
+	if c.live > 0 {
+		c.live--
+		return nil
+	}
+	return context.Canceled
 }
 
 // TestScanAllocatesNothing checks that the walk before validation
-// allocates nothing, member names under propertyNames included.
+// allocates nothing, member names under propertyNames included (07 req 84,
+// the allocation target; architecture R-63).
 func TestScanAllocatesNothing(t *testing.T) {
 	if raceEnabled {
 		t.Skip("allocation counts are not compared under -race")
@@ -365,7 +696,7 @@ func TestScanAllocatesNothing(t *testing.T) {
 	s := mustCompile(t, `{"propertyNames":{"pattern":"^k"},"uniqueItems":true,"items":{"unevaluatedProperties":false,"minimum":0}}`)
 	v := decodeInstance(t, `[{"k1":[1,2.5,"x"],"k2":{"k3":null}},{"k4":1e10}]`)
 	allocs := testing.AllocsPerRun(100, func() {
-		scan := bodyScan{ws: &s.work, numbers: s.numbers, memLimit: math.MaxInt64 - 1, workLimit: maxWorkLimit}
+		scan := bodyScan{ws: &s.work, numbers: s.numbers, workLimit: maxWorkLimit}
 		scan.scan(v)
 	})
 	if allocs != 0 {
@@ -373,12 +704,13 @@ func TestScanAllocatesNothing(t *testing.T) {
 	}
 }
 
-// TestWorkingSetFailsClosed covers the fallback of the working-set bound:
-// without an analysis every body is oversized; the sums saturate.
+// TestWorkingSetFailsClosed covers the fallback of the working-set bound
+// (proposed, 07 reqs 80 to 82, architecture R-63): without an analysis
+// every body is oversized; the sums saturate.
 func TestWorkingSetFailsClosed(t *testing.T) {
 	s := mustCompile(t, `true`)
-	s.work = newWorkingSet(nil)
-	r := handle(t, newFilter(s, 400, testLimit, 0), `{}`)
+	s.work = newWorkingSet(nil, nil)
+	r := handle(t, newFilter(s, 400, limitsOf(testLimit)), `{}`)
 	if r.Outcome != filter.CannotDecide || !errors.Is(r.Err, errWorkingSetTooLarge) {
 		t.Errorf("Handle without an analysis = %+v, want the working-set ErrTooLarge", r)
 	}

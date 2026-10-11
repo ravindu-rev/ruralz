@@ -111,16 +111,37 @@ func edges(s *sjs.Schema) []edge {
 // document and is draft 2020-12, and the nested applicator fan-out stays
 // within MaxFanOut. It also notes whether any schema compares numbers.
 type inspector struct {
-	state   map[*sjs.Schema]uint8
-	fan     map[*sjs.Schema]int
+	id      map[*sjs.Schema]int
+	nodes   []fanNode
 	issues  []Issue
 	numbers bool
-	// crossed is set once the fan-out finding is recorded.
-	crossed bool
+	// steps bounds the exact fan-out of each component (fanOutSteps).
+	steps int
 }
 
+// fanNode is one compiled schema of the inspection; edges is empty for a
+// schema outside the document, which is reported and not followed.
+type fanNode struct {
+	ptr   string
+	edges []fanEdge
+}
+
+// fanEdge is one subschema a schema applies, with the branch count its
+// keyword multiplies the fan-out by.
+type fanEdge struct {
+	kw     string
+	factor int
+	to     int
+}
+
+// fanOutSteps bounds the steps the exact fan-out may take for the schemas
+// of one strongly connected component of the graph (a group of schemas
+// that reach each other through references); past it an upper bound of
+// the component decides (see fanOut).
+const fanOutSteps = 1 << 16
+
 func newInspector() *inspector {
-	return &inspector{state: map[*sjs.Schema]uint8{}, fan: map[*sjs.Schema]int{}}
+	return &inspector{id: map[*sjs.Schema]int{}, steps: fanOutSteps}
 }
 
 func (in *inspector) add(ptr, msg string) {
@@ -129,47 +150,241 @@ func (in *inspector) add(ptr, msg string) {
 	}
 }
 
-// visit returns the fan-out of s, at most MaxFanOut+1. from is the pointer
-// of the member that applies s, where a schema outside the document is
-// reported. A schema already on the visit path counts 1: each $ref cycle is
-// counted once, as 07 req 75 defines the fan-out; what a cycle repeats at
-// each level of body nesting is the evaluation bound's (work.go).
+// visit indexes s and every schema it reaches, depth first, checking each
+// once. from is the pointer of the member that applies s, where a schema
+// outside the document is reported.
 func (in *inspector) visit(s *sjs.Schema, from string) int {
-	switch in.state[s] {
-	case 1:
-		return 1
-	case 2:
-		return in.fan[s]
+	if i, ok := in.id[s]; ok {
+		return i
 	}
+	i := len(in.nodes)
+	in.id[s] = i
+	in.nodes = append(in.nodes, fanNode{})
 	ptr, ok := pointerOf(s.Location)
 	if !ok {
 		in.add(from, "reference resolves outside the schema document")
-		in.state[s], in.fan[s] = 2, 1
-		return 1
+		return i
 	}
+	in.nodes[i].ptr = ptr
 	if s.DraftVersion != 2020 {
 		in.add(ptr, "schema is not JSON Schema draft 2020-12; $schema must be "+Draft)
 	}
 	in.noteNumbers(s)
-	in.state[s] = 1
-	best, bestKw, childMax := 1, "", 1
+	var out []fanEdge
 	for _, e := range edges(s) {
 		at := appendToken(ptr, e.kw)
 		if e.sub != "" {
 			at = appendToken(at, e.sub)
 		}
-		f := in.visit(e.child, at)
-		childMax = max(childMax, f)
-		if prod := min(e.factor*f, MaxFanOut+1); prod > best {
-			best, bestKw = prod, e.kw
+		out = append(out, fanEdge{kw: e.kw, factor: e.factor, to: in.visit(e.child, at)})
+	}
+	in.nodes[i].edges = out
+	return i
+}
+
+// fanOut applies MaxFanOut to every schema visited. The fan-out of a
+// schema is the largest product of the branch factors along a schema path
+// from it that repeats no schema: a path that reaches a schema already on
+// it ends there, so each $ref cycle counts once (07 req 75). The products
+// are computed exactly, over the strongly connected components of the
+// graph from the leaves up, so they do not depend on the order of members
+// or of visits: within a component every path is followed from every
+// schema of it, and a schema outside it contributes its own fan-out. A
+// component whose paths take more than fanOutSteps steps gets an upper
+// bound instead, the product of the largest factor of each of its schemas
+// times the largest fan-out leaving it, which can only refuse more. Of the
+// schemas where a product first exceeds MaxFanOut, the finding names the
+// one whose pointer sorts first.
+func (in *inspector) fanOut() {
+	fan := make([]int, len(in.nodes))
+	comp := in.components()
+	var at string
+	cross := func(v int, kw string) {
+		p := appendToken(in.nodes[v].ptr, kw)
+		if at == "" || comparePointers(p, at) < 0 {
+			at = p
 		}
 	}
-	if best > MaxFanOut && childMax <= MaxFanOut && !in.crossed {
-		in.crossed = true
-		in.add(appendToken(ptr, bestKw), fmt.Sprintf("nested applicators fan out to more than %d branches (the product of allOf, anyOf, oneOf and if/then/else branch counts along one schema path)", MaxFanOut))
+	for _, c := range comp.order {
+		if len(c) == 1 && !in.selfLoop(c[0]) {
+			v := c[0]
+			best, kw, childMax := in.product(v, func(e fanEdge) int { return fan[e.to] })
+			if best > MaxFanOut && childMax <= MaxFanOut {
+				cross(v, kw)
+			}
+			fan[v] = best
+			continue
+		}
+		in.componentFanOut(c, comp.of, fan, cross)
 	}
-	in.state[s], in.fan[s] = 2, best
-	return best
+	if at != "" {
+		in.add(at, fmt.Sprintf("nested applicators fan out to more than %d branches (the product of allOf, anyOf, oneOf and if/then/else branch counts along one schema path)", MaxFanOut))
+	}
+}
+
+// product returns the fan-out of node v given the fan-out each edge leads
+// to, the keyword of its largest product, and the largest fan-out among
+// its edges.
+func (in *inspector) product(v int, sub func(fanEdge) int) (best int, kw string, childMax int) {
+	best, childMax = 1, 1
+	for _, e := range in.nodes[v].edges {
+		f := sub(e)
+		childMax = max(childMax, f)
+		if p := min(e.factor*f, MaxFanOut+1); p > best {
+			best, kw = p, e.kw
+		}
+	}
+	return best, kw, childMax
+}
+
+// selfLoop reports whether node v applies itself.
+func (in *inspector) selfLoop(v int) bool {
+	for _, e := range in.nodes[v].edges {
+		if e.to == v {
+			return true
+		}
+	}
+	return false
+}
+
+// componentFanOut sets the fan-out of every schema of component c (of maps
+// each node to its component): every path that repeats no schema is
+// followed from each of them, the schemas outside c contributing their
+// fan-out; past fanOutSteps steps for the whole component, its upper bound
+// decides for all of them.
+func (in *inspector) componentFanOut(c []int, of []int, fan []int, cross func(int, string)) {
+	self := of[c[0]]
+	steps := 0
+	onPath := make(map[int]bool, len(c))
+	type crossing struct {
+		v  int
+		kw string
+	}
+	var found []crossing
+	var walk func(v int) int
+	walk = func(v int) int {
+		best, kw, childMax := in.product(v, func(e fanEdge) int {
+			steps++
+			switch {
+			case steps > in.steps:
+				return 1
+			case onPath[e.to]:
+				return 1
+			case of[e.to] == self:
+				onPath[e.to] = true
+				f := walk(e.to)
+				delete(onPath, e.to)
+				return f
+			default:
+				return fan[e.to]
+			}
+		})
+		if best > MaxFanOut && childMax <= MaxFanOut {
+			found = append(found, crossing{v, kw})
+		}
+		return best
+	}
+	values := make([]int, len(c))
+	for i, v := range c {
+		onPath[v] = true
+		values[i] = walk(v)
+		delete(onPath, v)
+	}
+	if steps <= in.steps {
+		for i, v := range c {
+			fan[v] = values[i]
+		}
+		for _, f := range found {
+			cross(f.v, f.kw)
+		}
+		return
+	}
+	// The upper bound: a path visits each schema of c at most once, taking
+	// one of its edges, and may leave c once at its end.
+	bound, exit := 1, 1
+	first, firstKw := -1, ""
+	for _, v := range c {
+		factor, kw := 1, ""
+		for _, e := range in.nodes[v].edges {
+			if e.factor > factor {
+				factor, kw = e.factor, e.kw
+			}
+			if of[e.to] != self {
+				exit = max(exit, fan[e.to])
+			}
+		}
+		bound = min(bound*factor, MaxFanOut+1)
+		if first < 0 || comparePointers(in.nodes[v].ptr, in.nodes[first].ptr) < 0 {
+			first, firstKw = v, kw
+		}
+	}
+	bound = min(bound*exit, MaxFanOut+1)
+	for _, v := range c {
+		fan[v] = bound
+	}
+	if bound > MaxFanOut {
+		cross(first, firstKw)
+	}
+}
+
+// sccs is the strongly connected components of the inspected graph: order
+// lists them so that every component comes after the components it
+// reaches; of maps each node to its component's index in order.
+type sccs struct {
+	order [][]int
+	of    []int
+}
+
+// components returns the strongly connected components of the graph
+// (Tarjan's algorithm).
+func (in *inspector) components() sccs {
+	n := len(in.nodes)
+	index, low := make([]int, n), make([]int, n)
+	onStack := make([]bool, n)
+	for i := range index {
+		index[i] = -1
+	}
+	out := sccs{of: make([]int, n)}
+	var stack []int
+	next := 0
+	var connect func(v int)
+	connect = func(v int) {
+		index[v], low[v] = next, next
+		next++
+		stack = append(stack, v)
+		onStack[v] = true
+		for _, e := range in.nodes[v].edges {
+			switch {
+			case index[e.to] < 0:
+				connect(e.to)
+				low[v] = min(low[v], low[e.to])
+			case onStack[e.to]:
+				low[v] = min(low[v], index[e.to])
+			}
+		}
+		if low[v] != index[v] {
+			return
+		}
+		var c []int
+		for {
+			w := stack[len(stack)-1]
+			stack = stack[:len(stack)-1]
+			onStack[w] = false
+			out.of[w] = len(out.order)
+			c = append(c, w)
+			if w == v {
+				break
+			}
+		}
+		slices.Sort(c)
+		out.order = append(out.order, c)
+	}
+	for v := range n {
+		if index[v] < 0 {
+			connect(v)
+		}
+	}
+	return out
 }
 
 // noteNumbers sets numbers when validating against s parses instance

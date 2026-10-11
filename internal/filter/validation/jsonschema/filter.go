@@ -52,10 +52,15 @@ var (
 	// errDecodedTooLarge: the decoded body costs more than
 	// filter.DecodedLimitFactor times the raw limit (413 RZ-RT-003).
 	errDecodedTooLarge = fmt.Errorf("validation.json-schema: decoded body over its limit: %w", filter.ErrTooLarge)
-	// errWorkingSetTooLarge: the decoded body and the working set its
-	// validation may hold cost more than filter.DecodedLimitFactor times
-	// the raw limit (413 RZ-RT-003, proposed).
-	errWorkingSetTooLarge = fmt.Errorf("validation.json-schema: validating the body may hold more than its decoded limit: %w", filter.ErrTooLarge)
+	// errWorkingSetTooLarge: the decision pass may hold more than
+	// WorkingSetFactor times the raw limit besides the decoded values (413
+	// RZ-RT-003, proposed).
+	errWorkingSetTooLarge = fmt.Errorf("validation.json-schema: validating the body may hold more than its working-set limit: %w", filter.ErrTooLarge)
+	// errNestingTooDeep: a body value is nested as deep as the schema's
+	// nesting limit, where one value may take more than MaxEvaluations
+	// evaluations, on a path whose state does not bound it (413
+	// RZ-RT-003, proposed).
+	errNestingTooDeep = fmt.Errorf("validation.json-schema: the body nests deeper than validating it under the schema is bounded: %w", filter.ErrTooLarge)
 	// errWorkTooLarge: validating the body may take more than WorkPerByte
 	// work units per byte of the raw limit (413 RZ-RT-003, proposed).
 	errWorkTooLarge = fmt.Errorf("validation.json-schema: validating the body may take more than its work limit: %w", filter.ErrTooLarge)
@@ -108,35 +113,42 @@ func (Factory) Build(_ context.Context, env filter.BuildEnv) (filter.Filter, err
 	if len(issues) > 0 {
 		return nil, errcode.Wrap(CodeConfig, &CompileError{Issues: issues})
 	}
-	maxCost, maxWork := decodedLimit(env.Limits.MaxRequestBodyBytes), workLimit(env.Limits.MaxRequestBodyBytes)
+	limits := limitsOf(env.Limits.MaxRequestBodyBytes)
 	prev, _ := env.Previous.(*Filter)
-	if prev != nil && prev.schema.sum == p.sum && prev.status == status && prev.maxCost == maxCost && prev.maxWork == maxWork {
+	if prev != nil && prev.schema.sum == p.sum && prev.status == status && prev.limits == limits {
+		// Carried over unchanged: its Schema also serves the other
+		// Policies of this snapshot with the same document that build
+		// after it.
+		if env.Shared != nil {
+			if _, err := env.Shared.Get(sharedKey{p.sum}, func() (any, error) { return prev.schema, nil }); err != nil {
+				return nil, err
+			}
+		}
 		return prev, nil
 	}
-	var schema *Schema
-	switch {
-	case prev != nil && prev.schema.sum == p.sum:
-		schema = prev.schema
-	case env.Shared != nil:
-		v, err := env.Shared.Get(sharedKey{p.sum}, func() (any, error) { return compileShared(p) })
-		if err != nil {
-			if _, coded := errcode.CodeOf(err); !coded {
-				err = errcode.Wrap(CodeConfig, err)
-			}
-			return nil, err
-		}
-		schema, _ = v.(*Schema)
-		if schema == nil || schema.sum != p.sum {
-			return nil, errcode.Errorf(CodeConfig, "validation.json-schema: shared schema has type %T", v)
-		}
-	default:
-		s, err := compileShared(p)
-		if err != nil {
-			return nil, err
-		}
-		schema = s
+	build := func() (any, error) { return compileShared(p) }
+	if prev != nil && prev.schema.sum == p.sum {
+		// Same document under new limits: the previous Schema, also for
+		// the other Policies of this snapshot with the same document.
+		build = func() (any, error) { return prev.schema, nil }
 	}
-	return newFilter(schema, status, maxCost, maxWork), nil
+	var v any
+	var err error
+	if env.Shared != nil {
+		v, err = env.Shared.Get(sharedKey{p.sum}, build)
+	} else {
+		v, err = build()
+	}
+	if err != nil {
+		// compileShared's own errors carry RZ-CFG-005; any other, such as a
+		// canceled snapshot compile, is not a finding about the schema.
+		return nil, err
+	}
+	schema, _ := v.(*Schema)
+	if schema == nil || schema.sum != p.sum {
+		return nil, fmt.Errorf("validation.json-schema: shared schema has type %T", v)
+	}
+	return newFilter(schema, status, limits), nil
 }
 
 // compileShared compiles a prepared document, wrapping failures with
@@ -154,16 +166,46 @@ func compileShared(p *prepared) (*Schema, error) {
 // item 24), used when the snapshot leaves BuildEnv.Limits unset.
 const defaultMaxRequestBodyBytes = 10 << 20
 
+// WorkingSetFactor bounds the memory validation may hold (proposed,
+// package documentation "Working set"): besides the decoded values, the
+// decision pass may hold at most WorkingSetFactor times
+// limits.maxRequestBodyBytes, or the body is oversized, and the location
+// pass runs only when it fits the same bound.
+const WorkingSetFactor = 2 * filter.DecodedLimitFactor
+
+// bodyLimits are the limits a Filter applies to one request body, all
+// derived from limits.maxRequestBodyBytes.
+type bodyLimits struct {
+	// decoded bounds the decoded values (bytes), workingSet what either
+	// pass may hold besides them (bytes), work the work of validation
+	// (work units). A Filter built outside Factory.Build leaves them zero:
+	// no bound.
+	decoded, workingSet, work int64
+}
+
+// limitsOf returns the limits for a raw body limit: filter.DecodedLimitFactor
+// times it for the decoded values (architecture R-63), WorkingSetFactor
+// times it for the working set and WorkPerByte times it for the work. An
+// unset limit is the configuration default, so a snapshot that forgets
+// Limits never decodes without a budget; a limit too large to multiply
+// gets the largest bounds.
+func limitsOf(rawLimit int64) bodyLimits {
+	return bodyLimits{decoded: decodedLimit(rawLimit), workingSet: scaledLimit(rawLimit, WorkingSetFactor), work: workLimit(rawLimit)}
+}
+
 // decodedLimit returns the decode cost budget for a raw body limit:
-// filter.DecodedLimitFactor times the limit (architecture R-63). An unset
-// limit is the configuration default, so a snapshot that forgets Limits
-// never decodes without a budget; a limit too large to multiply gets the
-// largest budget.
+// filter.DecodedLimitFactor times the limit (architecture R-63).
 func decodedLimit(rawLimit int64) int64 {
+	return scaledLimit(rawLimit, filter.DecodedLimitFactor)
+}
+
+// scaledLimit returns factor times the raw body limit, the configuration
+// default when unset, or the largest multiple that fits.
+func scaledLimit(rawLimit, factor int64) int64 {
 	if rawLimit <= 0 {
 		rawLimit = defaultMaxRequestBodyBytes
 	}
-	return min(rawLimit, math.MaxInt64/filter.DecodedLimitFactor) * filter.DecodedLimitFactor
+	return min(rawLimit, math.MaxInt64/factor) * factor
 }
 
 // Filter is a compiled validation.json-schema Policy. It is immutable
@@ -171,9 +213,7 @@ func decodedLimit(rawLimit int64) int64 {
 type Filter struct {
 	schema *Schema
 	status int
-	// maxCost bounds the decoded values with the working set (bytes);
-	// maxWork the work of validation (work units).
-	maxCost, maxWork int64
+	limits bodyLimits
 	// decoders pools strict decoders; a Decoder drops oversized scratch
 	// after each call, so the pool never pins a large body (07 req 73).
 	decoders *sync.Pool
@@ -181,13 +221,12 @@ type Filter struct {
 
 var _ filter.Filter = (*Filter)(nil)
 
-func newFilter(s *Schema, status int, maxCost, maxWork int64) *Filter {
-	opts := jsonval.Options{MapObjects: true, MaxCost: maxCost}
+func newFilter(s *Schema, status int, limits bodyLimits) *Filter {
+	opts := jsonval.Options{MapObjects: true, MaxCost: limits.decoded}
 	return &Filter{
 		schema:   s,
 		status:   status,
-		maxCost:  maxCost,
-		maxWork:  maxWork,
+		limits:   limits,
 		decoders: &sync.Pool{New: func() any { return jsonval.NewDecoder(opts) }},
 	}
 }
@@ -197,13 +236,22 @@ func (f *Filter) Schema() *Schema { return f.schema }
 
 // Handle validates the client request body in onRequestBody (07 reqs 78 to
 // 82) and continues in every other Phase. A refused body is Respond with
-// 400 RZ-RT-009; a decoded body that, with the working set its validation
-// may hold, is oversized, whose validation may take more than its work
-// limit, or whose reservation is refused, is CannotDecide with
-// filter.ErrTooLarge or filter.ErrBudget, which the executor answers
-// under either failureMode (07 req 15); a body the message cannot supply,
-// or an internal validator error (07 req 13), is CannotDecide with the
-// class default.
+// 400 RZ-RT-009; a decoded body that is oversized, whose validation may
+// hold more than its working-set limit or take more than its work limit,
+// that nests as deep as the schema's nesting limit where the states do
+// not bound it, or whose reservation
+// is refused, is CannotDecide with filter.ErrTooLarge or filter.ErrBudget,
+// which the executor answers under either failureMode (07 req 15); a body
+// the message cannot supply, a request whose context ends before
+// validation, or an internal validator error (07 req 13), is CannotDecide
+// with the class default.
+//
+// Validation runs in two passes (package documentation "Working set"):
+// the decision pass, whose working set is reserved with the decoded
+// values, then, for a body that fails, the location pass that names the
+// failing keyword, when its working set fits the same limit, its work the
+// work limit with the first pass's, and the budget its reservation; a
+// failing body that does not get one is refused with DetailMismatch alone.
 func (f *Filter) Handle(ctx context.Context, p phase.Phase, x filter.Exchange) filter.Result {
 	if p != phase.OnRequestBody {
 		return filter.Next()
@@ -229,28 +277,33 @@ func (f *Filter) Handle(ctx context.Context, p phase.Phase, x filter.Exchange) f
 		}
 		return f.reject(DetailInvalid)
 	}
-	scan := bodyScan{ws: &f.schema.work, numbers: f.schema.numbers, memLimit: f.maxCost - cost, workLimit: f.maxWork}
-	if f.maxCost <= 0 {
-		// No decode budget (a Filter built outside Factory.Build).
-		scan.memLimit = math.MaxInt64 - 1
-	}
-	if f.maxWork <= 0 {
+	scan := bodyScan{ws: &f.schema.work, numbers: f.schema.numbers, workLimit: f.limits.work}
+	if f.limits.work <= 0 {
 		scan.workLimit = maxWorkLimit
 	}
 	scan.scan(v)
 	switch {
 	case scan.bad:
 		return f.reject(DetailNumber)
-	case scan.memoryOver():
+	case scan.deep:
+		return filter.Undecided("", errNestingTooDeep)
+	case f.limits.workingSet > 0 && scan.decideMemory() > f.limits.workingSet:
 		return filter.Undecided("", errWorkingSetTooLarge)
 	case scan.workOver():
 		return filter.Undecided("", errWorkTooLarge)
 	}
-	// The decoded values and the validator's working set (proposed,
-	// package documentation) are reserved together and released when
-	// validation ends, the decoded tree's last use (07 req 82). The work
-	// is bounded, never reserved.
-	n := cost + scan.memory()
+	// The library takes no context: a request that has ended is not
+	// validated (07 section 9 item 21).
+	if err := ctx.Err(); err != nil {
+		return filter.Undecided("", err)
+	}
+	// The decoded values, with what their objects' hash tables, their
+	// arrays' spare capacity and their strings' size classes hold beyond
+	// the decoder's charge, and the
+	// decision pass's working set (proposed, package documentation) are
+	// reserved together and released when validation ends, the decoded
+	// tree's last use (07 req 82). The work is bounded, never reserved.
+	n := addCap(addCap(cost, scan.extra), scan.decideMemory())
 	if err := x.Reserve(n); err != nil {
 		if !errors.Is(err, filter.ErrBudget) {
 			err = fmt.Errorf("%w: %w", filter.ErrBudget, err)
@@ -258,21 +311,43 @@ func (f *Filter) Handle(ctx context.Context, p phase.Phase, x filter.Exchange) f
 		return filter.Undecided("", err)
 	}
 	defer x.Release(n)
-	loc, ok, err := f.schema.validate(v)
+	if f.schema.valid(v) {
+		return filter.Next()
+	}
+	return f.locate(ctx, x, v, &scan)
+}
+
+// locate runs the location pass for v, a body the decision pass refused,
+// and returns the refusal: with the failing keyword when the pass fits its
+// limits (scan holds the body's bounds), DetailMismatch alone otherwise;
+// an internal validator error is cannot decide (07 req 13).
+func (f *Filter) locate(ctx context.Context, x filter.Exchange, v any, scan *bodyScan) filter.Result {
+	if (f.limits.workingSet > 0 && scan.locateMemory() > f.limits.workingSet) || scan.locateOver() || ctx.Err() != nil {
+		return f.reject(DetailMismatch)
+	}
+	if extra := scan.locateMemory() - scan.decideMemory(); extra > 0 {
+		if err := x.Reserve(extra); err != nil {
+			return f.reject(DetailMismatch)
+		}
+		defer x.Release(extra)
+	}
+	loc, ok, err := f.schema.validate(v, func() bool { return ctx.Err() != nil })
 	if err != nil {
 		return filter.Undecided("", err)
 	}
-	if !ok {
-		return f.reject(mismatchDetail(loc))
+	if ok {
+		// The passes disagree only if the library does; the decision
+		// stands.
+		loc = ""
 	}
-	return filter.Next()
+	return f.reject(mismatchDetail(loc))
 }
 
 // decode decodes body strictly with a pooled decoder.
 func (f *Filter) decode(body []byte) (any, int64, error) {
 	d, _ := f.decoders.Get().(*jsonval.Decoder)
 	if d == nil {
-		d = jsonval.NewDecoder(jsonval.Options{MapObjects: true, MaxCost: f.maxCost})
+		d = jsonval.NewDecoder(jsonval.Options{MapObjects: true, MaxCost: f.limits.decoded})
 	}
 	v, cost, err := d.Decode(body)
 	f.decoders.Put(d)

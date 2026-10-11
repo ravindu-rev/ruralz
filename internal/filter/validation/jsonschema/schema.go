@@ -31,18 +31,25 @@ const (
 	// MaxSubschemas bounds the schema positions of a document (proposed):
 	// the library compiles a schema resource in one work queue that it
 	// searches linearly, so compile time grows with the square of the
-	// subschema count (about 0.2 s at this bound on a shared 4-vCPU
+	// subschema count (about 0.3 s at this bound on a shared 4-vCPU
 	// machine, against 2.3 s for the 37,000 empty subschemas 256 KiB can
-	// hold; the evaluation analysis adds at most about 0.3 s, see the
+	// hold; the evaluation analysis adds at most about 0.4 s, see the
 	// package documentation).
 	MaxSubschemas = 4096
 	// MaxEvaluations bounds the subschema evaluations that validating one
-	// value of a body may take, at any nesting depth up to 64 (proposed):
-	// with MaxSubschemas positions, a document that evaluates each
-	// subschema at most once per value always fits, while a recursive
-	// reference reached through two paths, which doubles the work at every
-	// level of nesting, does not (see work.go).
+	// value of a body may take (proposed): with MaxSubschemas positions, a
+	// document that evaluates each subschema at most once per value always
+	// fits, while a recursive reference reached through two paths, which
+	// doubles the work at every level of nesting, crosses it 11 or 12
+	// levels down (see work.go). The first nesting depth at which a value
+	// may cross it is the schema's nesting limit: a body value nested that
+	// deep on a path the states do not bound is refused (413, package
+	// documentation).
 	MaxEvaluations = 4096
+	// MinNesting is the smallest nesting limit a schema may have
+	// (proposed): a schema whose evaluations may cross MaxEvaluations at a
+	// value nested less deep is refused.
+	MinNesting = 16
 	// MaxIssues bounds the findings CompileSchema reports for one document.
 	MaxIssues = 20
 )
@@ -53,6 +60,10 @@ const (
 // resolves to a URL outside the document and is refused rather than
 // silently naming the document itself.
 const baseURL = "https://schema.ruralz.invalid/policy.json"
+
+// decideURL names the wrapper of the decision pass, compiled with the
+// document.
+const decideURL = "https://schema.ruralz.invalid/decide.json"
 
 // maxMessageBytes bounds one finding's message, which may quote schema
 // values from the library's meta-schema errors.
@@ -113,6 +124,9 @@ type Schema struct {
 	// numbers is set when some subschema compares numbers, so request
 	// numbers must obey the number bounds.
 	numbers bool
+	// decide validates with root for a boolean result only: the decision
+	// pass (working.go).
+	decide *sjs.Schema
 	// work is the runtime model of the working set and the work of a body
 	// (working.go).
 	work workingSet
@@ -243,14 +257,27 @@ func compileWalked(p *prepared, w *walker, loader sjs.URLLoader) (*Schema, []Iss
 		in.visit(s, "")
 		starts = append(starts, s)
 	}
+	in.fanOut()
 	if len(in.issues) > 0 {
 		return nil, in.issues
 	}
-	wb, issues := analyze(starts)
+	ws, issues := analyze(starts)
 	if len(issues) > 0 {
 		return nil, issues
 	}
-	return &Schema{root: root, raw: p.raw, sum: p.sum, numbers: w.numbers || in.numbers, work: newWorkingSet(wb)}, nil
+	// The decision pass validates through a second resource whose not
+	// applies the document: the library evaluates the subschema of not
+	// for a boolean result, keeping no location of its errors and
+	// stopping early where it can (validator.go), and the dynamic scope
+	// the wrapper adds holds no anchor.
+	if err := c.AddResource(decideURL, map[string]any{"not": map[string]any{"$ref": baseURL}}); err != nil {
+		return nil, []Issue{{Message: message(err.Error())}}
+	}
+	decide, err := c.Compile(decideURL)
+	if err != nil {
+		return nil, []Issue{{Message: message(err.Error())}}
+	}
+	return &Schema{root: root, decide: decide, raw: p.raw, sum: p.sum, numbers: in.numbers, work: ws}, nil
 }
 
 // compileIssues maps a compiler error to findings.
@@ -286,7 +313,7 @@ func metaIssues(location string, verr *sjs.ValidationError) []Issue {
 	}
 	byPtr := map[string][]string{}
 	var ptrs []string
-	leaves(verr, func(l *sjs.ValidationError) {
+	leaves(verr, func(l *sjs.ValidationError) bool {
 		p := base
 		for _, tok := range l.InstanceLocation {
 			p = appendToken(p, tok)
@@ -295,6 +322,7 @@ func metaIssues(location string, verr *sjs.ValidationError) []Issue {
 			ptrs = append(ptrs, p)
 		}
 		byPtr[p] = appendUnique(byPtr[p], kindMessage(l.ErrorKind))
+		return true
 	})
 	slices.SortFunc(ptrs, comparePointers)
 	out := make([]Issue, 0, min(len(ptrs), MaxIssues))
@@ -354,15 +382,19 @@ func joinURL(base, ref string) (string, bool) {
 	return out.String(), true
 }
 
-// leaves calls f for every error of the tree under e that has no causes.
-func leaves(e *sjs.ValidationError, f func(*sjs.ValidationError)) {
+// leaves calls f for every error of the tree under e that has no causes,
+// in order, until f returns false; it reports whether every call returned
+// true.
+func leaves(e *sjs.ValidationError, f func(*sjs.ValidationError) bool) bool {
 	if len(e.Causes) == 0 {
-		f(e)
-		return
+		return f(e)
 	}
 	for _, c := range e.Causes {
-		leaves(c, f)
+		if !leaves(c, f) {
+			return false
+		}
 	}
+	return true
 }
 
 // kindMessage returns the library's English text of one error kind.

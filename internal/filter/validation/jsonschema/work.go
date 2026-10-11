@@ -4,7 +4,6 @@
 package jsonschema
 
 import (
-	"cmp"
 	"fmt"
 	"maps"
 	"slices"
@@ -25,8 +24,11 @@ import (
 //   - no reference cycle applies schemas to the same value without
 //     descending into it (the library answers every value that reaches one
 //     with an internal error, kind.RefCycle);
-//   - at any one value of a body, at any nesting depth up to maxNesting,
-//     validation evaluates at most MaxEvaluations subschemas.
+//   - at any one value of a body, validation evaluates at most
+//     MaxEvaluations subschemas: the first nesting depth at which the
+//     count may exceed it is the schema's nesting limit, which must be at
+//     least MinNesting, and a body value at or below it is refused at
+//     runtime unless the state of its path bounds it (states.go).
 //
 // The count is an upper bound: every allOf, anyOf and oneOf branch
 // applies, if applies with the costlier of then and else (the library
@@ -40,8 +42,9 @@ import (
 // The same analysis carries a vector of counts: besides the evaluations,
 // each schema adds its weights in the other dimensions (error units, work
 // units, number parses, scan work per byte, unevaluated copies, hashing
-// passes), and the runtime turns the bound at every depth into the
-// memory it reserves and the work it allows (working.go).
+// passes, uniqueItems checks), and the runtime turns the bound at every
+// depth into the memory it reserves and the work it allows (working.go),
+// together with the counts of each body value's own path (states.go).
 
 // maxNesting is the deepest a body nests: the decoder's default depth,
 // under which the Filter decodes.
@@ -60,9 +63,29 @@ const countCap = 1 << 40
 const coupledBudget = 1 << 19
 
 // maxPatternMatches bounds the properties-name and patternProperties
-// pairs matched for one schema; past it every pattern is assumed to match
-// every name.
+// pairs matched for one schema, which keep their matches; past it every
+// pattern is assumed to match every name.
 const maxPatternMatches = 1 << 14
+
+// matchBudget bounds the work, in work units (matchWork), of matching
+// member names against patterns at compile time, for the properties of a
+// schema against its own patternProperties (newGNode) and for the names
+// one state declares against the patterns of the others (memberEntries),
+// all of one document together: about 34 ms of the regexp matchers at
+// most (review finding: a pair count did not bound the work, which grows
+// with the name's length times the pattern's run queue). Past it every
+// pattern is assumed to match, which can only charge more.
+const matchBudget = 1 << 25
+
+// matchWork returns the work units of matching a name of n bytes against
+// patterns whose match costs sum to m (gNode.match): the setup of each,
+// and its work per byte.
+func matchWork(m vec, n int) int {
+	if m[dimScan] > 0 && n > (countCap-m[dimWork])/m[dimScan] {
+		return countCap
+	}
+	return min(m[dimWork]+m[dimScan]*n, countCap)
+}
 
 // The dimensions of a count vector.
 const (
@@ -151,11 +174,14 @@ type gNode struct {
 	ptr   string
 	in    []gEdge
 	props []gProp
-	// pats are the patternProperties targets, ordered by pattern.
+	// pats are the patternProperties targets and res their patterns,
+	// ordered by pattern.
 	pats []int
+	res  []sjs.Regexp
 	// allPats is set when properties times patterns is over
-	// maxPatternMatches: every pattern is then assumed to match every
-	// properties member, whose pats stay empty.
+	// maxPatternMatches, or matching them over what is left of
+	// matchBudget: every pattern is then assumed to match every properties
+	// member, whose pats stay empty.
 	allPats bool
 	// match is what matching a member name against every pattern costs:
 	// fixed work units and work units per byte of the name.
@@ -167,6 +193,12 @@ type gNode struct {
 	items, contains, uneItems int
 	// unique is the synthetic every-value schema when uniqueItems is set.
 	unique int
+	// units are the error units of one evaluation by JSON kind
+	// (errorUnits).
+	units units
+	// compares is set when the schema has a const or enum value holding
+	// arrays or objects.
+	compares bool
 }
 
 // evalGraph is the compiled graph of a document; nodes[0] is the root
@@ -176,6 +208,12 @@ type evalGraph struct {
 	// weight is what one evaluation of each schema adds to each dimension.
 	weight []vec
 	flags  workFlags
+	// one and every are the synthetic schemas: one value (the name
+	// additionalProperties false lists) and every value below a uniqueItems
+	// array (hashing).
+	one, every int
+	// matches is what newGNode left of matchBudget, for the states.
+	matches int
 }
 
 // workFlags records document-wide facts the runtime model needs.
@@ -193,32 +231,47 @@ type workFlags struct {
 	// dynamic is set when some schema has $dynamicRef or $recursiveRef,
 	// whose resolution walks the whole dynamic scope.
 	dynamic bool
+	// lists is set when some schema has additionalProperties false, which
+	// lists the names it does not declare.
+	lists bool
 	// maxInsts is the largest pattern program, for the matcher's memory.
 	maxInsts int
+	// maxPointer bounds the bytes of the location URL and keyword of any
+	// error the location pass reports, which its walk reads (walkWork).
+	maxPointer int
 }
 
 // workBound is what the analysis allows at one value of a body, by the
 // value's depth below the body root: at[d] holds the counts of every
-// dimension, with at[d][dimEvals] at most MaxEvaluations.
+// dimension, with at[d][dimEvals] at most MaxEvaluations for every depth
+// below limit, the schema's nesting limit (maxNesting+1 when no depth
+// crosses MaxEvaluations).
 type workBound struct {
 	at    [maxNesting + 1]vec
 	flags workFlags
+	limit int
 }
 
 // analyze applies the evaluation bound to the graph reachable from starts,
-// starts[0] being the root, and returns the bound at every depth. Every
+// starts[0] being the root, and returns the runtime model: the bound at
+// every depth, the nesting limit and the states of the body paths. Every
 // schema must lie in the document (the inspector reports one that does not
-// first); when one does not, the result is nil without findings.
-func analyze(starts []*sjs.Schema) (*workBound, []Issue) {
+// first); when one does not, the model refuses every body, without
+// findings.
+func analyze(starts []*sjs.Schema) (workingSet, []Issue) {
 	g, ok := newEvalGraph(starts)
 	if !ok {
-		return nil, nil
+		return newWorkingSet(nil, nil), nil
 	}
 	order, issues := g.inPlaceOrder()
 	if len(issues) > 0 {
-		return nil, issues
+		return workingSet{}, issues
 	}
-	return g.evaluations(order, coupledBudget)
+	wb, issues := g.evaluations(order, coupledBudget)
+	if len(issues) > 0 {
+		return workingSet{}, issues
+	}
+	return newWorkingSet(wb, g.buildStates(order, stateBudget)), nil
 }
 
 // newEvalGraph indexes every schema reachable from starts in breadth-first
@@ -249,14 +302,14 @@ func newEvalGraph(starts []*sjs.Schema) (*evalGraph, bool) {
 	// one counts one evaluation at a value; every counts one at a value
 	// and at each value below it.
 	one, every := len(all), len(all)+1
-	g := &evalGraph{nodes: make([]gNode, len(all)+2), weight: make([]vec, len(all)+2)}
+	g := &evalGraph{nodes: make([]gNode, len(all)+2), weight: make([]vec, len(all)+2), one: one, every: every, matches: matchBudget}
 	pc := newPatternCosts()
 	for i, s := range all {
 		ptr, ok := pointerOf(s.Location)
 		if !ok {
 			return nil, false
 		}
-		g.nodes[i] = newGNode(s, ptr, id, anchors, one, every, pc)
+		g.nodes[i] = newGNode(s, ptr, id, anchors, one, every, pc, &g.matches)
 		g.weight[i] = vec{dimEvals: 1, dimErrs: errorWeight(s), dimWork: workWeight(s, pc), dimParses: parsesOf(s), dimScan: scanWeight(s, pc)}
 		if s.UniqueItems {
 			g.weight[i][dimUnique] = 1
@@ -267,16 +320,33 @@ func newEvalGraph(starts []*sjs.Schema) (*evalGraph, bool) {
 		f.uneProps = f.uneProps || s.UnevaluatedProperties != nil
 		f.uneItems = f.uneItems || s.UnevaluatedItems != nil
 		f.dynamic = f.dynamic || s.DynamicRef != nil || s.RecursiveRef != nil
+		f.lists = f.lists || s.AdditionalProperties == false
+		f.maxPointer = max(f.maxPointer, len(s.Location)+maxKeywordBytes+2*longestKey(s.Dependencies)+2*longestKey(s.DependentRequired))
 	}
 	for _, c := range pc.cache {
 		g.flags.maxInsts = max(g.flags.maxInsts, c.insts)
 	}
-	g.nodes[one] = gNode{addl: -1, uneProps: -1, propNames: -1, items: -1, contains: -1, uneItems: -1, unique: -1}
+	// The name additionalProperties false lists is held by the location
+	// pass's error only; hashing holds no error.
+	g.nodes[one] = gNode{addl: -1, uneProps: -1, propNames: -1, items: -1, contains: -1, uneItems: -1, unique: -1, units: units{names: [kinds]int{1, 1, 1, 1, 1, 1}}}
 	g.nodes[every] = gNode{addl: every, uneProps: -1, propNames: -1, items: every, contains: -1, uneItems: -1, unique: -1}
 	g.weight[one] = vec{dimEvals: 1, dimErrs: 1, dimWork: listUnits}
 	g.weight[every] = vec{dimEvals: 1, dimWork: hashUnits, dimParses: 1, dimScan: hashByteUnits, dimHash: 1}
 	g.markUneval()
 	return g, true
+}
+
+// maxKeywordBytes bounds the keyword names an error's keyword location
+// adds to its schema's, with their slashes.
+const maxKeywordBytes = 32
+
+// longestKey returns the length of the longest key of m.
+func longestKey[V any](m map[string]V) int {
+	n := 0
+	for k := range m {
+		n = max(n, len(k))
+	}
+	return n
 }
 
 // markUneval weighs dimUneval for every schema that may copy the
@@ -304,8 +374,9 @@ func (g *evalGraph) markUneval() {
 }
 
 // newGNode lists the in-place, member and item subschemas of s; one and
-// every are the synthetic schemas.
-func newGNode(s *sjs.Schema, ptr string, id map[*sjs.Schema]int, anchors map[string][]int, one, every int, pc *patternCosts) gNode {
+// every are the synthetic schemas, and matches is what is left of the
+// document's matchBudget.
+func newGNode(s *sjs.Schema, ptr string, id map[*sjs.Schema]int, anchors map[string][]int, one, every int, pc *patternCosts, matches *int) gNode {
 	n := gNode{ptr: ptr, addl: -1, uneProps: -1, propNames: -1, items: -1, contains: -1, uneItems: -1, unique: -1}
 	ref := func(c *sjs.Schema) int {
 		if c == nil {
@@ -354,17 +425,28 @@ func newGNode(s *sjs.Schema, ptr string, id map[*sjs.Schema]int, anchors map[str
 		in("dependentSchemas", k, s.DependentSchemas[k], false)
 	}
 
-	pats := make([]sjs.Regexp, 0, len(s.PatternProperties))
-	for r := range s.PatternProperties {
-		pats = append(pats, r)
-	}
-	slices.SortFunc(pats, func(a, b sjs.Regexp) int { return cmp.Compare(a.String(), b.String()) })
+	n.units = errorUnits(s)
+	n.compares = composite(s)
+	pats := patternRegexps(s)
+	n.res = pats
 	for _, r := range pats {
 		n.pats = append(n.pats, id[s.PatternProperties[r]])
 		c := pc.of(r.String())
 		n.match = sat(n.match, vec{dimWork: c.fixed, dimScan: c.perByte})
 	}
 	n.allPats = len(s.Properties)*len(pats) > maxPatternMatches
+	if !n.allPats && len(pats) > 0 {
+		// Matching every name against every pattern, or none of it.
+		w := 0
+		for k := range s.Properties {
+			w = min(w+matchWork(n.match, len(k)), countCap)
+		}
+		if w > *matches {
+			n.allPats = true
+		} else {
+			*matches -= w
+		}
+	}
 	for _, k := range slices.Sorted(maps.Keys(s.Properties)) {
 		p := gProp{name: k, to: id[s.Properties[k]]}
 		if !n.allPats {
@@ -501,10 +583,31 @@ func countOf(counts []vec, i int) vec {
 	return counts[i]
 }
 
-// run is the analysis of one graph in one in-place order.
+// run is the analysis of one graph in one in-place order. rootIn marks
+// the schemas the root applies in place, where a crossing of the root's
+// count is named.
 type run struct {
-	g     *evalGraph
-	order []int
+	g      *evalGraph
+	order  []int
+	rootIn []bool
+}
+
+// inPlaceFrom marks node v and every schema it applies in place.
+func (g *evalGraph) inPlaceFrom(v int) []bool {
+	in := make([]bool, len(g.nodes))
+	stack := []int{v}
+	for len(stack) > 0 {
+		u := stack[len(stack)-1]
+		stack = stack[:len(stack)-1]
+		if in[u] {
+			continue
+		}
+		in[u] = true
+		for _, e := range g.nodes[u].in {
+			stack = append(stack, e.to...)
+		}
+	}
+	return in
 }
 
 // inPlace adds the counts of node v's in-place members to c: each
@@ -761,25 +864,20 @@ func edgeClasses(byNode []*classes, e gEdge, budget *int) *classes {
 	return m
 }
 
-// crossing returns the first schema in order whose evaluation count
-// exceeds MaxEvaluations while each of its in-place targets stays within
-// it, and the keyword adding the most to it; ok is false when no count
-// exceeds.
-func (r *run) crossing(cur, prev []vec, h int) (Issue, bool) {
+// crossing names where the root's evaluation count exceeds MaxEvaluations
+// at level h: the first schema in order among those the root applies in
+// place whose count exceeds it (in-place targets come first in order, so
+// each of its own targets stays within it), at the keyword adding the most
+// to it.
+func (r *run) crossing(cur, prev []vec, h int) Issue {
 	for _, v := range r.order {
-		if cur[v][dimEvals] <= MaxEvaluations {
+		if !r.rootIn[v] || cur[v][dimEvals] <= MaxEvaluations {
 			continue
 		}
 		n := &r.g.nodes[v]
 		var parts []contribution
-		inner := false
 		for _, e := range n.in {
-			c := pick(cur, e)[dimEvals]
-			inner = inner || c > MaxEvaluations
-			parts = append(parts, contribution{kw: e.kw, n: c})
-		}
-		if inner {
-			continue
+			parts = append(parts, contribution{kw: e.kw, n: pick(cur, e)[dimEvals]})
 		}
 		if h > 0 {
 			parts = append(parts, r.ownContributions(v, prev, h)...)
@@ -794,60 +892,64 @@ func (r *run) crossing(cur, prev []vec, h int) (Issue, bool) {
 		if best.kw != "" {
 			ptr = appendToken(ptr, best.kw)
 		}
-		return Issue{Pointer: ptr, Message: fmt.Sprintf("validating one value of a body can take more than %d subschema evaluations here, counting every applicator branch and every repetition of a recursive reference up to nesting depth %d", MaxEvaluations, maxNesting)}, true
+		return Issue{Pointer: ptr, Message: fmt.Sprintf("validating one value of a body nested %d deep can take more than %d subschema evaluations here, counting every applicator branch and every repetition of a recursive reference; a schema must allow bodies nested at least %d deep", h, MaxEvaluations, MinNesting)}
 	}
-	return Issue{}, false
+	// Unreachable: the root itself is in place and exceeds.
+	return Issue{Pointer: r.g.nodes[0].ptr, Message: fmt.Sprintf("validating one value of a body can take more than %d subschema evaluations", MaxEvaluations)}
 }
 
-// evaluations applies MaxEvaluations to every schema, given the in-place
-// order and the budget of the precise pass, and returns the bound at every
-// depth. Level 0 counts the schemas evaluated at the value itself; level h
-// those evaluated at its descendants h levels down, along the costliest
-// path of member names and indexes. A coarse pass takes the costliest
-// class of child at each schema on its own; only when its evaluation count
-// exceeds the bound does a precise pass, which picks one class for all the
-// schemas evaluated at the same value, decide. Both are upper bounds in
-// every dimension, so a coarse pass within the bound, or a precise pass
-// that runs out of budget after the coarse one exceeded it, decides
-// soundly; the counts of the pass that decided are the bound.
+// evaluations computes the bound at every depth and the root's nesting
+// limit, given the in-place order and the budget of the precise pass.
+// Level 0 counts the schemas evaluated at the value itself; level h those
+// evaluated at its descendants h levels down, along the costliest path of
+// member names and indexes. A coarse pass takes the costliest class of
+// child at each schema on its own; only when the root's evaluation count
+// exceeds MaxEvaluations at some level does a precise pass, which picks
+// one class for all the schemas evaluated at the same value, decide. Both
+// are upper bounds in every dimension, so the precise pass's counts and
+// limit stand when it completes, and the coarse pass's otherwise. A
+// nesting limit below MinNesting is RZ-CFG-005 at the crossing.
 func (g *evalGraph) evaluations(order []int, budget int) (*workBound, []Issue) {
-	r := &run{g: g, order: order}
+	r := &run{g: g, order: order, rootIn: g.inPlaceFrom(0)}
 	p := r.levelZero()
-	if is, crossed := r.crossing(p, nil, 0); crossed {
+	wb := &workBound{flags: g.flags}
+	limit, is, _ := r.levels(p, r.coarseLevel, wb.at[:])
+	if limit <= maxNesting {
+		var precise [maxNesting + 1]vec
+		b := budget
+		pl, pis, complete := r.levels(p, func(prev []vec, h int) []vec { return r.preciseLevel(prev, h, &b) }, precise[:])
+		if complete {
+			wb.at, limit, is = precise, pl, pis
+		}
+	}
+	if limit < MinNesting {
 		return nil, []Issue{is}
 	}
-	wb := &workBound{flags: g.flags}
-	coarse, precise, _ := r.levels(p, r.coarseLevel, wb.at[:])
-	if precise {
-		b := budget
-		is, crossed, complete := r.levels(p, func(prev []vec, h int) []vec { return r.preciseLevel(prev, h, &b) }, wb.at[:])
-		if !complete {
-			return nil, []Issue{coarse}
-		}
-		if crossed {
-			return nil, []Issue{is}
-		}
-	}
+	wb.limit = limit
 	return wb, nil
 }
 
 // levels runs level from 1 to maxNesting and records the root's counts of
 // every level in out (out[0] from p), stopping at a fixed point, after
-// which every level repeats the last. It stops at the first level whose
-// evaluation counts cross MaxEvaluations and returns that finding.
-// complete is false when level returned nil (its budget is spent).
-func (r *run) levels(p []vec, level func(prev []vec, h int) []vec, out []vec) (is Issue, crossed, complete bool) {
+// which every level repeats the last, or at the first level whose root
+// count exceeds MaxEvaluations: it returns that level (maxNesting+1 when
+// none) and the finding naming it. complete is false when level returned
+// nil (its budget is spent).
+func (r *run) levels(p []vec, level func(prev []vec, h int) []vec, out []vec) (limit int, is Issue, complete bool) {
 	out[0] = p[0]
+	if p[0][dimEvals] > MaxEvaluations {
+		return 0, r.crossing(p, nil, 0), true
+	}
 	prev, last := p, 0
 	for h := 1; h <= maxNesting; h++ {
 		cur := level(prev, h)
 		if cur == nil {
-			return Issue{}, false, false
-		}
-		if is, crossed := r.crossing(cur, prev, h); crossed {
-			return is, true, true
+			return 0, Issue{}, false
 		}
 		out[h], last = cur[0], h
+		if cur[0][dimEvals] > MaxEvaluations {
+			return h, r.crossing(cur, prev, h), true
+		}
 		// From level 2 on a level depends only on the one before it.
 		if h >= 2 && slices.Equal(cur, prev) {
 			break
@@ -857,7 +959,7 @@ func (r *run) levels(p []vec, level func(prev []vec, h int) []vec, out []vec) (i
 	for h := last + 1; h <= maxNesting; h++ {
 		out[h] = out[last]
 	}
-	return Issue{}, false, true
+	return maxNesting + 1, Issue{}, true
 }
 
 // coarseLevel returns the level-h counts, taking each schema's costliest

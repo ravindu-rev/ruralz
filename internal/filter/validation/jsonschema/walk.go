@@ -64,10 +64,16 @@ func subschemaKeywords() []subschemaKeyword {
 	}
 }
 
-// numericKeywords lists the keywords whose validation parses instance
-// numbers with math/big.
-func numericKeywords() []string {
-	return []string{"const", "enum", "exclusiveMaximum", "exclusiveMinimum", "maximum", "minimum", "multipleOf"}
+// parsedKeywords lists the keywords whose values the library parses as
+// numbers with math/big: the numeric and integer keywords, which it
+// compiles (and the meta-schema checks), and const and enum, whose
+// numbers it parses whenever it compares them (minor review finding: an
+// annotation or unknown keyword is never parsed, 07 req 76).
+func parsedKeywords() []string {
+	return []string{
+		"const", "enum", "exclusiveMaximum", "exclusiveMinimum", "maxContains", "maxItems", "maxLength", "maxProperties",
+		"maximum", "minContains", "minItems", "minLength", "minProperties", "minimum", "multipleOf",
+	}
 }
 
 // refSite is one $ref or $dynamicRef member.
@@ -87,10 +93,11 @@ type anchorKey struct{ res, name string }
 // lists the document's schema positions: every keyword subschema position
 // plus every position a reference into the document names, which the
 // compiler also compiles as a schema. The rules are $schema, RE2 regular
-// expressions, the number bounds, unique $id and anchor names, references
-// that resolve inside the document, and MaxSubschemas. They run in a fixed
-// order (members sorted by name), so findings that the compiler would
-// report in its map iteration order are reported deterministically.
+// expressions, the number bounds of the values the library parses, unique
+// $id and anchor names, references that resolve inside the document, and
+// MaxSubschemas. They run in a fixed order (members sorted by name), so
+// findings that the compiler would report in its map iteration order are
+// reported deterministically.
 type walker struct {
 	doc any
 	// positions lists the schema positions in walk order; seen indexes it.
@@ -102,9 +109,6 @@ type walker struct {
 	anchors map[anchorKey]string
 	sites   []refSite
 	issues  []Issue
-	// numbers is set when a schema position carries a numeric keyword,
-	// uniqueItems true or the integer type.
-	numbers bool
 }
 
 func newWalker(doc any) *walker {
@@ -118,11 +122,10 @@ func (w *walker) add(ptr, msg string) {
 	}
 }
 
-// walk checks every number of the document, walks the keyword positions
-// from the root, then the positions references name (which may name more),
-// checks every reference and applies MaxSubschemas to the total.
+// walk walks the keyword positions from the root, then the positions
+// references name (which may name more), checks every reference and
+// applies MaxSubschemas to the total.
 func (w *walker) walk() {
-	w.checkNumbers(w.doc, "")
 	w.schema(w.doc, "", "", baseURL)
 	for i := 0; i < len(w.sites) && len(w.positions) <= MaxSubschemas; i++ {
 		w.follow(w.sites[i])
@@ -245,8 +248,8 @@ func (w *walker) list(v any, ptr, res, base string) {
 	}
 }
 
-// rules applies the RE2 rule to pattern and patternProperties and notes
-// whether the schema object compares numbers.
+// rules applies the RE2 rule to pattern and patternProperties and the
+// number bounds to the values the library parses as numbers.
 func (w *walker) rules(obj map[string]any, ptr string) {
 	if s, ok := obj["pattern"].(string); ok {
 		if _, err := regexp.Compile(s); err != nil {
@@ -260,19 +263,10 @@ func (w *walker) rules(obj map[string]any, ptr string) {
 			}
 		}
 	}
-	for _, kw := range numericKeywords() {
-		if _, ok := obj[kw]; ok {
-			w.numbers = true
+	for _, kw := range parsedKeywords() {
+		if v, ok := obj[kw]; ok {
+			w.checkNumbers(v, appendToken(ptr, kw))
 		}
-	}
-	if u, ok := obj["uniqueItems"].(bool); ok && u {
-		w.numbers = true
-	}
-	switch t := obj["type"].(type) {
-	case string:
-		w.numbers = w.numbers || t == "integer"
-	case []any:
-		w.numbers = w.numbers || slices.Contains(t, any("integer"))
 	}
 }
 

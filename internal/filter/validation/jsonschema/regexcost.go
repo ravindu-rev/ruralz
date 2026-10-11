@@ -36,9 +36,10 @@ const (
 	// clearInstsPerUnit is the program instructions per work unit and
 	// byte that clearing the backtracker's visited set takes.
 	clearInstsPerUnit = 16
-	// regexpBudget bounds the queue entries the exploration of all the
-	// patterns of one document may touch, and patternBudget those of one
-	// pattern (about 7 ms; BenchmarkPatternCost).
+	// regexpBudget bounds the steps the exploration of all the patterns of
+	// one document may take, and patternBudget those of one pattern, each
+	// a queue entry scanned or added (about 25 ms and 3 ms;
+	// BenchmarkPatternCost, TestQueueBoundBudget).
 	regexpBudget, patternBudget = 1 << 20, 1 << 17
 	// regexpStates bounds the queues the exploration of one pattern
 	// visits.
@@ -94,9 +95,23 @@ func (pc *patternCosts) of(expr string) patternCost {
 // of the start). Empty-width assertions are assumed to hold, which can
 // only enlarge a queue. Past budget or regexpStates queues, the result is
 // the whole program, which bounds every queue.
+//
+// Every step is charged to budget before it is taken, and the budget is
+// checked before each class representative, so the exploration overruns
+// its budget by at most one representative's scan and closure, about
+// three times the program (review finding: checked only between queues,
+// one queue of an alternation of thousands of literals took seconds).
 func queueBound(prog *syntax.Prog, budget *int) int {
+	n := len(prog.Inst)
+	if *budget < 0 {
+		return n
+	}
 	reps := classReps(prog)
+	*budget -= len(reps)
 	anchored := prog.StartCond()&syntax.EmptyBeginText != 0
+	cl := closer{prog: prog, mark: make([]uint32, n)}
+	start := cl.closure([]int{prog.Start}, nil)
+	*budget -= 2 * len(start)
 	seen := map[string]bool{}
 	var work [][]int
 	visit := func(q []int) {
@@ -109,37 +124,89 @@ func queueBound(prog *syntax.Prog, budget *int) int {
 			work = append(work, q)
 		}
 	}
-	start := closure(prog, []int{prog.Start})
 	best := len(start)
 	visit(start)
+	// Unanchored, the start's closure joins every queue: it is computed
+	// once and merged.
+	var always []int
+	if !anchored {
+		always = start
+	}
+	var next []int
 	for len(work) > 0 {
-		if len(seen) > regexpStates || *budget < 0 || best == len(prog.Inst) {
-			return len(prog.Inst)
+		if len(seen) > regexpStates || best == n {
+			return n
 		}
 		q := work[len(work)-1]
 		work = work[:len(work)-1]
 		for _, r := range reps {
-			var next []int
+			// The scan of the queue, then the closure, at most twice the
+			// program each.
+			if *budget -= len(q); *budget < 0 {
+				return n
+			}
+			next = next[:0]
 			for _, pc := range q {
 				i := &prog.Inst[pc]
 				if isRuneInst(i.Op) && i.MatchRune(r) {
 					next = append(next, int(i.Out))
 				}
 			}
-			*budget -= len(q)
-			if !anchored {
-				next = append(next, prog.Start)
-			}
-			if len(next) == 0 {
+			if len(next) == 0 && len(always) == 0 {
 				continue
 			}
-			c := closure(prog, next)
-			*budget -= len(c)
+			c := cl.closure(next, always)
+			if *budget -= len(next) + 2*len(c); *budget < 0 {
+				return n
+			}
 			best = max(best, len(c))
 			visit(c)
 		}
 	}
 	return best
+}
+
+// closer computes closures of one program, with a scratch mark per
+// instruction.
+type closer struct {
+	prog  *syntax.Prog
+	mark  []uint32
+	gen   uint32
+	stack []int
+}
+
+// closure returns the instructions the simulation adds to a queue from
+// pcs, together with base, a closure already computed: each instruction
+// once, following alternations, captures, no-ops and (assumed true)
+// empty-width assertions; sorted.
+func (c *closer) closure(pcs, base []int) []int {
+	c.gen++
+	out := make([]int, 0, len(base)+len(pcs))
+	for _, pc := range base {
+		c.mark[pc] = c.gen
+		out = append(out, pc)
+	}
+	c.stack = append(c.stack[:0], pcs...)
+	for len(c.stack) > 0 {
+		pc := c.stack[len(c.stack)-1]
+		c.stack = c.stack[:len(c.stack)-1]
+		if c.mark[pc] == c.gen {
+			continue
+		}
+		c.mark[pc] = c.gen
+		out = append(out, pc)
+		i := &c.prog.Inst[pc]
+		switch i.Op {
+		case syntax.InstAlt, syntax.InstAltMatch:
+			c.stack = append(c.stack, int(i.Arg), int(i.Out))
+		case syntax.InstCapture, syntax.InstNop, syntax.InstEmptyWidth:
+			c.stack = append(c.stack, int(i.Out))
+		default:
+			// A rune, match or fail instruction holds a thread or none.
+		}
+	}
+	slices.Sort(out)
+	return out
 }
 
 // isRuneInst reports whether op consumes a rune.
@@ -150,35 +217,6 @@ func isRuneInst(op syntax.InstOp) bool {
 	default:
 		return false
 	}
-}
-
-// closure returns the instructions the simulation adds to a queue from
-// pcs: each instruction once, following alternations, captures, no-ops
-// and (assumed true) empty-width assertions; sorted.
-func closure(prog *syntax.Prog, pcs []int) []int {
-	in := map[int]bool{}
-	var out []int
-	stack := slices.Clone(pcs)
-	for len(stack) > 0 {
-		pc := stack[len(stack)-1]
-		stack = stack[:len(stack)-1]
-		if in[pc] {
-			continue
-		}
-		in[pc] = true
-		out = append(out, pc)
-		i := &prog.Inst[pc]
-		switch i.Op {
-		case syntax.InstAlt, syntax.InstAltMatch:
-			stack = append(stack, int(i.Arg), int(i.Out))
-		case syntax.InstCapture, syntax.InstNop, syntax.InstEmptyWidth:
-			stack = append(stack, int(i.Out))
-		default:
-			// A rune, match or fail instruction holds a thread or none.
-		}
-	}
-	slices.Sort(out)
-	return out
 }
 
 // queueKey returns the identity of a sorted queue.

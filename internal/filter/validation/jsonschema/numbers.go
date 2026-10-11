@@ -3,10 +3,7 @@
 
 package jsonschema
 
-import (
-	"encoding/json"
-	"strings"
-)
+import "strings"
 
 // Number bounds (proposed, see the package documentation): the longest
 // number literal and the largest decimal exponent magnitude that a schema
@@ -29,7 +26,7 @@ func numberInRange(lit string) bool {
 	if len(lit) > MaxNumberBytes {
 		return false
 	}
-	i := strings.IndexAny(lit, "eE")
+	i := exponentIndex(lit)
 	if i < 0 {
 		return true
 	}
@@ -48,25 +45,13 @@ func numberInRange(lit string) bool {
 	return n <= MaxNumberExponent
 }
 
-// numbersInRange reports whether every number in the decoded tree v is in
-// range. It allocates nothing; recursion is bounded by the decoder's
-// nesting limit.
-func numbersInRange(v any) bool {
-	switch t := v.(type) {
-	case json.Number:
-		return numberInRange(string(t))
-	case []any:
-		for _, e := range t {
-			if !numbersInRange(e) {
-				return false
-			}
-		}
-	case map[string]any:
-		for _, e := range t {
-			if !numbersInRange(e) {
-				return false
-			}
+// exponentIndex returns the index of the "e" or "E" of a number literal,
+// or -1.
+func exponentIndex(lit string) int {
+	for i := 0; i < len(lit); i++ {
+		if lit[i]|0x20 == 'e' {
+			return i
 		}
 	}
-	return true
+	return -1
 }

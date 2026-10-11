@@ -90,7 +90,7 @@ func BenchmarkValidateNested(b *testing.B) {
 
 // TestHandleAddsNoAllocations checks the 07 req 84 allocation target for
 // Ruralz code: Handle allocates nothing beyond the strict decode and the
-// library's validation.
+// library's validation of a valid body, the decision pass.
 func TestHandleAddsNoAllocations(t *testing.T) {
 	if raceEnabled {
 		t.Skip("sync.Pool drops items at random under -race")
@@ -102,7 +102,7 @@ func TestHandleAddsNoAllocations(t *testing.T) {
 	handleAllocs := testing.AllocsPerRun(200, func() { f.Handle(ctx, phase.OnRequestBody, x) })
 	baseAllocs := testing.AllocsPerRun(200, func() {
 		v, _, _ := f.decode(body)
-		f.schema.Validate(v)
+		f.schema.valid(v)
 	})
 	if handleAllocs > baseAllocs {
 		t.Errorf("Handle allocates %.0f, decode and validate %.0f: the Filter adds allocations", handleAllocs, baseAllocs)
@@ -199,29 +199,34 @@ func analysisWorstCase(props, pats int, mixins bool) string {
 	return b.String()
 }
 
-// analysisCases are the worst cases of the evaluation analysis.
-func analysisCases() []struct {
-	name        string
-	props, pats int
-	mixins      bool
-} {
-	return []struct {
-		name        string
-		props, pats int
-		mixins      bool
-	}{
-		{"patterns coarse", 2000, 2000, false},
-		{"patterns precise", 2000, 2000, true},
-		{"members precise", 4000, 0, true},
+// analysisCases are the worst cases of the evaluation analysis and of the
+// compile-time pattern work: properties against many patterns, recursive
+// mixins, long member names against the patterns of the same schema and of
+// a sibling (review finding: matched by count, they compiled for 18 and
+// 41 s), and patterns that alternate thousands of literals (review
+// finding: explored for seconds each).
+func analysisCases() []struct{ name, schema string } {
+	alternations := make([]string, 9)
+	for i := range alternations {
+		alternations[i] = fmt.Sprintf(`{"pattern":%q}`, altPattern(3900+i))
+	}
+	return []struct{ name, schema string }{
+		{"patterns coarse", analysisWorstCase(2000, 2000, false)},
+		{"patterns precise", analysisWorstCase(2000, 2000, true)},
+		{"members precise", analysisWorstCase(4000, 0, true)},
+		{"long names, own patterns", `{"properties":{` + longNames(128, 600) + `},"patternProperties":{` + repeatPatterns(128, 300) + `}}`},
+		{"long names, sibling patterns", `{"allOf":[{"properties":{` + longNames(300, 800) + `}},{"patternProperties":{` + repeatPatterns(200, 100) + `}}]}`},
+		{"alternations", `{"allOf":[` + strings.Join(alternations, ",") + `]}`},
 	}
 }
 
 // BenchmarkEvaluationAnalysis times the evaluation analysis alone (both of
-// its runs) on its worst cases; 07 F6 allows 1 s for a whole compile.
+// its runs and the states) on its worst cases; 07 F6 allows 1 s for a
+// whole compile.
 func BenchmarkEvaluationAnalysis(b *testing.B) {
 	for _, tc := range analysisCases() {
 		b.Run(tc.name, func(b *testing.B) {
-			root := libraryCompile(b, analysisWorstCase(tc.props, tc.pats, tc.mixins))
+			root := libraryCompile(b, tc.schema)
 			b.ReportAllocs()
 			for b.Loop() {
 				if _, issues := analyze([]*sjs.Schema{root}); len(issues) > 0 {
@@ -233,11 +238,11 @@ func BenchmarkEvaluationAnalysis(b *testing.B) {
 }
 
 // BenchmarkCompileAnalysisWorstCase compiles the analysis worst cases
-// whole.
+// whole, through CompileSchema, as Factory.Build and Check do.
 func BenchmarkCompileAnalysisWorstCase(b *testing.B) {
 	for _, tc := range analysisCases() {
 		b.Run(tc.name, func(b *testing.B) {
-			raw := []byte(analysisWorstCase(tc.props, tc.pats, tc.mixins))
+			raw := []byte(tc.schema)
 			b.ReportAllocs()
 			for b.Loop() {
 				if _, err := CompileSchema(raw); err != nil {
@@ -252,7 +257,7 @@ func BenchmarkCompileAnalysisWorstCase(b *testing.B) {
 // subschema evaluation (07 req 84, section 9 item 21) on dense arrays
 // against an 8-way oneOf of consts, failing and passing: 9 evaluations per
 // item. The work bound charges each such evaluation at least evalUnits
-// (package documentation "Work bound"; TestWorkCoversTime compares the
+// (package documentation "Work bound"; BenchmarkWorkModel compares the
 // whole model with the library).
 func BenchmarkValidateDense(b *testing.B) {
 	const items = 5000

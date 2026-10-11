@@ -53,9 +53,12 @@ func bodySeeds() []string {
 
 // FuzzCompileSchema is 07 F6: compiling any document never asks the
 // loader (no file or network access is even attempted) and never panics;
-// every finding's pointer maps to a path. The second F6 bounds is
-// watched by the compile benchmarks rather than a wall-clock assertion
-// here, and the fuzzer's own per-input timeout catches a hang.
+// every finding's pointer maps to a path. F6's other property, a compile
+// returning within 1 s, is not a wall-clock assertion here: the budgets
+// that bound a compile are pinned by deterministic tests
+// (TestQueueBoundBudget, TestCompileMatchBudget, TestStatesBudget,
+// TestEvaluationBoundBudget) and its time by
+// BenchmarkCompileAnalysisWorstCase.
 func FuzzCompileSchema(f *testing.F) {
 	for _, s := range corpusSchemas(f) {
 		f.Add(s)
