@@ -1,0 +1,1 @@
+ruralz.yaml:11:7 error RZ-CFG-020 Gateway/edge spec.policies[name=validate]: Policy type "validation.json-schema" is not allowed at Gateway scope (allowed: Route)

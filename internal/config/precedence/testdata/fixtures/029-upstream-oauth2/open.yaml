@@ -1,0 +1,11 @@
+apiVersion: ruralz/v1alpha1
+kind: Policy
+metadata:
+  name: oauth-open
+spec:
+  type: auth.upstream-oauth2
+  failureMode: open
+  config:
+    tokenUrl: https://auth.shop.example/oauth2/token
+    clientId: gateway-edge
+    clientSecret: {secretRef: {provider: env, name: OAUTH_SECRET}}

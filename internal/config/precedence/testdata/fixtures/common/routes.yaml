@@ -1,0 +1,9 @@
+apiVersion: ruralz/v1alpha1
+kind: Route
+metadata:
+  name: orders
+spec:
+  match:
+    path: {prefix: /orders}
+  upstreams:
+    - name: orders

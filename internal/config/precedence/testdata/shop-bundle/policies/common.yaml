@@ -1,0 +1,109 @@
+apiVersion: ruralz/v1alpha1
+kind: Policy
+metadata: {name: cors-default}
+spec:
+  type: cors
+  config: {allowOrigins: ["https://shop.example"], allowMethods: [GET, POST]}
+---
+apiVersion: ruralz/v1alpha1
+kind: Policy
+metadata: {name: cors-partner}
+spec:
+  type: cors
+  config: {allowOrigins: ["https://portal.acme.example"], allowMethods: [GET]}
+---
+apiVersion: ruralz/v1alpha1
+kind: Policy
+metadata: {name: jwt-default}
+spec:
+  type: auth.jwt
+  config:
+    issuers:
+      - issuer: https://auth.shop.example
+        jwksUrl: https://auth.shop.example/.well-known/jwks.json
+        audiences: [shop-api]
+---
+apiVersion: ruralz/v1alpha1
+kind: Policy
+metadata: {name: apikey-partner}
+spec:
+  type: auth.api-key
+  config: {header: x-api-key}           # looked up against Consumer apiKeys by hash
+---
+apiVersion: ruralz/v1alpha1
+kind: Policy
+metadata: {name: authz-orders}
+spec:
+  type: authz.cel
+  config:
+    rule: 'auth.claims.scope.split(" ").exists(s, s == "orders:read")'
+---
+apiVersion: ruralz/v1alpha1
+kind: Policy
+metadata: {name: ratelimit-global}
+spec:
+  type: ratelimit
+  overridable: false                    # platform guardrail: Routes cannot drop it
+  failureMode: open                     # ADR-0008 default, stated explicitly
+  config:
+    key: "source.ip"
+    limits: [{requests: 1000, window: 1s}]
+---
+apiVersion: ruralz/v1alpha1
+kind: Policy
+metadata: {name: ratelimit-orders}
+spec:
+  type: ratelimit
+  config:
+    key: 'consumer == null ? source.ip : consumer.name'
+    limits: [{requests: 50, window: 1s}]
+---
+apiVersion: ruralz/v1alpha1
+kind: Policy
+metadata: {name: token-budget-partner}
+spec:
+  type: ai.token-budget
+  failureMode: closed
+  stateStoreTimeout: 30ms
+  config:
+    consumerQuota: daily-tokens         # the Consumer quota with unit tokens
+---
+apiVersion: ruralz/v1alpha1
+kind: Policy
+metadata: {name: semantic-cache-support}   # attached nowhere: see the note after this file
+spec:
+  type: ai.semantic-cache
+  config:
+    key: "consumer.name"                # one partition per Consumer: no cross-tenant hits
+---
+apiVersion: ruralz/v1alpha1
+kind: Policy
+metadata: {name: headers-security}
+spec:
+  type: headers
+  overridable: false
+  config:
+    response:
+      set: [{name: strict-transport-security, value: "max-age=31536000"}]
+---
+apiVersion: ruralz/v1alpha1
+kind: Policy
+metadata: {name: headers-internal}
+spec:
+  type: headers
+  config:
+    request:
+      set:
+        - name: x-shop-consumer
+          valueExpression: 'consumer == null ? "anonymous" : consumer.name'
+---
+apiVersion: ruralz/v1alpha1
+kind: Policy
+metadata: {name: upstream-oauth}
+spec:
+  type: auth.upstream-oauth2
+  config:
+    tokenUrl: https://auth.shop.example/oauth2/token
+    clientId: gateway-edge
+    clientSecret: {secretRef: {provider: kubernetes, name: upstream-oauth, key: client-secret}}
+    scopes: [orders.read]

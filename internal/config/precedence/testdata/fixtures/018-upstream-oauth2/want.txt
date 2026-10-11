@@ -1,0 +1,1 @@
+upstreams.yaml:11:7 error RZ-CFG-018 Upstream/orders spec.policies[name=oauth-b]: Policies "oauth-a" and "oauth-b" share slot "upstream-auth" at Upstream scope

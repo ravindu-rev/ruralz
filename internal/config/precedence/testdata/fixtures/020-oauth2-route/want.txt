@@ -1,0 +1,1 @@
+routes.yaml:9:7 error RZ-CFG-020 Route/orders spec.policies[name=oauth-a]: Policy type "auth.upstream-oauth2" is not allowed at Route scope (allowed: Upstream)

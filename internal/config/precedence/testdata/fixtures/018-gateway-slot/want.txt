@@ -1,0 +1,1 @@
+ruralz.yaml:12:7 error RZ-CFG-018 Gateway/edge spec.policies[name=limit-b]: Policies "limit-a" and "limit-b" share slot "limits" at Gateway scope

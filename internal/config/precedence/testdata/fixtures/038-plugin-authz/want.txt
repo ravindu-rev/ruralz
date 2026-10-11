@@ -1,0 +1,1 @@
+routes.yaml:9:7 error RZ-CFG-038 Route/orders spec.policies[name=cache]: Response Cache Policy "cache" is combined with Policy "plugin-authz-body" (plugin, Filter class authz), which runs in onRequestBody: a cache hit would skip it

@@ -1,0 +1,12 @@
+apiVersion: ruralz/v1alpha1
+kind: Route
+metadata:
+  name: orders
+spec:
+  match:
+    path: {prefix: /orders}
+  policies:
+    - name: cache
+    - name: validate
+  upstreams:
+    - name: orders

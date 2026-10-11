@@ -1,0 +1,22 @@
+apiVersion: ruralz/v1alpha1
+kind: Policy
+metadata:
+  name: ratelimit-open
+spec:
+  type: ratelimit
+  failureMode: open
+  config:
+    key: source.ip
+    limits: [{requests: 100, window: 1s}]
+---
+apiVersion: ruralz/v1alpha1
+kind: Policy
+metadata:
+  name: custom-open
+spec:
+  type: plugin
+  plugin: responder
+  filterClass: custom
+  failureMode: open
+  config:
+    deny: true

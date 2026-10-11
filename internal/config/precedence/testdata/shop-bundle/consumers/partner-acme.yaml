@@ -1,0 +1,21 @@
+apiVersion: ruralz/v1alpha1
+kind: Consumer
+metadata:
+  name: partner-acme
+  labels:
+    partner: acme
+spec:
+  tier: gold
+  credentials:
+    apiKeys:
+      - name: primary                   # SHA-256 of the issued key; the key itself is never stored
+        hash: "sha256:d1bec0f9342e5607570b2636ed0256023b13be7d7d4bb45e1bed3cfee80dc1b6"
+    jwt:
+      - issuer: https://login.acme.example
+        subject: acme-integration
+  quotas:
+    - name: daily-tokens
+      unit: tokens
+      limit: 2000000
+      window: 24h
+  tags: [partner, eu]

@@ -1,0 +1,1 @@
+open.yaml:7:16 error RZ-CFG-029 Policy/authz-open spec.failureMode: failureMode open is not allowed for Policy type "authz.cel" (closed only)

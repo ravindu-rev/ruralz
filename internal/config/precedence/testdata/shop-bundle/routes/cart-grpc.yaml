@@ -1,0 +1,14 @@
+apiVersion: ruralz/v1alpha1
+kind: Route
+metadata:
+  name: cart-grpc
+spec:
+  match:
+    hosts: ["api.shop.example"]
+    grpc:
+      service: shop.cart.v1.CartService   # every method of the service
+  excludePolicies:
+    - name: cors-default                # not a browser API
+  upstreams:
+    - name: cart
+  timeout: 2s

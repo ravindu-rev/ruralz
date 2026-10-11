@@ -1,0 +1,1 @@
+open.yaml:9:16 error RZ-CFG-029 Policy/plugin-open spec.failureMode: failureMode open is not allowed for Policy type "plugin" (closed only)

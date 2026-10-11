@@ -1,0 +1,21 @@
+apiVersion: ruralz/v1alpha1
+kind: Policy
+metadata:
+  name: limit-a
+spec:
+  type: ratelimit
+  slot: limits
+  config:
+    key: source.ip
+    limits: [{requests: 100, window: 1s}]
+---
+apiVersion: ruralz/v1alpha1
+kind: Policy
+metadata:
+  name: limit-b
+spec:
+  type: ratelimit
+  slot: limits
+  config:
+    key: source.ip
+    limits: [{requests: 100, window: 1s}]

@@ -1,0 +1,30 @@
+apiVersion: ruralz/v1alpha1
+kind: Plugin
+metadata:
+  name: geo-block
+spec:
+  image: ghcr.io/acme/ruralz-plugins/geo-block:1.4.0@sha256:fc37c2971bb6e82aa12a871aed718818afcf45ab42bd093f0cf52f4ad8045435
+  abi: ruralz.plugin.v1
+  phases: [onRequestHeaders]
+  capabilities: [request.headers.read, response.send, log.write]   # response.send rejects a denied country; nothing else is granted
+  limits: {memoryBytes: 16Mi, timeout: 5ms}
+  configSchema:
+    type: object
+    required: [denyCountries]
+    properties:
+      denyCountries: {type: array, items: {type: string, pattern: "^[A-Z]{2}$"}}
+    x-ruralz-validations:
+      - rule: "self.denyCountries.size() <= 50"
+        message: "at most 50 countries"
+---
+apiVersion: ruralz/v1alpha1
+kind: Policy
+metadata:
+  name: geo-block-default
+spec:
+  type: plugin
+  plugin: geo-block
+  filterClass: authz                    # runs with authz, after auth
+  failureMode: closed                   # a Plugin trap or timeout rejects the request
+  config:
+    denyCountries: ["AQ"]

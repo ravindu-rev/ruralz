@@ -1,0 +1,165 @@
+apiVersion: ruralz/v1alpha1
+kind: Policy
+metadata:
+  name: jwt
+spec:
+  type: auth.jwt
+  config:
+    issuers:
+      - issuer: https://auth.shop.example
+        jwksUrl: https://auth.shop.example/.well-known/jwks.json
+        audiences: [shop-api]
+---
+apiVersion: ruralz/v1alpha1
+kind: Policy
+metadata:
+  name: api-key
+spec:
+  type: auth.api-key
+  config:
+    header: x-api-key
+---
+apiVersion: ruralz/v1alpha1
+kind: Policy
+metadata:
+  name: cors
+spec:
+  type: cors
+  config:
+    allowOrigins: ["https://shop.example"]
+---
+apiVersion: ruralz/v1alpha1
+kind: Policy
+metadata:
+  name: ratelimit-a
+spec:
+  type: ratelimit
+  config:
+    key: source.ip
+    limits: [{requests: 100, window: 1s}]
+---
+apiVersion: ruralz/v1alpha1
+kind: Policy
+metadata:
+  name: cache
+spec:
+  type: cache
+  config:
+    key: request.path
+---
+apiVersion: ruralz/v1alpha1
+kind: Policy
+metadata:
+  name: validate
+spec:
+  type: validation.json-schema
+  config:
+    schema: {type: object}
+---
+apiVersion: ruralz/v1alpha1
+kind: Policy
+metadata:
+  name: authz-headers
+spec:
+  type: authz.cel
+  config:
+    rule: 'auth.claims.scope == "orders:read"'
+---
+apiVersion: ruralz/v1alpha1
+kind: Policy
+metadata:
+  name: authz-body
+spec:
+  type: authz.cel
+  config:
+    rule: 'request.body.total < 1000'
+---
+apiVersion: ruralz/v1alpha1
+kind: Policy
+metadata:
+  name: oauth-a
+spec:
+  type: auth.upstream-oauth2
+  config:
+    tokenUrl: https://auth.shop.example/oauth2/token
+    clientId: gateway-edge
+    clientSecret: {secretRef: {provider: env, name: OAUTH_SECRET}}
+---
+apiVersion: ruralz/v1alpha1
+kind: Policy
+metadata:
+  name: oauth-b
+spec:
+  type: auth.upstream-oauth2
+  config:
+    tokenUrl: https://auth.shop.example/oauth2/token
+    clientId: gateway-edge
+    clientSecret: {secretRef: {provider: env, name: OAUTH_SECRET}}
+---
+apiVersion: ruralz/v1alpha1
+kind: Policy
+metadata:
+  name: headers-req
+spec:
+  type: headers
+  config:
+    request:
+      set: [{name: x-shop, value: "1"}]
+---
+apiVersion: ruralz/v1alpha1
+kind: Policy
+metadata:
+  name: plugin-response
+spec:
+  type: plugin
+  plugin: responder
+  config:
+    deny: true
+---
+apiVersion: ruralz/v1alpha1
+kind: Policy
+metadata:
+  name: plugin-upstream
+spec:
+  type: plugin
+  plugin: upstreamer
+  config:
+    deny: true
+---
+apiVersion: ruralz/v1alpha1
+kind: Policy
+metadata:
+  name: plugin-authz-body
+spec:
+  type: plugin
+  plugin: body-check
+  filterClass: authz
+  config:
+    deny: true
+---
+apiVersion: ruralz/v1alpha1
+kind: Plugin
+metadata:
+  name: responder
+spec:
+  image: ghcr.io/acme/responder:1.0.0@sha256:fc37c2971bb6e82aa12a871aed718818afcf45ab42bd093f0cf52f4ad8045435
+  abi: ruralz.plugin.v1
+  phases: [onResponse]
+---
+apiVersion: ruralz/v1alpha1
+kind: Plugin
+metadata:
+  name: upstreamer
+spec:
+  image: ghcr.io/acme/upstreamer:1.0.0@sha256:fc37c2971bb6e82aa12a871aed718818afcf45ab42bd093f0cf52f4ad8045435
+  abi: ruralz.plugin.v1
+  phases: [onUpstreamRequest]
+---
+apiVersion: ruralz/v1alpha1
+kind: Plugin
+metadata:
+  name: body-check
+spec:
+  image: ghcr.io/acme/body-check:1.0.0@sha256:fc37c2971bb6e82aa12a871aed718818afcf45ab42bd093f0cf52f4ad8045435
+  abi: ruralz.plugin.v1
+  phases: [onRequestBody]

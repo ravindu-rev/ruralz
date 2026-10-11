@@ -1,0 +1,12 @@
+apiVersion: ruralz/v1alpha1
+kind: Policy
+metadata:
+  name: jwt-open
+spec:
+  type: auth.jwt
+  failureMode: open
+  config:
+    issuers:
+      - issuer: https://auth.shop.example
+        jwksUrl: https://auth.shop.example/.well-known/jwks.json
+        audiences: [shop-api]

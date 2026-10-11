@@ -1,0 +1,29 @@
+apiVersion: ruralz/v1alpha1
+kind: Route
+metadata:
+  name: orders-summary
+spec:
+  match:
+    hosts: ["api.shop.example"]
+    path: {template: "/v1/orders/{orderId}/summary"}
+    methods: [GET]
+  policies:
+    - name: cors-partner                # slot cors: replaces cors-default
+    - name: authz-orders
+    - name: ratelimit-global            # re-listed: a replacement in its own slot
+  composition:
+    mode: aggregate                     # both steps run in parallel
+    steps:
+      - name: order
+        upstream: orders
+        pathExpression: '"/orders/" + request.pathParams.orderId'
+        select: [id, status, total]
+        group: order
+      - name: stock
+        upstream: inventory
+        pathExpression: '"/stock?order=" + request.pathParams.orderId'
+        target: items
+        collection: true
+        group: stock
+        optional: true                  # partial response if inventory fails
+  timeout: 4s
