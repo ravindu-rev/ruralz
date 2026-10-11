@@ -63,11 +63,11 @@ Small items left for a later pass (none blocks wave 3):
 
 ## Resuming in a new session
 
-State on 2026-10-11 after the WP-51 fix run: `develop` holds everything; nothing is left uncommitted. Next in order: the WP-51 limits decision, then one fix round from `runs/w3-s2-wp51-r3.json` (`startRound: 3`); then the YAML decision follow-up (brief section 5.1 step 2 spec and plan text, and the approved research addendum; neither needs agents); ADR-0020 when the user starts it; the WP-33 rebuild (`m1-section.js` with a hostile-input lens) after ADR-0020 is drafted; then S3.
+State on 2026-10-11 after the WP-51 fix run: `develop` holds everything; nothing is left uncommitted. Next in order: one WP-51 fix round from `runs/w3-s2-wp51-r3.json`, whose limits the user decided on 2026-10-11 (`user-decisions.md` items 12 to 15, R-77); then the YAML decision follow-up (brief section 5.1 step 2 spec and plan text, and the approved research addendum; neither needs agents); ADR-0020 when the user starts it; the WP-33 rebuild (`m1-section.js` with a hostile-input lens) after ADR-0020 is drafted; then S3.
 
 1. Read this README, `wave3-plan.md` (S2 notes) and `user-decisions.md` (items 8 to 11).
 2. Install what the container lacks: `make tools` (golangci-lint into `bin/`) and `openssh-client` for signing.
-3. Launch the WP-51 fix in the turn of the user's typed message that names it (see the next section): `Workflow` with `scriptPath` `.claude/plans/m1/m1-wp51-fix.js` and `args` `{"findingsFile": "/home/user/ruralz/.claude/plans/m1/runs/w3-s2-wp51-r1.json", "startRound": 1}`. Back up `internal/filter/validation/` to the scratchpad every 10 minutes, naming files with the date.
+3. Launch the WP-51 fix in the turn of the user's typed message that names it (see the next section): `Workflow` with `scriptPath` `.claude/plans/m1/m1-wp51-fix.js` and `args` `{"findingsFile": "/home/user/ruralz/.claude/plans/m1/runs/w3-s2-wp51-r3.json", "startRound": 3, "maxRounds": 4}` (fix3 against the user's decisions in that file, then one review round). Back up `internal/filter/validation/` to the scratchpad every 10 minutes, naming files with the date.
 4. When it ends with `finalVerdict: pass`, run the scoped checks, then ask the user for the signing key in a message of its own (never in a message that starts a run), set up signing as step 5 of "How a wave runs" describes, and commit only `internal/filter/validation/jsonschema/` as `fix(filter): ...` with `Refs: WP-51 (M1 architecture)`. Save the result as `runs/w3-s2-wp51-fix-result.json`, update the S2 row and notes, push, and delete the key when the work is done.
 
 ## Starting a workflow run

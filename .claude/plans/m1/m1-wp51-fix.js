@@ -15,8 +15,8 @@ const ARCH = `${M1}/specs/00-architecture.md`
 const WPS = `${M1}/arch/wps.json`
 const RUN = `${M1}/runs/w3-s2b-result.json`
 const PKG = 'internal/filter/validation/jsonschema/'
-const MAX_ROUNDS = 3
-// args (optional): findingsFile, a JSON file { findings, minors, history } of findings already verified
+const MAX_ROUNDS = (typeof args !== 'undefined' && args && args.maxRounds) || 3
+// args (optional): maxRounds (the last review round, default 3); findingsFile, a JSON file { findings, minors, history } of findings already verified
 // in an earlier run, and startRound, the round those findings came from. With them the run starts
 // with fix<startRound> of those findings, then reviews rounds startRound+1 to MAX_ROUNDS (the last
 // round reviews and verifies only). Without them it starts with fix0 of the S2 findings in RUN.
@@ -114,7 +114,7 @@ const stopped = (x) => !x || (x.status === 'blocked' && !(x.paths || []).length)
 
 phase('Fix')
 const resumePrompt = () => `${RULES}
-You are the engineer for WP-51, fixing verified review findings. Read ${A.findingsFile}: "findings" were each reproduced by an independent verifier in review round ${START} (their evidence field shows how); fix every one at its root cause, with a test that fails without the fix. "minors" are minor findings: fix each one that is plainly correct and explain any you reject in deviations. "history", "fix0" and "round1" describe the earlier rounds; do not regress them, and read the WP-51 entry of ${RUN} for the S2 rounds.
+You are the engineer for WP-51, fixing verified review findings. Read ${A.findingsFile}: "findings" were each reproduced by an independent verifier in review round ${START} (their evidence field shows how); fix every one at its root cause, with a test that fails without the fix. "minors" are minor findings: fix each one that is plainly correct and explain any you reject in deviations. "history" (and "fix0" and "round1" where present) describe the earlier rounds; do not regress them, and read the WP-51 entry of ${RUN} for the S2 rounds. When the file has "decisions", they are the user's binding decisions on WP-51's contract (also in ${M1}/user-decisions.md and architecture R-77): implement against them.
 Then run the scoped checks until green: ${CHECKS}. Return the structured report (paths = files changed in this pass).`
 const fix0 = A.findingsFile
   ? await agent(resumePrompt(), { label: `fix${START}:WP-51`, phase: 'Fix', schema: IMPL_SCHEMA })
@@ -124,7 +124,7 @@ if (stopped(fix0)) {
   return { id: 'WP-51', clean: false, finalVerdict: 'blocked', stoppedAt: `fix${START}`, fix0, rounds: [], remainingConfirmed: [], remainingMinor: [] }
 }
 let history = A.findingsFile
-  ? `The findings of review round ${START} in ${A.findingsFile} were fixed just before this review (read that file, including its "history"); the S2 rounds are in the WP-51 entry of ${RUN}.`
+  ? `The findings of review round ${START} in ${A.findingsFile} were fixed just before this review (read that file, including its "history" and, where present, its "decisions": the user's binding decisions on WP-51's contract, recorded as architecture R-77; judge the code against them, not against the superseded text); the S2 rounds are in the WP-51 entry of ${RUN}.`
   : `Fix round 0 (this run) addressed the two majors in the WP-51 entry of ${RUN} ("remaining"): the working-set reservation missing jsonschema/v6's unevaluated-tracking maps, and CPU-time units reserved as bytes causing false 413s.`
 if (fix0.deviations && fix0.deviations.length) history += `\nEngineer deviations in fix round ${START}:\n` + JSON.stringify(fix0.deviations, null, 1).slice(0, 3000)
 
