@@ -21,7 +21,7 @@ This directory holds the working plan the M1 Core gateway implementation follows
 | `m1-apply.js` | Applies triaged decisions per unit (owned paths, then review and fix) |
 | `m1-gov.js` | Documentation and ADR units with dependencies (`after`) |
 | `wave3-plan.md` | How wave 3 runs: nine small sections that each fit in one usage window, with the run order, the per-section procedure and a progress table |
-| `runs/w3-s<N><a\|b>.json` | Ready arguments for each wave-3 section's two runs (package IDs, their notes from `forwards.json`, `deferMinor`) |
+| `runs/w3-s<N><a\|b>.json` | Ready arguments for each wave-3 section's two runs (package IDs, their notes from `forwards.json`, `deferMinor`, now false everywhere) |
 | `tools/usage.py`, `tools/wordcount.py` | Agent token usage per workflow run, and the manifest word count of a document |
 
 ## State on 2026-10-10
@@ -51,7 +51,7 @@ Small items left for a later pass (none blocks wave 3):
 ## How a wave runs
 
 1. Launch `m1-resume.js` in two concurrent runs of about 12 work packages each (the container has 4 CPUs, and a workflow runs at most CPUs minus 2 agents at once). Put the large (`size: L`) packages first. Build `extra` from `forwards.json`.
-2. When a run finishes, read each package's `finalVerdict`. For every `pass`, the lead commits only the files inside that package's `dirs` (match `git status --porcelain --untracked-files=all` against `wps.json`), in dependency order, after `go build`, `go vet` and the tests of those packages pass:
+2. When a run finishes, read each package's `finalVerdict`. A package passes only when its last review reports no findings of any severity (AGENTS.md "Quality standard"; `user-decisions.md` item 16). For every `pass`, the lead commits only the files inside that package's `dirs` (match `git status --porcelain --untracked-files=all` against `wps.json`), in dependency order, after `go build`, `go vet` and the tests of those packages pass:
    - title validated with `go run ./internal/tool/commitcheck title -title "<title>"` (allowed scopes in `AGENTS.md`);
    - `git commit -S -s -F <msg> --pathspec-from-file=<list>` (signed with the user's SSH signing key) so another package's staged files are never swept in;
    - message body of 2 to 6 lines, then `Refs: WP-xx (M1 architecture)`; no `Co-Authored-By` trailer;

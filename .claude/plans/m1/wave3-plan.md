@@ -27,7 +27,7 @@ Costs are API-equivalent estimates at Claude Opus 5.5 prices ($4 input, $20 outp
 | S6 | Auth Filters | WP-47 (L), WP-48 (M) | WP-49 (M), WP-50 (M) | 5 | ~$85 | `auth.jwt`, `auth.api-key`, `auth.basic`, `auth.mtls`, `authz.ip`, `cors`, `auth.upstream-oauth2` share the auth helpers and the challenge rules |
 | S7 | Test kit, release, examples | WP-85 (L), WP-53 (S) | WP-52 (M), WP-54 (M) | 4.5 | ~$75 | State Store test servers, load generation, release packaging, examples |
 | S8 | Wave-3 decisions | | | | ~$85 | Read-only triage of the contract change requests from S1 to S7, then the decisions applied by owned-path units (`m1-apply.js`) |
-| S9 | Wave-3 documents and cleanup | WP-31 (M) | | 1 + cleanup | ~$75 | WP-31 closes the traffic, observability and scalability questions after every code package has landed; then one batched pass fixes the minor findings deferred from S1 to S7 |
+| S9 | Wave-3 documents and cleanup | WP-31 (M) | | 1 + cleanup | ~$75 | WP-31 closes the traffic, observability and scalability questions after every code package has landed; then the wave-1 and wave-2 packages get a fresh review under the quality standard |
 
 Total: about $700, spread over nine sections. That is about the same as two big runs, but no section loses work to a limit hit. Run files are in `runs/w3-s<N><a|b>.json`; each holds the package IDs, each package's notes from `forwards.json` and `deferMinor: true`.
 
@@ -53,8 +53,8 @@ A run that hits the limit stops its agents; finished agents' results stay in its
 | Rule | Saving | Quality cost |
 |---|---|---|
 | Two runs per section, never more than four agents | None in tokens; finishes inside the window | None |
-| `deferMinor`: no fix round for minor-only findings; one batched cleanup in S9 | About 1 in 6 packages skips a full fix and re-review cycle (5 of 32 in wave 2) | Minor findings land a few sections later |
-| Up to two fix rounds, and a second only while a blocker or major finding remains | With `deferMinor`, round two runs only for real defects; wave 2 needed it for 4 of 32 packages, all medium size, so no cap is set (`maxRounds` can set one per package) | None |
+| ~~`deferMinor`~~ retired 2026-10-12 (`user-decisions.md` item 16): every finding, minor included, is fixed with a test before a package passes | None | None |
+| Fix rounds continue until a review reports no findings of any severity (scripts default to 4 rounds in `m1-resume.js` and 5 in `m1-section.js`; the lead resumes past them) | None | None |
 | Lead commits; no agent commit stage | One agent per package | None |
 | Whole-tree checks run by the lead | No agent tokens | None |
 | Lean lead work: no large tool outputs, results read from files | Keeps the lead's own usage small | None |
@@ -68,7 +68,7 @@ Optional, off by default (each trades some quality for tokens; try one in a sect
 
 | Section | Packages committed | Not passed (moved to S9) | Agent usage | Commits | Date |
 |---|---|---|---|---|---|
-| S1 | WP-35 `79154e9`, WP-36 `196619b`, WP-33 `086e74d` | None; WP-33 landed with five open findings (four blockers, one major) pending the YAML parser decision | About $315 to $377: 1,067M cache read and 20.4M other tokens over six runs (runs a and b, two targeted fixes, the hardening loop and one targeted round) | 3 package commits, 7 plan commits | 2026-10-09 to 2026-10-10 |
+| S1 | WP-35 `79154e9`, WP-36 `196619b`, WP-33 `086e74d` | Reopened 2026-10-12 (`user-decisions.md` item 16): WP-33 has five open findings and WP-35 and WP-36 two minors each; S1 closes again only at zero findings. Before: none; WP-33 landed with five open findings (four blockers, one major) pending the YAML parser decision | About $315 to $377: 1,067M cache read and 20.4M other tokens over six runs (runs a and b, two targeted fixes, the hardening loop and one targeted round) | 3 package commits, 7 plan commits | 2026-10-09 to 2026-10-10 |
 | S2 | WP-37 `fd7c4c5`, WP-38 `67c4950`, WP-39 `97ef9de`; WP-51 `ecd3242`, `0b0fd2e`, `3851500`, then `5f426d5` with four open findings (see S2 notes) | WP-51: develop holds the post-fix7 package with round 8's four findings; the post-fix8 package (round 9: four blockers) is saved as `runs/wp51-postfix8.patch`; the user decides how S2 closes | About $84 to $100: 281M cache read and 4.6M other tokens over two runs (`wf_17b12695-0d2`, `wf_56f4cb3c-e49`), plus about $4 to $6 for the refused first launch | 5 package commits, 3 plan commits | 2026-10-10 to 2026-10-11 |
 | S3 | | | | | |
 | S4 | | | | | |

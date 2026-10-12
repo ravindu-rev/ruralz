@@ -86,7 +86,7 @@ const LENSES = [
 
 const fixPrompt = (findings, minors, first) => `${RULES}
 You are the engineer for WP-51, fixing verified review findings. ${first ? `Read the WP-51 entry of ${RUN} first: its "remaining" holds the two major findings left after two fix rounds, with evidence (1: the working-set reservation leaves out jsonschema/v6's unevaluated-tracking maps; 2: the last round reserves CPU-time units as bytes of maxBufferedBytes, so valid bodies far under maxRequestBodyBytes get 413). Read its deviations and the code before you change anything. Fix both at their root cause: memory reservations must cover the memory validation actually holds (measured, with a bound you can state), and CPU work must be bounded without charging it as buffered bytes, so ordinary valid bodies at the full limit pass. Do not reintroduce the earlier findings its deviations describe.` : 'Each finding below was reproduced by an independent verifier (evidence included).'}
-Fix every finding at its root cause, with a test that fails without the fix. Also fix each minor finding that is plainly correct; explain any you reject in deviations.
+Fix every finding, and every minor finding, at its root cause (AGENTS.md "Quality standard"). For each finding, find every path that shares its root cause (each keyword, input shape, code path or caller of the same kind), fix them together, and name the class members in summary. Give every finding and every class member its own test that fails without the fix, small and edge cases included, and prove it by running the test against the code before your change (go test -overlay) or by a mutation the test kills; report that proof in checks. If you believe a finding is wrong, do not change the code for it and give the evidence in deviations.
 Findings:
 ${JSON.stringify(findings, null, 1).slice(0, 30000)}
 Minor findings:
@@ -114,7 +114,7 @@ const stopped = (x) => !x || (x.status === 'blocked' && !(x.paths || []).length)
 
 phase('Fix')
 const resumePrompt = () => `${RULES}
-You are the engineer for WP-51, fixing verified review findings. Read ${A.findingsFile}: "findings" were each reproduced by an independent verifier in review round ${START} (their evidence field shows how); fix every one at its root cause, with a test that fails without the fix. "minors" are minor findings: fix each one that is plainly correct and explain any you reject in deviations. "history" (and "fix0" and "round1" where present) describe the earlier rounds; do not regress them, and read the WP-51 entry of ${RUN} for the S2 rounds. When the file has "decisions", they are the user's binding decisions on WP-51's contract (also in ${M1}/user-decisions.md and architecture R-77): implement against them.
+You are the engineer for WP-51, fixing verified review findings. Read ${A.findingsFile}: "findings" were each reproduced by an independent verifier in review round ${START} (their evidence field shows how); "minors" are minor findings. Fix every finding, and every minor finding, at its root cause (AGENTS.md "Quality standard"). For each finding, find every path that shares its root cause (each keyword, input shape, code path or caller of the same kind), fix them together, and name the class members in summary. Give every finding and every class member its own test that fails without the fix, small and edge cases included, and prove it by running the test against the code before your change (go test -overlay) or by a mutation the test kills; report that proof in checks. If you believe a finding is wrong, do not change the code for it and give the evidence in deviations. "history" (and "fix0" and "round1" where present) describe the earlier rounds; do not regress them, and read the WP-51 entry of ${RUN} for the S2 rounds. When the file has "decisions", they are the user's binding decisions on WP-51's contract (also in ${M1}/user-decisions.md and architecture R-77): implement against them.
 Then run the scoped checks until green: ${CHECKS}. Return the structured report (paths = files changed in this pass).`
 const fix0 = A.findingsFile
   ? await agent(resumePrompt(), { label: `fix${START}:WP-51`, phase: 'Fix', schema: IMPL_SCHEMA })
@@ -139,8 +139,9 @@ for (let round = START + 1; round <= MAX_ROUNDS; round++) {
   log(`round ${round}: ${reviews.map(r => `${r.lens} ${r.verdict} ${r.findings.length}`).join(', ')}`)
   const all = reviews.flatMap(r => r.findings.map(f => ({ ...f, lens: r.lens })))
   if (reviews.length < LENSES.length) log(`round ${round}: only ${reviews.length} of ${LENSES.length} lenses returned`)
-  if (!all.some(f => f.severity !== 'minor') && reviews.length === LENSES.length) {
-    minors = all
+  // Clean only when every lens reports nothing at all (AGENTS.md "Quality standard").
+  if (!all.length && reviews.length === LENSES.length) {
+    minors = []
     rounds.push({ round, reviews, confirmed: [], minors })
     clean = true
     break
@@ -154,7 +155,7 @@ for (let round = START + 1; round <= MAX_ROUNDS; round++) {
   const confirmed = verdicts.filter(x => x.verdict && x.verdict.confirmed && x.verdict.severity !== 'minor')
   minors = [...minors, ...verdicts.filter(x => x.verdict && x.verdict.confirmed && x.verdict.severity === 'minor').map(x => x.finding)]
   log(`round ${round}: ${candidates.length} serious candidates, ${confirmed.length} confirmed`)
-  if (!confirmed.length && reviews.length === LENSES.length) { rounds.push({ round, reviews, verdicts, confirmed: [], minors }); clean = true; break }
+  if (!confirmed.length && !minors.length && reviews.length === LENSES.length) { rounds.push({ round, reviews, verdicts, confirmed: [], minors }); clean = true; break }
   if (round === MAX_ROUNDS) { rounds.push({ round, reviews, verdicts, confirmed, minors }); break }
   const fix = await agent(fixPrompt(confirmed.map(x => ({ ...x.finding, evidence: x.verdict.evidence })), minors, false), { label: `fix${round}:WP-51`, phase: 'Fix', schema: IMPL_SCHEMA })
   rounds.push({ round, reviews, verdicts, confirmed, minors, fix })

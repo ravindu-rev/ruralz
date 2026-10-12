@@ -22,7 +22,7 @@ const savedReviews = args.reviews || {}
 // deferMinor: run a fix round only for blocker or major findings; minor findings are
 // returned in full (remainingMinor) for one batched cleanup at the end of the wave.
 const deferMinor = !!args.deferMinor
-// maxRounds: per work package cap on fix and re-review rounds (default 2).
+// maxRounds: per work package cap on fix and re-review rounds (default 4).
 const maxRounds = args.maxRounds || {}
 const reportFile = (id) => `${M1}/reports/${id}.json`
 
@@ -100,7 +100,7 @@ Run the checks yourself (scoped): go test -race -count=1 -cover, go vet, bin/gol
 const fixPrompt = (id, review) => `${RULES}
 You are the engineer for work package ${id}, fixing review findings. Read its entry in ${WPS} and ${ARCH} 4.4 as needed. Findings:
 ${JSON.stringify(review.findings, null, 1).slice(0, 12000)}
-Fix every blocker and major finding, and every minor finding that is plainly correct. If you believe a finding is wrong, do not change the code for it and explain why in deviations. Stay inside the owned paths. Re-run the scoped checks (build, vet, go test -race -count=1 -cover, bin/golangci-lint run, bin/golangci-lint fmt, repocheck) until green. Return the structured report (paths = files changed in this pass).`
+Fix every finding, minor included, at its root cause (AGENTS.md "Quality standard"). For each finding, find every path that shares its root cause (each keyword, input shape, code path or caller of the same kind), fix them together, and name the class members in summary. Give every finding and every class member its own test that fails without the fix, small and edge cases included, and prove it by running the test against the code before your change (go test -overlay) or by a mutation the test kills; report that proof in checks. If you believe a finding is wrong, do not change the code for it and give the evidence in deviations. Stay inside the owned paths. Re-run the scoped checks (build, vet, go test -race -count=1 -cover, bin/golangci-lint run, bin/golangci-lint fmt, repocheck) until green. Return the structured report (paths = files changed in this pass).`
 
 const rereviewPrompt = (id, review, fix) => `${RULES}
 You are an adversarial re-reviewer for work package ${id}. A previous review raised:
@@ -158,7 +158,7 @@ const results = await pipeline(ids,
     const rounds = []
     let current = review
     let stoppedAt = null
-    for (let round = 1; round <= (maxRounds[id] || 2) && current && (blocking(current) || (!deferMinor && current.findings.length > 0)); round++) {
+    for (let round = 1; round <= (maxRounds[id] || 4) && current && (blocking(current) || (!deferMinor && current.findings.length > 0)); round++) {
       const fix = await agent(fixPrompt(id, current), { label: `fix${round}:${id}`, phase: 'Fix', schema: IMPL_SCHEMA })
       if (stopped(fix)) {
         log(`${id}: fix round ${round} did no work; stopping`)
@@ -169,7 +169,7 @@ const results = await pipeline(ids,
       const again = await agent(rereviewPrompt(id, current, fix), { label: `rereview${round}:${id}`, phase: 'Re-review', schema: REVIEW_SCHEMA })
       rounds.push({ fix, review: again })
       current = again
-      if (again && !blocking(again)) break
+      if (again && !blocking(again) && (deferMinor || again.findings.length === 0)) break
     }
     let commit = null
     if (args.commit && !stoppedAt && current && !blocking(current) && impl && impl.status !== 'blocked') {
@@ -195,7 +195,9 @@ return results.map((r, i) => {
     contractRequests: [...(r.impl?.contractRequests || []), ...fixes.flatMap(f => f.contractRequests || [])],
     deviations: [...(r.impl?.deviations || []), ...fixes.flatMap(f => f.deviations || [])],
     firstReview: r.review ? { verdict: r.review.verdict, counts: ['blocker', 'major', 'minor'].map(s => r.review.findings.filter(f => f.severity === s).length) } : null,
-    finalVerdict: r.stoppedAt ? 'blocked' : r.final?.verdict,
+    // pass only when the last review reports no findings at all (AGENTS.md "Quality standard"),
+    // unless the run file asks to defer minor findings.
+    finalVerdict: r.stoppedAt ? 'blocked' : (r.final && !blocking(r.final) && (deferMinor || r.final.findings.length === 0)) ? 'pass' : 'fix',
     stoppedAt: r.stoppedAt || null,
     remaining: (r.final?.findings || []).filter(f => f.severity !== 'minor'),
     remainingMinor: (r.final?.findings || []).filter(f => f.severity === 'minor'),

@@ -169,7 +169,7 @@ Finding:
 ${JSON.stringify(f, null, 1)}`
 
 const hardenFixPrompt = (id, findings, minors) => `${RULES}
-You are the engineer for work package ${id}, fixing verified review findings. Each was reproduced by an independent verifier (evidence included). Fix every one at its root cause, with a test that fails without the fix. Also fix each minor finding that is plainly correct; explain any you reject in deviations. Stay inside the owned paths.
+You are the engineer for work package ${id}, fixing verified review findings. Each was reproduced by an independent verifier (evidence included). Fix every one, and every minor finding below, at its root cause (AGENTS.md "Quality standard"). For each finding, find every path that shares its root cause (each keyword, input shape, code path or caller of the same kind), fix them together, and name the class members in summary. Give every finding and every class member its own test that fails without the fix, small and edge cases included, and prove it by running the test against the code before your change (go test -overlay) or by a mutation the test kills; report that proof in checks. If you believe a finding is wrong, do not change the code for it and give the evidence in deviations. Stay inside the owned paths.
 Verified findings:
 ${JSON.stringify(findings, null, 1).slice(0, 30000)}
 Minor findings:
@@ -182,7 +182,7 @@ Re-run the scoped checks until green (go build, go vet, go test -race -count=1 -
 const stopped = (x) => !x || (x.status === 'blocked' && !(x.paths || []).length)
 
 const harden = async (id, impl) => {
-  const MAX = maxRounds[id] || 3
+  const MAX = maxRounds[id] || 5
   const rounds = []
   let history = ''
   let minors = []
@@ -193,9 +193,9 @@ const harden = async (id, impl) => {
       agent(lensPrompt(id, lens, round, impl, history), { label: `review${round}:${lens.key}:${id}`, phase: 'Review', schema: REVIEW_SCHEMA })
         .then(r => r && { lens: lens.key, ...r })))).filter(Boolean)
     const all = reviews.flatMap(r => r.findings.map(f => ({ ...f, lens: r.lens })))
-    if (!all.some(f => f.severity !== 'minor')) {
-      minors = all
-      rounds.push({ round, reviews, confirmed: [], minors })
+    // Clean only when every lens reports nothing at all (AGENTS.md "Quality standard").
+    if (!all.length && reviews.length === LENSES.length) {
+      rounds.push({ round, reviews, confirmed: [], minors: [] })
       clean = true
       break
     }
@@ -208,7 +208,7 @@ const harden = async (id, impl) => {
     const confirmed = verdicts.filter(x => x.verdict && x.verdict.confirmed && x.verdict.severity !== 'minor')
     minors = [...minors, ...verdicts.filter(x => x.verdict && x.verdict.confirmed && x.verdict.severity === 'minor').map(x => x.finding)]
     log(`${id} round ${round}: ${candidates.length} serious candidates, ${confirmed.length} confirmed`)
-    if (!confirmed.length) { rounds.push({ round, reviews, verdicts, confirmed: [], minors }); clean = true; break }
+    if (!confirmed.length && !minors.length && reviews.length === LENSES.length) { rounds.push({ round, reviews, verdicts, confirmed: [], minors }); clean = true; break }
     if (round === MAX) { rounds.push({ round, reviews, verdicts, confirmed, minors }); break }
     const fix = await agent(hardenFixPrompt(id, confirmed.map(x => ({ ...x.finding, evidence: x.verdict.evidence })), minors), { label: `fix${round}:${id}`, phase: 'Fix', schema: FIX_SCHEMA })
     rounds.push({ round, reviews, verdicts, confirmed, minors, fix })
