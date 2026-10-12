@@ -128,6 +128,15 @@ func TestEvaluationBound(t *testing.T) {
 		{"$ref and not sharing a definition", chain(13, `{"$ref":"#/$defs/d%d","not":{"not":{"$ref":"#/$defs/d%d"}}}`), "/$defs/d2/not"},
 		{"if and then both recursing", ifAndThen, "/if"},
 		{"then and else recursing twice", `{"if":true,"then":{"$ref":"#/$defs/two"},"else":{"$ref":"#/$defs/two"},"$defs":{"two":{"allOf":[{"items":{"$ref":"#"}},{"items":{"$ref":"#"}}]}}}`, "/$defs/two/allOf"},
+		// Review finding (mutants that survived): a $dynamicRef applies each
+		// target the dynamic scope may resolve it to, and the items of
+		// prefixItems also meet contains.
+		{"dynamic scope doubling", `{"$dynamicAnchor":"n","oneOf":[{"$ref":"urn:list"},{"$ref":"urn:list2"}],"$defs":{"l":{"$id":"urn:list","$dynamicAnchor":"n","items":{"$dynamicRef":"#n"}},"l2":{"$id":"urn:list2","$dynamicAnchor":"n","items":{"$dynamicRef":"#n"}}}}`, "/oneOf"},
+		{"prefix items and contains", `{"prefixItems":[{"$ref":"#"}],"contains":{"$ref":"#"}}`, "/contains"},
+		// Minor review finding: a member name no properties keyword declares
+		// is assumed to meet every pattern, even patterns no name can match
+		// together (proposed over-approximation, package documentation).
+		{"exclusive patterns", `{"type":"object","patternProperties":{"^[a-z]+$":{"$ref":"#"},"^[A-Z]+$":{"$ref":"#"}}}`, "/patternProperties"},
 
 		{"linear tree", linearTree, ""},
 		{"anyOf with one recursive branch", linearAnyOf, ""},
@@ -203,6 +212,26 @@ const componentTree = `{"$ref":"#/$defs/node","$defs":{"node":{"oneOf":[{"$ref":
 func quotes(n int) string {
 	return `{"type":"doc","content":[` + strings.Repeat(`{"type":"blockquote","content":[`, n) +
 		`{"type":"paragraph","content":[{"type":"text","text":"x"}]}` + strings.Repeat(`]}`, n) + `]}`
+}
+
+// TestCrossingDepth pins the depth at which the evaluation bound crosses
+// for a recursion through a member name only the second allOf branch
+// declares (review finding: a mutant that dropped the second operand's
+// names from the precise pass's classes crossed 14 deep, admitting 16
+// times the evaluations per value, and no test told the depths apart, both
+// being below MinNesting): 10 deep, whichever branch declares the name.
+//
+// Requirements: 07 req 75 and section 9 item 21.
+func TestCrossingDepth(t *testing.T) {
+	for _, tc := range []struct{ schema, ptr string }{
+		{`{"allOf":[{"properties":{"a":true}},{"properties":{"b":{"oneOf":[{"$ref":"#"},{"$ref":"#"}]}}}]}`, "/allOf/1/properties"},
+		{`{"allOf":[{"properties":{"b":{"oneOf":[{"$ref":"#"},{"$ref":"#"}]}}},{"properties":{"a":true}}]}`, "/allOf/0/properties"},
+	} {
+		issues := compileIssues(t, tc.schema)
+		if len(issues) != 1 || issues[0].Pointer != tc.ptr || !strings.Contains(issues[0].Message, "nested 10 deep") {
+			t.Errorf("schema %s: issues %+v, want the crossing 10 deep at %s", tc.schema, issues, tc.ptr)
+		}
+	}
 }
 
 // TestNestingLimit is the regression test of the review finding that the

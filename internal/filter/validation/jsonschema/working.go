@@ -6,6 +6,7 @@ package jsonschema
 import (
 	"encoding/json"
 	"math"
+	"math/big"
 	"math/bits"
 	"slices"
 	"strings"
@@ -14,7 +15,7 @@ import (
 	sjs "github.com/santhosh-tekuri/jsonschema/v6"
 )
 
-// The working set and the work of validation (proposed, package
+// The working set and the work of validation (architecture R-77, package
 // documentation "Working set" and "Work bound"). Validation runs in up to
 // two passes: a decision pass, in which the library keeps no location of
 // its errors and stops early where it can, and, only for a body that
@@ -55,10 +56,13 @@ const (
 	// ratBytes is the fixed part of the math/big rational a failing
 	// numeric keyword keeps for the instance number.
 	ratBytes = 96
-	// stackBytes is the goroutine stack one evaluation on the current path
-	// may take: measured at 1.2 to 1.3 KiB used per in-place evaluation,
-	// up to three times that while the stack doubles and copies.
-	stackBytes = 4096
+	// stackBytes is the goroutine stack one evaluation of the chain on the
+	// call stack may take (evalGraph.chain): measured at 1.4 to 1.6 KiB per
+	// in-place evaluation and 2.2 to 2.5 KiB per evaluation of a nesting
+	// level's chain, whose first evaluation also descends into the value
+	// (debug.SetMaxStack), up to three times that while the stack doubles
+	// and copies.
+	stackBytes = 8192
 	// propMapBase and propMapEntry bound the map of unevaluated member
 	// names one evaluation copies, with every allocation of its growth:
 	// measured at most 256 + 122 bytes per name.
@@ -84,13 +88,20 @@ const (
 	// errors adds a group error.
 	decideErrorBytes = 104
 	// decideFrames are the evaluations the decision pass adds at the body
-	// root: the wrapper that asks for a boolean result and its reference
-	// to the schema.
+	// root, on the call stack below the document's: the wrapper, its not
+	// that asks for a boolean result, and the not's reference to the
+	// document.
 	decideFrames = 3
 	// listedNameBytes is what an evaluation with additionalProperties
 	// false holds per member while it loops: the names it does not
 	// declare, in a slice grown by appending.
 	listedNameBytes = 48
+	// matchedItemBytes is what an evaluation with contains holds per item
+	// while it loops, and the location pass keeps in a minContains or
+	// maxContains error: the index of every item that matches, in a slice
+	// grown by appending (review finding: 100 such evaluations over 16,000
+	// items held 12.7 MB charged 58 KB).
+	matchedItemBytes = 16
 )
 
 // The hash table of a decoded object (a map[string]any, Go's swiss
@@ -233,6 +244,21 @@ const (
 	// memberUnits is one member of an object per evaluation at the
 	// object: the library loops over every member (measured 19 to 35).
 	memberUnits = 48
+	// nameHashBytes is the bytes of a member name per work unit of
+	// hashing or comparing it: the library looks the name up in, inserts
+	// it into and deletes it from maps keyed by names, which hashes the
+	// whole name (measured 0.02 to 0.05 ns per byte), and sorts the names
+	// of an object it hashes for uniqueItems, comparing them byte by byte
+	// (review finding: a 10 MiB name, charged nothing per byte, was hashed
+	// for 1.35 to 3.2 s).
+	nameHashBytes = 8
+	// nameHashes is how often an evaluation with member keywords may hash
+	// each member name: the properties lookup. unevalNameHashes is how
+	// often an
+	// evaluation that copies the unevaluated names may: the copy's insert,
+	// the delete once a keyword evaluates the member, the merge's lookup
+	// and delete, and the unevaluatedProperties lookup.
+	nameHashes, unevalNameHashes = 1, 5
 	// copyUnits is one byte of a string per evaluation at the string: the
 	// library copies it (measured 0.65 to 0.74).
 	copyUnits = 1
@@ -277,9 +303,9 @@ const (
 	numberUnits, numberByteUnits, numberExpUnits = 768, 28, 12
 )
 
-// WorkPerByte bounds the work of validating one request body (proposed,
-// package documentation "Work bound"): at most WorkPerByte work units per
-// byte of limits.maxRequestBodyBytes.
+// WorkPerByte bounds the work of validating one request body (architecture
+// R-77, package documentation "Work bound"): at most WorkPerByte work units
+// per byte of limits.maxRequestBodyBytes.
 const WorkPerByte = 256
 
 // maxWorkLimit is the largest work limit; it stays below countCap, so a
@@ -493,7 +519,7 @@ func errorUnits(s *sjs.Schema) units {
 	}
 	ref := count(s.Ref != nil)
 	cond := count(s.RecursiveRef != nil, s.DynamicRef != nil, s.Not != nil, len(s.AllOf) > 0, len(s.AnyOf) > 0, len(s.OneOf) > 0)
-	before := count(s.MaxProperties != nil, s.MinProperties != nil, len(s.Required) > 0)
+	before := pairFailing(s.MinProperties, s.MaxProperties) + count(len(s.Required) > 0)
 	after := count(s.AdditionalProperties == false) + len(s.DependentRequired)
 	listed := len(s.Required)
 	for _, list := range s.DependentRequired {
@@ -514,16 +540,21 @@ func errorUnits(s *sjs.Schema) units {
 	others := count(s.Pattern != nil, s.ContentEncoding != nil, s.ContentMediaType != nil, s.ContentSchema != nil)
 	var own [kinds]int
 	own[kindObject] = before + after
-	own[kindArray] = count(s.MinItems != nil, s.MaxItems != nil, s.UniqueItems, s.Contains != nil, s.MaxContains != nil, s.AdditionalItems == false)
+	own[kindArray] = pairFailing(s.MinItems, s.MaxItems) + count(s.UniqueItems, s.Contains != nil, s.MaxContains != nil, s.AdditionalItems == false)
 	own[kindString] = count(s.MinLength != nil, s.MaxLength != nil) + others
-	own[kindNumber] = count(s.Minimum != nil, s.Maximum != nil, s.ExclusiveMinimum != nil, s.ExclusiveMaximum != nil, s.MultipleOf != nil)
+	own[kindNumber] = boundsFailing(s) + count(s.MultipleOf != nil)
+	own[kindInteger] = own[kindNumber]
 	loops := len(s.Properties) > 0 || len(s.PatternProperties) > 0 || s.AdditionalProperties != nil
 	all := 2 * count(s.UnevaluatedProperties != nil || s.PropertyNames != nil)
 	itemKeywords := s.Items != nil || s.Items2020 != nil || len(s.PrefixItems) > 0 || s.Contains != nil || s.UnevaluatedItems != nil || s.AdditionalItems != nil
 	for k, name := range typeNames() {
 		// The type keyword fails only on a value of a kind it does not
-		// list (an integer type may fail on any number).
+		// list: an integer type may fail on any number but one whose literal
+		// is an integer, which a number type admits too.
 		typeFails := types != nil && !slices.Contains(types, name)
+		if k == kindInteger && slices.Contains(types, "number") {
+			typeFails = false
+		}
 		early := count(typeFails || s.Const != nil || s.Enum != nil || s.Format != nil)
 		u.full[k] = max(early, ref+cond+own[k])
 		u.decide[k] = max(early, ref+own[k], cond)
@@ -560,6 +591,52 @@ func errorUnits(s *sjs.Schema) units {
 	return u
 }
 
+// pairFailing returns how many of a lower and an upper bound on a count
+// (minItems and maxItems, minProperties and maxProperties) can fail on one
+// value: one of them only, when the lower is at most the upper.
+func pairFailing(lower, upper *int) int {
+	switch {
+	case lower != nil && upper != nil && *lower <= *upper:
+		return 1
+	case lower != nil && upper != nil:
+		return 2
+	case lower != nil || upper != nil:
+		return 1
+	}
+	return 0
+}
+
+// boundsFailing returns how many of the numeric bounds of s can fail on
+// one number: every lower bound (minimum, exclusiveMinimum) may fail
+// together, and so may every upper bound (maximum, exclusiveMaximum), but a
+// lower and an upper bound only when the lower lies above the upper, or at
+// it when both exclude it.
+func boundsFailing(s *sjs.Schema) int {
+	type bound struct {
+		v         *big.Rat
+		exclusive bool
+	}
+	var lower, upper []bound
+	for _, b := range []bound{{s.Minimum, false}, {s.ExclusiveMinimum, true}} {
+		if b.v != nil {
+			lower = append(lower, b)
+		}
+	}
+	for _, b := range []bound{{s.Maximum, false}, {s.ExclusiveMaximum, true}} {
+		if b.v != nil {
+			upper = append(upper, b)
+		}
+	}
+	for _, l := range lower {
+		for _, u := range upper {
+			if c := l.v.Cmp(u.v); c > 0 || (c == 0 && l.exclusive && u.exclusive) {
+				return len(lower) + len(upper)
+			}
+		}
+	}
+	return max(len(lower), len(upper))
+}
+
 // composite reports whether s compares whole values with a const or enum
 // value that holds an array or an object, whose nested numbers the library
 // parses when it compares them with the value's.
@@ -585,8 +662,8 @@ func composite(s *sjs.Schema) bool {
 // the parts that grow with the value: the evaluation, every keyword that
 // can fail (type, const and enum count once, since the first of them that
 // fails ends the evaluation), the names of its lists, its dependency
-// members, the schema side of its const and enum comparisons, and the
-// setup of its pattern.
+// members, the bytes of the names it looks up, the schema side of its
+// const and enum comparisons, and the setup of its pattern.
 func workWeight(s *sjs.Schema, pc *patternCosts) int {
 	if s.Bool != nil {
 		return evalUnits
@@ -596,7 +673,8 @@ func workWeight(s *sjs.Schema, pc *patternCosts) int {
 		// One of them may fail, which ends the evaluation.
 		n++
 	}
-	w := evalUnits + keywordUnits*n + listUnits*names + depUnits*(len(s.DependentSchemas)+len(s.Dependencies)+len(s.DependentRequired))
+	w := evalUnits + keywordUnits*n + listUnits*names + depUnits*(len(s.DependentSchemas)+len(s.Dependencies)+len(s.DependentRequired)) +
+		lookedUpBytes(s)/nameHashBytes
 	if s.Const != nil {
 		w += compareWork(*s.Const, false)
 	}
@@ -609,6 +687,35 @@ func workWeight(s *sjs.Schema, pc *patternCosts) int {
 		w += pc.of(s.Pattern.String()).fixed
 	}
 	return min(w, countCap)
+}
+
+// lookedUpBytes returns the bytes of the names one evaluation of s looks
+// up in the object it evaluates, which hashes them whole: its required
+// names, and the names of its dependentRequired, dependencies and
+// dependentSchemas members and lists.
+func lookedUpBytes(s *sjs.Schema) int {
+	n := 0
+	for _, name := range s.Required {
+		n += len(name)
+	}
+	for name, list := range s.DependentRequired {
+		n += len(name)
+		for _, l := range list {
+			n += len(l)
+		}
+	}
+	for name, d := range s.Dependencies {
+		n += len(name)
+		if list, ok := d.([]string); ok {
+			for _, l := range list {
+				n += len(l)
+			}
+		}
+	}
+	for name := range s.DependentSchemas {
+		n += len(name)
+	}
+	return n
 }
 
 // compareWork returns the work of comparing a value with v, a const or
@@ -635,6 +742,38 @@ func compareWork(v any, nested bool) int {
 		}
 	}
 	return w
+}
+
+// comparedObjects returns the objects of the const and enum values of s,
+// at any depth, that one evaluation of s compares with the value.
+func comparedObjects(s *sjs.Schema) int {
+	n := 0
+	if s.Const != nil {
+		n = objectsIn(*s.Const)
+	}
+	if s.Enum != nil {
+		for _, v := range s.Enum.Values {
+			n = min(n+objectsIn(v), countCap)
+		}
+	}
+	return n
+}
+
+// objectsIn returns the objects of v, v itself included, at any depth.
+func objectsIn(v any) int {
+	n := 0
+	switch t := v.(type) {
+	case []any:
+		for _, e := range t {
+			n = min(n+objectsIn(e), countCap)
+		}
+	case map[string]any:
+		n = 1
+		for _, e := range t {
+			n = min(n+objectsIn(e), countCap)
+		}
+	}
+	return n
 }
 
 // parsesOf returns how often one evaluation of s may parse and compare
@@ -734,8 +873,10 @@ type bodyScan struct {
 	// (mapExtra, arrayExtra, stringExtra), reserved with the decoded values.
 	decide, locate, path, transient, work, walk, extra int64
 	// compare is the most other items that an item of an enclosing
-	// uniqueItems array may be compared with.
-	compare int64
+	// uniqueItems array may be compared with; objects the const and enum
+	// objects that the enclosing values' evaluations compare with them
+	// (dimObjects), each of which may compare with an object of the value.
+	compare, objects int64
 	// comparing counts the enclosing values that some evaluation compares
 	// whole with a const or enum value holding arrays or objects.
 	comparing int
@@ -775,9 +916,6 @@ func (b *bodyScan) scan(v any) {
 	}
 	path, decide := b.value(v, 0, "", 0, st, nil)
 	b.path, b.decide = addCap(path, decideFrames*stackBytes), decide
-	if b.ws.flags.maxInsts > 0 {
-		b.transient = max(b.transient, matcherBytes+matcherInstBytes*int64(b.ws.flags.maxInsts))
-	}
 }
 
 // valueCharge is what bodyScan charges every value before its kind's
@@ -839,23 +977,39 @@ func (b *bodyScan) enter(d int, name string, frames int64, st int, match *vec, v
 		full, decide, groups = min(full, sf), min(decide, sd), min(groups, sg)
 	}
 	evals := int64(c[dimEvals])
-	frames = addCap(frames, evals)
+	// The evaluations at the value run one chain of in-place evaluations at
+	// a time: the call stack and the dynamic scope hold one chain per value
+	// on the path, never more than the value's evaluations.
+	chain := evals
+	switch {
+	case s != nil:
+		chain = min(chain, int64(s.chain))
+	case b.ws.flags.chain > 0:
+		chain = min(chain, int64(b.ws.flags.chain))
+	}
+	frames = addCap(frames, chain)
 	b.locate = addCap(b.locate, mulCap(full, errorBytes+locationBytes*int64(dd)))
 	b.walk = addCap(b.walk, mulCap(full, walkWork(b.ws.flags.maxPointer)))
 	work := addCap(int64(c[dimWork]), mulCap(addCap(evals, full), int64(dd)*locationUnits))
-	// The cycle check walks the evaluations at the value; a dynamic
-	// reference the whole path.
-	work = addCap(work, mulCap(evals, evals*scopeUnits))
+	// The cycle check of every evaluation walks the scope of its chain at
+	// the value; a dynamic reference the whole path's.
+	work = addCap(work, mulCap(evals, chain*scopeUnits))
 	if b.ws.flags.dynamic {
 		work = addCap(work, mulCap(evals, mulCap(frames, scopeUnits)))
 	}
 	work = addCap(work, mulCap(int64(c[dimScan]), int64(len(name))))
+	if c[dimScan] > 0 && b.ws.flags.maxInsts > 0 {
+		// A pattern may match the value or its member name: a matcher of the
+		// largest program (review finding: charged to every body, it took 64
+		// MB of the budget for {}).
+		b.transient = max(b.transient, matcherBytes+matcherInstBytes*int64(b.ws.flags.maxInsts))
+	}
 	return valueCharge{
 		st: s, c: c, full: full,
 		decide: mulCap(addCap(decide, groups), decideErrorBytes),
 		evals:  evals, frames: frames, work: work,
 		hash: mulCap(int64(c[dimHash]), max(1, b.compare)),
-		own:  mulCap(evals, stackBytes),
+		own:  mulCap(chain, stackBytes),
 	}
 }
 
@@ -939,18 +1093,30 @@ func (b *bodyScan) array(t []any, d int, a valueCharge) (path, decide int64) {
 		own = addCap(own, mulCap(u, itemMapBase+itemMapEntry*n))
 	}
 	work = addCap(work, mulCap(a.hash, compareUnits))
+	if b.ws.flags.contains {
+		// Every evaluation with contains lists the matching items while it
+		// loops; the location pass keeps the lists of minContains and
+		// maxContains in their errors.
+		lists, kept := a.evals, a.evals
+		if a.st != nil {
+			lists, kept = min(lists, int64(a.st.matches)), min(kept, int64(a.st.kept))
+		}
+		own = addCap(own, mulCap(mulCap(lists, n), matchedItemBytes))
+		b.locate = addCap(b.locate, mulCap(mulCap(kept, n), matchedItemBytes))
+	}
 	unique := c[dimUnique] > 0
 	if unique && n > pairwiseItems {
 		b.transient = max(b.transient, mulCap(n, dupItemBytes))
 	}
 	b.addWork(work)
-	compare, comparing := b.compare, b.comparing
+	compare, comparing, objects := b.compare, b.comparing, b.objects
 	if unique && n > 1 {
 		b.compare = max(b.compare, comparisons(t))
 	}
 	if a.st != nil && a.st.compares {
 		b.comparing++
 	}
+	b.objects = addCap(b.objects, int64(c[dimObjects]))
 	var below, sum int64
 	for i, e := range t {
 		if b.stop() {
@@ -959,7 +1125,7 @@ func (b *bodyScan) array(t []any, d int, a valueCharge) (path, decide int64) {
 		p, dt := b.value(e, d+1, "", a.frames, child(a.st, func(s *evalState) int { return s.item(i) }), nil)
 		below, sum = max(below, p), addCap(sum, dt)
 	}
-	b.compare, b.comparing = compare, comparing
+	b.compare, b.comparing, b.objects = compare, comparing, objects
 	return addCap(own, below), addCap(a.decide, sum)
 }
 
@@ -967,8 +1133,12 @@ func (b *bodyScan) array(t []any, d int, a valueCharge) (path, decide int64) {
 // the decision pass an evaluation looping over the members stops at the
 // first that fails, so it keeps the errors of one member, unless
 // unevaluatedProperties, which evaluates the members it reaches after the
-// loop, keeps them all; member names under propertyNames are validated on
-// their own, as the location pass does.
+// loop, keeps them all. Every evaluation with propertyNames validates every
+// member name on its own, as the location pass does, and wraps the errors
+// of a name that fails in an error of its own: at most one per such
+// evaluation, and only for a name whose errors the scan cannot rule out
+// (review finding: one wrapper per name, whether or not it could fail and
+// however many evaluations applied propertyNames).
 func (b *bodyScan) object(t map[string]any, d int, a valueCharge) (path, decide int64) {
 	c, work, own := a.c, a.work, a.own
 	n := int64(len(t))
@@ -991,14 +1161,39 @@ func (b *bodyScan) object(t map[string]any, d int, a valueCharge) (path, decide 
 		own = addCap(own, mulCap(mulCap(lists, n), listedNameBytes))
 	}
 	work = addCap(work, mulCap(a.hash, compareUnits*(1+n)))
+	// The member names, hashed or compared per byte: by the properties
+	// lookup of every evaluation with member keywords, the unevaluated
+	// copies, the uniqueItems passes (looking each name up again and
+	// sorting the names) and comparisons (looking each name up in the
+	// other object), and by every const or enum object compared with this
+	// one, which stops at the first name it lacks.
+	var names, longest int64
+	for k := range t {
+		names, longest = names+int64(len(k)), max(longest, int64(len(k)))
+	}
+	lookups := a.evals
+	if a.st != nil {
+		lookups = min(lookups, int64(a.st.members))
+	}
+	hashes := mulCap(lookups, nameHashes)
+	if b.ws.flags.uneProps {
+		hashes = addCap(hashes, mulCap(int64(c[dimUneval]), unevalNameHashes))
+	}
+	hashes = addCap(hashes, mulCap(int64(c[dimHash]), 1+2*int64(bits.Len64(uint64(n)))))
+	hashes = addCap(hashes, a.hash)
+	objects := addCap(b.objects, int64(c[dimObjects]))
+	work = addCap(work, addCap(mulCap(names, hashes), mulCap(longest, objects))/nameHashBytes)
 	b.addWork(work)
-	comparing := b.comparing
+	comparing, enclosing := b.comparing, b.objects
 	if a.st != nil && a.st.compares {
 		b.comparing++
 	}
+	b.objects = objects
 	var match *vec
+	naming := a.evals
 	if a.st != nil {
 		match = &a.st.match
+		naming = min(naming, int64(a.st.propNames))
 	}
 	var below, keys, sum, top int64
 	for k, e := range t {
@@ -1009,18 +1204,19 @@ func (b *bodyScan) object(t map[string]any, d int, a valueCharge) (path, decide 
 		if b.ws.flags.names {
 			// The name is a string value of its own (propertyNames),
 			// validated on top of the current path; its errors, located
-			// at the name, are kept in either pass with the one naming it.
+			// at the name, are kept in either pass, wrapped in one more
+			// error by each evaluation applying propertyNames that it
+			// fails, which takes at least one of its error units.
 			ka := b.enter(d+1, "", a.frames, child(a.st, func(s *evalState) int { return s.key }), nil, k)
 			below = max(below, b.str(ka, int64(len(k))))
-			if ka.evals > 0 {
-				b.locate = addCap(b.locate, errorBytes)
-				keys = addCap(keys, mulCap(addCap(ka.full, 1), errorBytes))
-			}
+			wrappers := min(naming, ka.full)
+			b.locate = addCap(b.locate, mulCap(wrappers, errorBytes))
+			keys = addCap(keys, mulCap(addCap(ka.full, wrappers), errorBytes))
 		}
 		p, dt := b.value(e, d+1, k, a.frames, child(a.st, func(s *evalState) int { return s.member(k) }), match)
 		below, sum, top = max(below, p), addCap(sum, dt), max(top, dt)
 	}
-	b.comparing = comparing
+	b.comparing, b.objects = comparing, enclosing
 	// The depth bound: every evaluation's units and a group each, and
 	// every member's errors.
 	decide = addCap(mulCap(addCap(int64(c[dimErrs]), a.evals), decideErrorBytes), sum)

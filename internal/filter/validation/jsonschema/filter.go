@@ -40,7 +40,7 @@ const (
 	// DetailInvalid: the body is not one strict JSON value (07 req 80).
 	DetailInvalid = "Request body is not valid JSON"
 	// DetailNumber: a body number is outside the number bounds while the
-	// schema compares numbers (proposed, package documentation).
+	// schema compares numbers (architecture R-77, package documentation).
 	DetailNumber = "Request body has a number out of range"
 	// DetailMismatch prefixes the keyword location of a schema mismatch
 	// (07 req 81); a mismatch at the schema root is DetailMismatch alone.
@@ -54,16 +54,22 @@ var (
 	errDecodedTooLarge = fmt.Errorf("validation.json-schema: decoded body over its limit: %w", filter.ErrTooLarge)
 	// errWorkingSetTooLarge: the decision pass may hold more than
 	// WorkingSetFactor times the raw limit besides the decoded values (413
-	// RZ-RT-003, proposed).
+	// RZ-RT-003, architecture R-77).
 	errWorkingSetTooLarge = fmt.Errorf("validation.json-schema: validating the body may hold more than its working-set limit: %w", filter.ErrTooLarge)
 	// errNestingTooDeep: a body value is nested as deep as the schema's
 	// nesting limit, where one value may take more than MaxEvaluations
 	// evaluations, on a path whose state does not bound it (413
-	// RZ-RT-003, proposed).
+	// RZ-RT-003, architecture R-77).
 	errNestingTooDeep = fmt.Errorf("validation.json-schema: the body nests deeper than validating it under the schema is bounded: %w", filter.ErrTooLarge)
 	// errWorkTooLarge: validating the body may take more than WorkPerByte
-	// work units per byte of the raw limit (413 RZ-RT-003, proposed).
+	// work units per byte of the raw limit (413 RZ-RT-003, architecture
+	// R-77).
 	errWorkTooLarge = fmt.Errorf("validation.json-schema: validating the body may take more than its work limit: %w", filter.ErrTooLarge)
+	// errReservationTooLarge: the decoded values, what their maps, arrays
+	// and strings hold beyond the decoder's charge, and the decision pass's
+	// working set exceed ReservationFactor times the raw limit together (413
+	// RZ-RT-003, architecture R-77).
+	errReservationTooLarge = fmt.Errorf("validation.json-schema: the decoded body and the working set of validating it exceed the reservation limit: %w", filter.ErrTooLarge)
 	// errNoMessage: the Exchange has no message in onRequestBody.
 	errNoMessage = errors.New("validation.json-schema: no request message")
 )
@@ -118,11 +124,19 @@ func (Factory) Build(_ context.Context, env filter.BuildEnv) (filter.Filter, err
 	if prev != nil && prev.schema.sum == p.sum && prev.status == status && prev.limits == limits {
 		// Carried over unchanged: its Schema also serves the other
 		// Policies of this snapshot with the same document that build
-		// after it.
-		if env.Shared != nil {
-			if _, err := env.Shared.Get(sharedKey{p.sum}, func() (any, error) { return prev.schema, nil }); err != nil {
-				return nil, err
-			}
+		// after it. When one of them built first (a new Policy has no
+		// Previous, so it compiled the document again), this Policy takes
+		// that Schema too, so the snapshot holds one per document (minor
+		// review finding).
+		if env.Shared == nil {
+			return prev, nil
+		}
+		v, err := env.Shared.Get(sharedKey{p.sum}, func() (any, error) { return prev.schema, nil })
+		if err != nil {
+			return nil, err
+		}
+		if s, _ := v.(*Schema); s != nil && s != prev.schema && s.sum == p.sum {
+			return newFilter(s, status, limits), nil
 		}
 		return prev, nil
 	}
@@ -166,31 +180,64 @@ func compileShared(p *prepared) (*Schema, error) {
 // item 24), used when the snapshot leaves BuildEnv.Limits unset.
 const defaultMaxRequestBodyBytes = 10 << 20
 
-// WorkingSetFactor bounds the memory validation may hold (proposed,
-// package documentation "Working set"): besides the decoded values, the
-// decision pass may hold at most WorkingSetFactor times
+// WorkingSetFactor bounds the memory validation may hold (architecture
+// R-77, package documentation "Working set"): besides the decoded values,
+// the decision pass may hold at most WorkingSetFactor times
 // limits.maxRequestBodyBytes, or the body is oversized, and the location
 // pass runs only when it fits the same bound.
 const WorkingSetFactor = 2 * filter.DecodedLimitFactor
 
+// ReservationFactor bounds what Handle reserves for one body (architecture
+// R-77): the decoded values at the decoder's charge, what their maps,
+// arrays and strings hold beyond it (internal/jsonval charges neither an
+// object's hash table nor an array's spare capacity), and the working set
+// of the pass that runs, together at most ReservationFactor times
+// limits.maxRequestBodyBytes, so that with the raw body the request side
+// holds at most ReservationFactor+1 times the raw limit (130 MiB at the 10
+// MiB default). A body whose reservation would exceed it is oversized
+// before anything is reserved; a failing body whose location pass would
+// exceed it is refused with DetailMismatch alone.
+const ReservationFactor = 12
+
 // bodyLimits are the limits a Filter applies to one request body, all
 // derived from limits.maxRequestBodyBytes.
 type bodyLimits struct {
-	// decoded bounds the decoded values (bytes), workingSet what either
-	// pass may hold besides them (bytes), work the work of validation
-	// (work units). A Filter built outside Factory.Build leaves them zero:
-	// no bound.
-	decoded, workingSet, work int64
+	// decoded bounds the decoded values at the decoder's charge (bytes),
+	// workingSet what either pass may hold besides them (bytes), reserve
+	// what Handle reserves for the body (bytes), work the work of
+	// validation (work units). A Filter built outside Factory.Build leaves
+	// them zero: no bound.
+	decoded, workingSet, reserve, work int64
 }
 
 // limitsOf returns the limits for a raw body limit: filter.DecodedLimitFactor
 // times it for the decoded values (architecture R-63), WorkingSetFactor
-// times it for the working set and WorkPerByte times it for the work. An
-// unset limit is the configuration default, so a snapshot that forgets
-// Limits never decodes without a budget; a limit too large to multiply
-// gets the largest bounds.
+// times it for the working set, ReservationFactor times it for the
+// reservation and WorkPerByte times it for the work. An unset limit is the
+// configuration default, so a snapshot that forgets Limits never decodes
+// without a budget; a limit too large to multiply gets the largest bounds.
 func limitsOf(rawLimit int64) bodyLimits {
-	return bodyLimits{decoded: decodedLimit(rawLimit), workingSet: scaledLimit(rawLimit, WorkingSetFactor), work: workLimit(rawLimit)}
+	return bodyLimits{
+		decoded: decodedLimit(rawLimit), workingSet: scaledLimit(rawLimit, WorkingSetFactor),
+		reserve: scaledLimit(rawLimit, ReservationFactor), work: workLimit(rawLimit),
+	}
+}
+
+// refusal returns the error that refuses a scanned body under the limits
+// before the library runs, or nil: a value as deep as the schema's nesting
+// limit where the states do not bound it, a decision pass whose working
+// set is over its limit, or work over the work limit (each
+// filter.ErrTooLarge).
+func (l bodyLimits) refusal(scan *bodyScan) error {
+	switch {
+	case scan.deep:
+		return errNestingTooDeep
+	case l.workingSet > 0 && scan.decideMemory() > l.workingSet:
+		return errWorkingSetTooLarge
+	case scan.workOver():
+		return errWorkTooLarge
+	}
+	return nil
 }
 
 // decodedLimit returns the decode cost budget for a raw body limit:
@@ -236,20 +283,20 @@ func (f *Filter) Schema() *Schema { return f.schema }
 
 // Handle validates the client request body in onRequestBody (07 reqs 78 to
 // 82) and continues in every other Phase. A refused body is Respond with
-// 400 RZ-RT-009; a decoded body that is oversized, whose validation may
+// 400 RZ-RT-009. A decoded body that is oversized, whose validation may
 // hold more than its working-set limit or take more than its work limit,
-// that nests as deep as the schema's nesting limit where the states do
-// not bound it, or whose reservation
-// is refused, is CannotDecide with filter.ErrTooLarge or filter.ErrBudget,
-// which the executor answers under either failureMode (07 req 15); a body
-// the message cannot supply, a request whose context ends before
-// validation, or an internal validator error (07 req 13), is CannotDecide
-// with the class default.
+// whose reservation would exceed its reservation limit, or that nests as
+// deep as the schema's nesting limit where the states do not bound it, is
+// CannotDecide with filter.ErrTooLarge, and one whose reservation the
+// budget refuses with filter.ErrBudget, both of which the executor answers
+// under either failureMode (07 req 15). A body the message cannot supply,
+// a request whose context ends before validation, or an internal validator
+// error (07 req 13), is CannotDecide with the class default.
 //
 // Validation runs in two passes (package documentation "Working set"):
 // the decision pass, whose working set is reserved with the decoded
 // values, then, for a body that fails, the location pass that names the
-// failing keyword, when its working set fits the same limit, its work the
+// failing keyword, when its working set fits the same limits, its work the
 // work limit with the first pass's, and the budget its reservation; a
 // failing body that does not get one is refused with DetailMismatch alone.
 func (f *Filter) Handle(ctx context.Context, p phase.Phase, x filter.Exchange) filter.Result {
@@ -282,28 +329,29 @@ func (f *Filter) Handle(ctx context.Context, p phase.Phase, x filter.Exchange) f
 		scan.workLimit = maxWorkLimit
 	}
 	scan.scan(v)
-	switch {
-	case scan.bad:
+	if scan.bad {
 		return f.reject(DetailNumber)
-	case scan.deep:
-		return filter.Undecided("", errNestingTooDeep)
-	case f.limits.workingSet > 0 && scan.decideMemory() > f.limits.workingSet:
-		return filter.Undecided("", errWorkingSetTooLarge)
-	case scan.workOver():
-		return filter.Undecided("", errWorkTooLarge)
+	}
+	if err := f.limits.refusal(&scan); err != nil {
+		return filter.Undecided("", err)
+	}
+	// The decoded values, with what their objects' hash tables, their
+	// arrays' spare capacity and their strings' size classes hold beyond
+	// the decoder's charge, and the decision pass's working set
+	// (architecture R-77, package documentation) are reserved together,
+	// within the reservation limit, and released when validation ends, the
+	// decoded tree's last use (07 req 82). The work is bounded, never
+	// reserved.
+	decoded := addCap(cost, scan.extra)
+	n := addCap(decoded, scan.decideMemory())
+	if f.limits.reserve > 0 && n > f.limits.reserve {
+		return filter.Undecided("", errReservationTooLarge)
 	}
 	// The library takes no context: a request that has ended is not
 	// validated (07 section 9 item 21).
 	if err := ctx.Err(); err != nil {
 		return filter.Undecided("", err)
 	}
-	// The decoded values, with what their objects' hash tables, their
-	// arrays' spare capacity and their strings' size classes hold beyond
-	// the decoder's charge, and the
-	// decision pass's working set (proposed, package documentation) are
-	// reserved together and released when validation ends, the decoded
-	// tree's last use (07 req 82). The work is bounded, never reserved.
-	n := addCap(addCap(cost, scan.extra), scan.decideMemory())
 	if err := x.Reserve(n); err != nil {
 		if !errors.Is(err, filter.ErrBudget) {
 			err = fmt.Errorf("%w: %w", filter.ErrBudget, err)
@@ -314,15 +362,19 @@ func (f *Filter) Handle(ctx context.Context, p phase.Phase, x filter.Exchange) f
 	if f.schema.valid(v) {
 		return filter.Next()
 	}
-	return f.locate(ctx, x, v, &scan)
+	return f.locate(ctx, x, v, &scan, decoded)
 }
 
 // locate runs the location pass for v, a body the decision pass refused,
 // and returns the refusal: with the failing keyword when the pass fits its
-// limits (scan holds the body's bounds), DetailMismatch alone otherwise;
-// an internal validator error is cannot decide (07 req 13).
-func (f *Filter) locate(ctx context.Context, x filter.Exchange, v any, scan *bodyScan) filter.Result {
-	if (f.limits.workingSet > 0 && scan.locateMemory() > f.limits.workingSet) || scan.locateOver() || ctx.Err() != nil {
+// limits (scan holds the body's bounds, decoded what its decoded values
+// reserve), DetailMismatch alone otherwise; an internal validator error is
+// cannot decide (07 req 13).
+func (f *Filter) locate(ctx context.Context, x filter.Exchange, v any, scan *bodyScan, decoded int64) filter.Result {
+	switch {
+	case f.limits.workingSet > 0 && scan.locateMemory() > f.limits.workingSet,
+		f.limits.reserve > 0 && addCap(decoded, scan.locateMemory()) > f.limits.reserve,
+		scan.locateOver(), ctx.Err() != nil:
 		return f.reject(DetailMismatch)
 	}
 	if extra := scan.locateMemory() - scan.decideMemory(); extra > 0 {
@@ -331,14 +383,11 @@ func (f *Filter) locate(ctx context.Context, x filter.Exchange, v any, scan *bod
 		}
 		defer x.Release(extra)
 	}
-	loc, ok, err := f.schema.validate(v, func() bool { return ctx.Err() != nil })
+	// Should the passes disagree, which only the library could make them
+	// do, validate reports the document root ("") and the decision stands.
+	loc, _, err := f.schema.validate(v, func() bool { return ctx.Err() != nil })
 	if err != nil {
 		return filter.Undecided("", err)
-	}
-	if ok {
-		// The passes disagree only if the library does; the decision
-		// stands.
-		loc = ""
 	}
 	return f.reject(mismatchDetail(loc))
 }

@@ -129,6 +129,8 @@ func TestCompileSchemaFindings(t *testing.T) {
 		{"invalid reference", `{"$ref":"http://[::1"}`, "/$ref", "not a valid URI reference"},
 		{"meta-schema violation", `{"allOf":[true,{"minLength":-1}]}`, "/allOf/1/minLength", "invalid JSON Schema"},
 		{"wrong keyword type", `{"type":5}`, "/type", "invalid JSON Schema"},
+		// A target outside the keywords is checked first (metacheck.go).
+		{"meta-schema violation behind a reference", `{"$ref":"#/x","x":{"type":5}}`, "/x/type", "invalid JSON Schema"},
 		{"number exponent", `{"minimum":1e-1001}`, "/minimum", "out of range"},
 		{"number in const data", `{"const":{"a":[1e2000]}}`, "/const/a/0", "out of range"},
 		{"number in enum data", `{"enum":["a",1e-2000]}`, "/enum/1", "out of range"},

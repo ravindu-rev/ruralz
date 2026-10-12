@@ -8,6 +8,8 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"regexp"
+	"regexp/syntax"
 	"strings"
 	"testing"
 
@@ -56,8 +58,11 @@ func bodySeeds() []string {
 // every finding's pointer maps to a path. F6's other property, a compile
 // returning within 1 s, is not a wall-clock assertion here: the budgets
 // that bound a compile are pinned by deterministic tests
-// (TestQueueBoundBudget, TestCompileMatchBudget, TestStatesBudget,
-// TestEvaluationBoundBudget) and its time by
+// (TestQueueBoundBudget, TestClassRepsBudget, TestCompileMatchBudget,
+// TestStatesBudget, TestEvaluationBoundBudget), and so are the bounds of
+// the pattern programs and of their parsing (TestPatternProgramLimits,
+// TestPatternParsesBounded) and of the library's meta-schema checks
+// (TestReferenceLadder, TestMetaChecksBound); its time is measured by
 // BenchmarkCompileAnalysisWorstCase.
 func FuzzCompileSchema(f *testing.F) {
 	for _, s := range corpusSchemas(f) {
@@ -69,6 +74,11 @@ func FuzzCompileSchema(f *testing.F) {
 		`{"$defs":{"a":{"$id":"urn:a","$anchor":"x"}},"$ref":"urn:a#x"}`, `{"$dynamicRef":"#n","$dynamicAnchor":"n"}`,
 		`{"$ref":"#"}`, `{"allOf":[{"$ref":"#"}]}`, `{"minimum":1e-999999}`, `{"$id":"%%"}`, `{"$ref":"#/%zz"}`,
 		oneOfTwice, linearTree, mixins, `{"dependencies":{"a":["b"],"c":{"$ref":"#"}}}`,
+		`{"pattern":"(?i)[\\x{42}-\\x{1e942}][\\pL[:alpha:]\\d]\\Q[\\E"}`, `{"patternProperties":{"[a-z]{1000}[a-z]{1000}":true,"\\p{Greek}+":false}}`,
+		`{"pattern":"(?i:a)((?-i)[\\x{42}-\\x{1e942}])(?P<n>[\\pL])^\\pL{110}"}`, `{"pattern":"[\\pL\\pN\\p{Greek}]{3}(?is-mU)[a-z]"}`,
+		`{"$defs":{"a":{"$ref":"#/x/if/if"},"b":{"$ref":"#/x/if"},"c":{"$ref":"#/x"}},"x":{"if":{"if":{"pattern":"^a"}}}}`,
+		`{"$ref":"#/x/properties","$defs":{"a":{"$ref":"#/x/properties/items/properties"}},"x":{"properties":{"items":{"properties":{"items":true}}}}}`,
+		`{"$ref":"#/x~1y/a%25b","x/y":{"a%b":{"type":"string"}}}`,
 	} {
 		f.Add([]byte(s))
 	}
@@ -91,6 +101,44 @@ func FuzzCompileSchema(f *testing.F) {
 			for _, b := range []string{`{}`, `[1,"a"]`, `"x"`} {
 				_, _ = s.Validate(decodeInstance(t, b))
 			}
+		}
+	})
+}
+
+// FuzzCompilePattern checks the library's regexp engine against Go's
+// regexp (07 req 75, architecture R-77): for any expression whose parsing
+// work and program the walk measures within MaxPatternInstructions, and
+// any input up to 1 KiB, compilePattern fails exactly when regexp.Compile
+// does, with the same error, and otherwise names the expression and
+// matches as Go's regexp does; the empty group that keeps Go from building
+// its one-pass matcher changes no match.
+func FuzzCompilePattern(f *testing.F) {
+	for _, tc := range costPatterns() {
+		if len(tc.pattern) <= 256 {
+			// A long seed slows the minimization of what grows from it.
+			f.Add(tc.pattern, tc.input)
+		}
+	}
+	for _, expr := range []string{`{2}a`, `*`, `^a|^b`, `|^a`, `^(?:a|bb)$`, `(?i)^k$`, `\Aa\z`, `(?U)^a+?`, `^\pL{1,3}$`, `{a`, `^[^a]$`} {
+		f.Add(expr, "a")
+	}
+	f.Fuzz(func(t *testing.T, expr, input string) {
+		if len(input) > 1<<10 || newWalker(nil).scanPattern(expr).parseWork() > MaxPatternInstructions {
+			return
+		}
+		if re, err := syntax.Parse(expr, syntax.Perl); err == nil && programSize(re) > MaxPatternInstructions {
+			return
+		}
+		want, wantErr := regexp.Compile(expr)
+		got, err := compilePattern(expr)
+		if (err != nil) != (wantErr != nil) || err != nil && err.Error() != wantErr.Error() {
+			t.Fatalf("compilePattern(%q) error = %v, want %v", expr, err, wantErr)
+		}
+		if err != nil {
+			return
+		}
+		if got.String() != expr || got.MatchString(input) != want.MatchString(input) {
+			t.Fatalf("compilePattern(%q): String %q, MatchString(%q) = %v, want %v", expr, got.String(), input, got.MatchString(input), want.MatchString(input))
 		}
 	})
 }

@@ -6,12 +6,14 @@ package jsonschema
 import (
 	"cmp"
 	"encoding/binary"
+	"encoding/json"
 	"slices"
+	"strings"
 
 	sjs "github.com/santhosh-tekuri/jsonschema/v6"
 )
 
-// The counts of each body value's own path (proposed, package
+// The counts of each body value's own path (architecture R-77, package
 // documentation "Working set"). The depth bound of the analysis (workBound)
 // holds, at every depth, the largest counts of any member class at that
 // depth, so a costly union in one member would make every value at the
@@ -43,12 +45,17 @@ const (
 	kindNumber
 	kindBoolean
 	kindNull
+	// kindInteger is a number whose literal has neither a fraction nor an
+	// exponent: an integer or number type admits it, which the scan knows
+	// from the literal (kindNumber may be any number, which an integer type
+	// may refuse).
+	kindInteger
 	kinds
 )
 
 // kindOf returns the JSON kind of a decoded value.
 func kindOf(v any) int {
-	switch v.(type) {
+	switch t := v.(type) {
 	case map[string]any:
 		return kindObject
 	case []any:
@@ -59,6 +66,11 @@ func kindOf(v any) int {
 		return kindBoolean
 	case nil:
 		return kindNull
+	case json.Number:
+		if !strings.ContainsAny(string(t), ".eE") {
+			return kindInteger
+		}
+		return kindNumber
 	default:
 		return kindNumber
 	}
@@ -66,7 +78,7 @@ func kindOf(v any) int {
 
 // typeNames returns the type keyword name of each JSON kind.
 func typeNames() [kinds]string {
-	return [kinds]string{"object", "array", "string", "number", "boolean", "null"}
+	return [kinds]string{"object", "array", "string", "number", "boolean", "null", "integer"}
 }
 
 // maxStates bounds the states of one document and maxTransitions their
@@ -122,6 +134,18 @@ type evalState struct {
 	// lists counts the evaluations with additionalProperties false, each
 	// of which lists the names it does not declare while it loops.
 	lists int
+	// matches counts the evaluations with contains, each of which lists the
+	// indexes of the items that match it while it loops, and kept those
+	// with minContains or maxContains, whose error keeps the list in the
+	// location pass.
+	matches, kept int
+	// propNames counts the evaluations with propertyNames, each of which
+	// validates every member name on its own.
+	propNames int
+	// chain is the longest chain of in-place evaluations at a value, which
+	// the library holds on its call stack at once (evalGraph.chain): the
+	// evaluations of the state run one chain at a time.
+	chain int
 	// match is what matching one member name against the
 	// patternProperties of every evaluation costs: work units (dimWork)
 	// and work units per byte of the name (dimScan).
@@ -323,8 +347,20 @@ func (b *stateBuilder) weigh(set []entry) evalState {
 		}
 		s.uneval = s.uneval || n.uneProps >= 0
 		s.compares = s.compares || n.compares
+		if e.node < len(b.g.chain) {
+			s.chain = max(s.chain, b.g.chain[e.node])
+		}
 		if n.addl == b.g.one {
 			s.lists = min(s.lists+e.n, countCap)
+		}
+		if n.contains >= 0 {
+			s.matches = min(s.matches+e.n, countCap)
+			if n.keepsMatches {
+				s.kept = min(s.kept+e.n, countCap)
+			}
+		}
+		if n.propNames >= 0 {
+			s.propNames = min(s.propNames+e.n, countCap)
 		}
 		m := n.match
 		for k := range m {

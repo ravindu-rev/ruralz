@@ -7,7 +7,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/url"
-	"regexp"
 	"slices"
 	"strconv"
 	"strings"
@@ -86,6 +85,10 @@ type refSite struct {
 	base string
 }
 
+// refTarget is the position a JSON Pointer reference names, and the
+// pointer of the reference.
+type refTarget struct{ ptr, site string }
+
 // anchorKey names an anchor within the schema resource at res.
 type anchorKey struct{ res, name string }
 
@@ -93,9 +96,10 @@ type anchorKey struct{ res, name string }
 // lists the document's schema positions: every keyword subschema position
 // plus every position a reference into the document names, which the
 // compiler also compiles as a schema. The rules are $schema, RE2 regular
-// expressions, the number bounds of the values the library parses, unique
-// $id and anchor names, references that resolve inside the document, and
-// MaxSubschemas. They run in a fixed order (members sorted by name), so
+// expressions and the pattern bounds, the number bounds of the values the
+// library parses, unique $id and anchor names, references that resolve
+// inside the document, MaxSubschemas, and the bounds of the library's
+// meta-schema checks. They run in a fixed order (members sorted by name), so
 // findings that the compiler would report in its map iteration order are
 // reported deterministically.
 type walker struct {
@@ -109,10 +113,26 @@ type walker struct {
 	anchors map[anchorKey]string
 	sites   []refSite
 	issues  []Issue
+	// keywordTree is the length of the prefix of positions the root's
+	// keywords reach; targets lists every reference target, with the
+	// pointer of its first reference, and checkOrder the targets the
+	// library checks against the meta-schema apart, in the order the
+	// compile must check them (metaChecks).
+	keywordTree int
+	targets     []refTarget
+	checkOrder  []string
+	// insts sums the measures of the patterns (patternsize.go), parsed
+	// counts the patterns parsed, and tables caches the ranges of each
+	// Unicode class escape; instsOver is set once the document's bound is
+	// reported.
+	insts     int64
+	parsed    int
+	tables    map[string]int
+	instsOver bool
 }
 
 func newWalker(doc any) *walker {
-	return &walker{doc: doc, seen: map[string]bool{}, ids: map[string]string{baseURL: ""}, anchors: map[anchorKey]string{}}
+	return &walker{doc: doc, seen: map[string]bool{}, ids: map[string]string{baseURL: ""}, anchors: map[anchorKey]string{}, tables: map[string]int{}}
 }
 
 // add records a finding, keeping at most MaxIssues.
@@ -127,6 +147,7 @@ func (w *walker) add(ptr, msg string) {
 // applies MaxSubschemas to the total.
 func (w *walker) walk() {
 	w.schema(w.doc, "", "", baseURL)
+	w.keywordTree = len(w.positions)
 	for i := 0; i < len(w.sites) && len(w.positions) <= MaxSubschemas; i++ {
 		w.follow(w.sites[i])
 	}
@@ -136,6 +157,9 @@ func (w *walker) walk() {
 	}
 	for _, s := range w.sites {
 		w.checkRef(s)
+	}
+	if len(w.issues) == 0 {
+		w.metaChecks()
 	}
 }
 
@@ -204,6 +228,26 @@ func (w *walker) schema(v any, ptr, res, base string) {
 			w.sites = append(w.sites, refSite{ptr: appendToken(ptr, kw), value: s, base: base})
 		}
 	}
+	eachSubschema(obj, ptr, func(v any, at string) { w.schema(v, at, res, base) })
+}
+
+// eachSubschema calls f for every keyword subschema of the schema object
+// obj at ptr that is a schema (an object or a boolean), in keyword and
+// member order.
+func eachSubschema(obj map[string]any, ptr string, f func(v any, ptr string)) {
+	kid := func(v any, at string) {
+		switch v.(type) {
+		case map[string]any, bool:
+			f(v, at)
+		}
+	}
+	list := func(v any, at string) {
+		if a, ok := v.([]any); ok {
+			for i, e := range a {
+				kid(e, at+"/"+strconv.Itoa(i))
+			}
+		}
+	}
 	for _, kw := range subschemaKeywords() {
 		v, ok := obj[kw.name]
 		if !ok {
@@ -212,55 +256,35 @@ func (w *walker) schema(v any, ptr, res, base string) {
 		at := appendToken(ptr, kw.name)
 		switch kw.form {
 		case formOne:
-			w.kid(v, at, res, base)
+			kid(v, at)
 		case formList:
-			w.list(v, at, res, base)
+			list(v, at)
 		case formMap:
 			if m, ok := v.(map[string]any); ok {
 				for _, k := range sortedKeys(m) {
-					w.kid(m[k], appendToken(at, k), res, base)
+					kid(m[k], appendToken(at, k))
 				}
 			}
 		case formOneOrList:
 			if _, isList := v.([]any); isList {
-				w.list(v, at, res, base)
+				list(v, at)
 			} else {
-				w.kid(v, at, res, base)
+				kid(v, at)
 			}
 		}
 	}
 }
 
-// kid walks v at ptr when it is a schema (an object or a boolean).
-func (w *walker) kid(v any, ptr, res, base string) {
-	switch v.(type) {
-	case map[string]any, bool:
-		w.schema(v, ptr, res, base)
-	}
-}
-
-// list walks the schemas of an array value.
-func (w *walker) list(v any, ptr, res, base string) {
-	if a, ok := v.([]any); ok {
-		for i, e := range a {
-			w.kid(e, ptr+"/"+strconv.Itoa(i), res, base)
-		}
-	}
-}
-
-// rules applies the RE2 rule to pattern and patternProperties and the
+// rules applies the RE2 rule and the program bounds to pattern and
+// patternProperties, without compiling them (patternsize.go), and the
 // number bounds to the values the library parses as numbers.
 func (w *walker) rules(obj map[string]any, ptr string) {
 	if s, ok := obj["pattern"].(string); ok {
-		if _, err := regexp.Compile(s); err != nil {
-			w.add(appendToken(ptr, "pattern"), "pattern is not a valid RE2 regular expression: "+err.Error())
-		}
+		w.pattern(s, appendToken(ptr, "pattern"), "pattern")
 	}
 	if pp, ok := obj["patternProperties"].(map[string]any); ok {
 		for _, k := range sortedKeys(pp) {
-			if _, err := regexp.Compile(k); err != nil {
-				w.add(appendToken(appendToken(ptr, "patternProperties"), k), "patternProperties name is not a valid RE2 regular expression: "+err.Error())
-			}
+			w.pattern(k, appendToken(appendToken(ptr, "patternProperties"), k), "patternProperties name")
 		}
 	}
 	for _, kw := range parsedKeywords() {
@@ -296,6 +320,7 @@ func (w *walker) follow(s refSite) {
 	}
 	switch v, _ := lookup(w.doc, res+frag); v.(type) {
 	case map[string]any, bool:
+		w.targets = append(w.targets, refTarget{ptr: res + frag, site: s.ptr})
 		w.schema(v, res+frag, res, u)
 	}
 }

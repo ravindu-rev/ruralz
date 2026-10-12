@@ -4,6 +4,7 @@
 package jsonschema
 
 import (
+	"math/bits"
 	"regexp/syntax"
 	"slices"
 	"strconv"
@@ -11,11 +12,13 @@ import (
 	"unicode"
 )
 
-// The work of a pattern (proposed, package documentation "Work bound").
+// The work of a pattern (architecture R-77, package documentation "Work
+// bound").
 // The library matches pattern and patternProperties with Go's regexp,
-// whose matchers (one-pass, backtracking and the NFA simulation) never
-// visit more program instructions per input rune than the NFA simulation
-// holds in its run queue. A pattern's cost per byte is therefore bounded
+// whose matchers (the backtracker and the NFA simulation: compilePattern
+// never lets it build the one-pass matcher) never visit more program
+// instructions per input rune than the NFA simulation holds in its run
+// queue. A pattern's cost per byte is therefore bounded
 // by the largest run queue any input can build, which queueBound computes
 // by exploring the queues the NFA reaches over the program's character
 // classes; a pattern whose exploration does not finish within its budget
@@ -31,8 +34,13 @@ const (
 	// queue (decoding the rune, the step loop).
 	byteUnits = 16
 	// queueUnits is the work per run-queue entry and input byte, measured
-	// at 6 to 16 units for adversarial inputs.
-	queueUnits = 16
+	// at 6 to 16 units for adversarial inputs; searchUnits is the work per
+	// entry, input byte and step of the search a rune instruction makes in
+	// the ranges of its class, at most classSteps of the program's largest
+	// class (a repetition of \pL takes about 21 ns per entry and byte, of a
+	// one-range class 9; measured 9 to 27 ns from 1 to 20,000 ranges,
+	// BenchmarkPatternModel).
+	queueUnits, searchUnits = 16, 2
 	// clearInstsPerUnit is the program instructions per work unit and
 	// byte that clearing the backtracker's visited set takes.
 	clearInstsPerUnit = 16
@@ -65,14 +73,15 @@ func newPatternCosts() *patternCosts {
 	return &patternCosts{budget: regexpBudget, cache: map[string]patternCost{}}
 }
 
-// of returns the cost of the RE2 expression expr. An expression that does
-// not compile (the walk refuses it first) costs the largest count.
+// of returns the cost of the RE2 expression expr, as the library's
+// engine compiles it (compilePattern). An expression that does not compile
+// (the walk refuses it first) costs the largest count.
 func (pc *patternCosts) of(expr string) patternCost {
 	if c, ok := pc.cache[expr]; ok {
 		return c
 	}
 	c := patternCost{fixed: countCap, perByte: countCap, insts: countCap}
-	if re, err := syntax.Parse(expr, syntax.Perl); err == nil {
+	if re, err := syntax.Parse(noOnePass+expr, syntax.Perl); err == nil {
 		if prog, err := syntax.Compile(re.Simplify()); err == nil {
 			n := len(prog.Inst)
 			b := min(pc.budget, patternBudget)
@@ -80,13 +89,37 @@ func (pc *patternCosts) of(expr string) patternCost {
 			pc.budget -= min(pc.budget, patternBudget) - b
 			c = patternCost{
 				fixed:   matchUnits + matchInstUnits*n,
-				perByte: byteUnits + queueUnits*q + n/clearInstsPerUnit,
+				perByte: byteUnits + (queueUnits+searchUnits*classSteps(prog))*q + n/clearInstsPerUnit,
 				insts:   n,
 			}
 		}
 	}
 	pc.cache[expr] = c
 	return c
+}
+
+// classSteps returns the most steps a rune instruction of prog takes to
+// find a rune in its ranges (syntax.Inst.MatchRunePos): none for one
+// range or one rune, one per range for up to four, which it scans, and a
+// binary search past them; a case-folded rune walks its fold orbit of at
+// most four.
+func classSteps(prog *syntax.Prog) int {
+	steps := 0
+	for i := range prog.Inst {
+		in := &prog.Inst[i]
+		if in.Op != syntax.InstRune {
+			continue
+		}
+		switch r := len(in.Rune) / 2; {
+		case len(in.Rune) == 1:
+			steps = max(steps, 4)
+		case r <= 4:
+			steps = max(steps, r)
+		default:
+			steps = max(steps, bits.Len(uint(r)))
+		}
+	}
+	return steps
 }
 
 // queueBound returns the largest run queue the NFA simulation of prog can
@@ -96,18 +129,21 @@ func (pc *patternCosts) of(expr string) patternCost {
 // only enlarge a queue. Past budget or regexpStates queues, the result is
 // the whole program, which bounds every queue.
 //
-// Every step is charged to budget before it is taken, and the budget is
-// checked before each class representative, so the exploration overruns
-// its budget by at most one representative's scan and closure, about
-// three times the program (review finding: checked only between queues,
-// one queue of an alternation of thousands of literals took seconds).
+// The scan of a queue for each class representative is charged to budget
+// before it is taken, and its closure as soon as it is computed, and the
+// budget is checked before each representative, so the exploration
+// overruns its budget by at most one representative's closure, about twice
+// the program (review finding: checked only between queues, one queue of
+// an alternation of thousands of literals took seconds).
 func queueBound(prog *syntax.Prog, budget *int) int {
 	n := len(prog.Inst)
 	if *budget < 0 {
 		return n
 	}
-	reps := classReps(prog)
-	*budget -= len(reps)
+	reps, ok := classReps(prog, budget)
+	if !ok {
+		return n
+	}
 	anchored := prog.StartCond()&syntax.EmptyBeginText != 0
 	cl := closer{prog: prog, mark: make([]uint32, n)}
 	start := cl.closure([]int{prog.Start}, nil)
@@ -232,39 +268,64 @@ func queueKey(q []int) string {
 // classReps returns one rune of every class of runes that no rune
 // instruction of prog tells apart: the bounds of every range an
 // instruction matches, case-folded single runes with their whole fold
-// orbit, and the newline that RuneAnyNotNL excludes.
-func classReps(prog *syntax.Prog) []rune {
-	bounds := []rune{0, '\n', '\n' + 1}
-	single := func(r rune) {
-		bounds = append(bounds, r, r+1)
+// orbit, and the newline that RuneAnyNotNL excludes. The copies a
+// repetition makes of a class share its ranges, which count once. Every
+// bound is charged to budget twice, for adding and for sorting it, and
+// the budget is checked before an instruction's bounds are added, so the
+// classes of a large program end the exploration without overrunning it
+// (review finding: 990 copies of a class of 19,000 ranges took 1.4 s and
+// 788 MB here before the budget was charged). It reports false when the
+// budget runs out.
+func classReps(prog *syntax.Prog, budget *int) ([]rune, bool) {
+	// A fold orbit holds at most four runes.
+	const maxOrbit = 4
+	type ranges struct {
+		first *rune
+		n     int
 	}
+	seen := map[ranges]bool{}
+	bounds := []rune{0, '\n', '\n' + 1}
 	for i := range prog.Inst {
 		in := &prog.Inst[i]
-		switch in.Op {
-		case syntax.InstRune1:
-			single(in.Rune[0])
-		case syntax.InstRune:
-			if len(in.Rune) == 1 {
-				single(in.Rune[0])
-				if in.Arg&uint32(syntax.FoldCase) != 0 {
-					for f := unicode.SimpleFold(in.Rune[0]); f != in.Rune[0]; f = unicode.SimpleFold(f) {
-						single(f)
-					}
-				}
+		var add []rune
+		switch {
+		case in.Op == syntax.InstRune1, in.Op == syntax.InstRune && len(in.Rune) == 1:
+			add = in.Rune[:1]
+		case in.Op == syntax.InstRune && len(in.Rune) > 1:
+			k := ranges{&in.Rune[0], len(in.Rune)}
+			if seen[k] {
 				continue
 			}
-			for j := 0; j+1 < len(in.Rune); j += 2 {
-				bounds = append(bounds, in.Rune[j], in.Rune[j+1]+1)
-			}
+			seen[k] = true
+			add = in.Rune
 		default:
 			// Other instructions match no rune, or every rune but the
 			// newline already among the bounds.
+			continue
+		}
+		if 2*(len(bounds)+max(len(add), 2*maxOrbit)) > *budget {
+			*budget -= 2 * len(bounds)
+			return nil, false
+		}
+		if len(add) == 1 {
+			r := add[0]
+			bounds = append(bounds, r, r+1)
+			if in.Op == syntax.InstRune && in.Arg&uint32(syntax.FoldCase) != 0 {
+				for f := unicode.SimpleFold(r); f != r; f = unicode.SimpleFold(f) {
+					bounds = append(bounds, f, f+1)
+				}
+			}
+			continue
+		}
+		for j := 0; j+1 < len(add); j += 2 {
+			bounds = append(bounds, add[j], add[j+1]+1)
 		}
 	}
+	*budget -= 2 * len(bounds)
 	slices.Sort(bounds)
 	bounds = slices.Compact(bounds)
 	for len(bounds) > 0 && bounds[len(bounds)-1] > unicode.MaxRune {
 		bounds = bounds[:len(bounds)-1]
 	}
-	return bounds
+	return bounds, true
 }

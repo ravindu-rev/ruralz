@@ -181,10 +181,12 @@ func TestHandleOversize(t *testing.T) {
 	}
 }
 
-// TestHandleBudget covers 07 reqs 15 and 80: decoded values are reserved
-// from limits.maxBufferedBytes at the cost the decoder reports, a refusal
-// is filter.ErrBudget (503 RZ-RT-004 through the executor), and the
-// reservation is released when validation ends, pass or fail.
+// TestHandleBudget covers 07 reqs 15 and 80: what Handle reserves from
+// limits.maxBufferedBytes (the decoded values at the decoder's charge, what
+// their maps, arrays and strings hold beyond it, and the decision pass's
+// working set; TestHandleLocationPass pins the sum) is refused with
+// filter.ErrBudget (503 RZ-RT-004 through the executor), and released when
+// validation ends, pass or fail.
 func TestHandleBudget(t *testing.T) {
 	f := buildFilter(t, matrixSchema, testLimit)
 	x, _ := exchange("application/json", []byte(`{"id":1}`))
@@ -272,6 +274,10 @@ func TestHandleNumberPaths(t *testing.T) {
 		{`{"properties":{"c":{"const":{"a":[1]}}}}`, `{"c":{"a":[1e1001]}}`, true},
 		{`{"properties":{"c":{"const":"a"}}}`, `{"c":1e1001,"d":1e1001}`, false},
 		{`{"properties":{"c":{"enum":[1,2]}}}`, `{"c":1e1001}`, true},
+		// Review finding (a mutant that survived): a const or enum value
+		// holding arrays compares the items of an array body too.
+		{`{"const":[1,1,1]}`, `[1e999999,1e999999,1e999999]`, true},
+		{`{"enum":[[1],[2]]}`, `[1e1001]`, true},
 	} {
 		got := handle(t, buildFilter(t, tc.schema, testLimit), tc.body)
 		refused := got.Outcome == filter.Respond && got.Response.Detail == DetailNumber
@@ -423,8 +429,8 @@ func (s *fakeShared) Get(key any, build func() (any, error)) (any, error) {
 
 // TestBuild covers the Factory (07 reqs 75, 77): RZ-CFG-005 errors, carry
 // over through Previous, sharing within a snapshot, also of a Schema
-// carried over unchanged (minor review finding), and the status taken
-// from the registry.
+// carried over unchanged, in either build order (minor review findings),
+// and the status taken from the registry.
 func TestBuild(t *testing.T) {
 	ctx := t.Context()
 	env := func(schema string, limit int64) filter.BuildEnv {
@@ -536,6 +542,22 @@ func TestBuild(t *testing.T) {
 	e.Shared = shared
 	if got, err := (Factory{}).Build(ctx, e); err != nil || got.(*Filter).schema != first.schema || shared.builds != 1 {
 		t.Errorf("another Policy of a carried-over document = %v, builds %d, want the previous Schema", err, shared.builds)
+	}
+	// Minor review finding: when a new Policy of the same document builds
+	// first, it compiles the document (it has no Previous), and the
+	// carried-over Policy then takes that Schema, so the snapshot holds
+	// one Schema per document.
+	shared = &fakeShared{}
+	e = env(" "+matrixSchema, 2*testLimit)
+	e.Shared = shared
+	added, err := Factory{}.Build(ctx, e)
+	if err != nil {
+		t.Fatal(err)
+	}
+	e = env(matrixSchema, testLimit)
+	e.Previous, e.Shared = first, shared
+	if got, err := (Factory{}).Build(ctx, e); err != nil || got.(*Filter).schema != added.(*Filter).schema || got.(*Filter).limits != first.limits || shared.builds != 1 {
+		t.Errorf("a carry over after a new Policy of its document = %v, builds %d, want the snapshot's Schema", err, shared.builds)
 	}
 	e = env(matrixSchema, testLimit)
 	e.Previous, e.Shared = first, failingShared{err: errors.New("snapshot compile canceled")}

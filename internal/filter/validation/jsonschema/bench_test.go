@@ -199,25 +199,51 @@ func analysisWorstCase(props, pats int, mixins bool) string {
 	return b.String()
 }
 
+// analysisCase is one worst case of a compile; refused is set when the
+// walk refuses it, which a compile must also do quickly.
+type analysisCase struct {
+	name, schema string
+	refused      bool
+}
+
 // analysisCases are the worst cases of the evaluation analysis and of the
 // compile-time pattern work: properties against many patterns, recursive
 // mixins, long member names against the patterns of the same schema and of
 // a sibling (review finding: matched by count, they compiled for 18 and
-// 41 s), and patterns that alternate thousands of literals (review
-// finding: explored for seconds each).
-func analysisCases() []struct{ name, schema string } {
-	alternations := make([]string, 9)
+// 41 s), patterns that alternate thousands of literals (review finding:
+// explored for seconds each), the largest programs and parsing work of
+// MaxDocumentInstructions (review findings: escapes merged in a class,
+// case folding, and patterns parsed after the document's bound, and
+// patternMemoryCases: the anchored programs Go's one-pass matcher would
+// take), and reference ladders that the library's meta-schema check would
+// repeat for every rung (review finding).
+func analysisCases() []analysisCase {
+	// The largest alternations of literals that fit MaxPatternInstructions,
+	// each literal's node counted, eight to a document.
+	alternations := make([]string, 8)
 	for i := range alternations {
-		alternations[i] = fmt.Sprintf(`{"pattern":%q}`, altPattern(3900+i))
+		alternations[i] = fmt.Sprintf(`{"pattern":%q}`, altPattern(2700+i))
 	}
-	return []struct{ name, schema string }{
-		{"patterns coarse", analysisWorstCase(2000, 2000, false)},
-		{"patterns precise", analysisWorstCase(2000, 2000, true)},
-		{"members precise", analysisWorstCase(4000, 0, true)},
-		{"long names, own patterns", `{"properties":{` + longNames(128, 600) + `},"patternProperties":{` + repeatPatterns(128, 300) + `}}`},
-		{"long names, sibling patterns", `{"allOf":[{"properties":{` + longNames(300, 800) + `}},{"patternProperties":{` + repeatPatterns(200, 100) + `}}]}`},
-		{"alternations", `{"allOf":[` + strings.Join(alternations, ",") + `]}`},
+	cases := []analysisCase{
+		{name: "patterns coarse", schema: analysisWorstCase(2000, 2000, false)},
+		{name: "patterns precise", schema: analysisWorstCase(2000, 2000, true)},
+		{name: "members precise", schema: analysisWorstCase(4000, 0, true)},
+		{name: "long names, own patterns", schema: `{"properties":{` + longNames(128, 600) + `},"patternProperties":{` + repeatPatterns(128, 300) + `}}`},
+		{name: "long names, sibling patterns", schema: `{"allOf":[{"properties":{` + longNames(300, 800) + `}},{"patternProperties":{` + repeatPatterns(200, 100) + `}}]}`},
+		{name: "alternations", schema: `{"allOf":[` + strings.Join(alternations, ",") + `]}`},
+		{name: "largest patterns", schema: patternsOf(8, func(i int) string { return largestPattern(tailRune(i), 0) })},
+		{name: "Unicode classes", schema: patternsOf(9, func(i int) string { return strings.Repeat(`\pL`, 30) + fmt.Sprint(i) })},
+		{name: "Unicode classes merged", schema: patternsOf(8, func(i int) string { return "(?i)[" + strings.Repeat(`\pL`, 45) + "]" + fmt.Sprint(i) })},
+		{name: "case folding", schema: patternsOf(8, func(i int) string { return `(?i)[\x{42}-\x{1e942}]` + fmt.Sprint(i) })},
+		{name: "patterns past the bound", schema: patternsOf(600, func(i int) string { return "(?i)[" + strings.Repeat(`\pL`, 45) + "]" + fmt.Sprint(i) }), refused: true},
+		{name: "reference ladder, patterns", schema: refLadder(58, 59, ladderBottom(8, func(i int) string {
+			return fmt.Sprintf(`{"type":"string","pattern":%q}`, "^"+largestPattern(tailRune(i), -2)+"$")
+		}))},
+		{name: "reference ladder, members", schema: refLadder(58, 59, ladderBottom(3900, func(int) string { return `{"type":"string","minLength":1}` }))},
+		{name: "repeated checks", schema: misalignedLadder(30, ladderBottom(100, func(int) string { return `{"type":"string","minLength":1}` }))},
+		{name: "targets outside the keywords", schema: outsideTargets(125, 3800)},
 	}
+	return append(append(cases, patternMemoryCases()[1:]...), documentMemoryCases()...)
 }
 
 // BenchmarkEvaluationAnalysis times the evaluation analysis alone (both of
@@ -225,6 +251,9 @@ func analysisCases() []struct{ name, schema string } {
 // whole compile.
 func BenchmarkEvaluationAnalysis(b *testing.B) {
 	for _, tc := range analysisCases() {
+		if tc.refused {
+			continue
+		}
 		b.Run(tc.name, func(b *testing.B) {
 			root := libraryCompile(b, tc.schema)
 			b.ReportAllocs()
@@ -245,8 +274,8 @@ func BenchmarkCompileAnalysisWorstCase(b *testing.B) {
 			raw := []byte(tc.schema)
 			b.ReportAllocs()
 			for b.Loop() {
-				if _, err := CompileSchema(raw); err != nil {
-					b.Fatal(err)
+				if _, err := CompileSchema(raw); (err != nil) != tc.refused {
+					b.Fatalf("CompileSchema = %v, want refused %v", err, tc.refused)
 				}
 			}
 		})

@@ -5,7 +5,7 @@ package jsonschema
 
 import "strings"
 
-// Number bounds (proposed, see the package documentation): the longest
+// Number bounds (architecture R-77, package documentation): the longest
 // number literal and the largest decimal exponent magnitude that a schema
 // document may hold, and that a request body may hold when its schema
 // compares numbers. Both admit every IEEE 754 double (exponents up to

@@ -5,8 +5,8 @@ package jsonschema
 
 import (
 	"fmt"
+	"math/bits"
 	"math/rand/v2"
-	"regexp"
 	"regexp/syntax"
 	"slices"
 	"strings"
@@ -37,7 +37,22 @@ func costPatterns() []struct{ pattern, input string } {
 		{`(?m)^a$`, "a"},
 		{`(?s).*`, "a"},
 		{`(?i)k+x`, "K"},
+		// Classes of many ranges, which every queue entry searches.
+		{`\pL{200}x`, "a"},
+		{wideClass(4096) + "{200}x", "a"},
 	}
+}
+
+// wideClass returns a class of n ranges that matches a: a and n-1
+// distinct runes from U+0102 on.
+func wideClass(n int) string {
+	var b strings.Builder
+	b.WriteString("[a")
+	for i := 1; i < n; i++ {
+		b.WriteRune(rune(0x100 + 2*i))
+	}
+	b.WriteByte(']')
+	return b.String()
 }
 
 // program compiles expr as Go's regexp does.
@@ -77,14 +92,15 @@ func TestQueueBound(t *testing.T) {
 			t.Errorf("queueBound(%.30q) = %d of %d instructions, want %d to %d", tc.pattern, q, len(prog.Inst), tc.min, tc.max)
 		}
 	}
-	prog := program(t, emailPattern)
+	prog := program(t, noOnePass+emailPattern)
 	none := 0
 	if q := queueBound(prog, &none); q != len(prog.Inst) {
 		t.Errorf("queueBound without budget = %d, want the program's %d", q, len(prog.Inst))
 	}
 	pc := newPatternCosts()
 	pc.budget = 0
-	if c := pc.of(emailPattern); c.perByte != byteUnits+queueUnits*len(prog.Inst)+len(prog.Inst)/clearInstsPerUnit || c.insts != len(prog.Inst) {
+	n := len(prog.Inst)
+	if c := pc.of(emailPattern); c.perByte != byteUnits+(queueUnits+searchUnits*classSteps(prog))*n+n/clearInstsPerUnit || c.insts != n {
 		t.Errorf("cost past the document budget = %+v, want the whole program per byte", c)
 	}
 	if c := newPatternCosts().of(`(`); c.perByte != countCap {
@@ -129,7 +145,7 @@ func TestQueueBoundCoversInputs(t *testing.T) {
 		budget := patternBudget
 		bound := queueBound(prog, &budget)
 		var alphabet []rune
-		for _, r := range classReps(prog) {
+		for _, r := range reps(t, prog) {
 			alphabet = append(alphabet, r, max(r-1, 0))
 		}
 		alphabet = append(alphabet, 'a', 'A', 'k', 'K', 'K', '@', '.', '-', '0', 'α', '中')
@@ -145,28 +161,121 @@ func TestQueueBoundCoversInputs(t *testing.T) {
 	}
 }
 
+// TestClassSteps pins the search a rune instruction makes in its class,
+// which every queue entry and byte is charged (package documentation "Work
+// bound"): none for a literal, one step per range up to four, a binary
+// search past them, and the fold orbit of a case-folded rune; the largest
+// class of the program decides.
+//
+// Requirements: 07 section 9 item 21.
+func TestClassSteps(t *testing.T) {
+	for _, tc := range []struct {
+		expr  string
+		steps int
+	}{
+		{`abc`, 0},
+		{`[a-z]x`, 1},
+		{`[a-bd-eg-hj-k]`, 4},
+		{`[a-bd-eg-hj-km]`, 3},
+		{`(?i)k`, 4},
+		{`\pL{3}`, bits.Len(uint(classRanges(t, `\pL`)))},
+		{wideClass(4096) + "a", 13},
+	} {
+		if got := classSteps(program(t, tc.expr)); got != tc.steps {
+			t.Errorf("classSteps(%.20q) = %d, want %d", tc.expr, got, tc.steps)
+		}
+	}
+	steps := bits.Len(uint(classRanges(t, `\pL`)))
+	if c := newPatternCosts().of(`\pL{100}`); c.perByte < (queueUnits+searchUnits*steps)*100 {
+		t.Errorf("cost of a repetition of \\pL = %+v, want at least %d per byte for 100 queue entries", c, (queueUnits+searchUnits*steps)*100)
+	}
+}
+
 // TestClassRepsFold checks that a case-folded rune brings its whole fold
 // orbit into the classes: k, K and the Kelvin sign (07 section 9 item 21,
 // the proposed work bound).
 func TestClassRepsFold(t *testing.T) {
-	reps := classReps(program(t, `(?i)k`))
+	got := reps(t, program(t, `(?i)k`))
 	for _, r := range []rune{'K', 'k', 'K', '\n'} {
-		if !slices.Contains(reps, r) {
-			t.Errorf("classReps((?i)k) = %q, missing %q", reps, r)
+		if !slices.Contains(got, r) {
+			t.Errorf("classReps((?i)k) = %q, missing %q", got, r)
 		}
 	}
 }
 
-// BenchmarkPatternModel measures the pattern model against Go's regexp:
-// for each pattern's adversarial input of 8 bytes to 16 KiB it reports the
-// nanoseconds a match takes per work unit of fixed plus perByte per byte
-// (ns/unit), which must stay below 1 on the reference machine. A
-// benchmark, not a test, for the reason BenchmarkWorkModel gives;
-// TestQueueBound and TestQueueBoundCoversInputs pin the model.
+// reps returns the class representatives of prog under a budget that
+// does not run out.
+func reps(t testing.TB, prog *syntax.Prog) []rune {
+	t.Helper()
+	budget := 1 << 30
+	r, ok := classReps(prog, &budget)
+	if !ok {
+		t.Fatal("classReps ran out of an unbounded budget")
+	}
+	return r
+}
+
+// cjkClass returns a character class of n distinct runes, every other
+// code point from U+4E00 on, which the parser keeps as n ranges.
+func cjkClass(n int) string {
+	var b strings.Builder
+	b.WriteByte('[')
+	for i := range n {
+		b.WriteRune(rune(0x4e00 + 2*i))
+	}
+	b.WriteByte(']')
+	return b.String()
+}
+
+// TestClassRepsBudget is the regression test of the review finding that
+// the classes of a program were collected and sorted before any budget
+// was charged: 990 copies of a class of 19,000 ranges took 1.4 s and 788
+// MB in classReps alone (07 F6, a compile returns within 1 s; architecture
+// R-77). The copies a repetition makes share their ranges, which count
+// once; the bounds are charged before they are added, so the classes of a
+// large program stop the exploration within its budget, which then
+// charges the whole program.
+//
+// Requirements: 07 req 75 and F6.
+func TestClassRepsBudget(t *testing.T) {
+	// 990 copies of one class of 400 ranges: the shared ranges count once.
+	prog := program(t, `^`+cjkClass(400)+`{990}`)
+	budget := patternBudget
+	got, ok := classReps(prog, &budget)
+	if spent := patternBudget - budget; !ok || len(got) > 2*400+8 || spent > 4*(400+8) {
+		t.Errorf("classReps of 990 copies of 400 ranges: %d representatives, ok %v, spent %d", len(got), ok, spent)
+	}
+	// Distinct classes past the budget: refused before the bounds that
+	// would exceed it are added.
+	expr := ""
+	for i := range 4 {
+		expr += strings.Replace(cjkClass(20000), "[", "[a-"+string(rune('b'+i)), 1)
+	}
+	prog = program(t, expr)
+	budget = patternBudget
+	if _, ok := classReps(prog, &budget); ok || budget < 0 {
+		t.Errorf("classReps of 80,000 ranges: ok %v, budget left %d, want refused within the budget", ok, budget)
+	}
+	budget = patternBudget
+	if q := queueBound(prog, &budget); q != len(prog.Inst) {
+		t.Errorf("queueBound past the classes' budget = %d, want the program's %d", q, len(prog.Inst))
+	}
+}
+
+// BenchmarkPatternModel measures the pattern model against Go's regexp as
+// the library's engine compiles it (compilePattern): for each pattern's
+// adversarial input of 8 bytes to 16 KiB it reports the nanoseconds a
+// match takes per work unit of fixed plus perByte per byte (ns/unit),
+// which must stay below 1 on the reference machine. A benchmark, not a
+// test, for the reason BenchmarkWorkModel gives; TestQueueBound,
+// TestQueueBoundCoversInputs and TestClassSteps pin the model.
 func BenchmarkPatternModel(b *testing.B) {
 	for _, tc := range costPatterns() {
 		c := newPatternCosts().of(tc.pattern)
-		re := regexp.MustCompile(tc.pattern)
+		re, err := compilePattern(tc.pattern)
+		if err != nil {
+			b.Fatal(err)
+		}
 		rs := []rune(tc.input)
 		last := string(rs[len(rs)-1])
 		for _, size := range []int{8, 64, 1024, 16384} {
@@ -186,9 +295,13 @@ func BenchmarkPatternModel(b *testing.B) {
 // CJK runes, which the parser cannot merge into one class: every queue of
 // the unanchored program holds the start's thousands of alternatives, and
 // every literal's rune is a class of its own.
-func altPattern(n int) string {
+func altPattern(n int) string { return altPatternFrom(0x4e00, n) }
+
+// altPatternFrom returns an alternation of n two-rune literals of distinct
+// runes from first on.
+func altPatternFrom(first rune, n int) string {
 	var b strings.Builder
-	r := rune(0x4e00)
+	r := first
 	for i := range n {
 		if i > 0 {
 			b.WriteByte('|')
@@ -211,13 +324,18 @@ func altPattern(n int) string {
 // closure, and the bound is then the whole program. Steps, not time, so
 // the test is deterministic.
 func TestQueueBoundBudget(t *testing.T) {
-	for _, expr := range []string{altPattern(4000), `^(?:` + altPattern(4000) + `)$`, altPattern(300), `[a-z]{1000}x`} {
+	// Review finding (a mutant that survived): an anchored pattern whose
+	// classes mostly advance no thread spends its budget scanning the start
+	// queue, never building a closure, so only the check before each class
+	// representative stops it.
+	sparse := `^(?:` + altPattern(8000) + `)(?:` + altPatternFrom(0x100, 8000) + `)$`
+	for _, expr := range []string{altPattern(4000), `^(?:` + altPattern(4000) + `)$`, altPattern(300), `[a-z]{1000}x`, sparse} {
 		prog := program(t, expr)
 		n := len(prog.Inst)
 		budget := patternBudget
 		q := queueBound(prog, &budget)
 		spent := patternBudget - budget
-		if limit := patternBudget + len(classReps(prog)) + 5*n; spent > limit {
+		if limit := patternBudget + 5*n; spent > limit {
 			t.Errorf("queueBound(%.20q, %d instructions) spent %d steps, want at most %d", expr, n, spent, limit)
 		}
 		if budget < 0 && q != n {

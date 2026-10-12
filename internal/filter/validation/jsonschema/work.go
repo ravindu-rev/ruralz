@@ -14,12 +14,12 @@ import (
 	"github.com/ravindu-rev/ruralz/internal/jsonval"
 )
 
-// The evaluation bound (proposed, package documentation). The library
-// validates without memoizing: every subschema an applicator, a reference
-// or a member and item keyword reaches is evaluated once per path that
-// reaches it, so a recursive reference reached through two paths doubles
-// the work at every level of body nesting. The compiled graph is checked
-// for two things before a schema is accepted:
+// The evaluation bound (architecture R-77, package documentation). The
+// library validates without memoizing: every subschema an applicator, a
+// reference or a member and item keyword reaches is evaluated once per
+// path that reaches it, so a recursive reference reached through two paths
+// doubles the work at every level of body nesting. The compiled graph is
+// checked for two things before a schema is accepted:
 //
 //   - no reference cycle applies schemas to the same value without
 //     descending into it (the library answers every value that reaches one
@@ -54,7 +54,11 @@ const maxNesting = jsonval.DefaultMaxDepth
 const evalCap = MaxEvaluations + 1
 
 // countCap is the value at which the other counts saturate; a count that
-// reaches it refuses every body that reaches the value.
+// reaches it refuses every body that reaches the value. The counts are
+// ints that hold it and its products with evaluation counts, so the
+// package builds for 64-bit platforms only, the only ones Ruralz ships
+// (ADR-0001): elsewhere countCap overflows int and the build fails (minor
+// review finding).
 const countCap = 1 << 40
 
 // coupledBudget bounds the class entries the precise pass may touch, so a
@@ -114,6 +118,11 @@ const (
 	// dimUnique counts the uniqueItems checks of the value itself, an
 	// array the library hashes, or compares pairwise when it is short.
 	dimUnique
+	// dimObjects counts the objects of the const and enum values compared
+	// with the value, at any depth (objectsIn): each compares with at most
+	// one object of the value's, looking its member names up until one is
+	// missing, which hashes that name.
+	dimObjects
 	// dims is the number of dimensions.
 	dims
 )
@@ -199,6 +208,9 @@ type gNode struct {
 	// compares is set when the schema has a const or enum value holding
 	// arrays or objects.
 	compares bool
+	// keepsMatches is set when the schema has contains with minContains or
+	// maxContains, whose error keeps the indexes of the matching items.
+	keepsMatches bool
 }
 
 // evalGraph is the compiled graph of a document; nodes[0] is the root
@@ -214,6 +226,9 @@ type evalGraph struct {
 	one, every int
 	// matches is what newGNode left of matchBudget, for the states.
 	matches int
+	// chain is, for every schema, the longest chain of in-place
+	// evaluations from it, itself included (inPlaceOrder).
+	chain []int
 }
 
 // workFlags records document-wide facts the runtime model needs.
@@ -234,11 +249,17 @@ type workFlags struct {
 	// lists is set when some schema has additionalProperties false, which
 	// lists the names it does not declare.
 	lists bool
+	// contains is set when some schema has contains, which lists the
+	// indexes of the items that match it.
+	contains bool
 	// maxInsts is the largest pattern program, for the matcher's memory.
 	maxInsts int
 	// maxPointer bounds the bytes of the location URL and keyword of any
 	// error the location pass reports, which its walk reads (walkWork).
 	maxPointer int
+	// chain is the longest chain of in-place evaluations of the document,
+	// which bounds the call stack at any one value (0 when unknown).
+	chain int
 }
 
 // workBound is what the analysis allows at one value of a body, by the
@@ -310,7 +331,7 @@ func newEvalGraph(starts []*sjs.Schema) (*evalGraph, bool) {
 			return nil, false
 		}
 		g.nodes[i] = newGNode(s, ptr, id, anchors, one, every, pc, &g.matches)
-		g.weight[i] = vec{dimEvals: 1, dimErrs: errorWeight(s), dimWork: workWeight(s, pc), dimParses: parsesOf(s), dimScan: scanWeight(s, pc)}
+		g.weight[i] = vec{dimEvals: 1, dimErrs: errorWeight(s), dimWork: workWeight(s, pc), dimParses: parsesOf(s), dimScan: scanWeight(s, pc), dimObjects: comparedObjects(s)}
 		if s.UniqueItems {
 			g.weight[i][dimUnique] = 1
 		}
@@ -321,6 +342,7 @@ func newEvalGraph(starts []*sjs.Schema) (*evalGraph, bool) {
 		f.uneItems = f.uneItems || s.UnevaluatedItems != nil
 		f.dynamic = f.dynamic || s.DynamicRef != nil || s.RecursiveRef != nil
 		f.lists = f.lists || s.AdditionalProperties == false
+		f.contains = f.contains || s.Contains != nil
 		f.maxPointer = max(f.maxPointer, len(s.Location)+maxKeywordBytes+2*longestKey(s.Dependencies)+2*longestKey(s.DependentRequired))
 	}
 	for _, c := range pc.cache {
@@ -328,7 +350,10 @@ func newEvalGraph(starts []*sjs.Schema) (*evalGraph, bool) {
 	}
 	// The name additionalProperties false lists is held by the location
 	// pass's error only; hashing holds no error.
-	g.nodes[one] = gNode{addl: -1, uneProps: -1, propNames: -1, items: -1, contains: -1, uneItems: -1, unique: -1, units: units{names: [kinds]int{1, 1, 1, 1, 1, 1}}}
+	g.nodes[one] = gNode{addl: -1, uneProps: -1, propNames: -1, items: -1, contains: -1, uneItems: -1, unique: -1}
+	for k := range kinds {
+		g.nodes[one].units.names[k] = 1
+	}
 	g.nodes[every] = gNode{addl: every, uneProps: -1, propNames: -1, items: every, contains: -1, uneItems: -1, unique: -1}
 	g.weight[one] = vec{dimEvals: 1, dimErrs: 1, dimWork: listUnits}
 	g.weight[every] = vec{dimEvals: 1, dimWork: hashUnits, dimParses: 1, dimScan: hashByteUnits, dimHash: 1}
@@ -485,6 +510,7 @@ func newGNode(s *sjs.Schema, ptr string, id map[*sjs.Schema]int, anchors map[str
 		}
 	}
 	n.contains = ref(s.Contains)
+	n.keepsMatches = s.Contains != nil && (s.MinContains != nil || s.MaxContains != nil)
 	n.uneItems = ref(s.UnevaluatedItems)
 	if s.UniqueItems {
 		n.unique = every
@@ -508,7 +534,8 @@ func isReference(kw string) bool {
 
 // inPlaceOrder returns the schemas ordered so that every in-place target
 // comes before the schemas applying it, or one finding per in-place cycle,
-// at the reference of the cycle whose pointer sorts first.
+// at the reference of the cycle whose pointer sorts first. Without a cycle
+// it also records the chains of in-place evaluations (setChains).
 func (g *evalGraph) inPlaceOrder() ([]int, []Issue) {
 	type step struct{ from, edge int }
 	state := make([]uint8, len(g.nodes))
@@ -562,7 +589,30 @@ func (g *evalGraph) inPlaceOrder() ([]int, []Issue) {
 			dfs(v)
 		}
 	}
+	if len(issues) == 0 {
+		g.setChains(order)
+	}
 	return order, issues
+}
+
+// setChains records, for every schema, the longest chain of in-place
+// evaluations from it, itself included: the library evaluates the in-place
+// members of a schema one after the other, each from a call of its own, so
+// its call stack at one value holds one such chain, however many
+// evaluations the value takes (review finding: every evaluation was
+// charged a stack frame). In-place targets come first in order.
+func (g *evalGraph) setChains(order []int) {
+	g.chain = make([]int, len(g.nodes))
+	for _, v := range order {
+		c := 0
+		for _, e := range g.nodes[v].in {
+			for _, t := range e.to {
+				c = max(c, g.chain[t])
+			}
+		}
+		g.chain[v] = min(c+1, evalCap)
+		g.flags.chain = max(g.flags.chain, g.chain[v])
+	}
 }
 
 // pick returns the counts of in-place member e: its costliest target,

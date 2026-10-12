@@ -13,6 +13,7 @@ import (
 	sjs "github.com/santhosh-tekuri/jsonschema/v6"
 	"github.com/santhosh-tekuri/jsonschema/v6/kind"
 
+	"github.com/ravindu-rev/ruralz/internal/filter"
 	"github.com/ravindu-rev/ruralz/internal/jsonval"
 	"github.com/ravindu-rev/ruralz/internal/phase"
 )
@@ -70,7 +71,18 @@ func TestValidateKeywordLocation(t *testing.T) {
 	}
 }
 
-// TestKeywordPointer covers the error shapes keywordPointer maps,
+// keywordPointer returns the absolute keyword location of one error as a
+// JSON Pointer into the document, as the location walk (locationOf) makes
+// it: the location of the schema that failed plus the failing keyword.
+func keywordPointer(e *sjs.ValidationError) (string, bool) {
+	loc, kw, ok := keywordParts(e)
+	if !ok {
+		return "", false
+	}
+	return keywordAt(loc, kw)
+}
+
+// TestKeywordPointer covers the error shapes the location walk maps,
 // including ones Validate only meets in unusual trees (07 req 81, the
 // keyword location of a refusal).
 func TestKeywordPointer(t *testing.T) {
@@ -90,6 +102,66 @@ func TestKeywordPointer(t *testing.T) {
 		got, ok := keywordPointer(tc.err)
 		if got != tc.want || ok != tc.ok {
 			t.Errorf("%s: keywordPointer = %q, %v, want %q, %v", tc.name, got, ok, tc.want, tc.ok)
+		}
+	}
+}
+
+// TestValidateWithin is the regression test of the minor review finding
+// that M2 callers of Schema.Validate, which validate untrusted values (AI
+// tool inputs), had no way to apply Handle's bounds: ValidateWithin refuses
+// as filter.ErrTooLarge, before the library runs, a value whose validation
+// may hold more than the working-set limit, take more than the work limit,
+// or nest past the nesting limit, and otherwise validates as Handle does.
+//
+// Requirements: 07 section 3, reqs 80 to 82 and section 9 item 21.
+func TestValidateWithin(t *testing.T) {
+	s := mustCompile(t, recordsSchema)
+	valid := decodeInstance(t, records(10))
+	if loc, ok, err := s.ValidateWithin(valid, testLimit); !ok || loc != "" || err != nil {
+		t.Errorf("valid: %q, %v, %v", loc, ok, err)
+	}
+	failing := decodeInstance(t, strings.Replace(records(10), `"qty":1,`, `"qty":0,`, 1))
+	if loc, ok, err := s.ValidateWithin(failing, testLimit); ok || loc != "/$defs/item/properties/qty/minimum" || err != nil {
+		t.Errorf("failing: %q, %v, %v", loc, ok, err)
+	}
+	if loc, ok, err := s.ValidateWithin(decodeInstance(t, `[{"sku":"x","qty":1e1001}]`), testLimit); ok || loc != "" || err != nil {
+		t.Errorf("a number out of range: %q, %v, %v, want not ok at the root", loc, ok, err)
+	}
+	// A failing value whose location pass does not fit: the root.
+	_, scan := scanBody(t, s, records(10))
+	limit := (scan.decideMemory() + WorkingSetFactor - 1) / WorkingSetFactor
+	if _, fs := scanBody(t, s, strings.Replace(records(10), `"qty":1,`, `"qty":0,`, 1)); fs.locateMemory() <= WorkingSetFactor*limit {
+		t.Fatalf("the location pass holds %d, within the limit %d", fs.locateMemory(), WorkingSetFactor*limit)
+	}
+	if loc, ok, err := s.ValidateWithin(failing, limit); ok || loc != "" || err != nil {
+		t.Errorf("a location pass over the limit: %q, %v, %v, want not ok at the root", loc, ok, err)
+	}
+	// Review finding (a mutant that survived): a failing value whose
+	// decision pass fits the work limit, but not with the location pass
+	// and its walk, is not ok at the root, and the location pass does not
+	// run.
+	walk := walkCases(120000, 40000)[2]
+	ws := mustCompile(t, walk.schema)
+	wv, wscan := scanBody(t, ws, walk.body)
+	wscan.workLimit = limitsOf(0).work
+	if wscan.workOver() || !wscan.locateOver() || wscan.locateMemory() > limitsOf(0).workingSet {
+		t.Fatalf("the walk case: work over %v, location over %v, location memory %d", wscan.workOver(), wscan.locateOver(), wscan.locateMemory())
+	}
+	if loc, ok, err := ws.ValidateWithin(wv, 0); ok || loc != "" || err != nil {
+		t.Errorf("a location pass and walk over the work limit: %.40q, %v, %v, want not ok at the root", loc, ok, err)
+	}
+	for _, tc := range []struct {
+		name, schema, body string
+		rawLimit           int64
+		want               error
+	}{
+		{"working set", `{"items":` + oneOfConsts(8) + `}`, denseArray(1000, `"x"`, 0), 1000, errWorkingSetTooLarge},
+		{"work", allOfRefs(800, `{"minProperties":0}`), wideObject(3000), testLimit, errWorkTooLarge},
+		{"nesting", richText, quotes(12), 0, errNestingTooDeep},
+	} {
+		_, ok, err := mustCompile(t, tc.schema).ValidateWithin(decodeInstance(t, tc.body), tc.rawLimit)
+		if ok || !errors.Is(err, tc.want) || !errors.Is(err, filter.ErrTooLarge) {
+			t.Errorf("%s: %v, %v, want %v", tc.name, ok, err, tc.want)
 		}
 	}
 }
@@ -211,6 +283,12 @@ func TestHandleLocationWalk(t *testing.T) {
 	small := denseArray(300, `"x"`, 0)
 	if got := detailOf(t, handle(t, f, small)); got != DetailMismatch+" at /$defs" {
 		t.Errorf("Handle(300 failing items) = %.60q, want the location", got)
+	}
+	// Minor review finding: a long dependentRequired key lengthens every
+	// location the walk reads under it.
+	long := strings.Repeat("k", 10000)
+	if _, scan := scanBody(t, mustCompile(t, `{"items":{"dependentRequired":{"`+long+`":["b"]}}}`), denseArray(10, `{"`+long+`":1}`, 0)); scan.walk < 10*2*10000 {
+		t.Errorf("10 failing items under a 10,000-byte key: the walk is charged %d", scan.walk)
 	}
 	// The request ends during the walk, after Handle's and the location
 	// pass's checks: the decision alone.

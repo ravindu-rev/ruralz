@@ -28,30 +28,44 @@ const (
 	MaxSchemaBytes = 256 << 10
 	// MaxFanOut bounds the nested applicator fan-out (proposed).
 	MaxFanOut = 1024
-	// MaxSubschemas bounds the schema positions of a document (proposed):
-	// the library compiles a schema resource in one work queue that it
-	// searches linearly, so compile time grows with the square of the
+	// MaxSubschemas bounds the schema positions of a document (architecture
+	// R-77): the library compiles a schema resource in one work queue that
+	// it searches linearly, so compile time grows with the square of the
 	// subschema count (about 0.3 s at this bound on a shared 4-vCPU
 	// machine, against 2.3 s for the 37,000 empty subschemas 256 KiB can
 	// hold; the evaluation analysis adds at most about 0.4 s, see the
-	// package documentation).
+	// package documentation). A position counts again for every
+	// meta-schema check the library repeats on it (metacheck.go).
 	MaxSubschemas = 4096
 	// MaxEvaluations bounds the subschema evaluations that validating one
-	// value of a body may take (proposed): with MaxSubschemas positions, a
-	// document that evaluates each subschema at most once per value always
-	// fits, while a recursive reference reached through two paths, which
-	// doubles the work at every level of nesting, crosses it 11 or 12
-	// levels down (see work.go). The first nesting depth at which a value
-	// may cross it is the schema's nesting limit: a body value nested that
-	// deep on a path the states do not bound is refused (413, package
-	// documentation).
+	// value of a body may take (architecture R-77): with MaxSubschemas
+	// positions, a document that evaluates each subschema at most once per
+	// value always fits, while a recursive reference reached through two
+	// paths, which doubles the work at every level of nesting, crosses it
+	// 10 to 12 levels down (see work.go). The first nesting depth at which
+	// a value may cross it is the schema's nesting limit: a body value
+	// nested that deep on a path the states do not bound is refused (413,
+	// package documentation).
 	MaxEvaluations = 4096
 	// MinNesting is the smallest nesting limit a schema may have
-	// (proposed): a schema whose evaluations may cross MaxEvaluations at a
-	// value nested less deep is refused.
+	// (architecture R-77): a schema whose evaluations may cross
+	// MaxEvaluations at a value nested less deep is refused.
 	MinNesting = 16
 	// MaxIssues bounds the findings CompileSchema reports for one document.
 	MaxIssues = 20
+	// MaxPatternInstructions bounds the measure of one pattern or
+	// patternProperties name (architecture R-77), taken before anything
+	// compiles it, in instructions of 40 bytes: what its compiled form
+	// keeps, the instructions of the program Go's regexp compiles it into
+	// (every copy a repetition expands to included), the ranges of its
+	// classes, its literals' and classes' nodes and the regexp's own
+	// structures, and the parser's work on its Unicode class escapes and
+	// case-insensitive ranges (patternsize.go).
+	MaxPatternInstructions = 1 << 14
+	// MaxDocumentInstructions bounds the measures of all the patterns and
+	// patternProperties names of one document together (architecture
+	// R-77).
+	MaxDocumentInstructions = 1 << 17
 )
 
 // baseURL is the URL every schema document is compiled under. It is a
@@ -64,6 +78,10 @@ const baseURL = "https://schema.ruralz.invalid/policy.json"
 // decideURL names the wrapper of the decision pass, compiled with the
 // document.
 const decideURL = "https://schema.ruralz.invalid/decide.json"
+
+// checkURL names the resource whose allOf names the reference targets the
+// library checks apart, compiled first (metacheck.go).
+const checkURL = "https://schema.ruralz.invalid/check.json"
 
 // maxMessageBytes bounds one finding's message, which may quote schema
 // values from the library's meta-schema errors.
@@ -234,8 +252,25 @@ func compileWalked(p *prepared, w *walker, loader sjs.URLLoader) (*Schema, []Iss
 	c := sjs.NewCompiler()
 	c.DefaultDraft(sjs.Draft2020)
 	c.UseLoader(loader)
+	c.UseRegexpEngine(regexpCache{}.compile)
 	if err := c.AddResource(baseURL, p.doc); err != nil {
 		return nil, []Issue{{Message: message(err.Error())}}
+	}
+	// The reference targets the library checks apart against the
+	// meta-schema are checked first, in the walk's order: one work queue
+	// that starts with references to them, in that order, checks each
+	// before anything else of the document (metacheck.go).
+	if len(w.checkOrder) > 0 {
+		refs := make([]any, len(w.checkOrder))
+		for i, ptr := range w.checkOrder {
+			refs[i] = map[string]any{"$ref": baseURL + "#" + encodeFragment(ptr)}
+		}
+		if err := c.AddResource(checkURL, map[string]any{"allOf": refs}); err != nil {
+			return nil, []Issue{{Message: message(err.Error())}}
+		}
+		if _, err := c.Compile(checkURL); err != nil {
+			return nil, w.compileIssues(err)
+		}
 	}
 	// The library compiles a schema resource and every subschema it
 	// reaches in one work queue, so the root goes first; the remaining
@@ -278,6 +313,34 @@ func compileWalked(p *prepared, w *walker, loader sjs.URLLoader) (*Schema, []Iss
 		return nil, []Issue{{Message: message(err.Error())}}
 	}
 	return &Schema{root: root, decide: decide, raw: p.raw, sum: p.sum, numbers: in.numbers, work: ws}, nil
+}
+
+// regexpCache compiles every distinct regular expression of one schema
+// document once: the library compiles a pattern or patternProperties name
+// in every meta-schema check that covers it and again for the schema
+// (review finding: a reference ladder compiled each of eight of the
+// largest patterns 59 times). A compiled regexp is safe for concurrent
+// use, so positions with the same expression share it.
+type regexpCache map[string]cachedRegexp
+
+// cachedRegexp is one compile's result.
+type cachedRegexp struct {
+	re  *compiledPattern
+	err error
+}
+
+// compile is the library's regexp engine: Go's regexp without its
+// one-pass matcher (compilePattern), once per expression.
+func (rc regexpCache) compile(expr string) (sjs.Regexp, error) {
+	r, ok := rc[expr]
+	if !ok {
+		r.re, r.err = compilePattern(expr)
+		rc[expr] = r
+	}
+	if r.err != nil {
+		return nil, r.err
+	}
+	return r.re, nil
 }
 
 // compileIssues maps a compiler error to findings.

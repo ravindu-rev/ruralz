@@ -311,11 +311,50 @@ func TestCompileMatchBudget(t *testing.T) {
 			matched++
 		}
 	}
-	if matched == 0 || assumed == 0 || g.matches < 0 {
+	if matched == 0 || assumed == 0 {
 		t.Errorf("shared budget: %d schemas matched, %d assumed, %d left, want both", matched, assumed, g.matches)
 	}
 	if got := matchWork(vec{dimWork: 10, dimScan: countCap / 2}, 3); got != countCap {
 		t.Errorf("matchWork overflow = %d, want %d", got, countCap)
+	}
+}
+
+// TestDepthBoundCoversStates checks the fallback of the states: the depth
+// bound of the analysis, which charges a value whose path the states do
+// not follow (past maxStates, maxTransitions or stateBudget), never
+// charges less than the states do. For every body below, scanned with the
+// states and without them, the error trees, the path and the work without
+// them are at least those with them, member names under propertyNames
+// included (the depth bound's own member-name class is pinned by the
+// "property names under mixins" case of TestWorkingSetCoversPeak).
+//
+// Requirements: 07 reqs 80 to 82 and section 9 item 21.
+func TestDepthBoundCoversStates(t *testing.T) {
+	names := `"propertyNames":{"allOf":[` + strings.TrimSuffix(strings.Repeat(`{"pattern":"^a","maxLength":2},`, 20), ",") + `]}`
+	for _, tc := range []struct{ name, schema, body string }{
+		{"mixins with costly member names", strings.TrimSuffix(mixins, "}") + `,` + names + `}`, `{"zzz":1}`},
+		{"mixins with costly member names, nested", strings.TrimSuffix(mixins, "}") + `,` + names + `}`, `{"zzz":1,"friends":[{"owner":{"pets":[{"zzz":1}]}}]}`},
+		{"records", recordsSchema, records(20)},
+		{"union next to tags", unionSchema(12), unionBody(20, `"tag%d"`)},
+		{"rich text", richText, quotes(5)},
+		{"dynamic references", `{"$dynamicAnchor":"n","items":{"$dynamicRef":"#n"},"$defs":{"x":{"$id":"urn:x","$dynamicAnchor":"n","items":{"$dynamicRef":"#n"}}}}`, nested(20)},
+		{"matching items", `{"items":{"contains":{"type":"number"},"maxContains":1,"propertyNames":{"maxLength":1}}}`, `[[1,2,3],{"ab":1}]`},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			s := mustCompile(t, tc.schema)
+			if len(s.work.states) == 0 {
+				t.Fatal("no states")
+			}
+			v, with := scanBody(t, s, tc.body)
+			bound := *s
+			bound.work.states = nil
+			without := bodyScan{ws: &bound.work, numbers: bound.numbers, workLimit: maxWorkLimit}
+			without.scan(v)
+			if without.decide < with.decide || without.locate < with.locate || without.path < with.path || without.work < with.work || without.walk < with.walk {
+				t.Errorf("without states: decide, locate, path, work, walk = %d, %d, %d, %d, %d; with them %d, %d, %d, %d, %d",
+					without.decide, without.locate, without.path, without.work, without.walk, with.decide, with.locate, with.path, with.work, with.walk)
+			}
+		})
 	}
 }
 

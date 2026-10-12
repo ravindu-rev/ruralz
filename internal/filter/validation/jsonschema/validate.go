@@ -31,9 +31,9 @@ var errValidator = errors.New("validation.json-schema: the validator cannot deci
 // the library would parse outside the number bounds (which would make the
 // library panic or spend milliseconds per literal) or a value as deep as
 // the schema's nesting limit on a path whose state does not bound it.
-// Unlike Handle, it bounds neither the memory
-// nor the work of validation: its caller bounds v (M2: OpenAPI, AI tool
-// inputs).
+// Unlike Handle, it bounds neither the memory nor the work of validation,
+// so it is for values its caller trusts; ValidateWithin applies Handle's
+// bounds to the others (M2: OpenAPI examples, AI tool inputs).
 func (s *Schema) Validate(v any) (keywordLocation string, ok bool) {
 	scan := bodyScan{ws: &s.work, numbers: s.numbers, workLimit: maxWorkLimit}
 	scan.scan(v)
@@ -42,6 +42,40 @@ func (s *Schema) Validate(v any) (keywordLocation string, ok bool) {
 	}
 	loc, ok, _ := s.validate(v, nil)
 	return loc, ok
+}
+
+// ValidateWithin is Validate within the bounds Handle applies to a body
+// under a limits.maxRequestBodyBytes of rawLimit (the configuration
+// default when 0 or less; package documentation "Working set" and "Work
+// bound"), for values from untrusted sources (minor review finding: the
+// model that bounds Handle was not available to M2 callers). Before the
+// library runs, a v whose decision pass may hold more than
+// WorkingSetFactor times rawLimit besides v or take more than WorkPerByte
+// work units per byte of it, or that nests as deep as the schema's nesting
+// limit on a path whose state does not bound it, is an error matching
+// filter.ErrTooLarge. A v holding a number out of the number bounds is not
+// ok at the root, as is a failing v whose location pass does not fit the
+// same bounds; an internal validator error is returned as such. It
+// reserves nothing: its caller accounts for the memory, at most
+// WorkingSetFactor times rawLimit besides v.
+func (s *Schema) ValidateWithin(v any, rawLimit int64) (keywordLocation string, ok bool, err error) {
+	limits := limitsOf(rawLimit)
+	scan := bodyScan{ws: &s.work, numbers: s.numbers, workLimit: limits.work}
+	scan.scan(v)
+	if scan.bad {
+		return "", false, nil
+	}
+	if err := limits.refusal(&scan); err != nil {
+		return "", false, err
+	}
+	if s.valid(v) {
+		return "", true, nil
+	}
+	if scan.locateMemory() > limits.workingSet || scan.locateOver() {
+		return "", false, nil
+	}
+	loc, _, err := s.validate(v, nil)
+	return loc, false, err
 }
 
 // valid is the decision pass: it reports whether v is valid, without the
@@ -57,14 +91,14 @@ func (s *Schema) valid(v any) bool {
 const walkCheck = 256
 
 // validate is Validate that also reports an internal validator error: a
-// failure whose leaves include one that is not a decision about v. The
-// walk over the leaves stops when stop (nil for never), called every
-// walkCheck leaves, reports true: the location is then "", the document
-// root. The walk takes work per leaf that grows with the length of the
-// leaf's location, which the work model charges (walkWork, review
-// finding); a leaf at the location of the best one so far, the common
-// case of a dense failing body, costs no more than comparing the two
-// locations, which share their bytes.
+// failure whose leaves include one that is not a decision about v. A valid
+// v is ("", true, nil). The walk over the leaves stops when stop (nil for
+// never), called every walkCheck leaves, reports true: the location is
+// then "", the document root. The walk takes work per leaf that grows with
+// the length of the leaf's location, which the work model charges
+// (walkWork, review finding); a leaf at the location of the best one so
+// far, the common case of a dense failing body, costs no more than
+// comparing the two locations, which share their bytes.
 func (s *Schema) validate(v any, stop func() bool) (keywordLocation string, ok bool, err error) {
 	res := s.root.Validate(v)
 	if res == nil {
@@ -117,17 +151,6 @@ func locationOf(verr *sjs.ValidationError, stop func() bool) (keywordLocation st
 		return "", false, nil
 	}
 	return best, false, nil
-}
-
-// keywordPointer returns the absolute keyword location of one error as a
-// JSON Pointer into the document: the location of the schema that failed
-// plus the failing keyword.
-func keywordPointer(e *sjs.ValidationError) (string, bool) {
-	loc, kw, ok := keywordParts(e)
-	if !ok {
-		return "", false
-	}
-	return keywordAt(loc, kw)
 }
 
 // keywordParts returns the schema location URL of one error and the
