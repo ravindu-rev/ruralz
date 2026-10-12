@@ -71,6 +71,17 @@ The Makefile needs GNU make, bash, git and curl. On Windows install make separat
 
 Review-enforced (no linter checks it): no mutable package-level variables, except sentinel errors, `go:embed` variables, the linker-set `internal/buildinfo` variables, tests and generated code (doc 02, Code conventions).
 
+## Quality standard (set by the owner, 2026-10-12)
+
+Aim for the complete solution, never a quick fix.
+
+- **No open findings.** A change, work package, section or wave is done only when a fresh review reports no findings of any severity, minor included. Never close, commit as finished, or defer to a later pass with a finding open; if a finding is wrong, show why with evidence and get the owner's agreement.
+- **Fix the class, not the instance.** For each finding, find every path that shares its root cause (each keyword, input shape, code path, caller or sibling of the same kind), fix them together, and list the class members in the change. One fix per class beats one fix per report.
+- **A test for every case.** Every requirement, finding and class member gets its own test that fails without the fix, small and edge cases included. Prove it by running the test against the code without the fix (`go test -overlay`) or by a mutation the test kills. Prefer table tests that name each case. Spend the time on tests; untested behavior counts as missing.
+- **Inventory before bounding a dependency.** Before code wraps or bounds a third-party library (its cost, memory, accepted input or errors), read the library and list every feature and code path it acts on with how each is bounded and tested, then build from that list instead of finding paths one review at a time.
+- **Deterministic tests.** Never assert wall-clock time or a sampled heap without a margin proven under load; use benchmarks, counters or measurements that do not depend on scheduling.
+- **Record decisions.** A limit, refusal or trade-off the specs do not state is the owner's decision: ask, then record it where the next reader looks (the owning document, an Open questions row or an ADR).
+
 ## Commits and pull requests
 
 - **DCO.** Every non-merge commit carries `Signed-off-by: <author name> <author email>`; the name must equal the commit author exactly (`git commit -s`; repair with `git rebase --signoff main`). A `Co-Authored-By` trailer does not replace it.
