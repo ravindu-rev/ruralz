@@ -102,8 +102,15 @@ type sharedKey struct{ sum [32]byte }
 // env.Previous when the normalized document is unchanged and sharing one
 // Schema per document within a snapshot (07 req 77). A schema that does
 // not compile is an error carrying RZ-CFG-005, as are a config of the
-// wrong type and an empty schema.
-func (Factory) Build(_ context.Context, env filter.BuildEnv) (filter.Filter, error) {
+// wrong type and an empty schema. A ctx that has ended is its error,
+// unchanged and without a code, at the start and between the stages of a
+// compile (the library's own compile cannot be interrupted), so a
+// canceled or superseded snapshot compile stops early (minor review
+// finding).
+func (Factory) Build(ctx context.Context, env filter.BuildEnv) (filter.Filter, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
 	cfg, ok := env.Config.(*v1alpha1.ValidationJSONSchemaConfig)
 	if !ok || cfg == nil {
 		return nil, errcode.Errorf(CodeConfig, "validation.json-schema: config is %T, want *v1alpha1.ValidationJSONSchemaConfig", env.Config)
@@ -140,7 +147,7 @@ func (Factory) Build(_ context.Context, env filter.BuildEnv) (filter.Filter, err
 		}
 		return prev, nil
 	}
-	build := func() (any, error) { return compileShared(p) }
+	build := func() (any, error) { return compileShared(ctx, p) }
 	if prev != nil && prev.schema.sum == p.sum {
 		// Same document under new limits: the previous Schema, also for
 		// the other Policies of this snapshot with the same document.
@@ -166,9 +173,12 @@ func (Factory) Build(_ context.Context, env filter.BuildEnv) (filter.Filter, err
 }
 
 // compileShared compiles a prepared document, wrapping failures with
-// RZ-CFG-005.
-func compileShared(p *prepared) (*Schema, error) {
-	s, issues := compilePrepared(p, refusingLoader{})
+// RZ-CFG-005; an ended ctx stops it between stages with its error.
+func compileShared(ctx context.Context, p *prepared) (*Schema, error) {
+	s, issues, err := compilePrepared(p, refusingLoader{}, ctx.Err)
+	if err != nil {
+		return nil, err
+	}
 	if len(issues) > 0 {
 		return nil, errcode.Wrap(CodeConfig, &CompileError{Issues: issues})
 	}

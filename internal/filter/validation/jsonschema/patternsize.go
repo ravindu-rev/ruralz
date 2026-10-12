@@ -28,15 +28,16 @@ import (
 // rangesPerInstruction of them as one instruction; and nodeInstructions
 // for every literal and class of the parsed expression, whose node the
 // program may keep. The copies a repetition makes share the ranges and
-// the node of its literal or class, which count once. The parsing work is counted before the parse,
-// lexically, since the parser does it whatever the program: the ranges of
-// the table it builds for each Unicode class escape (\p and \P; \pL holds
-// about 680), which it merges and sorts within a class,
-// escapeRangesPerInstruction of them as one instruction, and the
-// characters of case-insensitive class ranges, which it folds one at a
-// time (about 4 ms for [\x{42}-\x{1e942}] under (?i)),
-// foldRunesPerInstruction of them as one instruction (proposed, measured on
-// a shared 4-vCPU 2.8 GHz machine against Go's compile of an instruction).
+// the node of its literal or class, which count once. The parsing work is
+// counted before the parse, lexically, since the parser does it whatever
+// the program: the ranges of the table it builds for each Unicode class
+// escape (\p and \P; \pL holds about 680), which it merges and sorts
+// within a class, escapeRangesPerInstruction of them as one instruction,
+// and the characters of case-insensitive class ranges, which it folds one
+// at a time (about 4 ms for [\x{42}-\x{1e942}] under (?i)),
+// foldRunesPerInstruction of them as one instruction (proposed, measured
+// on a shared 4-vCPU 2.8 GHz machine against Go's compile of an
+// instruction).
 // A pattern whose parsing work alone exceeds the bound is refused
 // unparsed, and once the document's bound is spent no later pattern is
 // parsed (review finding: hundreds of escape-heavy patterns were parsed
@@ -146,9 +147,8 @@ func (ps patternScan) parseWork() int64 {
 // without compiling it.
 func (w *walker) pattern(expr, ptr, what string) {
 	parse := w.scanPattern(expr).parseWork()
-	tooLarge := fmt.Sprintf("%s compiles to a program of more than %d instructions (a repetition counts every copy, a character class its ranges, and the parser's work on Unicode class escapes and case-insensitive ranges counts too)", what, MaxPatternInstructions)
 	if parse > MaxPatternInstructions {
-		w.add(ptr, tooLarge)
+		w.add(ptr, tooLarge(what))
 		return
 	}
 	if w.instsOver {
@@ -169,13 +169,19 @@ func (w *walker) pattern(expr, ptr, what string) {
 	size := addCap(parse, programSize(re)+programOverhead)
 	if size > MaxPatternInstructions {
 		w.insts += parse
-		w.add(ptr, tooLarge)
+		w.add(ptr, tooLarge(what))
 		return
 	}
 	w.insts += size
 	if w.insts > MaxDocumentInstructions {
 		w.overInstructions(ptr)
 	}
+}
+
+// tooLarge is the finding of a pattern or patternProperties name (what)
+// whose measure exceeds MaxPatternInstructions.
+func tooLarge(what string) string {
+	return fmt.Sprintf("%s compiles to a program of more than %d instructions (a repetition counts every copy, a character class its ranges, and the parser's work on Unicode class escapes and case-insensitive ranges counts too)", what, MaxPatternInstructions)
 }
 
 // overInstructions reports the document's bound at ptr, once.
@@ -229,7 +235,7 @@ func programInsts(re *syntax.Regexp) int64 {
 		}
 	default:
 		// A character class, an empty-width assertion or any character is
-		// one instruction; no match is none.
+		// one instruction, and so is no match: calcSize's minimum.
 	}
 	return max(1, size)
 }

@@ -4,6 +4,7 @@
 package jsonschema
 
 import (
+	"encoding/binary"
 	"encoding/json"
 	"math"
 	"math/big"
@@ -77,8 +78,10 @@ const (
 	// pairwiseItems items holds per item: its hash map (measured 102 to 168
 	// bytes per item).
 	dupItemBytes = 192
-	// matcherBytes and matcherInstBytes bound a regexp matcher: its
-	// queues per program instruction and the backtracker's visited set.
+	// matcherBytes and matcherInstBytes bound a regexp matcher but for
+	// the backtracker's job stack, which grows with the input
+	// (backtrackBytes): the NFA simulation's queues and threads per
+	// program instruction and the backtracker's visited set.
 	matcherBytes, matcherInstBytes = 32 << 10, 64
 	// decideErrorBytes is what one error may hold in the decision pass,
 	// where the library's errors carry no location, kind or causes of
@@ -254,10 +257,9 @@ const (
 	nameHashBytes = 8
 	// nameHashes is how often an evaluation with member keywords may hash
 	// each member name: the properties lookup. unevalNameHashes is how
-	// often an
-	// evaluation that copies the unevaluated names may: the copy's insert,
-	// the delete once a keyword evaluates the member, the merge's lookup
-	// and delete, and the unevaluatedProperties lookup.
+	// often an evaluation that copies the unevaluated names may: the
+	// copy's insert, the delete once a keyword evaluates the member, the
+	// merge's lookup and delete, and the unevaluatedProperties lookup.
 	nameHashes, unevalNameHashes = 1, 5
 	// copyUnits is one byte of a string per evaluation at the string: the
 	// library copies it (measured 0.65 to 0.74).
@@ -302,6 +304,78 @@ const (
 	// growing with the literal's length and exponent.
 	numberUnits, numberByteUnits, numberExpUnits = 768, 28, 12
 )
+
+// The work of a multipleOf check (review finding: a body number's check
+// against a divisor was charged as one parse of the body literal, so a
+// short decimal against 0.(120 fives)e-990 took 4.7 ns per charged unit).
+// The library divides the value by the divisor as math/big rationals,
+// a/b by c/d: it multiplies a by d and c by b, divides both products by
+// their greatest common divisor (Lehmer's algorithm), and checks the
+// quotient's denominator. With a, b, c and d bounded in decimal digits
+// (literalDigits, ratDigits), one check takes at most quoUnits, quoMinUnits
+// per digit of the smaller product (each step of the GCD), quoDigitUnits
+// per digit of all four, and a unit per quoProductDigits of the digit
+// products a*b, c*d and (a+b)*(c+d) (the multiplications, the GCD's
+// updates and the final divisions): measured on 1,500 random pairs within
+// the number bounds and at their edges, from 0.25 to 0.5 µs for short
+// literals to 26 µs, every one at least 40% under the model, which is up
+// to about 30 times above it for literals sharing large powers of ten
+// (BenchmarkWorkModel's multipleOf cases). The divisor's part is the
+// schema's (workWeight); the rest is the scan's (bodyScan.quoWork).
+const (
+	quoUnits, quoMinUnits, quoDigitUnits, quoProductDigits = 512, 64, 16, 128
+)
+
+// literalDigits returns upper bounds of the decimal digits of the
+// numerator and the denominator of the rational the number literal lit,
+// in range, denotes: a mantissa of m digits, f of them after the point,
+// and an exponent e denote an integer of m digits times 10^(e-f).
+func literalDigits(lit string) (num, den int64) {
+	mant, exp := lit, 0
+	if i := exponentIndex(lit); i >= 0 {
+		mant, exp = lit[:i], exponentOf(lit)
+		if strings.HasPrefix(lit[i+1:], "-") {
+			exp = -exp
+		}
+	}
+	mant = strings.TrimPrefix(mant, "-")
+	m, f := len(mant), 0
+	if i := strings.IndexByte(mant, '.'); i >= 0 {
+		m, f = len(mant)-1, len(mant)-1-i
+	}
+	if shift := exp - f; shift >= 0 {
+		return int64(m + shift), 1
+	}
+	return int64(m), int64(f-exp) + 1
+}
+
+// ratDigits returns upper bounds of the decimal digits of the numerator
+// and the denominator of r (log10(2) is below 0.30103).
+func ratDigits(r *big.Rat) (num, den int) {
+	return r.Num().BitLen()*30103/100000 + 1, r.Denom().BitLen()*30103/100000 + 1
+}
+
+// divisorWork returns the divisor's part of the work of one multipleOf
+// check against r: the fixed work, its digits and their product.
+func divisorWork(r *big.Rat) int {
+	c, d := ratDigits(r)
+	return quoUnits + quoDigitUnits*(c+d) + (c*d+quoProductDigits-1)/quoProductDigits
+}
+
+// quoWork returns the value's part of the work of n multipleOf checks of
+// the number literal lit against divisors whose numerators sum to divNum
+// digits and denominators to divDen: the GCD's steps, at most the smaller
+// of the two products' digits summed over the checks, the literal's
+// digits, and the digit products with the literal's.
+func quoWork(lit string, n, divNum, divDen int64) int64 {
+	if n == 0 {
+		return 0
+	}
+	a, b := literalDigits(lit)
+	steps := min(addCap(mulCap(n, a), divDen), addCap(divNum, mulCap(n, b)))
+	work := addCap(mulCap(steps, quoMinUnits), mulCap(n, quoDigitUnits*(a+b)+(a*b+quoProductDigits-1)/quoProductDigits))
+	return addCap(work, (mulCap(a+b, addCap(divNum, divDen))+quoProductDigits-1)/quoProductDigits)
+}
 
 // WorkPerByte bounds the work of validating one request body (architecture
 // R-77, package documentation "Work bound"): at most WorkPerByte work units
@@ -663,7 +737,8 @@ func composite(s *sjs.Schema) bool {
 // can fail (type, const and enum count once, since the first of them that
 // fails ends the evaluation), the names of its lists, its dependency
 // members, the bytes of the names it looks up, the schema side of its
-// const and enum comparisons, and the setup of its pattern.
+// const and enum comparisons, the setup of its pattern, and the divisor's
+// part of its multipleOf check.
 func workWeight(s *sjs.Schema, pc *patternCosts) int {
 	if s.Bool != nil {
 		return evalUnits
@@ -685,6 +760,9 @@ func workWeight(s *sjs.Schema, pc *patternCosts) int {
 	}
 	if s.Pattern != nil {
 		w += pc.of(s.Pattern.String()).fixed
+	}
+	if s.MultipleOf != nil {
+		w += divisorWork(s.MultipleOf)
 	}
 	return min(w, countCap)
 }
@@ -933,10 +1011,11 @@ type valueCharge struct {
 
 // enter charges the value v at depth d in state st (unknownState when
 // unknown), a member named name ("" for an item, the root or a member
-// name) whose parent's patterns cost match to match it (nil when it is not
-// a member or its parent's state is unknown), below frames evaluations on
-// the path: it adds the location pass's errors and returns the rest.
-func (b *bodyScan) enter(d int, name string, frames int64, st int, match *vec, v any) valueCharge {
+// name) of an object in state parent (nil when it is not a member or its
+// parent's state is unknown), below frames evaluations on the path: it
+// adds the location pass's errors and the largest transient copy and
+// returns the rest.
+func (b *bodyScan) enter(d int, name string, frames int64, st int, parent *evalState, v any) valueCharge {
 	dd := min(d, maxNesting)
 	c := b.ws.at[dd]
 	if d > b.ws.limit {
@@ -955,9 +1034,9 @@ func (b *bodyScan) enter(d int, name string, frames int64, st int, match *vec, v
 	if st >= 0 {
 		s = &b.ws.states[st]
 		own := s.c
-		if match != nil {
-			own[dimWork] = min(own[dimWork]+match[dimWork], countCap)
-			own[dimScan] = min(own[dimScan]+match[dimScan], countCap)
+		if parent != nil {
+			own[dimWork] = min(own[dimWork]+parent.match[dimWork], countCap)
+			own[dimScan] = min(own[dimScan]+parent.match[dimScan], countCap)
 		}
 		for i := range c {
 			c[i] = min(c[i], own[i])
@@ -997,13 +1076,8 @@ func (b *bodyScan) enter(d int, name string, frames int64, st int, match *vec, v
 	if b.ws.flags.dynamic {
 		work = addCap(work, mulCap(evals, mulCap(frames, scopeUnits)))
 	}
-	work = addCap(work, mulCap(int64(c[dimScan]), int64(len(name))))
-	if c[dimScan] > 0 && b.ws.flags.maxInsts > 0 {
-		// A pattern may match the value or its member name: a matcher of the
-		// largest program (review finding: charged to every body, it took 64
-		// MB of the budget for {}).
-		b.transient = max(b.transient, matcherBytes+matcherInstBytes*int64(b.ws.flags.maxInsts))
-	}
+	work = addCap(work, mulCap(scanRate(c), int64(len(name))))
+	b.matchers(s, parent, c, name, v)
 	return valueCharge{
 		st: s, c: c, full: full,
 		decide: mulCap(addCap(decide, groups), decideErrorBytes),
@@ -1013,11 +1087,45 @@ func (b *bodyScan) enter(d int, name string, frames int64, st int, match *vec, v
 	}
 }
 
+// scanRate returns the work units per byte of a string or member name
+// under counts c: the patterns and rune counts that scan it (dimScan) and
+// the uniqueItems passes that hash it (dimHash).
+func scanRate(c vec) int64 {
+	return addCap(int64(c[dimScan]), mulCap(int64(c[dimHash]), hashByteUnits))
+}
+
+// matchers charges the largest transient copy a pattern may take matching
+// the value v, a string, or its member name: a regexp matcher of the
+// largest program that may match it (review finding: charged to every
+// body, it took 64 MB of the budget for {}) and the backtracker's job
+// stack (patternReach). Where the value's state is known (s), only the
+// patterns its evaluations apply to the string and those its parent's
+// apply to the name count (review finding: every pattern of the document
+// was charged to every string a pattern or a uniqueItems pass reached, so
+// small valid bodies were refused at a 64 KiB limit); elsewhere, where
+// the counts c may scan it, every pattern of the document, for the longer
+// of the two.
+func (b *bodyScan) matchers(s, parent *evalState, c vec, name string, v any) {
+	str, isString := v.(string)
+	if s == nil {
+		if c[dimScan] > 0 {
+			b.transient = max(b.transient, b.ws.flags.patterns.bytes(max(len(name), len(str))))
+		}
+		return
+	}
+	if isString {
+		b.transient = max(b.transient, s.valuePats.bytes(len(str)))
+	}
+	if parent != nil {
+		b.transient = max(b.transient, parent.namePats.bytes(len(name)))
+	}
+}
+
 // str charges a string of n bytes entered as a: the copy every evaluation
-// makes, the patterns that scan it, and the uniqueItems comparisons; it
-// returns the stack.
+// makes, the patterns that scan it and the passes that hash it, and the
+// uniqueItems comparisons; it returns the stack.
 func (b *bodyScan) str(a valueCharge, n int64) int64 {
-	work := addCap(a.work, mulCap(n, addCap(mulCap(a.evals, copyUnits), int64(a.c[dimScan]))))
+	work := addCap(a.work, mulCap(n, addCap(mulCap(a.evals, copyUnits), scanRate(a.c))))
 	b.addWork(addCap(work, mulCap(a.hash, compareUnits+n/compareBytes)))
 	if a.evals > 0 {
 		b.transient = max(b.transient, n)
@@ -1044,10 +1152,11 @@ func child(s *evalState, f func(*evalState) int) int {
 }
 
 // value scans v at depth d in state st, a member named name ("" for an
-// item or the root) matched at match, below frames evaluations on the
-// path, and returns the stack and unevaluated copies on the costliest path
-// from v down and the error tree the decision pass may hold for v.
-func (b *bodyScan) value(v any, d int, name string, frames int64, st int, match *vec) (path, decide int64) {
+// item or the root) of an object in state parent (nil when unknown or not
+// a member), below frames evaluations on the path, and returns the stack
+// and unevaluated copies on the costliest path from v down and the error
+// tree the decision pass may hold for v.
+func (b *bodyScan) value(v any, d int, name string, frames int64, st int, parent *evalState) (path, decide int64) {
 	if d >= b.ws.limit && !b.bounded(st) {
 		b.deep = true
 		if b.numbers {
@@ -1055,7 +1164,7 @@ func (b *bodyScan) value(v any, d int, name string, frames int64, st int, match 
 		}
 		return 0, 0
 	}
-	a := b.enter(d, name, frames, st, match, v)
+	a := b.enter(d, name, frames, st, parent, v)
 	c, work, own := a.c, a.work, a.own
 	switch t := v.(type) {
 	case string:
@@ -1072,6 +1181,7 @@ func (b *bodyScan) value(v any, d int, name string, frames int64, st int, match 
 			b.locate = addCap(b.locate, mulCap(min(int64(c[dimParses]), a.full), ratCost(lit)))
 		}
 		work = addCap(work, mulCap(int64(c[dimParses]), numberWork(lit)))
+		work = addCap(work, b.quoWork(a, lit))
 		work = addCap(work, mulCap(a.hash, compareUnits+numberWork(lit)))
 	case []any:
 		return b.array(t, d, a)
@@ -1080,6 +1190,25 @@ func (b *bodyScan) value(v any, d int, name string, frames int64, st int, match 
 	}
 	b.addWork(work)
 	return own, a.decide
+}
+
+// quoWork returns the value's part of the work of the multipleOf checks
+// of the number lit entered as a (quoWork): those of its state, or where
+// the state is unknown, as many as its parses, each against the largest
+// divisor of the document.
+func (b *bodyScan) quoWork(a valueCharge, lit string) int64 {
+	n := int64(a.c[dimParses])
+	if n == 0 {
+		return 0
+	}
+	if s := a.st; s != nil {
+		return quoWork(lit, min(n, int64(s.multiples)), int64(s.divNum), int64(s.divDen))
+	}
+	f := &b.ws.flags
+	if f.divNum == 0 {
+		return 0
+	}
+	return quoWork(lit, n, mulCap(n, int64(f.divNum)), mulCap(n, int64(f.divDen)))
 }
 
 // array scans the items of t, an array at depth d entered as a.
@@ -1189,10 +1318,8 @@ func (b *bodyScan) object(t map[string]any, d int, a valueCharge) (path, decide 
 		b.comparing++
 	}
 	b.objects = objects
-	var match *vec
 	naming := a.evals
 	if a.st != nil {
-		match = &a.st.match
 		naming = min(naming, int64(a.st.propNames))
 	}
 	var below, keys, sum, top int64
@@ -1213,7 +1340,7 @@ func (b *bodyScan) object(t map[string]any, d int, a valueCharge) (path, decide 
 			b.locate = addCap(b.locate, mulCap(wrappers, errorBytes))
 			keys = addCap(keys, mulCap(addCap(ka.full, wrappers), errorBytes))
 		}
-		p, dt := b.value(e, d+1, k, a.frames, child(a.st, func(s *evalState) int { return s.member(k) }), match)
+		p, dt := b.value(e, d+1, k, a.frames, child(a.st, func(s *evalState) int { return s.member(k) }), a.st)
 		below, sum, top = max(below, p), addCap(sum, dt), max(top, dt)
 	}
 	b.comparing, b.objects = comparing, enclosing
@@ -1248,15 +1375,15 @@ func (b *bodyScan) object(t map[string]any, d int, a valueCharge) (path, decide 
 // earlier items whose hash it shares, and its hash of a value keeps
 // neither the sign of a number nor the bounds of the parts of an array or
 // object: distinct strings, booleans and nulls never share one, integers
-// share one with their negation, a number with the numbers whose
-// numerator and denominator bytes concatenate alike (at most two per
-// split of those bytes), and an array or object with any other.
+// share one with their negation, a number with the few numbers whose
+// numerator and denominator bytes concatenate alike (hashColliders), and
+// an array or object with any other.
 func comparisons(t []any) int64 {
 	n := int64(len(t))
 	if n <= pairwiseItems {
 		return n - 1
 	}
-	integers, longest := true, int64(0)
+	integers, most := true, int64(1)
 	for _, e := range t {
 		switch x := e.(type) {
 		case []any, map[string]any:
@@ -1264,15 +1391,144 @@ func comparisons(t []any) int64 {
 		case json.Number:
 			lit := string(x)
 			integers = integers && !strings.ContainsAny(lit, ".eE")
-			longest = max(longest, ratCost(lit)-ratBytes)
+			k, ok := hashColliders(lit)
+			if !ok {
+				// A literal of l bytes has a numerator and denominator of
+				// at most about l/2 + 2 bytes together, each split of which
+				// gives two numbers.
+				k = 2 * (ratCost(lit) - ratBytes + 3)
+			}
+			most = max(most, k)
 		}
 	}
 	if integers {
 		return 1
 	}
-	// A literal of l bytes has a numerator and denominator of at most
-	// about l/2 + 2 bytes together.
-	return min(n-1, 2*(longest+3))
+	return min(n-1, most)
+}
+
+// hashColliders returns how many other numbers may share the uniqueItems
+// hash of the number literal lit, whose rational p/q fits 64 bits: the
+// library hashes the bytes of p then those of q, with neither sign nor
+// bounds, so a number r/s shares it when the bytes of r and s concatenate
+// alike, at most one per split of those bytes, with its negation. A JSON
+// number's denominator divides a power of ten, so a split counts only
+// where its second part is a product of twos and fives without a leading
+// zero byte and coprime with the first (minor review finding: counting
+// every split charged a short decimal 12 comparisons, so arrays of distinct
+// prices under uniqueItems were refused above 12% of the limit; 18.4375
+// and 0.0001, 295/16 and 1/10000, share their bytes). It reports false
+// when p or q does not fit.
+func hashColliders(lit string) (int64, bool) {
+	p, q, ok := smallRat(lit)
+	if !ok {
+		return 0, false
+	}
+	var buf [16]byte
+	n := putBytes(buf[:], p)
+	n += putBytes(buf[n:], q)
+	splits := int64(0)
+	for k := range n {
+		if buf[k] == 0 {
+			// The second part would start with a zero byte.
+			continue
+		}
+		if k > 8 || n-k > 8 {
+			// A part past 64 bits: counted.
+			splits++
+			continue
+		}
+		r, s := bytesValue(buf[:k]), bytesValue(buf[k:n])
+		if smooth(s) && gcd(r, s) == 1 {
+			splits++
+		}
+	}
+	return 2*splits - 1, true
+}
+
+// smallRat returns the reduced rational p/q the number literal lit denotes,
+// without its sign, or false when p or q does not fit 64 bits.
+func smallRat(lit string) (p, q uint64, ok bool) {
+	lit = strings.TrimPrefix(lit, "-")
+	mant, exp := lit, 0
+	if i := exponentIndex(lit); i >= 0 {
+		mant, exp = lit[:i], exponentOf(lit)
+		if strings.HasPrefix(lit[i+1:], "-") {
+			exp = -exp
+		}
+	}
+	var m uint64
+	f := 0
+	if i := strings.IndexByte(mant, '.'); i >= 0 {
+		f = len(mant) - 1 - i
+	}
+	for _, c := range []byte(mant) {
+		if c == '.' {
+			continue
+		}
+		if m > (math.MaxUint64-9)/10 {
+			return 0, 0, false
+		}
+		m = m*10 + uint64(c-'0')
+	}
+	if m == 0 {
+		return 0, 1, true
+	}
+	shift := exp - f
+	q = 1
+	for ; shift > 0; shift-- {
+		if m > math.MaxUint64/10 {
+			return 0, 0, false
+		}
+		m *= 10
+	}
+	for ; shift < 0; shift++ {
+		if q > math.MaxUint64/10 {
+			return 0, 0, false
+		}
+		q *= 10
+	}
+	g := gcd(m, q)
+	return m / g, q / g, true
+}
+
+// putBytes writes the big-endian bytes of v without leading zeros, as
+// big.Int.Bytes returns them, to buf and returns their count.
+func putBytes(buf []byte, v uint64) int {
+	var b [8]byte
+	binary.BigEndian.PutUint64(b[:], v)
+	return copy(buf, b[8-(bits.Len64(v)+7)/8:])
+}
+
+// bytesValue returns the big-endian value of at most eight bytes.
+func bytesValue(b []byte) uint64 {
+	var v uint64
+	for _, c := range b {
+		v = v<<8 | uint64(c)
+	}
+	return v
+}
+
+// smooth reports whether v is a product of twos and fives.
+func smooth(v uint64) bool {
+	if v == 0 {
+		return false
+	}
+	for v%2 == 0 {
+		v /= 2
+	}
+	for v%5 == 0 {
+		v /= 5
+	}
+	return v == 1
+}
+
+// gcd returns the greatest common divisor of a and b.
+func gcd(a, b uint64) uint64 {
+	for b != 0 {
+		a, b = b, a%b
+	}
+	return a
 }
 
 // bound checks every number of v, at depth d, against the number bounds,

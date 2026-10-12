@@ -626,3 +626,38 @@ func golden(t *testing.T, path string, got []byte) {
 		t.Errorf("%s differs:\ngot:\n%s\nwant:\n%s", path, got, want)
 	}
 }
+
+// TestBuildStopsWhenCanceled covers the minor review finding that Build
+// never read its context: a canceled or superseded snapshot compile still
+// compiled every validation Policy it reached. An ended context is its
+// error, unchanged and without a code, at the start of Build, before the
+// library compiles the document and before the evaluation analysis; a
+// context that lasts builds the Filter.
+//
+// Requirements: 07 req 90 (each Factory call one unit of work between the
+// loader's yields) and the filter.Factory contract (an RZ-CFG code only
+// for a finding about the Policy).
+func TestBuildStopsWhenCanceled(t *testing.T) {
+	canceled, cancel := context.WithCancel(t.Context())
+	cancel()
+	for _, ctx := range []context.Context{
+		canceled,
+		&endingContext{Context: t.Context(), live: 0},
+		&endingContext{Context: t.Context(), live: 1},
+		&endingContext{Context: t.Context(), live: 2},
+	} {
+		f, err := Factory{}.Build(ctx, filter.BuildEnv{Config: configOf(matrixSchema)})
+		if code, coded := errcode.CodeOf(err); f != nil || !errors.Is(err, context.Canceled) || coded {
+			t.Errorf("Build = %v, %v (code %q), want context.Canceled without a code", f, err, code)
+		}
+	}
+	ctx := &endingContext{Context: t.Context(), live: 3}
+	if f, err := (Factory{}).Build(ctx, filter.BuildEnv{Config: configOf(matrixSchema)}); err != nil || f == nil || ctx.live != 0 {
+		t.Errorf("Build = %v, %v with %d checks left, want a Filter after three", f, err, ctx.live)
+	}
+	// A schema the walk refuses is a finding, whatever the context.
+	ctx = &endingContext{Context: t.Context(), live: 1}
+	if _, err := (Factory{}).Build(ctx, filter.BuildEnv{Config: configOf(`{"pattern":"(?=x)"}`)}); !errors.Is(err, ErrSchema) {
+		t.Errorf("Build of a refused schema = %v, want ErrSchema", err)
+	}
+}

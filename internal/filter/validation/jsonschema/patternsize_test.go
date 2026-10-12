@@ -33,7 +33,11 @@ func tailRune(i int) rune { return rune("pqrstuvw"[i]) }
 // exceed what the walk counts from its parsed syntax, for repetitions,
 // alternations, captures, case folding, classes and empty matches; the
 // count is the parser's own estimate, so it is exact for the plain
-// repetitions that make programs large.
+// repetitions that make programs large. The estimate alone, without the
+// overhead and the nodes the measure adds, also bounds the program but for
+// its fail, empty-group and match instructions, so an operator counted
+// short shows on a large repetition of it (minor review finding: mutants
+// of the star, plus, question mark and x{n,} counts survived).
 //
 // Requirements: 07 req 75 and F6.
 func TestProgramSizeBound(t *testing.T) {
@@ -41,6 +45,7 @@ func TestProgramSizeBound(t *testing.T) {
 		`a`, `(?:)`, `^$`, `a*`, `(a*)*`, `(?:a?){0,5}`, `x{2,5}`, `x{3,}`, `x{0}`, `x{1}`, `(?i)abc`, `\pL{3}`,
 		`[^\x00-\x{10FFFF}]`, `(a|b|c)+?`, `((a{2}){3}){4}`, `(?s).*`, `(?m)^a$`, `a|`, `(a|ab)(c|bcd)(d*)`,
 		`(?U)a+b*`, `\b\B\A\z`, `[[:alpha:]]{10,20}`, `(?:(?:a|b){2,}c){2,4}`, largestPattern('x', 0),
+		`(?:x?){1000}`, `(?:x*){500}`, `(?:(?:x?)*){500}`, `(?:x+){500}`, `(?:ab){400,}`, `(?:x{0,3}){200}`,
 	}
 	for _, tc := range costPatterns() {
 		patterns = append(patterns, tc.pattern)
@@ -51,8 +56,12 @@ func TestProgramSizeBound(t *testing.T) {
 			t.Fatal(err)
 		}
 		bound := programSize(re) + programOverhead
-		if got := int64(len(program(t, noOnePass+expr).Inst)); got > bound {
+		got := int64(len(program(t, noOnePass+expr).Inst))
+		if got > bound {
 			t.Errorf("pattern %.40q compiles to %d instructions, the walk counts %d", expr, got, bound)
+		}
+		if est := programInsts(re) + 3; got > est {
+			t.Errorf("pattern %.40q compiles to %d instructions, the estimate counts %d with fail, empty group and match", expr, got, est)
 		}
 	}
 	if re, _ := syntax.Parse(largestPattern('x', 0), syntax.Perl); programSize(re)+programOverhead != MaxPatternInstructions {
@@ -184,9 +193,34 @@ func TestPatternProgramLimits(t *testing.T) {
 		{`(?i)\Q[\x{42}-\x{1e942}]\E[\q-z]`, maxFold - minFold + 1},
 		{`(?i)[\x41-\x5A]`, 26},
 		{`(?i)[^\n-\x{1e942}]`, 0x1e942 - minFold + 1},
+		// Minor review finding (a mutant that survived): a flag group within
+		// a group sets the flags until that group closes, and its own close
+		// is not a group's.
+		{`(?i:a(?-i)b)[a-z]`, 0},
+		{`(?i:a(?-i)b)(?i)[a-z]`, 26},
 	} {
 		if got := newWalker(nil).scanPattern(tc.expr).folded; got != tc.folded {
 			t.Errorf("scanPattern(%q).folded = %d, want %d", tc.expr, got, tc.folded)
+		}
+	}
+	// Minor review finding (a mutant that survived): a Unicode class escape
+	// under case folding counts the folded table the parser builds, which
+	// the cache keeps apart from the escape's own.
+	w := newWalker(nil)
+	plain, folded := classRanges(t, `\p{Lu}`), classRanges(t, `(?i)\p{Lu}`)
+	if plain == folded {
+		t.Fatalf("\\p{Lu} has %d ranges folded and not", plain)
+	}
+	for _, tc := range []struct {
+		expr    string
+		escapes int
+	}{
+		{`\p{Lu}`, plain},
+		{`(?i)\p{Lu}`, folded},
+		{`(?i:\p{Lu})\p{Lu}`, folded + plain},
+	} {
+		if got := w.scanPattern(tc.expr).escapes; got != tc.escapes {
+			t.Errorf("scanPattern(%q).escapes = %d, want %d", tc.expr, got, tc.escapes)
 		}
 	}
 	// Minor review findings: case-sensitive wide ranges, and three
@@ -447,6 +481,15 @@ func TestPatternParsesBounded(t *testing.T) {
 		// Refused one by one before the parse: none is parsed.
 		{"refused before the parse", patternsOf(600, func(i int) string { return strings.Repeat(`\pL`, 60) + fmt.Sprint(i) }), 0, MaxIssues},
 		{"folding", patternsOf(600, func(i int) string { return `(?i)[\x{42}-\x{1e942}]` + fmt.Sprint(i) }), 8, 1},
+		// Minor review finding (a mutant that survived): the tenth pattern's
+		// escapes cross the bound unparsed, and the light patterns after it,
+		// which would fit what is left, are not parsed either.
+		{"light patterns after the bound", patternsOf(600, func(i int) string {
+			if i < 10 {
+				return strings.Repeat(`\pL`, 30) + fmt.Sprint(i)
+			}
+			return "a" + fmt.Sprint(i)
+		}), 9, 1},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			w := newWalker(decodeInstance(t, tc.schema))
@@ -506,7 +549,7 @@ func TestHandleMatcherCharge(t *testing.T) {
 			t.Errorf("body %s, which no pattern reaches: transient %d, want 0", body, scan.transient)
 		}
 	}
-	if _, scan := scanBody(t, s, `{"code":"x"}`); scan.transient != matcherBytes+matcherInstBytes*int64(s.work.flags.maxInsts) {
+	if _, scan := scanBody(t, s, `{"code":"x"}`); scan.transient != matcherBytes+matcherInstBytes*int64(s.work.flags.patterns.insts) {
 		t.Errorf("a string the pattern reaches: transient %d, want the matcher", scan.transient)
 	}
 	f := buildFilter(t, schema, 0)

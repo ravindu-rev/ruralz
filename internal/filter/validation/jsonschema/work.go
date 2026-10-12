@@ -106,7 +106,8 @@ const (
 	// compared (parsesOf).
 	dimParses
 	// dimScan counts work units per byte of the value's string and of its
-	// member name: pattern matching and hashing.
+	// member name: pattern matching and counting runes for minLength and
+	// maxLength. Hashing for uniqueItems is counted per pass in dimHash.
 	dimScan
 	// dimUneval counts evaluations that may copy the unevaluated member
 	// names or item indexes of the value (the library's unevaluated*
@@ -195,6 +196,9 @@ type gNode struct {
 	// match is what matching a member name against every pattern costs:
 	// fixed work units and work units per byte of the name.
 	match vec
+	// valuePats is what may match the value's string, its pattern, and
+	// namePats what may match a member's name, its patternProperties.
+	valuePats, namePats patternReach
 	// addl is the additionalProperties target; false is the synthetic
 	// one-value schema, which charges the name the library lists.
 	addl, uneProps, propNames int
@@ -211,6 +215,9 @@ type gNode struct {
 	// keepsMatches is set when the schema has contains with minContains or
 	// maxContains, whose error keeps the indexes of the matching items.
 	keepsMatches bool
+	// divNum and divDen are the digits of the numerator and the
+	// denominator of the multipleOf divisor (ratDigits), 0 without one.
+	divNum, divDen int
 }
 
 // evalGraph is the compiled graph of a document; nodes[0] is the root
@@ -252,8 +259,13 @@ type workFlags struct {
 	// contains is set when some schema has contains, which lists the
 	// indexes of the items that match it.
 	contains bool
-	// maxInsts is the largest pattern program, for the matcher's memory.
-	maxInsts int
+	// patterns is what may match a string or member name whose path the
+	// scan does not know: every pattern of the document (patternReach).
+	patterns patternReach
+	// divNum and divDen are the most decimal digits of the numerator and
+	// of the denominator of any multipleOf divisor (ratDigits), 0 without
+	// one, for the checks of a number whose path the scan does not know.
+	divNum, divDen int
 	// maxPointer bounds the bytes of the location URL and keyword of any
 	// error the location pass reports, which its walk reads (walkWork).
 	maxPointer int
@@ -344,10 +356,13 @@ func newEvalGraph(starts []*sjs.Schema) (*evalGraph, bool) {
 		f.lists = f.lists || s.AdditionalProperties == false
 		f.contains = f.contains || s.Contains != nil
 		f.maxPointer = max(f.maxPointer, len(s.Location)+maxKeywordBytes+2*longestKey(s.Dependencies)+2*longestKey(s.DependentRequired))
+		if s.MultipleOf != nil {
+			c, d := ratDigits(s.MultipleOf)
+			g.nodes[i].divNum, g.nodes[i].divDen = c, d
+			f.divNum, f.divDen = max(f.divNum, c), max(f.divDen, d)
+		}
 	}
-	for _, c := range pc.cache {
-		g.flags.maxInsts = max(g.flags.maxInsts, c.insts)
-	}
+	g.flags.patterns = reachOf(slices.Collect(maps.Values(pc.cache))...)
 	// The name additionalProperties false lists is held by the location
 	// pass's error only; hashing holds no error.
 	g.nodes[one] = gNode{addl: -1, uneProps: -1, propNames: -1, items: -1, contains: -1, uneItems: -1, unique: -1}
@@ -356,7 +371,9 @@ func newEvalGraph(starts []*sjs.Schema) (*evalGraph, bool) {
 	}
 	g.nodes[every] = gNode{addl: every, uneProps: -1, propNames: -1, items: every, contains: -1, uneItems: -1, unique: -1}
 	g.weight[one] = vec{dimEvals: 1, dimErrs: 1, dimWork: listUnits}
-	g.weight[every] = vec{dimEvals: 1, dimWork: hashUnits, dimParses: 1, dimScan: hashByteUnits, dimHash: 1}
+	// The hashing's work per byte is dimHash's (hashByteUnits), apart from
+	// the patterns' in dimScan.
+	g.weight[every] = vec{dimEvals: 1, dimWork: hashUnits, dimParses: 1, dimHash: 1}
 	g.markUneval()
 	return g, true
 }
@@ -454,10 +471,18 @@ func newGNode(s *sjs.Schema, ptr string, id map[*sjs.Schema]int, anchors map[str
 	n.compares = composite(s)
 	pats := patternRegexps(s)
 	n.res = pats
+	costs := make([]patternCost, 0, len(pats))
 	for _, r := range pats {
 		n.pats = append(n.pats, id[s.PatternProperties[r]])
 		c := pc.of(r.String())
 		n.match = sat(n.match, vec{dimWork: c.fixed, dimScan: c.perByte})
+		costs = append(costs, c)
+	}
+	if len(costs) > 0 {
+		n.namePats = reachOf(costs...)
+	}
+	if s.Pattern != nil {
+		n.valuePats = reachOf(pc.of(s.Pattern.String()))
 	}
 	n.allPats = len(s.Properties)*len(pats) > maxPatternMatches
 	if !n.allPats && len(pats) > 0 {
@@ -640,6 +665,42 @@ type run struct {
 	g      *evalGraph
 	order  []int
 	rootIn []bool
+	// names recycles the member maps of the precise pass's classes.
+	names namesPool
+}
+
+// namesPool recycles the member maps of the precise pass's classes. The
+// classes of one level are garbage once the next level is computed
+// (preciseLevel keeps only their counts), so each level takes the maps of
+// the one before, cleared, in the order it made them, which is the order
+// of the schemas and so of their sizes (minor review finding: a
+// worst-case compile allocated about 250 MB of them, and the collector's
+// work slowed it).
+type namesPool struct {
+	spare, made []map[string]vec
+	next        int
+}
+
+// get returns an empty map for about n names.
+func (p *namesPool) get(n int) map[string]vec {
+	var m map[string]vec
+	if p.next < len(p.spare) {
+		m = p.spare[p.next]
+		p.spare[p.next] = nil
+		p.next++
+	} else {
+		m = make(map[string]vec, n)
+	}
+	p.made = append(p.made, m)
+	return m
+}
+
+// recycle clears the maps the last level made for the next one.
+func (p *namesPool) recycle() {
+	for _, m := range p.made {
+		clear(m)
+	}
+	p.spare, p.made, p.next = p.made, p.spare[:0], 0
 }
 
 // inPlaceFrom marks node v and every schema it applies in place.
@@ -751,7 +812,7 @@ func (r *run) own(v int, prev []vec, h int) *classes {
 	pats, match := r.patterns(n, prev), matchCost(n, h)
 	m := &classes{name: r.otherName(n, prev, pats, match)}
 	if len(n.props) > 0 {
-		m.names = make(map[string]vec, len(n.props))
+		m.names = r.names.get(len(n.props))
 		for i := range n.props {
 			m.names[n.props[i].name] = r.member(n, &n.props[i], prev, pats, match)
 		}
@@ -872,11 +933,11 @@ func (m *classes) setTop() {
 func (m *classes) isZero() bool { return m.top.isZero() }
 
 // combine returns f applied class by class to a and b, charging the
-// entries it touches to budget.
-func combine(a, b *classes, f func(vec, vec) vec, budget *int) *classes {
+// entries it touches to budget; its member map comes from pool.
+func combine(a, b *classes, f func(vec, vec) vec, budget *int, pool *namesPool) *classes {
 	m := &classes{name: f(a.name, b.name), index: f(a.index, b.index), key: f(a.key, b.key)}
 	if len(a.names)+len(b.names) > 0 {
-		m.names = make(map[string]vec, max(len(a.names), len(b.names)))
+		m.names = pool.get(max(len(a.names), len(b.names)))
 		for k := range a.names {
 			m.names[k] = f(a.nameOf(k), b.nameOf(k))
 		}
@@ -894,22 +955,22 @@ func combine(a, b *classes, f func(vec, vec) vec, budget *int) *classes {
 
 // either returns the class-wise larger of the counts of two alternatives,
 // of which one applies.
-func either(a, b *classes, budget *int) *classes {
+func either(a, b *classes, budget *int, pool *namesPool) *classes {
 	switch {
 	case b.isZero():
 		return a
 	case a.isZero():
 		return b
 	}
-	return combine(a, b, larger, budget)
+	return combine(a, b, larger, budget, pool)
 }
 
 // edgeClasses returns the classes of in-place member e: the class-wise
 // larger of its possible targets.
-func edgeClasses(byNode []*classes, e gEdge, budget *int) *classes {
+func edgeClasses(byNode []*classes, e gEdge, budget *int, pool *namesPool) *classes {
 	m := byNode[e.to[0]]
 	for _, t := range e.to[1:] {
-		m = either(m, byNode[t], budget)
+		m = either(m, byNode[t], budget, pool)
 	}
 	return m
 }
@@ -1026,16 +1087,19 @@ func (r *run) coarseLevel(prev []vec, h int) []vec {
 // all the schemas evaluated at the same value; it returns nil once budget
 // is spent.
 func (r *run) preciseLevel(prev []vec, h int, budget *int) []vec {
+	// The classes of the level before are garbage: only prev, their
+	// counts, remains.
+	r.names.recycle()
 	byNode := make([]*classes, len(r.g.nodes))
 	cur := make([]vec, len(r.g.nodes))
 	for _, v := range r.order {
 		m := r.own(v, prev, h)
 		in := r.g.nodes[v].in
 		for i := 0; i < len(in); i++ {
-			em := edgeClasses(byNode, in[i], budget)
+			em := edgeClasses(byNode, in[i], budget, &r.names)
 			if i+1 < len(in) && in[i+1].alt {
 				i++
-				em = either(em, edgeClasses(byNode, in[i], budget), budget)
+				em = either(em, edgeClasses(byNode, in[i], budget, &r.names), budget, &r.names)
 			}
 			// Maps are immutable, so a schema that adds nothing of its
 			// own to another's counts, such as a lone $ref, shares them.
@@ -1044,7 +1108,7 @@ func (r *run) preciseLevel(prev []vec, h int, budget *int) []vec {
 			case m.isZero():
 				m = em
 			default:
-				m = combine(m, em, sat, budget)
+				m = combine(m, em, sat, budget, &r.names)
 			}
 		}
 		if *budget < 0 {

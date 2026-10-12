@@ -150,6 +150,9 @@ func TestReferenceLadder(t *testing.T) {
 // TestRegexpCache checks the library's regexp engine: an expression
 // compiles once, its compile shared, and a failure is a nil Regexp with
 // its error every time.
+//
+// Requirements: 07 req 75 and F6 (each distinct pattern compiles once per
+// document, review finding B2), architecture R-77.
 func TestRegexpCache(t *testing.T) {
 	rc := regexpCache{}
 	a, errA := rc.compile(`^a+$`)

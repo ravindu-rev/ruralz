@@ -54,8 +54,9 @@ func (w *walker) metaChecks() {
 	perCopy := len(w.positions) + 2*len(w.ids) + len(w.anchors)
 	mc := metaCount{checks: len(w.positions), checked: checked}
 	copies := 0
-	for i, t := range targets {
-		if checked[t.ptr] || (i > 0 && targets[i-1].ptr == t.ptr) {
+	for _, t := range targets {
+		// A target listed again after its check is checked already.
+		if checked[t.ptr] {
 			continue
 		}
 		if copies += perCopy; copies > maxCheckCopies {

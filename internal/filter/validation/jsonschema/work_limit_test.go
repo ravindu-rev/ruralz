@@ -7,7 +7,10 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"math"
+	"math/big"
 	"runtime"
+	"slices"
 	"strings"
 	"testing"
 
@@ -103,7 +106,39 @@ func workCases() []struct{ name, schema, body string } {
 		{"long names, unevaluated copies", strings.Replace(unevaluatedChain(100, "unevaluatedProperties"), `{"minProperties":0}`, tenProperties, 1), longMember(9, 32<<10)},
 		{"long names, uniqueItems objects", `{"uniqueItems":true}`, prefixedObjects(30, 10, 4<<10)},
 		{"long names, enum objects", `{"items":{"enum":[` + strings.TrimSuffix(strings.Repeat(nineMembers+",", 500), ",") + `]}}`, denseArray(4, longMember(8, 256<<10), 0)},
+		// Review finding: a multipleOf check divides the value by the
+		// divisor as math/big rationals, whose work grows with the digits
+		// of both.
+		{"multipleOf 0.01, short decimals", `{"items":{"multipleOf":0.01}}`, decimals(20000)},
+		{"multipleOf 1e-1000, short decimals", `{"items":{"multipleOf":1e-1000}}`, decimals(5000)},
+		{"multipleOf of 127 bytes, short decimals", `{"items":{"multipleOf":` + longDivisor + `}}`, decimals(5000)},
+		{"multipleOf 3e1000, long literals", `{"items":{"multipleOf":3e1000}}`, denseArray(2000, longDecimal, 0)},
+		{"multipleOf of 127 bytes, long literals", `{"items":{"multipleOf":` + longDivisor + `}}`, denseArray(2000, longDecimal, 0)},
+		{"anyOf of 16 multipleOf, long literals", `{"items":{"anyOf":[` + bigDivisors(16) + `]}}`, denseArray(500, longDecimal, 0)},
 	}
+}
+
+// longDivisor and longDecimal are literals of 127 bytes near the number
+// bounds: 0.(120 fives)e-990 and 0.(119 sevens)3e-990.
+const (
+	longDivisor = "0.555555555555555555555555555555555555555555555555555555555555555555555555555555555555555555555555555555555555555555555555e-990"
+	longDecimal = "0.777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777773e-990"
+)
+
+// decimals returns an array of n short decimals, the shape of prices or
+// measurements.
+func decimals(n int) string {
+	return "[" + joined(n, func(i int) string { return fmt.Sprintf("%d.%02d", i%1000, i%97) }) + "]"
+}
+
+// bigDivisors returns n multipleOf schemas whose divisors have large
+// exponents, the review finding's anyOf.
+func bigDivisors(n int) string {
+	items := make([]string, n)
+	for i := range items {
+		items[i] = fmt.Sprintf(`{"multipleOf":%de%d}`, 3+i%6, 1000-i/6)
+	}
+	return strings.Join(items, ",")
 }
 
 // propertiesChain returns an allOf of n references to the head of a chain
@@ -229,12 +264,103 @@ func TestWorkCharges(t *testing.T) {
 		{"long name, const object", `{"const":{"a":"x"}}`, `{"` + strings.Repeat("n", 800) + `":"x"}`, kw + 3*compareUnits + scopeUnits + memberUnits + 800/nameHashBytes},
 		// The names of the schema's lists, looked up in the object.
 		{"long required name", `{"required":["` + strings.Repeat("r", 800) + `"]}`, `{}`, kw + listUnits + 800/nameHashBytes + scopeUnits},
+		// Review finding: a multipleOf check, 0.01 being 1/100 (a numerator
+		// of one digit, a denominator of three) and 1.5 3/2 (two and two):
+		// the divisor's part, the parse, the GCD's steps (the smaller
+		// product, 1*2 against 3*2, three digits), the literal's digits and
+		// the digit products, each rounded up to a unit.
+		{"multipleOf", `{"multipleOf":0.01}`, `1.5`, kw + quoUnits + 4*quoDigitUnits + 1 + scopeUnits + numberUnits + 3*numberByteUnits + 3*quoMinUnits + 4*quoDigitUnits + 1 + 1},
+		// Two checks against 1e-1000, 1/10^1000 (one digit and 1,001): the
+		// smaller products sum to 2*(1+2), and the literal's four digits
+		// meet the divisors' 2,004; three evaluations on a chain of two.
+		{"two multipleOf", `{"allOf":[{"multipleOf":1e-1000},{"multipleOf":1e-1000}]}`, `1.5`, evalUnits + keywordUnits + 2*(kw+quoUnits+1002*quoDigitUnits+(1001+quoProductDigits-1)/quoProductDigits) +
+			3*2*scopeUnits + 2*(numberUnits+3*numberByteUnits) + 6*quoMinUnits + 2*(4*quoDigitUnits+1) + (4*2004+quoProductDigits-1)/quoProductDigits},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			if _, scan := scanBody(t, mustCompile(t, tc.schema), tc.body); scan.work != tc.want {
 				t.Errorf("work = %d, want %d", scan.work, tc.want)
 			}
 		})
+	}
+	// Minor review finding (mutants that survived): the terms that grow
+	// with a name, each the work of a name of 808 bytes less that of one of
+	// 8 (%s in the schema and the body), 100 units per hash.
+	const long = (808 - 8) / nameHashBytes
+	for _, tc := range []struct {
+		name, schema, body string
+		want               int64
+	}{
+		// Each of two objects below a uniqueItems array: the hashing pass
+		// hashes its name once plus twice the bits of its member count
+		// (sorting), the comparison once and the hashing evaluation's
+		// properties lookup once; its value is hashed after the name.
+		{"uniqueItems objects", `{"uniqueItems":true}`, `[{"%s":1},{"%s":2}]`, 2 * (long*(1+(1+2*1)+1) + (808-8)*hashByteUnits)},
+		// An object nested in a value under a const of two objects is
+		// compared with both, per byte of its longest name.
+		{"object inside a const value", `{"const":{"a":[{"b":1}]}}`, `{"a":[{"%s":1}]}`, 2 * long},
+		{"object against enum objects", `{"enum":[{"a":1},{"b":2}]}`, `{"%s":1}`, 2 * long},
+		// The keys a dependentSchemas or dependencies member names, looked
+		// up in the object.
+		{"dependentSchemas key", `{"dependentSchemas":{"%s":true}}`, `{}`, long},
+		{"dependencies key of a list", `{"dependencies":{"%s":["b"]}}`, `{}`, long},
+		{"dependencies key of a schema", `{"dependencies":{"%s":true}}`, `{}`, long},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			var work [2]int64
+			for i, n := range []int{8, 808} {
+				name := strings.Repeat("n", n)
+				_, scan := scanBody(t, mustCompile(t, strings.ReplaceAll(tc.schema, "%s", name)), strings.ReplaceAll(tc.body, "%s", name))
+				work[i] = scan.work
+			}
+			if got := work[1] - work[0]; got != tc.want {
+				t.Errorf("work of 800 more bytes of name = %d, want %d", got, tc.want)
+			}
+		})
+	}
+}
+
+// TestLiteralDigits pins the digit bounds of the multipleOf work model:
+// a literal's numerator and denominator, and a divisor's, never have more
+// decimal digits than literalDigits and ratDigits allow, on literals at
+// and around the number bounds (review finding).
+//
+// Requirements: 07 section 9 item 21 and architecture R-77.
+func TestLiteralDigits(t *testing.T) {
+	for _, tc := range []struct {
+		lit      string
+		num, den int64
+	}{
+		{"123.45", 5, 3},
+		{"7", 1, 1},
+		{"1e3", 4, 1},
+		{"1.5e-3", 2, 5},
+		{"-0.25E+2", 3, 1},
+		{"12E-1000", 2, 1001},
+		{longDecimal, 121, 1111},
+	} {
+		if num, den := literalDigits(tc.lit); num != tc.num || den != tc.den {
+			t.Errorf("literalDigits(%.20s) = %d, %d, want %d, %d", tc.lit, num, den, tc.num, tc.den)
+		}
+	}
+	digits := func(n *big.Int) int64 { return int64(len(new(big.Int).Abs(n).String())) }
+	lits := []string{"0", "-0", "0.001", "100", "1e-1000", "9e1000", "-123.456e-7", longDivisor, longDecimal, longNumber, "1" + strings.Repeat("0", 127)}
+	for _, mant := range []string{"9", "12.5", "0.0625", strings.Repeat("9", 60) + "." + strings.Repeat("9", 60)} {
+		for _, exp := range []string{"", "e0", "e-1", "e+17", "e-999", "E1000", "e-1000"} {
+			lits = append(lits, mant+exp, "-"+mant+exp)
+		}
+	}
+	for _, lit := range lits {
+		r, ok := new(big.Rat).SetString(lit)
+		if !ok {
+			t.Fatalf("literal %q", lit)
+		}
+		num, den := literalDigits(lit)
+		if digits(r.Num()) > num || digits(r.Denom()) > den {
+			t.Errorf("literalDigits(%.30s) = %d, %d; the rational has %d and %d digits", lit, num, den, digits(r.Num()), digits(r.Denom()))
+		}
+		if c, d := ratDigits(r); int64(c) < digits(r.Num()) || int64(d) < digits(r.Denom()) {
+			t.Errorf("ratDigits(%.30s) = %d, %d; the rational has %d and %d digits", lit, c, d, digits(r.Num()), digits(r.Denom()))
+		}
 	}
 }
 
@@ -286,13 +412,55 @@ func TestUniqueItemsComparisons(t *testing.T) {
 		{denseArray(5, `"x"`, 0), 4},
 		{`[` + strings.TrimSuffix(strings.Repeat(`"a",`, 30), ",") + `]`, 1},
 		{`[` + strings.TrimSuffix(strings.Repeat(`-12,`, 30), ",") + `]`, 1},
-		{`[` + strings.TrimSuffix(strings.Repeat(`1.25,`, 29), ",") + `,true,null]`, 2 * ((4+1)/2 + 3)},
+		// 5/4: no other split of its bytes is a JSON number, so only -1.25
+		// shares its hash (minor review finding: every split was counted).
+		{`[` + strings.TrimSuffix(strings.Repeat(`1.25,`, 29), ",") + `,true,null]`, 1},
+		// 18.4375 is 295/16, bytes 01 27 10, which split as 1/10000 too:
+		// 0.0001 and both negations.
+		{`[` + strings.TrimSuffix(strings.Repeat(`1.25,`, 29), ",") + `,18.4375]`, 3},
+		// Past 64 bits, every split of about half the literal's bytes.
+		{`[` + strings.Repeat(`1.25,`, 1999) + longNumber + `]`, 2 * (ratCost(longNumber) - ratBytes + 3)},
 		{`[` + strings.TrimSuffix(strings.Repeat(`"a",`, 29), ",") + `,[]]`, 29},
 	} {
 		v, _ := decodeInstance(t, tc.body).([]any)
 		if got := comparisons(v); got != tc.want {
 			t.Errorf("comparisons(%.40s) = %d, want %d", tc.body, got, tc.want)
 		}
+	}
+	// Decimals that share a hash, the library's bytes of the numerator
+	// then the denominator, are counted for each of them: for every
+	// p/(2^i 5^j), the numbers whose bytes concatenate alike, with their
+	// negations.
+	groups := map[string][]string{}
+	for p := int64(1); p < 3000; p++ {
+		for i := range 9 {
+			for j := range 9 {
+				r := big.NewRat(p, int64(math.Pow(2, float64(i))*math.Pow(5, float64(j))))
+				k := string(r.Num().Bytes()) + string(r.Denom().Bytes())
+				// One literal per value, its shortest exact decimal.
+				lit := r.FloatString(max(i, j))
+				if strings.Contains(lit, ".") {
+					lit = strings.TrimSuffix(strings.TrimRight(lit, "0"), ".")
+				}
+				if !slices.Contains(groups[k], lit) {
+					groups[k] = append(groups[k], lit)
+				}
+			}
+		}
+	}
+	shared := 0
+	for _, lits := range groups {
+		if len(lits) > 1 {
+			shared++
+		}
+		for _, lit := range lits {
+			if k, ok := hashColliders(lit); !ok || k < int64(2*len(lits)-1) {
+				t.Errorf("hashColliders(%s) = %d, %v; %d numbers share its hash", lit, k, ok, 2*len(lits))
+			}
+		}
+	}
+	if shared == 0 {
+		t.Error("no decimals share a hash")
 	}
 	colliding := splits(strings.Repeat("a\x04", 11) + "a")
 	body := "[" + strings.Join(colliding, ",") + "]"
@@ -342,6 +510,10 @@ func TestHandleWorkBound(t *testing.T) {
 		// 3,200 evaluations hashes whole, about 1.6 s of the library charged
 		// nothing per byte.
 		{"long member name", propertiesChain(800), `{"` + strings.Repeat("n", 10<<20-64) + `":1}`},
+		// Review finding: 806,202 short decimals checked against a divisor
+		// of 127 bytes, 52% of the limit, took 6.0 to 6.5 s, charged 0.49 of
+		// the work limit as parses of the body literals.
+		{"multipleOf of 127 bytes", `{"type":"array","items":{"multipleOf":` + longDivisor + `}}`, "[" + joined(806202, func(i int) string { return fmt.Sprintf("%d.%d", i%1000, i%97) }) + "]"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			f := buildFilter(t, tc.schema, 0)

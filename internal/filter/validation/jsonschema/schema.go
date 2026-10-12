@@ -232,29 +232,38 @@ func compileRaw(raw []byte, loader sjs.URLLoader) (*Schema, any, []Issue) {
 	if len(issues) > 0 {
 		return nil, nil, issues
 	}
-	s, issues := compilePrepared(p, loader)
+	s, issues, _ := compilePrepared(p, loader, nil)
 	return s, p.doc, issues
 }
 
 // compilePrepared runs the rule walk, compiles every schema position and
-// inspects the compiled graph from each of them.
-func compilePrepared(p *prepared, loader sjs.URLLoader) (*Schema, []Issue) {
+// inspects the compiled graph from each of them. stop, when not nil, is
+// asked before the library compiles the document and again before the
+// evaluation analysis, the stages a canceled snapshot compile skips (minor
+// review finding); its error ends the compile and is returned unchanged.
+func compilePrepared(p *prepared, loader sjs.URLLoader, stop func() error) (*Schema, []Issue, error) {
 	w := newWalker(p.doc)
 	w.walk()
 	if len(w.issues) > 0 {
-		return nil, w.issues
+		return nil, w.issues, nil
 	}
-	return compileWalked(p, w, loader)
+	return compileWalked(p, w, loader, stop)
 }
 
-// compileWalked compiles a document whose walk found nothing.
-func compileWalked(p *prepared, w *walker, loader sjs.URLLoader) (*Schema, []Issue) {
+// compileWalked compiles a document whose walk found nothing, asking stop
+// as compilePrepared does.
+func compileWalked(p *prepared, w *walker, loader sjs.URLLoader, stop func() error) (*Schema, []Issue, error) {
+	if stop != nil {
+		if err := stop(); err != nil {
+			return nil, nil, err
+		}
+	}
 	c := sjs.NewCompiler()
 	c.DefaultDraft(sjs.Draft2020)
 	c.UseLoader(loader)
 	c.UseRegexpEngine(regexpCache{}.compile)
 	if err := c.AddResource(baseURL, p.doc); err != nil {
-		return nil, []Issue{{Message: message(err.Error())}}
+		return nil, []Issue{{Message: message(err.Error())}}, nil
 	}
 	// The reference targets the library checks apart against the
 	// meta-schema are checked first, in the walk's order: one work queue
@@ -266,39 +275,49 @@ func compileWalked(p *prepared, w *walker, loader sjs.URLLoader) (*Schema, []Iss
 			refs[i] = map[string]any{"$ref": baseURL + "#" + encodeFragment(ptr)}
 		}
 		if err := c.AddResource(checkURL, map[string]any{"allOf": refs}); err != nil {
-			return nil, []Issue{{Message: message(err.Error())}}
+			return nil, []Issue{{Message: message(err.Error())}}, nil
 		}
 		if _, err := c.Compile(checkURL); err != nil {
-			return nil, w.compileIssues(err)
+			return nil, w.compileIssues(err), nil
 		}
 	}
 	// The library compiles a schema resource and every subschema it
 	// reaches in one work queue, so the root goes first; the remaining
 	// positions (unreferenced definitions, reference targets outside the
 	// keywords) then find almost everything compiled. Compiling them too
-	// applies the loader rule to every reference of the document.
+	// applies the loader rule to every reference of the document, but for
+	// the inert positions, which the library would never compile and the
+	// walk's rules leave alone (walker.schema).
 	root, err := c.Compile(baseURL)
 	if err != nil {
-		return nil, w.compileIssues(err)
+		return nil, w.compileIssues(err), nil
 	}
 	in := newInspector()
 	in.visit(root, "")
 	starts := []*sjs.Schema{root}
 	for _, ptr := range w.positions[1:] {
+		if w.seen[ptr] == walkedInert {
+			continue
+		}
 		s, err := c.Compile(baseURL + "#" + encodeFragment(ptr))
 		if err != nil {
-			return nil, w.compileIssues(err)
+			return nil, w.compileIssues(err), nil
 		}
 		in.visit(s, "")
 		starts = append(starts, s)
 	}
 	in.fanOut()
 	if len(in.issues) > 0 {
-		return nil, in.issues
+		return nil, in.issues, nil
+	}
+	if stop != nil {
+		if err := stop(); err != nil {
+			return nil, nil, err
+		}
 	}
 	ws, issues := analyze(starts)
 	if len(issues) > 0 {
-		return nil, issues
+		return nil, issues, nil
 	}
 	// The decision pass validates through a second resource whose not
 	// applies the document: the library evaluates the subschema of not
@@ -306,13 +325,13 @@ func compileWalked(p *prepared, w *walker, loader sjs.URLLoader) (*Schema, []Iss
 	// stopping early where it can (validator.go), and the dynamic scope
 	// the wrapper adds holds no anchor.
 	if err := c.AddResource(decideURL, map[string]any{"not": map[string]any{"$ref": baseURL}}); err != nil {
-		return nil, []Issue{{Message: message(err.Error())}}
+		return nil, []Issue{{Message: message(err.Error())}}, nil
 	}
 	decide, err := c.Compile(decideURL)
 	if err != nil {
-		return nil, []Issue{{Message: message(err.Error())}}
+		return nil, []Issue{{Message: message(err.Error())}}, nil
 	}
-	return &Schema{root: root, decide: decide, raw: p.raw, sum: p.sum, numbers: in.numbers, work: ws}, nil
+	return &Schema{root: root, decide: decide, raw: p.raw, sum: p.sum, numbers: in.numbers, work: ws}, nil, nil
 }
 
 // regexpCache compiles every distinct regular expression of one schema

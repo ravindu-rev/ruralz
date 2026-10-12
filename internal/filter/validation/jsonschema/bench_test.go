@@ -199,6 +199,47 @@ func analysisWorstCase(props, pats int, mixins bool) string {
 	return b.String()
 }
 
+// combinedWorstCase returns a document that holds the separately bounded
+// compile costs together (minor review findings: each was measured alone):
+// props properties named prefix and a number that refer to the root, for
+// the library's quadratic compile, whose scan of its work queue compares
+// the positions' locations, and the precise analysis; eight case-folded
+// classes of merged Unicode class escapes, which the parser's work and the
+// name matching charge; targets reference targets outside the keywords,
+// which the library checks apart; and the recursive mixins of
+// analysisWorstCase.
+func combinedWorstCase(props int, prefix string, targets int) string {
+	var b strings.Builder
+	b.WriteString(`{"properties":{`)
+	for i := range props {
+		if i > 0 {
+			b.WriteByte(',')
+		}
+		fmt.Fprintf(&b, `"%s%05d":{"$ref":"#"}`, prefix, i)
+	}
+	b.WriteString(`},"patternProperties":{`)
+	for i := range 8 {
+		if i > 0 {
+			b.WriteByte(',')
+		}
+		fmt.Fprintf(&b, `%q:true`, "(?i)["+strings.Repeat(`\pL`, 45)+"]"+fmt.Sprint(i))
+	}
+	b.WriteString(`},"items":{"$ref":"#"},"contains":{"$ref":"#/$defs/s"},"$defs":{"s":{"items":{"$ref":"#/$defs/s"}}`)
+	for i := range targets {
+		fmt.Fprintf(&b, `,"r%04d":{"$ref":"#/x/a%04d"}`, i, i)
+	}
+	b.WriteString(`,"base":{"properties":{"owner":{"$ref":"#/$defs/person"}}},"person":{"properties":{"pets":{"items":{"$ref":"#"}}}}},` +
+		`"allOf":[{"$ref":"#/$defs/base"},{"properties":{"friends":{"items":{"$ref":"#"}}}}],"x":{`)
+	for i := range targets {
+		if i > 0 {
+			b.WriteByte(',')
+		}
+		fmt.Fprintf(&b, `"a%04d":{"type":"string"}`, i)
+	}
+	b.WriteString(`}}`)
+	return b.String()
+}
+
 // analysisCase is one worst case of a compile; refused is set when the
 // walk refuses it, which a compile must also do quickly.
 type analysisCase struct {
@@ -215,8 +256,9 @@ type analysisCase struct {
 // MaxDocumentInstructions (review findings: escapes merged in a class,
 // case folding, and patterns parsed after the document's bound, and
 // patternMemoryCases: the anchored programs Go's one-pass matcher would
-// take), and reference ladders that the library's meta-schema check would
-// repeat for every rung (review finding).
+// take), reference ladders that the library's meta-schema check would
+// repeat for every rung (review finding), and those costs together
+// (combinedWorstCase, minor review finding).
 func analysisCases() []analysisCase {
 	// The largest alternations of literals that fit MaxPatternInstructions,
 	// each literal's node counted, eight to a document.
@@ -242,6 +284,10 @@ func analysisCases() []analysisCase {
 		{name: "reference ladder, members", schema: refLadder(58, 59, ladderBottom(3900, func(int) string { return `{"type":"string","minLength":1}` }))},
 		{name: "repeated checks", schema: misalignedLadder(30, ladderBottom(100, func(int) string { return `{"type":"string","minLength":1}` }))},
 		{name: "targets outside the keywords", schema: outsideTargets(125, 3800)},
+		{name: "combined", schema: combinedWorstCase(3800, strings.Repeat("a", 30), 120)},
+		// Minor review finding: a slash, which a location escapes as ~1,
+		// doubles the bytes the library's scan compares.
+		{name: "combined, escaped names", schema: combinedWorstCase(3800, strings.Repeat("/", 30), 120)},
 	}
 	return append(append(cases, patternMemoryCases()[1:]...), documentMemoryCases()...)
 }

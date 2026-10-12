@@ -75,6 +75,87 @@ func parsedKeywords() []string {
 	}
 }
 
+// The lists of names (architecture R-77, review finding). The draft
+// 2020-12 meta-schema puts uniqueItems on four lists of strings: type as an
+// array, required, every member of dependentRequired, and every array
+// member of dependencies. The library's meta-schema check compares their
+// entries, whatever they are, before it checks that each is a string: it
+// parses every number with math/big, every pair of up to 20 entries and
+// past that every entry once for its hash, whose nil result for a literal
+// math/big refuses it dereferences (a 241-byte {"type":[1e999999, ...20
+// literals]} compiled for 11 s, 21 literals of exponent 9,999,999
+// panicked), and compares arrays and objects in full, while its hash lets
+// distinct ones collide. A list entry that is not a string, which the
+// meta-schema refuses anyway, is therefore refused at the walk with the
+// meta-schema's own message, so the library never compares one. Like the
+// walk's other rules, this holds at every position the library compiles or
+// checks against the meta-schema: not below additionalItems, which draft
+// 2020-12 ignores, unless a reference names it (walker.schema).
+const (
+	// typeEntryMessage is the meta-schema's message for an entry of a type
+	// list that is not one of its simple types.
+	typeEntryMessage = "invalid JSON Schema: value must be one of 'array', 'boolean', 'integer', 'null', 'number', 'object', 'string'"
+	// nameEntryMessage is the meta-schema's message for an entry of a list
+	// of member names that is not a string, given the entry's JSON kind.
+	nameEntryMessage = "invalid JSON Schema: got %s, want string"
+)
+
+// nameLists refuses every entry that is not a string of the type list, the
+// required list and the lists of dependentRequired and dependencies of the
+// schema object obj at ptr, in keyword and member order.
+func (w *walker) nameLists(obj map[string]any, ptr string) {
+	for _, kw := range []string{"dependencies", "dependentRequired"} {
+		if m, ok := obj[kw].(map[string]any); ok {
+			at := appendToken(ptr, kw)
+			for _, k := range sortedKeys(m) {
+				if list, ok := m[k].([]any); ok {
+					w.stringEntries(list, appendToken(at, k), false)
+				}
+			}
+		}
+	}
+	if list, ok := obj["required"].([]any); ok {
+		w.stringEntries(list, appendToken(ptr, "required"), false)
+	}
+	if list, ok := obj["type"].([]any); ok {
+		w.stringEntries(list, appendToken(ptr, "type"), true)
+	}
+}
+
+// stringEntries reports every entry of list at ptr that is not a string,
+// with the message of a type list or of a list of names.
+func (w *walker) stringEntries(list []any, ptr string, types bool) {
+	for i, e := range list {
+		if _, ok := e.(string); ok {
+			continue
+		}
+		msg := typeEntryMessage
+		if !types {
+			msg = fmt.Sprintf(nameEntryMessage, jsonKind(e))
+		}
+		w.add(ptr+"/"+strconv.Itoa(i), msg)
+	}
+}
+
+// jsonKind names the JSON kind of a decoded value as the library's
+// messages do.
+func jsonKind(v any) string {
+	switch v.(type) {
+	case nil:
+		return "null"
+	case bool:
+		return "boolean"
+	case string:
+		return "string"
+	case []any:
+		return "array"
+	case map[string]any:
+		return "object"
+	default:
+		return "number"
+	}
+}
+
 // refSite is one $ref or $dynamicRef member.
 type refSite struct {
 	// ptr is the member's pointer.
@@ -83,6 +164,10 @@ type refSite struct {
 	value string
 	// base is the base URI in effect.
 	base string
+	// inert marks a reference the library never compiles (see
+	// walker.schema); again one whose schema was walked inert first, which
+	// is followed again but checked once.
+	inert, again bool
 }
 
 // refTarget is the position a JSON Pointer reference names, and the
@@ -97,16 +182,18 @@ type anchorKey struct{ res, name string }
 // plus every position a reference into the document names, which the
 // compiler also compiles as a schema. The rules are $schema, RE2 regular
 // expressions and the pattern bounds, the number bounds of the values the
-// library parses, unique $id and anchor names, references that resolve
+// library parses, the string entries of the lists of names its meta-schema
+// check compares, unique $id and anchor names, references that resolve
 // inside the document, MaxSubschemas, and the bounds of the library's
 // meta-schema checks. They run in a fixed order (members sorted by name), so
 // findings that the compiler would report in its map iteration order are
 // reported deterministically.
 type walker struct {
 	doc any
-	// positions lists the schema positions in walk order; seen indexes it.
+	// positions lists the schema positions in walk order; seen indexes it,
+	// with how each was walked (walkedInert or walkedLive).
 	positions []string
-	seen      map[string]bool
+	seen      map[string]uint8
 	// ids maps each schema resource's absolute URL to its pointer.
 	ids map[string]string
 	// anchors maps each $anchor and $dynamicAnchor to its schema.
@@ -121,10 +208,12 @@ type walker struct {
 	keywordTree int
 	targets     []refTarget
 	checkOrder  []string
-	// insts sums the measures of the patterns (patternsize.go), parsed
-	// counts the patterns parsed, and tables caches the ranges of each
-	// Unicode class escape; instsOver is set once the document's bound is
-	// reported.
+	// insts sums the measures of the patterns (patternsize.go), and
+	// tables caches the ranges of each Unicode class escape; instsOver is
+	// set once the document's bound is reported. parsed counts the
+	// patterns parsed: test instrumentation, by which
+	// TestPatternParsesBounded pins that no pattern is parsed past the
+	// bound.
 	insts     int64
 	parsed    int
 	tables    map[string]int
@@ -132,7 +221,7 @@ type walker struct {
 }
 
 func newWalker(doc any) *walker {
-	return &walker{doc: doc, seen: map[string]bool{}, ids: map[string]string{baseURL: ""}, anchors: map[anchorKey]string{}, tables: map[string]int{}}
+	return &walker{doc: doc, seen: map[string]uint8{}, ids: map[string]string{baseURL: ""}, anchors: map[anchorKey]string{}, tables: map[string]int{}}
 }
 
 // add records a finding, keeping at most MaxIssues.
@@ -146,7 +235,7 @@ func (w *walker) add(ptr, msg string) {
 // references name (which may name more), checks every reference and
 // applies MaxSubschemas to the total.
 func (w *walker) walk() {
-	w.schema(w.doc, "", "", baseURL)
+	w.schema(w.doc, "", "", baseURL, false)
 	w.keywordTree = len(w.positions)
 	for i := 0; i < len(w.sites) && len(w.positions) <= MaxSubschemas; i++ {
 		w.follow(w.sites[i])
@@ -156,7 +245,9 @@ func (w *walker) walk() {
 		return
 	}
 	for _, s := range w.sites {
-		w.checkRef(s)
+		if !s.again {
+			w.checkRef(s)
+		}
 	}
 	if len(w.issues) == 0 {
 		w.metaChecks()
@@ -181,15 +272,41 @@ func (w *walker) checkNumbers(v any, ptr string) {
 	}
 }
 
+// How a schema position was walked: inert, at a position the library
+// never compiles nor checks against the meta-schema, or live.
+const (
+	walkedInert uint8 = 1 + iota
+	walkedLive
+)
+
 // schema records the schema position v at ptr, inside the resource whose
 // root is at res, under base, and walks its keyword subschemas. A position
-// already walked, or any position past MaxSubschemas, is not walked again.
-func (w *walker) schema(v any, ptr, res, base string) {
-	if w.seen[ptr] || len(w.positions) > MaxSubschemas {
+// already walked, or any position past MaxSubschemas, is not walked again,
+// except that an inert position later reached live is walked again live,
+// without being recorded again.
+//
+// A position is inert below additionalItems, which the library collects
+// as a schema position, its $id and anchors included, but under draft
+// 2020-12 neither compiles nor checks against the meta-schema, which does
+// not define it: it is compiled only as the target of a JSON Pointer
+// reference, which follow walks live, or, when additionalItems holds an
+// $id or an anchor anywhere, through it, so such an additionalItems is
+// walked live whole (minor review finding: the walk's rules refused
+// content there, 07 req 76). The rules apply at live positions only;
+// references and $schema are checked everywhere.
+func (w *walker) schema(v any, ptr, res, base string, inert bool) {
+	was := w.seen[ptr]
+	if was == walkedLive || (was == walkedInert && inert) || len(w.positions) > MaxSubschemas {
 		return
 	}
-	w.seen[ptr] = true
-	w.positions = append(w.positions, ptr)
+	first := was == 0
+	w.seen[ptr] = walkedLive
+	if inert {
+		w.seen[ptr] = walkedInert
+	}
+	if first {
+		w.positions = append(w.positions, ptr)
+	}
 	obj, ok := v.(map[string]any)
 	if !ok {
 		return
@@ -207,6 +324,48 @@ func (w *walker) schema(v any, ptr, res, base string) {
 			}
 		}
 	}
+	if first {
+		w.recordOnce(obj, ptr, res)
+	}
+	if !inert {
+		w.rules(obj, ptr)
+	}
+	for _, kw := range []string{"$ref", "$dynamicRef"} {
+		if s, ok := obj[kw].(string); ok {
+			w.sites = append(w.sites, refSite{ptr: appendToken(ptr, kw), value: s, base: base, inert: inert, again: !first})
+		}
+	}
+	eachSubschema(obj, ptr, func(v any, at string) {
+		w.schema(v, at, res, base, inert || (at[len(ptr):] == "/additionalItems" && !identifies(v)))
+	})
+}
+
+// identifies reports whether v holds a member $id, $anchor or
+// $dynamicAnchor at any depth, through which the library may compile a
+// schema that no JSON Pointer reference names: the target of a reference
+// to an anchor or a resource, the root of a resource it compiles a
+// subschema of, and every $dynamicAnchor of a resource it compiles.
+func identifies(v any) bool {
+	switch t := v.(type) {
+	case map[string]any:
+		for k, e := range t {
+			if k == "$id" || k == "$anchor" || k == "$dynamicAnchor" || identifies(e) {
+				return true
+			}
+		}
+	case []any:
+		for _, e := range t {
+			if identifies(e) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// recordOnce checks the $schema of the schema object obj at ptr and
+// records its anchors in the resource at res, on its first walk.
+func (w *walker) recordOnce(obj map[string]any, ptr, res string) {
 	if s, ok := obj["$schema"]; ok {
 		if str, isStr := s.(string); !isStr || str != Draft {
 			w.add(appendToken(ptr, "$schema"), "$schema must be "+Draft)
@@ -222,13 +381,6 @@ func (w *walker) schema(v any, ptr, res, base string) {
 			}
 		}
 	}
-	w.rules(obj, ptr)
-	for _, kw := range []string{"$ref", "$dynamicRef"} {
-		if s, ok := obj[kw].(string); ok {
-			w.sites = append(w.sites, refSite{ptr: appendToken(ptr, kw), value: s, base: base})
-		}
-	}
-	eachSubschema(obj, ptr, func(v any, at string) { w.schema(v, at, res, base) })
 }
 
 // eachSubschema calls f for every keyword subschema of the schema object
@@ -276,8 +428,9 @@ func eachSubschema(obj map[string]any, ptr string, f func(v any, ptr string)) {
 }
 
 // rules applies the RE2 rule and the program bounds to pattern and
-// patternProperties, without compiling them (patternsize.go), and the
-// number bounds to the values the library parses as numbers.
+// patternProperties, without compiling them (patternsize.go), the number
+// bounds to the values the library parses as numbers, and the string rule
+// to the lists of names the meta-schema check compares.
 func (w *walker) rules(obj map[string]any, ptr string) {
 	if s, ok := obj["pattern"].(string); ok {
 		w.pattern(s, appendToken(ptr, "pattern"), "pattern")
@@ -292,6 +445,7 @@ func (w *walker) rules(obj map[string]any, ptr string) {
 			w.checkNumbers(v, appendToken(ptr, kw))
 		}
 	}
+	w.nameLists(obj, ptr)
 }
 
 // resolveRef resolves a reference the way the library does: the URL without
@@ -312,7 +466,8 @@ func resolveRef(ids map[string]string, s refSite) (u, res, frag string, inDoc bo
 }
 
 // follow walks the position a reference into the document names when its
-// fragment is a JSON Pointer; checkRef reports what does not resolve.
+// fragment is a JSON Pointer, live unless the reference is inert, which
+// the library never compiles; checkRef reports what does not resolve.
 func (w *walker) follow(s refSite) {
 	u, res, frag, inDoc, err := resolveRef(w.ids, s)
 	if err != nil || !inDoc || (frag != "" && frag[0] != '/') {
@@ -320,8 +475,10 @@ func (w *walker) follow(s refSite) {
 	}
 	switch v, _ := lookup(w.doc, res+frag); v.(type) {
 	case map[string]any, bool:
-		w.targets = append(w.targets, refTarget{ptr: res + frag, site: s.ptr})
-		w.schema(v, res+frag, res, u)
+		if !s.inert {
+			w.targets = append(w.targets, refTarget{ptr: res + frag, site: s.ptr})
+		}
+		w.schema(v, res+frag, res, u, s.inert)
 	}
 }
 

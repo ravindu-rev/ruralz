@@ -536,3 +536,32 @@ func TestLegacyItems(t *testing.T) {
 		t.Error("a draft-07 document compiled")
 	}
 }
+
+// TestNamesPool covers the reuse of the precise pass's member maps (minor
+// review finding: a worst-case compile allocated about 250 MB of them): a
+// level takes the maps the level before made, cleared, in the order it
+// made them, and makes new ones past them; the evaluation tests check
+// that the analysis decides as before.
+//
+// Requirements: 07 F6 and architecture R-77.
+func TestNamesPool(t *testing.T) {
+	var p namesPool
+	a, b := p.get(1), p.get(1)
+	a["x"], b["y"] = vec{dimEvals: 1}, vec{dimEvals: 2}
+	p.recycle()
+	c, d, e := p.get(1), p.get(1), p.get(1)
+	if len(c) != 0 || len(d) != 0 || len(e) != 0 || len(a) != 0 || len(b) != 0 {
+		t.Fatalf("recycled maps hold %d, %d, %d, %d, %d names, want none", len(c), len(d), len(e), len(a), len(b))
+	}
+	c["c"], d["d"] = vec{}, vec{}
+	if _, ok := a["c"]; !ok {
+		t.Error("the first map of a level is not the first of the level before")
+	}
+	if _, ok := b["d"]; !ok {
+		t.Error("the second map of a level is not the second of the level before")
+	}
+	p.recycle()
+	if f := p.get(1); len(f) != 0 {
+		t.Errorf("a recycled map holds %d names", len(f))
+	}
+}

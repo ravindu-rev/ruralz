@@ -84,7 +84,7 @@ func TestCompilerLoaderBackstop(t *testing.T) {
 	}
 	w.issues = nil
 	spy := &spyLoader{}
-	s, issues := compileWalked(p, w, spy)
+	s, issues, _ := compileWalked(p, w, spy, nil)
 	if s != nil || len(spy.urls) != 1 {
 		t.Fatalf("compile = %v, loads %q, want one refused load", s, spy.urls)
 	}
@@ -512,7 +512,7 @@ func TestInspectorBackstop(t *testing.T) {
 			t.Fatalf("the walk passed %s", tc.schema)
 		}
 		w.issues = nil
-		s, issues := compileWalked(p, w, refusingLoader{})
+		s, issues, _ := compileWalked(p, w, refusingLoader{}, nil)
 		if s != nil || len(issues) == 0 || issues[0].Pointer != tc.ptr || !strings.Contains(issues[0].Message, tc.msg) {
 			t.Errorf("compile(%s) = %v, %+v, want a finding at %s", tc.schema, s, issues, tc.ptr)
 		}

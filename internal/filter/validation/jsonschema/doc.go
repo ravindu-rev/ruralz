@@ -45,14 +45,23 @@
 //   - every number literal the library parses, in a numeric or integer
 //     keyword (minimum, maxLength and the like) or in a const or enum
 //     value, stays within MaxNumberBytes and MaxNumberExponent (see "Number
-//     bounds").
+//     bounds");
+//   - every entry of a type list, of required, and of the lists of
+//     dependentRequired and dependencies is a string, which the
+//     meta-schema requires: its check compares these lists' entries for
+//     uniqueItems before it checks their kind, parsing every number with
+//     math/big (see "Number bounds").
 //
 // Unknown keywords, x-ruralz-* included, and annotations are ignored as
 // draft 2020-12 requires (07 req 76), their numbers included, with one
 // exception the library makes: it keeps the draft-07 dependencies keyword
 // under draft 2020-12, so an array member there is enforced like
 // dependentRequired and a schema member like dependentSchemas, and a
-// failure names /dependencies/<name>. The library's compiler finds
+// failure names /dependencies/<name>. The draft-07 additionalItems is
+// unknown too: the library collects its subschemas, their $id and anchors,
+// but compiles one only as the target of a reference, so the rules above
+// apply there only then (minor review finding), while every reference and
+// $schema is checked wherever it is. The library's compiler finds
 // already-compiled subschemas through a linear scan of its work queue and
 // compiles a schema resource with every subschema it reaches in one queue,
 // so compile time grows with the square of the subschema count: 256 KiB of
@@ -71,24 +80,37 @@
 // the patterns of its other schemas, charges a name's length times each
 // pattern's work per byte against one matchBudget per document (about 34
 // ms; TestCompileMatchBudget), past which every pattern is assumed to
-// match. A whole compile stays under about 0.7 s
+// match. Each bound alone keeps a whole compile under about 0.7 s
 // (BenchmarkCompileAnalysisWorstCase, on a shared 4-vCPU 2.8 GHz machine
 // at a load of 1 to 3: 0.54 to 0.7 s for the mixins, 0.39 to 0.57 s for a
 // reference ladder over 3,900 members, 0.31 to 0.42 s for 125 reference
-// targets outside the keywords next to 3,800 properties, 0.29 to 0.46 s
-// for 2,000 properties against 2,000 patterns, 0.24 to 0.3 s for
+// targets outside the keywords next to 3,800 properties, 0.29 to 0.6 s for
+// 2,000 properties against 2,000 patterns, 0.24 to 0.38 s for
 // MaxSubschemas positions holding patterns, 0.1 to 0.15 s for the checks
-// a ladder of member maps repeats, and at most about 0.13 s for documents
+// a ladder of member maps repeats, and at most about 0.15 s for documents
 // whose patterns fill MaxDocumentInstructions: the largest programs,
 // repetitions of classes, alternations of thousands of literals, anchored
 // alternations and repetitions, Unicode class escapes merged in a class,
-// case folding, and patterns past the bound), within 07 F6's 1 s. Such a
-// worst-case compile allocates up to about 330 MB in all, its heap peaks
-// at about 35 MB, the collector's pacing included, and the compiled Schema
-// keeps up to about 16 MB: the library's compiled schemas, about 2.4 KB a
-// position (10 MB at MaxSubschemas), and the patterns' programs, at most
-// about 6 MB at MaxDocumentInstructions (TestPatternProgramMemory); an
-// ordinary schema takes milliseconds and keeps kilobytes.
+// case folding, and patterns past the bound). The bounds are separate, so
+// their costs add up in one document (minor review findings): 3,800
+// properties against recursive mixins, eight case-folded classes of
+// merged Unicode class escapes and 120 reference targets outside the
+// keywords compile in about 0.95 to 1.1 s at a load of up to 1 (the
+// "combined" case), and with property names of slashes, which the
+// library's locations escape to twice their bytes and its quadratic scan
+// of its work queue compares, in 1.1 to 1.2 s ("combined, escaped
+// names"). 07 F6's 1 s is therefore not met for these combined worst
+// cases (proposed: an Open question with 07 req 90's figures; a joint
+// compile budget, or a bound on the bytes of the positions' locations,
+// would also refuse large ordinary schemas). Such a worst-case compile
+// allocates up to about 330 MB in all (the evaluation analysis reuses the
+// member maps of each level for the next), its heap peaks at about 35 MB,
+// the collector's
+// pacing included, and the compiled Schema keeps up to about 16 MB: the
+// library's compiled schemas, about 2.4 KB a position (10 MB at
+// MaxSubschemas), and the patterns' programs, at most about 6 MB at
+// MaxDocumentInstructions (TestPatternProgramMemory); an ordinary schema
+// takes milliseconds and keeps kilobytes.
 //
 // A compiled Schema is immutable and safe for concurrent use; the Factory
 // shares one per distinct schema within a snapshot (filter.Shared, keyed by
@@ -98,7 +120,11 @@
 // the carried-over one. A Policy new to the snapshot has no Previous, so
 // when it builds first it compiles the document again; the carried-over
 // Policy then takes that Schema, so a snapshot holds one Schema per
-// document whatever the build order (minor review finding).
+// document whatever the build order (minor review finding). A Build whose
+// context has ended returns the context's error, without a code, at its
+// start and between the stages of a compile, so a canceled or superseded
+// snapshot compile skips the rest (minor review finding); the library's
+// own compile cannot be interrupted.
 //
 // # Patterns
 //
@@ -140,9 +166,9 @@
 // backtracker or the NFA simulation, as the others do, whose work the
 // runtime model bounds (regexcost.go, "Work bound"); the exploration of a
 // pattern's run queues charges the bounds of its classes before it
-// collects them. At run time a value is charged a regexp matcher of the
-// document's largest program only where a pattern may reach it or its
-// member name.
+// collects them. At run time a string or member name is charged a regexp
+// match, its matcher and the backtracker's job stack, only for the
+// patterns that may match it (see "Working set").
 //
 // # Meta-schema checks
 //
@@ -328,7 +354,35 @@
 //   - once, the largest transient copy: the longest string, which the
 //     library copies at every evaluation, the duplicates map of the longest
 //     uniqueItems array (192 bytes per item, measured 102 to 168), or a
-//     regexp matcher where a pattern may reach a value.
+//     regexp match of a string or a member name: the queues and threads of
+//     the largest program that may match it (64 bytes per instruction),
+//     the backtracker's visited set (32 KiB), and the backtracker's job
+//     stack. Go's regexp runs its backtracker for a program of at most 500
+//     instructions on an input shorter than 262,144 divided by the
+//     program's instruction count, in bytes, and on n bytes its stack holds
+//     at most (n+1) times held jobs plus one, held being the most
+//     alternations of the program reachable through empty-width steps from
+//     where the search at one input position starts (regexcost.go: 3 of
+//     the WHATWG e-mail pattern's 126, all 241 of (?:(?:a??){240}a)*b), at
+//     48 bytes a job (16 in a slice grown by appending, up to three times
+//     that while it grows), for the program holding the most that the
+//     backtracker may run on n bytes: never more than the visited set's
+//     2^18 pairs, about 12.6 MB. Only the patterns a string's own path
+//     applies to it, and its object's patternProperties to a member name,
+//     count; where the scan does not know the path, every pattern of the
+//     document, wherever a pattern or a length keyword may scan a value at
+//     its depth (review findings: a pattern of 241 alternations held 4.9 MB
+//     for a string of 537 bytes, charged 64 KB, TestHandleBacktrackCharge;
+//     then every alternation of the document's costliest pattern, charged
+//     to every string a pattern or a uniqueItems pass reached, refused a
+//     149-byte sign-up body at a 64 KiB limit, TestHandlePatternFit). The
+//     job stack binds before the body's size only at small limits, and
+//     only for the inputs short enough for the backtracker: at a 64 KiB
+//     maxRequestBodyBytes, whose working set is 512 KiB, a string of about
+//     9,500 to 37,400 bytes under ^[^<>]*$, a program of 7 instructions
+//     holding one job per position, is refused with 413, while a longer
+//     one matches with the NFA simulation and passes; from 256 KiB up that
+//     pattern never binds, and from about 1.6 MiB up no pattern does.
 //
 // TestWorkingSetCoversPeak measures the error trees exactly, the decision
 // pass's from inside it, for dense failing bodies of every error shape,
@@ -358,12 +412,14 @@
 // limit).
 //
 // The measured fit at the 10 MiB default (architecture R-77: typical
-// records fit up to about 70 to 84% of the limit, dense enum or union
-// arrays less, and operators raise maxRequestBodyBytes on validated
-// Routes), each the largest valid body of its shape that passed, as
-// measured, with the limit that stopped the next (TestHandleAcceptsLargeBodies
-// and TestHandleMeasuredFit pin that each passes and reserves what the
-// model charges, TestHandleReservationLimit the reservation limit):
+// records fit up to about 70 to 84% of the limit, dense enum, union,
+// numeric and uniqueItems arrays less, and operators raise
+// maxRequestBodyBytes on Routes that validate them), each the largest
+// valid body of its shape that passed, as measured, with the limit that
+// stopped the next (TestHandleAcceptsLargeBodies and TestHandleMeasuredFit
+// pin that each passes, within a few percent of its fraction, and reserves
+// what the model charges; TestHandleFitEdges the counts; and
+// TestHandleReservationLimit the reservation limit):
 //
 //   - arrays of tags under maxLength, of strings under a pattern, and long
 //     strings: the full limit;
@@ -375,6 +431,23 @@
 //   - an array of two-letter codes under a 250-value enum: 34%, at the work
 //     limit; dense arrays of one-character enum values, which may each hold
 //     an error: 31%, at the working-set limit;
+//   - dense numeric arrays (minor review finding): decimals under a
+//     minimum and a maximum, 53%, and prices under multipleOf 0.01, 69%,
+//     at the working-set limit (under a divisor of a thousand digits such
+//     as 1e-1000 about 10%, at the work limit); pairs of a
+//     timestamp and a value under prefixItems, 63%, at the decoded limit;
+//     longitude and latitude pairs, each bounded and counted by minItems
+//     and maxItems, 38%, at the working-set limit; a time series of objects
+//     of two numbers under required and additionalProperties false, 52%,
+//     at the reservation limit;
+//   - uniqueItems arrays (minor review findings): of integer ids, 33%, of
+//     short string tags, 42%, of distinct prices, 37%, and of bounded
+//     three-decimal readings, 21%, all at the working-set limit (the
+//     duplicates map; a decimal is charged only the numbers whose bytes
+//     can hash alike, hashColliders, where every split of its bytes held
+//     such arrays to 10 to 12%, at the work limit); of objects, about
+//     6,500 of two string members (2.1%) or 1,700 of one number member
+//     (0.19%), at the work limit, every pair being charged a comparison;
 //   - arrays of events under an 8-way and a 20-way oneOf of object variants:
 //     32% and 13.6%, at the working-set limit, every failing variant being
 //     charged its member's errors;
@@ -391,11 +464,9 @@
 //   - a rich-text document of plain paragraphs: 20%; of paragraphs,
 //     headings, quotes and lists two levels deep: 4.7%; a component tree's
 //     row of columns: 6.2%; a component tree nested 6 deep with 3 children
-//     per node (27 KB) passes and one 7 deep (80 KB) does not, the states of
-//     a recursion through four or three alternatives growing with the
-//     nesting;
-//   - a uniqueItems array of distinct objects: about 6,600 objects (2.3%),
-//     at the work limit, every pair being charged a comparison.
+//     per node (27 KB) passes and one 7 deep (80 KB) does not, at the
+//     working-set limit, the states of a recursion through four or three
+//     alternatives growing with the nesting.
 //
 // For records and arrays of small objects, the heap at Handle's peak
 // stayed within about 1.25 times the reservation, the excess being the
@@ -417,11 +488,12 @@
 // all its members and looks their names up, hashing them whole, every
 // evaluation at a string copies it and a pattern scans it, const and enum
 // compare whole values and parse numbers with math/big, the unevaluated
-// copies grow with the members or items and their names, and uniqueItems
+// copies grow with the members or items and their names, uniqueItems
 // hashes every value below the array and compares the items that share a
-// hash. The same walk therefore sums an upper bound of the
-// work, in work units of about a nanosecond of the library on that
-// machine, each term measured and rounded up by at least a quarter:
+// hash, and multipleOf divides with math/big. The same walk therefore sums
+// an upper bound of the work, in work units of about a nanosecond of the
+// library on that machine, each term measured and rounded up by at least a
+// quarter:
 //
 //   - per evaluation 384, per keyword that can fail 320 (type, const and
 //     enum count once), per name of a list 32, and 1 per 8 bytes of the
@@ -442,7 +514,8 @@
 //     MiB name under 3,200 lookups or a 4,000-link unevaluated chain was
 //     hashed for 1.35 to 3.2 s charged a few milliseconds);
 //   - per byte of a string, 1 per evaluation at it, 2 more per evaluation
-//     with minLength or maxLength, which counts its runes, and per pattern
+//     with minLength or maxLength, which counts its runes, 1 per
+//     uniqueItems pass that hashes it, and per pattern
 //     16 plus 16 per entry of the largest run queue the pattern's NFA can
 //     build (regexcost.go: an exploration of its queues over its character
 //     classes, or past its budget the whole program) and 2 per entry and
@@ -453,15 +526,26 @@
 //     e-mail pattern cost 224 per byte; member names pay the same for
 //     patternProperties and are values of their own under propertyNames;
 //   - per number, per parse and comparison, 768 plus 28 per byte of the
-//     literal and 12 per unit of its decimal exponent;
+//     literal and 12 per unit of its decimal exponent; and per multipleOf
+//     check, which divides the value by the divisor as math/big rationals
+//     (a/b by c/d: a*d and c*b, divided by their greatest common divisor),
+//     512, 64 per decimal digit of the smaller of the two products (each
+//     step of the greatest common divisor), 16 per digit of a, b, c and
+//     d, and 1 per 128 of the digit products a*b, c*d and (a+b)*(c+d),
+//     the divisor's parts counted with its schema (measured on 1,500
+//     random pairs within the number bounds, 0.25 to 26 µs, each at least
+//     40% under the model; review finding: charged as one parse of the
+//     body literal, 806,202 short decimals against a divisor of 127 bytes
+//     took 6.0 to 6.5 s, over twice the bound below);
 //   - per value below a uniqueItems array, a hashing pass (384) and its
 //     comparisons: up to 20 items every pair, past that the items sharing
 //     its item's hash, which the library's hash allows for any array or
 //     object item with any other (it keeps neither a number's sign nor the
 //     bounds of an array's or object's parts) and for a decimal with the
 //     few numbers whose numerator and denominator bytes concatenate alike,
-//     but never for distinct strings, booleans, nulls or integers but
-//     their negation;
+//     a split of its bytes whose second part is a power of two times a
+//     power of five (18.4375 and 0.0001 share 01 27 10), but never for
+//     distinct strings, booleans, nulls or integers but their negation;
 //   - per evaluation, the cycle check, 4 per evaluation of its chain at the
 //     value, and with $dynamicRef or $recursiveRef, 4 per evaluation of the
 //     chains of the whole path;
@@ -494,7 +578,7 @@
 // crafted to share one hash under uniqueItems, each of which takes seconds
 // or grows with the square of the array (TestHandleWorkBound,
 // TestUniqueItemsComparisons); so is a valid uniqueItems array of more
-// than a few thousand objects (architecture R-77).
+// than about 1,700 to 6,500 objects (architecture R-77; "Working set").
 //
 // # Number bounds
 //
@@ -512,9 +596,20 @@
 // in the body; where the scan does not know a value's path (past the
 // states' bounds or the nesting limit), every number is checked when the
 // schema compares numbers anywhere (Schema.ComparesNumbers). Schema
-// documents obey the same bounds in every value the library parses. Both
-// bounds admit every IEEE 754 double and integers far beyond 64 bits, so
-// 07 req 80 ("large integers validate exactly") still holds.
+// documents obey the same bounds in every value the library parses: the
+// numeric and integer keywords, which it compiles, and const and enum,
+// whose values it compares. Its meta-schema check also compares the entries
+// of four lists of names for uniqueItems, the type list, required, and
+// every list of dependentRequired and of dependencies, every pair of up to
+// 20 entries and past that every entry once for its hash, before it checks
+// that each is a string (review finding: 20 literals of exponent 999,999
+// in a 241-byte type list compiled for 11 s, and 21 that math/big refuses
+// made it panic). Such an entry that is not a string is refused at the
+// walk, at every schema position, with the meta-schema's own message, so
+// the library never compares one: a number, and arrays and objects, whose
+// comparison its hash does not bound. Both bounds admit every IEEE 754
+// double and integers far beyond 64 bits, so 07 req 80 ("large integers
+// validate exactly") still holds.
 //
 // The package never logs, starts no goroutine and reads no clock. It
 // builds for 64-bit platforms only, the only ones Ruralz ships (ADR-0001):

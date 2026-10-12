@@ -290,6 +290,11 @@ func TestHandleLocationWalk(t *testing.T) {
 	if _, scan := scanBody(t, mustCompile(t, `{"items":{"dependentRequired":{"`+long+`":["b"]}}}`), denseArray(10, `{"`+long+`":1}`, 0)); scan.walk < 10*2*10000 {
 		t.Errorf("10 failing items under a 10,000-byte key: the walk is charged %d", scan.walk)
 	}
+	// So does a dependencies key (minor review finding, a mutant that
+	// survived).
+	if _, scan := scanBody(t, mustCompile(t, `{"items":{"dependencies":{"`+long+`":["b"]}}}`), denseArray(10, `{"`+long+`":1}`, 0)); scan.walk < 10*2*10000 {
+		t.Errorf("10 failing items under a 10,000-byte dependencies key: the walk is charged %d", scan.walk)
+	}
 	// The request ends during the walk, after Handle's and the location
 	// pass's checks: the decision alone.
 	x, _ := exchange("application/json", []byte(small))

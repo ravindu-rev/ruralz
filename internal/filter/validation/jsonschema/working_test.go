@@ -168,7 +168,7 @@ func workingSetCases() []struct{ name, schema, body string } {
 		{"if then else", `{"items":{"if":{"type":"string"},"then":{"minLength":2,"pattern":"^a"},"else":{"type":"null"}}}`, denseArray(20000, `"x"`, 0)},
 		{"deep type", itemsDeep(60, `{"type":"integer"}`), denseArray(5000, `"x"`, 60)},
 		{"deep oneOf", itemsDeep(30, oneOfConsts(4)), denseArray(5000, `"x"`, 30)},
-		{"nested minItems", itemsDeep(3, `{"type":"integer"}`)[:0] + `{"minItems":2,"items":{"minItems":2,"items":{"minItems":2,"items":{"type":"integer"}}}}`, denseArray(5000, `[["x"]]`, 0)},
+		{"nested minItems", `{"minItems":2,"items":{"minItems":2,"items":{"minItems":2,"items":{"type":"integer"}}}}`, denseArray(5000, `[["x"]]`, 0)},
 		{"unevaluated names along a chain", unevaluatedChain(100, "unevaluatedProperties"), wideObject(2000)},
 		{"unevaluated indexes along a chain", strings.Replace(unevaluatedChain(100, "unevaluatedItems"), "minProperties", "minItems", 1), denseArray(40000, `1`, 0)},
 		{"records, valid", recordsSchema, records(20000)},
@@ -610,6 +610,14 @@ func TestWorkingSetCharges(t *testing.T) {
 		// A failing name: its errors, located at the name, and the error
 		// naming it, in either pass; the object's group.
 		{"property names", `{"propertyNames":{"maxLength":3}}`, `{"abcd":1}`, e + 2*at0, at1 + at0, 2*stackBytes + wrapper, 4},
+		// Minor review finding (a mutant that survived): one of the
+		// object's three evaluations applies propertyNames, so the name
+		// failing both branches (three units with the group) is wrapped
+		// once, in either pass; the root's allOf fails with its group.
+		{
+			"property names in one of three evaluations", `{"allOf":[{"propertyNames":{"allOf":[{"maxLength":3},{"maxLength":2}]}},{"minProperties":1}]}`, `{"abcd":1}`,
+			3*e + (3+1)*at0, 3*at1 + at0 + 2*at0, 4*stackBytes + wrapper, 4,
+		},
 		{"additional members", `{"additionalProperties":false}`, `{"a":1,"b":2}`, e + e, at0 + 2*at1, 2*stackBytes + 2*listedNameBytes + wrapper, 0},
 		// The group the evaluation keeping every member's errors may add.
 		{"unevaluated names", `{"unevaluatedProperties":true}`, `{"a":1,"b":2}`, e, 0, 2*stackBytes + propMapBase + 2*propMapEntry + wrapper, 0},
@@ -621,7 +629,7 @@ func TestWorkingSetCharges(t *testing.T) {
 		{
 			"one member of an object", `{"type":"object","required":["a"],"properties":{"a":{"type":"string","minLength":2,"pattern":"^x"},"b":{"type":"integer"}}}`,
 			// The integer type admits an integer literal.
-			`{"a":"x","b":1}`, 3 * e, 2*at0 + 2*at1, 2*stackBytes + wrapper, matcherBytes + matcherInstBytes*5,
+			`{"a":"x","b":1}`, 3 * e, 2*at0 + 2*at1, 2*stackBytes + wrapper, matcherBytes + matcherInstBytes*5 + jobArrayBytes + jobBytes,
 		},
 		// The integer type may fail on a decimal literal (1.0 passes, 1.5
 		// not). A lower and an upper bound that leave numbers between them
@@ -657,9 +665,16 @@ func TestWorkingSetCharges(t *testing.T) {
 		})
 	}
 	// The largest copy is a string the library copies, or a matcher: of
-	// the five instructions of the engine's program for ^a.
+	// the five instructions of the engine's program for ^a, with the
+	// backtracker's starting job stack, which holds its one job (the
+	// program has no alternation).
 	_, scan := scanBody(t, mustCompile(t, `{"items":{"pattern":"^a"}}`), `["`+strings.Repeat("a", 64)+`"]`)
-	if want := int64(matcherBytes + matcherInstBytes*5); scan.transient != want {
+	if want := int64(matcherBytes + matcherInstBytes*5 + jobArrayBytes + jobBytes); scan.transient != want {
+		t.Errorf("transient = %d, want the matcher's %d", scan.transient, want)
+	}
+	// With alternations, one job per alternation and byte, plus the first.
+	_, scan = scanBody(t, mustCompile(t, `{"items":{"pattern":"a*b"}}`), `["`+strings.Repeat("a", 64)+`"]`)
+	if want := int64(matcherBytes + matcherInstBytes*6 + jobArrayBytes + jobBytes*(1*65+1)); scan.transient != want {
 		t.Errorf("transient = %d, want the matcher's %d", scan.transient, want)
 	}
 	_, scan = scanBody(t, mustCompile(t, `{"uniqueItems":true}`), denseArray(21, `1`, 0))
@@ -725,6 +740,51 @@ func TestPathStates(t *testing.T) {
 	t.Logf("body %d bytes: reserved %d (decoded values included), peak %.0f", len(body), px.peak, peak)
 	if float64(px.peak) > 2.5*peak+gcSlack {
 		t.Errorf("reserved %d, more than two and a half times the peak %.0f", px.peak, peak)
+	}
+}
+
+// TestMatcherReach is the regression test of the review finding that
+// every string a pattern or a uniqueItems pass reached was charged the job
+// stack of the document's costliest pattern program: a string is charged
+// only the patterns its own path applies to it, a member name those of its
+// object's patternProperties, a value of another kind none, and where the
+// path is unknown, every pattern only where the depth's counts may scan a
+// string, which uniqueItems hashing no longer does.
+//
+// Requirements: 07 reqs 80 to 82 and architecture R-77.
+func TestMatcherReach(t *testing.T) {
+	pc := newPatternCosts()
+	reach := func(expr string) patternReach { return reachOf(pc.of(expr)) }
+	email, bio := reach(emailExpr()), reach(`^[^<>]*$`)
+	long := strings.Repeat("x", 1000)
+	_, scan := scanBody(t, mustCompile(t, signUpSchema()), `{"email":"a@b.co","name":"Ann","bio":"`+long+`"}`)
+	if want := max(email.bytes(len("a@b.co")), bio.bytes(len(long))); scan.transient != want {
+		t.Errorf("sign-up: transient %d, want %d (the bio's own pattern; the e-mail pattern's charge on it would be %d)", scan.transient, want, email.bytes(len(long)))
+	}
+	// A member name is matched against its object's patternProperties,
+	// the value against its own pattern.
+	names := `{"patternProperties":{"^x+":true},"properties":{"a":{"pattern":"^[^<>]*$"}}}`
+	_, scan = scanBody(t, mustCompile(t, names), `{"`+long+`":1,"a":"short"}`)
+	if want := reach(`^x+`).bytes(len(long)); scan.transient != want || want <= bio.bytes(len("short")) {
+		t.Errorf("member name: transient %d, want %d", scan.transient, want)
+	}
+	// The library matches a pattern against strings only.
+	if _, scan := scanBody(t, mustCompile(t, `{"pattern":"^a"}`), `1`); scan.transient != 0 {
+		t.Errorf("number under a pattern: transient %d, want 0", scan.transient)
+	}
+	// Where the scan does not know the path, a pattern may match a value at
+	// the host's depth, but the uniqueItems hashing of the tags below it
+	// scans none.
+	tags := mustCompile(t, `{"type":"object","properties":{"host":{"type":"string","pattern":`+fmt.Sprintf("%q", hostnamePattern)+
+		`},"tags":{"type":"array","uniqueItems":true,"items":{"type":"string"}}}}`)
+	unknown := &Schema{work: tags.work, numbers: tags.numbers}
+	unknown.work.states = nil
+	_, scan = scanBody(t, unknown, `{"host":"example.com","tags":["`+strings.Repeat("t", 100)+`"]}`)
+	if want := tags.work.flags.patterns.bytes(len("example.com")); scan.transient != want {
+		t.Errorf("unknown paths: transient %d, want %d for the host alone (the tag's would be %d)", scan.transient, want, tags.work.flags.patterns.bytes(100))
+	}
+	if tags.work.at[2][dimScan] != 0 || tags.work.at[2][dimHash] == 0 {
+		t.Errorf("the tags' counts: scan %d, hash %d, want none and some", tags.work.at[2][dimScan], tags.work.at[2][dimHash])
 	}
 }
 

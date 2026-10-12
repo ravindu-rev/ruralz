@@ -4,25 +4,28 @@
 package jsonschema
 
 import (
+	"cmp"
 	"math/bits"
 	"regexp/syntax"
 	"slices"
+	"sort"
 	"strconv"
 	"strings"
 	"unicode"
 )
 
 // The work of a pattern (architecture R-77, package documentation "Work
-// bound").
-// The library matches pattern and patternProperties with Go's regexp,
-// whose matchers (the backtracker and the NFA simulation: compilePattern
-// never lets it build the one-pass matcher) never visit more program
-// instructions per input rune than the NFA simulation holds in its run
-// queue. A pattern's cost per byte is therefore bounded
-// by the largest run queue any input can build, which queueBound computes
-// by exploring the queues the NFA reaches over the program's character
+// bound"). The library matches pattern and patternProperties with Go's
+// regexp, whose matchers (the backtracker and the NFA simulation:
+// compilePattern never lets it build the one-pass matcher) never visit
+// more program instructions per input rune than the NFA simulation holds
+// in its run queue. A pattern's cost per byte is therefore bounded by the
+// largest run queue any input can build, which queueBound computes by
+// exploring the queues the NFA reaches over the program's character
 // classes; a pattern whose exploration does not finish within its budget
-// is charged its whole program per byte instead.
+// is charged its whole program per byte instead. That bounds the work of
+// the matchers, not their memory: the backtracker's job stack grows with
+// the input (backtrackBytes).
 const (
 	// matchUnits is the work of one match call that does not grow with
 	// the input (taking a matcher from the pool, the setup), measured at
@@ -58,19 +61,152 @@ const (
 // n bytes: fixed + n*perByte.
 type patternCost struct {
 	fixed, perByte int
-	// insts is the program's instruction count, for the matcher's memory.
+	// insts is the program's instruction count, for the matcher's memory,
+	// and held the most jobs the backtracker may hold per input position
+	// (heldAlternations), for its job stack.
+	insts, held int
+}
+
+// The backtracker's job stack (review findings). Go's regexp matches with
+// its backtracker whenever the program has at most maxBacktrackProg
+// instructions and the input is shorter than maxBacktrackVector bits per
+// instruction, that is shorter than maxBacktrackVector divided by the
+// program's instruction count, in bytes (regexp/backtrack.go); otherwise
+// with the NFA simulation, whose queues and threads grow with the program
+// alone. The backtracker marks every pair of instruction and input
+// position it visits, so it visits each at most once, and searches depth
+// first, keeping a stack of jobs. For a match without submatches, as the
+// library asks, the only jobs on the stack besides the one it starts from
+// are reminders, one for every alternation on the current search path
+// whose first branch it is still exploring, at the position it entered it;
+// the reminder is popped when the search turns to the second branch. The
+// path moves through the input positions in order, consuming a rune
+// between two of them, so at one position it is a run of empty-width steps
+// (alternations, no-ops, captures and assertions) from the instruction the
+// position's search starts at, the program's start or the instruction
+// after a rune, and the visited marks keep the run's alternations
+// distinct. The stack therefore holds at most held jobs per input
+// position, held being the most alternations reachable through
+// empty-width steps from any one such instruction, plus the first:
+// (n+1)*held+1 on n bytes, which never exceeds the visited set's
+// maxBacktrackVector pairs, about 12.6 MB at jobBytes. (?:(?:a??){240}a)*b,
+// whose 241 alternations all follow one another, held 129,658 jobs on 537
+// bytes, a charge of 129,659; the WHATWG e-mail pattern, 126 alternations
+// in all, holds at most 3 per position (review finding: charged every
+// alternation of the program, small bodies under it were refused at a 64
+// KiB limit).
+const (
+	// maxBacktrackProg and maxBacktrackVector are Go's limits: the largest
+	// program the backtracker runs, and the bits of its visited set, which
+	// bound the input length at maxBacktrackVector/len(prog.Inst).
+	maxBacktrackProg, maxBacktrackVector = 500, 256 << 10
+	// jobBytes is what one job may hold: 16 bytes in a slice grown by
+	// appending, up to three times that while the old and new arrays are
+	// live and the collector catches up (measured 1.6 to 3 times at GOGC
+	// 10, TestHandleBacktrackCharge); jobArrayBytes the 256 jobs the stack
+	// starts with.
+	jobBytes, jobArrayBytes = 48, 256 * 16
+	// heldBudget bounds the instructions the search for held alternations
+	// may visit in all the patterns of one document (about 10 ms,
+	// BenchmarkHeldAlternations); past it a program is charged every
+	// alternation it has.
+	heldBudget = 1 << 21
+)
+
+// backtrackProg is one program the backtracker may run: its instruction
+// count and its held jobs per input position.
+type backtrackProg struct{ insts, held int }
+
+// backtrackProgs returns the programs of progs that the backtracker may
+// run, by size, keeping only those that hold more jobs per position than
+// every smaller one: the backtracker runs every program smaller than one
+// it runs on the same input, so the others never hold the most.
+func backtrackProgs(progs []backtrackProg) []backtrackProg {
+	out := make([]backtrackProg, 0, len(progs))
+	for _, p := range progs {
+		if p.insts <= maxBacktrackProg {
+			out = append(out, p)
+		}
+	}
+	slices.SortFunc(out, func(a, b backtrackProg) int { return cmp.Or(a.insts-b.insts, b.held-a.held) })
+	k := 0
+	for _, p := range out {
+		if k == 0 || p.held > out[k-1].held {
+			out[k] = p
+			k++
+		}
+	}
+	return slices.Clip(out[:k])
+}
+
+// backtrackBytes returns the job stack a match of n bytes may hold under
+// progs (backtrackProgs): none when the backtracker runs no program on n
+// bytes, else the starting array and jobBytes for the first job and held
+// jobs per input position of the program holding the most that it runs on
+// n bytes, those smaller than maxBacktrackVector/n instructions.
+func backtrackBytes(progs []backtrackProg, n int) int64 {
+	runs := sort.Search(len(progs), func(i int) bool { return n >= maxBacktrackVector/progs[i].insts })
+	if runs == 0 {
+		return 0
+	}
+	jobs := int64(progs[runs-1].held)*int64(n+1) + 1
+	return jobArrayBytes + jobBytes*jobs
+}
+
+// patternReach is what may match one string while the library validates
+// it: the largest program of the patterns that may, for the matcher, and
+// those of them the backtracker may run (backtrackProgs), for its job
+// stack. The zero value is no pattern. Its slice is never changed once
+// made, so reaches share it.
+type patternReach struct {
 	insts int
+	progs []backtrackProg
+}
+
+// reachOf returns the reach of the patterns of costs.
+func reachOf(costs ...patternCost) patternReach {
+	var r patternReach
+	progs := make([]backtrackProg, 0, len(costs))
+	for _, c := range costs {
+		r.insts = max(r.insts, c.insts)
+		progs = append(progs, backtrackProg{insts: c.insts, held: c.held})
+	}
+	r.progs = backtrackProgs(progs)
+	return r
+}
+
+// union returns the reach of the patterns of r and o together.
+func (r patternReach) union(o patternReach) patternReach {
+	switch {
+	case o.insts == 0:
+		return r
+	case r.insts == 0:
+		return o
+	}
+	return patternReach{insts: max(r.insts, o.insts), progs: backtrackProgs(slices.Concat(r.progs, o.progs))}
+}
+
+// bytes returns what one match of n bytes may hold under r: nothing
+// without a pattern, else a matcher of the largest program and the
+// backtracker's job stack (review finding: a pattern of 241 alternations
+// held 4.9 MB for 537 bytes, charged 64 KB).
+func (r patternReach) bytes(n int) int64 {
+	if r.insts == 0 {
+		return 0
+	}
+	return matcherBytes + matcherInstBytes*int64(r.insts) + backtrackBytes(r.progs, n)
 }
 
 // patternCosts computes pattern costs under one document's budget,
 // caching them by expression.
 type patternCosts struct {
-	budget int
-	cache  map[string]patternCost
+	// budget is what is left of regexpBudget, held of heldBudget.
+	budget, held int
+	cache        map[string]patternCost
 }
 
 func newPatternCosts() *patternCosts {
-	return &patternCosts{budget: regexpBudget, cache: map[string]patternCost{}}
+	return &patternCosts{budget: regexpBudget, held: heldBudget, cache: map[string]patternCost{}}
 }
 
 // of returns the cost of the RE2 expression expr, as the library's
@@ -92,10 +228,75 @@ func (pc *patternCosts) of(expr string) patternCost {
 				perByte: byteUnits + (queueUnits+searchUnits*classSteps(prog))*q + n/clearInstsPerUnit,
 				insts:   n,
 			}
+			if n <= maxBacktrackProg {
+				c.held = heldAlternations(prog, &pc.held)
+			}
 		}
 	}
 	pc.cache[expr] = c
 	return c
+}
+
+// heldAlternations returns the most jobs the backtracker may hold per
+// input position under prog (see "The backtracker's job stack"): the most
+// alternations reachable through empty-width steps from the program's
+// start or from the instruction after a rune, where the search at one
+// position starts. Empty-width assertions are assumed to hold. Every
+// instruction it visits is charged to budget; past it, the result is
+// every alternation of the program, which bounds each such set.
+func heldAlternations(prog *syntax.Prog, budget *int) int {
+	n := len(prog.Inst)
+	start := make([]bool, n)
+	start[prog.Start] = true
+	for i := range prog.Inst {
+		if isRuneInst(prog.Inst[i].Op) {
+			start[prog.Inst[i].Out] = true
+		}
+	}
+	mark := make([]int, n)
+	var stack []int
+	held := 0
+	for s, ok := range start {
+		if !ok {
+			continue
+		}
+		count := 0
+		stack = append(stack[:0], s)
+		for len(stack) > 0 {
+			pc := stack[len(stack)-1]
+			stack = stack[:len(stack)-1]
+			if mark[pc] == s+1 {
+				continue
+			}
+			mark[pc] = s + 1
+			if *budget--; *budget < 0 {
+				return alternations(prog)
+			}
+			switch in := &prog.Inst[pc]; in.Op {
+			case syntax.InstAlt, syntax.InstAltMatch:
+				count++
+				stack = append(stack, int(in.Out), int(in.Arg))
+			case syntax.InstCapture, syntax.InstNop, syntax.InstEmptyWidth:
+				stack = append(stack, int(in.Out))
+			default:
+				// A rune, match or fail instruction ends the run.
+			}
+		}
+		held = max(held, count)
+	}
+	return held
+}
+
+// alternations returns the alternation instructions of prog, which bound
+// the alternations reachable from any one instruction.
+func alternations(prog *syntax.Prog) int {
+	n := 0
+	for i := range prog.Inst {
+		if op := prog.Inst[i].Op; op == syntax.InstAlt || op == syntax.InstAltMatch {
+			n++
+		}
+	}
+	return n
 }
 
 // classSteps returns the most steps a rune instruction of prog takes to

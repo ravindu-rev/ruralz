@@ -62,7 +62,8 @@ func bodySeeds() []string {
 // TestStatesBudget, TestEvaluationBoundBudget), and so are the bounds of
 // the pattern programs and of their parsing (TestPatternProgramLimits,
 // TestPatternParsesBounded) and of the library's meta-schema checks
-// (TestReferenceLadder, TestMetaChecksBound); its time is measured by
+// (TestReferenceLadder, TestMetaChecksBound, and for the lists of names it
+// compares TestNameListsRefusedByWalk); its time is measured by
 // BenchmarkCompileAnalysisWorstCase.
 func FuzzCompileSchema(f *testing.F) {
 	for _, s := range corpusSchemas(f) {
@@ -79,6 +80,12 @@ func FuzzCompileSchema(f *testing.F) {
 		`{"$defs":{"a":{"$ref":"#/x/if/if"},"b":{"$ref":"#/x/if"},"c":{"$ref":"#/x"}},"x":{"if":{"if":{"pattern":"^a"}}}}`,
 		`{"$ref":"#/x/properties","$defs":{"a":{"$ref":"#/x/properties/items/properties"}},"x":{"properties":{"items":{"properties":{"items":true}}}}}`,
 		`{"$ref":"#/x~1y/a%25b","x/y":{"a%b":{"type":"string"}}}`,
+		// Lists of names the meta-schema compares (review finding: the
+		// library parsed their numbers with math/big, for seconds or until
+		// it panicked).
+		`{"type":[` + literals(21, "e9999999") + `]}`, `{"required":["a",` + literals(20, "e999999") + `]}`,
+		`{"dependentRequired":{"a":[1,{"b":2},[3],null,true]}}`, `{"dependencies":{"a":[[1e9999999]],"b":{"type":[1]}}}`,
+		`{"$ref":"#/x/properties","x":{"properties":{"type":[1e999999,2e999999],"required":[{}]}}}`,
 	} {
 		f.Add([]byte(s))
 	}

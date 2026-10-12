@@ -110,7 +110,11 @@ func TestCheckSkips(t *testing.T) {
 func TestGoldenCheckDiagnostics(t *testing.T) {
 	cases := []struct{ name, schema string }{
 		{"multiple", `{"$schema":"http://json-schema.org/draft-07/schema#","properties":{"zip":{"pattern":"^(?!0)"},"n":{"minimum":1e-5000}},"items":{"$ref":"file:///etc/passwd"}}`},
-		{"meta", `{"type":["string",7],"properties":{"a":{"required":"id"}}}`},
+		// A type entry that is a string the meta-schema refuses, so the
+		// library reports it with the other meta-schema finding (an entry
+		// that is not a string the walk refuses alone, with the same
+		// message: TestNameListsMatchLibrary).
+		{"meta", `{"type":["string","seven"],"properties":{"a":{"required":"id"}}}`},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {

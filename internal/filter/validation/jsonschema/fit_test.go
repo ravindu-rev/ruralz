@@ -4,7 +4,10 @@
 package jsonschema
 
 import (
+	"context"
+	"errors"
 	"fmt"
+	"runtime"
 	"strings"
 	"testing"
 
@@ -138,39 +141,71 @@ func TestHandleMeasuredFit(t *testing.T) {
 		limit, scale, raw, depth = 1<<20, 10, 1<<20, 4
 	}
 	member := func(i int) string { return fmt.Sprintf(`"m%07d":%d`, i, i%1000) }
+	// Distinct prices of the same length whatever the scale.
+	price := func(i int) string { return fmt.Sprintf("%d.%02d", 10000+i/100, i%100) }
+	codes := make([]string, 250)
+	for i := range codes {
+		codes[i] = fmt.Sprintf(`"%c%c"`, 'a'+i/26, 'a'+i%26)
+	}
 	for _, tc := range []struct {
 		name, schema, body string
 		fraction           float64
+		// tree compares the decoded tree exactly instead of the sampled
+		// peak: a wide object's map leaves the tables it outgrew to the
+		// collector before anything is reserved (minor review finding: the
+		// sampled peak came within 10% of twice the reservation).
+		tree bool
 	}{
 		{"events under an 8-way oneOf", eventsSchema(8), `{"events":[` + joined(46000/scale, func(i int) string {
 			return fmt.Sprintf(`{"type":"e%d","at":"2026-10-11T09:00:00Z","value":%d.5,"label":"event"}`, i%8, i%1000)
-		}) + `]}`, 0.31},
+		}) + `]}`, 0.31, false},
 		{"events under a 20-way oneOf", eventsSchema(20), `{"events":[` + joined(19000/scale, func(i int) string {
 			return fmt.Sprintf(`{"type":"e%d","at":"2026-10-11T09:00:00Z","value":%d.5,"label":"event"}`, i%20, i%1000)
-		}) + `]}`, 0.13},
-		{"rich text with nested lists", richText, richDocument(130 / scale), 0.045},
-		{"rich text of paragraphs", richText, `{"type":"doc","content":[` + joined(11500/scale, func(int) string { return fitParagraph }) + `]}`, 0.19},
+		}) + `]}`, 0.13, false},
+		{"rich text with nested lists", richText, richDocument(130 / scale), 0.045, false},
+		{"rich text of paragraphs", richText, `{"type":"doc","content":[` + joined(11500/scale, func(int) string { return fitParagraph }) + `]}`, 0.19, false},
 		{"component tree of a row of columns", componentTree, `{"kind":"row","children":[` + joined(6500/scale, func(int) string {
 			return `{"kind":"column","children":[{"text":"Label text"},{"text":"Label text"},{"text":"Label text"}]}`
-		}) + `]}`, 0.06},
-		{"component tree nested deep", componentTree, uiTree(depth, 3, true), 0},
-		{"GeoJSON features", geoJSON, `{"type":"FeatureCollection","features":[` + joined(6700/scale, func(int) string { return fitPolygon }) + `]}`, 0.14},
+		}) + `]}`, 0.06, false},
+		{"component tree nested deep", componentTree, uiTree(depth, 3, true), 0, false},
+		{"GeoJSON features", geoJSON, `{"type":"FeatureCollection","features":[` + joined(6700/scale, func(int) string { return fitPolygon }) + `]}`, 0.14, false},
 		// Minor review finding: composed objects, conditional records and
 		// unions of operations, at the working-set, reservation and
 		// working-set limits.
-		{"composed orders under unevaluatedProperties", composedSchema, "[" + joined(72000/scale, func(i int) string {
+		{"composed orders under unevaluatedProperties", composedSchema, "[" + joined(79000/scale, func(i int) string {
 			return fmt.Sprintf(`{"id":"ord-%06d","created":"2026-10-11","total":%d.5,"status":"paid"}`, i, i%1000)
-		}) + "]", 0.49},
+		}) + "]", 0.54, false},
 		{"conditional records", conditionalSchema, "[" + joined(145000/scale, func(i int) string {
 			if i%2 == 0 {
 				return fmt.Sprintf(`{"kind":"email","email":"user%d@example.com"}`, i)
 			}
 			return fmt.Sprintf(`{"kind":"sms","phone":"+1555%07d"}`, i)
-		}) + "]", 0.59},
-		{"JSON Patch", patchSchema, "[" + joined(76000/scale, patchOperation) + "]", 0.35},
+		}) + "]", 0.59, false},
+		{"JSON Patch", patchSchema, "[" + joined(76000/scale, patchOperation) + "]", 0.35, false},
 		// Review finding: a member name that cannot fail propertyNames holds
 		// no error.
-		{"map under propertyNames", `{"type":"object","propertyNames":{"maxLength":64},"additionalProperties":{"type":"integer"}}`, `{` + joined(450000/scale, member) + `}`, 0.5},
+		{"map under propertyNames", `{"type":"object","propertyNames":{"maxLength":64},"additionalProperties":{"type":"integer"}}`, `{` + joined(450000/scale, member) + `}`, 0.5, true},
+		// Minor review findings: enum arrays, at the work and working-set
+		// limits, and dense numeric and uniqueItems arrays, whose fit the
+		// package documentation lists so that operators know to raise
+		// maxRequestBodyBytes on Routes that validate them.
+		{"two-letter codes under a 250-value enum", `{"type":"array","items":{"enum":[` + strings.Join(codes, ",") + `]}}`, "[" + joined(706000/scale, func(i int) string { return codes[i%250] }) + "]", 0.33, false},
+		{"one-character enum values", `{"type":"array","items":{"enum":["a","b","c","d"]}}`, "[" + joined(788000/scale, func(i int) string { return fmt.Sprintf(`"%c"`, 'a'+i%4) }) + "]", 0.3, false},
+		{"decimals within bounds", `{"type":"array","items":{"type":"number","minimum":-1000,"maximum":1000}}`, "[" + joined(790000/scale, func(i int) string { return fmt.Sprintf("%d.25", i%1000) }) + "]", 0.51, false},
+		// Review finding: a multipleOf check is charged its division, which
+		// for a short divisor stays far below the working set.
+		{"prices under multipleOf", `{"type":"array","items":{"type":"number","multipleOf":0.01}}`, "[" + joined(790000/scale, price) + "]", 0.66, false},
+		{"timestamp and value pairs", `{"type":"array","items":{"type":"array","prefixItems":[{"type":"integer"},{"type":"number"}]}}`, "[" + joined(345000/scale, func(i int) string { return fmt.Sprintf("[%d,%d.5]", 1760173200+i, i%1000) }) + "]", 0.61, false},
+		{"longitude and latitude pairs", `{"type":"array","items":{"type":"array","minItems":2,"maxItems":2,"items":{"type":"number","minimum":-180,"maximum":180}}}`, denseArray(197000/scale, `[-122.4194,37.7749]`, 0), 0.37, false},
+		{"time series of closed objects", `{"type":"object","required":["points"],"properties":{"points":{"type":"array","items":{"type":"object","required":["t","v"],"properties":{"t":{"type":"integer"},"v":{"type":"number"}},"additionalProperties":false}}}}`, `{"points":[` + joined(200000/scale, func(i int) string { return fmt.Sprintf(`{"t":%d,"v":%d.5}`, 1760173200+i, i%1000) }) + "]}", 0.5, false},
+		{"unique integer ids", `{"type":"array","uniqueItems":true,"items":{"type":"integer"}}`, "[" + joined(427000/scale, func(i int) string { return fmt.Sprint(1000000 + i) }) + "]", 0.32, false},
+		{"unique tags", `{"type":"array","uniqueItems":true,"items":{"type":"string"}}`, "[" + joined(428000/scale, func(i int) string { return fmt.Sprintf(`"t%06d"`, i) }) + "]", 0.4, false},
+		// Minor review finding: distinct decimals, each charged the numbers
+		// that may share its hash, were refused above 10 to 12% of the
+		// limit at the work limit; now prices and bounded readings stop at
+		// the working-set limit.
+		{"unique prices", `{"type":"array","uniqueItems":true,"items":{"type":"number"}}`, "[" + joined(430000/scale, price) + "]", 0.36, false},
+		{"unique bounded readings", `{"type":"array","uniqueItems":true,"items":{"type":"number","minimum":-1000,"maximum":1000}}`, "[" + joined(280000/scale, func(i int) string { return fmt.Sprintf("%d.%03d", 100+i/1000, i%1000) }) + "]", 0.21, false},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			if got := float64(len(tc.body)) / float64(limit); got < tc.fraction {
@@ -205,9 +240,153 @@ func TestHandleMeasuredFit(t *testing.T) {
 			if want := cost + scan.extra + scan.decideMemory(); px.peak != want {
 				t.Errorf("reserved %d, the model charges %d", px.peak, want)
 			}
-			if peak > float64(2*px.peak+gcSlack) {
+			if tc.tree {
+				var before, after runtime.MemStats
+				runtime.GC()
+				runtime.ReadMemStats(&before)
+				v, cost, _ := f.decode([]byte(tc.body))
+				runtime.GC()
+				runtime.ReadMemStats(&after)
+				runtime.KeepAlive(v)
+				live := growth(after.HeapAlloc, before.HeapAlloc)
+				if raceEnabled {
+					live -= 16 * shortStrings(v)
+				}
+				if live > cost+scan.extra {
+					t.Errorf("the decoded tree holds %d bytes, Handle reserves %d for it", live, cost+scan.extra)
+				}
+			} else if peak > float64(2*px.peak+gcSlack) {
 				t.Errorf("Handle held %.0f bytes at its peak, more than twice its reservation %d", peak, px.peak)
 			}
 		})
+	}
+}
+
+// TestHandleFitEdges pins the edges of the measured fit that the package
+// documentation states as counts ("Working set", minor review finding):
+// at the 10 MiB default, a uniqueItems array of about 6,500 objects of two
+// string members or 1,700 of one number member passes its limits and
+// one of 6,700 or 1,800 is refused at the work limit, every pair being
+// charged a comparison; a component tree nested 6 deep with 3 children per
+// node passes and one 7 deep is refused at the working-set limit. A body
+// passes its limits when Handle reaches the request's context, which has
+// ended, so the library never runs.
+//
+// Requirements: 07 reqs 15 and 80, architecture R-77.
+func TestHandleFitEdges(t *testing.T) {
+	objects := func(n int, item string) string {
+		return "[" + joined(n, func(i int) string { return fmt.Sprintf(item, i) }) + "]"
+	}
+	const twoStrings, oneNumber = `{"sku":"SKU-%05d","name":"item"}`, `{"id":%d}`
+	for _, tc := range []struct {
+		name, schema, pass, refused string
+		want                        error
+	}{
+		{"uniqueItems objects of two strings", `{"type":"array","uniqueItems":true}`, objects(6500, twoStrings), objects(6700, twoStrings), errWorkTooLarge},
+		{"uniqueItems objects of a number", `{"type":"array","uniqueItems":true}`, objects(1700, oneNumber), objects(1800, oneNumber), errWorkTooLarge},
+		{"component tree", componentTree, uiTree(6, 3, true), uiTree(7, 3, true), errWorkingSetTooLarge},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			f := buildFilter(t, tc.schema, 0)
+			// A refusal comes before Handle reads the context.
+			x, _ := exchange("application/json", []byte(tc.pass))
+			if r := f.Handle(&endingContext{Context: t.Context()}, phase.OnRequestBody, x); !errors.Is(r.Err, context.Canceled) {
+				t.Errorf("Handle(%d bytes) = %+v, want its limits passed", len(tc.pass), r)
+			}
+			x, _ = exchange("application/json", []byte(tc.refused))
+			if r := f.Handle(&endingContext{Context: t.Context()}, phase.OnRequestBody, x); !errors.Is(r.Err, tc.want) {
+				t.Errorf("Handle(%d bytes) = %+v, want %v", len(tc.refused), r, tc.want)
+			}
+		})
+	}
+}
+
+// signUpSchema is a sign-up form: an e-mail address under the WHATWG
+// e-mail pattern, a name, and free text under a pattern refusing angle
+// brackets.
+func signUpSchema() string {
+	return `{"type":"object","required":["email","name"],"properties":{"email":{"type":"string","maxLength":254,"pattern":"` + emailPattern +
+		`"},"name":{"type":"string","maxLength":100},"bio":{"type":"string","maxLength":5000,"pattern":"^[^<>]*$"}}}`
+}
+
+// TestHandlePatternFit is the regression test of the review finding on the
+// backtracker's job stack charge: charged one job per alternation of the
+// document's costliest program for every string a pattern or a uniqueItems
+// pass reached, a 149-byte sign-up body was refused at a 64 KiB limit and
+// a 1,049-byte one reserved 6.15 MB at 1 MiB against a peak of about 0.13
+// MB, and an invalid one got 413 instead of its keyword location. Now
+// small records under ordinary patterns pass at small limits, invalid ones
+// get 400 with their keyword location, and the reservation stays within a
+// small multiple of what Handle holds at its peak.
+//
+// Requirements: 07 reqs 79 to 81, T13 and T14, architecture R-77.
+func TestHandlePatternFit(t *testing.T) {
+	signUp := func(bio string) string {
+		return `{"email":"ann@example.com","name":"Ann","bio":"` + bio + `"}`
+	}
+	host := `{"type":"object","properties":{"host":{"type":"string","pattern":` + fmt.Sprintf("%q", hostnamePattern) + `}}}`
+	tags := `{"type":"object","properties":{"host":{"type":"string","pattern":` + fmt.Sprintf("%q", hostnamePattern) +
+		`},"tags":{"type":"array","uniqueItems":true,"items":{"type":"string"}}}}`
+	for _, tc := range []struct {
+		name, schema string
+		limit        int64
+		body, detail string
+		// most is the largest reservation allowed.
+		most int64
+	}{
+		{"sign-up at 64 KiB", signUpSchema(), 64 << 10, signUp(strings.Repeat("x", 100)), "", 128 << 10},
+		{"longer sign-up at 64 KiB", signUpSchema(), 64 << 10, signUp(strings.Repeat("x", 1000)), "", 192 << 10},
+		{"sign-up at 1 MiB", signUpSchema(), 1 << 20, signUp(strings.Repeat("x", 1000)), "", 192 << 10},
+		{"long sign-up at 1 MiB", signUpSchema(), 1 << 20, signUp(strings.Repeat("x", 4000)), "", 384 << 10},
+		{"sign-up without a name", signUpSchema(), 64 << 10, `{"email":"ann@example.com","bio":"` + strings.Repeat("x", 300) + `"}`, "/required", 192 << 10},
+		{"sign-up with an angle bracket", signUpSchema(), 64 << 10, signUp("<" + strings.Repeat("x", 300)), "/properties/bio/pattern", 192 << 10},
+		{"host at 64 KiB", host, 64 << 10, `{"host":"` + strings.Repeat("a", 60) + `.example.com"}`, "", 128 << 10},
+		{"unique tags beside a host at 64 KiB", tags, 64 << 10, `{"host":"example.com","tags":["` + strings.Repeat("t", 100) + `"]}`, "", 128 << 10},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			f := buildFilter(t, tc.schema, tc.limit)
+			x, _ := exchange("application/json", []byte(tc.body))
+			px := &peakExchange{Exchange: x}
+			var r filter.Result
+			peak := peakHeap(func() any { r = f.Handle(t.Context(), phase.OnRequestBody, px); return r })
+			if tc.detail == "" {
+				if r.Outcome != filter.Continue {
+					t.Fatalf("Handle(%d bytes) = %+v, want Continue", len(tc.body), r)
+				}
+			} else if got := detailOf(t, r); got != DetailMismatch+" at "+tc.detail {
+				t.Fatalf("detail = %q, want the location %s", got, tc.detail)
+			}
+			t.Logf("%d bytes: reserved %d, peak %.0f", len(tc.body), px.peak, peak)
+			if px.peak > tc.most {
+				t.Errorf("reserved %d, want at most %d", px.peak, tc.most)
+			}
+			if peak > float64(px.peak+gcSlack) {
+				t.Errorf("Handle held %.0f bytes at its peak, reserved %d", peak, px.peak)
+			}
+		})
+	}
+	// The job stack binds at a small limit only for the inputs short
+	// enough for the backtracker (package documentation "Working set"): at
+	// 64 KiB, a string under ^[^<>]*$ (7 instructions) passes up to about
+	// 9,500 bytes, is refused at the working-set limit up to 37,448, and
+	// passes again past it on the NFA simulation; at 256 KiB it passes
+	// throughout. A body passes its limits when Handle reaches the
+	// request's context, which has ended.
+	for _, tc := range []struct {
+		limit int64
+		n     int
+		want  error
+	}{
+		{64 << 10, 9400, context.Canceled},
+		{64 << 10, 9500, errWorkingSetTooLarge},
+		{64 << 10, maxBacktrackVector/7 - 1, errWorkingSetTooLarge},
+		{64 << 10, maxBacktrackVector / 7, context.Canceled},
+		{256 << 10, maxBacktrackVector/7 - 1, context.Canceled},
+	} {
+		f := buildFilter(t, `{"type":"string","pattern":"^[^<>]*$"}`, tc.limit)
+		x, _ := exchange("application/json", []byte(`"`+strings.Repeat("x", tc.n)+`"`))
+		if r := f.Handle(&endingContext{Context: t.Context()}, phase.OnRequestBody, x); !errors.Is(r.Err, tc.want) {
+			t.Errorf("limit %d, a string of %d bytes: Handle = %+v, want %v", tc.limit, tc.n, r, tc.want)
+		}
 	}
 }

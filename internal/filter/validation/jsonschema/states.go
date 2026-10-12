@@ -150,6 +150,17 @@ type evalState struct {
 	// patternProperties of every evaluation costs: work units (dimWork)
 	// and work units per byte of the name (dimScan).
 	match vec
+	// valuePats is what may match the value's string, the patterns of
+	// every evaluation, and namePats what may match a member's name, their
+	// patternProperties: the scan charges a matcher and the backtracker's
+	// job stack only for these (review finding: every pattern of the
+	// document was charged to every string a pattern or a uniqueItems pass
+	// reached).
+	valuePats, namePats patternReach
+	// multiples counts the evaluations with multipleOf, and divNum and
+	// divDen sum the digits of their divisors' numerators and denominators
+	// (gNode.divNum), for the work of their checks (quoWork).
+	multiples, divNum, divDen int
 	// byName, other, idx, rest and key are the transitions: a member by
 	// declared name, any other member, an item by index below len(idx),
 	// any other item, and a member name under propertyNames.
@@ -361,6 +372,12 @@ func (b *stateBuilder) weigh(set []entry) evalState {
 		}
 		if n.propNames >= 0 {
 			s.propNames = min(s.propNames+e.n, countCap)
+		}
+		s.valuePats, s.namePats = s.valuePats.union(n.valuePats), s.namePats.union(n.namePats)
+		if n.divNum > 0 {
+			s.multiples = min(s.multiples+e.n, countCap)
+			s.divNum = min(s.divNum+n.divNum*e.n, countCap)
+			s.divDen = min(s.divDen+n.divDen*e.n, countCap)
 		}
 		m := n.match
 		for k := range m {
