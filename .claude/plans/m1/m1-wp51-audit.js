@@ -2,7 +2,7 @@ export const meta = {
   name: 'wp51-library-audit',
   description: 'Audit every keyword and mechanism jsonschema/v6 acts on against WP-51 bounds and tests: coverage matrix, gap classes, completeness check',
   phases: [
-    { title: 'Audit', detail: 'five library areas, each audited then verified' },
+    { title: 'Audit', detail: 'checks of the values and cross audits; the other areas come from the partial run' },
     { title: 'Merge', detail: 'one matrix and a gap list grouped by root-cause class' },
     { title: 'Completeness', detail: 'every library function covered' },
     { title: 'Report', detail: 'final audit document and gap classes' },
@@ -13,11 +13,16 @@ const REPO = '/home/user/ruralz'
 const M1 = `${REPO}/.claude/plans/m1`
 const LIB = '/root/go/pkg/mod/github.com/santhosh-tekuri/jsonschema/v6@v6.0.3'
 const PKG = 'internal/filter/validation/jsonschema'
-const SP = '/tmp/claude-0/-home-user-ruralz/0aabfe6e-34a6-51d2-9b9b-23886b703760/scratchpad/wp51audit'
+const SP = '/tmp/claude-0/-home-user-ruralz/758d7ca3-81cf-5fbc-a967-12d97bce3d6b/scratchpad/wp51audit'
+// Run wf_eb3b9ef7-7cd finished all five area audits and the compile, validate and refs
+// checks; their results are in PARTIAL. This run checks the values and cross audits
+// only, then merges all five areas.
+const PARTIAL = `${M1}/runs/w3-s2-wp51-audit-partial.json`
+const DONE = ['compile', 'validate', 'refs']
 const DOC = `${M1}/wp51-library-audit.md`
 
 const CONTEXT = `
-Repository ${REPO} (Ruralz API gateway, Go, branch develop). Work package WP-51 is the validation.json-schema Policy in ${REPO}/${PKG}: it compiles an operator's JSON Schema (draft 2020-12) with the third-party library github.com/santhosh-tekuri/jsonschema/v6 v6.0.3 (source: ${LIB}) and validates JSON request bodies with it. Because the library exposes neither its memory nor its work and cannot be stopped, WP-51 bounds it from outside: compile-time rules (RZ-CFG-005 refusals), a pre-validation working-set and work model with reservations and caps (413 RZ-RT-003, 503), number bounds, a regex program measure, a meta-schema re-check, a two-pass validation and more. The working tree holds WP-51's latest state (the committed package plus the post-fix8 changes, uncommitted).
+Repository ${REPO} (Ruralz API gateway, Go, branch develop). Work package WP-51 is the validation.json-schema Policy in ${REPO}/${PKG}: it compiles an operator's JSON Schema (draft 2020-12) with the third-party library github.com/santhosh-tekuri/jsonschema/v6 v6.0.3 (source: ${LIB}) and validates JSON request bodies with it. Because the library exposes neither its memory nor its work and cannot be stopped, WP-51 bounds it from outside: compile-time rules (RZ-CFG-005 refusals), a pre-validation working-set and work model with reservations and caps (413 RZ-RT-003, 503), number bounds, a regex program measure, a meta-schema re-check, a two-pass validation and more. The working tree holds WP-51's latest state: develop 5f426d5 plus the post-fix8 changes (runs/wp51-postfix8.patch), which is the code under audit.
 Binding contract: spec 07 (${M1}/specs/07-transform.md) reqs 74 to 84 and 90 and section 9 items 21 to 24; architecture R-63 and R-77 (${M1}/specs/00-architecture.md); the user's decisions in ${M1}/user-decisions.md items 12 to 15 (also the "decisions" field of ${M1}/runs/w3-s2-wp51-r9.json). The user decided on 2026-10-12: NO restricted profile. Every keyword and mechanism the library acts on when compiling and validating a draft 2020-12 schema must be bounded and tested, including older-draft keywords the library still enforces under 2020-12 (its compile runs the draft 4, 6, 7 and 2019-09 layers cumulatively: for example dependencies and $recursiveRef/$recursiveAnchor).
 History: nine review rounds kept finding new paths through the library one at a time (serious findings per round 5, 9, 6, 3, 2, 2, 2, 4, 4). Records: ${M1}/runs/w3-s2-wp51-fix-result.json, fix2-, fix3-, fix4-result.json, and the open round-9 findings in ${M1}/runs/w3-s2-wp51-r9.json ($recursiveRef targets escape the rule walk; long member names make the library's compile-queue search quadratic; the dynamic-scope work charge ignores $dynamicAnchor name length; a load-dependent TestWorkingSetCoversPeak case). This audit replaces one-at-a-time discovery with a complete inventory.
 Cost dimensions for every row: C1 compile CPU; C2 compile peak memory; C3 memory the compiled Schema keeps; V1 validation CPU (decision and location passes); V2 validation memory (working set, error trees, transient buffers); P panic, crash, hang or unbounded recursion; W wrong result (invalid accepted, valid refused, wrong keyword location or detail); S security (file or network access, loader, URL handling); D nondeterminism.
@@ -60,30 +65,27 @@ const AREAS = [
   { key: 'cross', files: 'Go regexp and regexp/syntax as the library uses them, plus interactions across all files', focus: 'Regex compile and match costs (syntax parse, simplify, compile, one-pass tables, backtracker and its job stack and visited set, NFA queues, case folding, Unicode classes), and interaction classes across keywords: every keyword combined with references, with compositions (allOf/anyOf/oneOf/not/if-then-else/dependentSchemas), with nesting depth, with unevaluated*, with long or numerous member names, and with meta-schema re-checks. Find combinations whose cost exceeds the sum WP-51 charges for the parts.' },
 ]
 
-const auditPrompt = (a) => `${CONTEXT}
-Your role: auditor for the library area "${a.key}" (files: ${a.files}). ${a.focus}
-Read the library code in full for your files, and the WP-51 code that handles each path. For each (feature, cost) pair that applies, write one row. Measure with probes where a row is uncertain or high-risk. List every function you examined in "examined".`
-
-const verifyPrompt = (a, audit) => `${CONTEXT}
-Your role: verifier for the library area "${a.key}" (files: ${a.files}). An auditor produced the rows below. Check them adversarially:
+phase('Audit')
+const TODO = AREAS.filter(a => !DONE.includes(a.key))
+const readNote = (key) => `Read them from ${PARTIAL}, field results["${key}"] (rows, examined, notExamined, summary), for example: python3 -c 'import json,sys; print(json.dumps(json.load(open(sys.argv[1]))["results"][sys.argv[2]], indent=1))' ${PARTIAL} ${key}`
+const checkPrompt = (a) => `${CONTEXT}
+Your role: verifier for the library area "${a.key}" (files: ${a.files}). ${a.focus}
+An auditor produced rows for this area in run wf_eb3b9ef7-7cd. ${readNote(`audit:${a.key}`)}
+Check them adversarially:
 - For every row marked bounded: confirm the WP-51 rule or charge exists at the cited place and covers the whole class, and that the named test would fail without it (mutate with -overlay where cheap). Reclassify to partial or gap when not proven.
 - For high-risk rows (P, C1, V1, V2 with hostile inputs): run a probe.
 - Add every row the auditor missed in this area (read the library files yourself).
-Return the full, corrected row list for the area.
-Auditor rows:
-${JSON.stringify(audit, null, 1).slice(0, 70000)}`
-
-phase('Audit')
-const areaResults = await pipeline(AREAS,
-  (a) => agent(auditPrompt(a), { label: `audit:${a.key}`, phase: 'Audit', schema: AUDIT_SCHEMA }),
-  (audit, a) => audit
-    ? agent(verifyPrompt(a, audit), { label: `verify:${a.key}`, phase: 'Audit', schema: AUDIT_SCHEMA }).then(v => ({ area: a.key, audit, verified: v || audit }))
-    : { area: a.key, audit: null, verified: null })
-
-const missingAreas = areaResults.filter(r => !r || !r.verified).map((r, i) => AREAS[i].key)
-if (missingAreas.length) log(`areas without results: ${missingAreas.join(', ')}`)
-const rows = areaResults.filter(r => r && r.verified).flatMap(r => r.verified.rows.map(x => ({ area: r.area, ...x })))
-log(`rows: ${rows.length}; gaps ${rows.filter(r => r.status === 'gap').length}, partial ${rows.filter(r => r.status === 'partial').length}`)
+Return the full, corrected row list for the area.`
+const checked = await parallel(TODO.map(a => () =>
+  agent(checkPrompt(a), { label: `verify:${a.key}`, phase: 'Audit', schema: AUDIT_SCHEMA }).then(v => v && { area: a.key, verified: v })))
+const missingAreas = TODO.filter((a, i) => !checked[i]).map(a => a.key)
+if (missingAreas.length) {
+  log(`checks without results: ${missingAreas.join(', ')}; stopping before the merge`)
+  return { stoppedBefore: 'merge', missingAreas, checked: checked.filter(Boolean) }
+}
+const newRows = checked.flatMap(r => r.verified.rows.map(x => ({ area: r.area, ...x })))
+log(`new rows: ${newRows.length}; gaps ${newRows.filter(r => r.status === 'gap').length}, partial ${newRows.filter(r => r.status === 'partial').length}`)
+const newJSON = JSON.stringify(checked, null, 1)
 
 const GAPS_SCHEMA = {
   type: 'object',
@@ -95,9 +97,12 @@ const GAPS_SCHEMA = {
       fix: { type: 'string', description: 'one fix for the whole class' },
       tests: { type: 'string', description: 'the tests the class needs, one per member and per small edge case' },
     }, required: ['class', 'rows', 'severity', 'fix', 'tests'] } },
+    rowCounts: { type: 'array', items: { type: 'object', properties: {
+      area: { type: 'string' }, rows: { type: 'integer' }, bounded: { type: 'integer' }, partial: { type: 'integer' }, gap: { type: 'integer' }, notApplicable: { type: 'integer' },
+    }, required: ['area', 'rows', 'bounded', 'partial', 'gap', 'notApplicable'] }, description: 'row counts per area in the document, and an area "all" with the totals' },
     summary: { type: 'string' },
   },
-  required: ['gapClasses', 'summary'],
+  required: ['gapClasses', 'rowCounts', 'summary'],
 }
 
 phase('Merge')
@@ -108,10 +113,15 @@ Your role: merge the five areas' verified rows into ${DOC} (the one repository f
 3. The matrix: one table per area, columns ID, feature, cost, status, WP-51 bound (file:line), tests, gap fix.
 4. Gap classes: group every partial and gap row by root cause; for each class give the single fix for the whole class and the tests it needs (one per member and per small edge case), and its severity.
 5. How the open round-9 findings in ${M1}/runs/w3-s2-wp51-r9.json map to rows and classes.
-Plain, direct English; tables for the matrix. Return the gap classes.
-Rows (${rows.length}):
-${JSON.stringify(rows, null, 1).slice(0, 180000)}
-Area notes: ${JSON.stringify(areaResults.filter(Boolean).map(r => ({ area: r.area, summary: r.verified && r.verified.summary, notExamined: r.verified && r.verified.notExamined })), null, 1).slice(0, 12000)}`, { label: 'merge', phase: 'Merge', schema: GAPS_SCHEMA })
+Plain, direct English; tables for the matrix. Every row of every area goes in the matrix; drop none. Return the gap classes and the row counts.
+Rows of the compile, validate and refs areas: the verified rows of run wf_eb3b9ef7-7cd, in ${PARTIAL}, fields results["verify:compile"], results["verify:validate"] and results["verify:refs"] (each with rows, examined, notExamined and summary). They supersede the auditor rows under results["audit:*"] for those areas. Read all three in full, for example: python3 -c 'import json,sys; print(json.dumps(json.load(open(sys.argv[1]))["results"][sys.argv[2]], indent=1))' ${PARTIAL} verify:compile
+Rows of the values and cross areas, verified in this run (${newRows.length} rows), with their notes:
+${newJSON}`, { label: 'merge', phase: 'Merge', schema: GAPS_SCHEMA })
+
+if (!merged) {
+  log('merge returned no result; stopping before the completeness check')
+  return { stoppedBefore: 'completeness', checked }
+}
 
 const COMPLETE_SCHEMA = {
   type: 'object',
@@ -128,8 +138,8 @@ Your role: completeness check of ${DOC}. List every function and method in the l
 
 phase('Report')
 const final = await agent(`${CONTEXT}
-Your role: finalize ${DOC} (the one repository file you may write). Add the completeness check's rows to the matrix and to the gap classes (merging into existing classes where the root cause is the same), add a short "Coverage" section listing what the completeness check verified, and make sure every partial and gap row belongs to exactly one gap class. Return the final gap classes.
-Completeness check: ${JSON.stringify(critic, null, 1).slice(0, 40000)}
-Current gap classes: ${JSON.stringify(merged, null, 1).slice(0, 40000)}`, { label: 'finalize', phase: 'Report', schema: GAPS_SCHEMA })
+Your role: finalize ${DOC} (the one repository file you may write). Add the completeness check's rows to the matrix and to the gap classes (merging into existing classes where the root cause is the same), add a short "Coverage" section listing what the completeness check verified, and make sure every partial and gap row belongs to exactly one gap class. Return the final gap classes and the final row counts.
+Completeness check: ${JSON.stringify(critic, null, 1)}
+Current gap classes: ${JSON.stringify(merged, null, 1)}`, { label: 'finalize', phase: 'Report', schema: GAPS_SCHEMA })
 
-return { doc: DOC, rows: rows.length, byStatus: ['bounded', 'partial', 'gap', 'not-applicable'].map(s => [s, rows.filter(r => r.status === s).length]), missingAreas, critic: critic && { uncovered: critic.uncoveredFunctions.length, added: critic.addedRows.length }, gapClasses: (final || merged) }
+return { doc: DOC, checked, rowCounts: (final || merged) && (final || merged).rowCounts, critic: critic && { uncovered: critic.uncoveredFunctions.length, added: critic.addedRows.length, summary: critic.summary }, gapClasses: (final || merged) }
