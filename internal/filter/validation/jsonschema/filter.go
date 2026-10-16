@@ -106,7 +106,12 @@ type sharedKey struct{ sum [32]byte }
 // unchanged and without a code, at the start and between the stages of a
 // compile (the library's own compile cannot be interrupted), so a
 // canceled or superseded snapshot compile stops early (minor review
-// finding).
+// finding); so is a failure of env.Shared that is no finding about the
+// schema. Such an error without an RZ-CFG code is an operational failure
+// of the snapshot compile, not a rejection of the Revision: the
+// filter.Factory contract says every error carries one, and a contract
+// request to its owner (WP-01) and to the snapshot compiler (WP-70) asks
+// to record these exceptions (minor review finding).
 func (Factory) Build(ctx context.Context, env filter.BuildEnv) (filter.Filter, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, err
@@ -193,8 +198,9 @@ const defaultMaxRequestBodyBytes = 10 << 20
 // WorkingSetFactor bounds the memory validation may hold (architecture
 // R-77, package documentation "Working set"): besides the decoded values,
 // the decision pass may hold at most WorkingSetFactor times
-// limits.maxRequestBodyBytes, or the body is oversized, and the location
-// pass runs only when it fits the same bound.
+// limits.maxRequestBodyBytes, or MinScaledLimit when that is larger, or
+// the body is oversized, and the location pass runs only when it fits the
+// same bound.
 const WorkingSetFactor = 2 * filter.DecodedLimitFactor
 
 // ReservationFactor bounds what Handle reserves for one body (architecture
@@ -202,9 +208,10 @@ const WorkingSetFactor = 2 * filter.DecodedLimitFactor
 // arrays and strings hold beyond it (internal/jsonval charges neither an
 // object's hash table nor an array's spare capacity), and the working set
 // of the pass that runs, together at most ReservationFactor times
-// limits.maxRequestBodyBytes, so that with the raw body the request side
-// holds at most ReservationFactor+1 times the raw limit (130 MiB at the 10
-// MiB default). A body whose reservation would exceed it is oversized
+// limits.maxRequestBodyBytes (or MinScaledLimit, the larger), so that with
+// the raw body the request side holds at most ReservationFactor+1 times
+// the raw limit (130 MiB at the 10 MiB default), and 1.5 MiB more below
+// MinScaledLimit. A body whose reservation would exceed it is oversized
 // before anything is reserved; a failing body whose location pass would
 // exceed it is refused with DetailMismatch alone.
 const ReservationFactor = 12
@@ -220,16 +227,34 @@ type bodyLimits struct {
 	decoded, workingSet, reserve, work int64
 }
 
+// MinScaledLimit is the smallest limits.maxRequestBodyBytes the
+// working-set, reservation and work limits scale from (proposed,
+// architecture R-77): below it they are those of MinScaledLimit, 1 MiB,
+// 1.5 MiB and 2^25 work units. What validating any body holds and takes
+// has parts that do not grow with the body: the decision pass's wrapper,
+// a call-stack chain per value along the path, a regexp matcher of the
+// largest program that may match a string, the evaluations at the root;
+// scaled from a limit of a few KiB they exceeded it, so a valid body of a
+// few bytes was refused with 413 (review finding: {} under true at 1 and
+// 2 KiB, a 616-byte order composed four levels deep at 16 KiB). The
+// decoded limit still scales from the raw limit (architecture R-63).
+const MinScaledLimit = 128 << 10
+
 // limitsOf returns the limits for a raw body limit: filter.DecodedLimitFactor
-// times it for the decoded values (architecture R-63), WorkingSetFactor
-// times it for the working set, ReservationFactor times it for the
-// reservation and WorkPerByte times it for the work. An unset limit is the
-// configuration default, so a snapshot that forgets Limits never decodes
-// without a budget; a limit too large to multiply gets the largest bounds.
+// times it for the decoded values (architecture R-63), and from it or
+// MinScaledLimit, the larger, WorkingSetFactor times for the working set,
+// ReservationFactor times for the reservation and WorkPerByte times for
+// the work. An unset limit is the configuration default, so a snapshot
+// that forgets Limits never decodes without a budget; a limit too large to
+// multiply gets the largest bounds.
 func limitsOf(rawLimit int64) bodyLimits {
+	scaled := rawLimit
+	if scaled > 0 {
+		scaled = max(scaled, MinScaledLimit)
+	}
 	return bodyLimits{
-		decoded: decodedLimit(rawLimit), workingSet: scaledLimit(rawLimit, WorkingSetFactor),
-		reserve: scaledLimit(rawLimit, ReservationFactor), work: workLimit(rawLimit),
+		decoded: decodedLimit(rawLimit), workingSet: scaledLimit(scaled, WorkingSetFactor),
+		reserve: scaledLimit(scaled, ReservationFactor), work: workLimit(scaled),
 	}
 }
 

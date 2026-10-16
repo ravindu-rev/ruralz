@@ -257,8 +257,9 @@ type analysisCase struct {
 // case folding, and patterns parsed after the document's bound, and
 // patternMemoryCases: the anchored programs Go's one-pass matcher would
 // take), reference ladders that the library's meta-schema check would
-// repeat for every rung (review finding), and those costs together
-// (combinedWorstCase, minor review finding).
+// repeat for every rung (review finding), those costs together
+// (combinedWorstCase, minor review finding), and states of a thousand
+// schemas with patterns or lengths each (review finding).
 func analysisCases() []analysisCase {
 	// The largest alternations of literals that fit MaxPatternInstructions,
 	// each literal's node counted, eight to a document.
@@ -288,6 +289,11 @@ func analysisCases() []analysisCase {
 		// Minor review finding: a slash, which a location escapes as ~1,
 		// doubles the bytes the library's scan compares.
 		{name: "combined, escaped names", schema: combinedWorstCase(3800, strings.Repeat("/", 30), 120)},
+		// Review finding: the states merged their patterns' reaches, and
+		// added their kinds of length, one schema at a time after a scan or
+		// a sort of what they held.
+		{name: "pattern reaches", schema: frontierSchema(240, 760, 500, false)},
+		{name: "length kinds", schema: membersOf(lengthsSchema(1000), 500)},
 	}
 	return append(append(cases, patternMemoryCases()[1:]...), documentMemoryCases()...)
 }

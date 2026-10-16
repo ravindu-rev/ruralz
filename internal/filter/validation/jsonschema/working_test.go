@@ -171,6 +171,9 @@ func workingSetCases() []struct{ name, schema, body string } {
 		{"nested minItems", `{"minItems":2,"items":{"minItems":2,"items":{"minItems":2,"items":{"type":"integer"}}}}`, denseArray(5000, `[["x"]]`, 0)},
 		{"unevaluated names along a chain", unevaluatedChain(100, "unevaluatedProperties"), wideObject(2000)},
 		{"unevaluated indexes along a chain", strings.Replace(unevaluatedChain(100, "unevaluatedItems"), "minProperties", "minItems", 1), denseArray(40000, `1`, 0)},
+		// Review finding: the copies of one chain at a time.
+		{"unevaluated names under branches", unevaluatedBranches(50, "unevaluatedProperties"), wideObject(5000)},
+		{"unevaluated indexes under branches", unevaluatedBranches(50, "unevaluatedItems"), denseArray(8000, `1`, 0)},
 		{"records, valid", recordsSchema, records(20000)},
 		{"records, members missing", recordsSchema, denseArray(20000, `{"qty":1}`, 0)},
 		{"records, members failing", recordsSchema, denseArray(20000, `{"sku":"","qty":0.5,"price":-1}`, 0)},
@@ -458,6 +461,56 @@ func TestHandleBoundsUnevaluatedMemory(t *testing.T) {
 	}
 	if _, scan := scanBody(t, f.schema, body); scan.path < 100*2000*propMapEntry {
 		t.Errorf("the path charges %d bytes, less than the 100 copies of 2,000 names", scan.path)
+	}
+}
+
+// unevaluatedBranches returns an allOf of n references to the head of a
+// chain of three in-place references (allOfRefs) under unevaluated
+// keyword kw: 5n+1 evaluations at a value that may copy its member names
+// or item indexes, of which one chain of five holds its copies at once.
+func unevaluatedBranches(n int, kw string) string {
+	last := `{"minProperties":0}`
+	if kw == "unevaluatedItems" {
+		last = `{"minItems":0}`
+	}
+	return strings.Replace(allOfRefs(n, last), `{"allOf":`, `{"`+kw+`":true,"allOf":`, 1)
+}
+
+// TestHandleUnevaluatedBranches is the regression test of the review
+// finding that the unevaluated-tracking maps were charged once per
+// evaluation that may copy them: the library drops a branch's copy when it
+// merges it into its caller's, before the next branch of an allOf, anyOf
+// or oneOf runs, so only the copies of one in-place chain are live at once,
+// as for the call stack. Through Factory.Build and Handle at the 10 MiB
+// default, a valid 49 KB object under an allOf of 50 three-link chains
+// with unevaluatedProperties (charged 129 MB, 84 times its peak, and 413)
+// and a valid array under the same with unevaluatedItems continue; with a
+// 64 MiB limit the heap at Handle's peak stays within the reservation.
+//
+// Requirements: 07 reqs 80 to 82 and architecture R-77.
+func TestHandleUnevaluatedBranches(t *testing.T) {
+	for _, tc := range []struct{ kw, body string }{
+		{"unevaluatedProperties", wideObject(5000)},
+		{"unevaluatedItems", denseArray(8000, `1`, 0)},
+	} {
+		t.Run(tc.kw, func(t *testing.T) {
+			schema := unevaluatedBranches(50, tc.kw)
+			if r := handle(t, buildFilter(t, schema, 0), tc.body); r.Outcome != filter.Continue {
+				t.Fatalf("Handle(%d bytes) at the default limit = %+v, want Continue", len(tc.body), r)
+			}
+			f := buildFilter(t, schema, 64<<20)
+			x, _ := exchange("application/json", []byte(tc.body))
+			px := &peakExchange{Exchange: x}
+			var r filter.Result
+			peak := peakHeap(func() any { r = f.Handle(t.Context(), phase.OnRequestBody, px); return r })
+			if r.Outcome != filter.Continue {
+				t.Fatalf("Handle at 64 MiB = %+v, want Continue", r)
+			}
+			t.Logf("reserved %d (decoded values included), peak %.0f", px.peak, peak)
+			if peak > float64(px.peak+gcSlack) {
+				t.Errorf("Handle held %.0f bytes at its peak, reserved %d", peak, px.peak)
+			}
+		})
 	}
 }
 
@@ -785,6 +838,23 @@ func TestMatcherReach(t *testing.T) {
 	}
 	if tags.work.at[2][dimScan] != 0 || tags.work.at[2][dimHash] == 0 {
 		t.Errorf("the tags' counts: scan %d, hash %d, want none and some", tags.work.at[2][dimScan], tags.work.at[2][dimHash])
+	}
+	// Review finding (mutants that survived): a member name meets every
+	// pattern of its object's patternProperties, here the costliest second
+	// by text, and where the path is unknown the name is charged as a
+	// string is, whatever the value.
+	const wide = `a(?:(?:a??){240}a)*b`
+	pats := mustCompile(t, `{"patternProperties":{"^a":true,"`+wide+`":true}}`)
+	name := strings.Repeat("a", 500)
+	_, scan = scanBody(t, pats, `{"`+name+`":"x"}`)
+	if want := reachOf(pc.of(`^a`), pc.of(wide)).bytes(len(name)); scan.transient != want || want <= reach(`^a`).bytes(len(name)) {
+		t.Errorf("a name under two patterns: transient %d, want %d, more than the first pattern's %d", scan.transient, want, reach(`^a`).bytes(len(name)))
+	}
+	unknown = &Schema{work: pats.work, numbers: pats.numbers}
+	unknown.work.states = nil
+	_, scan = scanBody(t, unknown, `{"`+name+`":"x"}`)
+	if want := pats.work.flags.patterns.bytes(len(name)); scan.transient != want || want <= pats.work.flags.patterns.bytes(1) {
+		t.Errorf("a name on an unknown path: transient %d, want %d for the name", scan.transient, want)
 	}
 }
 

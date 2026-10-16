@@ -116,3 +116,63 @@ func (mc *metaCount) check(v any, ptr string, within bool) bool {
 	})
 	return fits
 }
+
+// The positions below additionalItems (review finding). The draft 2020-12
+// meta-schema does not define additionalItems, so neither the check of the
+// document's keyword tree nor that of a reference target looks below it,
+// yet the library collects the subschemas there as positions it has
+// processed, and when a reference, an anchor or an $id makes it compile
+// one, it never checks it: a multipleOf of 0 there compiled, and the
+// library's division by it panicked at every number reaching it, and a
+// type "strng" was silently ignored. The compile therefore checks every
+// position it compiles that no check of the library covers against the
+// meta-schema itself (checkApart), as the library checks a reference
+// target apart: the top-most of them, each checking its keyword tree
+// below, as far as another additionalItems. The trees these checks cover
+// are disjoint and none of them was checked before, so they check no
+// position or byte of the document twice, and they copy no bookkeeping:
+// MaxSubschemas and MaxSchemaBytes bound them.
+
+// uncheckedPositions returns, in pointer order, the positions the compile
+// compiles (walked live) that no meta-schema check of the library covers,
+// the top-most of them only: what the check of the document's keyword tree
+// and of each target checked apart (checkOrder) covers, below every
+// additionalItems member, and what an earlier position returned covers.
+func (w *walker) uncheckedPositions() []string {
+	covered := make(map[string]bool, len(w.positions))
+	var cover func(v any, ptr string)
+	cover = func(v any, ptr string) {
+		if covered[ptr] {
+			return
+		}
+		covered[ptr] = true
+		if obj, ok := v.(map[string]any); ok {
+			eachSubschema(obj, ptr, func(sv any, sp string) {
+				if sp[len(ptr):] != "/additionalItems" {
+					cover(sv, sp)
+				}
+			})
+		}
+	}
+	cover(w.doc, "")
+	for _, t := range w.checkOrder {
+		v, _ := lookup(w.doc, t)
+		cover(v, t)
+	}
+	var live []string
+	for _, p := range w.positions {
+		if w.seen[p] == walkedLive && !covered[p] {
+			live = append(live, p)
+		}
+	}
+	slices.SortFunc(live, comparePointers)
+	var out []string
+	for _, p := range live {
+		if !covered[p] {
+			out = append(out, p)
+			v, _ := lookup(w.doc, p)
+			cover(v, p)
+		}
+	}
+	return out
+}

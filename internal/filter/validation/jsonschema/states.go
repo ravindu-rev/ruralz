@@ -84,10 +84,11 @@ func typeNames() [kinds]string {
 // maxStates bounds the states of one document and maxTransitions their
 // transitions by name and index, which the compiled Schema keeps (about 5
 // MB at the bounds); stateBudget bounds the schemas, multiset entries,
-// in-place edges and declared names building them may touch (part of
-// BenchmarkEvaluationAnalysis). Matching the declared names against the
-// patterns of other schemas spends what newGNode left of the document's
-// matchBudget.
+// in-place edges, programs of the schemas' pattern reaches and declared
+// names building them may touch (part of BenchmarkEvaluationAnalysis;
+// review finding: the programs merged for each state were not charged).
+// Matching the declared names against the patterns of other schemas
+// spends what newGNode left of the document's matchBudget.
 const (
 	maxStates      = 1 << 12
 	maxTransitions = 1 << 16
@@ -228,6 +229,10 @@ type stateBuilder struct {
 	stack []int
 	out   []entry
 	key   []byte
+	// values and names merge the pattern reaches of a state's schemas,
+	// whose lists of programs lists interns.
+	values, names reachMerger
+	lists         reachLists
 }
 
 // buildStates returns the states of the graph whose in-place order (every
@@ -278,7 +283,7 @@ func (b *stateBuilder) next(entries []entry) int {
 	for _, e := range entries {
 		b.stack = append(b.stack, e.node)
 	}
-	edges := 0
+	edges, progs := 0, 0
 	for len(b.stack) > 0 {
 		v := b.stack[len(b.stack)-1]
 		b.stack = b.stack[:len(b.stack)-1]
@@ -287,12 +292,14 @@ func (b *stateBuilder) next(entries []entry) int {
 		}
 		b.seen[v], b.count[v] = b.gen, 0
 		b.nodes = append(b.nodes, v)
-		for _, e := range b.g.nodes[v].in {
+		n := &b.g.nodes[v]
+		progs += len(n.valuePats.progs) + len(n.namePats.progs)
+		for _, e := range n.in {
 			edges += len(e.to)
 			b.stack = append(b.stack, e.to...)
 		}
 	}
-	b.budget -= len(entries) + 2*len(b.nodes) + edges + 1
+	b.budget -= len(entries) + 2*len(b.nodes) + edges + progs + 1
 	if b.budget < 0 {
 		return unknownState
 	}
@@ -331,9 +338,15 @@ func (b *stateBuilder) next(entries []entry) int {
 	return i
 }
 
-// weigh returns the counts of multiset set, without transitions.
+// weigh returns the counts of multiset set, without transitions. Its work
+// is linear in the schemas of set: the lists it details are bounded by
+// maxLoops, past which they are summed (review finding: the length loops
+// grew with every distinct pair of lengths, each added after a scan of
+// the list, so 1,000 minLength values under 500 members compiled for 1 s),
+// and the pattern reaches merge in a table.
 func (b *stateBuilder) weigh(set []entry) evalState {
 	s := evalState{other: unknownState, rest: unknownState, key: unknownState}
+	detailed := true
 	for _, e := range set {
 		n := &b.g.nodes[e.node]
 		w := b.g.weight[e.node]
@@ -344,7 +357,20 @@ func (b *stateBuilder) weigh(set []entry) evalState {
 		u := &n.units
 		for k := range kinds {
 			if k == kindString && u.length != nil {
-				s.lengths = addLength(s.lengths, lengthLoop{n: e.n, u: *u.length})
+				if detailed {
+					s.lengths = addLength(s.lengths, lengthLoop{n: e.n, u: *u.length})
+					detailed = len(s.lengths) <= maxLoops
+					if !detailed {
+						// Past maxLoops kinds, every one counts as if both
+						// keywords fail.
+						for _, l := range s.lengths {
+							s.addWorstLength(l)
+						}
+						s.lengths = nil
+					}
+				} else {
+					s.addWorstLength(lengthLoop{n: e.n, u: *u.length})
+				}
 				continue
 			}
 			s.addUnits(k, e.n, u.full[k], u.names[k], u.decide[k], u.groups[k])
@@ -373,7 +399,8 @@ func (b *stateBuilder) weigh(set []entry) evalState {
 		if n.propNames >= 0 {
 			s.propNames = min(s.propNames+e.n, countCap)
 		}
-		s.valuePats, s.namePats = s.valuePats.union(n.valuePats), s.namePats.union(n.namePats)
+		b.values.add(n.valuePats)
+		b.names.add(n.namePats)
 		if n.divNum > 0 {
 			s.multiples = min(s.multiples+e.n, countCap)
 			s.divNum = min(s.divNum+n.divNum*e.n, countCap)
@@ -385,14 +412,15 @@ func (b *stateBuilder) weigh(set []entry) evalState {
 		}
 		s.match = sat(s.match, m)
 	}
-	if len(s.lengths) > maxLoops {
-		for _, l := range s.lengths {
-			full, decide, groups := l.u.worst()
-			s.addUnits(kindString, l.n, full, l.u.names, decide, groups)
-		}
-		s.lengths = nil
-	}
+	s.valuePats, s.namePats = b.values.reach(&b.lists), b.names.reach(&b.lists)
 	return s
+}
+
+// addWorstLength adds the string units of length loop l as if both its
+// keywords fail.
+func (s *evalState) addWorstLength(l lengthLoop) {
+	full, decide, groups := l.u.worst()
+	s.addUnits(kindString, l.n, full, l.u.names, decide, groups)
 }
 
 // addUnits adds n evaluations of the given units at kind k to the state's

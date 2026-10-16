@@ -183,9 +183,12 @@ func TestNameListsMatchLibrary(t *testing.T) {
 // annotations and unknown keywords, and members named like the keywords.
 // Below additionalItems, an unknown keyword under draft 2020-12 that the
 // library neither compiles nor checks against the meta-schema, no rule
-// applies unless a reference names it (minor review finding: the walk
-// refused content there as an invalid JSON Schema), but an inert
-// reference still resolves inside the document.
+// applies unless a reference, an anchor or an $id makes the library
+// compile it (minor review findings: the walk refused content there as an
+// invalid JSON Schema, also where a property name or a const, enum or
+// examples value merely held an $id or an anchor), and a reference there
+// is checked only when the library compiles it (minor review finding: one
+// leaving the document was refused, though never loaded), once.
 //
 // Requirements: 07 reqs 75 and 76.
 func TestNameListsAccepted(t *testing.T) {
@@ -198,24 +201,35 @@ func TestNameListsAccepted(t *testing.T) {
 		`{"additionalItems":{"required":[1],"dependentRequired":{"a":[null]}}}`,
 		`{"additionalItems":{"minimum":1e5000,"pattern":"(?=a)","properties":{"a":{"patternProperties":{"[":true}}}}}`,
 		// A reference inside it is never compiled, so its target is not
-		// compiled for it either.
+		// compiled for it either, and one leaving the document is never
+		// loaded.
 		`{"additionalItems":{"$ref":"#/$defs/a"},"$defs":{"a":true},"x":{"type":[1]},"y":{"$ref":"#/x"}}`,
+		`{"additionalItems":{"$ref":"#/x"},"x":{"type":[1]}}`,
+		`{"additionalItems":{"$ref":"https://example.com/s"}}`,
+		`{"additionalItems":{"$dynamicRef":"https://example.com/s#d","items":{"$ref":"#/nowhere"}}}`,
+		// Identifiers that are no schema's: a const value, a property name
+		// and an examples value.
+		`{"additionalItems":{"const":{"$id":"x"},"pattern":"(?=a)"}}`,
+		`{"additionalItems":{"properties":{"$anchor":true},"minimum":1e5000}}`,
+		`{"additionalItems":{"examples":[{"$dynamicAnchor":"d"}],"required":[1]}}`,
+		// Identifiers that are not strings, which the library ignores.
+		`{"additionalItems":{"$anchor":5,"$id":{"a":1},"pattern":"(?=a)"}}`,
 	} {
-		if _, err := CompileSchema([]byte(schema)); err != nil {
-			t.Errorf("CompileSchema(%s) = %v", schema, err)
+		spy := &spyLoader{}
+		if _, _, issues := compileRaw([]byte(schema), spy); len(issues) > 0 || len(spy.urls) > 0 {
+			t.Errorf("compile(%s) = %+v, loaded %q", schema, issues, spy.urls)
 		}
 	}
+	// A reference the library compiles is checked once, also when its
+	// schema was walked inert first (review finding: a mutant that checked
+	// it twice survived).
 	for _, tc := range []struct{ schema, ptr string }{
-		{`{"additionalItems":{"$ref":"https://example.com/s"}}`, "/additionalItems/$ref"},
-		{`{"additionalItems":{"$ref":"#/x"},"x":{"type":[1]}}`, ""},
+		{`{"$ref":"#/additionalItems","additionalItems":{"$ref":"#/nope"}}`, "/additionalItems/$ref"},
+		{`{"$ref":"#/additionalItems","additionalItems":{"$ref":"https://example.com/s"}}`, "/additionalItems/$ref"},
+		{`{"additionalItems":{"$anchor":"a","items":{"$ref":"#/nope"}}}`, "/additionalItems/items/$ref"},
 	} {
-		_, err := CompileSchema([]byte(tc.schema))
-		var ce *CompileError
-		switch {
-		case tc.ptr == "" && err != nil:
-			t.Errorf("CompileSchema(%s) = %v, want the target of an inert reference left alone", tc.schema, err)
-		case tc.ptr != "" && (!errors.As(err, &ce) || ce.Issues[0].Pointer != tc.ptr):
-			t.Errorf("CompileSchema(%s) = %v, want a finding at %s", tc.schema, err, tc.ptr)
+		if issues := compileIssues(t, tc.schema); len(issues) != 1 || issues[0].Pointer != tc.ptr {
+			t.Errorf("CompileSchema(%s) = %+v, want one finding at %s", tc.schema, issues, tc.ptr)
 		}
 	}
 }

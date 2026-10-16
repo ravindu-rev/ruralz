@@ -367,18 +367,19 @@ func TestHandlePatternFit(t *testing.T) {
 	}
 	// The job stack binds at a small limit only for the inputs short
 	// enough for the backtracker (package documentation "Working set"): at
-	// 64 KiB, a string under ^[^<>]*$ (7 instructions) passes up to about
-	// 9,500 bytes, is refused at the working-set limit up to 37,448, and
-	// passes again past it on the NFA simulation; at 256 KiB it passes
-	// throughout. A body passes its limits when Handle reaches the
+	// 64 KiB, whose working-set limit is MinScaledLimit's 1 MiB, a string
+	// under ^[^<>]*$ (7 instructions, one job per position) passes up to
+	// about 20,400 bytes, is refused at the working-set limit up to
+	// 37,448, and passes again past it on the NFA simulation; at 256 KiB it
+	// passes throughout. A body passes its limits when Handle reaches the
 	// request's context, which has ended.
 	for _, tc := range []struct {
 		limit int64
 		n     int
 		want  error
 	}{
-		{64 << 10, 9400, context.Canceled},
-		{64 << 10, 9500, errWorkingSetTooLarge},
+		{64 << 10, 20000, context.Canceled},
+		{64 << 10, 21000, errWorkingSetTooLarge},
 		{64 << 10, maxBacktrackVector/7 - 1, errWorkingSetTooLarge},
 		{64 << 10, maxBacktrackVector / 7, context.Canceled},
 		{256 << 10, maxBacktrackVector/7 - 1, context.Canceled},

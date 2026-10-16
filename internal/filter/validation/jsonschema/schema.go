@@ -258,12 +258,21 @@ func compileWalked(p *prepared, w *walker, loader sjs.URLLoader, stop func() err
 			return nil, nil, err
 		}
 	}
+	rc := regexpCache{}
 	c := sjs.NewCompiler()
 	c.DefaultDraft(sjs.Draft2020)
 	c.UseLoader(loader)
-	c.UseRegexpEngine(regexpCache{}.compile)
+	c.UseRegexpEngine(rc.compile)
 	if err := c.AddResource(baseURL, p.doc); err != nil {
 		return nil, []Issue{{Message: message(err.Error())}}, nil
+	}
+	// What the library compiles below additionalItems it never checks
+	// against the meta-schema, so the compile does, before the library
+	// compiles any of it (metacheck.go).
+	if unchecked := w.uncheckedPositions(); len(unchecked) > 0 {
+		if issues := checkApart(p.doc, unchecked, loader, rc); len(issues) > 0 {
+			return nil, issues, nil
+		}
 	}
 	// The reference targets the library checks apart against the
 	// meta-schema are checked first, in the walk's order: one work queue
@@ -332,6 +341,37 @@ func compileWalked(p *prepared, w *walker, loader sjs.URLLoader, stop func() err
 		return nil, []Issue{{Message: message(err.Error())}}, nil
 	}
 	return &Schema{root: root, decide: decide, raw: p.raw, sum: p.sum, numbers: in.numbers, work: ws}, nil, nil
+}
+
+// checkApart checks the schema positions ptrs of doc against the draft
+// 2020-12 meta-schema as the library's own checks do, with format
+// assertions and the regexp engine rc, and returns the findings, at most
+// MaxIssues of them. The library serves the meta-schema without loader.
+func checkApart(doc any, ptrs []string, loader sjs.URLLoader, rc regexpCache) []Issue {
+	mc := sjs.NewCompiler()
+	mc.AssertFormat()
+	mc.UseLoader(loader)
+	mc.UseRegexpEngine(rc.compile)
+	meta, err := mc.Compile(Draft)
+	if err != nil {
+		return []Issue{{Message: message(err.Error())}}
+	}
+	var out []Issue
+	for _, ptr := range ptrs {
+		v, _ := lookup(doc, ptr)
+		err := meta.Validate(v)
+		if err == nil {
+			continue
+		}
+		var verr *sjs.ValidationError
+		if !errors.As(err, &verr) {
+			return append(out, Issue{Pointer: ptr, Message: message(err.Error())})
+		}
+		if out = append(out, metaIssues(baseURL+"#"+encodeFragment(ptr), verr)...); len(out) >= MaxIssues {
+			return out[:MaxIssues]
+		}
+	}
+	return out
 }
 
 // regexpCache compiles every distinct regular expression of one schema
@@ -434,6 +474,9 @@ func (w *walker) loadIssues(u string) []Issue {
 	for _, s := range w.sites {
 		if len(out) == MaxIssues {
 			break
+		}
+		if !w.compiled(s) || s.again {
+			continue
 		}
 		if _, _, _, inDoc, err := resolveRef(w.ids, s); err == nil && !inDoc {
 			out = append(out, Issue{Pointer: s.ptr, Message: message(fmt.Sprintf("reference %q resolves outside the schema document", s.value))})

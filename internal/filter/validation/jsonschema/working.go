@@ -999,12 +999,15 @@ func (b *bodyScan) scan(v any) {
 // valueCharge is what bodyScan charges every value before its kind's
 // terms: the value's state (nil when unknown) and counts, the error units
 // of its kind and its own share of the decision pass's error tree, the
-// work and stack of its evaluations, and the comparisons it takes part in.
+// work and stack of its evaluations, the longest chain of in-place
+// evaluations the library holds at it at once, and the comparisons it
+// takes part in.
 type valueCharge struct {
 	st            *evalState
 	c             vec
 	full, decide  int64
 	evals, frames int64
+	chain         int64
 	work, hash    int64
 	own           int64
 }
@@ -1081,7 +1084,7 @@ func (b *bodyScan) enter(d int, name string, frames int64, st int, parent *evalS
 	return valueCharge{
 		st: s, c: c, full: full,
 		decide: mulCap(addCap(decide, groups), decideErrorBytes),
-		evals:  evals, frames: frames, work: work,
+		evals:  evals, frames: frames, chain: chain, work: work,
 		hash: mulCap(int64(c[dimHash]), max(1, b.compare)),
 		own:  mulCap(chain, stackBytes),
 	}
@@ -1217,9 +1220,14 @@ func (b *bodyScan) array(t []any, d int, a valueCharge) (path, decide int64) {
 	n := int64(len(t))
 	b.extra = addCap(b.extra, arrayExtra(n))
 	if b.ws.flags.uneItems {
+		// Every evaluation that may copy the indexes works on its copy,
+		// but only those of one in-place chain hold theirs at once: the
+		// library drops a branch's copy when it merges it, before the next
+		// branch runs (review finding: charged per evaluation, an allOf of
+		// mixins under unevaluated* was charged 27 to 84 times its peak).
 		u := int64(c[dimUneval])
 		work = addCap(work, mulCap(mulCap(u, n), unevalItemUnits))
-		own = addCap(own, mulCap(u, itemMapBase+itemMapEntry*n))
+		own = addCap(own, mulCap(min(u, a.chain), itemMapBase+itemMapEntry*n))
 	}
 	work = addCap(work, mulCap(a.hash, compareUnits))
 	if b.ws.flags.contains {
@@ -1274,9 +1282,10 @@ func (b *bodyScan) object(t map[string]any, d int, a valueCharge) (path, decide 
 	b.extra = addCap(b.extra, mapExtra(n))
 	work = addCap(work, mulCap(mulCap(a.evals, n), memberUnits))
 	if b.ws.flags.uneProps {
+		// As for the indexes (array): the copies of one in-place chain.
 		u := int64(c[dimUneval])
 		work = addCap(work, mulCap(mulCap(u, n), unevalPropUnits))
-		own = addCap(own, mulCap(u, propMapBase+propMapEntry*n))
+		own = addCap(own, mulCap(min(u, a.chain), propMapBase+propMapEntry*n))
 	}
 	if c[dimHash] > 0 {
 		work = addCap(work, mulCap(mulCap(int64(c[dimHash]), n), sortUnits*int64(bits.Len64(uint64(n)))))

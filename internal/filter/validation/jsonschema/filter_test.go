@@ -151,12 +151,14 @@ func TestHandleOversize(t *testing.T) {
 		t.Fatalf("decoded values over the decoded budget: %+v, want CannotDecide with ErrTooLarge", r)
 	}
 	// Every item may fail 8 branches: the decision pass's working set is
-	// far above the decoded values, under its own limit.
+	// far above the decoded values, under its own limit, which is that of
+	// MinScaledLimit below it (TestHandleSmallLimits).
+	body = `[` + strings.Repeat(`1,`, 4999) + `1]`
 	schema := `{"items":` + oneOfConsts(8) + `}`
 	_, scan := scanBody(t, mustCompile(t, schema), body)
 	limit := (scan.decideMemory() + WorkingSetFactor - 1) / WorkingSetFactor
-	if cost > filter.DecodedLimitFactor*(limit-1) {
-		t.Fatalf("the working set %d does not exceed the decoded values %d", scan.decideMemory(), cost)
+	if 5*cost > filter.DecodedLimitFactor*(limit-1) || limit-1 < MinScaledLimit {
+		t.Fatalf("the working set %d does not exceed the decoded values %d, or its limit %d is below %d", scan.decideMemory(), 5*cost, limit, MinScaledLimit)
 	}
 	if got := detailOf(t, handle(t, buildFilter(t, schema, limit), body)); !strings.HasPrefix(got, DetailMismatch) {
 		t.Fatalf("working set at its limit: detail %q, want a mismatch", got)
@@ -178,6 +180,69 @@ func TestHandleOversize(t *testing.T) {
 	}
 	if got := limitsOf(testLimit); got.workingSet != WorkingSetFactor*testLimit || got.work != WorkPerByte*testLimit {
 		t.Errorf("limitsOf(%d) = %+v", testLimit, got)
+	}
+}
+
+// composedOrder is an OpenAPI-style order: a base, money, an address and
+// line items composed with allOf and $ref four levels deep, with patterns
+// on identifiers, amounts, codes and the e-mail address.
+const composedOrder = `{"$ref":"#/$defs/order","$defs":{` +
+	`"base":{"type":"object","required":["id"],"properties":{"id":{"type":"string","pattern":"^[a-z]{3}_[0-9a-f]{8}$"},"created":{"type":"string"}}},` +
+	`"money":{"type":"object","required":["amount","currency"],"properties":{"amount":{"type":"string","pattern":"^-?[0-9]+\\.[0-9]{2}$"},` +
+	`"currency":{"type":"string","pattern":"^[A-Z]{3}$"}}},` +
+	`"address":{"type":"object","required":["line1","country"],"properties":{"line1":{"type":"string","maxLength":100},"city":{"type":"string"},` +
+	`"postal":{"type":"string","pattern":"^[A-Z0-9 -]{3,10}$"},"country":{"type":"string","pattern":"^[A-Z]{2}$"}}},` +
+	`"item":{"allOf":[{"$ref":"#/$defs/base"},{"type":"object","required":["sku","qty","price"],"properties":{` +
+	`"sku":{"type":"string","pattern":"^[A-Z0-9-]{4,32}$"},"qty":{"type":"integer","minimum":1},"price":{"$ref":"#/$defs/money"}}}]},` +
+	`"order":{"allOf":[{"$ref":"#/$defs/base"},{"type":"object","required":["items","total"],"properties":{` +
+	`"items":{"type":"array","minItems":1,"items":{"$ref":"#/$defs/item"}},"total":{"$ref":"#/$defs/money"},` +
+	`"shipping":{"$ref":"#/$defs/address"},"email":{"type":"string","pattern":"` + emailPattern + `"}}}]}}}`
+
+// composedOrderBody is a valid body of composedOrder.
+const composedOrderBody = `{"id":"ord_0123abcd","items":[{"id":"itm_0000aaaa","sku":"SKU-0001","qty":2,"price":{"amount":"9.99","currency":"EUR"}}],` +
+	`"total":{"amount":"19.98","currency":"EUR"},"shipping":{"line1":"1 Main St","city":"Paris","postal":"75001","country":"FR"},"email":"ann@example.com"}`
+
+// TestHandleSmallLimits is the regression test of the review finding that
+// the parts of the working set that do not grow with the body (the
+// decision pass's wrapper, a call-stack chain per value, a regexp matcher)
+// exceeded WorkingSetFactor times a maxRequestBodyBytes of a few KiB, so
+// tiny valid bodies got 413: {} under true at 1 and 2 KiB, a five-digit
+// string under a pattern up to 8 KiB, and a composed order up to 16 KiB.
+// The working-set, reservation and work limits scale from MinScaledLimit
+// at least (proposed, architecture R-77), so at limits of 1 to 16 KiB
+// small valid bodies continue, a schema whose root takes 2,000
+// evaluations included, while the decoded limit still scales from the raw
+// limit (R-63).
+//
+// Requirements: 07 reqs 80 and 82, architecture R-63 and R-77.
+func TestHandleSmallLimits(t *testing.T) {
+	login := `{"type":"object","required":["username","password"],"additionalProperties":false,"properties":{` +
+		`"username":{"type":"string","minLength":3,"maxLength":32,"pattern":"^[A-Za-z0-9_.-]+$"},"password":{"type":"string","minLength":12,"maxLength":128}}}`
+	for _, tc := range []struct{ name, schema, body string }{
+		{"true", `true`, `{}`},
+		{"an object", `{"type":"object"}`, `{}`},
+		{"a bounded integer", `{"type":"integer","minimum":0}`, `1`},
+		{"a pattern", `{"type":"string","pattern":"^[0-9]{5}$"}`, `"12345"`},
+		{"a login", login, `{"username":"alice_01","password":"correct horse battery"}`},
+		{"an e-mail address", `{"type":"object","properties":{"email":{"type":"string","pattern":"` + emailPattern + `"}}}`, `{"email":"ann@example.com"}`},
+		{"a composed order", composedOrder, composedOrderBody},
+		{"2,000 evaluations at the root", allOfRefs(400, `{"minProperties":0}`), `{}`},
+	} {
+		for _, limit := range []int64{1 << 10, 2 << 10, 4 << 10, 8 << 10, 16 << 10} {
+			f := buildFilter(t, tc.schema, limit)
+			if r := handle(t, f, tc.body); r.Outcome != filter.Continue {
+				t.Errorf("%s at %d bytes: Handle(%d bytes) = %+v, want Continue", tc.name, limit, len(tc.body), r)
+			}
+		}
+	}
+	for _, limit := range []int64{1, 1 << 10, MinScaledLimit - 1, MinScaledLimit} {
+		if got, want := limitsOf(limit), limitsOf(MinScaledLimit); got.workingSet != want.workingSet || got.reserve != want.reserve ||
+			got.work != want.work || got.decoded != decodedLimit(limit) {
+			t.Errorf("limitsOf(%d) = %+v, want the working-set, reservation and work limits of %d and the decoded limit of %d", limit, got, MinScaledLimit, limit)
+		}
+	}
+	if got := limitsOf(MinScaledLimit + 1); got.workingSet != WorkingSetFactor*(MinScaledLimit+1) {
+		t.Errorf("limitsOf(%d) = %+v, want its own multiples", MinScaledLimit+1, got)
 	}
 }
 

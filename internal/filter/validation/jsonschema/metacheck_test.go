@@ -4,11 +4,15 @@
 package jsonschema
 
 import (
+	"encoding/json"
 	"fmt"
 	"runtime"
 	"slices"
 	"strings"
 	"testing"
+
+	"github.com/ravindu-rev/ruralz/internal/errcode"
+	"github.com/ravindu-rev/ruralz/internal/filter"
 )
 
 // ladderBottom returns {"properties":{...}} with n members whose schemas
@@ -209,5 +213,102 @@ func TestMetaChecksBound(t *testing.T) {
 	w.walk()
 	if len(w.issues) > 0 || len(w.checkOrder) > 0 {
 		t.Errorf("targets in the keyword tree: issues %+v, checked apart %q", w.issues, w.checkOrder)
+	}
+}
+
+// additionalItemsCases are schemas whose compile compiles a subschema
+// below additionalItems, which no meta-schema check of the library
+// covers, with the pointer of the finding and the same subschema under
+// $defs, which the library checks.
+func additionalItemsCases() []struct{ name, schema, ptr, defs string } {
+	zero := `{"multipleOf":0}`
+	return []struct{ name, schema, ptr, defs string }{
+		{"a pointer", `{"$ref":"#/additionalItems","additionalItems":` + zero + `}`, "/additionalItems/multipleOf", zero},
+		{"an anchor", `{"$ref":"#a","additionalItems":{"$anchor":"a","multipleOf":0}}`, "/additionalItems/multipleOf", zero},
+		{"a dynamic anchor", `{"$dynamicRef":"#d","additionalItems":{"$dynamicAnchor":"d","multipleOf":0}}`, "/additionalItems/multipleOf", zero},
+		{"a resource", `{"$ref":"item.json","additionalItems":{"$id":"item.json","multipleOf":0}}`, "/additionalItems/multipleOf", zero},
+		{
+			"a member below", `{"type":"object","properties":{"price":{"$ref":"#/additionalItems/properties/p"}},"additionalItems":{"properties":{"p":{"type":"number","multipleOf":0}}}}`,
+			"/additionalItems/properties/p/multipleOf", `{"type":"number","multipleOf":0}`,
+		},
+		{"a nested additionalItems", `{"$ref":"#/additionalItems/additionalItems","additionalItems":{"additionalItems":` + zero + `}}`, "/additionalItems/additionalItems/multipleOf", zero},
+		{"an unknown type", `{"$ref":"#/additionalItems","additionalItems":{"type":"strng"}}`, "/additionalItems/type", `{"type":"strng"}`},
+		{"a number type", `{"$ref":"#/additionalItems","additionalItems":{"type":5}}`, "/additionalItems/type", `{"type":5}`},
+		{"a number enum", `{"$ref":"#/additionalItems","additionalItems":{"enum":5}}`, "/additionalItems/enum", `{"enum":5}`},
+		{"a number required", `{"$ref":"#/additionalItems","additionalItems":{"required":5}}`, "/additionalItems/required", `{"required":5}`},
+		{"a number property", `{"$ref":"#/additionalItems","additionalItems":{"properties":{"a":5}}}`, "/additionalItems/properties/a", `{"properties":{"a":5}}`},
+	}
+}
+
+// TestAdditionalItemsChecked is the regression test of the review finding
+// that the library never checks against the meta-schema what it compiles
+// below additionalItems: the draft 2020-12 meta-schema does not define it,
+// and the library marks the subschemas it collects there as processed, so
+// a subschema a reference, an anchor or an $id made it compile escaped the
+// check (a multipleOf of 0 compiled, and every number reaching it made the
+// library panic in Handle and Validate; type "strng" was ignored). Each
+// shape is now RZ-CFG-005 with the meta-schema's own message, the one the
+// same subschema gets under $defs, through CompileSchema, Check and
+// Factory.Build, without a panic; below an additionalItems nothing
+// compiles, the rules leave alone (07 req 76).
+//
+// Requirements: 07 reqs 13, 75 and 76, architecture R-77.
+func TestAdditionalItemsChecked(t *testing.T) {
+	for _, tc := range additionalItemsCases() {
+		t.Run(tc.name, func(t *testing.T) {
+			want := compileIssues(t, `{"$defs":{"x":`+tc.defs+`}}`)
+			if len(want) != 1 {
+				t.Fatalf("under $defs: %+v, want one finding", want)
+			}
+			noPanic(t, "CompileSchema", func() {
+				issues := compileIssues(t, tc.schema)
+				if len(issues) != 1 || issues[0].Pointer != tc.ptr || issues[0].Message != want[0].Message {
+					t.Errorf("CompileSchema = %+v, want %q at %s", issues, want[0].Message, tc.ptr)
+				}
+			})
+			noPanic(t, "Check", func() {
+				if got := runCheck(policyResource("body", tc.schema)); len(got) != 1 || got[0].Code != CodeConfig || got[0].Message != want[0].Message {
+					t.Errorf("Check = %+v, want RZ-CFG-005 %q", got, want[0].Message)
+				}
+			})
+			noPanic(t, "Factory.Build", func() {
+				_, err := Factory{}.Build(t.Context(), filter.BuildEnv{Config: configOf(tc.schema)})
+				if code, _ := errcode.CodeOf(err); code != CodeConfig {
+					t.Errorf("Build = %v, want %s", err, CodeConfig)
+				}
+			})
+		})
+	}
+	// Not compiled, not checked: an additionalItems no reference reaches,
+	// and one below a referenced one. A valid subschema there compiles and
+	// applies.
+	for _, schema := range []string{
+		`{"additionalItems":{"multipleOf":0}}`,
+		`{"$ref":"#/additionalItems","additionalItems":{"additionalItems":{"multipleOf":0}}}`,
+	} {
+		s := mustCompile(t, schema)
+		noPanic(t, "Validate", func() {
+			if _, ok := s.Validate(json.Number("5")); !ok {
+				t.Errorf("%s refused 5", schema)
+			}
+		})
+	}
+	s := mustCompile(t, `{"$ref":"#/additionalItems","additionalItems":{"type":"string"}}`)
+	if _, ok := s.Validate(json.Number("5")); ok {
+		t.Error("a referenced additionalItems of type string accepted 5")
+	}
+	// Only the top-most of the positions no check covers is checked, its
+	// keyword tree with it, as far as another additionalItems.
+	w := newWalker(decodeInstance(t, `{"$ref":"#/additionalItems/properties/a","allOf":[{"$ref":"#/additionalItems"},{"$ref":"#/additionalItems/additionalItems/not"}],`+
+		`"additionalItems":{"properties":{"a":true},"additionalItems":{"not":{"items":true}}}}`))
+	w.walk()
+	if got, want := w.uncheckedPositions(), []string{"/additionalItems", "/additionalItems/additionalItems/not"}; len(w.issues) > 0 || !slices.Equal(got, want) {
+		t.Errorf("uncheckedPositions = %q (issues %+v), want %q", got, w.issues, want)
+	}
+	// What the library checks with a target apart is covered.
+	w = newWalker(decodeInstance(t, `{"$ref":"#/x/a","$defs":{"b":{"$ref":"#/x/a/properties/b"}},"x":{"a":{"properties":{"b":true}}}}`))
+	w.walk()
+	if got := w.uncheckedPositions(); len(w.issues) > 0 || !slices.Equal(w.checkOrder, []string{"/x/a"}) || len(got) > 0 {
+		t.Errorf("a target's keyword tree: checked apart %q, unchecked %q (issues %+v), want /x/a and none", w.checkOrder, got, w.issues)
 	}
 }

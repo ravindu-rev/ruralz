@@ -319,6 +319,37 @@ func TestWorkCharges(t *testing.T) {
 	}
 }
 
+// TestMultipleOfCounts is the regression test of the minor review finding
+// that mutants of the multipleOf work term survived: a state counts each
+// of its divisors once per evaluation, also for a schema evaluated twice
+// at the value, and a value whose path is unknown is charged as many
+// checks as its parses against the document's largest divisor, its
+// numerator's and its denominator's digits each.
+//
+// Requirements: 07 section 9 item 21 and architecture R-77.
+func TestMultipleOfCounts(t *testing.T) {
+	// 1e-1000 is 1/10^1000: one digit and 1,001.
+	s := mustCompile(t, `{"allOf":[{"$ref":"#/$defs/m"},{"$ref":"#/$defs/m"}],"$defs":{"m":{"multipleOf":1e-1000}}}`)
+	if f := s.work.flags; f.divNum != 1 || f.divDen != 1001 {
+		t.Errorf("the document's divisor: %d and %d digits, want 1 and 1,001", f.divNum, f.divDen)
+	}
+	root := &s.work.states[0]
+	if root.multiples != 2 || root.divNum != 2 || root.divDen != 2002 {
+		t.Errorf("the root state: %d checks of %d and %d digits, want 2 of 2 and 2,002", root.multiples, root.divNum, root.divDen)
+	}
+	scan := &bodyScan{ws: &s.work}
+	if got, want := scan.quoWork(valueCharge{st: root, c: root.c}, "1.5"), quoWork("1.5", 2, 2, 2002); got != want {
+		t.Errorf("quoWork in the root state = %d, want %d", got, want)
+	}
+	unknown := s.work
+	unknown.states = nil
+	n := int64(unknown.at[0][dimParses])
+	scan = &bodyScan{ws: &unknown}
+	if got, want := scan.quoWork(valueCharge{c: unknown.at[0]}, "1.5"), quoWork("1.5", n, n, 1001*n); got != want || n < 2 {
+		t.Errorf("quoWork on an unknown path = %d, want %d for %d parses", got, want, n)
+	}
+}
+
 // TestLiteralDigits pins the digit bounds of the multipleOf work model:
 // a literal's numerator and denominator, and a divisor's, never have more
 // decimal digits than literalDigits and ratDigits allow, on literals at
@@ -418,6 +449,11 @@ func TestUniqueItemsComparisons(t *testing.T) {
 		// 18.4375 is 295/16, bytes 01 27 10, which split as 1/10000 too:
 		// 0.0001 and both negations.
 		{`[` + strings.TrimSuffix(strings.Repeat(`1.25,`, 29), ",") + `,18.4375]`, 3},
+		// 0.0015625 is 1/640, bytes 01 02 80: 258/128 is no number's
+		// reduced rational, so only its negation shares its hash (minor
+		// review finding: a mutant without the common-divisor test
+		// survived).
+		{`[` + strings.TrimSuffix(strings.Repeat(`1.25,`, 29), ",") + `,0.0015625]`, 1},
 		// Past 64 bits, every split of about half the literal's bytes.
 		{`[` + strings.Repeat(`1.25,`, 1999) + longNumber + `]`, 2 * (ratCost(longNumber) - ratBytes + 3)},
 		{`[` + strings.TrimSuffix(strings.Repeat(`"a",`, 29), ",") + `,[]]`, 29},

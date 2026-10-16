@@ -90,7 +90,8 @@ func parsedKeywords() []string {
 // meta-schema's own message, so the library never compares one. Like the
 // walk's other rules, this holds at every position the library compiles or
 // checks against the meta-schema: not below additionalItems, which draft
-// 2020-12 ignores, unless a reference names it (walker.schema).
+// 2020-12 ignores, unless a reference, an anchor or an $id makes the
+// library compile it (walker.schema).
 const (
 	// typeEntryMessage is the meta-schema's message for an entry of a type
 	// list that is not one of its simple types.
@@ -158,16 +159,24 @@ func jsonKind(v any) string {
 
 // refSite is one $ref or $dynamicRef member.
 type refSite struct {
-	// ptr is the member's pointer.
-	ptr string
+	// ptr is the member's pointer, pos that of its schema.
+	ptr, pos string
 	// value is the reference as written.
 	value string
 	// base is the base URI in effect.
 	base string
-	// inert marks a reference the library never compiles (see
-	// walker.schema); again one whose schema was walked inert first, which
-	// is followed again but checked once.
+	// inert marks a reference walked where the library compiles nothing
+	// (see walker.schema); again one whose schema was walked inert first,
+	// which is followed again but checked once.
 	inert, again bool
+}
+
+// compiled reports whether the library compiles the reference s: it is not
+// inert, or its schema was walked live after it (minor review finding: a
+// reference the library never compiles never reaches the loader, so one
+// leaving the document is no finding there, 07 req 76).
+func (w *walker) compiled(s refSite) bool {
+	return !s.inert || w.seen[s.pos] == walkedLive
 }
 
 // refTarget is the position a JSON Pointer reference names, and the
@@ -245,7 +254,9 @@ func (w *walker) walk() {
 		return
 	}
 	for _, s := range w.sites {
-		if !s.again {
+		// A schema walked inert, then live, has its references twice: the
+		// first is checked when the library compiles it.
+		if !s.again && w.compiled(s) {
 			w.checkRef(s)
 		}
 	}
@@ -287,13 +298,15 @@ const (
 //
 // A position is inert below additionalItems, which the library collects
 // as a schema position, its $id and anchors included, but under draft
-// 2020-12 neither compiles nor checks against the meta-schema, which does
-// not define it: it is compiled only as the target of a JSON Pointer
-// reference, which follow walks live, or, when additionalItems holds an
-// $id or an anchor anywhere, through it, so such an additionalItems is
-// walked live whole (minor review finding: the walk's rules refused
-// content there, 07 req 76). The rules apply at live positions only;
-// references and $schema are checked everywhere.
+// 2020-12 does not compile, and which the meta-schema does not define: it
+// is compiled only as the target of a JSON Pointer reference, which follow
+// walks live, or, when a schema position of additionalItems holds an $id
+// or an anchor, through it, so such an additionalItems is walked live
+// whole (minor review findings: the walk's rules refused content there, 07
+// req 76). The rules apply at live positions only, where the compile also
+// checks against the meta-schema what no check of the library covers
+// (uncheckedPositions, review finding); $schema is checked everywhere, and
+// a reference wherever the library compiles it (walker.compiled).
 func (w *walker) schema(v any, ptr, res, base string, inert bool) {
 	was := w.seen[ptr]
 	if was == walkedLive || (was == walkedInert && inert) || len(w.positions) > MaxSubschemas {
@@ -332,7 +345,7 @@ func (w *walker) schema(v any, ptr, res, base string, inert bool) {
 	}
 	for _, kw := range []string{"$ref", "$dynamicRef"} {
 		if s, ok := obj[kw].(string); ok {
-			w.sites = append(w.sites, refSite{ptr: appendToken(ptr, kw), value: s, base: base, inert: inert, again: !first})
+			w.sites = append(w.sites, refSite{ptr: appendToken(ptr, kw), pos: ptr, value: s, base: base, inert: inert, again: !first})
 		}
 	}
 	eachSubschema(obj, ptr, func(v any, at string) {
@@ -340,27 +353,27 @@ func (w *walker) schema(v any, ptr, res, base string, inert bool) {
 	})
 }
 
-// identifies reports whether v holds a member $id, $anchor or
-// $dynamicAnchor at any depth, through which the library may compile a
-// schema that no JSON Pointer reference names: the target of a reference
-// to an anchor or a resource, the root of a resource it compiles a
-// subschema of, and every $dynamicAnchor of a resource it compiles.
+// identifies reports whether the schema v, or a schema position below it,
+// has an $id, $anchor or $dynamicAnchor string, through which the library
+// may compile a schema that no JSON Pointer reference names: the target of
+// a reference to an anchor or a resource, the root of a resource it
+// compiles a subschema of, and every $dynamicAnchor of a resource it
+// compiles. As the library collects identifiers, only schema positions
+// count, not a property name or a const, enum or examples value (minor
+// review finding).
 func identifies(v any) bool {
-	switch t := v.(type) {
-	case map[string]any:
-		for k, e := range t {
-			if k == "$id" || k == "$anchor" || k == "$dynamicAnchor" || identifies(e) {
-				return true
-			}
-		}
-	case []any:
-		for _, e := range t {
-			if identifies(e) {
-				return true
-			}
+	obj, ok := v.(map[string]any)
+	if !ok {
+		return false
+	}
+	for _, kw := range []string{"$id", "$anchor", "$dynamicAnchor"} {
+		if _, ok := obj[kw].(string); ok {
+			return true
 		}
 	}
-	return false
+	found := false
+	eachSubschema(obj, "", func(sv any, _ string) { found = found || identifies(sv) })
+	return found
 }
 
 // recordOnce checks the $schema of the schema object obj at ptr and

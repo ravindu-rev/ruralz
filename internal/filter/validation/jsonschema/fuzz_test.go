@@ -63,8 +63,11 @@ func bodySeeds() []string {
 // the pattern programs and of their parsing (TestPatternProgramLimits,
 // TestPatternParsesBounded) and of the library's meta-schema checks
 // (TestReferenceLadder, TestMetaChecksBound, and for the lists of names it
-// compares TestNameListsRefusedByWalk); its time is measured by
-// BenchmarkCompileAnalysisWorstCase.
+// compares TestNameListsRefusedByWalk), and the states' work per schema
+// (TestStatesReach, TestStatesLengthLoops); its time is measured by
+// BenchmarkCompileAnalysisWorstCase. A schema the meta-schema refuses is
+// refused wherever the library compiles it (TestAdditionalItemsChecked),
+// so validating a compiled one never panics.
 func FuzzCompileSchema(f *testing.F) {
 	for _, s := range corpusSchemas(f) {
 		f.Add(s)
@@ -86,8 +89,15 @@ func FuzzCompileSchema(f *testing.F) {
 		`{"type":[` + literals(21, "e9999999") + `]}`, `{"required":["a",` + literals(20, "e999999") + `]}`,
 		`{"dependentRequired":{"a":[1,{"b":2},[3],null,true]}}`, `{"dependencies":{"a":[[1e9999999]],"b":{"type":[1]}}}`,
 		`{"$ref":"#/x/properties","x":{"properties":{"type":[1e999999,2e999999],"required":[{}]}}}`,
+		// Below additionalItems, which no meta-schema check of the library
+		// covers (review finding: a multipleOf of 0 compiled, and the
+		// library panicked at every number reaching it).
+		`{"additionalItems":{"multipleOf":0}}`, `{"$ref":"#/additionalItems","additionalItems":{"additionalItems":{"multipleOf":0}}}`,
 	} {
 		f.Add([]byte(s))
+	}
+	for _, tc := range additionalItemsCases() {
+		f.Add([]byte(tc.schema))
 	}
 	f.Fuzz(func(t *testing.T, raw []byte) {
 		spy := &spyLoader{}
@@ -105,7 +115,7 @@ func FuzzCompileSchema(f *testing.F) {
 			_ = schemaPath(configSchemaPath(), doc, is.Pointer)
 		}
 		if s != nil {
-			for _, b := range []string{`{}`, `[1,"a"]`, `"x"`} {
+			for _, b := range []string{`{}`, `[1,"a"]`, `"x"`, `5`, `{"price":19.99}`} {
 				_, _ = s.Validate(decodeInstance(t, b))
 			}
 		}

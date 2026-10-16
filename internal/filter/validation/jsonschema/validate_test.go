@@ -127,13 +127,15 @@ func TestValidateWithin(t *testing.T) {
 	if loc, ok, err := s.ValidateWithin(decodeInstance(t, `[{"sku":"x","qty":1e1001}]`), testLimit); ok || loc != "" || err != nil {
 		t.Errorf("a number out of range: %q, %v, %v, want not ok at the root", loc, ok, err)
 	}
-	// A failing value whose location pass does not fit: the root.
-	_, scan := scanBody(t, s, records(10))
-	limit := (scan.decideMemory() + WorkingSetFactor - 1) / WorkingSetFactor
-	if _, fs := scanBody(t, s, strings.Replace(records(10), `"qty":1,`, `"qty":0,`, 1)); fs.locateMemory() <= WorkingSetFactor*limit {
-		t.Fatalf("the location pass holds %d, within the limit %d", fs.locateMemory(), WorkingSetFactor*limit)
+	// A failing value whose location pass does not fit: the root. A limit
+	// below MinScaledLimit has its working-set limit.
+	_, scan := scanBody(t, s, records(1000))
+	failingBody := strings.Replace(records(1000), `"qty":1,`, `"qty":0,`, 1)
+	failing = decodeInstance(t, failingBody)
+	if _, fs := scanBody(t, s, failingBody); fs.locateMemory() <= WorkingSetFactor*MinScaledLimit || scan.decideMemory() > WorkingSetFactor*MinScaledLimit {
+		t.Fatalf("the location pass holds %d, the decision pass %d, want them past and within %d", fs.locateMemory(), scan.decideMemory(), WorkingSetFactor*MinScaledLimit)
 	}
-	if loc, ok, err := s.ValidateWithin(failing, limit); ok || loc != "" || err != nil {
+	if loc, ok, err := s.ValidateWithin(failing, 1000); ok || loc != "" || err != nil {
 		t.Errorf("a location pass over the limit: %q, %v, %v, want not ok at the root", loc, ok, err)
 	}
 	// Review finding (a mutant that survived): a failing value whose
@@ -155,7 +157,7 @@ func TestValidateWithin(t *testing.T) {
 		rawLimit           int64
 		want               error
 	}{
-		{"working set", `{"items":` + oneOfConsts(8) + `}`, denseArray(1000, `"x"`, 0), 1000, errWorkingSetTooLarge},
+		{"working set", `{"items":` + oneOfConsts(8) + `}`, denseArray(20000, `"x"`, 0), 1000, errWorkingSetTooLarge},
 		{"work", allOfRefs(800, `{"minProperties":0}`), wideObject(3000), testLimit, errWorkTooLarge},
 		{"nesting", richText, quotes(12), 0, errNestingTooDeep},
 	} {

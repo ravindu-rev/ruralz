@@ -5,6 +5,7 @@ package jsonschema
 
 import (
 	"fmt"
+	"slices"
 	"strings"
 	"testing"
 
@@ -358,19 +359,61 @@ func TestDepthBoundCoversStates(t *testing.T) {
 	}
 }
 
+// lengthsSchema returns an allOf of n minLength values from 1 to n.
+func lengthsSchema(n int) string {
+	branches := make([]string, n)
+	for i := range branches {
+		branches[i] = fmt.Sprintf(`{"minLength":%d}`, i+1)
+	}
+	return `{"allOf":[` + strings.Join(branches, ",") + `]}`
+}
+
 // TestStatesLengthLoops covers the evaluations with minLength or
 // maxLength that a state details by their units, deciding their failure
 // from the string's length (07 reqs 80 and 82, the working set): up to
 // maxLoops kinds of them a string that satisfies them is charged less
 // than one that fails them all; past it they are charged as if both
-// keywords fail, whatever the string.
+// keywords fail, whatever the string. Weighing a state stops detailing
+// them once they pass maxLoops (review finding: every distinct kind was
+// added after a scan of the list, so 1,000 of them under 500 members
+// compiled for 1 s; 07 F6), so a state of 1,000 kinds allocates no more
+// than one of maxLoops+1, and is charged the same as summing them all.
 func TestStatesLengthLoops(t *testing.T) {
-	for _, n := range []int{maxLoops, maxLoops + 1} {
-		branches := make([]string, n)
-		for i := range branches {
-			branches[i] = fmt.Sprintf(`{"minLength":%d}`, i+1)
+	weighed := func(n int) float64 {
+		g, order, _, ok := stateGraph(t, lengthsSchema(n))
+		if !ok {
+			t.Fatalf("%d length kinds: the evaluation bound refuses the schema", n)
 		}
-		s := mustCompile(t, `{"allOf":[`+strings.Join(branches, ",")+`]}`)
+		b := newStateBuilder(g, order, stateBudget)
+		b.build()
+		s := b.weigh(b.sets[0])
+		// Every kind summed as if both keywords fail.
+		var sum evalState
+		for _, e := range b.sets[0] {
+			u := &g.nodes[e.node].units
+			if u.length != nil {
+				sum.addWorstLength(lengthLoop{n: e.n, u: *u.length})
+			} else {
+				sum.addUnits(kindString, e.n, u.full[kindString], u.names[kindString], u.decide[kindString], u.groups[kindString])
+			}
+		}
+		if s.lengths != nil || s.full[kindString] != sum.full[kindString] || s.names[kindString] != sum.names[kindString] ||
+			s.decide[kindString] != sum.decide[kindString] || s.groups[kindString] != sum.groups[kindString] {
+			t.Errorf("%d length kinds: lengths %v, string units %d, %d, %d, %d, want none detailed and %d, %d, %d, %d", n, s.lengths,
+				s.full[kindString], s.names[kindString], s.decide[kindString], s.groups[kindString],
+				sum.full[kindString], sum.names[kindString], sum.decide[kindString], sum.groups[kindString])
+		}
+		if raceEnabled {
+			return 0
+		}
+		return testing.AllocsPerRun(10, func() { b.weigh(b.sets[0]) })
+	}
+	few, many := weighed(maxLoops+1), weighed(1000)
+	if many > few {
+		t.Errorf("weighing 1,000 length kinds allocates %.0f times, %d kinds %.0f", many, maxLoops+1, few)
+	}
+	for _, n := range []int{maxLoops, maxLoops + 1} {
+		s := mustCompile(t, lengthsSchema(n))
 		_, holds := scanBody(t, s, `"`+strings.Repeat("x", n)+`"`)
 		_, fails := scanBody(t, s, `""`)
 		detailed := n <= maxLoops
@@ -378,5 +421,147 @@ func TestStatesLengthLoops(t *testing.T) {
 			t.Errorf("%d length kinds: decide %d and %d, locate %d and %d for a string that holds and one that fails, want detailed %v",
 				n, holds.decide, fails.decide, holds.locate, fails.locate, detailed)
 		}
+	}
+}
+
+// frontierPatterns returns k patterns (?:a??){i}b, i from 1 to k, whose
+// programs of about 2i instructions hold i jobs per input position, so
+// that the reach of all of them lists k programs (review finding).
+func frontierPatterns(k int) []string {
+	pats := make([]string, k)
+	for i := range pats {
+		pats[i] = fmt.Sprintf("(?:a??){%d}b", i+1)
+	}
+	return pats
+}
+
+// frontierSchema returns the members of membersOf, where P is an allOf of
+// a pattern each for frontierPatterns(k) and of rest copies of "a"
+// (values), or one schema whose patternProperties are frontierPatterns(k)
+// (names).
+func frontierSchema(k, rest, members int, names bool) string {
+	var p string
+	if names {
+		pats := frontierPatterns(k)
+		for i := range pats {
+			pats[i] = fmt.Sprintf("%q:true", pats[i])
+		}
+		p = `{"patternProperties":{` + strings.Join(pats, ",") + `}}`
+	} else {
+		var parts []string
+		for _, pat := range frontierPatterns(k) {
+			parts = append(parts, fmt.Sprintf(`{"pattern":%q}`, pat))
+		}
+		for range rest {
+			parts = append(parts, `{"pattern":"a"}`)
+		}
+		p = `{"allOf":[` + strings.Join(parts, ",") + `]}`
+	}
+	return membersOf(p, members)
+}
+
+// membersOf returns a schema whose members p0 to p<members-1> each apply,
+// in place, the definition P, the schema p, and a const of their own, so
+// that every member has a state of its own.
+func membersOf(p string, members int) string {
+	var b strings.Builder
+	b.WriteString(`{"$defs":{"P":` + p + `},"properties":{`)
+	for i := range members {
+		if i > 0 {
+			b.WriteByte(',')
+		}
+		fmt.Fprintf(&b, `"p%d":{"$ref":"#/$defs/P","const":%d}`, i, i)
+	}
+	b.WriteString(`}}`)
+	return b.String()
+}
+
+// mergedReach returns the reach of the values' (or the names') patterns of
+// every schema of set, as backtrackProgs lists it.
+func mergedReach(g *evalGraph, set []entry, names bool) patternReach {
+	var r patternReach
+	var progs []backtrackProg
+	for _, e := range set {
+		o := g.nodes[e.node].valuePats
+		if names {
+			o = g.nodes[e.node].namePats
+		}
+		r.insts = max(r.insts, o.insts)
+		progs = append(progs, o.progs...)
+	}
+	r.progs = backtrackProgs(progs)
+	return r
+}
+
+// TestStatesReach is the regression test of the review finding that the
+// states merged the pattern reaches of their schemas one schema at a time,
+// each union concatenating and sorting the growing list again, at a cost
+// stateBudget did not charge: an allOf of 1,000 patterns under 500
+// members compiled for 2.9 s and allocated 2.4 GB (07 F6, a compile
+// returns within 1 s; WP-51 compile budget; architecture R-77). Every
+// state's reach is that of all its schemas' patterns, those of a state's
+// later schemas included (minor review finding: a mutant keeping only the
+// last schema's survived); the programs merged are charged to stateBudget;
+// equal lists are one list; and building the states allocates a bounded
+// number of times per state, never per schema.
+func TestStatesReach(t *testing.T) {
+	wide := `"(?:(?:a??){240}a)*b"`
+	for _, tc := range []struct {
+		name, schema string
+		// allocs is set for the schemas of many states, whose allocations
+		// per state are compared.
+		allocs bool
+	}{
+		{"values", frontierSchema(60, 40, 30, false), true},
+		{"names", frontierSchema(60, 0, 30, true), true},
+		{"a wide pattern, then a schema without one", `{"allOf":[{"pattern":` + wide + `},{"minLength":1}]}`, false},
+		{"a schema without a pattern, then a wide one", `{"allOf":[{"minLength":1},{"pattern":` + wide + `},{"pattern":"^a"}]}`, false},
+		{"the costlier pattern not first", `{"patternProperties":{"^a":true,` + wide + `:true,"^b":true}}`, false},
+		{"names and values of several schemas", `{"allOf":[{"patternProperties":{"^z+$":true},"pattern":"^x"},{"patternProperties":{` + wide + `:true}},{"pattern":"(?:a|b|c)*"}]}`, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			g, order, _, ok := stateGraph(t, tc.schema)
+			if !ok {
+				t.Fatal("the evaluation bound refuses the schema")
+			}
+			b := newStateBuilder(g, order, stateBudget)
+			states := b.build()
+			merged := 0
+			lists := map[string]*backtrackProg{}
+			for i, set := range b.sets {
+				for _, names := range []bool{false, true} {
+					got := states[i].valuePats
+					if names {
+						got = states[i].namePats
+					}
+					want := mergedReach(g, set, names)
+					if got.insts != want.insts || !slices.Equal(got.progs, want.progs) {
+						t.Fatalf("state %d, names %v: reach %+v, want %+v", i, names, got, want)
+					}
+					if len(got.progs) == 0 {
+						continue
+					}
+					key := fmt.Sprint(got.progs)
+					if p, seen := lists[key]; seen && p != &got.progs[0] {
+						t.Errorf("state %d, names %v: an equal list is not shared", i, names)
+					}
+					lists[key] = &got.progs[0]
+				}
+				for _, e := range set {
+					merged += len(g.nodes[e.node].valuePats.progs) + len(g.nodes[e.node].namePats.progs)
+				}
+			}
+			if spent := stateBudget - b.budget; merged > spent {
+				t.Errorf("%d programs merged, %d of stateBudget spent", merged, spent)
+			}
+			if !tc.allocs || raceEnabled {
+				return
+			}
+			// About 5 per state; a union per schema made 189 here.
+			allocs := testing.AllocsPerRun(3, func() { g.buildStates(order, stateBudget) })
+			if perState := allocs / float64(len(states)); perState > 20 {
+				t.Errorf("building %d states allocates %.0f times, %.1f per state", len(states), allocs, perState)
+			}
+		})
 	}
 }

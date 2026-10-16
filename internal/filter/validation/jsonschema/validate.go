@@ -53,11 +53,12 @@ func (s *Schema) Validate(v any) (keywordLocation string, ok bool) {
 // WorkingSetFactor times rawLimit besides v or take more than WorkPerByte
 // work units per byte of it, or that nests as deep as the schema's nesting
 // limit on a path whose state does not bound it, is an error matching
-// filter.ErrTooLarge. A v holding a number out of the number bounds is not
-// ok at the root, as is a failing v whose location pass does not fit the
-// same bounds; an internal validator error is returned as such. It
-// reserves nothing: its caller accounts for the memory, at most
-// WorkingSetFactor times rawLimit besides v.
+// filter.ErrTooLarge (both factors apply to MinScaledLimit when rawLimit is
+// smaller). A v holding a number out of the number bounds is not ok at the
+// root, as is a failing v whose location pass does not fit the same
+// bounds; an internal validator error is returned as such. It reserves
+// nothing: its caller accounts for the memory, at most WorkingSetFactor
+// times rawLimit, or MinScaledLimit, besides v.
 func (s *Schema) ValidateWithin(v any, rawLimit int64) (keywordLocation string, ok bool, err error) {
 	limits := limitsOf(rawLimit)
 	scan := bodyScan{ws: &s.work, numbers: s.numbers, workLimit: limits.work}

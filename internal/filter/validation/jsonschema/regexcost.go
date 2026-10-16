@@ -5,6 +5,7 @@ package jsonschema
 
 import (
 	"cmp"
+	"encoding/binary"
 	"math/bits"
 	"regexp/syntax"
 	"slices"
@@ -175,15 +176,83 @@ func reachOf(costs ...patternCost) patternReach {
 	return r
 }
 
-// union returns the reach of the patterns of r and o together.
-func (r patternReach) union(o patternReach) patternReach {
-	switch {
-	case o.insts == 0:
-		return r
-	case r.insts == 0:
-		return o
+// reachMerger merges the reaches of the schemas of one state
+// (stateBuilder.weigh) in time linear in their programs, with no
+// allocation per schema: the backtracker runs programs of at most
+// maxBacktrackProg instructions, so the most jobs of each size fit a
+// table, which the merged list reads in order of size (review finding: a
+// union per schema concatenated and sorted the growing list again, so 1,000
+// patterns at each of 349 states compiled for 2.9 s and allocated 2.4 GB).
+// The zero value is empty.
+type reachMerger struct {
+	// insts is the largest program added; n counts the programs of the
+	// backtracker added, between lo and hi instructions, and held[i] is one
+	// more than the most jobs one of i instructions holds, 0 for none.
+	insts, n, lo, hi int
+	held             [maxBacktrackProg + 1]int
+}
+
+// add merges the reach r.
+func (m *reachMerger) add(r patternReach) {
+	m.insts = max(m.insts, r.insts)
+	for _, p := range r.progs {
+		if m.n == 0 {
+			m.lo, m.hi = p.insts, p.insts
+		}
+		m.n++
+		m.lo, m.hi = min(m.lo, p.insts), max(m.hi, p.insts)
+		m.held[p.insts] = max(m.held[p.insts], p.held+1)
 	}
-	return patternReach{insts: max(r.insts, o.insts), progs: backtrackProgs(slices.Concat(r.progs, o.progs))}
+}
+
+// reach returns the merged reach, its list of programs interned in lists
+// (backtrackProgs of every program added), and empties the merger.
+func (m *reachMerger) reach(lists *reachLists) patternReach {
+	r := patternReach{insts: m.insts}
+	if m.n > 0 {
+		out := lists.scratch[:0]
+		for i := m.lo; i <= m.hi; i++ {
+			if h := m.held[i] - 1; h >= 0 {
+				if len(out) == 0 || h > out[len(out)-1].held {
+					out = append(out, backtrackProg{insts: i, held: h})
+				}
+				m.held[i] = 0
+			}
+		}
+		lists.scratch = out
+		r.progs = lists.intern(out)
+	}
+	m.insts, m.n = 0, 0
+	return r
+}
+
+// reachLists interns the program lists of merged reaches, so the states
+// with the same patterns share one list and the compiled Schema keeps each
+// distinct list once (review finding: 1,200 states each kept a list of 241
+// programs, 4.5 MB).
+type reachLists struct {
+	lists   map[string][]backtrackProg
+	key     []byte
+	scratch []backtrackProg
+}
+
+// intern returns the list equal to progs that lists holds, adding a copy
+// when it holds none.
+func (l *reachLists) intern(progs []backtrackProg) []backtrackProg {
+	l.key = l.key[:0]
+	for _, p := range progs {
+		l.key = binary.AppendVarint(l.key, int64(p.insts))
+		l.key = binary.AppendVarint(l.key, int64(p.held))
+	}
+	if s, ok := l.lists[string(l.key)]; ok {
+		return s
+	}
+	if l.lists == nil {
+		l.lists = map[string][]backtrackProg{}
+	}
+	s := slices.Clone(progs)
+	l.lists[string(l.key)] = s
+	return s
 }
 
 // bytes returns what one match of n bytes may hold under r: nothing

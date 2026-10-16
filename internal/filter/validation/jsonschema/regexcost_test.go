@@ -429,13 +429,35 @@ func TestBacktrackBytes(t *testing.T) {
 	if want := []backtrackProg{{5, 3}, {20, 4}}; !slices.Equal(got, want) {
 		t.Errorf("backtrackProgs = %+v, want %+v", got, want)
 	}
-	// A union is the reach of both patterns; with none it is the other.
-	u := reachOf(small).union(reachOf(wide))
-	if u.insts != 486 || !slices.Equal(u.progs, []backtrackProg{{6, 1}, {486, 241}}) {
-		t.Errorf("union = %+v", u)
+	// A merge is the reach of every pattern added; with none it is empty,
+	// and a merger is empty again once read.
+	var m reachMerger
+	var lists reachLists
+	m.add(reachOf(small))
+	m.add(patternReach{})
+	m.add(reachOf(wide))
+	if u := m.reach(&lists); u.insts != 486 || !slices.Equal(u.progs, []backtrackProg{{6, 1}, {486, 241}}) {
+		t.Errorf("merged reach = %+v", u)
 	}
-	if u := (patternReach{}).union(reachOf(small)); u.insts != 6 || (patternReach{}).union(patternReach{}).insts != 0 {
-		t.Errorf("union with no pattern = %+v", u)
+	if u := m.reach(&lists); u.insts != 0 || u.progs != nil {
+		t.Errorf("merger after a read = %+v, want no pattern", u)
+	}
+	m.add(reachOf(large))
+	if u := m.reach(&lists); u.insts != large.insts || len(u.progs) != 0 {
+		t.Errorf("merged reach of a program past the backtracker = %+v", u)
+	}
+	// A larger program that holds no more is dropped, and nothing of an
+	// earlier merge is left in the table.
+	literal := costs.of(strings.Repeat("x", 490))
+	if literal.insts <= wide.insts || literal.insts > maxBacktrackProg || literal.held > small.held {
+		t.Fatalf("x{490}: %+v", literal)
+	}
+	m.add(reachOf(wide))
+	m.reach(&lists)
+	m.add(reachOf(literal))
+	m.add(reachOf(small))
+	if u := m.reach(&lists); u.insts != literal.insts || !slices.Equal(u.progs, []backtrackProg{{6, 1}}) {
+		t.Errorf("merged reach after another = %+v, want %d instructions and a*b's program alone", u, literal.insts)
 	}
 	// The alternations are the program's own, the empty group included.
 	for _, tc := range []struct {
