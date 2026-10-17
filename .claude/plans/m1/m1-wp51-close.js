@@ -19,20 +19,24 @@ export const meta = {
 // history of the finished groups, carried open items, and the startGroup's open items),
 // startAttempt (the startGroup attempt to run first; its check items come from the file) and
 // carriedCount (how many open items the file's "carried" field holds).
+// Machine: repo (the checkout, default the user's Windows checkout), lib (the jsonschema/v6
+// v6.0.3 source in the module cache, default under the Windows user's GOMODCACHE) and windows
+// (false drops the notes on Git Bash and Windows tools; default true).
 // Input: runs/w3-s2-close-input.json (groups, decisions, sources). The lead commits.
 
-const REPO = 'C:/Users/ravin/Projects/Ruralz'
+const A = (typeof args !== 'undefined' && args) || {}
+const REPO = A.repo || 'C:/Users/ravin/Projects/Ruralz'
 const M1 = `${REPO}/.claude/plans/m1`
 const ARCH = `${M1}/specs/00-architecture.md`
 const WPS = `${M1}/arch/wps.json`
 const PKG = 'internal/filter/validation/jsonschema/'
-const LIB = 'C:/Users/ravin/go/pkg/mod/github.com/santhosh-tekuri/jsonschema/v6@v6.0.3'
+const LIB = A.lib || 'C:/Users/ravin/go/pkg/mod/github.com/santhosh-tekuri/jsonschema/v6@v6.0.3'
+const WINDOWS = A.windows !== false
 const AUDIT = `${M1}/wp51-library-audit.md`
 const AUDIT_RESULT = `${M1}/runs/w3-s2-wp51-audit-result.json`
 const R9 = `${M1}/runs/w3-s2-wp51-r9.json`
 const INPUT = `${M1}/runs/w3-s2-close-input.json`
-const A = (typeof args !== 'undefined' && args) || {}
-const SP = `${A.scratchpad || '/tmp/claude-0/-home-user-ruralz/758d7ca3-81cf-5fbc-a967-12d97bce3d6b/scratchpad'}/wp51close`
+const SP =`${A.scratchpad || '/tmp/claude-0/-home-user-ruralz/758d7ca3-81cf-5fbc-a967-12d97bce3d6b/scratchpad'}/wp51close`
 const MAX_ROUNDS = A.maxRounds || 6
 const MAX_ATTEMPTS = A.maxAttempts || 3
 const CARRY = A.carryFile || null
@@ -68,9 +72,10 @@ Hard rules:
 3. Never edit go.mod, go.sum, the Makefile, CI workflows or docs. Never run whole-tree mutating commands (no go mod tidy, no gofmt -w ., no golangci-lint fmt ./...). Scope commands to ./${PKG}...
 4. Probes go under ${SP}/<your-label>/ and reach the package with go test -overlay. Leave no stray files or binaries in the repository (build with -o into the scratch directory).
 5. Conventions: AGENTS.md hard rules and .claude/rules/*.md; license header "// Copyright 2026 Revington" + "// SPDX-License-Identifier: Apache-2.0"; RZ codes only from internal/errcode (no new code); no init(); no mutable package-level variables; documented exported identifiers; American spelling; tests cite the requirement, row or class they cover.
-6. The machine has 8 logical CPUs and other agents run tests at the same time; use -count=1, give long runs time, and never assert wall-clock time or a sampled heap (use counters, exact live-heap probes or benchmarks).
+6. Other agents run tests on this machine at the same time; use -count=1, give long runs time, and never assert wall-clock time or a sampled heap (use counters, exact live-heap probes or benchmarks).
 7. A finding whose fix lies outside your path (spec or architecture text, a design document, another package's contract) is handled by filing it in contractRequests with the exact change; the lead applies contract requests after the run. Reviewers report such a finding only when it is not filed in an engineer's contractRequests, or is filed wrongly. The working tree may hold partial edits from a stopped attempt: read git diff for ${PKG} before you change anything.
-8. The checkout is on Windows 11 at ${REPO}. The Bash tool is Git Bash: use forward-slash paths (C:/Users/... or /c/Users/...) and env prefixes as usual (CGO_ENABLED=0 go test ...); in PowerShell set $env:CGO_ENABLED = "0" before go test. go test -race needs cgo, and gcc is on PATH. python3 is a Microsoft Store stub here: use python or node. Run every bin/golangci-lint command with GOTOOLCHAIN=go1.27.1 (the go.mod toolchain), for example GOTOOLCHAIN=go1.27.1 bin/golangci-lint run ./${PKG}...: under the local go1.27.2 it fails with "export data version 5 is greater than maximum supported version 4" typechecking errors yet still prints "0 issues." with exit code 7, so a lint run counts as green only with exit code 0. The run files, reports and findings were written on another machine: read /home/user/ruralz as ${REPO} and /root/go/pkg/mod as C:/Users/ravin/go/pkg/mod; evidence under /tmp/claude-0 is gone, so reproduce each item from the input it states.
+8. Run every bin/golangci-lint command with GOTOOLCHAIN=go1.27.1 (the go.mod toolchain), for example GOTOOLCHAIN=go1.27.1 bin/golangci-lint run ./${PKG}...: under a newer local Go such as go1.27.2 it fails with "export data version 5 is greater than maximum supported version 4" typechecking errors yet still prints "0 issues." with exit code 7, so a lint run counts as green only with exit code 0. The run files, reports and findings were written on other machines: read /home/user/ruralz and C:/Users/ravin/Projects/Ruralz as ${REPO}, and /root/go/pkg/mod or C:/Users/ravin/go/pkg/mod as this machine's module cache; evidence in an old session's scratchpad may be gone, so reproduce each item from the input it states.${WINDOWS ? `
+8a. The checkout is on Windows 11 at ${REPO}. The Bash tool is Git Bash: use forward-slash paths (C:/Users/... or /c/Users/...) and env prefixes as usual (CGO_ENABLED=0 go test ...); in PowerShell set $env:CGO_ENABLED = "0" before go test. go test -race needs cgo, and gcc is on PATH. python3 is a Microsoft Store stub here: use python or node.` : ''}
 9. Only the lead commits, after the run, signed and without a co-author. Never read, copy or use a signing key, and never push.
 `
 const CHECKS = `go build and go vet ./${PKG}..., go test -race -count=1 -cover -shuffle=on ./${PKG}..., CGO_ENABLED=0 go test -count=1 ./${PKG}..., GOTOOLCHAIN=go1.26.8 GOEXPERIMENT=jsonv2 CGO_ENABLED=0 go test -count=1 ./${PKG}..., each fuzz target in the package for at least 60s, GOTOOLCHAIN=go1.27.1 bin/golangci-lint run ./${PKG}..., GOTOOLCHAIN=go1.27.1 bin/golangci-lint fmt ./${PKG}..., and go run ./internal/tool/repocheck`

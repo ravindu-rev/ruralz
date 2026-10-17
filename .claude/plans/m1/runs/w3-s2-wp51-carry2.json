@@ -1839,6 +1839,7 @@
   "stopped": "2026-10-17T18:41Z, during the engineer's final checks",
   "changedFiles": "9 files, +2005 -547 against the wip/s2-handoff commit 451a729: doc.go (266), fit_test.go (122), meter_test.go (1328, the heap meter rewritten), patternsize_test.go (1), regexcost_test.go (1), states_test.go (1), work_limit_test.go (146), working.go (109), working_test.go (578)",
   "mutationBattery": "40 mutants killed, 0 survived in C:/Users/ravin/AppData/Local/Temp/claude/c--Users-ravin-Projects-Ruralz/5104a226-9733-4230-8cf6-a5ff30e79ceb/scratchpad/wp51close/g04a3/mut2/progress.txt",
+  "scratchArchive": "runs/scratch/wp51-g04a3-scratch.tar.gz: the stopped attempt's scratch directory without binaries (probes, edit scripts, pre-fix copies under base/, the mutation batteries mut/, mut2/ and mut3/ with their progress.txt, and the stress and load scripts). Unpack it into a scratch directory, never into the repository. A record only: never commit it to develop.",
   "engineerMessages": [
    "2026-10-17T15:18Z Now let me look at the git diff of meter_test.go relative to HEAD (it's a new file in this run) and check `prepare`/`newWalker` signatures before writing the new meter.",
    "2026-10-17T15:18Z Now I have enough understanding. Let me write the new meter. First the full new meter_test.go.",

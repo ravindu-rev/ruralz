@@ -23,6 +23,12 @@ This directory holds the working plan the M1 Core gateway implementation follows
 | `wave3-plan.md` | How wave 3 runs: nine small sections that each fit in one usage window, with the run order, the per-section procedure and a progress table |
 | `runs/w3-s<N><a\|b>.json` | Ready arguments for each wave-3 section's two runs (package IDs, their notes from `forwards.json`, `deferMinor`, now false everywhere) |
 | `tools/usage.py`, `tools/wordcount.py` | Agent token usage per workflow run, and the manifest word count of a document |
+| `m1-wp51-close.js` | WP-51 close loop: one engineer per group of the audit's gap classes in order, an independent check per attempt, then nine-lens review rounds until one reports zero findings. Continues a stopped run from a carry file (`carryFile`, `startGroup`, `startAttempt`, `carriedCount`) |
+| `tools/wf-status.js` | Live status of workflow runs for IDE sessions, where `/workflows` is unavailable: `node tools/wf-status.js --watch <run dir>...` |
+| `tools/wf-watch.js` | Journal watcher for a Monitor: reports each agent start and result, and exits when an agent matching a label pattern starts, to stop a run at a clean point |
+| `tools/backup-tick.sh` | Dated backups of the S2 packages every 10 minutes, run as a Monitor |
+| `tools/build-minors-continue3.js`, `tools/build-wp51-carry2.js` | How the continuation files of the 2026-10-17 pause were built from the run journals and transcripts; templates for the next stop |
+| `runs/journals/`, `runs/scratch/` | Run journals and a stopped attempt's scratch archive: records only, never committed to `develop`, deleted once S2 is committed |
 
 ## State on 2026-10-10
 
@@ -63,19 +69,20 @@ Small items left for a later pass (none blocks wave 3):
 
 ## Resuming in a new session
 
-State on 2026-10-17 at 18:41 UTC: S2 is paused at the user's request, and none of its work after `76edfe0` is on `develop`. The work in progress travels as signed WIP commits on `wip/s2-handoff`, the one approved exception to "no other branches": `451a729` from the container session, then a second commit from the user's Windows machine whose tree is `76edfe0` plus all S2 work. On the Windows checkout (`C:/Users/ravin/Projects/Ruralz`) the same work is also in the working tree, uncommitted. Resume by run ID works only in the session that ran a run, so each run continues from files.
+State on 2026-10-17 at 18:41 UTC: S2 is paused at the user's request, and none of its work after `76edfe0` is on `develop`. The work in progress travels as signed WIP commits on `wip/s2-handoff`, the one approved exception to "no other branches": `451a729` from the container session, then `c9eb746` and a commit adding the helper tools and the scratch archive, both from the user's Windows machine. The tip's tree is `76edfe0` plus all S2 work. On the Windows checkout (`C:/Users/ravin/Projects/Ruralz`) the same work is also in the working tree, uncommitted. Resume by run ID works only in the session that ran a run, so each run continues from files.
 
 - **WP-51 fix** (`m1-wp51-close.js`, runs `wf_8b2d7117-514` then `wf_721727d8-351`, decisions in `user-decisions.md` items 20 to 26):
   - Groups G01 to G03 are finished. G02 and G03 ended with 5 minors open, which go to the carried fix before the review rounds.
   - G04 attempts 1 and 2 are fixed and checked; the check of attempt 2 left 2 majors open.
   - G04 attempt 3 was stopped twice: mid-edit in the container, then after about 4 hours of the Windows run, while its engineer ran final stress and load checks, before its report and its independent check. Its edits are in the working tree: 9 files, +2,005 and -547 lines against `451a729` (the heap meter in `meter_test.go` rewritten, plus `doc.go`, `fit_test.go`, `work_limit_test.go`, `working.go` and `working_test.go`). Its mutation battery killed all 40 mutants.
   - G05 to G11 and the review rounds have not run.
-  - `runs/w3-s2-wp51-carry2.json` holds everything the run needs: the history text, the carried and open items, every attempt's fix and check report, 11 contract requests, the changed paths, and `attempt3Progress` (the second stop, the changed files and the engineer's progress notes), which the script tells the continued engineer to read first.
+  - `runs/w3-s2-wp51-carry2.json` holds everything the run needs: the history text, the carried and open items, every attempt's fix and check report, 11 contract requests, the changed paths, and `attempt3Progress` (the second stop, the changed files, the engineer's progress notes and the scratch archive), which the script tells the continued engineer to read first.
+  - `runs/scratch/wp51-g04a3-scratch.tar.gz` holds the stopped attempt's scratch directory without binaries: probes, pre-fix copies, the mutation batteries with their results, and the stress and load scripts. The agent transcripts of runs `wf_721727d8-351` and `wf_7860476f-71c` stay on the Windows machine, under `~/.claude/projects/c--Users-ravin-Projects-Ruralz/5104a226-9733-4230-8cf6-a5ff30e79ceb/subagents/workflows/`.
 - **WP-35 to WP-39 minors** (`m1-section.js`, runs `wf_c0fb6de8-9cc`, `wf_2dcc9b57-933`, then `wf_7860476f-71c`): the lead stopped the last run at 17:23 UTC while no fix agent ran, so no package holds partial edits from it.
   - `runs/w3-s2-minors-continue3.json` holds the open findings: WP-36 11 (4 majors not reproduced yet), WP-37 18, WP-38 9 (1 major not reproduced yet; its adversarial lens did not report), WP-39 19 (5 majors verified). Its `_meta.contractRequests` holds the 25 contract requests this run's fixers filed (WP-35 12, WP-36 7, WP-38 6).
   - WP-35 has no open findings: fix0 closed its 11, and its next step is a fresh review, with that fix report in `reports/WP-35.json`.
   - WP-37's fix0 died on an API timeout ("No response from API") before it changed a file; the run then skipped WP-37's reviews without a journal entry.
-- The journals of the five runs are in `runs/journals/`. They are a record only: never commit them to `develop`, and delete them once S2 is committed.
+- The journals of the five runs are in `runs/journals/`, and the scratch archive is in `runs/scratch/`. They are a record only: never commit them to `develop`, and delete them once S2 is committed.
 - Evidence paths in findings that point into an old session's scratchpad (`/tmp/claude-0/...`, or `.../Temp/claude/.../scratchpad` on Windows) may be gone. Agents reproduce from the input each finding states.
 
 Steps:
@@ -92,7 +99,7 @@ Steps:
    - golangci-lint v2.13.2 in `bin/` (`make tools` on Linux and macOS; Windows builds are installed by hand). Run it as `GOTOOLCHAIN=go1.27.1 bin/golangci-lint ...`: under go1.27.2 it reports "export data version 5" typechecking errors, still prints "0 issues." and exits 7.
    - `go mod download`: the agents read the jsonschema/v6 v6.0.3 source under the module cache, so `LIB` in `m1-wp51-close.js` must match `$(go env GOMODCACHE)`.
    - `GOTOOLCHAIN=go1.26.8 go version` for the floor check.
-   - Both scripts set `REPO`, `M1` and `LIB` for the Windows checkout, and their RULES describe Git Bash on Windows. On another machine, change those lines and the paths below.
+   - Both scripts default to the Windows checkout and describe Git Bash on Windows. On another machine, add the machine args to step 5's args and use that checkout's paths there: `"repo"` (the checkout), `"windows": false`, and for WP-51 `"lib"` (the jsonschema/v6 v6.0.3 directory under `go env GOMODCACHE`). In the container that was `"repo": "/home/user/ruralz", "lib": "/root/go/pkg/mod/github.com/santhosh-tekuri/jsonschema/v6@v6.0.3", "windows": false`.
    - Signing (Working rules): repository-local `gpg.format ssh`, `user.signingkey` set to the user's key file and `gpg.ssh.allowedSignersFile` listing both public keys. The Windows checkout already has them, with the key in `C:/Users/ravin/OneDrive/Documents/Keys`.
 4. While runs are going, back up the S2 packages with a Monitor running `timeout 1790 bash .claude/plans/m1/tools/backup-tick.sh <scratchpad>`, and re-arm it when it ends. On Windows, pass the scratchpad as a `/c/...` path (GNU tar reads `C:` as a remote host), and keep the `timeout`: an expired Monitor there leaves its loop running.
 5. Launch both runs in the turn of a typed user message that names them, such as "resume both S2 runs". Never put the signing key in that message.
@@ -102,7 +109,7 @@ Steps:
 6. When both runs report zero findings:
    - Apply the contract requests: each run's result, the carry file's `contractRequests` and the continuation file's `_meta.contractRequests` ("How a wave runs" step 4; `docs/_meta/` changes need the user's approval).
    - Run the whole-tree checks ("How a wave runs" step 3).
-   - Commit on `develop`, one signed commit per package: WP-51 as `fix(filter): ...` with `Refs: WP-51 (M1 architecture)`, and WP-35 to WP-39 with the five titles above. Then commit the plan and spec files as `chore: ...`, without `runs/journals/`.
+   - Commit on `develop`, one signed commit per package: WP-51 as `fix(filter): ...` with `Refs: WP-51 (M1 architecture)`, and WP-35 to WP-39 with the five titles above. Then commit the plan and spec files as `chore: ...`, without `runs/journals/` and `runs/scratch/`.
    - Push `develop`, then delete `wip/s2-handoff` on origin (`git push origin --delete wip/s2-handoff` works from the Windows checkout; the container's git proxy refused it), so only `main` and `develop` remain.
 7. Record S2 in `wave3-plan.md`. Then comes WP-33's C2 rebuild, after the user asks for ADR-0020, and S3.
 
