@@ -6,10 +6,12 @@ package jsonschema
 import (
 	"bytes"
 	"errors"
+	"maps"
 	"os"
 	"path/filepath"
 	"regexp"
 	"regexp/syntax"
+	"slices"
 	"strings"
 	"testing"
 
@@ -53,21 +55,38 @@ func bodySeeds() []string {
 	}
 }
 
-// FuzzCompileSchema is 07 F6: compiling any document never asks the
-// loader (no file or network access is even attempted) and never panics;
-// every finding's pointer maps to a path. F6's other property, a compile
-// returning within 1 s, is not a wall-clock assertion here: the budgets
-// that bound a compile are pinned by deterministic tests
-// (TestQueueBoundBudget, TestClassRepsBudget, TestCompileMatchBudget,
-// TestStatesBudget, TestEvaluationBoundBudget), and so are the bounds of
-// the pattern programs and of their parsing (TestPatternProgramLimits,
-// TestPatternParsesBounded) and of the library's meta-schema checks
-// (TestReferenceLadder, TestMetaChecksBound, and for the lists of names it
-// compares TestNameListsRefusedByWalk), and the states' work per schema
-// (TestStatesReach, TestStatesLengthLoops); its time is measured by
-// BenchmarkCompileAnalysisWorstCase. A schema the meta-schema refuses is
-// refused wherever the library compiles it (TestAdditionalItemsChecked),
-// so validating a compiled one never panics.
+// FuzzCompileSchema is 07 F6: compiling any document never asks the loader (no
+// file or network access is even attempted) and never panics, not even into the
+// recovered finding of compileWith (msgPanicked); every finding's pointer maps
+// to a path. The walk keeps the first two on every route, since it walks live
+// exactly what the library compiles, through each of its reference keywords
+// (audit class GC-01), with its base URIs and in its order (class GC-02, see
+// "Compiled set" in doc.go), so every position the library compiled was walked
+// live and the walked-position backstop never fires (no msgUnwalked or
+// msgUnlisted finding); and two walks of a document give the same model and
+// findings, whatever the order of its members. That two compiles give the same
+// findings also where the library's own error is the finding is a property of
+// class GC-19, whose fix adds it here: an unparseable $id is still reported in
+// the library's map order (REFS-14). F6's other property, a compile returning
+// within 1 s, is not a wall-clock assertion here: the budgets that bound a
+// compile are pinned by deterministic tests (TestQueueBoundBudget,
+// TestClassRepsBudget, TestCompileMatchBudget, TestStatesBudget,
+// TestEvaluationBoundBudget, and for the walk's fixpoint
+// TestFollowFixpointCost), and so are the bounds of the pattern programs and of
+// their parsing (TestPatternProgramLimits, TestPatternParsesBounded) and of the
+// library's meta-schema checks (TestReferenceLadder, TestMetaChecksBound, and
+// for the lists of names it compares TestNameListsRefusedByWalk), and the
+// states' work per schema (TestStatesReach, TestStatesLengthLoops); its time is
+// measured by BenchmarkCompileAnalysisWorstCase. A schema the meta-schema
+// refuses is refused wherever the library compiles it
+// (TestAdditionalItemsChecked), and a compiled schema at a position the walk
+// did not walk live, which none of the walk's rules covered, is refused
+// (TestUnwalkedBackstop), so validating a compiled one never panics. Whatever
+// the outcome, the compile's regexp engine is frozen when it returns, and
+// validating against a compiled schema never calls it: only an asserted format
+// 'regex' would, and the compile refuses the $schema that would assert one
+// wherever the library reads it, and an asserted format at every schema the
+// library compiled (audit class GC-21).
 func FuzzCompileSchema(f *testing.F) {
 	for _, s := range corpusSchemas(f) {
 		f.Add(s)
@@ -99,12 +118,90 @@ func FuzzCompileSchema(f *testing.F) {
 	for _, tc := range additionalItemsCases() {
 		f.Add([]byte(tc.schema))
 	}
+	// Dialects a $schema gives on a route the walk did not walk before
+	// classes GC-01 and GC-02, with format asserted (library audit CC-01) or
+	// validation and applicator keywords dropped (CC-04), and $dynamicAnchor
+	// schemas only the dynamic scope reaches; the first is the check
+	// finding's seed as it was written.
+	f.Add([]byte(`{` + assertingVocabulary + `,"$recursiveRef":"#/x","x":{"$id":"urn:x","$schema":"` + baseURL + `",` +
+		`"$defs":{"d":{"$dynamicAnchor":"n","format":"regex"}},"$ref":"urn:y"},"$defs":{"y":{"$id":"urn:y","$dynamicAnchor":"n","items":{"$dynamicRef":"#n"}}}}`))
+	for _, tc := range append(assertedFormatCases(), vocabularySubsetCases()...) {
+		f.Add([]byte(tc.schema))
+	}
+	// $recursiveRef, a reference keyword of the library under draft 2020-12
+	// whose targets the walk did not follow (audit class GC-01): every
+	// shape of its tests, but the counts, whose 120 KB slow every
+	// execution, for which the smallest document past the bound stands
+	// in; and the input this target found before the fix.
+	for _, tc := range recursiveTwinCases() {
+		if !strings.HasPrefix(tc.name, "count/") {
+			f.Add([]byte(recursiveOf(tc.shape)))
+		}
+	}
+	f.Add([]byte(`{"$recursiveRef":"#/x","x":{"allOf":[` + joinRepeat(`{}`, MaxSubschemas) + `]}}`))
+	for _, tc := range recursiveAccepted() {
+		f.Add([]byte(recursiveOf(tc.shape)))
+	}
+	f.Add([]byte(`{"$recursiveRef":"0"}`))
+	// Every shape of class GC-02's tests (follow_test.go) but the few
+	// whose size slows every execution, and the input this target found
+	// before the fix (G02 attempt 3).
+	for _, set := range [][]followCase{baseCases(), lateIDCases(), ancestorCases(), policyDialectCases(), livenessCases(), olderDraftCases(), visibilityCases()} {
+		for _, tc := range set {
+			if len(tc.schema) <= 16<<10 {
+				f.Add([]byte(tc.schema))
+			}
+		}
+	}
+	f.Add([]byte(generations(3)))
+	// The fixpoint's passes under a long member name, which hashed and
+	// built its pointers again in every pass (check finding on the
+	// fixpoint, passes times pointer bytes).
+	f.Add([]byte(deepGenerations(3, 1000)))
+	f.Add([]byte(`{"$ref":"#/x/y","x":{"$id":"https://x.test/","y":{"$ref":"#/x"},"x":{"type":"string"}}}`))
+	f.Add([]byte(`{"$defs":{"r":{"$id":"0","x":{"$ref":"#/w"},"w":{"$ref":"00"}}},"w":true,"$ref":"#/$defs/r/x"}`))
+	// An ordinary two-pass document of long-named targets outside the
+	// keywords, whose placing among the targets found refused it (check
+	// finding on the fixpoint's budget term), at a size every execution
+	// affords.
+	f.Add([]byte(flatTargets(20, 200)))
+	f.Add([]byte(`{"$recursiveAnchor":true,"items":{"$recursiveRef":"#"}}`))
+	for _, route := range escapedRoutes() {
+		for _, anchor := range []string{
+			`{"$dynamicAnchor":"n","minimum":0}`, `{"$dynamicAnchor":"n","$ref":"https://json-schema.org/draft/2020-12/schema"}`,
+			`{"$dynamicAnchor":"n","properties":{"a":{"allOf":[{"$dynamicRef":"#n"},{"$dynamicRef":"#n"}]}}}`,
+		} {
+			doc, _ := dynamicOnly(route, anchor)
+			f.Add([]byte(doc))
+		}
+	}
 	f.Fuzz(func(t *testing.T, raw []byte) {
 		spy := &spyLoader{}
-		s, doc, issues := compileRaw(raw, spy)
+		eng := newRegexpEngine()
+		s, doc, issues := compileRawWith(raw, spy, eng)
 		if len(spy.urls) > 0 {
 			t.Fatalf("compile asked the loader for %q", spy.urls)
 		}
+		// The walk refuses what would make the compile panic before the
+		// library runs, and walks live every position the library compiles,
+		// so the backstops never fire.
+		if slices.ContainsFunc(issues, func(is Issue) bool {
+			return is.Message == msgPanicked || is.Message == msgUnwalked || is.Message == msgUnlisted
+		}) {
+			t.Fatalf("a backstop of the compile fired: %+v", issues)
+		}
+		if doc != nil {
+			a, b := newWalker(doc), newWalker(doc)
+			a.walk()
+			b.walk()
+			if !slices.Equal(a.positions, b.positions) || !slices.Equal(a.checkOrder, b.checkOrder) || !slices.Equal(a.issues, b.issues) || !maps.Equal(a.seen, b.seen) {
+				t.Fatalf("two walks differ: %+v and %+v", a.issues, b.issues)
+			}
+		}
+		if doc != nil && (!eng.frozen || eng.cache != nil) {
+			t.Fatalf("after the compile the regexp engine is frozen %v with cache %v", eng.frozen, eng.cache)
+		}
+		calls := eng.calls.Load()
 		if (s == nil) == (len(issues) == 0) || len(issues) > MaxIssues {
 			t.Fatalf("compile = %v, %d issues", s, len(issues))
 		}
@@ -117,6 +214,9 @@ func FuzzCompileSchema(f *testing.F) {
 		if s != nil {
 			for _, b := range []string{`{}`, `[1,"a"]`, `"x"`, `5`, `{"price":19.99}`} {
 				_, _ = s.Validate(decodeInstance(t, b))
+			}
+			if n := eng.calls.Load() - calls; n > 0 {
+				t.Fatalf("validation called the regexp engine %d times", n)
 			}
 		}
 	})

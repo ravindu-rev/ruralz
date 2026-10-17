@@ -81,8 +81,9 @@ func TestScaleLinear(t *testing.T) {
 }
 
 // TestScaleNewerFindings: content with tens of thousands of unknown
-// members in one keyed list entry reports each once with its key-aware
-// path; the entry's key is read once, not once per finding.
+// members in one keyed list entry reports the first 10,000 with their
+// key-aware path and one RZ-CFG-001 (01 req 50); the entry's key is read
+// once, not once per finding.
 func TestScaleNewerFindings(t *testing.T) {
 	var b strings.Builder
 	// The key member comes last, so finding it scans the whole entry.
@@ -94,7 +95,13 @@ func TestScaleNewerFindings(t *testing.T) {
 	b.WriteString(`"address":"a:1"}]}}`)
 	err := decodeErr(t, doc(b.String()))
 	ds := DiagnosticsOf(err)
-	if codeOf(err) != CodeNewer || len(ds) != n || ds[0].Path.String() != "spec.endpoints[address=a:1].x100000" {
+	if codeOf(err) != CodeNewer || len(ds) != DefaultMaxDiagnostics+1 || ds[0].Path.String() != "spec.endpoints[address=a:1].x100000" {
 		t.Fatalf("%d diagnostics, first %v", len(ds), ds[0])
+	}
+	if last := ds[DefaultMaxDiagnostics-1]; last.Path.String() != "spec.endpoints[address=a:1].x"+strconv.Itoa(100000+DefaultMaxDiagnostics-1) {
+		t.Errorf("last kept finding at %s", last.Path)
+	}
+	if tail := ds[DefaultMaxDiagnostics]; tail.Code != CodeTooMany || tail.Message != "too many diagnostics; stopped after 10000" {
+		t.Errorf("last diagnostic = %+v, want RZ-CFG-001", tail)
 	}
 }

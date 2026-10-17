@@ -57,6 +57,12 @@ func TestValidateKeywordLocation(t *testing.T) {
 		// 2020-12 and names it "dependency" in its errors.
 		{"dependencies array", `{"dependencies":{"a":["b"]}}`, `{"a":1}`, "/dependencies/a"},
 		{"dependencies schema", `{"dependencies":{"a":{"required":["b"]}}}`, `{"a":1}`, "/dependencies/a/required"},
+		// It keeps the draft 2019-09 $recursiveRef too, enforced statically
+		// as $ref is, since no compiled schema may have a $recursiveAnchor
+		// of true (audit class GC-01, row CMP-37; doc.go); a string
+		// $recursiveAnchor changes nothing.
+		{"recursive reference", `{"$recursiveRef":"#/x","x":{"type":"string"}}`, `5`, "/x/type"},
+		{"recursive reference to the root", `{"$recursiveAnchor":"a","items":{"$recursiveRef":"#"},"type":"array","maxItems":1}`, `[[1,2]]`, "/maxItems"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			s := mustCompile(t, tc.schema)

@@ -43,3 +43,16 @@ Lead items, no user decision: WP-70 treats an uncoded `Factory.Build` error as i
 17. WP-51: no restricted profile. Every keyword and mechanism jsonschema/v6 acts on under draft 2020-12, including the older-draft keywords it still enforces (`dependencies`, `$recursiveRef`, `$recursiveAnchor`), must be bounded and tested. Method: a complete audit of the library (`m1-wp51-audit.js`, output `wp51-library-audit.md`), then one fix pass over every gap class with a test per case, then review rounds until zero findings; the post-fix8 state (`runs/wp51-postfix8.patch`) is the starting point.
 18. Order: WP-51; then the minor findings deferred in WP-35 to WP-39; then WP-33 rebuilt with the hand-written parser (C2), which needs ADR-0020 and the `go.mod` change.
 19. The wave-1 and wave-2 packages get a fresh review under the quality standard before M1 integration (the per-item list of the 28 wave-2 skips was not kept).
+
+## Decisions on 2026-10-16 (WP-51 audit gap classes, closing S2)
+
+From the library audit's section 4.2 (`wp51-library-audit.md`, run `wf_38c64070-bc2`), answered by the user; recorded as architecture R-77 and in spec 07 reqs 75 and 80:
+
+20. GC-03 and GC-09: one walk-time compile budget of 1 MiB (pointer and URL bytes times their uses, plus count products such as resources x positions and anchors x dynamic anchors), refused with RZ-CFG-005 at the member, value, reference or `$id` that crosses it.
+21. GC-04: non-canonical JSON Pointer array indexes in references (`00`, `+0`, `-0`) are accepted as aliases, as the library accepts them; WP-51 keys its repeat counts and seen sets by the decoded value instead of the pointer string, so aliases cannot escape the bounds.
+22. GC-05: values of the eight integer keywords above 2^63-1 are clamped to 2^63-1 in a compiled copy of the document (equivalent for every body WP-51 accepts); `Raw` and the digest stay unchanged, and doc.go notes it. Model fields keep presence apart from the value, so no compiled value aliases a sentinel.
+23. GC-15 with GC-11: the stack charge gets an absolute ceiling of 128 MiB per request (an eighth of Go's 1 GB maximum), regexp `add()` depth included, answered with 413 `RZ-RT-003` above it.
+24. GC-02, GC-07, GC-11 and GC-20: the main fixes, with no new refusals: the walk mirrors exactly what the library compiles, with which base and in which order; anchor-name bytes and the decision wrapper's frames are charged; regexp `add()` depth is charged; the `propertyNames` dynamic-scope deviation is documented and tested.
+25. GC-19: `config.schema` is decoded with the configuration's own depth limit, not a separate 64-level rule.
+26. Scope of this pass, given with the user's typed go-ahead "add solid fixes/implementations until s2 is completed. including the previous gaps etc.": every audit gap class, round 9's four findings and eight minors (including minors 2 and 4, which no class covers), then the deferred minor findings of WP-35 to WP-39 (WP-35 and WP-36 included, so only WP-33's rebuild keeps S1 open), each package reviewed until a fresh review reports zero findings. WP-33's rebuild waits for ADR-0020.
+

@@ -206,7 +206,7 @@ func TestWordingHelpers(t *testing.T) {
 	if got := knownPos(&tree.Node{}, parent); got != parent.Pos {
 		t.Errorf("knownPos(unknown, parent) = %v", got)
 	}
-	m := newMapper(testView(t), &tree.Resource{}, nil, MaxDiagnostics)
+	m := newMapper(testView(t), &tree.Resource{}, nil, MaxDiagnostics, Options{})
 	if got := m.location(tree.Pos{}); got.Line != 0 || got.File != "" {
 		t.Errorf("location(unknown) = %+v", got)
 	}
@@ -217,7 +217,7 @@ func TestWordingHelpers(t *testing.T) {
 
 // TestTypeMismatch covers the branch classification of anyOf and oneOf.
 func TestTypeMismatch(t *testing.T) {
-	m := newMapper(testView(t), &tree.Resource{}, nil, MaxDiagnostics)
+	m := newMapper(testView(t), &tree.Resource{}, nil, MaxDiagnostics, Options{})
 	typeErr := &jsonschema.ValidationError{InstanceLocation: []string{"a"}, ErrorKind: &kind.Type{Got: "boolean", Want: []string{"integer"}}}
 	for _, tc := range []struct {
 		name string

@@ -32,7 +32,7 @@ import (
 // of the object it was added to, so a diagnostic on it points at the
 // parent. Authored values are kept, so a second call adds nothing.
 func Materialize(idx *schemaidx.Index, reg *registry.Registry, res *tree.Resource) int {
-	return materialize(idx, reg, res, newWork(nil))
+	return materialize(idx, reg, res, newWork())
 }
 
 // materialize is Materialize on worker w, which counts the nodes visited
@@ -66,14 +66,14 @@ func (m *materializer) visit(n *tree.Node, s *schemaidx.Node) {
 	m.w.tick()
 	switch n.Kind {
 	case tree.KindMap:
-		sel := s.Select(n)
+		sel := m.w.selectSchema(s, n)
 		if sel.Def() == defJSONSchemaDocument {
 			return
 		}
 		if m.defaults(n, sel) {
 			// A default on a dispatch member would select other
 			// branches; the generator emits none, but follow it anyway.
-			sel = s.Select(n)
+			sel = m.w.selectSchema(s, n)
 		}
 		for i := range n.Members {
 			m.visit(n.Members[i].Value, memberSchema(sel, n.Members[i].Key))
@@ -89,17 +89,20 @@ func (m *materializer) visit(n *tree.Node, s *schemaidx.Node) {
 
 // defaults adds the declared defaults n lacks and reports whether it added
 // any. The members present are indexed once for a large object, so the
-// cost stays linear in its size.
+// cost stays linear in its size; w counts the members and the bytes of
+// their names, which the index hashes.
 func (m *materializer) defaults(n *tree.Node, sel *schemaidx.Node) bool {
 	var present map[string]struct{}
 	has := func(name string) bool {
 		if len(n.Members) <= smallObject {
-			_, ok := n.Get(name)
+			_, ok := m.w.get(n, name)
 			return ok
 		}
 		if present == nil {
+			m.w.charge(len(n.Members))
 			present = make(map[string]struct{}, len(n.Members))
 			for _, mem := range n.Members {
+				m.w.charge(len(mem.Key))
 				present[mem.Key] = struct{}{}
 			}
 		}
@@ -128,23 +131,25 @@ const smallObject = 16
 
 // registryDefaults writes the registry defaults into a Policy's spec (02 req
 // 12). A spec that is not an object, or whose type is not a registered
-// type string, is left to the schema's diagnostics.
+// type string, is left to the schema's diagnostics; a nil spec, type or
+// name is a null, which Normalize reports.
 func (m *materializer) registryDefaults(reg *registry.Registry, res *tree.Resource) {
-	spec, ok := res.Root.Get("spec")
-	if !ok || spec.Kind != tree.KindMap {
+	spec, ok := m.w.get(res.Root, "spec")
+	if !ok || spec == nil || spec.Kind != tree.KindMap {
 		return
 	}
-	typ, ok := spec.Get("type")
-	if !ok || typ.Kind != tree.KindString {
+	typ, ok := m.w.get(spec, "type")
+	if !ok || typ == nil || typ.Kind != tree.KindString {
 		return
 	}
+	m.w.charge(len(typ.Text))
 	e, ok := reg.Lookup(v1alpha1.PolicyType(typ.Text))
 	if !ok {
 		return
 	}
 	name := res.ID.Name
-	if meta, ok := res.Root.Get("metadata"); ok {
-		if n, ok := meta.Get("name"); ok && n.Kind == tree.KindString {
+	if meta, ok := m.w.get(res.Root, "metadata"); ok {
+		if n, ok := m.w.get(meta, "name"); ok && n != nil && n.Kind == tree.KindString {
 			name = n.Text
 		}
 	}
@@ -157,7 +162,7 @@ func (m *materializer) registryDefaults(reg *registry.Registry, res *tree.Resour
 		if kv.value == "" {
 			continue
 		}
-		if _, ok := spec.Get(kv.key); ok {
+		if _, ok := m.w.get(spec, kv.key); ok {
 			continue
 		}
 		spec.Members = append(spec.Members, tree.Member{

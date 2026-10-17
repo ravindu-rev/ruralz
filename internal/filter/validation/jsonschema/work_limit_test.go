@@ -9,7 +9,10 @@ import (
 	"fmt"
 	"math"
 	"math/big"
+	"math/rand/v2"
+	"reflect"
 	"runtime"
+	"runtime/debug"
 	"slices"
 	"strings"
 	"testing"
@@ -242,6 +245,15 @@ func TestWorkCharges(t *testing.T) {
 			"dynamic reference", `{"$dynamicAnchor":"n","items":{"$dynamicRef":"#n"}}`, `[1]`,
 			evalUnits + scopeUnits + scopeUnits +
 				kw + evalUnits + 3*locationUnits + 2*2*scopeUnits + 2*3*scopeUnits,
+		},
+		{
+			// Audit class GC-01 (rows VAL-47, REFS-32, REFS-34): a
+			// $recursiveRef is one evaluation and an in-place edge, as a $ref
+			// is, its cycle check walking its chain of two at the value, and
+			// never the whole dynamic scope, which only a $recursiveAnchor of
+			// true, refused at compile, would make it walk.
+			"recursive reference", `{"$recursiveRef":"#/$defs/s","$defs":{"s":{"type":"string"}}}`, `"abc"`,
+			2*kw + 2*2*scopeUnits + 2*3*copyUnits,
 		},
 		{
 			"unevaluated names", `{"unevaluatedProperties":true}`, `{"a":1}`,
@@ -571,19 +583,24 @@ func TestHandleWorkBound(t *testing.T) {
 const lineSchema = `{"type":"array","items":{"type":"object","required":["sku","qty"],"properties":{"sku":{"type":"string","minLength":1},` +
 	`"qty":{"type":"integer","minimum":1,"maximum":1000},"price":{"type":"number","exclusiveMinimum":0}}}}`
 
-// TestHandleAcceptsLargeBodies is the regression test of the review
-// findings that valid ordinary bodies were refused far inside the raw
-// limit (architecture R-63 and R-77: typical records fit up to about 70 to
-// 84% of the limit; 07 reqs 13, 15 and 80): through Factory.Build and
-// Handle at the 10 MiB default, an order-item array at 80% of the limit
-// and a line-item array at 69% pass, the decoded values (about 4.9 and 5.7
-// times the body) being what limits them, within the reservation limit; a
-// long string under a pattern, a base64-class string and an array of enum
-// values pass too. A valid body reserves the decoded values, with the
-// bytes their maps, arrays and strings hold beyond the decoder's charge
+// TestHandleAcceptsLargeBodies is the regression test of the review findings
+// that valid ordinary bodies were refused far inside the raw limit
+// (architecture R-63 and R-77: typical records fit up to about 70 to 84% of
+// the limit; 07 reqs 13, 15 and 80): through Factory.Build and Handle at the
+// 10 MiB default, an order-item array at 80% of the limit and a line-item
+// array at 69% pass, the decoded values (about 4.9 and 5.7 times the body)
+// being what limits them, within the reservation limit; a long string under
+// a pattern, a base64-class string and an array of enum values pass too. A
+// valid body reserves the decoded values, with the bytes their maps, arrays
+// and strings hold beyond the decoder's charge
 // (TestHandleReservesDecodedMaps), and the decision pass's working set,
-// never the location pass's, and at most two and a half times the heap
-// Handle holds at its peak; work is never reserved.
+// never the location pass's, and at most two and a half times the live heap
+// at Handle's peak, measured at the reservation and at the probes and
+// matches heapMeter spreads over the decision pass to its end (audit class
+// GC-08; the sampled heap in use it replaces counted the garbage of the
+// decode and of validation), four and a half times for the enum values, each
+// of which the decision pass is charged an error it may hold, 104 bytes
+// against its 7; work is never reserved.
 func TestHandleAcceptsLargeBodies(t *testing.T) {
 	enum := make([]string, 600)
 	for i := range enum {
@@ -598,61 +615,55 @@ func TestHandleAcceptsLargeBodies(t *testing.T) {
 	for _, tc := range []struct {
 		name, schema, body string
 		fraction           float64
+		// most is the largest reservation allowed, in times the live heap
+		// at Handle's peak.
+		most float64
 	}{
-		{"order items", recordsSchema, records(171000 / scale), 0.79},
-		{"line items", lineSchema, denseArray(176000/scale, `{"sku":"ABC-12345","qty":2,"price":9.99}`, 0), 0.68},
-		{"long string under a pattern", `{"type":"string","pattern":"^a"}`, `"` + strings.Repeat("a", 7<<20/scale) + `"`, 0.7},
-		{"long string under a character class", `{"type":"string","pattern":"^[A-Za-z0-9+/]*={0,2}$"}`, `"` + strings.Repeat("QUJD", 2<<20/scale) + `"`, 0.8},
-		{"array of enum values", `{"type":"array","items":{"enum":[` + strings.Join(enum, ",") + `]}}`, denseArray(100000/scale, `"v599"`, 0), 0.06},
+		{"order items", recordsSchema, records(171000 / scale), 0.79, 2.5},
+		{"line items", lineSchema, denseArray(176000/scale, `{"sku":"ABC-12345","qty":2,"price":9.99}`, 0), 0.68, 2.5},
+		{"long string under a pattern", `{"type":"string","pattern":"^a"}`, `"` + strings.Repeat("a", 7<<20/scale) + `"`, 0.7, 2.5},
+		{"long string under a character class", `{"type":"string","pattern":"^[A-Za-z0-9+/]*={0,2}$"}`, `"` + strings.Repeat("QUJD", 2<<20/scale) + `"`, 0.8, 2.5},
+		{"array of enum values", `{"type":"array","items":{"enum":[` + strings.Join(enum, ",") + `]}}`, denseArray(100000/scale, `"v599"`, 0), 0.06, 4.5},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			if got := float64(len(tc.body)) / float64(limit); got < tc.fraction {
 				t.Fatalf("body is %.2f of the limit, want at least %.2f", got, tc.fraction)
 			}
 			f := buildFilter(t, tc.schema, raw)
-			x, _ := exchange("application/json", []byte(tc.body))
-			px := &peakExchange{Exchange: x}
-			var r filter.Result
-			peak := peakHeap(func() any { r = f.Handle(t.Context(), phase.OnRequestBody, px); return r })
+			m := &heapMeter{}
+			r, reserved := handlePeak(t, f, tc.schema, tc.body, m)
 			if r.Outcome != filter.Continue {
 				t.Fatalf("Handle = %+v, want Continue", r)
 			}
 			_, scan := scanBody(t, f.schema, tc.body)
-			t.Logf("body %d bytes: reserved %d, peak %.0f, work %d of %d", len(tc.body), px.peak, peak, scan.work, f.limits.work)
-			// The sampled peak follows the collector's pacing: under load it
-			// may miss part of the live heap (minor review finding), hence
-			// two and a half times.
-			if float64(px.peak) > 2.5*peak+gcSlack {
-				t.Errorf("reserved %d, more than two and a half times the peak %.0f", px.peak, peak)
+			peak := m.peak()
+			t.Logf("body %d bytes: reserved %d, live peak %d (%.2f), work %d of %d", len(tc.body), reserved, peak, float64(reserved)/float64(peak), scan.work, f.limits.work)
+			if float64(reserved) > tc.most*float64(peak) {
+				t.Errorf("reserved %d, more than %.1f times the live peak %d", reserved, tc.most, peak)
 			}
-			if _, cost, _ := f.decode([]byte(tc.body)); px.peak != cost+scan.extra+scan.decideMemory() {
-				t.Errorf("reserved %d, want the decoded values %d, their maps and arrays %d and the decision pass's working set %d", px.peak, cost, scan.extra, scan.decideMemory())
-			}
-			if x.Budget.Reserved != 0 {
-				t.Errorf("reservation left: %d", x.Budget.Reserved)
+			if _, cost, _ := f.decode([]byte(tc.body)); reserved != cost+scan.extra+scan.decideMemory() {
+				t.Errorf("reserved %d, want the decoded values %d, their maps and arrays %d and the decision pass's working set %d", reserved, cost, scan.extra, scan.decideMemory())
 			}
 		})
 	}
 }
 
-// TestHandleReservesDecodedMaps is the regression test of the review
-// finding that the decoded values were reserved at the decoder's cost,
-// which leaves out the hash table of every object (internal/jsonval
-// charges a one-member object 80 bytes; it holds 336) and the spare
-// capacity of every array: through Factory.Build and Handle at the 10 MiB
-// default, valid arrays of one-, two- and nine-member objects and of
-// five-item arrays, and one wide object, at about a quarter of the limit,
-// held up to 3.8 times what Handle reserved (07 req 82, architecture R-63,
-// filter.Exchange.Reserve). The reservation now covers the decoded tree,
-// measured exactly after a collection; for the arrays the heap at
-// Handle's peak stays within it but for the collector's pacing and its
-// spans' free slots (peakHeap collects at 10% growth; measured up to 1.22
-// times, and the sampler under load up to 1.41, so the check allows 1.6).
-// A wide object's map leaves the tables it outgrew to the collector while
-// the decoder builds it, before anything is reserved, so only its decoded
-// tree is compared, as for an array of 33-byte strings, whose backing
-// array, large next to its strings, the decoder outgrows several times;
-// strings are charged their allocation size class.
+// TestHandleReservesDecodedMaps is the regression test of the review finding
+// that the decoded values were reserved at the decoder's cost, which leaves
+// out the hash table of every object (internal/jsonval charges a one-member
+// object 80 bytes; it holds 336) and the spare capacity of every array:
+// through Factory.Build and Handle at the 10 MiB default, valid arrays of
+// one-, two- and nine-member objects and of five-item arrays, and one wide
+// object, at about a quarter of the limit, held up to 3.8 times what Handle
+// reserved (07 req 82, architecture R-63, filter.Exchange.Reserve). The
+// reservation now covers the decoded tree, measured after a collection, and
+// the live heap at Handle's peak, measured at the reservation and at the
+// probes of the decision pass, both but for heapNoise (heapMeter, audit
+// class GC-08: the sampled heap in use this replaces counted the tables a
+// wide object's map outgrew and the arrays the decoder outgrew, garbage
+// before anything is reserved, and reached 1.41 times the reservation under
+// load); strings are charged their allocation size class, or below 16 bytes
+// their share of the allocator's blocks (TestTinyBlocks).
 func TestHandleReservesDecodedMaps(t *testing.T) {
 	limit, scale, raw := int64(10<<20), 1, int64(0)
 	if raceEnabled {
@@ -662,59 +673,53 @@ func TestHandleReservesDecodedMaps(t *testing.T) {
 	for _, tc := range []struct {
 		name, schema, body string
 		fraction           float64
-		peak               bool
 	}{
 		// Arrays of one-member objects hold 47 times their bytes decoded:
 		// the reservation limit binds at about a quarter of the raw limit
 		// (TestHandleReservationLimit).
-		{"one member", `{"type":"array","items":{"type":"object"}}`, denseArray(320000/scale, `{"a":1}`, 0), 0.24, true},
-		{"one typed member", `{"type":"array","items":{"type":"object","properties":{"a":{"type":"integer"}}}}`, denseArray(320000/scale, `{"a":1}`, 0), 0.24, true},
-		{"two members", `{"type":"array","items":{"type":"object","required":["id","ok"],"properties":{"id":{"type":"integer"},"ok":{"type":"boolean"}}}}`, denseArray(150000/scale, `{"id":7,"ok":true}`, 0), 0.25, true},
-		{"nine members", `{"type":"array","items":{"type":"object"}}`, denseArray(50000/scale, nine, 0), 0.25, true},
-		{"five items", `{"type":"array","items":{"type":"array"}}`, denseArray(150000/scale, `[1,2,3,4,5]`, 0), 0.15, true},
+		{"one member", `{"type":"array","items":{"type":"object"}}`, denseArray(320000/scale, `{"a":1}`, 0), 0.24},
+		{"one typed member", `{"type":"array","items":{"type":"object","properties":{"a":{"type":"integer"}}}}`, denseArray(320000/scale, `{"a":1}`, 0), 0.24},
+		{"two members", `{"type":"array","items":{"type":"object","required":["id","ok"],"properties":{"id":{"type":"integer"},"ok":{"type":"boolean"}}}}`, denseArray(150000/scale, `{"id":7,"ok":true}`, 0), 0.25},
+		{"nine members", `{"type":"array","items":{"type":"object"}}`, denseArray(50000/scale, nine, 0), 0.25},
+		{"five items", `{"type":"array","items":{"type":"array"}}`, denseArray(150000/scale, `[1,2,3,4,5]`, 0), 0.15},
 		// Strings of 33 bytes take the 48-byte size class.
-		{"strings", `{"type":"array","items":{"type":"string"}}`, denseArray(80000/scale, `"`+strings.Repeat("s", 33)+`"`, 0), 0.25, false},
+		{"strings", `{"type":"array","items":{"type":"string"}}`, denseArray(80000/scale, `"`+strings.Repeat("s", 33)+`"`, 0), 0.25},
 		// Minor review finding: member names of 1,025 bytes take the
 		// 1,152-byte size class.
-		{"long member names", `{"type":"array","items":{"type":"object"}}`, denseArray(2000/scale, `{"`+strings.Repeat("n", 1025)+`":1}`, 0), 0.19, false},
-		{"one wide object", `{"type":"object"}`, wideObject(250000 / scale), 0.2, false},
+		{"long member names", `{"type":"array","items":{"type":"object"}}`, denseArray(2000/scale, `{"`+strings.Repeat("n", 1025)+`":1}`, 0), 0.19},
+		{"one wide object", `{"type":"object"}`, wideObject(250000 / scale), 0.2},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			if got := float64(len(tc.body)) / float64(limit); got < tc.fraction {
 				t.Fatalf("body is %.2f of the limit, want at least %.2f", got, tc.fraction)
 			}
 			f := buildFilter(t, tc.schema, raw)
-			body := []byte(tc.body)
-			x, _ := exchange("application/json", body)
-			px := &peakExchange{Exchange: x}
-			var r filter.Result
-			peak := peakHeap(func() any { r = f.Handle(t.Context(), phase.OnRequestBody, px); return r })
+			m := &heapMeter{}
+			r, reserved := handlePeak(t, f, tc.schema, tc.body, m)
 			if r.Outcome != filter.Continue {
 				t.Fatalf("Handle = %+v, want Continue", r)
 			}
-			var before, after runtime.MemStats
-			runtime.GC()
-			runtime.ReadMemStats(&before)
-			v, cost, err := f.decode(body)
-			runtime.GC()
-			runtime.ReadMemStats(&after)
+			base := liveHeap()
+			v, cost, err := f.decode([]byte(tc.body))
+			live := growth(liveHeap(), base)
 			runtime.KeepAlive(v)
 			if err != nil {
 				t.Fatal(err)
 			}
-			live := growth(after.HeapAlloc, before.HeapAlloc)
 			_, scan := scanBody(t, f.schema, tc.body)
+			peak := m.peak()
 			if raceEnabled {
 				// The race detector turns off the allocator's packing of
 				// small strings: each takes a size class of its own.
-				live -= 16 * shortStrings(v)
+				live -= raceTinyBytes(v)
+				peak -= raceTinyBytes(v)
 			}
-			t.Logf("decoded tree %d, charged %d and %d for its maps, arrays and strings; reserved %d, peak %.0f (%.2f)", live, cost, scan.extra, px.peak, peak, peak/float64(px.peak))
-			if live > cost+scan.extra {
+			t.Logf("decoded tree %d, charged %d and %d for its maps, arrays and strings; reserved %d, live peak %d (%.2f)", live, cost, scan.extra, reserved, peak, float64(peak)/float64(reserved))
+			if exceeds(live, cost+scan.extra) {
 				t.Errorf("the decoded tree holds %d bytes, Handle reserves %d for it", live, cost+scan.extra)
 			}
-			if tc.peak && peak > 1.6*float64(px.peak)+gcSlack {
-				t.Errorf("Handle held %.0f bytes at its peak, reserved %d", peak, px.peak)
+			if exceeds(peak, reserved) {
+				t.Errorf("Handle held %d bytes at its peak, reserved %d", peak, reserved)
 			}
 		})
 	}
@@ -728,8 +733,12 @@ func TestHandleReservesDecodedMaps(t *testing.T) {
 			t.Errorf("mapExtra(%d) = %d, want %d", tc.n, got, tc.want)
 		}
 	}
-	// A string: its size class from 16 bytes, whole pages past 32 KiB.
-	for _, tc := range []struct{ n, want int64 }{{0, 0}, {15, 0}, {16, 0}, {17, 7}, {33, 15}, {32 << 10, 0}, {32<<10 + 1, 8<<10 - 1}} {
+	// A string: of one byte nothing more, then up to 15 bytes twice its
+	// bytes up to a whole tiny block (TestTinyBlocks), from 16 bytes its
+	// size class, whole pages past 32 KiB.
+	for _, tc := range []struct{ n, want int64 }{
+		{0, 0}, {1, 0}, {2, 2}, {5, 5}, {8, 8}, {9, 7}, {15, 1}, {16, 0}, {17, 7}, {33, 15}, {32 << 10, 0}, {32<<10 + 1, 8<<10 - 1},
+	} {
 		if got := stringExtra(tc.n); got != tc.want {
 			t.Errorf("stringExtra(%d) = %d, want %d", tc.n, got, tc.want)
 		}
@@ -743,29 +752,229 @@ func TestHandleReservesDecodedMaps(t *testing.T) {
 	}
 }
 
-// shortStrings counts the strings, member names and number literals of v
-// shorter than 16 bytes.
-func shortStrings(v any) int64 {
+// raceTinyBytes returns what a -race build's allocator adds to the decoded
+// strings, member names and number literals of v beyond their charge: it
+// gives every allocation shorter than 16 bytes a block of its own, the
+// runtime's static one-byte strings aside.
+func raceTinyBytes(v any) int64 {
+	var n int64
+	eachString(v, func(size int) {
+		if size > 1 && size < tinyBlockBytes {
+			n += tinyBlockBytes - int64(size) - stringExtra(int64(size))
+		}
+	})
+	return n
+}
+
+// eachString calls f with the length of every string, member name and
+// number literal of v.
+func eachString(v any, f func(size int)) {
 	switch t := v.(type) {
 	case string:
-		return int64(min(len(t)/16, 1) ^ 1)
+		f(len(t))
 	case json.Number:
-		return int64(min(len(t)/16, 1) ^ 1)
+		f(len(t))
 	case []any:
-		n := int64(0)
 		for _, e := range t {
-			n += shortStrings(e)
+			eachString(e, f)
 		}
-		return n
 	case map[string]any:
-		n := int64(0)
 		for k, e := range t {
-			n += int64(min(len(k)/16, 1)^1) + shortStrings(e)
+			f(len(k))
+			eachString(e, f)
 		}
-		return n
-	default:
-		return 0
 	}
+}
+
+// tinyBlocks replays the allocator's tiny allocator (runtime mallocgcTiny
+// in Go 1.26 and 1.27, without -race) on allocations of sizes: each is
+// aligned to 8, 4 or 2 bytes when its size is a multiple of them and
+// placed in the current 16-byte block when it fits there, else in a new
+// block, which becomes the current one when it has more room left. It
+// returns the bytes each block holds and the current block's index.
+func tinyBlocks(sizes []int) (blocks []int, current int) {
+	current = -1
+	offset := 0
+	for _, size := range sizes {
+		align := 1
+		switch {
+		case size%8 == 0:
+			align = 8
+		case size%4 == 0:
+			align = 4
+		case size%2 == 0:
+			align = 2
+		}
+		at := (offset + align - 1) / align * align
+		if current >= 0 && at+size <= tinyBlockBytes {
+			blocks[current] += size
+			offset = at + size
+			continue
+		}
+		blocks = append(blocks, size)
+		if current < 0 || size < offset {
+			current, offset = len(blocks)-1, size
+		}
+	}
+	return blocks, current
+}
+
+// TestTinyBlocks covers the charge of a decoded string, member name or
+// number literal shorter than 16 bytes (review finding, audit class GC-08:
+// charged its bytes alone, an array of 9-byte strings, each alone in its
+// tiny block, held more than its reservation). A one-byte string takes
+// nothing, being static. Every block the tiny allocator leaves holds at
+// least tinyBlockFill bytes of allocations of 2 bytes or more, for every
+// sequence of up to five sizes and for random longer ones, the fewest in a
+// block that holds a 2-, 4- and 2-byte allocation before a 7-byte one
+// needs a block of its own; so a string is charged at most its own block
+// or twice its bytes, and every block but the current one is charged
+// whole.
+//
+// The allocator itself, for strings of every such length, alone and in
+// the sequences that leave the most room unused, built as the decoder
+// builds them: the blocks their bytes lie in, counted by address, are the
+// replica's but for tinyApart, and are charged; the live heap they add
+// holds nothing besides those blocks, but for heapNoise (audit class
+// GC-08: measured as a live heap growth beside the charge, with no
+// allowance, a thread the scheduler started under load failed the test).
+func TestTinyBlocks(t *testing.T) {
+	least, at := tinyBlockBytes, []int(nil)
+	check := func(sizes []int) {
+		blocks, current := tinyBlocks(sizes)
+		for i, b := range blocks {
+			if i != current && b < least {
+				least, at = b, slices.Clone(sizes)
+			}
+		}
+	}
+	var sizes []int
+	var all func(depth int)
+	all = func(depth int) {
+		if depth == 0 {
+			return
+		}
+		for size := 2; size < tinyBlockBytes; size++ {
+			sizes = append(sizes, size)
+			check(sizes)
+			all(depth - 1)
+			sizes = sizes[:len(sizes)-1]
+		}
+	}
+	all(5)
+	rng := rand.New(rand.NewPCG(5, 6)) //nolint:gosec // G404: fixed-seed sequences make the test deterministic; nothing here is secret.
+	for range 20000 {
+		sizes = sizes[:0]
+		for range 1 + rng.IntN(60) {
+			sizes = append(sizes, 2+rng.IntN(tinyBlockBytes-2))
+		}
+		check(sizes)
+	}
+	if least != tinyBlockFill || !slices.Equal(at, []int{2, 4, 2, 7}) {
+		t.Errorf("the fewest bytes a block left holds: %d after %v, want %d after [2 4 2 7]", least, at, tinyBlockFill)
+	}
+	// With one-byte allocations, which strings never make, a block could
+	// be left holding 6 bytes.
+	if blocks, current := tinyBlocks([]int{1, 4, 1, 8}); current != 1 || blocks[0] != 6 {
+		t.Errorf("tinyBlocks(1, 4, 1, 8) = %v, current %d, want the first block left with 6 bytes", blocks, current)
+	}
+	if raceEnabled {
+		t.Skip("the race detector gives every small allocation a block of its own")
+	}
+	for _, seq := range [][]int{
+		{1},
+		{2},
+		{3},
+		{4},
+		{5},
+		{6},
+		{7},
+		{8},
+		{9},
+		{10},
+		{11},
+		{12},
+		{13},
+		{14},
+		{15},
+		{2, 4, 2, 7},
+		{1, 4, 1, 8},
+		{9, 8},
+		{9, 2, 9},
+		{15, 2},
+		{10, 7},
+		{7, 10},
+		{3, 15},
+	} {
+		got := tinyCensus(seq)
+		t.Logf("%v: %d blocks, replica %d, live %d, charged %d (%.3f)", seq, got.blocks, got.replica, got.live, got.charged, float64(got.live)/float64(got.charged))
+		if whole := tinyBlockBytes * int64(max(got.replica-1, 0)); got.charged < whole {
+			t.Errorf("%v: %d strings charged %d, under the %d of the replica's blocks but the current one", seq, tinyStrings, got.charged, whole)
+		}
+		if got.blocks < got.replica-tinyApart || got.blocks > got.replica+tinyApart {
+			t.Errorf("%v: %d strings lie in %d blocks, the replica of the tiny allocator places them in %d", seq, tinyStrings, got.blocks, got.replica)
+		}
+		if got.statics > 1 {
+			t.Errorf("%v: the one-byte strings lie at %d addresses, want the one static byte", seq, got.statics)
+		}
+		if exceeds(got.live, tinyBlockBytes*int64(got.blocks)) {
+			t.Errorf("%v: %d strings added %d bytes to the live heap, their %d blocks hold %d", seq, tinyStrings, got.live, got.blocks, tinyBlockBytes*got.blocks)
+		}
+	}
+}
+
+// tinyStrings is how many strings tinyCensus builds, and tinyApart how
+// many blocks the allocator's may differ from the replica's by: the
+// allocator starts in its current block, which the replica does not know,
+// and when the scheduler moves the goroutine to another processor, or
+// runs another one that allocates small objects on its processor, the
+// strings go on in another block.
+const tinyStrings, tinyApart = 60000, 8
+
+// census is what tinyCensus measures: the 16-byte blocks the strings'
+// bytes lie in and the blocks the replica places them in, the addresses
+// of the one-byte strings, the live heap growth and the charge.
+type census struct {
+	blocks, replica, statics int
+	live, charged            int64
+}
+
+// tinyCensus builds tinyStrings strings of the lengths of seq in turn, as
+// the decoder builds them, with the collector off so that no collection
+// starts a new block, and measures them.
+func tinyCensus(seq []int) census {
+	var c census
+	src := []byte(strings.Repeat("s", tinyBlockBytes))
+	sizes, allocated := make([]int, tinyStrings), make([]int, 0, tinyStrings)
+	for i := range sizes {
+		sizes[i] = seq[i%len(seq)]
+		c.charged += int64(sizes[i]) + stringExtra(int64(sizes[i]))
+		if sizes[i] > 1 {
+			allocated = append(allocated, sizes[i])
+		}
+	}
+	replica, _ := tinyBlocks(allocated)
+	c.replica = len(replica)
+	keep := make([]string, tinyStrings)
+	gc := debug.SetGCPercent(-1)
+	base := liveHeap()
+	for i := range keep {
+		keep[i] = string(src[:sizes[i]])
+	}
+	c.live = growth(liveHeap(), base)
+	debug.SetGCPercent(gc)
+	runtime.KeepAlive(sizes)
+	runtime.KeepAlive(src)
+	blocks, statics := map[uintptr]bool{}, map[uintptr]bool{}
+	for _, s := range keep {
+		if p := reflect.ValueOf(s).Pointer(); len(s) == 1 {
+			statics[p] = true
+		} else {
+			blocks[p/tinyBlockBytes] = true
+		}
+	}
+	c.blocks, c.statics = len(blocks), len(statics)
+	return c
 }
 
 // TestWorkLimit covers the work limit (proposed): WorkPerByte work units

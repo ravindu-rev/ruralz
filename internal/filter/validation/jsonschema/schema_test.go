@@ -14,6 +14,8 @@ import (
 	"testing"
 	"unicode/utf8"
 
+	sjs "github.com/santhosh-tekuri/jsonschema/v6"
+
 	"github.com/ravindu-rev/ruralz/internal/filter"
 )
 
@@ -48,6 +50,12 @@ func TestCompileSchemaRefusesRemoteReferences(t *testing.T) {
 		{"meta-schema 2020-12", `{"$ref":"https://json-schema.org/draft/2020-12/schema"}`, "/$ref"},
 		{"meta-schema draft-07", `{"items":{"$ref":"http://json-schema.org/draft-07/schema#"}}`, "/items/$ref"},
 		{"relative to an embedded $id", `{"$defs":{"a":{"$id":"https://example.com/a/","$ref":"b.json"}}}`, "/$defs/a/$ref"},
+		// The library compiles $recursiveRef as a reference under draft
+		// 2020-12 (audit class GC-01, rows CMP-35, REFS-12, CX-03).
+		{"recursiveRef https", `{"$recursiveRef":"https://example.com/x"}`, "/$recursiveRef"},
+		{"recursiveRef file", `{"items":{"$recursiveRef":"file:///etc/passwd"}}`, "/items/$recursiveRef"},
+		{"recursiveRef meta-schema 2020-12", `{"$recursiveRef":"https://json-schema.org/draft/2020-12/schema"}`, "/$recursiveRef"},
+		{"recursiveRef meta-schema 2019-09", `{"$recursiveRef":"https://json-schema.org/draft/2019-09/schema"}`, "/$recursiveRef"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			spy := &spyLoader{}
@@ -84,7 +92,7 @@ func TestCompilerLoaderBackstop(t *testing.T) {
 	}
 	w.issues = nil
 	spy := &spyLoader{}
-	s, issues, _ := compileWalked(p, w, spy, nil)
+	s, issues, _ := compileWalked(p, w, spy, nil, newRegexpEngine())
 	if s != nil || len(spy.urls) != 1 {
 		t.Fatalf("compile = %v, loads %q, want one refused load", s, spy.urls)
 	}
@@ -116,6 +124,12 @@ func TestCompileSchemaFindings(t *testing.T) {
 		{"$schema not a string", `{"$schema":1}`, "/$schema", "$schema must be"},
 		{"custom meta-schema", `{"$schema":"https://example.com/meta"}`, "/$schema", "$schema must be"},
 		{"draft-07 resource behind a reference", `{"$ref":"#/x","x":{"$id":"urn:y","$schema":"http://json-schema.org/draft-07/schema#"}}`, "/x/$schema", "$schema must be"},
+		// A $recursiveRef target is walked as a $ref target (audit class
+		// GC-01, rows CMP-31, CMP-33): a $schema the library would load,
+		// and the other rules.
+		{"custom meta-schema behind a recursive reference", `{"$recursiveRef":"#/x","x":{"$id":"urn:y","$schema":"https://example.com/meta"}}`, "/x/$schema", "$schema must be"},
+		{"pattern behind a recursive reference", `{"$recursiveRef":"#/x","x":{"pattern":"(?=a)"}}`, "/x/pattern", "RE2"},
+		{"number behind a recursive reference", `{"$recursiveRef":"#/x","x":{"minimum":1e999999}}`, "/x/minimum", "out of range"},
 		{"look-ahead", `{"pattern":"(?=a)"}`, "/pattern", "RE2"},
 		{"back-reference", `{"properties":{"a":{"pattern":"(a)\\1"}}}`, "/properties/a/pattern", "RE2"},
 		{"look-behind in patternProperties", `{"patternProperties":{"(?<!x)y":true}}`, "/patternProperties/(?<!x)y", "RE2"},
@@ -180,7 +194,17 @@ func TestCompileSchemaAccepts(t *testing.T) {
 		{"recursive", `{"type":"object","properties":{"kids":{"type":"array","items":{"$ref":"#"}},"n":{"type":"integer"}}}`, `{"kids":[{"kids":[{"n":1}]}]}`, `{"kids":[{"n":"x"}]}`},
 		{"dynamic reference", `{"$dynamicAnchor":"node","type":"object","properties":{"next":{"$dynamicRef":"#node"}}}`, `{"next":{"next":{}}}`, `{"next":1}`},
 		{"format is an annotation", `{"format":"email"}`, `"not an email"`, ""},
+		// Every format is an annotation where the walk walks, the asserted
+		// format 'regex' included (audit class GC-21, rows VLU-41 and
+		// CMP-58): the inspector refuses only a format the library compiled
+		// as an assertion, never the keyword.
+		{"format regex is an annotation", `{"properties":{"a":{"format":"regex"}}}`, `{"a":"("}`, ""},
+		{"format uri is an annotation", `{"format":"uri"}`, `"::"`, ""},
+		{"format json-pointer is an annotation", `{"items":{"format":"json-pointer"}}`, `["x"]`, ""},
+		{"formats behind a reference are annotations", `{"$ref":"#/$defs/d","$defs":{"d":{"allOf":[{"format":"date-time"},{"format":"uuid"},{"format":"hostname"}]}}}`, `"-x-"`, ""},
+		{"unknown format", `{"format":"x-ruralz-unknown"}`, `"x"`, ""},
 		{"content is an annotation", `{"contentMediaType":"application/json","contentEncoding":"base64"}`, `"%%%"`, ""},
+		{"contentSchema is an annotation", `{"contentMediaType":"application/json","contentSchema":{"type":"integer"}}`, `"x"`, ""},
 		{"unknown keywords", `{"x-ruralz-ref":"Route","x-ruralz-secret":true,"foo":{"$ref":"https://example.com"},"type":"string"}`, `"x"`, `1`},
 		{"reference into an unknown keyword", `{"$ref":"#/components/s","components":{"s":{"type":"boolean"}}}`, `true`, `1`},
 		{"Go regexp", `{"pattern":"^\\p{Lu}[a-z]+$"}`, `"Ab"`, `"ab"`},
@@ -240,6 +264,12 @@ func TestFanOut(t *testing.T) {
 		{"if then else nested deeper", strings.Repeat(`{"if":{"type":"string"},"then":true,"else":`, 7) + `true` + strings.Repeat(`}`, 7), "/else"},
 		{"if true drops else", strings.Repeat(`{"if":true,"then":true,"else":`, 7) + `true` + strings.Repeat(`}`, 7), ""},
 		{"fan-out through a reference", `{"$defs":{"d":` + nestedAnyOf(10) + `},"allOf":[{"$ref":"#/$defs/d"},true]}`, "/allOf"},
+		// The inspection follows a $recursiveRef as a $ref (audit class
+		// GC-01, row REFS-34).
+		{"fan-out through a recursive reference", `{"$defs":{"d":` + nestedAnyOf(10) + `},"allOf":[{"$recursiveRef":"#/$defs/d"},true]}`, "/allOf"},
+		// And a $dynamicRef to its static target, the third member of
+		// referenceKeywords that edges loops over (audit class GC-01).
+		{"fan-out through a dynamic reference", `{"$defs":{"d":` + nestedAnyOf(10) + `},"allOf":[{"$dynamicRef":"#/$defs/d"},true]}`, "/allOf"},
 		{"recursive anyOf counted once", `{"$defs":{"t":{"anyOf":[{"type":"null"},{"items":{"$ref":"#/$defs/t"}},{"items":{"type":"string"}}]}},"$ref":"#/$defs/t"}`, ""},
 		{"unreferenced definition", `{"$defs":{"bomb":` + nestedAnyOf(11) + `}}`, "/$defs/bomb/anyOf"},
 		// Review finding: the fan-out of a path through a cycle does not
@@ -300,14 +330,13 @@ func wideCycle(root string) string {
 		`"a":{"anyOf":[{"properties":{"x":{"$ref":"#/$defs/b"}}},` + nestedAnyOf(9) + `]}}}`
 }
 
-// TestFanOutBound covers the upper bound the fan-out (07 req 75) takes
-// when the paths within a component of mutually referring schemas take
-// more than its step budget: the product of each schema's largest factor
-// and the largest fan-out leaving the component, which can only refuse
-// more.
-// Here a hub refers to three anyOf schemas of 32 branches whose only way
-// on is back to the hub: no path takes more than two of them (1,024, at
-// the bound), the upper bound all three.
+// TestFanOutBound covers the upper bound the fan-out (07 req 75) takes when
+// the paths within a component of mutually referring schemas take more than
+// its step budget: the product of each schema's largest factor and the
+// largest fan-out leaving the component, which can only refuse more. Here a
+// hub refers to three anyOf schemas of 32 branches whose only way on is back
+// to the hub: no path takes more than two of them (1,024, at the bound), the
+// upper bound all three.
 func TestFanOutBound(t *testing.T) {
 	branches := strings.TrimSuffix(strings.Repeat(`{"type":"null"},`, 31), ",")
 	schema := `{"$ref":"#/$defs/h","$defs":{"h":{"properties":{"a":{"$ref":"#/$defs/s1"},"b":{"$ref":"#/$defs/s2"},"c":{"$ref":"#/$defs/s3"}}},` +
@@ -496,10 +525,19 @@ func TestComparesNumbers(t *testing.T) {
 
 // TestInspectorBackstop skips the walk to prove the compiled-graph check
 // still refuses a bundled meta-schema and a non-2020-12 resource (07 req
-// 75).
+// 75), and checks that it refuses a format or content keyword compiled as
+// an assertion, each at its keyword, at every schema it visits (audit
+// class GC-21, row CC-01; 07 req 75 keeps them annotations): a compiled
+// schema gets the field injected, as the library sets it under a dialect
+// with the format-assertion vocabulary or of a draft before 2019-09, or
+// under AssertContent. The format message names no one cause (minor check
+// finding: it named the vocabulary for a draft-07 resource).
 func TestInspectorBackstop(t *testing.T) {
 	for _, tc := range []struct{ schema, ptr, msg string }{
 		{`{"properties":{"a":{"$ref":"https://json-schema.org/draft/2020-12/schema"}}}`, "/properties/a/$ref", "outside the schema document"},
+		// The library compiles the bundled meta-schema a $recursiveRef names
+		// too (audit class GC-01, rows REFS-25 and REFS-34).
+		{`{"properties":{"a":{"$recursiveRef":"https://json-schema.org/draft/2020-12/schema"}}}`, "/properties/a/$recursiveRef", "outside the schema document"},
 		{`{"$ref":"#/x","x":{"$id":"urn:y","$schema":"http://json-schema.org/draft-07/schema#"}}`, "/x", "not JSON Schema draft 2020-12"},
 	} {
 		p, issues := prepare([]byte(tc.schema))
@@ -512,10 +550,57 @@ func TestInspectorBackstop(t *testing.T) {
 			t.Fatalf("the walk passed %s", tc.schema)
 		}
 		w.issues = nil
-		s, issues, _ := compileWalked(p, w, refusingLoader{}, nil)
+		s, issues, _ := compileWalked(p, w, refusingLoader{}, nil, newRegexpEngine())
 		if s != nil || len(issues) == 0 || issues[0].Pointer != tc.ptr || !strings.Contains(issues[0].Message, tc.msg) {
 			t.Errorf("compile(%s) = %v, %+v, want a finding at %s", tc.schema, s, issues, tc.ptr)
 		}
+	}
+
+	const (
+		formatMsg  = "format is an annotation, but the library compiled it as an assertion under this schema's dialect; $schema must be https://json-schema.org/draft/2020-12/schema"
+		contentMsg = " is an annotation, but the library compiled it as an assertion"
+	)
+	format := func(s *sjs.Schema) { s.Format = &sjs.Format{Name: "email", Validate: func(any) error { return nil }} }
+	encoding := func(s *sjs.Schema) { s.ContentEncoding = &sjs.Decoder{Name: "base64"} }
+	mediaType := func(s *sjs.Schema) { s.ContentMediaType = &sjs.MediaType{Name: "application/json"} }
+	root := func(s *Schema) *sjs.Schema { return s.root }
+	member := func(s *Schema) *sjs.Schema { return s.root.Properties["a"] }
+	target := func(s *Schema) *sjs.Schema { return s.root.Ref }
+	for _, tc := range []struct {
+		name   string
+		at     func(*Schema) *sjs.Schema
+		inject func(*sjs.Schema)
+		want   []Issue
+	}{
+		{"format at the root", root, format, []Issue{{"/format", formatMsg}}},
+		{"format in a member", member, format, []Issue{{"/properties/a/format", formatMsg}}},
+		{"format behind a reference", target, format, []Issue{{"/$defs/d/format", formatMsg}}},
+		{"contentEncoding", root, encoding, []Issue{{"/contentEncoding", "contentEncoding" + contentMsg}}},
+		{"contentMediaType in a member", member, mediaType, []Issue{{"/properties/a/contentMediaType", "contentMediaType" + contentMsg}}},
+		{"contentSchema", root, func(s *sjs.Schema) { s.ContentSchema = s.Properties["a"] }, []Issue{{"/contentSchema", "contentSchema" + contentMsg}}},
+		{
+			"all four", member, func(s *sjs.Schema) { format(s); encoding(s); mediaType(s); s.ContentSchema = s },
+			[]Issue{
+				{"/properties/a/format", formatMsg},
+				{"/properties/a/contentEncoding", "contentEncoding" + contentMsg},
+				{"/properties/a/contentMediaType", "contentMediaType" + contentMsg},
+				{"/properties/a/contentSchema", "contentSchema" + contentMsg},
+			},
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			s := mustCompile(t, `{"$ref":"#/$defs/d","$defs":{"d":{"type":"string"}},"properties":{"a":{"type":"string"}}}`)
+			in := newInspector()
+			if in.visit(s.root, ""); len(in.issues) > 0 {
+				t.Fatalf("before the injection: %+v", in.issues)
+			}
+			tc.inject(tc.at(s))
+			in = newInspector()
+			in.visit(s.root, "")
+			if !slices.Equal(in.issues, tc.want) {
+				t.Errorf("issues = %+v, want %+v", in.issues, tc.want)
+			}
+		})
 	}
 }
 

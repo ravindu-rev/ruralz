@@ -12,6 +12,7 @@ import (
 	"fmt"
 	"slices"
 	"strconv"
+	"time"
 
 	"github.com/ravindu-rev/ruralz/internal/config/diag"
 	"github.com/ravindu-rev/ruralz/internal/config/hub"
@@ -46,15 +47,36 @@ type Options struct {
 	// rendering at a pinned level (02 req 28).
 	Level int
 	// Workers is the number of goroutines that encode resources; less
-	// than 1 means 1. The Node passes max(1, GOMAXPROCS/2) and the CLI
-	// GOMAXPROCS (02 req 78).
+	// than 1 means 1 and more than 256 means 256, and an encode never runs
+	// more goroutines than it has resources. The Node passes max(1,
+	// GOMAXPROCS/2) and the CLI GOMAXPROCS (02 req 78).
 	Workers int
+	// Now is the clock of the yield timer (01 req 53, 02 section 7
+	// OQ-performance-budgets-and-benchmarking-6 (a)): the pipeline passes
+	// the Now its caller supplies (clock.Real().Now in every binary), tests
+	// a fake. Every goroutine of an encode reads it between two units of
+	// work (two resources written, two chunks joined, two pieces of 64
+	// KiB hashed) and every 256 units inside one (resources collected and
+	// checked, comparisons of the sort, values written), and calls
+	// runtime.Gosched once YieldAfter has passed since its last yield, so
+	// stage L shares the processor with live traffic during activation
+	// (see the package documentation, Concurrency). Goroutines call it
+	// concurrently, so it must be safe for concurrent use; it must not
+	// panic (a panic in it surfaces as one in the encoding does, see the
+	// package documentation). Nil never yields and reads no clock.
+	Now func() time.Time
+	// YieldAfter is the work a goroutine does before it yields; zero or
+	// negative means DefaultYieldAfter (100 µs).
+	YieldAfter time.Duration
 }
 
 // Encoder writes ruralz.canonical.v1 documents. It is immutable and safe
 // for concurrent use.
 type Encoder struct {
 	idx *schemaidx.Index
+	// observe, set by tests only, receives the yield timer of each
+	// goroutine of a call once the goroutine is done with it.
+	observe func(*yielder)
 }
 
 // NewEncoder returns an encoder over the hub schema idx, which supplies
@@ -78,22 +100,40 @@ func (e *Encoder) Encode(ctx context.Context, b *hub.Bundle, opt Options) (revis
 	if b == nil {
 		return revision.Revision{}, fmt.Errorf("%w: no Bundle", ErrEncode)
 	}
+	y := e.newYielder(opt)
+	defer e.done(y)
 	rs := b.Resources()
 	items := make([]item, len(rs))
 	for i, r := range rs {
+		y.charge(siteItem, 1)
 		items[i] = item{id: r.ID, root: r.Tree}
 	}
-	return e.encode(ctx, items, opt)
+	return e.encode(ctx, items, opt, y)
 }
 
 // EncodeResources is Encode over envelope trees, such as Decode's output
 // after stage G; apiVersion members are dropped and the resources sorted.
 func (e *Encoder) EncodeResources(ctx context.Context, rs []tree.Resource, opt Options) (revision.Revision, error) {
+	y := e.newYielder(opt)
+	defer e.done(y)
 	items := make([]item, len(rs))
 	for i := range rs {
+		y.charge(siteItem, 1)
 		items[i] = item{id: rs[i].ID, root: rs[i].Root}
 	}
-	return e.encode(ctx, items, opt)
+	return e.encode(ctx, items, opt, y)
+}
+
+// newYielder returns the yield timer of one goroutine of an encode.
+func (e *Encoder) newYielder(opt Options) *yielder {
+	return newYielder(opt.Now, yieldAfter(opt.YieldAfter))
+}
+
+// done hands a goroutine's yield timer to the tests' observer.
+func (e *Encoder) done(y *yielder) {
+	if e.observe != nil {
+		e.observe(y)
+	}
 }
 
 // AppendNode appends the RFC 8785 form of one value tree, without schema
@@ -127,20 +167,33 @@ func (e *Encoder) resourceSchema(kind string) *schemaidx.Node {
 	return s
 }
 
-func (e *Encoder) encode(ctx context.Context, items []item, opt Options) (revision.Revision, error) {
+// encode writes items on the goroutines of the call: the calling one,
+// whose yield timer is y, and, when the work is split, one per writer,
+// each with its own timer.
+func (e *Encoder) encode(ctx context.Context, items []item, opt Options, y *yielder) (revision.Revision, error) {
 	if err := ctx.Err(); err != nil {
 		return revision.Revision{}, err
 	}
 	if opt.Level != e.level() {
 		return revision.Revision{}, fmt.Errorf("%w: schema level %d is not served; this release renders level %d", ErrEncode, opt.Level, e.level())
 	}
-	if err := e.order(items); err != nil {
+	if err := e.order(items, y); err != nil {
 		return revision.Revision{}, err
 	}
-	workers := max(1, opt.Workers)
+	workers := workerCount(opt.Workers)
 	chunks := chunkCount(len(items), workers)
 	outs := make([][]byte, chunks)
 	ws := make([]writer, min(workers, chunks))
+	// parallel runs one chunk at a time on the calling goroutine when
+	// there is one worker or one chunk, else every chunk on goroutines of
+	// its own.
+	pooled := workers > 1 && chunks > 1
+	for wk := range ws {
+		ws[wk].y = y
+		if pooled {
+			ws[wk].y = e.newYielder(opt)
+		}
+	}
 	err := parallel(ctx, len(items), workers, chunks, func(wk, k, lo, hi int) error {
 		w := &ws[wk]
 		var buf []byte
@@ -151,18 +204,24 @@ func (e *Encoder) encode(ctx context.Context, items []item, opt Options) (revisi
 			if err := ctx.Err(); err != nil {
 				return err
 			}
+			w.y.check(siteResource)
 			if i > lo {
 				buf = append(buf, ',')
 			}
 			var err error
 			it := &items[i]
 			if buf, err = w.resource(buf, string(it.id.Kind), it.id.Name, it.root, e.resourceSchema(string(it.id.Kind))); err != nil {
-				return encodeError(it.id.String(), err)
+				return encodeError(idText(it.id), err)
 			}
 		}
 		outs[k] = buf
 		return nil
 	})
+	if pooled {
+		for wk := range ws {
+			e.done(ws[wk].y)
+		}
+	}
 	if err != nil {
 		return revision.Revision{}, err
 	}
@@ -182,10 +241,12 @@ func (e *Encoder) encode(ctx context.Context, items []item, opt Options) (revisi
 				content = append(content, ',')
 			}
 			content = append(content, o...)
+			outs[k] = nil
+			y.check(siteJoin)
 		}
 		content = append(content, trailer...)
 	}
-	return revision.Revision{Digest: revision.Sum(content), Content: content}, nil
+	return revision.Revision{Digest: sum(content, y), Content: content}, nil
 }
 
 // compareItems orders resources by kind (hub.KindOrder), then by name
@@ -195,25 +256,34 @@ func compareItems(a, b *item) int {
 }
 
 // order sorts items in canonical order and refuses kinds the format never
-// holds and duplicate identities.
-func (e *Encoder) order(items []item) error {
+// holds and duplicate identities, charging y for each resource and
+// comparison.
+func (e *Encoder) order(items []item, y *yielder) error {
 	for i := range items {
+		y.charge(siteKind, 1)
 		k := items[i].id.Kind
 		if !canonicalKind(k) {
-			return fmt.Errorf("%w: %s: kind %q never appears in %s", ErrEncode, items[i].id, string(k), Format)
+			return fmt.Errorf("%w: %s: kind %s never appears in %s", ErrEncode, idText(items[i].id), strconv.Quote(clip(string(k))), Format)
 		}
 		if e.idx != nil {
 			if _, ok := e.idx.Resource(string(k)); !ok {
-				return fmt.Errorf("%w: %s: kind %q is not in the %s schema", ErrEncode, items[i].id, string(k), e.idx.APIVersion())
+				return fmt.Errorf("%w: %s: kind %s is not in the %s schema", ErrEncode, idText(items[i].id), strconv.Quote(clip(string(k))), e.idx.APIVersion())
 			}
 		}
 	}
-	if !slices.IsSortedFunc(items, func(a, b item) int { return compareItems(&a, &b) }) {
-		slices.SortStableFunc(items, func(a, b item) int { return compareItems(&a, &b) })
+	if !slices.IsSortedFunc(items, func(a, b item) int {
+		y.charge(siteSorted, 1)
+		return compareItems(&a, &b)
+	}) {
+		slices.SortStableFunc(items, func(a, b item) int {
+			y.charge(siteSort, 1)
+			return compareItems(&a, &b)
+		})
 	}
 	for i := 1; i < len(items); i++ {
+		y.charge(siteDuplicate, 1)
 		if items[i].id == items[i-1].id {
-			return fmt.Errorf("%w: duplicate resource %s", ErrEncode, items[i].id)
+			return fmt.Errorf("%w: duplicate resource %s", ErrEncode, idText(items[i].id))
 		}
 	}
 	return nil
@@ -254,7 +324,8 @@ func within(err error, el diag.PathElem) error {
 }
 
 // encodeError wraps a writer failure in ErrEncode, naming the resource id
-// (when given) and the path.
+// (when given, already bounded by shown) and the path, its member names
+// bounded (boundPath), so the message stays short whatever the tree holds.
 func encodeError(id string, err error) error {
 	var ne *nodeError
 	if !errors.As(err, &ne) {
@@ -265,7 +336,7 @@ func encodeError(id string, err error) error {
 		if where != "" {
 			where += " "
 		}
-		where += p.String()
+		where += boundPath(p).String()
 	}
 	if where == "" {
 		where = "value"
@@ -277,9 +348,14 @@ func encodeError(id string, err error) error {
 }
 
 // writer is the RFC 8785 writer over value trees. One writer is owned by
-// one goroutine; order is the stack of member sort scratch.
+// one goroutine; order is the stack of member sort scratch, y the
+// goroutine's yield timer (nil for none), and defaults the canonical
+// bytes of the default of each since position met, encoded once per
+// writer (schema nodes are immutable).
 type writer struct {
-	order []int
+	order    []int
+	y        *yielder
+	defaults map[*schemaidx.Node][]byte
 }
 
 // resource appends one resource object: kind, metadata without the
@@ -305,13 +381,13 @@ func (w *writer) resource(dst []byte, kind, name string, root *tree.Node, rs *sc
 		}
 	}
 	if kindN != nil && (kindN.Kind != tree.KindString || kindN.Text != kind) {
-		return dst, &nodeError{rev: diag.Path{diag.Field("kind")}, msg: "kind does not match the resource identity " + strconv.Quote(kind)}
+		return dst, &nodeError{rev: diag.Path{diag.Field("kind")}, msg: "kind does not match the resource identity " + strconv.Quote(clip(kind))}
 	}
 	if meta == nil || meta.Kind != tree.KindMap {
 		return dst, &nodeError{rev: diag.Path{diag.Field("metadata")}, msg: "metadata is not a mapping"}
 	}
 	if n, ok := meta.Get("name"); !ok || n.Kind != tree.KindString || n.Text != name {
-		return dst, &nodeError{rev: diag.Path{diag.Field("name"), diag.Field("metadata")}, msg: "metadata.name does not match the resource identity " + strconv.Quote(name)}
+		return dst, &nodeError{rev: diag.Path{diag.Field("name"), diag.Field("metadata")}, msg: "metadata.name does not match the resource identity " + strconv.Quote(clip(name))}
 	}
 	var metaS, specS *schemaidx.Node
 	if rs != nil {
@@ -375,6 +451,7 @@ func (w *writer) value(dst []byte, n *tree.Node, s *schemaidx.Node, depth int) (
 	if depth > maxEncodeDepth {
 		return dst, &nodeError{msg: "nesting deeper than " + strconv.Itoa(maxEncodeDepth), err: jsonval.ErrDepth}
 	}
+	w.y.charge(siteValue, 1)
 	switch n.Kind {
 	case tree.KindBool:
 		if n.Bool {
@@ -422,7 +499,10 @@ func (w *writer) list(dst []byte, n *tree.Node, s *schemaidx.Node, depth int) ([
 
 // object appends a mapping with members in UTF-16 code unit order (RFC
 // 8785 section 3.2.3). A member whose schema carries x-ruralz-since above
-// 0 is left out when it equals its default (02 req 23).
+// 0 is left out when it equals its default (02 req 23): its value is
+// written once and taken back when its bytes are the default's, so since
+// positions nested in one another cost one encoding of each value, not
+// one per enclosing since position.
 func (w *writer) object(dst []byte, n *tree.Node, s *schemaidx.Node, depth int) ([]byte, error) {
 	if s != nil {
 		s = s.Select(n)
@@ -451,17 +531,8 @@ func (w *writer) object(dst []byte, n *tree.Node, s *schemaidx.Node, depth int) 
 		var cs *schemaidx.Node
 		if s != nil {
 			cs = memberSchema(s, m.Key)
-			if cs.Since() > 0 {
-				omit, err := w.atDefault(m.Value, cs, depth+1)
-				if err != nil {
-					w.order = w.order[:start]
-					return dst, within(err, diag.Field(m.Key))
-				}
-				if omit {
-					continue
-				}
-			}
 		}
+		mark, wroteBefore := len(dst), wrote
 		if wrote {
 			dst = append(dst, ',')
 		}
@@ -472,9 +543,20 @@ func (w *writer) object(dst []byte, n *tree.Node, s *schemaidx.Node, depth int) 
 			return dst, &nodeError{rev: diag.Path{diag.Field(m.Key)}, msg: "member name is not valid UTF-8", err: err}
 		}
 		dst = append(dst, ':')
+		at := len(dst)
 		if dst, err = w.value(dst, m.Value, cs, depth+1); err != nil {
 			w.order = w.order[:start]
 			return dst, within(err, diag.Field(m.Key))
+		}
+		if cs.Since() > 0 {
+			def, err := w.defaultOf(cs, depth+1)
+			if err != nil {
+				w.order = w.order[:start]
+				return dst, within(err, diag.Field(m.Key))
+			}
+			if def != nil && bytes.Equal(dst[at:], def) {
+				dst, wrote = dst[:mark], wroteBefore
+			}
 		}
 	}
 	w.order = w.order[:start]
@@ -494,30 +576,26 @@ func memberSchema(s *schemaidx.Node, name string) *schemaidx.Node {
 	return nil
 }
 
-// atDefault reports whether v, at a position whose schema s carries
-// x-ruralz-since above 0, equals s's default by canonical bytes. A
-// position without a default is written whenever present (02 req 23).
-func (w *writer) atDefault(v *tree.Node, s *schemaidx.Node, depth int) (bool, error) {
-	def := s.DefaultNode()
-	if def == nil {
-		return false, nil
+// defaultOf returns the canonical bytes of the default of a position
+// whose schema s carries x-ruralz-since above 0, with since omission
+// applied inside, or nil when it has none: such a position is written
+// whenever present (02 req 23). The bytes are encoded once per writer, at
+// the depth of the first position that asks, and compared with each
+// value written there.
+func (w *writer) defaultOf(s *schemaidx.Node, depth int) ([]byte, error) {
+	if b, ok := w.defaults[s]; ok {
+		return b, nil
 	}
-	got, err := w.value(nil, v, s, depth)
-	if err != nil {
-		return false, err
+	var b []byte
+	if def := s.DefaultNode(); def != nil {
+		var err error
+		if b, err = w.value(nil, def, s, depth); err != nil {
+			return nil, err
+		}
 	}
-	want, err := w.value(nil, def, s, depth)
-	if err != nil {
-		return false, err
+	if w.defaults == nil {
+		w.defaults = make(map[*schemaidx.Node][]byte)
 	}
-	return bytes.Equal(got, want), nil
-}
-
-// clip shortens s for a message.
-func clip(s string) string {
-	const limit = 64
-	if len(s) <= limit {
-		return s
-	}
-	return s[:limit] + "..."
+	w.defaults[s] = b
+	return b, nil
 }

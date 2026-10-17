@@ -12,6 +12,7 @@ import (
 	"testing"
 
 	"github.com/ravindu-rev/ruralz/internal/config/diag"
+	"github.com/ravindu-rev/ruralz/internal/config/schemaidx"
 	"github.com/ravindu-rev/ruralz/internal/config/tree"
 )
 
@@ -225,6 +226,411 @@ func TestSchemaDocumentReplacedWhole(t *testing.T) {
 		b := `{"apiVersion":"ruralz/v1alpha1","kind":"Policy","metadata":{"name":"v"},"spec":{"type":"validation.json-schema","config":{"schema":{"$patch":1}}}}`
 		if _, ds, _ := run(t, []file{{"ruralz.yaml", b}}, nil); len(ds) != 0 {
 			t.Errorf("diagnostics: %q", texts(ds))
+		}
+	})
+}
+
+// TestRedispatchedBasePatch covers 01 req 25 where an overlay changes how
+// base content is read: a base $patch is data only inside the value of
+// the JSONSchemaDocument definition (CheckBase exempts it there), so when
+// the merged dispatch reads that value as anything else, the $patch is a
+// $patch in a base document like any other (RZ-CFG-006 at the base
+// member, as 01 req 25 and its 006 test-plan row map it, related the
+// overlay member that changed the dispatch) and is removed. Each case is
+// one way the value leaves the document position, or one way it does not.
+func TestRedispatchedBasePatch(t *testing.T) {
+	base := func(schema string) string {
+		return `{"apiVersion":"ruralz/v1alpha1","kind":"Policy","metadata":{"name":"v"},"spec":{"type":"validation.json-schema","config":{"schema":` + schema + `}}}`
+	}
+	over := func(rest string) string {
+		if strings.HasPrefix(rest, `"metadata"`) {
+			return `{"apiVersion":"ruralz/v1alpha1","kind":"Policy",` + strings.Replace(rest, `"metadata":{`, `"metadata":{"name":"v",`, 1) + `}`
+		}
+		return `{"apiVersion":"ruralz/v1alpha1","kind":"Policy","metadata":{"name":"v"},` + rest + `}`
+	}
+	stray := func(col, path, related string) string {
+		return `ruralz.yaml:1:` + col + ` error RZ-CFG-006 Policy/v ` + path + `: $patch from the base document is no longer inside a JSON Schema document after the overlay merge ` +
+			`(the overlay changes how this value is read, as a new Policy spec.type does; remove $patch from the base value or keep the base type) ` +
+			`(the overlay changes its schema in o.yaml:1:` + related + `)`
+	}
+	cases := []struct {
+		name, schema, over string
+		want               []string
+		// result is the merged spec.config.schema; "" when it is absent.
+		result string
+	}{
+		{
+			name: "type changed to an open config (the reported fuzz input)", schema: `{"$patch":1}`, over: `"spec":{"type":"cors"}`,
+			want: []string{stray("133", "spec.config.schema.$patch", "88")}, result: `{}`,
+		},
+		{
+			name: "type changed to plugin", schema: `{"$patch":1}`, over: `"spec":{"type":"plugin","plugin":"geo"}`,
+			want: []string{stray("133", "spec.config.schema.$patch", "88")}, result: `{}`,
+		},
+		{
+			name: "type changed to a closed config without schema", schema: `{"$patch":1}`, over: `"spec":{"type":"auth.basic"}`,
+			want: []string{stray("133", "spec.config.schema.$patch", "88")}, result: `{}`,
+		},
+		{
+			name: "type removed", schema: `{"$patch":1}`, over: `"spec":{"type":null}`,
+			want: []string{stray("133", "spec.config.schema.$patch", "88")}, result: `{}`,
+		},
+		{
+			name: "type changed to an unresolved expression", schema: `{"$patch":1}`, over: `"spec":{"type":"${PT}"}`,
+			want: []string{stray("133", "spec.config.schema.$patch", "88")}, result: `{}`,
+		},
+		{
+			name: "overlay merges into the former document", schema: `{"$patch":1,"type":"object"}`,
+			over: `"spec":{"type":"cors","config":{"schema":{"type":"string","minLength":1}}}`,
+			want: []string{stray("133", "spec.config.schema.$patch", "88")}, result: `{"type":"string","minLength":1}`,
+		},
+		{
+			name: "dispatch member after the config in the overlay", schema: `{"$patch":1}`,
+			over: `"spec":{"config":{"x":1},"type":"cors"}`,
+			want: []string{stray("133", "spec.config.schema.$patch", "105")}, result: `{}`,
+		},
+		{
+			name: "nested object", schema: `{"properties":{"$patch":{"type":"string"},"a":{"type":"string"}}}`, over: `"spec":{"type":"cors"}`,
+			want: []string{stray("147", "spec.config.schema.properties.$patch", "88")}, result: `{"properties":{"a":{"type":"string"}}}`,
+		},
+		{
+			name: "object in a list", schema: `{"allOf":[{"$patch":1},{"type":"object"}]}`, over: `"spec":{"type":"cors"}`,
+			want: []string{stray("143", "spec.config.schema.allOf[0].$patch", "88")}, result: `{"allOf":[{},{"type":"object"}]}`,
+		},
+		{
+			name: "two objects", schema: `{"$patch":1,"items":{"$patch":2}}`, over: `"spec":{"type":"cors"}`,
+			want: []string{
+				stray("133", "spec.config.schema.$patch", "88"),
+				stray("153", "spec.config.schema.items.$patch", "88"),
+			},
+			result: `{"items":{}}`,
+		},
+		{
+			name: "a $patch inside a $patch value goes with it", schema: `{"$patch":{"$patch":1}}`, over: `"spec":{"type":"cors"}`,
+			want: []string{stray("133", "spec.config.schema.$patch", "88")}, result: `{}`,
+		},
+		{name: "type kept", schema: `{"$patch":1}`, over: `"spec":{"type":"validation.json-schema"}`, result: `{"$patch":1}`},
+		{name: "metadata only", schema: `{"$patch":1}`, over: `"metadata":{"labels":{"a":"b"}}`, result: `{"$patch":1}`},
+		{name: "former document removed", schema: `{"$patch":1}`, over: `"spec":{"type":"cors","config":{"schema":null}}`},
+		{name: "former document replaced by a scalar", schema: `{"$patch":1}`, over: `"spec":{"type":"cors","config":{"schema":true}}`, result: `true`},
+		{name: "former document replaced by a list", schema: `{"$patch":1}`, over: `"spec":{"type":"cors","config":{"schema":[{"a":1}]}}`, result: `[{"a":1}]`},
+		{name: "spec replaced by the annotation", schema: `{"$patch":1}`, over: `"metadata":{"annotations":{"ruralz.io/patch":"replace"}},"spec":{"type":"cors"}`},
+		{name: "a document without $patch", schema: `{"type":"object","enum":[{"a":1}]}`, over: `"spec":{"type":"cors"}`, result: `{"type":"object","enum":[{"a":1}]}`},
+		{name: "boolean document", schema: `true`, over: `"spec":{"type":"cors"}`, result: `true`},
+	}
+	for _, tc := range cases {
+		t.Run("req25 "+tc.name, func(t *testing.T) {
+			out, ds, _ := run(t, []file{{"ruralz.yaml", base(tc.schema)}}, []file{{"o.yaml", over(tc.over)}})
+			if g := texts(ds); !slices.Equal(g, tc.want) {
+				t.Errorf("diagnostics =\n%q\nwant\n%q", g, tc.want)
+			}
+			if len(out) != 1 {
+				t.Fatalf("got %d resources", len(out))
+			}
+			if p, ok := strayPatch(t, out[0]); ok {
+				t.Errorf("a $patch member survived at %s: %s", p, dump(out[0].Root))
+			}
+			spec, _ := out[0].Root.Get("spec")
+			config, _ := spec.Get("config")
+			got, ok := config.Get("schema")
+			switch {
+			case tc.result == "" && ok:
+				t.Errorf("spec.config.schema = %s, want none", dump(got))
+			case tc.result != "" && (!ok || dump(got) != compact(t, tc.result)):
+				t.Errorf("spec.config.schema = %s, want %s", dump(got), tc.result)
+			}
+		})
+	}
+	// A base $patch CheckBase already reported (RZ-CFG-006, not exempt in
+	// the base) is not reported again, whichever way the dispatch moves.
+	for _, tc := range []struct {
+		name, base, over string
+		want             []string
+	}{
+		{
+			name: "beside an exempt one",
+			base: base(`{"$patch":1},"x":{"$patch":2}`),
+			over: over(`"spec":{"type":"cors"}`),
+			want: []string{
+				stray("133", "spec.config.schema.$patch", "88"),
+				`ruralz.yaml:1:150 error RZ-CFG-006 Policy/v spec.config.x.$patch: $patch is valid only in overlays`,
+			},
+		},
+		{
+			name: "free content of an open config, type changed to another open config",
+			base: `{"apiVersion":"ruralz/v1alpha1","kind":"Policy","metadata":{"name":"v"},"spec":{"type":"cors","config":{"x":{"$patch":1}}}}`,
+			over: over(`"spec":{"type":"plugin","plugin":"geo"}`),
+			want: []string{`ruralz.yaml:1:110 error RZ-CFG-006 Policy/v spec.config.x.$patch: $patch is valid only in overlays`},
+		},
+		{
+			name: "free content moved into a JSON Schema document",
+			base: `{"apiVersion":"ruralz/v1alpha1","kind":"Policy","metadata":{"name":"v"},"spec":{"type":"cors","config":{"schema":{"$patch":1}}}}`,
+			over: over(`"spec":{"type":"validation.json-schema"}`),
+			want: []string{`ruralz.yaml:1:115 error RZ-CFG-006 Policy/v spec.config.schema.$patch: $patch is valid only in overlays`},
+		},
+	} {
+		t.Run("req25 reported once: "+tc.name, func(t *testing.T) {
+			_, ds, _ := run(t, []file{{"ruralz.yaml", tc.base}}, []file{{"o.yaml", tc.over}})
+			if g := texts(ds); !slices.Equal(g, tc.want) {
+				t.Errorf("diagnostics =\n%q\nwant\n%q", g, tc.want)
+			}
+		})
+	}
+}
+
+// nestedDispatch is a rendered schema with two dispatch levels and a
+// JSONSchemaDocument position below each, which the committed schema
+// does not have yet: spec.mode b selects InnerB for spec.inner, whose
+// type doc makes inner.config a document; spec.flag true makes spec.doc
+// one (a boolean const, which DispatchValues does not list); spec.left
+// and spec.right are two sibling InnerB objects.
+const nestedDispatch = `{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "required": ["apiVersion", "kind", "metadata", "spec"],
+  "properties": {"apiVersion": {"const": "test/v1"}, "kind": {"enum": ["Thing"]}},
+  "allOf": [{"if": {"properties": {"kind": {"const": "Thing"}}, "required": ["kind"]}, "then": {"$ref": "#/$defs/Thing"}}],
+  "$defs": {
+    "JSONSchemaDocument": {"type": ["object", "boolean"]},
+    "Thing": {"type": "object", "properties": {
+      "apiVersion": {"const": "test/v1"}, "kind": {"const": "Thing"},
+      "metadata": {"type": "object"}, "spec": {"$ref": "#/$defs/Spec"}}},
+    "Spec": {"type": "object",
+      "properties": {"mode": {"type": "string"}, "flag": {"type": "boolean"}, "inner": {"type": "object"},
+        "left": {"$ref": "#/$defs/InnerB"}, "right": {"$ref": "#/$defs/InnerB"}},
+      "allOf": [
+        {"if": {"properties": {"mode": {"const": "b"}}, "required": ["mode"]}, "then": {"properties": {"inner": {"$ref": "#/$defs/InnerB"}}}},
+        {"if": {"properties": {"flag": {"const": true}}, "required": ["flag"]}, "then": {"properties": {"doc": {"$ref": "#/$defs/JSONSchemaDocument"}}}}]},
+    "InnerB": {"type": "object",
+      "properties": {"type": {"type": "string"}, "config": {"type": "object"}},
+      "allOf": [{"if": {"properties": {"type": {"const": "doc"}}, "required": ["type"]}, "then": {"properties": {"config": {"$ref": "#/$defs/JSONSchemaDocument"}}}}]}
+  }
+}`
+
+// TestRedispatchNested covers the dispatch rules of 01 req 25 at more
+// than one level, with a synthetic schema: the outermost object whose
+// dispatch the overlay changes rechecks its whole subtree against the
+// base view CheckBase used, so a nested object never compares against a
+// view the base was not checked under (no second report of a base
+// $patch CheckBase reported); a change below an unchanged object is
+// found there, in each of two siblings; and a change by a member
+// DispatchValues does not list (a boolean const) relates the overlay
+// object.
+func TestRedispatchNested(t *testing.T) {
+	x, err := schemaidx.Load("test/v1", []byte(nestedDispatch))
+	if err != nil {
+		t.Fatal(err)
+	}
+	set, err := schemaidx.NewSet(x)
+	if err != nil {
+		t.Fatal(err)
+	}
+	doc := func(spec string) string {
+		return `{"apiVersion":"test/v1","kind":"Thing","metadata":{"name":"t"},"spec":` + spec + `}`
+	}
+	for _, tc := range []struct {
+		name, base, over string
+		want             []string
+	}{
+		{
+			name: "outer change: a nested view the base was not checked under is not compared",
+			base: `{"mode":"a","inner":{"type":"doc","config":{"$patch":1}}}`, over: `{"mode":"b","inner":{"type":"other"}}`,
+			want: []string{`b.yaml:1:115 error RZ-CFG-006 Thing/t spec.inner.config.$patch: $patch is valid only in overlays`},
+		},
+		{
+			name: "outer change: an untouched nested document leaves its position",
+			base: `{"mode":"b","inner":{"type":"doc","config":{"$patch":1}}}`, over: `{"mode":"a"}`,
+			want: []string{`b.yaml:1:115 error RZ-CFG-006 Thing/t spec.inner.config.$patch: $patch from the base document is no longer inside a JSON Schema document after the overlay merge ` +
+				`(the overlay changes how this value is read, as a new Policy spec.type does; remove $patch from the base value or keep the base type) (the overlay changes its schema in o.yaml:1:79)`},
+		},
+		{
+			name: "nested change below an unchanged object",
+			base: `{"mode":"b","inner":{"type":"doc","config":{"$patch":1}}}`, over: `{"inner":{"type":"x"}}`,
+			want: []string{`b.yaml:1:115 error RZ-CFG-006 Thing/t spec.inner.config.$patch: $patch from the base document is no longer inside a JSON Schema document after the overlay merge ` +
+				`(the overlay changes how this value is read, as a new Policy spec.type does; remove $patch from the base value or keep the base type) (the overlay changes its schema in o.yaml:1:88)`},
+		},
+		{
+			name: "boolean dispatch relates the overlay object",
+			base: `{"flag":true,"doc":{"$patch":1}}`, over: `{"flag":false}`,
+			want: []string{`b.yaml:1:91 error RZ-CFG-006 Thing/t spec.doc.$patch: $patch from the base document is no longer inside a JSON Schema document after the overlay merge ` +
+				`(the overlay changes how this value is read, as a new Policy spec.type does; remove $patch from the base value or keep the base type) (the overlay changes its schema in o.yaml:1:71)`},
+		},
+		{
+			name: "two sibling changes",
+			base: `{"left":{"type":"doc","config":{"$patch":1}},"right":{"type":"doc","config":{"$patch":2}}}`,
+			over: `{"left":{"type":"x"},"right":{"type":"y"}}`,
+			want: []string{
+				`b.yaml:1:103 error RZ-CFG-006 Thing/t spec.left.config.$patch: $patch from the base document is no longer inside a JSON Schema document after the overlay merge ` +
+					`(the overlay changes how this value is read, as a new Policy spec.type does; remove $patch from the base value or keep the base type) (the overlay changes its schema in o.yaml:1:87)`,
+				`b.yaml:1:148 error RZ-CFG-006 Thing/t spec.right.config.$patch: $patch from the base document is no longer inside a JSON Schema document after the overlay merge ` +
+					`(the overlay changes how this value is read, as a new Policy spec.type does; remove $patch from the base value or keep the base type) (the overlay changes its schema in o.yaml:1:108)`,
+			},
+		},
+		{
+			name: "both levels kept",
+			base: `{"mode":"b","inner":{"type":"doc","config":{"$patch":1}}}`, over: `{"mode":"b","inner":{"type":"doc","config":{"a":1}}}`,
+		},
+	} {
+		t.Run("req25 "+tc.name, func(t *testing.T) {
+			files := &tree.FileTable{}
+			b := docs(t, files, tree.RoleBase, "b.yaml", doc(tc.base))
+			o := docs(t, files, tree.RoleOverlay, "o.yaml", doc(tc.over))
+			out, ds := pipeline(t, b, o, Options{Schemas: set, Files: files})
+			if g := texts(ds); !slices.Equal(g, tc.want) {
+				t.Errorf("diagnostics =\n%q\nwant\n%q", g, tc.want)
+			}
+			if len(out) != 1 {
+				t.Fatalf("got %d resources", len(out))
+			}
+		})
+	}
+}
+
+// policySpec returns the undispatched PolicySpec schema of the committed
+// view.
+func policySpec(t *testing.T) *schemaidx.Node {
+	t.Helper()
+	x, _ := schemas(t).Index(v1)
+	root, ok := x.Resource("Policy")
+	if !ok {
+		t.Fatal("no Policy schema")
+	}
+	spec, ok := root.Property("spec")
+	if !ok {
+		t.Fatal("no Policy spec schema")
+	}
+	return spec
+}
+
+// TestExemptHolders pins the base view the redispatch check of 01 req 25
+// starts from: the $patch holders inside JSONSchemaDocument values of
+// base content, nested objects and list elements included; a member the
+// overlay added or replaced is not base content (its directives are
+// checked as it merges), while a base member the overlay merges into is,
+// and so is a base value an overlay value of another kind replaces,
+// which comes back when that value holds nothing but removals.
+func TestExemptHolders(t *testing.T) {
+	orig := policySpec(t).SelectValue("type", "validation.json-schema")
+	spec, err := parseJSON(`{"type":"validation.json-schema","config":{"schema":{"$patch":1,"items":[{"$patch":2},{"a":{"$patch":3}}],"b":{}}}}`, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	config, _ := spec.Get("config")
+	doc, _ := config.Get("schema")
+	items, _ := doc.Get("items")
+	a, _ := items.Items[1].Get("a")
+	all := []*tree.Node{doc, items.Items[0], a}
+	m := newApplier(Options{}).merger(tree.ID{})
+	for _, tc := range []struct {
+		name string
+		todo []pendingMember
+		want []*tree.Node
+	}{
+		{"untouched base member", nil, all},
+		{"base member the overlay merges into", []pendingMember{{at: 1, key: "config", base: config, ov: &tree.Node{Kind: tree.KindMap}}}, all},
+		{"member the overlay added", []pendingMember{{at: 1, key: "config", ov: config}}, nil},
+		{"base value an overlay list replaces", []pendingMember{{at: 1, key: "config", base: config, ov: &tree.Node{Kind: tree.KindList}}}, all},
+		{"base scalar an overlay object replaces", []pendingMember{{at: 1, key: "config", base: &tree.Node{Kind: tree.KindString}, ov: config}}, nil},
+		{"another member the overlay added", []pendingMember{{at: 2, key: "other", ov: &tree.Node{Kind: tree.KindMap}}}, all},
+	} {
+		obj := spec
+		if len(tc.todo) > 0 && tc.todo[0].at == 2 {
+			obj = &tree.Node{Kind: tree.KindMap, Members: append(slices.Clone(spec.Members), tree.Member{Key: "other", Value: tc.todo[0].ov})}
+		}
+		held := m.exemptHolders(obj, orig, tc.todo)
+		if len(held) != len(tc.want) {
+			t.Errorf("%s: %d holders, want %d", tc.name, len(held), len(tc.want))
+		}
+		for _, n := range tc.want {
+			if !held[n] {
+				t.Errorf("%s: %s is not held", tc.name, dump(n))
+			}
+		}
+	}
+	if held := m.exemptHolders(spec, policySpec(t).SelectValue("type", "cors"), nil); held != nil {
+		t.Errorf("free content under cors: %d holders, want none (CheckBase reports them)", len(held))
+	}
+}
+
+// TestRedispatchRelated pins the related location of a redispatch
+// diagnostic (01 req 25): the first overlay member a dispatch rule tests
+// whose member the merge changes (a null removing it, a new or another
+// scalar, a composite of which something remains replacing a scalar),
+// else the overlay object. A member the merge leaves as the base wrote it
+// changed nothing and is never named (review finding: a value holding
+// nothing but removals was named although the base value stayed). at is
+// a substring of the overlay whose first byte the location names; ""
+// names the overlay spec object.
+func TestRedispatchRelated(t *testing.T) {
+	synthetic, fixed := syntheticSet(t, nestedDispatch), syntheticSet(t, fixedDispatch)
+	policy := func(spec string) string {
+		return `{"apiVersion":"ruralz/v1alpha1","kind":"Policy","metadata":{"name":"v"},"spec":` + spec + `}`
+	}
+	thing := func(spec string) string {
+		return `{"apiVersion":"test/v1","kind":"Thing","metadata":{"name":"t"},"spec":` + spec + `}`
+	}
+	jsonSchema := policy(`{"type":"validation.json-schema","config":{"schema":{"$patch":1}}}`)
+	flagged := thing(`{"mode":"a","flag":true,"doc":{"$patch":1}}`)
+	for _, tc := range []struct {
+		name, base, over, at string
+		set                  *schemaidx.Set
+	}{
+		{name: "type member", base: jsonSchema, over: policy(`{"type":"cors"}`), at: `"cors"`},
+		{name: "type after another member", base: jsonSchema, over: policy(`{"config":{},"type":"cors"}`), at: `"cors"`},
+		{name: "null type", base: jsonSchema, over: policy(`{"type":null}`), at: `null`},
+		{name: "type replaced by an object holding a value", base: jsonSchema, over: policy(`{"type":{"a":1}}`), at: `{"a":1}`},
+		{name: "type replaced by a list", base: jsonSchema, over: policy(`{"type":[]}`), at: `[]`},
+		{name: "no member a rule tests", base: flagged, over: thing(`{"flag":false}`), set: synthetic},
+		{name: "an equal scalar is not named", base: flagged, over: thing(`{"mode":"a","flag":false}`), set: synthetic},
+		{name: "a null for an absent member is not named", base: thing(`{"flag":true,"doc":{"$patch":1}}`), over: thing(`{"mode":null,"flag":false}`), set: synthetic},
+		{name: "a value holding nothing but removals is not named", base: flagged, over: thing(`{"mode":{"x":null},"flag":false}`), set: synthetic},
+		{name: "a nested value holding nothing but removals is not named", base: flagged, over: thing(`{"mode":{"x":{"y":null}},"flag":false}`), set: synthetic},
+		{name: "a composite replacing a base composite of another kind is not named", base: thing(`{"mode":["x"],"flag":true,"doc":{"$patch":1}}`), over: thing(`{"mode":{"k":1},"flag":false}`), set: synthetic},
+		{name: "a composite merged into a base composite is not named", base: thing(`{"mode":{"k":1},"flag":true,"doc":{"$patch":1}}`), over: thing(`{"mode":{"k":2},"flag":false}`), set: synthetic},
+		{name: "a composite replacing a scalar is named", base: flagged, over: thing(`{"flag":false,"mode":{"x":1}}`), at: `{"x":1}`, set: synthetic},
+		{name: "a stood-in member before a changed scalar is named", base: flagged, over: thing(`{"mode":{"x":1},"flag":false}`), at: `{"x":1}`, set: synthetic},
+		{name: "a removed member is named", base: flagged, over: thing(`{"flag":false,"mode":null}`), at: `null`, set: synthetic},
+		{name: "a new scalar is named", base: thing(`{"flag":true,"doc":{"$patch":1}}`), over: thing(`{"flag":false,"mode":"c"}`), at: `"c"`, set: synthetic},
+		{
+			name: "a composite replacing a scalar before a changed scalar is named first", set: fixed,
+			base: thing(`{"mode":"b","other":"y","x":{"$patch":1}}`), over: thing(`{"mode":{"a":1},"other":"z"}`), at: `{"a":1}`,
+		},
+		{
+			name: "a changed scalar before a composite replacing a scalar is named first", set: fixed,
+			base: thing(`{"mode":"b","other":"y","x":{"$patch":1}}`), over: thing(`{"other":"z","mode":{"a":1}}`), at: `"z"`,
+		},
+	} {
+		t.Run("req25 "+tc.name, func(t *testing.T) {
+			set := tc.set
+			if set == nil {
+				set = schemas(t)
+			}
+			files := &tree.FileTable{}
+			b := docs(t, files, tree.RoleBase, "b.yaml", tc.base)
+			o := docs(t, files, tree.RoleOverlay, "o.yaml", tc.over)
+			_, ds := pipeline(t, b, o, Options{Schemas: set, Files: files})
+			if len(ds) != 1 || ds[0].Code != CodeBasePatch || len(ds[0].Related) != 1 {
+				t.Fatalf("diagnostics %q, want one redispatched base $patch", texts(ds))
+			}
+			col := strings.Index(tc.over, `"spec":`) + len(`"spec":`) + 1
+			if tc.at != "" {
+				col = strings.Index(tc.over[col-1:], tc.at) + col
+			}
+			if got, want := ds[0].Related[0].Location, (diag.Location{File: "o.yaml", Line: 1, Column: col}); got != want {
+				t.Errorf("related %v, want %v", got, want)
+			}
+		})
+	}
+	t.Run("req25 a named member without a position names the overlay object", func(t *testing.T) {
+		files := &tree.FileTable{}
+		b := docs(t, files, tree.RoleBase, "b.yaml", jsonSchema)
+		o := docs(t, files, tree.RoleOverlay, "o.yaml", policy(`{"type":"cors"}`))
+		spec, _ := o[0].Root.Get("spec")
+		typ, _ := spec.Get("type")
+		typ.Pos = tree.Pos{}
+		_, ds := pipeline(t, b, o, Options{Schemas: schemas(t), Files: files})
+		if len(ds) != 1 || len(ds[0].Related) != 1 || ds[0].Related[0].Location != files.Location(spec.Pos) {
+			t.Errorf("diagnostics %q, want one related to the overlay spec at %v", texts(ds), files.Location(spec.Pos))
 		}
 	})
 }
@@ -469,26 +875,60 @@ func TestFreeContentDirectives(t *testing.T) {
 	}
 }
 
-// TestUnresolvedDispatch pins the merge of a Policy whose spec.type holds
-// a ${VAR} expression: overlays merge before substitution (01 req 27), so
-// no config branch is selected and config merges as free content (keyed
-// lists replaced whole, $patch inside RZ-CFG-005). Spec 01 leaves the case
-// open; it is reported as a contract change request.
+// TestUnresolvedDispatch pins the three consequences of a Policy whose
+// spec.type holds a ${VAR} expression (review finding: the package doc
+// named only the first): overlays merge before substitution (01 req 27),
+// so no config branch is selected, in a base document as in a merged one.
+// Spec 01 leaves the case open; a contract change request against 01 req
+// 25 and 27 names all three, and each would be unnecessary once the
+// variable names validation.json-schema.
 func TestUnresolvedDispatch(t *testing.T) {
-	base := `{"apiVersion":"ruralz/v1alpha1","kind":"Policy","metadata":{"name":"p"},"spec":{"type":"${PT}","config":{"issuers":[{"issuer":"a","x":1}]}}}`
-	over := `{"apiVersion":"ruralz/v1alpha1","kind":"Policy","metadata":{"name":"p"},"spec":{"config":{"issuers":[{"issuer":"a","y":2}]}}}`
-	out, ds, _ := run(t, []file{{"ruralz.yaml", base}}, []file{{"o.yaml", over}})
-	if len(ds) != 0 {
-		t.Fatalf("diagnostics: %q", texts(ds))
+	policy := func(typ, config string) string {
+		return `{"apiVersion":"ruralz/v1alpha1","kind":"Policy","metadata":{"name":"p"},"spec":{"type":"` + typ + `","config":` + config + `}}`
 	}
-	if g, w := dump(at(t, out[0].Root, "spec.config.issuers")), `[{"issuer":"a","y":2}]`; g != w {
-		t.Errorf("issuers = %s, want the overlay list %s", g, w)
-	}
-	del := `{"apiVersion":"ruralz/v1alpha1","kind":"Policy","metadata":{"name":"p"},"spec":{"config":{"issuers":[{"issuer":"a","$patch":"delete"}]}}}`
-	_, ds, _ = run(t, []file{{"ruralz.yaml", base}}, []file{{"o.yaml", del}})
-	if g := codes(ds); !slices.Equal(g, []string{CodeSchema}) {
-		t.Errorf("codes = %v, want [%s]: %q", g, CodeSchema, texts(ds))
-	}
+	t.Run("req25 composite members merge as free content", func(t *testing.T) {
+		base := policy("${PT}", `{"issuers":[{"issuer":"a","x":1}]}`)
+		over := `{"apiVersion":"ruralz/v1alpha1","kind":"Policy","metadata":{"name":"p"},"spec":{"config":{"issuers":[{"issuer":"a","y":2}]}}}`
+		out, ds, _ := run(t, []file{{"ruralz.yaml", base}}, []file{{"o.yaml", over}})
+		if len(ds) != 0 {
+			t.Fatalf("diagnostics: %q", texts(ds))
+		}
+		if g, w := dump(at(t, out[0].Root, "spec.config.issuers")), `[{"issuer":"a","y":2}]`; g != w {
+			t.Errorf("issuers = %s, want the overlay list %s", g, w)
+		}
+	})
+	t.Run("req25 an overlay $patch inside them is RZ-CFG-005", func(t *testing.T) {
+		base := policy("${PT}", `{"issuers":[{"issuer":"a","x":1}]}`)
+		del := `{"apiVersion":"ruralz/v1alpha1","kind":"Policy","metadata":{"name":"p"},"spec":{"config":{"issuers":[{"issuer":"a","$patch":"delete"}]}}}`
+		_, ds, _ := run(t, []file{{"ruralz.yaml", base}}, []file{{"o.yaml", del}})
+		if g := codes(ds); !slices.Equal(g, []string{CodeSchema}) {
+			t.Errorf("codes = %v, want [%s]: %q", g, CodeSchema, texts(ds))
+		}
+	})
+	t.Run("req25 CheckBase reads a base config.schema as outside a document", func(t *testing.T) {
+		_, ds, _ := run(t, []file{{"ruralz.yaml", policy("${T}", `{"schema":{"$patch":1}}`)}}, nil)
+		want := []string{`ruralz.yaml:1:115 error RZ-CFG-006 Policy/p spec.config.schema.$patch: $patch is valid only in overlays`}
+		if g := texts(ds); !slices.Equal(g, want) {
+			t.Errorf("diagnostics =\n%q\nwant\n%q", g, want)
+		}
+		_, ds, _ = run(t, []file{{"ruralz.yaml", policy("validation.json-schema", `{"schema":{"$patch":1}}`)}}, nil)
+		if len(ds) != 0 {
+			t.Errorf("the same document under the resolved type: %q", texts(ds))
+		}
+	})
+	t.Run("req25 an overlay spec.type expression changes the base dispatch", func(t *testing.T) {
+		base := policy("validation.json-schema", `{"schema":{"$patch":1}}`)
+		over := `{"apiVersion":"ruralz/v1alpha1","kind":"Policy","metadata":{"name":"p"},"spec":{"type":"${T}"}}`
+		out, ds, _ := run(t, []file{{"ruralz.yaml", base}}, []file{{"o.yaml", over}})
+		want := []string{`ruralz.yaml:1:133 error RZ-CFG-006 Policy/p spec.config.schema.$patch: $patch from the base document is no longer inside a JSON Schema document after the overlay merge ` +
+			`(the overlay changes how this value is read, as a new Policy spec.type does; remove $patch from the base value or keep the base type) (the overlay changes its schema in o.yaml:1:88)`}
+		if g := texts(ds); !slices.Equal(g, want) {
+			t.Errorf("diagnostics =\n%q\nwant\n%q", g, want)
+		}
+		if g := dump(at(t, out[0].Root, "spec.config.schema")); g != `{}` {
+			t.Errorf("spec.config.schema = %s, want the base $patch removed", g)
+		}
+	})
 }
 
 // TestSetElementDirective: an object element of a set list is a
@@ -581,7 +1021,8 @@ func TestIdentityRules(t *testing.T) {
 
 // TestNewIdentities covers 01 req 25 "New identity: added, merged against
 // an empty base": new resources follow the base ones in (kind, name)
-// order whatever the file order, and nil documents are ignored.
+// order whatever the file order, nil documents are ignored, and a spec
+// holding nothing but a removal is not added ("absent key: no-op").
 func TestNewIdentities(t *testing.T) {
 	mk := func(kind, name string) string {
 		return `{"apiVersion":"ruralz/v1alpha1","kind":"` + kind + `","metadata":{"name":"` + name + `"},"spec":{"x":null}}`
@@ -599,8 +1040,8 @@ func TestNewIdentities(t *testing.T) {
 	if g, w := ids(out), []string{"Route/r", "Policy/m", "Route/z", "Upstream/b"}; !slices.Equal(g, w) {
 		t.Errorf("order = %v, want %v", g, w)
 	}
-	if g := dump(at(t, out[3].Root, "spec")); g != "{}" {
-		t.Errorf("new identity spec = %s, want {} (null dropped)", g)
+	if _, ok := out[3].Root.Get("spec"); ok {
+		t.Errorf("new identity %s: spec {x: null} was added, want no spec (a removal of nothing)", dump(out[3].Root))
 	}
 }
 

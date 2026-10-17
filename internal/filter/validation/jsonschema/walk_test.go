@@ -58,6 +58,10 @@ func TestNameListsRefused(t *testing.T) {
 		{"dependencies", `{"dependencies":{"a":[` + huge + `]}}`, "/dependencies/a/0"},
 		{"nested arrays", `{"type":[[1e9999999],[2e9999999],[3e9999999],[4e9999999],[5e9999999],[6e9999999],[7e9999999],[8e9999999],[9e9999999],[10e9999999],[11e9999999],[12e9999999],[13e9999999],[14e9999999],[15e9999999],[16e9999999],[17e9999999],[18e9999999],[19e9999999],[20e9999999],[21e9999999]]}`, "/type/0"},
 		{"member map behind a reference", `{"$ref":"#/x/properties","x":{"properties":{"type":[` + huge + `]}}}`, "/x/properties/type/0"},
+		// The library compiles $recursiveRef as a reference (audit class
+		// GC-01, rows CMP-21, CMP-22, CX-22: the round-9 panic).
+		{"behind a recursive reference", `{"$recursiveRef":"#/x","x":{"type":[` + huge + `]}}`, "/x/type/0"},
+		{"required behind a recursive reference", `{"properties":{"a":{"$recursiveRef":"#/x"}},"x":{"required":[` + huge + `]}}`, "/x/required/0"},
 		{"after a string", `{"properties":{"a":{"required":["id",` + huge + `]}}}`, "/properties/a/required/1"},
 		{"slow type list", `{"type":[` + literals(20, "e999999") + `]}`, "/type/0"},
 		{"in range", `{"$defs":{"a":{"type":[1,2,3,4]}}}`, "/$defs/a/type/0"},
@@ -170,7 +174,7 @@ func TestNameListsMatchLibrary(t *testing.T) {
 			continue
 		}
 		w.issues = nil
-		_, library, _ := compileWalked(p, w, refusingLoader{}, nil)
+		_, library, _ := compileWalked(p, w, refusingLoader{}, nil, newRegexpEngine())
 		slices.SortFunc(walked, func(a, b Issue) int { return comparePointers(a.Pointer, b.Pointer) })
 		if !slices.Equal(walked, library) {
 			t.Errorf("walk(%s) = %+v, library %+v", schema, walked, library)
@@ -183,12 +187,15 @@ func TestNameListsMatchLibrary(t *testing.T) {
 // annotations and unknown keywords, and members named like the keywords.
 // Below additionalItems, an unknown keyword under draft 2020-12 that the
 // library neither compiles nor checks against the meta-schema, no rule
-// applies unless a reference, an anchor or an $id makes the library
-// compile it (minor review findings: the walk refused content there as an
-// invalid JSON Schema, also where a property name or a const, enum or
-// examples value merely held an $id or an anchor), and a reference there
-// is checked only when the library compiles it (minor review finding: one
-// leaving the document was refused, though never loaded), once.
+// applies unless the library compiles a schema there: a reference it
+// compiles names it, by pointer, $anchor or $id, or it is a $dynamicAnchor
+// schema of a resource the library compiles (minor review findings: the
+// walk refused content there as an invalid JSON Schema, also where a
+// property name or a const, enum or examples value merely held an $id or
+// an anchor, and, library audit row CMP-27, where an $anchor or $id no
+// reference names did), and a reference there is checked only when the
+// library compiles it (minor review finding: one leaving the document was
+// refused, though never loaded), once.
 //
 // Requirements: 07 reqs 75 and 76.
 func TestNameListsAccepted(t *testing.T) {
@@ -214,6 +221,9 @@ func TestNameListsAccepted(t *testing.T) {
 		`{"additionalItems":{"examples":[{"$dynamicAnchor":"d"}],"required":[1]}}`,
 		// Identifiers that are not strings, which the library ignores.
 		`{"additionalItems":{"$anchor":5,"$id":{"a":1},"pattern":"(?=a)"}}`,
+		// An $anchor no reference names, so nothing compiles the reference
+		// below it (row CMP-27).
+		`{"additionalItems":{"$anchor":"a","items":{"$ref":"#/nope"}}}`,
 	} {
 		spy := &spyLoader{}
 		if _, _, issues := compileRaw([]byte(schema), spy); len(issues) > 0 || len(spy.urls) > 0 {
@@ -226,7 +236,7 @@ func TestNameListsAccepted(t *testing.T) {
 	for _, tc := range []struct{ schema, ptr string }{
 		{`{"$ref":"#/additionalItems","additionalItems":{"$ref":"#/nope"}}`, "/additionalItems/$ref"},
 		{`{"$ref":"#/additionalItems","additionalItems":{"$ref":"https://example.com/s"}}`, "/additionalItems/$ref"},
-		{`{"additionalItems":{"$anchor":"a","items":{"$ref":"#/nope"}}}`, "/additionalItems/items/$ref"},
+		{`{"$ref":"#a","additionalItems":{"$anchor":"a","items":{"$ref":"#/nope"}}}`, "/additionalItems/items/$ref"},
 	} {
 		if issues := compileIssues(t, tc.schema); len(issues) != 1 || issues[0].Pointer != tc.ptr {
 			t.Errorf("CompileSchema(%s) = %+v, want one finding at %s", tc.schema, issues, tc.ptr)

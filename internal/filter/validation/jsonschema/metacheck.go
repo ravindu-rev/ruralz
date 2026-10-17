@@ -41,30 +41,24 @@ import (
 const maxCheckCopies = 1 << 19
 
 // metaChecks simulates the library's meta-schema checks in the order
-// compileWalked makes them, lists in checkOrder the targets checked apart,
-// and reports a document whose repeated checks or copies exceed their
-// bounds, at the reference to the target that crosses one.
+// compileWalked makes them, of the keyword tree and then of the targets
+// the walk lists in checkOrder (walk), and reports a document whose
+// repeated checks or copies exceed their bounds, at a reference to the
+// target that crosses one.
 func (w *walker) metaChecks() {
 	checked := make(map[string]bool, len(w.positions))
 	for _, p := range w.positions[:w.keywordTree] {
 		checked[p] = true
 	}
-	targets := slices.Clone(w.targets)
-	slices.SortStableFunc(targets, func(a, b refTarget) int { return comparePointers(a.ptr, b.ptr) })
-	perCopy := len(w.positions) + 2*len(w.ids) + len(w.anchors)
+	perCopy := len(w.positions) + 2*w.ids + w.anchors
 	mc := metaCount{checks: len(w.positions), checked: checked}
 	copies := 0
-	for _, t := range targets {
-		// A target listed again after its check is checked already.
-		if checked[t.ptr] {
-			continue
-		}
+	for _, t := range w.targets {
 		if copies += perCopy; copies > maxCheckCopies {
 			w.add(t.site, fmt.Sprintf("schema refers to too many subschemas outside its keywords for its %d subschemas: the compiler would copy more than %d entries to check them (move them under $defs)", len(w.positions), maxCheckCopies))
 			return
 		}
-		w.checkOrder = append(w.checkOrder, t.ptr)
-		v, _ := lookup(w.doc, t.ptr)
+		v := w.values[t.ptr]
 		if !mc.check(v, t.ptr, false) {
 			if mc.checks > MaxSubschemas {
 				w.add(t.site, fmt.Sprintf("schema has more than %d subschemas, counting again those the meta-schema check repeats under a reference such as this one, to a position whose keywords hold subschemas already checked", MaxSubschemas))

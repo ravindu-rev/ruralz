@@ -70,7 +70,7 @@ func TestErrorMapping(t *testing.T) {
 		},
 		{
 			"req33 $patch in a base file", envelope("Route", `{"$patch": "replace", "match": {"path": {"prefix": "/"}}, "upstreams": [{"name": "u"}]}`),
-			[]finding{{CodeUnknownField, "spec.$patch", `unknown field "$patch": $patch is allowed only in overlay files`, ""}},
+			[]finding{{CodeUnknownField, "spec.$patch", `unknown field "$patch": $patch is valid only in overlays`, ""}},
 		},
 		{
 			"req33 closed config", policy("auth.basic", `{"realm": "x"}`),
@@ -312,7 +312,7 @@ func TestSetNumbersByValue(t *testing.T) {
 }
 
 // TestReservedPrefix checks label and annotation keys under ruralz.io/
-// (01 req 35).
+// (01 req 35), with the key's position.
 func TestReservedPrefix(t *testing.T) {
 	src := `{"apiVersion": "ruralz/v1alpha1", "kind": "Route", "metadata": {"name": "x",
   "labels": {"ruralz.io/team": "a", "team": "b", "Ruralz.IO/x": "c"},
@@ -321,7 +321,6 @@ func TestReservedPrefix(t *testing.T) {
 	got := validateJSON(t, src)
 	want := []finding{
 		{CodeSchema, `metadata.labels["ruralz.io/team"]`, `label key "ruralz.io/team" uses the reserved prefix ruralz.io/`, ""},
-		{CodeSchema, `metadata.labels["Ruralz.IO/x"]`, `label key "Ruralz.IO/x" uses the reserved prefix ruralz.io/`, ""},
 		{CodeSchema, `metadata.annotations["ruralz.io/patch"]`, `annotation key "ruralz.io/patch" uses the reserved prefix ruralz.io/`, "only ruralz.io/conversion-data may use the prefix"},
 	}
 	f := findings(got)
@@ -338,9 +337,53 @@ func TestReservedPrefix(t *testing.T) {
 	}
 }
 
+// TestReservedPrefixExact checks that the reserved prefix and the
+// conversion-data exemption compare bytes exactly, as 01 req 35 writes
+// them (review finding: the prefix was matched ignoring case, which no
+// spec states, while the exemption was exact): a key that differs from
+// ruralz.io/ in case, or that only contains it, is an ordinary key.
+func TestReservedPrefixExact(t *testing.T) {
+	for _, tc := range []struct {
+		name, field, key string
+		// reserved is whether the key is RZ-CFG-005.
+		reserved bool
+	}{
+		{"label with the prefix", "labels", "ruralz.io/team", true},
+		{"label that is the prefix alone", "labels", "ruralz.io/", true},
+		{"label in mixed case", "labels", "Ruralz.IO/x", false},
+		{"label in upper case", "labels", "RURALZ.IO/team", false},
+		{"label without the slash", "labels", "ruralz.io", false},
+		{"label with the prefix inside", "labels", "shop.ruralz.io/team", false},
+		{"label with a longer domain", "labels", "ruralz.iox/team", false},
+		{"label named conversion-data", "labels", "ruralz.io/conversion-data", true},
+		{"annotation with the prefix", "annotations", "ruralz.io/patch", true},
+		{"annotation conversion-data", "annotations", "ruralz.io/conversion-data", false},
+		{"annotation conversion-data in mixed case", "annotations", "Ruralz.io/conversion-data", false},
+		{"annotation conversion-data in a cased name", "annotations", "ruralz.io/Conversion-Data", true},
+		{"annotation conversion-data with a suffix", "annotations", "ruralz.io/conversion-data2", true},
+		{"annotation in upper case", "annotations", "RURALZ.IO/patch", false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			src := `{"apiVersion": "ruralz/v1alpha1", "kind": "Route", "metadata": {"name": "x", "` + tc.field + `": {` + quote(tc.key) + `: "v"}},
+  "spec": {"match": {"path": {"prefix": "/"}}, "upstreams": [{"name": "u"}]}}`
+			got := validateJSON(t, src)
+			if !tc.reserved {
+				if len(got) != 0 {
+					t.Errorf("Validate(%s %q) = %s, want no finding", tc.field, tc.key, texts(got))
+				}
+				return
+			}
+			if len(got) != 1 || got[0].Code != CodeSchema || !strings.Contains(got[0].Message, "uses the reserved prefix ruralz.io/") {
+				t.Errorf("Validate(%s %q) = %s, want one RZ-CFG-005 for the reserved prefix", tc.field, tc.key, texts(got))
+			}
+		})
+	}
+}
+
 // TestPositions checks the source positions of each finding kind: the
 // value, the unknown key, the parent object of a missing field (01 reqs 33
-// and 47).
+// and 47; review finding: the missing field produced no finding, so its
+// position went unchecked).
 func TestPositions(t *testing.T) {
 	src := `{
   "apiVersion": "ruralz/v1alpha1",
@@ -348,7 +391,7 @@ func TestPositions(t *testing.T) {
   "metadata": {"name": "u"},
   "spec": {
     "protocol": "htp",
-    "endpoints": [{"address": "a:1"}],
+    "endpoints": [{"address": "a:1"}, {"weight": 2}],
     "timout": "1s",
     "retries": {}
   }
@@ -356,6 +399,7 @@ func TestPositions(t *testing.T) {
 	got := validateJSON(t, src)
 	want := []string{
 		`r.json:6:17 error RZ-CFG-005 Upstream/u spec.protocol: must be one of "http", "grpc", "graphql", "websocket", "kafka", "nats", "mqtt", "ai" (did you mean "http"?)`,
+		`r.json:7:39 error RZ-CFG-005 Upstream/u spec.endpoints[1]: missing required field address`,
 		`r.json:8:5 error RZ-CFG-006 Upstream/u spec.timout: unknown field "timout" (did you mean "timeout"?)`,
 	}
 	if strings.TrimSpace(texts(got)) != strings.Join(want, "\n") {
@@ -409,6 +453,61 @@ func TestSecretValueNeverEchoed(t *testing.T) {
 				t.Errorf("finding %s, want only %s", texts(diag.List{d}), CodeLiteral)
 			}
 		}
+	}
+}
+
+// TestSecretPerPosition checks that each x-ruralz-secret position with a
+// non-conforming value gets its own RZ-CFG-012 at its own location with
+// only its own reasons, even when two positions share a path text: the
+// secretRef of two keyed entries with one key, in both orders, and of
+// three entries (01 reqs 33 and 51; review finding: findings were grouped
+// by path text, so the second entry's reasons went to the first entry's
+// location, or were lost).
+func TestSecretPerPosition(t *testing.T) {
+	const (
+		obj     = `{"provider": "env", "name": "A", "x": 1}`
+		literal = `"LITERAL"`
+		objMsg  = "invalid secret reference: the field accepts only key, name or provider; write it as {provider, name}"
+		litMsg  = "a literal value is not allowed in a secret field; reference the secret as {provider, name}"
+		path    = "spec.credentials.apiKeys[name=k].secretRef"
+	)
+	for _, tc := range []struct {
+		name  string
+		refs  []string
+		wants []string
+	}{
+		{"object then literal", []string{obj, literal}, []string{objMsg, litMsg}},
+		{"literal then object", []string{literal, obj}, []string{litMsg, objMsg}},
+		{"three entries", []string{obj, literal, obj}, []string{objMsg, litMsg, objMsg}},
+		{"two literals", []string{literal, literal}, []string{litMsg, litMsg}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			var entries []string
+			for _, ref := range tc.refs {
+				entries = append(entries, `{"name": "k", "secretRef": `+ref+`}`)
+			}
+			src := envelope("Consumer", `{"credentials": {"apiKeys": [`+strings.Join(entries, ", ")+`]}}`)
+			files := &tree.FileTable{}
+			res := mustResource(t, files, "r.json", src)
+			keys, _ := res.Root.Get("spec")
+			keys, _ = keys.Get("credentials")
+			keys, _ = keys.Get("apiKeys")
+			var secrets []diag.Diagnostic
+			for _, d := range testView(t).Validate(res, files) {
+				if d.Code == CodeLiteral {
+					secrets = append(secrets, d)
+				}
+			}
+			if len(secrets) != len(tc.refs) {
+				t.Fatalf("Validate() = %d RZ-CFG-012 findings, want one per entry (%d):\n%s", len(secrets), len(tc.refs), texts(secrets))
+			}
+			for i, d := range secrets {
+				ref, _ := keys.Items[i].Get("secretRef")
+				if d.Path.String() != path || d.Column != int(ref.Pos.Column) || d.Message != tc.wants[i] {
+					t.Errorf("finding %d = %s at column %d, want %q at column %d (entry %d)", i, d.Message, d.Column, tc.wants[i], ref.Pos.Column, i)
+				}
+			}
+		})
 	}
 }
 
@@ -490,7 +589,7 @@ func TestUnknownKind(t *testing.T) {
 // TestMessagesWithoutSchema covers the wording helpers on kinds and inputs
 // the validator does not produce for these schemas.
 func TestMessagesWithoutSchema(t *testing.T) {
-	m := newMapper(testView(t), resourceOf(nil), nil, MaxDiagnostics)
+	m := newMapper(testView(t), resourceOf(nil), nil, MaxDiagnostics, Options{})
 	p := position{}
 	for _, tc := range []struct {
 		k    jsonschema.ErrorKind

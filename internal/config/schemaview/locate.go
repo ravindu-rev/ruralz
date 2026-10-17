@@ -4,6 +4,7 @@
 package schemaview
 
 import (
+	"encoding/json"
 	"strconv"
 
 	"github.com/ravindu-rev/ruralz/internal/config/diag"
@@ -55,8 +56,13 @@ const memberIndexMin = 16
 // schema dispatch and secret mark are computed once however many errors
 // lie at or below it), the member index of large objects, the secret mark
 // of each schema node, the interned path texts and the common prefixes of
-// long path segments. Mapping work is then linear in the number of errors
-// times their location depth plus the instance size.
+// long path segments. Mapping work is then linear in the number of
+// errors times their location depth plus the instance size, up to the
+// logarithmic factor of sorting the diagnostics. lcp holds the pairs of
+// long sibling segments compared whose common prefix reaches lcpMemo, at
+// most scanned/lcpMemo of them; every other long pair is remembered only
+// as each segment's last comparison (lcpCache), so the memo's size does
+// not grow with the comparisons (TestLongSiblingPrefixes).
 type memo struct {
 	start *schemaidx.Node
 	root  *tree.Node
@@ -67,9 +73,16 @@ type memo struct {
 	texts   map[textAt]*textNode
 	lcp     map[textPair]int
 	// read counts the members and elements that scans, index builds,
-	// dispatches and path elements read: the work the scale tests bound,
-	// linear in the instance size.
+	// dispatches, path elements and step lookups read: the work the scale
+	// tests bound, linear in the instance size.
 	read int
+	// scanned counts the bytes that the common prefixes of two long
+	// sibling segments read (commonPrefix), which the scale tests bound
+	// per document byte.
+	scanned int
+	// work counts the call's work units for Options.Yield; nil yields
+	// nothing.
+	work *work
 }
 
 // step is a memoized position with the steps below it, keyed by the
@@ -91,18 +104,22 @@ type step struct {
 // instead of indexing them: most positions have a handful.
 const fewSteps = 8
 
-// find returns the child step at tok.
-func (s *step) find(tok string) (*step, bool) {
+// find returns the child step at tok and the children it compared: each
+// entry of few it scanned, or one for the lookup in many. A step with
+// many children must not be scanned per error: that is quadratic in its
+// children (review finding: no count saw a scan of every child, so the
+// loss of the index cost 120 s unnoticed).
+func (s *step) find(tok string) (*step, int, bool) {
 	if s.many != nil {
 		c, ok := s.many[tok]
-		return c, ok
+		return c, 1, ok
 	}
-	for _, c := range s.few {
+	for i, c := range s.few {
 		if c.tok == tok {
-			return c, true
+			return c, i + 1, true
 		}
 	}
-	return nil, false
+	return nil, len(s.few), false
 }
 
 // add records child step c.
@@ -122,14 +139,17 @@ func (s *step) add(c *step) {
 }
 
 // newMemo returns the memo of one resource whose schema is start and
-// whose tree is root.
-func newMemo(start *schemaidx.Node, root *tree.Node) *memo {
-	return &memo{start: start, root: root}
+// whose tree is root, counting work units on w (nil counts nothing).
+func newMemo(start *schemaidx.Node, root *tree.Node, w *work) *memo {
+	return &memo{start: start, root: root, work: w}
 }
 
 // index returns the position in n.Members of the first member named key,
 // the member tree.Node.Get returns; false when n is not an object or has
-// no such member.
+// no such member. Each member scanned or indexed is a work unit, and so
+// is each byte of a name it compares in full (one as long as key),
+// hashes into the index or looks up in it: a member name can be as long
+// as the document.
 func (x *memo) index(n *tree.Node, key string) (int, bool) {
 	if n == nil || n.Kind != tree.KindMap {
 		return 0, false
@@ -137,8 +157,12 @@ func (x *memo) index(n *tree.Node, key string) (int, bool) {
 	if len(n.Members) < memberIndexMin {
 		for i := range n.Members {
 			x.read++
-			if n.Members[i].Key == key {
-				return i, true
+			x.work.tick()
+			if k := n.Members[i].Key; len(k) == len(key) {
+				x.work.charge(len(k))
+				if k == key {
+					return i, true
+				}
 			}
 		}
 		return 0, false
@@ -147,6 +171,7 @@ func (x *memo) index(n *tree.Node, key string) (int, bool) {
 	if !ok {
 		names = make(map[string]int, len(n.Members))
 		for i := len(n.Members) - 1; i >= 0; i-- {
+			x.work.charge(1 + len(n.Members[i].Key))
 			names[n.Members[i].Key] = i
 		}
 		x.read += len(n.Members)
@@ -155,6 +180,7 @@ func (x *memo) index(n *tree.Node, key string) (int, bool) {
 		}
 		x.members[n] = names
 	}
+	x.work.charge(len(key))
 	i, ok := names[key]
 	return i, ok
 }
@@ -169,22 +195,74 @@ func (x *memo) get(n *tree.Node, key string) (*tree.Node, bool) {
 }
 
 // selectFor returns s.Select(inst); each dispatch case reads members of
-// inst. Steps call it once per position.
+// inst. Steps call it once per position. Select is a span that cannot
+// yield (Options.Yield), charged one unit per member of inst after it,
+// although each of its cases scans those members.
 func (x *memo) selectFor(s *schemaidx.Node, inst *tree.Node) *schemaidx.Node {
+	sel := s.Select(inst)
 	if inst != nil && inst.Kind == tree.KindMap {
 		x.read += len(inst.Members)
+		x.work.charge(len(inst.Members))
 	}
-	return s.Select(inst)
+	return sel
 }
 
 // itemElem returns schemaidx.ItemElem(list, item, i). It reads the
-// element (a keyed entry's members, a set element's canonical JSON), which
-// may be large; steps call it once per element.
+// element (a keyed entry's members, a set element's canonical JSON or
+// scalar text), which may be large; steps call it once per element.
+// Computing the element is a span that cannot yield (Options.Yield); the
+// element's members and items and its bytes (elemBytes) are charged after
+// it.
 func (x *memo) itemElem(list *schemaidx.Node, item *tree.Node, i int) diag.PathElem {
+	e := schemaidx.ItemElem(list, item, i)
 	if item != nil {
-		x.read += 1 + len(item.Members) + len(item.Items)
+		k := 1 + len(item.Members) + len(item.Items)
+		x.read += k
+		x.work.charge(k + elemBytes(e, item))
 	}
-	return schemaidx.ItemElem(list, item, i)
+	return e
+}
+
+// elemBytes returns the bytes schemaidx.ItemElem reads or writes to name
+// item as e: a set element's canonical JSON (an object or array) with the
+// numbers it parses (itemJSONBytes), or the text of a number set element,
+// which it parses and formats; 0 for every other element, whose text it
+// neither reads nor copies. A string set element and a keyed entry's key
+// are read when the path is rendered (memo.intern charges them).
+func elemBytes(e diag.PathElem, item *tree.Node) int {
+	if e.Kind != diag.ElemItem {
+		return 0
+	}
+	if raw, ok := e.Item.(json.RawMessage); ok {
+		return itemJSONBytes(item, len(raw))
+	}
+	return numberBytes(item)
+}
+
+// itemJSONBytes returns the bytes schemaidx.AppendItemJSON reads and
+// writes for n, whose canonical JSON is canon bytes long: those bytes and
+// the text of every number in n, which it parses into a form that can be
+// much shorter than the literal.
+func itemJSONBytes(n *tree.Node, canon int) int {
+	return canon + numberBytes(n)
+}
+
+// numberBytes returns the bytes of the number literals at and below n.
+func numberBytes(n *tree.Node) int {
+	if n == nil {
+		return 0
+	}
+	b := 0
+	if n.Kind == tree.KindInt || n.Kind == tree.KindFloat {
+		b = len(n.Text)
+	}
+	for _, m := range n.Members {
+		b += numberBytes(m.Value)
+	}
+	for _, it := range n.Items {
+		b += numberBytes(it)
+	}
+	return b
 }
 
 // secret reports whether schema s carries x-ruralz-secret, memoized per
@@ -226,11 +304,18 @@ func (x *memo) locate(loc []string) position {
 	return s.position
 }
 
-// step returns the step below s at location token tok.
+// step returns the step below s at location token tok. The lookup reads
+// one member per child it compares (step.find) and hashes or compares
+// tok, each a work unit per byte, so a location with a long member name
+// charges its length per lookup.
 func (x *memo) step(s *step, tok string) *step {
-	if c, ok := s.find(tok); ok {
+	c, compared, ok := s.find(tok)
+	x.read += compared
+	x.work.charge(compared + len(tok))
+	if ok {
 		return c
 	}
+	x.work.tick()
 	parent, parentSchema := s.node, s.schema
 	var child *tree.Node
 	var childSchema *schemaidx.Node
@@ -252,7 +337,7 @@ func (x *memo) step(s *step, tok string) *step {
 		elem = diag.Field(tok)
 		childSchema = memberSchema(parentSchema, tok)
 	}
-	c := &step{position: s.position, tok: tok}
+	c = &step{position: s.position, tok: tok}
 	c.pn = pathNode{parent: s.path, elem: elem}
 	c.pn.text = x.intern(s.path.textOf(), elem, &c.tn)
 	c.path = &c.pn

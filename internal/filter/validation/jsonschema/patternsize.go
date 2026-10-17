@@ -21,31 +21,29 @@ import (
 // MaxPatternInstructions, or patterns whose measures exceed
 // MaxDocumentInstructions together.
 //
-// A pattern's measure is the work of parsing it plus what its compiled
-// form keeps, in instructions of 40 bytes: the instructions of its program
-// as Go's own parser estimates them, every copy a repetition expands to
+// A pattern's measure is the work of parsing it plus what its compiled form
+// keeps, in instructions of 40 bytes: the instructions of its program as
+// Go's own parser estimates them, every copy a repetition expands to
 // included; programOverhead; the ranges of its character classes,
-// rangesPerInstruction of them as one instruction; and nodeInstructions
-// for every literal and class of the parsed expression, whose node the
-// program may keep. The copies a repetition makes share the ranges and
-// the node of its literal or class, which count once. The parsing work is
-// counted before the parse, lexically, since the parser does it whatever
-// the program: the ranges of the table it builds for each Unicode class
-// escape (\p and \P; \pL holds about 680), which it merges and sorts
-// within a class, escapeRangesPerInstruction of them as one instruction,
-// and the characters of case-insensitive class ranges, which it folds one
-// at a time (about 4 ms for [\x{42}-\x{1e942}] under (?i)),
-// foldRunesPerInstruction of them as one instruction (proposed, measured
-// on a shared 4-vCPU 2.8 GHz machine against Go's compile of an
-// instruction).
-// A pattern whose parsing work alone exceeds the bound is refused
-// unparsed, and once the document's bound is spent no later pattern is
-// parsed (review finding: hundreds of escape-heavy patterns were parsed
-// after the bound, 1.3 s and 1.3 GB for a schema refused anyway); a pattern
-// refused after its parse still counts its parsing work. The library
-// compiles every distinct pattern once (regexpCache), through
-// compilePattern, which never builds Go's one-pass matcher: its tables are
-// not part of the measure.
+// rangesPerInstruction of them as one instruction; and nodeInstructions for
+// every literal and class of the parsed expression, whose node the program
+// may keep. The copies a repetition makes share the ranges and the node of
+// its literal or class, which count once. The parsing work is counted before
+// the parse, lexically, since the parser does it whatever the program: the
+// ranges of the table it builds for each Unicode class escape (\p and \P;
+// \pL holds about 680), which it merges and sorts within a class,
+// escapeRangesPerInstruction of them as one instruction, and the characters
+// of case-insensitive class ranges, which it folds one at a time (about 4 ms
+// for [\x{42}-\x{1e942}] under (?i)), foldRunesPerInstruction of them as one
+// instruction (proposed, measured on a shared 4-vCPU 2.8 GHz machine against
+// Go's compile of an instruction). A pattern whose parsing work alone
+// exceeds the bound is refused unparsed, and once the document's bound is
+// spent no later pattern is parsed (review finding: hundreds of escape-heavy
+// patterns were parsed after the bound, 1.3 s and 1.3 GB for a schema
+// refused anyway); a pattern refused after its parse still counts its
+// parsing work. The library compiles every distinct pattern once per compile
+// (regexpEngine), through compilePattern, which never builds Go's one-pass
+// matcher: its tables are not part of the measure.
 
 // rangesPerInstruction is the character-class ranges counted as one more
 // instruction of the program: an instruction takes 40 bytes, a range 8.

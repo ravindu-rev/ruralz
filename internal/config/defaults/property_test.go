@@ -4,7 +4,10 @@
 package defaults
 
 import (
+	"bytes"
+	"encoding/json"
 	"math/rand/v2"
+	"reflect"
 	"strconv"
 	"strings"
 	"testing"
@@ -12,6 +15,7 @@ import (
 	"github.com/ravindu-rev/ruralz/internal/config/registry"
 	"github.com/ravindu-rev/ruralz/internal/config/schemaidx"
 	"github.com/ravindu-rev/ruralz/internal/config/tree"
+	"github.com/ravindu-rev/ruralz/pkg/config/v1alpha1"
 )
 
 // permute reorders, below n, every object's members and the elements of
@@ -74,8 +78,10 @@ func TestReorderInvariance(t *testing.T) {
 // FuzzStageIdempotent is 01 property P6 and 02 property 20 with the
 // stage's robustness: any resource document stage G accepts holds no null
 // (02 req 19) and is a fixed point of stage G, materialization is
-// idempotent on its own output, and no input panics. The input is a JSON
-// resource envelope.
+// idempotent on its own output, the raw spec.config of an accepted Policy
+// decodes with encoding/json to its typed config (round 5: a member whose
+// name folds onto a declared one made them differ), and no input panics.
+// The input is a JSON resource envelope.
 func FuzzStageIdempotent(f *testing.F) {
 	for _, seed := range []string{
 		route(`{"match": {"hosts": ["B.example", "a.example"]}, "timeout": "90s", "upstreams": [{"name": "b", "weight": 2.0}, {"name": "a"}]}`),
@@ -88,6 +94,15 @@ func FuzzStageIdempotent(f *testing.F) {
 		`{"apiVersion": "ruralz/v1alpha1", "kind": "AIProvider", "metadata": {"name": "p"}, "spec": {"dialect": "openai", "pricing": {"models": [{"model": "m", "inputPerMillionTokens": "03.50"}]}}}`,
 		`{"apiVersion": "ruralz/v1alpha1", "kind": "Consumer", "metadata": {"name": "c"}, "spec": {"credentials": {}, "tags": ["b", "a", "b"]}}`,
 		`[]`,
+		// Exponents at the int range at an integer position (WP-37
+		// review: integerText wrapped and panicked).
+		route(`{"match": {}, "upstreams": [{"name": "u", "weight": 1e9223372036854775807}]}`),
+		route(`{"match": {}, "upstreams": [{"name": "u", "weight": 1E+9223372036854775807}]}`),
+		route(`{"match": {}, "upstreams": [{"name": "u", "weight": 1e-9223372036854775808}]}`),
+		route(`{"match": {}, "upstreams": [{"name": "u", "weight": 1.5e-9223372036854775808}]}`),
+		// Names that fold onto declared members (round 5).
+		policyDoc("ratelimit", `{"key": "consumer.name", "Key": "x", "limits": [{"requests": 5, "window": "1s", "perNodeCeiling": 2, "pernodeceiling": -7}]}`),
+		policyDoc("auth.api-key", `{"Header": "x", "extra": {"Header": 1}}`),
 	} {
 		f.Add(seed)
 	}
@@ -128,6 +143,15 @@ func FuzzStageIdempotent(f *testing.F) {
 		if got := dump(h2.Tree); got != once {
 			t.Fatalf("stage G changed its own output\n%s\nwant\n%s", got, once)
 		}
+		// A Policy without spec.config has no raw config to decode.
+		if p, ok := h.Object.(*v1alpha1.Policy); ok && h.Config != nil && len(p.Spec.Config) > 0 {
+			raw, _ := reg.NewConfig(p.Spec.Type)
+			dec := json.NewDecoder(bytes.NewReader(p.Spec.Config))
+			dec.UseNumber()
+			if err := dec.Decode(raw); err != nil || !reflect.DeepEqual(raw, h.Config) {
+				t.Fatalf("the raw config %s decodes to %+v (%v), the typed config is %+v", p.Spec.Config, raw, err, h.Config)
+			}
+		}
 	})
 }
 
@@ -156,7 +180,12 @@ func nullAt(n *tree.Node, path string) (string, bool) {
 // reports an integer, the literal and the integer text are equal numbers,
 // and a short integral literal is always recognized.
 func FuzzIntegerText(f *testing.F) {
-	for _, seed := range []string{"1", "1.0", "1e3", "-0.0", "1.5", "100e-2", "1e16", "9007199254740991.000", "0e999999999999999999999", "1e-999999999999999999"} {
+	for _, seed := range []string{
+		"1", "1.0", "1e3", "-0.0", "1.5", "100e-2", "1e16", "9007199254740991.000", "0e999999999999999999999", "1e-999999999999999999",
+		// Exponents at the int range (WP-37 review: these panicked).
+		"1e9223372036854775807", "1.5e9223372036854775807", "10e9223372036854775807", "1E+9223372036854775807",
+		"1.5e-9223372036854775808", "1e-9223372036854775808",
+	} {
 		f.Add(seed)
 	}
 	f.Fuzz(func(t *testing.T, s string) {

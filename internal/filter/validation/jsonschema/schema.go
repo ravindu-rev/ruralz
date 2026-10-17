@@ -11,6 +11,7 @@ import (
 	"net/url"
 	"slices"
 	"strings"
+	"sync/atomic"
 	"unicode/utf8"
 
 	sjs "github.com/santhosh-tekuri/jsonschema/v6"
@@ -236,88 +237,78 @@ func compileRaw(raw []byte, loader sjs.URLLoader) (*Schema, any, []Issue) {
 	return s, p.doc, issues
 }
 
-// compilePrepared runs the rule walk, compiles every schema position and
-// inspects the compiled graph from each of them. stop, when not nil, is
-// asked before the library compiles the document and again before the
-// evaluation analysis, the stages a canceled snapshot compile skips (minor
-// review finding); its error ends the compile and is returned unchanged.
+// compilePrepared runs the rule walk, compiles every schema position, and
+// inspects and analyzes every schema the library compiled, with a regexp
+// engine of its own. stop, when not nil, is asked before the library
+// compiles the document and again before the evaluation analysis, the
+// stages a canceled snapshot compile skips (minor review finding); its
+// error ends the compile and is returned unchanged.
 func compilePrepared(p *prepared, loader sjs.URLLoader, stop func() error) (*Schema, []Issue, error) {
+	return compileWith(p, loader, stop, newRegexpEngine())
+}
+
+// msgPanicked is the finding for a compile that panicked (compileWith).
+const msgPanicked = "the compile of this schema failed with an internal error, so it is refused"
+
+// compileWith is compilePrepared with the regexp engine eng, which it
+// freezes before it returns, whatever the outcome (audit class GC-21).
+//
+// A panic during the compile, in the library or in the compile's own code,
+// is recovered into one finding at the document, msgPanicked, so that
+// CompileSchema, Check and Factory.Build, which all compile through here,
+// refuse the document with RZ-CFG-005 instead of ending the process (a
+// backstop of library audit classes GC-01 and GC-02: the library's
+// meta-schema check dereferenced math/big's nil result for a number it
+// refuses at a position the walk did not walk, which ended stage H in
+// every binary). It is a backstop only, and the work done before a panic
+// is spent: the walk walks live every position the library compiles,
+// through each of its reference keywords and with its base URIs (classes
+// GC-01 and GC-02), so it refuses before the library compiles what the
+// audit found to panic, and this fires only for a panic nothing found yet
+// (TestCompileRecovers).
+func compileWith(p *prepared, loader sjs.URLLoader, stop func() error, eng *regexpEngine) (s *Schema, issues []Issue, err error) {
+	defer eng.freeze()
+	defer func() {
+		if recover() != nil {
+			s, issues, err = nil, []Issue{{Message: msgPanicked}}, nil
+		}
+	}()
 	w := newWalker(p.doc)
 	w.walk()
 	if len(w.issues) > 0 {
 		return nil, w.issues, nil
 	}
-	return compileWalked(p, w, loader, stop)
+	return compileWalked(p, w, loader, stop, eng)
 }
 
-// compileWalked compiles a document whose walk found nothing, asking stop
-// as compilePrepared does.
-func compileWalked(p *prepared, w *walker, loader sjs.URLLoader, stop func() error) (*Schema, []Issue, error) {
+// compileWalked compiles a document whose walk found nothing with the
+// regexp engine eng, asking stop as compilePrepared does. It freezes eng
+// before it returns, whatever the outcome (audit class GC-21): once the
+// compile has ended, no expression compiles and nothing is cached.
+func compileWalked(p *prepared, w *walker, loader sjs.URLLoader, stop func() error, eng *regexpEngine) (*Schema, []Issue, error) {
+	defer eng.freeze()
 	if stop != nil {
 		if err := stop(); err != nil {
 			return nil, nil, err
 		}
 	}
-	rc := regexpCache{}
-	c := sjs.NewCompiler()
-	c.DefaultDraft(sjs.Draft2020)
-	c.UseLoader(loader)
-	c.UseRegexpEngine(rc.compile)
-	if err := c.AddResource(baseURL, p.doc); err != nil {
-		return nil, []Issue{{Message: message(err.Error())}}, nil
+	c, starts, issues := compileLibrary(p, w, loader, eng)
+	if len(issues) > 0 {
+		return nil, issues, nil
 	}
-	// What the library compiles below additionalItems it never checks
-	// against the meta-schema, so the compile does, before the library
-	// compiles any of it (metacheck.go).
-	if unchecked := w.uncheckedPositions(); len(unchecked) > 0 {
-		if issues := checkApart(p.doc, unchecked, loader, rc); len(issues) > 0 {
-			return nil, issues, nil
-		}
-	}
-	// The reference targets the library checks apart against the
-	// meta-schema are checked first, in the walk's order: one work queue
-	// that starts with references to them, in that order, checks each
-	// before anything else of the document (metacheck.go).
-	if len(w.checkOrder) > 0 {
-		refs := make([]any, len(w.checkOrder))
-		for i, ptr := range w.checkOrder {
-			refs[i] = map[string]any{"$ref": baseURL + "#" + encodeFragment(ptr)}
-		}
-		if err := c.AddResource(checkURL, map[string]any{"allOf": refs}); err != nil {
-			return nil, []Issue{{Message: message(err.Error())}}, nil
-		}
-		if _, err := c.Compile(checkURL); err != nil {
-			return nil, w.compileIssues(err), nil
-		}
-	}
-	// The library compiles a schema resource and every subschema it
-	// reaches in one work queue, so the root goes first; the remaining
-	// positions (unreferenced definitions, reference targets outside the
-	// keywords) then find almost everything compiled. Compiling them too
-	// applies the loader rule to every reference of the document, but for
-	// the inert positions, which the library would never compile and the
-	// walk's rules leave alone (walker.schema).
-	root, err := c.Compile(baseURL)
-	if err != nil {
-		return nil, w.compileIssues(err), nil
-	}
-	in := newInspector()
-	in.visit(root, "")
-	starts := []*sjs.Schema{root}
-	for _, ptr := range w.positions[1:] {
-		if w.seen[ptr] == walkedInert {
-			continue
-		}
-		s, err := c.Compile(baseURL + "#" + encodeFragment(ptr))
-		if err != nil {
-			return nil, w.compileIssues(err), nil
-		}
-		in.visit(s, "")
-		starts = append(starts, s)
-	}
-	in.fanOut()
-	if len(in.issues) > 0 {
-		return nil, in.issues, nil
+	root := starts[0]
+	// What the library compiled is all it can evaluate: the walked
+	// positions, what they reach, and the schemas no edge leads to, the
+	// resource roots and their $dynamicAnchor schemas, which the dynamic
+	// scope reaches (compiled.go). The walk's $schema rule applies first
+	// at every position the library read a $schema the walk did not, as it
+	// would at the walk, then the inspection covers every compiled schema,
+	// a compiled schema at a position the walk did not walk live is
+	// refused, and the analysis covers the rest.
+	compiled, listed := compiledSchemas(c)
+	in, starts, issues := inspectCompiled(c, w, starts, compiled, listed)
+	if len(issues) > 0 {
+		return nil, issues, nil
 	}
 	if stop != nil {
 		if err := stop(); err != nil {
@@ -343,15 +334,87 @@ func compileWalked(p *prepared, w *walker, loader sjs.URLLoader, stop func() err
 	return &Schema{root: root, decide: decide, raw: p.raw, sum: p.sum, numbers: in.numbers, work: ws}, nil, nil
 }
 
+// compileLibrary has the library compile what the walk w walked live of
+// the document, in the compile's order, with the regexp engine eng: the
+// positions below additionalItems it compiles checked against the
+// meta-schema first (checkApart), then the targets it checks apart
+// (checkOrder), the root and every other position walked live. It returns
+// the compiler and the compiled root and positions, the root first, or the
+// findings of the first step that fails. The walk models these steps
+// exactly (walker), so a document whose walk found nothing compiles here
+// without asking the loader, and the library compiles exactly what the
+// walk walked live (TestWalkMatchesLibrary).
+func compileLibrary(p *prepared, w *walker, loader sjs.URLLoader, eng *regexpEngine) (*sjs.Compiler, []*sjs.Schema, []Issue) {
+	c := sjs.NewCompiler()
+	c.DefaultDraft(sjs.Draft2020)
+	c.UseLoader(loader)
+	c.UseRegexpEngine(eng.compile)
+	if err := c.AddResource(baseURL, p.doc); err != nil {
+		return nil, nil, []Issue{{Message: message(err.Error())}}
+	}
+	// What the library compiles below additionalItems it never checks
+	// against the meta-schema, so the compile does, before the library
+	// compiles any of it (metacheck.go).
+	if unchecked := w.uncheckedPositions(); len(unchecked) > 0 {
+		if issues := checkApart(p.doc, unchecked, loader, eng); len(issues) > 0 {
+			return nil, nil, issues
+		}
+	}
+	// The reference targets the library checks apart against the
+	// meta-schema are checked first, in the walk's order: one work queue
+	// that starts with references to them, in that order, collects and
+	// checks each before anything else of the document (metacheck.go),
+	// each compiling right after its own check, before the next is
+	// collected, as the walk models (walker.close).
+	if len(w.checkOrder) > 0 {
+		refs := make([]any, len(w.checkOrder))
+		for i, ptr := range w.checkOrder {
+			refs[i] = map[string]any{"$ref": baseURL + "#" + encodeFragment(ptr)}
+		}
+		if err := c.AddResource(checkURL, map[string]any{"allOf": refs}); err != nil {
+			return nil, nil, []Issue{{Message: message(err.Error())}}
+		}
+		if _, err := c.Compile(checkURL); err != nil {
+			return nil, nil, w.compileIssues(err)
+		}
+	}
+	// The library compiles a schema resource and every subschema it
+	// reaches in one work queue, so the root goes first; the remaining
+	// positions the walk walked live (unreferenced definitions, reference
+	// targets outside the keywords) then find almost everything compiled.
+	// The inert positions, which the library collects but never compiles,
+	// stay uncompiled, as the walk's rules leave them alone (walker). Every
+	// reference target is collected by now, so these compiles resolve
+	// every reference against all of them (walker.close).
+	root, err := c.Compile(baseURL)
+	if err != nil {
+		return nil, nil, w.compileIssues(err)
+	}
+	starts := []*sjs.Schema{root}
+	for _, ptr := range w.positions[1:] {
+		if w.seen[ptr] == walkedInert {
+			continue
+		}
+		s, err := c.Compile(baseURL + "#" + encodeFragment(ptr))
+		if err != nil {
+			return nil, nil, w.compileIssues(err)
+		}
+		starts = append(starts, s)
+	}
+	return c, starts, nil
+}
+
 // checkApart checks the schema positions ptrs of doc against the draft
 // 2020-12 meta-schema as the library's own checks do, with format
-// assertions and the regexp engine rc, and returns the findings, at most
+// assertions and the regexp engine eng, and returns the findings, at most
 // MaxIssues of them. The library serves the meta-schema without loader.
-func checkApart(doc any, ptrs []string, loader sjs.URLLoader, rc regexpCache) []Issue {
+// The meta-schema compiled here asserts format 'regex' through eng; it is
+// dropped when checkApart returns, before the compile freezes eng.
+func checkApart(doc any, ptrs []string, loader sjs.URLLoader, eng *regexpEngine) []Issue {
 	mc := sjs.NewCompiler()
 	mc.AssertFormat()
 	mc.UseLoader(loader)
-	mc.UseRegexpEngine(rc.compile)
+	mc.UseRegexpEngine(eng.compile)
 	meta, err := mc.Compile(Draft)
 	if err != nil {
 		return []Issue{{Message: message(err.Error())}}
@@ -374,13 +437,45 @@ func checkApart(doc any, ptrs []string, loader sjs.URLLoader, rc regexpCache) []
 	return out
 }
 
-// regexpCache compiles every distinct regular expression of one schema
-// document once: the library compiles a pattern or patternProperties name
-// in every meta-schema check that covers it and again for the schema
-// (review finding: a reference ladder compiled each of eight of the
-// largest patterns 59 times). A compiled regexp is safe for concurrent
-// use, so positions with the same expression share it.
-type regexpCache map[string]cachedRegexp
+// errEngineFrozen is what the regexp engine of a compile answers once the
+// compile has ended (audit class GC-21).
+var errEngineFrozen = errors.New("validation.json-schema: the schema compile has ended, so no regular expression compiles")
+
+// regexpEngine is the regexp engine one compile gives the library
+// (Compiler.UseRegexpEngine). It compiles every distinct regular expression
+// of the document once: the library compiles a pattern or
+// patternProperties name in every meta-schema check that covers it and
+// again for the schema (review finding: a reference ladder compiled each of
+// eight of the largest patterns 59 times). A compiled regexp is safe for
+// concurrent use, so positions with the same expression share it, and a
+// compiled pattern or patternProperties name keeps only its own
+// *compiledPattern, never the engine.
+//
+// The compile freezes its engine before it returns (audit class GC-21):
+// the cache is dropped and every later call fails, compiling and caching
+// nothing. The library keeps its engine in a compiled schema only through
+// an asserted format 'regex' (Format.Validate, called on every string
+// evaluated there, objcompiler.go:186-192), which arises only under a
+// dialect a $schema other than Draft gives; the compile refuses such a
+// $schema wherever the library reads one (walker.collect, and
+// checkCollected) and an asserted format at every schema the library
+// compiled (inspect.go). Were a frozen engine called anyway, the format
+// fails closed, and the engine writes nothing but its atomic call count,
+// so concurrent requests can neither end the process with a concurrent
+// map write nor keep request strings (library audit CC-01 and CC-02: one
+// config.schema with an asserted format 'regex' ended the process under
+// load, and every distinct body string stayed compiled for the life of
+// the Schema).
+type regexpEngine struct {
+	// cache maps an expression to its compile; nil once frozen.
+	cache map[string]cachedRegexp
+	// frozen is set when the compile that owns the engine ends, before
+	// the compiled Schema is shared.
+	frozen bool
+	// calls counts every call, before the freeze and after it, so tests
+	// prove that validation never calls the engine.
+	calls atomic.Int64
+}
 
 // cachedRegexp is one compile's result.
 type cachedRegexp struct {
@@ -388,18 +483,36 @@ type cachedRegexp struct {
 	err error
 }
 
+// newRegexpEngine returns an empty engine for one compile.
+func newRegexpEngine() *regexpEngine {
+	return &regexpEngine{cache: map[string]cachedRegexp{}}
+}
+
 // compile is the library's regexp engine: Go's regexp without its
-// one-pass matcher (compilePattern), once per expression.
-func (rc regexpCache) compile(expr string) (sjs.Regexp, error) {
-	r, ok := rc[expr]
+// one-pass matcher (compilePattern), once per expression; errEngineFrozen
+// once the compile has ended.
+func (e *regexpEngine) compile(expr string) (sjs.Regexp, error) {
+	e.calls.Add(1)
+	if e.frozen {
+		return nil, errEngineFrozen
+	}
+	r, ok := e.cache[expr]
 	if !ok {
 		r.re, r.err = compilePattern(expr)
-		rc[expr] = r
+		e.cache[expr] = r
 	}
 	if r.err != nil {
 		return nil, r.err
 	}
 	return r.re, nil
+}
+
+// freeze ends the engine's compile: it drops the cache, so nothing the
+// engine compiled stays reachable through it, and makes every later call
+// fail.
+func (e *regexpEngine) freeze() {
+	e.frozen = true
+	e.cache = nil
 }
 
 // compileIssues maps a compiler error to findings.
@@ -466,19 +579,17 @@ func metaIssues(location string, verr *sjs.ValidationError) []Issue {
 	return out
 }
 
-// loadIssues reports a refused load at every reference that leaves the
-// document, in walk order, or at the document when none does (a $schema
-// meta-schema URL, which the walk refuses earlier).
+// loadIssues reports a refused load at every reference the library
+// compiles that leaves the document, in walk order, or at the document
+// when none does. The walk refuses both before the library compiles, so
+// this is a fallback the library's own error alone reaches.
 func (w *walker) loadIssues(u string) []Issue {
 	var out []Issue
 	for _, s := range w.sites {
 		if len(out) == MaxIssues {
 			break
 		}
-		if !w.compiled(s) || s.again {
-			continue
-		}
-		if _, _, _, inDoc, err := resolveRef(w.ids, s); err == nil && !inDoc {
+		if w.seen[s.pos] == walkedLive && s.res.status == refOutside {
 			out = append(out, Issue{Pointer: s.ptr, Message: message(fmt.Sprintf("reference %q resolves outside the schema document", s.value))})
 		}
 	}
@@ -489,7 +600,7 @@ func (w *walker) loadIssues(u string) []Issue {
 }
 
 // joinURL resolves ref against base and drops the fragment, as the
-// library resolves $id, $ref and $dynamicRef.
+// library resolves $id and the reference keywords (referenceKeywords).
 func joinURL(base, ref string) (string, bool) {
 	b, err := url.Parse(base)
 	if err != nil {

@@ -24,18 +24,23 @@
 // converter writes it.
 //
 // The registry also holds the deprecation lifecycle table of 02 req 76
-// (empty in M1), from which Deprecations reports RZ-CFG-025 warnings.
+// (empty in M1), from which Deprecations reports RZ-CFG-025 warnings on
+// the tree as authored; stage G calls it before it writes the defaults.
 //
 // A Registry is immutable after construction and safe for concurrent use.
 // The package never logs, reads files, the network or the clock.
 package convert
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
 	"maps"
+	"math/bits"
 	"slices"
+	"sort"
 	"strings"
+	"unicode/utf8"
 
 	"github.com/ravindu-rev/ruralz/internal/config/diag"
 	"github.com/ravindu-rev/ruralz/internal/config/schemaidx"
@@ -82,7 +87,10 @@ const (
 // metadata) object when its FromHub created it, so a resource that had an
 // empty annotations object keeps it. The Registry, not the converter,
 // sets the apiVersion member, and strips any annotation left over from
-// the hub form (StripConversionData).
+// the hub form (StripConversionData). A converter's result holds each
+// member name once per object, with no null and no nil node; stage G
+// reports what does not as RZ-CFG-005, so a converter bug fails the
+// resource instead of reaching the canonical form.
 type Converter interface {
 	// APIVersion returns the spoke apiVersion, such as ruralz/v1alpha1.
 	APIVersion() string
@@ -139,7 +147,9 @@ func (lc Lifecycle) clone() Lifecycle {
 }
 
 // Registry is the converter table. It is immutable and safe for
-// concurrent use.
+// concurrent use. Build one with NewRegistry or Default: the zero
+// Registry serves no apiVersion, the hub's included, so every conversion
+// through it is RZ-CFG-007 (defaults.New refuses it).
 type Registry struct {
 	byVersion map[string]Converter
 	served    []string
@@ -214,7 +224,7 @@ func (r *Registry) CheckServed(apiVersion string) (diag.Diagnostic, bool) {
 	return diag.Diagnostic{
 		Code: CodeUnserved, Severity: diag.SeverityError,
 		Path:    diag.Path{diag.Field("apiVersion")},
-		Message: fmt.Sprintf("apiVersion %q is not served by this release", apiVersion),
+		Message: fmt.Sprintf("apiVersion %q is not served by this release", clip(apiVersion)),
 		Hint:    hint,
 	}, true
 }
@@ -224,7 +234,10 @@ func (r *Registry) CheckServed(apiVersion string) (diag.Diagnostic, bool) {
 // member (when present) becomes HubAPIVersion and the
 // ConversionDataAnnotation is stripped (02 req 7). doc may be rewritten in
 // place; callers use the returned tree. An unserved apiVersion is
-// RZ-CFG-007 and returns doc unchanged.
+// RZ-CFG-007 and returns doc unchanged. A converter that returns no
+// document, or a non-object for a whole resource object, is RZ-CFG-007
+// too and returns doc as the converter left it, so callers can rely on a
+// result without errors being a document, and an object for an object.
 func (r *Registry) ToHub(apiVersion, kind string, doc *tree.Node, partial bool) (*tree.Node, diag.List) {
 	c, ok := r.byVersion[apiVersion]
 	if !ok {
@@ -235,6 +248,9 @@ func (r *Registry) ToHub(apiVersion, kind string, doc *tree.Node, partial bool) 
 	if ds.HasErrors() {
 		return out, ds
 	}
+	if d, bad := checkResult(apiVersion, "to the hub", doc, out, partial); bad {
+		return doc, append(ds, d)
+	}
 	setAPIVersion(out, HubAPIVersion)
 	StripConversionData(out)
 	return out, ds
@@ -242,7 +258,8 @@ func (r *Registry) ToHub(apiVersion, kind string, doc *tree.Node, partial bool) 
 
 // FromHub converts doc, a hub resource of kind, to apiVersion and sets its
 // apiVersion member (when present). An unserved apiVersion is RZ-CFG-007
-// and returns doc unchanged.
+// and returns doc unchanged; a converter result ToHub would refuse is
+// RZ-CFG-007 too and returns doc as the converter left it.
 func (r *Registry) FromHub(apiVersion, kind string, doc *tree.Node, partial bool) (*tree.Node, diag.List) {
 	c, ok := r.byVersion[apiVersion]
 	if !ok {
@@ -253,8 +270,54 @@ func (r *Registry) FromHub(apiVersion, kind string, doc *tree.Node, partial bool
 	if ds.HasErrors() {
 		return out, ds
 	}
+	if d, bad := checkResult(apiVersion, "from the hub", doc, out, partial); bad {
+		return doc, append(ds, d)
+	}
 	setAPIVersion(out, apiVersion)
 	return out, ds
+}
+
+// checkResult reports a converter result the callers cannot use as
+// RZ-CFG-007 at the resource (its location is the caller's): no document
+// for a document, or, for a whole resource (not partial), something other
+// than an object for an object. A converter's own errors come first; a
+// nil or non-object document the caller passed is the caller's to report.
+func checkResult(apiVersion, direction string, doc, out *tree.Node, partial bool) (diag.Diagnostic, bool) {
+	var got string
+	switch {
+	case doc == nil:
+		return diag.Diagnostic{}, false
+	case out == nil:
+		got = "no document"
+	case !partial && doc.Kind == tree.KindMap && out.Kind != tree.KindMap:
+		got = "a " + kindName(out.Kind) + " instead of an object"
+	default:
+		return diag.Diagnostic{}, false
+	}
+	return diag.Diagnostic{
+		Code: CodeUnserved, Severity: diag.SeverityError,
+		Message: fmt.Sprintf("the converter of apiVersion %q returned %s converting %s", clip(apiVersion), got, direction),
+	}, true
+}
+
+// kindName names a node kind in a message.
+func kindName(k tree.Kind) string {
+	switch k {
+	case tree.KindNull:
+		return "null"
+	case tree.KindBool:
+		return "boolean"
+	case tree.KindInt, tree.KindFloat:
+		return "number"
+	case tree.KindString:
+		return "string"
+	case tree.KindList:
+		return "list"
+	case tree.KindMap:
+		return "object"
+	default:
+		return "value"
+	}
 }
 
 // Convert converts doc, a resource (or with partial, a partial document)
@@ -264,7 +327,7 @@ func (r *Registry) FromHub(apiVersion, kind string, doc *tree.Node, partial bool
 // unserved from or to is RZ-CFG-007 at apiVersion.
 func (r *Registry) Convert(from, to, kind string, doc *tree.Node, partial bool) (*tree.Node, diag.List) {
 	if d, bad := r.CheckServed(to); bad {
-		d.Message = fmt.Sprintf("target apiVersion %q is not served by this release", to)
+		d.Message = fmt.Sprintf("target apiVersion %q is not served by this release", clip(to))
 		return doc, diag.List{d}
 	}
 	hub, ds := r.ToHub(from, kind, doc, partial)
@@ -276,9 +339,11 @@ func (r *Registry) Convert(from, to, kind string, doc *tree.Node, partial bool) 
 }
 
 // setAPIVersion rewrites the string apiVersion member of doc, keeping its
-// position; a doc without one (a partial document) is left alone.
+// position; a doc without one (a partial document), or whose apiVersion
+// is not a string (a nil member value among them, which is null), is left
+// alone.
 func setAPIVersion(doc *tree.Node, v string) {
-	if n, ok := doc.Get("apiVersion"); ok && n.Kind == tree.KindString {
+	if n, ok := doc.Get("apiVersion"); ok && n != nil && n.Kind == tree.KindString {
 		n.Text = v
 	}
 }
@@ -288,14 +353,15 @@ func setAPIVersion(doc *tree.Node, v string) {
 // of 02 req 7, which Registry.ToHub runs after the spoke converter. When
 // the annotation was the only member, annotations is removed too, so an
 // authored conversion-data annotation that no converter consumed leaves
-// no empty annotations object in the hub and canonical form.
+// no empty annotations object in the hub and canonical form. A nil
+// metadata or annotations value is a null, which holds no annotation.
 func StripConversionData(doc *tree.Node) bool {
 	meta, ok := doc.Get("metadata")
 	if !ok {
 		return false
 	}
 	ann, ok := meta.Get("annotations")
-	if !ok || ann.Kind != tree.KindMap || !ann.Delete(ConversionDataAnnotation) {
+	if !ok || ann == nil || ann.Kind != tree.KindMap || !ann.Delete(ConversionDataAnnotation) {
 		return false
 	}
 	if len(ann.Members) == 0 {
@@ -310,7 +376,23 @@ func StripConversionData(doc *tree.Node) bool {
 // whose schema path is deprecated. idx is the schema of res's apiVersion;
 // files gives source locations (nil: line and column only). Nothing is
 // reported for an empty table, which is the M1 case.
+//
+// It reads the tree as authored: stage G calls it before it writes the
+// defaults, and a node styled tree.StyleDefaulted, with everything below
+// it, is skipped, so a later caller never warns about a deprecated field
+// that only a default wrote.
 func (r *Registry) Deprecations(idx *schemaidx.Index, res *tree.Resource, files *tree.FileTable) diag.List {
+	return r.DeprecationsCounted(idx, res, files, nil)
+}
+
+// DeprecationsCounted is Deprecations reporting the work of its walk to
+// count (nil: not reported), once per position visited with the members
+// or elements the walk scans there, the bytes of the canonical text that
+// names a set element of objects or lists (schemaidx.ItemElem encodes
+// it), and the bytes of each segment the table lookups compare, so a
+// caller with a yield timer (stage G's worker, 01 req 53) counts the walk
+// as its own work.
+func (r *Registry) DeprecationsCounted(idx *schemaidx.Index, res *tree.Resource, files *tree.FileTable, count func(units int)) diag.List {
 	if res == nil || res.Root == nil {
 		return nil
 	}
@@ -328,7 +410,7 @@ func (r *Registry) Deprecations(idx *schemaidx.Index, res *tree.Resource, files 
 	}
 	if n, ok := r.lifecycle.APIVersions[res.APIVersion]; ok {
 		at := res.Start
-		if v, ok := res.Root.Get("apiVersion"); ok {
+		if v, ok := res.Root.Get("apiVersion"); ok && v != nil {
 			at = v.Pos
 		}
 		add(diag.Path{diag.Field("apiVersion")}, at,
@@ -338,27 +420,54 @@ func (r *Registry) Deprecations(idx *schemaidx.Index, res *tree.Resource, files 
 	if len(fields) == 0 || idx == nil {
 		return out
 	}
-	// The schema path of each position is derived from its parent's as
-	// the walk descends, in the form schemaidx.Index.SchemaPath gives, so
-	// the cost stays linear in the size of the resource: resolving every
-	// path again from the root would scan keyed lists once per entry.
+	// Each position carries the range of the sorted deprecated schema
+	// paths that its own schema path starts, in the form
+	// schemaidx.Index.SchemaPath gives, narrowed from its parent's by
+	// the position's segment alone (".<name>", "{}" or "[]"): two binary
+	// searches of the table per segment, whatever the depth or the length
+	// of the names above it, and no walk below a position no deprecated
+	// path starts. The schema path text is the table's own key, so none
+	// is built.
+	keys := slices.Sorted(maps.Keys(fields))
 	var levels []schemaLevel
-	_ = idx.Walk(string(res.ID.Kind), res.Root, func(c *schemaidx.Cursor) error {
+	_ = idx.Walk(string(res.ID.Kind), nullsFilled(res.Root, count), func(c *schemaidx.Cursor) error {
 		d := c.Depth()
-		levels = levels[:d]
-		if d == 0 {
-			levels = append(levels, schemaLevel{node: c.Info.Node})
-			return nil
+		var e diag.PathElem
+		if d > 0 {
+			e, _ = c.Last()
 		}
-		e, _ := c.Last()
-		sp, ok := levels[d-1].child(e)
-		if !ok {
-			// The schema does not allow the position, so nothing below it
-			// has a schema path either.
+		if count != nil {
+			units := 1 + len(c.Node.Members) + len(c.Node.Items)
+			if raw, ok := e.Item.(json.RawMessage); ok {
+				units += len(raw)
+			}
+			// Two binary searches narrow the parent's range by the
+			// segment; each comparison reads at most its bytes.
+			if d > 0 && d <= len(levels) {
+				if r := levels[d-1].m; r.hi > r.lo {
+					units += (len(e.Name) + 2) * 2 * bits.Len(uint(r.hi-r.lo))
+				}
+			}
+			count(units)
+		}
+		if c.Node.Style == tree.StyleDefaulted {
 			return schemaidx.ErrSkipChildren
 		}
-		levels = append(levels, schemaLevel{path: sp, node: c.Info.Node})
-		if n, ok := fields[sp]; ok {
+		levels = levels[:d]
+		if d == 0 {
+			levels = append(levels, schemaLevel{node: c.Info.Node, m: pathRange{hi: len(keys)}})
+			return nil
+		}
+		m, ok := levels[d-1].child(keys, e)
+		if !ok {
+			// The schema does not allow the position, or no deprecated
+			// path starts with its schema path: nothing below it is
+			// deprecated either.
+			return schemaidx.ErrSkipChildren
+		}
+		levels = append(levels, schemaLevel{node: c.Info.Node, m: m})
+		if sp := keys[m.lo]; len(sp) == m.off {
+			n := fields[sp]
 			add(c.Path(), c.Node.Pos, fmt.Sprintf("field %s is deprecated and is removed in %s", sp, n.Removal), n)
 		}
 		return nil
@@ -366,44 +475,125 @@ func (r *Registry) Deprecations(idx *schemaidx.Index, res *tree.Resource, files 
 	return out
 }
 
+// nullsFilled returns n, or, when a member value or element anywhere
+// below n is nil, a copy of n in which each nil is a null node with the
+// position of its member name or list: schemaidx.Walk reads dispatch
+// members and keyed entries' key members, and takes a nil one for a node.
+// A nil node is a null to stage G; the copy keeps every position and
+// style, so the warnings name the same paths and places. count, when set,
+// counts the nodes scanned and copied.
+func nullsFilled(n *tree.Node, count func(units int)) *tree.Node {
+	nodes, nils := 0, false
+	var scan func(n *tree.Node)
+	scan = func(n *tree.Node) {
+		nodes++
+		for _, m := range n.Members {
+			if m.Value == nil {
+				nils = true
+				continue
+			}
+			scan(m.Value)
+		}
+		for _, it := range n.Items {
+			if it == nil {
+				nils = true
+				continue
+			}
+			scan(it)
+		}
+	}
+	scan(n)
+	if count != nil {
+		count(nodes)
+	}
+	if !nils {
+		return n
+	}
+	if count != nil {
+		count(nodes)
+	}
+	var fill func(n *tree.Node, at tree.Pos) *tree.Node
+	fill = func(n *tree.Node, at tree.Pos) *tree.Node {
+		if n == nil {
+			return &tree.Node{Kind: tree.KindNull, Pos: at}
+		}
+		c := *n
+		if n.Members != nil {
+			c.Members = make([]tree.Member, len(n.Members))
+			for i, m := range n.Members {
+				c.Members[i] = m
+				c.Members[i].Value = fill(m.Value, m.KeyPos)
+			}
+		}
+		if n.Items != nil {
+			c.Items = make([]*tree.Node, len(n.Items))
+			for i, it := range n.Items {
+				c.Items[i] = fill(it, n.Pos)
+			}
+		}
+		return &c
+	}
+	return fill(n, n.Pos)
+}
+
+// pathRange is the deprecated schema paths keys[lo:hi] of a sorted table
+// that start with the schema path of one position, which is off bytes
+// long.
+type pathRange struct{ lo, hi, off int }
+
+// narrow returns the part of m whose paths continue with seg.
+func (m pathRange) narrow(keys []string, seg string) (pathRange, bool) {
+	end := m.off + len(seg)
+	part := func(k string) string { return k[m.off:min(end, len(k))] }
+	sub := keys[m.lo:m.hi]
+	lo := sort.Search(len(sub), func(i int) bool { return part(sub[i]) >= seg })
+	hi := sort.Search(len(sub), func(i int) bool { return part(sub[i]) > seg })
+	return pathRange{lo: m.lo + lo, hi: m.lo + hi, off: end}, lo < hi
+}
+
 // schemaLevel is one position the schema allows on the path of a
 // Deprecations walk.
 type schemaLevel struct {
-	// path is the schema path, such as "spec.upstreams[]".
-	path string
 	// node is the position's schema with dispatch applied; nil for free
 	// content.
 	node *schemaidx.Node
+	// m is the range of deprecated paths its schema path starts.
+	m pathRange
 }
 
-// child returns the schema path of the child position e of l, with the
-// rules of schemaidx.Index.SchemaPath: a declared member or a member of an
-// open object or of free content is ".<name>", a typed-map value "{}", a
-// list element "[]"; ok is false for a position the schema does not
-// allow.
-func (l schemaLevel) child(e diag.PathElem) (string, bool) {
+// child returns the range of the child position e of l, whose schema
+// path extends l's with the rules of schemaidx.Index.SchemaPath: a
+// declared member or a member of an open object or of free content is
+// ".<name>" ("<name>" first), a typed-map value "{}", a list element
+// "[]"; ok is false for a position the schema does not allow, and for one
+// whose schema path no deprecated path starts.
+func (l schemaLevel) child(keys []string, e diag.PathElem) (pathRange, bool) {
 	if e.Kind != diag.ElemField {
 		if l.node != nil {
 			if _, ok := l.node.Items(); !ok && !l.node.Types().Has(schemaidx.TypeArray) {
-				return "", false
+				return pathRange{}, false
 			}
 		}
-		return l.path + "[]", true
+		return l.m.narrow(keys, "[]")
 	}
 	if l.node != nil {
 		if _, ok := l.node.Property(e.Name); !ok {
 			if _, ok := l.node.Values(); ok {
-				return l.path + "{}", true
+				return l.m.narrow(keys, "{}")
 			}
 			if !l.node.Open() {
-				return "", false
+				return pathRange{}, false
 			}
 		}
 	}
-	if l.path == "" {
-		return e.Name, true
+	m := l.m
+	if m.off > 0 {
+		var ok bool
+		if m, ok = m.narrow(keys, "."); !ok {
+			return pathRange{}, false
+		}
 	}
-	return l.path + "." + e.Name, true
+	return m.narrow(keys, e.Name)
 }
 
 // location converts p to a diagnostic location, falling back to fallback
@@ -419,4 +609,28 @@ func location(files *tree.FileTable, p, fallback tree.Pos) diag.Location {
 		return diag.Location{Line: int(p.Line), Column: int(p.Column)}
 	}
 	return files.Location(p)
+}
+
+// maxShown bounds the code points of an authored value quoted in a
+// message, as stage G's messages do.
+const maxShown = 64
+
+// clip shortens s for a message: its first maxShown code points and
+// "...", or all of s when it has no more, an invalid UTF-8 byte counting
+// as one code point and written as U+FFFD either way, so a megabyte-long
+// apiVersion gives a short message and no message holds bytes that are
+// not UTF-8. It reads at most maxShown+1 code points of s and allocates
+// only the result.
+func clip(s string) string {
+	n := 0
+	for i := range s {
+		if n == maxShown {
+			return string([]rune(s[:i])) + "..."
+		}
+		n++
+	}
+	if !utf8.ValidString(s) {
+		return string([]rune(s))
+	}
+	return s
 }

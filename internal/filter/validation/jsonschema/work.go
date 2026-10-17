@@ -250,8 +250,11 @@ type workFlags struct {
 	// unevaluatedProperties or unevaluatedItems, so evaluations counted
 	// in dimUneval copy member names or item indexes.
 	uneProps, uneItems bool
-	// dynamic is set when some schema has $dynamicRef or $recursiveRef,
-	// whose resolution walks the whole dynamic scope.
+	// dynamic is set when some schema has $dynamicRef, whose resolution
+	// walks the whole dynamic scope. A $recursiveRef walks it only when its
+	// target has $recursiveAnchor true (validator.go:795-799), which the
+	// compile refuses (inspect.go), so it resolves as $ref does (audit
+	// class GC-01, rows REFS-32 and REFS-34).
 	dynamic bool
 	// lists is set when some schema has additionalProperties false, which
 	// lists the names it does not declare.
@@ -352,7 +355,7 @@ func newEvalGraph(starts []*sjs.Schema) (*evalGraph, bool) {
 		f.rats = f.rats || s.Minimum != nil || s.Maximum != nil || s.ExclusiveMinimum != nil || s.ExclusiveMaximum != nil || s.MultipleOf != nil
 		f.uneProps = f.uneProps || s.UnevaluatedProperties != nil
 		f.uneItems = f.uneItems || s.UnevaluatedItems != nil
-		f.dynamic = f.dynamic || s.DynamicRef != nil || s.RecursiveRef != nil
+		f.dynamic = f.dynamic || s.DynamicRef != nil
 		f.lists = f.lists || s.AdditionalProperties == false
 		f.contains = f.contains || s.Contains != nil
 		f.maxPointer = max(f.maxPointer, len(s.Location)+maxKeywordBytes+2*longestKey(s.Dependencies)+2*longestKey(s.DependentRequired))
@@ -552,9 +555,10 @@ func (g *evalGraph) edgePointer(v int, e gEdge) string {
 	return p
 }
 
-// isReference reports whether kw is a reference keyword.
+// isReference reports whether kw is a reference keyword
+// (referenceKeywords).
 func isReference(kw string) bool {
-	return kw == "$ref" || kw == "$dynamicRef" || kw == "$recursiveRef"
+	return slices.Contains(referenceKeywords(), kw)
 }
 
 // inPlaceOrder returns the schemas ordered so that every in-place target

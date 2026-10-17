@@ -171,13 +171,35 @@ func sizeClasses() [66]uint16 {
 // rounded up to.
 const pageBytes = 8 << 10
 
+// tinyBlockBytes is the block of the allocator's tiny allocator, which
+// takes every allocation without pointers shorter than it, and
+// tinyBlockFill the fewest bytes of such allocations of 2 bytes or more a
+// block holds once the allocator has left it (stringExtra).
+const tinyBlockBytes, tinyBlockFill = 16, 8
+
 // stringExtra returns what the bytes of a decoded string, member name or
 // number literal of n bytes hold beyond the n bytes jsonval charges: the
-// rounding up to their allocation size class. Shorter than 16 bytes, the
-// allocator packs them into shared 16-byte blocks.
+// rounding up to their allocation size class. One byte takes none: Go's
+// conversion of one byte to a string returns a static string (runtime
+// slicebytetostring). From 2 to 15 bytes, the allocator places them in
+// shared 16-byte blocks (its tiny allocator, runtime mallocgcTiny in Go
+// 1.26 and 1.27), aligned, starting a new block whenever the next does not
+// fit in the current one and keeping whichever block has more room left.
+// A block it leaves therefore holds at least tinyBlockFill bytes of them
+// (TestTinyBlocks), and every string at most its own block or
+// 16/tinyBlockFill times its bytes (review finding, audit class GC-08:
+// charged their bytes alone, strings of 9 to 15 bytes, each alone in its
+// block, held the decoded tree of composed orders 2.6% over its charge,
+// and an order's 9-byte tags held Handle's live heap 3.6% over its
+// reservation, as the live heap measured exactly showed). Another
+// goroutine's allocations on the same processor while the decoder runs can
+// leave at most one more block unfilled at each switch.
 func stringExtra(n int64) int64 {
-	if n < 16 {
+	if n <= 1 {
 		return 0
+	}
+	if n < tinyBlockBytes {
+		return min(tinyBlockBytes, (tinyBlockBytes*n+tinyBlockFill-1)/tinyBlockFill) - n
 	}
 	if n > 32<<10 {
 		return (n+pageBytes-1)/pageBytes*pageBytes - n
@@ -274,8 +296,7 @@ const (
 	// merge (measured 110 to 319 and 112 to 167).
 	unevalPropUnits, unevalItemUnits = 384, 256
 	// scopeUnits is one step through the dynamic scope: the cycle check
-	// walks the evaluations at the value, a $dynamicRef or $recursiveRef
-	// the whole path.
+	// walks the evaluations at the value, a $dynamicRef the whole path.
 	scopeUnits = 4
 	// locationUnits is one level of depth per evaluation and error unit:
 	// the instance location the library extends and copies.
@@ -417,23 +438,80 @@ const maxNumberWork = numberUnits + numberByteUnits*MaxNumberBytes + numberExpUn
 // exponentOf returns the magnitude of the decimal exponent of a number
 // literal, at most MaxNumberExponent.
 func exponentOf(lit string) int {
+	return int(exponentUpTo(lit, MaxNumberExponent))
+}
+
+// exponentUpTo returns the magnitude of the decimal exponent of a number
+// literal, at most limit.
+func exponentUpTo(lit string, limit int64) int64 {
 	i := exponentIndex(lit)
 	if i < 0 {
 		return 0
 	}
-	exp := 0
+	var exp int64
 	for _, c := range []byte(lit[i+1:]) {
 		if c >= '0' && c <= '9' {
-			exp = min(exp*10+int(c-'0'), MaxNumberExponent)
+			exp = min(exp*10+int64(c-'0'), limit)
 		}
 	}
 	return exp
 }
 
+// The schema side of number work, derived from the schema's own literals
+// and compiled values (audit class GC-01, rows VLU-16 and VAL-49): the
+// walk keeps every literal the library parses within the number bounds,
+// where the terms of numberWork are measured, so for every schema the
+// compile accepts these equal those terms. A literal or a compiled bound
+// past the bounds, which only a position the walk did not walk could hold
+// (a $recursiveRef target before the walk followed one: a const of
+// 1e99999 ran at 29.7 ns per charged unit, the exponent's charge capped at
+// MaxNumberExponent), is charged its length and exponent, or its digits,
+// growing with their square past the bounds, above what math/big's parse
+// and comparison take (Karatsuba multiplication, below the square), so it
+// is over the work limit long before it is slow.
+
+// maxLiteralDigits bounds the decimal digits ratDigits gives the numerator
+// or the denominator of a literal within the number bounds: fewer than
+// MaxNumberBytes mantissa digits shifted by at most MaxNumberExponent,
+// plus ratDigits' rounding (1,124 at most, for 123 nines and e1000).
+const maxLiteralDigits = MaxNumberBytes + MaxNumberExponent + 1
+
+// pastBound returns x within bound, and x times x over bound past it, at
+// most countCap.
+func pastBound(x, bound int64) int64 {
+	if x <= bound {
+		return x
+	}
+	return min(mulCap(x, x)/bound, countCap)
+}
+
+// literalWork returns the work units of one parse and comparison of the
+// schema's number literal lit: numberWork within the number bounds, and
+// past them its length and exponent at pastBound.
+func literalWork(lit string) int64 {
+	exp := exponentUpTo(lit, countCap)
+	w := addCap(numberUnits, mulCap(numberByteUnits, pastBound(int64(len(lit)), MaxNumberBytes)))
+	return addCap(w, mulCap(numberExpUnits, pastBound(exp, MaxNumberExponent)))
+}
+
+// boundWork returns the work units a comparison with the compiled numeric
+// bound r takes beyond the parse and comparison numberWork charges the
+// value: none for a bound a literal within the number bounds gives, and
+// past them its digits at pastBound.
+func boundWork(r *big.Rat) int64 {
+	num, den := ratDigits(r)
+	if num <= maxLiteralDigits && den <= maxLiteralDigits {
+		return 0
+	}
+	return mulCap(numberExpUnits, addCap(pastBound(int64(num), maxLiteralDigits), pastBound(int64(den), maxLiteralDigits)))
+}
+
 // keywords returns the keywords of s that can report an error of their
 // own (assertions, and the applicators and references that wrap their
 // branches' errors) and the names its required, dependentRequired and
-// dependencies lists and its type list past the first type may list.
+// dependencies lists and its type list past the first type may list. Format
+// and the content keywords are listed as errorUnits lists them, and are
+// never set here.
 func keywords(s *sjs.Schema) (n, names int) {
 	for _, set := range []bool{
 		s.Ref != nil, s.RecursiveRef != nil, s.DynamicRef != nil, s.Not != nil,
@@ -556,7 +634,11 @@ func (l lengthUnits) units(fails int) (full, decide, groups int) {
 // Every keyword that can report an error of its own counts one unit:
 // assertions, and the references and applicators that wrap their
 // branches' errors. A type, const, enum or format that fails ends the
-// evaluation with one error.
+// evaluation with one error. Format and the content keywords count as the
+// library's validator would count them; the compile refuses every schema
+// the library compiled, the graph the analysis walks, in which the
+// library asserts one (compiled.go and inspect.go, audit class GC-21), so
+// they add nothing here.
 //
 // The location pass evaluates every other keyword. The decision pass
 // (validator.go with boolResult) evaluates $ref and the keywords of the
@@ -737,8 +819,8 @@ func composite(s *sjs.Schema) bool {
 // can fail (type, const and enum count once, since the first of them that
 // fails ends the evaluation), the names of its lists, its dependency
 // members, the bytes of the names it looks up, the schema side of its
-// const and enum comparisons, the setup of its pattern, and the divisor's
-// part of its multipleOf check.
+// const and enum comparisons and of its numeric bounds, the setup of its
+// pattern, and the divisor's part of its multipleOf check.
 func workWeight(s *sjs.Schema, pc *patternCosts) int {
 	if s.Bool != nil {
 		return evalUnits
@@ -763,6 +845,11 @@ func workWeight(s *sjs.Schema, pc *patternCosts) int {
 	}
 	if s.MultipleOf != nil {
 		w += divisorWork(s.MultipleOf)
+	}
+	for _, b := range []*big.Rat{s.Minimum, s.Maximum, s.ExclusiveMinimum, s.ExclusiveMaximum} {
+		if b != nil {
+			w = int(min(addCap(int64(w), boundWork(b)), countCap))
+		}
 	}
 	return min(w, countCap)
 }
@@ -797,18 +884,18 @@ func lookedUpBytes(s *sjs.Schema) int {
 }
 
 // compareWork returns the work of comparing a value with v, a const or
-// enum value, on v's side: the value side of a top-level number is in
-// dimParses; a number nested in v compares with a nested body number,
-// charged at the costliest literal.
+// enum value, on v's side, its numbers at literalWork: the value side of
+// a top-level number is in dimParses; a number nested in v compares with
+// a nested body number, charged at the costliest literal.
 func compareWork(v any, nested bool) int {
 	w := compareUnits
 	switch t := v.(type) {
 	case string:
 		w += len(t) / compareBytes
 	case json.Number:
-		w += int(numberWork(string(t)))
+		w = int(min(addCap(int64(w), literalWork(string(t))), countCap))
 		if nested {
-			w += maxNumberWork
+			w = min(w+maxNumberWork, countCap)
 		}
 	case []any:
 		for _, e := range t {

@@ -9,7 +9,7 @@ export const meta = {
     { title: 'Fix', detail: 'fix confirmed findings' },
   ],
 }
-// Args: ids, extra, reported, titles (as m1-resume.js); maxRounds per package (default 3
+// Args: ids, extra, reported, titles (as m1-resume.js), initialFix, initialFixFile and initialFixIds; maxRounds per package (default 3
 // review rounds; the last round reviews and verifies only). The lead commits.
 const REPO = '/home/user/ruralz'
 const M1 = '/home/user/ruralz/.claude/plans/m1'
@@ -42,6 +42,7 @@ Hard rules:
 7. Documentation work packages edit only the document sections their row names, follow docs/_meta/style-guide.md (binding), and cite a URL from docs/_meta/research/ for any library/vendor claim.
 8. The committed Go code of the WP-01 contract packages is authoritative where it differs from the architecture's section 2 text (the WP-01 tests fixed diag escaping, ConnCache.Put replacing in place, and a clocktest race). Read the contract source, not only the document.
 9. The repository now has AGENTS.md, CLAUDE.md and .claude/rules/*.md (agent rules written for M0). Follow their hard rules and conventions; where they say an M1 package or module does not exist yet, or that no third-party module is admitted, the M1 architecture and the committed go.mod supersede them.
+10. A finding whose fix lies outside your owned paths (spec or architecture text, a design document, another package's contract) is handled by filing it in contractRequests with the exact change; the lead applies contract requests after the run. Reviewers report such a finding only when it is not filed in an engineer's contractRequests, or is filed wrongly. Another workflow is fixing internal/filter/validation/jsonschema/ right now: never touch it, and ignore its transient build or test failures.
 `
 
 const IMPL_SCHEMA = {
@@ -170,6 +171,7 @@ ${JSON.stringify(f, null, 1)}`
 
 const hardenFixPrompt = (id, findings, minors) => `${RULES}
 You are the engineer for work package ${id}, fixing verified review findings. Each was reproduced by an independent verifier (evidence included). Fix every one, and every minor finding below, at its root cause (AGENTS.md "Quality standard"). For each finding, find every path that shares its root cause (each keyword, input shape, code path or caller of the same kind), fix them together, and name the class members in summary. Give every finding and every class member its own test that fails without the fix, small and edge cases included, and prove it by running the test against the code before your change (go test -overlay) or by a mutation the test kills; report that proof in checks. If you believe a finding is wrong, do not change the code for it and give the evidence in deviations. Stay inside the owned paths.
+ Findings carried over from an interrupted run may not have been reproduced yet: reproduce each before you change code, and reject with evidence any that does not reproduce. The working tree may also hold partial edits from an interrupted fix: read git diff for your owned paths before you change anything.
 Verified findings:
 ${JSON.stringify(findings, null, 1).slice(0, 30000)}
 Minor findings:
@@ -220,8 +222,27 @@ const harden = async (id, impl) => {
   return { rounds, clean, minors, stoppedAt }
 }
 
+// initialFix (optional): { id: [findings] } for a committed package whose known findings
+// (for example deferred minors) are fixed first (fix0); its review rounds then run until a
+// fresh round reports zero findings.
+const initialFix = args.initialFix || {}
+// initialFixFile (optional): a JSON file { id: { from, findings } } holding each package's open
+// findings when a run is continued from an interrupted one; listed packages start with fix0
+// of those findings, read from the file.
+const fixFile = args.initialFixFile || null
+const fromFile = new Set(args.initialFixIds || [])
+const filePrompt = (id) => `${RULES}
+You are the engineer for work package ${id}, continuing an interrupted fix-and-review run. Your open findings are in ${fixFile}, entry "${id}" ("from" says which round they came from; "findings" lists them, with evidence where a verifier reproduced them). Read them, for example: python3 -c 'import json,sys; print(json.dumps(json.load(open(sys.argv[1]))[sys.argv[2]], indent=1))' ${fixFile} ${id}
+Fix every finding, and every minor, at its root cause (AGENTS.md "Quality standard"): find every path that shares the root cause, fix them together, and name the class members in summary; give every finding and class member its own test that fails without the fix, small and edge cases included, and prove it (go test -overlay against the code before your change, or a killed mutation). Findings that were not reproduced yet: reproduce each before you change code, and reject with evidence any that does not reproduce. The working tree may hold partial edits from the interrupted fix: read git diff for your owned paths first. A finding whose fix lies outside your owned paths goes into contractRequests with the exact change.
+Re-run the scoped checks until green (go build, go vet, go test -race -count=1 -cover -shuffle=on, CGO_ENABLED=0 go test -count=1, bin/golangci-lint run, bin/golangci-lint fmt, go run ./internal/tool/repocheck, and the fuzz targets for at least 60s each). Return the structured report.`
 const results = await pipeline(ids,
-  (id) => reported.has(id)
+  (id) => fromFile.has(id)
+    ? agent(filePrompt(id), { label: `fix0:${id}`, phase: 'Fix', schema: FIX_SCHEMA })
+      .then(x => x && { ...x, commitTitle: titles[id] || `fix: close the deferred findings of ${id}` })
+    : initialFix[id]
+    ? agent(hardenFixPrompt(id, initialFix[id].filter(f => f.severity !== 'minor'), initialFix[id].filter(f => f.severity === 'minor')), { label: `fix0:${id}`, phase: 'Fix', schema: FIX_SCHEMA })
+      .then(x => x && { ...x, commitTitle: titles[id] || `fix: close the deferred findings of ${id}` })
+    : reported.has(id)
     ? Promise.resolve({ status: 'done', commitTitle: titles[id] || `feat: add ${id}`, summary: `See the engineer report at ${reportFile(id)}.`, paths: [], reportFile: reportFile(id) })
     : agent(implPrompt(id), { label: `impl:${id}`, phase: 'Implement', schema: IMPL_SCHEMA }),
   async (impl, id) => {

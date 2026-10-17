@@ -16,10 +16,13 @@ import (
 // pathElems are path elements whose texts exercise the comparison: bare
 // fields that are prefixes of each other or of a separator, quoted fields,
 // indexes, keyed entries and set items of every value kind, and long
-// segments with long common prefixes (memoized prefixes, 01 req 48).
+// segments with long common prefixes, below lcpMemo (remembered per
+// segment) and above it (memoized pairs; 01 req 48).
 func pathElems() []diag.PathElem {
 	long := strings.Repeat("k", 2*lcpMin)
+	huge := strings.Repeat("h", lcpMemo+lcpMin)
 	return []diag.PathElem{
+		diag.Field(huge), diag.Field(huge + "x"), diag.Keyed("name", huge), diag.Keyed("name", huge+" x"),
 		diag.Field("a"), diag.Field("ab"), diag.Field("a-"), diag.Field("a_"), diag.Field("A"), diag.Field("$a"),
 		diag.Field("a.b"), diag.Field(""), diag.Field("é"), diag.Field("1a"),
 		diag.Field(long), diag.Field(long + "x"), diag.Field(long + "-"),
@@ -104,6 +107,88 @@ func TestComparePaths(t *testing.T) {
 	}
 	if len(x.lcp) == 0 {
 		t.Error("no common prefix of long segments was memoized")
+	}
+	for at, n := range x.texts {
+		if n.lcp != nil && n.lcp.peer == nil {
+			t.Errorf("segment %.20q has a cache without a peer", at.text)
+		}
+	}
+}
+
+// TestCommonPrefixMemo checks how the common prefix of two sibling
+// segments is remembered, at and around the lcpMin and lcpMemo
+// boundaries: a pair with a segment shorter than lcpMin is scanned per
+// call and neither counted nor cached; a long pair is scanned once,
+// counted in memo.scanned (the prefix and the first differing byte) and
+// answered again from either segment's last comparison in either order;
+// after both segments were compared with a third one, a pair whose prefix
+// reaches lcpMemo is answered from memo.lcp without a scan, and any other
+// pair is scanned again; memo.lcp holds exactly the pairs whose prefix
+// reaches lcpMemo (01 reqs 50 and 54; review findings: nothing guarded
+// the memo, whose loss costs errors times segment length, and the memo
+// held one entry per long pair compared, costing more than the scans it
+// saved).
+func TestCommonPrefixMemo(t *testing.T) {
+	long := strings.Repeat("k", 2*lcpMin)
+	at := strings.Repeat("k", lcpMin-1)
+	m := func(n int) string { return strings.Repeat("m", n) }
+	for _, tc := range []struct {
+		name string
+		a, b string
+		// want is the common prefix length; scanned the bytes counted by
+		// the first comparison; memoized whether the pair is in memo.lcp.
+		want, scanned int
+		memoized      bool
+	}{
+		{"short pair", "[name=a]", "[name=b]", 6, 0, false},
+		{"short and long", ".a", ".a" + long, 2, 0, false},
+		{"long and short", ".a" + long, ".a", 2, 0, false},
+		{"one byte under lcpMin", at[1:] + "a", at + "b", lcpMin - 2, 0, false},
+		{"both lcpMin bytes", at + "a", at + "b", lcpMin - 1, lcpMin, false},
+		{"long pair", "[name=" + long + "a]", "[name=" + long + "b]", 6 + len(long), 7 + len(long), false},
+		{"long pair, one a prefix", "." + long, "." + long + "x", 1 + len(long), 1 + len(long), false},
+		{"long pair, nothing shared", "a" + long, "b" + long, 0, 1, false},
+		{"prefix one byte under lcpMemo", m(lcpMemo-1) + "a", m(lcpMemo-1) + "b", lcpMemo - 1, lcpMemo, false},
+		{"prefix of lcpMemo bytes", m(lcpMemo) + "a", m(lcpMemo) + "b", lcpMemo, lcpMemo + 1, true},
+		{"lcpMemo bytes, a prefix of the other", m(lcpMemo), m(lcpMemo) + "x", lcpMemo, lcpMemo, true},
+		{"long prefix", m(64<<10) + "a]", m(64<<10) + "b]", 64 << 10, 64<<10 + 1, true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			x := &memo{}
+			a, b := &textNode{text: tc.a, depth: 1}, &textNode{text: tc.b, depth: 1}
+			for i, pair := range [][2]*textNode{{a, b}, {a, b}, {b, a}} {
+				if got := x.commonPrefix(pair[0], pair[1]); got != tc.want {
+					t.Fatalf("call %d: commonPrefix() = %d, want %d", i, got, tc.want)
+				}
+				if x.scanned != tc.scanned {
+					t.Fatalf("call %d: scanned = %d bytes, want %d", i, x.scanned, tc.scanned)
+				}
+			}
+			if tc.scanned == 0 && (a.lcp != nil || b.lcp != nil) {
+				t.Error("a short pair allocated a cache")
+			}
+			// A third long segment, differing from both at the first byte,
+			// becomes both segments' last comparison.
+			c := &textNode{text: strings.Repeat("\x01", lcpMin), depth: 1}
+			x.commonPrefix(a, c)
+			x.commonPrefix(c, b)
+			before := x.scanned
+			if got := x.commonPrefix(b, a); got != tc.want {
+				t.Fatalf("after other comparisons: commonPrefix() = %d, want %d", got, tc.want)
+			}
+			rescanned := x.scanned - before
+			if want := tc.scanned; tc.memoized {
+				want = 0
+				if rescanned != want {
+					t.Errorf("a memoized pair rescanned %d bytes", rescanned)
+				}
+			} else if rescanned != want {
+				t.Errorf("rescanned %d bytes, want %d", rescanned, want)
+			}
+			if got := len(x.lcp); got != boolInt(tc.memoized) {
+				t.Errorf("memoized pairs = %d, want %d", got, boolInt(tc.memoized))
+			}
+		})
 	}
 }
 

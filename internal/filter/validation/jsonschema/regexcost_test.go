@@ -14,7 +14,6 @@ import (
 	"unicode/utf8"
 
 	"github.com/ravindu-rev/ruralz/internal/filter"
-	"github.com/ravindu-rev/ruralz/internal/phase"
 )
 
 // costPatterns are patterns with an input that keeps their run queue
@@ -707,15 +706,19 @@ func TestHeldJobsCoverBacktracker(t *testing.T) {
 	}
 }
 
-// TestHandleBacktrackCharge is the regression test of the review finding
-// on the backtracker's job stack: Go's regexp grows it with the input, one
+// TestHandleBacktrackCharge is the regression test of the review finding on
+// the backtracker's job stack: Go's regexp grows it with the input, one
 // 16-byte job per alternation and position on the search path, while the
-// matcher charge covered only its visited set and the NFA's queues, so
-// a*b on a string of 43,688 bytes held 2.2 MB and (?:(?:a??){240}a)*b on
-// 537 bytes 5.8 MB, charged 126 and 97 KB. Through Factory.Build and
-// Handle at the 10 MiB default, failing and valid bodies, a string value,
-// a member name under patternProperties and one under propertyNames now
-// hold at their peak no more than Handle reserved.
+// matcher charge covered only its visited set and the NFA's queues, so a*b
+// on a string of 43,688 bytes held 2.2 MB and (?:(?:a??){240}a)*b on 537
+// bytes 5.8 MB, charged 126 and 97 KB. Through Factory.Build and Handle at
+// the 10 MiB default, failing and valid bodies, a string value, a member
+// name under patternProperties and one under propertyNames now hold at their
+// peak no more than Handle reserved, but for heapNoise: the live heap at
+// each pass's match with the matcher's own peak on top, its state, its
+// visited set and the largest pair of job arrays live while the stack grows,
+// computed from the match's allocations (heapMeter, matcherPeak; audit class
+// GC-08: the sampled heap in use this replaces failed under load).
 //
 // Requirements: 07 reqs 80 to 82 and architecture R-77.
 func TestHandleBacktrackCharge(t *testing.T) {
@@ -723,19 +726,19 @@ func TestHandleBacktrackCharge(t *testing.T) {
 	as := strings.Repeat
 	for _, tc := range []struct {
 		name, schema, body, detail string
+		// expr and input are the match whose job stack peaks.
+		expr, input string
 	}{
-		{"string", `{"type":"string","pattern":"a*b"}`, `"` + as("a", 43688) + `"`, "/pattern"},
-		{"valid string", `{"type":"string","pattern":"a*b"}`, `"` + as("a", 43687) + `b"`, ""},
-		{"alternations", `{"type":"string","pattern":"` + wide + `"}`, `"` + as("a", 537) + `"`, "/pattern"},
-		{"member name", `{"patternProperties":{"` + wide + `":false}}`, `{"` + as("a", 530) + `b":1}`, "/patternProperties/" + wide},
-		{"property name", `{"propertyNames":{"pattern":"` + wide + `"}}`, `{"` + as("a", 530) + `":1}`, "/propertyNames/pattern"},
+		{"string", `{"type":"string","pattern":"a*b"}`, `"` + as("a", 43688) + `"`, "/pattern", "a*b", as("a", 43688)},
+		{"valid string", `{"type":"string","pattern":"a*b"}`, `"` + as("a", 43687) + `b"`, "", "a*b", as("a", 43687) + "b"},
+		{"alternations", `{"type":"string","pattern":"` + wide + `"}`, `"` + as("a", 537) + `"`, "/pattern", wide, as("a", 537)},
+		{"member name", `{"patternProperties":{"` + wide + `":false}}`, `{"` + as("a", 530) + `b":1}`, "/patternProperties/" + wide, wide, as("a", 530) + "b"},
+		{"property name", `{"propertyNames":{"pattern":"` + wide + `"}}`, `{"` + as("a", 530) + `":1}`, "/propertyNames/pattern", wide, as("a", 530)},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			f := buildFilter(t, tc.schema, 0)
-			x, _ := exchange("application/json", []byte(tc.body))
-			px := &peakExchange{Exchange: x}
-			var r filter.Result
-			peak := peakHeap(func() any { r = f.Handle(t.Context(), phase.OnRequestBody, px); return r })
+			m := &heapMeter{}
+			r, reserved := handlePeak(t, f, tc.schema, tc.body, m)
 			if tc.detail == "" {
 				if r.Outcome != filter.Continue {
 					t.Fatalf("Handle = %+v, want Continue", r)
@@ -743,9 +746,14 @@ func TestHandleBacktrackCharge(t *testing.T) {
 			} else if got := detailOf(t, r); got != DetailMismatch+" at "+tc.detail {
 				t.Fatalf("detail = %q, want the location %s", got, tc.detail)
 			}
-			t.Logf("reserved %d, peak %.0f", px.peak, peak)
-			if peak > float64(px.peak+gcSlack) {
-				t.Errorf("Handle held %.0f bytes at its peak, reserved %d", peak, px.peak)
+			t.Logf("reserved %d, live peak %d, of which the matcher %d", reserved, m.peak(), m.matcher)
+			// The measurement sees the job stack: the most jobs a replica
+			// of the backtracker holds, 16 bytes each.
+			if jobs := int64(backtrackJobs(program(t, noOnePass+tc.expr), tc.input)); m.matcher < 16*jobs {
+				t.Errorf("the matcher's peak measured %d bytes, less than its %d jobs", m.matcher, jobs)
+			}
+			if exceeds(m.peak(), reserved) {
+				t.Errorf("Handle held %d bytes at its peak, reserved %d", m.peak(), reserved)
 			}
 		})
 	}

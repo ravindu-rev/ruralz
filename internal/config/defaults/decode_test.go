@@ -8,11 +8,14 @@ import (
 	"errors"
 	"reflect"
 	"slices"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/ravindu-rev/ruralz/internal/config/diag"
 	"github.com/ravindu-rev/ruralz/internal/config/registry"
+	"github.com/ravindu-rev/ruralz/internal/config/schemaidx"
 	"github.com/ravindu-rev/ruralz/internal/config/tree"
 	"github.com/ravindu-rev/ruralz/pkg/config/v1alpha1"
 )
@@ -196,9 +199,11 @@ func TestDecodeErrors(t *testing.T) {
 }
 
 // TestDecodeOpenConfigCase covers the case-insensitive match of
-// encoding/json: an undeclared member of an open config whose name
-// differs from a field's only in case never reaches the typed config,
-// which always agrees with the tree, while the raw config keeps it.
+// encoding/json in Decode alone: an undeclared member of an open config
+// whose name differs from a field's only in case never reaches the typed
+// config, which always agrees with the tree, while the raw config keeps
+// it. Stage G rejects such a member in Normalize, before the decode
+// (TestFoldedMemberNames, TestRawConfigAgrees).
 func TestDecodeOpenConfigCase(t *testing.T) {
 	f := newFixture()
 	res := f.resource(t, "p.json", policyDoc("auth.api-key", `{"header": "x-a", "Header": "x-b", "HEADER": "x-c", "extra": {"Header": 1}}`))
@@ -323,20 +328,28 @@ func TestLocatorMismatches(t *testing.T) {
 	for _, tc := range tests {
 		l := &locator{stack: stack{{}}}
 		n := mustParse(t, tc.src)
-		_, msg, ok := l.find(tc.typ, n, nil)
+		_, msg, ok := firstFailure(l, tc.typ, n, nil)
 		if ok != (tc.want != "") || msg != tc.want {
-			t.Errorf("find(%v, %s) = %q, %v, want %q", tc.typ, tc.src, msg, ok, tc.want)
+			t.Errorf("walk(%v, %s) = %q, %v, want %q", tc.typ, tc.src, msg, ok, tc.want)
 		}
 	}
-	// With no value at fault, locate reports the error text at the top.
-	l := &locator{stack: stack{{}}}
-	path, _, msg := l.locate(reflect.TypeFor[int](), mustParse(t, `1`), nil, errors.New("boom"))
-	if len(path) != 0 || msg != "cannot decode: boom" {
-		t.Errorf("locate fallback = %v %q", path, msg)
+	if _, _, ok := firstFailure(&locator{stack: stack{{}}}, reflect.TypeFor[int](), nil, nil); ok {
+		t.Error("walk(nil) reported")
 	}
-	if _, _, ok := l.find(reflect.TypeFor[int](), nil, nil); ok {
-		t.Error("find(nil) reported")
+}
+
+// firstFailure runs l over n (Go type t, schema s) and returns its first
+// failure: the path and the message without the "cannot decode: " every
+// decode message starts with.
+func firstFailure(l *locator, t reflect.Type, n *tree.Node, s *schemaidx.Node) (path diag.Path, msg string, ok bool) {
+	l.report = func(p diag.Path, _ *tree.Node, m string) bool {
+		if !ok {
+			path, msg, ok = p, strings.TrimPrefix(m, "cannot decode: "), true
+		}
+		return false
 	}
+	l.locateAll(t, n, s)
+	return path, msg, ok
 }
 
 func TestAppendJSON(t *testing.T) {
@@ -383,5 +396,233 @@ func TestIntRange(t *testing.T) {
 	}
 	if got := intRange("1e3", 8, false); got != "1e3 is not an integer" {
 		t.Errorf("float text = %q", got)
+	}
+	// An integral literal too large for the canonical form, which only
+	// canonical content brings to the decode (R-64), is out of range.
+	if got := intRange("1e9223372036854775807", 32, false); got != "integer 1e9223372036854775807 is outside the range -2147483648 to 2147483647 of this field" {
+		t.Errorf("huge exponent = %q", got)
+	}
+	if got := intRange("1e-9223372036854775808", 32, false); got != "1e-9223372036854775808 is not an integer" {
+		t.Errorf("tiny exponent = %q", got)
+	}
+}
+
+// strictObject fails to decode JSON text that holds the undeclared
+// member REQUESTS.
+type strictObject struct{}
+
+func (*strictObject) UnmarshalJSON(b []byte) error {
+	if strings.Contains(string(b), "REQUESTS") {
+		return errors.New("saw an undeclared member")
+	}
+	return nil
+}
+
+// TestLocatorDeclaredOnly covers 01 req 38 for a config decode that
+// fails (WP-37 review round 3: the locator walked undeclared members the
+// decode never saw, and blamed one that matched a field case-insensitively):
+// the failure is reported at the declared member that failed, in a struct
+// (an open RateLimit entry with an undeclared REQUESTS beside a burst of
+// 1e+30, which canonical content brings this far, R-64), in a Go map
+// whose schema declares properties, and for a type with its own
+// UnmarshalJSON, which gets the declared members only; the kind struct
+// decode, which sees every member, still matches names
+// case-insensitively.
+func TestLocatorDeclaredOnly(t *testing.T) {
+	idx := hubIndex(t)
+	f := newFixture()
+	res := f.resourceRole(t, "c.json", policyDoc("ratelimit", `{"limits": [{"REQUESTS": "x", "burst": 1e+30, "requests": 1, "window": "1s"}]}`), tree.RoleCanonical)
+	_, _, ds := Decode(idx, registry.New(), res, f.files)
+	want := "Policy/p spec.config.limits[0].burst: cannot decode: integer 1e+30 is outside the range -9223372036854775808 to 9223372036854775807 of this field"
+	if len(ds) != 1 || !strings.Contains(texts(ds)[0], want) {
+		t.Errorf("Decode = %q, want one diagnostic containing %q", texts(ds), want)
+	}
+	rateLimit, ok := idx.Def("RateLimit")
+	if !ok {
+		t.Fatal("no RateLimit definition")
+	}
+	n := mustParse(t, `{"REQUESTS": "x", "requests": 1, "window": "1s"}`)
+	for _, tc := range []struct {
+		name     string
+		declared bool
+		typ      reflect.Type
+		at, msg  string
+	}{
+		{"config struct", true, reflect.TypeFor[v1alpha1.RateLimit](), "", ""},
+		{"config map", true, reflect.TypeFor[map[string]int64](), "window", "want an integer"},
+		{"kind struct", false, reflect.TypeFor[v1alpha1.RateLimit](), "REQUESTS", "want an integer"},
+		{"kind map", false, reflect.TypeFor[map[string]int64](), "REQUESTS", "want an integer"},
+		// A type with its own UnmarshalJSON gets the members the decode
+		// would hand it.
+		{"config unmarshaler", true, reflect.TypeFor[strictObject](), "", ""},
+		{"kind unmarshaler", false, reflect.TypeFor[strictObject](), "", "saw an undeclared member"},
+	} {
+		l := &locator{stack: stack{{node: n}}, declared: tc.declared}
+		path, msg, found := firstFailure(l, tc.typ, n, rateLimit)
+		at := ""
+		if found {
+			at = path.String()
+		}
+		if at != tc.at || msg != tc.msg {
+			t.Errorf("%s: find = %q at %q, want %q at %q", tc.name, msg, at, tc.msg, tc.at)
+		}
+	}
+}
+
+// TestLocatorScaleLinear covers the locator's one path per failed decode
+// (01 req 38 and 53; WP-37 review round 3 named the locator's stack with
+// the normalizer's): a decode failure in the last entry of a map list of
+// n entries, each named by its key member, costs about eight times the
+// work units for eight times the entries, since the locator walks the
+// tree once and names each element on the failure's path once.
+func TestLocatorScaleLinear(t *testing.T) {
+	idx := hubIndex(t)
+	cost := func(n int) int {
+		parts := make([]string, n)
+		for i := range parts {
+			parts[i] = `{"name": "u` + strconv.Itoa(i) + `", "weight": 1}`
+		}
+		parts[n-1] = `{"name": "last", "weight": 4294967296}`
+		res := envelope(mustParse(t, route(`{"match": {}, "upstreams": [`+strings.Join(parts, ", ")+`]}`)))
+		w := newWork()
+		_, _, ds, failed := decode(idx, nil, res, nil, w, nil)
+		if !failed || len(ds) != 1 || ds[0].Path.String() != "spec.upstreams[name=last].weight" {
+			t.Fatalf("decode = %v, %q; want one failure at the last entry", failed, texts(ds))
+		}
+		return w.total
+	}
+	a, b := cost(1000), cost(8000)
+	if ratio := float64(b) / float64(a); ratio < 4 || ratio > 16 {
+		t.Errorf("work units: 1000 entries %d, 8000 entries %d: ratio %.2f, want about 8", a, b, ratio)
+	}
+}
+
+// TestDecodeEveryFailure covers 02 req 2 and 01 req 38 for the decode
+// (WP-37 review round 3: each resource reported at most one decode
+// failure, none when normalization failed, and no config failure once the
+// kind struct failed): every value that does not fit is reported at its
+// field, in one run, the config's too, and after a normalization error
+// the decode still reports the values normalization did not, each failure
+// once, up to the diagnostic budget.
+func TestDecodeEveryFailure(t *testing.T) {
+	consumer := `{"apiVersion": "ruralz/v1alpha1", "kind": "Consumer", "metadata": {"name": "c"}, "spec": {"credentials": {"basic": [
+	  {"username": "a", "hash": "h", "iterations": 4294967296}, {"username": "b", "hash": "h", "iterations": 4294967297}]}}}`
+	policy := `{"apiVersion": "ruralz/v1alpha1", "kind": "Policy", "metadata": {"name": "p"}, "spec": {"type": "ratelimit", "overridable": "yes",
+	  "config": {"limits": [{"requests": "x", "window": "1s"}, {"requests": 1, "window": "1s", "burst": "y"}]}}}`
+	tests := []struct {
+		name  string
+		src   string
+		edit  func(t *testing.T, res *tree.Resource)
+		cap   int
+		paths []string
+	}{
+		{
+			name: "two weights", src: route(`{"match": {}, "upstreams": [{"name": "a", "weight": 4294967296}, {"name": "b", "weight": 4294967297}]}`),
+			paths: []string{"spec.upstreams[name=a].weight", "spec.upstreams[name=b].weight"},
+		},
+		{
+			name: "two credentials", src: consumer,
+			paths: []string{"spec.credentials.basic[username=a].iterations", "spec.credentials.basic[username=b].iterations"},
+		},
+		{
+			name: "kind and config", src: policy,
+			paths: []string{"spec.overridable", "spec.config.limits[0].requests", "spec.config.limits[1].burst"},
+		},
+		{
+			name: "after a normalization error", src: route(`{"match": {}, "timeout": "9999999h", "upstreams": [{"name": "a", "weight": 4294967296}]}`),
+			paths: []string{"spec.timeout", "spec.upstreams[name=a].weight"},
+		},
+		// The config type then comes from the tree, the kind struct not
+		// being decoded.
+		{
+			name: "config after a normalization error",
+			src: `{"apiVersion": "ruralz/v1alpha1", "kind": "Policy", "metadata": {"name": "p"}, "spec": {"type": "ratelimit", "stateStoreTimeout": "9999999h",
+			  "config": {"limits": [{"requests": "x", "window": "1s"}]}}}`,
+			paths: []string{"spec.stateStoreTimeout", "spec.config.limits[0].requests"},
+		},
+		// A value normalization reported is not reported again by the
+		// decode, which fails on it too.
+		{name: "byte size", src: gateway(`{"limits": {"maxBufferedBytes": "1x"}}`), paths: []string{"spec.limits.maxBufferedBytes"}},
+		{
+			name: "integer range", src: route(`{"match": {}, "upstreams": [{"name": "a", "weight": 9007199254740993}]}`),
+			paths: []string{"spec.upstreams[name=a].weight"},
+		},
+		{
+			name: "duration not UTF-8", src: route(`{"match": {}, "timeout": "1s"}`),
+			edit:  func(t *testing.T, res *tree.Resource) { at(t, res.Root, "spec.timeout").Text = "1\xffs" },
+			paths: []string{"spec.timeout"},
+		},
+		{
+			name: "config text not UTF-8", src: policyDoc("auth.api-key", `{"header": "x"}`),
+			edit:  func(t *testing.T, res *tree.Resource) { at(t, res.Root, "spec.config.header").Text = "x\xff" },
+			paths: []string{"spec.config.header"},
+		},
+		{name: "null in free content", src: pluginDoc(`{"a": null}`), paths: []string{"spec.config.a"}},
+		// The budget bounds the decode's failures: cap 1 keeps two.
+		{
+			name: "budget", src: route(`{"match": {}, "upstreams": [{"name": "a", "weight": 4294967296}, {"name": "b", "weight": 4294967297}, {"name": "c", "weight": 4294967298}]}`),
+			cap: 1, paths: []string{"spec.upstreams[name=a].weight", "spec.upstreams[name=b].weight"},
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			s := stageWith(t, Options{MaxDiagnostics: tc.cap})
+			f := newFixture()
+			res := f.resource(t, "r.json", tc.src)
+			if tc.edit != nil {
+				tc.edit(t, res)
+			}
+			h, ds := s.Resource(res, f.files)
+			var paths []string
+			for _, d := range ds {
+				paths = append(paths, d.Path.String())
+				if d.Code != CodeSchema || d.Line == 0 {
+					t.Errorf("diagnostic %s, want RZ-CFG-005 with a position", d.AppendText(nil))
+				}
+			}
+			if h != nil || !slices.Equal(paths, tc.paths) {
+				t.Errorf("Resource = %v, %q; want the paths %q", h != nil, texts(ds), tc.paths)
+			}
+		})
+	}
+}
+
+// TestLocatorManyFailuresLinear covers the locator's paths when many
+// failures lie below one list element (02 req 2, 01 req 53): each
+// element on the paths is named once (stack.path keeps the name), so n
+// failing members of one set element, which is named by its RFC 8785
+// text of n members, cost about eight times the work units for eight
+// times the members, not sixty-four.
+func TestLocatorManyFailuresLinear(t *testing.T) {
+	spec, ok := setSchema(t).Spec("Thing")
+	if !ok {
+		t.Fatal("no Thing spec")
+	}
+	set := memberSchema(spec, "s")
+	cost := func(n int) int {
+		var b strings.Builder
+		for i := range n {
+			if i > 0 {
+				b.WriteString(", ")
+			}
+			b.WriteString(`"A` + strconv.Itoa(1_000_000+i) + `": 300`)
+		}
+		list := mustParse(t, `[{`+b.String()+`}]`)
+		w := newWork()
+		found := 0
+		l := &locator{stack: stack{{node: list}}, w: w, report: func(p diag.Path, _ *tree.Node, _ string) bool {
+			if found++; len(p) != 2 || p[0].Kind != diag.ElemItem {
+				t.Fatalf("path %s, want the set element and the member", p)
+			}
+			return true
+		}}
+		if got := l.locateAll(reflect.TypeFor[[]map[string]int8](), list, set); got != n || found != n {
+			t.Fatalf("%d failures found, %d reported, want %d", got, found, n)
+		}
+		return w.total
+	}
+	a, b := cost(500), cost(4000)
+	if ratio := float64(b) / float64(a); ratio < 4 || ratio > 16 {
+		t.Errorf("work units: 500 failures %d, 4000 failures %d: ratio %.2f, want about 8", a, b, ratio)
 	}
 }

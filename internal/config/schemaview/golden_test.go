@@ -15,7 +15,9 @@ import (
 	"github.com/ravindu-rev/ruralz/internal/config/tree"
 )
 
-// update rewrites the error-mapping goldens: go test ./internal/config/schemaview -run Golden -update.
+// update rewrites the error-mapping goldens:
+//
+//	go test ./internal/config/schemaview -run Golden -update
 var update = flag.Bool("update", false, "rewrite the golden files under testdata/mapping")
 
 // sentinel marks secret values in the golden inputs; no output may

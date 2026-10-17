@@ -63,13 +63,49 @@ Small items left for a later pass (none blocks wave 3):
 
 ## Resuming in a new session
 
-State on 2026-10-16: `develop` holds WP-51 post-fix8 (`e1e9657`), re-created from the paused branch `wip/wp51-audit-paused` and signed with the user's key, with round 9's four blockers open (`runs/w3-s2-wp51-r9.json`). The library audit is done: `wp51-library-audit.md` (run `wf_38c64070-bc2`, which ran the values and cross checks and merged them with the partial results of `wf_eb3b9ef7-7cd`; result in `runs/w3-s2-wp51-audit-result.json`). It has 321 rows (125 bounded, 88 partial, 92 gap, 16 not applicable) in 21 gap classes (9 blocker, 9 major, 3 minor); round 9's four findings map to GC-01, GC-03, GC-07 and GC-08 (its section 5). Next, only when the user says so: the WP-51 fix loop over every class, after the owner decisions the audit lists in its section 4.2 (GC-03, GC-04, GC-05, GC-09 and GC-15, and the alternatives named in GC-02, GC-07, GC-11, GC-19 and GC-20). Order after WP-51, per `user-decisions.md` items 16 to 19: the deferred minor findings of WP-35 to WP-39, then WP-33 (C2 rebuild, after the user asks for ADR-0020). Every step runs until a review reports zero findings.
+State on 2026-10-17 at 14:01 UTC: S2 is in progress, and none of its work after `76edfe0` is on `develop`. To continue in another subscription, the user approved one exception to "no other branches": the work in progress is one signed WIP commit on `wip/s2-handoff`, on top of `76edfe0`. Both runs were stopped on purpose; resume by run ID works only in the session that ran them, so each run continues from files.
 
-1. Read this README, `wave3-plan.md` (S2 notes), `user-decisions.md` (items 8 to 19) and the AGENTS.md quality standard.
-2. Install what the container lacks: `make tools` (golangci-lint into `bin/`) and `openssh-client` for signing. The post-fix8 package is on `develop` since `e1e9657`; `runs/wp51-postfix8.patch` stays as the record of it.
-3. The audit is finished (state above). `m1-wp51-audit.js` now runs only the values and cross checks and merges them with `runs/w3-s2-wp51-audit-partial.json`; a fresh full audit needs its earlier audit stage back from git history (`d96d9d4`).
-4. Build one findings file from the audit's gap and partial rows, round 9's 4 findings and the decisions in `runs/w3-s2-wp51-r9.json`. Run `m1-wp51-fix.js` with it, a fix covering every class with a proven test per case, then review rounds until one reports zero findings. Back up `internal/filter/validation/` to the scratchpad every 10 minutes, naming files with the date.
-5. When it passes, run the scoped and whole-tree checks, then ask the user for the signing key in a message of its own (never in a message that starts a run), set up signing as step 5 of "How a wave runs" describes, and commit only `internal/filter/validation/jsonschema/` as `fix(filter): ...` with `Refs: WP-51 (M1 architecture)`. Save the result in `runs/`, update the S2 row and notes, push, and delete the key when the work is done.
+- **WP-51 fix** (`m1-wp51-close.js`, run `wf_8b2d7117-514`, decisions in `user-decisions.md` items 20 to 26):
+  - Groups G01 to G03 are finished. G02 and G03 ended with 5 minors open, which go to the carried fix before the review rounds.
+  - G04 attempts 1 and 2 are fixed and checked; the check of attempt 2 left 2 majors open. Attempt 3 was stopped mid-edit, so `internal/filter/validation/jsonschema/` may hold partial edits.
+  - G05 to G11 and the review rounds have not run.
+  - Everything the run needs to continue is in `runs/w3-s2-wp51-carry.json`: the history text, the carried and open items, every attempt's fix and check report, 11 contract requests and the changed paths.
+- **WP-35 to WP-39 minors** (`m1-section.js`, runs `wf_c0fb6de8-9cc` then `wf_2dcc9b57-933`): the open findings are in `runs/w3-s2-minors-continue2.json`:
+  - WP-35: 11, WP-36: 13, WP-37: 18, WP-38: 14.
+  - WP-39 has none; its next step is a fresh review, with its last fix report in `reports/WP-39.json`.
+  - WP-35, WP-36 and WP-38 may hold partial edits.
+- The journals of the three runs are in `runs/journals/`. They are a record only: never commit them to `develop`, and delete them once S2 is committed.
+- Evidence paths in findings that point into the old session's `/tmp/claude-0/...` scratchpad are gone. Agents reproduce from the input each finding states.
+
+Steps:
+
+1. Read this README, `wave3-plan.md` (S2 notes), `user-decisions.md` and the AGENTS.md "Quality standard".
+2. Restore the work on `develop` as uncommitted changes. The WIP commit only transports it.
+   ```
+   git fetch origin develop wip/s2-handoff
+   git checkout -B develop origin/develop
+   git cherry-pick --no-commit origin/wip/s2-handoff
+   git reset
+   ```
+   `git status` must then list the same paths as `git show --stat --format= origin/wip/s2-handoff`.
+3. Install what the container lacks:
+   - `make tools` (golangci-lint into `bin/`) and `openssh-client` for signing.
+   - `go mod download`: the agents read the jsonschema/v6 v6.0.3 source under the module cache, so `LIB` in `m1-wp51-close.js` must match `$(go env GOMODCACHE)`.
+   - `GOTOOLCHAIN=go1.26.8 go version` for the floor check.
+   - If the clone is not at `/home/user/ruralz`, change `REPO` and `M1` in both scripts and the paths below.
+4. While runs are going, run `bash .claude/plans/m1/tools/backup-tick.sh <scratchpad>` as a Monitor. It backs up the S2 packages every 10 minutes with dated names; re-arm it every 30 minutes.
+5. Launch both runs in the turn of a typed user message that names them, such as "resume both S2 runs". Never put the signing key in that message.
+   - WP-51: `Workflow({scriptPath: "/home/user/ruralz/.claude/plans/m1/m1-wp51-close.js", args: {"maxRounds": 6, "maxAttempts": 3, "startGroup": "G04", "startAttempt": 3, "carryFile": "/home/user/ruralz/.claude/plans/m1/runs/w3-s2-wp51-carry.json", "carriedCount": 5, "scratchpad": "<this session's scratchpad>"}})`
+   - Minors: `Workflow({scriptPath: "/home/user/ruralz/.claude/plans/m1/m1-section.js", args: {"ids": ["WP-35", "WP-36", "WP-37", "WP-38", "WP-39"], "reported": ["WP-39"], "initialFixFile": "/home/user/ruralz/.claude/plans/m1/runs/w3-s2-minors-continue2.json", "initialFixIds": ["WP-35", "WP-36", "WP-37", "WP-38"], "titles": {"WP-35": "fix(config): close the deferred findings of the schema view", "WP-36": "fix(config): close the deferred findings of overlay and substitution", "WP-37": "fix(config): close the deferred findings of stage G defaults", "WP-38": "fix(config): close the deferred findings of stage I precedence", "WP-39": "fix(config): close the deferred findings of the canonical form"}, "maxRounds": {"WP-35": 4, "WP-36": 4, "WP-37": 4, "WP-38": 4, "WP-39": 4}}})`
+   - If a run stops again, continue it the same way: rebuild the carry or continuation file from the new journal (see "Starting a workflow run").
+6. When both runs report zero findings:
+   - Apply the contract requests, from each run's result and the carry file's `contractRequests` ("How a wave runs" step 4; `docs/_meta/` changes need the user's approval).
+   - Run the whole-tree checks (step 3).
+   - Ask for the signing key in a message of its own and set up signing (step 5).
+   - Commit on `develop`, one signed commit per package: WP-51 as `fix(filter): ...` with `Refs: WP-51 (M1 architecture)`, and WP-35 to WP-39 with the five titles above. Then commit the plan and spec files as `chore: ...`, without `runs/journals/`.
+   - Push `develop`, then delete the key.
+   - The user deletes `wip/s2-handoff` and `wip/wp51-audit-paused` on origin; the git proxy refuses branch deletion.
+7. Record S2 in `wave3-plan.md`. Then comes WP-33's C2 rebuild, after the user asks for ADR-0020, and S3.
 
 ## Starting a workflow run
 
@@ -79,9 +115,16 @@ The workflow harness gives every agent, verbatim, the user message that triggere
 - Never paste the signing key into a message that starts a run: every agent receives it verbatim. Send it in a message of its own.
 - `m1-resume.js` and `m1-section.js` stop a package whose engineer or fix round returns nothing or `blocked` with no files, and report `finalVerdict: blocked` with `stoppedAt`; never commit or record such a package. `m1-yaml-decision.js` stops before the brief unless every researcher reports `status: done`.
 
+- Resume replays only the longest unchanged prefix of agent calls in call order. A sequential script (`m1-wp51-close.js`) resumes cleanly; a script that runs packages in parallel (`m1-section.js`) does not, because the call order differs on replay and every agent after the first difference runs live (on 2026-10-17 a resume of `wf_9c24f909-7ca` began re-running round 1). Continue such a run instead: extract each package's open findings and last fix report from its `journal.jsonl` into a file (as `runs/w3-s2-minors-continue.json` and `reports/<id>.json`), then launch `m1-section.js` with `initialFixFile` and `initialFixIds` (and `reported` for a package whose next step is a review).
+
 ## Working rules from the user
 
-- Commit directly to `develop`; no pull requests. The author comes from the repository git config (Ravindu Wijegunawardhana). Commits carry `Signed-off-by` (`-s`), are signed with the user's SSH signing key (`-S`), and carry no `Co-Authored-By` trailer.
+- Commit directly to `develop`; no pull requests and no other branches. The one exception is `wip/s2-handoff`, approved on 2026-10-17 to carry the S2 work to another subscription; the user deletes it on origin. The author comes from the repository git config (Ravindu Wijegunawardhana). Commits carry `Signed-off-by` (`-s`), are signed with the user's SSH signing key (`-S`), and carry no `Co-Authored-By` trailer.
 - Signing key: from 2026-10-16 the user signs with an RSA 4096 key, fingerprint `SHA256:LIT3iCVGg5U16s1+r/ew5sxXydYhQ7y2g6VONvpKVpw`; commits before that carry the ED25519 key `SHA256:TsJhk+hdD1BB/pTF0GWj1jPlRSUm0MRu+MF94u0Ixpg`. Put both public keys in the allowed-signers file and check that `git log --format='%G? %GK'` shows `G` with the current fingerprint.
+- Ask the user for the signing key in a message of its own when a commit batch is ready, and delete it from the container once the batch is pushed. Validate every commit title with `go run ./internal/tool/commitcheck title -title "<title>"`.
+- Changes under `docs/_meta/` need the user's explicit approval.
+- Nothing closes with an open finding of any severity. Fix whole classes, with a proven test per case (AGENTS.md "Quality standard"; `user-decisions.md` item 16).
+- Order in S2: the WP-51 fix to zero findings, then the deferred minors of WP-35 to WP-39, then WP-33's C2 rebuild after the user asks for ADR-0020. Stop and report after each.
+- While runs are going, back up `internal/filter/validation/` (and the config packages under fix) to the scratchpad every 10 minutes, with dated file names (`tools/backup-tick.sh`).
 - Multi-agent workflows are approved for all remaining M1 waves.
 - After M1 come M1 integration, end-to-end tests and docs, then M2.

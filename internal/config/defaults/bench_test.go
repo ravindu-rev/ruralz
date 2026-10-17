@@ -71,9 +71,9 @@ func BenchmarkRun(b *testing.B) {
 }
 
 // BenchmarkScale measures stage G on one large object or list of 1,500
-// and 12,000 members, the shapes TestScaleLinear checks by allocations:
-// compare the two sizes' ns/op, which should differ by about eight times
-// (a sort adds a logarithm), never by sixty-four.
+// and 12,000 members, the shapes TestScaleLinear checks by work units and
+// allocations: compare the two sizes' ns/op, which should differ by about
+// eight times (a sort adds a logarithm), never by sixty-four.
 func BenchmarkScale(b *testing.B) {
 	s := newStage(b)
 	for name, build := range scaleCases() {
@@ -87,6 +87,42 @@ func BenchmarkScale(b *testing.B) {
 					b.StartTimer()
 					if h, ds := s.Resource(res, nil); h == nil || len(ds) != 0 {
 						b.Fatalf("Resource: %q", texts(ds))
+					}
+				}
+			})
+		}
+	}
+}
+
+// BenchmarkScaleErrors measures stage G on the failing shapes of
+// TestScaleLinearErrors, one RZ-CFG-005 per member of a large list
+// element, at 1,000 and 8,000 members (below the cap) and 96,000 (above
+// it): ns/op should grow about eight times from 1,000 to 8,000, never
+// sixty-four, and at most twelve times again to 96,000.
+func BenchmarkScaleErrors(b *testing.B) {
+	s := newStage(b)
+	idx := setSchema(b)
+	cases := errorScaleCases()
+	cases["set element nulls"] = setElementNulls
+	for name, build := range cases {
+		for _, n := range []int{1000, 8000, 96_000} {
+			b.Run(name+"/"+strconv.Itoa(n), func(b *testing.B) {
+				root := mustParse(b, build(n))
+				b.ReportAllocs()
+				for b.Loop() {
+					b.StopTimer()
+					res := envelope(root.Clone())
+					b.StartTimer()
+					var failed bool
+					if name == "set element nulls" {
+						_, prior := normalize(idx, res, nil, newWork())
+						failed = prior != nil
+					} else {
+						h, _ := s.Resource(res, nil)
+						failed = h == nil
+					}
+					if !failed {
+						b.Fatal("Resource passed")
 					}
 				}
 			})

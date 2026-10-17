@@ -4,6 +4,7 @@
 package overlay
 
 import (
+	"slices"
 	"strconv"
 	"strings"
 
@@ -43,6 +44,7 @@ func ValidName(name string) bool {
 	if name == "" {
 		return false
 	}
+	// bounded: an overlay directory name, checked outside Apply and CheckBase.
 	for i := 0; i < len(name); i++ {
 		c := name[i]
 		alnum := (c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') || (c >= '0' && c <= '9')
@@ -67,7 +69,9 @@ func (s Selection) Contains(path string) bool {
 // does not exist (01 req 23, risk 18): none when spec.overlay was
 // defaulted (the overlay is then empty), and RZ-CFG-009 at spec.overlay
 // when it was set explicitly, hinting the nearest of the existing overlay
-// names.
+// names. diag.Nearest compares at most 64 names, so Absent reads a
+// sorted copy of existing: the hint never depends on the order the names
+// were listed in (01 req 50 identical output).
 func (s Selection) Absent(existing []string) diag.List {
 	if !s.Explicit {
 		return nil
@@ -80,7 +84,7 @@ func (s Selection) Absent(existing []string) diag.List {
 	if s.Environment != "" {
 		d.Resource = &diag.ResourceID{Kind: "Environment", Name: s.Environment}
 	}
-	if near, ok := diag.Nearest(s.Name, existing); ok {
+	if near, ok := diag.Nearest(s.Name, slices.Compact(slices.Sorted(slices.Values(existing)))); ok {
 		d.Hint = "did you mean " + strconv.Quote(near) + "?"
 	}
 	return diag.List{d}

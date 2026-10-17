@@ -20,13 +20,19 @@ const Format = "ruralz.canonical.v1"
 // Codes raised by Decode, Verify and ReadDump, each registered in
 // internal/errcode.
 const (
-	// CodeNewer is content from a newer producer: an unknown format,
-	// member, kind or field, or a field above the served schema level (02
-	// req 33).
+	// CodeNewer is content from a newer producer: a format other than
+	// ruralz.canonical.v1, an unknown member, kind or field, or a field
+	// above the served schema level (02 req 33).
 	CodeNewer = "RZ-CFG-024"
 	// CodeMismatch is content that does not hash to its digest or is not
 	// in ruralz.canonical.v1 form (02 req 31).
 	CodeMismatch = "RZ-CFG-027"
+	// CodeLimit is content past a limit of the decoder: nesting deeper
+	// than DecoderOptions.MaxDepth, more resources than MaxResources or
+	// more values than MaxValues, the size and depth limits of RZ-CFG-001
+	// (01 req 6, 10 req 32). It is also the code of the CodeTooMany
+	// diagnostic.
+	CodeLimit = "RZ-CFG-001"
 )
 
 // Sentinel errors without an RZ code: an encoder input the pipeline should
@@ -49,19 +55,31 @@ var (
 )
 
 // Findings is the cause of a Decode, Verify or ReadDump error that
-// carries CodeNewer or CodeMismatch: one diagnostic per problem, each
-// with that code and, when known, its position in the content, resource
-// and key-aware path. Err is an underlying cause, such as the jsonval scan
-// error of invalid JSON, or nil.
+// carries CodeNewer, CodeMismatch or CodeLimit: one diagnostic per
+// problem, each with that code and, when known, its position in the
+// content, resource and key-aware path, in content order. A CodeLimit
+// error has one finding, at the point the content passes the limit. A
+// decode reports at most DecoderOptions.MaxDiagnostics findings (01 req
+// 50): the first MaxDiagnostics of the code it fails with, in content
+// order, and, when it met more, Truncated is set and the last diagnostic
+// is one CodeTooMany (RZ-CFG-001) "too many diagnostics; stopped after N"
+// without a position, the only diagnostic with another code. Newer
+// findings past the cap stop the parse there; form findings past it are
+// dropped while the parse goes on looking for a newer finding (see the
+// package documentation). Err is an underlying cause, such as the jsonval
+// scan error of invalid JSON or of nesting too deep, or nil.
 type Findings struct {
 	// Diagnostics holds at least one finding.
 	Diagnostics diag.List
+	// Truncated reports that the decode met more findings than its cap.
+	Truncated bool
 	// Err is the underlying cause, or nil.
 	Err error
 }
 
-// Error returns the first finding's message, its resource and path, and
-// how many more there are.
+// Error returns the first finding's message, its resource and path, how
+// many more there are and, when the decode stopped at its cap, that it
+// did.
 func (f *Findings) Error() string {
 	if len(f.Diagnostics) == 0 {
 		if f.Err != nil {
@@ -82,9 +100,20 @@ func (f *Findings) Error() string {
 		b.WriteString(": ")
 	}
 	b.WriteString(d.Message)
-	if n := len(f.Diagnostics) - 1; n > 0 {
+	more := len(f.Diagnostics) - 1
+	if f.Truncated {
+		more--
+	}
+	switch {
+	case f.Truncated:
 		b.WriteString(" (and ")
-		b.WriteString(strconv.Itoa(n))
+		b.WriteString(strconv.Itoa(more))
+		b.WriteString(" more; too many diagnostics, stopped after ")
+		b.WriteString(strconv.Itoa(more + 1))
+		b.WriteByte(')')
+	case more > 0:
+		b.WriteString(" (and ")
+		b.WriteString(strconv.Itoa(more))
 		b.WriteString(" more)")
 	}
 	return b.String()
@@ -109,7 +138,7 @@ func DiagnosticsOf(err error) diag.List {
 }
 
 // fail returns the errcode error for findings of code, every one of
-// which carries that code.
+// which carries that code, in content order.
 func fail(code string, cause error, ds ...diag.Diagnostic) error {
 	return errcode.Wrap(code, &Findings{Diagnostics: ds, Err: cause})
 }

@@ -9,6 +9,8 @@ import (
 	"strings"
 	"testing"
 
+	sjs "github.com/santhosh-tekuri/jsonschema/v6"
+
 	"github.com/ravindu-rev/ruralz/internal/filter"
 	"github.com/ravindu-rev/ruralz/internal/filter/filtertest"
 	"github.com/ravindu-rev/ruralz/internal/phase"
@@ -33,6 +35,17 @@ func compileIssues(t testing.TB, raw string) []Issue {
 	t.Helper()
 	_, _, issues := compileRaw([]byte(raw), refusingLoader{})
 	return issues
+}
+
+// compileRawWith is compileRaw with the regexp engine eng, which the
+// compile freezes when raw prepares (audit class GC-21).
+func compileRawWith(raw []byte, loader sjs.URLLoader, eng *regexpEngine) (*Schema, any, []Issue) {
+	p, issues := prepare(raw)
+	if len(issues) > 0 {
+		return nil, nil, issues
+	}
+	s, issues, _ := compileWith(p, loader, nil, eng)
+	return s, p.doc, issues
 }
 
 // configOf returns the config of a Policy with schema.

@@ -300,29 +300,101 @@ func policy(t testing.TB, f *fixture, name, specJSON string) *tree.Resource {
 		`{"apiVersion": "ruralz/v1alpha1", "kind": "Policy", "metadata": {"name": "`+name+`"}, "spec": `+specJSON+`}`)
 }
 
+// registryFindings returns the stage F findings of res, which
+// Materialize changed, that before lacks, at the registry default members
+// spec.slot, spec.failureMode and spec.filterClass or at spec itself.
+func registryFindings(t *testing.T, views *schemaview.Set, res *tree.Resource, before map[string]bool) []string {
+	t.Helper()
+	var out []string
+	for finding := range schemaFindings(t, views, res) {
+		if before[finding] {
+			continue
+		}
+		for _, at := range []string{" spec: ", " spec.slot", " spec.failureMode", " spec.filterClass"} {
+			if strings.Contains(finding, at) {
+				out = append(out, finding)
+				break
+			}
+		}
+	}
+	sort.Strings(out)
+	return out
+}
+
+// registryTable is the 02 req 13 table, exact strings: for each of the
+// 23 Policy types, its slot ("" for the name slot: metadata.name), its
+// failureMode default and its filter class (custom for plugin, R-7).
+func registryTable() map[v1alpha1.PolicyType][3]string {
+	return map[v1alpha1.PolicyType][3]string{
+		"auth.jwt":               {"auth", "closed", "auth"},
+		"auth.api-key":           {"auth", "closed", "auth"},
+		"auth.basic":             {"auth", "closed", "auth"},
+		"auth.mtls":              {"auth", "closed", "auth"},
+		"authz.cel":              {"", "closed", "authz"},
+		"authz.opa":              {"", "closed", "authz"},
+		"authz.cedar":            {"", "closed", "authz"},
+		"authz.ip":               {"", "closed", "authz"},
+		"authz.geoip":            {"", "closed", "authz"},
+		"ratelimit":              {"", "open", "admission"},
+		"quota":                  {"", "open", "admission"},
+		"validation.json-schema": {"validation", "closed", "validation"},
+		"cors":                   {"cors", "closed", "cors"},
+		"cache":                  {"cache", "open", "cache"},
+		"headers":                {"", "closed", "transform"},
+		"transform.request":      {"", "closed", "transform"},
+		"transform.response":     {"", "closed", "transform"},
+		"auth.upstream-oauth2":   {"upstream-auth", "closed", "upstream-auth"},
+		"auth.upstream-sigv4":    {"upstream-auth", "closed", "upstream-auth"},
+		"ai.token-budget":        {"", "closed", "admission"},
+		"ai.semantic-cache":      {"semantic-cache", "open", "cache"},
+		"ai.guardrail":           {"", "closed", "validation"},
+		"plugin":                 {"", "closed", "custom"},
+	}
+}
+
 // TestRegistryDefaults is 02 test plan item 8: for each of the 23 types,
-// absent slot, failureMode and filterClass materialize the registry values
-// (R-7: filterClass for every type, custom for plugin); explicit values
-// are kept, even ones a later stage rejects.
+// absent slot, failureMode and filterClass materialize the values of the
+// 02 req 13 table (registryTable, metadata.name for the name slot; WP-37
+// review round 3: the test compared only with the registry, so a changed
+// registry default passed) and of the registry (R-7: filterClass for every
+// type, custom for plugin), which pass the rendered schema (stage F, which
+// FromResources runs again on canonical content, R-47; WP-37 review: the
+// check compared Defaults with itself); explicit values are kept, even
+// ones a later stage rejects.
 func TestRegistryDefaults(t *testing.T) {
 	idx := hubIndex(t)
 	reg := registry.New()
-	if n := len(reg.Entries()); n != 23 {
-		t.Fatalf("registry has %d types, want 23", n)
+	views, err := schemaview.Embedded(schemas(t))
+	if err != nil {
+		t.Fatalf("schemaview.Embedded: %v", err)
+	}
+	table := registryTable()
+	if n := len(reg.Entries()); n != 23 || len(table) != 23 {
+		t.Fatalf("registry has %d types and the table %d, want 23", n, len(table))
 	}
 	for _, e := range reg.Entries() {
 		t.Run(string(e.Type), func(t *testing.T) {
 			f := newFixture()
 			res := policy(t, f, "p1", `{"type": "`+string(e.Type)+`", "config": {}}`)
+			before := schemaFindings(t, views, res)
 			Materialize(idx, reg, res)
+			if added := registryFindings(t, views, res, before); len(added) != 0 {
+				t.Errorf("the registry defaults fail the rendered schema: %q", added)
+			}
 			spec := at(t, res.Root, "spec")
 			want := e.Defaults("p1")
-			for key, value := range map[string]string{
-				"slot": want.Slot, "failureMode": string(want.FailureMode), "filterClass": string(want.FilterClass),
-			} {
+			row, ok := table[e.Type]
+			if !ok {
+				t.Fatalf("type %s is not in the 02 req 13 table", e.Type)
+			}
+			if row[0] == "" {
+				row[0] = "p1"
+			}
+			for i, key := range []string{"slot", "failureMode", "filterClass"} {
+				fromRegistry := [...]string{want.Slot, string(want.FailureMode), string(want.FilterClass)}[i]
 				got, ok := spec.Get(key)
-				if !ok || got.Text != value || got.Style != tree.StyleDefaulted || got.Pos != spec.Pos {
-					t.Errorf("%s = %s, want %q defaulted at spec", key, dump(got), value)
+				if !ok || got.Text != row[i] || got.Text != fromRegistry || got.Style != tree.StyleDefaulted || got.Pos != spec.Pos {
+					t.Errorf("%s = %s, want %q (02 req 13) and %q (registry) defaulted at spec", key, dump(got), row[i], fromRegistry)
 				}
 			}
 			if e.Type == v1alpha1.PolicyTypePlugin && want.FilterClass != v1alpha1.FilterClassCustom {
@@ -340,6 +412,22 @@ func TestRegistryDefaults(t *testing.T) {
 				}
 			}
 		})
+	}
+	// The schema check sees a registry default the schema rejects: each
+	// of the three members, materialized and then made invalid.
+	for key, bad := range map[string]*tree.Node{
+		"slot":        {Kind: tree.KindInt, Text: "3"},
+		"failureMode": {Kind: tree.KindString, Text: "sometimes"},
+		"filterClass": {Kind: tree.KindString, Text: "nope"},
+	} {
+		f := newFixture()
+		res := policy(t, f, "p1", `{"type": "ratelimit", "config": {}}`)
+		before := schemaFindings(t, views, res)
+		Materialize(idx, reg, res)
+		at(t, res.Root, "spec").Set(key, tree.Pos{}, bad)
+		if added := registryFindings(t, views, res, before); len(added) == 0 {
+			t.Errorf("an invalid registry default %s = %s was not reported", key, dump(bad))
+		}
 	}
 	// An unknown type, a non-string type and a spec that is not an object
 	// get no registry defaults.

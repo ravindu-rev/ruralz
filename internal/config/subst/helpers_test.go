@@ -132,19 +132,19 @@ func parseRange(src string, from, to int, file tree.FileID) (*tree.Node, error) 
 	return n, nil
 }
 
-// docs parses the resource documents of file path, separated by lines
-// holding "---", into files.
-func docs(t testing.TB, files *tree.FileTable, role tree.Role, path, src string) []*tree.Resource {
+// docs parses the resource documents of base file path, separated by
+// lines holding "---", into files.
+func docs(t testing.TB, files *tree.FileTable, path, src string) []*tree.Resource {
 	t.Helper()
-	rs, err := docsErr(files, role, path, src)
+	rs, err := docsErr(files, path, src)
 	if err != nil {
 		t.Fatalf("%s: %v", path, err)
 	}
 	return rs
 }
 
-func docsErr(files *tree.FileTable, role tree.Role, path, src string) ([]*tree.Resource, error) {
-	id := files.Add(tree.File{Path: path, Role: role})
+func docsErr(files *tree.FileTable, path, src string) ([]*tree.Resource, error) {
+	id := files.Add(tree.File{Path: path, Role: tree.RoleBase})
 	var out []*tree.Resource
 	from := 0
 	for from <= len(src) {
@@ -276,4 +276,59 @@ func at(t testing.TB, n *tree.Node, path string) *tree.Node {
 		cur = next
 	}
 	return cur
+}
+
+// scan collects the pieces of scanEach with consecutive literal pieces
+// joined: the segments of s, or nil and the reason for malformed s.
+func scan(s string) (segs []segment, bad string) { return collect(s, false) }
+
+// literals is scan read leniently: a malformed ${ is literal text.
+func literals(s string) []segment {
+	segs, _ := collect(s, true)
+	return segs
+}
+
+func collect(s string, lenient bool) ([]segment, string) {
+	var segs []segment
+	var lit strings.Builder
+	flush := func() {
+		if lit.Len() > 0 {
+			segs = append(segs, segment{lit: lit.String()})
+			lit.Reset()
+		}
+	}
+	bad := scanEach(s, lenient, nil, func(sg segment) bool {
+		if sg.name == "" {
+			lit.WriteString(sg.lit)
+			return true
+		}
+		flush()
+		segs = append(segs, sg)
+		return true
+	})
+	if bad != "" {
+		return nil, bad
+	}
+	flush()
+	return segs, ""
+}
+
+// literal joins the literal segments; it is the text of a scan without
+// expressions.
+func literal(segs []segment) string {
+	var b strings.Builder
+	for _, sg := range segs {
+		b.WriteString(sg.lit)
+	}
+	return b.String()
+}
+
+// hasExpression reports an expression segment.
+func hasExpression(segs []segment) bool {
+	for _, sg := range segs {
+		if sg.name != "" {
+			return true
+		}
+	}
+	return false
 }

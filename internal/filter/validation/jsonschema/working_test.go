@@ -13,11 +13,10 @@ import (
 	"os/exec"
 	"runtime"
 	"runtime/debug"
+	"slices"
 	"strconv"
 	"strings"
-	"sync/atomic"
 	"testing"
-	"time"
 
 	sjs "github.com/santhosh-tekuri/jsonschema/v6"
 
@@ -194,34 +193,6 @@ func workingSetCases() []struct{ name, schema, body string } {
 	}
 }
 
-// peakHeap returns the largest growth of the heap in use while f runs and
-// until it returns, sampled, with the collector running often so that the
-// samples follow the live heap rather than garbage.
-func peakHeap(f func() any) float64 {
-	defer debug.SetGCPercent(debug.SetGCPercent(10))
-	var base, m runtime.MemStats
-	runtime.GC()
-	runtime.ReadMemStats(&base)
-	var peak atomic.Uint64
-	var done atomic.Bool
-	sampled := make(chan struct{})
-	go func() {
-		defer close(sampled)
-		var m runtime.MemStats
-		for !done.Load() {
-			runtime.ReadMemStats(&m)
-			peak.Store(max(peak.Load(), m.HeapInuse))
-			time.Sleep(100 * time.Microsecond)
-		}
-	}()
-	kept := f()
-	done.Store(true)
-	<-sampled
-	runtime.ReadMemStats(&m)
-	runtime.KeepAlive(kept)
-	return float64(max(peak.Load(), m.HeapInuse)) - float64(base.HeapInuse)
-}
-
 // scanBody returns the scan of body under s with no limits.
 func scanBody(t testing.TB, s *Schema, body string) (any, *bodyScan) {
 	t.Helper()
@@ -234,121 +205,37 @@ func scanBody(t testing.TB, s *Schema, body string) (any, *bodyScan) {
 	return v, scan
 }
 
-// gcSlack is the garbage the collector may leave in use between two
-// collections while peakHeap runs it often (GOGC 10, with a heap minimum
-// of 0.4 MiB), and the garbage allocated while it marks, which a sample of
-// the heap in use cannot tell from live memory: the library allocates an
-// error kind, a scope and an index string at every evaluation and drops
-// them.
-const gcSlack = 1 << 20
-
-// liveProbe is the x-probe keyword of the test vocabulary: each time an
-// evaluation reaches it, it collects the heap fully and records the
-// largest live heap it measured.
-type liveProbe struct{ live uint64 }
-
-// Validate measures the live heap.
-func (p *liveProbe) Validate(*sjs.ValidatorContext, any) {
-	var m runtime.MemStats
-	runtime.GC()
-	runtime.ReadMemStats(&m)
-	p.live = max(p.live, m.HeapAlloc)
-}
-
-// probeURL names the measuring wrapper of decisionTree.
-const probeURL = "https://schema.ruralz.invalid/probe.json"
-
-// decisionTree returns the bytes of the error tree the decision pass holds
-// for v under schema, measured from inside the pass when the tree is
-// complete: the wrapper validates the document for a boolean result, as
-// the decision pass does, under an anyOf that keeps the document's errors
-// while it evaluates its second branch, whose x-probe keyword collects the
-// heap and measures it. It is 0 for a valid v.
-func decisionTree(t testing.TB, schema string, v any) int64 {
-	t.Helper()
-	probe := &liveProbe{}
-	doc, err := sjs.UnmarshalJSON(strings.NewReader(schema))
-	if err != nil {
-		t.Fatal(err)
-	}
-	c := sjs.NewCompiler()
-	c.DefaultDraft(sjs.Draft2020)
-	c.UseLoader(refusingLoader{})
-	c.AssertVocabs()
-	c.RegisterVocabulary(&sjs.Vocabulary{
-		URL: "https://schema.ruralz.invalid/vocab/probe",
-		Compile: func(_ *sjs.CompilerContext, obj map[string]any) (sjs.SchemaExt, error) {
-			if _, ok := obj["x-probe"]; ok {
-				return probe, nil
-			}
-			return nil, nil
-		},
-	})
-	wrapper := map[string]any{"not": map[string]any{"anyOf": []any{map[string]any{"$ref": baseURL}, map[string]any{"x-probe": true}}}}
-	if err := c.AddResource(baseURL, doc); err != nil {
-		t.Fatal(err)
-	}
-	if err := c.AddResource(probeURL, wrapper); err != nil {
-		t.Fatal(err)
-	}
-	measure, err := c.Compile(probeURL)
-	if err != nil {
-		t.Fatal(err)
-	}
-	var m runtime.MemStats
-	runtime.GC()
-	runtime.ReadMemStats(&m)
-	_ = measure.Validate(v)
-	if probe.live == 0 {
-		return 0
-	}
-	return growth(probe.live, m.HeapAlloc)
-}
-
-// growth returns after - before, two heap sizes, as an int64.
-func growth(after, before uint64) int64 {
-	if after < before {
-		return -growth(before, after)
-	}
-	return int64(min(after-before, math.MaxInt64))
-}
-
-// locationTree returns the bytes of the error tree the location pass
-// returns for v, which holds every error it collected.
-func locationTree(s *Schema, v any) int64 {
-	var before, after runtime.MemStats
-	runtime.GC()
-	runtime.ReadMemStats(&before)
-	err := s.root.Validate(v)
-	runtime.GC()
-	runtime.ReadMemStats(&after)
-	runtime.KeepAlive(err)
-	return growth(after.HeapAlloc, before.HeapAlloc)
-}
-
-// treeSlack covers what a measured tree holds besides the errors: the
-// frames on the path to the measuring keyword and the collector's own
-// bookkeeping.
-const treeSlack = 64 << 10
-
 // TestWorkingSetCoversPeak covers the working-set bound (proposed, 07
 // reqs 80 and 82, section 9 item 21, architecture R-63) of both passes:
 // for dense bodies of every error shape, the unevaluated-tracking copies
 // the library makes along a reference chain, and ordinary order bodies,
 // valid or failing.
 //
-//   - The error tree the decision pass holds, measured exactly from inside
-//     it, stays within what the scan charges it (review finding: a valid
-//     body is charged the decision pass's tree, never the location
-//     pass's).
+//   - The error tree the decision pass holds, measured exactly at its end,
+//     stays within what the scan charges it (review finding: a valid body
+//     is charged the decision pass's tree, never the location pass's).
 //   - The error tree the location pass returns, measured exactly, stays
 //     within what the scan charges it.
-//   - The heap in use at its peak while the location pass validates stays
-//     within its whole working set, give or take the collector's slack:
-//     that covers the stack, the unevaluated copies and the transient
-//     copies, which the decision pass holds alike. A sample of the
-//     decision pass's peak would mostly measure the garbage the library
-//     allocates and drops in it (error kinds, scopes, parsed numbers).
+//   - The live heap at the peak of each pass stays within the pass's
+//     whole working set, its tree, path and transient terms: the copies
+//     of the unevaluated names or indexes along one path, the transient
+//     copies and the tree the pass holds by then. It is measured
+//     deterministically (heapMeter, audit class GC-08, rows VAL-44 and
+//     CX-13): at the deepest evaluations of each pass's first path, at
+//     probe calls spread over the rest of it, at its end and at its
+//     matches with each matcher's own peak on top. Round 9 found the
+//     sampled heap in use that this replaces, garbage included, over its
+//     quarter and 1 MiB of slack under load on the Go 1.26 floor (the
+//     unevaluated indexes under branches at 1.64 of the charge), while the
+//     live heap stays within 0.38 of it.
+//   - The live heap at the peak of each pass is at least the tree the
+//     pass ends with, but for treeApart, so that the measurement reaches
+//     it (review finding: a schema's extension keywords run after its
+//     applicators failed, in either pass, so a failing body's decision
+//     pass reached a probe at every value with its tree growing, at 0.86
+//     of the charge, while the meter, marking only the first probe calls,
+//     read 0.00); and a failing body's passes end with the trees measured
+//     apart live, so that those are the passes' own.
 func TestWorkingSetCoversPeak(t *testing.T) {
 	for _, tc := range workingSetCases() {
 		t.Run(tc.name, func(t *testing.T) {
@@ -364,15 +251,109 @@ func TestWorkingSetCoversPeak(t *testing.T) {
 			if locate > scan.locate+treeSlack {
 				t.Errorf("the location pass held an error tree of %d bytes, the scan charges %d", locate, scan.locate)
 			}
-			peak := peakHeap(func() any { return s.root.Validate(v) })
-			t.Logf("location pass: reserved %d, peak %.0f (%.2f)", scan.locateMemory(), peak, peak/float64(scan.locateMemory()))
-			// The trees are measured exactly above; the sampled peak, which
-			// adds the copies and the collector's pacing, gets a quarter more
-			// (minor review finding: 1.01 on a quiet machine).
-			if peak > 1.25*float64(scan.locateMemory())+gcSlack {
-				t.Errorf("the location pass held %.0f bytes at its peak, the reservation is %d", peak, scan.locateMemory())
+			// A failing body's decision pass ends at decideProbe's probe and
+			// its location pass at the document's root, each holding its
+			// whole tree.
+			failing, ends := s.root.Validate(v) != nil, 0
+			if failing {
+				ends = 1
+			}
+			m := &heapMeter{}
+			root, decidePass := probedSchemas(t, tc.schema, m)
+			for _, pass := range []struct {
+				name, end    string
+				s            *sjs.Schema
+				charge, tree int64
+				ends         int
+			}{
+				{"decision", endMark, decidePass, scan.decideMemory(), decide, ends},
+				{"location", "", root, scan.locateMemory(), locate, 0},
+			} {
+				m.start()
+				err := pass.s.Validate(v)
+				peak := m.peak()
+				runtime.KeepAlive(err)
+				m.check(t)
+				t.Logf("%s pass: charged %d, live peak %d (%.2f), %d marks", pass.name, pass.charge, peak, float64(peak)/float64(pass.charge), m.marks)
+				if m.marks == 0 || m.passes != pass.ends {
+					t.Errorf("the %s pass marked %d times and ended %d times at decideProbe, want marks and %d", pass.name, m.marks, m.passes, pass.ends)
+				}
+				if peak < pass.tree-pass.tree/treeApart-heapNoise {
+					t.Errorf("the %s pass held %d bytes at its peak, less than its error tree of %d: the marks missed it", pass.name, peak, pass.tree)
+				}
+				// The trees measured apart are the pass's own: its last end
+				// mark holds the tree, but for treeApart.
+				end, apart := m.at[pass.end], pass.tree/treeApart+heapNoise
+				if failing && (len(end) == 0 || end[len(end)-1] > pass.tree+apart || end[len(end)-1] < pass.tree-apart) {
+					t.Errorf("the %s pass ended with %v bytes live, its tree measured apart %d", pass.name, end, pass.tree)
+				}
+				if peak > pass.charge+treeSlack {
+					t.Errorf("the %s pass held %d bytes at its peak, its working set is charged %d", pass.name, peak, pass.charge)
+				}
 			}
 		})
+	}
+}
+
+// treeApart sets how far apart two validations' error trees may be, a
+// 1/treeApart part of the tree: the tiny allocator packs a pass's small
+// allocations, kept or dropped, in the order the library iterates over an
+// object's members, which Go varies, so the failing records' trees of five
+// runs differed by up to 0.5%, and the other trees of workingSetCases by
+// at most 8.5 KB, within heapNoise.
+const treeApart = 64
+
+// treeBesideCopies returns an anyOf under unevaluatedItems whose first
+// branch fails at every item of an array under an 8-way oneOf and whose
+// second follows a chain of links in-place references before failing at
+// maxItems: at the chain's deepest link, the decision pass holds the first
+// branch's error tree and the copies of the item indexes of the root, the
+// second branch and every link.
+func treeBesideCopies(links int) string {
+	var b strings.Builder
+	fmt.Fprintf(&b, `{"unevaluatedItems":true,"anyOf":[{"items":%s},{"$ref":"#/$defs/d0","maxItems":0}],"$defs":{`, oneOfConsts(8))
+	for i := range links {
+		fmt.Fprintf(&b, `"d%d":{"$ref":"#/$defs/d%d"},`, i, i+1)
+	}
+	fmt.Fprintf(&b, `"d%d":{"minItems":0}}}`, links)
+	return b.String()
+}
+
+// TestDecisionTreeBesideCopies covers the sum in the decision pass's
+// working set (07 reqs 80 and 82, architecture R-63): its error tree and
+// one path's copies are live at once, so it is charged both. Review
+// finding (audit class GC-08): no test measured the decision pass where
+// both are, so charging the larger of the two survived the tests. An array
+// of 5,000 items under treeBesideCopies(6) holds, at the chain's deepest
+// link, the first branch's tree with the nine copies of its 5,000 indexes
+// on top, measured there at its one call: more than the tree's charge or
+// the path's, and within their sum.
+func TestDecisionTreeBesideCopies(t *testing.T) {
+	const links, items = 6, 5000
+	schema := treeBesideCopies(links)
+	s := mustCompile(t, schema)
+	v, scan := scanBody(t, s, denseArray(items, `"x"`, 0))
+	deepest := fmt.Sprintf("/$defs/d%d", links)
+	m := &heapMeter{only: deepest}
+	_, decide := probedSchemas(t, schema, m)
+	m.start()
+	err := decide.Validate(v)
+	peak := m.peak()
+	runtime.KeepAlive(err)
+	tree, at := decisionTree(t, schema, v), m.at[deepest]
+	larger := addCap(max(scan.decide, scan.path), scan.transient)
+	t.Logf("tree %d charged %d, path charged %d, transient %d; at the deepest link %v, live peak %d (%.2f of the working set %d)",
+		tree, scan.decide, scan.path, scan.transient, at, peak, float64(peak)/float64(scan.decideMemory()), scan.decideMemory())
+	// The copies of the root, the second branch and the seven links, at
+	// least 8 bytes an index.
+	if copies := int64((links + 3) * items * 8); len(at) != 1 || at[0] < tree+copies-heapNoise {
+		t.Fatalf("the deepest link measured %v, want once with the tree of %d bytes and %d bytes of copies live", at, tree, copies)
+	}
+	if peak <= larger+treeSlack {
+		t.Errorf("held %d bytes, within the larger of the tree's charge %d and the path's %d: the case no longer holds both", peak, scan.decide, scan.path)
+	}
+	if peak > scan.decideMemory()+treeSlack {
+		t.Errorf("the decision pass held %d bytes at its peak, its working set is charged %d", peak, scan.decideMemory())
 	}
 }
 
@@ -433,7 +414,8 @@ func TestStackWithinCharge(t *testing.T) {
 // Factory.Build and Handle at the 10 MiB default, a 19 KB object against a
 // 1,000-link chain (about 140 MB of copies) is oversized before the
 // library runs; with a 64 MiB limit, the 100-link chain validates with the
-// heap at its peak within the reservation.
+// live heap at its peak, at the deepest link where all the copies are live
+// (heapMeter, audit class GC-08), within the reservation.
 //
 // Requirements: 07 reqs 80 to 82 and architecture R-63.
 func TestHandleBoundsUnevaluatedMemory(t *testing.T) {
@@ -448,16 +430,21 @@ func TestHandleBoundsUnevaluatedMemory(t *testing.T) {
 		t.Errorf("reservation left: %d", x.Budget.Reserved)
 	}
 
-	f = buildFilter(t, unevaluatedChain(100, "unevaluatedProperties"), 64<<20)
-	x, _ = exchange("application/json", []byte(body))
-	px := &peakExchange{Exchange: x}
-	peak := peakHeap(func() any { return f.Handle(t.Context(), phase.OnRequestBody, px) })
-	if px.peak == 0 {
-		t.Fatal("nothing reserved")
+	schema := unevaluatedChain(100, "unevaluatedProperties")
+	f = buildFilter(t, schema, 64<<20)
+	m := &heapMeter{}
+	r, reserved := handlePeak(t, f, schema, body, m)
+	if r.Outcome != filter.Continue || reserved == 0 {
+		t.Fatalf("Handle at 64 MiB = %+v, reserved %d, want Continue", r, reserved)
 	}
-	t.Logf("reserved %d (decoded values included), peak %.0f", px.peak, peak)
-	if peak > float64(px.peak+gcSlack) {
-		t.Errorf("Handle held %.0f bytes at its peak, reserved %d", peak, px.peak)
+	// The deepest link, the first probe, holds the 100 copies.
+	deepest := m.at["/$defs/d100"]
+	t.Logf("reserved %d (decoded values included), live peak %d, at the deepest link %v", reserved, m.peak(), deepest)
+	if len(deepest) != 1 || deepest[0] < 100*2000*16 {
+		t.Errorf("the deepest link measured %v, want once with the 100 copies of 2,000 names live", deepest)
+	}
+	if exceeds(m.peak(), reserved) {
+		t.Errorf("Handle held %d bytes at its peak, reserved %d", m.peak(), reserved)
 	}
 	if _, scan := scanBody(t, f.schema, body); scan.path < 100*2000*propMapEntry {
 		t.Errorf("the path charges %d bytes, less than the 100 copies of 2,000 names", scan.path)
@@ -484,14 +471,24 @@ func unevaluatedBranches(n int, kw string) string {
 // as for the call stack. Through Factory.Build and Handle at the 10 MiB
 // default, a valid 49 KB object under an allOf of 50 three-link chains
 // with unevaluatedProperties (charged 129 MB, 84 times its peak, and 413)
-// and a valid array under the same with unevaluatedItems continue; with a
-// 64 MiB limit the heap at Handle's peak stays within the reservation.
+// and a valid array under the same with unevaluatedItems continue. With a
+// 64 MiB limit the live heap at the deepest link of every branch, where the
+// copies of its chain and of the root are live, is measured (heapMeter,
+// audit class GC-08, rows VAL-44 and CX-13; round 9 found the sampled heap
+// in use over the reservation under load): it holds the copies of one
+// chain, stays flat from the first branch to the last, and stays within
+// the reservation.
 //
 // Requirements: 07 reqs 80 to 82 and architecture R-77.
 func TestHandleUnevaluatedBranches(t *testing.T) {
-	for _, tc := range []struct{ kw, body string }{
-		{"unevaluatedProperties", wideObject(5000)},
-		{"unevaluatedItems", denseArray(8000, `1`, 0)},
+	for _, tc := range []struct {
+		kw, body string
+		// n is the members or items, key the bytes of each in a copy's
+		// map, at the least.
+		n, key int64
+	}{
+		{"unevaluatedProperties", wideObject(5000), 5000, 16},
+		{"unevaluatedItems", denseArray(8000, `1`, 0), 8000, 8},
 	} {
 		t.Run(tc.kw, func(t *testing.T) {
 			schema := unevaluatedBranches(50, tc.kw)
@@ -499,16 +496,27 @@ func TestHandleUnevaluatedBranches(t *testing.T) {
 				t.Fatalf("Handle(%d bytes) at the default limit = %+v, want Continue", len(tc.body), r)
 			}
 			f := buildFilter(t, schema, 64<<20)
-			x, _ := exchange("application/json", []byte(tc.body))
-			px := &peakExchange{Exchange: x}
-			var r filter.Result
-			peak := peakHeap(func() any { r = f.Handle(t.Context(), phase.OnRequestBody, px); return r })
+			m := &heapMeter{only: "/$defs/c3"}
+			r, reserved := handlePeak(t, f, schema, tc.body, m)
 			if r.Outcome != filter.Continue {
 				t.Fatalf("Handle at 64 MiB = %+v, want Continue", r)
 			}
-			t.Logf("reserved %d (decoded values included), peak %.0f", px.peak, peak)
-			if peak > float64(px.peak+gcSlack) {
-				t.Errorf("Handle held %.0f bytes at its peak, reserved %d", peak, px.peak)
+			deepest := m.at["/$defs/c3"]
+			if len(deepest) != 50 {
+				t.Fatalf("the deepest link was measured %d times, want once per branch", len(deepest))
+			}
+			least, most := slices.Min(deepest), slices.Max(deepest)
+			t.Logf("reserved %d (decoded values included), live at the deepest link %d to %d", reserved, least, most)
+			// The root's copy and the five of one chain: the branch, its
+			// reference and the three links.
+			if least < 5*tc.n*tc.key {
+				t.Errorf("the deepest link held %d bytes, less than five copies of %d keys", least, tc.n)
+			}
+			if most-least > treeSlack {
+				t.Errorf("the deepest link held %d bytes in one branch and %d in another: the copies of earlier branches stayed live", least, most)
+			}
+			if exceeds(m.peak(), reserved) {
+				t.Errorf("Handle held %d bytes at its peak, reserved %d", m.peak(), reserved)
 			}
 		})
 	}
@@ -521,7 +529,8 @@ func TestHandleUnevaluatedBranches(t *testing.T) {
 // along a 100-link chain, 16,000 matching items held a 12.7 MB error tree
 // charged 58 KB, the heap at its peak 10 times the reservation. Through
 // Factory.Build and Handle at the 10 MiB default, the failing body is now
-// located with the heap at its peak within the reservation.
+// located with the live heap at its peak, at the end of the location pass
+// (heapMeter, audit class GC-08), within the reservation.
 //
 // Requirements: 07 reqs 80 to 82 and architecture R-63.
 func TestHandleBoundsMatchedItems(t *testing.T) {
@@ -532,16 +541,20 @@ func TestHandleBoundsMatchedItems(t *testing.T) {
 	schema := chain(100, `{"$ref":"#/$defs/d%d","contains":true,"maxContains":0,"x-n":%d}`)
 	body := denseArray(n, `1`, 0)
 	f := buildFilter(t, schema, 0)
-	x, _ := exchange("application/json", []byte(body))
-	px := &peakExchange{Exchange: x}
-	var r filter.Result
-	peak := peakHeap(func() any { r = f.Handle(t.Context(), phase.OnRequestBody, px); return r })
+	m := &heapMeter{}
+	r, reserved := handlePeak(t, f, schema, body, m)
 	if got := detailOf(t, r); got != DetailMismatch+" at /$defs/d0/maxContains" {
 		t.Fatalf("detail = %q, want the location of maxContains", got)
 	}
-	t.Logf("reserved %d (decoded values included), peak %.0f", px.peak, peak)
-	if peak > float64(px.peak+gcSlack) {
-		t.Errorf("Handle held %.0f bytes at its peak, reserved %d", peak, px.peak)
+	// The location pass ends at the root, its probe holding the lists of
+	// the whole chain.
+	root := m.at[""]
+	t.Logf("reserved %d (decoded values included), live peak %d, at the root %v", reserved, m.peak(), root)
+	if len(root) != 1 || root[0] < int64(100*n*8) {
+		t.Errorf("the root measured %v, want once with the 100 lists of %d indexes live", root, n)
+	}
+	if exceeds(m.peak(), reserved) {
+		t.Errorf("Handle held %d bytes at its peak, reserved %d", m.peak(), reserved)
 	}
 	if _, scan := scanBody(t, f.schema, body); scan.locate < int64(100*n*8) {
 		t.Errorf("the location pass is charged %d bytes, less than the 100 lists of %d indexes", scan.locate, n)
@@ -565,26 +578,24 @@ func (x *peakExchange) Reserve(n int64) error {
 // TestHandleBoundsValidationMemory is the regression test of the
 // working-set bound (proposed, 07 reqs 80 to 82, architecture R-63)
 // through Handle: a dense failing array against an 8-way oneOf, validated
-// in both passes, holds at its peak no more than Handle reserved, and a
-// larger one is refused as oversized before the library runs, allocating
-// no more than its decode.
+// in both passes, holds at its peak no more than Handle reserved, the live
+// heap measured at the end of the location pass, which holds the tree
+// (heapMeter, audit class GC-08), and a larger one is refused as oversized
+// before the library runs, allocating no more than its decode.
 func TestHandleBoundsValidationMemory(t *testing.T) {
 	schema := `{"type":"array","items":` + oneOfConsts(8) + `}`
 	f := buildFilter(t, schema, 4<<20)
-	body := []byte(denseArray(5000, `"x"`, 0))
-	x, _ := exchange("application/json", body)
-	px := &peakExchange{Exchange: x}
-	var r filter.Result
-	peak := peakHeap(func() any { r = f.Handle(t.Context(), phase.OnRequestBody, px); return r })
+	m := &heapMeter{}
+	r, reserved := handlePeak(t, f, schema, denseArray(5000, `"x"`, 0), m)
 	if got := detailOf(t, r); got != DetailMismatch+" at /items/oneOf/0/const" {
 		t.Fatalf("detail = %q", got)
 	}
-	t.Logf("peak %.0f, reserved %d (%.2f)", peak, px.peak, peak/float64(px.peak))
-	if px.peak == 0 || peak > float64(px.peak+gcSlack) {
-		t.Errorf("Handle held %.0f bytes at its peak, reserved %d", peak, px.peak)
+	t.Logf("live peak %d, reserved %d (%.2f)", m.peak(), reserved, float64(m.peak())/float64(reserved))
+	if len(m.at[""]) != 1 {
+		t.Errorf("the location pass reached its root %d times, want once", len(m.at[""]))
 	}
-	if x.Budget.Reserved != 0 {
-		t.Errorf("reservation left: %d", x.Budget.Reserved)
+	if reserved == 0 || exceeds(m.peak(), reserved) {
+		t.Errorf("Handle held %d bytes at its peak, reserved %d", m.peak(), reserved)
 	}
 
 	// 1,000,000 items at the 10 MiB default: the decode fits (33 MiB of
@@ -600,7 +611,7 @@ func TestHandleBoundsValidationMemory(t *testing.T) {
 		return float64(after.TotalAlloc - before.TotalAlloc)
 	}
 	decoded := allocs(func() { _, _, _ = f.decode(big) })
-	x, _ = exchange("application/json", big)
+	x, _ := exchange("application/json", big)
 	handled := allocs(func() { r = f.Handle(t.Context(), phase.OnRequestBody, x) })
 	if r.Outcome != filter.CannotDecide || !errors.Is(r.Err, errWorkingSetTooLarge) || !errors.Is(r.Err, filter.ErrTooLarge) {
 		t.Fatalf("Handle = %+v, want CannotDecide with the working-set ErrTooLarge", r)
@@ -655,6 +666,9 @@ func TestWorkingSetCharges(t *testing.T) {
 		{"two failing lengths and a group", `{"minLength":2,"maxLength":0}`, `"x"`, 3 * e, 2 * at0, stackBytes + wrapper, 1},
 		{"a keyword of another kind", `{"minLength":1,"maximum":3}`, `""`, e, at0, stackBytes + wrapper, 0},
 		{"reference", `{"$ref":"#/$defs/s","$defs":{"s":{"type":"string"}}}`, `1`, 2 * e, 2 * at0, 2*stackBytes + wrapper, 0},
+		// A $recursiveRef wraps its target's errors as a $ref does (audit
+		// class GC-01, row REFS-33).
+		{"recursive reference", `{"$recursiveRef":"#/$defs/s","$defs":{"s":{"type":"string"}}}`, `1`, 2 * e, 2 * at0, 2*stackBytes + wrapper, 0},
 		// if, then and else all count, then failing on its length and else
 		// on its applicator; the applicators run only when nothing else
 		// failed. The stack holds one chain of them at a time: the root,
@@ -765,8 +779,8 @@ func TestWorkingSetCharges(t *testing.T) {
 // the schemas of its own path: the union adds the same to the scan
 // whatever the number of tags, a tag costs what it costs without the
 // union, and a valid order with 300,000 tags (3.4 MB) passes at the
-// default with its reservation within two and a half times its measured
-// peak.
+// default with its reservation covering the live heap at its peak and
+// within two and a half times it (heapMeter, audit class GC-08).
 func TestPathStates(t *testing.T) {
 	s := mustCompile(t, unionSchema(12))
 	noUnion := mustCompile(t, strings.Replace(unionSchema(0), `,"payment":{"oneOf":[]}`, "", 1))
@@ -783,16 +797,19 @@ func TestPathStates(t *testing.T) {
 	}
 	body := unionBody(300000, `"tag%d"`)
 	f := buildFilter(t, unionSchema(12), 0)
-	x, _ := exchange("application/json", []byte(body))
-	px := &peakExchange{Exchange: x}
-	var r filter.Result
-	peak := peakHeap(func() any { r = f.Handle(t.Context(), phase.OnRequestBody, px); return r })
+	m := &heapMeter{}
+	r, reserved := handlePeak(t, f, unionSchema(12), body, m)
 	if r.Outcome != filter.Continue {
 		t.Fatalf("Handle(%d bytes) = %+v, want Continue", len(body), r)
 	}
-	t.Logf("body %d bytes: reserved %d (decoded values included), peak %.0f", len(body), px.peak, peak)
-	if float64(px.peak) > 2.5*peak+gcSlack {
-		t.Errorf("reserved %d, more than two and a half times the peak %.0f", px.peak, peak)
+	t.Logf("body %d bytes: reserved %d (decoded values included), live peak %d (%.2f)", len(body), reserved, m.peak(), float64(reserved)/float64(m.peak()))
+	if float64(reserved) > 2.5*float64(m.peak()) {
+		t.Errorf("reserved %d, more than two and a half times the peak %d", reserved, m.peak())
+	}
+	// Review finding (audit class GC-08): the tags of 9 bytes, each alone
+	// in its tiny block, held the live heap 3.6% over the reservation.
+	if exceeds(m.peak(), reserved) {
+		t.Errorf("Handle held %d bytes at its peak, reserved %d", m.peak(), reserved)
 	}
 }
 

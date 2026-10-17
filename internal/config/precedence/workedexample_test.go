@@ -44,7 +44,7 @@ func TestWorkedExample(t *testing.T) {
 		{"none", "none", "cors-default", "Gateway"},
 	}
 	var got [][4]string
-	for _, r := range Rows(chains["orders-summary"], b) {
+	for _, r := range mustNew(t, nil, Options{}).Rows(chains["orders-summary"], b) {
 		got = append(got, [4]string{r.Phase, r.Leg, r.Policy, r.From})
 	}
 	if !slices.Equal(got, want) {
@@ -119,7 +119,7 @@ func TestShopBundleGolden(t *testing.T) {
 	b, files := loadBundle(t, shopBundle)
 	chains, _ := stageI(t, b, files, 2)
 	for _, route := range []string{"cart-grpc", "orders-summary", "support-chat"} {
-		rows := Rows(chains[route], b)
+		rows := mustNew(t, nil, Options{}).Rows(chains[route], b)
 		golden(t, filepath.Join("testdata", "golden", route+".txt"), table(t, rows))
 		golden(t, filepath.Join("testdata", "golden", route+".json"), rowsJSON(t, rows))
 	}

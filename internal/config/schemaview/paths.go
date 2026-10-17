@@ -35,6 +35,18 @@ type textNode struct {
 	// such as ".spec", "[name=a]" or "[item={...}]".
 	text  string
 	depth int
+	// lcp is what commonPrefix remembers about a segment of at least
+	// lcpMin bytes, allocated on its first such comparison; nil otherwise.
+	lcp *lcpCache
+}
+
+// lcpCache is what commonPrefix remembers about one long segment: the
+// sibling it was last compared with and their common prefix length, and
+// whether the segment is in a pair of memo.lcp.
+type lcpCache struct {
+	peer     *textNode
+	n        int
+	memoized bool
 }
 
 // textAt is the interning key of a textNode.
@@ -44,10 +56,23 @@ type textAt struct {
 }
 
 // lcpMin is the segment length from which the common prefix of two
-// distinct segments is memoized: comparing two long segments with a long
-// common prefix once per diagnostic pair would cost their length per
-// comparison.
+// distinct sibling segments is remembered: comparing two long segments
+// with a long common prefix once per diagnostic pair would cost their
+// length per comparison. A pair with a shorter segment is scanned per
+// comparison, reading fewer than lcpMin bytes.
 const lcpMin = 64
+
+// lcpMemo is the common prefix length from which a pair of sibling
+// segments is memoized in memo.lcp, a map entry of a few dozen bytes that
+// a pair's first comparison pays: below it, a comparison that is not the
+// pair's last on either segment (lcpCache.peer) rescans the prefix, at
+// most lcpMemo bytes, about what the map entry costs to store and look
+// up. A map entry per pair compared from lcpMin up cost more than the
+// scans it saved when most pairs are compared once, and grew with the
+// comparisons, not the document (review finding: 6.6 million entries for
+// 400,000 listeners with 64-byte names in descending order). The map
+// holds at most memo.scanned/lcpMemo entries.
+const lcpMemo = 1 << 10
 
 // textPair is a pair of distinct sibling textNodes.
 type textPair struct {
@@ -120,9 +145,13 @@ func (x *memo) child(parent *pathNode, e diag.PathElem) *pathNode {
 }
 
 // intern returns the text node of parent extended by e, storing a new one
-// in spare when spare is not nil.
+// in spare when spare is not nil. Rendering the segment and hashing it
+// are a span that cannot yield (Options.Yield), charged with the
+// segment's bytes after it: a keyed entry's key, a field name or a set
+// element can be as long as the document.
 func (x *memo) intern(parent *textNode, e diag.PathElem, spare *textNode) *textNode {
 	at := textAt{parent: parent, text: segmentText(e, depthOf(parent))}
+	x.work.charge(len(at.text))
 	if t, ok := x.texts[at]; ok {
 		return t
 	}
@@ -172,22 +201,68 @@ func (x *memo) comparePaths(a, b *textNode) int {
 }
 
 // commonPrefix returns the length of the common prefix of two sibling
-// segments, memoized for long ones.
+// segments. A pair with a segment shorter than lcpMin is scanned per
+// call, reading fewer than lcpMin bytes. A long pair is answered from
+// either segment's last comparison when it was with the other
+// (lcpCache.peer), so the comparisons of a sort that meets one pair again
+// and again, such as many diagnostics below each of two siblings, read
+// it once; else from memo.lcp, where pairs whose common prefix reaches
+// lcpMemo are memoized; else it is scanned, up to lcpMemo bytes before a
+// pair is memoized. x.scanned counts every byte scanned.
 func (x *memo) commonPrefix(a, b *textNode) int {
 	if len(a.text) < lcpMin || len(b.text) < lcpMin {
 		return commonPrefix(a.text, b.text)
 	}
-	if n, ok := x.lcp[textPair{a, b}]; ok {
-		return n
+	ca, cb := x.cache(a), x.cache(b)
+	if ca.peer == b {
+		return ca.n
 	}
-	if n, ok := x.lcp[textPair{b, a}]; ok {
-		return n
+	if cb.peer == a {
+		return cb.n
 	}
-	n := commonPrefix(a.text, b.text)
-	if x.lcp == nil {
-		x.lcp = map[textPair]int{}
+	n, ok := 0, false
+	if ca.memoized && cb.memoized {
+		n, ok = x.lcp[textPair{a, b}]
+		if !ok {
+			n, ok = x.lcp[textPair{b, a}]
+		}
 	}
-	x.lcp[textPair{a, b}] = n
+	if !ok {
+		n = x.scan(a.text[:min(len(a.text), lcpMemo)], b.text[:min(len(b.text), lcpMemo)])
+		if n == lcpMemo {
+			n += x.scan(a.text[n:], b.text[n:])
+			if x.lcp == nil {
+				x.lcp = map[textPair]int{}
+			}
+			x.lcp[textPair{a, b}] = n
+			ca.memoized, cb.memoized = true, true
+		}
+	}
+	ca.peer, ca.n = b, n
+	cb.peer, cb.n = a, n
+	return n
+}
+
+// cache returns the lcpCache of long segment t, allocating it on first
+// use.
+func (x *memo) cache(t *textNode) *lcpCache {
+	if t.lcp == nil {
+		t.lcp = &lcpCache{}
+	}
+	return t.lcp
+}
+
+// scan returns the length n of the common prefix of a and b and adds
+// min(n+1, len(a), len(b)) to x.scanned, charging it on x.work: the
+// prefix and the first byte that differs, when both have one. That is a
+// model of the bytes read, not an exact count: commonPrefix compares
+// 64-byte blocks and then rescans the block that differs byte by byte,
+// so it reads up to one 64-byte block more than the model.
+func (x *memo) scan(a, b string) int {
+	n := commonPrefix(a, b)
+	read := min(n+1, len(a), len(b))
+	x.scanned += read
+	x.work.charge(read)
 	return n
 }
 

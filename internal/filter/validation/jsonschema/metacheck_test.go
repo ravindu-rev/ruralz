@@ -151,26 +151,6 @@ func TestReferenceLadder(t *testing.T) {
 	}
 }
 
-// TestRegexpCache checks the library's regexp engine: an expression
-// compiles once, its compile shared, and a failure is a nil Regexp with
-// its error every time.
-//
-// Requirements: 07 req 75 and F6 (each distinct pattern compiles once per
-// document, review finding B2), architecture R-77.
-func TestRegexpCache(t *testing.T) {
-	rc := regexpCache{}
-	a, errA := rc.compile(`^a+$`)
-	b, errB := rc.compile(`^a+$`)
-	if errA != nil || errB != nil || a != b || len(rc) != 1 {
-		t.Errorf("compile twice = %v, %v, %v, %v, want one shared regexp", a, errA, b, errB)
-	}
-	for range 2 {
-		if re, err := rc.compile(`(`); re != nil || err == nil {
-			t.Errorf("compile(%q) = %v, %v, want a nil Regexp and an error", `(`, re, err)
-		}
-	}
-}
-
 // idAnchor is a property, formatted with its index, that is a resource of
 // its own with an anchor.
 const idAnchor = `"q%[1]d":{"$id":"urn:q%[1]d","$anchor":"a%[1]d","type":"string"}`
@@ -182,7 +162,10 @@ const idAnchor = `"q%[1]d":{"$id":"urn:q%[1]d","$anchor":"a%[1]d","type":"string
 // checked apart costs a copy of the document's bookkeeping, within
 // maxCheckCopies (review finding: 2,040 such targets compiled for 1.1 s).
 // Each bound admits the largest document of its shape below it and
-// refuses the next, at the reference to the target that crosses it.
+// refuses the next, at the reference to the target that crosses it: the
+// first reference to it that the walk's last pass, the compile's order,
+// resolved. The positions an earlier check covered include the document's
+// own keyword tree (audit class GC-02).
 //
 // Requirements: 07 req 75 and F6.
 func TestMetaChecksBound(t *testing.T) {
@@ -214,6 +197,54 @@ func TestMetaChecksBound(t *testing.T) {
 	if len(w.issues) > 0 || len(w.checkOrder) > 0 {
 		t.Errorf("targets in the keyword tree: issues %+v, checked apart %q", w.issues, w.checkOrder)
 	}
+	// repeatedTree(n) holds n positions under $defs and three targets
+	// outside the keywords, /a, /b and /properties, the last a member map
+	// whose member items is the keyword tree's /properties/items: n+6
+	// positions, and checking /properties apart checks /properties/items
+	// again. The root's reference finds /b first and /b's finds
+	// /properties, but in the last pass, the compile's order, /a is
+	// collected apart before /b and its reference resolves to /properties
+	// first.
+	repeatedTree := func(n int) string {
+		pad := make([]string, n)
+		for i := range pad {
+			pad[i] = fmt.Sprintf(`"p%d":{}`, i)
+		}
+		return `{"$ref":"#/b","allOf":[{"$ref":"#/a"}],"a":{"$ref":"#/properties"},"b":{"$ref":"#/properties"},"properties":{"items":{}},"$defs":{` +
+			strings.Join(pad, ",") + `}}`
+	}
+	repeated := []Issue{{"/a/$ref", fmt.Sprintf("schema has more than %d subschemas, counting again those the meta-schema check repeats under a reference such as this one, to a position whose keywords hold subschemas already checked", MaxSubschemas)}}
+	// The positions of the document's keyword tree that a target's keyword
+	// tree holds count again (walker.keywordTree; check finding: a mutation
+	// that counted none of them passed every deterministic test): at
+	// MaxSubschemas positions the repeat crosses it.
+	t.Run("keyword-tree positions checked again", func(t *testing.T) {
+		mustCompile(t, repeatedTree(MaxSubschemas-7))
+		w := newWalker(decodeInstance(t, repeatedTree(MaxSubschemas-6)))
+		w.walk()
+		if len(w.positions) != MaxSubschemas || w.keywordTree != MaxSubschemas-3 || !slices.Equal(w.checkOrder, []string{"/a", "/b", "/properties"}) {
+			t.Errorf("%d positions, keyword tree %d, checked apart %q, want %d, %d and /a, /b, /properties", len(w.positions), w.keywordTree, w.checkOrder, MaxSubschemas, MaxSubschemas-3)
+		}
+		refusedThrough(t, repeatedTree(MaxSubschemas-6), repeated)
+	})
+	// A finding names the first reference the last pass resolved to the
+	// target, /a/$ref, not the one that found it, /b/$ref (walker.targets;
+	// check finding: a mutation pairing every target with its finder passed
+	// the suite).
+	t.Run("the reference a finding names", func(t *testing.T) {
+		w := newWalker(decodeInstance(t, repeatedTree(MaxSubschemas-6)))
+		w.walk()
+		if !slices.Equal(w.issues, repeated) {
+			t.Errorf("issues = %+v, want %+v", w.issues, repeated)
+		}
+		var finder string
+		if n := w.pointerTarget(rootNode, w.intern("/properties")); n >= 0 && w.nodes[n].known >= 0 {
+			finder = w.siteTab[w.nodes[n].known].ptr
+		}
+		if want := []refTarget{{"/a", "/allOf/0/$ref"}, {"/b", "/$ref"}, {"/properties", "/a/$ref"}}; !slices.Equal(w.targets, want) || finder != "/b/$ref" {
+			t.Errorf("targets %+v, /properties found by %q, want %+v and /b/$ref", w.targets, finder, want)
+		}
+	})
 }
 
 // additionalItemsCases are schemas whose compile compiles a subschema
@@ -232,6 +263,10 @@ func additionalItemsCases() []struct{ name, schema, ptr, defs string } {
 			"/additionalItems/properties/p/multipleOf", `{"type":"number","multipleOf":0}`,
 		},
 		{"a nested additionalItems", `{"$ref":"#/additionalItems/additionalItems","additionalItems":{"additionalItems":` + zero + `}}`, "/additionalItems/additionalItems/multipleOf", zero},
+		// The round-8 fix through $recursiveRef (audit class GC-01, rows
+		// CMP-26, CMP-34, REFS-13).
+		{"a recursive reference", `{"$recursiveRef":"#/additionalItems","additionalItems":` + zero + `}`, "/additionalItems/multipleOf", zero},
+		{"a recursive reference below", `{"items":{"$recursiveRef":"#/additionalItems/properties/p"},"additionalItems":{"properties":{"p":{"multipleOf":0}}}}`, "/additionalItems/properties/p/multipleOf", zero},
 		{"an unknown type", `{"$ref":"#/additionalItems","additionalItems":{"type":"strng"}}`, "/additionalItems/type", `{"type":"strng"}`},
 		{"a number type", `{"$ref":"#/additionalItems","additionalItems":{"type":5}}`, "/additionalItems/type", `{"type":5}`},
 		{"a number enum", `{"$ref":"#/additionalItems","additionalItems":{"enum":5}}`, "/additionalItems/enum", `{"enum":5}`},

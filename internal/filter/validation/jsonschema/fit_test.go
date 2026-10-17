@@ -119,16 +119,17 @@ func uiTree(depth, width int, row bool) string {
 // TestHandleMeasuredFit pins the measured fit of the review findings
 // (architecture R-77: typical records fit up to about 70 to 84% of the
 // limit, dense enum or union arrays less, operators raise
-// maxRequestBodyBytes on validated Routes). Through Factory.Build and
-// Handle at the 10 MiB default, each valid body passes at the fraction of
-// the limit it names, which the package documentation states ("Working
-// set"), and reserves what the model charges, which covers the heap
-// Handle holds at its peak within the collector's pacing; the log gives
-// its reservation against that peak. The decision pass is reserved its
-// worst case over the library's member order, in which every alternative
-// of a union may descend into the members of a value that fails it: a
-// valid document of unions and recursive blocks reserves several to tens
-// of times its measured peak.
+// maxRequestBodyBytes on validated Routes). Through Factory.Build and Handle
+// at the 10 MiB default, each valid body passes at the fraction of the limit
+// it names, which the package documentation states ("Working set"), and
+// reserves what the model charges, which covers its decoded tree and the
+// live heap Handle holds at its peak, both measured after a collection, but
+// for heapNoise (heapMeter, audit class GC-08); the log gives its
+// reservation against that peak. The decision pass is reserved its worst
+// case over the library's member order, in which every alternative of a
+// union may descend into the members of a value that fails it: a valid
+// document of unions and recursive blocks reserves several to tens of times
+// its measured peak.
 //
 // Requirements: 07 reqs 15, 80 and 82, architecture R-63 and R-77.
 func TestHandleMeasuredFit(t *testing.T) {
@@ -150,62 +151,57 @@ func TestHandleMeasuredFit(t *testing.T) {
 	for _, tc := range []struct {
 		name, schema, body string
 		fraction           float64
-		// tree compares the decoded tree exactly instead of the sampled
-		// peak: a wide object's map leaves the tables it outgrew to the
-		// collector before anything is reserved (minor review finding: the
-		// sampled peak came within 10% of twice the reservation).
-		tree bool
 	}{
 		{"events under an 8-way oneOf", eventsSchema(8), `{"events":[` + joined(46000/scale, func(i int) string {
 			return fmt.Sprintf(`{"type":"e%d","at":"2026-10-11T09:00:00Z","value":%d.5,"label":"event"}`, i%8, i%1000)
-		}) + `]}`, 0.31, false},
+		}) + `]}`, 0.31},
 		{"events under a 20-way oneOf", eventsSchema(20), `{"events":[` + joined(19000/scale, func(i int) string {
 			return fmt.Sprintf(`{"type":"e%d","at":"2026-10-11T09:00:00Z","value":%d.5,"label":"event"}`, i%20, i%1000)
-		}) + `]}`, 0.13, false},
-		{"rich text with nested lists", richText, richDocument(130 / scale), 0.045, false},
-		{"rich text of paragraphs", richText, `{"type":"doc","content":[` + joined(11500/scale, func(int) string { return fitParagraph }) + `]}`, 0.19, false},
+		}) + `]}`, 0.13},
+		{"rich text with nested lists", richText, richDocument(130 / scale), 0.045},
+		{"rich text of paragraphs", richText, `{"type":"doc","content":[` + joined(11500/scale, func(int) string { return fitParagraph }) + `]}`, 0.19},
 		{"component tree of a row of columns", componentTree, `{"kind":"row","children":[` + joined(6500/scale, func(int) string {
 			return `{"kind":"column","children":[{"text":"Label text"},{"text":"Label text"},{"text":"Label text"}]}`
-		}) + `]}`, 0.06, false},
-		{"component tree nested deep", componentTree, uiTree(depth, 3, true), 0, false},
-		{"GeoJSON features", geoJSON, `{"type":"FeatureCollection","features":[` + joined(6700/scale, func(int) string { return fitPolygon }) + `]}`, 0.14, false},
+		}) + `]}`, 0.06},
+		{"component tree nested deep", componentTree, uiTree(depth, 3, true), 0},
+		{"GeoJSON features", geoJSON, `{"type":"FeatureCollection","features":[` + joined(6700/scale, func(int) string { return fitPolygon }) + `]}`, 0.14},
 		// Minor review finding: composed objects, conditional records and
 		// unions of operations, at the working-set, reservation and
 		// working-set limits.
 		{"composed orders under unevaluatedProperties", composedSchema, "[" + joined(79000/scale, func(i int) string {
 			return fmt.Sprintf(`{"id":"ord-%06d","created":"2026-10-11","total":%d.5,"status":"paid"}`, i, i%1000)
-		}) + "]", 0.54, false},
+		}) + "]", 0.54},
 		{"conditional records", conditionalSchema, "[" + joined(145000/scale, func(i int) string {
 			if i%2 == 0 {
 				return fmt.Sprintf(`{"kind":"email","email":"user%d@example.com"}`, i)
 			}
 			return fmt.Sprintf(`{"kind":"sms","phone":"+1555%07d"}`, i)
-		}) + "]", 0.59, false},
-		{"JSON Patch", patchSchema, "[" + joined(76000/scale, patchOperation) + "]", 0.35, false},
+		}) + "]", 0.59},
+		{"JSON Patch", patchSchema, "[" + joined(76000/scale, patchOperation) + "]", 0.35},
 		// Review finding: a member name that cannot fail propertyNames holds
 		// no error.
-		{"map under propertyNames", `{"type":"object","propertyNames":{"maxLength":64},"additionalProperties":{"type":"integer"}}`, `{` + joined(450000/scale, member) + `}`, 0.5, true},
+		{"map under propertyNames", `{"type":"object","propertyNames":{"maxLength":64},"additionalProperties":{"type":"integer"}}`, `{` + joined(450000/scale, member) + `}`, 0.5},
 		// Minor review findings: enum arrays, at the work and working-set
 		// limits, and dense numeric and uniqueItems arrays, whose fit the
 		// package documentation lists so that operators know to raise
 		// maxRequestBodyBytes on Routes that validate them.
-		{"two-letter codes under a 250-value enum", `{"type":"array","items":{"enum":[` + strings.Join(codes, ",") + `]}}`, "[" + joined(706000/scale, func(i int) string { return codes[i%250] }) + "]", 0.33, false},
-		{"one-character enum values", `{"type":"array","items":{"enum":["a","b","c","d"]}}`, "[" + joined(788000/scale, func(i int) string { return fmt.Sprintf(`"%c"`, 'a'+i%4) }) + "]", 0.3, false},
-		{"decimals within bounds", `{"type":"array","items":{"type":"number","minimum":-1000,"maximum":1000}}`, "[" + joined(790000/scale, func(i int) string { return fmt.Sprintf("%d.25", i%1000) }) + "]", 0.51, false},
+		{"two-letter codes under a 250-value enum", `{"type":"array","items":{"enum":[` + strings.Join(codes, ",") + `]}}`, "[" + joined(706000/scale, func(i int) string { return codes[i%250] }) + "]", 0.33},
+		{"one-character enum values", `{"type":"array","items":{"enum":["a","b","c","d"]}}`, "[" + joined(788000/scale, func(i int) string { return fmt.Sprintf(`"%c"`, 'a'+i%4) }) + "]", 0.3},
+		{"decimals within bounds", `{"type":"array","items":{"type":"number","minimum":-1000,"maximum":1000}}`, "[" + joined(790000/scale, func(i int) string { return fmt.Sprintf("%d.25", i%1000) }) + "]", 0.51},
 		// Review finding: a multipleOf check is charged its division, which
 		// for a short divisor stays far below the working set.
-		{"prices under multipleOf", `{"type":"array","items":{"type":"number","multipleOf":0.01}}`, "[" + joined(790000/scale, price) + "]", 0.66, false},
-		{"timestamp and value pairs", `{"type":"array","items":{"type":"array","prefixItems":[{"type":"integer"},{"type":"number"}]}}`, "[" + joined(345000/scale, func(i int) string { return fmt.Sprintf("[%d,%d.5]", 1760173200+i, i%1000) }) + "]", 0.61, false},
-		{"longitude and latitude pairs", `{"type":"array","items":{"type":"array","minItems":2,"maxItems":2,"items":{"type":"number","minimum":-180,"maximum":180}}}`, denseArray(197000/scale, `[-122.4194,37.7749]`, 0), 0.37, false},
-		{"time series of closed objects", `{"type":"object","required":["points"],"properties":{"points":{"type":"array","items":{"type":"object","required":["t","v"],"properties":{"t":{"type":"integer"},"v":{"type":"number"}},"additionalProperties":false}}}}`, `{"points":[` + joined(200000/scale, func(i int) string { return fmt.Sprintf(`{"t":%d,"v":%d.5}`, 1760173200+i, i%1000) }) + "]}", 0.5, false},
-		{"unique integer ids", `{"type":"array","uniqueItems":true,"items":{"type":"integer"}}`, "[" + joined(427000/scale, func(i int) string { return fmt.Sprint(1000000 + i) }) + "]", 0.32, false},
-		{"unique tags", `{"type":"array","uniqueItems":true,"items":{"type":"string"}}`, "[" + joined(428000/scale, func(i int) string { return fmt.Sprintf(`"t%06d"`, i) }) + "]", 0.4, false},
+		{"prices under multipleOf", `{"type":"array","items":{"type":"number","multipleOf":0.01}}`, "[" + joined(790000/scale, price) + "]", 0.66},
+		{"timestamp and value pairs", `{"type":"array","items":{"type":"array","prefixItems":[{"type":"integer"},{"type":"number"}]}}`, "[" + joined(345000/scale, func(i int) string { return fmt.Sprintf("[%d,%d.5]", 1760173200+i, i%1000) }) + "]", 0.61},
+		{"longitude and latitude pairs", `{"type":"array","items":{"type":"array","minItems":2,"maxItems":2,"items":{"type":"number","minimum":-180,"maximum":180}}}`, denseArray(197000/scale, `[-122.4194,37.7749]`, 0), 0.37},
+		{"time series of closed objects", `{"type":"object","required":["points"],"properties":{"points":{"type":"array","items":{"type":"object","required":["t","v"],"properties":{"t":{"type":"integer"},"v":{"type":"number"}},"additionalProperties":false}}}}`, `{"points":[` + joined(200000/scale, func(i int) string { return fmt.Sprintf(`{"t":%d,"v":%d.5}`, 1760173200+i, i%1000) }) + "]}", 0.5},
+		{"unique integer ids", `{"type":"array","uniqueItems":true,"items":{"type":"integer"}}`, "[" + joined(427000/scale, func(i int) string { return fmt.Sprint(1000000 + i) }) + "]", 0.32},
+		{"unique tags", `{"type":"array","uniqueItems":true,"items":{"type":"string"}}`, "[" + joined(428000/scale, func(i int) string { return fmt.Sprintf(`"t%06d"`, i) }) + "]", 0.4},
 		// Minor review finding: distinct decimals, each charged the numbers
 		// that may share its hash, were refused above 10 to 12% of the
 		// limit at the work limit; now prices and bounded readings stop at
 		// the working-set limit.
-		{"unique prices", `{"type":"array","uniqueItems":true,"items":{"type":"number"}}`, "[" + joined(430000/scale, price) + "]", 0.36, false},
-		{"unique bounded readings", `{"type":"array","uniqueItems":true,"items":{"type":"number","minimum":-1000,"maximum":1000}}`, "[" + joined(280000/scale, func(i int) string { return fmt.Sprintf("%d.%03d", 100+i/1000, i%1000) }) + "]", 0.21, false},
+		{"unique prices", `{"type":"array","uniqueItems":true,"items":{"type":"number"}}`, "[" + joined(430000/scale, price) + "]", 0.36},
+		{"unique bounded readings", `{"type":"array","uniqueItems":true,"items":{"type":"number","minimum":-1000,"maximum":1000}}`, "[" + joined(280000/scale, func(i int) string { return fmt.Sprintf("%d.%03d", 100+i/1000, i%1000) }) + "]", 0.21},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			if got := float64(len(tc.body)) / float64(limit); got < tc.fraction {
@@ -215,48 +211,48 @@ func TestHandleMeasuredFit(t *testing.T) {
 			if loc, ok, err := f.schema.validate(decodeInstance(t, tc.body), nil); !ok || err != nil {
 				t.Fatalf("the body is not valid: %q, %v", loc, err)
 			}
-			x, _ := exchange("application/json", []byte(tc.body))
-			px := &peakExchange{Exchange: x}
-			var r filter.Result
-			peak := peakHeap(func() any { r = f.Handle(t.Context(), phase.OnRequestBody, px); return r })
+			m := &heapMeter{}
+			r, reserved := handlePeak(t, f, tc.schema, tc.body, m)
 			if r.Outcome != filter.Continue {
 				t.Fatalf("Handle(%.3f of the limit) = %+v, want Continue", float64(len(tc.body))/float64(limit), r)
 			}
-			t.Logf("body %.3f of the limit: reserved %.2f times the limit, %.1f times the peak %.0f", float64(len(tc.body))/float64(limit), float64(px.peak)/float64(limit), float64(px.peak)/peak, peak)
+			peak := m.peak()
+			t.Logf("body %.3f of the limit: reserved %.2f times the limit, %.2f times the live peak %d", float64(len(tc.body))/float64(limit), float64(reserved)/float64(limit), float64(reserved)/float64(peak), peak)
 			// Minor review finding: Handle refuses a reservation over the
 			// reservation limit before it reserves, so that bound cannot
 			// fail here. What can: Handle reserves what the model charges,
 			// the decoded values with what their maps, arrays and strings
 			// hold beyond the decoder's charge and the decision pass's
-			// working set, and that covers the heap it holds at its peak
-			// within the collector's pacing (package documentation
-			// "Working set": at most about 1.8 times for a wide object).
+			// working set, and that covers the decoded tree, measured after
+			// a collection, and the live heap Handle holds at its peak,
+			// measured at the reservation and at the probes and matches
+			// heapMeter spreads over the pass to its end, both but for
+			// heapNoise (audit class GC-08: the sampled heap in use this
+			// replaces counted the tables a wide object's map outgrew,
+			// garbage before anything is reserved, and was allowed twice the
+			// reservation).
 			v, cost, err := f.decode([]byte(tc.body))
 			if err != nil {
 				t.Fatal(err)
 			}
 			scan := bodyScan{ws: &f.schema.work, numbers: f.schema.numbers, workLimit: f.limits.work}
 			scan.scan(v)
-			if want := cost + scan.extra + scan.decideMemory(); px.peak != want {
-				t.Errorf("reserved %d, the model charges %d", px.peak, want)
+			if want := cost + scan.extra + scan.decideMemory(); reserved != want {
+				t.Errorf("reserved %d, the model charges %d", reserved, want)
 			}
-			if tc.tree {
-				var before, after runtime.MemStats
-				runtime.GC()
-				runtime.ReadMemStats(&before)
-				v, cost, _ := f.decode([]byte(tc.body))
-				runtime.GC()
-				runtime.ReadMemStats(&after)
-				runtime.KeepAlive(v)
-				live := growth(after.HeapAlloc, before.HeapAlloc)
-				if raceEnabled {
-					live -= 16 * shortStrings(v)
-				}
-				if live > cost+scan.extra {
-					t.Errorf("the decoded tree holds %d bytes, Handle reserves %d for it", live, cost+scan.extra)
-				}
-			} else if peak > float64(2*px.peak+gcSlack) {
-				t.Errorf("Handle held %.0f bytes at its peak, more than twice its reservation %d", peak, px.peak)
+			base := liveHeap()
+			v, cost, _ = f.decode([]byte(tc.body))
+			live := growth(liveHeap(), base)
+			runtime.KeepAlive(v)
+			if raceEnabled {
+				live -= raceTinyBytes(v)
+				peak -= raceTinyBytes(v)
+			}
+			if exceeds(live, cost+scan.extra) {
+				t.Errorf("the decoded tree holds %d bytes, Handle reserves %d for it", live, cost+scan.extra)
+			}
+			if exceeds(peak, reserved) {
+				t.Errorf("Handle held %d bytes at its peak, reserved %d", peak, reserved)
 			}
 		})
 	}
@@ -312,12 +308,16 @@ func signUpSchema() string {
 // TestHandlePatternFit is the regression test of the review finding on the
 // backtracker's job stack charge: charged one job per alternation of the
 // document's costliest program for every string a pattern or a uniqueItems
-// pass reached, a 149-byte sign-up body was refused at a 64 KiB limit and
-// a 1,049-byte one reserved 6.15 MB at 1 MiB against a peak of about 0.13
-// MB, and an invalid one got 413 instead of its keyword location. Now
-// small records under ordinary patterns pass at small limits, invalid ones
-// get 400 with their keyword location, and the reservation stays within a
-// small multiple of what Handle holds at its peak.
+// pass reached, a 149-byte sign-up body was refused at a 64 KiB limit and a
+// 1,049-byte one reserved 6.15 MB at 1 MiB against a peak of about 0.13 MB,
+// and an invalid one got 413 instead of its keyword location. Now small
+// records under ordinary patterns pass at small limits, invalid ones get 400
+// with their keyword location, and the reservation stays within a small
+// multiple of what Handle holds at its peak and covers it, but for
+// heapNoise: the live heap at the reservation, at the probes of each pass
+// and at their matches with each matcher's own peak on top (heapMeter, audit
+// class GC-08; the sampled heap in use this replaces was allowed 1 MiB of
+// slack over reservations of at most 384 KiB).
 //
 // Requirements: 07 reqs 79 to 81, T13 and T14, architecture R-77.
 func TestHandlePatternFit(t *testing.T) {
@@ -345,10 +345,8 @@ func TestHandlePatternFit(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			f := buildFilter(t, tc.schema, tc.limit)
-			x, _ := exchange("application/json", []byte(tc.body))
-			px := &peakExchange{Exchange: x}
-			var r filter.Result
-			peak := peakHeap(func() any { r = f.Handle(t.Context(), phase.OnRequestBody, px); return r })
+			m := &heapMeter{}
+			r, reserved := handlePeak(t, f, tc.schema, tc.body, m)
 			if tc.detail == "" {
 				if r.Outcome != filter.Continue {
 					t.Fatalf("Handle(%d bytes) = %+v, want Continue", len(tc.body), r)
@@ -356,12 +354,12 @@ func TestHandlePatternFit(t *testing.T) {
 			} else if got := detailOf(t, r); got != DetailMismatch+" at "+tc.detail {
 				t.Fatalf("detail = %q, want the location %s", got, tc.detail)
 			}
-			t.Logf("%d bytes: reserved %d, peak %.0f", len(tc.body), px.peak, peak)
-			if px.peak > tc.most {
-				t.Errorf("reserved %d, want at most %d", px.peak, tc.most)
+			t.Logf("%d bytes: reserved %d, live peak %d, of which the matcher %d", len(tc.body), reserved, m.peak(), m.matcher)
+			if reserved > tc.most {
+				t.Errorf("reserved %d, want at most %d", reserved, tc.most)
 			}
-			if peak > float64(px.peak+gcSlack) {
-				t.Errorf("Handle held %.0f bytes at its peak, reserved %d", peak, px.peak)
+			if exceeds(m.peak(), reserved) {
+				t.Errorf("Handle held %d bytes at its peak, reserved %d", m.peak(), reserved)
 			}
 		})
 	}

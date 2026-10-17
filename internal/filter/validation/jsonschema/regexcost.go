@@ -102,10 +102,12 @@ const (
 	// bound the input length at maxBacktrackVector/len(prog.Inst).
 	maxBacktrackProg, maxBacktrackVector = 500, 256 << 10
 	// jobBytes is what one job may hold: 16 bytes in a slice grown by
-	// appending, up to three times that while the old and new arrays are
-	// live and the collector catches up (measured 1.6 to 3 times at GOGC
-	// 10, TestHandleBacktrackCharge); jobArrayBytes the 256 jobs the stack
-	// starts with.
+	// appending, up to three times that while append copies the array
+	// into one twice as large, both live (past 256 jobs Go 1.26 and 1.27
+	// grow it by less: the matcher's peak of a*b on 43,688 bytes,
+	// computed exactly from the match's allocations, holds its 43,689 jobs
+	// in 1.93 times their 16 bytes, TestHandleBacktrackCharge);
+	// jobArrayBytes the 256 jobs the stack starts with.
 	jobBytes, jobArrayBytes = 48, 256 * 16
 	// heldBudget bounds the instructions the search for held alternations
 	// may visit in all the patterns of one document (about 10 ms,

@@ -83,7 +83,10 @@
           "x-ruralz-list": {"type": "map", "key": "name"}
         },
         "set": {"type": "array", "items": {}, "x-ruralz-list": {"type": "set"}},
-        "free": {"type": "object"}
+        "free": {"type": "object"},
+        "code": {"type": "string", "pattern": "^[a-z]+$"},
+        "level": {"const": "high"},
+        "toggle": {"anyOf": [{"type": "boolean"}, {"type": "integer", "minimum": 1}]}
       }
     }
   }

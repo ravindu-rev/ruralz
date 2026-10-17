@@ -416,6 +416,10 @@ func TestEvaluationBoundMatchesLibrary(t *testing.T) {
 		{linearAnyOf, false},
 		{mixins, false},
 		{taggedUnion, false},
+		// The library evaluates a $recursiveRef as a $ref (audit class
+		// GC-01, rows VAL-47 and REFS-32).
+		{strings.ReplaceAll(oneOfTwice, `"$ref"`, `"$recursiveRef"`), true},
+		{strings.ReplaceAll(linearTree, `"$ref"`, `"$recursiveRef"`), false},
 	} {
 		root := libraryCompile(t, tc.schema)
 		ratio := allocRatio(t, root, tc.schema, 6)
@@ -475,6 +479,12 @@ func TestInPlaceCycles(t *testing.T) {
 		{"through dependentSchemas", `{"dependentSchemas":{"a":{"$ref":"#"}}}`, "/dependentSchemas/a/$ref"},
 		{"unreferenced definition", `{"$defs":{"x":{"not":{"$ref":"#/$defs/x"}}}}`, "/$defs/x/not/$ref"},
 		{"dynamic reference", `{"$dynamicAnchor":"n","$dynamicRef":"#n"}`, "/$dynamicRef"},
+		// Its static edge (audit class GC-01, row REFS-31): a $recursiveRef
+		// applies its target in place, as $ref does.
+		{"recursive reference to itself", `{"$recursiveRef":"#"}`, "/$recursiveRef"},
+		{"two recursive references", `{"$defs":{"x":{"$recursiveRef":"#/$defs/y"},"y":{"$recursiveRef":"#/$defs/x"}},"$recursiveRef":"#/$defs/x"}`, "/$defs/x/$recursiveRef"},
+		{"recursive reference through allOf", `{"$defs":{"t":{"allOf":[{"type":"null"},{"$recursiveRef":"#/$defs/t"}]}},"$ref":"#/$defs/t"}`, "/$defs/t/allOf/1/$recursiveRef"},
+		{"recursive and plain references", `{"$defs":{"x":{"$ref":"#/$defs/y"},"y":{"$recursiveRef":"#/$defs/x"}},"$ref":"#/$defs/x"}`, "/$defs/x/$ref"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			issues := compileIssues(t, tc.schema)

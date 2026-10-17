@@ -17,20 +17,43 @@
 // only package besides validation.json-schema that imports jsonschema/v6,
 // and no jsonschema type appears in its API.
 //
+// A finding about a value that substitution (stage E) wrote variables
+// into names the variables (01 req 29), in a clause that never contains
+// a value; a duplicate keyed-list key or set element is quoted in its
+// message as its path shows it (01 req 48), substituted or not.
+//
 // Views and Sets are immutable after construction and safe for concurrent
-// use; Validate allocates per call and starts no goroutine. The mapping
-// resolves each instance position once and shares its key-aware path with
-// every diagnostic at or below it: a large path element, such as a keyed
-// entry's key or a set element's canonical JSON, is held and rendered
-// once, and diagnostics are deduplicated and sorted by interned path
-// text, never by rendering their paths. Mapping work and memory are
-// therefore linear in the resource size plus the number of validation
-// errors times their location depth, and Validate returns at most
-// MaxDiagnostics diagnostics, the first in sorted order (01 reqs 6, 50 and
-// 54). Rendering the returned paths (diag.Path.String, diag.List.Sort)
-// still writes such an element once per diagnostic below it, which the
-// path contract of 01 req 48 does not bound. The package never logs,
-// reads files or the network, or uses the clock (01 req 55).
+// use; Validate allocates per call and starts no goroutine, and
+// ValidateWith calls Options.Yield every 256 units of its own work, so a
+// loader worker can yield inside one resource (01 req 53) between the
+// spans Options.Yield lists, the jsonschema/v6 call the longest. The
+// mapping resolves each instance position once and shares its key-aware
+// path with every diagnostic at or below it: a large path element, such
+// as a keyed entry's key or a set element's canonical JSON, is held and
+// rendered once, and diagnostics are deduplicated and sorted by interned
+// path text, never by rendering their paths; the common prefix of two
+// long sibling elements is read once however many diagnostics lie below
+// them when it reaches 1 KiB, and otherwise at most once per comparison,
+// with every pair answered again from either element's last comparison.
+// Mapping work and memory are therefore linear in the resource size plus
+// the number of validation errors times their location depth, up to the
+// logarithmic factor of sorting them, and Validate returns at most the
+// cap plus one diagnostics, the first in sorted order, the extra one
+// telling the caller the cap was reached (Options.MaxDiagnostics; 01 reqs
+// 6, 50 and 54). The cap bounds what is kept, not the memory of the
+// validator's errors and their mapping, which grows with the errors.
+//
+// The validator's cost for a number does not grow with the literal: every
+// number reaches jsonschema/v6 as a text of bounded length and exponent
+// with the same integrality, order against the view's numbers, multipleOf
+// divisibility and equality as the literal (numbers.go), so no literal,
+// however long or whatever its exponent, zeros included, makes it slow or
+// crashes it, and the diagnostics are those of the literal itself; a
+// panic inside it is reported as a finding (validate), never raised.
+// Rendering the returned paths (diag.Path.String, diag.List.Sort) still
+// writes such an element once per diagnostic below it, which the path
+// contract of 01 req 48 does not bound. The package never logs, reads
+// files or the network, or uses the clock (01 req 55).
 package schemaview
 
 import (
@@ -82,6 +105,8 @@ type View struct {
 	// kind); kinds holds each kind's definition, compiled once.
 	root  *jsonschema.Schema
 	kinds map[string]*jsonschema.Schema
+	// nums bounds the number literals handed to the validator.
+	nums *numberModel
 }
 
 // baseURL returns the URL a view of apiVersion is compiled under. It is a
@@ -94,7 +119,11 @@ func baseURL(apiVersion string) string {
 // Compile compiles rendered, the rendered view that idx indexes, once:
 // the whole document (so every $ref resolves) and the definition of every
 // kind the root dispatches. idx must have been loaded from the same
-// bytes; Compile checks that the root kind dispatch agrees with it.
+// bytes; Compile checks that the root kind dispatch agrees with it. A
+// view with a number that needs more than 400 integer or fraction digits,
+// or whose multipleOf values need a period of more than 400 digits, is
+// refused: the number model keeps every text it hands the validator
+// short (numbers.go).
 func Compile(rendered []byte, idx *schemaidx.Index) (*View, error) {
 	if idx == nil {
 		return nil, fmt.Errorf("%w: nil schema index", ErrSchema)
@@ -103,11 +132,17 @@ func Compile(rendered []byte, idx *schemaidx.Index) (*View, error) {
 	if err != nil {
 		return nil, fmt.Errorf("%w: %w", ErrSchema, err)
 	}
+	// The number model first: it refuses a view whose numbers would make
+	// the compiler's own big.Rat parsing slow (numbers.go).
+	nums, err := newNumberModel(doc, gridDigits)
+	if err != nil {
+		return nil, fmt.Errorf("%w: %w", ErrSchema, err)
+	}
 	c, err := newCompiler()
 	if err != nil {
 		return nil, fmt.Errorf("%w: %w", ErrSchema, err)
 	}
-	v := &View{idx: idx, base: baseURL(idx.APIVersion()), doc: doc, kinds: map[string]*jsonschema.Schema{}}
+	v := &View{idx: idx, base: baseURL(idx.APIVersion()), doc: doc, kinds: map[string]*jsonschema.Schema{}, nums: nums}
 	if err := c.AddResource(v.base, doc); err != nil {
 		return nil, fmt.Errorf("%w: %w", ErrSchema, err)
 	}
@@ -240,6 +275,11 @@ func (s *Set) Served() []string { return slices.Clone(s.served) }
 // ok is false, with no diagnostics, for an unserved apiVersion, which
 // stage C reports as RZ-CFG-007 before validation.
 func (s *Set) Validate(res *tree.Resource, files *tree.FileTable) (_ diag.List, ok bool) {
+	return s.ValidateWith(res, files, Options{})
+}
+
+// ValidateWith is Validate with options (View.ValidateWith).
+func (s *Set) ValidateWith(res *tree.Resource, files *tree.FileTable, opts Options) (_ diag.List, ok bool) {
 	if res == nil {
 		return nil, false
 	}
@@ -247,5 +287,5 @@ func (s *Set) Validate(res *tree.Resource, files *tree.FileTable) (_ diag.List, 
 	if !ok {
 		return nil, false
 	}
-	return v.Validate(res, files), true
+	return v.ValidateWith(res, files, opts), true
 }

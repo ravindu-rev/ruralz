@@ -6,6 +6,7 @@ package schemaview
 import (
 	"cmp"
 	"encoding/json"
+	"math"
 	"math/big"
 	"slices"
 	"strconv"
@@ -27,6 +28,10 @@ const maxEnumListed = 12
 // maxQuoted bounds the code points of an authored value quoted in a
 // message, so one diagnostic stays one readable line.
 const maxQuoted = 64
+
+// maxVarsNamed bounds the substituted variables one message names; the
+// rest are counted, so one diagnostic stays one readable line.
+const maxVarsNamed = 4
 
 // syntaxText is the message of a scalar definition that has a documented
 // syntax: every failure at the definition uses the syntax text instead of
@@ -76,11 +81,14 @@ func fieldSyntax(l location, k jsonschema.ErrorKind) (string, bool) {
 	return "", false
 }
 
-// MaxDiagnostics bounds the diagnostics Validate returns for one
-// resource: the 01 req 50 cap of one run. A resource with more findings
-// returns the first MaxDiagnostics in sorted order, whatever order the
-// validator reported its errors in, and a run that reaches the cap stops
-// and appends RZ-CFG-001 "too many diagnostics" (the pipeline's job).
+// MaxDiagnostics is the default diagnostic cap of one validation, the 01
+// req 50 cap of a whole run; Options.MaxDiagnostics replaces it with what
+// the run has left. A resource with more findings than the cap returns
+// the first cap+1 in sorted order, whatever order the validator reported
+// its errors in: a result longer than the cap means the cap was reached,
+// and the run stops and appends one RZ-CFG-001 "too many diagnostics"
+// (the pipeline's job, which a diag.Collector of the same cap does on the
+// extra diagnostic).
 const MaxDiagnostics = 10000
 
 // mapper turns one resource's validation errors into diagnostics.
@@ -88,11 +96,14 @@ type mapper struct {
 	v     *View
 	res   *tree.Resource
 	files *tree.FileTable
-	// out holds at most 2*limit diagnostics; prune keeps the first limit
+	// out holds fewer than 2*keep diagnostics; prune keeps the first keep
 	// in sorted order, so memory stays bounded and the result does not
-	// depend on the validator's error order (map iteration).
-	out   []entry
-	limit int
+	// depend on the validator's error order (map iteration). keep is the
+	// cap plus one: the extra diagnostic tells the caller the cap was
+	// reached. No arithmetic on keep overflows, whatever the caller's cap
+	// (newMapper, record).
+	out  []entry
+	keep int
 	// bound is the last entry prune kept, nil before the first prune: a
 	// later entry that does not sort before it can never be in the result.
 	bound *entry
@@ -101,11 +112,21 @@ type mapper struct {
 	// memo memoizes the positions, paths and lookups of locate.
 	memo *memo
 	// secrets collects the findings of each x-ruralz-secret position, keyed
-	// by its path text, so one diagnostic reports each secret field.
-	secrets map[*textNode]*secretFinding
+	// by the position itself (the memoized step's secret mark, shared by
+	// every position below it), so one diagnostic reports each secret
+	// field: two positions can share a path text, such as the secretRef of
+	// two keyed entries with one key (review finding: keyed by path text,
+	// their findings merged at the first).
+	secrets map[*position]*secretFinding
 	order   []*secretFinding
 	// shapes memoizes secretShape per secret field schema.
 	shapes map[*schemaidx.Node]string
+	// shadowed holds the values of members an earlier member of the same
+	// object and key hides (built.shadowed), which the checks after the
+	// validator skip.
+	shadowed map[*tree.Node]bool
+	// work counts the call's work units for Options.Yield.
+	work *work
 }
 
 // entry is one diagnostic before its path is materialized: at is the
@@ -150,15 +171,20 @@ type secretFinding struct {
 	reasons []string
 }
 
-func newMapper(v *View, res *tree.Resource, files *tree.FileTable, limit int) *mapper {
+// newMapper returns the mapper of one validation of res whose cap is limit:
+// it keeps limit+1 diagnostics, limit taken as at least 1 and at most
+// math.MaxInt-1 so that limit+1 does not overflow (a cap no resource
+// reaches either way).
+func newMapper(v *View, res *tree.Resource, files *tree.FileTable, limit int, opts Options) *mapper {
 	start, ok := v.idx.Resource(string(res.ID.Kind))
 	if !ok {
 		start = v.idx.Root()
 	}
+	w := &work{yield: opts.Yield}
 	return &mapper{
-		v: v, res: res, files: files, limit: max(limit, 1),
-		seen: map[dedupeKey]bool{}, memo: newMemo(start, res.Root), secrets: map[*textNode]*secretFinding{},
-		shapes: map[*schemaidx.Node]string{},
+		v: v, res: res, files: files, keep: min(max(limit, 1), math.MaxInt-1) + 1,
+		seen: map[dedupeKey]bool{}, memo: newMemo(start, res.Root, w), secrets: map[*position]*secretFinding{},
+		shapes: map[*schemaidx.Node]string{}, work: w,
 	}
 }
 
@@ -191,7 +217,9 @@ func (m *mapper) record(code string, p position, at tree.Pos, msg, hint string, 
 	}
 	m.seen[key] = true
 	m.out = append(m.out, e)
-	if len(m.out) >= 2*m.limit {
+	// len(m.out) >= 2*m.keep, written so that it cannot overflow: 2*m.keep
+	// wraps for a cap of math.MaxInt/2 or more.
+	if len(m.out)-m.keep >= m.keep {
 		m.prune()
 	}
 }
@@ -201,31 +229,33 @@ func keyOf(e *entry) dedupeKey {
 	return dedupeKey{code: e.d.Code, msg: e.d.Message, text: e.at.textOf(), loc: e.d.Location}
 }
 
-// prune keeps the first limit diagnostics in sorted order and makes the
+// prune keeps the first keep diagnostics in sorted order and makes the
 // last one the bound. A dropped diagnostic that is emitted again is
-// dropped again: at least limit smaller ones stay kept.
+// dropped again: at least keep smaller ones stay kept.
 func (m *mapper) prune() {
 	m.sortEntries()
-	clear(m.out[m.limit:])
-	m.out = m.out[:m.limit]
-	bound := m.out[m.limit-1]
+	clear(m.out[m.keep:])
+	m.out = m.out[:m.keep]
+	bound := m.out[m.keep-1]
 	m.bound = &bound
 	clear(m.seen)
 	for i := range m.out {
+		m.work.tick()
 		m.seen[keyOf(&m.out[i])] = true
 	}
 }
 
-// result returns the first limit diagnostics in the order of
-// diag.List.Sort, each with its path materialized.
+// result returns the first keep diagnostics (the cap plus one) in the
+// order of diag.List.Sort, each with its path materialized.
 func (m *mapper) result() diag.List {
 	if len(m.out) == 0 {
 		return nil
 	}
 	m.sortEntries()
-	n := min(len(m.out), m.limit)
+	n := min(len(m.out), m.keep)
 	out := make(diag.List, n)
 	for i := range out {
+		m.work.tick()
 		out[i] = m.out[i].d
 		out[i].Path = m.out[i].at.path()
 		if m.res.ID != (tree.ID{}) {
@@ -241,9 +271,12 @@ func (m *mapper) result() diag.List {
 // sortEntries orders out as diag.List.Sort orders diagnostics, by
 // (environment, file, line, column, code, path, message). The dedupe key
 // covers every field compared, so distinct entries never compare equal
-// and the order is total.
+// and the order is total. Each comparison is a work unit.
 func (m *mapper) sortEntries() {
-	slices.SortFunc(m.out, func(a, b entry) int { return m.compareEntries(&a, &b) })
+	slices.SortFunc(m.out, func(a, b entry) int {
+		m.work.tick()
+		return m.compareEntries(&a, &b)
+	})
 }
 
 // compareEntries is the comparison of diag.List.Sort on entries. It
@@ -289,6 +322,7 @@ func (m *mapper) location(at tree.Pos) diag.Location {
 // $ref, allOf) pass through to their causes; anyOf, oneOf and not are
 // worded as a whole; every other kind is a leaf.
 func (m *mapper) visit(e *jsonschema.ValidationError) {
+	m.work.tick()
 	p := m.locate(e.InstanceLocation)
 	if p.secret != nil {
 		m.secret(p, e)
@@ -298,12 +332,12 @@ func (m *mapper) visit(e *jsonschema.ValidationError) {
 	if d, rest, ok := l.def(); ok && (len(rest) == 0 || rest[0] == "anyOf") {
 		// The definition itself, or one of its anyOf branches.
 		if text, ok := syntaxText(d); ok {
-			m.emit(CodeSchema, p, p.pos, text, "")
+			m.emitValue(p, text, "")
 			return
 		}
 	}
 	if text, ok := fieldSyntax(l, e.ErrorKind); ok {
-		m.emit(CodeSchema, p, p.pos, text, "")
+		m.emitValue(p, text, "")
 		return
 	}
 	switch k := e.ErrorKind.(type) {
@@ -329,8 +363,44 @@ func (m *mapper) visit(e *jsonschema.ValidationError) {
 		}
 	default:
 		msg, hint := m.leafMessage(e, p)
-		m.emit(CodeSchema, p, p.pos, msg, hint)
+		m.emitValue(p, msg, hint)
 	}
+}
+
+// emitValue records an RZ-CFG-005 finding about the value at p. When stage
+// E substituted variables into the value (tree.Node.Vars), the message
+// names them: a re-typed value that does not fit, or any substituted value
+// a keyword refuses, fails naming the variable (01 req 29). The findings
+// about an object's members (missing required and unknown fields), about
+// keys (the reserved prefix) and at secret positions, where stage E never
+// substitutes, are worded without it.
+func (m *mapper) emitValue(p position, msg, hint string) {
+	var vars []string
+	if p.node != nil {
+		vars = p.node.Vars
+	}
+	m.emit(CodeSchema, p, p.pos, msg+substituted(vars, "the value"), hint)
+}
+
+// substituted returns the clause that names the variables stage E
+// substituted into what a message is about, such as `; variable "PORT"
+// was substituted into the value`, or "" for none. It names at most
+// maxVarsNamed of them and counts the rest; it never contains a value.
+func substituted(vars []string, into string) string {
+	if len(vars) == 0 {
+		return ""
+	}
+	names := make([]string, 0, min(len(vars), maxVarsNamed)+1)
+	for _, v := range vars[:min(len(vars), maxVarsNamed)] {
+		names = append(names, quote(v))
+	}
+	if more := len(vars) - maxVarsNamed; more > 0 {
+		names = append(names, strconv.Itoa(more)+" more")
+	}
+	if len(vars) == 1 {
+		return "; variable " + names[0] + " was substituted into " + into
+	}
+	return "; variables " + joinAnd(names) + " were substituted into " + into
 }
 
 // alternatives words a failed anyOf, or a oneOf that no branch matched.
@@ -343,10 +413,10 @@ func (m *mapper) alternatives(e *jsonschema.ValidationError, p position, keyword
 	branches, _ := obj[keyword].([]any)
 	if names, ok := requiredOnly(branches); ok {
 		if keyword == "anyOf" {
-			m.emit(CodeSchema, p, p.pos, "at least one of "+strings.Join(names, ", ")+" is required", "")
+			m.emitValue(p, "at least one of "+strings.Join(names, ", ")+" is required", "")
 			return
 		}
-		m.emit(CodeSchema, p, p.pos, "exactly one of "+strings.Join(names, ", ")+" is required", "")
+		m.emitValue(p, "exactly one of "+strings.Join(names, ", ")+" is required", "")
 		return
 	}
 	var want []string
@@ -370,10 +440,10 @@ func (m *mapper) oneOfMany(e *jsonschema.ValidationError, p position) {
 	obj := m.v.at(e.SchemaURL)
 	branches, _ := obj["oneOf"].([]any)
 	if names, ok := requiredOnly(branches); ok {
-		m.emit(CodeSchema, p, p.pos, "exactly one of "+strings.Join(names, ", ")+" is allowed, found "+joinAnd(present(p.node, names)), "")
+		m.emitValue(p, "exactly one of "+strings.Join(names, ", ")+" is allowed, found "+joinAnd(m.present(p.node, names)), "")
 		return
 	}
-	m.emit(CodeSchema, p, p.pos, "matches more than one alternative; exactly one is allowed", "")
+	m.emitValue(p, "matches more than one alternative; exactly one is allowed", "")
 }
 
 // not words a failed not. The generator's atMostOneOf is not with one
@@ -384,10 +454,10 @@ func (m *mapper) oneOfMany(e *jsonschema.ValidationError, p position) {
 func (m *mapper) not(e *jsonschema.ValidationError, p position) {
 	obj := m.v.at(e.SchemaURL)
 	if names, ok := atMostOneOf(obj["not"]); ok {
-		m.emit(CodeSchema, p, p.pos, "at most one of "+strings.Join(names, ", ")+" is allowed, found "+joinAnd(present(p.node, names)), "")
+		m.emitValue(p, "at most one of "+strings.Join(names, ", ")+" is allowed, found "+joinAnd(m.present(p.node, names)), "")
 		return
 	}
-	m.emit(CodeSchema, p, p.pos, "matches a form that is not allowed here", "")
+	m.emitValue(p, "matches a form that is not allowed here", "")
 }
 
 // atMostOneOf reports whether the subschema of a not keyword is the
@@ -440,14 +510,15 @@ func (m *mapper) typeMismatch(e *jsonschema.ValidationError, depth int) ([]strin
 // emitType reports a type failure naming every allowed type.
 func (m *mapper) emitType(p position, want []string) {
 	msg, hint := typeText(p, want)
-	m.emit(CodeSchema, p, p.pos, msg, hint)
+	m.emitValue(p, msg, hint)
 }
 
 // unknown reports each undeclared member of a closed object as RZ-CFG-006
 // at its key, with the nearest declared name as the hint.
 func (m *mapper) unknown(p position, names []string) {
 	allowed := p.schema.PropertyNames()
-	for _, name := range sortedCopy(names) {
+	for _, name := range m.sortedNames(names) {
+		m.work.tick()
 		at := p.pos
 		if i, ok := m.memo.index(p.node, name); ok && p.node.Members[i].KeyPos.Known() {
 			at = p.node.Members[i].KeyPos
@@ -460,7 +531,9 @@ func (m *mapper) unknown(p position, names []string) {
 		case name == "status" && p.path == nil:
 			msg += ": only Ruralz Control writes status"
 		case name == "$patch":
-			msg += ": $patch is allowed only in overlay files"
+			// The wording of 01 req 25 and of overlay.CheckBase, which
+			// reports the same rule with the same code before stage F.
+			msg += ": $patch is valid only in overlays"
 		default:
 			near = &nearest{name: name, allowed: allowed}
 		}
@@ -587,11 +660,10 @@ func enumText(k *kind.Enum) (msg, hint string) {
 // from the schema alone: never the value, and never an authored member
 // name, which could itself be the secret (01 req 33, RZ-CFG-012).
 func (m *mapper) secret(p position, e *jsonschema.ValidationError) {
-	key := p.secret.path.textOf()
-	f, ok := m.secrets[key]
+	f, ok := m.secrets[p.secret]
 	if !ok {
 		f = &secretFinding{at: *p.secret}
-		m.secrets[key] = f
+		m.secrets[p.secret] = f
 		m.order = append(m.order, f)
 	}
 	var below [4]diag.PathElem
@@ -656,6 +728,7 @@ func declaredPath(n *schemaidx.Node, rel diag.Path) string {
 // flushSecrets emits one RZ-CFG-012 per secret field with findings.
 func (m *mapper) flushSecrets() {
 	for _, f := range m.order {
+		m.work.tick()
 		shape, ok := m.shapes[f.at.schema]
 		if !ok {
 			shape = m.secretShape(f.at.schema, 0)
@@ -762,14 +835,30 @@ func joinWith(words []string, last string) string {
 }
 
 // present returns the names that are members of the object n.
-func present(n *tree.Node, names []string) []string {
+func (m *mapper) present(n *tree.Node, names []string) []string {
 	var out []string
 	for _, name := range names {
-		if _, ok := n.Get(name); ok {
+		if _, ok := m.member(n, name); ok {
 			out = append(out, name)
 		}
 	}
 	return out
+}
+
+// member returns the value of the first member named key of n, as
+// tree.Node.Get does, charging one work unit per member it scans: an
+// object can hold as many members as the instance.
+func (m *mapper) member(n *tree.Node, key string) (*tree.Node, bool) {
+	if n == nil || n.Kind != tree.KindMap {
+		return nil, false
+	}
+	for i := range n.Members {
+		m.work.tick()
+		if n.Members[i].Key == key {
+			return n.Members[i].Value, true
+		}
+	}
+	return nil, false
 }
 
 // count words n things.
@@ -807,17 +896,54 @@ func jsonText(v any) string {
 	return strings.TrimSuffix(b.String(), "\n")
 }
 
-// quote writes s as a JSON string, shortened to maxQuoted code points.
+// quote writes s as a JSON string, shortened to maxQuoted code points. It
+// reads at most maxQuoted code points of s, however long s is.
 func quote(s string) string {
-	if utf8.RuneCountInString(s) > maxQuoted {
-		r := []rune(s)
-		s = string(r[:maxQuoted]) + "..."
+	if head, long := clip(s); long {
+		s = string([]rune(head)) + "..."
 	}
 	return jsonText(s)
+}
+
+// clip returns the first maxQuoted code points of s, an invalid UTF-8 byte
+// counting as one as utf8.DecodeRuneInString and []rune count it, and
+// whether s is longer. It reads at most that prefix: the authored texts
+// quoted in messages (member names, keys, set elements) can be as long as
+// the document, and counting or converting all of s would cost its length
+// per message (review finding: []rune(s) allocated 4 bytes per byte).
+func clip(s string) (string, bool) {
+	i := 0
+	for range maxQuoted {
+		if i == len(s) {
+			return s, false
+		}
+		_, size := utf8.DecodeRuneInString(s[i:])
+		i += size
+	}
+	return s[:i], i < len(s)
 }
 
 func sortedCopy(l []string) []string {
 	out := slices.Clone(l)
 	slices.Sort(out)
+	return out
+}
+
+// sortedNames is sortedCopy for a list as long as the instance, such as
+// the unknown members of one object: each comparison is a work unit, and
+// so is each byte of the common prefix it reads, since two long names can
+// share most of their bytes.
+func (m *mapper) sortedNames(l []string) []string {
+	out := slices.Clone(l)
+	slices.SortFunc(out, func(a, b string) int {
+		n := commonPrefix(a, b)
+		m.work.charge(1 + n)
+		switch {
+		case n < len(a) && n < len(b):
+			return cmp.Compare(a[n], b[n])
+		default:
+			return cmp.Compare(len(a), len(b))
+		}
+	})
 	return out
 }

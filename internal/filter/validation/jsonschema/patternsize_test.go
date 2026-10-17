@@ -105,6 +105,13 @@ func TestPatternProgramLimits(t *testing.T) {
 		{"escapes merged in one class", pattern("[" + strings.Repeat(`\pL`, 50) + "]"), "/pattern", "more than 16384 instructions"},
 		{"case-insensitive ranges", pattern(`(?i)[\x{42}-\x{1e942}][\x{42}-\x{1e942}]`), "/pattern", "more than 16384 instructions"},
 		{"a class's ranges", pattern(strings.Repeat(cjk[:3*2048+1]+"]", 41)), "/pattern", "more than 16384 instructions"},
+		// Behind $recursiveRef, which the library compiles as a reference
+		// (audit class GC-01, rows CMP-23, CMP-24, CMP-36, CMP-51, CX-27).
+		{"behind a recursive reference", `{"$recursiveRef":"#/x","x":` + pattern(strings.Repeat("[a-z]{1000}", 30)) + `}`, "/x/pattern", "more than 16384 instructions"},
+		{
+			"patternProperties name behind a recursive reference", `{"$recursiveRef":"#/x","x":{"patternProperties":{"` + strings.Repeat("[a-z]{1000}", 30) + `":true}}}`,
+			"/x/patternProperties/" + strings.Repeat("[a-z]{1000}", 30), "patternProperties name compiles to a program of more than",
+		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			issues := compileIssues(t, tc.schema)

@@ -17,7 +17,7 @@ import (
 func apply(t *testing.T, src string, vars Map, hints ...string) (*tree.Resource, diag.List) {
 	t.Helper()
 	files := &tree.FileTable{}
-	rs := docs(t, files, tree.RoleBase, "r.yaml", src)
+	rs := docs(t, files, "r.yaml", src)
 	if len(rs) != 1 {
 		t.Fatalf("got %d documents", len(rs))
 	}
@@ -301,10 +301,13 @@ func TestRetype(t *testing.T) {
 	}
 }
 
-// TestForbiddenPositions covers 01 req 28: keys, apiVersion, kind,
+// TestForbiddenPositions covers 01 req 16 and 28: keys, apiVersion, kind,
 // metadata.name, x-ruralz-ref, the x-ruralz-secret subtree and
-// x-ruralz-cel positions report RZ-CFG-011 only (never -010 or -013), and
-// $${ is still unescaped there.
+// x-ruralz-cel positions report RZ-CFG-011 only (never -010 or -013).
+// Mapping keys and the envelope fields are never substituted or
+// unescaped, so any ${ there, $${ included, is RZ-CFG-011 (01 req 16 and
+// 27); in the other forbidden positions $${ is still unescaped (01 req
+// 28).
 func TestForbiddenPositions(t *testing.T) {
 	cases := []struct {
 		name, src, path string
@@ -335,6 +338,11 @@ func TestForbiddenPositions(t *testing.T) {
 			name: "metadata.name",
 			src:  `{"apiVersion":"ruralz/v1alpha1","kind":"Route","metadata":{"name":"${N}"},"spec":{}}`,
 			want: []string{CodeForbidden},
+		},
+		{
+			name: "metadata.name with an escape",
+			src:  `{"apiVersion":"ruralz/v1alpha1","kind":"Route","metadata":{"name":"$${N}"},"spec":{}}`,
+			want: []string{CodeForbidden}, path: "metadata.name", text: "$${N}",
 		},
 		{
 			name: "x-ruralz-ref",
@@ -406,7 +414,12 @@ func TestForbiddenPositions(t *testing.T) {
 // for 013, owned by this stage per architecture 3.1): each use of a
 // secret-like variable name, and each credential-shaped literal outside
 // an x-ruralz-secret subtree, CEL strings included, warns without the
-// value; a headers set[] value for a credential header warns too.
+// value; the credential rules read the authored text (literal text and
+// every default, taken or not), never a variable's value; a headers
+// set[] value for a credential header warns too when its authored text
+// is more than framing or no expression in it took its text from the
+// variable source, with at most one warning for the text and the
+// secret-like name warning at each use besides.
 func TestCredentialWarnings(t *testing.T) {
 	jwt := "eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0.dozjgNryP4J3jVmNHl0w5N_XgL0n3I9PlFUP0THsR8U"
 	ghp := "ghp_" + strings.Repeat("A1", 18)
@@ -433,7 +446,7 @@ func TestCredentialWarnings(t *testing.T) {
 		{name: "API secret key", text: "sk-ant-" + strings.Repeat("x", 20), want: 1, detector: "API secret key"},
 		{name: "Bearer credentials", text: "Bearer abcdefghijklmnopqrstu==", want: 1, detector: "Authorization header credentials"},
 		{name: "short Bearer is fine", text: "Bearer abc", want: 0},
-		{name: "substituted value is checked", text: "${V}", vars: Map{"V": "AKIAABCDEFGHIJKLMNOP"}, want: 1},
+		{name: "J013 a variable's value is not authored text", text: "${V}", vars: Map{"V": "AKIAABCDEFGHIJKLMNOP"}, want: 0},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -519,6 +532,110 @@ func TestCredentialWarnings(t *testing.T) {
 		{"an escaped ${ is a literal", headers("request", "set", `{"name":"cookie","value":"$${C}"}`), []string{
 			`r.yaml:1:151 warning RZ-CFG-013 Policy/h spec.config.request.set[name=cookie].value: literal value for the credential header "cookie" (keep credentials out of the Bundle: reference a secret with secretRef)`,
 		}, nil},
+		// 01 J row 013 with defaults (review finding): a default, taken or
+		// not, is text written in the Bundle. The value is a literal when
+		// its authored runs hold text other than framing (a leading Bearer
+		// or Basic scheme, or text without letters or digits), or when no
+		// expression takes its text from the variable source.
+		{"a default taken for an unset variable is a literal", headers("request", "set", `{"name":"authorization","value":"${X:-hunter2}"}`), []string{
+			`r.yaml:1:158 warning RZ-CFG-013 Policy/h spec.config.request.set[name=authorization].value: literal value for the credential header "authorization" (keep credentials out of the Bundle: reference a secret with secretRef)`,
+		}, nil},
+		{"a default taken for an empty variable is a literal", headers("request", "set", `{"name":"authorization","value":"${X:-hunter2}"}`), []string{
+			`r.yaml:1:158 warning RZ-CFG-013 Policy/h spec.config.request.set[name=authorization].value: literal value for the credential header "authorization" (keep credentials out of the Bundle: reference a secret with secretRef)`,
+		}, Map{"X": ""}},
+		{"a default not taken is still authored text", headers("request", "set", `{"name":"authorization","value":"${X:-hunter2}"}`), []string{
+			`r.yaml:1:158 warning RZ-CFG-013 Policy/h spec.config.request.set[name=authorization].value: literal value for the credential header "authorization" (keep credentials out of the Bundle: reference a secret with secretRef)`,
+		}, Map{"X": "v"}},
+		{"one default taken beside a variable is a literal", headers("response", "set", `{"name":"cookie","value":"${A}; ${B:-b=1}"}`), []string{
+			`r.yaml:1:152 warning RZ-CFG-013 Policy/h spec.config.response.set[name=cookie].value: literal value for the credential header "cookie" (keep credentials out of the Bundle: reference a secret with secretRef)`,
+		}, Map{"A": "a=1"}},
+		{"a default beside a variable is authored text whether taken or not", headers("response", "set", `{"name":"cookie","value":"${A}; ${B:-b=1}"}`), []string{
+			`r.yaml:1:152 warning RZ-CFG-013 Policy/h spec.config.response.set[name=cookie].value: literal value for the credential header "cookie" (keep credentials out of the Bundle: reference a secret with secretRef)`,
+		}, Map{"A": "a=1", "B": "b=2"}},
+		{"two variables are not a literal", headers("response", "set", `{"name":"cookie","value":"${A}; ${B}"}`), nil, Map{"A": "a=1", "B": "b=2"}},
+		{"a framing default taken beside a sourced variable is not a literal", headers("request", "set", `{"name":"cookie","value":"${A}${B:-; }"}`), nil, Map{"A": "sid=1"}},
+		{"framing around an empty default is a literal", headers("request", "set", `{"name":"authorization","value":"Bearer ${X:-}"}`), []string{
+			`r.yaml:1:158 warning RZ-CFG-013 Policy/h spec.config.request.set[name=authorization].value: literal value for the credential header "authorization" (keep credentials out of the Bundle: reference a secret with secretRef)`,
+		}, nil},
+		{"a non-string value is left to schema validation", headers("request", "set", `{"name":"authorization","value":1}`), nil, nil},
+		{"an empty default alone leaves an empty value", headers("request", "set", `{"name":"authorization","value":"${X:-}"}`), nil, nil},
+		{"a variable set to empty leaves an empty value", headers("request", "set", `{"name":"authorization","value":"${X}"}`), nil, Map{"X": ""}},
+		// The framing rule (review finding; contract change request
+		// against the 01 J row for 013): only a leading Bearer or Basic
+		// scheme and text without letters or digits frame a variable.
+		{"an escaped ${ beside a variable is literal text", headers("request", "set", `{"name":"x-api-key","value":"$${K}${K}"}`), []string{
+			`r.yaml:1:154 warning RZ-CFG-013 Policy/h spec.config.request.set[name=x-api-key].value: literal value for the credential header "x-api-key" (keep credentials out of the Bundle: reference a secret with secretRef)`,
+		}, Map{"K": "v"}},
+		{"literal text before a variable set to empty", headers("request", "set", `{"name":"x-api-key","value":"hardcodedkey${E}"}`), []string{
+			`r.yaml:1:154 warning RZ-CFG-013 Policy/h spec.config.request.set[name=x-api-key].value: literal value for the credential header "x-api-key" (keep credentials out of the Bundle: reference a secret with secretRef)`,
+		}, Map{"E": ""}},
+		// A value with several authored runs is a literal when any run is
+		// not framing, the first included (review finding: only the last
+		// run decided under a mutant no row killed).
+		{"literal text before a variable followed by framing", headers("request", "set", `{"name":"x-api-key","value":"key${A};"}`), []string{
+			`r.yaml:1:154 warning RZ-CFG-013 Policy/h spec.config.request.set[name=x-api-key].value: literal value for the credential header "x-api-key" (keep credentials out of the Bundle: reference a secret with secretRef)`,
+		}, Map{"A": "v"}},
+		{"framing before a variable followed by literal text", headers("request", "set", `{"name":"x-api-key","value":";${A}key"}`), []string{
+			`r.yaml:1:154 warning RZ-CFG-013 Policy/h spec.config.request.set[name=x-api-key].value: literal value for the credential header "x-api-key" (keep credentials out of the Bundle: reference a secret with secretRef)`,
+		}, Map{"A": "v"}},
+		{"literal text after a variable", headers("request", "set", `{"name":"authorization","value":"${T}x"}`), []string{
+			`r.yaml:1:158 warning RZ-CFG-013 Policy/h spec.config.request.set[name=authorization].value: literal value for the credential header "authorization" (keep credentials out of the Bundle: reference a secret with secretRef)`,
+		}, Map{"T": "t"}},
+		{"a scheme in any case is framing", headers("request", "set", `{"name":"authorization","value":"bEaReR ${T}"}`), nil, Map{"T": "t"}},
+		{"a Basic scheme is framing for proxy-authorization", headers("request", "set", `{"name":"proxy-authorization","value":"Basic ${T}"}`), nil, Map{"T": "t"}},
+		{"another scheme is literal text", headers("request", "set", `{"name":"authorization","value":"Token ${T}"}`), []string{
+			`r.yaml:1:158 warning RZ-CFG-013 Policy/h spec.config.request.set[name=authorization].value: literal value for the credential header "authorization" (keep credentials out of the Bundle: reference a secret with secretRef)`,
+		}, Map{"T": "t"}},
+		{"a scheme after a variable is literal text", headers("request", "set", `{"name":"authorization","value":"${T} Bearer ${T}"}`), []string{
+			`r.yaml:1:158 warning RZ-CFG-013 Policy/h spec.config.request.set[name=authorization].value: literal value for the credential header "authorization" (keep credentials out of the Bundle: reference a secret with secretRef)`,
+		}, Map{"T": "t"}},
+		{"a cookie name is literal text", headers("request", "set", `{"name":"cookie","value":"session=${S}"}`), []string{
+			`r.yaml:1:151 warning RZ-CFG-013 Policy/h spec.config.request.set[name=cookie].value: literal value for the credential header "cookie" (keep credentials out of the Bundle: reference a secret with secretRef)`,
+		}, Map{"S": "s"}},
+		{"punctuation around variables is framing", headers("request", "set", `{"name":"cookie","value":"\"${A}\"; ${B}:${C}"}`), nil, Map{"A": "a", "B": "b", "C": "c"}},
+		{"a letter outside ASCII is literal text", headers("request", "set", `{"name":"x-api-key","value":"ключ${K}"}`), []string{
+			`r.yaml:1:154 warning RZ-CFG-013 Policy/h spec.config.request.set[name=x-api-key].value: literal value for the credential header "x-api-key" (keep credentials out of the Bundle: reference a secret with secretRef)`,
+		}, Map{"K": "v"}},
+		{"a scheme alone is a literal", headers("request", "set", `{"name":"authorization","value":"Bearer "}`), []string{
+			`r.yaml:1:158 warning RZ-CFG-013 Policy/h spec.config.request.set[name=authorization].value: literal value for the credential header "authorization" (keep credentials out of the Bundle: reference a secret with secretRef)`,
+		}, nil},
+		// An empty default supplies no text (review finding).
+		{"an empty default beside a variable supplies no text", headers("request", "set", `{"name":"authorization","value":"${A}${B:-}"}`), nil, Map{"A": "tok"}},
+		{"an empty default before a scheme-framed variable", headers("request", "set", `{"name":"authorization","value":"Bearer ${B:-}${A}"}`), nil, Map{"A": "tok"}},
+		// The header name is read after substitution, the header the
+		// gateway sends, and quoted as authored, never as the variable's
+		// value (review finding: the message quoted H's value).
+		{"a header name from a variable with a default value", headers("request", "set", `{"name":"${H}","value":"${X:-pw}"}`), []string{
+			`r.yaml:1:149 warning RZ-CFG-013 Policy/h spec.config.request.set[name="${H}"].value: literal value for the credential header "${H}" (keep credentials out of the Bundle: reference a secret with secretRef)`,
+		}, Map{"H": "Proxy-Authorization"}},
+		{"a header name from a variable naming a credential header", headers("request", "set", `{"name":"${H}","value":"abc"}`), []string{
+			`r.yaml:1:149 warning RZ-CFG-013 Policy/h spec.config.request.set[name="${H}"].value: literal value for the credential header "${H}" (keep credentials out of the Bundle: reference a secret with secretRef)`,
+		}, Map{"H": "authorization"}},
+		{"a header name from a variable naming another header", headers("request", "set", `{"name":"${H}","value":"abc"}`), nil, Map{"H": "x-other"}},
+		{"a header name partly from a variable", headers("request", "set", `{"name":"x-${H}","value":"abc"}`), []string{
+			`r.yaml:1:151 warning RZ-CFG-013 Policy/h spec.config.request.set[name="x-${H}"].value: literal value for the credential header "x-${H}" (keep credentials out of the Bundle: reference a secret with secretRef)`,
+		}, Map{"H": "API-Key"}},
+		{"a header name with an undefined variable", headers("request", "set", `{"name":"${U}","value":"abc"}`), []string{
+			`r.yaml:1:134 error RZ-CFG-010 Policy/h spec.config.request.set[name="${U}"].name: variable "U" is not defined and has no default`,
+		}, nil},
+		// Two RZ-CFG-013 rules on one scalar: the secret-like name warns at
+		// each use (01 req 30), and the text warns once more, by a detector
+		// or as a credential header literal (walker.warn).
+		{"a secret-like variable with its default taken warns per rule", headers("request", "set", `{"name":"authorization","value":"${AUTH_TOKEN:-hunter2}"}`), []string{
+			`r.yaml:1:158 warning RZ-CFG-013 Policy/h spec.config.request.set[name=authorization].value: literal value for the credential header "authorization" (keep credentials out of the Bundle: reference a secret with secretRef)`,
+			`r.yaml:1:158 warning RZ-CFG-013 Policy/h spec.config.request.set[name=authorization].value: variable "AUTH_TOKEN" looks like a secret (use a secretRef with provider: env instead of substitution)`,
+		}, nil},
+		{"a value a detector matches is not authored text: the secret-like name warns alone", headers("request", "set", `{"name":"authorization","value":"${AUTH_TOKEN}"}`), []string{
+			`r.yaml:1:158 warning RZ-CFG-013 Policy/h spec.config.request.set[name=authorization].value: variable "AUTH_TOKEN" looks like a secret (use a secretRef with provider: env instead of substitution)`,
+		}, Map{"AUTH_TOKEN": "Bearer abcdefghijklmnopqrstuvwx"}},
+		{"a secret-like variable with a credential default warns per rule", headers("request", "set", `{"name":"authorization","value":"${AUTH_TOKEN:-Bearer abcdefghijklmnopqrstuvwx}"}`), []string{
+			`r.yaml:1:158 warning RZ-CFG-013 Policy/h spec.config.request.set[name=authorization].value: credential-shaped value (Authorization header credentials) (keep credentials out of the Bundle: reference a secret with secretRef)`,
+			`r.yaml:1:158 warning RZ-CFG-013 Policy/h spec.config.request.set[name=authorization].value: variable "AUTH_TOKEN" looks like a secret (use a secretRef with provider: env instead of substitution)`,
+		}, Map{"AUTH_TOKEN": "t"}},
+		{"each use of a secret-like variable warns", headers("request", "set", `{"name":"x-trace","value":"${A_TOKEN}${A_TOKEN}"}`), []string{
+			`r.yaml:1:152 warning RZ-CFG-013 Policy/h spec.config.request.set[name=x-trace].value: variable "A_TOKEN" looks like a secret (use a secretRef with provider: env instead of substitution)`,
+			`r.yaml:1:152 warning RZ-CFG-013 Policy/h spec.config.request.set[name=x-trace].value: variable "A_TOKEN" looks like a secret (use a secretRef with provider: env instead of substitution)`,
+		}, Map{"A_TOKEN": "t"}},
 	} {
 		t.Run("headers "+tc.name, func(t *testing.T) {
 			_, ds := apply(t, tc.src, tc.vars)
@@ -593,7 +710,7 @@ func TestNoSchema(t *testing.T) {
 		t.Errorf("no schema set: %v", ds)
 	}
 	files := &tree.FileTable{}
-	r = docs(t, files, tree.RoleBase, "r.yaml", prefixRoute("${A}"))[0]
+	r = docs(t, files, "r.yaml", prefixRoute("${A}"))[0]
 	if g := codes(New(Options{Schemas: schemas(t), Files: files}).Apply(r)); !slices.Equal(g, []string{CodeUndefined}) {
 		t.Errorf("nil Variables: codes %v", g)
 	}

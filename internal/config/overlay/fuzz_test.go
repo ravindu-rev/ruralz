@@ -107,11 +107,15 @@ func TestResultIndependentOfFileOrder(t *testing.T) {
 }
 
 // FuzzOverlay: any base and overlay document merge without panic; every
-// code is registered; the merge is deterministic and idempotent (applying
-// the overlay again, base check included, changes and reports nothing);
-// a clean result keeps no directive: no ruralz.io/patch annotation and no
-// $patch member anywhere outside a JSONSchemaDocument value, free content
-// included (01 req 25).
+// code is registered; the merge is deterministic; removing from the
+// overlay a member whose value holds nothing but removals and replaces a
+// base scalar changes neither the result nor the diagnostics (01 req 25
+// "absent key: no-op", also for a member the dispatch tests); a clean
+// merge is idempotent (applying the overlay again, base check included,
+// changes and reports nothing) and keeps no directive: no ruralz.io/patch
+// annotation and no $patch member anywhere outside a JSONSchemaDocument
+// value, free content included, also when the overlay changes how base
+// content is read.
 func FuzzOverlay(f *testing.F) {
 	seeds := [][2]string{
 		{gateway, orderDocs[0]},
@@ -126,6 +130,24 @@ func FuzzOverlay(f *testing.F) {
 		{`{"kind":"Policy","spec":{"type":"plugin","config":{"l":[{"k":"a"}]}}}`, `{"spec":{"config":{"l":[{"$patch":"replace"},{"k":"b","$patch":"delete"}],"m":{"$patch":"x"}}}}`},
 		{`{"kind":"Policy","spec":{"type":"cors","config":{"x":{"$patch":"delete"}}}}`, `{"spec":{"config":{"x":{"y":1}}}}`},
 		{`{"kind":"Policy","spec":{"type":"headers","config":{"request":{"add":[{"name":"a","value":"1"}]}}}}`, `{"spec":{"config":{"request":{"add":[{"$patch":"replace"},{"name":"b","value":"2"}]}}}}`},
+		// A base $patch exempt inside a JSON Schema document that the
+		// overlay's spec.type moves into free content (review finding).
+		{`{"kind":"Policy","spec":{"type":"validation.json-schema","config":{"schema":{"$patch":1}}}}`, `{"spec":{"type":"cors"}}`},
+		{`{"kind":"Policy","spec":{"type":"validation.json-schema","config":{"schema":{"allOf":[{"$patch":1}],"properties":{"$patch":{}}}}}}`, `{"spec":{"type":null,"config":{"schema":{"x":1}}}}`},
+		{`{"kind":"Policy","spec":{"type":"cors","config":{"schema":{"$patch":1}}}}`, `{"spec":{"type":"validation.json-schema"}}`},
+		// Removals of what the base lacks (review finding, 01 req 25
+		// "absent key: no-op").
+		{`{"kind":"Upstream","spec":{"protocol":"http","discovery":{"type":"dns"}}}`, `{"spec":{"endpoints":[{"address":"a:1","$patch":"delete"}],"tls":{"sni":null}}}`},
+		{route, `{"spec":{"composition":{"steps":[{"name":"s","$patch":"delete"}]},"timeout":{"a":null},"policies":[{"$patch":"replace"}]}}`},
+		{route, `{"metadata":{"annotations":{"ruralz.io/patch":"replace"}},"spec":{"x":null}}`},
+		// An overlay value holding nothing but removals that replaces a
+		// base scalar the dispatch tests (review finding): the base type
+		// stays and config merges under it.
+		{`{"kind":"Policy","spec":{"type":"validation.json-schema","config":{"schema":{"$patch":1}}}}`, `{"spec":{"type":{"a":null}}}`},
+		{`{"kind":"Policy","spec":{"type":"auth.jwt","config":{"issuers":[{"issuer":"a"},{"issuer":"b"}]}}}`, `{"spec":{"type":{"x":null},"config":{"issuers":[{"issuer":"a","jwksUri":"k"}]}}}`},
+		{`{"kind":"Policy","spec":{"type":"auth.jwt","config":{"issuers":[{"issuer":"a"},{"issuer":"b"}]}}}`, `{"spec":{"type":{"x":{"y":null}},"config":{"issuers":[{"issuer":"b","$patch":"delete"}]}}}`},
+		{`{"kind":"Policy","spec":{"type":"validation.json-schema","config":{"schema":{"type":"object","required":["a"]}}}}`, `{"spec":{"type":{"x":null},"config":{"schema":{"type":"string"}}}}`},
+		{`{"kind":"Policy","spec":{"type":"validation.json-schema","config":"x"}}`, `{"spec":{"type":{"a":1},"config":{"schema":{"$patch":1}}}}`},
 	}
 	for _, s := range seeds {
 		f.Add(s[0], s[1], true)
@@ -160,6 +182,20 @@ func FuzzOverlay(f *testing.F) {
 		if g, w := dumpAll(out1), dumpAll(out2); g != w || !slices.Equal(texts(ds1), texts(ds2)) {
 			t.Fatalf("not deterministic:\n%s\n%s", g, w)
 		}
+		if same && len(out1) == 1 {
+			// Removing an overlay member whose value holds nothing but
+			// removals and replaces a base scalar changes neither the
+			// result nor the diagnostics (01 req 25 "absent key: no-op").
+			x, _ := opts.Schemas.Index(v1)
+			pruned := o.Clone()
+			if dropRemovals(x, string(kind), b, out1[0].Root, pruned) {
+				b4 := []*tree.Resource{{ID: tree.ID{Kind: kind, Name: "x"}, APIVersion: v1, Root: b.Clone()}}
+				out4, ds4 := pipeline(t, b4, []*tree.Resource{{ID: tree.ID{Kind: kind, Name: "x"}, APIVersion: v1, Root: pruned}}, opts)
+				if g, w := dumpAll(out4), dumpAll(out1); g != w || !slices.Equal(texts(ds4), texts(ds1)) {
+					t.Fatalf("a member holding nothing but removals over a base scalar changed the merge:\n%s %q\nwithout it\n%s %q", w, texts(ds1), g, texts(ds4))
+				}
+			}
+		}
 		for _, d := range ds1 {
 			if _, ok := errcode.Lookup(d.Code); !ok {
 				t.Fatalf("unregistered code %q", d.Code)
@@ -184,6 +220,58 @@ func FuzzOverlay(f *testing.F) {
 			}
 		}
 	})
+}
+
+// dropRemovals deletes from ov, an overlay document root whose base is
+// base, every member whose value is an object of nothing but nulls and
+// such objects and whose base value is a scalar, at any depth of the
+// objects both hold. It skips $patch members, the ruralz.io/patch
+// annotation (directives, not values) and the JSONSchemaDocument
+// positions of the base view and of merged, the merged root, whose
+// overlay value is data. It reports whether it deleted a member.
+func dropRemovals(x *schemaidx.Index, kind string, base, merged, ov *tree.Node) bool {
+	dropped := false
+	var walk func(b, o *tree.Node, path diag.Path)
+	walk = func(b, o *tree.Node, path diag.Path) {
+		kept := o.Members[:0]
+		for _, om := range o.Members {
+			p := path.Append(diag.Field(om.Key))
+			bv, ok := b.Get(om.Key)
+			switch {
+			case !ok || om.Key == PatchKey || p.String() == `metadata.annotations["ruralz.io/patch"]` ||
+				documentAt(x, kind, base, p) || documentAt(x, kind, merged, p):
+			case nullTree(om.Value) && !composite(bv):
+				dropped = true
+				continue
+			case om.Value.Kind == tree.KindMap && bv.Kind == tree.KindMap:
+				walk(bv, om.Value, p)
+			default:
+			}
+			kept = append(kept, om)
+		}
+		o.Members = kept
+	}
+	walk(base, ov, nil)
+	return dropped
+}
+
+// nullTree reports an object with members, each null or a null tree.
+func nullTree(n *tree.Node) bool {
+	if n.Kind != tree.KindMap || len(n.Members) == 0 {
+		return false
+	}
+	for _, m := range n.Members {
+		if m.Value.Kind != tree.KindNull && !nullTree(m.Value) {
+			return false
+		}
+	}
+	return true
+}
+
+// documentAt reports a JSONSchemaDocument position at path p of root.
+func documentAt(x *schemaidx.Index, kind string, root *tree.Node, p diag.Path) bool {
+	info, ok := x.Lookup(kind, root, p)
+	return ok && info.Node.Def() == schemaDocumentDef
 }
 
 // strayPatch returns the path of a $patch member of r outside the value of
