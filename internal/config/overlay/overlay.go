@@ -80,6 +80,14 @@
 // Results never depend on the order of the overlay files: an identity in
 // two overlay documents is RZ-CFG-008 and none of its documents applies,
 // and new identities are appended in (kind, name) order.
+//
+// Each diagnostic carries at most maxShown bytes of any input text in
+// each place, as config/canonical bounds them: a value its message
+// quotes, the kind and name of its resource, and each member name, list
+// key and set element of its path, so the text of up to 10,001
+// diagnostics is linear in their count whatever the size of the key or
+// name they repeat; a kind or name that is not graphic is quoted, so the
+// one-line text form holds one line.
 package overlay
 
 import (
@@ -181,7 +189,10 @@ type Options struct {
 // union of a Bundle, and returns the merged resources with the stage D
 // diagnostics (01 req 23 to 25). It takes ownership of both slices'
 // resources: merged trees are rewritten in place and share nodes with the
-// patches, so callers use only the returned resources afterwards.
+// patches, so callers use only the returned resources afterwards, and a
+// render for another Environment (01 req 22: validate runs once per
+// Environment) needs its own base union, re-parsed or copied. CheckBase
+// only reads, so it may run once on a base union before any Apply.
 //
 // Every object's keys are unique, as stage B leaves them (it keeps the
 // first member of a key and reports RZ-CFG-002). Apply holds to that for
@@ -257,7 +268,8 @@ func apply(ctx context.Context, base, patches []*tree.Resource, opts Options, p 
 		root, ok := x.Resource(string(p.ID.Kind))
 		if !ok {
 			a.report(diag.Diagnostic{
-				Code: CodeAPIVersion, Location: a.loc(p.Start), Resource: p.ID.ResourceID(),
+				Code: CodeAPIVersion, Location: a.loc(a.memberPos(p, "kind")), Resource: resourceID(p.ID),
+				Path:    diag.Path{diag.Field("kind")},
 				Message: "kind " + strconv.Quote(clip(string(p.ID.Kind))) + " is not served by apiVersion " + strconv.Quote(clip(p.APIVersion)),
 			})
 			continue
@@ -337,9 +349,6 @@ type applier struct {
 	// beyond it was recorded, and every walk then stops.
 	max  int
 	full bool
-	// quiet drops every diagnostic while settle normalizes a copy of an
-	// overlay value whose diagnostics the merge reports afterwards.
-	quiet bool
 	// units counts the work units since the last Yield call.
 	units int
 	// probe, when set, records how the work is spread (tests).
@@ -368,11 +377,10 @@ func (a *applier) loc(p tree.Pos) diag.Location {
 	return a.opts.Files.Location(p)
 }
 
-// report records d unless the budget is spent or settle's trial turned
-// diagnostics off; the diagnostic beyond the budget is the last one
-// recorded and sets full.
+// report records d unless the budget is spent; the diagnostic beyond the
+// budget is the last one recorded and sets full.
 func (a *applier) report(d diag.Diagnostic) {
-	if a.full || a.quiet {
+	if a.full {
 		return
 	}
 	if d.Severity == 0 {
@@ -396,7 +404,7 @@ func (a *applier) index(r *tree.Resource) (*schemaidx.Index, bool) {
 		}
 	}
 	a.report(diag.Diagnostic{
-		Code: CodeAPIVersion, Location: a.loc(a.memberPos(r, "apiVersion")), Resource: r.ID.ResourceID(),
+		Code: CodeAPIVersion, Location: a.loc(a.memberPos(r, "apiVersion")), Resource: resourceID(r.ID),
 		Path:    diag.Path{diag.Field("apiVersion")},
 		Message: "apiVersion " + strconv.Quote(clip(r.APIVersion)) + " is not served",
 	})
@@ -450,9 +458,9 @@ func (a *applier) unique(patches []*tree.Resource) []*tree.Resource {
 			f.at, f.read = a.namePos(f.r), true
 		}
 		a.report(diag.Diagnostic{
-			Code: CodeDuplicate, Location: a.loc(a.namePos(p)), Resource: p.ID.ResourceID(),
+			Code: CodeDuplicate, Location: a.loc(a.namePos(p)), Resource: resourceID(p.ID),
 			Path:    diag.Path{diag.Field("metadata"), diag.Field("name")},
-			Message: p.ID.String() + " is declared twice in the overlay; results never depend on file order",
+			Message: idText(p.ID) + " is declared twice in the overlay; results never depend on file order",
 			Related: []diag.Related{{Location: a.loc(f.at), Message: "first declared in"}},
 		})
 	}
@@ -463,7 +471,7 @@ func (a *applier) unique(patches []*tree.Resource) []*tree.Resource {
 // another apiVersion (01 req 24).
 func (a *applier) mismatch(p, base *tree.Resource) {
 	a.report(diag.Diagnostic{
-		Code: CodeVersionMismatch, Location: a.loc(a.memberPos(p, "apiVersion")), Resource: p.ID.ResourceID(),
+		Code: CodeVersionMismatch, Location: a.loc(a.memberPos(p, "apiVersion")), Resource: resourceID(p.ID),
 		Path: diag.Path{diag.Field("apiVersion")},
 		Message: "overlay apiVersion " + strconv.Quote(clip(p.APIVersion)) + " differs from the base resource's " +
 			strconv.Quote(clip(base.APIVersion)),

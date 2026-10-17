@@ -4,9 +4,11 @@
 package schemaview
 
 import (
+	"fmt"
 	"math"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
@@ -21,14 +23,12 @@ import (
 // cap was not reached (01 req 50), raises only stage F's registered
 // codes, and an RZ-CFG-012
 // message never repeats a string from its secret subtree (01 req 33).
-// A tree of RFC 8259 literals is never "cannot be validated", and its
-// findings equal those of the tree with every zero written 0, whatever
-// the zero's exponent. When every number literal of that tree is short
-// enough for jsonschema/v6 to parse quickly, the findings at the smallest
-// grid, where most literals take a surrogate, equal those of the literals
-// handed as written (numbers.go). Seeds are the error-mapping golden
-// inputs and literals that crashed or stalled the validator before the
-// number model, zeros with an exponent beyond int64 among them.
+// A tree of RFC 8259 literals satisfies zeroProperties. Seeds are the
+// error-mapping golden inputs, literals that crashed or stalled the
+// validator before the number model, zeros with an exponent beyond int64
+// among them, and zeros of every spelling as keyed-list keys
+// (keyedZeros), one of them the crasher committed under
+// testdata/fuzz/FuzzValidate.
 func FuzzValidate(f *testing.F) {
 	seeds, err := filepath.Glob(filepath.Join("testdata", "mapping", "*.json"))
 	if err != nil {
@@ -54,6 +54,9 @@ func FuzzValidate(f *testing.F) {
 		for _, src := range numberDocs(lit) {
 			f.Add([]byte(src))
 		}
+	}
+	for _, tc := range keyedZeros() {
+		f.Add([]byte(tc.src))
 	}
 	v := testView(f)
 	small := smallGrid(f, v)
@@ -84,18 +87,8 @@ func FuzzValidate(f *testing.F) {
 				}
 			}
 		}
-		if d, ok := noValidatorFailure(got); !ok {
-			t.Fatalf("Validate() of RFC 8259 literals = %s", texts(diag.List{d}))
-		}
-		zr := *res
-		zr.Root = zeroed(res.Root)
-		if z := v.Validate(&zr, files); texts(z) != texts(got) {
-			t.Fatalf("Validate() differs from Validate() with every zero written 0:\n%s\n%s", texts(got), texts(z))
-		}
-		if quickNumbers(zr.Root) {
-			if bounded, raw := small.Validate(res, files), rawValidate(small, &zr, files); texts(bounded) != texts(raw) {
-				t.Fatalf("Validate() at the smallest grid differs from the literals as written:\n%s\n%s", texts(bounded), texts(raw))
-			}
+		if err := zeroProperties(v, small, res, files); err != nil {
+			t.Fatal(err)
 		}
 		for _, d := range got {
 			if !allowed[d.Code] || !errcode.Valid(d.Code) {
@@ -118,6 +111,58 @@ func FuzzValidate(f *testing.F) {
 			}
 		}
 	})
+}
+
+// zeroProperties checks the number properties of a resource res whose
+// numbers are RFC 8259 literals, with view v and its copy small at the
+// smallest grid (smallGrid): Validate is never "cannot be validated"; at
+// either grid, the findings equal those of the tree with every zero
+// written 0 (zeroed), whatever the zero's exponent, once each keyed path
+// element whose key is a zero is written 0 too (zeroKeyed), because a
+// keyed entry's key appears in its path as written (01 req 48); and when
+// every number literal of the zeroed tree is short enough for
+// jsonschema/v6 to parse quickly, the findings of the zeroed tree at the
+// smallest grid, where most literals take a surrogate, equal those of its
+// literals handed as written (numbers.go). Each comparison is of one tree
+// with itself or with its zeroed twin (review finding: the keyed paths
+// of a key such as 0.0 differed, and the smallest-grid comparison
+// crossed the two trees).
+func zeroProperties(v, small *View, res *tree.Resource, files *tree.FileTable) error {
+	if d, ok := noValidatorFailure(v.Validate(res, files)); !ok {
+		return fmt.Errorf("Validate() of RFC 8259 literals = %s", texts(diag.List{d}))
+	}
+	zr := *res
+	zr.Root = zeroed(res.Root)
+	for _, view := range []*View{v, small} {
+		lit, zero := view.Validate(res, files), view.Validate(&zr, files)
+		if zeroKeyed(lit) != zeroKeyed(zero) {
+			return fmt.Errorf("Validate() differs from Validate() with every zero written 0, keyed zeros aside:\n%s\n%s", texts(lit), texts(zero))
+		}
+	}
+	if quickNumbers(zr.Root) {
+		if bounded, raw := small.Validate(&zr, files), rawValidate(small, &zr, files); texts(bounded) != texts(raw) {
+			return fmt.Errorf("Validate() at the smallest grid differs from the literals as written:\n%s\n%s", texts(bounded), texts(raw))
+		}
+	}
+	return nil
+}
+
+// zeroKeyed renders l with the key of every keyed path element that is
+// an RFC 8259 zero literal written 0, one diagnostic per line, the lines
+// sorted: the text a tree's findings and those of its zeroed twin share.
+func zeroKeyed(l diag.List) string {
+	lines := make([]string, len(l))
+	for i, d := range l {
+		d.Path = slices.Clone(d.Path)
+		for j, e := range d.Path {
+			if lit, ok := parseLiteral(e.Key, nil); e.Kind == diag.ElemKeyed && ok && lit.zero() {
+				d.Path[j].Key = "0"
+			}
+		}
+		lines[i] = texts(diag.List{d})
+	}
+	slices.Sort(lines)
+	return strings.Join(lines, "")
 }
 
 // quickNumbers reports whether every number literal under n has at most

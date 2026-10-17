@@ -65,8 +65,15 @@ func smallGrid(t testing.TB, v *View) *View {
 // literal reaching jsonschema/v6 as written: the oracle of the
 // differential tests, for literals the library parses quickly. Of two
 // members with one key the first wins and the later one is skipped by the
-// checks after the validator, as in View.check (built.shadowed).
+// checks after the validator, and a nil node is a null one, as in
+// View.check (built.shadowed, nullFilled).
 func rawValidate(v *View, res *tree.Resource, files *tree.FileTable) diag.List {
+	if (&work{}).instance(res.Root, v.nums).nils {
+		// As runSchema does: a nil node is mapped as a null one.
+		filled := *res
+		filled.Root = nullFilled(res.Root, nil)
+		res = &filled
+	}
 	m := newMapper(v, res, files, MaxDiagnostics, Options{})
 	sch, ok := v.kinds[string(res.ID.Kind)]
 	if !ok {
@@ -883,7 +890,7 @@ func TestNumberWorkBounded(t *testing.T) {
 		lit := "1." + strings.Repeat("1", size)
 		res := mustResource(t, &tree.FileTable{}, "r.json", numberDocs(lit)["port"])
 		w, calls := counter()
-		_, _ = v.runSchema(res, w)
+		_, _, _ = v.runSchema(res, w)
 		nodes := countNodes(res.Root)
 		keys, strs := textBytes(res.Root)
 		// The grammar pass reads every byte; nothing else reads a literal
@@ -1110,7 +1117,11 @@ func TestNumberFrontEnds(t *testing.T) {
 // value; a surrogate is off the grid with the literal's order against
 // every view number, integrality and multipleOf divisibility, of bounded
 // size; and two literals get equal surrogates exactly when their values
-// are equal. Literals the oracle cannot parse quickly are skipped.
+// are equal. Each literal is checked whatever the other is: one that is
+// not a number, a zero or one the oracle cannot parse quickly skips only
+// its own value checks and the pair comparison (review finding: those
+// cases left the fuzz function, so the second literal of a pair whose
+// first was a zero was never checked).
 func FuzzNumberBound(f *testing.F) {
 	for _, lit := range specialLiterals() {
 		f.Add(lit, "1e400")
@@ -1119,6 +1130,13 @@ func FuzzNumberBound(f *testing.F) {
 	f.Add("1e400", "0.1e401")
 	f.Add("0e99999999999999999999", "-0.0E-9223372036854775808")
 	f.Add("300000000000000000000000000000000.3", "3000000000000000000000000000000003e-1")
+	// A first literal that is a zero, not a number, or beyond the oracle,
+	// with a second one each check reads.
+	f.Add("0", "-0.0E-9223372036854775808")
+	f.Add("-0.0e+12", "1e400")
+	f.Add("1e1000001", "-0e-9223372036854775808")
+	f.Add("1x", "3.5e40")
+	f.Add("1e999999999999999999999", "0.25")
 	o := newOracle(f, numbersView(f).doc, 0)
 	f.Fuzz(func(t *testing.T, a, b string) {
 		var vals [2]*big.Rat
@@ -1130,7 +1148,7 @@ func FuzzNumberBound(f *testing.F) {
 				t.Fatalf("parseLiteral(%q) ok = %v, jsonval.ValidNumber disagrees", lit, ok)
 			}
 			if !ok {
-				return
+				continue
 			}
 			if l.zero() {
 				// Any exponent: a zero the library parses as written is
@@ -1141,10 +1159,10 @@ func FuzzNumberBound(f *testing.F) {
 				if !parses || r.Sign() != 0 || (form == asWritten) != (asIs && len(lit) <= maxPassBytes) || (form != asWritten && text != "0") {
 					t.Fatalf("bound(zero %.40q) = %.40q form %d", lit, text, form)
 				}
-				return
+				continue
 			}
 			if e, fits := l.exponent(); !fits || e > 2000 || e < -2000 || len(lit) > 400 {
-				return
+				continue
 			}
 			text, form, ok := o.nm.bound(lit, tags, nil)
 			if !ok {

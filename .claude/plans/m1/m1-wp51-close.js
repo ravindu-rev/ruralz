@@ -21,12 +21,12 @@ export const meta = {
 // carriedCount (how many open items the file's "carried" field holds).
 // Input: runs/w3-s2-close-input.json (groups, decisions, sources). The lead commits.
 
-const REPO = '/home/user/ruralz'
+const REPO = 'C:/Users/ravin/Projects/Ruralz'
 const M1 = `${REPO}/.claude/plans/m1`
 const ARCH = `${M1}/specs/00-architecture.md`
 const WPS = `${M1}/arch/wps.json`
 const PKG = 'internal/filter/validation/jsonschema/'
-const LIB = '/root/go/pkg/mod/github.com/santhosh-tekuri/jsonschema/v6@v6.0.3'
+const LIB = 'C:/Users/ravin/go/pkg/mod/github.com/santhosh-tekuri/jsonschema/v6@v6.0.3'
 const AUDIT = `${M1}/wp51-library-audit.md`
 const AUDIT_RESULT = `${M1}/runs/w3-s2-wp51-audit-result.json`
 const R9 = `${M1}/runs/w3-s2-wp51-r9.json`
@@ -68,10 +68,12 @@ Hard rules:
 3. Never edit go.mod, go.sum, the Makefile, CI workflows or docs. Never run whole-tree mutating commands (no go mod tidy, no gofmt -w ., no golangci-lint fmt ./...). Scope commands to ./${PKG}...
 4. Probes go under ${SP}/<your-label>/ and reach the package with go test -overlay. Leave no stray files or binaries in the repository (build with -o into the scratch directory).
 5. Conventions: AGENTS.md hard rules and .claude/rules/*.md; license header "// Copyright 2026 Revington" + "// SPDX-License-Identifier: Apache-2.0"; RZ codes only from internal/errcode (no new code); no init(); no mutable package-level variables; documented exported identifiers; American spelling; tests cite the requirement, row or class they cover.
-6. The container has 4 CPUs and other agents run tests at the same time; use -count=1, give long runs time, and never assert wall-clock time or a sampled heap (use counters, exact live-heap probes or benchmarks).
+6. The machine has 8 logical CPUs and other agents run tests at the same time; use -count=1, give long runs time, and never assert wall-clock time or a sampled heap (use counters, exact live-heap probes or benchmarks).
 7. A finding whose fix lies outside your path (spec or architecture text, a design document, another package's contract) is handled by filing it in contractRequests with the exact change; the lead applies contract requests after the run. Reviewers report such a finding only when it is not filed in an engineer's contractRequests, or is filed wrongly. The working tree may hold partial edits from a stopped attempt: read git diff for ${PKG} before you change anything.
+8. The checkout is on Windows 11 at ${REPO}. The Bash tool is Git Bash: use forward-slash paths (C:/Users/... or /c/Users/...) and env prefixes as usual (CGO_ENABLED=0 go test ...); in PowerShell set $env:CGO_ENABLED = "0" before go test. go test -race needs cgo, and gcc is on PATH. python3 is a Microsoft Store stub here: use python or node. Run every bin/golangci-lint command with GOTOOLCHAIN=go1.27.1 (the go.mod toolchain), for example GOTOOLCHAIN=go1.27.1 bin/golangci-lint run ./${PKG}...: under the local go1.27.2 it fails with "export data version 5 is greater than maximum supported version 4" typechecking errors yet still prints "0 issues." with exit code 7, so a lint run counts as green only with exit code 0. The run files, reports and findings were written on another machine: read /home/user/ruralz as ${REPO} and /root/go/pkg/mod as C:/Users/ravin/go/pkg/mod; evidence under /tmp/claude-0 is gone, so reproduce each item from the input it states.
+9. Only the lead commits, after the run, signed and without a co-author. Never read, copy or use a signing key, and never push.
 `
-const CHECKS = `go build and go vet ./${PKG}..., go test -race -count=1 -cover -shuffle=on ./${PKG}..., CGO_ENABLED=0 go test -count=1 ./${PKG}..., GOTOOLCHAIN=go1.26.8 GOEXPERIMENT=jsonv2 CGO_ENABLED=0 go test -count=1 ./${PKG}..., each fuzz target in the package for at least 60s, bin/golangci-lint run ./${PKG}..., bin/golangci-lint fmt ./${PKG}..., and go run ./internal/tool/repocheck`
+const CHECKS = `go build and go vet ./${PKG}..., go test -race -count=1 -cover -shuffle=on ./${PKG}..., CGO_ENABLED=0 go test -count=1 ./${PKG}..., GOTOOLCHAIN=go1.26.8 GOEXPERIMENT=jsonv2 CGO_ENABLED=0 go test -count=1 ./${PKG}..., each fuzz target in the package for at least 60s, GOTOOLCHAIN=go1.27.1 bin/golangci-lint run ./${PKG}..., GOTOOLCHAIN=go1.27.1 bin/golangci-lint fmt ./${PKG}..., and go run ./internal/tool/repocheck`
 
 const FINDING = {
   type: 'object',
@@ -125,7 +127,7 @@ const classFixPrompt = (g, attempt, open, history) => `${RULES}
 You are the engineer for WP-51, group ${g.id}: gap classes ${g.classes.join(', ')}. ${g.note}
 Read in ${AUDIT}: sections 4.1 and 4.2; the section of each of your classes in section 4 (root cause, members, fix for the class, tests, contract); every member row in the matrix of section 3 with its "Library paths and evidence" entry; and section 5 for the round-9 items your classes carry (the round-9 record is ${R9}). Read the library code each row cites. Read the decisions named above; they override the audit where they differ.
 ${history ? `Earlier groups of this run already changed the package (do not undo their fixes):\n${history.slice(0, 12000)}` : ''}
-${attempt > 1 && open === null ? `This is attempt ${attempt}, continued from a run that stopped while attempt ${attempt} ran, so the working tree may hold its partial edits. Attempts 1 to ${attempt - 1} are recorded in the "groups" entry ${g.id} of ${CARRY}, and the independent check of attempt ${attempt - 1} found the open items in its "open" field; close every one. Evidence paths under the old session's /tmp/claude-0 scratchpad are gone: reproduce each item from the input it states.` : attempt > 1 ? `This is attempt ${attempt}. The independent check of your group found these open items; close every one:\n${JSON.stringify(open, null, 1).slice(0, 20000)}` : ''}
+${attempt > 1 && open === null ? `This is attempt ${attempt}, continued from a run that stopped while attempt ${attempt} ran, so the working tree may hold its partial edits. Attempts 1 to ${attempt - 1} are recorded in the "groups" entry ${g.id} of ${CARRY}, and the independent check of attempt ${attempt - 1} found the open items in its "open" field; close every one. If the file has an "attempt${attempt}Progress" field, read it first: it records what the stopped attempt already changed and checked, so finish and verify that work rather than redo it. Evidence paths under the old session's /tmp/claude-0 scratchpad are gone: reproduce each item from the input it states.` : attempt > 1 ? `This is attempt ${attempt}. The independent check of your group found these open items; close every one:\n${JSON.stringify(open, null, 1).slice(0, 20000)}` : ''}
 Implement the class fix: fix every member row, and every other path you find that shares the root cause (list them in summary). Give every member row and every small or edge case its own test that fails without the fix; prove each by running it against the code without the fix (go test -overlay with pre-fix copies of the changed files in your scratch directory) or by a mutation the test kills, and record the proof per member. Update doc.go and every comment the change makes stale. If a member row is wrong (already bounded, or required by the spec), change no code for it and give the evidence in deviations, marking it "wrong" in members.
 Run the scoped checks until green: ${CHECKS}. Return the structured report.`
 

@@ -130,7 +130,9 @@ func TestSubstitute(t *testing.T) {
 		{name: "req27 repeated variable recorded once", text: "${A}${A}", want: "xx", vars: []string{"A"}},
 		{name: "req27 undefined without default", text: "${U}", want: "${U}", codes: []string{CodeUndefined}},
 		{name: "req27 one RZ-CFG-010 per occurrence", text: "${U}-${U}-${A}", want: "${U}-${U}-${A}", codes: []string{CodeUndefined, CodeUndefined}},
-		{name: "req26 malformed nested default", text: "${A:-${B}}", want: "${A:-${B}}", codes: []string{CodeMalformed}},
+		// The lenient read of the malformed text uses the undefined B (01
+		// req 27; TestMalformedUndefined).
+		{name: "req26 malformed nested default", text: "${A:-${B}}", want: "${A:-${B}}", codes: []string{CodeMalformed, CodeUndefined}},
 		{name: "req26 malformed name", text: "${1X}", want: "${1X}", codes: []string{CodeMalformed}},
 		{name: "req26 malformed operator", text: "${X-d}", want: "${X-d}", codes: []string{CodeMalformed}},
 		{name: "req26 malformed assignment", text: "${X:=d}", want: "${X:=d}", codes: []string{CodeMalformed}},

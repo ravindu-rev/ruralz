@@ -297,6 +297,75 @@ func zeroed(n *tree.Node) *tree.Node {
 	return &c
 }
 
+// keyedZeros are resources with a zero of each spelling as a keyed-list
+// key, which the key's path element shows as written (01 req 48) while
+// the tree's zeroed twin shows 0, and duplicate zero keys of two
+// spellings, which canonical JSON compares equal (01 req 34): the forms
+// that made FuzzValidate's zero property fail (review finding), the
+// first its crasher, which testdata/fuzz/FuzzValidate also holds. shown
+// is the keyed path element of the last entry as its findings show it.
+func keyedZeros() []struct{ name, src, shown string } {
+	return []struct{ name, src, shown string }{
+		{"fuzz crasher 0e0", `{"kind":"Gateway","00000000":{"0000":"0"},"spec":{"listeners":[{"name":0e0}]}}`, "[name=0e0]"},
+		{"0.0", `{"kind":"Gateway","spec":{"listeners":[{"name":0.0}]}}`, "[name=0.0]"},
+		{"-0", `{"kind":"Gateway","spec":{"listeners":[{"name":-0}]}}`, "[name=-0]"},
+		{"-0.0", `{"kind":"Gateway","spec":{"listeners":[{"name":-0.0}]}}`, "[name=-0.0]"},
+		{"0e5", `{"kind":"Gateway","spec":{"listeners":[{"name":0e5}]}}`, "[name=0e5]"},
+		{"exponent beyond int64", `{"kind":"Gateway","spec":{"listeners":[{"name":-0E-99999999999999999999}]}}`, "[name=-0E-99999999999999999999]"},
+		{"duplicates 0 and -0.0", `{"kind":"Gateway","spec":{"listeners":[{"name":0},{"name":-0.0}]}}`, "[name=-0.0]: duplicate entry: name 0 is already used"},
+		{"duplicates -0.0 and 0e3", `{"kind":"Gateway","spec":{"listeners":[{"name":-0.0},{"name":0e3}]}}`, "[name=0e3]: duplicate entry: name 0 is already used"},
+		{"keyed list of a Route", envelope("Route", `{"match": {"path": {"prefix": "/"}}, "upstreams": [{"name": -0.0, "weight": "x"}]}`), "[name=-0.0].weight"},
+		{"corpus reproducer", `{"apiVersion": "ruralz/v1alpha1", "kind": "Gateway", "metadata": {"name": "x"}, "spec": {"listeners": [{"name": 0.0, "port": "x", "protocol": "http"}]}}`, "[name=0.0].port"},
+	}
+}
+
+// TestZeroKeyedKeys checks FuzzValidate's zero properties (zeroProperties)
+// on every keyedZeros form, each of which failed them before keyed zeros
+// were compared as written 0 and the smallest grid was compared on one
+// tree, and that each form's own findings show the key as written.
+func TestZeroKeyedKeys(t *testing.T) {
+	v := testView(t)
+	small := smallGrid(t, v)
+	for _, tc := range keyedZeros() {
+		t.Run(tc.name, func(t *testing.T) {
+			files := &tree.FileTable{}
+			files.Add(tree.File{Path: "f.json", Role: tree.RoleBase})
+			root, err := parseJSON([]byte(tc.src), 0)
+			if err != nil {
+				t.Fatal(err)
+			}
+			res := resourceOf(root)
+			if err := zeroProperties(v, small, res, files); err != nil {
+				t.Error(err)
+			}
+			if got := texts(v.Validate(res, files)); !strings.Contains(got, tc.shown) {
+				t.Errorf("Validate() =\n%s\nwant a finding at %s", got, tc.shown)
+			}
+		})
+	}
+}
+
+// TestZeroKeyed checks the comparison text of zeroProperties: a keyed
+// path element whose key is a zero literal of any spelling reads 0, and
+// nothing else changes: a nonzero or string key, a set element 0.0, an
+// index, a field named 0.0; the lines are sorted.
+func TestZeroKeyed(t *testing.T) {
+	l := diag.List{
+		{Code: CodeSchema, Message: "b", Path: diag.Path{diag.Field("spec"), diag.Keyed("name", "-0.0e7"), diag.Field("0.0")}},
+		{Code: CodeSchema, Message: "a", Path: diag.Path{diag.Keyed("name", "0E99999999999999999999"), diag.Keyed("k", "1.0"), diag.Keyed("k", "x0")}},
+		{Code: CodeSchema, Message: "c", Path: diag.Path{diag.Item(json.Number("0.0")), diag.Index(0), diag.Keyed("name", "00")}},
+	}
+	want := "- error RZ-CFG-005 [item=0.0][0][name=00]: c\n" +
+		"- error RZ-CFG-005 [name=0][k=1.0][k=x0]: a\n" +
+		"- error RZ-CFG-005 spec[name=0][\"0.0\"]: b\n"
+	if got := zeroKeyed(l); got != want {
+		t.Errorf("zeroKeyed() =\n%s\nwant\n%s", got, want)
+	}
+	if l[0].Path[1].Key != "-0.0e7" {
+		t.Errorf("zeroKeyed() changed its input: %q", l[0].Path[1].Key)
+	}
+}
+
 // TestExponentInt64 checks literal.exponentInt64 against
 // strconv.ParseInt, which big.Rat.SetString applies to the exponent with
 // its sign, at both ends of int64, with leading zeros and without an

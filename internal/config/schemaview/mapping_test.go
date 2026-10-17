@@ -68,9 +68,33 @@ func TestErrorMapping(t *testing.T) {
 			"req33 top-level status", `{"apiVersion": "ruralz/v1alpha1", "kind": "Route", "metadata": {"name": "x"}, "status": {}, "spec": {"match": {"path": {"prefix": "/"}}, "upstreams": [{"name": "u"}]}}`,
 			[]finding{{CodeUnknownField, "status", `unknown field "status": only Ruralz Control writes status`, ""}},
 		},
+		// 01 req 33 gives its two dedicated messages to metadata.namespace
+		// and a top-level status only: the same names anywhere else are
+		// ordinary unknown fields with the nearest-name hint (review
+		// finding: no case reached them, so dropping either condition
+		// went unnoticed; TestLeafMessages has the cases with a hint).
 		{
-			"req33 $patch in a base file", envelope("Route", `{"$patch": "replace", "match": {"path": {"prefix": "/"}}, "upstreams": [{"name": "u"}]}`),
-			[]finding{{CodeUnknownField, "spec.$patch", `unknown field "$patch": $patch is valid only in overlays`, ""}},
+			"req33 status below the root", envelope("Upstream", `{"protocol": "http", "endpoints": [{"address": "a:1"}], "status": {}}`),
+			[]finding{{CodeUnknownField, "spec.status", `unknown field "status"`, ""}},
+		},
+		{
+			"req33 status in a keyed entry", envelope("Upstream", `{"protocol": "http", "endpoints": [{"address": "a:1", "status": 1}]}`),
+			[]finding{{CodeUnknownField, "spec.endpoints[address=a:1].status", `unknown field "status"`, ""}},
+		},
+		{
+			"req33 namespace below the root", envelope("Upstream", `{"protocol": "http", "endpoints": [{"address": "a:1"}], "namespace": "n"}`),
+			[]finding{{CodeUnknownField, "spec.namespace", `unknown field "namespace"`, ""}},
+		},
+		{
+			"req33 status and namespace in a keyed entry", envelope("Gateway", `{"listeners": [{"name": "a", "port": 1, "protocol": "http", "status": 1, "namespace": 2}]}`),
+			[]finding{
+				{CodeUnknownField, "spec.listeners[name=a].status", `unknown field "status"`, ""},
+				{CodeUnknownField, "spec.listeners[name=a].namespace", `unknown field "namespace"`, ""},
+			},
+		},
+		{
+			"req25 $patch in a base file", envelope("Route", `{"$patch": "replace", "match": {"path": {"prefix": "/"}}, "upstreams": [{"name": "u"}]}`),
+			[]finding{{CodeUnknownField, "spec.$patch", "$patch is valid only in overlays", ""}},
 		},
 		{
 			"req33 closed config", policy("auth.basic", `{"realm": "x"}`),
@@ -553,6 +577,26 @@ func TestLeafMessages(t *testing.T) {
 			"invalid secret reference: ref.id does not match the required pattern; ref.n must be an integer; the field accepts only ref; write it as {ref: {id}}", "",
 		}}},
 		{`{"secret": "literal"}`, []finding{{CodeLiteral, "spec.secret", "a literal value is not allowed in a secret field; reference the secret as {ref: {id}}", ""}}},
+		// 01 req 33: every keyword inside a secret gives a reason worded from
+		// the schema alone, never the value: const, maxLength and minimum
+		// take the default reason; not and a oneOf that several branches
+		// match report no cause (review finding: no case reached these
+		// branches, so a reason quoting the value went unnoticed).
+		{`{"secret": {"ref": {"id": "a", "c": "SENTINEL-c"}}}`, []finding{{CodeLiteral, "spec.secret", "invalid secret reference: ref.c is not valid; write it as {ref: {id}}", ""}}},
+		{`{"secret": {"ref": {"id": "a", "m": "SENTINEL-m"}}}`, []finding{{CodeLiteral, "spec.secret", "invalid secret reference: ref.m is not valid; write it as {ref: {id}}", ""}}},
+		{`{"secret": {"ref": {"id": "a", "min": 1}}}`, []finding{{CodeLiteral, "spec.secret", "invalid secret reference: ref.min is not valid; write it as {ref: {id}}", ""}}},
+		{`{"secret": {"ref": {"id": "a", "nt": "SENTINEL-nt"}}}`, []finding{{CodeLiteral, "spec.secret", "invalid secret reference: ref.nt is not valid; write it as {ref: {id}}", ""}}},
+		{`{"secret": {"ref": {"id": "a", "one": 7}}}`, []finding{{CodeLiteral, "spec.secret", "invalid secret reference: ref.one is not valid; write it as {ref: {id}}", ""}}},
+		{`{"secret": {"ref": {"id": "a", "c": "SENTINEL-c", "m": "SENTINEL-m", "min": 1, "nt": "SENTINEL-nt", "one": 7}}}`, []finding{{
+			CodeLiteral, "spec.secret",
+			"invalid secret reference: ref.c is not valid; ref.m is not valid; ref.min is not valid; ref.nt is not valid; ref.one is not valid; write it as {ref: {id}}", "",
+		}}},
+		// 01 req 33: the dedicated namespace and status messages apply at
+		// metadata and at the resource root only; a closed metadata object
+		// below the root and a status below the root get the ordinary
+		// message and the nearest-name hint.
+		{`{"metadata": {"name": "n", "namespace": "x"}}`, []finding{{CodeUnknownField, "spec.metadata.namespace", `unknown field "namespace"`, `did you mean "namespaces"?`}}},
+		{`{"status": {}}`, []finding{{CodeUnknownField, "spec.status", `unknown field "status"`, `did you mean "stats"?`}}},
 		{`{"opaque": {"k": "v"}}`, []finding{{CodeLiteral, "spec.opaque", "invalid secret reference: a nested value must be an integer; write it as a secretRef", ""}}},
 		{`{"keyed": [{"name": "a", "v": "x"}, {"name": "a"}]}`, []finding{
 			{CodeSchema, "spec.keyed[name=a].v", "must be an integer, not a string", ""},

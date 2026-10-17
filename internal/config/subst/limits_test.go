@@ -30,6 +30,21 @@ func labelsRoute(n int, key, v func(i int) string) string {
 
 func keyN(i int) string { return "k" + strconv.Itoa(i) }
 
+// raceScaled returns full, or race in a test binary built with -race
+// (raceEnabled): a size the asymptotic checks still measure.
+func raceScaled(full, race int) int {
+	if raceEnabled {
+		return race
+	}
+	return full
+}
+
+// testBudget is the diagnostic budget TestDiagnosticBudget sets:
+// DefaultMaxDiagnostics, or a tenth of it under -race, where the budget
+// check, which needs some multiple of it in occurrences, runs at that
+// size (TestMaxDiagnosticsOption covers a budget other than the default).
+func testBudget() int { return raceScaled(DefaultMaxDiagnostics, DefaultMaxDiagnostics/10) }
+
 // substProducer builds a resource with k occurrences of one stage E
 // diagnostic. list marks a producer whose occurrences are list elements
 // past which, once the budget is spent, the walk does no work.
@@ -71,33 +86,34 @@ func substProducers() []substProducer {
 }
 
 // TestDiagnosticBudget covers 01 req 50 and risk 1 (review finding): one
-// Apply call records the first DefaultMaxDiagnostics+1 diagnostics in
-// walk order, warnings included, so the caller's cap appends its
-// RZ-CFG-001, and stops, so a resource with many more occurrences
-// allocates no more. Every producer of a per-occurrence diagnostic is one
-// row.
+// Apply call records the first MaxDiagnostics+1 diagnostics in walk
+// order, warnings included, so the caller's cap appends its RZ-CFG-001,
+// and stops, so a resource with many more occurrences allocates no more.
+// Every producer of a per-occurrence diagnostic is one row. The budget is
+// the default one, but under -race (testBudget).
 func TestDiagnosticBudget(t *testing.T) {
-	const k = DefaultMaxDiagnostics + 50
+	budget := testBudget()
+	k := budget + 50
 	for _, p := range substProducers() {
 		t.Run(p.name, func(t *testing.T) {
-			s := New(Options{Schemas: schemas(t)})
+			s := New(Options{Schemas: schemas(t), MaxDiagnostics: budget})
 			parse := func(k int) *tree.Resource {
 				return docs(t, &tree.FileTable{}, "r.yaml", p.build(k))[0]
 			}
 			ds := s.Apply(parse(k))
-			if len(ds) != DefaultMaxDiagnostics+1 {
-				t.Fatalf("%d diagnostics, want %d", len(ds), DefaultMaxDiagnostics+1)
+			if len(ds) != budget+1 {
+				t.Fatalf("%d diagnostics, want %d", len(ds), budget+1)
 			}
 			for i, d := range ds {
 				if d.Code != p.code {
 					t.Fatalf("diagnostic %d is %s, want %s", i, d.AppendText(nil), p.code)
 				}
 			}
-			c := diag.NewCollector(DefaultMaxDiagnostics)
+			c := diag.NewCollector(budget)
 			c.AddAll(ds)
-			if l := c.List(); len(l) != DefaultMaxDiagnostics+1 || !c.Full() || l.FirstErrorCode() != "RZ-CFG-001" {
+			if l := c.List(); len(l) != budget+1 || !c.Full() || l.FirstErrorCode() != "RZ-CFG-001" {
 				t.Errorf("a collector with the same cap kept %d diagnostics (full %v, first error %s), want %d and RZ-CFG-001",
-					len(l), c.Full(), l.FirstErrorCode(), DefaultMaxDiagnostics+1)
+					len(l), c.Full(), l.FirstErrorCode(), budget+1)
 			}
 			allocs := func(k int) float64 {
 				rs := []*tree.Resource{parse(k), parse(k)}
@@ -107,7 +123,7 @@ func TestDiagnosticBudget(t *testing.T) {
 					i++
 				})
 			}
-			if a1, a2 := allocs(k), allocs(2*k); a2 > a1+k/8 {
+			if a1, a2 := allocs(k), allocs(2*k); a2 > a1+float64(k/8) {
 				t.Errorf("%.0f allocations for %d occurrences, %.0f for %d: the walk goes on past the budget", a1, k, a2, 2*k)
 			}
 			if !p.list {
@@ -115,7 +131,7 @@ func TestDiagnosticBudget(t *testing.T) {
 			}
 			units := func(k int) int {
 				calls := 0
-				_ = New(Options{Schemas: schemas(t), Yield: func() { calls++ }}).Apply(parse(k))
+				_ = New(Options{Schemas: schemas(t), MaxDiagnostics: budget, Yield: func() { calls++ }}).Apply(parse(k))
 				return calls
 			}
 			if w1, w2 := units(k), units(2*k); w2 > w1+2 {
@@ -168,9 +184,10 @@ func TestMaxDiagnosticsOption(t *testing.T) {
 // scaleShape is a stage E input of size n for the scale tests.
 type scaleShape struct {
 	name string
-	// code is the only diagnostic code the shape raises; "" for none.
-	code  string
-	build func(n int) string
+	// code is the only error code the shape raises, "" for none, and also
+	// a second one it raises beside it.
+	code, also string
+	build      func(n int) string
 	// vars are the variables (Map{"A": "a"} when nil) and hints the
 	// HintNames.
 	vars  Map
@@ -226,8 +243,16 @@ func scaleShapes() []scaleShape {
 		{name: "S14 one long name without a brace", code: CodeMalformed, build: func(n int) string {
 			return prefixRoute("${" + strings.Repeat("N", 256*n))
 		}},
-		{name: "S14 every malformed form repeated", code: CodeMalformed, build: func(n int) string {
+		// B is defined: the lenient read of ${A:-${B}} uses it (01 req 27),
+		// which the next shape covers.
+		{name: "S14 every malformed form repeated", code: CodeMalformed, vars: Map{"A": "a", "B": "b"}, build: func(n int) string {
 			return prefixRoute(strings.Repeat("${1X} ${X-d} ${X:=d} ${A:-${B}} ${ ", 4*n))
+		}},
+		// 01 req 27 in a malformed scalar (review finding): each
+		// well-formed use of an undefined variable, read leniently, is one
+		// RZ-CFG-010 beside the scalar's RZ-CFG-005.
+		{name: "req27 undefined uses in a malformed scalar", code: CodeMalformed, also: CodeUndefined, build: func(n int) string {
+			return prefixRoute(strings.Repeat("${U} ${A:-${V}} ", n) + "${")
 		}},
 		{name: "S14 malformed scalars in many labels", code: CodeMalformed, build: func(n int) string {
 			return labelsRoute(n, keyN, func(int) string { return strings.Repeat("${A:-", 16) })
@@ -279,7 +304,7 @@ func work(t *testing.T, sh scaleShape, n int) int {
 	s := New(sh.options(t, n, func() { calls++ }))
 	r := docs(t, &tree.FileTable{}, "r.yaml", sh.build(n))[0]
 	for _, d := range s.Apply(r) {
-		if d.Severity == diag.SeverityError && d.Code != sh.code {
+		if d.Severity == diag.SeverityError && d.Code != sh.code && (sh.also == "" || d.Code != sh.also) {
 			t.Fatalf("%s", d.AppendText(nil))
 		}
 	}
@@ -307,7 +332,7 @@ func (sh scaleShape) options(t testing.TB, n int, yield func()) Options {
 // re-reading earlier text or a dedupe scanning every earlier name costs
 // sixteen times.
 func TestScaleLinear(t *testing.T) {
-	const n = 2000
+	n := raceScaled(2000, 500)
 	for _, sh := range scaleShapes() {
 		t.Run(sh.name, func(t *testing.T) {
 			w1, w4 := work(t, sh, n), work(t, sh, 4*n)
@@ -348,7 +373,7 @@ func TestYield(t *testing.T) {
 // reads at least every searchWindow bytes, so a single scalar of 4 MiB
 // yields many times before the walk reaches its next node.
 func TestYieldInsideLongScalar(t *testing.T) {
-	const size = 4 << 20
+	size := raceScaled(4<<20, 1<<20)
 	for name, text := range map[string]string{
 		"unterminated defaults": strings.Repeat("${A:-", size/5),
 		"one long name":         "${" + strings.Repeat("N", size),

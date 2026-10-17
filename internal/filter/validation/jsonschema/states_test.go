@@ -231,6 +231,7 @@ func TestStatesMemberPatterns(t *testing.T) {
 			if scan.work < int64(matching) {
 				t.Errorf("the scan charges %d work units, matching the names takes %d", scan.work, matching)
 			}
+			requireMeter(t)
 			if decide := decisionTree(t, tc.schema, v); decide > scan.decide+treeSlack {
 				t.Errorf("the decision pass held an error tree of %d bytes, the scan charges %d", decide, scan.decide)
 			}

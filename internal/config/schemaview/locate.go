@@ -54,15 +54,23 @@ const memberIndexMin = 16
 // diagnostics repeat per error: the position each instance location
 // prefix reaches (a trie of steps, so each position's path, element text,
 // schema dispatch and secret mark are computed once however many errors
-// lie at or below it), the member index of large objects, the secret mark
-// of each schema node, the interned path texts and the common prefixes of
-// long path segments. Mapping work is then linear in the number of
-// errors times their location depth plus the instance size, up to the
-// logarithmic factor of sorting the diagnostics. lcp holds the pairs of
-// long sibling segments compared whose common prefix reaches lcpMemo, at
-// most scanned/lcpMemo of them; every other long pair is remembered only
-// as each segment's last comparison (lcpCache), so the memo's size does
-// not grow with the comparisons (TestLongSiblingPrefixes).
+// lie at or below it while the step is held), the member index of large
+// objects, the secret mark of each schema node, the interned path texts
+// and the common prefixes of long path segments. Mapping work is then
+// linear in the number of errors times their location depth plus the
+// instance size, up to the logarithmic factor of sorting the diagnostics.
+// lcp holds the pairs of long sibling segments compared whose common
+// prefix reaches lcpMemo, at most scanned/lcpMemo of them; every other
+// long pair is remembered only as each segment's last comparison
+// (lcpCache), so the memo's size does not grow with the comparisons
+// (TestLongSiblingPrefixes).
+//
+// Steps and interned texts are not kept for every error: a sweep (sweep.go)
+// drops those that no diagnostic the mapper holds needs and that were
+// cheap to resolve, whenever the memo has grown by more than it kept, so
+// what the memo holds does not grow with the errors that the cap drops
+// (review finding: one step per error was kept, about 1 KB per error
+// whatever the cap).
 type memo struct {
 	start *schemaidx.Node
 	root  *tree.Node
@@ -83,6 +91,17 @@ type memo struct {
 	// work counts the call's work units for Options.Yield; nil yields
 	// nothing.
 	work *work
+	// roots, set by the mapper, marks the paths it holds (mapper.roots),
+	// which a sweep keeps with everything above them.
+	roots func(mark func(*pathNode))
+	// grown counts the steps and interned texts added since the last
+	// sweep and kept those the last sweep kept; peak is the most the memo
+	// held at once and sweeps the number of sweeps, which the memory tests
+	// bound and count. created numbers the steps (step.seq).
+	grown, kept, peak, sweeps, created int
+	// minSweep is the least growth between two sweeps, sweepMin when zero;
+	// tests lower it to sweep at nearly every step and text.
+	minSweep int
 }
 
 // step is a memoized position with the steps below it, keyed by the
@@ -98,28 +117,45 @@ type step struct {
 	tn   textNode
 	few  []*step
 	many map[string]*step
+	// costly marks a step whose resolution read at least keepCost
+	// members, elements and bytes (memo.step): every sweep keeps it, so a
+	// large object's dispatch or a large element's key-aware text is
+	// computed once however many errors pass it.
+	costly bool
+	// seq numbers the steps in the order they were added, the order a
+	// sweep keeps them in.
+	seq int
 }
 
 // fewSteps is the child count up to which a step scans its children
 // instead of indexing them: most positions have a handful.
 const fewSteps = 8
 
-// find returns the child step at tok and the children it compared: each
-// entry of few it scanned, or one for the lookup in many. A step with
-// many children must not be scanned per error: that is quadratic in its
-// children (review finding: no count saw a scan of every child, so the
-// loss of the index cost 120 s unnoticed).
-func (s *step) find(tok string) (*step, int, bool) {
+// find returns the child step at tok, the children it compared and the
+// bytes it read to compare them: for each entry of few it scanned, the
+// token's bytes when the two lengths are equal (strings of different
+// lengths differ without a byte read), or for the lookup in many one
+// child and the token's bytes, which it hashes. A step with many children
+// must not be scanned per error: that is quadratic in its children
+// (review finding: no count saw a scan of every child, so the loss of the
+// index cost 120 s unnoticed). The bytes must be counted per child: eight
+// equal-length siblings of 64 KiB each read 512 KiB per lookup (review
+// finding: only the token's length was charged).
+func (s *step) find(tok string) (c *step, compared, bytes int, ok bool) {
 	if s.many != nil {
 		c, ok := s.many[tok]
-		return c, 1, ok
+		return c, 1, len(tok), ok
 	}
 	for i, c := range s.few {
+		if len(c.tok) != len(tok) {
+			continue
+		}
+		bytes += len(tok)
 		if c.tok == tok {
-			return c, i + 1, true
+			return c, i + 1, bytes, true
 		}
 	}
-	return nil, len(s.few), false
+	return nil, len(s.few), bytes, false
 }
 
 // add records child step c.
@@ -305,17 +341,24 @@ func (x *memo) locate(loc []string) position {
 }
 
 // step returns the step below s at location token tok. The lookup reads
-// one member per child it compares (step.find) and hashes or compares
-// tok, each a work unit per byte, so a location with a long member name
-// charges its length per lookup.
+// one member per child it compares (step.find) and the bytes it compares
+// or hashes, each a work unit, so a location with a long member name
+// charges its length per lookup and per equal-length sibling scanned.
+// Resolving a new step reads tok once more (memberSchema hashes it into
+// the schema's members, or strconv.Atoi parses a list index), charged
+// with its bytes. A step whose resolution read at least keepCost
+// members, elements and bytes is marked costly, which sweeps keep.
 func (x *memo) step(s *step, tok string) *step {
-	c, compared, ok := s.find(tok)
+	c, compared, bytes, ok := s.find(tok)
 	x.read += compared
-	x.work.charge(compared + len(tok))
+	x.work.charge(compared + bytes)
 	if ok {
 		return c
 	}
+	x.sweepIfGrown(s.path)
 	x.work.tick()
+	readBefore, bytes := x.read, len(tok)
+	x.work.charge(len(tok))
 	parent, parentSchema := s.node, s.schema
 	var child *tree.Node
 	var childSchema *schemaidx.Node
@@ -330,6 +373,7 @@ func (x *memo) step(s *step, tok string) *step {
 				child = parent.Items[i]
 			}
 			elem = x.itemElem(parentSchema, child, i)
+			bytes += elemBytes(elem, child)
 		}
 		childSchema, _ = parentSchema.Items()
 	default:
@@ -337,7 +381,8 @@ func (x *memo) step(s *step, tok string) *step {
 		elem = diag.Field(tok)
 		childSchema = memberSchema(parentSchema, tok)
 	}
-	c = &step{position: s.position, tok: tok}
+	c = &step{position: s.position, tok: tok, seq: x.created}
+	x.created++
 	c.pn = pathNode{parent: s.path, elem: elem}
 	c.pn.text = x.intern(s.path.textOf(), elem, &c.tn)
 	c.path = &c.pn
@@ -346,8 +391,10 @@ func (x *memo) step(s *step, tok string) *step {
 	if child != nil && child.Pos.Known() {
 		c.pos = child.Pos
 	}
+	c.costly = x.read-readBefore+bytes+len(c.pn.text.text) >= keepCost
 	x.markSecret(&c.position)
 	s.add(c)
+	x.grow()
 	return c
 }
 

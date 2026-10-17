@@ -28,14 +28,16 @@ func (goexitOracle) ReferencesRequestBody(src string) (bool, error) {
 }
 
 // goexitClock is an Options.Now that counts its reads and ends its
-// goroutine with runtime.Goexit from read fail on (0 never does).
+// goroutine with runtime.Goexit at read fail and, unless once is set, at
+// every read after it (0 never does).
 type goexitClock struct {
 	fail  int64
+	once  bool
 	reads atomic.Int64
 }
 
 func (c *goexitClock) now() time.Time {
-	if n := c.reads.Add(1); c.fail > 0 && n >= c.fail {
+	if n := c.reads.Add(1); c.fail > 0 && (n == c.fail || (!c.once && n > c.fail)) {
 		runtime.Goexit()
 	}
 	return time.Unix(0, 0)
@@ -81,8 +83,11 @@ func wantGoexit(t *testing.T, what string, v any, returned bool) {
 // selectAll (the reviewer's Bundle), and Now at every read before a unit
 // of Phase selection, of the Upstream legs and of the Routes (where a
 // lost unit left an empty leg, or a nil chain that crashed the indexing
-// of the result). Every one reaches the caller's recover as the
-// *unitPanic of the Goexit, wrapping errGoexit, never as a result.
+// of the result), with a clock that exits at that read only ("once": the
+// other workers go on, as with the reviewer's oracle) and one that exits
+// at every read from it on ("from": every worker that reads it again
+// fails too). Every one reaches the caller's recover as the *unitPanic of
+// the Goexit, wrapping errGoexit, never as a result.
 func TestGoexitInUnitRaised(t *testing.T) {
 	b := newBuilder()
 	b.policy("az-exit", v1alpha1.PolicyTypeAuthzCEL, authzCfg("exit && request.body.x"))
@@ -123,16 +128,20 @@ func TestGoexitInUnitRaised(t *testing.T) {
 			if total := clean.reads.Load(); total != created+16 {
 				t.Fatalf("%d clock reads, want %d", total, created+16)
 			}
-			for fail := created + 1; fail <= created+16; fail++ {
-				stage := map[bool]string{true: "Phase selection", false: "Upstream legs"}[fail <= created+8]
-				if fail > created+12 {
-					stage = "Routes"
-				}
-				clock := &goexitClock{fail: fail}
-				v, returned := runCatching(func() {
-					_, _, _ = mustNew(t, nil, Options{Now: clock.now}).Run(t.Context(), clockBundle, nil, workers)
+			for _, once := range []bool{true, false} {
+				t.Run(map[bool]string{true: "once", false: "from"}[once], func(t *testing.T) {
+					for fail := created + 1; fail <= created+16; fail++ {
+						stage := map[bool]string{true: "Phase selection", false: "Upstream legs"}[fail <= created+8]
+						if fail > created+12 {
+							stage = "Routes"
+						}
+						clock := &goexitClock{fail: fail, once: once}
+						v, returned := runCatching(func() {
+							_, _, _ = mustNew(t, nil, Options{Now: clock.now}).Run(t.Context(), clockBundle, nil, workers)
+						})
+						wantGoexit(t, fmt.Sprintf("Now at read %d (%s)", fail, stage), v, returned)
+					}
 				})
-				wantGoexit(t, fmt.Sprintf("Now at read %d (%s)", fail, stage), v, returned)
 			}
 		})
 	}

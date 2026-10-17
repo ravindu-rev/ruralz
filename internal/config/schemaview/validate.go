@@ -65,13 +65,16 @@ func (v *View) check(res *tree.Resource, files *tree.FileTable, limit int, opts 
 
 // run validates the mapper's resource: the JSON Schema of its kind
 // (View.runSchema), whose errors it maps, then the checks the schema
-// cannot express, skipping the member values the instance left out.
+// cannot express, skipping the member values the instance left out. They
+// all read the tree the validator read, which has a null node for every
+// nil member value or element (nullFilled).
 func (m *mapper) run() {
 	if m.res.Root == nil {
 		m.emit(CodeSchema, position{}, m.res.Start, "must be an object, not an empty document", "")
 		return
 	}
-	shadowed, err := m.v.runSchema(m.res, m.work)
+	res, shadowed, err := m.v.runSchema(m.res, m.work)
+	m.res, m.memo.root = res, res.Root
 	m.shadowed = shadowed
 	m.mapErrors(err)
 }
@@ -81,10 +84,10 @@ func (m *mapper) run() {
 // instance.
 var errValidator = errors.New("the schema validator failed")
 
-// invalidNumberError reports an instance with a number node, at position
-// at, whose text is outside the RFC 8259 grammar, which the tree contract
-// excludes (tree.Node.Text): the validator would parse it with no bound,
-// so it is not run.
+// invalidNumberError reports an instance with a number node whose text is
+// outside the RFC 8259 grammar, which the tree contract excludes
+// (tree.Node.Text): the validator would parse it with no bound, so it is
+// not run. at is the nearest known source position at or above the node.
 type invalidNumberError struct {
 	at tree.Pos
 }
@@ -92,25 +95,35 @@ type invalidNumberError struct {
 func (*invalidNumberError) Error() string { return "a number is not an RFC 8259 number literal" }
 
 // runSchema runs the JSON Schema of res's kind, or the root schema for a
-// kind the view does not dispatch, on res.Root (non-nil), and returns its
-// error with the member values the instance left out because an earlier
-// member has their key (built.shadowed), which the checks after it skip.
-// Building the instance charges its nodes on w, the bytes of its member
-// names and of long number literals; the validator cannot yield, so its
-// run is one span charged afterwards with the nodes and the bytes of the
-// member names and strings it hashes and reads (Options.Yield).
-func (v *View) runSchema(res *tree.Resource, w *work) (map[*tree.Node]bool, error) {
+// kind the view does not dispatch, on res.Root (non-nil), and returns the
+// resource it validated, its error, and the member values the instance
+// left out because an earlier member has their key (built.shadowed),
+// which the checks after it skip. The resource is res, or, when a member
+// value or list element of res is a nil node, a copy whose tree has a
+// null node there (nullFilled), which the instance is built from again:
+// the mapping and the checks after the validator read that tree. Building
+// the instance charges its nodes on w, the bytes of its member names and
+// of long number literals; the validator cannot yield, so its run is one
+// span charged afterwards with the nodes and the bytes of the member
+// names and strings it hashes and reads (Options.Yield).
+func (v *View) runSchema(res *tree.Resource, w *work) (*tree.Resource, map[*tree.Node]bool, error) {
 	sch, ok := v.kinds[string(res.ID.Kind)]
 	if !ok {
 		sch = v.root
 	}
 	inst := w.instance(res.Root, v.nums)
+	if inst.nils {
+		filled := *res
+		filled.Root = nullFilled(res.Root, w)
+		res = &filled
+		inst = w.instance(res.Root, v.nums)
+	}
 	if inst.invalid != nil {
-		return inst.shadowed, &invalidNumberError{at: inst.invalid.Pos}
+		return res, inst.shadowed, &invalidNumberError{at: inst.invalidAt}
 	}
 	err := validate(sch, inst.value)
 	w.charge(inst.nodes + inst.keyBytes + inst.stringBytes)
-	return inst.shadowed, err
+	return res, inst.shadowed, err
 }
 
 // validate runs sch on inst. A panic inside jsonschema/v6 returns
@@ -150,10 +163,13 @@ func (m *mapper) mapErrors(err error) {
 
 // frame is one element of the path of the node Walk visits, with its path
 // node built on first use: every duplicate below the same element shares
-// it, so the element is rendered once.
+// it, so the element is rendered once. pos is the nearest known source
+// position at or above the node, where a finding about a node without a
+// position points (01 req 36), as locate places it (position.pos).
 type frame struct {
 	elem diag.PathElem
 	path *pathNode
+	pos  tree.Pos
 }
 
 // framePath returns the path node of frames, building the missing ones.
@@ -177,7 +193,7 @@ func (m *mapper) framePath(frames []frame) *pathNode {
 // validator never saw it, and its path names the earlier member.
 func (m *mapper) checkLists() {
 	// frames follows Walk's pre-order: at depth d the first d-1 frames are
-	// the ancestors' elements.
+	// the ancestors' elements and the last is the node's own.
 	var frames []frame
 	_ = m.v.idx.Walk(string(m.res.ID.Kind), m.res.Root, func(c *schemaidx.Cursor) error {
 		last, _ := c.Last()
@@ -185,11 +201,16 @@ func (m *mapper) checkLists() {
 		if m.shadowed[c.Node] {
 			return schemaidx.ErrSkipChildren
 		}
-		if d := c.Depth(); d > 0 {
-			frames = append(frames[:d-1], frame{elem: last})
-		} else {
+		d := c.Depth()
+		if d == 0 {
 			frames = frames[:0]
+			return nil
 		}
+		above := m.res.Root.Pos
+		if d > 1 {
+			above = frames[d-2].pos
+		}
+		frames = append(frames[:d-1], frame{elem: last, pos: nearestPos(c.Node.Pos, above)})
 		if c.Node.Kind != tree.KindList || c.Info.Node == nil || c.Info.InSecret {
 			return nil
 		}
@@ -203,6 +224,16 @@ func (m *mapper) checkLists() {
 		}
 		return nil
 	})
+}
+
+// nearestPos returns at when it is known, else above: the nearest known
+// source position at or above a node whose own position is at and whose
+// parent's nearest is above.
+func nearestPos(at, above tree.Pos) tree.Pos {
+	if at.Known() {
+		return at
+	}
+	return above
 }
 
 // walkUnits returns the work units schemaidx.Walk spends on node n, which
@@ -239,8 +270,17 @@ func walkUnits(n *tree.Node, last diag.PathElem) int {
 // message names the variables stage E substituted into either key (01
 // req 29). frames is the list's path. The canonical JSON of a key is a
 // span that cannot yield (Options.Yield), charged with its bytes after it.
+// The finding is at the second entry's key and its related location at
+// the first entry's, each the nearest known position at or above the key
+// (01 reqs 34 and 36; review finding: a first key without a position
+// pointed at the resource start).
 func (m *mapper) duplicateKeys(c *schemaidx.Cursor, key string, frames []frame) {
-	first := map[string]*tree.Node{}
+	type keyAt struct {
+		key *tree.Node
+		pos tree.Pos
+	}
+	first := map[string]keyAt{}
+	listPos := frames[len(frames)-1].pos
 	var buf []byte
 	for _, item := range c.Node.Items {
 		m.work.tick()
@@ -251,20 +291,21 @@ func (m *mapper) duplicateKeys(c *schemaidx.Cursor, key string, frames []frame) 
 		buf = appendCanonical(buf[:0], k)
 		canon := string(buf)
 		m.work.charge(itemJSONBytes(k, len(canon)))
+		at := nearestPos(k.Pos, nearestPos(item.Pos, listPos))
 		prev, dup := first[canon]
 		if !dup {
-			first[canon] = k
+			first[canon] = keyAt{key: k, pos: at}
 			continue
 		}
 		shown := shorten(canon)
 		if k.Kind == tree.KindString {
 			shown = quote(k.Text)
 		}
-		p := position{path: m.memo.child(m.framePath(frames), diag.Keyed(key, k.Text)), node: k, pos: knownPos(k, item)}
+		p := position{path: m.memo.child(m.framePath(frames), diag.Keyed(key, k.Text)), node: k, pos: at}
 		msg := "duplicate entry: " + key + " " + shown + " is already used by an earlier entry" +
-			substituted(k.Vars, "the key") + substituted(prev.Vars, "the earlier key")
+			substituted(k.Vars, "the key") + substituted(prev.key.Vars, "the earlier key")
 		m.emit(CodeSchema, p, p.pos, msg, "",
-			diag.Related{Location: m.location(knownPos(prev, nil)), Message: "first entry at"})
+			diag.Related{Location: m.location(prev.pos), Message: "first entry at"})
 	}
 }
 
@@ -272,7 +313,10 @@ func (m *mapper) duplicateKeys(c *schemaidx.Cursor, key string, frames []frame) 
 // compared by canonical JSON (numbers by value, as the canonical form
 // encodes them). The message names the variables stage E substituted into
 // the scalars of either element (01 req 29). frames is the set's path.
+// The finding and its related location are each the nearest known
+// position at or above the element (01 req 36).
 func (m *mapper) duplicateElements(c *schemaidx.Cursor, frames []frame) {
+	listPos := frames[len(frames)-1].pos
 	first := map[string]*tree.Node{}
 	var buf []byte
 	for i, item := range c.Node.Items {
@@ -288,11 +332,11 @@ func (m *mapper) duplicateElements(c *schemaidx.Cursor, frames []frame) {
 		}
 		e := schemaidx.ItemElem(c.Info.Node, item, i)
 		m.work.charge(elemBytes(e, item))
-		p := position{path: m.memo.child(m.framePath(frames), e), node: item, pos: knownPos(item, c.Node)}
+		p := position{path: m.memo.child(m.framePath(frames), e), node: item, pos: nearestPos(item.Pos, listPos)}
 		msg := "duplicate element " + shorten(canon) + " in a set" +
 			substituted(m.varsBelow(item), "the element") + substituted(m.varsBelow(prev), "the earlier element")
 		m.emit(CodeSchema, p, p.pos, msg, "",
-			diag.Related{Location: m.location(knownPos(prev, c.Node)), Message: "first element at"})
+			diag.Related{Location: m.location(nearestPos(prev.Pos, listPos)), Message: "first element at"})
 	}
 }
 
@@ -345,17 +389,6 @@ func (m *mapper) varsBelow(n *tree.Node) []string {
 	return out
 }
 
-// knownPos returns n's position, or fallback's when n's is unknown.
-func knownPos(n, fallback *tree.Node) tree.Pos {
-	if n != nil && n.Pos.Known() {
-		return n.Pos
-	}
-	if fallback != nil {
-		return fallback.Pos
-	}
-	return tree.Pos{}
-}
-
 // shorten bounds canonical JSON quoted in a message to maxQuoted code
 // points, invalid UTF-8 bytes of a shortened text becoming U+FFFD as
 // []rune makes them. It reads at most that prefix (clip).
@@ -369,7 +402,8 @@ func shorten(s string) string {
 
 // checkReserved reports label keys, and annotation keys other than
 // ruralz.io/conversion-data, that start with ruralz.io/ (01 req 35), at
-// the key. Both the prefix and the exemption compare bytes exactly, as
+// the key, or at the nearest known position above a key without one (01
+// req 36). Both the prefix and the exemption compare bytes exactly, as
 // 01 req 35 and the configuration model ("Identity and references")
 // write them: label and annotation keys have no syntax that folds case,
 // so Ruralz.IO/team is an ordinary key, not the reserved prefix.
@@ -378,6 +412,7 @@ func (m *mapper) checkReserved() {
 	if !ok {
 		return
 	}
+	metaAt := nearestPos(meta.Pos, m.res.Root.Pos)
 	metaPath := m.memo.child(nil, diag.Field("metadata"))
 	for _, field := range []string{"labels", "annotations"} {
 		pairs, ok := m.member(meta, field)
@@ -388,6 +423,7 @@ func (m *mapper) checkReserved() {
 		if field == "annotations" {
 			what = "annotation"
 		}
+		pairsAt := nearestPos(pairs.Pos, metaAt)
 		fieldPath := m.memo.child(metaPath, diag.Field(field))
 		for j, mem := range pairs.Members {
 			m.work.tick()
@@ -399,10 +435,7 @@ func (m *mapper) checkReserved() {
 			if first, _ := m.memo.index(pairs, mem.Key); first != j {
 				continue
 			}
-			at := mem.KeyPos
-			if !at.Known() {
-				at = pairs.Pos
-			}
+			at := nearestPos(mem.KeyPos, pairsAt)
 			p := position{path: m.memo.child(fieldPath, diag.Field(mem.Key)), node: mem.Value, pos: at}
 			msg := what + " key " + quote(mem.Key) + " uses the reserved prefix " + reservedPrefix
 			hint := ""

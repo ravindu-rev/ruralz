@@ -33,6 +33,10 @@ const maxQuoted = 64
 // rest are counted, so one diagnostic stays one readable line.
 const maxVarsNamed = 4
 
+// patchMessage is the RZ-CFG-006 message of a $patch member in a base
+// document, overlay.CheckBase's message (01 req 25).
+const patchMessage = "$patch is valid only in overlays"
+
 // syntaxText is the message of a scalar definition that has a documented
 // syntax: every failure at the definition uses the syntax text instead of
 // the keyword (01 req 33: Duration and ByteSize, docs/architecture/
@@ -88,7 +92,8 @@ func fieldSyntax(l location, k jsonschema.ErrorKind) (string, bool) {
 // its errors in: a result longer than the cap means the cap was reached,
 // and the run stops and appends one RZ-CFG-001 "too many diagnostics"
 // (the pipeline's job, which a diag.Collector of the same cap does on the
-// extra diagnostic).
+// extra diagnostic). The cap also bounds what the mapping holds
+// (Options.MaxDiagnostics).
 const MaxDiagnostics = 10000
 
 // mapper turns one resource's validation errors into diagnostics.
@@ -116,9 +121,17 @@ type mapper struct {
 	// every position below it), so one diagnostic reports each secret
 	// field: two positions can share a path text, such as the secretRef of
 	// two keyed entries with one key (review finding: keyed by path text,
-	// their findings merged at the first).
+	// their findings merged at the first). order holds the same pending
+	// findings; once they reach twice what the last prune kept, at least
+	// 2*keep, pruneSecrets keeps those of the first keep groups, so they do
+	// not grow with the secret fields in error (review finding: every
+	// finding was held until the end).
 	secrets map[*position]*secretFinding
 	order   []*secretFinding
+	// secretHeld is the number of findings the last pruneSecrets kept,
+	// from which the next prune is counted, and secretPeak the most
+	// pending at once, which the memory tests bound.
+	secretHeld, secretPeak int
 	// shapes memoizes secretShape per secret field schema.
 	shapes map[*schemaidx.Node]string
 	// shadowed holds the values of members an earlier member of the same
@@ -166,6 +179,11 @@ func (n *nearest) hint() string {
 // secretFinding gathers the errors inside one x-ruralz-secret subtree.
 type secretFinding struct {
 	at position
+	// mark is the position's secret mark, its key in mapper.secrets.
+	mark *position
+	// key is the finding's diagnostic without its message, what
+	// pruneSecrets compares (compareKeys).
+	key entry
 	// reasons are distinct; each is worded from the schema alone, so their
 	// number is bounded by the schema, not by the instance.
 	reasons []string
@@ -181,10 +199,26 @@ func newMapper(v *View, res *tree.Resource, files *tree.FileTable, limit int, op
 		start = v.idx.Root()
 	}
 	w := &work{yield: opts.Yield}
-	return &mapper{
+	m := &mapper{
 		v: v, res: res, files: files, keep: min(max(limit, 1), math.MaxInt-1) + 1,
 		seen: map[dedupeKey]bool{}, memo: newMemo(start, res.Root, w), secrets: map[*position]*secretFinding{},
 		shapes: map[*schemaidx.Node]string{}, work: w,
+	}
+	m.memo.roots = m.roots
+	return m
+}
+
+// roots marks the paths the mapper holds, which a memo sweep keeps: its
+// diagnostics, the bound and the pending secret findings (sweep.go).
+func (m *mapper) roots(mark func(*pathNode)) {
+	for i := range m.out {
+		mark(m.out[i].at)
+	}
+	if m.bound != nil {
+		mark(m.bound.at)
+	}
+	for _, f := range m.order {
+		mark(f.at.path)
 	}
 }
 
@@ -283,6 +317,17 @@ func (m *mapper) sortEntries() {
 // stops at the first field that differs, and compares paths by their
 // interned texts (memo.comparePaths), never by rendering them.
 func (m *mapper) compareEntries(a, b *entry) int {
+	if c := m.compareKeys(a, b); c != 0 {
+		return c
+	}
+	return cmp.Compare(a.d.Message, b.d.Message)
+}
+
+// compareKeys is compareEntries without the message: the order of a
+// diagnostic whose message is not known yet, a secret finding still
+// gathering its reasons, which sorts after another whatever its message
+// when compareKeys says so.
+func (m *mapper) compareKeys(a, b *entry) int {
 	if c := cmp.Compare(a.d.Environment, b.d.Environment); c != 0 {
 		return c
 	}
@@ -298,10 +343,7 @@ func (m *mapper) compareEntries(a, b *entry) int {
 	if c := cmp.Compare(a.d.Code, b.d.Code); c != 0 {
 		return c
 	}
-	if c := m.memo.comparePaths(a.at.textOf(), b.at.textOf()); c != 0 {
-		return c
-	}
-	return cmp.Compare(a.d.Message, b.d.Message)
+	return m.memo.comparePaths(a.at.textOf(), b.at.textOf())
 }
 
 // location converts a tree position, falling back to the document start.
@@ -342,9 +384,7 @@ func (m *mapper) visit(e *jsonschema.ValidationError) {
 	}
 	switch k := e.ErrorKind.(type) {
 	case *kind.Schema, *kind.Group, *kind.Reference, *kind.AllOf:
-		for _, c := range e.Causes {
-			m.visit(c)
-		}
+		m.visitCauses(e)
 	case *kind.AnyOf:
 		m.alternatives(e, p, "anyOf")
 	case *kind.OneOf:
@@ -364,6 +404,19 @@ func (m *mapper) visit(e *jsonschema.ValidationError) {
 	default:
 		msg, hint := m.leafMessage(e, p)
 		m.emitValue(p, msg, hint)
+	}
+}
+
+// visitCauses visits each cause of e and then releases it from e: the
+// validator's error tree, a few hundred bytes per error, is freed while
+// it is mapped, so the peak of stage F is the larger of the tree and
+// what the mapping holds, not their sum (review finding: the whole tree
+// stayed referenced until mapping ended). A cause that alternatives does
+// not visit is released with its parent.
+func (m *mapper) visitCauses(e *jsonschema.ValidationError) {
+	for i, c := range e.Causes {
+		m.visit(c)
+		e.Causes[i] = nil
 	}
 }
 
@@ -531,9 +584,13 @@ func (m *mapper) unknown(p position, names []string) {
 		case name == "status" && p.path == nil:
 			msg += ": only Ruralz Control writes status"
 		case name == "$patch":
-			// The wording of 01 req 25 and of overlay.CheckBase, which
-			// reports the same rule with the same code before stage F.
-			msg += ": $patch is valid only in overlays"
+			// overlay.CheckBase's message, 01 req 25's rule: CheckBase
+			// reports it with the same code at the same key and path
+			// before stage F, and content that enters at stage F
+			// (FromResources) is reported here only, so the same rule
+			// reads the same from either stage (review finding: stage F
+			// added "unknown field").
+			msg = patchMessage
 		default:
 			near = &nearest{name: name, allowed: allowed}
 		}
@@ -658,22 +715,24 @@ func enumText(k *kind.Enum) (msg, hint string) {
 // secret records an error inside an x-ruralz-secret subtree. The finding
 // is reported once per secret field, at the field, with reasons worded
 // from the schema alone: never the value, and never an authored member
-// name, which could itself be the secret (01 req 33, RZ-CFG-012).
+// name, which could itself be the secret (01 req 33, RZ-CFG-012). When
+// starting the field's finding prunes it at once (newSecret), the error's
+// causes are not visited: they lie in the same subtree.
 func (m *mapper) secret(p position, e *jsonschema.ValidationError) {
 	f, ok := m.secrets[p.secret]
 	if !ok {
-		f = &secretFinding{at: *p.secret}
-		m.secrets[p.secret] = f
-		m.order = append(m.order, f)
+		if f = m.newSecret(p.secret); f == nil {
+			return
+		}
 	}
 	var below [4]diag.PathElem
-	rel := declaredPath(p.secret.schema, p.path.appendBelow(below[:0], p.secret.path))
+	rel := m.declaredPath(p.secret.schema, p.path.appendBelow(below[:0], p.secret.path))
 	switch k := e.ErrorKind.(type) {
 	case *kind.Schema, *kind.Group, *kind.Reference, *kind.AllOf, *kind.AnyOf, *kind.OneOf, *kind.Not:
-		for _, c := range e.Causes {
-			m.visit(c)
-		}
+		m.visitCauses(e)
 		if len(e.Causes) == 0 {
+			// not, or a oneOf that several branches matched: no cause
+			// says what failed.
 			f.add(rel + "is not valid")
 		}
 	case *kind.AdditionalProperties:
@@ -705,10 +764,71 @@ func (f *secretFinding) add(reason string) {
 	}
 }
 
+// newSecret starts the finding of the secret position mark. Once the
+// pending findings reach twice what the last prune kept, at least
+// 2*keep, it prunes them (pruneSecrets), and it returns nil when the new
+// finding is pruned: the error's causes lie in the same subtree and
+// would only start it again.
+func (m *mapper) newSecret(mark *position) *secretFinding {
+	f := &secretFinding{at: *mark, mark: mark, key: entry{
+		d:  diag.Diagnostic{Code: CodeLiteral, Severity: diag.SeverityError, Location: m.location(mark.pos)},
+		at: mark.path,
+	}}
+	m.secrets[mark] = f
+	m.order = append(m.order, f)
+	m.secretPeak = max(m.secretPeak, len(m.order))
+	// len(m.order) >= 2*limit, written so that it cannot overflow.
+	if limit := max(m.keep, m.secretHeld); len(m.order)-limit >= limit {
+		m.pruneSecrets()
+		if m.secrets[mark] != f {
+			return nil
+		}
+	}
+	return f
+}
+
+// pruneSecrets keeps the pending secret findings of the first keep
+// groups of equal key (compareKeys) and drops the rest. Each kept group
+// gives at least one diagnostic, distinct from every other group's and
+// sorting before every dropped finding's whatever the messages, so no
+// dropped finding is in the result. A later error of a dropped field
+// starts a new finding, which sorts after the same groups or after ones
+// that replaced them, so it is dropped again or cut from the result. A
+// group holds more than one finding only when two secret positions share
+// a location and a path text, which takes two keyed entries with one key
+// and no source position. Each comparison and each finding dropped is a
+// work unit.
+func (m *mapper) pruneSecrets() {
+	slices.SortFunc(m.order, func(a, b *secretFinding) int {
+		m.work.tick()
+		return m.compareKeys(&a.key, &b.key)
+	})
+	groups, end := 0, 0
+	for end < len(m.order) && groups < m.keep {
+		groups++
+		first := m.order[end]
+		for end++; end < len(m.order); end++ {
+			m.work.tick()
+			if m.compareKeys(&first.key, &m.order[end].key) != 0 {
+				break
+			}
+		}
+	}
+	for _, f := range m.order[end:] {
+		m.work.tick()
+		delete(m.secrets, f.mark)
+	}
+	clear(m.order[end:])
+	m.order = m.order[:end]
+	m.secretHeld = end
+}
+
 // declaredPath words the path below a secret field whose schema is n,
 // such as "secretRef.provider ", or "the field " at the field itself. A
-// step the schema does not declare is never echoed.
-func declaredPath(n *schemaidx.Node, rel diag.Path) string {
+// step the schema does not declare is never echoed. Looking a member name
+// up in the schema hashes it, charged with its bytes: an undeclared name
+// can be as long as the document.
+func (m *mapper) declaredPath(n *schemaidx.Node, rel diag.Path) string {
 	if len(rel) == 0 {
 		return "the field "
 	}
@@ -716,6 +836,7 @@ func declaredPath(n *schemaidx.Node, rel diag.Path) string {
 		if e.Kind != diag.ElemField {
 			return "a nested value "
 		}
+		m.work.charge(len(e.Name))
 		child, ok := n.Property(e.Name)
 		if !ok {
 			return "a nested value "
@@ -725,7 +846,8 @@ func declaredPath(n *schemaidx.Node, rel diag.Path) string {
 	return rel.String() + " "
 }
 
-// flushSecrets emits one RZ-CFG-012 per secret field with findings.
+// flushSecrets emits one RZ-CFG-012 per pending secret field finding and
+// releases them.
 func (m *mapper) flushSecrets() {
 	for _, f := range m.order {
 		m.work.tick()
@@ -742,6 +864,8 @@ func (m *mapper) flushSecrets() {
 		}
 		m.emit(CodeLiteral, f.at, f.at.pos, msg, "")
 	}
+	clear(m.secrets)
+	m.order = nil
 }
 
 // secretShape describes the required shape of a secret field from its

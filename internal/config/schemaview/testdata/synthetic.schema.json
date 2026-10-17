@@ -51,7 +51,15 @@
           "type": "object",
           "additionalProperties": false,
           "required": ["id"],
-          "properties": {"id": {"type": "string", "pattern": "^[a-z]+$"}, "n": {"type": "integer"}}
+          "properties": {
+            "id": {"type": "string", "pattern": "^[a-z]+$"},
+            "n": {"type": "integer"},
+            "c": {"const": "fixed"},
+            "m": {"type": "string", "maxLength": 3},
+            "min": {"type": "integer", "minimum": 5},
+            "nt": {"not": {"type": "string"}},
+            "one": {"oneOf": [{"type": "integer"}, {"minimum": 0}]}
+          }
         }
       }
     },
@@ -86,7 +94,9 @@
         "free": {"type": "object"},
         "code": {"type": "string", "pattern": "^[a-z]+$"},
         "level": {"const": "high"},
-        "toggle": {"anyOf": [{"type": "boolean"}, {"type": "integer", "minimum": 1}]}
+        "toggle": {"anyOf": [{"type": "boolean"}, {"type": "integer", "minimum": 1}]},
+        "metadata": {"type": "object", "additionalProperties": false, "properties": {"name": {"type": "string"}, "namespaces": {"type": "string"}}},
+        "stats": {"type": "object"}
       }
     }
   }

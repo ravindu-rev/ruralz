@@ -297,6 +297,25 @@ func TestHelpersMatchValidate(t *testing.T) {
 	if got := rawValidate(v, res, files); texts(got) != want {
 		t.Errorf("rawValidate() =\n%s\nwant\n%s", texts(got), want)
 	}
+	// A nil node is a null one for both helpers, as for Validate
+	// (nullFilled).
+	for _, tc := range nilCases() {
+		files := &tree.FileTable{}
+		res := mustResource(t, files, "r.json", tc.src)
+		for _, p := range tc.paths {
+			setAt(t, res.Root, p, nil)
+		}
+		if tc.unknownKind {
+			res.ID.Kind = ""
+		}
+		want := texts(v.Validate(res, files))
+		if _, got := mappingAlloc(v, res, files); texts(got) != want {
+			t.Errorf("%s: mappingAlloc() =\n%s\nwant\n%s", tc.name, texts(got), want)
+		}
+		if got := rawValidate(v, res, files); texts(got) != want {
+			t.Errorf("%s: rawValidate() =\n%s\nwant\n%s", tc.name, texts(got), want)
+		}
+	}
 }
 
 // yieldDocs are resources whose stage F work spans every yielding loop:
@@ -334,7 +353,7 @@ func TestYieldSchemaErrors(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			res := mustResource(t, &tree.FileTable{}, "r.json", src)
 			w, calls := counter()
-			_, _ = v.runSchema(res, w)
+			_, _, _ = v.runSchema(res, w)
 			nodes := countNodes(res.Root)
 			keys, strs := textBytes(res.Root)
 			if want := 2*nodes + 2*keys + strs; w.total != want {
@@ -509,8 +528,13 @@ func TestYieldCheckLists(t *testing.T) {
 	}
 }
 
-// countErrors returns the number of validation errors in e's tree.
+// countErrors returns the number of validation errors in e's tree that
+// are still reachable: mapping releases each cause it has mapped
+// (mapper.visitCauses).
 func countErrors(e *jsonschema.ValidationError) int {
+	if e == nil {
+		return 0
+	}
 	n := 1
 	for _, c := range e.Causes {
 		n += countErrors(c)
@@ -543,7 +567,7 @@ func countSteps(s *step) int {
 func validationError(t *testing.T, v *View, res *tree.Resource) *jsonschema.ValidationError {
 	t.Helper()
 	var verr *jsonschema.ValidationError
-	if _, err := v.runSchema(res, nil); !errors.As(err, &verr) {
+	if _, _, err := v.runSchema(res, nil); !errors.As(err, &verr) {
 		t.Fatalf("runSchema() = %v, want a validation error", err)
 	}
 	return verr
@@ -581,11 +605,13 @@ func indexBytes(n *tree.Node, key string, built map[*tree.Node]bool) int {
 // TestYieldLocate checks that resolving instance locations charges one
 // unit per path step created, every member and element the steps read
 // (memo.read: step lookups, scans, index builds, dispatches, list
-// elements), the bytes of every token looked up, and for each step
-// created the bytes of its segment (rendered and interned), of its set
-// element (elemBytes) and of the member names its member lookup compares
-// or hashes (01 req 53; review finding: segment rendering and long tokens
-// were uncharged).
+// elements), the bytes every lookup compares or hashes (lookupBytes),
+// and for each step created the bytes of its token (looked up in the
+// schema's members or parsed as an index), of its segment (rendered and
+// interned), of its set element (elemBytes) and of the member names its
+// member lookup compares or hashes (01 req 53; review findings: segment
+// rendering and long tokens were uncharged, and a lookup charged the
+// token once however many equal-length siblings it compared).
 func TestYieldLocate(t *testing.T) {
 	v := testView(t)
 	for name, src := range yieldDocs() {
@@ -593,12 +619,10 @@ func TestYieldLocate(t *testing.T) {
 			res := mustResource(t, &tree.FileTable{}, "r.json", src)
 			verr := validationError(t, v, res)
 			m := newMapper(v, res, nil, MaxDiagnostics, Options{Yield: func() {}})
-			tokens := 0
+			lookups := 0
 			eachLocation(verr, func(loc []string) {
+				lookups += lookupBytes(m.memo.top, loc)
 				m.locate(loc)
-				for _, tok := range loc {
-					tokens += len(tok)
-				}
 			})
 			steps := countSteps(m.memo.top)
 			if steps == 0 {
@@ -609,7 +633,7 @@ func TestYieldLocate(t *testing.T) {
 			created = func(s *step) int {
 				b := 0
 				for _, c := range append(slices.Clone(s.few), slices.Collect(maps.Values(s.many))...) {
-					b += len(c.pn.text.text) + elemBytes(c.pn.elem, c.node)
+					b += len(c.tok) + len(c.pn.text.text) + elemBytes(c.pn.elem, c.node)
 					if s.node == nil || s.node.Kind != tree.KindList {
 						b += indexBytes(s.node, c.tok, built)
 					}
@@ -617,11 +641,43 @@ func TestYieldLocate(t *testing.T) {
 				}
 				return b
 			}
-			if want := steps + m.memo.read + tokens + created(m.memo.top); m.work.total != want {
+			if want := steps + m.memo.read + lookups + created(m.memo.top); m.work.total != want {
 				t.Errorf("locate() charged %d units for %d steps reading %d members and elements, want %d", m.work.total, steps, m.memo.read, want)
 			}
 		})
 	}
+}
+
+// lookupBytes returns the bytes the lookups of loc compare or hash in the
+// trie below top as it stands before locate resolves loc (step.find): per
+// step, the token's bytes for each child of the token's length that a
+// scan compares, or once for an indexed step's lookup; a step created
+// along the way has no child to compare.
+func lookupBytes(top *step, loc []string) int {
+	b := 0
+	s := top
+	for _, tok := range loc {
+		if s == nil {
+			return b
+		}
+		if s.many != nil {
+			b += len(tok)
+			s = s.many[tok]
+			continue
+		}
+		var next *step
+		for _, c := range s.few {
+			if len(c.tok) == len(tok) {
+				b += len(tok)
+				if c.tok == tok {
+					next = c
+					break
+				}
+			}
+		}
+		s = next
+	}
+	return b
 }
 
 // TestYieldVisit checks that mapping charges one unit per validation
@@ -672,12 +728,16 @@ func TestYieldVisit(t *testing.T) {
 				t.Errorf("visit() charged %d units, want %d", m.work.total, want)
 			}
 			m.work.total = 0
+			pending := len(m.order)
 			m.flushSecrets()
-			if m.work.total != len(m.order) {
-				t.Errorf("flushSecrets() charged %d units for %d secret findings", m.work.total, len(m.order))
+			if m.work.total != pending {
+				t.Errorf("flushSecrets() charged %d units for %d secret findings", m.work.total, pending)
 			}
-			if name == "secrets" && len(m.order) != 300 {
-				t.Errorf("secrets: %d secret findings, want 300", len(m.order))
+			if name == "secrets" && pending != 300 {
+				t.Errorf("secrets: %d secret findings, want 300", pending)
+			}
+			if len(m.order) != 0 || len(m.secrets) != 0 {
+				t.Errorf("flushSecrets() kept %d pending findings", len(m.order))
 			}
 		})
 	}

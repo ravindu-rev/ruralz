@@ -251,6 +251,7 @@ func TestPatternProgramLimits(t *testing.T) {
 //
 // Requirements: 07 req 75 and architecture R-77.
 func TestPatternProgramMemory(t *testing.T) {
+	requireMeter(t)
 	kept := func(t *testing.T, schema string) int64 {
 		t.Helper()
 		var before, after runtime.MemStats

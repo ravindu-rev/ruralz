@@ -6,6 +6,7 @@ package subst
 import (
 	"cmp"
 	"encoding/json"
+	"strconv"
 	"strings"
 	"unicode"
 	"unicode/utf8"
@@ -40,7 +41,10 @@ import (
 //   - the credential detectors are linear scanners that read their text
 //     in windows, in place of the regular expressions of the 01 J row
 //     (detect.go);
-//   - message text quoted from the input is clipped (clip).
+//   - input text a diagnostic carries is bounded where the walk builds
+//     the diagnostic: a message quotes it clipped (clip), a path element
+//     clips it (boundElem) and the resource identity shows it clipped and
+//     quoted when it is not graphic (shown).
 //
 // What remains uncounted are single runtime operations on one value at
 // memory speed: hashing a name for a map lookup (a variable's Lookup in
@@ -53,9 +57,14 @@ import (
 // 16 work units of byteUnit bytes.
 const textStep = 16 * byteUnit
 
-// maxShown bounds, in bytes, the input text a diagnostic quotes in its
-// message and the canonical JSON that names a set element in its path, as
-// config/canonical bounds them.
+// maxShown bounds, in bytes, the input text one diagnostic carries in each
+// place, as config/canonical bounds it: a name quoted in its message, the
+// resource kind and name of its identity, and a member name, a list key, a
+// string set element or the canonical JSON of a composite set element in
+// its path. The text form of a diagnostic thus stays short however large
+// the content, so the diagnostics of a resource print in space linear in
+// their count (review finding: up to 10,001 diagnostics each repeated one
+// long key in full).
 const maxShown = 64
 
 // probe records how one call spreads its work between Yield calls, for
@@ -241,7 +250,9 @@ func (w *walker) dispatchTested(static *schemaidx.Node, name string) bool {
 // what it reads: a keyed entry's key member is found by a counted scan,
 // a string set element is named by its text, and a composite set element
 // by its canonical JSON only when that is at most maxShown bytes, else by
-// its index, as config/canonical names it. Whether an element is small is
+// its index, as config/canonical names it. The key and the string stay
+// whole in walker.path, which the walk compares; a diagnostic's copy of
+// the path clips them (boundElem). Whether an element is small is
 // decided by a counted walk that stops past maxShown bytes of its text
 // (keys, strings and number literals as written), so only a small element
 // is encoded. The walk passes string, object and list elements only.
@@ -374,11 +385,13 @@ func lower(s string, read func(int)) string {
 	return b.String()
 }
 
-// clip shortens s, input text quoted in a message, to its first maxShown
-// bytes cut before a rune, marked with "...".
+// clip shortens s, input text a diagnostic carries, to its first maxShown
+// bytes cut before a rune, marked with "...". The result is always a
+// copy, as config/canonical's is: s may be a substring of the parser's
+// copy of the source, which a diagnostic holding it would keep alive.
 func clip(s string) string {
 	if len(s) <= maxShown {
-		return s
+		return strings.Clone(s)
 	}
 	cut := maxShown
 	// bounded: at most utf8.UTFMax-1 steps back to a rune start.
@@ -386,6 +399,72 @@ func clip(s string) string {
 		cut--
 	}
 	return s[:cut] + "..."
+}
+
+// boundElem returns path element e with the input text it names bounded,
+// as config/canonical's boundElem bounds it: a member name, a keyed
+// entry's key and a string set element are clipped (diag quotes them as
+// JSON). itemElem already names a composite or number set element longer
+// than maxShown by its index.
+func boundElem(e diag.PathElem) diag.PathElem {
+	switch e.Kind {
+	case diag.ElemField:
+		e.Name = clip(e.Name)
+	case diag.ElemKeyed:
+		e.Key = clip(e.Key)
+	case diag.ElemItem:
+		if s, ok := e.Item.(string); ok {
+			e.Item = clip(s)
+		}
+	case diag.ElemIndex:
+	}
+	return e
+}
+
+// shown returns a resource kind or name from the input as a diagnostic's
+// identity shows it, as config/canonical shows it: clipped (a copy),
+// Go-quoted (strconv.QuoteToGraphic) when it holds a character that is
+// not graphic (a newline, a control or format character), a quote, a
+// backslash or invalid UTF-8, and `""` when it is empty. diag.AppendText
+// prints an identity as it is, so the one-line text form (01 req 49) then
+// carries no newline and no terminal control sequence.
+func shown(s string) string {
+	if s == "" {
+		return `""`
+	}
+	c := clip(s)
+	if needsQuote(c) {
+		return strconv.QuoteToGraphic(c)
+	}
+	return c
+}
+
+// needsQuote reports whether strconv.QuoteToGraphic would escape a
+// character of s: one that is not graphic, a quote, a backslash or a byte
+// of invalid UTF-8.
+func needsQuote(s string) bool {
+	// bounded: a clipped text of at most maxShown+3 bytes.
+	for i := 0; i < len(s); {
+		if c := s[i]; c < utf8.RuneSelf {
+			if c < 0x20 || c == 0x7f || c == '"' || c == '\\' {
+				return true
+			}
+			i++
+			continue
+		}
+		r, size := utf8.DecodeRuneInString(s[i:])
+		if (r == utf8.RuneError && size == 1) || !strconv.IsGraphic(r) {
+			return true
+		}
+		i += size
+	}
+	return false
+}
+
+// resourceID returns the identity a diagnostic carries for the resource
+// id (shown).
+func resourceID(id tree.ID) *diag.ResourceID {
+	return &diag.ResourceID{Kind: shown(string(id.Kind)), Name: shown(id.Name)}
 }
 
 // sortStrings sorts s and removes repeated strings, as

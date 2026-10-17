@@ -35,13 +35,22 @@
 // long sibling elements is read once however many diagnostics lie below
 // them when it reaches 1 KiB, and otherwise at most once per comparison,
 // with every pair answered again from either element's last comparison.
-// Mapping work and memory are therefore linear in the resource size plus
-// the number of validation errors times their location depth, up to the
-// logarithmic factor of sorting them, and Validate returns at most the
-// cap plus one diagnostics, the first in sorted order, the extra one
-// telling the caller the cap was reached (Options.MaxDiagnostics; 01 reqs
-// 6, 50 and 54). The cap bounds what is kept, not the memory of the
-// validator's errors and their mapping, which grows with the errors.
+// Mapping work is therefore linear in the resource size plus the number
+// of validation errors times their location depth, up to the logarithmic
+// factor of sorting them, and Validate returns at most the cap plus one
+// diagnostics, the first in sorted order, the extra one telling the
+// caller the cap was reached (Options.MaxDiagnostics; 01 reqs 6, 50 and
+// 54). What the mapping holds grows with the cap and the resource, not
+// with the errors: memoized positions and path texts that no kept
+// diagnostic needs are swept (sweep.go), pending secret findings are
+// pruned to the cap, and each validation error is released once mapped.
+// The validator's own error tree still grows with the errors
+// (Options.MaxDiagnostics).
+//
+// A nil member value or list element is null, as the validator reads it:
+// the mapping and the checks after the validator read a copy of the tree
+// with a null node in its place, so it is reported exactly as a null
+// value, at its nearest positioned ancestor.
 //
 // The validator's cost for a number does not grow with the literal: every
 // number reaches jsonschema/v6 as a text of bounded length and exponent
@@ -61,6 +70,7 @@ import (
 	"errors"
 	"fmt"
 	"io/fs"
+	"maps"
 	"path"
 	"slices"
 	"strings"
@@ -85,10 +95,15 @@ const (
 	CodeLiteral = "RZ-CFG-012"
 )
 
-// ErrSchema marks every error Compile returns for a schema that does not
-// compile: invalid JSON, a draft 2020-12 or vocabulary keyword violation,
-// an unresolvable or remote reference, or a schema that disagrees with its
-// index.
+// ErrSchema marks every error Compile returns for a schema it refuses:
+// invalid JSON; a draft 2020-12 or vocabulary keyword violation; an
+// unresolvable or remote reference; a schema that disagrees with its
+// index (a kind the root does not dispatch, a dispatched kind or a
+// $defs definition the index lacks); and a number the number model
+// cannot bound (numbers.go): one that needs more than maxViewDigits
+// integer or fraction digits, multipleOf values whose period needs more
+// than maxPeriodDigits digits, or a zero whose exponent lies outside
+// int64.
 var ErrSchema = errors.New("schemaview: schema does not compile")
 
 // View is the compiled rendered view of one apiVersion. It is immutable
@@ -119,11 +134,18 @@ func baseURL(apiVersion string) string {
 // Compile compiles rendered, the rendered view that idx indexes, once:
 // the whole document (so every $ref resolves) and the definition of every
 // kind the root dispatches. idx must have been loaded from the same
-// bytes; Compile checks that the root kind dispatch agrees with it. A
-// view with a number that needs more than 400 integer or fraction digits,
-// or whose multipleOf values need a period of more than 400 digits, is
-// refused: the number model keeps every text it hands the validator
-// short (numbers.go).
+// bytes: the mapping reads dispatch, list types, secret marks and the
+// names of hints from it. Compile checks that the index has every $defs
+// definition of rendered and the root's kind dispatch, which refuses an
+// index of a view with fewer definitions, such as the rendered view's
+// index paired with the authoring view; it cannot tell an index of
+// another view with the same definitions and dispatch, which no caller
+// may pass. Compile refuses (ErrSchema) a view with a number that needs
+// more than maxViewDigits (400) integer or fraction digits, multipleOf
+// values whose period needs more than maxPeriodDigits (400) digits, or a
+// zero whose exponent lies outside int64: the number model keeps every
+// text it hands the validator short, and the compiler could not parse
+// such a zero (numbers.go).
 func Compile(rendered []byte, idx *schemaidx.Index) (*View, error) {
 	if idx == nil {
 		return nil, fmt.Errorf("%w: nil schema index", ErrSchema)
@@ -131,6 +153,9 @@ func Compile(rendered []byte, idx *schemaidx.Index) (*View, error) {
 	doc, err := jsonschema.UnmarshalJSON(bytes.NewReader(rendered))
 	if err != nil {
 		return nil, fmt.Errorf("%w: %w", ErrSchema, err)
+	}
+	if name, ok := missingDef(doc, idx); !ok {
+		return nil, fmt.Errorf("%w: definition %q is not in the schema index", ErrSchema, name)
 	}
 	// The number model first: it refuses a view whose numbers would make
 	// the compiler's own big.Rat parsing slow (numbers.go).
@@ -176,6 +201,21 @@ func compileError(err error) error {
 		return fmt.Errorf("%w: %w", ErrSchema, load.Err)
 	}
 	return fmt.Errorf("%w: %w", ErrSchema, err)
+}
+
+// missingDef returns the first $defs name of doc, in name order, that idx
+// has no definition for, and false; true when idx has them all (review
+// finding: the meta test compiled the authoring view with the rendered
+// view's index, which Compile did not notice).
+func missingDef(doc any, idx *schemaidx.Index) (string, bool) {
+	root, _ := doc.(map[string]any)
+	defs, _ := root["$defs"].(map[string]any)
+	for _, name := range slices.Sorted(maps.Keys(defs)) {
+		if _, ok := idx.Def(name); !ok {
+			return name, false
+		}
+	}
+	return "", true
 }
 
 // kindRefs reads the root dispatch the generator emits,

@@ -52,10 +52,9 @@
 // name (63 bytes), and resources without a typed view, are skipped
 // without further diagnostics and take no memory of their own, and every
 // other attachment and Route is still processed, so one run reports every
-// error (req 40). The
-// chains are the single source of the data plane's per-Phase arrays and
-// of render --effective (Resolver.Rows), so the two cannot diverge (req
-// 42, 04 req 40).
+// error (req 40). The chains are the single source of the data plane's
+// per-Phase arrays and of render --effective (Resolver.Rows), so the two
+// cannot diverge (req 42, 04 req 40).
 //
 // A Resolver holds only process-wide inputs (the registry, the body
 // oracle, the diagnostic cap and the yield clock), so one Resolver serves
@@ -89,7 +88,8 @@ import (
 // RZ codes this stage raises (architecture R-46); every one is registered
 // in internal/errcode and defined in docs/architecture/02-configuration-model.md.
 const (
-	// CodeSlot is RZ-CFG-018: two Policies in one slot at one scope.
+	// CodeSlot is RZ-CFG-018: two distinct Policies in one slot within one
+	// spec.policies list (01 req 39).
 	CodeSlot = "RZ-CFG-018"
 	// CodeOverridable is RZ-CFG-019: excluding or replacing a Gateway
 	// Policy with overridable: false.
@@ -167,10 +167,11 @@ type Options struct {
 	// for every worker count, raised again as a work unit's panic (see
 	// Resolve) when a worker read the clock for a unit. A runtime.Goexit
 	// in it is a unit's failure the same way when a worker read the clock
-	// for a unit; a read on the calling goroutine outside every unit
-	// (worker 0's creation, the Gateway list, the sequential steps
-	// between the pools) ends the calling goroutine, as the call itself
-	// would.
+	// for a unit; a read on the calling goroutine outside every unit (the
+	// creation of each worker, which reads the clock once before the
+	// worker's goroutine starts; CheckPolicies, the Gateway list and the
+	// sequential steps between the pools) ends the calling goroutine, as
+	// the call itself would.
 	Now func() time.Time
 	// YieldAfter is the work a worker does before it yields; zero means
 	// DefaultYieldAfter (100 µs), and a negative value is an error.
@@ -347,8 +348,9 @@ func (r *Resolver) checkPolicies(w *worker, b *hub.Bundle, files *tree.FileTable
 // metadata.name stage F accepts, is never hashed or compared: it is
 // skipped as unresolved after its length is read, so no work grows with
 // the length of a reference either (no schema rule bounds it). A
-// reference that resolves to no Policy takes no memory beyond its list
-// entry.
+// reference that resolves to nothing (no Policy, Plugin or Upstream)
+// takes no memory beyond its list entry: no attachment key or selection,
+// no list item or index entry, no leg.
 //
 // Work is split over at most workers goroutines (one unit per attachment
 // selection, Upstream or Route; at least one goroutine, which the call
@@ -356,7 +358,8 @@ func (r *Resolver) checkPolicies(w *worker, b *hub.Bundle, files *tree.FileTable
 // result never depends on scheduling. Each worker reads the yield timer
 // of Options.Now between units and every 256 units of work inside one
 // (01 req 53), and every loop of a unit counts its elements as it reads
-// them, so the time between two reads stays bounded. Those goroutines
+// them, so the time between two reads stays bounded but for the one hash
+// of each slot interned (above) and the Options.Body calls. Those goroutines
 // read b, call Options.Body and read files concurrently; b must not be
 // modified until Resolve returns. ctx is checked between work units: once
 // it ends, no further unit starts, every unit already started (an

@@ -5,6 +5,7 @@ package overlay
 
 import (
 	"encoding/json"
+	"fmt"
 	"slices"
 	"strconv"
 	"strings"
@@ -292,51 +293,86 @@ func dropLeaf(root *tree.Node, p string) bool {
 	return parent != nil && parent.Delete(segs[len(segs)-1])
 }
 
-// TestDispatchTestsScalars pins the assumption mergeMap's dispatch rests
-// on (review finding, 01 req 25): every if/then rule of the rendered
-// schema tests scalar constants of members it requires, so a new
+// TestDispatchTestsScalars pins the assumptions mergeMap's dispatch and
+// settle rest on (review findings, 01 req 25): every if/then rule of the
+// rendered schema tests scalar constants of members it requires, so a new
 // composite member, present or dropped as a removal, and a base composite
 // replaced by an overlay composite of the other kind never change which
-// branch applies. A base scalar is another matter, since it comes back
-// when the overlay composite replacing it holds nothing but removals:
-// settle resolves those before the dispatch is read
-// (TestRemovalOnlyDispatchMember).
+// branch applies; and no rule has an else branch, so the dispatch is
+// monotone: a composite standing in a member a rule tests only makes that
+// rule fail, and a failing rule adds no schema, so settle's test that
+// standing every overlay composite in at once leaves the dispatch as the
+// base scalars give it also covers every mix of them. A base scalar is
+// another matter, since it comes back when the overlay composite
+// replacing it holds nothing but removals: settle merges those the
+// dispatch reads before it is read (TestRemovalOnlyDispatchMember). A
+// synthetic schema of each kind of rule the checks refuse shows they find
+// it.
 func TestDispatchTestsScalars(t *testing.T) {
 	var doc any
 	if err := json.Unmarshal(schema.RenderedV1alpha1(), &doc); err != nil {
 		t.Fatal(err)
 	}
-	rules := 0
+	problems, rules := ruleProblems(doc)
+	for _, p := range problems {
+		t.Error(p)
+	}
+	if rules == 0 {
+		t.Fatal("no if/then rule in the rendered schema")
+	}
+	for name, src := range map[string]string{
+		"an else branch":                `{"allOf":[{"if":{"properties":{"mode":{"const":"b"}},"required":["mode"]},"then":{"properties":{"x":{}}},"else":{"properties":{"y":{}}}}]}`,
+		"a member tested without const": `{"allOf":[{"if":{"properties":{"mode":{"type":"string"}},"required":["mode"]},"then":{}}]}`,
+		"an unrequired member":          `{"allOf":[{"if":{"properties":{"mode":{"const":"b"}}},"then":{}}]}`,
+		"a composite constant":          `{"allOf":[{"if":{"properties":{"mode":{"const":{"a":1}}},"required":["mode"]},"then":{}}]}`,
+		"another keyword":               `{"allOf":[{"if":{"properties":{"mode":{"const":"b"}},"required":["mode"],"minProperties":1},"then":{}}]}`,
+	} {
+		var v any
+		if err := json.Unmarshal([]byte(src), &v); err != nil {
+			t.Fatal(err)
+		}
+		if problems, _ := ruleProblems(v); len(problems) == 0 {
+			t.Errorf("%s: the checks find no problem in %s", name, src)
+		}
+	}
+}
+
+// ruleProblems returns what breaks the dispatch assumptions in the if/then
+// rules of the schema document doc, and the number of rules.
+func ruleProblems(doc any) (problems []string, rules int) {
 	var walk func(v any)
 	walk = func(v any) {
 		switch v := v.(type) {
 		case map[string]any:
 			if cond, ok := v["if"].(map[string]any); ok {
 				rules++
+				if _, ok := v["else"]; ok {
+					problems = append(problems, fmt.Sprintf("if rule %v has an else branch: the dispatch is not monotone (settle)", cond))
+				}
 				props, _ := cond["properties"].(map[string]any)
 				required, _ := cond["required"].([]any)
 				for k := range cond {
 					if k != "properties" && k != "required" {
-						t.Errorf("if rule %v tests %q", cond, k)
+						problems = append(problems, fmt.Sprintf("if rule %v tests %q", cond, k))
 					}
 				}
 				if len(required) == 0 {
-					t.Errorf("if rule %v requires no member", cond)
+					problems = append(problems, fmt.Sprintf("if rule %v requires no member", cond))
 				}
 				for _, r := range required {
 					p, _ := props[r.(string)].(map[string]any)
 					c, ok := p["const"]
 					if !ok || len(p) != 1 {
-						t.Errorf("if rule %v: required member %v is not tested against a constant alone", cond, r)
+						problems = append(problems, fmt.Sprintf("if rule %v: required member %v is not tested against a constant alone", cond, r))
 					}
 					switch c.(type) {
 					case map[string]any, []any:
-						t.Errorf("if rule %v: constant %v is not a scalar", cond, c)
+						problems = append(problems, fmt.Sprintf("if rule %v: constant %v is not a scalar", cond, c))
 					}
 				}
 				for k := range props {
 					if !slices.Contains(required, any(k)) {
-						t.Errorf("if rule %v tests %q without requiring it", cond, k)
+						problems = append(problems, fmt.Sprintf("if rule %v tests %q without requiring it", cond, k))
 					}
 				}
 			}
@@ -350,18 +386,16 @@ func TestDispatchTestsScalars(t *testing.T) {
 		}
 	}
 	walk(doc)
-	if rules == 0 {
-		t.Fatal("no if/then rule in the rendered schema")
-	}
+	return problems, rules
 }
 
 // TestDispatchMembersFixed pins the assumption settle rests on (review
 // finding, 01 req 25): every member an if/then rule of the rendered
-// schema tests has one schema whichever branch applies, so settle's
-// trial, which reads the member's schema in the dispatch the base
-// scalars give, before the member's own value is known, reads what the
-// merge reads under the merged dispatch. A synthetic schema whose branch
-// changes the member it tests shows the check finds one.
+// schema tests has one schema whichever branch applies, so settle, which
+// merges such a member under its schema in the dispatch the base scalars
+// give, before the merged dispatch is known, merges it as the merged
+// dispatch reads it. A synthetic schema whose branch changes the member
+// it tests shows the check finds one.
 func TestDispatchMembersFixed(t *testing.T) {
 	x, _ := schemas(t).Index(v1)
 	tested, unfixed := dispatchMembers(x)

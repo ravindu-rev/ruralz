@@ -5,6 +5,7 @@ package schemaview
 
 import (
 	"encoding/json"
+	"slices"
 
 	"github.com/ravindu-rev/ruralz/internal/config/tree"
 )
@@ -26,37 +27,57 @@ type Options struct {
 	// appends the single RZ-CFG-001 "too many diagnostics" error, as the
 	// loader's diag.Collector given the same cap does on the extra one.
 	//
-	// The cap bounds the diagnostics kept and returned, not the memory of
-	// one validation: jsonschema/v6 builds its whole error tree, and the
-	// mapping locates and words every error before it compares it with
-	// the diagnostics kept, so both grow linearly with the validation
-	// errors, whatever the cap (about 0.5 KB and 1 KB per error measured
-	// for 200,000 type errors in one list at a cap of 10). Peak loader
-	// memory is what the hostile-input fixtures measure
-	// (OQ-configuration-model-18).
+	// The cap also bounds what the mapping holds: at most 2*(cap+1)
+	// diagnostics, pending secret findings at most twice those of cap+1
+	// groups, and the memoized positions and path texts on their paths,
+	// which grow between two sweeps by as much again or by sweepMin,
+	// whichever is more (sweep.go), with the memo of the resource's large
+	// objects and costly path elements, which grows with the resource,
+	// not with its errors (TestMappingMemoryBounded: the same few
+	// thousand positions and texts for 20,000 to 1,000,000 errors at a
+	// cap of 10). It does not
+	// bound the validator's own error tree: jsonschema/v6 builds the
+	// whole tree, about 0.3 KB per error, before stage F maps it, so its
+	// peak grows with the errors whatever the cap. The mapping releases
+	// each error once mapped, so stage F's peak is about that tree's, not
+	// the tree's plus the mapping's (sampled for the 1,000,000 type errors
+	// of a 2 MB JSON document: 0.33 GB in the validator, 0.5 GB for all of
+	// stage F). A YAML document holds at most MaxDocumentTokens nodes, so
+	// at most as many errors; only MaxSourceBytes bounds a JSON document
+	// (01 req 6), and no hostile-input fixture measures this peak yet:
+	// WP-35 filed both as contract requests (a JSON token cap, a fixture
+	// of one error per node, and an open question on the bound beside
+	// OQ-configuration-model-18).
 	MaxDiagnostics int
 	// Yield, when set, is called every 256 units of stage F's own work, so
 	// the caller's worker can yield the processor (01 req 53). A unit is
 	// one of:
 	//   - a node of the instance built for the validator, a byte of a
-	//     member name it hashes, or a byte of a number literal longer than
-	//     maxPassBytes that the number model reads or copies;
+	//     member name it hashes, a byte of a number literal longer than
+	//     maxPassBytes that the number model reads or copies, or a node of
+	//     a tree with nil member values or elements copied with null nodes
+	//     in their place (nullFilled);
 	//   - a node the uniqueness walk reports, two per member of an object
 	//     (schemaidx.Walk dispatches each object twice), a byte of a
 	//     member name it hashes, a member it scans for a keyed entry's key,
 	//     or a keyed entry, label or annotation the uniqueness and
 	//     reserved-prefix checks visit;
 	//   - a validation error or unknown member mapped, a path step
-	//     resolved, a child step compared or a byte of a token looked up,
-	//     a member scanned, indexed or read by a dispatch, a byte of a
-	//     member name compared in full, hashed into an index or looked up,
-	//     or a node or a byte of a variable name read to name substituted
-	//     variables;
+	//     resolved, a child step compared, a byte of a token compared with
+	//     each child of its length or hashed to look it up, a byte of the
+	//     token of a new step (looked up in the schema's members or parsed
+	//     as an index), a member scanned, indexed or read by a dispatch, a
+	//     byte of a member name compared in full, hashed into an index or
+	//     looked up, a byte of a member name below a secret field looked
+	//     up in its schema, or a node or a byte of a variable name read to
+	//     name substituted variables;
 	//   - a byte of a path segment rendered and interned, or a byte of the
 	//     canonical JSON of a key or set element or of a number literal it
 	//     parses;
 	//   - a sort comparison, or a byte of the common prefix it reads of two
 	//     long sibling segments or two member names;
+	//   - a path, step, text or remembered prefix a memo sweep marks,
+	//     visits or keeps, or a secret finding a prune compares or drops;
 	//   - a diagnostic materialized.
 	//
 	// Stage F checks for a yield at every unit it charges, but it cannot
@@ -153,13 +174,18 @@ type built struct {
 	rewritten, surrogates int
 	// invalid is the first number node whose text is not an RFC 8259
 	// number literal, which the tree contract excludes (tree.Node.Text);
-	// the validator is not run on such an instance.
-	invalid *tree.Node
+	// the validator is not run on such an instance. invalidAt is the
+	// nearest known source position at or above it.
+	invalid   *tree.Node
+	invalidAt tree.Pos
 	// shadowed holds the values of the members that an earlier member of
 	// the same object and key hides: the validator never sees them, so
 	// the checks after it skip them too (mapper.shadowed); nil when no
 	// object repeats a key.
 	shadowed map[*tree.Node]bool
+	// nils reports a member value or list element that is a nil node,
+	// which the validator reads as null (nullFilled).
+	nils bool
 }
 
 // instance converts n to the encoding/json data model the validator
@@ -174,16 +200,21 @@ type built struct {
 // name hashed, so that building the instance of a large resource yields
 // (01 req 53). Each number is the text nm bounds:
 // the literal itself, its normalized form or a surrogate with the
-// properties the validator reads (numbers.go).
+// properties the validator reads (numbers.go). A nil member value or
+// list element is null, as tree.Node.JSONValue reads it (built.nils).
 func (w *work) instance(n *tree.Node, nm *numberModel) built {
 	var b built
 	tags := newNumberTags(nm)
-	var conv func(n *tree.Node) any
-	conv = func(n *tree.Node) any {
+	var conv func(n *tree.Node, at tree.Pos) any
+	// at is the nearest known source position above n.
+	conv = func(n *tree.Node, at tree.Pos) any {
 		b.nodes++
 		w.tick()
 		if n == nil {
 			return nil
+		}
+		if n.Pos.Known() {
+			at = n.Pos
 		}
 		switch n.Kind {
 		case tree.KindBool:
@@ -192,7 +223,7 @@ func (w *work) instance(n *tree.Node, nm *numberModel) built {
 			text, form, ok := nm.bound(n.Text, tags, w)
 			if !ok {
 				if b.invalid == nil {
-					b.invalid = n
+					b.invalid, b.invalidAt = n, at
 				}
 				return nil
 			}
@@ -210,6 +241,7 @@ func (w *work) instance(n *tree.Node, nm *numberModel) built {
 		case tree.KindMap:
 			m := make(map[string]any, len(n.Members))
 			for _, mem := range n.Members {
+				b.nils = b.nils || mem.Value == nil
 				// Hashing the name is a span charged with its bytes.
 				w.charge(len(mem.Key))
 				if _, dup := m[mem.Key]; dup {
@@ -222,19 +254,66 @@ func (w *work) instance(n *tree.Node, nm *numberModel) built {
 					continue
 				}
 				b.keyBytes += len(mem.Key)
-				m[mem.Key] = conv(mem.Value)
+				m[mem.Key] = conv(mem.Value, at)
 			}
 			return m
 		case tree.KindList:
 			l := make([]any, len(n.Items))
 			for i, it := range n.Items {
-				l[i] = conv(it)
+				b.nils = b.nils || it == nil
+				l[i] = conv(it, at)
 			}
 			return l
 		default:
 			return nil
 		}
 	}
-	b.value = conv(n)
+	b.value = conv(n, tree.Pos{})
 	return b
+}
+
+// nullFilled returns n with every member value and list element that is
+// a nil node replaced by a null node without a source position, copying
+// only the objects and lists on the paths to them; n itself when it has
+// none. The validator reads a nil node as null; the mapping and
+// schemaidx read member values and elements by their kind, and a nil one
+// made them panic (review finding: a nil labels value, keyed-list key or
+// dispatch member such as a Policy's spec.type stopped the process). The
+// copy is validated and mapped like any tree, so a nil value is reported
+// exactly as a null one, at its nearest positioned ancestor (01 req 36).
+// Each node visited is a work unit.
+func nullFilled(n *tree.Node, w *work) *tree.Node {
+	if n == nil {
+		return &tree.Node{Kind: tree.KindNull}
+	}
+	w.tick()
+	var members []tree.Member
+	for i, m := range n.Members {
+		if v := nullFilled(m.Value, w); v != m.Value {
+			if members == nil {
+				members = slices.Clone(n.Members)
+			}
+			members[i].Value = v
+		}
+	}
+	var items []*tree.Node
+	for i, it := range n.Items {
+		if v := nullFilled(it, w); v != it {
+			if items == nil {
+				items = slices.Clone(n.Items)
+			}
+			items[i] = v
+		}
+	}
+	if members == nil && items == nil {
+		return n
+	}
+	c := *n
+	if members != nil {
+		c.Members = members
+	}
+	if items != nil {
+		c.Items = items
+	}
+	return &c
 }

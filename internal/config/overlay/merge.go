@@ -23,9 +23,17 @@ type merger struct {
 	id tree.ID
 	// stack is the key-aware path of the current position from the
 	// resource root, pushed and popped as the walk descends and copied
-	// only into a diagnostic. A list element's path element is computed
-	// from the element as the walk reaches it (itemElem).
+	// only into a diagnostic, bounded (here). A list element's path
+	// element is computed from the element as the walk reaches it
+	// (itemElem).
 	stack diag.Path
+	// shown holds the first elements of stack as a diagnostic shows them
+	// (boundElem): here bounds the elements past it once for every
+	// diagnostic below them, and pop cuts it back to the stack.
+	shown diag.Path
+	// resource is the identity every diagnostic of the document names,
+	// made for the first one (resourceID).
+	resource *diag.ResourceID
 	// recheck counts the enclosing objects whose dispatch the overlay
 	// changed; while it is positive, the outermost one rechecks its whole
 	// subtree (see mergeMap), so nested objects skip their own check.
@@ -33,26 +41,62 @@ type merger struct {
 }
 
 // errorAt reports a diagnostic at the current position, extra appended to
-// its path; the path is copied only when the diagnostic is recorded.
+// its path, copied with its input text bounded (here); the resource is
+// named as resourceID shows it.
 func (m *merger) errorAt(code string, p tree.Pos, extra []diag.PathElem, msg, hint string, related ...diag.Related) {
-	if m.a.full || m.a.quiet {
-		return
+	if m.resource == nil {
+		m.resource = resourceID(m.id)
 	}
+	r := *m.resource
 	m.a.report(diag.Diagnostic{
-		Code: code, Location: m.a.loc(p), Resource: m.id.ResourceID(), Path: m.stack.Append(extra...),
+		Code: code, Location: m.a.loc(p), Resource: &r, Path: m.here(extra),
 		Message: msg, Hint: hint, Related: related,
 	})
+}
+
+// here returns a copy of the path of the current position, extra
+// appended, with the input text of every element bounded (boundElem), so
+// up to 10,001 diagnostics below one long key or list key print in space
+// linear in their count (review finding).
+func (m *merger) here(extra []diag.PathElem) diag.Path {
+	for j := len(m.shown); j < len(m.stack); j++ {
+		m.a.tick()
+		m.shown = append(m.shown, boundElem(m.stack[j]))
+	}
+	out := make(diag.Path, 0, len(m.shown)+len(extra))
+	for _, e := range m.shown {
+		m.a.tick()
+		out = append(out, e)
+	}
+	for _, e := range extra {
+		m.a.tick()
+		out = append(out, boundElem(e))
+	}
+	return out
 }
 
 // push appends e to the path of the current position; pop removes it.
 func (m *merger) push(e diag.PathElem) { m.stack = append(m.stack, e) }
 
-func (m *merger) pop() { m.stack = m.stack[:len(m.stack)-1] }
+func (m *merger) pop() {
+	m.stack = m.stack[:len(m.stack)-1]
+	if len(m.shown) > len(m.stack) {
+		m.shown = m.shown[:len(m.stack)]
+	}
+}
 
 // takeAction removes the ruralz.io/patch annotation from an overlay
-// document root and returns its value: "" (merge), PatchDelete or
-// PatchReplace. ok is false for an unsupported value (RZ-CFG-005); the
-// document is then not applied.
+// document root and returns the value of its first member: "" (merge),
+// PatchDelete or PatchReplace. ok is false for an unsupported value
+// (RZ-CFG-005); the document is then not applied. The annotation never
+// survives into the result (01 req 25), for any input: every
+// ruralz.io/patch member of the annotations object is removed (review
+// finding: only the first one was, and a second one was merged into the
+// result), and an annotations object left empty is removed with every
+// later annotations member of metadata, which the first one's key hides
+// (mergeMap merges the first member of a key) and whose removal would
+// otherwise bring into the merge. Stage B leaves every key once
+// (RZ-CFG-002), so the pipeline meets one of each.
 func (m *merger) takeAction(root *tree.Node) (action string, ok bool) {
 	md, _ := m.a.get(root, "metadata")
 	ann, _ := m.a.get(md, "annotations")
@@ -60,9 +104,9 @@ func (m *merger) takeAction(root *tree.Node) (action string, ok bool) {
 	if !found {
 		return "", true
 	}
-	m.a.remove(ann, PatchAnnotation)
+	ann.Members = deleteFunc(m.a, ann.Members, func(a tree.Member) bool { return a.Key == PatchAnnotation })
 	if len(ann.Members) == 0 {
-		m.a.remove(md, "annotations")
+		md.Members = deleteFunc(m.a, md.Members, func(mem tree.Member) bool { return mem.Key == "annotations" })
 	}
 	if v.Kind == tree.KindString && (v.Text == PatchDelete || v.Text == PatchReplace) {
 		return v.Text, true
@@ -260,6 +304,8 @@ type pendingMember struct {
 	// keyPos is the overlay's key position, which the member takes when
 	// the overlay supplies its value.
 	keyPos tree.Pos
+	// settled marks a member settle merged before the dispatch was read.
+	settled bool
 }
 
 // replaced reports a member whose base value the overlay replaces with a
@@ -268,8 +314,8 @@ type pendingMember struct {
 func (t pendingMember) replaced() bool { return t.base != nil && t.base.Kind != t.ov.Kind }
 
 // overScalar reports a member whose base value is a scalar the overlay
-// replaces with a composite, which settle resolves before the dispatch is
-// read.
+// replaces with a composite, which settle merges before the dispatch is
+// read when the dispatch reads the member.
 func (t pendingMember) overScalar() bool { return t.base != nil && !composite(t.base) }
 
 // mergeMap merges overlay object ov into base object b (01 req 25):
@@ -287,15 +333,16 @@ func (t pendingMember) overScalar() bool { return t.base != nil && !composite(t.
 // nothing else changes.
 //
 // The dispatch is read once scalars and removals apply and settle has
-// decided which base scalars stay: a base scalar whose overlay value is
-// a composite stays when that value holds nothing but removals, so a
-// Policy spec.type the overlay writes as {a: null} is still the base
-// type. The other pending values do not decide it: every if/then rule of
-// the rendered schema tests a scalar member it requires to equal a
-// constant (TestDispatchTestsScalars), which no composite satisfies, so a
-// new member reads the same present or dropped as a removal, and a base
-// composite, which stays in place while the dispatch is read, the same as
-// an overlay composite of the other kind that replaces it.
+// merged the members the dispatch reads whose base scalar the overlay
+// replaces with a composite: such a base scalar stays when that value
+// holds nothing but removals, so a Policy spec.type the overlay writes as
+// {a: null} is still the base type. The other pending values do not
+// decide it: every if/then rule of the rendered schema tests a scalar
+// member it requires to equal a constant (TestDispatchTestsScalars), which
+// no composite satisfies, so a new member reads the same present or
+// dropped as a removal, and a base composite, which stays in place while
+// the dispatch is read, the same as an overlay composite of the other kind
+// that replaces it.
 //
 // When the overlay changes the object's dispatch, base content keeps its
 // place but is read under the merged schema, so a $patch that was data
@@ -360,7 +407,7 @@ func (m *merger) mergeMap(b, ov *tree.Node, static *schemaidx.Node) *tree.Node {
 		}
 	}
 	if scalarsReplaced {
-		m.settle(b, static, todo)
+		blame = m.settle(b, static, ov, todo, blame)
 	}
 	sel := m.a.selectOf(static, b)
 	changed := track && sel != orig
@@ -373,6 +420,9 @@ func (m *merger) mergeMap(b, ov *tree.Node, static *schemaidx.Node) *tree.Node {
 	for _, t := range todo {
 		if m.a.full {
 			break
+		}
+		if t.settled {
+			continue
 		}
 		m.push(diag.Field(t.key))
 		res := m.merge(t.base, t.ov, memberSchema(sel, t.key))
@@ -402,49 +452,92 @@ func (m *merger) mergeMap(b, ov *tree.Node, static *schemaidx.Node) *tree.Node {
 	return b
 }
 
-// settle decides, before mergeMap reads the dispatch, which members whose
-// base value is a scalar and whose overlay value is a composite keep the
-// base scalar: those whose overlay value holds nothing but removals
-// (merge, 01 req 25 "absent key: no-op"). A dispatch rule may test such a
-// member, so the dispatch must read the value the merge leaves there,
-// not the overlay value (01 req 25: the type dispatch uses the merged
-// spec.type). A value of which something remains stands in the object,
-// where the merge then puts what remains of it.
+// settle merges, before mergeMap reads the dispatch of b, each pending
+// member of todo that the dispatch reads and whose base value is a scalar
+// the overlay replaces with a composite, marks it settled and returns
+// blame updated as mergeMap updates it. The dispatch must read the value
+// the merge leaves in such a member, not the overlay value (01 req 25:
+// the type dispatch uses the merged spec.type): the base scalar when the
+// overlay value holds nothing but removals (merge, 01 req 25 "absent key:
+// no-op"), what remains of the overlay value otherwise. The member is
+// merged under its schema in the dispatch the base scalars give, which is
+// the schema the merged dispatch gives it, since no branch of the
+// rendered schema changes the schema of a member its rules test
+// (TestDispatchMembersFixed). It is merged once, its diagnostics reported
+// within the budget, and no value is copied (review finding: a trial
+// normalized a copy of every such value, the members no rule reads
+// included, before the merge and past the diagnostic budget).
 //
-// When standing every such overlay value in at once leaves the dispatch
-// as the base scalars give it, no mix of them changes it either: a
-// composite fails every rule that tests its member, so standing in more
-// of them only fails more rules. The members then merge with the others.
-// Otherwise each overlay value is normalized on a copy, under the
-// member's schema in the dispatch the base scalars give, with diagnostics
-// off, since the merge reports them once. That is the schema the merge
-// reads under the merged dispatch for every member a rule tests, since no
-// branch of the rendered schema changes the schema of a member its rules
-// test (TestDispatchMembersFixed); for a member no rule tests, the
-// dispatch reads the same whichever value the merge leaves. The copies
-// cost what the merge of these values costs, so the merge stays linear
-// (01 req 54), and settle does nothing once the diagnostic budget is
-// spent.
-func (m *merger) settle(b *tree.Node, static *schemaidx.Node, todo []pendingMember) {
+// Every other such member keeps its base scalar while the dispatch is
+// read and merges with the other pending members: the dispatch reads the
+// same whatever value the merge leaves in it. When standing every such
+// overlay value in at once leaves the dispatch as the base scalars give
+// it, the dispatch reads none of them. Otherwise a member the dispatch
+// reads is a declared property (TestDispatchReadsDeclared) whose overlay
+// value standing in alone changes the dispatch (reads). Both tests rest
+// on the dispatch being monotone: a composite fails every rule that tests
+// its member, so standing more of them in only fails more rules, and a
+// failing rule adds no schema. That holds while every rule tests scalar
+// constants (TestDispatchTestsScalars) and has no else branch, which
+// would add a schema when its rule fails (TestDispatchTestsScalars checks
+// the rendered schema has none), and while one rule decides each
+// dispatch, so selectOf results compare by pointer (a contract change
+// request asks schemaidx to memoize the variants of several rules).
+// settle does nothing once the diagnostic budget is spent.
+func (m *merger) settle(b *tree.Node, static *schemaidx.Node, ov *tree.Node, todo []pendingMember, blame int) int {
 	if m.a.full {
-		return
+		return blame
 	}
 	sel := m.a.selectOf(static, b)
 	m.standIn(b, todo, true)
 	same := m.a.selectOf(static, b) == sel
 	m.standIn(b, todo, false)
 	if same {
-		return
+		return blame
 	}
-	quiet := m.a.quiet
-	m.a.quiet = true
-	defer func() { m.a.quiet = quiet }()
-	for _, t := range todo {
+	for i := range todo {
 		m.a.tick()
-		if t.overScalar() && m.normalize(m.a.clone(t.ov), memberSchema(sel, t.key)) != nil {
-			b.Members[t.at].Value = t.ov
+		todo[i].settled = todo[i].overScalar() && m.reads(b, static, sel, todo[i])
+	}
+	for i := range todo {
+		m.a.tick()
+		t := &todo[i]
+		if !t.settled || m.a.full {
+			continue
+		}
+		m.push(diag.Field(t.key))
+		res := m.merge(t.base, t.ov, memberSchema(sel, t.key))
+		m.pop()
+		if res == t.base {
+			continue
+		}
+		mem := &b.Members[t.at]
+		mem.KeyPos, mem.Value = t.keyPos, res
+		if (blame < 0 || t.from < blame) && m.tested(static, ov.Members[t.from]) {
+			blame = t.from
 		}
 	}
+	return blame
+}
+
+// reads reports whether the dispatch of b, whose base scalars give sel,
+// reads t, a pending member whose base value is a scalar: whether t is a
+// declared property of static or sel (every member a rule reads is one,
+// TestDispatchReadsDeclared) whose overlay value standing in alone
+// changes the dispatch. A member no rule reads costs one property lookup,
+// however many there are.
+func (m *merger) reads(b *tree.Node, static, sel *schemaidx.Node, t pendingMember) bool {
+	_, declared := static.Property(t.key)
+	if !declared {
+		_, declared = sel.Property(t.key)
+	}
+	if !declared {
+		return false
+	}
+	b.Members[t.at].Value = t.ov
+	changes := m.a.selectOf(static, b) != sel
+	b.Members[t.at].Value = t.base
+	return changes
 }
 
 // standIn puts the overlay value of every member settle resolves in the
@@ -537,6 +630,13 @@ func (m *merger) holders(n *tree.Node, held map[*tree.Node]bool) map[*tree.Node]
 	return held
 }
 
+// basePatchMessage is the message of every RZ-CFG-006 a base $patch
+// takes, the text 01 req 25 gives the rule ("valid only in overlays"),
+// whichever check finds it: CheckBase, or redispatched with the reason
+// appended (review finding: the same base $patch read differently by the
+// path that found it).
+const basePatchMessage = "$patch is valid only in overlays"
+
 // redispatched reports each $patch member of a held object that the
 // merged object b, whose dispatch the overlay changed from the base's to
 // sel, reads outside a JSONSchemaDocument value, as RZ-CFG-006 (01 req
@@ -554,7 +654,7 @@ func (m *merger) redispatched(b *tree.Node, sel *schemaidx.Node, held map[*tree.
 			return
 		}
 		m.errorAt(CodeBasePatch, obj.Members[j].KeyPos, []diag.PathElem{diag.Field(PatchKey)},
-			"$patch from the base document is no longer inside a JSON Schema document after the overlay merge",
+			basePatchMessage+": this base $patch is no longer inside a JSON Schema document after the overlay merge",
 			"the overlay changes how this value is read, as a new Policy spec.type does; remove $patch from the base value or keep the base type",
 			related)
 		found = append(found, obj)
@@ -565,12 +665,18 @@ func (m *merger) redispatched(b *tree.Node, sel *schemaidx.Node, held map[*tree.
 }
 
 // dispatchPos returns the value position of member blame of ov, the first
-// overlay member a dispatch rule tests whose member the merge changed
-// (removed, added, given another scalar or replaced by what remains of a
-// composite: a Policy spec.type), else, when blame is -1, the position of
-// ov itself. A member the merge leaves as the base wrote it (an equal
-// scalar, a null for an absent member, a value holding nothing but
-// removals) changed nothing and is never named.
+// overlay member a dispatch rule tests against a string constant whose
+// member the merge changed (removed, added, given another scalar or
+// replaced by what remains of a composite: a Policy spec.type), else, when
+// blame is -1, the position of ov itself. A member the merge leaves as the
+// base wrote it (an equal scalar, a null for an absent member, a value
+// holding nothing but removals) changed nothing and is never named.
+// Members are found through schemaidx DispatchValues (tested), which lists
+// string constants only, so a member tested against a boolean, number or
+// null constant is not named and the overlay object is. The committed
+// schema's rules test string constants only (kind and Policy spec.type);
+// the contract change request for a schemaidx API listing every member a
+// rule tests would let the related location name such members too.
 func dispatchPos(ov *tree.Node, blame int) tree.Pos {
 	if blame >= 0 {
 		return ov.Members[blame].Value.Pos
@@ -909,7 +1015,7 @@ func scalarText(n *tree.Node) string {
 // is skipped.
 func (m *merger) checkBase(n *tree.Node, static *schemaidx.Node) {
 	m.eachPatch(n, static, func(obj *tree.Node, j int) {
-		m.errorAt(CodeBasePatch, obj.Members[j].KeyPos, []diag.PathElem{diag.Field(PatchKey)}, "$patch is valid only in overlays", "")
+		m.errorAt(CodeBasePatch, obj.Members[j].KeyPos, []diag.PathElem{diag.Field(PatchKey)}, basePatchMessage, "")
 	}, nil)
 }
 

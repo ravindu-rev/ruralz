@@ -39,7 +39,16 @@
 // strings, 01 req 11). A use is a well-formed expression, in a scalar
 // that substitutes and in one an error leaves as authored, which is then
 // read leniently as the detectors read it, so the warning is the same
-// whichever error a scalar has. The credential rules read the authored
+// whichever error a scalar has; a malformed scalar likewise reports
+// RZ-CFG-010 at each such use of an undefined variable without default
+// (01 req 27), so one run reports every error of the scalar. No
+// RZ-CFG-013 warning names a credential, in its message or its path (01
+// J row 013): a mapping key warning's path is the object holding the key,
+// a set element or keyed entry whose text shows a credential is named by
+// its index, and a path ends before any other key that shows one
+// (walker.warnPath); a contract change request asks 01 req 48 and the J
+// row to extend this to the diagnostics of every stage. The credential
+// rules read the authored
 // text of a scalar, never a variable's value: its literal text and every
 // ${NAME:-default}'s default, taken or not, cut into runs at each ${NAME}
 // without default (eachRun), whether substitution succeeds or an error
@@ -66,7 +75,12 @@
 // aliases; the limit is a contract change request against 01 req 6).
 // Each call records at most Options.MaxDiagnostics+1 diagnostics, so the
 // caller's cap appends its RZ-CFG-001, and calls its Yield function every
-// 256 work units (01 req 50 and 53). The units are counted as the work is
+// 256 work units (01 req 50 and 53). Each diagnostic carries at most
+// maxShown bytes of any input text in each place, as config/canonical
+// bounds them: a name its message quotes, the kind and name of its
+// resource, and each member name, list key and set element of its path,
+// so the text of all of them is linear in their count whatever the size
+// of a key or name they repeat. The units are counted as the work is
 // done, at most textStep bytes at a time, so the calls are spread over
 // the work, never in a burst before or after a pass over a long text
 // (meter.go): the scanner, the detectors, the copies into the result and
@@ -246,12 +260,16 @@ func (s *Substituter) Apply(res *tree.Resource) diag.List { return s.ApplyWith(r
 
 // ApplyWith substitutes every string scalar of res in place and returns
 // the stage E diagnostics (01 req 26 to 30): RZ-CFG-005 for a malformed
-// expression, RZ-CFG-010 per undefined variable, RZ-CFG-011 in forbidden
-// positions and RZ-CFG-013 warnings, at most Options.MaxDiagnostics+1,
-// or LimitDiagnostic alone once the output limit is spent. A scalar with
-// an error keeps its authored text. Each substituted scalar records its
-// variables in tree.Node.Vars, so schema validation names them when a
-// re-typed value does not fit.
+// expression, RZ-CFG-010 per undefined variable (in a malformed scalar
+// too, read leniently), RZ-CFG-011 in forbidden positions and RZ-CFG-013
+// warnings, at most Options.MaxDiagnostics+1, or LimitDiagnostic alone
+// once the output limit is spent; RZ-CFG-007 instead when res has no
+// schema. A scalar with an error keeps its authored text. Each
+// substituted scalar records its variables in tree.Node.Vars, so schema
+// validation names them when a re-typed value does not fit. res is
+// rewritten in place ($${ unescaped, values written, scalars re-typed),
+// so it is substituted once: a render for another Environment needs its
+// own copy of the resources, re-parsed or cloned.
 //
 // yield, when not nil, is called every 256 work units inside res (01 req
 // 53); it belongs to this call, so a worker's function may keep the time
@@ -263,6 +281,8 @@ func (s *Substituter) Apply(res *tree.Resource) diag.List { return s.ApplyWith(r
 // variable's value, a secret-like one included. The location (file,
 // line, column) identifies the node in both the authored and the
 // substituted tree; later stages name entries by their substituted keys.
+// A path shows at most maxShown bytes of each key or element, and an
+// RZ-CFG-013 warning's path shows no credential (see the package doc).
 func (s *Substituter) ApplyWith(res *tree.Resource, yield func()) diag.List {
 	return s.apply(res, yield, nil)
 }
@@ -284,27 +304,41 @@ func (s *Substituter) apply(res *tree.Resource, yield func(), p *probe) diag.Lis
 	}
 	w := &walker{s: s, id: res.ID, yield: yield, probe: p}
 	var root *schemaidx.Node
+	served := false
 	if s.opts.Schemas != nil {
-		if x, ok := s.opts.Schemas.Index(res.APIVersion); ok {
+		var x *schemaidx.Index
+		if x, served = s.opts.Schemas.Index(res.APIVersion); served {
 			root, _ = x.Resource(string(res.ID.Kind))
 		}
 	}
 	if root == nil {
-		if w.envelope(res.Root) {
-			return w.diags
+		if !w.envelope(res.Root) {
+			w.unserved(res, served)
 		}
-		at := res.Start
-		if v, found := w.get(res.Root, "apiVersion"); found && v.Pos.Known() {
-			at = v.Pos
-		}
-		w.report(diag.Diagnostic{
-			Code: CodeAPIVersion, Location: w.loc(at), Path: diag.Path{diag.Field("apiVersion")},
-			Message: "no schema for " + string(res.ID.Kind) + " in apiVersion " + res.APIVersion,
-		})
 		return w.diags
 	}
 	w.visitMap(res.Root, root, place{}, edge{})
 	return w.diags
+}
+
+// unserved reports RZ-CFG-007 for res, whose apiVersion has no schema
+// index, or whose kind has no schema in a served apiVersion, as overlay
+// Apply does (stage C reports and drops such documents first): at the
+// apiVersion value with path apiVersion, or at the kind value with path
+// kind, each value quoted and clipped, or at the document start when the
+// value has no position.
+func (w *walker) unserved(res *tree.Resource, served bool) {
+	member := "apiVersion"
+	msg := "apiVersion " + strconv.Quote(clip(res.APIVersion)) + " is not served"
+	if served {
+		member = "kind"
+		msg = "kind " + strconv.Quote(clip(string(res.ID.Kind))) + " is not served by apiVersion " + strconv.Quote(clip(res.APIVersion))
+	}
+	at := res.Start
+	if v, found := w.get(res.Root, member); found && v.Pos.Known() {
+		at = v.Pos
+	}
+	w.report(diag.Diagnostic{Code: CodeAPIVersion, Location: w.loc(at), Path: diag.Path{diag.Field(member)}, Message: msg})
 }
 
 // Spent reports whether the output limit is spent: the render has failed

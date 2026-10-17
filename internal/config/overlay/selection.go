@@ -71,7 +71,9 @@ func (s Selection) Contains(path string) bool {
 // when it was set explicitly, hinting the nearest of the existing overlay
 // names. diag.Nearest compares at most 64 names, so Absent reads a
 // sorted copy of existing: the hint never depends on the order the names
-// were listed in (01 req 50 identical output).
+// were listed in (01 req 50 identical output). The diagnostic carries the
+// overlay and Environment names bounded as every diagnostic of the
+// package does (clip, shown).
 func (s Selection) Absent(existing []string) diag.List {
 	if !s.Explicit {
 		return nil
@@ -79,13 +81,13 @@ func (s Selection) Absent(existing []string) diag.List {
 	d := diag.Diagnostic{
 		Code: CodeMissing, Severity: diag.SeverityError, Location: s.Location,
 		Path:    diag.Path{diag.Field("spec"), diag.Field("overlay")},
-		Message: "overlay directory " + strconv.Quote(s.Dir()) + " does not exist",
+		Message: "overlay directory " + strconv.Quote(Root+clip(s.Name)+"/") + " does not exist",
 	}
 	if s.Environment != "" {
-		d.Resource = &diag.ResourceID{Kind: "Environment", Name: s.Environment}
+		d.Resource = &diag.ResourceID{Kind: "Environment", Name: shown(s.Environment)}
 	}
 	if near, ok := diag.Nearest(s.Name, slices.Compact(slices.Sorted(slices.Values(existing)))); ok {
-		d.Hint = "did you mean " + strconv.Quote(near) + "?"
+		d.Hint = "did you mean " + strconv.Quote(clip(near)) + "?"
 	}
 	return diag.List{d}
 }

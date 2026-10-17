@@ -353,24 +353,6 @@ func TestMeteredHelpers(t *testing.T) {
 			}
 		})
 	}
-	t.Run("clone", func(t *testing.T) {
-		src := obj("a", arr(iv(1), obj("b", sv("x"))), "c", nullv(), "d", obj())
-		src.Vars = []string{"V"}
-		a, p := meterProbe()
-		got := a.clone(src)
-		if dump(got) != dump(src.Clone()) || !slices.Equal(got.Vars, src.Vars) {
-			t.Errorf("clone = %s, want %s", dump(got), dump(src.Clone()))
-		}
-		got.Members[0].Value.Items[1].Members[0].Value.Text = "changed"
-		got.Vars[0] = "W"
-		if dump(src) == dump(got) || src.Vars[0] != "V" {
-			t.Error("clone shares nodes with its source")
-		}
-		if a.clone(nil) != nil {
-			t.Error("clone(nil) is not nil")
-		}
-		checkSpread(t, "clone", p, a.units, 7)
-	})
 	t.Run("claim", func(t *testing.T) {
 		base := []tree.Member{{Key: "a"}, {Key: "b"}, {Key: "a"}}
 		for _, n := range []int{3, linearScan, linearScan + 1, 100} {

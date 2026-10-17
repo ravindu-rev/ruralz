@@ -32,7 +32,8 @@ func TestCredentialLiteralsWithErrors(t *testing.T) {
 		{"key after a malformed and a valid expression", prefixRoute("${1X} ${A} " + aws), []string{CodeMalformed, CodeWarning}},
 		{"key in the second literal segment", prefixRoute("${U} x ${V} " + aws), []string{CodeUndefined, CodeUndefined, CodeWarning}},
 		{"a password from a variable is no match", prefixRoute(pw), []string{CodeUndefined}},
-		{"a password from a variable beside a malformed one", prefixRoute(pw + " ${1"), []string{CodeMalformed}},
+		// PASS is undefined: the lenient read reports it (01 req 27).
+		{"a password from a variable beside a malformed one", prefixRoute(pw + " ${1"), []string{CodeMalformed, CodeUndefined}},
 		{"a key split by an expression is no match", prefixRoute("AKIA${U}ABCDEFGHIJKLMNOP"), []string{CodeUndefined}},
 		{"an escaped key stays a literal", prefixRoute("$${" + aws + "} ${U}"), []string{CodeUndefined, CodeWarning}},
 		{"no key, no warning", prefixRoute("plain ${U}"), []string{CodeUndefined}},
@@ -221,11 +222,12 @@ func TestScanMatchesReference(t *testing.T) {
 // same size, allocate a small fraction of their text (a segment list
 // cost 56 bytes per expression, 14 times the text).
 func TestScanMemory(t *testing.T) {
+	n := raceScaled(1<<18, 1<<16)
 	for name, text := range map[string]string{
-		"empty results":         strings.Repeat("${E}", 1<<18),
-		"empty defaults":        strings.Repeat("${U:-}", 1<<18),
-		"unterminated defaults": strings.Repeat("${A:-", 1<<18),
-		"malformed names":       strings.Repeat("${1", 1<<18),
+		"empty results":         strings.Repeat("${E}", n),
+		"empty defaults":        strings.Repeat("${U:-}", n),
+		"unterminated defaults": strings.Repeat("${A:-", n),
+		"malformed names":       strings.Repeat("${1", n),
 	} {
 		r := docs(t, &tree.FileTable{}, "r.yaml", prefixRoute(text))[0]
 		s := New(Options{Schemas: schemas(t), Variables: Map{"E": ""}})
@@ -434,9 +436,11 @@ func TestApplyWithYield(t *testing.T) {
 // keys (01 J row 013: a credential-shaped literal in any string outside
 // x-ruralz-secret, and keys are strings, 01 req 11): every detector warns
 // at a key that holds its shape, in an annotation and in a plugin config,
-// at the key's position, naming the detector and never the key; a key
-// inside an x-ruralz-secret subtree, a key holding ${ (RZ-CFG-011 alone)
-// and an ordinary key take no warning.
+// at the key's position, naming the detector and never the key, neither
+// in its message nor in its path, which is the object holding the key
+// (review finding: the path was the key itself), in the text form and the
+// JSON form alike; a key inside an x-ruralz-secret subtree, a key holding
+// ${ (RZ-CFG-011 alone) and an ordinary key take no warning.
 func TestKeyCredentials(t *testing.T) {
 	samples := map[string]string{ //nolint:gosec // G101: test samples of each detector, not credentials.
 		"PEM private key":                  "-----BEGIN RSA PRIVATE KEY-----",
@@ -454,17 +458,27 @@ func TestKeyCredentials(t *testing.T) {
 		if !ok {
 			t.Fatalf("no sample for detector %q", d.name)
 		}
-		for where, src := range map[string]string{
-			"annotation":    `{"apiVersion":"ruralz/v1alpha1","kind":"Route","metadata":{"name":"r","annotations":{` + quote(key) + `:"x"}},"spec":{}}`,
-			"plugin config": `{"apiVersion":"ruralz/v1alpha1","kind":"Policy","metadata":{"name":"p"},"spec":{"type":"plugin","plugin":"g","config":{"tenants":{` + quote(key) + `:"a"}}}}`,
+		for where, tc := range map[string]struct{ src, path string }{
+			"annotation": {
+				`{"apiVersion":"ruralz/v1alpha1","kind":"Route","metadata":{"name":"r","annotations":{` + quote(key) + `:"x"}},"spec":{}}`,
+				"metadata.annotations",
+			},
+			"plugin config": {
+				`{"apiVersion":"ruralz/v1alpha1","kind":"Policy","metadata":{"name":"p"},"spec":{"type":"plugin","plugin":"g","config":{"tenants":{` + quote(key) + `:"a"}}}}`,
+				"spec.config.tenants",
+			},
 		} {
+			src := tc.src
 			_, ds := apply(t, src, nil)
 			if len(ds) != 1 || ds[0].Code != CodeWarning || ds[0].Message != "credential-shaped mapping key ("+d.name+")" {
 				t.Errorf("%s in a %s key: %q, want one RZ-CFG-013 naming the detector", d.name, where, texts(ds))
 				continue
 			}
-			if strings.Contains(ds[0].Message+ds[0].Hint, key) {
-				t.Errorf("%s in a %s key: the message reveals the key", d.name, where)
+			if got := ds[0].Path.String(); got != tc.path {
+				t.Errorf("%s in a %s key: path %s, want the object holding the key, %s", d.name, where, got, tc.path)
+			}
+			if s := revealed(t, ds, []string{key}); s != "" {
+				t.Errorf("%s in a %s key: the diagnostic reveals the key: %q", d.name, where, texts(ds))
 			}
 			if ds[0].Line != 1 || ds[0].Column != strings.Index(src, quote(key))+1 {
 				t.Errorf("%s in a %s key: at %v, want the key's position", d.name, where, ds[0].Location)
@@ -500,20 +514,24 @@ func TestKeyCredentials(t *testing.T) {
 // malformed scalar: a secret-like name warns at each well-formed use read
 // leniently, as it warns beside an undefined variable (the two error
 // classes read alike), and a name inside a malformed expression is no use.
+// The names are defined, except where a row says otherwise:
+// TestMalformedUndefined covers the RZ-CFG-010 of an undefined one.
 func TestMalformedSecretNames(t *testing.T) {
+	defined := Map{"DB_PASSWORD": "x", "TOKEN": "t", "NAME": "x"}
 	for _, tc := range []struct {
 		name, text string
 		vars       Map
 		want       []string
 	}{
-		{"secret-like name before a malformed ${", "${DB_PASSWORD} ${", Map{"DB_PASSWORD": "x"}, []string{CodeMalformed, CodeWarning}},
-		{"secret-like name after a malformed ${", "${1X} ${DB_PASSWORD}", nil, []string{CodeMalformed, CodeWarning}},
-		{"two uses in a malformed scalar", "${TOKEN}${TOKEN:-d} ${", nil, []string{CodeMalformed, CodeWarning, CodeWarning}},
-		{"secret-like name with an undefined sibling", "${DB_PASSWORD}${U}", Map{"DB_PASSWORD": "x"}, []string{CodeUndefined, CodeWarning}},
+		{"secret-like name before a malformed ${", "${DB_PASSWORD} ${", defined, []string{CodeMalformed, CodeWarning}},
+		{"secret-like name after a malformed ${", "${1X} ${DB_PASSWORD}", defined, []string{CodeMalformed, CodeWarning}},
+		{"two uses in a malformed scalar", "${TOKEN}${TOKEN:-d} ${", defined, []string{CodeMalformed, CodeWarning, CodeWarning}},
+		{"two uses in a malformed scalar, the variable undefined", "${TOKEN}${TOKEN:-d} ${", nil, []string{CodeMalformed, CodeUndefined, CodeWarning, CodeWarning}},
+		{"secret-like name with an undefined sibling", "${DB_PASSWORD}${U}", defined, []string{CodeUndefined, CodeWarning}},
 		{"a name inside an unterminated expression is no use", "${DB_PASSWORD", nil, []string{CodeMalformed}},
 		{"a name inside a malformed operator is no use", "${DB_PASSWORD-d}", nil, []string{CodeMalformed}},
-		{"a nested default is read after its malformed opening", "${A:-${TOKEN}}", nil, []string{CodeMalformed, CodeWarning}},
-		{"an ordinary name in a malformed scalar", "${NAME} ${", Map{"NAME": "x"}, []string{CodeMalformed}},
+		{"a nested default is read after its malformed opening", "${A:-${TOKEN}}", defined, []string{CodeMalformed, CodeWarning}},
+		{"an ordinary name in a malformed scalar", "${NAME} ${", defined, []string{CodeMalformed}},
 	} {
 		_, ds := apply(t, prefixRoute(tc.text), tc.vars)
 		if got := codes(ds); !slices.Equal(got, tc.want) {

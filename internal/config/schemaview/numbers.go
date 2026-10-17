@@ -31,8 +31,11 @@ import (
 // 0e99999999999999999999 would be no integer, fail every bound with a
 // panic and equal no number. The compiler reads the view's own numbers
 // the same way (objCompiler.numVal and intVal), so Compile builds the
-// number model first and refuses a view whose numbers need more than
-// maxViewDigits digits before compiling it. No stage before F bounds a
+// number model first and, before compiling, refuses (ErrSchema) a view
+// with a number that needs more than maxViewDigits integer or fraction
+// digits, multipleOf values whose period needs more than maxPeriodDigits
+// digits, or a zero whose exponent lies outside int64, which the
+// compiler would read as no value. No stage before F bounds a
 // literal: stage B refuses only integers outside int64, stage E re-types
 // variable text with any exponent, and stage G's range check (R-64) runs
 // after F and admits underflow and long fractions.
@@ -141,7 +144,11 @@ type numberModel struct {
 // sets unique.
 // Covering more numbers or multipleOf values than the validator compares
 // keeps every property bound preserves. minDigits is the least integer and
-// fraction digits of the grid (gridDigits; tests pass less).
+// fraction digits of the grid (gridDigits; tests pass less). It returns an
+// error, which Compile wraps in ErrSchema, for a number that is not an
+// RFC 8259 literal, one that needs more than maxViewDigits integer or
+// fraction digits, a zero whose exponent lies outside int64, and
+// multipleOf values whose period needs more than maxPeriodDigits digits.
 func newNumberModel(doc any, minDigits int) (*numberModel, error) {
 	nm := &numberModel{intDigits: minDigits, fracDigits: minDigits}
 	var mults []literal

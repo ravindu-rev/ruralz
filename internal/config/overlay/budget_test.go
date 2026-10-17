@@ -109,6 +109,19 @@ func budgetProducers() []budgetProducer {
 			base := doc("Policy", "p", plugin(repeated(k, func(int) *tree.Node { return sv("s") })))
 			return []*tree.Resource{base}, []*tree.Resource{doc("Policy", "p", obj("config", repeated(k, patch1)))}
 		}},
+		// Review finding: with the dispatch member replaced too, settle
+		// normalized a copy of every such value before the merge reported
+		// anything, past the budget.
+		{name: "misplaced $patch in values replacing base scalars beside a replaced dispatch member", code: CodeSchema, build: func(k int) ([]*tree.Resource, []*tree.Resource) {
+			base := repeated(k, func(int) *tree.Node { return sv("s") })
+			base.Members = append([]tree.Member{{Key: "type", Value: sv("cors")}}, base.Members...)
+			over := repeated(k, func(int) *tree.Node { return obj("x", obj(PatchKey, iv(1), "a", iv(1))) })
+			over.Members = append([]tree.Member{{Key: "type", Value: obj("a", iv(1))}}, over.Members...)
+			return []*tree.Resource{doc("Policy", "p", base)}, []*tree.Resource{doc("Policy", "p", over)}
+		}},
+		{name: "misplaced $patch in the value replacing a dispatch member", code: CodeSchema, build: func(k int) ([]*tree.Resource, []*tree.Resource) {
+			return []*tree.Resource{doc("Policy", "p", obj("type", sv("cors")))}, []*tree.Resource{doc("Policy", "p", obj("type", repeated(k, patch1)))}
+		}},
 		{name: "base $patch moved out of a JSON Schema document", code: CodeBasePatch, build: func(k int) ([]*tree.Resource, []*tree.Resource) {
 			base := doc("Policy", "p", obj("type", sv("validation.json-schema"), "config", obj("schema", repeated(k, patch1))))
 			return []*tree.Resource{base}, []*tree.Resource{doc("Policy", "p", obj("type", sv("cors")))}
@@ -138,11 +151,26 @@ func budgetProducers() []budgetProducer {
 	}
 }
 
-// runBudget runs the producer's stage D input; yield, when set, is
-// Options.Yield.
+// raceScaled returns full, or race in a test binary built with -race
+// (raceEnabled): a size the asymptotic checks still measure.
+func raceScaled(full, race int) int {
+	if raceEnabled {
+		return race
+	}
+	return full
+}
+
+// testBudget is the diagnostic budget TestDiagnosticBudget sets:
+// DefaultMaxDiagnostics, or a tenth of it under -race, where the budget
+// check, which needs some multiple of it in occurrences, runs at that
+// size (TestMaxDiagnosticsOption covers a budget other than the default).
+func testBudget() int { return raceScaled(DefaultMaxDiagnostics, DefaultMaxDiagnostics/10) }
+
+// runBudget runs the producer's stage D input with the budget testBudget
+// gives; yield, when set, is Options.Yield.
 func runBudget(t testing.TB, p budgetProducer, base, patches []*tree.Resource, yield ...func()) diag.List {
 	t.Helper()
-	opts := Options{Schemas: schemaSet(t, p.versions...)}
+	opts := Options{Schemas: schemaSet(t, p.versions...), MaxDiagnostics: testBudget()}
 	if len(yield) > 0 {
 		opts.Yield = yield[0]
 	}
@@ -161,29 +189,31 @@ func runBudget(t testing.TB, p budgetProducer, base, patches []*tree.Resource, y
 }
 
 // TestDiagnosticBudget covers 01 req 50 and risk 1 (review finding): one
-// Apply or CheckBase call records the first DefaultMaxDiagnostics+1
-// diagnostics in walk order, so the caller's cap appends its RZ-CFG-001,
-// and stops walking, so a document with many more occurrences allocates
-// no more. Every producer of a per-occurrence diagnostic is one row.
+// Apply or CheckBase call records the first MaxDiagnostics+1 diagnostics
+// in walk order, so the caller's cap appends its RZ-CFG-001, and stops
+// walking, so a document with many more occurrences allocates no more.
+// Every producer of a per-occurrence diagnostic is one row. The budget is
+// the default one, but under -race (testBudget).
 func TestDiagnosticBudget(t *testing.T) {
-	const k = DefaultMaxDiagnostics + 50
+	budget := testBudget()
+	k := budget + 50
 	for _, p := range budgetProducers() {
 		t.Run(p.name, func(t *testing.T) {
 			b, o := p.build(k)
 			ds := runBudget(t, p, b, o)
-			if len(ds) != DefaultMaxDiagnostics+1 {
-				t.Fatalf("%d diagnostics, want %d", len(ds), DefaultMaxDiagnostics+1)
+			if len(ds) != budget+1 {
+				t.Fatalf("%d diagnostics, want %d", len(ds), budget+1)
 			}
 			for i, d := range ds {
 				if d.Code != p.code {
 					t.Fatalf("diagnostic %d is %s, want %s", i, d.AppendText(nil), p.code)
 				}
 			}
-			c := diag.NewCollector(DefaultMaxDiagnostics)
+			c := diag.NewCollector(budget)
 			c.AddAll(ds)
-			if l := c.List(); len(l) != DefaultMaxDiagnostics+1 || !c.Full() || l.FirstErrorCode() != "RZ-CFG-001" {
+			if l := c.List(); len(l) != budget+1 || !c.Full() || l.FirstErrorCode() != "RZ-CFG-001" {
 				t.Errorf("a collector with the same cap kept %d diagnostics (full %v, first error %s), want %d and RZ-CFG-001",
-					len(l), c.Full(), l.FirstErrorCode(), DefaultMaxDiagnostics+1)
+					len(l), c.Full(), l.FirstErrorCode(), budget+1)
 			}
 			allocs := func(k int) float64 {
 				var inputs [][2][]*tree.Resource
@@ -198,7 +228,7 @@ func TestDiagnosticBudget(t *testing.T) {
 					_ = runBudget(t, p, in[0], in[1])
 				})
 			}
-			if a1, a2 := allocs(k), allocs(2*k); a2 > a1+k/8 {
+			if a1, a2 := allocs(k), allocs(2*k); a2 > a1+float64(k/8) {
 				t.Errorf("%.0f allocations for %d occurrences, %.0f for %d: the walk goes on past the budget", a1, k, a2, 2*k)
 			}
 			if !p.list {
@@ -253,10 +283,96 @@ func TestMaxDiagnosticsOption(t *testing.T) {
 	}
 }
 
+// TestSettleMergesOnce covers the review finding on settle's trial (01
+// req 54; 01 req 50 and risk 1): settle normalized a copy of the overlay
+// value of every member whose base value is a scalar, members no
+// dispatch rule reads included, before the merge normalized each again,
+// so an overlay replacing spec.type cost about three times the
+// allocations and twice the work units of the same overlay setting a new
+// type. settle now merges the members the dispatch reads once, before the
+// dispatch is read, and leaves the others to the merge, so both overlays
+// cost the same within a few units and allocations, whatever the size of
+// the member no rule reads.
+func TestSettleMergesOnce(t *testing.T) {
+	const k = 20_000
+	measure := func(typ func() *tree.Node) (calls int, allocs float64) {
+		build := func() ([]*tree.Resource, []*tree.Resource) {
+			base := doc("Policy", "p", obj("type", sv("validation.json-schema"), "config", sv("x")))
+			over := doc("Policy", "p", obj("type", typ(), "config", repeated(k, func(i int) *tree.Node { return obj("a", iv(i)) })))
+			return []*tree.Resource{base}, []*tree.Resource{over}
+		}
+		b, o := build()
+		if _, ds, err := Apply(t.Context(), b, o, Options{Schemas: schemas(t), Yield: func() { calls++ }}); err != nil || len(ds) != 0 {
+			t.Fatalf("Apply: %v, %q", err, texts(ds))
+		}
+		var inputs [][2][]*tree.Resource
+		for range 2 {
+			b, o := build()
+			inputs = append(inputs, [2][]*tree.Resource{b, o})
+		}
+		i := 0
+		allocs = testing.AllocsPerRun(1, func() {
+			in := inputs[i]
+			i++
+			_, _, _ = Apply(t.Context(), in[0], in[1], Options{Schemas: schemas(t)})
+		})
+		return calls, allocs
+	}
+	sc, sa := measure(func() *tree.Node { return obj("a", iv(1)) })
+	pc, pa := measure(func() *tree.Node { return sv("cors") })
+	t.Logf("a replaced type: %d Yield calls and %.0f allocations; a new type: %d and %.0f", sc, sa, pc, pa)
+	if sc > pc+2 {
+		t.Errorf("a replaced type costs %d Yield calls, a new type %d: settle repeats the merge", sc, pc)
+	}
+	if sa > pa+64 {
+		t.Errorf("a replaced type costs %.0f allocations, a new type %.0f: settle repeats the merge", sa, pa)
+	}
+}
+
+// TestSettleReadsDispatchTwice covers the cost of settle when the
+// dispatch reads none of the scalars the overlay replaces with composites
+// (01 req 54): settle then reads the dispatch twice, with the base
+// scalars and with every overlay value standing in, and probes no member
+// on its own, so an overlay replacing every declared PolicySpec member
+// but the type costs what it costs without settle plus two dispatch reads
+// of the object, whatever number of declared members it replaces.
+func TestSettleReadsDispatchTwice(t *testing.T) {
+	const k = 20_000
+	declared := []string{"config", "failureMode", "filterClass", "overridable", "plugin", "slot", "stateStoreTimeout", "when"}
+	work := func(replace bool) int {
+		base, over := obj("type", sv("cors")), obj()
+		for _, d := range declared {
+			base.Members = append(base.Members, tree.Member{Key: d, Value: sv("s")})
+			if replace {
+				over.Members = append(over.Members, tree.Member{Key: d, Value: obj("a", iv(1))})
+			}
+		}
+		for i := range k {
+			base.Members = append(base.Members, tree.Member{Key: "m" + strconv.Itoa(i), Value: sv("s")})
+			over.Members = append(over.Members, tree.Member{Key: "m" + strconv.Itoa(i), Value: sv("t")})
+		}
+		calls := 0
+		_, ds, err := Apply(t.Context(), []*tree.Resource{doc("Policy", "p", base)}, []*tree.Resource{doc("Policy", "p", over)},
+			Options{Schemas: schemas(t), Yield: func() { calls++ }})
+		if err != nil || len(ds) != 0 {
+			t.Fatalf("Apply: %v, %q", err, texts(ds))
+		}
+		return calls
+	}
+	with, without := work(true), work(false)
+	t.Logf("%d Yield calls with the declared members replaced, %d without", with, without)
+	// One dispatch read of the object passes over its k members at most
+	// three times (selectOf), so two reads cost at most 6k units.
+	if limit := without + 6*k/yieldEvery + 4; with > limit {
+		t.Errorf("%d Yield calls with the declared members replaced, %d without, want at most %d: settle probes members the dispatch does not read",
+			with, without, limit)
+	}
+}
+
 // TestSettleAfterBudget: once the diagnostic budget is spent, settle
-// copies and normalizes no overlay value (01 req 50 and risk 1), even
-// where one replacing a base scalar would decide the dispatch: the
-// allocations do not grow with the number of such values.
+// merges no overlay value (01 req 50 and risk 1), even where one
+// replacing a base scalar would decide the dispatch: the allocations do
+// not grow with the number of such values.
 func TestSettleAfterBudget(t *testing.T) {
 	build := func(k int) ([]*tree.Resource, []*tree.Resource) {
 		spec := repeated(k, func(int) *tree.Node { return sv("s") })
@@ -287,7 +403,7 @@ func TestSettleAfterBudget(t *testing.T) {
 		})
 	}
 	const k = 2000
-	if a1, a2 := allocs(k), allocs(2*k); a2 > a1+k/8 {
+	if a1, a2 := allocs(k), allocs(2*k); a2 > a1+float64(k/8) {
 		t.Errorf("%.0f allocations for %d values, %.0f for %d: settle runs past the budget", a1, k, a2, 2*k)
 	}
 }

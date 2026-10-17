@@ -105,19 +105,26 @@ type listLoc struct {
 	w     *worker
 	r     *hub.Resource
 	field string
+	// want, when set, reports whether entry may be asked for a name; nil
+	// admits every name.
+	want func(name string) bool
 	// list is the tree's list node, or nil when the tree holds no list at
 	// spec.<field>.
 	list *tree.Node
 	// byName maps each name to the index of the first item with that
 	// name member, as a keyed path finds it; built on the first fallback.
-	// A name longer than maxRefBytes is left out unread: entry only looks
-	// up names that resolved, so it never asks for one.
+	// It holds only names want admits, so a name nobody asks for, such as
+	// a reference that resolves to nothing, takes no memory in it; a name
+	// longer than maxRefBytes is left out unread, since entry only looks
+	// up names that resolved.
 	byName map[string]int
 }
 
 // list returns the locator of the list spec.<field> of r on worker w.
-func (l locator) list(w *worker, r *hub.Resource, field string) *listLoc {
-	ll := &listLoc{l: l, w: w, r: r, field: field}
+// want, when set, reports the names its entry may be asked for (those
+// whose reference resolves); nil admits every name.
+func (l locator) list(w *worker, r *hub.Resource, field string, want func(name string) bool) *listLoc {
+	ll := &listLoc{l: l, w: w, r: r, field: field, want: want}
 	if r != nil && r.Tree != nil {
 		if spec := member(r.Tree, "spec"); spec != nil {
 			if m := member(spec.Value, field); m != nil && m.Value != nil && m.Value.Kind == tree.KindList {
@@ -149,10 +156,11 @@ func (ll *listLoc) entry(i int, name string) diag.Location {
 		}
 	}
 	if ll.byName == nil {
-		ll.byName = make(map[string]int, len(items))
+		ll.byName = make(map[string]int)
 		for k, it := range items {
 			ll.w.charge(siteLocate, 1)
-			if n := member(it, "name"); n != nil && n.Value != nil && ll.w.resolvable(siteLongLocate, n.Value.Text) {
+			if n := member(it, "name"); n != nil && n.Value != nil && ll.w.resolvable(siteLongLocate, n.Value.Text) &&
+				(ll.want == nil || ll.want(n.Value.Text)) {
 				if _, seen := ll.byName[n.Value.Text]; !seen {
 					ll.byName[n.Value.Text] = k
 				}

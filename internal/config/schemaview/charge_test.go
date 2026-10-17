@@ -4,6 +4,7 @@
 package schemaview
 
 import (
+	"strconv"
 	"strings"
 	"testing"
 
@@ -128,7 +129,7 @@ func TestTextCharges(t *testing.T) {
 		{"member name and string in the validator's span", func(n int) int {
 			res := mustResource(t, &tree.FileTable{}, "r.json", envelope("Gateway", `{"listeners": [{"name": "`+a(n)+`", "port": 1, "protocol": "http"}], "`+a(n)+`": 1}`))
 			w, _ := counter()
-			_, _ = v.runSchema(res, w)
+			_, _, _ = v.runSchema(res, w)
 			return w.total
 		}, func(n int) int { return 2*n + n }},
 		{"token looked up", func(n int) int {
@@ -137,6 +138,33 @@ func TestTextCharges(t *testing.T) {
 			s.add(&step{tok: a(n)})
 			x.step(s, a(n))
 			return x.work.total
+		}, linear},
+		// A scan compares every child of the token's length in full
+		// (review finding: eight such siblings were charged one length).
+		{"token among equal-length siblings", func(n int) int {
+			x := counting()
+			s := &step{}
+			for i := range fewSteps {
+				s.add(&step{tok: a(n-1) + strconv.Itoa(i)})
+			}
+			x.step(s, a(n-1)+strconv.Itoa(fewSteps-1))
+			return x.work.total
+		}, func(n int) int { return fewSteps * n }},
+		// A new member step reads its token in the schema's members, the
+		// object's member it compares and its path segment.
+		{"token of a new member step", func(n int) int {
+			res := mustResource(t, &tree.FileTable{}, "r.json", envelope("Route", `{"match": {"path": {"prefix": "/"}}, "upstreams": [{"name": "u"}], "`+a(n)+`": 1}`))
+			m := newMapper(v, res, nil, MaxDiagnostics, Options{Yield: func() {}})
+			m.locate([]string{"spec"})
+			m.work.total = 0
+			m.locate([]string{"spec", a(n)})
+			return m.work.total
+		}, func(n int) int { return 3 * n }},
+		{"member name below a secret", func(n int) int {
+			m := newMapper(v, mustResource(t, &tree.FileTable{}, "r.json", `{}`), nil, MaxDiagnostics, Options{Yield: func() {}})
+			spec, _ := v.idx.Spec("Consumer")
+			m.declaredPath(spec, diag.Path{diag.Field(a(n))})
+			return m.work.total
 		}, linear},
 		{"member index of a large object", func(n int) int {
 			x := counting()

@@ -5,10 +5,13 @@ package precedence
 
 import (
 	"fmt"
+	"runtime"
+	"slices"
 	"strings"
 	"testing"
 
 	"github.com/ravindu-rev/ruralz/internal/config/hub"
+	"github.com/ravindu-rev/ruralz/internal/config/tree"
 	"github.com/ravindu-rev/ruralz/internal/phase"
 	"github.com/ravindu-rev/ruralz/pkg/config/v1alpha1"
 )
@@ -170,5 +173,129 @@ func TestAbsentReferencesTakeNoKeys(t *testing.T) {
 				}
 			}
 		}
+	}
+}
+
+// unpositioned gives r a tree whose spec.<field> list holds names, with
+// no position on any entry, so the locator finds an entry through its
+// name index.
+func unpositioned(files *tree.FileTable, r *hub.Resource, field string, names []string) {
+	positionList(files, r, "routes", field, names)
+	spec := member(r.Tree, "spec").Value
+	for _, it := range member(spec, field).Value.Items {
+		it.Pos = tree.Pos{}
+	}
+}
+
+// TestAbsentReferencesAllocateNothing covers the class members of the
+// WP-38 S2 round-2 minor on absent references that its first fix left
+// (TestAbsentReferencesTakeNoKeys covers the keys): every Route list
+// still made room for each of its entries (a list item and two index
+// entries), the locator's name index held every name of a list whose
+// tree it could not read by index, and the leg order buffered and
+// indexed every Upstream name, so a reference that resolves to nothing
+// still cost about 260 bytes (316 through the name index) or 71 bytes in
+// each run, transient but at once for one list. One row per kind of
+// reference: a Route's spec.policies, the same through the name index,
+// spec.excludePolicies, the same through the name index, spec.upstreams
+// and composition steps. 50 Routes each name n absent references beside
+// one that resolves, on 1 and 4 workers: Run's TotalAlloc for n = 4,000
+// exceeds that for n = 1,000 by under 64 KiB in all (150,000 more
+// references, under half a byte each; a counter, never a sampled heap),
+// and the reference that resolves still takes effect in every Route.
+func TestAbsentReferencesAllocateNothing(t *testing.T) {
+	absent := func(i, n int) []string {
+		out := make([]string, n)
+		for j := range out {
+			out[j] = fmt.Sprintf("absent-%d-%d", i, j)
+		}
+		return out
+	}
+	type shape struct {
+		name string
+		// route adds Route name, naming present and n absent references.
+		route func(b *builder, files *tree.FileTable, name string, refs []string)
+		// check reports what the reference that resolves must do in c.
+		check func(c *hub.Chain) bool
+		// findings is the number of findings of the run.
+		findings int
+	}
+	attached := func(c *hub.Chain) bool {
+		return slices.Equal(names(c.Client[phase.OnRequestHeaders]), []string{"gl", "rl"})
+	}
+	leg := func(c *hub.Chain) bool { return len(c.Legs) == 1 && c.Legs[0].Upstream == "up" }
+	excludedLocked := func(c *hub.Chain) bool { return slices.Equal(names(c.Client[phase.OnRequestHeaders]), []string{"gl"}) }
+	for _, sh := range []shape{
+		{"spec.policies", func(b *builder, _ *tree.FileTable, name string, refs []string) {
+			b.route(name, append([]string{"rl"}, refs...), nil, nil)
+		}, attached, 0},
+		{"spec.policies through the name index", func(b *builder, files *tree.FileTable, name string, refs []string) {
+			list := append([]string{"rl"}, refs...)
+			b.route(name, list, nil, nil)
+			unpositioned(files, b.rs[len(b.rs)-1], fieldPolicies, list)
+		}, attached, 0},
+		{"spec.excludePolicies", func(b *builder, _ *tree.FileTable, name string, refs []string) {
+			b.route(name, nil, append([]string{"gl"}, refs...), nil)
+		}, excludedLocked, 50},
+		{"spec.excludePolicies through the name index", func(b *builder, files *tree.FileTable, name string, refs []string) {
+			list := append([]string{"gl"}, refs...)
+			b.route(name, nil, list, nil)
+			unpositioned(files, b.rs[len(b.rs)-1], fieldExclude, list)
+		}, excludedLocked, 50},
+		{"spec.upstreams", func(b *builder, _ *tree.FileTable, name string, refs []string) {
+			b.route(name, nil, nil, append([]string{"up"}, refs...))
+		}, leg, 0},
+		{"spec.composition.steps", func(b *builder, _ *tree.FileTable, name string, refs []string) {
+			rt := b.route(name, nil, nil, nil)
+			rt.Spec.Composition = &v1alpha1.Composition{Mode: v1alpha1.CompositionModeSequential}
+			for j, u := range append([]string{"up"}, refs...) {
+				rt.Spec.Composition.Steps = append(rt.Spec.Composition.Steps, v1alpha1.CompositionStep{Name: fmt.Sprintf("s%d", j), Upstream: u})
+			}
+		}, leg, 0},
+	} {
+		t.Run(sh.name, func(t *testing.T) {
+			for _, workers := range []int{1, 4} {
+				var total [2]uint64
+				for k, n := range []int{1000, 4000} {
+					b := newBuilder()
+					b.policy("rl", v1alpha1.PolicyTypeRateLimit, nil)
+					b.policy("gl", v1alpha1.PolicyTypeCORS, nil, locked)
+					b.gateway("gl")
+					b.upstream("up")
+					files := &tree.FileTable{}
+					for i := range 50 {
+						sh.route(b, files, fmt.Sprintf("r%02d", i), absent(i, n))
+					}
+					bundle := b.bundle()
+					r := mustNew(t, nil, Options{Body: bodyOracle{}})
+					var before, after runtime.MemStats
+					runtime.GC()
+					runtime.ReadMemStats(&before)
+					chains, ds, err := r.Run(t.Context(), bundle, files, workers)
+					runtime.ReadMemStats(&after)
+					if err != nil {
+						t.Fatal(err)
+					}
+					total[k] = after.TotalAlloc - before.TotalAlloc
+					if len(ds) != sh.findings {
+						t.Errorf("n=%d workers %d: %d findings, want %d", n, workers, len(ds), sh.findings)
+					}
+					for name, c := range chains {
+						if !sh.check(c) {
+							t.Errorf("n=%d workers %d: %s lost the reference that resolves: onRequestHeaders %q, %d legs",
+								n, workers, name, names(c.Client[phase.OnRequestHeaders]), len(c.Legs))
+							break
+						}
+					}
+					if len(chains) != 50 {
+						t.Errorf("n=%d workers %d: %d chains, want 50", n, workers, len(chains))
+					}
+				}
+				if total[1] > total[0]+64<<10 {
+					t.Errorf("workers %d: TotalAlloc %d B for 4,000 absent references per Route, %d B for 1,000: %.1f B per added reference",
+						workers, total[1], total[0], float64(total[1]-total[0])/(50*3000))
+				}
+			}
+		})
 	}
 }

@@ -722,6 +722,7 @@ func TestHeldJobsCoverBacktracker(t *testing.T) {
 //
 // Requirements: 07 reqs 80 to 82 and architecture R-77.
 func TestHandleBacktrackCharge(t *testing.T) {
+	requireMeter(t)
 	const wide = `(?:(?:a??){240}a)*b`
 	as := strings.Repeat
 	for _, tc := range []struct {

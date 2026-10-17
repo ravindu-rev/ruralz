@@ -325,7 +325,7 @@ func TestDetectorsMatchSpec(t *testing.T) {
 		"-----BEGIN ", "PRIVATE KEY", "-----", "://", ":", "@", "/", " ", "eyJ", ".", "AKIA", "ASIA", "gh", "p_", "_",
 		"github_pat_", "xox", "b-", "-", "sk-", "ant-", "Bearer ", "Basic ", "=", "a", "A", "0", "aaaaaaaa", "AAAAAAAA", "\xff", "é", "\t",
 	}
-	for range 20_000 {
+	for range raceScaled(20_000, 4_000) {
 		var b strings.Builder
 		for range r.IntN(12) {
 			b.WriteString(pieces[r.IntN(len(pieces))])

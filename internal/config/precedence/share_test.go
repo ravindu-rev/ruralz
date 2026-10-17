@@ -5,6 +5,8 @@ package precedence
 
 import (
 	"fmt"
+	"maps"
+	"reflect"
 	"slices"
 	"testing"
 
@@ -49,8 +51,9 @@ func materialized(chains map[string]*hub.Chain) int {
 // exclusions, replacements or own Policies elsewhere), and each Phase
 // changed only by removals shares one slice among the Routes removing the
 // same Gateway Policies from it, whether by exclusion or by replacement
-// from another Phase (02 req 35, 42). Shared slices have capacity equal to
-// their length, so appending through one chain never writes another's.
+// from another Phase (02 req 35, 42), judged by the removals that run in
+// that Phase alone. Shared slices have capacity equal to their length, so
+// appending through one chain never writes another's.
 func TestClientPhaseSharing(t *testing.T) {
 	b := newBuilder()
 	b.policy("cors-g", v1alpha1.PolicyTypeCORS, nil)                                         // onRequestHeaders, onResponse
@@ -73,6 +76,13 @@ func TestClientPhaseSharing(t *testing.T) {
 	// removes a Gateway entry from a Phase and adds its own to it, so the
 	// built Phase is sized by both (WP-38 S2 round-2 minor, mutant A51).
 	b.route("repl-cors", []string{"cors-r"}, nil, nil)
+	// Equal removals that run in different Phases (quota-g in
+	// onRequestHeaders and onLog, which no other Route removes, and hdr-g
+	// in onResponse): each Phase's content is keyed and compared by the
+	// removals that run in it alone, so every Phase is shared (the memo;
+	// mutant F11c, which recorded every removal of the Route, shared none).
+	b.route("excl-two-a", nil, []string{"quota-g", "hdr-g"}, nil)
+	b.route("excl-two-b", nil, []string{"hdr-g", "quota-g"}, nil)
 	bundle := b.bundle()
 	for _, workers := range []int{1, 4} {
 		t.Run(fmt.Sprintf("workers=%d", workers), func(t *testing.T) {
@@ -107,6 +117,10 @@ func TestClientPhaseSharing(t *testing.T) {
 				{"replacement from another Phase equals exclusion: onResponse", c("repl-security", resp), c("excl-hdr", resp), true},
 				{"replacing Policy's Phase is the Route's", c("repl-security", hdr), c("inherit-a", hdr), false},
 				{"replacement, untouched Phase: onLog", c("repl-security", log), c("inherit-a", log), true},
+				{"equal removals across Phases: onRequestHeaders", c("excl-two-a", hdr), c("excl-two-b", hdr), true},
+				{"equal removals across Phases: onResponse", c("excl-two-a", resp), c("excl-two-b", resp), true},
+				{"a Phase's own removals decide: onResponse as excl-hdr", c("excl-two-a", resp), c("excl-hdr", resp), true},
+				{"a Phase's own removals decide: onRequestHeaders differs from excl-rl", c("excl-two-a", hdr), c("excl-rl", hdr), false},
 			}
 			for _, tc := range tests {
 				if got := sameArray(tc.a, tc.b); got != tc.shared {
@@ -124,6 +138,11 @@ func TestClientPhaseSharing(t *testing.T) {
 			}
 			if got := names(c("repl-cors", resp)); !slices.Equal(got, []string{"hdr-g", "cors-r"}) {
 				t.Errorf("repl-cors onResponse = %q", got)
+			}
+			for _, r := range []string{"excl-two-a", "excl-two-b"} {
+				if h, l := names(c(r, hdr)), c(r, log); !slices.Equal(h, []string{"cors-g", "rl-g"}) || l != nil {
+					t.Errorf("%s: onRequestHeaders %q, onLog %q; want [cors-g rl-g] and nil", r, h, names(l))
+				}
 			}
 			for name, ch := range chains {
 				for p := range phase.Count {
@@ -184,13 +203,15 @@ func sharingBundle(shape string, g, r int) *hub.Bundle {
 }
 
 // TestRemovalKeysDistinct covers the WP-38 S2 round-2 minor that nothing
-// pinned the memo key of a removal-only Phase as injective: a key without
-// its separator (mutant A44) made a Route removing positions 1 and 23
-// and one removing 1, 2 and 3 ("123" both) share one slice, so the
-// second still ran p02 and p03. With 24 Gateway ratelimit Policies, on 1
-// and 4 workers, each such Route runs exactly the Gateway Policies it did
-// not exclude, the two slices are distinct, and a third Route with the
-// first one's removals shares its slice.
+// pinned that only equal removals share a removal-only Phase: the memo's
+// text key without its separator (mutant A44) made a Route removing
+// positions 1 and 23 and one removing 1, 2 and 3 ("123" both) share one
+// slice, so the second still ran p02 and p03. The memo now keys by a hash
+// and compares positions (TestMemoKeyFixedSize forces collisions). With
+// 24 Gateway ratelimit Policies, on 1 and 4 workers, each such Route runs
+// exactly the Gateway Policies it did not exclude, the two slices are
+// distinct, and a third Route with the first one's removals shares its
+// slice.
 func TestRemovalKeysDistinct(t *testing.T) {
 	b := newBuilder()
 	gw := make([]string, 24)
@@ -223,6 +244,73 @@ func TestRemovalKeysDistinct(t *testing.T) {
 		}
 		if !sameArray(hdr("a"), hdr("c")) {
 			t.Errorf("workers %d: a and c do not share one slice for equal removals", workers)
+		}
+	}
+}
+
+// TestMemoKeyFixedSize covers the class member of the WP-38 S2 round-2
+// minor on uncharged passes that the memo of removal-only Phases held:
+// its key was the removed positions as text, which the memo hashed, and
+// compared on a hit, in one uncharged pass of up to 6 bytes per removal.
+// The key now has a fixed size (no field whose size grows with the
+// removals), and the contents under one key are told apart by their
+// positions, each compared as a unit of work (TestWorkCharged). With
+// every key forced to collide (the collide hook), on 1 and 4 workers:
+// Routes removing distinct sets of equal size from one Phase get distinct
+// contents, each running exactly the Gateway Policies it keeps; Routes
+// removing equal sets, in any authored order, share one; and the slot of
+// the colliding key holds one content per distinct set.
+func TestMemoKeyFixedSize(t *testing.T) {
+	kt := reflect.TypeFor[phaseKey]()
+	for i := range kt.NumField() {
+		switch f := kt.Field(i); f.Type.Kind() {
+		case reflect.Bool, reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64,
+			reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64:
+		default:
+			t.Errorf("phaseKey.%s is a %s, whose size can grow with the removals", f.Name, f.Type)
+		}
+	}
+	b := newBuilder()
+	gw := make([]string, 24)
+	for i := range gw {
+		gw[i] = fmt.Sprintf("p%02d", i)
+		b.policy(gw[i], v1alpha1.PolicyTypeRateLimit, nil)
+	}
+	b.gateway(gw...)
+	routes := map[string][]string{
+		"a": {"p01", "p23"},
+		"d": {"p01", "p02"},
+		"e": {"p02", "p01"},
+		"f": {"p05", "p07"},
+		"g": {"p03", "p04", "p05"},
+	}
+	for _, name := range slices.Sorted(maps.Keys(routes)) {
+		b.route(name, nil, routes[name], nil)
+	}
+	bundle := b.bundle()
+	for _, workers := range []int{1, 4} {
+		s := newState(mustNew(t, nil, Options{}), bundle, nil, workers)
+		s.memo.collide = true
+		if err := s.run(t.Context()); err != nil {
+			t.Fatal(err)
+		}
+		hdr := func(r string) []hub.Entry { return s.chains[r].Client[phase.OnRequestHeaders] }
+		for name, ex := range routes {
+			want := slices.DeleteFunc(slices.Clone(gw), func(p string) bool { return slices.Contains(ex, p) })
+			if got := names(hdr(name)); !slices.Equal(got, want) {
+				t.Errorf("workers %d: %s runs %q, want %q", workers, name, got, want)
+			}
+		}
+		for _, pair := range [][2]string{{"a", "d"}, {"a", "f"}, {"d", "f"}, {"a", "g"}} {
+			if sameArray(hdr(pair[0]), hdr(pair[1])) {
+				t.Errorf("workers %d: %s and %s share one slice for different removals", workers, pair[0], pair[1])
+			}
+		}
+		if !sameArray(hdr("d"), hdr("e")) {
+			t.Errorf("workers %d: d and e do not share one slice for equal removals", workers)
+		}
+		if slot := s.memo.slots[phaseKey{p: phase.OnRequestHeaders, n: 2}]; slot == nil || len(slot.contents) != 3 {
+			t.Errorf("workers %d: the colliding key holds %v, want 3 contents (a, d and f)", workers, slot)
 		}
 	}
 }

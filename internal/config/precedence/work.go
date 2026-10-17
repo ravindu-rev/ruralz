@@ -50,24 +50,32 @@ const maxRefBytes = 63
 //
 // A work unit is one element that a loop of stage I reads: a resource, a
 // list entry, an entry placed in, copied into or compared within a Phase,
-// a tree item the locator reads, a reference too long to resolve, a
-// diagnostic offered or merged, or byteUnit bytes of a slot interned.
-// Every loop whose length depends on the input counts its elements at its
-// own site as it reads them, so no stretch of work between two counts
-// does more than a fixed amount: stage I sorts with its own heap sort,
+// a removal the memo hashes, compares or records, a tree item the locator
+// reads, a reference too long to resolve, a diagnostic offered or merged,
+// or byteUnit bytes of a slot interned. Every loop whose length depends
+// on the input counts its elements at its own site as it reads them, so
+// no stretch of work between two counts makes more than a fixed number of
+// comparisons, hashes and calls: stage I sorts with its own heap sort,
 // which counts every comparison and does a fixed number of moves per
 // comparison, and orders Phases by counting placements instead of
-// sorting; it never hashes or compares a reference longer than
+// sorting. Every map it reads or writes is keyed by an index, an
+// interned slot id, a fixed-size phaseKey, a Policy type (an enum value
+// stage F checked) or a name of at most maxRefBytes (a reference it
+// resolved, or a resource name, which stage F bounds the same), so no
+// hash or key comparison grows with the input but the one of each slot
+// interned: stage I never hashes or compares a reference longer than
 // maxRefBytes, and reads a slot's text once per attachment scope, charged
-// per byteUnit before the read. A merge into the call's collector does at
-// most batch insertions under the collector's lock and is charged when
-// the lock is released, so no worker yields while it holds the lock. The
-// time between two reads of the timer is then bounded, except for that
-// one hash of a slot (no schema rule bounds a slot, see the
-// PolicySpec.Slot contract request) and the calls of Options.Body, and
-// total and sites measure the stage's work independently of the machine
-// (TestWorkCharged pins each site, TestNoBulkCharges the spacing of the
-// reads).
+// per byteUnit before the read. A merge into
+// the call's collector does at most batch insertions under the
+// collector's lock and is charged when the lock is released, so no worker
+// yields while it holds the lock. The time between two reads of the timer
+// is then bounded, except for that one hash of a slot (no schema rule
+// bounds a slot, see the PolicySpec.Slot contract request), the calls of
+// Options.Body, and the memory the runtime allocates, clears or copies in
+// one call (a buffer made for a Phase, a slice an append grows), which is
+// proportional to units already counted; total and sites measure the
+// stage's work independently of the machine (TestWorkCharged pins each
+// site, TestNoBulkCharges the spacing of the reads).
 type worker struct {
 	// now is the clock of the yield timer (Options.Now); nil never yields.
 	now func() time.Time
@@ -138,23 +146,24 @@ const (
 	siteRemoved                      // route: a removed Gateway entry
 	siteRemovedSort                  // route: a comparison sorting removals
 	siteRemovedList                  // route: a removal read building hub.Removed
-	siteLeg                          // route: a leg added
+	siteLeg                          // legs: a leg built
 	siteKeptIn                       // client: a kept entry counted
 	siteKeptOrder                    // client: a kept entry placed in class order
 	siteRemovedPos                   // client: a removed position indexed
 	siteRemovedIn                    // removedIn: a removal checked
-	siteRemovalKey                   // removalKey: a removal encoded
+	siteRemovalKey                   // phaseMemo.key: a removal hashed
+	siteMemoCompare                  // phaseMemo.get: a removal compared or kept
 	siteWithoutCount                 // without: an entry counted
 	siteWithoutCopy                  // without: an entry copied
 	siteCopyBase                     // client: a Gateway entry copied
 	siteCopyKept                     // client: a kept entry copied
 	siteGuardrailGateway             // cacheGuardrail: a Gateway cache entry
 	siteGuardrailKept                // cacheGuardrail: a kept entry
-	siteLegUpstream                  // legOrder: a spec.upstreams name
-	siteLongLeg                      // legOrder: an Upstream name too long to resolve
-	siteLegSort                      // legOrder: a comparison
-	siteLegStep                      // legOrder: a composition step
-	siteLegDedupe                    // legOrder: a name deduplicated
+	siteLegUpstream                  // legs: a spec.upstreams name
+	siteLongLeg                      // legs: an Upstream name too long to resolve
+	siteLegSort                      // legs: a comparison
+	siteLegStep                      // legs: a composition step
+	siteLegDedupe                    // legs: a name looked up and deduplicated
 	siteChain                        // run: a chain indexed
 	siteOffer                        // worker: a diagnostic offered
 	siteFlush                        // flush: a diagnostic merged or a comparison merging it

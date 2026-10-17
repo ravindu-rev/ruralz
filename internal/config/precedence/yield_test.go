@@ -290,9 +290,14 @@ func TestWorkCharged(t *testing.T) {
 		return out
 	}
 	excludeAll := func(b *builder, gw []string) { b.route("r", nil, gw, nil) }
+	// upstreams returns a Route naming n Upstreams that exist, in reverse
+	// name order when reversed.
 	upstreams := func(n int, reversed bool) *hub.Bundle {
 		b := newBuilder()
 		us := sh.names("u", n)
+		for _, u := range us {
+			b.upstream(u)
+		}
 		if reversed {
 			slices.Reverse(us)
 		}
@@ -413,7 +418,7 @@ func TestWorkCharged(t *testing.T) {
 		{"route: every removed Gateway entry", siteRemoved, false, func(n int) *hub.Bundle { return sh.gateway(n, excludeAll) }, nil, exact(func(n int) int { return n })},
 		{"route: every comparison sorting removals", siteRemovedSort, false, func(n int) *hub.Bundle { return sh.gateway(n, excludeAll) }, nil, heapSorting(func(n int) int { return n })},
 		{"route: every removal read, once per reason", siteRemovedList, false, func(n int) *hub.Bundle { return sh.gateway(n, excludeAll) }, nil, exact(func(n int) int { return 2 * n })},
-		{"route: every leg", siteLeg, false, func(n int) *hub.Bundle { return upstreams(n, false) }, nil, exact(func(n int) int { return n })},
+		{"legs: every leg built", siteLeg, false, func(n int) *hub.Bundle { return upstreams(n, false) }, nil, exact(func(n int) int { return n })},
 		{"client: every kept entry counted", siteKeptIn, false, func(n int) *hub.Bundle { return sh.quotaRoute(n, nil) }, nil, exact(func(n int) int { return n })},
 		{"client: every kept entry placed in class order", siteKeptOrder, false, func(n int) *hub.Bundle { return sh.quotaRoute(n, nil) }, nil, exact(func(n int) int { return n })},
 		{"client: every removed position", siteRemovedPos, false, func(n int) *hub.Bundle { return sh.gateway(n, excludeAll) }, nil, exact(func(n int) int { return n })},
@@ -423,7 +428,13 @@ func TestWorkCharged(t *testing.T) {
 				b.route("r", []string{"q"}, gw, nil)
 			})
 		}, nil, exact(func(n int) int { return n })},
-		{"removalKey: every removal of a removal-only Phase", siteRemovalKey, false, func(n int) *hub.Bundle { return sh.gateway(n, excludeAll) }, nil, exact(func(n int) int { return n })},
+		{"phaseMemo.key: every removal of a removal-only Phase", siteRemovalKey, false, func(n int) *hub.Bundle { return sh.gateway(n, excludeAll) }, nil, exact(func(n int) int { return n })},
+		{"phaseMemo.get: every removal recorded, then compared", siteMemoCompare, false, func(n int) *hub.Bundle {
+			return sh.gateway(n, func(b *builder, gw []string) {
+				b.route("r1", nil, gw, nil)
+				b.route("r2", nil, gw, nil)
+			})
+		}, nil, exact(func(n int) int { return 2 * n })},
 		{"without: every entry counted", siteWithoutCount, false, func(n int) *hub.Bundle {
 			return sh.gateway(n, func(b *builder, gw []string) { b.route("r", nil, gw[:1], nil) })
 		}, nil, exact(func(n int) int { return n })},
@@ -444,8 +455,8 @@ func TestWorkCharged(t *testing.T) {
 				return []string{"cache", "authz"}
 			})
 		}, nil, exact(func(n int) int { return n + 2 })},
-		{"legOrder: every spec.upstreams name", siteLegUpstream, false, func(n int) *hub.Bundle { return upstreams(n, false) }, nil, exact(func(n int) int { return n })},
-		{"legOrder: every Upstream name too long to resolve", siteLongLeg, false, func(n int) *hub.Bundle {
+		{"legs: every spec.upstreams name", siteLegUpstream, false, func(n int) *hub.Bundle { return upstreams(n, false) }, nil, exact(func(n int) int { return n })},
+		{"legs: every Upstream name too long to resolve", siteLongLeg, false, func(n int) *hub.Bundle {
 			b := newBuilder()
 			rt := b.route("r", nil, nil, long("u", n))
 			rt.Spec.Composition = &v1alpha1.Composition{Mode: v1alpha1.CompositionModeSequential}
@@ -454,8 +465,8 @@ func TestWorkCharged(t *testing.T) {
 			}
 			return b.bundle()
 		}, nil, exact(func(n int) int { return 2 * n })},
-		{"legOrder: every comparison", siteLegSort, false, func(n int) *hub.Bundle { return upstreams(n, true) }, nil, heapSorting(func(n int) int { return n })},
-		{"legOrder: every composition step", siteLegStep, false, func(n int) *hub.Bundle {
+		{"legs: every comparison", siteLegSort, false, func(n int) *hub.Bundle { return upstreams(n, true) }, nil, heapSorting(func(n int) int { return n })},
+		{"legs: every composition step", siteLegStep, false, func(n int) *hub.Bundle {
 			b := newBuilder()
 			rt := b.route("r", nil, nil, nil)
 			rt.Spec.Composition = &v1alpha1.Composition{Mode: v1alpha1.CompositionModeSequential}
@@ -464,7 +475,7 @@ func TestWorkCharged(t *testing.T) {
 			}
 			return b.bundle()
 		}, nil, exact(func(n int) int { return n })},
-		{"legOrder: every name deduplicated", siteLegDedupe, false, func(n int) *hub.Bundle { return upstreams(n, false) }, nil, exact(func(n int) int { return n })},
+		{"legs: every name looked up and deduplicated", siteLegDedupe, false, func(n int) *hub.Bundle { return upstreams(n, false) }, nil, exact(func(n int) int { return n })},
 		{"run: every chain", siteChain, false, func(n int) *hub.Bundle {
 			b := newBuilder()
 			for _, r := range sh.names("r", n) {
@@ -582,9 +593,12 @@ func TestWorkChargedGatewayCache(t *testing.T) {
 // elements of each shape never charges more than 256 units plus the few
 // one flush of the collector charges at once between two reads: the
 // onRequestBody scan of a shared Phase, the merge of a built
-// onRequestBody, removals sorted and listed, legs sorted, kept findings
-// sorted, and an Upstream leg filled. Before the fix the first three
-// charged 1,024 at once.
+// onRequestBody, removals sorted and listed, legs sorted, a removal-only
+// Phase memoized by one Route and found by another (its key hashed, its
+// removals recorded, then compared), kept findings sorted, and an
+// Upstream leg filled. Before the fix the first three charged 1,024 at
+// once; the memo hashed a key of up to 6 bytes per removal, and compared
+// it on a hit, without any charge (TestMemoKeyFixedSize).
 func TestNoBulkCharges(t *testing.T) {
 	const n = 4 * yieldCheck
 	var sh shapes
@@ -623,9 +637,18 @@ func TestNoBulkCharges(t *testing.T) {
 		{"legs sorted", func() *hub.Bundle {
 			b := newBuilder()
 			us := sh.names("u", n)
+			for _, u := range us {
+				b.upstream(u)
+			}
 			slices.Reverse(us)
 			b.route("r", nil, nil, us)
 			return b.bundle()
+		}},
+		{"removal-only Phase memoized, then found", func() *hub.Bundle {
+			return sh.gateway(n, func(b *builder, gw []string) {
+				b.route("r1", nil, gw, nil)
+				b.route("r2", nil, gw, nil)
+			})
 		}},
 		{"kept findings sorted", func() *hub.Bundle {
 			b := newBuilder()

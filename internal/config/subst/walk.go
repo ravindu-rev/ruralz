@@ -109,14 +109,20 @@ func memberEdge(path diag.Path, name string, value bool) edge {
 }
 
 // walker substitutes one resource. path is the key-aware path of the
-// current position, pushed and popped as the walk descends and copied
-// only into a diagnostic. Its list elements are computed from the
-// authored entries before they are substituted (see Substituter.ApplyWith).
+// current position, pushed and popped as the walk descends (push, pop) and
+// copied only into a diagnostic, bounded (here, warnPath). Its list
+// elements are computed from the authored entries before they are
+// substituted (see Substituter.ApplyWith). levels holds what the walk
+// keeps of each element of path for those copies.
 type walker struct {
-	s     *Substituter
-	id    tree.ID
-	path  diag.Path
-	diags diag.List
+	s      *Substituter
+	id     tree.ID
+	path   diag.Path
+	levels []level
+	diags  diag.List
+	// resource is the identity every diagnostic of the call names, made
+	// for the first one (resourceID).
+	resource *diag.ResourceID
 	// yield is the call's Yield function; nil yields nothing.
 	yield func()
 	// quiet holds the scalars that take no further RZ-CFG-013 warning
@@ -140,11 +146,181 @@ func (w *walker) loc(p tree.Pos) diag.Location {
 	return w.s.opts.Files.Location(p)
 }
 
-// here returns a copy of the current path with extra appended.
-func (w *walker) here(extra ...diag.PathElem) diag.Path { return w.path.Append(extra...) }
+// level is what the walk keeps of one element of walker.path for the
+// diagnostics below it.
+type level struct {
+	// index is the list position of a list element, -1 for an object
+	// member.
+	index int
+	// set is a composite set element the element names by its canonical
+	// JSON (itemElem), whose keys and strings credentialAt reads; nil
+	// otherwise.
+	set *tree.Node
+	// shown is the element as a diagnostic shows it (boundElem), made for
+	// the first diagnostic below it that needs it, when ok is set.
+	shown diag.PathElem
+	ok    bool
+	// cred says whether the text the element names shows a credential
+	// (credentialAt), credUnknown until an RZ-CFG-013 warning below it
+	// needs to know.
+	cred credState
+}
+
+// credState says whether a path element shows a credential.
+type credState uint8
+
+// Credential states of a path element.
+const (
+	credUnknown credState = iota
+	credNone
+	credShown
+)
+
+// push appends e, an element whose level is l, to the current path; pop
+// removes the last one.
+func (w *walker) push(e diag.PathElem, l level) {
+	w.path = append(w.path, e)
+	w.levels = append(w.levels, l)
+}
+
+func (w *walker) pop() {
+	w.path = w.path[:len(w.path)-1]
+	w.levels = w.levels[:len(w.levels)-1]
+}
+
+// shownAt returns element j of the current path as a diagnostic shows it
+// (boundElem), bounding it once for every diagnostic below it.
+func (w *walker) shownAt(j int) diag.PathElem {
+	l := &w.levels[j]
+	if !l.ok {
+		l.shown, l.ok = boundElem(w.path[j]), true
+	}
+	return l.shown
+}
+
+// here returns the path of a diagnostic at the current position, extra
+// appended, its input text bounded (boundElem): a copy of the current
+// path, so the diagnostic keeps it as the walk goes on.
+func (w *walker) here(extra ...diag.PathElem) diag.Path {
+	out := make(diag.Path, 0, len(w.path)+len(extra))
+	for j := range w.path {
+		w.tick()
+		out = append(out, w.shownAt(j))
+	}
+	for _, e := range extra {
+		w.tick()
+		out = append(out, boundElem(e))
+	}
+	return out
+}
+
+// warnPath returns the path of an RZ-CFG-013 warning at the current
+// position, extra (schema names) appended, as here returns it, except that
+// no element names a credential (01 J row 013: the warning names the
+// detector, never the value; review finding: the path named the very
+// credential the warning was about): a keyed entry or set element whose
+// text shows one (credentialAt) is named by its index, and the path stops
+// before an object member whose key shows one, at the object holding it.
+// The warning's location still names the position. This holds for the
+// credential the warning is about, which a set element, a keyed entry's
+// key or a mapping key may be, and for one in any enclosing element.
+func (w *walker) warnPath(extra ...diag.PathElem) diag.Path {
+	out := make(diag.Path, 0, len(w.path)+len(extra))
+	for j := range w.path {
+		w.tick()
+		switch {
+		case !w.credentialAt(j):
+			out = append(out, w.shownAt(j))
+		case w.levels[j].index < 0:
+			return out
+		default:
+			out = append(out, diag.Index(w.levels[j].index))
+		}
+	}
+	for _, e := range extra {
+		w.tick()
+		out = append(out, boundElem(e))
+	}
+	return out
+}
+
+// credentialAt reports whether element j of the current path names text
+// that shows a credential, deciding it once for every warning below it:
+// a member's key, a keyed entry's key or a string set element read as
+// the credential rules read authored text (shows), or a key or string of
+// a composite set element named by its JSON (holds). An index names none.
+func (w *walker) credentialAt(j int) bool {
+	l := &w.levels[j]
+	if l.cred == credUnknown {
+		l.cred = credNone
+		if w.elementShows(w.path[j], l.set) {
+			l.cred = credShown
+		}
+	}
+	return l.cred == credShown
+}
+
+// elementShows reports whether path element e names text that shows a
+// credential; set is the composite set element e names by its JSON, if
+// any.
+func (w *walker) elementShows(e diag.PathElem, set *tree.Node) bool {
+	switch e.Kind {
+	case diag.ElemField:
+		return w.shows(e.Name)
+	case diag.ElemKeyed:
+		return w.shows(e.Key)
+	case diag.ElemItem:
+		if s, ok := e.Item.(string); ok {
+			return w.shows(s)
+		}
+		return set != nil && w.holds(set)
+	default:
+		return false
+	}
+}
+
+// shows reports whether text, read as both credential rules read a
+// scalar's authored text (eachRun: escapes resolved, defaults joined to
+// their run), holds what a credential detector matches.
+func (w *walker) shows(text string) bool {
+	found := false
+	eachRun(text, w.read, func(r run) bool {
+		w.tick()
+		found = w.match(r.text) != ""
+		return !found
+	})
+	return found
+}
+
+// holds reports whether a key or a string of n, a small composite set
+// element, shows a credential.
+func (w *walker) holds(n *tree.Node) bool {
+	w.tick()
+	switch n.Kind {
+	case tree.KindString:
+		return w.shows(n.Text)
+	case tree.KindMap:
+		for _, m := range n.Members {
+			w.tick()
+			if w.shows(m.Key) || w.holds(m.Value) {
+				return true
+			}
+		}
+	case tree.KindList:
+		for _, it := range n.Items {
+			w.tick()
+			if w.holds(it) {
+				return true
+			}
+		}
+	default:
+	}
+	return false
+}
 
 // report records d unless the budget is spent; the diagnostic beyond
-// Options.MaxDiagnostics is the last one recorded and sets full.
+// Options.MaxDiagnostics is the last one recorded and sets full. d names
+// the resource as resourceID shows it.
 func (w *walker) report(d diag.Diagnostic) {
 	if w.full {
 		return
@@ -153,7 +329,11 @@ func (w *walker) report(d diag.Diagnostic) {
 		d.Severity = diag.SeverityError
 	}
 	if d.Resource == nil && w.id != (tree.ID{}) {
-		d.Resource = w.id.ResourceID()
+		if w.resource == nil {
+			w.resource = resourceID(w.id)
+		}
+		r := *w.resource
+		d.Resource = &r
 	}
 	w.diags = append(w.diags, d)
 	w.full = len(w.diags) > w.s.opts.MaxDiagnostics
@@ -210,9 +390,14 @@ func (w *walker) child(n *tree.Node, static *schemaidx.Node, parent place, e edg
 				w.tick()
 				continue
 			}
-			w.path = append(w.path, w.itemElem(static, it, i))
+			e := w.itemElem(static, it, i)
+			l := level{index: i}
+			if e.Kind == diag.ElemItem && it.Kind != tree.KindString {
+				l.set = it
+			}
+			w.push(e, l)
 			w.child(it, item, pl, edge{inherit: true})
-			w.path = w.path[:len(w.path)-1]
+			w.pop()
 		}
 	case tree.KindString:
 		w.scalar(n, parent.step(static, e))
@@ -257,9 +442,9 @@ func (w *walker) visitMap(n *tree.Node, static *schemaidx.Node, parent place, e 
 		done[i] = true
 		child, value := memberSchema(pre, m.Key)
 		edge := memberEdge(w.path, m.Key, value)
-		w.path = append(w.path, diag.Field(m.Key))
+		w.push(diag.Field(m.Key), level{index: -1})
 		w.scalar(m.Value, prePlace.step(child, edge))
-		w.path = w.path[:len(w.path)-1]
+		w.pop()
 	}
 	sel := pre
 	if done != nil {
@@ -270,44 +455,57 @@ func (w *walker) visitMap(n *tree.Node, static *schemaidx.Node, parent place, e 
 		if w.full {
 			return
 		}
+		cred := credUnknown
 		if !pl.inSecret && !keyed[i] {
-			w.keyWarning(m)
+			cred = credNone
+			if w.keyWarning(m) {
+				cred = credShown
+			}
 		}
 		if done[i] {
 			continue
 		}
 		child, value := memberSchema(sel, m.Key)
 		edge := memberEdge(w.path, m.Key, value)
-		w.path = append(w.path, diag.Field(m.Key))
+		w.push(diag.Field(m.Key), level{index: -1, cred: cred})
 		w.child(m.Value, child, pl, edge)
-		w.path = w.path[:len(w.path)-1]
+		w.pop()
 	}
 	w.headerValue(n, pl, slot)
 }
 
 // keyWarning reports RZ-CFG-013 for a credential-shaped mapping key (01
 // J row 013: a credential-shaped literal in any string outside
-// x-ruralz-secret, and keys are strings, 01 req 11) at the key, naming
-// the detector, never the key; visitMap calls it outside x-ruralz-secret
-// subtrees for keys without ${, which are text written in the Bundle and
-// never substituted (01 req 27).
-func (w *walker) keyWarning(m tree.Member) {
-	if name := w.match(m.Key); name != "" {
-		w.report(diag.Diagnostic{
-			Code: CodeWarning, Severity: diag.SeverityWarning, Location: w.loc(m.KeyPos), Path: w.here(diag.Field(m.Key)),
-			Message: "credential-shaped mapping key (" + name + ")",
-			Hint:    "keep credentials out of the Bundle: reference a secret with secretRef",
-		})
+// x-ruralz-secret, and keys are strings, 01 req 11) and whether it did.
+// The warning is located at the key and names the detector; its path is
+// the object holding the key (warnPath), so the warning never repeats the
+// key. visitMap calls it outside x-ruralz-secret subtrees for keys without
+// ${, which are text written in the Bundle and never substituted (01 req
+// 27), so its answer is also whether the key shows a credential
+// (credentialAt) for the warnings below it.
+func (w *walker) keyWarning(m tree.Member) bool {
+	name := w.match(m.Key)
+	if name == "" {
+		return false
 	}
+	w.report(diag.Diagnostic{
+		Code: CodeWarning, Severity: diag.SeverityWarning, Location: w.loc(m.KeyPos), Path: w.warnPath(),
+		Message: "credential-shaped mapping key (" + name + ")",
+		Hint:    "keep credentials out of the Bundle: reference a secret with secretRef",
+	})
+	return true
 }
 
 // scalar substitutes one string scalar (01 req 26 to 30). A scalar an
 // RZ-CFG-005 or RZ-CFG-010 error leaves holding its authored text is
 // still read for credentials in its authored runs (01 J row 013: any
 // string outside x-ruralz-secret) and for secret-like names at each
-// well-formed use (01 req 30); one in a forbidden position takes
-// RZ-CFG-011 alone (01 req 28), and an envelope field (metadata.name)
-// takes it for any ${, $${ included (01 req 16).
+// well-formed use (01 req 30); a malformed one also takes RZ-CFG-010 for
+// each well-formed use of an undefined variable (01 req 27, one
+// diagnostic per occurrence), so one run reports every error of the
+// scalar. One in a forbidden position takes RZ-CFG-011 alone (01 req 28),
+// and an envelope field (metadata.name) takes it for any ${, $${
+// included (01 req 16).
 //
 // The text is scanned in passes that allocate nothing (scanEach): one
 // checks the grammar, one reports and sizes the result, so nothing is
@@ -360,7 +558,7 @@ func (w *walker) scalar(n *tree.Node, pl place) {
 			Code: CodeMalformed, Location: w.loc(n.Pos), Path: w.here(),
 			Message: "malformed substitution (" + bad + "); write $${ for a literal ${",
 		})
-		w.secretNames(n, authored)
+		w.lenientUses(n, authored)
 		w.detectRuns(n, authored)
 		w.silence(n)
 		return
@@ -386,20 +584,27 @@ func (w *walker) scalar(n *tree.Node, pl place) {
 	w.detectRuns(n, authored)
 }
 
-// secretNames reports the RZ-CFG-013 secret-like name warning (01 req 30)
-// at each use of a secret-like name in authored, the text of a scalar
-// with a malformed ${, read leniently as the credential detectors read
-// it (eachRun): every well-formed expression is a use, as it is when a
-// sibling variable is undefined (check), so the warning never depends on
-// which error a scalar has.
-func (w *walker) secretNames(n *tree.Node, authored string) {
+// lenientUses reports, for each use in authored, the text of a scalar
+// with a malformed ${, what check reports for a use in valid text: the
+// RZ-CFG-013 secret-like name warning (01 req 30) and, for a use without
+// default whose variable is undefined, RZ-CFG-010 with its hint (01 req
+// 27: one diagnostic per occurrence; CM "Validation and diff semantics":
+// every error in one run). authored is read leniently, as the credential
+// detectors read it (eachRun): every well-formed expression is a use, the
+// default of a malformed ${A:-${B}} included, so neither the warning nor
+// the error depends on which other error the scalar has.
+func (w *walker) lenientUses(n *tree.Node, authored string) {
 	scanEach(authored, true, w.read, func(sg segment) bool {
 		w.tick()
 		if w.full {
 			return false
 		}
-		if sg.name != "" {
-			w.secretName(n, sg.name)
+		if sg.name == "" {
+			return true
+		}
+		w.secretName(n, sg.name)
+		if _, from := w.resolve(sg); from == fromUndefined {
+			w.undefined(n, sg.name)
 		}
 		return true
 	})
@@ -410,7 +615,7 @@ func (w *walker) secretNames(n *tree.Node, authored string) {
 func (w *walker) secretName(n *tree.Node, name string) {
 	if secretLike(name, w.read) {
 		w.report(diag.Diagnostic{
-			Code: CodeWarning, Severity: diag.SeverityWarning, Location: w.loc(n.Pos), Path: w.here(),
+			Code: CodeWarning, Severity: diag.SeverityWarning, Location: w.loc(n.Pos), Path: w.warnPath(),
 			Message: "variable " + strconv.Quote(clip(name)) + " looks like a secret",
 			Hint:    "use a secretRef with provider: env instead of substitution",
 		})
@@ -563,7 +768,7 @@ func (w *walker) detect(n *tree.Node, pl place) {
 		return
 	}
 	if name := w.match(n.Text); name != "" {
-		w.warn(n, w.here(), "credential-shaped value ("+name+")")
+		w.warn(n, nil, "credential-shaped value ("+name+")")
 	}
 }
 
@@ -582,7 +787,7 @@ func (w *walker) detect(n *tree.Node, pl place) {
 func (w *walker) detectRuns(n *tree.Node, authored string) {
 	eachRun(authored, w.read, func(r run) bool {
 		if name := w.match(r.text); name != "" {
-			w.warn(n, w.here(), "credential-shaped value ("+name+")")
+			w.warn(n, nil, "credential-shaped value ("+name+")")
 			return false
 		}
 		return true
@@ -609,14 +814,17 @@ func (w *walker) silence(n *tree.Node) {
 // silences the scalar, never the header literal one. The secret-like
 // name warning of 01 req 30 is separate: scalar reports it at each use
 // of the name, so a scalar can carry it once per such expression and
-// this one besides.
-func (w *walker) warn(n *tree.Node, path diag.Path, msg string) {
+// this one besides. The warning is located at n, its path the current
+// position with extra (schema names) appended, without the credential
+// (warnPath): a set element or keyed entry that n is, or whose key n is,
+// is named by its index.
+func (w *walker) warn(n *tree.Node, extra []diag.PathElem, msg string) {
 	if w.quiet[n] {
 		return
 	}
 	w.silence(n)
 	w.report(diag.Diagnostic{
-		Code: CodeWarning, Severity: diag.SeverityWarning, Location: w.loc(n.Pos), Path: path,
+		Code: CodeWarning, Severity: diag.SeverityWarning, Location: w.loc(n.Pos), Path: w.warnPath(extra...),
 		Message: msg,
 		Hint:    "keep credentials out of the Bundle: reference a secret with secretRef",
 	})
@@ -685,7 +893,7 @@ func (w *walker) headerValue(n *tree.Node, pl place, h header) {
 	if name.Text != h.name {
 		shown = clip(h.name)
 	}
-	w.warn(h.value, w.here(diag.Field("value")), "literal value for the credential header "+strconv.Quote(shown))
+	w.warn(h.value, []diag.PathElem{diag.Field("value")}, "literal value for the credential header "+strconv.Quote(shown))
 }
 
 // literal reports whether authored, a credential header's set[] value as

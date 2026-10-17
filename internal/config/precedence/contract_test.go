@@ -180,8 +180,10 @@ func docOf(t *testing.T, files []sourceFile, recv, name string) string {
 // read once, who supplies the clock and where its panic surfaces, the
 // zero Resolver, and printable Rows; and the S2 round-2 findings: one
 // collector bounding the findings of all workers together, a
-// runtime.Goexit in a unit raised like a panic, and references too long
-// to resolve skipped unread.
+// runtime.Goexit in a unit raised like a panic, references too long to
+// resolve skipped unread, references that resolve to nothing taking no
+// memory, the exceptions to the bound between two reads of the yield
+// clock, and the clock reads outside every unit (each worker's creation).
 func TestConcurrencyContractDocumented(t *testing.T) {
 	files := packageFiles(t, false)
 	for _, tc := range []struct {
@@ -204,8 +206,9 @@ func TestConcurrencyContractDocumented(t *testing.T) {
 		{"Resolver", "Resolve", "as may the failing unit's own deferred calls, which run before the failure is recorded"},
 		{"Resolver", "Resolve", "so a caller's recover sees one behavior for every worker count and no unit is ever left out of a result"},
 		{"Resolver", "Resolve", "longer than 63 bytes, the longest metadata.name stage F accepts, is never hashed or compared"},
-		{"Resolver", "Resolve", "A reference that resolves to no Policy takes no memory beyond its list entry."},
-		{"Resolver", "Resolve", "every loop of a unit counts its elements as it reads them"},
+		{"Resolver", "Resolve", "A reference that resolves to nothing (no Policy, Plugin or Upstream) takes no memory beyond its list entry: no attachment key or selection, no list item or index entry, no leg."},
+		{"Resolver", "Resolve", "every loop of a unit counts its elements as it reads them, so the time between two reads stays bounded but for the one hash of each slot interned (above) and the Options.Body calls."},
+		{"Options", "Now", "a read on the calling goroutine outside every unit (the creation of each worker, which reads the clock once before the worker's goroutine starts; CheckPolicies, the Gateway list and the sequential steps between the pools) ends the calling goroutine"},
 		{"Resolver", "Resolve", "O(Gateway Policies) per Route"},
 		{"Resolver", "Resolve", "is treated as absent, like an unresolved reference"},
 		{"Options", "MaxDiagnostics", "That bounds the number of findings a run holds at once by fewer than 2(MaxDiagnostics+1)+workers, whatever the input and the worker count"},

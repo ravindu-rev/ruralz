@@ -60,20 +60,15 @@ func refs(v any, out *[]string) {
 }
 
 // TestMetaViewsCompile compiles both schema files against draft 2020-12
-// with the Ruralz vocabulary asserting the x-ruralz-* keyword shapes,
-// resolves every $ref and compiles every definition (11 req 19; 01 req 32
-// and test plan "Meta-validation test").
+// with the Ruralz vocabulary asserting the x-ruralz-* keyword shapes, each
+// with the index loaded from its own bytes as Compile requires (review
+// finding: the authoring view was compiled with the rendered view's
+// index), resolves every $ref and compiles every definition (11 req 19;
+// 01 req 32 and test plan "Meta-validation test").
 func TestMetaViewsCompile(t *testing.T) {
-	idx, err := schemaidx.Embedded()
-	if err != nil {
-		t.Fatal(err)
-	}
-	x, _ := idx.Index("ruralz/v1alpha1")
 	for name, data := range views() {
 		t.Run(name, func(t *testing.T) {
-			if _, err := Compile(data, x); err != nil {
-				t.Fatalf("Compile(%s) error = %v", name, err)
-			}
+			viewOf(t, data)
 			doc, err := jsonschema.UnmarshalJSON(bytes.NewReader(data))
 			if err != nil {
 				t.Fatal(err)
@@ -660,12 +655,25 @@ func checkExamples(t *testing.T, root string, authoring *View) (problems []strin
 	return problems, validated
 }
 
-// authoringView compiles the authoring view of ruralz/v1alpha1.
+// authoringView compiles the authoring view of ruralz/v1alpha1 with its
+// own index (viewOf).
 func authoringView(t *testing.T) *View {
 	t.Helper()
-	v, err := Compile(schema.AuthoringV1alpha1(), testView(t).Index())
+	return viewOf(t, schema.AuthoringV1alpha1())
+}
+
+// viewOf compiles a view of ruralz/v1alpha1 with the index loaded from the
+// same bytes, as Compile requires: the mapping reads dispatch, list types,
+// secret marks and hint names from the index.
+func viewOf(t *testing.T, data []byte) *View {
+	t.Helper()
+	idx, err := schemaidx.Load("ruralz/v1alpha1", data)
 	if err != nil {
-		t.Fatal(err)
+		t.Fatalf("schemaidx.Load() error = %v", err)
+	}
+	v, err := Compile(data, idx)
+	if err != nil {
+		t.Fatalf("Compile() error = %v", err)
 	}
 	return v
 }

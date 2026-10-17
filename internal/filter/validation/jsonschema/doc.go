@@ -482,112 +482,143 @@
 // at most the upper, and the scan decides minLength and maxLength from the
 // string's length:
 //
-//   - the decision pass's error tree: at every value, 104 bytes per error
-//     unit (the 80-byte error and its slot in the one list that holds it,
-//     while the list doubles; a unit is a keyword that can fail, and a
-//     type, const or enum failure ends its evaluation with one, as an
-//     asserted format would, which the compile refuses)
-//     and per group error of an evaluation that may collect two; the
-//     references other than $ref ($recursiveRef and $dynamicRef) and the
-//     applicators run only when none of the value's own keywords failed,
-//     so their errors and those exclude each other (TestDecisionPassOrder);
-//     at an object, the evaluations that loop over its members keep one
-//     member's errors each (all of them under unevaluatedProperties), and
-//     a failure before the loop excludes it; every evaluation with
-//     propertyNames validates every member name on its own, keeping the
-//     name's errors in either pass and wrapping them in one more error,
-//     only for a name whose errors the scan cannot rule out;
-//   - the location pass's error tree: at every value, 192 bytes per error
-//     unit plus 32 per level of depth (measured at 123 to 141 bytes per
-//     failing evaluation plus 16.7 per level, and half again for group
-//     errors), the names its required, dependency and type lists copy, the
-//     rational a failing numeric keyword keeps, the error that wraps a
-//     failing member name's under each evaluation with propertyNames, and
-//     at an array 16 bytes per item for each evaluation with minContains or
-//     maxContains, whose error keeps the index of every item that matches
-//     contains (review finding: 100 such evaluations over 16,000 items held
-//     12.7 MB charged 58 KB);
+//   - the decision pass's error tree: at every value, 104 bytes per error unit
+//     (the 80-byte error and its slot in the one list that holds it, while the
+//     list doubles; a unit is a keyword that can fail, and a type, const or
+//     enum failure ends its evaluation with one, as an asserted format would,
+//     which the compile refuses) and per group error of an evaluation that may
+//     collect two; the references other than $ref ($recursiveRef and
+//     $dynamicRef) and the applicators run only when none of the value's own
+//     keywords failed, so their errors and those exclude each other
+//     (TestDecisionPassOrder); at an object, the evaluations that loop over its
+//     members keep one member's errors each (all of them under
+//     unevaluatedProperties), and a failure before the loop excludes it; every
+//     evaluation with propertyNames validates every member name on its own,
+//     keeping the name's errors in either pass and wrapping them in one more
+//     error, only for a name whose errors the scan cannot rule out;
+//   - the location pass's error tree: at every value, 192 bytes per error unit
+//     plus 32 per level of depth (measured at 123 to 141 bytes per failing
+//     evaluation plus 16.7 per level, and half again for group errors), the
+//     names its required, dependency and type lists copy, the rational a
+//     failing numeric keyword keeps, the error that wraps a failing member
+//     name's under each evaluation with propertyNames, and at an array 16 bytes
+//     per item, at least two, for each evaluation with minContains or
+//     maxContains, whose error keeps the last array of its list of the items
+//     that match contains (review finding: 100 such evaluations over 16,000
+//     items held 12.7 MB charged 58 KB);
 //   - along the costliest path from the root, the call stack: the library
-//     evaluates the in-place members of a schema one after the other, so
-//     at each value it holds one chain of in-place evaluations, never more
-//     than the value's evaluations (review finding: every evaluation was
-//     charged a frame, so a 14 KB rich-text body reserved 29 MB of stack),
-//     8 KiB per evaluation of the longest chain the value's state allows
-//     (measured with debug.SetMaxStack at 1.4 to 1.6 KiB per in-place
-//     evaluation and 2.2 to 2.5 KiB per evaluation of a nesting level's
-//     chain, up to three times that while the stack doubles and copies;
-//     the decision pass's wrapper adds three; TestStackWithinCharge); per
-//     evaluation of that chain that may copy unevaluated names, a map of
-//     256 bytes plus 128 per member (measured at most 256 plus 122), or
+//     evaluates the in-place members of a schema one after the other, so at
+//     each value it holds one chain of in-place evaluations, never more than
+//     the value's evaluations (review finding: every evaluation was charged a
+//     frame, so a 14 KB rich-text body reserved 29 MB of stack), 8 KiB per
+//     evaluation of the longest chain the value's state allows (measured with
+//     debug.SetMaxStack at 1.4 to 1.6 KiB per in-place evaluation and 2.2 to
+//     2.5 KiB per evaluation of a nesting level's chain, up to three times that
+//     while the stack doubles and copies; the decision pass's wrapper adds
+//     three; TestStackWithinCharge), which leaves room for the records an
+//     evaluation keeps on the heap while it runs, its validator, scope and
+//     unevaluated record and the first array of its error list, about 230
+//     bytes; per evaluation of that chain that may copy unevaluated names, a
+//     map of 256 bytes plus 128 per member (measured at most 256 plus 122), or
 //     for indexes 192 plus 96 per item (measured at most 192 plus 83), the
 //     library dropping a branch's copy when it merges it, before the next
 //     branch runs (review finding: charged per evaluation, an allOf of 50
 //     mixins under unevaluatedProperties was charged 84 times its peak and
-//     refused a 49 KB object, TestHandleUnevaluatedBranches); per
-//     evaluation with additionalProperties false 48 bytes per member it may
-//     list; and per evaluation with contains 16 bytes per item for the
-//     indexes of the items that match, which it lists while it loops;
-//   - once, the largest transient copy: the longest string, which the
-//     library copies at every evaluation, the duplicates map of the longest
-//     uniqueItems array (192 bytes per item, measured 102 to 168), or a
-//     regexp match of a string or a member name: the queues and threads of
-//     the largest program that may match it (64 bytes per instruction),
-//     the backtracker's visited set (32 KiB), and the backtracker's job
-//     stack. Go's regexp runs its backtracker for a program of at most 500
-//     instructions on an input shorter than 262,144 divided by the
-//     program's instruction count, in bytes, and on n bytes its stack holds
-//     at most (n+1) times held jobs plus one, held being the most
+//     refused a 49 KB object, TestHandleUnevaluatedBranches); per evaluation
+//     with additionalProperties false 48 bytes per member it may list, and with
+//     contains 24 bytes per item, at least two, for the indexes of the items
+//     that match, which it lists while it loops: three times a name's or an
+//     index's bytes, the old array live beside the new while append copies the
+//     list (audit class GC-08: charged twice the index, one list just grown
+//     past a capacity held up to 23.9 bytes per item, TestGrowthCharges); per
+//     object that a uniqueItems pass hashes, the sorted slice of its names, 16
+//     bytes a name at the slice's allocation size; and once, 256 bytes for the
+//     one list a pass grows at a time, whose new array the allocator's size
+//     classes and headers round up past its items' charges;
+//   - once, the largest transient copy: the copy of the longest string, which
+//     the library makes at every evaluation, at its allocation size (audit
+//     class GC-08: charged its bytes, a 100,000-byte string's copy took
+//     106,496, TestCopySizes), the duplicates map of the longest uniqueItems
+//     array (192 bytes per item; it holds about 58 and allocates up to 187
+//     while it grows, TestGrowthCharges), or a regexp match of a string or a
+//     member name: the queues and threads of the largest program that may match
+//     it (64 bytes per instruction), the backtracker's visited set (32 KiB),
+//     and the backtracker's job stack. Go's regexp runs its backtracker for a
+//     program of at most 500 instructions on an input shorter than 262,144
+//     divided by the program's instruction count, in bytes, and on n bytes its
+//     stack holds at most (n+1) times held jobs plus one, held being the most
 //     alternations of the program reachable through empty-width steps from
-//     where the search at one input position starts (regexcost.go: 3 of
-//     the WHATWG e-mail pattern's 126, all 241 of (?:(?:a??){240}a)*b), at
-//     48 bytes a job (16 in a slice grown by appending, up to three times
-//     that while it grows), for the program holding the most that the
-//     backtracker may run on n bytes: never more than the visited set's
-//     2^18 pairs, about 12.6 MB. Only the patterns a string's own path
-//     applies to it, and its object's patternProperties to a member name,
-//     count; where the scan does not know the path, every pattern of the
-//     document, wherever a pattern or a length keyword may scan a value at
-//     its depth (review findings: a pattern of 241 alternations held 4.9 MB
-//     for a string of 537 bytes, charged 64 KB, TestHandleBacktrackCharge;
-//     then every alternation of the document's costliest pattern, charged
-//     to every string a pattern or a uniqueItems pass reached, refused a
-//     149-byte sign-up body at a 64 KiB limit, TestHandlePatternFit). The
-//     job stack binds before the body's size only at small limits, and
-//     only for the inputs short enough for the backtracker, which a longer
-//     one leaves for the NFA simulation: up to MinScaledLimit, whose
-//     working set is 1 MiB, a string of about 20,400 to 37,400 bytes under
-//     ^[^<>]*$, a program of 7 instructions holding one job per position,
+//     where the search at one input position starts (regexcost.go: 3 of the
+//     WHATWG e-mail pattern's 126, all 241 of (?:(?:a??){240}a)*b), at 48 bytes
+//     a job (16 in a slice grown by appending, up to three times that while it
+//     grows), for the program holding the most that the backtracker may run on
+//     n bytes: never more than the visited set's 2^18 pairs, about 12.6 MB.
+//     Only the patterns a string's own path applies to it, and its object's
+//     patternProperties to a member name, count; where the scan does not know
+//     the path, every pattern of the document, wherever a pattern or a length
+//     keyword may scan a value at its depth (review findings: a pattern of 241
+//     alternations held 4.9 MB for a string of 537 bytes, charged 64 KB,
+//     TestHandleBacktrackCharge; then every alternation of the document's
+//     costliest pattern, charged to every string a pattern or a uniqueItems
+//     pass reached, refused a 149-byte sign-up body at a 64 KiB limit,
+//     TestHandlePatternFit). The job stack binds before the body's size only at
+//     small limits, and only for the inputs short enough for the backtracker,
+//     which a longer one leaves for the NFA simulation: up to MinScaledLimit,
+//     whose working set is 1 MiB, a string of about 20,400 to 37,400 bytes
+//     under ^[^<>]*$, a program of 7 instructions holding one job per position,
 //     is refused with 413, and one of about 5,100 to 20,100 bytes under
-//     ^(?:[a-z]+|[0-9]+|\s)*$, 13 instructions holding 4; at 256 KiB the
-//     first never binds and the second from about 10,600 bytes (4% of the
-//     limit); from 512 KiB up neither does, and from about 1.6 MiB up no
-//     pattern does (proposed, an accepted consequence; matching with the
-//     NFA simulation alone would remove it, at two to nine times the time
-//     of the backtracker on such strings).
+//     ^(?:[a-z]+|[0-9]+|\s)*$, 13 instructions holding 4; at 256 KiB the first
+//     never binds and the second from about 10,600 bytes (4% of the limit);
+//     from 512 KiB up neither does, and from about 1.6 MiB up no pattern does
+//     (proposed, an accepted consequence; matching with the NFA simulation
+//     alone would remove it, at two to nine times the time of the backtracker
+//     on such strings);
+//   - in the location pass, at least what its walk over the error tree holds
+//     once the pass has returned and dropped its path and transient copies:
+//     four pointers of the document's longest location and keyword at their
+//     allocation size (walkBytes; review finding, audit class GC-08: a body of
+//     one byte failing under a $defs name of 100,000 bytes held 106 KB in the
+//     walk, while 41 KB were reserved for it, TestHandleWalkMemory).
 //
 // TestWorkingSetCoversPeak measures the error trees exactly, the decision
 // pass's at its end, for dense failing bodies of every error shape, along
-// reference chains and for ordinary order bodies: they stayed within 0.89 of
-// the charge in either pass. It measures the live heap at the peak of each
-// pass too, with the copies and the matcher's state, deterministically but
-// for what the runtime itself allocates meanwhile (a thread it starts under
-// load, 5.3 KB; the tests allow 16 KiB): at probes it adds to the deepest
-// evaluations of the pass's first path, to evaluations spread over the rest
-// of it and to its end, and at its matches, the matcher's own peak computed
-// from the match's allocations (audit class GC-08: a sample of the heap in
-// use, which this replaces, counts the garbage the library drops, under load
-// up to 1.64 times the charge of the unevaluated indexes under branches
-// whose live heap stays within 0.38 of it; and marks at the first
-// evaluations alone missed the tree a failing body's decision pass grows to
-// its end, the library running a schema's extension keywords after its
-// applicators failed). The live peak stayed within 0.88 of the pass's whole
-// working set in either pass, and a pass that holds its error tree and one
+// reference chains, for ordinary order bodies and for bodies whose evaluations
+// make copies and drop them: the dense trees stayed within 0.89 of the charge
+// in either pass. It measures the live heap at the peak of each pass too,
+// deterministically but for what the runtime itself allocates meanwhile (a
+// thread it starts under load, 5.3 KB, which none of 54,000 measurements on the
+// tests' one processor saw; the tests allow 16 KiB): it collects the heap fully
+// where the library calls a test's probe, at the start of evaluations and at
+// the end of those that reach their extension keywords, at the first of them in
+// a pass, at others spread over the rest of it and at its end, and at its
+// matches, whose matcher's own peak it computes from the match's allocations;
+// what the library copies and drops between two such calls is replayed, the
+// largest copy added to the largest live heap as the model adds its transient
+// copy: a string's copy, the uniqueItems duplicates map, whose replica
+// allocates exactly what the library's does (TestDuplicatesReplica), with the
+// names it sorts, the names additionalProperties false lists, the errors a
+// contains loop over false drops, the location walk's pointers and, bounded at
+// 16 KiB within the number bounds, a number check's rationals
+// (TestNumberCheckMemory). A list or a map also holds its old array or table
+// besides the new one while it grows: TestGrowthCharges replays every growth
+// against its charge, and TestCopySizes every copy's allocation size (audit
+// class GC-08: a sample of the heap in use, which this replaces, counts the
+// garbage the library drops, under load up to 1.64 times the charge of the
+// unevaluated indexes under branches whose live heap stays within 0.38 of it;
+// marks at the first evaluations alone missed the tree a failing body's
+// decision pass grows to its end, the library running a schema's extension
+// keywords after its applicators failed; and marks at the end of evaluations
+// alone missed every copy, the duplicates map of a valid uniqueItems array,
+// about 58 bytes per item, among them, and the evaluations of true and those
+// that fail before their end). The live peak stayed within 0.88 of the pass's
+// whole working set in either pass, 0.96 for the sorted names of a wide object,
+// which are most of its charge, and a pass that holds its error tree and one
 // path's copies at once holds more than either term
-// (TestDecisionTreeBesideCopies). The decision pass is charged its worst
-// case over the library's member order, in which every alternative of a
-// union may descend into the members of a value that fails it before failing
-// on its discriminator, so a valid document of unions or recursive blocks
-// reserves more than it holds.
+// (TestDecisionTreeBesideCopies). The decision pass is charged its worst case
+// over the library's member order, in which every alternative of a union may
+// descend into the members of a value that fails it before failing on its
+// discriminator, so a valid document of unions or recursive blocks reserves
+// more than it holds.
 //
 // A valid body reserves its decoded values and the decision pass's working
 // set. The decoder charges a value its headers and bytes (internal/jsonval)
@@ -629,15 +660,14 @@
 //   - an array of two-letter codes under a 250-value enum: 34%, at the work
 //     limit; dense arrays of one-character enum values, which may each hold
 //     an error: 31%, at the working-set limit;
-//   - dense numeric arrays (minor review finding): decimals under a
-//     minimum and a maximum, 53%, and prices under multipleOf 0.01, 69%,
-//     at the working-set limit (under a divisor of a thousand digits such
-//     as 1e-1000 about 10%, at the work limit); pairs of a
-//     timestamp and a value under prefixItems, 63%, at the decoded limit;
-//     longitude and latitude pairs, each bounded and counted by minItems
-//     and maxItems, 38%, at the working-set limit; a time series of objects
-//     of two numbers under required and additionalProperties false, 51.5%,
-//     at the reservation limit;
+//   - dense numeric arrays (minor review finding): decimals under a minimum and
+//     a maximum, 53%, and prices under multipleOf 0.01, 69%, at the working-set
+//     limit (under a divisor of a thousand digits such as 1e-1000 about 10%, at
+//     the work limit); pairs of a timestamp and a value under prefixItems, 63%,
+//     at the decoded limit; longitude and latitude pairs, each bounded and
+//     counted by minItems and maxItems, 38%, at the working-set limit; a time
+//     series of objects of two numbers under required and additionalProperties
+//     false, 51.5%, at the reservation limit;
 //   - uniqueItems arrays (minor review findings): of integer ids, 33%, of
 //     short string tags, 42%, of distinct prices, 37%, and of bounded
 //     three-decimal readings, 21%, all at the working-set limit (the
@@ -666,20 +696,20 @@
 //     working-set limit, the states of a recursion through four or three
 //     alternatives growing with the nesting.
 //
-// The reservation covers the live heap at Handle's peak for every shape
-// above, measured at the reservation, at probes in the deepest evaluations
-// of each pass's first path, in evaluations spread over the rest of it and
-// at its end, and at its matches with the matcher's own peak (audit class
-// GC-08; a sample of the heap in use, which this replaces, also counted the
-// tables a wide object's map outgrew and the arrays the decoder outgrew,
-// garbage before anything is reserved). For records and arrays of small
-// objects the reservation is 1.0 to 1.6 times that peak, the decoded tree
-// being most of both; for long strings, conditional records and timestamp
-// pairs 2; for dense numeric and enum arrays at the working-set limit 3.7 to
-// 4.5, and for uniqueItems arrays 6 to 8.6, charged errors and duplicates
-// maps a valid body does not hold; for compositions, unions and recursive
-// documents 3.2 to 18 at the sizes above, and up to about 115 for the
-// component tree nested 6 deep.
+// The reservation covers the live heap at Handle's peak for every shape above,
+// measured as TestWorkingSetCoversPeak measures it and at the reservation
+// (audit class GC-08; a sample of the heap in use, which this replaces, also
+// counted the tables a wide object's map outgrew and the arrays the decoder
+// outgrew, garbage before anything is reserved, and marks at the end of
+// evaluations alone left out the uniqueItems duplicates map and a long string's
+// copy). For records and arrays of small objects the reservation is 1.3 to 1.6
+// times that peak, the decoded tree being most of both; for long strings 1.0,
+// the string's copy as large as the string; for conditional records and
+// timestamp pairs 2; for uniqueItems arrays 2.4 to 2.7, charged 192 bytes per
+// item for duplicates maps that hold about 58; for dense numeric and enum
+// arrays at the working-set limit 3.7 to 4.5, charged errors a valid body does
+// not hold; for compositions, unions and recursive documents 3.2 to 18 at the
+// sizes above, and up to about 114 for the component tree nested 6 deep.
 //
 // Under 07 req 84 the 1 KiB order of BenchmarkValidate1KiB takes about 90
 // µs on that machine, above the 25 µs p50 target (an Open question,

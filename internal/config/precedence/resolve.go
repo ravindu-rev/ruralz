@@ -8,7 +8,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"strconv"
+	"hash/maphash"
 	"sync"
 
 	"github.com/ravindu-rev/ruralz/internal/config/diag"
@@ -58,14 +58,26 @@ type attached struct {
 // order, one per slot, with indexes by interned slot id and Policy name.
 // The slot index never hashes or compares slot text, so checking a list
 // costs the same whatever the length of its Policies' slots, which no
-// schema rule bounds (WP-38 S2 round-4 blocker).
+// schema rule bounds (WP-38 S2 round-4 blocker). Its slices and maps grow
+// with the entries it checks, never with the list's length, so an entry
+// whose reference resolves to no Policy takes no memory in it (WP-38 S2
+// round-2 minor on absent references; a nil index reads as empty).
 type list struct {
 	items  []attached
 	bySlot map[int]int
 	// byName maps the name of every entry the list checked (the first of
 	// a name listed twice) to its index in items, or to -1 for an entry
-	// rejected with RZ-CFG-020.
+	// rejected with RZ-CFG-020 or RZ-CFG-018.
 	byName map[string]int
+}
+
+// mark records that l checked an entry naming name: at index i of items,
+// or -1 for an entry it rejected.
+func (l *list) mark(name string, i int) {
+	if l.byName == nil {
+		l.byName = make(map[string]int)
+	}
+	l.byName[name] = i
 }
 
 // legTemplate is the upstream-leg chain of one Upstream; Routes share its
@@ -104,46 +116,124 @@ func newSharedPhase(w *worker, p phase.Phase, entries []hub.Entry) *sharedPhase 
 	return sp
 }
 
-// phaseKey names the content of one client Phase that only removals
-// changed: the Phase and the Gateway list positions removed from it, in
-// increasing order, encoded as text.
+// phaseKey names, up to collisions, the content of one client Phase that
+// only removals changed: the Phase, the number of Gateway entries removed
+// from it, and a hash of their Gateway list positions, in increasing
+// order, under the call's random seed (hash/maphash), so no Bundle can
+// choose collisions. The key has a fixed size, so the memo hashes and
+// compares the same few bytes however many entries a Route removes
+// (WP-38 S2 round-2 minor on uncharged passes: a key holding the
+// positions as text was hashed, and compared on a hit, in one pass over
+// up to 6 bytes per removal); the contents under one key are told apart
+// by their positions (memoSlot).
 type phaseKey struct {
-	p       phase.Phase
-	removed string
+	p   phase.Phase
+	n   int
+	sum uint64
 }
 
 // phaseMemo builds each removal-only client Phase once per Resolve call,
 // however many Routes remove the same Gateway Policies from it. Workers
-// share it: the map is guarded by mu and each slot by its own lock, so
-// distinct slots build in parallel.
+// share it: the map is guarded by mu and each key's slot by its own lock,
+// so distinct keys build in parallel.
 type phaseMemo struct {
+	seed  maphash.Seed
 	mu    sync.Mutex
 	slots map[phaseKey]*memoSlot
+	// collide is a test hook: every key gets the hash 0, so the contents
+	// of one Phase and removal count share a slot.
+	collide bool
 }
 
-// memoSlot is one phaseMemo entry; mu guards sp, which is nil until built.
+// memoSlot holds the contents built for one phaseKey: one, more only when
+// distinct removals collide. mu guards contents.
 type memoSlot struct {
-	mu sync.Mutex
-	sp *sharedPhase
+	mu       sync.Mutex
+	contents []memoContent
 }
 
-// get returns the slot of k, building it with build on first use. A build
-// that panics leaves the slot unbuilt, so a later caller builds it again
+// memoContent is one removal-only client Phase: the Gateway list
+// positions removed from it, increasing, and what is left of it.
+type memoContent struct {
+	removed []int
+	sp      *sharedPhase
+}
+
+// key returns the phaseKey of the entries of removed (indexes into gw,
+// increasing) that run in p, and whether there is any; each entry is a
+// unit of w as it is read.
+func (m *phaseMemo) key(w *worker, gw []attached, removed []int, p phase.Phase) (phaseKey, bool) {
+	var h maphash.Hash
+	h.SetSeed(m.seed)
+	k := phaseKey{p: p}
+	for _, j := range removed {
+		w.charge(siteRemovalKey, 1)
+		if e := gw[j].entry; e.Phases.Has(p) {
+			maphash.WriteComparable(&h, e.Position)
+			k.n++
+		}
+	}
+	if !m.collide {
+		k.sum = h.Sum64()
+	}
+	return k, k.n > 0
+}
+
+// get returns the content of the Phase key.p without the entries of
+// removed (indexes into gw, increasing) that run in it, building it with
+// build unless a Route built it before. It compares the positions of each
+// content under key with those entries, one unit of w per entry read and
+// under the slot's lock only, so only equal removals share a content. A
+// build that panics leaves no content, so a later caller builds it again
 // rather than reading a nil value.
-func (m *phaseMemo) get(k phaseKey, build func() *sharedPhase) *sharedPhase {
+func (m *phaseMemo) get(w *worker, key phaseKey, gw []attached, removed []int, build func() *sharedPhase) *sharedPhase {
 	m.mu.Lock()
-	slot, ok := m.slots[k]
+	slot, ok := m.slots[key]
 	if !ok {
 		slot = &memoSlot{}
-		m.slots[k] = slot
+		m.slots[key] = slot
 	}
 	m.mu.Unlock()
 	slot.mu.Lock()
 	defer slot.mu.Unlock()
-	if slot.sp == nil {
-		slot.sp = build()
+	for i := range slot.contents {
+		if samePositions(w, slot.contents[i].removed, gw, removed, key.p) {
+			return slot.contents[i].sp
+		}
 	}
-	return slot.sp
+	sp := build()
+	slot.contents = append(slot.contents, memoContent{removed: positionsIn(w, gw, removed, key.p, key.n), sp: sp})
+	return sp
+}
+
+// samePositions reports whether want holds, in order, the positions of
+// the entries of removed (indexes into gw) that run in p; each entry read
+// is a unit of w, and the first difference ends the comparison.
+func samePositions(w *worker, want []int, gw []attached, removed []int, p phase.Phase) bool {
+	k := 0
+	for _, j := range removed {
+		w.charge(siteMemoCompare, 1)
+		if e := gw[j].entry; e.Phases.Has(p) {
+			if k == len(want) || want[k] != e.Position {
+				return false
+			}
+			k++
+		}
+	}
+	return k == len(want)
+}
+
+// positionsIn returns the positions of the n entries of removed (indexes
+// into gw) that run in p, in order; each entry read is a unit of w.
+func positionsIn(w *worker, gw []attached, removed []int, p phase.Phase, n int) []int {
+	out := make([]int, 0, n)
+	for _, j := range removed {
+		w.charge(siteMemoCompare, 1)
+		if e := gw[j].entry; e.Phases.Has(p) {
+			out = append(out, e.Position)
+		}
+	}
+	return out
 }
 
 // state is the per-call working set of Resolve. Fields are written by the
@@ -211,7 +301,7 @@ func newState(r *Resolver, b *hub.Bundle, files *tree.FileTable, workers int) *s
 	out := newCollector(keepOf(r.maxDiagnostics), workers)
 	s := &state{
 		r: r, b: b, loc: locator{files: files}, out: out, sels: make(map[attachKey]*selection), slotIDs: make(map[string]int),
-		upstreams: make(map[string]*legTemplate), memo: phaseMemo{slots: make(map[phaseKey]*memoSlot)},
+		upstreams: make(map[string]*legTemplate), memo: phaseMemo{seed: maphash.MakeSeed(), slots: make(map[phaseKey]*memoSlot)},
 		pool: pool{size: workers, newWorker: func() *worker { return r.newWorker(out) }},
 	}
 	w := s.pool.worker(0)
@@ -385,10 +475,12 @@ func (s *state) selectOne(w *worker, k attachKey, res *hub.Resource) selection {
 // in the list's length and independent of the length of the slots and of
 // the references: slots compare by interned id, RZ-CFG-018 quotes at most
 // maxQuoted code points of the slot (clip), and a reference longer than
-// maxRefBytes is skipped unread.
+// maxRefBytes is skipped unread. Its memory grows with the entries whose
+// Policy resolves, never with the others (see list), and so does the
+// locator's name index of a list whose tree it cannot read by index.
 func (s *state) attachList(w *worker, owner *hub.Resource, scope phase.Scope, refs []v1alpha1.PolicyRef) list {
-	l := list{items: make([]attached, 0, len(refs)), bySlot: make(map[int]int, len(refs)), byName: make(map[string]int, len(refs))}
-	at := s.loc.list(w, owner, fieldPolicies)
+	var l list
+	at := s.loc.list(w, owner, fieldPolicies, func(name string) bool { return s.sels[attachKey{policy: name, scope: scope}] != nil })
 	for i, ref := range refs {
 		w.charge(siteListEntry, 1)
 		if !w.resolvable(siteLongList, ref.Name) {
@@ -403,7 +495,7 @@ func (s *state) attachList(w *worker, owner *hub.Resource, scope phase.Scope, re
 		}
 		loc := at.entry(i, ref.Name)
 		if sel.scopeErr != nil {
-			l.byName[ref.Name] = -1
+			l.mark(ref.Name, -1)
 			if w.admits(loc, CodeScope) {
 				d := sel.scopeErr.Diagnostic(entryPath(fieldPolicies, ref.Name))
 				d.Resource, d.Location = owner.ResourceID(), loc
@@ -426,11 +518,14 @@ func (s *state) attachList(w *worker, owner *hub.Resource, scope phase.Scope, re
 				}
 				w.offer(d)
 			}
-			l.byName[ref.Name] = -1
+			l.mark(ref.Name, -1)
 			continue
 		}
+		if l.bySlot == nil {
+			l.bySlot = make(map[int]int)
+		}
 		l.bySlot[sel.slot] = len(l.items)
-		l.byName[ref.Name] = len(l.items)
+		l.mark(ref.Name, len(l.items))
 		l.items = append(l.items, attached{entry: e, slot: sel.slot, res: sel.res})
 	}
 	return l
@@ -545,7 +640,10 @@ func (s *state) route(w *worker, res *hub.Resource, rt *v1alpha1.Route) *hub.Cha
 			}
 			lockedSeen[j] = struct{}{}
 			if excluded == nil {
-				excluded = s.loc.list(w, res, fieldExclude)
+				excluded = s.loc.list(w, res, fieldExclude, func(name string) bool {
+					k, ok := s.gateway.byName[name]
+					return ok && k >= 0
+				})
 			}
 			s.notOverridable(w, res, excluded.entry(i, ex.Name), entryPath(fieldExclude, ex.Name), g,
 				func() string { return "cannot exclude a Policy with overridable: false" })
@@ -578,12 +676,7 @@ func (s *state) route(w *worker, res *hub.Resource, rt *v1alpha1.Route) *hub.Cha
 	bypass := s.client(w, c, removed, routeEntries)
 	s.cacheGuardrail(w, res, bypass, fate, routeEntries)
 
-	for _, name := range legOrder(w, rt) {
-		w.charge(siteLeg, 1)
-		if t, ok := s.upstreams[name]; ok {
-			c.Legs = append(c.Legs, hub.Leg{Upstream: name, Phases: t.phases})
-		}
-	}
+	c.Legs = s.legs(w, rt)
 	// Removed: replaced before excluded, each in Gateway list order.
 	if len(removed) > 0 {
 		c.Removed = make([]hub.Removed, 0, len(removed))
@@ -650,8 +743,8 @@ func (s *state) client(w *worker, c *hub.Chain, removed []int, routeEntries []at
 			continue
 		}
 		sp := base
-		if key, changed := removalKey(w, gw, removed, p); changed {
-			sp = s.memo.get(phaseKey{p: p, removed: key}, func() *sharedPhase {
+		if key, changed := s.memo.key(w, gw, removed, p); changed {
+			sp = s.memo.get(w, key, gw, removed, func() *sharedPhase {
 				return newSharedPhase(w, p, without(w, base.entries, removedPos))
 			})
 		}
@@ -773,20 +866,6 @@ func removedIn(w *worker, gw []attached, removed []int, p phase.Phase) int {
 	return n
 }
 
-// removalKey returns the Gateway list positions of the entries of removed
-// (indexes into gw, increasing) that run in p, encoded as text, and
-// whether there is any; each entry is a unit of w.
-func removalKey(w *worker, gw []attached, removed []int, p phase.Phase) (string, bool) {
-	var key []byte
-	for _, j := range removed {
-		w.charge(siteRemovalKey, 1)
-		if e := gw[j].entry; e.Phases.Has(p) {
-			key = strconv.AppendInt(append(key, ','), int64(e.Position), 10)
-		}
-	}
-	return string(key), len(key) > 0
-}
-
 // without returns the entries whose Position is not in removed, in order,
 // in a slice of capacity equal to its length; each entry read is a unit
 // of w.
@@ -878,42 +957,55 @@ func bypassedByCache(e hub.Entry) bool {
 	}
 }
 
-// legOrder returns the Upstream names of rt in leg order (02 req 41):
-// spec.upstreams by name, as stage G's map sorting leaves them, then
-// spec.composition.steps in authored order; each name once. A name longer
-// than maxRefBytes names no Upstream and is left out unread. Each name
-// read or compared is a unit of w.
-func legOrder(w *worker, rt *v1alpha1.Route) []string {
-	steps := 0
-	if rt.Spec.Composition != nil {
-		steps = len(rt.Spec.Composition.Steps)
+// legs returns the legs of rt in leg order (02 req 41): the Upstreams it
+// names that resolve, those of spec.upstreams by name, as stage G's map
+// sorting leaves them, then those of spec.composition.steps in authored
+// order, each Upstream once, with the Phase slices of its legTemplate. A
+// name that resolves to no Upstream (RZ-CFG-009 is stage H's, 02 req 40),
+// one longer than maxRefBytes included, is dropped as it is read, so
+// neither the sort nor the memory of a Route's legs grows with such names
+// (WP-38 S2 round-2 minor on absent references). Each name read, looked
+// up, compared or made a leg is a unit of w.
+func (s *state) legs(w *worker, rt *v1alpha1.Route) []hub.Leg {
+	var names []string
+	var seen map[string]struct{}
+	add := func(name string) {
+		if !w.resolvable(siteLongLeg, name) {
+			return
+		}
+		w.charge(siteLegDedupe, 1)
+		if _, ok := s.upstreams[name]; !ok {
+			return
+		}
+		if _, dup := seen[name]; dup {
+			return
+		}
+		if seen == nil {
+			seen = make(map[string]struct{})
+		}
+		seen[name] = struct{}{}
+		names = append(names, name)
 	}
-	names := make([]string, 0, len(rt.Spec.Upstreams)+steps)
 	for _, u := range rt.Spec.Upstreams {
 		w.charge(siteLegUpstream, 1)
-		if w.resolvable(siteLongLeg, u.Name) {
-			names = append(names, u.Name)
-		}
+		add(u.Name)
 	}
 	heapSort(w, siteLegSort, names, func(a, b *string) int { return cmp.Compare(*a, *b) })
 	if rt.Spec.Composition != nil {
 		for _, st := range rt.Spec.Composition.Steps {
 			w.charge(siteLegStep, 1)
-			if w.resolvable(siteLongLeg, st.Upstream) {
-				names = append(names, st.Upstream)
-			}
+			add(st.Upstream)
 		}
 	}
-	seen := make(map[string]struct{}, len(names))
-	out := names[:0]
-	for _, n := range names {
-		w.charge(siteLegDedupe, 1)
-		if _, dup := seen[n]; !dup {
-			seen[n] = struct{}{}
-			out = append(out, n)
-		}
+	if len(names) == 0 {
+		return nil
 	}
-	return out
+	legs := make([]hub.Leg, len(names))
+	for i, name := range names {
+		w.charge(siteLeg, 1)
+		legs[i] = hub.Leg{Upstream: name, Phases: s.upstreams[name].phases}
+	}
+	return legs
 }
 
 // fill puts every entry of one list (one scope, in position order) into

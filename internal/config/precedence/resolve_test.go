@@ -17,6 +17,7 @@ import (
 	"github.com/ravindu-rev/ruralz/internal/config/diag"
 	"github.com/ravindu-rev/ruralz/internal/config/hub"
 	"github.com/ravindu-rev/ruralz/internal/config/registry"
+	"github.com/ravindu-rev/ruralz/internal/config/tree"
 	"github.com/ravindu-rev/ruralz/internal/expr"
 	"github.com/ravindu-rev/ruralz/internal/phase"
 	"github.com/ravindu-rev/ruralz/pkg/config/v1alpha1"
@@ -321,6 +322,73 @@ func TestRepeatedEntries(t *testing.T) {
 		if want := []hub.Removed{{Policy: "q", Slot: "q", By: "q", Reason: hub.Replaced}}; !slices.Equal(chains["listed"].Removed, want) {
 			t.Errorf("listed: Removed = %+v, want %+v", chains["listed"].Removed, want)
 		}
+	}
+}
+
+// TestRepeatedAfterFinding covers the members of the WP-38 S2 round-2
+// minor on repeated names that TestRepeatedEntries leaves out (mutant
+// F4c, which dropped the mark of an entry rejected with RZ-CFG-018,
+// survived the suite): a name listed again after its first entry raised
+// RZ-CFG-018, in the Gateway list, a Route list and an Upstream list, or
+// after its first entry's replacement of a locked Gateway Policy was
+// refused with RZ-CFG-019, raises nothing more. Each list is positioned
+// (entry i at line 10+i), so the one finding is shown to be at the first
+// entry of the repeated name, on 1 and 4 workers.
+func TestRepeatedAfterFinding(t *testing.T) {
+	for _, tc := range []struct {
+		name, dir string
+		// build adds the Policies and returns the resource whose list
+		// spec.policies holds list.
+		build func(b *builder, list []string) *hub.Resource
+		list  []string
+		want  string
+	}{
+		{"Gateway list: after RZ-CFG-018", "gateway", func(b *builder, list []string) *hub.Resource {
+			b.policy("a", v1alpha1.PolicyTypeRateLimit, nil, slot("s"))
+			b.policy("b", v1alpha1.PolicyTypeRateLimit, nil, slot("s"))
+			b.gateway(list...)
+			return b.rs[len(b.rs)-1]
+		}, []string{"a", "b", "b"}, "gateway/edge.yaml:11:7 RZ-CFG-018 Gateway/edge spec.policies[name=b]"},
+		{"Route list: after RZ-CFG-018", "routes", func(b *builder, list []string) *hub.Resource {
+			b.policy("a", v1alpha1.PolicyTypeAuthJWT, nil)
+			b.policy("b", v1alpha1.PolicyTypeAuthAPIKey, nil)
+			b.route("r", list, nil, nil)
+			return b.rs[len(b.rs)-1]
+		}, []string{"a", "b", "b"}, "routes/r.yaml:11:7 RZ-CFG-018 Route/r spec.policies[name=b]"},
+		{"Upstream list: after RZ-CFG-018", "upstreams", func(b *builder, list []string) *hub.Resource {
+			b.policy("a", v1alpha1.PolicyTypeAuthUpstreamOAuth2, nil)
+			b.policy("b", v1alpha1.PolicyTypeAuthUpstreamOAuth2, nil)
+			b.upstream("u", list...)
+			return b.rs[len(b.rs)-1]
+		}, []string{"a", "b", "b"}, "upstreams/u.yaml:11:7 RZ-CFG-018 Upstream/u spec.policies[name=b]"},
+		{"Route list: after a refused replacement (RZ-CFG-019)", "routes", func(b *builder, list []string) *hub.Resource {
+			b.policy("gl", v1alpha1.PolicyTypeCORS, nil, locked)
+			b.policy("rc", v1alpha1.PolicyTypeCORS, nil)
+			b.gateway("gl")
+			b.route("r", list, nil, nil)
+			return b.rs[len(b.rs)-1]
+		}, []string{"rc", "rc"}, "routes/r.yaml:10:7 RZ-CFG-019 Route/r spec.policies[name=rc]"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			b := newBuilder()
+			owner := tc.build(b, tc.list)
+			files := &tree.FileTable{}
+			positionList(files, owner, tc.dir, fieldPolicies, tc.list)
+			bundle := b.bundle()
+			for _, workers := range []int{1, 4} {
+				_, ds, err := mustNew(t, nil, Options{Body: bodyOracle{}}).Run(t.Context(), bundle, files, workers)
+				if err != nil {
+					t.Fatal(err)
+				}
+				var got []string
+				for _, d := range ds {
+					got = append(got, fmt.Sprintf("%s:%d:%d %s %s/%s %s", d.File, d.Line, d.Column, d.Code, d.Resource.Kind, d.Resource.Name, d.Path))
+				}
+				if !slices.Equal(got, []string{tc.want}) {
+					t.Errorf("workers %d: findings %q, want only %q", workers, got, tc.want)
+				}
+			}
+		})
 	}
 }
 

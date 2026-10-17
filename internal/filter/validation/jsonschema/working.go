@@ -62,7 +62,11 @@ const (
 	// in-place evaluation and 2.2 to 2.5 KiB per evaluation of a nesting
 	// level's chain, whose first evaluation also descends into the value
 	// (debug.SetMaxStack), up to three times that while the stack doubles
-	// and copies.
+	// and copies. What that leaves, at least 512 bytes, holds the records
+	// the evaluation keeps on the heap while it runs: the validator, its
+	// scope and unevaluated record, about 200 bytes, and the first array
+	// of its error list, 32 bytes for up to four errors, of which the
+	// error charges count 24 bytes a slot.
 	stackBytes = 8192
 	// propMapBase and propMapEntry bound the map of unevaluated member
 	// names one evaluation copies, with every allocation of its growth:
@@ -72,7 +76,8 @@ const (
 	// indexes: measured at most 192 + 83 bytes per index.
 	itemMapBase, itemMapEntry = 192, 96
 	// hashNameBytes is what hashing an object for uniqueItems holds per
-	// member: the sorted slice of its names.
+	// member: the sorted slice of its names, a string header each, with
+	// the slice's rounding (namesBytes).
 	hashNameBytes = 16
 	// dupItemBytes is what the uniqueItems check of an array of more than
 	// pairwiseItems items holds per item: its hash map (measured 102 to 168
@@ -100,12 +105,34 @@ const (
 	// declare, in a slice grown by appending.
 	listedNameBytes = 48
 	// matchedItemBytes is what an evaluation with contains holds per item
-	// while it loops, and the location pass keeps in a minContains or
-	// maxContains error: the index of every item that matches, in a slice
-	// grown by appending (review finding: 100 such evaluations over 16,000
-	// items held 12.7 MB charged 58 KB).
-	matchedItemBytes = 16
+	// while it loops: the 8-byte index of every item that matches, in a
+	// slice grown by appending, up to three times that while append copies
+	// it into an array twice as large (review findings: 100 such
+	// evaluations over 16,000 items held 12.7 MB charged 58 KB; then,
+	// audit class GC-08, charged twice the index, one list just grown past
+	// a capacity held up to 23.9 bytes per item, TestGrowthCharges).
+	// keptItemBytes is what the location pass keeps per item in a
+	// minContains or maxContains error: the list's last array, at most
+	// twice the indexes. Both count at least two items (listedItems): Go's
+	// append makes the first array of a slice 32 bytes.
+	matchedItemBytes, keptItemBytes = 24, 16
+	// listGrowthBytes is what the one list the library grows at a time
+	// holds past its items' charges while append copies it into a larger
+	// array, which the allocator's size classes and headers round up
+	// (TestGrowthCharges: at most 256 bytes, an error list grown past 287
+	// slots): charged once to each pass.
+	listGrowthBytes = 256
 )
+
+// listedItems returns the items a list of n matching items is charged
+// for: none for an empty list, which allocates nothing, and at least the
+// two of the first array.
+func listedItems(n int64) int64 {
+	if n == 0 {
+		return 0
+	}
+	return max(n, 2)
+}
 
 // The hash table of a decoded object (a map[string]any, Go's swiss
 // tables), which internal/jsonval charges as its 48-byte header and, per
@@ -207,6 +234,45 @@ func stringExtra(n int64) int64 {
 	classes := sizeClasses()
 	i, _ := slices.BinarySearch(classes[:], uint16(n))
 	return int64(classes[i]) - n
+}
+
+// copyBytes returns what the library's copy of a string of n bytes takes,
+// which every evaluation at the string makes (validator.go strValidate):
+// its allocation size, from 1 to 15 bytes at most the 16-byte block of
+// the allocator's tiny allocator it may start (review finding, audit class
+// GC-08: charged its bytes, the copy of a 100,000-byte string took 106,496
+// and one of 32,769 bytes 40,960, TestCopySizes).
+func copyBytes(n int64) int64 {
+	switch {
+	case n <= 0:
+		return 0
+	case n < tinyBlockBytes:
+		return tinyBlockBytes
+	}
+	return n + stringExtra(n)
+}
+
+// mallocHeaderBytes is the header the allocator puts in front of an
+// object holding pointers past 512 bytes (runtime mallocgc in Go 1.26 and
+// 1.27).
+const mallocHeaderBytes = 8
+
+// namesBytes returns what hashing an object of n members for uniqueItems
+// holds while it hashes them (util.go writeHash): the sorted slice of its
+// names, hashNameBytes a name, rounded up to its allocation size with the
+// header the allocator puts in front of a slice of pointers (review
+// finding, audit class GC-08: charged its headers alone, the names of an
+// object of 50,000 members took 802,824 bytes, charged 800,000,
+// TestCopySizes).
+func namesBytes(n int64) int64 {
+	if n <= 0 {
+		return 0
+	}
+	b := mulCap(n, hashNameBytes)
+	if b > 512 {
+		b = addCap(b, mallocHeaderBytes)
+	}
+	return addCap(b, stringExtra(b))
 }
 
 // arraySlotBytes is one item's slot in a decoded array's backing array,
@@ -429,6 +495,23 @@ func numberWork(lit string) int64 {
 // does not).
 func walkWork(maxPointer int) int64 {
 	return walkUnits + walkByteUnits*int64(maxPointer)
+}
+
+// walkBytes returns what the location walk holds at once besides the
+// error tree, for a document whose error locations with their keywords
+// take at most maxPointer bytes (locationOf, keywordAt): the best leaf's
+// pointer so far, and for a leaf the pointer it builds, its location
+// unescaped, then extended by each keyword token, the old string, the
+// token escaped and the new string live at once while one is copied into
+// the next: at most four strings of maxPointer bytes, each rounded up to
+// its allocation size (review finding, audit class GC-08: a document
+// holding a location of 100,000 bytes held 106 KB in the walk of a
+// failing body of one byte, which reserved 41 KB, TestHandleWalkMemory).
+// The location pass's path and transient copies are gone by then, so the
+// pass is charged the larger of the two (locateMemory).
+func walkBytes(maxPointer int) int64 {
+	n := int64(maxPointer)
+	return 4 * (n + stringExtra(n))
 }
 
 // maxNumberWork is numberWork of the costliest literal within the number
@@ -1058,7 +1141,7 @@ func (b *bodyScan) decideMemory() int64 {
 }
 
 func (b *bodyScan) locateMemory() int64 {
-	return addCap(addCap(b.locate, b.path), b.transient)
+	return addCap(b.locate, max(addCap(b.path, b.transient), walkBytes(b.ws.flags.maxPointer)))
 }
 
 // workOver reports whether the body is past the work limit.
@@ -1080,7 +1163,7 @@ func (b *bodyScan) scan(v any) {
 		st = 0
 	}
 	path, decide := b.value(v, 0, "", 0, st, nil)
-	b.path, b.decide = addCap(path, decideFrames*stackBytes), decide
+	b.path, b.decide = addCap(path, decideFrames*stackBytes+listGrowthBytes), decide
 }
 
 // valueCharge is what bodyScan charges every value before its kind's
@@ -1218,7 +1301,7 @@ func (b *bodyScan) str(a valueCharge, n int64) int64 {
 	work := addCap(a.work, mulCap(n, addCap(mulCap(a.evals, copyUnits), scanRate(a.c))))
 	b.addWork(addCap(work, mulCap(a.hash, compareUnits+n/compareBytes)))
 	if a.evals > 0 {
-		b.transient = max(b.transient, n)
+		b.transient = max(b.transient, copyBytes(n))
 	}
 	return a.own
 }
@@ -1325,8 +1408,8 @@ func (b *bodyScan) array(t []any, d int, a valueCharge) (path, decide int64) {
 		if a.st != nil {
 			lists, kept = min(lists, int64(a.st.matches)), min(kept, int64(a.st.kept))
 		}
-		own = addCap(own, mulCap(mulCap(lists, n), matchedItemBytes))
-		b.locate = addCap(b.locate, mulCap(mulCap(kept, n), matchedItemBytes))
+		own = addCap(own, mulCap(mulCap(lists, listedItems(n)), matchedItemBytes))
+		b.locate = addCap(b.locate, mulCap(mulCap(kept, listedItems(n)), keptItemBytes))
 	}
 	unique := c[dimUnique] > 0
 	if unique && n > pairwiseItems {
@@ -1376,7 +1459,7 @@ func (b *bodyScan) object(t map[string]any, d int, a valueCharge) (path, decide 
 	}
 	if c[dimHash] > 0 {
 		work = addCap(work, mulCap(mulCap(int64(c[dimHash]), n), sortUnits*int64(bits.Len64(uint64(n)))))
-		own = addCap(own, mulCap(n, hashNameBytes))
+		own = addCap(own, namesBytes(n))
 	}
 	lists := a.evals
 	if a.st != nil {

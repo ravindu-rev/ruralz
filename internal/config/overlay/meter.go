@@ -5,6 +5,9 @@ package overlay
 
 import (
 	"encoding/json"
+	"strconv"
+	"strings"
+	"unicode/utf8"
 
 	"github.com/ravindu-rev/ruralz/internal/config/diag"
 	"github.com/ravindu-rev/ruralz/internal/config/schemaidx"
@@ -20,10 +23,9 @@ import (
 //
 //   - tree.Node.Get and Delete are counted scans (get, remove), and a
 //     member is deleted by moving the tail in steps (deleteAt);
-//   - slices.DeleteFunc, Clone, clear and the sorts are counted loops
+//   - slices.DeleteFunc, clear and the sorts are counted loops
 //     (deleteFunc, clearSteps, sortStable), copies and clears moving at
-//     most moveStep elements per unit;
-//   - tree.Node.Clone is a counted copy (clone);
+//     most moveStep elements per unit; the merge copies no tree;
 //   - schemaidx.Node.Select looks each member an if/then rule tests up by
 //     a scan of the instance, once per rule, which no caller can
 //     interrupt, so it reads a proxy of the members a rule may test
@@ -32,7 +34,10 @@ import (
 //   - schemaidx.ItemElem reads a keyed entry's key by a counted scan and
 //     names a set element by its canonical JSON only when it is small
 //     (itemElem);
-//   - message text quoted from the input is clipped (clip).
+//   - input text a diagnostic carries is bounded where the merge builds
+//     the diagnostic: a message quotes it clipped (clip), a path element
+//     clips it (boundElem) and a resource identity shows it clipped and
+//     quoted when it is not graphic (shown).
 //
 // What remains uncounted are single runtime operations on one value at
 // memory speed: hashing a key for a map lookup, comparing two strings,
@@ -44,9 +49,14 @@ import (
 // compaction moves, counted as one work unit.
 const moveStep = 64
 
-// maxShown bounds, in bytes, the input text a diagnostic quotes in its
-// message and the canonical JSON that names a set element in its path, as
-// config/canonical bounds them.
+// maxShown bounds, in bytes, the input text one diagnostic carries in each
+// place, as config/canonical bounds it: a value quoted in its message, the
+// resource kind and name of its identity or its message, and a member
+// name, a list key or the canonical JSON of a set element in its path.
+// The text form of a diagnostic thus stays short however large the
+// content, so the diagnostics of a merge print in space linear in their
+// count (review finding: up to 10,001 diagnostics each repeated one long
+// key in full).
 const maxShown = 64
 
 // probe records how one call spreads its work between Yield calls, for
@@ -216,32 +226,6 @@ func sortStable[E any](a *applier, s []E, cmp func(x, y E) int) {
 	}
 }
 
-// clone returns a deep copy of n, as tree.Node.Clone does, counting one
-// unit per node.
-func (a *applier) clone(n *tree.Node) *tree.Node {
-	if n == nil {
-		return nil
-	}
-	a.tick()
-	c := *n
-	if n.Vars != nil {
-		c.Vars = append([]string(nil), n.Vars...)
-	}
-	if n.Members != nil {
-		c.Members = make([]tree.Member, len(n.Members))
-		for i, m := range n.Members {
-			c.Members[i] = tree.Member{Key: m.Key, KeyPos: m.KeyPos, Value: a.clone(m.Value)}
-		}
-	}
-	if n.Items != nil {
-		c.Items = make([]*tree.Node, len(n.Items))
-		for i, it := range n.Items {
-			c.Items[i] = a.clone(it)
-		}
-	}
-	return &c
-}
-
 // selectOf returns static.Select(inst), the schema of object inst with
 // the if/then dispatch of static applied, where a member whose value is
 // nil (one mergeMap removed) is absent. schemaidx Select finds each
@@ -368,7 +352,8 @@ func (a *applier) dispatchTested(static *schemaidx.Node, name string) bool {
 // past maxShown bytes of its text (keys, strings and number literals as
 // written), so only a small element is encoded. Callers pass composite
 // elements and keyed entries; a set's scalar elements are never named
-// here.
+// here. A keyed entry's key stays whole on the merger's stack; a
+// diagnostic's copy of the path clips it (boundElem).
 func (a *applier) itemElem(list *schemaidx.Node, item *tree.Node, i int) diag.PathElem {
 	lt, key := list.List()
 	switch {
@@ -411,19 +396,91 @@ func (a *applier) textSize(n *tree.Node, limit int) int {
 	return size
 }
 
-// clip shortens s, input text quoted in a message, to its first maxShown
-// bytes cut before a rune, marked with "...".
+// clip shortens s, input text a diagnostic carries, to its first maxShown
+// bytes cut before a rune, marked with "...". The result is always a
+// copy, as config/canonical's is: s may be a substring of the parser's
+// copy of the source, which a diagnostic holding it would keep alive.
 func clip(s string) string {
 	if len(s) <= maxShown {
-		return s
+		return strings.Clone(s)
 	}
 	cut := maxShown
 	// bounded: at most utf8.UTFMax-1 steps back to a rune start.
-	for cut > 0 && s[cut]&0xC0 == 0x80 {
+	for cut > 0 && !utf8.RuneStart(s[cut]) {
 		cut--
 	}
 	return s[:cut] + "..."
 }
+
+// boundElem returns path element e with the input text it names bounded,
+// as config/canonical's boundElem bounds it: a member name, a keyed
+// entry's key and a string set element are clipped (diag quotes them as
+// JSON). itemElem already names a set element whose canonical JSON is
+// longer than maxShown by its index.
+func boundElem(e diag.PathElem) diag.PathElem {
+	switch e.Kind {
+	case diag.ElemField:
+		e.Name = clip(e.Name)
+	case diag.ElemKeyed:
+		e.Key = clip(e.Key)
+	case diag.ElemItem:
+		if s, ok := e.Item.(string); ok {
+			e.Item = clip(s)
+		}
+	case diag.ElemIndex:
+	}
+	return e
+}
+
+// shown returns a resource kind or name from the input as a diagnostic
+// shows it, as config/canonical shows it: clipped (a copy), Go-quoted
+// (strconv.QuoteToGraphic) when it holds a character that is not graphic
+// (a newline, a control or format character), a quote, a backslash or
+// invalid UTF-8, and `""` when it is empty. diag.AppendText prints an
+// identity as it is, so the one-line text form (01 req 49) then carries no
+// newline and no terminal control sequence.
+func shown(s string) string {
+	if s == "" {
+		return `""`
+	}
+	c := clip(s)
+	if needsQuote(c) {
+		return strconv.QuoteToGraphic(c)
+	}
+	return c
+}
+
+// needsQuote reports whether strconv.QuoteToGraphic would escape a
+// character of s: one that is not graphic, a quote, a backslash or a byte
+// of invalid UTF-8.
+func needsQuote(s string) bool {
+	// bounded: a clipped text of at most maxShown+3 bytes.
+	for i := 0; i < len(s); {
+		if c := s[i]; c < utf8.RuneSelf {
+			if c < 0x20 || c == 0x7f || c == '"' || c == '\\' {
+				return true
+			}
+			i++
+			continue
+		}
+		r, size := utf8.DecodeRuneInString(s[i:])
+		if (r == utf8.RuneError && size == 1) || !strconv.IsGraphic(r) {
+			return true
+		}
+		i += size
+	}
+	return false
+}
+
+// resourceID returns the identity a diagnostic carries for the resource
+// id (shown).
+func resourceID(id tree.ID) *diag.ResourceID {
+	return &diag.ResourceID{Kind: shown(string(id.Kind)), Name: shown(id.Name)}
+}
+
+// idText returns the identity id as a message names it: "<Kind>/<name>",
+// each part shown.
+func idText(id tree.ID) string { return shown(string(id.Kind)) + "/" + shown(id.Name) }
 
 // memberIndex finds the members of an object by the keys of the members
 // of an overlay object: a counted scan when the overlay has at most

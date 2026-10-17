@@ -140,7 +140,10 @@ func segmentText(e diag.PathElem, depth int) string {
 
 // child returns the path parent extended by e. The element's text is
 // rendered here, once per call; callers memoize per instance position.
+// parent is the path the caller extends, so a sweep that this call runs
+// keeps it (memo.sweepIfGrown).
 func (x *memo) child(parent *pathNode, e diag.PathElem) *pathNode {
+	x.sweepIfGrown(parent)
 	return &pathNode{parent: parent, elem: e, text: x.intern(parent.textOf(), e, nil)}
 }
 
@@ -148,7 +151,8 @@ func (x *memo) child(parent *pathNode, e diag.PathElem) *pathNode {
 // in spare when spare is not nil. Rendering the segment and hashing it
 // are a span that cannot yield (Options.Yield), charged with the
 // segment's bytes after it: a keyed entry's key, a field name or a set
-// element can be as long as the document.
+// element can be as long as the document. A new text counts toward the
+// next sweep (memo.grow).
 func (x *memo) intern(parent *textNode, e diag.PathElem, spare *textNode) *textNode {
 	at := textAt{parent: parent, text: segmentText(e, depthOf(parent))}
 	x.work.charge(len(at.text))
@@ -163,6 +167,7 @@ func (x *memo) intern(parent *textNode, e diag.PathElem, spare *textNode) *textN
 		x.texts = map[textAt]*textNode{}
 	}
 	x.texts[at] = spare
+	x.grow()
 	return spare
 }
 

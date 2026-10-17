@@ -288,8 +288,10 @@ func FuzzSubst(f *testing.F) {
 		lenient := reference(text, vars, true)
 		switch {
 		case !ok:
-			if g := codes(ds); !slices.Contains(g, CodeMalformed) || errs != 1 || got.Text != text {
-				t.Fatalf("malformed %q: %q, text %q", text, texts(ds), got.Text)
+			// One RZ-CFG-005 and one RZ-CFG-010 per well-formed use of an
+			// undefined variable, read leniently (01 req 27).
+			if g := codes(ds); !slices.Contains(g, CodeMalformed) || errs != 1+lenient.undefined || got.Text != text {
+				t.Fatalf("malformed %q: %q (%d undefined uses read leniently), text %q", text, texts(ds), lenient.undefined, got.Text)
 			}
 		case undefined > 0:
 			if errs != undefined || got.Text != text {

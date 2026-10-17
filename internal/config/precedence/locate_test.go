@@ -83,19 +83,19 @@ func TestLocatorFallbacks(t *testing.T) {
 		{"member without value", l.path(nil, r, field("spec", "broken"), false), at(5, 3)},
 		{"keyed entry", l.path(nil, r, entryPath(fieldPolicies, "a"), false), at(9, 7)},
 		{"missing keyed entry", l.path(nil, r, entryPath(fieldPolicies, "zz"), false), at(9, 5)},
-		{"entry by index", l.list(nil, r, fieldPolicies).entry(0, "a"), at(9, 7)},
-		{"entry from another file without a table", l.list(nil, r, fieldPolicies).entry(1, "b"), start},
-		{"entry from another file with a table", lf.list(nil, r, fieldPolicies).entry(1, "b"), diag.Location{File: "overlays/prod/r.yaml", Line: 3, Column: 7}},
-		{"entry without a position", l.list(nil, r, fieldPolicies).entry(2, "c"), at(9, 5)},
-		{"index and name disagree", l.list(nil, r, fieldPolicies).entry(0, "b"), start},
-		{"index past the list", l.list(nil, r, fieldPolicies).entry(7, "a"), at(9, 7)},
-		{"other list", l.list(nil, r, "excludePolicies").entry(0, "a"), at(5, 3)},
-		{"duplicate name by index", l.list(nil, r, fieldPolicies).entry(4, "dup"), at(11, 7)},
-		{"duplicate name off the index takes the first, as the keyed path", l.list(nil, r, fieldPolicies).entry(9, "dup"), at(9, 5)},
+		{"entry by index", l.list(nil, r, fieldPolicies, nil).entry(0, "a"), at(9, 7)},
+		{"entry from another file without a table", l.list(nil, r, fieldPolicies, nil).entry(1, "b"), start},
+		{"entry from another file with a table", lf.list(nil, r, fieldPolicies, nil).entry(1, "b"), diag.Location{File: "overlays/prod/r.yaml", Line: 3, Column: 7}},
+		{"entry without a position", l.list(nil, r, fieldPolicies, nil).entry(2, "c"), at(9, 5)},
+		{"index and name disagree", l.list(nil, r, fieldPolicies, nil).entry(0, "b"), start},
+		{"index past the list", l.list(nil, r, fieldPolicies, nil).entry(7, "a"), at(9, 7)},
+		{"other list", l.list(nil, r, "excludePolicies", nil).entry(0, "a"), at(5, 3)},
+		{"duplicate name by index", l.list(nil, r, fieldPolicies, nil).entry(4, "dup"), at(11, 7)},
+		{"duplicate name off the index takes the first, as the keyed path", l.list(nil, r, fieldPolicies, nil).entry(9, "dup"), at(9, 5)},
 		{"keyed path of a duplicate name", l.path(nil, r, entryPath(fieldPolicies, "dup"), false), at(9, 5)},
 		{"no tree", l.path(nil, &hub.Resource{Source: hub.Source{Start: start}}, field("spec"), false), start},
 		{"no resource", l.path(nil, nil, field("spec"), false), diag.Location{}},
-		{"entry without tree", l.list(nil, &hub.Resource{Source: hub.Source{Start: start}}, fieldPolicies).entry(0, "a"), start},
+		{"entry without tree", l.list(nil, &hub.Resource{Source: hub.Source{Start: start}}, fieldPolicies, nil).entry(0, "a"), start},
 	}
 	for _, tc := range tests {
 		if tc.got != tc.want {
@@ -116,7 +116,7 @@ func TestLocatorFallbacks(t *testing.T) {
 		i    int
 		name string
 	}{{1, "b"}, {5, "a"}, {0, "b"}} {
-		if got := l.list(nil, nilName, fieldPolicies).entry(tc.i, tc.name); got != at(9, 5) {
+		if got := l.list(nil, nilName, fieldPolicies, nil).entry(tc.i, tc.name); got != at(9, 5) {
 			t.Errorf("nil name member: entry(%d, %s) = %+v", tc.i, tc.name, got)
 		}
 	}
@@ -125,14 +125,14 @@ func TestLocatorFallbacks(t *testing.T) {
 	scalarSpec := &hub.Resource{Tree: &tree.Node{Kind: tree.KindMap, Pos: pos(self, 1, 1), Members: []tree.Member{
 		{Key: "spec", Value: &tree.Node{Kind: tree.KindString, Text: "x", Pos: pos(self, 2, 7)}},
 	}}, Source: hub.Source{File: "a.yaml", Start: start}}
-	if got := l.list(nil, scalarSpec, fieldPolicies).entry(0, "a"); got != at(2, 7) {
+	if got := l.list(nil, scalarSpec, fieldPolicies, nil).entry(0, "a"); got != at(2, 7) {
 		t.Errorf("scalar spec: %+v", got)
 	}
 	scalarItem := &hub.Resource{Tree: listTree(self, 1, nil), Source: hub.Source{File: "a.yaml", Start: start}}
 	scalarSpecNode, _ := scalarItem.Tree.Get("spec")
 	scalarSpecNode.Members[0].Value.Pos = pos(self, 9, 5)
 	scalarSpecNode.Members[0].Value.Items = []*tree.Node{{Kind: tree.KindString, Text: "a", Pos: pos(self, 10, 7)}}
-	if got := l.list(nil, scalarItem, fieldPolicies).entry(0, "a"); got != at(9, 5) {
+	if got := l.list(nil, scalarItem, fieldPolicies, nil).entry(0, "a"); got != at(9, 5) {
 		t.Errorf("scalar list item: %+v", got)
 	}
 
@@ -236,7 +236,7 @@ func TestListLocLinear(t *testing.T) {
 		}
 		for _, tc := range tests {
 			w := &worker{}
-			ll := locator{}.list(w, tc.r, fieldPolicies)
+			ll := locator{}.list(w, tc.r, fieldPolicies, nil)
 			for i := range n {
 				idx, name := tc.lookup(i)
 				if got, want := ll.entry(idx, name), tc.want(i); got != want {

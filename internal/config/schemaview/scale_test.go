@@ -168,7 +168,7 @@ func stripPositions(res *tree.Resource) {
 // returns the bytes the mapping allocated, with its result. The schema
 // validation itself (jsonschema/v6) runs before the measurement.
 func mappingAlloc(v *View, res *tree.Resource, files *tree.FileTable) (uint64, diag.List) {
-	shadowed, err := v.runSchema(res, nil)
+	res, shadowed, err := v.runSchema(res, nil)
 	var before, after runtime.MemStats
 	runtime.ReadMemStats(&before)
 	m := newMapper(v, res, files, MaxDiagnostics, Options{})
@@ -689,9 +689,12 @@ func TestMemberIndex(t *testing.T) {
 // fewSteps, fewSteps+1 and 100 children: find agrees with add for present
 // and absent tokens, the index replaces the scanned slice exactly past
 // fewSteps children, and find reports the children it compared (each one
-// scanned, or one index lookup), which memo.step adds to memo.read and
-// charges with the token's bytes (review finding: a lookup that scanned
-// every child was never counted, so losing the index went unnoticed).
+// scanned, or one index lookup) and the bytes it read to compare them
+// (the token's for each scanned child of its length, or for the index
+// lookup), which memo.step adds to memo.read and charges (review
+// findings: a lookup that scanned every child was never counted, so
+// losing the index went unnoticed; the bytes of each equal-length child
+// scanned were not charged, an eighth of what eight long siblings read).
 func TestStepIndex(t *testing.T) {
 	for _, n := range []int{0, fewSteps - 1, fewSteps, fewSteps + 1, 100} {
 		t.Run(strconv.Itoa(n)+" children", func(t *testing.T) {
@@ -705,35 +708,58 @@ func TestStepIndex(t *testing.T) {
 				t.Fatalf("after %d adds: %d scanned, %d indexed; want the index exactly past %d", n, len(s.few), len(s.many), fewSteps)
 			}
 			for i := range n {
-				c, compared, ok := s.find(kids[i].tok)
-				want := i + 1
+				c, compared, bytes, ok := s.find(kids[i].tok)
+				// The scanned tokens t0 to t7 all have two bytes.
+				want, wantBytes := i+1, 2*(i+1)
 				if n > fewSteps {
-					want = 1
+					want, wantBytes = 1, len(kids[i].tok)
 				}
-				if !ok || c != kids[i] || compared != want {
-					t.Errorf("find(%s) = %p, %d, %v; want %p, %d, true", kids[i].tok, c, compared, ok, kids[i], want)
+				if !ok || c != kids[i] || compared != want || bytes != wantBytes {
+					t.Errorf("find(%s) = %p, %d, %d bytes, %v; want %p, %d, %d bytes, true", kids[i].tok, c, compared, bytes, ok, kids[i], want, wantBytes)
 				}
 			}
-			c, compared, ok := s.find("absent")
-			want := n
+			c, compared, bytes, ok := s.find("absent")
+			want, wantBytes := n, 0
 			if n > fewSteps {
-				want = 1
+				want, wantBytes = 1, len("absent")
 			}
-			if ok || c != nil || compared != want {
-				t.Errorf("find(absent) = %p, %d, %v; want nil, %d, false", c, compared, ok, want)
+			if ok || c != nil || compared != want || bytes != wantBytes {
+				t.Errorf("find(absent) = %p, %d, %d bytes, %v; want nil, %d, %d bytes, false", c, compared, bytes, ok, want, wantBytes)
 			}
 		})
 	}
+	// Long tokens of one length that differ in their last byte: a scan
+	// reads every one it compares in full, a token of another length not
+	// at all.
+	const long = 64 << 10
+	s := &step{}
+	for i := range fewSteps {
+		s.add(&step{tok: strings.Repeat("a", long-1) + strconv.Itoa(i)})
+	}
+	for _, tc := range []struct {
+		name, tok       string
+		compared, bytes int
+		found           bool
+	}{
+		{"first", strings.Repeat("a", long-1) + "0", 1, long, true},
+		{"last", strings.Repeat("a", long-1) + strconv.Itoa(fewSteps-1), fewSteps, fewSteps * long, true},
+		{"absent of the same length", strings.Repeat("a", long-1) + "x", fewSteps, fewSteps * long, false},
+		{"absent and longer", strings.Repeat("a", long+1), fewSteps, 0, false},
+	} {
+		if _, compared, bytes, ok := s.find(tc.tok); compared != tc.compared || bytes != tc.bytes || ok != tc.found {
+			t.Errorf("find(%s) = %d, %d bytes, %v; want %d, %d bytes, %v", tc.name, compared, bytes, ok, tc.compared, tc.bytes, tc.found)
+		}
+	}
 	// memo.step adds the children compared to memo.read and charges them
-	// with the token's bytes, on a hit as on a miss.
+	// with the bytes compared, on a hit as on a miss.
 	x := &memo{work: &work{yield: func() {}}}
 	parent := &step{}
 	for i := range fewSteps {
 		parent.add(&step{tok: "t" + strconv.Itoa(i)})
 	}
 	x.read, x.work.total = 0, 0
-	if c := x.step(parent, "t3"); c.tok != "t3" || x.read != 4 || x.work.total != 4+len("t3") {
-		t.Errorf("step(t3) read %d and charged %d, want 4 and %d", x.read, x.work.total, 4+len("t3"))
+	if c := x.step(parent, "t3"); c.tok != "t3" || x.read != 4 || x.work.total != 4+4*len("t3") {
+		t.Errorf("step(t3) read %d and charged %d, want 4 and %d", x.read, x.work.total, 4+4*len("t3"))
 	}
 }
 

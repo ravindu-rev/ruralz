@@ -113,9 +113,10 @@ func TestResultIndependentOfFileOrder(t *testing.T) {
 // "absent key: no-op", also for a member the dispatch tests); a clean
 // merge is idempotent (applying the overlay again, base check included,
 // changes and reports nothing) and keeps no directive: no ruralz.io/patch
-// annotation and no $patch member anywhere outside a JSONSchemaDocument
-// value, free content included, also when the overlay changes how base
-// content is read.
+// annotation from the overlay (a base document's is data, which stage F
+// reports, 01 req 35) and no $patch member anywhere outside a
+// JSONSchemaDocument value, free content included, also when the overlay
+// changes how base content is read.
 func FuzzOverlay(f *testing.F) {
 	seeds := [][2]string{
 		{gateway, orderDocs[0]},
@@ -148,6 +149,21 @@ func FuzzOverlay(f *testing.F) {
 		{`{"kind":"Policy","spec":{"type":"auth.jwt","config":{"issuers":[{"issuer":"a"},{"issuer":"b"}]}}}`, `{"spec":{"type":{"x":{"y":null}},"config":{"issuers":[{"issuer":"b","$patch":"delete"}]}}}`},
 		{`{"kind":"Policy","spec":{"type":"validation.json-schema","config":{"schema":{"type":"object","required":["a"]}}}}`, `{"spec":{"type":{"x":null},"config":{"schema":{"type":"string"}}}}`},
 		{`{"kind":"Policy","spec":{"type":"validation.json-schema","config":"x"}}`, `{"spec":{"type":{"a":1},"config":{"schema":{"$patch":1}}}}`},
+		// Members the removal property must keep (review finding: the
+		// oracle dropped them, though the merge reads them as directives):
+		// a $patch inside a null tree is a misplaced directive (RZ-CFG-005),
+		// at any depth and in a dispatch member; a null tree holding the
+		// ruralz.io/patch annotation is an unsupported annotation value,
+		// in metadata.annotations or in a metadata that replaces a base
+		// scalar; and under ruralz.io/patch: replace the overlay spec
+		// replaces the base spec, removals and all.
+		{`{"kind":"Route","spec":{"timeout":"5s"}}`, `{"spec":{"timeout":{"$patch":null}}}`},
+		{`{"kind":"Route","spec":{"timeout":"5s"}}`, `{"spec":{"timeout":{"x":{"$patch":null}}}}`},
+		{`{"kind":"Policy","spec":{"type":"cors","config":{}}}`, `{"spec":{"type":{"$patch":null}}}`},
+		{`{"kind":"Route","metadata":{"annotations":"x"}}`, `{"metadata":{"annotations":{"ruralz.io/patch":null}}}`},
+		{`{"kind":"Route","metadata":"x"}`, `{"metadata":{"annotations":{"ruralz.io/patch":null}}}`},
+		{`{"kind":"Route","metadata":{"annotations":{"ruralz.io/patch":"x"}}}`, `{"metadata":{"annotations":{"ruralz.io/patch":{"a":null}}}}`},
+		{`{"kind":"Route","spec":"x"}`, `{"metadata":{"annotations":{"ruralz.io/patch":"replace"}},"spec":{"a":null}}`},
 	}
 	for _, s := range seeds {
 		f.Add(s[0], s[1], true)
@@ -213,23 +229,40 @@ func FuzzOverlay(f *testing.F) {
 			if p, ok := strayPatch(t, r); ok {
 				t.Fatalf("%s kept a %s member at %s: %s", r.ID, PatchKey, p, dump(r.Root))
 			}
+			// The overlay's annotation never survives (01 req 25); a base
+			// document's is data stage D leaves to stage F, which reports
+			// the reserved prefix (01 req 35).
+			var baseValue *tree.Node
+			if r.ID.Name == "x" {
+				bmd, _ := b.Get("metadata")
+				bann, _ := bmd.Get("annotations")
+				baseValue, _ = bann.Get(PatchAnnotation)
+			}
 			md, _ := r.Root.Get("metadata")
 			ann, _ := md.Get("annotations")
-			if _, ok := ann.Get(PatchAnnotation); ok {
-				t.Fatalf("%s kept the %s annotation", r.ID, PatchAnnotation)
+			if v, ok := ann.Get(PatchAnnotation); ok && (baseValue == nil || dump(v) != dump(baseValue)) {
+				t.Fatalf("%s kept the overlay's %s annotation: %s", r.ID, PatchAnnotation, dump(r.Root))
 			}
 		}
 	})
 }
 
 // dropRemovals deletes from ov, an overlay document root whose base is
-// base, every member whose value is an object of nothing but nulls and
-// such objects and whose base value is a scalar, at any depth of the
-// objects both hold. It skips $patch members, the ruralz.io/patch
-// annotation (directives, not values) and the JSONSchemaDocument
-// positions of the base view and of merged, the merged root, whose
-// overlay value is data. It reports whether it deleted a member.
+// base, every member whose value is a null tree (nullTree) and whose base
+// value is a scalar, at any depth of the objects both hold. It keeps what
+// the merge reads as a directive rather than a value (01 req 25): a
+// $patch member, any member whose value holds the ruralz.io/patch key at
+// any depth (so the walk never reaches the annotation takeAction reads at
+// metadata.annotations, nor the metadata or annotations holding it), and
+// the root spec of a document carrying the annotation, whose spec then
+// replaces the base spec, removals and all; and it keeps the
+// JSONSchemaDocument positions of the base view and of merged, the merged
+// root, whose overlay value is data. It reports whether it deleted a
+// member.
 func dropRemovals(x *schemaidx.Index, kind string, base, merged, ov *tree.Node) bool {
+	md, _ := ov.Get("metadata")
+	ann, _ := md.Get("annotations")
+	_, annotated := ann.Get(PatchAnnotation)
 	dropped := false
 	var walk func(b, o *tree.Node, path diag.Path)
 	walk = func(b, o *tree.Node, path diag.Path) {
@@ -238,7 +271,8 @@ func dropRemovals(x *schemaidx.Index, kind string, base, merged, ov *tree.Node) 
 			p := path.Append(diag.Field(om.Key))
 			bv, ok := b.Get(om.Key)
 			switch {
-			case !ok || om.Key == PatchKey || p.String() == `metadata.annotations["ruralz.io/patch"]` ||
+			case !ok || om.Key == PatchKey || holdsKey(om.Value, PatchAnnotation) ||
+				(len(path) == 0 && om.Key == "spec" && annotated) ||
 				documentAt(x, kind, base, p) || documentAt(x, kind, merged, p):
 			case nullTree(om.Value) && !composite(bv):
 				dropped = true
@@ -255,17 +289,34 @@ func dropRemovals(x *schemaidx.Index, kind string, base, merged, ov *tree.Node) 
 	return dropped
 }
 
-// nullTree reports an object with members, each null or a null tree.
+// nullTree reports an object with members, each null or a null tree, and
+// none of them, at any depth, a $patch member, which the merge reads as a
+// misplaced directive (RZ-CFG-005), not as a removal.
 func nullTree(n *tree.Node) bool {
 	if n.Kind != tree.KindMap || len(n.Members) == 0 {
 		return false
 	}
 	for _, m := range n.Members {
-		if m.Value.Kind != tree.KindNull && !nullTree(m.Value) {
+		if m.Key == PatchKey || (m.Value.Kind != tree.KindNull && !nullTree(m.Value)) {
 			return false
 		}
 	}
 	return true
+}
+
+// holdsKey reports a member keyed key at any depth of n.
+func holdsKey(n *tree.Node, key string) bool {
+	for _, m := range n.Members {
+		if m.Key == key || holdsKey(m.Value, key) {
+			return true
+		}
+	}
+	for _, it := range n.Items {
+		if holdsKey(it, key) {
+			return true
+		}
+	}
+	return false
 }
 
 // documentAt reports a JSONSchemaDocument position at path p of root.
