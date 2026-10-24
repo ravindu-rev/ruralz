@@ -84,7 +84,7 @@ Aim for the complete solution, never a quick fix.
 
 ## Commits and pull requests
 
-- **DCO.** Every non-merge commit carries `Signed-off-by: <author name> <author email>`; the name must equal the commit author exactly (`git commit -s`; repair with `git rebase --signoff main`). A `Co-Authored-By` trailer does not replace it.
+- **DCO.** Every non-merge commit carries `Signed-off-by: <author name> <author email>`; the name must equal the commit author exactly (`git commit -s`; repair with `git rebase --signoff main`). A `Co-Authored-By` trailer does not replace it. Only Dependabot commits are exempt (`signoffExempt` in commitcheck).
 - **Title** (checked on the PR title, which squash merge makes the commit subject): `<type>(<scope>)!: <subject>`, matching `^([a-z]+)(?:\(([a-z0-9][a-z0-9-]*)\))?(!)?: (.+)$`; imperative mood, lower-case first word, no trailing period (`internal/tool/commitcheck/commitcheck.go:130-156`).
 
 | Type | Scopes |

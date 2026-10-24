@@ -11,7 +11,7 @@ git commit -s                  # adds the trailer
 git rebase --signoff main      # repairs a branch
 ```
 
-CI checks every non-merge commit of a pull request, also on merge queue runs, bots included.
+CI checks every non-merge commit of a pull request, also on merge queue runs; Dependabot commits are exempt because Dependabot cannot sign off.
 
 ## Pull request titles
 
