@@ -1,0 +1,1836 @@
+{
+ "meta": {
+  "generated": "2026-10-24",
+  "task": "Step 0.01b inventory of the contract requests the old plan deferred to S8. steps.md asks their decisions at 3.00 and 3.68, settles the code they need in the package steps (decision 37) and records the rest in steps 3.69 to 3.69k.",
+  "backlogSources": [
+   "runs/w3-s1a-result.json",
+   "runs/w3-s1b-result.json",
+   "runs/w3-s1a-harden2-result.json",
+   "runs/w3-s2a-result.json",
+   "runs/w3-s2b-result.json",
+   "runs/w3-s2-wp51-r3.json",
+   "runs/w3-s2-wp51-r6.json",
+   "runs/w3-s2-wp51-r8.json",
+   "runs/w3-s2-wp51-r9.json"
+  ],
+  "currentPackageSources": [
+   "runs/w3-s2-minors-continue3.json _meta.contractRequests",
+   "reports/WP-33.json",
+   "reports/WP-35.json to WP-39.json",
+   "runs/w3-s2-wp51-carry2.json contractRequests"
+  ],
+  "requests": 100,
+  "mergedEntries": 71,
+  "classCounts": {
+   "A": 5,
+   "B": 22,
+   "C": 44
+  },
+  "classCNeedsDecision": 18,
+  "notes": [
+   "Paths in sources are relative to .claude/plans/m1/. Merging: a later request that says it replaces, repeats or re-files an earlier one, or restates the same ask with new figures, is one entry; its latest text wins.",
+   "An entry may name several targets, so pendingByTarget counts overlap; most WP-51 entries name both R-77 (00-architecture.md) and spec 07.",
+   "WP-51 figures (fit, compile cost, latency) change during steps 3.01 to 3.12; record them after step 3.12.",
+   "docs/architecture/02-configuration-model.md is at 9,498 of 9,500 words (manifest max); decision 15 says S8 trims to fit. docs/architecture/12-performance-budgets-and-benchmarking.md has about 92 words of headroom.",
+   "Code targets owned by other packages (WP-01 filter.go, WP-03 schemaidx, WP-28 pkg/config/v1alpha1, executor) land as lead commits (architecture 4.1 rule 3); several fit the R steps of their packages."
+  ],
+  "lowConfidence": [
+   "E08 to E11 (harden2 [0..3]): classed B because the C2 plan (decision 8, yaml-parser-decision.md section 6 items 1 to 4 and 17) supersedes them in steps 3.21 to 3.29, not because a package-source request restates them.",
+   "needsDecision for E46 (in-place reference cycles), E58 (pattern measure) and E64 (maxCheckCopies): judged new refusals beyond decision 14; the owner may consider them covered by decisions 14 or 20.",
+   "E31 (s2a WP-38[0]): classed A though the optional removal of expr from the 1.2 row was not taken (precedence tests still import expr).",
+   "E18 (s1b WP-35[7]) and E20 (s1b WP-35[9]) are C for their residual parts only (schemaidx vocabulary alignment; Node.Secret accessor); their main parts are covered.",
+   "Step 0.01b's review moved E21, E22 and E25 from B to C, and E53 and E57 from A to C, each for residual parts no package source or spec restates.",
+   "Step 0.01b's round-4 review moved E42 from A to C (its data plane target) and marked E65 as needing a decision.",
+   "Step 0.01b's round-8 review moved E68 from B to C (an unapproved accepted consequence) and asks it at 3.00.",
+   "Step 0.01b's round-15 review moved E39 from A to C (its WP-76 note)."
+  ],
+  "supersededSources": "Not listed as sources, because later requests superseded them: w3-s1a-fix-result.json (1) and w3-s1a-harden-result.json (9), which yaml-parser-decision.md section 6 cites and the C2 plan replaces, and the three fix0 requests of w3-s2-wp51-r1.json, which fold into E49, E51 and E52.",
+  "settledByNote": "settledBy names the steps that settle an entry's code before the packages concerned close (user decision 37) or, for E43, the final-review step that would add its security reviewer (decision 40)."
+ },
+ "entries": [
+  {
+   "sources": [
+    "runs/w3-s1a-result.json [0]/contractRequests[0]"
+   ],
+   "wp": "WP-33",
+   "class": "B",
+   "evidence": "Identical text in reports/WP-33.json contractRequests[0]; step 3.21 applies \"the 7 contract requests in reports/WP-33.json\" (steps.md, step 3.21 row); yaml-parser-decision.md section 6 item 5 rewrites 01 reqs 8-10 for C2 (the byte estimator goes with goccy)",
+   "targets": [
+    ".claude/plans/m1/specs/01-config-load.md (reqs 8, 9, risk 1)",
+    "docs/architecture/02-configuration-model.md (OQ-configuration-model-18)"
+   ],
+   "needsDecision": false,
+   "decisionWhy": "n/a (class A or B)",
+   "summary": "Token-pass wording: goccy scanner is not incremental; MaxDocumentTokens pre-checked against a byte bound; correct 01 reqs 8/9 and risk 1, note under OQ-configuration-model-18",
+   "id": "E01"
+  },
+  {
+   "sources": [
+    "runs/w3-s1a-result.json [0]/contractRequests[1]"
+   ],
+   "wp": "WP-33",
+   "class": "B",
+   "evidence": "Identical text in reports/WP-33.json contractRequests[1]; step 3.21 applies \"the 7 contract requests in reports/WP-33.json\" (steps.md, step 3.21 row); brief section 6 item 5 (C2: depth counted while parsing)",
+   "targets": [
+    ".claude/plans/m1/specs/01-config-load.md (req 9)"
+   ],
+   "needsDecision": false,
+   "decisionWhy": "n/a (class A or B)",
+   "summary": "Adopt the refined depth rule in 01 req 9",
+   "id": "E02"
+  },
+  {
+   "sources": [
+    "runs/w3-s1a-result.json [0]/contractRequests[2]"
+   ],
+   "wp": "WP-33",
+   "class": "B",
+   "evidence": "Identical text in reports/WP-33.json contractRequests[2]; step 3.21 applies \"the 7 contract requests in reports/WP-33.json\" (steps.md, step 3.21 row); brief section 6 item 12 (\"an R-77 or R-78 entry\", same under every option). Not yet applied: 02-config-revision.md:145 (req 46) still says only where substitution runs, 01-config-load.md:126 (req 31) says every literal ${; no R-row records it",
+   "targets": [
+    ".claude/plans/m1/specs/00-architecture.md (2.16 new R-row)",
+    ".claude/plans/m1/specs/01-config-load.md (req 31)",
+    ".claude/plans/m1/specs/02-config-revision.md (req 46)"
+   ],
+   "needsDecision": false,
+   "decisionWhy": "n/a (class A or B)",
+   "summary": "Record which $${ render rule wins (01 req 31 every string vs 02 req 46 only where substitution runs)",
+   "id": "E03"
+  },
+  {
+   "sources": [
+    "runs/w3-s1a-result.json [0]/contractRequests[3]"
+   ],
+   "wp": "WP-33",
+   "class": "B",
+   "evidence": "Identical text in reports/WP-33.json contractRequests[3]; moot under C2: decision 8 drops goccy (steps 3.28, 3.29), brief section 6 item 17 (\"Moot\")",
+   "targets": [
+    "(none: moot under C2)"
+   ],
+   "needsDecision": false,
+   "decisionWhy": "n/a (class A or B)",
+   "summary": "Weigh a goccy upgrade or upstream issues for its two quadratic paths",
+   "id": "E04"
+  },
+  {
+   "sources": [
+    "runs/w3-s1a-result.json [0]/contractRequests[4]"
+   ],
+   "wp": "WP-33",
+   "class": "B",
+   "evidence": "Identical text in reports/WP-33.json contractRequests[4]; step 3.21 applies \"the 7 contract requests in reports/WP-33.json\" (steps.md, step 3.21 row); brief section 6 item 13 and 5.1 step 2 (spec 01 section 3 API block, forwards.json note for WP-55)",
+   "targets": [
+    ".claude/plans/m1/specs/01-config-load.md (section 3 API block)",
+    ".claude/plans/m1/forwards.json (WP-55)"
+   ],
+   "needsDecision": false,
+   "decisionWhy": "n/a (class A or B)",
+   "summary": "WP-55 loader API note for profile.Parse",
+   "id": "E05"
+  },
+  {
+   "sources": [
+    "runs/w3-s1a-result.json [0]/contractRequests[5]"
+   ],
+   "wp": "WP-33",
+   "class": "B",
+   "evidence": "Identical text in reports/WP-33.json contractRequests[5]; step 3.21 applies \"the 7 contract requests in reports/WP-33.json\" (steps.md, step 3.21 row); brief section 6 item 13 and 5.1 step 2 (forwards.json note for WP-58)",
+   "targets": [
+    ".claude/plans/m1/forwards.json (WP-58)"
+   ],
+   "needsDecision": false,
+   "decisionWhy": "n/a (class A or B)",
+   "summary": "WP-58 render API note: Encode, EncodeWith Verbatim, EncodeJSON",
+   "id": "E06"
+  },
+  {
+   "sources": [
+    "runs/w3-s1a-result.json [0]/contractRequests[6]"
+   ],
+   "wp": "WP-33",
+   "class": "B",
+   "evidence": "Identical text in reports/WP-33.json contractRequests[6]; step 3.21 applies \"the 7 contract requests in reports/WP-33.json\" (steps.md, step 3.21 row); brief section 6 item 5 (C2 has no byte estimator)",
+   "targets": [
+    "docs/architecture/02-configuration-model.md (OQ-configuration-model-18)"
+   ],
+   "needsDecision": false,
+   "decisionWhy": "n/a (class A or B)",
+   "summary": "Record that the byte-computed token bound over-counts inside quoted and block scalars",
+   "id": "E07"
+  },
+  {
+   "sources": [
+    "runs/w3-s1a-harden2-result.json finish/contractRequests[0]"
+   ],
+   "wp": "WP-33",
+   "class": "B",
+   "evidence": "Superseded by the C2 plan the WP-33 steps apply (not a package-source request): decision 8 and the lead defaults of 2026-10-10 (user-decisions.md), yaml-parser-decision.md section 6 items 1 and 2 cite this request; MaxDocumentTokens is redefined (parser nodes, counted during the parse, per-file budget scaling with MaxResources, re-measured). Step 3.21 rewrites spec 01 req 6, specs/00 4.4 and the wps.json WP-33 scope (brief 5.1 step 2); step 3.26 measures memory again",
+   "targets": [
+    ".claude/plans/m1/specs/01-config-load.md (req 6, risk 1)",
+    ".claude/plans/m1/specs/00-architecture.md (4.4 WP-33)",
+    ".claude/plans/m1/arch/wps.json (WP-33)"
+   ],
+   "needsDecision": false,
+   "decisionWhy": "n/a (class A or B)",
+   "summary": "MaxDocumentTokens 400,000 in code vs 1,000,000 in specs, and the 5/4 per-file token bound",
+   "id": "E08"
+  },
+  {
+   "sources": [
+    "runs/w3-s1a-harden2-result.json finish/contractRequests[1]"
+   ],
+   "wp": "WP-33",
+   "class": "B",
+   "evidence": "Superseded by the C2 plan the WP-33 steps apply (not a package-source request): decision 8 and the lead defaults of 2026-10-10 (user-decisions.md), yaml-parser-decision.md section 6 item 3 cites this request: under C2, req 8 becomes \"any YAML 1.2.2 syntax error is RZ-CFG-001\" plus the profile features (step 3.21; CM lines word-neutral at step 3.28)",
+   "targets": [
+    ".claude/plans/m1/specs/01-config-load.md (reqs 8, 10)",
+    "docs/architecture/02-configuration-model.md (Restricted YAML profile)"
+   ],
+   "needsDecision": false,
+   "decisionWhy": "n/a (class A or B)",
+   "summary": "List the goccy-era RZ-CFG-001 refusals in 01 reqs 8/10 and the CM",
+   "id": "E09"
+  },
+  {
+   "sources": [
+    "runs/w3-s1a-harden2-result.json finish/contractRequests[2]"
+   ],
+   "wp": "WP-33",
+   "class": "B",
+   "evidence": "Superseded by the C2 plan the WP-33 steps apply (not a package-source request): decision 8 and the lead defaults of 2026-10-10 (user-decisions.md), yaml-parser-decision.md section 6 item 4 cites this request: under C2 nothing to list beyond the profile's own choices; decision 9's strict refusals get their loader-reference note at step 3.28",
+   "targets": [
+    "(none: moot under C2)"
+   ],
+   "needsDecision": false,
+   "decisionWhy": "n/a (class A or B)",
+   "summary": "Record the valid YAML 1.2 that goccy refuses and the profile keeps refused",
+   "id": "E10"
+  },
+  {
+   "sources": [
+    "runs/w3-s1a-harden2-result.json finish/contractRequests[3]"
+   ],
+   "wp": "WP-33",
+   "class": "B",
+   "evidence": "Superseded by the C2 plan the WP-33 steps apply (not a package-source request): decision 8 and the lead defaults of 2026-10-10 (user-decisions.md), yaml-parser-decision.md section 6 item 17 (\"Moot\"); goccy leaves at steps 3.28 and 3.29",
+   "targets": [
+    "(none: moot under C2)"
+   ],
+   "needsDecision": false,
+   "decisionWhy": "n/a (class A or B)",
+   "summary": "More goccy v1.19.2 faults: weigh an upgrade or upstream issues",
+   "id": "E11"
+  },
+  {
+   "sources": [
+    "runs/w3-s1b-result.json [0]/contractRequests[0]",
+    "runs/w3-s1b-result.json [0]/contractRequests[3]"
+   ],
+   "wp": "WP-35",
+   "class": "C",
+   "evidence": "Not applied: specs/11-ops-quality.md:61 (req 19) still assigns the per-Environment Bundle load to schemaview meta_test.go; arch/wps.json WP-75 scope says \"examples validation through the pipeline\" and cites only \"11 B 12-17\", not 11 req 19; 00-architecture.md 4.4 WP-75 likewise. The skip reason in TestMetaExamples (wip/WP-35.patch) forwards it to WP-75. Not restated in reports/WP-35.json or minors3 WP-35 (those cover the raw-document part only)",
+   "targets": [
+    ".claude/plans/m1/specs/11-ops-quality.md (req 19)",
+    ".claude/plans/m1/arch/wps.json (WP-75 scope)",
+    ".claude/plans/m1/specs/00-architecture.md (4.4 WP-75)"
+   ],
+   "needsDecision": false,
+   "decisionWhy": "",
+   "summary": "Assign the per-Environment Bundle clause of 11 req 19 (each examples/ Bundle loads through the pipeline for each Environment and without --env) to WP-75 and name 11 req 19 in its scope",
+   "id": "E12"
+  },
+  {
+   "sources": [
+    "runs/w3-s1b-result.json [0]/contractRequests[1]"
+   ],
+   "wp": "WP-35",
+   "class": "A",
+   "evidence": "forwards.json WP-51[2] (\"[S1 from WP-35] jsonschema/v6 v6.0.3 sets InstanceLocation for propertyNames and contentSchema errors ...\")",
+   "targets": [
+    ".claude/plans/m1/forwards.json (WP-51)"
+   ],
+   "needsDecision": false,
+   "decisionWhy": "n/a (class A or B)",
+   "summary": "Forward to WP-51: do not trust InstanceLocation for propertyNames and contentSchema errors",
+   "id": "E13"
+  },
+  {
+   "sources": [
+    "runs/w3-s1b-result.json [0]/contractRequests[2]"
+   ],
+   "wp": "WP-35",
+   "class": "C",
+   "evidence": "Not in forwards.json (no S1 entry under WP-69) nor in the 00-architecture.md 4.4 WP-69 scope; not restated in the current WP-35 sources (reports/WP-35.json[11] covers only MaxDiagnostics). Note: wip/WP-35.patch adds Set.ValidateWith/View.ValidateWith with Options, so the note must name the API that step 3.13 lands",
+   "targets": [
+    ".claude/plans/m1/forwards.json (WP-69)"
+   ],
+   "needsDecision": false,
+   "decisionWhy": "",
+   "summary": "WP-69 note: build schemaview.Embedded once per process and share the immutable *Set across workers; stage F entry point and its RZ-CFG-007 ok=false case",
+   "id": "E14"
+  },
+  {
+   "sources": [
+    "runs/w3-s1b-result.json [0]/contractRequests[4]"
+   ],
+   "wp": "WP-35",
+   "class": "B",
+   "evidence": "Restated and extended by reports/WP-35.json[9] = runs/w3-s2-minors-continue3.json _meta.contractRequests.WP-35[9] (01 section 6 \"Meta-validation test\": raw documents parse with the production front ends and validate); the code is in wip/WP-35.patch TestMetaExamples \"documents\" subtest, applied by step 3.13",
+   "targets": [
+    ".claude/plans/m1/specs/01-config-load.md (section 6 meta-validation test)"
+   ],
+   "needsDecision": false,
+   "decisionWhy": "n/a (class A or B)",
+   "summary": "Validate the raw YAML documents under examples/ against the authoring view once the profile lands",
+   "id": "E15"
+  },
+  {
+   "sources": [
+    "runs/w3-s1b-result.json [0]/contractRequests[5]"
+   ],
+   "wp": "WP-35",
+   "class": "B",
+   "evidence": "Restated by reports/WP-35.json[11] = runs/w3-s2-minors-continue3.json _meta.contractRequests.WP-35[11] (WP-69 scope: pass Limits.MaxDiagnostics; cap+1 diagnostics make the collector append RZ-CFG-001), applied by step 3.13",
+   "targets": [
+    ".claude/plans/m1/specs/00-architecture.md (4.4 WP-69)",
+    ".claude/plans/m1/arch/wps.json (WP-69)"
+   ],
+   "needsDecision": false,
+   "decisionWhy": "n/a (class A or B)",
+   "summary": "WP-69: treat schemaview MaxDiagnostics (10,000) as the 01 req 50 cap",
+   "id": "E16"
+  },
+  {
+   "sources": [
+    "runs/w3-s1b-result.json [0]/contractRequests[6]"
+   ],
+   "wp": "WP-35",
+   "class": "B",
+   "evidence": "Extended by reports/WP-35.json[0] (\"this extends WP-35's earlier JSON-token request\"; MaxDocumentTokens per YAML or JSON document, owner decision) and [6] (R-80 option b); applied by step 3.13",
+   "targets": [
+    ".claude/plans/m1/specs/01-config-load.md (req 6)"
+   ],
+   "needsDecision": false,
+   "decisionWhy": "n/a (class A or B)",
+   "summary": "Apply the token or node limit to JSON documents too (OQ for the configuration-model owner)",
+   "id": "E17"
+  },
+  {
+   "sources": [
+    "runs/w3-s1b-result.json [0]/contractRequests[7]"
+   ],
+   "wp": "WP-35",
+   "class": "C",
+   "evidence": "Part (1) is covered: the linear-scan caution is in forwards.json WP-37[3], WP-38[2], WP-39[1], WP-51[3], and the Select index is restated by reports/WP-35.json[7] (step 3.13). Residual part (2) not applied and not restated: internal/config/schemaidx/compile.go:373-405 still accepts x-ruralz-since 0 (only level < 0 refused), x-ruralz-secret false and duplicate x-ruralz-impact classes, while internal/config/schemaview/vocabulary.go:75 requires since >= 1",
+   "targets": [
+    "internal/config/schemaidx/compile.go (WP-03)"
+   ],
+   "needsDecision": false,
+   "decisionWhy": "",
+   "summary": "Residual only: align schemaidx with the vocabulary (refuse x-ruralz-since 0, x-ruralz-secret false, duplicate impact classes); the request calls it optional",
+   "id": "E18"
+  },
+  {
+   "sources": [
+    "runs/w3-s1b-result.json [0]/contractRequests[8]"
+   ],
+   "wp": "WP-35",
+   "class": "B",
+   "evidence": "Superseded by reports/WP-37.json[0] (diag List.Sort compares paths without rendering, Path.Compare, bounded path-element text, 01 req 50 cap in bytes) and runs/w3-s2-minors-continue3.json _meta.contractRequests.WP-36[1] (render each path once in List.Sort), with reports/WP-35.json[8] (Path.String buffers); applied as lead commits by steps 3.13 to 3.17",
+   "targets": [
+    "internal/config/diag/diag.go (WP-01)",
+    ".claude/plans/m1/specs/01-config-load.md (reqs 48, 50)"
+   ],
+   "needsDecision": false,
+   "decisionWhy": "n/a (class A or B)",
+   "summary": "Bound rendered path elements in diagnostics (OQ on 01 req 48) or compare paths element by element in List.Sort",
+   "id": "E19"
+  },
+  {
+   "sources": [
+    "runs/w3-s1b-result.json [0]/contractRequests[9]"
+   ],
+   "wp": "WP-35",
+   "class": "C",
+   "evidence": "Part (1) (ItemElem names a large element as diag does) follows the bounded-path class of reports/WP-37.json[0](b) and needs nothing once diag bounds rendering. Residual part (2) not applied and not restated: internal/config/schemaidx has no Secret() accessor (exported funcs in node.go/lookup.go: Keywords, DispatchValues, Since, Schema; Keywords() clones)",
+   "targets": [
+    "internal/config/schemaidx/node.go (WP-03)"
+   ],
+   "needsDecision": false,
+   "decisionWhy": "",
+   "summary": "Residual only: optional cheap accessor such as Node.Secret() bool (or non-cloning keyword checks) so callers test x-ruralz-secret without copying Keywords",
+   "id": "E20",
+   "settledBy": [
+    "3.13b",
+    "3.15",
+    "3.17"
+   ]
+  },
+  {
+   "sources": [
+    "runs/w3-s1b-result.json [1]/contractRequests[0]"
+   ],
+   "wp": "WP-36",
+   "class": "C",
+   "evidence": "Same class as reports/WP-33.json[2] (which $${ render rule wins; R-row), applied once by step 3.21; still open in the specs (02-config-revision.md:145 req 46 vs 01-config-load.md:126 req 31). Residual edits that follow the decision and are named only here: the schemaidx Info.NoSubstitution doc comment (\"render writes no $${ escape (02 req 46)\") and 02 test 19 (\"verbatim ${ in a CEL field\", 02-config-revision.md:632)",
+   "targets": [
+    ".claude/plans/m1/specs/00-architecture.md (2.16 R-row)",
+    ".claude/plans/m1/specs/02-config-revision.md (req 46, test 19)",
+    "internal/config/schemaidx/lookup.go (NoSubstitution comment, WP-03)",
+    ".claude/plans/m1/specs/01-config-load.md (reqs 28 and 31)",
+    "internal/config/profile/encode.go (profile.Encode, WP-33, under option (b))",
+    "docs/architecture/02-configuration-model.md (the `$${` rule)",
+    "internal/config/subst (forbidden-position unescaping, WP-36, under option (b))"
+   ],
+   "needsDecision": true,
+   "decisionWhy": "Choosing between escaping every literal ${ in render and no longer unescaping in forbidden positions (the rule E03 records through step 3.21) changes WP-36's substitution code, which closes at 3.15, so it is asked at 3.00 (step 0.01b's review).",
+   "summary": "$${ in forbidden positions: render must escape every literal ${ (or stop unescaping in forbidden positions) (residual parts that no package source restates; step 0.01b moved it from B to C after review)",
+   "id": "E21",
+   "settledBy": [
+    "3.15"
+   ]
+  },
+  {
+   "sources": [
+    "runs/w3-s1b-result.json [1]/contractRequests[1]"
+   ],
+   "wp": "WP-36",
+   "class": "C",
+   "evidence": "Restated and extended by reports/WP-36.json[3] (WP-55 scope (a)-(d): one Substituter per render, ApplyWith with yield, CheckBase per worker, Spent, MaxDiagnostics) and runs/w3-s2-minors-continue3.json _meta.contractRequests.WP-36[4] ((e): Apply merges into base trees and shares nodes; per-Environment copies); steps 3.14/3.15. Small info not restated: set diag Environment on results in multi-Environment runs; overlay.Selection, ValidName and Root cover 01 reqs 21 and 23",
+   "targets": [
+    ".claude/plans/m1/specs/00-architecture.md (4.4 WP-55)",
+    ".claude/plans/m1/arch/wps.json (WP-55)"
+   ],
+   "needsDecision": false,
+   "decisionWhy": "",
+   "summary": "WP-55 notes: overlay.Apply owns its inputs; one Substituter per load; Apply per resource (residual parts that no package source restates; step 0.01b moved it from B to C after review)",
+   "id": "E22"
+  },
+  {
+   "sources": [
+    "runs/w3-s1b-result.json [1]/contractRequests[2]"
+   ],
+   "wp": "WP-36",
+   "class": "C",
+   "evidence": "Not applied: internal/config/schemaidx exports neither Cursor.Static nor Info.Step (lookup.go:89 step is unexported; Cursor.Schema at lookup.go:328 returns the dispatched node). Not restated: runs/w3-s2-minors-continue3.json _meta.contractRequests.WP-36[5] asks for DispatchMembers and Equal, a different API",
+   "targets": [
+    "internal/config/schemaidx/lookup.go (WP-03)",
+    "internal/config/subst/walk.go (WP-36, follow-up)"
+   ],
+   "needsDecision": false,
+   "decisionWhy": "",
+   "summary": "For R-3: export the undispatched schema of a Walk position (Cursor.Static) or a public Info.Step, so subst takes InSecret/NoSubstitution from schemaidx instead of its own copy",
+   "id": "E23",
+   "settledBy": [
+    "3.15"
+   ]
+  },
+  {
+   "sources": [
+    "runs/w3-s1b-result.json [1]/contractRequests[3]"
+   ],
+   "wp": "WP-36",
+   "class": "B",
+   "evidence": "Re-filed with consequence (3) corrected by runs/w3-s2-minors-continue3.json _meta.contractRequests.WP-36[3] (\"finding 12 re-files the earlier request\") and reports/WP-36.json[6]; owner choice asked in steps 3.14/3.15",
+   "targets": [
+    ".claude/plans/m1/specs/01-config-load.md (reqs 25, 27)"
+   ],
+   "needsDecision": false,
+   "decisionWhy": "n/a (class A or B)",
+   "summary": "OQ on 01 reqs 25/27: a ${VAR} dispatch member selects no branch at stage D (options a, b, c)",
+   "id": "E24"
+  },
+  {
+   "sources": [
+    "runs/w3-s1b-result.json [1]/contractRequests[4]"
+   ],
+   "wp": "WP-36",
+   "class": "C",
+   "evidence": "Extended by reports/WP-36.json[3](b) (each worker passes overlay.CheckBase its own Options) and runs/w3-s2-minors-continue3.json _meta.contractRequests.WP-36[4](e) (CheckBase only reads base trees and may run once, before any Apply); steps 3.14/3.15",
+   "targets": [
+    ".claude/plans/m1/specs/00-architecture.md (4.4 WP-55)",
+    ".claude/plans/m1/arch/wps.json (WP-55)"
+   ],
+   "needsDecision": false,
+   "decisionWhy": "",
+   "summary": "WP-55 interface note: overlay.Apply signature; CheckBase on every base resource whether or not an overlay is selected (residual parts no package source restates: CheckBase on every base resource whether or not an overlay is selected, the new Apply signature, ctx.Err() and no result on cancellation; moved from B to C in step 0.01b's review)",
+   "id": "E25"
+  },
+  {
+   "sources": [
+    "runs/w3-s2a-result.json [0]/contractRequests[0]",
+    "runs/w3-s2a-result.json [0]/contractRequests[3]"
+   ],
+   "wp": "WP-37",
+   "class": "C",
+   "evidence": "Merged: [3] (later, matching the implementation: stage G reports null in free content as RZ-CFG-005) supersedes [0] (emit null at free positions). Not applied: specs/02-config-revision.md:93 (req 19) still says only that JSON null never reaches the hub and is an internal error there; the CM states no rule for null in free content or inline JSON Schema documents. Not restated in reports/WP-37.json (its 3 requests are diag, the stage G codes row and convert.Deprecations)",
+   "targets": [
+    ".claude/plans/m1/specs/02-config-revision.md (reqs 19, 24)",
+    "docs/architecture/02-configuration-model.md (free content / validation.json-schema rule)",
+    ".claude/plans/m1/specs/01-config-load.md (stage F, optional earlier report)"
+   ],
+   "needsDecision": true,
+   "decisionWhy": "User-visible refusal the design documents do not state: inline JSON Schema documents (and open, plugin and configSchema content) cannot hold null literals such as enum [null], const null or default null in M1; the alternative is a canonical representation for null. Changes the configuration model's behavior",
+   "summary": "JSON null in free content: state that it is RZ-CFG-005 (stage G, optionally stage F first) and that inline JSON Schema documents cannot use null literals in M1, or define a canonical null",
+   "id": "E26",
+   "settledBy": [
+    "3.13b",
+    "3.17"
+   ]
+  },
+  {
+   "sources": [
+    "runs/w3-s2a-result.json [0]/contractRequests[1]"
+   ],
+   "wp": "WP-37",
+   "class": "C",
+   "evidence": "Not applied: R-64 (00-architecture.md:6622) states the RoleCanonical exemption but not that stage G reads it from the FileTable or that the pipeline must pass that FileTable to defaults.Stage.Run; forwards.json WP-69 has only CR 20; arch/wps.json WP-69 scope silent. Not restated in the current WP-37 sources",
+   "targets": [
+    ".claude/plans/m1/forwards.json (WP-69)",
+    ".claude/plans/m1/specs/00-architecture.md (4.4 WP-69, optional)"
+   ],
+   "needsDecision": false,
+   "decisionWhy": "",
+   "summary": "WP-69/WP-39 note: the R-64 exemption is read from the file table (Start file with RoleCanonical); FromResources must register canonical content so and pass the FileTable to stage G",
+   "id": "E27"
+  },
+  {
+   "sources": [
+    "runs/w3-s2a-result.json [0]/contractRequests[2]"
+   ],
+   "wp": "WP-37",
+   "class": "C",
+   "evidence": "Not applied: pkg/config/v1alpha1 has no host-name marker (markers in use: atLeastOneOf, cel, default, impact, list, open, pattern, policyType, ref, required, secret, ...; route.go:36 Hosts and gateway.go:67 Hostnames carry none); the CM has no host-case sentence. Not restated",
+   "targets": [
+    "pkg/config/v1alpha1/route.go, gateway.go (WP-28, with go generate of api/schema)",
+    "docs/architecture/02-configuration-model.md (WP-29)",
+    "docs/engineering/02-repository-layout-and-conventions.md (marker vocabulary, if a marker)"
+   ],
+   "needsDecision": true,
+   "decisionWhy": "Adds a schema vocabulary marker (an x-ruralz keyword the generator rules and schemaidx must define) or a configuration-model sentence; choosing either changes a design document",
+   "summary": "Mark host-name fields (Route spec.match.hosts, Gateway listeners hostnames) by a schema marker or a CM sentence, so stage G stops finding them by $defs name",
+   "id": "E28",
+   "settledBy": [
+    "3.13b",
+    "3.17"
+   ]
+  },
+  {
+   "sources": [
+    "runs/w3-s2a-result.json [0]/contractRequests[4]"
+   ],
+   "wp": "WP-37",
+   "class": "B",
+   "evidence": "Restated by reports/WP-35.json[11] (\"pass Limits.MaxDiagnostics, or what earlier stages left of it ... as with the profile, overlay, subst and defaults options\") and reports/WP-38.json[4] (the pipeline collector appends the single RZ-CFG-001); steps 3.13 and 3.18",
+   "targets": [
+    ".claude/plans/m1/specs/00-architecture.md (4.4 WP-69)",
+    ".claude/plans/m1/arch/wps.json (WP-69)"
+   ],
+   "needsDecision": false,
+   "decisionWhy": "n/a (class A or B)",
+   "summary": "Pipeline: stage G enforces the 01 req 50 cap; add a remaining-budget argument if the cap spans all stages",
+   "id": "E29"
+  },
+  {
+   "sources": [
+    "runs/w3-s2a-result.json [0]/contractRequests[5]"
+   ],
+   "wp": "WP-37",
+   "class": "C",
+   "evidence": "Not applied: pkg/config/v1alpha1/scalar.go:221-227 (JSONSchemaDocument.UnmarshalJSON) still runs json.Valid over the whole document in one call; specs/01-config-load.md:196 (req 53) lists no such exception. Related but not restating: reports/WP-35.json[6] (R-80 exceptions for the stage F spans)",
+   "targets": [
+    "pkg/config/v1alpha1/scalar.go (WP-28)",
+    ".claude/plans/m1/specs/01-config-load.md (req 53)",
+    ".claude/plans/m1/specs/00-architecture.md (R-80 class, if recorded as an exception)",
+    "internal/config/defaults (stage G's JSONSchemaDocument decode accounting, WP-37)"
+   ],
+   "needsDecision": true,
+   "decisionWhy": "Trade-off the specs do not state: record another 01 req 53 exception for an unyieldable span (about 1 ms per 500 KB inline schema), or move or replace the check in the public pkg/ API (stage F already validates the document)",
+   "summary": "JSONSchemaDocument.UnmarshalJSON runs json.Valid in one unyieldable call: record the exception, move the check to stage F, or use a stoppable validator",
+   "id": "E30",
+   "settledBy": [
+    "3.13b",
+    "3.16"
+   ]
+  },
+  {
+   "sources": [
+    "runs/w3-s2a-result.json [1]/contractRequests[0]"
+   ],
+   "wp": "WP-38",
+   "class": "A",
+   "evidence": "R-78 (00-architecture.md:6636, \"applied 2026-10-16\") and the 1.2 row at 00-architecture.md:118 now list config/tree and v1alpha1 for config/precedence. The optional \"expr can be dropped\" was not taken; expr is still imported by internal/config/precedence/resolve_test.go (TestCompilerIsBodyOracle)",
+   "targets": [
+    ".claude/plans/m1/specs/00-architecture.md (1.2 config/precedence row)"
+   ],
+   "needsDecision": false,
+   "decisionWhy": "n/a (class A or B)",
+   "summary": "1.2 row config/precedence: add config/tree and v1alpha1 (expr may be dropped)",
+   "id": "E31"
+  },
+  {
+   "sources": [
+    "runs/w3-s2a-result.json [1]/contractRequests[1]"
+   ],
+   "wp": "WP-38",
+   "class": "B",
+   "evidence": "Refreshed by reports/WP-38.json[3] (\"refreshes the earlier request\": New(reg, Options) with Body, MaxDiagnostics, Now, YieldAfter; Run, Resolve, CheckPolicies, Rows, Row) and listed as pending in runs/w3-s2-minors-continue3.json _meta.contractRequests.WP-38[5]; step 3.18",
+   "targets": [
+    ".claude/plans/m1/specs/02-config-revision.md (section 3 precedence API)"
+   ],
+   "needsDecision": false,
+   "decisionWhy": "n/a (class A or B)",
+   "summary": "Re-sync the spec 02 section 3 precedence API with what was built",
+   "id": "E32"
+  },
+  {
+   "sources": [
+    "runs/w3-s2a-result.json [1]/contractRequests[2]"
+   ],
+   "wp": "WP-38",
+   "class": "B",
+   "evidence": "Superseded by reports/WP-38.json[4] (WP-69: precedence.New with Body, MaxDiagnostics and Now once per process; pass the FileTable to Run) and runs/w3-s2-minors-continue3.json _meta.contractRequests.WP-38[5] (\"WP-69 wiring of New and the FileTable\"); step 3.18",
+   "targets": [
+    ".claude/plans/m1/specs/00-architecture.md (3.1, 3.3, 4.4 WP-69)"
+   ],
+   "needsDecision": false,
+   "decisionWhy": "n/a (class A or B)",
+   "summary": "WP-69: build the Resolver with Body and Files and call Run at stage I",
+   "id": "E33"
+  },
+  {
+   "sources": [
+    "runs/w3-s2a-result.json [1]/contractRequests[3]"
+   ],
+   "wp": "WP-38",
+   "class": "B",
+   "evidence": "Extended by reports/WP-38.json[3] (10-cli.md req 43 and its consumed-API row: (*precedence.Resolver).Rows(chain, bundle); 1.2 row Resolver.Rows); step 3.18",
+   "targets": [
+    ".claude/plans/m1/specs/10-cli.md (req 43, section 4)"
+   ],
+   "needsDecision": false,
+   "decisionWhy": "n/a (class A or B)",
+   "summary": "WP-58 render: Rows(chain, bundle) gives the --effective rows without a registry",
+   "id": "E34"
+  },
+  {
+   "sources": [
+    "runs/w3-s2a-result.json [1]/contractRequests[4]"
+   ],
+   "wp": "WP-38",
+   "class": "C",
+   "evidence": "Not applied: specs/02-config-revision.md:135 (req 39) still carries the short proposed message \"Response Cache combined with an onRequestBody authorization or validation Policy\"; the CM code table row (02-configuration-model.md:921) gives the meaning only. Not restated in reports/WP-38.json or runs/w3-s2-minors-continue3.json _meta.contractRequests.WP-38",
+   "targets": [
+    ".claude/plans/m1/specs/02-config-revision.md (req 39)",
+    "docs/architecture/02-configuration-model.md (RZ-CFG-038 row; word budget)"
+   ],
+   "needsDecision": false,
+   "decisionWhy": "",
+   "summary": "Record the implemented RZ-CFG-038 message (Response Cache Policy \"<c>\" is combined with Policy \"<p>\" (<type>, Filter class <class>), which runs in onRequestBody: a cache hit would skip it); the RZ-CFG-019 wording is as written",
+   "id": "E35"
+  },
+  {
+   "sources": [
+    "runs/w3-s2b-result.json [0]/contractRequests[0]"
+   ],
+   "wp": "WP-39",
+   "class": "A",
+   "evidence": "R-78 (00-architecture.md:6636, \"applied 2026-10-16\") and the 1.2 config/canonical row at 00-architecture.md:119 list config/schemaidx, errcode and v1alpha1",
+   "targets": [
+    ".claude/plans/m1/specs/00-architecture.md (1.2 config/canonical row)"
+   ],
+   "needsDecision": false,
+   "decisionWhy": "n/a (class A or B)",
+   "summary": "1.2 row config/canonical: add config/schemaidx, errcode and v1alpha1",
+   "id": "E36"
+  },
+  {
+   "sources": [
+    "runs/w3-s2b-result.json [0]/contractRequests[1]"
+   ],
+   "wp": "WP-39",
+   "class": "B",
+   "evidence": "Superseded by reports/WP-39.json[4] (\"update spec 02 section 3's canonical API block ... to the implemented API: NewDecoder(idx, DecoderOptions); Decode, Verify and ReadDump taking ctx and Source ...; Options{Level, Workers, Now, YieldAfter}\"); step 3.19 or 3.20",
+   "targets": [
+    ".claude/plans/m1/specs/02-config-revision.md (section 3 canonical API)",
+    ".claude/plans/m1/specs/00-architecture.md (section 2 canonical block)"
+   ],
+   "needsDecision": false,
+   "decisionWhy": "n/a (class A or B)",
+   "summary": "Canonical API that consumers code against differs from spec 02 section 3",
+   "id": "E37"
+  },
+  {
+   "sources": [
+    "runs/w3-s2b-result.json [0]/contractRequests[2]"
+   ],
+   "wp": "WP-39",
+   "class": "C",
+   "evidence": "Partly covered: R-47 (00-architecture.md:6605) already says FromResources runs stages F to M, so stage G runs. The interface facts are not recorded anywhere: decoded trees carry an added apiVersion member and positions in the RoleCanonical file of Source.Files; Decode reports unknown members of closed objects as RZ-CFG-024, so stage F never sees them; a wrong-typed value is left to stage F. forwards.json WP-69 has only CR 20; not restated in reports/WP-39.json",
+   "targets": [
+    ".claude/plans/m1/forwards.json (WP-69)"
+   ],
+   "needsDecision": false,
+   "decisionWhy": "",
+   "summary": "WP-69 FromResources note (R-47): decoded trees carry apiVersion and RoleCanonical positions; Decode does not materialize defaults; unknown members are RZ-CFG-024 at decode, wrong types left to stage F",
+   "id": "E38"
+  },
+  {
+   "sources": [
+    "runs/w3-s2b-result.json [0]/contractRequests[3]"
+   ],
+   "wp": "WP-39",
+   "class": "C",
+   "evidence": "forwards.json WP-45[1] (\"[S2 from WP-39] ... A Node without an active Revision serves no dump: the Dump func returns false ...\"); arch/wps.json WP-76 scope injects \"/config/dump (canonical AppendDump over the published snapshot)\"",
+   "targets": [
+    ".claude/plans/m1/forwards.json (WP-45)",
+    ".claude/plans/m1/forwards.json (WP-76: the Dump func returns false)"
+   ],
+   "needsDecision": false,
+   "decisionWhy": "",
+   "summary": "WP-45/WP-76: AppendDump needs a Revision with canonical Content; no dump without an active Revision (residual: the WP-76 note, which forwards.json lacks; moved from A to C in step 0.01b's review)",
+   "id": "E39"
+  },
+  {
+   "sources": [
+    "runs/w3-s2b-result.json [1]/contractRequests[0]",
+    "runs/w3-s2-wp51-r6.json contractRequests[13]"
+   ],
+   "wp": "WP-51",
+   "class": "C",
+   "evidence": "Latest is r6[13] (\"repeated from S2\"). Not applied: 00-architecture.md:138 (1.2 row filter/validation/jsonschema) lists filter, jsonval, problem, config/hub, config/diag, v1alpha1, without errcode and phase; R-78 covered only stages I and L",
+   "targets": [
+    ".claude/plans/m1/specs/00-architecture.md (1.2 row filter/validation/jsonschema)"
+   ],
+   "needsDecision": false,
+   "decisionWhy": "",
+   "summary": "Add internal/errcode and internal/phase to the 1.2 import row of filter/validation/jsonschema (problem is test-only)",
+   "id": "E40"
+  },
+  {
+   "sources": [
+    "runs/w3-s2b-result.json [1]/contractRequests[1]",
+    "runs/w3-s2b-result.json [1]/contractRequests[8]",
+    "runs/w3-s2-wp51-r3.json contractRequests[3]"
+   ],
+   "wp": "WP-51",
+   "class": "C",
+   "evidence": "Plan part applied: R-77 (00-architecture.md:6635) and 07 req 75/80 (07-transform.md:176, :184, \"Decided 2026-10-11\") hold more than 4,096 positions, number literals over 128 bytes or exponent beyond 1,000, and \"numbers are bounded only where the library parses them\" (r3[3] supersedes s2b[8]'s \"every body number\"). Pending: the CM has no validation.json-schema compile rules and no OQ row for them (Open questions end at OQ-configuration-model-21); MaxIssues = 20 and the schema-side scope (5 numeric keywords, 8 integer keywords, const and enum) are recorded nowhere. wave3-plan.md:102 assigns this OQ-configuration-model row to S8",
+   "targets": [
+    "docs/architecture/02-configuration-model.md (Open questions row: extra compile refusals; RZ-CFG-005)",
+    ".claude/plans/m1/specs/07-transform.md (reqs 75, 76: schema-side number scope, MaxIssues)"
+   ],
+   "needsDecision": true,
+   "decisionWhy": "MaxIssues = 20 (schema.go) is a limit no spec or decision states; under AGENTS.md 'Record decisions' and decision 37 the owner's choice may change WP-51's code before 3.12 (step 0.01b's review).",
+   "summary": "CM rows for the validation.json-schema compile guards (MaxSubschemas 4,096, number literal bounds and where they apply, bundled meta-schema refs refused, MaxIssues 20)",
+   "id": "E41",
+   "settledBy": [
+    "3.11"
+   ]
+  },
+  {
+   "sources": [
+    "runs/w3-s2b-result.json [1]/contractRequests[2]"
+   ],
+   "wp": "WP-51",
+   "class": "C",
+   "evidence": "07 req 80 (07-transform.md:184) records 400 RZ-RT-009 detail \"Request body has a number out of range\" for numbers the library would parse; R-77 likewise. docs/architecture/03-data-plane.md:553 keeps one generic RZ-RT-009 row and lists no detail strings",
+   "targets": [
+    ".claude/plans/m1/specs/07-transform.md (req 80)",
+    "docs/architecture/03-data-plane.md (the 400 RZ-RT-009 number bound)"
+   ],
+   "needsDecision": false,
+   "decisionWhy": "",
+   "summary": "Record the request-side number bound (400 RZ-RT-009, number out of range) (residual: the data plane document's record of the bound, which its source asked for and 03-data-plane.md does not hold; moved from A to C in step 0.01b's review)",
+   "id": "E42"
+  },
+  {
+   "sources": [
+    "runs/w3-s2b-result.json [1]/contractRequests[3]",
+    "runs/w3-s2b-result.json [1]/contractRequests[12]"
+   ],
+   "wp": "WP-51",
+   "class": "C",
+   "evidence": "Not applied: scripts/ci-approvals.sh:28 `sensitive` regex covers internal/(filter/auth|filter/authz|signing|pluginhost) only; docs/engineering/02-repository-layout-and-conventions.md:515 and AGENTS.md (gosec rule, two-approval list) list the same four. 07 section 9 item 22 (07-transform.md:596) already asks for it",
+   "targets": [
+    "scripts/ci-approvals.sh (sensitive regex, WP-27)",
+    "docs/engineering/02-repository-layout-and-conventions.md (security-sensitive packages, :509, :515)",
+    "AGENTS.md (gosec suppression rule and two-approval list)",
+    "CONTRIBUTING.md (security-sensitive package list)",
+    ".claude/settings.json (ask rules for the security-sensitive packages)"
+   ],
+   "needsDecision": true,
+   "decisionWhy": "Changes scripts/ci-approvals.sh and the security-sensitive package list of an engineering document and AGENTS.md: two approvals and a security reviewer for internal/filter/validation/jsonschema",
+   "summary": "Add internal/filter/validation/jsonschema to the security-sensitive (security-reviewed, two-approval) packages",
+   "id": "E43",
+   "settledBy": [
+    "R.60"
+   ]
+  },
+  {
+   "sources": [
+    "runs/w3-s2b-result.json [1]/contractRequests[4]",
+    "runs/w3-s2b-result.json [1]/contractRequests[10]",
+    "runs/w3-s2b-result.json [1]/contractRequests[16]",
+    "runs/w3-s2-wp51-r3.json contractRequests[5]"
+   ],
+   "wp": "WP-51",
+   "class": "C",
+   "evidence": "Plan part applied: 07 req 84 (07-transform.md:188: \"Not met with jsonschema/v6: about 89 us measured ... an Open question records it at S8\") and R-77 Targets. Pending: no Open questions row in the PB document (OQ list ends at -14; budget row at :102 still says 25 us) nor in the CM; decision 15 says these rows land at S8; s2b[4] also asks to set the WP-81 gate accordingly (no forwards.json note). Latest figures: r3[5] (about 89 us, 60 us in the library)",
+   "targets": [
+    "docs/architecture/12-performance-budgets-and-benchmarking.md (Open questions row; per-stage budget row :102)",
+    "docs/architecture/02-configuration-model.md (Open questions row, per decision 15)",
+    ".claude/plans/m1/forwards.json (WP-81 gate note)"
+   ],
+   "needsDecision": false,
+   "decisionWhy": "Decided (decision 15: Open question with measured figures, revisited with another validator after M1); CM body is 9,498 of 9,500 words (docs/_meta/manifest.yaml max), so the text must be trimmed to fit (decision 15) or the budget raised in docs/_meta (a decision)",
+   "summary": "Open question for the validation latency target: 07 req 84 25 us p50 not met with jsonschema/v6 (about 89 us); WP-81 gate set accordingly",
+   "id": "E44"
+  },
+  {
+   "sources": [
+    "runs/w3-s2b-result.json [1]/contractRequests[5]",
+    "runs/w3-s2-wp51-r3.json contractRequests[1]",
+    "runs/w3-s2-wp51-r3.json contractRequests[2]"
+   ],
+   "wp": "WP-51",
+   "class": "C",
+   "evidence": "Plan part applied: R-77 and 07 req 75 (07-transform.md:176) hold the nesting limit (refused below 16; 413 at run time) and fan-out as the largest product over paths that repeat no schema; 07 section 9 item 21 points at R-77. Pending: s2b[5] asks for both rules in the CM RZ-CFG-005 rows (CM has none); details not recorded: fan-out computed exactly per strongly connected component with the fanOutSteps (65,536) sound fallback; accepted shapes (rich text limit 28, component tree 20)",
+   "targets": [
+    "docs/architecture/02-configuration-model.md (RZ-CFG-005 / Open questions row)",
+    ".claude/plans/m1/specs/07-transform.md (req 75: fan-out computation, accepted shapes)"
+   ],
+   "needsDecision": false,
+   "decisionWhy": "Decided (decision 14; R-77); CM body is 9,498 of 9,500 words (docs/_meta/manifest.yaml max), so the text must be trimmed to fit (decision 15) or the budget raised in docs/_meta (a decision)",
+   "summary": "Nesting limit (replacing the evaluation cap) and fan-out definition: CM rows and the remaining spec details",
+   "id": "E45"
+  },
+  {
+   "sources": [
+    "runs/w3-s2b-result.json [1]/contractRequests[6]"
+   ],
+   "wp": "WP-51",
+   "class": "C",
+   "evidence": "Not applied: 07 req 13 (07-transform.md:53) says cannot decide only on a recovered panic or internal validator error, but neither req 13 nor req 75 nor R-77 records that the compile refuses in-place reference cycles or that kind.RefCycle / kind.InvalidJsonValue map to cannot decide",
+   "targets": [
+    ".claude/plans/m1/specs/07-transform.md (reqs 13, 75)",
+    ".claude/plans/m1/specs/00-architecture.md (R-77 compile refusals)"
+   ],
+   "needsDecision": true,
+   "decisionWhy": "A compile refusal (in-place reference cycles, RZ-CFG-005) that no spec or decision states (decision 14 lists other rules); low stakes, since such schemas cannot validate anything",
+   "summary": "Record that compile refuses in-place reference cycles and that library RefCycle / InvalidJsonValue results are cannot decide, never 400",
+   "id": "E46",
+   "settledBy": [
+    "3.11b"
+   ]
+  },
+  {
+   "sources": [
+    "runs/w3-s2b-result.json [1]/contractRequests[7]"
+   ],
+   "wp": "WP-51",
+   "class": "B",
+   "evidence": "Superseded by runs/w3-s2-wp51-carry2.json contractRequests[2] (07 req 76: dependencies and $recursiveRef enforced under draft 2020-12, bounded not refused, decision 17), which step 3.01b applies (steps.md, step 3.01b row, carry requests 1 to 4)",
+   "targets": [
+    ".claude/plans/m1/specs/07-transform.md (req 76)"
+   ],
+   "needsDecision": false,
+   "decisionWhy": "n/a (class A or B)",
+   "summary": "07 req 76: jsonschema/v6 enforces the draft-07 dependencies keyword under draft 2020-12",
+   "id": "E47"
+  },
+  {
+   "sources": [
+    "runs/w3-s2b-result.json [1]/contractRequests[9]"
+   ],
+   "wp": "WP-51",
+   "class": "C",
+   "evidence": "Not applied: 07 req 81 (07-transform.md:185) has no 256-byte cut of the keyword location in the RZ-RT-009 detail. Not restated in carry2 (step 3.11 GC-18 changes keyword locations per error kind and may touch req 81)",
+   "targets": [
+    ".claude/plans/m1/specs/07-transform.md (req 81)"
+   ],
+   "needsDecision": true,
+   "decisionWhy": "The 256-byte cut of the RZ-RT-009 detail's keyword location (filter.go) is a limit 07 req 81 does not state; under AGENTS.md 'Record decisions' and decision 37 the owner's choice may change WP-51's code before 3.12 (step 0.01b's review).",
+   "summary": "Record that the RZ-RT-009 detail cuts a keyword location longer than 256 bytes to its longest ancestor that fits",
+   "id": "E48",
+   "settledBy": [
+    "3.11"
+   ]
+  },
+  {
+   "sources": [
+    "runs/w3-s2b-result.json [1]/contractRequests[11]",
+    "runs/w3-s2-wp51-r3.json contractRequests[6]",
+    "runs/w3-s2-wp51-r6.json contractRequests[10]",
+    "runs/w3-s2-wp51-r8.json contractRequests[2]",
+    "runs/w3-s2-wp51-r8.json contractRequests[5]",
+    "runs/w3-s2-wp51-r9.json contractRequests[4]"
+   ],
+   "wp": "WP-51",
+   "class": "C",
+   "evidence": "Chain: r6[10] replaces s2b[11] and r3[6] (\"record 16 MB, not 9 MB\"), r8[2] replaces r6[10]'s figures, r8[5] and r9[4] add to the same Open question (r9[4]: \"The combined worst cases (0.95 to 1.2 s) remain as already requested\"). Applied only in part: 07 req 90 (07-transform.md:200) and R-77 still say about 0.5 s and 9 MB kept; no OQ row in the PB document or the CM. Related: decision 20's 1 MiB walk-time budget and audit REFS-18 (location bytes) are designed at steps 3.02 and 3.03",
+   "targets": [
+    "docs/architecture/12-performance-budgets-and-benchmarking.md (Open questions row: compile unit)",
+    "docs/architecture/02-configuration-model.md (Open questions row, per decision 15)",
+    ".claude/plans/m1/specs/07-transform.md (req 90)",
+    ".claude/plans/m1/specs/00-architecture.md (R-77 figures)"
+   ],
+   "needsDecision": true,
+   "decisionWhy": "r8[5] asks the owner to choose for the combined worst cases that miss F6's 1 s (0.95 to 1.2 s): (a) accept them in the Open question, (b) a joint per-document compile budget, or (c) a bound on escaped location bytes; step 3.02's budget design may settle (b)/(c). Figures must be re-measured after step 3.12",
+   "summary": "Compile cost Open question: worst-case validation.json-schema compile 0.84 to 1.2 s, about 280 to 333 MB allocated, 35 MB peak, 10 to 16 MB kept; F6's 1 s not met for combined cases",
+   "id": "E49",
+   "settledBy": [
+    "3.02",
+    "3.03"
+   ]
+  },
+  {
+   "sources": [
+    "runs/w3-s2b-result.json [1]/contractRequests[13]"
+   ],
+   "wp": "WP-51",
+   "class": "C",
+   "evidence": "Not applied: forwards.json WP-70 entries ([0] tlsconf, [1] stateStore cache, [2] BuildEnv.Shared, [3] uncoded Build errors) do not ask the snapshot compiler to fill filter.BuildEnv.Limits.MaxRequestBodyBytes; arch/wps.json WP-70 scope names Gateway limits (header cap) only; 07 section 9 item 24 (07-transform.md:598) keeps the 10 MiB fallback",
+   "targets": [
+    ".claude/plans/m1/forwards.json (WP-70)"
+   ],
+   "needsDecision": false,
+   "decisionWhy": "",
+   "summary": "Snapshot compiler: fill filter.BuildEnv.Limits.MaxRequestBodyBytes (WP-51 falls back to the 10 MiB default)",
+   "id": "E50"
+  },
+  {
+   "sources": [
+    "runs/w3-s2b-result.json [1]/contractRequests[14]",
+    "runs/w3-s2-wp51-r3.json contractRequests[0]",
+    "runs/w3-s2-wp51-r6.json contractRequests[1]"
+   ],
+   "wp": "WP-51",
+   "class": "C",
+   "evidence": "Chain: r3[0] restates s2b[14] after decision 12, r6[1] adds the enforced 12x reservation limit (13x request side, 130 MiB). Plan part applied: R-77 and 07 req 80 (07-transform.md:184). Pending: CM \"Body buffering and limits\" (02-configuration-model.md:319-331) still says 150 MiB per request counting decoded values and has no validated-body rule (wave3-plan.md:102: the S8 OQ-configuration-model row covers \"the per-request bound with the validator's working set\"). The note that Message.Decoded and other consumers under-reserve was decided by decision 13 (R-77: jsonval and R-63's stop unchanged)",
+   "targets": [
+    "docs/architecture/02-configuration-model.md (Body buffering and limits; Open questions row)"
+   ],
+   "needsDecision": false,
+   "decisionWhy": "Decided (decisions 12 and 13; R-77); CM body is 9,498 of 9,500 words (docs/_meta/manifest.yaml max), so the text must be trimmed to fit (decision 15) or the budget raised in docs/_meta (a decision)",
+   "summary": "CM Body buffering and limits: two-pass validation, decoded 4x plus working set 8x, 12x reservation cap, 13x (130 MiB) per validated request",
+   "id": "E51"
+  },
+  {
+   "sources": [
+    "runs/w3-s2b-result.json [1]/contractRequests[15]",
+    "runs/w3-s2-wp51-r6.json contractRequests[12]",
+    "runs/w3-s2-wp51-r8.json contractRequests[8]"
+   ],
+   "wp": "WP-51",
+   "class": "C",
+   "evidence": "s2b[15]'s main ask (a per-request evaluation bound or lower caps) was superseded by decision 14 (nesting limit and work bound, R-77); its OQ for unweighed per-evaluation costs is answered by r6[12] and r8[8]. Not applied: 07 section 9 item 21 (07-transform.md:595) names only \"a work bound covering both passes, the location walk and uniqueItems\"; the member-name hash, const/enum object, required/dependency name, pattern-class and multipleOf terms and their fit are in no spec",
+   "targets": [
+    ".claude/plans/m1/specs/07-transform.md (section 9 item 21)",
+    ".claude/plans/m1/specs/00-architecture.md (R-77 work bound)"
+   ],
+   "needsDecision": false,
+   "decisionWhy": "",
+   "summary": "Record the work-bound terms: member-name hashing, const/enum object comparisons, required and dependency names, pattern class steps, the multipleOf term and its fit (BenchmarkWorkModel at most 0.75 ns per unit)",
+   "id": "E52"
+  },
+  {
+   "sources": [
+    "runs/w3-s2-wp51-r3.json contractRequests[4]"
+   ],
+   "wp": "WP-51",
+   "class": "C",
+   "evidence": "Approved as proposed (r3 decisions; decision 14: \"a valid uniqueItems array of more than a few thousand objects is 413 at the default\"); R-77 (00-architecture.md:6635): \"the work bound covers the location walk and the uniqueItems comparison charges, so a valid uniqueItems array of more than a few thousand objects is 413 at the default\"; 07 section 9 item 21 names uniqueItems. The per-kind charge formula lives in the package doc only",
+   "targets": [
+    ".claude/plans/m1/specs/00-architecture.md (R-77)"
+   ],
+   "needsDecision": false,
+   "decisionWhy": "",
+   "summary": "Record the uniqueItems comparison charges and their consequence (residual: the per-kind uniqueItems charge formula, which lives only in the package doc; moved from A to C in step 0.01b's review)",
+   "id": "E53"
+  },
+  {
+   "sources": [
+    "runs/w3-s2-wp51-r3.json contractRequests[7]",
+    "runs/w3-s2-wp51-r8.json contractRequests[4]",
+    "runs/w3-s2-wp51-r8.json contractRequests[6]",
+    "runs/w3-s2-wp51-r9.json contractRequests[5]"
+   ],
+   "wp": "WP-51",
+   "class": "C",
+   "evidence": "r3[7] is applied as forwards.json WP-70[3] (\"Treat an uncoded Build error as internal\") and decision 15's lead item. The later requests (latest r9[5], with r8[6]'s two exceptions) are not: internal/filter/filter.go:532-533 and its mirror 00-architecture.md:5531-5532 still say every Build error carries an RZ-CFG code and rejects the Revision, and forwards.json WP-70[3] says internal, not \"aborted build\" for context.Canceled / DeadlineExceeded",
+   "targets": [
+    "internal/filter/filter.go (Factory doc comment, WP-01)",
+    ".claude/plans/m1/specs/00-architecture.md (section 2 filter block)",
+    ".claude/plans/m1/forwards.json (WP-70[3])"
+   ],
+   "needsDecision": false,
+   "decisionWhy": "",
+   "summary": "Factory contract: a Build whose context ended returns ctx.Err() uncoded, and non-finding filter.Shared failures pass unchanged; the snapshot compiler treats cancellation as an aborted build, rejecting the Revision only on RZ-CFG errors",
+   "id": "E54",
+   "settledBy": [
+    "3.11b"
+   ]
+  },
+  {
+   "sources": [
+    "runs/w3-s2-wp51-r3.json contractRequests[8]"
+   ],
+   "wp": "WP-51",
+   "class": "A",
+   "evidence": "forwards.json WP-81[4] (\"[S2 from WP-51] Run BenchmarkWorkModel and BenchmarkPatternModel ... fail when any ns/unit exceeds 1\"); decision 15 lead item",
+   "targets": [
+    ".claude/plans/m1/forwards.json (WP-81)"
+   ],
+   "needsDecision": false,
+   "decisionWhy": "n/a (class A or B)",
+   "summary": "Gate or nightly job running BenchmarkWorkModel and BenchmarkPatternModel (fail above 1 ns/unit)",
+   "id": "E55"
+  },
+  {
+   "sources": [
+    "runs/w3-s2-wp51-r3.json contractRequests[9]"
+   ],
+   "wp": "WP-51",
+   "class": "A",
+   "evidence": "Decided by decision 13 (\"jsonval (WP-02) and R-63's stop for other consumers stay as they are\"); R-77 records \"jsonval and R-63's stop for other consumers are unchanged\"",
+   "targets": [
+    ".claude/plans/m1/specs/00-architecture.md (R-77)"
+   ],
+   "needsDecision": false,
+   "decisionWhy": "n/a (class A or B)",
+   "summary": "WP-02 jsonval: charge decoded values at their real layout, or move R-63's stop to the true cost",
+   "id": "E56"
+  },
+  {
+   "sources": [
+    "runs/w3-s2-wp51-r3.json contractRequests[10]"
+   ],
+   "wp": "WP-51",
+   "class": "C",
+   "evidence": "Approved as proposed (r3 decisions: walk work and compile budgets); R-77 records that the work bound covers the location walk and that a body value at or past the nesting limit is 413 only where its path may exceed the evaluation cap. The compile-time pattern analysis budgets never refuse, so no spec rule is needed",
+   "targets": [
+    ".claude/plans/m1/specs/00-architecture.md (R-77)",
+    ".claude/plans/m1/specs/07-transform.md (section 9 item 21)"
+   ],
+   "needsDecision": false,
+   "decisionWhy": "",
+   "summary": "Record walkWork, the compile-time pattern analysis budgets and the refined nesting-limit rule (residual: a failing body whose passes and walk exceed the work bound, or whose request ends during the walk, gets DetailMismatch alone, which neither R-77 nor 07 req 81 states; moved from A to C in step 0.01b's review)",
+   "id": "E57"
+  },
+  {
+   "sources": [
+    "runs/w3-s2-wp51-r6.json contractRequests[0]",
+    "runs/w3-s2-wp51-r6.json contractRequests[7]",
+    "runs/w3-s2-wp51-r6.json contractRequests[11]"
+   ],
+   "wp": "WP-51",
+   "class": "C",
+   "evidence": "Chain: r6[7] removes r6[0]'s maxFoldRunes refusal; r6[11] \"replaces R-77's literal rule\". Not applied: R-77 and 07 req 75 (07-transform.md:176) still say \"a pattern program over 2^14 instructions (2^17 per document)\"; the CM states no pattern rule; the Open question on the lost one-pass matcher is nowhere. Steps 3.05 and 3.06 (GC-06 parser work, GC-11 matcher costs) change the measure again",
+   "targets": [
+    ".claude/plans/m1/specs/00-architecture.md (R-77)",
+    ".claude/plans/m1/specs/07-transform.md (req 75)",
+    "docs/architecture/02-configuration-model.md (RZ-CFG-005 rows / Open questions)"
+   ],
+   "needsDecision": true,
+   "decisionWhy": "Redefines the unit of the cap decision 14 approved (\"2^14 regex program instructions per pattern, 2^17 per document\") as 40-byte kept instructions with class ranges, node and parse-work terms, so patterns the literal rule accepts are refused; record the final measure after steps 3.05/3.06",
+   "summary": "Pattern measure against MaxPatternInstructions / MaxDocumentInstructions (class ranges, literal and class nodes, parse work counted lexically) and the Open question on the one-pass matcher",
+   "id": "E58",
+   "settledBy": [
+    "3.05"
+   ]
+  },
+  {
+   "sources": [
+    "runs/w3-s2-wp51-r6.json contractRequests[2]",
+    "runs/w3-s2-wp51-r8.json contractRequests[3]"
+   ],
+   "wp": "WP-51",
+   "class": "C",
+   "evidence": "r8[3] replaces r6[2]'s uniqueItems-object figure. Not applied: R-77 states only \"typical records fit up to about 70 to 84% of the limit and dense enum or union arrays less\"; no fit table in R-77, the CM or the PB document; carry2[9] already moves two fits (61.4%, 51.5%), so figures change with steps 3.01 to 3.12",
+   "targets": [
+    ".claude/plans/m1/specs/00-architecture.md (R-77 fit)",
+    "docs/architecture/02-configuration-model.md (S8 row)",
+    "docs/architecture/12-performance-budgets-and-benchmarking.md (S8 row)"
+   ],
+   "needsDecision": false,
+   "decisionWhy": "Decided (decision 12: document the measured fit); re-measure after step 3.12",
+   "summary": "Cite the measured fit at the 10 MiB default (records 81%, line items 70%, unions 13.6 to 32%, rich text 4.7 to 20%, uniqueItems objects 2.1% / 0.19%, dense numeric shapes 33 to 63%) and the worst-case reservation note",
+   "id": "E59"
+  },
+  {
+   "sources": [
+    "runs/w3-s2-wp51-r6.json contractRequests[3]"
+   ],
+   "wp": "WP-51",
+   "class": "C",
+   "evidence": "Not applied: 07 req 75 and R-77 state the nesting limit but not this over-approximation (an undeclared member name is assumed to meet every patternProperties schema)",
+   "targets": [
+    ".claude/plans/m1/specs/07-transform.md (req 75 nesting-limit rule)"
+   ],
+   "needsDecision": true,
+   "decisionWhy": "Records a refusal of usable schemas (two mutually exclusive recursive patternProperties are refused by the nesting-limit over-approximation) that decision 14 does not state; AGENTS.md 'Record decisions' makes it the owner's choice (step 0.01b's review).",
+   "summary": "Record the nesting-limit over-approximation for patternProperties (mutually exclusive recursive patterns are refused)",
+   "id": "E60",
+   "settledBy": [
+    "3.11b"
+   ]
+  },
+  {
+   "sources": [
+    "runs/w3-s2-wp51-r6.json contractRequests[4]"
+   ],
+   "wp": "WP-51",
+   "class": "C",
+   "evidence": "Not applied: 00-architecture.md:138 (1.2 row) says \"validation.json-schema, exported Check\"; spec 07 section 3 has no Schema.ValidateWithin",
+   "targets": [
+    ".claude/plans/m1/specs/07-transform.md (section 3)",
+    ".claude/plans/m1/specs/00-architecture.md (1.2 row filter/validation/jsonschema)"
+   ],
+   "needsDecision": false,
+   "decisionWhy": "",
+   "summary": "Record the exported Schema.ValidateWithin(v, rawLimit) beside Validate, for M2 callers validating untrusted values",
+   "id": "E61"
+  },
+  {
+   "sources": [
+    "runs/w3-s2-wp51-r6.json contractRequests[5]"
+   ],
+   "wp": "WP-51",
+   "class": "C",
+   "evidence": "Not applied: arch/wps.json and 00-architecture.md 4.4 WP-56 (stage H) and the hub.PolicyCheck contract carry no per-run compile memo; no forwards.json note",
+   "targets": [
+    ".claude/plans/m1/specs/00-architecture.md (4.4 WP-56 scope, or section 2 hub.PolicyCheck)",
+    ".claude/plans/m1/arch/wps.json (WP-56)"
+   ],
+   "needsDecision": true,
+   "decisionWhy": "Its hub.PolicyCheck option would change WP-51's code, since jsonschema.Check has the hub.PolicyCheck signature; deciding it after 3.12 would reopen WP-51 against decision 37, so it is asked at 3.00 (step 0.01b's review).",
+   "summary": "Stage H: give hub.PolicyCheck or the stage H runner a per-run memo keyed by the document SHA-256, so N Policies on one schema compile it once",
+   "id": "E62",
+   "settledBy": [
+    "3.11b"
+   ]
+  },
+  {
+   "sources": [
+    "runs/w3-s2-wp51-r6.json contractRequests[6]"
+   ],
+   "wp": "WP-51",
+   "class": "C",
+   "evidence": "Not applied: 07 req 13 (07-transform.md:53) has no exception and 07 req 86 (:193, error.type fixed set cel_error ... internal, proposed) has no canceled value",
+   "targets": [
+    ".claude/plans/m1/specs/07-transform.md (reqs 13, 86)",
+    "internal/gateway/executor (executor error vocabulary, wave-2 owner)",
+    "internal/filter/filter.go (Result.Err error.type list, WP-01)",
+    ".claude/plans/m1/specs/00-architecture.md (section 2 mirror)",
+    "docs/architecture/03-data-plane.md (failure semantics)"
+   ],
+   "needsDecision": true,
+   "decisionWhy": "Choose between an accepted exception to 07 req 13 (a client disconnect before validation counts as an internal validator failure and may answer 503 RZ-RT-011) and a new error.type value such as canceled in the executor's fixed set; either sets documented failure semantics",
+   "summary": "Executor error vocabulary for a request whose context ended before validation (Undecided with context.Canceled)",
+   "id": "E63"
+  },
+  {
+   "sources": [
+    "runs/w3-s2-wp51-r6.json contractRequests[8]"
+   ],
+   "wp": "WP-51",
+   "class": "C",
+   "evidence": "Not applied: R-77 and 07 req 75 list neither the repeated meta-schema checks counted against MaxSubschemas and MaxSchemaBytes nor maxCheckCopies = 2^19. Audit REFS-21 and GC-09 (count terms, step 3.03) cover the same costs and may fold this into decision 20's 1 MiB budget",
+   "targets": [
+    ".claude/plans/m1/specs/00-architecture.md (R-77)",
+    ".claude/plans/m1/specs/07-transform.md (req 75)",
+    "docs/architecture/02-configuration-model.md (Open questions row)"
+   ],
+   "needsDecision": true,
+   "decisionWhy": "Proposed new compile refusals (maxCheckCopies 2^19; repeated meta-schema checks counted again) made after decision 14's approval and not named by decisions 20 to 26; may be replaced by the 1 MiB budget at steps 3.02/3.03",
+   "summary": "Meta-schema check rules: repeated checks count against MaxSubschemas and MaxSchemaBytes; each reference target outside the keyword tree costs a bookkeeping copy, at most 2^19",
+   "id": "E64",
+   "settledBy": [
+    "3.03"
+   ]
+  },
+  {
+   "sources": [
+    "runs/w3-s2-wp51-r6.json contractRequests[9]"
+   ],
+   "wp": "WP-51",
+   "class": "C",
+   "evidence": "Not applied: 07 req 77 (07-transform.md:178) says compile once per Policy per snapshot, reused by canonical-bytes SHA-256, without the build-order dependency; arch/wps.json WP-70 scope has carry-over by identity only",
+   "targets": [
+    ".claude/plans/m1/specs/07-transform.md (req 77)",
+    ".claude/plans/m1/specs/00-architecture.md (4.4 WP-70 scope)",
+    ".claude/plans/m1/arch/wps.json (WP-70)"
+   ],
+   "needsDecision": true,
+   "decisionWhy": "Recording that reuse depends on build order accepts a cost no spec states (an extra compile of up to about 1.2 s, per E49); the alternative has WP-70 expose the previous snapshot's shared values by key. AGENTS.md 'Record decisions' makes that the owner's choice (step 0.01b's review).",
+   "summary": "Carry-over across Policies: record that reuse depends on build order, or have WP-70 expose the previous snapshot's shared values by key",
+   "id": "E65",
+   "settledBy": [
+    "3.11b"
+   ]
+  },
+  {
+   "sources": [
+    "runs/w3-s2-wp51-r6.json contractRequests[14]"
+   ],
+   "wp": "WP-51",
+   "class": "C",
+   "evidence": "Not applied: no spec, ADR-0001 (docs/adr/0001-implementation-language-go.md) or WP-71 note records that internal/filter/validation/jsonschema (and so the CLI through checks.Table()) builds for 64-bit platforms only",
+   "targets": [
+    "docs/adr/0001-implementation-language-go.md (or the platform list it governs)",
+    ".claude/plans/m1/specs/00-architecture.md (4.4 WP-71)"
+   ],
+   "needsDecision": true,
+   "decisionWhy": "Records a 64-bit-only build constraint on supported platforms (ADR-0001's domain), or commits to an int64 count refactor; both are owner decisions",
+   "summary": "Record that WP-51 builds for 64-bit platforms only (counts saturate at 2^40), or plan an int64 refactor for 32-bit CLI builds",
+   "id": "E66",
+   "settledBy": [
+    "3.11b"
+   ]
+  },
+  {
+   "sources": [
+    "runs/w3-s2-wp51-r8.json contractRequests[0]"
+   ],
+   "wp": "WP-51",
+   "class": "C",
+   "evidence": "Not applied: R-77 and 07 req 75 do not list the rule that entries of type arrays, required, dependentRequired and array members of dependencies must be strings (refused before the library runs, with the meta-schema's message)",
+   "targets": [
+    ".claude/plans/m1/specs/00-architecture.md (R-77)",
+    ".claude/plans/m1/specs/07-transform.md (req 75)"
+   ],
+   "needsDecision": false,
+   "decisionWhy": "Same outcome as the library's meta-schema check, reached earlier and bounded; no new kind of refusal",
+   "summary": "Record the string-entry rule for type, required, dependentRequired and dependencies lists (blocks math/big uniqueItems parsing in the meta-schema check)",
+   "id": "E67"
+  },
+  {
+   "sources": [
+    "runs/w3-s2-wp51-r8.json contractRequests[1]",
+    "runs/w3-s2-wp51-r8.json contractRequests[7]",
+    "runs/w3-s2-wp51-r9.json contractRequests[1]"
+   ],
+   "wp": "WP-51",
+   "class": "C",
+   "evidence": "Not a package-source request, but in step scope: r9[1] replaces r8[1] (\"replacing fix6's job-stack request\") and r8[7]'s consequence; it is round-9 minor 4, which step 3.11 closes (steps.md, step 3.11 row \"round-9 minors 2 and 4\"; wp51-library-audit.md section 5: \"Carried as recorded: match long inputs with the NFA, or add the patterns and figures to doc.go and the contract request\")",
+   "targets": [
+    ".claude/plans/m1/specs/00-architecture.md (R-77)",
+    ".claude/plans/m1/specs/07-transform.md (reqs 80 to 82)",
+    "docs/architecture/02-configuration-model.md (Body buffering and limits)"
+   ],
+   "needsDecision": true,
+   "decisionWhy": "Its latest source (r9[1]) asks to record as an accepted consequence that valid strings get 413 under small limits; the named alternative, NFA-only matching, measured 2 to 12 times the backtracker's time. No decision accepts that trade-off (step 0.01b's review moved it from B to C).",
+   "summary": "Backtracker job-stack term of the working set and its accepted 413 window for strings under small maxRequestBodyBytes",
+   "id": "E68",
+   "settledBy": [
+    "3.11"
+   ]
+  },
+  {
+   "sources": [
+    "runs/w3-s2-wp51-r8.json contractRequests[9]",
+    "runs/w3-s2-wp51-r9.json contractRequests[2]"
+   ],
+   "wp": "WP-51",
+   "class": "C",
+   "evidence": "r9[2] replaces r8[9] (\"replacing r7 minor 1's request text\"). Not applied: 07 reqs 75, 76 and R-77 do not say that schema positions the library compiles without a meta-schema check (below additionalItems, or reached through a JSON Pointer reference, anchor or $id) are checked against the draft 2020-12 meta-schema. Not restated in carry2 (carry2[2], [3] cover $recursiveRef and the walk backstops)",
+   "targets": [
+    ".claude/plans/m1/specs/07-transform.md (reqs 75, 76)",
+    ".claude/plans/m1/specs/00-architecture.md (R-77)"
+   ],
+   "needsDecision": false,
+   "decisionWhy": "Applies the draft 2020-12 meta-schema the library applies elsewhere; no new kind of refusal",
+   "summary": "Record that every compiled position no library meta-schema check covers is checked against the draft 2020-12 meta-schema (RZ-CFG-005, meta-schema message)",
+   "id": "E69"
+  },
+  {
+   "sources": [
+    "runs/w3-s2-wp51-r9.json contractRequests[0]"
+   ],
+   "wp": "WP-51",
+   "class": "C",
+   "evidence": "Not applied: R-77 and 07 reqs 80, 82 (07-transform.md:184) state 8x and 12x of maxRequestBodyBytes with no MinScaledLimit floor (128 KiB: 1 MiB working set, 1.5 MiB reservation, 2^25 work units). Round-9 minor 2 (step 3.11) fixes only the comments",
+   "targets": [
+    ".claude/plans/m1/specs/00-architecture.md (R-77)",
+    ".claude/plans/m1/specs/07-transform.md (reqs 80, 82)",
+    "docs/architecture/02-configuration-model.md (Body buffering and limits)"
+   ],
+   "needsDecision": true,
+   "decisionWhy": "Proposed change to the per-request bounds decision 12 set (\"at most 8 (12) times the limit\" holds only from 128 KiB; below it fixed floors apply)",
+   "summary": "Working-set, reservation and work limits scale from max(maxRequestBodyBytes, 128 KiB), so tiny bodies work under small limits",
+   "id": "E70",
+   "settledBy": [
+    "3.11"
+   ]
+  },
+  {
+   "sources": [
+    "runs/w3-s2-wp51-r9.json contractRequests[3]"
+   ],
+   "wp": "WP-51",
+   "class": "C",
+   "evidence": "Not applied: R-77 and 07 reqs 80 to 82 do not state how the unevaluated-tracking maps are charged (per evaluation of the longest in-place chain, as the stack)",
+   "targets": [
+    ".claude/plans/m1/specs/00-architecture.md (R-77)",
+    ".claude/plans/m1/specs/07-transform.md (reqs 80 to 82)"
+   ],
+   "needsDecision": false,
+   "decisionWhy": "Accounting refinement; no new refusal",
+   "summary": "Record that unevaluated-tracking maps are charged per in-place chain, while work terms count every evaluation",
+   "id": "E71"
+  }
+ ],
+ "pendingByTarget": {
+  ".claude/plans/m1/specs/11-ops-quality.md": {
+   "entries": [
+    {
+     "id": "E12",
+     "summary": "Assign the per-Environment Bundle clause of 11 req 19 (each examples/ Bundle loads through the pipeline for each Environment and without --env) to WP-75 and name 11 req 19 in its scope"
+    }
+   ],
+   "needsDecision": false
+  },
+  ".claude/plans/m1/arch/wps.json": {
+   "entries": [
+    {
+     "id": "E12",
+     "summary": "Assign the per-Environment Bundle clause of 11 req 19 (each examples/ Bundle loads through the pipeline for each Environment and without --env) to WP-75 and name 11 req 19 in its scope"
+    },
+    {
+     "id": "E22",
+     "summary": "WP-55 notes: overlay.Apply owns its inputs; one Substituter per load; Apply per resource (residual parts that no package source restates; step 0.01b moved it from B to C after review)"
+    },
+    {
+     "id": "E25",
+     "summary": "WP-55 interface note: overlay.Apply signature; CheckBase on every base resource whether or not an overlay is selected (residual parts no package source restates: CheckBase on every base resource whether or not an overlay is selected, the new Apply signature, ctx.Err() and no result on cancellation; moved from B to C in step 0.01b's review)"
+    },
+    {
+     "id": "E62",
+     "summary": "Stage H: give hub.PolicyCheck or the stage H runner a per-run memo keyed by the document SHA-256, so N Policies on one schema compile it once"
+    },
+    {
+     "id": "E65",
+     "summary": "Carry-over across Policies: record that reuse depends on build order, or have WP-70 expose the previous snapshot's shared values by key"
+    }
+   ],
+   "needsDecision": true
+  },
+  ".claude/plans/m1/specs/00-architecture.md": {
+   "entries": [
+    {
+     "id": "E12",
+     "summary": "Assign the per-Environment Bundle clause of 11 req 19 (each examples/ Bundle loads through the pipeline for each Environment and without --env) to WP-75 and name 11 req 19 in its scope"
+    },
+    {
+     "id": "E21",
+     "summary": "$${ in forbidden positions: render must escape every literal ${ (or stop unescaping in forbidden positions) (residual parts that no package source restates; step 0.01b moved it from B to C after review)"
+    },
+    {
+     "id": "E22",
+     "summary": "WP-55 notes: overlay.Apply owns its inputs; one Substituter per load; Apply per resource (residual parts that no package source restates; step 0.01b moved it from B to C after review)"
+    },
+    {
+     "id": "E25",
+     "summary": "WP-55 interface note: overlay.Apply signature; CheckBase on every base resource whether or not an overlay is selected (residual parts no package source restates: CheckBase on every base resource whether or not an overlay is selected, the new Apply signature, ctx.Err() and no result on cancellation; moved from B to C in step 0.01b's review)"
+    },
+    {
+     "id": "E27",
+     "summary": "WP-69/WP-39 note: the R-64 exemption is read from the file table (Start file with RoleCanonical); FromResources must register canonical content so and pass the FileTable to stage G"
+    },
+    {
+     "id": "E30",
+     "summary": "JSONSchemaDocument.UnmarshalJSON runs json.Valid in one unyieldable call: record the exception, move the check to stage F, or use a stoppable validator"
+    },
+    {
+     "id": "E40",
+     "summary": "Add internal/errcode and internal/phase to the 1.2 import row of filter/validation/jsonschema (problem is test-only)"
+    },
+    {
+     "id": "E46",
+     "summary": "Record that compile refuses in-place reference cycles and that library RefCycle / InvalidJsonValue results are cannot decide, never 400"
+    },
+    {
+     "id": "E49",
+     "summary": "Compile cost Open question: worst-case validation.json-schema compile 0.84 to 1.2 s, about 280 to 333 MB allocated, 35 MB peak, 10 to 16 MB kept; F6's 1 s not met for combined cases"
+    },
+    {
+     "id": "E52",
+     "summary": "Record the work-bound terms: member-name hashing, const/enum object comparisons, required and dependency names, pattern class steps, the multipleOf term and its fit (BenchmarkWorkModel at most 0.75 ns per unit)"
+    },
+    {
+     "id": "E53",
+     "summary": "Record the uniqueItems comparison charges and their consequence (residual: the per-kind uniqueItems charge formula, which lives only in the package doc; moved from A to C in step 0.01b's review)"
+    },
+    {
+     "id": "E54",
+     "summary": "Factory contract: a Build whose context ended returns ctx.Err() uncoded, and non-finding filter.Shared failures pass unchanged; the snapshot compiler treats cancellation as an aborted build, rejecting the Revision only on RZ-CFG errors"
+    },
+    {
+     "id": "E57",
+     "summary": "Record walkWork, the compile-time pattern analysis budgets and the refined nesting-limit rule (residual: a failing body whose passes and walk exceed the work bound, or whose request ends during the walk, gets DetailMismatch alone, which neither R-77 nor 07 req 81 states; moved from A to C in step 0.01b's review)"
+    },
+    {
+     "id": "E58",
+     "summary": "Pattern measure against MaxPatternInstructions / MaxDocumentInstructions (class ranges, literal and class nodes, parse work counted lexically) and the Open question on the one-pass matcher"
+    },
+    {
+     "id": "E59",
+     "summary": "Cite the measured fit at the 10 MiB default (records 81%, line items 70%, unions 13.6 to 32%, rich text 4.7 to 20%, uniqueItems objects 2.1% / 0.19%, dense numeric shapes 33 to 63%) and the worst-case reservation note"
+    },
+    {
+     "id": "E61",
+     "summary": "Record the exported Schema.ValidateWithin(v, rawLimit) beside Validate, for M2 callers validating untrusted values"
+    },
+    {
+     "id": "E62",
+     "summary": "Stage H: give hub.PolicyCheck or the stage H runner a per-run memo keyed by the document SHA-256, so N Policies on one schema compile it once"
+    },
+    {
+     "id": "E63",
+     "summary": "Executor error vocabulary for a request whose context ended before validation (Undecided with context.Canceled)"
+    },
+    {
+     "id": "E64",
+     "summary": "Meta-schema check rules: repeated checks count against MaxSubschemas and MaxSchemaBytes; each reference target outside the keyword tree costs a bookkeeping copy, at most 2^19"
+    },
+    {
+     "id": "E65",
+     "summary": "Carry-over across Policies: record that reuse depends on build order, or have WP-70 expose the previous snapshot's shared values by key"
+    },
+    {
+     "id": "E66",
+     "summary": "Record that WP-51 builds for 64-bit platforms only (counts saturate at 2^40), or plan an int64 refactor for 32-bit CLI builds"
+    },
+    {
+     "id": "E67",
+     "summary": "Record the string-entry rule for type, required, dependentRequired and dependencies lists (blocks math/big uniqueItems parsing in the meta-schema check)"
+    },
+    {
+     "id": "E68",
+     "summary": "Backtracker job-stack term of the working set and its accepted 413 window for strings under small maxRequestBodyBytes"
+    },
+    {
+     "id": "E69",
+     "summary": "Record that every compiled position no library meta-schema check covers is checked against the draft 2020-12 meta-schema (RZ-CFG-005, meta-schema message)"
+    },
+    {
+     "id": "E70",
+     "summary": "Working-set, reservation and work limits scale from max(maxRequestBodyBytes, 128 KiB), so tiny bodies work under small limits"
+    },
+    {
+     "id": "E71",
+     "summary": "Record that unevaluated-tracking maps are charged per in-place chain, while work terms count every evaluation"
+    }
+   ],
+   "needsDecision": true
+  },
+  ".claude/plans/m1/forwards.json": {
+   "entries": [
+    {
+     "id": "E14",
+     "summary": "WP-69 note: build schemaview.Embedded once per process and share the immutable *Set across workers; stage F entry point and its RZ-CFG-007 ok=false case"
+    },
+    {
+     "id": "E27",
+     "summary": "WP-69/WP-39 note: the R-64 exemption is read from the file table (Start file with RoleCanonical); FromResources must register canonical content so and pass the FileTable to stage G"
+    },
+    {
+     "id": "E38",
+     "summary": "WP-69 FromResources note (R-47): decoded trees carry apiVersion and RoleCanonical positions; Decode does not materialize defaults; unknown members are RZ-CFG-024 at decode, wrong types left to stage F"
+    },
+    {
+     "id": "E39",
+     "summary": "WP-45/WP-76: AppendDump needs a Revision with canonical Content; no dump without an active Revision (residual: the WP-76 note, which forwards.json lacks; moved from A to C in step 0.01b's review)"
+    },
+    {
+     "id": "E39",
+     "summary": "WP-45/WP-76: AppendDump needs a Revision with canonical Content; no dump without an active Revision (residual: the WP-76 note, which forwards.json lacks; moved from A to C in step 0.01b's review)"
+    },
+    {
+     "id": "E44",
+     "summary": "Open question for the validation latency target: 07 req 84 25 us p50 not met with jsonschema/v6 (about 89 us); WP-81 gate set accordingly"
+    },
+    {
+     "id": "E50",
+     "summary": "Snapshot compiler: fill filter.BuildEnv.Limits.MaxRequestBodyBytes (WP-51 falls back to the 10 MiB default)"
+    },
+    {
+     "id": "E54",
+     "summary": "Factory contract: a Build whose context ended returns ctx.Err() uncoded, and non-finding filter.Shared failures pass unchanged; the snapshot compiler treats cancellation as an aborted build, rejecting the Revision only on RZ-CFG errors"
+    }
+   ],
+   "needsDecision": false
+  },
+  "internal/config/schemaidx/compile.go": {
+   "entries": [
+    {
+     "id": "E18",
+     "summary": "Residual only: align schemaidx with the vocabulary (refuse x-ruralz-since 0, x-ruralz-secret false, duplicate impact classes); the request calls it optional"
+    }
+   ],
+   "needsDecision": false
+  },
+  "internal/config/schemaidx/node.go": {
+   "entries": [
+    {
+     "id": "E20",
+     "summary": "Residual only: optional cheap accessor such as Node.Secret() bool (or non-cloning keyword checks) so callers test x-ruralz-secret without copying Keywords"
+    }
+   ],
+   "needsDecision": false
+  },
+  ".claude/plans/m1/specs/02-config-revision.md": {
+   "entries": [
+    {
+     "id": "E21",
+     "summary": "$${ in forbidden positions: render must escape every literal ${ (or stop unescaping in forbidden positions) (residual parts that no package source restates; step 0.01b moved it from B to C after review)"
+    },
+    {
+     "id": "E26",
+     "summary": "JSON null in free content: state that it is RZ-CFG-005 (stage G, optionally stage F first) and that inline JSON Schema documents cannot use null literals in M1, or define a canonical null"
+    },
+    {
+     "id": "E35",
+     "summary": "Record the implemented RZ-CFG-038 message (Response Cache Policy \"<c>\" is combined with Policy \"<p>\" (<type>, Filter class <class>), which runs in onRequestBody: a cache hit would skip it); the RZ-CFG-019 wording is as written"
+    }
+   ],
+   "needsDecision": true
+  },
+  "internal/config/schemaidx/lookup.go": {
+   "entries": [
+    {
+     "id": "E21",
+     "summary": "$${ in forbidden positions: render must escape every literal ${ (or stop unescaping in forbidden positions) (residual parts that no package source restates; step 0.01b moved it from B to C after review)"
+    },
+    {
+     "id": "E23",
+     "summary": "For R-3: export the undispatched schema of a Walk position (Cursor.Static) or a public Info.Step, so subst takes InSecret/NoSubstitution from schemaidx instead of its own copy"
+    }
+   ],
+   "needsDecision": true
+  },
+  ".claude/plans/m1/specs/01-config-load.md": {
+   "entries": [
+    {
+     "id": "E21",
+     "summary": "$${ in forbidden positions: render must escape every literal ${ (or stop unescaping in forbidden positions) (residual parts that no package source restates; step 0.01b moved it from B to C after review)"
+    },
+    {
+     "id": "E26",
+     "summary": "JSON null in free content: state that it is RZ-CFG-005 (stage G, optionally stage F first) and that inline JSON Schema documents cannot use null literals in M1, or define a canonical null"
+    },
+    {
+     "id": "E30",
+     "summary": "JSONSchemaDocument.UnmarshalJSON runs json.Valid in one unyieldable call: record the exception, move the check to stage F, or use a stoppable validator"
+    }
+   ],
+   "needsDecision": true
+  },
+  "internal/config/profile/encode.go": {
+   "entries": [
+    {
+     "id": "E21",
+     "summary": "$${ in forbidden positions: render must escape every literal ${ (or stop unescaping in forbidden positions) (residual parts that no package source restates; step 0.01b moved it from B to C after review)"
+    }
+   ],
+   "needsDecision": true
+  },
+  "docs/architecture/02-configuration-model.md": {
+   "entries": [
+    {
+     "id": "E21",
+     "summary": "$${ in forbidden positions: render must escape every literal ${ (or stop unescaping in forbidden positions) (residual parts that no package source restates; step 0.01b moved it from B to C after review)"
+    },
+    {
+     "id": "E26",
+     "summary": "JSON null in free content: state that it is RZ-CFG-005 (stage G, optionally stage F first) and that inline JSON Schema documents cannot use null literals in M1, or define a canonical null"
+    },
+    {
+     "id": "E28",
+     "summary": "Mark host-name fields (Route spec.match.hosts, Gateway listeners hostnames) by a schema marker or a CM sentence, so stage G stops finding them by $defs name"
+    },
+    {
+     "id": "E35",
+     "summary": "Record the implemented RZ-CFG-038 message (Response Cache Policy \"<c>\" is combined with Policy \"<p>\" (<type>, Filter class <class>), which runs in onRequestBody: a cache hit would skip it); the RZ-CFG-019 wording is as written"
+    },
+    {
+     "id": "E41",
+     "summary": "CM rows for the validation.json-schema compile guards (MaxSubschemas 4,096, number literal bounds and where they apply, bundled meta-schema refs refused, MaxIssues 20)"
+    },
+    {
+     "id": "E44",
+     "summary": "Open question for the validation latency target: 07 req 84 25 us p50 not met with jsonschema/v6 (about 89 us); WP-81 gate set accordingly"
+    },
+    {
+     "id": "E45",
+     "summary": "Nesting limit (replacing the evaluation cap) and fan-out definition: CM rows and the remaining spec details"
+    },
+    {
+     "id": "E49",
+     "summary": "Compile cost Open question: worst-case validation.json-schema compile 0.84 to 1.2 s, about 280 to 333 MB allocated, 35 MB peak, 10 to 16 MB kept; F6's 1 s not met for combined cases"
+    },
+    {
+     "id": "E51",
+     "summary": "CM Body buffering and limits: two-pass validation, decoded 4x plus working set 8x, 12x reservation cap, 13x (130 MiB) per validated request"
+    },
+    {
+     "id": "E58",
+     "summary": "Pattern measure against MaxPatternInstructions / MaxDocumentInstructions (class ranges, literal and class nodes, parse work counted lexically) and the Open question on the one-pass matcher"
+    },
+    {
+     "id": "E59",
+     "summary": "Cite the measured fit at the 10 MiB default (records 81%, line items 70%, unions 13.6 to 32%, rich text 4.7 to 20%, uniqueItems objects 2.1% / 0.19%, dense numeric shapes 33 to 63%) and the worst-case reservation note"
+    },
+    {
+     "id": "E64",
+     "summary": "Meta-schema check rules: repeated checks count against MaxSubschemas and MaxSchemaBytes; each reference target outside the keyword tree costs a bookkeeping copy, at most 2^19"
+    },
+    {
+     "id": "E68",
+     "summary": "Backtracker job-stack term of the working set and its accepted 413 window for strings under small maxRequestBodyBytes"
+    },
+    {
+     "id": "E70",
+     "summary": "Working-set, reservation and work limits scale from max(maxRequestBodyBytes, 128 KiB), so tiny bodies work under small limits"
+    }
+   ],
+   "needsDecision": true
+  },
+  "internal/config/subst": {
+   "entries": [
+    {
+     "id": "E21",
+     "summary": "$${ in forbidden positions: render must escape every literal ${ (or stop unescaping in forbidden positions) (residual parts that no package source restates; step 0.01b moved it from B to C after review)"
+    }
+   ],
+   "needsDecision": true
+  },
+  "internal/config/subst/walk.go": {
+   "entries": [
+    {
+     "id": "E23",
+     "summary": "For R-3: export the undispatched schema of a Walk position (Cursor.Static) or a public Info.Step, so subst takes InSecret/NoSubstitution from schemaidx instead of its own copy"
+    }
+   ],
+   "needsDecision": false
+  },
+  "pkg/config/v1alpha1/route.go, gateway.go": {
+   "entries": [
+    {
+     "id": "E28",
+     "summary": "Mark host-name fields (Route spec.match.hosts, Gateway listeners hostnames) by a schema marker or a CM sentence, so stage G stops finding them by $defs name"
+    }
+   ],
+   "needsDecision": true
+  },
+  "docs/engineering/02-repository-layout-and-conventions.md": {
+   "entries": [
+    {
+     "id": "E28",
+     "summary": "Mark host-name fields (Route spec.match.hosts, Gateway listeners hostnames) by a schema marker or a CM sentence, so stage G stops finding them by $defs name"
+    },
+    {
+     "id": "E43",
+     "summary": "Add internal/filter/validation/jsonschema to the security-sensitive (security-reviewed, two-approval) packages"
+    }
+   ],
+   "needsDecision": true
+  },
+  "pkg/config/v1alpha1/scalar.go": {
+   "entries": [
+    {
+     "id": "E30",
+     "summary": "JSONSchemaDocument.UnmarshalJSON runs json.Valid in one unyieldable call: record the exception, move the check to stage F, or use a stoppable validator"
+    }
+   ],
+   "needsDecision": true
+  },
+  "internal/config/defaults": {
+   "entries": [
+    {
+     "id": "E30",
+     "summary": "JSONSchemaDocument.UnmarshalJSON runs json.Valid in one unyieldable call: record the exception, move the check to stage F, or use a stoppable validator"
+    }
+   ],
+   "needsDecision": true
+  },
+  ".claude/plans/m1/specs/07-transform.md": {
+   "entries": [
+    {
+     "id": "E41",
+     "summary": "CM rows for the validation.json-schema compile guards (MaxSubschemas 4,096, number literal bounds and where they apply, bundled meta-schema refs refused, MaxIssues 20)"
+    },
+    {
+     "id": "E42",
+     "summary": "Record the request-side number bound (400 RZ-RT-009, number out of range) (residual: the data plane document's record of the bound, which its source asked for and 03-data-plane.md does not hold; moved from A to C in step 0.01b's review)"
+    },
+    {
+     "id": "E45",
+     "summary": "Nesting limit (replacing the evaluation cap) and fan-out definition: CM rows and the remaining spec details"
+    },
+    {
+     "id": "E46",
+     "summary": "Record that compile refuses in-place reference cycles and that library RefCycle / InvalidJsonValue results are cannot decide, never 400"
+    },
+    {
+     "id": "E48",
+     "summary": "Record that the RZ-RT-009 detail cuts a keyword location longer than 256 bytes to its longest ancestor that fits"
+    },
+    {
+     "id": "E49",
+     "summary": "Compile cost Open question: worst-case validation.json-schema compile 0.84 to 1.2 s, about 280 to 333 MB allocated, 35 MB peak, 10 to 16 MB kept; F6's 1 s not met for combined cases"
+    },
+    {
+     "id": "E52",
+     "summary": "Record the work-bound terms: member-name hashing, const/enum object comparisons, required and dependency names, pattern class steps, the multipleOf term and its fit (BenchmarkWorkModel at most 0.75 ns per unit)"
+    },
+    {
+     "id": "E57",
+     "summary": "Record walkWork, the compile-time pattern analysis budgets and the refined nesting-limit rule (residual: a failing body whose passes and walk exceed the work bound, or whose request ends during the walk, gets DetailMismatch alone, which neither R-77 nor 07 req 81 states; moved from A to C in step 0.01b's review)"
+    },
+    {
+     "id": "E58",
+     "summary": "Pattern measure against MaxPatternInstructions / MaxDocumentInstructions (class ranges, literal and class nodes, parse work counted lexically) and the Open question on the one-pass matcher"
+    },
+    {
+     "id": "E60",
+     "summary": "Record the nesting-limit over-approximation for patternProperties (mutually exclusive recursive patterns are refused)"
+    },
+    {
+     "id": "E61",
+     "summary": "Record the exported Schema.ValidateWithin(v, rawLimit) beside Validate, for M2 callers validating untrusted values"
+    },
+    {
+     "id": "E63",
+     "summary": "Executor error vocabulary for a request whose context ended before validation (Undecided with context.Canceled)"
+    },
+    {
+     "id": "E64",
+     "summary": "Meta-schema check rules: repeated checks count against MaxSubschemas and MaxSchemaBytes; each reference target outside the keyword tree costs a bookkeeping copy, at most 2^19"
+    },
+    {
+     "id": "E65",
+     "summary": "Carry-over across Policies: record that reuse depends on build order, or have WP-70 expose the previous snapshot's shared values by key"
+    },
+    {
+     "id": "E67",
+     "summary": "Record the string-entry rule for type, required, dependentRequired and dependencies lists (blocks math/big uniqueItems parsing in the meta-schema check)"
+    },
+    {
+     "id": "E68",
+     "summary": "Backtracker job-stack term of the working set and its accepted 413 window for strings under small maxRequestBodyBytes"
+    },
+    {
+     "id": "E69",
+     "summary": "Record that every compiled position no library meta-schema check covers is checked against the draft 2020-12 meta-schema (RZ-CFG-005, meta-schema message)"
+    },
+    {
+     "id": "E70",
+     "summary": "Working-set, reservation and work limits scale from max(maxRequestBodyBytes, 128 KiB), so tiny bodies work under small limits"
+    },
+    {
+     "id": "E71",
+     "summary": "Record that unevaluated-tracking maps are charged per in-place chain, while work terms count every evaluation"
+    }
+   ],
+   "needsDecision": true
+  },
+  "docs/architecture/03-data-plane.md": {
+   "entries": [
+    {
+     "id": "E42",
+     "summary": "Record the request-side number bound (400 RZ-RT-009, number out of range) (residual: the data plane document's record of the bound, which its source asked for and 03-data-plane.md does not hold; moved from A to C in step 0.01b's review)"
+    },
+    {
+     "id": "E63",
+     "summary": "Executor error vocabulary for a request whose context ended before validation (Undecided with context.Canceled)"
+    }
+   ],
+   "needsDecision": true
+  },
+  "scripts/ci-approvals.sh": {
+   "entries": [
+    {
+     "id": "E43",
+     "summary": "Add internal/filter/validation/jsonschema to the security-sensitive (security-reviewed, two-approval) packages"
+    }
+   ],
+   "needsDecision": true
+  },
+  "AGENTS.md": {
+   "entries": [
+    {
+     "id": "E43",
+     "summary": "Add internal/filter/validation/jsonschema to the security-sensitive (security-reviewed, two-approval) packages"
+    }
+   ],
+   "needsDecision": true
+  },
+  "CONTRIBUTING.md": {
+   "entries": [
+    {
+     "id": "E43",
+     "summary": "Add internal/filter/validation/jsonschema to the security-sensitive (security-reviewed, two-approval) packages"
+    }
+   ],
+   "needsDecision": true
+  },
+  ".claude/settings.json": {
+   "entries": [
+    {
+     "id": "E43",
+     "summary": "Add internal/filter/validation/jsonschema to the security-sensitive (security-reviewed, two-approval) packages"
+    }
+   ],
+   "needsDecision": true
+  },
+  "docs/architecture/12-performance-budgets-and-benchmarking.md": {
+   "entries": [
+    {
+     "id": "E44",
+     "summary": "Open question for the validation latency target: 07 req 84 25 us p50 not met with jsonschema/v6 (about 89 us); WP-81 gate set accordingly"
+    },
+    {
+     "id": "E49",
+     "summary": "Compile cost Open question: worst-case validation.json-schema compile 0.84 to 1.2 s, about 280 to 333 MB allocated, 35 MB peak, 10 to 16 MB kept; F6's 1 s not met for combined cases"
+    },
+    {
+     "id": "E59",
+     "summary": "Cite the measured fit at the 10 MiB default (records 81%, line items 70%, unions 13.6 to 32%, rich text 4.7 to 20%, uniqueItems objects 2.1% / 0.19%, dense numeric shapes 33 to 63%) and the worst-case reservation note"
+    }
+   ],
+   "needsDecision": true
+  },
+  "internal/filter/filter.go": {
+   "entries": [
+    {
+     "id": "E54",
+     "summary": "Factory contract: a Build whose context ended returns ctx.Err() uncoded, and non-finding filter.Shared failures pass unchanged; the snapshot compiler treats cancellation as an aborted build, rejecting the Revision only on RZ-CFG errors"
+    },
+    {
+     "id": "E63",
+     "summary": "Executor error vocabulary for a request whose context ended before validation (Undecided with context.Canceled)"
+    }
+   ],
+   "needsDecision": true
+  },
+  "internal/gateway/executor": {
+   "entries": [
+    {
+     "id": "E63",
+     "summary": "Executor error vocabulary for a request whose context ended before validation (Undecided with context.Canceled)"
+    }
+   ],
+   "needsDecision": true
+  },
+  "docs/adr/0001-implementation-language-go.md": {
+   "entries": [
+    {
+     "id": "E66",
+     "summary": "Record that WP-51 builds for 64-bit platforms only (counts saturate at 2^40), or plan an int64 refactor for 32-bit CLI builds"
+    }
+   ],
+   "needsDecision": true
+  }
+ }
+}

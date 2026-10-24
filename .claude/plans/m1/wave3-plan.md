@@ -1,6 +1,6 @@
 # Wave 3 plan: nine small sections that stay under the usage limit
 
-Superseded on 2026-10-24: the work follows `steps.md` (`user-decisions.md` items 27 to 35). The sections, progress table and notes below are the record up to that date. S2's open work continues as steps 3.01 to 3.20 (with 3.01b), S1's as steps 3.21 to 3.30, the packages of S3 to S7 as steps 3.31 to 3.67, S8 as steps 3.68 and 3.69, and S9 as steps 3.70 to 3.72 and R.01 to R.42.
+Superseded on 2026-10-24: the work follows `steps.md` (`user-decisions.md` items 27 to 40). The sections, progress table and notes below are the record up to that date. S2's open work continues as steps 3.01 to 3.12 (with 3.01b and 3.11b) and 3.16 to 3.20, S1's as steps 3.13 to 3.15 (with 3.13b) and 3.21 to 3.30, the packages of S3 to S7 as steps 3.31 to 3.67, S8 as steps 3.00, 3.68 and 3.69 to 3.69k with the code it needs settled in the package steps, and S9 as steps 3.70 to 3.72 and, for its fresh reviews, R.01 to R.42, which decision 40 makes part of the final review.
 
 Wave 3 builds 25 work packages: the configuration pipeline stages, the CEL module, the telemetry runtime, the request path, the Upstream runtimes, the auth Filters, the State Store manager, test servers, release tooling, examples and the WP-31 documents. Run as two big workflow runs, it would cost about $650 to $800 at API prices and hit the 5-hour usage limit two or three times, losing the agents that were running at the time.
 
