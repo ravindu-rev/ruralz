@@ -59,7 +59,7 @@ Size and order:
 
 | Stage | Steps | Done |
 |---|---|---|
-| 0 Plan and tooling | 4 | 2 |
+| 0 Plan and tooling | 5 | 3 |
 | 3 Wave 3: close S2 and S1, the other wave-3 packages, decisions and documents | 93 | 0 |
 | 4 Wave 4 | 42 | 0 |
 | 5 Wave 5 | 11 | 0 |
@@ -71,9 +71,9 @@ Size and order:
 | C M1 close-out before the release | 29 | 0 |
 | 10 Wave 10 | 2 | 0 |
 | X M1 exit | 3 | 0 |
-| **All** | **342** | **2** |
+| **All** | **343** | **3** |
 
-Next step: 0.02.
+Next step: 0.02b.
 
 ## Done before this plan
 
@@ -90,7 +90,8 @@ Next step: 0.02.
 |---|---|---|---|
 | 0.01 | Plan | Adopt this plan: the steps, user decisions 27 to 35, the AGENTS.md sentence for decision 30, the README, wave-3 plan and architecture updates, signing with `~/.ssh/id_ed25519`. Park the S2 work of `wip/s2-handoff` in `wip/`; the branch stays until step 3.20 | Done 2026-10-24 |
 | 0.01b | Plan | Cover the whole of M1 in small steps: the work done before this plan, the M1 close-out stage C and the exit stage X, 31 large steps split into smaller ones (`b` rows), and step 0.03 for workflows on `main`, and the S8 backlog inventoried into `runs/s8-backlog.json`: its decisions at 3.00 and 3.68, its code settled in the package steps (3.11b among them) and its records in 3.69 to 3.69k; decisions 36 to 40 | Done 2026-10-25 |
-| 0.02 | Tools | `make tools`, so `bin/golangci-lint` v2.13.2 and actionlint exist for the whole-tree checks of step 3.01 (the run scripts' step mode is dropped by decision 40) | Not started |
+| 0.02 | Tools | `make tools`, so `bin/golangci-lint` v2.13.2 and actionlint exist for the whole-tree checks of step 3.01 (the run scripts' step mode is dropped by decision 40) | Done 2026-10-25 |
+| 0.02b | Toolchain security update | `make supply-chain` fails on `develop` (found in 0.02): govulncheck finds 13 Go standard library vulnerabilities the code reaches, fixed in go1.27.2 and, for GO-2026-6809 in `crypto/x509`, go1.27.3, and copies in `golang.org/x/net` fixed in v0.60.0. Raise `go.mod`'s `toolchain` line to a patch release that fixes them all and `golang.org/x/net` to v0.60.0 or later (a lead `build(deps)` commit), and golangci-lint to a release that works under that toolchain (v2.13.2 fails under go1.27.2, README), with `scripts/install-tools.sh`'s pins and checksums, the tech stack document's rows and every mention of the old versions (AGENTS.md, the README, this file); then every whole-tree check passes | Not started |
 | 0.03 | Workflows on main | Owner step (decision 38): a pull request into `main`, from a branch `main-workflows/<id>` cut from `main` that item 6 does not clear while the pull request is open, that adds `pr-full.yml` and `main.yml` and brings the dispatch inputs of `develop`'s `pr-fast.yml` and `nightly.yml` to `main`'s copies. `main`'s copies of the added files keep only their `workflow_dispatch` and `workflow_call` triggers, without push, pull_request or schedule triggers, so nothing runs them against `main`'s code (the pull request's own checks are `main`'s `pr-fast.yml`, `pr-title.yml` and `approvals.yml`, which wants two approvals for `.github/`). First check whether `main`'s branch protection requires that check; if it does, you merge with an administrator bypass or relax the rule for decision-38 pull requests, recorded in the step notes, and the same for later workflow pull requests. Check once whether a dispatch reads the inputs of the dispatched branch's file. Every later step that adds or changes a workflow with a dispatch or call trigger brings it to `main` the same way in that step, whether or not it dispatches it | Owner |
 
 
@@ -546,6 +547,12 @@ M2 starts after X.03. It gets its own steps then; nothing of M2 is in this plan.
 ## Step notes
 
 Newest first. Each step adds a short note when it lands: its commits, its run IDs, its agent usage and anything the next steps need.
+
+- 0.02 (2026-10-25):
+  - `make tools` installed the pinned, checksum-verified tools into `bin/`: golangci-lint 2.13.2, govulncheck v1.8.0 (built with go1.27.1), actionlint 1.7.12 and promtool 3.15.0. With promtool here, `make integration` lacks only `redis-server` 7.0.15 on this machine.
+  - `GOTOOLCHAIN=go1.27.1 make lint` passes on `develop` (`44d7c58`): config verify, a clean `fmt --diff`, 0 issues and a clean actionlint run.
+  - `make supply-chain` fails on `develop`: govulncheck reports 13 standard library vulnerabilities the code reaches, fixed in go1.27.2 and go1.27.3, and 1 in an imported package the code does not call. Step 0.02b raises the toolchain and the dependencies.
+  - Checks for this plan-only step: the plan checks, `git diff --cached --check`, repocheck, and the title, DCO and signature checks.
 
 - 0.01b (2026-10-24):
   - The plan covers the whole of M1 (user decision 36): the work done before it, the close-out stage C and the exit stage X, 31 large steps split into smaller ones, and the S8 backlog. The backlog inventory ran as one background agent (resumed once after an API timeout); its 71 entries are in `runs/s8-backlog.json`, and review moved E21, E22, E25, E39, E42, E53, E57 and E68 to C.
