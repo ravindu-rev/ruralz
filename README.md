@@ -1,6 +1,6 @@
 # Ruralz
 
-Ruralz is an open-source API gateway written in Go where every feature, including the control plane and console, is free (Apache-2.0, no feature gating). Nothing is implemented yet; this repository holds the design documentation.
+Ruralz is an open-source API gateway written in Go where every feature, including the control plane and console, is free (Apache-2.0, no feature gating). The design documentation is complete and milestone M1 is in progress: the building blocks exist, but `ruralzd` does not serve traffic yet.
 
 ## What is Ruralz
 
@@ -62,7 +62,7 @@ The four differentiators are (1) **WASM plugin system**, (2) **AI/LLM gateway**,
 
 ## Status
 
-Ruralz is in the design phase: nothing is implemented yet, and there is no release, binary or image to install. Every capability in these documents is tagged `Planned (Mx)`, where `Mx` is a milestone from M0 to M5, even when its design is complete. Milestones have an order but no dates.
+Ruralz is building M1: the building blocks exist, `ruralzd` does not serve traffic yet, and there is no release, binary or image to install. Every capability in these documents is tagged `Planned (Mx)`, where `Mx` is a milestone from M0 to M5, even when its design is complete. Milestones have an order but no dates.
 
 | Milestone | Scope |
 |---|---|
@@ -95,5 +95,5 @@ Start at the [documentation index](docs/README.md), which gives reading paths fo
 - **Copyright.** Copyright 2026 Revington ([revington.co](https://revington.co)).
 - **Trademark policy.** "Ruralz" is a trademark of Revington (revington.co), and Apache-2.0 grants no trademark rights. The Revington trademark policy, modeled on ASF nominative use, is Planned (M0); its strictness is OQ-vision-and-positioning-2.
 - **Repository.** The monorepo [github.com/ravindu-rev/ruralz](https://github.com/ravindu-rev/ruralz) is owned by the GitHub account `ravindu-rev`.
-- **Contributions.** Every commit carries a DCO 1.1 `Signed-off-by:` line matching its author; there is no CLA. A CI check enforcing it is Planned (M0); see [DCO sign-off](docs/engineering/02-repository-layout-and-conventions.md#dco-sign-off).
+- **Contributions.** Every commit carries a DCO 1.1 `Signed-off-by:` line matching its author; there is no CLA. Stage 1 checks it on every pull request; see [DCO sign-off](docs/engineering/02-repository-layout-and-conventions.md#dco-sign-off).
 - **Stewardship.** Future releases stay Apache-2.0 because of principle P1 and ADR-0002; a structural safeguard such as a pledge or foundation stewardship is OQ-vision-and-positioning-9.

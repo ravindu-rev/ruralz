@@ -64,10 +64,20 @@ func TestCheckDCO(t *testing.T) {
 		{hash: "b2", authorName: "Jane Doe", authorEmail: "jane@example.com", subject: "missing"},
 		{hash: "c3", authorName: "Jane Doe", authorEmail: "jane@example.com", subject: "other person", signoffs: []string{"John Roe <john@example.com>"}},
 		{hash: "d4", authorName: "Jane Doe", authorEmail: "jane@example.com", subject: "two", signoffs: []string{"John Roe <john@example.com>", "Jane Doe <jane@example.com>"}},
+		{hash: "e5", authorName: "dependabot[bot]", authorEmail: "49699333+dependabot[bot]@users.noreply.github.com", subject: "dependabot"},
+		{hash: "f6", authorName: "dependabot[bot]", authorEmail: "jane@example.com", subject: "bot name only"},
+		{hash: "g7", authorName: "Jane Doe", authorEmail: "49699333+dependabot[bot]@users.noreply.github.com", subject: "bot email only"},
+		{hash: "h8", authorName: "dependabot[bot]", authorEmail: "49699333+Dependabot[bot]@users.noreply.github.com", subject: "bot email case"},
 	}
 	problems := checkDCO(commits)
-	if len(problems) != 2 || !strings.Contains(problems[0], "b2") || !strings.Contains(problems[1], "c3") {
-		t.Fatalf("problems = %q", problems)
+	want := []string{"b2", "c3", "f6", "g7", "h8"}
+	if len(problems) != len(want) {
+		t.Fatalf("problems = %q, want one each for %q", problems, want)
+	}
+	for i, hash := range want {
+		if !strings.Contains(problems[i], hash) {
+			t.Errorf("problems[%d] = %q, want commit %s", i, problems[i], hash)
+		}
 	}
 }
 

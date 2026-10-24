@@ -57,11 +57,21 @@ func gitCommits(ctx context.Context, dir, rng string) ([]commit, error) {
 	return commits, nil
 }
 
+// signoffExempt reports whether author is a bot that cannot add a
+// Signed-off-by trailer: Dependabot has no sign-off option (doc 02, "DCO
+// sign-off"). Both name and email must match exactly.
+func signoffExempt(name, email string) bool {
+	return name == "dependabot[bot]" && email == "49699333+dependabot[bot]@users.noreply.github.com"
+}
+
 // checkDCO requires a Signed-off-by trailer whose name and email match the
 // commit author. Emails compare case-insensitively.
 func checkDCO(commits []commit) []string {
 	var problems []string
 	for _, c := range commits {
+		if signoffExempt(c.authorName, c.authorEmail) {
+			continue
+		}
 		want := c.authorName + " <" + c.authorEmail + ">"
 		ok := slices.ContainsFunc(c.signoffs, func(s string) bool {
 			name, email, found := strings.Cut(s, " <")
