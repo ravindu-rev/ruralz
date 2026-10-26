@@ -4,7 +4,6 @@ The work left in the current milestone, M1 Core gateway, in build order: a row d
 
 | Step | Paths | Design |
 |---|---|---|
-| CEL module | `internal/cel/` (package root), `internal/cel/celtest/` | [Configuration model](../architecture/02-configuration-model.md) |
 | Telemetry runtime | `internal/telemetry/` (package root) | [Observability](../architecture/10-observability.md) |
 | Router | `internal/gateway/router/` | [Data plane](../architecture/03-data-plane.md) |
 | Per-request exchange | `internal/gateway/exchange/` | [Data plane](../architecture/03-data-plane.md) |
