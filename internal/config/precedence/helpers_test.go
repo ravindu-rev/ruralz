@@ -158,7 +158,7 @@ func decodeConfig(t testing.TB, reg *registry.Registry, p *v1alpha1.Policy) any 
 // stageI runs Run with the test oracle and the file table.
 func stageI(t testing.TB, b *hub.Bundle, files *tree.FileTable, workers int) (map[string]*hub.Chain, diag.List) {
 	t.Helper()
-	chains, ds, err := New(registry.New(), Options{Body: bodyOracle{}, Files: files}).Run(t.Context(), b, workers)
+	chains, ds, err := mustNew(t, registry.New(), Options{Body: bodyOracle{}}).Run(t.Context(), b, files, workers)
 	if err != nil {
 		t.Fatalf("Run: %v", err)
 	}
@@ -223,4 +223,14 @@ func golden(t *testing.T, path, got string) {
 	if got != string(want) {
 		t.Errorf("%s mismatch\n--- got\n%s--- want\n%s", path, got, want)
 	}
+}
+
+// mustNew returns New(reg, o), failing tb when New fails.
+func mustNew(tb testing.TB, reg *registry.Registry, o Options) *Resolver {
+	tb.Helper()
+	r, err := New(reg, o)
+	if err != nil {
+		tb.Fatalf("New: %v", err)
+	}
+	return r
 }

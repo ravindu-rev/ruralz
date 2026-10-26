@@ -19,8 +19,11 @@ type locator struct {
 // or the member key's when key is set and p ends in a field (a "declared
 // in" location, such as spec.overridable). A missing node, or a value
 // materialized from a default (tree.StyleDefaulted), takes the location of
-// its nearest known ancestor; without one, the resource start.
-func (l locator) path(r *hub.Resource, p diag.Path, key bool) diag.Location {
+// its nearest known ancestor; without one, the resource start. Every list
+// item it reads, one per index step and one per item a keyed step
+// compares, is a unit of w, so a caller that searched a list per entry
+// shows in w's count (TestListLocLinear).
+func (l locator) path(w *worker, r *hub.Resource, p diag.Path, key bool) diag.Location {
 	if r == nil {
 		return diag.Location{}
 	}
@@ -44,13 +47,13 @@ func (l locator) path(r *hub.Resource, p diag.Path, key bool) diag.Location {
 				at = m.KeyPos
 			}
 		} else {
-			next, ok := cur.At(diag.Path{e})
-			if !ok {
+			next := step(w, cur, e)
+			if next == nil {
 				break
 			}
 			cur, at = next, next.Pos
 		}
-		if cur == nil || cur.Style == tree.StyleDefaulted {
+		if cur.Style == tree.StyleDefaulted {
 			break
 		}
 		if at.Known() {
@@ -60,23 +63,115 @@ func (l locator) path(r *hub.Resource, p diag.Path, key bool) diag.Location {
 	return l.position(r, best)
 }
 
-// entry returns the location of element i of the list spec.<field> of r,
-// whose name member is name. It reads the element by index, so locating
-// every entry of a long list stays linear; it falls back to the keyed path
-// (and its nearest known ancestor) when the tree and the typed list
-// disagree or the element has no position.
-func (l locator) entry(r *hub.Resource, field string, i int, name string) diag.Location {
+// step returns the item of the list n that the index, keyed or item
+// element e names, or nil, charging w one unit per item it reads. A keyed
+// step skips an item whose key member has no value. An item element,
+// which no path stage I locates holds, is matched by tree.Node.At, with
+// one unit per item charged before that scan.
+func step(w *worker, n *tree.Node, e diag.PathElem) *tree.Node {
+	if n == nil || n.Kind != tree.KindList {
+		return nil
+	}
+	switch e.Kind {
+	case diag.ElemIndex:
+		if e.Index < 0 || e.Index >= len(n.Items) {
+			return nil
+		}
+		w.charge(siteLocate, 1)
+		return n.Items[e.Index]
+	case diag.ElemKeyed:
+		for _, it := range n.Items {
+			w.charge(siteLocate, 1)
+			if k := member(it, e.KeyField); k != nil && k.Value != nil && k.Value.Text == e.Key {
+				return it
+			}
+		}
+		return nil
+	default:
+		w.charge(siteLocate, len(n.Items))
+		next, _ := n.At(diag.Path{e})
+		return next
+	}
+}
+
+// listLoc locates the entries of one list spec.<field> of a resource. It
+// belongs to the goroutine of its worker. Locating every entry of a list
+// costs time linear in the list's length: an entry is read by index, and
+// an entry the index does not locate is found through a name index built
+// once for the list, never by a keyed search per entry. Every item read
+// is a unit of the worker, which the linearity tests count.
+type listLoc struct {
+	l     locator
+	w     *worker
+	r     *hub.Resource
+	field string
+	// want, when set, reports whether entry may be asked for a name; nil
+	// admits every name.
+	want func(name string) bool
+	// list is the tree's list node, or nil when the tree holds no list at
+	// spec.<field>.
+	list *tree.Node
+	// byName maps each name to the index of the first item with that
+	// name member, as a keyed path finds it; built on the first fallback.
+	// It holds only names want admits, so a name nobody asks for, such as
+	// a reference that resolves to nothing, takes no memory in it; a name
+	// longer than maxRefBytes is left out unread, since entry only looks
+	// up names that resolved.
+	byName map[string]int
+}
+
+// list returns the locator of the list spec.<field> of r on worker w.
+// want, when set, reports the names its entry may be asked for (those
+// whose reference resolves); nil admits every name.
+func (l locator) list(w *worker, r *hub.Resource, field string, want func(name string) bool) *listLoc {
+	ll := &listLoc{l: l, w: w, r: r, field: field, want: want}
 	if r != nil && r.Tree != nil {
 		if spec := member(r.Tree, "spec"); spec != nil {
-			if m := member(spec.Value, field); m != nil && m.Value != nil && m.Value.Kind == tree.KindList && i < len(m.Value.Items) {
-				it := m.Value.Items[i]
-				if k := member(it, "name"); k != nil && k.Value != nil && k.Value.Text == name && it.Pos.Known() {
-					return l.position(r, it.Pos)
+			if m := member(spec.Value, field); m != nil && m.Value != nil && m.Value.Kind == tree.KindList {
+				ll.list = m.Value
+			}
+		}
+	}
+	return ll
+}
+
+// entry returns the location of element i of the list, whose name member
+// is name: the element's own position, read by index. When the element
+// has no position, or the tree and the typed list disagree (another name
+// at i, or no element i), it returns what the keyed path
+// spec.<field>[name=<name>] locates: the first element named name, or its
+// nearest known ancestor when that element has no position; the list's
+// own location when no element has the name; and without such a list,
+// the nearest known ancestor of spec.<field>.
+func (ll *listLoc) entry(i int, name string) diag.Location {
+	if ll.list == nil {
+		return ll.l.path(ll.w, ll.r, entryPath(ll.field, name), false)
+	}
+	items := ll.list.Items
+	if i >= 0 && i < len(items) {
+		ll.w.charge(siteLocate, 1)
+		it := items[i]
+		if k := member(it, "name"); k != nil && k.Value != nil && k.Value.Text == name && it.Pos.Known() {
+			return ll.l.position(ll.r, it.Pos)
+		}
+	}
+	if ll.byName == nil {
+		ll.byName = make(map[string]int)
+		for k, it := range items {
+			ll.w.charge(siteLocate, 1)
+			if n := member(it, "name"); n != nil && n.Value != nil && ll.w.resolvable(siteLongLocate, n.Value.Text) &&
+				(ll.want == nil || ll.want(n.Value.Text)) {
+				if _, seen := ll.byName[n.Value.Text]; !seen {
+					ll.byName[n.Value.Text] = k
 				}
 			}
 		}
 	}
-	return l.path(r, entryPath(field, name), false)
+	p := diag.Path{diag.Field("spec"), diag.Field(ll.field)}
+	if k, ok := ll.byName[name]; ok {
+		p = append(p, diag.Index(k))
+	}
+	return ll.l.path(ll.w, ll.r, p, false)
 }
 
 // position converts pos to a location: through the FileTable when one is
