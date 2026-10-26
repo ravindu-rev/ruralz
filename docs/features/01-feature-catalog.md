@@ -277,7 +277,7 @@ Ruralz is OpenTelemetry-first ([ADR-0018](../adr/0018-telemetry-opentelemetry-pr
 
 | Feature | Status | Mechanism | Design |
 |---|---|---|---|
-| OpenTelemetry tracing | Planned (M1) | `Gateway` `telemetry.otlp.endpoint`, `telemetry.otlp.tls` (OQ-observability-2, option (a)) and `traceSampling` | [Observability: Tracing](../architecture/10-observability.md#tracing) |
+| OpenTelemetry tracing | Planned (M1) | `Gateway` `telemetry.otlp.endpoint`, `telemetry.otlp.tls` and `traceSampling` | [Observability: Tracing](../architecture/10-observability.md#tracing) |
 | Spans per Filter and upstream leg | Planned (M1) | Spans `ruralz.filter.<name>`, `ruralz.upstream.<name>` and `ruralz.route.match`; per-Route sampling per OQ-observability-5 | [Observability: Span model](../architecture/10-observability.md#span-model) |
 | Trace context propagation | Planned (M1) | `traceparent` and `tracestate` injected into every HTTP leg; gRPC legs Planned (M3); Kafka, NATS and MQTT 5 legs Planned (M4) | [Observability: Propagation](../architecture/10-observability.md#propagation) |
 | Prometheus metrics | Planned (M1) | `/metrics` on admin port 9901 with `ruralz_<component>_<name>_<unit>` metrics labeled by `Route` and `Upstream` | [Observability: Metrics catalog](../architecture/10-observability.md#metrics-catalog) |

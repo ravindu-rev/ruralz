@@ -256,7 +256,7 @@ spec:
 
 `stateStore.cache`, Planned (M1), is a second `redis` connection under the rules above, used only by the Response Cache, so cache entries never evict limit keys (OQ-scalability-and-distributed-state-3, option (a)). Without it the Response Cache shares the main one under Scalability's [interim rules](11-scalability-and-distributed-state.md#distributed-caches) and a startup warning.
 
-`telemetry.otlp.tls`, Planned (M1), holds the collector's TLS client settings (OQ-observability-2, option (a)); without it an `https` collector is verified against system roots, and an `http` one is a reported cleartext hop ([Observability](10-observability.md)). Authentication headers come later.
+`telemetry.otlp.tls`, Planned (M1), holds the collector's TLS client settings; without it an `https` collector is verified against system roots, and an `http` one is a reported cleartext hop ([Observability](10-observability.md#telemetry-pipeline)). Authentication is OQ-observability-2.
 
 [WASM plugin system](05-wasm-plugin-system.md) owns the value and the cap behavior of `limits.maxPluginMemoryBytes` (foundation pack section 8.11). `http3: true` is `Planned (M3)` and off in FIPS builds.
 

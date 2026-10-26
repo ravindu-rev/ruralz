@@ -355,7 +355,7 @@ spec:
   admin:
     port: 9901
   telemetry:
-    otlp: {endpoint: "https://otel-sink.bench.example:4317"}   # TLS client settings: OQ-observability-2
+    otlp: {endpoint: "https://otel-sink.bench.example:4317"}   # TLS client settings: telemetry.otlp.tls
     traceSampling: 0.01              # (target), set explicitly; accessLog.when unset: every request is logged
   stateStore:
     driver: memory                   # GCRA in process, no round trip: SM-4's "no State Store Policy";
