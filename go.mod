@@ -6,7 +6,6 @@ toolchain go1.27.3
 
 require (
 	cel.dev/cel-go v0.32.0
-	github.com/goccy/go-yaml v1.19.2
 	github.com/lestrrat-go/jwx/v4 v4.5.0
 	github.com/prometheus/client_golang v1.24.1
 	github.com/prometheus/common v0.71.0

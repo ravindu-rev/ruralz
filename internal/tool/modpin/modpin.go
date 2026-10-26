@@ -11,7 +11,6 @@ package modpin
 
 import (
 	_ "cel.dev/cel-go/cel"
-	_ "github.com/goccy/go-yaml"
 	_ "github.com/lestrrat-go/jwx/v4/jwk"
 	_ "github.com/prometheus/client_golang/prometheus"
 	_ "github.com/prometheus/common/expfmt"

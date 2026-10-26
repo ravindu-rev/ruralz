@@ -32,7 +32,6 @@ linters:
             # (docs/engineering/01-tech-stack-and-libraries.md).
             - cel.dev/cel-go
             - cel.dev/expr
-            - github.com/goccy/go-yaml
             - github.com/lestrrat-go/jwx/v4
             - github.com/prometheus/client_golang
             - github.com/prometheus/common
@@ -67,6 +66,12 @@ linters:
               desc: no Lua (ADR-0019)
             - pkg: github.com/valyala/fasthttp
               desc: net/http and quic-go only (ADR-0009)
+            - pkg: github.com/goccy/go-yaml
+              desc: the restricted YAML profile is Ruralz code in internal/config/profile (ADR-0003)
+            - pkg: go.yaml.in/yaml/v4
+              desc: the restricted YAML profile is Ruralz code in internal/config/profile (ADR-0003)
+            - pkg: gopkg.in/yaml
+              desc: the restricted YAML profile is Ruralz code in internal/config/profile (ADR-0003)
         wazero:
           files: ["$all", "!**/internal/pluginhost/**"]
           deny:
@@ -77,11 +82,6 @@ linters:
           deny:
             - pkg: github.com/redis/rueidis
               desc: rueidis is wrapped by internal/statestore/redis
-        goyaml:
-          files: ["$all", "!**/internal/config/profile/**"]
-          deny:
-            - pkg: github.com/goccy/go-yaml
-              desc: the restricted YAML profile is the only YAML parser and emitter
         yamlv3:
           files: ["$all", "!**/internal/config/profile/*_test.go"]
           deny:
