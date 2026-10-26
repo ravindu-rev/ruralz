@@ -93,7 +93,7 @@ Start at the [documentation index](docs/README.md), which gives reading paths fo
 
 - **License.** Every component is Apache-2.0: `ruralzd`, `ruralz-control`, Ruralz Console, the `ruralz` CLI, SDKs, the Helm chart and the documentation. See [LICENSE](LICENSE) and [NOTICE](NOTICE). There is no feature gating and no separate "enterprise" build ([ADR-0002](docs/adr/0002-apache-2-license-no-feature-gating.md)).
 - **Copyright.** Copyright 2026 Revington ([revington.co](https://revington.co)).
-- **Trademark policy.** "Ruralz" is a trademark of Revington (revington.co), and Apache-2.0 grants no trademark rights. The Revington trademark policy, modeled on ASF nominative use, is Planned (M0); its strictness is OQ-vision-and-positioning-2.
+- **Trademark policy.** "Ruralz" is a trademark of Revington (revington.co), and Apache-2.0 grants no trademark rights. The [trademark policy](TRADEMARKS.md), modeled on ASF nominative use, lets anyone name Ruralz truthfully, redistribute unmodified copies and say "based on Ruralz" or "compatible with Ruralz" when it is true; a modified build takes its own name.
 - **Repository.** The monorepo [github.com/ravindu-rev/ruralz](https://github.com/ravindu-rev/ruralz) is owned by the GitHub account `ravindu-rev`.
 - **Contributions.** Every commit carries a DCO 1.1 `Signed-off-by:` line matching its author; there is no CLA. Stage 1 checks it on every pull request; see [DCO sign-off](docs/engineering/02-repository-layout-and-conventions.md#dco-sign-off).
 - **Stewardship.** Future releases stay Apache-2.0 because of principle P1 and ADR-0002; a structural safeguard such as a pledge or foundation stewardship is OQ-vision-and-positioning-9.

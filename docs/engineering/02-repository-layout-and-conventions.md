@@ -98,7 +98,7 @@ github.com/ravindu-rev/ruralz
 ├── .github/                     workflows/, CODEOWNERS, pull request template
 ├── .gitattributes, .gitignore, .golangci.yml, buf.yaml, buf.gen.yaml
 ├── go.mod, go.sum, Makefile
-└── LICENSE, NOTICE, README.md, CONTRIBUTING.md, SECURITY.md
+└── LICENSE, NOTICE, README.md, CONTRIBUTING.md, SECURITY.md, TRADEMARKS.md
 ```
 
 ### Directory responsibilities
