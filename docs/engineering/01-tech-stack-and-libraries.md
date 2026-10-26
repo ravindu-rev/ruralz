@@ -2,7 +2,7 @@
 title: Tech Stack and Libraries
 status: reviewed
 owner: ruralz-core
-last_updated: 2026-10-09
+last_updated: 2026-10-26
 depends_on:
   - docs/_meta/foundation-pack.md
   - docs/_meta/style-guide.md
@@ -226,8 +226,8 @@ The minimum Go version is 1.26 ([ADR-0001](../adr/0001-implementation-language-g
 
 jwx v4 needs `encoding/json/v2`, standard in Go 1.27 and behind `GOEXPERIMENT=jsonv2` on 1.26 ([source](https://github.com/lestrrat-go/jwx/blob/develop/v4/README.md)). The 1.26 floor stays, as foundation pack section 7 (Language / build) fixes:
 
-- Release and FIPS binaries MUST use the latest patch of the newest Go release (Go 1.27.1 at the snapshot ([source](https://go.dev/doc/devel/release))), pinned by `toolchain go1.27.1`, and never set a `GOEXPERIMENT`.
-- Under the default `GOTOOLCHAIN=auto`, a Go 1.26 `go` command switches to go1.27.1, so plain builds need no flags.
+- Release and FIPS binaries MUST use the latest patch of the newest Go release (Go 1.27.3 on 2026-10-26 ([source](https://go.dev/doc/devel/release))), pinned by `toolchain go1.27.3`, and never set a `GOEXPERIMENT`.
+- Under the default `GOTOOLCHAIN=auto`, a Go 1.26 `go` command switches to go1.27.3, so plain builds need no flags.
 - The floor CI job builds and tests on the latest 1.26 patch with `GOTOOLCHAIN=local` and `GOEXPERIMENT=jsonv2`; the Makefile floor target sets both.
 - A guard file constrained to `go1.26 && !go1.27 && !goexperiment.jsonv2` fails compilation with an identifier naming the fix.
 - JSON golden tests (Bundle loading, Control Stream JSON, JOSE) MUST produce identical bytes in both jobs.
@@ -307,7 +307,7 @@ A new direct dependency MUST get a catalog row in the same pull request. Transit
 - **MPL-2.0, named exceptions only.** File-level weak copyleft, accepted because the Control Store sits behind an interface with an optional `postgres` implementation ([ADR-0006](../adr/0006-control-store-raft-boltdb.md), proposed). The MPL-2.0 Consul `api` module ([source](https://raw.githubusercontent.com/hashicorp/consul/main/api/LICENSE)) is not admitted.
 - **Dual-licensed modules.** paho.golang is EPL-2.0 or EDL-1.0 ([source](https://github.com/eclipse-paho/paho.golang)); Ruralz elects EDL-1.0 in `NOTICE`.
 - **What the gate reads.** Each binary's linked packages (`go list -deps -test=false`), which Ruralz distributes, not `go mod graph`. The MPL-2.0 `go-cleanhttp` and `go-retryablehttp`, listed only in go-metrics' `go.mod` for its Circonus sink ([source](https://github.com/hashicorp/go-metrics/blob/v0.7.0/go.mod)), pass until that sink is imported. The first gate run, Planned (M0), confirms the researched linked set.
-- **CI tools stay out of `go.mod`.** golangci-lint (GPL-3.0 ([source](https://github.com/golangci/golangci-lint/blob/v2.13.2/LICENSE))) runs as a pinned binary, never a `tool` directive.
+- **CI tools stay out of `go.mod`.** golangci-lint (GPL-3.0 ([source](https://github.com/golangci/golangci-lint/blob/v2.15.0/LICENSE))) runs as a pinned binary, never a `tool` directive.
 - **External servers are not linked.** Redis 8 is RSALv2, SSPLv1 or AGPLv3 ([source](https://redis.io/legal/licenses/)) and ships no code in Ruralz; Valkey with valkey-search (BSD-3-Clause ([source](https://github.com/valkey-io/valkey-search))) is the fully open State Store deployment.
 
 | MPL-2.0 exception | Version | Status | Reason | Obligations |
@@ -342,7 +342,7 @@ CI tools, actions, images and runners never link into a binary or enter `go.mod`
 
 | Tool | Version | License | How it runs | Source |
 |---|---|---|---|---|
-| golangci-lint | v2.13.2 | GPL-3.0 | Stage 2 | ([source](https://github.com/golangci/golangci-lint/releases/tag/v2.13.2)) ([source](https://github.com/golangci/golangci-lint/blob/v2.13.2/LICENSE)) |
+| golangci-lint | v2.15.0 | GPL-3.0 | Stage 2 | ([source](https://github.com/golangci/golangci-lint/releases/tag/v2.15.0)) ([source](https://github.com/golangci/golangci-lint/blob/v2.15.0/LICENSE)) |
 | gofumpt, goimports | Bundled in golangci-lint | BSD-3-Clause | golangci-lint formatters | ([source](https://github.com/mvdan/gofumpt/blob/master/LICENSE)) ([source](https://github.com/golang/tools/blob/master/LICENSE)) |
 | govulncheck | `golang.org/x/vuln` v1.8.0 | BSD-3-Clause | `go install`, verified by the Go checksum database | ([source](https://pkg.go.dev/golang.org/x/vuln@v1.8.0/cmd/govulncheck)) ([source](https://proxy.golang.org/golang.org/x/vuln/@v/v1.8.0.zip)) |
 | actionlint | v1.7.12 | MIT | Stage 2 workflow lint | ([source](https://proxy.golang.org/github.com/rhysd/actionlint/@v/v1.7.12.zip)) |

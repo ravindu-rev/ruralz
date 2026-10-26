@@ -2,7 +2,7 @@
 title: Testing and Quality Strategy
 status: reviewed
 owner: ruralz-core
-last_updated: 2026-10-09
+last_updated: 2026-10-26
 depends_on:
   - docs/_meta/foundation-pack.md
   - docs/_meta/style-guide.md
@@ -257,7 +257,7 @@ Static checks run in `pr-fast`, block merge and enforce the [tech stack](01-tech
 | `govulncheck` and `go mod verify` | A reachable vulnerability or checksum mismatch | `pr-fast` | Planned (M0) |
 | License gate (G2) | A linked package outside the allowlist and named MPL-2.0 exceptions | `pr-fast` | Planned (M0) |
 | Crypto denylist (G3) | A crypto package off the allowlist; a FIPS job adds `GOFIPS140` builds and tests, HTTP/3 cases excepted | `pr-fast` | Planned (M0); FIPS job Planned (M5) |
-| golangci-lint | A finding; a pinned binary, since it is GPL-3.0 ([source](https://github.com/golangci/golangci-lint/blob/v2.13.2/LICENSE)) | `pr-fast` | Planned (M0) |
+| golangci-lint | A finding; a pinned binary, since it is GPL-3.0 ([source](https://github.com/golangci/golangci-lint/blob/v2.15.0/LICENSE)) | `pr-fast` | Planned (M0) |
 | `buf lint` and `buf breaking` | A breaking change to `ruralz.control.v1` or `ruralz.plugin.v1` ([source](https://github.com/bufbuild/buf)) | `pr-fast` | Planned (M2) |
 | No-license-check scan | A license-key or entitlement check, found by the [repocheck](02-repository-layout-and-conventions.md) source scan (P1; SM-1: 0 gated features, target) | `pr-fast` | Planned (M0) |
 | Redaction unit tests | A `secretRef` value in `/config/dump`, diff or log encoder output | `pr-fast` | Planned (M1) |

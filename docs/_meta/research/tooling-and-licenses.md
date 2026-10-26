@@ -287,6 +287,17 @@ The runner versions come from the Ubuntu 24.04 runner image README, read at imag
 - Analysis: the runner image versions in section 11.2 are unpinned and can change with any image release. After `ubuntu-latest` moves to Ubuntu 26.04 in November 2026, the distribution-package versions (systemd and the jq apt package) will no longer be the `noble` values recorded here.
 - Analysis: the BSL 1.1 text grants the right to "make non-production use of the Licensed Work"; the stage 8 container leg runs the Dragonfly image as a test dependency and does not redistribute it.
 
+## 12. golangci-lint v2.15.0
+
+Addendum read on 2026-10-26 from primary sources: the golangci-lint release pages through the GitHub REST API, the checksums file of the release, and the `LICENSE` file at the tag through `raw.githubusercontent.com`.
+
+| Tool | Repository | License (SPDX) | LICENSE file | Version | Source |
+|---|---|---|---|---|---|
+| golangci-lint | https://github.com/golangci/golangci-lint | `GPL-3.0` | (https://github.com/golangci/golangci-lint/blob/v2.15.0/LICENSE) | v2.15.0 (2026-10-16); v2.14.0 came out on 2026-09-24 | (https://github.com/golangci/golangci-lint/releases/tag/v2.15.0) |
+
+- The release publishes a checksums file with the SHA-256 of every archive (https://github.com/golangci/golangci-lint/releases/download/v2.15.0/golangci-lint-2.15.0-checksums.txt).
+- Analysis: run on the Ruralz module on 2026-10-26, v2.13.2 could not type-check it under go1.27.3 ("export data version 5 is greater than maximum supported version 4"), yet printed "0 issues." and exited 7. v2.14.0 and v2.15.0 type-checked it; with `GOOS=linux` both reported the same three gosec G703 findings.
+
 ## Sources
 
 https://adr.github.io/madr/

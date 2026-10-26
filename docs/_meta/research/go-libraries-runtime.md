@@ -62,6 +62,19 @@
 - The docs report gains of about 2–14% on a representative set of programs as of Go 1.22 (https://go.dev/doc/pgo).
 - The first PGO build takes longer to compile, and binaries may grow slightly (https://go.dev/doc/pgo).
 
+### 1.6 Releases after the snapshot
+
+Addendum read on 2026-10-26 from go.dev's release history and the Go module proxy (`.info` release times).
+
+| Release | Date | Fixes | Source |
+|---|---|---|---|
+| go1.27.2 | 2026-10-08 | Security fixes to the go command and the `crypto/tls`, `html/template`, `net/http`, `net/textproto` and `os` packages | (https://go.dev/doc/devel/release) |
+| go1.27.3 (latest) | 2026-10-19 | Security fixes to the `crypto/x509` package | (https://go.dev/doc/devel/release) |
+| `golang.org/x/net` v0.60.0 | 2026-10-08 | Not read here | (https://proxy.golang.org/golang.org/x/net/@v/v0.60.0.info) |
+| `golang.org/x/net` v0.61.0 (latest) | 2026-10-09 | Not read here | (https://proxy.golang.org/golang.org/x/net/@v/v0.61.0.info) |
+
+- Analysis: govulncheck v1.8.0 run on the Ruralz module on 2026-10-26 reported 13 reachable vulnerabilities under go1.27.1 and `x/net` v0.59.0, fixed in go1.27.2 (GO-2026-6809 in `crypto/x509` only in go1.27.3) and, for the five also found in `x/net`, in v0.60.0. Under go1.27.3 and `x/net` v0.61.0 it reported none.
+
 ## 2. WASM runtimes
 
 ### 2.1 Comparison
