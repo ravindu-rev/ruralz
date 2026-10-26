@@ -53,14 +53,14 @@ const (
 // ("{}"), depth first with members in name order. Below an object with
 // if/then/else dispatch it adds the positions each rule changes when it
 // alone matches, then those the else branches change when none matches,
-// each with its Dispatch appended to Where. When a branch adds
-// x-ruralz-* keywords to the dispatched object itself, that object is
-// listed again at its path with the Dispatch, so Fields reports every
-// marker Lookup and Walk apply. A recursive schema is listed once per
-// cycle. Consumers enumerate markers from it instead of hard-coding field
-// lists (R-62): defaults, keyed lists, CEL places, secrets, references
-// and impact classes. Load bounds the enumeration (at most 65,536
-// fields), so the result is always complete.
+// each with its Dispatch appended to Where. When a branch adds x-ruralz-*
+// keywords to the dispatched object itself, that object is listed again
+// at its path with the Dispatch, so Fields reports every marker Lookup
+// and Walk apply. A recursive schema is listed once per cycle. Consumers
+// enumerate markers from it instead of hard-coding field lists: defaults,
+// keyed lists, CEL places, secrets, references and impact classes. Load
+// bounds the enumeration (at most 65,536 fields), so the result is always
+// complete.
 func (x *Index) Fields() []Field {
 	return slices.Collect(x.FieldsSeq())
 }

@@ -8,23 +8,21 @@ import (
 	"strings"
 )
 
-// detector recognizes one credential shape (01 J row 013). needles are
-// substrings at least one of which every match contains; the regular
-// expression runs only when one occurs, so ordinary strings cost a few
-// substring searches.
+// detector recognizes one credential shape. needles are substrings at least
+// one of which every match contains; the regular expression runs only when
+// one occurs, so ordinary strings cost a few substring searches.
 type detector struct {
 	name    string
 	needles []string
 	re      *regexp.Regexp
 }
 
-// DetectorVersion versions the credential detector list (01 risk 35): a
-// change to the list or a pattern changes it.
+// DetectorVersion versions the credential detector list: a change to
+// the list or a pattern changes it.
 const DetectorVersion = 1
 
-// newDetectors compiles the versioned credential detector list of the
-// 01 J row for RZ-CFG-013 (spec 01 risk 35). The messages name the
-// detector, never the value.
+// newDetectors compiles the versioned credential detector list for
+// RZ-CFG-013. The messages name the detector, never the value.
 func newDetectors() []detector {
 	return []detector{
 		{
@@ -82,8 +80,8 @@ func detect(ds []detector, s string) string {
 	return ""
 }
 
-// credentialHeader reports a header name whose literal headers set[]
-// value is credential-shaped by name (01 J row 013).
+// credentialHeader reports a header name whose literal headers set[] value
+// is credential-shaped by name.
 func credentialHeader(name string) bool {
 	switch strings.ToLower(name) {
 	case "authorization", "proxy-authorization", "cookie", "x-api-key":

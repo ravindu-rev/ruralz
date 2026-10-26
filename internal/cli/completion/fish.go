@@ -12,11 +12,11 @@ import (
 	"github.com/ravindu-rev/ruralz/internal/cli/command"
 )
 
-// writeFish renders the fish script (spec 10 req 108): `complete -c`
-// lines whose conditions use __fish_use_subcommand and
-// __fish_seen_subcommand_from; file completion is off except where a
-// value or positional completes files. An enum flag with modes gets one
-// line per mode, told apart with __fish_contains_opt.
+// writeFish renders the fish script: `complete -c` lines whose
+// conditions use __fish_use_subcommand and __fish_seen_subcommand_from;
+// file completion is off except where a value or positional completes
+// files. An enum flag with modes gets one line per mode, told apart with
+// __fish_contains_opt.
 func writeFish(b *bytes.Buffer, m *model) {
 	p := m.program
 	fmt.Fprintf(b, `# fish completion for %[1]s

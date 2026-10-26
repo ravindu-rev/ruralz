@@ -10,8 +10,7 @@ import (
 )
 
 // observe applies one attempt's outcome to Endpoint e at now, an instant of
-// t (Tracker.at) (05 reqs 13, 18, 19 and 21); suspect is whether e was
-// suspect when the attempt ended.
+// t (Tracker.at); suspect is whether e was suspect when the attempt ended.
 // It reports whether the outcome ejected e.
 func (t *Tracker) observe(e *endpoint, now int64, o Outcome, suspect bool) bool {
 	if o.Failed {
@@ -23,7 +22,7 @@ func (t *Tracker) observe(e *endpoint, now int64, o Outcome, suspect bool) bool 
 	}
 	pol = pol.WithDefaults()
 	// An attempt timeout on a suspect Endpoint ejects it at once, over the
-	// cap (05 req 21).
+	// cap.
 	if o.Cause == CauseTimeout && suspect {
 		return t.eject(e, now, pol, true, o.Stripe)
 	}
@@ -42,14 +41,14 @@ func (t *Tracker) observe(e *endpoint, now int64, o Outcome, suspect bool) bool 
 		return false
 	}
 	// Connect errors (dial errors, dial timeouts, HTTP/2 ping closes)
-	// bypass the cap (05 reqs 19, 22).
+	// bypass the cap.
 	return t.eject(e, now, pol, o.Cause == CauseConnect, o.Stripe)
 }
 
 // eject passively ejects e at now unless it is already ejected, it left
 // the set, the Tracker is closed, or (without bypass) the ejection would
-// exceed floor(MaxEjectionPercent × E) passively ejected Endpoints (05 req
-// 19). Ejections are serialized by t.mu, so the cap holds under any
+// exceed floor(MaxEjectionPercent × E) passively ejected Endpoints.
+// Ejections are serialized by t.mu, so the cap holds under any
 // concurrency. The run of failures that triggered a skipped ejection is
 // kept, so the next failure tries again.
 func (t *Tracker) eject(e *endpoint, now int64, pol PassivePolicy, bypass bool, s emit.Stripe) bool {
@@ -88,8 +87,7 @@ func (t *Tracker) eject(e *endpoint, now int64, pol PassivePolicy, bypass bool, 
 
 // decayed returns e's ejection count at now: the count of its last
 // ejection minus one per ejectionTime spent not ejected since that
-// ejection ended (05 req 18; proposed, spec 05 section 9 item 10). t.mu is
-// held.
+// ejection ended (proposed). t.mu is held.
 func decayed(e *endpoint, now int64, ejectionTime time.Duration) int {
 	if e.ejections == 0 || now <= e.decayFrom {
 		return e.ejections

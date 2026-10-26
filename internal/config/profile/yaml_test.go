@@ -17,8 +17,8 @@ import (
 	"github.com/ravindu-rev/ruralz/internal/config/tree"
 )
 
-// TestParseTree checks typing, styles and positions (01 req 12, 14): keys
-// and values carry 1-based lines and code-point columns.
+// TestParseTree checks typing, styles and positions: keys and values
+// carry 1-based lines and code-point columns.
 func TestParseTree(t *testing.T) {
 	src := "# head\n" +
 		"apiVersion: ruralz/v1alpha1\n" +
@@ -79,9 +79,9 @@ func TestParseTree(t *testing.T) {
 	}
 }
 
-// TestTokenPassCollects covers 01 req 8: anchors, aliases and merge keys
-// are RZ-CFG-003, other tags and %TAG RZ-CFG-004, all collected across
-// the file, and a file with any finding is not parsed.
+// TestTokenPassCollects checks that anchors, aliases and merge keys are
+// RZ-CFG-003, other tags and %TAG RZ-CFG-004, all collected across the
+// file, and that a file with any finding is not parsed.
 func TestTokenPassCollects(t *testing.T) {
 	src := "a: &x 1\n" + //       1:4 anchor
 		"b: *x\n" + //            2:4 alias
@@ -102,8 +102,8 @@ func TestTokenPassCollects(t *testing.T) {
 		"---\n" +
 		"m: 1\n" +
 		"---\n" +
-		// After an empty block scalar and a blank line goccy scans the
-		// next line's first node as plain text (sixth WP-33 review).
+		// After an empty block scalar and a blank line goccy scans the next
+		// line's first node as plain text.
 		"x: |\n\n&y q: 1\n" + // 22:1
 		"z: >-\n\n!e w: 1\n" + // 25:1
 		"t: !f" // 26:4, a tag at the end of the input
@@ -127,12 +127,11 @@ func TestTokenPassCollects(t *testing.T) {
 	}
 }
 
-// TestFinalLineBreak covers a text that does not end with a line break
-// (01 req 8, 12, 14; blocker of the sixth WP-33 review): Parse reads it as
-// if it did, as the YAML Test Suite reads such a stream, so goccy's
-// scanner no longer drops a tag at the end of the input (no RZ-CFG-004)
-// nor the trailing spaces of a block scalar's last line, and no position
-// moves.
+// TestFinalLineBreak covers a text that does not end with a line break:
+// Parse reads it as if it did, as the YAML Test Suite reads such a stream,
+// so goccy's scanner no longer drops a tag at the end of the input (no
+// RZ-CFG-004) nor the trailing spaces of a block scalar's last line, and
+// no position moves.
 func TestFinalLineBreak(t *testing.T) {
 	tests := []struct{ src, want string }{
 		{"k: !foo", "RZ-CFG-004@1:4"},
@@ -144,7 +143,7 @@ func TestFinalLineBreak(t *testing.T) {
 		{"k: v", `{k@1:1:s:"v"@1:4}`},
 		{"k: 'v'", `{k@1:1:s:"v"@1:4}`},
 		// The null after the ':', in the column after it, wherever the
-		// input ends (minor finding of the eighth WP-33 review).
+		// input ends.
 		{"k:", `{k@1:1:n@1:3}`},
 		{"k: v\r", `{k@1:1:s:"v"@1:4}`},
 	}
@@ -161,7 +160,7 @@ func TestFinalLineBreak(t *testing.T) {
 }
 
 // TestCoreTagsAccepted covers the seven core tags passing the token pass
-// and forcing types (01 req 8, 12).
+// and forcing types.
 func TestCoreTagsAccepted(t *testing.T) {
 	src := "a: !!str 0777\n" +
 		"b: !!int \"12\"\n" +
@@ -191,8 +190,8 @@ func TestCoreTagsAccepted(t *testing.T) {
 	}
 }
 
-// TestTagMismatch covers a tagged value that does not match its tag (01
-// req 12): RZ-CFG-001 at the tag.
+// TestTagMismatch covers a tagged value that does not match its tag:
+// RZ-CFG-001 at the tag.
 func TestTagMismatch(t *testing.T) {
 	tests := []struct {
 		src       string
@@ -203,7 +202,7 @@ func TestTagMismatch(t *testing.T) {
 		{"a: !!bool yes\n", codeParse, 1, 4},
 		{"a: !!null 0\n", codeParse, 1, 4},
 		// goccy checks these itself and reports at the value, whose
-		// column follows the tag's (01 req 14).
+		// column follows the tag's.
 		{"a: !!map [1]\n", codeParse, 1, 10},
 		{"a: !!seq {b: 1}\n", codeParse, 1, 10},
 		{"a: !!str {b: 1}\n", codeParse, 1, 10},
@@ -221,13 +220,12 @@ func TestTagMismatch(t *testing.T) {
 	}
 }
 
-// TestTagChains covers a node with more than one tag (11 req 17, 26;
-// finding 3 of the WP-33 review): RZ-CFG-001 at the second tag, which
-// stops the file before goccy's parser recurses once per tag. Anchors in
-// between are RZ-CFG-003, so such a file is never parsed either. A tag
-// that follows a tag on an earlier line and starts an implicit key belongs
-// to another node, the key of a tagged mapping, and is valid (01 req 8,
-// 12; finding 2 of the second WP-33 review); a chain stays bounded at two.
+// TestTagChains covers a node with more than one tag: RZ-CFG-001 at the
+// second tag, which stops the file before goccy's parser recurses once per
+// tag. Anchors in between are RZ-CFG-003, so such a file is never parsed
+// either. A tag that follows a tag on an earlier line and starts an
+// implicit key belongs to another node, the key of a tagged mapping, and
+// is valid; a chain stays bounded at two.
 func TestTagChains(t *testing.T) {
 	tests := []struct{ src, want string }{
 		{"a: !!str !!str x\n", "RZ-CFG-001@1:10"},
@@ -289,15 +287,13 @@ func TestTagChains(t *testing.T) {
 }
 
 // TestTaggedNodeWithoutValue covers a tag that ends its line, in a block
-// collection, before a token at or left of that collection's column (01
-// req 8, 9; 11 req 17, 26; blocker of the third WP-33 review). goccy nests
-// that token under the tagged node, so "a: !!map\nb: 1" read as
-// {a: {b: 1}} and a ladder of such lines nested past MaxDepth unseen; the
+// collection, before a token at or left of that collection's column. goccy
+// nests that token under the tagged node, so "a: !!map\nb: 1" read as {a:
+// {b: 1}} and a ladder of such lines nested past MaxDepth unseen; the
 // token pass stops the file with RZ-CFG-001 at the tag, split or not. A
-// compact sequence at a mapping's column and the ':' of an
-// explicit key give the tag its value, and a document's tag, a tag before
-// a document marker and a tag at the end of the input are outside the
-// check.
+// compact sequence at a mapping's column and the ':' of an explicit key
+// give the tag its value, and a document's tag, a tag before a document
+// marker and a tag at the end of the input are outside the check.
 func TestTaggedNodeWithoutValue(t *testing.T) {
 	tests := []struct{ src, want string }{
 		{"a: !!map\nb: 1\n", "RZ-CFG-001@1:4"},
@@ -306,7 +302,7 @@ func TestTaggedNodeWithoutValue(t *testing.T) {
 		{"? a\n: !!map\nb: 1\n", "RZ-CFG-001@2:3"},
 		{"- !!map\na: 1\n", "RZ-CFG-001@1:3"},
 		{"a:\n  - !!map\n  b: 1\n", "RZ-CFG-001@2:5"},
-		// The second tag of a line, at its real column (01 req 14).
+		// The second tag of a line, at its real column.
 		{"!!str a: !!map\n!!str b: 1\n", "RZ-CFG-001@1:10"},
 		{"a: !!map\n!!str b: 1\n", "RZ-CFG-001@1:4"},
 		{"a:\n  !!map\nb: 1\n", "RZ-CFG-001@2:3"},
@@ -322,8 +318,7 @@ func TestTaggedNodeWithoutValue(t *testing.T) {
 		{"x:\n  a: !!seq\n- y\n", "RZ-CFG-001@2:6"},
 		// After a finding the file is never parsed, so the check is
 		// skipped and the scan goes on collecting RZ-CFG-003 and
-		// RZ-CFG-004 (01 req 8; minor finding of the fourth WP-33
-		// review).
+		// RZ-CFG-004.
 		{"a: !e\nb: 1\n", "RZ-CFG-004@1:4"},
 		{"a: !e\nb: !f\nc: &x 1\n", "RZ-CFG-004@1:4 RZ-CFG-004@2:4 RZ-CFG-003@3:4"},
 		{"a: &x !!map\nb: 1\nc: !e 1\n", "RZ-CFG-003@1:4 RZ-CFG-004@3:4"},
@@ -331,7 +326,7 @@ func TestTaggedNodeWithoutValue(t *testing.T) {
 		{"a: !!seq\n- x\n", `{a:[s:"x"]}`},
 		// Its value on its line, a plain scalar that a line starting with
 		// '-' continues, which goccy reports at the scalar's last line
-		// (finding of the eighth WP-33 review, found by FuzzLoadYAML).
+		// (found by FuzzLoadYAML).
 		{"0: !!str 0\n -\n...\n", `{0:s:"0 -"}`},
 		// Its content on the next line at the mapping's column, where
 		// YAML 1.2 reads no content of the tag: refused, whatever follows.
@@ -374,7 +369,7 @@ func TestTaggedNodeWithoutValue(t *testing.T) {
 		}
 	}
 	// The ladder stops at its first tag in a mapping of 255 entries as in
-	// one of 256, the split threshold of earlier reviews.
+	// one of 256, the former split threshold.
 	for _, rows := range []int{255, 256} {
 		for _, cols := range []int{1, 63} {
 			for _, splitAt := range []int{-1, 0, 3} {
@@ -387,21 +382,18 @@ func TestTaggedNodeWithoutValue(t *testing.T) {
 }
 
 // TestMultiLineImplicitKey covers a ':' with no key on its line after a
-// node that started on an earlier line or is a block scalar (01 req 8, 9;
-// 11 req 17, 26; blocker of the fourth WP-33 review). YAML 1.2 keeps an
-// implicit key on one line. goccy read such a node as a key and attached
+// node that started on an earlier line or is a block scalar. YAML 1.2 keeps
+// an implicit key on one line. goccy read such a node as a key and attached
 // the entry to the innermost open sequence, so a ladder of these lines
 // nested past MaxDepth unseen, and the split parse refused the same lines.
 // The token pass now stops the file with RZ-CFG-001 at the ':', split or
-// not. The
-// ':' of an explicit key ('?') is valid on a later line when the key is
-// one node, which is all goccy groups with the '?'; otherwise goccy reads
-// the last node before the ':' as a multi-line implicit key, and the ':' is
-// RZ-CFG-001 too (blocker of the fifth WP-33 review), as are a second node
-// and a ':' on the '?' line (its minor finding). An empty key after a value
-// ("a: 1\n: b") is refused at its ':' too: goccy refuses it anyway, and
-// the ladder has its shape at a mapping's column; its message says the key
-// is missing (minor finding of the seventh WP-33 review).
+// not. The ':' of an explicit key ('?') is valid on a later line when the
+// key is one node, which is all goccy groups with the '?'; otherwise goccy
+// reads the last node before the ':' as a multi-line implicit key, and the
+// ':' is RZ-CFG-001 too, as are a second node and a ':' on the '?' line. An
+// empty key after a value ("a: 1\n: b") is refused at its ':' too: goccy
+// refuses it anyway, and the ladder has its shape at a mapping's column;
+// its message says the key is missing.
 func TestMultiLineImplicitKey(t *testing.T) {
 	var wide strings.Builder
 	for i := range 300 {
@@ -430,11 +422,11 @@ func TestMultiLineImplicitKey(t *testing.T) {
 		{": a\n: b\n", "RZ-CFG-001@2:1"},
 		// After a finding the file is never parsed, so the check is
 		// skipped and the scan goes on collecting RZ-CFG-003 and
-		// RZ-CFG-004 (01 req 8).
+		// RZ-CFG-004.
 		{"a: &x \"y\"\n: z\nb: !e 1\n", "RZ-CFG-003@1:4 RZ-CFG-004@3:4"},
-		// An explicit key of more than one node: goccy groups the ':'
-		// with the last node, a block sequence, a scalar or a tag on a
-		// later line, not with the '?' (fifth WP-33 review).
+		// An explicit key of more than one node: goccy groups the ':' with
+		// the last node, a block sequence, a scalar or a tag on a later
+		// line, not with the '?'.
 		{"? \"a\"\n  - \"b\"\n:\n", "RZ-CFG-001@3:1"},
 		{"? \"a\"\n  \"b\"\n:\n", "RZ-CFG-001@3:1"},
 		{"? \"a\"\n  !!str\n:\n", "RZ-CFG-001@3:1"},
@@ -442,14 +434,14 @@ func TestMultiLineImplicitKey(t *testing.T) {
 		{"- ? \"a\"\n    - \"b\"\n  :\n", "RZ-CFG-001@3:3"},
 		// A key whose tag ends the '?' line is one node, which goccy reads
 		// as the tag alone with the content as the entry's value; its
-		// message says so (minor finding of the eighth WP-33 review).
+		// message says so.
 		{"? !!str\n  \"a\"\n: v\n", "RZ-CFG-001@3:1"},
 		{"? - a\n  - b\n: c\n", "RZ-CFG-001@3:1"},
 		{explicitKeyLadder(31, 32), "RZ-CFG-001@3:1"},
 		{explicitKeyLadder(-1, 62), "RZ-CFG-001@3:1"},
 		{wide.String() + explicitKeyLadder(31, 32), "RZ-CFG-001@303:1"},
-		// A second node or a ':' on the '?' line (minor finding of the
-		// fifth WP-33 review); "? k:" is the complex key {k: null}.
+		// A second node or a ':' on the '?' line; "? k:" is the complex key
+		// {k: null}.
 		{"? \"q\"k\n", "RZ-CFG-001@1:6"},
 		{"a:\n  ? \"q\"''\n", "RZ-CFG-001@2:8"},
 		{"? k:\n", "RZ-CFG-001@1:4"},
@@ -505,8 +497,8 @@ func TestMultiLineImplicitKey(t *testing.T) {
 		}
 	}
 	// The ladder stops at its first ':' with 254 repetitions as with 256,
-	// the split threshold of earlier reviews: 1 MiB of 16 dashes, and 4 MiB
-	// of 63 dashes, which parsed to depth 16,257 in a 440 MiB peak heap.
+	// the former split threshold: 1 MiB of 16 dashes, and 4 MiB of 63
+	// dashes, which parsed to depth 16,257 in a 440 MiB peak heap.
 	for _, dashes := range []int{16, 63} {
 		for _, reps := range []int{254, 256} {
 			src := keyLadder(dashes, reps)
@@ -522,11 +514,10 @@ func TestMultiLineImplicitKey(t *testing.T) {
 	}
 }
 
-// TestColumnsAfterTags covers columns after a tag (01 req 14; minor finding
-// of the fourth WP-33 review). goccy's scanner places every later token on
-// a tag's line one column to the left for each tag before it. The positions
-// in the tree and in the findings of the token pass, goccy's parse and the
-// split parse are the real columns.
+// TestColumnsAfterTags covers columns after a tag. goccy's scanner places
+// every later token on a tag's line one column to the left for each tag
+// before it. The positions in the tree and in the findings of the token
+// pass, goccy's parse and the split parse are the real columns.
 func TestColumnsAfterTags(t *testing.T) {
 	tests := []struct{ src, want string }{
 		{"!!str a: !!int 1\n", `{a@1:1:i:1@1:10}`},
@@ -537,11 +528,10 @@ func TestColumnsAfterTags(t *testing.T) {
 		{"a: [!!str x, &y z]\n", "RZ-CFG-003@1:14"},
 		{"a: [!!str x, !!int y]\n", "RZ-CFG-001@1:14"},
 		{"a: [!e x, !f y]\n", "RZ-CFG-004@1:5 RZ-CFG-004@1:11"},
-		// Scalars read from the source (sixth WP-33 review) after a tag
-		// on their first line: a plain scalar continued by a line starting
-		// with '-', which goccy reported at a later line, and a quoted
-		// one. After a tagged key goccy scans the '-' line as a node of
-		// its own and refuses it.
+		// Scalars read from the source after a tag on their first line: a
+		// plain scalar continued by a line starting with '-', which goccy
+		// reported at a later line, and a quoted one. After a tagged key
+		// goccy scans the '-' line as a node of its own and refuses it.
 		{"k: !!str a\n  -b # c\n", `{k@1:1:s:"a -b"@1:4}`},
 		{"!!str k: \"a\\ \n  b\"\n", `{k@1:1:s:"a  b"@1:10}`},
 		{"!!str k: 'a\t\n  b'\n", `{k@1:1:s:"a b"@1:10}`},
@@ -575,11 +565,11 @@ func TestColumnsAfterTags(t *testing.T) {
 	}
 }
 
-// TestFlowDashes covers "-" in flow context (01 req 9, 11 req 26; finding 1
-// of the WP-33 review). A block sequence entry inside a flow collection
-// is RZ-CFG-001, which stops the file before goccy nests one sequence per
-// dash past the depth limit; so is a plain scalar "-" before a flow
-// indicator. "-" before ':', and scalars that start with '-', are valid.
+// TestFlowDashes covers "-" in flow context. A block sequence entry inside
+// a flow collection is RZ-CFG-001, which stops the file before goccy nests
+// one sequence per dash past the depth limit; so is a plain scalar "-"
+// before a flow indicator. "-" before ':', and scalars that start with '-',
+// are valid.
 func TestFlowDashes(t *testing.T) {
 	tests := []struct{ src, want string }{
 		{"a: [- x]\n", "RZ-CFG-001@1:5"},
@@ -624,7 +614,7 @@ func TestFlowDashes(t *testing.T) {
 	}
 }
 
-// TestDirectives covers %YAML and reserved directives (01 req 8).
+// TestDirectives covers %YAML and reserved directives.
 func TestDirectives(t *testing.T) {
 	docs, diags := parseYAML(t, "%YAML 1.2\n---\na: 1\n")
 	if len(diags) != 0 || len(docs) != 1 || docs[0].Start != (tree.Pos{Line: 2, Column: 1}) {
@@ -646,7 +636,7 @@ func TestDirectives(t *testing.T) {
 }
 
 // TestInvalidTokenStopsFile covers a scanner InvalidType token: RZ-CFG-001
-// at its position, ending the file (01 req 8).
+// at its position, ending the file.
 func TestInvalidTokenStopsFile(t *testing.T) {
 	_, diags := parseYAML(t, "a: 1\nb: @x\nc: &y 1\n")
 	d := wantOne(t, diags, codeParse, 2, 4)
@@ -699,8 +689,8 @@ func nest(style string, depth int) string {
 	panic(style)
 }
 
-// TestDepth covers the depth algorithm of 01 req 9: the root mapping is
-// depth 1, 64 levels pass and 65 is RZ-CFG-001.
+// TestDepth covers the depth algorithm: the root mapping is depth 1, 64
+// levels pass and 65 is RZ-CFG-001.
 func TestDepth(t *testing.T) {
 	for _, style := range []string{"block map", "block seq", "compact seq", "flow", "mixed"} {
 		for _, depth := range []int{64, 65} {
@@ -724,7 +714,7 @@ func TestDepth(t *testing.T) {
 	wantOne(t, diags, codeParse, 1, 1+2*64)
 }
 
-// TestDepthOptions honors a configured limit (01 req 6, 9).
+// TestDepthOptions honors a configured limit.
 func TestDepthOptions(t *testing.T) {
 	src := []byte("a:\n  b:\n    c: 1\n")
 	for limit, want := range map[int]int{2: 1, 3: 0} {
@@ -737,7 +727,7 @@ func TestDepthOptions(t *testing.T) {
 
 // TestDepthNotInflated checks constructs the literal stack rule would
 // count again at every entry: sequences at their key's indentation,
-// tagged keys and explicit keys (01 req 9).
+// tagged keys and explicit keys.
 func TestDepthNotInflated(t *testing.T) {
 	var b strings.Builder
 	for i := range 100 {
@@ -755,8 +745,7 @@ func TestDepthNotInflated(t *testing.T) {
 	}
 }
 
-// TestDepthResetsPerDocument checks that "---" resets the stack (01 req
-// 9).
+// TestDepthResetsPerDocument checks that "---" resets the stack.
 func TestDepthResetsPerDocument(t *testing.T) {
 	doc := nest("block map", 64)
 	docs, diags := parseYAML(t, doc+"---\n"+doc+"---\n"+doc)
@@ -765,11 +754,10 @@ func TestDepthResetsPerDocument(t *testing.T) {
 	}
 }
 
-// TestTokenLimit covers MaxDocumentTokens (01 req 6, 8, risk 1): the
-// limit counts the tokens of each document, the tokens of a whole file are
-// bounded to five quarters of it (maxFileTokens; minor finding of the
-// eighth WP-33 review), the bound from the bytes refuses a document before
-// it is tokenized, and the exact count after tokenizing is the backstop.
+// TestTokenLimit covers MaxDocumentTokens: the limit counts the tokens of
+// each document, the tokens of a whole file are bounded to five quarters of
+// it (maxFileTokens), the bound from the bytes refuses a document before it
+// is tokenized, and the exact count after tokenizing is the backstop.
 func TestTokenLimit(t *testing.T) {
 	tests := []struct {
 		src   string
@@ -816,8 +804,7 @@ func TestTokenLimit(t *testing.T) {
 		t.Errorf("message %q", d.Message)
 	}
 	// The bound over-counts indicators inside a quoted scalar, three real
-	// tokens here, so its finding says the count is an estimate (finding 5
-	// of the WP-33 review).
+	// tokens here, so its finding says the count is an estimate.
 	_, diags, err = Parse(context.Background(), []byte(`a: "`+strings.Repeat("x,", 20)+"\"\n"), 0, "f", FormatYAML, Options{MaxDocumentTokens: 20})
 	if err != nil {
 		t.Fatal(err)
@@ -839,7 +826,7 @@ func TestTokenLimit(t *testing.T) {
 
 // TestEstimateBoundsTokens checks that the byte bound is never below
 // goccy's token count, over the YAML Test Suite inputs and this package's
-// test inputs (01 req 8; 01 risk 1).
+// test inputs.
 func TestEstimateBoundsTokens(t *testing.T) {
 	inputs := suiteInputs(t)
 	inputs = append(inputs, nest("mixed", 40), "a: [1,2,{b: c}]\n# c\n? x\n: y\n", "'a''b': \"c\\\"d\"\n- &a b\n- *a\n<<: {}\n")
@@ -869,9 +856,9 @@ func TestEstimateBoundsTokens(t *testing.T) {
 	}
 }
 
-// TestDuplicateKeys covers 01 req 11: RZ-CFG-002 at the second key with
-// the first as related location, every duplicate reported, keys compared
-// as written (1 equals "1").
+// TestDuplicateKeys covers duplicate keys: RZ-CFG-002 at the second key
+// with the first as related location, every duplicate reported, keys
+// compared as written (1 equals "1").
 func TestDuplicateKeys(t *testing.T) {
 	src := "a: 1\n" +
 		"b:\n" +
@@ -907,8 +894,8 @@ func TestDuplicateKeys(t *testing.T) {
 	}
 }
 
-// TestDocuments covers 01 req 13: empty, comment-only and null documents
-// are skipped, a non-mapping root is RZ-CFG-005, documents keep stream
+// TestDocuments checks that empty, comment-only and null documents are
+// skipped, a non-mapping root is RZ-CFG-005, and documents keep stream
 // order and start at their marker.
 func TestDocuments(t *testing.T) {
 	src := "# only a comment\n" +
@@ -952,7 +939,7 @@ func TestDocuments(t *testing.T) {
 	}
 }
 
-// TestNonScalarKey covers 01 req 10: a non-scalar key is RZ-CFG-001.
+// TestNonScalarKey checks that a non-scalar key is RZ-CFG-001.
 func TestNonScalarKey(t *testing.T) {
 	for _, src := range []string{"? [a, b]\n: c\n", "[a]: b\n", "{a: 1}: b\n", "? - a\n: b\n", "? a: b\n: c\n"} {
 		docs, diags := parseYAML(t, src)
@@ -967,8 +954,8 @@ func TestNonScalarKey(t *testing.T) {
 	}
 }
 
-// TestSyntaxError covers 01 req 10: a goccy syntax error is RZ-CFG-001 at
-// the token position, and other documents still parse.
+// TestSyntaxError checks that a goccy syntax error is RZ-CFG-001 at the
+// token position, and that other documents still parse.
 func TestSyntaxError(t *testing.T) {
 	docs, diags := parseYAML(t, "a: 1\n---\nb: [1, 2\n---\nc: 3\n")
 	if len(diags) != 1 || diags[0].Code != codeParse || diags[0].Line < 3 || !strings.HasPrefix(diags[0].Message, "syntax error: ") {
@@ -981,8 +968,8 @@ func TestSyntaxError(t *testing.T) {
 	wantOne(t, diags, codeParse, 3, 2)
 }
 
-// TestNumberRange covers integers outside int64 and infinities: RZ-CFG-005
-// (01 req 12).
+// TestNumberRange covers integers outside int64 and infinities:
+// RZ-CFG-005.
 func TestNumberRange(t *testing.T) {
 	for _, src := range []string{"a: 9223372036854775808\n", "a: -.inf\n", "a: .NaN\n", "a: [0x10000000000000000]\n"} {
 		docs, diags := parseYAML(t, src)
@@ -992,7 +979,8 @@ func TestNumberRange(t *testing.T) {
 	}
 }
 
-// TestColumnsCountCodePoints covers 01 req 14.
+// TestColumnsCountCodePoints checks that columns count code points, not
+// bytes.
 func TestColumnsCountCodePoints(t *testing.T) {
 	docs, diags := parseYAML(t, "ééé: 😀😀\n  # x\nk: [\"日本\", x]\n")
 	if len(diags) != 0 {
@@ -1007,7 +995,7 @@ func TestColumnsCountCodePoints(t *testing.T) {
 }
 
 // TestParseCancel checks that a canceled context returns its error and no
-// partial result (01 req 53).
+// partial result.
 func TestParseCancel(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
@@ -1031,8 +1019,8 @@ func TestParseCancel(t *testing.T) {
 	}
 }
 
-// TestYield checks the Yield hook runs per document and every 256 nodes
-// (01 req 53).
+// TestYield checks the Yield hook runs per document and every 256
+// nodes.
 func TestYield(t *testing.T) {
 	var b strings.Builder
 	b.WriteString("a:\n")
@@ -1054,8 +1042,8 @@ func TestYield(t *testing.T) {
 }
 
 // TestFormat covers FormatOf, which matches the extensions .yaml, .yml
-// and .json case-sensitively (01 req 3), Format.String and an unknown
-// format (ErrFormat).
+// and .json case-sensitively, Format.String and an unknown format
+// (ErrFormat).
 func TestFormat(t *testing.T) {
 	tests := []struct {
 		name string
@@ -1085,7 +1073,7 @@ func TestFormat(t *testing.T) {
 
 // TestSplitDocuments covers the document cut: markers at column 1 only,
 // directives with the document they precede, comment-only segments
-// dropped (01 req 9, 13).
+// dropped.
 func TestSplitDocuments(t *testing.T) {
 	text := "# c\n%YAML 1.2\n---\na: 1\n  ---\n---x\n...\n# between\n%TAG ! x\n--- |\n  b\n... # end\n# tail\n"
 	var got []string
@@ -1103,7 +1091,7 @@ func TestSplitDocuments(t *testing.T) {
 
 // TestMaxDiagnostics bounds the findings kept for one file at
 // MaxDiagnostics+1, so the pipeline's cap (diag.Collector) still sees the
-// overflow and a file of many findings stays cheap (01 req 8, 50).
+// overflow and a file of many findings stays cheap.
 func TestMaxDiagnostics(t *testing.T) {
 	src := strings.Repeat("- &a x\n", 10) + "---\n" + strings.Repeat("- !x y\n", 10)
 	docs, diags, err := Parse(context.Background(), []byte(src), 0, "f", FormatYAML, Options{MaxDiagnostics: 3})

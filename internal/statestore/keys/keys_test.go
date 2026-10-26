@@ -16,8 +16,7 @@ import (
 	"github.com/ravindu-rev/ruralz/internal/statestore"
 )
 
-// Tests for spec 08 section 2.6 (reqs 47 to 50) and the key rows of the
-// 08 section 6.1 unit table: prefixes, the golden key layout, escaping,
+// Tests for the key layout: prefixes, the golden key layout, escaping,
 // canonical durations and allocation-free builders.
 
 // update rewrites the golden files: go test ./internal/statestore/keys -update.
@@ -30,7 +29,7 @@ func fixedStart() time.Time {
 	return time.UnixMilli(ms - ms%w).UTC()
 }
 
-// goldenKeys are the layout cases of 08 section 6.1 ("Keys").
+// goldenKeys are the key layout cases.
 func goldenKeys() [][2]string {
 	user := statestore.DigestOf("user-42")
 	u := statestore.DigestOf("https\x00example.com\x00/v1/catalog\x00")
@@ -64,7 +63,7 @@ func goldenKeys() [][2]string {
 }
 
 func TestKeyLayoutGolden(t *testing.T) {
-	// 08 reqs 47 and 48: exact formats are a compatibility surface.
+	// Exact formats are a compatibility surface.
 	const path = "testdata/keys.golden"
 	var got bytes.Buffer
 	for _, kv := range goldenKeys() {
@@ -95,7 +94,7 @@ func TestKeyLayoutGolden(t *testing.T) {
 }
 
 func TestKeyLayoutShapes(t *testing.T) {
-	// 08 req 48: explicit expectations independent of the golden file.
+	// Explicit expectations independent of the golden file.
 	user := statestore.DigestOf("user-42")
 	hexUser := string(AppendHex(nil, user))
 	cases := []struct {
@@ -138,7 +137,7 @@ func TestKeyLayoutShapes(t *testing.T) {
 }
 
 func TestPrefixes(t *testing.T) {
-	// 08 req 47: three M1 prefixes plus rzplg: reserved (OQ-scalability-
+	// Three M1 prefixes plus rzplg: reserved (OQ-scalability-
 	// and-distributed-state-11 (a)).
 	want := []string{"rz:rl:", "rz:qt:", "rz:rc:", "rzplg:"}
 	got := Prefixes()
@@ -172,7 +171,7 @@ func TestPrefixes(t *testing.T) {
 }
 
 func TestEscape(t *testing.T) {
-	// 08 req 48: every byte outside [A-Za-z0-9._-] becomes %XX.
+	// Every byte outside [A-Za-z0-9._-] becomes %XX.
 	cases := []struct{ in, want string }{
 		{"", ""},
 		{"monthly-requests", "monthly-requests"},
@@ -201,7 +200,7 @@ func TestEscape(t *testing.T) {
 }
 
 func TestAppendDuration(t *testing.T) {
-	// 08 req 48: <window> is the canonical Go duration string.
+	// <window> is the canonical Go duration string.
 	for _, d := range []time.Duration{
 		0, 1, 999, time.Microsecond, 1500, time.Millisecond, 1500 * time.Microsecond,
 		100 * time.Millisecond, time.Second, 1500 * time.Millisecond, time.Minute,
@@ -230,8 +229,7 @@ func FuzzAppendDuration(f *testing.F) {
 }
 
 func FuzzEscape(f *testing.F) {
-	// 08 section 6.3: key escaping is injective and never emits '{', '}'
-	// or ':'.
+	// Key escaping is injective and never emits '{', '}' or ':'.
 	for _, s := range []string{"", "monthly-requests", "a{b}", "a:b", "%", "é", "%25", "\x00\xff"} {
 		f.Add(s, s+"x")
 	}
@@ -264,7 +262,7 @@ func FuzzEscape(f *testing.F) {
 }
 
 func TestBuildersDoNotAllocate(t *testing.T) {
-	// 08 section 3.1: key builders never allocate when dst has capacity.
+	// Key builders never allocate when dst has capacity.
 	d := statestore.DigestOf("user-42")
 	ck := statestore.CacheKey{URI: d, Partition: d}
 	l := statestore.GCRALimit{Requests: 5000, Window: time.Minute}

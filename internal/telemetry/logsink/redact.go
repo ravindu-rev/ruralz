@@ -26,16 +26,16 @@ const (
 )
 
 // builtinCredentialHeaders are the credential headers of Security and
-// identity "Secrets" rule 2 and 06 req 92 that apply to every Revision:
-// authorization, proxy-authorization, cookie, set-cookie, and the default
-// auth.api-key header x-api-key (R-21). Each Revision adds its auth.api-key
-// header names through Sink.SetCredentialHeaders.
+// identity "Secrets" rule 2 that apply to every Revision: authorization,
+// proxy-authorization, cookie, set-cookie, and the default auth.api-key
+// header x-api-key. Each Revision adds its auth.api-key header names
+// through Sink.SetCredentialHeaders.
 func builtinCredentialHeaders() []string {
 	return []string{"authorization", "proxy-authorization", "cookie", "set-cookie", "x-api-key"}
 }
 
 // sensitiveFragments mark a header name as sensitive in a logged header
-// map, as the /tap redaction does (04 req 75).
+// map, as the /tap redaction does.
 func sensitiveFragments() []string {
 	return []string{"token", "secret", "key", "password", "session", "auth"}
 }
@@ -124,7 +124,7 @@ func redactHeader(h http.Header, c *credSet) http.Header {
 }
 
 // redactURL renders u without user information, query or fragment:
-// query strings never reach a signal (09 req 4).
+// query strings never reach a signal.
 func redactURL(u *url.URL) string {
 	if u == nil {
 		return ""
@@ -187,11 +187,11 @@ func walkURLError(err error) bool {
 }
 
 // redactErrorText returns err's text with the URL of every *url.Error in
-// its tree replaced by its redacted form (09 req 4). A *url.Error prints
-// its URL with %q, so a URL holding a quote, a backslash or a control byte
-// appears escaped; see redactURLError. A panicking Error method gives
-// "<nil>" for a nil receiver and a "!PANIC:" text otherwise, as
-// slog.JSONHandler writes.
+// its tree replaced by its redacted form. A *url.Error prints its URL with
+// %q, so a URL holding a quote, a backslash or a control byte appears
+// escaped; see redactURLError. A panicking Error method gives "<nil>" for
+// a nil receiver and a "!PANIC:" text otherwise, as slog.JSONHandler
+// writes.
 func redactErrorText(err error) (text string) {
 	defer func() {
 		if r := recover(); r != nil {
@@ -341,7 +341,7 @@ func freezeAny(v slog.Value, c *credSet) slog.Value {
 		}
 		return slog.AnyValue(bytes.Clone(*x))
 	case url.Values, *url.Values:
-		// A parsed query string never reaches a signal (09 req 4).
+		// A parsed query string never reaches a signal.
 		return slog.StringValue(secret.Redacted)
 	case []error:
 		if !slices.ContainsFunc(x, hasURLError) {

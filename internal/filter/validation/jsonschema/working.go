@@ -16,14 +16,14 @@ import (
 	sjs "github.com/santhosh-tekuri/jsonschema/v6"
 )
 
-// The working set and the work of validation (architecture R-77, package
-// documentation "Working set" and "Work bound"). Validation runs in up to
-// two passes: a decision pass, in which the library keeps no location of
-// its errors and stops early where it can, and, only for a body that
-// fails, a location pass that names the failing keyword. Before either,
-// the Filter walks the decoded body once and, from the counts of each
-// value's own path (states.go) within the counts the compile analysis
-// allows at every depth (workBound), sums upper bounds of:
+// The working set and the work of validation (package documentation
+// "Working set" and "Work bound"). Validation runs in up to two passes: a
+// decision pass, in which the library keeps no location of its errors and
+// stops early where it can, and, only for a body that fails, a location
+// pass that names the failing keyword. Before either, the Filter walks
+// the decoded body once and, from the counts of each value's own path
+// (states.go) within the counts the compile analysis allows at every
+// depth (workBound), sums upper bounds of:
 //
 //   - the memory each pass may hold (bytes, reserved from
 //     limits.maxBufferedBytes with the decoded values): its error tree,
@@ -102,8 +102,8 @@ const (
 	// matchedItemBytes is what an evaluation with contains holds per item
 	// while it loops, and the location pass keeps in a minContains or
 	// maxContains error: the index of every item that matches, in a slice
-	// grown by appending (review finding: 100 such evaluations over 16,000
-	// items held 12.7 MB charged 58 KB).
+	// grown by appending (100 such evaluations over 16,000 items held
+	// 12.7 MB charged 58 KB).
 	matchedItemBytes = 16
 )
 
@@ -132,9 +132,9 @@ const (
 )
 
 // mapExtra returns what the map of a decoded object of n members holds
-// beyond what jsonval charges for it (review finding: a one-member object
-// holds 336 bytes, of which jsonval charges 80, so arrays of small objects
-// held up to 3.8 times what Handle reserved).
+// beyond what jsonval charges for it (a one-member object holds 336 bytes,
+// of which jsonval charges 80, so arrays of small objects held up to 3.8
+// times what Handle reserved).
 func mapExtra(n int64) int64 {
 	var table int64
 	switch {
@@ -240,9 +240,9 @@ const (
 	depUnits = 32
 	// compareUnits is one comparison of two values (measured 4 units for
 	// short strings alone, 6.5 to 9 with the loop over an enum's values,
-	// BenchmarkWorkModel; minor review finding: at 16 an array of
-	// two-letter codes under a 250-value enum was refused above 27% of the
-	// limit); compareBytes are the string bytes compared per unit.
+	// BenchmarkWorkModel; at 16 an array of two-letter codes under a
+	// 250-value enum was refused above 27% of the limit); compareBytes are
+	// the string bytes compared per unit.
 	compareUnits, compareBytes = 12, 8
 	// memberUnits is one member of an object per evaluation at the
 	// object: the library loops over every member (measured 19 to 35).
@@ -252,8 +252,8 @@ const (
 	// it into and deletes it from maps keyed by names, which hashes the
 	// whole name (measured 0.02 to 0.05 ns per byte), and sorts the names
 	// of an object it hashes for uniqueItems, comparing them byte by byte
-	// (review finding: a 10 MiB name, charged nothing per byte, was hashed
-	// for 1.35 to 3.2 s).
+	// (a 10 MiB name, charged nothing per byte, was hashed for 1.35 to
+	// 3.2 s).
 	nameHashBytes = 8
 	// nameHashes is how often an evaluation with member keywords may hash
 	// each member name: the properties lookup. unevalNameHashes is how
@@ -305,21 +305,20 @@ const (
 	numberUnits, numberByteUnits, numberExpUnits = 768, 28, 12
 )
 
-// The work of a multipleOf check (review finding: a body number's check
-// against a divisor was charged as one parse of the body literal, so a
-// short decimal against 0.(120 fives)e-990 took 4.7 ns per charged unit).
-// The library divides the value by the divisor as math/big rationals,
-// a/b by c/d: it multiplies a by d and c by b, divides both products by
-// their greatest common divisor (Lehmer's algorithm), and checks the
-// quotient's denominator. With a, b, c and d bounded in decimal digits
-// (literalDigits, ratDigits), one check takes at most quoUnits, quoMinUnits
-// per digit of the smaller product (each step of the GCD), quoDigitUnits
-// per digit of all four, and a unit per quoProductDigits of the digit
-// products a*b, c*d and (a+b)*(c+d) (the multiplications, the GCD's
-// updates and the final divisions): measured on 1,500 random pairs within
-// the number bounds and at their edges, from 0.25 to 0.5 µs for short
-// literals to 26 µs, every one at least 40% under the model, which is up
-// to about 30 times above it for literals sharing large powers of ten
+// The work of a multipleOf check (charged as one parse of the body literal,
+// a short decimal's check against 0.(120 fives)e-990 took 4.7 ns per
+// charged unit). The library divides the value by the divisor as math/big
+// rationals, a/b by c/d: it multiplies a by d and c by b, divides both
+// products by their greatest common divisor (Lehmer's algorithm), and
+// checks the quotient's denominator. With a, b, c and d bounded in decimal
+// digits (literalDigits, ratDigits), one check takes at most quoUnits,
+// quoMinUnits per digit of the smaller product (each step of the GCD),
+// quoDigitUnits per digit of all four, and a unit per quoProductDigits of
+// the digit products a*b, c*d and (a+b)*(c+d) (the multiplications, the
+// GCD's updates and the final divisions): measured on 1,500 random pairs
+// within the number bounds and at their edges, from 0.25 to 0.5 µs for
+// short literals to 26 µs, every one at least 40% under the model, which is
+// up to about 30 times above it for literals sharing large powers of ten
 // (BenchmarkWorkModel's multipleOf cases). The divisor's part is the
 // schema's (workWeight); the rest is the scan's (bodyScan.quoWork).
 const (
@@ -377,9 +376,9 @@ func quoWork(lit string, n, divNum, divDen int64) int64 {
 	return addCap(work, (mulCap(a+b, addCap(divNum, divDen))+quoProductDigits-1)/quoProductDigits)
 }
 
-// WorkPerByte bounds the work of validating one request body (architecture
-// R-77, package documentation "Work bound"): at most WorkPerByte work units
-// per byte of limits.maxRequestBodyBytes.
+// WorkPerByte bounds the work of validating one request body (package
+// documentation "Work bound"): at most WorkPerByte work units per byte of
+// limits.maxRequestBodyBytes.
 const WorkPerByte = 256
 
 // maxWorkLimit is the largest work limit; it stays below countCap, so a
@@ -403,9 +402,8 @@ func numberWork(lit string) int64 {
 
 // walkWork returns the work units the location walk may take per leaf of
 // the error tree under a document whose error locations have at most
-// maxPointer bytes (review finding: the walk reads every leaf's location,
-// so its work grows with the leaves times that length, which the library's
-// does not).
+// maxPointer bytes (the walk reads every leaf's location, so its work grows
+// with the leaves times that length, which the library's does not).
 func walkWork(maxPointer int) int64 {
 	return walkUnits + walkByteUnits*int64(maxPointer)
 }
@@ -884,8 +882,8 @@ func parsesOf(s *sjs.Schema) int {
 
 // scanWeight returns the work units per byte of the string one evaluation
 // of s matches against its pattern, and copies and counts the runes of
-// under minLength or maxLength (minor review finding: counting multi-byte
-// runes took 2.5 to 3 times the work per byte of a copy).
+// under minLength or maxLength (counting multi-byte runes takes 2.5 to 3
+// times the work per byte of a copy).
 func scanWeight(s *sjs.Schema, pc *patternCosts) int {
 	w := 0
 	if s.MinLength != nil || s.MaxLength != nil {
@@ -1099,15 +1097,14 @@ func scanRate(c vec) int64 {
 
 // matchers charges the largest transient copy a pattern may take matching
 // the value v, a string, or its member name: a regexp matcher of the
-// largest program that may match it (review finding: charged to every
-// body, it took 64 MB of the budget for {}) and the backtracker's job
-// stack (patternReach). Where the value's state is known (s), only the
-// patterns its evaluations apply to the string and those its parent's
-// apply to the name count (review finding: every pattern of the document
-// was charged to every string a pattern or a uniqueItems pass reached, so
-// small valid bodies were refused at a 64 KiB limit); elsewhere, where
-// the counts c may scan it, every pattern of the document, for the longer
-// of the two.
+// largest program that may match it (charged to every body, it took 64 MB
+// of the budget for {}) and the backtracker's job stack (patternReach).
+// Where the value's state is known (s), only the patterns its evaluations
+// apply to the string and those its parent's apply to the name count
+// (charging every pattern of the document to every string a pattern or a
+// uniqueItems pass reached refused small valid bodies at a 64 KiB limit);
+// elsewhere, where the counts c may scan it, every pattern of the document,
+// for the longer of the two.
 func (b *bodyScan) matchers(s, parent *evalState, c vec, name string, v any) {
 	str, isString := v.(string)
 	if s == nil {
@@ -1138,9 +1135,8 @@ func (b *bodyScan) str(a valueCharge, n int64) int64 {
 
 // bounded reports whether st is a state whose evaluations stay within
 // MaxEvaluations, so that a value in it may lie at or past the schema's
-// nesting limit (minor review finding: the limit refused every value that
-// deep, also the members of a free-form object that no subschema
-// evaluates).
+// nesting limit (otherwise the limit refuses every value that deep, also
+// the members of a free-form object that no subschema evaluates).
 func (b *bodyScan) bounded(st int) bool {
 	return st >= 0 && b.ws.states[st].c[dimEvals] <= MaxEvaluations
 }
@@ -1223,8 +1219,8 @@ func (b *bodyScan) array(t []any, d int, a valueCharge) (path, decide int64) {
 		// Every evaluation that may copy the indexes works on its copy,
 		// but only those of one in-place chain hold theirs at once: the
 		// library drops a branch's copy when it merges it, before the next
-		// branch runs (review finding: charged per evaluation, an allOf of
-		// mixins under unevaluated* was charged 27 to 84 times its peak).
+		// branch runs (charged per evaluation, an allOf of mixins under
+		// unevaluated* was charged 27 to 84 times its peak).
 		u := int64(c[dimUneval])
 		work = addCap(work, mulCap(mulCap(u, n), unevalItemUnits))
 		own = addCap(own, mulCap(min(u, a.chain), itemMapBase+itemMapEntry*n))
@@ -1274,7 +1270,7 @@ func (b *bodyScan) array(t []any, d int, a valueCharge) (path, decide int64) {
 // member name on its own, as the location pass does, and wraps the errors
 // of a name that fails in an error of its own: at most one per such
 // evaluation, and only for a name whose errors the scan cannot rule out
-// (review finding: one wrapper per name, whether or not it could fail and
+// (rather than one wrapper per name, whether or not it could fail and
 // however many evaluations applied propertyNames).
 func (b *bodyScan) object(t map[string]any, d int, a valueCharge) (path, decide int64) {
 	c, work, own := a.c, a.work, a.own
@@ -1423,11 +1419,10 @@ func comparisons(t []any) int64 {
 // alike, at most one per split of those bytes, with its negation. A JSON
 // number's denominator divides a power of ten, so a split counts only
 // where its second part is a product of twos and fives without a leading
-// zero byte and coprime with the first (minor review finding: counting
-// every split charged a short decimal 12 comparisons, so arrays of distinct
-// prices under uniqueItems were refused above 12% of the limit; 18.4375
-// and 0.0001, 295/16 and 1/10000, share their bytes). It reports false
-// when p or q does not fit.
+// zero byte and coprime with the first (counting every split would charge a
+// short decimal 12 comparisons, refusing arrays of distinct prices under
+// uniqueItems above 12% of the limit; 18.4375 and 0.0001, 295/16 and
+// 1/10000, share their bytes). It reports false when p or q does not fit.
 func hashColliders(lit string) (int64, bool) {
 	p, q, ok := smallRat(lit)
 	if !ok {

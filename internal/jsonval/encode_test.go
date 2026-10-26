@@ -13,10 +13,10 @@ import (
 	"testing"
 )
 
-// Tests for the encoder: 07 req 60 (compact, ascending byte order of
-// names, minimal escaping without HTML escaping, numbers verbatim, no
-// trailing newline, deterministic), 02 req 24 and 25 (RFC 8785 form, no
-// HTML escaping), 07 test plan P2 (determinism and round trip).
+// Tests for the encoder: the compact form (ascending byte order of names,
+// minimal escaping without HTML escaping, numbers verbatim, no trailing
+// newline, deterministic), the RFC 8785 form (no HTML escaping), and
+// determinism and round trips.
 
 func mustDecode(t testing.TB, s string) any {
 	t.Helper()
@@ -85,7 +85,8 @@ func TestAppendOrders(t *testing.T) {
 }
 
 func TestAppendCanonical(t *testing.T) {
-	// RFC 8785 section 3.2.2 example and 02 test plan items 3 and 4.
+	// The RFC 8785 section 3.2.2 example, then the section 3.2.3 member
+	// order set.
 	in := `{
   "numbers": [333333333.33333329, 1E30, 4.50, 2e-3, 0.000000000000000000000000001],
   "string": "\u20ac$\u000F\u000aA'\u0042\u0022\u005c\\\"\/",
@@ -109,7 +110,7 @@ func TestAppendCanonical(t *testing.T) {
 		}
 	}
 	// Canonicalization is idempotent: parse, canonicalize, parse again
-	// gives identical bytes (02 req 26).
+	// gives identical bytes.
 	again, err := AppendCanonical(nil, mustDecode(t, want))
 	if err != nil || string(again) != want {
 		t.Fatalf("second pass = %s, %v", again, err)
@@ -229,7 +230,7 @@ func TestAppendDeepButFinite(t *testing.T) {
 }
 
 func TestRoundTrip(t *testing.T) {
-	// 07 P2: Decode(Append(t)) equals t, and encoding is idempotent.
+	// Decode(Append(t)) equals t, and encoding is idempotent.
 	for _, c := range conformanceCases() {
 		v, _, err := Decode([]byte(c.input), Options{MaxDepth: MaxDepthLimit, AllowDuplicateNames: true})
 		if err != nil {
@@ -269,7 +270,7 @@ func shuffleObjects(r *rand.Rand, v any) {
 }
 
 func TestPermutationInvariance(t *testing.T) {
-	// 07 P2: permuting input member order gives identical output.
+	// Permuting input member order gives identical output.
 	orders := readOrders(t)
 	want, err := Append(nil, mustDecode(t, string(orders)))
 	if err != nil {
@@ -293,8 +294,7 @@ func TestPermutationInvariance(t *testing.T) {
 
 func TestEncoderZeroAllocs(t *testing.T) {
 	// A reused Encoder writing into a large enough buffer allocates
-	// nothing after warm-up, sorted or not (07 req 89 "0 Ruralz-owned
-	// allocations").
+	// nothing after warm-up, sorted or not.
 	v := mustDecode(t, string(readOrders(t)))
 	m, _, _ := Decode(readOrders(t), Options{MapObjects: true})
 	for _, o := range []EncodeOptions{{}, {Order: OrderUTF16, Numbers: NumbersCanonical}, {Order: OrderInsertion}} {
@@ -333,7 +333,7 @@ func TestAppendString(t *testing.T) {
 }
 
 func TestAppendMaxBytes(t *testing.T) {
-	// 07 req 70 and 05 req 47: the output cap is enforced while encoding.
+	// The output cap is enforced while encoding.
 	v := mustDecode(t, string(readOrders(t)))
 	full, err := Append(nil, v)
 	if err != nil {
@@ -375,10 +375,9 @@ func TestAppendMaxBytes(t *testing.T) {
 }
 
 func TestAppendMaxBytesBeforeCopying(t *testing.T) {
-	// 07 req 70 and 05 req 47: names, number literals and escaped strings
-	// are refused before the output passes MaxBytes, so a refused Append
-	// writes at most MaxBytes plus a token's worth, never the oversized
-	// value.
+	// Names, number literals and escaped strings are refused before the
+	// output passes MaxBytes, so a refused Append writes at most MaxBytes
+	// plus a token's worth, never the oversized value.
 	long := strings.Repeat("n", 1<<20)
 	ctl := strings.Repeat("\x01", 1000)
 	mixed := strings.Repeat("ab\n", 400)
@@ -434,7 +433,7 @@ func TestAppendMaxBytesBeforeCopying(t *testing.T) {
 
 func TestAppendStringLimit(t *testing.T) {
 	// The bounded string writer stops before passing its limit and accepts
-	// output that ends exactly at it (07 req 70).
+	// output that ends exactly at it.
 	for _, s := range []string{"", "plain", "\x01\x1f", "a\"b\\c", "é\n\u2028", strings.Repeat("\x00x", 50)} {
 		full, err := AppendString([]byte("xy"), s)
 		if err != nil {
@@ -453,9 +452,8 @@ func TestAppendStringLimit(t *testing.T) {
 }
 
 func TestEncoderDropsLargeScratch(t *testing.T) {
-	// 07 req 73: an Encoder keeps sort scratch for reuse up to about 64
-	// KiB, so a pooled Encoder does not pin room for the largest object it
-	// wrote.
+	// An Encoder keeps sort scratch for reuse up to about 64 KiB, so a
+	// pooled Encoder does not pin room for the largest object it wrote.
 	const n = 20000
 	if n <= maxScratchIdx || n <= maxScratchKeys {
 		t.Fatal("the test object does not pass the scratch bounds")

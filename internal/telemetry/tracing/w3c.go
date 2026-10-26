@@ -22,11 +22,11 @@ const (
 )
 
 // TraceparentLen is the length of a version 00 traceparent value, and the
-// prefix of a higher version that this parser reads (spec 09 req 27).
+// prefix of a higher version that this parser reads.
 const TraceparentLen = 55
 
 // Limits of a tracestate a Node keeps and re-injects; a longer value or
-// one with more list members is dropped (spec 09 req 27, proposed).
+// one with more list members is dropped (proposed).
 const (
 	MaxTracestateBytes   = 512
 	MaxTracestateMembers = 32
@@ -45,13 +45,13 @@ const (
 
 const hexDigits = "0123456789abcdef"
 
-// ParseTraceparent parses a traceparent value per W3C Trace Context (spec
-// 09 req 27): leading and trailing spaces and tabs are ignored; version 00
-// is exactly 55 bytes "00-<32 lowercase hex>-<16 lowercase hex>-<2
-// lowercase hex>"; version ff is invalid; a higher version is read on its
-// first 55 bytes when byte 55 is "-" or absent; the trace ID and the
-// parent ID are not all zeros. On any failure ok is false and the other
-// results are zero. It never allocates.
+// ParseTraceparent parses a traceparent value per W3C Trace Context:
+// leading and trailing spaces and tabs are ignored; version 00 is exactly
+// 55 bytes "00-<32 lowercase hex>-<16 lowercase hex>-<2 lowercase hex>";
+// version ff is invalid; a higher version is read on its first 55 bytes
+// when byte 55 is "-" or absent; the trace ID and the parent ID are not
+// all zeros. On any failure ok is false and the other results are zero. It
+// never allocates.
 func ParseTraceparent(v string) (traceID [16]byte, parentID [8]byte, flags byte, ok bool) {
 	v = trimOWS(v)
 	if len(v) < TraceparentLen {
@@ -83,7 +83,7 @@ func ParseTraceparent(v string) (traceID [16]byte, parentID [8]byte, flags byte,
 }
 
 // AppendTraceparent appends a version 00 traceparent value with flags 01
-// when sampled and 00 otherwise (spec 09 req 31).
+// when sampled and 00 otherwise.
 func AppendTraceparent(dst []byte, traceID [16]byte, spanID [8]byte, sampled bool) []byte {
 	dst = append(dst, '0', '0', '-')
 	dst = appendHex(dst, traceID[:])
@@ -96,8 +96,7 @@ func AppendTraceparent(dst []byte, traceID [16]byte, spanID [8]byte, sampled boo
 }
 
 // AppendTraceID appends the 32 lowercase hex characters of id: the
-// requestId of every problem document and the access log trace_id (spec
-// 09 req 32).
+// requestId of every problem document and the access log trace_id.
 func AppendTraceID(dst []byte, id [16]byte) []byte { return appendHex(dst, id[:]) }
 
 // AppendSpanID appends the 16 lowercase hex characters of id.

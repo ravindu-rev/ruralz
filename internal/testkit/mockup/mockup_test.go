@@ -21,11 +21,10 @@ import (
 	"time"
 )
 
-// Tests for WP-84 mockup (11 section 3, F 32, req 39): "Done when" mockup
-// behaviors table-tested (TestBehaviors) over HTTP/1.1, h2c, and HTTP/1.1
-// and HTTP/2 over TLS.
+// Tests for mockup: its behaviors table-tested (TestBehaviors) over
+// HTTP/1.1, h2c, and HTTP/1.1 and HTTP/2 over TLS.
 
-func TestBehaviors(t *testing.T) { // WP-84 Done when: behaviors table-tested
+func TestBehaviors(t *testing.T) {
 	pki := newTestPKI(t)
 	type check func(t *testing.T, p proto, r result, err error)
 	for _, tc := range []struct {
@@ -450,7 +449,7 @@ func TestRoutes(t *testing.T) {
 	}
 }
 
-func TestRequestLog(t *testing.T) { // 11 req 39: the mock's request log is scanned for stripped credentials
+func TestRequestLog(t *testing.T) { // The mock's request log is scanned for stripped credentials
 	pki := newTestPKI(t)
 	s := start(t, Config{TLS: pki.serverTLS(), LogSize: 3, MaxLoggedBody: 4})
 	c := client(t, h2TLS, pki)
@@ -509,7 +508,7 @@ func TestRequestLog(t *testing.T) { // 11 req 39: the mock's request log is scan
 
 // TestRequestFraming covers the framing fields of the log and Echo:
 // net/http moves Transfer-Encoding out of the header, so the log keeps
-// it apart (04 req 20; 11 C 21 forwarding framing at the mock).
+// it apart (protocol conformance checks forwarded framing at the mock).
 func TestRequestFraming(t *testing.T) {
 	type body int
 	const (

@@ -12,8 +12,8 @@ import (
 	"github.com/ravindu-rev/ruralz/internal/cli/completion"
 )
 
-// The M1 command table of spec 10 req 12, built from fixture commands:
-// the real commands live in later work packages, so the golden help and
+// The M1 command table, built from fixture commands: the real commands
+// live outside this package, most not built yet, so the golden help and
 // the dispatch tests pin the framework over this table.
 
 // fixture is a Command whose flags are bound by a function and whose Run
@@ -94,7 +94,7 @@ func newFixture(bind func(*command.Flags, *values), run runFunc) func() command.
 	return func() command.Command { return &fixture{bind: bind, run: run} }
 }
 
-// bundleFlags binds --env and --environments (spec 10 req 25).
+// bundleFlags binds --env and --environments.
 func bundleFlags(f *command.Flags, v *values) {
 	f.String(v.str("env"), "env", "NAME", "", "Environment to render with (needs --environments)", command.CompleteNone)
 	f.String(v.str("environments"), "environments", "FILE", "", "Local Environment resources", command.CompleteFile)
@@ -118,7 +118,7 @@ func dirArg() command.Arg {
 	}
 }
 
-// m1Table returns the spec 10 req 12 table; run is every command's Run.
+// m1Table returns the M1 command table; run is every command's Run.
 func m1Table(run runFunc) []command.Spec {
 	specs := []command.Spec{
 		{Path: []string{"bundle"}, Summary: "Validate, render, diff and build Bundles"},
@@ -228,7 +228,7 @@ func m1Table(run runFunc) []command.Spec {
 	return specs
 }
 
-// m1Paths are the ten runnable M1 commands (spec 10 req 3).
+// m1Paths are the ten runnable M1 commands.
 func m1Paths() [][]string {
 	return [][]string{
 		{"bundle", "build"},

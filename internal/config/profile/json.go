@@ -15,11 +15,11 @@ import (
 	"github.com/ravindu-rev/ruralz/internal/jsonval"
 )
 
-// parseJSON is the strict RFC 8259 front end for .json files (01 req 15,
-// architecture R-30): jsonval's scanner checks the grammar, UTF-8,
-// surrogate pairing and depth, and this code builds the same tree a YAML
-// twin produces. Duplicate names are found here, so every one is reported
-// with both positions. The one top-level value must be an object.
+// parseJSON is the strict RFC 8259 front end for .json files: jsonval's
+// scanner checks the grammar, UTF-8, surrogate pairing and depth, and
+// this code builds the same tree a YAML twin produces. Duplicate names
+// are found here, so every one is reported with both positions. The one
+// top-level value must be an object.
 func (p *fileParser) parseJSON(src []byte) {
 	if !p.checkSize(src) {
 		return
@@ -164,9 +164,9 @@ func (j *jsonParser) object(n *tree.Node) error {
 }
 
 // number types a JSON number: an integer literal is KindInt in normalized
-// decimal (-0 is 0) and must fit in int64, as YAML integers must (01 req
-// 12); any other literal is KindFloat with its exact text, already RFC
-// 8259 syntax.
+// decimal (-0 is 0) and must fit in int64, as YAML integers must; any
+// other literal is KindFloat with its exact text, already RFC 8259
+// syntax.
 func (j *jsonParser) number(n *tree.Node, lit string) {
 	if strings.ContainsAny(lit, ".eE") {
 		n.Kind, n.Text = tree.KindFloat, lit

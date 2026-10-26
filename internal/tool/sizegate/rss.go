@@ -21,8 +21,8 @@ import (
 	"github.com/ravindu-rev/ruralz/internal/clock"
 )
 
-// Idle measurement defaults (11 req 68): 120 s settle, sampled every
-// second over its last 10 s.
+// Idle measurement defaults: 120 s settle, sampled every second over
+// its last 10 s.
 const (
 	defaultSettle   = 120 * time.Second
 	defaultWindow   = 10 * time.Second
@@ -152,22 +152,22 @@ type rssResult struct {
 func (r rssResult) failed() bool { return r.skipped == "" && r.max > r.limit }
 
 // stubMessage is the exact message of the M0 ruralzd stub
-// (internal/gateway.Run before WP-76 wires the data plane).
+// (internal/gateway.Run before the data plane is wired).
 const stubMessage = "Ruralz Gateway is not implemented yet; it is Planned (M1)"
 
 // notImplemented reports the M0 ruralzd stub, which exits 2 at once with
 // stubMessage; the gate skips it until the data plane lands instead of
 // failing every pull request. Only that exact message and exit status
 // match, so an unrelated early exit of the real data plane is a tool error,
-// never a silent skip. This branch is removed when WP-76 replaces the stub
-// (contract note to the lead).
+// never a silent skip. This branch is removed when the data plane replaces
+// the stub.
 func notImplemented(exitCode int, output string) bool {
 	return exitCode == 2 && strings.Contains(output, stubMessage)
 }
 
 // measureIdle starts the binary with telemetry defaults, no Revision
 // (RURALZ_CONFIG naming an empty directory) and no connections, samples its
-// VmRSS over the end of the settle, and stops it (11 req 68).
+// VmRSS over the end of the settle, and stops it.
 func measureIdle(ctx context.Context, clk clock.Clock, o idleOptions) (res rssResult, err error) {
 	res = rssResult{path: o.binary, settle: o.settle, limit: o.limit}
 	tmp, err := os.MkdirTemp("", "sizegate-")

@@ -33,8 +33,8 @@ type goccyError interface {
 }
 
 // parseYAML runs the restricted YAML profile over one file: byte
-// pre-checks, then for each document the token pass and, while the file
-// has no token-pass finding, the parse and typing (01 B 7-14).
+// pre-checks, then for each document the token pass and, while the file has
+// no token-pass finding, the parse and typing.
 func (p *fileParser) parseYAML(ctx context.Context, src []byte) {
 	if !p.checkSize(src) {
 		return
@@ -56,7 +56,7 @@ func (p *fileParser) parseYAML(ctx context.Context, src []byte) {
 		pass.maxDepth = p.opts.passDepth
 	}
 	// Parse findings and documents are held apart: a file with any
-	// token-pass finding is not parsed (01 req 8), so they are dropped then.
+	// token-pass finding is not parsed, so they are dropped then.
 	var parsed diag.List
 	var docs []Document
 	for _, seg := range splitDocuments(text) {
@@ -98,10 +98,10 @@ func (p *fileParser) parseYAML(ctx context.Context, src []byte) {
 // scan tokenizes one document with goccy's scanner, after bounding its
 // token count from its bytes (estimateTokens): a document whose bound
 // passes MaxDocumentTokens is refused before any token is materialized, so
-// a flood of one-character tokens costs nothing (01 risk 1); the token
-// pass checks the exact count. The bound over-counts indicators inside
-// quoted and block scalars, so its finding says the count is an estimate.
-// It reports false when the file must stop.
+// a flood of one-character tokens costs nothing; the token pass checks the
+// exact count. The bound over-counts indicators inside quoted and block
+// scalars, so its finding says the count is an estimate. It reports false
+// when the file must stop.
 //
 // A document holding a long run of blank lines is scanned with its
 // clipping block scalars rewritten to keep chomping (chomp.go), which only
@@ -148,18 +148,18 @@ func (p *fileParser) scan(seg segment, pass *tokenPass) (token.Tokens, bool) {
 
 // untabQuotes writes as a space every tab inside a double-quoted scalar of
 // text that follows other text on its line, and returns the text and the
-// number of tabs written (01 req 8, 12, 14). For each such tab goccy's
-// scanner steps one character too far, past the scalar's end, so it lost
-// the line break after "a: \"x\ty\"" and read "b: 1" on the next line as
-// on the scalar's line: it refused "a: \"x\ty\"\nb: 1", which YAML 1.2
-// accepts, read a "..." line after the scalar as a plain scalar, and moved
-// every later token a line up. The token pass reads every quoted scalar from
-// the source (quoted.go), so the value keeps its tabs, and a tab and a space
-// are one byte and one column each. A tab that indents a continuation line
-// stays: goccy refuses it where YAML 1.2 does (YAML Test Suite DK95/01).
-// The scalars are found in goccy's scan of the text with every tab written
-// as a space, which the fault does not touch; a tab separates tokens as a
-// space does, so that scan finds the same scalars.
+// number of tabs written. For each such tab goccy's scanner steps one
+// character too far, past the scalar's end, so it lost the line break after
+// "a: \"x\ty\"" and read "b: 1" on the next line as on the scalar's line: it
+// refused "a: \"x\ty\"\nb: 1", which YAML 1.2 accepts, read a "..." line
+// after the scalar as a plain scalar, and moved every later token a line up.
+// The token pass reads every quoted scalar from the source (quoted.go), so
+// the value keeps its tabs, and a tab and a space are one byte and one
+// column each. A tab that indents a continuation line stays: goccy refuses
+// it where YAML 1.2 does (YAML Test Suite DK95/01). The scalars are found in
+// goccy's scan of the text with every tab written as a space, which the
+// fault does not touch; a tab separates tokens as a space does, so that scan
+// finds the same scalars.
 func untabQuotes(text string) (string, int) {
 	var s scanner.Scanner
 	spaced := strings.ReplaceAll(text, "\t", " ")
@@ -213,11 +213,11 @@ func untabQuotes(text string) (string, int) {
 
 // untabTags writes as a space the tab that ends each tag of a segment's
 // tokens, scanned from text, and returns the text and the number of tabs
-// written (01 req 12, 15). goccy's scanner ends a tag at a space or a line
-// break only, so it reads "!!str\tx" as one tag and "[!e\tr]" as the tag
-// "!e\tr]", where YAML 1.2 ends the tag at the tab, which separates it
-// from its node as a space does. The space changes no position, and no
-// value: values are read from the source, which keeps the tab.
+// written. goccy's scanner ends a tag at a space or a line break only, so
+// it reads "!!str\tx" as one tag and "[!e\tr]" as the tag "!e\tr]", where
+// YAML 1.2 ends the tag at the tab, which separates it from its node as a
+// space does. The space changes no position, and no value: values are read
+// from the source, which keeps the tab.
 func untabTags(tks token.Tokens, text string) (string, int) {
 	var cols columnTable
 	var b []byte
@@ -251,7 +251,7 @@ func untabTags(tks token.Tokens, text string) (string, int) {
 // specified in the multi-line header"), which a document without them
 // passes. The token pass reads every block scalar, and the empty lines a
 // keep-chomping one keeps, from the source (literal.go), and no other token
-// moves (01 req 8, 12).
+// moves.
 func trimBlankTail(text string) string {
 	end := len(text)
 	for end > 0 {
@@ -267,16 +267,16 @@ func trimBlankTail(text string) string {
 // untabSeparators writes as a space every tab between a quoted scalar and
 // the ':' after it, which goccy's scanner refuses ("tab character cannot use
 // as a map key directly") where YAML 1.2 separates the key from its ':' with
-// white space (01 req 8, 15: "{\"a\"\t: 1}" is a JSON file, and its YAML
-// twin gives the same tree). The rewrite needs no token: a tab between a
-// closing quote and a ':' is separation white space between a quoted key and
-// its ':', or lies inside a quoted scalar, a block scalar or a comment,
-// whose values the token pass reads from the source. A tab and a space are
-// one byte and one column each, so no position changes. A line of white
-// space holding a tab stays as it is: goccy refuses it outside a flow
-// collection, which YAML 1.2 allows between nodes but not inside a plain
-// scalar that indents too little ("a: b\n\t\n c"), and the scanner's
-// tokens do not tell the two apart before the line.
+// white space ("{\"a\"\t: 1}" is a JSON file, and its YAML twin gives the
+// same tree). The rewrite needs no token: a tab between a closing quote and
+// a ':' is separation white space between a quoted key and its ':', or lies
+// inside a quoted scalar, a block scalar or a comment, whose values the
+// token pass reads from the source. A tab and a space are one byte and one
+// column each, so no position changes. A line of white space holding a tab
+// stays as it is: goccy refuses it outside a flow collection, which YAML 1.2
+// allows between nodes but not inside a plain scalar that indents too little
+// ("a: b\n\t\n c"), and the scanner's tokens do not tell the two apart
+// before the line.
 func untabSeparators(text string) string {
 	var b []byte
 	for i := strings.IndexByte(text, ':'); i >= 0; {
@@ -311,7 +311,7 @@ func untabSeparators(text string) string {
 func (p *fileParser) scanText(text string, seg segment, pass *tokenPass) (tks token.Tokens, ok bool) {
 	defer func() {
 		// goccy is third-party code fed untrusted input; a panic in it
-		// must not take down the process (11 req 26).
+		// must not take down the process.
 		if r := recover(); r != nil {
 			pass.fail(p.pos(seg.startLine, 1), fmt.Sprintf("syntax error: YAML scanner failed: %v", r))
 			tks, ok = nil, false
@@ -360,13 +360,13 @@ func segmentPos(seg segment, off int) linecol {
 }
 
 // parseSegment parses one document's tokens and converts every document
-// they hold into a tree (01 req 10). A document holding a block collection
-// takes the split parse (split.go), and goccy's parser never sees its
-// tokens whole: when they hold more than one document body, which the
-// token pass and the document cut rule out, the segment is refused
-// (refuseShape). cols corrects the columns goccy gives the tokens
-// (columns.go), and fixed holds the token pass's readings of the scalars
-// goccy reads otherwise (source.go).
+// they hold into a tree. A document holding a block collection takes the
+// split parse (split.go), and goccy's parser never sees its tokens whole:
+// when they hold more than one document body, which the token pass and the
+// document cut rule out, the segment is refused (refuseShape). cols
+// corrects the columns goccy gives the tokens (columns.go), and fixed
+// holds the token pass's readings of the scalars goccy reads otherwise
+// (source.go).
 func (p *fileParser) parseSegment(tks token.Tokens, seg segment, splits map[int]*blockFrame, cols columnTable, fixed fixes) {
 	lineOff := seg.startLine - 1
 	if len(splits) > 0 {
@@ -521,7 +521,7 @@ func syntaxMessage(err error) string {
 }
 
 // converter turns one goccy document into a tree, typing scalars by the
-// core schema (01 req 12) and reporting duplicate keys (01 req 11).
+// core schema and reporting duplicate keys.
 type converter struct {
 	p       *fileParser
 	lineOff int
@@ -537,22 +537,22 @@ type converter struct {
 	deep  bool
 }
 
-// enter opens a collection starting at at, as the second bound of 01 req 9
-// behind the token pass (11 req 17, 26). The depth of the tree is counted
-// as it is built, in goccy's parse of a value and in the split parse alike:
-// the first collection deeper than MaxDepth fails the document with
-// RZ-CFG-001, as the token pass words it, and nothing more of the document
-// is converted, so no tree deeper than MaxDepth is ever returned and the
-// conversion never recurses past it. This bounds the returned tree only:
-// goccy has parsed the value, built every node and path of it and recursed
-// once per level before the conversion starts. The cost of that parse
-// rests on the token pass, which predicts goccy's nesting from columns in
-// block context and must predict it exactly inside a flow collection,
-// which goccy parses whole (flowcost.go, flowentry.go): every shape it
-// mispredicted (tagged empty nodes, multi-line implicit keys, explicit
-// keys, flow entries without ',') let goccy build a tree deeper than
-// MaxDepth, at a cost of up to 3,747 MiB, before this bound refused it.
-// enter reports whether the collection may be converted; leave closes it.
+// enter opens a collection starting at at, as the second bound behind the
+// token pass. The depth of the tree is counted as it is built, in goccy's
+// parse of a value and in the split parse alike: the first collection
+// deeper than MaxDepth fails the document with RZ-CFG-001, as the token
+// pass words it, and nothing more of the document is converted, so no tree
+// deeper than MaxDepth is ever returned and the conversion never recurses
+// past it. This bounds the returned tree only: goccy has parsed the value,
+// built every node and path of it and recursed once per level before the
+// conversion starts. The cost of that parse rests on the token pass, which
+// predicts goccy's nesting from columns in block context and must predict
+// it exactly inside a flow collection, which goccy parses whole
+// (flowcost.go, flowentry.go): every shape it mispredicted (tagged empty
+// nodes, multi-line implicit keys, explicit keys, flow entries without ',')
+// let goccy build a tree deeper than MaxDepth, at a cost of up to 3,747
+// MiB, before this bound refused it. enter reports whether the collection
+// may be converted; leave closes it.
 func (c *converter) enter(at tree.Pos) bool {
 	if c.deep {
 		return false
@@ -709,11 +709,11 @@ func (c *converter) members(m *tree.Node, values []*ast.MappingValueNode) {
 
 // placeNull places the implicit null goccy's parser makes for an empty
 // value, n converted from v, in the column after the token it follows,
-// after: the entry's ':' or '-', or the first token of a key with no ':'
-// (01 req 14). goccy puts it one column further at the end of its tokens
-// than inside them, so the null's position depended on what came after the
-// entry ("k1:" alone and before "w0: v"); the split parse places it the same
-// way (splitter.empty).
+// after: the entry's ':' or '-', or the first token of a key with no ':'.
+// goccy puts it one column further at the end of its tokens than inside
+// them, so the null's position depended on what came after the entry ("k1:"
+// alone and before "w0: v"); the split parse places it the same way
+// (splitter.empty).
 func (c *converter) placeNull(n *tree.Node, v ast.Node, after *token.Token) {
 	if _, ok := v.(*ast.NullNode); !ok || n.Kind != tree.KindNull || after == nil {
 		return
@@ -733,8 +733,8 @@ func nextColumn(at tree.Pos) tree.Pos {
 }
 
 // addMember appends a member to m, reporting a duplicate key at the
-// second key with the first as related location (01 req 11); the first
-// entry of a key is kept.
+// second key with the first as related location; the first entry of a
+// key is kept.
 func (c *converter) addMember(m *tree.Node, seen map[string]tree.Pos, key string, keyPos tree.Pos, value *tree.Node) {
 	if first, dup := seen[key]; dup {
 		d := c.p.errorAt(codeDuplicate, keyPos, "duplicate key "+strconv.Quote(clip(key)))
@@ -749,7 +749,7 @@ func (c *converter) addMember(m *tree.Node, seen map[string]tree.Pos, key string
 
 // key returns a mapping key's string: the plain text as written or the
 // decoded quoted or block content, never typed, so 1: and "1": are the
-// same key (01 req 11). A non-scalar key is RZ-CFG-001 (01 req 10).
+// same key. A non-scalar key is RZ-CFG-001.
 func (c *converter) key(k ast.MapKeyNode) (string, tree.Pos, bool) {
 	var n ast.Node = k
 	if mk, ok := n.(*ast.MappingKeyNode); ok {
@@ -822,9 +822,9 @@ func (c *converter) keyText(v *ast.TagNode, t *tree.Node) string {
 	}
 }
 
-// scalar types a scalar token (01 req 12): quoted scalars are strings and
-// plain scalars follow the core schema; with tag set, the tag forces the
-// type of the content, and a finding is reported at the tag (tagAt).
+// scalar types a scalar token: quoted scalars are strings and plain
+// scalars follow the core schema; with tag set, the tag forces the type
+// of the content, and a finding is reported at the tag (tagAt).
 func (c *converter) scalar(tk *token.Token, tag string, tagAt tree.Pos) *tree.Node {
 	at := c.tokenPos(tk)
 	report := at
@@ -873,7 +873,7 @@ func (c *converter) tagged(v *ast.TagNode) *tree.Node {
 
 // resolveTag converts the content of a tagged node. !!map and !!seq
 // require a mapping and a sequence; the scalar tags require a scalar whose
-// content matches them, and a mismatch is RZ-CFG-001 (01 req 12).
+// content matches them, and a mismatch is RZ-CFG-001.
 func (c *converter) resolveTag(v *ast.TagNode) *tree.Node {
 	tag := ""
 	at := tree.Pos{}

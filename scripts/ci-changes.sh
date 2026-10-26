@@ -13,15 +13,14 @@
 #   test=         stage 5 and the floor job: Go changes, examples/ or the
 #                 configuration conformance fixtures under
 #                 test/conformance/config/ (a golden regeneration touches only
-#                 fixtures, and 11 req 9 needs their digests checked on the
-#                 floor, darwin and windows jobs)
-#   integration=  stage 8: the pr-full filter (11 req 4) and every merge
-#                 queue run (11 req 1)
-#   gates=        stage 9: Go changes (11 req 3)
+#                 fixtures, whose digests are checked on the floor, darwin
+#                 and windows jobs)
+#   integration=  stage 8: the pr-full filter and every merge queue run
+#   gates=        stage 9: Go changes
 #
 # A change under .github/workflows/, a push, a manual or scheduled run, and
-# ALL=true (the workflow_call input `all` that release.yml passes, 11 req 11)
-# select every stage.
+# ALL=true (the workflow_call input `all` that release.yml passes) select
+# every stage.
 set -euo pipefail
 
 out=${GITHUB_OUTPUT:-/dev/stdout}

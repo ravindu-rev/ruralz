@@ -14,10 +14,10 @@ import (
 	"time"
 )
 
-// Tests for spec 10 reqs 14 and 16: timestamps, the JSON document writer
-// and the NDJSON line writer.
+// Tests for timestamps, the JSON document writer and the NDJSON line
+// writer.
 
-func TestFormatTimeReq14(t *testing.T) {
+func TestFormatTime(t *testing.T) {
 	loc := time.FixedZone("CEST", 2*3600)
 	cases := map[time.Time]string{
 		time.Date(2026, 9, 26, 14, 0, 0, 0, loc):                                      "2026-09-26T12:00:00.000Z",
@@ -52,9 +52,9 @@ type jsonNested struct {
 	Rows []int `json:"rows"`
 }
 
-// TestWriteJSONReq16 pins the document form: two-space indentation, field
+// TestWriteJSON pins the document form: two-space indentation, field
 // order, no HTML escaping, one trailing newline, [] and {} instead of null.
-func TestWriteJSONReq16(t *testing.T) {
+func TestWriteJSON(t *testing.T) {
 	doc := jsonDoc{
 		Revision: "rev-<&>",
 		Nested:   &jsonNested{},
@@ -179,10 +179,10 @@ type omitZeroDoc struct {
 	Plain     []string                   `json:"plain"`
 }
 
-// TestWriteJSONOmitZeroReq16 covers req 16's "optional members omitted
-// when absent" for omitzero: a zero field stays zero, so the encoder
-// omits it, while a non-zero one is still written with [] for nil slices.
-func TestWriteJSONOmitZeroReq16(t *testing.T) {
+// TestWriteJSONOmitZero checks that optional members are omitted when
+// absent for omitzero: a zero field stays zero, so the encoder omits it,
+// while a non-zero one is still written with [] for nil slices.
+func TestWriteJSONOmitZero(t *testing.T) {
 	doc := omitZeroDoc{
 		Empty:     []string{},
 		Window:    jsonNested{Rows: []int{}},
@@ -305,9 +305,9 @@ func (f *flushWriter) Flush() error {
 	return nil
 }
 
-// TestLineWriterReq16 pins NDJSON: one compact object per line, flushed
+// TestLineWriter pins NDJSON: one compact object per line, flushed
 // per line.
-func TestLineWriterReq16(t *testing.T) {
+func TestLineWriter(t *testing.T) {
 	var w flushWriter
 	l := NewLineWriter(&w)
 	if err := l.Object(struct {

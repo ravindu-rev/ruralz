@@ -13,15 +13,14 @@ import (
 	"github.com/ravindu-rev/ruralz/pkg/config/v1alpha1"
 )
 
-// Tests for spec 06 section 2.2: requirement 12 (one immutable index per
-// snapshot, read without locks), 14 (API key binding by digest, double
-// match 401 RZ-AUTH-002), 16 (JWT issuer plus subject or string claims), 17
-// (OAuth client_id, else azp, through the Consumer's jwt issuer,
-// OQ-security-and-identity-24 (a)), 18 (de-duplicated union; two or more
-// is ambiguous), 19 (basic usernames byte-exact; certificate subject and
-// uriSan exact; a leaf matching two Consumers is ambiguous), and the
-// section 6.3 property test (JWT matches equal a brute-force evaluation of
-// rules 16 to 18).
+// Tests for the credential Index: one immutable index per snapshot, read
+// without locks; API key binding by digest (a double match is 401
+// RZ-AUTH-002); JWT issuer plus subject or string claims; OAuth client_id,
+// else azp, through the Consumer's jwt issuer; the de-duplicated union
+// (two or more is ambiguous); basic usernames byte-exact, certificate
+// subject and uriSan exact, a leaf matching two Consumers ambiguous; and
+// the property test:
+// JWT matches equal a brute-force evaluation of the JWT binding rules.
 
 const iss = "https://login.acme.example"
 
@@ -34,7 +33,7 @@ func mustIndex(t testing.TB, cs ...*v1alpha1.Consumer) *Index {
 	return ix
 }
 
-func TestReq14APIKeyBinding(t *testing.T) {
+func TestAPIKeyBinding(t *testing.T) {
 	ix := mustIndex(t,
 		consumer("acme", withHash("primary", testKeyA), withHash("old", testKeyC)),
 		consumer("beta", withHash("primary", testKeyB), withHash("shared", testKeyC)),
@@ -62,7 +61,7 @@ func TestReq14APIKeyBinding(t *testing.T) {
 	}
 }
 
-func TestReq16JWTSubjectAndClaims(t *testing.T) {
+func TestJWTSubjectAndClaims(t *testing.T) {
 	ix := mustIndex(t,
 		consumer("by-subject", withSubject(iss, "acme-integration")),
 		consumer("by-claims", withClaims(iss, map[string]string{"client_id": "acme", "tenant": "t1"})),
@@ -105,7 +104,7 @@ func TestReq16JWTSubjectAndClaims(t *testing.T) {
 	}
 }
 
-func TestReq17OAuthClientBinding(t *testing.T) {
+func TestOAuthClientBinding(t *testing.T) {
 	ix := mustIndex(t,
 		consumer("portal", withSubject(iss, "portal-sub"), withClient("acme-portal")),
 		consumer("no-jwt-issuer", withClient("orphan")),
@@ -140,7 +139,7 @@ func TestReq17OAuthClientBinding(t *testing.T) {
 	}
 }
 
-func TestReq18DoubleMatchIsAmbiguous(t *testing.T) {
+func TestDoubleMatchIsAmbiguous(t *testing.T) {
 	ix := mustIndex(t,
 		consumer("a", withSubject(iss, "s")),
 		consumer("b", withSubject(iss, "s")),
@@ -158,7 +157,7 @@ func TestReq18DoubleMatchIsAmbiguous(t *testing.T) {
 	}
 }
 
-func TestReq19BasicBinding(t *testing.T) {
+func TestBasicBinding(t *testing.T) {
 	ix := mustIndex(t,
 		consumer("acme", withBasic("acme-batch", cfgBasicHash, nil)),
 		consumer("dup1", withBasic("shared", cfgBasicHash, i32(700000))),
@@ -183,7 +182,7 @@ func TestReq19BasicBinding(t *testing.T) {
 	}
 }
 
-func TestReq19CertificateBinding(t *testing.T) {
+func TestCertificateBinding(t *testing.T) {
 	ix := mustIndex(t,
 		consumer("batch", withCert("batch-client", "", "spiffe://acme.example/batch")),
 		consumer("by-subject", withCert("s", "CN=client,O=Acme", "")),
@@ -241,7 +240,7 @@ func TestNewIndexRejectsWhatValidationRejects(t *testing.T) {
 	}
 }
 
-func TestReq12IndexSharesCompiledViews(t *testing.T) {
+func TestIndexSharesCompiledViews(t *testing.T) {
 	src := []*v1alpha1.Consumer{consumer("acme", withHash("k", testKeyA)), nil, consumer("acme")}
 	compiled := CompileConsumers(src)
 	ix, err := NewIndex(src, compiled.Map())
@@ -264,8 +263,9 @@ func TestReq12IndexSharesCompiledViews(t *testing.T) {
 	}
 }
 
-// Requirement 12: lookups run on the request path; they allocate nothing.
-func TestReq12LookupsAllocateNothing(t *testing.T) {
+// TestLookupsAllocateNothing: lookups run on the request path; they
+// allocate nothing.
+func TestLookupsAllocateNothing(t *testing.T) {
 	ix := mustIndex(t,
 		consumer("a", withHash("k", testKeyA), withSubject(iss, "s"), withClient("cli"),
 			withClaims(iss, map[string]string{"role": "r", "team": "t"})),
@@ -309,7 +309,7 @@ func (c *countingClaims) HasClaim(name string) bool {
 // number of claim reads. The fixtures include Consumers that all share the
 // alphabetically first claim pair ("env": "prod"), where an index on one
 // claim would scan every Consumer's rule.
-func TestReq12JWTLookupWorkIndependentOfConsumerCount(t *testing.T) {
+func TestJWTLookupWorkIndependentOfConsumerCount(t *testing.T) {
 	tests := []struct {
 		name   string
 		claims func(i int) map[string]string
@@ -367,10 +367,10 @@ func TestReq12JWTLookupWorkIndependentOfConsumerCount(t *testing.T) {
 	}
 }
 
-// Requirement 16 on a hash collision: a slot holding a rule whose values
-// differ from the token's (a 64-bit collision, forced here) never binds;
-// only the confirmed rule does.
-func TestReq16ClaimsHashHitIsConfirmed(t *testing.T) {
+// TestClaimsHashHitIsConfirmed: on a hash collision, a slot holding a rule
+// whose values differ from the token's (a 64-bit collision, forced here)
+// never binds; only the confirmed rule does.
+func TestClaimsHashHitIsConfirmed(t *testing.T) {
 	ix := mustIndex(t,
 		consumer("a", withClaims(iss, map[string]string{"env": "prod", "tenant": "t1"})),
 		consumer("b", withClaims(iss, map[string]string{"env": "prod", "tenant": "t2"})),
@@ -402,9 +402,10 @@ func TestReq16ClaimsHashHitIsConfirmed(t *testing.T) {
 	}
 }
 
-// Requirement 18 inside one shape: Consumers expecting the same values
-// share one rule and are ambiguous; one Consumer repeating them is not.
-func TestReq18SameClaimsInOneShape(t *testing.T) {
+// TestSameClaimsInOneShape: inside one shape, Consumers expecting the same
+// values share one rule and are ambiguous; one Consumer repeating them is
+// not.
+func TestSameClaimsInOneShape(t *testing.T) {
 	same := map[string]string{"env": "prod", "tenant": "t"}
 	tok := MapClaims{"env": "prod", "tenant": "t"}
 	if c, amb := mustIndex(t, consumer("a", withClaims(iss, same)), consumer("b", withClaims(iss, same))).JWT(iss, tok); c != nil || !amb {
@@ -415,9 +416,9 @@ func TestReq18SameClaimsInOneShape(t *testing.T) {
 	}
 }
 
-// Requirement 16: an entry with an empty subject and no claims binds no
-// token of its issuer (Check reports it as RZ-CFG-005).
-func TestReq16EmptyBindingBindsNothing(t *testing.T) {
+// TestEmptyBindingBindsNothing: an entry with an empty subject and no
+// claims binds no token of its issuer (Check reports it as RZ-CFG-005).
+func TestEmptyBindingBindsNothing(t *testing.T) {
 	c := consumer("a")
 	c.Spec.Credentials.JWT = []v1alpha1.JWTBinding{{Issuer: iss, Claims: map[string]string{}}, {Issuer: "other"}}
 	ix := mustIndex(t, c)
@@ -430,7 +431,7 @@ func TestReq16EmptyBindingBindsNothing(t *testing.T) {
 	}
 }
 
-// bruteJWT evaluates rules 16 to 18 directly over the Consumer list.
+// bruteJWT evaluates the JWT binding rules directly over the Consumer list.
 func bruteJWT(cs []*v1alpha1.Consumer, iss string, claims MapClaims) (string, bool) {
 	var matched []string
 	for _, c := range cs {
@@ -493,9 +494,9 @@ func (s *splitmix) IntN(n int) int {
 	return int(z>>33) % n
 }
 
-// Section 6.3 property: for random Consumer sets, JWT()'s result equals a
-// brute-force evaluation of rules 16 to 18.
-func TestReq16to18JWTMatchesBruteForce(t *testing.T) {
+// TestJWTMatchesBruteForce: for random Consumer sets, JWT()'s result
+// equals a brute-force evaluation of the JWT binding rules.
+func TestJWTMatchesBruteForce(t *testing.T) {
 	seed := splitmix(0x0616_0018)
 	rng := &seed
 	issuers := []string{"i1", "i2"}
@@ -599,8 +600,8 @@ func BenchmarkIndex(b *testing.B) {
 
 // BenchmarkJWTSharedFirstClaim: claims bindings whose alphabetically first
 // claim pair ("env": "prod") every Consumer shares cost the same per lookup
-// at 10 and 10,000 Consumers ("Index lookups constant time"; spec 06
-// requirement 32's auth.jwt budget).
+// at 10 and 10,000 Consumers (index lookups take constant time, within the
+// auth.jwt budget).
 func BenchmarkJWTSharedFirstClaim(b *testing.B) {
 	for _, n := range []int{10, 10_000} {
 		cs := make([]*v1alpha1.Consumer, n)

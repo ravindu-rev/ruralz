@@ -12,8 +12,8 @@ import (
 
 // Runtime is the resilience state of one Upstream on one Node: its
 // circuit breaker, bulkhead and retry budget. It lives for the Node's
-// lifetime and is carried across Hot Reloads by Upstream metadata.name
-// (05 req 2); every leg passes its own snapshot's Config.
+// lifetime and is carried across Hot Reloads by Upstream
+// metadata.name; every leg passes its own snapshot's Config.
 type Runtime struct {
 	clk      clock.Clock
 	src      rand.Source
@@ -87,7 +87,7 @@ const (
 	ReasonBreakerOpen
 	// ReasonBudget: the retry budget is exhausted; the caller counts
 	// ruralz_upstream_retry_budget_exhausted_total and the leg returns its
-	// original failure (05 req 34).
+	// original failure.
 	ReasonBudget
 )
 
@@ -118,7 +118,7 @@ func (r Reason) String() string {
 }
 
 // RetryInput is what the Upstream core knows after one attempt, the input
-// of Leg.Decide (05 reqs 32 and 33).
+// of Leg.Decide.
 type RetryInput struct {
 	// RetryOn is retryOn's result over the attempt (EvalRetryOn; false
 	// after a runtime error).
@@ -128,7 +128,7 @@ type RetryInput struct {
 	// every other condition applies.
 	FilterRetry bool
 	// Replayable is RequestBody.Replayable(): the body is empty, gated, or
-	// streamed with no byte read yet (05 req 31).
+	// streamed with no byte read yet.
 	Replayable bool
 	// Committed is true once anything of the response reached the client.
 	Committed bool
@@ -148,11 +148,10 @@ type Decision struct {
 	Reason Reason
 }
 
-// Leg is the resilience bookkeeping of one Upstream leg (05 groups E and
-// G): its deadlines, attempt count, breaker permit and retry budget units.
-// The zero value is an idle leg; Begin starts it and End returns it to
-// idle, so a Leg can live in pooled per-request memory. A Leg belongs to
-// the leg's goroutine.
+// Leg is the resilience bookkeeping of one Upstream leg: its deadlines,
+// attempt count, breaker permit and retry budget units. The zero value is
+// an idle leg; Begin starts it and End returns it to idle, so a Leg can
+// live in pooled per-request memory. A Leg belongs to the leg's goroutine.
 //
 // The Upstream core drives it as:
 //
@@ -173,24 +172,23 @@ type Decision struct {
 //	// responded, kind and failed describe the last attempt that ran
 //	leg.End(BreakerResult(failed, leg.Outcome(responded, kind), ejected, endpoints))
 //
-// The breaker gate of 05 req 11 step e applies to every attempt: Begin
-// admits the leg, Decide refuses a retry the breaker already refuses
-// before the delay, and StartAttempt checks again when the attempt starts,
-// because the breaker can open (or go half-open with another leg as its
-// probe) during a backoff or Retry-After delay of up to MaxRetryAfter. A
-// retry attempt that cannot start (breaker open or half-open and the leg
-// not its probe, Endpoint set empty, bulkhead full) ends the leg with the
-// previous attempt's outcome (05 req 35), and Outcome reports the refusing
-// gate for a leg whose first attempt could not start.
+// The breaker gate applies to every attempt: Begin admits the leg, Decide
+// refuses a retry the breaker already refuses before the delay, and
+// StartAttempt checks again when the attempt starts, because the breaker
+// can open (or go half-open with another leg as its probe) during a
+// backoff or Retry-After delay of up to MaxRetryAfter. A retry attempt
+// that cannot start (breaker open or half-open and the leg not its probe,
+// Endpoint set empty, bulkhead full) ends the leg with the previous
+// attempt's outcome, and Outcome reports the refusing gate for a leg whose
+// first attempt could not start.
 //
-// The Endpoint set is checked before the breaker (05 req 11: step a, then
-// step e), which Begin does from its endpoints argument, so an empty set
-// gives RZ-UP-008 even with the breaker open and never spends the half-open
-// probe. An attempt whose context ended without a deadline expiry (the
-// client went away, or a sibling composition step canceled the shared
-// context; Canceled) is not an Upstream failure: the core skips
-// failureWhen, passive ejection and the retry decision for it and ends the
-// leg with End(LegNotCounted).
+// The Endpoint set is checked before the breaker, which Begin does from
+// its endpoints argument, so an empty set gives RZ-UP-008 even with the
+// breaker open and never spends the half-open probe. An attempt whose
+// context ended without a deadline expiry (the client went away, or a
+// sibling composition step canceled the shared context; Canceled) is not
+// an Upstream failure: the core skips failureWhen, passive ejection and
+// the retry decision for it and ends the leg with End(LegNotCounted).
 type Leg struct {
 	rt       *Runtime
 	cfg      *Config
@@ -211,11 +209,11 @@ type Leg struct {
 // Begin starts a leg of an Upstream with runtime rt and the caller's
 // snapshot configuration cfg, bounded by the Route deadline route (zero:
 // none); endpoints is the size of the Upstream's Endpoint set. The gates
-// run in the order of 05 req 11: GateNoEndpoint when endpoints is 0 (503
-// RZ-UP-008), then the breaker: GateBreaker means it is open or half-open
-// with its probe in flight (503 RZ-UP-005). A gated leg did not start: no
-// retry, not counted, and End is a no-op. With GateNone the leg counts as
-// an in-flight original of the retry budget until End, and when it is the
+// run in the order: GateNoEndpoint when endpoints is 0 (503 RZ-UP-008),
+// then the breaker: GateBreaker means it is open or half-open with its
+// probe in flight (503 RZ-UP-005). A gated leg did not start: no retry,
+// not counted, and End is a no-op. With GateNone the leg counts as an
+// in-flight original of the retry budget until End, and when it is the
 // half-open probe its probe slot is leased until its leg deadline plus
 // openDuration (Breaker.AllowLease). cfg must stay unchanged until End.
 // Begin on a Leg that is still active first ends it with LegNotCounted, so
@@ -247,16 +245,16 @@ func (l *Leg) Begin(rt *Runtime, cfg *Config, route time.Time, endpoints int) Ga
 }
 
 // StartAttempt starts the leg's next attempt. It first applies the breaker
-// half of the per-attempt gate (05 req 11 step e): when the breaker does
-// not admit the leg (Breaker.Admits: it is open, or half-open and the leg
-// is not its current probe, for example because the breaker opened during
-// the retry delay or another leg took over a lost probe's lease), it counts
-// no attempt and returns GateBreaker. The leg then ends with the previous
-// attempt's outcome (05 reqs 35 and 37: no retry while open, one probe at
-// a time), or with RZ-UP-005 when no attempt ran, which Outcome reports.
-// Otherwise it counts the attempt and returns GateNone with its timing
-// (05 reqs 4 and 24): the per-try timeout is computed now, from the leg
-// time left and the retries left after this attempt.
+// half of the per-attempt gate: when the breaker does not admit the leg
+// (Breaker.Admits: it is open, or half-open and the leg is not its current
+// probe, for example because the breaker opened during the retry delay or
+// another leg took over a lost probe's lease), it counts no attempt and
+// returns GateBreaker. The leg then ends with the previous attempt's
+// outcome (no retry while open, one probe at a time), or with RZ-UP-005
+// when no attempt ran, which Outcome reports. Otherwise it counts the
+// attempt and returns GateNone with its timing: the per-try timeout is
+// computed now, from the leg time left and the retries left after this
+// attempt.
 func (l *Leg) StartAttempt() (Attempt, Gate) {
 	if !l.rt.breaker.Admits(l.permit) {
 		l.gate = GateBreaker
@@ -279,11 +277,10 @@ func (l *Leg) StartAttempt() (Attempt, Gate) {
 // AbandonAttempt uncounts the attempt StartAttempt last counted when one
 // of the Upstream core's own gates refused it before it ran: g is
 // GateNoEndpoint for an empty Endpoint set or GateBulkhead for a full
-// bulkhead (05 req 11 steps a and e). The breaker half of step e is
-// StartAttempt's own: an attempt it refused was not counted, and
-// AbandonAttempt after it, after Decide or a second time changes nothing.
-// The leg then ends with the previous attempt's outcome (05 req 35), or
-// with g's code when no attempt ran, which Outcome reports.
+// bulkhead. The breaker gate is StartAttempt's own: an attempt it refused
+// was not counted, and AbandonAttempt after it, after Decide or a second
+// time changes nothing. The leg then ends with the previous attempt's
+// outcome, or with g's code when no attempt ran, which Outcome reports.
 func (l *Leg) AbandonAttempt(g Gate) {
 	if !l.pending {
 		return
@@ -295,19 +292,19 @@ func (l *Leg) AbandonAttempt(g Gate) {
 	}
 }
 
-// Decide applies the retry rule of 05 req 33 after an attempt: a retry
-// needs retryOn true or a Filter request, and all of (1) a replayable body
-// and nothing committed, (2) retries left and the leg deadline still ahead
-// after the delay, (3) the breaker admitting another attempt of this leg
-// (closed, or half-open with this leg its current probe: Breaker.Admits)
-// and room in the retry budget, (4) any Retry-After at most MaxRetryAfter
-// and ending before the leg deadline. The delay is Backoff for this retry
-// with a fresh draw, or the Retry-After delay when longer. Every retry
-// takes one retry budget unit, from its backoff start until End (05 req
-// 34); the budget is checked last, so a retry refused for another reason
-// takes nothing. A refused retry ends the leg with the attempt result it
-// has (05 req 35). The breaker can change during the delay, so the retry
-// attempt still passes StartAttempt's breaker gate when it starts.
+// Decide applies the retry rule after an attempt: a retry needs retryOn
+// true or a Filter request, and all of (1) a replayable body and nothing
+// committed, (2) retries left and the leg deadline still ahead after the
+// delay, (3) the breaker admitting another attempt of this leg (closed, or
+// half-open with this leg its current probe: Breaker.Admits) and room in
+// the retry budget, (4) any Retry-After at most MaxRetryAfter and ending
+// before the leg deadline. The delay is Backoff for this retry with a
+// fresh draw, or the Retry-After delay when longer. Every retry takes one
+// retry budget unit, from its backoff start until End; the budget is
+// checked last, so a retry refused for another reason takes nothing. A
+// refused retry ends the leg with the attempt result it has. The breaker
+// can change during the delay, so the retry attempt still passes
+// StartAttempt's breaker gate when it starts.
 func (l *Leg) Decide(in RetryInput) Decision {
 	l.pending = false // the attempt ran: AbandonAttempt keeps it
 	switch {

@@ -12,8 +12,7 @@ import (
 // within reports whether path is root or lies inside it. Both are
 // compared cleaned and absolute and, where they or a parent exist,
 // symlink-resolved, so a root or a protected path reached through a
-// symbolic link cannot slip past (spec 04 requirement 3, spec 01
-// requirement 45).
+// symbolic link cannot slip past.
 func within(path, root string) bool {
 	roots := pathForms(root)
 	for _, p := range pathForms(path) {

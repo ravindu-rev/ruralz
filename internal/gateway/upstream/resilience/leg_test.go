@@ -54,10 +54,10 @@ func mustStart(t *testing.T, l *Leg) Attempt {
 	return a
 }
 
-// TestLegAttempts_05Req32: attempts counts retries (attempts: 2 allows
+// TestLegAttempts: attempts counts retries (attempts: 2 allows
 // three attempts, numbered from 1). 30 other legs in flight lift the retry
 // budget to 6, so only attempts stops these legs.
-func TestLegAttempts_05Req32(t *testing.T) {
+func TestLegAttempts(t *testing.T) {
 	for _, attempts := range []int{0, 1, 2, 5} {
 		f := newLegFixture(fixedSource{0})
 		f.cfg.Retry.Attempts = attempts
@@ -87,10 +87,10 @@ func TestLegAttempts_05Req32(t *testing.T) {
 	}
 }
 
-// TestLegAloneRetryCap_05Req34: a leg alone in flight makes at most
+// TestLegAloneRetryCap: a leg alone in flight makes at most
 // max(3, floor(20% × 1)) = 3 retries whatever attempts says, because each
 // of its retries stays in flight until the leg ends.
-func TestLegAloneRetryCap_05Req34(t *testing.T) {
+func TestLegAloneRetryCap(t *testing.T) {
 	f := newLegFixture(fixedSource{0})
 	f.cfg.Retry.Attempts = 5
 	l := f.begin(t)
@@ -108,11 +108,10 @@ func TestLegAloneRetryCap_05Req34(t *testing.T) {
 	l.End(LegFailure)
 }
 
-// TestLegDeadlines_05Req24 is 05 section 6 test 4: the default perTry is
-// the time left divided by the retries left plus one at each attempt, the
-// last attempt runs to the leg deadline, and the leg deadline covers the
-// backoff.
-func TestLegDeadlines_05Req24(t *testing.T) {
+// TestLegDeadlines: the default perTry is the time left divided by the
+// retries left plus one at each attempt, the last attempt runs to the leg
+// deadline, and the leg deadline covers the backoff.
+func TestLegDeadlines(t *testing.T) {
 	f := newLegFixture(fixedSource{0})
 	f.cfg.Retry.Attempts = 2
 	var l Leg
@@ -182,9 +181,8 @@ func TestLegDeadlines_05Req24(t *testing.T) {
 	})
 }
 
-// TestLegDecide_05Req33 is the retry-condition part of 05 section 6
-// test 3.
-func TestLegDecide_05Req33(t *testing.T) {
+// TestLegDecide covers the retry conditions of one leg.
+func TestLegDecide(t *testing.T) {
 	later := func(d time.Duration) string { return epoch.Add(d).Format(http.TimeFormat) }
 	tests := []struct {
 		name      string
@@ -238,9 +236,9 @@ func TestLegDecide_05Req33(t *testing.T) {
 	}
 }
 
-// TestLegBackoffGrows_05Req33: retry n draws from [0, min(250 ms,
+// TestLegBackoffGrows: retry n draws from [0, min(250 ms,
 // 25 ms × 2^(n−1))].
-func TestLegBackoffGrows_05Req33(t *testing.T) {
+func TestLegBackoffGrows(t *testing.T) {
 	f := newLegFixture(fixedSource{math.MaxUint64})
 	f.cfg.Retry.Attempts = 7
 	f.cfg.Timeout = time.Hour
@@ -259,8 +257,8 @@ func TestLegBackoffGrows_05Req33(t *testing.T) {
 	l.End(LegSuccess)
 }
 
-// TestLegBreakerOpen_05Req33: no retry while the breaker is open.
-func TestLegBreakerOpen_05Req33(t *testing.T) {
+// TestLegBreakerOpen: no retry while the breaker is open.
+func TestLegBreakerOpen(t *testing.T) {
 	f := newLegFixture(fixedSource{0})
 	l := f.begin(t)
 	l.StartAttempt()
@@ -293,12 +291,11 @@ func TestLegBreakerOpen_05Req33(t *testing.T) {
 	}
 }
 
-// TestLegHalfOpenOldLeg_05Req37 is the review's case: with openDuration 0
-// a leg admitted while the breaker was closed is still running when 20
-// failing legs open it and a new leg becomes the half-open probe. The old
-// leg must not retry beside the probe (05 req 11 step e, reqs 35 and 37);
-// the probe may.
-func TestLegHalfOpenOldLeg_05Req37(t *testing.T) {
+// TestLegHalfOpenOldLeg: with openDuration 0 a leg admitted while the
+// breaker was closed is still running when 20 failing legs open it and a
+// new leg becomes the half-open probe. The old leg must not retry beside
+// the probe; the probe may.
+func TestLegHalfOpenOldLeg(t *testing.T) {
 	f := newLegFixture(fixedSource{0})
 	f.cfg.Breaker.OpenDuration = 0
 	f.cfg.Timeout = time.Hour
@@ -334,10 +331,10 @@ func TestLegHalfOpenOldLeg_05Req37(t *testing.T) {
 	}
 }
 
-// TestLegBeginGateOrder_05Req11: an empty Endpoint set (step a) is checked
-// before the breaker (step e): RZ-UP-008 even with the breaker open, and a
-// half-open breaker keeps its probe for a leg that can run.
-func TestLegBeginGateOrder_05Req11(t *testing.T) {
+// TestLegBeginGateOrder: an empty Endpoint set is checked before the
+// breaker: RZ-UP-008 even with the breaker open, and a half-open breaker
+// keeps its probe for a leg that can run.
+func TestLegBeginGateOrder(t *testing.T) {
 	f := newLegFixture(fixedSource{0})
 	var l Leg
 	if g := l.Begin(f.rt, &f.cfg, time.Time{}, 0); g != GateNoEndpoint || l.Active() || g.Code() != CodeNoEndpoint {
@@ -364,10 +361,10 @@ func TestLegBeginGateOrder_05Req11(t *testing.T) {
 	}
 }
 
-// TestLegBeginReuse_05Req37: Begin on a Leg that is still active ends it
+// TestLegBeginReuse: Begin on a Leg that is still active ends it
 // first without counting, so a pooled Leg reused without End frees its
 // half-open probe slot and its retry budget units instead of leaking them.
-func TestLegBeginReuse_05Req37(t *testing.T) {
+func TestLegBeginReuse(t *testing.T) {
 	f := newLegFixture(fixedSource{0})
 	for range 20 {
 		l := f.begin(t)
@@ -396,11 +393,11 @@ func TestLegBeginReuse_05Req37(t *testing.T) {
 	}
 }
 
-// TestLegBudget_05Req34: over budget the leg keeps its original failure
+// TestLegBudget: over budget the leg keeps its original failure
 // and the reason names the budget; every retry of a leg holds its own unit
 // from its backoff start until the leg ends, so a leg's second retry is a
 // second retry in flight.
-func TestLegBudget_05Req34(t *testing.T) {
+func TestLegBudget(t *testing.T) {
 	f := newLegFixture(fixedSource{0})
 	f.cfg.Retry.Attempts = 3
 	holders := make([]*Leg, 3)
@@ -446,12 +443,12 @@ func TestLegBudget_05Req34(t *testing.T) {
 	}
 }
 
-// TestLegBudgetAmplification_05Req34 is the review's example: 15 legs in
-// flight, each wanting up to three retries. Counting every retry from its
-// backoff start to its leg's end, no more than max(3, floor(20% × 15)) = 3
-// retries are ever in flight, so amplification stays at most 1.2×, and
-// from 15 to 200 legs the retries in flight stay within the limit.
-func TestLegBudgetAmplification_05Req34(t *testing.T) {
+// TestLegBudgetAmplification runs 15 legs in flight, each wanting up to
+// three retries. Counting every retry from its backoff start to its leg's
+// end, no more than max(3, floor(20% × 15)) = 3 retries are ever in
+// flight, so amplification stays at most 1.2×, and from 15 to 200 legs the
+// retries in flight stay within the limit.
+func TestLegBudgetAmplification(t *testing.T) {
 	for n := 15; n <= 200; n += 37 {
 		f := newLegFixture(fixedSource{0})
 		f.cfg.Retry.Attempts = 3
@@ -488,11 +485,11 @@ func TestLegBudgetAmplification_05Req34(t *testing.T) {
 	}
 }
 
-// TestLegAbandonAttempt_05Req35: a retry that cannot start ends the leg
+// TestLegAbandonAttempt: a retry that cannot start ends the leg
 // with the previous attempt's outcome; a first attempt that cannot start
-// ends it with the gate's code, not counted (05 req 37). AbandonAttempt
-// uncounts only the attempt StartAttempt last counted.
-func TestLegAbandonAttempt_05Req35(t *testing.T) {
+// ends it with the gate's code, not counted. AbandonAttempt uncounts
+// only the attempt StartAttempt last counted.
+func TestLegAbandonAttempt(t *testing.T) {
 	tests := []struct {
 		name string
 		gate Gate
@@ -551,8 +548,8 @@ func TestLegAbandonAttempt_05Req35(t *testing.T) {
 	}
 }
 
-// openBreaker ends 20 failing legs, which opens a default breaker (05 req
-// 37: minimumLegs 20, failureRatio 0.5, consecutiveFailures 5).
+// openBreaker ends 20 failing legs, which opens a default breaker
+// (minimumLegs 20, failureRatio 0.5, consecutiveFailures 5).
 func openBreaker(t *testing.T, f *legFixture) {
 	t.Helper()
 	for range 20 {
@@ -565,15 +562,14 @@ func openBreaker(t *testing.T, f *legFixture) {
 	}
 }
 
-// TestLegRetryDelaySpansBreaker_05Req35 is the residual of review finding
-// 1: a leg decides to retry while the breaker is closed and sleeps for a
-// Retry-After delay, during which the breaker opens (and, with a short
-// openDuration, goes half-open with another leg as its probe). When the
-// delay ends the retry attempt must not start: StartAttempt applies the
-// breaker gate of 05 req 11 step e again, the leg keeps the previous
-// attempt's outcome (05 req 35), no retry runs while the breaker is open
-// and none beside the probe (05 req 37), while the probe itself may retry.
-func TestLegRetryDelaySpansBreaker_05Req35(t *testing.T) {
+// TestLegRetryDelaySpansBreaker: a leg decides to retry while the breaker
+// is closed and sleeps for a Retry-After delay, during which the breaker
+// opens (and, with a short openDuration, goes half-open with another leg
+// as its probe). When the delay ends the retry attempt must not start:
+// StartAttempt applies the breaker gate again, the leg keeps the previous
+// attempt's outcome, no retry runs while the breaker is open and none
+// beside the probe, while the probe itself may retry.
+func TestLegRetryDelaySpansBreaker(t *testing.T) {
 	tests := []struct {
 		name         string
 		openDuration time.Duration // 0: the default 30 s
@@ -642,13 +638,12 @@ func TestLegRetryDelaySpansBreaker_05Req35(t *testing.T) {
 	}
 }
 
-// TestLegStartAttemptBreakerGate_05Req11: the breaker gate of 05 req 11
-// step e applies to every attempt. A first attempt the breaker refuses (it
-// opened after Begin) ends the leg with RZ-UP-005, not counted (05 req
-// 37); a probe whose lease another leg took over can start no attempt; a
-// leg admitted before the breaker opened may retry again once a probe
-// closed it.
-func TestLegStartAttemptBreakerGate_05Req11(t *testing.T) {
+// TestLegStartAttemptBreakerGate: the breaker gate applies to
+// every attempt. A first attempt the breaker refuses (it opened after
+// Begin) ends the leg with RZ-UP-005, not counted; a probe whose lease
+// another leg took over can start no attempt; a leg admitted before the
+// breaker opened may retry again once a probe closed it.
+func TestLegStartAttemptBreakerGate(t *testing.T) {
 	t.Run("first attempt after the breaker opened", func(t *testing.T) {
 		f := newLegFixture(fixedSource{0})
 		l := f.begin(t)
@@ -716,9 +711,9 @@ func TestLegStartAttemptBreakerGate_05Req11(t *testing.T) {
 	})
 }
 
-// TestLegProbe_05Req37: a half-open probe leg that ends without counting
+// TestLegProbe: a half-open probe leg that ends without counting
 // frees the probe slot for the next leg.
-func TestLegProbe_05Req37(t *testing.T) {
+func TestLegProbe(t *testing.T) {
 	f := newLegFixture(fixedSource{0})
 	for range 20 {
 		l := f.begin(t)
@@ -743,7 +738,7 @@ func TestLegProbe_05Req37(t *testing.T) {
 }
 
 // TestLegReuse: End returns the Leg to idle for pooled reuse, releasing
-// the retry budget (05 req 34).
+// the retry budget.
 func TestLegReuse(t *testing.T) {
 	f := newLegFixture(fixedSource{0})
 	var l Leg
@@ -763,7 +758,7 @@ func TestLegReuse(t *testing.T) {
 
 // TestLegLoopRealSockets drives whole legs over real sockets: classification,
 // the default retryOn and failureWhen, the retry rule and code selection
-// together (05 reqs 32, 33, 39, 40).
+// together.
 func TestLegLoopRealSockets(t *testing.T) {
 	t.Parallel()
 	tests := []struct {
@@ -850,7 +845,7 @@ func BenchmarkLegDecide(b *testing.B) {
 	}
 }
 
-// TestReasonString names every retry decision reason (05 req 33).
+// TestReasonString names every retry decision reason.
 func TestReasonString(t *testing.T) {
 	want := []string{"retry", "not_wanted", "committed", "not_replayable", "attempts", "retry_after", "deadline", "breaker_open", "budget"}
 	for i, w := range want {

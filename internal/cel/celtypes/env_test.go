@@ -22,7 +22,7 @@ const allVars = expr.VarsBase | expr.VarResponse | expr.VarError | expr.VarUpstr
 
 // testEnv returns a cel-go environment declaring every variable with the
 // Provider, the standard library and the strings and encoders extensions
-// (the 03 req 4 surface).
+// (the whole enabled language surface).
 func testEnv(tb testing.TB) *cel.Env {
 	tb.Helper()
 	p, err := NewProvider()

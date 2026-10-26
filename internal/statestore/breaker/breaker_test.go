@@ -14,8 +14,8 @@ import (
 	"github.com/ravindu-rev/ruralz/internal/statestore"
 )
 
-// Tests for spec 08 reqs 19 to 22 and the breaker and Pacer rows of the
-// 08 section 6.1 unit table, on clocktest.Fake with a fixed random delay.
+// Tests for the per-shard breaker and the reconnect Pacer, on
+// clocktest.Fake with a fixed random delay.
 
 func start() time.Time { return time.Date(2026, 9, 26, 12, 0, 0, 0, time.UTC) }
 
@@ -62,8 +62,8 @@ func TestDefaultsMatchLimits(t *testing.T) {
 }
 
 func TestOpensOnFailureRatio(t *testing.T) {
-	// 08 req 19: opens when at least 50% of at least 20 calls completed in
-	// a sliding 5 s window failed.
+	// Opens when at least 50% of at least 20 calls completed in a sliding
+	// 5 s window failed.
 	cases := []struct {
 		name        string
 		calls, fail int
@@ -95,7 +95,7 @@ func TestOpensOnFailureRatio(t *testing.T) {
 }
 
 func TestWindowRolls(t *testing.T) {
-	// 08 req 19: the window slides; failures older than 5 s stop counting.
+	// The window slides; failures older than 5 s stop counting.
 	b, clk, _ := newBreaker(t, 2*time.Second)
 	run(t, b, 10, 10)
 	clk.Advance(5 * time.Second)
@@ -112,8 +112,8 @@ func TestWindowRolls(t *testing.T) {
 }
 
 func TestConnectFailuresOpen(t *testing.T) {
-	// 08 req 19: 5 consecutive connect failures open it with zero calls; a
-	// success in between resets the count.
+	// 5 consecutive connect failures open it with zero calls; a success in
+	// between resets the count.
 	b, _, log := newBreaker(t, time.Second)
 	for range 4 {
 		b.ConnectFailed()
@@ -142,8 +142,8 @@ func TestConnectFailuresOpen(t *testing.T) {
 }
 
 func TestOpenDelayThenHalfOpen(t *testing.T) {
-	// 08 req 19: open skips every call without waiting; after the random
-	// delay in [1 s, 3 s] it becomes half-open.
+	// Open skips every call without waiting; after the random delay in
+	// [1 s, 3 s] it becomes half-open.
 	for _, delay := range []time.Duration{time.Second, 1500 * time.Millisecond, 3 * time.Second} {
 		b, clk, _ := newBreaker(t, delay)
 		run(t, b, 20, 20)
@@ -176,8 +176,8 @@ func TestOpenDelayThenHalfOpen(t *testing.T) {
 }
 
 func TestHalfOpenSingleProbe(t *testing.T) {
-	// 08 req 19: half-open admits one probe at a time (64 concurrent
-	// Allow calls, exactly one admitted).
+	// Half-open admits one probe at a time (64 concurrent Allow
+	// calls, exactly one admitted).
 	b, clk, _ := newBreaker(t, time.Second)
 	run(t, b, 20, 20)
 	clk.Advance(time.Second)
@@ -198,8 +198,8 @@ func TestHalfOpenSingleProbe(t *testing.T) {
 }
 
 func TestProbesCloseAndReopen(t *testing.T) {
-	// 08 req 19: 3 consecutive successful probes close it; a failing probe
-	// reopens it with a new random delay.
+	// 3 consecutive successful probes close it; a failing probe reopens it
+	// with a new random delay.
 	b, clk, log := newBreaker(t, time.Second)
 	run(t, b, 20, 20)
 	clk.Advance(time.Second)
@@ -281,9 +281,9 @@ type rig struct {
 }
 
 func TestTransitions(t *testing.T) {
-	// Spec 08 req 19, every transition as (from state, event) -> (state,
-	// OnChange calls, open delays drawn). The Rand answers 1 s, then 2 s,
-	// then 3 s, so a reopen shows it drew a fresh delay: the second one.
+	// Every transition as (from state, event) -> (state, OnChange calls,
+	// open delays drawn). The Rand answers 1 s, then 2 s, then 3 s, so a
+	// reopen shows it drew a fresh delay: the second one.
 	toOpen := func(t *testing.T, r *rig) {
 		t.Helper()
 		run(t, r.b, 20, 20)
@@ -473,8 +473,8 @@ func TestTransitions(t *testing.T) {
 }
 
 func TestDoneOnce(t *testing.T) {
-	// 08 req 20: a timeout is recorded once even when the reply also
-	// arrives; tickets never admitted record nothing.
+	// A timeout is recorded once even when the reply also arrives;
+	// tickets never admitted record nothing.
 	b, _, _ := newBreaker(t, time.Second)
 	tickets := make([]Ticket, 20)
 	for i := range tickets {
@@ -554,8 +554,8 @@ func TestStaleOutcomesIgnored(t *testing.T) {
 }
 
 func TestProbeDue(t *testing.T) {
-	// 08 req 19: with no request probe for 1 s in half-open the driver
-	// sends PING as the probe.
+	// With no request probe for 1 s in half-open the driver sends PING
+	// as the probe.
 	b, clk, _ := newBreaker(t, time.Second)
 	if b.ProbeDue() {
 		t.Fatal("closed breaker wants a probe")

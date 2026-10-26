@@ -11,7 +11,7 @@ import (
 
 // Provider produces one Upstream's Endpoint set for the Upstream layer.
 // *Source implements it for static endpoints and discovery.type dns;
-// kubernetes discovery (M2, spec 05 section 8) adds an implementation fed
+// kubernetes discovery (M2) adds an implementation fed
 // by EndpointSlices behind the same methods, so the Upstream runtime needs
 // no change.
 type Provider interface {

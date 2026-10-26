@@ -36,13 +36,13 @@ func gradesOf(n int, f func(i int) Grade) []Grade {
 	return out
 }
 
-// TestDegradedWalk is the degraded-pick gate of 05 reqs 11, 12 and 14 (PBB
-// Upstream-layer budget): with nothing Eligible in the probe, a round-robin
-// or ring-hash pick grades O(E) Endpoints, at most probeGrades + 2 × E
-// instead of every slot (38,400 at 600 Endpoints and v = 64), and still
-// returns the first Endpoint of the lowest grade along its pass, the answer
-// of a full walk. Over a stale structure, Endpoints that left the set are
-// skipped by the probe and the linear pass alike (05 req 16).
+// TestDegradedWalk is the degraded-pick gate (PBB Upstream-layer budget):
+// with nothing Eligible in the probe, a round-robin or ring-hash pick
+// grades O(E) Endpoints, at most probeGrades + 2 × E instead of every slot
+// (38,400 at 600 Endpoints and v = 64), and still returns the first
+// Endpoint of the lowest grade along its pass, the answer of a full walk.
+// Over a stale structure, Endpoints that left the set are skipped by the
+// probe and the linear pass alike.
 func TestDegradedWalk(t *testing.T) {
 	const n, light = 600, 377
 	pick := func(i int, a, b Grade) Grade { return []Grade{a, b}[b2i(i == light)] }
@@ -104,15 +104,14 @@ func TestDegradedWalk(t *testing.T) {
 }
 
 // TestDegradedWalkRandom is the randomized differential check of the
-// degraded pick against fullWalk (05 reqs 11, 12, 14 and 16): structures of
-// more than probeGrades Endpoints, alternately of a size the probe tracks
-// (65 to seenCap) and of one it does not (seenCap + 1 to 1,500), with
-// random weights and mostly Down or DownAvoided grades, so the probe
-// usually ends without an Eligible Endpoint and the walk resumes. Every
-// third case is stale: about a quarter of the structure's Endpoints left
-// the set, and the view grades the remaining ones under their current
-// indices. The pick returns the full walk's answer and grades at most
-// probeGrades + 2 × E times.
+// degraded pick against fullWalk: structures of more than probeGrades
+// Endpoints, alternately of a size the probe tracks (65 to seenCap) and of
+// one it does not (seenCap + 1 to 1,500), with random weights and mostly
+// Down or DownAvoided grades, so the probe usually ends without an Eligible
+// Endpoint and the walk resumes. Every third case is stale: about a quarter
+// of the structure's Endpoints left the set, and the view grades the
+// remaining ones under their current indices. The pick returns the full
+// walk's answer and grades at most probeGrades + 2 × E times.
 func TestDegradedWalkRandom(t *testing.T) {
 	r := rand.New(pcg(42)) //nolint:gosec // G404: deterministic test cases, not secrets.
 	for _, alg := range []Algorithm{RoundRobin, RingHash} {

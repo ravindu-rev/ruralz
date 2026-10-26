@@ -9,18 +9,17 @@ import (
 	"github.com/ravindu-rev/ruralz/internal/telemetry/emit"
 )
 
-// Defaults and fixed values (05 req 4 table and reqs 18 to 22; target
-// values unless noted).
+// Defaults and fixed values (target values unless noted).
 const (
 	// DefaultConsecutiveErrors is healthCheck.passive.consecutiveErrors.
 	DefaultConsecutiveErrors = 5
 	// DefaultEjectionTime is healthCheck.passive.ejectionTime.
 	DefaultEjectionTime = 30 * time.Second
 	// MaxEjectionMultiplier caps the ejection count that multiplies
-	// ejectionTime (05 req 18).
+	// ejectionTime.
 	MaxEjectionMultiplier = 10
 	// MaxEjectionPercent is the share of Endpoints that may be passively
-	// ejected at once, rounded down (05 req 19).
+	// ejected at once, rounded down.
 	MaxEjectionPercent = 50
 
 	// DefaultProbePath is healthCheck.active.path (proposed).
@@ -35,39 +34,38 @@ const (
 	// DefaultUnhealthyThreshold is healthCheck.active.unhealthyThreshold
 	// (proposed).
 	DefaultUnhealthyThreshold = 3
-	// ProbeJitterPercent spreads probes of one Endpoint over interval ±10%
-	// (05 req 20).
+	// ProbeJitterPercent spreads probes of one Endpoint over interval
+	// ±10%.
 	ProbeJitterPercent = 10
-	// MaxProbeSlots caps the probes in flight per Node (05 req 20).
+	// MaxProbeSlots caps the probes in flight per Node.
 	MaxProbeSlots = 256
 	// ProbesSkippedPercent is the skipped share over ProbesSkippedWindow
-	// above which probes_skipped is raised (05 req 20).
+	// above which probes_skipped is raised.
 	ProbesSkippedPercent = 10
 	// ProbesSkippedWindow is the rolling window of that share.
 	ProbesSkippedWindow = time.Minute
 
 	// StallAfter is how long an attempt may go without response headers
-	// before it is stalled (05 req 21).
+	// before it is stalled.
 	StallAfter = time.Second
 	// SuspectAfter is how long an Endpoint holding a stalled attempt may
-	// deliver no response headers before it is suspect (05 req 21).
+	// deliver no response headers before it is suspect.
 	SuspectAfter = time.Second
 	// StalledSharePercent is the share of maxConnections held by stalled
-	// attempts from which every Endpoint holding one is avoided (05 req
-	// 21).
+	// attempts from which every Endpoint holding one is avoided.
 	StalledSharePercent = 50
-	// DefaultMaxConnections is circuitBreaker.maxConnections (05 req 4).
+	// DefaultMaxConnections is circuitBreaker.maxConnections.
 	DefaultMaxConnections = 1024
 
 	// PingAfter is HTTP2Config.SendPingTimeout for Upstream connections:
-	// a connection silent this long is pinged (05 req 22).
+	// a connection silent this long is pinged.
 	PingAfter = time.Second
 	// PingTimeout is HTTP2Config.PingTimeout: an unanswered ping closes
-	// the connection and resets its streams (05 req 22).
+	// the connection and resets its streams.
 	PingTimeout = 5 * time.Second
 
 	// FailureWindow is the span of the recent-failure count least-request
-	// adds to an Endpoint's load (05 req 13).
+	// adds to an Endpoint's load.
 	FailureWindow = time.Second
 )
 
@@ -137,10 +135,10 @@ const (
 	// CauseNone: response headers arrived.
 	CauseNone Cause = iota
 	// CauseConnect: a dial error or dial timeout, or a reset caused by an
-	// HTTP/2 ping close (05 reqs 19 and 22); it bypasses the ejection cap.
+	// HTTP/2 ping close; it bypasses the ejection cap.
 	CauseConnect
 	// CauseTimeout: the attempt, leg or Route deadline expired; on a
-	// suspect Endpoint it ejects at once, bypassing the cap (05 req 21).
+	// suspect Endpoint it ejects at once, bypassing the cap.
 	CauseTimeout
 	// CauseOther: any other error (reset, TLS).
 	CauseOther
@@ -149,13 +147,13 @@ const (
 // Outcome is the result of one attempt for passive ejection.
 type Outcome struct {
 	// Failed reports that the attempt matched failureWhen (a failureWhen
-	// runtime error counts as a failure, 05 req 32).
+	// runtime error counts as a failure).
 	Failed bool
 	// Cause classifies an attempt that got no response.
 	Cause Cause
-	// Passive is the thresholds of the attempt's own snapshot (05 req 2:
-	// in-flight attempts keep their snapshot's settings); the zero value
-	// means the Tracker's current policy.
+	// Passive is the thresholds of the attempt's own snapshot (in-flight
+	// attempts keep their snapshot's settings); the zero value means the
+	// Tracker's current policy.
 	Passive PassivePolicy
 	// Stripe is the request's counter stripe.
 	Stripe emit.Stripe

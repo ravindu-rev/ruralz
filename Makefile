@@ -28,8 +28,8 @@ BINARIES := ruralzd ruralz-control ruralz
 # Production platforms of every binary, and the extra CLI platforms (ADR-0001).
 PLATFORMS := linux/amd64 linux/arm64
 CLI_PLATFORMS := darwin/arm64 darwin/amd64 windows/amd64
-# Development-only ruralzd platforms: release-dry-run builds them for the
-# darwin server archives (11 req 91); stage 4 does not.
+# Development-only ruralzd platforms: release-dry-run builds them for
+# the darwin server archives; stage 4 does not.
 SERVER_DEV_PLATFORMS := darwin/arm64 darwin/amd64
 
 # Host platform without Go, for the clean-runner quickstart.
@@ -43,9 +43,9 @@ HOST_ARCH := $(if $(filter aarch64 arm64,$(UNAME_M)),arm64,amd64)
 VERSION ?= $(shell v=$$(git describe --tags --match 'v[0-9]*' --dirty 2>/dev/null) && echo "$${v#v}" || echo 0.0.0-dev)
 COMMIT ?= $(shell git rev-parse HEAD 2>/dev/null || echo unknown)
 FLAVOR ?= default
-# The release flags of stage 4 and stage 12. -s -w drop the symbol table and
-# DWARF (R-52), so the size gate measures the shipped binary; stack traces
-# and pprof keep working through pclntab, and rebuilds stay reproducible.
+# The release flags of stage 4 and stage 12. -s -w drop the symbol table
+# and DWARF, so the size gate measures the shipped binary; stack traces and
+# pprof keep working through pclntab, and rebuilds stay reproducible.
 LDFLAGS := -s -w \
 	-X $(MODULE)/internal/buildinfo.version=$(VERSION) \
 	-X $(MODULE)/internal/buildinfo.commit=$(COMMIT) \
@@ -56,14 +56,14 @@ LDFLAGS := -s -w \
 FLOOR_GOTOOLCHAIN ?= local
 
 # Stage 8. RURALZ_TEST_STATESTORE=process|container and
-# RURALZ_TEST_REDIS_SERVER select the State Store flavors (11 req 29).
+# RURALZ_TEST_REDIS_SERVER select the State Store flavors.
 INTEGRATION_TIMEOUT ?= 25m
 # Stage 9. BENCH_BASE is the ref whose merge base with HEAD is the alloc/op
-# baseline (empty: absolute caps only); GATES selects alloc and/or size;
-# a non-empty GATES_OVERRIDE records a maintainer's perf-override (11 req 66).
-# BENCH_BASE and FUZZTIME can come from workflow inputs, so recipes read
-# them from the environment ("$$BENCH_BASE") and never splice them into the
-# shell command line.
+# baseline (empty: absolute caps only); GATES selects alloc and/or size; a
+# non-empty GATES_OVERRIDE records a maintainer's perf-override. BENCH_BASE
+# and FUZZTIME can come from workflow inputs, so recipes read them from the
+# environment ("$$BENCH_BASE") and never splice them into the shell command
+# line.
 BENCH_BASE ?= origin/main
 export BENCH_BASE
 GATES ?= alloc size
@@ -142,9 +142,9 @@ lint: $(GOLANGCI_LINT) $(ACTIONLINT) ## Stage 2: gofumpt, goimports, golangci-li
 fmt: $(GOLANGCI_LINT) ## Rewrite files with gofumpt and goimports
 	$(GOLANGCI_LINT) fmt ./...
 
-# Generated trees diffed by stage 3: the JSON Schema (schemagen) and the
-# alert rules and dashboards generated from the telemetry catalog
-# (telemetrygen, 09 req 72).
+# Generated trees diffed by stage 3: the JSON Schema (schemagen) and
+# the alert rules and dashboards generated from the telemetry catalog
+# (telemetrygen).
 GENERATED := api/schema/ruralz deploy/grafana
 
 generate: ## Stage 3: regenerate the JSON Schema, alert rules and dashboards and fail on any difference
@@ -193,10 +193,10 @@ integration: $(PROMTOOL) ## Stage 8: integration and conformance suites (tag int
 	fi
 
 # Every selected gate runs even after another fails, so the job summary
-# always reports both the alloc/op and the size and idle RSS values (11 req
-# 68); the recipe exits with the highest status: 1 gate failure, 2 tool
-# error. The gate tools are built first so their 1 and 2 survive (go run
-# turns every failure into 1); a gate tool that does not build exits 2.
+# always reports both the alloc/op and the size and idle RSS values; the
+# recipe exits with the highest status: 1 gate failure, 2 tool error. The
+# gate tools are built first so their 1 and 2 survive (go run turns every
+# failure into 1); a gate tool that does not build exits 2.
 gates: ## Stage 9: alloc/op A/B gate (benchgate) and stripped size and idle RSS gate (sizegate); GATES=alloc or GATES=size runs one
 	for g in $(GATES); do case $$g in alloc | size) ;; *) echo "gates: unknown gate $$g (want alloc or size)" >&2; exit 2 ;; esac; done
 	tools=$$(mktemp -d); trap 'rm -rf "$$tools"' EXIT; \
@@ -301,9 +301,9 @@ endif
 #   notes     -from REF -to REF -budgets DIR -skipped FILE -out FILE
 #   verify    -manifest FILE
 # Before package, $(DIST)/<os>_<arch>/ holds ruralzd for linux/amd64,
-# linux/arm64, darwin/arm64 and darwin/amd64 (development only), ruralz for
-# those and windows/amd64 (ruralz.exe), and ruralz-control for linux, which
-# is the M2 stub: package archives no ruralz-control until M2 (11 req 91).
+# linux/arm64, darwin/arm64 and darwin/amd64 (development only), ruralz
+# for those and windows/amd64 (ruralz.exe), and ruralz-control for linux,
+# which is the M2 stub: package archives no ruralz-control until M2.
 release-dry-run: build ## Stage 12 without signing, attesting or publishing: archives, notices, checksums, SBOMs, notes, verified manifest
 	for p in $(SERVER_DEV_PLATFORMS); do \
 		os=$${p%/*}; arch=$${p#*/}; out=$(DIST)/$${os}_$${arch}/ruralzd; \

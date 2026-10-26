@@ -28,7 +28,7 @@ type view int
 const (
 	// authoring lets substitutable non-string scalars, and strings
 	// constrained by an enum or a pattern, also be a ${VAR} expression
-	// (OQ-configuration-model-20 (a)).
+	// .
 	authoring view = iota
 	// rendered is strict and validates after substitution.
 	rendered
@@ -704,7 +704,7 @@ func impactKeyword(v string) ([]string, error) {
 // substitutable adds the ${VAR} alternative in the authoring view to a value
 // that permits substitution and whose constraints a ${VAR} expression would
 // otherwise fail: a non-string scalar, or a string constrained by an enum or
-// a pattern (OQ-configuration-model-20 (a)).
+// a pattern.
 func (g *generator) substitutable(value schema, ctx fieldCtx) schema {
 	if g.view != authoring || ctx.noSubst || (!g.isNonStringScalar(value) && !g.isConstrainedString(value)) {
 		return value

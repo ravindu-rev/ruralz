@@ -5,15 +5,15 @@ package profile
 
 import "github.com/ravindu-rev/ruralz/internal/config/tree"
 
-// Bounds of goccy's parse of one flow collection (01 req 9; 11 req 17,
-// 26; 01 test plan FuzzProfileYAML). Every block collection is parsed
-// entry by entry (split.go), so goccy parses a flow collection, with what
-// it holds, as one value on its own. These bounds, and the depth the token
-// pass counts, hold only while the token pass predicts goccy's nesting and
-// paths exactly: one level per flow collection, one path per entry and at
-// most one inserted null per entry, which the entry shape check guarantees
-// (flowentry.go). The converter's depth bound (converter.enter) bounds the
-// tree goccy's parse returns, never the cost of that parse.
+// Bounds of goccy's parse of one flow collection. Every block collection is
+// parsed entry by entry (split.go), so goccy parses a flow collection, with
+// what it holds, as one value on its own. These bounds, and the depth the
+// token pass counts, hold only while the token pass predicts goccy's
+// nesting and paths exactly: one level per flow collection, one path per
+// entry and at most one inserted null per entry, which the entry shape
+// check guarantees (flowentry.go). The converter's depth bound
+// (converter.enter) bounds the tree goccy's parse returns, never the cost
+// of that parse.
 const (
 	// maxFlowPath bounds the path bytes the token pass charges for one
 	// flow collection (flowCost). goccy's parser builds every node's path,

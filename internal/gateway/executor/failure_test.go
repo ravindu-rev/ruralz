@@ -21,10 +21,8 @@ import (
 	"github.com/ravindu-rev/ruralz/pkg/config/v1alpha1"
 )
 
-// Tests for the failureMode table (spec 04 req 43 with the FP 8.10 rows,
-// spec 07 reqs 14 to 16, spec 08 reqs 36 and 38, OQ-data-plane-8 (a)),
-// the SPI sentinels (spec 07 req 15) and the metrics every cannot decide
-// records (spec 04 req 44, spec 07 req 19).
+// Tests for the failureMode table (the FP 8.10 rows),
+// the SPI sentinels and the metrics every cannot decide records.
 
 var errUndecidedTest = errors.New("test: cannot decide")
 
@@ -156,18 +154,17 @@ func responseRow(c phase.Class) (want, bool) {
 }
 
 // closedOnlyClass reports the classes the data plane makes closed only
-// (RZ-CFG-029; spec 06 rule 1): auth, authz and upstream-auth.
+// (RZ-CFG-029): auth, authz and upstream-auth.
 func closedOnlyClass(c phase.Class) bool {
 	return c == phase.ClassAuth || c == phase.ClassAuthz || c == phase.ClassUpstreamAuth
 }
 
 func TestFailureModeTableEveryClassPhaseMode(t *testing.T) {
-	// Spec 04 req 43: every Filter class x Phase x failureMode cell with
-	// the Filter supplying no code (the class default applies, spec 07 req
-	// 14). Also req 44: each cannot decide counts
-	// ruralz_filter_failures_total{mode} as applied and feeds the access
-	// record (RecordFailure). The security classes apply closed even when
-	// configured open (spec 06 rule 1, defense in depth behind RZ-CFG-029).
+	// Every Filter class x Phase x failureMode cell with the Filter
+	// supplying no code (the class default applies). Also, each cannot
+	// decide counts ruralz_filter_failures_total{mode} as applied and feeds
+	// the access record (RecordFailure). The security classes apply closed
+	// even when configured open (defense in depth behind RZ-CFG-029).
 	modes := []v1alpha1.FailureMode{v1alpha1.FailureModeOpen, v1alpha1.FailureModeClosed}
 	for class := range phase.NumClasses {
 		for ph := range phase.Count {
@@ -239,12 +236,12 @@ func TestFailureModeTableEveryClassPhaseMode(t *testing.T) {
 }
 
 func TestSecurityClassesAreClosedOnly(t *testing.T) {
-	// Data plane "Security types are closed only (RZ-CFG-029)" and spec 06
-	// rule 1, defense in depth: a security-class Policy that reaches the
-	// executor configured open still applies closed. One that cannot decide
-	// (JWKS unreachable) gets the class status and is never skipped for its
-	// later Phases; one whose when errs runs, so it never counts as skipped
-	// for Security rule 1 (spec 03 req 43).
+	// Data plane "Security types are closed only (RZ-CFG-029)", defense in
+	// depth: a security-class Policy that reaches the executor configured
+	// open still applies closed. One that cannot decide (JWKS unreachable)
+	// gets the class status and is never skipped for its later Phases; one
+	// whose when errs runs, so it never counts as skipped for Security
+	// rule 1.
 	tests := []struct {
 		name  string
 		class phase.Class
@@ -316,9 +313,9 @@ func TestSecurityClassesAreClosedOnly(t *testing.T) {
 }
 
 func TestFailureModeFilterCodePassesThrough(t *testing.T) {
-	// Spec 04 req 43: "code from the Filter when it supplies one, else the
-	// class default"; the status stays the class's (test plan item 7:
-	// RZ-STS-001, RZ-RL-005 and RZ-PLG passthrough, RZ-AUTH-015 default).
+	// "code from the Filter when it supplies one, else the class default";
+	// the status stays the class's (RZ-STS-001, RZ-RL-005 and RZ-PLG
+	// passthrough, RZ-AUTH-015 default).
 	tests := []struct {
 		class phase.Class
 		ph    phase.Phase
@@ -352,8 +349,8 @@ func TestFailureModeFilterCodePassesThrough(t *testing.T) {
 }
 
 func TestStatusesComeFromTheRegistry(t *testing.T) {
-	// Spec 07 req 14 and OQ-data-plane-8: statuses of generated codes come
-	// from errcode, so a registry row change moves them.
+	// Statuses of generated codes come from errcode, so a
+	// registry row change moves them.
 	e := New(Deps{})
 	for _, tc := range []struct {
 		code string
@@ -390,10 +387,10 @@ func TestStatusesComeFromTheRegistry(t *testing.T) {
 }
 
 func TestSentinelsIgnoreFailureMode(t *testing.T) {
-	// Spec 07 req 15: filter.ErrBudget is 503 RZ-RT-004 under either
-	// failureMode in any Phase before commit; filter.ErrTooLarge is 413
-	// RZ-RT-003 on the request side, 502 RZ-UP-010 on a plain upstreams
-	// response and 502 RZ-RT-015 on a composition step (T8).
+	// filter.ErrBudget is 503 RZ-RT-004 under either failureMode in any
+	// Phase before commit; filter.ErrTooLarge is 413 RZ-RT-003 on the
+	// request side, 502 RZ-UP-010 on a plain upstreams response and 502
+	// RZ-RT-015 on a composition step.
 	tests := []struct {
 		ph   phase.Phase
 		err  error
@@ -436,9 +433,9 @@ func TestSentinelsIgnoreFailureMode(t *testing.T) {
 }
 
 func TestSentinelOnLogAndGeneratedResponse(t *testing.T) {
-	// FP 4: an onLog failure reaches telemetry only, sentinel included;
-	// spec 07 req 17: a failure on an already generated response is
-	// counted and does not replace it again.
+	// FP 4: an onLog failure reaches telemetry only, sentinel included; a
+	// failure on an already generated response is counted and does not
+	// replace it again.
 	h := newHarness(t)
 	ch, _ := h.single(spec{name: "p", f: &fakeFilter{
 		name: "p", ev: h.ev,
@@ -464,9 +461,8 @@ func TestSentinelOnLogAndGeneratedResponse(t *testing.T) {
 }
 
 func TestOpenSkipsTheRemainingPhases(t *testing.T) {
-	// Spec 04 req 43: "open skips the Policy for all its remaining Phases
-	// of this request" (test plan item 7); the Policy still ran, so it gets
-	// Finish (R-40).
+	// "open skips the Policy for all its remaining Phases of this request";
+	// the Policy still ran, so it gets Finish.
 	h := newHarness(t)
 	f := &finishFilter{fakeFilter{
 		name: "hdr", ev: h.ev,
@@ -494,9 +490,9 @@ func TestOpenSkipsTheRemainingPhases(t *testing.T) {
 }
 
 func TestInvalidOutcomesAreCannotDecide(t *testing.T) {
-	// R-44: Retry outside onUpstreamResponseHeaders is cannot decide;
-	// Respond outside the four request Phases (spec 04 req 42) or without a
-	// Response, and an unknown outcome, are too.
+	// Retry outside onUpstreamResponseHeaders is cannot decide; Respond
+	// outside the four request Phases or without a Response, and an unknown
+	// outcome, are too.
 	tests := []struct {
 		name string
 		ph   phase.Phase
@@ -533,8 +529,8 @@ func TestInvalidOutcomesAreCannotDecide(t *testing.T) {
 }
 
 func TestPanicsAreCannotDecide(t *testing.T) {
-	// Spec 04 req 43: a recovered panic is cannot decide (test plan item 7:
-	// "a panicking Filter becomes cannot-decide").
+	// A recovered panic is cannot decide
+	// ("a panicking Filter becomes cannot-decide").
 	for _, mode := range []v1alpha1.FailureMode{v1alpha1.FailureModeOpen, v1alpha1.FailureModeClosed} {
 		t.Run(string(mode), func(t *testing.T) {
 			h := newHarness(t)
@@ -555,9 +551,8 @@ func TestPanicsAreCannotDecide(t *testing.T) {
 }
 
 func TestErrorTypes(t *testing.T) {
-	// Spec 04 req 44 and spec 07 req 86: error.type is a fixed word, never
-	// request data; a Filter may name it through an ErrorType method, from
-	// the fixed set only.
+	// error.type is a fixed word, never request data; a Filter may name it
+	// through an ErrorType method, from the fixed set only.
 	tests := []struct {
 		err  error
 		want string
@@ -573,8 +568,8 @@ func TestErrorTypes(t *testing.T) {
 		{typedErr("output_cap"), "output_cap"},
 		{typedErr("result_type"), "result_type"},
 		{typedErr("state_store"), "state_store"},
-		// Spec 06 rule 11, spec 07 req 86: a word outside the fixed set,
-		// which may hold request data, becomes "internal".
+		// A word outside the fixed set, which may hold request data,
+		// becomes "internal".
 		{typedErr("user alice@example.com not found"), "internal"},
 		{typedErr(""), "internal"},
 		{errors.New("secret value abc"), "internal"},
@@ -593,9 +588,9 @@ func (typedErr) Error() string       { return "path through a non-object" }
 func (t typedErr) ErrorType() string { return string(t) }
 
 func TestLegClosedFailureEndsOnlyTheLeg(t *testing.T) {
-	// Spec 07 req 16: a closed failure in onUpstreamRequest ends only that
-	// leg with 503 RZ-RT-011 and no retry; in onUpstreamResponseHeaders it
-	// replaces the leg's response with 502 RZ-RT-012 and stops the Phase.
+	// A closed failure in onUpstreamRequest ends only that leg with 503
+	// RZ-RT-011 and no retry; in onUpstreamResponseHeaders it replaces the
+	// leg's response with 502 RZ-RT-012 and stops the Phase.
 	h := newHarness(t)
 	a := policy(spec{
 		name: "a", class: phase.ClassTransform, scope: phase.ScopeUpstream,
@@ -652,13 +647,13 @@ func TestClassDefaultsForGeneratedResponseStatus(t *testing.T) {
 }
 
 func TestClosedFailureChallenge(t *testing.T) {
-	// Spec 06 req 8: every 401 carries WWW-Authenticate. An auth-class
-	// Policy that fails closed in a request Phase answers with its own
-	// challenge, as auth.Decider.Deny does, whether the Filter supplied the
-	// code or the class default applies (a recovered panic included). An
-	// empty challenge (auth.mtls), a Filter without one, another class's
-	// failure and the SPI sentinels add no header. Each still counts
-	// ruralz_filter_failures_total{mode=closed} (spec 04 req 44).
+	// Every 401 carries WWW-Authenticate. An auth-class Policy that fails
+	// closed in a request Phase answers with its own challenge, as
+	// auth.Decider.Deny does, whether the Filter supplied the code or the
+	// class default applies (a recovered panic included). An empty
+	// challenge (auth.mtls), a Filter without one, another class's failure
+	// and the SPI sentinels add no header. Each still counts
+	// ruralz_filter_failures_total{mode=closed}.
 	const challengeValue = `Bearer realm="ruralz"`
 	tests := []struct {
 		name      string

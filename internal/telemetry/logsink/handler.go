@@ -15,9 +15,9 @@ import (
 )
 
 // Framing slots: the catalog keys written after time, level and msg, in
-// this order (09 req 63). A top-level attribute with one of these keys
-// fills its slot instead of appearing among the other attributes, so the
-// member order is fixed and no key repeats.
+// this order. A top-level attribute with one of these keys fills its
+// slot instead of appearing among the other attributes, so the member
+// order is fixed and no key repeats.
 const (
 	slotComponent = iota
 	slotNodeID
@@ -142,10 +142,10 @@ func (st *state) encode(s *Sink) {
 	st.pre = buf[1:]
 }
 
-// Handler is the Ruralz slog.Handler (09 req 61). Enabled compares with
-// the fixed process level; Handle clones and freezes the record with the
-// handler's derived state and the context's trace IDs, and queues it
-// without blocking. It never writes: the Sink's worker encodes and writes.
+// Handler is the Ruralz slog.Handler. Enabled compares with the fixed
+// process level; Handle clones and freezes the record with the handler's
+// derived state and the context's trace IDs, and queues it without
+// blocking. It never writes: the Sink's worker encodes and writes.
 type Handler struct {
 	s  *Sink
 	st *state
@@ -211,9 +211,9 @@ func (h *Handler) WithGroup(name string) slog.Handler {
 	return &Handler{s: h.s, st: st}
 }
 
-// Handle queues r (09 req 61, 65): it counts the record as produced, and
-// drops it with reason queue_full when the Sink is closed or its queue is
-// out of records or bytes. It never blocks and always returns nil.
+// Handle queues r: it counts the record as produced, and drops it with
+// reason queue_full when the Sink is closed or its queue is out of
+// records or bytes. It never blocks and always returns nil.
 //
 // The byte reservation counts what the queued record holds: the message,
 // string values, and the full size of the values freeze copies (byte
@@ -475,7 +475,7 @@ func (s *Sink) appendPrepared(dst []byte, a slog.Attr) []byte {
 
 // appendRecord encodes one queued record as a JSON line: time, level, msg,
 // the framing slots, the handler's attributes, then the record's
-// attributes inside the handler's groups (09 req 63).
+// attributes inside the handler's groups.
 func (s *Sink) appendRecord(dst []byte, e *entry) []byte {
 	st := e.st
 	creds := s.creds.Load()

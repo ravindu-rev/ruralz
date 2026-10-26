@@ -92,7 +92,7 @@ type targetReport struct {
 }
 
 // report is the JSON report of a shard run, read by the nightly workflow
-// to open fuzz-crasher issues (11 req 28).
+// to open fuzz-crasher issues.
 type report struct {
 	Format   string         `json:"format"` // "ruralz.fuzzplan.v1"
 	Shard    int            `json:"shard"`  // -1: every target
@@ -188,8 +188,8 @@ func packageDirs(ctx context.Context, r runner, dir string, ts []target) (map[st
 	return dirs, nil
 }
 
-// runTargets fuzzes each target in turn for fuzztime (11 req 28:
-// `go test -run '^$' -fuzz '^<Name>$' -fuzztime 15m <pkg>`), streaming the
+// runTargets fuzzes each target in turn for fuzztime
+// (`go test -run '^$' -fuzz '^<Name>$' -fuzztime 15m <pkg>`), streaming the
 // output to w. A failing target does not stop the shard; its new
 // testdata/fuzz inputs are recorded as crashers.
 func runTargets(ctx context.Context, r runner, clk clock.Clock, dir string, ts []target, fuzztime string, w io.Writer) ([]targetReport, error) {

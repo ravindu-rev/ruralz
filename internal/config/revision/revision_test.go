@@ -12,8 +12,7 @@ import (
 	"testing"
 )
 
-// Tests for architecture section 2.6 (WP-01) and spec 02 section 2.6
-// (requirements 29 to 34): the digest is SHA-256 over the exact canonical
+// Tests for the Revision digest: it is SHA-256 over the exact canonical
 // bytes, written sha256:<64 lowercase hex>; rev-<12 hex> is display only.
 
 // emptySum is SHA-256 of no bytes.

@@ -32,10 +32,10 @@ func isFull(err error) bool {
 	return code == "RZ-UP-006" && errors.Is(err, ErrBulkheadFull)
 }
 
-// TestBulkheadFull_05Req36: slots up to maxConnections, then waiters up to
+// TestBulkheadFull: slots up to maxConnections, then waiters up to
 // maxPendingRequests, then 503 RZ-UP-006 at once; maxPendingRequests 0
 // refuses at once when the slots are full.
-func TestBulkheadFull_05Req36(t *testing.T) {
+func TestBulkheadFull(t *testing.T) {
 	ctx := context.Background()
 	t.Run("no waiters", func(t *testing.T) {
 		var b Bulkhead
@@ -92,9 +92,9 @@ func TestBulkheadFull_05Req36(t *testing.T) {
 	})
 }
 
-// TestBulkheadWaiterContext_05Req36: each waiter is bounded by its attempt
+// TestBulkheadWaiterContext: each waiter is bounded by its attempt
 // context and leaves the queue when it ends.
-func TestBulkheadWaiterContext_05Req36(t *testing.T) {
+func TestBulkheadWaiterContext(t *testing.T) {
 	var b Bulkhead
 	cfg := BulkheadConfig{MaxConnections: 1, MaxPendingRequests: 1}
 	if err := b.Acquire(context.Background(), &cfg); err != nil {
@@ -127,7 +127,7 @@ func TestBulkheadWaiterContext_05Req36(t *testing.T) {
 }
 
 // TestBulkheadGrantRace: a slot granted together with the waiter's
-// cancellation is handed on, never leaked (05 req 36).
+// cancellation is handed on, never leaked.
 func TestBulkheadGrantRace(t *testing.T) {
 	for range 200 {
 		var b Bulkhead
@@ -150,9 +150,9 @@ func TestBulkheadGrantRace(t *testing.T) {
 	}
 }
 
-// TestBulkheadHotReload_05Req2: a raised ceiling grants waiters at the next
+// TestBulkheadHotReload: a raised ceiling grants waiters at the next
 // Acquire; a lowered one keeps the slots already held.
-func TestBulkheadHotReload_05Req2(t *testing.T) {
+func TestBulkheadHotReload(t *testing.T) {
 	var b Bulkhead
 	old := BulkheadConfig{MaxConnections: 1, MaxPendingRequests: 2}
 	if err := b.Acquire(context.Background(), &old); err != nil {
@@ -192,7 +192,7 @@ func TestBulkheadHotReload_05Req2(t *testing.T) {
 }
 
 // TestBulkheadConcurrent never holds more slots than maxConnections.
-func TestBulkheadConcurrent_05Req36(t *testing.T) {
+func TestBulkheadConcurrent(t *testing.T) {
 	var (
 		b     Bulkhead
 		held  atomic.Int64
@@ -233,8 +233,8 @@ func TestBulkheadConcurrent_05Req36(t *testing.T) {
 	}
 }
 
-// TestEndpointCap_05Req36 is max(8, floor(min(2 × w/Σw, 0.5) × maxConnections)).
-func TestEndpointCap_05Req36(t *testing.T) {
+// TestEndpointCap is max(8, floor(min(2 × w/Σw, 0.5) × maxConnections)).
+func TestEndpointCap(t *testing.T) {
 	tests := []struct {
 		name          string
 		max           int

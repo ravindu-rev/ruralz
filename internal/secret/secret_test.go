@@ -17,10 +17,9 @@ import (
 	"github.com/ravindu-rev/ruralz/pkg/config/v1alpha1"
 )
 
-// Tests for architecture section 2.8 (WP-01) and spec 06 section 2.14
-// (requirements 87 to 92, the redacting value): no formatting, logging or
-// encoding path prints the bytes; Reveal returns a copy; an empty resolved
-// value is set and distinct from unset (R-55).
+// Tests for the redacting value: no formatting, logging or encoding path
+// prints the bytes; Reveal returns a copy; an empty resolved value is set
+// and distinct from unset.
 
 const plaintext = "hunter2-s3cr3t-value"
 
@@ -150,7 +149,7 @@ func TestRevealReturnsACopy(t *testing.T) {
 }
 
 func TestEmptyAndUnsetValues(t *testing.T) {
-	// R-55 / architecture 2.8: a resolved empty secret is set, not zero.
+	// A resolved empty secret is set, not zero.
 	empty := NewValue([]byte{})
 	if empty.IsZero() {
 		t.Fatal("NewValue([]byte{}) is zero, want a set empty value")
@@ -214,8 +213,8 @@ func TestKinds(t *testing.T) {
 	}
 }
 
-// fakeStore shows the Store contract a carried-over Filter relies on
-// (R-55): a Watch registration is keyed by Ref and its stop unregisters.
+// fakeStore shows the Store contract a carried-over Filter relies on: a
+// Watch registration is keyed by Ref and its stop unregisters.
 type fakeStore struct {
 	vals    map[Ref]Value
 	watches map[Ref][]func(Value) error

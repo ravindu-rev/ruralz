@@ -31,22 +31,21 @@ type ClientSpec struct {
 }
 
 // ClientConfig is a client configuration that follows rotations of its
-// referenced secrets (spec 06 requirement 79): the transport's
-// DialTLSContext calls ForHost (or Current) per new connection, so rotated
-// values reach new connections only. A CA bundle rotation publishes a new
-// configuration through an atomic pointer; a client certificate rotation
-// is served by GetClientCertificate, so even a consumer that keeps one
-// configuration (gRPC) presents the current certificate. A rotated client
-// certificate or key is paired with the other half's current value, as in
-// CertIndex, so a pair renewed together is never a failure. A value that
-// does not parse, or whose key matches neither known value of the other
-// half, keeps the last one and fails its watch callback, which the
-// resolver counts as a rotation failure; once the other half's callback
-// forms a valid pair with the failed half's current Store value, the
-// failed half is registered again (renewable, rewatch), so
-// secret_rotation_failed clears with the pair. The owner (the Upstream
-// runtime or the telemetry runtime) calls Close when it drops the
-// configuration.
+// referenced secrets: the transport's DialTLSContext calls ForHost (or
+// Current) per new connection, so rotated values reach new connections
+// only. A CA bundle rotation publishes a new configuration through an
+// atomic pointer; a client certificate rotation is served by
+// GetClientCertificate, so even a consumer that keeps one configuration
+// (gRPC) presents the current certificate. A rotated client certificate or
+// key is paired with the other half's current value, as in CertIndex, so a
+// pair renewed together is never a failure. A value that does not parse,
+// or whose key matches neither known value of the other half, keeps the
+// last one and fails its watch callback, which the resolver counts as a
+// rotation failure; once the other half's callback forms a valid pair with
+// the failed half's current Store value, the failed half is registered
+// again (renewable, rewatch), so secret_rotation_failed clears with the
+// pair. The owner (the Upstream runtime or the telemetry runtime) calls
+// Close when it drops the configuration.
 type ClientConfig struct {
 	cur     atomic.Pointer[tls.Config]
 	pair    atomic.Pointer[tls.Certificate]
@@ -62,20 +61,20 @@ type ClientConfig struct {
 	cert, key              half // the watches of the client pair's halves
 }
 
-// Upstream builds the TLS configuration of an Upstream with a tls block
-// (spec 06 requirement 79): TLS 1.2 or newer with the TLS12Suites, server
-// always verified against CACertificate or the system roots, ServerName
-// from SNI or the Endpoint host (ForHost), and the optional client
-// certificate. ClientCertificate without ClientKey (or the reverse) is
-// RZ-CFG-005; an unresolved or unparsable value is RZ-CFG-026. A
-// handshake or verification failure is the Upstream layer's RZ-UP-002.
+// Upstream builds the TLS configuration of an Upstream with a tls block:
+// TLS 1.2 or newer with the TLS12Suites, server always verified against
+// CACertificate or the system roots, ServerName from SNI or the Endpoint
+// host (ForHost), and the optional client certificate. ClientCertificate
+// without ClientKey (or the reverse) is RZ-CFG-005; an unresolved or
+// unparsable value is RZ-CFG-026. A handshake or verification failure is
+// the Upstream layer's RZ-UP-002.
 func Upstream(spec ClientSpec, secrets secret.Store) (*ClientConfig, error) {
 	return newClientConfig(spec, secrets)
 }
 
-// OTLP builds the TLS configuration of an https OTLP endpoint (spec 06
-// requirement 81): with a nil spec, TLS 1.2 or newer against the system
-// roots; with telemetry.otlp.tls, the same rules as Upstream.
+// OTLP builds the TLS configuration of an https OTLP endpoint: with a
+// nil spec, TLS 1.2 or newer against the system roots; with
+// telemetry.otlp.tls, the same rules as Upstream.
 func OTLP(spec *ClientSpec, secrets secret.Store) (*ClientConfig, error) {
 	if spec == nil {
 		return newClientConfig(ClientSpec{}, secrets)

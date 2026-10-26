@@ -4,10 +4,10 @@
 package routematch
 
 // Trie is a segment trie over exact paths and path templates, one per host
-// entry of a Router (04 req 28). An edge is a literal segment or the one
-// parameter edge; a trailing slash is a final empty literal segment, so
-// "/v1/" and "/v1" end at different nodes. Values ending at one node keep
-// insertion order: insert them sorted by [Compare] so ranks 5 and 6 hold.
+// entry of a Router. An edge is a literal segment or the one parameter
+// edge; a trailing slash is a final empty literal segment, so "/v1/" and
+// "/v1" end at different nodes. Values ending at one node keep insertion
+// order: insert them sorted by [Compare] so ranks 5 and 6 hold.
 //
 // The zero value is empty and ready to use. Build it single-threaded; once
 // built, [Trie.Lookup] is safe for concurrent use.
@@ -78,12 +78,12 @@ func (t *Trie[V]) InsertTemplate(tp Template, v V) {
 }
 
 // Lookup calls yield for each value whose exact path or template matches
-// the normalized path, in precedence ranks 2 and 3 order (04 req 31): every
-// exact value first, then template values depth-first with a literal
-// segment before a parameter, and within one node in insertion order. For a
-// template value, raw holds its raw captures in template order (decode them
-// with [DecodeParam]); for an exact value raw is empty. raw aliases buf and
-// is valid only during the call. Lookup stops when yield returns false and
+// the normalized path, in precedence ranks 2 and 3 order: every exact value
+// first, then template values depth-first with a literal segment before a
+// parameter, and within one node in insertion order. For a template value,
+// raw holds its raw captures in template order (decode them with
+// [DecodeParam]); for an exact value raw is empty. raw aliases buf and is
+// valid only during the call. Lookup stops when yield returns false and
 // allocates nothing when buf has room for the deepest template's captures.
 func (t *Trie[V]) Lookup(path string, buf []string, yield func(v V, raw []string) bool) {
 	if path == "" || path[0] != '/' {

@@ -19,7 +19,7 @@ func referenceCompareUTF16(a, b string) int {
 }
 
 func TestCompareUTF16(t *testing.T) {
-	// RFC 8785 section 3.2.3 and 02 test plan item 4.
+	// The RFC 8785 section 3.2.3 member order set.
 	names := []string{"\u20ac", "\r", "\ufb33", "1", "\u1F600", "\u0080", "\u00f6"}
 	for i, n := range names {
 		names[i] = strings.NewReplacer("\u20ac", "€", "\ufb33", "דּ", "\u1F600", "\U0001F600", "\u0080", "\u0080", "\u00f6", "ö").Replace(n)

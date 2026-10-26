@@ -10,10 +10,10 @@ import (
 )
 
 // NewIdentity returns the identity of a successful auth.api-key or
-// auth.basic authentication (spec 06 requirement 6): method is
-// filter.MethodAPIKey or filter.MethodBasic, policy the Policy's name, c
-// the bound Consumer (both types always bind one), claims the empty map
-// and the principal the Consumer's name (requirement 22).
+// auth.basic authentication: method is filter.MethodAPIKey or
+// filter.MethodBasic, policy the Policy's name, c the bound Consumer
+// (both types always bind one), claims the empty map and the principal
+// the Consumer's name (requirement 22).
 func NewIdentity(method, policy string, c *expr.Consumer) *filter.Identity {
 	return &filter.Identity{
 		Method:    method,
@@ -60,7 +60,7 @@ func NewMTLSIdentity(policy string, c *expr.Consumer, subject string) *filter.Id
 }
 
 // EmptyClaims returns auth.claims for the methods other than jwt: an empty
-// map (spec 06 requirement 6), never nil. It allocates nothing.
+// map, never nil. It allocates nothing.
 func EmptyClaims() expr.Value { return emptyClaims{} }
 
 // emptyClaims is the JSON object {}.

@@ -137,10 +137,10 @@ func follow(n *tree.Node, p string) *tree.Node {
 
 // TestListTypesFromSchema merges every array field of every kind and
 // dispatch branch, enumerated from the committed schema rather than a
-// hard-coded list (R-62), by its x-ruralz-list type (01 req 25): map and
-// orderedMap lists merge by key with $patch: delete, orderedMap lists also
-// reorder with {$patch: replace} (a map list rejects it), and set, atomic
-// and unmarked lists are replaced.
+// hard-coded list, by its x-ruralz-list type: map and orderedMap lists
+// merge by key with $patch: delete, orderedMap lists also reorder with
+// {$patch: replace} (a map list rejects it), and set, atomic and unmarked
+// lists are replaced.
 func TestListTypesFromSchema(t *testing.T) {
 	set := schemas(t)
 	x, _ := set.Index(v1)

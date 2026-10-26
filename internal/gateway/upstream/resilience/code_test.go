@@ -13,8 +13,8 @@ import (
 	"github.com/ravindu-rev/ruralz/internal/errcode"
 )
 
-// req40Table is the code table of 05 req 40, verbatim.
-const req40Table = `
+// codeTable is the code table, verbatim.
+const codeTable = `
 | RZ-UP-001 | 502 | Connect failed or dial timed out, no retry |
 | RZ-UP-002 | 502 | TLS handshake or verification failed or timed out, no retry |
 | RZ-UP-003 | 504 | Deadline expired, or the final attempt timed out |
@@ -27,9 +27,9 @@ const req40Table = `
 | RZ-UP-010 | 502 | Buffered plain ` + "`upstreams`" + ` response over its cap |
 `
 
-// TestCodes_05Req40 holds Codes() equal to the table of 05 I req 40 and
-// to the internal/errcode registry.
-func TestCodes_05Req40(t *testing.T) {
+// TestCodes holds Codes() equal to the TMR "Error codes this document
+// owns" table and to the internal/errcode registry.
+func TestCodes(t *testing.T) {
 	var rows []string
 	for _, c := range Codes() {
 		status := "n/a"
@@ -38,8 +38,8 @@ func TestCodes_05Req40(t *testing.T) {
 		}
 		rows = append(rows, "| "+c.Code+" | "+status+" | "+c.Meaning+" |")
 	}
-	if got, want := strings.Join(rows, "\n"), strings.TrimSpace(req40Table); got != want {
-		t.Fatalf("Codes() table:\n%s\nwant (05 req 40):\n%s", got, want)
+	if got, want := strings.Join(rows, "\n"), strings.TrimSpace(codeTable); got != want {
+		t.Fatalf("Codes() table:\n%s\nwant:\n%s", got, want)
 	}
 	for _, c := range Codes() {
 		reg, ok := errcode.Lookup(c.Code)
@@ -61,10 +61,10 @@ func TestCodes_05Req40(t *testing.T) {
 	}
 }
 
-// TestSelectCode_05Req40 is 05 section 6 test 2: {no retry, retry} ×
+// TestSelectCode covers {no retry, retry} ×
 // {connect, tls, reset, timeout (per-try), timeout (leg), timeout (Route)}
 // plus responses and gates.
-func TestSelectCode_05Req40(t *testing.T) {
+func TestSelectCode(t *testing.T) {
 	type failure struct {
 		name    string
 		kind    Kind
@@ -117,7 +117,7 @@ func TestSelectCode_05Req40(t *testing.T) {
 }
 
 // TestOutcomeErr covers the leg errors carrying the selected code and, for
-// RZ-UP-007, the kind (05 req 40).
+// RZ-UP-007, the kind.
 func TestOutcomeErr(t *testing.T) {
 	cause := io.EOF
 	tests := []struct {
@@ -159,7 +159,7 @@ func TestOutcomeErr(t *testing.T) {
 	}
 }
 
-// TestGate covers the gate codes and errors (05 req 11 steps a and e).
+// TestGate covers the gate codes and errors.
 func TestGate(t *testing.T) {
 	for g, want := range map[Gate]string{GateNone: "", GateBreaker: "RZ-UP-005", GateBulkhead: "RZ-UP-006", GateNoEndpoint: "RZ-UP-008"} {
 		if got := g.Code(); got != want {
@@ -178,8 +178,8 @@ func TestGate(t *testing.T) {
 	}
 }
 
-// TestExpiryCode_05Req26 maps Route timeout expiry to its code.
-func TestExpiryCode_05Req26(t *testing.T) {
+// TestExpiryCode maps Route timeout expiry to its code.
+func TestExpiryCode(t *testing.T) {
 	tests := []struct {
 		legStarted, committed bool
 		want                  string

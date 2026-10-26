@@ -12,8 +12,9 @@ import (
 	"time"
 )
 
-// Tests for spec 10 reqs 4 to 7, 9, 11 and 15: Flags.Parse and the flag
-// definitions, following the Flags.Parse rows of section 6.1.
+// Tests for Flags.Parse and the flag definitions: interspersed flags,
+// help, usage errors, deprecation, shared flag helpers and --output
+// values.
 
 // testFlags is a flag set with one flag of each kind.
 type testFlags struct {
@@ -38,7 +39,7 @@ func newTestFlags() *testFlags {
 	return t
 }
 
-func TestParseReq5(t *testing.T) {
+func TestParse(t *testing.T) {
 	cases := []struct {
 		name    string
 		args    []string
@@ -99,7 +100,7 @@ func TestParseReq5(t *testing.T) {
 	}
 }
 
-func TestParseErrorsReq7(t *testing.T) {
+func TestParseErrors(t *testing.T) {
 	cases := []struct {
 		args []string
 		want string
@@ -140,7 +141,7 @@ func TestParseErrorsReq7(t *testing.T) {
 	}
 }
 
-func TestParseHelpReq6(t *testing.T) {
+func TestParseHelp(t *testing.T) {
 	for _, args := range [][]string{{"-h"}, {"--h"}, {"-help"}, {"--help"}, {"p", "--env", "x", "--help"}, {"--help=1"}} {
 		tf := newTestFlags()
 		if _, err := tf.f.Parse(args); !errors.Is(err, ErrHelp) {
@@ -153,7 +154,7 @@ func TestParseHelpReq6(t *testing.T) {
 	}
 }
 
-func TestIsSetSpecsAndWarningsReq9(t *testing.T) {
+func TestIsSetSpecsAndWarnings(t *testing.T) {
 	tf := newTestFlags()
 	tf.f.Deprecate("reason", "use --why")
 	if _, err := tf.f.Parse([]string{"--reason", "x", "--online=false"}); err != nil {
@@ -291,9 +292,9 @@ func TestNearest(t *testing.T) {
 	}
 }
 
-// FuzzFlagsParse checks section 6.3's parse round trip: Parse never
-// panics, and a successful parse yields the same positionals and values
-// as the canonical "flags first" order.
+// FuzzFlagsParse checks the parse round trip: Parse never panics, and a
+// successful parse yields the same positionals and values as the
+// canonical "flags first" order.
 func FuzzFlagsParse(f *testing.F) {
 	for _, seed := range []string{
 		"a --env x b", "--env=x -- --online", "- --reason=-- p", "--output json --effective",

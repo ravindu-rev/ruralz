@@ -18,8 +18,8 @@ import (
 	"github.com/ravindu-rev/ruralz/internal/statestore/statestoretest"
 )
 
-// Tests of the reference Model against the literal numbers of spec 08
-// req 41 to 43 and section 6.2.
+// Tests of the reference Model against the literal numbers of the
+// conformance cases.
 
 func TestModelGCRA(t *testing.T) {
 	// requests 10, window 1 s, burst 10: T = 100 ms, τ = 1 s; 11 calls

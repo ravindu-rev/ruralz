@@ -18,13 +18,10 @@ import (
 	"github.com/ravindu-rev/ruralz/internal/config/tree"
 )
 
-// heapBudget is the peak heap growth allowed for an input of up to 1 MiB
-// (01 test plan, FuzzProfileYAML: "heap growth under 256 MiB for inputs up
-// to 1 MiB").
+// heapBudget is the peak heap growth allowed for an input of up to 1 MiB.
 const heapBudget = 256 << 20
 
-// billionLaughs is the alias-expansion shape of 11 req 15, sized to size
-// bytes.
+// billionLaughs is the alias-expansion shape, sized to size bytes.
 func billionLaughs(size int) string {
 	var b strings.Builder
 	b.WriteString("a: &a [\"lol\",\"lol\",\"lol\",\"lol\",\"lol\",\"lol\",\"lol\",\"lol\",\"lol\"]\n")
@@ -37,16 +34,15 @@ func billionLaughs(size int) string {
 	return b.String()
 }
 
-// taggedLadder is the shape of the blocker of the third WP-33 review: at
-// each of cols columns in turn, rows lines "kN: !!map", whose tag ends the
-// line before a sibling key at the same column. goccy nested every such
-// key under the tagged node before it, so the depth algorithm (01 req 9)
-// counted one level per column while the tree grew one level per line:
-// 63 columns of 255 lines, under the old split threshold of 256, parsed with
-// no finding to a tree of depth 16,066 in 1,679 MiB, as goccy's recursion
-// concatenates path strings. A last line "end: 1" gives the last tagged
-// node a value. Keys, then a last comment, pad the input to size bytes;
-// size 0 adds no padding.
+// taggedLadder is a hostile shape: at each of cols columns in turn, rows
+// lines "kN: !!map", whose tag ends the line before a sibling key at the
+// same column. goccy nested every such key under the tagged node before it,
+// so the depth algorithm counted one level per column while the tree grew
+// one level per line: 63 columns of 255 lines, under the old split threshold
+// of 256, parsed with no finding to a tree of depth 16,066 in 1,679 MiB, as
+// goccy's recursion concatenates path strings. A last line "end: 1" gives
+// the last tagged node a value. Keys, then a last comment, pad the input to
+// size bytes; size 0 adds no padding.
 func taggedLadder(cols, rows, size int) string {
 	gen := func(pad string) string {
 		var b strings.Builder
@@ -69,19 +65,18 @@ func taggedLadder(cols, rows, size int) string {
 	return src
 }
 
-// keyLadder is the shape of the blocker of the fourth WP-33 review:
-// "a:\n", then reps repetitions of two lines: at column c, the given
-// number of "- " indicators and an empty quoted scalar, then ":" at
-// column 1. c starts at 3 and grows by 2*dashes each time.
-// goccy reads each quoted scalar and the ':' under it as a multi-line
+// keyLadder is a hostile shape: "a:\n", then reps repetitions of two lines:
+// at column c, the given number of "- " indicators and an empty quoted
+// scalar, then ":" at column 1. c starts at 3 and grows by 2*dashes each
+// time. goccy reads each quoted scalar and the ':' under it as a multi-line
 // implicit key, which YAML 1.2 forbids, and attaches the entry to the
 // innermost open sequence. The tree then grows dashes+1 levels per
-// repetition, while the depth algorithm (01 req 9) closes back to the ':'
-// column. Before the fix, 16 dashes of 254 repetitions (1,038,101 bytes)
-// parsed with no finding to depth 4,319, and 63 dashes (4,082,291 bytes)
-// parsed to depth 16,257 with a 440 MiB peak heap. The 254 repetitions are
-// historical: 255 gave the root mapping 256 entries, the split threshold of
-// that review, and every block collection is split now.
+// repetition, while the depth algorithm closes back to the ':' column.
+// Before the fix, 16 dashes of 254 repetitions (1,038,101 bytes) parsed
+// with no finding to depth 4,319, and 63 dashes (4,082,291 bytes) parsed to
+// depth 16,257 with a 440 MiB peak heap. The 254 repetitions are
+// historical: 255 gave the root mapping 256 entries, the old split
+// threshold, and every block collection is split now.
 func keyLadder(dashes, reps int) string {
 	var b strings.Builder
 	b.WriteString("a:\n")
@@ -92,17 +87,16 @@ func keyLadder(dashes, reps int) string {
 	return b.String()
 }
 
-// explicitKeyLadder is the shape of the blocker of the fifth WP-33 review:
-// reps repetitions of three lines: `? "a"` at column c, then at column c+2
-// the given number of "- " indicators and `"b"`, then ":" at column c. c
-// starts at 1 and grows by 2*dashes+4 each time; dashes < 0 gives
-// repetition r 63-r dashes. goccy groups each ':' with the "b" before it,
-// not with the '?', and nests that multi-line implicit key at its own
-// column, while the depth algorithm (01 req 9) closed back to the '?'
-// column and never counted more than 64. Before the fix, 31 dashes of 32
-// repetitions (100,640 bytes) parsed with no finding to depth 1,056, and
-// the variable ladder of 62 repetitions (515,468 bytes) to depth 2,139 in
-// an 11 MiB peak heap.
+// explicitKeyLadder is a hostile shape: reps repetitions of three lines:
+// `? "a"` at column c, then at column c+2 the given number of "- "
+// indicators and `"b"`, then ":" at column c. c starts at 1 and grows by
+// 2*dashes+4 each time; dashes < 0 gives repetition r 63-r dashes. goccy
+// groups each ':' with the "b" before it, not with the '?', and nests that
+// multi-line implicit key at its own column, while the depth algorithm
+// closed back to the '?' column and never counted more than 64. Before the
+// fix, 31 dashes of 32 repetitions (100,640 bytes) parsed with no finding
+// to depth 1,056, and the variable ladder of 62 repetitions (515,468 bytes)
+// to depth 2,139 in an 11 MiB peak heap.
 func explicitKeyLadder(dashes, reps int) string {
 	var b strings.Builder
 	c := 1
@@ -117,19 +111,19 @@ func explicitKeyLadder(dashes, reps int) string {
 	return b.String()
 }
 
-// longKeyFlow is the first shape of the path blocker of the sixth WP-33
-// review: a key of keyLen bytes over a flow sequence of items+1 entries.
-// goccy's parser builds every node's path from its parent's, so the key
-// was copied into each entry's path: 16,384 of each (49,158 bytes) took a
-// 298 MiB peak heap. Each value is now parsed on its own (split.go).
+// longKeyFlow is the first long-path shape: a key of keyLen bytes over a
+// flow sequence of items+1 entries. goccy's parser builds every node's path
+// from its parent's, so the key was copied into each entry's path: 16,384
+// of each (49,158 bytes) took a 298 MiB peak heap. Each value is now parsed
+// on its own (split.go).
 func longKeyFlow(keyLen, items int) string {
 	return strings.Repeat("k", keyLen) + ": [" + strings.Repeat("1,", items) + "1]"
 }
 
-// longKeysNested is the second shape of that blocker, valid YAML 1.2 with
-// every implicit key under 1,024 bytes: levels nested block mappings, each
-// with a key of keyLen bytes, then a flow sequence of items+1 entries. 62
-// levels of 1,000 bytes over 4,096 items (72,276 bytes) took 263 MiB.
+// longKeysNested is the second long-path shape, valid YAML 1.2 with every
+// implicit key under 1,024 bytes: levels nested block mappings, each with a
+// key of keyLen bytes, then a flow sequence of items+1 entries. 62 levels
+// of 1,000 bytes over 4,096 items (72,276 bytes) took 263 MiB.
 func longKeysNested(levels, keyLen, items int) string {
 	var b strings.Builder
 	for d := range levels {
@@ -147,20 +141,18 @@ func longKeysInFlow(levels, keyLen, items int) string {
 	return "a: " + strings.Repeat("{"+strings.Repeat("k", keyLen)+": ", levels) + "[" + strings.Repeat("1,", items) + "1]" + strings.Repeat("}", levels) + "\n"
 }
 
-// keysWithoutValues is the shape of the null-insertion blocker of the
-// sixth WP-33 review: a flow mapping of n+1 entries entry, such as "a" or
-// "k:", that have no value. goccy inserts each one's implicit null into its
-// token slice, moving every later token: 80,000 entries took 4 s and
-// 160,000 took 35 s.
+// keysWithoutValues is the null-insertion shape: a flow mapping of n+1
+// entries entry, such as "a" or "k:", that have no value. goccy inserts
+// each one's implicit null into its token slice, moving every later token:
+// 80,000 entries took 4 s and 160,000 took 35 s.
 func keysWithoutValues(entry string, n int) string {
 	return "a: {" + strings.Repeat(entry+",", n) + entry + "}"
 }
 
-// taggedEmpties is the shape of the tag-default blocker of the seventh
-// WP-33 review: a flow sequence of n tagged empty nodes ("[!!str , ...]"),
-// or with keys a flow mapping of n entries whose values are tagged empty
-// nodes. goccy inserts each tag's default value into its token slice,
-// moving every later token: 99,000 entries took 10 s.
+// taggedEmpties is the tag-default shape: a flow sequence of n tagged empty
+// nodes ("[!!str , ...]"), or with keys a flow mapping of n entries whose
+// values are tagged empty nodes. goccy inserts each tag's default value
+// into its token slice, moving every later token: 99,000 entries took 10 s.
 func taggedEmpties(n int, keys bool) string {
 	if !keys {
 		return "a: [" + strings.Repeat("!!str ,", n) + "x]\n"
@@ -174,11 +166,10 @@ func taggedEmpties(n int, keys bool) string {
 	return b.String()
 }
 
-// dedented is the shape of the indentation blocker of the seventh WP-33
-// review: under "a:", body indented by two spaces, then " c: 2" at column
-// 2, which returns to no enclosing collection. The token pass opened a
-// sibling mapping there, and the split parse handed goccy the whole value:
-// 125,000 entries "k: v" took 37 s.
+// dedented is the indentation shape: under "a:", body indented by two
+// spaces, then " c: 2" at column 2, which returns to no enclosing
+// collection. The token pass opened a sibling mapping there, and the split
+// parse handed goccy the whole value: 125,000 entries "k: v" took 37 s.
 func dedented(body string) string {
 	return "a:\n  " + strings.ReplaceAll(strings.TrimSuffix(body, "\n"), "\n", "\n  ") + "\n c: 2\n"
 }
@@ -206,11 +197,9 @@ func treeDepth(n *tree.Node) int {
 // TestHostileInputsBounded parses hostile inputs of up to 1 MiB within the
 // heap budget, goroutine stacks included, and within 2 s each, with the
 // expected findings, without expanding anything and without accepting a
-// tree deeper than MaxDepth (11 req 15, 17, 26; 01 req 6, 9; 01 risk 1; 01
-// test plan FuzzProfileYAML: heap growth under 256 MiB for inputs up to 1
-// MiB, 2 s per input). The densest documents just under the token limit
-// are parsed and accepted, which the heap budget then holds for (sixth
-// WP-33 review); denser ones are refused before they are tokenized.
+// tree deeper than MaxDepth. The densest documents just under the token
+// limit are parsed and accepted, which the heap budget then holds for;
+// denser ones are refused before they are tokenized.
 func TestHostileInputsBounded(t *testing.T) {
 	if testing.Short() {
 		t.Skip("parses several MiB")
@@ -257,14 +246,13 @@ func TestHostileInputsBounded(t *testing.T) {
 		{"single-pair mappings at the token limit", "a: [" + strings.Repeat("k: 1,", limit/4-2) + "1]\n", "", 0},
 		{"empty entries at the token limit", "a:\n" + strings.Repeat("-\n", limit-4), "", 0},
 		{"one-character scalars past the token limit", "a: [" + strings.Repeat("1,", 499990) + "1]\n", codeParse, 0},
-		// Long keys above many nodes (path blocker of the sixth WP-33
-		// review): block keys cost nothing now, and flow ones are bounded.
+		// Long keys above many nodes (long paths): block keys cost nothing
+		// now, and flow ones are bounded.
 		{"long key over a flow sequence", longKeyFlow(16384, 16384), "", 64 << 20},
 		{"long keys nested over a flow sequence", longKeysNested(62, 1000, 4096), "", 64 << 20},
 		{"long keys nested over a long flow sequence", longKeysNested(62, 1000, 16384), "", 64 << 20},
 		{"long keys in flow mappings", longKeysInFlow(60, 1000, 16384), codeParse, 64 << 20},
-		// Flow mapping entries without a value (null-insertion blocker of
-		// the sixth WP-33 review).
+		// Flow mapping entries without a value (inserted nulls).
 		{"keys without values", keysWithoutValues("a", 400000), codeParse, 0},
 		{"keys and colons without values", keysWithoutValues("k:", 400000), codeParse, 0},
 		{"keys without values under the token limit", keysWithoutValues("a", 150000), codeParse, 0},
@@ -279,25 +267,23 @@ func TestHostileInputsBounded(t *testing.T) {
 		{"tag chain", "a: " + strings.Repeat("!!str ", mib/6) + "x\n", codeParse, 0},
 		{"tagged block scalar", longTaggedScalar("a: ", "!!str |", mib/2, mib/2), "", 512 << 20},
 		{"tagged block scalar entry", longTaggedScalar("- ", "!!str >", mib/2, mib/2), codeSchema, 512 << 20},
-		// A comment after the blank run ends the scalar (finding 1 of the
-		// second WP-33 review): goccy's clipping would run for an hour.
+		// A comment after the blank run ends the scalar: goccy's clipping
+		// would run for an hour.
 		{"block scalar before a comment", longBlockScalar("a: ", "|", mib/2, mib/2, "# c\nb: 1\n"), "", 512 << 20},
 		{"block scalar entry before a comment", longBlockScalar("- ", "|", mib/2, mib/2, " # c\n"), codeSchema, 512 << 20},
-		// Empty tagged mappings before sibling keys (blocker of the third
-		// WP-33 review): stopped at the first tag, never nested 16,066
-		// deep.
+		// Empty tagged mappings before sibling keys: stopped at the first
+		// tag, never nested 16,066 deep.
 		{"tagged empty mappings", taggedLadder(63, 255, mib), codeParse, 64 << 20},
-		// Implicit keys over two lines (blocker of the fourth WP-33
-		// review): stopped at the first ':', never nested 4,319 deep.
+		// Implicit keys over two lines: stopped at the first ':', never
+		// nested 4,319 deep.
 		{"implicit keys over two lines", keyLadder(16, 254), codeParse, 64 << 20},
-		// Explicit keys whose ':' goccy groups with a later node (blocker
-		// of the fifth WP-33 review): stopped at the first ':', never
-		// nested 1,056 or 2,139 deep.
+		// Explicit keys whose ':' goccy groups with a later node: stopped
+		// at the first ':', never nested 1,056 or 2,139 deep.
 		{"explicit keys over several lines", explicitKeyLadder(31, 32), codeParse, 64 << 20},
 		{"explicit keys of varying width", explicitKeyLadder(-1, 62), codeParse, 64 << 20},
-		// Document markers goccy reads where the document cut does not
-		// (blocker of the seventh WP-33 review): the whole document went
-		// to goccy's parse, 38 s for 1 MiB, or 1 GiB of paths.
+		// Document markers goccy reads where the document cut does not: the
+		// whole document went to goccy's parse, 38 s for 1 MiB, or 1 GiB of
+		// paths.
 		{"wide mapping before \"...x\"", wideMarker.String() + "...x: 1\n", codeParse, 256 << 20},
 		{"wide mapping before \"... x\"", wideMarker.String() + "... x: 1\n", codeParse, 256 << 20},
 		{"\"...#\" before a wide mapping", "...#\n" + wideMap.String(), codeParse, 256 << 20},
@@ -307,16 +293,15 @@ func TestHostileInputsBounded(t *testing.T) {
 		{"\"...#\" before long keys nested", "...#\n" + longKeysNested(62, 1000, 16384), codeParse, 256 << 20},
 		{"\"...#\" before a long key flow", "...#\n" + longKeyFlow(16384, 16384), codeParse, 256 << 20},
 		{"empty entries before \"...x\"", strings.Repeat("k:\n-\n", 10000) + "...x: 1\n", codeParse, 256 << 20},
-		// Entries indented between two collections' columns (blocker of
-		// the seventh WP-33 review): the whole value went to goccy's
-		// parse, 37 s for 875 KB, or 1 GiB of paths.
+		// Entries indented between two collections' columns: the whole
+		// value went to goccy's parse, 37 s for 875 KB, or 1 GiB of paths.
 		{"dedented entry after a wide mapping", dedented(strings.Repeat("k: v\n", 125000)), codeParse, 256 << 20},
 		{"dedented entry after empty values", dedented(strings.Repeat("k:\n", 40000)), codeParse, 256 << 20},
 		{"dedented entry at the root", strings.Repeat("  k: v\n", 40000) + "b: 2\n", codeParse, 256 << 20},
 		{"dedented entry after empty entries", dedented(strings.Repeat("k:\n-\n", 10000)), codeParse, 256 << 20},
 		{"dedented entry after long keys", dedented(longKeysNested(61, 1000, 16384)), codeParse, 256 << 20},
-		// Tagged empty nodes in flow collections (blocker of the seventh
-		// WP-33 review): goccy's inserted default values took 10 s.
+		// Tagged empty nodes in flow collections: goccy's inserted default
+		// values took 10 s.
 		{"tagged empty nodes in a sequence", taggedEmpties(99000, false), codeParse, 0},
 		{"tagged empty values in a mapping", taggedEmpties(64000, true), codeParse, 0},
 		{"tagged empty values of one key", "a: {" + strings.Repeat("k: !!str ,", 60000) + "z: x}\n", codeParse, 0},
@@ -329,11 +314,11 @@ func TestHostileInputsBounded(t *testing.T) {
 		{"tabs between flow entries", "a: [" + strings.Repeat("1,\t", limit/2-3) + "1]\n", "", 0},
 		{"tabs in a wide mapping", strings.Repeat("k\tk:\tv\t# c\n", limit/10), codeDuplicate, 0},
 		{"tabs after tags", "a: [" + strings.Repeat("!!str\tx,", limit/8) + "1]\n", "", 0},
-		// Flow entries goccy nests by columns or parses without ','
-		// (blocker of the eighth WP-33 review): a ladder of 1 MiB took a
-		// 567 MiB peak heap and 62 levels 3,747 MiB and 16 s, all past the
-		// token pass and refused only by the converter's depth bound, and
-		// 80,000 comma-less entries took 17.9 s.
+		// Flow entries goccy nests by columns or parses without ',': a
+		// ladder of 1 MiB took a 567 MiB peak heap and 62 levels 3,747 MiB
+		// and 16 s, all past the token pass and refused only by the
+		// converter's depth bound, and 80,000 comma-less entries took
+		// 17.9 s.
 		{"flow ladder of long keys", flowLadder(1, 836, 836), codeParse, 64 << 20},
 		{"flow ladders nested", flowLadder(62, 100, 100), codeParse, 64 << 20},
 		{"comma-less flow entries", commaLess(80000, func(i int) string { return "k" + itoa(i) + ": v" }, ""), codeParse, 128 << 20},
@@ -341,14 +326,13 @@ func TestHostileInputsBounded(t *testing.T) {
 		{"comma-less duplicate flow entries", commaLess(40000, func(int) string { return "k: v" }, ""), codeParse, 128 << 20},
 		// Flow pairs nested to the token pass's limit, which goccy nests two
 		// levels each: the converter's depth bound refuses the tree, and
-		// goccy's parse of it costs little (finding of the eighth review).
+		// goccy's parse of it costs little.
 		{"flow pairs at the depth limit", "a: " + strings.Repeat("[k: ", 63) + "v" + strings.Repeat("]", 63) + "\n", codeParse, 0},
 		{"flow pairs of long keys at the depth limit", "a: " + strings.Repeat("["+strings.Repeat("k", 1000)+": ", 63) + "v" + strings.Repeat("]", 63) + "\n", codeParse, 64 << 20},
-		// Documents whose trees stay live while a later one is parsed
-		// (minor finding of the eighth WP-33 review): three documents of
-		// 348,000 tokens peaked at up to 276 MiB and pass the file's token
-		// bound (maxFileTokens); a block document and a document of single
-		// pairs at the document limit fill it.
+		// Documents whose trees stay live while a later one is parsed:
+		// three documents of 348,000 tokens peaked at up to 276 MiB and
+		// pass the file's token bound (maxFileTokens); a block document
+		// and a document of single pairs at the document limit fill it.
 		{"documents at the token limit", strings.Repeat("---\na: ["+strings.Repeat("1,", 174000)+"1]\n", 3), codeParse, 0},
 		{"documents at the file token limit", "---\na:\n" + strings.Repeat("-\n", limit/4-5) + "---\na: [" + strings.Repeat("k: 1,", limit/4-3) + "1]\n", "", 0},
 	}
@@ -371,7 +355,7 @@ func TestHostileInputsBounded(t *testing.T) {
 		if diags != tt.code {
 			t.Errorf("%s: first finding %q, want %q", tt.name, diags, tt.code)
 		}
-		// No accepted tree is deeper than MaxDepth (01 req 9).
+		// No accepted tree is deeper than MaxDepth.
 		for i, d := range docs {
 			if depth := treeDepth(d.Root); depth > DefaultMaxDepth {
 				t.Errorf("%s: document %d has depth %d, over %d", tt.name, i, depth, DefaultMaxDepth)
@@ -391,13 +375,13 @@ func TestHostileInputsBounded(t *testing.T) {
 	}
 }
 
-// TestConverterDepthBound covers the second depth bound (01 req 9; 11 req
-// 17, 26; blocker of the fifth WP-33 review): the converter counts the
-// depth of the tree it builds and fails the document with RZ-CFG-001 at
-// the first collection deeper than MaxDepth, in goccy's whole parse and the
-// split parse alike, so no tree deeper than MaxDepth is returned even
-// where the token pass undercounts goccy's nesting. The token pass is weakened here
-// (passDepth) or bypassed, so these trees reach the converter.
+// TestConverterDepthBound covers the second depth bound: the converter
+// counts the depth of the tree it builds and fails the document with
+// RZ-CFG-001 at the first collection deeper than MaxDepth, in goccy's whole
+// parse and the split parse alike, so no tree deeper than MaxDepth is
+// returned even where the token pass undercounts goccy's nesting. The token
+// pass is weakened here (passDepth) or bypassed, so these trees reach the
+// converter.
 func TestConverterDepthBound(t *testing.T) {
 	var wide strings.Builder
 	for i := range 300 {
@@ -415,8 +399,7 @@ func TestConverterDepthBound(t *testing.T) {
 		{"compact sequences", nest("compact seq", 65), "RZ-CFG-001@1:129"},
 		{"tagged mapping", "a: !!map\n" + indent(nest("block map", 64)), "RZ-CFG-001@65:129"},
 		// A too deep entry before its siblings: nothing after it is
-		// converted, so siblings that would report findings report none
-		// (minor finding of the eighth WP-33 review).
+		// converted, so siblings that would report findings report none.
 		{"before a sibling", "a:\n" + indent(nest("block seq", 64)) + "  - x\nb: 1\n", "RZ-CFG-001@65:129"},
 		{"before siblings with findings", "a:\n" + indent(nest("block seq", 64)) + "  - .inf\na: 1\nb: !!int x\n", "RZ-CFG-001@65:129"},
 		{"before flow siblings with findings", "a: " + strings.Repeat("[", 64) + strings.Repeat("]", 64) + "\nb: [.inf]\na: 1\n", "RZ-CFG-001@1:67"},
@@ -456,8 +439,7 @@ func TestConverterDepthBound(t *testing.T) {
 		}
 	}
 	// More sibling collections than MaxDepth, each closed before the next
-	// opens, never add up to a depth (minor finding of the eighth WP-33
-	// review): the race-enabled run checks this too.
+	// opens, never add up to a depth: the race-enabled run checks this too.
 	var flowSeqs, flowMaps, blockSeqs strings.Builder
 	for i := range 3 * DefaultMaxDepth {
 		flowSeqs.WriteString("[" + itoa(i) + "],")
@@ -489,9 +471,9 @@ func TestConverterDepthBound(t *testing.T) {
 			t.Errorf("flow pairs, split at %d: %d documents, %q", splitAt, len(docs), codes(diags))
 		}
 	}
-	// The ladders of the fourth and fifth reviews, which the token pass
-	// undercounted before their fixes, go straight to goccy's parse and
-	// the converter, without the token pass.
+	// The key and explicit key ladders, which the token pass undercounted
+	// before their fixes, go straight to goccy's parse and the converter,
+	// without the token pass.
 	for _, src := range []string{keyLadder(16, 20), explicitKeyLadder(31, 4), explicitKeyLadder(-1, 8)} {
 		p := &fileParser{path: "f.yaml", opts: Options{}.withDefaults()}
 		var s scanner.Scanner
@@ -512,10 +494,10 @@ func TestConverterDepthBound(t *testing.T) {
 }
 
 // TestConverterUnexpectedNodes covers nodes goccy v1.19.2's parser never
-// returns as a value (minor finding of the eighth WP-33 review): a bare
-// mapping value, which goccy keeps inside its MappingNode, and a scalar
-// without a token. The converter refuses each with RZ-CFG-001 instead of
-// reading it as a mapping or typing its ':' as a string.
+// returns as a value: a bare mapping value, which goccy keeps inside its
+// MappingNode, and a scalar without a token. The converter refuses each
+// with RZ-CFG-001 instead of reading it as a mapping or typing its ':' as a
+// string.
 func TestConverterUnexpectedNodes(t *testing.T) {
 	p := &fileParser{path: "f.yaml", opts: Options{}.withDefaults()}
 	c := converter{p: p}

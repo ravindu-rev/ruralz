@@ -14,12 +14,12 @@ import (
 	"github.com/ravindu-rev/ruralz/internal/jsonval"
 )
 
-// The evaluation bound (architecture R-77, package documentation). The
-// library validates without memoizing: every subschema an applicator, a
-// reference or a member and item keyword reaches is evaluated once per
-// path that reaches it, so a recursive reference reached through two paths
-// doubles the work at every level of body nesting. The compiled graph is
-// checked for two things before a schema is accepted:
+// The evaluation bound (package documentation). The library validates
+// without memoizing: every subschema an applicator, a reference or a
+// member and item keyword reaches is evaluated once per path that reaches
+// it, so a recursive reference reached through two paths doubles the work
+// at every level of body nesting. The compiled graph is checked for two
+// things before a schema is accepted:
 //
 //   - no reference cycle applies schemas to the same value without
 //     descending into it (the library answers every value that reaches one
@@ -57,8 +57,7 @@ const evalCap = MaxEvaluations + 1
 // reaches it refuses every body that reaches the value. The counts are
 // ints that hold it and its products with evaluation counts, so the
 // package builds for 64-bit platforms only, the only ones Ruralz ships
-// (ADR-0001): elsewhere countCap overflows int and the build fails (minor
-// review finding).
+// (ADR-0001): elsewhere countCap overflows int and the build fails.
 const countCap = 1 << 40
 
 // coupledBudget bounds the class entries the precise pass may touch, so a
@@ -76,9 +75,9 @@ const maxPatternMatches = 1 << 14
 // schema against its own patternProperties (newGNode) and for the names
 // one state declares against the patterns of the others (memberEntries),
 // all of one document together: about 34 ms of the regexp matchers at
-// most (review finding: a pair count did not bound the work, which grows
-// with the name's length times the pattern's run queue). Past it every
-// pattern is assumed to match, which can only charge more.
+// most (a pair count would not bound the work, which grows with the name's
+// length times the pattern's run queue). Past it every pattern is assumed
+// to match, which can only charge more.
 const matchBudget = 1 << 25
 
 // matchWork returns the work units of matching a name of n bytes against
@@ -624,8 +623,7 @@ func (g *evalGraph) inPlaceOrder() ([]int, []Issue) {
 // evaluations from it, itself included: the library evaluates the in-place
 // members of a schema one after the other, each from a call of its own, so
 // its call stack at one value holds one such chain, however many
-// evaluations the value takes (review finding: every evaluation was
-// charged a stack frame). In-place targets come first in order.
+// evaluations the value takes. In-place targets come first in order.
 func (g *evalGraph) setChains(order []int) {
 	g.chain = make([]int, len(g.nodes))
 	for _, v := range order {
@@ -673,9 +671,9 @@ type run struct {
 // classes of one level are garbage once the next level is computed
 // (preciseLevel keeps only their counts), so each level takes the maps of
 // the one before, cleared, in the order it made them, which is the order
-// of the schemas and so of their sizes (minor review finding: a
-// worst-case compile allocated about 250 MB of them, and the collector's
-// work slowed it).
+// of the schemas and so of their sizes (without the pool, a worst-case
+// compile allocated about 250 MB of them, and the collector's work slowed
+// it).
 type namesPool struct {
 	spare, made []map[string]vec
 	next        int

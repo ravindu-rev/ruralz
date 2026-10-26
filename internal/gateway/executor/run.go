@@ -15,8 +15,8 @@ import (
 	"github.com/ravindu-rev/ruralz/pkg/config/v1alpha1"
 )
 
-// ResponseKind says what produced the client response onResponse runs on
-// (spec 04 reqs 36 and 42, spec 05 req 87).
+// ResponseKind says what produced the client response onResponse runs
+// on.
 type ResponseKind uint8
 
 // Response kinds.
@@ -28,12 +28,12 @@ const (
 	// onUpstreamRequest one that became the response) or a Node-generated
 	// response that is not an Upstream failure, such as 413 RZ-RT-003 or
 	// 504 RZ-RT-007. transform.response, cache and ai.semantic-cache do not
-	// run on it (spec 04 req 42).
+	// run on it.
 	ResponseGenerated
 	// ResponseUpstreamError is Node-generated after the Upstream leg failed
 	// (an RZ-UP code, the breaker included). transform.response and
 	// ai.semantic-cache do not run on it; cache does, so stale-if-error can
-	// replace it (spec 05 req 87).
+	// replace it.
 	ResponseUpstreamError
 )
 
@@ -87,7 +87,7 @@ func (e *Executor) Begin(rs snapshot.RequestState, ch *snapshot.Chain, store sta
 }
 
 // BeginLegs starts an execution that only runs upstream legs, over legs
-// (snapshot.Snapshot.LegChains): the replay path (R-43), whose synthetic
+// (snapshot.Snapshot.LegChains): the replay path, whose synthetic
 // exchange has no client Phases.
 func (e *Executor) BeginLegs(rs snapshot.RequestState, legs map[string]*snapshot.LegChain) *Run {
 	r := e.Begin(rs, nil, nil)
@@ -112,7 +112,7 @@ func (r *Run) Release() {
 // or onRoute (other Phases do nothing). It returns the response that
 // short-circuits the request (a Filter's Respond, a closed failure, an SPI
 // sentinel, or Security rule 1), after which the handler goes to
-// onResponse; nil lets the request continue (spec 04 reqs 39 to 43).
+// onResponse; nil lets the request continue.
 //
 // In onRequestHeaders, a run of consecutive Consumptive Policies is
 // batched into shared State Store round trips (pack 8.7 rule 3), and once
@@ -170,9 +170,9 @@ func (r *Run) shortCircuit(resp *filter.Response) *filter.Response {
 	return resp
 }
 
-// authRule applies Security rule 1 (spec 06 rule 1, spec 04 req 41): when
-// the chain holds auth-class Policies and spec.when skipped every one, the
-// request fails with 401 RZ-AUTH-001 and every auth Policy's challenge.
+// authRule applies Security rule 1: when the chain holds auth-class
+// Policies and spec.when skipped every one, the request fails with 401
+// RZ-AUTH-001 and every auth Policy's challenge.
 func (r *Run) authRule() *filter.Response {
 	n := 0
 	for _, p := range r.chain.Policies {
@@ -205,12 +205,11 @@ func (r *Run) authRule() *filter.Response {
 }
 
 // Response runs onResponse, in the compiled (reverse) order, on the client
-// response kind describes (spec 04 req 42, spec 07 req 17). A closed
-// failure replaces an Upstream response with 502 (RZ-RT-012 or the Filter's
-// code), passed to Exchange.ReplaceResponse, and the remaining Policies run
-// on that generated response; a failure on a response that is already
-// generated is counted and never replaces it again. It returns the
-// replacement, or nil.
+// response kind describes. A closed failure replaces an Upstream response
+// with 502 (RZ-RT-012 or the Filter's code), passed to
+// Exchange.ReplaceResponse, and the remaining Policies run on that
+// generated response; a failure on a response that is already generated is
+// counted and never replaces it again. It returns the replacement, or nil.
 func (r *Run) Response(ctx context.Context, kind ResponseKind) *filter.Response {
 	if r.chain == nil {
 		return nil
@@ -274,7 +273,7 @@ func (r *Run) Chunk(ctx context.Context) (end bool) {
 
 // Log runs onLog in request order, read-only (failures reach telemetry
 // only, no span), then calls Finish on every client Policy that ran and
-// implements filter.Finisher, in request order (R-40), whether or not it
+// implements filter.Finisher, in request order, whether or not it
 // subscribes to onLog. The handler calls it once, after the response
 // finished or the client went away; later calls do nothing.
 func (r *Run) Log(ctx context.Context) {

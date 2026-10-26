@@ -14,13 +14,13 @@ import (
 // position is where a validation error's instance location lies in the
 // resource tree.
 type position struct {
-	// path is the key-aware path from the resource root (01 req 48); nil
-	// at the root.
+	// path is the key-aware path from the resource root; nil at the
+	// root.
 	path *pathNode
 	// node is the instance node; nil when the tree lacks the location.
 	node *tree.Node
 	// pos is the nearest known source position at or above node: a
-	// defaulted node points at its parent (01 req 36).
+	// defaulted node points at its parent.
 	pos tree.Pos
 	// schema is the schema of the position with dispatch applied to the
 	// instance; nil where no schema describes it (open content).

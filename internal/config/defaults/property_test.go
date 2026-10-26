@@ -40,10 +40,10 @@ func permute(r *rand.Rand, n *tree.Node, s *schemaidx.Node) {
 	}
 }
 
-// TestReorderInvariance is 01 property P1 and 02 property 27 at stage G:
-// permuting object members and the entries of set and map lists, and the
-// order of resources, yields the same hub trees, so the canonical form and
-// the digest cannot depend on authored order.
+// TestReorderInvariance is the reorder property at stage G: permuting
+// object members and the entries of set and map lists, and the order of
+// resources, yields the same hub trees, so the canonical form and the
+// digest cannot depend on authored order.
 func TestReorderInvariance(t *testing.T) {
 	f, rs := loadBundle(t)
 	s := newStage(t)
@@ -71,11 +71,10 @@ func TestReorderInvariance(t *testing.T) {
 	}
 }
 
-// FuzzStageIdempotent is 01 property P6 and 02 property 20 with the
-// stage's robustness: any resource document stage G accepts holds no null
-// (02 req 19) and is a fixed point of stage G, materialization is
-// idempotent on its own output, and no input panics. The input is a JSON
-// resource envelope.
+// FuzzStageIdempotent is the idempotence property with the stage's
+// robustness: any resource document stage G accepts holds no null and is a
+// fixed point of stage G, materialization is idempotent on its own output,
+// and no input panics. The input is a JSON resource envelope.
 func FuzzStageIdempotent(f *testing.F) {
 	for _, seed := range []string{
 		route(`{"match": {"hosts": ["B.example", "a.example"]}, "timeout": "90s", "upstreams": [{"name": "b", "weight": 2.0}, {"name": "a"}]}`),

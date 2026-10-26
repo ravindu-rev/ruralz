@@ -43,8 +43,8 @@ func pathC(kind, v string) *Criteria {
 	return c
 }
 
-// TestCompareRanks has one pair per precedence rank (04 req 31; test plan
-// item 6 names the pairs): the first Rank of each pair takes precedence.
+// TestCompareRanks has one pair per precedence rank: the first Rank of
+// each pair takes precedence.
 func TestCompareRanks(t *testing.T) {
 	withMethods := pathC("prefix", "/v1")
 	withMethods.Methods = []string{"GET"}
@@ -93,8 +93,7 @@ func TestCompareRanks(t *testing.T) {
 }
 
 // TestCompareTotalOrder checks that Compare is a total order over a mixed
-// population (antisymmetric and transitive), so sorting is deterministic
-// (04 req 31).
+// population (antisymmetric and transitive), so sorting is deterministic.
 func TestCompareTotalOrder(t *testing.T) {
 	hosts := []string{"", "a.example", "*.example", "*.a.example"}
 	paths := [][2]string{

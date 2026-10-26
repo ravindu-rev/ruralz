@@ -15,10 +15,10 @@ import (
 	"github.com/ravindu-rev/ruralz/internal/secret"
 )
 
-// Tests for spec 06 requirements 79 (Upstream TLS: verification against
-// caCertificate or the system roots, ServerName from sni or the Endpoint
-// host, IP literal SAN, optional client certificate, both-or-neither
-// RZ-CFG-005, rotation reaching new connections) and 81 (OTLP).
+// Tests for Upstream TLS (verification against caCertificate or the
+// system roots, ServerName from sni or the Endpoint host, IP literal SAN,
+// optional client certificate, both-or-neither RZ-CFG-005, rotation
+// reaching new connections) and OTLP TLS.
 
 type upstreamFixture struct {
 	serverCA, clientCA *testCA
@@ -54,7 +54,7 @@ func (f *upstreamFixture) spec() ClientSpec {
 	return ClientSpec{CACertificate: refp("up-ca"), ClientCertificate: refp("client.crt"), ClientKey: refp("client.key")}
 }
 
-func TestUpstreamVerificationReq79(t *testing.T) {
+func TestUpstreamVerification(t *testing.T) {
 	f := newUpstreamFixture(t)
 	up, err := Upstream(ClientSpec{CACertificate: refp("up-ca")}, f.store)
 	if err != nil {
@@ -130,7 +130,7 @@ func TestUpstreamVerificationReq79(t *testing.T) {
 	}
 }
 
-func TestUpstreamClientCertificateAndRotationReq79(t *testing.T) {
+func TestUpstreamClientCertificateAndRotation(t *testing.T) {
 	f := newUpstreamFixture(t)
 	up, err := Upstream(f.spec(), f.store)
 	if err != nil {
@@ -217,11 +217,11 @@ func TestUpstreamClientCertificateAndRotationReq79(t *testing.T) {
 	}
 }
 
-// TestUpstreamClientPairOnePollReq79 renews the client pair in one
+// TestUpstreamClientPairOnePoll renews the client pair in one
 // resolver poll, whichever watcher runs first and with one PEM file as
 // both clientCertificate and clientKey: no rotation failure is counted and
-// the new pair is presented (spec 06 requirements 76 and 79).
-func TestUpstreamClientPairOnePollReq79(t *testing.T) {
+// the new pair is presented.
+func TestUpstreamClientPairOnePoll(t *testing.T) {
 	tests := []struct {
 		name     string
 		combined bool
@@ -270,13 +270,12 @@ func TestUpstreamClientPairOnePollReq79(t *testing.T) {
 	}
 }
 
-// TestUpstreamClientPairSeparatePollsReq79 renews the client certificate
+// TestUpstreamClientPairSeparatePolls renews the client certificate
 // in one poll and its key in the next: the failed certificate watch is
 // registered again once the key completes the pair, so no
 // secret_rotation_failed reason is left while the counted failure stays;
-// a key that never arrives keeps the reason raised (spec 06 requirements
-// 76 and 79).
-func TestUpstreamClientPairSeparatePollsReq79(t *testing.T) {
+// a key that never arrives keeps the reason raised.
+func TestUpstreamClientPairSeparatePolls(t *testing.T) {
 	f := newUpstreamFixture(t)
 	up, err := Upstream(f.spec(), f.store)
 	if err != nil {
@@ -321,13 +320,13 @@ func TestUpstreamClientPairSeparatePollsReq79(t *testing.T) {
 	}
 }
 
-// TestUpstreamClientPairNewerSiblingValueReq79 is
-// TestCertIndexNewerSiblingValueReq76 for the client pair: a pair formed
+// TestUpstreamClientPairNewerSiblingValue is
+// TestCertIndexNewerSiblingValue for the client pair: a pair formed
 // with a half's last delivered value leaves that half's watch registered,
 // so a newer value of it published in the same poll is examined, counted
 // and raised; a pair formed with its current value registers it again and
-// clears the reason (spec 06 requirements 76 and 79).
-func TestUpstreamClientPairNewerSiblingValueReq79(t *testing.T) {
+// clears the reason.
+func TestUpstreamClientPairNewerSiblingValue(t *testing.T) {
 	for _, certFirst := range []bool{false, true} {
 		name := "key alone, then certificate with a newer key"
 		if certFirst {
@@ -371,7 +370,7 @@ func TestUpstreamClientPairNewerSiblingValueReq79(t *testing.T) {
 	}
 }
 
-func TestUpstreamErrorsReq79(t *testing.T) {
+func TestUpstreamErrors(t *testing.T) {
 	f := newUpstreamFixture(t)
 	f.store.put(ref("garbage"), []byte("-----BEGIN CERTIFICATE-----\nAAAA\n-----END CERTIFICATE-----\n"))
 	f.store.put(ref("empty"), []byte{})
@@ -444,7 +443,7 @@ func TestClientConfigRotationDuringBuild(t *testing.T) {
 	}
 }
 
-func TestOTLPReq81(t *testing.T) {
+func TestOTLP(t *testing.T) {
 	o, err := OTLP(nil, nil)
 	if err != nil {
 		t.Fatal(err)

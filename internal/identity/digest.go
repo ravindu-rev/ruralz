@@ -15,7 +15,7 @@ const DigestPrefix = "sha256:"
 
 // MinKeyBytes is the shortest secretRef-held API key accepted after
 // normalization (Security and identity, "Consumers and tiers": rejected
-// under 22 base64url characters; spec 06 requirement 13).
+// under 22 base64url characters).
 const MinKeyBytes = 22
 
 // Errors of the key and digest helpers. They never contain key bytes.
@@ -28,7 +28,7 @@ var (
 )
 
 // Digest returns the SHA-256 digest of an API key: the exact bytes of the
-// single header value as net/http delivers it (spec 06 requirement 14).
+// single header value as net/http delivers it.
 func Digest(key []byte) [32]byte { return sha256.Sum256(key) }
 
 // DigestString is Digest over a string. Keys up to 256 bytes are hashed
@@ -67,8 +67,8 @@ func ParseDigest(s string) ([32]byte, error) {
 func FormatDigest(d [32]byte) string { return DigestPrefix + hex.EncodeToString(d[:]) }
 
 // NormalizeKey trims leading and trailing SP, HTAB, CR and LF from a
-// secretRef-held API key (spec 06 requirement 13: a header value can never
-// carry them). The result aliases key.
+// secretRef-held API key (a header value can never carry them). The result
+// aliases key.
 func NormalizeKey(key []byte) []byte {
 	isWS := func(c byte) bool { return c == ' ' || c == '\t' || c == '\r' || c == '\n' }
 	for len(key) > 0 && isWS(key[0]) {
@@ -82,8 +82,8 @@ func NormalizeKey(key []byte) []byte {
 
 // SecretKeyDigest normalizes a secretRef-held API key, rejects it under
 // MinKeyBytes (ErrShortKey) and returns its digest. It clears raw before
-// returning, so the caller keeps no copy of the key (spec 06
-// requirement 12: the raw key is discarded after hashing).
+// returning, so the caller keeps no copy of the key (the raw key is
+// discarded after hashing).
 func SecretKeyDigest(raw []byte) ([32]byte, error) {
 	defer clear(raw)
 	k := NormalizeKey(raw)

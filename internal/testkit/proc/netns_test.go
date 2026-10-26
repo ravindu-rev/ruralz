@@ -71,7 +71,7 @@ func TestNetNSChildOutsideChild(t *testing.T) {
 	}
 }
 
-func TestTestResult(t *testing.T) { // 11 req 40, 44: a skipped InNetNS child is not a pass
+func TestTestResult(t *testing.T) { // A skipped InNetNS child is not a pass
 	skipOut := "=== RUN   TestA\n    a_test.go:9: redis-server not found\n--- SKIP: TestA (0.00s)\nPASS\n"
 	subOut := "=== RUN   TestA\n=== RUN   TestA/sub\n    a_test.go:9: why\n" +
 		"    --- SKIP: TestA/sub (0.00s)\n--- PASS: TestA (0.00s)\nPASS\n"

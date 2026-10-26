@@ -2,22 +2,20 @@
 // SPDX-License-Identifier: Apache-2.0
 
 // Package redact holds the credential-header set of a snapshot and the
-// helpers that keep credentials out of /tap and process logs (spec 06
-// requirement 92, spec 04 requirement 75, observability O4). The set is
-// authorization, proxy-authorization, cookie, response set-cookie, every
-// auth.api-key Policy's config.header in the Revision, and the headers
-// upstream-auth Filters set; the snapshot compiler builds one Set per
-// Revision with New. It is the one list the M2 Plugin host reuses for the
-// credentials.read Capability.
+// helpers that keep credentials out of /tap and process logs
+// (observability O4). The set is authorization, proxy-authorization,
+// cookie, response set-cookie, every auth.api-key Policy's config.header
+// in the Revision, and the headers upstream-auth Filters set; the
+// snapshot compiler builds one Set per Revision with New. It is the one
+// list the M2 Plugin host reuses for the credentials.read Capability.
 //
 // /tap and logs also redact every header whose name contains token,
 // secret, key, password, session or auth (case-insensitive). Redacted
-// values are replaced by secret.Redacted ("[REDACTED]", R-9); query
-// strings, URL user information and bodies are dropped, never redacted in
-// place. Set.ReplaceAttr is the slog hook the process logger installs
-// (spec 06 section 4); Headers, LogHeaders and HeaderAttr build the /tap
-// and log views of a header map; Path and URL strip request targets and
-// configured URLs.
+// values are replaced by secret.Redacted ("[REDACTED]"); query strings,
+// URL user information and bodies are dropped, never redacted in place.
+// Set.ReplaceAttr is the slog hook the process logger installs; Headers,
+// LogHeaders and HeaderAttr build the /tap and log views of a header map;
+// Path and URL strip request targets and configured URLs.
 package redact
 
 import (
@@ -34,8 +32,7 @@ import (
 // Marker replaces every redacted value.
 const Marker = secret.Redacted
 
-// The fixed credential headers (spec 06 requirement 92; Plugin system
-// "Credentials", OQ-wasm-plugin-system-3 (b)).
+// The fixed credential headers (Plugin system "Credentials").
 const (
 	// Authorization carries client credentials.
 	Authorization = "authorization"
@@ -124,7 +121,7 @@ func fixed(name string) bool {
 // Sensitive reports whether name contains token, secret, key, password,
 // session or auth in any case. It does not allocate.
 func Sensitive(name string) bool {
-	// Spec 04 requirement 75: (?i)(token|secret|key|password|session|auth).
+	// Equivalent to (?i)(token|secret|key|password|session|auth).
 	for _, w := range [...]string{"token", "secret", "key", "password", "session", "auth"} {
 		if containsFold(name, w) {
 			return true
@@ -295,7 +292,7 @@ func inAuthority(raw string, i int) bool {
 }
 
 // ReplaceAttr is a slog.HandlerOptions.ReplaceAttr hook (and the
-// logsink.Options.ReplaceAttr redaction hook, spec 06 section 4; O4) for
+// logsink.Options.ReplaceAttr redaction hook, observability O4) for
 // process logs. It replaces with Marker the value of
 //
 //   - an attribute named like a credential header of s, at any depth, in

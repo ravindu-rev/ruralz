@@ -11,8 +11,8 @@ import (
 	"github.com/ravindu-rev/ruralz/internal/cli/completion"
 )
 
-// The M1 command table of spec 10 req 12 with fixture commands (the real
-// commands live in later work packages), for the golden scripts.
+// The M1 command table with fixture commands (the real commands live
+// outside this package, most not built yet), for the golden scripts.
 
 // binder binds a fixture command's flags.
 type binder func(f *command.Flags)
@@ -61,7 +61,7 @@ func dirArg() command.Arg {
 	}
 }
 
-// m1Table returns the spec 10 req 12 table, with Planned rows and one
+// m1Table returns the M1 command table, with Planned rows and one
 // deprecated verb and flag that completion leaves out.
 func m1Table() []command.Spec {
 	var s string

@@ -46,11 +46,11 @@ func (g *gate) String() string {
 	return g.buf.String()
 }
 
-// ADR-0018 "Blocked stdout test", 09 req 67 and 70, WP-11 done-when: with
-// stdout blocked, Submit and process logging never block; the access log
-// drops beyond its bounds with queue_full; one worker writes both streams
-// as whole lines once stdout drains.
-func TestBlockedStdoutBothStreams_Req67(t *testing.T) {
+// ADR-0018 "Blocked stdout test": with stdout blocked, Submit and process
+// logging never block; the access log drops beyond its bounds with
+// queue_full; one worker writes both streams as whole lines once stdout
+// drains.
+func TestBlockedStdoutBothStreams(t *testing.T) {
 	w := accesslog.New(accesslog.Options{NodeID: "01J9Z8Q4W6X3V5T7R2N0M1K8H4", QueueRecords: 256})
 	g := &gate{open: make(chan struct{}), entered: make(chan struct{})}
 	s, err := logsink.New(logsink.Options{Stdout: g, Access: w, QueueRecords: 64})
@@ -210,13 +210,13 @@ type accessBridge struct{ n atomic.Uint64 }
 
 func (b *accessBridge) Export(*accesslog.Exported) error { b.n.Add(1); return nil }
 
-// 09 req 61, 65 and 67 under -race: producers log and submit on many
-// goroutines while another changes the Revision, the credential headers
-// and the bridges, and the worker writes with some writes failing. After
-// Run returns and both streams close, every record of each stream is
-// accounted for exactly once: written + queue_full + export_error =
-// produced.
-func TestConcurrentProducersAndSetters_Req65(t *testing.T) {
+// TestConcurrentProducersAndSetters is a -race test: producers log and
+// submit on many goroutines while another changes the Revision, the
+// credential headers and the bridges, and the worker writes with some
+// writes failing. After Run returns and both streams close, every record
+// of each stream is accounted for exactly once: written + queue_full +
+// export_error = produced.
+func TestConcurrentProducersAndSetters(t *testing.T) {
 	w := accesslog.New(accesslog.Options{QueueRecords: 128})
 	out := &lineCounter{}
 	s, err := logsink.New(logsink.Options{Stdout: out, Access: w, QueueRecords: 128, BatchBytes: 4096})

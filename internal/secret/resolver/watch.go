@@ -18,7 +18,7 @@ import (
 // errWatcherPanicked is the reason recorded for a watcher that panicked.
 var errWatcherPanicked = errors.New("watcher panicked")
 
-// watcher is one Node-wide registration for rotations of a Ref (R-55).
+// watcher is one Node-wide registration for rotations of a Ref.
 type watcher struct {
 	ref    secret.Ref
 	fn     func(secret.Value) error
@@ -89,8 +89,8 @@ func (r *Resolver) watchCount() int {
 
 // fanout delivers, for every reference st holds, the current value to
 // each registration that has not seen its version, whichever Store the
-// registration was made on (R-55). It runs on the resolver goroutine,
-// without holding any Resolver lock while a watcher runs.
+// registration was made on. It runs on the resolver goroutine, without
+// holding any Resolver lock while a watcher runs.
 func (r *Resolver) fanout(ctx context.Context, st *store) {
 	for _, ref := range st.refs {
 		ws := r.watchersOf(ref)

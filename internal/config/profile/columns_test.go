@@ -14,15 +14,14 @@ import (
 	"github.com/ravindu-rev/ruralz/internal/config/tree"
 )
 
-// TestTabColumns covers positions after a tab (01 req 8, 13, 14, 15;
-// major finding of the seventh WP-33 review). goccy's scanner skips most
+// TestTabColumns covers positions after a tab. goccy's scanner skips most
 // tabs outside a quoted scalar without counting them, so the token pass
 // looked for a quoted or multi-line plain scalar one column short per tab
 // and refused valid YAML ("{\"a\":\t\"b\"}"), and positions after a tab were
 // short. Every token is now located in the source; a tag that goccy runs
 // into the tab after it is scanned with that tab as a space. Results and
-// positions are the same at the default threshold, with the threshold
-// raised and with goccy's own parse.
+// positions are the same at the default threshold, with the threshold raised
+// and with goccy's own parse.
 func TestTabColumns(t *testing.T) {
 	tests := []struct{ src, want string }{
 		{"{\"a\":\t\"b\"}\n", `{a@1:2:s:"b"@1:7}`},
@@ -68,9 +67,8 @@ func TestTabColumns(t *testing.T) {
 }
 
 // TestTrailingSpaceColumns covers a plain scalar that spaces end its line
-// (01 req 14; found by FuzzLoadYAML's position check in the seventh WP-33
-// review): goccy placed it one column to the right per space ("a: b  "
-// put b at 6, not 4).
+// (found by FuzzLoadYAML's position check): goccy placed it one column to
+// the right per space ("a: b  " put b at 6, not 4).
 func TestTrailingSpaceColumns(t *testing.T) {
 	tests := []struct{ src, want string }{
 		{"a: b \n", `{a@1:1:s:"b"@1:4}`},
@@ -94,16 +92,15 @@ func TestTrailingSpaceColumns(t *testing.T) {
 }
 
 // TestTabIndentedJSONAsYAML parses JSON indented with tabs, which is YAML
-// too (CM "Format decision": JSON is a strict subset of YAML; 01 req 13,
-// 14, 15; seventh WP-33 review), as JSON and as YAML: the trees and every
-// position agree.
+// too (CM "Format decision": JSON is a strict subset of YAML), as JSON and
+// as YAML: the trees and every position agree.
 func TestTabIndentedJSONAsYAML(t *testing.T) {
 	for _, src := range []string{
 		"{\n\t\"a\": 1,\n\t\"b\": [\n\t\t\"x\"\n\t]\n}\n",
 		"{\n\t\"apiVersion\":\t\"ruralz/v1alpha1\",\n\t\"kind\": \"Route\",\n\t\"spec\": {\n\t\t\"hosts\": [\"a\",\t\"b\"],\n\t\t\"n\":\t2.5,\n\t\t\"t\": true,\n\t\t\"z\": null\n\t}\n}\n",
 		"{\"a\":\t{\"b\":\t[1,\t{\"c\":\t\"d\\te\"}]}}\n",
 		// A tab between a key and its ':', which goccy's scanner refused
-		// (minor finding of the eighth WP-33 review; untabSeparators).
+		// (untabSeparators).
 		"{\"a\"\t: 1}\n",
 		"{\"a\": 1,\n\t\"b\"\t:\t2}\n",
 		"{\"a\" \t : {\"b\"\t:[1]}}\n",
@@ -121,12 +118,11 @@ func TestTabIndentedJSONAsYAML(t *testing.T) {
 }
 
 // TestTabsAroundKeys covers tabs before a block mapping key and between a
-// quoted key and its ':' (01 req 8, 14, 15; findings of the eighth WP-33
-// review). YAML 1.2 indents a block mapping with spaces only, so a key
-// after a tab on its line is RZ-CFG-001, as goccy refuses a plain one and
-// yaml.v3 every one; goccy read a quoted key there, or any key at the
-// start of the input, as if the tab were a space. A tab between a quoted
-// key and its ':' separates them as a space does.
+// quoted key and its ':'. YAML 1.2 indents a block mapping with spaces
+// only, so a key after a tab on its line is RZ-CFG-001, as goccy refuses
+// a plain one and yaml.v3 every one; goccy read a quoted key there, or
+// any key at the start of the input, as if the tab were a space. A tab
+// between a quoted key and its ':' separates them as a space does.
 func TestTabsAroundKeys(t *testing.T) {
 	tests := []struct{ src, want string }{
 		{"\t\"\": 1\n", "RZ-CFG-001@1:2"},
@@ -159,9 +155,9 @@ func TestTabsAroundKeys(t *testing.T) {
 	}
 }
 
-// TestColumnTable covers the table built from located tokens (01 req 14):
-// corrections for tabs, for tags, and the comment goccy places past a
-// block scalar header, each from its token's column on.
+// TestColumnTable covers the table built from located tokens: corrections
+// for tabs, for tags, and the comment goccy places past a block scalar
+// header, each from its token's column on.
 func TestColumnTable(t *testing.T) {
 	src := "a:\t!!str\tx\nb: |  # c\n  t\nc:\t[1,\t2]\n"
 	tks, err := scanString(strings.Replace(src, "!!str\t", "!!str ", 1))
@@ -204,10 +200,10 @@ func TestColumnTable(t *testing.T) {
 
 // TestPositionsPointAtNodes checks that every key and value of every
 // accepted YAML Test Suite stream, and of its variants with tabs after
-// indicators and before comments, is reported at its first character (01
-// req 14; seventh WP-33 review): a quote, a tag, a block scalar indicator,
-// or the scalar's own first character, which a number written with a sign
-// or a leading dot does not keep.
+// indicators and before comments, is reported at its first character: a
+// quote, a tag, a block scalar indicator, or the scalar's own first
+// character, which a number written with a sign or a leading dot does not
+// keep.
 func TestPositionsPointAtNodes(t *testing.T) {
 	tabs := regexp.MustCompile(`([:,\[{-]) ([^ \n#])`)
 	checked := 0

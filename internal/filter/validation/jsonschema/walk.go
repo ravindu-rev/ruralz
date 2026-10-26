@@ -66,8 +66,8 @@ func subschemaKeywords() []subschemaKeyword {
 // parsedKeywords lists the keywords whose values the library parses as
 // numbers with math/big: the numeric and integer keywords, which it
 // compiles (and the meta-schema checks), and const and enum, whose
-// numbers it parses whenever it compares them (minor review finding: an
-// annotation or unknown keyword is never parsed, 07 req 76).
+// numbers it parses whenever it compares them (an annotation or unknown
+// keyword is never parsed).
 func parsedKeywords() []string {
 	return []string{
 		"const", "enum", "exclusiveMaximum", "exclusiveMinimum", "maxContains", "maxItems", "maxLength", "maxProperties",
@@ -75,23 +75,23 @@ func parsedKeywords() []string {
 	}
 }
 
-// The lists of names (architecture R-77, review finding). The draft
-// 2020-12 meta-schema puts uniqueItems on four lists of strings: type as an
-// array, required, every member of dependentRequired, and every array
-// member of dependencies. The library's meta-schema check compares their
-// entries, whatever they are, before it checks that each is a string: it
-// parses every number with math/big, every pair of up to 20 entries and
-// past that every entry once for its hash, whose nil result for a literal
-// math/big refuses it dereferences (a 241-byte {"type":[1e999999, ...20
-// literals]} compiled for 11 s, 21 literals of exponent 9,999,999
-// panicked), and compares arrays and objects in full, while its hash lets
-// distinct ones collide. A list entry that is not a string, which the
-// meta-schema refuses anyway, is therefore refused at the walk with the
-// meta-schema's own message, so the library never compares one. Like the
-// walk's other rules, this holds at every position the library compiles or
-// checks against the meta-schema: not below additionalItems, which draft
-// 2020-12 ignores, unless a reference, an anchor or an $id makes the
-// library compile it (walker.schema).
+// The lists of names. The draft 2020-12 meta-schema puts uniqueItems on
+// four lists of strings: type as an array, required, every member of
+// dependentRequired, and every array member of dependencies. The
+// library's meta-schema check compares their entries, whatever they are,
+// before it checks that each is a string: it parses every number with
+// math/big, every pair of up to 20 entries and past that every entry once
+// for its hash, whose nil result for a literal math/big refuses it
+// dereferences (a 241-byte {"type":[1e999999, ...20 literals]} compiled for
+// 11 s, 21 literals of exponent 9,999,999 panicked), and compares arrays
+// and objects in full, while its hash lets distinct ones collide. A list
+// entry that is not a string, which the meta-schema refuses anyway, is
+// therefore refused at the walk with the meta-schema's own message, so the
+// library never compares one. Like the walk's other rules, this holds at
+// every position the library compiles or checks against the meta-schema:
+// not below additionalItems, which draft 2020-12 ignores, unless a
+// reference, an anchor or an $id makes the library compile it
+// (walker.schema).
 const (
 	// typeEntryMessage is the meta-schema's message for an entry of a type
 	// list that is not one of its simple types.
@@ -172,9 +172,9 @@ type refSite struct {
 }
 
 // compiled reports whether the library compiles the reference s: it is not
-// inert, or its schema was walked live after it (minor review finding: a
-// reference the library never compiles never reaches the loader, so one
-// leaving the document is no finding there, 07 req 76).
+// inert, or its schema was walked live after it (a reference the library
+// never compiles never reaches the loader, so one leaving the document is
+// no finding there).
 func (w *walker) compiled(s refSite) bool {
 	return !s.inert || w.seen[s.pos] == walkedLive
 }
@@ -296,17 +296,16 @@ const (
 // except that an inert position later reached live is walked again live,
 // without being recorded again.
 //
-// A position is inert below additionalItems, which the library collects
-// as a schema position, its $id and anchors included, but under draft
-// 2020-12 does not compile, and which the meta-schema does not define: it
-// is compiled only as the target of a JSON Pointer reference, which follow
+// A position is inert below additionalItems, which the library collects as
+// a schema position, its $id and anchors included, but under draft 2020-12
+// does not compile, and which the meta-schema does not define: it is
+// compiled only as the target of a JSON Pointer reference, which follow
 // walks live, or, when a schema position of additionalItems holds an $id
 // or an anchor, through it, so such an additionalItems is walked live
-// whole (minor review findings: the walk's rules refused content there, 07
-// req 76). The rules apply at live positions only, where the compile also
+// whole. The rules apply at live positions only, where the compile also
 // checks against the meta-schema what no check of the library covers
-// (uncheckedPositions, review finding); $schema is checked everywhere, and
-// a reference wherever the library compiles it (walker.compiled).
+// (uncheckedPositions); $schema is checked everywhere, and a reference
+// wherever the library compiles it (walker.compiled).
 func (w *walker) schema(v any, ptr, res, base string, inert bool) {
 	was := w.seen[ptr]
 	if was == walkedLive || (was == walkedInert && inert) || len(w.positions) > MaxSubschemas {
@@ -359,8 +358,7 @@ func (w *walker) schema(v any, ptr, res, base string, inert bool) {
 // a reference to an anchor or a resource, the root of a resource it
 // compiles a subschema of, and every $dynamicAnchor of a resource it
 // compiles. As the library collects identifiers, only schema positions
-// count, not a property name or a const, enum or examples value (minor
-// review finding).
+// count, not a property name or a const, enum or examples value.
 func identifies(v any) bool {
 	obj, ok := v.(map[string]any)
 	if !ok {

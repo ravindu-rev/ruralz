@@ -20,7 +20,7 @@ import (
 	"github.com/ravindu-rev/ruralz/internal/telemetry/catalog"
 )
 
-// Collection timing (spec 09 req 51).
+// Collection timing.
 const (
 	// ReuseWindow is how long one collection is shared by the readers that
 	// arrive after it (1 s, target).
@@ -37,7 +37,7 @@ const (
 // Producer exports the registry as metricdata (sdkmetric.Producer). It is
 // registered on the OTLP PeriodicReader (sdkmetric.WithProducer) and on
 // the Prometheus exporter (prometheus.WithProducer), so each operation
-// aggregates once and feeds both (OQ-observability-16 (a)).
+// aggregates once and feeds both.
 //
 // At most one collection is in flight; readers arriving meanwhile wait for
 // it, and a result is reused for up to ReuseWindow. Results are pooled: a
@@ -200,8 +200,8 @@ type famSnap struct {
 // snapshot copies, under the registry mutex, what the collection reads.
 // The retiring flags are taken at the same instant as the group lists, so
 // ruralz_telemetry_series{state="retiring"} counts one consistent state
-// that the retiring ceiling held (spec 09 req 56), however lifecycle calls
-// interleave with the rest of the collection.
+// that the retiring ceiling held, however lifecycle calls interleave with
+// the rest of the collection.
 func (r *Registry) snapshot() ([]famSnap, map[funcKey]func() int64, [2]revisionInfo) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -419,8 +419,8 @@ func (r *Registry) histPoint(c *collection, g *group, i int, now time.Time) metr
 }
 
 // collectComputed fills the families computed at collection: runtime
-// metrics read from runtime/metrics (spec 09 req 46) and the folded label
-// set counts per foldable family (req 56).
+// metrics read from runtime/metrics and the folded label set counts per
+// foldable family.
 func (r *Registry) collectComputed(f *family, fd *famData, snaps []famSnap, now time.Time, sc *seriesCount) {
 	switch f.cat.Name {
 	case catalog.RuntimeGoroutines, catalog.RuntimeHeapBytes, catalog.RuntimeGCCyclesTotal:

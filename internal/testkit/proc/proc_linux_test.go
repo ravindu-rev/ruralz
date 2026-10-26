@@ -16,7 +16,7 @@ import (
 // exits while locked to its OS thread, so the runtime ends that thread.
 // Pdeathsig follows the forking thread, so a child forked on it would get
 // SIGKILL; Start forks from the Process's own goroutine instead.
-func TestStartSurvivesLockedThreadExit(t *testing.T) { // review finding: Pdeathsig follows the forking thread
+func TestStartSurvivesLockedThreadExit(t *testing.T) { // Pdeathsig follows the forking thread
 	type started struct {
 		p   *Process
 		err error

@@ -14,9 +14,8 @@ import (
 	"github.com/ravindu-rev/ruralz/pkg/config/v1alpha1"
 )
 
-// Tests for architecture section 2.5 (WP-01): At over keyed, indexed and
-// set-item paths of every diag.Item form (R-4, spec 01 req 48), Clone
-// independence, JSONValue of every kind and FileTable.Location.
+// Tests for At over keyed, indexed and set-item paths of every diag.Item
+// form, Clone independence, JSONValue of every kind and FileTable.Location.
 
 func str(s string) *Node         { return &Node{Kind: KindString, Text: s} }
 func num(k Kind, s string) *Node { return &Node{Kind: k, Text: s} }

@@ -16,8 +16,8 @@ import (
 )
 
 // Provider declares the Ruralz object types to cel-go and adapts Go values
-// to CEL values (03 req 17). It implements types.Provider and types.Adapter
-// and delegates every other type to a cel-go registry, so the standard and
+// to CEL values. It implements types.Provider and types.Adapter and
+// delegates every other type to a cel-go registry, so the standard and
 // well-known protobuf types keep working. Pass it to both
 // cel.CustomTypeProvider and cel.CustomTypeAdapter. It is immutable and safe
 // for concurrent use.

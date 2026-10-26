@@ -10,10 +10,10 @@ import (
 	"testing"
 )
 
-// Benchmarks. WP-02 "Done when" requires 0 allocations per scanned token:
-// the Scan benchmarks report allocs/op, which must read 0, and tokens/op.
-// The Decode and Append benchmarks feed the 07 req 84 and 89 budgets
-// (validation.json-schema and transform.response on 1 KiB).
+// Benchmarks. Scanning must allocate nothing per token: the Scan
+// benchmarks report allocs/op, which must read 0, and tokens/op. The
+// Decode and Append benchmarks feed the per-stage latency budgets of
+// validation.json-schema and transform.response on 1 KiB.
 
 // readOrdersFile reads the 1 KiB orders document.
 func readOrdersFile() ([]byte, error) { return os.ReadFile("testdata/orders.json") }

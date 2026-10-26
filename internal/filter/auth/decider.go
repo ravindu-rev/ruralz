@@ -15,11 +15,10 @@ import (
 )
 
 // Decider records the decisions of one auth- or authz-class Policy and
-// builds its answers (spec 06 requirements 3, 7, 8 and 10). Build one per
-// Filter at compile time; it is immutable and safe for concurrent use.
-// Statuses come from the errcode registry, resolved once here, never from
-// literals, so a registry amendment (such as OQ-security-and-identity-9)
-// needs no Filter change.
+// builds its answers. Build one per Filter at compile time; it is
+// immutable and safe for concurrent use. Statuses come from the errcode
+// registry, resolved once here, never from literals, so a registry
+// amendment (such) needs no Filter change.
 type Decider struct {
 	decisions emit.AuthDecisions
 	challenge string
@@ -99,7 +98,7 @@ func (d *Decider) Deny(x filter.Exchange, code string) filter.Result {
 }
 
 // Throttle counts a deny and returns 429 RZ-AUTH-007 with Retry-After in
-// whole seconds, rounded up and at least 1 (spec 06 requirement 8).
+// whole seconds, rounded up and at least 1.
 func (d *Decider) Throttle(x filter.Exchange, retryAfter time.Duration) filter.Result {
 	d.decisions.Deny(x.Stripe(), CodeThrottled)
 	return filter.Deny(d.Status(CodeThrottled), CodeThrottled, http.Header{headerRetryAfter: {RetryAfter(retryAfter)}})
@@ -119,11 +118,11 @@ func RetryAfter(delay time.Duration) string {
 }
 
 // Authenticated records a successful authentication: it sets the request
-// identity and returns Continue with an allow counted. Security rule 2
-// (spec 06 requirement 3): when an earlier auth-class Policy already
-// authenticated the request, SetIdentity refuses and the request fails with
-// 401 RZ-AUTH-002, whether or not either bound a Consumer. On a leg view,
-// where no identity can be set, the Policy cannot decide.
+// identity and returns Continue with an allow counted. Security rule 2:
+// when an earlier auth-class Policy already authenticated the request,
+// SetIdentity refuses and the request fails with 401 RZ-AUTH-002, whether
+// or not either bound a Consumer. On a leg view, where no identity can be
+// set, the Policy cannot decide.
 func (d *Decider) Authenticated(x filter.Exchange, id *filter.Identity) filter.Result {
 	err := x.SetIdentity(id)
 	switch {
@@ -146,11 +145,11 @@ func (d *Decider) Authenticated(x filter.Exchange, id *filter.Identity) filter.R
 // executor applies the closed failure itself: it maps the SPI sentinels
 // (filter.ErrBudget, filter.ErrTooLarge), counts
 // ruralz_filter_failures_total and lists the Policy in the access log's
-// failure_modes (spec 04 requirements 43 and 44). The executor therefore
-// supplies the WWW-Authenticate of the closed failure's 401 (spec 06
-// requirement 8): for an auth-class Policy in a request Phase it adds the
-// Policy's Challenger.Challenge(), which a Filter embedding this Decider
-// provides, as it does for the 401 RZ-AUTH-001 of Security rule 1.
+// failure_modes. The executor therefore supplies the WWW-Authenticate of
+// the closed failure's 401: for an auth-class Policy in a request Phase
+// it adds the Policy's Challenger.Challenge(), which a Filter embedding
+// this Decider provides, as it does for the 401 RZ-AUTH-001 of Security
+// rule 1.
 func (d *Decider) Undecided(x filter.Exchange, code string, err error) filter.Result {
 	if code == "" {
 		code = d.undecided

@@ -18,13 +18,13 @@ const (
 	maxDepth   = 1<<16 - 1
 )
 
-// GatewayTimer measures gateway-added time (spec 09 req 53 and 54): wall
-// clock time minus the union of excluded sections (client reads and
-// writes, upstream I/O, State Store round trips, declared remote calls).
-// One word packs the excluded depth and the start of the current excluded
-// run and is updated by compare and swap, so sections nest and parallel
-// legs overlap safely; the zero value is ready after Reset. It implements
-// Excluder and is meant to live in a pooled per-request structure.
+// GatewayTimer measures gateway-added time: wall clock time minus the
+// union of excluded sections (client reads and writes, upstream I/O,
+// State Store round trips, declared remote calls). One word packs the
+// excluded depth and the start of the current excluded run and is updated
+// by compare and swap, so sections nest and parallel legs overlap safely;
+// the zero value is ready after Reset. It implements Excluder and is
+// meant to live in a pooled per-request structure.
 //
 // A caller reads the clock before its compare and swap lands, so with
 // parallel legs the swaps can land in another order than the clock

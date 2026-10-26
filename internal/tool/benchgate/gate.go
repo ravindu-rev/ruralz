@@ -18,7 +18,7 @@ type verdict int
 const (
 	// verdictPass: within the threshold and the cap.
 	verdictPass verdict = iota
-	// verdictNew: no base counterpart; reported and passing (11 req 65).
+	// verdictNew: no base counterpart; reported and passing.
 	verdictNew
 	// verdictHeadOnly: no base configured; only the cap was checked.
 	verdictHeadOnly
@@ -31,7 +31,7 @@ const (
 	verdictRegressionCap
 	// verdictRemoved: the base has the benchmark and the head does not; a
 	// removal passes only by changing allocgate.json so that no entry
-	// matches the benchmark any more (11 req 65).
+	// matches the benchmark any more.
 	verdictRemoved
 )
 
@@ -203,7 +203,7 @@ func fmtPairs(r result) string {
 	return fmt.Sprintf("%d/%d", r.slower, r.pairs)
 }
 
-// writeTable prints the per-benchmark table (11 req 64).
+// writeTable prints the per-benchmark table.
 func writeTable(w io.Writer, rs []result) error {
 	tw := tabwriter.NewWriter(w, 0, 4, 2, ' ', 0)
 	_, _ = fmt.Fprintln(tw, "package\tbenchmark\tbase allocs/op\thead allocs/op\tdelta\tbase B/op\thead B/op\tslower pairs\tcap\tresult")

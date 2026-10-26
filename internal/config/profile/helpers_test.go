@@ -187,7 +187,7 @@ func itoa(i int) string { return strconv.Itoa(i) }
 
 // peakHeap runs f and returns the largest growth of live heap objects and
 // goroutine stacks over their size before f, sampling
-// /memory/classes/heap/objects:bytes (the measure of 11 req 17) and
+// /memory/classes/heap/objects:bytes (the measure) and
 // /memory/classes/heap/stacks:bytes every millisecond: a parser that
 // recurses once per token spends its memory on the stack, not in heap
 // objects.

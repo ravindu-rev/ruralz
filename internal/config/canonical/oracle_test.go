@@ -21,10 +21,9 @@ import (
 )
 
 // Differential tests against the standard library's RFC 8785
-// implementation, jsontext.Value.Canonicalize (02 test plans 5 and 34).
-// Production code cannot import jsontext under go 1.26.0 (architecture
-// convention 1, R-21, R-30), so it serves only as this go1.27 oracle; the
-// Go 1.26 floor job skips the file.
+// implementation, jsontext.Value.Canonicalize. Production code cannot
+// import jsontext under go 1.26.0, so it serves only as this go1.27
+// oracle; the Go 1.26 floor job skips the file.
 
 // oracle canonicalizes data with jsontext.
 func oracle(data []byte) ([]byte, error) {
@@ -57,7 +56,7 @@ func TestOracleGolden(t *testing.T) {
 
 // randomValue writes a random JSON value without null and without
 // integer literals beyond 2^53, which jsontext and RFC 8785 round alike
-// but which authored configuration refuses (02 req 16).
+// but which authored configuration refuses.
 func randomValue(b *strings.Builder, r *rand.Rand, depth int) {
 	switch k := r.IntN(8); {
 	case depth > 4 || k < 2:
@@ -148,8 +147,8 @@ func randomString(r *rand.Rand) string {
 	return b.String()
 }
 
-// TestOracleRandom: AppendNode equals jsontext on 10,000 generated values
-// (02 test plan 5).
+// TestOracleRandom: AppendNode equals jsontext on 10,000 generated
+// values.
 func TestOracleRandom(t *testing.T) {
 	r := rand.New(rand.NewPCG(39, 8785)) //nolint:gosec // G404: deterministic test data
 	compared := 0
@@ -195,8 +194,8 @@ func compareOracle(t *testing.T, data []byte) bool {
 	return true
 }
 
-// FuzzJCSDifferential compares AppendNode with jsontext on arbitrary JSON
-// (02 test plan 34).
+// FuzzJCSDifferential compares AppendNode with jsontext on arbitrary
+// JSON.
 func FuzzJCSDifferential(f *testing.F) {
 	addGolden(f, false)
 	for _, s := range []string{`{"b":[1.0,1e21,5e-324],"a":"< >"}`, `[123456789012345678901,-0,1E-7]`, `"😀é"`} {

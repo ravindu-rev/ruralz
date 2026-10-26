@@ -17,10 +17,9 @@ import (
 	"time"
 )
 
-// Tests for 11 req 77 (result record: Identity, Environment, Load,
-// Latency, Resources, Validity and budgets; format ruralz.bench.v1) and the
-// schema check the harness dry run relies on (WP-81 "validates records
-// against the schema").
+// Tests for the result record (Identity, Environment, Load, Latency,
+// Resources, Validity and budgets; format ruralz.bench.v1) and the schema
+// check the harness dry run relies on to validate records.
 
 func validMacro() *Record {
 	return &Record{
@@ -71,7 +70,7 @@ func validComponent() *Record {
 	}
 }
 
-func TestWriteDecodeRoundTrip(t *testing.T) { // 11 req 77
+func TestWriteDecodeRoundTrip(t *testing.T) {
 	for name, rec := range map[string]*Record{"macro": validMacro(), "component": validComponent()} {
 		t.Run(name, func(t *testing.T) {
 			var buf bytes.Buffer
@@ -129,7 +128,7 @@ func TestWriteMaterializesEmptyCollections(t *testing.T) {
 	}
 }
 
-func TestValidateViolations(t *testing.T) { // 11 req 77: schema check
+func TestValidateViolations(t *testing.T) { // Schema check
 	tests := []struct {
 		name   string
 		mutate func(r *Record)
@@ -202,7 +201,7 @@ func TestValidateViolations(t *testing.T) { // 11 req 77: schema check
 	}
 }
 
-func TestDecodeStrict(t *testing.T) { // 11 req 77: schema check on read
+func TestDecodeStrict(t *testing.T) { // Schema check on read
 	var buf bytes.Buffer
 	if err := Write(&buf, validMacro()); err != nil {
 		t.Fatal(err)
@@ -275,7 +274,7 @@ func withNull(t *testing.T, record string, path ...string) string {
 	return string(b)
 }
 
-func TestRelativePathRule(t *testing.T) { // 11 req 77: the schema's relativePath, platform-independent
+func TestRelativePathRule(t *testing.T) { // The schema's relativePath, platform-independent
 	tests := map[string]bool{
 		"cpu.pprof": true, "hist/s2.hlog": true, "./a": true, "a/./b": true, "a..b/c": true, "..a": true, "a/": true,
 		"": false, "/a": false, "..": false, "../a": false, "a/..": false, "a/../b": false, `a\b`: false, `..\a`: false, `C:\a`: false,
@@ -358,7 +357,7 @@ type schemaDoc struct {
 	Defs                 map[string]*schemaDoc `json:"$defs"`
 }
 
-func TestSchemaMatchesRecordType(t *testing.T) { // 11 req 77: record.schema.json and the Go type agree
+func TestSchemaMatchesRecordType(t *testing.T) { // record.schema.json and the Go type agree
 	var root schemaDoc
 	if err := json.Unmarshal(Schema(), &root); err != nil {
 		t.Fatalf("schema is not JSON: %v", err)

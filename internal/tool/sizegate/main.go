@@ -2,8 +2,8 @@
 // SPDX-License-Identifier: Apache-2.0
 
 // Command sizegate is the stage 9 size and idle RSS gate
-// (docs/architecture/12-performance-budgets-and-benchmarking.md, "Memory
-// budget" and "Regression policy and gates"; 11 req 68):
+// (docs/architecture/12-performance-budgets-and-benchmarking.md,
+// "Memory budget" and "Regression policy and gates"):
 //
 //	sizegate -binary PATH [-binary PATH ...] [-max-size 167772160]
 //	         [-idle-rss [-rss-binary PATH] [-max-rss 93323264] [-settle 120s]
@@ -16,15 +16,15 @@
 // telemetry defaults, RURALZ_CONFIG naming an empty directory (no Revision)
 // and no connections, samples VmRSS from /proc/<pid>/status every -interval
 // over the last -window of the -settle period, and fails when the maximum
-// exceeds -max-rss (89 MiB). The M0 ruralzd stub, which exits 2 at once
-// with exactly "Ruralz Gateway is not implemented yet; it is Planned (M1)",
-// is skipped with a line until WP-76 wires the data plane; -annotate (set by
+// exceeds -max-rss (89 MiB). The M0 ruralzd stub, which exits 2 at once with
+// exactly "Ruralz Gateway is not implemented yet; it is Planned (M1)", is
+// skipped with a line until the data plane is wired; -annotate (set by
 // the Makefile under GitHub Actions) also prints the skip as a ::warning
 // workflow command. Both values go to the report and to -summary
 // ($GITHUB_STEP_SUMMARY); after a tool error -summary still gets the sizes
 // measured so far and a Tool error row. -override (a perf-override label
-// applied by a maintainer, 11 req 66) reports failures and passes. Exit
-// status: 0 pass, 1 gate failure, 2 tool error.
+// applied by a maintainer) reports failures and passes. Exit status: 0 pass,
+// 1 gate failure, 2 tool error.
 package main
 
 import (
@@ -100,7 +100,7 @@ func run(ctx context.Context, clk clock.Clock, args []string, stdout, stderr io.
 	failed := false
 	var sizes []sizeResult
 	// toolError reports a tool error once measurement started; the summary
-	// still gets the sizes measured so far (11 req 68).
+	// still gets the sizes measured so far.
 	toolError := func(msg string) int {
 		_, _ = fmt.Fprintln(stderr, "sizegate:", msg)
 		if *summary != "" {
@@ -194,8 +194,8 @@ func orUnknown(s string) string {
 	return s
 }
 
-// appendSummary appends both values to the job summary (11 req 68), and a
-// Tool error row when toolErr is not empty.
+// appendSummary appends both values to the job summary, and a Tool error
+// row when toolErr is not empty.
 func appendSummary(path string, sizes []sizeResult, rss *rssResult, overridden bool, toolErr string) error {
 	var b strings.Builder
 	b.WriteString("### Size and idle RSS gate\n\n| Check | Binary | Value | Limit | Result |\n|---|---|---|---|---|\n")
@@ -216,7 +216,7 @@ func appendSummary(path string, sizes []sizeResult, rss *rssResult, overridden b
 		fmt.Fprintf(&b, "| Tool error | | %s | | error |\n", cell)
 	}
 	if overridden {
-		b.WriteString("\nFailures accepted: the perf-override label was applied by a maintainer (11 req 66).\n")
+		b.WriteString("\nFailures accepted: the perf-override label was applied by a maintainer.\n")
 	}
 	b.WriteString("\n")
 	f, err := os.OpenFile(path, os.O_WRONLY|os.O_APPEND|os.O_CREATE, 0o600) //nolint:gosec // The summary path is a command-line argument ($GITHUB_STEP_SUMMARY).

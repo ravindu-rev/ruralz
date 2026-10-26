@@ -49,7 +49,7 @@ func quote(s string) string {
 	return b.String()
 }
 
-// TestScan covers the grammar of 01 req 26.
+// TestScan covers the grammar.
 func TestScan(t *testing.T) {
 	cases := []struct {
 		in   string
@@ -108,7 +108,7 @@ func TestScan(t *testing.T) {
 	}
 }
 
-// TestSubstitute covers 01 req 26 and 27: escapes, defaults with :-
+// TestSubstitute covers the substitution grammar: escapes, defaults with :-
 // treating empty as unset, plain ${NAME} with an empty value, values
 // inserted literally (never re-scanned, never structure), RZ-CFG-010 per
 // occurrence with an Environment hint, and RZ-CFG-005 for malformed text.
@@ -154,8 +154,8 @@ func TestSubstitute(t *testing.T) {
 }
 
 // TestDiagnosticText pins the wording, position and hint of RZ-CFG-005,
-// -010 and -011 (01 req 27: the hint names the nearest spec.variables key
-// for an Environment source and nothing for the process environment).
+// -010 and -011 (the hint names the nearest spec.variables key for an
+// Environment source and nothing for the process environment).
 func TestDiagnosticText(t *testing.T) {
 	src := `{"apiVersion":"ruralz/v1alpha1","kind":"Route","metadata":{"name":"r"},
 "spec":{"match":{"path":{"prefix":"${HTTPS_PROT}"},"when":"${X}"},
@@ -179,7 +179,7 @@ func TestDiagnosticText(t *testing.T) {
 // TestPathsUseAuthoredKeys pins the path convention of Substituter.Apply:
 // list entries are named by their authored key or element values, never
 // by substituted text, so no stage E diagnostic reveals a variable's
-// value (01 req 27 and 30); the tree holds the substituted values.
+// value; the tree holds the substituted values.
 func TestPathsUseAuthoredKeys(t *testing.T) {
 	src := `{"apiVersion":"ruralz/v1alpha1","kind":"Gateway","metadata":{"name":"g"},"spec":{
 "listeners":[{"name":"${N}","protocol":"http","port":"${U}"},{"name":"${MY_TOKEN}","protocol":"http","port":1}],
@@ -203,9 +203,9 @@ func TestPathsUseAuthoredKeys(t *testing.T) {
 	}
 }
 
-// TestRetype covers 01 req 29: a scalar that is exactly one expression
-// takes the rendered view's type at its path; partial substitution and
-// text that does not fit stay strings.
+// TestRetype checks that a scalar that is exactly one expression takes the
+// rendered view's type at its path, and that partial substitution and text
+// that does not fit stay strings.
 func TestRetype(t *testing.T) {
 	gw := func(path, member, text string) string {
 		inner := `"` + member + `":` + quote(text)
@@ -301,10 +301,10 @@ func TestRetype(t *testing.T) {
 	}
 }
 
-// TestForbiddenPositions covers 01 req 28: keys, apiVersion, kind,
-// metadata.name, x-ruralz-ref, the x-ruralz-secret subtree and
-// x-ruralz-cel positions report RZ-CFG-011 only (never -010 or -013), and
-// $${ is still unescaped there.
+// TestForbiddenPositions checks that keys, apiVersion, kind, metadata.name,
+// x-ruralz-ref, the x-ruralz-secret subtree and x-ruralz-cel positions
+// report RZ-CFG-011 only (never -010 or -013), and that $${ is still
+// unescaped there.
 func TestForbiddenPositions(t *testing.T) {
 	cases := []struct {
 		name, src, path string
@@ -402,11 +402,10 @@ func TestForbiddenPositions(t *testing.T) {
 	}
 }
 
-// TestCredentialWarnings covers RZ-CFG-013 (01 req 30 and the 01 J row
-// for 013, owned by this stage per architecture 3.1): each use of a
-// secret-like variable name, and each credential-shaped literal outside
-// an x-ruralz-secret subtree, CEL strings included, warns without the
-// value; a headers set[] value for a credential header warns too.
+// TestCredentialWarnings covers RZ-CFG-013, which this stage owns: each use
+// of a secret-like variable name, and each credential-shaped literal
+// outside an x-ruralz-secret subtree, CEL strings included, warns without
+// the value; a headers set[] value for a credential header warns too.
 func TestCredentialWarnings(t *testing.T) {
 	jwt := "eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0.dozjgNryP4J3jVmNHl0w5N_XgL0n3I9PlFUP0THsR8U"
 	ghp := "ghp_" + strings.Repeat("A1", 18)
@@ -529,7 +528,7 @@ func TestCredentialWarnings(t *testing.T) {
 	}
 }
 
-// TestEscape covers 01 req 31: Escape writes every literal ${ as $${ and
+// TestEscape checks that Escape writes every literal ${ as $${ and that
 // substituting the escaped text gives the literal back.
 func TestEscape(t *testing.T) {
 	for _, s := range []string{"", "plain", "${A}", "$${A}", "$$${", "a${b}${", "${A:-${B}}", "$", "{$", "$${"} {
@@ -552,8 +551,8 @@ func TestEscape(t *testing.T) {
 	}
 }
 
-// TestEnviron covers the os.Environ snapshot Source (01 req 55: the
-// package never reads the process environment itself).
+// TestEnviron covers the os.Environ snapshot Source (the package never
+// reads the process environment itself).
 func TestEnviron(t *testing.T) {
 	m := Environ([]string{"A=1", "B=x=y", "A=2", "=C:=C:\\", "NOEQ", "EMPTY="})
 	want := Map{"A": "1", "B": "x=y", "EMPTY": ""}

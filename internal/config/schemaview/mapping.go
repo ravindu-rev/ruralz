@@ -30,7 +30,7 @@ const maxQuoted = 64
 
 // syntaxText is the message of a scalar definition that has a documented
 // syntax: every failure at the definition uses the syntax text instead of
-// the keyword (01 req 33: Duration and ByteSize, docs/architecture/
+// the keyword (Duration and ByteSize, docs/architecture/
 // 02-configuration-model.md "Schema keywords that drive tooling").
 func syntaxText(def string) (string, bool) {
 	switch def {
@@ -48,7 +48,7 @@ func syntaxText(def string) (string, bool) {
 // fieldSyntax returns the syntax text of a string field whose pattern and
 // length limits stand for a documented format, selected by schema location
 // (definition and property), never by the regular expression: the text
-// describes the format, the regex would not (CR 145).
+// describes the format, the regex would not.
 func fieldSyntax(l location, k jsonschema.ErrorKind) (string, bool) {
 	switch k.(type) {
 	case *kind.Pattern, *kind.MinLength, *kind.MaxLength:
@@ -76,11 +76,11 @@ func fieldSyntax(l location, k jsonschema.ErrorKind) (string, bool) {
 	return "", false
 }
 
-// MaxDiagnostics bounds the diagnostics Validate returns for one
-// resource: the 01 req 50 cap of one run. A resource with more findings
-// returns the first MaxDiagnostics in sorted order, whatever order the
-// validator reported its errors in, and a run that reaches the cap stops
-// and appends RZ-CFG-001 "too many diagnostics" (the pipeline's job).
+// MaxDiagnostics bounds the diagnostics Validate returns for one resource:
+// the diagnostics cap of one run. A resource with more findings returns the
+// first MaxDiagnostics in sorted order, whatever order the validator
+// reported its errors in, and a run that reaches the cap stops and appends
+// RZ-CFG-001 "too many diagnostics" (the pipeline's job).
 const MaxDiagnostics = 10000
 
 // mapper turns one resource's validation errors into diagnostics.
@@ -128,7 +128,7 @@ type dedupeKey struct {
 }
 
 // nearest is a deferred "did you mean" hint: the declared name nearest to
-// name among the allowed ones (01 req 33).
+// name among the allowed ones.
 type nearest struct {
 	name    string
 	allowed []string
@@ -337,7 +337,7 @@ func (m *mapper) visit(e *jsonschema.ValidationError) {
 // Branches that only require a member are the generator's atLeastOneOf
 // and exactlyOneOf; otherwise the reported cause is the first branch that
 // admits the instance's JSON type, and when none does, the allowed types
-// are named (01 req 33).
+// are named.
 func (m *mapper) alternatives(e *jsonschema.ValidationError, p position, keyword string) {
 	obj := m.v.at(e.SchemaURL)
 	branches, _ := obj[keyword].([]any)
@@ -378,9 +378,8 @@ func (m *mapper) oneOfMany(e *jsonschema.ValidationError, p position) {
 
 // not words a failed not. The generator's atMostOneOf is not with one
 // required-only schema for two fields, and not with an anyOf of
-// required-only pairs for three or more
-// (internal/tool/schemagen fieldCombination); both name every field in
-// schema order (01 req 33).
+// required-only pairs for three or more (internal/tool/schemagen
+// fieldCombination); both name every field in schema order.
 func (m *mapper) not(e *jsonschema.ValidationError, p position) {
 	obj := m.v.at(e.SchemaURL)
 	if names, ok := atMostOneOf(obj["not"]); ok {
@@ -538,7 +537,7 @@ func (m *mapper) leafMessage(e *jsonschema.ValidationError, p position) (msg, hi
 
 // typeText words a type failure, naming every allowed type in schema
 // order. A plain scalar such as 0777 or true is typed before the schema is
-// known, so a non-string at a string position hints quoting (01 risk 5).
+// known, so a non-string at a string position hints quoting.
 func typeText(p position, want []string) (msg, hint string) {
 	got := typeName(p.node)
 	msg = "must be " + joinTypes(want)
@@ -585,7 +584,7 @@ func enumText(k *kind.Enum) (msg, hint string) {
 // secret records an error inside an x-ruralz-secret subtree. The finding
 // is reported once per secret field, at the field, with reasons worded
 // from the schema alone: never the value, and never an authored member
-// name, which could itself be the secret (01 req 33, RZ-CFG-012).
+// name, which could itself be the secret (RZ-CFG-012).
 func (m *mapper) secret(p position, e *jsonschema.ValidationError) {
 	key := p.secret.path.textOf()
 	f, ok := m.secrets[key]
@@ -731,7 +730,7 @@ func article(t string) string {
 }
 
 // joinTypes names every allowed type in schema order: "an object or a
-// boolean" (CR 145).
+// boolean".
 func joinTypes(types []string) string {
 	words := make([]string, len(types))
 	for i, t := range types {

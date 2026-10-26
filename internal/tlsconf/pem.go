@@ -16,11 +16,10 @@ import (
 	"strings"
 )
 
-// minRSABits is the smallest accepted RSA modulus (spec 06 requirement 75).
+// minRSABits is the smallest accepted RSA modulus.
 const minRSABits = 2048
 
-// Fixed parse errors: none repeats secret content (spec 06 requirements 89
-// and 91).
+// Fixed parse errors: none repeats secret content.
 var (
 	// ErrNoCertificate reports a certificate value without a parsable PEM
 	// CERTIFICATE block.
@@ -77,7 +76,7 @@ func hasCertificate(b []byte) bool {
 }
 
 // checkKey accepts ECDSA P-256 and P-384, RSA of at least 2048 bits and
-// Ed25519 public keys (spec 06 requirement 75).
+// Ed25519 public keys.
 func checkKey(pub any) error {
 	switch k := pub.(type) {
 	case *ecdsa.PublicKey:

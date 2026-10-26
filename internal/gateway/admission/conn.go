@@ -10,13 +10,13 @@ import (
 	"sync/atomic"
 )
 
-// ConnLimiter is a connection ceiling shared by every listener it wraps
-// (spec 04 req 11): the Node-wide client ceiling across all client
-// listeners, or the admin listener's own. A wrapped listener takes a slot
-// before calling the inner Accept and the accepted connection returns it on
-// its first Close; at the ceiling the listener stops calling Accept, so
-// nothing is refused and the kernel's accept queue holds new connections
-// until a slot frees. ConnLimiter is safe for concurrent use.
+// ConnLimiter is a connection ceiling shared by every listener it wraps:
+// the Node-wide client ceiling across all client listeners, or the admin
+// listener's own. A wrapped listener takes a slot before calling the inner
+// Accept and the accepted connection returns it on its first Close; at the
+// ceiling the listener stops calling Accept, so nothing is refused and the
+// kernel's accept queue holds new connections until a slot frees.
+// ConnLimiter is safe for concurrent use.
 type ConnLimiter struct {
 	mu sync.Mutex
 	// slots counts the slots held against the ceiling: accepted
@@ -53,9 +53,9 @@ func (c *ConnLimiter) Wrap(ln net.Listener) net.Listener {
 }
 
 // SetExternal lowers the ceiling by n connections, the connections the
-// other process reported during a handover (spec 04 req 67); 0 restores
-// the full ceiling. Open connections are kept: the lowered ceiling applies
-// to new accepts, and a raised one wakes waiting accept loops.
+// other process reported during a handover; 0 restores the full ceiling.
+// Open connections are kept: the lowered ceiling applies to new accepts,
+// and a raised one wakes waiting accept loops.
 func (c *ConnLimiter) SetExternal(n int64) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -64,10 +64,10 @@ func (c *ConnLimiter) SetExternal(n int64) {
 }
 
 // Open returns the accepted connections open now (the handover usage
-// report's connections, spec 04 req 67). It does not count the slot each
-// accept loop holds while it waits in the inner Accept: that slot counts
-// against this ceiling but is no connection, so the other process does not
-// lower its own ceiling for it.
+// report's connections). It does not count the slot each accept loop holds
+// while it waits in the inner Accept: that slot counts against this
+// ceiling but is no connection, so the other process does not lower its
+// own ceiling for it.
 func (c *ConnLimiter) Open() int64 {
 	c.mu.Lock()
 	defer c.mu.Unlock()

@@ -5,9 +5,9 @@ package sfv
 
 import "testing"
 
-// Benchmarks for the per-response RateLimit field build of 05 req 68: the
-// handler appends one member per applied limit into a pooled buffer, with
-// no allocation.
+// Benchmarks for the per-response RateLimit field build: the handler
+// appends one member per applied limit into a pooled buffer, with no
+// allocation.
 
 func BenchmarkAppendRateLimitFields(b *testing.B) {
 	policy := make([]byte, 0, 256)

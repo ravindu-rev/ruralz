@@ -175,8 +175,8 @@ func diagText(t testing.TB, ds diag.List) string {
 	return buf.String()
 }
 
-// table writes rows the way render --effective does (02 req 51):
-// text/tabwriter with minwidth 0, tabwidth 8, padding 2, space padding.
+// table writes rows the way render --effective does: text/tabwriter
+// with minwidth 0, tabwidth 8, padding 2, space padding.
 func table(t testing.TB, rows []Row) string {
 	t.Helper()
 	var buf bytes.Buffer

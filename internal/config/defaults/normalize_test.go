@@ -35,7 +35,7 @@ func policyDoc(typ, config string) string {
 	return `{"apiVersion": "ruralz/v1alpha1", "kind": "Policy", "metadata": {"name": "p"}, "spec": {"type": "` + typ + `", "config": ` + config + `}}`
 }
 
-// TestNormalizeDurations is 02 test plan item 6 (durations): 02 req 15.
+// TestNormalizeDurations covers the normalization of durations.
 func TestNormalizeDurations(t *testing.T) {
 	tests := []struct{ in, want, err string }{
 		{"90s", "1m30s", ""},
@@ -71,8 +71,8 @@ func TestNormalizeDurations(t *testing.T) {
 	}
 }
 
-// TestNormalizeByteSizes is 02 test plan item 6 (byte sizes) with the R-64
-// range check after normalization: 02 req 15 and 16.
+// TestNormalizeByteSizes covers the normalization of byte sizes, with the
+// number range check after normalization.
 func TestNormalizeByteSizes(t *testing.T) {
 	tests := []struct{ in, want, err string }{
 		{`"10Mi"`, "10485760", ""},
@@ -109,8 +109,8 @@ func TestNormalizeByteSizes(t *testing.T) {
 	}
 }
 
-// TestNormalizeDecimalAndIntOrString is 02 test plan item 6 (decimals,
-// IntOrString): 02 req 15.
+// TestNormalizeDecimalAndIntOrString covers the normalization of decimals
+// and IntOrString values.
 func TestNormalizeDecimalAndIntOrString(t *testing.T) {
 	for _, tc := range []struct{ in, want string }{
 		{"3.00", "3"}, {"0.30", "0.3"}, {"007", "7"}, {"0.0", "0"}, {"15.50", "15.5"}, {"0", "0"}, {"10", "10"}, {"1.5x", "1.5x"},
@@ -136,10 +136,10 @@ func TestNormalizeDecimalAndIntOrString(t *testing.T) {
 	}
 }
 
-// TestNormalizeNumbers is 02 test plan item 3 and 01 req 37: integral
-// numbers at integer positions become integer text, numbers elsewhere keep
-// their literal, and every number outside the canonical form's range is
-// RZ-CFG-005 (02 req 16, R-64), free content included.
+// TestNormalizeNumbers checks that integral numbers at integer positions
+// become integer text, numbers elsewhere keep their literal, and every
+// number outside the canonical form's range is RZ-CFG-005, free content
+// included.
 func TestNormalizeNumbers(t *testing.T) {
 	tests := []struct {
 		name, src, path, want, err string
@@ -181,9 +181,10 @@ func TestNormalizeNumbers(t *testing.T) {
 	}
 }
 
-// TestCanonicalExemptFromRange covers R-64: canonical content re-entering
-// through FromResources keeps integer-looking doubles above 2^53, while
-// the same content authored is RZ-CFG-005.
+// TestCanonicalExemptFromRange checks that canonical content re-entering
+// through FromResources is exempt from the number range rule: it keeps
+// integer-looking doubles above 2^53, while the same content authored is
+// RZ-CFG-005.
 func TestCanonicalExemptFromRange(t *testing.T) {
 	src := policyDoc("quota", `{"consumerQuota": "c", "x": 123456789012345680000, "y": 1e+21}`)
 	f := newFixture()
@@ -232,10 +233,9 @@ func TestNormalizeHosts(t *testing.T) {
 	}
 }
 
-// TestNormalizeLists is 02 test plan item 10 at stage G: set lists sorted
-// by RFC 8785 bytes (objects too), map lists sorted by key, orderedMap and
-// atomic lists in authored order, and duplicates normalization reveals
-// reported (02 req 17).
+// TestNormalizeLists covers lists at stage G: set lists sorted by RFC 8785
+// bytes (objects too), map lists sorted by key, orderedMap and atomic lists
+// in authored order, and duplicates normalization reveals reported.
 func TestNormalizeLists(t *testing.T) {
 	tests := []struct {
 		name, src, path, want string
@@ -274,8 +274,8 @@ func TestNormalizeLists(t *testing.T) {
 	}
 }
 
-// TestNormalizeListErrors covers the keyed-list rules of 02 req 17 that
-// stage F normally reports first: a missing key and a duplicate key are
+// TestNormalizeListErrors covers the keyed-list rules that stage F
+// normally reports first: a missing key and a duplicate key are
 // RZ-CFG-005 at the entry.
 func TestNormalizeListErrors(t *testing.T) {
 	_, ds := normalized(t, gateway(`{"listeners": [{"name": "a"}, {"port": 1}, {"name": "a"}], "policies": [{"name": "p"}, {"name": "p"}]}`))
@@ -289,12 +289,11 @@ func TestNormalizeListErrors(t *testing.T) {
 	}
 }
 
-// TestJSONSchemaDocument covers contract change request 144 at stage G:
+// TestJSONSchemaDocument covers the JSONSchemaDocument value at stage G:
 // the inline JSON Schema of a validation.json-schema Policy keeps every
 // list (enum, required, prefixItems) in authored order, has its members
-// sorted generically (02 req 18), its numbers checked, and gets no
-// defaults. A null in it is RZ-CFG-005 like any other (02 req 19,
-// TestNullRejected).
+// sorted generically, its numbers checked, and gets no defaults. A null in
+// it is RZ-CFG-005 like any other (TestNullRejected).
 func TestJSONSchemaDocument(t *testing.T) {
 	src := policyDoc("validation.json-schema", `{"schema": {"type": "object", "required": ["b", "a"],
  "properties": {"b": {"enum": [3, 1, "null", "x"]}, "a": {"type": "integer", "default": 1.0}},
@@ -320,11 +319,11 @@ func TestJSONSchemaDocument(t *testing.T) {
 	}
 }
 
-// TestNullRejected covers 02 req 19: a JSON null never reaches the hub.
-// Stage F admits one only where the schema says nothing (free content),
-// so each case here passes stage F, and Normalize reports RZ-CFG-005 at
-// the null's key-aware path, typed and free content alike; Resource then
-// returns no hub.Resource, so the canonical encoder never sees a null.
+// TestNullRejected checks that a JSON null never reaches the hub. Stage F
+// admits one only where the schema says nothing (free content), so each
+// case here passes stage F, and Normalize reports RZ-CFG-005 at the null's
+// key-aware path, typed and free content alike; Resource then returns no
+// hub.Resource, so the canonical encoder never sees a null.
 func TestNullRejected(t *testing.T) {
 	const msg = ": null is not allowed: the canonical form has no null; remove the "
 	tests := []struct {
@@ -392,9 +391,9 @@ func diagnosticsOK(ds diag.List) bool {
 	return len(ds) > 0 && !slices.ContainsFunc(ds, func(d diag.Diagnostic) bool { return d.Code != CodeSchema })
 }
 
-// TestMemberOrder covers 02 req 18 and 24: object members are sorted by
-// UTF-16 code units, here the RFC 8785 section 3.2.3 example, in free
-// content and in typed objects alike.
+// TestMemberOrder checks that object members are sorted by UTF-16 code
+// units, here the RFC 8785 section 3.2.3 example, in free content and in
+// typed objects alike.
 func TestMemberOrder(t *testing.T) {
 	src := policyDoc("quota", `{"x": {"€": 1, "\r": 2, "\ufb33": 3, "1": 4, "😀": 5, "\u0080": 6, "ö": 7}, "key": "k", "consumerQuota": "c"}`)
 	res, ds := normalized(t, src)
@@ -421,8 +420,8 @@ func TestMemberOrder(t *testing.T) {
 	}
 }
 
-// TestPresence covers 02 req 19: empty objects, lists and strings stay
-// present; nothing is added by Normalize.
+// TestPresence checks that empty objects, lists and strings stay present;
+// nothing is added by Normalize.
 func TestPresence(t *testing.T) {
 	src := gateway(`{"listeners": [], "limits": {}, "trustedProxies": [], "telemetry": {"otlp": {"endpoint": ""}}}`)
 	res, ds := normalized(t, src)
@@ -434,8 +433,8 @@ func TestPresence(t *testing.T) {
 	}
 }
 
-// TestNormalizeIdempotent covers 02 req 20: normalizing a normalized tree
-// is a no-op.
+// TestNormalizeIdempotent checks that normalizing a normalized tree is a
+// no-op.
 func TestNormalizeIdempotent(t *testing.T) {
 	for _, src := range []string{
 		route(`{"timeout": "90s", "match": {"hosts": ["B.example", "a.example"], "methods": ["POST", "GET"]}, "upstreams": [{"name": "b", "weight": 2.0}, {"name": "a"}]}`),
@@ -454,7 +453,7 @@ func TestNormalizeIdempotent(t *testing.T) {
 }
 
 // TestSecretValuesNotShown covers the rule that a message never holds a
-// value below an x-ruralz-secret field (01 req 33, SI Secrets rule 2).
+// value below an x-ruralz-secret field (SI Secrets rule 2).
 func TestSecretValuesNotShown(t *testing.T) {
 	idx := hubIndex(t)
 	st, ok := idx.Def("SecretValue")

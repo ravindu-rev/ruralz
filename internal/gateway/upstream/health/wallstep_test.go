@@ -43,10 +43,10 @@ func wallSteps() []wallStep {
 	}
 }
 
-// TestTrackerWallClockStep covers 05 reqs 18 and 21 across a wall-clock
-// step: an ejection ends after ejectionTime × its count of elapsed time,
-// neither later (a backward step) nor earlier (a forward one), and an
-// attempt without headers stalls 1 s after it started.
+// TestTrackerWallClockStep covers passive ejection and stalls across a
+// wall-clock step: an ejection ends after ejectionTime × its count of
+// elapsed time, neither later (a backward step) nor earlier (a forward
+// one), and an attempt without headers stalls 1 s after it started.
 func TestTrackerWallClockStep(t *testing.T) {
 	const et = 30 * time.Second
 	for _, tc := range wallSteps() {
@@ -103,7 +103,7 @@ func TestTrackerWallClockStep(t *testing.T) {
 	}
 }
 
-// TestProberWallClockStep covers 05 req 20 across a wall-clock step:
+// TestProberWallClockStep covers active probes across a wall-clock step:
 // probes stay interval ±10% apart, neither halting for the step (a
 // backward one) nor bursting (a forward one), and their verdicts land.
 func TestProberWallClockStep(t *testing.T) {

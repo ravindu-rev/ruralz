@@ -7,28 +7,28 @@ import "strconv"
 
 // Protection is the class of a field name the Node manages itself. No
 // headers operation and no transform set or remove entry with target header
-// may name a protected field (RZ-CFG-005, 07 req 22), and the M2 Plugin host
-// refuses writes to them (WASM "Host Function rules", Message writes).
+// may name a protected field (RZ-CFG-005), and the M2 Plugin host refuses
+// writes to them (WASM "Host Function rules", Message writes).
 type Protection uint8
 
-// Protection classes, in the order 07 section 3 lists them.
+// Protection classes.
 const (
-	// Unprotected is every other name, including the forwarding fields
-	// (07 req 34), content-type and set-cookie.
+	// Unprotected is every other name, including the forwarding
+	// fields, content-type and set-cookie.
 	Unprotected Protection = iota
 	// Pseudo is an HTTP/2 or HTTP/3 pseudo-header name (":"-prefixed).
 	Pseudo
-	// HostField is host: the Upstream layer sets Host from the Endpoint
-	// (05 req 29).
+	// HostField is host: the Upstream layer sets Host from the
+	// Endpoint.
 	HostField
 	// HopByHop is one of the fixed hop-by-hop fields (see IsHopByHop).
 	HopByHop
-	// Framing is content-length: framing follows the body (07 req 36).
+	// Framing is content-length: framing follows the body.
 	Framing
-	// ExpectField is expect, dropped toward Upstreams (05 req 28).
+	// ExpectField is expect, dropped toward Upstreams.
 	ExpectField
-	// TraceContext is traceparent or tracestate, injected per attempt
-	// (07 req 35).
+	// TraceContext is traceparent or tracestate, injected per
+	// attempt.
 	TraceContext
 )
 
@@ -78,7 +78,7 @@ func (p Protection) Message(name string) string {
 }
 
 // Protect returns the protection class of a field name, compared without
-// regard to ASCII case (07 req 22). It never allocates.
+// regard to ASCII case. It never allocates.
 func Protect(name string) Protection {
 	if name != "" && name[0] == ':' {
 		return Pseudo
@@ -138,10 +138,9 @@ func Protect(name string) Protection {
 // IsHopByHop reports whether name is one of the fixed hop-by-hop fields,
 // compared without regard to ASCII case: Connection, Keep-Alive,
 // Proxy-Connection, TE, Trailer, Transfer-Encoding, Upgrade,
-// Proxy-Authenticate and Proxy-Authorization (04 req 22, 05 req 28 and 30,
-// 07 req 33; RFC 9110 section 7.6.1). Fields named by a Connection field are
-// hop-by-hop too; see [ConnectionOptions] and [StripHopByHop]. It never
-// allocates.
+// Proxy-Authenticate and Proxy-Authorization (RFC 9110 section 7.6.1).
+// Fields named by a Connection field are hop-by-hop too; see
+// [ConnectionOptions] and [StripHopByHop]. It never allocates.
 func IsHopByHop(name string) bool {
 	return Protect(name) == HopByHop
 }

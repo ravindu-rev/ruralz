@@ -12,11 +12,10 @@ import (
 	"github.com/ravindu-rev/ruralz/pkg/config/v1alpha1"
 )
 
-// Table tests for the static checks of spec 06 requirement 20 (RZ-CFG-035
-// duplicate basic username, certificate subject or uriSan across
-// Consumers; RZ-CFG-036 iterations outside 600,000 to 1,000,000) and the
-// RZ-CFG-005 rule of OQ-security-and-identity-24 (a) (oauthClients need a
-// jwt issuer).
+// Table tests for the static checks (RZ-CFG-035 duplicate basic username,
+// certificate subject or uriSan across Consumers; RZ-CFG-036 iterations
+// outside 600,000 to 1,000,000) and the RZ-CFG-005 rule that
+// oauthClients need a jwt issuer.
 
 // bundleOf wraps Consumers as validated resources whose source start is
 // line = position in the list + 1.
@@ -50,7 +49,7 @@ func findingsOf(l diag.List) []finding {
 	return out
 }
 
-func TestReq20StaticChecks(t *testing.T) {
+func TestStaticChecks(t *testing.T) {
 	tests := []struct {
 		name string
 		cs   []*v1alpha1.Consumer
@@ -124,7 +123,7 @@ func TestReq20StaticChecks(t *testing.T) {
 			want: []finding{{CodeSchema, "Consumer/a", "spec.credentials.oauthClients", 0}},
 		},
 		{
-			name: "jwt entries that bind nothing (req 16)",
+			name: "jwt entries that bind nothing",
 			cs: []*v1alpha1.Consumer{
 				consumer("a", withClaims("https://idp", map[string]string{}), withSubject("https://other", ""),
 					withSubject("https://ok", "s"), withClaims("https://ok2", map[string]string{"env": "prod"})),
@@ -154,7 +153,7 @@ func TestReq20StaticChecks(t *testing.T) {
 	}
 }
 
-func TestReq20JWTBindsNothingMessages(t *testing.T) {
+func TestJWTBindsNothingMessages(t *testing.T) {
 	// The subject wording fits an absent subject and `subject: ""` alike
 	// (the typed view cannot tell them apart); an empty claims map is
 	// named at .claims.
@@ -173,7 +172,7 @@ func TestReq20JWTBindsNothingMessages(t *testing.T) {
 	}
 }
 
-func TestReq20CheckLocations(t *testing.T) {
+func TestCheckLocations(t *testing.T) {
 	b := bundleOf(
 		consumer("a", withBasic("shared", cfgBasicHash, nil)),
 		consumer("b", withBasic("shared", cfgBasicHash, nil)),
@@ -206,7 +205,7 @@ func TestReq20CheckLocations(t *testing.T) {
 	}
 }
 
-func TestReq20CheckIgnoresOtherResources(t *testing.T) {
+func TestCheckIgnoresOtherResources(t *testing.T) {
 	Check(nil, nil, func(diag.Diagnostic) { t.Fatal("nil Bundle produced a finding") })
 	b := hub.NewBundle([]*hub.Resource{
 		{ID: hub.ID{Kind: v1alpha1.KindRoute, Name: "r"}, Object: &v1alpha1.Route{}},

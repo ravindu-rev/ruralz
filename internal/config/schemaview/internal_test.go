@@ -16,8 +16,8 @@ import (
 	"github.com/ravindu-rev/ruralz/internal/config/tree"
 )
 
-// TestFieldSyntax checks the documented-format messages selected by
-// schema location (01 req 33; CR 145), and the typed-map value path.
+// TestFieldSyntax checks the documented-format messages selected by schema
+// location, and the typed-map value path.
 func TestFieldSyntax(t *testing.T) {
 	for _, tc := range []struct {
 		name string
@@ -67,7 +67,7 @@ func TestFieldSyntax(t *testing.T) {
 }
 
 // TestKeywordParse covers the vocabulary parser on shapes the asserted
-// meta-schema rejects first (01 req 32).
+// meta-schema rejects first.
 func TestKeywordParse(t *testing.T) {
 	ok := map[string]any{
 		"x-ruralz-ref":         "Upstream",
@@ -239,7 +239,7 @@ func TestTypeMismatch(t *testing.T) {
 }
 
 // TestAtMostOneOf covers the recognition of the generator's atMostOneOf
-// forms under not (01 req 33).
+// forms under not.
 func TestAtMostOneOf(t *testing.T) {
 	req := func(names ...any) map[string]any { return map[string]any{"required": names} }
 	for _, tc := range []struct {

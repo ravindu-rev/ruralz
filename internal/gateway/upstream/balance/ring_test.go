@@ -27,9 +27,9 @@ func keys(n int) []uint64 {
 	return out
 }
 
-// TestRingStructure covers the ring layout of 05 req 14: 16-byte virtual
-// nodes, min(65,536, v × E) of them, Endpoint i owning max(1, round(v × E ×
-// w_i / Σw)) at positions FNV-1a-64(identity + "#" + j) through splitmix64,
+// TestRingStructure covers the ring layout: 16-byte virtual nodes,
+// min(65,536, v × E) of them, Endpoint i owning max(1, round(v × E × w_i /
+// Σw)) at positions FNV-1a-64(identity + "#" + j) through splitmix64,
 // sorted by position.
 func TestRingStructure(t *testing.T) {
 	if size := unsafe.Sizeof(vnode{}); size != VirtualNodeBytes {
@@ -89,8 +89,8 @@ func TestRingStructure(t *testing.T) {
 	}
 }
 
-// TestRingDeterministicAcrossNodes covers cross-Node consistency (05 req 8
-// and test plan item 11): builds from shuffled inputs are identical.
+// TestRingDeterministicAcrossNodes covers cross-Node consistency: builds
+// from shuffled inputs are identical.
 func TestRingDeterministicAcrossNodes(t *testing.T) {
 	list := eps(50, func(i int) uint32 { return u32(1 + i%7) })
 	a := BuildRing(list, 256)
@@ -105,8 +105,8 @@ func TestRingDeterministicAcrossNodes(t *testing.T) {
 	}
 }
 
-// TestRingLookup covers 05 req 14's lookup: the first position at or after
-// the key, wrapping past the last position.
+// TestRingLookup covers the ring lookup: the first position at or after the
+// key, wrapping past the last position.
 func TestRingLookup(t *testing.T) {
 	p := BuildRing(eps(5, ones), 64)
 	for k, n := range p.ring {
@@ -129,8 +129,8 @@ func TestRingLookup(t *testing.T) {
 	}
 }
 
-// TestRingWalksPastExcluded covers 05 req 14: the lookup walks forward past
-// excluded Endpoints, for at most one full ring, keeping the best grade.
+// TestRingWalksPastExcluded covers the lookup walking forward past excluded
+// Endpoints, for at most one full ring, keeping the best grade.
 func TestRingWalksPastExcluded(t *testing.T) {
 	p := BuildRing(eps(6, ones), 64)
 	for _, key := range keys(500) {
@@ -172,9 +172,9 @@ func movedFraction(a, b *Picker, ks []uint64) (moved float64, toNew map[string]i
 	return float64(n) / float64(len(ks)), toNew
 }
 
-// TestRingStabilityOnAdd covers ring stability under churn (05 test plan
-// item 11): adding one Endpoint moves at most 1/E + ε of the keys, and
-// without the 65,536 cap every moved key moves to the new Endpoint.
+// TestRingStabilityOnAdd covers ring stability under churn: adding one
+// Endpoint moves at most 1/E + ε of the keys, and without the 65,536 cap
+// every moved key moves to the new Endpoint.
 func TestRingStabilityOnAdd(t *testing.T) {
 	ks := keys(100000)
 	tests := []struct {
@@ -221,7 +221,7 @@ func TestRingStabilityOnRemove(t *testing.T) {
 	}
 }
 
-// TestRingWeightShare covers test plan item 11: at v = 1,024 each
+// TestRingWeightShare covers ring weight shares: at v = 1,024 each
 // Endpoint's share of virtual nodes is within 5% of its weight share, and
 // the share of keys it receives within 10% of it (relative, so the lightest
 // Endpoints, at a 5% share, are held to ±0.5 percentage points).

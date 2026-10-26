@@ -16,9 +16,9 @@ import (
 	"github.com/ravindu-rev/ruralz/internal/telemetry/emit"
 )
 
-// TestStateLabels_05Req37 aligns the states with the state label of
+// TestStateLabels aligns the states with the state label of
 // ruralz_upstream_breaker_state_info and the emit indexes.
-func TestStateLabels_05Req37(t *testing.T) {
+func TestStateLabels(t *testing.T) {
 	fam, ok := catalog.Lookup(catalog.UpstreamBreakerStateInfo)
 	if !ok {
 		t.Fatal("catalog has no ruralz_upstream_breaker_state_info")
@@ -39,8 +39,8 @@ func TestStateLabels_05Req37(t *testing.T) {
 	}
 }
 
-// TestTransition_05Req37 lists the edges of Figure 2.
-func TestTransition_05Req37(t *testing.T) {
+// TestTransition lists the edges of Figure 2.
+func TestTransition(t *testing.T) {
 	edges := map[edge]bool{
 		{StateClosed, StateOpen}:     true,
 		{StateOpen, StateHalfOpen}:   true,
@@ -90,10 +90,9 @@ func (f *breakerFixture) legs(t *testing.T, n int, r LegResult) {
 	}
 }
 
-// TestBreakerBothConditions_05Req37 is part of 05 section 6 test 6: the
-// consecutive and the ratio conditions are both required, and below
-// minimumLegs the breaker never opens.
-func TestBreakerBothConditions_05Req37(t *testing.T) {
+// TestBreakerBothConditions: the consecutive and the ratio conditions are
+// both required, and below minimumLegs the breaker never opens.
+func TestBreakerBothConditions(t *testing.T) {
 	t.Run("consecutive without ratio stays closed", func(t *testing.T) {
 		f := newBreakerFixture()
 		f.legs(t, 15, LegSuccess)
@@ -161,10 +160,10 @@ func TestBreakerBothConditions_05Req37(t *testing.T) {
 	})
 }
 
-// TestBreakerOpenAndHalfOpen_05Req37 is part of 05 section 6 test 6: open
+// TestBreakerOpenAndHalfOpen covers the open and half-open states: open
 // jitter, a single half-open probe, three successes close, one failure
 // reopens.
-func TestBreakerOpenAndHalfOpen_05Req37(t *testing.T) {
+func TestBreakerOpenAndHalfOpen(t *testing.T) {
 	f := newBreakerFixture()
 	f.legs(t, 20, LegFailure)
 	opened := f.clk.Now()
@@ -227,8 +226,8 @@ func TestBreakerOpenAndHalfOpen_05Req37(t *testing.T) {
 	}
 }
 
-// TestBreakerOpenJitter_05Req37 keeps the open time within ±20%.
-func TestBreakerOpenJitter_05Req37(t *testing.T) {
+// TestBreakerOpenJitter keeps the open time within ±20%.
+func TestBreakerOpenJitter(t *testing.T) {
 	clk := newClock()
 	cfg := DefaultBreakerConfig()
 	cfg.MinimumLegs, cfg.ConsecutiveFailures = 1, 1
@@ -263,7 +262,7 @@ func TestBreakerOpenJitter_05Req37(t *testing.T) {
 
 // TestBreakerStalePermits: results of legs admitted in an earlier period
 // are ignored.
-func TestBreakerStalePermits_05Req37(t *testing.T) {
+func TestBreakerStalePermits(t *testing.T) {
 	f := newBreakerFixture()
 	old, _ := f.b.Allow(&f.cfg)
 	f.legs(t, 20, LegFailure)
@@ -280,10 +279,9 @@ func TestBreakerStalePermits_05Req37(t *testing.T) {
 	}
 }
 
-// TestBreakerAdmits_05Req11: a leg may start another attempt only while
-// the breaker is closed, or half-open and the leg is the current probe
-// (05 req 11 step e, req 33 condition 3, req 37).
-func TestBreakerAdmits_05Req11(t *testing.T) {
+// TestBreakerAdmits: a leg may start another attempt only while the
+// breaker is closed, or half-open and the leg is the current probe.
+func TestBreakerAdmits(t *testing.T) {
 	f := newBreakerFixture()
 	f.cfg.OpenDuration = 0
 	old, _ := f.b.Allow(&f.cfg)
@@ -316,9 +314,9 @@ func TestBreakerAdmits_05Req11(t *testing.T) {
 	}
 }
 
-// TestBreakerStats_05Req96 reads the fields of the breaker object of
+// TestBreakerStats reads the fields of the breaker object of
 // /debug/upstreams in every state.
-func TestBreakerStats_05Req96(t *testing.T) {
+func TestBreakerStats(t *testing.T) {
 	f := newBreakerFixture()
 	type step struct {
 		name string
@@ -367,11 +365,11 @@ func TestBreakerStats_05Req96(t *testing.T) {
 	}
 }
 
-// TestBreakerProbeLease_05Req37: a probe that outlives its lease (its leg
+// TestBreakerProbeLease: a probe that outlives its lease (its leg
 // deadline plus openDuration) is presumed lost; the next leg takes the
 // probe slot and the lost probe's permit goes stale. Without a lease the
 // slot is held until the probe ends.
-func TestBreakerProbeLease_05Req37(t *testing.T) {
+func TestBreakerProbeLease(t *testing.T) {
 	f := newBreakerFixture()
 	f.legs(t, 20, LegFailure)
 	f.clk.Advance(24 * time.Second)
@@ -407,9 +405,9 @@ func TestBreakerProbeLease_05Req37(t *testing.T) {
 	}
 }
 
-// TestBreakerResult_05Req37: gated legs are not counted; a connect error
+// TestBreakerResult: gated legs are not counted; a connect error
 // counts only while more than 50% of the Endpoints are ejected.
-func TestBreakerResult_05Req37(t *testing.T) {
+func TestBreakerResult(t *testing.T) {
 	tests := []struct {
 		name               string
 		failed             bool
@@ -437,9 +435,9 @@ func TestBreakerResult_05Req37(t *testing.T) {
 	}
 }
 
-// TestBreakerHotReload_05Req2 carries the state across a Hot Reload while
+// TestBreakerHotReload carries the state across a Hot Reload while
 // the new snapshot's thresholds apply to later calls.
-func TestBreakerHotReload_05Req2(t *testing.T) {
+func TestBreakerHotReload(t *testing.T) {
 	f := newBreakerFixture()
 	f.legs(t, 10, LegFailure)
 	f.cfg = BreakerConfig{ConsecutiveFailures: 3, FailureRatio: 0.5, MinimumLegs: 11, HalfOpenSuccesses: 1, OpenDuration: 10 * time.Second}
@@ -456,7 +454,7 @@ func TestBreakerHotReload_05Req2(t *testing.T) {
 
 // TestBreakerConcurrent runs legs from many goroutines under -race: the
 // breaker never admits two probes at once and every transition is an edge
-// of Figure 2 (05 req 37).
+// of Figure 2.
 func TestBreakerConcurrent(t *testing.T) {
 	clk := newClock()
 	cfg := BreakerConfig{ConsecutiveFailures: 2, FailureRatio: 0.1, MinimumLegs: 4, HalfOpenSuccesses: 2}
@@ -503,7 +501,7 @@ func TestBreakerConcurrent(t *testing.T) {
 	}
 }
 
-// FuzzBreakerTransitions is 05 section 6 test 27: under any sequence of
+// FuzzBreakerTransitions checks that under any sequence of
 // legs, results, clock steps and reloads every transition is an edge of
 // Figure 2, at most one probe is in flight, and the state the callback
 // reports is the state the breaker reads.
@@ -584,9 +582,8 @@ func FuzzBreakerTransitions(f *testing.F) {
 	})
 }
 
-// BenchmarkBreakerAccounting is the breaker budget of 05 section 6 test 38
-// (2 µs p50, 8 µs p99 target): one closed-state Allow and Record per leg,
-// from every core.
+// BenchmarkBreakerAccounting measures the breaker budget (2 µs p50, 8 µs
+// p99 target): one closed-state Allow and Record per leg, from every core.
 func BenchmarkBreakerAccounting(b *testing.B) {
 	br := NewBreaker(clock.Real(), nil, nil)
 	cfg := DefaultBreakerConfig()
@@ -600,7 +597,7 @@ func BenchmarkBreakerAccounting(b *testing.B) {
 }
 
 // TestBreakerAccountingAllocs keeps the closed-state accounting free of
-// allocations (05 section 6 test 22).
+// allocations.
 func TestBreakerAccountingAllocs(t *testing.T) {
 	br := NewBreaker(clock.Real(), nil, nil)
 	cfg := DefaultBreakerConfig()

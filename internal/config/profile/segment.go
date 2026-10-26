@@ -36,10 +36,9 @@ func blankOrComment(line string) bool {
 
 // splitDocuments cuts LF-normalized YAML text into documents at its
 // document markers, so each document is tokenized and parsed on its own and
-// peak token memory is one document's (01 req 9; risk 1). goccy's
-// scanner.Scanner returns the whole remaining input from one Scan call, so
-// feeding it one document at a time is what keeps the token pass
-// incremental.
+// peak token memory is one document's. goccy's scanner.Scanner returns the
+// whole remaining input from one Scan call, so feeding it one document at a
+// time is what keeps the token pass incremental.
 //
 // A line that starts with "---" or "..." followed by white space or its
 // end is a document marker wherever it appears: YAML 1.2 forbids such a
@@ -49,10 +48,10 @@ func blankOrComment(line string) bool {
 // scalar: the token pass refuses such a "..." on a line that is no marker
 // ("...x: 1", "...#"), and any token after a "..." but a comment, so every
 // segment it passes holds one document and goccy's markers lie on its own
-// marker lines (01 req 9). A "---" line starts a document; the directives,
-// comments and blank lines that follow a "..." line (or the stream start)
-// belong to the next document; a "..." line ends its document. Segments
-// holding only blank and comment lines are dropped.
+// marker lines. A "---" line starts a document; the directives, comments
+// and blank lines that follow a "..." line (or the stream start) belong to
+// the next document; a "..." line ends its document. Segments holding only
+// blank and comment lines are dropped.
 func splitDocuments(text string) []segment {
 	var segs []segment
 	segStart, segLine := 0, 1
@@ -105,21 +104,21 @@ func splitDocuments(text string) []segment {
 const splitChars = ",[]{}:\"'<#&*!|>%@`"
 
 // estimateTokens returns an upper bound of the number of goccy tokens in a
-// document, from its bytes alone (01 risk 1), so a flood of one-character
-// tokens is refused before any of them is materialized. Every goccy token
-// holds a non-blank character, apart from the content of an empty block
-// scalar and an invalid token for a tab that indents a line, and goccy
-// ends a token inside a run of non-blank characters only next to an
-// indicator. So a run holds one token, plus one for each boundary next to
-// a character of splitChars (two adjacent ones share one), plus one before
-// a trailing '-' or '?' that follows one of them. Each '|' and '>' may add
-// two content tokens of blanks, a "..." that starts a line ends a token
-// without a blank, and a tab indenting a line may add one invalid token
-// (it ends the scan). The bound is exact for flow collections and close
-// for block mappings and sequences; quoted and multi-word scalars, block
-// scalar content and indicators inside scalars are over-counted. When the
-// bound passes limit, estimateTokens returns the byte offset of the
-// character at which it did; otherwise -1.
+// document, from its bytes alone, so a flood of one-character tokens is
+// refused before any of them is materialized. Every goccy token holds a
+// non-blank character, apart from the content of an empty block scalar and
+// an invalid token for a tab that indents a line, and goccy ends a token
+// inside a run of non-blank characters only next to an indicator. So a run
+// holds one token, plus one for each boundary next to a character of
+// splitChars (two adjacent ones share one), plus one before a trailing '-'
+// or '?' that follows one of them. Each '|' and '>' may add two content
+// tokens of blanks, a "..." that starts a line ends a token without a
+// blank, and a tab indenting a line may add one invalid token (it ends the
+// scan). The bound is exact for flow collections and close for block
+// mappings and sequences; quoted and multi-word scalars, block scalar
+// content and indicators inside scalars are over-counted. When the bound
+// passes limit, estimateTokens returns the byte offset of the character at
+// which it did; otherwise -1.
 func estimateTokens(text string, limit int) (n, overAt int) {
 	runStart := -1
 	lineStart, tabbed := true, false

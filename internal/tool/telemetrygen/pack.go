@@ -14,8 +14,8 @@ import (
 // always spans at least four scrapes.
 const rateWindow = "[$__rate_interval]"
 
-// dashboards returns the eight M1 dashboards of OBS "Grafana dashboard
-// pack" (09 req 73), in the table's order.
+// dashboards returns the eight M1 dashboards of OBS
+// "Grafana dashboard pack", in the table's order.
 func dashboards() []dashboardDef {
 	return []dashboardDef{
 		overviewDashboard(),

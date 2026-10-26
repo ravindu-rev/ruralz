@@ -29,7 +29,7 @@ type attachKey struct {
 type selection struct {
 	// missing is set when the Policy, or the Plugin a plugin Policy names,
 	// does not resolve: the attachment is skipped silently (RZ-CFG-009 is
-	// stage H's, 02 req 40).
+	// stage H's).
 	missing bool
 	// scopeErr is the registry's RZ-CFG-020 finding.
 	scopeErr *registry.ScopeError
@@ -186,8 +186,8 @@ func (s *state) selectOne(k attachKey) selection {
 
 // attachList checks one spec.policies list of owner at scope: RZ-CFG-020
 // for a disallowed scope and RZ-CFG-018 for a slot already taken in the
-// list (02 req 35.3 and 35.4). Both drop the entry from the chain, so one
-// mistake yields one finding.
+// list. Both drop the entry from the chain, so one mistake yields one
+// finding.
 func (s *state) attachList(owner *hub.Resource, scope phase.Scope, refs []v1alpha1.PolicyRef) list {
 	l := list{bySlot: make(map[string]int, len(refs)), byName: make(map[string]int, len(refs))}
 	for i, ref := range refs {
@@ -261,7 +261,7 @@ type removal struct {
 	by     string
 }
 
-// route computes the chain of one Route (02 req 35, 39, 41).
+// route computes the chain of one Route.
 func (s *state) route(res *hub.Resource) routeResult {
 	rt, _ := hub.Object[v1alpha1.Route](res)
 	c := &hub.Chain{Route: res.Name}
@@ -345,7 +345,7 @@ func (s *state) notOverridable(res *hub.Resource, at diag.Location, path diag.Pa
 // cacheGuardrail returns RZ-CFG-038 at each cache attachment of a chain
 // that also runs an authz or validation Policy, or a plugin auth or authz
 // Policy, in onRequestBody: a cache hit skips onRequestBody, so it would
-// bypass them (02 req 39, OQ-traffic-management-and-resilience-21 (a)).
+// bypass them (OQ-traffic-management-and-resilience-21 (a)).
 func (s *state) cacheGuardrail(res *hub.Resource, c *hub.Chain, entries []hub.Entry) diag.List {
 	i := slices.IndexFunc(c.Client[phase.OnRequestBody], bypassedByCache)
 	if i < 0 {
@@ -384,7 +384,7 @@ func bypassedByCache(e hub.Entry) bool {
 	}
 }
 
-// legOrder returns the Upstream names of rt in leg order (02 req 41):
+// legOrder returns the Upstream names of rt in leg order:
 // spec.upstreams by name, as stage G's map sorting leaves them, then
 // spec.composition.steps in authored order; each name once.
 func legOrder(rt *v1alpha1.Route) []string {

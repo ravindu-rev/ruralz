@@ -29,8 +29,7 @@ type FlagSpec struct {
 	Default string
 	// Usage is the one-line description.
 	Usage string
-	// When set, the Deprecated text marks the flag deprecated (spec 10
-	// req 9).
+	// When set, the Deprecated text marks the flag deprecated.
 	Deprecated string
 	// Bool marks a flag that takes no value (--flag or --flag=true|false).
 	Bool bool
@@ -44,8 +43,8 @@ type FlagSpec struct {
 }
 
 // Mode is an alternative set of values of an enum flag, active when any of
-// When is set, such as render's --output with --effective (spec 10
-// req 12). The first matching Mode wins.
+// When is set, such as render's --output with --effective. The first
+// matching Mode wins.
 type Mode struct {
 	// When lists flag names; the mode applies when any is set.
 	When []string
@@ -56,8 +55,8 @@ type Mode struct {
 }
 
 // Flags is the flag set of one invocation: one *flag.FlagSet with
-// flag.ContinueOnError and output discarded (spec 10 req 4), plus the
-// specs that help, completion and enum validation read.
+// flag.ContinueOnError and output discarded, plus the specs that
+// help, completion and enum validation read.
 type Flags struct {
 	path     string
 	fs       *flag.FlagSet
@@ -118,14 +117,12 @@ func (f *Flags) EnumMode(name string, when []string, value string, values ...str
 }
 
 // Output binds --output FORMAT, the one helper for the output format of
-// every command (spec 10 reqs 11, 15): value is the default and values
-// the allowed formats.
+// every command: value is the default and values the allowed formats.
 func (f *Flags) Output(p *string, value string, values ...string) {
 	f.Enum(p, "output", value, values, "Output format")
 }
 
-// OutputFile binds --output-file PATH (spec 10 req 17); write the data
-// with WriteData.
+// OutputFile binds --output-file PATH; write the data with WriteData.
 func (f *Flags) OutputFile(p *string, usage string) {
 	f.String(p, "output-file", "PATH", "", usage, CompleteFile)
 }
@@ -137,7 +134,7 @@ func (f *Flags) Bool(p *bool, name, usage string) {
 }
 
 // Duration binds --name DURATION in time.ParseDuration form; the value
-// must be greater than zero (spec 10 reqs 7, 94).
+// must be greater than zero.
 func (f *Flags) Duration(p *time.Duration, name string, value time.Duration, usage string) {
 	*p = value
 	def := ""
@@ -149,7 +146,7 @@ func (f *Flags) Duration(p *time.Duration, name string, value time.Duration, usa
 }
 
 // Deprecate marks the defined flag name as deprecated: using it prints
-// "warning: --<name> is deprecated: <text>" (spec 10 req 9).
+// "warning: --<name> is deprecated: <text>".
 func (f *Flags) Deprecate(name, text string) {
 	i := f.index(name)
 	if i < 0 {
@@ -200,13 +197,13 @@ func (f *Flags) value(name string) (string, bool) {
 	return fl.Value.String(), true
 }
 
-// Parse parses args with interspersed flags (spec 10 req 5) and returns
-// the positionals. Tokens after the first "--" are positionals verbatim;
-// before it, flags may precede, follow or sit between positionals; a
-// lone "-" is a positional; a repeated flag keeps its last value. It
-// returns ErrHelp for -h, -help or --help, and a usage error (exit 2) for
-// an unknown flag, a missing or invalid value and an enum value outside
-// the allowed set. Parse is called once.
+// Parse parses args with interspersed flags and returns the positionals.
+// Tokens after the first "--" are positionals verbatim; before it, flags
+// may precede, follow or sit between positionals; a lone "-" is a
+// positional; a repeated flag keeps its last value. It returns ErrHelp
+// for -h, -help or --help, and a usage error (exit 2) for an unknown
+// flag, a missing or invalid value and an enum value outside the allowed
+// set. Parse is called once.
 func (f *Flags) Parse(args []string) ([]string, error) {
 	if f.parsed {
 		panic("command: Parse called twice")
@@ -246,7 +243,7 @@ func (f *Flags) Parse(args []string) ([]string, error) {
 }
 
 // checkEnums applies the active mode of every enum flag: its default when
-// the flag is not set, else the allowed-values check (spec 10 req 15).
+// the flag is not set, else the allowed-values check.
 func (f *Flags) checkEnums() error {
 	for _, s := range f.Specs() {
 		v := f.enums[s.Name]

@@ -9,8 +9,7 @@ import (
 	"testing"
 )
 
-// Tests for 07 req 21 (field names are RFC 9110 tokens of 1 to 256 bytes)
-// and the T1 name cases of spec 07 section 6.
+// Tests that field names are RFC 9110 tokens of 1 to 256 bytes.
 
 // rfcTchar is tchar spelled out as RFC 9110 section 5.6.2 lists it; the
 // reference the constant bit masks are checked against.
@@ -21,7 +20,7 @@ const rfcTchar = "!#$%&'*+-.^_`|~" +
 
 func refIsTchar(c byte) bool { return strings.IndexByte(rfcTchar, c) >= 0 }
 
-func TestIsTokenCharMatchesRFC9110Req21(t *testing.T) {
+func TestIsTokenCharMatchesRFC9110(t *testing.T) {
 	for c := range 256 {
 		if got, want := IsTokenChar(byte(c)), refIsTchar(byte(c)); got != want {
 			t.Errorf("IsTokenChar(%#02x) = %v, want %v", c, got, want)
@@ -29,7 +28,7 @@ func TestIsTokenCharMatchesRFC9110Req21(t *testing.T) {
 	}
 }
 
-func TestValidNameReq21(t *testing.T) {
+func TestValidName(t *testing.T) {
 	// Every tchar is a valid one-byte name.
 	for i := range len(rfcTchar) {
 		if name := rfcTchar[i : i+1]; !ValidName(name) {
@@ -68,7 +67,7 @@ func TestValidNameReq21(t *testing.T) {
 	}
 }
 
-func TestCheckNameReasonsReq21(t *testing.T) {
+func TestCheckNameReasons(t *testing.T) {
 	tests := []struct {
 		in   string
 		want error

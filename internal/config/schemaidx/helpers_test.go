@@ -19,11 +19,11 @@ import (
 	"github.com/ravindu-rev/ruralz/internal/config/tree"
 )
 
-// renderedEnv names an alternative rendered view for the tests, such as
-// the schema of another commit (RURALZ_TEST_SCHEMAIDX_RENDERED=<file>):
-// the markers every test checks are read from the schema at run time,
-// never from a hard-coded list (R-62), so the suite holds for whichever
-// WP-28 schema is committed.
+// renderedEnv names an alternative rendered view for the tests, such as the
+// schema of another commit (RURALZ_TEST_SCHEMAIDX_RENDERED=<file>): the
+// markers every test checks are read from the schema at run time, never
+// from a hard-coded list, so the suite holds for whichever schema is
+// committed.
 const renderedEnv = "RURALZ_TEST_SCHEMAIDX_RENDERED"
 
 func renderedBytes(t testing.TB) []byte {

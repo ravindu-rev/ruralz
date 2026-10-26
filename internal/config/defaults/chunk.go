@@ -15,8 +15,8 @@ import (
 )
 
 // decodeChunk is the most nodes one encoding/json call decodes where the
-// value can be split, so a worker reads its yield timer between calls
-// (01 req 53): a 12,000-entry list is about fifty calls, not one.
+// value can be split, so a worker reads its yield timer between calls: a
+// 12,000-entry list is about fifty calls, not one.
 const decodeChunk = 256
 
 // chunker decodes a tree into a Go value in pieces of at most limit

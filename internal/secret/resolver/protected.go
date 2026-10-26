@@ -10,11 +10,10 @@ import (
 )
 
 // checkProtected refuses a secret root that is, or contains, a protected
-// path (spec 01 requirement 45, spec 04 requirement 3, spec 06
-// requirement 88). Both sides are compared as cleaned absolute paths and,
-// where they (or a parent) exist, symlink-resolved, so a root reached
-// through a symbolic link, or a protected path reached through one,
-// cannot slip past. The error names every offending setting.
+// path. Both sides are compared as cleaned absolute paths and, where they
+// (or a parent) exist, symlink-resolved, so a root reached through a
+// symbolic link, or a protected path reached through one, cannot slip
+// past. The error names every offending setting.
 func checkProtected(root string, protected []Protected) error {
 	roots := pathForms(root)
 	var bad []string

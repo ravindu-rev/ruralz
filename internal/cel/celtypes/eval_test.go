@@ -19,10 +19,10 @@ import (
 	"github.com/ravindu-rev/ruralz/internal/expr"
 )
 
-// Tests for 03 C requirements 17 to 24 through cel-go: every expr.Vars
-// field is reachable from CEL with its documented type and value, nullable
-// variables are null when absent, header, query and parameter maps behave as
-// specified.
+// Tests for the CEL variables through cel-go: every expr.Vars field is
+// reachable from CEL with its documented type and value, nullable
+// variables are null when absent, header, query and parameter maps behave
+// as specified.
 
 // evalCase is one expression over an activation.
 type evalCase struct {
@@ -74,8 +74,8 @@ func assertVal(t *testing.T, src string, got ref.Val, want any) {
 	}
 }
 
-// TestReq17OutputTypes checks the checker's type of every field selection.
-func TestReq17OutputTypes(t *testing.T) {
+// TestOutputTypes checks the checker's type of every field selection.
+func TestOutputTypes(t *testing.T) {
 	env := testEnv(t)
 	cases := map[string]string{
 		`request`:                  TypeRequest,
@@ -139,8 +139,8 @@ func TestReq17OutputTypes(t *testing.T) {
 	}
 }
 
-// TestReq17EveryField evaluates every field of every view with its value.
-func TestReq17EveryField(t *testing.T) {
+// TestEveryField evaluates every field of every view with its value.
+func TestEveryField(t *testing.T) {
 	runEval(t, []evalCase{
 		{name: "request.method", src: `request.method`, want: "GET"},
 		{name: "request.scheme", src: `request.scheme`, want: "https"},
@@ -193,11 +193,11 @@ func TestReq17EveryField(t *testing.T) {
 	})
 }
 
-// TestReq18Nullability checks that each nullable variable is null when
+// TestNullability checks that each nullable variable is null when
 // absent, that null comparisons type-check and evaluate, that selecting a
 // field of null is a runtime error wrapping ErrNull and has() on it is
 // false.
-func TestReq18Nullability(t *testing.T) {
+func TestNullability(t *testing.T) {
 	absent := func() *expr.Vars { return &expr.Vars{Request: &expr.Request{Method: "GET"}} }
 	var cases []evalCase
 	for _, v := range []struct{ name, field string }{
@@ -240,10 +240,10 @@ func TestReq18Nullability(t *testing.T) {
 	runEval(t, cases)
 }
 
-// TestReq19Headers checks the header maps: lowercased keys, ", " joins,
+// TestHeaders checks the header maps: lowercased keys, ", " joins,
 // case-insensitive lookup, size, in, ascending iteration; Host is hidden in
 // request.headers only.
-func TestReq19Headers(t *testing.T) {
+func TestHeaders(t *testing.T) {
 	withHeaders := func(h http.Header) func() *expr.Vars {
 		return func() *expr.Vars {
 			v := fullVars()
@@ -302,8 +302,8 @@ func TestReq19Headers(t *testing.T) {
 	runEval(t, cases)
 }
 
-// TestReq20Request checks request fields, pathParams and query parsing.
-func TestReq20Request(t *testing.T) {
+// TestRequest checks request fields, pathParams and query parsing.
+func TestRequest(t *testing.T) {
 	withQuery := func(q string, params ...expr.Param) func() *expr.Vars {
 		return func() *expr.Vars {
 			v := fullVars()
@@ -334,8 +334,8 @@ func TestReq20Request(t *testing.T) {
 	})
 }
 
-// TestReq22Source checks source.ip forms, port, tlsVersion and the subject.
-func TestReq22Source(t *testing.T) {
+// TestSource checks source.ip forms, port, tlsVersion and the subject.
+func TestSource(t *testing.T) {
 	withSource := func(s expr.Source) func() *expr.Vars {
 		return func() *expr.Vars {
 			v := fullVars()
@@ -360,9 +360,9 @@ func TestReq22Source(t *testing.T) {
 	})
 }
 
-// TestReq23RouteConsumerAuth checks route, consumer and auth, prepared and
+// TestRouteConsumerAuth checks route, consumer and auth, prepared and
 // not.
-func TestReq23RouteConsumerAuth(t *testing.T) {
+func TestRouteConsumerAuth(t *testing.T) {
 	prepared := func() *expr.Vars {
 		v := fullVars()
 		PrepareRoute(v.Route)
@@ -409,9 +409,9 @@ func TestReq23RouteConsumerAuth(t *testing.T) {
 	runEval(t, cases)
 }
 
-// TestReq24LegVariables checks response, error, upstream, attempt, steps,
+// TestLegVariables checks response, error, upstream, attempt, steps,
 // duration and now.
-func TestReq24LegVariables(t *testing.T) {
+func TestLegVariables(t *testing.T) {
 	noSteps := func() *expr.Vars {
 		v := fullVars()
 		v.Steps = nil
@@ -460,9 +460,9 @@ func TestReq24LegVariables(t *testing.T) {
 	})
 }
 
-// TestReq6Determinism evaluates iteration-dependent expressions many times:
-// every map iterates in ascending key order (03 req 6.3).
-func TestReq6Determinism(t *testing.T) {
+// TestDeterminism evaluates iteration-dependent expressions many times:
+// every map iterates in ascending key order.
+func TestDeterminism(t *testing.T) {
 	env := testEnv(t)
 	vars := fullVars()
 	vars.Request.Header = http.Header{}
@@ -511,7 +511,7 @@ func TestObjectConstructionRejected(t *testing.T) {
 // construction of a Ruralz type as RZ-CFG-014: it names every object type
 // (with or without cel-go's leading dot) and nothing else, and it finds the
 // struct nodes of a checked AST that construct one, as written or fully
-// qualified by the checker (03 req 17, 27).
+// qualified by the checker.
 func TestIsObjectType(t *testing.T) {
 	for k := range numKinds {
 		if name := k.TypeName(); !IsObjectType(name) || !IsObjectType("."+name) {
@@ -577,8 +577,8 @@ func TestEvalWithoutOptimize(t *testing.T) {
 }
 
 // TestTrackedEvaluation evaluates through cel-go's cost tracker and
-// ContextEval with interrupt checks, as tracked programs run (03 req 34,
-// 35): the tracker sizes the views through traits.Sizer.
+// ContextEval with interrupt checks, as tracked programs run: the
+// tracker sizes the views through traits.Sizer.
 func TestTrackedEvaluation(t *testing.T) {
 	env := testEnv(t)
 	src := `request.headers.exists(k, k == "accept") && request.body.items.all(i, i != "z") && ` +

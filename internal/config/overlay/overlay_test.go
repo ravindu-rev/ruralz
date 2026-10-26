@@ -42,11 +42,11 @@ const gateway = `{"apiVersion":"ruralz/v1alpha1","kind":"Gateway","metadata":{"n
 const route = `{"apiVersion":"ruralz/v1alpha1","kind":"Route","metadata":{"name":"r"},
 "spec":{"timeout":"5s","match":{"path":{"prefix":"/a"},"when":"true"},"upstreams":[{"name":"u","weight":1}]}}`
 
-// TestMergeRules covers the merge table of 01 req 25 (CM "Overlays"):
-// objects merge recursively, an overlay scalar or non-keyed list wins, a
-// null removes the member, map lists merge by key and append new entries,
-// orderedMap lists merge in place and reorder with {$patch: replace},
-// set and atomic lists are replaced, and $patch: delete removes an entry.
+// TestMergeRules covers the merge table (CM "Overlays"): objects merge
+// recursively, an overlay scalar or non-keyed list wins, a null removes
+// the member, map lists merge by key and append new entries, orderedMap
+// lists merge in place and reorder with {$patch: replace}, set and atomic
+// lists are replaced, and $patch: delete removes an entry.
 func TestMergeRules(t *testing.T) {
 	cases := []struct {
 		name, base, over, path, want string
@@ -184,11 +184,10 @@ func TestMergeRules(t *testing.T) {
 	}
 }
 
-// TestSchemaDocumentReplacedWhole covers CR 144/161 and 07 req 74: the
-// value of the JSONSchemaDocument definition (validation.json-schema
-// config.schema) is one atomic value: an overlay sharing keys with the
-// base replaces it whole, nothing inside merges, and $patch and null
-// inside it are data.
+// TestSchemaDocumentReplacedWhole checks that the value of the
+// JSONSchemaDocument definition (validation.json-schema config.schema) is
+// one atomic value: an overlay sharing keys with the base replaces it
+// whole, nothing inside merges, and $patch and null inside it are data.
 func TestSchemaDocumentReplacedWhole(t *testing.T) {
 	base := `{"apiVersion":"ruralz/v1alpha1","kind":"Policy","metadata":{"name":"v"},"spec":{"type":"validation.json-schema",
 		"config":{"schema":{"type":"object","properties":{"a":{"type":"string"},"b":{"type":"integer"}},"required":["a","b"],"enum":[1,2]}}}}`
@@ -229,9 +228,9 @@ func TestSchemaDocumentReplacedWhole(t *testing.T) {
 	})
 }
 
-// TestPatchAnnotation covers the ruralz.io/patch annotation of 01 req 25:
-// delete removes the resource (absent base: no-op), replace replaces spec
-// whole while metadata merges, and the annotation never survives.
+// TestPatchAnnotation covers the ruralz.io/patch annotation: delete
+// removes the resource (absent base: no-op), replace replaces spec whole
+// while metadata merges, and the annotation never survives.
 func TestPatchAnnotation(t *testing.T) {
 	other := `{"apiVersion":"ruralz/v1alpha1","kind":"Upstream","metadata":{"name":"u"},"spec":{"protocol":"http","endpoints":[{"address":"a:1"}]}}`
 	t.Run("delete removes the base resource", func(t *testing.T) {
@@ -308,9 +307,9 @@ func ids(rs []*tree.Resource) []string {
 	return out
 }
 
-// TestDirectiveErrors covers the malformed directives of 01 req 25
-// (RZ-CFG-005 in overlays, RZ-CFG-006 for $patch in a base document),
-// each at its position and key-aware path.
+// TestDirectiveErrors covers the malformed directives (RZ-CFG-005 in
+// overlays, RZ-CFG-006 for $patch in a base document), each at its
+// position and key-aware path.
 func TestDirectiveErrors(t *testing.T) {
 	head := `{"apiVersion":"ruralz/v1alpha1","kind":"Gateway","metadata":{"name":"edge"},"spec":`
 	cases := []struct {
@@ -403,9 +402,9 @@ func TestDirectiveErrors(t *testing.T) {
 	})
 }
 
-// TestFreeContentDirectives covers 01 req 25 in free content (undeclared
-// members of open configs, lists without x-ruralz-list, plugin configs)
-// and in set and atomic lists: a list there is atomic, so {$patch:
+// TestFreeContentDirectives covers the directives in free content
+// (undeclared members of open configs, lists without x-ruralz-list, plugin
+// configs) and in set and atomic lists: a list there is atomic, so {$patch:
 // replace} is valid only in an orderedMap list and any other $patch is
 // misplaced (RZ-CFG-005); no directive survives into the result.
 func TestFreeContentDirectives(t *testing.T) {
@@ -469,11 +468,11 @@ func TestFreeContentDirectives(t *testing.T) {
 	}
 }
 
-// TestUnresolvedDispatch pins the merge of a Policy whose spec.type holds
-// a ${VAR} expression: overlays merge before substitution (01 req 27), so
-// no config branch is selected and config merges as free content (keyed
-// lists replaced whole, $patch inside RZ-CFG-005). Spec 01 leaves the case
-// open; it is reported as a contract change request.
+// TestUnresolvedDispatch pins the merge of a Policy whose spec.type holds a
+// ${VAR} expression: overlays merge before substitution, so no config
+// branch is selected and config merges as free content (keyed lists
+// replaced whole, $patch inside RZ-CFG-005). The configuration model leaves
+// the case open.
 func TestUnresolvedDispatch(t *testing.T) {
 	base := `{"apiVersion":"ruralz/v1alpha1","kind":"Policy","metadata":{"name":"p"},"spec":{"type":"${PT}","config":{"issuers":[{"issuer":"a","x":1}]}}}`
 	over := `{"apiVersion":"ruralz/v1alpha1","kind":"Policy","metadata":{"name":"p"},"spec":{"config":{"issuers":[{"issuer":"a","y":2}]}}}`
@@ -501,11 +500,11 @@ func TestSetElementDirective(t *testing.T) {
 	}
 }
 
-// TestIdentityRules covers 01 req 24: one identity in two documents of one
-// overlay (two files or one) is RZ-CFG-008 at the later one and none of
-// them applies; a patch with another apiVersion is RZ-CFG-030 (tested with
-// a second served view, 01 risk 17); an unserved apiVersion is RZ-CFG-007
-// only.
+// TestIdentityRules covers the identity rules: one identity in two
+// documents of one overlay (two files or one) is RZ-CFG-008 at the later
+// one and none of them applies; a patch with another apiVersion is
+// RZ-CFG-030 (tested with a second served view); an unserved apiVersion is
+// RZ-CFG-007 only.
 func TestIdentityRules(t *testing.T) {
 	p := func(timeout string) string {
 		return `{"apiVersion":"ruralz/v1alpha1","kind":"Route","metadata":{"name":"r"},"spec":{"timeout":"` + timeout + `"}}`
@@ -579,9 +578,9 @@ func TestIdentityRules(t *testing.T) {
 	})
 }
 
-// TestNewIdentities covers 01 req 25 "New identity: added, merged against
-// an empty base": new resources follow the base ones in (kind, name)
-// order whatever the file order, and nil documents are ignored.
+// TestNewIdentities covers new identities, added and merged against an
+// empty base: new resources follow the base ones in (kind, name) order
+// whatever the file order, and nil documents are ignored.
 func TestNewIdentities(t *testing.T) {
 	mk := func(kind, name string) string {
 		return `{"apiVersion":"ruralz/v1alpha1","kind":"` + kind + `","metadata":{"name":"` + name + `"},"spec":{"x":null}}`
@@ -604,8 +603,8 @@ func TestNewIdentities(t *testing.T) {
 	}
 }
 
-// TestPositions covers 01 req 25 "Each result node keeps the position of
-// the document that supplied it".
+// TestPositions checks that each result node keeps the position of the
+// document that supplied it.
 func TestPositions(t *testing.T) {
 	over := `{"apiVersion":"ruralz/v1alpha1","kind":"Gateway","metadata":{"name":"edge"},
 "spec":{"listeners":[{"name":"http","protocol":"http","port":8081,"hostnames":["a"]}]}}`
@@ -637,8 +636,8 @@ func TestPositions(t *testing.T) {
 }
 
 // TestKeyKinds: keyed-list keys match by kind and text, so the number 1
-// and the string "1" are different entries (01 req 25), and an overlay
-// scalar equal to the base keeps the base node.
+// and the string "1" are different entries, and an overlay scalar equal
+// to the base keeps the base node.
 func TestKeyKinds(t *testing.T) {
 	base := `{"apiVersion":"ruralz/v1alpha1","kind":"Gateway","metadata":{"name":"edge"},"spec":{"listeners":[{"name":1,"port":1},{"name":"1","port":2},{"name":1.5,"port":3}],"admin":{"enabled":true,"x":null}}}`
 	over := `{"apiVersion":"ruralz/v1alpha1","kind":"Gateway","metadata":{"name":"edge"},"spec":{"listeners":[{"name":"1","port":20},{"name":1.5,"port":30},{"name":true}],"admin":{"enabled":true,"x":null}}}`
@@ -704,8 +703,8 @@ func TestUnknownPositions(t *testing.T) {
 	}
 }
 
-// TestCancellation covers 01 req 53: Apply checks ctx between resources
-// and, once it is canceled, returns ctx.Err() and no result.
+// TestCancellation: Apply checks ctx between resources and, once it is
+// canceled, returns ctx.Err() and no result.
 func TestCancellation(t *testing.T) {
 	files := &tree.FileTable{}
 	b := docs(t, files, tree.RoleBase, "ruralz.yaml", route)
@@ -724,10 +723,9 @@ func TestCancellation(t *testing.T) {
 	}
 }
 
-// TestCheckBase covers the per-resource base check of 01 req 25 and 53:
-// it reads one resource, so the loader runs it in its worker pool, and
-// skips what it cannot select a schema for (stage C and Apply report
-// RZ-CFG-007).
+// TestCheckBase covers the per-resource base check: it reads one
+// resource, so the loader runs it in its worker pool, and skips what it
+// cannot select a schema for (stage C and Apply report RZ-CFG-007).
 func TestCheckBase(t *testing.T) {
 	opts := Options{Schemas: schemas(t)}
 	withPatch := func(apiVersion, kind string) *tree.Resource {

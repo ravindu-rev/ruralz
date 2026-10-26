@@ -20,8 +20,8 @@ import (
 	"github.com/santhosh-tekuri/jsonschema/v6"
 )
 
-// suiteRoot is the vendored JSON-Schema-Test-Suite (11 req 18), refreshed
-// by scripts/update-test-suites.sh json-schema.
+// suiteRoot is the vendored JSON-Schema-Test-Suite, refreshed by
+// scripts/update-test-suites.sh json-schema.
 const suiteRoot = "../../../test/fixtures/json-schema-test-suite"
 
 // remoteBase is the origin the suite's remote references use; its files
@@ -40,11 +40,11 @@ type suiteGroup struct {
 }
 
 // usedFormats lists the optional/format files the suite runner includes
-// because Ruralz relies on that format (11 req 18: optional/ is skipped
-// except the formats Ruralz uses). Ruralz asserts no format: the rendered
-// view uses none and is compiled with formats as annotations (01 req 32),
-// and validation.json-schema keeps format an annotation too (07 req 75),
-// so the list is empty. Asserting a format later adds its file here.
+// because Ruralz relies on that format (optional/ is skipped except the
+// formats Ruralz uses). Ruralz asserts no format: the rendered view uses
+// none and is compiled with formats as annotations, and
+// validation.json-schema keeps format an annotation too, so the list is
+// empty. Asserting a format later adds its file here.
 func usedFormats() []string { return nil }
 
 // suiteFiles returns the draft 2020-12 files the runner covers, sorted.
@@ -80,7 +80,7 @@ func suiteFiles(t *testing.T) []string {
 // suiteRemotes reads data/remotes/ as in-memory resources keyed by their
 // http://localhost:1234/ URL. The production compiler keeps its refusing
 // loader; the runner adds these documents with AddResource, so no test
-// reads the network (CR 134).
+// reads the network.
 func suiteRemotes(t *testing.T) map[string]any {
 	t.Helper()
 	dir := filepath.Join(suiteRoot, "data", "remotes")
@@ -111,8 +111,7 @@ func suiteRemotes(t *testing.T) map[string]any {
 // JSON-Schema-Test-Suite, without optional/ except the formats Ruralz
 // uses, through a compiler configured exactly as the production one
 // (newCompiler: draft 2020-12, refusing loader, the asserted Ruralz
-// vocabulary, formats and content as annotations): zero failures
-// (11 req 18; architecture R-31).
+// vocabulary, formats and content as annotations): zero failures.
 func TestJSONSchemaTestSuite(t *testing.T) {
 	files := suiteFiles(t)
 	if len(files) == 0 {

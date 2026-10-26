@@ -15,9 +15,9 @@ import (
 )
 
 // Differential tests against the standard library's strict tokenizer,
-// encoding/json/jsontext. Production code cannot import it under go 1.26.0
-// (architecture convention 1, R-30), so it serves only as this go1.27 test
-// oracle; the Go 1.26 floor job skips the file.
+// encoding/json/jsontext. Production code cannot import it under go 1.26.0,
+// so it serves only as this go1.27 test oracle; the Go 1.26 floor job skips
+// the file.
 
 // oracleValid reports whether jsontext accepts data as one JSON value with
 // the given duplicate policy. Its nesting limit is fixed at MaxDepthLimit.
@@ -48,7 +48,7 @@ func agree(t *testing.T, name string, data []byte) {
 
 // TestOracleConformance checks that the scanner and jsontext agree on
 // accept and reject for every JSON conformance case, with duplicate names
-// rejected and allowed (WP-02 "Done when").
+// rejected and allowed.
 func TestOracleConformance(t *testing.T) {
 	for _, c := range conformanceCases() {
 		agree(t, c.name, []byte(c.input))
@@ -69,9 +69,9 @@ func oracleCanonical(data []byte) ([]byte, error) {
 }
 
 // checkCanonical compares AppendCanonical of the decoded input with
-// jsontext's canonicalization (02 req 24; 02 test plan item 5), integer
-// literals beyond ±(2^53−1) included. Inputs with a literal that overflows a
-// double, which has no canonical form, are skipped.
+// jsontext's canonicalization, integer literals beyond ±(2^53−1) included.
+// Inputs with a literal that overflows a double, which has no canonical
+// form, are skipped.
 func checkCanonical(t *testing.T, data []byte) {
 	t.Helper()
 	v, _, err := Decode(data, Options{MaxDepth: MaxDepthLimit})

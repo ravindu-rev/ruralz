@@ -159,7 +159,7 @@ func isBare(s string) bool {
 // object items print as canonical JSON. Field names, keys and items are
 // quoted by one JSON encoder without HTML escaping, so every quoted string
 // is valid JSON (invalid UTF-8 becomes U+FFFD) and quotes alike in both
-// forms (01 req 48).
+// forms.
 func (p Path) String() string {
 	var b strings.Builder
 	for i, e := range p {
@@ -287,7 +287,7 @@ func (l List) HasErrors() bool {
 	return slices.ContainsFunc(l, Diagnostic.isError)
 }
 
-// isError reports whether d blocks a Revision (01 req 47, 51).
+// isError reports whether d blocks a Revision.
 func (d Diagnostic) isError() bool { return d.Severity != SeverityWarning }
 
 // Sort orders by (environment, file, line, column, code, path, message).

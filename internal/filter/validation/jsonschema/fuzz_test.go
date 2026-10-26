@@ -53,11 +53,11 @@ func bodySeeds() []string {
 	}
 }
 
-// FuzzCompileSchema is 07 F6: compiling any document never asks the
-// loader (no file or network access is even attempted) and never panics;
-// every finding's pointer maps to a path. F6's other property, a compile
-// returning within 1 s, is not a wall-clock assertion here: the budgets
-// that bound a compile are pinned by deterministic tests
+// FuzzCompileSchema checks that compiling any document never asks the
+// loader (no file or network access is even attempted) and never panics,
+// and that every finding's pointer maps to a path. The other property of a
+// compile, returning within 1 s, is not a wall-clock assertion here: the
+// budgets that bound a compile are pinned by deterministic tests
 // (TestQueueBoundBudget, TestClassRepsBudget, TestCompileMatchBudget,
 // TestStatesBudget, TestEvaluationBoundBudget), and so are the bounds of
 // the pattern programs and of their parsing (TestPatternProgramLimits,
@@ -83,15 +83,14 @@ func FuzzCompileSchema(f *testing.F) {
 		`{"$defs":{"a":{"$ref":"#/x/if/if"},"b":{"$ref":"#/x/if"},"c":{"$ref":"#/x"}},"x":{"if":{"if":{"pattern":"^a"}}}}`,
 		`{"$ref":"#/x/properties","$defs":{"a":{"$ref":"#/x/properties/items/properties"}},"x":{"properties":{"items":{"properties":{"items":true}}}}}`,
 		`{"$ref":"#/x~1y/a%25b","x/y":{"a%b":{"type":"string"}}}`,
-		// Lists of names the meta-schema compares (review finding: the
-		// library parsed their numbers with math/big, for seconds or until
-		// it panicked).
+		// Lists of names the meta-schema compares (the library parsed their
+		// numbers with math/big, for seconds or until it panicked).
 		`{"type":[` + literals(21, "e9999999") + `]}`, `{"required":["a",` + literals(20, "e999999") + `]}`,
 		`{"dependentRequired":{"a":[1,{"b":2},[3],null,true]}}`, `{"dependencies":{"a":[[1e9999999]],"b":{"type":[1]}}}`,
 		`{"$ref":"#/x/properties","x":{"properties":{"type":[1e999999,2e999999],"required":[{}]}}}`,
 		// Below additionalItems, which no meta-schema check of the library
-		// covers (review finding: a multipleOf of 0 compiled, and the
-		// library panicked at every number reaching it).
+		// covers (a multipleOf of 0 compiled, and the library panicked at
+		// every number reaching it).
 		`{"additionalItems":{"multipleOf":0}}`, `{"$ref":"#/additionalItems","additionalItems":{"additionalItems":{"multipleOf":0}}}`,
 	} {
 		f.Add([]byte(s))
@@ -123,12 +122,12 @@ func FuzzCompileSchema(f *testing.F) {
 }
 
 // FuzzCompilePattern checks the library's regexp engine against Go's
-// regexp (07 req 75, architecture R-77): for any expression whose parsing
-// work and program the walk measures within MaxPatternInstructions, and
-// any input up to 1 KiB, compilePattern fails exactly when regexp.Compile
-// does, with the same error, and otherwise names the expression and
-// matches as Go's regexp does; the empty group that keeps Go from building
-// its one-pass matcher changes no match.
+// regexp: for any expression whose parsing work and program the walk
+// measures within MaxPatternInstructions, and any input up to 1 KiB,
+// compilePattern fails exactly when regexp.Compile does, with the same
+// error, and otherwise names the expression and matches as Go's regexp
+// does; the empty group that keeps Go from building its one-pass matcher
+// changes no match.
 func FuzzCompilePattern(f *testing.F) {
 	for _, tc := range costPatterns() {
 		if len(tc.pattern) <= 256 {
@@ -160,10 +159,10 @@ func FuzzCompilePattern(f *testing.F) {
 	})
 }
 
-// checkResult applies the 07 req 18 and T14 properties to one Handle
-// result: a refusal is 400 RZ-RT-009 whose detail is a fixed string or a
-// keyword location present in the schema document, so it never carries
-// request content; only the SPI sentinels are cannot decide.
+// checkResult checks one Handle result: a refusal is 400 RZ-RT-009 whose
+// detail is a fixed string or a keyword location present in the schema
+// document, so it never carries request content; only the SPI sentinels are
+// cannot decide.
 func checkResult(t *testing.T, doc any, r filter.Result) {
 	t.Helper()
 	switch r.Outcome {
@@ -193,7 +192,7 @@ func checkResult(t *testing.T, doc any, r filter.Result) {
 	}
 }
 
-// FuzzValidate is 07 F7: corpus schemas against arbitrary bodies never
+// FuzzValidate checks that corpus schemas against arbitrary bodies never
 // panic, leave the body untouched, release every reservation, and answer
 // within the properties of checkResult.
 func FuzzValidate(f *testing.F) {

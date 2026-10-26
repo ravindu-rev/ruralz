@@ -27,10 +27,10 @@ func seriesState(t testing.TB, pts map[string]point) (live, retiring float64) {
 		mustGet(t, pts, catalog.TelemetrySeries+`{state="retiring"}`).value
 }
 
-// Spec 09 req 47: values live in aggregates kept by name across Hot
-// Reloads; a label set admitted again keeps counting from its value and
-// keeps its StartTime.
-func TestKeptByNameAcrossReloads_Req47(t *testing.T) {
+// Values live in aggregates kept by name across Hot Reloads; a label
+// set admitted again keeps counting from its value and keeps its
+// StartTime.
+func TestKeptByNameAcrossReloads(t *testing.T) {
 	r, clk := newTestRegistry(t, nil)
 	p1, b1 := admitBind(t, r, emit.Shape{Routes: []string{"a"}})
 	p1.Route("a").Requests.Inc(0, 200)
@@ -53,10 +53,10 @@ func TestKeptByNameAcrossReloads_Req47(t *testing.T) {
 	b2.Release()
 }
 
-// Spec 09 req 56: a label set only retired snapshots reference is
-// retiring; it is released with its last snapshot, and a returning name
-// restarts from 0 with a new StartTime (req 51).
-func TestRetiringAndRelease_Req56(t *testing.T) {
+// A label set only retired snapshots reference is retiring; it is
+// released with its last snapshot, and a returning name restarts from 0
+// with a new StartTime.
+func TestRetiringAndRelease(t *testing.T) {
 	r, clk := newTestRegistry(t, nil)
 	p1, b1 := admitBind(t, r, emit.Shape{Routes: []string{"old"}})
 	p1.Route("old").Requests.Inc(0, 500)
@@ -109,10 +109,10 @@ func TestRetiringAndRelease_Req56(t *testing.T) {
 	b3.Release()
 }
 
-// Spec 09 req 56: beyond the retiring ceiling the oldest retiring sets
-// fold; their series end, their handles record into _overflow, and the
-// overflow series never rises by a folded set's accumulated value.
-func TestRetiringCeilingFoldsOldest_Req56(t *testing.T) {
+// Beyond the retiring ceiling the oldest retiring sets fold; their
+// series end, their handles record into _overflow, and the overflow
+// series never rises by a folded set's accumulated value.
+func TestRetiringCeilingFoldsOldest(t *testing.T) {
 	// One cached Route's counter families: 5 + 5 series (requests and
 	// cache); histograms 16. Ceiling 30 holds one retiring Route (26
 	// series).
@@ -181,10 +181,10 @@ func TestRetiringCeilingFoldsOldest_Req56(t *testing.T) {
 	b4.Release()
 }
 
-// Spec 09 req 56: when a Hot Reload moves a live label set past a limit,
-// records after the fold go to _overflow while the old snapshot's handles
-// keep the (now retiring) label set until it is released.
-func TestLiveSetMovedPastLimit_Req56(t *testing.T) {
+// When a Hot Reload moves a live label set past a limit, records after
+// the fold go to _overflow while the old snapshot's handles keep the (now
+// retiring) label set until it is released.
+func TestLiveSetMovedPastLimit(t *testing.T) {
 	r, clk := newTestRegistry(t, func(o *Options) { o.Limits = Limits{CounterFamily: 10} })
 	p1, b1 := admitBind(t, r, emit.Shape{Routes: []string{"m", "z"}})
 	p1.Route("z").Requests.Inc(0, 200)
@@ -297,11 +297,11 @@ func TestListenerRetireNeverFolds(t *testing.T) {
 	b2.Release()
 }
 
-// Spec 09 test 22 (property): for random record streams interleaved with
-// Hot Reloads that move label sets past the limits and the retiring
-// ceiling, the family sum over exported series never increases by more
-// than the records recorded since the previous collection.
-func TestFoldingNeverCarriesValues_Test22(t *testing.T) {
+// For random record streams interleaved with Hot Reloads that move label
+// sets past the limits and the retiring ceiling, the family sum over
+// exported series never increases by more than the records recorded
+// since the previous collection.
+func TestFoldingNeverCarriesValues(t *testing.T) {
 	rng := testRand(22, 56)
 	for trial := range 20 {
 		r, clk := newTestRegistry(t, func(o *Options) {
@@ -417,12 +417,12 @@ func TestPolicyReadmissionChangesShape(t *testing.T) {
 	b2.Release()
 }
 
-// Spec 09 req 56 (unit scale of spec 09 test 41): Hot Reloads that rename
-// every Route while K = 2 retired snapshots and one closing snapshot stay
-// pinned keep the retiring series within the ceiling, fold only retiring
-// sets, never raise _overflow by a folded set's value, and return to the
-// single-Revision series count once the old snapshots are freed.
-func TestReloadSequenceReturnsToSingleRevision_Req56(t *testing.T) {
+// Hot Reloads that rename every Route while K = 2 retired snapshots and
+// one closing snapshot stay pinned keep the retiring series within the
+// ceiling, fold only retiring sets, never raise _overflow by a folded
+// set's value, and return to the single-Revision series count once the
+// old snapshots are freed.
+func TestReloadSequenceReturnsToSingleRevision(t *testing.T) {
 	const routes, reloads, ceiling = 20, 60, 26 * 30
 	r, clk := newTestRegistry(t, func(o *Options) { o.Limits = Limits{Retiring: ceiling} })
 	shape := func(gen int) emit.Shape {
@@ -532,13 +532,14 @@ func checkRetiringQueue(t testing.TB, r *Registry) int {
 	return foldable
 }
 
-// Regression (WP-09 review) for spec 09 req 56 and the bounded-queue
-// convention: Hot Reloads that rename some Routes while the retiring
-// series stay far below the ceiling keep the retiring queue within the
-// retiring groups plus queueSlack, and the groups released meanwhile are
-// collectable (the queue keeps none reachable). Names come back while
-// still retiring, so Bind also takes groups off the queue.
-func TestRetiringQueueBounded_Req56(t *testing.T) {
+// TestRetiringQueueBounded is a regression test for retiring label sets
+// and the bounded-queue convention: Hot Reloads that rename some Routes
+// while the retiring series stay far below the ceiling keep the retiring
+// queue within the retiring groups plus queueSlack, and the groups
+// released meanwhile are collectable (the queue keeps none reachable).
+// Names come back while still retiring, so Bind also takes groups off the
+// queue.
+func TestRetiringQueueBounded(t *testing.T) {
 	const routes, renamed, reloads = 40, 5, 400
 	r, clk := newTestRegistry(t, nil)
 	gen := make([]int, routes)
@@ -614,12 +615,12 @@ func listenerSeries(r *Registry) int {
 	return n
 }
 
-// Spec 09 req 56 and test 41 (unit scale): the exported
-// ruralz_telemetry_series{state="retiring"} stays within the ceiling
-// while retiring listener label sets (which never fold) and auth decision
-// code label sets beyond the declared codes count against it; resource
-// label sets fold instead.
-func TestExportedRetiringWithinCeiling_Req56(t *testing.T) {
+// TestExportedRetiringWithinCeiling is the cardinality test at unit
+// scale: the exported ruralz_telemetry_series{state="retiring"} stays
+// within the ceiling while retiring listener label sets (which never fold)
+// and auth decision code label sets beyond the declared codes count
+// against it; resource label sets fold instead.
+func TestExportedRetiringWithinCeiling(t *testing.T) {
 	base, _ := newTestRegistry(t, nil)
 	ceiling := 3*listenerSeries(base) + 200
 	r, clk := newTestRegistry(t, func(o *Options) { o.Limits = Limits{Retiring: ceiling} })

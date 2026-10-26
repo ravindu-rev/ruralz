@@ -20,8 +20,8 @@ func uniformRings(n, e int) map[string]int {
 	return rings
 }
 
-// TestPlanBudgetFormula covers 05 req 17: v = clamp(floor((256 MiB − S −
-// 16 MiB) ÷ (16 B × R)), 64, 1,024).
+// TestPlanBudgetFormula covers the virtual node formula
+// v = clamp(floor((256 MiB − S − 16 MiB) ÷ (16 B × R)), 64, 1,024).
 func TestPlanBudgetFormula(t *testing.T) {
 	tests := []struct {
 		name      string
@@ -34,9 +34,9 @@ func TestPlanBudgetFormula(t *testing.T) {
 		{"empty ring", 0, 0, map[string]int{"a": 0}, MaxVirtualNodes},
 		{"small ring clamps at 1,024", 0, 0, map[string]int{"a": 10}, MaxVirtualNodes},
 		{"ten rings of 64 clamp at 1,024", 0, 0, uniformRings(10, 64), MaxVirtualNodes},
-		// TMR "Load balancing" and 05 test plan item 11 quote v = 244 (about
-		// 238 MiB) for 1,000 rings of 64 Endpoints; the normative formula
-		// gives floor(240 MiB ÷ (16 B × 64,000)) = floor(245.76) = 245
+		// TMR "Load balancing" quotes v = 244 (about 238 MiB) for 1,000
+		// rings of 64 Endpoints; the normative formula gives
+		// floor(240 MiB ÷ (16 B × 64,000)) = floor(245.76) = 245
 		// (239.3 MiB), which this test pins.
 		{"1,000 rings of 64", 0, 0, uniformRings(1000, 64), 245},
 		{"schedules shrink v", DefaultBudget, 10 << 20, uniformRings(1000, 64), 235},
@@ -70,9 +70,9 @@ func TestPlanBudgetFormula(t *testing.T) {
 	}
 }
 
-// TestPlanBudgetFallback covers 05 req 17: when v = 64 does not fit, rings
-// fall back to weighted random, largest first (ties by name), until the rest
-// fits, and v is recomputed over the remaining rings.
+// TestPlanBudgetFallback covers the fallback: when v = 64 does not fit,
+// rings fall back to weighted random, largest first (ties by name), until
+// the rest fits, and v is recomputed over the remaining rings.
 func TestPlanBudgetFallback(t *testing.T) {
 	const room = 16 * 64 * 120 // 64 virtual nodes for 120 Endpoints
 	budget := CopyOnWriteReserve + room
@@ -130,8 +130,8 @@ func TestPlanBudgetSchedulesOverBudget(t *testing.T) {
 	}
 }
 
-// TestReplan covers 05 req 17: Endpoint-set changes lower v at once on
-// overflow and raise it only when it can double.
+// TestReplan covers Endpoint-set changes: they lower v at once on overflow
+// and raise it only when it can double.
 func TestReplan(t *testing.T) {
 	prev := PlanBudget(0, 0, uniformRings(1000, 64))
 	if prev.V != 245 {
@@ -160,13 +160,12 @@ func TestReplan(t *testing.T) {
 	}
 }
 
-// TestReplanFallback covers 05 req 17's fallback under Endpoint-set
-// changes: rings fall back at once when v = 64 no longer fits and return as
-// soon as the fresh plan needs fewer fallbacks at v ≥ 2 × 64, whatever the
-// previous V; v follows the doubling rule throughout, so neither a ring
-// falling back nor one returning raises it by less than double over a
-// previous plan that built rings. The room holds 64 virtual nodes for 120
-// Endpoints.
+// TestReplanFallback covers the fallback under Endpoint-set changes: rings
+// fall back at once when v = 64 no longer fits and return as soon as the
+// fresh plan needs fewer fallbacks at v ≥ 2 × 64, whatever the previous V;
+// v follows the doubling rule throughout, so neither a ring falling back
+// nor one returning raises it by less than double over a previous plan
+// that built rings. The room holds 64 virtual nodes for 120 Endpoints.
 func TestReplanFallback(t *testing.T) {
 	budget := CopyOnWriteReserve + 16*64*120
 	base := map[string]int{"a": 100, "b": 50, "c": 50, "d": 10} // a falls back, V 69

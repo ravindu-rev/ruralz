@@ -20,12 +20,12 @@ import (
 	"github.com/ravindu-rev/ruralz/internal/expr"
 )
 
-// Tests for 03 C requirement 25 (JSON values as CEL reads them) and the
-// expr.Value contract used by 03 F requirement 41 and 07 requirement 57
-// (AppendBody and Native).
+// Tests for JSON values as CEL reads them and for the expr.Value contract
+// that result conversion and the transform working tree use (AppendBody
+// and Native).
 
-// TestReq25Numbers checks the int and double rule for decoded numbers.
-func TestReq25Numbers(t *testing.T) {
+// TestNumbers checks the int and double rule for decoded numbers.
+func TestNumbers(t *testing.T) {
 	cases := []struct {
 		lit  string
 		want ref.Val
@@ -57,9 +57,9 @@ func TestReq25Numbers(t *testing.T) {
 	}
 }
 
-// TestReq25JSONThroughCEL checks decoded bodies as CEL reads them: ordered
+// TestJSONThroughCEL checks decoded bodies as CEL reads them: ordered
 // objects, exact int64, doubles, null members, arrays.
-func TestReq25JSONThroughCEL(t *testing.T) {
+func TestJSONThroughCEL(t *testing.T) {
 	body := func(tree any) func() *expr.Vars {
 		return func() *expr.Vars {
 			v := fullVars()
@@ -142,8 +142,8 @@ func (f foreignValue) IsNull() bool                          { return f.tree == 
 func (f foreignValue) AppendBody(dst []byte) ([]byte, error) { return dst, f.err }
 func (f foreignValue) Native() (any, error)                  { return f.tree, f.err }
 
-// TestReq41AppendBody checks the transform body form of every value kind.
-func TestReq41AppendBody(t *testing.T) {
+// TestAppendBody checks the transform body form of every value kind.
+func TestAppendBody(t *testing.T) {
 	ts := time.Date(2026, 9, 26, 12, 30, 0, 500_000_000, time.FixedZone("CEST", 2*3600))
 	cases := []struct {
 		name    string
@@ -246,9 +246,9 @@ func decodeJSON(t testing.TB, b []byte) any {
 	return v
 }
 
-// TestReq41NativeMatchesAppendBody checks 07 req 57: for maps and lists,
-// Native equals decoding what AppendBody writes, and the tree is new.
-func TestReq41NativeMatchesAppendBody(t *testing.T) {
+// TestNativeMatchesAppendBody checks that, for maps and lists, Native
+// equals decoding what AppendBody writes, and that the tree is new.
+func TestNativeMatchesAppendBody(t *testing.T) {
 	ts := time.Date(2026, 1, 2, 3, 4, 5, 6, time.UTC)
 	values := []*Value{
 		FromNative(map[string]any{"b": jsonNum("1.50"), "a": []any{true, nil, "x", map[string]any{}}}),
@@ -392,7 +392,7 @@ func TestValueStates(t *testing.T) {
 		t.Errorf("ErrorValue.AppendBody = %v", err)
 	}
 	// Error values never share a *types.Err: cel-go labels the error values
-	// it is handed with a node ID in place (03 req 25, 38, 39).
+	// it is handed with a node ID in place.
 	errorValues := []*Value{
 		ev,
 		FromVal(types.NewErr("cel failure")),

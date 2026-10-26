@@ -9,8 +9,8 @@ import (
 	"testing"
 )
 
-// TestFixtures runs stage I over one negative fixture per case of 02 test
-// 16 and compares the diagnostics, in their text form with file, line and
+// TestFixtures runs stage I over one negative fixture per case and
+// compares the diagnostics, in their text form with file, line and
 // column, with the fixture's want.txt (TQ "Conformance suites"). A
 // fixture's YAML files replace the files of the same path in its base:
 // testdata/fixtures/common, a library of unattached Policies and Plugins
@@ -23,27 +23,27 @@ func TestFixtures(t *testing.T) {
 		req  string
 		code string // "" for an accepted fixture
 	}{
-		{"018-route-auth", common, "02 req 35.3: two Route auth.* Policies", CodeSlot},
-		{"018-gateway-slot", common, "02 req 35.3: two Gateway ratelimit with an explicit equal slot", CodeSlot},
-		{"018-upstream-oauth2", common, "02 req 35.3, R-15: two auth.upstream-oauth2 on one Upstream", CodeSlot},
-		{"019-exclude", shopBundle, "02 req 35.1: exclude ratelimit-global, CM Diagnostics example", CodeOverridable},
-		{"019-replace-cors", common, "02 req 35.2: Route cors replaces an overridable: false Gateway cors", CodeOverridable},
-		{"019-relist", shopBundle, "02 req 35.2, R-16: Route re-lists ratelimit-global", CodeOverridable},
-		{"020-validation-gateway", common, "02 req 35.4: validation.json-schema at Gateway", CodeScope},
-		{"020-cache-gateway", common, "02 req 35.4: cache at Gateway", CodeScope},
-		{"020-oauth2-route", common, "02 req 35.4: auth.upstream-oauth2 at Route", CodeScope},
-		{"020-jwt-upstream", common, "02 req 35.4: auth.jwt at Upstream", CodeScope},
-		{"020-plugin-upstream", common, "02 req 14: plugin with onResponse at Upstream", CodeScope},
-		{"020-plugin-route", common, "02 req 14: plugin with onUpstreamRequest at Route", CodeScope},
-		{"029-jwt", common, "02 req 37: auth.jwt open", CodeFailureMode},
-		{"029-authz-cel", common, "02 req 37: authz.cel open", CodeFailureMode},
-		{"029-upstream-oauth2", common, "02 req 37: auth.upstream-oauth2 open", CodeFailureMode},
-		{"029-plugin-authz", common, "02 req 37: plugin filterClass authz open", CodeFailureMode},
-		{"029-accepted", common, "02 req 37: ratelimit open and plugin custom open are accepted", ""},
-		{"038-validation", common, "02 req 39: cache with validation.json-schema", CodeCacheGuardrail},
-		{"038-authz-cel-body", common, "02 req 39: cache with an authz.cel rule reading request.body", CodeCacheGuardrail},
-		{"038-authz-cel-headers", common, "02 req 39: cache with an authz.cel rule without the body is accepted", ""},
-		{"038-plugin-authz", common, "02 req 39: cache with a plugin authz Policy in onRequestBody", CodeCacheGuardrail},
+		{"018-route-auth", common, "two Route auth.* Policies", CodeSlot},
+		{"018-gateway-slot", common, "two Gateway ratelimit with an explicit equal slot", CodeSlot},
+		{"018-upstream-oauth2", common, "two auth.upstream-oauth2 on one Upstream", CodeSlot},
+		{"019-exclude", shopBundle, "exclude ratelimit-global, CM Diagnostics example", CodeOverridable},
+		{"019-replace-cors", common, "Route cors replaces an overridable: false Gateway cors", CodeOverridable},
+		{"019-relist", shopBundle, "Route re-lists ratelimit-global", CodeOverridable},
+		{"020-validation-gateway", common, "validation.json-schema at Gateway", CodeScope},
+		{"020-cache-gateway", common, "cache at Gateway", CodeScope},
+		{"020-oauth2-route", common, "auth.upstream-oauth2 at Route", CodeScope},
+		{"020-jwt-upstream", common, "auth.jwt at Upstream", CodeScope},
+		{"020-plugin-upstream", common, "plugin with onResponse at Upstream", CodeScope},
+		{"020-plugin-route", common, "plugin with onUpstreamRequest at Route", CodeScope},
+		{"029-jwt", common, "auth.jwt open", CodeFailureMode},
+		{"029-authz-cel", common, "authz.cel open", CodeFailureMode},
+		{"029-upstream-oauth2", common, "auth.upstream-oauth2 open", CodeFailureMode},
+		{"029-plugin-authz", common, "plugin filterClass authz open", CodeFailureMode},
+		{"029-accepted", common, "ratelimit open and plugin custom open are accepted", ""},
+		{"038-validation", common, "cache with validation.json-schema", CodeCacheGuardrail},
+		{"038-authz-cel-body", common, "cache with an authz.cel rule reading request.body", CodeCacheGuardrail},
+		{"038-authz-cel-headers", common, "cache with an authz.cel rule without the body is accepted", ""},
+		{"038-plugin-authz", common, "cache with a plugin authz Policy in onRequestBody", CodeCacheGuardrail},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
@@ -71,7 +71,7 @@ func TestFixtures(t *testing.T) {
 
 // TestDiagnosticsExample reproduces the RZ-CFG-019 line of the
 // configuration model's "Diagnostics and source map" example byte for
-// byte (02 req 35.1).
+// byte.
 func TestDiagnosticsExample(t *testing.T) {
 	b, files := loadBundle(t, shopBundle, "testdata/fixtures/019-exclude")
 	_, ds := stageI(t, b, files, 1)

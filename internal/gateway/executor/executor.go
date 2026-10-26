@@ -2,15 +2,15 @@
 // SPDX-License-Identifier: Apache-2.0
 
 // Package executor runs a Route's compiled Filter Chain (snapshot.Chain)
-// over one request's snapshot.RequestState (architecture R-42): the fixed
-// Phases in the order the compiled chain gives (class, scope, position;
-// response Phases reversed; onLog in request order), each Policy's
-// spec.when once per request (per leg for Upstream-scope Policies), the
-// auth rule 1 (every auth-class Policy skipped is 401 RZ-AUTH-001),
-// Result handling, the failureMode table by Filter class and Phase, the
-// short-circuit rules, consumptive batching of admission Filters into
-// shared State Store round trips, onLog, Finish, and the per-leg hooks
-// the Upstream layer calls (snapshot.LegHooks and snapshot.LegRun).
+// over one request's snapshot.RequestState: the fixed Phases in the order
+// the compiled chain gives (class, scope, position; response Phases
+// reversed; onLog in request order), each Policy's spec.when once per
+// request (per leg for Upstream-scope Policies), the auth rule 1 (every
+// auth-class Policy skipped is 401 RZ-AUTH-001), Result handling, the
+// failureMode table by Filter class and Phase, the short-circuit rules,
+// consumptive batching of admission Filters into shared State Store round
+// trips, onLog, Finish, and the per-leg hooks the Upstream layer calls
+// (snapshot.LegHooks and snapshot.LegRun).
 //
 // A request uses one Run: Executor.Begin, Run.Request for onRequestHeaders,
 // onRequestBody and onRoute, the Run as snapshot.Outbound.Hooks while the
@@ -18,21 +18,15 @@
 // and Finish, then Run.Release. Generated responses carry an RZ code and no
 // body; the handler writes their problem documents.
 //
-// The executor records the ruralz_filter_* metrics on the request's
-// stripe and starts one ruralz.filter.<name> span per Policy Phase call of
-// a sampled request (none in onLog); RequestState.RecordShortCircuit and
+// The executor records the ruralz_filter_* metrics on the request's stripe
+// and starts one ruralz.filter.<name> span per Policy Phase call of a
+// sampled request (none in onLog); RequestState.RecordShortCircuit and
 // RecordFailure only feed the access record and /tap. Every Filter call is
 // preceded by RequestState.Enter for its Policy (Handle and spec.when with
 // the Phase being run, Prepare, Complete and Undo with onRequestHeaders,
 // Finish with onLog), so the Exchange's Message, Vars, PolicyState and
 // Annotate refer to the Policy being run, and a panic in a Filter is
-// recovered as cannot decide (spec 04 req 43).
-//
-// Specs: 03 req 43 (Policy.spec.when runtime errors) and section 9 item
-// 18; 04 group F reqs 39 to 45; 05 req 33 (Filter retry) and reqs 64 and
-// 91 (consumptive calls); 06 section 2.1 rules 1 and 11; 07 group B reqs
-// 10 to 19 and req 86; 08 section 2.3 reqs 27 to 29 and section 2.4 reqs
-// 36 to 38.
+// recovered as cannot decide.
 package executor
 
 import (
@@ -57,9 +51,8 @@ import (
 	"github.com/ravindu-rev/ruralz/pkg/config/v1alpha1"
 )
 
-// Registered codes the executor generates (spec 04 req 43, spec 07 reqs 14
-// and 15, spec 06 rule 1, OQ-data-plane-8). Statuses are looked up once in
-// New through errcode.Status, never written as literals.
+// Registered codes the executor generates. Statuses are
+// looked up once in New through errcode.Status, never written as literals.
 const (
 	// CodeAuthSkipped is Security rule 1: every auth-class Policy skipped.
 	CodeAuthSkipped = "RZ-AUTH-001"
@@ -68,7 +61,7 @@ const (
 	CodeAuthUndecided = "RZ-AUTH-002"
 	// CodeAuthzUndecided is the authz class default.
 	CodeAuthzUndecided = "RZ-AUTH-015"
-	// CodeUpstreamAuth is the upstream-auth class code (OQ-data-plane-8 (a)).
+	// CodeUpstreamAuth is the upstream-auth class code.
 	CodeUpstreamAuth = "RZ-AUTH-020"
 	// CodeRequestTooLarge is filter.ErrTooLarge on the request side.
 	CodeRequestTooLarge = "RZ-RT-003"
@@ -89,7 +82,7 @@ const (
 
 // Error types put on a span as error.type (never request data): the
 // executor's own words, and the fixed set a Filter may name through an
-// ErrorType method (spec 07 req 86).
+// ErrorType method.
 const (
 	errTypeInternal  = "internal"
 	errTypeCEL       = "cel_error"
@@ -112,15 +105,15 @@ var (
 	// ErrInvalidResult is the cause of cannot decide for an outcome the
 	// Phase does not allow: Respond outside a request Phase, or without a
 	// Response with a final status (200 to 599), Retry outside
-	// onUpstreamResponseHeaders (R-44), or an unknown Outcome.
+	// onUpstreamResponseHeaders, or an unknown Outcome.
 	ErrInvalidResult = errors.New("executor: outcome not allowed in this phase")
 )
 
 // Challenger is implemented by auth-class Filters that answer a missing
-// credential with a WWW-Authenticate challenge (spec 06 rule 8). The 401
-// RZ-AUTH-001 of Security rule 1 carries the challenge of every auth-class
-// Policy in the chain, and the 401 of an auth-class Policy that fails
-// closed in a request Phase carries that Policy's own challenge.
+// credential with a WWW-Authenticate challenge. The 401 RZ-AUTH-001 of
+// Security rule 1 carries the challenge of every auth-class Policy in the
+// chain, and the 401 of an auth-class Policy that fails closed in a
+// request Phase carries that Policy's own challenge.
 type Challenger interface {
 	// Challenge returns the WWW-Authenticate field value, "" for none.
 	Challenge() string
@@ -139,7 +132,7 @@ type Deps struct {
 	Logger *slog.Logger
 }
 
-// classRule is one row of the failureMode table (spec 04 req 43).
+// classRule is one row of the failureMode table.
 type classRule struct {
 	reqStatus  int
 	reqCode    string
@@ -226,9 +219,9 @@ func (e *Executor) rule(c phase.Class) classRule {
 	return e.rules[phase.ClassCustom]
 }
 
-// tooLarge maps filter.ErrTooLarge in ph (spec 07 req 15): the request side
-// is 413 RZ-RT-003, a plain upstreams response 502 RZ-UP-010 and any Phase
-// of a composition step's leg 502 RZ-RT-015.
+// tooLarge maps filter.ErrTooLarge in ph: the request side is 413
+// RZ-RT-003, a plain upstreams response 502 RZ-UP-010 and any Phase of a
+// composition step's leg 502 RZ-RT-015.
 func (e *Executor) tooLarge(ph phase.Phase, step bool) (int, string) {
 	switch {
 	case step && ph.UpstreamLeg():
@@ -377,8 +370,8 @@ func errorType(err error) string {
 }
 
 // knownErrorType reports whether a Filter-supplied error.type is in the
-// fixed vocabulary (spec 07 req 86, spec 06 rule 11); anything else, which
-// may hold request data, is replaced with "internal".
+// fixed vocabulary; anything else, which may hold request data, is
+// replaced with "internal".
 func knownErrorType(t string) bool {
 	switch t {
 	case errTypeInternal, errTypeCEL, errTypeState, errTypeBudget, errTypeTooLarge, errTypeBadResult,
@@ -392,10 +385,9 @@ func knownErrorType(t string) bool {
 // modeOf returns the failureMode applied to p as an emit.Mode* index. The
 // security classes auth, authz and upstream-auth are closed whatever
 // p.FailureMode says (data plane "Security types are closed only
-// (RZ-CFG-029)", spec 06 rule 1): validation rejects open there, and this
-// keeps an auth Filter that cannot decide, or whose spec.when errs, from
-// being skipped should open ever get through. Otherwise anything but open
-// is closed.
+// (RZ-CFG-029)"): validation rejects open there, and this keeps an auth
+// Filter that cannot decide, or whose spec.when errs, from being skipped
+// should open ever get through. Otherwise anything but open is closed.
 func modeOf(p *snapshot.Policy) int {
 	switch {
 	case closedOnly(p.Class):

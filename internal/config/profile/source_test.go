@@ -6,8 +6,8 @@ package profile
 import "testing"
 
 // TestSrcCursor covers the cursor that maps token positions to byte
-// offsets of a segment (01 req 14: lines, and columns in code points),
-// forward, backward and past the text.
+// offsets of a segment (lines, and columns in code points), forward,
+// backward and past the text.
 func TestSrcCursor(t *testing.T) {
 	text := "ab\néé: x\n\nz"
 	c := newCursor(text)

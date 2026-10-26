@@ -16,10 +16,9 @@ import (
 	"github.com/ravindu-rev/ruralz/internal/telemetry/emit"
 )
 
-// FuzzRetirementLifecycle is the pin/retire property test of test plan
-// item 12 driven by random operation sequences (publish, pin, unpin,
-// advance the fake clock, reconcile). After every step it checks the
-// invariants of spec 04 reqs 50-54 and 09 req 56:
+// FuzzRetirementLifecycle is the pin/retire property test driven by
+// random operation sequences (publish, pin, unpin, advance the fake
+// clock, reconcile). After every step it checks the invariants:
 //
 //   - at most K retired snapshots and at most one closing or ending;
 //   - Publish succeeds exactly when CanActivate holds (retired < K or none

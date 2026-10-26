@@ -351,8 +351,8 @@ func checkDashboardDefs(defs []dashboardDef) []string {
 
 // checkDashboardJSON returns the problems of one Grafana dashboard file,
 // generated or written by hand: every Prometheus query of it passes
-// checkExpr (09 req 73: CI fails on a panel expression using a metric not
-// in the catalog).
+// checkExpr (CI fails on a panel expression using a metric not in the
+// catalog).
 func checkDashboardJSON(name string, data []byte) []string {
 	var doc any
 	if err := json.Unmarshal(data, &doc); err != nil {

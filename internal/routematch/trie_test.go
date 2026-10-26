@@ -44,9 +44,9 @@ func trieLookup(tr *Trie[string], path string) []trieHit {
 	return hits
 }
 
-// TestTrieLookupOrder covers the segment trie (04 req 28) and ranks 2 and 3
-// (04 req 31): exact values, then templates with a literal before a
-// parameter, segment by segment from the left.
+// TestTrieLookupOrder covers the segment trie and ranks 2 and 3: exact
+// values, then templates with a literal before a parameter, segment by
+// segment from the left.
 func TestTrieLookupOrder(t *testing.T) {
 	templates := []string{
 		"/{a}/{b}/{c}",
@@ -100,7 +100,7 @@ func TestTrieLookupOrder(t *testing.T) {
 }
 
 // TestTrieOrderMatchesCompare: the template order of a lookup equals rank 3
-// of Compare over the matching templates (04 req 31).
+// of Compare over the matching templates.
 func TestTrieOrderMatchesCompare(t *testing.T) {
 	templates := []string{"/{a}/{b}/{c}", "/v1/{x}/export", "/v1/orders/{id}", "/v1/orders/export", "/{a}/orders/{c}", "/{a}/orders/export", "/v1/{b}/{c}"}
 	tr := buildTrie(t, nil, templates)

@@ -10,7 +10,7 @@ import (
 	"github.com/ravindu-rev/ruralz/internal/clock"
 )
 
-// PacerConfig holds the reconnect pacing targets of spec 08 req 22.
+// PacerConfig holds the reconnect pacing targets.
 type PacerConfig struct {
 	// Base and Cap bound the full-jitter backoff: after n consecutive
 	// connect failures the next dial waits uniform(0, min(Cap, Base×2^n))
@@ -20,15 +20,15 @@ type PacerConfig struct {
 	PerSecond int
 }
 
-// DefaultPacerConfig returns the targets of spec 08 req 22.
+// DefaultPacerConfig returns the targets.
 func DefaultPacerConfig() PacerConfig {
 	return PacerConfig{Base: 100 * time.Millisecond, Cap: 5 * time.Second, PerSecond: 4}
 }
 
-// Pacer gates the dials of one shard (spec 08 req 22,
-// docs/operations/04-high-availability-and-disaster-recovery.md "State
-// Store rebuild" step 5). A dial refused by the Pacer fails at once
-// without touching the network and is not a connect failure.
+// Pacer gates the dials of one shard
+// (docs/operations/04-high-availability-and-disaster-recovery.md
+// "State Store rebuild" step 5). A dial refused by the Pacer fails at
+// once without touching the network and is not a connect failure.
 type Pacer struct {
 	clk clock.Clock
 	cfg PacerConfig

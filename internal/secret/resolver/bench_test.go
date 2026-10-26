@@ -12,9 +12,8 @@ import (
 )
 
 // Benchmarks: Store.Get is on the request path (lock-free, no
-// allocation; architecture 2.8), and a poll cycle over unchanged files is
-// the steady-state cost of the 2 s poller (spec 01 requirement 46: stat
-// only, no re-read).
+// allocation), and a poll cycle over unchanged files is the steady-state
+// cost of the 2 s poller (stat only, no re-read).
 
 func BenchmarkStoreGet(b *testing.B) {
 	h := newHarness(b, nil)

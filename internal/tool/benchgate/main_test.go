@@ -85,7 +85,7 @@ func writeGateList(t *testing.T, dir, body string) {
 }
 
 // assertClean checks that no worktree and no temporary directory survives a
-// run (11 test plan item 1: worktree cleanup on every exit path).
+// run (worktree cleanup on every exit path).
 func assertClean(t *testing.T, dir, tmp string) {
 	t.Helper()
 	list := git(t, dir, "worktree", "list", "--porcelain")
@@ -104,7 +104,7 @@ func assertClean(t *testing.T, dir, tmp string) {
 }
 
 // TestRunEndToEnd builds and runs real test binaries from a base worktree
-// and the working tree (11 req 64, 65, 66; test plan item 1).
+// and the working tree.
 func TestRunEndToEnd(t *testing.T) {
 	if testing.Short() {
 		t.Skip("builds test binaries")
@@ -171,7 +171,7 @@ func TestRunEndToEnd(t *testing.T) {
 }
 
 // TestRemovedBenchmark: a benchmark the base has and the head lost fails
-// until the gate list stops matching it (11 req 65).
+// until the gate list stops matching it.
 func TestRemovedBenchmark(t *testing.T) {
 	if testing.Short() {
 		t.Skip("builds test binaries")

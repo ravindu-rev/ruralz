@@ -10,9 +10,9 @@ import (
 	"testing"
 )
 
-// stdHash is the reference of 05 req 14: FNV-1a-64 from the standard
-// library (OQ-traffic-management-and-resilience-15 (a)), then the
-// splitmix64 finalizer.
+// stdHash is the reference: FNV-1a-64 from the standard library
+// (OQ-traffic-management-and-resilience-15 (a)), then the splitmix64
+// finalizer.
 func stdHash(s string) uint64 {
 	h := fnv.New64a()
 	_, _ = h.Write([]byte(s))
@@ -20,8 +20,8 @@ func stdHash(s string) uint64 {
 }
 
 // TestHashKeyMatchesStandardLibrary pins the inlined FNV-1a to hash/fnv and
-// the key hash to the virtual node hash (05 req 14: "the key hashes with the
-// same function").
+// the key hash to the virtual node hash
+// ("the key hashes with the same function").
 func TestHashKeyMatchesStandardLibrary(t *testing.T) {
 	for _, s := range []string{"", "a", "user-42", "10.0.0.1:8080#17", "é∑ unicode", string(make([]byte, 300))} {
 		if got, want := HashKey(s), stdHash(s); got != want {
@@ -59,8 +59,8 @@ func (s *seqSource) Uint64() uint64 {
 	return v
 }
 
-// TestUint64n covers the unbiased bounded draw behind 05 req 15's uniform
-// 64-bit random.
+// TestUint64n covers the unbiased bounded draw from uniform 64-bit random
+// values.
 func TestUint64n(t *testing.T) {
 	src := pcg(1)
 	for _, n := range []uint64{1, 2, 3, 7, 8, 1000, 1 << 40, 1<<63 + 5, ^uint64(0)} {

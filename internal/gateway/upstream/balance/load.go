@@ -20,12 +20,12 @@ const (
 	epochMask   = 1<<(64-countBits) - 1
 )
 
-// LoadCounter tracks one Endpoint's least-request load inputs (05 req 13):
-// attempts in flight and attempts that matched failureWhen in the last
-// second, the latter in ten 100 ms buckets. It is lock-free, safe for
-// concurrent use and its zero value is ready. The Upstream runtime keeps one
-// per Endpoint identity, so the counts survive rebuilds and Hot Reloads,
-// and reports LoadCounter.Score through View.Load.
+// LoadCounter tracks one Endpoint's least-request load inputs: attempts in
+// flight and attempts that matched failureWhen in the last second, the
+// latter in ten 100 ms buckets. It is lock-free, safe for concurrent use and
+// its zero value is ready. The Upstream runtime keeps one per Endpoint
+// identity, so the counts survive rebuilds and Hot Reloads, and reports
+// LoadCounter.Score through View.Load.
 type LoadCounter struct {
 	inFlight atomic.Int64
 	fails    [failBuckets]atomic.Uint64
@@ -35,7 +35,7 @@ type LoadCounter struct {
 func (c *LoadCounter) Begin() { c.inFlight.Add(1) }
 
 // End records an attempt end: its response body closed, failed or was
-// abandoned (in-flight counts the whole attempt, 05 req 13).
+// abandoned (in-flight counts the whole attempt).
 func (c *LoadCounter) End() { c.inFlight.Add(-1) }
 
 // InFlight returns the attempts in flight (never below 0).
@@ -86,11 +86,11 @@ func epoch(now time.Time) uint64 {
 	return uint64(ns/int64(failBucket)) & epochMask
 }
 
-// EndpointCap is the per-Endpoint in-flight cap of 05 req 36,
-// max(8, floor(min(2 × w_i/Σw, 0.5) × maxConnections)): the load bound of
-// the balancer. An Endpoint at its cap is graded Avoided, so ring-hash walks
-// past it to the next Endpoint on the ring (a consistent hash with bounded
-// load) and every algorithm skips it while another Endpoint remains.
+// EndpointCap is the per-Endpoint in-flight cap, max(8, floor(min(2 ×
+// w_i/Σw, 0.5) × maxConnections)): the load bound of the balancer. An
+// Endpoint at its cap is graded Avoided, so ring-hash walks past it to the
+// next Endpoint on the ring (a consistent hash with bounded load) and every
+// algorithm skips it while another Endpoint remains.
 func EndpointCap(weight uint32, totalWeight uint64, maxConnections int) int {
 	const floor = 8
 	if totalWeight == 0 || maxConnections <= 0 {

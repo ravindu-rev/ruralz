@@ -11,7 +11,7 @@ import (
 )
 
 // Limits of the gate (docs/architecture/12-performance-budgets-and-benchmarking.md,
-// "Memory budget"; 11 req 68).
+// "Memory budget").
 const (
 	defaultMaxSize = 160 << 20 // 167,772,160 bytes: stripped ruralzd
 	defaultMaxRSS  = 89 << 20  // 93,323,264 bytes: idle VmRSS
@@ -50,7 +50,7 @@ func platformOf(path string) (string, error) {
 }
 
 // checkSize measures one binary against limit: equal passes, one byte more
-// fails (11 test plan item 2).
+// fails.
 func checkSize(path string, limit int64) (sizeResult, error) {
 	fi, err := os.Stat(path)
 	if err != nil {

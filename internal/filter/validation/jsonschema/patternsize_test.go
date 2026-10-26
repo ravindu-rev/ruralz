@@ -28,18 +28,15 @@ func largestPattern(tail rune, extra int) string {
 // largestPattern, from p on.
 func tailRune(i int) rune { return rune("pqrstuvw"[i]) }
 
-// TestProgramSizeBound checks the measure of a pattern's program
-// (architecture R-77): the instructions Go compiles a pattern into never
-// exceed what the walk counts from its parsed syntax, for repetitions,
-// alternations, captures, case folding, classes and empty matches; the
-// count is the parser's own estimate, so it is exact for the plain
-// repetitions that make programs large. The estimate alone, without the
-// overhead and the nodes the measure adds, also bounds the program but for
-// its fail, empty-group and match instructions, so an operator counted
-// short shows on a large repetition of it (minor review finding: mutants
-// of the star, plus, question mark and x{n,} counts survived).
-//
-// Requirements: 07 req 75 and F6.
+// TestProgramSizeBound checks the measure of a pattern's program: the
+// instructions Go compiles a pattern into never exceed what the walk
+// counts from its parsed syntax, for repetitions, alternations, captures,
+// case folding, classes and empty matches; the count is the parser's own
+// estimate, so it is exact for the plain repetitions that make programs
+// large. The estimate alone, without the overhead and the nodes the
+// measure adds, also bounds the program but for its fail, empty-group and
+// match instructions, so an operator counted short shows on a large
+// repetition of it, the star, plus, question mark and x{n,} included.
 func TestProgramSizeBound(t *testing.T) {
 	patterns := []string{
 		`a`, `(?:)`, `^$`, `a*`, `(a*)*`, `(?:a?){0,5}`, `x{2,5}`, `x{3,}`, `x{0}`, `x{1}`, `(?i)abc`, `\pL{3}`,
@@ -69,21 +66,18 @@ func TestProgramSizeBound(t *testing.T) {
 	}
 }
 
-// TestPatternProgramLimits is the regression test of the review findings
-// that nothing bounded the program a pattern compiles to: a repetition
-// such as [a-z]{1000} repeated 300 times (3,328 bytes) compiled for
-// seconds and kept hundreds of megabytes (07 F6, a compile returns within
-// 1 s; architecture R-77). A pattern or patternProperties name whose
-// measure may exceed MaxPatternInstructions, counting every copy of a
-// repetition, the ranges of its classes and the parser's work on Unicode
-// class escapes and case-insensitive ranges, is RZ-CFG-005 before anything
-// compiles it; one at the bound compiles. The patterns of a document share
-// MaxDocumentInstructions. The copies of a class share its ranges, which
-// count once (minor review finding: counted in every copy, \p{L}{1,500}
-// and ^[\p{L} .'-]{1,128}$ were refused, though without the one-pass
-// matcher, which compilePattern never builds, they keep 46 KB or less).
-//
-// Requirements: 07 req 75 and F6.
+// TestPatternProgramLimits covers the bound on the program a pattern
+// compiles to: unbounded, a repetition such as [a-z]{1000} repeated 300
+// times (3,328 bytes) compiled for seconds and kept hundreds of megabytes,
+// where a compile must return within 1 s. A pattern or patternProperties
+// name whose measure may exceed MaxPatternInstructions, counting every copy
+// of a repetition, the ranges of its classes and the parser's work on
+// Unicode class escapes and case-insensitive ranges, is RZ-CFG-005 before
+// anything compiles it; one at the bound compiles. The patterns of a
+// document share MaxDocumentInstructions. The copies of a class share its
+// ranges, which count once (counted in every copy, \p{L}{1,500} and
+// ^[\p{L} .'-]{1,128}$ were refused, though without the one-pass matcher,
+// which compilePattern never builds, they keep 46 KB or less).
 func TestPatternProgramLimits(t *testing.T) {
 	walked := func(schema string) *walker {
 		t.Helper()
@@ -98,7 +92,7 @@ func TestPatternProgramLimits(t *testing.T) {
 		name, schema, ptr, msg string
 	}{
 		{"one instruction over", pattern(largestPattern('x', 1)), "/pattern", "more than 16384 instructions"},
-		{"the review finding", pattern(strings.Repeat("[a-z]{1000}", 300) + "x"), "/pattern", "more than 16384 instructions"},
+		{"repetitions of [a-z]{1000}", pattern(strings.Repeat("[a-z]{1000}", 300) + "x"), "/pattern", "more than 16384 instructions"},
 		{"patternProperties name", `{"patternProperties":{"[a-z]{1000}[a-z]{1000}[a-z]{1000}[a-z]{1000}[a-z]{1000}[a-z]{1000}[a-z]{1000}[a-z]{1000}[a-z]{1000}[a-z]{1000}[a-z]{1000}[a-z]{1000}[a-z]{1000}[a-z]{1000}[a-z]{1000}[a-z]{1000}[a-z]{1000}":true}}`, "/patternProperties/[a-z]{1000}[a-z]{1000}[a-z]{1000}[a-z]{1000}[a-z]{1000}[a-z]{1000}[a-z]{1000}[a-z]{1000}[a-z]{1000}[a-z]{1000}[a-z]{1000}[a-z]{1000}[a-z]{1000}[a-z]{1000}[a-z]{1000}[a-z]{1000}[a-z]{1000}", "patternProperties name compiles to a program of more than"},
 		{"Unicode class escapes", pattern(strings.Repeat(`\pL`, 40)), "/pattern", "more than 16384 instructions"},
 		{"Unicode class escapes past the bound before parsing", pattern(strings.Repeat(`\pL`, 16000)), "/pattern", "more than 16384 instructions"},
@@ -132,8 +126,8 @@ func TestPatternProgramLimits(t *testing.T) {
 	// What fits, measured exactly: Unicode class escapes count their
 	// tables' ranges as parsing work and their classes' ranges in the
 	// program, a class's ranges once whatever its copies (a repetition of
-	// \pL, anchored or not, and the i18n patterns of the minor review
-	// finding), and case folding over one wide range its characters.
+	// \pL, anchored or not, and i18n patterns), and case folding over one
+	// wide range its characters.
 	pl, cl := int64(classRanges(t, `\pL`)), int64(classRanges(t, cjk))
 	ranges := func(n int64) int64 { return (n + rangesPerInstruction - 1) / rangesPerInstruction }
 	const node = nodeInstructions
@@ -151,7 +145,7 @@ func TestPatternProgramLimits(t *testing.T) {
 		{cjk + "{990}", 990 + ranges(cl) + node + programOverhead},
 		{"^" + cjk + "{5}", 6 + ranges(cl) + node + programOverhead},
 		{`(?i)[\x{42}-\x{1e942}]`, (0x1e942-0x42+foldRunesPerInstruction)/foldRunesPerInstruction + 1 + ranges(classRanges64(t, `(?i)[\x{42}-\x{1e942}]`)) + node + programOverhead},
-		// Review finding: the literals of an alternation keep their nodes.
+		// The literals of an alternation keep their nodes.
 		{"^(?:" + altLiterals(0x800, 330) + ")$", 2 + 660 + 329 + 330*node + programOverhead},
 	} {
 		if w := walked(pattern(tc.expr)); len(w.issues) > 0 || w.insts != tc.want {
@@ -163,9 +157,8 @@ func TestPatternProgramLimits(t *testing.T) {
 			t.Errorf("pattern %q: issues %+v, want it to fit", expr, w.issues)
 		}
 	}
-	// Case folding is charged only where a flag turns it on (minor review
-	// finding: (?-i) was read as turning it on, so a case-sensitive
-	// pattern was refused).
+	// Case folding is charged only where a flag turns it on (reading (?-i)
+	// as turning it on refused a case-sensitive pattern).
 	for _, tc := range []struct {
 		expr   string
 		folded int
@@ -186,16 +179,14 @@ func TestPatternProgramLimits(t *testing.T) {
 		{`\((?i)[a-z]\)[a-z]`, 52},
 		{`[(](?i)[a-z][)][a-z]`, 26 + 1 + 26},
 		{`(?i)[a\d[:alpha:]\p{Greek}]`, 1 + 2*asciiFold},
-		// Minor review finding (a mutant that survived): a Perl class escape
-		// outside a class folds too.
+		// A Perl class escape outside a class folds too.
 		{`(?i)\d\W`, 2 * asciiFold},
 		{`\d\W`, 0},
 		{`(?i)\Q[\x{42}-\x{1e942}]\E[\q-z]`, maxFold - minFold + 1},
 		{`(?i)[\x41-\x5A]`, 26},
 		{`(?i)[^\n-\x{1e942}]`, 0x1e942 - minFold + 1},
-		// Minor review finding (a mutant that survived): a flag group within
-		// a group sets the flags until that group closes, and its own close
-		// is not a group's.
+		// A flag group within a group sets the flags until that group closes,
+		// and its own close is not a group's.
 		{`(?i:a(?-i)b)[a-z]`, 0},
 		{`(?i:a(?-i)b)(?i)[a-z]`, 26},
 	} {
@@ -203,9 +194,8 @@ func TestPatternProgramLimits(t *testing.T) {
 			t.Errorf("scanPattern(%q).folded = %d, want %d", tc.expr, got, tc.folded)
 		}
 	}
-	// Minor review finding (a mutant that survived): a Unicode class escape
-	// under case folding counts the folded table the parser builds, which
-	// the cache keeps apart from the escape's own.
+	// A Unicode class escape under case folding counts the folded table the
+	// parser builds, which the cache keeps apart from the escape's own.
 	w := newWalker(nil)
 	plain, folded := classRanges(t, `\p{Lu}`), classRanges(t, `(?i)\p{Lu}`)
 	if plain == folded {
@@ -223,8 +213,8 @@ func TestPatternProgramLimits(t *testing.T) {
 			t.Errorf("scanPattern(%q).escapes = %d, want %d", tc.expr, got, tc.escapes)
 		}
 	}
-	// Minor review findings: case-sensitive wide ranges, and three
-	// patterns of printable characters each folding about 63,000, compile.
+	// Case-sensitive wide ranges, and three patterns of printable
+	// characters each folding about 63,000, compile.
 	mustCompile(t, `{"type":"string","pattern":"(?-i)[\\x{42}-\\x{1e942}][\\x{42}-\\x{1e942}]"}`)
 	printable := `^(?i)[\\x{20}-\\x{7e}\\x{a0}-\\x{d7ff}\\x{e000}-\\x{fffd}]*$`
 	mustCompile(t, `{"properties":{"name":{"pattern":"`+printable+`"},"title":{"pattern":"`+printable+`"},"note":{"pattern":"`+printable+`"}}}`)
@@ -236,13 +226,11 @@ func TestPatternProgramLimits(t *testing.T) {
 // with the Schema alive. Among them are the anchored programs under 1,000
 // instructions for which Go's regexp would build its one-pass matcher,
 // whose tables the measure does not count: compilePattern never lets it
-// (review findings: 98 patterns ^\pL{990} kept 864 MB; 23 anchored
-// alternations of 330 classes 185 MB; 131 of 330 literals 142 MB; 131
-// anchored repetitions of a four-range class 21 MB; eight ^\pL{1,115}$
-// 19 MB). With MaxSubschemas positions, whose compiled schemas the library
-// keeps besides, a whole document keeps about 16 MB.
-//
-// Requirements: 07 req 75 and architecture R-77.
+// (with it, 98 patterns ^\pL{990} kept 864 MB; 23 anchored alternations of
+// 330 classes 185 MB; 131 of 330 literals 142 MB; 131 anchored repetitions
+// of a four-range class 21 MB; eight ^\pL{1,115}$ 19 MB). With
+// MaxSubschemas positions, whose compiled schemas the library keeps
+// besides, a whole document keeps about 16 MB.
 func TestPatternProgramMemory(t *testing.T) {
 	kept := func(t *testing.T, schema string) int64 {
 		t.Helper()
@@ -297,8 +285,8 @@ func documentMemoryCases() []analysisCase {
 // MaxDocumentInstructions, or MaxSchemaBytes first, in the shapes that keep
 // the most: the largest programs, anchored or not, repetitions of classes
 // of many ranges, and the anchored programs under 1,000 instructions for
-// which Go would build its one-pass matcher, among them the review
-// finding's documents.
+// which Go would build its one-pass matcher, among them documents that kept
+// hundreds of megabytes with that matcher.
 func patternMemoryCases() []analysisCase {
 	return []analysisCase{
 		{name: "largest anchored patterns", schema: patternsOf(8, func(i int) string { return "^" + largestPattern(tailRune(i), -2) + "$" })},
@@ -346,8 +334,7 @@ func patternsOf(n int, expr func(i int) string) string {
 
 // anchoredAlternation returns ^(?:...)$ around k branches, each a class of
 // ten distinct CJK runes followed by tail: Go's one-pass matcher would
-// merge the first ranges of all the branches at every alternation (review
-// finding).
+// merge the first ranges of all the branches at every alternation.
 func anchoredAlternation(k int, tail string) string {
 	var b strings.Builder
 	b.WriteString("^(?:")
@@ -383,10 +370,8 @@ func altLiterals(first, n int) string {
 // would complete (FuzzCompilePattern found (?)*), and names the expression
 // as written; and the program it compiles never starts with the
 // begin-text assertion, so Go builds no one-pass matcher (regexp
-// compileOnePass), which the review finding's anchored alternation would
-// make keep 8 MB.
-//
-// Requirements: 07 req 75 and architecture R-77.
+// compileOnePass), which would make an anchored alternation
+// (anchoredAlternation) keep 8 MB.
 func TestCompilePatternMatches(t *testing.T) {
 	inputs := []string{"", "a", "ab", "abc", "aaa", "x", "xa", "K", "\u212a", "a\nb", "0123", "丂a", "αβ", "a@b.c"}
 	for _, expr := range []string{
@@ -449,17 +434,13 @@ func classRanges(t testing.TB, expr string) int {
 // classRanges64 is classRanges as an int64.
 func classRanges64(t testing.TB, expr string) int64 { return int64(classRanges(t, expr)) }
 
-// TestPatternParsesBounded is the regression test of the review finding
-// that once a document's patterns passed MaxDocumentInstructions, every
-// later pattern was still parsed: 617 patterns of 100 \pL each, in a
-// schema refused anyway, took 1.3 s and 1.3 GB in every entry point (07
-// F6, a compile returns within 1 s; architecture R-77). A pattern whose
-// parsing work alone takes the document past its bound is not parsed, and
-// no pattern after the bound is; a pattern refused after its parse still
-// counts its parsing work. The test counts the parses, so it is
-// deterministic.
-//
-// Requirements: 07 req 75 and F6.
+// TestPatternParsesBounded covers the patterns past a document's
+// MaxDocumentInstructions: parsed, 617 patterns of 100 \pL each, in a
+// schema refused anyway, took 1.3 s and 1.3 GB in every entry point, where
+// a compile must return within 1 s. A pattern whose parsing work alone
+// takes the document past its bound is not parsed, and no pattern after
+// the bound is; a pattern refused after its parse still counts its
+// parsing work. The test counts the parses, so it is deterministic.
 func TestPatternParsesBounded(t *testing.T) {
 	invalid := int(MaxDocumentInstructions / ((35*int64(classRanges(t, `\pL`)) + escapeRangesPerInstruction - 1) / escapeRangesPerInstruction))
 	for _, tc := range []struct {
@@ -474,16 +455,16 @@ func TestPatternParsesBounded(t *testing.T) {
 		// Refused one by one after the parse: their parsing work counts,
 		// so the document's bound stops the parses after eight.
 		{"refused after the parse", patternsOf(600, func(i int) string { return "[" + strings.Repeat(`\pL`, 45) + "]{1000}x{1000}" + fmt.Sprint(i) }), 8, 9},
-		// Minor review finding: invalid after the parse, each counts its
-		// parsing work (about 11,900), so the document's bound stops the
-		// parses after ten or eleven, each one issue, and the bound's.
+		// Invalid after the parse, each counts its parsing work (about
+		// 11,900), so the document's bound stops the parses after ten or
+		// eleven, each one issue, and the bound's.
 		{"invalid after the parse", patternsOf(600, func(i int) string { return strings.Repeat(`\pL`, 35) + fmt.Sprint(i) + "(" }), invalid, invalid + 1},
 		// Refused one by one before the parse: none is parsed.
 		{"refused before the parse", patternsOf(600, func(i int) string { return strings.Repeat(`\pL`, 60) + fmt.Sprint(i) }), 0, MaxIssues},
 		{"folding", patternsOf(600, func(i int) string { return `(?i)[\x{42}-\x{1e942}]` + fmt.Sprint(i) }), 8, 1},
-		// Minor review finding (a mutant that survived): the tenth pattern's
-		// escapes cross the bound unparsed, and the light patterns after it,
-		// which would fit what is left, are not parsed either.
+		// The tenth pattern's escapes cross the bound unparsed, and the light
+		// patterns after it, which would fit what is left, are not parsed
+		// either.
 		{"light patterns after the bound", patternsOf(600, func(i int) string {
 			if i < 10 {
 				return strings.Repeat(`\pL`, 30) + fmt.Sprint(i)
@@ -503,7 +484,7 @@ func TestPatternParsesBounded(t *testing.T) {
 
 // TestScanPatternPrefixes runs the lexical pass over every prefix of
 // patterns that use each construct it reads, which cuts escapes, classes
-// and quoted runs anywhere (07 F6, the compile never panics): it never
+// and quoted runs anywhere (the compile never panics): it never
 // fails, and where the parser builds a class of more than a hundred ranges
 // from a Unicode class escape, the pass counts the escape's ranges.
 func TestScanPatternPrefixes(t *testing.T) {
@@ -534,13 +515,11 @@ func TestScanPatternPrefixes(t *testing.T) {
 	}
 }
 
-// TestHandleMatcherCharge is the regression test of the review finding
-// that every body was charged the matcher of the document's largest
-// pattern, so a {} body under a schema with a large pattern reserved 64 MB
-// and eight such requests spent the Node's budget: the matcher is charged
-// only when a pattern may reach a value or its member name.
-//
-// Requirements: 07 reqs 80 to 82 and architecture R-63.
+// TestHandleMatcherCharge covers the matcher's charge: charged to every
+// body, the matcher of the document's largest pattern made a {} body under
+// a schema with a large pattern reserve 64 MB, and eight such requests
+// spent the Node's budget; the matcher is charged only when a pattern may
+// reach a value or its member name.
 func TestHandleMatcherCharge(t *testing.T) {
 	schema := fmt.Sprintf(`{"properties":{"code":{"type":"string","pattern":%q}}}`, largestPattern('x', 0))
 	s := mustCompile(t, schema)

@@ -21,7 +21,7 @@ import (
 // FuzzChain drives random chains (classes, failureModes, when results,
 // Phase subscriptions, outcomes including panics, SPI sentinels and
 // Consumptive members) through every client Phase and one leg, and checks
-// the executor's invariants (spec 04 reqs 39 to 44, R-40, R-42):
+// the executor's invariants:
 //
 //   - no panic escapes, and every Filter call follows Enter for its Policy;
 //   - a request Phase call never follows a short-circuit;
@@ -29,7 +29,7 @@ import (
 //   - Finish runs exactly for the Finishers that ran, in request order,
 //     after every onLog call;
 //   - RecordFailure and the failure metric agree, spec.when runtime errors
-//     included (spec 03 req 43), and every generated response carries a
+//     included, and every generated response carries a
 //     registered-looking code or the Filter's own;
 //   - a security-class Policy is never recorded as failing open.
 func FuzzChain(f *testing.F) {

@@ -24,12 +24,11 @@ import (
 	"time"
 )
 
-// Tests for the guarded HTTP client, spec 06 requirements 37 (redirects
-// https to https, at most 3 hops, each re-checked; body cap), 69 (tokenUrl
-// redirects never followed), 84 (guard per hop), 85 (proxy variables only
-// with env-proxy, the proxy's address checked) and 86 (no https to http,
-// no cookies, capped bodies), and R-49 (a destination-bound client never
-// contacts a second origin).
+// Tests for the guarded HTTP client: redirects https to https, at most 3
+// hops, each re-checked; tokenUrl redirects never followed; the guard on
+// every hop; proxy variables only with env-proxy, the proxy's address
+// checked; no https to http, no cookies, capped bodies; and a
+// destination-bound client never contacting a second origin.
 
 // tlsServer is an httptest TLS server that counts its requests.
 type tlsServer struct {
@@ -86,7 +85,7 @@ func get(t *testing.T, c *http.Client, u string) (int, []byte, error) {
 	return resp.StatusCode, body, err
 }
 
-func TestClientFetchReq84(t *testing.T) {
+func TestClientFetch(t *testing.T) {
 	s := newTLSServer(t, func(w http.ResponseWriter, _ *http.Request) {
 		_, _ = io.WriteString(w, `{"keys":[]}`)
 	})
@@ -104,9 +103,9 @@ func TestClientFetchReq84(t *testing.T) {
 	}
 }
 
-// TestClientRefusesDeniedDestinationReq84 fetches a loopback server without
+// TestClientRefusesDeniedDestination fetches a loopback server without
 // an allow entry: refused before any byte reaches it.
-func TestClientRefusesDeniedDestinationReq84(t *testing.T) {
+func TestClientRefusesDeniedDestination(t *testing.T) {
 	s := newTLSServer(t, func(http.ResponseWriter, *http.Request) {})
 	var g *Guard
 	c := g.Client(ClientOptions{TLS: rootsFor(s.Server)})
@@ -127,8 +126,8 @@ func TestClientRefusesDeniedDestinationReq84(t *testing.T) {
 	}
 }
 
-// TestClientRedirectsReq37Req86 covers the JWKS redirect policy.
-func TestClientRedirectsReq37Req86(t *testing.T) {
+// TestClientRedirects covers the JWKS redirect policy.
+func TestClientRedirects(t *testing.T) {
 	plain := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {
 		t.Error("the https to http redirect target was contacted")
 	}))
@@ -188,9 +187,9 @@ func TestClientRedirectsReq37Req86(t *testing.T) {
 	}
 }
 
-// TestClientNoRedirectReq69Req86 is the tokenUrl client: a redirect fails
+// TestClientNoRedirect is the tokenUrl client: a redirect fails
 // and the second origin is never contacted.
-func TestClientNoRedirectReq69Req86(t *testing.T) {
+func TestClientNoRedirect(t *testing.T) {
 	second := newTLSServer(t, func(http.ResponseWriter, *http.Request) {})
 	first := newTLSServer(t, func(w http.ResponseWriter, r *http.Request) {
 		http.Redirect(w, r, second.URL+"/token", http.StatusTemporaryRedirect)
@@ -214,13 +213,13 @@ func TestClientNoRedirectReq69Req86(t *testing.T) {
 	}
 }
 
-// TestClientNoRedirectEvery3xxReq69Req86 covers the 3xx responses
+// TestClientNoRedirectEvery3xx covers the 3xx responses
 // http.Client returns without consulting CheckRedirect (no Location, 300,
 // 304, and a 307 or 308 answering a POST whose body has no GetBody): a
-// client that follows no redirect (MaxRedirects 0, or destination-bound,
-// R-49) fails every one with ErrRedirect, and a client that follows
-// redirects returns them with a nil error for the caller's status check.
-func TestClientNoRedirectEvery3xxReq69Req86(t *testing.T) {
+// client that follows no redirect (MaxRedirects 0, or destination-bound)
+// fails every one with ErrRedirect, and a client that follows redirects
+// returns them with a nil error for the caller's status check.
+func TestClientNoRedirectEvery3xx(t *testing.T) {
 	second := newTLSServer(t, func(http.ResponseWriter, *http.Request) {})
 	first := newTLSServer(t, func(w http.ResponseWriter, r *http.Request) {
 		_, _ = io.Copy(io.Discard, r.Body)
@@ -315,10 +314,10 @@ func TestClientNoRedirectEvery3xxReq69Req86(t *testing.T) {
 	}
 }
 
-// TestCheckRedirectNoFollowReq69 checks that the CheckRedirect policy of a
+// TestCheckRedirectNoFollow checks that the CheckRedirect policy of a
 // client that follows no redirect refuses on its own, although the
 // transport already refuses every 3xx before it runs.
-func TestCheckRedirectNoFollowReq69(t *testing.T) {
+func TestCheckRedirectNoFollow(t *testing.T) {
 	req, err := http.NewRequestWithContext(t.Context(), http.MethodGet, "https://idp.example/next", http.NoBody)
 	if err != nil {
 		t.Fatal(err)
@@ -333,10 +332,10 @@ func TestCheckRedirectNoFollowReq69(t *testing.T) {
 	}
 }
 
-// TestClientDestinationBoundR49 pins the client to one origin: a redirect
-// is never followed even with MaxRedirects set, and another origin is
-// refused before any connection.
-func TestClientDestinationBoundR49(t *testing.T) {
+// TestClientDestinationBound pins the client to one origin: a redirect is
+// never followed even with MaxRedirects set, and another origin is refused
+// before any connection.
+func TestClientDestinationBound(t *testing.T) {
 	other := newTLSServer(t, func(http.ResponseWriter, *http.Request) {})
 	var home *tlsServer
 	home = newTLSServer(t, func(w http.ResponseWriter, r *http.Request) {
@@ -382,7 +381,7 @@ func TestClientDestinationBoundR49(t *testing.T) {
 	}
 }
 
-func TestClientOnlyHTTPSReq86(t *testing.T) {
+func TestClientOnlyHTTPS(t *testing.T) {
 	plain := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {
 		t.Error("a cleartext URL was fetched")
 	}))
@@ -402,9 +401,9 @@ func TestClientOnlyHTTPSReq86(t *testing.T) {
 	}
 }
 
-// TestClientBodyCapReq37Req70Req86 checks the cap with and without a
+// TestClientBodyCap checks the cap with and without a
 // Content-Length, and a body exactly at the cap.
-func TestClientBodyCapReq37Req70Req86(t *testing.T) {
+func TestClientBodyCap(t *testing.T) {
 	const limit = 64 << 10
 	s := newTLSServer(t, func(w http.ResponseWriter, r *http.Request) {
 		n, _ := strconv.Atoi(r.URL.Query().Get("n"))
@@ -470,8 +469,8 @@ func TestCappedBodyStickyError(t *testing.T) {
 	}
 }
 
-// TestClientNoCookiesReq37Req86 checks that a Set-Cookie is never sent back.
-func TestClientNoCookiesReq37Req86(t *testing.T) {
+// TestClientNoCookies checks that a Set-Cookie is never sent back.
+func TestClientNoCookies(t *testing.T) {
 	var cookies atomic.Int64
 	s := newTLSServer(t, func(w http.ResponseWriter, r *http.Request) {
 		if r.Header.Get("Cookie") != "" {
@@ -494,9 +493,9 @@ func TestClientNoCookiesReq37Req86(t *testing.T) {
 	}
 }
 
-// TestClientTLSVerifiedReq82 checks that verification cannot be turned off
+// TestClientTLSVerified checks that verification cannot be turned off
 // and that the minimum version is raised to TLS 1.2.
-func TestClientTLSVerifiedReq82(t *testing.T) {
+func TestClientTLSVerified(t *testing.T) {
 	s := newTLSServer(t, func(http.ResponseWriter, *http.Request) {})
 	insecure := &tls.Config{MinVersion: tls.VersionTLS10} //nolint:gosec // The client must raise it; this test checks that.
 	insecure.InsecureSkipVerify = true
@@ -586,9 +585,9 @@ func newConnectProxy(t *testing.T, target string) *connectProxy {
 	return p
 }
 
-// TestClientEnvProxyReq85 checks that proxy variables apply only with
+// TestClientEnvProxy checks that proxy variables apply only with
 // env-proxy and that the guard checks the proxy's address.
-func TestClientEnvProxyReq85(t *testing.T) {
+func TestClientEnvProxy(t *testing.T) {
 	s := newTLSServer(t, func(w http.ResponseWriter, _ *http.Request) { _, _ = io.WriteString(w, "ok") })
 	proxy := newConnectProxy(t, s.Listener.Addr().String())
 	proxyURL, err := url.Parse(proxy.URL)

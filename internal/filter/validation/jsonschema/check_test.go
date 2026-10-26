@@ -38,9 +38,9 @@ func runCheck(r *hub.Resource) diag.List {
 	return out
 }
 
-// TestCheckPaths covers the done-when of WP-51 and 07 req 75: Check
-// findings are RZ-CFG-005 at key-aware paths under spec.config.schema, an
-// array element as an index, located through loc, about the resource.
+// TestCheckPaths covers the finding paths: Check findings are RZ-CFG-005 at
+// key-aware paths under spec.config.schema, an array element as an index,
+// located through loc, about the resource.
 func TestCheckPaths(t *testing.T) {
 	for _, tc := range []struct {
 		name, schema, path string
@@ -78,8 +78,8 @@ func TestCheckPaths(t *testing.T) {
 	}
 }
 
-// TestCheckSkips covers the resources Check leaves to other stages (07
-// req 75: Check reports config.schema findings only).
+// TestCheckSkips covers the resources Check leaves to other stages
+// (Check reports config.schema findings only).
 func TestCheckSkips(t *testing.T) {
 	for _, r := range []*hub.Resource{
 		nil,
@@ -105,8 +105,6 @@ func TestCheckSkips(t *testing.T) {
 // TestGoldenCheckDiagnostics compares the text and JSON diagnostic forms
 // of Check findings with goldens, so ruralz, ruralzd and ruralz-control
 // print them byte-identically.
-//
-// Requirements: 07 req 75 and T14.
 func TestGoldenCheckDiagnostics(t *testing.T) {
 	cases := []struct{ name, schema string }{
 		{"multiple", `{"$schema":"http://json-schema.org/draft-07/schema#","properties":{"zip":{"pattern":"^(?!0)"},"n":{"minimum":1e-5000}},"items":{"$ref":"file:///etc/passwd"}}`},

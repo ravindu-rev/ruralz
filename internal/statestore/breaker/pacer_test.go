@@ -10,9 +10,8 @@ import (
 	"github.com/ravindu-rev/ruralz/internal/clock/clocktest"
 )
 
-// Tests for spec 08 req 22 (full-jitter reconnect pacing, at most 4
-// connects in any sliding second) and the Pacer row of the 08 section 6.1
-// unit table.
+// Tests for the Pacer: full-jitter reconnect pacing, at most 4 connects in
+// any sliding second.
 
 func TestPacerBackoffBounds(t *testing.T) {
 	// Delays lie in [0, min(5 s, 100 ms × 2^n)] after n consecutive
@@ -114,8 +113,8 @@ func TestPacerResetOnSuccess(t *testing.T) {
 }
 
 func TestPacedRefusalIsNotConnectFailure(t *testing.T) {
-	// 08 req 22: a dial refused by pacing fails at once without touching
-	// the network and does not count toward the breaker's 5 connect
+	// A dial refused by pacing fails at once without touching the
+	// network and does not count toward the breaker's 5 connect
 	// failures.
 	clk := clocktest.New(start())
 	b := New(clk, DefaultConfig(), fixed(time.Second))

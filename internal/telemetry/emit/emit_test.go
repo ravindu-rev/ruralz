@@ -10,10 +10,10 @@ import (
 	"github.com/ravindu-rev/ruralz/internal/telemetry/catalog"
 )
 
-// Tests for architecture section 2.11 (WP-01) and R-56: every label index
-// constant equals the position of its value in the catalog enumeration,
-// and every Num* constant is the enumeration's length, so fixed-size
-// handle arrays line up with catalog.Families (spec 09 req 43 and 44).
+// Tests that every label index constant equals the position of its value
+// in the catalog enumeration, and that every Num* constant is the
+// enumeration's length, so fixed-size handle arrays line up with
+// catalog.Families.
 
 // labelValues returns the enumeration of label on family.
 func labelValues(t *testing.T, family, label string) []string {
@@ -82,8 +82,8 @@ func at(values []string, i int) string {
 }
 
 // TestStateOpIndexes checks StateOp* against catalog.Ops(), the op label of
-// every State Store family (R-56: script_multi and pipeline sit before
-// cache_set, so statestore.OpKind values are not indexes).
+// every State Store family (script_multi and pipeline sit before cache_set,
+// so statestore.OpKind values are not indexes).
 func TestStateOpIndexes(t *testing.T) {
 	want := map[int]string{
 		StateOpGCRA: "gcra", StateOpQuota: "quota", StateOpCacheGet: "cache_get", StateOpScriptMulti: "script_multi",
@@ -144,7 +144,7 @@ func TestPhaseIndexes(t *testing.T) {
 }
 
 func TestOutcomes(t *testing.T) {
-	// ruralz.outcome values (spec 04 req 44 span attributes).
+	// The ruralz.outcome span attribute values.
 	for got, want := range map[string]string{
 		OutcomeContinue: "continue", OutcomeRespond: "respond", OutcomeCannotDecide: "cannot_decide", OutcomeSkipped: "skipped",
 	} {

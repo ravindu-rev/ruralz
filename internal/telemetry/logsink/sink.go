@@ -3,7 +3,7 @@
 
 // Package logsink is the process-log half of the Ruralz logging pipeline
 // (docs/architecture/10-observability.md "Process logs"; ADR-0018 row
-// Logs; spec 09 requirements 61 to 65, spec 04 requirement 79).
+// Logs).
 //
 // A Sink owns stdout. Its Handler is the only slog.Handler of ruralzd: it
 // checks the fixed level (RURALZ_LOG_LEVEL), clones the record with the
@@ -55,7 +55,7 @@ import (
 	"github.com/ravindu-rev/ruralz/internal/clock"
 )
 
-// Default bounds (proposed in 09 req 61 and 62).
+// Default bounds (proposed).
 const (
 	// DefaultQueueRecords bounds the process-log queue in records.
 	DefaultQueueRecords = 4096
@@ -65,7 +65,7 @@ const (
 	// when the queues drain.
 	DefaultBatchBytes = 64 << 10
 	// ErrorLogRate is the records per second the http.Server.ErrorLog
-	// bridge passes (04 req 79, proposed).
+	// bridge passes (proposed).
 	ErrorLogRate = 10
 )
 
@@ -114,7 +114,7 @@ type Exported struct {
 	// HasTrace reports a valid span context.
 	HasTrace bool
 	// Dropped is true when the stdout write already lost and counted the
-	// record; the Bridge must not count it again (09 req 65).
+	// record; the Bridge must not count it again.
 	Dropped bool
 }
 
@@ -143,7 +143,7 @@ type Options struct {
 	BatchBytes   int
 }
 
-// Stats are the counters of one log stream (09 req 65): Produced feeds
+// Stats are the counters of one log stream: Produced feeds
 // ruralz_telemetry_logs_total, QueueFull and ExportError feed
 // ruralz_telemetry_logs_dropped_total by reason.
 type Stats struct {
@@ -269,7 +269,7 @@ func (s *Sink) Logger(component string) *slog.Logger { return slog.New(s.Handler
 
 // ErrorLog returns the handler http.Server.ErrorLog is bridged to
 // (slog.NewLogLogger(h, slog.LevelWarn)): component's handler limited to
-// ErrorLogRate records per second (04 req 79).
+// ErrorLogRate records per second.
 func (s *Sink) ErrorLog(component string) slog.Handler {
 	return RateLimit(s.Handler(component), s.clock, ErrorLogRate)
 }
@@ -284,9 +284,9 @@ func (s *Sink) SetRevision(display string) {
 	s.revision.Store(&display)
 }
 
-// SetCredentialHeaders sets the header names redacted besides the
-// built-in credential headers: every auth.api-key Policy's header of the
-// active Revision and the headers set by upstream-auth Filters (06 req 92).
+// SetCredentialHeaders sets the header names redacted besides the built-in
+// credential headers: every auth.api-key Policy's header of the active
+// Revision and the headers set by upstream-auth Filters.
 func (s *Sink) SetCredentialHeaders(names []string) { s.creds.Store(newCredSet(names)) }
 
 // SetBridge sets the OTLP bridge; nil stops OTLP export of process logs.
@@ -343,7 +343,7 @@ func (s *Sink) release(e *entry) {
 // Stream until ctx is done, then encodes what is still queued, writes it
 // and returns nil. Its owner (the telemetry Runtime) waits for it; a write
 // blocked on stdout cannot be interrupted, so the owner gives up after its
-// Drain deadline and calls Close (09 section 9 item 20).
+// Drain deadline and calls Close.
 func (s *Sink) Run(ctx context.Context) error {
 	if !s.running.CompareAndSwap(false, true) {
 		return ErrRunning
@@ -500,10 +500,9 @@ func (s *Sink) finishProcess(lost int) {
 // Close stops the Sink: later records are dropped and counted, the records
 // still queued are counted as dropped (queue_full), and the process lines
 // of a batch an abandoned worker is still writing count export_error, so
-// records lost at exit are counted once (09 section 9 item 20). Call it
-// after Run returned, or after giving up on a Run blocked on stdout; a
-// batch that such a worker writes later is not counted again. It is safe
-// to call more than once.
+// records lost at exit are counted once. Call it after Run returned, or
+// after giving up on a Run blocked on stdout; a batch that such a worker
+// writes later is not counted again. It is safe to call more than once.
 func (s *Sink) Close() {
 	s.closed.Store(true)
 	s.dropQueued()

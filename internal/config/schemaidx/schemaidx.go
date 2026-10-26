@@ -2,14 +2,13 @@
 // SPDX-License-Identifier: Apache-2.0
 
 // Package schemaidx is the navigable index over the embedded rendered JSON
-// Schema of each served apiVersion (architecture R-3). It reads the
-// generated schema with the standard library only and resolves the subset
-// the generator emits: $ref, properties, items, additionalProperties,
-// allOf, if/then/else dispatch (the resource kind at the root, the Policy
-// config by spec.type) and the seven x-ruralz-* keywords of
-// docs/architecture/02-configuration-model.md "Schema keywords that drive
-// tooling", plus default values and the scalar definitions Duration,
-// ByteSize, Decimal and IntOrString.
+// Schema of each served apiVersion. It reads the generated schema with the
+// standard library only and resolves the subset the generator emits: $ref,
+// properties, items, additionalProperties, allOf, if/then/else dispatch
+// (the resource kind at the root, the Policy config by spec.type) and the
+// seven x-ruralz-* keywords of docs/architecture/02-configuration-model.md
+// "Schema keywords that drive tooling", plus default values and the scalar
+// definitions Duration, ByteSize, Decimal and IntOrString.
 //
 // Overlay merge (keyed lists), substitution (forbidden positions and
 // re-typing), defaults and normalization, canonical form (since-omission,
@@ -17,7 +16,7 @@
 // navigate the schema through this package; internal/config/schemaview only
 // compiles and validates with jsonschema/v6. Nothing here is table-driven:
 // adding a +ruralz:default or +ruralz:impact marker to pkg/config/v1alpha1
-// and regenerating the schema needs no code change (02 req 10).
+// and regenerating the schema needs no code change.
 //
 // An Index is built once per process with Load or Embedded and passed
 // explicitly; it is immutable and safe for concurrent use.
@@ -42,7 +41,7 @@ var ErrSchema = errors.New("schemaidx: unsupported or invalid schema")
 // ListType is the x-ruralz-list type of an array.
 type ListType uint8
 
-// List types (02 req 17, 01 req 25).
+// List types.
 const (
 	// ListNone means the array carries no x-ruralz-list keyword: lists
 	// inside open objects and free-form content, treated as atomic.
@@ -92,7 +91,7 @@ func parseListType(s string) (ListType, bool) {
 	}
 }
 
-// Scalar names the scalar definition a value normalizes by (02 req 15).
+// Scalar names the scalar definition a value normalizes by.
 type Scalar uint8
 
 // Scalar definitions, recognized by their $defs name.
@@ -212,7 +211,7 @@ func parseType(s string) (TypeSet, bool) {
 	}
 }
 
-// Impact is a set of diff impact classes (x-ruralz-impact, 02 req 64).
+// Impact is a set of diff impact classes (x-ruralz-impact).
 type Impact uint8
 
 // Impact classes, declared in name order so Strings is sorted.
@@ -403,7 +402,7 @@ func load(apiVersion string, rendered []byte, limit int) (*Index, error) {
 func (x *Index) APIVersion() string { return x.apiVersion }
 
 // Level returns the schema level: the maximum x-ruralz-since in the schema,
-// 0 when no field carries one (02 req 75).
+// 0 when no field carries one.
 func (x *Index) Level() int { return x.level }
 
 // Kinds returns the resource kinds the root dispatches, in schema order.
@@ -487,7 +486,7 @@ func loadFS(fsys fs.FS) (*Set, error) {
 }
 
 // Index returns the index of apiVersion; false for an unserved apiVersion
-// (the loader reports RZ-CFG-007, 02 req 4).
+// (the loader reports RZ-CFG-007).
 func (s *Set) Index(apiVersion string) (*Index, bool) {
 	x, ok := s.byVersion[apiVersion]
 	return x, ok

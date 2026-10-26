@@ -9,8 +9,8 @@ import (
 	"testing"
 )
 
-// TestRetryBudgetLimit_05Req34 is max(3, floor(20% × originals)).
-func TestRetryBudgetLimit_05Req34(t *testing.T) {
+// TestRetryBudgetLimit is max(3, floor(20% × originals)).
+func TestRetryBudgetLimit(t *testing.T) {
 	tests := map[int]int{0: 3, 1: 3, 14: 3, 15: 3, 19: 3, 20: 4, 24: 4, 25: 5, 99: 19, 100: 20, 1001: 200, 1 << 40: (1 << 40) / 5}
 	for originals, want := range tests {
 		if got := RetryBudgetLimit(originals); got != want {
@@ -19,9 +19,9 @@ func TestRetryBudgetLimit_05Req34(t *testing.T) {
 	}
 }
 
-// TestRetryBudget_05Req34 admits retries up to the limit and releases them
+// TestRetryBudget admits retries up to the limit and releases them
 // at leg end.
-func TestRetryBudget_05Req34(t *testing.T) {
+func TestRetryBudget(t *testing.T) {
 	var b RetryBudget
 	for range 15 {
 		b.BeginLeg()
@@ -65,10 +65,10 @@ func TestRetryBudget_05Req34(t *testing.T) {
 	}
 }
 
-// TestRetryBudgetAmplification_05Req34: from 15 originals in flight the
+// TestRetryBudgetAmplification: from 15 originals in flight the
 // retries in flight stay within 20% of them, so amplification is at most
 // 1.2×.
-func TestRetryBudgetAmplification_05Req34(t *testing.T) {
+func TestRetryBudgetAmplification(t *testing.T) {
 	for originals := 15; originals <= 2000; originals++ {
 		var b RetryBudget
 		for range originals {
@@ -90,7 +90,7 @@ func TestRetryBudgetAmplification_05Req34(t *testing.T) {
 // TestRetryBudgetConcurrent races legs through the budget: with n legs in
 // flight, at most the limit of retries is admitted, and every count returns
 // to zero.
-func TestRetryBudgetConcurrent_05Req34(t *testing.T) {
+func TestRetryBudgetConcurrent(t *testing.T) {
 	const legs = 64
 	var (
 		b       RetryBudget
@@ -133,11 +133,11 @@ func TestRetryBudgetConcurrent_05Req34(t *testing.T) {
 	}
 }
 
-// FuzzRetryBudget is 05 section 6 test 26: random legs never exceed
-// max(3, 20%) retries in flight when a retry is admitted, and the budget's
-// counts equal a model's after every operation. The model counts every
-// retry a leg makes, from its admission to the leg's end (05 req 34), so a
-// leg may hold several.
+// FuzzRetryBudget checks that random legs never exceed max(3, 20%)
+// retries in flight when a retry is admitted, and that the budget's counts
+// equal a model's after every operation. The model counts every retry a
+// leg makes, from its admission to the leg's end, so a leg may hold
+// several.
 func FuzzRetryBudget(f *testing.F) {
 	f.Add([]byte{0, 0, 0, 1, 1, 1, 1, 3, 4})
 	f.Add([]byte{0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 1, 1, 1, 1, 2, 2, 2, 1})

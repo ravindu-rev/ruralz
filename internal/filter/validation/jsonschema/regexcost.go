@@ -15,18 +15,18 @@ import (
 	"unicode"
 )
 
-// The work of a pattern (architecture R-77, package documentation "Work
-// bound"). The library matches pattern and patternProperties with Go's
-// regexp, whose matchers (the backtracker and the NFA simulation:
-// compilePattern never lets it build the one-pass matcher) never visit
-// more program instructions per input rune than the NFA simulation holds
-// in its run queue. A pattern's cost per byte is therefore bounded by the
-// largest run queue any input can build, which queueBound computes by
-// exploring the queues the NFA reaches over the program's character
-// classes; a pattern whose exploration does not finish within its budget
-// is charged its whole program per byte instead. That bounds the work of
-// the matchers, not their memory: the backtracker's job stack grows with
-// the input (backtrackBytes).
+// The work of a pattern (package documentation "Work bound"). The library
+// matches pattern and patternProperties with Go's regexp, whose matchers
+// (the backtracker and the NFA simulation: compilePattern never lets it
+// build the one-pass matcher) never visit more program instructions per
+// input rune than the NFA simulation holds in its run queue. A pattern's
+// cost per byte is therefore bounded by the largest run queue any input
+// can build, which queueBound computes by exploring the queues the NFA
+// reaches over the program's character classes; a pattern whose
+// exploration does not finish within its budget is charged its whole
+// program per byte instead. That bounds the work of the matchers, not
+// their memory: the backtracker's job stack grows with the input
+// (backtrackBytes).
 const (
 	// matchUnits is the work of one match call that does not grow with
 	// the input (taking a matcher from the pool, the setup), measured at
@@ -68,34 +68,32 @@ type patternCost struct {
 	insts, held int
 }
 
-// The backtracker's job stack (review findings). Go's regexp matches with
-// its backtracker whenever the program has at most maxBacktrackProg
-// instructions and the input is shorter than maxBacktrackVector bits per
-// instruction, that is shorter than maxBacktrackVector divided by the
-// program's instruction count, in bytes (regexp/backtrack.go); otherwise
-// with the NFA simulation, whose queues and threads grow with the program
-// alone. The backtracker marks every pair of instruction and input
-// position it visits, so it visits each at most once, and searches depth
-// first, keeping a stack of jobs. For a match without submatches, as the
-// library asks, the only jobs on the stack besides the one it starts from
-// are reminders, one for every alternation on the current search path
-// whose first branch it is still exploring, at the position it entered it;
-// the reminder is popped when the search turns to the second branch. The
-// path moves through the input positions in order, consuming a rune
-// between two of them, so at one position it is a run of empty-width steps
-// (alternations, no-ops, captures and assertions) from the instruction the
-// position's search starts at, the program's start or the instruction
-// after a rune, and the visited marks keep the run's alternations
-// distinct. The stack therefore holds at most held jobs per input
-// position, held being the most alternations reachable through
-// empty-width steps from any one such instruction, plus the first:
+// The backtracker's job stack. Go's regexp matches with its backtracker
+// whenever the program has at most maxBacktrackProg instructions and the
+// input is shorter than maxBacktrackVector bits per instruction, that is
+// shorter than maxBacktrackVector divided by the program's instruction
+// count, in bytes (regexp/backtrack.go); otherwise with the NFA simulation,
+// whose queues and threads grow with the program alone. The backtracker
+// marks every pair of instruction and input position it visits, so it
+// visits each at most once, and searches depth first, keeping a stack of
+// jobs. For a match without submatches, as the library asks, the only jobs
+// on the stack besides the one it starts from are reminders, one for every
+// alternation on the current search path whose first branch it is still
+// exploring, at the position it entered it; the reminder is popped when the
+// search turns to the second branch. The path moves through the input
+// positions in order, consuming a rune between two of them, so at one
+// position it is a run of empty-width steps (alternations, no-ops, captures
+// and assertions) from the instruction the position's search starts at, the
+// program's start or the instruction after a rune, and the visited marks
+// keep the run's alternations distinct. The stack therefore holds at most
+// held jobs per input position, held being the most alternations reachable
+// through empty-width steps from any one such instruction, plus the first:
 // (n+1)*held+1 on n bytes, which never exceeds the visited set's
 // maxBacktrackVector pairs, about 12.6 MB at jobBytes. (?:(?:a??){240}a)*b,
 // whose 241 alternations all follow one another, held 129,658 jobs on 537
 // bytes, a charge of 129,659; the WHATWG e-mail pattern, 126 alternations
-// in all, holds at most 3 per position (review finding: charged every
-// alternation of the program, small bodies under it were refused at a 64
-// KiB limit).
+// in all, holds at most 3 per position (charged every alternation of the
+// program, small bodies under it were refused at a 64 KiB limit).
 const (
 	// maxBacktrackProg and maxBacktrackVector are Go's limits: the largest
 	// program the backtracker runs, and the bits of its visited set, which
@@ -180,9 +178,9 @@ func reachOf(costs ...patternCost) patternReach {
 // (stateBuilder.weigh) in time linear in their programs, with no
 // allocation per schema: the backtracker runs programs of at most
 // maxBacktrackProg instructions, so the most jobs of each size fit a
-// table, which the merged list reads in order of size (review finding: a
-// union per schema concatenated and sorted the growing list again, so 1,000
-// patterns at each of 349 states compiled for 2.9 s and allocated 2.4 GB).
+// table, which the merged list reads in order of size (a union per schema,
+// which concatenated and sorted the growing list again, made 1,000 patterns
+// at each of 349 states compile for 2.9 s and allocate 2.4 GB).
 // The zero value is empty.
 type reachMerger struct {
 	// insts is the largest program added; n counts the programs of the
@@ -228,8 +226,8 @@ func (m *reachMerger) reach(lists *reachLists) patternReach {
 
 // reachLists interns the program lists of merged reaches, so the states
 // with the same patterns share one list and the compiled Schema keeps each
-// distinct list once (review finding: 1,200 states each kept a list of 241
-// programs, 4.5 MB).
+// distinct list once (1,200 states each keeping a list of 241 programs held
+// 4.5 MB).
 type reachLists struct {
 	lists   map[string][]backtrackProg
 	key     []byte
@@ -257,8 +255,8 @@ func (l *reachLists) intern(progs []backtrackProg) []backtrackProg {
 
 // bytes returns what one match of n bytes may hold under r: nothing
 // without a pattern, else a matcher of the largest program and the
-// backtracker's job stack (review finding: a pattern of 241 alternations
-// held 4.9 MB for 537 bytes, charged 64 KB).
+// backtracker's job stack (a pattern of 241 alternations held 4.9 MB for
+// 537 bytes, charged 64 KB).
 func (r patternReach) bytes(n int) int64 {
 	if r.insts == 0 {
 		return 0
@@ -403,8 +401,8 @@ func classSteps(prog *syntax.Prog) int {
 // before it is taken, and its closure as soon as it is computed, and the
 // budget is checked before each representative, so the exploration
 // overruns its budget by at most one representative's closure, about twice
-// the program (review finding: checked only between queues, one queue of
-// an alternation of thousands of literals took seconds).
+// the program (checked only between queues, one queue of an alternation of
+// thousands of literals took seconds).
 func queueBound(prog *syntax.Prog, budget *int) int {
 	n := len(prog.Inst)
 	if *budget < 0 {
@@ -543,9 +541,8 @@ func queueKey(q []int) string {
 // bound is charged to budget twice, for adding and for sorting it, and
 // the budget is checked before an instruction's bounds are added, so the
 // classes of a large program end the exploration without overrunning it
-// (review finding: 990 copies of a class of 19,000 ranges took 1.4 s and
-// 788 MB here before the budget was charged). It reports false when the
-// budget runs out.
+// (uncharged, 990 copies of a class of 19,000 ranges took 1.4 s and 788 MB
+// here). It reports false when the budget runs out.
 func classReps(prog *syntax.Prog, budget *int) ([]rune, bool) {
 	// A fold orbit holds at most four runes.
 	const maxOrbit = 4

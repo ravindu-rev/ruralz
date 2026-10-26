@@ -21,8 +21,8 @@ import (
 )
 
 // testPKI is a self-signed certificate for 127.0.0.1 and localhost and the
-// pool trusting it. The test kit's pki package is not imported: WP-84's
-// packages import no Ruralz package.
+// pool trusting it. The test kit's pki package is not imported: the mock
+// and OTLP sink packages import no Ruralz package.
 type testPKI struct {
 	cert tls.Certificate
 	pool *x509.CertPool

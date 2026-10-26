@@ -9,7 +9,7 @@
 // rules, cache-line striped counters and gauges, integer histograms with
 // exemplar slots, and collection into metricdata through an
 // sdkmetric.Producer that both the OTLP reader and the Prometheus exporter
-// read (OQ-observability-16 (a)).
+// read.
 //
 // Request-path recording takes no lock, allocates nothing and never
 // blocks: a handle loads one atomic pointer (its label set, or _overflow
@@ -50,9 +50,9 @@ type Limits struct {
 	Revision int
 	// Retiring is the Node-wide ceiling of retiring series (25,000).
 	// Listener and enumeration-only series count against it but never
-	// fold (09 req 55), so retiring listener groups alone can hold the
-	// retiring count above it once no foldable group is left to fold: the
-	// ceiling bounds what folding can reclaim, not the listener share.
+	// fold, so retiring listener groups alone can hold the retiring count
+	// above it once no foldable group is left to fold: the ceiling bounds
+	// what folding can reclaim, not the listener share.
 	Retiring int
 	// ListenerStripedSeries and ListenerStripedHistograms cap the striped
 	// listener and enumeration-only counter or gauge series (1,000) and
@@ -69,7 +69,8 @@ type Limits struct {
 	StripedUpstreams int
 }
 
-// DefaultLimits returns the spec 09 req 49, 55 and 56 targets.
+// DefaultLimits returns the target admission, retiring and striping
+// limits.
 func DefaultLimits() Limits {
 	return Limits{
 		CounterFamily:             6000,
@@ -128,7 +129,7 @@ type Options struct {
 	ScopeVersion string
 }
 
-// maxStripes is the stripe cap (spec 09 req 49).
+// maxStripes is the stripe cap.
 const maxStripes = 8
 
 // ScopeName is the instrumentation scope of every produced metric.
@@ -213,7 +214,7 @@ var (
 )
 
 // New builds the registry of every catalog family, with every Node-wide
-// enumeration label set pre-created at 0 (spec 09 req 45).
+// enumeration label set pre-created at 0.
 func New(o Options) (*Registry, error) {
 	r := &Registry{
 		clk:    o.Clock,
@@ -381,11 +382,11 @@ func (r *Registry) buildNode() error {
 // reserveFixedStripes decides at start which _overflow and _unmatched
 // groups are striped. Those of Striped families are hot label sets every
 // request on a Node may record into, once Routes, Upstreams or Policies
-// fold or when no Route matches (spec 09 req 49); a single unpadded line
-// would put every core on one cache line. They count against the
-// listener and enumeration-only caps like the Node-wide groups, family by
-// family in catalog order and _unmatched first, so the decision never
-// depends on which Revisions were admitted before.
+// fold or when no Route matches; a single unpadded line would put every
+// core on one cache line. They count against the listener and
+// enumeration-only caps like the Node-wide groups, family by family in
+// catalog order and _unmatched first, so the decision never depends on
+// which Revisions were admitted before.
 func (r *Registry) reserveFixedStripes() {
 	if r.stripes <= 1 {
 		return
@@ -417,7 +418,7 @@ func (r *Registry) reserveFixedStripes() {
 func revisionRoles() [2]string { return [2]string{"active", "lkg"} }
 
 // setRevisionInfo sets the series of role to revision display; an empty
-// display removes it. At most two series exist (spec 09 req 43).
+// display removes it. At most two series exist.
 func (r *Registry) setRevisionInfo(role, display string) {
 	roles := revisionRoles()
 	i := slices.Index(roles[:], role)

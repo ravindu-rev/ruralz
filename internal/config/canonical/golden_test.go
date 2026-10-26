@@ -18,13 +18,12 @@ import (
 var update = flag.Bool("update", false, "rewrite the golden files under testdata/golden")
 
 // TestGoldenExampleBundles pins the canonical bytes and digests of the
-// example Bundles (WP-39 "Done when"): the configuration model's example
-// Bundle (shop, its base files with the substitution defaults applied)
-// and a minimal Bundle, each parsed from YAML and from a JSON twin with
-// other member orders, which yield identical bytes (02 reqs 21 to 27, 79).
-// The trees are the parsed ones; the pipeline's golden corpus pins the
-// output after stage G. Decoding each golden document and encoding it
-// again is byte-identical (02 req 26).
+// example Bundles: the configuration model's example Bundle (shop, its
+// base files with the substitution defaults applied) and a minimal Bundle,
+// each parsed from YAML and from a JSON twin with other member orders,
+// which yield identical bytes. The trees are the parsed ones; the
+// pipeline's golden corpus pins the output after stage G. Decoding each
+// golden document and encoding it again is byte-identical.
 func TestGoldenExampleBundles(t *testing.T) {
 	for _, tc := range []struct {
 		name string

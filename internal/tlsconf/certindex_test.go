@@ -15,9 +15,9 @@ import (
 	"github.com/ravindu-rev/ruralz/internal/secret"
 )
 
-// Tests for spec 06 requirements 75 (certificate choice by SNI, accepted
-// key types) and 76 (rotation by watch: a valid pair reaches the next
-// handshake, an invalid one keeps the last value and counts a failure).
+// Tests for the certificate choice by SNI, the accepted key types and the
+// rotation by watch (a valid pair reaches the next handshake, an invalid
+// one keeps the last value and counts a failure).
 
 // indexFixture builds a CertIndex over named leaves put into a fake store.
 type indexFixture struct {
@@ -52,7 +52,7 @@ func served(t *testing.T, ix *CertIndex, sni string) string {
 	return c.Leaf.Subject.CommonName
 }
 
-func TestCertIndexSNIReq75(t *testing.T) {
+func TestCertIndexSNI(t *testing.T) {
 	f := newIndexFixture(t)
 	// Authored out of order: the default is the first by name.
 	specs := []CertSpec{
@@ -88,7 +88,7 @@ func TestCertIndexSNIReq75(t *testing.T) {
 	}
 }
 
-func TestCertIndexKeyTypesReq75(t *testing.T) {
+func TestCertIndexKeyTypes(t *testing.T) {
 	tests := []struct {
 		key string
 		ok  bool
@@ -121,7 +121,7 @@ func TestCertIndexKeyTypesReq75(t *testing.T) {
 	}
 }
 
-func TestBuildCertIndexErrorsReq75(t *testing.T) {
+func TestBuildCertIndexErrors(t *testing.T) {
 	f := newIndexFixture(t)
 	good := f.add(t, "good", leafOpts{dns: []string{"a.test"}})
 	other := f.add(t, "other", leafOpts{dns: []string{"b.test"}})
@@ -186,7 +186,7 @@ func TestBuildCertIndexErrorsReq75(t *testing.T) {
 	}
 }
 
-func TestCertIndexRotationReq76(t *testing.T) {
+func TestCertIndexRotation(t *testing.T) {
 	f := newIndexFixture(t)
 	spec := f.add(t, "main", leafOpts{cn: "v1", dns: []string{"api.example.com"}})
 	ix, err := BuildCertIndex([]CertSpec{spec}, f.store)
@@ -198,9 +198,9 @@ func TestCertIndexRotationReq76(t *testing.T) {
 	}
 
 	// Certificate and key renewed in two separate polls: the new
-	// certificate does not match the current key, a failure under
-	// requirement 76 (counted, v1 kept); the key's poll completes the pair.
-	// A renewal in one poll counts nothing (TestCertIndexRotationOnePollReq76).
+	// certificate does not match the current key, a rotation failure
+	// (counted, v1 kept); the key's poll completes the pair.
+	// A renewal in one poll counts nothing (TestCertIndexRotationOnePoll).
 	v2 := f.ca.issue(t, leafOpts{cn: "v2", dns: []string{"new.example.com"}})
 	if n := f.store.rotate(spec.Certificate, v2.certPEM); n != 1 {
 		t.Fatalf("mismatched certificate: %d failures, want 1", n)
@@ -256,14 +256,13 @@ func TestCertIndexRotationReq76(t *testing.T) {
 	}
 }
 
-// TestCertIndexRotationOnePollReq76 renews certificates in one resolver
+// TestCertIndexRotationOnePoll renews certificates in one resolver
 // poll: the Store holds every new value before any watcher runs, so the
 // first watcher pairs the new certificate with the new key and no rotation
 // failure is counted, whichever watcher runs first and also for one PEM
-// file used as both certificate and privateKey (requirement 76 counts a
-// failure only for a value that does not parse or whose key does not
-// match).
-func TestCertIndexRotationOnePollReq76(t *testing.T) {
+// file used as both certificate and privateKey (a failure counts only for
+// a value that does not parse or whose key does not match).
+func TestCertIndexRotationOnePoll(t *testing.T) {
 	tests := []struct {
 		name     string
 		combined bool
@@ -308,14 +307,14 @@ func TestCertIndexRotationOnePollReq76(t *testing.T) {
 	}
 }
 
-// TestCertIndexSeparatePollsClearReasonReq76 renews a certificate in one
+// TestCertIndexSeparatePollsClearReason renews a certificate in one
 // poll and its key in the next: the certificate's callback fails once
 // (counted, the resolver raises secret_rotation_failed for its watch), and
 // the key's poll, which completes the pair, registers the certificate's
 // watch again, so no degraded reason is left (secret.Store.Watch). A key
 // that never arrives keeps the reason raised, and so does a valid pair of
 // another entry.
-func TestCertIndexSeparatePollsClearReasonReq76(t *testing.T) {
+func TestCertIndexSeparatePollsClearReason(t *testing.T) {
 	f := newIndexFixture(t)
 	spec := f.add(t, "main", leafOpts{cn: "v1", dns: []string{"a.test"}})
 	other := f.add(t, "other", leafOpts{cn: "o1", dns: []string{"b.test"}})
@@ -374,7 +373,7 @@ func TestCertIndexSeparatePollsClearReasonReq76(t *testing.T) {
 	}
 }
 
-// TestCertIndexNewerSiblingValueReq76 renews one half alone (its callback
+// TestCertIndexNewerSiblingValue renews one half alone (its callback
 // fails), then, in one poll, the other half's matching value together with
 // a newer value of the first half that matches nothing. The pair is formed
 // with the first half's last delivered value, so the first half's watch is
@@ -384,7 +383,7 @@ func TestCertIndexSeparatePollsClearReasonReq76(t *testing.T) {
 // the other half, which pairs with the first half's current value,
 // registers it again and clears the reason. Both reference orders are
 // covered (the resolver delivers in reference order).
-func TestCertIndexNewerSiblingValueReq76(t *testing.T) {
+func TestCertIndexNewerSiblingValue(t *testing.T) {
 	for _, certFirst := range []bool{false, true} {
 		name := "key alone, then certificate with a newer key"
 		if certFirst {
@@ -456,12 +455,12 @@ func TestCertIndexRewatchAfterClose(t *testing.T) {
 
 // TestCertIndexRewatchRacesSettledValue publishes another value of a
 // failed half between rotatePair's Get and the rewatch registration, as a
-// concurrent Resolver.Activate settling a pending value does (spec 06
-// requirement 76). A new registration would start at that value's version
-// and skip it, so rewatch keeps the stale watch and marks the half failed
-// again: the next poll examines the value, which does not match, counts a
-// failure and keeps the reason raised. In the control, where nothing is
-// published meanwhile, the stale watch is replaced and the reason drops.
+// concurrent Resolver.Activate settling a pending value does. A new
+// registration would start at that value's version and skip it, so
+// rewatch keeps the stale watch and marks the half failed again: the next
+// poll examines the value, which does not match, counts a failure and
+// keeps the reason raised. In the control, where nothing is published
+// meanwhile, the stale watch is replaced and the reason drops.
 func TestCertIndexRewatchRacesSettledValue(t *testing.T) {
 	for _, settled := range []bool{true, false} {
 		name := "key settled before the registration"
@@ -544,12 +543,12 @@ func TestCertIndexRewatchRacesSettledValue(t *testing.T) {
 	}
 }
 
-// TestCertIndexRotationFallbackReq76 pairs a rotated value with the other
+// TestCertIndexRotationFallback pairs a rotated value with the other
 // half's latest value delivered to the index when the Store reports the
 // other reference unresolved or still holds an older value than the
 // watches follow; a value that pairs with neither fails with the first
 // pairing's error.
-func TestCertIndexRotationFallbackReq76(t *testing.T) {
+func TestCertIndexRotationFallback(t *testing.T) {
 	tests := []struct {
 		name   string
 		before func(f *indexFixture, spec CertSpec)
@@ -601,9 +600,9 @@ func TestCertIndexRotationFallbackReq76(t *testing.T) {
 	}
 }
 
-// TestCertIndexRotationDuringBuildReq76 delivers a rotation while the index
+// TestCertIndexRotationDuringBuild delivers a rotation while the index
 // registers its watches: the delivered value wins over the one read by Get.
-func TestCertIndexRotationDuringBuildReq76(t *testing.T) {
+func TestCertIndexRotationDuringBuild(t *testing.T) {
 	f := newIndexFixture(t)
 	spec := f.add(t, "main", leafOpts{cn: "old", dns: []string{"a.test"}})
 	fresh := f.ca.issue(t, leafOpts{cn: "fresh", dns: []string{"a.test"}})
@@ -658,8 +657,8 @@ func TestNormalizeSNI(t *testing.T) {
 	}
 }
 
-// TestCertIndexConcurrentReq76 reads while rotating (run with -race).
-func TestCertIndexConcurrentReq76(t *testing.T) {
+// TestCertIndexConcurrent reads while rotating (run with -race).
+func TestCertIndexConcurrent(t *testing.T) {
 	f := newIndexFixture(t)
 	spec := f.add(t, "main", leafOpts{cn: "v0", dns: []string{"a.test"}})
 	ix, err := BuildCertIndex([]CertSpec{spec}, f.store)

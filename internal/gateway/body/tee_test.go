@@ -14,10 +14,10 @@ import (
 	"github.com/ravindu-rev/ruralz/internal/telemetry/emit"
 )
 
-// Tests for spec 04 req 46 (tee for the store side of cache: out of budget
-// or over its limit it stops copying and skips the store, counted by
-// ruralz_cache_store_skipped_total, never failing the request) and spec 04
-// req 47 (the tee's bytes come from the buffer budget); test plan item 8.
+// Tests for the tee for the store side of cache (out of budget or over its
+// limit it stops copying and skips the store, counted by
+// ruralz_cache_store_skipped_total, never failing the request), whose
+// bytes come from the buffer budget.
 
 type countCounter struct {
 	n      atomic.Uint64
@@ -39,7 +39,7 @@ func skipCounters() (*[emit.NumSkipReasons]emit.Counter, [emit.NumSkipReasons]*c
 	return &arr, cs
 }
 
-func TestReq46Tee(t *testing.T) {
+func TestTee(t *testing.T) {
 	tests := []struct {
 		name     string
 		total    int64 // budget
@@ -115,9 +115,9 @@ func TestReq46Tee(t *testing.T) {
 	}
 }
 
-// TestReq46TeeWrite: Write never fails, so a tee next to the client writer
+// TestTeeWrite: Write never fails, so a tee next to the client writer
 // cannot fail the response; Complete is explicit for writers.
-func TestReq46TeeWrite(t *testing.T) {
+func TestTeeWrite(t *testing.T) {
 	bud := NewBudget(1<<20, nil)
 	tee := bud.NewTee(8, nil, 0)
 	var _ filter.Tee = tee
@@ -154,8 +154,8 @@ func TestReq46TeeWrite(t *testing.T) {
 	}
 }
 
-// TestReq46TeeReaderError: a source error leaves the copy incomplete.
-func TestReq46TeeReaderError(t *testing.T) {
+// TestTeeReaderError: a source error leaves the copy incomplete.
+func TestTeeReaderError(t *testing.T) {
 	bud := NewBudget(1<<20, nil)
 	tee := bud.NewTee(1<<20, nil, 0)
 	src := tee.Reader(io.MultiReader(bytes.NewReader(pattern(100)), iotest.ErrReader(io.ErrUnexpectedEOF)))
@@ -168,9 +168,9 @@ func TestReq46TeeReaderError(t *testing.T) {
 	tee.Release()
 }
 
-// TestReq46TeeStaleRelease: a Tee is never reused, so a stale handle's
-// second Release or late Write cannot touch a later copy (spec 07 req 73).
-func TestReq46TeeStaleRelease(t *testing.T) {
+// TestTeeStaleRelease: a Tee is never reused, so a stale handle's
+// second Release or late Write cannot touch a later copy.
+func TestTeeStaleRelease(t *testing.T) {
 	bud := NewBudget(1<<20, nil)
 	t1 := bud.NewTee(1<<20, nil, 0)
 	_, _ = t1.Write(bytes.Repeat([]byte("A"), kib))
@@ -200,9 +200,9 @@ func TestReq46TeeStaleRelease(t *testing.T) {
 	}
 }
 
-// TestReq46TeeGrowthNearCeiling: near the ceiling the copy grows in
+// TestTeeGrowthNearCeiling: near the ceiling the copy grows in
 // smaller steps, down to the increments its bytes need, before it skips.
-func TestReq46TeeGrowthNearCeiling(t *testing.T) {
+func TestTeeGrowthNearCeiling(t *testing.T) {
 	// 128 KiB total, 32 KiB share: 3 increments for gates.
 	bud := NewBudget(128*kib, nil)
 	tee := bud.NewTee(1<<20, nil, 0)
@@ -228,10 +228,10 @@ func TestReq46TeeGrowthNearCeiling(t *testing.T) {
 	zero.Release()
 }
 
-// TestReq73TeePool: a released tee drops its array, returning one of one
+// TestTeePool: a released tee drops its array, returning one of one
 // or two increments to the pool and leaving larger ones to the garbage
 // collector; a new tee starts over.
-func TestReq73TeePool(t *testing.T) {
+func TestTeePool(t *testing.T) {
 	bud := NewBudget(4<<20, nil)
 	big := bud.NewTee(1<<20, nil, 0)
 	_, _ = big.Write(pattern(200 * kib))

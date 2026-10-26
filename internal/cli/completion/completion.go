@@ -2,13 +2,13 @@
 // SPDX-License-Identifier: Apache-2.0
 
 // Package completion generates the static shell completion scripts of
-// `ruralz completion bash|zsh|fish|powershell` (spec 10 section 2.14).
-// Scripts are built at run time from the command table (cli.Registry): no
-// build-time generation and no callback command. They complete nouns,
-// verbs, every flag in --name form per command, enumerated values (the
-// --output formats per command and mode, the SHELL names), file names for
-// FILE and PATH values and FROM and TO, and directory names for DIR,
-// --output-dir and --data-dir. Planned and deprecated entries are left out.
+// `ruralz completion bash|zsh|fish|powershell`. Scripts are built at run
+// time from the command table (cli.Registry): no build-time generation and
+// no callback command. They complete nouns, verbs, every flag in --name
+// form per command, enumerated values (the --output formats per command and
+// mode, the SHELL names), file names for FILE and PATH values and FROM and
+// TO, and directory names for DIR, --output-dir and --data-dir. Planned and
+// deprecated entries are left out.
 package completion
 
 import (
@@ -114,8 +114,7 @@ func Write(w io.Writer, sh Shell, program string, cmds []Entry) error {
 	return err
 }
 
-// InstallHelp returns the install line of every shell for program (spec
-// 10 req 108).
+// InstallHelp returns the install line of every shell for program.
 func InstallHelp(program string) string {
 	return "Install:\n" +
 		"  bash        source <(" + program + " completion bash)\n" +

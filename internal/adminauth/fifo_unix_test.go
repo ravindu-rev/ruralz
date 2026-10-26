@@ -19,7 +19,7 @@ import (
 
 // Tests that a FIFO at a token or ca.crt path is refused as ErrNotRegular
 // without blocking (opening a FIFO for reading waits for a writer), at
-// start (spec 06 requirement 93) and on a request-path refresh.
+// start and on a request-path refresh.
 
 // mkfifo creates a FIFO at dir/name and returns its path.
 func mkfifo(t *testing.T, dir, name string) string {
@@ -46,7 +46,7 @@ func within(t *testing.T, what string, f func()) {
 	}
 }
 
-func TestFIFOTokenFileRefusedReq93(t *testing.T) {
+func TestFIFOTokenFileRefused(t *testing.T) {
 	dir := t.TempDir()
 	fifo := mkfifo(t, dir, "fifo")
 	within(t, "New", func() {

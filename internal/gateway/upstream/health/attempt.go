@@ -21,11 +21,11 @@ const (
 )
 
 // Attempt tracks one attempt to one Endpoint for stall and suspect
-// detection and passive ejection (05 reqs 18 to 21). The attempt loop keeps
-// one Attempt per leg (pooled with the leg) and reuses it for every
-// attempt: View.Begin arms its stall timer, Headers records response
-// headers, End or Cancel finishes it. The timer is created once and reset
-// per attempt, so tracking allocates nothing after the first use.
+// detection and passive ejection. The attempt loop keeps one Attempt per
+// leg (pooled with the leg) and reuses it for every attempt: View.Begin
+// arms its stall timer, Headers records response headers, End or Cancel
+// finishes it. The timer is created once and reset per attempt, so tracking
+// allocates nothing after the first use.
 //
 // Begin, Headers, End and Cancel must be called from one goroutine at a
 // time (the attempt's); only the stall timer runs concurrently with them.
@@ -63,11 +63,11 @@ func (a *Attempt) begin(t *Tracker, e *endpoint, now time.Time) {
 }
 
 // onStall is the stall timer: an attempt still waiting for headers
-// StallAfter after it started becomes stalled (05 req 21). A late firing
-// armed for an earlier generation finds the current attempt younger than
-// StallAfter and does nothing; the current generation's own firing
-// follows. The age is elapsed time, like the timer's, so a wall-clock step
-// neither suppresses nor hastens a stall.
+// StallAfter after it started becomes stalled. A late firing armed for an
+// earlier generation finds the current attempt younger than StallAfter and
+// does nothing; the current generation's own firing follows. The age is
+// elapsed time, like the timer's, so a wall-clock step neither suppresses
+// nor hastens a stall.
 func (a *Attempt) onStall() {
 	s := a.state.Load()
 	if s&phaseMask != phaseRunning {
@@ -109,7 +109,7 @@ func (a *Attempt) settle() {
 func (a *Attempt) Stalled() bool { return a.state.Load()&phaseMask == phaseStalled }
 
 // Headers records that the attempt got response headers at now: it can no
-// longer stall, and the Endpoint stops being suspect (05 req 21).
+// longer stall, and the Endpoint stops being suspect.
 func (a *Attempt) Headers(now time.Time) {
 	if a.ended || a.state.Load()&phaseMask == phaseIdle {
 		return
@@ -127,9 +127,9 @@ func (a *Attempt) Headers(now time.Time) {
 }
 
 // End finishes the attempt at now with its outcome for passive ejection
-// (05 reqs 18, 19 and 21) and the recent-failure count (05 req 13). It
-// reports whether the outcome ejected the Endpoint. Calls after the first
-// End or Cancel of an attempt do nothing.
+// and the recent-failure count. It reports whether the outcome ejected
+// the Endpoint. Calls after the first End or Cancel of an attempt do
+// nothing.
 func (a *Attempt) End(now time.Time, o Outcome) bool {
 	if a.ended || a.state.Load()&phaseMask == phaseIdle {
 		return false

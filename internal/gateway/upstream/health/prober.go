@@ -41,10 +41,9 @@ type Probe struct {
 
 // ProbeFunc sends one active check: GET p.Path to the Endpoint with the
 // Upstream's TLS settings, dialed through the egress guard like any Node
-// connection (05 req 9), taking no bulkhead slot (05 req 20). It returns
-// the response status or an error; ctx ends at the probe timeout (cause
-// ErrProbeTimeout) or when the Prober stops. The Upstream layer provides
-// it per Upstream.
+// connection, taking no bulkhead slot. It returns the response status or
+// an error; ctx ends at the probe timeout (cause ErrProbeTimeout) or
+// when the Prober stops. The Upstream layer provides it per Upstream.
 type ProbeFunc func(ctx context.Context, p Probe) (status int, err error)
 
 // ProberConfig configures a Prober.
@@ -64,10 +63,9 @@ type ProberConfig struct {
 	MaxSlots int
 }
 
-// Prober runs the active checks of every attached Upstream on the Node
-// (05 req 20). Run is its one scheduling goroutine; each probe runs on a
-// goroutine Run starts, bounded by the probe slots and joined before Run
-// returns.
+// Prober runs the active checks of every attached Upstream on the Node.
+// Run is its one scheduling goroutine; each probe runs on a goroutine
+// Run starts, bounded by the probe slots and joined before Run returns.
 type Prober struct {
 	clk      clock.Clock
 	base     time.Time // clk reading at creation: instant 0 of the schedule
@@ -159,9 +157,9 @@ func (p *Prober) Detach(t *Tracker) {
 	p.poke()
 }
 
-// Slots returns the current probe slot count: min(MaxSlots, ceil(Σ
-// probes per second × timeout)) over the attached Upstreams with an active
-// policy, at least 1 while any probes (05 req 20). Run recomputes it.
+// Slots returns the current probe slot count: min(MaxSlots, ceil(Σ probes
+// per second × timeout)) over the attached Upstreams with an active
+// policy, at least 1 while any probes. Run recomputes it.
 func (p *Prober) Slots() int { return int(p.limit.Load()) }
 
 // Stats returns the probes started and skipped since the Prober was made.
@@ -339,8 +337,8 @@ func (p *Prober) acquire() bool {
 
 // probeOnce runs one probe bounded by the policy timeout on the Prober's
 // clock and records its verdict: a status from 200 to 399 within the
-// timeout succeeds (05 req 20). A probe cut short by the Prober stopping
-// records nothing.
+// timeout succeeds. A probe cut short by the Prober stopping records
+// nothing.
 func (p *Prober) probeOnce(ctx context.Context, a *attachment, e *endpoint, act ActivePolicy) {
 	pctx, cancel := context.WithCancelCause(ctx)
 	defer cancel(nil)
@@ -355,8 +353,7 @@ func (p *Prober) probeOnce(ctx context.Context, a *attachment, e *endpoint, act 
 }
 
 // evaluate raises or clears probes_skipped: more than ProbesSkippedPercent
-// of the probes due over the last ProbesSkippedWindow were skipped (05 req
-// 20).
+// of the probes due over the last ProbesSkippedWindow were skipped.
 func (p *Prober) evaluate(now int64) {
 	skipped, total := p.win.sums(now)
 	p.setDegraded(total > 0 && skipped*100 > total*ProbesSkippedPercent)
@@ -374,7 +371,7 @@ func (p *Prober) setDegraded(on bool) {
 // Degraded reports whether the Prober holds probes_skipped.
 func (p *Prober) Degraded() bool { return p.degraded.Load() }
 
-// jitter returns d ± ProbeJitterPercent, uniformly (05 req 20).
+// jitter returns d ± ProbeJitterPercent, uniformly.
 func jitter(src rand.Source, d time.Duration) time.Duration {
 	spread := d * ProbeJitterPercent / 100
 	return d - spread + uniform(src, 2*spread)

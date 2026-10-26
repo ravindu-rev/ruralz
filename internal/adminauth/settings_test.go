@@ -13,17 +13,16 @@ import (
 	"testing"
 )
 
-// Tests for spec 06 requirement 93 and spec 04 requirement 70: the three
-// RURALZ_ADMIN_* process settings, token files read at start (trailing
-// whitespace trimmed; empty or shorter than 22 bytes refuses start), the
-// TLS directory (missing tls.crt or tls.key refuses start; optional
-// ca.crt), and requirement 88 (the settings are guarded paths).
+// Tests for the three RURALZ_ADMIN_* process settings, token files read
+// at start (trailing whitespace trimmed; empty or shorter than 22 bytes
+// refuses start), the TLS directory (missing tls.crt or tls.key refuses
+// start; optional ca.crt), and the settings as guarded paths.
 
 func env(m map[string]string) func(string) string {
 	return func(k string) string { return m[k] }
 }
 
-func TestLoadSettingsReq93(t *testing.T) {
+func TestLoadSettings(t *testing.T) {
 	s, err := LoadSettings(env(nil))
 	if err != nil || s != (Settings{}) || s.TLS() || len(s.Guarded()) != 0 {
 		t.Fatalf("unset: %+v, %v", s, err)
@@ -52,7 +51,7 @@ func TestLoadSettingsReq93(t *testing.T) {
 	}
 }
 
-func TestStartRefusalReq93(t *testing.T) {
+func TestStartRefusal(t *testing.T) {
 	ca := newCA(t, "operators")
 	dir := t.TempDir()
 	good := writeFile(t, dir, "good", operatorToken+"\n")

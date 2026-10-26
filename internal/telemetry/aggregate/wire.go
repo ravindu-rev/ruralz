@@ -10,7 +10,7 @@ import (
 
 // The wire functions map a family's handles onto the emit metric structs;
 // the enumeration index of each array matches the catalog label order
-// (emit constants, R-56).
+// (emit constants).
 
 func wireListener(m *emit.ListenerMetrics, name string, hs handleSet) {
 	switch name {

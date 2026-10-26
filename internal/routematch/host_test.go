@@ -11,7 +11,8 @@ import (
 	"github.com/ravindu-rev/ruralz/internal/errcode"
 )
 
-// TestNormalizeHost covers 04 req 24 (test plan item 5).
+// TestNormalizeHost: a request host is lower-cased and loses its port and
+// one trailing dot, and an IPv6 literal gets its canonical text.
 func TestNormalizeHost(t *testing.T) {
 	cases := []struct{ in, want string }{
 		{"API.Shop.Example:8443", "api.shop.example"},
@@ -49,7 +50,7 @@ func TestNormalizeHost(t *testing.T) {
 }
 
 // TestParseHostPattern covers the match.hosts rules: one leading "*." label
-// and no other "*" (04 req 27, OQ-data-plane-2 (a), RZ-CFG-005).
+// and no other "*" (RZ-CFG-005).
 func TestParseHostPattern(t *testing.T) {
 	valid := []struct {
 		in   string
@@ -119,8 +120,8 @@ func TestParseHostPattern(t *testing.T) {
 	}
 }
 
-// TestHostPatternMatch covers wildcard semantics (04 req 27; test plan item
-// 5): one or more leading labels, never the bare suffix.
+// TestHostPatternMatch covers wildcard semantics: one or more leading
+// labels, never the bare suffix.
 func TestHostPatternMatch(t *testing.T) {
 	wild, _ := ParseHostPattern("*.shop.example")
 	exact, _ := ParseHostPattern("api.shop.example")
@@ -149,8 +150,8 @@ func TestHostPatternMatch(t *testing.T) {
 }
 
 // TestIPv6HostSpellings: every spelling of one IPv6 address, in a pattern
-// or a request host, meets the same canonical text (04 req 24, 27), so an
-// exact-host Route can be neither dodged nor reached by respelling it.
+// or a request host, meets the same canonical text, so an exact-host
+// Route can be neither dodged nor reached by respelling it.
 func TestIPv6HostSpellings(t *testing.T) {
 	spellings := []string{"[2001:db8::1]", "[2001:DB8:0::1]", "[2001:0db8:0:0:0:0:0:1]", "[2001:db8:0000::0001]"}
 	tab := buildHostTable(t, spellings[1])
@@ -211,8 +212,8 @@ func buildHostTable(t *testing.T, entries ...string) *HostTable[hostEntry] {
 	return &tab
 }
 
-// TestHostTableLookup covers the host tables and rank 1 order (04 req 27,
-// req 31 rank 1): exact, wildcard with the longest suffix first, any host.
+// TestHostTableLookup covers the host tables and rank 1 order: exact,
+// wildcard with the longest suffix first, any host.
 func TestHostTableLookup(t *testing.T) {
 	tab := buildHostTable(t, "api.shop.example", "*.shop.example", "*.example", "*.api.shop.example", "", "*.other.example", "api.shop.example")
 	if tab.Len() != 5+1 {

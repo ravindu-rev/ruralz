@@ -15,25 +15,25 @@ import (
 )
 
 // defaultSplitAt is the entry count from which a block collection is
-// parsed entry by entry: every block collection is (01 req 8, 9, 10; 11
-// req 17, 26). goccy parses a block mapping by recursing once per entry
-// and copying the entries parsed so far at each level, so a mapping of n
-// entries costs O(n²) time and allocation and n stack frames. It builds
-// every node's path by concatenating its parent's, so long keys above
-// many nodes cost memory quadratic in the input (a 1,000-byte key at 62
-// levels above 4,096 entries took 263 MiB). It inserts the implicit null
-// of an empty value by moving every later token of its input, so many
-// empty values cost quadratic time. And where it reads block structure
-// otherwise than YAML 1.2 (an empty sequence entry before a key, a tagged
-// key after an empty value), a wide mapping, which had to be split, and a
-// narrow one parsed differently. Parsing every block collection entry by
-// entry hands goccy only the keys and the values that are no block
-// collection (scalars, flow collections and block scalars), each with a
-// path of its own, so none of these costs grows past one value and every
-// block structure is the token pass's, whose checks and rangeNode's refuse
-// the indentation YAML 1.2 refuses where goccy read a tree (doc.go).
-// Options.splitAt raises the threshold in tests, or turns the split off to
-// compare with goccy's own parse.
+// parsed entry by entry: every block collection is. goccy parses a block
+// mapping by recursing once per entry and copying the entries parsed so
+// far at each level, so a mapping of n entries costs O(n²) time and
+// allocation and n stack frames. It builds every node's path by
+// concatenating its parent's, so long keys above many nodes cost memory
+// quadratic in the input (a 1,000-byte key at 62 levels above 4,096
+// entries took 263 MiB). It inserts the implicit null of an empty value by
+// moving every later token of its input, so many empty values cost
+// quadratic time. And where it reads block structure otherwise than YAML
+// 1.2 (an empty sequence entry before a key, a tagged key after an empty
+// value), a wide mapping, which had to be split, and a narrow one parsed
+// differently. Parsing every block collection entry by entry hands goccy
+// only the keys and the values that are no block collection (scalars, flow
+// collections and block scalars), each with a path of its own, so none of
+// these costs grows past one value and every block structure is the token
+// pass's, whose checks and rangeNode's refuse the indentation YAML 1.2
+// refuses where goccy read a tree (doc.go). Options.splitAt raises the
+// threshold in tests, or turns the split off to compare with goccy's own
+// parse.
 const defaultSplitAt = 1
 
 // splitter parses one document by its block frames: it walks the block
@@ -80,17 +80,16 @@ func (s *splitter) syntax(at tree.Pos, msg string) *tree.Node {
 // collection on after's line, as for an implicit key's value; col is the
 // column of the entry's first token (its key or '-'), 0 for a document.
 //
-// A value that starts on a later line than after must be indented past
-// col (01 req 8, 10; YAML 1.2 s-l+block-node: its node, properties
-// included, is indented by at least n+1), except a block sequence that is a
-// mapping value, which may sit at its key's column (seq-spaces). goccy
-// accepted "k:\nv" as {k: v}, "-\nv" as [v] and "k:\n[a]" as {k: [a]},
-// which YAML 1.2 refuses (minor finding of the eighth WP-33 review). Every
+// A value that starts on a later line than after must be indented past col
+// (YAML 1.2 s-l+block-node: its node, properties included, is indented by
+// at least n+1), except a block sequence that is a mapping value, which may
+// sit at its key's column (seq-spaces). goccy accepted "k:\nv" as {k: v},
+// "-\nv" as [v] and "k:\n[a]" as {k: [a]}, which YAML 1.2 refuses. Every
 // position here is a source position (converter.tokenPos), never goccy's:
 // goccy reports a plain scalar continued by a line starting with '-' at its
 // end, column 1 when blank lines end the document, and one with trailing
-// spaces too far right, so a check on goccy's columns refused "- run the
-// job\n    -v\n\n" and accepted "k:\n value \n" left of its key.
+// spaces too far right, so a check on goccy's columns refused
+// "- run the job\n    -v\n\n" and accepted "k:\n value \n" left of its key.
 func (s *splitter) rangeNode(lo, hi int, after *token.Token, sameLine bool, col int) *tree.Node {
 	lo = s.skipComments(lo, hi)
 	if lo >= hi {
@@ -248,7 +247,7 @@ func (s *splitter) entryEnd(f *blockFrame, i int) int {
 // key converts the tokens [lo, hi) of a mapping key: an optional '?' and
 // one scalar node, as goccy accepts them. It returns the key's first token
 // and whether it is explicit. An empty key is a syntax error, as goccy
-// reports it, and a key of any other shape is not a scalar (01 req 10).
+// reports it, and a key of any other shape is not a scalar.
 func (s *splitter) key(lo, hi, colon int) (key string, at tree.Pos, first *token.Token, explicit, ok bool) {
 	lo = s.skipComments(lo, hi)
 	explicit = lo < hi && s.tks[lo].Type == token.MappingKeyType
@@ -289,7 +288,7 @@ func (s *splitter) key(lo, hi, colon int) (key string, at tree.Pos, first *token
 	}
 	// The key reads as the converter reads the keys of goccy's whole
 	// parse: as written and never typed, so an integer key out of the
-	// 64-bit range is a key like any other (01 req 11).
+	// 64-bit range is a key like any other.
 	failed := s.c.failed
 	s.c.failed = false
 	key, _, ok = s.c.key(mk)
@@ -324,11 +323,11 @@ func (s *splitter) blockInside(lo, hi int) int {
 // sameLine forbids a block collection on after's line.
 //
 // goccy's parser never sees a block collection the token pass recorded: it
-// parses a block mapping in time and memory quadratic in its entries (11
-// req 17, 26). The token pass gives every value that holds a block
-// collection a frame that covers it (rangeNode), so a range holding one is
-// refused here, as goccy's parse would refuse it, at the first token past
-// the frame or at the frame's start, without parsing it.
+// parses a block mapping in time and memory quadratic in its entries. The
+// token pass gives every value that holds a block collection a frame that
+// covers it (rangeNode), so a range holding one is refused here, as
+// goccy's parse would refuse it, at the first token past the frame or at
+// the frame's start, without parsing it.
 func (s *splitter) goccy(lo, hi int, after *token.Token, sameLine bool) *tree.Node {
 	if j := s.blockInside(lo, hi); j >= 0 {
 		if f := s.frames[j]; f.end >= j && f.end < hi {

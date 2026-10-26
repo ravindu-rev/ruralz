@@ -11,8 +11,8 @@ import (
 	"testing"
 )
 
-// Fuzz targets F3 FuzzQueryEdit and F4 FuzzFieldValue of spec 07 section 6
-// (oracle: no panic, no hang, bounded memory, plus the properties below).
+// Fuzz targets FuzzQueryEdit and FuzzFieldValue (oracle: no panic, no
+// hang, bounded memory, plus the properties below).
 
 // refValueByte is the RFC 9110 section 5.5 field-vchar / SP / HTAB table
 // spelled out byte by byte, independent of isValueByte.
@@ -50,9 +50,9 @@ func refValidName(n string) bool {
 	return true
 }
 
-// FuzzFieldValue is F4: the validators agree with byte-table references,
+// FuzzFieldValue: the validators agree with byte-table references,
 // NormalizeValue returns a valid value or an error, and Protect agrees with
-// a lowercase lookup (07 req 21, 22, 23, 27).
+// a lowercase lookup.
 func FuzzFieldValue(f *testing.F) {
 	for _, s := range []string{
 		"", "v", " v ", "a\r\nb", "\x00", "\x7f", "a\tb", "\x80\xff", "Traceparent",
@@ -87,7 +87,8 @@ func FuzzFieldValue(f *testing.F) {
 	})
 }
 
-// refProtect is 07 req 22 as a lookup on the ASCII-lowercased name.
+// refProtect is the protected-name rule as a lookup on the
+// ASCII-lowercased name.
 func refProtect(name string) Protection {
 	if strings.HasPrefix(name, ":") {
 		return Pseudo
@@ -115,9 +116,9 @@ func refProtect(name string) Protection {
 	}
 }
 
-// FuzzQueryEdit is F3 with property P8: parsing is lossless, Set leaves
-// exactly one pair with the key and it decodes to the value, Del leaves
-// none, and every other segment keeps its bytes and order (07 req 48).
+// FuzzQueryEdit: parsing is lossless, Set leaves exactly one pair with the
+// key and it decodes to the value, Del leaves none, and every other segment
+// keeps its bytes and order.
 func FuzzQueryEdit(f *testing.F) {
 	f.Add("a=1&b=2&a=3", "a", "9")
 	f.Add("a+b=1&x=%7e", "a b", "x y")
@@ -130,7 +131,7 @@ func FuzzQueryEdit(f *testing.F) {
 			t.Fatalf("ParseQuery(%q) round trip = %q", raw, got)
 		}
 		if name == "" {
-			return // query names are never empty (07 req 40)
+			return // query names are never empty
 		}
 		checkSet(t, raw, name, value)
 		checkDel(t, raw, name)
@@ -138,7 +139,7 @@ func FuzzQueryEdit(f *testing.F) {
 }
 
 // FuzzStripHopByHop removes every hop-by-hop and Connection-named field,
-// keeps every other field, and never panics (07 req 33).
+// keeps every other field, and never panics.
 func FuzzStripHopByHop(f *testing.F) {
 	f.Add("keep-alive, x-foo", "x-foo", "trailers", true)
 	f.Add("", "Upgrade", "gzip", false)
@@ -219,11 +220,11 @@ func refElements(values []string) []string {
 	return out
 }
 
-// refStrip is the hop-by-hop rule of 07 req 33, 04 req 22 and 05 req 28
-// and 30 as a quadratic model over keys of any spelling: Connection and TE
-// are read under every key that equals them ignoring ASCII case, and a
-// token key is named when its lowercase form is a lowercased token option.
-// admission selects the StripConnectionOptions rule instead.
+// refStrip is the hop-by-hop rule as a quadratic model over keys of any
+// spelling: Connection and TE are read under every key that equals them
+// ignoring ASCII case, and a token key is named when its lowercase form is
+// a lowercased token option. admission selects the StripConnectionOptions
+// rule instead.
 func refStrip(h map[string][]string, d Direction, admission bool) map[string][]string {
 	named := map[string]bool{}
 	keepTE := false
@@ -263,7 +264,7 @@ func refStrip(h map[string][]string, d Direction, admission bool) map[string][]s
 // FuzzStripHopByHopSpelling checks StripHopByHop, for every Direction
 // value, and StripConnectionOptions against refStrip on header maps whose
 // keys keep the fuzzer's spelling, so both the canonical lookup path and
-// the non-canonical set path run (07 req 33).
+// the non-canonical set path run.
 func FuzzStripHopByHopSpelling(f *testing.F) {
 	f.Add("x-foo, TE", "connection", "X-Foo", "te", "trailers", uint8(1))
 	f.Add("X-FOO,,x-foo", "Connection", "x-foo", "Te", "gzip, Trailers", uint8(2))

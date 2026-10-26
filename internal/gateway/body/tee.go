@@ -19,15 +19,15 @@ const (
 	teeReleased
 )
 
-// Tee is the store side of the Response Cache (spec 04 req 46): a copy of
-// the response kept while it streams on to the client. Its backing array is
-// reserved from the budget (Gate kind) in whole increments before it is
-// allocated, so the reservation always covers the memory the copy holds.
-// Past its limit or when the budget refuses an increment, it stops copying,
-// returns its reservation at once, counts ruralz_cache_store_skipped_total
-// with reason size_limit or buffer_budget, and never fails the response. It
-// implements filter.Tee. A Tee is written by one goroutine at a time;
-// Result is read in Finish, after the response finished streaming.
+// Tee is the store side of the Response Cache: a copy of the response kept
+// while it streams on to the client. Its backing array is reserved from the
+// budget (Gate kind) in whole increments before it is allocated, so the
+// reservation always covers the memory the copy holds. Past its limit or
+// when the budget refuses an increment, it stops copying, returns its
+// reservation at once, counts ruralz_cache_store_skipped_total with reason
+// size_limit or buffer_budget, and never fails the response. It implements
+// filter.Tee. A Tee is written by one goroutine at a time; Result is read
+// in Finish, after the response finished streaming.
 type Tee struct {
 	bud     *Budget
 	b       []byte

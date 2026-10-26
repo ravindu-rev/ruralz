@@ -21,9 +21,9 @@ import (
 )
 
 // DefaultMaxDepth is the nesting limit of canonical content when
-// DecoderOptions leaves it zero: twice the authoring limit of 64 (01 req
-// 6), so every Revision this release builds decodes, with room for the
-// document and resources levels and materialized object defaults.
+// DecoderOptions leaves it zero: twice the authoring limit of 64, so
+// every Revision this release builds decodes, with room for the document
+// and resources levels and materialized object defaults.
 const DefaultMaxDepth = 128
 
 // DecoderOptions configures a Decoder.
@@ -32,7 +32,7 @@ type DecoderOptions struct {
 	// zero or negative, jsonval.MaxDepthLimit at most).
 	MaxDepth int
 	// Workers is the number of goroutines that check and re-encode
-	// resources; less than 1 means 1 (02 req 78).
+	// resources; less than 1 means 1.
 	Workers int
 }
 
@@ -42,7 +42,7 @@ type Decoder struct {
 	idx *schemaidx.Index
 	enc *Encoder
 	// level is the served schema level: a field above it is from a newer
-	// producer (02 req 33).
+	// producer.
 	level    int
 	maxDepth int
 	workers  int
@@ -78,21 +78,20 @@ type Source struct {
 }
 
 // Decode reads canonical content into one envelope tree per resource, in
-// content order, for pipeline.FromResources (R-47). It fails with
-// CodeNewer for content from a newer producer (02 req 33) and with
-// CodeMismatch for anything that is not exactly ruralz.canonical.v1 bytes
-// (02 req 31(b)); see the package documentation. The error's Findings
-// locate every problem. It applies no integer range rule (R-64) and
-// materializes no default. A non-nil error that is not an errcode error is
-// ctx's or ErrNoIndex.
+// content order, for pipeline.FromResources. It fails with CodeNewer for
+// content from a newer producer and with CodeMismatch for anything that is
+// not exactly ruralz.canonical.v1 bytes; see the package documentation.
+// The error's Findings locate every problem. It applies no integer range
+// rule and materializes no default. A non-nil error that is not an errcode
+// error is ctx's or ErrNoIndex.
 func (d *Decoder) Decode(ctx context.Context, content []byte, src Source) ([]tree.Resource, error) {
 	return d.decode(ctx, newInput(content, 0, len(content), src))
 }
 
-// Verify checks that content hashes to want (02 req 31(a); CodeMismatch
-// "content hashes to sha256:X, want sha256:Y" otherwise) and then decodes
-// it as Decode does. Last-Known-Good boot, handover candidates and dumps
-// read by the CLI verify (02 req 32).
+// Verify checks that content hashes to want (CodeMismatch "content hashes
+// to sha256:X, want sha256:Y" otherwise) and then decodes it as Decode
+// does. Last-Known-Good boot, handover candidates and dumps read by the
+// CLI verify.
 func (d *Decoder) Verify(ctx context.Context, content []byte, want revision.Digest, src Source) ([]tree.Resource, error) {
 	if err := hashMatches(content, want, src.Name); err != nil {
 		return nil, err
@@ -300,9 +299,8 @@ func (d *Decoder) resource(rn *tree.Node, i int, in *input) (e entry, newer, for
 }
 
 // check runs the per-resource checks, on the decoder's workers: fields
-// unknown to the schema or above its level (CodeNewer, 02 req 33), then
-// the canonical form of the whole content by re-encoding (CodeMismatch,
-// 02 req 31(b)).
+// unknown to the schema or above its level (CodeNewer), then the
+// canonical form of the whole content by re-encoding (CodeMismatch).
 func (d *Decoder) check(ctx context.Context, entries []entry, in *input) error {
 	workers := d.workers
 	chunks := chunkCount(len(entries), workers)
@@ -337,14 +335,14 @@ func (d *Decoder) check(ctx context.Context, entries []entry, in *input) error {
 	return nil
 }
 
-// newer walks a resource with the hub schema and reports every member
-// the schema does not know (an undeclared member of a closed object) or
-// whose x-ruralz-since exceeds the served level (02 req 33). A value whose
-// shape does not fit its schema otherwise, such as an object where the
-// schema wants a string, is stage F's (RZ-CFG-005) and is not judged here;
-// open content is not either. Dispatch follows the instance (a Policy's
-// config by its type), and each object's members are looked up in the
-// schema's property map, so the walk is linear in the resource.
+// newer walks a resource with the hub schema and reports every member the
+// schema does not know (an undeclared member of a closed object) or whose
+// x-ruralz-since exceeds the served level. A value whose shape does not
+// fit its schema otherwise, such as an object where the schema wants a
+// string, is stage F's (RZ-CFG-005) and is not judged here; open content
+// is not either. Dispatch follows the instance (a Policy's config by its
+// type), and each object's members are looked up in the schema's property
+// map, so the walk is linear in the resource.
 func (d *Decoder) newer(e *entry, in *input) diag.List {
 	rs, ok := d.idx.Resource(string(e.res.ID.Kind))
 	if !ok {
@@ -389,7 +387,7 @@ func (w *newerWalk) node(n *tree.Node, s *schemaidx.Node) {
 			c := memberSchema(s, m.Key)
 			switch {
 			case c == nil && !s.Closed():
-				// Open content: kept and normalized generically (02 req 18).
+				// Open content: kept and normalized generically.
 			case c == nil:
 				w.report(m, "field is unknown to "+w.d.idx.APIVersion()+" at schema level "+strconv.Itoa(w.d.level)+"; the content comes from a newer release")
 			case c.Since() > w.d.level:
@@ -530,7 +528,7 @@ func firstDiff(a, b []byte) int {
 // come from slabs, each container's members and items collect on scratch
 // stacks and are copied once into a slice of the exact size, and short
 // names and strings are interned, so a large Revision decodes with few
-// allocations (the 25 ms verify budget, 02 req 77, target).
+// allocations (the 25 ms verify budget, target).
 type parser struct {
 	s       jsonval.Scanner
 	in      *input

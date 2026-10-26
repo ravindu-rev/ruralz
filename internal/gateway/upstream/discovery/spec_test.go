@@ -9,8 +9,8 @@ import (
 	"testing"
 )
 
-// TestSpecValidate covers the source shapes of 05 reqs 5 and 6 and the
-// dns rule of 05 req 97 (service and port required).
+// TestSpecValidate covers the source shapes and the dns rule (service
+// and port required).
 func TestSpecValidate(t *testing.T) {
 	long := strings.Repeat("a", 64)
 	tests := []struct {
@@ -94,7 +94,7 @@ func TestParseStatic(t *testing.T) {
 }
 
 // FuzzIsName: the allocation-free name test used on SRV answers agrees
-// with checkName, which validates configured names (05 reqs 5, 6 and 97).
+// with checkName, which validates configured names.
 func FuzzIsName(f *testing.F) {
 	for _, s := range []string{
 		"a", "a.", "orders.svc", "orders.svc.", "_http._tcp.orders", "10.0.0.1", "::1", "",

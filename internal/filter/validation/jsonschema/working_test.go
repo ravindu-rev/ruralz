@@ -106,8 +106,8 @@ func unevaluatedChain(links int, keyword string) string {
 }
 
 // unionSchema returns an order with an id, a plain array of tags and a
-// payment that is a oneOf of k object variants: the costly union of the
-// review finding next to a cheap sibling array.
+// payment that is a oneOf of k object variants: a costly union next to a
+// cheap sibling array.
 func unionSchema(k int) string {
 	variants := make([]string, k)
 	for i := range variants {
@@ -171,25 +171,25 @@ func workingSetCases() []struct{ name, schema, body string } {
 		{"nested minItems", `{"minItems":2,"items":{"minItems":2,"items":{"minItems":2,"items":{"type":"integer"}}}}`, denseArray(5000, `[["x"]]`, 0)},
 		{"unevaluated names along a chain", unevaluatedChain(100, "unevaluatedProperties"), wideObject(2000)},
 		{"unevaluated indexes along a chain", strings.Replace(unevaluatedChain(100, "unevaluatedItems"), "minProperties", "minItems", 1), denseArray(40000, `1`, 0)},
-		// Review finding: the copies of one chain at a time.
+		// The copies of one chain at a time.
 		{"unevaluated names under branches", unevaluatedBranches(50, "unevaluatedProperties"), wideObject(5000)},
 		{"unevaluated indexes under branches", unevaluatedBranches(50, "unevaluatedItems"), denseArray(8000, `1`, 0)},
 		{"records, valid", recordsSchema, records(20000)},
 		{"records, members missing", recordsSchema, denseArray(20000, `{"qty":1}`, 0)},
 		{"records, members failing", recordsSchema, denseArray(20000, `{"sku":"","qty":0.5,"price":-1}`, 0)},
 		{"union next to tags, failing", unionSchema(12), unionBody(20000, `"%040d"`)},
-		// Review findings: the bounds that cannot fail together, a decimal
-		// under an integer type, the lists of matching items contains keeps
-		// along a reference chain, and the errors propertyNames wraps in
-		// every evaluation that applies it.
+		// The bounds that cannot fail together, a decimal under an integer
+		// type, the lists of matching items contains keeps along a reference
+		// chain, and the errors propertyNames wraps in every evaluation that
+		// applies it.
 		{"bounds that cannot both fail", `{"items":{"minimum":1,"maximum":9,"exclusiveMaximum":9}}`, denseArray(20000, `10`, 0)},
 		{"integer type on decimals", `{"items":{"type":"integer"}}`, denseArray(20000, `1.5`, 0)},
 		{"matching items along a chain", chain(100, `{"$ref":"#/$defs/d%d","contains":true,"maxContains":0,"x-n":%d}`), denseArray(16000, `1`, 0)},
 		{"too few matching items", `{"allOf":[` + strings.TrimSuffix(strings.Repeat(`{"contains":{"type":"number"},"minContains":100000},`, 20), ",") + `]}`, denseArray(20000, `1`, 0)},
 		{"property names in many evaluations", `{"anyOf":[` + strings.TrimSuffix(strings.Repeat(`{"propertyNames":{"type":"integer"}},`, 50), ",") + `]}`, wideObject(2000)},
 		{"property names along a chain", chain(100, `{"$ref":"#/$defs/d%d","propertyNames":{"enum":["a","b"]},"x-n":%d}`), wideObject(2000)},
-		// Minor review finding: the member names of the depth bound, which
-		// clamps the states, when the precise pass decides it.
+		// The member names of the depth bound, which clamps the states, when
+		// the precise pass decides it.
 		{"property names under mixins", strings.TrimSuffix(mixins, "}") + `,"propertyNames":{"allOf":[` + strings.TrimSuffix(strings.Repeat(`{"pattern":"^a","maxLength":2},`, 20), ",") + `]}}`, wideObject(2000)},
 	}
 }
@@ -331,16 +331,14 @@ func locationTree(s *Schema, v any) int64 {
 // bookkeeping.
 const treeSlack = 64 << 10
 
-// TestWorkingSetCoversPeak covers the working-set bound (proposed, 07
-// reqs 80 and 82, section 9 item 21, architecture R-63) of both passes:
-// for dense bodies of every error shape, the unevaluated-tracking copies
-// the library makes along a reference chain, and ordinary order bodies,
-// valid or failing.
+// TestWorkingSetCoversPeak covers the working-set bound (proposed) of both
+// passes: for dense bodies of every error shape, the unevaluated-tracking
+// copies the library makes along a reference chain, and ordinary order
+// bodies, valid or failing.
 //
 //   - The error tree the decision pass holds, measured exactly from inside
-//     it, stays within what the scan charges it (review finding: a valid
-//     body is charged the decision pass's tree, never the location
-//     pass's).
+//     it, stays within what the scan charges it (a valid body is charged
+//     the decision pass's tree, never the location pass's).
 //   - The error tree the location pass returns, measured exactly, stays
 //     within what the scan charges it.
 //   - The heap in use at its peak while the location pass validates stays
@@ -368,7 +366,7 @@ func TestWorkingSetCoversPeak(t *testing.T) {
 			t.Logf("location pass: reserved %d, peak %.0f (%.2f)", scan.locateMemory(), peak, peak/float64(scan.locateMemory()))
 			// The trees are measured exactly above; the sampled peak, which
 			// adds the copies and the collector's pacing, gets a quarter more
-			// (minor review finding: 1.01 on a quiet machine).
+			// (1.01 on a quiet machine).
 			if peak > 1.25*float64(scan.locateMemory())+gcSlack {
 				t.Errorf("the location pass held %.0f bytes at its peak, the reservation is %d", peak, scan.locateMemory())
 			}
@@ -380,16 +378,15 @@ func TestWorkingSetCoversPeak(t *testing.T) {
 // process.
 const stackCaseEnv = "RURALZ_JSONSCHEMA_STACK_CASE"
 
-// TestStackWithinCharge checks the stack term of the working set
-// (architecture R-77, 07 reqs 80 to 82, R-63) against the runtime: the
-// library's call stack at a value holds one chain of in-place evaluations,
-// whatever the value's evaluations (review finding: every evaluation was
-// charged a frame, so a 14 KB rich-text body reserved 29 MB of stack). For
-// recursive bodies, unions and reference chains, validating in both passes
-// on a goroutine whose stack may grow to two thirds of the path the scan
-// charges never overflows: the stack, and the old one with the new while
-// it doubles, stay within the charge. Each case runs in a child process,
-// since a goroutine past its maximum stack aborts the program.
+// TestStackWithinCharge checks the stack term of the working set against
+// the runtime: the library's call stack at a value holds one chain of
+// in-place evaluations, whatever the value's evaluations (charging every
+// evaluation a frame made a 14 KB rich-text body reserve 29 MB of stack).
+// For recursive bodies, unions and reference chains, validating in both
+// passes on a goroutine whose stack may grow to two thirds of the path the
+// scan charges never overflows: the stack, and the old one with the new
+// while it doubles, stay within the charge. Each case runs in a child
+// process, since a goroutine past its maximum stack aborts the program.
 func TestStackWithinCharge(t *testing.T) {
 	cases := []struct{ schema, body string }{
 		{linearTree, nested(60)},
@@ -426,16 +423,13 @@ func TestStackWithinCharge(t *testing.T) {
 	}
 }
 
-// TestHandleBoundsUnevaluatedMemory is the regression test of the review
-// finding on the unevaluated-tracking maps: under unevaluatedProperties
-// the library copies every member name at every in-place evaluation of a
-// reference chain, and all the copies are live at once. Through
-// Factory.Build and Handle at the 10 MiB default, a 19 KB object against a
-// 1,000-link chain (about 140 MB of copies) is oversized before the
-// library runs; with a 64 MiB limit, the 100-link chain validates with the
-// heap at its peak within the reservation.
-//
-// Requirements: 07 reqs 80 to 82 and architecture R-63.
+// TestHandleBoundsUnevaluatedMemory covers the unevaluated-tracking maps:
+// under unevaluatedProperties the library copies every member name at every
+// in-place evaluation of a reference chain, and all the copies are live at
+// once. Through Factory.Build and Handle at the 10 MiB default, a 19 KB
+// object against a 1,000-link chain (about 140 MB of copies) is oversized
+// before the library runs; with a 64 MiB limit, the 100-link chain
+// validates with the heap at its peak within the reservation.
 func TestHandleBoundsUnevaluatedMemory(t *testing.T) {
 	body := wideObject(2000)
 	f := buildFilter(t, unevaluatedChain(1000, "unevaluatedProperties"), 0)
@@ -476,18 +470,16 @@ func unevaluatedBranches(n int, kw string) string {
 	return strings.Replace(allOfRefs(n, last), `{"allOf":`, `{"`+kw+`":true,"allOf":`, 1)
 }
 
-// TestHandleUnevaluatedBranches is the regression test of the review
-// finding that the unevaluated-tracking maps were charged once per
-// evaluation that may copy them: the library drops a branch's copy when it
-// merges it into its caller's, before the next branch of an allOf, anyOf
-// or oneOf runs, so only the copies of one in-place chain are live at once,
-// as for the call stack. Through Factory.Build and Handle at the 10 MiB
-// default, a valid 49 KB object under an allOf of 50 three-link chains
-// with unevaluatedProperties (charged 129 MB, 84 times its peak, and 413)
-// and a valid array under the same with unevaluatedItems continue; with a
-// 64 MiB limit the heap at Handle's peak stays within the reservation.
-//
-// Requirements: 07 reqs 80 to 82 and architecture R-77.
+// TestHandleUnevaluatedBranches covers the unevaluated-tracking maps under
+// branches, which are not charged once per evaluation that may copy them:
+// the library drops a branch's copy when it merges it into its caller's,
+// before the next branch of an allOf, anyOf or oneOf runs, so only the
+// copies of one in-place chain are live at once, as for the call stack.
+// Through Factory.Build and Handle at the 10 MiB default, a valid 49 KB
+// object under an allOf of 50 three-link chains with unevaluatedProperties
+// (charged 129 MB, 84 times its peak, and 413) and a valid array under the
+// same with unevaluatedItems continue; with a 64 MiB limit the heap at
+// Handle's peak stays within the reservation.
 func TestHandleUnevaluatedBranches(t *testing.T) {
 	for _, tc := range []struct{ kw, body string }{
 		{"unevaluatedProperties", wideObject(5000)},
@@ -514,16 +506,14 @@ func TestHandleUnevaluatedBranches(t *testing.T) {
 	}
 }
 
-// TestHandleBoundsMatchedItems is the regression test of the review
-// finding on contains: every evaluation with contains lists the indexes of
-// the items that match it, and the location pass keeps the list in a
-// failing minContains or maxContains error, which the scan did not charge:
-// along a 100-link chain, 16,000 matching items held a 12.7 MB error tree
-// charged 58 KB, the heap at its peak 10 times the reservation. Through
-// Factory.Build and Handle at the 10 MiB default, the failing body is now
-// located with the heap at its peak within the reservation.
-//
-// Requirements: 07 reqs 80 to 82 and architecture R-63.
+// TestHandleBoundsMatchedItems covers contains: every evaluation with
+// contains lists the indexes of the items that match it, and the location
+// pass keeps the list in a failing minContains or maxContains error, which
+// the scan charges: uncharged, along a 100-link chain, 16,000 matching
+// items held a 12.7 MB error tree charged 58 KB, the heap at its peak 10
+// times the reservation. Through Factory.Build and Handle at the 10 MiB
+// default, the failing body is located with the heap at its peak within
+// the reservation.
 func TestHandleBoundsMatchedItems(t *testing.T) {
 	n := 16000
 	if raceEnabled {
@@ -563,11 +553,10 @@ func (x *peakExchange) Reserve(n int64) error {
 }
 
 // TestHandleBoundsValidationMemory is the regression test of the
-// working-set bound (proposed, 07 reqs 80 to 82, architecture R-63)
-// through Handle: a dense failing array against an 8-way oneOf, validated
-// in both passes, holds at its peak no more than Handle reserved, and a
-// larger one is refused as oversized before the library runs, allocating
-// no more than its decode.
+// working-set bound (proposed) through Handle: a dense failing array
+// against an 8-way oneOf, validated in both passes, holds at its peak no
+// more than Handle reserved, and a larger one is refused as oversized
+// before the library runs, allocating no more than its decode.
 func TestHandleBoundsValidationMemory(t *testing.T) {
 	schema := `{"type":"array","items":` + oneOfConsts(8) + `}`
 	f := buildFilter(t, schema, 4<<20)
@@ -616,15 +605,13 @@ func TestHandleBoundsValidationMemory(t *testing.T) {
 // TestWorkingSetCharges pins the working-set model (proposed) on small
 // bodies. The decision pass is charged decideErrorBytes per error unit of
 // the value's kind and per group error, an object one member's errors per
-// evaluation with member keywords (finding: a valid body is not charged a
+// evaluation with member keywords (a valid body is not charged a
 // failing body's location-bearing tree); the location pass errorBytes plus
 // locationBytes per level per unit, the name lists and a failing numeric
 // keyword's rational; the path the stack at stackBytes per evaluation
 // (the decision pass's wrapper adds decideFrames), the unevaluated copies
 // and the names additionalProperties false lists; the transient the
 // largest string an evaluation copies. Work terms never add to them.
-//
-// Requirements: 07 reqs 80 to 82 and architecture R-63.
 func TestWorkingSetCharges(t *testing.T) {
 	enum := make([]string, 40)
 	for i := range enum {
@@ -648,8 +635,8 @@ func TestWorkingSetCharges(t *testing.T) {
 		{"required list", `{"required":["a","b","c","d","e","f","g"]}`, `{}`, e, 3 * at0, stackBytes + wrapper, 0},
 		{"enum comparisons hold no memory", `{"enum":[` + strings.Join(enum, ",") + `]}`, `"x"`, e, at0, stackBytes + wrapper, 1},
 		{"lengths that hold", `{"minLength":1,"maxLength":3}`, `"xyz"`, 0, 0, stackBytes + wrapper, 3},
-		// Minor review finding: an applicator next to lengths that hold can
-		// still fail, with its branches.
+		// An applicator next to lengths that hold can still fail, with its
+		// branches.
 		{"lengths that hold beside an applicator", `{"maxLength":9,"anyOf":[{"type":"integer"},{"type":"null"}]}`, `"xyz"`, 3 * e, 3 * at0, 2*stackBytes + wrapper, 3},
 		{"lengths in characters", `{"maxLength":1}`, `"é"`, 0, 0, stackBytes + wrapper, 2},
 		{"two failing lengths and a group", `{"minLength":2,"maxLength":0}`, `"x"`, 3 * e, 2 * at0, stackBytes + wrapper, 1},
@@ -663,9 +650,8 @@ func TestWorkingSetCharges(t *testing.T) {
 		// A failing name: its errors, located at the name, and the error
 		// naming it, in either pass; the object's group.
 		{"property names", `{"propertyNames":{"maxLength":3}}`, `{"abcd":1}`, e + 2*at0, at1 + at0, 2*stackBytes + wrapper, 4},
-		// Minor review finding (a mutant that survived): one of the
-		// object's three evaluations applies propertyNames, so the name
-		// failing both branches (three units with the group) is wrapped
+		// One of the object's three evaluations applies propertyNames, so the
+		// name failing both branches (three units with the group) is wrapped
 		// once, in either pass; the root's allOf fails with its group.
 		{
 			"property names in one of three evaluations", `{"allOf":[{"propertyNames":{"allOf":[{"maxLength":3},{"maxLength":2}]}},{"minProperties":1}]}`, `{"abcd":1}`,
@@ -689,15 +675,12 @@ func TestWorkingSetCharges(t *testing.T) {
 		// cannot both fail, but the upper bounds can, which adds a group;
 		// every failing bound keeps the number's rational.
 		{"integer type on a decimal", `{"type":"integer"}`, `1.0`, e, at0, stackBytes + wrapper, 0},
-		// Minor review finding (a mutant that survived): a number type
-		// admits an integer literal.
+		// A number type admits an integer literal.
 		{"integer under a number type", `{"type":"number"}`, `1`, 0, 0, stackBytes + wrapper, 0},
-		// Review finding (a mutant that survived): an upper-case exponent
-		// makes a decimal literal too.
+		// An upper-case exponent makes a decimal literal too.
 		{"integer type on an exponent", `{"type":"integer"}`, `1E-5`, e, at0, stackBytes + wrapper, 0},
-		// Review finding (a mutant that survived): the decision pass's
-		// evaluation with contains lists the matching items while it loops,
-		// 16 bytes each, on the path.
+		// The decision pass's evaluation with contains lists the matching
+		// items while it loops, 16 bytes each, on the path.
 		{"matching items listed", `{"contains":true}`, `[1,2,3,4]`, 2 * e, at0, 2*stackBytes + 4*matchedItemBytes + wrapper, 0},
 		{"bounds that cannot both fail", `{"minimum":1,"maximum":9,"exclusiveMaximum":9}`, `0`, 3 * e, 2*at0 + 2*(ratBytes+1), stackBytes + wrapper, 0},
 		{"bounds that can all fail", `{"minimum":2,"exclusiveMinimum":1,"exclusiveMaximum":1}`, `1`, 4 * e, 3*at0 + 3*(ratBytes+1), stackBytes + wrapper, 0},
@@ -757,16 +740,15 @@ func TestWorkingSetCharges(t *testing.T) {
 	}
 }
 
-// TestPathStates is the regression test of the review finding that every
-// value at a depth was charged the costliest member class at that depth:
-// a 12-way union of payment objects next to a plain array of tags made
-// every tag as costly as the union, so a valid 49 KB order was 413 at the
-// 10 MiB default (07 req 80, architecture R-63). Each value is now charged
-// the schemas of its own path: the union adds the same to the scan
-// whatever the number of tags, a tag costs what it costs without the
-// union, and a valid order with 300,000 tags (3.4 MB) passes at the
-// default with its reservation within two and a half times its measured
-// peak.
+// TestPathStates covers the charge of each value's own path: with every
+// value at a depth charged the costliest member class at that depth, a
+// 12-way union of payment objects next to a plain array of tags made every
+// tag as costly as the union, so a valid 49 KB order was 413 at the 10 MiB
+// default. Each value is charged the schemas of its own path: the
+// union adds the same to the scan whatever the number of tags, a tag costs
+// what it costs without the union, and a valid order with 300,000 tags
+// (3.4 MB) passes at the default with its reservation within two and a
+// half times its measured peak.
 func TestPathStates(t *testing.T) {
 	s := mustCompile(t, unionSchema(12))
 	noUnion := mustCompile(t, strings.Replace(unionSchema(0), `,"payment":{"oneOf":[]}`, "", 1))
@@ -796,15 +778,13 @@ func TestPathStates(t *testing.T) {
 	}
 }
 
-// TestMatcherReach is the regression test of the review finding that
-// every string a pattern or a uniqueItems pass reached was charged the job
-// stack of the document's costliest pattern program: a string is charged
-// only the patterns its own path applies to it, a member name those of its
-// object's patternProperties, a value of another kind none, and where the
+// TestMatcherReach covers the pattern charges: rather than the job stack of
+// the document's costliest pattern program for every string a pattern or a
+// uniqueItems pass reaches, a string is charged only the patterns its own
+// path applies to it, a member name those of its object's
+// patternProperties, a value of another kind none, and where the
 // path is unknown, every pattern only where the depth's counts may scan a
-// string, which uniqueItems hashing no longer does.
-//
-// Requirements: 07 reqs 80 to 82 and architecture R-77.
+// string, which uniqueItems hashing does not.
 func TestMatcherReach(t *testing.T) {
 	pc := newPatternCosts()
 	reach := func(expr string) patternReach { return reachOf(pc.of(expr)) }
@@ -839,10 +819,9 @@ func TestMatcherReach(t *testing.T) {
 	if tags.work.at[2][dimScan] != 0 || tags.work.at[2][dimHash] == 0 {
 		t.Errorf("the tags' counts: scan %d, hash %d, want none and some", tags.work.at[2][dimScan], tags.work.at[2][dimHash])
 	}
-	// Review finding (mutants that survived): a member name meets every
-	// pattern of its object's patternProperties, here the costliest second
-	// by text, and where the path is unknown the name is charged as a
-	// string is, whatever the value.
+	// A member name meets every pattern of its object's patternProperties,
+	// here the costliest second by text, and where the path is unknown the
+	// name is charged as a string is, whatever the value.
 	const wide = `a(?:(?:a??){240}a)*b`
 	pats := mustCompile(t, `{"patternProperties":{"^a":true,"`+wide+`":true}}`)
 	name := strings.Repeat("a", 500)
@@ -858,13 +837,12 @@ func TestMatcherReach(t *testing.T) {
 	}
 }
 
-// TestHandleLocationPass covers the two passes (proposed, 07 reqs 13, 18
-// and 81): a valid body runs the decision pass only, reserving its working
-// set with the decoded values; a failing body gets the location of the
-// failing keyword when the location pass fits the working-set limit, its
-// work the work limit with the first pass's, and its reservation the
-// budget, and otherwise DetailMismatch alone, a decision, never 413 or
-// 503.
+// TestHandleLocationPass covers the two passes (proposed): a valid body
+// runs the decision pass only, reserving its working set with the decoded
+// values; a failing body gets the location of the failing keyword when the
+// location pass fits the working-set limit, its work the work limit with
+// the first pass's, and its reservation the budget, and otherwise
+// DetailMismatch alone, a decision, never 413 or 503.
 func TestHandleLocationPass(t *testing.T) {
 	small := records(10)
 	failing := strings.Replace(small, `"qty":1,`, `"qty":0,`, 1)
@@ -946,8 +924,8 @@ func (c *endingContext) Err() error {
 }
 
 // TestScanAllocatesNothing checks that the walk before validation
-// allocates nothing, member names under propertyNames included (07 req 84,
-// the allocation target; architecture R-63).
+// allocates nothing, member names under propertyNames included (the
+// allocation target).
 func TestScanAllocatesNothing(t *testing.T) {
 	if raceEnabled {
 		t.Skip("allocation counts are not compared under -race")
@@ -964,8 +942,8 @@ func TestScanAllocatesNothing(t *testing.T) {
 }
 
 // TestWorkingSetFailsClosed covers the fallback of the working-set bound
-// (proposed, 07 reqs 80 to 82, architecture R-63): without an analysis
-// every body is oversized; the sums saturate.
+// (proposed): without an analysis every body is oversized; the sums
+// saturate.
 func TestWorkingSetFailsClosed(t *testing.T) {
 	s := mustCompile(t, `true`)
 	s.work = newWorkingSet(nil, nil)

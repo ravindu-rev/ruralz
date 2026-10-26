@@ -78,8 +78,6 @@ func program(t testing.TB, expr string) *syntax.Prog {
 // ones such as the e-mail pattern, keep a small queue, a repetition of a
 // class keeps one entry per position, and past its budget the bound is
 // the whole program.
-//
-// Requirements: 07 section 9 item 21.
 func TestQueueBound(t *testing.T) {
 	for _, tc := range []struct {
 		pattern  string
@@ -141,11 +139,11 @@ func simulate(prog *syntax.Prog, input string) int {
 // TestQueueBoundCoversInputs checks the character classes of the bound:
 // on inputs drawn from runes at and around every class boundary, case
 // folds included, the simulation never builds a queue the bound does not
-// allow (07 section 9 item 21, the proposed work bound).
+// allow (the proposed work bound).
 func TestQueueBoundCoversInputs(t *testing.T) {
 	rng := rand.New(rand.NewPCG(1, 2)) //nolint:gosec // G404: fixed-seed inputs make the test deterministic; nothing here is secret.
 	for _, tc := range costPatterns() {
-		// As the library's engine compiles it (minor review finding).
+		// As the library's engine compiles it.
 		prog := program(t, noOnePass+tc.pattern)
 		budget := patternBudget
 		bound := queueBound(prog, &budget)
@@ -171,8 +169,6 @@ func TestQueueBoundCoversInputs(t *testing.T) {
 // bound"): none for a literal, one step per range up to four, a binary
 // search past them, and the fold orbit of a case-folded rune; the largest
 // class of the program decides.
-//
-// Requirements: 07 section 9 item 21.
 func TestClassSteps(t *testing.T) {
 	for _, tc := range []struct {
 		expr  string
@@ -197,8 +193,8 @@ func TestClassSteps(t *testing.T) {
 }
 
 // TestClassRepsFold checks that a case-folded rune brings its whole fold
-// orbit into the classes: k, K and the Kelvin sign (07 section 9 item 21,
-// the proposed work bound).
+// orbit into the classes: k, K and the Kelvin sign (the proposed work
+// bound).
 func TestClassRepsFold(t *testing.T) {
 	got := reps(t, program(t, `(?i)k`))
 	for _, r := range []rune{'K', 'k', 'K', '\n'} {
@@ -232,16 +228,13 @@ func cjkClass(n int) string {
 	return b.String()
 }
 
-// TestClassRepsBudget is the regression test of the review finding that
-// the classes of a program were collected and sorted before any budget
-// was charged: 990 copies of a class of 19,000 ranges took 1.4 s and 788
-// MB in classReps alone (07 F6, a compile returns within 1 s; architecture
-// R-77). The copies a repetition makes share their ranges, which count
-// once; the bounds are charged before they are added, so the classes of a
-// large program stop the exploration within its budget, which then
-// charges the whole program.
-//
-// Requirements: 07 req 75 and F6.
+// TestClassRepsBudget covers the budget of collecting and sorting a
+// program's classes: uncharged, 990 copies of a class of 19,000 ranges took
+// 1.4 s and 788 MB in classReps alone, where a compile must return within
+// 1 s. The copies a repetition makes share their ranges, which count once;
+// the bounds are charged before they are added, so the classes of a large
+// program stop the exploration within its budget, which then charges the
+// whole program.
 func TestClassRepsBudget(t *testing.T) {
 	// 990 copies of one class of 400 ranges: the shared ranges count once.
 	prog := program(t, `^`+cjkClass(400)+`{990}`)
@@ -318,21 +311,19 @@ func altPatternFrom(first rune, n int) string {
 	return b.String()
 }
 
-// TestQueueBoundBudget is the regression test of the review finding that
-// the exploration checked its budget only between queues: one queue of an
-// alternation of 4,000 two-rune literals scanned every class
-// representative with a closure of the whole start each, 61 times the
-// budget at 1,000 literals, 244 times at 2,000, and compile times grew
-// with the square of the pattern (07 F6, a compile returns within 1 s).
-// The steps the exploration charges now stay within its budget plus one
-// representative's closure and the setup, the classes and the start's
-// closure, and the bound is then the whole program. Steps, not time, so
-// the test is deterministic.
+// TestQueueBoundBudget covers the exploration's budget within a queue:
+// checked only between queues, one queue of an alternation of 4,000
+// two-rune literals scanned every class representative with a closure of
+// the whole start each, 61 times the budget at 1,000 literals, 244 times at
+// 2,000, and compile times grew with the square of the pattern, where a
+// compile must return within 1 s. The steps the exploration charges stay
+// within its budget plus one representative's closure and the setup, the
+// classes and the start's closure, and the bound is then the whole program.
+// Steps, not time, so the test is deterministic.
 func TestQueueBoundBudget(t *testing.T) {
-	// Review finding (a mutant that survived): an anchored pattern whose
-	// classes mostly advance no thread spends its budget scanning the start
-	// queue, never building a closure, so only the check before each class
-	// representative stops it.
+	// An anchored pattern whose classes mostly advance no thread spends its
+	// budget scanning the start queue, never building a closure, so only
+	// the check before each class representative stops it.
 	sparse := `^(?:` + altPattern(8000) + `)(?:` + altPatternFrom(0x100, 8000) + `)$`
 	for _, expr := range []string{altPattern(4000), `^(?:` + altPattern(4000) + `)$`, altPattern(300), `[a-z]{1000}x`, sparse} {
 		prog := program(t, expr)
@@ -362,7 +353,7 @@ func TestQueueBoundBudget(t *testing.T) {
 
 // BenchmarkPatternCost times the exploration of the costliest patterns
 // within one pattern's budget: a long repetition of a class, and an
-// alternation of 4,000 literals, unanchored and anchored (review finding).
+// alternation of 4,000 literals, unanchored and anchored.
 func BenchmarkPatternCost(b *testing.B) {
 	for _, tc := range []struct{ name, expr string }{
 		{"repetition", `[a-z]{1000}x`},
@@ -377,15 +368,13 @@ func BenchmarkPatternCost(b *testing.B) {
 	}
 }
 
-// TestBacktrackBytes covers the job stack charge (review findings): a
-// program of at most maxBacktrackProg instructions on an input shorter
-// than maxBacktrackVector bits per instruction is charged its held jobs
-// per position and the first, for the program holding the most that the
-// backtracker may run on that many bytes; a longer input or a larger
-// program runs on the NFA simulation and is charged none. Programs that
-// hold no more than a smaller one are dropped.
-//
-// Requirements: 07 reqs 80 to 82 and architecture R-77.
+// TestBacktrackBytes covers the job stack charge: a program of at most
+// maxBacktrackProg instructions on an input shorter than maxBacktrackVector
+// bits per instruction is charged its held jobs per position and the first,
+// for the program holding the most that the backtracker may run on that
+// many bytes; a longer input or a larger program runs on the NFA simulation
+// and is charged none. Programs that hold no more than a smaller one are
+// dropped.
 func TestBacktrackBytes(t *testing.T) {
 	costs := newPatternCosts()
 	small, wide := costs.of(`a*b`), costs.of(`(?:(?:a??){240}a)*b`)
@@ -483,13 +472,11 @@ func emailExpr() string { return strings.ReplaceAll(emailPattern, `\\`, `\`) }
 const hostnamePattern = `^(?:[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?\.)+[a-zA-Z]{2,63}$`
 
 // TestHeldAlternations pins the jobs per input position the backtracker
-// may hold (review finding: every alternation of the program was charged
-// at every position, 126 for the WHATWG e-mail pattern, which holds at
-// most 3): the alternations reachable through empty-width steps from the
-// start or from the instruction after a rune, at most every alternation
-// of the program, which past its budget it charges.
-//
-// Requirements: 07 reqs 80 to 82 and architecture R-77.
+// may hold (rather than every alternation of the program at every position,
+// 126 for the WHATWG e-mail pattern, which holds at most 3): the
+// alternations reachable through empty-width steps from the start or from
+// the instruction after a rune, at most every alternation of the program,
+// which past its budget it charges.
 func TestHeldAlternations(t *testing.T) {
 	for _, tc := range []struct {
 		expr       string
@@ -656,10 +643,7 @@ func backtrackJobs(prog *syntax.Prog, input string) int {
 // of Go's backtracker: on crafted and random inputs the stack never holds
 // more than held jobs per position and the first, the bound is reached by
 // a pattern whose alternations all follow one another, and the e-mail and
-// hostname patterns hold about one job per byte, not one per alternation
-// (review finding).
-//
-// Requirements: 07 reqs 80 to 82 and architecture R-77.
+// hostname patterns hold about one job per byte, not one per alternation.
 func TestHeldJobsCoverBacktracker(t *testing.T) {
 	rng := rand.New(rand.NewPCG(3, 4)) //nolint:gosec // G404: fixed-seed inputs make the test deterministic; nothing here is secret.
 	as := strings.Repeat
@@ -707,17 +691,14 @@ func TestHeldJobsCoverBacktracker(t *testing.T) {
 	}
 }
 
-// TestHandleBacktrackCharge is the regression test of the review finding
-// on the backtracker's job stack: Go's regexp grows it with the input, one
-// 16-byte job per alternation and position on the search path, while the
-// matcher charge covered only its visited set and the NFA's queues, so
-// a*b on a string of 43,688 bytes held 2.2 MB and (?:(?:a??){240}a)*b on
-// 537 bytes 5.8 MB, charged 126 and 97 KB. Through Factory.Build and
-// Handle at the 10 MiB default, failing and valid bodies, a string value,
-// a member name under patternProperties and one under propertyNames now
-// hold at their peak no more than Handle reserved.
-//
-// Requirements: 07 reqs 80 to 82 and architecture R-77.
+// TestHandleBacktrackCharge covers the backtracker's job stack: Go's regexp
+// grows it with the input, one 16-byte job per alternation and position on
+// the search path, so a matcher charge of only its visited set and the
+// NFA's queues would charge 126 and 97 KB where a*b on a string of 43,688
+// bytes holds 2.2 MB and (?:(?:a??){240}a)*b on 537 bytes 5.8 MB. Through
+// Factory.Build and Handle at the 10 MiB default, failing and valid bodies,
+// a string value, a member name under patternProperties and one under
+// propertyNames hold at their peak no more than Handle reserved.
 func TestHandleBacktrackCharge(t *testing.T) {
 	const wide = `(?:(?:a??){240}a)*b`
 	as := strings.Repeat

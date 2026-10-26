@@ -1,11 +1,11 @@
 // Copyright 2026 Revington
 // SPDX-License-Identifier: Apache-2.0
 
-// Package pki issues the test certificates the harness needs (11 section
-// 3): a test CA (and intermediates), server certificates for Node
-// listeners, the admin listener, mock Upstreams, the mock IdP, the OTLP
-// sink and TLS State Stores, client certificates for auth.mtls, CRLs, PEM
-// files, and an SSL_CERT_FILE bundle so child processes trust the test CA.
+// Package pki issues the test certificates the harness needs: a test CA
+// (and intermediates), server certificates for Node listeners, the admin
+// listener, mock Upstreams, the mock IdP, the OTLP sink and TLS State
+// Stores, client certificates for auth.mtls, CRLs, PEM files, and an
+// SSL_CERT_FILE bundle so child processes trust the test CA.
 //
 // Keys are ECDSA P-256 by default, or RSA 2,048-bit. Everything is
 // standard library crypto; nothing here is fit for production use.

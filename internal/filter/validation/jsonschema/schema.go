@@ -18,7 +18,7 @@ import (
 	"github.com/ravindu-rev/ruralz/internal/jsonval"
 )
 
-// Compile rules of 07 req 75.
+// Compile rules.
 const (
 	// Draft is the only JSON Schema dialect: the default, and the exact
 	// value every $schema in a document must carry.
@@ -28,43 +28,41 @@ const (
 	MaxSchemaBytes = 256 << 10
 	// MaxFanOut bounds the nested applicator fan-out (proposed).
 	MaxFanOut = 1024
-	// MaxSubschemas bounds the schema positions of a document (architecture
-	// R-77): the library compiles a schema resource in one work queue that
-	// it searches linearly, so compile time grows with the square of the
-	// subschema count (about 0.3 s at this bound on a shared 4-vCPU
-	// machine, against 2.3 s for the 37,000 empty subschemas 256 KiB can
-	// hold; the evaluation analysis adds at most about 0.4 s, see the
-	// package documentation). A position counts again for every
-	// meta-schema check the library repeats on it (metacheck.go).
+	// MaxSubschemas bounds the schema positions of a document: the library
+	// compiles a schema resource in one work queue that it searches
+	// linearly, so compile time grows with the square of the subschema
+	// count (about 0.3 s at this bound on a shared 4-vCPU machine, against
+	// 2.3 s for the 37,000 empty subschemas 256 KiB can hold; the
+	// evaluation analysis adds at most about 0.4 s, see the package
+	// documentation). A position counts again for every meta-schema check
+	// the library repeats on it (metacheck.go).
 	MaxSubschemas = 4096
 	// MaxEvaluations bounds the subschema evaluations that validating one
-	// value of a body may take (architecture R-77): with MaxSubschemas
-	// positions, a document that evaluates each subschema at most once per
-	// value always fits, while a recursive reference reached through two
-	// paths, which doubles the work at every level of nesting, crosses it
-	// 10 to 12 levels down (see work.go). The first nesting depth at which
-	// a value may cross it is the schema's nesting limit: a body value
-	// nested that deep on a path the states do not bound is refused (413,
-	// package documentation).
+	// value of a body may take: with MaxSubschemas positions, a document
+	// that evaluates each subschema at most once per value always fits,
+	// while a recursive reference reached through two paths, which doubles
+	// the work at every level of nesting, crosses it 10 to 12 levels down
+	// (see work.go). The first nesting depth at which a value may cross it
+	// is the schema's nesting limit: a body value nested that deep on a
+	// path the states do not bound is refused (413, package documentation).
 	MaxEvaluations = 4096
-	// MinNesting is the smallest nesting limit a schema may have
-	// (architecture R-77): a schema whose evaluations may cross
-	// MaxEvaluations at a value nested less deep is refused.
+	// MinNesting is the smallest nesting limit a schema may have: a schema
+	// whose evaluations may cross MaxEvaluations at a value nested less
+	// deep is refused.
 	MinNesting = 16
 	// MaxIssues bounds the findings CompileSchema reports for one document.
 	MaxIssues = 20
 	// MaxPatternInstructions bounds the measure of one pattern or
-	// patternProperties name (architecture R-77), taken before anything
-	// compiles it, in instructions of 40 bytes: what its compiled form
-	// keeps, the instructions of the program Go's regexp compiles it into
-	// (every copy a repetition expands to included), the ranges of its
-	// classes, its literals' and classes' nodes and the regexp's own
-	// structures, and the parser's work on its Unicode class escapes and
+	// patternProperties name, taken before anything compiles it, in
+	// instructions of 40 bytes: what its compiled form keeps, the
+	// instructions of the program Go's regexp compiles it into (every
+	// copy a repetition expands to included), the ranges of its classes,
+	// its literals' and classes' nodes and the regexp's own structures,
+	// and the parser's work on its Unicode class escapes and
 	// case-insensitive ranges (patternsize.go).
 	MaxPatternInstructions = 1 << 14
 	// MaxDocumentInstructions bounds the measures of all the patterns and
-	// patternProperties names of one document together (architecture
-	// R-77).
+	// patternProperties names of one document together.
 	MaxDocumentInstructions = 1 << 17
 )
 
@@ -155,15 +153,15 @@ type Schema struct {
 func (s *Schema) Raw() json.RawMessage { return append(json.RawMessage(nil), s.raw...) }
 
 // Sum returns the SHA-256 of the normalized document, the identity under
-// which compiled schemas are shared and carried over (07 req 77).
+// which compiled schemas are shared and carried over.
 func (s *Schema) Sum() [32]byte { return s.sum }
 
 // ComparesNumbers reports whether validation compares numbers, so a body
 // number outside the number bounds is refused (package documentation).
 func (s *Schema) ComparesNumbers() bool { return s.numbers }
 
-// CompileSchema compiles a schema document under the rules of 07 req 75.
-// Every failure is a *CompileError.
+// CompileSchema compiles a schema document under the rules. Every
+// failure is a *CompileError.
 func CompileSchema(raw json.RawMessage) (*Schema, error) {
 	s, _, issues := compileRaw(raw, refusingLoader{})
 	if len(issues) > 0 {
@@ -239,8 +237,8 @@ func compileRaw(raw []byte, loader sjs.URLLoader) (*Schema, any, []Issue) {
 // compilePrepared runs the rule walk, compiles every schema position and
 // inspects the compiled graph from each of them. stop, when not nil, is
 // asked before the library compiles the document and again before the
-// evaluation analysis, the stages a canceled snapshot compile skips (minor
-// review finding); its error ends the compile and is returned unchanged.
+// evaluation analysis, the stages a canceled snapshot compile skips; its
+// error ends the compile and is returned unchanged.
 func compilePrepared(p *prepared, loader sjs.URLLoader, stop func() error) (*Schema, []Issue, error) {
 	w := newWalker(p.doc)
 	w.walk()
@@ -377,7 +375,7 @@ func checkApart(doc any, ptrs []string, loader sjs.URLLoader, rc regexpCache) []
 // regexpCache compiles every distinct regular expression of one schema
 // document once: the library compiles a pattern or patternProperties name
 // in every meta-schema check that covers it and again for the schema
-// (review finding: a reference ladder compiled each of eight of the
+// (without the cache, a reference ladder compiled each of eight of the
 // largest patterns 59 times). A compiled regexp is safe for concurrent
 // use, so positions with the same expression share it.
 type regexpCache map[string]cachedRegexp

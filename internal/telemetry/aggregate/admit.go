@@ -20,7 +20,7 @@ var ErrShape = errors.New("aggregate: invalid shape")
 
 // unit is one admission decision: the label sets of one family for one
 // listener or resource (all its Phases for per-Phase families), admitted
-// or folded together (spec 09 req 55).
+// or folded together.
 type unit struct {
 	fam      *family
 	kind     role
@@ -46,9 +46,8 @@ type normShape struct {
 // normalize sorts every list by name bytes, sorts and deduplicates each
 // Policy's codes, and rejects empty, reserved and duplicate names and a
 // cached Route that is not a Route, so any permutation of a Shape admits
-// identically (spec 09 test 21). A cached Route may repeat (a Route with
-// cache Policies at two scopes): it is marked once, as Policy codes are
-// deduplicated.
+// identically. A cached Route may repeat (a Route with cache Policies at
+// two scopes): it is marked once, as Policy codes are deduplicated.
 func normalize(s emit.Shape) (normShape, error) {
 	var n normShape
 	var err error
@@ -162,9 +161,9 @@ func (r *Registry) decide(n normShape) []unit {
 }
 
 // decideResources appends the units of the Routes or Upstreams in names.
-// Only the Routes in cached get ruralz_cache_requests_total label sets
-// (spec 09 req 45): the others' cache handles stay no-ops and spend none
-// of that family's budget.
+// Only the Routes in cached get ruralz_cache_requests_total label sets:
+// the others' cache handles stay no-ops and spend none of that family's
+// budget.
 func (r *Registry) decideResources(b *budget, units []unit, kind role, names []string, cached map[string]bool, stripedCap int) []unit {
 	for _, name := range names {
 		for _, f := range r.fams {
@@ -278,9 +277,9 @@ type planEntry struct {
 }
 
 // Admit implements emit.Meter: it plans handles for Shape s off the
-// request path. Admission depends only on s (spec 09 req 55): existing
-// label sets of the same names are reused so values survive Hot Reloads
-// (req 47), new ones stay pending until Bind.
+// request path. Admission depends only on s: existing label sets of the
+// same names are reused so values survive Hot Reloads, new ones stay
+// pending until Bind.
 func (r *Registry) Admit(s emit.Shape) (emit.Plan, error) {
 	n, err := normalize(s)
 	if err != nil {
@@ -349,8 +348,8 @@ func (r *Registry) planGroup(p *Plan, u *unit, ph int8, now time.Time) handleSet
 }
 
 // overflowGroup returns the _overflow group of family f (and Phase ph),
-// exported at 0 from the family's first admission (spec 09 req 45). It is
-// never folded or released.
+// exported at 0 from the family's first admission. It is never folded or
+// released.
 func (r *Registry) overflowGroup(f *family, ph int8, now time.Time) *group {
 	if g := f.overflow[ph]; g != nil {
 		return g
@@ -370,7 +369,7 @@ func (r *Registry) overflowGroups(f *family, now time.Time) {
 }
 
 // unmatchedRoute returns the Route handles of requests no Route matched
-// (route="_unmatched", spec 09 req 41); cache families never record them.
+// (route="_unmatched"); cache families never record them.
 func (r *Registry) unmatchedRoute(now time.Time) *emit.RouteMetrics {
 	m := noopRouteMetrics()
 	for _, f := range r.fams {

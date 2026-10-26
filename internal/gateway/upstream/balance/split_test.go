@@ -8,8 +8,8 @@ import (
 	"testing"
 )
 
-// TestSplitDistribution covers 05 req 10 and test plan item 12: weighted
-// splits within tolerance, weight 0 never picked.
+// TestSplitDistribution covers the weighted split of upstreams entries:
+// shares within tolerance, weight 0 never picked.
 func TestSplitDistribution(t *testing.T) {
 	tests := []struct {
 		name    string
@@ -56,7 +56,7 @@ func TestSplitDistribution(t *testing.T) {
 	}
 }
 
-// TestSplitEdges covers every weight 0 (503 RZ-UP-008, 05 req 10) and the
+// TestSplitEdges covers every weight 0 (503 RZ-UP-008) and the
 // single-entry pick that needs no randomness.
 func TestSplitEdges(t *testing.T) {
 	for _, w := range [][]uint32{nil, {0}, {0, 0, 0}} {

@@ -54,7 +54,7 @@ func sparse(t *testing.T, size int64) string {
 }
 
 // TestSizeBoundary: a binary of exactly 160 MiB passes and one byte more
-// fails (11 req 68; test plan item 2).
+// fails.
 func TestSizeBoundary(t *testing.T) {
 	for _, tc := range []struct {
 		size     int64
@@ -121,7 +121,7 @@ func writeStatus(t *testing.T, root string, pid, content string) {
 	}
 }
 
-// TestReadVmRSS parses a fake /proc tree (11 test plan item 2).
+// TestReadVmRSS parses a fake /proc tree.
 func TestReadVmRSS(t *testing.T) {
 	root := t.TempDir()
 	writeStatus(t, root, "4242", "Name:\truralzd\nVmPeak:\t  200000 kB\nVmRSS:\t   91136 kB\nThreads:\t9\n")
@@ -144,8 +144,7 @@ func TestReadVmRSS(t *testing.T) {
 
 // TestSampleIdleTiming drives the settle with a fake clock: nothing is read
 // before settle-window, then one read per interval up to the settle end
-// (11 req 68: 120 s settle, every second over the last 10 s; test plan
-// item 2).
+// (120 s settle, every second over the last 10 s).
 func TestSampleIdleTiming(t *testing.T) {
 	start := time.Unix(1_800_000_000, 0)
 	clk := clocktest.New(start)
@@ -271,10 +270,10 @@ func script(t *testing.T, body string) string {
 	return p
 }
 
-// TestIdleRSS runs the gate against real processes with a short settle:
-// an idle process passes, a 1-byte limit fails, the override passes, the M0
+// TestIdleRSS runs the gate against real processes with a short settle: an
+// idle process passes, a 1-byte limit fails, the override passes, the M0
 // stub is skipped and a crash is a tool error, whose summary still reports
-// what was measured (11 req 66, 68).
+// what was measured.
 func TestIdleRSS(t *testing.T) {
 	if runtime.GOOS != "linux" {
 		t.Skip("VmRSS needs /proc")
@@ -328,8 +327,8 @@ func TestIdleRSS(t *testing.T) {
 }
 
 // TestNotImplemented: only the exact M0 stub message with exit status 2
-// skips the idle RSS gate (11 req 68), never any early exit that happens to
-// say "not implemented yet".
+// skips the idle RSS gate, never any early exit that happens to say
+// "not implemented yet".
 func TestNotImplemented(t *testing.T) {
 	for _, tc := range []struct {
 		code   int
@@ -380,7 +379,7 @@ func TestRunUsage(t *testing.T) {
 
 // TestToolErrorSummary: a tool error after measurement started still
 // appends the sizes measured so far and a Tool error row, whose text stays
-// in one table cell (11 req 68).
+// in one table cell.
 func TestToolErrorSummary(t *testing.T) {
 	summary := filepath.Join(t.TempDir(), "summary.md")
 	measured := sparse(t, 10)

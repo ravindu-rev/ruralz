@@ -42,8 +42,8 @@ func golden(t *testing.T, name string, got []byte) {
 	}
 }
 
-// Test plan 6.4 item 35, WP-11 done-when: process log line golden bytes.
-func TestProcessGolden_Req63(t *testing.T) {
+// TestProcessGolden pins the process log line golden bytes.
+func TestProcessGolden(t *testing.T) {
 	s, out := newSink(t, Options{Level: slog.LevelDebug, NodeID: "01J9Z8Q4W6X3V5T7R2N0M1K8H4", TraceContext: traceFromContext})
 	at := time.Date(2026, 9, 26, 7, 46, 12, 345678901, time.UTC)
 	ctx := withTrace(t.Context(), testIDs())

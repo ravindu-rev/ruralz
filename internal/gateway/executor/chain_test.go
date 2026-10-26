@@ -21,9 +21,8 @@ import (
 	"github.com/ravindu-rev/ruralz/pkg/config/v1alpha1"
 )
 
-// Tests for spec 04 reqs 39 to 42 and 44 (Phases, order, when, short-circuit,
-// metrics and spans), Security rule 1 (spec 06 section 2.1 rule 1), onLog
-// and Finish (R-40), and spec 07 req 17 (onResponse after a replacement).
+// Tests for Phases, order, when, short-circuit, metrics and spans, Security
+// rule 1, onLog and Finish, and onResponse after a replacement.
 
 var allClientPhases = []phase.Phase{phase.OnRequestHeaders, phase.OnRequestBody, phase.OnRoute, phase.OnResponse, phase.OnLog}
 
@@ -46,9 +45,9 @@ func (h *harness) fullRun(ch *snapshot.Chain) (short, repl *filter.Response) {
 }
 
 func TestOrderFollowsTheCompiledChain(t *testing.T) {
-	// Spec 04 req 40: class, then scope, then position in request Phases;
-	// response Phases reversed; onLog in request order; Finish in request
-	// order after onLog (R-40).
+	// Class, then scope, then position in request Phases; response Phases
+	// reversed; onLog in request order; Finish in request order after
+	// onLog.
 	h := newHarness(t)
 	all := []phase.Phase{phase.OnRequestHeaders, phase.OnResponse, phase.OnLog}
 	var ps []*snapshot.Policy
@@ -92,8 +91,8 @@ func TestOrderFollowsTheCompiledChain(t *testing.T) {
 }
 
 func TestEmptyPhaseMakesNoCall(t *testing.T) {
-	// Spec 04 req 40: a Phase with no subscriber costs one length check —
-	// no Enter, no span, no metric.
+	// A Phase with no subscriber costs one length check — no Enter, no
+	// span, no metric.
 	h := newHarness(t)
 	ch := chain(nil, nil)
 	h.fullRun(ch)
@@ -138,14 +137,13 @@ func TestEmptyPhaseMakesNoCall(t *testing.T) {
 }
 
 func TestWhenEvaluatedOnceBeforeFirstPhase(t *testing.T) {
-	// Spec 04 req 41: when is evaluated once, before the Policy's first
-	// Phase; false skips it for the request; a runtime error runs it under
-	// closed and skips it under open (test plan item 7: false/true/error x
-	// closed/open). Spec 03 req 43 (Policy.spec.when row) and section 9
-	// item 18: a runtime error counts one ruralz_filter_failures_total
-	// {phase=<first Phase>, mode=<applied>}, one RecordFailure (access log
-	// failure_modes) and marks ruralz.filter.<name>: the call's span under
-	// closed, a skipped span under open.
+	// When is evaluated once, before the Policy's first Phase; false skips
+	// it for the request; a runtime error runs it under closed and skips
+	// it under open (false/true/error x closed/open). A runtime error
+	// counts one ruralz_filter_failures_total {phase=<first Phase>,
+	// mode=<applied>}, one RecordFailure (access log failure_modes) and
+	// marks ruralz.filter.<name>: the call's span under closed, a skipped
+	// span under open.
 	celErr := errors.New("cel: no_such_key")
 	tests := []struct {
 		name    string
@@ -249,11 +247,11 @@ func TestWhenEvaluatedOnceBeforeFirstPhase(t *testing.T) {
 }
 
 func TestWhenErrorMarksEveryCallOutcome(t *testing.T) {
-	// Spec 03 req 43: under closed the Policy runs after a when error and
-	// its call's span carries the applied mode and the error.type whatever
-	// the call answers (respond, retry); a call that cannot decide itself
-	// keeps its own error.type and is a second closed failure of p in the
-	// Phase. In onLog there is no span, only the count.
+	// Under closed the Policy runs after a when error and its call's span
+	// carries the applied mode and the error.type whatever the call
+	// answers (respond, retry); a call that cannot decide itself keeps its
+	// own error.type and is a second closed failure of p in the Phase. In
+	// onLog there is no span, only the count.
 	tests := []struct {
 		name    string
 		ph      phase.Phase
@@ -310,11 +308,11 @@ func TestWhenErrorMarksEveryCallOutcome(t *testing.T) {
 }
 
 func TestWhenErrorCountsInThePhaseFirstReached(t *testing.T) {
-	// Spec 03 req 43: the when failure's phase label is the Phase the
-	// Policy is first reached in. A security-headers Policy whose
-	// onRequestHeaders call never happened (auth responded 401) is first
-	// reached in onResponse; its when panic is counted and logged there,
-	// not in p.FirstPhase.
+	// The when failure's phase label is the Phase the Policy is first
+	// reached in. A security-headers Policy whose onRequestHeaders call
+	// never happened (auth responded 401) is first reached in
+	// onResponse; its when panic is counted and logged there, not in
+	// p.FirstPhase.
 	rh := &recordHandler{}
 	h := newHarness(t)
 	h.e = New(Deps{Tracer: h.tr, Logger: slog.New(rh)})
@@ -348,10 +346,10 @@ func TestWhenErrorCountsInThePhaseFirstReached(t *testing.T) {
 }
 
 func TestWhenFirstEncounterOnGeneratedResponse(t *testing.T) {
-	// Spec 04 req 42: onResponse runs the full response chain on generated
-	// responses, so a security-headers Policy that never reached its
-	// onRequestHeaders call (an earlier auth Policy responded 401) still
-	// runs in onResponse; its when is evaluated there, once.
+	// onResponse runs the full response chain on generated responses, so a
+	// security-headers Policy that never reached its onRequestHeaders call
+	// (an earlier auth Policy responded 401) still runs in onResponse; its
+	// when is evaluated there, once.
 	h := newHarness(t)
 	auth := policy(spec{
 		name: "jwt", class: phase.ClassAuth, phases: []phase.Phase{phase.OnRequestHeaders},
@@ -373,10 +371,10 @@ func TestWhenFirstEncounterOnGeneratedResponse(t *testing.T) {
 }
 
 func TestShortCircuitFromEachRequestPhase(t *testing.T) {
-	// Spec 04 req 42: Respond in onRequestHeaders, onRequestBody or onRoute
-	// skips to onResponse (minus transform.response, cache and
-	// ai.semantic-cache) and onLog; the responding Policy and Phase feed the
-	// access record and ruralz_filter_short_circuits_total.
+	// Respond in onRequestHeaders, onRequestBody or onRoute skips to
+	// onResponse (minus transform.response, cache and ai.semantic-cache) and
+	// onLog; the responding Policy and Phase feed the access record and
+	// ruralz_filter_short_circuits_total.
 	for _, ph := range []phase.Phase{phase.OnRequestHeaders, phase.OnRequestBody, phase.OnRoute} {
 		t.Run(ph.String(), func(t *testing.T) {
 			h := newHarness(t)
@@ -423,8 +421,8 @@ func TestShortCircuitFromEachRequestPhase(t *testing.T) {
 }
 
 func TestOnUpstreamRequestShortCircuitEndsOnlyTheLeg(t *testing.T) {
-	// Spec 04 req 42: in onUpstreamRequest a short-circuit ends only that
-	// leg; the other leg of the request runs its chain.
+	// In onUpstreamRequest a short-circuit ends only that leg; the other
+	// leg of the request runs its chain.
 	h := newHarness(t)
 	a := policy(spec{
 		name: "a", class: phase.ClassUpstreamAuth, scope: phase.ScopeUpstream, phases: []phase.Phase{phase.OnUpstreamRequest},
@@ -464,9 +462,9 @@ func TestOnUpstreamRequestShortCircuitEndsOnlyTheLeg(t *testing.T) {
 }
 
 func TestFilterRetryOnlyInResponseHeaders(t *testing.T) {
-	// R-44 and spec 05 req 33 ("or a Filter request"): Retry in
-	// onUpstreamResponseHeaders asks for a retry and skips the rest of the
-	// Phase for this attempt; the next attempt runs the chain again.
+	// Retry in onUpstreamResponseHeaders asks for a retry and skips the
+	// rest of the Phase for this attempt; the next attempt runs the chain
+	// again.
 	h := newHarness(t)
 	attempt := 0
 	first := policy(spec{
@@ -515,11 +513,11 @@ func TestFilterRetryOnlyInResponseHeaders(t *testing.T) {
 }
 
 func TestAuthRuleEveryAuthPolicySkipped(t *testing.T) {
-	// Security rule 1 (spec 06 rule 1, spec 04 req 41): a chain with
-	// auth-class Policies whose when skipped every one fails 401
-	// RZ-AUTH-001 with every auth Policy's challenge, decided after the
-	// last auth-class Policy of onRequestHeaders; one running auth Policy
-	// (or none in the chain) means no 401.
+	// Security rule 1: a chain with auth-class Policies
+	// whose when skipped every one fails 401 RZ-AUTH-001 with every auth
+	// Policy's challenge, decided after the last auth-class Policy of
+	// onRequestHeaders; one running auth Policy (or none in the chain)
+	// means no 401.
 	tests := []struct {
 		name     string
 		whens    []bool // per auth Policy
@@ -605,10 +603,10 @@ func TestAuthRuleAtEndOfPhaseAndWithoutChallenges(t *testing.T) {
 }
 
 func TestOnResponseReplacementContinues(t *testing.T) {
-	// Spec 07 req 17: after a closed failure replaces the response in
-	// onResponse, the remaining Policies run on the generated response,
-	// except transform.response, cache and ai.semantic-cache; a failure on
-	// the generated response is counted and never replaces it again. The
+	// After a closed failure replaces the response in onResponse, the
+	// remaining Policies run on the generated response, except
+	// transform.response, cache and ai.semantic-cache; a failure on the
+	// generated response is counted and never replaces it again. The
 	// replacement goes to Exchange.ReplaceResponse.
 	h := newHarness(t)
 	m, pr := newProbe()
@@ -642,9 +640,9 @@ func TestOnResponseReplacementContinues(t *testing.T) {
 }
 
 func TestResponseKinds(t *testing.T) {
-	// Spec 04 req 42 and spec 05 req 87: on an Upstream failure (RZ-UP)
-	// cache still runs (stale-if-error) while transform.response and
-	// ai.semantic-cache do not; on an Upstream response every Policy runs.
+	// On an Upstream failure (RZ-UP) cache still runs (stale-if-error)
+	// while transform.response and ai.semantic-cache do not; on an
+	// Upstream response every Policy runs.
 	tests := []struct {
 		kind ResponseKind
 		want []string
@@ -674,9 +672,9 @@ func TestResponseKinds(t *testing.T) {
 }
 
 func TestOnLogFailureIsTelemetryOnly(t *testing.T) {
-	// FP 4 and spec 04 req 43: an onLog failure is counted and changes
-	// nothing; onLog runs read-only with no span (req 44), even for a
-	// Policy that responds or asks for a retry there.
+	// FP 4: an onLog failure is counted and changes nothing; onLog runs
+	// read-only with no span, even for a Policy that responds or asks for
+	// a retry there.
 	h := newHarness(t)
 	m, pr := newProbe()
 	p := policy(spec{
@@ -704,7 +702,7 @@ func TestOnLogFailureIsTelemetryOnly(t *testing.T) {
 }
 
 func TestFinishForEveryFilterThatRan(t *testing.T) {
-	// R-40 and filter.Finisher: Finish runs after onLog, in request order,
+	// filter.Finisher: Finish runs after onLog, in request order,
 	// for every Finisher that ran in at least one Phase (subscribed to onLog
 	// or not), never for one skipped by when or never reached, and not for
 	// Upstream-scope Policies (they finish at the leg's End).
@@ -747,11 +745,10 @@ func filterSuffix(evs []string, suffix string) []string {
 }
 
 func TestMetricsAndSpans(t *testing.T) {
-	// Spec 04 req 44: every call records ruralz_filter_duration_seconds on
-	// the request's stripe; sampled requests get one ruralz.filter.<name>
-	// span per Policy Phase call with type, Phase, outcome and the applied
-	// failureMode; onLog creates none; spans carry only the RZ code (spec 06
-	// rule 11).
+	// Every call records ruralz_filter_duration_seconds on the request's
+	// stripe; sampled requests get one ruralz.filter.<name> span per Policy
+	// Phase call with type, Phase, outcome and the applied failureMode;
+	// onLog creates none; spans carry only the RZ code.
 	h := newHarness(t)
 	m, pr := newProbe()
 	p := policy(spec{

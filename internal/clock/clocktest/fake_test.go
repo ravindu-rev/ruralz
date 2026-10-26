@@ -14,9 +14,9 @@ import (
 	"github.com/ravindu-rev/ruralz/internal/clock"
 )
 
-// Tests for architecture section 2.1 (WP-01): Fake ordering, Stop and
-// Reset results, AfterFunc in Advance, Sleep cancellation, and zero or
-// negative durations firing at once like clock.Real.
+// Tests for Fake ordering, Stop and Reset results, AfterFunc in Advance,
+// Sleep cancellation, and zero or negative durations firing at once like
+// clock.Real.
 
 var _ clock.Clock = (*Fake)(nil)
 
@@ -285,7 +285,7 @@ func TestSleepCancellation(t *testing.T) {
 }
 
 // Zero and negative durations fire at once like clock.Real, so a full-jitter
-// backoff that draws 0 never hangs a test (architecture 2.1).
+// backoff that draws 0 never hangs a test.
 func TestZeroAndNegativeDurations(t *testing.T) {
 	for _, d := range []time.Duration{0, -time.Nanosecond, -time.Hour} {
 		t.Run(d.String(), func(t *testing.T) {
@@ -413,8 +413,8 @@ func TestConcurrentUse(t *testing.T) {
 
 // A component resets or stops its own timer on its own goroutine while the
 // test goroutine advances time (breakers, JWKS refresh, the retirer). Under
-// -race this must not report a data race on the timer's deadline
-// (architecture 2.1: a Clock is safe for concurrent use).
+// -race this must not report a data race on the timer's deadline (a Clock
+// is safe for concurrent use).
 func TestConcurrentResetStopAndAdvance(t *testing.T) {
 	tests := []struct {
 		name string

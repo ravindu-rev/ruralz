@@ -21,8 +21,8 @@ import (
 )
 
 // Normalize rewrites res.Root, a hub resource after Materialize and
-// conversion, to its normalized form under idx, the hub schema (02 req 15
-// to 20; 01 req 37), and returns its RZ-CFG-005 diagnostics in tree order:
+// conversion, to its normalized form under idx, the hub schema, and
+// returns its RZ-CFG-005 diagnostics in tree order:
 //
 //   - Scalars by definition name: a Duration becomes
 //     time.ParseDuration(v).String() (90s is 1m30s; one that overflows
@@ -51,13 +51,13 @@ import (
 //   - Unless res comes from a tree.RoleCanonical file: every number must
 //     keep its value through the canonical form's IEEE 754 doubles, so an
 //     integer literal outside ±(2^53−1) and a number outside the double
-//     range are RZ-CFG-005 (02 req 16, R-64), checked after scalar
-//     normalization, which catches a ByteSize such as 8Pi.
+//     range are RZ-CFG-005, checked after scalar normalization, which
+//     catches a ByteSize such as 8Pi.
 //
-//   - A null anywhere, typed or free, is RZ-CFG-005 at its key-aware path
-//     (02 req 19): the hub and the canonical form have no null, so a
-//     null left after the overlays is removed by its author, not carried
-//     to the canonical encoder.
+//   - A null anywhere, typed or free, is RZ-CFG-005 at its key-aware path:
+//     the hub and the canonical form have no null, so a null left after the
+//     overlays is removed by its author, not carried to the canonical
+//     encoder.
 //
 // Free content (undeclared members of open objects, the JSONSchemaDocument
 // value) has its members sorted, its numbers checked and its nulls
@@ -198,9 +198,9 @@ func (z *normalizer) visit(n *tree.Node, s *schemaidx.Node) {
 	}
 }
 
-// null reports a null value (02 req 19). Stage F admits one only in free
-// content, such as an open config member or an enum of the
-// JSONSchemaDocument value, but no null has a ruralz.canonical.v1 form.
+// null reports a null value. Stage F admits one only in free content,
+// such as an open config member or an enum of the JSONSchemaDocument
+// value, but no null has a ruralz.canonical.v1 form.
 func (z *normalizer) null(n *tree.Node) {
 	what := "member"
 	if z.stack[len(z.stack)-1].item {
@@ -239,7 +239,7 @@ func (z *normalizer) shown(text string) string {
 	return strconv.Quote(clip(text))
 }
 
-// scalar normalizes a string by its schema definition (02 req 15).
+// scalar normalizes a string by its schema definition.
 func (z *normalizer) scalar(n *tree.Node, s *schemaidx.Node) {
 	switch s.Scalar() {
 	case schemaidx.ScalarDuration:
@@ -269,7 +269,7 @@ func (z *normalizer) scalar(n *tree.Node, s *schemaidx.Node) {
 }
 
 // number writes an integral number at an integer-only position as integer
-// text (01 req 37) and applies the number range rule (02 req 16, R-64).
+// text and applies the number range rule.
 func (z *normalizer) number(n *tree.Node, s *schemaidx.Node) {
 	if n.Kind == tree.KindFloat && integerOnly(s) {
 		text, ok, tooLarge := integerText(n.Text)
@@ -285,10 +285,9 @@ func (z *normalizer) number(n *tree.Node, s *schemaidx.Node) {
 	z.checkNumber(n)
 }
 
-// checkNumber reports a number the canonical form would not keep (02 req
-// 16): an integer literal outside ±(2^53−1), a number that overflows a
-// double, or text outside the RFC 8259 grammar. Canonical content is
-// exempt (R-64).
+// checkNumber reports a number the canonical form would not keep: an
+// integer literal outside ±(2^53−1), a number that overflows a double,
+// or text outside the RFC 8259 grammar. Canonical content is exempt.
 func (z *normalizer) checkNumber(n *tree.Node) {
 	if !z.checkRange {
 		return
@@ -311,7 +310,7 @@ func integerOnly(s *schemaidx.Node) bool {
 	return t.Has(schemaidx.TypeInteger) && !t.Has(schemaidx.TypeNumber)
 }
 
-// list normalizes a list by its x-ruralz-list type (02 req 17).
+// list normalizes a list by its x-ruralz-list type.
 func (z *normalizer) list(n *tree.Node, s *schemaidx.Node) {
 	lt, key := s.List()
 	switch lt {

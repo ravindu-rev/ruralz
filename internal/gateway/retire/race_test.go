@@ -18,14 +18,14 @@ import (
 	"github.com/ravindu-rev/ruralz/internal/telemetry/emit"
 )
 
-// Race test for spec 04 reqs 50 and 51 (test plan item 12): requests pin
-// and unpin concurrently with continuous Hot Reloads; each freed snapshot
-// sets a poisoned flag (from Binding.Release) and closes its resources,
-// and no pinned request ever observes a poisoned snapshot or a closed
-// resource. Resources carried over between snapshots close exactly once,
-// after the last snapshot sharing them is freed. Reloads continue until
-// enough requests ran and one was ended (req 52), paced by request
-// progress so the outcome does not depend on scheduling or GOMAXPROCS.
+// Race test for pinning and freeing: requests pin and unpin
+// concurrently with continuous Hot Reloads; each freed snapshot sets a
+// poisoned flag (from Binding.Release) and closes its resources, and no
+// pinned request ever observes a poisoned snapshot or a closed resource.
+// Resources carried over between snapshots close exactly once, after the
+// last snapshot sharing them is freed. Reloads continue until enough
+// requests ran and one was ended, paced by request progress so the
+// outcome does not depend on scheduling or GOMAXPROCS.
 
 // raceRes is a resource that must never be closed while a pinned request
 // can reach it.
@@ -62,7 +62,7 @@ type held struct {
 	rec    *snapshot.PinnedRequest
 }
 
-func TestReq50Req51NoRequestObservesAClosedResource(t *testing.T) {
+func TestNoRequestObservesAClosedResource(t *testing.T) {
 	const (
 		workers  = 16
 		slow     = 4    // workers holding their pin across several retirements
@@ -183,7 +183,7 @@ func TestReq50Req51NoRequestObservesAClosedResource(t *testing.T) {
 	// requests, so the first one becomes closing at the (K + 1)th
 	// retirement whatever the workers do, and ending after grace: its
 	// request is ended with RZ-RT-014 while its snapshot is neither freed
-	// nor closed (req 52 "never freed early").
+	// nor closed (never freed early).
 	holdAcrossRetirements := func() {
 		t.Helper()
 		var hs []held
@@ -247,10 +247,10 @@ func TestReq50Req51NoRequestObservesAClosedResource(t *testing.T) {
 	}
 }
 
-// TestReq50Req51ConcurrentUnpinsFreeOnce pins many requests on one
+// TestConcurrentUnpinsFreeOnce pins many requests on one
 // snapshot, retires it and unpins from many goroutines: it is freed once,
 // only after the last unpin.
-func TestReq50Req51ConcurrentUnpinsFreeOnce(t *testing.T) {
+func TestConcurrentUnpinsFreeOnce(t *testing.T) {
 	x := newHarness(t, Config{}, true)
 	pool := &fakeCloser{name: "pool"}
 	a := newSnap("a", x.log, pool)

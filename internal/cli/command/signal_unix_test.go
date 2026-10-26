@@ -14,9 +14,9 @@ import (
 	"time"
 )
 
-// TestSignalContextRealSIGINTReq21 sends SIGINT to the test process: the
+// TestSignalContextRealSIGINT sends SIGINT to the test process: the
 // context is canceled with the typed cause and stop unregisters.
-func TestSignalContextRealSIGINTReq21(t *testing.T) {
+func TestSignalContextRealSIGINT(t *testing.T) {
 	ctx, stop := SignalContext(context.Background())
 	defer stop()
 	if err := syscall.Kill(os.Getpid(), syscall.SIGINT); err != nil {

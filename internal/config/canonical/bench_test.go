@@ -19,8 +19,8 @@ import (
 var ladder = []int{38, 383, 1916, 3833}
 
 // BenchmarkEncode canonicalizes and hashes the ladder Bundles, part of the
-// validation budget (02 req 78, target) and of the compile stage of a
-// watched directory (02 req 77).
+// validation budget (target) and of the compile stage of a watched
+// directory.
 func BenchmarkEncode(b *testing.B) {
 	for _, n := range ladder {
 		bundle := largeBundle(b, n)
@@ -43,8 +43,8 @@ func BenchmarkEncode(b *testing.B) {
 }
 
 // BenchmarkVerify is Decoder.Verify on the ladder Revisions; the
-// 5,751-resource one must stay within the 25 ms verify stage (02 req 77,
-// PBB "Hot Reload stages", target).
+// 5,751-resource one must stay within the 25 ms verify stage (PBB "Hot
+// Reload stages", target).
 func BenchmarkVerify(b *testing.B) {
 	for _, n := range ladder {
 		content := mustEncodeBundle(b, largeBundle(b, n))

@@ -77,8 +77,8 @@ func TestDecodeCircuitBreaker(t *testing.T) {
 	}
 }
 
-// TestHeadersConfigPresence covers 07 reqs 20 and 23: add and remove lists,
-// and an empty literal value that stays distinct from an absent one.
+// TestHeadersConfigPresence covers add and remove lists, and an empty
+// literal value that stays distinct from an absent one.
 func TestHeadersConfigPresence(t *testing.T) {
 	const doc = `{
 	  "request": {
@@ -110,8 +110,8 @@ func TestHeadersConfigPresence(t *testing.T) {
 	}
 }
 
-// TestReplaceWithoutPath covers 07 risk 3: a replace entry without path
-// rewrites the raw body, so path is optional.
+// TestReplaceWithoutPath checks that path is optional: a replace entry
+// without path rewrites the raw body.
 func TestReplaceWithoutPath(t *testing.T) {
 	var r Replace
 	if err := json.Unmarshal([]byte(`{"pattern": "secret", "replacement": "***"}`), &r); err != nil {
@@ -126,8 +126,8 @@ func TestReplaceWithoutPath(t *testing.T) {
 	}
 }
 
-// TestAPIKeyHeaderPresence covers 06 req 15: the header field is a pointer
-// so its x-api-key default materializes into present objects only.
+// TestAPIKeyHeaderPresence checks that the header field is a pointer, so
+// its x-api-key default materializes into present objects only.
 func TestAPIKeyHeaderPresence(t *testing.T) {
 	var c AuthAPIKeyConfig
 	if err := json.Unmarshal([]byte(`{}`), &c); err != nil || c.Header != nil {

@@ -2,9 +2,9 @@
 // SPDX-License-Identifier: Apache-2.0
 
 // Package canary generates secret canaries and scans captured bytes for them
-// in every form a leak could take (11 req 39): raw, standard and URL-safe
-// base64 at any byte alignment, hexadecimal in any letter case,
-// percent-encoding and JSON string escaping (each byte escaped or literal).
+// in every form a leak could take: raw, standard and URL-safe base64 at any
+// byte alignment, hexadecimal in any letter case, percent-encoding and JSON
+// string escaping (each byte escaped or literal).
 //
 // A canary is injected where a real secret would be (secretRef files and
 // environment variables, API keys, State Store passwords); the end-to-end

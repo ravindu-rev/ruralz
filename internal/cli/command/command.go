@@ -1,12 +1,12 @@
 // Copyright 2026 Revington
 // SPDX-License-Identifier: Apache-2.0
 
-// Package command is the ruralz command framework (spec 10 sections 2.1
-// and 2.2): the command table model (Spec, Arg, Command), interspersed
-// standard library flag parsing with flag specs for help and completion,
-// the IO streams of one invocation, exit codes, ExitError and Interrupted,
-// the dispatcher Execute with help and usage errors, the JSON and NDJSON
-// writers and the atomic file write behind --output-file.
+// Package command is the ruralz command framework: the command table model
+// (Spec, Arg, Command), interspersed standard library flag parsing with
+// flag specs for help and completion, the IO streams of one invocation,
+// exit codes, ExitError and Interrupted, the dispatcher Execute with help
+// and usage errors, the JSON and NDJSON writers and the atomic file write
+// behind --output-file.
 //
 // The package holds no state: the root package builds the command table
 // per call (cli.Registry) and hands it to Execute with the IO of the
@@ -72,8 +72,8 @@ type Arg struct {
 }
 
 // Spec is one row of the command table: a runnable command, a Planned
-// command recognized but not built (spec 10 req 8), or the description of
-// a noun (a one-word Path with neither New nor Planned).
+// command recognized but not built, or the description of a noun (a
+// one-word Path with neither New nor Planned).
 type Spec struct {
 	// Path is the command path without the program name: {"bundle",
 	// "validate"}, {"version"}; {"bundle"} for a noun description.
@@ -90,10 +90,10 @@ type Spec struct {
 	// help and completion.
 	Planned string
 	// Platform, when set, returns the reason the command is not planned on
-	// goos, or nil when it runs there (spec 10 req 10).
+	// goos, or nil when it runs there.
 	Platform func(goos string) error
 	// When set, the Deprecated text is printed as a warning each time the
-	// command is used (spec 10 req 9).
+	// command is used.
 	Deprecated string
 	// New returns a fresh Command per invocation; nil when Planned is set
 	// and for a noun description.
@@ -117,9 +117,8 @@ type Command interface {
 	Run(ctx context.Context, io IO, args []string) error
 }
 
-// IO is what one invocation may touch outside its arguments (spec 10
-// req 13): data goes to Stdout; progress, warnings, usage and errors go to
-// Stderr.
+// IO is what one invocation may touch outside its arguments: data goes to
+// Stdout; progress, warnings, usage and errors go to Stderr.
 type IO struct {
 	// Stdout receives data.
 	Stdout io.Writer

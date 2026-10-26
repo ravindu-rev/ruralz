@@ -15,10 +15,10 @@ import (
 	"testing"
 )
 
-// Tests for spec 04 req 11 (Node-wide connection ceiling: a counting
-// listener takes a slot before the inner Accept, releases it on Close and
-// stops calling Accept at the ceiling; the admin listener has its own 256)
-// and spec 04 req 67 (ceiling lowered during a handover); test plan item 9.
+// Tests for the Node-wide connection ceiling (a counting listener takes a
+// slot before the inner Accept, releases it on Close and stops calling
+// Accept at the ceiling; the admin listener has its own 256) and for the
+// ceiling lowered during a handover.
 
 // fakeListener hands out queued connections and counts inner Accept calls.
 type fakeListener struct {
@@ -61,8 +61,8 @@ func (f *fakeListener) queue(t *testing.T) {
 }
 
 // waitFor yields to the scheduler until cond holds and fails after a
-// bounded number of yields; it reads no wall clock (architecture section
-// 0 rule 4). The goroutines it waits for only need CPU time to get there.
+// bounded number of yields; it reads no wall clock. The goroutines it
+// waits for only need CPU time to get there.
 func waitFor(t *testing.T, what string, cond func() bool) {
 	t.Helper()
 	for range 10_000_000 {
@@ -94,10 +94,10 @@ func acceptAsync(ln net.Listener) <-chan acceptResult {
 	return ch
 }
 
-// TestReq11ConnCeilingBlocksAccept: at the ceiling the wrapped listener
+// TestConnCeilingBlocksAccept: at the ceiling the wrapped listener
 // does not call the inner Accept even with connections queued; a Close
 // frees the slot and accepting resumes.
-func TestReq11ConnCeilingBlocksAccept(t *testing.T) {
+func TestConnCeilingBlocksAccept(t *testing.T) {
 	inner := newFakeListener()
 	c := NewConnLimiter(2)
 	ln := c.Wrap(inner)
@@ -141,9 +141,9 @@ func TestReq11ConnCeilingBlocksAccept(t *testing.T) {
 	}
 }
 
-// TestReq11ConnCeilingSharedAcrossListeners: one limiter bounds all client
+// TestConnCeilingSharedAcrossListeners: one limiter bounds all client
 // listeners together.
-func TestReq11ConnCeilingSharedAcrossListeners(t *testing.T) {
+func TestConnCeilingSharedAcrossListeners(t *testing.T) {
 	a, b := newFakeListener(), newFakeListener()
 	c := NewConnLimiter(1)
 	la, lb := c.Wrap(a), c.Wrap(b)
@@ -166,10 +166,10 @@ func TestReq11ConnCeilingSharedAcrossListeners(t *testing.T) {
 	}
 }
 
-// TestReq11ConnListenerCloseUnblocks: closing the listener ends an Accept
+// TestConnListenerCloseUnblocks: closing the listener ends an Accept
 // waiting for a slot with an error matching net.ErrClosed, the stop path
 // http.Server.Serve expects.
-func TestReq11ConnListenerCloseUnblocks(t *testing.T) {
+func TestConnListenerCloseUnblocks(t *testing.T) {
 	inner := newFakeListener()
 	c := NewConnLimiter(0)
 	ln := c.Wrap(inner)
@@ -192,10 +192,10 @@ func TestReq11ConnListenerCloseUnblocks(t *testing.T) {
 	_ = ln.Close() // idempotent
 }
 
-// TestReq67ConnOpenCountsAcceptedOnly: an accept loop waiting in the inner
+// TestConnOpenCountsAcceptedOnly: an accept loop waiting in the inner
 // Accept holds a slot against the ceiling but is no connection, so Open
 // (the handover usage report's connections) leaves it out.
-func TestReq67ConnOpenCountsAcceptedOnly(t *testing.T) {
+func TestConnOpenCountsAcceptedOnly(t *testing.T) {
 	a, b := newFakeListener(), newFakeListener()
 	c := NewConnLimiter(1)
 	la, lb := c.Wrap(a), c.Wrap(b)
@@ -236,9 +236,9 @@ func TestReq67ConnOpenCountsAcceptedOnly(t *testing.T) {
 	}
 }
 
-// TestReq11ConnInnerErrorReleases returns the slot when the inner Accept
+// TestConnInnerErrorReleases returns the slot when the inner Accept
 // fails (for example a temporary error http.Server retries).
-func TestReq11ConnInnerErrorReleases(t *testing.T) {
+func TestConnInnerErrorReleases(t *testing.T) {
 	inner := newFakeListener()
 	c := NewConnLimiter(1)
 	ln := c.Wrap(inner)
@@ -258,9 +258,9 @@ func TestReq11ConnInnerErrorReleases(t *testing.T) {
 	_ = conn.Close()
 }
 
-// TestReq67ConnSetExternal lowers the ceiling during a handover and wakes a
+// TestConnSetExternal lowers the ceiling during a handover and wakes a
 // waiting Accept when the other process's usage drops.
-func TestReq67ConnSetExternal(t *testing.T) {
+func TestConnSetExternal(t *testing.T) {
 	inner := newFakeListener()
 	c := NewConnLimiter(3)
 	ln := c.Wrap(inner)
@@ -292,8 +292,8 @@ func TestReq67ConnSetExternal(t *testing.T) {
 	_ = r.conn.Close()
 }
 
-// TestReq11AdminCeiling is the admin listener's own ceiling.
-func TestReq11AdminCeiling(t *testing.T) {
+// TestAdminCeiling is the admin listener's own ceiling.
+func TestAdminCeiling(t *testing.T) {
 	if AdminConnections != 256 || DefaultConnections != 20_000 {
 		t.Fatalf("ceilings %d and %d", AdminConnections, DefaultConnections)
 	}
@@ -315,10 +315,10 @@ func dialContext(t *testing.T, addr string) (net.Conn, error) {
 	return d.DialContext(t.Context(), "tcp", addr)
 }
 
-// TestReq11ConnTCP runs the limiter over a real loopback listener: the
+// TestConnTCP runs the limiter over a real loopback listener: the
 // kernel completes a third handshake, but the server accepts it only after
 // a connection closes.
-func TestReq11ConnTCP(t *testing.T) {
+func TestConnTCP(t *testing.T) {
 	inner, err := listenLoopback(t)
 	if err != nil {
 		t.Skipf("no loopback listener: %v", err)
@@ -449,9 +449,9 @@ func TestConnPassThrough(t *testing.T) {
 	})
 }
 
-// TestReq11ConnChurn accepts and closes from several listeners at once
+// TestConnChurn accepts and closes from several listeners at once
 // while checking the open count never exceeds the ceiling.
-func TestReq11ConnChurn(t *testing.T) {
+func TestConnChurn(t *testing.T) {
 	const ceiling, listeners, perListener = 3, 4, 50
 	c := NewConnLimiter(ceiling)
 	var peak atomic.Int64

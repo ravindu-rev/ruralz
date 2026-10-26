@@ -4,9 +4,9 @@
 //go:build tools
 
 // Package modpin keeps the M1 third-party modules in go.mod while their first
-// importer is still a later work package: go mod tidy keeps requirements
-// imported only from this tools-tagged file, and no binary links it. The
-// file is deleted once every module has a real importer.
+// importer is not written yet: go mod tidy keeps requirements imported only
+// from this tools-tagged file, and no binary links it. The file is deleted
+// once every module has a real importer.
 package modpin
 
 import (

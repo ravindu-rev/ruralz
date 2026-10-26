@@ -171,7 +171,7 @@ func Ops() []string {
 func WriteKinds() []string { return []string{"refund", "cache_set", "cache_invalidate"} }
 
 // Families returns the M1 metric families (docs/architecture/10-observability.md
-// "Ruralz Gateway metrics"; spec 09 requirement 43).
+// "Ruralz Gateway metrics").
 func Families() []Family {
 	route := Label{Name: "route"}
 	up := Label{Name: "upstream"}

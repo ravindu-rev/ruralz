@@ -37,7 +37,7 @@ func syntheticJSON() []byte {
 }
 
 // BenchmarkParseYAML measures the restricted YAML profile in MB/s and
-// allocations per resource (01 test plan, BenchmarkParseYAML).
+// allocations per resource.
 func BenchmarkParseYAML(b *testing.B) {
 	src := syntheticYAML(1000)
 	b.SetBytes(int64(len(src)))
@@ -55,8 +55,7 @@ func BenchmarkParseYAML(b *testing.B) {
 }
 
 // BenchmarkParseYAMLWideMapping measures the split parse of one mapping of
-// 20,000 entries (linear, where goccy's own parse is quadratic; 11 req
-// 26).
+// 20,000 entries (linear, where goccy's own parse is quadratic).
 func BenchmarkParseYAMLWideMapping(b *testing.B) {
 	var sb strings.Builder
 	sb.WriteString("spec:\n  variables:\n")
@@ -73,8 +72,7 @@ func BenchmarkParseYAMLWideMapping(b *testing.B) {
 	}
 }
 
-// BenchmarkParseJSON measures the JSON front end (01 req 15; 01 test
-// plan, benchmarks).
+// BenchmarkParseJSON measures the JSON front end.
 func BenchmarkParseJSON(b *testing.B) {
 	src := syntheticJSON()
 	b.SetBytes(int64(len(src)))
@@ -86,8 +84,7 @@ func BenchmarkParseJSON(b *testing.B) {
 	}
 }
 
-// BenchmarkEncode measures the restricted-profile emitter (02 req 44-47;
-// 01 test plan, benchmarks).
+// BenchmarkEncode measures the restricted-profile emitter.
 func BenchmarkEncode(b *testing.B) {
 	docs, diags, err := Parse(context.Background(), syntheticYAML(1000), 0, "bench.yaml", FormatYAML, Options{})
 	if err != nil || len(diags) != 0 {

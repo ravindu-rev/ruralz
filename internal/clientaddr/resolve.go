@@ -11,7 +11,7 @@ import (
 )
 
 // MaxEntries is the number of rightmost forwarding entries Resolve examines
-// (04 req 17, 06 req 60: 16, target).
+// (16, target).
 const MaxEntries = 16
 
 // Canonical forwarding field names.
@@ -55,7 +55,7 @@ type Result struct {
 	// supplied an address.
 	IP netip.Addr
 	// Port is source.port: the peer (or PROXY v2 source) port, 0 when IP
-	// came from a forwarding header (06 req 62).
+	// came from a forwarding header.
 	Port uint16
 	// Peer is the connection peer after PROXY v2 handling, unmapped and
 	// without zone.
@@ -70,15 +70,14 @@ type Result struct {
 // FromHeader reports whether IP came from Forwarded or X-Forwarded-For.
 func (r Result) FromHeader() bool { return r.Via != ViaPeer }
 
-// Resolve computes source.ip and source.port for a request whose
-// connection peer is peer (the PROXY v2 source on opted-in listeners, else
-// the TCP peer) and whose client request header is h (04 req 17, 06 reqs 60
-// and 62). The rules are in the package documentation. Resolve examines at
-// most MaxEntries entries. It allocates nothing for well-formed entries
-// written without backslash escapes. Each Forwarded for value that holds a
-// quoted-pair costs one allocation (the unescaped copy). The entry that
-// ends the walk because netip.ParseAddr rejects it (deadbeef, 1.1.1.1.1)
-// costs one more, the ParseAddr error.
+// Resolve computes source.ip and source.port for a request whose connection
+// peer is peer (the PROXY v2 source on opted-in listeners, else the TCP
+// peer) and whose client request header is h. The rules are in the package
+// documentation. Resolve examines at most MaxEntries entries. It allocates
+// nothing for well-formed entries written without backslash escapes. Each
+// Forwarded for value that holds a quoted-pair costs one allocation (the
+// unescaped copy). The entry that ends the walk because netip.ParseAddr
+// rejects it (deadbeef, 1.1.1.1.1) costs one more, the ParseAddr error.
 func (t *Trusted) Resolve(peer netip.AddrPort, h http.Header) Result {
 	peer = normalizeAddrPort(peer)
 	r := Result{IP: peer.Addr(), Port: peer.Port(), Peer: peer, Via: ViaPeer}
@@ -323,8 +322,7 @@ func (t *Trusted) walkForwarded(lines []string) (netip.Addr, bool) {
 // line inside a quoted string: only the leftmost element of a line with an
 // unterminated quoted string is unparsable, so elements a trusted proxy
 // appended to the client's text (or an intermediary merged into the same
-// line, RFC 9110 section 5.3) keep their boundaries (06 req 60, 04 req
-// 17).
+// line, RFC 9110 section 5.3) keep their boundaries.
 func prevElement(s string, end int) (start int, bad bool) {
 	quoted := false
 	for i := end - 1; i >= 0; i-- {

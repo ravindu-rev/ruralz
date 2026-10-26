@@ -14,10 +14,9 @@ import (
 	"time"
 )
 
-// Tests for the IO of spec 10 req 13 and the command table model and
-// checks of reqs 3, 4 and 8.
+// Tests for the IO and the command table model and checks.
 
-func TestNewIOReq13(t *testing.T) {
+func TestNewIO(t *testing.T) {
 	env := []string{"A=1", "B=x=y", "A=2", "NOEQ", "=C:=C:\\dir", "Path=/bin"}
 	now := func() time.Time { return time.Unix(0, 0) }
 	sio := NewIO(nil, nil, env, now, "linux")
@@ -54,7 +53,7 @@ func TestNewIOReq13(t *testing.T) {
 	}
 }
 
-func TestNotPlannedOnReq10(t *testing.T) {
+func TestNotPlannedOn(t *testing.T) {
 	reasons := map[string]string{"windows": "no ruralzd"}
 	gate := NotPlannedOn(reasons)
 	reasons["linux"] = "later change" // copied
@@ -76,7 +75,7 @@ func TestCompletionString(t *testing.T) {
 	}
 }
 
-func TestExitErrorReq18(t *testing.T) {
+func TestExitError(t *testing.T) {
 	if ExitOK != 0 || ExitNegative != 1 || ExitNoResult != 2 || ExitWaiting != 3 || ExitInterrupted != 130 {
 		t.Fatal("exit codes changed; they never change once released")
 	}
@@ -263,8 +262,8 @@ type nilCause struct{}
 func (nilCause) Error() string { return "no cause" }
 func (nilCause) Unwrap() error { return nil }
 
-// TestPrintable covers the stderr line of spec 10 req 22 when an
-// ExitError without a cause sits in the chain; print false means silent.
+// TestPrintable covers the stderr line when an ExitError without a cause
+// sits in the chain; print false means silent.
 func TestPrintable(t *testing.T) {
 	neg := Negative()
 	cases := []struct {

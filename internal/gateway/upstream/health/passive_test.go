@@ -13,9 +13,9 @@ import (
 	"github.com/ravindu-rev/ruralz/internal/clock/clocktest"
 )
 
-// TestPassiveThreshold covers 05 req 18: consecutiveErrors consecutive
-// failures eject; a success in between restarts the run; the ejection
-// counts ruralz_upstream_ejections_total{reason="passive"}.
+// TestPassiveThreshold covers passive ejection: consecutiveErrors
+// consecutive failures eject; a success in between restarts the run; the
+// ejection counts ruralz_upstream_ejections_total{reason="passive"}.
 func TestPassiveThreshold(t *testing.T) {
 	tests := []struct {
 		name      string
@@ -53,9 +53,9 @@ func TestPassiveThreshold(t *testing.T) {
 	}
 }
 
-// TestEjectionTimeMultiplier covers 05 req 18: the n-th ejection lasts
-// ejectionTime × n, n capped at 10, and the count decays by one per
-// ejectionTime spent not ejected (05 section 9 item 10).
+// TestEjectionTimeMultiplier covers the ejection time: the n-th ejection
+// lasts ejectionTime × n, n capped at 10, and the count decays by one per
+// ejectionTime spent not ejected.
 func TestEjectionTimeMultiplier(t *testing.T) {
 	const et = 10 * time.Second
 	tr, clk, _, _ := newTracker(t, 4, func(c *Config) { c.Passive = PassivePolicy{ConsecutiveErrors: 1, EjectionTime: et} })
@@ -100,9 +100,9 @@ func TestEjectionTimeMultiplier(t *testing.T) {
 	}
 }
 
-// TestEjectionCap covers 05 req 19: at most floor(50% × E) Endpoints are
-// passively ejected at once; the skipped ejection keeps the failure run so
-// the next failure tries again once room frees; connect errors, attempt
+// TestEjectionCap covers the ejection cap: at most floor(50% × E) Endpoints
+// are passively ejected at once; the skipped ejection keeps the failure run
+// so the next failure tries again once room frees; connect errors, attempt
 // timeouts on suspect Endpoints and active removals bypass the cap.
 func TestEjectionCap(t *testing.T) {
 	tests := []struct {
@@ -146,8 +146,8 @@ func TestEjectionCap(t *testing.T) {
 	}
 }
 
-// TestSuspectTimeoutEjectsAtOnce covers 05 reqs 19 and 21: an attempt
-// timeout on a suspect Endpoint ejects it at once, over the cap and below
+// TestSuspectTimeoutEjectsAtOnce covers an attempt timeout on a suspect
+// Endpoint: it ejects the Endpoint at once, over the cap and below
 // consecutiveErrors; a timeout on a healthy-looking Endpoint does not.
 func TestSuspectTimeoutEjectsAtOnce(t *testing.T) {
 	tr, clk, m, _ := newTracker(t, 2, nil)
@@ -183,8 +183,8 @@ func TestSuspectTimeoutEjectsAtOnce(t *testing.T) {
 	}
 }
 
-// TestOutcomePolicy covers 05 req 2: an attempt carries its snapshot's
-// thresholds; the zero policy means the Tracker's current one.
+// TestOutcomePolicy covers per-attempt thresholds: an attempt carries its
+// snapshot's thresholds; the zero policy means the Tracker's current one.
 func TestOutcomePolicy(t *testing.T) {
 	tr, clk, _, _ := newTracker(t, 4, func(c *Config) { c.Passive = PassivePolicy{ConsecutiveErrors: 10} })
 	old := PassivePolicy{ConsecutiveErrors: 2, EjectionTime: time.Second}
@@ -205,9 +205,9 @@ func TestOutcomePolicy(t *testing.T) {
 }
 
 // TestEjectionBoundConcurrent is the "ejection bound never exceeded"
-// property (WP-23 done-when): attempts from many goroutines with random
-// outcomes, while the clock moves, never leave more than floor(50% × E)
-// Endpoints passively ejected when no failure may bypass the cap.
+// property: attempts from many goroutines with random outcomes, while the
+// clock moves, never leave more than floor(50% × E) Endpoints passively
+// ejected when no failure may bypass the cap.
 func TestEjectionBoundConcurrent(t *testing.T) {
 	const n = 9
 	tr, clk, _, _ := newTracker(t, n, func(c *Config) { c.Passive = PassivePolicy{ConsecutiveErrors: 2, EjectionTime: 50 * time.Millisecond} })
@@ -268,8 +268,8 @@ func ejectedNow(tr *Tracker, clk *clocktest.Fake) int {
 
 // FuzzEjectionCap drives one Tracker with arbitrary attempt sequences and
 // clock steps: without bypassing causes the passively ejected count never
-// exceeds floor(50% × E) (05 req 19), and the healthy gauge always equals
-// the Endpoints eligible after step (b) (05 req 23).
+// exceeds floor(50% × E), and the healthy gauge always equals the
+// Endpoints eligible once Down ones are dropped.
 func FuzzEjectionCap(f *testing.F) {
 	f.Add(uint8(5), []byte{0, 1, 0, 1, 2, 3, 4, 0xff, 0, 1})
 	f.Add(uint8(1), []byte{0, 0, 0, 0, 0, 0})

@@ -8,12 +8,12 @@ import (
 	"io"
 )
 
-// Limited reads a streamed body and cuts it at its limit (spec 04 req 37):
-// up to limit bytes pass, and a body passing the limit ends with
-// ErrTooLarge (before commit the client gets 413 RZ-RT-003; after commit
-// the leg is aborted and the stream reset). It counts the bytes it
-// returned. The zero value reads nothing; Reset binds a reader. A Limited
-// is read by one goroutine at a time.
+// Limited reads a streamed body and cuts it at its limit: up to limit
+// bytes pass, and a body passing the limit ends with ErrTooLarge (before
+// commit the client gets 413 RZ-RT-003; after commit the leg is aborted
+// and the stream reset). It counts the bytes it returned. The zero value
+// reads nothing; Reset binds a reader. A Limited is read by one goroutine
+// at a time.
 type Limited struct {
 	r     io.Reader
 	left  int64

@@ -16,8 +16,8 @@ import (
 )
 
 // modernBash returns a bash of version 4.2 or newer, which the script
-// needs (req 108: mapfile, compopt, local -A). The bash on PATH comes
-// first; macOS ships bash 3.2 as /bin/bash, so the Homebrew locations
+// needs (mapfile, compopt, local -A). The bash on PATH comes first;
+// macOS ships bash 3.2 as /bin/bash, so the Homebrew locations
 // follow. It skips the test when there is none.
 func modernBash(t *testing.T) string {
 	t.Helper()
@@ -62,7 +62,7 @@ func bashAtLeast(version string, major, minor int) bool {
 	return gotMajor > major || (gotMajor == major && gotMinor >= minor)
 }
 
-// TestBashAtLeast covers the version gate of TestBashBehaviorReq107.
+// TestBashAtLeast covers the version gate of TestBashBehavior.
 func TestBashAtLeast(t *testing.T) {
 	cases := map[string]bool{
 		"3 2": false, "4 1": false, "4 2": true, "4 4": true, "5 0": true, "5 2": true,
@@ -75,12 +75,12 @@ func TestBashAtLeast(t *testing.T) {
 	}
 }
 
-// TestBashBehaviorReq107 drives the generated bash function the way bash
+// TestBashBehavior drives the generated bash function the way bash
 // completion does (COMP_WORDS, COMP_CWORD) and checks COMPREPLY: nouns,
 // verbs, flags per command, --output values per mode, SHELL values, file
 // and directory completion, flag values after "=", and "--". It needs
-// bash 4.2 or newer (req 108) and skips otherwise.
-func TestBashBehaviorReq107(t *testing.T) {
+// bash 4.2 or newer and skips otherwise.
+func TestBashBehavior(t *testing.T) {
 	bash := modernBash(t)
 	work := t.TempDir()
 	for _, d := range []string{"dir1", "dir2"} {

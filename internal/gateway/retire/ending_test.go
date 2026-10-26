@@ -22,13 +22,13 @@ import (
 	"github.com/ravindu-rev/ruralz/internal/telemetry/emit"
 )
 
-// Tests for spec 04 req 53 (ending protocol: records registered at pin
-// time, one bounded goroutine per request at grace end, root context
-// canceled, deadlines past or 5 s ahead under the per-request mutex,
-// marked for 503 RZ-RT-014) and req 63 (the Drain deadline reuses it with
-// RZ-RT-016); req 38 (commit under the mutex); test plan item 12 (ending
-// before commit is 503 RZ-RT-014, after commit the connection closes or
-// the stream resets, observed by an httptest client).
+// Tests for the ending protocol (records registered at pin time, one
+// bounded goroutine per request at grace end, root context canceled,
+// deadlines past or 5 s ahead under the per-request mutex, marked for 503
+// RZ-RT-014), the Drain deadline that reuses it with RZ-RT-016, commit
+// under the mutex, and ending as an httptest client observes it (before
+// commit 503 RZ-RT-014, after commit the connection closes or the stream
+// resets).
 
 // toEnding publishes two more snapshots (b, c) over the pinned snapshot a
 // with K = 1 and advances past grace, so a becomes ending.
@@ -42,10 +42,10 @@ func toEnding(t *testing.T, x *harness) (cleanup func()) {
 	return func() { x.unpin(pb) }
 }
 
-// TestReq53UncommittedDeadlines: before commit the read deadline moves to
+// TestUncommittedDeadlines: before commit the read deadline moves to
 // the past, the write deadline 5 s ahead, Ended is set and the root
 // context canceled once.
-func TestReq53UncommittedDeadlines(t *testing.T) {
+func TestUncommittedDeadlines(t *testing.T) {
 	x := newHarness(t, Config{K: 1}, true)
 	a := newSnap("a", nil)
 	x.publish(a)
@@ -74,9 +74,9 @@ func TestReq53UncommittedDeadlines(t *testing.T) {
 	}
 }
 
-// TestReq53CommittedDeadlines: after commit both deadlines move to the
+// TestCommittedDeadlines: after commit both deadlines move to the
 // past (stream reset or connection closed).
-func TestReq53CommittedDeadlines(t *testing.T) {
+func TestCommittedDeadlines(t *testing.T) {
 	x := newHarness(t, Config{K: 1}, true)
 	x.publish(newSnap("a", nil))
 	w := &deadlineWriter{}
@@ -92,10 +92,10 @@ func TestReq53CommittedDeadlines(t *testing.T) {
 	x.h.Unpin(s, 0, rec)
 }
 
-// TestReq53EndingWithoutController ends a request that has no
+// TestEndingWithoutController ends a request that has no
 // ResponseController (a synthetic replay exchange): it is marked and
 // canceled; a writer without deadline support is tolerated.
-func TestReq53EndingWithoutController(t *testing.T) {
+func TestEndingWithoutController(t *testing.T) {
 	x := newHarness(t, Config{K: 1}, true)
 	x.publish(newSnap("a", nil))
 	plain := x.pin(0)
@@ -115,9 +115,9 @@ func TestReq53EndingWithoutController(t *testing.T) {
 	x.h.Unpin(s, 1, rec)
 }
 
-// TestReq53PanickingControllerIsContained logs a panic from a connection
+// TestPanickingControllerIsContained logs a panic from a connection
 // whose handler broke the Unpin contract instead of crashing the Node.
-func TestReq53PanickingControllerIsContained(t *testing.T) {
+func TestPanickingControllerIsContained(t *testing.T) {
 	logs := &logRecords{}
 	x := newHarness(t, Config{K: 1, Logger: slog.New(logs)}, true)
 	x.publish(newSnap("a", nil))
@@ -131,10 +131,10 @@ func TestReq53PanickingControllerIsContained(t *testing.T) {
 	x.h.Unpin(s, 0, rec)
 }
 
-// TestReq63EndAllDrain ends every pinned request of every live snapshot,
+// TestEndAllDrain ends every pinned request of every live snapshot,
 // the active one included, with RZ-RT-016; the grace counter is untouched
 // and a second EndAll ends nothing new.
-func TestReq63EndAllDrain(t *testing.T) {
+func TestEndAllDrain(t *testing.T) {
 	x := newHarness(t, Config{}, true)
 	x.publish(newSnap("a", nil))
 	pa := x.pin(0)
@@ -163,7 +163,7 @@ func TestReq63EndAllDrain(t *testing.T) {
 	}
 }
 
-func TestReq63EndAllErrors(t *testing.T) {
+func TestEndAllErrors(t *testing.T) {
 	x := newHarness(t, Config{}, false)
 	if _, err := x.h.EndAll(context.Background(), snapshot.EndNone); !errors.Is(err, ErrEndReason) {
 		t.Fatalf("EndAll(EndNone) = %v, want ErrEndReason", err)
@@ -192,10 +192,10 @@ func TestReq63EndAllErrors(t *testing.T) {
 	x.unpin(p)
 }
 
-// TestReq53EndingGoroutinesAreBounded holds every request mutex so the
+// TestEndingGoroutinesAreBounded holds every request mutex so the
 // callbacks block: no more than MaxEnding run at once, and all complete
 // once the mutexes are released.
-func TestReq53EndingGoroutinesAreBounded(t *testing.T) {
+func TestEndingGoroutinesAreBounded(t *testing.T) {
 	const maxEnding, requests = 2, 10
 	x := newHarness(t, Config{MaxEnding: maxEnding}, false)
 	x.publish(newSnap("a", nil))
@@ -236,10 +236,10 @@ func TestReq53EndingGoroutinesAreBounded(t *testing.T) {
 	}
 }
 
-// TestReq53UnpinWaitsForActiveCallback: a handler that unpins while its
+// TestUnpinWaitsForActiveCallback: a handler that unpins while its
 // callback runs waits for it, so the callback never touches the record
 // or the connection after the handler returned.
-func TestReq53UnpinWaitsForActiveCallback(t *testing.T) {
+func TestUnpinWaitsForActiveCallback(t *testing.T) {
 	x := newHarness(t, Config{}, false)
 	x.publish(newSnap("a", nil))
 	p := x.pin(0)
@@ -278,9 +278,9 @@ func TestReq53UnpinWaitsForActiveCallback(t *testing.T) {
 	<-endDone
 }
 
-// TestReq53UnpinForgetsPendingRecord: a record Unpin detached before its
+// TestUnpinForgetsPendingRecord: a record Unpin detached before its
 // callback claimed it is left alone.
-func TestReq53UnpinForgetsPendingRecord(t *testing.T) {
+func TestUnpinForgetsPendingRecord(t *testing.T) {
 	var w walkSet
 	w.cond.L = &w.mu
 	r := &snapshot.PinnedRequest{}
@@ -312,12 +312,12 @@ func TestReq53UnpinForgetsPendingRecord(t *testing.T) {
 	}
 }
 
-// TestReq53StaleClaimOfAReusedRecord drives the overlap of a grace walk and
+// TestStaleClaimOfAReusedRecord drives the overlap of a grace walk and
 // the Drain walk on one pooled record: walk 1 visits r, the handler
 // unpins r (detach) before walk 1's callback claims it, r is reused and
 // visited by walk 2. Walk 1's stale callback must not end the new request
 // with RZ-RT-014; walk 2's callback ends it with RZ-RT-016.
-func TestReq53StaleClaimOfAReusedRecord(t *testing.T) {
+func TestStaleClaimOfAReusedRecord(t *testing.T) {
 	x := newHarness(t, Config{}, false)
 	var cancels atomic.Int32
 	r := &snapshot.PinnedRequest{Cancel: func() { cancels.Add(1) }}
@@ -356,11 +356,11 @@ func TestReq53StaleClaimOfAReusedRecord(t *testing.T) {
 	}
 }
 
-// TestReq63PinAfterEndAllIsEnded: once EndAll ran, a request that pins on
+// TestPinAfterEndAllIsEnded: once EndAll ran, a request that pins on
 // a connection that is still open is ended inside Pin with EndDrain
 // (deadlines moved, context canceled), so Close does not wait for new
 // work.
-func TestReq63PinAfterEndAllIsEnded(t *testing.T) {
+func TestPinAfterEndAllIsEnded(t *testing.T) {
 	x := newHarness(t, Config{}, true)
 	x.publish(newSnap("a", nil))
 	if n, err := x.h.EndAll(context.Background(), snapshot.EndDrain); err != nil || n != 0 {
@@ -399,11 +399,11 @@ func TestReq63PinAfterEndAllIsEnded(t *testing.T) {
 	}
 }
 
-// TestReq63EndAllRejectsGrace: grace endings come only from the retirer,
+// TestEndAllRejectsGrace: grace endings come only from the retirer,
 // so EndAll(EndGrace) is refused and sets no latch: a request pinned
 // afterwards is not ended and nothing is counted in
 // ruralz_snapshot_retirement_ended_total.
-func TestReq63EndAllRejectsGrace(t *testing.T) {
+func TestEndAllRejectsGrace(t *testing.T) {
 	x := newHarness(t, Config{}, false)
 	x.publish(newSnap("a", nil))
 	if n, err := x.h.EndAll(context.Background(), snapshot.EndGrace); !errors.Is(err, ErrEndReason) || n != 0 {
@@ -416,7 +416,7 @@ func TestReq63EndAllRejectsGrace(t *testing.T) {
 	x.unpin(p)
 }
 
-func TestReq53Codes(t *testing.T) {
+func TestCodes(t *testing.T) {
 	tests := []struct {
 		r    snapshot.EndReason
 		code string
@@ -453,7 +453,7 @@ func TestReq53Codes(t *testing.T) {
 // registers a record, then either blocks before commit (/wait) or commits
 // a partial streamed response first (/committed), and commits under the
 // record's mutex, writing 503 with the end code when the request was
-// ended (spec 04 req 38).
+// ended.
 type endingServer struct {
 	h      *Holder
 	pinned chan struct{}
@@ -495,11 +495,11 @@ func (e *endingServer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusInternalServerError)
 }
 
-// TestReq53EndingOverHTTP runs the ending protocol against real HTTP/1.1
+// TestEndingOverHTTP runs the ending protocol against real HTTP/1.1
 // and HTTP/2 connections: before commit the client gets 503 RZ-RT-014,
 // after commit the connection closes (HTTP/1.1) or the stream resets
 // (HTTP/2) and the body read fails.
-func TestReq53EndingOverHTTP(t *testing.T) {
+func TestEndingOverHTTP(t *testing.T) {
 	for _, proto := range []string{"http1", "http2"} {
 		for _, path := range []string{"/wait", "/committed"} {
 			t.Run(proto+path, func(t *testing.T) {
@@ -572,9 +572,9 @@ func TestReq53EndingOverHTTP(t *testing.T) {
 	}
 }
 
-// TestReq53PinAfterEndingKeepsWorking: requests keep pinning the active
+// TestPinAfterEndingKeepsWorking: requests keep pinning the active
 // snapshot while an ending walk runs on a retired one.
-func TestReq53PinAfterEndingKeepsWorking(t *testing.T) {
+func TestPinAfterEndingKeepsWorking(t *testing.T) {
 	x := newHarness(t, Config{K: 1}, true)
 	x.publish(newSnap("a", nil))
 	held := x.pin(0)

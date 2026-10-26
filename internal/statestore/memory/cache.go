@@ -11,7 +11,7 @@ import (
 	"github.com/ravindu-rev/ruralz/internal/statestore/keys"
 )
 
-// Response Cache targets of spec 08 req 45, in milliseconds.
+// Response Cache targets, in milliseconds.
 const (
 	fillLeaseMs       = 1000       // store fill lease, 1 s
 	revalidateLeaseMs = 5000       // revalidation lease, 5 s
@@ -25,7 +25,7 @@ func ceilMs(d time.Duration) int64 {
 }
 
 // entryTTL is a store's TTL in milliseconds within [1 ms, 25 h]: no key
-// is ever written without a TTL (spec 08 req 50).
+// is ever written without a TTL.
 func entryTTL(d time.Duration) int64 { return min(max(ceilMs(d), 1), maxPartitionTTLMs) }
 
 // reserveBytes takes n cache entry bytes from the 64 MiB bound; false
@@ -70,10 +70,10 @@ func (d *Driver) sealEntry(k statestore.CacheKey, v statestore.Digest, entry []b
 	return d.mac.Seal(dst, keys.AppendCachePartition(kb[:0], k), keys.AppendField(fb[:0], keys.FieldEntry, v), entry)
 }
 
-// lookup is the pipelined lookup (spec 08 req 45): GET rz:rc:{U}:gen and
-// HMGET rz:rc:{U:P} n g:<V> e:<V>. The entry is copied into c.Entry's
-// storage and checked against its MAC; a missing or wrong tag is a miss,
-// never an error (spec 08 req 68).
+// lookup is the pipelined lookup: GET rz:rc:{U}:gen and HMGET
+// rz:rc:{U:P} n g:<V> e:<V>. The entry is copied into c.Entry's storage
+// and checked against its MAC; a missing or wrong tag is a miss, never
+// an error.
 func (d *Driver) lookup(ctx context.Context, c *statestore.CacheLookup, now instant) {
 	k := c.Key
 	gs := d.shardOf(int(keys.DigestSlot(k.URI)))
@@ -123,12 +123,12 @@ func (d *Driver) openEntry(k statestore.CacheKey, v statestore.Digest, stored []
 	return d.mac.Open(keys.AppendCachePartition(kb[:0], k), keys.AppendField(fb[:0], keys.FieldEntry, v), stored)
 }
 
-// store runs sub-operation s (spec 08 req 45): take the 1 s fill lease or
-// write nothing; drop the partition when its names differ; write names,
-// the variant's generation, store time and entry; keep at most 8 variants
-// in store order, dropping the oldest; extend the partition's TTL to the
-// larger of its remaining TTL and the entry TTL, capped at 25 h. applied
-// is false when the lease was held; ok is false for a full store.
+// store runs sub-operation s: take the 1 s fill lease or write nothing;
+// drop the partition when its names differ; write names, the variant's
+// generation, store time and entry; keep at most 8 variants in store
+// order, dropping the oldest; extend the partition's TTL to the larger of
+// its remaining TTL and the entry TTL, capped at 25 h. applied is false
+// when the lease was held; ok is false for a full store.
 func (d *Driver) store(w *statestore.CacheStore, now instant) (applied, ok bool) {
 	k := w.Key
 	stored := d.sealEntry(k, w.Variant, w.Entry)
@@ -200,13 +200,13 @@ func holds(s *shard, k statestore.CacheKey, token uint64, nowMs int64) bool {
 	return held && !expired(l.exp, nowMs) && l.token == token
 }
 
-// lease runs a revalidation lease operation (spec 08 req 45): take the
-// 5 s lease (SET NX PX 5000; w.TTL does not change it, as the script
-// takes none), refresh a variant's entry after a 304 (script f, which
-// extends the partition by w.TTL like a store), or end the stale window
-// by deleting the variant (script x); refresh and end-stale act only
-// while the lease holds the caller's token. ok is false for an unknown
-// mode or a full store.
+// lease runs a revalidation lease operation: take the 5 s lease (SET NX
+// PX 5000; w.TTL does not change it, as the script takes none), refresh
+// a variant's entry after a 304 (script f, which extends the partition
+// by w.TTL like a store), or end the stale window by deleting the
+// variant (script x); refresh and end-stale act only while the lease
+// holds the caller's token. ok is false for an unknown mode or a full
+// store.
 func (d *Driver) lease(w *statestore.CacheLease, now instant) (applied, ok bool) {
 	k := w.Key
 	s := d.shardOf(int(keys.PartitionSlot(k)))
@@ -267,11 +267,11 @@ func (d *Driver) lease(w *statestore.CacheLease, now instant) (applied, ok bool)
 	}
 }
 
-// invalidate runs sub-operation i (spec 08 req 45): the URI's generation
-// becomes the server time in microseconds since the Unix epoch, or the
-// stored value plus one when that is not greater, so a generation is
-// never reused; the key expires 26 h after the bump. Generation bumps
-// bypass the memory rules of AdmitStoreBytes.
+// invalidate runs sub-operation i: the URI's generation becomes the
+// server time in microseconds since the Unix epoch, or the stored value
+// plus one when that is not greater, so a generation is never reused;
+// the key expires 26 h after the bump. Generation bumps bypass the
+// memory rules of AdmitStoreBytes.
 func (d *Driver) invalidate(uri statestore.Digest, now instant) (applied, ok bool) {
 	s := d.shardOf(int(keys.DigestSlot(uri)))
 	s.mu.Lock()

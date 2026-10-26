@@ -18,11 +18,10 @@ import (
 	"github.com/ravindu-rev/ruralz/internal/secret"
 )
 
-// Tests for the per-kind checks and size caps (architecture 2.8 Kind,
-// R-9): PEM certificate, key, CA bundle and CRL parsing (spec 06
-// requirements 51 and 76), API key length after trimming (spec 06
-// requirement 13) and the State Store URL credentials rule (spec 06
-// requirement 80), each an RZ-CFG-026 at activation.
+// Tests for the per-kind checks and size caps (secret.Kind): PEM
+// certificate, key, CA bundle and CRL parsing, API key length after
+// trimming and the State Store URL credentials rule, each an RZ-CFG-026 at
+// activation.
 
 func TestSizeCap(t *testing.T) {
 	for k := secret.KindOpaque; k <= secret.KindStateStoreURL+1; k++ {
@@ -97,7 +96,7 @@ func TestCheckKind(t *testing.T) {
 		{"url loopback v4", secret.KindStateStoreURL, "redis://127.0.0.1:6379", nil},
 		{"url loopback 127/8", secret.KindStateStoreURL, "redis://127.9.8.7:6379/2", nil},
 		{"url loopback v6", secret.KindStateStoreURL, "redis://[::1]:6379", nil},
-		{"url IPv4-mapped is not a loopback literal", secret.KindStateStoreURL, "redis://[::ffff:127.0.0.1]:6379", errURLNoCredentials}, // spec 08 req 8
+		{"url IPv4-mapped is not a loopback literal", secret.KindStateStoreURL, "redis://[::ffff:127.0.0.1]:6379", errURLNoCredentials},
 		{"url IPv4-mapped addr", secret.KindStateStoreURL, "redis://127.0.0.1:7000?addr=[::ffff:127.0.0.1]:7001", errURLNoCredentials},
 		{"url IPv4-mapped with credentials", secret.KindStateStoreURL, "redis://u:p@[::ffff:127.0.0.1]:6379", nil},
 		{"url localhost", secret.KindStateStoreURL, "redis://LocalHost", nil},
@@ -165,8 +164,8 @@ func TestLeaks(t *testing.T) {
 }
 
 // FuzzKindChecks checks every kind on arbitrary bytes: no panic, and a
-// failure is always a fixed reason that never repeats the value (spec 06
-// requirement 89, 6.4 FuzzPEMBundleAndCRL for the resolver's PEM parsing).
+// failure is always a fixed reason that never repeats the value. It is
+// also the fuzz target of the resolver's PEM bundle and CRL parsing.
 func FuzzKindChecks(f *testing.F) {
 	p := newPEM(f)
 	for k := range secret.KindStateStoreURL + 2 {

@@ -23,27 +23,27 @@ const Type = v1alpha1.PolicyTypeValidationJSONSchema
 
 // Codes, each registered in internal/errcode.
 const (
-	// CodeConfig is an invalid config.schema (07 req 75).
+	// CodeConfig is an invalid config.schema.
 	CodeConfig = "RZ-CFG-005"
-	// CodeRejected is a request body the Policy refuses (07 reqs 78 to 81).
+	// CodeRejected is a request body the Policy refuses.
 	CodeRejected = "RZ-RT-009"
 )
 
-// Problem details of RZ-RT-009 (07 reqs 18, 78 to 81). They are fixed
-// operator-facing text; a mismatch names a keyword location of the schema
-// and never request content.
+// Problem details of RZ-RT-009. They are fixed operator-facing text; a
+// mismatch names a keyword location of the schema and never request
+// content.
 const (
-	// DetailContentType: the media type is not JSON (07 req 78).
+	// DetailContentType: the media type is not JSON.
 	DetailContentType = "Content-Type is not JSON"
-	// DetailEmpty: the body is empty (07 req 79).
+	// DetailEmpty: the body is empty.
 	DetailEmpty = "Request body is empty"
-	// DetailInvalid: the body is not one strict JSON value (07 req 80).
+	// DetailInvalid: the body is not one strict JSON value.
 	DetailInvalid = "Request body is not valid JSON"
 	// DetailNumber: a body number is outside the number bounds while the
-	// schema compares numbers (architecture R-77, package documentation).
+	// schema compares numbers (package documentation).
 	DetailNumber = "Request body has a number out of range"
-	// DetailMismatch prefixes the keyword location of a schema mismatch
-	// (07 req 81); a mismatch at the schema root is DetailMismatch alone.
+	// DetailMismatch prefixes the keyword location of a schema mismatch;
+	// a mismatch at the schema root is DetailMismatch alone.
 	DetailMismatch = "Request body does not match the schema"
 )
 
@@ -54,21 +54,20 @@ var (
 	errDecodedTooLarge = fmt.Errorf("validation.json-schema: decoded body over its limit: %w", filter.ErrTooLarge)
 	// errWorkingSetTooLarge: the decision pass may hold more than
 	// WorkingSetFactor times the raw limit besides the decoded values (413
-	// RZ-RT-003, architecture R-77).
+	// RZ-RT-003).
 	errWorkingSetTooLarge = fmt.Errorf("validation.json-schema: validating the body may hold more than its working-set limit: %w", filter.ErrTooLarge)
 	// errNestingTooDeep: a body value is nested as deep as the schema's
 	// nesting limit, where one value may take more than MaxEvaluations
 	// evaluations, on a path whose state does not bound it (413
-	// RZ-RT-003, architecture R-77).
+	// RZ-RT-003).
 	errNestingTooDeep = fmt.Errorf("validation.json-schema: the body nests deeper than validating it under the schema is bounded: %w", filter.ErrTooLarge)
 	// errWorkTooLarge: validating the body may take more than WorkPerByte
-	// work units per byte of the raw limit (413 RZ-RT-003, architecture
-	// R-77).
+	// work units per byte of the raw limit (413 RZ-RT-003).
 	errWorkTooLarge = fmt.Errorf("validation.json-schema: validating the body may take more than its work limit: %w", filter.ErrTooLarge)
 	// errReservationTooLarge: the decoded values, what their maps, arrays
 	// and strings hold beyond the decoder's charge, and the decision pass's
 	// working set exceed ReservationFactor times the raw limit together (413
-	// RZ-RT-003, architecture R-77).
+	// RZ-RT-003).
 	errReservationTooLarge = fmt.Errorf("validation.json-schema: the decoded body and the working set of validating it exceed the reservation limit: %w", filter.ErrTooLarge)
 	// errNoMessage: the Exchange has no message in onRequestBody.
 	errNoMessage = errors.New("validation.json-schema: no request message")
@@ -98,20 +97,18 @@ var _ filter.Factory = Factory{}
 // sharedKey keys a compiled Schema in a snapshot's filter.Shared.
 type sharedKey struct{ sum [32]byte }
 
-// Build compiles env.Config's schema (07 req 75), reusing the Schema of
-// env.Previous when the normalized document is unchanged and sharing one
-// Schema per document within a snapshot (07 req 77). A schema that does
-// not compile is an error carrying RZ-CFG-005, as are a config of the
-// wrong type and an empty schema. A ctx that has ended is its error,
-// unchanged and without a code, at the start and between the stages of a
-// compile (the library's own compile cannot be interrupted), so a
-// canceled or superseded snapshot compile stops early (minor review
-// finding); so is a failure of env.Shared that is no finding about the
-// schema. Such an error without an RZ-CFG code is an operational failure
-// of the snapshot compile, not a rejection of the Revision: the
-// filter.Factory contract says every error carries one, and a contract
-// request to its owner (WP-01) and to the snapshot compiler (WP-70) asks
-// to record these exceptions (minor review finding).
+// Build compiles env.Config's schema, reusing the Schema of env.Previous
+// when the normalized document is unchanged and sharing one Schema per
+// document within a snapshot. A schema that does not compile is an error
+// carrying RZ-CFG-005, as are a config of the wrong type and an empty
+// schema. A ctx that has ended is its error, unchanged and without a
+// code, at the start and between the stages of a compile (the library's
+// own compile cannot be interrupted), so a canceled or superseded
+// snapshot compile stops early; so is a failure of env.Shared that is no
+// finding about the schema. Such an error without an RZ-CFG code is an
+// operational failure of the snapshot compile, not a rejection of the
+// Revision: the filter.Factory contract says every error carries one and
+// does not record these exceptions yet.
 func (Factory) Build(ctx context.Context, env filter.BuildEnv) (filter.Filter, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, err
@@ -138,8 +135,7 @@ func (Factory) Build(ctx context.Context, env filter.BuildEnv) (filter.Filter, e
 		// Policies of this snapshot with the same document that build
 		// after it. When one of them built first (a new Policy has no
 		// Previous, so it compiled the document again), this Policy takes
-		// that Schema too, so the snapshot holds one per document (minor
-		// review finding).
+		// that Schema too, so the snapshot holds one per document.
 		if env.Shared == nil {
 			return prev, nil
 		}
@@ -191,29 +187,28 @@ func compileShared(ctx context.Context, p *prepared) (*Schema, error) {
 }
 
 // defaultMaxRequestBodyBytes is the limits.maxRequestBodyBytes a Gateway
-// gets when it sets none (10 MiB, the configuration default; 07 section 9
-// item 24), used when the snapshot leaves BuildEnv.Limits unset.
+// gets when it sets none (10 MiB, the configuration default), used when the
+// snapshot leaves BuildEnv.Limits unset.
 const defaultMaxRequestBodyBytes = 10 << 20
 
-// WorkingSetFactor bounds the memory validation may hold (architecture
-// R-77, package documentation "Working set"): besides the decoded values,
-// the decision pass may hold at most WorkingSetFactor times
-// limits.maxRequestBodyBytes, or MinScaledLimit when that is larger, or
-// the body is oversized, and the location pass runs only when it fits the
-// same bound.
+// WorkingSetFactor bounds the memory validation may hold (package
+// documentation "Working set"): besides the decoded values, the decision
+// pass may hold at most WorkingSetFactor times limits.maxRequestBodyBytes,
+// or MinScaledLimit when that is larger, or the body is oversized, and the
+// location pass runs only when it fits the same bound.
 const WorkingSetFactor = 2 * filter.DecodedLimitFactor
 
-// ReservationFactor bounds what Handle reserves for one body (architecture
-// R-77): the decoded values at the decoder's charge, what their maps,
-// arrays and strings hold beyond it (internal/jsonval charges neither an
-// object's hash table nor an array's spare capacity), and the working set
-// of the pass that runs, together at most ReservationFactor times
-// limits.maxRequestBodyBytes (or MinScaledLimit, the larger), so that with
-// the raw body the request side holds at most ReservationFactor+1 times
-// the raw limit (130 MiB at the 10 MiB default), and 1.5 MiB more below
-// MinScaledLimit. A body whose reservation would exceed it is oversized
-// before anything is reserved; a failing body whose location pass would
-// exceed it is refused with DetailMismatch alone.
+// ReservationFactor bounds what Handle reserves for one body: the decoded
+// values at the decoder's charge, what their maps, arrays and strings hold
+// beyond it (internal/jsonval charges neither an object's hash table nor
+// an array's spare capacity), and the working set of the pass that runs,
+// together at most ReservationFactor times limits.maxRequestBodyBytes (or
+// MinScaledLimit, the larger), so that with the raw body the request side
+// holds at most ReservationFactor+1 times the raw limit (130 MiB at the 10
+// MiB default), and 1.5 MiB more below MinScaledLimit. A body whose
+// reservation would exceed it is oversized before anything is reserved; a
+// failing body whose location pass would exceed it is refused with
+// DetailMismatch alone.
 const ReservationFactor = 12
 
 // bodyLimits are the limits a Filter applies to one request body, all
@@ -228,25 +223,24 @@ type bodyLimits struct {
 }
 
 // MinScaledLimit is the smallest limits.maxRequestBodyBytes the
-// working-set, reservation and work limits scale from (proposed,
-// architecture R-77): below it they are those of MinScaledLimit, 1 MiB,
-// 1.5 MiB and 2^25 work units. What validating any body holds and takes
-// has parts that do not grow with the body: the decision pass's wrapper,
-// a call-stack chain per value along the path, a regexp matcher of the
-// largest program that may match a string, the evaluations at the root;
-// scaled from a limit of a few KiB they exceeded it, so a valid body of a
-// few bytes was refused with 413 (review finding: {} under true at 1 and
-// 2 KiB, a 616-byte order composed four levels deep at 16 KiB). The
-// decoded limit still scales from the raw limit (architecture R-63).
+// working-set, reservation and work limits scale from (proposed): below
+// it they are those of MinScaledLimit, 1 MiB, 1.5 MiB and 2^25 work
+// units. What validating any body holds and takes has parts that do not
+// grow with the body: the decision pass's wrapper, a call-stack chain per
+// value along the path, a regexp matcher of the largest program that may
+// match a string, the evaluations at the root; scaled from a limit of a
+// few KiB they exceeded it, so a valid body of a few bytes was refused
+// with 413 ({} under true at 1 and 2 KiB, a 616-byte order composed four
+// levels deep at 16 KiB). The decoded limit still scales from the raw
+// limit.
 const MinScaledLimit = 128 << 10
 
 // limitsOf returns the limits for a raw body limit: filter.DecodedLimitFactor
-// times it for the decoded values (architecture R-63), and from it or
-// MinScaledLimit, the larger, WorkingSetFactor times for the working set,
-// ReservationFactor times for the reservation and WorkPerByte times for
-// the work. An unset limit is the configuration default, so a snapshot
-// that forgets Limits never decodes without a budget; a limit too large to
-// multiply gets the largest bounds.
+// times it for the decoded values, and from it or MinScaledLimit, the larger,
+// WorkingSetFactor times for the working set, ReservationFactor times for the
+// reservation and WorkPerByte times for the work. An unset limit is the
+// configuration default, so a snapshot that forgets Limits never decodes
+// without a budget; a limit too large to multiply gets the largest bounds.
 func limitsOf(rawLimit int64) bodyLimits {
 	scaled := rawLimit
 	if scaled > 0 {
@@ -276,7 +270,7 @@ func (l bodyLimits) refusal(scan *bodyScan) error {
 }
 
 // decodedLimit returns the decode cost budget for a raw body limit:
-// filter.DecodedLimitFactor times the limit (architecture R-63).
+// filter.DecodedLimitFactor times the limit.
 func decodedLimit(rawLimit int64) int64 {
 	return scaledLimit(rawLimit, filter.DecodedLimitFactor)
 }
@@ -297,7 +291,7 @@ type Filter struct {
 	status int
 	limits bodyLimits
 	// decoders pools strict decoders; a Decoder drops oversized scratch
-	// after each call, so the pool never pins a large body (07 req 73).
+	// after each call, so the pool never pins a large body.
 	decoders *sync.Pool
 }
 
@@ -316,17 +310,17 @@ func newFilter(s *Schema, status int, limits bodyLimits) *Filter {
 // Schema returns the compiled schema.
 func (f *Filter) Schema() *Schema { return f.schema }
 
-// Handle validates the client request body in onRequestBody (07 reqs 78 to
-// 82) and continues in every other Phase. A refused body is Respond with
-// 400 RZ-RT-009. A decoded body that is oversized, whose validation may
-// hold more than its working-set limit or take more than its work limit,
-// whose reservation would exceed its reservation limit, or that nests as
-// deep as the schema's nesting limit where the states do not bound it, is
-// CannotDecide with filter.ErrTooLarge, and one whose reservation the
-// budget refuses with filter.ErrBudget, both of which the executor answers
-// under either failureMode (07 req 15). A body the message cannot supply,
-// a request whose context ends before validation, or an internal validator
-// error (07 req 13), is CannotDecide with the class default.
+// Handle validates the client request body in onRequestBody and continues
+// in every other Phase. A refused body is Respond with 400 RZ-RT-009. A
+// decoded body that is oversized, whose validation may hold more than its
+// working-set limit or take more than its work limit, whose reservation
+// would exceed its reservation limit, or that nests as deep as the schema's
+// nesting limit where the states do not bound it, is CannotDecide with
+// filter.ErrTooLarge, and one whose reservation the budget refuses with
+// filter.ErrBudget, both of which the executor answers under either
+// failureMode. A body the message cannot supply, a request whose context
+// ends before validation, or an internal validator error, is CannotDecide
+// with the class default.
 //
 // Validation runs in two passes (package documentation "Working set"):
 // the decision pass, whose working set is reserved with the decoded
@@ -372,18 +366,17 @@ func (f *Filter) Handle(ctx context.Context, p phase.Phase, x filter.Exchange) f
 	}
 	// The decoded values, with what their objects' hash tables, their
 	// arrays' spare capacity and their strings' size classes hold beyond
-	// the decoder's charge, and the decision pass's working set
-	// (architecture R-77, package documentation) are reserved together,
-	// within the reservation limit, and released when validation ends, the
-	// decoded tree's last use (07 req 82). The work is bounded, never
-	// reserved.
+	// the decoder's charge, and the decision pass's working set (package
+	// documentation) are reserved together, within the reservation limit,
+	// and released when validation ends, the decoded tree's last use. The
+	// work is bounded, never reserved.
 	decoded := addCap(cost, scan.extra)
 	n := addCap(decoded, scan.decideMemory())
 	if f.limits.reserve > 0 && n > f.limits.reserve {
 		return filter.Undecided("", errReservationTooLarge)
 	}
 	// The library takes no context: a request that has ended is not
-	// validated (07 section 9 item 21).
+	// validated.
 	if err := ctx.Err(); err != nil {
 		return filter.Undecided("", err)
 	}
@@ -404,7 +397,7 @@ func (f *Filter) Handle(ctx context.Context, p phase.Phase, x filter.Exchange) f
 // and returns the refusal: with the failing keyword when the pass fits its
 // limits (scan holds the body's bounds, decoded what its decoded values
 // reserve), DetailMismatch alone otherwise; an internal validator error is
-// cannot decide (07 req 13).
+// cannot decide.
 func (f *Filter) locate(ctx context.Context, x filter.Exchange, v any, scan *bodyScan, decoded int64) filter.Result {
 	switch {
 	case f.limits.workingSet > 0 && scan.locateMemory() > f.limits.workingSet,
@@ -443,7 +436,7 @@ func (f *Filter) reject(detail string) filter.Result {
 	return filter.Reply(&filter.Response{Status: f.status, Code: CodeRejected, Detail: detail})
 }
 
-// jsonContentType applies 07 req 78 to the Content-Type field lines: one
+// jsonContentType checks the Content-Type field lines for JSON: one
 // line naming application/json or a */*+json type, whose parameters are
 // all charset=utf-8 (name and value case-insensitive, the value optionally
 // quoted); empty parameters are allowed as RFC 9110 allows them.

@@ -20,7 +20,7 @@ import (
 )
 
 // Alg is a JWS signature algorithm (RFC 7518); auth.jwt accepts exactly
-// these four (06 req 26).
+// these four.
 type Alg string
 
 // Algorithms.
@@ -36,7 +36,7 @@ const (
 )
 
 // RSABits is the modulus size GenerateKey uses for RS256 and PS256 (the
-// auth.jwt minimum, 06 req 38).
+// auth.jwt minimum).
 const RSABits = 2048
 
 // Key is a private signing key with its key ID and algorithm.

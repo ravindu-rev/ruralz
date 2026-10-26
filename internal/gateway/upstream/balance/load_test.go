@@ -9,7 +9,7 @@ import (
 	"time"
 )
 
-// TestLoadCounterWindow covers 05 req 13: the score counts in-flight
+// TestLoadCounterWindow covers the least-request score: it counts in-flight
 // attempts plus failures of the last second, in 100 ms buckets.
 func TestLoadCounterWindow(t *testing.T) {
 	var c LoadCounter
@@ -95,8 +95,8 @@ func TestLoadCounterConcurrent(t *testing.T) {
 	}
 }
 
-// TestEndpointCap covers 05 req 36's per-Endpoint cap, the balancer's load
-// bound: max(8, floor(min(2 × w_i/Σw, 0.5) × maxConnections)).
+// TestEndpointCap covers the per-Endpoint cap, the balancer's load bound:
+// max(8, floor(min(2 × w_i/Σw, 0.5) × maxConnections)).
 func TestEndpointCap(t *testing.T) {
 	tests := []struct {
 		w     uint32

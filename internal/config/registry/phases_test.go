@@ -16,9 +16,8 @@ import (
 	"github.com/ravindu-rev/ruralz/pkg/config/v1alpha1"
 )
 
-// Tests for Phase selection and the scope rule: 02 req 13, 13a, 14 and
-// 35.4 with tests 16 (RZ-CFG-020) and 17; 07 req 1 to 3; 06 req 1, 56 and
-// 68; 05 req 75 and T 97 (cache at G or U); R-40 (cache Phases).
+// Tests for Phase selection and the scope rule (RZ-CFG-020), including the
+// cache, which runs at Route scope only and keeps both of its Phases.
 
 var (
 	gw  = phase.ScopeGateway
@@ -55,9 +54,8 @@ func phasesOf(t *testing.T, typ v1alpha1.PolicyType, scope phase.Scope, cfg any,
 	return New().Phases(Attachment{Policy: policy("pol", typ), Config: cfg, Scope: scope}, body)
 }
 
-// TestPhasesScopeRule is 02 test 16 (RZ-CFG-020 fixtures) with 07 req 3,
-// 05 req 75 and T 97, and 06 req 1 and 68: a type at a scope outside its
-// registry Scopes fails with a ScopeError carrying CodeScope.
+// TestPhasesScopeRule covers the RZ-CFG-020 fixtures: a type at a scope
+// outside its registry Scopes fails with a ScopeError carrying CodeScope.
 func TestPhasesScopeRule(t *testing.T) {
 	tests := []struct {
 		typ   v1alpha1.PolicyType
@@ -105,8 +103,8 @@ func wantScopeError(t *testing.T, err error, msg string) {
 
 // TestPhasesAllowedScopes: at every allowed scope a fixed-Phase type runs
 // in its declared Phases; Gateway and Route use the client-leg Phases,
-// Upstream the upstream-leg Phases (02 req 14); cache stays in
-// onRequestHeaders and onResponse (R-40).
+// Upstream the upstream-leg Phases; cache stays in onRequestHeaders and
+// onResponse.
 func TestPhasesAllowedScopes(t *testing.T) {
 	selected := map[v1alpha1.PolicyType]bool{
 		v1alpha1.PolicyTypeAuthzCEL: true, v1alpha1.PolicyTypeAuthzOPA: true, v1alpha1.PolicyTypeAuthzCedar: true,
@@ -137,13 +135,12 @@ func TestPhasesAllowedScopes(t *testing.T) {
 	}
 	got, err := phasesOf(t, v1alpha1.PolicyTypeCache, rt, nil, nil)
 	if err != nil || got != phase.Of(phase.OnRequestHeaders, phase.OnResponse) {
-		t.Errorf("cache Phases = %v, %v; want onRequestHeaders and onResponse (R-40)", got.Phases(), err)
+		t.Errorf("cache Phases = %v, %v; want onRequestHeaders and onResponse", got.Phases(), err)
 	}
 }
 
-// TestPhasesSelection is 02 test 17 with the 07 req 2 table: headers and
-// transform.* run only in the Phases their config uses; an empty config
-// subscribes to nothing.
+// TestPhasesSelection checks that headers and transform.* run only in the
+// Phases their config uses; an empty config subscribes to nothing.
 func TestPhasesSelection(t *testing.T) {
 	const (
 		reqSet  = `{"request":{"set":[{"name":"x-a","value":"1"}]}}`
@@ -186,9 +183,9 @@ func TestPhasesSelection(t *testing.T) {
 	}
 }
 
-// TestPhasesHeadersAddRemove: add and remove (07 req 2 and 20) count as
-// request and response ops like set. R-62 keeps these fields, so a schema
-// without them fails here instead of skipping.
+// TestPhasesHeadersAddRemove: add and remove count as request and response
+// ops like set. The schema keeps these fields, so a schema without them
+// fails here instead of skipping.
 func TestPhasesHeadersAddRemove(t *testing.T) {
 	tests := []struct {
 		cfg   string
@@ -208,11 +205,11 @@ func TestPhasesHeadersAddRemove(t *testing.T) {
 	}
 }
 
-// TestPhasesAuthzCEL is 02 req 13a (test 17 "body oracle both ways") and
-// 06 req 56: onRequestBody iff the rule references request.body, never
-// both; a rule without an oracle is ErrNoBodyOracle, not a guess; authz.opa
-// and authz.cedar stay in onRequestHeaders in M1; a disallowed scope is
-// reported before a missing oracle.
+// TestPhasesAuthzCEL checks the body oracle both ways: onRequestBody iff
+// the rule references request.body, never both; a rule without an oracle is
+// ErrNoBodyOracle, not a guess; authz.opa and authz.cedar stay in
+// onRequestHeaders in M1; a disallowed scope is reported before a missing
+// oracle.
 func TestPhasesAuthzCEL(t *testing.T) {
 	oracle := fakeOracle{
 		`request.body.amount < 100`: nil,
@@ -268,9 +265,9 @@ func TestPhasesAuthzCEL(t *testing.T) {
 	}
 }
 
-// TestPhasesPlugin is 02 req 14 and test 16: a plugin runs in its Plugin's
-// Phases; any Phase outside the scope's leg is RZ-CFG-020 naming the
-// Plugin and the offending Phases.
+// TestPhasesPlugin checks that a plugin runs in its Plugin's Phases, and
+// that any Phase outside the scope's leg is RZ-CFG-020 naming the Plugin
+// and the offending Phases.
 func TestPhasesPlugin(t *testing.T) {
 	tests := []struct {
 		name   string

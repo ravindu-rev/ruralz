@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 // Package nodedir owns the layout of a Node's data directory,
-// ${RURALZ_DATA_DIR} (spec 04 requirement 5; pack 8.11):
+// ${RURALZ_DATA_DIR} (pack 8.11):
 //
 //	lock              empty file; flock(LOCK_EX|LOCK_NB) for the holder's lifetime
 //	holder.json       PID record ruralz.holder.v1, written after taking the lock
@@ -12,13 +12,13 @@
 //	cache/oci/sha256/ reserved, Planned (M2)
 //
 // Directories are created 0700 and files 0600. Only the process holding
-// the lock writes holder.json and files under lkg/ (spec 04 requirement
-// 7); the write methods live on Lock so nothing can write after Release.
+// the lock writes holder.json and files under lkg/; the write methods
+// live on Lock so nothing can write after Release.
 //
 // Paths, holder.json and node.id are platform-neutral. The lock uses the
-// standard library's BSD flock on Linux, macOS and the BSDs (R-26), and a
-// stub returning errors.ErrUnsupported elsewhere (R-60), so the ruralz CLI
-// still builds for Windows and reads holder.json with ReadHolderAt.
+// standard library's BSD flock on Linux, macOS and the BSDs, and a stub
+// returning errors.ErrUnsupported elsewhere, so the ruralz CLI still
+// builds for Windows and reads holder.json with ReadHolderAt.
 package nodedir
 
 import (
@@ -32,11 +32,10 @@ import (
 	"github.com/ravindu-rev/ruralz/internal/ulid"
 )
 
-// DefaultRoot is the data directory when RURALZ_DATA_DIR is unset (spec 04
-// requirement 2, spec 10 requirement 94).
+// DefaultRoot is the data directory when RURALZ_DATA_DIR is unset.
 const DefaultRoot = "/var/lib/ruralz"
 
-// Names under the data directory, slash-separated (spec 04 requirement 5).
+// Names under the data directory, slash-separated.
 const (
 	// LockFile is the flock file.
 	LockFile = "lock"
@@ -182,10 +181,9 @@ func (d *Dir) localPath(rel string) (string, error) {
 }
 
 // NodeID returns node.id, creating identity/node-id with gen on first
-// boot (spec 04 requirements 5 and 6). An existing file is never
-// rewritten: two processes starting at once both return the ULID of the
-// one that linked its file first. gen is typically
-// func() (ulid.ULID, error) { return ulid.New(clk.Now(), nil) }.
+// boot. An existing file is never rewritten: two processes starting at
+// once both return the ULID of the one that linked its file first. gen is
+// typically func() (ulid.ULID, error) { return ulid.New(clk.Now(), nil) }.
 func (d *Dir) NodeID(gen func() (ulid.ULID, error)) (ulid.ULID, error) {
 	path := d.NodeIDPath()
 	id, err := readNodeID(path)

@@ -14,15 +14,13 @@ import (
 
 // The example Bundle of docs/architecture/02-configuration-model.md
 // ("Complete annotated example Bundle"), verbatim under
-// testdata/shop-bundle: 02 test 15, 02 req 35 and 51 to 52, 04 req 40,
-// 10 req 43.
+// testdata/shop-bundle.
 
 const shopBundle = "testdata/shop-bundle"
 
 // TestWorkedExample checks that the orders-summary rows equal the
 // configuration model's "Worked example" table in Phase, Leg, Policy and
-// From (02 req 52, golden R-79; the worked-example chain moved from
-// WP-04).
+// From.
 func TestWorkedExample(t *testing.T) {
 	b, files := loadBundle(t, shopBundle)
 	chains, ds := stageI(t, b, files, 1)
@@ -52,9 +50,9 @@ func TestWorkedExample(t *testing.T) {
 	}
 }
 
-// TestShopBundleChains checks the other example Routes (02 test 15):
-// support-chat replaces jwt-default with apikey-partner in slot auth and
-// runs token-budget-partner in onRequestBody, onChunk and onLog; cart-grpc
+// TestShopBundleChains checks the other example Routes: support-chat
+// replaces jwt-default with apikey-partner in slot auth and runs
+// token-budget-partner in onRequestBody, onChunk and onLog; cart-grpc
 // excludes cors-default and runs headers-security in onResponse only.
 func TestShopBundleChains(t *testing.T) {
 	b, files := loadBundle(t, shopBundle)
@@ -93,7 +91,7 @@ func TestShopBundleChains(t *testing.T) {
 		t.Errorf("cart-grpc Removed = %+v, want %+v", cart.Removed, want)
 	}
 
-	// The orders-summary legs follow the composition steps (02 req 41).
+	// The orders-summary legs follow the composition steps.
 	orders := chains["orders-summary"]
 	var legs []string
 	for _, l := range orders.Legs {
@@ -102,7 +100,7 @@ func TestShopBundleChains(t *testing.T) {
 	if !slices.Equal(legs, []string{"orders", "inventory"}) {
 		t.Errorf("orders-summary legs = %q, want [orders inventory]", legs)
 	}
-	// Entry fields the data plane and stage J read (03 req 11).
+	// Entry fields the data plane and stage J read.
 	geo := orders.Client[phase.OnRequestHeaders][2]
 	if geo.Policy != "geo-block-default" || geo.Class != phase.ClassAuthz || geo.Scope != phase.ScopeGateway || geo.Position != 4 ||
 		geo.FirstPhase() != phase.OnRequestHeaders || geo.Ref.File != "ruralz.yaml" || geo.Ref.Line != 47 || geo.Ref.Column != 7 {
@@ -114,7 +112,7 @@ func TestShopBundleChains(t *testing.T) {
 }
 
 // TestShopBundleGolden pins the text and JSON effective tables of every
-// example Route (02 req 51 and 52 reason templates; 10 req 43).
+// example Route, reason templates included.
 func TestShopBundleGolden(t *testing.T) {
 	b, files := loadBundle(t, shopBundle)
 	chains, _ := stageI(t, b, files, 2)

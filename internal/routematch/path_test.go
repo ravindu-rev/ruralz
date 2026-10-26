@@ -14,8 +14,8 @@ import (
 	"github.com/ravindu-rev/ruralz/internal/errcode"
 )
 
-// normalizeCases are the 04 req 23 cases (test plan item 5 plus edge
-// cases), shared with the fuzz seeds.
+// normalizeCases are the path normalization cases, edge cases included,
+// shared with the fuzz seeds.
 var normalizeCases = []struct {
 	name string
 	in   string
@@ -68,7 +68,7 @@ var normalizeCases = []struct {
 	{name: "empty is root", in: "", want: "/"},
 	{name: "sub-delims and pchar kept", in: "/!$&'()*+,;=:@-._~", want: "/!$&'()*+,;=:@-._~"},
 	{name: "upper escapes kept", in: "/v1/a%20b%2Fc", want: "/v1/a%20b%2Fc"},
-	// Step 1: rejections (OQ-security-and-identity-21 (a)).
+	// Step 1: rejections.
 	{name: "encoded NUL", in: "/%00", reason: RejectEncodedNUL, offset: 1},
 	{name: "raw backslash", in: "/a\\b", reason: RejectBackslash, offset: 2},
 	{name: "encoded backslash upper", in: "/%5C", reason: RejectEncodedBackslash, offset: 1},
@@ -92,7 +92,8 @@ var normalizeCases = []struct {
 	{name: "first offense wins", in: "/%zz\\", reason: RejectBadEscape, offset: 1},
 }
 
-// TestNormalizePath covers 04 req 23 steps 1 to 4 and the RZ-RT-017 error.
+// TestNormalizePath covers NormalizePath steps 1 to 4 and the RZ-RT-017
+// error.
 func TestNormalizePath(t *testing.T) {
 	for _, tc := range normalizeCases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -123,9 +124,9 @@ func TestNormalizePath(t *testing.T) {
 	}
 }
 
-// TestNormalizePathAsteriskForm: asterisk-form matches no Route (04 req 23):
-// "*" is 404 RZ-RT-001, not a 400 RZ-RT-017 rejection, while every other
-// target that does not start with "/" stays RZ-RT-017.
+// TestNormalizePathAsteriskForm: asterisk-form matches no Route: "*" is 404
+// RZ-RT-001, not a 400 RZ-RT-017 rejection, while every other target that
+// does not start with "/" stays RZ-RT-017.
 func TestNormalizePathAsteriskForm(t *testing.T) {
 	got, err := NormalizePath("*")
 	if got != "" || !errors.Is(err, ErrAsteriskForm) {
@@ -148,7 +149,7 @@ func TestNormalizePathAsteriskForm(t *testing.T) {
 	}
 }
 
-// TestNormalizePathIdempotent: normalization is idempotent (04 req 23).
+// TestNormalizePathIdempotent: normalization is idempotent.
 func TestNormalizePathIdempotent(t *testing.T) {
 	for _, tc := range normalizeCases {
 		if tc.reason != 0 {
@@ -161,8 +162,8 @@ func TestNormalizePathIdempotent(t *testing.T) {
 	}
 }
 
-// TestNormalizePathAllocs: an already-normal path costs no allocation (WP-05
-// "Done when"; 04 req 33 zero Ruralz-owned allocations per match).
+// TestNormalizePathAllocs: an already-normal path costs no allocation, as
+// a match makes no Ruralz-owned allocation.
 func TestNormalizePathAllocs(t *testing.T) {
 	for _, p := range []string{"/", "/v1/orders/42", "/v1/a%20b%2Fc/", "/a//b/", "/!$&'()*+,;=:@-._~"} {
 		var out string
@@ -222,7 +223,7 @@ func TestNextSegment(t *testing.T) {
 	}
 }
 
-// TestDecodeParam: captures reach CEL decoded (04 req 29).
+// TestDecodeParam: captures reach CEL decoded.
 func TestDecodeParam(t *testing.T) {
 	cases := []struct{ in, want string }{
 		{"42", "42"},
@@ -243,8 +244,7 @@ func TestDecodeParam(t *testing.T) {
 	}
 }
 
-// TestPrefixMatch covers segment-boundary prefixes (04 req 28; test plan
-// item 5).
+// TestPrefixMatch covers segment-boundary prefixes.
 func TestPrefixMatch(t *testing.T) {
 	cases := []struct {
 		prefix, path string
@@ -290,8 +290,7 @@ func TestCheckPath(t *testing.T) {
 }
 
 // TestRequestPath: the path as received keeps %2F even when net/url
-// re-escapes EscapedPath (04 req 23: an encoded slash never splits a
-// segment).
+// re-escapes EscapedPath (an encoded slash never splits a segment).
 func TestRequestPath(t *testing.T) {
 	cases := []struct{ target, want string }{
 		{"/a%2Fb/x", "/a%2Fb/x"},
@@ -313,7 +312,7 @@ func TestRequestPath(t *testing.T) {
 		}
 	}
 	// Encoded control bytes reach the handler (net/url rejects only raw
-	// ones), so NormalizePath rejects them (04 req 23 step 1).
+	// ones), so NormalizePath rejects them (step 1).
 	req, err := http.ReadRequest(bufio.NewReader(strings.NewReader("GET /a%0D%0Ab HTTP/1.1\r\nHost: h\r\n\r\n")))
 	if err != nil {
 		t.Fatal(err)
@@ -332,10 +331,10 @@ func TestRequestPath(t *testing.T) {
 }
 
 // TestRequestPathTargetForms pins what net/http hands the handler for the
-// request-target forms that match no Route (04 req 22, 23; test plan item 6):
-// asterisk-form reaches NormalizePath as "*" and comes back 404 RZ-RT-001;
-// CONNECT authority-form has an empty path, which normalizes to "/", so the
-// caller must answer CONNECT before normalizing (see NormalizePath).
+// request-target forms that match no Route: asterisk-form reaches
+// NormalizePath as "*" and comes back 404 RZ-RT-001; CONNECT authority-form
+// has an empty path, which normalizes to "/", so the caller must answer
+// CONNECT before normalizing (see NormalizePath).
 func TestRequestPathTargetForms(t *testing.T) {
 	read := func(line string) *http.Request {
 		t.Helper()

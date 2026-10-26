@@ -16,9 +16,9 @@ import (
 	"github.com/ravindu-rev/ruralz/internal/telemetry/emit"
 )
 
-// Spec 09 req 45: listener families exist at 0 once the listener is
-// admitted; req 55: they never fold.
-func TestListenerFamiliesPrecreated_Req45(t *testing.T) {
+// Listener families exist at 0 once the listener is admitted, and they
+// never fold.
+func TestListenerFamiliesPrecreated(t *testing.T) {
 	r, clk := newTestRegistry(t, func(o *Options) { o.Limits = Limits{CounterFamily: 1, HistogramFamily: 1, Revision: 1} })
 	pl, bind := admitBind(t, r, emit.Shape{Listeners: []string{"admin-b", "public-a"}})
 	defer bind.Release()
@@ -79,9 +79,9 @@ func TestListenerFamiliesPrecreated_Req45(t *testing.T) {
 	}
 }
 
-// Spec 09 req 43 and 45: each Policy records only its type's families,
-// per Phase where the family has a phase label, pre-created at 0.
-func TestPolicyFamiliesByType_Req45(t *testing.T) {
+// Each Policy records only its type's families, per Phase where the
+// family has a phase label, pre-created at 0.
+func TestPolicyFamiliesByType(t *testing.T) {
 	r, clk := newTestRegistry(t, nil)
 	all := phases(phase.OnRequestHeaders, phase.OnRequestBody, phase.OnUpstreamResponseHeaders, phase.OnResponse, phase.OnLog)
 	shape := emit.Shape{Policies: []emit.PolicyShape{
@@ -186,10 +186,10 @@ func TestPolicyFamiliesByType_Req45(t *testing.T) {
 	}
 }
 
-// Spec 09 req 41, 45 and 55: beyond the family limit, resources fold into
-// _overflow, whose label sets exist at 0 from the family's first
-// admission; Plan.Folded and the folded gauge count them.
-func TestFoldingIntoOverflow_Req55(t *testing.T) {
+// Beyond the family limit, resources fold into _overflow, whose label
+// sets exist at 0 from the family's first admission; Plan.Folded and the
+// folded gauge count them.
+func TestFoldingIntoOverflow(t *testing.T) {
 	r, clk := newTestRegistry(t, func(o *Options) { o.Limits = Limits{CounterFamily: 10, HistogramFamily: 1} })
 	pl, bind := admitBind(t, r, emit.Shape{Routes: []string{"c", "a", "b"}})
 	defer bind.Release()
@@ -229,9 +229,9 @@ func TestFoldingIntoOverflow_Req55(t *testing.T) {
 	}
 }
 
-// Spec 09 req 43 and 49: attempts without a response count as 5xx with
-// their error; error series are unsharded, error="none" ones striped.
-func TestUpstreamAttempts_Req49(t *testing.T) {
+// Attempts without a response count as 5xx with their error; error
+// series are unsharded, error="none" ones striped.
+func TestUpstreamAttempts(t *testing.T) {
 	r, clk := newTestRegistry(t, nil)
 	pl, bind := admitBind(t, r, emit.Shape{Upstreams: []string{"svc"}})
 	defer bind.Release()
@@ -265,8 +265,8 @@ func TestUpstreamAttempts_Req49(t *testing.T) {
 	}
 }
 
-// Spec 09 req 55: the Revision limit bounds the admitted series.
-func TestRevisionLimit_Req55(t *testing.T) {
+// The Revision limit bounds the admitted series.
+func TestRevisionLimit(t *testing.T) {
 	r, _ := newTestRegistry(t, func(o *Options) { o.Limits = Limits{Revision: 40} })
 	units := decideShape(t, r, emit.Shape{Upstreams: []string{"u1", "u2"}})
 	series := 0
@@ -287,8 +287,8 @@ func TestRevisionLimit_Req55(t *testing.T) {
 	}
 }
 
-// Spec 09 req 41: requests no Route matched record route="_unmatched".
-func TestUnmatchedRoute_Req41(t *testing.T) {
+// Requests no Route matched record route="_unmatched".
+func TestUnmatchedRoute(t *testing.T) {
 	r, clk := newTestRegistry(t, nil)
 	pl, bind := admitBind(t, r, emit.Shape{})
 	defer bind.Release()
@@ -305,12 +305,12 @@ func TestUnmatchedRoute_Req41(t *testing.T) {
 	}
 }
 
-// Spec 09 req 45 (architecture 2.11): a Bundle that mixes cached and
-// uncached Routes pre-creates ruralz_cache_requests_total label sets for
-// the cached ones only. The uncached Routes' cache handles record nothing
-// and spend none of the family's budget; a cached name that is not a Route
-// is rejected, and a repeated one counts once.
-func TestCachedRoutes_Req45(t *testing.T) {
+// A Bundle that mixes cached and uncached Routes pre-creates
+// ruralz_cache_requests_total label sets for the cached ones only. The
+// uncached Routes' cache handles record nothing and spend none of the
+// family's budget; a cached name that is not a Route is rejected, and a
+// repeated one counts once.
+func TestCachedRoutes(t *testing.T) {
 	// The cache family fits one Route; the uncached a and b come first in
 	// admission order but take none of it.
 	r, clk := newTestRegistry(t, func(o *Options) { o.Limits = Limits{CounterFamily: 5} })
@@ -392,9 +392,9 @@ func TestAdmitNamesAndErrors(t *testing.T) {
 	}
 }
 
-// Spec 09 req 49: striping of Gateway-scoped Policies and of the first
-// admitted Routes and Upstreams, within caps.
-func TestStripingDecisions_Req49(t *testing.T) {
+// Striping of Gateway-scoped Policies and of the first admitted Routes
+// and Upstreams, within caps.
+func TestStripingDecisions(t *testing.T) {
 	// The Node-wide and _overflow/_unmatched histogram label sets striped
 	// at start, plus room for one listener histogram.
 	base, _ := newTestRegistry(t, nil)
@@ -458,11 +458,11 @@ func TestStripingDecisions_Req49(t *testing.T) {
 	}
 }
 
-// Spec 09 req 49: the _overflow and _unmatched groups of Striped families
-// are hot label sets, striped within the listener and enumeration-only
-// caps, which they share with the Node-wide groups; past the caps, or
-// with one stripe, they stay unstriped.
-func TestFixedGroupsStriped_Req49(t *testing.T) {
+// The _overflow and _unmatched groups of Striped families are hot label
+// sets, striped within the listener and enumeration-only caps, which they
+// share with the Node-wide groups; past the caps, or with one stripe,
+// they stay unstriped.
+func TestFixedGroupsStriped(t *testing.T) {
 	shape := emit.Shape{Routes: []string{"a"}, Upstreams: []string{"u"}, Policies: gatewayPolicies()}
 	fixed := func(r *Registry) map[string]*group {
 		out := map[string]*group{}
@@ -615,8 +615,8 @@ func planSignature(p *Plan) string {
 	return b.String()
 }
 
-// checkPlanLimits verifies spec 09 req 55 on one admission: family and
-// Revision limits hold, listener families never fold.
+// checkPlanLimits verifies the admission rules on one admission: family
+// and Revision limits hold, listener families never fold.
 func checkPlanLimits(t testing.TB, r *Registry, units []unit) {
 	t.Helper()
 	fam := make([]int, len(r.fams))
@@ -649,10 +649,10 @@ func checkPlanLimits(t testing.TB, r *Registry, units []unit) {
 	}
 }
 
-// Spec 09 req 55 and test 21 (property): any permutation of a Shape's
-// input order yields an identical Plan; limits are never exceeded;
+// TestAdmissionDeterminism is a property test: any permutation of a
+// Shape's input order yields an identical Plan; limits are never exceeded;
 // listener and enumeration families never fold.
-func TestAdmissionDeterminism_Test21(t *testing.T) {
+func TestAdmissionDeterminism(t *testing.T) {
 	rng := testRand(21, 55)
 	for i := range 200 {
 		limits := Limits{CounterFamily: 1 + rng.IntN(40), HistogramFamily: 1 + rng.IntN(10), Revision: 50 + rng.IntN(400)}
@@ -685,7 +685,7 @@ func TestAdmissionDeterminism_Test21(t *testing.T) {
 	}
 }
 
-// FuzzAdmission is spec 09 test 30: random shapes never panic and admit
+// FuzzAdmission checks that random shapes never panic and admit
 // deterministically.
 func FuzzAdmission(f *testing.F) {
 	f.Add(uint64(1), uint8(5), uint16(10))

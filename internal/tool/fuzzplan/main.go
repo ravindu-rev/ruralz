@@ -3,7 +3,7 @@
 
 // Command fuzzplan plans and runs the nightly Fuzz job of CI stage 11
 // (docs/engineering/03-testing-and-quality-strategy.md, "Test pyramid" and
-// "Fuzzing"; 11 req 28):
+// "Fuzzing"):
 //
 //	fuzzplan list   [-C DIR] [packages]
 //	fuzzplan matrix [-C DIR] [-per 8] [packages]

@@ -17,7 +17,7 @@ import (
 // psLiteral single-quotes s for PowerShell.
 func psLiteral(s string) string { return "'" + strings.ReplaceAll(s, "'", "''") + "'" }
 
-// TestPowerShellBehaviorReq107 loads the generated PowerShell script and
+// TestPowerShellBehavior loads the generated PowerShell script and
 // drives it through TabExpansion2, as an editor or PSReadLine does: nouns,
 // verbs, flags per command, --output values per mode, SHELL values,
 // directory completion, flag values after "=", and path completion for
@@ -27,7 +27,7 @@ func psLiteral(s string) string { return "'" + strings.ReplaceAll(s, "'", "''") 
 // PSReadLine swallows that. The test pins this trade-off: such a case
 // yields an exception naming completionText, or no match, and never a
 // path. It skips without pwsh.
-func TestPowerShellBehaviorReq107(t *testing.T) {
+func TestPowerShellBehavior(t *testing.T) {
 	pwsh, err := exec.LookPath("pwsh")
 	if err != nil {
 		t.Skip("pwsh not installed")

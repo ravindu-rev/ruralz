@@ -11,8 +11,8 @@ import (
 	"github.com/ravindu-rev/ruralz/internal/config/tree"
 )
 
-// TestParseJSONTree checks the JSON front end's tree, styles and positions
-// (01 req 15, 14).
+// TestParseJSONTree checks the JSON front end's tree, styles and
+// positions.
 func TestParseJSONTree(t *testing.T) {
 	src := "{\n" +
 		"  \"apiVersion\": \"ruralz/v1alpha1\",\n" +
@@ -34,9 +34,9 @@ func TestParseJSONTree(t *testing.T) {
 	}
 }
 
-// TestJSONErrors covers the strict front end (01 req 15): every error is
-// RZ-CFG-001 at the scanner's offset, a non-object top level is
-// RZ-CFG-005, and duplicates are RZ-CFG-002 with both positions.
+// TestJSONErrors covers the strict front end: every error is RZ-CFG-001
+// at the scanner's offset, a non-object top level is RZ-CFG-005, and
+// duplicates are RZ-CFG-002 with both positions.
 func TestJSONErrors(t *testing.T) {
 	tests := []struct {
 		name      string
@@ -84,8 +84,7 @@ func TestJSONErrors(t *testing.T) {
 	}
 }
 
-// TestJSONDuplicates reports every duplicate name with both positions (01
-// req 11, 15).
+// TestJSONDuplicates reports every duplicate name with both positions.
 func TestJSONDuplicates(t *testing.T) {
 	docs, diags := parseJSON(t, "{\"a\": 1,\n \"b\": {\"x\": 1, \"x\": 2},\n \"a\": 3, \"\\u0061\": 4}")
 	if got, want := codes(diags), "RZ-CFG-002@2:16 RZ-CFG-002@3:2 RZ-CFG-002@3:10"; got != want {
@@ -103,7 +102,7 @@ func TestJSONDuplicates(t *testing.T) {
 }
 
 // TestJSONYAMLTwins checks that JSON and YAML twins produce the same tree
-// (01 req 15: tabs, \/ and surrogate-pair escapes; property P2).
+// (tabs, \/ and surrogate-pair escapes).
 func TestJSONYAMLTwins(t *testing.T) {
 	twins := []struct{ json, yaml string }{
 		{"{\t\"a\":\t1,\t\"b\": \"x\\ty\"}", "a: 1\nb: \"x\\ty\"\n"},

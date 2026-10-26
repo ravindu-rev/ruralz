@@ -23,9 +23,9 @@ type Member struct {
 // linear up to 8 members; a larger object keeps a name index that Decode,
 // Clone and every mutation maintain, so reads (Len, At, All, Index, Get and
 // Has) never write. Any number of goroutines may therefore read an object,
-// such as a decoded body shared by every reader (03 req 25; 07 req 56),
-// while none changes it; a mutation needs exclusive access. The zero Object
-// is empty and ready to use; a nil *Object reads as empty.
+// such as a decoded body shared by every reader, while none changes it; a
+// mutation needs exclusive access. The zero Object is empty and ready to
+// use; a nil *Object reads as empty.
 type Object struct {
 	members []Member
 	index   map[string]int
@@ -163,7 +163,7 @@ func (o *Object) DeleteAt(i int) {
 }
 
 // Sort orders the members by ascending byte order of their names, the
-// order Append writes (07 req 60).
+// order Append writes.
 func (o *Object) Sort() {
 	if o == nil {
 		return

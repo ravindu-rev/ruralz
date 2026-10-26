@@ -17,8 +17,7 @@ import (
 
 // TestBuildRepository builds the real cmd/ruralzd and cmd/ruralz with the
 // release flags and an injected version, then an overlay variant, and
-// checks that `ruralz version` reports each as injected (11 test plan item
-// 12; 11 req 32, 45, 47).
+// checks that `ruralz version` reports each as injected.
 func TestBuildRepository(t *testing.T) {
 	t.Setenv(EnvBinDir, "")
 	root, err := RepoRoot(".")

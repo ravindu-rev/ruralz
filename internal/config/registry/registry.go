@@ -9,9 +9,9 @@
 // allowed, whether this release serves it, and the typed config its
 // spec.config decodes into.
 //
-// One package serves every stage that needs the table (architecture R-7):
-// stage G (internal/config/defaults and internal/config/convert)
-// materializes Defaults and decodes spec.config into NewConfig; stage H
+// One package serves every stage that needs the table: stage G
+// (internal/config/defaults and internal/config/convert) materializes
+// Defaults and decodes spec.config into NewConfig; stage H
 // (internal/config/validate) reports unserved types with CheckServed
 // (RZ-CFG-040); stage I (internal/config/precedence) reads EffectiveSlot,
 // EffectiveClass, Phases (RZ-CFG-020) and CheckFailureMode (RZ-CFG-029).
@@ -35,23 +35,23 @@ import (
 )
 
 // RZ codes this package puts on diagnostics and errors. The stage that
-// raises each one is fixed by architecture R-46: stage G or H for
-// CodeFilterClass, stage I for CodeScope and CodeFailureMode, and the
-// ruralzd serve check after stage M for CodeUnserved (R-75).
+// raises each one is fixed: stage G or H for CodeFilterClass, stage I
+// for CodeScope and CodeFailureMode, and the ruralzd serve check after
+// stage M for CodeUnserved.
 const (
 	// CodeFilterClass is RZ-CFG-005 for an authored filterClass the
-	// registry rejects (02 req 38): on a type other than plugin, a value
-	// that differs from the registry class; on plugin, a value that is not
-	// one of the nine Filter classes.
+	// registry rejects: on a type other than plugin, a value that differs
+	// from the registry class; on plugin, a value that is not one of the
+	// nine Filter classes.
 	CodeFilterClass = "RZ-CFG-005"
 	// CodeScope is RZ-CFG-020: a Policy type, or a Plugin's Phases, not
-	// allowed at the attaching scope (02 req 35.4).
+	// allowed at the attaching scope.
 	CodeScope = "RZ-CFG-020"
 	// CodeFailureMode is RZ-CFG-029: failureMode open on a closed-only
-	// type (02 req 37).
+	// type.
 	CodeFailureMode = "RZ-CFG-029"
 	// CodeUnserved is RZ-CFG-040: a Policy type this release does not
-	// serve (architecture section 0 item 8, R-7).
+	// serve.
 	CodeUnserved = "RZ-CFG-040"
 )
 
@@ -67,10 +67,10 @@ var ErrUnknownType = errors.New("unknown Policy type")
 
 // ErrNoBodyOracle reports Phase selection for an authz.cel Policy with a
 // rule but no BodyOracle. Without the oracle the registry cannot tell an
-// onRequestBody rule from an onRequestHeaders one (02 req 13a), and a
-// silent onRequestHeaders fallback would run a body rule before the body
-// exists and hide its body read from the cache guardrail (RZ-CFG-038).
-// Every binary links the CEL compiler, so this is a programming error.
+// onRequestBody rule from an onRequestHeaders one, and a silent
+// onRequestHeaders fallback would run a body rule before the body exists
+// and hide its body read from the cache guardrail (RZ-CFG-038). Every
+// binary links the CEL compiler, so this is a programming error.
 var ErrNoBodyOracle = errors.New("authz.cel Phase selection needs a BodyOracle")
 
 // selector names how a type's Phases at one attachment follow from its
@@ -81,16 +81,16 @@ const (
 	// selFixed runs every declared Phase of the scope.
 	selFixed selector = iota
 	// selAuthzCEL runs onRequestBody when config.rule references
-	// request.body, else onRequestHeaders (02 req 13a, 06 req 56).
+	// request.body, else onRequestHeaders.
 	selAuthzCEL
 	// selHeadersOnly runs onRequestHeaders only: authz.opa and
-	// authz.cedar until their body analysis lands (M2; 02 req 13).
+	// authz.cedar until their body analysis lands (M2).
 	selHeadersOnly
 	// selHeaders runs the request-op Phase iff request ops exist and the
-	// response-op Phase iff response ops exist (07 req 2).
+	// response-op Phase iff response ops exist.
 	selHeaders
 	// selTransform runs the scope's Phase iff config sets body or any list
-	// entry (07 req 2).
+	// entry.
 	selTransform
 	// selPlugin runs the Plugin's spec.phases (foundation pack section 10).
 	selPlugin
@@ -138,8 +138,8 @@ type Entry struct {
 	Planned string
 	// NewConfig returns a new zero typed config into which spec.config
 	// decodes: a pointer such as *v1alpha1.RateLimitConfig, named by the
-	// type's +ruralz:policyType marker in pkg/config/v1alpha1 (R-62). It is
-	// nil for a type without a config type; every v1alpha1 type has one.
+	// type's +ruralz:policyType marker in pkg/config/v1alpha1. It is nil
+	// for a type without a config type; every v1alpha1 type has one.
 	NewConfig func() any
 
 	sel selector
@@ -220,7 +220,7 @@ func (r *Registry) lookup(t v1alpha1.PolicyType) (Entry, error) {
 	return e, nil
 }
 
-// Registry slots of the table (01 req 40).
+// Registry slots of the table.
 const (
 	slotAuth          = "auth"
 	slotValidation    = "validation"
@@ -243,7 +243,7 @@ func newConfig[T any]() func() any { return func() any { return new(T) } }
 // table builds foundation pack section 10 row by row. Rows that list
 // several types are expanded in their listed order. Served is true exactly
 // for the types M1 builds; plugin, authz.opa, authz.cedar, authz.geoip,
-// auth.upstream-sigv4 and ai.* are RZ-CFG-040 (architecture WP-04).
+// auth.upstream-sigv4 and ai.* are RZ-CFG-040.
 func table() []Entry {
 	const (
 		closed = v1alpha1.FailureModeClosed
@@ -259,22 +259,21 @@ func table() []Entry {
 		headersAnd = phase.Of(phase.OnRequestHeaders, phase.OnRequestBody)
 		upReq      = phase.Of(phase.OnUpstreamRequest)
 	)
-	// auth is the shared row of the four client authentication types
-	// (06 req 1).
+	// auth is the shared row of the four client authentication types.
 	auth := func(t v1alpha1.PolicyType, cfg func() any) Entry {
 		return Entry{
 			Type: t, Class: phase.ClassAuth, Phases: reqHeaders, Scopes: gr, Slot: slotAuth,
 			DefaultFailureMode: closed, ClosedOnly: true, Served: true, Planned: m1, NewConfig: cfg,
 		}
 	}
-	// authz is the shared row shape of authz.* (06 req 53).
+	// authz is the shared row shape of authz.*.
 	authz := func(t v1alpha1.PolicyType, ps phase.Set, sel selector, served bool, planned string, cfg func() any) Entry {
 		return Entry{
 			Type: t, Class: phase.ClassAuthz, Phases: ps, Scopes: gr, Slot: SlotName,
 			DefaultFailureMode: closed, ClosedOnly: true, Served: served, Planned: planned, NewConfig: cfg, sel: sel,
 		}
 	}
-	// upstreamAuth is the shared row of auth.upstream-* (06 req 68).
+	// upstreamAuth is the shared row of auth.upstream-*.
 	upstreamAuth := func(t v1alpha1.PolicyType, served bool, planned string, cfg func() any) Entry {
 		return Entry{
 			Type: t, Class: phase.ClassUpstreamAuth, UpstreamPhases: upReq, Scopes: upOnly, Slot: slotUpstreamAuth,
@@ -292,40 +291,36 @@ func table() []Entry {
 		authz(v1alpha1.PolicyTypeAuthzIP, reqHeaders, selFixed, true, m1, newConfig[v1alpha1.AuthzIPConfig]()),
 		authz(v1alpha1.PolicyTypeAuthzGeoIP, reqHeaders, selFixed, false, m2, newConfig[v1alpha1.AuthzGeoIPConfig]()),
 		{
-			// 05 req 56.
 			Type: v1alpha1.PolicyTypeRateLimit, Class: phase.ClassAdmission, Phases: reqHeaders, Scopes: gr,
 			Slot: SlotName, DefaultFailureMode: open, Served: true, Planned: m1,
 			NewConfig: newConfig[v1alpha1.RateLimitConfig](),
 		},
 		{
-			// 05 req 69; open per OQ-configuration-model-8 (a).
+			// Open.
 			Type: v1alpha1.PolicyTypeQuota, Class: phase.ClassAdmission,
 			Phases: phase.Of(phase.OnRequestHeaders, phase.OnLog), Scopes: gr,
 			Slot: SlotName, DefaultFailureMode: open, Served: true, Planned: m1,
 			NewConfig: newConfig[v1alpha1.QuotaConfig](),
 		},
 		{
-			// 07 req 1 and 3.
 			Type: v1alpha1.PolicyTypeValidationJSONSchema, Class: phase.ClassValidation, Phases: reqBody, Scopes: routeOnly,
 			Slot: slotValidation, DefaultFailureMode: closed, Served: true, Planned: m1,
 			NewConfig: newConfig[v1alpha1.ValidationJSONSchemaConfig](),
 		},
 		{
-			// 06 req 64.
 			Type: v1alpha1.PolicyTypeCORS, Class: phase.ClassCORS,
 			Phases: phase.Of(phase.OnRequestHeaders, phase.OnResponse), Scopes: gr,
 			Slot: slotCORS, DefaultFailureMode: closed, Served: true, Planned: m1,
 			NewConfig: newConfig[v1alpha1.CORSConfig](),
 		},
 		{
-			// 05 req 75; stores run in filter.Finisher, the Phases stay (R-40).
+			// Stores run in filter.Finisher; the Phases stay.
 			Type: v1alpha1.PolicyTypeCache, Class: phase.ClassCache,
 			Phases: phase.Of(phase.OnRequestHeaders, phase.OnResponse), Scopes: routeOnly,
 			Slot: slotCache, DefaultFailureMode: open, Served: true, Planned: m1,
 			NewConfig: newConfig[v1alpha1.CacheConfig](),
 		},
 		{
-			// 07 req 1 and 2.
 			Type: v1alpha1.PolicyTypeHeaders, Class: phase.ClassTransform,
 			Phases:         phase.Of(phase.OnRequestHeaders, phase.OnResponse),
 			UpstreamPhases: phase.Of(phase.OnUpstreamRequest, phase.OnUpstreamResponseHeaders),
@@ -347,7 +342,7 @@ func table() []Entry {
 		upstreamAuth(v1alpha1.PolicyTypeAuthUpstreamOAuth2, true, m1, newConfig[v1alpha1.AuthUpstreamOAuth2Config]()),
 		upstreamAuth(v1alpha1.PolicyTypeAuthUpstreamSigV4, false, m2, newConfig[v1alpha1.AuthUpstreamSigV4Config]()),
 		{
-			// Closed per OQ-configuration-model-8 (a).
+			// Closed.
 			Type: v1alpha1.PolicyTypeAITokenBudget, Class: phase.ClassAdmission,
 			Phases: phase.Of(phase.OnRequestBody, phase.OnChunk, phase.OnLog), Scopes: gr,
 			Slot: SlotName, DefaultFailureMode: closed, Planned: m3,

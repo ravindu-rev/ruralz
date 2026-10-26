@@ -20,21 +20,21 @@ import (
 	"github.com/ravindu-rev/ruralz/internal/telemetry/emit"
 )
 
-// Refresh timing and bounds (05 reqs 5 to 7; target values unless noted).
+// Refresh timing and bounds (target values unless noted).
 const (
-	// RefreshInterval is the period between good answers (05 reqs 5, 6).
+	// RefreshInterval is the period between good answers.
 	RefreshInterval = 30 * time.Second
-	// RefreshJitter is the ±10% spread around RefreshInterval (05 req 6):
-	// the next refresh after a good answer is due 27 s to 33 s later.
+	// RefreshJitter is the ±10% spread around RefreshInterval: the next
+	// refresh after a good answer is due 27 s to 33 s later.
 	RefreshJitter = RefreshInterval / 10
 	// BackoffMin and BackoffMax bound the full-jitter backoff after a
-	// failed refresh (05 req 7): the n-th consecutive failure waits a
-	// uniform delay from BackoffMin to min(BackoffMax, BackoffMin × 2^n).
+	// failed refresh: the n-th consecutive failure waits a uniform delay
+	// from BackoffMin to min(BackoffMax, BackoffMin × 2^n).
 	BackoffMin = time.Second
 	// BackoffMax is the longest delay after a failure.
 	BackoffMax = 60 * time.Second
 	// NotFoundLimit is the number of consecutive refreshes that must repeat
-	// NXDOMAIN or an empty answer before the set empties (05 req 7).
+	// NXDOMAIN or an empty answer before the set empties.
 	NotFoundLimit = 3
 	// DefaultLookupTimeout bounds one DNS lookup (proposed: the resolver's
 	// own retries stay within it).
@@ -76,9 +76,9 @@ type Options struct {
 	// Hot Reload changed the Upstream's source. Host names both sources
 	// resolve start from its last good addresses, and an unchanged DNS
 	// source starts from its Endpoints, so a reload during a DNS outage
-	// keeps the last good answer (05 req 5). Activating this Source
-	// (SetMetrics) also stops the Source that published Previous from
-	// writing the Upstream gauge, whose one series this Source then owns.
+	// keeps the last good answer. Activating this Source (SetMetrics)
+	// also stops the Source that published Previous from writing the
+	// Upstream gauge, whose one series this Source then owns.
 	Previous *Set
 }
 
@@ -126,9 +126,9 @@ type Source struct {
 }
 
 // New returns a Source for spec. It performs no lookup and writes no
-// gauge: the Upstream layer calls Refresh at compile time (05 req 5) and
-// then runs Run, which waits for the delay that Refresh returned before
-// its own first lookup.
+// gauge: the Upstream layer calls Refresh at compile time and then runs
+// Run, which waits for the delay that Refresh returned before its own
+// first lookup.
 func New(spec Spec, o Options) (*Source, error) {
 	if err := spec.Validate(); err != nil {
 		return nil, err
@@ -220,10 +220,10 @@ func (s *Source) Dynamic() bool { return s.dynamic }
 
 // SetMetrics switches the Upstream handles to those of a newly activated
 // snapshot and sets its discovery_stale gauge to the current state
-// (enumerated label values exist at 0 from the start, 05 req 94). The
-// first call also stops the Source this one replaces (Options.Previous)
-// from writing the gauge: the Upstream has one series, which the
-// activated Source owns. A closed Source ignores the call.
+// (enumerated label values exist at 0 from the start). The first call
+// also stops the Source this one replaces (Options.Previous) from
+// writing the gauge: the Upstream has one series, which the activated
+// Source owns. A closed Source ignores the call.
 func (s *Source) SetMetrics(m *emit.UpstreamMetrics) {
 	s.mu.Lock()
 	prev := s.prev
@@ -285,11 +285,11 @@ func (s *Source) isClosed() bool {
 // caller's goroutine after every refresh that changed the Endpoints; it
 // returns when ctx ends. Each refresh waits for the delay the previous one
 // returned, including a Refresh the caller ran before Run (the compile-time
-// refresh, 05 req 5), so Run never repeats a lookup early; with no refresh
-// yet, Run refreshes at once. A Refresh made while Run sleeps is seen when
-// Run wakes: a later due time sends it back to sleep, and an earlier one
-// (such as a failure's backoff) takes effect only then. A source without
-// names to resolve, or a closed one, just waits for ctx.
+// refresh), so Run never repeats a lookup early; with no refresh yet, Run
+// refreshes at once. A Refresh made while Run sleeps is seen when Run
+// wakes: a later due time sends it back to sleep, and an earlier one (such
+// as a failure's backoff) takes effect only then. A source without names to
+// resolve, or a closed one, just waits for ctx.
 func (s *Source) Run(ctx context.Context, onChange func(*Set)) {
 	seen := s.Current().Version
 	for ctx.Err() == nil {
@@ -349,9 +349,9 @@ type answer struct {
 // ±RefreshJitter after a good answer, the backoff after a failure and
 // while an accepted NXDOMAIN or empty answer keeps the set empty, 0 when
 // the source has nothing to resolve or is closed. A failure keeps the last
-// good Endpoints and raises discovery_stale; a good answer clears it (05
-// req 7). When ctx ends during the lookups nothing changes and the delay
-// is 0. Run waits for the returned delay before its next refresh.
+// good Endpoints and raises discovery_stale; a good answer clears it. When
+// ctx ends during the lookups nothing changes and the delay is 0. Run
+// waits for the returned delay before its next refresh.
 func (s *Source) Refresh(ctx context.Context) (*Set, time.Duration) {
 	s.refresh.Lock()
 	defer s.refresh.Unlock()
@@ -382,7 +382,7 @@ func (s *Source) apply(a answer) (*Set, time.Duration) {
 	if a.notFound {
 		s.notFound++
 		if s.notFound >= NotFoundLimit {
-			// The repeated answer is accepted: the set empties (05 req 7).
+			// The repeated answer is accepted: the set empties.
 			a = answer{publish: true}
 			accepted = true
 		}
@@ -411,8 +411,8 @@ func (s *Source) apply(a answer) (*Set, time.Duration) {
 		if accepted {
 			// The name may come back any moment: while the accepted answer
 			// keeps the set empty, retries stay on the failure backoff, its
-			// ceiling still growing with the streak (05 req 7), and the 30 s
-			// schedule resumes after the next non-empty answer.
+			// ceiling still growing with the streak, and the 30 s schedule
+			// resumes after the next non-empty answer.
 			next = s.backoff(s.notFound)
 		}
 	}
@@ -442,7 +442,7 @@ func (s *Source) apply(a answer) (*Set, time.Duration) {
 }
 
 // resolveStatic re-resolves the static host names; a failed name keeps its
-// last good addresses (05 req 5). Any failure marks the refresh failed.
+// last good addresses. Any failure marks the refresh failed.
 func (s *Source) resolveStatic(ctx context.Context) answer {
 	var hosts []string
 	for _, e := range s.static {
@@ -486,7 +486,7 @@ func (s *Source) staticEndpoints() []Endpoint {
 }
 
 // resolveIP looks up A and AAAA records of the service: each IP is one
-// Endpoint ip:port of weight 1 (05 req 6).
+// Endpoint ip:port of weight 1.
 func (s *Source) resolveIP(ctx context.Context) answer {
 	d := s.spec.DNS
 	r := s.lookupHost(ctx, d.Service)
@@ -508,11 +508,11 @@ func (s *Source) resolveIP(ctx context.Context) answer {
 }
 
 // resolveSRV looks up _<port>._tcp.<service>, keeps the lowest-priority
-// group with the weight rule of 05 req 6, and resolves each target like a
-// static host name. A target that fails keeps its last good addresses, or
-// is left out when it has none; the refresh then counts as failed but
-// still publishes the other targets. When no target has an address the
-// whole refresh fails and the last set stays.
+// group with the weight rule, and resolves each target like a static host
+// name. A target that fails keeps its last good addresses, or is left out
+// when it has none; the refresh then counts as failed but still publishes
+// the other targets. When no target has an address the whole refresh
+// fails and the last set stays.
 func (s *Source) resolveSRV(ctx context.Context) answer {
 	d := s.spec.DNS
 	lctx, cancel := s.lookupContext(ctx)
@@ -631,20 +631,20 @@ func (s *Source) lookupContext(ctx context.Context) (context.Context, func()) {
 	}
 }
 
-// interval returns RefreshInterval ± RefreshJitter, uniformly (05 req 6).
+// interval returns RefreshInterval ± RefreshJitter, uniformly.
 func (s *Source) interval() time.Duration {
 	return RefreshInterval - RefreshJitter + uniform(s.rnd, 2*RefreshJitter)
 }
 
 // backoff returns the delay after the n-th consecutive failure: uniform
-// from BackoffMin to min(BackoffMax, BackoffMin × 2^n) (05 req 7).
+// from BackoffMin to min(BackoffMax, BackoffMin × 2^n).
 func (s *Source) backoff(n int) time.Duration {
 	return Backoff(s.rnd, n)
 }
 
 // Backoff returns the full-jitter delay after the n-th (n ≥ 1) consecutive
 // failed refresh: uniform from BackoffMin to min(BackoffMax, BackoffMin ×
-// 2^n), so every delay lies in [1 s, 60 s] (05 req 7).
+// 2^n), so every delay lies in [1 s, 60 s].
 func Backoff(src rand.Source, n int) time.Duration {
 	ceiling := BackoffMax
 	if n < 6 {

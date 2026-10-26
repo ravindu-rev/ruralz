@@ -8,13 +8,13 @@ import (
 	"strings"
 )
 
-// Query edits a raw query string (the request-target part after "?",
-// without the "?") without reordering or re-encoding the pairs it does not
-// touch (07 req 48). "&" separates segments and ";" is data. A segment's key
-// is the text before its first "=" (the whole segment when it has none);
-// keys compare with a name after percent-decoding and "+" to space, or by
-// their raw text when they hold an invalid percent escape. Empty segments
-// (as in "a=1&&b=2") are kept and match no name.
+// Query edits a raw query string (the request-target part after "?", without
+// the "?") without reordering or re-encoding the pairs it does not touch.
+// "&" separates segments and ";" is data. A segment's key is the text before
+// its first "=" (the whole segment when it has none); keys compare with a
+// name after percent-decoding and "+" to space, or by their raw text when
+// they hold an invalid percent escape. Empty segments (as in "a=1&&b=2") are
+// kept and match no name.
 //
 // Without edits, [Query.AppendRaw] reproduces the parsed string byte for
 // byte. The zero value is an empty query. A Query is not safe for

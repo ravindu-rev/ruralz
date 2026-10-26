@@ -9,8 +9,8 @@ import (
 	"github.com/ravindu-rev/ruralz/internal/errcode"
 )
 
-// RZ-UP codes of 05 req 40 and the Route timeout code of 05 req 26, as
-// registered in internal/errcode.
+// RZ-UP codes and the Route timeout code, as registered in
+// internal/errcode.
 const (
 	// CodeConnect: connect failed or dial timed out, no retry (502).
 	CodeConnect = "RZ-UP-001"
@@ -42,7 +42,7 @@ const (
 	CodeRouteTimeout = "RZ-RT-007"
 )
 
-// CodeInfo is one row of the code table of 05 req 40.
+// CodeInfo is one row of the code table.
 type CodeInfo struct {
 	// Code is the RZ code.
 	Code string
@@ -52,9 +52,9 @@ type CodeInfo struct {
 	Meaning string
 }
 
-// Codes returns the table of 05 req 40 in code order: the codes this
-// package selects and their statuses. A test holds it equal to the
-// registry in internal/errcode.
+// Codes returns the table in code order: the codes this package
+// selects and their statuses. A test holds it equal to the registry
+// in internal/errcode.
 func Codes() []CodeInfo {
 	return []CodeInfo{
 		{CodeConnect, 502, "Connect failed or dial timed out, no retry"},
@@ -97,10 +97,9 @@ var (
 	ErrNoEndpoint = errors.New("resilience: no Endpoint")
 )
 
-// Gate is a check of 05 req 11 steps a and e that refuses a leg (Leg.Begin)
-// or one of its attempts (Leg.StartAttempt for the breaker, and the
-// Upstream core's Endpoint set and bulkhead checks before
-// Leg.AbandonAttempt).
+// Gate is a check that refuses a leg (Leg.Begin) or one of its attempts
+// (Leg.StartAttempt for the breaker, and the Upstream core's Endpoint set
+// and bulkhead checks before Leg.AbandonAttempt).
 type Gate uint8
 
 // Gates.
@@ -146,17 +145,17 @@ func (g Gate) Err() error {
 	}
 }
 
-// Outcome is how one leg ended, the input of code selection (05 req 40).
+// Outcome is how one leg ended, the input of code selection.
 type Outcome struct {
 	// Responded is true when the last attempt that ran got response
-	// headers: the leg returns that response unchanged (05 req 35).
+	// headers: the leg returns that response unchanged.
 	Responded bool
 	// Kind is the last attempt's error kind when Responded is false.
 	Kind Kind
 	// Attempts is the number of attempts that ran; more than 1 means a
 	// retry ran. A retry that could not start (breaker open, bulkhead
 	// full, no Endpoint) is not an attempt: the leg ends with the previous
-	// attempt's outcome (05 req 35).
+	// attempt's outcome.
 	Attempts int
 	// Expired is true when the leg or Route deadline expired during the
 	// leg, for example during a backoff.
@@ -168,7 +167,7 @@ type Outcome struct {
 }
 
 // SelectCode returns the code of a leg that ended without a response,
-// taking the first match of 05 req 40:
+// taking the first match:
 //
 //  1. no attempt ran and a gate refused the leg: the gate's code
 //     (RZ-UP-005, RZ-UP-006, RZ-UP-008);
@@ -220,9 +219,9 @@ func (o Outcome) Err(cause error) error {
 	return errcode.Wrap(code, cause)
 }
 
-// ExpiryCode returns the code of a Route timeout expiry (05 req 26):
-// RZ-RT-007 before any Upstream leg started, RZ-UP-003 during a leg and
-// RZ-UP-009 after commit (the stream is reset; recorded in onLog).
+// ExpiryCode returns the code of a Route timeout expiry: RZ-RT-007
+// before any Upstream leg started, RZ-UP-003 during a leg and RZ-UP-009
+// after commit (the stream is reset; recorded in onLog).
 func ExpiryCode(legStarted, committed bool) string {
 	switch {
 	case committed:

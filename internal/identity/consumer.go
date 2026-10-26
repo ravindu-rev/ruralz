@@ -13,13 +13,12 @@ import (
 )
 
 // CompileConsumer returns the read-only view of c exposed to CEL and other
-// Filters (spec 06 requirement 21; docs/architecture/02-configuration-model.md
-// "Variables", consumer): name, tier, tags (sorted, duplicates removed),
-// labels (metadata.labels), quotas (the quota names, sorted) and, for the
-// quota and ai.token-budget Policies, the quotas by name (the first entry
-// wins on a duplicate name). Slices and maps are copies, so the view does
-// not alias the Bundle; they are never nil, except QuotaByName, which is
-// nil when there are no quotas.
+// Filters (docs/architecture/02-configuration-model.md "Variables", consumer):
+// name, tier, tags (sorted, duplicates removed), labels (metadata.labels),
+// quotas (the quota names, sorted) and, for the quota and ai.token-budget
+// Policies, the quotas by name (the first entry wins on a duplicate name).
+// Slices and maps are copies, so the view does not alias the Bundle; they are
+// never nil, except QuotaByName, which is nil when there are no quotas.
 func CompileConsumer(c *v1alpha1.Consumer) *expr.Consumer {
 	tags := slices.Clone(c.Spec.Tags)
 	if tags == nil {
@@ -58,8 +57,7 @@ func CompileConsumer(c *v1alpha1.Consumer) *expr.Consumer {
 
 // Consumers is the compiled Consumer set of one snapshot: the expr.Consumer
 // views by name, each carrying its quotas by name for the quota and
-// ai.token-budget Policies (spec 06 requirement 21). It is immutable and
-// safe for concurrent reads.
+// ai.token-budget Policies. It is immutable and safe for concurrent reads.
 type Consumers struct {
 	byName map[string]*expr.Consumer
 }

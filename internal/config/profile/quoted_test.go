@@ -8,12 +8,12 @@ import (
 	"testing"
 )
 
-// TestQuotedScalars covers quoted scalars read from the source (01 req 10,
-// 12; blocker of the sixth WP-33 review). goccy drops the spaces an escape
-// gives before a line break, keeps the tabs before a line break of a
-// single-quoted scalar, and accepts escapes YAML 1.2 does not define;
-// these read as YAML 1.2 (and PyYAML, libyaml) reads them, whatever the
-// split, and an undefined escape is RZ-CFG-001 at the scalar.
+// TestQuotedScalars covers quoted scalars read from the source. goccy
+// drops the spaces an escape gives before a line break, keeps the tabs
+// before a line break of a single-quoted scalar, and accepts escapes YAML
+// 1.2 does not define; these read as YAML 1.2 (and PyYAML, libyaml) reads
+// them, whatever the split, and an undefined escape is RZ-CFG-001 at the
+// scalar.
 func TestQuotedScalars(t *testing.T) {
 	tests := []struct{ src, want string }{
 		{"k: \"\\ \n\"\n", `{k:s:"  "}`},
@@ -74,9 +74,8 @@ func TestQuotedScalars(t *testing.T) {
 	}
 }
 
-// TestReadQuoted covers the quoted scalar reader on its own (01 req 12):
-// unterminated scalars, an unknown escape, and the offset past the closing
-// quote.
+// TestReadQuoted covers the quoted scalar reader on its own: unterminated
+// scalars, an unknown escape, and the offset past the closing quote.
 func TestReadQuoted(t *testing.T) {
 	tests := []struct {
 		text, value, msg string
@@ -101,15 +100,15 @@ func TestReadQuoted(t *testing.T) {
 	}
 }
 
-// TestTabsInDoubleQuotes covers a tab inside a double-quoted scalar (01
-// req 8, 12, 14; found by FuzzLoadYAML's appended-content check in the
-// eighth WP-33 review). goccy's scanner stepped one character past the
-// scalar's end for each such tab, losing the line break after it: it
-// refused "a: \"x\ty\"\nb: 1", read a "..." line after the scalar as a
-// plain scalar, and reported every later token a line too early. The
-// scalar is scanned with its tabs as spaces (untabQuotes) and read from the
-// source, so its value keeps them. A tab that indents a continuation line
-// stays refused, as YAML 1.2 refuses it (YAML Test Suite DK95/01).
+// TestTabsInDoubleQuotes covers a tab inside a double-quoted scalar (found
+// by FuzzLoadYAML's appended-content check). goccy's scanner stepped one
+// character past the scalar's end for each such tab, losing the line break
+// after it: it refused "a: \"x\ty\"\nb: 1", read a "..." line after the
+// scalar as a plain scalar, and reported every later token a line too
+// early. The scalar is scanned with its tabs as spaces (untabQuotes) and
+// read from the source, so its value keeps them. A tab that indents a
+// continuation line stays refused, as YAML 1.2 refuses it (YAML Test Suite
+// DK95/01).
 func TestTabsInDoubleQuotes(t *testing.T) {
 	tests := []struct{ src, want string }{
 		{"a: \"x\ty\"\nb: 1\n", `{a@1:1:s:"x\ty"@1:4,b@2:1:i:1@2:4}`},

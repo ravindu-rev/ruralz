@@ -10,12 +10,13 @@ import (
 	"testing"
 )
 
-// Tests for 05 req 67 (RateLimit-Policy and RateLimit on 429 responses,
-// draft-ietf-httpapi-ratelimit-headers-11) and 05 req 68 (admitted
-// responses: one RateLimit member per limit with a known remaining count,
-// a RateLimit-Policy member for every applied limit), with golden bytes.
+// Tests for RateLimit-Policy and RateLimit on 429 responses
+// (draft-ietf-httpapi-ratelimit-headers-11) and on admitted responses (one
+// RateLimit member per limit with a known remaining count, a
+// RateLimit-Policy member for every applied limit), with golden bytes.
 
-// limit mirrors filter.RateLimitField (this L0 package cannot import it).
+// limit mirrors filter.RateLimitField (this package imports nothing outside
+// the standard library, so it cannot import it).
 type limit struct {
 	name       string
 	q, w, r, t int64
@@ -23,9 +24,8 @@ type limit struct {
 }
 
 // fields builds both field values the way the request handler does after
-// onResponse (R-18): every applied limit contributes a RateLimit-Policy
-// member; only limits with a known remaining count contribute a RateLimit
-// member.
+// onResponse: every applied limit contributes a RateLimit-Policy member;
+// only limits with a known remaining count contribute a RateLimit member.
 func fields(t *testing.T, limits []limit) (policy, rl []byte) {
 	t.Helper()
 	var err error
@@ -42,7 +42,7 @@ func fields(t *testing.T, limits []limit) (policy, rl []byte) {
 	return policy, rl
 }
 
-func TestRateLimitGolden429Req67(t *testing.T) {
+func TestRateLimitGolden429(t *testing.T) {
 	// The TMR "RateLimit response headers" example: three limits applied,
 	// ratelimit-gold.1 denied with r=0 and t=1.
 	policy, _ := fields(t, []limit{
@@ -62,7 +62,7 @@ func TestRateLimitGolden429Req67(t *testing.T) {
 	}
 }
 
-func TestRateLimitGoldenAdmittedReq68(t *testing.T) {
+func TestRateLimitGoldenAdmitted(t *testing.T) {
 	// A fail_open (or unmetered) limit contributes only its
 	// RateLimit-Policy member.
 	policy, rl := fields(t, []limit{
@@ -80,7 +80,7 @@ func TestRateLimitGoldenAdmittedReq68(t *testing.T) {
 	}
 }
 
-func TestRateLimitReparsesReq67(t *testing.T) {
+func TestRateLimitReparses(t *testing.T) {
 	policy := golden(t, "ratelimit-policy-429.golden")
 	l, err := ParseList(string(policy))
 	if err != nil {
@@ -101,7 +101,7 @@ func TestRateLimitReparsesReq67(t *testing.T) {
 	}
 }
 
-func TestRateLimitFailuresReq67(t *testing.T) {
+func TestRateLimitFailures(t *testing.T) {
 	tests := []struct {
 		name       string
 		policyName string

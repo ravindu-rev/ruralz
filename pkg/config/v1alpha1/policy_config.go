@@ -7,7 +7,7 @@ package v1alpha1
 // model registers as its feature document authored them is closed. A config
 // of which the Configuration model fixes only the fields it uses, or none,
 // is open (+ruralz:open): its feature document may author more fields, which
-// stay unchecked until they are registered (OQ-configuration-model-19).
+// stay unchecked until they are registered.
 
 // AuthJWTConfig is the config of an auth.jwt Policy.
 // +ruralz:policyType=auth.jwt

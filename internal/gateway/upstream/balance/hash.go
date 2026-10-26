@@ -28,8 +28,8 @@ func fnv1a(h uint64, s string) uint64 {
 
 // mix64 is the splitmix64 finalizer. FNV-1a spreads short, similar strings
 // poorly over the high bits; the finalizer makes every output bit depend on
-// every input bit, so ring positions and keys cover the 64-bit space evenly
-// (05 req 14).
+// every input bit, so ring positions and keys cover the 64-bit space
+// evenly.
 func mix64(z uint64) uint64 {
 	z = (z ^ (z >> 30)) * 0xbf58476d1ce4e5b9
 	z = (z ^ (z >> 27)) * 0x94d049bb133111eb
@@ -38,7 +38,7 @@ func mix64(z uint64) uint64 {
 
 // HashKey maps a ring-hash key, the string value of hashKey, onto the ring:
 // FNV-1a-64 of the key passed through the splitmix64 finalizer, the
-// function that places virtual nodes (05 req 14). It allocates nothing.
+// function that places virtual nodes. It allocates nothing.
 func HashKey(key string) uint64 { return mix64(fnv1a(fnvOffset64, key)) }
 
 // vnodePrefix is the FNV-1a state after identity + "#".
@@ -46,7 +46,7 @@ func vnodePrefix(identity string) uint64 { return fnv1a(fnv1a(fnvOffset64, ident
 
 // vnodePosition is the ring position of virtual node j of the Endpoint whose
 // vnodePrefix is prefix: FNV-1a-64(identity + "#" + j) through the
-// splitmix64 finalizer, j in decimal (05 req 14).
+// splitmix64 finalizer, j in decimal.
 func vnodePosition(prefix uint64, j int) uint64 {
 	var buf [20]byte
 	h := prefix
@@ -63,7 +63,7 @@ type runtimeSource struct{}
 
 // Uint64 returns a uniform 64-bit value.
 func (runtimeSource) Uint64() uint64 {
-	return rand.Uint64() //nolint:gosec // G404: Endpoint selection needs a fast uniform draw, not an unpredictable one (05 req 15).
+	return rand.Uint64() //nolint:gosec // G404: Endpoint selection needs a fast uniform draw, not an unpredictable one.
 }
 
 // source returns src, or the runtime generator when src is nil.

@@ -12,8 +12,7 @@ import (
 	"github.com/ravindu-rev/ruralz/internal/clock"
 )
 
-// Deadline arithmetic of 05 reqs 24 to 26. The bounds nest, each clamping
-// those below it:
+// Deadline arithmetic. The bounds nest, each clamping those below it:
 //
 //	Route deadline   = request start + Route timeout (15 s by default)
 //	leg deadline     = min(Route deadline, leg start + Upstream timeout)
@@ -24,7 +23,7 @@ import (
 
 // RouteDeadline returns the Route deadline of a request that started at
 // start: start + timeout, or start + DefaultRouteTimeout when timeout is 0
-// or negative (05 req 4).
+// or negative.
 func RouteDeadline(start time.Time, timeout time.Duration) time.Time {
 	if timeout <= 0 {
 		timeout = DefaultRouteTimeout
@@ -36,7 +35,7 @@ func RouteDeadline(start time.Time, timeout time.Duration) time.Time {
 // earlier of the Route deadline and start + timeout (Upstream.spec.timeout;
 // 0 or negative means the Route's timeout, so the Route deadline alone
 // bounds the leg). It covers every attempt and backoff up to the final
-// response headers (05 req 24).
+// response headers.
 func LegDeadline(route, start time.Time, timeout time.Duration) time.Time {
 	if timeout <= 0 {
 		return route
@@ -46,10 +45,10 @@ func LegDeadline(route, start time.Time, timeout time.Duration) time.Time {
 
 // PerTryTimeout returns the timeout of an attempt that starts at now:
 // configured (retries.perTryTimeout) when positive, else the leg time left
-// divided by the retries left plus one (05 req 4), computed at each attempt
-// start. retriesLeft is the number of retries still allowed after this
-// attempt. It returns 0, no per-try bound, when the leg has no deadline or
-// no time left: the leg deadline alone then bounds the attempt.
+// divided by the retries left plus one, computed at each attempt start.
+// retriesLeft is the number of retries still allowed after this attempt. It
+// returns 0, no per-try bound, when the leg has no deadline or no time
+// left: the leg deadline alone then bounds the attempt.
 func PerTryTimeout(configured time.Duration, legDeadline, now time.Time, retriesLeft int) time.Duration {
 	if configured > 0 {
 		return configured
@@ -67,7 +66,7 @@ func PerTryTimeout(configured time.Duration, legDeadline, now time.Time, retries
 // AttemptDeadline returns the deadline of an attempt that starts at start:
 // the earlier of the leg deadline and start + perTry (no per-try bound when
 // perTry is 0 or negative). It covers the attempt up to the last response
-// header byte (05 reqs 24 and 25).
+// header byte.
 func AttemptDeadline(legDeadline, start time.Time, perTry time.Duration) time.Time {
 	if perTry <= 0 {
 		return legDeadline
@@ -113,12 +112,11 @@ const (
 //
 // The Upstream core derives each attempt context with WithDeadline and
 // calls Stop when response headers arrive, so the attempt and leg deadlines
-// stop applying and a slow body is not cut (05 req 25; only the Route
-// timeout bounds it after commit), and Cancel when the attempt ends (its
-// response body closed, or no response). The timer is owned by the
-// Deadline and stopped by Stop or Cancel; whichever of Stop and the
-// deadline comes first decides, so a late timer never cancels a stopped
-// Deadline's context.
+// stop applying and a slow body is not cut (only the Route timeout bounds
+// it after commit), and Cancel when the attempt ends (its response body
+// closed, or no response). The timer is owned by the Deadline and stopped
+// by Stop or Cancel; whichever of Stop and the deadline comes first
+// decides, so a late timer never cancels a stopped Deadline's context.
 type Deadline struct {
 	cancel context.CancelCauseFunc
 	cause  error

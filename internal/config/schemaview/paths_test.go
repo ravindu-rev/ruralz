@@ -16,7 +16,7 @@ import (
 // pathElems are path elements whose texts exercise the comparison: bare
 // fields that are prefixes of each other or of a separator, quoted fields,
 // indexes, keyed entries and set items of every value kind, and long
-// segments with long common prefixes (memoized prefixes, 01 req 48).
+// segments with long common prefixes (memoized prefixes).
 func pathElems() []diag.PathElem {
 	long := strings.Repeat("k", 2*lcpMin)
 	return []diag.PathElem{
@@ -74,8 +74,8 @@ func segmentsOf(t *textNode) string {
 // TestComparePaths checks that path nodes render, deduplicate and compare
 // exactly as their Path.String texts do: the segments concatenate to
 // Path.String, equal texts share one text node, and comparePaths has the
-// sign of strings.Compare on the texts (01 reqs 48 and 50: diag.List.Sort
-// order without rendering any path).
+// sign of strings.Compare on the texts (diag.List.Sort order without
+// rendering any path).
 func TestComparePaths(t *testing.T) {
 	paths := testPaths()
 	x := &memo{}

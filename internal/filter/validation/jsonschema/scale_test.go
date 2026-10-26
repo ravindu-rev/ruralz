@@ -11,15 +11,13 @@ import (
 	"github.com/ravindu-rev/ruralz/internal/filter"
 )
 
-// TestCompileScale covers the compile budget of WP-51 structurally: a
-// schema at the 256 KiB size bound and the library's quadratic case at
-// MaxSubschemas compile without asking the loader, one more position past
-// the bound is one finding, and Check of the large schema names the one
-// broken member. The time each takes is measured by
-// BenchmarkCompileSchema256KiB and BenchmarkCompileSchemaWorstCase, not
-// here, so the test does not depend on the machine.
-//
-// Requirements: 07 req 75 and F6.
+// TestCompileScale covers the compile budget structurally: a schema at
+// the 256 KiB size bound and the library's quadratic case at MaxSubschemas
+// compile without asking the loader, one more position past the bound is
+// one finding, and Check of the large schema names the one broken member.
+// The time each takes is measured by BenchmarkCompileSchema256KiB and
+// BenchmarkCompileSchemaWorstCase, not here, so the test does not depend on
+// the machine.
 func TestCompileScale(t *testing.T) {
 	big := schema256KiB()
 	if n := len(big); n < MaxSchemaBytes-1024 || n > MaxSchemaBytes {
@@ -40,11 +38,11 @@ func TestCompileScale(t *testing.T) {
 	}
 }
 
-// TestValidateScale checks large bodies structurally (07 reqs 80 and 81):
-// an object of 20,000 members and an array of 50,000 items validate, and a
-// refusal names the failing keyword. The validation stays linear in the
-// body (TestRecursiveBodies counts allocations; BenchmarkValidate1KiB
-// times it).
+// TestValidateScale checks large bodies structurally: an object of 20,000
+// members and an array of 50,000 items validate, and a refusal names the
+// failing keyword. The validation stays linear in the body
+// (TestRecursiveBodies counts allocations; BenchmarkValidate1KiB times
+// it).
 func TestValidateScale(t *testing.T) {
 	f := buildFilter(t, `{"type":"object","patternProperties":{"^k":{"type":"integer","minimum":0}},`+
 		`"additionalProperties":false,"properties":{"list":{"type":"array","items":{"type":"string","maxLength":8},"uniqueItems":true}}}`, 64<<20)

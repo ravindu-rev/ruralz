@@ -26,14 +26,13 @@ import (
 	"github.com/ravindu-rev/ruralz/internal/config/tree"
 )
 
-// The YAML Test Suite runner (01 test plan "Upstream suites", 11 req 18,
-// architecture R-31): every case of the vendored data release goes through
-// the restricted profile. A case with an error file must be rejected; any
-// other case must parse without diagnostics to the documents of its
-// test.event stream and, when it has one, its in.json. Only the cases in
-// expected-failures.txt may fail, each with its reason, which its findings
-// must show (reasonShown), and a listed case that passes fails the run, so
-// the list only shrinks.
+// The YAML Test Suite runner: every case of the vendored data release goes
+// through the restricted profile. A case with an error file must be
+// rejected; any other case must parse without diagnostics to the documents
+// of its test.event stream and, when it has one, its in.json. Only the
+// cases in expected-failures.txt may fail, each with its reason, which its
+// findings must show (reasonShown), and a listed case that passes fails the
+// run, so the list only shrinks.
 
 const (
 	suiteDir     = "../../../test/fixtures/yaml-test-suite"
@@ -104,8 +103,8 @@ func loadExpectedFailures(t *testing.T) map[string]string {
 	return out
 }
 
-// validReason reports the reasons of the 01 test plan "Upstream suites":
-// a restriction of the profile, or a reviewed goccy limitation.
+// validReason reports whether r is a valid reason: a restriction of the
+// profile, or a reviewed goccy limitation.
 func validReason(r string) bool {
 	switch {
 	case r == "profile:anchor", r == "profile:tag", r == "profile:complex-key", r == "profile:directive":
@@ -118,11 +117,10 @@ func validReason(r string) bool {
 
 // reasonShown reports whether the findings of a listed case show its
 // reason, so a case that fails for another reason than the one listed
-// fails the run (minor finding of the seventh WP-33 review): an
-// RZ-CFG-003 for an anchor, an RZ-CFG-004 for a tag, the %YAML message for
-// a directive, and a message about a key that is not a scalar for a
-// complex key. A reviewed goccy limitation may show anything, an accepted
-// invalid stream included.
+// fails the run: an RZ-CFG-003 for an anchor, an RZ-CFG-004 for a tag, the
+// %YAML message for a directive, and a message about a key that is not a
+// scalar for a complex key. A reviewed goccy limitation may show anything,
+// an accepted invalid stream included.
 func reasonShown(reason string, diags diag.List) bool {
 	keyMessages := []string{
 		msgExplicitKey, msgExplicitKeyLine,
@@ -145,7 +143,7 @@ func reasonShown(reason string, diags diag.List) bool {
 	})
 }
 
-// TestYAMLTestSuite runs the suite with the ratchet (11 req 18).
+// TestYAMLTestSuite runs the suite with the ratchet.
 func TestYAMLTestSuite(t *testing.T) {
 	cases := loadSuite(t)
 	expected := loadExpectedFailures(t)
@@ -178,9 +176,9 @@ func TestYAMLTestSuite(t *testing.T) {
 	t.Logf("YAML Test Suite: %d cases, %d pass, %d expected failures", len(cases), passed, failed)
 }
 
-// TestReasonShown checks the reason check of the runner (11 req 18): RZP5
-// was listed as an anchor case while its findings show only its complex
-// key, and that passed (minor finding of the seventh WP-33 review).
+// TestReasonShown checks the reason check of the runner: RZP5 was listed
+// as an anchor case while its findings show only its complex key, and
+// that passed.
 func TestReasonShown(t *testing.T) {
 	d := func(code, msg string) diag.List {
 		return diag.List{{Code: code, Severity: diag.SeverityError, Message: msg}}
@@ -215,12 +213,12 @@ func TestReasonShown(t *testing.T) {
 }
 
 // TestReviewedFindings pins the first finding of every case listed as a
-// reviewed goccy limitation (11 req 18; minor finding of the eighth WP-33
-// review). reasonShown lets such a case show any finding, so a change that
-// refused one of them for another reason, or accepted it, would pass the
-// runner unseen; several are refused by the profile's own checks, which
-// guard goccy's misreading of them. "" marks an invalid stream that goccy
-// accepts and the profile cannot tell from a valid one.
+// reviewed goccy limitation. reasonShown lets such a case show any
+// finding, so a change that refused one of them for another reason, or
+// accepted it, would pass the runner unseen; several are refused by the
+// profile's own checks, which guard goccy's misreading of them. "" marks
+// an invalid stream that goccy accepts and the profile cannot tell from a
+// valid one.
 func TestReviewedFindings(t *testing.T) {
 	want := map[string]string{
 		"2JQS":     "RZ-CFG-001@2:1 " + msgEmptyKey,

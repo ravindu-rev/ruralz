@@ -2,10 +2,10 @@
 // SPDX-License-Identifier: Apache-2.0
 
 // Package breaker is the per-shard State client breaker and reconnect
-// pacer of the redis driver (spec 08 reqs 19 to 22,
-// docs/architecture/11-scalability-and-distributed-state.md "State client
-// and RZ-STS error codes"). Both read time from an injected clock.Clock,
-// so tests drive them with clocktest.Fake.
+// pacer of the redis driver
+// (docs/architecture/11-scalability-and-distributed-state.md
+// "State client and RZ-STS error codes"). Both read time from an injected
+// clock.Clock, so tests drive them with clocktest.Fake.
 //
 // The Breaker is lock-free: admission in the closed state is one atomic
 // load, completions add to a ring of ten packed (period, epoch, successes,
@@ -25,7 +25,7 @@ import (
 // State is a breaker state.
 type State uint8
 
-// Breaker states (spec 08 req 19).
+// Breaker states.
 const (
 	// Closed admits every call and counts outcomes.
 	Closed State = iota
@@ -49,8 +49,8 @@ func (s State) String() string {
 	}
 }
 
-// Config holds the breaker targets of spec 08 req 19
-// (statestore.Limits carries the same values for the drivers).
+// Config holds the breaker targets (statestore.Limits carries
+// the same values for the drivers).
 type Config struct {
 	// Window is the sliding failure window, kept as ten buckets (5 s).
 	Window time.Duration
@@ -76,7 +76,7 @@ type Config struct {
 	OnChange func(from, to State)
 }
 
-// DefaultConfig returns the targets of spec 08 req 19.
+// DefaultConfig returns the targets.
 func DefaultConfig() Config {
 	return Config{
 		Window: 5 * time.Second, MinCalls: 20, FailureRatio: 0.5, ConnectFailures: 5,
@@ -149,7 +149,7 @@ func packBucket(period, epoch uint64, succs, fails int) uint64 {
 // Ticket is one admitted call's claim on the breaker. The caller keeps it
 // (usually in its pooled pending call) from Allow to Done; Done records
 // the outcome at most once, so a timeout and a late reply racing on the
-// same call count once (spec 08 req 20).
+// same call count once.
 type Ticket struct {
 	epoch    uint64
 	probe    bool
@@ -181,8 +181,8 @@ type Breaker struct {
 	buckets [numBuckets]atomic.Uint64
 }
 
-// New returns a closed breaker (breakers start closed after a restart,
-// spec 08 req 19). A nil rnd uses Uniform; zero Config fields take
+// New returns a closed breaker (breakers start closed after a
+// restart). A nil rnd uses Uniform; zero Config fields take
 // DefaultConfig values.
 func New(clk clock.Clock, cfg Config, rnd Rand) *Breaker {
 	def := DefaultConfig()
@@ -279,9 +279,9 @@ func (b *Breaker) Allow(t *Ticket) bool {
 // Done records the outcome of a call admitted with t: success is a
 // well-formed reply (a denial included), failure a caller timeout
 // (recorded at the timeout), connection error, error reply or unparsable
-// reply (spec 08 req 20). It reports whether this was the ticket's first
-// Done; later calls are ignored. Outcomes of calls admitted before the
-// last transition do not count.
+// reply. It reports whether this was the ticket's first Done; later
+// calls are ignored. Outcomes of calls admitted before the last
+// transition do not count.
 func (b *Breaker) Done(t *Ticket, success bool) bool {
 	if !t.admitted || !t.done.CompareAndSwap(false, true) {
 		return false
@@ -401,7 +401,7 @@ func (b *Breaker) trip(w uint64, now time.Time) bool {
 
 // ConnectFailed records a dial or TLS handshake failure seen by the
 // Ruralz dialer; ConnectFailures consecutive ones open a closed breaker.
-// Dials refused by the Pacer are not connect failures (spec 08 req 22).
+// Dials refused by the Pacer are not connect failures.
 func (b *Breaker) ConnectFailed() {
 	if b.connFails.Add(1) < int64(b.cfg.ConnectFailures) {
 		return
@@ -420,7 +420,7 @@ func (b *Breaker) ConnectSucceeded() { b.connFails.Store(0) }
 
 // State returns the current state; an Open breaker whose delay ended
 // reads as HalfOpen. Degraded reason state_store_breaker_open is raised
-// while any shard's breaker is not Closed (spec 08 req 21).
+// while any shard's breaker is not Closed.
 func (b *Breaker) State() State {
 	w := b.word.Load()
 	if stateOf(w) == Open && b.ms(b.clk.Now()) >= untilOf(w) {
@@ -430,8 +430,8 @@ func (b *Breaker) State() State {
 }
 
 // ProbeDue reports whether a half-open breaker has waited ProbeIdle
-// without a probe in flight, so the driver should send PING as the probe
-// (spec 08 req 19): it then calls Allow and Done like any call.
+// without a probe in flight, so the driver should send PING as the
+// probe: it then calls Allow and Done like any call.
 func (b *Breaker) ProbeDue() bool {
 	w := b.word.Load()
 	now := b.ms(b.clk.Now())

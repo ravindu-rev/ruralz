@@ -4,7 +4,7 @@
 // Package egress is the SSRF guard for every Node connection made for the
 // Bundle: jwksUrl and tokenUrl fetches, Upstream static Endpoints, DNS
 // discovery results and active health probes (Security and identity,
-// "Secrets" rule 6; spec 06 requirements 84 to 86).
+// "Secrets" rule 6).
 //
 // A Guard refuses, at connect time (after DNS resolution, in
 // net.Dialer.Control) and on each redirect hop, destinations in 0.0.0.0/8,
@@ -18,8 +18,8 @@
 //
 // The guarded HTTP client (Client) sends no cookies, never follows https
 // to http, re-checks every redirect hop, caps response bodies and, for a
-// destination-bound secret (auth.upstream-oauth2 clientSecret, R-49),
-// follows no redirect at all and refuses any other origin.
+// destination-bound secret (auth.upstream-oauth2 clientSecret), follows
+// no redirect at all and refuses any other origin.
 package egress
 
 import (
@@ -35,8 +35,7 @@ import (
 	"time"
 )
 
-// EnvFetchAllow is the process setting holding the allow list (spec 06
-// requirement 85).
+// EnvFetchAllow is the process setting holding the allow list.
 const EnvFetchAllow = "RURALZ_FETCH_ALLOW"
 
 // EnvProxyEntry is the reserved RURALZ_FETCH_ALLOW entry that opts the
@@ -50,8 +49,8 @@ const DefaultDialTimeout = 5 * time.Second
 const maxEntryEcho = 64
 
 // Sentinel errors. Callers map them to their own failure: a JWKS fetch
-// failure (spec 06 requirement 36), RZ-AUTH-020 for a token fetch, or
-// RZ-UP-001 for an Upstream connect (spec 06 requirement 86).
+// failure, RZ-AUTH-020 for a token fetch, or RZ-UP-001 for an Upstream
+// connect.
 var (
 	// ErrDenied reports a destination address the guard refuses.
 	ErrDenied = errors.New("egress: destination address denied")
@@ -79,11 +78,11 @@ type Guard struct {
 }
 
 // ParseAllow parses a RURALZ_FETCH_ALLOW value: comma-separated entries,
-// each an IP address, a CIDR prefix or the reserved entry env-proxy
-// (spec 06 requirement 85). Spaces around entries are ignored and an
-// empty value allows nothing. Any other entry, an empty entry and an
-// address with a zone are errors wrapping ErrAllowEntry; the message
-// names the setting and the entry position.
+// each an IP address, a CIDR prefix or the reserved entry env-proxy.
+// Spaces around entries are ignored and an empty value allows nothing.
+// Any other entry, an empty entry and an address with a zone are errors
+// wrapping ErrAllowEntry; the message names the setting and the entry
+// position.
 func ParseAllow(v string) (*Guard, error) {
 	g := &Guard{}
 	if strings.TrimSpace(v) == "" {
@@ -267,9 +266,9 @@ func (g *Guard) CheckHost(host string) error {
 	return nil
 }
 
-// Denied reports whether a lies in the default deny table of spec 06
-// requirement 84, before RURALZ_FETCH_ALLOW is applied. It is a pure
-// function, so static checks (ruralz bundle audit, M2) can call it.
+// Denied reports whether a lies in the default deny table, before
+// RURALZ_FETCH_ALLOW is applied. It is a pure function, so static
+// checks (ruralz bundle audit, M2) can call it.
 func Denied(a netip.Addr) bool {
 	if !a.IsValid() {
 		return true
@@ -322,7 +321,7 @@ func nat64() [2]netip.Prefix {
 // Origin returns the origin of u as "scheme://host:port" with the scheme
 // and host lowercased and the default port made explicit (443 for https,
 // 80 for http), the form hub.SecretUse.Destination uses for a
-// destination-bound secret (R-49).
+// destination-bound secret.
 func Origin(u *url.URL) string {
 	scheme := strings.ToLower(u.Scheme)
 	host := strings.ToLower(u.Hostname())

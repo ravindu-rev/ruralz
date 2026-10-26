@@ -17,9 +17,9 @@ import (
 	"github.com/ravindu-rev/ruralz/pkg/config/v1alpha1"
 )
 
-// TestDecodeKinds covers 01 req 38 and 02 req 5: every kind decodes into
-// its v1alpha1 struct after stage G, with normalized scalars, and a Policy
-// config into its registry type.
+// TestDecodeKinds checks that every kind decodes into its v1alpha1 struct
+// after stage G, with normalized scalars, and a Policy config into its
+// registry type.
 func TestDecodeKinds(t *testing.T) {
 	s := newStage(t)
 	f := newFixture()
@@ -139,9 +139,9 @@ func TestDecodeKinds(t *testing.T) {
 	}
 }
 
-// TestDecodeErrors covers 01 req 38: a value its Go field cannot hold is
-// RZ-CFG-005 at the field's key-aware path, in the resource and in a
-// Policy config, with a message that does not depend on encoding/json.
+// TestDecodeErrors checks that a value its Go field cannot hold is
+// RZ-CFG-005 at the field's key-aware path, in the resource and in a Policy
+// config, with a message that does not depend on encoding/json.
 func TestDecodeErrors(t *testing.T) {
 	idx := hubIndex(t)
 	reg := registry.New()
@@ -223,7 +223,7 @@ func TestDecodeOpenConfigCase(t *testing.T) {
 }
 
 // TestDecodePluginConfig covers the untyped plugin config: members keep
-// json.Number numbers (02 req 16).
+// json.Number numbers.
 func TestDecodePluginConfig(t *testing.T) {
 	f := newFixture()
 	res := f.resource(t, "p.json", `{"apiVersion": "ruralz/v1alpha1", "kind": "Policy", "metadata": {"name": "p"}, "spec": {"type": "plugin", "plugin": "pl", "config": {"n": 12345678901234567, "f": 0.1, "l": [1], "o": {"Z": true}}}}`)

@@ -15,7 +15,7 @@ import (
 )
 
 // DefaultMaxBodyBytes caps a response body when ClientOptions gives no cap
-// (1 MiB, the JWKS cap of spec 06 requirement 37).
+// (1 MiB, the JWKS cap).
 const DefaultMaxBodyBytes = 1 << 20
 
 // MaxResponseHeaderBytes caps the response header block of a guarded
@@ -49,20 +49,20 @@ var (
 // ClientOptions configures a guarded HTTP client.
 type ClientOptions struct {
 	// TLS is the client TLS configuration, normally
-	// tlsconf.IdentityProvider() (TLS 1.2 or newer, system roots, spec 06
-	// requirement 82). It is cloned; nil gives TLS 1.2 or newer with the
-	// system roots. Verification is never disabled: InsecureSkipVerify is
-	// forced off and MinVersion raised to TLS 1.2.
+	// tlsconf.IdentityProvider() (TLS 1.2 or newer, system roots). It is
+	// cloned; nil gives TLS 1.2 or newer with the system roots.
+	// Verification is never disabled: InsecureSkipVerify is forced off
+	// and MinVersion raised to TLS 1.2.
 	TLS *tls.Config
-	// MaxRedirects bounds followed https-to-https redirects: 3 for JWKS
-	// (spec 06 requirement 37); 0 or negative never follows, and every 3xx
-	// response fails with ErrRedirect (tokenUrl, spec 06 requirement 69).
+	// MaxRedirects bounds followed https-to-https redirects: 3 for JWKS; 0
+	// or negative never follows, and every 3xx response fails with
+	// ErrRedirect (tokenUrl).
 	MaxRedirects int
 	// Destination, when set, binds the client to one origin
 	// ("https://host:port", see Origin and hub.SecretUse.Destination): the
 	// client follows no redirect at all whatever MaxRedirects says (every
 	// 3xx response fails with ErrRedirect), and a request to any other
-	// origin fails with ErrDestination before a connection is made (R-49).
+	// origin fails with ErrDestination before a connection is made.
 	Destination string
 	// Timeout bounds one fetch, redirects and body read included (5 s for
 	// JWKS); 0 leaves the bound to the request context.
@@ -77,7 +77,7 @@ type ClientOptions struct {
 }
 
 // Client returns an HTTP client for IdP fetches (jwksUrl, tokenUrl) whose
-// every connection passes the guard (spec 06 requirements 84 to 86):
+// every connection passes the guard:
 //
 //   - connections go through Dialer, so each connect, redirect hops and
 //     proxy connections included, is checked after DNS resolution;

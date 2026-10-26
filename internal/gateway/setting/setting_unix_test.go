@@ -20,7 +20,7 @@ type statInfo struct {
 
 func (s statInfo) Sys() any { return s.sys }
 
-// TestCheckOwner covers the owner rule of the MAC key file (R-49): the
+// TestCheckOwner covers the owner rule of the MAC key file: the
 // effective user or root may own it; any other owner could rewrite it.
 func TestCheckOwner(t *testing.T) {
 	const euid = 1000

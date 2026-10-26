@@ -9,9 +9,9 @@ import (
 	"slices"
 )
 
-// Plan is the Node's balancer memory plan (05 req 17): every ring-hash
-// Upstream builds its ring with V virtual nodes per Endpoint unless it is in
-// Fallback, where it runs weighted random because no ring fits.
+// Plan is the Node's balancer memory plan: every ring-hash Upstream builds
+// its ring with V virtual nodes per Endpoint unless it is in Fallback, where
+// it runs weighted random because no ring fits.
 type Plan struct {
 	// V is the virtual nodes per Endpoint of every ring, clamp(floor((budget
 	// − S − 16 MiB) ÷ (16 B × R)), 64, 1,024), R being the Endpoints summed
@@ -38,13 +38,13 @@ type Warning struct {
 	Message string
 }
 
-// PlanBudget plans the balancer budget when a Revision compiles (05 req
-// 17). budget is the Node's balancer budget (≤ 0: DefaultBudget);
-// schedules is S, the bytes of every round-robin schedule (ScheduleBytes
-// per Upstream); rings maps each ring-hash Upstream to its Endpoint count
-// (the current runtime set size for dns Upstreams). When v = 64 does not
-// fit, rings fall back to weighted random, largest first (ties by name),
-// until the rest fits, and V is recomputed over the remaining rings.
+// PlanBudget plans the balancer budget when a Revision compiles. budget
+// is the Node's balancer budget (≤ 0: DefaultBudget); schedules is S, the
+// bytes of every round-robin schedule (ScheduleBytes per Upstream); rings
+// maps each ring-hash Upstream to its Endpoint count (the current runtime
+// set size for dns Upstreams). When v = 64 does not fit, rings fall back
+// to weighted random, largest first (ties by name), until the rest fits,
+// and V is recomputed over the remaining rings.
 func PlanBudget(budget, schedules int64, rings map[string]int) Plan {
 	return plan(budget, schedules, rings, nil)
 }
@@ -89,17 +89,16 @@ func plan(budget, schedules int64, rings map[string]int, held map[string]bool) P
 	return p
 }
 
-// Replan updates a plan after Endpoint-set changes (05 req 17). Rings that
-// fell back return as soon as the fresh plan (PlanBudget) needs fewer
-// fallbacks and still gives every ring at least 2 × MinVirtualNodes, the
-// doubling rule applied to a ring leaving weighted random; more rings fall
-// back at once when 64 virtual nodes no longer fit. Otherwise the previous
-// fallbacks stay and V, planned over the remaining rings, drops at once when
-// the previous V no longer fits and rises only when it can double. A
-// previous plan that built no ring (every ring in fallback, or none with
-// Endpoints) sets no baseline for V. A zero prev plans afresh. Whichever
-// branch applies, V rises over a previous plan that built rings only when
-// it can double.
+// Replan updates a plan after Endpoint-set changes. Rings that fell back
+// return as soon as the fresh plan (PlanBudget) needs fewer fallbacks and
+// still gives every ring at least 2 × MinVirtualNodes, the doubling rule
+// applied to a ring leaving weighted random; more rings fall back at once
+// when 64 virtual nodes no longer fit. Otherwise the previous fallbacks stay
+// and V, planned over the remaining rings, drops at once when the previous V
+// no longer fits and rises only when it can double. A previous plan that
+// built no ring (every ring in fallback, or none with Endpoints) sets no
+// baseline for V. A zero prev plans afresh. Whichever branch applies, V
+// rises over a previous plan that built rings only when it can double.
 func Replan(prev Plan, budget, schedules int64, rings map[string]int) Plan {
 	fresh := PlanBudget(budget, schedules, rings)
 	if prev.V == 0 {
@@ -131,7 +130,7 @@ func Replan(prev Plan, budget, schedules int64, rings map[string]int) Plan {
 }
 
 // holdV keeps prev.V in p when p would raise V over a previous plan that
-// built rings by less than double (05 req 17); a smaller V always fits.
+// built rings by less than double; a smaller V always fits.
 func holdV(prev, p Plan, rings map[string]int) Plan {
 	if prev.RingBytes == 0 || p.V <= prev.V || p.V >= 2*prev.V {
 		return p

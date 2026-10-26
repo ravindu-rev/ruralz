@@ -17,12 +17,11 @@ import (
 	"github.com/ravindu-rev/ruralz/internal/secret"
 )
 
-// Tests for rotation: spec 01 requirement 46 (2 s poll, re-read on
-// change of size, modification time or inode, a failed check keeps the
-// last value and counts ruralz_config_secret_rotation_failures_total,
-// env never rotates), spec 06 requirements 13, 51 and 76 (rotation
-// failures raise secret_rotation_failed), architecture 2.8 and R-55
-// (Node-wide watches that survive Activate).
+// Tests for rotation: a 2 s poll, a re-read on change of size,
+// modification time or inode, a failed check that keeps the last value and
+// counts ruralz_config_secret_rotation_failures_total, env that never
+// rotates, rotation failures that raise secret_rotation_failed, and
+// Node-wide watches that survive Activate.
 
 // recorder is a watcher recording delivered values.
 type recorder struct {
@@ -51,8 +50,8 @@ func (w *recorder) values() []string {
 }
 
 func TestRotation(t *testing.T) {
-	// Req 46: a changed file with a valid value replaces the value; every
-	// Store holding the reference sees it; watchers get it once.
+	// A changed file with a valid value replaces the value; every Store
+	// holding the reference sees it; watchers get it once.
 	h := newHarness(t, nil)
 	p := newPEM(t)
 	h.write("tls/tls.crt", p.cert)
@@ -88,9 +87,9 @@ func TestRotation(t *testing.T) {
 }
 
 func TestRotationFailureKeepsLastValue(t *testing.T) {
-	// Req 46 and spec 06 req 76: an invalid new value keeps the last value,
-	// counts once per distinct file state, logs a warning with provider
-	// and reference, and raises secret_rotation_failed until a good value.
+	// An invalid new value keeps the last value, counts once per distinct
+	// file state, logs a warning with provider and reference, and raises
+	// secret_rotation_failed until a good value.
 	h := newHarness(t, nil)
 	p := newPEM(t)
 	h.write("tls.crt", p.cert)
@@ -144,7 +143,7 @@ func TestRotationFailureKeepsLastValue(t *testing.T) {
 }
 
 func TestRotationUsesActiveChecks(t *testing.T) {
-	// Spec 06 req 13: rotation to a short API key keeps the old value.
+	// Rotation to a short API key keeps the old value.
 	h := newHarness(t, nil)
 	key := strings.Repeat("k", 30)
 	h.write("api.key", key)
@@ -210,9 +209,9 @@ func TestDeleteAndRestore(t *testing.T) {
 }
 
 func TestChangeDetection(t *testing.T) {
-	// Req 46: stat first; re-read on a change of size, modification time,
-	// inode or mode; a read too close to the modification time is re-read
-	// on the next poll even when the stat looks unchanged.
+	// Stat first; re-read on a change of size, modification time, inode or
+	// mode; a read too close to the modification time is re-read on the
+	// next poll even when the stat looks unchanged.
 	h := newHarness(t, nil)
 	h.write("s", "aaaa")
 	ref := fileRef(h.path("s"), "")
@@ -285,7 +284,7 @@ func TestChangeDetection(t *testing.T) {
 }
 
 func TestEnvNeverPolled(t *testing.T) {
-	// Req 46: env never rotates (restart).
+	// Env never rotates (restart).
 	h := newHarness(t, nil)
 	h.setEnv("RURALZ_SECRET_E", "e1")
 	ref := envRef("RURALZ_SECRET_E")
@@ -383,9 +382,8 @@ func TestActivateClearsReasonOfDroppedReference(t *testing.T) {
 }
 
 func TestWatchSurvivesActivate(t *testing.T) {
-	// R-55 and WP-07 "Done when": a watch registered on a Store that is no
-	// longer active receives rotations within one poll, driven by Run on
-	// the 2 s timer.
+	// A watch registered on a Store that is no longer active receives
+	// rotations within one poll, driven by Run on the 2 s timer.
 	h := newHarness(t, nil)
 	cycles := make(chan struct{}, 64)
 	h.r.cycleHook = func() { cycles <- struct{}{} }
@@ -457,9 +455,9 @@ func TestWatchSurvivesActivate(t *testing.T) {
 }
 
 func TestWatcherFailure(t *testing.T) {
-	// Architecture 2.8: an fn error keeps the watcher's last value and
-	// counts a rotation failure (spec 06 req 13: the degraded reason is
-	// raised); a later accepted value or stop clears it.
+	// An fn error keeps the watcher's last value and counts a rotation
+	// failure (the degraded reason is raised); a later accepted value
+	// or stop clears it.
 	h := newHarness(t, nil)
 	h.write("api.key", strings.Repeat("a", 30))
 	ref := fileRef(h.path("api.key"), "")
@@ -678,7 +676,7 @@ func TestStoreGetUnknown(t *testing.T) {
 }
 
 func TestStoreGetDoesNotAllocate(t *testing.T) {
-	// Architecture 2.8: Store is read lock-free on the request path.
+	// Store is read lock-free on the request path.
 	h := newHarness(t, nil)
 	h.setEnv("RURALZ_SECRET_A", "a")
 	ref := envRef("RURALZ_SECRET_A")
@@ -737,9 +735,8 @@ func urlUse(ref secret.Ref, check func([]byte) error) secret.Use {
 	return u
 }
 
-// topologyCheck stands in for the State Store driver's topology fit (spec
-// 08 requirement 7): cluster needs addr parameters, standalone refuses
-// them.
+// topologyCheck stands in for the State Store driver's topology fit:
+// cluster needs addr parameters, standalone refuses them.
 func topologyCheck(cluster bool) func([]byte) error {
 	return func(b []byte) error {
 		if strings.Contains(string(b), "addr=") != cluster {
@@ -750,11 +747,11 @@ func topologyCheck(cluster bool) func([]byte) error {
 }
 
 func TestRefusedRotationRetried(t *testing.T) {
-	// Spec 01 req 46 and spec 06 reqs 13 and 76: the last value is kept
-	// only while the new value fails its check, and secret_rotation_failed
-	// clears once the reference reads well. A rotation the active uses
-	// refused is taken by a Revision whose uses accept it, at Resolve and
-	// at Activate; spec 08 req 7: the topology fit follows the Bundle.
+	// The last value is kept only while the new value fails its check, and
+	// secret_rotation_failed clears once the reference reads well. A
+	// rotation the active uses refused is taken by a Revision whose uses
+	// accept it, at Resolve and at Activate; the topology fit follows the
+	// Bundle.
 	const (
 		clusterURL = "redis://u:p@a.internal:7000?addr=b.internal:7001"
 		soloURL    = "redis://u:p@solo.internal:6379" //nolint:gosec // G101: a test fixture, not a credential.
@@ -929,10 +926,10 @@ func TestRefusedRotationRetried(t *testing.T) {
 }
 
 func TestConsumerCheckPanicContained(t *testing.T) {
-	// Spec 01 section 6 (secret leak tests: never in panics): a consumer
-	// check that panics, here with the value, is a fixed reason at
-	// Resolve and a counted rotation failure during a poll; the resolver
-	// goroutine survives and the value is printed nowhere.
+	// A secret never leaks through a panic: a consumer check that panics,
+	// here with the value, is a fixed reason at Resolve and a counted
+	// rotation failure during a poll; the resolver goroutine survives and
+	// the value is printed nowhere.
 	h := newHarness(t, nil)
 	check := func(b []byte) error {
 		if strings.HasPrefix(string(b), "bad") {
@@ -978,11 +975,11 @@ func TestConsumerCheckPanicContained(t *testing.T) {
 }
 
 func TestKubernetesDataSwap(t *testing.T) {
-	// Spec 01 section 6 (file provider plan): a Kubernetes-style ..data
-	// symlink swap is observed within 2 poll intervals, here within one.
-	// The kubelet's atomic writer writes a new timestamped directory,
-	// points ..data_tmp at it, renames ..data_tmp over ..data and removes
-	// the old directory; the user-visible names are links through ..data.
+	// A Kubernetes-style ..data symlink swap is observed within 2 poll
+	// intervals, here within one. The kubelet's atomic writer writes a new
+	// timestamped directory, points ..data_tmp at it, renames ..data_tmp
+	// over ..data and removes the old directory; the user-visible names are
+	// links through ..data.
 	h := newHarness(t, nil)
 	cycles := make(chan struct{}, 8)
 	h.r.cycleHook = func() { cycles <- struct{}{} }

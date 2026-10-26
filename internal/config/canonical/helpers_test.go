@@ -49,8 +49,8 @@ func hubIndex(t testing.TB) *schemaidx.Index {
 }
 
 // synthetic is a schema of level 2 with real kind names, so the since
-// rules (02 req 23) and the level checks (02 req 33) can be tested before
-// any committed field carries x-ruralz-since.
+// rules and the level checks can be tested before any committed field
+// carries x-ruralz-since.
 const synthetic = `{
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "type": "object",

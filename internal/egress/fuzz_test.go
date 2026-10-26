@@ -9,10 +9,10 @@ import (
 	"testing"
 )
 
-// FuzzFetchAllow is the spec 06 section 6.4 target for RURALZ_FETCH_ALLOW
-// (requirement 85). Oracle: no panic; an error wraps ErrAllowEntry and
-// stays short; an accepted value round-trips through String and never
-// changes the default deny table for addresses outside its prefixes.
+// FuzzFetchAllow is the fuzz target for RURALZ_FETCH_ALLOW. Oracle: no
+// panic; an error wraps ErrAllowEntry and stays short; an accepted value
+// round-trips through String and never changes the default deny table for
+// addresses outside its prefixes.
 func FuzzFetchAllow(f *testing.F) {
 	for _, s := range []string{
 		"",

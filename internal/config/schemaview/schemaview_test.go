@@ -21,7 +21,7 @@ import (
 )
 
 // TestCodesRegistered checks that every code stage F raises is registered
-// with its registered meaning (01 req 33; architecture section 0 item 2).
+// with its registered meaning.
 func TestCodesRegistered(t *testing.T) {
 	for _, tc := range []struct {
 		code, meaning string
@@ -42,7 +42,7 @@ func TestCodesRegistered(t *testing.T) {
 }
 
 // TestEmbedded compiles the embedded rendered view once and serves it by
-// apiVersion (01 req 32).
+// apiVersion.
 func TestEmbedded(t *testing.T) {
 	s, err := embedded()
 	if err != nil {
@@ -127,7 +127,7 @@ func TestEmbeddedErrors(t *testing.T) {
 }
 
 // TestCompileErrors checks that a schema that does not compile, or that
-// disagrees with its index, is ErrSchema (01 req 32).
+// disagrees with its index, is ErrSchema.
 func TestCompileErrors(t *testing.T) {
 	synthetic, err := os.ReadFile(filepath.Join("testdata", "synthetic.schema.json"))
 	if err != nil {
@@ -163,8 +163,8 @@ func TestCompileErrors(t *testing.T) {
 	}
 }
 
-// TestRefusingLoader checks that compiling never loads a URL: a remote
-// $ref fails with ErrRemoteReference (01 req 32, risk 30).
+// TestRefusingLoader checks that compiling never loads a URL: a remote $ref
+// fails with ErrRemoteReference.
 func TestRefusingLoader(t *testing.T) {
 	synthetic, err := os.ReadFile(filepath.Join("testdata", "synthetic.schema.json"))
 	if err != nil {
@@ -186,8 +186,8 @@ func TestRefusingLoader(t *testing.T) {
 	}
 }
 
-// TestFormatsNotAsserted checks that format stays an annotation (01 req
-// 32): an invalid email validates.
+// TestFormatsNotAsserted checks that format stays an annotation: an
+// invalid email validates.
 func TestFormatsNotAsserted(t *testing.T) {
 	c, err := newCompiler()
 	if err != nil {
@@ -237,9 +237,9 @@ func TestValidateWithoutFiles(t *testing.T) {
 	}
 }
 
-// TestValidResources accepts minimal valid resources of every M1 kind
-// (01 req 32), and an unknown member of an open config (01 test plan,
-// RZ-CFG-006 negative: cors config.maxAge).
+// TestValidResources accepts minimal valid resources of every M1 kind, and
+// an unknown member of an open config, which is no RZ-CFG-006 (cors
+// config.maxAge).
 func TestValidResources(t *testing.T) {
 	for _, src := range []string{
 		`{"apiVersion": "ruralz/v1alpha1", "kind": "Gateway", "metadata": {"name": "edge", "labels": {"team": "a"}, "annotations": {"ruralz.io/conversion-data": "x"}},
@@ -260,7 +260,7 @@ func TestValidResources(t *testing.T) {
 }
 
 // TestConcurrentValidate shares one View across goroutines under -race
-// (01 req 53: the pipeline's workers share the compiled view).
+// (the pipeline's workers share the compiled view).
 func TestConcurrentValidate(t *testing.T) {
 	v := testView(t)
 	src := `{"apiVersion": "ruralz/v1alpha1", "kind": "Route", "metadata": {"name": "r"}, "spec": {"timout": "1s", "match": {"path": {"exact": "/", "prefix": "/"}}}}`

@@ -12,12 +12,12 @@ import (
 )
 
 // retype gives n, a string scalar that was exactly one expression, the
-// rendered view's type at its position s (01 req 29): an integer position
-// takes the YAML 1.2 core int grammar, a number position the core int or
-// float grammar, a boolean position the core bool literals, and ByteSize
-// and IntOrString an integer when the text is a core int. A string
-// position, a position without schema and text that does not fit keep
-// the string, which schema validation then reports naming the variable.
+// rendered view's type at its position s: an integer position takes the
+// YAML 1.2 core int grammar, a number position the core int or float
+// grammar, a boolean position the core bool literals, and ByteSize and
+// IntOrString an integer when the text is a core int. A string position,
+// a position without schema and text that does not fit keep the string,
+// which schema validation then reports naming the variable.
 func retype(n *tree.Node, s *schemaidx.Node) {
 	if s == nil {
 		return
@@ -30,9 +30,9 @@ func retype(n *tree.Node, s *schemaidx.Node) {
 	switch {
 	case t == 0 || t.Has(schemaidx.TypeString):
 	case t.Has(schemaidx.TypeNumber):
-		// A core int outside int64 is not representable (01 req 12), as
-		// in an authored literal: it stays a string rather than becoming a
-		// double, and schema validation reports it naming the variable.
+		// A core int outside int64 is not representable, as in an authored
+		// literal: it stays a string rather than becoming a double, and
+		// schema validation reports it naming the variable.
 		if !setInt(n) && !intGrammar(n.Text) {
 			if f, ok := coreFloat(n.Text); ok {
 				n.Kind, n.Text = tree.KindFloat, f
@@ -59,8 +59,7 @@ func setInt(n *tree.Node) bool {
 
 // coreInt parses the YAML 1.2 core int grammar ([-+]?[0-9]+, 0o[0-7]+,
 // 0x[0-9a-fA-F]+; leading zeros allowed, so 0777 is 777) and returns the
-// normalized decimal; false outside the grammar or outside int64 (the
-// range 01 req 12 admits).
+// normalized decimal; false outside the grammar or outside int64.
 func coreInt(s string) (string, bool) {
 	text, base, ok := splitInt(s)
 	if !ok {
@@ -118,10 +117,10 @@ func allDigits(s string, base int) bool {
 
 // coreFloat parses the finite YAML 1.2 core float grammar
 // [-+]?(\.[0-9]+|[0-9]+(\.[0-9]*)?)([eE][-+]?[0-9]+)? and returns it in
-// RFC 8259 number syntax, as the profile stores floats (architecture
-// R-64): a leading + dropped, a 0 put before a leading '.', a '.' without
-// fraction digits dropped and leading zeros of the integer part stripped
-// keeping one digit. .inf and .nan are not JSON numbers and do not fit.
+// RFC 8259 number syntax, as the profile stores floats: a leading +
+// dropped, a 0 put before a leading '.', a '.' without fraction digits
+// dropped and leading zeros of the integer part stripped keeping one
+// digit. .inf and .nan are not JSON numbers and do not fit.
 func coreFloat(s string) (string, bool) {
 	sign := ""
 	switch {

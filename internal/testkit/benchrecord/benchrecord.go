@@ -2,8 +2,8 @@
 // SPDX-License-Identifier: Apache-2.0
 
 // Package benchrecord defines the ruralz.bench.v1 result record every macro
-// and component benchmark run writes (11 req 77; PBB "Result record"), with
-// a JSON writer, a strict reader and the schema check.
+// and component benchmark run writes (PBB "Result record"), with a JSON
+// writer, a strict reader and the schema check.
 //
 // The record carries Identity (scenario, commit, baseline, Revision digest,
 // toolchain), Environment (hardware profile and microarchitecture, kernel,

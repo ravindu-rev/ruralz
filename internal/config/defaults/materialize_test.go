@@ -121,14 +121,13 @@ func schemaFindings(t *testing.T, views *schemaview.Set, res *tree.Resource) map
 	return out
 }
 
-// TestMaterializeEveryDefault is 02 test plan item 7 and the "defaults
-// table equals schema markers" check: every default of the rendered schema,
-// enumerated from schemaidx (02 req 10: table-free), materializes inside a
-// present parent with exactly the schema's value, styled defaulted at the
-// parent's position, validates against the rendered schema (stage F
-// reports nothing new once the defaults are in: no pattern, range, enum
-// or parent-level finding), and an explicit value is kept (01 req 36; 02
-// req 9, 11).
+// TestMaterializeEveryDefault checks that the defaults equal the schema
+// markers: every default of the rendered schema, enumerated from schemaidx
+// (table-free), materializes inside a present parent with exactly the
+// schema's value, styled defaulted at the parent's position, validates
+// against the rendered schema (stage F reports nothing new once the
+// defaults are in: no pattern, range, enum or parent-level finding), and an
+// explicit value is kept.
 func TestMaterializeEveryDefault(t *testing.T) {
 	idx := hubIndex(t)
 	reg := registry.New()
@@ -198,8 +197,7 @@ func TestMaterializeEveryDefault(t *testing.T) {
 			t.Errorf("an invalid default at %s was not reported", bad.path)
 		}
 	}
-	// The defaults the specs list (01 req 36, 02 req 10, R-21, R-62) are
-	// among them.
+	// The defaults the specs list are among them.
 	for _, want := range []string{
 		"Gateway spec.admin.port", "Gateway spec.listeners[].proxyProtocol", "Gateway spec.listeners[].tls.minVersion",
 		"Gateway spec.limits.maxBufferedBytes", "Gateway spec.limits.maxRequestBodyBytes", "Gateway spec.limits.maxRequestHeaderBytes",
@@ -300,10 +298,10 @@ func policy(t testing.TB, f *fixture, name, specJSON string) *tree.Resource {
 		`{"apiVersion": "ruralz/v1alpha1", "kind": "Policy", "metadata": {"name": "`+name+`"}, "spec": `+specJSON+`}`)
 }
 
-// TestRegistryDefaults is 02 test plan item 8: for each of the 23 types,
-// absent slot, failureMode and filterClass materialize the registry values
-// (R-7: filterClass for every type, custom for plugin); explicit values
-// are kept, even ones a later stage rejects.
+// TestRegistryDefaults checks that, for each of the 23 types, absent slot,
+// failureMode and filterClass materialize the registry values (filterClass
+// for every type, custom for plugin), and that explicit values are kept,
+// even ones a later stage rejects.
 func TestRegistryDefaults(t *testing.T) {
 	idx := hubIndex(t)
 	reg := registry.New()
@@ -365,10 +363,10 @@ func TestRegistryDefaults(t *testing.T) {
 	}
 }
 
-// TestMaterializeShapes covers 02 req 9 and 11, 01 req 36 and R-62:
-// absent objects are not created, list entries and typed-map values get
-// defaults, a Policy config gets its type's defaults, free content and
-// the JSONSchemaDocument value get none, and a second call adds nothing.
+// TestMaterializeShapes checks that absent objects are not created, list
+// entries and typed-map values get defaults, a Policy config gets its
+// type's defaults, free content and the JSONSchemaDocument value get none,
+// and a second call adds nothing.
 func TestMaterializeShapes(t *testing.T) {
 	idx := hubIndex(t)
 	reg := registry.New()

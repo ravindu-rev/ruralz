@@ -11,8 +11,8 @@ import (
 )
 
 // BenchmarkResource measures stage G for one resource of each common shape
-// (01 req 54: decode and re-validate about 40 µs per resource, hypothesis;
-// 02 req 78: stages G, I, L and M within 25% of validation).
+// (decode and re-validate take about 40 µs per resource, an estimate;
+// stages G, I, L and M stay within 25% of validation).
 func BenchmarkResource(b *testing.B) {
 	s := newStage(b)
 	for name, src := range map[string]string{

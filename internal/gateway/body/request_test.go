@@ -17,12 +17,11 @@ import (
 	"github.com/ravindu-rev/ruralz/internal/gateway/snapshot"
 )
 
-// Tests for architecture R-41 (snapshot.RequestBody over the gate or the
-// client stream), spec 05 req 31 (replayable when empty, gated or unread;
-// GetBody only for buffered bodies), spec 05 req 54 (a gated body replayed
-// to every composition step), spec 04 reqs 34 and 37 (declared length and
-// streamed cut at maxRequestBodyBytes) and spec 07 req 71 (a rewritten body
-// reserved, the superseded one released).
+// Tests for snapshot.RequestBody over the gate or the client stream:
+// replayable when empty, gated or unread (GetBody only for buffered
+// bodies), a gated body replayed to every composition step, the declared
+// length and the streamed cut at maxRequestBodyBytes, and a rewritten body
+// reserved with the superseded one released.
 
 // clientBody is a client request body that records Close.
 type clientBody struct {
@@ -50,11 +49,10 @@ type replayState struct {
 
 const matrixBody = "hello, upstream"
 
-// TestR41ReplayMatrix is the RequestBody replay matrix of the work package
-// "Done when": empty, gated, streamed unread and streamed read, each for
-// ContentLength, Replayable, Buffered (GetBody) and two Opens (a retry or a
-// second step).
-func TestR41ReplayMatrix(t *testing.T) {
+// TestReplayMatrix is the RequestBody replay matrix: empty, gated,
+// streamed unread and streamed read, each for ContentLength, Replayable,
+// Buffered (GetBody) and two Opens (a retry or a second step).
+func TestReplayMatrix(t *testing.T) {
 	gated := func(t *testing.T, q *Request, bud *Budget) *clientBody {
 		cb := &clientBody{Reader: strings.NewReader(matrixBody)}
 		if err := q.Prepare(context.Background(), cb, int64(len(matrixBody)), true, 1<<20, bud, 0); err != nil {
@@ -179,11 +177,11 @@ func TestR41ReplayMatrix(t *testing.T) {
 	}
 }
 
-// TestReq31StreamedRetryAfterUnreadAttempt: an attempt that opened the
+// TestStreamedRetryAfterUnreadAttempt: an attempt that opened the
 // stream but read nothing (a connect error) leaves it replayable; the new
 // reader makes the old one stale, so a lingering transport cannot steal
 // bytes from the retry.
-func TestReq31StreamedRetryAfterUnreadAttempt(t *testing.T) {
+func TestStreamedRetryAfterUnreadAttempt(t *testing.T) {
 	var q Request
 	cb := &clientBody{Reader: strings.NewReader(matrixBody)}
 	q.SetStream(cb, -1, 1<<20)
@@ -236,11 +234,11 @@ func (b *blockingReader) Read(p []byte) (int, error) {
 	return b.r.Read(p)
 }
 
-// TestReq31StreamedReadInProgress: while a transport goroutine is blocked
+// TestStreamedReadInProgress: while a transport goroutine is blocked
 // reading the stream, the body is not replayable (the outcome of that read
 // is unknown), a second Open is refused, and Reset makes the reader stale
 // without waiting for it.
-func TestReq31StreamedReadInProgress(t *testing.T) {
+func TestStreamedReadInProgress(t *testing.T) {
 	var q Request
 	br := &blockingReader{entered: make(chan struct{}), release: make(chan struct{}), r: strings.NewReader(matrixBody)}
 	entered := br.entered
@@ -271,9 +269,9 @@ func TestReq31StreamedReadInProgress(t *testing.T) {
 	}
 }
 
-// TestReq37StreamedOverLimit: a streamed body is cut at the limit with
+// TestStreamedOverLimit: a streamed body is cut at the limit with
 // ErrTooLarge (413 RZ-RT-003 before commit) and reported by Exceeded.
-func TestReq37StreamedOverLimit(t *testing.T) {
+func TestStreamedOverLimit(t *testing.T) {
 	var q Request
 	if err := q.Prepare(context.Background(), strings.NewReader(matrixBody), -1, false, 5, nil, 0); err != nil {
 		t.Fatal(err)
@@ -295,9 +293,9 @@ func TestReq37StreamedOverLimit(t *testing.T) {
 	q.Reset()
 }
 
-// TestReq31StreamedEmpty: a stream of unknown length that turns out empty
+// TestStreamedEmpty: a stream of unknown length that turns out empty
 // stays replayable and later Opens return http.NoBody.
-func TestReq31StreamedEmpty(t *testing.T) {
+func TestStreamedEmpty(t *testing.T) {
 	var q Request
 	q.SetStream(strings.NewReader(""), -1, 10)
 	rc, err := q.Open()
@@ -325,9 +323,9 @@ func TestReq31StreamedEmpty(t *testing.T) {
 	}
 }
 
-// TestReq54GatedStepReplay opens a gated body from parallel composition
+// TestGatedStepReplay opens a gated body from parallel composition
 // steps: each reads the whole body independently (run with -race).
-func TestReq54GatedStepReplay(t *testing.T) {
+func TestGatedStepReplay(t *testing.T) {
 	bud := NewBudget(1<<20, nil)
 	data := pattern(100 * kib)
 	var q Request
@@ -358,9 +356,9 @@ func TestReq54GatedStepReplay(t *testing.T) {
 	}
 }
 
-// TestR41GatedReaderStaleAfterReset: a reader a transport still holds after
+// TestGatedReaderStaleAfterReset: a reader a transport still holds after
 // the request ended never reads recycled bytes.
-func TestR41GatedReaderStaleAfterReset(t *testing.T) {
+func TestGatedReaderStaleAfterReset(t *testing.T) {
 	bud := NewBudget(1<<20, nil)
 	var q Request
 	if err := q.Prepare(context.Background(), strings.NewReader("secret-a"), -1, true, 1<<20, bud, 0); err != nil {
@@ -384,10 +382,10 @@ func TestR41GatedReaderStaleAfterReset(t *testing.T) {
 	q.Reset()
 }
 
-// TestReq71Replace: a rewritten body is reserved like a decoded value, the
+// TestReplace: a rewritten body is reserved like a decoded value, the
 // superseded gate is released, earlier readers turn stale; a refused
 // reservation is ErrBudget (503 RZ-RT-004) and leaves the body unchanged.
-func TestReq71Replace(t *testing.T) {
+func TestReplace(t *testing.T) {
 	// 256 KiB total, 64 KiB share: 192 KiB of gate budget.
 	bud := NewBudget(256*kib, nil)
 	var q Request
@@ -464,19 +462,18 @@ func TestReq71Replace(t *testing.T) {
 	}
 }
 
-// TestReq71ReplaceAliasedBody: a Filter passing back the slice it got from
+// TestReplaceAliasedBody: a Filter passing back the slice it got from
 // Message.Body (unchanged, truncated, a middle part, emptied, edited in
 // place) must not leave the request holding the released gate's array,
 // across the slice's whole capacity, which the pool hands to the next gate
-// on the Node (cross-request exposure and corruption; spec 07 req 71, spec
-// 04 req 48). Replace copies such a body and gives an empty one no
-// capacity; a fresh one is kept as is. Gated and Buffered return slices
-// whose capacity is their length, so appending to them never writes into
-// another request's gate. The rows derive b from the gate's own slice,
-// whose capacity is the whole increment, and check the body q keeps as
-// well as the accessors, so Replace and the clipping are each checked on
-// their own.
-func TestReq71ReplaceAliasedBody(t *testing.T) {
+// on the Node (cross-request exposure and corruption). Replace copies such
+// a body and gives an empty one no capacity; a fresh one is kept as is.
+// Gated and Buffered return slices whose capacity is their length, so
+// appending to them never writes into another request's gate. The rows
+// derive b from the gate's own slice, whose capacity is the whole
+// increment, and check the body q keeps as well as the accessors, so
+// Replace and the clipping are each checked on their own.
+func TestReplaceAliasedBody(t *testing.T) {
 	tests := []struct {
 		name   string
 		derive func(cur []byte) []byte
@@ -639,11 +636,11 @@ func TestOverlaps(t *testing.T) {
 	}
 }
 
-// TestR41ConcurrentAccess opens and reads a gated body from composition
+// TestConcurrentAccess opens and reads a gated body from composition
 // step goroutines while the request's owner replaces and resets it (the
 // ending protocol ending a request while steps still open readers): run
 // with -race; every read sees a whole body or a stale reader.
-func TestR41ConcurrentAccess(t *testing.T) {
+func TestConcurrentAccess(t *testing.T) {
 	bud := NewBudget(4<<20, nil)
 	var q Request
 	if err := q.Prepare(context.Background(), strings.NewReader(matrixBody), -1, true, 1<<20, bud, 0); err != nil {
@@ -698,9 +695,9 @@ func TestR41ConcurrentAccess(t *testing.T) {
 	}
 }
 
-// TestReq34Prepare covers the handler's entry: declared over the limit is
+// TestPrepare covers the handler's entry: declared over the limit is
 // 413 RZ-RT-003 without reading; a gate over the budget is 503 RZ-RT-004.
-func TestReq34Prepare(t *testing.T) {
+func TestPrepare(t *testing.T) {
 	bud := NewBudget(128*kib, nil)
 	var q Request
 	spy := &spyReader{t: t, r: strings.NewReader(matrixBody)}
@@ -760,8 +757,8 @@ func TestReq34Prepare(t *testing.T) {
 	}
 }
 
-// TestReq46SetGated hands a gate read elsewhere to a Request.
-func TestReq46SetGated(t *testing.T) {
+// TestSetGated hands a gate read elsewhere to a Request.
+func TestSetGated(t *testing.T) {
 	bud := NewBudget(1<<20, nil)
 	g, err := ReadGate(context.Background(), strings.NewReader(""), -1, 10, bud, 0)
 	if err != nil {

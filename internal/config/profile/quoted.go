@@ -17,9 +17,9 @@ const (
 )
 
 // readQuoted reads the quoted scalar whose opening quote is at byte offset
-// at of text as YAML 1.2 reads it (01 req 12; YAML 1.2.2 sections 7.3.1
-// and 7.3.2), into buf's storage. It returns the value, the offset just
-// past the closing quote, and a message when YAML 1.2 refuses the scalar.
+// at of text as YAML 1.2 reads it (YAML 1.2.2 sections 7.3.1 and 7.3.2),
+// into buf's storage. It returns the value, the offset just past the
+// closing quote, and a message when YAML 1.2 refuses the scalar.
 //
 // goccy's scanner drops the white space an escape gives before a line
 // break ("\ ", "\x20"), keeps the tabs before a line break of a single
@@ -30,7 +30,7 @@ const (
 // empty line that follows it. In a double-quoted scalar an escaped line
 // break is dropped, keeping the white space before it, and the escapes are
 // YAML 1.2's; a high and a low UTF-16 surrogate escaped one after the
-// other join into one character, as in JSON (01 req 15).
+// other join into one character, as in JSON.
 func readQuoted(buf []byte, text string, at int) (value []byte, end int, msg string) {
 	q := text[at]
 	out := buf[:0]
@@ -212,10 +212,10 @@ func hexValue(s string, digits int) (uint32, bool) {
 }
 
 // quoted reads the quoted scalar token idx from the source (readQuoted)
-// and records its value for the converter when it differs from goccy's (01
-// req 12). An escape YAML 1.2 does not define is RZ-CFG-001 at the scalar,
-// as are an opening quote goccy reports elsewhere and a next token inside
-// the scalar, which would mean goccy read another scalar. Like the other
+// and records its value for the converter when it differs from goccy's. An
+// escape YAML 1.2 does not define is RZ-CFG-001 at the scalar, as are an
+// opening quote goccy reports elsewhere and a next token inside the
+// scalar, which would mean goccy read another scalar. Like the other
 // checks that only keep goccy from misreading a file, it is skipped once
 // the file has a finding.
 func (t *tokenPass) quoted(idx int) {

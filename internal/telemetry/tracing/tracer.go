@@ -24,11 +24,11 @@ import (
 // ScopeName is the instrumentation scope of every Ruralz span.
 const ScopeName = "github.com/ravindu-rev/ruralz"
 
-// Span limits of spec 09 req 22 (proposed there): they bound the size of a
-// queued span and so the 8 MiB span queue. A span cuts every string value
-// to at most MaxAttributeValueLen bytes, at a UTF-8 rune boundary, before
-// the SDK sees it, because the SDK's AttributeValueLengthLimit counts
-// characters, not bytes.
+// Span limits (proposed): they bound the size of a queued span and
+// so the 8 MiB span queue. A span cuts every string value to at most
+// MaxAttributeValueLen bytes, at a UTF-8 rune boundary, before the SDK
+// sees it, because the SDK's AttributeValueLengthLimit counts characters,
+// not bytes.
 const (
 	MaxSpanAttributes     = 32
 	MaxAttributeValueLen  = 256
@@ -38,7 +38,7 @@ const (
 )
 
 // SpanLimits returns the raw span limits installed with
-// sdktrace.WithRawSpanLimits (spec 09 req 22).
+// sdktrace.WithRawSpanLimits.
 func SpanLimits() sdktrace.SpanLimits {
 	return sdktrace.SpanLimits{
 		AttributeValueLengthLimit:   MaxAttributeValueLen,
@@ -72,8 +72,7 @@ type Options struct {
 	// Clock drives the caps and the batch interval; nil means clock.Real().
 	Clock clock.Clock
 	// Resource is the resource the tracer, meter and logger providers
-	// share (spec 09 reqs 11 and 13); nil means an empty resource, never
-	// resource.Default().
+	// share; nil means an empty resource, never resource.Default().
 	Resource *resource.Resource
 	// Counters are the tracing counters.
 	Counters Counters
@@ -170,10 +169,9 @@ func New(o Options) (*Tracer, error) {
 }
 
 // SetExporter installs e, or none when nil, and returns the previous
-// exporter for the caller to shut down (spec 09 req 24: an endpoint or TLS
-// change swaps exporters off the request path). Spans are created only
-// while an exporter is set (req 15); decisions and propagation never
-// depend on it.
+// exporter for the caller to shut down (an endpoint or TLS change swaps
+// exporters off the request path). Spans are created only while an
+// exporter is set; decisions and propagation never depend on it.
 func (t *Tracer) SetExporter(e sdktrace.SpanExporter) sdktrace.SpanExporter {
 	old := t.proc.SetExporter(e)
 	t.enabled.Store(e != nil)
@@ -186,11 +184,11 @@ func (t *Tracer) SpansEnabled() bool { return t.enabled.Load() }
 // ForceFlush exports every ended span now, bounded by ctx.
 func (t *Tracer) ForceFlush(ctx context.Context) error { return t.provider.ForceFlush(ctx) }
 
-// Shutdown stops span creation, flushes the queued spans within ctx (spec
-// 09 req 25), stops the processor's worker and shuts the current exporter
-// down. When ctx is already done the worker still stops and every queued
-// span is counted as dropped (Processor.Shutdown). Its bound relies on the
-// exporter honoring ctx, as a sdktrace.SpanExporter must: it waits for an
+// Shutdown stops span creation, flushes the queued spans within ctx, stops
+// the processor's worker and shuts the current exporter down. When ctx is
+// already done the worker still stops and every queued span is counted as
+// dropped (Processor.Shutdown). Its bound relies on the exporter honoring
+// ctx, as a sdktrace.SpanExporter must: it waits for an
 // export in flight, including one of a ForceFlush, to see the
 // cancellation.
 func (t *Tracer) Shutdown(ctx context.Context) error {
@@ -208,15 +206,15 @@ func (t *Tracer) Shutdown(ctx context.Context) error {
 	return nil
 }
 
-// Decide makes the request's one sampling decision (spec 09 reqs 27 to
-// 30) and fills d: a valid traceparent parents the server span, its
-// tracestate is kept when valid, and its sampled flag decides within the
-// parent cap; otherwise a new trace ID is drawn and ratio decides on it
-// within the root cap. A decision over its cap is unsampled and counted on
-// a stripe chosen by the random server span ID, so a flood of forced
-// flags spreads over the stripes. The server span ID is always drawn. It
-// allocates nothing except the combined value when a request carries
-// several tracestate field lines that are valid together.
+// Decide makes the request's one sampling decision and fills d: a valid
+// traceparent parents the server span, its tracestate is kept when valid,
+// and its sampled flag decides within the parent cap; otherwise a new
+// trace ID is drawn and ratio decides on it within the root cap. A
+// decision over its cap is unsampled and counted on a stripe chosen by the
+// random server span ID, so a flood of forced flags spreads over the
+// stripes. The server span ID is always drawn. It allocates nothing except
+// the combined value when a request carries several tracestate field
+// lines that are valid together.
 func (t *Tracer) Decide(h http.Header, ratio float64, d *emit.Decision) {
 	*d = emit.Decision{}
 	var flags byte
@@ -253,9 +251,9 @@ func (t *Tracer) Decide(h http.Header, ratio float64, d *emit.Decision) {
 func (t *Tracer) since() time.Duration { return t.clock.Now().Sub(t.epoch) }
 
 // StartServer starts the SERVER span of a sampled request while spans are
-// enabled, with the IDs of d and the attributes of spec 09 req 33, named
-// "<method>" until ruralz.route is set; otherwise it returns ctx and a
-// no-op span whose SpanID is d's server span ID, allocating nothing.
+// enabled, with the IDs of d and the attributes, named "<method>" until
+// ruralz.route is set; otherwise it returns ctx and a no-op span whose
+// SpanID is d's server span ID, allocating nothing.
 func (t *Tracer) StartServer(ctx context.Context, d *emit.Decision, method string, a emit.ServerAttrs) (context.Context, emit.Span) {
 	if d == nil {
 		return ctx, noopSpan{}
@@ -272,9 +270,9 @@ func (t *Tracer) StartServer(ctx context.Context, d *emit.Decision, method strin
 	return sctx, s //nolint:spancheck // the caller ends the returned span
 }
 
-// StartRouteMatch starts ruralz.route.match (INTERNAL, spec 09 req 34)
-// under the span in ctx; the caller sets ruralz.route to the matched Route
-// or UnmatchedRoute.
+// StartRouteMatch starts ruralz.route.match (INTERNAL) under the span in
+// ctx; the caller sets ruralz.route to the matched Route or
+// UnmatchedRoute.
 func (t *Tracer) StartRouteMatch(ctx context.Context) (context.Context, emit.Span) {
 	if !trace.SpanFromContext(ctx).IsRecording() {
 		return ctx, noopSpan{}
@@ -282,10 +280,10 @@ func (t *Tracer) StartRouteMatch(ctx context.Context) (context.Context, emit.Spa
 	return t.start(ctx, catalog.SpanRouteMatch, kindMatch, t.internalOpts)
 }
 
-// StartFilter starts ruralz.filter.<name> (INTERNAL, spec 09 req 35) under
-// the span in ctx, which is the leg span for upstream-scoped Policies;
-// spanName is precomputed per snapshot (catalog.FilterSpanName). onLog
-// creates no span.
+// StartFilter starts ruralz.filter.<name> (INTERNAL) under the span in
+// ctx, which is the leg span for upstream-scoped Policies; spanName is
+// precomputed per snapshot (catalog.FilterSpanName). onLog creates no
+// span.
 func (t *Tracer) StartFilter(ctx context.Context, spanName string, a emit.FilterAttrs) (context.Context, emit.Span) {
 	if a.Phase.String() == onLogPhase {
 		return ctx, noopSpan{}
@@ -294,8 +292,8 @@ func (t *Tracer) StartFilter(ctx context.Context, spanName string, a emit.Filter
 }
 
 // StartChunk starts the span of one Policy's onChunk subscription on a
-// stream (spec 09 req 37). It is the M3 extension point: M1 serves no
-// stream and has no caller.
+// stream. It is the M3 extension point: M1 serves no stream and has no
+// caller.
 func (t *Tracer) StartChunk(ctx context.Context, spanName string, a emit.FilterAttrs) (context.Context, emit.Span) {
 	return t.startPolicy(ctx, spanName, &a)
 }
@@ -310,10 +308,10 @@ func (t *Tracer) startPolicy(ctx context.Context, spanName string, a *emit.Filte
 	return sctx, s
 }
 
-// StartUpstream starts ruralz.upstream.<name> (CLIENT, spec 09 req 36) for
-// one leg attempt under the span in ctx; spanName is precomputed per
-// snapshot (catalog.UpstreamSpanName). Inject with the returned context
-// names this span as the Upstream's parent.
+// StartUpstream starts ruralz.upstream.<name> (CLIENT) for one leg attempt
+// under the span in ctx; spanName is precomputed per snapshot
+// (catalog.UpstreamSpanName). Inject with the returned context names this
+// span as the Upstream's parent.
 func (t *Tracer) StartUpstream(ctx context.Context, spanName string, a emit.UpstreamAttrs) (context.Context, emit.Span) {
 	if !trace.SpanFromContext(ctx).IsRecording() {
 		return ctx, noopSpan{}
@@ -330,14 +328,13 @@ func (t *Tracer) start(ctx context.Context, name string, k spanKind, opts []trac
 }
 
 // Inject replaces the client's traceparent and tracestate on an outgoing
-// Upstream leg (spec 09 req 31): traceparent carries d's trace ID, the
-// span in ctx as parent (the attempt's ruralz.upstream.<name> span when
-// spans exist) or else d's server span ID, and flags 01 when sampled or
-// 00; tracestate is d's validated value, set only when non-empty.
-// Baggage is never added. A nil h is left alone: it holds no client
-// values and cannot take new ones. It allocates the new traceparent value
-// and its slice (the 2 allocations of the unsampled budget, spec 09 req
-// 38).
+// Upstream leg: traceparent carries d's trace ID, the span in ctx as
+// parent (the attempt's ruralz.upstream.<name> span when spans exist) or
+// else d's server span ID, and flags 01 when sampled or 00; tracestate is
+// d's validated value, set only when non-empty. Baggage is never added. A
+// nil h is left alone: it holds no client values and cannot take new
+// ones. It allocates the new traceparent value and its slice (the 2
+// allocations of the unsampled budget).
 func (t *Tracer) Inject(ctx context.Context, d *emit.Decision, h http.Header) {
 	if h == nil {
 		return
@@ -362,10 +359,9 @@ func (t *Tracer) Inject(ctx context.Context, d *emit.Decision, h http.Header) {
 }
 
 // Carrier is the header abstraction of the non-HTTP legs (gRPC metadata in
-// M3; Kafka, NATS and MQTT 5 headers in M4, spec 09 section 8); keys are
-// KeyTraceparent and KeyTracestate. Get serves the M3 counterpart of
-// Decide that extracts from a carrier (a DecideCarrier); Set and Delete
-// serve InjectCarrier.
+// M3; Kafka, NATS and MQTT 5 headers in M4); keys are KeyTraceparent and
+// KeyTracestate. Get serves the M3 counterpart of Decide that extracts
+// from a carrier (a DecideCarrier); Set and Delete serve InjectCarrier.
 type Carrier interface {
 	// Get returns the value of key, "" when absent.
 	Get(key string) string

@@ -9,9 +9,8 @@ import (
 	"github.com/ravindu-rev/ruralz/internal/expr"
 )
 
-// Principal prefixes of unbound identities (spec 06 requirement 22). A
-// Consumer name is an RFC 1123 label and never contains ":", so the three
-// forms cannot collide.
+// Principal prefixes of unbound identities. A Consumer name is an RFC
+// 1123 label and never contains ":", so the three forms cannot collide.
 //
 // An unbound identity without a subject (a token whose sub claim is absent,
 // not a string or empty; a certificate with an empty subject) has no
@@ -38,10 +37,9 @@ func ConsumerPrincipal(c *expr.Consumer) string {
 }
 
 // JWTPrincipal returns the non-secret cache partition key of a verified
-// token (spec 06 requirement 22): the bound Consumer's name, else
-// "jwt:" + iss + "#" + sub, else "" (no principal) when sub is empty. "%"
-// and "#" in iss are percent-encoded so that distinct (iss, sub) pairs
-// never share a key.
+// token: the bound Consumer's name, else "jwt:" + iss + "#" + sub, else
+// "" (no principal) when sub is empty. "%" and "#" in iss are
+// percent-encoded so that distinct (iss, sub) pairs never share a key.
 func JWTPrincipal(c *expr.Consumer, iss, sub string) string {
 	if c != nil {
 		return c.Name

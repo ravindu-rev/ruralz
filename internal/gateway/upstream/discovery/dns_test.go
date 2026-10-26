@@ -37,7 +37,7 @@ type zoneRecord struct {
 }
 
 // dnsResponder is a minimal stdlib UDP DNS server answering A, AAAA and SRV
-// questions from a table; unknown names are NXDOMAIN (05 test 36).
+// questions from a table; unknown names are NXDOMAIN.
 type dnsResponder struct {
 	conn    net.PacketConn
 	mu      sync.Mutex
@@ -199,11 +199,11 @@ func resolverFor(r *dnsResponder) *net.Resolver {
 	}
 }
 
-// TestRealDNS exercises 05 reqs 6 and 7 end to end through the pure-Go
-// net.Resolver against a stdlib UDP responder (05 test 36): A and AAAA
-// answers, SRV with priorities, weights and target resolution, NXDOMAIN
-// counted until 3 repeats, SERVFAIL keeping the last set, an SRV record
-// with a malformed target dropped while the others stay.
+// TestRealDNS exercises DNS discovery end to end through the pure-Go
+// net.Resolver against a stdlib UDP responder: A and AAAA answers, SRV
+// with priorities, weights and target resolution, NXDOMAIN counted
+// until 3 repeats, SERVFAIL keeping the last set, an SRV record with a
+// malformed target dropped while the others stay.
 func TestRealDNS(t *testing.T) {
 	if testing.Short() {
 		t.Skip("uses loopback UDP")

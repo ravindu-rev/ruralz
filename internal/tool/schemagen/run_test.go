@@ -17,7 +17,7 @@ import (
 )
 
 // TestRun checks that the command writes exactly the committed files, as
-// `make generate` does (WP-28 "Done when").
+// `make generate` does.
 func TestRun(t *testing.T) {
 	out := filepath.Join(t.TempDir(), "schema")
 	if err := run(pkgDir, out); err != nil {

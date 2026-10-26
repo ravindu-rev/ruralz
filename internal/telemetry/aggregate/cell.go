@@ -20,11 +20,11 @@ const lineWords = 8
 
 // cell holds the values of one group. A striped cell has one block of
 // stride words per stripe, stride a multiple of eight words, so blocks of
-// different stripes never share a 64-byte cache line (spec 09 req 49):
-// the slice size is a multiple of 64 bytes, Go's size classes for such
-// sizes are multiples of 64 too and spans start on page boundaries, so
-// every block starts on a line boundary. An unstriped cell has stride 0
-// and one unpadded word per value, so every stripe maps to it.
+// different stripes never share a 64-byte cache line: the slice size is a
+// multiple of 64 bytes, Go's size classes for such sizes are multiples of
+// 64 too and spans start on page boundaries, so every block starts on a
+// line boundary. An unstriped cell has stride 0 and one unpadded word per
+// value, so every stripe maps to it.
 type cell struct {
 	v      []atomic.Uint64
 	tab    *[256]uint8
@@ -88,7 +88,7 @@ func (s *slot) set(v int64) {
 
 // statusClass maps an HTTP status to its status_class index (1xx is 0).
 // Statuses outside 100 to 599, including 0 for an attempt without a
-// response, count as 5xx (spec 09 section 9 item 9).
+// response, count as 5xx.
 func statusClass(status int) int {
 	c := status/100 - 1
 	if uint(c) >= numClasses {
@@ -102,7 +102,7 @@ var errBounds = errors.New("aggregate: unsupported histogram bounds")
 
 // histBounds are one bound set in the integer unit recorded values use:
 // nanoseconds for fast, request and control, bytes, or millionths for
-// ratio (spec 09 req 42).
+// ratio.
 type histBounds struct {
 	ints   [numBounds]uint64
 	floats []float64
@@ -186,9 +186,9 @@ func (h *histSlot) record(s emit.Stripe, v uint64) {
 }
 
 // exemplarSlot is the one exemplar of a histogram label set, written only
-// by sampled requests under a sequence lock (spec 09 req 52). Every field
-// is an atomic word so readers never race writers; a writer that finds
-// another writer active drops its exemplar.
+// by sampled requests under a sequence lock. Every field is an atomic
+// word so readers never race writers; a writer that finds another writer
+// active drops its exemplar.
 type exemplarSlot struct {
 	seq   atomic.Uint64
 	val   atomic.Uint64

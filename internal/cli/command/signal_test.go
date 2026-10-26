@@ -15,7 +15,7 @@ import (
 	"time"
 )
 
-// Tests for spec 10 req 21: SignalContext, with injected os/signal hooks.
+// Tests for SignalContext, with injected os/signal hooks.
 
 // fakeSignals records the hook calls and delivers signals by hand.
 type fakeSignals struct {
@@ -70,7 +70,7 @@ func waitDone(ctx context.Context, t *testing.T) {
 	}
 }
 
-func TestSignalContextSIGINTReq21(t *testing.T) {
+func TestSignalContextSIGINT(t *testing.T) {
 	var fs fakeSignals
 	ctx, stop := signalContext(context.Background(), fs.hooks())
 	defer stop()
@@ -103,7 +103,7 @@ func TestSignalContextSIGINTReq21(t *testing.T) {
 	}
 }
 
-func TestSignalContextSIGTERMReq21(t *testing.T) {
+func TestSignalContextSIGTERM(t *testing.T) {
 	var fs fakeSignals
 	ctx, stop := signalContext(context.Background(), fs.hooks())
 	fs.send(syscall.SIGTERM)
@@ -119,7 +119,7 @@ func TestSignalContextSIGTERMReq21(t *testing.T) {
 	}
 }
 
-func TestSignalContextStopReq21(t *testing.T) {
+func TestSignalContextStop(t *testing.T) {
 	before := runtime.NumGoroutine()
 	var fs fakeSignals
 	ctx, stop := signalContext(context.Background(), fs.hooks())

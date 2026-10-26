@@ -88,7 +88,7 @@ func (f *procFixture) flush(t *testing.T) {
 	}
 }
 
-// TestProcessorBatchSize covers req 20: a full batch is exported at once
+// TestProcessorBatchSize checks that a full batch is exported at once
 // without waiting for the interval.
 func TestProcessorBatchSize(t *testing.T) {
 	f := newProcFixture(t, ProcessorOptions{BatchSize: 4, QueueSize: 64})
@@ -113,7 +113,7 @@ func TestProcessorBatchSize(t *testing.T) {
 	}
 }
 
-// TestProcessorInterval covers req 20: queued spans leave every interval.
+// TestProcessorInterval checks that queued spans leave every interval.
 func TestProcessorInterval(t *testing.T) {
 	f := newProcFixture(t, ProcessorOptions{BatchSize: 512, BatchInterval: time.Second})
 	f.end(ended(3, "a"))
@@ -132,8 +132,8 @@ func TestProcessorInterval(t *testing.T) {
 	}
 }
 
-// TestProcessorQueueFull covers req 20: a full queue drops with
-// queue_full and never blocks OnEnd.
+// TestProcessorQueueFull checks that a full queue drops with queue_full
+// and never blocks OnEnd.
 func TestProcessorQueueFull(t *testing.T) {
 	f := newProcFixture(t, ProcessorOptions{QueueSize: 8, BatchSize: 512})
 	done := make(chan struct{})
@@ -158,8 +158,8 @@ func TestProcessorQueueFull(t *testing.T) {
 	}
 }
 
-// TestProcessorExportError covers reqs 20 and 23: a failed batch counts
-// export_error per span and reaches OnExport.
+// TestProcessorExportError checks that a failed batch counts export_error
+// per span and reaches OnExport.
 func TestProcessorExportError(t *testing.T) {
 	f := newProcFixture(t, ProcessorOptions{BatchSize: 3})
 	f.exp.fail.Store(true)
@@ -218,8 +218,8 @@ func TestProcessorExportTimeout(t *testing.T) {
 	}
 }
 
-// TestProcessorShutdown covers req 25: Shutdown exports what is queued,
-// shuts the exporter down, refuses later spans with queue_full, and a
+// TestProcessorShutdown checks that Shutdown exports what is queued, shuts
+// the exporter down and refuses later spans with queue_full, and that a
 // second call is a no-op.
 func TestProcessorShutdown(t *testing.T) {
 	f := newProcFixture(t, ProcessorOptions{BatchSize: 4})
@@ -250,9 +250,9 @@ func TestProcessorShutdown(t *testing.T) {
 	}
 }
 
-// TestProcessorShutdownDeadline covers req 25: when the flush cannot
-// finish within ctx, Shutdown returns at the deadline and the spans left
-// are dropped and counted.
+// TestProcessorShutdownDeadline checks that when the flush cannot finish
+// within ctx, Shutdown returns at the deadline and the spans left are
+// dropped and counted.
 func TestProcessorShutdownDeadline(t *testing.T) {
 	f := newProcFixture(t, ProcessorOptions{BatchSize: 2, QueueSize: 16})
 	f.exp.block = make(chan struct{}) // a stalled collector
@@ -296,7 +296,7 @@ func TestProcessorForceFlushDeadline(t *testing.T) {
 	}
 }
 
-// TestProcessorShutdownDuringForceFlush covers req 25: a ForceFlush on a
+// TestProcessorShutdownDuringForceFlush checks that a ForceFlush on a
 // context without deadline whose export is stalled does not hold Shutdown
 // past its own ctx; the flush returns ErrClosed and every span is
 // exported or counted.
@@ -360,9 +360,9 @@ func TestProcessorConcurrentOnEnd(t *testing.T) {
 	}
 }
 
-// TestProcessorShutdownDoneContext covers spec 09 req 25: a context that
-// is already done still stops the worker before Shutdown returns, drops
-// and counts every queued span, and shuts the exporter down.
+// TestProcessorShutdownDoneContext checks that a context that is already
+// done still stops the worker before Shutdown returns, drops and counts
+// every queued span, and shuts the exporter down.
 func TestProcessorShutdownDoneContext(t *testing.T) {
 	f := newProcFixture(t, ProcessorOptions{BatchSize: 512, QueueSize: 16})
 	f.end(ended(5, "s"))
@@ -389,10 +389,10 @@ func TestProcessorShutdownDoneContext(t *testing.T) {
 	}
 }
 
-// TestProcessorShutdownRacingOnEnd covers reqs 20 and 25: OnEnd calls
-// racing Shutdown leave no span uncounted, so spans_total equals exported
-// plus queue_full plus export_error once Shutdown returns and the callers
-// are done.
+// TestProcessorShutdownRacingOnEnd checks that OnEnd calls racing
+// Shutdown leave no span uncounted, so spans_total equals exported plus
+// queue_full plus export_error once Shutdown returns and the callers are
+// done.
 func TestProcessorShutdownRacingOnEnd(t *testing.T) {
 	iterations := 400
 	if testing.Short() {

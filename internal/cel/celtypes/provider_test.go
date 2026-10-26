@@ -17,9 +17,9 @@ import (
 	"github.com/ravindu-rev/ruralz/internal/expr"
 )
 
-// Tests for 03 C requirement 17: the Ruralz object types, their fields and
-// field types, and the variable declarations, served by a custom
-// types.Provider without reflection.
+// Tests for the Ruralz object types, their fields and field types, and the
+// variable declarations, served by a custom types.Provider without
+// reflection.
 
 func newProvider(t *testing.T) *Provider {
 	t.Helper()
@@ -30,9 +30,9 @@ func newProvider(t *testing.T) *Provider {
 	return p
 }
 
-// TestReq17ObjectTypes checks every object type and field of the 03 req 17
-// table: names in declaration order and CEL types.
-func TestReq17ObjectTypes(t *testing.T) {
+// TestObjectTypes checks every object type and field the Provider
+// declares: names in declaration order and CEL types.
+func TestObjectTypes(t *testing.T) {
 	p := newProvider(t)
 	const (
 		str  = "string"
@@ -99,9 +99,9 @@ func TestReq17ObjectTypes(t *testing.T) {
 	}
 }
 
-// TestReq17Variables checks the declared variable types, their order and the
+// TestVariables checks the declared variable types, their order and the
 // Var filter, and that every name is the expr.Var spelling.
-func TestReq17Variables(t *testing.T) {
+func TestVariables(t *testing.T) {
 	want := []struct {
 		bit  expr.Var
 		name string
@@ -225,7 +225,7 @@ func TestProviderNativeToValue(t *testing.T) {
 			}
 		})
 	}
-	// Ordered iteration survives adaptation of a native map (03 req 6.3).
+	// Ordered iteration survives adaptation of a native map.
 	m := p.NativeToValue(map[string]string{"b": "2", "a": "1", "c": "3"}).(traits.Mapper)
 	if got := iterKeys(m); !slices.Equal(got, []string{"a", "b", "c"}) {
 		t.Errorf("iteration = %v", got)

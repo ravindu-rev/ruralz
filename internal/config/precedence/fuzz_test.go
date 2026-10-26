@@ -45,7 +45,7 @@ func fuzzTypes() []v1alpha1.PolicyType {
 }
 
 // genBundle builds a random Bundle of Gateway, Route and Upstream
-// attachments of registry types (02 test 30).
+// attachments of registry types.
 func genBundle(data []byte) *hub.Bundle {
 	g := &gen{data: data}
 	b := newBuilder()
@@ -122,7 +122,7 @@ func genBundle(data []byte) *hub.Bundle {
 	return b.bundle()
 }
 
-// checkInvariants asserts the precedence laws of 02 test 30 on one result.
+// checkInvariants asserts the precedence laws on one result.
 func checkInvariants(t *testing.T, b *hub.Bundle, chains map[string]*hub.Chain, ds diag.List) {
 	t.Helper()
 	for _, d := range ds {
@@ -184,8 +184,7 @@ func checkInvariants(t *testing.T, b *hub.Bundle, chains map[string]*hub.Chain, 
 	}
 }
 
-// checkPhases asserts per-Phase membership, leg and order rules (02 req
-// 35.4 and 35.5, 04 req 40).
+// checkPhases asserts per-Phase membership, leg and order rules.
 func checkPhases(t *testing.T, route, leg string, phases *[phase.Count][]hub.Entry, allowed func(phase.Phase, hub.Entry) bool) {
 	t.Helper()
 	for p := range phase.Count {
@@ -206,11 +205,10 @@ func checkPhases(t *testing.T, route, leg string, phases *[phase.Count][]hub.Ent
 }
 
 // FuzzPrecedenceInvariants is the precedence property of TQ "Required
-// properties" (02 test 30, 11 req 25): for random attachments, one Policy
-// per slot per scope, overridable: false never removed (RZ-CFG-019
-// instead), order by class, scope and position, response Phases
-// reversed, onLog in request order, and a result independent of the
-// worker count.
+// properties": for random attachments, one Policy per slot per scope,
+// overridable: false never removed (RZ-CFG-019 instead), order by class,
+// scope and position, response Phases reversed, onLog in request order, and
+// a result independent of the worker count.
 func FuzzPrecedenceInvariants(f *testing.F) {
 	f.Add([]byte{})
 	f.Add([]byte{0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20})

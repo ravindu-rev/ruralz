@@ -18,9 +18,8 @@ import (
 	"github.com/ravindu-rev/ruralz/internal/statestore/statestoretest"
 )
 
-// Property and fuzz tests of spec 08 section 6.3 and 05 tests 23 and 25:
-// the memory driver equals the reference model (spec 08 req 46), GCRA
-// admits at most requests + burst in any window of one limit and
+// Property and fuzz tests: the memory driver equals the reference model,
+// GCRA admits at most requests + burst in any window of one limit and
 // converges to requests per window, and concurrent Quota reservations
 // never exceed the limit.
 
@@ -100,8 +99,8 @@ func runScenario(t testing.TB, sc gcraScenario) []time.Time {
 }
 
 // checkWindows asserts that no half-open window [t, t + W) of any limit
-// holds more than requests + burst admissions (spec 08 req 41), time
-// being the server's microseconds.
+// holds more than requests + burst admissions, time being the server's
+// microseconds.
 func checkWindows(t testing.TB, sc gcraScenario, admitted []time.Time) {
 	t.Helper()
 	for _, l := range sc.limits {
@@ -119,7 +118,7 @@ func checkWindows(t testing.TB, sc gcraScenario, admitted []time.Time) {
 }
 
 func TestGCRAProperty(t *testing.T) {
-	// Done when: "GCRA property test with clocktest.Fake".
+	// The GCRA property over random scenarios, on clocktest.Fake.
 	r := newRand(1, 2)
 	for i := range 300 {
 		sc := newScenario(r, 400)
@@ -156,9 +155,8 @@ func TestGCRAConverges(t *testing.T) {
 }
 
 func FuzzGCRAModel(f *testing.F) {
-	// 05 test 23: random arrivals, limits and bursts on a deterministic
-	// clock; memory equals the reference model and respects the window
-	// bound.
+	// Random arrivals, limits and bursts on a deterministic clock;
+	// memory equals the reference model and respects the window bound.
 	for _, s := range []uint64{0, 1, 42, 1 << 40} {
 		f.Add(s, uint16(64))
 	}
@@ -169,8 +167,8 @@ func FuzzGCRAModel(f *testing.F) {
 }
 
 func TestQuotaModel(t *testing.T) {
-	// Spec 08 reqs 42, 43 and 46: random reservations, refunds and skews
-	// on split Node and server clocks equal the model.
+	// Random reservations, refunds and skews on split Node and server
+	// clocks equal the model.
 	r := newRand(3, 4)
 	server := clocktest.New(start())
 	node := &skewClock{base: server}
@@ -231,8 +229,8 @@ func TestQuotaModel(t *testing.T) {
 }
 
 func FuzzQuotaNoOverAdmission(f *testing.F) {
-	// 05 test 25: concurrent reservations on the memory driver never
-	// exceed the limit per window.
+	// Concurrent reservations on the memory driver never exceed the
+	// limit per window.
 	f.Add(uint8(10), uint8(8), uint8(5))
 	f.Add(uint8(0), uint8(4), uint8(3))
 	f.Add(uint8(100), uint8(16), uint8(10))

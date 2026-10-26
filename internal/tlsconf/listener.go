@@ -22,13 +22,12 @@ const maxUnwrap = 8
 // ListenerOptions describes one https listener in one snapshot.
 type ListenerOptions struct {
 	// MinVersion is listeners[].tls.minVersion: "" or "1.3" (default) or
-	// "1.2" (spec 06 requirement 74).
+	// "1.2".
 	MinVersion string
 	// Certs serves the listener's tls.certificates by SNI.
 	Certs *CertIndex
 	// RequestClientCert is true exactly when some Route bound to the
-	// listener attaches auth.mtls in its effective chain (spec 06
-	// requirement 46).
+	// listener attaches auth.mtls in its effective chain.
 	RequestClientCert bool
 }
 
@@ -97,7 +96,7 @@ func (s *ListenerState) Config() *tls.Config { return s.cfg }
 // the Server configuration records on it whether the handshake requested a
 // client certificate, so an auth.mtls Route reached over a connection that
 // requested none gets 421 RZ-AUTH-008 and one that requested one but got
-// none gets 401 RZ-AUTH-001 (spec 06 requirement 47).
+// none gets 401 RZ-AUTH-001.
 type ClientCertRecorder interface {
 	// SetClientCertRequested records the handshake's request mode.
 	SetClientCertRequested(requested bool)
@@ -131,7 +130,7 @@ type ServerOptions struct {
 // that runs after a successful handshake: VerifyConnection runs before the
 // client's last flight is read (in TLS 1.3 right after the server's own
 // flight), so it also fires for handshakes the client then rejects. The
-// listener measures spec 06 requirement 77 around its own completed
+// listener measures the handshake outcome around its own completed
 // tls.Conn.HandshakeContext call instead: a nil error observes
 // ruralz_listener_tls_handshake_duration_seconds from accept, an error
 // counts ruralz_listener_connections_total{result="tls_failure"}.

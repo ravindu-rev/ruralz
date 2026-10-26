@@ -9,12 +9,12 @@ import (
 	"github.com/ravindu-rev/ruralz/internal/expr"
 )
 
-// Tests for spec 06 requirement 22: every identity exposes a non-secret
-// principal key: the Consumer name when bound, else "jwt:" + iss + "#" +
-// sub, else "mtls:" + subject; an unbound identity without a subject has
-// none ("": a shared cache neither stores nor serves for it).
+// Tests that every identity exposes a non-secret principal key: the
+// Consumer name when bound, else "jwt:" + iss + "#" + sub, else "mtls:" +
+// subject; an unbound identity without a subject has none ("": a shared
+// cache neither stores nor serves for it).
 
-func TestReq22Principal(t *testing.T) {
+func TestPrincipal(t *testing.T) {
 	acme := &expr.Consumer{Name: "acme"}
 	tests := []struct {
 		name string

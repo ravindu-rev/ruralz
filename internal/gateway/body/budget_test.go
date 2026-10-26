@@ -15,11 +15,10 @@ import (
 	"github.com/ravindu-rev/ruralz/internal/telemetry/emit"
 )
 
-// Tests for spec 04 req 47 (Node buffer budget: one per Node, carried
-// across Hot Reloads, 32 KiB increments, 25% stream share gates cannot
-// take, ErrBudget 503 RZ-RT-004, gauge ruralz_node_buffered_bytes), spec
-// 04 req 67 (handover external usage) and spec 07 reqs 69-71 (decoded
-// values in increments, 4x cap); test plan item 8.
+// Tests for the Node buffer budget (one per Node, carried across Hot
+// Reloads, 32 KiB increments, 25% stream share gates cannot take,
+// ErrBudget 503 RZ-RT-004, gauge ruralz_node_buffered_bytes), handover
+// external usage and decoded values (reserved in increments, 4x cap).
 
 // sumGauge is an emit.Gauge summing its adds across stripes.
 type sumGauge struct{ v atomic.Int64 }
@@ -29,7 +28,7 @@ func (g *sumGauge) Set(v int64)                { g.v.Store(v) }
 
 const kib = 1 << 10
 
-// invariantErr reports how the budget breaks spec 04 req 47, if it does:
+// invariantErr reports how the budget breaks its invariants, if it does:
 // the reserved total must stay within the effective total, and gates never
 // inside the stream share.
 func invariantErr(b *Budget) error {
@@ -53,7 +52,7 @@ func checkInvariants(t testing.TB, b *Budget) {
 	}
 }
 
-func TestReq47BudgetLimits(t *testing.T) {
+func TestBudgetLimits(t *testing.T) {
 	tests := []struct {
 		name      string
 		total     int64
@@ -90,11 +89,11 @@ func TestReq47BudgetLimits(t *testing.T) {
 	}
 }
 
-// TestReq47ReservationIncrements: an Account reserves whole 32 KiB
+// TestReservationIncrements: an Account reserves whole 32 KiB
 // increments as its charge grows and returns those no longer needed; a
 // charge past the int64 range or the budget is ErrBudget and charges
 // nothing.
-func TestReq47ReservationIncrements(t *testing.T) {
+func TestReservationIncrements(t *testing.T) {
 	g := &sumGauge{}
 	b := NewBudget(1<<20, g)
 	var a Account
@@ -137,10 +136,10 @@ func TestReq47ReservationIncrements(t *testing.T) {
 	}
 }
 
-// TestReq47GatesNeverTakeStreamShare runs gate and stream reservations
+// TestGatesNeverTakeStreamShare runs gate and stream reservations
 // against a 128 KiB budget (32 KiB share): gates stop at 96 KiB, streams
 // use the share and then free general budget.
-func TestReq47GatesNeverTakeStreamShare(t *testing.T) {
+func TestGatesNeverTakeStreamShare(t *testing.T) {
 	type op struct {
 		kind    Kind
 		release bool
@@ -222,10 +221,10 @@ func TestReq47GatesNeverTakeStreamShare(t *testing.T) {
 	}
 }
 
-// TestReq47SetTotalCarriesReservations: an activation lowering
+// TestSetTotalCarriesReservations: an activation lowering
 // maxBufferedBytes keeps outstanding reservations; new ones fail until
 // enough is released (a new value applies to new reservations).
-func TestReq47SetTotalCarriesReservations(t *testing.T) {
+func TestSetTotalCarriesReservations(t *testing.T) {
 	b := NewBudget(256*kib, nil)
 	var a, c Account
 	a.Bind(b, Gate, 0)
@@ -264,10 +263,10 @@ type stripeGauge struct{ v [8]atomic.Int64 }
 func (g *stripeGauge) Add(s emit.Stripe, d int64) { g.v[s].Add(d) }
 func (g *stripeGauge) Set(int64)                  {}
 
-// TestReq47GaugeStripes: every holder records ruralz_node_buffered_bytes on
+// TestGaugeStripes: every holder records ruralz_node_buffered_bytes on
 // its own request stripe, so concurrent requests never share one gauge
 // cache line Node-wide, and each stripe returns to zero.
-func TestReq47GaugeStripes(t *testing.T) {
+func TestGaugeStripes(t *testing.T) {
 	g := &stripeGauge{}
 	b := NewBudget(4<<20, g)
 	var a Account
@@ -309,8 +308,8 @@ func TestReq47GaugeStripes(t *testing.T) {
 	}
 }
 
-// TestReq47StreamZero: an empty stream reservation takes nothing.
-func TestReq47StreamZero(t *testing.T) {
+// TestStreamZero: an empty stream reservation takes nothing.
+func TestStreamZero(t *testing.T) {
 	b := NewBudget(0, nil)
 	if err := b.ReserveStream(0, 0); err != nil {
 		t.Fatalf("ReserveStream(0, 0) = %v", err)
@@ -324,9 +323,9 @@ func TestReq47StreamZero(t *testing.T) {
 	}
 }
 
-// TestReq67BudgetSetExternal reduces the budget by the other process's
+// TestBudgetSetExternal reduces the budget by the other process's
 // buffered bytes during a handover.
-func TestReq67BudgetSetExternal(t *testing.T) {
+func TestBudgetSetExternal(t *testing.T) {
 	b := NewBudget(512*kib, nil)
 	b.SetExternal(256 * kib)
 	var a Account
@@ -345,8 +344,8 @@ func TestReq67BudgetSetExternal(t *testing.T) {
 	a.ReleaseAll()
 }
 
-// TestReq47AccountUnbound: the zero Account refuses and releases nothing.
-func TestReq47AccountUnbound(t *testing.T) {
+// TestAccountUnbound: the zero Account refuses and releases nothing.
+func TestAccountUnbound(t *testing.T) {
 	var a Account
 	if err := a.Reserve(1); !errors.Is(err, ErrBudget) {
 		t.Fatalf("unbound Reserve = %v", err)
@@ -375,9 +374,9 @@ func TestReq47AccountUnbound(t *testing.T) {
 	}
 }
 
-// TestReq47DecodedValues charges decoded values at their built size up to
-// 4x the raw limit (spec 04 req 47, spec 07 reqs 15 and 69).
-func TestReq47DecodedValues(t *testing.T) {
+// TestDecodedValues charges decoded values at their built size up to
+// 4x the raw limit.
+func TestDecodedValues(t *testing.T) {
 	const raw = 10 * kib
 	tests := []struct {
 		name  string
@@ -425,10 +424,10 @@ func (x *lcg) int64n(n int64) int64 {
 
 func (x *lcg) intn(n int) int { return int(x.int64n(int64(n))) }
 
-// TestReq47BudgetConcurrentProperty reserves and releases random sizes of
+// TestBudgetConcurrentProperty reserves and releases random sizes of
 // both kinds from many goroutines while an observer checks the invariants;
 // the budget never goes negative or over its total and returns to zero.
-func TestReq47BudgetConcurrentProperty(t *testing.T) {
+func TestBudgetConcurrentProperty(t *testing.T) {
 	g := &sumGauge{}
 	b := NewBudget(2<<20, g)
 	stop := make(chan struct{})

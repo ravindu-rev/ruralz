@@ -6,12 +6,11 @@ package profile
 import "testing"
 
 // TestGoccyLimitations pins valid YAML 1.2 that goccy v1.19.2 refuses and
-// the profile keeps refused (doc.go, goccy v1.19.2 limitations; 01 req 8,
-// 10, 12, 15; minor findings of the eighth WP-33 review), with the finding
-// production gives, so a goccy upgrade that reads one of them shows here.
-// None is accepted with another tree: goccy's own parse of the whole
-// document refuses each too, or the token pass refuses it before goccy's
-// misreading.
+// the profile keeps refused (doc.go, goccy v1.19.2 limitations), with the
+// finding production gives, so a goccy upgrade that reads one of them
+// shows here. None is accepted with another tree: goccy's own parse of the
+// whole document refuses each too, or the token pass refuses it before
+// goccy's misreading.
 func TestGoccyLimitations(t *testing.T) {
 	const (
 		notAllowed = "syntax error: value is not allowed in this context"

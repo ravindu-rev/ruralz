@@ -9,7 +9,7 @@ import (
 	"testing"
 )
 
-// scheduleProperties checks a schedule against 05 req 12 and returns a
+// scheduleProperties checks a round-robin schedule and returns a
 // description of the first violation: length Σ n_i with n_i the quotas;
 // every prefix within one slot of each Endpoint's ideal count (smoothness,
 // which also bounds runs).
@@ -43,8 +43,8 @@ func scheduleProperties(p *Picker) string {
 	return ""
 }
 
-// TestRoundRobinSchedule covers 05 req 12: L = min(65,536, 64 × E) slots,
-// quotas max(1, round(w_i × L / Σw)), smooth interleaving and the 768-byte
+// TestRoundRobinSchedule covers L = min(65,536, 64 × E) slots, quotas
+// max(1, round(w_i × L / Σw)), smooth interleaving and the 768-byte
 // three-Endpoint schedule.
 func TestRoundRobinSchedule(t *testing.T) {
 	tests := []struct {
@@ -80,7 +80,7 @@ func TestRoundRobinSchedule(t *testing.T) {
 		})
 	}
 	if p := BuildRoundRobin(eps(3, ones), 0); p.Bytes() != 768 {
-		t.Fatalf("3 Endpoints use %d bytes, want 768 (05 req 12)", p.Bytes())
+		t.Fatalf("3 Endpoints use %d bytes, want 768", p.Bytes())
 	}
 	if p := BuildRoundRobin(nil, 5); p.Bytes() != 0 {
 		t.Fatalf("empty schedule has %d bytes", p.Bytes())
@@ -101,8 +101,8 @@ func TestRoundRobinLargeSet(t *testing.T) {
 	}
 }
 
-// TestRoundRobinCursor covers 05 req 12's pick: an atomic cursor walking the
-// schedule, started at the build seed.
+// TestRoundRobinCursor covers the round-robin pick: an atomic cursor
+// walking the schedule, started at the build seed.
 func TestRoundRobinCursor(t *testing.T) {
 	list := eps(3, func(i int) uint32 { return u32(i + 1) })
 	p := BuildRoundRobin(list, 7)
@@ -127,9 +127,8 @@ func TestRoundRobinCursor(t *testing.T) {
 	}
 }
 
-// TestRoundRobinExclusions covers 05 req 12: a pick skips excluded slots
-// for at most one pass, then takes the best Endpoint it saw (panic for the
-// pick).
+// TestRoundRobinExclusions covers a pick that skips excluded slots for at
+// most one pass, then takes the best Endpoint it saw (panic for the pick).
 func TestRoundRobinExclusions(t *testing.T) {
 	list := eps(4, ones)
 	tests := []struct {
@@ -166,8 +165,8 @@ func TestRoundRobinExclusions(t *testing.T) {
 	}
 }
 
-// TestRoundRobinCursorPerBuild covers 05 req 12 "cursor start randomized
-// per build" through the Balancer: Balancers given different Config.Rand
+// TestRoundRobinCursorPerBuild covers the cursor start randomized per build
+// through the Balancer: Balancers given different Config.Rand
 // sources start at different slots, each rebuild draws a new start, and
 // every start lies inside the schedule.
 func TestRoundRobinCursorPerBuild(t *testing.T) {

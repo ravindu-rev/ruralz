@@ -14,7 +14,7 @@ import (
 )
 
 // PBKDF2 iteration bounds of credentials.basic[].iterations (Security and
-// identity, "Basic and mTLS schemas"; spec 06 requirements 20 and 42).
+// identity, "Basic and mTLS schemas").
 const (
 	// MinIterations is the lowest accepted count.
 	MinIterations = 600_000
@@ -45,10 +45,10 @@ type BasicCredential struct {
 	Key [32]byte
 	// Iterations is the PBKDF2 iteration count.
 	Iterations int
-	// Digest identifies the credential for the auth.basic success cache
-	// (spec 06 requirement 43): CredentialDigest(hash, iterations). A cache
-	// entry whose recorded digest differs from the current snapshot's is a
-	// miss, so a swap evicts only changed or removed credentials.
+	// Digest identifies the credential for the auth.basic success cache:
+	// CredentialDigest(hash, iterations). A cache entry whose recorded
+	// digest differs from the current snapshot's is a miss, so a swap
+	// evicts only changed or removed credentials.
 	Digest [32]byte
 }
 
@@ -75,8 +75,8 @@ func ParseBasicHash(s string) (salt [16]byte, key [32]byte, err error) {
 }
 
 // CredentialDigest is the success-cache identity of a basic credential
-// (spec 06 requirement 43, proposed definition): SHA-256 over the stored
-// hash text, one zero byte, and the decimal iteration count.
+// (proposed definition): SHA-256 over the stored hash text, one zero
+// byte, and the decimal iteration count.
 func CredentialDigest(hash string, iterations int) [32]byte {
 	h := sha256.New()
 	_, _ = h.Write([]byte(hash))

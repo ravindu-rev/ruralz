@@ -17,10 +17,9 @@ import (
 	"testing"
 )
 
-// Tests for architecture section 2.4 (WP-01) and spec 01 group M:
-// requirement 47 (model), 48 (paths), 49 (text form), 50 (JSON form, sort,
-// cap). FuzzHumanPath is spec 02 section 6 item 35 (R-4: diag.Path is the
-// only path type).
+// Tests for the diagnostic model, key-aware paths, the text form and the
+// JSON form with its sort and cap. FuzzHumanPath covers path printing
+// (diag.Path is the only path type).
 
 func golden(t *testing.T, name string) []byte {
 	t.Helper()
@@ -55,7 +54,7 @@ func cmExample() List {
 }
 
 func TestGoldenText(t *testing.T) {
-	// 01 req 49: the CM example lines, byte for byte.
+	// The CM example lines, byte for byte.
 	var buf bytes.Buffer
 	if err := WriteText(&buf, cmExample()); err != nil {
 		t.Fatal(err)
@@ -66,7 +65,7 @@ func TestGoldenText(t *testing.T) {
 }
 
 func TestGoldenJSON(t *testing.T) {
-	// 01 req 50: bare array, member order, two-space indent, final newline.
+	// Bare array, member order, two-space indent, final newline.
 	var buf bytes.Buffer
 	if err := WriteJSON(&buf, cmExample()); err != nil {
 		t.Fatal(err)
@@ -126,9 +125,9 @@ func TestSeverity(t *testing.T) {
 }
 
 func TestPathString(t *testing.T) {
-	// 01 req 48: fields joined by ".", non-identifier fields ["<json>"],
-	// keyed [k=v], set items [item=v], atomic [n]; values that are not
-	// bare are JSON-quoted.
+	// Fields joined by ".", non-identifier fields ["<json>"], keyed
+	// [k=v], set items [item=v], atomic [n]; values that are not bare
+	// are JSON-quoted.
 	tests := []struct {
 		name string
 		p    Path
@@ -166,11 +165,11 @@ func TestPathString(t *testing.T) {
 	}
 }
 
-// TestPathStringFieldIsJSON covers 01 req 48: a field that is not an
-// identifier is written ["<json string>"], so the bracket contents are valid
-// JSON decoding to the field name, quoted like keyed values, for control
-// characters, DEL, invalid UTF-8 (U+FFFD, as encoding/json writes it),
-// astral non-printables and line separators too. Such names reach paths
+// TestPathStringFieldIsJSON checks the path form of a field that is not an
+// identifier: it is written ["<json string>"], so the bracket contents are
+// valid JSON decoding to the field name, quoted like keyed values, for
+// control characters, DEL, invalid UTF-8 (U+FFFD, as encoding/json writes
+// it), astral non-printables and line separators too. Such names reach paths
 // from JSON files or YAML double-quoted escapes (unknown fields, labels).
 func TestPathStringFieldIsJSON(t *testing.T) {
 	tests := []struct {
@@ -250,8 +249,8 @@ func TestPathAppend(t *testing.T) {
 }
 
 func TestAppendText(t *testing.T) {
-	// 01 req 49: absent parts are omitted; "-" for no file; <file> alone
-	// when the line is unknown; messages are single-line.
+	// Absent parts are omitted; "-" for no file; <file> alone when the
+	// line is unknown; messages are single-line.
 	res := &ResourceID{Kind: "Gateway", Name: "main"}
 	tests := []struct {
 		name string
@@ -304,7 +303,7 @@ func TestWriteTextError(t *testing.T) {
 }
 
 func TestSortOrder(t *testing.T) {
-	// 01 req 50: (environment, file, line, column, code, path, message).
+	// (environment, file, line, column, code, path, message).
 	d := func(env, file string, line, col int, code string, path Path, msg string) Diagnostic {
 		return Diagnostic{Environment: env, Location: Location{File: file, Line: line, Column: col}, Code: code, Path: path, Message: msg, Severity: SeverityError}
 	}
@@ -332,9 +331,9 @@ func TestSortOrder(t *testing.T) {
 }
 
 func TestHasErrorsAndFirstErrorCode(t *testing.T) {
-	// 01 req 47 and 51: only warnings (RZ-CFG-013, -025) let a Revision
-	// through; every other severity, the zero value included, is an error,
-	// exactly as Severity.String prints it.
+	// Only warnings (RZ-CFG-013, -025) let a Revision through; every other
+	// severity, the zero value included, is an error, exactly as
+	// Severity.String prints it.
 	warn := Diagnostic{Code: "RZ-CFG-013", Severity: SeverityWarning}
 	tests := []struct {
 		name      string
@@ -369,7 +368,7 @@ func TestHasErrorsAndFirstErrorCode(t *testing.T) {
 }
 
 func TestCollectorCap(t *testing.T) {
-	// 01 req 50: on reaching the cap, one RZ-CFG-001 "too many diagnostics".
+	// On reaching the cap, one RZ-CFG-001 "too many diagnostics".
 	c := NewCollector(3)
 	for i := range 3 {
 		if !c.Add(Diagnostic{Code: "RZ-CFG-005", Severity: SeverityError, Location: Location{File: "f.yaml", Line: 3 - i}}) {
@@ -580,8 +579,8 @@ func checkQuoted(t *testing.T, got, prefix, suffix, raw string, bare bool) {
 	}
 }
 
-// FuzzHumanPath (spec 02 item 35): path printing never panics, the human
-// form is one line and the JSON form round-trips.
+// FuzzHumanPath checks that path printing never panics, the human form is
+// one line and the JSON form round-trips.
 func FuzzHumanPath(f *testing.F) {
 	f.Add([]byte{0, 0, 2, 0}, "spec", "stock", 3)
 	f.Add([]byte{0, 3, 4, 5, 6}, "a b", "request.body.read", -1)
@@ -617,8 +616,8 @@ func FuzzHumanPath(f *testing.F) {
 				p = append(p, Item(json.RawMessage(raw)))
 			}
 		}
-		// 01 req 48 on raw input: a non-identifier field and a non-bare
-		// keyed value are valid JSON strings, whatever bytes they hold.
+		// On raw input too, a non-identifier field and a non-bare keyed
+		// value are valid JSON strings, whatever bytes they hold.
 		if field := (Path{Field(s1)}).String(); isFieldName(s1) {
 			if field != s1 {
 				t.Fatalf("identifier field %q printed as %q", s1, field)

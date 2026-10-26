@@ -10,8 +10,8 @@ import (
 	"time"
 )
 
-// TestBackoffCeiling_05Req33 is min(250 ms, 25 ms × 2^(n−1)).
-func TestBackoffCeiling_05Req33(t *testing.T) {
+// TestBackoffCeiling is min(250 ms, 25 ms × 2^(n−1)).
+func TestBackoffCeiling(t *testing.T) {
 	want := map[int]time.Duration{
 		-1: 25 * time.Millisecond, 0: 25 * time.Millisecond, 1: 25 * time.Millisecond,
 		2: 50 * time.Millisecond, 3: 100 * time.Millisecond, 4: 200 * time.Millisecond,
@@ -25,10 +25,10 @@ func TestBackoffCeiling_05Req33(t *testing.T) {
 	}
 }
 
-// TestBackoffBounds_05Req33 is the backoff part of 05 section 6 test 3:
-// full jitter within [0, min(250 ms, 25 ms × 2^(n−1))] with fixed draws,
-// zero-jitter draws included.
-func TestBackoffBounds_05Req33(t *testing.T) {
+// TestBackoffBounds covers the backoff: full jitter within
+// [0, min(250 ms, 25 ms × 2^(n−1))] with fixed draws, zero-jitter draws
+// included.
+func TestBackoffBounds(t *testing.T) {
 	src := newLockedSource(7)
 	for n := 1; n <= 8; n++ {
 		ceiling := BackoffCeiling(n)
@@ -56,8 +56,8 @@ func TestBackoffBounds_05Req33(t *testing.T) {
 	}
 }
 
-// TestJitterOpen_05Req37 spreads openDuration by ±20%.
-func TestJitterOpen_05Req37(t *testing.T) {
+// TestJitterOpen spreads openDuration by ±20%.
+func TestJitterOpen(t *testing.T) {
 	d := 30 * time.Second
 	if got := jitterOpen(d, 0); got != 24*time.Second {
 		t.Errorf("zero draw: %v", got)
@@ -85,9 +85,9 @@ func TestJitterOpen_05Req37(t *testing.T) {
 	}
 }
 
-// TestParseRetryAfter_05Req33 covers both forms of Retry-After (05
-// section 6 test 3: Retry-After 11, 2, HTTP-date).
-func TestParseRetryAfter_05Req33(t *testing.T) {
+// TestParseRetryAfter covers both forms of Retry-After (delta-seconds
+// such as 11 and 2, and an HTTP-date).
+func TestParseRetryAfter(t *testing.T) {
 	now := time.Date(2026, 9, 26, 12, 0, 0, 0, time.UTC)
 	tests := []struct {
 		value string
@@ -121,9 +121,9 @@ func TestParseRetryAfter_05Req33(t *testing.T) {
 	}
 }
 
-// FuzzParseRetryAfter is the Retry-After parser fuzz target of 05 section
-// 6 test 28: it never panics, never returns a negative delay, and a valid
-// delta-seconds value parses to its seconds (saturated).
+// FuzzParseRetryAfter is the Retry-After parser fuzz target: it never
+// panics, never returns a negative delay, and a valid delta-seconds value
+// parses to its seconds (saturated).
 func FuzzParseRetryAfter(f *testing.F) {
 	now := time.Date(2026, 9, 26, 12, 0, 0, 0, time.UTC)
 	for _, s := range []string{"0", "2", "11", "120", "", " 5 ", "-1", "1e3", "Sat, 26 Sep 2026 12:00:05 GMT", "Saturday, 26-Sep-26 12:00:05 GMT", "Sat Sep 26 12:00:05 2026", "99999999999999999999"} {

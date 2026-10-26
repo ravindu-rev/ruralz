@@ -16,9 +16,10 @@ import (
 	"time"
 )
 
-// Tests for 11 test plan item 11 ("InNetNS child sees only lo", skipped
-// without root) and the namespace setup 11 req 40 and 44 rely on (loopback
-// brought up with SIOCSIFFLAGS; per-namespace net.ipv4.tcp_migrate_req).
+// Tests that an InNetNS child sees only lo (skipped without root), and for
+// the namespace setup the air-gapped start and handover tests rely on
+// (loopback brought up with SIOCSIFFLAGS; per-namespace
+// net.ipv4.tcp_migrate_req).
 
 // requireNetNS skips unless this process can create a network namespace.
 // It probes with a real CLONE_NEWNET child (this test binary running no
@@ -115,7 +116,7 @@ func TestInNetNSChildSkipsSub(t *testing.T) {
 	t.Run("sub", func(t *testing.T) { t.Skip("intentional subtest skip") })
 }
 
-func TestInNetNS(t *testing.T) { // 11 test plan item 11: InNetNS child sees only lo
+func TestInNetNS(t *testing.T) { // InNetNS child sees only lo
 	requireNetNS(t)
 	host, err := ReadSysctl("net.ipv4.tcp_migrate_req")
 	if err != nil {
@@ -142,8 +143,8 @@ func TestInNetNS(t *testing.T) { // 11 test plan item 11: InNetNS child sees onl
 	if _, err := InNetNS(ctx, "TestNoSuchTest", nil); !errors.Is(err, ErrChildFailed) {
 		t.Fatalf("unmatched test = %v, want ErrChildFailed", err)
 	}
-	// A skipping child is not a pass (11 req 40, 44: no false green).
-	// -test.v=false in Args does not hide the result line.
+	// A skipping child is not a pass (no false green). -test.v=false
+	// in Args does not hide the result line.
 	code, err = RunInNetNS(ctx, NetNSOptions{TestName: "TestInNetNSChildSkips", Args: []string{"-test.v=false"}})
 	if !errors.Is(err, ErrChildSkipped) || errors.Is(err, ErrChildFailed) || code != 0 ||
 		!strings.Contains(err.Error(), "intentional skip: precondition missing") {

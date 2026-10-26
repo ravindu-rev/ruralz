@@ -9,10 +9,10 @@ import (
 )
 
 // BenchmarkAttemptAccounting measures the health bookkeeping of one
-// attempt on the request path: a View, the step (b) and (c) grades and
+// attempt on the request path: a View, the down and avoid grades and
 // the least-request failure count of the chosen Endpoint, Begin (stall
 // timer), Headers and End (passive ejection). It must stay at 0
-// allocations (05 test 22, onUpstreamResponseHeaders accounting).
+// allocations (onUpstreamResponseHeaders accounting).
 func BenchmarkAttemptAccounting(b *testing.B) {
 	tr := NewTracker(Config{Upstream: "orders"})
 	if err := tr.SetEndpoints(ids(16)); err != nil {
@@ -37,8 +37,8 @@ func BenchmarkAttemptAccounting(b *testing.B) {
 }
 
 // BenchmarkViewGrades measures grading every Endpoint of a 256-Endpoint
-// Upstream for one selection pass (05 req 11 steps b and c), in parallel
-// as concurrent attempts do.
+// Upstream for one selection pass, in parallel as concurrent attempts
+// do.
 func BenchmarkViewGrades(b *testing.B) {
 	const n = 256
 	tr := NewTracker(Config{Upstream: "orders"})

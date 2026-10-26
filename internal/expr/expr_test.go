@@ -15,14 +15,14 @@ import (
 	"time"
 )
 
-// Tests for architecture section 2.7 (WP-01) and spec 03 section B
-// (requirements 9 to 16, the place table): Places sorted and unique, every
-// place with the variables, result, rule and runtime of 03 B req 9, lazy
-// request.query, Vars.Reset and header joining.
+// Tests for the CEL place table, "Allowed places" in
+// docs/architecture/02-configuration-model.md: Places sorted and unique,
+// every place with the result, variables, runtime-error rule and milestone
+// of its row, lazy request.query, Vars.Reset and header joining.
 
 func TestPlacesTable(t *testing.T) {
 	base := VarsBase
-	// 03 B req 9, row by row.
+	// Every place, with its result, variables, rule and milestone.
 	want := map[PlaceID]Place{
 		PlaceRouteMatchWhen:         {PlaceRouteMatchWhen, ResultBool, VarRequest | VarSource | VarNow, RuleInternalError, "M1"},
 		PlacePolicyWhen:             {PlacePolicyWhen, ResultBool, base | VarResponse, RulePolicyWhen, "M1"},
@@ -48,7 +48,7 @@ func TestPlacesTable(t *testing.T) {
 	}
 	places := Places()
 	if len(places) != 21 || len(want) != 21 {
-		t.Fatalf("%d places, want the 21 of 03 B req 9", len(places))
+		t.Fatalf("%d places, want 21", len(places))
 	}
 	if !slices.IsSortedFunc(places, func(a, b Place) int { return strings.Compare(string(a.ID), string(b.ID)) }) {
 		t.Fatal("Places() is not sorted by ID")
@@ -229,9 +229,9 @@ func TestJoinedHeader(t *testing.T) {
 	}
 }
 
-// TestJoinedHeaderDeterministic checks maps built by direct assignment (03
-// req 6.3): a canonical key wins, else the smallest key in byte order, on
-// every call, and folding is ASCII only.
+// TestJoinedHeaderDeterministic checks maps built by direct assignment: a
+// canonical key wins, else the smallest key in byte order, on every call,
+// and folding is ASCII only.
 func TestJoinedHeaderDeterministic(t *testing.T) {
 	tests := []struct {
 		name, key, want string
@@ -303,7 +303,7 @@ func TestErrorKinds(t *testing.T) {
 }
 
 func TestEvalError(t *testing.T) {
-	// The message never carries request data; Detail does (03 req 43-46).
+	// The message never carries request data; Detail does.
 	e := NewEvalError(PlaceRateLimitKey, KindNoSuchKey, `no such key: "x-secret-header"`)
 	if e.Error() != "cel: ratelimit config.key: no_such_key" {
 		t.Fatalf("Error = %q", e.Error())
@@ -324,7 +324,7 @@ func TestEvalError(t *testing.T) {
 }
 
 func TestDefaults(t *testing.T) {
-	// R-21: the runtime defaults of retryOn and failureWhen read only their
+	// The runtime defaults of retryOn and failureWhen read only their
 	// place's variables.
 	for src, place := range map[string]PlaceID{DefaultRetryOn: PlaceRetryOn, DefaultFailureWhen: PlaceFailureWhen} {
 		p, _ := LookupPlace(place)

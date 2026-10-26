@@ -17,8 +17,8 @@ import (
 	"github.com/ravindu-rev/ruralz/internal/telemetry/emit"
 )
 
-// Processor defaults (spec 09 req 20: queue 8,192 spans, target; batch and
-// interval proposed there; exporter timeout 10 s from req 16).
+// Processor defaults (queue 8,192 spans, target; batch and interval
+// proposed; exporter timeout 10 s).
 const (
 	DefaultQueueSize     = 8192
 	DefaultBatchSize     = 512
@@ -50,19 +50,18 @@ type ProcessorOptions struct {
 	// OnExport, when set, is called on the worker after every export
 	// attempt through an exporter with the batch length and the result,
 	// so the Runtime can raise and clear telemetry_export_failing and log
-	// failures at most once per interval (spec 09 req 23). It must not
-	// block.
+	// failures at most once per interval. It must not block.
 	OnExport func(spans int, err error)
 }
 
-// Processor is the Ruralz sdktrace.SpanProcessor of spec 09 req 20 (not
+// Processor is the Ruralz sdktrace.SpanProcessor (not
 // BatchSpanProcessor, which has no drop counters): OnEnd counts the span
 // and enqueues it without blocking into a bounded queue, dropping with a
 // queue_full count when full; one worker goroutine, owned by the
 // Processor and stopped by Shutdown, exports batches of up to BatchSize
 // spans or every BatchInterval through the current exporter and counts a
 // failed batch as export_error drops. The exporter is swapped atomically
-// by SetExporter (Hot Reload, spec 09 req 24).
+// by SetExporter (Hot Reload).
 type Processor struct {
 	queue    chan sdktrace.ReadOnlySpan
 	exporter atomic.Pointer[exporterRef]
@@ -221,10 +220,10 @@ func (p *Processor) ForceFlush(ctx context.Context) error {
 }
 
 // Shutdown stops accepting spans, exports what is queued within ctx
-// (spans left when ctx ends are dropped and counted as export_error, spec
-// 09 req 25), stops the worker and shuts the current exporter down. When
-// ctx is already done it still stops the worker, counts every queued span
-// and shuts the exporter down; it waits for an export in flight, a
+// (spans left when ctx ends are dropped and counted as export_error),
+// stops the worker and shuts the current exporter down. When ctx is
+// already done it still stops the worker, counts every queued span and
+// shuts the exporter down; it waits for an export in flight, a
 // ForceFlush's included, to see the cancellation, which a
 // sdktrace.SpanExporter must honor. When it returns, every span counted
 // in spans_total was exported or counted as dropped. Later calls return
@@ -312,7 +311,7 @@ const (
 	// ctx ends stay queued for the next batch.
 	drainAll
 	// drainFinal (Shutdown) also exports spans queued meanwhile and drops
-	// the spans left when ctx ends as export_error (spec 09 req 25).
+	// the spans left when ctx ends as export_error.
 	drainFinal
 )
 

@@ -17,9 +17,8 @@ import (
 	"github.com/ravindu-rev/ruralz/internal/expr"
 )
 
-// Unit tests of the ref.Val methods of the views (03 C requirements 17 to
-// 25): paths cel-go reaches only for dyn operands, conversions and
-// equality.
+// Unit tests of the ref.Val methods of the views: paths cel-go reaches only
+// for dyn operands, conversions and equality.
 
 // TestMapViewMethods covers Find, Get, Contains, Equal and conversions.
 func TestMapViewMethods(t *testing.T) {

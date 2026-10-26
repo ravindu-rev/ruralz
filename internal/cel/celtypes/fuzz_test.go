@@ -25,9 +25,8 @@ import (
 )
 
 // Fuzz targets and property tests: JSON values round-trip through
-// AppendBody and Native and iterate in ascending key order (03 req 6.3, 25,
-// 41; 07 req 57); header lookup equals expr.JoinedHeader (03 req 19);
-// canonicalization equals net/textproto.
+// AppendBody and Native and iterate in ascending key order; header lookup
+// equals expr.JoinedHeader; canonicalization equals net/textproto.
 
 // decodeLoose decodes one JSON text with json.Number numbers, or reports
 // false.
@@ -178,9 +177,8 @@ func numericEqual(a, b any) bool {
 
 // FuzzHeaderLookup checks joinedHeader against expr.JoinedHeader over maps
 // built by http.Header.Add and by direct assignment, with any bytes: both
-// fold ASCII only and choose among non-canonical keys deterministically (03
-// req 6.3). request.headers hides Host, the other header maps show it (03
-// req 19).
+// fold ASCII only and choose among non-canonical keys deterministically.
+// request.headers hides Host, the other header maps show it.
 func FuzzHeaderLookup(f *testing.F) {
 	f.Add("X-Tenant", "accept", "x-tenant")
 	f.Add("a b", "A b", "a B")
@@ -248,13 +246,12 @@ func FuzzCanonicalKey(f *testing.F) {
 
 // TestConcurrentErrorEvaluation evaluates programs that fail over one
 // activation from several goroutines (run with -race). The malformed-JSON
-// body of 03 req 25 is one error Value "decoded once per body and shared by
-// every reader"; legs and composition steps evaluate copied Vars that share
-// it on their own goroutines (03 req 38, 39). cel-go labels the error value
-// of a failed selection with its AST node ID in place, so every read must
-// hand it a new error: a shared one is a data race, and keeps the node ID
-// of the first program that read it. Null selections (03 req 18) and
-// missing keys are covered as well.
+// body is one error Value "decoded once per body and shared by every
+// reader"; legs and composition steps evaluate copied Vars that share it on
+// their own goroutines. cel-go labels the error value of a failed selection
+// with its AST node ID in place, so every read must hand it a new error: a
+// shared one is a data race, and keeps the node ID of the first program
+// that read it. Null selections and missing keys are covered as well.
 func TestConcurrentErrorEvaluation(t *testing.T) {
 	env := testEnv(t)
 	// A missing key, constant or computed, fails in cel-go's own attribute
@@ -349,7 +346,7 @@ func TestConcurrentErrorEvaluation(t *testing.T) {
 
 // TestConcurrentEvaluation evaluates many programs over one activation from
 // several goroutines (run with -race): views only read the expr structs,
-// and request.query is parsed once under concurrency (03 req 38, 39).
+// and request.query is parsed once under concurrency.
 func TestConcurrentEvaluation(t *testing.T) {
 	env := testEnv(t)
 	srcs := []string{

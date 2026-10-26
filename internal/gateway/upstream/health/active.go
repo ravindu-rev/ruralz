@@ -10,13 +10,13 @@ import (
 )
 
 // RecordProbe applies one active check result for the Endpoint with the
-// given identity at now (05 req 20): HealthyThreshold consecutive
-// successes mark an unhealthy Endpoint healthy, UnhealthyThreshold
-// consecutive failures mark a healthy one unhealthy and count
+// given identity at now: HealthyThreshold consecutive successes mark an
+// unhealthy Endpoint healthy, UnhealthyThreshold consecutive failures mark
+// a healthy one unhealthy and count
 // ruralz_upstream_ejections_total{reason="active"}. Active removals ignore
-// the passive ejection cap (05 req 19). It does nothing without an active
-// policy or for an unknown identity, and reports whether the verdict
-// changed. The Prober calls it; tests and the Upstream layer may too.
+// the passive ejection cap. It does nothing without an active policy or
+// for an unknown identity, and reports whether the verdict changed. The
+// Prober calls it; tests and the Upstream layer may too.
 func (t *Tracker) RecordProbe(identity string, ok bool, now time.Time) bool {
 	i, found := t.Index(identity)
 	if !found {

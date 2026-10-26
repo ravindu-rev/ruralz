@@ -35,8 +35,8 @@ func schemas(t testing.TB) *schemaidx.Set {
 	return s
 }
 
-// pipeline runs stage D as the loader does (01 req 53): CheckBase on every
-// base resource, then Apply once.
+// pipeline runs stage D as the loader does: CheckBase on every base
+// resource, then Apply once.
 func pipeline(t testing.TB, base, patches []*tree.Resource, opts Options) ([]*tree.Resource, diag.List) {
 	t.Helper()
 	var ds diag.List
@@ -305,8 +305,7 @@ func at(t testing.TB, n *tree.Node, path string) *tree.Node {
 }
 
 // schemaSet returns the embedded set, optionally with a second served
-// version (the committed view relabeled) for RZ-CFG-030 tests (01 risk
-// 17).
+// version (the committed view relabeled) for RZ-CFG-030 tests.
 func schemaSet(t testing.TB, extra ...string) *schemaidx.Set {
 	t.Helper()
 	if len(extra) == 0 {

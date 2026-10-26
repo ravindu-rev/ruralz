@@ -1,13 +1,13 @@
 // Copyright 2026 Revington
 // SPDX-License-Identifier: Apache-2.0
 
-// Package profile is stage B of the configuration pipeline (architecture
-// 3.1): it turns the bytes of one Bundle file into value trees under the
-// restricted YAML 1.2 profile or strict JSON, and writes trees back as
+// Package profile is stage B of the configuration pipeline: it turns the
+// bytes of one Bundle file into value trees under the restricted YAML
+// 1.2 profile or strict JSON, and writes trees back as
 // restricted-profile YAML or JSON. It is the only package that imports
-// goccy/go-yaml (architecture 1.3).
+// goccy/go-yaml.
 //
-// # YAML (01 B 7-14)
+// # YAML
 //
 // Parse first applies the byte pre-checks: valid UTF-8, no U+FEFF, only
 // YAML printable characters; CR LF and CR become LF, and a text that does
@@ -129,23 +129,23 @@
 // line of white space holding a tab between two lines of content
 // ("a: 1\n\t\nb: 2") or after the last.
 //
-// # JSON (01 C 15)
+// # JSON
 //
 // .json files go through jsonval's strict RFC 8259 scanner and build the
 // same trees: duplicate names are RZ-CFG-002 with both positions, any
 // other failure RZ-CFG-001 at the scanner's offset, and the one top-level
 // value must be an object.
 //
-// # Encoding (01 req 31; 02 req 44-47; architecture R-29)
+// # Encoding
 //
 // Encode is the one restricted-profile emitter: block style, two-space
-// indentation, "---" separators, the quoting rule of 02 req 45 and "${"
-// written "$${". EncodeJSON writes the JSON form. Neither depends on a
-// library release.
+// indentation, "---" separators, the quoting rule and "${" written
+// "$${". EncodeJSON writes the JSON form. Neither depends on a library
+// release.
 //
 // # Purity
 //
-// The package reads no file, environment, network or clock (01 req 55);
+// The package reads no file, environment, network or clock;
 // Options.Yield lets the caller's worker yield. Functions are safe for
 // concurrent use; Parse starts no goroutine.
 package profile

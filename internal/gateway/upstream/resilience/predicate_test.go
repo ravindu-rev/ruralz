@@ -12,9 +12,9 @@ import (
 	"github.com/ravindu-rev/ruralz/internal/expr"
 )
 
-// retryOnProse is the retryOn default as 05 req 4 and the design document
-// state it in words: "GET, HEAD, OPTIONS, PUT, DELETE: connect or reset
-// errors, or status 503; other methods: connect errors".
+// retryOnProse is the retryOn default as the design document states it in
+// words: "GET, HEAD, OPTIONS, PUT, DELETE: connect or reset errors, or
+// status 503; other methods: connect errors".
 func retryOnProse(method string, kind Kind, status int) bool {
 	idempotent := slices.Contains([]string{"GET", "HEAD", "OPTIONS", "PUT", "DELETE"}, method)
 	if idempotent {
@@ -29,7 +29,7 @@ func failureWhenProse(kind Kind, status int) bool {
 }
 
 // legVars builds the leg Vars of one matrix cell: a response when kind is
-// none, else an error and no response (05 req 32).
+// none, else an error and no response.
 func legVars(method string, kind Kind, status int) *expr.Vars {
 	v := &expr.Vars{Request: &expr.Request{Method: method}, Attempt: 1, Upstream: &expr.Upstream{Name: "u", Endpoint: "10.0.0.1:80"}}
 	if kind == KindNone {
@@ -40,12 +40,12 @@ func legVars(method string, kind Kind, status int) *expr.Vars {
 	return v
 }
 
-// TestDefaultPredicates_05Req4 is 05 section 6 test 5 for the native
-// forms: DefaultRetryOn and DefaultFailureWhen, and EvalRetryOn and
+// TestDefaultPredicates checks the native forms:
+// DefaultRetryOn and DefaultFailureWhen, and EvalRetryOn and
 // EvalFailureWhen without a program, equal the default rules over the full
-// matrix of 05 req 4. The CEL sources they stand for are pinned so a change
-// to either form fails here.
-func TestDefaultPredicates_05Req4(t *testing.T) {
+// matrix. The CEL sources they stand for are pinned so a change to either
+// form fails here.
+func TestDefaultPredicates(t *testing.T) {
 	const (
 		wantRetryOn     = `error != null ? (error.kind == "connect" || (error.kind == "reset" && request.method in ["GET", "HEAD", "OPTIONS", "PUT", "DELETE"])) : (response.status == 503 && request.method in ["GET", "HEAD", "OPTIONS", "PUT", "DELETE"])`
 		wantFailureWhen = `error != null || response.status in [502, 503, 504]`
@@ -53,9 +53,9 @@ func TestDefaultPredicates_05Req4(t *testing.T) {
 	if expr.DefaultRetryOn != wantRetryOn || expr.DefaultFailureWhen != wantFailureWhen {
 		t.Fatal("the CEL default sources changed; re-derive the native forms")
 	}
-	// The matrix of 05 req 4: {GET, HEAD, OPTIONS, PUT, DELETE, POST,
-	// PATCH} × {connect, reset, timeout, tls, none} × {200, 429, 500, 502,
-	// 503, 504}.
+	// The matrix: {GET, HEAD, OPTIONS, PUT, DELETE, POST, PATCH} ×
+	// {connect, reset, timeout, tls, none} × {200, 429, 500, 502, 503,
+	// 504}.
 	methods := []string{"GET", "HEAD", "OPTIONS", "PUT", "DELETE", "POST", "PATCH"}
 	kinds := []Kind{KindConnect, KindReset, KindTimeout, KindTLS, KindNone}
 	statuses := []int{200, 429, 500, 502, 503, 504}
@@ -131,9 +131,9 @@ func TestDefaultPredicatesNulls(t *testing.T) {
 	}
 }
 
-// TestEvalPrograms_05Req32 runs authored programs: a retryOn runtime error
+// TestEvalPrograms runs authored programs: a retryOn runtime error
 // means no retry, a failureWhen runtime error counts as a failure.
-func TestEvalPrograms_05Req32(t *testing.T) {
+func TestEvalPrograms(t *testing.T) {
 	ctx := context.Background()
 	v := legVars("POST", KindNone, 429)
 	boom := expr.NewEvalError(expr.PlaceRetryOn, expr.KindNoSuchKey, "no such key")

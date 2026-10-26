@@ -26,12 +26,12 @@ const (
 // counterMask masks one of the two 32-bit halves of a packed word.
 const counterMask = 1<<32 - 1
 
-// Budget is the Node buffer budget, limits.maxBufferedBytes (spec 04 req
-// 47): one per Node, carried across Hot Reloads (SetTotal applies a new
-// value to new reservations and keeps outstanding ones). It counts whole
-// Increments: gates may hold at most the total minus the stream share
-// (25%, rounded down to increments), streams may hold everything free, and
-// the reserved total never exceeds the effective total. The gauge
+// Budget is the Node buffer budget, limits.maxBufferedBytes: one per Node,
+// carried across Hot Reloads (SetTotal applies a new value to new
+// reservations and keeps outstanding ones). It counts whole Increments:
+// gates may hold at most the total minus the stream share (25%, rounded
+// down to increments), streams may hold everything free, and the reserved
+// total never exceeds the effective total. The gauge
 // ruralz_node_buffered_bytes follows every change. Budget is safe for
 // concurrent use and lock-free on the request path.
 type Budget struct {
@@ -49,10 +49,10 @@ type Budget struct {
 	gauge emit.Gauge
 
 	// inc1 and inc2 recycle the backing arrays of gates and tees whose
-	// capacity is exactly one or two increments (at most PoolMax, spec 07
-	// req 73), as *[Increment]byte and *[PoolMax]byte so Put does not
-	// allocate. Only the arrays are pooled, never a Buffer or Tee, so a
-	// stale handle cannot reach another request's buffer.
+	// capacity is exactly one or two increments (at most PoolMax), as
+	// *[Increment]byte and *[PoolMax]byte so Put does not allocate. Only
+	// the arrays are pooled, never a Buffer or Tee, so a stale handle
+	// cannot reach another request's buffer.
 	inc1 sync.Pool
 	inc2 sync.Pool
 }
@@ -77,9 +77,9 @@ func (b *Budget) SetTotal(total int64) {
 }
 
 // SetExternal lowers the effective total by n bytes, the buffered bytes the
-// other process reported during a handover (spec 04 req 67); 0 restores the
-// full total. The stream share stays a quarter of the configured total, so
-// the reduction takes general budget first.
+// other process reported during a handover; 0 restores the full total. The
+// stream share stays a quarter of the configured total, so the reduction
+// takes general budget first.
 func (b *Budget) SetExternal(n int64) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
@@ -223,7 +223,7 @@ func (b *Budget) array(c int64) []byte {
 
 // recycle returns an array obtained from array to its pool when its
 // capacity is one or two increments; larger ones are left to the garbage
-// collector (spec 07 req 73). The caller must hold no other slice of it.
+// collector. The caller must hold no other slice of it.
 func (b *Budget) recycle(a []byte) {
 	switch cap(a) {
 	case Increment:
@@ -234,10 +234,10 @@ func (b *Budget) recycle(a []byte) {
 }
 
 // ReserveStream reserves n bytes for a subscribed stream (rounded up to
-// increments) from the stream share, then from free general budget
-// (spec 04 req 47, M3 users); ErrBudget when neither covers it. The gauge
-// records the change on the stream's stripe s. The caller returns the same
-// n with ReleaseStream.
+// increments) from the stream share, then from free general budget (M3
+// users); ErrBudget when neither covers it. The gauge records the change
+// on the stream's stripe s. The caller returns the same n with
+// ReleaseStream.
 func (b *Budget) ReserveStream(n int64, s emit.Stripe) error {
 	if !b.reserve(Stream, increments(n), s) {
 		return ErrBudget
@@ -250,10 +250,9 @@ func (b *Budget) ReserveStream(n int64, s emit.Stripe) error {
 func (b *Budget) ReleaseStream(n int64, s emit.Stripe) { b.release(Stream, increments(n), s) }
 
 // Account charges one holder's bytes to a Budget in increments: the
-// per-request decoded values and rewritten bodies (spec 07 reqs 69-71),
-// a stream's chunks. The zero value is unbound and refuses every
-// reservation; Bind sets the budget. An Account is used by one goroutine at
-// a time.
+// per-request decoded values and rewritten bodies, a stream's chunks. The
+// zero value is unbound and refuses every reservation; Bind sets the
+// budget. An Account is used by one goroutine at a time.
 type Account struct {
 	b      *Budget
 	kind   Kind
@@ -293,8 +292,7 @@ func (a *Account) Reserve(n int64) error {
 
 // ReserveDecoded charges a decoded value of built bytes whose body arrived
 // under rawLimit: ErrTooLarge past DecodedCap(rawLimit) (413 RZ-RT-003,
-// 502 RZ-UP-010 or RZ-RT-015 by side), else Reserve (spec 04 req 47, spec
-// 07 req 15).
+// 502 RZ-UP-010 or RZ-RT-015 by side), else Reserve.
 func (a *Account) ReserveDecoded(built, rawLimit int64) error {
 	if built > DecodedCap(rawLimit) {
 		return ErrTooLarge

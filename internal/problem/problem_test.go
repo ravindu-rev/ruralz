@@ -19,10 +19,8 @@ import (
 	"github.com/ravindu-rev/ruralz/internal/errcode"
 )
 
-// Tests for architecture section 2.3 (WP-01) and section 0 convention 5:
-// RFC 9457 documents with members title, status, code, requestId, detail
-// (R-27), escaping, Write headers, and the Document decoder of spec 10
-// section 2.2. FuzzProblemAppend is spec 04 section 6's target.
+// Tests for RFC 9457 documents with members title, status, code,
+// requestId, detail, escaping, Write headers, and the Document decoder.
 
 const traceID = "0af7651916cd43dd8448eb211c80319c"
 
@@ -36,7 +34,7 @@ func golden(t *testing.T, name string) []byte {
 }
 
 func TestAppendGolden(t *testing.T) {
-	// The detail member comes last (R-27); RZ-RT-009 names a schema keyword
+	// The detail member comes last; RZ-RT-009 names a schema keyword
 	// location only.
 	p := New("RZ-RT-009", "4bf92f3577b34da6a3ce929d0e0e4736")
 	p.Detail = "/properties/items/minItems"
@@ -69,11 +67,11 @@ func dumpWrite(rec *httptest.ResponseRecorder) []byte {
 	return b.Bytes()
 }
 
-// TestWriteGolden is spec 04 section 6 test item 4: golden bytes, with
-// Write's header set (application/problem+json, no-store, exact
-// Content-Length), for RZ-RT-001 to 007, 011, 012, 014, 016 and 017.
-// RZ-RT-014 and RZ-RT-016 register only a StatusNote ("503 before
-// commit"), so the handler sets 503 explicitly (04 req 38).
+// TestWriteGolden checks golden bytes, with Write's header set
+// (application/problem+json, no-store, exact Content-Length), for
+// RZ-RT-001 to 007, 011, 012, 014, 016 and 017.
+// RZ-RT-014 and RZ-RT-016 register only a StatusNote
+// ("503 before commit"), so the handler sets 503 explicitly.
 func TestWriteGolden(t *testing.T) {
 	status503 := func(code string) Problem {
 		p := New(code, traceID)
@@ -115,7 +113,7 @@ func TestWriteGolden(t *testing.T) {
 }
 
 func TestMemberOrder(t *testing.T) {
-	// R-27: title, status, code, requestId, then detail last; no type member.
+	// Title, status, code, requestId, then detail last; no type member.
 	b := Append(nil, Problem{Title: "t", Status: 503, Code: "RZ-RT-005", RequestID: traceID, Detail: "d"})
 	dec := json.NewDecoder(bytes.NewReader(b))
 	if _, err := dec.Token(); err != nil {
@@ -145,7 +143,7 @@ func TestAppendReusesBuffer(t *testing.T) {
 	if !bytes.HasPrefix(b, []byte(`x{"title":`)) {
 		t.Fatalf("Append did not append to dst: %s", b)
 	}
-	// Nothing on the request path allocates by itself (architecture 2).
+	// Nothing on the request path allocates by itself.
 	buf := make([]byte, 0, 512)
 	p := New("RZ-RT-005", traceID)
 	if n := testing.AllocsPerRun(100, func() { buf = Append(buf[:0], p) }); n != 0 {
@@ -334,9 +332,9 @@ func TestDecode(t *testing.T) {
 	}
 }
 
-// FuzzProblemAppend (spec 04 section 6): the document is always valid JSON,
-// decodes to the same members (invalid UTF-8 replaced byte by byte) and
-// keeps its member order.
+// FuzzProblemAppend checks that the document is always valid JSON, decodes
+// to the same members (invalid UTF-8 replaced byte by byte) and keeps its
+// member order.
 func FuzzProblemAppend(f *testing.F) {
 	f.Add("No matching Route", 404, "RZ-RT-001", traceID, "")
 	f.Add("t\x00\"\\", 503, "RZ-RT-004", "x\xff", "detail\n\u2028<>&")

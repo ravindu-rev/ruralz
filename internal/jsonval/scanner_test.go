@@ -11,15 +11,15 @@ import (
 	"testing"
 )
 
-// Tests for the strict scanner: 07 req 58 and 80 (RFC 8259, one value,
-// trailing whitespace only, valid UTF-8, depth 64, duplicates), 01 req 15
-// (the configuration JSON front end: offsets for RZ-CFG-001, both positions
-// for RZ-CFG-002, unpaired surrogate escapes rejected) and 06 req 25 (JWT
-// header and payload without duplicate names).
+// Tests for the strict scanner: RFC 8259 (one value, trailing whitespace
+// only, valid UTF-8, depth 64, duplicates), the configuration JSON front
+// end (offsets for RZ-CFG-001, both positions for RZ-CFG-002, unpaired
+// surrogate escapes rejected) and JWT header and payload without duplicate
+// names.
 
-// TestConformance runs the JSON conformance corpus (07 req 58, 80; 01 req
-// 15): y_ cases are accepted, n_ cases rejected and i_ cases follow the
-// documented Ruralz decision; Decode agrees with Validate on every case.
+// TestConformance runs the JSON conformance corpus: y_ cases are
+// accepted, n_ cases rejected and i_ cases follow the documented Ruralz
+// decision; Decode agrees with Validate on every case.
 func TestConformance(t *testing.T) {
 	for _, c := range conformanceCases() {
 		t.Run(c.name, func(t *testing.T) {
@@ -181,9 +181,9 @@ func TestScannerErrors(t *testing.T) {
 		{"high then non-low", `"\ud800\u0041"`, ScanOptions{}, ErrSurrogate, msgSurrogate, 1, -1},
 		{"high then another high", `"\ud800\ud800\udc00"`, ScanOptions{}, ErrSurrogate, msgSurrogate, 1, -1},
 		{"high then short escape", `"\ud800\n"`, ScanOptions{}, ErrSurrogate, msgSurrogate, 1, -1},
-		// 01 req 15: after a high surrogate, a malformed or truncated
-		// escape is reported at its own offset, not as an unpaired
-		// surrogate, so RZ-CFG-001 points at the bad character.
+		// After a high surrogate, a malformed or truncated escape is
+		// reported at its own offset, not as an unpaired surrogate,
+		// so RZ-CFG-001 points at the bad character.
 		{"high then bad hex", `"\uD800\uZZZZ"`, ScanOptions{}, ErrSyntax, msgEscape, 9, -1},
 		{"high then bad later hex", `"\uD800\uDC0g"`, ScanOptions{}, ErrSyntax, msgEscape, 12, -1},
 		{"high then truncated escape", `"\uD800\u00`, ScanOptions{}, ErrSyntax, msgEOF, 11, -1},
@@ -218,7 +218,7 @@ func TestScannerErrors(t *testing.T) {
 }
 
 func TestErrorText(t *testing.T) {
-	// Messages never quote input (07 req 87).
+	// Messages never quote input.
 	secret := `{"password":"hunter2","password":"x"}`
 	err := Validate([]byte(secret), ScanOptions{})
 	if got, want := err.Error(), "jsonval: duplicate object member name at offset 22 (first at offset 1)"; got != want {
@@ -234,7 +234,7 @@ func TestErrorText(t *testing.T) {
 }
 
 func TestScannerDepth(t *testing.T) {
-	// 07 req 58: nesting depth at most 64 by default.
+	// Nesting depth at most 64 by default.
 	for _, c := range []struct {
 		max, depth int
 		ok         bool
@@ -274,9 +274,8 @@ func TestScannerDepth(t *testing.T) {
 }
 
 func TestScannerDuplicates(t *testing.T) {
-	// 01 req 15, 06 req 25, 07 req 80: duplicates rejected with both
-	// offsets, compared after unescaping, per object, through the linear
-	// and the indexed paths.
+	// Duplicates rejected with both offsets, compared after unescaping,
+	// per object, through the linear and the indexed paths.
 	names := func(n int, prefix string) []string {
 		out := make([]string, n)
 		for i := range out {
@@ -425,9 +424,9 @@ func scanTokens(s *Scanner, data []byte, o ScanOptions) (int, error) {
 }
 
 func TestScannerZeroAllocsPerToken(t *testing.T) {
-	// WP-02 "Done when": 0 allocations per scanned token. A reused
-	// Scanner allocates nothing once its buffers have grown, with the
-	// duplicate check on and through the indexed path.
+	// No allocation per scanned token: a reused Scanner allocates nothing
+	// once its buffers have grown, with the duplicate check on and through
+	// the indexed path.
 	big := make([]string, 200)
 	for i := range big {
 		big[i] = fmt.Sprintf(`"\u006b%d":{"a":%d,"b":"x\n"}`, i, i)
@@ -457,7 +456,7 @@ func TestScannerZeroAllocsPerToken(t *testing.T) {
 
 func TestScannerDropsLargeScratch(t *testing.T) {
 	// Escaped names over 64 KiB are compared through scratch buffers that
-	// Reset drops, so a reused Scanner never pins them (07 req 73).
+	// Reset drops, so a reused Scanner never pins them.
 	long := strings.Repeat(`\n`, 70<<10)
 	in := []byte(`{"` + long + `a":1,"` + long + `b":2}`)
 	s := NewScanner(in, ScanOptions{})
@@ -474,9 +473,9 @@ func TestScannerDropsLargeScratch(t *testing.T) {
 }
 
 func TestScannerReleasesNameScratch(t *testing.T) {
-	// 07 req 73: Reset drops duplicate-name records, nesting-level slices
-	// and index maps over the scratch bounds, so a reused Scanner never
-	// pins memory sized by a large body; small scratch stays for reuse.
+	// Reset drops duplicate-name records, nesting-level slices and index
+	// maps over the scratch bounds, so a reused Scanner never pins memory
+	// sized by a large body; small scratch stays for reuse.
 	var deepWide, veryDeep, veryDeepWide strings.Builder
 	members := strings.TrimSuffix(strings.TrimPrefix(string(manyMembers(100)), "{"), "}")
 	for range DefaultMaxDepth - 1 {

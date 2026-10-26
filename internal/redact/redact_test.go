@@ -18,13 +18,12 @@ import (
 	"github.com/ravindu-rev/ruralz/pkg/config/v1alpha1"
 )
 
-// Tests for spec 06 requirement 92 (credential headers: authorization,
-// proxy-authorization, cookie, response set-cookie, every auth.api-key
-// config.header of the active Revision, headers set by upstream-auth
-// Filters; /tap replaces their values and drops query strings and bodies),
-// spec 04 requirement 75 (/tap also redacts names matching
-// (?i)(token|secret|key|password|session|auth)), R-9 (the marker is
-// [REDACTED]) and observability O4 (no credential reaches a log).
+// Tests for the credential headers (authorization, proxy-authorization,
+// cookie, response set-cookie, every auth.api-key config.header of the
+// active Revision, headers set by upstream-auth Filters; /tap replaces
+// their values and drops query strings and bodies), the names /tap also
+// redacts (matching (?i)(token|secret|key|password|session|auth)), the
+// [REDACTED] marker and observability O4 (no credential reaches a log).
 
 const canary = "canary-0f1e2d3c4b5a69788796a5b4c3d2e1f0"
 
@@ -47,7 +46,7 @@ func revisionHeaders() []string {
 	return append(names, "Authorization", "x-upstream-signature")
 }
 
-func TestSetCoversEveryCredentialHeaderReq92(t *testing.T) {
+func TestSetCoversEveryCredentialHeader(t *testing.T) {
 	set := New(revisionHeaders()...)
 	want := []string{"authorization", "cookie", "proxy-authorization", "set-cookie", "x-api-key", "x-client-id", "x-partner-credential", "x-upstream-signature"}
 	if got := set.Names(); !slices.Equal(got, want) {
@@ -100,7 +99,7 @@ func mixed(s string) string {
 	return string(b)
 }
 
-func TestFixedHeadersAndNilSetReq92(t *testing.T) {
+func TestFixedHeadersAndNilSet(t *testing.T) {
 	var nilSet *Set
 	for _, s := range []*Set{nilSet, Default(), New()} {
 		if got := s.Names(); !slices.Equal(got, []string{"authorization", "cookie", "proxy-authorization", "set-cookie"}) {
@@ -136,7 +135,7 @@ func TestFixedHeadersAndNilSetReq92(t *testing.T) {
 
 var sensitiveRE = regexp.MustCompile(`(?i)(token|secret|key|password|session|auth)`)
 
-func TestSensitiveReq75(t *testing.T) {
+func TestSensitive(t *testing.T) {
 	tests := map[string]bool{
 		"x-auth-token":        true,
 		"X-Session-Id":        true,
@@ -185,7 +184,7 @@ func TestValue(t *testing.T) {
 	if s.Value("Accept", "text/plain") != "text/plain" {
 		t.Fatal("a plain value was redacted")
 	}
-	// R-9: one marker everywhere.
+	// One marker everywhere.
 	if got := s.Value("Cookie", "sid=1"); got != "[REDACTED]" || Marker != secret.Redacted {
 		t.Fatalf("marker = %q", got)
 	}
@@ -221,7 +220,7 @@ func TestHeadersEdgeCases(t *testing.T) {
 	}
 }
 
-func TestPathDropsQueryReq92(t *testing.T) {
+func TestPathDropsQuery(t *testing.T) {
 	tests := []struct{ in, want string }{
 		{"/orders?api_key=" + canary, "/orders"},
 		{"/orders#frag", "/orders"},
@@ -252,8 +251,7 @@ func TestURL(t *testing.T) {
 		{"localhost:6379", Marker},
 		{"", ""},
 		// An unencoded '/', '?' or '#' in user information moves part of
-		// it into the host, path, query or fragment: fail closed (09 req
-		// 49, 06 req 92, O4).
+		// it into the host, path, query or fragment: fail closed (O4).
 		{"rediss://:1234/x@host:6380", Marker},
 		{"redis://user:1234#secret@host:6379", Marker},
 		{"redis://user:1234?secret@host:6379", Marker},
@@ -302,8 +300,8 @@ func replaceRecord(t *testing.T, set *Set, text bool, attrs ...any) string {
 	return buf.String()
 }
 
-// TestReplaceAttrO4 covers the slog ReplaceAttr hook of spec 06 section 4
-// and observability O4 with the JSON and text handlers.
+// TestReplaceAttrO4 covers the slog ReplaceAttr hook and observability O4
+// with the JSON and text handlers.
 func TestReplaceAttrO4(t *testing.T) {
 	set := New("x-partner-credential")
 	h := http.Header{"Authorization": {"Bearer " + canary}, "X-Session": {canary}, "Accept": {"text/plain"}}
@@ -499,8 +497,7 @@ func FuzzURL(f *testing.F) {
 	})
 }
 
-// FuzzSensitive checks Sensitive against the regular expression of spec 04
-// requirement 75.
+// FuzzSensitive checks Sensitive against the regular expression sensitiveRE.
 func FuzzSensitive(f *testing.F) {
 	for _, s := range []string{"x-auth-token", "Keep-Alive", "SESSION", "passwor"} {
 		f.Add(s)

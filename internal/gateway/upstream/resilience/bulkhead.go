@@ -12,19 +12,19 @@ import (
 	"github.com/ravindu-rev/ruralz/internal/errcode"
 )
 
-// Bulkhead is the in-flight ceiling of one Upstream on one Node (05 req
-// 36): at most maxConnections attempts hold a slot, taken before RoundTrip
-// (so HTTP/2 streams count) and released when the attempt's response body
-// closes (05 reqs 30 and 38: a streaming leg holds its slot for life, up to
-// the Route timeout). At most maxPendingRequests attempts wait for a slot,
-// first in first out, each bounded by its attempt context; with the queue
-// full an attempt fails at once with RZ-UP-006.
+// Bulkhead is the in-flight ceiling of one Upstream on one Node: at most
+// maxConnections attempts hold a slot, taken before RoundTrip (so HTTP/2
+// streams count) and released when the attempt's response body closes (a
+// streaming leg holds its slot for life, up to the Route timeout). At most
+// maxPendingRequests attempts wait for a slot, first in first out, each
+// bounded by its attempt context; with the queue full an attempt fails at
+// once with RZ-UP-006.
 //
 // Every Acquire takes the BulkheadConfig of the caller's snapshot: a Hot
 // Reload's new ceiling applies from the next Acquire on (waiters are
-// granted at once when it rises) while slots already held stay held (05
-// req 2). The zero value is ready to use; it is safe for concurrent use
-// and starts no goroutine.
+// granted at once when it rises) while slots already held stay held. The
+// zero value is ready to use; it is safe for concurrent use and starts
+// no goroutine.
 type Bulkhead struct {
 	mu       sync.Mutex
 	inFlight int
@@ -157,11 +157,10 @@ func (b *Bulkhead) Pending() int {
 	return b.pending
 }
 
-// EndpointCap returns the in-flight cap of one Endpoint (05 req 36):
-// max(8, floor(min(2 × weight/total, 0.5) × maxConnections)). A capped
-// Endpoint is excluded from selection while another remains (05 req 11
-// step c). A zero total, or a weight of at least the total, gives half
-// the ceiling.
+// EndpointCap returns the in-flight cap of one Endpoint: max(8,
+// floor(min(2 × weight/total, 0.5) × maxConnections)). A capped
+// Endpoint is excluded from selection while another remains. A zero
+// total, or a weight of at least the total, gives half the ceiling.
 func EndpointCap(maxConnections int, weight, total uint64) int {
 	m := uint64(max(maxConnections, 0))
 	half := m/100*EndpointCapSharePercent + m%100*EndpointCapSharePercent/100

@@ -39,16 +39,15 @@ func checkFlowRows(t *testing.T, rows []flowRow, thresholds ...int) {
 }
 
 // TestFlowColon covers a ':' inside a flow collection that goccy reads
-// otherwise than YAML 1.2 (01 req 8, 12; 01 test plan P2; blocker of the
-// eighth WP-33 review). While a flow mapping is open, goccy makes every ':'
-// a value indicator, so "{app:web}" read as {app: web} and a flow sequence
-// inside a flow mapping split "10:30" into {10: 30}, where YAML 1.2 keeps a
-// ':' followed by a character a plain scalar can hold in the scalar. Outside
-// a flow mapping goccy keeps a ':' before a flow indicator in the scalar
-// ("[a:]" as ["a:"]), where YAML 1.2 reads a value indicator. Each is
+// otherwise than YAML 1.2. While a flow mapping is open, goccy makes every
+// ':' a value indicator, so "{app:web}" read as {app: web} and a flow
+// sequence inside a flow mapping split "10:30" into {10: 30}, where YAML 1.2
+// keeps a ':' followed by a character a plain scalar can hold in the scalar.
+// Outside a flow mapping goccy keeps a ':' before a flow indicator in the
+// scalar ("[a:]" as ["a:"]), where YAML 1.2 reads a value indicator. Each is
 // RZ-CFG-001 at the ':'; a ':' after a JSON-like key, or followed by white
-// space or a flow indicator inside a flow mapping, is read as YAML 1.2
-// reads it.
+// space or a flow indicator inside a flow mapping, is read as YAML 1.2 reads
+// it.
 func TestFlowColon(t *testing.T) {
 	checkFlowRows(t, []flowRow{
 		{"labels: {app:web, tier: db}\n", "RZ-CFG-001@1:13", msgFlowColon},
@@ -88,9 +87,8 @@ func TestFlowColon(t *testing.T) {
 }
 
 // TestFlowEntryShape covers flow entries that hold more than YAML 1.2's
-// optional '?', node, ':' and node (01 req 8, 9, 10; 11 req 17, 26;
-// blocker of the eighth WP-33 review). goccy needs no ',' between entries
-// of a flow sequence: it reads "key:" entries by columns across lines, so
+// optional '?', node, ':' and node. goccy needs no ',' between entries of
+// a flow sequence: it reads "key:" entries by columns across lines, so
 // "x: [\nk:\n k:\n  k: v\n]" nested a level per line, past what the token
 // pass counts, and comma-less entries parsed in quadratic time. Each is
 // RZ-CFG-001 at the first token past the entry, with goccy's own message,
@@ -130,14 +128,14 @@ func TestFlowEntryShape(t *testing.T) {
 	}, -1, 0, 1)
 }
 
-// flowLadder is the first shape of the flow entry blocker of the eighth
-// WP-33 review: "x: ", then levels levels, each "[\n" and rows lines of
-// "key:", the line of row r indented by r spaces (the first key is "k",
-// the others keyLen bytes), then " " before the next level; then "v" and
-// the closing brackets. goccy nested every line one level deeper and built
-// every path before the converter's depth bound ran: 1 level of 836 rows of
-// 836-byte keys (1,048,771 bytes) took a 567 MiB peak heap, and 62 levels of
-// 100 rows of 100-byte keys took 3,747 MiB and 16 s.
+// flowLadder is the first hostile flow entry shape: "x: ", then
+// levels levels, each "[\n" and rows lines of "key:", the line of row r
+// indented by r spaces (the first key is "k", the others keyLen bytes), then
+// " " before the next level; then "v" and the closing brackets. goccy nested
+// every line one level deeper and built every path before the converter's
+// depth bound ran: 1 level of 836 rows of 836-byte keys (1,048,771 bytes)
+// took a 567 MiB peak heap, and 62 levels of 100 rows of 100-byte keys took
+// 3,747 MiB and 16 s.
 func flowLadder(levels, rows, keyLen int) string {
 	var b strings.Builder
 	b.WriteString("x: ")
@@ -159,7 +157,7 @@ func flowLadder(levels, rows, keyLen int) string {
 	return b.String()
 }
 
-// commaLess is the second shape of that blocker: "x: [\n", n lines that
+// commaLess is the second hostile flow entry shape: "x: [\n", n lines that
 // entry(i) gives, then last and "]\n". goccy parsed them as one block
 // mapping inside the sequence, recursing once per entry: 80,000 entries
 // took 17.9 s and 24.9 GiB of allocation.
@@ -173,10 +171,9 @@ func commaLess(n int, entry func(i int) string, last string) string {
 	return b.String()
 }
 
-// TestFlowLaddersStop checks that the shapes of the flow entry blocker stop
-// at their first extra entry token, before goccy parses them (01 req 9; 11
-// req 17, 26): small instances here, the 1 MiB ones in
-// TestHostileInputsBounded.
+// TestFlowLaddersStop checks that the hostile flow entry shapes stop at
+// their first extra entry token, before goccy parses them: small instances
+// here, the 1 MiB ones in TestHostileInputsBounded.
 func TestFlowLaddersStop(t *testing.T) {
 	keyed := func(i int) string { return "k" + itoa(i) + ": v" }
 	for _, tt := range []struct{ src, want string }{

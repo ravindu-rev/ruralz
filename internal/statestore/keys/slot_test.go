@@ -11,9 +11,8 @@ import (
 	"github.com/ravindu-rev/ruralz/internal/statestore"
 )
 
-// Tests for spec 08 req 49 (CRC16-XMODEM hash slots of hash tags), req 26
-// (keys of one command share a slot) and the "Slot" row of the 08 section
-// 6.1 unit table, plus the Slot fuzz target of 08 section 6.3.
+// Tests for CRC16-XMODEM hash slots of hash tags and for keys of one
+// command sharing a slot, plus the Slot fuzz target.
 
 // refCRC16 is a bitwise CRC16-XMODEM, independent of the table.
 func refCRC16(b []byte) uint16 {
@@ -65,7 +64,7 @@ func TestCRCTable(t *testing.T) {
 }
 
 func TestSlot(t *testing.T) {
-	// 08 section 6.1 "Slot" row.
+	// The CRC16-XMODEM check value, then the Redis Cluster hash tag rules.
 	if got := CRC16([]byte("123456789")); got != 0x31C3 {
 		t.Fatalf("CRC16(123456789) = %#04x, want 0x31C3", got)
 	}
@@ -107,9 +106,9 @@ func TestSlot(t *testing.T) {
 }
 
 func TestDigestSlots(t *testing.T) {
-	// 08 req 49: consumptive keys of one config.key value share one slot,
-	// so a ratelimit and a quota keyed alike merge; a partition hash and
-	// its lease share one slot (08 req 26).
+	// Consumptive keys of one config.key value share one slot, so a
+	// ratelimit and a quota keyed alike merge; a partition hash and its
+	// lease share one slot.
 	d := statestore.DigestOf("user-42")
 	want := DigestSlot(d)
 	rl := AppendRateLimit(nil, "ratelimit-gold", statestore.GCRALimit{Requests: 100, Window: time.Second}, d)
@@ -175,7 +174,7 @@ func TestDigestSlotDoesNotAllocate(t *testing.T) {
 }
 
 func FuzzSlot(f *testing.F) {
-	// 08 section 6.3: Slot against a reference implementation.
+	// Slot against a reference implementation.
 	for _, s := range []string{"", "123456789", "{user1000}.following", "foo{}{bar}", "foo{{bar}}zap", "foo{bar}{zap}", "{", "}", "{}", "a{b"} {
 		f.Add(s)
 	}

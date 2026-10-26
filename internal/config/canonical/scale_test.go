@@ -14,8 +14,8 @@ import (
 
 // largeResource returns a Plugin whose labels hold n members and whose
 // configSchema holds an object of n members and a list of n objects, the
-// large-object case of the stage reviews (a stage that scans an object
-// once per member becomes quadratic).
+// large-object case: a stage that scans an object once per member
+// becomes quadratic on it.
 func largeResource(n int) string {
 	var b strings.Builder
 	b.WriteString(`{"apiVersion": "ruralz/v1alpha1", "kind": "Plugin", "metadata": {"name": "big", "labels": {`)

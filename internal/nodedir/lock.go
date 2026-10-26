@@ -13,12 +13,11 @@ import (
 )
 
 // Lock is the held data-directory lock: an exclusive BSD flock on the
-// lock file, taken with TryLock and kept until Release (spec 04
-// requirements 5 and 7). Only a Lock writes holder.json and files under
-// the data directory, and never after Release, which the Drain calls at
-// its start. The owner keeps the Lock reachable for the process lifetime:
-// a collected Lock closes its file, which drops the lock. Methods are
-// safe for concurrent use.
+// lock file, taken with TryLock and kept until Release. Only a Lock
+// writes holder.json and files under the data directory, and never after
+// Release, which the Drain calls at its start. The owner keeps the Lock
+// reachable for the process lifetime: a collected Lock closes its file,
+// which drops the lock. Methods are safe for concurrent use.
 type Lock struct {
 	dir *Dir
 
@@ -28,10 +27,9 @@ type Lock struct {
 }
 
 // TryLock takes the lock without blocking. It returns ErrLocked when
-// another open file description holds it, in this process or another
-// (a starting ruralzd then enters handover on Linux or exits 1, spec 04
-// requirement 7), and an error matching errors.ErrUnsupported on
-// platforms without flock.
+// another open file description holds it, in this process or another (a
+// starting ruralzd then enters handover on Linux or exits 1), and an
+// error matching errors.ErrUnsupported on platforms without flock.
 func (d *Dir) TryLock() (*Lock, error) {
 	f, err := lockFile(d.LockPath())
 	if err != nil {
@@ -74,9 +72,8 @@ func (l *Lock) Release() error {
 	return errors.Join(errs...)
 }
 
-// WriteHolder atomically writes holder.json (spec 04 requirement 5, spec
-// 10 requirement 95). An empty Format is set to HolderFormat; the record
-// must then pass Holder.Validate.
+// WriteHolder atomically writes holder.json. An empty Format is set to
+// HolderFormat; the record must then pass Holder.Validate.
 func (l *Lock) WriteHolder(h Holder) error {
 	if h.Format == "" {
 		h.Format = HolderFormat

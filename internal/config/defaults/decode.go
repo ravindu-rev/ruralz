@@ -22,11 +22,11 @@ import (
 // Decode decodes res.Root, a normalized hub resource, into its typed
 // pkg/config/v1alpha1 kind struct (such as *v1alpha1.Route) and, for a
 // Policy of a registered type, spec.config into the registry's config
-// type (such as *v1alpha1.RateLimitConfig), with encoding/json (01 req
-// 38). A value its Go field cannot hold, such as 4294967296 in an int32
-// weight, is RZ-CFG-005 at that field's key-aware path. idx is the hub
-// schema, which names list entries in paths and tells declared config
-// members from free ones; files gives source locations.
+// type (such as *v1alpha1.RateLimitConfig), with encoding/json. A value
+// its Go field cannot hold, such as 4294967296 in an int32 weight, is
+// RZ-CFG-005 at that field's key-aware path. idx is the hub schema,
+// which names list entries in paths and tells declared config members
+// from free ones; files gives source locations.
 //
 // The kind struct receives spec.config whole as its json.RawMessage. The
 // config type receives only the declared members of each object, so an
@@ -34,7 +34,7 @@ import (
 // only in case (encoding/json matches names case-insensitively) cannot
 // overwrite that field: the typed config always agrees with the tree.
 // Numbers in untyped (any) positions decode as json.Number, never
-// float64 (02 req 16).
+// float64.
 func Decode(idx *schemaidx.Index, reg *registry.Registry, res *tree.Resource, files *tree.FileTable) (object, config any, ds diag.List) {
 	object, config, ds, _ = decode(idx, reg, res, files, newWork(nil))
 	return object, config, ds
@@ -43,9 +43,9 @@ func Decode(idx *schemaidx.Index, reg *registry.Registry, res *tree.Resource, fi
 // decode is Decode on worker w. The trees are decoded in pieces of at
 // most decodeChunk nodes (chunker), each with one encoding/json call,
 // which cannot yield inside: building the JSON text counts toward w's
-// yield timer and w checks it before and after each call (01 req 53).
-// Diagnostics draw on w's budget; failed reports an error even when the
-// budget dropped it.
+// yield timer and w checks it before and after each call. Diagnostics
+// draw on w's budget; failed reports an error even when the budget
+// dropped it.
 func decode(idx *schemaidx.Index, reg *registry.Registry, res *tree.Resource, files *tree.FileTable, w *work) (object, config any, ds diag.List, failed bool) {
 	if res == nil || res.Root == nil {
 		return nil, nil, nil, false
@@ -108,7 +108,7 @@ func posOr(n *tree.Node, fallback tree.Pos) tree.Pos {
 
 // decodeInto decodes one JSON text into v, numbers in untyped positions as
 // json.Number. encoding/json cannot yield inside the call, so the worker
-// checks its yield timer before and after it (01 req 53).
+// checks its yield timer before and after it.
 func (w *work) decodeInto(data []byte, v any) error {
 	w.check()
 	if w != nil {
@@ -219,7 +219,7 @@ func isStruct(sel *schemaidx.Node) bool {
 
 // locator finds the value a failed decode could not hold by walking the
 // tree along the Go type, so a decode failure is reported at its field
-// (01 req 38) with a message of Ruralz's own, identical in every build
+// with a message of Ruralz's own, identical in every build
 // (encoding/json's messages differ under GOEXPERIMENT=jsonv2).
 type locator struct {
 	stack stack

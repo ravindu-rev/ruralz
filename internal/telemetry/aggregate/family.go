@@ -20,7 +20,7 @@ const (
 	// family, created with the registry, never folded.
 	roleNode role = iota + 1
 	// roleListener families are keyed by listener; admitted first, never
-	// folded (spec 09 req 55).
+	// folded.
 	roleListener
 	// roleRoute, roleUpstream and rolePolicy families are keyed by a
 	// resource name and fold into _overflow.
@@ -41,7 +41,7 @@ const (
 	// ListenerRequests handle.
 	layoutListenerRequests
 	// layoutAttempts: five status classes with error="none" plus the four
-	// errors with status_class="5xx" (spec 09 section 9 item 9).
+	// errors with status_class="5xx".
 	layoutAttempts
 	// layoutResultCode: the first result value without a code, the second
 	// result value with lazily created code label sets.
@@ -76,8 +76,8 @@ const (
 	labelPolicy   = "policy"
 )
 
-// Reserved resource label values (spec 09 req 41). Resource names are DNS
-// labels, so values starting with "_" never collide with them.
+// Reserved resource label values. Resource names are DNS labels, so
+// values starting with "_" never collide with them.
 const (
 	// Overflow is the label value folded label sets record into.
 	Overflow = "_overflow"
@@ -87,7 +87,7 @@ const (
 
 // Policy types whose Policies record type-specific families. The strings
 // are pkg/config/v1alpha1 PolicyType values (checked by a test); this
-// package may not import the configuration types (architecture 1.2).
+// package may not import the configuration types.
 const (
 	typeAuthPrefix     = "auth."
 	typeAuthzPrefix    = "authz."
@@ -113,7 +113,7 @@ const (
 	sumWord    = numBuckets
 	histWords  = 16
 	// histSeries is the series count of one histogram label set: 13
-	// buckets, +Inf, _sum and _count (spec 09 req 42).
+	// buckets, +Inf, _sum and _count.
 	histSeries = 16
 )
 
@@ -162,8 +162,8 @@ func (f *family) foldable() bool {
 	return f.role == roleRoute || f.role == roleUpstream || f.role == rolePolicy
 }
 
-// seriesPerSet is the series count of one label set: 16 for a histogram
-// (spec 09 req 42), else 1.
+// seriesPerSet is the series count of one label set: 16 for a
+// histogram, else 1.
 func (f *family) seriesPerSet() int {
 	if f.hist {
 		return histSeries
@@ -334,8 +334,8 @@ func policyApplies(f *family, typ string) bool {
 	case catalog.FilterDurationSeconds, catalog.FilterShortCircuitsTotal, catalog.FilterFailuresTotal:
 		return true
 	case catalog.AuthDecisionsTotal:
-		// Every auth- and authz-class decision (spec 06 req 10); the
-		// upstream-auth class records no decisions.
+		// Every auth- and authz-class decision; the upstream-auth
+		// class records no decisions.
 		return (strings.HasPrefix(typ, typeAuthPrefix) && !strings.HasPrefix(typ, typeUpstreamPrefix)) ||
 			strings.HasPrefix(typ, typeAuthzPrefix)
 	case catalog.AuthJWKSAgeSeconds:
@@ -369,8 +369,8 @@ func (f *family) overflowPhases() []int8 {
 }
 
 // hasUnmatched reports whether the family records requests no Route
-// matched (route="_unmatched", spec 09 req 41): the Route request counter
-// and duration histogram, never the cache families.
+// matched (route="_unmatched"): the Route request counter and duration
+// histogram, never the cache families.
 func (f *family) hasUnmatched() bool {
 	if f.role != roleRoute {
 		return false

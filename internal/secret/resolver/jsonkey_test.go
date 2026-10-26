@@ -9,9 +9,9 @@ import (
 	"testing"
 )
 
-// Tests for file references with key (spec 01 requirement 44: the file is
-// a JSON object whose member key is a JSON string; spec 06 requirement
-// 89: parse errors are fixed messages that never contain file content).
+// Tests for file references with key (the file is a JSON object whose
+// member key is a JSON string; parse errors are fixed messages that never
+// contain file content).
 
 func TestJSONMember(t *testing.T) {
 	tests := []struct {
@@ -41,8 +41,8 @@ func TestJSONMember(t *testing.T) {
 		{"bad value", `{"a":tru,"k":"v"}`, "k", "", errJSONNotObject},
 		{"bad key", `{1:"v"}`, "k", "", errJSONNotObject},
 		{"invalid UTF-8", "{\"k\":\"\xff\"}", "k", "", errJSONNotUTF8},
-		// Req 44: the value is the UTF-8 bytes of the string; a lone
-		// surrogate escape has none (encoding/json would give U+FFFD).
+		// The value is the UTF-8 bytes of the string; a lone surrogate
+		// escape has none (encoding/json would give U+FFFD).
 		{"lone high surrogate", `{"k":"a\ud800b"}`, "k", "", errJSONSurrogate},
 		{"lone high surrogate at end", `{"k":"\uD800"}`, "k", "", errJSONSurrogate},
 		{"lone low surrogate", `{"k":"\udc00"}`, "k", "", errJSONSurrogate},

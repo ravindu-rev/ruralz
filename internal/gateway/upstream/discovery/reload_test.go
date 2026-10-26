@@ -64,12 +64,12 @@ func boolGauge(on bool) int64 {
 	return 0
 }
 
-// TestReloadKeepsStale covers 05 req 7 across a Hot Reload that replaces a
-// Source during a DNS outage: the old and the new Source hold the Node
-// reason under their own holders, the Upstream gauge belongs to the
-// activated Source, and neither the replaced Source's Close nor its later
-// refreshes clear discovery_stale while the new Source still fails. Both
-// gauges clear with the new Source's first good answer.
+// TestReloadKeepsStale covers failure handling across a Hot Reload that
+// replaces a Source during a DNS outage: the old and the new Source hold
+// the Node reason under their own holders, the Upstream gauge belongs to
+// the activated Source, and neither the replaced Source's Close nor its
+// later refreshes clear discovery_stale while the new Source still fails.
+// Both gauges clear with the new Source's first good answer.
 func TestReloadKeepsStale(t *testing.T) {
 	for _, tc := range []struct {
 		name       string

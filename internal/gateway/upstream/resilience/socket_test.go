@@ -17,10 +17,10 @@ import (
 	"time"
 )
 
-// Real-socket classification (05 req 39 "MUST be table-tested against real
-// sockets", 05 section 6 test 1). Each case runs one attempt through an
-// http.Transport shaped like the Upstream layer's (05 req 27) with a
-// StageTrace, and classifies the RoundTrip error.
+// Real-socket classification: the error kinds are table-tested against
+// real sockets. Each case runs one attempt through an http.Transport
+// shaped like the Upstream layer's with a StageTrace, and classifies the
+// RoundTrip error.
 
 // attempt runs one GET through tr and classifies its error.
 func attempt(ctx context.Context, t *testing.T, tr http.RoundTripper, url string) (Kind, error) {
@@ -105,7 +105,7 @@ func silentListener(t *testing.T, ln net.Listener) string {
 	return ln.Addr().String()
 }
 
-func TestClassifyRealSocketsConnect_05Req39(t *testing.T) {
+func TestClassifyRealSocketsConnect(t *testing.T) {
 	t.Parallel()
 	t.Run("closed port", func(t *testing.T) {
 		k, err := attempt(context.Background(), t, transport(t, nil, nil), "http://"+closedAddr(t)+"/")
@@ -126,7 +126,7 @@ func TestClassifyRealSocketsConnect_05Req39(t *testing.T) {
 	})
 }
 
-func TestClassifyRealSocketsTLS_05Req39(t *testing.T) {
+func TestClassifyRealSocketsTLS(t *testing.T) {
 	t.Parallel()
 	t.Run("plaintext server", func(t *testing.T) {
 		srv := httptest.NewServer(http.NotFoundHandler())
@@ -156,7 +156,7 @@ func TestClassifyRealSocketsTLS_05Req39(t *testing.T) {
 	})
 }
 
-func TestClassifyRealSocketsReset_05Req39(t *testing.T) {
+func TestClassifyRealSocketsReset(t *testing.T) {
 	t.Parallel()
 	t.Run("server closes after reading the headers", func(t *testing.T) {
 		ln := listen(t)
@@ -205,7 +205,7 @@ func TestClassifyRealSocketsReset_05Req39(t *testing.T) {
 		addr := silentListener(t, ln)
 		tr := transport(t, clientConf, nil)
 		tr.Protocols = h2Only()
-		// 1 s and 5 s in production (05 req 22).
+		// 1 s and 5 s in production.
 		tr.HTTP2 = &http.HTTP2Config{SendPingTimeout: 50 * time.Millisecond, PingTimeout: 100 * time.Millisecond}
 		k, err := attempt(context.Background(), t, tr, "https://"+addr+"/")
 		if k != KindReset {
@@ -221,10 +221,10 @@ func h2Only() *http.Protocols {
 	return p
 }
 
-// TestClassifyRealSocketsTimeout_05Req39 expires the attempt, leg and
-// Route contexts of an attempt waiting for headers (05 reqs 24 and 39:
-// only these deadlines yield timeout).
-func TestClassifyRealSocketsTimeout_05Req39(t *testing.T) {
+// TestClassifyRealSocketsTimeout expires the attempt, leg and
+// Route contexts of an attempt waiting for headers (only these
+// deadlines yield timeout).
+func TestClassifyRealSocketsTimeout(t *testing.T) {
 	t.Parallel()
 	arrived := make(chan struct{}, 4)
 	srv := httptest.NewServer(http.HandlerFunc(func(_ http.ResponseWriter, r *http.Request) {

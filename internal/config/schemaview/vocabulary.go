@@ -14,7 +14,7 @@ import (
 
 // ErrRemoteReference marks a schema that references a resource outside the
 // compiled document: the loader refuses every URL, so compiling never
-// reads a file or the network (01 req 32, 01 risk 30).
+// reads a file or the network.
 var ErrRemoteReference = errors.New("schemaview: remote references are not allowed")
 
 // vocabularyURL identifies the Ruralz vocabulary. It is a name, never
@@ -99,10 +99,10 @@ func (refusingLoader) Load(url string) (any, error) {
 }
 
 // keywords is the parsed form of the x-ruralz-* keywords of one schema
-// object, kept in jsonschema.Schema.Extensions (01 req 32). Navigation
-// reads the same keywords through internal/config/schemaidx (architecture
-// R-3); the vocabulary only parses them, asserts their shapes and lets the
-// meta test cross-check both parsers.
+// object, kept in jsonschema.Schema.Extensions. Navigation reads the same
+// keywords through internal/config/schemaidx; the vocabulary only parses
+// them, asserts their shapes and lets the meta test cross-check both
+// parsers.
 type keywords struct {
 	// ref is x-ruralz-ref.
 	ref string
@@ -131,7 +131,7 @@ type validation struct {
 // Validate implements jsonschema.SchemaExt. The keywords are annotations:
 // they never fail an instance. Keyed-list uniqueness, which JSON Schema
 // cannot express, is checked on the positioned tree (checkLists), because
-// a custom error kind would need golang.org/x/text (01 risk 29).
+// a custom error kind would need golang.org/x/text.
 func (*keywords) Validate(*jsonschema.ValidatorContext, any) {}
 
 // compileKeywords parses the x-ruralz-* keywords of obj. It returns nil
@@ -269,10 +269,10 @@ func vocabulary() (*jsonschema.Vocabulary, error) {
 }
 
 // newCompiler returns a compiler configured as every Ruralz schema is
-// compiled (01 req 32): draft 2020-12, formats and content keywords as
-// annotations only (the library defaults: no AssertFormat, no
-// AssertContent), Go regexp (RE2) patterns, a loader that refuses every
-// URL, and the Ruralz vocabulary asserted on every schema object.
+// compiled: draft 2020-12, formats and content keywords as annotations
+// only (the library defaults: no AssertFormat, no AssertContent), Go
+// regexp (RE2) patterns, a loader that refuses every URL, and the
+// Ruralz vocabulary asserted on every schema object.
 func newCompiler() (*jsonschema.Compiler, error) {
 	vocab, err := vocabulary()
 	if err != nil {

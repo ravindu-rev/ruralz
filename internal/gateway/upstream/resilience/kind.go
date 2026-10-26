@@ -15,10 +15,10 @@ import (
 	"sync/atomic"
 )
 
-// Kind is the error kind of one attempt (05 req 39): the error.kind CEL
-// variable, the error label of ruralz_upstream_attempts_total and the input
-// of code selection. The values follow the order of that label (none,
-// connect, timeout, reset, tls), so int(k) is the attempt-error index of
+// Kind is the error kind of one attempt: the error.kind CEL variable, the
+// error label of ruralz_upstream_attempts_total and the input of code
+// selection. The values follow the order of that label (none, connect,
+// timeout, reset, tls), so int(k) is the attempt-error index of
 // internal/telemetry/emit (ErrNone to ErrTLS).
 type Kind uint8
 
@@ -64,7 +64,7 @@ func ParseKind(s string) (Kind, bool) {
 
 // Kinds returns every kind in value order, which is the order of the error
 // label values of ruralz_upstream_attempts_total (none, connect, timeout,
-// reset, tls), so the label sets can exist at 0 from start (05 req 94).
+// reset, tls), so the label sets can exist at 0 from start.
 func Kinds() []Kind {
 	return []Kind{KindNone, KindConnect, KindTimeout, KindReset, KindTLS}
 }
@@ -88,19 +88,18 @@ const (
 	StageExchange
 )
 
-// Classify returns the kind of an attempt error (05 req 39); ctx is the
-// attempt context, which the leg and Route contexts bound. See
-// ClassifyStage.
+// Classify returns the kind of an attempt error; ctx is the attempt
+// context, which the leg and Route contexts bound. See ClassifyStage.
 func Classify(ctx context.Context, err error) Kind {
 	return ClassifyStage(ctx, err, StageUnknown)
 }
 
 // ClassifyStage returns the kind of an attempt error given how far the
-// attempt got (05 req 39), in this order:
+// attempt got, in this order:
 //
 //   - nil: KindNone;
 //   - ctx ended (attempt, leg or Route deadline, or cancellation): timeout.
-//     Only these contexts yield timeout (05 req 24), so a dial timeout
+//     Only these contexts yield timeout, so a dial timeout
 //     stays connect and a handshake timeout tls;
 //   - a dial error (*net.OpError with Op "dial": refused, unreachable, dial
 //     timeout, the egress guard's refusal in Dialer.Control) or a
@@ -116,11 +115,11 @@ func Classify(ctx context.Context, err error) Kind {
 // A context error in err without ctx having ended (a context of the
 // caller's own) is timeout too. HTTP/2 stream and connection errors are
 // unexported in net/http, so they are never matched by name: they fall to
-// reset, as req 39 requires (05 section 9 item 20).
+// reset.
 //
 // A ctx canceled without a deadline expiry (the client went away, or a
 // sibling composition step canceled the shared context) also reads
-// timeout here, because req 39 has no other kind for it, but it is no
+// timeout here, because no other error kind fits it, but it is no
 // Upstream failure: the Upstream core checks Canceled first and then skips
 // failureWhen, passive ejection and the retry decision, and ends the leg
 // with LegNotCounted.
@@ -151,10 +150,10 @@ func ClassifyStage(ctx context.Context, err error, stage Stage) Kind {
 }
 
 // Expired reports whether ctx ended by a deadline expiry, the only ends
-// that make error kind timeout an Upstream failure (05 reqs 24 and 39):
-// the attempt or leg deadline of a Deadline (cause ErrAttemptTimeout or
-// ErrLegTimeout) or a context deadline such as the Route timeout (error or
-// cause context.DeadlineExceeded). It is false while ctx is live.
+// that make error kind timeout an Upstream failure: the attempt or leg
+// deadline of a Deadline (cause ErrAttemptTimeout or ErrLegTimeout) or a
+// context deadline such as the Route timeout (error or cause
+// context.DeadlineExceeded). It is false while ctx is live.
 func Expired(ctx context.Context) bool {
 	if ctx == nil || ctx.Err() == nil {
 		return false
@@ -288,7 +287,7 @@ func (s *StageTrace) ClientTrace() *httptrace.ClientTrace {
 
 // KindError is an attempt or leg error annotated with its kind; the
 // Upstream core puts the kind of RZ-UP-007 into the span, the log and the
-// access log from it (05 req 40).
+// access log from it.
 type KindError struct {
 	// Kind is the error kind.
 	Kind Kind

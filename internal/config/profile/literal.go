@@ -23,8 +23,7 @@ const (
 // indicator, at most one indentation indicator (1 to 9) and one chomping
 // indicator in either order, then only white space, or white space and a
 // comment, up to the line break. goccy reads two indicators and ignores the
-// rest of the line ("k: |--" read as {k: "a"}; minor finding of the eighth
-// WP-33 review).
+// rest of the line ("k: |--" read as {k: "a"}).
 func headerValid(text string, at int) bool {
 	i := at + 1
 	indent, chomp := false, false
@@ -45,14 +44,14 @@ func headerValid(text string, at int) bool {
 }
 
 // readBlockScalar reads the block scalar whose indicator ('|' or '>') is at
-// byte offset at of text as YAML 1.2 reads it (01 req 12; YAML 1.2.2
-// section 8.1), where n is the indentation of the block collection around
-// it, -1 at the document level. goccy's own value drops the trailing white
-// space of the last line with strip chomping, keeps a line break for an
-// empty scalar with keep chomping and reads lines of spaces otherwise, so
-// the value is taken from here. It returns the value, the number of lines
-// after the header line the scalar holds (its content and the empty lines
-// after it), and a message when YAML 1.2 refuses the scalar.
+// byte offset at of text as YAML 1.2 reads it (YAML 1.2.2 section 8.1),
+// where n is the indentation of the block collection around it, -1 at the
+// document level. goccy's own value drops the trailing white space of the
+// last line with strip chomping, keeps a line break for an empty scalar
+// with keep chomping and reads lines of spaces otherwise, so the value is
+// taken from here. It returns the value, the number of lines after the
+// header line the scalar holds (its content and the empty lines after it),
+// and a message when YAML 1.2 refuses the scalar.
 //
 // The rules are those of the YAML Test Suite's reference reading, which
 // PyYAML and libyaml share: the content indentation is n plus an explicit
@@ -173,17 +172,16 @@ func detectIndent(body string, n int) (int, bool) {
 
 // blockScalar reads the block scalar whose header is token idx from the
 // source (readBlockScalar), records its value for the converter, and
-// checks that goccy's tokens end the scalar where YAML 1.2 does (01 req 8,
-// 12): the token after its content must start on the line that ends it,
-// which is recorded for foldPlain (blockNext).
-// goccy's scanner adds an empty plain scalar after the content of a block
-// scalar followed by blank lines ("? >\n  \n:" scans as Folded, String "",
-// String "\n", MappingValue); such a token holds no value and becomes a
-// comment, which every parse skips. A header goccy reports elsewhere than
-// at its indicator, a block scalar in a flow collection and content goccy
-// reads to another line are RZ-CFG-001. Like the other checks that only
-// keep goccy from misreading a file, it is skipped once the file has a
-// finding.
+// checks that goccy's tokens end the scalar where YAML 1.2 does: the token
+// after its content must start on the line that ends it, which is recorded
+// for foldPlain (blockNext). goccy's scanner adds an empty plain scalar
+// after the content of a block scalar followed by blank lines ("? >\n  \n:"
+// scans as Folded, String "", String "\n", MappingValue); such a token
+// holds no value and becomes a comment, which every parse skips. A header
+// goccy reports elsewhere than at its indicator, a block scalar in a flow
+// collection and content goccy reads to another line are RZ-CFG-001. Like
+// the other checks that only keep goccy from misreading a file, it is
+// skipped once the file has a finding.
 func (t *tokenPass) blockScalar(idx int) {
 	if t.errs > 0 {
 		return

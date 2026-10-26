@@ -9,10 +9,9 @@ import (
 	"testing"
 )
 
-// Tests for 07 req 48 (order-preserving query edits) with the T1 Query
-// cases and property P8 of spec 07 section 6.
+// Tests for order-preserving query edits and the query edit property.
 
-func TestParseQueryRoundTripReq48(t *testing.T) {
+func TestParseQueryRoundTrip(t *testing.T) {
 	for _, raw := range []string{
 		"", "a=1", "a=1&b=2&a=3", "x=%7e", "a=1;b=2", "k", "=v", "a=1&&b=2",
 		"&", "&&", "a+b=c%20d", "%zz=1", "q=%E2%9C%93&lang=en-US",
@@ -27,7 +26,7 @@ func TestParseQueryRoundTripReq48(t *testing.T) {
 	}
 }
 
-func TestQueryEditsReq48(t *testing.T) {
+func TestQueryEdits(t *testing.T) {
 	type op struct {
 		del         bool
 		name, value string
@@ -78,7 +77,7 @@ func TestQueryEditsReq48(t *testing.T) {
 	}
 }
 
-func TestQueryGetReq48(t *testing.T) {
+func TestQueryGet(t *testing.T) {
 	q := ParseQuery("a=1&b=x+y%21&a=2&k&c=%zz&d=a%2")
 	tests := []struct {
 		name, want string
@@ -122,10 +121,10 @@ func TestQueryResetReusesStorage(t *testing.T) {
 	}
 }
 
-// TestQueryPropertyP8 checks property P8 over a fixed set of queries and
-// names: untouched pairs keep their bytes and order, and after Set(k, v)
-// exactly one pair has key k and it decodes to v.
-func TestQueryPropertyP8(t *testing.T) {
+// TestQueryProperty checks the query edit property over a fixed set of
+// queries and names: untouched pairs keep their bytes and order, and after
+// Set(k, v) exactly one pair has key k and it decodes to v.
+func TestQueryProperty(t *testing.T) {
 	queries := []string{"", "a=1&b=2&a=3", "a+b=1&a%20b=2&c", "x=%7e;y&&=v", "%zz&%zz=2"}
 	names := []string{"a", "a b", "c", "x", "%zz", "new key"}
 	values := []string{"", "9", "x y", "%&=+"}

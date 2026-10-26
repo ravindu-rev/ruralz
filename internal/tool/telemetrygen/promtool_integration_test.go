@@ -15,14 +15,14 @@ import (
 	"testing"
 )
 
-// TestPromtoolRules is spec 09 test 43 (09 req 72): the generated rules pass
+// TestPromtoolRules checks that the generated rules pass
 // "promtool check rules" (every expression parses with the Prometheus PromQL
 // parser) and "promtool test rules" with testdata/ruralz.rules.test.yaml,
 // which pre-creates every degraded reason at 0 and holds series that already
 // count an event at the first scrape. Every dashboard panel expression must
-// parse too: each becomes a recording rule of a scratch rule file. `make
-// integration` puts the pinned promtool of bin/ on PATH; without it the test
-// is skipped.
+// parse too: each becomes a recording rule of a scratch rule file.
+// `make integration` puts the pinned promtool of bin/ on PATH; without it
+// the test is skipped.
 func TestPromtoolRules(t *testing.T) {
 	promtool, err := exec.LookPath("promtool")
 	if err != nil {

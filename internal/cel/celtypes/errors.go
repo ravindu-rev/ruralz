@@ -15,15 +15,15 @@ import (
 // so errors.Is classifies an evaluation error; none carries request data.
 var (
 	// ErrNull is a field selection on null (a nullable variable that is
-	// absent, 03 req 18).
+	// absent).
 	ErrNull = errors.New("celtypes: field selection on null")
-	// ErrBody is a body that is not available or did not decode (03 req 25).
+	// ErrBody is a body that is not available or did not decode.
 	ErrBody = errors.New("celtypes: body not available")
 	// ErrNoSuchKey is a missing map key or unknown field.
 	ErrNoSuchKey = errors.New("celtypes: no such key")
 	// ErrNotJSON is a value that has no JSON form: NaN, an infinity, invalid
 	// UTF-8 in a nested string, a map key that is not a string, int, uint or
-	// bool, duplicate keys after conversion, an object or a type (03 req 41).
+	// bool, duplicate keys after conversion, an object or a type.
 	ErrNotJSON = errors.New("celtypes: value has no JSON form")
 	// ErrUnsupported is a native Go value outside the JSON tree types or an
 	// unsupported conversion.

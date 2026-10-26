@@ -15,12 +15,11 @@ import (
 )
 
 // Tests for a refused rotation taken by a Hot Reload and for rotations
-// polled between Resolve and Activate: spec 01 requirement 46 (a failed
-// check keeps the last value and counts a rotation failure; the last value
-// is kept only while the new value fails), spec 06 requirements 13 and 76
-// (secret_rotation_failed), architecture 2.8 and R-55, and the
-// secret.Store contract (a Store kept by a carried-over Filter or a
-// retired snapshot keeps seeing current values, rotations included).
+// polled between Resolve and Activate: a failed check keeps the last value
+// and counts a rotation failure; the last value is kept only while the new
+// value fails; secret_rotation_failed is raised; and the secret.Store
+// contract holds (a Store kept by a carried-over Filter or a retired
+// snapshot keeps seeing current values, rotations included).
 
 // refusedRotation returns a harness whose active Store has a KindAPIKey
 // use of the file "k", which holds a 30-byte key and has just been
@@ -47,8 +46,8 @@ func cellOf(st secret.Store, ref secret.Ref) *cell { return st.(*store).cells[re
 
 func TestRefusedRotationKeepsCellShared(t *testing.T) {
 	t.Run("retained Store follows later rotations", func(t *testing.T) {
-		// Req 46 and the Store contract: the Store a carried-over owner
-		// keeps sees the rotation the reload applied, and every later one.
+		// The Store contract: the Store a carried-over owner keeps sees the
+		// rotation the reload applied, and every later one.
 		h, ref, s1, _ := refusedRotation(t)
 		w1 := &recorder{}
 		defer s1.Watch(ref, w1.fn)()
@@ -348,9 +347,9 @@ func TestRefusedRotationKeepsCellShared(t *testing.T) {
 }
 
 func TestRotationBetweenResolveAndActivate(t *testing.T) {
-	// Req 46: Resolve checks a reused value against the new uses, but a
-	// poll of the still-active Store before Activate checks a rotation
-	// only against the old uses. Activate checks it against the new uses:
+	// Resolve checks a reused value against the new uses, but a poll of
+	// the still-active Store before Activate checks a rotation only
+	// against the old uses. Activate checks it against the new uses:
 	// a refused value stays (it is the only one) but counts one failure
 	// and raises secret_rotation_failed until an accepted value is read.
 	h := newHarness(t, nil)

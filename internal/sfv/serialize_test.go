@@ -13,8 +13,8 @@ import (
 )
 
 // Tests for the RFC 9651 section 4.1 serializer that writes the RateLimit
-// fields of 05 req 67 and 68 (R-18). Examples marked "RFC 9651 3.x" are the
-// field values of that RFC section.
+// fields. Examples marked "RFC 9651 3.x" are the field values of that RFC
+// section.
 
 // golden returns testdata/name without its final newline.
 func golden(t *testing.T, name string) []byte {

@@ -15,16 +15,15 @@ import (
 )
 
 // TestDocumentMarkers covers the document markers goccy's scanner reads
-// where the document cut does not (01 req 8, 9, 10; 11 req 17, 26; blocker
-// of the seventh WP-33 review). goccy ends a document at "..." in column 1
-// whatever follows it, and reads a node after a real "..." marker as the
-// start of the next document, where YAML 1.2 allows only a comment. Such a
-// segment held tokens after its document end, and goccy's whole parse took
-// it, block collections included: wrong trees ("a:\n-\nb: 1\n...x: 1"
-// nested b under the empty entry, 30 such pairs to depth 60) and quadratic
-// time. Each is RZ-CFG-001 now, at the default threshold, with the split
-// threshold raised and with goccy's own parse, after any other finding
-// too.
+// where the document cut does not. goccy ends a document at "..." in
+// column 1 whatever follows it, and reads a node after a real "..." marker
+// as the start of the next document, where YAML 1.2 allows only a comment.
+// Such a segment held tokens after its document end, and goccy's whole
+// parse took it, block collections included: wrong trees
+// ("a:\n-\nb: 1\n...x: 1" nested b under the empty entry, 30 such pairs to
+// depth 60) and quadratic time. Each is RZ-CFG-001 now, at the default
+// threshold, with the split threshold raised and with goccy's own parse,
+// after any other finding too.
 func TestDocumentMarkers(t *testing.T) {
 	var pairs strings.Builder
 	for i := range 30 {
@@ -83,10 +82,10 @@ func TestDocumentMarkers(t *testing.T) {
 
 // TestMarkerTokensOnMarkerLines checks that goccy's DocumentHeader and
 // DocumentEnd tokens of every accepted stream lie on its segments' own
-// marker lines (01 req 9: documents are split at DocumentHeaderType and
-// DocumentEndType; seventh WP-33 review): a "---" token on a "---" line
-// before the segment's body, a "..." token on its last line, a "..." line,
-// and nothing but comments after it. Streams that break this are refused
+// marker lines (documents are split at DocumentHeaderType and
+// DocumentEndType): a "---" token on a "---" line before the segment's
+// body, a "..." token on its last line, a "..." line, and nothing but
+// comments after it. Streams that break this are refused
 // (TestDocumentMarkers), so every parsed segment holds one document.
 func TestMarkerTokensOnMarkerLines(t *testing.T) {
 	inputs := append(suiteInputs(t), "a: 1\n... # c\n---\nb: 2\n...\n", "%YAML 1.2\n--- # c\na: 1\n...\n", "a: 1\n...x: 1\n")
@@ -154,12 +153,12 @@ func markersAligned(text string) error {
 }
 
 // TestRefuseShape covers the parse of a document with block collections
-// whose tokens do not hold one document body (01 req 9, 10; 11 req 17, 26;
-// seventh WP-33 review): it never hands goccy's parser the whole document,
-// which parses a block mapping in quadratic time, but refuses it at the
-// offending token, with goccy's message for a directive out of place.
-// The token pass refuses tokens after a document end first; for those, it
-// runs here over the body alone, so the shape reaches the parse.
+// whose tokens do not hold one document body: it never hands goccy's parser
+// the whole document, which parses a block mapping in quadratic time, but
+// refuses it at the offending token, with goccy's message for a directive
+// out of place. The token pass refuses tokens after a document end first;
+// for those, it runs here over the body alone, so the shape reaches the
+// parse.
 func TestRefuseShape(t *testing.T) {
 	var wide strings.Builder
 	for i := range 40000 {

@@ -30,23 +30,23 @@ type CertSpec struct {
 	PrivateKey secret.Ref
 }
 
-// CertIndex serves a listener's certificates by SNI (spec 06 requirement
-// 75): the leaf's DNS SANs matched exactly (lowercased), then one-label
-// wildcards "*.suffix"; no SNI or no match gives the first certificate in
-// name order. Lookups are lock-free (one atomic load) and run per
-// handshake. The index follows rotations of the referenced secrets
-// through secret.Store.Watch (requirement 76): a rotated certificate or key
-// is paired with the other half's current value (see rotatePair), and a
-// pair that parses and matches replaces the entry for the following
-// handshakes; a value that does not parse or whose key does not match
-// keeps the last pair and returns an error from the watch callback, which
-// the resolver counts in ruralz_config_secret_rotation_failures_total. A
-// half whose callback failed, such as a certificate renewed in an earlier
-// poll than its key, is registered again once the other half's callback
-// forms a valid pair with that half's current Store value (rewatch), so
-// the resolver's secret_rotation_failed reason clears with the pair
-// instead of at the next renewal. The owner (the snapshot holding the
-// index) calls Close when it retires.
+// CertIndex serves a listener's certificates by SNI: the leaf's DNS SANs
+// matched exactly (lowercased), then one-label wildcards "*.suffix"; no SNI
+// or no match gives the first certificate in name order. Lookups are
+// lock-free (one atomic load) and run per handshake. The index follows
+// rotations of the referenced secrets through secret.Store.Watch: a
+// rotated certificate or key is paired with the other half's current value
+// (see rotatePair), and a pair that parses and matches replaces the entry
+// for the following handshakes; a value that does not parse or whose key
+// does not match keeps the last pair and returns an error from the watch
+// callback, which the resolver counts in
+// ruralz_config_secret_rotation_failures_total. A half whose callback
+// failed, such as a certificate renewed in an earlier poll than its key, is
+// registered again once the other half's callback forms a valid pair with
+// that half's current Store value (rewatch), so the resolver's
+// secret_rotation_failed reason clears with the pair instead of at the next
+// renewal. The owner (the snapshot holding the index) calls Close when it
+// retires.
 type CertIndex struct {
 	table   atomic.Pointer[certTable]
 	secrets secret.Store // read by rotations for the other half of a pair
@@ -95,9 +95,8 @@ type half struct {
 // callback has not examined yet, such as a newer key published in the same
 // poll as a certificate that pairs with the previous key, and a new watch
 // would start at that value's version and skip it (secret.Store.Watch), so
-// a value that does not match would be neither counted nor raised (spec 06
-// requirement 76). The sibling's own callback then examines it. Callers
-// hold the owner's mutex.
+// a value that does not match would be neither counted nor raised. The
+// sibling's own callback then examines it. Callers hold the owner's mutex.
 func renewable(sibling *half, used secret.Value, current bool) *half {
 	if !sibling.failed || !current {
 		return nil
@@ -107,13 +106,13 @@ func renewable(sibling *half, used secret.Value, current bool) *half {
 	return sibling
 }
 
-// rewatch registers h again after the other half's callback formed a
-// valid pair with h's current Store value while h's last callback had
-// failed (renewable; spec 06 requirement 76). The resolver keeps the
-// secret_rotation_failed source of a failed watcher raised until that
-// watcher accepts a later value of its own reference, which for a
-// certificate renewed in an earlier poll than its key is the next renewal.
-// A stopped watch drops its source; the counted failure stays counted.
+// rewatch registers h again after the other half's callback formed a valid
+// pair with h's current Store value while h's last callback had failed
+// (renewable). The resolver keeps the secret_rotation_failed source of a
+// failed watcher raised until that watcher accepts a later value of its
+// own reference, which for a certificate renewed in an earlier poll than
+// its key is the next renewal. A stopped watch drops its source; the
+// counted failure stays counted.
 //
 // A new watch starts at the current version of its reference
 // (secret.Store.Watch), so rewatch registers it first and then confirms
@@ -250,11 +249,11 @@ func BuildCertIndex(certs []CertSpec, secrets secret.Store) (*CertIndex, error) 
 	return ix, nil
 }
 
-// rotate applies a rotated certificate (isCert) or private key value v
-// (spec 06 requirement 76): v is paired by rotatePair, and only a value
-// that pairs with neither known value of the other half is a failure. A
-// valid pair formed with the other half's current Store value registers
-// that half again when its last callback failed (renewable, rewatch).
+// rotate applies a rotated certificate (isCert) or private key value v:
+// v is paired by rotatePair, and only a value that pairs with neither
+// known value of the other half is a failure. A valid pair formed with
+// the other half's current Store value registers that half again when
+// its last callback failed (renewable, rewatch).
 func (ix *CertIndex) rotate(e *certEntry, isCert bool, v secret.Value) error {
 	ix.mu.Lock()
 	renew, err := ix.rotateLocked(e, isCert, v)

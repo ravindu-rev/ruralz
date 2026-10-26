@@ -23,10 +23,10 @@ type timerEvent struct {
 	in bool
 }
 
-// Spec 09 req 53 and 54, test 15: nested sections, overlapping parallel
-// legs, a section spanning the request end, a leave at depth 0 and a
-// clock that went backwards.
-func TestGatewayTimer_Test15(t *testing.T) {
+// TestGatewayTimer covers nested sections, overlapping parallel legs, a
+// section spanning the request end, a leave at depth 0 and a clock that
+// went backwards.
+func TestGatewayTimer(t *testing.T) {
 	ms := time.Millisecond
 	tests := []struct {
 		name   string
@@ -92,7 +92,7 @@ func (r *recorder) RecordExemplar(_ Stripe, v uint64, _ Exemplar) { r.values = a
 func (r *recorder) Add(_ Stripe, n uint64)                        { r.adds += n }
 
 // Observe records the result in nanoseconds, or counts a clock anomaly in
-// the skipped counter instead (spec 09 req 54).
+// the skipped counter instead.
 func TestGatewayTimerObserve(t *testing.T) {
 	var h, skipped recorder
 	var g GatewayTimer
@@ -112,11 +112,11 @@ func TestGatewayTimerObserve(t *testing.T) {
 	}
 }
 
-// Spec 09 req 54 with parallel legs: a caller reads the clock before its
-// compare and swap lands, so swaps can land in another order than the
-// reads. Each case applies the events in swap order, with the offsets
-// the callers read; the result is still wall-clock time minus the union.
-func TestGatewayTimerSwapOrder_Req54(t *testing.T) {
+// With parallel legs a caller reads the clock before its compare and swap
+// lands, so swaps can land in another order than the reads. Each case
+// applies the events in swap order, with the offsets the callers read;
+// the result is still wall-clock time minus the union.
+func TestGatewayTimerSwapOrder(t *testing.T) {
 	ms := time.Millisecond
 	tests := []struct {
 		name   string
@@ -166,12 +166,11 @@ func TestGatewayTimerSwapOrder_Req54(t *testing.T) {
 	}
 }
 
-// Spec 09 req 54 and test 15 (parallel aggregate legs): legs entering and
-// leaving concurrently never corrupt the word, and whatever order their
-// swaps land in, identical sections exclude exactly their length once.
-// For distinct sections the excluded time lies between their common
-// part and their hull: the run opened first spans the common part, and
-// runs never overlap.
+// Parallel aggregate legs entering and leaving concurrently never corrupt
+// the word, and whatever order their swaps land in, identical sections
+// exclude exactly their length once. For distinct sections the excluded
+// time lies between their common part and their hull: the run opened
+// first spans the common part, and runs never overlap.
 func TestGatewayTimerConcurrentLegs(t *testing.T) {
 	ms := time.Millisecond
 	start := epoch()
@@ -237,7 +236,7 @@ func unionMeasure(iv [][2]time.Duration, end time.Duration) time.Duration {
 }
 
 // runIntervals applies random intervals in time order and compares with
-// the reference (spec 09 test 26).
+// the reference.
 func runIntervals(t *testing.T, iv [][2]time.Duration, end time.Duration) {
 	t.Helper()
 	var events []timerEvent
@@ -280,9 +279,9 @@ func runIntervals(t *testing.T, iv [][2]time.Duration, end time.Duration) {
 	}
 }
 
-// Spec 09 test 26 (property): the result equals wall-clock time minus the
-// measure of the union of random excluded intervals.
-func TestGatewayTimerUnion_Test26(t *testing.T) {
+// The result equals wall-clock time minus the measure of the union of
+// random excluded intervals.
+func TestGatewayTimerUnion(t *testing.T) {
 	rng := testRand(26, 54)
 	for range 2000 {
 		n := rng.IntN(8)
@@ -296,7 +295,8 @@ func TestGatewayTimerUnion_Test26(t *testing.T) {
 	}
 }
 
-// FuzzGatewayTimer is spec 09 test 31 (26).
+// FuzzGatewayTimer checks that the result equals wall-clock time minus the
+// measure of the union of fuzzed excluded intervals.
 func FuzzGatewayTimer(f *testing.F) {
 	f.Add([]byte{1, 5, 3, 9, 2, 4}, uint16(10))
 	f.Add([]byte{0, 0, 0, 255}, uint16(1))

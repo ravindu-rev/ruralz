@@ -48,7 +48,7 @@ type Request struct {
 	// TLS is the connection state over TLS, nil over h2c.
 	TLS *tls.ConnectionState
 	// Raw is the request's protobuf encoding as the client sent it (after
-	// gRPC decompression), for canary scans (11 req 39).
+	// gRPC decompression), for canary scans.
 	Raw []byte
 	// Traces, Metrics and Logs hold the decoded request; exactly the one
 	// matching Signal is set.
@@ -71,7 +71,7 @@ func transportKey(k string) bool {
 // ExtraMetadata returns the metadata without the keys gRPC and HTTP/2 set
 // themselves (":authority", "content-type", "user-agent", "te",
 // "grpc-accept-encoding", "grpc-encoding", "grpc-timeout"): what an
-// exporter adds, such as OTEL_EXPORTER_OTLP_HEADERS (09 test 36).
+// exporter adds, such as OTEL_EXPORTER_OTLP_HEADERS.
 func (r Request) ExtraMetadata() map[string][]string {
 	out := map[string][]string{}
 	for k, v := range r.Metadata {
@@ -420,8 +420,8 @@ func (s *Sink) Roots(traceID string) []Span {
 // FormatTree renders the trace as an indented tree, one span per line as
 // "<name> [<KIND>]", children under their parent in start order (ties in
 // arrival order), two spaces per level: a stable form for span tree
-// goldens (09 test 34). Roots are the spans Roots returns; spans reachable
-// from no root (a parent cycle) are left out.
+// goldens. Roots are the spans Roots returns; spans reachable from no root
+// (a parent cycle) are left out.
 func (s *Sink) FormatTree(traceID string) string {
 	spans := s.Trace(traceID)
 	children := map[string][]Span{}
@@ -479,7 +479,7 @@ func (s *Sink) FindLogs(pred func(LogRecord) bool) []LogRecord {
 func (s *Sink) Metrics() []Metric { return s.rec.snapshotMetrics() }
 
 // MetricNames returns the distinct recorded metric names, sorted (the
-// OTLP side of the name identity gate, 09 req 76).
+// OTLP side of the name identity gate).
 func (s *Sink) MetricNames() []string {
 	var out []string
 	for _, m := range s.rec.snapshotMetrics() {

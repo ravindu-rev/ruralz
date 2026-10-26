@@ -20,10 +20,10 @@ import (
 // committedDir is deploy/grafana relative to this package.
 func committedDir() string { return filepath.Join("..", "..", "..", "deploy", "grafana") }
 
-// TestGeneratedUpToDate is the stage 3 drift check (spec 09 test 20): a
-// fresh in-memory run equals the committed files byte for byte, and no
-// committed file carries the generated-file marker without being generated
-// (a renamed or dropped dashboard left behind).
+// TestGeneratedUpToDate is the stage 3 drift check: a fresh in-memory run
+// equals the committed files byte for byte, and no committed file carries
+// the generated-file marker without being generated (a renamed or dropped
+// dashboard left behind).
 func TestGeneratedUpToDate(t *testing.T) {
 	files, err := generate()
 	if err != nil {
@@ -52,7 +52,7 @@ func TestGeneratedUpToDate(t *testing.T) {
 }
 
 // TestCommittedDashboards applies the dashboard check to every committed
-// dashboard, including hand-written ones (09 req 73).
+// dashboard, including hand-written ones.
 func TestCommittedDashboards(t *testing.T) {
 	problems, err := checkDashboardDir(filepath.Join(committedDir(), "dashboards"))
 	if err != nil {
@@ -64,12 +64,12 @@ func TestCommittedDashboards(t *testing.T) {
 }
 
 // TestDashboardFixtureFails: a panel on a metric outside the catalog fails
-// the check (spec 09 test 20), and so do a non-Ruralz metric in a panel or
-// an annotation, a bare histogram family name, an unknown label, an
-// enumeration value or le bound the family does not export, and variables
-// over an unknown metric or a histogram family name (09 req 73). Loki and
-// test data queries, custom, interval, textbox, constant and ad hoc
-// variables and PromQL comments raise nothing.
+// the check, and so do a non-Ruralz metric in a panel or an annotation, a
+// bare histogram family name, an unknown label, an enumeration value or le
+// bound the family does not export, and variables over an unknown metric
+// or a histogram family name. Loki and test data queries, custom,
+// interval, textbox, constant and ad hoc variables and PromQL comments
+// raise nothing.
 func TestDashboardFixtureFails(t *testing.T) {
 	data, err := os.ReadFile(filepath.Join("testdata", "bad-dashboard.json"))
 	if err != nil {
@@ -112,8 +112,7 @@ func TestCheckDashboardJSONMalformed(t *testing.T) {
 	}
 }
 
-// TestCheckExpr covers the expression check behind 09 req 73 and the
-// alert rule check of 09 req 72.
+// TestCheckExpr covers the expression check and the alert rule check.
 func TestCheckExpr(t *testing.T) {
 	for _, tc := range []struct {
 		name, expr string
@@ -184,8 +183,7 @@ func TestCheckExpr(t *testing.T) {
 	}
 }
 
-// TestOpenMetricsFloat pins the le rendering the rules and panels match
-// (09 section 9 risk 6).
+// TestOpenMetricsFloat pins the le rendering the rules and panels match.
 func TestOpenMetricsFloat(t *testing.T) {
 	for _, tc := range []struct {
 		in   float64
@@ -220,9 +218,8 @@ func posInf() float64 {
 }
 
 // TestM1RuleExpressions pins the six M1 rules to the exact expressions, for
-// durations and severities of OBS "Alert rules" (09 req 72).
-// RuralzSeriesFolded keeps OBS's "new folding only" expression without the
-// rare-event clause.
+// durations and severities of OBS "Alert rules". RuralzSeriesFolded keeps
+// OBS's "new folding only" expression without the rare-event clause.
 func TestM1RuleExpressions(t *testing.T) {
 	want := map[string]alertRule{
 		"RuralzNodeDegradedPage": {
@@ -263,8 +260,7 @@ func TestM1RuleExpressions(t *testing.T) {
 }
 
 // TestBurnRateRules: a page and a ticket rule for every SLO objective of
-// 90% or more, none for SLO-GW-3 (50%), at 14 and 6 times the budget
-// (09 req 71, 72).
+// 90% or more, none for SLO-GW-3 (50%), at 14 and 6 times the budget.
 func TestBurnRateRules(t *testing.T) {
 	thresholds := map[string][2]string{
 		"SLO-GW-1": {"0.007", "0.003"},
@@ -322,9 +318,9 @@ func TestCheckRulesProblems(t *testing.T) {
 	}
 }
 
-// TestDashboardPack: the eight M1 dashboards of OBS "Grafana dashboard
-// pack" in order (09 req 73), each a valid Grafana model with unique panel
-// IDs inside the 24-column grid.
+// TestDashboardPack: the eight M1 dashboards of OBS
+// "Grafana dashboard pack" in order, each a valid Grafana model with
+// unique panel IDs inside the 24-column grid.
 func TestDashboardPack(t *testing.T) {
 	want := []string{
 		"Ruralz Gateway overview", "Route detail", "Policies and Filter Chain", "Upstreams and resilience",
@@ -407,9 +403,9 @@ func TestCheckDashboardDefsProblems(t *testing.T) {
 }
 
 // TestPromtoolFixtureCoverage: the promtool test file pre-creates every
-// series the M1 rules alert on at 0 (09 req 45: every degraded reason, hop,
+// series the M1 rules alert on at 0 (every degraded reason, hop,
 // dropped-write kind and foldable family), and every generated alert has a
-// firing case (spec 09 test 43).
+// firing case.
 func TestPromtoolFixtureCoverage(t *testing.T) {
 	data, err := os.ReadFile(filepath.Join("testdata", "ruralz.rules.test.yaml"))
 	if err != nil {
@@ -557,9 +553,9 @@ func TestStaleGeneratedWithoutOutput(t *testing.T) {
 	}
 }
 
-// TestClassifyDatasource: only Prometheus queries are checked (09 req 73);
-// a missing reference falls back to the panel and then to Grafana's
-// default data source, which is checked.
+// TestClassifyDatasource: only Prometheus queries are checked; a missing
+// reference falls back to the panel and then to Grafana's default data
+// source, which is checked.
 func TestClassifyDatasource(t *testing.T) {
 	prom := []string{"datasource", "DS_PROM"}
 	for _, tc := range []struct {

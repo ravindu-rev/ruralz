@@ -5,7 +5,7 @@
 // (version 0.0.4, plus the OpenMetrics 1.0 additions a scrape may meet:
 // "# UNIT", "# EOF", exemplars, _created samples and quoted UTF-8 names)
 // so integration, end-to-end and chaos tests can assert counters, gauges
-// and histogram quantiles of a Node's /metrics (11 section 3, H 49).
+// and histogram quantiles of a Node's /metrics.
 //
 // The package is standard library only: /metrics exposition belongs to
 // internal/telemetry, and the parser is the independent reader tests use

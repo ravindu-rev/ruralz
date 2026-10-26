@@ -12,10 +12,9 @@ import (
 	"testing"
 )
 
-// Tests for architecture section 2.15 (WP-01): JSON goldens of the admin
-// wire shapes of spec 04 requirements 61 (/readyz), 73 (/debug/snapshots)
-// and 75 (/tap events, member order), plus the {"dropped":N} notice (R-24)
-// and the "readers ignore unknown members" rule.
+// Tests for the JSON goldens of the admin wire shapes (/readyz,
+// /debug/snapshots and /tap events with their member order), plus the
+// {"dropped":N} notice and the "readers ignore unknown members" rule.
 
 func golden(t *testing.T, name string) []byte {
 	t.Helper()
@@ -95,7 +94,7 @@ func TestGoldens(t *testing.T) {
 }
 
 func TestTapEventMemberOrder(t *testing.T) {
-	// 04 req 75 field order; optional members are omitted when empty.
+	// The /tap event member order; optional members are omitted when empty.
 	full := golden(t, "tap-event.json")
 	dec := json.NewDecoder(bytes.NewReader(full))
 	if _, err := dec.Token(); err != nil {
@@ -177,7 +176,7 @@ func TestReadersIgnoreUnknownMembers(t *testing.T) {
 }
 
 func TestConstants(t *testing.T) {
-	// Readiness reasons of 04 req 61 and snapshot states of 04 req 73.
+	// Readiness reasons and snapshot states.
 	got := []string{
 		ReasonNoRevision, ReasonSecretsUnresolved, ReasonListenersUnbound, ReasonDraining,
 		StateActive, StateRetired, StateClosing, StateEnding,

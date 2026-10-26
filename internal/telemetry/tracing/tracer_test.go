@@ -33,7 +33,8 @@ import (
 
 var update = flag.Bool("update", false, "rewrite golden files")
 
-// TestDecide is spec 09 test 8 (reqs 28 to 30).
+// TestDecide covers the sampling decision for parent flags and root
+// ratios.
 func TestDecide(t *testing.T) {
 	for _, tc := range []struct {
 		name        string
@@ -74,9 +75,8 @@ func TestDecide(t *testing.T) {
 	}
 }
 
-// TestDecideRatio1PercentFraction checks the default ratio end to end
-// (spec 09 req 28). The IDs come from a seeded source, so the count is
-// reproducible.
+// TestDecideRatio1PercentFraction checks the default ratio end to end.
+// The IDs come from a seeded source, so the count is reproducible.
 func TestDecideRatio1PercentFraction(t *testing.T) {
 	tr := newTracer(t, Options{RootPerSecond: 1 << 30})
 	rng := rand.NewChaCha8([32]byte{'r', 'u', 'r', 'a', 'l', 'z'})
@@ -96,9 +96,9 @@ func TestDecideRatio1PercentFraction(t *testing.T) {
 	}
 }
 
-// TestDecideCaps covers the root and parent caps and the unsampled counter
-// (spec 09 req 29): client-forced flags never consume root tokens, the
-// ratio applies per call, and caps refill with time.
+// TestDecideCaps covers the root and parent caps and the unsampled
+// counter: client-forced flags never consume root tokens, the ratio
+// applies per call, and caps refill with time.
 func TestDecideCaps(t *testing.T) {
 	fake := clocktest.New(time.Unix(1_700_000_000, 0))
 	var c testCounters
@@ -145,7 +145,9 @@ func TestDecideCaps(t *testing.T) {
 	}
 }
 
-// TestInject is spec 09 test 9 (req 31).
+// TestInject covers injection into an upstream leg: the parent ID and
+// flags of the new traceparent, the tracestate, and the client values it
+// replaces or removes.
 func TestInject(t *testing.T) {
 	tr, mem := newMemTracer(t, Options{})
 	n := newOrdersNames()
@@ -240,8 +242,8 @@ func (m mapCarrier) Get(k string) string { return m[k] }
 func (m mapCarrier) Set(k, v string)     { m[k] = v }
 func (m mapCarrier) Delete(k string)     { delete(m, k) }
 
-// TestInjectCarrier covers spec 09 req 31 for the Carrier extension point
-// of section 8 (Get, Set, Delete).
+// TestInjectCarrier covers injection through the Carrier extension point
+// (Get, Set, Delete).
 func TestInjectCarrier(t *testing.T) {
 	tr := newTracer(t, Options{})
 	var d emit.Decision
@@ -283,7 +285,8 @@ func byName(spans tracetest.SpanStubs, name string) (tracetest.SpanStub, bool) {
 	return tracetest.SpanStub{}, false
 }
 
-// TestSpanModel is spec 09 test 10 (reqs 33 to 36).
+// TestSpanModel covers the span model: names, kinds, parents and
+// attributes.
 func TestSpanModel(t *testing.T) {
 	tr, mem := newMemTracer(t, Options{})
 	nm := newOrdersNames()
@@ -356,7 +359,7 @@ func TestSpanModel(t *testing.T) {
 	if a := attrs(inventory); a[semconv.ServerAddressKey] != attribute.StringValue("2001:db8::2") || a[semconv.ServerPortKey] != attribute.IntValue(8443) {
 		t.Fatalf("IPv6 endpoint attributes %v", a)
 	}
-	// Each leg's traceparent names its attempt span as the parent (req 31).
+	// Each leg's traceparent names its attempt span as the parent.
 	for _, lc := range []struct {
 		h    http.Header
 		span tracetest.SpanStub
@@ -372,7 +375,7 @@ func TestSpanModel(t *testing.T) {
 		t.Fatal("upstream-oauth is not a child of the orders leg")
 	}
 
-	// No span carries url.full, url.query or any header attribute (req 33).
+	// No span carries url.full, url.query or any header attribute.
 	for _, s := range spans {
 		for _, kv := range s.Attributes {
 			k := string(kv.Key)
@@ -408,7 +411,7 @@ func names(spans tracetest.SpanStubs) []string {
 
 // TestSpanStatusAndErrors covers the status rules: server Error on 5xx
 // only, client Error on 4xx, 5xx and every error.type, internal spans
-// Error when they carry an error.type (spec 09 reqs 33 to 36).
+// Error when they carry an error.type.
 func TestSpanStatusAndErrors(t *testing.T) {
 	tr, mem := newMemTracer(t, Options{})
 	ctx := context.Background()
@@ -496,8 +499,8 @@ func TestSpanStatusAndErrors(t *testing.T) {
 	}
 }
 
-// TestServerSpanName covers req 33 and 34: "<method> <route>" after the
-// match, "<method>" alone when unmatched.
+// TestServerSpanName checks the server span name: "<method> <route>"
+// after the match, "<method>" alone when unmatched.
 func TestServerSpanName(t *testing.T) {
 	tr, mem := newMemTracer(t, Options{})
 	for _, tc := range []struct{ method, route, want string }{
@@ -594,7 +597,7 @@ func TestSetAttrKinds(t *testing.T) {
 	}
 }
 
-// TestSpanLimits covers spec 09 req 22: string values are cut to at most
+// TestSpanLimits checks the span limits: string values are cut to at most
 // 256 bytes (not characters) at a rune boundary, through the start
 // attributes and SetAttr alike.
 func TestSpanLimits(t *testing.T) {
@@ -637,7 +640,7 @@ func TestSpanLimits(t *testing.T) {
 	}
 }
 
-// TestCutUTF8 covers the byte cut of spec 09 req 22 at its edges.
+// TestCutUTF8 covers the byte cut at its edges.
 func TestCutUTF8(t *testing.T) {
 	for _, tc := range []struct {
 		in   string
@@ -661,9 +664,9 @@ func TestCutUTF8(t *testing.T) {
 	}
 }
 
-// TestSpansNeedExporterAndSample covers reqs 7 and 15: unsampled requests
-// and requests without an OTLP endpoint create no span, onLog creates no
-// span, and removing the exporter stops span creation.
+// TestSpansNeedExporterAndSample checks that unsampled requests and
+// requests without an OTLP endpoint create no span, that onLog creates no
+// span, and that removing the exporter stops span creation.
 func TestSpansNeedExporterAndSample(t *testing.T) {
 	tr := newTracer(t, Options{})
 	mem := tracetest.NewInMemoryExporter()
@@ -714,7 +717,7 @@ func TestSpansNeedExporterAndSample(t *testing.T) {
 	}
 }
 
-// TestStartChunk covers the M3 helper of req 37.
+// TestStartChunk covers the M3 helper.
 func TestStartChunk(t *testing.T) {
 	tr, mem := newMemTracer(t, Options{})
 	var d emit.Decision
@@ -729,9 +732,9 @@ func TestStartChunk(t *testing.T) {
 	}
 }
 
-// TestIDGenerator covers req 30: only the server span takes the
-// Decision's IDs; children and spans started after the server span ended
-// draw fresh ones; the random source never yields zero IDs.
+// TestIDGenerator checks that only the server span takes the Decision's
+// IDs; children and spans started after the server span ended draw fresh
+// ones; the random source never yields zero IDs.
 func TestIDGenerator(t *testing.T) {
 	tr, mem := newMemTracer(t, Options{})
 	var d emit.Decision
@@ -785,8 +788,8 @@ func TestIDGenerator(t *testing.T) {
 	}
 }
 
-// TestSetExporterSwap covers req 24: a swap routes later batches to the
-// new exporter and hands the old one back.
+// TestSetExporterSwap checks that a swap routes later batches to the new
+// exporter and hands the old one back.
 func TestSetExporterSwap(t *testing.T) {
 	tr := newTracer(t, Options{})
 	a, b := newRecordExporter(), newRecordExporter()
@@ -839,7 +842,7 @@ func TestNewOptions(t *testing.T) {
 	}
 }
 
-// TestSpanTreeGolden is spec 09 golden test 34: the 15 Ruralz spans of
+// TestSpanTreeGolden is the span tree golden test: the 15 Ruralz spans of
 // OBS Figure 2 for the orders-summary Route (names, kinds, parent links,
 // order).
 func TestSpanTreeGolden(t *testing.T) {

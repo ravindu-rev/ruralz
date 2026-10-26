@@ -1,9 +1,8 @@
 # Copyright 2026 Revington
 # SPDX-License-Identifier: Apache-2.0
 #
-# promtool unit tests of the generated alert rules (spec 09 test 43; 09 req 72):
-# every alerted series exists at 0 from process start and raises nothing
-# (09 req 45); each M1 rule fires on its event, including an event recorded
+# promtool unit tests of the generated alert rules: every alerted series
+# exists at 0 from process start and raises nothing; each M1 rule fires on its event, including an event recorded
 # before the first scrape, except RuralzSeriesFolded, which alerts on new
 # folding only as OBS writes it; each burn-rate rule fires at its page and
 # ticket rates. TestPromtoolRules (integration tag) runs "promtool check
@@ -19,7 +18,7 @@ rule_files:
 evaluation_interval: 1m
 tests:
   # Process start: every enumeration label set an alert rule references
-  # exists at 0 (09 req 45, 57). No rule fires.
+  # exists at 0. No rule fires.
   - name: pre-created zero series raise nothing
     interval: 1m
     input_series:

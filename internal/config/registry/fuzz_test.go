@@ -66,11 +66,10 @@ type oracleFunc func(string) (bool, error)
 func (f oracleFunc) ReferencesRequestBody(src string) (bool, error) { return f(src) }
 
 // FuzzPhases checks Phase selection invariants over every type, scope,
-// config shape and Plugin Phase list (02 req 13, 13a and 14; 07 req 2):
-// no panic; a disallowed scope or Plugin Phase is exactly RZ-CFG-020;
-// otherwise the result stays within the declared Phases of the scope's leg
-// (the Plugin's Phases for plugin); authz.cel runs in exactly one Phase;
-// selection is deterministic.
+// config shape and Plugin Phase list: no panic; a disallowed scope or
+// Plugin Phase is exactly RZ-CFG-020; otherwise the result stays within
+// the declared Phases of the scope's leg (the Plugin's Phases for plugin);
+// authz.cel runs in exactly one Phase; selection is deterministic.
 func FuzzPhases(f *testing.F) {
 	f.Add(uint8(14), uint8(2), uint16(0b1011), uint16(0), "request.body")
 	f.Add(uint8(4), uint8(1), uint16(0), uint16(0), "request.body.x")

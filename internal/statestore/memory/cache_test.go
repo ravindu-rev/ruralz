@@ -12,15 +12,15 @@ import (
 	"github.com/ravindu-rev/ruralz/internal/statestore/keys"
 )
 
-// Tests for spec 08 req 45 details beyond the conformance suite
+// Tests for Response Cache storage details beyond the conformance suite
 // (variant order, partition TTLs, lease edge cases, generation reuse) and
-// req 53 (Response Cache store admission on the memory reading).
+// for Response Cache store admission on the memory reading.
 
 func TestAdmitStoreBytes(t *testing.T) {
-	// Spec 08 reqs 53 and 58, spec 05 req 84, with N_c = 1 for the memory
-	// driver (R-72). maxmemory 1,000,000,000: c = min(2% of maxmemory per
-	// 10 s / N_c, 4 MiB/s) = 2,000,000 bytes per second, so 20,000,000
-	// bytes between readings every 10 s, or 2,000,000 every 1 s above 50%.
+	// Store admission, with N_c = 1 for the memory driver.
+	// maxmemory 1,000,000,000: c = min(2% of maxmemory per 10 s / N_c, 4
+	// MiB/s) = 2,000,000 bytes per second, so 20,000,000 bytes between
+	// readings every 10 s, or 2,000,000 every 1 s above 50%.
 	const mb = 1_000_000 // 0.1% of maxmemory
 	f := newFixture(t, Options{MaxCacheBytes: 1000 * mb}, nil)
 	defer f.d.bytes.Store(0)
@@ -74,8 +74,8 @@ func TestAdmitStoreBytes(t *testing.T) {
 }
 
 func TestVariantOrder(t *testing.T) {
-	// Spec 08 req 45: at most 8 variants in store order; re-storing a
-	// variant makes it the newest.
+	// At most 8 variants in store order; re-storing a variant makes
+	// it the newest.
 	f := newFixture(t, Options{}, nil)
 	ck := statestore.CacheKey{URI: statestore.DigestOf("u")}
 	v := func(i int) statestore.Digest { return statestore.DigestOf(strconv.Itoa(i)) }
@@ -105,8 +105,8 @@ func TestVariantOrder(t *testing.T) {
 }
 
 func TestPartitionTTL(t *testing.T) {
-	// Spec 08 reqs 45 and 50: the partition expires at the larger of its
-	// remaining TTL and the entry TTL, capped at 25 h; never without a TTL.
+	// The partition expires at the larger of its remaining TTL and the
+	// entry TTL, capped at 25 h; never without a TTL.
 	f := newFixture(t, Options{}, nil)
 	ck := statestore.CacheKey{URI: statestore.DigestOf("u")}
 	ttl := func() time.Duration {
@@ -206,8 +206,8 @@ func TestLeaseEdges(t *testing.T) {
 }
 
 func TestGenerationNeverReused(t *testing.T) {
-	// Spec 08 req 45: when the stored generation is not below the server
-	// time (a clock that stepped back), the bump is stored + 1.
+	// When the stored generation is not below the server time (a clock
+	// that stepped back), the bump is stored + 1.
 	f := newFixture(t, Options{}, nil)
 	uri := statestore.DigestOf("u")
 	future := instantOf(f.clk.Now()).unixUs + 1_000_000

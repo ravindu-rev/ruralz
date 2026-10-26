@@ -10,19 +10,19 @@ import (
 	"github.com/ravindu-rev/ruralz/internal/statestore"
 )
 
-// Epoch2026 is 2026-01-01T00:00:00Z, the GCRA time base of spec 08 req
-// 41: a TAT is microseconds since it, as an exact float64.
+// Epoch2026 is 2026-01-01T00:00:00Z, the GCRA time base: a TAT is
+// microseconds since it, as an exact float64.
 const Epoch2026 = 1767225600
 
 // Model is the reference arithmetic of the ruralz_v1.lua sub-operations
-// g (GCRA), q (Quota reserve) and r (Quota refund), spec 08 reqs 41 to
-// 43, written for clarity rather than speed. Drivers must agree with it
-// exactly for identical inputs (spec 08 req 46): the conformance suite
-// feeds it the ServerNow each reply reports and compares every outcome,
-// and property tests drive it with a fake clock.
+// g (GCRA), q (Quota reserve) and r (Quota refund), written for clarity
+// rather than speed. Drivers must agree with it exactly for identical
+// inputs: the conformance suite feeds it the ServerNow each reply
+// reports and compares every outcome, and property tests drive it with
+// a fake clock.
 //
-// Two choices the spec leaves open are fixed here, and the drivers follow
-// them: a denial names the non-conforming limit with the largest raw
+// Two choices the algorithms leave open are fixed here, and the drivers
+// follow them: a denial names the non-conforming limit with the largest raw
 // retry-after (TAT - τ - now before rounding up), the lowest index on
 // ties; the Quota window candidates compare 2 × (node_ms - A) < W, which
 // is node_ms - A < W / 2 without integer division.
@@ -181,7 +181,7 @@ func (m *Model) Quota(node, now time.Time, q *statestore.Quota) (ok, skew bool) 
 }
 
 // Refund returns one unit to the window r names, never below 0; it
-// reports whether it decremented (spec 08 req 43).
+// reports whether it decremented.
 func (m *Model) Refund(r statestore.Refund) bool {
 	key := ModelWindow{r.Name, r.Window, r.WindowStart.UnixMilli(), r.Digest}
 	if m.counts[key] <= 0 {

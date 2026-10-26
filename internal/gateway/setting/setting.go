@@ -2,9 +2,8 @@
 // SPDX-License-Identifier: Apache-2.0
 
 // Package setting reads and validates the RURALZ_* process settings of
-// ruralzd once at start (spec 04 requirements 1 to 4; pack section 2;
-// OQ-security-and-identity-7 (a) and -22 (a); R-49). A change needs a
-// handover or a Drain and restart, and no setting ever changes a Revision.
+// ruralzd once at start (pack section 2). A change needs a handover or a Drain and restart, and no
+// setting ever changes a Revision.
 //
 // Every invalid setting is a usage error: Load reports all of them at once
 // as *Error values and ruralzd exits 2 (ExitUsage) naming each setting.
@@ -29,8 +28,7 @@ import (
 	"strings"
 )
 
-// Process setting names (pack section 2; spec 04 requirement 2; spec 06
-// requirements 85, 88 and 93; R-49).
+// Process setting names (pack section 2).
 //
 //nolint:gosec // G101: environment variable names, not credentials.
 const (
@@ -64,7 +62,7 @@ const (
 	EnvRegistryAuthFile = "RURALZ_REGISTRY_AUTH_FILE"
 )
 
-// Defaults (spec 04 requirement 2; spec 06 requirement 88).
+// Defaults.
 const (
 	// DefaultDataDir is the data directory when RURALZ_DATA_DIR is unset;
 	// it equals nodedir.DefaultRoot.
@@ -76,7 +74,7 @@ const (
 	DefaultLogLevel = LogInfo
 )
 
-// Process exit codes of ruralzd (spec 04 requirement 4).
+// Process exit codes of ruralzd.
 const (
 	// ExitOK follows a completed Drain.
 	ExitOK = 0
@@ -178,8 +176,8 @@ func ExitCode(err error) int {
 	return ExitRuntime
 }
 
-// Mode is the configuration mode chosen at boot from RURALZ_CONFIG (spec
-// 04 requirement 1). M1 serves ModeFile only.
+// Mode is the configuration mode chosen at boot from RURALZ_CONFIG. M1
+// serves ModeFile only.
 type Mode uint8
 
 // Configuration modes.
@@ -210,7 +208,7 @@ func (m Mode) String() string {
 // LogLevel is RURALZ_LOG_LEVEL.
 type LogLevel string
 
-// Log levels (spec 04 requirement 2).
+// Log levels.
 const (
 	LogDebug LogLevel = "debug"
 	LogInfo  LogLevel = "info"
@@ -269,7 +267,7 @@ type Settings struct {
 }
 
 // ProtectedPath is a process setting whose path the secret root must not
-// contain (spec 04 requirement 3; spec 06 requirement 88; R-49).
+// contain.
 type ProtectedPath struct {
 	// Setting names the variable.
 	Setting string
@@ -279,7 +277,7 @@ type ProtectedPath struct {
 
 // Protected returns every set protected path, including the effective
 // data directory, in a fixed order; the secret resolver repeats the
-// check (spec 01 requirement 45).
+// check.
 func (s *Settings) Protected() []ProtectedPath {
 	out := make([]ProtectedPath, 0, 6)
 	for _, p := range []ProtectedPath{
@@ -344,8 +342,8 @@ func Load(args []string, lookupEnv func(string) (string, bool)) (Settings, error
 		}
 	}
 	if v := get(EnvEnrollmentTokenFile); v != "" {
-		// Unused in M1, but still never inside the secret root (spec 06
-		// requirement 88); its syntax is not checked until M2.
+		// Unused in M1, but still never inside the secret root; its
+		// syntax is not checked until M2.
 		s.EnrollmentTokenFile = l.makeAbs(EnvEnrollmentTokenFile, v)
 	}
 	if s.SecretRoot != "" {
@@ -379,9 +377,9 @@ func (l *loader) fail(setting string, err error) {
 	l.errs = append(l.errs, &Error{Setting: setting, Err: err})
 }
 
-// config parses RURALZ_CONFIG (spec 04 requirement 1): a path selects file
-// mode; oci:// and ruralz-control:// are Planned (M2); any other URL is
-// refused. Only the scheme is echoed in errors.
+// config parses RURALZ_CONFIG: a path selects file mode; oci:// and
+// ruralz-control:// are Planned (M2); any other URL is refused. Only the
+// scheme is echoed in errors.
 func (l *loader) config(v string) string {
 	if v == "" {
 		l.fail(EnvConfig, fmt.Errorf("%w; set it to a rendered Bundle directory", ErrRequired))
@@ -443,7 +441,7 @@ func (l *loader) absolute(setting, v string) string {
 }
 
 // makeAbs makes a path absolute against the working directory, like
-// ruralz node drain does for --data-dir (spec 10 requirement 94).
+// ruralz node drain does for --data-dir.
 func (l *loader) makeAbs(setting, v string) string {
 	p, err := filepath.Abs(v)
 	if err != nil {
@@ -453,10 +451,10 @@ func (l *loader) makeAbs(setting, v string) string {
 	return p
 }
 
-// fetchAllow checks RURALZ_FETCH_ALLOW with egress.ParseAllow's grammar
-// (spec 06 requirement 85): comma-separated entries, blanks trimmed, each
-// an IP address or CIDR prefix without a zone, or env-proxy. A value of
-// only blanks allows nothing.
+// fetchAllow checks RURALZ_FETCH_ALLOW with egress.ParseAllow's grammar:
+// comma-separated entries, blanks trimmed, each an IP address or CIDR
+// prefix without a zone, or env-proxy. A value of only blanks allows
+// nothing.
 func (l *loader) fetchAllow(v string) {
 	if strings.TrimSpace(v) == "" {
 		return

@@ -176,7 +176,7 @@ func admitBind(t testing.TB, r *Registry, s emit.Shape) (*Plan, emit.Binding) {
 func phases(ps ...phase.Phase) phase.Set { return phase.Of(ps...) }
 
 // gatewayPolicies are the five Gateway Policies of the configuration
-// model worked example (spec 09 test 32).
+// model worked example.
 func gatewayPolicies() []emit.PolicyShape {
 	req := phases(phase.OnRequestHeaders)
 	return []emit.PolicyShape{

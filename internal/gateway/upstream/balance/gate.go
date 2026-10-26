@@ -8,9 +8,9 @@ import (
 	"fmt"
 )
 
-// BuildGate bounds the balancer builds running at a time on a Node (05 req
-// 16: at most 8). The Upstream manager shares one across its Balancers and
-// passes it to Rebuild.
+// BuildGate bounds the balancer builds running at a time on a Node (at
+// most 8). The Upstream manager shares one across its Balancers and passes
+// it to Rebuild.
 type BuildGate struct {
 	slots chan struct{}
 }

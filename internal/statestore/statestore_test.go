@@ -17,12 +17,11 @@ import (
 	"github.com/ravindu-rev/ruralz/internal/telemetry/emit"
 )
 
-// Tests for architecture section 2.12 (WP-01) and spec 08 sections 2.1 to
-// 2.4: the per-request deadline starting at the first blocking call (R-12,
-// pack 8.7 rule 2), the stripe it carries (R-56), RouteMax, the five
-// RZ-STS failures and their result labels, the op label mapping against
-// catalog.Ops() (R-56) and the Capability bits. Deps.MACKey (R-49, 08 req
-// 68) is a field only; statestore/keys (WP-13) tests the HMAC it keys.
+// Tests for the State Store contract: the per-request deadline starting at
+// the first blocking call (pack 8.7 rule 2), the stripe it carries,
+// RouteMax, the five RZ-STS failures and their result labels, the op label
+// mapping against catalog.Ops() and the Capability bits. Deps.MACKey is a
+// field only; statestore/keys tests the HMAC it keys.
 
 // t0 returns the fixed start time of the budget tests.
 func t0() time.Time { return time.Date(2026, 9, 26, 12, 0, 0, 0, time.UTC) }
@@ -52,7 +51,7 @@ func TestCallTimeout(t *testing.T) {
 
 func TestCallTimeoutStartsLate(t *testing.T) {
 	// A budget built at request start but first used 30ms later still
-	// grants its whole length from the first call (R-12).
+	// grants its whole length from the first call.
 	b := NewRequestBudget(50*time.Millisecond, 0)
 	late := t0().Add(30 * time.Millisecond)
 	if d, ok := b.CallTimeout(context.Background(), late, time.Second); !ok || d != 50*time.Millisecond {
@@ -178,7 +177,7 @@ func TestErrors(t *testing.T) {
 }
 
 func TestOpLabels(t *testing.T) {
-	// R-56: catalog.Ops()[op.Label()] == op.String() for every OpKind.
+	// catalog.Ops()[op.Label()] == op.String() for every OpKind.
 	opsList := []OpKind{OpGCRA, OpQuota, OpCacheGet, OpCacheSet, OpCacheInvalidate, OpRefund}
 	ops := catalog.Ops()
 	for _, op := range opsList {
@@ -237,7 +236,7 @@ func TestDigestOf(t *testing.T) {
 }
 
 func TestDefaults(t *testing.T) {
-	// R-21: stateStore.timeout default 50ms.
+	// stateStore.timeout defaults to 50ms.
 	if DefaultTimeout != 50*time.Millisecond {
 		t.Fatalf("DefaultTimeout = %v", DefaultTimeout)
 	}

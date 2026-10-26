@@ -2,20 +2,19 @@
 // SPDX-License-Identifier: Apache-2.0
 
 // Package tlsconf is the single TLS policy place of a Node (Security and
-// identity, "Transport security"; spec 06 sections 2.11 and 2.12). It
-// builds every *tls.Config ruralzd uses:
+// identity, "Transport security"). It builds every *tls.Config ruralzd
+// uses:
 //
 //   - Server: https listeners, TLS 1.3 by default and 1.2 on request with
 //     exactly the six ECDHE AEAD suites, ALPN h2 and http/1.1, certificate
 //     choice by SNI from a CertIndex that follows secret rotations, and the
-//     client-certificate request mode of auth.mtls (requirements 74 to 77,
-//     46);
+//     client-certificate request mode of auth.mtls;
 //   - Upstream and OTLP: TLS 1.2 or newer, server always verified against
 //     tls.caCertificate or the system roots, optional client certificate,
-//     rotated values reaching new connections (requirements 79, 81);
-//   - IdentityProvider and StateStore: TLS 1.2 or newer against the system roots, which
-//     honor SSL_CERT_FILE and SSL_CERT_DIR (requirements 80, 82);
-//   - Admin: the admin server from RURALZ_ADMIN_TLS_DIR (requirement 95).
+//     rotated values reaching new connections;
+//   - IdentityProvider and StateStore: TLS 1.2 or newer against the system
+//     roots, which honor SSL_CERT_FILE and SSL_CERT_DIR;
+//   - Admin: the admin server from RURALZ_ADMIN_TLS_DIR.
 //
 // No builder sets InsecureSkipVerify and no field disables verification.
 // Parse failures carry fixed messages that never contain secret bytes.
@@ -32,8 +31,7 @@ import (
 
 // HandshakeTimeout bounds a listener's TLS handshake: the listener sets it
 // as http.Server.ReadHeaderTimeout, which net/http applies to the
-// handshake while ReadTimeout and WriteTimeout are unset (spec 06
-// requirement 77, target).
+// handshake while ReadTimeout and WriteTimeout are unset (target).
 const HandshakeTimeout = 10 * time.Second
 
 // Listener tls.minVersion values (Gateway listeners[].tls.minVersion).
@@ -58,19 +56,19 @@ const (
 	// client certificate and key, an unknown minVersion, no certificates).
 	codeSchema = "RZ-CFG-005"
 	// codeResolution is a secretRef that is unresolved or whose content
-	// does not parse (spec 06 requirement 51).
+	// does not parse.
 	codeResolution = "RZ-CFG-026"
 )
 
 // ErrNoSystemRoots reports that the process has no usable system CA roots,
 // so JWKS, token, Upstream and State Store verification against the system
-// roots fails (OQ-tech-stack-and-libraries-25; ruralzd logs a startup
+// roots fails (ruralzd logs a startup
 // warning).
 var ErrNoSystemRoots = errors.New("tlsconf: no system CA roots; set SSL_CERT_FILE or SSL_CERT_DIR")
 
 // TLS12Suites returns a fresh copy of the only TLS 1.2 cipher suites a
-// Node negotiates, ECDHE with AES-GCM or ChaCha20-Poly1305 (spec 06
-// requirement 74). TLS 1.3 suites are not configurable in Go.
+// Node negotiates, ECDHE with AES-GCM or ChaCha20-Poly1305. TLS 1.3
+// suites are not configurable in Go.
 func TLS12Suites() []uint16 {
 	return []uint16{
 		tls.TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256,
@@ -116,15 +114,13 @@ func Client(roots *x509.CertPool) *tls.Config {
 // IdentityProvider returns the client configuration of jwksUrl and
 // tokenUrl fetches (IdP, TB-10): TLS 1.2 or newer against the system
 // roots; private CAs come from SSL_CERT_FILE and SSL_CERT_DIR, never from
-// a Bundle field (spec 06 requirement 82). Pass it as
-// egress.ClientOptions.TLS.
+// a Bundle field. Pass it as egress.ClientOptions.TLS.
 func IdentityProvider() *tls.Config { return Client(nil) }
 
 // StateStore returns the client configuration of a rediss:// State Store:
-// TLS 1.2 or newer, verified against the system roots for host (spec 06
-// requirement 80). The rueidis wrapper passes it to its dialer; host is
-// the URL host without port (an IP literal verifies IP SANs and sends no
-// SNI).
+// TLS 1.2 or newer, verified against the system roots for host. The
+// rueidis wrapper passes it to its dialer; host is the URL host without
+// port (an IP literal verifies IP SANs and sends no SNI).
 func StateStore(host string) *tls.Config {
 	c := Client(nil)
 	c.ServerName = serverName(host)

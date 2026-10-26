@@ -20,7 +20,7 @@ import (
 	"github.com/ravindu-rev/ruralz/internal/jsonval"
 )
 
-// suiteRoot is the vendored JSON-Schema-Test-Suite (11 req 18).
+// suiteRoot is the vendored JSON-Schema-Test-Suite.
 const suiteRoot = "../../../../test/fixtures/json-schema-test-suite"
 
 // suiteGroup is one schema of a suite file with its test cases.
@@ -34,10 +34,10 @@ type suiteGroup struct {
 	} `json:"tests"`
 }
 
-// refusedBecause lists the findings a suite schema may legitimately get
-// from 07 req 75: references outside the document (the suite's remotes
-// and meta-schemas), a $schema other than draft 2020-12 (cross-draft and
-// vocabulary cases), and anchors or pointers the walk resolves strictly.
+// refusedBecause lists the findings a suite schema may legitimately get:
+// references outside the document (the suite's remotes and meta-schemas), a
+// $schema other than draft 2020-12 (cross-draft and vocabulary cases), and
+// anchors or pointers the walk resolves strictly.
 func refusedBecause() []string {
 	return []string{
 		"resolves outside the schema document",
@@ -108,7 +108,7 @@ func TestJSONSchemaTestSuite(t *testing.T) {
 			}
 		}
 	}
-	t.Logf("%d files, %d groups (%d refused by 07 req 75), %d cases", len(files), groups, refused, cases)
+	t.Logf("%d files, %d groups (%d refused by the compile rules), %d cases", len(files), groups, refused, cases)
 	if refused*5 > groups {
 		t.Errorf("%d of %d groups refused, more than a fifth", refused, groups)
 	}

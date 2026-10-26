@@ -10,9 +10,8 @@ import (
 )
 
 // Handles are what request-path code holds: one atomic pointer load
-// selects the label set (its own, or _overflow once folded; spec 09 req
-// 48), then one atomic add records. No handle method locks, allocates or
-// blocks.
+// selects the label set (its own, or _overflow once folded), then one
+// atomic add records. No handle method locks, allocates or blocks.
 
 // counterH is an emit.Counter.
 type counterH struct {

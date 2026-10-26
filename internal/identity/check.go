@@ -40,8 +40,7 @@ type first struct {
 }
 
 // Check runs the static Consumer checks every binary's validator runs at
-// stage H (spec 06 requirement 20; Security and identity, "Basic and mTLS
-// schemas"; OQ-security-and-identity-24 (a)):
+// stage H (Security and identity, "Basic and mTLS schemas"):
 //
 //   - RZ-CFG-035: a credentials.basic username, or a credentials.certificates
 //     subject or uriSan, declared by two Consumers, so each credential binds
@@ -61,8 +60,7 @@ type first struct {
 //
 // Duplicate API key hashes and duplicate (issuer, subject) or (issuer,
 // clientId) pairs have no static code: the runtime answers them with 401
-// RZ-AUTH-002 (spec 06 requirement 18; architecture R-22). A nil loc
-// places findings at the resource start.
+// RZ-AUTH-002. A nil loc places findings at the resource start.
 func Check(b *hub.Bundle, loc Locator, add func(diag.Diagnostic)) {
 	if b == nil {
 		return

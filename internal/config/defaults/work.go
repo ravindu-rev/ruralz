@@ -13,19 +13,18 @@ import (
 )
 
 // yieldCheck is the number of work units (nodes visited, sort
-// comparisons) between two reads of the yield timer (01 req 53: checked
-// every 256 nodes inside a unit).
+// comparisons) between two reads of the yield timer (checked every 256
+// nodes inside a unit).
 const yieldCheck = 256
 
-// yieldAfter is the work a worker does before it yields the processor
-// (01 req 53).
+// yieldAfter is the work a worker does before it yields the processor.
 const yieldAfter = 100 * time.Microsecond
 
 // work is the state one goroutine carries through every step of stage G
 // (Materialize, conversion, Normalize, Decode) and from one resource to
-// the next: the yield timer of 01 req 53, one counter for all steps, and
-// the diagnostic budget of 01 req 50, which Run shares among its workers.
-// A work value belongs to one goroutine; only the budget is shared.
+// the next: the yield timer, one counter for all steps, and the
+// diagnostic budget, which Run shares among its workers. A work value
+// belongs to one goroutine; only the budget is shared.
 type work struct {
 	// units counts the work units since the timer was last read.
 	units int
@@ -47,7 +46,7 @@ func newWork(budget *atomic.Int64) *work {
 	if budget == nil {
 		budget = newBudget()
 	}
-	// The yield timer is the one clock read 01 req 55 allows.
+	// The yield timer is the package's only clock read.
 	return &work{last: time.Now(), budget: budget}
 }
 
@@ -71,9 +70,9 @@ func (w *work) tick() {
 }
 
 // check yields the processor once yieldAfter has passed since the last
-// yield (01 req 53). Run calls it between resources, Decode before and
-// after each encoding/json call, tick every yieldCheck units. A nil w
-// does nothing.
+// yield. Run calls it between resources, Decode before and after each
+// encoding/json call, tick every yieldCheck units. A nil w does
+// nothing.
 func (w *work) check() {
 	if w == nil {
 		return
@@ -111,7 +110,7 @@ func (w *work) spent() bool { return w.budget.Load() < 0 }
 
 // limit returns ds with the RZ-CFG-001 "too many diagnostics" error
 // appended when the budget dropped a diagnostic, as the pipeline's
-// diag.Collector does (01 req 50).
+// diag.Collector does.
 func limit(ds diag.List, spent bool) diag.List {
 	if !spent {
 		return ds

@@ -62,11 +62,11 @@ func walkAll(t *testing.T, x *Index, kind, src string) map[string]visit {
 }
 
 func TestWalkPathsAndInfo(t *testing.T) {
-	// 01 req 25 (keyed-list and set element paths, dispatch by type), 01
-	// req 28 (forbidden positions), 01 req 34 (key-aware paths), 02 req 17
-	// (lists without keyword are atomic; set elements by their canonical
-	// value, so the authored 1.50 is [item=1.5]), 02 req 18 (open members
-	// are free), 02 req 64 (impact from the root, security under secrets).
+	// Keyed-list and set element paths, dispatch by type, forbidden
+	// positions, key-aware paths, lists without keyword as atomic (set
+	// elements by their canonical value, so the authored 1.50 is
+	// [item=1.5]), open members as free, and impact from the root with
+	// security under secrets.
 	x := mustLoad(t, synthetic)
 	v := walkAll(t, x, "Thing", thing)
 	type want struct {
@@ -209,10 +209,10 @@ func TestWalkControl(t *testing.T) {
 }
 
 func TestWalkEditsAreVisited(t *testing.T) {
-	// 01 req 36 as the defaults stage uses Walk: a callback that adds the
-	// absent defaults of each present object sees them visited, with their
-	// own schema; and a callback that sets the dispatch member redirects
-	// the children (overlay merges spec.type before descending).
+	// Walk as the defaults stage uses it: a callback that adds the absent
+	// defaults of each present object sees them visited, with their own
+	// schema; and a callback that sets the dispatch member redirects the
+	// children (overlay merges spec.type before descending).
 	x := mustLoad(t, synthetic)
 	res := parseTree(t, `{"apiVersion":"test/v1","kind":"Thing","metadata":{"name":"t"},"spec":{"variant":{}}}`)
 	var defaulted []string
@@ -285,8 +285,8 @@ func TestLookupElements(t *testing.T) {
 			t.Errorf("Lookup(%s) = %+v %v", p, info, ok)
 		}
 	}
-	// 02 req 76: the schema path, the key of the (apiVersion, schema path)
-	// lifecycle table, drops element keys and indexes.
+	// The schema path, the key of the (apiVersion, schema path) lifecycle
+	// table, drops element keys and indexes.
 	if sp, ok := x.SchemaPath("Thing", res, pathOf("spec", "entries", diag.Keyed("id", "e1"), "val")); !ok || sp != "spec.entries[].val" {
 		t.Errorf("SchemaPath = %q %v", sp, ok)
 	}
@@ -299,9 +299,9 @@ func TestLookupElements(t *testing.T) {
 }
 
 func TestItemElem(t *testing.T) {
-	// 01 req 34 and 02 req 17: key-aware elements per list type; set
-	// elements by their RFC 8785 value, so equal numbers share one element
-	// (02 req 69 diff paths carry the same value).
+	// Key-aware elements per list type; set elements by their RFC 8785
+	// value, so equal numbers share one element and diff paths carry the
+	// same value.
 	spec := thingSpec(t, mustLoad(t, synthetic))
 	list := func(name string) *Node { n, _ := spec.Property(name); return n }
 	for _, tc := range []struct {
@@ -441,12 +441,11 @@ const keywordSchema = `{"properties":{"kind":{"enum":["K"]}},
         {"if":{"properties":{"type":{"const":"r"}},"required":["type"]},"then":{"x-ruralz-ref":"K"}}]}}}}}`
 
 func TestBranchAndArrayKeywords(t *testing.T) {
-	// 01 req 28 and 02 req 64: keywords on a then or else branch object
-	// count for the dispatched position and its subtree like keywords on
-	// the field; the elements of an x-ruralz-ref or x-ruralz-cel array
-	// (nested arrays included) and the values of an x-ruralz-ref typed map
-	// are forbidden positions too, while members of an object element are
-	// not. Walk and Lookup agree.
+	// Keywords on a then or else branch object count for the dispatched
+	// position and its subtree like keywords on the field; the elements of
+	// an x-ruralz-ref or x-ruralz-cel array (nested arrays included) and
+	// the values of an x-ruralz-ref typed map are forbidden positions too,
+	// while members of an object element are not. Walk and Lookup agree.
 	x := mustLoad(t, keywordSchema)
 	type want struct {
 		secret, noSubst bool
@@ -534,9 +533,9 @@ func TestBranchAndArrayKeywords(t *testing.T) {
 }
 
 func TestFieldsReportBranchKeywords(t *testing.T) {
-	// R-62: a then or else branch that annotates the dispatched object
-	// itself lists that object again with its Dispatch, so Fields reports
-	// the secret, reference and impact markers Lookup and Walk apply.
+	// A then or else branch that annotates the dispatched object itself
+	// lists that object again with its Dispatch, so Fields reports the
+	// secret, reference and impact markers Lookup and Walk apply.
 	x := mustLoad(t, keywordSchema)
 	var got []Field
 	for _, f := range x.Fields() {

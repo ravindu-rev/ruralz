@@ -13,18 +13,18 @@ import (
 	sjs "github.com/santhosh-tekuri/jsonschema/v6"
 )
 
-// The counts of each body value's own path (architecture R-77, package
-// documentation "Working set"). The depth bound of the analysis (workBound)
-// holds, at every depth, the largest counts of any member class at that
-// depth, so a costly union in one member would make every value at the
-// same depth expensive, whatever its member path or JSON kind. The model
-// therefore also follows the body itself: at compile time it builds the
-// states of an automaton, each the multiset of schemas the library
-// evaluates at a value reached along some path of member names and
-// indexes, with the transitions from it by member name, by index and to a
-// member name under propertyNames; the scan before validation walks them
-// with the body and charges each value its own state's counts, never more
-// than the depth bound (both are upper bounds, so their smaller one is).
+// The counts of each body value's own path (package documentation
+// "Working set"). The depth bound of the analysis (workBound) holds, at
+// every depth, the largest counts of any member class at that depth, so a
+// costly union in one member would make every value at the same depth
+// expensive, whatever its member path or JSON kind. The model therefore
+// also follows the body itself: at compile time it builds the states of an
+// automaton, each the multiset of schemas the library evaluates at a value
+// reached along some path of member names and indexes, with the transitions
+// from it by member name, by index and to a member name under
+// propertyNames; the scan before validation walks them with the body and
+// charges each value its own state's counts, never more than the depth
+// bound (both are upper bounds, so their smaller one is).
 //
 // A state is an upper bound of the evaluations at its values: a member or
 // item gets every subschema that can apply to it, both then and else
@@ -85,8 +85,7 @@ func typeNames() [kinds]string {
 // transitions by name and index, which the compiled Schema keeps (about 5
 // MB at the bounds); stateBudget bounds the schemas, multiset entries,
 // in-place edges, programs of the schemas' pattern reaches and declared
-// names building them may touch (part of BenchmarkEvaluationAnalysis;
-// review finding: the programs merged for each state were not charged).
+// names building them may touch (part of BenchmarkEvaluationAnalysis).
 // Matching the declared names against the patterns of other schemas
 // spends what newGNode left of the document's matchBudget.
 const (
@@ -154,9 +153,8 @@ type evalState struct {
 	// valuePats is what may match the value's string, the patterns of
 	// every evaluation, and namePats what may match a member's name, their
 	// patternProperties: the scan charges a matcher and the backtracker's
-	// job stack only for these (review finding: every pattern of the
-	// document was charged to every string a pattern or a uniqueItems pass
-	// reached).
+	// job stack only for these, not every pattern of the document for every
+	// string a pattern or a uniqueItems pass reached.
 	valuePats, namePats patternReach
 	// multiples counts the evaluations with multipleOf, and divNum and
 	// divDen sum the digits of their divisors' numerators and denominators
@@ -340,7 +338,7 @@ func (b *stateBuilder) next(entries []entry) int {
 
 // weigh returns the counts of multiset set, without transitions. Its work
 // is linear in the schemas of set: the lists it details are bounded by
-// maxLoops, past which they are summed (review finding: the length loops
+// maxLoops, past which they are summed (unbounded, the length loops
 // grew with every distinct pair of lengths, each added after a scan of
 // the list, so 1,000 minLength values under 500 members compiled for 1 s),
 // and the pattern reaches merge in a table.
@@ -481,8 +479,8 @@ func (b *stateBuilder) link(i int) {
 	// The distinct names number at least the widest schema's and at most
 	// their sum; past the transitions or the budget left, they are not
 	// collected, and then neither are the transitions by name nor the one
-	// of the other names (review finding: an uncollected list is empty, and
-	// the other names' state would have taken every declared name).
+	// of the other names (an uncollected list is empty, and the other
+	// names' state would have taken every declared name).
 	var names []string
 	collected := widest <= b.transitions && declared <= b.budget
 	if collected {

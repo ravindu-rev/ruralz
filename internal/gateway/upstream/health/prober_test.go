@@ -141,7 +141,7 @@ func (h *proberHarness) advance(t *testing.T, d, step time.Duration, quiet bool)
 	}
 }
 
-// TestProbeSlots covers 05 req 20: slots = min(256, ceil(Σ probes per
+// TestProbeSlots covers the probe slots: min(256, ceil(Σ probes per
 // second × timeout)) shared across Upstreams, at least 1 while probing.
 func TestProbeSlots(t *testing.T) {
 	clk := clocktest.New(epoch())
@@ -197,7 +197,7 @@ func TestProbeSlots(t *testing.T) {
 	}
 }
 
-// TestProbeThresholds covers 05 req 20: unhealthyThreshold consecutive
+// TestProbeThresholds covers active health: unhealthyThreshold consecutive
 // failures mark unhealthy (counting an active ejection), healthyThreshold
 // consecutive successes mark healthy, interleaved results restart the run,
 // new Endpoints start healthy; active removals ignore the passive cap.
@@ -245,10 +245,10 @@ func TestProbeThresholds(t *testing.T) {
 	}
 }
 
-// TestProberSchedule covers 05 req 20: the first probe of each Endpoint
-// falls within its first interval, later ones interval ±10% apart; GET
-// path with the policy's path; 200-399 succeed, other statuses and errors
-// fail.
+// TestProberSchedule covers the probe schedule: the first probe of each
+// Endpoint falls within its first interval, later ones interval ±10% apart;
+// GET path with the policy's path; 200-399 succeed, other statuses and
+// errors fail.
 func TestProberSchedule(t *testing.T) {
 	for _, tc := range []struct {
 		name        string
@@ -294,8 +294,8 @@ func TestProberSchedule(t *testing.T) {
 	}
 }
 
-// TestProbeVerdicts covers the success rule of 05 req 20: a status from 200
-// to 399 within timeout.
+// TestProbeVerdicts covers the success rule: a status from 200 to 399
+// within timeout.
 func TestProbeVerdicts(t *testing.T) {
 	cases := []struct {
 		status int
@@ -334,7 +334,7 @@ func TestProbeVerdicts(t *testing.T) {
 }
 
 // TestProbeTimeout: a probe still running at the policy timeout is canceled
-// with ErrProbeTimeout and fails (05 req 20).
+// with ErrProbeTimeout and fails.
 func TestProbeTimeout(t *testing.T) {
 	clk := clocktest.New(epoch())
 	tr := NewTracker(Config{Upstream: "u", Clock: clk, Active: &ActivePolicy{Timeout: 2 * time.Second, UnhealthyThreshold: 1}})
@@ -360,8 +360,8 @@ func TestProbeTimeout(t *testing.T) {
 	}
 }
 
-// TestProbesSkipped covers 05 req 20: a due probe that finds no slot is
-// skipped and counted per Upstream; more than 10% skipped over the last
+// TestProbesSkipped covers skipped probes: a due probe that finds no slot
+// is skipped and counted per Upstream; more than 10% skipped over the last
 // minute raises probes_skipped, which clears as the window slides.
 func TestProbesSkipped(t *testing.T) {
 	clk := clocktest.New(epoch())
@@ -549,8 +549,8 @@ func TestJitterWindow(t *testing.T) {
 }
 
 // TestProberRestart: a Prober whose Run stopped schedules every attached
-// Endpoint again when Run starts once more (05 req 20 keeps probing
-// across a restart of the scheduler).
+// Endpoint again when Run starts once more (probing continues across a
+// restart of the scheduler).
 func TestProberRestart(t *testing.T) {
 	clk := clocktest.New(epoch())
 	// Timeout = interval: two slots, so both first probes run at once.

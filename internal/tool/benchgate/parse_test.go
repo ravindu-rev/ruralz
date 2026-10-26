@@ -28,8 +28,8 @@ PASS
 ok  	example.com/p	0.123s
 `
 
-// TestParseBench covers 11 test plan item 1: several lines per benchmark
-// (-count), the -<cpu> suffix, sub-benchmarks and custom metrics.
+// TestParseBench covers several lines per benchmark (-count), the -<cpu>
+// suffix, sub-benchmarks and custom metrics.
 func TestParseBench(t *testing.T) {
 	got := map[string][]sample{}
 	if err := parseBench([]byte(capturedOutput), 4, got); err != nil {
@@ -75,8 +75,7 @@ func TestParseBenchCPU1(t *testing.T) {
 	}
 }
 
-// TestParseBenchErrors: output without -benchmem is a tool error (exit 2,
-// 11 test plan item 1).
+// TestParseBenchErrors: output without -benchmem is a tool error (exit 2).
 func TestParseBenchErrors(t *testing.T) {
 	for _, tc := range []struct {
 		name, out string
@@ -98,7 +97,7 @@ func TestParseBenchErrors(t *testing.T) {
 	}
 }
 
-// TestMedian covers even and odd counts (11 test plan item 1).
+// TestMedian covers even and odd counts.
 func TestMedian(t *testing.T) {
 	for _, tc := range []struct {
 		in   []float64

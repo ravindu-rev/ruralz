@@ -19,8 +19,7 @@ import (
 	"github.com/ravindu-rev/ruralz/internal/secret"
 )
 
-// Fixed reasons of the kind checks (spec 01 requirement 44, spec 06
-// requirements 13, 51, 76 and 80). None repeats any part of the value.
+// Fixed reasons of the kind checks. None repeats any part of the value.
 var (
 	errNoCertificate    = errors.New("value holds no PEM CERTIFICATE block")
 	errBadCertificate   = errors.New("a PEM CERTIFICATE block does not parse")
@@ -44,7 +43,7 @@ const (
 	pemPrivateKey  = "PRIVATE KEY"
 )
 
-// sizeCap returns the size cap of a value of kind k (architecture R-9).
+// sizeCap returns the size cap of a value of kind k.
 func sizeCap(k secret.Kind) int64 {
 	if k == secret.KindPEMCRL {
 		return MaxCRLBytes
@@ -75,8 +74,7 @@ func runCheck(u useCheck, b []byte) error {
 
 // callCheck runs check on a copy of b, cleared afterwards. A panic becomes
 // errCheckPanicked and its value is dropped, so a faulty consumer check
-// neither stops the resolver goroutine nor prints the value it was given
-// (spec 01 section 6, secret leak tests).
+// neither stops the resolver goroutine nor prints the value it was given.
 func callCheck(check func([]byte) error, b []byte) (err error) {
 	c := bytes.Clone(b)
 	defer func() {
@@ -159,7 +157,7 @@ func checkCertificates(b []byte) error {
 }
 
 // checkCertPool requires at least one CERTIFICATE block that parses (a CA
-// bundle; spec 06 requirement 51: invalid when no certificate parses).
+// bundle is invalid when no certificate parses).
 func checkCertPool(b []byte) error {
 	var ok bool
 	pemBlocks(b, func(blk *pem.Block) bool {
@@ -230,12 +228,11 @@ func checkCRLs(b []byte) error {
 	return nil
 }
 
-// checkStateStoreURL applies the credentials rule of spec 06 requirement
-// 80 and spec 08 requirement 8 (RZ-CFG-026 interim): a URL whose hosts are
-// not all loopback literals (127.0.0.0/8 in IPv4 form, ::1, localhost;
-// never decided by DNS) must carry a user name or a password. Surrounding
-// SP, HTAB, CR and LF are ignored; the topology fit is the consumer's
-// check.
+// checkStateStoreURL applies the credentials rule (RZ-CFG-026 interim): a
+// URL whose hosts are not all loopback literals (127.0.0.0/8 in IPv4 form,
+// ::1, localhost; never decided by DNS) must carry a user name or a
+// password. Surrounding SP, HTAB, CR and LF are ignored; the topology fit
+// is the consumer's check.
 func checkStateStoreURL(b []byte) error {
 	u, err := url.Parse(string(trimSpace(b)))
 	if err != nil || u.Scheme == "" || u.Opaque != "" {
@@ -272,10 +269,10 @@ func hasCredentials(u *url.URL) bool {
 	return set && p != ""
 }
 
-// isLoopbackLiteral reports one of the loopback literals spec 08
-// requirement 8 lists: localhost (any case), an IPv4 address in
-// 127.0.0.0/8 or ::1. An IPv4-mapped IPv6 address (::ffff:127.0.0.1) is
-// not one of them, although netip counts it as loopback.
+// isLoopbackLiteral reports one of the loopback literals: localhost (any
+// case), an IPv4 address in 127.0.0.0/8 or ::1. An IPv4-mapped IPv6
+// address (::ffff:127.0.0.1) is not one of them, although netip counts it
+// as loopback.
 func isLoopbackLiteral(h string) bool {
 	if strings.EqualFold(h, "localhost") {
 		return true
@@ -284,8 +281,7 @@ func isLoopbackLiteral(h string) bool {
 	return err == nil && !a.Is4In6() && a.IsLoopback()
 }
 
-// trimSpace trims leading and trailing SP, HTAB, CR and LF (spec 06
-// requirement 13).
+// trimSpace trims leading and trailing SP, HTAB, CR and LF.
 func trimSpace(b []byte) []byte { return bytes.Trim(b, " \t\r\n") }
 
 // windowBytes is the length of the value windows sanitize looks for.
@@ -300,8 +296,7 @@ const maxEncodedCheck = 64 << 10
 // fixed reason. "Part" is the whole trimmed value when it is shorter than
 // windowBytes, else any windowBytes-long window of it, looked for in the
 // raw value and, for values up to maxEncodedCheck bytes, in its hex,
-// base64 and URL-escaped forms (the forms of the spec 06 section 6.6
-// canary test).
+// base64 and URL-escaped forms (the forms of the canary leak test).
 func sanitize(err error, value []byte) error {
 	if leaks(err.Error(), value) {
 		return errWithheld

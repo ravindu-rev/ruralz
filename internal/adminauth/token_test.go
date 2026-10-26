@@ -19,12 +19,11 @@ import (
 	"github.com/ravindu-rev/ruralz/internal/errcode"
 )
 
-// Tests for the WP-17 "Done when" item "token rotation picked up": a
-// changed token file is re-read on the next request presenting a token
-// (or on Reload) and the new token replaces the old one; a rotation to an
-// invalid token keeps the last valid one and is reported once; removing
-// the file revokes its token. The start rules of spec 06 requirement 93
-// hold for every re-read.
+// Tests for token rotation: a changed token file is re-read on the next
+// request presenting a token (or on Reload) and the new token replaces
+// the old one; a rotation to an invalid token keeps the last valid one
+// and is reported once; removing the file revokes its token. The start
+// rules hold for every re-read.
 
 // authAs returns the kind a is admitting tok as on path, KindNone on error.
 func authAs(t *testing.T, a *Authenticator, path, tok string) Kind {

@@ -5,8 +5,7 @@
 // the effective Filter Chain (hub.Chain) of every Route from the Gateway,
 // Route and Upstream attachments of a validated Bundle, and it is the only
 // stage that raises RZ-CFG-018, RZ-CFG-019, RZ-CFG-020, RZ-CFG-029 and
-// RZ-CFG-038 (architecture R-46; spec 02 section 2.7, requirements 35 to
-// 42; foundation pack section 8.12).
+// RZ-CFG-038 (foundation pack section 8.12).
 //
 // For each Route the chain follows the resolution rules of
 // docs/architecture/02-configuration-model.md "Attachment and precedence":
@@ -27,25 +26,23 @@
 //     plugin).
 //  5. Within a Phase: Filter class, then scope (Gateway, Route, Upstream),
 //     then zero-based position in that scope's spec.policies; response
-//     Phases (and onChunk, spec 02 R-12) in exact reverse; onLog in request
-//     order.
+//     Phases (and onChunk) in exact reverse; onLog in request order.
 //
 // A chain that holds a cache Policy and an onRequestBody Policy of class
 // authz or validation, or a plugin Policy of class auth or authz in
 // onRequestBody, is RZ-CFG-038 at the cache attachment
-// (OQ-traffic-management-and-resilience-21 (a), spec 02 req 39). A Route's
-// legs are its Upstreams in order of first appearance in spec.upstreams
-// (by name, as map sorting leaves them) or spec.composition.steps
-// (authored order), each once (req 41). failureMode open on a closed-only
-// Policy is RZ-CFG-029, raised once per Policy whether attached or not
-// (CheckPolicies, req 37).
+// (OQ-traffic-management-and-resilience-21 (a)). A Route's legs are its
+// Upstreams in order of first appearance in spec.upstreams (by name, as
+// map sorting leaves them) or spec.composition.steps (authored order),
+// each once. failureMode open on a closed-only Policy is RZ-CFG-029,
+// raised once per Policy whether attached or not (CheckPolicies).
 //
 // References that did not resolve (a missing Policy, Plugin or Upstream:
 // RZ-CFG-009, raised at stage H) are skipped without further diagnostics,
 // and every other attachment and Route is still processed, so one run
-// reports every error (req 40). The chains are the single source of the
-// data plane's per-Phase arrays and of render --effective (Rows), so the two
-// cannot diverge (req 42, 04 req 40).
+// reports every error. The chains are the single source of the data plane's
+// per-Phase arrays and of render --effective (Rows), so the two cannot
+// diverge.
 //
 // A Resolver is immutable after New and safe for concurrent use. Resolve
 // fans work out to a bounded worker pool that it owns and waits for; no
@@ -63,8 +60,8 @@ import (
 	"github.com/ravindu-rev/ruralz/pkg/config/v1alpha1"
 )
 
-// RZ codes this stage raises (architecture R-46); every one is registered
-// in internal/errcode and defined in docs/architecture/02-configuration-model.md.
+// RZ codes this stage raises; every one is registered in internal/errcode
+// and defined in docs/architecture/02-configuration-model.md.
 const (
 	// CodeSlot is RZ-CFG-018: two Policies in one slot at one scope.
 	CodeSlot = "RZ-CFG-018"
@@ -86,10 +83,10 @@ const (
 // Options configures a Resolver.
 type Options struct {
 	// Body decides whether an authz.cel rule references request.body,
-	// which places the Policy in onRequestBody instead of onRequestHeaders
-	// (02 req 13a). Every binary passes its CEL compiler (expr.Compiler
-	// implements registry.BodyOracle). When Body is nil and an attached
-	// authz.cel Policy has a rule, Resolve fails with
+	// which places the Policy in onRequestBody instead of
+	// onRequestHeaders. Every binary passes its CEL compiler
+	// (expr.Compiler implements registry.BodyOracle). When Body is nil and
+	// an attached authz.cel Policy has a rule, Resolve fails with
 	// registry.ErrNoBodyOracle (a programming error, never a guess).
 	Body registry.BodyOracle
 	// Files maps tree positions to file names for diagnostic locations and
@@ -130,9 +127,9 @@ func (r *Resolver) Run(ctx context.Context, b *hub.Bundle, workers int) (map[str
 
 // CheckPolicies reports failureMode open on every closed-only Policy of b
 // as RZ-CFG-029 at spec.failureMode, once per Policy whether it is
-// attached or not (02 req 37; foundation pack section 8.10): auth.*
-// (auth.upstream-* included), authz.* and a plugin Policy whose
-// filterClass is auth or authz. The list is sorted.
+// attached or not (foundation pack section 8.10): auth.* (auth.upstream-*
+// included), authz.* and a plugin Policy whose filterClass is auth or
+// authz. The list is sorted.
 func (r *Resolver) CheckPolicies(b *hub.Bundle) diag.List {
 	if b == nil {
 		return nil

@@ -12,10 +12,9 @@ import (
 	"testing"
 )
 
-// Tests for Decode: 07 req 56 (mutable tree, numbers keep their literal
-// text), 07 req 58 and 69 (strict decode, cost reported and bounded by the
-// budget), 07 req 80 (duplicates rejected for validation), 03 req 25 (last
-// wins for CEL and transforms), 02 req 16 (numbers carried as literals).
+// Tests for Decode: the mutable tree (numbers keep their literal text),
+// strict decoding (cost reported and bounded by the budget) and duplicate
+// names (rejected for validation, last wins for CEL and transforms).
 
 func TestDecodeValues(t *testing.T) {
 	obj := func(ms ...Member) *Object { return &Object{members: ms} }
@@ -57,7 +56,7 @@ func TestDecodeValues(t *testing.T) {
 }
 
 func TestDecodeMemberOrder(t *testing.T) {
-	// The tree keeps input member order (WP-02 scope, 05 req 47 merge).
+	// The tree keeps input member order.
 	v, _, err := Decode([]byte(`{"z":1,"a":2,"m":3,"b":4,"y":5,"c":6,"x":7,"d":8,"w":9,"e":10}`), Options{})
 	if err != nil {
 		t.Fatal(err)
@@ -77,14 +76,14 @@ func TestDecodeMemberOrder(t *testing.T) {
 
 func TestDecodeDuplicates(t *testing.T) {
 	in := []byte(`{"a":1,"b":2,"a":{"c":3}}`)
-	// Default and validation (07 req 80; 06 req 25): rejected.
+	// Default and validation: rejected.
 	if _, _, err := Decode(in, Options{}); !errors.Is(err, ErrDuplicateName) {
 		t.Fatalf("default: err = %v, want ErrDuplicateName", err)
 	}
 	if _, _, err := Decode(in, Options{MapObjects: true}); !errors.Is(err, ErrDuplicateName) {
 		t.Fatalf("map objects: err = %v, want ErrDuplicateName", err)
 	}
-	// Transforms and CEL (07 req 58; 03 req 25): last wins, first position.
+	// Transforms and CEL: last wins, first position.
 	v, _, err := Decode(in, Options{AllowDuplicateNames: true})
 	if err != nil {
 		t.Fatal(err)
@@ -127,7 +126,7 @@ func TestDecodeDuplicates(t *testing.T) {
 
 func TestDecodeMapObjectsMatchesEncodingJSON(t *testing.T) {
 	// MapObjects yields exactly the encoding/json UseNumber data model, the
-	// form JSON Schema validation and JWT claims consume (07 req 80).
+	// form JSON Schema validation and JWT claims consume.
 	for _, c := range conformanceCases() {
 		if !c.accept || c.flag != "" {
 			continue
@@ -149,8 +148,8 @@ func TestDecodeMapObjectsMatchesEncodingJSON(t *testing.T) {
 }
 
 func TestDecodeCost(t *testing.T) {
-	// 07 req 58, 69; 03 req 25: the cost of every value is charged before
-	// it is built; a budget equal to the cost passes, one byte less fails.
+	// The cost of every value is charged before it is built; a budget
+	// equal to the cost passes, one byte less fails.
 	cases := map[string]int64{
 		`null`:        CostValue,
 		`true`:        CostValue,
@@ -220,8 +219,7 @@ func TestDecodeCost(t *testing.T) {
 
 func TestDecodeBudgetBoundsWork(t *testing.T) {
 	// A body far over its budget stops at the budget plus one value, so
-	// decoded memory stays bounded (07 req 58 "oversize at 4 times the raw
-	// limit").
+	// decoded memory stays bounded (oversize at 4 times the raw limit).
 	raw := []byte("[" + strings.Repeat(`"xxxxxxxxxxxxxxxx",`, 100000) + `""]`)
 	budget := int64(4 * 1024)
 	_, spent, err := Decode(raw, Options{MaxCost: budget})
@@ -293,8 +291,8 @@ func manyMembers(n int) []byte {
 }
 
 // checkNamesReleased fails when a reset nameSet keeps scratch over the
-// bounds (07 req 73): records, nesting-level slices, or index maps holding
-// room for more than maxScratchNames entries in total.
+// bounds: records, nesting-level slices, or index maps holding room for
+// more than maxScratchNames entries in total.
 func checkNamesReleased(t *testing.T, ns *nameSet) {
 	t.Helper()
 	if ns.data != nil || cap(ns.recs) > maxScratchNames || cap(ns.objs) > maxScratchLevels || cap(ns.index) > maxScratchLevels {
@@ -330,8 +328,8 @@ func TestDecoderReuse(t *testing.T) {
 			t.Fatalf("%s: reused decoder %v, fresh %v", in, v, w)
 		}
 	}
-	// A decoder releases the input and drops scratch over 64 KiB (07 req
-	// 73), so a pooled decoder never pins a large body.
+	// A decoder releases the input and drops scratch over 64 KiB, so a
+	// pooled decoder never pins a large body.
 	big := []byte(`"` + strings.Repeat(`\n`, 100<<10) + `"`)
 	if _, _, err := d.Decode(big); err != nil {
 		t.Fatal(err)
@@ -349,10 +347,10 @@ func TestDecoderReuse(t *testing.T) {
 }
 
 func TestDecoderReleasesNameScratch(t *testing.T) {
-	// 07 req 73: a strict decoder (validation.json-schema, JWT claims)
-	// checks duplicate names through records and per-level index maps; after
-	// an object of 200,000 members it keeps neither the records nor the
-	// grown index map, while small inputs keep their scratch for reuse.
+	// A strict decoder (validation.json-schema, JWT claims) checks duplicate
+	// names through records and per-level index maps; after an object of
+	// 200,000 members it keeps neither the records nor the grown index map,
+	// while small inputs keep their scratch for reuse.
 	huge := manyMembers(200000)
 	for _, o := range []Options{{MapObjects: true}, {}} {
 		d := NewDecoder(o)
@@ -403,12 +401,11 @@ func densityCases(rawLimit int) map[string][]byte {
 }
 
 func TestDecodeCostDensity(t *testing.T) {
-	// 07 req 58, 03 req 25, 04 req 47: the oversize stop of 4 times the raw
-	// limit and the cost model of built Go values. Cost per input byte
-	// depends on density, so a dense body well inside its raw limit costs
-	// over 4 times that limit; MaxCostPerByte times the limit admits every
-	// body within it. The ratios here are the ones the MaxCost and
-	// CostValue docs state.
+	// The oversize stop of 4 times the raw limit and the cost model of
+	// built Go values. Cost per input byte depends on density, so a dense
+	// body well inside its raw limit costs over 4 times that limit;
+	// MaxCostPerByte times the limit admits every body within it. The
+	// ratios here are the ones the MaxCost and CostValue docs state.
 	const rawLimit = 64 << 10
 	ratio := func(data []byte) float64 {
 		_, cost, err := Decode(data, Options{})

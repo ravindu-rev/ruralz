@@ -21,10 +21,9 @@ import (
 	"time"
 )
 
-// Tests for the WP-26 pki scope (test CA, server and client certificates,
-// ECDSA P-256 and RSA 2,048, PEM files, SSL_CERT_FILE bundle; 11 section
-// 3) as used by TLS listeners, auth.mtls (06) and TLS State Stores (11 E
-// 29).
+// Tests for pki (test CA, server and client certificates, ECDSA P-256 and
+// RSA 2,048, PEM files, SSL_CERT_FILE bundle) as used by TLS listeners,
+// auth.mtls and TLS State Stores.
 
 // handshake runs a TLS handshake over a loopback TCP connection.
 func handshake(t *testing.T, server, client *tls.Config) (serverErr, clientErr error) {
@@ -147,7 +146,7 @@ func TestServerDefaultsAndHosts(t *testing.T) {
 	}
 }
 
-func TestMutualTLS(t *testing.T) { // auth.mtls (06): client certificates and URI SANs
+func TestMutualTLS(t *testing.T) { // auth.mtls: client certificates and URI SANs
 	ca, err := NewCA(CAOptions{})
 	if err != nil {
 		t.Fatal(err)
@@ -276,7 +275,7 @@ func TestValidityWindow(t *testing.T) {
 	}
 }
 
-func TestCRL(t *testing.T) { // auth.mtls CRLs (06)
+func TestCRL(t *testing.T) { // auth.mtls CRLs
 	ca, err := NewCA(CAOptions{})
 	if err != nil {
 		t.Fatal(err)

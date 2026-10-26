@@ -11,9 +11,9 @@ import (
 
 // Benchmarks for the per-request helpers: Protect and IsHopByHop run for
 // every field the Upstream layer forwards, NormalizeValue for every computed
-// header value (07 req 27, 32), StripHopByHop once per leg attempt and
-// response (07 req 33), and the query editor per transform query edit (07
-// req 48). All but the query Set allocate nothing.
+// header value, StripHopByHop once per leg attempt and response, and the
+// query editor per transform query edit. All but the query Set allocate
+// nothing.
 
 func BenchmarkProtect(b *testing.B) {
 	names := []string{"Content-Type", "X-Forwarded-For", "Traceparent", "Proxy-Authorization", "Accept"}
@@ -63,9 +63,9 @@ func BenchmarkQuerySet(b *testing.B) {
 }
 
 // BenchmarkStripHopByHopLongConnection is the regression case for a
-// client-sized Connection value against 250 fields (07 req 33): the time
-// per byte stays flat from 64 KiB to 256 KiB, 64 KiB stays well under 1 ms,
-// and options over MaxNameBytes cost no more per byte than short ones.
+// client-sized Connection value against 250 fields: the time per byte stays
+// flat from 64 KiB to 256 KiB, 64 KiB stays well under 1 ms, and options
+// over MaxNameBytes cost no more per byte than short ones.
 func BenchmarkStripHopByHopLongConnection(b *testing.B) {
 	long := strings.Repeat("x", MaxNameBytes+1)
 	for _, bc := range []struct {

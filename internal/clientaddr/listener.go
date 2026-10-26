@@ -15,7 +15,7 @@ import (
 
 // DefaultHeaderTimeout is how long a connection on a proxyProtocol
 // listener has, from its first Read, to deliver the complete PROXY v2
-// header: ReadHeaderTimeout, 10 s (target; 04 reqs 10 and 16, 06 req 61).
+// header: ReadHeaderTimeout, 10 s (target).
 const DefaultHeaderTimeout = 10 * time.Second
 
 // TimeSource returns the current time; internal/clock.Clock satisfies it.
@@ -191,9 +191,9 @@ func (c *Conn) Header() (Header, bool) {
 	return c.hdr, true
 }
 
-// Peer returns the connection peer for the client-address rule (04 req
-// 17): the PROXY v2 source after a PROXY header, else the TCP peer (LOCAL,
-// or before the header was read), unmapped and without zone.
+// Peer returns the connection peer for the client-address rule: the PROXY
+// v2 source after a PROXY header, else the TCP peer (LOCAL, or before the
+// header was read), unmapped and without zone.
 func (c *Conn) Peer() netip.AddrPort {
 	if c.ready.Load() && c.hdr.Command == CommandProxy {
 		return normalizeAddrPort(c.hdr.Source)

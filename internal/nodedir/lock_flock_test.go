@@ -112,10 +112,10 @@ func startHolder(ctx context.Context, t *testing.T, root string) *holderProcess 
 	return p
 }
 
-// TestLockContentionTwoProcesses is the work package's "lock contention
-// test with two processes" (spec 04 requirement 7): while another process
-// holds the lock, TryLock fails with ErrLocked and holder.json names that
-// process; after it releases, the lock is free and holder.json is gone.
+// TestLockContentionTwoProcesses is the lock contention test with two
+// processes: while another process holds the lock, TryLock fails with
+// ErrLocked and holder.json names that process; after it releases, the
+// lock is free and holder.json is gone.
 func TestLockContentionTwoProcesses(t *testing.T) {
 	ctx, cancel := context.WithTimeout(t.Context(), 30*time.Second)
 	defer cancel()
@@ -157,7 +157,7 @@ func TestLockContentionTwoProcesses(t *testing.T) {
 
 // TestLockReleasedWhenHolderDies: a killed holder drops the lock with its
 // descriptors, leaving a stale holder.json that ruralz node drain detects
-// by its start time (spec 10 requirement 96.4).
+// by its start time.
 func TestLockReleasedWhenHolderDies(t *testing.T) {
 	ctx, cancel := context.WithTimeout(t.Context(), 30*time.Second)
 	defer cancel()

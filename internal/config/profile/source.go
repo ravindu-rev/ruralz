@@ -13,11 +13,11 @@ import (
 )
 
 // scalarFix is the YAML 1.2 reading of a scalar token whose value or
-// position goccy's scanner gets wrong (01 req 12, 14): the token pass reads
-// quoted and block scalars, and plain scalars goccy scans as folded text,
-// from the source (quoted.go, literal.go, plain.go) and records the result
-// here, keyed by the token (or a block scalar's header). The converter
-// takes the value and position from the record when there is one.
+// position goccy's scanner gets wrong: the token pass reads quoted and
+// block scalars, and plain scalars goccy scans as folded text, from the
+// source (quoted.go, literal.go, plain.go) and records the result here,
+// keyed by the token (or a block scalar's header). The converter takes the
+// value and position from the record when there is one.
 type scalarFix struct {
 	// text is the value; set says it replaces goccy's.
 	text string

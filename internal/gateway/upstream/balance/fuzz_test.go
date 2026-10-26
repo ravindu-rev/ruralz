@@ -25,10 +25,10 @@ func listFrom(w []uint32) []Endpoint {
 	return eps(len(w), func(i int) uint32 { return w[i] })
 }
 
-// FuzzRoundRobinSchedule is 05 test plan item 11's round-robin property
-// (05 req 12): for any weights the schedule has the apportioned length,
-// every weighted Endpoint holds its quota and stays within one slot of its
-// share in every prefix, and weight-0 Endpoints hold none.
+// FuzzRoundRobinSchedule is the round-robin schedule property:
+// for any weights the schedule has the apportioned length, every weighted
+// Endpoint holds its quota and stays within one slot of its share in every
+// prefix, and weight-0 Endpoints hold none.
 func FuzzRoundRobinSchedule(f *testing.F) {
 	f.Add([]byte{1, 0, 1, 0, 1, 0}, uint64(0))
 	f.Add([]byte{0xe8, 0x03, 1, 0}, uint64(5))
@@ -54,8 +54,8 @@ func FuzzRoundRobinSchedule(f *testing.F) {
 	})
 }
 
-// FuzzRingBuild is 05 test plan item 11's ring property (05 req 14): builds
-// from any order are identical, sorted, and hold each Endpoint's quota.
+// FuzzRingBuild is the ring property: builds from any order are identical,
+// sorted, and hold each Endpoint's quota.
 func FuzzRingBuild(f *testing.F) {
 	f.Add([]byte{1, 0, 2, 0, 3, 0}, uint64(0), uint16(64))
 	f.Add([]byte{0, 0, 9, 0}, uint64(3), uint16(1024))
@@ -84,10 +84,10 @@ func FuzzRingBuild(f *testing.F) {
 	})
 }
 
-// FuzzSelectGrades is the selection property of 05 req 11: for any
-// algorithm, weights, grades, key and set change, Select returns an
-// Endpoint of the current set with effective weight > 0 and the lowest grade
-// present among those Endpoints.
+// FuzzSelectGrades is the selection property: for any algorithm, weights,
+// grades, key and set change, Select returns an Endpoint of the current set
+// with effective weight > 0 and the lowest grade present among those
+// Endpoints.
 func FuzzSelectGrades(f *testing.F) {
 	f.Add(uint8(0), []byte{1, 0, 1, 0, 1, 0, 1, 0}, []byte{0, 2, 1, 3}, uint64(7), uint64(0))
 	f.Add(uint8(2), []byte{3, 0, 0, 0, 2, 0}, []byte{2, 2, 1}, uint64(1), uint64(5))
@@ -149,10 +149,10 @@ func FuzzSelectGrades(f *testing.F) {
 	})
 }
 
-// FuzzPlanBudget is the budget plan property of 05 req 17: V lies in [64,
-// 1,024]; the plan fits whenever the schedules leave room; fallbacks are a
-// prefix of the largest-first order and minimal (restoring the last one
-// would not fit at 64).
+// FuzzPlanBudget is the budget plan property: V lies in [64, 1,024]; the
+// plan fits whenever the schedules leave room; fallbacks are a prefix of
+// the largest-first order and minimal (restoring the last one would not
+// fit at 64).
 func FuzzPlanBudget(f *testing.F) {
 	f.Add(int64(1<<20), int64(0), []byte{100, 0, 50, 0, 50, 0, 10, 0})
 	f.Add(int64(0), int64(4<<20), []byte{64, 0, 64, 0})
@@ -189,10 +189,10 @@ func FuzzPlanBudget(f *testing.F) {
 	})
 }
 
-// FuzzReplan is the replan property of 05 req 17 after an Endpoint-set
-// change: V lies in [64, 1,024], the plan fits whenever the schedules leave
-// room, fallbacks name configured rings only, and no ring stays in fallback
-// once the fresh plan needs none at v ≥ 2 × 64.
+// FuzzReplan is the replan property after an Endpoint-set change: V lies in
+// [64, 1,024], the plan fits whenever the schedules leave room, fallbacks
+// name configured rings only, and no ring stays in fallback once the fresh
+// plan needs none at v ≥ 2 × 64.
 func FuzzReplan(f *testing.F) {
 	f.Add(int64(16*64*120), []byte{200, 0, 150, 0}, []byte{5, 0, 5, 0})
 	f.Add(int64(16*64*120), []byte{100, 0, 50, 0, 50, 0, 10, 0}, []byte{5, 0, 50, 0, 50, 0, 10, 0})
@@ -225,8 +225,8 @@ func FuzzReplan(f *testing.F) {
 	})
 }
 
-// FuzzSplit is the weighted leg pick property of 05 req 10: a pick never
-// lands on weight 0 and fails only when every weight is 0.
+// FuzzSplit is the weighted leg pick property: a pick never lands on
+// weight 0 and fails only when every weight is 0.
 func FuzzSplit(f *testing.F) {
 	f.Add([]byte{95, 0, 5, 0}, uint64(1))
 	f.Add([]byte{0, 0, 0, 0}, uint64(2))

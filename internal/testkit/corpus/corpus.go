@@ -2,8 +2,8 @@
 // SPDX-License-Identifier: Apache-2.0
 
 // Package corpus loads the configuration conformance corpora under
-// test/conformance/config as fuzz seeds (11 req 27, TQ "Fuzzing": "seeded
-// from the golden and negative corpora"). Every fuzz target that parses
+// test/conformance/config as fuzz seeds (TQ "Fuzzing": "seeded from the
+// golden and negative corpora"). Every fuzz target that parses
 // configuration seeds itself through this one helper:
 //
 //	func FuzzProfileYAML(f *testing.F) {
@@ -11,11 +11,11 @@
 //		f.Fuzz(func(t *testing.T, data []byte) { ... })
 //	}
 //
-// The layout follows the configuration specs: golden entries under
-// golden/<entry>/ (bundle/, environments.yaml, expected.json,
-// canonical/<env>.json, ...), JSON subset pairs under
-// json-subset/<case>/{yaml,json}/, and negative fixtures under
-// <code>-<slug>/ (fixture.yaml, bundle/, optional environments.yaml).
+// The corpus holds golden entries under golden/<entry>/ (bundle/,
+// environments.yaml, expected.json, canonical/<env>.json, ...), JSON
+// subset pairs under json-subset/<case>/{yaml,json}/, and negative
+// fixtures under <code>-<slug>/ (fixture.yaml, bundle/, optional
+// environments.yaml).
 // Every part is optional: an absent directory yields no entries and no
 // error, so targets run before the corpus exists. Only regular files are
 // read (symbolic links, FIFOs and other special files that negative

@@ -17,20 +17,20 @@ import (
 )
 
 // TimeFormat is the timestamp layout of CLI output: RFC 3339 UTC with
-// millisecond precision (spec 10 req 14).
+// millisecond precision.
 const TimeFormat = "2006-01-02T15:04:05.000Z"
 
 // FormatTime formats t in UTC with TimeFormat.
 func FormatTime(t time.Time) string { return t.UTC().Format(TimeFormat) }
 
-// WriteJSON writes v as one JSON document (spec 10 req 16): two-space
-// indentation, no HTML escaping, members in struct field order, one
-// trailing newline, and empty arrays and objects written [] and {}, never
-// null (nil slices and maps are written empty). Optional members are
-// omitted when absent: a field tagged omitempty is omitted when empty, and
-// a field tagged omitzero is left as it is while zero, so a nil slice or
-// map is omitted while an empty one is written [] or {}. The document is
-// written with one Write call, so nothing reaches w when encoding fails.
+// WriteJSON writes v as one JSON document: two-space indentation, no HTML
+// escaping, members in struct field order, one trailing newline, and empty
+// arrays and objects written [] and {}, never null (nil slices and maps
+// are written empty). Optional members are omitted when absent: a field
+// tagged omitempty is omitted when empty, and a field tagged omitzero is
+// left as it is while zero, so a nil slice or map is omitted while an
+// empty one is written [] or {}. The document is written with one Write
+// call, so nothing reaches w when encoding fails.
 func WriteJSON(w io.Writer, v any) error {
 	var buf bytes.Buffer
 	enc := json.NewEncoder(&buf)
@@ -43,9 +43,9 @@ func WriteJSON(w io.Writer, v any) error {
 	return err
 }
 
-// LineWriter writes NDJSON streams and text lines (spec 10 req 16): one
-// compact object or line per Write call, flushed per line when the
-// writer has a Flush method. It is safe for concurrent use.
+// LineWriter writes NDJSON streams and text lines: one compact object
+// or line per Write call, flushed per line when the writer has a Flush
+// method. It is safe for concurrent use.
 type LineWriter struct {
 	mu  sync.Mutex
 	w   io.Writer

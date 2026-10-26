@@ -18,10 +18,9 @@ type Direction uint8
 // as toward the client.
 const (
 	// TowardUpstream is a client request forwarded to an Upstream: Expect
-	// is dropped and "TE: trailers" is kept (05 req 28).
+	// is dropped and "TE: trailers" is kept.
 	TowardUpstream Direction = iota + 1
-	// TowardClient is an Upstream response forwarded to the client (05 req
-	// 30).
+	// TowardClient is an Upstream response forwarded to the client.
 	TowardClient
 )
 
@@ -51,15 +50,14 @@ func ConnectionOptions(h http.Header) []string {
 	return out
 }
 
-// StripHopByHop removes from h every field that must not be forwarded (04
-// req 22, 05 req 28 and 30, 07 req 33): the fixed hop-by-hop fields of
-// [IsHopByHop] and every field a Connection field names (elements that
-// are not tokens name no field, as in [ConnectionOptions]). Toward an
-// Upstream it also drops Expect and, when a TE field listed the "trailers"
-// member, sets TE to exactly "trailers" (RFC 9110 section 10.1.4; RFC 9113
-// section 8.2.2 allows no other TE value). Toward the client it keeps
-// Expect; a Direction other than the two defined ones drops both Expect
-// and TE.
+// StripHopByHop removes from h every field that must not be forwarded: the
+// fixed hop-by-hop fields of [IsHopByHop] and every field a Connection
+// field names (elements that are not tokens name no field, as in
+// [ConnectionOptions]). Toward an Upstream it also drops Expect and, when
+// a TE field listed the "trailers" member, sets TE to exactly "trailers"
+// (RFC 9110 section 10.1.4; RFC 9113 section 8.2.2 allows no other TE
+// value). Toward the client it keeps Expect; a Direction other than the
+// two defined ones drops both Expect and TE.
 //
 // Keys are matched without regard to ASCII case throughout: the fixed
 // fields, Expect, the Connection and TE fields read, and the fields a
@@ -76,10 +74,10 @@ func ConnectionOptions(h http.Header) []string {
 // admission, before the request Phases run, so that a client's
 // "Connection: X-Shop-Consumer" cannot remove a field a headers Policy set
 // for the Upstream; StripHopByHop at leg build then removes the fixed
-// fields, which no Policy may write (07 req 22). An Upstream response is
-// stripped before the response Phases run for the same reason. Fields the
-// Node adds after the strip (forwarding fields, traceparent) are not
-// affected either way.
+// fields, which no Policy may write. An Upstream response is stripped
+// before the response Phases run for the same reason. Fields the Node adds
+// after the strip (forwarding fields, traceparent) are not affected either
+// way.
 func StripHopByHop(h http.Header, d Direction) {
 	var connBuf [1][]string // a canonical map has at most one Connection key
 	conns := connBuf[:0]
@@ -112,9 +110,8 @@ func StripHopByHop(h http.Header, d Direction) {
 // field that "Connection: TE" named, as RFC 9110 section 10.1.4 requires a
 // TE sender to do. The request handler calls it at admission, before the
 // request Phases run, so that the client's Connection field cannot remove
-// a field a Policy sets for the Upstream (04 req 22, 05 req 28). Keys
-// match without regard to ASCII case; the cost and allocations are those
-// of StripHopByHop.
+// a field a Policy sets for the Upstream. Keys match without regard to
+// ASCII case; the cost and allocations are those of StripHopByHop.
 func StripConnectionOptions(h http.Header) {
 	var connBuf [1][]string
 	conns := connBuf[:0]

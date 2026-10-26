@@ -26,8 +26,8 @@ import (
 	"github.com/ravindu-rev/ruralz/internal/secret"
 )
 
-// In-package PKI: every key and certificate is generated at test time
-// (spec 06 section 6, "no private keys committed").
+// In-package PKI: every key and certificate is generated at test time, so
+// no private key is committed.
 
 type testCA struct {
 	cert *x509.Certificate

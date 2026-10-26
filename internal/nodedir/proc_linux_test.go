@@ -16,9 +16,8 @@ import (
 	"testing"
 )
 
-// checkProcIdentity checks NewHolder against /proc/self (spec 10
-// requirement 95): startTime is field 22 of the stat line, pidNamespace
-// the ns/pid link.
+// checkProcIdentity checks NewHolder against /proc/self: startTime is
+// field 22 of the stat line, pidNamespace the ns/pid link.
 func checkProcIdentity(t *testing.T, h Holder) {
 	t.Helper()
 	data, err := os.ReadFile("/proc/self/stat")
@@ -42,11 +41,10 @@ func checkProcIdentity(t *testing.T, h Holder) {
 	}
 }
 
-// verifyHolderProcess performs the checks ruralz node drain makes (spec
-// 10 requirement 96, steps 2, 4 and 5) against a live helper: same PID
-// namespace, matching start time, and a BSD FLOCK WRITE line in
-// /proc/locks for its PID and the lock file's inode (never an OFD lock,
-// whose PID reads -1).
+// verifyHolderProcess performs the process checks ruralz node drain makes
+// against a live helper: same PID namespace, matching start time, and a
+// BSD FLOCK WRITE line in /proc/locks for its PID and the lock file's
+// inode (never an OFD lock, whose PID reads -1).
 func verifyHolderProcess(t *testing.T, d *Dir, h Holder) {
 	t.Helper()
 	if ns, err := os.Readlink("/proc/self/ns/pid"); err == nil && h.PIDNamespace != ns {

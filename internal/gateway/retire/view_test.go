@@ -17,8 +17,8 @@ import (
 	"github.com/ravindu-rev/ruralz/internal/adminapi"
 )
 
-// Golden tests for the /debug/snapshots view (spec 04 req 73): states,
-// display revision, digest, pins, RFC 3339 UTC times, pending and
+// Golden tests for the /debug/snapshots view: states, display
+// revision, digest, pins, RFC 3339 UTC times, pending and
 // lastKnownGood as digests or null.
 
 var update = flag.Bool("update", false, "rewrite testdata golden files")
@@ -45,7 +45,7 @@ func golden(t *testing.T, name string, v any) {
 	}
 }
 
-func TestReq73ViewGolden(t *testing.T) {
+func TestViewGolden(t *testing.T) {
 	x := newHarness(t, Config{}, false)
 	var ps []pinned
 	for i, name := range []string{"a", "b", "c", "d"} {
@@ -72,9 +72,9 @@ func TestReq73ViewGolden(t *testing.T) {
 	golden(t, "snapshots-empty.golden", x.h.View("", ""))
 }
 
-// TestReq73ViewShape decodes the view with the admin wire type the CLI
+// TestViewShape decodes the view with the admin wire type the CLI
 // uses and checks the order: active first, then newest to oldest.
-func TestReq73ViewShape(t *testing.T) {
+func TestViewShape(t *testing.T) {
 	x := newHarness(t, Config{}, false)
 	a, b := newSnap("a", nil), newSnap("b", nil)
 	x.publish(a)

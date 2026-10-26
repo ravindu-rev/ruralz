@@ -16,12 +16,11 @@ import (
 	"testing"
 )
 
-// Tests for 11 test plan item 12 (binaries: an overlay build produces a
-// binary whose version output differs as injected), 11 req 32 (release
-// flags CGO_ENABLED=0, -trimpath, -ldflags -X, or RURALZ_TEST_BIN_DIR) and
-// R-52 (-s -w). They build a small fixture module with the Ruralz module
-// path, so they stay hermetic and fast; binaries_integration_test.go builds
-// the real cmd/ruralzd and cmd/ruralz.
+// Tests for overlay builds (the version output differs as injected), the
+// release flags (CGO_ENABLED=0, -trimpath, -ldflags "-s -w -X ...") and
+// RURALZ_TEST_BIN_DIR. They build a small fixture module with the Ruralz
+// module path, so they stay hermetic and fast; binaries_integration_test.go
+// builds the real cmd/ruralzd and cmd/ruralz.
 
 // fixture writes a module shaped like the repository: internal/buildinfo
 // with the three linker-set variables, and two commands printing them.
@@ -97,7 +96,7 @@ func settings(t *testing.T, bin string) map[string]string {
 	return out
 }
 
-func TestBuildReleaseFlags(t *testing.T) { // 11 req 32; R-52
+func TestBuildReleaseFlags(t *testing.T) {
 	t.Setenv(EnvBinDir, "")
 	root := fixture(t)
 	dir := filepath.Join(t.TempDir(), "bin")
@@ -141,7 +140,7 @@ func TestBuildReleaseFlags(t *testing.T) { // 11 req 32; R-52
 	}
 }
 
-func TestBuildOverlayVariant(t *testing.T) { // 11 test plan item 12; 11 req 45, 47
+func TestBuildOverlayVariant(t *testing.T) {
 	t.Setenv(EnvBinDir, t.TempDir()) // ignored: the build asks for a variant
 	root := fixture(t)
 	repl := filepath.Join(t.TempDir(), "marker.go")
@@ -207,7 +206,7 @@ func TestBuildCrossPlatform(t *testing.T) {
 	}
 }
 
-func TestBinDirShortCircuit(t *testing.T) { // 11 req 32: RURALZ_TEST_BIN_DIR
+func TestBinDirShortCircuit(t *testing.T) { // RURALZ_TEST_BIN_DIR
 	dir := t.TempDir()
 	for _, n := range []string{"ruralzd", "ruralz"} {
 		if err := os.WriteFile(filepath.Join(dir, n), []byte("#!/bin/sh\n"), 0o700); err != nil { //nolint:gosec // G306: an executable stand-in

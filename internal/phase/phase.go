@@ -4,8 +4,9 @@
 // Package phase is the Filter Chain vocabulary shared by the configuration
 // pipeline, the CEL module, the Filter SPI and the data plane: the fixed
 // Phases (foundation pack section 4), the Filter classes and their order,
-// and the attachment scopes (section 8.12). Values are small integers so
-// chains index arrays by Phase; String returns the v1alpha1 spelling.
+// and the attachment scopes (foundation pack 8.12). Values are small
+// integers so chains index arrays by Phase; String returns the v1alpha1
+// spelling.
 package phase
 
 import "github.com/ravindu-rev/ruralz/pkg/config/v1alpha1"
@@ -136,7 +137,7 @@ func (s Set) Phases() []Phase {
 // Class is a Filter class; its value is its rank in a Phase.
 type Class uint8
 
-// Filter classes in chain order (foundation pack section 8.12).
+// Filter classes in chain order (foundation pack 8.12).
 const (
 	ClassCORS Class = iota
 	ClassAuth

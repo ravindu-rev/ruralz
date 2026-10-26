@@ -12,7 +12,7 @@ import (
 	"github.com/ravindu-rev/ruralz/internal/config/tree"
 )
 
-// Codes this stage raises (01 sections B and C; architecture 3.1 stage B).
+// Codes this stage raises.
 const (
 	codeParse     = "RZ-CFG-001"
 	codeDuplicate = "RZ-CFG-002"
@@ -21,8 +21,8 @@ const (
 	codeSchema    = "RZ-CFG-005"
 )
 
-// Default limits (01 req 6, OQ-configuration-model-18). A Node never
-// enforces a limit below these CLI defaults.
+// Default limits. A Node never enforces a limit
+// below these CLI defaults.
 const (
 	// DefaultMaxBytes is the per-file size limit: the 64 MiB source
 	// limit, which no single file can exceed.
@@ -30,22 +30,19 @@ const (
 	// DefaultMaxDepth is the nesting limit (target).
 	DefaultMaxDepth = 64
 	// DefaultMaxDocumentTokens is the per-document token limit of the YAML
-	// token pass (hypothesis, 01 req 6 and risk 1). A document's tokens,
-	// goccy's syntax tree and the value tree peak at 360 to 450 bytes of
-	// heap per token for the densest shapes (one-character scalars, empty
-	// flow collections, single-pair flow mappings), so 1,000,000 tokens
-	// took 400 MiB, past the 256 MiB heap budget for an input of 1 MiB (01
-	// test plan FuzzProfileYAML; 11 req 17), and
-	// 400,000 stay under 180 MiB, which leaves room for the paths of a
-	// flow collection (maxFlowPath).
+	// token pass. A document's tokens, goccy's syntax tree and the value
+	// tree peak at 360 to 450 bytes of heap per token for the densest
+	// shapes (one-character scalars, empty flow collections, single-pair
+	// flow mappings), so 1,000,000 tokens took 400 MiB, past the 256 MiB
+	// heap budget for an input of 1 MiB, and 400,000 stay under 180 MiB,
+	// which leaves room for the paths of a flow collection (maxFlowPath).
 	DefaultMaxDocumentTokens = 400_000
-	// DefaultMaxDiagnostics is the per-run diagnostics cap of 01 req 50
-	// (10,000, proposed).
+	// DefaultMaxDiagnostics is the per-run diagnostics cap (10,000,
+	// proposed).
 	DefaultMaxDiagnostics = 10_000
 )
 
-// yieldEvery is the number of tree nodes built between Yield calls (01 req
-// 53: "every 256 nodes inside a unit").
+// yieldEvery is the number of tree nodes built between Yield calls.
 const yieldEvery = 256
 
 // Format is a source file format, chosen by file extension.
@@ -73,7 +70,7 @@ func (f Format) String() string {
 
 // FormatOf returns the format of a file name by its extension: .yaml and
 // .yml are YAML and .json is JSON. Matching is case-sensitive on every OS,
-// so .YAML is not a configuration file (01 req 3).
+// so .YAML is not a configuration file.
 func FormatOf(name string) (Format, bool) {
 	switch {
 	case strings.HasSuffix(name, ".yaml"), strings.HasSuffix(name, ".yml"):
@@ -102,8 +99,8 @@ type Options struct {
 	// which stops the run at the same count (diag.Collector).
 	MaxDiagnostics int
 	// Yield, when set, is called between documents and every 256 nodes
-	// built, so the caller's worker can yield the processor (01 req 53).
-	// The profile itself never reads the clock.
+	// built, so the caller's worker can yield the processor. The profile
+	// itself never reads the clock.
 	Yield func()
 
 	// splitAt overrides defaultSplitAt in tests: a higher threshold lets
@@ -154,10 +151,10 @@ type Document struct {
 // ErrFormat reports a Format other than FormatYAML and FormatJSON.
 var ErrFormat = errors.New("profile: unknown format")
 
-// Parse applies the restricted profile to the bytes of one file (01 B
-// 7-14 for YAML, C 15 for JSON) and returns its documents in stream order
-// with the diagnostics found. file is the tree file ID recorded in every
-// position and path the file name written into diagnostics.
+// Parse applies the restricted profile to the bytes of one file and returns
+// its documents in stream order with the diagnostics found. file is the
+// tree file ID recorded in every position and path the file name written
+// into diagnostics.
 //
 // Every diagnostic is an error (RZ-CFG-001 to RZ-CFG-005) with a file,
 // line and column. A document with an error is left out of the result, and
@@ -252,8 +249,7 @@ func (p *fileParser) built() {
 }
 
 // keep adds a parsed document unless its root disqualifies it: a null
-// root is skipped (01 req 13) and any other non-mapping root is
-// RZ-CFG-005.
+// root is skipped and any other non-mapping root is RZ-CFG-005.
 func (p *fileParser) keep(d Document) {
 	switch {
 	case d.Root == nil || d.Root.Kind == tree.KindNull:

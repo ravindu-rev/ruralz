@@ -16,9 +16,9 @@ func srv(target string, port, prio, weight uint16) *net.SRV {
 	return &net.SRV{Target: target, Port: port, Priority: prio, Weight: weight}
 }
 
-// TestSelectSRV covers the SRV rules of 05 req 6: lowest-priority group
-// only, weight 0 excluded unless the whole group is 0 (then 1), identity
-// target:port without the trailing dot, sorted by identity.
+// TestSelectSRV covers the SRV rules: lowest-priority group only, weight
+// 0 excluded unless the whole group is 0 (then 1), identity target:port
+// without the trailing dot, sorted by identity.
 func TestSelectSRV(t *testing.T) {
 	type want struct {
 		identity string
@@ -77,9 +77,9 @@ func TestSelectSRV(t *testing.T) {
 	}
 }
 
-// FuzzSRVAnswer is the "SRV answer handling" fuzz target of 05 test 28:
-// any answer yields a sorted, duplicate-free list of weighted targets from
-// the lowest usable priority, and never panics.
+// FuzzSRVAnswer is the "SRV answer handling" fuzz target: any answer
+// yields a sorted, duplicate-free list of weighted targets from the lowest
+// usable priority, and never panics.
 func FuzzSRVAnswer(f *testing.F) {
 	f.Add([]byte{0, 1, 0, 80, 0, 10, 0, 5, 1, 1, 0, 81, 0, 10, 0, 0})
 	f.Add([]byte{2, 0, 0, 0, 0, 0, 0, 0})

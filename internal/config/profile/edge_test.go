@@ -12,11 +12,10 @@ import (
 )
 
 // TestSplitEdgeCases runs streams the YAML Test Suite does not cover
-// through the split parse, the default, and goccy's whole-document parse
-// (01 req 8, 10, 11, 12, 14; minor finding of the sixth WP-33 review). Each
-// row gives the split parse's result, its findings or its accepted tree,
-// and goccy's own parse must give the same, with the same positions when
-// both accept, unless goccy gives its own reading.
+// through the split parse, the default, and goccy's whole-document parse.
+// Each row gives the split parse's result, its findings or its accepted
+// tree, and goccy's own parse must give the same, with the same positions
+// when both accept, unless goccy gives its own reading.
 func TestSplitEdgeCases(t *testing.T) {
 	tests := []struct {
 		src  string
@@ -63,20 +62,18 @@ func TestSplitEdgeCases(t *testing.T) {
 		// goccy pairs a '?' with the next token only: a second node on
 		// the '?' line became the entry's value with no ':', and "? k:"
 		// (the complex key {k: null}) the key "k"; the split parse
-		// refused both (minor finding of the fifth WP-33 review).
+		// refused both.
 		{"? \"q\"k\n", "RZ-CFG-001@1:6", ""},
 		{"a:\n  ? \"q\"''\n", "RZ-CFG-001@2:8", ""},
 		{"? k:\n", "RZ-CFG-001@1:4", ""},
 		{"? \"q\"k\nz: 1\n", "RZ-CFG-001@1:6", ""},
-		// An explicit key of more than one node (blocker of the fifth
-		// WP-33 review).
+		// An explicit key of more than one node.
 		{"? \"a\"\n  - \"b\"\n:\nz: 1\n", "RZ-CFG-001@3:1", ""},
 		{"? \"a\"\n  \"b\"\n:\nz: 1\n", "RZ-CFG-001@3:1", ""},
 		{"? !!str \"a\"\n: v\n? a\n  b\n: w\nz: 1\n", `{a:s:"v",a b:s:"w",z:i:1}`, ""},
-		// Explicit entries goccy misreads in other ways (fifth WP-33
-		// review, found by the width check): a node after the key that is
-		// no new entry, an empty key, a tag that goccy does not group with
-		// its content.
+		// Explicit entries goccy misreads in other ways (found by the width
+		// check): a node after the key that is no new entry, an empty key,
+		// a tag that goccy does not group with its content.
 		{"? a\nb\nz: 1\n", "RZ-CFG-001@2:1", ""},
 		{"? \nz: 1\n", "RZ-CFG-001@1:1", ""},
 		{"? !!str {k: v}\nz: 1\n", "RZ-CFG-001@1:9", ""},
@@ -89,7 +86,7 @@ func TestSplitEdgeCases(t *testing.T) {
 		// A flow mapping at its key's column on a later line, which goccy
 		// reads as a key; a flow sequence there, which goccy reads as the
 		// value, is refused too: YAML 1.2 indents a value on a later line
-		// past its key (minor finding of the eighth WP-33 review).
+		// past its key.
 		{"k:\n{a: b}\nz: 1\n", "RZ-CFG-001@2:1", ""},
 		{"k:\n[a]\nz: 1\n", "RZ-CFG-001@2:1", `{k:[s:"a"],z:i:1}`},
 		// A directive after "---", and keys that are never typed.
@@ -100,7 +97,7 @@ func TestSplitEdgeCases(t *testing.T) {
 		// goccy read as the value; only a block sequence may be a mapping
 		// value at its key's column. A mapping entry at a block sequence's
 		// column belongs to the mapping holding the sequence, or is
-		// refused (minor finding of the eighth WP-33 review).
+		// refused.
 		{"k:\nv\n", "RZ-CFG-001@2:1", `{k:s:"v"}`},
 		{"a:\n  k:\n  v\n", "RZ-CFG-001@3:3", `{a:{k:s:"v"}}`},
 		{"spec:\n  name:\n  [a]\n", "RZ-CFG-001@3:3", `{spec:{name:[s:"a"]}}`},
@@ -119,8 +116,7 @@ func TestSplitEdgeCases(t *testing.T) {
 		{"- a\n- b\nk: v\n", "RZ-CFG-001@3:1", ""},
 		{"? a\n:\n- x\nk: v\n", `{a:[s:"x"],k:s:"v"}`, ""},
 		{"k:\n- a\nz:\n  - b\n", `{k:[s:"a"],z:[s:"b"]}`, ""},
-		// Messages come from one parse, whatever the width (minor finding
-		// of the sixth WP-33 review).
+		// Messages come from one parse, whatever the width.
 		{"!!str k: c\n  x\n", "RZ-CFG-001@2:3", ""},
 		{"k: a\nb\nz: 1\n", "RZ-CFG-001@2:1", ""},
 	}
@@ -162,13 +158,12 @@ func TestSplitEdgeCases(t *testing.T) {
 	}
 }
 
-// TestNullPositionsFixed covers the implicit null of an empty value (01
-// req 14; minor finding of the eighth WP-33 review): it sits in the column
-// after its ':', '-' or explicit key's first token, whatever follows the
-// entry, in goccy's parse and the split parse alike. goccy put it one
-// column further at the end of its tokens, so "k1:" alone and before
-// "w0: v" placed it apart, and the null of "? a\n  -b" moved to the end of
-// the key with a blank line after it.
+// TestNullPositionsFixed covers the implicit null of an empty value: it
+// sits in the column after its ':', '-' or explicit key's first token,
+// whatever follows the entry, in goccy's parse and the split parse alike.
+// goccy put it one column further at the end of its tokens, so "k1:" alone
+// and before "w0: v" placed it apart, and the null of "? a\n  -b" moved to
+// the end of the key with a blank line after it.
 func TestNullPositionsFixed(t *testing.T) {
 	tests := []struct{ src, want string }{
 		{"k1:\n", "{k1@1:1:n@1:4}"},
@@ -206,20 +201,18 @@ func TestNullPositionsFixed(t *testing.T) {
 }
 
 // TestEmptyEntryBeforeKeyIndependentOfWidth checks shapes goccy reads
-// otherwise than YAML 1.2 after an empty value (01 req 8, 10; 01 test plan
-// P1): an empty last sequence entry before a key at the sequence's column,
-// which goccy reads as a mapping inside the entry (finding 6 of the WP-33
-// review), and a tagged key at or left of a mapping whose last entry has
-// no value (an implicit entry with nothing after its ':', a '?' entry with
-// no ':', a bare ':'), which goccy refuses with "tag is not allowed in
-// this context" (blocker of the sixth WP-33 review). Every block
-// collection takes the split parse, which reads YAML 1.2's tree, so the
-// tree is the same alone, after 300 sibling entries, and with the split
-// threshold raised to 2; goccy's own parse (splitAt -1) gives goccy's
-// reading, recorded in goccy. A key's order does not change the result
-// either. An empty last entry before a key takes the split parse at any
-// threshold (tokenPass.block): the rows marked any are checked at 256 too,
-// where nothing else is split (minor finding of the seventh WP-33 review).
+// otherwise than YAML 1.2 after an empty value: an empty last sequence
+// entry before a key at the sequence's column, which goccy reads as a
+// mapping inside the entry, and a tagged key at or left of a mapping whose
+// last entry has no value (an implicit entry with nothing after its ':', a
+// '?' entry with no ':', a bare ':'), which goccy refuses with
+// "tag is not allowed in this context". Every block collection takes the
+// split parse, which reads YAML 1.2's tree, so the tree is the same alone,
+// after 300 sibling entries, and with the split threshold raised to 2;
+// goccy's own parse (splitAt -1) gives goccy's reading, recorded in goccy.
+// A key's order does not change the result either. An empty last entry
+// before a key takes the split parse at any threshold (tokenPass.block):
+// the rows marked any are checked at 256 too, where nothing else is split.
 func TestEmptyEntryBeforeKeyIndependentOfWidth(t *testing.T) {
 	var wide strings.Builder
 	for i := range 300 {
@@ -238,13 +231,12 @@ func TestEmptyEntryBeforeKeyIndependentOfWidth(t *testing.T) {
 		{"x:\n  a:\n  -\n  b: 1\nc: 2\n", "{x:{a:[n],b:i:1},c:i:2}", "{x:{a:[{b:i:1}]},c:i:2}", true},
 		{"- a:\n  -\n  b: 1\n- 2\n", "[{a:[n],b:i:1},i:2]", "[{a:[{b:i:1}]},i:2]", true},
 		{"a:\n- x\nb: 1\n", `{a:[s:"x"],b:i:1}`, "", true},
-		// A tagged key left of the sequence, which goccy reads as the
-		// empty entry's value and refuses (fifth WP-33 review).
+		// A tagged key left of the sequence, which goccy reads as the empty
+		// entry's value and refuses.
 		{"a:\n -\n!!str b: 1\n", "{a:[n],b:i:1}", "RZ-CFG-001@3:1", true},
 		{"x:\n  a:\n   -\n!!str b: 1\n", "{x:{a:[n]},b:i:1}", "RZ-CFG-001@4:1", true},
 		{"a:\n - # c\n# d\n!!str b: 1\n", "{a:[n],b:i:1}", "RZ-CFG-001@4:1", true},
-		// A tagged key after a mapping whose last entry has no value
-		// (sixth WP-33 review).
+		// A tagged key after a mapping whose last entry has no value.
 		{"a:\n  b:\n!!str c: 1\n", "{a:{b:n},c:i:1}", "RZ-CFG-001@3:1", false},
 		{"e:\n  ? k\n!!str x: v\n", `{e:{k:n},x:s:"v"}`, "RZ-CFG-001@3:1", false},
 		{"a:\n  ? b\n!!str c: 1\n", "{a:{b:n},c:i:1}", "RZ-CFG-001@3:1", false},
@@ -327,15 +319,14 @@ func mustRoot(t *testing.T, src string) *tree.Node {
 	return docs[0].Root
 }
 
-// TestWidthIndependence runs generated streams of YAML indicators,
-// scalars, tags, flow collections and comments through widthIndependent:
-// each must parse alone and after 300 sibling entries alike, findings and
-// positions included (01 req 8; fifth and sixth WP-33 reviews, whose
-// findings were shapes of this kind: tagged keys after empty values, '?'
-// entries, plain scalars continued by a line starting with '-'). Every
-// stream starts with a key at column 1, so the siblings join its mapping.
-// A fixed generator makes every run see the same inputs; FuzzLoadYAML
-// checks the same property on its own inputs.
+// TestWidthIndependence runs generated streams of YAML indicators, scalars,
+// tags, flow collections and comments through widthIndependent: each must
+// parse alone and after 300 sibling entries alike, findings and positions
+// included (the shapes at risk include tagged keys after empty values, '?'
+// entries and plain scalars continued by a line starting with '-'). Every
+// stream starts with a key at column 1, so the siblings join its mapping. A
+// fixed generator makes every run see the same inputs; FuzzLoadYAML checks
+// the same property on its own inputs.
 func TestWidthIndependence(t *testing.T) {
 	n := 8000
 	if testing.Short() || raceEnabled {
@@ -377,13 +368,12 @@ func (g *splitMix) below(n int) int {
 }
 
 // TestPartialSplitNullPositions covers the implicit null that ends the
-// tokens a split value hands goccy (01 req 14; fifth WP-33 review, found
-// by FuzzLoadYAML's width check): goccy places it one column further at
-// the end of its tokens than inside a document, after a ':', a '-' or the
-// first token of an explicit key with no ':' (sixth WP-33 review), so the
-// split parse moves it to the position goccy's whole parse gives it. With
-// the threshold raised to 2 or 3 the outer mappings are split and the
-// inner ones are not; at the default every one is.
+// tokens a split value hands goccy (found by FuzzLoadYAML's width check):
+// goccy places it one column further at the end of its tokens than inside a
+// document, after a ':', a '-' or the first token of an explicit key with
+// no ':', so the split parse moves it to the position goccy's whole parse
+// gives it. With the threshold raised to 2 or 3 the outer mappings are
+// split and the inner ones are not; at the default every one is.
 func TestPartialSplitNullPositions(t *testing.T) {
 	var entries strings.Builder
 	entries.WriteString("x:\n")
@@ -421,9 +411,9 @@ func TestPartialSplitNullPositions(t *testing.T) {
 		}
 	}
 	// The fuzz input: an empty last entry before a key takes the split
-	// parse at any threshold (tokenPass.block), whose entries end in
-	// nulls; and the shape of the sixth WP-33 review, whose null moved
-	// with the threshold. The default and a raised threshold agree.
+	// parse at any threshold (tokenPass.block), whose entries end in nulls;
+	// and a shape whose null moved with the threshold. The default and a
+	// raised threshold agree.
 	for _, src := range []string{"0:\n- 0:\n-\n00:", "b2:\n- ? c\n- \n\"n\": \n"} {
 		widthIndependent(t, []byte(src), 300)
 		a, ad := parseWith(t, src, 0)
@@ -435,15 +425,14 @@ func TestPartialSplitNullPositions(t *testing.T) {
 }
 
 // TestExplicitEntries covers the explicit entries ('?') goccy pairs
-// otherwise than YAML 1.2 (01 req 8, 9, 10, 12; 11 req 17, 26; fifth WP-33
-// review): each is RZ-CFG-001 with its message, split or not,
-// at the entry's ':' when one comes and otherwise at the first offending
-// token, while one-node keys parse. In a flow collection (blocker of the
-// seventh WP-33 review) goccy pairs a '?' with a tag alone when the tag
-// ends its line, reading the next line as the entry's value or a nested
-// mapping ("k: {? !!str\n  x}" as {k: {"": x}}): a tag whose content is
-// not on its line, or that goccy does not group with it, and a key of
-// more than one node are RZ-CFG-001 at the offending node.
+// otherwise than YAML 1.2: each is RZ-CFG-001 with its message, split or
+// not, at the entry's ':' when one comes and otherwise at the first
+// offending token, while one-node keys parse. In a flow collection goccy
+// pairs a '?' with a tag alone when the tag ends its line, reading the next
+// line as the entry's value or a nested mapping ("k: {? !!str\n  x}" as {k:
+// {"": x}}): a tag whose content is not on its line, or that goccy does not
+// group with it, and a key of more than one node are RZ-CFG-001 at the
+// offending node.
 func TestExplicitEntries(t *testing.T) {
 	tests := []struct{ src, want, msg string }{
 		// A node at or left of the '?' column that is no new entry.
@@ -478,7 +467,7 @@ func TestExplicitEntries(t *testing.T) {
 		{"? 'a'\n: - b\n", `{a:[s:"b"]}`, ""},
 		{"? a\n--- \nb: 1\n", "{a:n} {b:i:1}", ""},
 		// After an RZ-CFG-003 or RZ-CFG-004 the checks are skipped, so the
-		// scan goes on collecting those findings (01 req 8).
+		// scan goes on collecting those findings.
 		{"? &x a\n  b\nc: !e 1\n", "RZ-CFG-003@1:3 RZ-CFG-004@3:4", ""},
 		// Explicit keys in flow collections.
 		{"k: {? !!str\n  x}\n", "RZ-CFG-001@2:3", msgExplicitKey},

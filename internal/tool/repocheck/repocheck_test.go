@@ -12,8 +12,8 @@ import (
 	"github.com/ravindu-rev/ruralz/internal/telemetry/catalog"
 )
 
-// badCatalog is the catalog fixture of the testdata/bad repository (spec 09
-// test 19): one family per catalog gate case, matched against
+// badCatalog is the catalog fixture of the testdata/bad repository: one
+// family per catalog gate case, matched against
 // testdata/bad/docs/architecture/10-observability.md.
 func badCatalog() catalogView {
 	cv := linkedCatalog()
@@ -21,7 +21,7 @@ func badCatalog() catalogView {
 	listener := catalog.Label{Name: "listener"}
 	cv.families = []catalog.Family{
 		{Name: "ruralz_fixture_requests_total", Kind: catalog.Counter, Unit: "{requests}", Labels: []catalog.Label{route, status}},
-		// A counter without _total (req 77 (d)); its OBS row matches.
+		// A counter without _total (check (d)); its OBS row matches.
 		{Name: "ruralz_x_count", Kind: catalog.Counter, Unit: "{requests}"},
 		{Name: "ruralz_fixture_latency_seconds", Kind: catalog.Histogram, Bounds: catalog.BoundsFast, Unit: "s", Labels: []catalog.Label{listener}},
 		{Name: "ruralz_fixture_open_connections", Kind: catalog.Gauge, Unit: "{connections}", Labels: []catalog.Label{listener}},
@@ -46,7 +46,7 @@ func badCatalog() catalogView {
 }
 
 // TestBadRepo checks every testdata/bad case, including the telemetry name
-// checks and catalog gates of spec 09 tests 2 and 19 (09 req 74, 75, 77).
+// checks and catalog gates.
 func TestBadRepo(t *testing.T) {
 	findings, err := run(filepath.Join("testdata", "bad"), "allow.txt", badCatalog())
 	if err != nil {
@@ -67,13 +67,13 @@ func TestBadRepo(t *testing.T) {
 		`pkg/p/p.go:6: public package imports "github.com/example/thirdparty"`,
 		`pkg/p/p.go:7: public package imports "github.com/ravindu-rev/ruralz/internal/errcode"`,
 		"console/app.ts:1: missing license header",
-		// 09 req 77 (a) to (c); names_test.go and the catalog raise nothing.
+		// Checks (a) to (c); names_test.go and the catalog raise nothing.
 		`internal/telemetry/names.go:5: metric name "ruralz_http_requests_total": use the internal/telemetry/catalog constant`,
 		`internal/telemetry/names.go:7: span name "ruralz.filter.x"`,
 		`internal/telemetry/names.go:9: span started with the literal name "custom"`,
-		// 09 req 77 (d).
+		// Check (d).
 		"internal/telemetry/catalog/catalog.go: counter ruralz_x_count must end in _total",
-		// 09 req 74: the code gate, against the "Ruralz Gateway metrics" and
+		// The code gate, against the "Ruralz Gateway metrics" and
 		// "Degraded states" tables only.
 		`docs/architecture/10-observability.md:9: ruralz_fixture_latency_seconds uses the fast bounds in the catalog, "histogram, request" here`,
 		"docs/architecture/10-observability.md:10: label protocol of ruralz_fixture_open_connections is not in the catalog",
@@ -87,7 +87,7 @@ func TestBadRepo(t *testing.T) {
 		"docs/architecture/10-observability.md:29: degraded reason fixture_later is registered in M1 but tagged Planned (M2) here",
 		"docs/architecture/10-observability.md: degraded reason fixture_missing is missing from the degraded states table",
 		"docs/architecture/10-observability.md: degraded reason fixture_elsewhere is missing from the degraded states table",
-		// 09 req 75: the doc gate.
+		// The doc gate.
 		"docs/architecture/02-other.md:3: ruralz_bogus_total is not in the metrics catalog",
 		"docs/architecture/02-other.md:5: degraded reason bogus_reason is not in the degraded states table",
 		"docs/architecture/02-other.md:8: degraded reason fixture_unknown is not in the degraded states table",

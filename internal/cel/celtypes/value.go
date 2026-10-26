@@ -19,7 +19,7 @@ import (
 // JSON document (a body or JWT claims), a dyn result, or an error value for
 // a body that did not decode. A nil *Value and the zero Value are null. A
 // Value is immutable and safe for concurrent readers; it must not outlive
-// the request memory it views (03 req 39).
+// the request memory it views.
 type Value struct {
 	// v is the CEL value; nil is null. It is never a *types.Err.
 	v ref.Val
@@ -27,7 +27,7 @@ type Value struct {
 	// wrapped in a new *types.Err on every read, because cel-go writes the
 	// AST node ID into the error values an evaluation produces
 	// (types.LabelErrNode): one *types.Err shared by the readers of a body
-	// would be written by concurrent evaluations (03 req 25, 38, 39).
+	// would be written by concurrent evaluations.
 	err error
 	// native is the decoded tree of a FromNative Value, which AppendBody and
 	// Native write from so numbers keep their literal text at every level.
@@ -42,8 +42,8 @@ var _ expr.Value = (*Value)(nil)
 // []any, string, json.Number, bool or nil (a nil map or slice is null). The
 // tree is viewed, never copied, so the caller must not modify it afterwards.
 // Objects iterate keys in ascending byte order; a json.Number that is an
-// integer literal within int64 reads as CEL int, any other number as double
-// (03 req 25). Another Go type reads as an error wrapping ErrUnsupported.
+// integer literal within int64 reads as CEL int, any other number as double.
+// Another Go type reads as an error wrapping ErrUnsupported.
 func FromNative(native any) *Value {
 	x := valueOf(nativeVal(native))
 	x.native, x.isNative = native, true
@@ -55,8 +55,8 @@ func FromNative(native any) *Value {
 func FromVal(v ref.Val) *Value { return valueOf(v) }
 
 // ErrorValue returns a Value that reads as a runtime error wrapping ErrBody
-// and err: the body of 03 req 25 that did not decode under a JSON content
-// type, so an expression that reads it fails safe.
+// and err: the body that did not decode under a JSON content type, so an
+// expression that reads it fails safe.
 func ErrorValue(err error) *Value {
 	return &Value{err: fmt.Errorf("%w: %w", ErrBody, err)}
 }
@@ -110,12 +110,12 @@ func (x *Value) IsNull() bool {
 	return x == nil || x.err == nil && (x.v == nil || x.v == types.NullValue)
 }
 
-// AppendBody appends the transform body form of the value (03 req 41): a
-// top-level string as its UTF-8 bytes, top-level bytes raw, and anything
-// else as JSON text: maps with keys in ascending byte order (int, uint and
-// bool keys written as strings), decoded numbers verbatim at every level,
-// int, uint and double as numbers, nested bytes as base64, timestamps as
-// RFC 3339 and durations as proto3 JSON strings. NaN, infinities, invalid
+// AppendBody appends the transform body form of the value: a top-level
+// string as its UTF-8 bytes, top-level bytes raw, and anything else as
+// JSON text: maps with keys in ascending byte order (int, uint and bool
+// keys written as strings), decoded numbers verbatim at every level, int,
+// uint and double as numbers, nested bytes as base64, timestamps as RFC
+// 3339 and durations as proto3 JSON strings. NaN, infinities, invalid
 // UTF-8 in a JSON string, duplicate keys and values without a JSON form
 // wrap ErrNotJSON; an error value returns its error.
 func (x *Value) AppendBody(dst []byte) ([]byte, error) {
@@ -140,9 +140,9 @@ func (x *Value) AppendBody(dst []byte) ([]byte, error) {
 
 // Native returns a new tree equal to the value, for code that edits
 // documents: map[string]any, []any, string, json.Number, bool or nil. A map
-// or list gives the tree that decoding the AppendBody output would give
-// (07 req 57); a top-level string or bytes gives its contents as a string.
-// The tree shares nothing with the Value.
+// or list gives the tree that decoding the AppendBody output would give; a
+// top-level string or bytes gives its contents as a string. The tree shares
+// nothing with the Value.
 func (x *Value) Native() (any, error) {
 	if x != nil && x.isNative {
 		if s, ok := x.native.(string); ok {
@@ -206,9 +206,9 @@ func nativeVal(n any) ref.Val {
 	return errVal(fmt.Errorf("%w: %T in a JSON tree", ErrUnsupported, n))
 }
 
-// numberVal is a JSON number as CEL reads it (03 req 25): an integer
-// literal within int64 is int, every other number double (an out-of-range
-// magnitude is an infinity).
+// numberVal is a JSON number as CEL reads it: an integer literal within
+// int64 is int, every other number double (an out-of-range magnitude is
+// an infinity).
 func numberVal(n json.Number) ref.Val {
 	s := string(n)
 	if !validNumber(s) {

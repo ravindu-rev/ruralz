@@ -15,7 +15,7 @@ import (
 )
 
 // defaultPerShard is the number of targets per shard: eight 15-minute
-// targets make a 2-hour shard inside the 3-hour job limit (11 req 28).
+// targets make a 2-hour shard inside the 3-hour job limit.
 const defaultPerShard = 8
 
 // target is one fuzz target.

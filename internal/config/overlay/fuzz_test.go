@@ -83,9 +83,8 @@ func resultOf(t *testing.T, perm []int, split []int, reverse bool) (string, int)
 	return b.String(), len(ds)
 }
 
-// TestResultIndependentOfFileOrder is property P5 of spec 01 (WP-36 Done
-// when): splitting an overlay across files in any order yields the same
-// result.
+// TestResultIndependentOfFileOrder is the file-order property: splitting an
+// overlay across files in any order yields the same result.
 func TestResultIndependentOfFileOrder(t *testing.T) {
 	want, n := resultOf(t, []int{0, 1, 2, 3, 4}, nil, false)
 	if n != 0 {
@@ -108,10 +107,10 @@ func TestResultIndependentOfFileOrder(t *testing.T) {
 
 // FuzzOverlay: any base and overlay document merge without panic; every
 // code is registered; the merge is deterministic and idempotent (applying
-// the overlay again, base check included, changes and reports nothing);
-// a clean result keeps no directive: no ruralz.io/patch annotation and no
+// the overlay again, base check included, changes and reports nothing); a
+// clean result keeps no directive: no ruralz.io/patch annotation and no
 // $patch member anywhere outside a JSONSchemaDocument value, free content
-// included (01 req 25).
+// included.
 func FuzzOverlay(f *testing.F) {
 	seeds := [][2]string{
 		{gateway, orderDocs[0]},
@@ -258,7 +257,7 @@ func cloneAll(rs []*tree.Resource) []*tree.Resource {
 }
 
 // BenchmarkApply merges an overlay patching 100 of 1,000 Routes and adding
-// 100 more (stage D share of the 01 req 54 load budget).
+// 100 more (stage D's share of the load budget).
 func BenchmarkApply(b *testing.B) {
 	files := &tree.FileTable{}
 	var baseSrc, overSrc []string

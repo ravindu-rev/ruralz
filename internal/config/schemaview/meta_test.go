@@ -23,7 +23,7 @@ import (
 	"github.com/ravindu-rev/ruralz/internal/config/tree"
 )
 
-// examplesRoot is the repository's examples/ directory (11 req 19).
+// examplesRoot is the repository's examples/ directory.
 const examplesRoot = "../../../examples"
 
 // views returns both embedded views of ruralz/v1alpha1 by name.
@@ -58,8 +58,7 @@ func refs(v any, out *[]string) {
 
 // TestMetaViewsCompile compiles both schema files against draft 2020-12
 // with the Ruralz vocabulary asserting the x-ruralz-* keyword shapes,
-// resolves every $ref and compiles every definition (11 req 19; 01 req 32
-// and test plan "Meta-validation test").
+// resolves every $ref and compiles every definition.
 func TestMetaViewsCompile(t *testing.T) {
 	idx, err := schemaidx.Embedded()
 	if err != nil {
@@ -107,7 +106,7 @@ func TestMetaViewsCompile(t *testing.T) {
 }
 
 // TestMetaDispatch checks that both views dispatch all ten kinds and every
-// registered Policy type (01 test plan "Meta-validation test").
+// registered Policy type.
 func TestMetaDispatch(t *testing.T) {
 	types := registry.New().Types()
 	if len(types) != 23 {
@@ -161,11 +160,11 @@ func vocabularyKinds(t *testing.T) []string {
 	return slices.Sorted(slices.Values(meta.Properties["x-ruralz-ref"].Enum))
 }
 
-// TestMetaVocabularyAssertsShapes checks that the vocabulary rejects a
-// malformed x-ruralz-* keyword anywhere in a schema, and an unknown one
-// (01 req 32: "the vocabulary asserting keyword shapes"), with the shapes
-// of docs/architecture/02-configuration-model.md "Schema keywords that
-// drive tooling": a kind, true, distinct classes, a level of at least 1.
+// TestMetaVocabularyAssertsShapes checks that the vocabulary asserts the
+// keyword shapes: it rejects a malformed x-ruralz-* keyword anywhere in a
+// schema, and an unknown one, with the shapes of
+// docs/architecture/02-configuration-model.md "Schema keywords that drive
+// tooling": a kind, true, distinct classes, a level of at least 1.
 func TestMetaVocabularyAssertsShapes(t *testing.T) {
 	for _, tc := range []struct {
 		kw   string
@@ -252,10 +251,9 @@ func rawKeywords(v any, ptr string, out map[string]map[string]any) {
 
 // TestMetaVocabularyParsesKeywords checks that the vocabulary parses the
 // x-ruralz-* keywords of every schema object of the rendered view into
-// Schema.Extensions exactly as written (01 req 32), and that
-// internal/config/schemaidx reads the same values at every declared
-// property, with or without keywords (architecture R-3: one keyword model,
-// two parsers).
+// Schema.Extensions exactly as written, and that internal/config/schemaidx
+// reads the same values at every declared property, with or without
+// keywords (one keyword model, two parsers).
 func TestMetaVocabularyParsesKeywords(t *testing.T) {
 	data := schema.RenderedV1alpha1()
 	doc, err := jsonschema.UnmarshalJSON(bytes.NewReader(data))
@@ -521,8 +519,8 @@ func checkKeywords(t *testing.T, ptr string, got schemaidx.Keywords, want keywor
 // exampleDocs walks an examples/ tree and returns the raw JSON resource
 // documents of its Bundles by slash-separated path, and its YAML files.
 // It skips overlays/ directories (partial patches, not resources), hidden
-// paths (never part of a Bundle, 01 req 3) and JSON whose top-level
-// apiVersion does not start with ruralz/ (request bodies and other data).
+// paths (never part of a Bundle) and JSON whose top-level apiVersion does
+// not start with ruralz/ (request bodies and other data).
 func exampleDocs(root string) (resources map[string][]byte, yamlFiles []string, err error) {
 	resources = map[string][]byte{}
 	err = filepath.WalkDir(root, func(p string, d fs.DirEntry, err error) error {
@@ -569,18 +567,16 @@ func isResource(data []byte) bool {
 	return ok && strings.HasPrefix(v, "ruralz/")
 }
 
-// TestMetaExamples covers the examples/ clause of 11 req 19 as far as
-// this package can: every raw JSON resource document of a Bundle under
-// examples/ validates against the authoring view (01 test plan: raw
-// documents precede substitution, so the authoring view applies). The
-// clause itself, each Bundle loading with zero errors for each Environment
-// of examples/control/environments.yaml and without --env, needs the
-// restricted YAML profile (WP-33) and the pipeline (WP-69); it is
-// forwarded to WP-75 (examples validation through the pipeline), and the
+// TestMetaExamples covers the examples/ check as far as this package can:
+// every raw JSON resource document of a Bundle under examples/ validates
+// against the authoring view (raw documents precede substitution, so the
+// authoring view applies). The full check, each Bundle loading with zero
+// errors for each Environment of examples/control/environments.yaml and
+// without --env, needs the configuration loader and its pipeline, so the
 // yaml subtest skips with that reason instead of passing silently.
 func TestMetaExamples(t *testing.T) {
 	if _, err := os.Stat(examplesRoot); err != nil {
-		t.Skipf("11 req 19: no examples/ directory yet (WP-53): %v", err)
+		t.Skipf("needs the examples/ tree, which does not exist yet: %v", err)
 	}
 	resources, yamlFiles, err := exampleDocs(examplesRoot)
 	if err != nil {
@@ -588,7 +584,7 @@ func TestMetaExamples(t *testing.T) {
 	}
 	t.Run("json", func(t *testing.T) {
 		if len(resources) == 0 {
-			t.Skip("11 req 19: examples/ holds no JSON resource document")
+			t.Skip("examples/ holds no JSON resource document")
 		}
 		authoring, err := Compile(schema.AuthoringV1alpha1(), testView(t).Index())
 		if err != nil {
@@ -604,16 +600,16 @@ func TestMetaExamples(t *testing.T) {
 	})
 	t.Run("yaml", func(t *testing.T) {
 		if len(yamlFiles) == 0 {
-			t.Skip("11 req 19: examples/ holds no YAML file")
+			t.Skip("examples/ holds no YAML file")
 		}
-		t.Skipf("11 req 19: %d YAML files under examples/ are not validated here; loading each Bundle for each Environment "+
-			"of examples/control/environments.yaml and without --env needs the restricted YAML profile (WP-33) and the "+
-			"pipeline (WP-69), and is forwarded to WP-75 (examples validation through the pipeline)", len(yamlFiles))
+		t.Skipf("%d YAML files under examples/ are not validated here; loading each Bundle for each Environment "+
+			"of examples/control/environments.yaml and without --env needs the configuration loader "+
+			"and its pipeline", len(yamlFiles))
 	})
 }
 
 // TestExampleDocs checks which files of an examples/ tree the meta test
-// validates (11 req 19).
+// validates.
 func TestExampleDocs(t *testing.T) {
 	root := t.TempDir()
 	route := envelope("Route", `{"match": {"path": {"prefix": "/"}}, "upstreams": [{"name": "u"}]}`)

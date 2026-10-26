@@ -51,9 +51,8 @@ func addGolden(f *testing.F, dumps bool) {
 }
 
 // FuzzCanonical is the canonicalization oracle of TQ "Fuzzing": parse,
-// canonicalize and parse again gives identical bytes (02 req 26, test
-// plan 32), and the canonical text holds the same JSON value, with
-// numbers compared as doubles.
+// canonicalize and parse again gives identical bytes, and the canonical
+// text holds the same JSON value, with numbers compared as doubles.
 func FuzzCanonical(f *testing.F) {
 	addGolden(f, false)
 	for _, s := range []string{
@@ -139,8 +138,7 @@ func sameValue(a, b *tree.Node) bool {
 
 // FuzzDecodeCanonical: arbitrary bytes never panic Decode; a failure
 // carries RZ-CFG-024 or RZ-CFG-027 (a scan failure keeps its jsonval error
-// under RZ-CFG-027), and a success re-encodes to the input (02 reqs 26,
-// 31 and 33; test plan 33).
+// under RZ-CFG-027), and a success re-encodes to the input.
 func FuzzDecodeCanonical(f *testing.F) {
 	addGolden(f, false)
 	f.Add([]byte(doc(`{"kind":"Route","metadata":{"name":"r","owner":"x"},"spec":{}}`)))
@@ -167,7 +165,7 @@ func FuzzDecodeCanonical(f *testing.F) {
 
 // FuzzReadDump: arbitrary bytes never panic ReadDump; a failure is
 // ErrNotDump, ErrDumpTooLarge or carries RZ-CFG-024 or RZ-CFG-027, and a
-// success keeps the body unchanged (02 req 74; test plan 33).
+// success keeps the body unchanged.
 func FuzzReadDump(f *testing.F) {
 	addGolden(f, true)
 	f.Add([]byte(`{"content":{},"digest":"sha256:00","revision":"rev-0"}`))
@@ -190,8 +188,8 @@ func FuzzReadDump(f *testing.F) {
 	})
 }
 
-// FuzzReorderInvariance is the reorder property (WP-39): shuffling the
-// members of every object and the order of the resources of a canonical
+// FuzzReorderInvariance is the reorder property: shuffling the members
+// of every object and the order of the resources of a canonical
 // document, with a fuzzed seed, re-encodes to the same bytes.
 func FuzzReorderInvariance(f *testing.F) {
 	names, err := filepath.Glob(filepath.Join("testdata", "golden", "*.json"))

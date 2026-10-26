@@ -16,8 +16,8 @@ type route struct {
 	c    routematch.Criteria
 }
 
-// workedExample is the six Routes of DP "Worked example: routing
-// precedence" (04 req 32).
+// workedExample is the six Routes of DP
+// "Worked example: routing precedence".
 func workedExample() []route {
 	return []route{
 		{"orders-export", routematch.Criteria{
@@ -41,8 +41,8 @@ func workedExample() []route {
 	}
 }
 
-// workedRequests are the six requests of the worked example plus the two
-// the 04 test plan (item 6) adds, and normalization cases on top.
+// workedRequests are the six requests of the worked example plus two
+// more, and normalization cases on top.
 var workedRequests = []struct {
 	method, host, path string
 	winner             string
@@ -56,7 +56,7 @@ var workedRequests = []struct {
 	{"GET", "shop.example", "/v1/orders", "fallback", nil},
 	{"DELETE", "api.shop.example", "/v1/orders", "orders-any", nil},
 	{"GET", "other.example", "/x", "fallback", nil},
-	// Normalization reaches the same Routes (04 req 23, 24).
+	// Normalization reaches the same Routes.
 	{"GET", "API.Shop.Example:8443", "/v1/%6Frders/./export", "orders-export", nil},
 	{"GET", "api.shop.example.", "/v1/orders/a%2fb", "orders-get", []string{"a/b"}},
 	{"GET", "api.shop.example", "/v1/x/../orders/42/summary", "orders-summary", []string{"42"}},
@@ -206,9 +206,9 @@ func buildIndex(cands []candidate) *routematch.HostTable[hostIndex] {
 	return &tab
 }
 
-// TestWorkedExample: the DP worked example holds exactly on the primitives
-// (04 req 32; WP-05 "Done when"), through a brute-force matcher and through
-// the host table and segment trie.
+// TestWorkedExample: the DP worked example holds exactly on the primitives,
+// through a brute-force matcher and through the host table and segment
+// trie.
 func TestWorkedExample(t *testing.T) {
 	routes := workedExample()
 	cands := compile(t, routes)

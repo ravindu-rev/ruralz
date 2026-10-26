@@ -2,11 +2,11 @@
 // SPDX-License-Identifier: Apache-2.0
 
 // Package ulid implements Universally Unique Lexicographically Sortable
-// Identifiers on crypto/rand (OQ-tech-stack-and-libraries-15, decided: own
+// Identifiers on crypto/rand (decided: own
 // code, no library). A ULID is 128 bits: a 48-bit big-endian Unix time in
 // milliseconds followed by 80 random bits, written as 26 characters of
-// Crockford base32. The Node identity node.id (spec 04 requirement 6) and,
-// from M2, Ruralz Control's Rollout IDs are ULIDs.
+// Crockford base32. The Node identity node.id and, from M2, Ruralz
+// Control's Rollout IDs are ULIDs.
 //
 // The text form is uppercase; Parse accepts either case and rejects the
 // letters I, L, O and U, which Crockford's decoder would otherwise map to
@@ -55,9 +55,9 @@ var (
 )
 
 // New returns a ULID for now with 80 bits read from entropy. A nil entropy
-// selects crypto/rand.Reader, the production source (spec 04 requirement
-// 6); tests pass a fixed reader for deterministic output. Two ULIDs made
-// in the same millisecond are not ordered among themselves.
+// selects crypto/rand.Reader, the production source; tests pass a fixed
+// reader for deterministic output. Two ULIDs made in the same millisecond
+// are not ordered among themselves.
 func New(now time.Time, entropy io.Reader) (ULID, error) {
 	var u ULID
 	ms := now.UnixMilli()
@@ -154,7 +154,7 @@ func (u ULID) encode(b *[EncodedLen]byte) {
 
 // Parse decodes a 26-character text form. Letters match in either case;
 // I, L, O and U are rejected, and so is a first character above 7, whose
-// value does not fit in 128 bits (spec 04 requirement 6).
+// value does not fit in 128 bits.
 func Parse(s string) (ULID, error) {
 	return parse(s)
 }

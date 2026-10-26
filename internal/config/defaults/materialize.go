@@ -12,7 +12,7 @@ import (
 
 // Materialize writes the defaults res lacks into res.Root, the envelope of
 // a resource authored under idx's apiVersion, and returns the number of
-// members it added (01 req 36; 02 req 9 to 12):
+// members it added:
 //
 //   - For every object present in the tree, each absent declared member
 //     whose schema carries a default gets the rendered view's normalized
@@ -22,9 +22,9 @@ import (
 //     without one.
 //   - A Policy's spec gets the registry defaults it lacks: slot (the
 //     registry slot, or metadata.name for types whose slot is the name),
-//     failureMode, and filterClass for every type (R-7; custom for
-//     plugin). Their checks belong to later stages (CheckFilterClass at
-//     stage H, CheckFailureMode at stage I).
+//     failureMode, and filterClass for every type (custom for plugin).
+//     Their checks belong to later stages (CheckFilterClass at stage H,
+//     CheckFailureMode at stage I).
 //
 // Free content gets nothing: undeclared members of open objects, a plugin
 // config, Plugin configSchema and the JSONSchemaDocument value. Every
@@ -126,9 +126,9 @@ func (m *materializer) defaults(n *tree.Node, sel *schemaidx.Node) bool {
 // smallObject is the member count up to which a linear scan beats an index.
 const smallObject = 16
 
-// registryDefaults writes the registry defaults into a Policy's spec (02 req
-// 12). A spec that is not an object, or whose type is not a registered
-// type string, is left to the schema's diagnostics.
+// registryDefaults writes the registry defaults into a Policy's spec. A spec
+// that is not an object, or whose type is not a registered type string, is
+// left to the schema's diagnostics.
 func (m *materializer) registryDefaults(reg *registry.Registry, res *tree.Resource) {
 	spec, ok := res.Root.Get("spec")
 	if !ok || spec.Kind != tree.KindMap {

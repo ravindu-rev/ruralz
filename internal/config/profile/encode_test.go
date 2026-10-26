@@ -33,9 +33,9 @@ func roots(docs []Document) []*tree.Node {
 	return out
 }
 
-// TestEncodeGolden pins the restricted-profile output (01 req 31; 02 req
-// 44-46): block style, two-space indent, "---" separators, a final
-// newline, the quoting rule and "$${".
+// TestEncodeGolden pins the restricted-profile output: block style,
+// two-space indent, "---" separators, a final newline, the quoting rule
+// and "$${".
 func TestEncodeGolden(t *testing.T) {
 	src := "apiVersion: ruralz/v1alpha1\n" +
 		"kind: Route\n" +
@@ -132,8 +132,7 @@ func TestEncodeGolden(t *testing.T) {
 }
 
 // unescapeSubstitution reads every "$${" of string values as "${", which
-// is all substitution does to a rendered tree without variables (01 req
-// 26).
+// is all substitution does to a rendered tree without variables.
 func unescapeSubstitution(n *tree.Node) {
 	switch n.Kind {
 	case tree.KindString:
@@ -150,7 +149,7 @@ func unescapeSubstitution(n *tree.Node) {
 	}
 }
 
-// TestEncodeQuoting covers the quoting rule of 02 req 45: plain only for
+// TestEncodeQuoting covers the quoting rule: plain only for
 // ^[A-Za-z_/][A-Za-z0-9_./@-]*$ minus the null and boolean words, so every
 // string reads back as the same string.
 func TestEncodeQuoting(t *testing.T) {
@@ -212,8 +211,7 @@ func TestEncodeQuoting(t *testing.T) {
 	}
 }
 
-// TestEncodeScalars covers numbers, booleans, null and root scalars (02
-// req 44-45; architecture R-64).
+// TestEncodeScalars covers numbers, booleans, null and root scalars.
 func TestEncodeScalars(t *testing.T) {
 	docs := []*tree.Node{
 		{Kind: tree.KindFloat, Text: "1"},
@@ -245,9 +243,8 @@ func TestEncodeScalars(t *testing.T) {
 }
 
 // TestEncodeRoundTrip checks Parse(Encode(x)) == x and that Encode is
-// idempotent over every YAML Test Suite stream the profile accepts and
-// this package's samples (01 test plan P2/P4; Done when: Encode(Parse(x))
-// idempotent).
+// idempotent over every YAML Test Suite stream the profile accepts and this
+// package's samples.
 func TestEncodeRoundTrip(t *testing.T) {
 	inputs := append(suiteInputs(t), nest("mixed", 64), "a:\n  - - - x\n    - {}\n  - k: [1, {b: [c]}]\n")
 	n := 0
@@ -267,9 +264,8 @@ func TestEncodeRoundTrip(t *testing.T) {
 }
 
 // TestEncodeLongKeys covers keys longer than YAML 1.2's 1,024-character
-// limit on implicit keys (02 req 44-45; finding 7 of the WP-33 review):
-// they are written as explicit keys, in every position, and read back
-// unchanged.
+// limit on implicit keys: they are written as explicit keys, in every
+// position, and read back unchanged.
 func TestEncodeLongKeys(t *testing.T) {
 	limit := strings.Repeat("k", maxImplicitKey)
 	long := limit + "k"
@@ -342,9 +338,9 @@ func roundTrip(t testing.TB, docs []*tree.Node) string {
 	return ""
 }
 
-// TestEncodeJSON covers the JSON form (02 req 47): two-space indent, tree
-// order, no HTML escaping, final newline, "$${" unless Verbatim; it reads
-// back through the JSON front end.
+// TestEncodeJSON covers the JSON form: two-space indent, tree order, no
+// HTML escaping, final newline, "$${" unless Verbatim; it reads back
+// through the JSON front end.
 func TestEncodeJSON(t *testing.T) {
 	docs, diags := parseYAML(t, "kind: Route\nspec:\n  expr: response.status >= 400 && x < 2\n  list: [1, 1.5, true, null, {}, []]\n  var: ${X}\n  ctl: \"\\x01\\t\\u2028\"\n")
 	if len(diags) != 0 {
@@ -395,8 +391,8 @@ var errWrite = errors.New("disk full")
 
 func (failWriter) Write([]byte) (int, error) { return 0, errWrite }
 
-// TestEncodeErrors covers trees the encoders refuse and writer failures
-// (02 req 44-47).
+// TestEncodeErrors covers trees the encoders refuse and writer
+// failures.
 func TestEncodeErrors(t *testing.T) {
 	bad := []*tree.Node{
 		{Kind: tree.KindString, Text: "\xff"},

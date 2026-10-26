@@ -30,9 +30,9 @@ func ladderBottom(n int, member func(i int) string) string {
 	return b.String()
 }
 
-// refLadder returns the review finding's ladder: bottom nested depth if
-// levels deep under the unknown member x, and rungs references in $defs to
-// levels rungs-1 down to 0 of it, the deepest first, so the library meets
+// refLadder returns a reference ladder: bottom nested depth if levels deep
+// under the unknown member x, and rungs references in $defs to levels
+// rungs-1 down to 0 of it, the deepest first, so the library meets
 // every target before its ancestors.
 func refLadder(depth, rungs int, bottom string) string {
 	var b strings.Builder
@@ -111,19 +111,16 @@ func compileAlloc(t *testing.T, raw string) uint64 {
 	return after.TotalAlloc - before.TotalAlloc
 }
 
-// TestReferenceLadder is the regression test of the review finding that
-// the library checked a reference target outside the document's keywords
-// against the meta-schema again under every ancestor referenced after it:
-// a ladder of 59 references from the deepest target up checked a
-// 3,900-member tree 59 times (5.3 s, 2.2 GB) and compiled eight of the
-// largest patterns 59 times (2.1 s, 2.1 GB), in Check and Factory.Build
-// alike (07 F6, a compile returns within 1 s; architecture R-77). The
-// compile checks those targets first, ancestors first, so the ladder
+// TestReferenceLadder covers reference targets outside the document's
+// keywords, which the library checks against the meta-schema again under
+// every ancestor referenced after it: a ladder of 59 references from the
+// deepest target up checked a 3,900-member tree 59 times (5.3 s, 2.2 GB)
+// and compiled eight of the largest patterns 59 times (2.1 s, 2.1 GB), in
+// Check and Factory.Build alike, where a compile must return within 1 s.
+// The compile checks those targets first, ancestors first, so the ladder
 // costs what one reference to its top costs; and every distinct pattern
 // compiles once, so even a repeated check compiles none again. Allocated
 // bytes, not time, so the test is deterministic.
-//
-// Requirements: 07 req 75 and F6.
 func TestReferenceLadder(t *testing.T) {
 	members := ladderBottom(1000, func(int) string { return `{"type":"string","minLength":1}` })
 	patterns := ladderBottom(2, func(i int) string {
@@ -152,11 +149,8 @@ func TestReferenceLadder(t *testing.T) {
 }
 
 // TestRegexpCache checks the library's regexp engine: an expression
-// compiles once, its compile shared, and a failure is a nil Regexp with
-// its error every time.
-//
-// Requirements: 07 req 75 and F6 (each distinct pattern compiles once per
-// document, review finding B2), architecture R-77.
+// compiles once per document, its compile shared, and a failure is a nil
+// Regexp with its error every time.
 func TestRegexpCache(t *testing.T) {
 	rc := regexpCache{}
 	a, errA := rc.compile(`^a+$`)
@@ -175,16 +169,14 @@ func TestRegexpCache(t *testing.T) {
 // its own with an anchor.
 const idAnchor = `"q%[1]d":{"$id":"urn:q%[1]d","$anchor":"a%[1]d","type":"string"}`
 
-// TestMetaChecksBound covers what the ordered checks leave (architecture
-// R-77, proposed): a target whose keyword tree holds positions an earlier
-// check covered checks them again, and they count again against
-// MaxSubschemas and their bytes against MaxSchemaBytes; every target
-// checked apart costs a copy of the document's bookkeeping, within
-// maxCheckCopies (review finding: 2,040 such targets compiled for 1.1 s).
-// Each bound admits the largest document of its shape below it and
-// refuses the next, at the reference to the target that crosses it.
-//
-// Requirements: 07 req 75 and F6.
+// TestMetaChecksBound covers what the ordered checks leave (proposed): a
+// target whose keyword tree holds positions an earlier check covered
+// checks them again, and they count again against MaxSubschemas and their
+// bytes against MaxSchemaBytes; every target checked apart costs a copy
+// of the document's bookkeeping, within maxCheckCopies (2,040 such targets
+// compiled for 1.1 s). Each bound admits the largest document of its shape
+// below it and refuses the next, at the reference to the target that
+// crosses it.
 func TestMetaChecksBound(t *testing.T) {
 	members := func(n int) string {
 		return ladderBottom(n, func(int) string { return `{"type":"string","minLength":1}` })
@@ -196,8 +188,8 @@ func TestMetaChecksBound(t *testing.T) {
 		{"repeated subschemas", misalignedLadder(30, members(100)), misalignedLadder(30, members(125)), "more than 4096 subschemas"},
 		{"repeated bytes", misalignedLadder(29, enum(4000)), misalignedLadder(29, enum(5000)), "more than 262144 bytes"},
 		{"copies", outsideTargets(125, 3800), outsideTargets(130, 3800), "more than 524288 entries"},
-		// Minor review finding: a copy holds the resources, each twice, and
-		// the anchors besides the positions, here four entries a property.
+		// A copy holds the resources, each twice, and the anchors besides the
+		// positions, here four entries a property.
 		{"copies of resources and anchors", outsideTargetsWith(115, 1000, idAnchor), outsideTargetsWith(135, 1000, idAnchor), "more than 524288 entries"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -240,19 +232,16 @@ func additionalItemsCases() []struct{ name, schema, ptr, defs string } {
 	}
 }
 
-// TestAdditionalItemsChecked is the regression test of the review finding
-// that the library never checks against the meta-schema what it compiles
-// below additionalItems: the draft 2020-12 meta-schema does not define it,
-// and the library marks the subschemas it collects there as processed, so
-// a subschema a reference, an anchor or an $id made it compile escaped the
-// check (a multipleOf of 0 compiled, and every number reaching it made the
-// library panic in Handle and Validate; type "strng" was ignored). Each
-// shape is now RZ-CFG-005 with the meta-schema's own message, the one the
-// same subschema gets under $defs, through CompileSchema, Check and
-// Factory.Build, without a panic; below an additionalItems nothing
-// compiles, the rules leave alone (07 req 76).
-//
-// Requirements: 07 reqs 13, 75 and 76, architecture R-77.
+// TestAdditionalItemsChecked covers what the library compiles below
+// additionalItems, which it never checks against the meta-schema: the draft
+// 2020-12 meta-schema does not define it, and the library marks the
+// subschemas it collects there as processed, so a subschema a reference, an
+// anchor or an $id made it compile escaped the check (a multipleOf of 0
+// compiled, and every number reaching it made the library panic in Handle
+// and Validate; type "strng" was ignored). Each shape is RZ-CFG-005
+// with the meta-schema's own message, the one the same subschema gets under
+// $defs, through CompileSchema, Check and Factory.Build, without a panic;
+// below an additionalItems nothing compiles, the rules leave alone.
 func TestAdditionalItemsChecked(t *testing.T) {
 	for _, tc := range additionalItemsCases() {
 		t.Run(tc.name, func(t *testing.T) {

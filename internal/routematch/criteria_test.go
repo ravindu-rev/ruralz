@@ -20,7 +20,7 @@ func fieldNames(t reflect.Type) []string {
 	return names
 }
 
-// TestCriteriaMirrorsRouteMatch pins R-68: Criteria and its nested types
+// TestCriteriaMirrorsRouteMatch pins that Criteria and its nested types
 // have the field names of v1alpha1.RouteMatch and its nested types, so a
 // field added to Route.spec.match is never silently left out of MatchKey.
 // The nested types are also pinned by the struct conversions in CriteriaOf.

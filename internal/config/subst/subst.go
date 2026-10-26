@@ -4,8 +4,7 @@
 // Package subst is stage E of the configuration pipeline: ${VAR} and
 // ${VAR:-default} substitution in string scalars, run exactly once after
 // overlay merge and before schema validation
-// (docs/architecture/02-configuration-model.md "Environment
-// substitution"; spec 01 requirements 26 to 31).
+// (docs/architecture/02-configuration-model.md "Environment substitution").
 //
 // Substitution rewrites the text of string scalars only, so it can never
 // inject structure: a value holding a newline, ": ", "- " or "{" stays one
@@ -15,17 +14,17 @@
 // Escape writes a literal ${ back as $${ for rendering.
 //
 // Positions are read from the schema through internal/config/schemaidx
-// (architecture R-3) with if/then dispatch applied to each object after
-// its dispatch members (a Policy spec.type) were substituted. Mapping
-// keys, apiVersion, kind, metadata.name and every x-ruralz-ref,
+// with if/then dispatch applied to each object after its dispatch
+// members (a Policy spec.type) were substituted. Mapping keys,
+// apiVersion, kind, metadata.name and every x-ruralz-ref,
 // x-ruralz-secret (with its subtree) and x-ruralz-cel position are
 // forbidden: an unescaped ${ there is RZ-CFG-011 and nothing else is
-// reported for that scalar, while $${ is still read as a literal ${
-// (01 req 28), so a renderer escapes every literal ${ (01 req 31).
+// reported for that scalar, while $${ is still read as a literal ${, so
+// a renderer escapes every literal ${.
 //
-// The package also owns both RZ-CFG-013 warnings (architecture 3.1): a
-// variable whose name looks secret, and a credential-shaped literal in
-// any string outside an x-ruralz-secret subtree.
+// The package also owns both RZ-CFG-013 warnings: a variable whose name
+// looks secret, and a credential-shaped literal in any string outside an
+// x-ruralz-secret subtree.
 package subst
 
 import (
@@ -104,7 +103,7 @@ type Options struct {
 	Variables Source
 	// HintNames are the names an RZ-CFG-010 hint may suggest: the
 	// Environment's spec.variables keys. Leave it nil for the process
-	// environment, whose names are never suggested (01 req 27).
+	// environment, whose names are never suggested.
 	HintNames []string
 }
 
@@ -121,12 +120,11 @@ func New(opts Options) *Substituter {
 }
 
 // Apply substitutes every string scalar of res in place and returns the
-// stage E diagnostics (01 req 26 to 30): RZ-CFG-005 for a malformed
-// expression, RZ-CFG-010 per undefined variable, RZ-CFG-011 in forbidden
-// positions and RZ-CFG-013 warnings. A scalar with an error keeps its
-// authored text. Each substituted scalar records its variables in
-// tree.Node.Vars, so schema validation names them when a re-typed value
-// does not fit.
+// stage E diagnostics: RZ-CFG-005 for a malformed expression, RZ-CFG-010
+// per undefined variable, RZ-CFG-011 in forbidden positions and
+// RZ-CFG-013 warnings. A scalar with an error keeps its authored text.
+// Each substituted scalar records its variables in tree.Node.Vars, so
+// schema validation names them when a re-typed value does not fit.
 //
 // Diagnostic paths name list entries by their authored key or element
 // values (spec.listeners[name="${NAME}"].port), as the overlay stage
@@ -164,5 +162,5 @@ func (s *Substituter) Apply(res *tree.Resource) diag.List {
 }
 
 // Escape writes every literal ${ in s as $${, the form substitution reads
-// back as ${ (01 req 31): substituting Escape(s) yields s.
+// back as ${: substituting Escape(s) yields s.
 func Escape(s string) string { return strings.ReplaceAll(s, "${", "$${") }

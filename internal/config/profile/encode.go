@@ -24,19 +24,17 @@ var ErrEncode = errors.New("profile: cannot encode tree")
 type EncodeOptions struct {
 	// Verbatim writes strings as they are. By default every "${" inside a
 	// string value is written "$${", so a rendered Bundle loads back to the
-	// same values after substitution (01 req 31, 02 req 46). Verbatim is
-	// for trees substitution has not run on, such as the source files
-	// "ruralz bundle convert" rewrites (02 req 53), whose "${VAR}" and
-	// "$${" text must stay as authored.
+	// same values after substitution. Verbatim is for trees substitution
+	// has not run on, such as the source files "ruralz bundle convert"
+	// rewrites, whose "${VAR}" and "$${" text must stay as authored.
 	Verbatim bool
 }
 
 // Encode writes docs as a restricted-profile YAML stream: block style with
 // two-space indentation, documents separated by "---" lines with no
 // leading separator, a final newline, mapping members in tree order, and
-// every "${" in a string value written "$${" (01 req 31; 02 req 44-46,
-// architecture R-29). The output depends on no library release, and
-// Parse reads it back to the same values.
+// every "${" in a string value written "$${". The output depends on no
+// library release, and Parse reads it back to the same values.
 func Encode(w io.Writer, docs []*tree.Node) error {
 	return EncodeWith(w, docs, EncodeOptions{})
 }
@@ -45,13 +43,13 @@ func Encode(w io.Writer, docs []*tree.Node) error {
 //
 // Strings are written plain when they match ^[A-Za-z_/][A-Za-z0-9_./@-]*$
 // and are not a null or boolean word, and double-quoted with JSON escapes
-// otherwise, so "1.3", "0777" and "yes" stay strings (02 req 45). Inside
-// quotes, characters YAML does not allow raw (C0 and C1 controls, DEL,
-// U+FEFF, U+FFFE, U+FFFF) and the line separators U+0085, U+2028 and
-// U+2029 are written as \uXXXX. Integers are written in their normalized
-// decimal text and floats in their RFC 8259 text, with a "." appended when
-// that text has neither fraction nor exponent, so a float stays a float.
-// Empty mappings and sequences are written {} and [].
+// otherwise, so "1.3", "0777" and "yes" stay strings. Inside quotes,
+// characters YAML does not allow raw (C0 and C1 controls, DEL, U+FEFF,
+// U+FFFE, U+FFFF) and the line separators U+0085, U+2028 and U+2029 are
+// written as \uXXXX. Integers are written in their normalized decimal text
+// and floats in their RFC 8259 text, with a "." appended when that text
+// has neither fraction nor exponent, so a float stays a float. Empty
+// mappings and sequences are written {} and [].
 func EncodeWith(w io.Writer, docs []*tree.Node, o EncodeOptions) error {
 	e := &yamlEncoder{opts: o}
 	for i, d := range docs {
@@ -166,7 +164,7 @@ func (e *yamlEncoder) value(v *tree.Node, ind int) {
 }
 
 // key writes a mapping key; keys are strings and are never escaped for
-// substitution, which never runs on keys (01 req 27).
+// substitution, which never runs on keys.
 func (e *yamlEncoder) key(k string) {
 	e.str(k)
 }
@@ -210,7 +208,7 @@ func (e *yamlEncoder) fail() {
 	}
 }
 
-// escapeSubstitution writes every "${" as "$${" (01 req 31).
+// escapeSubstitution writes every "${" as "$${".
 func escapeSubstitution(s string) string {
 	if !strings.Contains(s, "${") {
 		return s
@@ -219,7 +217,7 @@ func escapeSubstitution(s string) string {
 }
 
 // str writes a string plain when the YAML 1.2 core schema reads it back
-// as that string, and double-quoted otherwise (02 req 45).
+// as that string, and double-quoted otherwise.
 func (e *yamlEncoder) str(s string) {
 	if !utf8.ValidString(s) {
 		e.fail()
@@ -278,8 +276,8 @@ func hex4(r rune) string {
 }
 
 // plainSafe reports whether s may be written as a plain scalar: it matches
-// ^[A-Za-z_/][A-Za-z0-9_./@-]*$ and is not a null or boolean word (02 req
-// 45). Such text never contains a YAML indicator sequence or a number.
+// ^[A-Za-z_/][A-Za-z0-9_./@-]*$ and is not a null or boolean word. Such
+// text never contains a YAML indicator sequence or a number.
 func plainSafe(s string) bool {
 	if s == "" {
 		return false
@@ -303,9 +301,9 @@ func isLetter(c byte) bool { return c|0x20 >= 'a' && c|0x20 <= 'z' }
 
 // EncodeJSON writes v as JSON indented by two spaces, with mapping members
 // in tree order, no HTML escaping and a final newline: the --output json
-// form of "ruralz bundle render" (02 req 47; the caller passes the list of
-// resources) and the form of a converted .json source file (02 req 53).
-// Strings follow EncodeOptions as in EncodeWith.
+// form of "ruralz bundle render" (the caller passes the list of resources)
+// and the form of a converted .json source file. Strings follow
+// EncodeOptions as in EncodeWith.
 func EncodeJSON(w io.Writer, v *tree.Node, o EncodeOptions) error {
 	e := &jsonEncoder{opts: o}
 	e.value(v, 0)

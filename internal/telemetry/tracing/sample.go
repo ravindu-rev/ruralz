@@ -10,20 +10,20 @@ import (
 )
 
 // DefaultTraceSampling is the root ratio when a Revision sets no
-// traceSampling (OQ-observability-1 (a); spec 09 req 28).
+// traceSampling (OQ-observability-1 (a)).
 const DefaultTraceSampling = 0.01
 
 // Default per-Node caps on sampled decisions per second; bursts equal the
-// rates (spec 09 req 29, target).
+// rates (target).
 const (
 	DefaultRootPerSecond   = 1000
 	DefaultParentPerSecond = 500
 )
 
 // RatioSampled applies ratio to traceID exactly as the SDK's
-// TraceIDRatioBased sampler does (spec 09 req 28): the low 8 bytes, big
-// endian, shifted right by one, are below ratio × 2^63. A ratio of 0 or
-// less, or NaN, never samples; 1 or more always samples.
+// TraceIDRatioBased sampler does: the low 8 bytes, big endian, shifted
+// right by one, are below ratio × 2^63. A ratio of 0 or less, or NaN,
+// never samples; 1 or more always samples.
 func RatioSampled(traceID [16]byte, ratio float64) bool {
 	if !(ratio > 0) {
 		return false
@@ -35,12 +35,12 @@ func RatioSampled(traceID [16]byte, ratio float64) bool {
 	return binary.BigEndian.Uint64(traceID[8:])>>1 < bound
 }
 
-// Limiter is a lock-free GCRA token bucket on one atomic word (spec 09
-// req 29): with emission interval T = 1 s / rate and tolerance τ = burst ×
-// T, a call at time now is admitted iff max(tat, now) + T − now ≤ τ, and
-// admission installs max(tat, now) + T as the new theoretical arrival
-// time with a compare-and-swap. Over any window W it admits at most
-// rate × W + burst calls. The zero Limiter admits nothing.
+// Limiter is a lock-free GCRA token bucket on one atomic word: with
+// emission interval T = 1 s / rate and tolerance τ = burst × T, a call at
+// time now is admitted iff max(tat, now) + T − now ≤ τ, and admission
+// installs max(tat, now) + T as the new theoretical arrival time with a
+// compare-and-swap. Over any window W it admits at most rate × W + burst
+// calls. The zero Limiter admits nothing.
 type Limiter struct {
 	tat       atomic.Int64
 	interval  int64

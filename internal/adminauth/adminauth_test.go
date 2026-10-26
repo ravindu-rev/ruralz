@@ -18,15 +18,14 @@ import (
 	"github.com/ravindu-rev/ruralz/internal/problem"
 )
 
-// Tests for spec 06 requirements 94 (authorization matrix), 95 (bearer
-// tokens compared in constant time over SHA-256 digests, accepted only
-// over TLS or from a loopback peer; client certificates verified against
-// ca.crt with the clientAuth extended key usage; 401 problem documents
-// with RZ-AUTH-001 or RZ-AUTH-002 and WWW-Authenticate) and 96 (/tap and
-// /config/dump uses logged without the token); spec 04 requirement 70.
+// Tests for the admin authorization matrix; bearer tokens compared in
+// constant time over SHA-256 digests and accepted only over TLS or from a
+// loopback peer; client certificates verified against ca.crt with the
+// clientAuth extended key usage; 401 problem documents with RZ-AUTH-001
+// or RZ-AUTH-002 and WWW-Authenticate; and the /tap and /config/dump uses
+// logged without the token.
 
-// adminPaths are every admin path of spec 04 requirement 69 plus an
-// unknown one.
+// adminPaths are every admin path plus an unknown one.
 var adminPaths = []string{
 	"/healthz", "/readyz", "/metrics", "/debug/pprof/", "/debug/pprof/heap", "/debug/snapshots",
 	"/debug/upstreams", "/config/dump", "/tap", "/unknown", "/metrics/", "/",
@@ -68,8 +67,8 @@ func (tr transport) String() string {
 	return [...]string{"loopback cleartext", "non-loopback cleartext", "TLS"}[tr]
 }
 
-// oracle is the authorization matrix of requirement 94 and the transport
-// rule of requirement 95, written independently of the implementation.
+// oracle is the admin authorization matrix and the bearer-token transport
+// rule, written independently of the implementation.
 func oracle(path string, c credConfig, p presented, tr transport) (code string, kind Kind) {
 	if path == "/healthz" || path == "/readyz" {
 		return "", KindNone
@@ -108,7 +107,7 @@ func oracle(path string, c credConfig, p presented, tr transport) (code string, 
 	return CodeInvalid, KindNone
 }
 
-func TestAuthorizationMatrixReq94Req95(t *testing.T) {
+func TestAuthorizationMatrix(t *testing.T) {
 	ca := newCA(t, "operators")
 	clientLeaf, _ := ca.leaf(t, "alice", x509.ExtKeyUsageClientAuth)
 	serverOnlyLeaf, _ := ca.leaf(t, "bob", x509.ExtKeyUsageServerAuth)
@@ -283,10 +282,10 @@ func TestAuthenticateReasons(t *testing.T) {
 	}
 }
 
-// TestCertificateAnchoredInCACrtReq95: a verified chain is admitted only
+// TestCertificateAnchoredInCACrt: a verified chain is admitted only
 // when it ends at a certificate of ca.crt and starts at the presented
 // leaf, whatever roots the TLS configuration verified it against.
-func TestCertificateAnchoredInCACrtReq95(t *testing.T) {
+func TestCertificateAnchoredInCACrt(t *testing.T) {
 	ca := newCA(t, "operators")
 	other := newCA(t, "other-root")
 	leaf, _ := ca.leaf(t, "alice", x509.ExtKeyUsageClientAuth)
@@ -326,7 +325,7 @@ func TestCertificateAnchoredInCACrtReq95(t *testing.T) {
 	}
 }
 
-func TestAuditEnabledReq96(t *testing.T) {
+func TestAuditEnabled(t *testing.T) {
 	p := writeFile(t, t.TempDir(), "o", operatorToken)
 	quiet, err := New(Settings{TokenFile: p}, Options{})
 	if err != nil || quiet.AuditEnabled() {
@@ -338,7 +337,7 @@ func TestAuditEnabledReq96(t *testing.T) {
 	}
 }
 
-func TestConstantTimeComparisonReq95(t *testing.T) {
+func TestConstantTimeComparison(t *testing.T) {
 	a, err := New(Settings{TokenFile: writeFile(t, t.TempDir(), "o", operatorToken)}, Options{})
 	if err != nil {
 		t.Fatal(err)
@@ -395,7 +394,7 @@ func TestClassOf(t *testing.T) {
 	}
 }
 
-func TestLoopbackReq95(t *testing.T) {
+func TestLoopback(t *testing.T) {
 	tests := map[string]bool{
 		"127.0.0.1:9901": true, "127.255.0.9:1": true, "[::1]:9901": true, "[::ffff:127.0.0.1]:1": true,
 		"127.0.0.1": true, "::1": true, "::ffff:127.1.2.3": true, "[::1%lo]:9901": true,
@@ -410,7 +409,7 @@ func TestLoopbackReq95(t *testing.T) {
 	}
 }
 
-func TestMiddlewareReq95Req96(t *testing.T) {
+func TestMiddleware(t *testing.T) {
 	ca := newCA(t, "operators")
 	leaf, _ := ca.leaf(t, "alice", x509.ExtKeyUsageClientAuth)
 	dir := t.TempDir()
@@ -494,8 +493,8 @@ func TestMiddlewareReq95Req96(t *testing.T) {
 		t.Fatalf("/debug/snapshots: %d", w.Code)
 	}
 
-	// Requirement 96: exactly the /tap and /config/dump uses are logged at
-	// info with path, peer and credential kind, never the token.
+	// Exactly the /tap and /config/dump uses are logged at info with path,
+	// peer and credential kind, never the token.
 	access := logs.lines("admin access")
 	if len(access) != 2 {
 		t.Fatalf("access records:\n%s", logs.String())

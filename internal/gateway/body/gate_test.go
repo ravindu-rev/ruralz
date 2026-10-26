@@ -16,17 +16,16 @@ import (
 	"github.com/ravindu-rev/ruralz/internal/errcode"
 )
 
-// Tests for spec 04 reqs 34, 37, 46 and 47 (gate reader within
-// maxRequestBodyBytes, 413 RZ-RT-003 without reading on a declared
-// Content-Length, reservation as bytes arrive, ErrBudget 503 RZ-RT-004,
-// limited reader), spec 07 reqs 15 and 72 (oversize by side) and 73
-// (pooled scratch buffers at most 64 KiB); test plan item 8.
+// Tests for the gate reader within maxRequestBodyBytes (413 RZ-RT-003
+// without reading on a declared Content-Length, reservation as bytes
+// arrive, ErrBudget 503 RZ-RT-004), the limited reader, oversize by side
+// and pooled scratch buffers of at most 64 KiB.
 
 // spyReader counts Read calls and checks, at each call, that the budget
 // grows with the bytes delivered so far: the gate reserves the capacity it
 // is about to fill, which doubles as bytes arrive, so it holds at most one
 // increment before the first byte and at most twice the increments covering
-// the bytes delivered afterwards (spec 04 req 47).
+// the bytes delivered afterwards.
 type spyReader struct {
 	t     *testing.T
 	r     io.Reader
@@ -55,7 +54,7 @@ func pattern(n int) []byte {
 	return b
 }
 
-func TestReq46ReadGate(t *testing.T) {
+func TestReadGate(t *testing.T) {
 	tests := []struct {
 		name     string
 		size     int
@@ -138,10 +137,10 @@ func TestReq46ReadGate(t *testing.T) {
 	}
 }
 
-// TestReq34DeclaredOverLimitNotRead: a declared Content-Length over the
+// TestDeclaredOverLimitNotRead: a declared Content-Length over the
 // limit is 413 RZ-RT-003 without calling the reader, so net/http sends no
 // 100 Continue.
-func TestReq34DeclaredOverLimitNotRead(t *testing.T) {
+func TestDeclaredOverLimitNotRead(t *testing.T) {
 	bud := NewBudget(1<<20, nil)
 	spy := &spyReader{t: t, r: bytes.NewReader(pattern(10))}
 	g, err := ReadGate(context.Background(), spy, 11, 10, bud, 0)
@@ -159,7 +158,7 @@ func TestReq34DeclaredOverLimitNotRead(t *testing.T) {
 	}
 }
 
-func TestReq46ReadGateEmpty(t *testing.T) {
+func TestReadGateEmpty(t *testing.T) {
 	bud := NewBudget(1<<20, nil)
 	spy := &spyReader{t: t, r: bytes.NewReader(pattern(10))}
 	for _, tc := range []struct {
@@ -183,9 +182,9 @@ func TestReq46ReadGateEmpty(t *testing.T) {
 	}
 }
 
-// TestReq47ReadGateBudget: the budget refusing an increment mid-body is
+// TestReadGateBudget: the budget refusing an increment mid-body is
 // ErrBudget (503 RZ-RT-004) and returns what the gate had reserved.
-func TestReq47ReadGateBudget(t *testing.T) {
+func TestReadGateBudget(t *testing.T) {
 	// 128 KiB total, 32 KiB share: gates get 96 KiB.
 	bud := NewBudget(128*kib, nil)
 	g, err := ReadGate(context.Background(), bytes.NewReader(pattern(100*kib)), -1, 1<<20, bud, 0)
@@ -208,9 +207,9 @@ func TestReq47ReadGateBudget(t *testing.T) {
 	g.Release()
 }
 
-// TestReq46ReadGateErrors: a read error or a done context ends the gate and
+// TestReadGateErrors: a read error or a done context ends the gate and
 // returns the reservation.
-func TestReq46ReadGateErrors(t *testing.T) {
+func TestReadGateErrors(t *testing.T) {
 	bud := NewBudget(1<<20, nil)
 	boom := errors.New("client reset")
 	r := io.MultiReader(bytes.NewReader(pattern(40*kib)), iotest.ErrReader(boom))
@@ -249,8 +248,8 @@ func (z *zeroReader) Read(p []byte) (int, error) {
 	return z.r.Read(p)
 }
 
-// TestReq46ReadGateZeroReads tolerates (0, nil) reads, also at the limit.
-func TestReq46ReadGateZeroReads(t *testing.T) {
+// TestReadGateZeroReads tolerates (0, nil) reads, also at the limit.
+func TestReadGateZeroReads(t *testing.T) {
 	bud := NewBudget(1<<20, nil)
 	data := pattern(10)
 	g, err := ReadGate(context.Background(), &zeroReader{n: 3, r: iotest.OneByteReader(bytes.NewReader(data))}, -1, 10, bud, 0)
@@ -267,10 +266,10 @@ func TestReq46ReadGateZeroReads(t *testing.T) {
 	g.Release()
 }
 
-// TestReq47ReadGateStaleRelease: a Buffer is never reused, so a second
+// TestReadGateStaleRelease: a Buffer is never reused, so a second
 // Release by a stale owner after another gate took its array from the pool
-// changes nothing (spec 07 req 73).
-func TestReq47ReadGateStaleRelease(t *testing.T) {
+// changes nothing.
+func TestReadGateStaleRelease(t *testing.T) {
 	bud := NewBudget(1<<20, nil)
 	g1, err := ReadGate(context.Background(), bytes.NewReader(bytes.Repeat([]byte("A"), kib)), -1, 1<<20, bud, 0)
 	if err != nil {
@@ -295,9 +294,9 @@ func TestReq47ReadGateStaleRelease(t *testing.T) {
 	}
 }
 
-// TestReq47ReadGateNilBudget: without a budget a non-empty body is
+// TestReadGateNilBudget: without a budget a non-empty body is
 // ErrBudget (503 RZ-RT-004), never a panic; an empty one needs no budget.
-func TestReq47ReadGateNilBudget(t *testing.T) {
+func TestReadGateNilBudget(t *testing.T) {
 	tests := []struct {
 		name     string
 		r        io.Reader
@@ -336,10 +335,10 @@ func TestReq47ReadGateNilBudget(t *testing.T) {
 	}
 }
 
-// TestReq47ReadGateGrowthNearCeiling: near the ceiling the gate grows in
+// TestReadGateGrowthNearCeiling: near the ceiling the gate grows in
 // smaller steps (halving) instead of failing, and still never holds more
 // memory than it reserved.
-func TestReq47ReadGateGrowthNearCeiling(t *testing.T) {
+func TestReadGateGrowthNearCeiling(t *testing.T) {
 	// 512 KiB total, 128 KiB share: 384 KiB (12 increments) for gates.
 	bud := NewBudget(512*kib, nil)
 	var other Account
@@ -368,9 +367,9 @@ func TestReq47ReadGateGrowthNearCeiling(t *testing.T) {
 	}
 }
 
-// TestReq47ReadGateDeclaredGrowth: a client declaring a large body but
+// TestReadGateDeclaredGrowth: a client declaring a large body but
 // sending little holds a buffer sized to what arrived.
-func TestReq47ReadGateDeclaredGrowth(t *testing.T) {
+func TestReadGateDeclaredGrowth(t *testing.T) {
 	bud := NewBudget(64<<20, nil)
 	g, err := ReadGate(context.Background(), bytes.NewReader([]byte("x")), 10<<20, 10<<20, bud, 0)
 	if err != nil {
@@ -382,9 +381,9 @@ func TestReq47ReadGateDeclaredGrowth(t *testing.T) {
 	g.Release()
 }
 
-// TestReq73GatePool: arrays of one or two increments (at most 64 KiB) are
+// TestGatePool: arrays of one or two increments (at most 64 KiB) are
 // pooled, larger ones and odd sizes are left to the garbage collector.
-func TestReq73GatePool(t *testing.T) {
+func TestGatePool(t *testing.T) {
 	bud := NewBudget(64<<20, nil)
 	for _, c := range []int{0, kib, 3 * Increment, 200 * kib} {
 		bud.recycle(make([]byte, 0, c))
@@ -416,7 +415,7 @@ func TestReq73GatePool(t *testing.T) {
 	}
 }
 
-func TestReq37Limited(t *testing.T) {
+func TestLimited(t *testing.T) {
 	tests := []struct {
 		name  string
 		size  int
@@ -468,7 +467,7 @@ func TestReq37Limited(t *testing.T) {
 	}
 }
 
-func TestReq47Codes(t *testing.T) {
+func TestCodes(t *testing.T) {
 	other := errors.New("other")
 	tests := []struct {
 		err  error
@@ -510,7 +509,7 @@ func TestReq47Codes(t *testing.T) {
 	}
 }
 
-func TestReq47DecodedCap(t *testing.T) {
+func TestDecodedCap(t *testing.T) {
 	tests := []struct{ raw, want int64 }{
 		{0, 0},
 		{-1, 0},
@@ -527,7 +526,7 @@ func TestReq47DecodedCap(t *testing.T) {
 	}
 }
 
-func TestReq34CheckDeclared(t *testing.T) {
+func TestCheckDeclared(t *testing.T) {
 	tests := []struct {
 		declared, limit int64
 		err             error
@@ -643,7 +642,7 @@ func FuzzLimited(f *testing.F) {
 }
 
 // BenchmarkReadGate1KiB gates a 1 KiB body (the validation.json-schema
-// budget of spec 07 req 84 starts from a gated body).
+// budget starts from a gated body).
 func BenchmarkReadGate1KiB(b *testing.B) {
 	bud := NewBudget(DefaultMaxBufferedBytes, &sumGauge{})
 	data := pattern(kib)

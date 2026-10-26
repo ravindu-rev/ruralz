@@ -18,10 +18,9 @@ import (
 	"github.com/ravindu-rev/ruralz/pkg/config/v1alpha1"
 )
 
-// Tests for spec 06 requirement 12 (one credential index per snapshot,
-// shared by the auth Filters of that snapshot) and R-55 (the KeyIndex of
-// secretRef-held keys carries over through BuildEnv.Previous with its
-// watches).
+// Tests for the credential index: one per snapshot, shared by the auth
+// Filters of that snapshot, and the KeyIndex of secretRef-held keys carries
+// over through BuildEnv.Previous with its watches.
 
 const testKey = "ZXhhbXBsZS1rZXktYWFhYWFhYWFhYWFhYWFhYWFhYWE"
 
@@ -107,7 +106,7 @@ func keyConsumer(name, tier string) *v1alpha1.Consumer {
 	}
 }
 
-func TestReq12AcquireIndexSharedPerSnapshot(t *testing.T) {
+func TestAcquireIndexSharedPerSnapshot(t *testing.T) {
 	st := &store{values: map[secret.Ref]string{keyRef: testKey}}
 	compiled := identity.CompileConsumers([]*v1alpha1.Consumer{keyConsumer("acme", "gold")})
 	env := filter.BuildEnv{
@@ -140,7 +139,7 @@ func TestReq12AcquireIndexSharedPerSnapshot(t *testing.T) {
 	}
 }
 
-func TestR55AcquireIndexCarriesKeyIndexOver(t *testing.T) {
+func TestAcquireIndexCarriesKeyIndexOver(t *testing.T) {
 	st := &store{values: map[secret.Ref]string{keyRef: testKey}}
 	first, err := AcquireIndex(filter.BuildEnv{Bundle: bundleWith(keyConsumer("acme", "")), Secrets: st, Shared: &shared{}})
 	if err != nil {

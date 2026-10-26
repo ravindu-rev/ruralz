@@ -20,13 +20,13 @@ import (
 	"github.com/ravindu-rev/ruralz/internal/telemetry/catalog"
 )
 
-// Run is the retirer (spec 04 reqs 51-53): it frees snapshots at zero
-// pins, turns a closing snapshot into ending when its grace period ends and
-// runs the ending protocol, and raises snapshot_ending_overdue for an
-// ending snapshot still pinned past the ending bound. Unpin and Publish
-// wake it at once; timers on the Holder's clock cover grace, the overdue
-// bound and a fallback pin poll. Run returns nil when ctx ends, after every
-// goroutine the Holder started has exited.
+// Run is the retirer: it frees snapshots at zero pins, turns a closing
+// snapshot into ending when its grace period ends and runs the ending
+// protocol, and raises snapshot_ending_overdue for an ending snapshot still
+// pinned past the ending bound. Unpin and Publish wake it at once; timers
+// on the Holder's clock cover grace, the overdue bound and a fallback pin
+// poll. Run returns nil when ctx ends, after every goroutine the Holder
+// started has exited.
 func (h *Holder) Run(ctx context.Context) error {
 	defer h.waitTasks()
 	for {
@@ -69,10 +69,10 @@ func (h *Holder) reconcile(ctx context.Context) time.Time {
 }
 
 // freeLocked frees every snapshot that is not active and has zero pins:
-// Binding.Release at once (09 req 56), then a task closes the resources
-// and releases the State Store handles no remaining live snapshot shares
-// (spec 04 req 51). It updates the retired-snapshots gauge and wakes the
-// waiters when it freed a snapshot.
+// Binding.Release at once, then a task closes the resources and releases
+// the State Store handles no remaining live snapshot shares. It updates
+// the retired-snapshots gauge and wakes the waiters when it freed a
+// snapshot.
 //
 // Zero pins proves no request runs on a snapshot that is no longer
 // published: every valid pin was added before the swap, since its re-load
@@ -157,7 +157,7 @@ func (h *Holder) advanceLocked(ctx context.Context, now time.Time) (bool, time.T
 }
 
 // setDegradedLocked raises snapshot_ending_overdue while an ending snapshot
-// is overdue and clears it when none is (spec 04 req 52).
+// is overdue and clears it when none is.
 func (h *Holder) setDegradedLocked() {
 	on := slices.ContainsFunc(h.live, func(t *tracked) bool { return t.overdue })
 	if on == h.degraded {

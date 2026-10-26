@@ -15,11 +15,11 @@ import (
 	"runtime"
 )
 
-// WriteFileAtomic writes data to path atomically (spec 10 req 17): a
-// temporary file ".<name>.tmp-<16 hex random>" in path's directory is
-// created with perm (before umask), written, synced and renamed over path,
-// replacing an existing file. A missing parent directory is an error, and
-// the temporary file never outlives a failure.
+// WriteFileAtomic writes data to path atomically: a temporary file
+// ".<name>.tmp-<16 hex random>" in path's directory is created with perm
+// (before umask), written, synced and renamed over path, replacing an
+// existing file. A missing parent directory is an error, and the temporary
+// file never outlives a failure.
 func WriteFileAtomic(path string, data []byte, perm fs.FileMode) error {
 	return writeFileAtomic(path, data, perm, rand.Reader, os.Rename)
 }
@@ -83,9 +83,9 @@ func syncDir(dir string) {
 }
 
 // WriteData writes a command's data to stdout, or atomically to path with
-// mode 0644 before umask when path is set (--output-file, spec 10
-// req 17). Call it once, after the command has succeeded, so nothing is
-// written on a non-zero exit. A failure is exit 2.
+// mode 0644 before umask when path is set (--output-file). Call it once,
+// after the command has succeeded, so nothing is written on a non-zero
+// exit. A failure is exit 2.
 func WriteData(sio IO, path string, data []byte) error {
 	if path == "" {
 		if _, err := sio.Stdout.Write(data); err != nil {

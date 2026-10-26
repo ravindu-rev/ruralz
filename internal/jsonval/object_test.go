@@ -11,8 +11,7 @@ import (
 	"testing"
 )
 
-// Tests for the mutable tree (07 req 56, 62, 63, 68; WP-02 scope "mutable
-// tree (object member order kept)").
+// Tests for the mutable tree (object member order kept).
 
 func names(o *Object) string {
 	var b strings.Builder
@@ -140,7 +139,7 @@ func TestObjectSortAndAll(t *testing.T) {
 }
 
 func TestClone(t *testing.T) {
-	// 07 req 54, 55, 68: the working copy is separate from the original.
+	// The working copy is separate from the original.
 	v, _, err := Decode([]byte(`{"a":[1,{"b":"c"}],"d":{"e":null}}`), Options{})
 	if err != nil {
 		t.Fatal(err)
@@ -190,8 +189,8 @@ func indexed(o *Object) bool {
 }
 
 func TestObjectIndexInvariant(t *testing.T) {
-	// 03 req 25, 07 req 56: reads never write, so Decode, Clone and every
-	// mutation leave an object of more than 8 members with its index built.
+	// Reads never write, so Decode, Clone and every mutation leave an
+	// object of more than 8 members with its index built.
 	for _, n := range []int{indexedMembers, indexedMembers + 1, 40} {
 		in := manyMembers(n)
 		for _, o := range []Options{{}, {AllowDuplicateNames: true}} {
@@ -255,9 +254,9 @@ func TestObjectIndexInvariant(t *testing.T) {
 }
 
 func TestObjectConcurrentReads(t *testing.T) {
-	// 03 req 25: a decoded body is shared by every reader. Reads of a
-	// decoded tree from many goroutines at once are race-free (run with
-	// -race), objects of exactly 9 members and objects decoded last wins
+	// A decoded body is shared by every reader. Reads of a decoded tree
+	// from many goroutines at once are race-free (run with -race),
+	// objects of exactly 9 members and objects decoded last wins
 	// included.
 	inputs := [][]byte{manyMembers(indexedMembers + 1), manyMembers(40), readOrders(t)}
 	for _, in := range inputs {

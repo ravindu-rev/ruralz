@@ -10,9 +10,9 @@ import (
 	"github.com/ravindu-rev/ruralz/internal/expr"
 )
 
-// Field defaults of 05 req 4 (targets). The Upstream core applies them when
-// a field or its parent object is absent, so the runtime values equal the
-// schema markers of OQ-traffic-management-and-resilience-6.
+// Field defaults (targets). The Upstream core applies them when a field or
+// its parent object is absent, so the runtime values equal the schema
+// markers of OQ-traffic-management-and-resilience-6.
 const (
 	// DefaultRouteTimeout is Route.spec.timeout for every M1 Route (a
 	// runtime rule, not materialized).
@@ -38,9 +38,9 @@ const (
 	DefaultHalfOpenSuccesses = 3
 )
 
-// Fixed targets of 05 req 4 ("Fixed (not fields)") and reqs 24 to 37. They
-// are constants, not fields (OQ-traffic-management-and-resilience-5 (a) and
-// -6: backoff and retry budget stay fixed; dial, TLS and stall are fixed).
+// Fixed targets. They are constants, not fields
+// (OQ-traffic-management-and-resilience-5 (a) and -6: backoff and retry
+// budget stay fixed; dial, TLS and stall are fixed).
 const (
 	// DialTimeout bounds one dial; its expiry is error kind connect.
 	DialTimeout = time.Second
@@ -101,13 +101,12 @@ type RetryConfig struct {
 	// by the retries left plus one, computed at each attempt start.
 	PerTryTimeout time.Duration
 	// RetryOn is the compiled retryOn program; nil runs the native form of
-	// expr.DefaultRetryOn (DefaultRetryOn). 05 req 4 admits the native
-	// form only once a table test proves it equal to the CEL default over
-	// the 7 × 5 × 6 matrix through the CEL engine (05 section 6 test 5),
-	// which needs internal/cel (WP-34) and so lives outside this package
-	// (WP-34 or WP-46). Until that test exists the Upstream core fills
-	// RetryOn with Compiler.Default(expr.PlaceRetryOn) and never leaves it
-	// nil.
+	// expr.DefaultRetryOn (DefaultRetryOn). The native form is admitted
+	// only once a table test proves it equal to the CEL default over the
+	// 7 × 5 × 6 matrix through the CEL engine, which needs internal/cel and
+	// so lives outside this package. Until that test exists the Upstream
+	// core fills RetryOn with Compiler.Default(expr.PlaceRetryOn) and never
+	// leaves it nil.
 	RetryOn expr.Program
 }
 
@@ -134,7 +133,7 @@ type BreakerConfig struct {
 	// form of expr.DefaultFailureWhen (DefaultFailureWhen). As for
 	// RetryConfig.RetryOn, the Upstream core fills it with
 	// Compiler.Default(expr.PlaceFailureWhen) until the CEL-engine equality
-	// test of 05 section 6 test 5 exists.
+	// test exists.
 	FailureWhen expr.Program
 }
 
@@ -149,7 +148,7 @@ type BulkheadConfig struct {
 }
 
 // DefaultConfig returns the configuration of an Upstream whose timeout,
-// retries and circuitBreaker are absent (05 req 4).
+// retries and circuitBreaker are absent.
 func DefaultConfig() Config {
 	return Config{
 		Retry:    DefaultRetryConfig(),

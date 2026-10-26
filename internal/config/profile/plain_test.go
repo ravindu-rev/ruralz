@@ -8,15 +8,14 @@ import (
 	"testing"
 )
 
-// TestMultiLinePlainScalars covers plain scalars over several lines (01
-// req 8, 10, 12, 14; blocker of the sixth WP-33 review). goccy scans the
-// rest of one with a line that starts with '-' as folded block text: it
-// kept a comment and ": " in the value, kept line breaks and spaces, and
-// reported the scalar at its last line; and it folded empty lines of
-// spaces into one line feed. Such a scalar is now read from the source as
-// YAML 1.2 (and PyYAML) reads it, at its first character, whatever the
-// split; a comment ends it, and ": " or a line of it after a comment is
-// RZ-CFG-001 at the offending text.
+// TestMultiLinePlainScalars covers plain scalars over several lines.
+// goccy scans the rest of one with a line that starts with '-' as folded
+// block text: it kept a comment and ": " in the value, kept line breaks
+// and spaces, and reported the scalar at its last line; and it folded
+// empty lines of spaces into one line feed. Such a scalar is now read
+// from the source as YAML 1.2 (and PyYAML) reads it, at its first
+// character, whatever the split; a comment ends it, and ": " or a line of
+// it after a comment is RZ-CFG-001 at the offending text.
 func TestMultiLinePlainScalars(t *testing.T) {
 	tests := []struct{ src, want string }{
 		{"description: run the job\n  -v # verbose\nimage: x\n", `{description@1:1:s:"run the job -v"@1:14,image@3:1:s:"x"@3:8}`},
@@ -79,10 +78,9 @@ func TestMultiLinePlainScalars(t *testing.T) {
 
 // TestPlainScalarsBeforeTrailers covers plain scalars whose value goccy
 // reports at another position than their first character, followed by
-// content that changed the split parse's result (01 req 8, 10, 12, 14;
-// minor finding of the eighth WP-33 review). goccy reports a plain scalar
-// continued by a line starting with '-' at its last line, column 1 when
-// blank lines end the document, and one with trailing spaces too far
+// content that changed the split parse's result. goccy reports a plain
+// scalar continued by a line starting with '-' at its last line, column 1
+// when blank lines end the document, and one with trailing spaces too far
 // right; the split parse checked a value's placement with goccy's
 // positions, so a final blank line, "..." or a document marker refused
 // valid YAML, and trailing spaces accepted a value left of its key. The
@@ -130,15 +128,14 @@ func TestPlainScalarsBeforeTrailers(t *testing.T) {
 }
 
 // TestMisreadPlainTokens covers plain tokens goccy scans out of other
-// nodes (01 req 8, 10, 12; blocker of the sixth WP-33 review). After an
-// empty block scalar and a blank line, goccy scans the next line's first
-// node as plain text: a quoted key kept its quotes, an anchor, an alias or
-// a tag became part of a key with no RZ-CFG-003 or RZ-CFG-004, and a flow
-// collection a text key. Such a token is RZ-CFG-001, except that one
-// starting with an anchor or alias is RZ-CFG-003 and one starting with a
-// tag other than a core tag RZ-CFG-004. '?' at the end of its line, which
+// nodes. After an empty block scalar and a blank line, goccy scans the next
+// line's first node as plain text: a quoted key kept its quotes, an anchor,
+// an alias or a tag became part of a key with no RZ-CFG-003 or RZ-CFG-004,
+// and a flow collection a text key. Such a token is RZ-CFG-001, except that
+// one starting with an anchor or alias is RZ-CFG-003 and one starting with
+// a tag other than a core tag RZ-CFG-004. '?' at the end of its line, which
 // goccy scans with the next line as the text "? a", gets an explicit-key
-// message (minor finding of that review).
+// message.
 func TestMisreadPlainTokens(t *testing.T) {
 	tests := []struct{ src, want, msg string }{
 		{"x: |\n\n\"q\": 1\n", "RZ-CFG-001@3:1", `syntax error: unexpected '"'`},
@@ -185,8 +182,8 @@ func TestMisreadPlainTokens(t *testing.T) {
 }
 
 // TestPlainTokenChecks covers the remaining checks of a plain token that
-// no valid YAML 1.2 plain scalar fails (01 req 8): goccy produces such
-// tokens only where it misreads the source.
+// no valid YAML 1.2 plain scalar fails: goccy produces such tokens only
+// where it misreads the source.
 func TestPlainTokenChecks(t *testing.T) {
 	tk := func(v string) string {
 		p := &fileParser{path: "f.yaml", opts: Options{}.withDefaults()}
@@ -227,13 +224,12 @@ func TestPlainTokenChecks(t *testing.T) {
 	}
 }
 
-// TestTabsInPlainScalars covers a tab inside a plain scalar on one line
-// (01 req 11, 12, 15; blocker of the seventh WP-33 review). goccy's
-// scanner left it out of the value, so "x: 1\t2" read as the integer 12,
-// "tr\tue" as true, the keys "bc" and "b\tc" as duplicates, and a
-// mismatched tag passed. The value is read from the source now, typed by
-// the core schema from that text, at the default threshold, with the
-// threshold raised and with goccy's own parse.
+// TestTabsInPlainScalars covers a tab inside a plain scalar on one line.
+// goccy's scanner left it out of the value, so "x: 1\t2" read as the
+// integer 12, "tr\tue" as true, the keys "bc" and "b\tc" as duplicates,
+// and a mismatched tag passed. The value is read from the source now,
+// typed by the core schema from that text, at the default threshold,
+// with the threshold raised and with goccy's own parse.
 func TestTabsInPlainScalars(t *testing.T) {
 	tests := []struct{ src, want string }{
 		{"x: 1\t2\n", `{x:s:"1\t2"}`},
@@ -283,10 +279,9 @@ func TestTabsInPlainScalars(t *testing.T) {
 }
 
 // TestLoneQuestionMark covers a '?' that a line break or a flow
-// indicator follows (01 req 8, 10, 12, 13; 11 req 18; blocker of the
-// seventh WP-33 review). goccy scans it as the plain scalar "?", where
-// YAML 1.2 reads an explicit key indicator with an empty key ("b:\n?" is
-// {b: null, null: null}), as "? # c" is, and refuses "x: ?". It is
+// indicator follows. goccy scans it as the plain scalar "?", where YAML
+// 1.2 reads an explicit key indicator with an empty key ("b:\n?" is {b:
+// null, null: null}), as "? # c" is, and refuses "x: ?". It is
 // RZ-CFG-001 with the empty-key message, nested or not, at every
 // threshold, alone and after 300 sibling keys; before ':' it is a valid
 // plain scalar.

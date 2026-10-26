@@ -17,15 +17,15 @@ import (
 	"testing"
 )
 
-// Tests for 11 test plan item 10 (canary: every encoding found at the right
-// offset; no false positives on random data over 10,000 cases) and the
-// encodings 11 req 39 lists: raw, standard and URL-safe base64, hex,
-// URL-encoded and JSON-escaped.
+// Tests that every encoding is found at the right offset, with no false
+// positives on random data over 10,000 cases, for the encodings the secret
+// leak tests scan: raw, standard and URL-safe base64, hex, URL-encoded and
+// JSON-escaped.
 
 // fixedValue is a canary value that is stable across runs.
 const fixedValue = Prefix + "0123456789abcdef0123456789abcdef"
 
-func TestNewFormat(t *testing.T) { // 11 req 39: rzcanary-<32 hex from crypto/rand>
+func TestNewFormat(t *testing.T) { // rzcanary-<32 hex from crypto/rand>
 	re := regexp.MustCompile(`^rzcanary-[0-9a-f]{32}$`)
 	seen := map[string]bool{}
 	for range 100 {
@@ -65,7 +65,7 @@ func jsonEscapeAll(s string) string {
 	return b.String()
 }
 
-func TestScanEncodingsAtOffsets(t *testing.T) { // 11 test plan item 10; 11 req 39
+func TestScanEncodingsAtOffsets(t *testing.T) {
 	c := Canary{Value: fixedValue}
 	v := c.Value
 	mixedHex := []byte(hex.EncodeToString([]byte(v)))
@@ -121,7 +121,7 @@ func TestScanEncodingsAtOffsets(t *testing.T) { // 11 test plan item 10; 11 req 
 	}
 }
 
-func TestScanBase64EveryAlignment(t *testing.T) { // 11 req 39: base64 embedded in longer values
+func TestScanBase64EveryAlignment(t *testing.T) { // Base64 embedded in longer values
 	c := Canary{Value: fixedValue}
 	skip := [3]int{0, 2, 3}
 	for k := range 3 {
@@ -207,7 +207,7 @@ func TestScanEmptyValue(t *testing.T) {
 	}
 }
 
-func TestNoFalsePositives(t *testing.T) { // 11 test plan item 10: 10,000 random cases
+func TestNoFalsePositives(t *testing.T) { // 10,000 random cases
 	c, err := New()
 	if err != nil {
 		t.Fatal(err)

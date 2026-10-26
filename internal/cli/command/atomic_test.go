@@ -15,9 +15,9 @@ import (
 	"testing"
 )
 
-// Tests for spec 10 req 17: the atomic --output-file write.
+// Tests for the atomic --output-file write.
 
-func TestWriteFileAtomicReq17(t *testing.T) {
+func TestWriteFileAtomic(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "rev.json")
 	if err := WriteFileAtomic(path, []byte("one"), 0o644); err != nil {
@@ -134,7 +134,7 @@ type iotest struct{}
 
 func (iotest) Read([]byte) (int, error) { return 0, errors.New("no entropy") }
 
-func TestWriteDataReq17(t *testing.T) {
+func TestWriteData(t *testing.T) {
 	var out bytes.Buffer
 	sio := IO{Stdout: &out}
 	if err := WriteData(sio, "", []byte("doc\n")); err != nil || out.String() != "doc\n" {

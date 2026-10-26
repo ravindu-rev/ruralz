@@ -10,9 +10,9 @@ import (
 )
 
 // Tests for the RFC 9651 section 4.2 parser: the oracle that serialized
-// RateLimit fields reparse (05 test plan item 28). Examples marked "RFC
-// 9651 3.x" are the field values of that RFC section, including their
-// non-canonical whitespace.
+// RateLimit fields reparse. Examples marked "RFC 9651 3.x" are the
+// field values of that RFC section, including their non-canonical
+// whitespace.
 
 func TestParseListRFCExamples(t *testing.T) {
 	tests := []struct {
@@ -33,7 +33,7 @@ func TestParseListRFCExamples(t *testing.T) {
 		{"3.3.7 date", "@1659578233", "@1659578233"},
 		{"display string", `%"f%c3%bc%c3%bc"`, `%"f%c3%bc%c3%bc"`},
 		{
-			"05 req 67 policy", `"ratelimit-global";q=1000;w=1, "ratelimit-gold.1";q=100;w=1, "ratelimit-gold.2";q=5000;w=60`,
+			"RateLimit-Policy value", `"ratelimit-global";q=1000;w=1, "ratelimit-gold.1";q=100;w=1, "ratelimit-gold.2";q=5000;w=60`,
 			`"ratelimit-global";q=1000;w=1, "ratelimit-gold.1";q=100;w=1, "ratelimit-gold.2";q=5000;w=60`,
 		},
 		{"leading and trailing SP", "  a , b  ", "a, b"},

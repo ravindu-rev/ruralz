@@ -9,7 +9,7 @@ import (
 	"testing"
 )
 
-// BenchmarkSelectSRV measures applying 05 req 6 (lowest-priority group,
+// BenchmarkSelectSRV measures applying the SRV rule (lowest-priority group,
 // weight-0 rule, trailing-dot trim, merge and sort) to a 64-record SRV
 // answer spread over four priorities.
 func BenchmarkSelectSRV(b *testing.B) {
@@ -31,8 +31,8 @@ func BenchmarkSelectSRV(b *testing.B) {
 }
 
 // BenchmarkRefreshDNS measures one A/AAAA refresh of a 32-address answer
-// through a fake resolver: lookup, normalization (05 req 8), comparison
-// with the current set and copy-on-write publication.
+// through a fake resolver: lookup, normalization, comparison with the
+// current set and copy-on-write publication.
 func BenchmarkRefreshDNS(b *testing.B) {
 	res := newFakeResolver()
 	ips := make([]string, 32)

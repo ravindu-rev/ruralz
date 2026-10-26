@@ -1,13 +1,12 @@
 // Copyright 2026 Revington
 // SPDX-License-Identifier: Apache-2.0
 
-// Package statestoretest is the State Store test kit (spec 08 section 6):
-// Fake, a failure-injecting statestore.Driver for Filter, post-commit
-// queue and Manager tests; Model, the reference arithmetic of the GCRA
-// and Quota scripts; and RunConformance, the driver conformance suite the
-// memory driver runs in its unit tests and the redis driver runs against
-// local and CI servers. It is imported by tests only (depguard
-// testsupport).
+// Package statestoretest is the State Store test kit: Fake, a
+// failure-injecting statestore.Driver for Filter, post-commit queue and
+// Manager tests; Model, the reference arithmetic of the GCRA and Quota
+// scripts; and RunConformance, the driver conformance suite the memory
+// driver runs in its unit tests and the redis driver runs against local
+// and CI servers. It is imported by tests only (depguard testsupport).
 package statestoretest
 
 import (
@@ -46,16 +45,16 @@ type Rule struct {
 	// Err fails every call of a matched round trip with this sentinel
 	// (statestore.ErrTimeout, ErrFailed, ErrBreakerOpen, ErrNotAttempted
 	// or ErrUnsupported), after the unsupported and per-request deadline
-	// checks, which keep their precedence (spec 08 req 33). Nil injects
-	// only Latency or Answer.
+	// checks, which keep their precedence. Nil injects only Latency or
+	// Answer.
 	Err *statestore.Error
 	// Latency is the simulated round-trip time reported in Call.Elapsed
 	// and passed to Fake.Advance. A latency at or above the round trip's
 	// timeout fails it with RZ-STS-001 at the timeout.
 	Latency time.Duration
 	// Apply lets the answering store still apply a round trip that
-	// timed out, as a server may (spec 08 req 34: a timed-out
-	// consumptive call can over-charge, never under-charge).
+	// timed out, as a server may (a timed-out consumptive call can
+	// over-charge, never under-charge).
 	Apply bool
 	// Times is how many round trips the rule affects; 0 means until
 	// Clear.
@@ -63,10 +62,10 @@ type Rule struct {
 	// Answer, when set, answers the calls of a matched Consume or Read
 	// round trip in place of the answering store; the Fake marks each
 	// answered call Done. It must set the outcome of every call it is
-	// given. In Consume, as on the real drivers (spec 08 reqs 29, 38 and
-	// 44), the group stops at the first call Answer leaves denied (a GCRA
-	// or Quota call with Allowed false): later calls are not passed to
-	// Answer and stay !Done with a nil Err.
+	// given. In Consume, as on the real drivers, the group stops at the
+	// first call Answer leaves denied (a GCRA or Quota call with Allowed
+	// false): later calls are not passed to Answer and stay !Done with a
+	// nil Err.
 	Answer func(c *statestore.Call)
 	// AnswerWrite, when set, answers every write of a matched Write
 	// batch; the Fake marks it Applied unless it sets Err.
@@ -271,9 +270,9 @@ type outcome struct {
 	apply   bool // the answering store still runs the calls
 }
 
-// decide runs the pre-call checks in the order of spec 08 req 33
-// (unsupported, per-request deadline, then injected breaker, in-flight,
-// timeout and error failures) and records the trip.
+// decide runs the pre-call checks in the order (unsupported,
+// per-request deadline, then injected breaker, in-flight, timeout and
+// error failures) and records the trip.
 func (f *Fake) decide(ctx context.Context, m Method, rb *statestore.RequestBudget, ops []statestore.OpKind, policy time.Duration, scripts bool) outcome {
 	var o outcome
 	f.mu.Lock()

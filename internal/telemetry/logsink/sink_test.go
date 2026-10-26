@@ -28,9 +28,9 @@ func TestNewRequiresStdout(t *testing.T) {
 	}
 }
 
-// 09 req 61, 65: the queue is bounded in records; a full queue drops
-// without blocking and counts queue_full; every record counts as produced.
-func TestQueueRecordBound_Req61(t *testing.T) {
+// The queue is bounded in records; a full queue drops without blocking and
+// counts queue_full; every record counts as produced.
+func TestQueueRecordBound(t *testing.T) {
 	s, out := newSink(t, Options{QueueRecords: 4})
 	log := s.Logger("c")
 	ctx := t.Context()
@@ -49,9 +49,9 @@ func TestQueueRecordBound_Req61(t *testing.T) {
 	}
 }
 
-// 09 req 61: the queue is bounded in bytes; a record that does not fit
-// the remaining budget drops with queue_full.
-func TestQueueByteBound_Req61(t *testing.T) {
+// The queue is bounded in bytes; a record that does not fit the
+// remaining budget drops with queue_full.
+func TestQueueByteBound(t *testing.T) {
 	s, out := newSink(t, Options{QueueBytes: 3 * 1024})
 	log := s.Logger("c")
 	ctx := t.Context()
@@ -69,9 +69,9 @@ func TestQueueByteBound_Req61(t *testing.T) {
 	}
 }
 
-// 09 req 62: the worker writes one batch when the queue drains and a
-// batch whenever it reaches the batch size.
-func TestBatching_Req62(t *testing.T) {
+// The worker writes one batch when the queue drains and a batch
+// whenever it reaches the batch size.
+func TestBatching(t *testing.T) {
 	s, out := newSink(t, Options{BatchBytes: 1024})
 	log := s.Logger("c")
 	ctx := t.Context()
@@ -93,9 +93,9 @@ func TestBatching_Req62(t *testing.T) {
 	}
 }
 
-// 09 req 62, 65: a failed stdout write counts export_error once for each
+// A failed stdout write counts export_error once for each
 // line it lost; the lines written before the failure are not counted.
-func TestWriteErrorCountsLostLines_Req62(t *testing.T) {
+func TestWriteErrorCountsLostLines(t *testing.T) {
 	fw := &failWriter{}
 	s, _ := newSink(t, Options{Stdout: fw})
 	log := s.Logger("c")
@@ -116,11 +116,11 @@ func TestWriteErrorCountsLostLines_Req62(t *testing.T) {
 	}
 }
 
-// ADR-0018 "Blocked stdout test", 09 req 61 and 70, WP-11 done-when: a
-// stdout nobody reads never blocks the logging goroutine; records beyond
-// the queue drop with queue_full; after the pipe unblocks the worker
-// writes what it held and Run returns on cancel.
-func TestBlockedStdout_Req61(t *testing.T) {
+// ADR-0018 "Blocked stdout test": a stdout nobody reads never blocks the
+// logging goroutine; records beyond the queue drop with queue_full; after
+// the pipe unblocks the worker writes what it held and Run returns on
+// cancel.
+func TestBlockedStdout(t *testing.T) {
 	bw := newBlockingWriter()
 	s, _ := newSink(t, Options{Stdout: bw, QueueRecords: 64})
 	ctx, cancel := context.WithCancel(t.Context())
@@ -272,7 +272,7 @@ func (f *fakeStream) Flushed(lost int) {
 
 // ADR-0018 row Logs: one worker owns stdout for both streams; lines never
 // interleave and a lost write is attributed to the stream that lost it.
-func TestAccessStream_Req62(t *testing.T) {
+func TestAccessStream(t *testing.T) {
 	st := newFakeStream()
 	s, out := newSink(t, Options{Access: st})
 	log := s.Logger("c")
@@ -365,10 +365,10 @@ func recordAttrs(r slog.Record) map[string]string {
 	return m
 }
 
-// 09 req 4 and 61, 06 req 92: a slot filled with a group value (from the
-// record or from WithAttrs) has its credential-named members redacted and
-// passed to ReplaceAttr under the slot key on stdout and on the bridge.
-func TestBridgeSlotGroupRedacted_Req61(t *testing.T) {
+// A slot filled with a group value (from the record or from WithAttrs)
+// has its credential-named members redacted and passed to ReplaceAttr
+// under the slot key on stdout and on the bridge.
+func TestBridgeSlotGroupRedacted(t *testing.T) {
 	var mu sync.Mutex
 	calls := map[[2]string]int{}
 	s, out := newSink(t, Options{ReplaceAttr: func(groups []string, a slog.Attr) slog.Attr {
@@ -411,10 +411,10 @@ func TestBridgeSlotGroupRedacted_Req61(t *testing.T) {
 	}
 }
 
-// 09 req 61, 62: after the stdout write each record goes once to the OTLP
-// bridge, with framing members as attributes, groups applied, trace IDs
-// separate and node_id left to the resource.
-func TestBridge_Req61(t *testing.T) {
+// After the stdout write each record goes once to the OTLP bridge, with
+// framing members as attributes, groups applied, trace IDs separate and
+// node_id left to the resource.
+func TestBridge(t *testing.T) {
 	s, _ := newSink(t, Options{NodeID: "node", TraceContext: traceFromContext})
 	b := &recordingBridge{}
 	s.SetBridge(b)
@@ -465,10 +465,10 @@ func TestBridge_Req61(t *testing.T) {
 	}
 }
 
-// 09 req 65: a record lost by stdout still reaches the bridge, flagged, and
-// is counted once even when the bridge fails too; a bridge failure alone
-// counts export_error.
-func TestDropCountedOnce_Req65(t *testing.T) {
+// A record lost by stdout still reaches the bridge, flagged, and is counted
+// once even when the bridge fails too; a bridge failure alone counts
+// export_error.
+func TestDropCountedOnce(t *testing.T) {
 	b := &recordingBridge{err: errors.New("export failed")}
 	s, _ := newSink(t, Options{Stdout: &failWriter{}})
 	s.SetBridge(b)
@@ -490,9 +490,9 @@ func TestDropCountedOnce_Req65(t *testing.T) {
 	}
 }
 
-// 04 req 79: http.Server.ErrorLog is bridged through the sink with a rate
-// limit.
-func TestErrorLogBridge_Req79(t *testing.T) {
+// TestErrorLogBridge checks that http.Server.ErrorLog is bridged through
+// the sink with a rate limit.
+func TestErrorLogBridge(t *testing.T) {
 	s, out := newSink(t, Options{Clock: clocktest.New(time.Date(2026, 9, 26, 0, 0, 0, 0, time.UTC))})
 	std := slog.NewLogLogger(s.ErrorLog("listener"), slog.LevelWarn)
 	for range 50 {
@@ -509,11 +509,11 @@ func TestErrorLogBridge_Req79(t *testing.T) {
 	}
 }
 
-// 09 section 9 item 20, req 65: when the owner gives up on a worker
-// blocked in its write, Close counts the queued records as queue_full and
-// the lines of the blocked batch as export_error, once: the batch written
-// later is neither counted again nor counted by the bridge.
-func TestCloseCountsAbandonedBatch_Req65(t *testing.T) {
+// TestCloseCountsAbandonedBatch checks that when the owner gives up on a
+// worker blocked in its write, Close counts the queued records as
+// queue_full and the lines of the blocked batch as export_error, once: the
+// batch written later is neither counted again nor counted by the bridge.
+func TestCloseCountsAbandonedBatch(t *testing.T) {
 	bw := newBlockingWriter()
 	s, _ := newSink(t, Options{Stdout: bw})
 	b := &recordingBridge{err: errors.New("bridge failure")}
@@ -552,9 +552,9 @@ func TestCloseCountsAbandonedBatch_Req65(t *testing.T) {
 	}
 }
 
-// 09 section 9 item 20, req 65: a Handle racing Close never leaves a
+// TestHandleRacingClose checks that a Handle racing Close never leaves a
 // record queued and uncounted.
-func TestHandleRacingClose_Req65(t *testing.T) {
+func TestHandleRacingClose(t *testing.T) {
 	for range 50 {
 		s, _ := newSink(t, Options{})
 		log := s.Logger("c")

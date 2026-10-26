@@ -40,10 +40,10 @@ func order1KiB() []byte {
 	return []byte(b.String())
 }
 
-// BenchmarkValidate1KiB is the 07 req 84 budget: onRequestBody with
+// BenchmarkValidate1KiB measures the budget of onRequestBody with
 // validation.json-schema on a 1 KiB body (25 µs p50, 80 µs p99, target).
-// Decoder and library allocations are not Ruralz-owned (07 section 9 item
-// 20); TestHandleAddsNoAllocations checks the Filter adds none.
+// Decoder and library allocations are not Ruralz-owned;
+// TestHandleAddsNoAllocations checks the Filter adds none.
 func BenchmarkValidate1KiB(b *testing.B) {
 	f := buildFilter(b, orderSchema(b), testLimit)
 	body := order1KiB()
@@ -88,9 +88,9 @@ func BenchmarkValidateNested(b *testing.B) {
 	}
 }
 
-// TestHandleAddsNoAllocations checks the 07 req 84 allocation target for
-// Ruralz code: Handle allocates nothing beyond the strict decode and the
-// library's validation of a valid body, the decision pass.
+// TestHandleAddsNoAllocations checks the allocation target for Ruralz code:
+// Handle allocates nothing beyond the strict decode and the library's
+// validation of a valid body, the decision pass.
 func TestHandleAddsNoAllocations(t *testing.T) {
 	if raceEnabled {
 		t.Skip("sync.Pool drops items at random under -race")
@@ -127,7 +127,7 @@ func schema256KiB() string {
 	return b.String()
 }
 
-// BenchmarkCompileSchema256KiB is 07's compile benchmark for a schema at
+// BenchmarkCompileSchema256KiB is the compile benchmark for a schema at
 // the size bound (one compile per Policy per snapshot, carried over).
 func BenchmarkCompileSchema256KiB(b *testing.B) {
 	raw := []byte(schema256KiB())
@@ -200,8 +200,8 @@ func analysisWorstCase(props, pats int, mixins bool) string {
 }
 
 // combinedWorstCase returns a document that holds the separately bounded
-// compile costs together (minor review findings: each was measured alone):
-// props properties named prefix and a number that refer to the root, for
+// compile costs together, which the other cases measure alone: props
+// properties named prefix and a number that refer to the root, for
 // the library's quadratic compile, whose scan of its work queue compares
 // the positions' locations, and the precise analysis; eight case-folded
 // classes of merged Unicode class escapes, which the parser's work and the
@@ -250,16 +250,15 @@ type analysisCase struct {
 // analysisCases are the worst cases of the evaluation analysis and of the
 // compile-time pattern work: properties against many patterns, recursive
 // mixins, long member names against the patterns of the same schema and of
-// a sibling (review finding: matched by count, they compiled for 18 and
-// 41 s), patterns that alternate thousands of literals (review finding:
-// explored for seconds each), the largest programs and parsing work of
-// MaxDocumentInstructions (review findings: escapes merged in a class,
-// case folding, and patterns parsed after the document's bound, and
-// patternMemoryCases: the anchored programs Go's one-pass matcher would
-// take), reference ladders that the library's meta-schema check would
-// repeat for every rung (review finding), those costs together
-// (combinedWorstCase, minor review finding), and states of a thousand
-// schemas with patterns or lengths each (review finding).
+// a sibling (matched by count, they compiled for 18 and 41 s), patterns
+// that alternate thousands of literals (explored for seconds each), the
+// largest programs and parsing work of MaxDocumentInstructions (escapes
+// merged in a class, case folding, and patterns parsed after the document's
+// bound, and patternMemoryCases: the anchored programs Go's one-pass
+// matcher would take), reference ladders that the library's meta-schema
+// check would repeat for every rung, those costs together
+// (combinedWorstCase), and states of a thousand schemas with patterns or
+// lengths each.
 func analysisCases() []analysisCase {
 	// The largest alternations of literals that fit MaxPatternInstructions,
 	// each literal's node counted, eight to a document.
@@ -286,12 +285,12 @@ func analysisCases() []analysisCase {
 		{name: "repeated checks", schema: misalignedLadder(30, ladderBottom(100, func(int) string { return `{"type":"string","minLength":1}` }))},
 		{name: "targets outside the keywords", schema: outsideTargets(125, 3800)},
 		{name: "combined", schema: combinedWorstCase(3800, strings.Repeat("a", 30), 120)},
-		// Minor review finding: a slash, which a location escapes as ~1,
-		// doubles the bytes the library's scan compares.
+		// A slash, which a location escapes as ~1, doubles the bytes the
+		// library's scan compares.
 		{name: "combined, escaped names", schema: combinedWorstCase(3800, strings.Repeat("/", 30), 120)},
-		// Review finding: the states merged their patterns' reaches, and
-		// added their kinds of length, one schema at a time after a scan or
-		// a sort of what they held.
+		// Merging the states' pattern reaches, and adding their kinds of
+		// length, one schema at a time after a scan or a sort of what they
+		// held took 2.9 s and 1 s.
 		{name: "pattern reaches", schema: frontierSchema(240, 760, 500, false)},
 		{name: "length kinds", schema: membersOf(lengthsSchema(1000), 500)},
 	}
@@ -299,8 +298,8 @@ func analysisCases() []analysisCase {
 }
 
 // BenchmarkEvaluationAnalysis times the evaluation analysis alone (both of
-// its runs and the states) on its worst cases; 07 F6 allows 1 s for a
-// whole compile.
+// its runs and the states) on its worst cases; a whole compile is allowed
+// 1 s.
 func BenchmarkEvaluationAnalysis(b *testing.B) {
 	for _, tc := range analysisCases() {
 		if tc.refused {
@@ -334,12 +333,11 @@ func BenchmarkCompileAnalysisWorstCase(b *testing.B) {
 	}
 }
 
-// BenchmarkValidateDense measures the validator's throughput per
-// subschema evaluation (07 req 84, section 9 item 21) on dense arrays
-// against an 8-way oneOf of consts, failing and passing: 9 evaluations per
-// item. The work bound charges each such evaluation at least evalUnits
-// (package documentation "Work bound"; BenchmarkWorkModel compares the
-// whole model with the library).
+// BenchmarkValidateDense measures the validator's throughput per subschema
+// evaluation on dense arrays against an 8-way oneOf of consts, failing and
+// passing: 9 evaluations per item. The work bound charges each such
+// evaluation at least evalUnits (package documentation "Work bound";
+// BenchmarkWorkModel compares the whole model with the library).
 func BenchmarkValidateDense(b *testing.B) {
 	const items = 5000
 	for _, tc := range []struct{ name, item, outcome string }{

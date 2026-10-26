@@ -17,8 +17,8 @@ import (
 type Endpoint struct {
 	// Identity is the Endpoint's stable name: the configured address of a
 	// static Endpoint, ip:port of an A/AAAA answer or target:port of an SRV
-	// answer (05 reqs 5 and 6). Structures are ordered by it (05 req 8), and
-	// ring positions derive from it (05 req 14).
+	// answer. Structures are ordered by it, and ring positions derive from
+	// it.
 	Identity string
 	// Weight is endpoints[].weight or the SRV weight.
 	Weight uint32
@@ -29,10 +29,9 @@ type Endpoint struct {
 var ErrNotNormalized = errors.New("balance: endpoints must be sorted by identity with unique identities")
 
 // Normalize returns the canonical form of an Endpoint list: a new slice
-// sorted by identity (05 req 8), with Endpoints of equal identity merged
-// into one whose weight is their sum (saturating). Every Node given the same
-// set, in any order, gets the same list and therefore builds identical
-// structures.
+// sorted by identity, with Endpoints of equal identity merged into one whose
+// weight is their sum (saturating). Every Node given the same set, in any
+// order, gets the same list and therefore builds identical structures.
 func Normalize(eps []Endpoint) []Endpoint {
 	out := slices.Clone(eps)
 	slices.SortFunc(out, func(a, b Endpoint) int { return cmp.Compare(a.Identity, b.Identity) })
@@ -81,15 +80,14 @@ func effectiveWeights(eps []Endpoint) (w []uint32, total uint64, live int) {
 	return w, total, live
 }
 
-// quotas apportions length slots over the weights (05 reqs 12 and 14).
-// Each weighted Endpoint starts at n_i = max(1, round(length × w_i /
-// total)); when those do not sum to length, the Endpoint most over-served
-// relative to its exact share gives up a slot (never its last one), or the
-// most under-served takes one, until they do. Without the max(1, …) floor
-// forcing extra slots, every quota ends within one slot of n_i. When there
-// are at least as many weighted Endpoints as slots, each gets one. Endpoints
-// of weight 0 get none. Integer arithmetic keeps the result identical on
-// every platform.
+// quotas apportions length slots over the weights. Each weighted Endpoint
+// starts at n_i = max(1, round(length × w_i / total)); when those do not sum
+// to length, the Endpoint most over-served relative to its exact share gives
+// up a slot (never its last one), or the most under-served takes one, until
+// they do. Without the max(1, …) floor forcing extra slots, every quota ends
+// within one slot of n_i. When there are at least as many weighted Endpoints
+// as slots, each gets one. Endpoints of weight 0 get none. Integer
+// arithmetic keeps the result identical on every platform.
 func quotas(w []uint32, total uint64, length int) []uint32 {
 	n := make([]uint32, len(w))
 	if total == 0 || length <= 0 {
@@ -223,8 +221,8 @@ func (h *shareHeap) fix() {
 }
 
 // ScheduleBytes is the nominal size of a round-robin schedule over the
-// given number of Endpoints: 4 bytes × min(65,536, 64 × Endpoints) (05 req
-// 12). It is the S term of the budget plan (05 req 17).
+// given number of Endpoints: 4 bytes × min(65,536, 64 × Endpoints). It is
+// the S term of the budget plan.
 func ScheduleBytes(endpoints int) int64 {
 	if endpoints <= 0 {
 		return 0
@@ -235,7 +233,7 @@ func ScheduleBytes(endpoints int) int64 {
 
 // RingBytes is the nominal size of a ring-hash ring over the given number of
 // Endpoints at v virtual nodes per Endpoint: 16 bytes × min(65,536, v ×
-// Endpoints), never fewer than one virtual node per Endpoint (05 req 14).
+// Endpoints), never fewer than one virtual node per Endpoint.
 func RingBytes(v, endpoints int) int64 {
 	if endpoints <= 0 || v <= 0 {
 		return 0

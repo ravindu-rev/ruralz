@@ -33,7 +33,7 @@ type mapSource interface {
 
 // mapView is a read-only CEL map(string, V) over a mapSource. Every source
 // is one pointer, so the view boxes without allocating. Iteration is in
-// ascending key order (03 req 6.3).
+// ascending key order.
 type mapView[S mapSource] struct{ s S }
 
 // Find returns the value of a string key; any other key is absent.
@@ -217,7 +217,7 @@ func lookupString(m map[string]string, key string) (ref.Val, bool) {
 }
 
 // querySource is request.query: parsed from the raw query on first use and
-// cached in the view (03 req 20).
+// cached in the view.
 type querySource struct{ r *expr.Request }
 
 func (s querySource) lookup(key string) (ref.Val, bool) { return lookupString(s.r.Query(), key) }

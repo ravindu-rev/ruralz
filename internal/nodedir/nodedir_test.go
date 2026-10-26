@@ -43,8 +43,7 @@ func assertPerm(t *testing.T, path string, want fs.FileMode) {
 	}
 }
 
-// TestLayoutNames pins the layout of spec 04 requirement 5 and the names
-// the CLI relies on (spec 10 requirements 94 and 95).
+// TestLayoutNames pins the layout and the names the CLI relies on.
 func TestLayoutNames(t *testing.T) {
 	root := filepath.Join(t.TempDir(), "data")
 	d, err := Open(root)
@@ -68,9 +67,9 @@ func TestLayoutNames(t *testing.T) {
 	}
 }
 
-// TestOpenModes covers spec 04 requirement 5 and test plan item 3 "modes
-// 0700/0600": Open creates root, identity/ and lkg/ owner-only, missing
-// parents included, and does not create the reserved OCI cache.
+// TestOpenModes covers the modes 0700 and 0600: Open creates root,
+// identity/ and lkg/ owner-only, missing parents included, and does not
+// create the reserved OCI cache.
 func TestOpenModes(t *testing.T) {
 	root := filepath.Join(t.TempDir(), "a", "b", "data")
 	d, err := Open(root + string(filepath.Separator) + ".")
@@ -141,9 +140,8 @@ func TestOpenErrors(t *testing.T) {
 	}
 }
 
-// TestWriteFileAtomic covers the atomic write of spec 04 requirement 5
-// and test plan item 3 "atomic write survives a simulated crash (temp file
-// left behind is ignored)".
+// TestWriteFileAtomic: an atomic write survives a simulated crash (a temp
+// file left behind is ignored).
 func TestWriteFileAtomic(t *testing.T) {
 	dir := t.TempDir()
 	if err := WriteFileAtomic(dir, "f.json", []byte("one"), 0o600); err != nil {
@@ -194,8 +192,7 @@ func TestWriteFileAtomic(t *testing.T) {
 	}
 }
 
-// TestNodeID covers spec 04 requirements 5 and 6 and test plan item 3
-// "node-id created once and reused".
+// TestNodeID: node-id is created once and reused.
 func TestNodeID(t *testing.T) {
 	d, err := Open(filepath.Join(t.TempDir(), "data"))
 	if err != nil {
@@ -292,7 +289,7 @@ func TestNodeIDErrors(t *testing.T) {
 }
 
 // TestNodeIDConcurrentFirstBoot: processes starting at once agree on one
-// node.id; the file is never rewritten (spec 04 requirement 5).
+// node.id; the file is never rewritten.
 func TestNodeIDConcurrentFirstBoot(t *testing.T) {
 	root := filepath.Join(t.TempDir(), "data")
 	if _, err := Open(root); err != nil {

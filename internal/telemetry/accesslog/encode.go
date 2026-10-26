@@ -14,8 +14,8 @@ const timeLayout = "2006-01-02T15:04:05.000000Z07:00"
 
 const hexDigits = "0123456789abcdef"
 
-// Framing of every access line (09 req 68): slog-shaped, so stdout readers
-// tell access lines from process lines by msg.
+// Framing of every access line: slog-shaped, so stdout readers tell access
+// lines from process lines by msg.
 const (
 	// Level is the level member of every access line.
 	Level = "INFO"
@@ -100,7 +100,7 @@ func appendHex(dst []byte, b []byte) []byte {
 }
 
 // appendSeconds appends d as seconds with exactly six decimals, a JSON
-// number with microsecond precision (09 req 68, proposed).
+// number with microsecond precision (proposed).
 func appendSeconds(dst []byte, d time.Duration) []byte {
 	us := d.Microseconds()
 	if us < 0 {
@@ -131,7 +131,7 @@ func (e *entry) appendAlways(dst []byte, f field) []byte {
 }
 
 // appendLine encodes e as one JSON object (no newline) with the members
-// of 09 req 68 in their fixed order. nodeMember is the preformatted
+// in their fixed order. nodeMember is the preformatted
 // `,"node_id":"..."` member.
 func (e *entry) appendLine(dst, nodeMember []byte) []byte {
 	dst = append(dst, `{"time":"`...)

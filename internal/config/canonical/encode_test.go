@@ -28,10 +28,10 @@ const (
 	policyDoc   = `{"apiVersion": "ruralz/v1alpha1", "kind": "Policy", "metadata": {"name": "cors"}, "spec": {"type": "cors", "config": {"allowOrigins": ["https://shop.example"]}}}`
 )
 
-// TestEnvelope covers the document shape and resource order (02 reqs 21,
-// 22, 27): format then resources, kind/metadata/spec only, no apiVersion,
-// Gateway, Upstream, Plugin, Policy, Consumer, AIProvider, AIModel, Route
-// then name order, no whitespace and no trailing newline.
+// TestEnvelope covers the document shape and resource order: format then
+// resources, kind/metadata/spec only, no apiVersion, Gateway, Upstream,
+// Plugin, Policy, Consumer, AIProvider, AIModel, Route then name order,
+// no whitespace and no trailing newline.
 func TestEnvelope(t *testing.T) {
 	got := encode(t, routeDoc, policyDoc, upstreamDoc, gatewayDoc,
 		`{"apiVersion": "ruralz/v1alpha1", "kind": "Route", "metadata": {"name": "a-first"}, "spec": {}}`,
@@ -68,8 +68,7 @@ func TestEmptyBundle(t *testing.T) {
 }
 
 // TestDigest: the digest is SHA-256 over the exact bytes, which carry no
-// trailing newline, so sha256sum of a build output prints it (02 reqs 27
-// and 29).
+// trailing newline, so sha256sum of a build output prints it.
 func TestDigest(t *testing.T) {
 	rev, err := NewEncoder(hubIndex(t)).Encode(context.Background(), bundleOf(t, gatewayDoc, routeDoc), Options{})
 	if err != nil {
@@ -89,7 +88,7 @@ func TestDigest(t *testing.T) {
 
 // TestConversionDataStripped: ruralz.io/conversion-data never reaches the
 // canonical form, and annotations that held only it disappear, so a
-// down-converted resource keeps its source's Revision (02 reqs 7 and 21).
+// down-converted resource keeps its source's Revision.
 func TestConversionDataStripped(t *testing.T) {
 	plain := encode(t, `{"kind": "Route", "metadata": {"name": "r"}, "spec": {}}`)
 	only := encode(t, `{"kind": "Route", "metadata": {"name": "r", "annotations": {"ruralz.io/conversion-data": "{\"x\":1}"}}, "spec": {}}`)
@@ -97,17 +96,16 @@ func TestConversionDataStripped(t *testing.T) {
 	mixed := encode(t, `{"kind": "Route", "metadata": {"name": "r", "annotations": {"ruralz.io/conversion-data": "x", "owner": "team-a"}}, "spec": {}}`)
 	want := `{"format":"ruralz.canonical.v1","resources":[{"kind":"Route","metadata":{"annotations":{"owner":"team-a"},"name":"r"},"spec":{}}]}`
 	sameBytes(t, "mixed annotations", mixed, []byte(want))
-	// An authored empty annotations object is presence and stays (02 req 19).
+	// An authored empty annotations object is presence and stays.
 	empty := encode(t, `{"kind": "Route", "metadata": {"name": "r", "annotations": {}}, "spec": {}}`)
 	if !strings.Contains(string(empty), `"annotations":{}`) {
 		t.Errorf("empty annotations dropped: %s", empty)
 	}
 }
 
-// TestStrings is the RFC 8785 string table (02 req 24, test plan 2):
-// only '"', '\' and controls are escaped, with short escapes or lowercase
-// \u00xx; '/', U+007F, U+2028, U+2029, non-BMP characters and HTML
-// characters stay literal (02 req 25).
+// TestStrings is the RFC 8785 string table: only '"', '\' and controls
+// are escaped, with short escapes or lowercase \u00xx; '/', U+007F,
+// U+2028, U+2029, non-BMP characters and HTML characters stay literal.
 func TestStrings(t *testing.T) {
 	for _, tc := range []struct {
 		in, want string
@@ -135,7 +133,7 @@ func TestStrings(t *testing.T) {
 }
 
 // TestCELByteExact: CEL text with '<', '>' and '&' is written byte for
-// byte, never HTML-escaped (02 req 25, CEL text byte-exact).
+// byte, never HTML-escaped (CEL text byte-exact).
 func TestCELByteExact(t *testing.T) {
 	rule := `response.status >= 400 && duration > duration("1s") || request.headers["x"] < "<&>"`
 	doc := fmt.Sprintf(`{"kind": "Policy", "metadata": {"name": "p"}, "spec": {"type": "authz.cel", "config": {"rule": %s}}}`, strconv.Quote(rule))
@@ -148,10 +146,9 @@ func TestCELByteExact(t *testing.T) {
 	}
 }
 
-// TestNumbers is the RFC 8785 number table (02 req 24, test plan 3;
-// RFC 8785 Appendix B). Integer literals outside ±(2^53−1) are rounded
-// through the double as RFC 8785 prescribes; refusing them in authored
-// configuration is stage G's rule (02 req 16, R-64).
+// TestNumbers is the RFC 8785 number table (RFC 8785 Appendix B). Integer
+// literals outside ±(2^53−1) are rounded through the double as RFC 8785
+// prescribes; refusing them in authored configuration is stage G's rule.
 func TestNumbers(t *testing.T) {
 	for _, tc := range []struct {
 		lit  string
@@ -195,7 +192,7 @@ func TestNumbers(t *testing.T) {
 
 // TestMemberOrder is RFC 8785 section 3.2.3: members sort by UTF-16 code
 // units, which puts U+1F600 (a surrogate pair) before U+FB33 although its
-// UTF-8 bytes sort after (02 req 24, test plan 4).
+// UTF-8 bytes sort after.
 func TestMemberOrder(t *testing.T) {
 	n := jsonTree(t, `{"\u20ac": 1, "\r": 2, "\ufb33": 3, "1": 4, "\ud83d\ude00": 5, "\u0080": 6, "\u00f6": 7}`)
 	got, err := AppendNode(nil, n)
@@ -216,7 +213,7 @@ func TestMemberOrder(t *testing.T) {
 
 // TestValues covers the remaining value kinds: booleans, nested lists in
 // order (stage G already sorted them), empty containers, and null and
-// missing values, which have no canonical form (02 reqs 19 and 24).
+// missing values, which have no canonical form.
 func TestValues(t *testing.T) {
 	got, err := AppendNode(nil, jsonTree(t, `{"z": [true, false, [], {}, "", [3, 1, 2]], "a": {"y": 1, "x": {"k": "v"}}}`))
 	if err != nil || string(got) != `{"a":{"x":{"k":"v"},"y":1},"z":[true,false,[],{},"",[3,1,2]]}` {
@@ -255,8 +252,7 @@ func TestDepthLimit(t *testing.T) {
 	}
 }
 
-// TestLevel: the encoder renders only the index's own schema level (02
-// req 28).
+// TestLevel: the encoder renders only the index's own schema level.
 func TestLevel(t *testing.T) {
 	b := bundleOf(t, routeDoc)
 	if _, err := NewEncoder(hubIndex(t)).Encode(context.Background(), b, Options{Level: 1}); !errors.Is(err, ErrEncode) {
@@ -343,8 +339,8 @@ func largeBundle(t testing.TB, n int) *hub.Bundle {
 	return hub.NewBundle(rs)
 }
 
-// TestWorkers: the output does not depend on the worker count (02 req
-// 78), and a canceled context stops the encoder.
+// TestWorkers: the output does not depend on the worker count, and a
+// canceled context stops the encoder.
 func TestWorkers(t *testing.T) {
 	b := largeBundle(t, 200)
 	enc := NewEncoder(hubIndex(t))
@@ -409,7 +405,7 @@ func TestParallelErrors(t *testing.T) {
 
 // TestReorderInvariance is the reorder property over the example sizes:
 // shuffling the members of every object and the order of resources
-// leaves the bytes unchanged (02 req 22; WP-39 property).
+// leaves the bytes unchanged.
 func TestReorderInvariance(t *testing.T) {
 	b := largeBundle(t, 20)
 	want, err := NewEncoder(hubIndex(t)).Encode(context.Background(), b, Options{})
@@ -434,7 +430,7 @@ func TestReorderInvariance(t *testing.T) {
 }
 
 // TestOverridableFalseSurvives: an explicit overridable: false is written
-// and changes the Revision (RL "Presence and defaults"; test plan 9).
+// and changes the Revision (RL "Presence and defaults").
 func TestOverridableFalseSurvives(t *testing.T) {
 	doc := `{"kind": "Policy", "metadata": {"name": "ratelimit-global"}, "spec": {"type": "ratelimit", "overridable": %s, "config": {"key": "source.ip"}}}`
 	f := encode(t, fmt.Sprintf(doc, "false"))

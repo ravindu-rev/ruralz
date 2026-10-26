@@ -21,18 +21,18 @@ type Resolver interface {
 }
 
 // NewResolver returns the production Resolver: the pure-Go net.Resolver,
-// so lookups behave the same with CGO_ENABLED=0 on every platform (05 req
-// 6; Tech stack "Service discovery").
+// so lookups behave the same with CGO_ENABLED=0 on every platform (Tech
+// stack "Service discovery").
 func NewResolver() Resolver { return &net.Resolver{PreferGo: true} }
 
 // errEmptyAnswer is the failure of an answer without usable records; like
-// NXDOMAIN it empties the set only after 3 consecutive refreshes (05 req 7).
+// NXDOMAIN it empties the set only after 3 consecutive refreshes.
 var errEmptyAnswer = errors.New("discovery: empty answer")
 
 // notFound reports whether err is NXDOMAIN or an empty answer (the name
 // exists without records of the type): the failure class that empties the
-// set after 3 consecutive refreshes (05 req 7). Timeouts, refused queries
-// and server failures are ordinary failures that keep the last set forever.
+// set after 3 consecutive refreshes. Timeouts, refused queries and server
+// failures are ordinary failures that keep the last set forever.
 func notFound(err error) bool {
 	if errors.Is(err, errEmptyAnswer) {
 		return true

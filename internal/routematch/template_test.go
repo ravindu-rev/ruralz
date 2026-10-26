@@ -15,8 +15,8 @@ import (
 func lit(s string) Segment   { return Segment{Literal: s} }
 func param(s string) Segment { return Segment{Param: s} }
 
-// templateCases are the 04 req 29 grammar cases (test plan item 5), shared
-// with the fuzz seeds.
+// templateCases are the template grammar cases, shared with the fuzz
+// seeds.
 var templateCases = []struct {
 	in   string
 	want Template
@@ -61,7 +61,7 @@ var templateCases = []struct {
 	{in: "/a\x01", msg: "control byte"},
 }
 
-// TestParseTemplate covers the template grammar (04 req 29, RZ-CFG-005).
+// TestParseTemplate covers the template grammar (RZ-CFG-005).
 func TestParseTemplate(t *testing.T) {
 	for _, tc := range templateCases {
 		got, err := ParseTemplate(tc.in)
@@ -110,7 +110,7 @@ func TestTemplateStringRoundTrip(t *testing.T) {
 }
 
 // TestTemplateMatch: "{name}" matches exactly one non-empty segment and the
-// trailing slash is significant (04 req 28, 29).
+// trailing slash is significant.
 func TestTemplateMatch(t *testing.T) {
 	cases := []struct {
 		tmpl, path string

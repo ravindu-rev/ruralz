@@ -17,9 +17,9 @@ import (
 	"github.com/ravindu-rev/ruralz/pkg/config/v1alpha1"
 )
 
-// Tests for architecture section 2.13 (WP-01): ConnCache eviction order,
-// Registry copy semantics and Components order (R-45), the Result helpers
-// including Retry (R-44) and the SPI sentinels.
+// Tests for the Filter SPI: ConnCache eviction order, Registry copy
+// semantics and Components order, the Result helpers including Retry and
+// the SPI sentinels.
 
 func TestConnCacheEvictionOrder(t *testing.T) {
 	var c ConnCache
@@ -291,7 +291,7 @@ func TestSentinels(t *testing.T) {
 }
 
 func TestIdentityMethods(t *testing.T) {
-	// auth.method values of the CEL auth variable (spec 06).
+	// auth.method values of the CEL auth variable.
 	got := []string{MethodJWT, MethodAPIKey, MethodBasic, MethodMTLS}
 	if !slices.Equal(got, []string{"jwt", "api-key", "basic", "mtls"}) {
 		t.Fatalf("methods = %v", got)

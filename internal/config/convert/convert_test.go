@@ -16,8 +16,8 @@ import (
 
 const v1 = v1alpha1.APIVersion
 
-// TestDefaultServesV1alpha1 covers 02 req 4 and 5: M1 serves only
-// ruralz/v1alpha1, through an identity converter.
+// TestDefaultServesV1alpha1 checks that M1 serves only ruralz/v1alpha1,
+// through an identity converter.
 func TestDefaultServesV1alpha1(t *testing.T) {
 	r := Default()
 	if got := r.Served(); !slices.Equal(got, []string{v1}) {
@@ -80,8 +80,8 @@ func TestNewRegistry(t *testing.T) {
 	}
 }
 
-// TestToHubIdentity covers 02 req 5 and 7: the v1alpha1 conversion keeps
-// the tree, its member order and positions, and strips the conversion-data
+// TestToHubIdentity checks that the v1alpha1 conversion keeps the tree,
+// its member order and positions, and strips the conversion-data
 // annotation.
 func TestToHubIdentity(t *testing.T) {
 	src := `{"apiVersion": "ruralz/v1alpha1", "kind": "Route",
@@ -144,8 +144,8 @@ func TestStripConversionData(t *testing.T) {
 	}
 }
 
-// TestUnserved covers 02 req 4 and 53: an unserved apiVersion is
-// RZ-CFG-007 with the served apiVersions in the hint.
+// TestUnserved checks that an unserved apiVersion is RZ-CFG-007 with the
+// served apiVersions in the hint.
 func TestUnserved(t *testing.T) {
 	r := Default()
 	doc := mustParse(t, `{"apiVersion": "ruralz/v9", "kind": "Route"}`)
@@ -185,9 +185,9 @@ func TestUnserved(t *testing.T) {
 	}
 }
 
-// TestConvertPartial covers 02 req 6 and 53: a partial overlay document
-// with $patch entries and unsubstituted ${VAR} text converts unchanged,
-// keeping member order and positions.
+// TestConvertPartial checks that a partial overlay document with $patch
+// entries and unsubstituted ${VAR} text converts unchanged, keeping
+// member order and positions.
 func TestConvertPartial(t *testing.T) {
 	src := `{"apiVersion": "ruralz/v1alpha1", "kind": "Gateway", "metadata": {"name": "edge"},
  "spec": {"listeners": [{"name": "http", "$patch": "delete"}],
@@ -211,10 +211,10 @@ func TestConvertPartial(t *testing.T) {
 
 // betaConverter is a test spoke ruralz/v1test whose resources lack the hub
 // field spec.timeout of a Route: FromHub moves it into the conversion-data
-// annotation and ToHub restores it and consumes the annotation (02 req 7).
-// It also renames the hub field spec.upstreams to spec.backends. The
-// annotation records which of metadata and annotations FromHub created,
-// so ToHub removes exactly those.
+// annotation and ToHub restores it and consumes the annotation. It also
+// renames the hub field spec.upstreams to spec.backends. The annotation
+// records which of metadata and annotations FromHub created, so ToHub
+// removes exactly those.
 type betaConverter struct{}
 
 const vTest = "ruralz/v1test"
@@ -287,9 +287,9 @@ func renameMember(n *tree.Node, from, to string) {
 	}
 }
 
-// TestConversionDataRoundTrip covers 02 req 7 and 8: a newer-only field
-// survives a down-conversion in the annotation, is restored by the
-// up-conversion, and the annotation never reaches the hub form.
+// TestConversionDataRoundTrip checks that a newer-only field survives a
+// down-conversion in the annotation, is restored by the up-conversion,
+// and that the annotation never reaches the hub form.
 func TestConversionDataRoundTrip(t *testing.T) {
 	r, err := NewRegistry(Lifecycle{}, V1alpha1(), betaConverter{})
 	if err != nil {
@@ -355,8 +355,8 @@ func TestConverterErrors(t *testing.T) {
 	}
 }
 
-// TestDeprecations covers 02 req 76: RZ-CFG-025 warnings from the
-// lifecycle table, none for the empty M1 table.
+// TestDeprecations covers the RZ-CFG-025 warnings from the lifecycle table,
+// none for the empty M1 table.
 func TestDeprecations(t *testing.T) {
 	idx := hubIndex(t)
 	src := `{"apiVersion": "ruralz/v1alpha1", "kind": "Route", "metadata": {"name": "a"},

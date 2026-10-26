@@ -4,7 +4,7 @@
 // Command telemetrygen generates the Prometheus alert rules and the Grafana
 // dashboard pack of Ruralz Gateway from the telemetry catalog
 // (internal/telemetry/catalog; docs/architecture/10-observability.md
-// "Grafana dashboards and SLOs"; spec 09 requirements 71 to 73):
+// "Grafana dashboards and SLOs"):
 //
 //   - rules/ruralz.rules.yaml: the M1 alert rules of OBS "Alert rules" and a
 //     page and a ticket burn-rate rule for every SLO objective of 90% or more;

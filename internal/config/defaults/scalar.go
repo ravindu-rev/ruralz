@@ -53,10 +53,10 @@ func durationUnit(s string) int {
 }
 
 // shortestDecimal returns the shortest decimal equal to s, a $defs/Decimal
-// value ^[0-9]+(\.[0-9]+)?$ (02 req 15): leading zeros of the integer part
-// stripped keeping one digit, trailing fraction zeros and a bare '.'
-// stripped ("3.00" is "3", "0.30" is "0.3", "007" is "7"). ok is false
-// when s does not match the pattern.
+// value ^[0-9]+(\.[0-9]+)?$: leading zeros of the integer part stripped
+// keeping one digit, trailing fraction zeros and a bare '.' stripped
+// ("3.00" is "3", "0.30" is "0.3", "007" is "7"). ok is false when s does
+// not match the pattern.
 func shortestDecimal(s string) (string, bool) {
 	whole, frac, hasFrac := strings.Cut(s, ".")
 	if !digits(whole) || (hasFrac && !digits(frac)) {

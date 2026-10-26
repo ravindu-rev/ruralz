@@ -20,15 +20,13 @@ import (
 	"github.com/ravindu-rev/ruralz/internal/secret"
 )
 
-// Tests for Resolve and ResolveWithRetry: spec 01 requirements 44 and 46
-// (providers, root, caps, every failing use reported), spec 06
-// requirements 87 to 89 (rule 5, fixed messages) and the RZ-CFG-026
-// interim checks (spec 06 requirements 13 and 80).
+// Tests for Resolve and ResolveWithRetry: providers, root, caps, every
+// failing use reported, SEC "Secrets" rule 5, fixed messages and the
+// RZ-CFG-026 interim checks.
 
 func TestEnvProvider(t *testing.T) {
-	// Spec 01 req 44 and spec 06 req 88: env resolves only
-	// RURALZ_STATE_STORE_URL and RURALZ_SECRET_*; unset or empty is 026;
-	// key is ignored.
+	// Env resolves only RURALZ_STATE_STORE_URL and RURALZ_SECRET_*;
+	// unset or empty is 026; key is ignored.
 	tests := []struct {
 		name, env, value string
 		set              bool
@@ -78,8 +76,8 @@ func TestEnvProvider(t *testing.T) {
 }
 
 func TestPlannedAndUnknownProviders(t *testing.T) {
-	// Spec 01 req 44: kubernetes and vault are 026 "provider Planned (M2),
-	// not supported by this Node".
+	// Kubernetes and vault are 026 "provider Planned (M2), not supported
+	// by this Node".
 	h := newHarness(t, nil)
 	k8s := secret.Ref{Provider: providerKubernetes, Name: "llm-keys", Key: "anthropic"}
 	vault := secret.Ref{Provider: providerVault, Name: "kv/data/x", Key: "f"}
@@ -101,8 +99,8 @@ func TestPlannedAndUnknownProviders(t *testing.T) {
 }
 
 func TestDiagnosticShape(t *testing.T) {
-	// Spec 01 req 44: RZ-CFG-026 names provider, reference and path; the
-	// resource is kept; nothing of a value.
+	// RZ-CFG-026 names provider, reference and path; the resource is
+	// kept; nothing of a value.
 	h := newHarness(t, nil)
 	u := use(envRef("HOME"), secret.KindStateStoreURL)
 	diags := h.resolveDiags(u)
@@ -142,8 +140,8 @@ func TestDiagnosticLocation(t *testing.T) {
 }
 
 func TestEveryFailingUseReported(t *testing.T) {
-	// Spec 01 req 44: every failing use is reported, not only the first;
-	// two uses of one reference with different kinds are checked apart.
+	// Every failing use is reported, not only the first; two uses of one
+	// reference with different kinds are checked apart.
 	h := newHarness(t, nil)
 	h.setEnv("RURALZ_SECRET_KEY", "short")
 	h.write("tls/tls.crt", "not a certificate")
@@ -221,10 +219,10 @@ func TestResolveCanceled(t *testing.T) {
 }
 
 func TestFileProviderRule5(t *testing.T) {
-	// Spec 01 req 44, spec 06 req 88 (rule 5): only paths that lie under
-	// the root before and after symlink resolution, read through os.Root,
-	// so ".." and symbolic links cannot leave it; Kubernetes-style ..data
-	// links and absolute links resolving inside the root are allowed.
+	// Only paths that lie under the root before and after symlink
+	// resolution, read through os.Root, so ".." and symbolic links cannot
+	// leave it; Kubernetes-style ..data links and absolute links
+	// resolving inside the root are allowed.
 	h := newHarness(t, nil)
 	outside := t.TempDir()
 	if err := os.WriteFile(filepath.Join(outside, "secret"), []byte("outside"), 0o600); err != nil {
@@ -316,8 +314,8 @@ func TestFileProviderRule5(t *testing.T) {
 }
 
 func TestFileRootThroughSymlink(t *testing.T) {
-	// Spec 06 req 88: the root is itself symlink-resolved; a name under
-	// either form resolves.
+	// The root is itself symlink-resolved; a name under either form
+	// resolves.
 	base := t.TempDir()
 	realRoot := filepath.Join(base, "real")
 	if err := os.Mkdir(realRoot, 0o700); err != nil {
@@ -346,9 +344,8 @@ func TestFileRootMissing(t *testing.T) {
 }
 
 func TestFileExactBytesAndKeys(t *testing.T) {
-	// Spec 01 req 44: without key the exact file bytes (no trimming); with
-	// key the JSON string member's UTF-8 bytes. One file serves several
-	// keys.
+	// Without key the exact file bytes (no trimming); with key the JSON
+	// string member's UTF-8 bytes. One file serves several keys.
 	h := newHarness(t, nil)
 	h.write("exact", "line\n")
 	doc, _ := json.Marshal(map[string]any{"user": "u", "password": "pé\n", "port": 6379, "empty": ""})
@@ -370,7 +367,7 @@ func TestFileExactBytesAndKeys(t *testing.T) {
 			t.Errorf("%s = %q (zero %v), want %q", ref, got, v.IsZero(), want)
 		}
 	}
-	// Key errors are fixed messages (spec 06 req 89).
+	// Key errors are fixed messages.
 	diags := h.resolveDiags(
 		use(fileRef(h.path("creds.json"), "port"), secret.KindOpaque),
 		use(fileRef(h.path("creds.json"), "absent"), secret.KindOpaque),
@@ -392,7 +389,7 @@ func TestFileExactBytesAndKeys(t *testing.T) {
 }
 
 func TestFileSizeCaps(t *testing.T) {
-	// Architecture R-9: 4 MiB per value, 16 MiB for CRLs.
+	// 4 MiB per value, 16 MiB for CRLs.
 	h := newHarness(t, nil)
 	h.write("max", strings.Repeat("a", MaxValueBytes))
 	h.write("over", strings.Repeat("a", MaxValueBytes+1))
@@ -434,10 +431,10 @@ func TestFileSizeCaps(t *testing.T) {
 }
 
 func TestFileOwnerAndMode(t *testing.T) {
-	// WP-07 scope: owner and mode checks. Group- or world-writable files
-	// are refused; the owner is checked only against a configured
-	// FileOwners list, so files keeping a host owner (Docker Compose
-	// bind-mounted secrets) resolve by default.
+	// Owner and mode checks: group- or world-writable files are refused;
+	// the owner is checked only against a configured FileOwners list, so
+	// files keeping a host owner (Docker Compose bind-mounted secrets)
+	// resolve by default.
 	h := newHarness(t, nil)
 	h.write("ok", "v")
 	h.write("writable", "v")
@@ -501,9 +498,9 @@ func TestFilePermissionDenied(t *testing.T) {
 }
 
 func TestReuseActiveCell(t *testing.T) {
-	// Spec 01 req 46: an unchanged reference keeps its value across Hot
-	// Reloads (no re-read) and shares its cell, while a reference the
-	// active Store does not hold is read again.
+	// An unchanged reference keeps its value across Hot Reloads (no
+	// re-read) and shares its cell, while a reference the active Store
+	// does not hold is read again.
 	h := newHarness(t, nil)
 	h.write("a", "a1")
 	h.write("b", "b1")
@@ -543,8 +540,8 @@ func TestReuseActiveCell(t *testing.T) {
 }
 
 func TestConsumerCheck(t *testing.T) {
-	// Spec 01 req 44: a failed consumer check is 026; its reason is kept
-	// unless it repeats the value; the check sees a copy.
+	// A failed consumer check is 026; its reason is kept unless it
+	// repeats the value; the check sees a copy.
 	h := newHarness(t, nil)
 	h.setEnv(EnvStateStoreURL, "redis://user:hunter2-password@cache.internal:6379")
 	ref := envRef(EnvStateStoreURL)
@@ -572,7 +569,7 @@ func TestConsumerCheck(t *testing.T) {
 }
 
 func TestResolveWithRetry(t *testing.T) {
-	// CM "secretRef" and spec 06 req 87 rule 4: a cold start retries with
+	// CM "secretRef" and SEC "Secrets" rule 4: a cold start retries with
 	// backoff until every reference resolves.
 	h := newHarness(t, func(c *Config) { c.RetryInitial = time.Second; c.RetryMax = 4 * time.Second })
 	ref := envRef("RURALZ_SECRET_LATE")

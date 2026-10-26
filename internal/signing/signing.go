@@ -2,19 +2,18 @@
 // SPDX-License-Identifier: Apache-2.0
 
 // Package signing holds the digest checks every Revision and Plugin
-// artifact goes through (spec 06 section 2.16, architecture R-10 and R-50).
-// revision.Digest is the only digest type: an expected digest is always
-// the full sha256:<64 lowercase hex>, never the display form rev-<12 hex>.
-// Content that does not hash to its digest is RZ-CFG-027 for Revisions
-// and RZ-CFG-028 for Plugin artifacts. The checks are always on and not
-// configurable.
+// artifact goes through. revision.Digest is the only digest type: an
+// expected digest is always the full sha256:<64 lowercase hex>, never the
+// display form rev-<12 hex>. Content that does not hash to its digest is
+// RZ-CFG-027 for Revisions and RZ-CFG-028 for Plugin artifacts. The checks
+// are always on and not configurable.
 //
 // M1 verifies digests only (DigestOnly). Verifier is the M2 extension
 // point: WithSignature layers a Sigstore or Control-mode signature
-// verifier after the digest check, which it can never skip.
-// VerifyArtifact streams a Plugin artifact through SHA-256 under a size
-// limit; no Plugin artifact reaches a Node or the CLI in M1, and the fetch
-// wiring lands with Plugins in M2 (R-50).
+// verifier after the digest check, which it can never skip. VerifyArtifact
+// streams a Plugin artifact through SHA-256 under a size limit; no Plugin
+// artifact reaches a Node or the CLI in M1, and the fetch wiring lands
+// with Plugins in M2.
 package signing
 
 import (
@@ -67,10 +66,10 @@ var (
 )
 
 // ParseDigest parses an expected digest: exactly "sha256:" followed by 64
-// lowercase hex characters (spec 06 requirement 97). The display form
-// rev-<12 hex>, uppercase hex, other lengths, a missing prefix and other
-// algorithms are rejected. Every error matches revision.ErrSyntax; the
-// display form also matches ErrDisplayForm.
+// lowercase hex characters. The display form rev-<12 hex>, uppercase hex,
+// other lengths, a missing prefix and other algorithms are rejected.
+// Every error matches revision.ErrSyntax; the display form also matches
+// ErrDisplayForm.
 func ParseDigest(s string) (revision.Digest, error) {
 	d, err := revision.Parse(s)
 	if err == nil {

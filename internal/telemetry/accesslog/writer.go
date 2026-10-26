@@ -2,36 +2,34 @@
 // SPDX-License-Identifier: Apache-2.0
 
 // Package accesslog is the access-log half of the Ruralz logging pipeline
-// (docs/architecture/10-observability.md "Access logs"; spec 09
-// requirements 66 to 68, spec 04 requirement 79). Writer implements
-// emit.AccessLog.
+// (docs/architecture/10-observability.md "Access logs"). Writer
+// implements emit.AccessLog.
 //
 // The request handler (internal/gateway/handler) evaluates
-// Gateway.spec.telemetry.accessLog.when itself, with the onLog variables,
-// and writes the entry on a runtime error (R-48); this package only pools,
-// truncates, queues and encodes. On the request goroutine, Submit copies
-// every field, truncated, into a pooled entry whose arena it owns, so a
-// queued record never references request memory; the query string is
-// never copied, and the submitted record, which returns to the pool,
-// keeps no caller slice. A record's string values take at most 4 KiB once
-// JSON-escaped, host and user_agent at most 256 bytes and path 1,024;
-// cut fields are named in truncated. The queue is bounded twice: 8,192
-// records, and a 4 MiB byte budget from which each record reserves its
-// actual size (the bytes copied into its arena plus a fixed overhead for
-// its other members) until it is written; either limit drops the record
-// with reason queue_full. A typical record reserves under 512 bytes, so
-// the record bound is reached first. The budget counts record bytes, not
-// the pooled entry and arena class holding them, so the queue's heap can
-// reach about 2.3 times the budget (about 9.4 MiB at the defaults, with
-// every record just over 512 bytes). Submit never blocks and allocates nothing
-// at steady state; a record with failure modes costs the caller its
-// FailureModes slice unless the caller reuses one of its own.
+// Gateway.spec.telemetry.accessLog.when itself, with the onLog variables, and
+// writes the entry on a runtime error; this package only pools, truncates,
+// queues and encodes. On the request goroutine, Submit copies every field,
+// truncated, into a pooled entry whose arena it owns, so a queued record never
+// references request memory; the query string is never copied, and the
+// submitted record, which returns to the pool, keeps no caller slice. A
+// record's string values take at most 4 KiB once JSON-escaped, host and
+// user_agent at most 256 bytes and path 1,024; cut fields are named in
+// truncated. The queue is bounded twice: 8,192 records, and a 4 MiB byte
+// budget from which each record reserves its actual size (the bytes copied
+// into its arena plus a fixed overhead for its other members) until it is
+// written; either limit drops the record with reason queue_full. A typical
+// record reserves under 512 bytes, so the record bound is reached first. The
+// budget counts record bytes, not the pooled entry and arena class holding
+// them, so the queue's heap can reach about 2.3 times the budget (about 9.4
+// MiB at the defaults, with every record just over 512 bytes). Submit never
+// blocks and allocates nothing at steady state; a record with failure modes
+// costs the caller its FailureModes slice unless the caller reuses one of its
+// own.
 //
 // The stdout worker of internal/telemetry/logsink drains the queue through
 // the logsink.Stream methods (Wake, Next, Flushed, Pending), so one
 // goroutine owns stdout for both streams. Each line is slog-shaped
-// ("level":"INFO","msg":"access") with the members of 09 req 68 in a fixed
-// order.
+// ("level":"INFO","msg":"access") with the members in a fixed order.
 package accesslog
 
 import (
@@ -43,7 +41,7 @@ import (
 	"github.com/ravindu-rev/ruralz/internal/telemetry/emit"
 )
 
-// Default queue bounds (09 req 67; targets).
+// Default queue bounds (targets).
 const (
 	// DefaultQueueRecords bounds the queue in records.
 	DefaultQueueRecords = 8192
@@ -72,7 +70,7 @@ type Exported struct {
 	// Line is the record as one JSON object without the newline.
 	Line []byte
 	// Dropped is true when the stdout write already lost and counted the
-	// record; the Bridge must not count it again (09 req 65).
+	// record; the Bridge must not count it again.
 	Dropped bool
 }
 
@@ -87,7 +85,7 @@ type Options struct {
 	QueueBytes   int64
 }
 
-// Stats are the access stream counters (09 req 65): Produced feeds
+// Stats are the access stream counters: Produced feeds
 // ruralz_telemetry_logs_total{stream="access"}, QueueFull and ExportError
 // feed ruralz_telemetry_logs_dropped_total by reason.
 type Stats struct {
@@ -169,9 +167,9 @@ func (w *Writer) Acquire() *emit.AccessRecord {
 // Submit copies r, truncated, into a pooled entry and queues it without
 // blocking; r returns to the pool at once (emit.AccessLog). A closed
 // Writer, a full queue or an exhausted byte budget drops the record with
-// reason queue_full. The record reserves its actual size (09 req 67):
-// entryOverhead plus the bytes its strings need, trued down to the bytes
-// copied once fill applied the escaped-size budget.
+// reason queue_full. The record reserves its actual size: entryOverhead
+// plus the bytes its strings need, trued down to the bytes copied once
+// fill applied the escaped-size budget.
 func (w *Writer) Submit(r *emit.AccessRecord) {
 	w.produced.Add(1)
 	if w.closed.Load() || len(w.q) == cap(w.q) {
@@ -213,7 +211,7 @@ func (w *Writer) Submit(r *emit.AccessRecord) {
 }
 
 // putRecord resets r and returns it to the pool. The record keeps no
-// slice: FailureModes may be the caller's (09 req 67).
+// slice: FailureModes may be the caller's.
 func (w *Writer) putRecord(r *emit.AccessRecord) {
 	*r = emit.AccessRecord{}
 	w.records.Put(r)
@@ -260,10 +258,9 @@ func (w *Writer) SetBridge(b Bridge) {
 // records still queued are counted as dropped (queue_full), and the lines
 // Next handed to a worker that has not settled them with Flushed (a batch
 // an abandoned worker is still writing) count export_error, so records
-// lost at exit are counted once (09 section 9 item 20). Call it after the
-// stdout worker returned, or after giving up on a worker blocked on
-// stdout; lines such a worker settles later are not counted again. It is
-// safe to call more than once.
+// lost at exit are counted once. Call it after the stdout worker returned,
+// or after giving up on a worker blocked on stdout; lines such a worker
+// settles later are not counted again. It is safe to call more than once.
 func (w *Writer) Close() {
 	w.closed.Store(true)
 	w.dropQueued()

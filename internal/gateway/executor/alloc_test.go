@@ -16,11 +16,11 @@ import (
 )
 
 // Allocation gate and benchmark (PB-8: 30 or fewer Ruralz-owned
-// allocations per S1 request around the Router and the executor, spec 04
-// req 80; the per-stage budget gives Filters of onRequestHeaders, onRoute,
-// onUpstreamRequest without attached work and the ratelimit memory path
-// 0 allocations). The executor's share is zero: a pooled Run and LegRun,
-// no per-call allocation, spans and metrics through preallocated handles.
+// allocations per S1 request around the Router and the executor; the
+// per-stage budget gives Filters of onRequestHeaders, onRoute,
+// onUpstreamRequest without attached work and the ratelimit memory path 0
+// allocations). The executor's share is zero: a pooled Run and LegRun, no
+// per-call allocation, spans and metrics through preallocated handles.
 
 // nopFilter continues and implements Finisher.
 type nopFilter struct{}
@@ -108,8 +108,8 @@ func (f *allocFixture) request(ctx context.Context, leg *filter.Leg) {
 }
 
 func TestAllocsPerRunThreePolicyChain(t *testing.T) {
-	// Done when (WP-20): AllocsPerRun on a 3-Policy chain within the PB-8
-	// share, which is zero for the executor.
+	// AllocsPerRun on a 3-Policy chain stays within the PB-8 share, which
+	// is zero for the executor.
 	if raceEnabled {
 		t.Skip("sync.Pool drops items under -race; the allocation gate runs without it")
 	}

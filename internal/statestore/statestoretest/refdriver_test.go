@@ -19,10 +19,10 @@ import (
 )
 
 // refDriver is a second, deliberately plain implementation of the script
-// semantics of spec 08 req 45 on Redis-like strings and hashes keyed by
-// the real key layout, built independently of the memory driver. The
-// conformance suite passing on both shows it encodes the spec rather than
-// one implementation's choices; its raw keys give the suite's Inspect and
+// semantics on Redis-like strings and hashes keyed by the real key
+// layout, built independently of the memory driver. The conformance suite
+// passing on both shows it encodes the semantics rather than one
+// implementation's choices; its raw keys give the suite's Inspect and
 // Tamper cases a second backend.
 type refDriver struct {
 	mu     sync.Mutex

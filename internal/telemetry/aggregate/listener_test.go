@@ -18,8 +18,8 @@ import (
 
 // emit.GatewayTimer.Observe records the result into the listener's
 // histogram, or counts a clock anomaly in
-// ruralz_http_gateway_duration_skipped_total (spec 09 req 54).
-func TestGatewayTimerObserve_Req54(t *testing.T) {
+// ruralz_http_gateway_duration_skipped_total.
+func TestGatewayTimerObserve(t *testing.T) {
 	r, clk := newTestRegistry(t, nil)
 	pl, b := admitBind(t, r, emit.Shape{Listeners: []string{"l"}})
 	defer b.Release()
@@ -47,8 +47,8 @@ func TestGatewayTimerObserve_Req54(t *testing.T) {
 }
 
 // The origin emit.OriginOf classifies indexes the origin label of
-// ruralz_http_listener_requests_total (spec 09 req 44).
-func TestOriginLabel_Req44(t *testing.T) {
+// ruralz_http_listener_requests_total.
+func TestOriginLabel(t *testing.T) {
 	r, clk := newTestRegistry(t, nil)
 	pl, b := admitBind(t, r, emit.Shape{Listeners: []string{"public"}})
 	defer b.Release()

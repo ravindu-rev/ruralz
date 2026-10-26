@@ -12,7 +12,7 @@ import (
 	"sync"
 )
 
-// Entry MAC constants (spec 08 req 68, resolution R-49).
+// Entry MAC constants.
 const (
 	// TagSize is the length of an entry tag (HMAC-SHA-256).
 	TagSize = sha256.Size
@@ -91,8 +91,8 @@ func (m *MAC) Seal(dst, key, field, entry []byte) []byte {
 
 // Open checks a stored value read from key and field and returns its
 // entry, a sub-slice of stored. A missing or wrong tag gives ok false: the
-// caller treats it as a miss, never as an error (spec 08 req 68). A nil m
-// returns stored unchanged.
+// caller treats it as a miss, never as an error. A nil m returns stored
+// unchanged.
 func (m *MAC) Open(key, field, stored []byte) (entry []byte, ok bool) {
 	if m == nil {
 		return stored, true

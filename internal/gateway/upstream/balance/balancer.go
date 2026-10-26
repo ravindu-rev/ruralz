@@ -14,8 +14,8 @@ import (
 	"time"
 )
 
-// ErrNoEndpoints reports an empty Endpoint set (05 req 11 step a); the
-// Upstream layer answers 503 RZ-UP-008.
+// ErrNoEndpoints reports an empty Endpoint set; the Upstream layer
+// answers 503 RZ-UP-008.
 var ErrNoEndpoints = errors.New("balance: endpoint set is empty")
 
 // Config configures a Balancer.
@@ -26,7 +26,7 @@ type Config struct {
 	// ring (Plan.VirtualNodes); 0 means MaxVirtualNodes.
 	VirtualNodes int
 	// Fallback makes a ring-hash Upstream run weighted random because the
-	// balancer budget has no room for its ring (05 req 17).
+	// balancer budget has no room for its ring.
 	Fallback bool
 	// Endpoints is the initial set in Normalize's form.
 	Endpoints []Endpoint
@@ -40,8 +40,8 @@ type Config struct {
 	Now time.Time
 }
 
-// Info describes a Balancer's published structure for /debug/upstreams (05
-// req 96) and telemetry.
+// Info describes a Balancer's published structure for /debug/upstreams and
+// telemetry.
 type Info struct {
 	// Algorithm is the configured algorithm.
 	Algorithm Algorithm
@@ -108,9 +108,8 @@ func (s *Set) Payload() any { return s.payload }
 // Rebuild run off the request path (discovery, compile and the Upstream
 // scheduler) and publish new Sets copy-on-write; request goroutines Load a
 // Set and select on it without locks or allocation. Structures rebuild at
-// most every RebuildInterval (05 req 16); until then Endpoints removed from
-// the set are excluded and new ones wait, and health changes never cause a
-// rebuild.
+// most every RebuildInterval; until then Endpoints removed from the set are
+// excluded and new ones wait, and health changes never cause a rebuild.
 type Balancer struct {
 	st atomic.Pointer[Set]
 
@@ -178,7 +177,7 @@ func (b *Balancer) effectiveLocked() (Algorithm, int) {
 // SetEndpoints replaces the current set (in Normalize's form) and publishes
 // it in a new Set with payload (see Set.Payload). The published structure
 // keeps serving: removed Endpoints are excluded at once, added ones join at
-// the next rebuild (05 req 16).
+// the next rebuild.
 func (b *Balancer) SetEndpoints(eps []Endpoint, payload any) error {
 	if err := checkNormalized(eps); err != nil {
 		return err
@@ -192,11 +191,11 @@ func (b *Balancer) SetEndpoints(eps []Endpoint, payload any) error {
 	return nil
 }
 
-// SetPlan applies the budget plan for this Upstream (05 req 17): v virtual
-// nodes per Endpoint and whether a ring-hash Upstream falls back to weighted
-// random. A plan that shrinks the ring or starts a fallback makes the next
-// rebuild due at once; one that grows the ring waits for the interval.
-// Other algorithms ignore the plan.
+// SetPlan applies the budget plan for this Upstream: v virtual nodes per
+// Endpoint and whether a ring-hash Upstream falls back to weighted random. A
+// plan that shrinks the ring or starts a fallback makes the next rebuild due
+// at once; one that grows the ring waits for the interval. Other algorithms
+// ignore the plan.
 func (b *Balancer) SetPlan(v int, fallback bool) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
@@ -224,10 +223,9 @@ func (b *Balancer) publishLocked(p *Picker) {
 // markLocked recomputes whether a rebuild is needed and whether it is
 // urgent, due before RebuildInterval has passed: the first structure over a
 // non-empty set (an Upstream whose set was empty from the start), or a
-// budget plan that shrank the ring or started a fallback (05 req 17 "lower
-// v at once"). Every other change, a full replacement of the set included,
-// waits for the interval (05 req 16) while the current set's weighted
-// random table serves.
+// budget plan that shrank the ring or started a fallback (v is lowered at
+// once). Every other change, a full replacement of the set included, waits
+// for the interval while the current set's weighted random table serves.
 func (b *Balancer) markLocked(st *Set) {
 	alg, v := b.effectiveLocked()
 	b.dirty = alg != st.p.alg || v != st.p.v || st.remap != nil
@@ -282,7 +280,7 @@ func remap(p *Picker, cur []Endpoint, curW []uint32) (m []int32, present, added 
 
 // RebuildDue reports whether the structure differs from the current set or
 // plan and may rebuild now: RebuildInterval after the last build, or at
-// once when urgent (05 req 16).
+// once when urgent.
 func (b *Balancer) RebuildDue(now time.Time) bool {
 	b.mu.Lock()
 	defer b.mu.Unlock()
@@ -345,13 +343,12 @@ func (b *Balancer) Rebuild(ctx context.Context, gate *BuildGate, now time.Time) 
 	return true, nil
 }
 
-// Select chooses an Endpoint of the Set for one attempt (05 req 11 steps a
-// to d): ErrNoEndpoints for an empty set, else an Endpoint of the lowest
-// grade present picked by the algorithm. key is the leg's ring-hash key
-// (HashKey of the hashKey value, reused by retries); other algorithms
-// ignore it. src supplies randomness (nil: the runtime generator); view
-// grades Endpoints by their index in the Set's list, and Choice.Index is an
-// index into that list.
+// Select chooses an Endpoint of the Set for one attempt: ErrNoEndpoints for
+// an empty set, else an Endpoint of the lowest grade present picked by the
+// algorithm. key is the leg's ring-hash key (HashKey of the hashKey value,
+// reused by retries); other algorithms ignore it. src supplies randomness
+// (nil: the runtime generator); view grades Endpoints by their index in the
+// Set's list, and Choice.Index is an index into that list.
 func (s *Set) Select(key uint64, src rand.Source, view View) (Choice, error) {
 	if len(s.eps) == 0 {
 		return Choice{Index: -1}, ErrNoEndpoints
@@ -369,8 +366,8 @@ func (s *Set) Select(key uint64, src rand.Source, view View) (Choice, error) {
 }
 
 // SelectRandom chooses a weighted random Endpoint of the Set with the same
-// grading as Select. A ring-hash leg whose hashKey failed at runtime uses it
-// (05 req 14).
+// grading as Select. A ring-hash leg whose hashKey failed at runtime uses
+// it.
 func (s *Set) SelectRandom(src rand.Source, view View) (Choice, error) {
 	if len(s.eps) == 0 {
 		return Choice{Index: -1}, ErrNoEndpoints

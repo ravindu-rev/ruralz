@@ -10,8 +10,8 @@ import (
 	"time"
 )
 
-// Architecture section 0 convention 4: Real is the only time.Now caller;
-// these tests pin its basic behavior so clocktest.Fake can mirror it.
+// Real is the only time.Now caller; these tests pin its basic behavior
+// so clocktest.Fake can mirror it.
 
 func TestRealNowAndSince(t *testing.T) {
 	c := Real()

@@ -12,9 +12,8 @@ import (
 	"unicode/utf8"
 )
 
-// Fixed reasons of the JSON member extraction (spec 06 requirement 89:
-// parse errors are replaced by fixed messages that never contain file
-// content).
+// Fixed reasons of the JSON member extraction (parse errors are
+// replaced by fixed messages that never contain file content).
 var (
 	errJSONNotUTF8   = errors.New("file is not valid UTF-8")
 	errJSONNotObject = errors.New("file is not a JSON object")
@@ -25,12 +24,12 @@ var (
 )
 
 // jsonMember returns the UTF-8 bytes of the string member key of the JSON
-// object doc (spec 01 requirement 44). doc must be one object and nothing
-// else; a duplicated key member is refused as ambiguous, and so is a
-// member escaping a lone UTF-16 surrogate, which encoding/json would turn
-// into U+FFFD, bytes the author never wrote. Every error is a fixed
-// reason. The raw copies of members are cleared (best effort: the
-// decoder's own buffer and the decoded string are not).
+// object doc. doc must be one object and nothing else; a duplicated key
+// member is refused as ambiguous, and so is a member escaping a lone
+// UTF-16 surrogate, which encoding/json would turn into U+FFFD, bytes the
+// author never wrote. Every error is a fixed reason. The raw copies of
+// members are cleared (best effort: the decoder's own buffer and the
+// decoded string are not).
 func jsonMember(doc []byte, key string) ([]byte, error) {
 	if !utf8.Valid(doc) {
 		return nil, errJSONNotUTF8

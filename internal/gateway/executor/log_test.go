@@ -17,9 +17,8 @@ import (
 	"github.com/ravindu-rev/ruralz/pkg/config/v1alpha1"
 )
 
-// Tests for logging (spec 06 rule 11 and spec 07 req 87: no request data;
-// filter.Result.Err is logged), contained panics in Finish, and the
-// remaining leg and onChunk paths.
+// Tests for logging (no request data; filter.Result.Err is logged),
+// contained panics in Finish, and the remaining leg and onChunk paths.
 
 // recordHandler keeps every record it handles and the context it was
 // logged with.
@@ -110,7 +109,7 @@ type panicFinish struct{ fakeFilter }
 func (*panicFinish) Finish(context.Context, filter.Exchange) { panic("finish") }
 
 func TestFinishPanicIsContained(t *testing.T) {
-	// Finish must not take the request goroutine down (R-40): a panic is
+	// Finish must not take the request goroutine down: a panic is
 	// recovered and the remaining Finishers still run.
 	rh := &recordHandler{}
 	ev := &events{}
@@ -195,7 +194,7 @@ func TestChunkSkipsAndEnds(t *testing.T) {
 
 func TestOpNames(t *testing.T) {
 	// ruralz.state.op values come from the catalog, indexed by the
-	// emit.StateOp* labels (R-56).
+	// emit.StateOp* labels.
 	e := New(Deps{})
 	for _, tc := range []struct {
 		call statestore.Call

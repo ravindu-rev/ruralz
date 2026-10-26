@@ -23,20 +23,20 @@ import (
 )
 
 // MethodOther is http.request.method for a method outside RFC 9110 and
-// PATCH (spec 09 req 33).
+// PATCH.
 const MethodOther = "_OTHER"
 
 // UnmatchedRoute is the ruralz.route value of a request no Route matched;
-// such a server span keeps the name "<method>" (spec 09 reqs 33 and 34).
+// such a server span keeps the name "<method>".
 const UnmatchedRoute = "_unmatched"
 
-// onLogPhase is the Phase name that creates no span (spec 09 req 35).
+// onLogPhase is the Phase name that creates no span.
 const onLogPhase = "onLog"
 
 // Attribute buffer sizes per span kind: the most attributes each kind
-// sets (spec 09 reqs 33 to 36). Every attribute is collected in the
-// buffer and handed to the SDK in one call at End, so the SDK allocates
-// the span's attribute slice once; a full buffer is flushed early.
+// sets. Every attribute is collected in the buffer and handed to the
+// SDK in one call at End, so the SDK allocates the span's attribute
+// slice once; a full buffer is flushed early.
 const (
 	serverAttrs   = 17
 	matchAttrs    = 4
@@ -115,8 +115,8 @@ func newSpan(k spanKind, sdk trace.Span, id [8]byte) *span {
 var _ emit.Span = (*span)(nil)
 
 // SetAttr sets one attribute; slog kinds map to OTLP types (durations as
-// seconds, spec 09 req 35 ruralz.state.duration). On the server span,
-// ruralz.route also names the span "<method> <route>" at End (req 34).
+// seconds, such as ruralz.state.duration). On the server span,
+// ruralz.route also names the span "<method> <route>" at End.
 func (s *span) SetAttr(key string, v slog.Value) {
 	kv, ok := attrOf(key, v)
 	if !ok {
@@ -144,14 +144,14 @@ func (s *span) End(status int, code, errorType string) {
 	failed := errorType != ""
 	switch s.kind {
 	case kindServer:
-		// Status Error for 5xx only (req 33); semconv sets error.type to
-		// the status code when nothing more specific is known.
+		// Status Error for 5xx only; semconv sets error.type to the
+		// status code when nothing more specific is known.
 		failed = status >= 500
 		if errorType == "" && failed {
 			errorType = strconv.Itoa(status)
 		}
 	case kindUpstream:
-		// Status Error for 4xx, 5xx or an error (req 36).
+		// Status Error for 4xx, 5xx or an error.
 		failed = failed || status >= 400
 	case kindMatch, kindFilter:
 	}
@@ -169,7 +169,7 @@ func (s *span) End(status int, code, errorType string) {
 }
 
 // put buffers kv, replacing an earlier value of the same key. A string
-// value is cut to MaxAttributeValueLen bytes first (spec 09 req 22).
+// value is cut to MaxAttributeValueLen bytes first.
 func (s *span) put(kv attribute.KeyValue) {
 	if kv.Value.Type() == attribute.STRING {
 		if v := kv.Value.AsString(); len(v) > MaxAttributeValueLen {
@@ -198,9 +198,9 @@ func (s *span) flush() {
 	s.attrs = s.attrs[:0]
 }
 
-// serverStart buffers the SERVER span attributes known at start (spec 09
-// req 33): semconv HTTP server attributes minus url.full, url.query and
-// every header attribute, plus ruralz.listener.
+// serverStart buffers the SERVER span attributes known at start: semconv
+// HTTP server attributes minus url.full, url.query and every header
+// attribute, plus ruralz.listener.
 func (s *span) serverStart(original string, a *emit.ServerAttrs) {
 	s.put(semconv.HTTPRequestMethodKey.String(s.method))
 	if original != "" {
@@ -232,7 +232,7 @@ func (s *span) serverStart(original string, a *emit.ServerAttrs) {
 	}
 }
 
-// filterStart buffers the ruralz.filter.<name> start attributes (req 35).
+// filterStart buffers the ruralz.filter.<name> start attributes.
 func (s *span) filterStart(a *emit.FilterAttrs) {
 	if a.PolicyType != "" {
 		s.put(attribute.String(catalog.AttrPolicyType, a.PolicyType))
@@ -242,9 +242,9 @@ func (s *span) filterStart(a *emit.FilterAttrs) {
 	}
 }
 
-// upstreamStart buffers the ruralz.upstream.<name> start attributes
-// (req 36): the attempt, the Endpoint's server.address and server.port,
-// and the composition step when the leg is one.
+// upstreamStart buffers the ruralz.upstream.<name> start attributes:
+// the attempt, the Endpoint's server.address and server.port, and the
+// composition step when the leg is one.
 func (s *span) upstreamStart(a *emit.UpstreamAttrs) {
 	if a.Attempt > 0 {
 		s.put(attribute.Int(catalog.AttrAttempt, a.Attempt))
@@ -345,7 +345,7 @@ func cutUTF8(v string, n int) string {
 }
 
 // normalizeMethod returns http.request.method and, for a method outside
-// RFC 9110 and PATCH (case-sensitive), the original value (req 33).
+// RFC 9110 and PATCH (case-sensitive), the original value.
 func normalizeMethod(m string) (name, original string) {
 	switch m {
 	case http.MethodGet, http.MethodHead, http.MethodPost, http.MethodPut, http.MethodDelete,
@@ -371,7 +371,7 @@ func protocolVersion(p string) string {
 }
 
 // pathOnly cuts anything from "?" so no query string reaches a span, even
-// when a caller passes a request URI (spec 09 req 4).
+// when a caller passes a request URI.
 func pathOnly(p string) string {
 	if i := strings.IndexByte(p, '?'); i >= 0 {
 		return p[:i]

@@ -10,8 +10,8 @@ import (
 	"github.com/ravindu-rev/ruralz/internal/expr"
 )
 
-// CEL type names of the Ruralz object types (03 req 17). They are part of
-// the contract: they appear in diagnostics and in type(x).
+// CEL type names of the Ruralz object types. They are part of the
+// contract: they appear in diagnostics and in type(x).
 const (
 	TypeRequest  = "ruralz.Request"
 	TypeSource   = "ruralz.Source"
@@ -46,7 +46,7 @@ const (
 // values: a small integer, so returning it from Type allocates nothing.
 type objKind uint8
 
-// Object kinds, in the order of 03 requirement 17.
+// Object kinds, in the order.
 const (
 	kindRequest objKind = iota
 	kindSource
@@ -100,7 +100,7 @@ func (k objKind) HasTrait(trait int) bool { return trait&objectTraits == trait }
 // "ruralz.Error" (a leading dot, cel-go's absolute form, is accepted).
 // Validation uses it to reject a struct construction of a Ruralz type in a
 // checked AST as RZ-CFG-014: the views are built by the data plane only, so
-// the Provider fails such a construction at evaluation (03 req 17, 27).
+// the Provider fails such a construction at evaluation.
 func IsObjectType(name string) bool {
 	_, ok := kindByName(name)
 	return ok
@@ -239,8 +239,8 @@ const (
 	aiStream
 )
 
-// objectFields returns the fields of k in declaration order (03 req 17).
-// It builds a new slice; the request path uses field numbers instead.
+// objectFields returns the fields of k in declaration order. It builds a
+// new slice; the request path uses field numbers instead.
 func objectFields(k objKind) []fieldSpec {
 	switch k {
 	case kindRequest:
@@ -322,7 +322,7 @@ func fieldNumber(k objKind, name string) (int, bool) {
 	return 0, false
 }
 
-// Variable is one CEL variable with its declared type (03 req 17).
+// Variable is one CEL variable with its declared type.
 type Variable struct {
 	// Bit is the variable's expr.Var bit.
 	Bit expr.Var

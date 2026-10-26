@@ -6,12 +6,13 @@ package jsonval
 import "testing"
 
 func TestIsJSONMediaType(t *testing.T) {
-	// 07 req 44 and 78 (T13 content types); 03 req 25.
+	// JSON iff the media type is application/json or ends in +json,
+	// case-insensitive, with parameters ignored.
 	for ct, want := range map[string]bool{
 		"application/json":                    true,
 		"application/JSON":                    true,
 		"Application/Json; charset=utf-8":     true,
-		"application/json; charset=UTF-16":    true, // parameters are the caller's (07 req 78)
+		"application/json; charset=UTF-16":    true, // parameters are the caller's
 		"  application/json\t":                true,
 		"application/json;":                   true,
 		"application/problem+json":            true,

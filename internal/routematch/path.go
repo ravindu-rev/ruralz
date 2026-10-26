@@ -14,12 +14,12 @@ import (
 
 // CodeRejected is the code of a request target that [NormalizePath]
 // rejects: 400, "Request target or framing rejected by request hardening"
-// (04 req 23, OQ-security-and-identity-21 (a)).
+// .
 const CodeRejected = "RZ-RT-017"
 
-// CodeNoRoute is the code of a request that matches no Route: 404, "No
-// Route matched on this listener". [NormalizePath] gives it to the
-// asterisk-form request target (04 req 23).
+// CodeNoRoute is the code of a request that matches no Route: 404,
+// "No Route matched on this listener". [NormalizePath] gives it to the
+// asterisk-form request target.
 const CodeNoRoute = "RZ-RT-001"
 
 // ErrRejected matches (with errors.Is) every request-hardening rejection
@@ -31,13 +31,13 @@ var ErrRejected = errors.New("routematch: request target rejected")
 // ErrAsteriskForm matches (with errors.Is) the error [NormalizePath] returns
 // for the asterisk-form request target "*" (as in "OPTIONS *"). It carries
 // [CodeNoRoute] (RZ-RT-001, 404), not RZ-RT-017: asterisk-form is not
-// rejected, it matches no Route (04 req 23).
+// rejected, it matches no Route.
 var ErrAsteriskForm = errors.New("routematch: asterisk-form request target matches no Route")
 
 // RejectReason says why [NormalizePath] rejected a path.
 type RejectReason uint8
 
-// Reasons for rejecting a request path (04 req 23 step 1).
+// Reasons for rejecting a request path ([NormalizePath] step 1).
 const (
 	// RejectEncodedNUL is a %00 escape.
 	RejectEncodedNUL RejectReason = iota + 1
@@ -146,14 +146,14 @@ func unhex(c byte) (v byte, lower, ok bool) {
 func isDotSegment(s string) bool { return s == "." || s == ".." }
 
 // NormalizePath returns the normalized form of escaped, the request path
-// as r.URL.EscapedPath() returns it (never the decoded r.URL.Path), by the
-// steps of 04 req 23:
+// as r.URL.EscapedPath() returns it (never the decoded r.URL.Path), by these
+// steps:
 //
 //  1. Reject, with an error that matches [ErrRejected] and carries
-//     [CodeRejected] (RZ-RT-017), a path holding %00, a raw "\", %5C or %5c
-//     (OQ-security-and-identity-21 (a)), any other control byte (below 0x20,
-//     or 0x7F), raw or percent-encoded, an invalid percent escape, or a
-//     non-empty path that does not start with "/" other than "*".
+//     [CodeRejected] (RZ-RT-017), a path holding %00, a raw "\", %5C or %5c,
+//     any other control byte (below 0x20, or 0x7F), raw or percent-encoded,
+//     an invalid percent escape, or a non-empty path that does not start
+//     with "/" other than "*".
 //  2. Decode the escapes of unreserved characters (A-Z a-z 0-9 - . _ ~) and
 //     upper-case the hex digits of every other escape; %2F stays encoded
 //     and never splits a segment. A raw byte a path may not hold unescaped
@@ -166,16 +166,16 @@ func isDotSegment(s string) bool { return s == "." || s == ".." }
 // An empty path (absolute-form without a path) normalizes to "/".
 //
 // The asterisk-form target "*" (as in "OPTIONS *", for which [RequestPath]
-// returns "*") matches no Route (04 req 23): NormalizePath returns an error
-// that matches [ErrAsteriskForm] and carries [CodeNoRoute] (RZ-RT-001, 404).
-// The caller therefore answers an error with the code it carries
-// (errcode.CodeOf, errcode.Status), never with a fixed RZ-RT-017.
+// returns "*") matches no Route: NormalizePath returns an error that matches
+// [ErrAsteriskForm] and carries [CodeNoRoute] (RZ-RT-001, 404). The caller
+// therefore answers an error with the code it carries (errcode.CodeOf,
+// errcode.Status), never with a fixed RZ-RT-017.
 //
 // The caller must also answer CONNECT and HTTP/2 extended CONNECT with 404
-// RZ-RT-001 before calling NormalizePath (04 req 22), which cannot tell them
-// apart: net/http leaves a CONNECT (authority-form) an empty path, which
-// normalizes to "/" and would match a prefix "/" Route, and an extended
-// CONNECT carries an ordinary :path.
+// RZ-RT-001 before calling NormalizePath, which cannot tell them apart:
+// net/http leaves a CONNECT (authority-form) an empty path, which normalizes
+// to "/" and would match a prefix "/" Route, and an extended CONNECT carries
+// an ordinary :path.
 //
 // NormalizePath is idempotent and returns escaped itself, allocating
 // nothing, when it is already normal.
@@ -302,12 +302,12 @@ func removeDotSegments(b []byte) []byte {
 
 // RequestPath returns the request path of u exactly as the client sent it,
 // still escaped: the input [NormalizePath] expects. It is u.RawPath when set
-// and u.EscapedPath() otherwise. u.EscapedPath() alone is not enough:
-// when the raw path holds a byte net/url does not accept unescaped (such as
-// "{", "|", a double quote or a byte above 0x7F), it re-escapes the decoded
+// and u.EscapedPath() otherwise. u.EscapedPath() alone is not enough: when
+// the raw path holds a byte net/url does not accept unescaped (such as "{",
+// "|", a double quote or a byte above 0x7F), it re-escapes the decoded
 // u.Path, so "/a%2Fb/{x}" would come back as "/a/b/%7Bx%7D" and the encoded
-// slash would split a segment (04 req 23). NormalizePath percent-encodes
-// those bytes itself. RequestPath allocates nothing for a server request.
+// slash would split a segment. NormalizePath percent-encodes those bytes
+// itself. RequestPath allocates nothing for a server request.
 func RequestPath(u *url.URL) string {
 	if u.RawPath != "" {
 		return u.RawPath
@@ -336,9 +336,9 @@ func NextSegment(path string, i int) (seg string, next int) {
 }
 
 // DecodeParam percent-decodes a template capture taken from a normalized
-// path, so request.pathParams holds decoded values (04 req 29): "a%2Fb"
-// becomes "a/b" and "%C3%A9" becomes "é". It returns raw itself, allocating
-// nothing, when raw holds no escape; an invalid escape is kept as is.
+// path, so request.pathParams holds decoded values: "a%2Fb" becomes "a/b"
+// and "%C3%A9" becomes "é". It returns raw itself, allocating nothing, when
+// raw holds no escape; an invalid escape is kept as is.
 func DecodeParam(raw string) string {
 	n := strings.IndexByte(raw, '%')
 	if n < 0 {
@@ -362,10 +362,10 @@ func DecodeParam(raw string) string {
 	return string(b)
 }
 
-// PrefixMatch reports whether path matches prefix on segment boundaries
-// (04 req 28): path equals prefix, or starts with it and either prefix ends
-// with "/" or the next byte of path is "/". "/" matches every path; an
-// encoded slash (%2F) is never a boundary. Both are normalized paths.
+// PrefixMatch reports whether path matches prefix on segment boundaries:
+// path equals prefix, or starts with it and either prefix ends with "/" or
+// the next byte of path is "/". "/" matches every path; an encoded slash
+// (%2F) is never a boundary. Both are normalized paths.
 func PrefixMatch(prefix, path string) bool {
 	if !strings.HasPrefix(path, prefix) {
 		return false

@@ -30,17 +30,16 @@ const (
 )
 
 // Request is the client request body as the Upstream layer sees it; it
-// implements snapshot.RequestBody (architecture R-41) over the gate or the
-// client stream:
+// implements snapshot.RequestBody over the gate or the client stream:
 //
 //   - empty (declared 0, nil or http.NoBody): replayable; Open returns
 //     http.NoBody;
 //   - gated (read whole within limits.maxRequestBodyBytes, possibly
 //     rewritten by a transform): replayable; every Open is an independent
 //     reader from the first byte, so parallel composition steps each get
-//     the body (spec 05 req 54); Buffered returns the bytes for GetBody;
+//     the body; Buffered returns the bytes for GetBody;
 //   - streamed: replayable only while no byte has been read and no read is
-//     in progress (spec 05 req 31); a second Open after that is
+//     in progress; a second Open after that is
 //     snapshot.ErrNotReplayable; the stream is cut at its limit with
 //     ErrTooLarge.
 //
@@ -93,15 +92,14 @@ type stream struct {
 	dead    bool // the request ended (Reset)
 }
 
-// Prepare sets q up for one client request body, following spec 04 req 34
-// and spec 05 req 31: declared is the request's Content-Length (-1 when
-// unknown). A declared length over limit is ErrTooLarge before body is read
-// (no 100 Continue is sent); a declared length of 0 or a nil or
-// http.NoBody body is empty; with gate the whole body is read now
-// (ReadGate: ErrTooLarge, ErrBudget, a read error or ctx's error, with q
-// left empty); otherwise the body streams, cut at limit. Code maps the
-// errors with SideRequest. bud also backs Replace; the buffered-bytes
-// gauge records on the request's stripe s.
+// Prepare sets q up for one client request body: declared is the
+// request's Content-Length (-1 when unknown). A declared length over limit
+// is ErrTooLarge before body is read (no 100 Continue is sent); a declared
+// length of 0 or a nil or http.NoBody body is empty; with gate the whole
+// body is read now (ReadGate: ErrTooLarge, ErrBudget, a read error or
+// ctx's error, with q left empty); otherwise the body streams, cut at
+// limit. Code maps the errors with SideRequest. bud also backs Replace;
+// the buffered-bytes gauge records on the request's stripe s.
 func (q *Request) Prepare(ctx context.Context, body io.Reader, declared int64, gate bool, limit int64, bud *Budget, s emit.Stripe) error {
 	q.mu.Lock()
 	q.clearLocked()
@@ -154,12 +152,12 @@ func (q *Request) SetStream(body io.Reader, declared, limit int64) {
 	q.mode, q.st, q.declared = modeStream, st, declared
 }
 
-// Replace replaces a gated body with b, a body rewritten by a transform
-// (spec 04 req 48, spec 07 req 71): b is reserved from the budget like a
-// decoded value (ErrBudget, 503 RZ-RT-004, leaves the body unchanged), then
-// the superseded body's reservation is returned. Readers opened before are
-// stale afterwards. q takes b; the caller must not modify it. Replacing a
-// streamed or empty body makes it gated.
+// Replace replaces a gated body with b, a body rewritten by a transform: b
+// is reserved from the budget like a decoded value (ErrBudget, 503
+// RZ-RT-004, leaves the body unchanged), then the superseded body's
+// reservation is returned. Readers opened before are stale afterwards. q
+// takes b; the caller must not modify it. Replacing a streamed or empty
+// body makes it gated.
 //
 // b may be, or share memory with, the current gated body (a Filter passing
 // back the slice it got from Message.Body, unchanged, truncated, emptied or
@@ -266,8 +264,7 @@ func (q *Request) BytesRead() int64 {
 }
 
 // Exceeded reports whether a streamed body passed its limit: before commit
-// the client gets 413 RZ-RT-003; after commit the leg is aborted (spec 04
-// req 37).
+// the client gets 413 RZ-RT-003; after commit the leg is aborted.
 func (q *Request) Exceeded() bool {
 	q.mu.RLock()
 	defer q.mu.RUnlock()

@@ -21,8 +21,7 @@ import (
 // unchanged.
 const racyWindow = 2 * time.Second
 
-// Fixed reasons of the file provider; none repeats file content (spec 06
-// requirement 89).
+// Fixed reasons of the file provider; none repeats file content.
 var (
 	errNotAbsolute   = errors.New("file name must be an absolute slash path")
 	errOutsideRoot   = errors.New("path is outside " + SettingSecretRoot)
@@ -40,10 +39,10 @@ var (
 // escapeText is the os.Root error text for a path leaving the root.
 const escapeText = "path escapes from parent"
 
-// fingerprint identifies a file state for polling (spec 01 requirement
-// 46): a change of size, modification time, inode, mode or owner re-reads
-// the file. err is set, and the rest zero, when the file could not be
-// examined; a repeated failure then compares equal and is not re-counted.
+// fingerprint identifies a file state for polling: a change of size,
+// modification time, inode, mode or owner re-reads the file. err is set,
+// and the rest zero, when the file could not be examined; a repeated
+// failure then compares equal and is not re-counted.
 type fingerprint struct {
 	err   string
 	size  int64
@@ -74,7 +73,7 @@ func (fp fingerprint) racyAt(now time.Time) bool {
 }
 
 // cleanName returns the cleaned absolute slash path of a file reference
-// name (spec 06 requirement 88: the cleaned path must lie under the root).
+// name (the cleaned path must lie under the root).
 func cleanName(name string) (string, error) {
 	if !path.IsAbs(name) {
 		return "", errNotAbsolute
@@ -83,8 +82,8 @@ func cleanName(name string) (string, error) {
 }
 
 // relative returns the cleaned name relative to the secret root, trying
-// the root as configured and symlink-resolved (spec 06 requirement 88);
-// errOutsideRoot when the name does not lie strictly inside the root.
+// the root as configured and symlink-resolved; errOutsideRoot when the
+// name does not lie strictly inside the root.
 func (r *Resolver) relative(name, resolvedRoot string) (string, error) {
 	clean, err := cleanName(name)
 	if err != nil {
@@ -113,7 +112,7 @@ func (r *Resolver) resolvedRoot() string {
 }
 
 // openRoot opens the secret root; every file read goes through it, so ".."
-// and symbolic links cannot leave it (spec 01 requirement 44).
+// and symbolic links cannot leave it.
 func (r *Resolver) openRoot() (*os.Root, error) {
 	root, err := os.OpenRoot(r.root)
 	if err != nil {
@@ -124,13 +123,13 @@ func (r *Resolver) openRoot() (*os.Root, error) {
 
 // statTarget stats rel under root, following symbolic links, and returns
 // the path under root to open. os.Root refuses every absolute symbolic
-// link, while spec 06 requirement 88 (SEC "Secrets" rule 5) accepts a
-// path whose symlink-resolved form lies under the root. On that refusal
-// rel is therefore resolved with filepath.EvalSymlinks and, when the
-// result lies inside the symlink-resolved root, stat'ed and later opened
-// through root by that link-free path; a link changed in between still
-// cannot leave root. A link chain ending at a missing path inside the
-// root is errNotExist; any other path keeps errEscapes.
+// link, while SEC "Secrets" rule 5 accepts a path whose symlink-resolved
+// form lies under the root. On that refusal rel is therefore resolved with
+// filepath.EvalSymlinks and, when the result lies inside the
+// symlink-resolved root, stat'ed and later opened through root by that
+// link-free path; a link changed in between still cannot leave root. A
+// link chain ending at a missing path inside the root is errNotExist; any
+// other path keeps errEscapes.
 func statTarget(root *os.Root, rel string) (string, fs.FileInfo, error) {
 	fi, err := root.Stat(rel)
 	if err == nil {

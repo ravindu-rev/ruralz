@@ -56,18 +56,18 @@ type Options struct {
 	MaxDepth int
 	// MaxCost is the cost budget; a value that would take the running cost
 	// above it fails with ErrTooLarge. Zero or negative means no budget.
-	// The specs set the request-path oversize stop at 4 times the raw limit
-	// the body arrived under (07 req 58; 03 req 25; 04 req 47, all
-	// "target"). Because cost grows with density (see CostValue), a budget
-	// of 4 times the raw limit rejects dense bodies well inside that limit:
-	// an array of one-digit numbers fails at about a quarter of it.
-	// Request-path callers still pass filter.DecodedLimitFactor (4) times
-	// the raw limit and accept that (architecture R-63); MaxCostPerByte
-	// times the limit would admit every body the raw limit admits.
+	// The request-path oversize stop is 4 times the raw limit the body
+	// arrived under (target, CM "Body buffering and limits"). Because cost
+	// grows with density (see CostValue), a budget of 4 times the raw limit
+	// rejects dense bodies well inside that limit: an array of one-digit
+	// numbers fails at about a quarter of it. Request-path callers still
+	// pass filter.DecodedLimitFactor (4) times the raw limit and accept
+	// that; MaxCostPerByte times the limit would admit every body the raw
+	// limit admits.
 	MaxCost int64
-	// AllowDuplicateNames resolves duplicate member names "last wins" (07
-	// req 58; 03 req 25): the member keeps its first position and takes the
-	// last value. The default rejects them with ErrDuplicateName.
+	// AllowDuplicateNames resolves duplicate member names "last wins": the
+	// member keeps its first position and takes the last value. The default
+	// rejects them with ErrDuplicateName.
 	AllowDuplicateNames bool
 	// MapObjects builds objects as map[string]any instead of *Object, for
 	// callers that hand trees to code expecting the encoding/json data model
@@ -90,7 +90,7 @@ func Decode(data []byte, o Options) (v any, cost int64, err error) {
 // After each call it drops its reference to the input and every scratch
 // structure over about 64 KiB (the unescape buffer and the scanner's
 // duplicate-name records and indexes, see Scanner), so a Decoder a caller
-// keeps in a sync.Pool never pins a large body (07 req 73).
+// keeps in a sync.Pool never pins a large body.
 type Decoder struct {
 	opts Options
 	s    Scanner
@@ -225,7 +225,7 @@ func (d *Decoder) object(start Token) (any, error) {
 			return o, nil
 		}
 		if d.opts.AllowDuplicateNames {
-			// Last wins, in the first position (07 req 58; 03 req 25).
+			// Last wins, in the first position.
 			if i := o.Index(name); i >= 0 {
 				o.members[i].Value = v
 				continue

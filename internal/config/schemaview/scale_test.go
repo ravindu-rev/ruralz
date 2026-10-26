@@ -15,9 +15,8 @@ import (
 )
 
 // scaleMembers is the member count of the large-object regression cases:
-// a 64 MiB JSON document can hold millions of members (01 req 6), and the
-// mapping that scanned the object once per error took about 20 s at this
-// size.
+// a 64 MiB JSON document can hold millions of members, and the mapping
+// that scanned the object once per error took about 20 s at this size.
 const scaleMembers = 100_000
 
 // scaleBelow is the size of the cases with many errors below one large
@@ -35,12 +34,11 @@ const scaleBelow = 20_000
 const readBudget = 16
 
 // allocBudget bounds the bytes the mapping allocates per byte of the
-// document in the hostile cases, whose errors are a few bytes each (01
-// reqs 6 and 54, the hostile-input heap bounds of the 01 test plan): each
-// error costs a few hundred bytes, whatever the size of the path elements
-// above it. A mapping that renders a large key-aware element once per
-// diagnostic allocates its size per error: thousands of bytes per byte of
-// these documents.
+// document in the hostile cases, whose errors are a few bytes each (the
+// hostile-input heap bounds): each error costs a few hundred bytes,
+// whatever the size of the path elements above it. A mapping that renders a
+// large key-aware element once per diagnostic allocates its size per error:
+// thousands of bytes per byte of these documents.
 const allocBudget = 1024
 
 // largeKey is the size of the keyed-entry key in the hostile cases.
@@ -140,7 +138,7 @@ func largeKeyedEntry(n int) string {
 
 // stripPositions clears every source position of res, as a resource
 // rebuilt without a source map has none: every diagnostic then has the
-// same location, and the path alone orders them (01 req 50).
+// same location, and the path alone orders them.
 func stripPositions(res *tree.Resource) {
 	res.Start = tree.Pos{}
 	var strip func(n *tree.Node)
@@ -177,12 +175,11 @@ func mappingAlloc(v *View, res *tree.Resource, files *tree.FileTable) (uint64, d
 // TestLargePathElements bounds the bytes the mapping allocates when many
 // errors lie below one large key-aware path element: a set element with
 // scaleBelow unknown members and a keyed entry with a largeKey key and
-// scaleBelow type errors, with source positions and without (when the
-// path orders every diagnostic). The mapping must allocate at most
-// allocBudget bytes per document byte, and doubling the errors must not
-// quadruple it (01 reqs 6, 50 and 54; review finding: rendering the path
-// per diagnostic cost errors times element size, 12 GB for a 249 KB
-// document).
+// scaleBelow type errors, with source positions and without (when the path
+// orders every diagnostic). The mapping must allocate at most allocBudget
+// bytes per document byte, and doubling the errors must not quadruple it:
+// rendering the path per diagnostic would cost errors times element size,
+// 12 GB for a 249 KB document.
 func TestLargePathElements(t *testing.T) {
 	if testing.Short() {
 		t.Skip("validates documents with 20,000 errors")
@@ -233,7 +230,7 @@ func TestLargePathElements(t *testing.T) {
 // TestTiedLocationsSorted checks that diagnostics with equal locations
 // are ordered by their rendered paths exactly as diag.List.Sort orders
 // them, below a large set element and a large keyed entry, for every
-// limit (01 req 50).
+// limit.
 func TestTiedLocationsSorted(t *testing.T) {
 	v := testView(t)
 	for _, src := range []string{largeSetElement(300), largeKeyedEntry(300), largeRoute(300), largeListener(300)} {
@@ -291,8 +288,8 @@ func countNodes(n *tree.Node) int {
 // one typed map with scaleMembers type errors, and many errors below one
 // large keyed entry and below one large dispatched object, each within the
 // fixed work budget, and checks that the result is the first
-// MaxDiagnostics findings in diag.List.Sort order (01 reqs 6, 50 and 54:
-// bounded work and output per resource).
+// MaxDiagnostics findings in diag.List.Sort order (bounded work and output
+// per resource).
 func TestLargeObjects(t *testing.T) {
 	if testing.Short() {
 		t.Skip("validates documents of up to 100,000 members")
@@ -332,7 +329,7 @@ func sameDiagnostic(a, b diag.Diagnostic) bool {
 // TestTruncationDeterministic checks that a resource with more findings
 // than the limit returns the first ones in sorted order on every run,
 // although the validator reports a large object's errors in map order
-// (01 req 50: identical diagnostics whatever the run).
+// (identical diagnostics whatever the run).
 func TestTruncationDeterministic(t *testing.T) {
 	v := testView(t)
 	var b strings.Builder
@@ -393,7 +390,7 @@ func TestMemberIndex(t *testing.T) {
 }
 
 // BenchmarkValidateLarge measures stage F on the large-object regression
-// cases (01 req 54).
+// cases.
 func BenchmarkValidateLarge(b *testing.B) {
 	v := testView(b)
 	for _, bc := range scaleCases() {

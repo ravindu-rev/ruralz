@@ -11,7 +11,7 @@ import (
 	"go.opentelemetry.io/otel/attribute"
 )
 
-// state is a group's lifecycle state (spec 09 req 56).
+// state is a group's lifecycle state.
 type state uint8
 
 const (
@@ -39,8 +39,8 @@ type groupKey struct {
 
 // group is the unit of admission, folding and retirement: the label sets
 // of one family for one resource (and Phase), which share one cell.
-// Resource families admit and fold a resource's label sets together
-// (spec 09 req 55), so they also end together.
+// Resource families admit and fold a resource's label sets together, so
+// they also end together.
 type group struct {
 	fam     *family
 	key     groupKey
@@ -55,7 +55,7 @@ type group struct {
 	// plus every code label set its code table can hold. A retiring group
 	// counts ceil against the retiring ceiling, so the exported
 	// ruralz_telemetry_series{state="retiring"} never exceeds the count
-	// the ceiling holds (spec 09 req 56).
+	// the ceiling holds.
 	ceil   int
 	attrs  []attribute.Set
 	cell   *cell
@@ -84,8 +84,7 @@ type group struct {
 
 // colState is a label set's collection state: the last sum over stripes
 // and the float64 total (counters), or the last integer _sum and its
-// float64 total (histograms). Deltas are taken modulo 2^64 (spec 09 req
-// 50).
+// float64 total (histograms). Deltas are taken modulo 2^64.
 type colState struct {
 	last uint64
 	tot  float64
@@ -161,7 +160,7 @@ func (r *Registry) newGroup(f *family, s groupSpec) *group {
 		hot := g.n
 		if f.layout == layoutAttempts {
 			// The status classes of error="none" share one striped line;
-			// the rarer error series stay unsharded (spec 09 req 49).
+			// the rarer error series stay unsharded.
 			hot = numClasses
 		}
 		g.cell = newCell(&r.tab, hot, r.stripes, g.striped)

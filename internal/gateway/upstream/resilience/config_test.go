@@ -9,9 +9,9 @@ import (
 	"time"
 )
 
-// TestDefaultConfig_05Req4 holds the runtime defaults of 05 req 4 and
+// TestDefaultConfig holds the runtime defaults and
 // OQ-traffic-management-and-resilience-5 (a).
-func TestDefaultConfig_05Req4(t *testing.T) {
+func TestDefaultConfig(t *testing.T) {
 	c := DefaultConfig()
 	want := Config{
 		Retry: RetryConfig{Attempts: 1},
@@ -32,9 +32,8 @@ func TestDefaultConfig_05Req4(t *testing.T) {
 	}
 }
 
-// TestFixedTargets_05Req4 holds the fixed targets of 05 req 4 ("Fixed (not
-// fields)") and reqs 24 to 37.
-func TestFixedTargets_05Req4(t *testing.T) {
+// TestFixedTargets holds the fixed targets.
+func TestFixedTargets(t *testing.T) {
 	tests := []struct {
 		name      string
 		got, want time.Duration
@@ -73,7 +72,7 @@ func TestFixedTargets_05Req4(t *testing.T) {
 }
 
 // TestNormalize covers the repair of hand-built configurations to the
-// schema ranges and defaults of 05 req 4.
+// schema ranges and defaults.
 func TestNormalize(t *testing.T) {
 	tests := []struct {
 		name string

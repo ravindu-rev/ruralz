@@ -25,7 +25,7 @@ func idWithLow(low uint64) [16]byte {
 	return id
 }
 
-// TestRatioSampled covers spec 09 req 28: 0 never, 1 always, the bound
+// TestRatioSampled covers the root ratio: 0 never, 1 always, the bound
 // exact at the edge, and agreement with the SDK's TraceIDRatioBased.
 func TestRatioSampled(t *testing.T) {
 	onePercent := 0.01
@@ -67,8 +67,8 @@ func TestRatioSampled(t *testing.T) {
 	}
 }
 
-// TestRatioSampledFraction is spec 09 property test 25: over 10^6 random
-// IDs the sampled fraction is within 4 standard deviations of the ratio.
+// TestRatioSampledFraction is a property test: over 10^6 random IDs the
+// sampled fraction is within 4 standard deviations of the ratio.
 func TestRatioSampledFraction(t *testing.T) {
 	const n = 1_000_000
 	rng := rand.New(rand.NewPCG(7, 11)) //nolint:gosec // G404: deterministic test data
@@ -89,7 +89,7 @@ func TestRatioSampledFraction(t *testing.T) {
 	}
 }
 
-// TestLimiter covers the GCRA arithmetic of spec 09 req 29.
+// TestLimiter covers the GCRA arithmetic.
 func TestLimiter(t *testing.T) {
 	t.Run("burst then rate", func(t *testing.T) {
 		l := NewLimiter(1000, 1000)
@@ -139,8 +139,8 @@ func TestLimiter(t *testing.T) {
 	})
 }
 
-// TestLimiterWindowProperty is spec 09 property test 24: over any window W
-// the admitted count is at most rate × W + burst, under concurrent callers
+// TestLimiterWindowProperty is a property test: over any window W the
+// admitted count is at most rate × W + burst, under concurrent callers
 // (run with -race).
 func TestLimiterWindowProperty(t *testing.T) {
 	const (

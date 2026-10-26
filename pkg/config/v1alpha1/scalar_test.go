@@ -119,7 +119,7 @@ func TestDecodeRoute(t *testing.T) {
 	}
 }
 
-// TestJSONSchemaDocument covers 07 req 74: config.schema is an object or a
+// TestJSONSchemaDocument checks that config.schema is an object or a
 // boolean, kept as written.
 func TestJSONSchemaDocument(t *testing.T) {
 	cases := []struct {
@@ -220,8 +220,8 @@ func FuzzParseByteSize(f *testing.F) {
 
 // FuzzJSONSchemaDocument checks that UnmarshalJSON never panics, that it
 // keeps only valid JSON objects and booleans, that marshaling a kept
-// document then succeeds (07 req 74), and that a rejected input leaves the
-// document unchanged.
+// document then succeeds, and that a rejected input leaves the document
+// unchanged.
 func FuzzJSONSchemaDocument(f *testing.F) {
 	for _, s := range []string{`{}`, `true`, `false`, `null`, `"x"`, `[1]`, ` {"a":1} `, ``, `{garbage`, `{"a":1}}`} {
 		f.Add([]byte(s))

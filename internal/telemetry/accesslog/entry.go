@@ -11,7 +11,7 @@ import (
 	"github.com/ravindu-rev/ruralz/internal/telemetry/emit"
 )
 
-// Record limits (09 req 67, 68; targets).
+// Record limits (targets).
 const (
 	// MaxRecordBytes caps the escaped bytes of a record's string values;
 	// fields past it are cut and named in truncated.
@@ -116,14 +116,13 @@ const numClasses = 5
 
 func classSize(c int) int { return 256 << c }
 
-// entryOverhead is the fixed part of a record's actual size (09 req 67):
-// its start time, trace and span IDs, status, durations, byte counts and
-// attempts. Submit adds the bytes copied into the arena.
+// entryOverhead is the fixed part of a record's actual size: its start
+// time, trace and span IDs, status, durations, byte counts and attempts.
+// Submit adds the bytes copied into the arena.
 const entryOverhead = 128
 
 // entry is a queued record: fixed fields by value and every string copied,
-// truncated, into its own arena, so it never references request memory
-// (09 req 67).
+// truncated, into its own arena, so it never references request memory.
 type entry struct {
 	class         uint8
 	start         time.Time
@@ -187,7 +186,7 @@ func classFor(n int) int {
 }
 
 // stripQuery removes a query string from a request path: the access log
-// never carries one (09 req 68).
+// never carries one.
 func stripQuery(p string) string {
 	if i := strings.IndexByte(p, '?'); i >= 0 {
 		return p[:i]

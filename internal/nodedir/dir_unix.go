@@ -13,11 +13,11 @@ import (
 )
 
 // checkDir rejects an existing directory that the effective user does not
-// own (spec 04 section 3), or that every user may write, sticky bit or
-// not: either could replace or squat the lock, holder.json or the
-// Last-Known-Good under the holder. A group-writable directory is
-// accepted: the group is the operator's choice (systemd
-// StateDirectoryMode=0770, a volume shared through its group ID).
+// own, or that every user may write, sticky bit or not: either could
+// replace or squat the lock, holder.json or the Last-Known-Good under the
+// holder. A group-writable directory is accepted: the group is the
+// operator's choice (systemd StateDirectoryMode=0770, a volume shared
+// through its group ID).
 func checkDir(fi fs.FileInfo) error {
 	if st, ok := fi.Sys().(*syscall.Stat_t); ok && int64(st.Uid) != int64(os.Geteuid()) {
 		return fmt.Errorf("%w (uid %d, euid %d)", ErrNotOwner, st.Uid, os.Geteuid())

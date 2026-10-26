@@ -27,7 +27,7 @@ func FlagSpecsOf(s Spec) []FlagSpec {
 	return f.Specs()
 }
 
-// writeRootHelp lists every runnable command (spec 10 req 6).
+// writeRootHelp lists every runnable command.
 func (t *table) writeRootHelp(w io.Writer) error {
 	var b strings.Builder
 	fmt.Fprintf(&b, "Usage: %s <noun> <verb> [ARGS] [FLAGS]\n\nCommands:\n", t.program)

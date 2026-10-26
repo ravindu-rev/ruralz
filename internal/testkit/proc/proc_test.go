@@ -22,9 +22,9 @@ import (
 	"time"
 )
 
-// Tests for 11 test plan item 11 (proc: start, signal, wait, output
-// bounds, /proc sampling) using this test binary as the child process
-// (TestHelperProcess), so no external program is needed.
+// Tests for proc (start, signal, wait, output bounds, /proc sampling)
+// using this test binary as the child process (TestHelperProcess), so no
+// external program is needed.
 
 const helperEnv = "RURALZ_PROC_HELPER"
 
@@ -112,7 +112,7 @@ func ctx(t *testing.T) context.Context {
 	return c
 }
 
-func TestStartWaitOutput(t *testing.T) { // 11 test plan item 11: start, wait, output
+func TestStartWaitOutput(t *testing.T) { // Start, wait, output
 	dir := t.TempDir()
 	s := helper("echo", "EXIT_CODE=7")
 	s.Name = "node-1"
@@ -181,7 +181,7 @@ func TestStdin(t *testing.T) {
 	}
 }
 
-func TestEnvironmentNotInherited(t *testing.T) { // 11 section 3: nothing is inherited implicitly
+func TestEnvironmentNotInherited(t *testing.T) { // nothing is inherited implicitly
 	t.Setenv("RURALZ_PROC_LEAK", "leak")
 	p, err := Start(ctx(t), helper("env", "ONLY=this"))
 	if err != nil {
@@ -196,7 +196,7 @@ func TestEnvironmentNotInherited(t *testing.T) { // 11 section 3: nothing is inh
 	}
 }
 
-func TestSignalAndWaitOutput(t *testing.T) { // 11 test plan item 11: signal
+func TestSignalAndWaitOutput(t *testing.T) { // Signal
 	p, err := Start(ctx(t), helper("trap"))
 	if err != nil {
 		t.Fatal(err)
@@ -306,7 +306,7 @@ func TestKillReachesProcessGroup(t *testing.T) {
 	}
 }
 
-func TestOutputBounds(t *testing.T) { // 11 test plan item 11: output bounds
+func TestOutputBounds(t *testing.T) { // Output bounds
 	s := helper("spam", "SPAM_BYTES=1048576")
 	s.RingBytes = 64 << 10
 	s.LogDir = t.TempDir()
@@ -393,7 +393,7 @@ func TestRing(t *testing.T) {
 	}
 }
 
-func TestSampleLive(t *testing.T) { // 11 test plan item 11: /proc sampling; 11 req 61
+func TestSampleLive(t *testing.T) { // /proc sampling
 	if runtime.GOOS != "linux" {
 		t.Skip("/proc sampling is Linux only")
 	}
@@ -429,7 +429,7 @@ func TestSampleLive(t *testing.T) { // 11 test plan item 11: /proc sampling; 11 
 	}
 }
 
-func TestSampleProcFakeTree(t *testing.T) { // 11 req 68: RSS from a fake /proc tree
+func TestSampleProcFakeTree(t *testing.T) { // RSS from a fake /proc tree
 	root := t.TempDir()
 	dir := filepath.Join(root, "42")
 	if err := os.MkdirAll(dir, 0o750); err != nil {
@@ -547,7 +547,7 @@ func TestStartErrors(t *testing.T) {
 	_, _ = p.Wait(ctx(t))
 }
 
-func TestRingGrowsLazily(t *testing.T) { // review finding: no eager 2 x 8 MiB per Start
+func TestRingGrowsLazily(t *testing.T) { // no eager 2 x 8 MiB per Start
 	r := newRing(DefaultRingBytes)
 	if len(r.buf) != ringInitialBytes {
 		t.Fatalf("initial ring = %d bytes, want %d", len(r.buf), ringInitialBytes)
@@ -607,7 +607,7 @@ func TestRingSince(t *testing.T) {
 	check(7, "", 7, 7)
 }
 
-func TestLineMatcher(t *testing.T) { // review finding: WaitOutput matches line by line
+func TestLineMatcher(t *testing.T) { // WaitOutput matches line by line
 	tests := []struct {
 		name   string
 		limit  int
@@ -657,7 +657,7 @@ func TestLineMatcher(t *testing.T) { // review finding: WaitOutput matches line 
 	}
 }
 
-func TestLineMatcherScansEachByteOnce(t *testing.T) { // review finding: cost follows the output, not the ring size
+func TestLineMatcherScansEachByteOnce(t *testing.T) { // cost follows the output, not the ring size
 	r := newRing(DefaultRingBytes)
 	m := &lineMatcher{r: r, re: regexp.MustCompile(`never matches`)}
 	line := []byte(strings.Repeat("y", 99) + "\n")
@@ -688,7 +688,7 @@ func TestLineMatcherScansEachByteOnce(t *testing.T) { // review finding: cost fo
 	}
 }
 
-func TestWaitOutputChattyProcess(t *testing.T) { // review finding: a waiter does not burden a chatty Node (GD-2; 11 req 44-46)
+func TestWaitOutputChattyProcess(t *testing.T) { // a waiter does not burden a chatty Node (GD-2)
 	const lines = 20000
 	p, err := Start(ctx(t), helper("chatty", fmt.Sprintf("CHATTY_LINES=%d", lines)))
 	if err != nil {

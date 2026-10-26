@@ -35,18 +35,16 @@ func noPanic(t *testing.T, what string, f func()) {
 	f()
 }
 
-// TestNameListsRefused covers the lists of names (review finding: number
-// literals inside the arrays of type, required, dependentRequired and
-// dependencies escaped the number bounds, and the library's meta-schema
-// check parsed them with math/big: past 20 entries it panicked on a
-// literal math/big refuses). Each shape is RZ-CFG-005 at the entry that is
-// not a string, without a panic, through CompileSchema, Check and
-// Factory.Build, at every schema position, a reference target and a member
-// map read as a schema included.
+// TestNameListsRefused covers the lists of names (number literals inside
+// the arrays of type, required, dependentRequired and dependencies escaped
+// the number bounds, and the library's meta-schema check parsed them with
+// math/big: past 20 entries it panicked on a literal math/big refuses).
+// Each shape is RZ-CFG-005 at the entry that is not a string, without a
+// panic, through CompileSchema, Check and Factory.Build, at every schema
+// position, a reference target and a member map read as a schema included.
 //
-// Requirements: architecture R-77 and decision 14 (number literals), 07
-// req 75 (RZ-CFG-005, identical diagnostics in all three binaries) and F6
-// (a compile returns within 1 s).
+// The diagnostics are identical in all three binaries, and a compile
+// returns within 1 s.
 func TestNameListsRefused(t *testing.T) {
 	huge := literals(21, "e9999999")
 	for _, tc := range []struct {
@@ -95,13 +93,12 @@ func TestNameListsRefused(t *testing.T) {
 }
 
 // TestNameListsRefusedByWalk shows that the rule walk itself refuses the
-// entries, so the library never compares them (review finding: 20
-// literals of exponent 999,999 in a 241-byte type list compiled for 11 s;
-// 380 math/big parses at about 30 ms each). It needs no clock: the walk
-// reports every entry, and compilePrepared returns the walk's findings
-// before the compiler runs.
+// entries, so the library never compares them (20 literals of exponent
+// 999,999 in a 241-byte type list compiled for 11 s; 380 math/big parses at
+// about 30 ms each). It needs no clock: the walk reports every entry, and
+// compilePrepared returns the walk's findings before the compiler runs.
 //
-// Requirements: architecture R-77 and 07 F6 (a compile returns within 1 s).
+// A compile returns within 1 s.
 func TestNameListsRefusedByWalk(t *testing.T) {
 	for _, tc := range []struct {
 		schema string
@@ -145,7 +142,7 @@ func pointers(ptr string, n int) []string {
 // document gets the same diagnostics whichever finds them: each schema is
 // walked, then compiled with the walk's findings dropped.
 //
-// Requirements: 07 req 75 (identical diagnostics in all three binaries).
+// The diagnostics are identical in all three binaries.
 func TestNameListsMatchLibrary(t *testing.T) {
 	var schemas []string
 	for _, e := range []string{`7`, `-1.5e3`, `{"a":1}`, `[1]`, `true`, `null`} {
@@ -178,19 +175,17 @@ func TestNameListsMatchLibrary(t *testing.T) {
 	}
 }
 
-// TestNameListsAccepted covers what the rule leaves alone (07 req 76):
-// lists of strings, a dependencies member that is a schema, numbers in
-// annotations and unknown keywords, and members named like the keywords.
-// Below additionalItems, an unknown keyword under draft 2020-12 that the
+// TestNameListsAccepted covers what the rule leaves alone: lists of
+// strings, a dependencies member that is a schema, numbers in annotations
+// and unknown keywords, and members named like the keywords. Below
+// additionalItems, an unknown keyword under draft 2020-12 that the
 // library neither compiles nor checks against the meta-schema, no rule
 // applies unless a reference, an anchor or an $id makes the library
-// compile it (minor review findings: the walk refused content there as an
-// invalid JSON Schema, also where a property name or a const, enum or
-// examples value merely held an $id or an anchor), and a reference there
-// is checked only when the library compiles it (minor review finding: one
-// leaving the document was refused, though never loaded), once.
-//
-// Requirements: 07 reqs 75 and 76.
+// compile it (so the walk refuses no content there as an invalid JSON
+// Schema, also where a property name or a const, enum or examples value
+// merely holds an $id or an anchor), and a reference there is checked only
+// when the library compiles it (one leaving the document is never loaded),
+// once.
 func TestNameListsAccepted(t *testing.T) {
 	for _, schema := range []string{
 		`{"type":["string","null"],"required":["a","b"],"dependentRequired":{"a":["b"]},"dependencies":{"a":["b"],"c":{"examples":[1e9999999]}}}`,
@@ -221,8 +216,7 @@ func TestNameListsAccepted(t *testing.T) {
 		}
 	}
 	// A reference the library compiles is checked once, also when its
-	// schema was walked inert first (review finding: a mutant that checked
-	// it twice survived).
+	// schema was walked inert first.
 	for _, tc := range []struct{ schema, ptr string }{
 		{`{"$ref":"#/additionalItems","additionalItems":{"$ref":"#/nope"}}`, "/additionalItems/$ref"},
 		{`{"$ref":"#/additionalItems","additionalItems":{"$ref":"https://example.com/s"}}`, "/additionalItems/$ref"},

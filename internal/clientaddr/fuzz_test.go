@@ -16,11 +16,10 @@ import (
 	"github.com/ravindu-rev/ruralz/internal/clock/clocktest"
 )
 
-// FuzzProxyV2 is the WP-15 fuzz target (06 6.4 FuzzProxyV2; 04's
-// FuzzProxyProtoRead): ReadHeader never panics, never reads past the
-// header or MaxHeaderLen, fails only with ErrMalformed, returns a header
-// consistent with its family, gives the same outcome however the bytes are
-// chunked, and the listener Conn agrees with it.
+// FuzzProxyV2: ReadHeader never panics, never reads past the header or
+// MaxHeaderLen, fails only with ErrMalformed, returns a header consistent
+// with its family, gives the same outcome however the bytes are chunked,
+// and the listener Conn agrees with it.
 func FuzzProxyV2(f *testing.F) {
 	for _, seed := range [][]byte{
 		proxyTCP4("203.0.113.7:51000", "192.0.2.1:443", nil),
@@ -131,7 +130,7 @@ type refEntry struct {
 	empty bool
 }
 
-// refWalk is a direct reading of 04 req 17 and 06 req 60 over a slice.
+// refWalk is a direct reading of the client-address rule over a slice.
 func refWalk(t *Trusted, entries []refEntry) (netip.Addr, bool) {
 	if len(entries) > MaxEntries {
 		entries = entries[len(entries)-MaxEntries:]
@@ -263,8 +262,8 @@ func checkResult(t *testing.T, r Result, peer netip.AddrPort, want netip.Addr, f
 	}
 }
 
-// FuzzForwardedFor (06 6.4; 04's FuzzSourceAddr): Resolve over arbitrary
-// X-Forwarded-For lines equals the reference walk.
+// FuzzForwardedFor: Resolve over arbitrary X-Forwarded-For lines equals
+// the reference walk.
 func FuzzForwardedFor(f *testing.F) {
 	for _, s := range []string{
 		"1.1.1.1, 10.0.0.2",
@@ -289,8 +288,8 @@ func FuzzForwardedFor(f *testing.F) {
 		want, ok := refWalk(tr, refXFF(lines))
 		checkResult(t, r, peer, want, ok, ViaXForwardedFor)
 
-		// Properties that use no code of the package (06 req 60):
-		// an address taken from the header is spelled in it, ...
+		// Properties that use no code of the package: an address
+		// taken from the header is spelled in it, ...
 		if r.FromHeader() && !appearsIn(r.IP, s) {
 			t.Fatalf("%q resolved to %v, which it does not contain", s, r.IP)
 		}
@@ -308,8 +307,8 @@ func FuzzForwardedFor(f *testing.F) {
 	})
 }
 
-// FuzzForwarded (06 6.4): Resolve over arbitrary Forwarded lines equals
-// the reference walk, and a Forwarded field with content always wins over
+// FuzzForwarded: Resolve over arbitrary Forwarded lines equals the
+// reference walk, and a Forwarded field with content always wins over
 // X-Forwarded-For.
 func FuzzForwarded(f *testing.F) {
 	for _, s := range []string{
@@ -340,10 +339,10 @@ func FuzzForwarded(f *testing.F) {
 	f.Fuzz(func(t *testing.T, s string) {
 		lines := strings.Split(s, "\n")
 
-		// Properties that use no code of the package (06 req 60, 04 req
-		// 17): whatever the client sent, an element a trusted proxy
-		// appends (to the client's line or on its own line, quoted
-		// commas and quoted-pairs included) is found, ...
+		// Properties that use no code of the package: whatever the
+		// client sent, an element a trusted proxy appends (to the
+		// client's line or on its own line, quoted commas and
+		// quoted-pairs included) is found, ...
 		for _, suffix := range []string{
 			", for=203.0.113.9",
 			`, for=203.0.113.9;host="a,b"`,

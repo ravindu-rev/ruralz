@@ -19,9 +19,8 @@ import (
 	"github.com/ravindu-rev/ruralz/internal/cli/completion"
 )
 
-// Tests for spec 10 section 2.14 (reqs 106 to 108): golden scripts for the
-// four shells, the registry property of section 6.1 and the completion
-// command.
+// Tests for shell completion: golden scripts for the four shells, the
+// registry coverage property and the completion command.
 
 // update rewrites the golden files: go test ./internal/cli/completion -update.
 var update = flag.Bool("update", false, "rewrite testdata golden files")
@@ -41,8 +40,8 @@ func TestM1TableIsValid(t *testing.T) {
 	}
 }
 
-// TestGoldenScriptsReq108 pins the four scripts generated from the M1 table.
-func TestGoldenScriptsReq108(t *testing.T) {
+// TestGoldenScripts pins the four scripts generated from the M1 table.
+func TestGoldenScripts(t *testing.T) {
 	for _, sh := range completion.Shells() {
 		t.Run(string(sh), func(t *testing.T) {
 			got := script(t, sh)
@@ -67,9 +66,9 @@ func TestGoldenScriptsReq108(t *testing.T) {
 	}
 }
 
-// TestScriptsCoverRegistryReq107 is section 6.1's property: every script
+// TestScriptsCoverRegistry is the registry coverage property: every script
 // holds every registered path and flag, and no Planned or deprecated entry.
-func TestScriptsCoverRegistryReq107(t *testing.T) {
+func TestScriptsCoverRegistry(t *testing.T) {
 	specs := m1Table()
 	for _, sh := range completion.Shells() {
 		s := script(t, sh)
@@ -175,8 +174,8 @@ func TestShells(t *testing.T) {
 	}
 }
 
-// TestCompletionCommandReq106 runs `completion SHELL` through Execute.
-func TestCompletionCommandReq106(t *testing.T) {
+// TestCompletionCommand runs `completion SHELL` through Execute.
+func TestCompletionCommand(t *testing.T) {
 	specs := m1Table()
 	for _, sh := range completion.Shells() {
 		var out, errOut bytes.Buffer
@@ -317,8 +316,7 @@ func TestNounWithoutDescription(t *testing.T) {
 const scriptEnv = "RURALZ_TEST_COMPLETION_SCRIPT"
 
 // TestShellSyntax checks the scripts with the shells installed here:
-// bash -n, zsh -n, fish --no-execute and the PowerShell parser (section
-// 6.6, req 108).
+// bash -n, zsh -n, fish --no-execute and the PowerShell parser.
 func TestShellSyntax(t *testing.T) {
 	checks := []struct {
 		shell completion.Shell

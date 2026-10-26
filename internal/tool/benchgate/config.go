@@ -14,7 +14,7 @@ import (
 )
 
 // Defaults of the gate (docs/architecture/12-performance-budgets-and-benchmarking.md,
-// "Regression policy and gates"; 11 req 64).
+// "Regression policy and gates").
 const (
 	defaultRuns       = 10
 	defaultThreshold  = 0.03
@@ -23,7 +23,7 @@ const (
 )
 
 // config is the gate list test/bench/allocgate.json. The list is data, so
-// adding a benchmark never edits the tool (11 req 62).
+// adding a benchmark never edits the tool.
 type config struct {
 	// Runs is the number of interleaved runs per side (default 10).
 	Runs int `json:"runs"`
@@ -48,7 +48,7 @@ type entry struct {
 	Benchtime string `json:"benchtime,omitempty"`
 	// MaxAllocs is an absolute allocs/op cap, such as PB-8's 30.
 	MaxAllocs *int64 `json:"maxAllocs,omitempty"`
-	// Owner names the area or work package that owns the benchmark.
+	// Owner names the area or package that owns the benchmark.
 	Owner string `json:"owner,omitempty"`
 	// Budget names the budget the cap enforces, such as "PB-8".
 	Budget string `json:"budget,omitempty"`

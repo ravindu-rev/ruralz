@@ -11,11 +11,11 @@ import (
 	"github.com/ravindu-rev/ruralz/pkg/config/v1alpha1"
 )
 
-// fakeResolver models the secret.Resolver contract of architecture 2.8 and
-// R-55: values live in one Node-wide table; Watch registrations are
-// Node-wide, keyed by Ref, and survive Activate of a later Store; a
-// rotation fires the watches of a Ref only while the active Store
-// references it; a watch fn error counts a rotation failure.
+// fakeResolver models the secret.Resolver contract: values live in one
+// Node-wide table; Watch registrations are Node-wide, keyed by Ref, and
+// survive Activate of a later Store; a rotation fires the watches of a Ref
+// only while the active Store references it; a watch fn error counts a
+// rotation failure.
 type fakeResolver struct {
 	mu       sync.Mutex
 	values   map[secret.Ref][]byte

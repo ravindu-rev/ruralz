@@ -19,7 +19,7 @@ const (
 
 // explicitEntry is an explicit mapping entry in block context, from its
 // '?' until its ':' or until something at or left of the '?' column ends
-// it (01 req 8, 9, 10; 11 req 17, 26).
+// it.
 //
 // goccy pairs a '?' with the one token after it (or token group, such as a
 // tag and its scalar on one line), wherever that token is, and a ':' with
@@ -35,9 +35,9 @@ const (
 // algorithm closes back to the '?' column, and a ladder of entries like
 // "? \"a\"\n  - - \"b\"\n:" reached 33 times MaxDepth.
 //
-// The profile refuses every mapping key that is not a scalar (01 req 10),
-// so the token pass holds the entry open and stops the file with
-// RZ-CFG-001 when:
+// The profile refuses every mapping key that is not a scalar, so the
+// token pass holds the entry open and stops the file with RZ-CFG-001
+// when:
 //   - the key holds more than one node, or a '-', '?' or ':' that makes it
 //     a collection: anything after the '?' on its line or indented past
 //     its column other than the key's first node (msgExplicitKey), or the
@@ -68,7 +68,7 @@ type explicitEntry struct {
 	// tagLine is set when the key's first node is a tag that ends its line:
 	// goccy pairs the '?' with the tag alone and reads the content on a
 	// later line as the entry's value, so that content is refused with
-	// msgExplicitKeyTag (minor finding of the eighth WP-33 review).
+	// msgExplicitKeyTag.
 	tagLine bool
 }
 
@@ -260,15 +260,15 @@ func (t *tokenPass) startsKey(idx int) bool {
 }
 
 // flowKey is the explicit entry ('?') open in a flow collection, from its
-// '?' to its ':', the ',' that ends its entry or the closing bracket (01 req
-// 8, 10, 12). goccy pairs the '?' with the one node after it, and a tag
-// with its content only when both are on one line and goccy groups them
-// (ungroupedContent): "{? !!str\n  x}" reads as {"": x}, and with a node
-// after it the key becomes a mapping ("{p: q,\n ? !!str\n  x\n  r: s}" as
-// {p: q, "": {"x r": s}}), where YAML 1.2 reads the key x and the key
-// "x r". As in block context, a key of more than one node, or a tag goccy
-// does not group with its content, is RZ-CFG-001 msgExplicitKey at the
-// offending node, while the file has no other finding.
+// '?' to its ':', the ',' that ends its entry or the closing bracket. goccy
+// pairs the '?' with the one node after it, and a tag with its content only
+// when both are on one line and goccy groups them (ungroupedContent):
+// "{? !!str\n  x}" reads as {"": x}, and with a node after it the key
+// becomes a mapping ("{p: q,\n ? !!str\n  x\n  r: s}" as {p: q, "": {"x r":
+// s}}), where YAML 1.2 reads the key x and the key "x r". As in block
+// context, a key of more than one node, or a tag goccy does not group with
+// its content, is RZ-CFG-001 msgExplicitKey at the offending node, while
+// the file has no other finding.
 type flowKey struct {
 	open  bool
 	nodes int

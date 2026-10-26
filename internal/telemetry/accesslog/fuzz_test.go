@@ -50,9 +50,9 @@ func TestMaxFraming(t *testing.T) {
 	}
 }
 
-// FuzzAccessLogRecord (test plan 6.3 item 29): arbitrary field bytes give
-// exactly one line that encoding/json parses, without a raw newline, with
-// at most 4 KiB of string values plus framing, and never a query string.
+// FuzzAccessLogRecord checks that arbitrary field bytes give exactly one
+// line that encoding/json parses, without a raw newline, with at most
+// 4 KiB of string values plus framing, and never a query string.
 func FuzzAccessLogRecord(f *testing.F) {
 	f.Add("GET", "example.com", "/a?b=c", "curl", "route", "policy", int64(200), 3)
 	f.Add("", "", "", "", "", "", int64(0), 0)

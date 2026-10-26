@@ -14,10 +14,9 @@ import (
 	"github.com/ravindu-rev/ruralz/internal/statestore"
 )
 
-// Tests for spec 08 req 68 and resolution R-49 (entry MAC over
-// "rz1" ‖ key ‖ 0x00 ‖ field ‖ 0x00 ‖ entry) and the MAC row of the 08
-// section 6.1 unit table: tampered entry, missing tag and wrong key are
-// misses; without a key entries are stored and accepted untagged.
+// Tests for the entry MAC over "rz1" ‖ key ‖ 0x00 ‖ field ‖ 0x00 ‖ entry:
+// tampered entry, missing tag and wrong key are misses; without a key
+// entries are stored and accepted untagged.
 
 func macKey(b byte) []byte { return bytes.Repeat([]byte{b}, MinMACKeySize) }
 

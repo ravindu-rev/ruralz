@@ -20,9 +20,9 @@ import (
 )
 
 // TestOTelSDKExporters sends each signal through the OpenTelemetry Go
-// OTLP/gRPC exporters the telemetry runtime uses (09 req 16) over TLS
-// with a test CA: traces, metrics and logs arrive with the resource, and
-// no header beyond gRPC's own (09 test 36).
+// OTLP/gRPC exporters the telemetry runtime uses over TLS with a test
+// CA: traces, metrics and logs arrive with the resource, and no header
+// beyond gRPC's own.
 func TestOTelSDKExporters(t *testing.T) {
 	for _, k := range []string{
 		"OTEL_EXPORTER_OTLP_HEADERS", "OTEL_EXPORTER_OTLP_TRACES_HEADERS",

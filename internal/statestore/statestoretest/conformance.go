@@ -28,9 +28,9 @@ type Harness struct {
 	// server.
 	Advance func(t *testing.T, d statestore.Driver, by time.Duration)
 	// Exact is true when time moves only through Advance (a fake clock):
-	// the suite then also checks the literal numbers of spec 08 section
-	// 6.2. Without it, outcomes are checked against the Model at each
-	// reply's ServerNow, and case timings are scaled up tenfold.
+	// the suite then also checks the literal numbers. Without it,
+	// outcomes are checked against the Model at each reply's ServerNow,
+	// and case timings are scaled up tenfold.
 	Exact bool
 	// Now returns the store time of driver d; required when Exact.
 	Now func(d statestore.Driver) time.Time
@@ -60,7 +60,7 @@ type OpenOptions struct {
 // KeyKind is the kind of stored key Inspect reads.
 type KeyKind uint8
 
-// Key kinds of spec 08 req 48.
+// Key kinds.
 const (
 	// KeyRateLimit is a GCRA TAT: Value is the TAT, microseconds since the
 	// 2026 epoch, as text a float64 parse reads exactly.
@@ -100,8 +100,8 @@ type Stored struct {
 // live server.
 const callTimeout = 2 * time.Second
 
-// RunConformance runs the driver conformance suite of spec 08 section 6.2
-// (and the grouping, deadline and MAC rows of section 6.1) against h.
+// RunConformance runs the driver conformance suite, including the
+// consumptive grouping, deadline and entry MAC cases, against h.
 func RunConformance(t *testing.T, h Harness) {
 	t.Helper()
 	if h.Open == nil || h.Advance == nil {
@@ -213,8 +213,8 @@ func (s *suite) answered(what string, c *statestore.Call) {
 	}
 }
 
-// checkGCRA compares a decided GCRA call with the Model at its ServerNow
-// (spec 08 req 46).
+// checkGCRA compares a decided GCRA call with the Model at its
+// ServerNow.
 func (s *suite) checkGCRA(what string, c *statestore.Call) {
 	s.t.Helper()
 	s.answered(what, c)
@@ -371,7 +371,7 @@ func conformanceCases() []conformanceCase {
 	return cs
 }
 
-// gcraCases cover spec 08 req 41 and the GCRA bullet of section 6.2.
+// gcraCases cover the GCRA algorithm.
 func gcraCases() []conformanceCase {
 	return []conformanceCase{
 		{name: "gcra/burst-from-idle", run: func(s *suite) {
@@ -504,8 +504,7 @@ func gcraCases() []conformanceCase {
 	}
 }
 
-// quotaCases cover spec 08 reqs 42 and 43 and the Quota and Skew bullets
-// of section 6.2.
+// quotaCases cover Quota reserve and refund, clock skew included.
 func quotaCases() []conformanceCase {
 	return []conformanceCase{
 		{name: "quota/limit", run: func(s *suite) {
@@ -618,8 +617,9 @@ func quotaCases() []conformanceCase {
 	}
 }
 
-// consumeCases cover spec 08 reqs 28, 29, 33, 38 and 44 and the Consume
-// grouping and deadline rows of section 6.1.
+// consumeCases cover consumptive calls: call timeouts, chain order and
+// slot grouping, the pre-call check order, the shared failure of a merged
+// round trip and script_multi.
 func consumeCases() []conformanceCase {
 	gl := func(s *suite) statestore.GCRALimit {
 		return statestore.GCRALimit{Requests: 1, Window: time.Hour * s.unit, Burst: 0}
@@ -724,7 +724,7 @@ func consumeCases() []conformanceCase {
 			}
 		}},
 		{name: "consume/zero-timeout", run: func(s *suite) {
-			// A resolved timeout of 0 is never attempted (spec 08 req 6).
+			// A resolved timeout of 0 is never attempted.
 			c := quotaCall(s.name("q"), time.Hour, 5, s.digest("k"))
 			c.Timeout = 0
 			s.consume(c)
@@ -738,10 +738,9 @@ func consumeCases() []conformanceCase {
 			}
 		}},
 		{name: "consume/merged-timeout-min", run: func(s *suite) {
-			// Spec 08 req 29 and the section 6.1 grouping row: the merged
-			// round trip's timeout is the smallest of its calls', so a zero
-			// timeout anywhere in the group leaves every call not attempted
-			// (RZ-STS-004, req 6) and charges nothing, in either order.
+			// The merged round trip's timeout is the smallest of its calls',
+			// so a zero timeout anywhere in the group leaves every call not
+			// attempted (RZ-STS-004) and charges nothing, in either order.
 			for i, zeroFirst := range []bool{false, true} {
 				d := s.digest("k" + strconv.Itoa(i))
 				g := gcraCall(s.name("rl"), d, gl(s))
@@ -776,8 +775,7 @@ func consumeCases() []conformanceCase {
 	}
 }
 
-// cacheCases cover spec 08 req 45, req 68 and the Cache bullet of section
-// 6.2.
+// cacheCases cover Response Cache storage and the entry MAC.
 func cacheCases() []conformanceCase {
 	type fixture struct {
 		k    statestore.CacheKey
@@ -991,7 +989,7 @@ func cacheCases() []conformanceCase {
 			return ""
 		}, run: func(s *suite) {
 			// With a MAC key, a tampered entry or a missing tag is a miss,
-			// never an error (spec 08 req 68).
+			// never an error.
 			f := fix(s)
 			put := func(token uint64) {
 				s.advance(fillLease)

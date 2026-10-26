@@ -16,12 +16,12 @@ import (
 // is canonicalized by http.CanonicalHeaderKey, which may allocate.
 const maxStackKey = 128
 
-// headerSource is a response or step header map as CEL reads it (03 req
-// 19): keys are the lowercased names of the fields received, repeated field
-// lines are joined by ", " in received order, lookup is case-insensitive,
-// and iteration is by ascending lowercased name. Every field is shown,
-// Host included. The source points at the view's Header field; a nil
-// pointer is an empty map.
+// headerSource is a response or step header map as CEL reads it: keys are
+// the lowercased names of the fields received, repeated field lines are
+// joined by ", " in received order, lookup is case-insensitive, and
+// iteration is by ascending lowercased name. Every field is shown, Host
+// included. The source points at the view's Header field; a nil pointer is
+// an empty map.
 type headerSource struct{ h *http.Header }
 
 func (s headerSource) lookup(name string) (ref.Val, bool) {
@@ -35,9 +35,8 @@ func (s headerSource) size() int { return headerSize(derefHeader(s.h), false) }
 func (s headerSource) raw() any { return rawHeaders(derefHeader(s.h), false) }
 
 // requestHeaderSource is request.headers: a headerSource that never shows
-// Host, which is request.host (03 req 19). It is a type of its own rather
-// than a flag, so the source stays one pointer and boxes without
-// allocating.
+// Host, which is request.host. It is a type of its own rather than a
+// flag, so the source stays one pointer and boxes without allocating.
 type requestHeaderSource struct{ h *http.Header }
 
 func (s requestHeaderSource) lookup(name string) (ref.Val, bool) {

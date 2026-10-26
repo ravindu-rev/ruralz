@@ -15,8 +15,8 @@ import (
 // Depth limits.
 const (
 	// DefaultMaxDepth is the nesting limit when options leave it zero: the
-	// configuration loader's default (OQ-configuration-model-18 (a)) and the
-	// transform and validation limit (07 req 58, 80).
+	// configuration loader's default and the
+	// transform and validation limit.
 	DefaultMaxDepth = 64
 	// MaxDepthLimit caps any configured nesting limit; it equals the
 	// jsontext default.
@@ -101,7 +101,7 @@ type ScanOptions struct {
 	MaxDepth int
 	// AllowDuplicateNames turns off the duplicate member name check. The
 	// strict default rejects a duplicate with ErrDuplicateName, naming both
-	// offsets (01 req 15, 06 req 25, 07 req 80).
+	// offsets.
 	AllowDuplicateNames bool
 }
 
@@ -135,8 +135,7 @@ const (
 // warm-up it allocates nothing per token. Reset drops the input and every
 // scratch structure over about 64 KiB (unescape buffers, duplicate-name
 // records and indexes), so a Scanner kept for reuse, for example in a
-// sync.Pool after Reset(nil, ScanOptions{}), never pins a large body (07 req
-// 73).
+// sync.Pool after Reset(nil, ScanOptions{}), never pins a large body.
 type Scanner struct {
 	data     []byte
 	pos      int
@@ -160,7 +159,7 @@ func NewScanner(data []byte, o ScanOptions) *Scanner {
 }
 
 // Reset starts scanning data with options o. It keeps internal buffers up
-// to the scratch bounds and drops larger ones (07 req 73).
+// to the scratch bounds and drops larger ones.
 func (s *Scanner) Reset(data []byte, o ScanOptions) {
 	s.data = data
 	s.pos = 0
@@ -493,8 +492,8 @@ func scanEscape(data []byte, j int) (next, bad int) {
 	}
 	// A high surrogate needs a low surrogate escape right after it. Input
 	// that ends there, or a malformed escape there, is reported at its own
-	// offset as the end of input or an invalid escape (01 req 15), not as an
-	// unpaired surrogate.
+	// offset as the end of input or an invalid escape, not as an unpaired
+	// surrogate.
 	k := j + 6
 	if k >= len(data) || data[k] == '\\' && k+1 >= len(data) {
 		return j, len(data)
@@ -678,9 +677,9 @@ const indexHint = 2 * linearNames
 // linearNames is the member count up to which names are compared linearly.
 const linearNames = 16
 
-// Scratch bounds (07 req 73): a reused Scanner, Decoder or Encoder keeps at
-// most about maxScratch bytes in each scratch structure and drops larger
-// ones, so reuse never pins memory sized by a large body.
+// Scratch bounds: a reused Scanner, Decoder or Encoder keeps at most about
+// maxScratch bytes in each scratch structure and drops larger ones, so
+// reuse never pins memory sized by a large body.
 const (
 	// maxScratch is the largest byte buffer kept for reuse.
 	maxScratch = 64 << 10

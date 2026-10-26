@@ -21,10 +21,10 @@ const (
 	maxLabelLen = 63
 )
 
-// NormalizeHost returns the request host the Router matches (04 req 24):
-// r.Host (HTTP/1.1 Host, HTTP/2 :authority) lower-cased (ASCII), without
-// its port, and without one trailing dot. An IPv6 literal keeps its
-// brackets and takes the canonical RFC 5952 text of [netip.Addr.String], as
+// NormalizeHost returns the request host the Router matches: r.Host
+// (HTTP/1.1 Host, HTTP/2 :authority) lower-cased (ASCII), without its port,
+// and without one trailing dot. An IPv6 literal keeps its brackets and
+// takes the canonical RFC 5952 text of [netip.Addr.String], as
 // [ParseHostPattern] gives it, so every spelling of one address matches the
 // same entry: "[2001:DB8:0::1]:8080" becomes "[2001:db8::1]". A bracketed
 // literal that is not an IPv6 address without a zone is only lower-cased,
@@ -83,8 +83,7 @@ func lowerASCII(s string) string {
 	return string(b)
 }
 
-// HostTier is precedence rank 1 (04 req 31): the kind of host entry that
-// matched.
+// HostTier is precedence rank 1: the kind of host entry that matched.
 type HostTier uint8
 
 // Host tiers, highest precedence first.
@@ -109,7 +108,7 @@ type HostPattern struct {
 // ParseHostPattern parses and canonicalizes a host entry: lower-cased, one
 // trailing dot removed, either an exact host name, a bracketed IPv6 literal
 // (kept in the canonical text of [netip.Addr.String], as [NormalizeHost]
-// gives it), or "*." followed by a host name (OQ-data-plane-2 (a)). A "*" anywhere
+// gives it), or "*." followed by a host name. A "*" anywhere
 // else, an empty label, a port, a character outside letters, digits, "-" and
 // "_", or a name longer than 253 bytes is an error carrying [CodeInvalid]
 // (RZ-CFG-005).
@@ -192,7 +191,7 @@ func (p HostPattern) Tier() HostTier {
 // Match reports whether host, normalized by [NormalizeHost], matches p. A
 // wildcard matches one or more leading labels and never the bare suffix:
 // "*.shop.example" matches "eu.shop.example" and "a.b.shop.example", not
-// "shop.example" or "xshop.example" (04 req 27).
+// "shop.example" or "xshop.example".
 func (p HostPattern) Match(host string) bool {
 	switch {
 	case p.Suffix != "":
@@ -214,10 +213,10 @@ func (p HostPattern) String() string {
 }
 
 // HostTable maps host patterns to per-host entries of type V (a Router keeps
-// one path index per entry): an exact-host map, a wildcard map keyed by
-// suffix, and one any-host entry (04 req 27). The zero value is empty and
-// ready to use. Build it with [HostTable.Entry]; once built, [HostTable.Lookup]
-// is safe for concurrent use.
+// one path index per entry): an exact-host map, a wildcard map keyed by suffix,
+// and one any-host entry. The zero value is empty and ready to use. Build it
+// with [HostTable.Entry]; once built, [HostTable.Lookup] is safe for concurrent
+// use.
 type HostTable[V any] struct {
 	exact    map[string]*V
 	wildcard map[string]*V

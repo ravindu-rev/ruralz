@@ -16,16 +16,16 @@ import (
 	"github.com/ravindu-rev/ruralz/internal/config/tree"
 )
 
-// Tests over the committed rendered view (WP-03 "Done when": every schema
-// path resolvable; keyed-list keys and defaults found for every marker the
-// generator emitted). Markers are read from the schema at run time (R-62).
+// Tests over the committed rendered view: every schema path resolves, and
+// keyed-list keys and defaults are found for every marker the generator
+// emitted. Markers are read from the schema at run time.
 
 // isMarker reports the keywords the index must surface at their position.
 func isMarker(k string) bool { return k == "default" || strings.HasPrefix(k, "x-ruralz-") }
 
 func TestEmbeddedSet(t *testing.T) {
-	// 02 req 4: resources decode under their own apiVersion's rendered
-	// schema; an unserved apiVersion has no index (RZ-CFG-007 upstream).
+	// Resources decode under their own apiVersion's rendered schema; an
+	// unserved apiVersion has no index (RZ-CFG-007 upstream).
 	s, err := Embedded()
 	if err != nil {
 		t.Fatal(err)
@@ -84,8 +84,8 @@ func TestKindsFollowRootDispatch(t *testing.T) {
 }
 
 func TestEverySchemaPathResolvable(t *testing.T) {
-	// Done when: every property, items and additionalProperties schema of
-	// the committed schema is reached from some resource root, and every
+	// Every property, items and additionalProperties schema of the
+	// committed schema is reached from some resource root, and every
 	// enumerated field resolves by Lookup and by Walk to the same node.
 	x := v1(t)
 	fields := x.Fields()
@@ -109,8 +109,8 @@ func TestEverySchemaPathResolvable(t *testing.T) {
 			t.Errorf("Lookup(%s %s %v) = %v %v, want the enumerated node", f.Kind, f.Path, f.Where, info.Node.Def(), ok)
 			continue
 		}
-		// 02 req 76: every position's schema path, the lifecycle-table key,
-		// is the path Fields enumerates.
+		// Every position's schema path, the lifecycle-table key, is the
+		// path Fields enumerates.
 		if sp, ok := x.SchemaPath(f.Kind, res, path); !ok || sp != f.Path {
 			t.Errorf("SchemaPath(%s %v) = %q, %v, want %q", f.Kind, path, sp, ok, f.Path)
 		}
@@ -181,10 +181,9 @@ func rawKeywords(t *testing.T, ptr string, m map[string]any) (Keywords, any, boo
 }
 
 func TestEveryMarkerFound(t *testing.T) {
-	// Done when: keyed-list keys and defaults found for every marker the
-	// generator emitted (R-62); 02 req 9-10 (defaults table-free), 02 req
-	// 17 (list keywords), 02 req 23 and 75 (since), 02 req 64 (impact), 01
-	// req 28 (ref, secret, cel positions), 01 req 36 (defaults).
+	// Keyed-list keys and defaults are found for every marker the generator
+	// emitted: defaults (table-free), list keywords, since, impact, and the
+	// ref, secret and cel positions.
 	x := v1(t)
 	byFirstPart := map[string][]Field{}
 	for _, f := range x.Fields() {
@@ -234,9 +233,9 @@ func TestEveryMarkerFound(t *testing.T) {
 }
 
 func TestDefaultsTyped(t *testing.T) {
-	// 01 req 36 and 37: every default materializes as a defaulted tree node
-	// of its position's type; integers at integer positions are integer
-	// text. 02 req 9: defaults come only from the schema's default keywords.
+	// Every default materializes as a defaulted tree node of its position's
+	// type; integers at integer positions are integer text. Defaults come
+	// only from the schema's default keywords.
 	x := v1(t)
 	n := 0
 	for _, f := range x.Fields() {
@@ -283,8 +282,8 @@ func TestDefaultsTyped(t *testing.T) {
 }
 
 func TestDefaultsIterator(t *testing.T) {
-	// 01 req 36: for every object, each property with a default is listed
-	// by Defaults, and no other.
+	// For every object, each property with a default is listed by
+	// Defaults, and no other.
 	x := v1(t)
 	for _, f := range x.Fields() {
 		var want []string
@@ -304,7 +303,7 @@ func TestDefaultsIterator(t *testing.T) {
 }
 
 func TestLevelIsMaxSince(t *testing.T) {
-	// 02 req 75: the served level is the maximum x-ruralz-since (0 in M1).
+	// The served level is the maximum x-ruralz-since (0 in M1).
 	want := 0
 	rawSchemas(rawDoc(t), func(_ string, m map[string]any) {
 		if n, ok := m["x-ruralz-since"].(json.Number); ok {
@@ -318,8 +317,8 @@ func TestLevelIsMaxSince(t *testing.T) {
 }
 
 func TestPolicyConfigDispatch(t *testing.T) {
-	// 02 req 11 and 01 req 25/36: Policy config is resolved through the
-	// PolicySpec allOf/if/then dispatch on spec.type, for every type.
+	// Policy config is resolved through the PolicySpec allOf/if/then
+	// dispatch on spec.type, for every type.
 	doc := rawDoc(t)
 	ps := doc["$defs"].(map[string]any)["PolicySpec"].(map[string]any)
 	want := map[string]string{}
@@ -368,7 +367,7 @@ func TestRequirementExamples(t *testing.T) {
 	x := v1(t)
 	weight := mustInfo(t, x, "Route", `{"spec":{"upstreams":[{"name":"a"}]}}`, "spec", "upstreams", 0, "weight")
 	if d, ok := weight.Node.Default(); !ok || !jsonEqual(d, json.Number("1")) {
-		// 02 req 9: each Route.spec.upstreams[].weight defaults to 1.
+		// Each Route.spec.upstreams[].weight defaults to 1.
 		t.Errorf("upstreams[].weight default = %v %v", d, ok)
 	}
 	if dn := weight.Node.DefaultNode(); dn.Kind != tree.KindInt || dn.Text != "1" {
@@ -376,57 +375,57 @@ func TestRequirementExamples(t *testing.T) {
 	}
 	key := mustInfo(t, x, "Policy", `{"spec":{"type":"quota","config":{}}}`, "spec", "config", "key")
 	if d, _ := key.Node.Default(); d != "consumer.name" || key.Node.Keywords().CEL == nil {
-		// 02 req 11, 01 req 36 and 41: quota config.key "consumer.name" via
-		// the type dispatch, and a CEL place.
+		// Quota config.key "consumer.name" via the type dispatch, and a CEL
+		// place.
 		t.Errorf("quota config.key = %v %+v", d, key.Node.Keywords())
 	}
 	if !key.NoSubstitution {
-		t.Error("quota config.key allows substitution (01 req 28: CEL)")
+		t.Error("quota config.key allows substitution (a CEL position)")
 	}
 	timeout := mustInfo(t, x, "Route", `{}`, "spec", "timeout")
 	if timeout.Node.Scalar() != ScalarDuration {
-		// 02 req 15: normalization by definition name.
+		// Normalization by definition name.
 		t.Errorf("Route spec.timeout scalar = %s", timeout.Node.Scalar())
 	}
 	limit := mustInfo(t, x, "Gateway", `{}`, "spec", "limits", "maxResponseBodyBytes")
 	if limit.Node.Scalar() != ScalarByteSize || !limit.Node.Types().Has(TypeInteger|TypeString) {
-		// 02 req 15, 01 req 29: ByteSize re-types to an integer or stays a string.
+		// ByteSize re-types to an integer or stays a string.
 		t.Errorf("maxResponseBodyBytes scalar %s types %s", limit.Node.Scalar(), limit.Node.Types())
 	}
 	pol := mustInfo(t, x, "Gateway", `{}`, "spec", "policies")
 	if lt, key := pol.Node.List(); lt != ListOrderedMap || key != "name" {
-		// 02 req 17: spec.policies is an orderedMap keyed by name.
+		// spec.policies is an orderedMap keyed by name.
 		t.Errorf("Gateway spec.policies list = %s %s", lt, key)
 	}
 	ref := mustInfo(t, x, "Route", `{"spec":{"policies":[{"name":"p"}]}}`, "spec", "policies", 0, "name")
 	if ref.Node.Keywords().Ref != "Policy" || !ref.NoSubstitution {
-		// 01 req 28: x-ruralz-ref positions forbid substitution.
+		// x-ruralz-ref positions forbid substitution.
 		t.Errorf("PolicyRef name: %+v noSubst %v", ref.Node.Keywords(), ref.NoSubstitution)
 	}
 	secret := mustInfo(t, x, "Gateway", `{}`, "spec", "stateStore", "url", "secretRef", "name")
 	if !secret.InSecret || !secret.NoSubstitution {
-		// 01 req 28: the whole x-ruralz-secret subtree; 02 req 64 gives
-		// every op under it the security impact.
+		// The whole x-ruralz-secret subtree is secret and forbids
+		// substitution; every op under it has the security impact.
 		t.Errorf("stateStore.url.secretRef.name: %+v", secret)
 	}
 	name := mustInfo(t, x, "Upstream", `{}`, "metadata", "name")
 	if !name.NoSubstitution {
-		t.Error("metadata.name allows substitution (01 req 28)")
+		t.Error("metadata.name allows substitution")
 	}
 	label := mustInfo(t, x, "Upstream", `{}`, "metadata", "labels", "team")
 	if label.NoSubstitution || !label.Node.Types().Has(TypeString) {
 		t.Errorf("metadata.labels.team: %+v", label)
 	}
-	// 02 req 76: typed-map values share one schema path.
+	// Typed-map values share one schema path.
 	if sp, _ := x.SchemaPath("Upstream", nil, pathOf("metadata", "labels", "team")); sp != "metadata.labels{}" {
 		t.Errorf("SchemaPath(labels.team) = %q", sp)
 	}
 }
 
 func TestUnknownFieldsAndOpenConfigs(t *testing.T) {
-	// 02 req 33: a field unknown to the schema is detectable (RZ-CFG-024 in
-	// canonical decode, RZ-CFG-006 upstream); 02 req 18: undeclared members
-	// of +ruralz:open configs are free, not unknown.
+	// A field unknown to the schema is detectable (RZ-CFG-024 in canonical
+	// decode, RZ-CFG-006 upstream); undeclared members of +ruralz:open
+	// configs are free, not unknown.
 	x := v1(t)
 	if _, ok := x.Lookup("Gateway", nil, pathOf("spec", "nosuchfield")); ok {
 		t.Error("Gateway spec.nosuchfield resolved")

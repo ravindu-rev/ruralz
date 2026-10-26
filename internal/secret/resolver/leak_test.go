@@ -21,13 +21,11 @@ import (
 	"github.com/ravindu-rev/ruralz/internal/secret"
 )
 
-// Secret leak test (WP-07 "Done when"; spec 01 requirement 46 and section
-// 6 "Secret leak tests"; spec 06 requirements 87, 89 and 91, section 6.6):
-// a canary injected through env and file never appears, raw or in its
-// base64, hex or URL-encoded forms, in diagnostics (text and JSON), errors,
-// log records (JSON and text handlers) or the formatted Store, across
-// resolution failures, consumer checks that try to repeat it, rotation
-// failures and watchers that echo it.
+// Secret leak test: a canary injected through env and file never appears,
+// raw or in its base64, hex or URL-encoded forms, in diagnostics (text and
+// JSON), errors, log records (JSON and text handlers) or the formatted
+// Store, across resolution failures, consumer checks that try to repeat
+// it, rotation failures and watchers that echo it.
 
 const canary = "rz-canary-7d41c0e9a2b85f36:p@ss/w0rd+=&x"
 

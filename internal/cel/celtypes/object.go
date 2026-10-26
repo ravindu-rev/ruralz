@@ -25,7 +25,7 @@ type viewStruct interface {
 // it in a ref.Val allocates nothing; fields are read on selection only.
 type object[T viewStruct] struct{ p *T }
 
-// viewOf returns the CEL value of p: null for a nil pointer (03 req 18).
+// viewOf returns the CEL value of p: null for a nil pointer.
 func viewOf[T viewStruct](p *T) ref.Val {
 	if p == nil {
 		return types.NullValue
@@ -307,8 +307,8 @@ func isFieldSet(k objKind, i int, target any) bool {
 	return false
 }
 
-// requestField returns field i of r (03 req 20). The maps read r lazily:
-// headers wrap the live header map, query parses on first selection.
+// requestField returns field i of r. The maps read r lazily: headers
+// wrap the live header map, query parses on first selection.
 func requestField(r *expr.Request, i int) (any, error) {
 	switch i {
 	case reqMethod:
@@ -352,7 +352,7 @@ func requestFieldSet(r *expr.Request, i int) bool {
 	}
 }
 
-// sourceField returns field i of s (03 req 22).
+// sourceField returns field i of s.
 func sourceField(s *expr.Source, i int) ref.Val {
 	switch i {
 	case srcIP:
@@ -403,7 +403,7 @@ func tlsVersionVal(v uint16) ref.Val {
 	}
 }
 
-// routeField returns field i of r (03 req 23).
+// routeField returns field i of r.
 func routeField(r *expr.Route, i int) ref.Val {
 	if i == routeName {
 		return types.String(r.Name)
@@ -414,7 +414,7 @@ func routeField(r *expr.Route, i int) ref.Val {
 	return mapView[stringSource]{stringSource{&r.Labels}}
 }
 
-// consumerField returns field i of c (03 req 23).
+// consumerField returns field i of c.
 func consumerField(c *expr.Consumer, i int) ref.Val {
 	switch i {
 	case consumerName:
@@ -449,8 +449,8 @@ func consumerFieldSet(c *expr.Consumer, i int) bool {
 	}
 }
 
-// authField returns field i of a (03 req 23): claims is an empty map for
-// methods other than jwt.
+// authField returns field i of a: claims is an empty map for methods
+// other than jwt.
 func authField(a *expr.Auth, i int) (any, error) {
 	if i == authMethod {
 		return types.String(a.Method), nil
@@ -461,7 +461,7 @@ func authField(a *expr.Auth, i int) (any, error) {
 	return bodyField(a.Claims)
 }
 
-// responseField returns field i of r (03 req 24).
+// responseField returns field i of r.
 func responseField(r *expr.Response, i int) (any, error) {
 	switch i {
 	case respStatus:
@@ -473,7 +473,7 @@ func responseField(r *expr.Response, i int) (any, error) {
 	}
 }
 
-// upstreamField returns field i of u (03 req 24).
+// upstreamField returns field i of u.
 func upstreamField(u *expr.Upstream, i int) ref.Val {
 	if i == upstreamName {
 		return types.String(u.Name)
@@ -481,7 +481,7 @@ func upstreamField(u *expr.Upstream, i int) ref.Val {
 	return types.String(u.Endpoint)
 }
 
-// stepField returns field i of s (03 req 24).
+// stepField returns field i of s.
 func stepField(s *expr.Step, i int) (any, error) {
 	switch i {
 	case stepStatus:
@@ -524,7 +524,7 @@ func aiFieldSet(a *expr.AI, i int) bool {
 // bodyField returns the CEL value of a body or claims Value: an error
 // wrapping ErrBody when it is not available or did not decode. The error is
 // returned as a plain error, so cel-go wraps it in a *types.Err of this
-// evaluation's own and labels that with the node ID (03 req 25, 38).
+// evaluation's own and labels that with the node ID.
 func bodyField(v expr.Value) (any, error) {
 	if v == nil {
 		return nil, errBodyUnavailable()

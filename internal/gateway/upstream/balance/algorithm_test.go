@@ -8,8 +8,8 @@ import (
 	"testing"
 )
 
-// TestAlgorithmNames covers the loadBalancing.algorithm spellings of 05 req
-// 11 (d) and the least-request default of 05 req 4.
+// TestAlgorithmNames covers the loadBalancing.algorithm spellings (d) and
+// the least-request default.
 func TestAlgorithmNames(t *testing.T) {
 	tests := []struct {
 		in   string
@@ -35,7 +35,7 @@ func TestAlgorithmNames(t *testing.T) {
 	}
 	var zero Algorithm
 	if zero != LeastRequest {
-		t.Errorf("zero Algorithm = %v, want least-request (05 req 4 default)", zero)
+		t.Errorf("zero Algorithm = %v, want least-request (the default)", zero)
 	}
 	for _, bad := range []string{"maglev", "Round-Robin", "least_request"} {
 		if _, err := ParseAlgorithm(bad); err == nil || !strings.Contains(err.Error(), bad) {

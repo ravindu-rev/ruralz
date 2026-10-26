@@ -21,11 +21,10 @@ import (
 	"github.com/ravindu-rev/ruralz/pkg/config/v1alpha1"
 )
 
-// Tests for the typed config constructor (R-7, R-62; 01 req 38 "Policy
-// spec.config is also decoded into the registry's config type"). Every
-// expectation is read at run time from the committed schema and the
-// v1alpha1 sources, so the table stays correct whichever additive WP-28
-// schema is merged.
+// Tests for the typed config constructor: a Policy's spec.config is also
+// decoded into the registry's config type. Every expectation is read at run
+// time from the committed schema and the v1alpha1 sources, so the table
+// stays correct whichever additive schema change is merged.
 
 // configTypeName returns the Go type name NewConfig of e constructs.
 func configTypeName(t *testing.T, e Entry) string {
@@ -90,7 +89,7 @@ func schemaDef(t *testing.T, name string, v any) {
 
 // TestNewConfigMatchesSchemaDispatch: the registry lists exactly the
 // schema's PolicyType enum, and each type's NewConfig builds the config
-// type the PolicySpec if/then dispatch names (02 req 11, R-62).
+// type the PolicySpec if/then dispatch names.
 func TestNewConfigMatchesSchemaDispatch(t *testing.T) {
 	var (
 		types    enumDef[v1alpha1.PolicyType]
@@ -164,7 +163,7 @@ func v1alpha1Sources(t *testing.T) []*ast.File {
 // TestNewConfigMatchesSourceMarkers: every PolicyType constant declared in
 // pkg/config/v1alpha1 is registered, and NewConfig builds the type whose
 // "+ruralz:policyType=<type>" marker names it ("every type has a config
-// type or explicit none"; keyed by existing config type names, R-62).
+// type or explicit none"; keyed by existing config type names).
 func TestNewConfigMatchesSourceMarkers(t *testing.T) {
 	var consts []v1alpha1.PolicyType
 	markers := map[v1alpha1.PolicyType]string{}
@@ -230,7 +229,7 @@ func TestNewConfigMatchesSourceMarkers(t *testing.T) {
 }
 
 // TestNewConfigDecodes: each constructor returns a fresh zero config that
-// spec.config decodes into (01 req 38), and Registry.NewConfig agrees.
+// spec.config decodes into, and Registry.NewConfig agrees.
 func TestNewConfigDecodes(t *testing.T) {
 	reg := New()
 	for _, e := range reg.Entries() {

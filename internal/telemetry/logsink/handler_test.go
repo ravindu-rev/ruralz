@@ -31,8 +31,8 @@ func testIDs() traceIDs {
 	}
 }
 
-// 09 req 63, test plan 6.1 item 16: keys and their order.
-func TestProcessKeysOrder_Req63(t *testing.T) {
+// TestProcessKeysOrder checks the record keys and their order.
+func TestProcessKeysOrder(t *testing.T) {
 	s, out := newSink(t, Options{NodeID: "01J9Z8Q4W6X3V5T7R2N0M1K8H4", TraceContext: traceFromContext})
 	s.SetRevision("rev-0123456789ab")
 	ctx := withTrace(t.Context(), testIDs())
@@ -70,9 +70,9 @@ func TestProcessKeysOrder_Req63(t *testing.T) {
 	}
 }
 
-// 09 req 63: revision is absent before the first activation; trace IDs
-// only with a valid span context; component and node_id omitted when empty.
-func TestProcessOptionalKeys_Req63(t *testing.T) {
+// Revision is absent before the first activation; trace IDs only with a
+// valid span context; component and node_id omitted when empty.
+func TestProcessOptionalKeys(t *testing.T) {
 	s, out := newSink(t, Options{TraceContext: traceFromContext})
 	if err := s.Handler("").Handle(context.Background(), slog.NewRecord(time.Unix(1, 0), slog.LevelInfo, "started", 0)); err != nil {
 		t.Fatal(err)
@@ -90,8 +90,8 @@ func TestProcessOptionalKeys_Req63(t *testing.T) {
 	}
 }
 
-// 09 req 63: time is RFC 3339 UTC with microseconds; level spellings.
-func TestProcessTimeAndLevels_Req63(t *testing.T) {
+// Time is RFC 3339 UTC with microseconds; level spellings.
+func TestProcessTimeAndLevels(t *testing.T) {
 	s, out := newSink(t, Options{Level: slog.LevelDebug})
 	zone := time.FixedZone("x", 2*3600)
 	at := time.Date(2026, 9, 26, 9, 4, 5, 123456789, zone)
@@ -122,7 +122,7 @@ func TestProcessTimeAndLevels_Req63(t *testing.T) {
 
 // Framing keys given as attributes fill their slot once, handler values
 // first and record values overriding; time, level and msg are renamed.
-func TestProcessSlotAttributes_Req63(t *testing.T) {
+func TestProcessSlotAttributes(t *testing.T) {
 	s, out := newSink(t, Options{NodeID: "node", TraceContext: traceFromContext})
 	s.SetRevision("rev-active000000")
 	h := s.Handler("loader").WithAttrs([]slog.Attr{
@@ -199,9 +199,9 @@ func TestProcessHandlerContract(t *testing.T) {
 	slogtest.Run(t, newHandler, result)
 }
 
-// 09 req 4 and test plan 6.1 item 16: secret.Value logs [REDACTED]; the
-// handler never calls Reveal.
-func TestProcessSecretRedaction_Req4(t *testing.T) {
+// TestProcessSecretRedaction checks that secret.Value logs [REDACTED];
+// the handler never calls Reveal.
+func TestProcessSecretRedaction(t *testing.T) {
 	const canary = "canary-7f3a9c"
 	v := secret.NewValue([]byte(canary))
 	type holder struct {
@@ -228,9 +228,9 @@ func TestProcessSecretRedaction_Req4(t *testing.T) {
 	}
 }
 
-// 06 req 92, 04 req 75: credential headers and sensitive header names are
-// redacted in header maps and as attribute keys; others are kept.
-func TestProcessCredentialHeaders_Req92(t *testing.T) {
+// Credential headers and sensitive header names are redacted in header
+// maps and as attribute keys; others are kept.
+func TestProcessCredentialHeaders(t *testing.T) {
 	s, out := newSink(t, Options{})
 	s.SetCredentialHeaders([]string{"X-Tenant-Credential"})
 	h := http.Header{
@@ -267,9 +267,9 @@ func TestProcessCredentialHeaders_Req92(t *testing.T) {
 	}
 }
 
-// 09 req 4: query strings and user information never reach a log line,
-// through URLs, requests or url.Error chains.
-func TestProcessURLRedaction_Req4(t *testing.T) {
+// Query strings and user information never reach a log line, through
+// URLs, requests or url.Error chains.
+func TestProcessURLRedaction(t *testing.T) {
 	u, err := url.Parse("https://user:pw-secret@idp.example/token?client_secret=q-secret#frag")
 	if err != nil {
 		t.Fatal(err)
@@ -320,11 +320,11 @@ func TestProcessURLRedaction_Req4(t *testing.T) {
 	}
 }
 
-// 09 req 4, 06 req 92: a *url.Error prints its URL with %q, so a URL whose
-// query holds a quote, a backslash or a control byte appears escaped in
-// the text; the query never reaches the line, for the error alone,
-// wrapped, joined, wrapped twice, or printed by a wrapper itself.
-func TestProcessURLErrorQuoting_Req4(t *testing.T) {
+// A *url.Error prints its URL with %q, so a URL whose query holds a quote,
+// a backslash or a control byte appears escaped in the text; the query
+// never reaches the line, for the error alone, wrapped, joined, wrapped
+// twice, or printed by a wrapper itself.
+func TestProcessURLErrorQuoting(t *testing.T) {
 	tests := []struct {
 		name, raw, want string
 	}{
@@ -392,9 +392,9 @@ func TestProcessURLErrorPanics(t *testing.T) {
 	}
 }
 
-// 09 req 4 and 65: a typed-nil error whose Unwrap dereferences its
-// receiver neither panics in Handle or WithAttrs nor breaks the
-// accounting; it is written as slog.JSONHandler writes it.
+// A typed-nil error whose Unwrap dereferences its receiver neither
+// panics in Handle or WithAttrs nor breaks the accounting; it is
+// written as slog.JSONHandler writes it.
 func TestProcessTypedNilErrors(t *testing.T) {
 	s, out := newSink(t, Options{})
 	s.Logger("x").ErrorContext(t.Context(), "m",
@@ -423,10 +423,10 @@ func TestProcessTypedNilErrors(t *testing.T) {
 	}
 }
 
-// 06 req 92, 09 req 4 and 61: one pointer to a header map, byte slice or
-// URL is redacted and copied like the value itself; other values are
-// queued by reference (documented in the package comment).
-func TestProcessPointerValues_Req92(t *testing.T) {
+// One pointer to a header map, byte slice or URL is redacted and copied
+// like the value itself; other values are queued by reference
+// (documented in the package comment).
+func TestProcessPointerValues(t *testing.T) {
 	s, out := newSink(t, Options{})
 	h := http.Header{"Authorization": {"Bearer leak-ptr"}, "Accept": {"a"}}
 	m := map[string][]string{"Cookie": {"leak-map-ptr"}}
@@ -455,10 +455,10 @@ func TestProcessPointerValues_Req92(t *testing.T) {
 	}
 }
 
-// 09 req 61: the byte bound counts what freeze copies. A large byte slice
-// is dropped with queue_full before it is cloned; slices that fit reserve
-// their full length; an error's redacted text is trued up after freezing.
-func TestQueueBytesCountCopies_Req61(t *testing.T) {
+// The byte bound counts what freeze copies. A large byte slice is dropped
+// with queue_full before it is cloned; slices that fit reserve their full
+// length; an error's redacted text is trued up after freezing.
+func TestQueueBytesCountCopies(t *testing.T) {
 	s, out := newSink(t, Options{})
 	log := s.Logger("x")
 	ctx := t.Context()
@@ -491,9 +491,9 @@ func TestQueueBytesCountCopies_Req61(t *testing.T) {
 	}
 }
 
-// 09 req 63: a top-level attribute with a slot key fills its slot even
-// when its value is a group, and is not written again as an attribute.
-func TestProcessSlotGroupNotRepeated_Req63(t *testing.T) {
+// A top-level attribute with a slot key fills its slot even when its
+// value is a group, and is not written again as an attribute.
+func TestProcessSlotGroupNotRepeated(t *testing.T) {
 	s, out := newSink(t, Options{})
 	s.Logger("c").InfoContext(t.Context(), "m", slog.Group(catalog.KeyError, slog.String("kind", "k")), slog.Int("n", 1))
 	drain(s)
@@ -503,9 +503,9 @@ func TestProcessSlotGroupNotRepeated_Req63(t *testing.T) {
 	}
 }
 
-// 09 req 61: the record is frozen when queued, so a caller reusing a
-// header map or byte slice cannot change or race the queued record.
-func TestProcessFreezesMutableValues_Req61(t *testing.T) {
+// The record is frozen when queued, so a caller reusing a header map
+// or byte slice cannot change or race the queued record.
+func TestProcessFreezesMutableValues(t *testing.T) {
 	s, out := newSink(t, Options{})
 	h := http.Header{"Accept": {"a"}}
 	b := []byte("before")
@@ -598,8 +598,9 @@ func TestProcessValueKinds(t *testing.T) {
 	}
 }
 
-// 09 req 64, test plan 6.1 item 16: at info, debug records cost nothing.
-func TestProcessDisabledZeroAllocs_Req64(t *testing.T) {
+// TestProcessDisabledZeroAllocs checks that, at info, debug records cost
+// nothing.
+func TestProcessDisabledZeroAllocs(t *testing.T) {
 	s, _ := newSink(t, Options{Level: slog.LevelInfo})
 	log := s.Logger("gateway")
 	ctx := t.Context()
@@ -615,9 +616,10 @@ func TestProcessDisabledZeroAllocs_Req64(t *testing.T) {
 	}
 }
 
-// 09 req 61, WP-11 done-when: no allocation per record at steady state,
-// for queueing on the caller and for encoding on the worker.
-func TestProcessSteadyStateZeroAllocs_Req61(t *testing.T) {
+// TestProcessSteadyStateZeroAllocs checks that no allocation happens per
+// record at steady state, for queueing on the caller and for encoding on
+// the worker.
+func TestProcessSteadyStateZeroAllocs(t *testing.T) {
 	skipUnderRace(t)
 	s, out := newSink(t, Options{NodeID: "node", TraceContext: traceFromContext})
 	s.SetRevision("rev-0123456789ab")

@@ -14,7 +14,7 @@ import (
 )
 
 // TestResolvePlain covers the YAML 1.2 core schema typing of plain
-// scalars (01 req 12, 11 req 15: yes, on, 0777, 0b1, 1_000, 2026-09-23).
+// scalars (yes, on, 0777, 0b1, 1_000, 2026-09-23).
 func TestResolvePlain(t *testing.T) {
 	tests := []struct {
 		in   string
@@ -124,7 +124,7 @@ func TestResolvePlain(t *testing.T) {
 }
 
 // TestResolveTagged covers core tags forcing a type and mismatches being
-// RZ-CFG-001 (01 req 12).
+// RZ-CFG-001.
 func TestResolveTagged(t *testing.T) {
 	tests := []struct {
 		tag, in string
@@ -166,9 +166,9 @@ func TestResolveTagged(t *testing.T) {
 	}
 }
 
-// TestNormalizeFloatIsRFC8259 checks R-64 over a grid of core schema
-// floats: the normalized text is an RFC 8259 number of the same exact
-// value, so jsonval accepts every float the profile admits.
+// TestNormalizeFloatIsRFC8259 checks the number rule over a grid of core
+// schema floats: the normalized text is an RFC 8259 number of the same
+// exact value, so jsonval accepts every float the profile admits.
 func TestNormalizeFloatIsRFC8259(t *testing.T) {
 	signs := []string{"", "+", "-"}
 	ints := []string{"", "0", "00", "1", "01", "007", "10", "123"}
@@ -218,7 +218,7 @@ func fixDot(s string) string {
 }
 
 // TestClip covers the shortening of text quoted in a message, which never
-// splits a UTF-8 sequence (01 req 14: findings carry readable text).
+// splits a UTF-8 sequence (findings carry readable text).
 func TestClip(t *testing.T) {
 	long := strings.Repeat("é", 40) // 80 bytes
 	got := clip(long)

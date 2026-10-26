@@ -17,7 +17,7 @@ import (
 	"unicode"
 )
 
-// Token limits (spec 06 requirement 93; the maximum is proposed here).
+// Token limits (the maximum is proposed here).
 const (
 	// MinTokenBytes is the shortest accepted token after trimming.
 	MinTokenBytes = 22

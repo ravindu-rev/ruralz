@@ -11,7 +11,7 @@ import (
 )
 
 // TestParsePrefix covers the trustedProxies entry forms (CFG "Gateway":
-// a set of CIDRs) and the IPv4-mapped rule shared with 06 req 58.
+// a set of CIDRs) and the IPv4-mapped rule.
 func TestParsePrefix(t *testing.T) {
 	tests := []struct {
 		in, want string
@@ -76,7 +76,7 @@ func TestParse(t *testing.T) {
 }
 
 // TestContains covers family separation, unmapping, zones and prefix
-// boundaries (04 req 17: IPv4-mapped IPv6 is unmapped).
+// boundaries (IPv4-mapped IPv6 is unmapped).
 func TestContains(t *testing.T) {
 	tr := New([]netip.Prefix{
 		netip.MustParsePrefix("10.0.0.0/8"),
@@ -126,9 +126,9 @@ func TestContains(t *testing.T) {
 	}
 }
 
-// TestContainsMatchesLinearScan checks the trie against a linear scan
-// over random prefix sets, in both insertion orders (06 req 59: the trie is
-// O(address bits)).
+// TestContainsMatchesLinearScan checks the trie against a linear scan over
+// random prefix sets, in both insertion orders (the trie is O(address
+// bits)).
 func TestContainsMatchesLinearScan(t *testing.T) {
 	rng := testRNG(15, 60)
 	randAddr := func(v4 bool) netip.Addr {

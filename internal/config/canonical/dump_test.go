@@ -29,9 +29,9 @@ func activeRevision(t *testing.T) revision.Revision {
 	return rev
 }
 
-// TestAppendDump is the /config/dump document (02 req 73, test plan 14):
-// RFC 8785 member order, content copied byte for byte (CEL '>=' and '&&'
-// included), lastKnownGood omitted when there is none.
+// TestAppendDump is the /config/dump document: RFC 8785 member order,
+// content copied byte for byte (CEL '>=' and '&&' included),
+// lastKnownGood omitted when there is none.
 func TestAppendDump(t *testing.T) {
 	active := activeRevision(t)
 	lkg := revision.Sum([]byte("previous"))
@@ -61,8 +61,7 @@ func TestAppendDump(t *testing.T) {
 }
 
 // TestReadDump: ReadDump returns the received bytes unchanged, verifies
-// the content and decodes it with positions in the dump file (02 reqs 31,
-// 73 and 74; 10 reqs 101 and 102).
+// the content and decodes it with positions in the dump file.
 func TestReadDump(t *testing.T) {
 	ctx := context.Background()
 	dec := NewDecoder(hubIndex(t), DecoderOptions{})
@@ -83,7 +82,7 @@ func TestReadDump(t *testing.T) {
 	if d, _, err := dec.ReadDump(ctx, bytes.NewReader(none), int64(len(none)), Source{}); err != nil || !d.LastKnownGood.IsZero() {
 		t.Errorf("dump without lastKnownGood: %v, %v", d.LastKnownGood, err)
 	}
-	// Members a newer Node adds are ignored (10 req 69).
+	// Members a newer Node adds are ignored.
 	extra := bytes.Replace(body, []byte(`"digest"`), []byte(`"node":{"id":"n1","tags":[1,{"a":null}]},"note":"x","digest"`), 1)
 	if _, _, err := dec.ReadDump(ctx, bytes.NewReader(extra), 0, Source{}); err != nil {
 		t.Errorf("unknown members: %v", err)
@@ -92,7 +91,7 @@ func TestReadDump(t *testing.T) {
 
 // TestReadDumpErrors: tampered content, a wrong revision and newer
 // content carry RZ codes; malformed documents are ErrNotDump; the cap is
-// ErrDumpTooLarge (02 test plan 14; 10 req 102).
+// ErrDumpTooLarge.
 func TestReadDumpErrors(t *testing.T) {
 	ctx := context.Background()
 	dec := NewDecoder(hubIndex(t), DecoderOptions{})

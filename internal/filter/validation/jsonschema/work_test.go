@@ -29,7 +29,7 @@ const (
 		`"person":{"properties":{"pets":{"items":{"$ref":"#"}}}}},` +
 		`"allOf":[{"$ref":"#/$defs/base"},{"properties":{"friends":{"items":{"$ref":"#"}}}}]}`
 	// taggedUnion recurses through then and else, of which the library
-	// evaluates one (07 req 75 review: linear, accepted).
+	// evaluates one (linear, so accepted).
 	taggedUnion = `{"if":{"properties":{"kind":{"const":"a"}}},` +
 		`"then":{"properties":{"children":{"items":{"$ref":"#"}}}},` +
 		`"else":{"properties":{"children":{"items":{"$ref":"#"}}}}}`
@@ -100,12 +100,12 @@ func bodyOf(schema string, depth int) string {
 	return nested(depth)
 }
 
-// TestEvaluationBound covers the evaluation bound (proposed, 07 req 75
-// and section 9 item 21): a recursive reference reached through more than
-// one path per level of nesting, through applicators, overlapping item
-// and member keywords or shared definitions, crosses MaxEvaluations within
-// MinNesting levels and is RZ-CFG-005 at the applicator where it crosses;
-// recursive schemas whose work stays linear compile with no nesting limit.
+// TestEvaluationBound covers the evaluation bound (proposed): a recursive
+// reference reached through more than one path per level of nesting,
+// through applicators, overlapping item and member keywords or shared
+// definitions, crosses MaxEvaluations within MinNesting levels and is
+// RZ-CFG-005 at the applicator where it crosses; recursive schemas whose
+// work stays linear compile with no nesting limit.
 func TestEvaluationBound(t *testing.T) {
 	var props, pats strings.Builder
 	for i := range 129 {
@@ -128,14 +128,13 @@ func TestEvaluationBound(t *testing.T) {
 		{"$ref and not sharing a definition", chain(13, `{"$ref":"#/$defs/d%d","not":{"not":{"$ref":"#/$defs/d%d"}}}`), "/$defs/d2/not"},
 		{"if and then both recursing", ifAndThen, "/if"},
 		{"then and else recursing twice", `{"if":true,"then":{"$ref":"#/$defs/two"},"else":{"$ref":"#/$defs/two"},"$defs":{"two":{"allOf":[{"items":{"$ref":"#"}},{"items":{"$ref":"#"}}]}}}`, "/$defs/two/allOf"},
-		// Review finding (mutants that survived): a $dynamicRef applies each
-		// target the dynamic scope may resolve it to, and the items of
-		// prefixItems also meet contains.
+		// A $dynamicRef applies each target the dynamic scope may resolve it
+		// to, and the items of prefixItems also meet contains.
 		{"dynamic scope doubling", `{"$dynamicAnchor":"n","oneOf":[{"$ref":"urn:list"},{"$ref":"urn:list2"}],"$defs":{"l":{"$id":"urn:list","$dynamicAnchor":"n","items":{"$dynamicRef":"#n"}},"l2":{"$id":"urn:list2","$dynamicAnchor":"n","items":{"$dynamicRef":"#n"}}}}`, "/oneOf"},
 		{"prefix items and contains", `{"prefixItems":[{"$ref":"#"}],"contains":{"$ref":"#"}}`, "/contains"},
-		// Minor review finding: a member name no properties keyword declares
-		// is assumed to meet every pattern, even patterns no name can match
-		// together (proposed over-approximation, package documentation).
+		// A member name no properties keyword declares is assumed to meet
+		// every pattern, even patterns no name can match together (proposed
+		// over-approximation, package documentation).
 		{"exclusive patterns", `{"type":"object","patternProperties":{"^[a-z]+$":{"$ref":"#"},"^[A-Z]+$":{"$ref":"#"}}}`, "/patternProperties"},
 
 		{"linear tree", linearTree, ""},
@@ -186,10 +185,10 @@ func TestEvaluationBound(t *testing.T) {
 	}
 }
 
-// richText is a ProseMirror-style document schema (review finding): a
-// block is one of four kinds, and a bullet list's items and a blockquote
-// hold blocks again, so the work per value grows with the nesting along a
-// Fibonacci curve, crossing MaxEvaluations at depth 28.
+// richText is a ProseMirror-style document schema: a block is one of four
+// kinds, and a bullet list's items and a blockquote hold blocks again, so
+// the work per value grows with the nesting along a Fibonacci curve,
+// crossing MaxEvaluations at depth 28.
 const richText = `{"type":"object","properties":{"type":{"const":"doc"},"content":{"type":"array","items":{"$ref":"#/$defs/block"}}},` +
 	`"$defs":{"block":{"oneOf":[{"$ref":"#/$defs/paragraph"},{"$ref":"#/$defs/heading"},{"$ref":"#/$defs/bulletList"},{"$ref":"#/$defs/blockquote"}]},` +
 	`"paragraph":{"type":"object","required":["type"],"properties":{"type":{"const":"paragraph"},"content":{"type":"array","items":{"$ref":"#/$defs/inline"}}}},` +
@@ -199,9 +198,8 @@ const richText = `{"type":"object","properties":{"type":{"const":"doc"},"content
 	`"blockquote":{"type":"object","required":["type"],"properties":{"type":{"const":"blockquote"},"content":{"type":"array","items":{"$ref":"#/$defs/block"}}}},` +
 	`"inline":{"type":"object","required":["type"],"properties":{"type":{"enum":["text","hardBreak"]},"text":{"type":"string"},"marks":{"type":"array","items":{"type":"object","properties":{"type":{"enum":["bold","italic","link"]}}}}}}}}`
 
-// componentTree is a UI component tree (review finding): a node is text, a
-// row or a column, and rows and columns hold nodes; its nesting limit is
-// 20.
+// componentTree is a UI component tree: a node is text, a row or a column,
+// and rows and columns hold nodes; its nesting limit is 20.
 const componentTree = `{"$ref":"#/$defs/node","$defs":{"node":{"oneOf":[{"$ref":"#/$defs/text"},{"$ref":"#/$defs/row"},{"$ref":"#/$defs/column"}]},` +
 	`"text":{"type":"object","required":["text"],"properties":{"text":{"type":"string"}}},` +
 	`"row":{"type":"object","required":["children"],"properties":{"kind":{"const":"row"},"children":{"type":"array","items":{"$ref":"#/$defs/node"}}}},` +
@@ -216,12 +214,10 @@ func quotes(n int) string {
 
 // TestCrossingDepth pins the depth at which the evaluation bound crosses
 // for a recursion through a member name only the second allOf branch
-// declares (review finding: a mutant that dropped the second operand's
-// names from the precise pass's classes crossed 14 deep, admitting 16
-// times the evaluations per value, and no test told the depths apart, both
-// being below MinNesting): 10 deep, whichever branch declares the name.
-//
-// Requirements: 07 req 75 and section 9 item 21.
+// declares (dropping the second operand's names from the precise pass's
+// classes would make it cross 14 deep, admitting 16 times the evaluations
+// per value; both depths are below MinNesting): 10 deep, whichever branch
+// declares the name.
 func TestCrossingDepth(t *testing.T) {
 	for _, tc := range []struct{ schema, ptr string }{
 		{`{"allOf":[{"properties":{"a":true}},{"properties":{"b":{"oneOf":[{"$ref":"#"},{"$ref":"#"}]}}}]}`, "/allOf/1/properties"},
@@ -234,13 +230,12 @@ func TestCrossingDepth(t *testing.T) {
 	}
 }
 
-// TestNestingLimit is the regression test of the review finding that the
-// evaluation bound refused realistic recursive schemas (07 req 75 makes
-// only the fan-out a compile rule): a schema whose evaluations cross
-// MaxEvaluations at a depth of MinNesting or more compiles, with that depth
-// as its nesting limit, and Handle refuses a body that reaches it as
-// filter.ErrTooLarge (413) before the library runs, so the work per value
-// stays bounded; a body nested less deep validates.
+// TestNestingLimit covers realistic recursive schemas, which the evaluation
+// bound does not refuse: a schema whose evaluations cross MaxEvaluations at
+// a depth of MinNesting or more compiles, with that depth as its nesting
+// limit, and Handle refuses a body that reaches it as filter.ErrTooLarge
+// (413) before the library runs, so the work per value stays bounded; a
+// body nested less deep validates.
 func TestNestingLimit(t *testing.T) {
 	for _, tc := range []struct {
 		schema string
@@ -274,16 +269,16 @@ func TestNestingLimit(t *testing.T) {
 	if loc, ok := f.schema.Validate(decodeInstance(t, quotes(12))); ok || loc != "" {
 		t.Errorf("Validate past the nesting limit = %q, %v, want not ok at the root", loc, ok)
 	}
-	// Minor review finding: a value exactly at the limit, where one value
-	// may take more than MaxEvaluations evaluations, is refused; the
-	// deepest value here is the 1 in place of a block 28 deep.
+	// A value exactly at the limit, where one value may take more than
+	// MaxEvaluations evaluations, is refused; the deepest value here is the
+	// 1 in place of a block 28 deep.
 	deepest := `{"type":"doc","content":[` + strings.Repeat(`{"type":"blockquote","content":[`, 13) + `1` + strings.Repeat(`]}`, 13) + `]}`
 	if r := handle(t, f, deepest); !errors.Is(r.Err, errNestingTooDeep) {
 		t.Errorf("a block 28 deep: %+v, want CannotDecide with the nesting ErrTooLarge", r)
 	}
-	// Minor review finding: past the limit, a value whose own path the
-	// states follow within MaxEvaluations validates, such as a free-form
-	// member no subschema evaluates; the recursion still cannot go deeper.
+	// Past the limit, a value whose own path the states follow within
+	// MaxEvaluations validates, such as a free-form member no subschema
+	// evaluates; the recursion still cannot go deeper.
 	withData := strings.Replace(componentTree, `"properties":{"kind":{"const":"row"},`, `"properties":{"data":{},"tree":{"$ref":"#/$defs/tree"},"kind":{"const":"row"},`, 1)
 	withData = strings.Replace(withData, `"$defs":{`, `"$defs":{"tree":{"items":{"$ref":"#/$defs/tree"}},`, 1)
 	f = buildFilter(t, withData, 0)
@@ -311,11 +306,10 @@ func TestNestingLimit(t *testing.T) {
 	}
 }
 
-// TestMinNesting pins the boundary of MinNesting (proposed, 07 req 75
-// review): a recursion that doubles every two levels of nesting crosses
-// MaxEvaluations at depth 16 and compiles with that nesting limit; one
-// level deeper in the body, at 15, it is RZ-CFG-005 (minor review
-// finding).
+// TestMinNesting pins the boundary of MinNesting (proposed): a recursion
+// that doubles every two levels of nesting crosses MaxEvaluations at depth
+// 16 and compiles with that nesting limit; one level deeper in the body, at
+// 15, it is RZ-CFG-005.
 func TestMinNesting(t *testing.T) {
 	doubling := func(ref string, extra int) string {
 		inner := `{"items":{"items":{"$ref":"` + ref + `"}}}`
@@ -330,9 +324,9 @@ func TestMinNesting(t *testing.T) {
 	}
 }
 
-// TestEvaluationBoundBudget covers the precise pass's budget (07 req 75
-// review, nesting limit): recursive mixins need the precise pass, which
-// finds no nesting limit; with its budget spent the coarse bound decides,
+// TestEvaluationBoundBudget covers the precise pass's budget for the
+// nesting limit: recursive mixins need the precise pass, which finds no
+// nesting limit; with its budget spent the coarse bound decides,
 // which limits the nesting of mixins and refuses mixins recursing through
 // two members per level.
 func TestEvaluationBoundBudget(t *testing.T) {
@@ -363,11 +357,10 @@ func TestEvaluationBoundBudget(t *testing.T) {
 	}
 }
 
-// TestRecursiveBodies covers the review regression of the evaluation
-// bound (proposed, 07 req 75 and section 9 item 21) with bodies nested 30
-// deep: the refused shapes never build, and an accepted recursive schema
-// validates a body nested 30 or 60 deep with work linear in the nesting
-// (allocations, not time).
+// TestRecursiveBodies covers the evaluation bound (proposed) with bodies
+// nested 30 deep: the refused shapes never build, and an accepted recursive
+// schema validates a body nested 30 or 60 deep with work linear in the
+// nesting (allocations, not time).
 func TestRecursiveBodies(t *testing.T) {
 	for _, schema := range []string{oneOfTwice, allOfTwice, anyOfFailed} {
 		if _, err := (Factory{}).Build(t.Context(), filter.BuildEnv{Config: configOf(schema)}); !errors.Is(err, ErrSchema) {
@@ -399,9 +392,9 @@ func allocRatio(t *testing.T, s *sjs.Schema, schema string, depth int) float64 {
 }
 
 // TestEvaluationBoundMatchesLibrary checks the evaluation bound
-// (proposed, 07 section 9 item 21) against the library itself, compiled
-// without it: the shapes it refuses take work that doubles with each level
-// of nesting, the shapes it accepts work linear in the nesting.
+// (proposed) against the library itself, compiled without it: the shapes it
+// refuses take work that doubles with each level of nesting, the shapes it
+// accepts work linear in the nesting.
 func TestEvaluationBoundMatchesLibrary(t *testing.T) {
 	for _, tc := range []struct {
 		schema  string
@@ -429,7 +422,7 @@ func TestEvaluationBoundMatchesLibrary(t *testing.T) {
 }
 
 // libraryCompile compiles schema with the library alone, without the
-// rules of 07 req 75 or the evaluation bound.
+// rules or the evaluation bound.
 func libraryCompile(t testing.TB, schema string) *sjs.Schema {
 	t.Helper()
 	return librarySchema(t, schema).root
@@ -463,9 +456,9 @@ func librarySchema(t testing.TB, schema string) *Schema {
 	return &Schema{root: root, decide: decide, work: workingSet{limit: maxNesting + 1}}
 }
 
-// TestInPlaceCycles covers 07 req 13 at compile time: a reference cycle
-// that never descends into the value would make every value reaching it
-// an internal validator error, so it is RZ-CFG-005 at the reference.
+// TestInPlaceCycles covers in-place cycles at compile time: a reference
+// cycle that never descends into the value would make every value reaching
+// it an internal validator error, so it is RZ-CFG-005 at the reference.
 func TestInPlaceCycles(t *testing.T) {
 	for _, tc := range []struct{ name, schema, ptr string }{
 		{"root", `{"$ref":"#"}`, "/$ref"},
@@ -485,9 +478,9 @@ func TestInPlaceCycles(t *testing.T) {
 	}
 }
 
-// TestValidatorErrorUndecided covers the backstop of 07 req 13: a schema
-// that reaches a reference cycle anyway (compiled here without the rules)
-// is cannot decide, never a 400 decision.
+// TestValidatorErrorUndecided covers the backstop: a schema that reaches
+// a reference cycle anyway (compiled here without the rules) is cannot
+// decide, never a 400 decision.
 func TestValidatorErrorUndecided(t *testing.T) {
 	s := librarySchema(t, `{"$defs":{"x":{"$ref":"#/$defs/y"},"y":{"$ref":"#/$defs/x"}},"$ref":"#/$defs/x"}`)
 	f := newFilter(s, 400, bodyLimits{decoded: testLimit})
@@ -509,9 +502,9 @@ func TestValidatorErrorUndecided(t *testing.T) {
 
 // TestLegacyItems covers the draft-07 items array and additionalItems,
 // which the library sets only below draft 2020-12: CompileSchema refuses
-// such a resource (07 req 75), yet the inspection walks it and the graph
-// maps it, an item by index to items and past them to additionalItems, so
-// both stay sound should a document reach them.
+// such a resource, yet the inspection walks it and the graph maps it, an
+// item by index to items and past them to additionalItems, so both stay
+// sound should a document reach them.
 func TestLegacyItems(t *testing.T) {
 	const schema = `{"$schema":"http://json-schema.org/draft-07/schema#","items":[{"type":"string"},{"type":"null"}],"additionalItems":{"type":"integer"}}`
 	root := libraryCompile(t, schema)
@@ -537,13 +530,11 @@ func TestLegacyItems(t *testing.T) {
 	}
 }
 
-// TestNamesPool covers the reuse of the precise pass's member maps (minor
-// review finding: a worst-case compile allocated about 250 MB of them): a
-// level takes the maps the level before made, cleared, in the order it
-// made them, and makes new ones past them; the evaluation tests check
-// that the analysis decides as before.
-//
-// Requirements: 07 F6 and architecture R-77.
+// TestNamesPool covers the reuse of the precise pass's member maps (without
+// it, a worst-case compile allocated about 250 MB of them): a level takes
+// the maps the level before made, cleared, in the order it made them, and
+// makes new ones past them; the evaluation tests check that the analysis
+// decides as before.
 func TestNamesPool(t *testing.T) {
 	var p namesPool
 	a, b := p.get(1), p.get(1)

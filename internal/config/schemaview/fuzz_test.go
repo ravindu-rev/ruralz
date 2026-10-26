@@ -16,8 +16,8 @@ import (
 
 // FuzzValidate feeds arbitrary JSON resources to Validate: it never
 // panics, is deterministic, raises only stage F's registered codes, and an
-// RZ-CFG-012 message never repeats a string from its secret subtree (01
-// req 33). Seeds are the error-mapping golden inputs.
+// RZ-CFG-012 message never repeats a string from its secret subtree. Seeds
+// are the error-mapping golden inputs.
 func FuzzValidate(f *testing.F) {
 	seeds, err := filepath.Glob(filepath.Join("testdata", "mapping", "*.json"))
 	if err != nil {

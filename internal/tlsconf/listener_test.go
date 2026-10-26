@@ -20,11 +20,10 @@ import (
 	"github.com/ravindu-rev/ruralz/internal/errcode"
 )
 
-// Handshake tests for spec 06 requirements 74 (TLS 1.3 default, 1.2 with
-// exactly six suites, ALPN), 75 (SNI), 76 (rotation reaches new
-// handshakes), 77 (handshake timeout, handshake outcome), 46 and 47 (client
-// certificate request mode read per handshake and recorded on the
-// connection).
+// Handshake tests: TLS 1.3 by default and 1.2 with exactly six suites,
+// ALPN, SNI, rotation reaching new handshakes, the handshake timeout and
+// outcome, and the client certificate request mode read per handshake and
+// recorded on the connection.
 
 type listenerFixture struct {
 	*indexFixture
@@ -64,7 +63,7 @@ func (f *listenerFixture) server() *tls.Config {
 	return Server(ServerOptions{State: f.state.Load})
 }
 
-func TestListenerDefaultTLS13Req74(t *testing.T) {
+func TestListenerDefaultTLS13(t *testing.T) {
 	f := newListenerFixture(t)
 	c := clientFor(f.ca, "api.example.com")
 	c.NextProtos = []string{"h2", "http/1.1"}
@@ -94,7 +93,7 @@ func TestListenerDefaultTLS13Req74(t *testing.T) {
 	}
 }
 
-func TestListenerTLS12SuitesReq74(t *testing.T) {
+func TestListenerTLS12Suites(t *testing.T) {
 	f := newListenerFixture(t)
 	f.set(t, ListenerOptions{MinVersion: Version12})
 	if st := f.state.Load(); st.MinVersion() != tls.VersionTLS12 || !slices.Equal(st.Config().CipherSuites, TLS12Suites()) {
@@ -135,7 +134,7 @@ func TestListenerTLS12SuitesReq74(t *testing.T) {
 	}
 }
 
-func TestListenerSNIAndRotationReq75Req76(t *testing.T) {
+func TestListenerSNIAndRotation(t *testing.T) {
 	f := newListenerFixture(t)
 	for sni, want := range map[string]string{"api.example.com": "b-api", "rsa.example.com": "c-rsa", "default.example.com": "a-default"} {
 		cr, _ := handshake(t, f.server(), clientFor(f.ca, sni))
@@ -171,9 +170,9 @@ func TestListenerSNIAndRotationReq75Req76(t *testing.T) {
 	}
 }
 
-// TestListenerClientCertModeReq46Req47 toggles the request mode through
+// TestListenerClientCertMode toggles the request mode through
 // the published state, as a Hot Reload does, and checks the recorded mode.
-func TestListenerClientCertModeReq46Req47(t *testing.T) {
+func TestListenerClientCertMode(t *testing.T) {
 	f := newListenerFixture(t)
 	clientCA := newCA(t, "client-ca")
 	cl := clientCA.issue(t, leafOpts{cn: "client", eku: []x509.ExtKeyUsage{x509.ExtKeyUsageClientAuth}})
@@ -225,10 +224,10 @@ func TestListenerClientCertModeReq46Req47(t *testing.T) {
 	}
 }
 
-// TestListenerResumptionReq46 checks that a request-mode listener never
+// TestListenerResumption checks that a request-mode listener never
 // resumes a session (which would skip the certificate request), while the
 // default mode does.
-func TestListenerResumptionReq46(t *testing.T) {
+func TestListenerResumption(t *testing.T) {
 	for _, request := range []bool{false, true} {
 		f := newListenerFixture(t)
 		f.set(t, ListenerOptions{RequestClientCert: request})
@@ -251,7 +250,7 @@ func TestListenerResumptionReq46(t *testing.T) {
 	}
 }
 
-func TestListenerNoStateReq77(t *testing.T) {
+func TestListenerNoState(t *testing.T) {
 	f := newListenerFixture(t)
 	_, sr := handshake(t, Server(ServerOptions{State: func() *ListenerState { return nil }}), clientFor(f.ca, "api.example.com"))
 	if !errors.Is(sr.err, ErrNoListenerState) {
@@ -263,15 +262,15 @@ func TestListenerNoStateReq77(t *testing.T) {
 	}
 }
 
-// TestListenerHandshakeOutcomeReq77 checks what the listener measures
-// requirement 77 on: the server's own HandshakeContext result. A client
+// TestListenerHandshakeOutcome checks what the listener measures the
+// handshake outcome on: the server's own HandshakeContext result. A client
 // that rejects the server certificate fails it (counted tls_failure, no
 // success observed), in TLS 1.3 and 1.2 and with or without a client
 // certificate request; a trusting client completes it. The configuration
 // sets no VerifyConnection, which runs before the client's last flight and
 // so is no success signal, and hands out the shared per-state
 // configuration unmodified.
-func TestListenerHandshakeOutcomeReq77(t *testing.T) {
+func TestListenerHandshakeOutcome(t *testing.T) {
 	f := newListenerFixture(t)
 	srv := Server(ServerOptions{State: f.state.Load})
 	if srv.VerifyConnection != nil {
@@ -365,9 +364,9 @@ func TestRecordClientCertModeUnwrap(t *testing.T) {
 	}
 }
 
-// TestServerWithHTTPServerReq74Req77 serves HTTP/2 through net/http with the
+// TestServerWithHTTPServer serves HTTP/2 through net/http with the
 // Server configuration, the handshake timeout as ReadHeaderTimeout.
-func TestServerWithHTTPServerReq74Req77(t *testing.T) {
+func TestServerWithHTTPServer(t *testing.T) {
 	f := newListenerFixture(t)
 	ln, err := new(net.ListenConfig).Listen(t.Context(), "tcp4", "127.0.0.1:0")
 	if err != nil {

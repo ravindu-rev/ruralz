@@ -9,8 +9,8 @@ import (
 	"testing"
 )
 
-// TestPrecheck covers the byte pre-checks of 01 req 7: each failure is
-// RZ-CFG-001 at the offending character, in code-point columns.
+// TestPrecheck covers the byte pre-checks: each failure is RZ-CFG-001
+// at the offending character, in code-point columns.
 func TestPrecheck(t *testing.T) {
 	tests := []struct {
 		name      string
@@ -44,8 +44,7 @@ func TestPrecheck(t *testing.T) {
 	}
 }
 
-// TestPrecheckAccepts covers the printable ranges that stay accepted (01
-// req 7).
+// TestPrecheckAccepts covers the printable ranges that stay accepted.
 func TestPrecheckAccepts(t *testing.T) {
 	for _, s := range []string{"\t", "\u0085", "\u00A0", "\uD7FF", "\uE000", "\uFFFD", "\U00010000", "\U0010FFFF", "😀"} {
 		docs, diags := parseYAML(t, "a: \"x"+s+"\"\n")
@@ -60,7 +59,7 @@ func TestPrecheckAccepts(t *testing.T) {
 }
 
 // TestLineBreaksParseIdentically checks that CRLF and CR files parse
-// exactly like LF files, positions included (01 req 7).
+// exactly like LF files, positions included.
 func TestLineBreaksParseIdentically(t *testing.T) {
 	lf := "# comment\n" +
 		"apiVersion: ruralz/v1alpha1\n" +
@@ -114,7 +113,7 @@ func TestLineBreaksParseIdentically(t *testing.T) {
 }
 
 // TestSizeLimit reports a file over MaxBytes at the first byte past it,
-// for both formats (01 req 6).
+// for both formats.
 func TestSizeLimit(t *testing.T) {
 	src := []byte("a: 1\nb: 22\n")
 	for _, f := range []Format{FormatYAML, FormatJSON} {

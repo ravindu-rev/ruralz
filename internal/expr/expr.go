@@ -493,9 +493,8 @@ type Consumer struct {
 	// Quotas are the names of spec.quotas, sorted.
 	Quotas []string
 	// QuotaByName holds spec.quotas by name for the quota and
-	// ai.token-budget Policies (spec 06 requirement 21); nil when there are
-	// none; shared by every snapshot reader, read only; CEL reads Quotas,
-	// not this field.
+	// ai.token-budget Policies; nil when there are none; shared by every
+	// snapshot reader, read only; CEL reads Quotas, not this field.
 	QuotaByName map[string]v1alpha1.Quota
 	// Prepared is set only by Compiler.PrepareConsumer; nil is valid, and
 	// the CEL implementation then converts on selection.
@@ -602,8 +601,8 @@ func (v *Vars) Reset() { *v = Vars{} }
 // The exact http.CanonicalHeaderKey key wins, so a canonical key is always
 // preferred; otherwise, among the keys equal to name under ASCII case
 // folding (field names are ASCII, so Unicode folding never applies), the
-// smallest in byte order wins. The choice is deterministic (03 requirement
-// 6.3) and equals the CEL implementation's.
+// smallest in byte order wins. The choice is deterministic and equals the
+// CEL implementation's.
 func JoinedHeader(h http.Header, name string) (string, bool) {
 	vs, ok := h[http.CanonicalHeaderKey(name)]
 	if !ok {

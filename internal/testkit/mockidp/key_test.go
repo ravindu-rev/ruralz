@@ -19,8 +19,8 @@ import (
 	"testing"
 )
 
-// Tests for WP-84 mockidp keys, minting and verification. "Done when":
-// mockidp tokens verify with stdlib crypto (TestTokensVerifyWithStdlib).
+// Tests for mockidp keys, minting and verification: mockidp tokens verify
+// with stdlib crypto (TestTokensVerifyWithStdlib).
 
 // Keys are generated once per test binary (RSA generation is slow under
 // -race); package-level state is allowed in tests.
@@ -62,7 +62,7 @@ func mustB64(t testing.TB, s string) []byte {
 }
 
 // stdlibVerify checks a token with direct standard library calls and no
-// package code: the WP-84 "tokens verify with stdlib crypto" oracle.
+// package code: the oracle that tokens verify with stdlib crypto.
 func stdlibVerify(t *testing.T, alg Alg, pub crypto.PublicKey, token string) bool {
 	t.Helper()
 	parts := strings.Split(token, ".")
@@ -89,7 +89,7 @@ func stdlibVerify(t *testing.T, alg Alg, pub crypto.PublicKey, token string) boo
 	return false
 }
 
-func TestTokensVerifyWithStdlib(t *testing.T) { // WP-84 Done when; 06 req 26 algorithms
+func TestTokensVerifyWithStdlib(t *testing.T) { // the four accepted JWT algorithms
 	for _, alg := range []Alg{RS256, PS256, ES256, EdDSA} {
 		t.Run(string(alg), func(t *testing.T) {
 			k := key(t, alg)
@@ -297,7 +297,7 @@ func TestVerifyRejects(t *testing.T) {
 }
 
 func TestNewKey(t *testing.T) {
-	rsa1024, err := rsa.GenerateKey(rand.Reader, 1024) //nolint:gosec // G403: a deliberately weak key for the 06 req 38 negative fixture
+	rsa1024, err := rsa.GenerateKey(rand.Reader, 1024) //nolint:gosec // G403: a deliberately weak key for the negative fixture of RSA moduli under 2,048 bits
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -312,8 +312,8 @@ func TestNewKey(t *testing.T) {
 	if !stdlibVerify(t, RS256, k.Public(), tok) || k.ID != "small" {
 		t.Fatal("RSA-1024 fixture does not verify")
 	}
-	// P-384 under ES256 (06 req 38: unusable at the gateway): the
-	// signature halves follow the curve (48 bytes each).
+	// P-384 under ES256 (unusable at the gateway): the signature
+	// halves follow the curve (48 bytes each).
 	p384, err := ecdsa.GenerateKey(elliptic.P384(), rand.Reader)
 	if err != nil {
 		t.Fatal(err)

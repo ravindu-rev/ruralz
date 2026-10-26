@@ -36,10 +36,10 @@ func unsampledRequest(ctx context.Context, tr *Tracer, h http.Header, d *emit.De
 	return lctx, server
 }
 
-// TestUnsampledAllocatesNothing checks the WP-10 "Done when": the
-// unsampled path (Decide, every span start, attribute and end) allocates
-// nothing; Inject allocates exactly the new traceparent value and its
-// slice (spec 09 reqs 38 and 70: 2 allocations per unsampled request).
+// TestUnsampledAllocatesNothing checks that the unsampled path (Decide,
+// every span start, attribute and end) allocates nothing; Inject allocates
+// exactly the new traceparent value and its slice (2 allocations per
+// unsampled request).
 func TestUnsampledAllocatesNothing(t *testing.T) {
 	skipUnderRace(t)
 	tr := newTracer(t, Options{})
@@ -70,7 +70,7 @@ func TestUnsampledAllocatesNothing(t *testing.T) {
 }
 
 // TestSampledWithoutExporterAllocatesNothing: a sampled decision with no
-// OTLP endpoint propagates but creates no span (spec 09 req 15).
+// OTLP endpoint propagates but creates no span.
 func TestSampledWithoutExporterAllocatesNothing(t *testing.T) {
 	skipUnderRace(t)
 	tr := newTracer(t, Options{})
@@ -108,8 +108,8 @@ func BenchmarkDecide(b *testing.B) {
 	}
 }
 
-// BenchmarkUnsampledTrace is spec 09 test 44: at most 2 allocations and
-// 1 µs per unsampled request (Decide, 8 no-op spans, Inject).
+// BenchmarkUnsampledTrace measures an unsampled request (Decide, 8 no-op
+// spans, Inject): at most 2 allocations and 1 µs.
 func BenchmarkUnsampledTrace(b *testing.B) {
 	tr := newTracer(b, Options{})
 	tr.SetExporter(discardExporter{})
@@ -125,15 +125,14 @@ func BenchmarkUnsampledTrace(b *testing.B) {
 	}
 }
 
-// BenchmarkSampledTrace15Spans is spec 09 test 44: the 15 spans of the
+// BenchmarkSampledTrace15Spans measures the 15 spans of the
 // orders-summary trace (target at most 90 allocations, 30 µs; export
-// excluded). The SDK required by spec 09 req 1 allocates at least 4 times
-// per span (the recording span, its context, its attribute slice and its
-// snapshot), so 15 spans cost 60 before this package adds its span
-// wrappers and the server span's share. The lead's decision (architecture
-// 2.16, R-69) sets the target at 6 allocations per span, the SDK's 4 plus
-// at most 2 by Ruralz; the 30 µs target holds on the reference hardware
-// and is not a per-pull-request gate.
+// excluded). The SDK required allocates at least 4 times per span (the
+// recording span, its context, its attribute slice and its snapshot), so
+// 15 spans cost 60 before this package adds its span wrappers and the
+// server span's share. The target is therefore 6 allocations per span, the
+// SDK's 4 plus at most 2 by Ruralz; the 30 µs target holds on the
+// reference hardware and is not a per-pull-request gate.
 func BenchmarkSampledTrace15Spans(b *testing.B) {
 	tr := newTracer(b, Options{QueueSize: 1 << 16, BatchSize: 4096, BatchInterval: time.Millisecond})
 	tr.SetExporter(discardExporter{})
@@ -168,8 +167,8 @@ func BenchmarkValidTracestate(b *testing.B) {
 	}
 }
 
-// BenchmarkLimiter measures the cap under contention (spec 09 test 45
-// runs it at -cpu 4,32).
+// BenchmarkLimiter measures the cap under contention; run it with
+// -cpu 4,32.
 func BenchmarkLimiter(b *testing.B) {
 	l := NewLimiter(DefaultRootPerSecond, DefaultRootPerSecond)
 	start := time.Now()

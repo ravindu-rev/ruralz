@@ -16,8 +16,8 @@ import (
 )
 
 // synthetic exercises what the committed schema does not use yet:
-// x-ruralz-since (02 req 23 and 75), x-ruralz-validations, if/then/else
-// with two rules, recursion, number and object defaults.
+// x-ruralz-since, x-ruralz-validations, if/then/else with two rules,
+// recursion, number and object defaults.
 const synthetic = `{
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://example.invalid/test.schema.json",
@@ -101,8 +101,8 @@ func thingSpec(t *testing.T, x *Index) *Node {
 }
 
 func TestSinceAndLevel(t *testing.T) {
-	// 02 req 23 and 75 with a synthetic schema: the level is the maximum
-	// x-ruralz-since; each field reports its own level and default.
+	// A synthetic schema's level is the maximum x-ruralz-since; each field
+	// reports its own level and default.
 	x := mustLoad(t, synthetic)
 	if x.Level() != 2 {
 		t.Fatalf("Level() = %d, want 2", x.Level())
@@ -138,7 +138,7 @@ func TestValidationsParsed(t *testing.T) {
 }
 
 func TestTypesScalarsEnums(t *testing.T) {
-	// 01 req 29 and 37, 02 req 15: types, scalar definitions and enums.
+	// Types, scalar definitions and enums.
 	spec := thingSpec(t, mustLoad(t, synthetic))
 	for _, tc := range []struct {
 		name   string
@@ -181,9 +181,8 @@ func TestTypesScalarsEnums(t *testing.T) {
 }
 
 func TestDefaultNodes(t *testing.T) {
-	// 01 req 36 and 37: defaults become defaulted tree nodes; a number at
-	// an integer position is integer text; objects keep member order by
-	// name.
+	// Defaults become defaulted tree nodes; a number at an integer
+	// position is integer text; objects keep member order by name.
 	spec := thingSpec(t, mustLoad(t, synthetic))
 	for _, tc := range []struct {
 		name string
@@ -232,7 +231,7 @@ func TestDefaultNodes(t *testing.T) {
 }
 
 func TestDefaultNodeNestedIntegers(t *testing.T) {
-	// 01 req 37 inside structured defaults, and 02 req 10 (a new
+	// Number typing inside structured defaults, table-free (a new
 	// +ruralz:default needs no code change): each member and element of an
 	// object or array default takes its own schema, typed-map values and
 	// dispatch included; a number at an integer-only position is integer
@@ -274,9 +273,9 @@ func TestDefaultNodeNestedIntegers(t *testing.T) {
 }
 
 func TestDispatchElseAndCombinations(t *testing.T) {
-	// 01 req 25 and 02 req 11: if/then/else dispatch evaluated on the
-	// instance, including else branches and combinations of two rules
-	// that Load does not precompute.
+	// If/then/else dispatch evaluated on the instance, including else
+	// branches and combinations of two rules that Load does not
+	// precompute.
 	spec := thingSpec(t, mustLoad(t, synthetic))
 	variant, _ := spec.Property("variant")
 	if got := variant.DispatchValues("type"); !slices.Equal(got, []string{"x"}) {

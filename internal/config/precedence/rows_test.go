@@ -12,9 +12,9 @@ import (
 	"github.com/ravindu-rev/ruralz/pkg/config/v1alpha1"
 )
 
-// TestRowsReasons covers every reason template of 02 req 51 and the row
-// order: Phases in order, client leg before the legs, removed rows last
-// with replaced before excluded whatever Chain.Removed's order.
+// TestRowsReasons covers every reason template and the row order:
+// Phases in order, client leg before the legs, removed rows last with
+// replaced before excluded whatever Chain.Removed's order.
 func TestRowsReasons(t *testing.T) {
 	e := func(name string, scope phase.Scope, slot string, overridable bool, replaces string) hub.Entry {
 		return hub.Entry{

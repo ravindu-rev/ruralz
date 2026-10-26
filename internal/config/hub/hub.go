@@ -301,7 +301,7 @@ type SecretUse struct {
 	// canonical re-entry.
 	Loc diag.Location
 	// Destination is where the Node transmits the resolved value
-	// (secret-to-destination binding, OQ-security-and-identity-22 (a)):
+	// (secret-to-destination binding):
 	// DestinationLocal for verification material that never leaves the
 	// Node (TLS keys, CA bundles, CRLs, API keys), else the remote origin
 	// "https://host:port" (auth.upstream-oauth2 clientSecret: its tokenUrl)
@@ -313,9 +313,9 @@ type SecretUse struct {
 // DestinationLocal marks a secret that is never transmitted.
 const DestinationLocal = "local"
 
-// PolicyCheck is the offline check of one Policy type's config (R-34). It
-// runs at stage H in every binary on a Policy resource whose Config is
-// decoded, and reports findings with RZ-CFG codes at key-aware paths under
+// PolicyCheck is the offline check of one Policy type's config. It runs at
+// stage H in every binary on a Policy resource whose Config is decoded,
+// and reports findings with RZ-CFG codes at key-aware paths under
 // spec.config; loc maps such a path to its source location (the resource
 // start when unknown). It never resolves secrets, compiles CEL (stage J
 // does) or opens a connection.

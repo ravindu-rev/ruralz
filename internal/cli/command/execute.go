@@ -13,8 +13,7 @@ import (
 )
 
 // Execute runs one invocation of program (the binary name, "ruralz") over
-// the command table specs and returns the process exit code (spec 10
-// reqs 3 to 10, 13, 18 to 23).
+// the command table specs and returns the process exit code.
 //
 // The first argument names a noun or a one-word command, the second the
 // noun's verb; everything after the path goes to the command's Flags.Parse.
@@ -103,7 +102,7 @@ func (t *table) run(ctx context.Context, sio IO, s *Spec, rest []string) int {
 	return report(ctx, sio, path, f, cmd.Run(ctx, sio, positionals))
 }
 
-// report prints err per spec 10 reqs 22 and 23 and returns its exit code.
+// report prints err and returns its exit code.
 func report(ctx context.Context, sio IO, path string, f *Flags, err error) int {
 	code := Code(ctx, err)
 	if err == nil {
@@ -137,9 +136,9 @@ func report(ctx context.Context, sio IO, path string, f *Flags, err error) int {
 // already printed its result. It reports false when nothing else remains,
 // that is when the bare ExitError is reached through wrappers that only
 // prefix its message (fmt.Errorf("check: %w", Negative()) stays silent).
-// errors.Join keeps its other members, so errors.Join(errors.New("real
-// failure"), Negative()) prints "real failure". Any other message is kept
-// whole (spec 10 req 22).
+// errors.Join keeps its other members, so
+// errors.Join(errors.New("real failure"), Negative()) prints
+// "real failure". Any other message is kept whole.
 func printable(err error) (string, bool) {
 	if ee, ok := err.(*ExitError); ok { //nolint:errorlint // the wrapper chain is walked here one level at a time.
 		if ee.Err == nil {
@@ -196,7 +195,7 @@ func isCancellation(err error) bool {
 	return errors.Is(err, context.Canceled)
 }
 
-// oneLine keeps an error message on one line (spec 10 req 22).
+// oneLine keeps an error message on one line.
 func oneLine(msg string) string {
 	msg = strings.TrimRight(msg, "\n")
 	return strings.ReplaceAll(msg, "\n", "; ")
@@ -278,7 +277,7 @@ func (f *failure) print(w io.Writer) int {
 	return ExitNoResult
 }
 
-// plannedFailure is spec 10 req 8's message for a command not built yet.
+// plannedFailure is the message for a Planned command, one not built yet.
 func plannedFailure(path, milestone string) *failure {
 	return &failure{msg: fmt.Sprintf("%s is Planned (%s) and not in this build", path, milestone)}
 }

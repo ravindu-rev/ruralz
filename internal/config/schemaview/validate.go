@@ -15,21 +15,21 @@ import (
 )
 
 // reservedPrefix is the label and annotation key prefix only Ruralz may
-// write (01 req 35).
+// write.
 const reservedPrefix = "ruralz.io/"
 
-// conversionAnnotation is the one reserved annotation a Bundle may carry
-// (01 req 35).
+// conversionAnnotation is the one reserved annotation a Bundle may
+// carry.
 const conversionAnnotation = "ruralz.io/conversion-data"
 
-// Validate runs stage F on one resource after substitution (01 reqs 32 to
-// 35): the JSON Schema of its kind in this view, keyed-list and set
-// uniqueness, and the reserved ruralz.io/ label and annotation prefix. It
-// returns the findings sorted as diag.List.Sort sorts, each with the
-// resource identity, a key-aware path and the source location from files
-// (nil files gives line and column only), at most MaxDiagnostics of them.
-// A resource whose kind the view does not dispatch is validated against
-// the root schema, which reports its kind.
+// Validate runs stage F on one resource after substitution: the JSON
+// Schema of its kind in this view, keyed-list and set uniqueness, and the
+// reserved ruralz.io/ label and annotation prefix. It returns the
+// findings sorted as diag.List.Sort sorts, each with the resource
+// identity, a key-aware path and the source location from files (nil
+// files gives line and column only), at most MaxDiagnostics of them. A
+// resource whose kind the view does not dispatch is validated against the
+// root schema, which reports its kind.
 func (v *View) Validate(res *tree.Resource, files *tree.FileTable) diag.List {
 	if res == nil {
 		return nil
@@ -95,10 +95,10 @@ func (m *mapper) framePath(frames []frame) *pathNode {
 	return parent
 }
 
-// checkLists reports duplicates the schema cannot express (01 req 34):
-// two entries of a map or orderedMap list with equal key values, and two
-// equal elements of a set, each RZ-CFG-005 at the second with the first as
-// the related location.
+// checkLists reports duplicates the schema cannot express: two entries of
+// a map or orderedMap list with equal key values, and two equal elements
+// of a set, each RZ-CFG-005 at the second with the first as the related
+// location.
 func (m *mapper) checkLists() {
 	// frames follows Walk's pre-order: at depth d the first d-1 frames are
 	// the ancestors' elements.
@@ -192,9 +192,9 @@ func shorten(s string) string {
 }
 
 // checkReserved reports label keys, and annotation keys other than
-// ruralz.io/conversion-data, that start with ruralz.io/ (01 req 35), at
-// the key. The prefix is compared case-insensitively, as DNS prefixes
-// are, so a differently cased key cannot bypass the reservation.
+// ruralz.io/conversion-data, that start with ruralz.io/, at the key.
+// The prefix is compared case-insensitively, as DNS prefixes are, so a
+// differently cased key cannot bypass the reservation.
 func (m *mapper) checkReserved() {
 	meta, ok := m.res.Root.Get("metadata")
 	if !ok {

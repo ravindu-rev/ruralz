@@ -10,9 +10,8 @@ import (
 	"testing"
 )
 
-// Fuzz targets for spec 05 test plan item 28 ("sfv serializer: output
-// reparses per RFC 9651 grammar"); oracle: no panic, no hang, and the
-// round-trip properties below.
+// Fuzz targets for the serializer, whose output reparses per the RFC 9651
+// grammar; oracle: no panic, no hang, and the round-trip properties below.
 
 // gen builds structured values from fuzz bytes; an exhausted input yields
 // zeros.
@@ -219,8 +218,7 @@ func FuzzParseList(f *testing.F) {
 }
 
 // FuzzRateLimit: the RateLimit helpers either fail leaving dst unchanged
-// or append one member that parses back to the name and both parameters
-// (05 req 67, 68).
+// or append one member that parses back to the name and both parameters.
 func FuzzRateLimit(f *testing.F) {
 	f.Add("ratelimit-gold.1", int64(100), int64(1), false)
 	f.Add("café", int64(-1), int64(MaxInteger+1), true)

@@ -13,8 +13,8 @@
 #   govulncheck    stage 6 supply chain
 #   actionlint     stage 2 workflow lint
 #   promtool       stage 8 alert rule checks (from the Prometheus release archive)
-#   oha, vegeta    stage 11 Latency job load tools (OQ-performance-budgets-and-benchmarking-1)
-#   cosign, syft   stage 12 keyless signing and CycloneDX SBOMs (OQ-release-versioning-and-compatibility-3)
+#   oha, vegeta    stage 11 Latency job load tools
+#   cosign, syft   stage 12 keyless signing and CycloneDX SBOMs
 #
 # Pins cover linux and darwin on amd64 and arm64. The SHA-256 values come
 # from each release's checksums file; oha publishes none, so its values were

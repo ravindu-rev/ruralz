@@ -14,10 +14,10 @@ import (
 	"time"
 )
 
-// TestClassifyBlackHoledDial_05Req39 dials a listener whose accept queue
+// TestClassifyBlackHoledDial dials a listener whose accept queue
 // is full, so the SYN is dropped and the dial runs into the dial timeout:
-// kind connect, never timeout (05 reqs 24 and 39).
-func TestClassifyBlackHoledDial_05Req39(t *testing.T) {
+// kind connect, never timeout.
+func TestClassifyBlackHoledDial(t *testing.T) {
 	t.Parallel()
 	fd, err := syscall.Socket(syscall.AF_INET, syscall.SOCK_STREAM, 0)
 	if err != nil {

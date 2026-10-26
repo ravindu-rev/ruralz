@@ -8,15 +8,14 @@ import (
 	"testing"
 )
 
-// TestBlockScalars covers block scalar values read from the source (01 req
-// 12; blocker of the sixth WP-33 review). goccy dropped the trailing white
-// space of the last line with strip chomping and at the end of the input,
-// kept a line break for an empty scalar with keep chomping, read lines of
-// spaces otherwise and made two keys of "? >\n    \n \n:"; the values are
-// YAML 1.2's (PyYAML and the YAML Test Suite agree), whatever the split
-// and with or without the keep-chomping rewrite. A text that does not end
-// with a line break reads as if it did, as the YAML Test Suite reads it
-// (L24T/01, JEF9/02).
+// TestBlockScalars covers block scalar values read from the source. goccy
+// dropped the trailing white space of the last line with strip chomping
+// and at the end of the input, kept a line break for an empty scalar with
+// keep chomping, read lines of spaces otherwise and made two keys of
+// "? >\n    \n \n:"; the values are YAML 1.2's (PyYAML and the YAML Test
+// Suite agree), whatever the split and with or without the keep-chomping
+// rewrite. A text that does not end with a line break reads as if it did,
+// as the YAML Test Suite reads it (L24T/01, JEF9/02).
 func TestBlockScalars(t *testing.T) {
 	run := strings.Repeat("\n", longBlankRun+1)
 	tests := []struct{ src, want string }{
@@ -49,9 +48,9 @@ func TestBlockScalars(t *testing.T) {
 		{"a: |\n     \n  x\n", "RZ-CFG-001@1:4"},
 		// goccy refused a keep-chomping scalar of blank lines before a less
 		// indented line or a comment, which YAML 1.2 accepts, while it
-		// accepted the same scalar at the end of the input; such a scalar is
-		// scanned with strip chomping now (stripEmptyKeep; eighth WP-33
-		// review), and its value is read from the source.
+		// accepted the same scalar at the end of the input; such a scalar
+		// is scanned with strip chomping now (stripEmptyKeep), and its
+		// value is read from the source.
 		{"a: |+\nb: 1\n", `{a:s:"",b:i:1}`},
 		{"keep: |+\n\n# c\n", `{keep:s:"\n"}`},
 		{"keep: |+\n\n\n# c\nb: 1\n", `{keep:s:"\n\n",b:i:1}`},
@@ -82,9 +81,9 @@ func TestBlockScalars(t *testing.T) {
 	}
 }
 
-// TestReadBlockScalar covers the block scalar reader on its own (01 req
-// 12): the indentation of the collection around it, explicit indentation,
-// the lines it holds, and document markers, which end it.
+// TestReadBlockScalar covers the block scalar reader on its own: the
+// indentation of the collection around it, explicit indentation, the
+// lines it holds, and document markers, which end it.
 func TestReadBlockScalar(t *testing.T) {
 	tests := []struct {
 		text  string
@@ -111,10 +110,9 @@ func TestReadBlockScalar(t *testing.T) {
 }
 
 // TestBlockScalarChecks covers what the token pass refuses about a block
-// scalar (01 req 8): one inside a flow collection, one whose content goccy
-// reads to another end than YAML 1.2, and a header with two chomping
-// indicators or text after its indicators, which goccy read as the header
-// before it (minor finding of the eighth WP-33 review).
+// scalar: one inside a flow collection, one whose content goccy reads to
+// another end than YAML 1.2, and a header with two chomping indicators or
+// text after its indicators, which goccy read as the header before it.
 func TestBlockScalarChecks(t *testing.T) {
 	tests := []struct{ src, want, msg string }{
 		{"a: [|\n x]\n", "RZ-CFG-001@1:5", msgBlockInFlow},

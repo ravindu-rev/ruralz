@@ -15,8 +15,8 @@ import (
 	"unicode/utf8"
 )
 
-// timeLayout is RFC 3339 in UTC with microseconds (09 req 63); UTC
-// renders the zone as "Z".
+// timeLayout is RFC 3339 in UTC with microseconds; UTC renders the
+// zone as "Z".
 const timeLayout = "2006-01-02T15:04:05.000000Z07:00"
 
 const hexDigits = "0123456789abcdef"

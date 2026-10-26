@@ -10,9 +10,9 @@ import (
 	"testing"
 )
 
-// TestRewrite is the WP-15 "header rewrite table test" for 04 req 18 and
-// 06 req 63: overwrite from untrusted peers, append from trusted ones, and
-// X-Forwarded-Host carrying the client authority (R-28).
+// TestRewrite is the header rewrite table test: overwrite from untrusted
+// peers, append from trusted ones, and X-Forwarded-Host carrying the
+// client authority.
 func TestRewrite(t *testing.T) {
 	untrusted := netip.MustParseAddr("203.0.113.50")
 	trusted := netip.MustParseAddr("10.0.0.1")
@@ -23,7 +23,7 @@ func TestRewrite(t *testing.T) {
 		want http.Header
 	}{
 		{
-			name: "req18 untrusted peer without forwarding fields",
+			name: "untrusted peer without forwarding fields",
 			in:   http.Header{"Accept": {"*/*"}},
 			f:    Forwarding{Peer: untrusted, Scheme: "https", Host: "api.shop.example"},
 			want: http.Header{
@@ -34,7 +34,7 @@ func TestRewrite(t *testing.T) {
 			},
 		},
 		{
-			name: "req63 untrusted peer overwrites, never appends, and removes Forwarded",
+			name: "untrusted peer overwrites, never appends, and removes Forwarded",
 			in: http.Header{
 				"X-Forwarded-For":   {"1.1.1.1, 10.0.0.9", "2.2.2.2"},
 				"X-Forwarded-Proto": {"https"},
@@ -49,7 +49,7 @@ func TestRewrite(t *testing.T) {
 			},
 		},
 		{
-			name: "req18 trusted peer appends to X-Forwarded-For and keeps the rest",
+			name: "trusted peer appends to X-Forwarded-For and keeps the rest",
 			in: http.Header{
 				"X-Forwarded-For":   {"1.1.1.1"},
 				"X-Forwarded-Proto": {"https"},
@@ -65,7 +65,7 @@ func TestRewrite(t *testing.T) {
 			},
 		},
 		{
-			name: "req18 trusted peer joins field lines before appending",
+			name: "trusted peer joins field lines before appending",
 			in:   http.Header{"X-Forwarded-For": {"1.1.1.1, 6.6.6.6", " ", "10.0.0.9 "}},
 			f:    Forwarding{Peer: trusted, PeerTrusted: true, Scheme: "https", Host: "api.shop.example"},
 			want: http.Header{
@@ -75,7 +75,7 @@ func TestRewrite(t *testing.T) {
 			},
 		},
 		{
-			name: "req18 trusted peer without prior fields",
+			name: "trusted peer without prior fields",
 			in:   http.Header{"X-Forwarded-For": {""}},
 			f:    Forwarding{Peer: trusted, PeerTrusted: true, Scheme: "https", Host: "api.shop.example"},
 			want: http.Header{
@@ -85,7 +85,7 @@ func TestRewrite(t *testing.T) {
 			},
 		},
 		{
-			name: "req18 trusted peer without any X-Forwarded-For",
+			name: "trusted peer without any X-Forwarded-For",
 			in:   http.Header{"Forwarded": {"for=1.1.1.1"}},
 			f:    Forwarding{Peer: trusted, PeerTrusted: true, Scheme: "https", Host: "api.shop.example"},
 			want: http.Header{
@@ -96,7 +96,7 @@ func TestRewrite(t *testing.T) {
 			},
 		},
 		{
-			name: "req18 IPv6 peer written without brackets",
+			name: "IPv6 peer written without brackets",
 			in:   http.Header{},
 			f:    Forwarding{Peer: netip.MustParseAddr("2001:db8::7%eth0"), Scheme: "https", Host: "[2001:db8::1]:8443"},
 			want: http.Header{
@@ -106,7 +106,7 @@ func TestRewrite(t *testing.T) {
 			},
 		},
 		{
-			name: "req17 IPv4-mapped trusted peer written unmapped",
+			name: "IPv4-mapped trusted peer written unmapped",
 			in:   http.Header{"X-Forwarded-For": {"1.1.1.1"}},
 			f:    Forwarding{Peer: netip.MustParseAddr("::ffff:10.0.0.1"), PeerTrusted: true, Scheme: "http", Host: "a"},
 			want: http.Header{
@@ -116,7 +116,7 @@ func TestRewrite(t *testing.T) {
 			},
 		},
 		{
-			name: "req63 unknown peer removes client-supplied fields",
+			name: "unknown peer removes client-supplied fields",
 			in: http.Header{
 				"X-Forwarded-For": {"1.1.1.1"},
 				"Forwarded":       {"for=1.1.1.1"},
@@ -125,7 +125,7 @@ func TestRewrite(t *testing.T) {
 			want: http.Header{"X-Forwarded-Proto": {"http"}, "X-Forwarded-Host": {"a"}},
 		},
 		{
-			name: "req63 empty scheme and host remove the fields",
+			name: "empty scheme and host remove the fields",
 			in: http.Header{
 				"X-Forwarded-Proto": {"https"},
 				"X-Forwarded-Host":  {"evil.example"},
@@ -134,7 +134,7 @@ func TestRewrite(t *testing.T) {
 			want: http.Header{"X-Forwarded-For": {"203.0.113.50"}},
 		},
 		{
-			name: "req63 non-canonical spellings are overwritten too",
+			name: "non-canonical spellings are overwritten too",
 			in: http.Header{
 				"x-forwarded-for":   {"1.1.1.1"},
 				"X-FORWARDED-HOST":  {"evil.example"},
@@ -151,7 +151,7 @@ func TestRewrite(t *testing.T) {
 			},
 		},
 		{
-			name: "req18 non-canonical spellings are joined when trusted",
+			name: "non-canonical spellings are joined when trusted",
 			in: http.Header{
 				"X-Forwarded-For": {"1.1.1.1"},
 				"x-forwarded-for": {"10.0.0.9"},
@@ -176,8 +176,8 @@ func TestRewrite(t *testing.T) {
 }
 
 // TestRewriteVariantOrder: several non-canonical spellings fold in byte
-// order of the spelling, whatever the map order (04 req 18), and the fold
-// never writes into a backing array the input header shares.
+// order of the spelling, whatever the map order, and the fold never
+// writes into a backing array the input header shares.
 func TestRewriteVariantOrder(t *testing.T) {
 	shared := make([]string, 1, 4)
 	shared[0] = "1.1.1.1"
@@ -257,9 +257,9 @@ func TestRewriteNilHeader(t *testing.T) {
 
 // TestRewriteOncePerAttempt: the documented use, one Rewrite per attempt
 // on a fresh clone of the client header, gives every attempt the same
-// fields and never changes the client header (04 req 18), while a second
-// Rewrite of the same header from a trusted peer appends the peer again,
-// which is why the caller must not reuse it.
+// fields and never changes the client header, while a second Rewrite of
+// the same header from a trusted peer appends the peer again, which is
+// why the caller must not reuse it.
 func TestRewriteOncePerAttempt(t *testing.T) {
 	client := http.Header{
 		"X-Forwarded-For":   {"1.1.1.1", "10.0.0.9"},

@@ -12,11 +12,11 @@ import (
 )
 
 // SignalContext returns a context canceled on the first SIGINT or SIGTERM
-// with cause Interrupted{Signal: s} (spec 10 req 21). signal.Notify feeds
-// a buffered channel (capacity 1) served by one goroutine owned by the
-// returned stop function; a second SIGINT restores the default handling,
-// so a third Ctrl-C kills the process. stop unregisters, waits for the
-// goroutine and cancels the context; it is idempotent.
+// with cause Interrupted{Signal: s}. signal.Notify feeds a buffered
+// channel (capacity 1) served by one goroutine owned by the returned stop
+// function; a second SIGINT restores the default handling, so a third
+// Ctrl-C kills the process. stop unregisters, waits for the goroutine and
+// cancels the context; it is idempotent.
 func SignalContext(parent context.Context) (ctx context.Context, stop context.CancelFunc) {
 	return signalContext(parent, signalHooks{notify: signal.Notify, stop: signal.Stop, reset: signal.Reset})
 }

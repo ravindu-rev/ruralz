@@ -35,8 +35,7 @@ func synthEncode(t *testing.T, docs ...string) []byte {
 
 // TestSinceOmission: a field with x-ruralz-since above 0 is written only
 // when it differs from its default by canonical bytes; without a default
-// only when present; level-0 fields always when present (02 req 23, test
-// plan 11).
+// only when present; level-0 fields always when present.
 func TestSinceOmission(t *testing.T) {
 	got := synthEncode(t, synthGateway)
 	want := doc(`{"kind":"Gateway","metadata":{"name":"edge"},"spec":{"byName":{"x":{}},"items":[{"name":"a"},{"depth":4,"name":"b"}],"open":{"mode":"fast"},"port":80,"tuning":{"name":"t"}}}`)
@@ -56,8 +55,7 @@ func TestSinceOmission(t *testing.T) {
 // TestSinceRoundTrip: content with omitted since fields decodes and
 // re-encodes identically; re-materializing the defaults (stage G on
 // FromResources) restores the fields and still gives the same bytes;
-// writing a since field at its default is not canonical form (02 reqs
-// 23, 31(b) and 33).
+// writing a since field at its default is not canonical form.
 func TestSinceRoundTrip(t *testing.T) {
 	idx := syntheticIndex(t)
 	ctx := context.Background()
@@ -94,7 +92,7 @@ func TestSinceRoundTrip(t *testing.T) {
 }
 
 // TestSinceAboveLevel: a field above the served level, or unknown to the
-// schema, is content from a newer producer (02 req 33).
+// schema, is content from a newer producer.
 func TestSinceAboveLevel(t *testing.T) {
 	idx := syntheticIndex(t)
 	content := synthEncode(t, `{"kind": "Gateway", "metadata": {"name": "edge"}, "spec": {"future": "x", "port": 1}}`)

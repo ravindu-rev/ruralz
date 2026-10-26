@@ -20,9 +20,8 @@ func baseCriteria() *Criteria {
 	}
 }
 
-// TestMatchKey covers the RZ-CFG-023 identity (04 req 31; test plan item 5):
-// equal for reordered hosts, methods and headers, different for any other
-// change.
+// TestMatchKey covers the RZ-CFG-023 identity: equal for reordered hosts,
+// methods and headers, different for any other change.
 func TestMatchKey(t *testing.T) {
 	base := MatchKey(baseCriteria())
 	equal := map[string]func(c *Criteria){
@@ -76,7 +75,7 @@ func TestMatchKey(t *testing.T) {
 		"no when":               func(c *Criteria) { c.When = "" },
 	}
 	// Spellings of one path that the Router sees as one normalized path
-	// share a key (04 req 23, 31), so RZ-CFG-023 fires for them.
+	// share a key, so RZ-CFG-023 fires for them.
 	samePath := []struct{ a, b PathCriteria }{
 		{PathCriteria{Exact: "/a/./b"}, PathCriteria{Exact: "/a/b"}},
 		{PathCriteria{Exact: "/a/c/../b"}, PathCriteria{Exact: "/a/b"}},

@@ -65,8 +65,7 @@ var ErrPrefix = errors.New("clientaddr: invalid trusted proxy prefix")
 // ParsePrefix parses one trustedProxies entry: a CIDR, or a bare address
 // meaning /32 or /128. The result is masked, and an IPv4-mapped IPv6
 // prefix of at least 96 bits becomes the IPv4 prefix of (bits - 96), so it
-// matches the unmapped client addresses (the 06 req 58 rule). Zones are
-// refused.
+// matches the unmapped client addresses. Zones are refused.
 func ParsePrefix(s string) (netip.Prefix, error) {
 	if strings.Contains(s, "%") {
 		return netip.Prefix{}, fmt.Errorf("%w %q: zones are not allowed", ErrPrefix, s)

@@ -10,7 +10,7 @@ import (
 	"os"
 )
 
-// MAC key size bounds (spec 08 requirement 68; R-49).
+// MAC key size bounds.
 const (
 	// MinMACKeyBytes is the shortest accepted MAC key.
 	MinMACKeyBytes = 32
@@ -18,13 +18,13 @@ const (
 	MaxMACKeyBytes = 64 << 10
 )
 
-// redacted replaces the key in every text form (R-9).
+// redacted replaces the key in every text form.
 const redacted = "[REDACTED]"
 
-// MACKey is the State Store entry MAC key (HMAC-SHA-256, spec 08
-// requirement 68), passed through statestore/manager into
-// statestore.Deps.MACKey. The zero value is unset. fmt verbs, JSON and
-// slog print "[REDACTED]", never the key.
+// MACKey is the State Store entry MAC key (HMAC-SHA-256), passed
+// through statestore/manager into statestore.Deps.MACKey. The zero
+// value is unset. fmt verbs, JSON and slog print "[REDACTED]", never
+// the key.
 type MACKey struct {
 	b []byte
 }
@@ -61,16 +61,16 @@ func (MACKey) MarshalText() ([]byte, error) { return []byte(redacted), nil }
 // LogValue returns "[REDACTED]" (slog.LogValuer).
 func (MACKey) LogValue() slog.Value { return slog.StringValue(redacted) }
 
-// readMACKey reads RURALZ_STATE_STORE_MAC_KEY_FILE at start (R-49): a
-// regular file (symbolic links followed) owned by the effective user or
-// root that grants nothing to group or others, of at most MaxMACKeyBytes
+// readMACKey reads RURALZ_STATE_STORE_MAC_KEY_FILE at start: a regular
+// file (symbolic links followed) owned by the effective user or root
+// that grants nothing to group or others, of at most MaxMACKeyBytes
 // bytes. The key is the content without one final "\n" or "\r\n", so a
 // key written by a shell tool and the same key mounted without a newline
-// give every Node the same HMAC (spec 08 requirement 68: a different key
-// turns every shared entry into a silent miss); it must then hold at
-// least MinMACKeyBytes bytes. The open never blocks on a FIFO or device,
-// and the checks use the opened file, so the checked file is the read
-// file. Errors never quote the content.
+// give every Node the same HMAC (a different key turns every shared
+// entry into a silent miss); it must then hold at least MinMACKeyBytes
+// bytes. The open never blocks on a FIFO or device, and the checks use
+// the opened file, so the checked file is the read file. Errors never
+// quote the content.
 func readMACKey(path string) (MACKey, error) {
 	f, err := openKeyFile(path)
 	if err != nil {

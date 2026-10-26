@@ -48,10 +48,10 @@ func shape(n *tree.Node) string {
 	return b.String()
 }
 
-// reference substitutes text by a regular-expression reading of the 01
-// req 26 grammar, independent of scan: ok is false for malformed text,
-// undefined counts the variables without value or default and exprs the
-// expressions.
+// reference substitutes text by a regular-expression reading of the
+// substitution grammar, independent of scan: ok is false for malformed
+// text, undefined counts the variables without value or default and exprs
+// the expressions.
 func reference(text string, vars Map) (out string, ok bool, undefined, exprs int) {
 	re := regexp.MustCompile(`\$\$\{|\$\{([A-Za-z_][A-Za-z0-9_]*)(:-([^}]*))?\}|\$\{|[^$]+|\$`)
 	var b strings.Builder
@@ -79,9 +79,9 @@ func reference(text string, vars Map) (out string, ok bool, undefined, exprs int
 }
 
 // forbiddenSpots places text, a JSON-safe string, in three positions
-// where substitution is forbidden (01 req 28): a CEL field, a reference
-// field and a name inside an x-ruralz-secret subtree. Each entry is a
-// document and the at path of the text.
+// where substitution is forbidden: a CEL field, a reference field and a
+// name inside an x-ruralz-secret subtree. Each entry is a document and
+// the at path of the text.
 func forbiddenSpots(text string) [][2]string {
 	q := quote(text)
 	return [][2]string{
@@ -91,18 +91,17 @@ func forbiddenSpots(text string) [][2]string {
 	}
 }
 
-// FuzzSubst is property P3 of spec 01 (11 req 25 "substitution never
-// injects structure"): for any resource and variable value (newlines, ": ",
-// "- ", "{", "#", "${", "$${" included), substitution never changes the
-// tree's shape, emits only registered codes and is deterministic; in a
-// free string position the text equals an independent reading of the
-// grammar, so values are inserted literally and never re-scanned; in a
-// forbidden position (CEL, reference, x-ruralz-secret subtree) text
-// holding an unescaped ${, an expression or a malformed one, is
-// RZ-CFG-011 alone and stays as authored, and any other text becomes
-// exactly its literal reading with no diagnostic but RZ-CFG-013, so no
-// unescaped ${ is ever substituted there (01 req 28); and substituting
-// Escape(text) yields text.
+// FuzzSubst checks that substitution never injects structure: for any
+// resource and variable value (newlines, ": ", "- ", "{", "#", "${", "$${"
+// included), substitution never changes the tree's shape, emits only
+// registered codes and is deterministic; in a free string position the text
+// equals an independent reading of the grammar, so values are inserted
+// literally and never re-scanned; in a forbidden position (CEL, reference,
+// x-ruralz-secret subtree) text holding an unescaped ${, an expression or a
+// malformed one, is RZ-CFG-011 alone and stays as authored, and any other
+// text becomes exactly its literal reading with no diagnostic but
+// RZ-CFG-013, so no unescaped ${ is ever substituted there; and
+// substituting Escape(text) yields text.
 func FuzzSubst(f *testing.F) {
 	for _, s := range [][3]string{
 		{prefixRoute("x"), "a: b\n- c", "pre ${A} mid ${B:-d} post $${A}"},
@@ -214,7 +213,7 @@ func FuzzSubst(f *testing.F) {
 }
 
 // BenchmarkApply substitutes a Gateway-sized resource with expressions,
-// escapes and plain strings (stage E share of the 01 req 54 budget).
+// escapes and plain strings (stage E's share of the load budget).
 func BenchmarkApply(b *testing.B) {
 	var ls []string
 	for i := range 50 {

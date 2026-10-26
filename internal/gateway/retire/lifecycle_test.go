@@ -19,18 +19,18 @@ import (
 	"github.com/ravindu-rev/ruralz/internal/telemetry/catalog"
 )
 
-// Tests for spec 04 req 51 (only resources close, at zero pins, unless a
-// newer snapshot shares them), req 52 (K = 2 retired, one closing or
-// ending, 30 s grace, RZ-RT-014 counted, snapshot_ending_overdue after the
-// ending bound, ruralz_config_retired_snapshots), req 54 (activation waits
-// while K are retired and one is closing or ending) and 09 req 56 with
-// R-58 (Binding.Retire at retirement, Binding.Release at zero pins); test
-// plan item 12, all on clocktest.Fake.
+// Tests for closing only resources (at zero pins, unless a newer snapshot
+// shares them), bounded retirement (K = 2 retired, one closing or ending,
+// 30 s grace, RZ-RT-014 counted, snapshot_ending_overdue after the ending
+// bound, ruralz_config_retired_snapshots), activation waiting while K are
+// retired and one is closing or ending, and the Binding calls
+// (Binding.Retire at retirement, Binding.Release at zero pins), all on
+// clocktest.Fake.
 
-// TestReq52KTransitionsGraceAndEnding walks one snapshot through retired,
+// TestKTransitionsGraceAndEnding walks one snapshot through retired,
 // closing (third retirement), 30 s grace, ending (RZ-RT-014 marking and
 // counting) and freed.
-func TestReq52KTransitionsGraceAndEnding(t *testing.T) {
+func TestKTransitionsGraceAndEnding(t *testing.T) {
 	x := newHarness(t, Config{}, true)
 	a, b, c, d := newSnap("a", x.log), newSnap("b", x.log), newSnap("c", x.log), newSnap("d", x.log)
 
@@ -44,7 +44,7 @@ func TestReq52KTransitionsGraceAndEnding(t *testing.T) {
 		t.Fatalf("counts after c = %+v, want 2 retired", got)
 	}
 	if !x.h.CanActivate() {
-		t.Fatal("CanActivate with 2 retired and none closing = false, want true (req 54)")
+		t.Fatal("CanActivate with 2 retired and none closing = false, want true")
 	}
 
 	x.publish(d)
@@ -55,7 +55,7 @@ func TestReq52KTransitionsGraceAndEnding(t *testing.T) {
 		t.Fatalf("oldest snapshot state = %d, want closing", x.state(a))
 	}
 	if x.h.CanActivate() {
-		t.Fatal("CanActivate with K retired and one closing = true, want false (req 54)")
+		t.Fatal("CanActivate with K retired and one closing = true, want false")
 	}
 	if _, err := x.h.Publish(newSnap("e", nil)); !errors.Is(err, ErrBusy) {
 		t.Fatalf("Publish while busy = %v, want ErrBusy", err)
@@ -92,9 +92,9 @@ func TestReq52KTransitionsGraceAndEnding(t *testing.T) {
 	}
 }
 
-// TestReq52ClosingFreedBeforeGraceIsNeverEnded frees a closing snapshot
+// TestClosingFreedBeforeGraceIsNeverEnded frees a closing snapshot
 // whose last request finished during grace; nothing is ended.
-func TestReq52ClosingFreedBeforeGraceIsNeverEnded(t *testing.T) {
+func TestClosingFreedBeforeGraceIsNeverEnded(t *testing.T) {
 	x := newHarness(t, Config{K: 1}, true)
 	a, b, c := newSnap("a", x.log), newSnap("b", x.log), newSnap("c", x.log)
 	x.publish(a)
@@ -120,10 +120,10 @@ func TestReq52ClosingFreedBeforeGraceIsNeverEnded(t *testing.T) {
 	x.waitState(b, freed)
 }
 
-// TestReq52OverdueRaisesAndClearsDegraded keeps an ending snapshot pinned
+// TestOverdueRaisesAndClearsDegraded keeps an ending snapshot pinned
 // past 6 s: snapshot_ending_overdue is raised, the snapshot stays ending
 // (never freed early) and the reason clears once it is freed.
-func TestReq52OverdueRaisesAndClearsDegraded(t *testing.T) {
+func TestOverdueRaisesAndClearsDegraded(t *testing.T) {
 	x := newHarness(t, Config{K: 1}, true)
 	a, b, c := newSnap("a", x.log), newSnap("b", x.log), newSnap("c", x.log)
 	res := &fakeCloser{name: "pool-a"}
@@ -162,9 +162,9 @@ func TestReq52OverdueRaisesAndClearsDegraded(t *testing.T) {
 	x.unpin(pb)
 }
 
-// TestReq52RetiredSnapshotsGauge follows ruralz_config_retired_snapshots:
+// TestRetiredSnapshotsGauge follows ruralz_config_retired_snapshots:
 // every live snapshot that is not active.
-func TestReq52RetiredSnapshotsGauge(t *testing.T) {
+func TestRetiredSnapshotsGauge(t *testing.T) {
 	x := newHarness(t, Config{}, true)
 	gauge := func() int64 { return x.gauge.v.Load() }
 	a, b, c, d := newSnap("a", nil), newSnap("b", nil), newSnap("c", nil), newSnap("d", nil)
@@ -191,10 +191,10 @@ func TestReq52RetiredSnapshotsGauge(t *testing.T) {
 	waitFor(t, "gauge 0", func() bool { return gauge() == 0 })
 }
 
-// TestReq58BindingCallsInOrder checks every snapshot gets exactly one
+// TestBindingCallsInOrder checks every snapshot gets exactly one
 // Retire at retirement, then exactly one Release at zero pins, in that
 // order, and a Release never precedes the last Unpin.
-func TestReq58BindingCallsInOrder(t *testing.T) {
+func TestBindingCallsInOrder(t *testing.T) {
 	x := newHarness(t, Config{}, true)
 	a, b, c := newSnap("a", x.log), newSnap("b", x.log), newSnap("c", x.log)
 	var unpinned atomic.Bool
@@ -227,9 +227,9 @@ func TestReq58BindingCallsInOrder(t *testing.T) {
 	}
 }
 
-// TestReq54WaitActivate blocks while K snapshots are retired and one is
+// TestWaitActivate blocks while K snapshots are retired and one is
 // closing, and returns once the closing snapshot is freed.
-func TestReq54WaitActivate(t *testing.T) {
+func TestWaitActivate(t *testing.T) {
 	x := newHarness(t, Config{K: 1}, true)
 	a, b, c := newSnap("a", nil), newSnap("b", nil), newSnap("c", nil)
 	x.publish(a)
@@ -264,10 +264,10 @@ func TestReq54WaitActivate(t *testing.T) {
 	x.unpin(pb)
 }
 
-// TestReq54RetiredOnlyWhileGraceRuns allows an activation with fewer than
+// TestRetiredOnlyWhileGraceRuns allows an activation with fewer than
 // K retired even while one snapshot is closing (the gate is "retired < K
 // or none closing or ending").
-func TestReq54RetiredOnlyWhileGraceRuns(t *testing.T) {
+func TestRetiredOnlyWhileGraceRuns(t *testing.T) {
 	x := newHarness(t, Config{}, true)
 	snaps := []*snapshot.Snapshot{newSnap("a", nil), newSnap("b", nil), newSnap("c", nil), newSnap("d", nil)}
 	var ps []pinned
@@ -291,10 +291,10 @@ func TestReq54RetiredOnlyWhileGraceRuns(t *testing.T) {
 	}
 }
 
-// TestReq51ResourcesClosedOnlyAtZeroPinsAndUnshared checks resources and
+// TestResourcesClosedOnlyAtZeroPinsAndUnshared checks resources and
 // State Store handles: nothing closes while pinned, a resource the active
 // snapshot still references stays open, each closes exactly once.
-func TestReq51ResourcesClosedOnlyAtZeroPinsAndUnshared(t *testing.T) {
+func TestResourcesClosedOnlyAtZeroPinsAndUnshared(t *testing.T) {
 	x := newHarness(t, Config{}, true)
 	own, shared, later := &fakeCloser{name: "own"}, &fakeCloser{name: "shared"}, &fakeCloser{name: "later"}
 	store, cache := &fakeHandle{}, &fakeHandle{}
@@ -339,10 +339,10 @@ func TestReq51ResourcesClosedOnlyAtZeroPinsAndUnshared(t *testing.T) {
 	}
 }
 
-// TestReq51OutOfOrderFreeKeepsOlderSharer frees a newer retired snapshot
+// TestOutOfOrderFreeKeepsOlderSharer frees a newer retired snapshot
 // before an older pinned one that shares its resource: the resource stays
 // open until the older one is freed.
-func TestReq51OutOfOrderFreeKeepsOlderSharer(t *testing.T) {
+func TestOutOfOrderFreeKeepsOlderSharer(t *testing.T) {
 	x := newHarness(t, Config{}, true)
 	pool := &fakeCloser{name: "pool"}
 	a, b, c := newSnap("a", nil, pool), newSnap("b", nil, pool), newSnap("c", nil)
@@ -364,9 +364,9 @@ func TestReq51OutOfOrderFreeKeepsOlderSharer(t *testing.T) {
 	}
 }
 
-// TestReq51ResourceCloseOrderAndErrors closes in reverse order, keeps going
+// TestResourceCloseOrderAndErrors closes in reverse order, keeps going
 // after a failing Close and logs it.
-func TestReq51ResourceCloseOrderAndErrors(t *testing.T) {
+func TestResourceCloseOrderAndErrors(t *testing.T) {
 	logs := &logRecords{}
 	x := newHarness(t, Config{Logger: slog.New(logs)}, true)
 	var order []string
@@ -396,12 +396,12 @@ func (h *panicHandle) Release() {
 	panic("driver release")
 }
 
-// TestReq51PanickingCloseIsContained frees a snapshot whose resources
+// TestPanickingCloseIsContained frees a snapshot whose resources
 // include a typed-nil io.Closer and a Close that panics, and whose State
 // Store handle panics on Release: each panic is logged, the Node keeps
 // running and the remaining resources and handles are still closed and
 // released.
-func TestReq51PanickingCloseIsContained(t *testing.T) {
+func TestPanickingCloseIsContained(t *testing.T) {
 	logs := &logRecords{}
 	x := newHarness(t, Config{Logger: slog.New(logs)}, true)
 	first := &fakeCloser{name: "first"}
@@ -432,9 +432,9 @@ func TestReq51PanickingCloseIsContained(t *testing.T) {
 	x.publish(newSnap("c", nil)) // the Holder still works
 }
 
-// TestReq52PanickingClosingHookIsContained: a panicking OnClosing hook is
+// TestPanickingClosingHookIsContained: a panicking OnClosing hook is
 // logged and the snapshot still goes through grace and ending.
-func TestReq52PanickingClosingHookIsContained(t *testing.T) {
+func TestPanickingClosingHookIsContained(t *testing.T) {
 	logs := &logRecords{}
 	x := newHarness(t, Config{K: 1, Logger: slog.New(logs), OnClosing: func(*snapshot.Snapshot) { panic("stream registry") }}, true)
 	a, b, c := newSnap("a", nil), newSnap("b", nil), newSnap("c", nil)
@@ -498,9 +498,9 @@ type closerFunc func() error
 
 func (f closerFunc) Close() error { return f() }
 
-// TestReq52OnClosingHook ends the streams of a snapshot that becomes
+// TestOnClosingHook ends the streams of a snapshot that becomes
 // closing (the M3 hook; M1 has no streams).
-func TestReq52OnClosingHook(t *testing.T) {
+func TestOnClosingHook(t *testing.T) {
 	got := make(chan *snapshot.Snapshot, 1)
 	x := newHarness(t, Config{K: 1, OnClosing: func(s *snapshot.Snapshot) { got <- s }}, true)
 	a, b, c := newSnap("a", nil), newSnap("b", nil), newSnap("c", nil)

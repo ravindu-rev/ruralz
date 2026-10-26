@@ -2,11 +2,11 @@
 // SPDX-License-Identifier: Apache-2.0
 
 // Package convert is the hub-and-spoke conversion registry of stage G
-// (docs/architecture/02-configuration-model.md "Hub-and-spoke conversion";
-// spec 02 requirements 4 to 8, 53, 54 and 76). Every resource is decoded
-// under its own apiVersion's rendered schema and converted to the hub
-// representation before it is normalized and canonicalized, so a Bundle
-// may mix apiVersions and converting a Bundle never changes its Revision.
+// (docs/architecture/02-configuration-model.md "Hub-and-spoke conversion").
+// Every resource is decoded under its own apiVersion's rendered schema and
+// converted to the hub representation before it is normalized and
+// canonicalized, so a Bundle may mix apiVersions and converting a Bundle
+// never changes its Revision.
 //
 // In M1 the hub field set equals ruralz/v1alpha1 exactly and the registry
 // holds one identity converter, but every caller still converts through a
@@ -23,8 +23,8 @@
 // form: Registry.ToHub strips it after the spoke converter ran. In M1 no
 // converter writes it.
 //
-// The registry also holds the deprecation lifecycle table of 02 req 76
-// (empty in M1), from which Deprecations reports RZ-CFG-025 warnings.
+// The registry also holds the deprecation lifecycle table (empty in
+// M1), from which Deprecations reports RZ-CFG-025 warnings.
 //
 // A Registry is immutable after construction and safe for concurrent use.
 // The package never logs, reads files, the network or the clock.
@@ -45,23 +45,21 @@ import (
 
 // ConversionDataAnnotation is the metadata.annotations key that carries
 // the fields a down-conversion could not express, for the next
-// up-conversion to restore (02 req 7). It is the only ruralz.io/
-// annotation a Bundle may author (01 req 35) and never appears in the hub
-// or the canonical form.
+// up-conversion to restore. It is the only ruralz.io/ annotation a Bundle
+// may author and never appears in the hub or the canonical form.
 const ConversionDataAnnotation = "ruralz.io/conversion-data"
 
 // HubAPIVersion is the apiVersion whose field set the hub has in M1: the
-// hub types are the ruralz/v1alpha1 types (02 req 5).
+// hub types are the ruralz/v1alpha1 types.
 const HubAPIVersion = v1alpha1.APIVersion
 
 // RZ codes this package puts on diagnostics (all registered in
 // internal/errcode).
 const (
-	// CodeUnserved is RZ-CFG-007: an apiVersion no converter serves
-	// (02 req 4 and 53).
+	// CodeUnserved is RZ-CFG-007: an apiVersion no converter serves.
 	CodeUnserved = "RZ-CFG-007"
 	// CodeDeprecated is RZ-CFG-025, a warning for a deprecated apiVersion
-	// or field (02 req 76).
+	// or field.
 	CodeDeprecated = "RZ-CFG-025"
 )
 
@@ -74,15 +72,15 @@ const (
 // carry $patch, and strings may hold unsubstituted ${VAR} text, which a
 // converter must neither type nor reject. A converter may rewrite doc in
 // place and returns the converted tree; it keeps the positions and the
-// member order of every field it does not change (02 req 53), writes a
-// field explicitly whenever the source version's default differs from
-// the target's (02 req 8), and moves fields the target cannot express
-// into ConversionDataAnnotation and back. A ToHub that reads the
-// annotation consumes it: it deletes the member, and the annotations (and
-// metadata) object when its FromHub created it, so a resource that had an
-// empty annotations object keeps it. The Registry, not the converter,
-// sets the apiVersion member, and strips any annotation left over from
-// the hub form (StripConversionData).
+// member order of every field it does not change, writes a field
+// explicitly whenever the source version's default differs from the
+// target's, and moves fields the target cannot express into
+// ConversionDataAnnotation and back. A ToHub that reads the annotation
+// consumes it: it deletes the member, and the annotations (and metadata)
+// object when its FromHub created it, so a resource that had an empty
+// annotations object keeps it. The Registry, not the converter, sets the
+// apiVersion member, and strips any annotation left over from the hub
+// form (StripConversionData).
 type Converter interface {
 	// APIVersion returns the spoke apiVersion, such as ruralz/v1alpha1.
 	APIVersion() string
@@ -103,7 +101,7 @@ func (identity) ToHub(_ string, doc *tree.Node, _ bool) (*tree.Node, diag.List) 
 func (identity) FromHub(_ string, doc *tree.Node, _ bool) (*tree.Node, diag.List) { return doc, nil }
 
 // V1alpha1 returns the ruralz/v1alpha1 converter: the identity, since the
-// M1 hub field set equals ruralz/v1alpha1 (02 req 5).
+// M1 hub field set equals ruralz/v1alpha1.
 func V1alpha1() Converter { return identity{version: v1alpha1.APIVersion} }
 
 // Notice announces the removal of a deprecated apiVersion or field.
@@ -115,10 +113,10 @@ type Notice struct {
 	Replacement string
 }
 
-// Lifecycle is the explicit deprecation table of 02 req 76: deprecated
-// apiVersions, and deprecated fields per apiVersion keyed by their schema
-// path (schemaidx.Index.SchemaPath, such as "spec.upstreams[].weight").
-// It is empty in M1.
+// Lifecycle is the explicit deprecation table: deprecated apiVersions,
+// and deprecated fields per apiVersion keyed by their schema path
+// (schemaidx.Index.SchemaPath, such as "spec.upstreams[].weight"). It is
+// empty in M1.
 type Lifecycle struct {
 	// APIVersions maps a deprecated apiVersion to its notice.
 	APIVersions map[string]Notice
@@ -201,8 +199,8 @@ func (r *Registry) Converter(apiVersion string) (Converter, bool) {
 }
 
 // CheckServed reports an apiVersion no converter serves as RZ-CFG-007 at
-// apiVersion, with the served apiVersions as the hint (02 req 4 and 53).
-// The caller adds the resource and the source Location.
+// apiVersion, with the served apiVersions as the hint. The caller adds
+// the resource and the source Location.
 func (r *Registry) CheckServed(apiVersion string) (diag.Diagnostic, bool) {
 	if r.Serves(apiVersion) {
 		return diag.Diagnostic{}, false
@@ -220,11 +218,10 @@ func (r *Registry) CheckServed(apiVersion string) (diag.Diagnostic, bool) {
 }
 
 // ToHub converts doc, a resource of kind authored in apiVersion, to the
-// hub representation: the spoke converter runs, then the apiVersion
-// member (when present) becomes HubAPIVersion and the
-// ConversionDataAnnotation is stripped (02 req 7). doc may be rewritten in
-// place; callers use the returned tree. An unserved apiVersion is
-// RZ-CFG-007 and returns doc unchanged.
+// hub representation: the spoke converter runs, then the apiVersion member
+// (when present) becomes HubAPIVersion and the ConversionDataAnnotation is
+// stripped. doc may be rewritten in place; callers use the returned tree.
+// An unserved apiVersion is RZ-CFG-007 and returns doc unchanged.
 func (r *Registry) ToHub(apiVersion, kind string, doc *tree.Node, partial bool) (*tree.Node, diag.List) {
 	c, ok := r.byVersion[apiVersion]
 	if !ok {
@@ -258,10 +255,10 @@ func (r *Registry) FromHub(apiVersion, kind string, doc *tree.Node, partial bool
 }
 
 // Convert converts doc, a resource (or with partial, a partial document)
-// of kind, from apiVersion from to apiVersion to through the hub (02 req 5
-// and 53). Converting to the same apiVersion still runs both halves, so
-// render --api-version exercises the whole path in M1 (02 req 54). An
-// unserved from or to is RZ-CFG-007 at apiVersion.
+// of kind, from apiVersion from to apiVersion to through the hub.
+// Converting to the same apiVersion still runs both halves, so render
+// --api-version exercises the whole path in M1. An unserved from or to is
+// RZ-CFG-007 at apiVersion.
 func (r *Registry) Convert(from, to, kind string, doc *tree.Node, partial bool) (*tree.Node, diag.List) {
 	if d, bad := r.CheckServed(to); bad {
 		d.Message = fmt.Sprintf("target apiVersion %q is not served by this release", to)
@@ -284,9 +281,9 @@ func setAPIVersion(doc *tree.Node, v string) {
 }
 
 // StripConversionData removes ConversionDataAnnotation from doc's
-// metadata.annotations and reports whether it was there: the strip step
-// of 02 req 7, which Registry.ToHub runs after the spoke converter. When
-// the annotation was the only member, annotations is removed too, so an
+// metadata.annotations and reports whether it was there: the strip step,
+// which Registry.ToHub runs after the spoke converter. When the
+// annotation was the only member, annotations is removed too, so an
 // authored conversion-data annotation that no converter consumed leaves
 // no empty annotations object in the hub and canonical form.
 func StripConversionData(doc *tree.Node) bool {
@@ -305,11 +302,11 @@ func StripConversionData(doc *tree.Node) bool {
 }
 
 // Deprecations returns the RZ-CFG-025 warnings of res, a resource authored
-// in its apiVersion, from the lifecycle table (02 req 76): one at
-// apiVersion when its apiVersion is deprecated, and one per present field
-// whose schema path is deprecated. idx is the schema of res's apiVersion;
-// files gives source locations (nil: line and column only). Nothing is
-// reported for an empty table, which is the M1 case.
+// in its apiVersion, from the lifecycle table: one at apiVersion when its
+// apiVersion is deprecated, and one per present field whose schema path is
+// deprecated. idx is the schema of res's apiVersion; files gives source
+// locations (nil: line and column only). Nothing is reported for an empty
+// table, which is the M1 case.
 func (r *Registry) Deprecations(idx *schemaidx.Index, res *tree.Resource, files *tree.FileTable) diag.List {
 	if res == nil || res.Root == nil {
 		return nil

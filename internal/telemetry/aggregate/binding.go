@@ -17,8 +17,8 @@ const (
 )
 
 // Binding tracks the label sets one snapshot references (emit.Binding,
-// held in snapshot.Snapshot.Binding, R-58). Retire and Release run off
-// the request path and are idempotent.
+// held in snapshot.Snapshot.Binding). Retire and Release run off the
+// request path and are idempotent.
 type Binding struct {
 	r     *Registry
 	p     *Plan
@@ -38,7 +38,7 @@ func (noopBinding) Release() {}
 // live: a pending group is published (or joins a group another plan
 // published meanwhile), a live or retiring one gains a reference, and one
 // released or folded since Admit is replaced by a fresh group that starts
-// from 0 (spec 09 req 56). Binding a plan twice returns the same Binding.
+// from 0. Binding a plan twice returns the same Binding.
 func (r *Registry) Bind(pl emit.Plan) emit.Binding {
 	p, ok := pl.(*Plan)
 	if !ok || p.r != r {
@@ -137,7 +137,7 @@ func (b *Binding) retire() {
 		g.state = stRetiring
 		// Every retiring series counts against the ceiling, listener ones
 		// included; only foldable groups queue to be folded (listener
-		// families never fold, req 55). Retiring listener series alone can
+		// families never fold). Retiring listener series alone can
 		// therefore keep retiringSeries above Limits.Retiring with an empty
 		// queue; enforceCeiling then stops (see Limits.Retiring).
 		r.retiringSeries += g.ceil
@@ -189,9 +189,9 @@ func (b *Binding) Release() {
 }
 
 // enforceCeiling folds the oldest retiring groups while the retiring
-// series exceed the ceiling (spec 09 req 56). Folding redirects every
-// handle of the group to _overflow; its accumulated values are dropped,
-// never carried.
+// series exceed the ceiling. Folding redirects every handle of the
+// group to _overflow; its accumulated values are dropped, never
+// carried.
 func (r *Registry) enforceCeiling(now time.Time) {
 	for r.retiringSeries > r.limits.Retiring && r.queueHead < len(r.queue) {
 		g := r.queue[r.queueHead].g

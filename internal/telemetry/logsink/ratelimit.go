@@ -63,8 +63,8 @@ type rateLimited struct {
 // RateLimit returns a handler that passes at most perSecond records per
 // second to h, with bursts up to perSecond; the first record passed after
 // others were suppressed carries their number as KeySuppressed. It is used
-// for http.Server.ErrorLog (04 req 79) and the OpenTelemetry and gRPC
-// error adapters (09 req 14). A perSecond below 1 is treated as 1.
+// for http.Server.ErrorLog and the OpenTelemetry and gRPC error adapters.
+// A perSecond below 1 is treated as 1.
 func RateLimit(h slog.Handler, c clock.Clock, perSecond int) slog.Handler {
 	if c == nil {
 		c = clock.Real()

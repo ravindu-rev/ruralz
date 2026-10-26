@@ -17,11 +17,11 @@ import (
 )
 
 // TestOpenRejectsUnsafeRoot covers Open's ownership and permission checks:
-// a root owned by another user (spec 04 section 3) or writable by all
-// users could let someone else replace or squat the lock, holder.json or
-// the Last-Known-Good. A group-writable root is the operator's choice and
-// accepted (systemd StateDirectoryMode=0770, a volume shared through its
-// group ID, setgid included).
+// a root owned by another user or writable by all users could let someone
+// else replace or squat the lock, holder.json or the Last-Known-Good. A
+// group-writable root is the operator's choice and accepted (systemd
+// StateDirectoryMode=0770, a volume shared through its group ID, setgid
+// included).
 func TestOpenRejectsUnsafeRoot(t *testing.T) {
 	cases := []struct {
 		name string
@@ -108,14 +108,13 @@ func within[T any](t *testing.T, read func() (T, error)) (T, error) {
 	}
 }
 
-// TestReadersRefuseSpecialFiles covers the readers of holder.json (spec 10
-// requirements 95 and 96.1) and node-id (spec 04 requirement 5): a FIFO,
-// a symbolic link or a directory in their place is refused without
-// blocking and without reading through the link. ruralz node drain may run
-// as root against a data dir another user owns, so a planted link must not
-// let it read, or echo in a JSON error, another file; ReadHolderAt reports
-// ErrHolderInvalid, never ErrNoHolder, and NodeID neither generates nor
-// rewrites an identity.
+// TestReadersRefuseSpecialFiles covers the readers of holder.json and
+// node-id: a FIFO, a symbolic link or a directory in their place is
+// refused without blocking and without reading through the link. ruralz
+// node drain may run as root against a data dir another user owns, so a
+// planted link must not let it read, or echo in a JSON error, another
+// file; ReadHolderAt reports ErrHolderInvalid, never ErrNoHolder, and
+// NodeID neither generates nor rewrites an identity.
 func TestReadersRefuseSpecialFiles(t *testing.T) {
 	validHolder := `{"format":"ruralz.holder.v1","pid":7,"nodeId":"01ARYZ6S41TSV4RRFFQ69G5FAV"}`
 	cases := []struct {

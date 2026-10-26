@@ -15,10 +15,11 @@ import (
 	"github.com/ravindu-rev/ruralz/internal/problem"
 )
 
-// Real-socket tests for spec 06 requirements 94 and 95: the middleware in
-// front of an admin handler served over TLS with client certificates
-// verified when given (tls.VerifyClientCertIfGiven against ca.crt), over
-// loopback cleartext, and over cleartext on a non-loopback interface.
+// Real-socket tests of the authorization matrix and the admin credentials:
+// the middleware in front of an admin handler served over TLS with client
+// certificates verified when given (tls.VerifyClientCertIfGiven against
+// ca.crt), over loopback cleartext, and over cleartext on a non-loopback
+// interface.
 
 // adminHandler answers 200 with the principal kind.
 func adminHandler() http.Handler {
@@ -57,7 +58,7 @@ func clientWith(t *testing.T, srv *httptest.Server, certs ...tls.Certificate) *h
 	return &http.Client{Transport: tr}
 }
 
-func TestSocketsTLSWithClientCertificatesReq95(t *testing.T) {
+func TestSocketsTLSWithClientCertificates(t *testing.T) {
 	ca := newCA(t, "operators")
 	_, clientCert := ca.leaf(t, "alice", x509.ExtKeyUsageClientAuth)
 	logs := &logBuffer{}
@@ -129,7 +130,7 @@ func TestSocketsTLSWithClientCertificatesReq95(t *testing.T) {
 	}
 }
 
-func TestSocketsLoopbackCleartextReq95(t *testing.T) {
+func TestSocketsLoopbackCleartext(t *testing.T) {
 	a, err := New(Settings{TokenFile: writeFile(t, t.TempDir(), "o", operatorToken)}, Options{})
 	if err != nil {
 		t.Fatal(err)
@@ -155,7 +156,7 @@ func nonLoopbackIP() (net.IP, bool) {
 	return nil, false
 }
 
-func TestSocketsNonLoopbackCleartextReq95(t *testing.T) {
+func TestSocketsNonLoopbackCleartext(t *testing.T) {
 	ip, ok := nonLoopbackIP()
 	if !ok {
 		t.Skip("no non-loopback IPv4 interface")

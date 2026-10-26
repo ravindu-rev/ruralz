@@ -12,9 +12,9 @@ import (
 )
 
 // gcraParams returns the emission interval T and tolerance τ of one limit
-// in microseconds, computed as the Node sends them to the script
-// (spec 08 req 41): T = window_us / requests, τ = burst × window_us /
-// requests. ok is false for a limit the script would reject.
+// in microseconds, computed as the Node sends them to the script: T =
+// window_us / requests, τ = burst × window_us / requests. ok is false for
+// a limit the script would reject.
 func gcraParams(l statestore.GCRALimit) (t, tau float64, ok bool) {
 	wus := float64(l.Window.Microseconds())
 	if l.Requests <= 0 || l.Burst < 0 || wus <= 0 {
@@ -55,9 +55,9 @@ func tatOf(s *shard, k rlKey, now instant) (tat float64, live bool) {
 }
 
 // gcra runs sub-operation g, GCRA virtual scheduling over every limit of
-// one Policy, all or nothing (spec 08 req 41). The caller holds s.mu.
-// False is an error reply (RZ-STS-002): an invalid limit, an Out shorter
-// than Limits, or a full shard.
+// one Policy, all or nothing. The caller holds s.mu. False is an error
+// reply (RZ-STS-002): an invalid limit, an Out shorter than Limits, or a
+// full shard.
 func (d *Driver) gcra(s *shard, g *statestore.GCRA, now instant) bool {
 	if len(g.Out) < len(g.Limits) {
 		return false
@@ -124,12 +124,12 @@ func floorDiv(a, b int64) int64 {
 	return q
 }
 
-// reserve runs sub-operation q, one Quota unit (spec 08 req 42). Windows
-// are fixed and epoch-aligned: ws = now_ms - now_ms mod W on the server
-// clock. The Node offers its own window A = floor(node_ms / W) × W and the
-// nearer neighbor B (A - W when node_ms - A < W / 2, else A + W); the
-// reservation charges whichever equals ws, else it is clock skew (skew
-// true): an error reply the caller logs. The caller holds s.mu.
+// reserve runs sub-operation q, one Quota unit. Windows are fixed and
+// epoch-aligned: ws = now_ms - now_ms mod W on the server clock. The Node
+// offers its own window A = floor(node_ms / W) × W and the nearer neighbor
+// B (A - W when node_ms - A < W / 2, else A + W); the reservation charges
+// whichever equals ws, else it is clock skew (skew true): an error reply
+// the caller logs. The caller holds s.mu.
 func (d *Driver) reserve(s *shard, q *statestore.Quota, now instant, nodeMs int64) (ok, skew bool) {
 	w := q.Window.Milliseconds()
 	if w <= 0 {
@@ -170,10 +170,9 @@ func (d *Driver) reserve(s *shard, q *statestore.Quota, now instant, nodeMs int6
 	return true, false
 }
 
-// refund runs sub-operation r (spec 08 req 43): on the exact key the
-// reservation charged, one unit back if the count is above 0; it never
-// creates a key and never goes below 0. It reports whether it
-// decremented.
+// refund runs sub-operation r: on the exact key the reservation
+// charged, one unit back if the count is above 0; it never creates a
+// key and never goes below 0. It reports whether it decremented.
 func (d *Driver) refund(r *statestore.Refund, now instant) bool {
 	k := qtKey{r.Name, r.Window, r.WindowStart.UnixMilli(), r.Digest}
 	s := d.shardOf(int(keys.DigestSlot(r.Digest)))

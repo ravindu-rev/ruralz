@@ -13,9 +13,8 @@ import (
 	"path/filepath"
 )
 
-// Process settings holding the admin credentials (spec 06 requirement 93,
-// OQ-security-and-identity-7 (a)). They are never Bundle fields and never
-// change a Revision.
+// Process settings holding the admin credentials. They are never Bundle
+// fields and never change a Revision.
 //
 //nolint:gosec // G101: environment variable names, not credentials.
 const (
@@ -103,11 +102,11 @@ func LoadSettings(getenv func(string) string) (Settings, error) {
 
 // TLS reports whether the admin server serves TLS. Without it the admin
 // hop is cleartext on every interface (ruralz_security_cleartext_hops
-// hop="admin", spec 06 requirement 95).
+// hop="admin").
 func (s Settings) TLS() bool { return s.TLSDir != "" }
 
 // Guarded returns the set paths, which RURALZ_SECRET_ROOT must not
-// contain (spec 06 requirement 88).
+// contain.
 func (s Settings) Guarded() []string {
 	var out []string
 	for _, p := range []string{s.TokenFile, s.MetricsTokenFile, s.TLSDir} {

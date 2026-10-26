@@ -19,7 +19,7 @@ var ErrIndexClosed = errors.New("auth: credential index released during compile"
 
 // IndexHolder is implemented by auth Filters that keep a credential index,
 // so the next snapshot's compile carries their KeyIndex over through
-// BuildEnv.Previous (its secret watches kept, R-55).
+// BuildEnv.Previous (its secret watches kept).
 type IndexHolder interface {
 	CredentialIndex() *identity.Index
 }
@@ -34,15 +34,15 @@ type sharedIndex struct {
 	claimed atomic.Bool
 }
 
-// AcquireIndex returns the credential index of the snapshot being compiled
-// (spec 06 requirement 12): built once per snapshot through env.Shared
-// from the Consumers of env.Bundle, the compiled views env.Consumers and
-// the resolved secrets env.Secrets, carrying over the KeyIndex of
-// env.Previous when it is an IndexHolder whose bindings are unchanged.
-// Every successful call holds one KeyIndex reference for the calling
-// Filter, which it drops with Index.Release from its Close. Without
-// env.Shared the index is built for this call alone. Build errors carry an
-// RZ-CFG code and reject the Revision.
+// AcquireIndex returns the credential index of the snapshot being
+// compiled: built once per snapshot through env.Shared from the Consumers
+// of env.Bundle, the compiled views env.Consumers and the resolved secrets
+// env.Secrets, carrying over the KeyIndex of env.Previous when it is an
+// IndexHolder whose bindings are unchanged. Every successful call holds
+// one KeyIndex reference for the calling Filter, which it drops with
+// Index.Release from its Close. Without env.Shared the index is built for
+// this call alone. Build errors carry an RZ-CFG code and reject the
+// Revision.
 //
 // Consumers may change without an auth Policy changing, so a Filter that
 // reuses BuildEnv.Previous still acquires the new snapshot's index.

@@ -15,8 +15,8 @@ import (
 // ErrDepth.
 
 // Clone returns a deep copy of a tree value, so a working copy can change
-// without touching the original (07 req 54, 55, 68). Scalars and values of
-// other types are returned as they are.
+// without touching the original. Scalars and values of other types are
+// returned as they are.
 func Clone(v any) any {
 	switch x := v.(type) {
 	case *Object:

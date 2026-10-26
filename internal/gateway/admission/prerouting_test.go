@@ -14,9 +14,8 @@ import (
 	"github.com/ravindu-rev/ruralz/internal/clock/clocktest"
 )
 
-// Tests for spec 04 req 20 (pre-routing responses: 5 s write deadline, at
-// most 2,000 at once, beyond it http.ErrAbortHandler without writing);
-// test plan item 9.
+// Tests for pre-routing responses: 5 s write deadline, at most 2,000 at
+// once, beyond it http.ErrAbortHandler without writing.
 
 // epoch is the fake clock's start.
 func epoch() time.Time { return time.Date(2026, 9, 26, 12, 0, 0, 0, time.UTC) }
@@ -43,10 +42,10 @@ func abortOf(fn func()) (v any) {
 	return nil
 }
 
-// TestReq20PreRoutingLimit holds 2,000 pre-routing writes blocked in their
+// TestPreRoutingLimit holds 2,000 pre-routing writes blocked in their
 // write; the 2,001st aborts with http.ErrAbortHandler and writes nothing,
 // and room returns when a write ends.
-func TestReq20PreRoutingLimit(t *testing.T) {
+func TestPreRoutingLimit(t *testing.T) {
 	p := NewPreRouting(DefaultPreRouting, clocktest.New(epoch()))
 	release := make(chan struct{})
 	var entered, done sync.WaitGroup
@@ -93,9 +92,9 @@ func TestReq20PreRoutingLimit(t *testing.T) {
 	}
 }
 
-// TestReq20PreRoutingWriteDeadline sets the write deadline to now + 5 s
+// TestPreRoutingWriteDeadline sets the write deadline to now + 5 s
 // from the injected clock before writing.
-func TestReq20PreRoutingWriteDeadline(t *testing.T) {
+func TestPreRoutingWriteDeadline(t *testing.T) {
 	clk := clocktest.New(epoch())
 	p := NewPreRouting(1, clk)
 	rec := &deadlineRecorder{ResponseRecorder: httptest.NewRecorder()}
@@ -112,9 +111,9 @@ func TestReq20PreRoutingWriteDeadline(t *testing.T) {
 	}
 }
 
-// TestReq20PreRoutingNoDeadlineSupport writes through a ResponseWriter
+// TestPreRoutingNoDeadlineSupport writes through a ResponseWriter
 // without deadline support.
-func TestReq20PreRoutingNoDeadlineSupport(t *testing.T) {
+func TestPreRoutingNoDeadlineSupport(t *testing.T) {
 	p := NewPreRouting(1, clocktest.New(epoch()))
 	rec := httptest.NewRecorder()
 	p.Do(http.NewResponseController(rec), func() { rec.WriteHeader(http.StatusBadRequest) })
@@ -123,8 +122,8 @@ func TestReq20PreRoutingNoDeadlineSupport(t *testing.T) {
 	}
 }
 
-// TestReq20PreRoutingReleaseOnPanic returns the slot when the write panics.
-func TestReq20PreRoutingReleaseOnPanic(t *testing.T) {
+// TestPreRoutingReleaseOnPanic returns the slot when the write panics.
+func TestPreRoutingReleaseOnPanic(t *testing.T) {
 	p := NewPreRouting(1, clocktest.New(epoch()))
 	if v := abortOf(func() { p.Do(nil, func() { panic("write failed") }) }); v != "write failed" {
 		t.Fatalf("panic %v", v)
@@ -138,7 +137,7 @@ func TestReq20PreRoutingReleaseOnPanic(t *testing.T) {
 	p.Release()
 }
 
-func TestReq20PreRoutingZeroLimit(t *testing.T) {
+func TestPreRoutingZeroLimit(t *testing.T) {
 	for _, limit := range []int64{0, -1} {
 		p := NewPreRouting(limit, clocktest.New(epoch()))
 		if p.TryAcquire() || p.InUse() != 0 {

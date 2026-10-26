@@ -10,8 +10,8 @@ import (
 )
 
 // retryableMethod reports the methods the default retryOn retries on reset
-// errors and status 503: GET, HEAD, OPTIONS, PUT and DELETE (05 req 4).
-// Methods compare as received, case-sensitively, like CEL's "in".
+// errors and status 503: GET, HEAD, OPTIONS, PUT and DELETE. Methods
+// compare as received, case-sensitively, like CEL's "in".
 func retryableMethod(m string) bool {
 	switch m {
 	case "GET", "HEAD", "OPTIONS", "PUT", "DELETE":
@@ -21,13 +21,12 @@ func retryableMethod(m string) bool {
 	}
 }
 
-// DefaultRetryOn is the native form of expr.DefaultRetryOn (05 req 4): for
-// GET, HEAD, OPTIONS, PUT and DELETE, a connect or reset error or status
-// 503; for other methods, a connect error. kind is KindNone when the
-// attempt got a response with status. Its tests check it against the
-// prose rule of req 4 and pin the CEL source; the equality with the
-// compiled default through the CEL engine is a test of WP-34 or WP-46 (see
-// RetryConfig.RetryOn).
+// DefaultRetryOn is the native form of expr.DefaultRetryOn: for GET, HEAD,
+// OPTIONS, PUT and DELETE, a connect or reset error or status 503; for
+// other methods, a connect error. kind is KindNone when the attempt got a
+// response with status. Its tests check it against the prose rule and pin
+// the CEL source; the equality with the compiled default through the CEL
+// engine needs a test outside this package (see RetryConfig.RetryOn).
 func DefaultRetryOn(method string, kind Kind, status int) bool {
 	if kind != KindNone {
 		return kind == KindConnect || (kind == KindReset && retryableMethod(method))
@@ -35,15 +34,15 @@ func DefaultRetryOn(method string, kind Kind, status int) bool {
 	return status == 503 && retryableMethod(method)
 }
 
-// DefaultFailureWhen is the native form of expr.DefaultFailureWhen (05 req
-// 4): any error, or status 502, 503 or 504.
+// DefaultFailureWhen is the native form of expr.DefaultFailureWhen: any
+// error, or status 502, 503 or 504.
 func DefaultFailureWhen(kind Kind, status int) bool {
 	return kind != KindNone || status == 502 || status == 503 || status == 504
 }
 
 // EvalRetryOn evaluates retryOn over the leg's Vars (request without body,
-// response or error, attempt, upstream; 05 req 32). p nil runs the native
-// default (DefaultRetryOn's rule over v). A runtime error means no retry
+// response or error, attempt, upstream). p nil runs the native default
+// (DefaultRetryOn's rule over v). A runtime error means no retry
 // (expr.RuleNoRetry): it returns false and the error, which the caller
 // counts in ruralz_upstream_cel_errors_total{field="retryOn"}.
 func EvalRetryOn(ctx context.Context, p expr.Program, v *expr.Vars) (bool, error) {
@@ -58,7 +57,7 @@ func EvalRetryOn(ctx context.Context, p expr.Program, v *expr.Vars) (bool, error
 }
 
 // EvalFailureWhen evaluates failureWhen over the leg's Vars (request,
-// response or error, upstream; 05 req 32). p nil runs the native default
+// response or error, upstream). p nil runs the native default
 // (DefaultFailureWhen's rule over v). A runtime error counts as a failure
 // (expr.RuleCountFailure): it returns true and the error, which the caller
 // counts in ruralz_upstream_cel_errors_total{field="failureWhen"}.

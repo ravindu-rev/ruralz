@@ -26,9 +26,8 @@ func goldenHolder(t testing.TB) Holder {
 	}
 }
 
-// TestHolderGolden covers spec 04 requirement 5, spec 10 requirement 95
-// and test plan item 3 "holder.json golden": member order format, pid,
-// startTime, nodeId, version, pidNamespace; one line.
+// TestHolderGolden checks the holder.json golden: member order format,
+// pid, startTime, nodeId, version, pidNamespace; one line.
 func TestHolderGolden(t *testing.T) {
 	want, err := os.ReadFile(filepath.Join("testdata", "holder.golden.json"))
 	if err != nil {
@@ -60,10 +59,9 @@ func TestHolderGolden(t *testing.T) {
 	}
 }
 
-// TestHolderRoundTrip is the "holder round trip" of the work package:
-// WriteHolder under the lock, ReadHolder and ReadHolderAt read it back,
-// mode 0600, and Release removes it (spec 04 requirement 63 "lock and
-// holder.json released").
+// TestHolderRoundTrip: WriteHolder under the lock, ReadHolder and
+// ReadHolderAt read it back, mode 0600, and Release removes it (the lock
+// and holder.json are released).
 func TestHolderRoundTrip(t *testing.T) {
 	d, lk := openLocked(t)
 	h := goldenHolder(t)
@@ -98,10 +96,9 @@ func TestHolderRoundTrip(t *testing.T) {
 	}
 }
 
-// TestReadHolderAt covers the CLI's reading rules (spec 10 requirement
-// 96.1): missing is ErrNoHolder (and fs.ErrNotExist); unparsable, another
-// format, no PID or no node.id is ErrHolderInvalid; unknown members are
-// ignored.
+// TestReadHolderAt covers the CLI's reading rules: missing is ErrNoHolder
+// (and fs.ErrNotExist); unparsable, another format, no PID or no node.id
+// is ErrHolderInvalid; unknown members are ignored.
 func TestReadHolderAt(t *testing.T) {
 	const ok = `{"format":"ruralz.holder.v1","pid":7,"startTime":9,"nodeId":"01ARYZ6S41TSV4RRFFQ69G5FAV","version":"v"`
 	cases := []struct {
@@ -152,7 +149,7 @@ func TestReadHolderAt(t *testing.T) {
 			}
 		})
 	}
-	// Reading creates nothing (spec 10 requirement 95).
+	// Reading creates nothing.
 	root := filepath.Join(t.TempDir(), "absent")
 	if _, err := ReadHolderAt(root); !errors.Is(err, ErrNoHolder) {
 		t.Fatalf("err = %v", err)
@@ -179,8 +176,8 @@ func TestHolderValidate(t *testing.T) {
 	}
 }
 
-// TestNewHolder covers the calling process's record (spec 10 requirement
-// 95): PID, and on Linux the start time and PID namespace from /proc.
+// TestNewHolder covers the calling process's record: PID, and on Linux
+// the start time and PID namespace from /proc.
 func TestNewHolder(t *testing.T) {
 	h, err := NewHolder(testULID(t), "1.2.3")
 	if err != nil {
@@ -196,8 +193,7 @@ func TestNewHolder(t *testing.T) {
 }
 
 // TestParseStatStartTime covers field 22 of /proc/<pid>/stat, counted
-// after the last ')' because the command name may hold both (spec 10
-// requirement 96.4).
+// after the last ')' because the command name may hold both.
 func TestParseStatStartTime(t *testing.T) {
 	rest := " S 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 424242 20 21\n"
 	cases := []struct {

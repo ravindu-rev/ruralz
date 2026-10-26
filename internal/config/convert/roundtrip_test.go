@@ -171,11 +171,11 @@ func roundTrip(r *Registry, kind string, doc *tree.Node) error {
 	return nil
 }
 
-// TestRoundTripEveryField is the 02 test plan item 21 round-trip property:
-// for every property path enumerated from schemaidx, a generated value
-// survives the conversion to each served apiVersion and back (02 req 8),
-// here with the M1 registry and with a registry that adds a renaming spoke
-// keeping a field in the conversion-data annotation (02 req 7).
+// TestRoundTripEveryField is the round-trip property: for every property
+// path enumerated from schemaidx, a generated value survives the
+// conversion to each served apiVersion and back, here with the M1 registry
+// and with a registry that adds a renaming spoke keeping a field in the
+// conversion-data annotation.
 func TestRoundTripEveryField(t *testing.T) {
 	idx := hubIndex(t)
 	beta, err := NewRegistry(Lifecycle{}, V1alpha1(), betaConverter{})
@@ -224,10 +224,10 @@ func (lossyConverter) FromHub(_ string, doc *tree.Node, _ bool) (*tree.Node, dia
 	return doc, nil
 }
 
-// FuzzConversionRoundTrip is 02 property 29 at the registry level: any
-// JSON document, whole or partial, converts to every served apiVersion and
-// back unchanged, and converting to the same apiVersion is the identity
-// apart from the stripped conversion-data annotation.
+// FuzzConversionRoundTrip is the round-trip property at the registry
+// level: any JSON document, whole or partial, converts to every served
+// apiVersion and back unchanged, and converting to the same apiVersion is
+// the identity apart from the stripped conversion-data annotation.
 func FuzzConversionRoundTrip(f *testing.F) {
 	seeds := []string{
 		`{"apiVersion": "ruralz/v1alpha1", "kind": "Route", "metadata": {"name": "a"}, "spec": {"upstreams": [{"name": "u", "weight": 2}], "timeout": "5s"}}`,

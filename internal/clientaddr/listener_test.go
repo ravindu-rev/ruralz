@@ -110,13 +110,12 @@ func TestNewListenerOptions(t *testing.T) {
 	}
 	l, err := NewListener(inner, ListenerOptions{Clock: clock.Real()})
 	if err != nil || l.opts.Timeout != DefaultHeaderTimeout {
-		t.Fatalf("NewListener = %+v, %v; want the 10 s default (04 req 10)", l, err)
+		t.Fatalf("NewListener = %+v, %v; want the 10 s default", l, err)
 	}
 }
 
 // TestConnProxyHeader: the PROXY source replaces the TCP peer, the
-// request bytes after the header are intact, and Accept never reads (04
-// req 16, 06 req 61).
+// request bytes after the header are intact, and Accept never reads.
 func TestConnProxyHeader(t *testing.T) {
 	l := listen(t, ListenerOptions{Clock: clock.Real()})
 	client, c := pair(t, l)
@@ -151,7 +150,7 @@ func TestConnProxyHeader(t *testing.T) {
 }
 
 // TestConnProxyHeaderMappedSource: an IPv4-mapped PROXY source is unmapped
-// for Peer and RemoteAddr (04 req 17).
+// for Peer and RemoteAddr.
 func TestConnProxyHeaderMappedSource(t *testing.T) {
 	l := listen(t, ListenerOptions{Clock: clock.Real()})
 	client, c := pair(t, l)
@@ -167,8 +166,7 @@ func TestConnProxyHeaderMappedSource(t *testing.T) {
 	}
 }
 
-// TestConnLocal: LOCAL keeps the TCP peer (04 req 16), whatever its
-// family byte (R-65).
+// TestConnLocal: LOCAL keeps the TCP peer, whatever its family byte.
 func TestConnLocal(t *testing.T) {
 	for name, in := range map[string][]byte{
 		"AF_UNSPEC":        local(),
@@ -196,9 +194,9 @@ func TestConnLocal(t *testing.T) {
 	}
 }
 
-// TestConnMalformedCloses is the WP-15 "Done when": malformed PROXY
-// headers close the connection, report one refusal, and fail every later
-// Read and Write with a net.OpError that net/http answers with nothing.
+// TestConnMalformedCloses: malformed PROXY headers close the connection,
+// report one refusal, and fail every later Read and Write with a
+// net.OpError that net/http answers with nothing.
 func TestConnMalformedCloses(t *testing.T) {
 	for name, in := range map[string][]byte{
 		"v1 text":      []byte("PROXY TCP4 203.0.113.7 192.0.2.1 51000 443\r\n"),
@@ -243,8 +241,8 @@ func TestConnMalformedCloses(t *testing.T) {
 	}
 }
 
-// TestConnHeaderTimeout: no header within the timeout closes the
-// connection (04 req 16 "within ReadHeaderTimeout", 06 req 61).
+// TestConnHeaderTimeout: no header within the timeout (ReadHeaderTimeout)
+// closes the connection.
 func TestConnHeaderTimeout(t *testing.T) {
 	var ref refusal
 	l := listen(t, ListenerOptions{Clock: clock.Real(), Timeout: 50 * time.Millisecond, OnRefused: ref.hook})
@@ -584,7 +582,7 @@ func TestPeerOf(t *testing.T) {
 type ctxKey struct{}
 
 // proxyTransport dials the server and sends hdr before anything else, so
-// on https the header precedes the ClientHello (04 req 16).
+// on https the header precedes the ClientHello.
 func proxyTransport(base *http.Transport, hdr []byte) *http.Transport {
 	tr := base.Clone()
 	tr.DialContext = func(ctx context.Context, network, addr string) (net.Conn, error) {

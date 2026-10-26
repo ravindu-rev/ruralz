@@ -53,11 +53,11 @@ func propertyKeyword(t *testing.T, doc map[string]any, keyword string) map[strin
 }
 
 // TestDefaults pins every schema default of the rendered view: the M0 set
-// (02 req 10, 01 req 36) plus the M1 markers of resolution R-21: the State
-// Store timeout (08 req 6), the request limits, the auth.api-key header
-// (06 req 15), the trace sampling ratio (OQ-observability-1 (a)) and the
-// static Upstream defaults of OQ-traffic-management-and-resilience-5 and -6
-// (05 req 4). retryOn and failureWhen stay runtime rules and have none.
+// plus the M1 markers, which are the State Store timeout, the request
+// limits, the auth.api-key header, the trace sampling ratio
+// (OQ-observability-1 (a)) and the static Upstream defaults of
+// OQ-traffic-management-and-resilience-5 and -6. retryOn and failureWhen
+// stay runtime rules and have none.
 func TestDefaults(t *testing.T) {
 	want := map[string]string{ //nolint:gosec // Schema defaults, among them a header name, not credentials.
 		"ActiveHealthCheck.healthyThreshold":   `2`,
@@ -126,7 +126,7 @@ func TestDefaults(t *testing.T) {
 			}
 		}
 		// Context-derived and CEL defaults are runtime rules, never schema
-		// defaults (R-21; 02 section 7, OQ-traffic-management-and-resilience-6).
+		// defaults (OQ-traffic-management-and-resilience-6).
 		for _, runtime := range []string{"Retries.retryOn", "CircuitBreaker.failureWhen", "Retries.perTryTimeout", "RouteSpec.timeout", "UpstreamSpec.timeout", "PolicySpec.stateStoreTimeout"} {
 			if _, ok := got[runtime]; ok {
 				t.Errorf("%s view: %s is a runtime rule, not a schema default", v, runtime)
@@ -136,8 +136,8 @@ func TestDefaults(t *testing.T) {
 }
 
 // TestDefaultsValidate checks every default against its own property schema
-// in the committed rendered view (02 test plan item 7: every default
-// validates), so materialization never produces an invalid document.
+// in the committed rendered view (every default validates), so
+// materialization never produces an invalid document.
 func TestDefaultsValidate(t *testing.T) {
 	doc := committed(t, rendered)
 	defs := definitions(t, doc)
@@ -225,10 +225,9 @@ type schemaError struct{ msg string }
 func (e *schemaError) Error() string { return e.msg }
 
 // TestImpactClasses pins every x-ruralz-impact annotation: the M0 markers,
-// the classes proposed by 02 R-6 (Gateway, Upstream, Consumer and
-// AIProvider fields), overridable as a security change (02 req 65), and
-// security on every secret field and on the oauth2 tokenUrl, the secret's
-// destination (06 rule 90).
+// the classes of Gateway, Upstream, Consumer and AIProvider fields,
+// overridable as a security change, and security on every secret field and
+// on the oauth2 tokenUrl, the secret's destination (SEC "Secrets" rule 7).
 func TestImpactClasses(t *testing.T) {
 	want := map[string]string{
 		"AICredentials.apiKey":                  "security",
@@ -292,8 +291,8 @@ func TestImpactClasses(t *testing.T) {
 			}
 		}
 	}
-	// Policy attachment impact is derived from the referenced type (02 req
-	// 64), so spec.policies carries no marker (02 R-6).
+	// Policy attachment impact is derived from the referenced type, so
+	// spec.policies carries no marker.
 	for _, k := range []string{"GatewaySpec.policies", "RouteSpec.policies", "UpstreamSpec.policies", "RouteSpec.excludePolicies"} {
 		if _, ok := got[k]; ok {
 			t.Errorf("%s must not carry an impact marker", k)
@@ -301,8 +300,9 @@ func TestImpactClasses(t *testing.T) {
 	}
 }
 
-// TestSecretFieldsCarrySecurity checks 06 rule 90 on the committed schema:
-// every x-ruralz-secret property lists the security impact class.
+// TestSecretFieldsCarrySecurity checks SEC "Secrets" rule 7 on the
+// committed schema: every x-ruralz-secret property lists the security
+// impact class.
 func TestSecretFieldsCarrySecurity(t *testing.T) {
 	doc := committed(t, rendered)
 	impact := propertyKeyword(t, doc, "x-ruralz-impact")
@@ -318,7 +318,7 @@ func TestSecretFieldsCarrySecurity(t *testing.T) {
 	}
 }
 
-// TestSchemaLevelZero checks 02 req 75: the served schema level of
+// TestSchemaLevelZero checks that the served schema level of
 // ruralz/v1alpha1 is the maximum x-ruralz-since, 0 in M1, so no field
 // carries the keyword (fields added before 0.1.0 are level 0,
 // OQ-traffic-management-and-resilience-5).
@@ -332,7 +332,7 @@ func TestSchemaLevelZero(t *testing.T) {
 			t.Errorf("%s view carries x-ruralz-since; M1 is schema level 0", v)
 		}
 		if strings.Contains(string(out), `"deprecated"`) {
-			t.Errorf("%s view marks a deprecated field; the M1 lifecycle table is empty (02 req 76)", v)
+			t.Errorf("%s view marks a deprecated field; the M1 lifecycle table is empty", v)
 		}
 	}
 }
@@ -365,7 +365,7 @@ func TestRefsResolve(t *testing.T) {
 	}
 }
 
-// TestM1Fields checks the shape of the fields M1 adds (WP-28 scope).
+// TestM1Fields checks the shape of the fields M1 adds.
 func TestM1Fields(t *testing.T) {
 	s := committed(t, rendered)
 	cases := []struct {
@@ -373,14 +373,14 @@ func TestM1Fields(t *testing.T) {
 		path []string
 		want string
 	}{
-		// OQ-scalability-and-distributed-state-3 (a), R-19: the cache connection.
+		// OQ-scalability-and-distributed-state-3 (a): the cache connection.
 		{"stateStore.cache", []string{"$defs", "StateStore", "properties", "cache", "$ref"}, `"#/$defs/StateStoreCache"`},
 		{"cache url required", []string{"$defs", "StateStoreCache", "required"}, `["url"]`},
 		{"cache url secret", []string{"$defs", "StateStoreCache", "properties", "url", "x-ruralz-secret"}, `true`},
 		{"cache closed", []string{"$defs", "StateStoreCache", "additionalProperties"}, `false`},
 		// OQ-observability-2 (a): otlp.tls with the UpstreamTLS shape.
 		{"otlp.tls", []string{"$defs", "OTLP", "properties", "tls", "$ref"}, `"#/$defs/UpstreamTLS"`},
-		// 09 req 17: the endpoint pattern.
+		// The endpoint pattern.
 		{"otlp.endpoint", []string{"$defs", "OTLP", "properties", "endpoint", "pattern"}, `"^https?://[^/?#@\\s]+/?$"`},
 		// OQ-traffic-management-and-resilience-5 (a): breaker guards.
 		{"minimumLegs", []string{"$defs", "CircuitBreaker", "properties", "minimumLegs", "minimum"}, `1`},
@@ -389,11 +389,11 @@ func TestM1Fields(t *testing.T) {
 		{"halfOpenSuccesses", []string{"$defs", "CircuitBreaker", "properties", "halfOpenSuccesses", "minimum"}, `1`},
 		// OQ-scalability-and-distributed-state-11 (a): localOnly.
 		{"localOnly", []string{"$defs", "RateLimitConfig", "properties", "localOnly", "type"}, `"boolean"`},
-		// 07 J 74: validation.json-schema config.schema, inline draft 2020-12.
+		// validation.json-schema config.schema, inline draft 2020-12.
 		{"schema ref", []string{"$defs", "ValidationJSONSchemaConfig", "properties", "schema", "$ref"}, `"#/$defs/JSONSchemaDocument"`},
 		{"schema required", []string{"$defs", "ValidationJSONSchemaConfig", "required"}, `["schema"]`},
 		{"schema object or boolean", []string{"$defs", "JSONSchemaDocument", "type"}, `["object","boolean"]`},
-		// 07 req 20: headers add and remove.
+		// Headers add and remove.
 		{"request add", []string{"$defs", "HeaderRequestOps", "properties", "add", "x-ruralz-list"}, `{"type":"atomic"}`},
 		{"request add items", []string{"$defs", "HeaderRequestOps", "properties", "add", "items"}, `{"$ref":"#/$defs/HeaderRequestSet"}`},
 		{"request remove", []string{"$defs", "HeaderRequestOps", "properties", "remove", "x-ruralz-list"}, `{"type":"set"}`},
@@ -401,7 +401,7 @@ func TestM1Fields(t *testing.T) {
 		{"response add", []string{"$defs", "HeaderResponseOps", "properties", "add", "items"}, `{"$ref":"#/$defs/HeaderResponseSet"}`},
 		{"response remove", []string{"$defs", "HeaderResponseOps", "properties", "remove", "x-ruralz-list"}, `{"type":"set"}`},
 		{"set stays a map", []string{"$defs", "HeaderRequestOps", "properties", "set", "x-ruralz-list"}, `{"key":"name","type":"map"}`},
-		// 07 risk 3: replace without path rewrites the raw body.
+		// Replace without path rewrites the raw body.
 		{"replace required", []string{"$defs", "Replace", "required"}, `["pattern"]`},
 	}
 	for _, c := range cases {
@@ -415,14 +415,13 @@ func TestM1Fields(t *testing.T) {
 	}
 }
 
-// TestPolicyConfigClosure checks OQ-configuration-model-19 (a) as applied in
-// M1: the configs whose fields are registered in full are closed (headers
+// TestPolicyConfigClosure checks the M1 config closure rule: the configs whose fields are registered in full are closed (headers
 // and validation.json-schema join them), and every config with
 // feature-authored fields still unregistered stays open.
 func TestPolicyConfigClosure(t *testing.T) {
 	defs := definitions(t, committed(t, rendered))
 	open := map[string]bool{
-		"AuthJWTConfig":              true, // R-32: issuer fields registered later
+		"AuthJWTConfig":              true, // issuer fields registered later
 		"AuthAPIKeyConfig":           true, // config.query later
 		"AuthBasicConfig":            false,
 		"AuthMTLSConfig":             false,
@@ -462,8 +461,7 @@ func TestPolicyConfigClosure(t *testing.T) {
 	}
 }
 
-// TestAuthoringSubstitution checks OQ-configuration-model-20 (a): in the
-// authoring view a ${VAR} expression is offered wherever substitution is
+// TestAuthoringSubstitution checks that in the authoring view a ${VAR} expression is offered wherever substitution is
 // allowed and the value's constraints would reject it, including strings
 // constrained by an enum or a pattern; never in ref, CEL or secret fields,
 // the whole subtree of a secret value, or the envelope (RZ-CFG-011). The
@@ -541,7 +539,7 @@ func TestFixtureSubstitution(t *testing.T) {
 }
 
 // TestSubstitutedPolicyType pins how a Policy whose spec.type is a ${VAR}
-// expression meets the config dispatch (OQ-configuration-model-20 (a)): no
+// expression meets the config dispatch: no
 // registered Policy type matches the Substitution pattern, so in the
 // authoring view such a Policy selects no if/then branch and its config is
 // not checked there; the rendered view offers no Substitution, so after

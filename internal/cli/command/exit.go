@@ -11,7 +11,7 @@ import (
 	"syscall"
 )
 
-// Exit codes (spec 10 req 18). They never change once released.
+// Exit codes. They never change once released.
 const (
 	// ExitOK is success with nothing to report.
 	ExitOK = 0
@@ -49,7 +49,7 @@ func (e *ExitError) Error() string {
 func (e *ExitError) Unwrap() error { return e.Err }
 
 // UsageError is a usage problem; Execute follows its message with
-// "Run '<program> <path> --help' for usage." (spec 10 req 7).
+// "Run '<program> <path> --help' for usage.".
 type UsageError struct {
 	// Err is the problem.
 	Err error
@@ -84,7 +84,7 @@ func NoResultf(format string, args ...any) error {
 func Negative() error { return &ExitError{Code: ExitNegative} }
 
 // Interrupted is the cancellation cause SignalContext gives the context
-// on the first SIGINT or SIGTERM (spec 10 req 21).
+// on the first SIGINT or SIGTERM.
 type Interrupted struct {
 	// Signal is the signal received.
 	Signal os.Signal
@@ -110,17 +110,17 @@ func signalName(s os.Signal) string {
 // ProblemDocument is implemented by errors that carry a server's RFC 9457
 // problem document (the admin client's problem error). With --output json
 // Execute prints the document verbatim to stdout besides the one-line
-// summary on stderr (spec 10 req 23).
+// summary on stderr.
 type ProblemDocument interface {
 	error
 	// ProblemJSON returns the problem document exactly as received.
 	ProblemJSON() []byte
 }
 
-// Code maps a command's result to the exit code (spec 10 reqs 18, 21): a
-// context canceled with cause Interrupted is 130 whatever err is; nil is
-// 0; an ExitError anywhere in err's chain gives its code; an Interrupted
-// in the chain is 130; anything else is 2.
+// Code maps a command's result to the exit code: a context canceled with
+// cause Interrupted is 130 whatever err is; nil is 0; an ExitError
+// anywhere in err's chain gives its code; an Interrupted in the chain is
+// 130; anything else is 2.
 func Code(ctx context.Context, err error) int {
 	if ctx != nil && interrupted(ctx) {
 		return ExitInterrupted

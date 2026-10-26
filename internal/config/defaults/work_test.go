@@ -31,8 +31,8 @@ func hostileQuota(name string, n int) string {
 	return b.String()
 }
 
-// TestRunDiagnosticBudget covers 01 req 50 for the whole run: many
-// hostile resources, each under the per-resource cap, never make Run
+// TestRunDiagnosticBudget covers the diagnostic budget of the whole run:
+// many hostile resources, each under the per-resource cap, never make Run
 // return more than MaxDiagnostics diagnostics plus one RZ-CFG-001, for any
 // worker count, and the workers stop taking resources once the budget is
 // spent, so the run records no more than the cap.
@@ -85,7 +85,7 @@ func TestRunDiagnosticBudget(t *testing.T) {
 	}
 }
 
-// TestRunBudgetExact covers the edge of 01 req 50: a run with exactly
+// TestRunBudgetExact covers the edge of the budget: a run with exactly
 // MaxDiagnostics diagnostics is complete and has no RZ-CFG-001.
 func TestRunBudgetExact(t *testing.T) {
 	f := newFixture()
@@ -158,10 +158,10 @@ func TestWorkAdmitAndLimit(t *testing.T) {
 	}
 }
 
-// TestWorkYield covers the yield timer of 01 req 53 without depending on
-// the wall clock: the timer is read every yieldCheck units, a worker
-// whose last yield lies far in the past yields and restarts its timer,
-// and one whose last yield lies in the future does not.
+// TestWorkYield covers the yield timer without depending on the wall
+// clock: the timer is read every yieldCheck units, a worker whose last
+// yield lies far in the past yields and restarts its timer, and one
+// whose last yield lies in the future does not.
 func TestWorkYield(t *testing.T) {
 	w := &work{budget: newBudget()} // last yield at the zero time: due
 	for range yieldCheck - 1 {

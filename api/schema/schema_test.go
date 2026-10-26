@@ -51,8 +51,8 @@ func TestAccessorsReturnCopies(t *testing.T) {
 
 // TestM1Definitions checks the embedded views carry the definitions M1 adds
 // (the Response Cache connection, OQ-scalability-and-distributed-state-3
-// (a); the inline JSON Schema of validation.json-schema, 07 req 74) and that
-// only the authoring view defines the ${VAR} alternative.
+// (a); the inline JSON Schema of validation.json-schema) and that only the
+// authoring view defines the ${VAR} alternative.
 func TestM1Definitions(t *testing.T) {
 	for path, data := range map[string][]byte{"authoring": AuthoringV1alpha1(), "rendered": RenderedV1alpha1()} {
 		var doc struct {

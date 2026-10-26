@@ -23,41 +23,41 @@ var ErrNotNormalized = errors.New("health: endpoint identities must be sorted an
 type endpoint struct {
 	identity string
 
-	// Passive ejection (05 reqs 18, 19). ejectedUntil is 0 when never
-	// ejected; ejections and decayFrom are guarded by Tracker.mu.
+	// Passive ejection. ejectedUntil is 0 when never ejected;
+	// ejections and decayFrom are guarded by Tracker.mu.
 	consecutive  atomic.Int32
 	ejectedUntil atomic.Int64
 	ejections    int
 	decayFrom    int64
 
-	// Active health (05 req 20); the counters are guarded by Tracker.mu.
+	// Active health; the counters are guarded by Tracker.mu.
 	unhealthy atomic.Bool
 	probeOK   int
 	probeFail int
 	probing   atomic.Bool
 
-	// Stall and suspect (05 req 21): attempts to this Endpoint that are
-	// stalled now, and the last time any attempt to it got headers (0:
-	// none since the base; a stall needs StallAfter past an attempt's
-	// start, so that reads as long enough ago).
+	// Stall and suspect: attempts to this Endpoint that are stalled
+	// now, and the last time any attempt to it got headers (0: none
+	// since the base; a stall needs StallAfter past an attempt's start,
+	// so that reads as long enough ago).
 	stalled     atomic.Int32
 	lastHeaders atomic.Int64
 
-	// failures counts attempts matching failureWhen (05 req 13).
+	// failures counts attempts matching failureWhen.
 	failures window
 
 	// removed is set when the Endpoint leaves the set.
 	removed atomic.Bool
 }
 
-// down reports 05 req 11 step (b): passively ejected or actively
-// unhealthy at now.
+// down reports whether e is passively ejected or actively unhealthy at
+// now.
 func (e *endpoint) down(now int64) bool {
 	return e.ejectedUntil.Load() > now || e.unhealthy.Load()
 }
 
-// suspect reports 05 req 21: holding a stalled attempt and no response
-// headers for SuspectAfter.
+// suspect reports whether e is suspect: holding a stalled attempt and no
+// response headers for SuspectAfter.
 func (e *endpoint) suspect(now int64) bool {
 	return e.stalled.Load() > 0 && now-e.lastHeaders.Load() >= int64(SuspectAfter)
 }
@@ -87,13 +87,12 @@ type Config struct {
 	Metrics *emit.UpstreamMetrics
 	// OnHealthy, when set, is called with the Endpoints that are neither
 	// passively ejected nor actively unhealthy, and the Endpoint count,
-	// whenever either changes. healthy == 0 with total > 0 is panic mode
-	// (05 req 11 step b). It runs on the goroutine that caused the change
-	// (an attempt, a probe, the ejection expiry timer or SetEndpoints),
-	// one call at a time, and the last call always carries the current
-	// count. It must be quick and must not call the Tracker's mutating
-	// methods (SetEndpoints, SetPolicy, RecordProbe, Close, attempt
-	// outcomes).
+	// whenever either changes. healthy == 0 with total > 0 is panic mode.
+	// It runs on the goroutine that caused the change (an attempt, a
+	// probe, the ejection expiry timer or SetEndpoints), one call at a
+	// time, and the last call always carries the current count. It must
+	// be quick and must not call the Tracker's mutating methods
+	// (SetEndpoints, SetPolicy, RecordProbe, Close, attempt outcomes).
 	OnHealthy func(healthy, total int)
 }
 
@@ -118,7 +117,7 @@ type Tracker struct {
 	metrics  atomic.Pointer[emit.UpstreamMetrics]
 	notify   atomic.Pointer[func()]
 
-	// stalled counts stalled attempts across the Upstream (05 req 21).
+	// stalled counts stalled attempts across the Upstream.
 	stalled atomic.Int64
 
 	mu       sync.Mutex // ejections, probe verdicts, recounts, the expiry timer
@@ -165,8 +164,8 @@ func (t *Tracker) at(now time.Time) int64 { return max(int64(now.Sub(t.base)), 0
 // base, which is what the Tracker's timers run on.
 func (t *Tracker) elapsed() int64 { return max(int64(t.clk.Since(t.base)), 0) }
 
-// SetPolicy installs a newly activated snapshot's thresholds (05 req 2:
-// they apply from the new snapshot on). Removing the active check marks
+// SetPolicy installs a newly activated snapshot's thresholds (they
+// apply from the new snapshot on). Removing the active check marks
 // every Endpoint healthy again.
 func (t *Tracker) SetPolicy(p PassivePolicy, a *ActivePolicy, maxConnections int) {
 	pp := p.WithDefaults()
@@ -213,8 +212,8 @@ func (t *Tracker) SetMetrics(m *emit.UpstreamMetrics) {
 
 // SetEndpoints replaces the Endpoint list with ids, which must be sorted
 // with unique entries, like the discovery.Set it comes from. State is kept
-// for identities that remain (05 req 2); new Endpoints start healthy and
-// unejected (05 req 20). Indexes of Views and Begin follow the new list.
+// for identities that remain; new Endpoints start healthy and unejected.
+// Indexes of Views and Begin follow the new list.
 func (t *Tracker) SetEndpoints(ids []string) error {
 	for i := 1; i < len(ids); i++ {
 		if ids[i-1] >= ids[i] {
@@ -307,8 +306,8 @@ func (t *Tracker) poke() {
 }
 
 // recountLocked recomputes the healthy count, sets the healthy-Endpoint
-// gauge (05 req 23) and arms the expiry timer for the earliest ejection
-// end; t.mu is held. It reports whether the count or total changed.
+// gauge and arms the expiry timer for the earliest ejection end; t.mu
+// is held. It reports whether the count or total changed.
 func (t *Tracker) recountLocked(now int64) (changed bool) {
 	eps := t.tab.Load().eps
 	var next int64
@@ -325,7 +324,7 @@ func (t *Tracker) recountLocked(now int64) (changed bool) {
 		}
 	}
 	total := len(eps)
-	// The gauge counts the Endpoints eligible after step (b) of 05 req 11:
+	// The gauge counts the Endpoints eligible once Down ones are dropped:
 	// with none healthy, panic mode makes every Endpoint eligible.
 	eligible := healthy
 	if eligible == 0 {
@@ -433,23 +432,23 @@ func (v View) Identity(i int) string {
 	return ""
 }
 
-// Down reports 05 req 11 step (b) for Endpoint i: passively ejected or
-// actively unhealthy.
+// Down reports whether Endpoint i is down: passively ejected or actively
+// unhealthy.
 func (v View) Down(i int) bool {
 	e := v.ep(i)
 	return e != nil && e.down(v.now)
 }
 
-// Suspect reports whether Endpoint i is suspect (05 req 21).
+// Suspect reports whether Endpoint i is suspect.
 func (v View) Suspect(i int) bool {
 	e := v.ep(i)
 	return e != nil && e.suspect(v.now)
 }
 
-// Avoid reports the health part of 05 req 11 step (c) for Endpoint i:
-// suspect, or holding a stalled attempt while stalled attempts hold
-// StalledSharePercent of maxConnections (05 req 21). Selection skips such
-// an Endpoint while another remains.
+// Avoid reports the health part of avoidance for Endpoint i: suspect, or
+// holding a stalled attempt while stalled attempts hold
+// StalledSharePercent of maxConnections. Selection skips such an Endpoint
+// while another remains.
 func (v View) Avoid(i int) bool {
 	e := v.ep(i)
 	if e == nil {
@@ -459,7 +458,7 @@ func (v View) Avoid(i int) bool {
 }
 
 // Failures returns Endpoint i's attempts matching failureWhen in the last
-// FailureWindow, the second term of its least-request load (05 req 13).
+// FailureWindow, the second term of its least-request load.
 func (v View) Failures(i int) int64 {
 	e := v.ep(i)
 	if e == nil {
@@ -479,7 +478,7 @@ func (v View) Begin(a *Attempt, i int, now time.Time) bool {
 	return true
 }
 
-// EndpointStatus is one Endpoint's health for /debug/upstreams (05 req 96).
+// EndpointStatus is one Endpoint's health for /debug/upstreams.
 type EndpointStatus struct {
 	Identity string
 	// Healthy is the active-check verdict (true without active checks).
@@ -494,7 +493,8 @@ type EndpointStatus struct {
 	Ejections int
 	// ConsecutiveErrors is the current run of failures.
 	ConsecutiveErrors int
-	// Suspect reports 05 req 21.
+	// Suspect reports whether the Endpoint is suspect: holding a stalled
+	// attempt and no response headers for SuspectAfter.
 	Suspect bool
 	// Stalled counts the Endpoint's stalled attempts.
 	Stalled int

@@ -80,10 +80,10 @@ func sameDecode(t testing.TB, idx *schemaidx.Index, reg *registry.Registry, res 
 // split, small pieces, and the production size.
 func chunkLimits() []int { return []int{1, 2, 3, 7, 64, decodeChunk} }
 
-// TestChunkedDecodeEqualsWhole covers the chunker (01 req 38 and 53):
-// decoding in pieces gives the kind structs and configs one encoding/json
-// call gives, for the example Bundle after stage G, the large shapes of
-// the scale tests, the decode test inputs, and their failures.
+// TestChunkedDecodeEqualsWhole covers the chunker: decoding in pieces
+// gives the kind structs and configs one encoding/json call gives, for
+// the example Bundle after stage G, the large shapes of the scale tests,
+// the decode test inputs, and their failures.
 func TestChunkedDecodeEqualsWhole(t *testing.T) {
 	s := newStage(t)
 	idx := hubIndex(t)
@@ -127,7 +127,7 @@ func TestChunkedDecodeEqualsWhole(t *testing.T) {
 
 // TestChunkedDecodeSplits checks that a large resource is decoded in many
 // small encoding/json calls, so the worker reads its yield timer between
-// them (01 req 53), and that a small one takes one call.
+// them, and that a small one takes one call.
 func TestChunkedDecodeSplits(t *testing.T) {
 	s := newStage(t)
 	h, ds := s.Resource(envelope(mustParse(t, scaleCases()["map list"](12_000))), nil)

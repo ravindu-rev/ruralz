@@ -12,9 +12,9 @@ import (
 	"github.com/ravindu-rev/ruralz/internal/clock/clocktest"
 )
 
-// 04 req 79 (10 records/s) and 09 req 14: a token bucket with a burst of
-// the rate; the first record after a gap carries the suppressed count.
-func TestRateLimit_Req79(t *testing.T) {
+// TestRateLimit checks the record rate limit, a token bucket with a burst
+// of the rate; the first record after a gap carries the suppressed count.
+func TestRateLimit(t *testing.T) {
 	fake := clocktest.New(time.Date(2026, 9, 26, 0, 0, 0, 0, time.UTC))
 	s, out := newSink(t, Options{Clock: fake})
 	h := RateLimit(s.Handler("c"), fake, 3)
@@ -68,10 +68,9 @@ func (c *scriptedClock) Now() time.Time {
 	return t
 }
 
-// 04 req 79: an older reading (a caller that read the clock before a newer
-// one refilled) never moves the bucket back, so no interval is refilled
-// twice.
-func TestRateLimitClockOrder_Req79(t *testing.T) {
+// An older reading (a caller that read the clock before a newer one
+// refilled) never moves the bucket back, so no interval is refilled twice.
+func TestRateLimitClockOrder(t *testing.T) {
 	t0 := time.Date(2026, 9, 26, 0, 0, 0, 0, time.UTC)
 	c := &scriptedClock{Fake: clocktest.New(t0), times: []time.Time{
 		t0, t0, // the burst of 2

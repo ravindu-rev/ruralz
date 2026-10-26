@@ -100,15 +100,14 @@ func workCases() []struct{ name, schema, body string } {
 		{"dynamic references, nested", `{"$dynamicAnchor":"n","items":{"$dynamicRef":"#n"},"$defs":{"x":{"$id":"urn:x","$dynamicAnchor":"n","items":{"$dynamicRef":"#n"}}}}`, denseArray(500, strings.Repeat("[", 30)+"1"+strings.Repeat("]", 30), 0)},
 		{"reference chain at one value", chain(4000, `{"$ref":"#/$defs/d%d","x":%d}`), `{"a":1}`},
 		{"records", recordsSchema, records(5000)},
-		// Review finding: the library hashes member names whole, in maps of
-		// more than eight names.
+		// The library hashes member names whole, in maps of more than eight
+		// names.
 		{"long names, properties lookups", allOfRefs(100, tenProperties), longMember(9, 256<<10)},
 		{"long names, unevaluated copies", strings.Replace(unevaluatedChain(100, "unevaluatedProperties"), `{"minProperties":0}`, tenProperties, 1), longMember(9, 32<<10)},
 		{"long names, uniqueItems objects", `{"uniqueItems":true}`, prefixedObjects(30, 10, 4<<10)},
 		{"long names, enum objects", `{"items":{"enum":[` + strings.TrimSuffix(strings.Repeat(nineMembers+",", 500), ",") + `]}}`, denseArray(4, longMember(8, 256<<10), 0)},
-		// Review finding: a multipleOf check divides the value by the
-		// divisor as math/big rationals, whose work grows with the digits
-		// of both.
+		// A multipleOf check divides the value by the divisor as math/big
+		// rationals, whose work grows with the digits of both.
 		{"multipleOf 0.01, short decimals", `{"items":{"multipleOf":0.01}}`, decimals(20000)},
 		{"multipleOf 1e-1000, short decimals", `{"items":{"multipleOf":1e-1000}}`, decimals(5000)},
 		{"multipleOf of 127 bytes, short decimals", `{"items":{"multipleOf":` + longDivisor + `}}`, decimals(5000)},
@@ -132,7 +131,7 @@ func decimals(n int) string {
 }
 
 // bigDivisors returns n multipleOf schemas whose divisors have large
-// exponents, the review finding's anyOf.
+// exponents, the branches of an anyOf.
 func bigDivisors(n int) string {
 	items := make([]string, n)
 	for i := range items {
@@ -186,13 +185,12 @@ func longMember(k, n int) string {
 }
 
 // BenchmarkWorkModel measures the work model (proposed, package
-// documentation "Work bound", 07 section 9 item 21) against the library:
-// for every way the library's work grows, it reports the nanoseconds
-// validating the body takes per work unit the scan charges (ns/unit),
-// which must stay below 1 on the reference machine. A benchmark, not a
-// test: the ratio depends on the machine and its load (review finding,
-// no wall-clock time in unit tests); TestWorkCharges pins the model
-// itself.
+// documentation "Work bound") against the library: for every way the
+// library's work grows, it reports the nanoseconds validating the body
+// takes per work unit the scan charges (ns/unit), which must stay below 1
+// on the reference machine. A benchmark, not a test: the ratio depends on
+// the machine and its load (no wall-clock time in unit tests);
+// TestWorkCharges pins the model itself.
 func BenchmarkWorkModel(b *testing.B) {
 	for _, tc := range workCases() {
 		b.Run(tc.name, func(b *testing.B) {
@@ -210,8 +208,6 @@ func BenchmarkWorkModel(b *testing.B) {
 // evaluation's weight, the cycle check, the location copies, and the terms
 // that grow with the value (string bytes, number literals, members, the
 // unevaluated copies, the pairwise uniqueItems comparisons).
-//
-// Requirements: 07 section 9 item 21.
 func TestWorkCharges(t *testing.T) {
 	const kw = evalUnits + keywordUnits
 	for _, tc := range []struct {
@@ -219,7 +215,7 @@ func TestWorkCharges(t *testing.T) {
 		want               int64
 	}{
 		{"string", `{"type":"string"}`, `"abc"`, kw + scopeUnits + 3*copyUnits},
-		// Minor review finding: the runes of a string are counted per byte.
+		// The runes of a string are counted per byte.
 		{"lengths", `{"minLength":1}`, `"é"`, kw + scopeUnits + 2*(copyUnits+lengthByteUnits)},
 		{"members", `{"minProperties":0}`, `{"a":1,"b":2}`, kw + scopeUnits + 2*memberUnits},
 		{"number", `{"minimum":0}`, `1.5`, kw + scopeUnits + numberUnits + 3*numberByteUnits},
@@ -233,12 +229,12 @@ func TestWorkCharges(t *testing.T) {
 		{"enum of strings", `{"enum":["ab","cd"]}`, `"x"`, kw + 2*compareUnits + scopeUnits + copyUnits},
 		{"enum of numbers", `{"enum":[1,2]}`, `3`, kw + 2*(compareUnits+numberUnits+numberByteUnits) + scopeUnits + 2*(numberUnits+numberByteUnits)},
 		// A number nested in a const value compares with a nested body
-		// number, charged at the costliest literal (minor review finding).
+		// number, charged at the costliest literal.
 		{"nested const number", `{"const":[1.5]}`, `[1.5]`, kw + 2*compareUnits + numberUnits + 3*numberByteUnits + maxNumberWork + scopeUnits},
 		{
-			// Minor review finding: a dynamic reference walks the whole scope,
-			// the chains of every value on the path (1 at the root, 2 at the
-			// item); the item's error unit copies its location.
+			// A dynamic reference walks the whole scope, the chains of every
+			// value on the path (1 at the root, 2 at the item); the item's error
+			// unit copies its location.
 			"dynamic reference", `{"$dynamicAnchor":"n","items":{"$dynamicRef":"#n"}}`, `[1]`,
 			evalUnits + scopeUnits + scopeUnits +
 				kw + evalUnits + 3*locationUnits + 2*2*scopeUnits + 2*3*scopeUnits,
@@ -253,9 +249,9 @@ func TestWorkCharges(t *testing.T) {
 			"pairwise uniqueItems", `{"uniqueItems":true}`, `["a","b"]`,
 			kw + scopeUnits + 2*(hashUnits+locationUnits+scopeUnits+(copyUnits+hashByteUnits)+compareUnits),
 		},
-		// Review finding: a member name is hashed per byte, by the properties
-		// lookup of an evaluation with member keywords, by every unevaluated
-		// copy, and by a const or enum object that lacks it.
+		// A member name is hashed per byte, by the properties lookup of an
+		// evaluation with member keywords, by every unevaluated copy, and by a
+		// const or enum object that lacks it.
 		{"long name, properties", `{"properties":{"x":true}}`, `{"` + strings.Repeat("n", 800) + `":1}`, evalUnits + scopeUnits + memberUnits + 800*nameHashes/nameHashBytes},
 		{
 			"long name, unevaluated copy", `{"unevaluatedProperties":true}`, `{"` + strings.Repeat("n", 800) + `":1}`,
@@ -264,11 +260,11 @@ func TestWorkCharges(t *testing.T) {
 		{"long name, const object", `{"const":{"a":"x"}}`, `{"` + strings.Repeat("n", 800) + `":"x"}`, kw + 3*compareUnits + scopeUnits + memberUnits + 800/nameHashBytes},
 		// The names of the schema's lists, looked up in the object.
 		{"long required name", `{"required":["` + strings.Repeat("r", 800) + `"]}`, `{}`, kw + listUnits + 800/nameHashBytes + scopeUnits},
-		// Review finding: a multipleOf check, 0.01 being 1/100 (a numerator
-		// of one digit, a denominator of three) and 1.5 3/2 (two and two):
-		// the divisor's part, the parse, the GCD's steps (the smaller
-		// product, 1*2 against 3*2, three digits), the literal's digits and
-		// the digit products, each rounded up to a unit.
+		// A multipleOf check, 0.01 being 1/100 (a numerator of one digit, a
+		// denominator of three) and 1.5 3/2 (two and two): the divisor's part,
+		// the parse, the GCD's steps (the smaller product, 1*2 against 3*2,
+		// three digits), the literal's digits and the digit products, each
+		// rounded up to a unit.
 		{"multipleOf", `{"multipleOf":0.01}`, `1.5`, kw + quoUnits + 4*quoDigitUnits + 1 + scopeUnits + numberUnits + 3*numberByteUnits + 3*quoMinUnits + 4*quoDigitUnits + 1 + 1},
 		// Two checks against 1e-1000, 1/10^1000 (one digit and 1,001): the
 		// smaller products sum to 2*(1+2), and the literal's four digits
@@ -282,9 +278,9 @@ func TestWorkCharges(t *testing.T) {
 			}
 		})
 	}
-	// Minor review finding (mutants that survived): the terms that grow
-	// with a name, each the work of a name of 808 bytes less that of one of
-	// 8 (%s in the schema and the body), 100 units per hash.
+	// The terms that grow with a name, each the work of a name of 808 bytes
+	// less that of one of 8 (%s in the schema and the body), 100 units per
+	// hash.
 	const long = (808 - 8) / nameHashBytes
 	for _, tc := range []struct {
 		name, schema, body string
@@ -319,14 +315,11 @@ func TestWorkCharges(t *testing.T) {
 	}
 }
 
-// TestMultipleOfCounts is the regression test of the minor review finding
-// that mutants of the multipleOf work term survived: a state counts each
-// of its divisors once per evaluation, also for a schema evaluated twice
-// at the value, and a value whose path is unknown is charged as many
-// checks as its parses against the document's largest divisor, its
-// numerator's and its denominator's digits each.
-//
-// Requirements: 07 section 9 item 21 and architecture R-77.
+// TestMultipleOfCounts pins the counts of the multipleOf work term: a state
+// counts each of its divisors once per evaluation, also for a schema
+// evaluated twice at the value, and a value whose path is unknown is
+// charged as many checks as its parses against the document's largest
+// divisor, its numerator's and its denominator's digits each.
 func TestMultipleOfCounts(t *testing.T) {
 	// 1e-1000 is 1/10^1000: one digit and 1,001.
 	s := mustCompile(t, `{"allOf":[{"$ref":"#/$defs/m"},{"$ref":"#/$defs/m"}],"$defs":{"m":{"multipleOf":1e-1000}}}`)
@@ -353,9 +346,7 @@ func TestMultipleOfCounts(t *testing.T) {
 // TestLiteralDigits pins the digit bounds of the multipleOf work model:
 // a literal's numerator and denominator, and a divisor's, never have more
 // decimal digits than literalDigits and ratDigits allow, on literals at
-// and around the number bounds (review finding).
-//
-// Requirements: 07 section 9 item 21 and architecture R-77.
+// and around the number bounds.
 func TestLiteralDigits(t *testing.T) {
 	for _, tc := range []struct {
 		lit      string
@@ -422,19 +413,16 @@ func splits(s string) []string {
 	return out
 }
 
-// TestUniqueItemsComparisons is the regression test of the minor review
-// finding on the uniqueItems hash (validator util.go duplicates and
-// writeHash): past pairwiseItems items the library compares an item with
-// the earlier items of its hash bucket, and its hash of a value keeps
-// neither a number's sign nor the bounds of an array's or object's parts,
-// so distinct items can share a bucket. Arrays and objects may share one
-// with every other item, a decimal with the few numbers whose numerator
-// and denominator bytes concatenate alike; strings, booleans, nulls and
-// integers (with their negation) never. 2,048 distinct arrays that all
-// share one bucket are charged every pair, over the work limit when the
-// body is at the raw limit.
-//
-// Requirements: 07 section 9 item 21.
+// TestUniqueItemsComparisons covers the uniqueItems hash (validator util.go
+// duplicates and writeHash): past pairwiseItems items the library compares
+// an item with the earlier items of its hash bucket, and its hash of a
+// value keeps neither a number's sign nor the bounds of an array's or
+// object's parts, so distinct items can share a bucket. Arrays and objects
+// may share one with every other item, a decimal with the few numbers whose
+// numerator and denominator bytes concatenate alike; strings, booleans,
+// nulls and integers (with their negation) never. 2,048 distinct arrays
+// that all share one bucket are charged every pair, over the work limit
+// when the body is at the raw limit.
 func TestUniqueItemsComparisons(t *testing.T) {
 	for _, tc := range []struct {
 		body string
@@ -444,15 +432,14 @@ func TestUniqueItemsComparisons(t *testing.T) {
 		{`[` + strings.TrimSuffix(strings.Repeat(`"a",`, 30), ",") + `]`, 1},
 		{`[` + strings.TrimSuffix(strings.Repeat(`-12,`, 30), ",") + `]`, 1},
 		// 5/4: no other split of its bytes is a JSON number, so only -1.25
-		// shares its hash (minor review finding: every split was counted).
+		// shares its hash.
 		{`[` + strings.TrimSuffix(strings.Repeat(`1.25,`, 29), ",") + `,true,null]`, 1},
 		// 18.4375 is 295/16, bytes 01 27 10, which split as 1/10000 too:
 		// 0.0001 and both negations.
 		{`[` + strings.TrimSuffix(strings.Repeat(`1.25,`, 29), ",") + `,18.4375]`, 3},
 		// 0.0015625 is 1/640, bytes 01 02 80: 258/128 is no number's
-		// reduced rational, so only its negation shares its hash (minor
-		// review finding: a mutant without the common-divisor test
-		// survived).
+		// reduced rational, so only its negation shares its hash (this case
+		// needs the common-divisor test).
 		{`[` + strings.TrimSuffix(strings.Repeat(`1.25,`, 29), ",") + `,0.0015625]`, 1},
 		// Past 64 bits, every split of about half the literal's bytes.
 		{`[` + strings.Repeat(`1.25,`, 1999) + longNumber + `]`, 2 * (ratCost(longNumber) - ratBytes + 3)},
@@ -524,14 +511,12 @@ func TestUniqueItemsComparisons(t *testing.T) {
 	}
 }
 
-// TestHandleWorkBound is the regression test of the review finding that
-// validation work grows with the value as well as with the evaluations:
-// through Factory.Build and Handle at the 10 MiB default, bodies that
-// would take seconds of uncancellable work (many evaluations at a wide
-// object or a long string, comparisons with a large const) are
-// filter.ErrTooLarge before the library runs, without reserving anything.
-//
-// Requirements: 07 section 9 item 21.
+// TestHandleWorkBound covers validation work that grows with the value as
+// well as with the evaluations: through Factory.Build and Handle at the
+// 10 MiB default, bodies that would take seconds of uncancellable work
+// (many evaluations at a wide object or a long string, comparisons with a
+// large const) are filter.ErrTooLarge before the library runs, without
+// reserving anything.
 func TestHandleWorkBound(t *testing.T) {
 	var nums []string
 	for i := range 20000 {
@@ -542,13 +527,13 @@ func TestHandleWorkBound(t *testing.T) {
 		{"members", allOfRefs(800, `{"minProperties":0}`), wideObject(30000)},
 		{"string copies", allOfRefs(800, `{"minLength":0}`), `"` + strings.Repeat("a", 2<<20) + `"`},
 		{"const comparisons", `{"allOf":[` + strings.TrimSuffix(strings.Repeat(`{"$ref":"#/$defs/c"},`, 200), ",") + `],"$defs":{"c":` + bigConst + `}}`, `[` + strings.Join(nums, ",") + `]`},
-		// Review finding: a 10 MiB member name, which the properties lookup of
-		// 3,200 evaluations hashes whole, about 1.6 s of the library charged
+		// A 10 MiB member name, which the properties lookup of 3,200
+		// evaluations hashes whole, about 1.6 s of the library charged
 		// nothing per byte.
 		{"long member name", propertiesChain(800), `{"` + strings.Repeat("n", 10<<20-64) + `":1}`},
-		// Review finding: 806,202 short decimals checked against a divisor
-		// of 127 bytes, 52% of the limit, took 6.0 to 6.5 s, charged 0.49 of
-		// the work limit as parses of the body literals.
+		// 806,202 short decimals checked against a divisor of 127 bytes, 52%
+		// of the limit, took 6.0 to 6.5 s, charged 0.49 of the work limit as
+		// parses of the body literals.
 		{"multipleOf of 127 bytes", `{"type":"array","items":{"multipleOf":` + longDivisor + `}}`, "[" + joined(806202, func(i int) string { return fmt.Sprintf("%d.%d", i%1000, i%97) }) + "]"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -566,24 +551,22 @@ func TestHandleWorkBound(t *testing.T) {
 	}
 }
 
-// lineSchema validates arrays of line items, the review finding's plain
-// object-array schema.
+// lineSchema validates arrays of line items, a plain object-array schema.
 const lineSchema = `{"type":"array","items":{"type":"object","required":["sku","qty"],"properties":{"sku":{"type":"string","minLength":1},` +
 	`"qty":{"type":"integer","minimum":1,"maximum":1000},"price":{"type":"number","exclusiveMinimum":0}}}}`
 
-// TestHandleAcceptsLargeBodies is the regression test of the review
-// findings that valid ordinary bodies were refused far inside the raw
-// limit (architecture R-63 and R-77: typical records fit up to about 70 to
-// 84% of the limit; 07 reqs 13, 15 and 80): through Factory.Build and
-// Handle at the 10 MiB default, an order-item array at 80% of the limit
-// and a line-item array at 69% pass, the decoded values (about 4.9 and 5.7
-// times the body) being what limits them, within the reservation limit; a
-// long string under a pattern, a base64-class string and an array of enum
-// values pass too. A valid body reserves the decoded values, with the
-// bytes their maps, arrays and strings hold beyond the decoder's charge
-// (TestHandleReservesDecodedMaps), and the decision pass's working set,
-// never the location pass's, and at most two and a half times the heap
-// Handle holds at its peak; work is never reserved.
+// TestHandleAcceptsLargeBodies checks that valid ordinary bodies pass well
+// inside the raw limit (typical records fit up to about 70 to 84% of the
+// limit): through Factory.Build and Handle at the 10 MiB default, an
+// order-item array at 80% of the limit and a line-item array at 69% pass,
+// the decoded values (about 4.9 and 5.7 times the body) being what limits
+// them, within the reservation limit; a long string under a pattern, a
+// base64-class string and an array of enum values pass too. A valid body
+// reserves the decoded values, with the bytes their maps, arrays and
+// strings hold beyond the decoder's charge (TestHandleReservesDecodedMaps),
+// and the decision pass's working set, never the location pass's, and at
+// most two and a half times the heap Handle holds at its peak; work is
+// never reserved.
 func TestHandleAcceptsLargeBodies(t *testing.T) {
 	enum := make([]string, 600)
 	for i := range enum {
@@ -620,8 +603,7 @@ func TestHandleAcceptsLargeBodies(t *testing.T) {
 			_, scan := scanBody(t, f.schema, tc.body)
 			t.Logf("body %d bytes: reserved %d, peak %.0f, work %d of %d", len(tc.body), px.peak, peak, scan.work, f.limits.work)
 			// The sampled peak follows the collector's pacing: under load it
-			// may miss part of the live heap (minor review finding), hence
-			// two and a half times.
+			// may miss part of the live heap, hence two and a half times.
 			if float64(px.peak) > 2.5*peak+gcSlack {
 				t.Errorf("reserved %d, more than two and a half times the peak %.0f", px.peak, peak)
 			}
@@ -635,24 +617,23 @@ func TestHandleAcceptsLargeBodies(t *testing.T) {
 	}
 }
 
-// TestHandleReservesDecodedMaps is the regression test of the review
-// finding that the decoded values were reserved at the decoder's cost,
-// which leaves out the hash table of every object (internal/jsonval
-// charges a one-member object 80 bytes; it holds 336) and the spare
-// capacity of every array: through Factory.Build and Handle at the 10 MiB
-// default, valid arrays of one-, two- and nine-member objects and of
-// five-item arrays, and one wide object, at about a quarter of the limit,
-// held up to 3.8 times what Handle reserved (07 req 82, architecture R-63,
-// filter.Exchange.Reserve). The reservation now covers the decoded tree,
-// measured exactly after a collection; for the arrays the heap at
-// Handle's peak stays within it but for the collector's pacing and its
-// spans' free slots (peakHeap collects at 10% growth; measured up to 1.22
-// times, and the sampler under load up to 1.41, so the check allows 1.6).
-// A wide object's map leaves the tables it outgrew to the collector while
-// the decoder builds it, before anything is reserved, so only its decoded
-// tree is compared, as for an array of 33-byte strings, whose backing
-// array, large next to its strings, the decoder outgrows several times;
-// strings are charged their allocation size class.
+// TestHandleReservesDecodedMaps covers decoded values reserved at the
+// decoder's cost, which leaves out the hash table of every object
+// (internal/jsonval charges a one-member object 80 bytes; it holds 336) and
+// the spare capacity of every array: through Factory.Build and Handle at
+// the 10 MiB default, valid arrays of one-, two- and nine-member objects
+// and of five-item arrays, and one wide object, at about a quarter of the
+// limit, held up to 3.8 times what Handle reserved
+// (filter.Exchange.Reserve). The reservation covers the decoded tree,
+// measured exactly after a collection; for the arrays the heap at Handle's
+// peak stays within it but for the collector's pacing and its spans' free
+// slots (peakHeap collects at 10% growth; measured up to 1.22 times, and
+// the sampler under load up to 1.41, so the check allows 1.6). A wide
+// object's map leaves the tables it outgrew to the collector while the
+// decoder builds it, before anything is reserved, so only its decoded tree
+// is compared, as for an array of 33-byte strings, whose backing array,
+// large next to its strings, the decoder outgrows several times; strings
+// are charged their allocation size class.
 func TestHandleReservesDecodedMaps(t *testing.T) {
 	limit, scale, raw := int64(10<<20), 1, int64(0)
 	if raceEnabled {
@@ -674,8 +655,7 @@ func TestHandleReservesDecodedMaps(t *testing.T) {
 		{"five items", `{"type":"array","items":{"type":"array"}}`, denseArray(150000/scale, `[1,2,3,4,5]`, 0), 0.15, true},
 		// Strings of 33 bytes take the 48-byte size class.
 		{"strings", `{"type":"array","items":{"type":"string"}}`, denseArray(80000/scale, `"`+strings.Repeat("s", 33)+`"`, 0), 0.25, false},
-		// Minor review finding: member names of 1,025 bytes take the
-		// 1,152-byte size class.
+		// Member names of 1,025 bytes take the 1,152-byte size class.
 		{"long member names", `{"type":"array","items":{"type":"object"}}`, denseArray(2000/scale, `{"`+strings.Repeat("n", 1025)+`":1}`, 0), 0.19, false},
 		{"one wide object", `{"type":"object"}`, wideObject(250000 / scale), 0.2, false},
 	} {
@@ -772,10 +752,7 @@ func shortStrings(v any) int64 {
 // per byte of maxRequestBodyBytes, the 10 MiB default when unset, and
 // below the saturation of the counts however large the limit; a body at
 // the limit validates, one unit above it is filter.ErrTooLarge, and past
-// the limit a number out of range is still the deterministic 400 (minor
-// review findings).
-//
-// Requirements: 07 section 9 item 21.
+// the limit a number out of range is still the deterministic 400.
 func TestWorkLimit(t *testing.T) {
 	body := records(50)
 	f := buildFilter(t, recordsSchema, testLimit)
@@ -814,16 +791,15 @@ func TestWorkLimit(t *testing.T) {
 	}
 }
 
-// TestHandleReservationLimit is the regression test of the review finding
-// that nothing bounded the reservation as a whole: the decoded values were
-// limited at the decoder's charge and the decision pass's working set on
-// its own, but not what the maps, arrays and strings hold beyond the
-// decoder's charge, so a valid 2.15 MB array of one-member objects reserved
-// 17.6 times the 10 MiB default (185 MB), and under a 24 MiB limit a valid
-// body needed more than a gate's share of the Node's budget, 503 on an idle
-// Node. What Handle reserves is now at most ReservationFactor times the raw
-// limit, or the body is filter.ErrTooLarge (413) before anything is
-// reserved:
+// TestHandleReservationLimit covers the bound on the reservation as a
+// whole: with the decoded values limited at the decoder's charge and the
+// decision pass's working set on its own, but not what the maps, arrays and
+// strings hold beyond the decoder's charge, a valid 2.15 MB array of
+// one-member objects reserved 17.6 times the 10 MiB default (185 MB), and
+// under a 24 MiB limit a valid body needed more than a gate's share of the
+// Node's budget, 503 on an idle Node. What Handle reserves is at most
+// ReservationFactor times the raw limit, or the body is filter.ErrTooLarge
+// (413) before anything is reserved:
 //
 //   - a body whose reservation is at the limit validates, and one byte
 //     more is 413;
@@ -832,8 +808,6 @@ func TestWorkLimit(t *testing.T) {
 //   - through Factory.Build, the largest valid array of one-member objects
 //     under a properties schema reserves at most ReservationFactor times
 //     the raw limit, and one more item is 413.
-//
-// Requirements: architecture R-77 and R-63, 07 reqs 15 and 82.
 func TestHandleReservationLimit(t *testing.T) {
 	body := records(50)
 	f := buildFilter(t, recordsSchema, testLimit)
@@ -877,7 +851,7 @@ func TestHandleReservationLimit(t *testing.T) {
 		t.Errorf("location pass at the reservation limit: %q, want the location", detailOf(t, r))
 	}
 
-	// The review finding's shape, at a raw limit of 1 MiB: the largest
+	// Arrays of one-member objects, at a raw limit of 1 MiB: the largest
 	// valid array that passes every limit before Handle reserves.
 	const raw = 1 << 20
 	f = buildFilter(t, `{"type":"array","items":{"type":"object","properties":{"a":{"type":"integer","minimum":0,"maximum":9}}}}`, raw)

@@ -10,16 +10,14 @@ import (
 	"testing"
 )
 
-// Tests for architecture section 2.10 (WP-01) and spec 09: requirement 39
-// (naming), 40 (units), 41 and 44 (label values), 42 (bounds), 43 (the M1
-// families), 57 and 58 (degraded reasons, hops) and the static half of the
-// 2.16 gates (requirement 77 (d): grammar, suffixes, unique names, span
-// names). Architecture 2.10 has no catalog.Validate() (09 section 3): these
-// tests hold the 77 (d) checks for the catalog itself, and repocheck
-// (WP-12) holds the checks of code outside it.
+// Tests for the telemetry catalog: naming, units, label values, histogram
+// bounds, the M1 families, degraded reasons and hops, and the static half
+// of the catalog gates (name grammar, suffixes, unique names, span names).
+// The catalog has no Validate(): these tests hold the name checks for the
+// catalog itself, and repocheck holds the checks of code outside it.
 
-// family is one row of 09 req 43: labels are "name", "name=v1|v2" for an
-// enumeration or "name!" for an RZ code label.
+// family is one row: labels are "name", "name=v1|v2" for an enumeration
+// or "name!" for an RZ code label.
 type family struct {
 	name    string
 	kind    Kind
@@ -35,27 +33,27 @@ const (
 	proto = "protocol=http1|http2"
 	ph    = "phase=onRequestHeaders|onRequestBody|onRoute|onUpstreamRequest|onUpstreamResponseHeaders|onUpstreamResponseBody|onResponse|onLog|onChunk"
 	ops   = "gcra|quota|cache_get|script_multi|pipeline|cache_set|cache_invalidate|refund"
-	// singleOps is 09 req 44's `kind` of ruralz_state_ops_total, "any
-	// single-operation op": ops without the round-trip labels.
+	// singleOps is the `kind` of ruralz_state_ops_total, "any
+	// single-operation op" in Observability: ops without the round-trip
+	// labels.
 	singleOps = "gcra|quota|cache_get|cache_set|cache_invalidate|refund"
 )
 
-// contractDeviations lists the families whose committed labels differ from
-// 09 req 43 and 44 because architecture 2.10 (binding over the area spec)
-// says otherwise; each value is the committed label set. An entry is
-// removed when the lead settles the contract change request it names.
+// contractDeviations lists the families whose committed labels differ
+// from the M1 family table; each value is the committed label set. An
+// entry is removed once its deviation is settled.
 func contractDeviations() map[string][]string {
 	return map[string][]string{
-		// Architecture 2.10 gives `kind` the full Ops() list, so the
+		// The catalog gives `kind` the full Ops() list, so the
 		// script_multi and pipeline round-trip labels are pre-created too;
 		// emit.StateMetrics.Ops keeps one slot per StateOp* index either
-		// way. Contract change request (WP-01 report): restrict `kind` to
-		// the single-operation ops or record the deviation in 2.16.
+		// way. Settling it means restricting `kind` to the single-operation
+		// ops or recording the deviation in Observability.
 		StateOpsTotal: {"kind=" + ops},
 	}
 }
 
-func spec43() []family {
+func m1Families() []family {
 	L, R, U, P := ClassListener, ClassRoute, ClassUpstream, ClassPolicy
 	return []family{
 		{HTTPRequestsTotal, Counter, BoundsNone, "{requests}", []string{"route", sc}, R, true},
@@ -133,10 +131,10 @@ func labelSpec(l Label) string {
 }
 
 func TestFamiliesMatchSpec(t *testing.T) {
-	want := spec43()
+	want := m1Families()
 	got := Families()
 	if len(got) != len(want) {
-		t.Fatalf("%d families, want the %d of 09 req 43", len(got), len(want))
+		t.Fatalf("%d families, want the %d M1 families", len(got), len(want))
 	}
 	deviations := contractDeviations()
 	for i, w := range want {
@@ -162,12 +160,12 @@ func TestFamiliesMatchSpec(t *testing.T) {
 		}
 	}
 	for name := range deviations {
-		t.Errorf("recorded deviation for %s matches no 09 req 43 family", name)
+		t.Errorf("recorded deviation for %s matches no M1 family", name)
 	}
 }
 
 func TestNaming(t *testing.T) {
-	// 09 req 39, 40 and 77 (d).
+	// Name grammar, unique names, kind suffixes and units.
 	loose := regexp.MustCompile(`^ruralz_[a-z0-9_]+$`)
 	grammar := regexp.MustCompile(`^ruralz_[a-z][a-z0-9]*(_[a-z0-9]+)+$`)
 	noun := regexp.MustCompile(`^\{[a-z_]+\}$`)
@@ -234,8 +232,8 @@ func TestNaming(t *testing.T) {
 }
 
 func TestLabels(t *testing.T) {
-	// 09 req 41 and 44: resource labels carry names, enumerations are
-	// fixed, codes are registered RZ codes; names are snake_case.
+	// Resource labels carry names, enumerations are fixed, codes are
+	// registered RZ codes; names are snake_case.
 	name := regexp.MustCompile(`^[a-z][a-z_]*$`)
 	resource := []string{"route", "upstream", "policy", "listener", "revision", "instrument"}
 	for _, f := range Families() {
@@ -276,7 +274,7 @@ func TestLabels(t *testing.T) {
 }
 
 func TestBounds(t *testing.T) {
-	// 09 req 42: five sets of 13 ascending bounds.
+	// Five sets of 13 ascending bounds.
 	sets := map[Bounds][]float64{
 		BoundsFast:    {0.00001, 0.000025, 0.00005, 0.0001, 0.00015, 0.00025, 0.0005, 0.001, 0.0025, 0.005, 0.01, 0.025, 0.1},
 		BoundsRequest: {0.001, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1, 2.5, 5, 10, 60},
@@ -317,7 +315,7 @@ func TestLookup(t *testing.T) {
 }
 
 func TestReasons(t *testing.T) {
-	// 09 req 57 plus crl_stale (R-37).
+	// The M1 degraded reasons plus crl_stale.
 	want := []string{
 		"lkg_boot", "lkg_write_failed", "state_store_memory_fallback", "state_store_unauthenticated",
 		"state_store_breaker_open", "state_store_eviction_policy", "upstream_panic", "discovery_stale",
@@ -347,7 +345,7 @@ func TestReasons(t *testing.T) {
 }
 
 func TestHops(t *testing.T) {
-	// 09 req 58.
+	// The hop kinds of ruralz_security_cleartext_hops.
 	want := []string{"client", "upstream", "state_store", "telemetry", "admin"}
 	if !slices.Equal(HopNames(), want) || int(NumHops) != len(want) {
 		t.Fatalf("HopNames = %v, NumHops %d", HopNames(), NumHops)
@@ -363,7 +361,7 @@ func TestHops(t *testing.T) {
 }
 
 func TestOpsAndWriteKinds(t *testing.T) {
-	// 09 req 44, M1 subset: single ops first, then round-trip labels,
+	// The M1 op enumeration: single ops first, then round-trip labels,
 	// then post-commit write kinds.
 	if got := strings.Join(Ops(), "|"); got != ops {
 		t.Fatalf("Ops = %s", got)
@@ -376,8 +374,8 @@ func TestOpsAndWriteKinds(t *testing.T) {
 }
 
 func TestSpansAndKeys(t *testing.T) {
-	// 09 req 77 (b) and (d): span names are ruralz.route.match or carry
-	// the filter and upstream prefixes.
+	// Span names are ruralz.route.match or carry the filter and upstream
+	// prefixes.
 	if SpanRouteMatch != "ruralz.route.match" {
 		t.Errorf("SpanRouteMatch = %s", SpanRouteMatch)
 	}

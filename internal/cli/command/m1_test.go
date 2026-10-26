@@ -21,9 +21,9 @@ import (
 	"github.com/ravindu-rev/ruralz/internal/errcode"
 )
 
-// Tests for spec 10 section 2.1 (reqs 3 to 12) and 2.2 (reqs 13, 15,
-// 18 to 23) through Execute over the M1 table, plus the golden help of
-// section 6.2: root, each noun and each of the ten commands.
+// Tests for dispatch, streams and exit codes through Execute over the M1
+// table, plus the golden help: root, each noun and each of the ten
+// commands.
 
 // update rewrites the golden files: go test ./internal/cli/command -update.
 var update = flag.Bool("update", false, "rewrite testdata golden files")
@@ -66,7 +66,7 @@ func golden(t *testing.T, name, got string) {
 }
 
 // TestM1TableIsValid checks the fixture with Check and pins the ten M1
-// commands of req 3.
+// commands.
 func TestM1TableIsValid(t *testing.T) {
 	specs := m1Table(echo)
 	if err := command.Check(specs); err != nil {
@@ -79,8 +79,8 @@ func TestM1TableIsValid(t *testing.T) {
 	}
 }
 
-// TestGoldenHelp covers req 6 and section 6.2: every help form prints the
-// same text to stdout and exits 0.
+// TestGoldenHelp checks the golden help: every help form prints the same
+// text to stdout and exits 0.
 func TestGoldenHelp(t *testing.T) {
 	specs := m1Table(echo)
 	type form struct {
@@ -119,7 +119,7 @@ func TestGoldenHelp(t *testing.T) {
 	}
 }
 
-// TestHelpOmitsPlanned covers req 8: Planned commands are absent from help.
+// TestHelpOmitsPlanned checks that Planned commands are absent from help.
 func TestHelpOmitsPlanned(t *testing.T) {
 	specs := m1Table(echo)
 	planned := map[string]bool{"push": true, "audit": true, "rollout": true, "test": true, "ai": true, "list": true}
@@ -139,7 +139,7 @@ func TestHelpOmitsPlanned(t *testing.T) {
 	}
 }
 
-// TestBareInvocation covers req 7: bare ruralz prints the root usage to
+// TestBareInvocation checks that bare ruralz prints the root usage to
 // stderr and exits 2.
 func TestBareInvocation(t *testing.T) {
 	specs := m1Table(echo)
@@ -150,8 +150,8 @@ func TestBareInvocation(t *testing.T) {
 	}
 }
 
-// TestUsageErrors covers reqs 7, 8, 10 and 15: exact stderr, empty stdout,
-// exit 2.
+// TestUsageErrors covers usage errors, Planned commands, the platform gate
+// and unsupported --output values: exact stderr, empty stdout, exit 2.
 func TestUsageErrors(t *testing.T) {
 	specs := m1Table(echo)
 	cases := []struct {
@@ -161,7 +161,7 @@ func TestUsageErrors(t *testing.T) {
 		stderr string
 	}{
 		{
-			"noun without verb (req 7)", "linux",
+			"noun without verb", "linux",
 			[]string{"bundle"},
 			"ruralz bundle: missing verb (want build, diff, render or validate)\nRun 'ruralz bundle --help' for usage.\n",
 		},
@@ -196,22 +196,22 @@ func TestUsageErrors(t *testing.T) {
 			"ruralz: unknown flag --output (flags follow the command)\nRun 'ruralz --help' for usage.\n",
 		},
 		{
-			"planned verb (req 8)", "linux",
+			"planned verb", "linux",
 			[]string{"bundle", "push", "--env", "prod"},
 			"ruralz bundle push is Planned (M2) and not in this build\n",
 		},
 		{
-			"planned verb help (req 8)", "linux",
+			"planned verb help", "linux",
 			[]string{"bundle", "push", "--help"},
 			"ruralz bundle push is Planned (M2) and not in this build\n",
 		},
 		{
-			"planned noun verb (req 8)", "linux",
+			"planned noun verb", "linux",
 			[]string{"rollout", "status"},
 			"ruralz rollout status is Planned (M2) and not in this build\n",
 		},
 		{
-			"planned noun (req 8)", "linux",
+			"planned noun", "linux",
 			[]string{"rollout"},
 			"ruralz rollout is Planned (M2) and not in this build\n",
 		},
@@ -281,17 +281,17 @@ func TestUsageErrors(t *testing.T) {
 			"ruralz version: unknown flag --outptu (did you mean --output?)\nRun 'ruralz version --help' for usage.\n",
 		},
 		{
-			"enum value (req 15)", "linux",
+			"enum value", "linux",
 			[]string{"version", "--output", "yaml"},
 			"ruralz version: unsupported --output \"yaml\" (want text or json)\nRun 'ruralz version --help' for usage.\n",
 		},
 		{
-			"enum value per mode (req 15)", "linux",
+			"enum value per mode", "linux",
 			[]string{"bundle", "render", "--output", "text"},
 			"ruralz bundle render: unsupported --output \"text\" (want yaml or json)\nRun 'ruralz bundle render --help' for usage.\n",
 		},
 		{
-			"enum value in a mode (req 15)", "linux",
+			"enum value in a mode", "linux",
 			[]string{"bundle", "render", "--output", "yaml", "--effective"},
 			"ruralz bundle render: unsupported --output \"yaml\" (want text or json)\nRun 'ruralz bundle render --help' for usage.\n",
 		},
@@ -306,12 +306,12 @@ func TestUsageErrors(t *testing.T) {
 			"ruralz bundle validate: invalid value \"maybe\" for --online: want true or false\nRun 'ruralz bundle validate --help' for usage.\n",
 		},
 		{
-			"unparsable duration (req 7)", "linux",
+			"unparsable duration", "linux",
 			[]string{"node", "drain", "--timeout", "5x"},
 			"ruralz node drain: invalid value \"5x\" for --timeout: want a duration such as 30s or 5m\nRun 'ruralz node drain --help' for usage.\n",
 		},
 		{
-			"zero duration (req 94)", "linux",
+			"zero duration", "linux",
 			[]string{"node", "drain", "--timeout", "0"},
 			"ruralz node drain: invalid value \"0\" for --timeout: must be greater than zero\nRun 'ruralz node drain --help' for usage.\n",
 		},
@@ -336,32 +336,32 @@ func TestUsageErrors(t *testing.T) {
 			"ruralz bundle diff: unexpected argument \"c\"\nRun 'ruralz bundle diff --help' for usage.\n",
 		},
 		{
-			"unknown shell (req 106)", "linux",
+			"unknown shell", "linux",
 			[]string{"completion", "tcsh"},
 			"ruralz completion: unsupported SHELL \"tcsh\" (want bash, zsh, fish or powershell)\nRun 'ruralz completion --help' for usage.\n",
 		},
 		{
-			"two shells (req 106)", "linux",
+			"two shells", "linux",
 			[]string{"completion", "bash", "zsh"},
 			"ruralz completion: unexpected argument \"zsh\"\nRun 'ruralz completion --help' for usage.\n",
 		},
 		{
-			"dev run on windows (req 10, 70)", "windows",
+			"dev run on windows", "windows",
 			[]string{"dev", "run"},
 			"ruralz dev run is not planned on windows: there is no ruralzd build; use WSL\n",
 		},
 		{
-			"node drain on darwin (req 10, 97)", "darwin",
+			"node drain on darwin", "darwin",
 			[]string{"node", "drain"},
 			"ruralz node drain is not planned on darwin: it needs /proc/locks\n",
 		},
 		{
-			"node drain on windows (req 10, 97)", "windows",
+			"node drain on windows", "windows",
 			[]string{"node", "drain", "--timeout", "1m"},
 			"ruralz node drain is not planned on windows: there is no ruralzd and no SIGTERM\n",
 		},
 		{
-			"platform before usage (req 10)", "darwin",
+			"platform before usage", "darwin",
 			[]string{"node", "drain", "--bogus"},
 			"ruralz node drain is not planned on darwin: it needs /proc/locks\n",
 		},
@@ -382,8 +382,8 @@ func TestUsageErrors(t *testing.T) {
 	}
 }
 
-// TestPlatformGateAllowsOthers covers req 10: gated commands run on the
-// other platforms, and help still works where they do not.
+// TestPlatformGateAllowsOthers checks that gated commands run on the other
+// platforms, and that help still works where they do not.
 func TestPlatformGateAllowsOthers(t *testing.T) {
 	specs := m1Table(echo)
 	for _, c := range []struct {
@@ -406,8 +406,8 @@ func TestPlatformGateAllowsOthers(t *testing.T) {
 	}
 }
 
-// TestInterspersedDispatch covers req 5 end to end: positionals and flag
-// values reach the command whatever the order.
+// TestInterspersedDispatch covers interspersed flags end to end:
+// positionals and flag values reach the command whatever the order.
 func TestInterspersedDispatch(t *testing.T) {
 	specs := m1Table(echo)
 	cases := []struct {
@@ -524,7 +524,7 @@ func TestInterspersedDispatch(t *testing.T) {
 	}
 }
 
-// problemError is an admin error carrying its problem document (req 23).
+// problemError is an admin error carrying its problem document.
 type problemError struct{ doc string }
 
 func (e problemError) Error() string {
@@ -532,9 +532,8 @@ func (e problemError) Error() string {
 }
 func (e problemError) ProblemJSON() []byte { return []byte(e.doc) }
 
-// TestExitCodeTable is the exit-code table test of the work package: each
-// result a command can return, its exit code (req 18) and its streams
-// (reqs 13, 22, 23).
+// TestExitCodeTable is the exit-code table test: each result a command can
+// return, its exit code and its streams.
 func TestExitCodeTable(t *testing.T) {
 	sigint, stopINT := context.WithCancelCause(context.Background())
 	stopINT(command.Interrupted{Signal: os.Interrupt})
@@ -557,19 +556,19 @@ func TestExitCodeTable(t *testing.T) {
 		{"negative result", nil, nil, func(context.Context) error { return command.Negative() }, 1, "", ""},
 		{"negative wrapped", nil, nil, func(context.Context) error { return fmt.Errorf("check: %w", command.Negative()) }, 1, "", ""},
 		{
-			"negative joined with a failure (req 22)", nil, nil,
+			"negative joined with a failure", nil, nil,
 			func(context.Context) error { return errors.Join(errors.New("real failure"), command.Negative()) }, 1, "",
 			"ruralz version: real failure\n",
 		},
 		{
-			"wrapped join with a negative (req 22)", nil, nil,
+			"wrapped join with a negative", nil, nil,
 			func(context.Context) error {
 				return fmt.Errorf("check: %w", errors.Join(command.Negative(), errors.New("real failure")))
 			}, 1, "",
 			"ruralz version: check: real failure\n",
 		},
 		{
-			"join with a wrapped negative (req 22)", nil, nil,
+			"join with a wrapped negative", nil, nil,
 			func(context.Context) error {
 				return errors.Join(errors.New("first"), fmt.Errorf("check: %w", command.Negative()), errors.New("second"))
 			}, 1, "",
@@ -603,23 +602,23 @@ func TestExitCodeTable(t *testing.T) {
 		{"no result, printed", nil, nil, func(context.Context) error { return command.NoResult(nil) }, 2, "", ""},
 		{"plain error", nil, nil, func(context.Context) error { return errors.New("boom") }, 2, "", "ruralz version: boom\n"},
 		{
-			"RZ code (req 22)", nil, nil,
+			"RZ code", nil, nil,
 			func(context.Context) error {
 				return fmt.Errorf("verify dump: %w", errcode.Errorf("RZ-CFG-027", "content does not hash to its digest"))
 			}, 2, "", "ruralz version: verify dump: RZ-CFG-027: content does not hash to its digest\n",
 		},
 		{
-			"multi-line error (req 22)", nil, nil,
+			"multi-line error", nil, nil,
 			func(context.Context) error { return errors.Join(errors.New("first"), errors.New("second")) }, 2, "",
 			"ruralz version: first; second\n",
 		},
 		{
-			"usage error (req 7)", nil, nil, func(context.Context) error { return command.Usagef("--effective needs --route") }, 2, "",
+			"usage error", nil, nil, func(context.Context) error { return command.Usagef("--effective needs --route") }, 2, "",
 			"ruralz version: --effective needs --route\nRun 'ruralz version --help' for usage.\n",
 		},
 		{"waiting on a person", nil, nil, func(context.Context) error { return command.Exit(command.ExitWaiting) }, 3, "", ""},
-		{"interrupted by SIGINT (req 21)", sigint, nil, context.Cause, 130, "", ""},
-		{"interrupted by SIGTERM (req 21)", sigterm, nil, func(ctx context.Context) error { return ctx.Err() }, 130, "", ""},
+		{"interrupted by SIGINT", sigint, nil, context.Cause, 130, "", ""},
+		{"interrupted by SIGTERM", sigterm, nil, func(ctx context.Context) error { return ctx.Err() }, 130, "", ""},
 		{"interrupted, success", sigint, nil, func(context.Context) error { return nil }, 130, "", ""},
 		{
 			"interrupted, other error printed", sigint, nil, func(context.Context) error { return errors.New("cleanup failed") }, 130, "",
@@ -634,12 +633,12 @@ func TestExitCodeTable(t *testing.T) {
 			func(context.Context) error { return fmt.Errorf("wait: %w", command.Interrupted{Signal: os.Interrupt}) }, 130, "", "",
 		},
 		{
-			"problem document, text (req 23)", nil, nil,
+			"problem document, text", nil, nil,
 			func(context.Context) error { return command.NoResult(problemError{doc}) }, 2, "",
 			"ruralz version: 401 Unauthorized: token required (code RZ-AUTH-001, requestId 0123)\n",
 		},
 		{
-			"problem document, json (req 23)", nil,
+			"problem document, json", nil,
 			[]string{"--output", "json"},
 			func(context.Context) error { return command.NoResult(problemError{doc}) }, 2, doc + "\n",
 			"ruralz version: 401 Unauthorized: token required (code RZ-AUTH-001, requestId 0123)\n",
@@ -670,7 +669,7 @@ func TestExitCodeTable(t *testing.T) {
 	}
 }
 
-// TestCode covers the Code mapping of req 18 directly.
+// TestCode covers the Code mapping directly.
 func TestCode(t *testing.T) {
 	sigint, stop := context.WithCancelCause(context.Background())
 	stop(command.Interrupted{Signal: os.Interrupt})
@@ -699,8 +698,8 @@ func TestCode(t *testing.T) {
 	}
 }
 
-// TestDeprecation covers req 9: deprecated flags and commands warn on
-// stderr and still run.
+// TestDeprecation checks that deprecated flags and commands warn on stderr
+// and still run.
 func TestDeprecation(t *testing.T) {
 	specs := []command.Spec{{
 		Path: []string{"node", "old"}, Summary: "An old verb", Deprecated: "use ruralz node new",
@@ -743,8 +742,8 @@ func TestHelpWithoutNounDescription(t *testing.T) {
 	}
 }
 
-// TestStreamsOfTheCommand covers req 13: a command writes data to stdout
-// and progress to stderr through IO.
+// TestStreamsOfTheCommand checks that a command writes data to stdout and
+// progress to stderr through IO.
 func TestStreamsOfTheCommand(t *testing.T) {
 	run := func(_ context.Context, sio command.IO, _ []string, _ *values) error {
 		_, _ = fmt.Fprintln(sio.Stderr, "progress")

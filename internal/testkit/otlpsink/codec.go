@@ -33,8 +33,7 @@ type capture struct {
 // rawCodec is the server codec. It delegates to gRPC's registered "proto"
 // codec and, when decoding into a *capture, keeps a copy of the request's
 // wire bytes (after gRPC decompression), so the handler records exactly
-// what the client sent for canary scans (11 req 39). It holds no
-// per-request state.
+// what the client sent for canary scans. It holds no per-request state.
 type rawCodec struct {
 	base encoding.CodecV2
 }

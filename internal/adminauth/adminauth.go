@@ -4,11 +4,10 @@
 // Package adminauth authenticates the Ruralz Gateway admin server (port
 // 9901; the Ruralz Control admin port 9902 reuses it in M2): the settings
 // RURALZ_ADMIN_TOKEN_FILE, RURALZ_ADMIN_METRICS_TOKEN_FILE and
-// RURALZ_ADMIN_TLS_DIR (OQ-security-and-identity-7 (a)), bearer tokens
+// RURALZ_ADMIN_TLS_DIR, bearer tokens
 // compared in constant time over SHA-256 digests, the loopback rule for
 // cleartext, client certificates admitted by the TLS directory's ca.crt,
-// and 401 problem documents with RZ-AUTH-001 or RZ-AUTH-002 (spec 06
-// requirements 93 to 96, spec 04 requirement 70).
+// and 401 problem documents with RZ-AUTH-001 or RZ-AUTH-002.
 //
 // Authorization matrix: /healthz and /readyz are open; /metrics needs the
 // metrics token, the operator token or an admitted client certificate on
@@ -27,9 +26,8 @@
 // package checks that tls.crt and tls.key exist and parses ca.crt, whose
 // certificates are the only anchors a verified client chain may end at.
 //
-// Audit: the /tap and /config/dump access records of spec 06 requirement
-// 96 go to Options.Logger, which ruralzd must set; AuditEnabled reports
-// whether it is.
+// Audit: the /tap and /config/dump access records go to Options.Logger,
+// which ruralzd must set; AuditEnabled reports whether it is.
 package adminauth
 
 import (
@@ -47,7 +45,7 @@ import (
 	"github.com/ravindu-rev/ruralz/internal/problem"
 )
 
-// RZ codes of admin authentication failures (spec 06 requirement 95).
+// RZ codes of admin authentication failures.
 const (
 	// CodeMissing is a request that presented no credential.
 	CodeMissing = "RZ-AUTH-001"
@@ -165,9 +163,9 @@ type Options struct {
 	// Logger receives the access records of /tap and /config/dump (info),
 	// token rotations (info), rotation failures and revocations (warn) and
 	// denials (debug); a logger handed out by internal/telemetry. ruralzd
-	// must set it: the access records are the audit trail spec 06
-	// requirement 96 requires. A nil Logger logs nothing, the audit trail
-	// included, and AuditEnabled then reports false.
+	// must set it: the access records are the admin audit trail. A nil
+	// Logger logs nothing, the audit trail included, and AuditEnabled then
+	// reports false.
 	Logger *slog.Logger
 	// RequestID returns the problem document's requestId; nil leaves it
 	// empty.
@@ -238,9 +236,9 @@ func (a *Authenticator) Configured() bool {
 	return a.operator != nil || a.metrics != nil || a.ClientCertificates()
 }
 
-// AuditEnabled reports whether the /tap and /config/dump uses are logged
-// (spec 06 requirement 96), that is whether Options.Logger was set. The
-// admin server's owner asserts it.
+// AuditEnabled reports whether the /tap and /config/dump uses are
+// logged, that is whether Options.Logger was set. The admin server's
+// owner asserts it.
 func (a *Authenticator) AuditEnabled() bool { return a.log != nil }
 
 // Reload re-reads every token file now (for example on SIGHUP). A file
@@ -474,8 +472,7 @@ func PrincipalFrom(ctx context.Context) (Principal, bool) {
 	return p, ok
 }
 
-// audited reports the paths whose every use is logged at info (spec 06
-// requirement 96).
+// audited reports the paths whose every use is logged at info.
 func audited(path string) bool { return path == "/tap" || path == "/config/dump" }
 
 // Middleware authenticates every request before next. A refused request

@@ -10,8 +10,8 @@ import (
 	"testing"
 )
 
-// 09 req 64, test plan 6.1 item 4.
-func TestParseLevel_Req64(t *testing.T) {
+// TestParseLevel covers the accepted and refused log level values.
+func TestParseLevel(t *testing.T) {
 	tests := []struct {
 		in      string
 		want    slog.Level

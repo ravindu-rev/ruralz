@@ -53,10 +53,10 @@ func linkedCatalog() catalogView {
 	}
 }
 
-// validateCatalog is check (d) of 09 req 77, catalog.Validate() in spec 09
-// section 3: the foundation pack grammar and suffix rules for every family,
-// unique names, well-formed labels, units and bounds, degraded reasons and
-// hops, and the three span names.
+// validateCatalog is check (d), the validation the catalog package has no
+// Validate() for: the foundation pack grammar and suffix rules for every
+// family, unique names, well-formed labels, units and bounds, degraded
+// reasons and hops, and the three span names.
 func validateCatalog(c catalogView) []string {
 	grammar := regexp.MustCompile(`^ruralz_[a-z][a-z0-9]*(_[a-z0-9]+)+$`)
 	snake := regexp.MustCompile(`^[a-z][a-z0-9]*(_[a-z0-9]+)*$`)
@@ -151,10 +151,10 @@ func hasAnySuffix(s string, suffixes ...string) bool {
 	return slices.ContainsFunc(suffixes, func(x string) bool { return strings.HasSuffix(s, x) })
 }
 
-// checkTelemetryNames is checks (a) to (c) of 09 req 77 for one non-test Go
-// file outside the catalog: (a) a string literal that is exactly a metric
-// name, (b) a literal starting with a span name prefix, and (c) a call
-// X.Start(ctx, "<literal>", ...) naming a span with a literal.
+// checkTelemetryNames is checks (a) to (c) for one non-test Go file outside
+// the catalog: (a) a string literal that is exactly a metric name, (b) a
+// literal starting with a span name prefix, and (c) a call X.Start(ctx,
+// "<literal>", ...) naming a span with a literal.
 func checkTelemetryNames(fset *token.FileSet, rel string, f *ast.File) []finding {
 	if strings.HasSuffix(rel, "_test.go") || strings.HasPrefix(rel, catalogDir) {
 		return nil

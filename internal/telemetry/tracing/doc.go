@@ -2,8 +2,8 @@
 // SPDX-License-Identifier: Apache-2.0
 
 // Package tracing implements emit.Tracer and emit.Span for ruralzd on the
-// OpenTelemetry trace SDK (spec 09 sections 2.4 and 2.5,
-// docs/architecture/10-observability.md "Tracing").
+// OpenTelemetry trace SDK (docs/architecture/10-observability.md
+// "Tracing").
 //
 // Every request gets exactly one sampling decision (Tracer.Decide): the
 // W3C traceparent of the client, when valid, parents the server span and

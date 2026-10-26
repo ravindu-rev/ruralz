@@ -17,12 +17,12 @@ import (
 	"github.com/ravindu-rev/ruralz/internal/telemetry/emit"
 )
 
-// Tests for spec 06 requirements 3 (Security rule 2: a second successful
-// authentication is 401 RZ-AUTH-002, whether or not either bound a
-// Consumer), 7 (problem documents with registry statuses and no detail), 8
-// (WWW-Authenticate on every 401 of a type with a challenge; Retry-After in
-// integer seconds, at least 1, on every 429) and 10 (every auth and authz
-// decision counts ruralz_auth_decisions_total with the RZ code on deny).
+// Tests for Security rule 2 (a second successful authentication is 401
+// RZ-AUTH-002, whether or not either bound a Consumer), problem documents
+// with registry statuses and no detail, WWW-Authenticate on every 401 of a
+// type with a challenge, Retry-After in integer seconds, at least 1, on
+// every 429, and decision counting: every auth and authz decision counts
+// ruralz_auth_decisions_total with the RZ code on deny.
 
 // decisions records AuthDecisions calls.
 type decisions struct {
@@ -48,7 +48,7 @@ func (d *decisions) Deny(s emit.Stripe, code string) {
 
 func metricsWith(d *decisions) *emit.PolicyMetrics { return &emit.PolicyMetrics{Auth: d} }
 
-func TestReq7And8DenyAnswers(t *testing.T) {
+func TestAnd8DenyAnswers(t *testing.T) {
 	tests := []struct {
 		name      string
 		challenge string
@@ -99,7 +99,7 @@ func TestReq7And8DenyAnswers(t *testing.T) {
 
 // Every rejection gets its own header map, so a later onResponse edit of
 // one generated response never leaks into another.
-func TestReq8DenyHeadersAreNotShared(t *testing.T) {
+func TestDenyHeadersAreNotShared(t *testing.T) {
 	d := NewAuth(nil, ChallengeJWT)
 	x := &filtertest.Exchange{}
 	a := d.Deny(x, CodeInvalid).Response
@@ -109,7 +109,7 @@ func TestReq8DenyHeadersAreNotShared(t *testing.T) {
 	}
 }
 
-func TestReq8ThrottleRetryAfter(t *testing.T) {
+func TestThrottleRetryAfter(t *testing.T) {
 	tests := []struct {
 		delay time.Duration
 		want  string
@@ -142,7 +142,7 @@ func TestReq8ThrottleRetryAfter(t *testing.T) {
 	}
 }
 
-func TestReq3SecondAuthenticationFails(t *testing.T) {
+func TestSecondAuthenticationFails(t *testing.T) {
 	acme := &expr.Consumer{Name: "acme"}
 	tests := []struct {
 		name          string
@@ -188,7 +188,7 @@ func (*legView) SetIdentity(*filter.Identity) error { return filter.ErrNotAvaila
 // returns CannotDecide (never Respond), with a code whose registered status
 // is 401, and exposes as Challenger the value the executor adds as
 // WWW-Authenticate to that 401; authz and auth.mtls expose none.
-func TestReq8UndecidedLeavesTheChallengeToTheExecutor(t *testing.T) {
+func TestUndecidedLeavesTheChallengeToTheExecutor(t *testing.T) {
 	type jwtFilter struct{ *Decider }
 	cause := errors.New("jwks unavailable")
 	tests := []struct {
@@ -252,7 +252,7 @@ func TestUndecided(t *testing.T) {
 	}
 }
 
-func TestReq10Allow(t *testing.T) {
+func TestAllow(t *testing.T) {
 	rec := &decisions{}
 	if r := NewAuthz(metricsWith(rec)).Allow(&filtertest.Exchange{StripeV: 5}); r.Outcome != filter.Continue {
 		t.Fatalf("Allow = %+v", r)
@@ -271,10 +271,10 @@ func TestReq10Allow(t *testing.T) {
 	}
 }
 
-// Statuses come from the registry (OQ-security-and-identity-9: never a
+// Statuses come from the registry (never a
 // literal), resolved at construction for every area, so Status never calls
 // errcode on the request path.
-func TestReq7StatusFromRegistry(t *testing.T) {
+func TestStatusFromRegistry(t *testing.T) {
 	d := NewAuth(nil, "")
 	for _, c := range errcode.All() {
 		if c.Status == 0 {
@@ -308,7 +308,7 @@ func TestReq7StatusFromRegistry(t *testing.T) {
 
 // A Filter embedding *Decider is a Challenger, which is how the executor
 // finds the challenges of Security rule 1.
-func TestReq2EmbeddedDeciderIsChallenger(t *testing.T) {
+func TestEmbeddedDeciderIsChallenger(t *testing.T) {
 	type jwtFilter struct{ *Decider }
 	var f any = jwtFilter{NewAuth(nil, ChallengeJWT)}
 	ch, ok := f.(Challenger)

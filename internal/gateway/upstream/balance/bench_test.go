@@ -8,10 +8,10 @@ import (
 	"testing"
 )
 
-// benchSelect measures one Endpoint selection (05 test plan item 38,
-// BenchmarkPick{RoundRobin,LeastRequest,RingHash,Random}) over 16 Endpoints
-// with one Down and one Avoided, the runtime random source and a key per
-// request.
+// benchSelect measures one Endpoint selection
+// (BenchmarkPick{RoundRobin,LeastRequest,RingHash,Random}) over 16
+// Endpoints with one Down and one Avoided, the runtime random source and a
+// key per request.
 func benchSelect(b *testing.B, alg Algorithm) {
 	bal, err := New(Config{Algorithm: alg, VirtualNodes: MaxVirtualNodes, Endpoints: eps(16, ones), Now: t0})
 	if err != nil {
@@ -41,8 +41,8 @@ func BenchmarkPickLeastRequest(b *testing.B) { benchSelect(b, LeastRequest) }
 func BenchmarkPickRingHash(b *testing.B)     { benchSelect(b, RingHash) }
 func BenchmarkPickRandom(b *testing.B)       { benchSelect(b, Random) }
 
-// BenchmarkSplitPick measures the onRoute weighted leg pick (05 req 10:
-// 1 µs p50, 4 µs p99, 0 allocations).
+// BenchmarkSplitPick measures the onRoute weighted leg pick (1 µs p50,
+// 4 µs p99, 0 allocations).
 func BenchmarkSplitPick(b *testing.B) {
 	s := NewSplit([]uint32{95, 5})
 	b.ReportAllocs()
@@ -62,7 +62,7 @@ func BenchmarkHashKey(b *testing.B) {
 }
 
 // BenchmarkBuildRing measures a full 65,536-node ring build, the largest
-// rebuild the scheduler runs off the request path (05 req 16).
+// rebuild the scheduler runs off the request path.
 func BenchmarkBuildRing(b *testing.B) {
 	list := eps(64, ones)
 	b.ReportAllocs()
@@ -81,15 +81,15 @@ func BenchmarkBuildRoundRobin(b *testing.B) {
 }
 
 // benchPanic measures one selection in panic mode over a large Upstream:
-// 1,000 Endpoints, v = 64 and every Endpoint Down (05 reqs 11, 12, 14; PBB
-// Upstream-layer budget, target below 20 µs). TestDegradedWalk gates the
-// grades a degraded pick makes at O(E).
+// 1,000 Endpoints, v = 64 and every Endpoint Down (PBB Upstream-layer
+// budget, target below 20 µs). TestDegradedWalk gates the grades a
+// degraded pick makes at O(E).
 func benchPanic(b *testing.B, alg Algorithm) {
 	benchDegraded(b, alg, ones, func(int) Grade { return Down })
 }
 
-// benchPanicSkewed is the slowest degraded pick 05 req 14 allows (one full
-// pass): Endpoint 377 weighs 1 against 1,000 and alone holds the lowest
+// benchPanicSkewed is the slowest degraded pick allowed (one full pass):
+// Endpoint 377 weighs 1 against 1,000 and alone holds the lowest
 // grade present (Down among DownAvoided), so after the O(E) grading the
 // walk resumes over up to one pass of slots to reach its single slot.
 // It is reported, not gated, and can exceed the 20 µs target.

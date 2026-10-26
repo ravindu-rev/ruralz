@@ -22,7 +22,7 @@ var (
 	// Publish takes a freshly compiled snapshot.
 	ErrPublished = errors.New("retire: snapshot already published")
 	// ErrBusy rejects an activation while K snapshots are retired and one
-	// is closing or ending (spec 04 req 54): grace is never cut short.
+	// is closing or ending: grace is never cut short.
 	ErrBusy = errors.New("retire: retirement bound reached")
 	// ErrClosed rejects a Publish after Close.
 	ErrClosed = errors.New("retire: holder closed")
@@ -31,11 +31,11 @@ var (
 // Publish makes next the active snapshot with one atomic pointer swap and
 // retires the previous one, which it returns (nil for the first). Set
 // next.Binding before the call; the previous snapshot's Binding.Retire runs
-// here (09 req 56). When the retirement makes K + 1 retired snapshots, the
-// oldest becomes closing: its streams end (OnClosing) and its grace period
-// starts (spec 04 req 52). next.Pins is created with Stripes() stripes when
-// nil. Publish fails with ErrBusy when CanActivate is false, so the
-// activation loader waits first (WaitActivate).
+// here. When the retirement makes K + 1 retired snapshots, the oldest
+// becomes closing: its streams end (OnClosing) and its grace period starts.
+// next.Pins is created with Stripes() stripes when nil. Publish fails with
+// ErrBusy when CanActivate is false, so the activation loader waits first
+// (WaitActivate).
 //
 // next must be freshly compiled: Publish fails with ErrPublished for a
 // snapshot that is live or was freed, whose resources are closed and whose
@@ -109,29 +109,27 @@ func (h *Holder) retireLocked(s *snapshot.Snapshot, now time.Time) {
 }
 
 // CanActivate reports whether Publish would accept a new snapshot now:
-// fewer than K snapshots are retired, or none is closing or ending (spec 04
-// req 54). A snapshot at zero pins still counts until the retirer frees it,
-// which Run does at once.
+// fewer than K snapshots are retired, or none is closing or ending. A
+// snapshot at zero pins still counts until the retirer frees it, which Run
+// does at once.
 func (h *Holder) CanActivate() bool {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	return !h.closed && h.canActivateLocked()
 }
 
-// canActivateLocked is the activation gate of spec 04 req 54, test plan
-// item 12 and architecture 3.3 step 2: fewer than K retired, or none
+// canActivateLocked is the activation gate: fewer than K retired, or none
 // closing or ending. With "and" the activation that makes a (K + 1)th
-// retirement could never run, so no snapshot would become closing (req
-// 52, architecture 3.3 step 9).
+// retirement could never run, so no snapshot would become closing.
 func (h *Holder) canActivateLocked() bool {
 	return h.countLocked(StateRetired) < h.k || h.countLocked(StateClosing)+h.countLocked(StateEnding) == 0
 }
 
 // WaitActivate blocks until CanActivate holds, freeing snapshots that
 // reached zero pins on the way; the activation loader calls it before it
-// compiles its latest pending Revision, so grace is never cut short (spec
-// 04 req 54). It returns ErrClosed after Close and the context's error when
-// ctx ends first.
+// compiles its latest pending Revision, so grace is never cut short. It
+// returns ErrClosed after Close and the context's error when ctx ends
+// first.
 func (h *Holder) WaitActivate(ctx context.Context) error {
 	for {
 		h.mu.Lock()
@@ -177,11 +175,11 @@ func (h *Holder) Counts() Counts {
 // from then on and Publish fails with ErrClosed, then frees every snapshot
 // as it reaches zero pins and waits for the Holder's goroutines. The
 // supervisor calls it after EndAll at the Drain deadline, before it
-// cancels the Node-wide filter.Components (architecture 3.7); EndAll first
-// ends every pinned request and every later pin, so Close does not wait
-// for work that would otherwise run until its own context ends. It returns
-// ctx's error when snapshots are still pinned or goroutines still run when
-// ctx ends; calling it again resumes the wait.
+// cancels the Node-wide filter.Components; EndAll first ends every pinned
+// request and every later pin, so Close does not wait for work that would
+// otherwise run until its own context ends. It returns ctx's error when
+// snapshots are still pinned or goroutines still run when ctx ends;
+// calling it again resumes the wait.
 func (h *Holder) Close(ctx context.Context) error {
 	now := h.clock.Now()
 	h.mu.Lock()

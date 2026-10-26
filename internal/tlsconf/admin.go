@@ -15,7 +15,7 @@ import (
 	"slices"
 )
 
-// Admin TLS directory files (RURALZ_ADMIN_TLS_DIR, spec 06 requirement 93).
+// Admin TLS directory files (RURALZ_ADMIN_TLS_DIR).
 const (
 	// AdminCertFile is the admin server certificate chain.
 	AdminCertFile = "tls.crt"
@@ -42,12 +42,11 @@ var (
 )
 
 // Admin builds the admin server configuration from RURALZ_ADMIN_TLS_DIR,
-// read once at start (rotation by restart, spec 06 requirement 93):
-// tls.crt and tls.key are required; with ca.crt, client certificates are
-// verified when given (tls.VerifyClientCertIfGiven) and the leaf must list
-// clientAuth explicitly (requirement 95), so adminauth admits a request
-// whose connection has verified chains. TLS 1.2 or newer with the
-// TLS12Suites, ALPN h2 and http/1.1.
+// read once at start (rotation by restart): tls.crt and tls.key are
+// required; with ca.crt, client certificates are verified when given
+// (tls.VerifyClientCertIfGiven) and the leaf must list clientAuth
+// explicitly, so adminauth admits a request whose connection has verified
+// chains. TLS 1.2 or newer with the TLS12Suites, ALPN h2 and http/1.1.
 func Admin(dir string) (*tls.Config, error) {
 	certPEM, err := readAdminFile(dir, AdminCertFile)
 	if err != nil {

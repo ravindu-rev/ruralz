@@ -41,9 +41,8 @@ func benchBundle(routes int) *hub.Bundle {
 	return b.bundle()
 }
 
-// BenchmarkResolve measures Resolver.Run over 5,000 Routes (02 section 6
-// benchmarks: "Resolver.Resolve for 5,000 Routes"), inline and on
-// GOMAXPROCS workers (OQ-performance-budgets-and-benchmarking-6).
+// BenchmarkResolve measures Resolver.Run over 5,000 Routes, inline and on
+// GOMAXPROCS workers.
 func BenchmarkResolve(b *testing.B) {
 	bundle := benchBundle(5000)
 	r := New(nil, Options{Body: bodyOracle{}})

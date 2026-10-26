@@ -9,8 +9,8 @@ import (
 	"strings"
 )
 
-// writeBash renders the bash script (spec 10 req 108): a _<program>
-// function over COMP_WORDS and COMP_CWORD registered with
+// writeBash renders the bash script: a _<program> function over
+// COMP_WORDS and COMP_CWORD registered with
 // `complete -o bashdefault -o default`. The command table is data in
 // associative arrays (bash 4.0), read by one fixed algorithm that mirrors
 // the dispatcher: word 1 is a noun or a command, word 2 a noun's verb,

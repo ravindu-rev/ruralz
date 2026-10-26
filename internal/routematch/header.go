@@ -13,12 +13,12 @@ import (
 )
 
 // CompileRegex compiles a path.regex or headers[].regex criterion as RE2
-// matched against the whole input: re becomes ^(?:re)$ (04 req 28, 30). re
-// is compiled on its own first, so an unbalanced expression such as "a)|(.*"
-// cannot close the group and escape the anchors. A valid re that ends inside
-// a \Q quote (such as `\Qa.b`) gets a closing \E before ")$", which would
-// otherwise be quoted too. An invalid expression is an error carrying
-// [CodeInvalid] (RZ-CFG-005).
+// matched against the whole input: re becomes ^(?:re)$. re is compiled on
+// its own first, so an unbalanced expression such as "a)|(.*" cannot close
+// the group and escape the anchors. A valid re that ends inside a \Q quote
+// (such as `\Qa.b`) gets a closing \E before ")$", which would otherwise be
+// quoted too. An invalid expression is an error carrying [CodeInvalid]
+// (RZ-CFG-005).
 func CompileRegex(re string) (*regexp.Regexp, error) {
 	if _, err := regexp.Compile(re); err != nil {
 		return nil, errcode.Errorf(CodeInvalid, "regular expression %q: %w", re, err)
@@ -56,16 +56,16 @@ func endsInQuote(re string) bool {
 	return false
 }
 
-// MethodMatch reports whether method passes a methods criterion (04 req
-// 30): an empty set passes every method; otherwise the method must equal
-// one entry exactly, case-sensitively, and HEAD does not imply GET.
+// MethodMatch reports whether method passes a methods criterion: an
+// empty set passes every method; otherwise the method must equal one
+// entry exactly, case-sensitively, and HEAD does not imply GET.
 func MethodMatch(methods []string, method string) bool {
 	return len(methods) == 0 || slices.Contains(methods, method)
 }
 
 // JoinHeader returns the value CEL request.headers and header criteria see
-// for one field (04 req 25): repeated fields joined with ", " (RFC 9110
-// 5.3). It returns values[0] itself, allocating nothing, for a single field.
+// for one field: repeated fields joined with ", " (RFC 9110 5.3). It returns
+// values[0] itself, allocating nothing, for a single field.
 func JoinHeader(values []string) string {
 	switch len(values) {
 	case 0:
@@ -77,7 +77,7 @@ func JoinHeader(values []string) string {
 	}
 }
 
-// HeaderMatcher is one compiled headers[] criterion (04 req 30).
+// HeaderMatcher is one compiled headers[] criterion.
 type HeaderMatcher struct {
 	// Name is the lower-cased header name.
 	Name string

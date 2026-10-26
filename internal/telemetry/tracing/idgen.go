@@ -78,11 +78,10 @@ func (p *serverParent) SpanContext() trace.SpanContext {
 	})
 }
 
-// IDGenerator implements sdktrace.IDGenerator (spec 09 req 30): the
-// server span of a request gets the trace ID and server span ID its
-// Decision holds, so the exported server span, the access log and the
-// requestId agree; every other span gets a random span ID from
-// crypto/rand.
+// IDGenerator implements sdktrace.IDGenerator: the server span of a
+// request gets the trace ID and server span ID its Decision holds, so
+// the exported server span, the access log and the requestId agree;
+// every other span gets a random span ID from crypto/rand.
 type IDGenerator struct {
 	src *source
 }

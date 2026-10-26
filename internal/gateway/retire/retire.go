@@ -1,39 +1,38 @@
 // Copyright 2026 Revington
 // SPDX-License-Identifier: Apache-2.0
 
-// Package retire publishes compiled snapshots and retires them (spec 04
-// group H, architecture R-17 and R-58). A Holder keeps the active
-// *snapshot.Snapshot in one atomic.Pointer that every request pins with the
-// lock-free protocol of spec 04 req 50: load the pointer, increment the
+// Package retire publishes compiled snapshots and retires them. A Holder
+// keeps the active *snapshot.Snapshot in one atomic.Pointer that every
+// request pins with the lock-free protocol: load the pointer, increment the
 // request's stripe, re-load the pointer and, when it changed, undo and
 // retry. Publish swaps the pointer and retires the previous snapshot; at
-// most K = 2 snapshots stay retired, plus at most one closing or ending
-// (req 52). A closing snapshot gets a 30 s grace period, after which it is
-// ending: the ending protocol (req 53) walks its pinned requests with
-// bounded goroutines, marks each ended, moves its connection deadlines and
-// cancels its root context, so the handler answers 503 RZ-RT-014 before
-// commit or the connection is reset after it. A snapshot is freed at zero
-// pins: the retirer calls Binding.Release (09 req 56), closes the resources
-// no other live snapshot shares and releases its State Store handles (req
-// 51). Memory is left to the garbage collector.
+// most K = 2 snapshots stay retired, plus at most one closing or ending. A
+// closing snapshot gets a 30 s grace period, after which it is ending: the
+// ending protocol walks its pinned requests with bounded goroutines, marks
+// each ended, moves its connection deadlines and cancels its root context,
+// so the handler answers 503 RZ-RT-014 before commit or the connection is
+// reset after it. A snapshot is freed at zero pins: the retirer calls
+// Binding.Release, closes the resources no other live snapshot shares and
+// releases its State Store handles. Memory is left to the garbage
+// collector.
 //
 // The Drain deadline reuses the ending protocol through EndAll with
-// RZ-RT-016 (spec 04 req 63). Retirement is driven by Run, which owns every
-// goroutine the Holder starts; Close retires the last snapshot at shutdown
-// and waits until every snapshot is freed. At the Drain deadline the
-// supervisor calls EndAll(ctx, snapshot.EndDrain) first and Close second:
-// EndAll ends every pinned request and every request that pins after it,
-// so Close waits only for handlers that are already answering.
+// RZ-RT-016. Retirement is driven by Run, which owns every goroutine the
+// Holder starts; Close retires the last snapshot at shutdown and waits
+// until every snapshot is freed. At the Drain deadline the supervisor calls
+// EndAll(ctx, snapshot.EndDrain) first and Close second: EndAll ends every
+// pinned request and every request that pins after it, so Close waits only
+// for handlers that are already answering.
 //
-// Resources and State Store handles follow one rule (architecture 3.3
-// step 9): an instance is closed or released exactly once, when the last
-// live snapshot holding it is freed; instances are compared by identity,
-// and one instance set as both StateStore and CacheStore counts once.
-// Compile therefore either opens a new snapshot.StoreHandle per snapshot
-// and role (one reference each) or carries the previous snapshot's
-// instance over without retaining it again; retaining a carried-over
-// instance once per snapshot would leave references that are never
-// released, and the old driver would never close.
+// Resources and State Store handles follow one rule: an instance is closed
+// or released exactly once, when the last live snapshot holding it is
+// freed; instances are compared by identity, and one instance set as both
+// StateStore and CacheStore counts once. Compile therefore either opens a
+// new snapshot.StoreHandle per snapshot and role (one reference each) or
+// carries the previous snapshot's instance over without retaining it
+// again; retaining a carried-over instance once per snapshot would leave
+// references that are never released, and the old driver would never
+// close.
 //
 // Every Publish takes a freshly compiled snapshot: a snapshot that is live
 // or was freed (its resources closed, its Binding released) is rejected
@@ -53,8 +52,8 @@ import (
 	"github.com/ravindu-rev/ruralz/internal/telemetry/emit"
 )
 
-// Defaults (spec 04 reqs 50-53; all "target" values of DP "Why no
-// in-flight request is dropped").
+// Defaults (all "target" values of DP
+// "Why no in-flight request is dropped").
 const (
 	// DefaultK is the number of retired snapshots kept before the oldest
 	// becomes closing.
@@ -74,8 +73,8 @@ const (
 	// covers pins removed without the Holder.
 	DefaultPollInterval = 50 * time.Millisecond
 	// DefaultMaxEnding bounds the ending callbacks running at once: the
-	// Node in-flight ceiling (spec 04 req 19), which already bounds the
-	// number of pinned requests.
+	// Node in-flight ceiling, which already bounds the number of pinned
+	// requests.
 	DefaultMaxEnding = 20_000
 	// MaxStripes caps the pin and metric stripe count S.
 	MaxStripes = 8
@@ -94,8 +93,7 @@ type Config struct {
 	Logger *slog.Logger
 	// Stripes is the stripe count S; 0 selects StripeCount(). Values are
 	// clamped to [1, 255] (emit.Stripe is a byte). The wiring passes the
-	// meter's stripe count, so pin and metric stripes coincide (spec 04
-	// req 50 reuses the metric stripes).
+	// meter's stripe count, so pin and metric stripes coincide.
 	Stripes int
 	// NewStripe is the connection stripe source behind ConnStripe; the
 	// wiring passes emit.Meter.NewStripe, so pins and metrics share one
@@ -136,7 +134,7 @@ type Config struct {
 }
 
 // StripeCount returns S = min(GOMAXPROCS, MaxStripes), at least 1: the pin
-// and metric stripe count (spec 04 req 50). Call it once at start.
+// and metric stripe count. Call it once at start.
 func StripeCount() int { return min(max(runtime.GOMAXPROCS(0), 1), MaxStripes) }
 
 // Holder publishes the active snapshot and retires the previous ones. Pin,
@@ -246,10 +244,10 @@ func New(cfg Config) *Holder {
 func (h *Holder) Stripes() int { return h.stripes }
 
 // ConnStripe returns the stripe of a newly accepted connection, assigned
-// round robin (spec 04 req 50): Config.NewStripe when set, the Holder's
-// own round robin otherwise. The handler takes one value per connection
-// here and uses it for both its pins and its metric handles; it never
-// calls emit.Meter.NewStripe itself, so the two cannot diverge.
+// round robin: Config.NewStripe when set, the Holder's own round robin
+// otherwise. The handler takes one value per connection here and uses it
+// for both its pins and its metric handles; it never calls
+// emit.Meter.NewStripe itself, so the two cannot diverge.
 func (h *Holder) ConnStripe() emit.Stripe {
 	if h.newStripe != nil {
 		return h.newStripe()
@@ -272,17 +270,16 @@ func (h *Holder) RequestStripe(conn emit.Stripe, streamID uint32) emit.Stripe {
 func (h *Holder) Active() *snapshot.Snapshot { return h.cur.Load() }
 
 // Pin pins the active snapshot for one request on stripe and registers rec
-// for the ending protocol (spec 04 reqs 50 and 53); it returns nil when no
-// snapshot is published. rec.Cancel and rec.RC must be set before Pin and
-// stay unchanged until Unpin returns, and the caller must not hold rec.Mu.
-// Pin allocates nothing: it loads the pointer, adds rec to the snapshot's
-// stripe, re-loads the pointer and, when a Publish swapped it in between,
-// removes rec and retries.
+// for the ending protocol; it returns nil when no snapshot is published.
+// rec.Cancel and rec.RC must be set before Pin and stay unchanged until
+// Unpin returns, and the caller must not hold rec.Mu. Pin allocates
+// nothing: it loads the pointer, adds rec to the snapshot's stripe,
+// re-loads the pointer and, when a Publish swapped it in between, removes
+// rec and retries.
 //
-// After EndAll a request is ended as it pins (spec 04 req 63): Pin marks
-// rec with EndDrain, moves its deadlines and cancels its context before it
-// returns, so the handler answers 503 with RZ-RT-016 without starting any
-// work.
+// After EndAll a request is ended as it pins: Pin marks rec with EndDrain,
+// moves its deadlines and cancels its context before it returns, so the
+// handler answers 503 with RZ-RT-016 without starting any work.
 //
 // A retry removes rec from a snapshot the retirer may already be ending;
 // that happens only when the pointer was loaded before a retirement and
@@ -310,11 +307,11 @@ func (h *Holder) Pin(stripe emit.Stripe, rec *snapshot.PinnedRequest) *snapshot.
 }
 
 // Unpin releases the pin Pin returned, with the same stripe and record,
-// after onLog (spec 04 req 34). The handler must call it before its
-// ServeHTTP returns and never while holding rec.Mu: when an ending callback
-// is acting on rec, Unpin waits for it, so no callback touches rec.RC after
-// the handler returned or rec after it went back to its pool. Unpinning a
-// retired snapshot wakes the retirer, which frees it at zero pins.
+// after onLog. The handler must call it before its ServeHTTP returns and
+// never while holding rec.Mu: when an ending callback is acting on rec,
+// Unpin waits for it, so no callback touches rec.RC after the handler
+// returned or rec after it went back to its pool. Unpinning a retired
+// snapshot wakes the retirer, which frees it at zero pins.
 func (h *Holder) Unpin(s *snapshot.Snapshot, stripe emit.Stripe, rec *snapshot.PinnedRequest) {
 	s.Pins.Remove(int(stripe), rec)
 	if h.walking.Load() != 0 {

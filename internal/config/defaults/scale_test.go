@@ -14,7 +14,7 @@ import (
 
 // scaleCases build resources with one large object or list of n members:
 // the shapes where a per-member Get, Select or ItemElem would make stage G
-// quadratic (wave 3 note on tree.Node.Get and schemaidx scans).
+// quadratic (tree.Node.Get and schemaidx scans).
 func scaleCases() map[string]func(n int) string {
 	list := func(n int, item func(i int) string) string {
 		parts := make([]string, n)

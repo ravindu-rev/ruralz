@@ -53,17 +53,17 @@ func newTLSLeaf(t *testing.T, cn string) tlsLeaf {
 }
 
 // TestTLSPairNewerSiblingValue drives the internal/tlsconf certificate
-// index and client configuration with real polls (spec 06 requirements 76
-// and 79). One half is renewed alone and fails; one poll then renews the
-// other half with a value that pairs with it and the first half again
-// with a value that matches nothing. The pair is formed with the first
-// half's last delivered value, so tlsconf keeps the first half's watch,
-// which is delivered the newer value: a second failure is counted and
-// secret_rotation_failed stays raised. A later value of the other half
-// that pairs with the first half's current value lets tlsconf register
-// that watch again (secret.Store.Watch from fn), which clears the reason.
-// The poll delivers in reference order, so the file names put the other
-// half first.
+// index and client configuration with real polls. One half is renewed
+// alone and fails; one poll then renews the other half with a value that
+// pairs with it and the first half again with a value that matches
+// nothing. The pair is formed with the first half's last delivered value,
+// so tlsconf keeps the first half's watch, which is delivered the newer
+// value: a second failure is counted and secret_rotation_failed stays
+// raised. A later value of the other half that pairs with the first
+// half's current value lets tlsconf register that watch again
+// (secret.Store.Watch from fn), which clears the reason. The poll
+// delivers in reference order, so the file names put the other half
+// first.
 func TestTLSPairNewerSiblingValue(t *testing.T) {
 	type follower struct {
 		served func() string

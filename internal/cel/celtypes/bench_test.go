@@ -13,10 +13,10 @@ import (
 	"github.com/ravindu-rev/ruralz/internal/expr"
 )
 
-// Benchmarks of the adapters (03 I requirements 50 and 52): typical field,
-// header and body selections, worst-case fixtures at the Gateway caps (a 64
-// KiB header value, 128 headers), and the transform body writers on 1 KiB.
-// Each reports ns/op and allocs/op.
+// Benchmarks of the adapters: typical field, header and body selections,
+// worst-case fixtures at the Gateway caps (a 64 KiB header value, 128
+// headers), and the transform body writers on 1 KiB. Each reports ns/op
+// and allocs/op.
 
 // benchEval benchmarks one expression over v.
 func benchEval(b *testing.B, src string, v *expr.Vars) {

@@ -9,10 +9,10 @@ import "math/rand/v2"
 // searching.
 const linearSplit = 8
 
-// Split is the weighted pick of a Route's plain upstreams entries in onRoute
-// (05 req 10): one entry per request by weighted random over the entries
-// with weight > 0; the pick is final for the request. It is immutable, safe
-// for concurrent use and allocation-free per pick.
+// Split is the weighted pick of a Route's plain upstreams entries in
+// onRoute: one entry per request by weighted random over the entries with
+// weight > 0; the pick is final for the request. It is immutable, safe for
+// concurrent use and allocation-free per pick.
 type Split struct {
 	idx   []int32  // entry index of each weighted entry
 	cum   []uint64 // cumulative weights of the weighted entries
@@ -38,8 +38,8 @@ func NewSplit(weights []uint32) *Split {
 func (s *Split) Entries() int { return len(s.idx) }
 
 // Pick returns the chosen entry's index, and false when every weight is 0
-// (503 RZ-UP-008, 05 req 10). src supplies randomness (nil: the runtime
-// generator); a single weighted entry needs none.
+// (503 RZ-UP-008). src supplies randomness (nil: the runtime generator);
+// a single weighted entry needs none.
 func (s *Split) Pick(src rand.Source) (int, bool) {
 	switch len(s.idx) {
 	case 0:

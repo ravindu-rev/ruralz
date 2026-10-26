@@ -8,29 +8,28 @@
 // asserting the seven x-ruralz-* keyword shapes), validates resource trees
 // after substitution, and maps every validation error to a diag.Diagnostic
 // at a key-aware diag.Path with RZ-CFG-005, RZ-CFG-006 or RZ-CFG-012 and a
-// nearest-name hint (01 reqs 32 to 35).
+// nearest-name hint.
 //
 // Schema navigation (lookup by instance path, keywords, defaults,
-// dispatch) belongs to internal/config/schemaidx (architecture R-3); this
-// package uses it to turn instance locations into key-aware paths, to find
-// x-ruralz-secret positions and to name allowed fields in hints. It is the
-// only package besides validation.json-schema that imports jsonschema/v6,
-// and no jsonschema type appears in its API.
+// dispatch) belongs to internal/config/schemaidx; this package uses it to
+// turn instance locations into key-aware paths, to find x-ruralz-secret
+// positions and to name allowed fields in hints. It is the only package
+// besides validation.json-schema that imports jsonschema/v6, and no
+// jsonschema type appears in its API.
 //
 // Views and Sets are immutable after construction and safe for concurrent
 // use; Validate allocates per call and starts no goroutine. The mapping
 // resolves each instance position once and shares its key-aware path with
 // every diagnostic at or below it: a large path element, such as a keyed
 // entry's key or a set element's canonical JSON, is held and rendered
-// once, and diagnostics are deduplicated and sorted by interned path
-// text, never by rendering their paths. Mapping work and memory are
-// therefore linear in the resource size plus the number of validation
-// errors times their location depth, and Validate returns at most
-// MaxDiagnostics diagnostics, the first in sorted order (01 reqs 6, 50 and
-// 54). Rendering the returned paths (diag.Path.String, diag.List.Sort)
-// still writes such an element once per diagnostic below it, which the
-// path contract of 01 req 48 does not bound. The package never logs,
-// reads files or the network, or uses the clock (01 req 55).
+// once, and diagnostics are deduplicated and sorted by interned path text,
+// never by rendering their paths. Mapping work and memory are therefore
+// linear in the resource size plus the number of validation errors times
+// their location depth, and Validate returns at most MaxDiagnostics
+// diagnostics, the first in sorted order. Rendering the returned paths
+// (diag.Path.String, diag.List.Sort) still writes such an element once per
+// diagnostic below it, which the path contract does not bound. The package
+// never logs, reads files or the network, or uses the clock.
 package schemaview
 
 import (
@@ -53,12 +52,12 @@ import (
 // Diagnostic codes of stage F, each registered in internal/errcode.
 const (
 	// CodeSchema is a JSON Schema violation, a duplicate keyed-list entry or
-	// set element, or a reserved label or annotation key (01 reqs 33 to 35).
+	// set element, or a reserved label or annotation key.
 	CodeSchema = "RZ-CFG-005"
-	// CodeUnknownField is an unknown member of a closed object (01 req 33).
+	// CodeUnknownField is an unknown member of a closed object.
 	CodeUnknownField = "RZ-CFG-006"
 	// CodeLiteral is a non-conforming value at an x-ruralz-secret
-	// position; its message never contains the value (01 req 33).
+	// position; its message never contains the value.
 	CodeLiteral = "RZ-CFG-012"
 )
 

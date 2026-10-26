@@ -7,8 +7,8 @@ import (
 	"testing"
 )
 
-// TestRandomChiSquare covers 05 req 15 and test plan item 11: weighted
-// random passes a chi-square test at p > 0.001 over 10^6 picks.
+// TestRandomChiSquare covers weighted random: it passes a chi-square test
+// at p > 0.001 over 10^6 picks.
 func TestRandomChiSquare(t *testing.T) {
 	list := eps(5, func(i int) uint32 { return u32(i + 1) }) // weights 1..5
 	p := BuildRandom(list)
@@ -31,8 +31,8 @@ func TestRandomChiSquare(t *testing.T) {
 	}
 }
 
-// TestRandomExclusions covers 05 req 15: exclusions by rejection for up to
-// 8 draws, then a weighted linear scan over the lowest grade present.
+// TestRandomExclusions covers random's exclusions: by rejection for up to 8
+// draws, then a weighted linear scan over the lowest grade present.
 func TestRandomExclusions(t *testing.T) {
 	list := eps(6, func(i int) uint32 { return u32(i + 1) })
 	tests := []struct {

@@ -10,8 +10,8 @@ import (
 	"github.com/ravindu-rev/ruralz/internal/config/diag"
 )
 
-// TestValidName covers the spec.overlay rule of 01 req 21 that keeps the
-// selection of 01 req 23 inside overlays/.
+// TestValidName covers the spec.overlay rule that keeps the selection
+// inside overlays/.
 func TestValidName(t *testing.T) {
 	for name, want := range map[string]bool{
 		"prod": true, "staging-eu.1": true, "A_b": true, "0": true,
@@ -23,9 +23,9 @@ func TestValidName(t *testing.T) {
 	}
 }
 
-// TestSelection covers 01 req 23: one overlay at most, overlays/<name>/;
-// an absent directory is an empty overlay when spec.overlay was defaulted
-// and RZ-CFG-009 at spec.overlay when it was set (risk 18).
+// TestSelection covers overlay selection: at most one overlay, from
+// overlays/<name>/; an absent directory is an empty overlay when
+// spec.overlay was defaulted and RZ-CFG-009 at spec.overlay when it was set.
 func TestSelection(t *testing.T) {
 	s := Selection{
 		Name: "prod", Explicit: true, Environment: "production",

@@ -35,8 +35,8 @@ func list(n int, f func(i int) string) string {
 	return strings.Join(parts, ", ")
 }
 
-// TestResolve covers 04 req 17 and 06 reqs 60 and 62 with the cases of the
-// 04 (item 11) and 06 ("clientaddr") test plans.
+// TestResolve covers peer handling and the X-Forwarded-For and Forwarded
+// walks that compute source.ip and source.port.
 func TestResolve(t *testing.T) {
 	const (
 		trustedPeer   = "10.0.0.1:443"
@@ -61,86 +61,85 @@ func TestResolve(t *testing.T) {
 		trusted bool
 	}{
 		// Peer handling.
-		{name: "req60 untrusted peer ignores X-Forwarded-For", peer: untrustedPeer, h: hdr("X-Forwarded-For", "1.1.1.1"), want: "203.0.113.50", port: 5555, via: ViaPeer},
-		{name: "req60 untrusted peer ignores Forwarded", peer: untrustedPeer, h: hdr("Forwarded", "for=1.1.1.1"), want: "203.0.113.50", port: 5555, via: ViaPeer},
-		{name: "req60 trusted peer without headers", peer: trustedPeer, h: hdr(), want: "10.0.0.1", port: 443, via: ViaPeer, trusted: true},
-		{name: "req17 IPv4-mapped trusted peer unmapped", peer: "[::ffff:10.0.0.1]:443", h: hdr("X-Forwarded-For", "1.1.1.1"), want: "1.1.1.1", via: ViaXForwardedFor, trusted: true},
-		{name: "req17 IPv4-mapped untrusted peer unmapped", peer: "[::ffff:203.0.113.50]:80", h: hdr(), want: "203.0.113.50", port: 80, via: ViaPeer},
-		{name: "req60 trusted IPv6 peer", peer: "[2001:db8:ffff::5]:443", h: hdr("X-Forwarded-For", "2001:db8::1"), want: "2001:db8::1", via: ViaXForwardedFor, trusted: true},
+		{name: "untrusted peer ignores X-Forwarded-For", peer: untrustedPeer, h: hdr("X-Forwarded-For", "1.1.1.1"), want: "203.0.113.50", port: 5555, via: ViaPeer},
+		{name: "untrusted peer ignores Forwarded", peer: untrustedPeer, h: hdr("Forwarded", "for=1.1.1.1"), want: "203.0.113.50", port: 5555, via: ViaPeer},
+		{name: "trusted peer without headers", peer: trustedPeer, h: hdr(), want: "10.0.0.1", port: 443, via: ViaPeer, trusted: true},
+		{name: "IPv4-mapped trusted peer unmapped", peer: "[::ffff:10.0.0.1]:443", h: hdr("X-Forwarded-For", "1.1.1.1"), want: "1.1.1.1", via: ViaXForwardedFor, trusted: true},
+		{name: "IPv4-mapped untrusted peer unmapped", peer: "[::ffff:203.0.113.50]:80", h: hdr(), want: "203.0.113.50", port: 80, via: ViaPeer},
+		{name: "trusted IPv6 peer", peer: "[2001:db8:ffff::5]:443", h: hdr("X-Forwarded-For", "2001:db8::1"), want: "2001:db8::1", via: ViaXForwardedFor, trusted: true},
 
 		// X-Forwarded-For walk.
-		{name: "req60 rightmost untrusted X-Forwarded-For entry", peer: trustedPeer, h: hdr("X-Forwarded-For", "1.1.1.1, 10.0.0.2"), want: "1.1.1.1", via: ViaXForwardedFor, trusted: true},
-		{name: "req60 client-supplied entries left of the client ignored", peer: trustedPeer, h: hdr("X-Forwarded-For", "6.6.6.6, 1.1.1.1, 10.0.0.2"), want: "1.1.1.1", via: ViaXForwardedFor, trusted: true},
-		{name: "req60 spoofed trusted entry left of the client ignored", peer: trustedPeer, h: hdr("X-Forwarded-For", "10.9.9.9, 1.1.1.1, 10.0.0.2"), want: "1.1.1.1", via: ViaXForwardedFor, trusted: true},
-		{name: "req17 all trusted gives the leftmost parsed", peer: trustedPeer, h: hdr("X-Forwarded-For", "10.0.0.3, 10.0.0.2"), want: "10.0.0.3", via: ViaXForwardedFor, trusted: true},
-		{name: "req60 twenty entries, only 16 parsed", peer: trustedPeer, h: hdr("X-Forwarded-For", twenty), want: "10.0.0.10", via: ViaXForwardedFor, trusted: true},
-		{name: "req60 client as the 16th entry", peer: trustedPeer, h: hdr("X-Forwarded-For", sixteenth), want: "1.1.1.1", via: ViaXForwardedFor, trusted: true},
-		{name: "req17 client as the 17th entry is not parsed", peer: trustedPeer, h: hdr("X-Forwarded-For", seventeenth), want: "10.0.0.10", via: ViaXForwardedFor, trusted: true},
-		{name: "req60 unknown entry gives its right neighbor", peer: trustedPeer, h: hdr("X-Forwarded-For", "1.1.1.1, unknown, 10.0.0.2"), want: "10.0.0.2", via: ViaXForwardedFor, trusted: true},
-		{name: "req60 unknown rightmost entry gives the peer", peer: trustedPeer, h: hdr("X-Forwarded-For", "1.1.1.1, unknown"), want: "10.0.0.1", port: 443, via: ViaPeer, trusted: true},
-		{name: "req17 garbage entry stops the walk", peer: trustedPeer, h: hdr("X-Forwarded-For", "1.1.1.1, not-an-ip, 10.0.0.2, 10.0.0.3"), want: "10.0.0.2", via: ViaXForwardedFor, trusted: true},
-		{name: "req60 quoted entry is unparsable", peer: trustedPeer, h: hdr("X-Forwarded-For", `"1.1.1.1"`), want: "10.0.0.1", port: 443, via: ViaPeer, trusted: true},
-		{name: "req60 field lines concatenated in order", peer: trustedPeer, h: hdr("X-Forwarded-For", "1.1.1.1, 10.0.0.9", "X-Forwarded-For", "10.0.0.2"), want: "1.1.1.1", via: ViaXForwardedFor, trusted: true},
-		{name: "req60 later field line is to the right", peer: trustedPeer, h: hdr("X-Forwarded-For", "6.6.6.6", "X-Forwarded-For", "1.1.1.1, 10.0.0.2"), want: "1.1.1.1", via: ViaXForwardedFor, trusted: true},
-		{name: "req60 all trusted across lines", peer: trustedPeer, h: hdr("X-Forwarded-For", "10.0.0.7", "X-Forwarded-For", "10.0.0.2"), want: "10.0.0.7", via: ViaXForwardedFor, trusted: true},
-		{name: "req60 ports ignored", peer: trustedPeer, h: hdr("X-Forwarded-For", "1.1.1.1:1234, 10.0.0.2:80"), want: "1.1.1.1", via: ViaXForwardedFor, trusted: true},
-		{name: "req60 IPv6 brackets and port stripped", peer: trustedPeer, h: hdr("X-Forwarded-For", "[2001:db8::1]:443"), want: "2001:db8::1", via: ViaXForwardedFor, trusted: true},
-		{name: "req60 IPv6 brackets stripped", peer: trustedPeer, h: hdr("X-Forwarded-For", "[2001:db8::2]"), want: "2001:db8::2", via: ViaXForwardedFor, trusted: true},
-		{name: "req60 IPv6 zone stripped", peer: trustedPeer, h: hdr("X-Forwarded-For", "fe80::1%eth0"), want: "fe80::1", via: ViaXForwardedFor, trusted: true},
-		{name: "req17 IPv4-mapped entry unmapped", peer: trustedPeer, h: hdr("X-Forwarded-For", "::ffff:1.1.1.1"), want: "1.1.1.1", via: ViaXForwardedFor, trusted: true},
-		{name: "req17 IPv4-mapped trusted entry skipped", peer: trustedPeer, h: hdr("X-Forwarded-For", "1.1.1.1, [::ffff:10.0.0.2]:80"), want: "1.1.1.1", via: ViaXForwardedFor, trusted: true},
-		{name: "req60 empty elements skipped", peer: trustedPeer, h: hdr("X-Forwarded-For", "1.1.1.1,, 10.0.0.2 ,"), want: "1.1.1.1", via: ViaXForwardedFor, trusted: true},
-		{name: "req60 only empty elements give the peer", peer: trustedPeer, h: http.Header{"X-Forwarded-For": {" , ", ""}}, want: "10.0.0.1", port: 443, via: ViaPeer, trusted: true},
-		{name: "req60 tabs are whitespace", peer: trustedPeer, h: hdr("X-Forwarded-For", "\t1.1.1.1\t,\t10.0.0.2"), want: "1.1.1.1", via: ViaXForwardedFor, trusted: true},
+		{name: "rightmost untrusted X-Forwarded-For entry", peer: trustedPeer, h: hdr("X-Forwarded-For", "1.1.1.1, 10.0.0.2"), want: "1.1.1.1", via: ViaXForwardedFor, trusted: true},
+		{name: "client-supplied entries left of the client ignored", peer: trustedPeer, h: hdr("X-Forwarded-For", "6.6.6.6, 1.1.1.1, 10.0.0.2"), want: "1.1.1.1", via: ViaXForwardedFor, trusted: true},
+		{name: "spoofed trusted entry left of the client ignored", peer: trustedPeer, h: hdr("X-Forwarded-For", "10.9.9.9, 1.1.1.1, 10.0.0.2"), want: "1.1.1.1", via: ViaXForwardedFor, trusted: true},
+		{name: "all trusted gives the leftmost parsed", peer: trustedPeer, h: hdr("X-Forwarded-For", "10.0.0.3, 10.0.0.2"), want: "10.0.0.3", via: ViaXForwardedFor, trusted: true},
+		{name: "twenty entries, only 16 parsed", peer: trustedPeer, h: hdr("X-Forwarded-For", twenty), want: "10.0.0.10", via: ViaXForwardedFor, trusted: true},
+		{name: "client as the 16th entry", peer: trustedPeer, h: hdr("X-Forwarded-For", sixteenth), want: "1.1.1.1", via: ViaXForwardedFor, trusted: true},
+		{name: "client as the 17th entry is not parsed", peer: trustedPeer, h: hdr("X-Forwarded-For", seventeenth), want: "10.0.0.10", via: ViaXForwardedFor, trusted: true},
+		{name: "unknown entry gives its right neighbor", peer: trustedPeer, h: hdr("X-Forwarded-For", "1.1.1.1, unknown, 10.0.0.2"), want: "10.0.0.2", via: ViaXForwardedFor, trusted: true},
+		{name: "unknown rightmost entry gives the peer", peer: trustedPeer, h: hdr("X-Forwarded-For", "1.1.1.1, unknown"), want: "10.0.0.1", port: 443, via: ViaPeer, trusted: true},
+		{name: "garbage entry stops the walk", peer: trustedPeer, h: hdr("X-Forwarded-For", "1.1.1.1, not-an-ip, 10.0.0.2, 10.0.0.3"), want: "10.0.0.2", via: ViaXForwardedFor, trusted: true},
+		{name: "quoted entry is unparsable", peer: trustedPeer, h: hdr("X-Forwarded-For", `"1.1.1.1"`), want: "10.0.0.1", port: 443, via: ViaPeer, trusted: true},
+		{name: "field lines concatenated in order", peer: trustedPeer, h: hdr("X-Forwarded-For", "1.1.1.1, 10.0.0.9", "X-Forwarded-For", "10.0.0.2"), want: "1.1.1.1", via: ViaXForwardedFor, trusted: true},
+		{name: "later field line is to the right", peer: trustedPeer, h: hdr("X-Forwarded-For", "6.6.6.6", "X-Forwarded-For", "1.1.1.1, 10.0.0.2"), want: "1.1.1.1", via: ViaXForwardedFor, trusted: true},
+		{name: "all trusted across lines", peer: trustedPeer, h: hdr("X-Forwarded-For", "10.0.0.7", "X-Forwarded-For", "10.0.0.2"), want: "10.0.0.7", via: ViaXForwardedFor, trusted: true},
+		{name: "ports ignored", peer: trustedPeer, h: hdr("X-Forwarded-For", "1.1.1.1:1234, 10.0.0.2:80"), want: "1.1.1.1", via: ViaXForwardedFor, trusted: true},
+		{name: "IPv6 brackets and port stripped", peer: trustedPeer, h: hdr("X-Forwarded-For", "[2001:db8::1]:443"), want: "2001:db8::1", via: ViaXForwardedFor, trusted: true},
+		{name: "IPv6 brackets stripped", peer: trustedPeer, h: hdr("X-Forwarded-For", "[2001:db8::2]"), want: "2001:db8::2", via: ViaXForwardedFor, trusted: true},
+		{name: "IPv6 zone stripped", peer: trustedPeer, h: hdr("X-Forwarded-For", "fe80::1%eth0"), want: "fe80::1", via: ViaXForwardedFor, trusted: true},
+		{name: "IPv4-mapped entry unmapped", peer: trustedPeer, h: hdr("X-Forwarded-For", "::ffff:1.1.1.1"), want: "1.1.1.1", via: ViaXForwardedFor, trusted: true},
+		{name: "IPv4-mapped trusted entry skipped", peer: trustedPeer, h: hdr("X-Forwarded-For", "1.1.1.1, [::ffff:10.0.0.2]:80"), want: "1.1.1.1", via: ViaXForwardedFor, trusted: true},
+		{name: "empty elements skipped", peer: trustedPeer, h: hdr("X-Forwarded-For", "1.1.1.1,, 10.0.0.2 ,"), want: "1.1.1.1", via: ViaXForwardedFor, trusted: true},
+		{name: "only empty elements give the peer", peer: trustedPeer, h: http.Header{"X-Forwarded-For": {" , ", ""}}, want: "10.0.0.1", port: 443, via: ViaPeer, trusted: true},
+		{name: "tabs are whitespace", peer: trustedPeer, h: hdr("X-Forwarded-For", "\t1.1.1.1\t,\t10.0.0.2"), want: "1.1.1.1", via: ViaXForwardedFor, trusted: true},
 
 		// Forwarded walk (RFC 7239).
-		{name: "req60 Forwarded quoted IPv6 with port", peer: trustedPeer, h: hdr("Forwarded", `for="[2001:db8::1]:4711"`), want: "2001:db8::1", via: ViaForwarded, trusted: true},
-		{name: "req60 Forwarded with other parameters", peer: trustedPeer, h: hdr("Forwarded", "for=192.0.2.60;proto=http;by=203.0.113.43"), want: "192.0.2.60", via: ViaForwarded, trusted: true},
-		{name: "req60 Forwarded wins over X-Forwarded-For", peer: trustedPeer, h: hdr("Forwarded", "for=1.1.1.1", "X-Forwarded-For", "2.2.2.2"), want: "1.1.1.1", via: ViaForwarded, trusted: true},
-		{name: "req60 whitespace-only Forwarded falls back to X-Forwarded-For", peer: trustedPeer, h: http.Header{"Forwarded": {" \t"}, "X-Forwarded-For": {"2.2.2.2"}}, want: "2.2.2.2", via: ViaXForwardedFor, trusted: true},
-		{name: "req60 Forwarded rightmost untrusted element", peer: trustedPeer, h: hdr("Forwarded", "for=6.6.6.6, for=1.1.1.1, for=10.0.0.2"), want: "1.1.1.1", via: ViaForwarded, trusted: true},
-		{name: "req17 Forwarded all trusted gives the leftmost parsed", peer: trustedPeer, h: hdr("Forwarded", "for=10.0.0.3, for=10.0.0.2"), want: "10.0.0.3", via: ViaForwarded, trusted: true},
-		{name: "req60 Forwarded twenty elements, only 16 parsed", peer: trustedPeer, h: hdr("Forwarded", fwdTwenty), want: "10.0.0.10", via: ViaForwarded, trusted: true},
-		{name: "req60 Forwarded parameter names are case-insensitive", peer: trustedPeer, h: hdr("Forwarded", `FOR="1.1.1.1", For=10.0.0.2`), want: "1.1.1.1", via: ViaForwarded, trusted: true},
-		{name: "req60 Forwarded quoted comma does not split", peer: trustedPeer, h: hdr("Forwarded", `for=1.1.1.1;host="a,b", for=10.0.0.2`), want: "1.1.1.1", via: ViaForwarded, trusted: true},
-		{name: "req60 Forwarded escaped quote inside a value", peer: trustedPeer, h: hdr("Forwarded", `for=1.1.1.1;host="a\",b", for=10.0.0.2`), want: "1.1.1.1", via: ViaForwarded, trusted: true},
-		{name: "req60 Forwarded escaped address characters", peer: trustedPeer, h: hdr("Forwarded", `for="1.1.1\.1"`), want: "1.1.1.1", via: ViaForwarded, trusted: true},
-		{name: "req60 Forwarded unknown rightmost gives the peer", peer: trustedPeer, h: hdr("Forwarded", "for=1.1.1.1, for=unknown"), want: "10.0.0.1", port: 443, via: ViaPeer, trusted: true},
-		{name: "req60 Forwarded unknown gives its right neighbor", peer: trustedPeer, h: hdr("Forwarded", "for=1.1.1.1, for=UNKNOWN, for=10.0.0.2"), want: "10.0.0.2", via: ViaForwarded, trusted: true},
-		{name: "req60 Forwarded obfuscated identifier ends the walk", peer: trustedPeer, h: hdr("Forwarded", `for=1.1.1.1, for="_hidden", for=10.0.0.2`), want: "10.0.0.2", via: ViaForwarded, trusted: true},
-		{name: "req60 Forwarded element without for ends the walk", peer: trustedPeer, h: hdr("Forwarded", "for=1.1.1.1, proto=https"), want: "10.0.0.1", port: 443, via: ViaPeer, trusted: true},
-		{name: "req60 Forwarded duplicate for is unparsable", peer: trustedPeer, h: hdr("Forwarded", "for=1.1.1.1;for=2.2.2.2"), want: "10.0.0.1", port: 443, via: ViaPeer, trusted: true},
-		{name: "req60 Forwarded unterminated quote is unparsable", peer: trustedPeer, h: hdr("Forwarded", `for=1.1.1.1, for="10.0.0.2`), want: "10.0.0.1", port: 443, via: ViaPeer, trusted: true},
-		{name: "req60 Forwarded unterminated quote resets per line", peer: trustedPeer, h: hdr("Forwarded", `for="1.1.1.1`, "Forwarded", "for=2.2.2.2"), want: "2.2.2.2", via: ViaForwarded, trusted: true},
+		{name: "Forwarded quoted IPv6 with port", peer: trustedPeer, h: hdr("Forwarded", `for="[2001:db8::1]:4711"`), want: "2001:db8::1", via: ViaForwarded, trusted: true},
+		{name: "Forwarded with other parameters", peer: trustedPeer, h: hdr("Forwarded", "for=192.0.2.60;proto=http;by=203.0.113.43"), want: "192.0.2.60", via: ViaForwarded, trusted: true},
+		{name: "Forwarded wins over X-Forwarded-For", peer: trustedPeer, h: hdr("Forwarded", "for=1.1.1.1", "X-Forwarded-For", "2.2.2.2"), want: "1.1.1.1", via: ViaForwarded, trusted: true},
+		{name: "whitespace-only Forwarded falls back to X-Forwarded-For", peer: trustedPeer, h: http.Header{"Forwarded": {" \t"}, "X-Forwarded-For": {"2.2.2.2"}}, want: "2.2.2.2", via: ViaXForwardedFor, trusted: true},
+		{name: "Forwarded rightmost untrusted element", peer: trustedPeer, h: hdr("Forwarded", "for=6.6.6.6, for=1.1.1.1, for=10.0.0.2"), want: "1.1.1.1", via: ViaForwarded, trusted: true},
+		{name: "Forwarded all trusted gives the leftmost parsed", peer: trustedPeer, h: hdr("Forwarded", "for=10.0.0.3, for=10.0.0.2"), want: "10.0.0.3", via: ViaForwarded, trusted: true},
+		{name: "Forwarded twenty elements, only 16 parsed", peer: trustedPeer, h: hdr("Forwarded", fwdTwenty), want: "10.0.0.10", via: ViaForwarded, trusted: true},
+		{name: "Forwarded parameter names are case-insensitive", peer: trustedPeer, h: hdr("Forwarded", `FOR="1.1.1.1", For=10.0.0.2`), want: "1.1.1.1", via: ViaForwarded, trusted: true},
+		{name: "Forwarded quoted comma does not split", peer: trustedPeer, h: hdr("Forwarded", `for=1.1.1.1;host="a,b", for=10.0.0.2`), want: "1.1.1.1", via: ViaForwarded, trusted: true},
+		{name: "Forwarded escaped quote inside a value", peer: trustedPeer, h: hdr("Forwarded", `for=1.1.1.1;host="a\",b", for=10.0.0.2`), want: "1.1.1.1", via: ViaForwarded, trusted: true},
+		{name: "Forwarded escaped address characters", peer: trustedPeer, h: hdr("Forwarded", `for="1.1.1\.1"`), want: "1.1.1.1", via: ViaForwarded, trusted: true},
+		{name: "Forwarded unknown rightmost gives the peer", peer: trustedPeer, h: hdr("Forwarded", "for=1.1.1.1, for=unknown"), want: "10.0.0.1", port: 443, via: ViaPeer, trusted: true},
+		{name: "Forwarded unknown gives its right neighbor", peer: trustedPeer, h: hdr("Forwarded", "for=1.1.1.1, for=UNKNOWN, for=10.0.0.2"), want: "10.0.0.2", via: ViaForwarded, trusted: true},
+		{name: "Forwarded obfuscated identifier ends the walk", peer: trustedPeer, h: hdr("Forwarded", `for=1.1.1.1, for="_hidden", for=10.0.0.2`), want: "10.0.0.2", via: ViaForwarded, trusted: true},
+		{name: "Forwarded element without for ends the walk", peer: trustedPeer, h: hdr("Forwarded", "for=1.1.1.1, proto=https"), want: "10.0.0.1", port: 443, via: ViaPeer, trusted: true},
+		{name: "Forwarded duplicate for is unparsable", peer: trustedPeer, h: hdr("Forwarded", "for=1.1.1.1;for=2.2.2.2"), want: "10.0.0.1", port: 443, via: ViaPeer, trusted: true},
+		{name: "Forwarded unterminated quote is unparsable", peer: trustedPeer, h: hdr("Forwarded", `for=1.1.1.1, for="10.0.0.2`), want: "10.0.0.1", port: 443, via: ViaPeer, trusted: true},
+		{name: "Forwarded unterminated quote resets per line", peer: trustedPeer, h: hdr("Forwarded", `for="1.1.1.1`, "Forwarded", "for=2.2.2.2"), want: "2.2.2.2", via: ViaForwarded, trusted: true},
 		// A client's unterminated quoted string never swallows an element a
-		// trusted proxy appended to the same line (review finding: the
-		// whole line used to become one unparsable element, giving the
-		// proxy address).
-		{name: "req60 Forwarded proxy element after a client's unterminated quote", peer: trustedPeer, h: hdr("Forwarded", `for="1.1.1.1, for=203.0.113.9`), want: "203.0.113.9", via: ViaForwarded, trusted: true},
-		{name: "req60 Forwarded proxy element after a client's dangling backslash", peer: trustedPeer, h: hdr("Forwarded", `x="\, for=203.0.113.9`), want: "203.0.113.9", via: ViaForwarded, trusted: true},
-		{name: "req60 Forwarded quoted proxy element after a client's unterminated quote", peer: trustedPeer, h: hdr("Forwarded", `for="1.1.1.1, for="203.0.113.9:443";host="a,b"`), want: "203.0.113.9", via: ViaForwarded, trusted: true},
-		{name: "req60 Forwarded proxy element with a quoted-pair after a client's unterminated quote", peer: trustedPeer, h: hdr("Forwarded", `for="1.1.1.1, for=203.0.113.9;host="a\",b"`), want: "203.0.113.9", via: ViaForwarded, trusted: true},
-		{name: "req60 Forwarded proxy element with an escaped backslash", peer: trustedPeer, h: hdr("Forwarded", `for="1.1.1.1, for=203.0.113.9;host="a\\"`), want: "203.0.113.9", via: ViaForwarded, trusted: true},
-		{name: "req60 Forwarded trusted hops right of the proxy element", peer: trustedPeer, h: hdr("Forwarded", `for="6.6.6.6, for=203.0.113.9, for=10.0.0.2`), want: "203.0.113.9", via: ViaForwarded, trusted: true},
-		{name: "req60 Forwarded stray escaped quote leaves its element unparsable", peer: trustedPeer, h: hdr("Forwarded", `for=1.1.1.1, for=10.0.0.2\"`), want: "10.0.0.1", port: 443, via: ViaPeer, trusted: true},
-		{name: "req60 Forwarded unterminated quote at the start of a line", peer: trustedPeer, h: hdr("Forwarded", `"x, for=203.0.113.9`), want: "203.0.113.9", via: ViaForwarded, trusted: true},
-		{name: "req60 Forwarded pair without a value", peer: trustedPeer, h: hdr("Forwarded", "for=1.1.1.1;secure"), want: "10.0.0.1", port: 443, via: ViaPeer, trusted: true},
-		{name: "req60 Forwarded empty for", peer: trustedPeer, h: hdr("Forwarded", "for="), want: "10.0.0.1", port: 443, via: ViaPeer, trusted: true},
-		{name: "req60 Forwarded bad parameter name", peer: trustedPeer, h: hdr("Forwarded", "f r=1.1.1.1"), want: "10.0.0.1", port: 443, via: ViaPeer, trusted: true},
-		{name: "req60 Forwarded bad token value", peer: trustedPeer, h: hdr("Forwarded", "for=1.1.1.1;host=a@b"), want: "10.0.0.1", port: 443, via: ViaPeer, trusted: true},
-		{name: "req60 Forwarded quote in the middle of a value", peer: trustedPeer, h: hdr("Forwarded", `for=1.1.1.1;host=a"b"`), want: "10.0.0.1", port: 443, via: ViaPeer, trusted: true},
-		{name: "req60 Forwarded quoted IPv4 with port", peer: trustedPeer, h: hdr("Forwarded", `for="1.1.1.1:8080"`), want: "1.1.1.1", via: ViaForwarded, trusted: true},
-		{name: "req60 Forwarded obfuscated port", peer: trustedPeer, h: hdr("Forwarded", `for="[2001:db8::1]:_abc"`), want: "2001:db8::1", via: ViaForwarded, trusted: true},
-		{name: "req60 Forwarded unquoted IPv4 with port accepted", peer: trustedPeer, h: hdr("Forwarded", "for=1.1.1.1:8080"), want: "1.1.1.1", via: ViaForwarded, trusted: true},
-		{name: "req60 Forwarded unquoted bracketed IPv6 accepted", peer: trustedPeer, h: hdr("Forwarded", "for=[2001:db8::1]"), want: "2001:db8::1", via: ViaForwarded, trusted: true},
-		{name: "req60 Forwarded bare IPv6 accepted", peer: trustedPeer, h: hdr("Forwarded", `for="2001:db8::1"`), want: "2001:db8::1", via: ViaForwarded, trusted: true},
-		{name: "req60 Forwarded zone stripped", peer: trustedPeer, h: hdr("Forwarded", `for="[fe80::1%eth0]"`), want: "fe80::1", via: ViaForwarded, trusted: true},
-		{name: "req60 Forwarded field lines concatenated in order", peer: trustedPeer, h: hdr("Forwarded", "for=1.1.1.1", "Forwarded", "for=10.0.0.2"), want: "1.1.1.1", via: ViaForwarded, trusted: true},
-		{name: "req60 Forwarded empty elements skipped", peer: trustedPeer, h: hdr("Forwarded", "for=1.1.1.1, , for=10.0.0.2;proto=https"), want: "1.1.1.1", via: ViaForwarded, trusted: true},
-		{name: "req60 Forwarded empty pairs skipped", peer: trustedPeer, h: hdr("Forwarded", "for=1.1.1.1;;proto=https;"), want: "1.1.1.1", via: ViaForwarded, trusted: true},
+		// trusted proxy appended to the same line: the whole line must not
+		// become one unparsable element, which would give the proxy address.
+		{name: "Forwarded proxy element after a client's unterminated quote", peer: trustedPeer, h: hdr("Forwarded", `for="1.1.1.1, for=203.0.113.9`), want: "203.0.113.9", via: ViaForwarded, trusted: true},
+		{name: "Forwarded proxy element after a client's dangling backslash", peer: trustedPeer, h: hdr("Forwarded", `x="\, for=203.0.113.9`), want: "203.0.113.9", via: ViaForwarded, trusted: true},
+		{name: "Forwarded quoted proxy element after a client's unterminated quote", peer: trustedPeer, h: hdr("Forwarded", `for="1.1.1.1, for="203.0.113.9:443";host="a,b"`), want: "203.0.113.9", via: ViaForwarded, trusted: true},
+		{name: "Forwarded proxy element with a quoted-pair after a client's unterminated quote", peer: trustedPeer, h: hdr("Forwarded", `for="1.1.1.1, for=203.0.113.9;host="a\",b"`), want: "203.0.113.9", via: ViaForwarded, trusted: true},
+		{name: "Forwarded proxy element with an escaped backslash", peer: trustedPeer, h: hdr("Forwarded", `for="1.1.1.1, for=203.0.113.9;host="a\\"`), want: "203.0.113.9", via: ViaForwarded, trusted: true},
+		{name: "Forwarded trusted hops right of the proxy element", peer: trustedPeer, h: hdr("Forwarded", `for="6.6.6.6, for=203.0.113.9, for=10.0.0.2`), want: "203.0.113.9", via: ViaForwarded, trusted: true},
+		{name: "Forwarded stray escaped quote leaves its element unparsable", peer: trustedPeer, h: hdr("Forwarded", `for=1.1.1.1, for=10.0.0.2\"`), want: "10.0.0.1", port: 443, via: ViaPeer, trusted: true},
+		{name: "Forwarded unterminated quote at the start of a line", peer: trustedPeer, h: hdr("Forwarded", `"x, for=203.0.113.9`), want: "203.0.113.9", via: ViaForwarded, trusted: true},
+		{name: "Forwarded pair without a value", peer: trustedPeer, h: hdr("Forwarded", "for=1.1.1.1;secure"), want: "10.0.0.1", port: 443, via: ViaPeer, trusted: true},
+		{name: "Forwarded empty for", peer: trustedPeer, h: hdr("Forwarded", "for="), want: "10.0.0.1", port: 443, via: ViaPeer, trusted: true},
+		{name: "Forwarded bad parameter name", peer: trustedPeer, h: hdr("Forwarded", "f r=1.1.1.1"), want: "10.0.0.1", port: 443, via: ViaPeer, trusted: true},
+		{name: "Forwarded bad token value", peer: trustedPeer, h: hdr("Forwarded", "for=1.1.1.1;host=a@b"), want: "10.0.0.1", port: 443, via: ViaPeer, trusted: true},
+		{name: "Forwarded quote in the middle of a value", peer: trustedPeer, h: hdr("Forwarded", `for=1.1.1.1;host=a"b"`), want: "10.0.0.1", port: 443, via: ViaPeer, trusted: true},
+		{name: "Forwarded quoted IPv4 with port", peer: trustedPeer, h: hdr("Forwarded", `for="1.1.1.1:8080"`), want: "1.1.1.1", via: ViaForwarded, trusted: true},
+		{name: "Forwarded obfuscated port", peer: trustedPeer, h: hdr("Forwarded", `for="[2001:db8::1]:_abc"`), want: "2001:db8::1", via: ViaForwarded, trusted: true},
+		{name: "Forwarded unquoted IPv4 with port accepted", peer: trustedPeer, h: hdr("Forwarded", "for=1.1.1.1:8080"), want: "1.1.1.1", via: ViaForwarded, trusted: true},
+		{name: "Forwarded unquoted bracketed IPv6 accepted", peer: trustedPeer, h: hdr("Forwarded", "for=[2001:db8::1]"), want: "2001:db8::1", via: ViaForwarded, trusted: true},
+		{name: "Forwarded bare IPv6 accepted", peer: trustedPeer, h: hdr("Forwarded", `for="2001:db8::1"`), want: "2001:db8::1", via: ViaForwarded, trusted: true},
+		{name: "Forwarded zone stripped", peer: trustedPeer, h: hdr("Forwarded", `for="[fe80::1%eth0]"`), want: "fe80::1", via: ViaForwarded, trusted: true},
+		{name: "Forwarded field lines concatenated in order", peer: trustedPeer, h: hdr("Forwarded", "for=1.1.1.1", "Forwarded", "for=10.0.0.2"), want: "1.1.1.1", via: ViaForwarded, trusted: true},
+		{name: "Forwarded empty elements skipped", peer: trustedPeer, h: hdr("Forwarded", "for=1.1.1.1, , for=10.0.0.2;proto=https"), want: "1.1.1.1", via: ViaForwarded, trusted: true},
+		{name: "Forwarded empty pairs skipped", peer: trustedPeer, h: hdr("Forwarded", "for=1.1.1.1;;proto=https;"), want: "1.1.1.1", via: ViaForwarded, trusted: true},
 
 		// Unknown peers.
-		{name: "req59 unavailable peer gives no address", peer: "", h: hdr("X-Forwarded-For", "1.1.1.1"), want: "invalid IP", via: ViaPeer},
+		{name: "unavailable peer gives no address", peer: "", h: hdr("X-Forwarded-For", "1.1.1.1"), want: "invalid IP", via: ViaPeer},
 	}
 	tr := testTrusted()
 	for _, tt := range tests {
@@ -183,7 +182,7 @@ func TestViaString(t *testing.T) {
 }
 
 // TestResolveAllocations: source.ip is computed on every request without
-// allocating (06 6.7 BenchmarkClientAddr budget).
+// allocating (the BenchmarkClientAddr budget).
 func TestResolveAllocations(t *testing.T) {
 	tr := testTrusted()
 	peer := netip.MustParseAddrPort("10.0.0.1:443")

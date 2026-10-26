@@ -46,13 +46,13 @@ type keyEntry struct {
 
 type keyTable map[[32]byte]keyEntry
 
-// KeyIndex holds the SHA-256 digests of secretRef-held API keys (spec 06
-// requirements 12 and 13). The request path reads an immutable table
-// through an atomic pointer, without locks; a rotation of a watched secret
-// builds a new table and swaps it in (copy-on-write). Watches are
-// registered through secret.Store.Watch, which is Node-wide and keyed by
-// Ref (R-55), so a KeyIndex carried over into later snapshots keeps
-// following rotations after the resolver activates a newer Store.
+// KeyIndex holds the SHA-256 digests of secretRef-held API keys. The
+// request path reads an immutable table through an atomic pointer, without
+// locks; a rotation of a watched secret builds a new table and swaps it in
+// (copy-on-write). Watches are registered through secret.Store.Watch,
+// which is Node-wide and keyed by Ref, so a KeyIndex carried over into
+// later snapshots keeps following rotations after the resolver activates a
+// newer Store.
 //
 // A KeyIndex is shared by reference count: NewKeyIndex returns it with one
 // reference held by the caller, Retain adds one, and the Release that drops
@@ -130,8 +130,8 @@ func NewKeyIndex(keys []SecretKey, store secret.Store, prev *KeyIndex) (*KeyInde
 
 // rotate applies a new value of ref: a value under MinKeyBytes returns an
 // error, which keeps the last digest and makes the resolver count a
-// rotation failure (spec 06 requirement 13); otherwise every key bound to
-// ref takes the new digest and, if any changed, a new table is published.
+// rotation failure; otherwise every key bound to ref takes the new digest
+// and, if any changed, a new table is published.
 func (k *KeyIndex) rotate(ref secret.Ref, v secret.Value) error {
 	d, err := SecretKeyDigest(v.Reveal())
 	if err != nil {

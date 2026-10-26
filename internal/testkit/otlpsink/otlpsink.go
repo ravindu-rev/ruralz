@@ -1,36 +1,34 @@
 // Copyright 2026 Revington
 // SPDX-License-Identifier: Apache-2.0
 
-// Package otlpsink is the in-process OTLP/gRPC collector of the test kit
-// (11 section 3, F 32, req 39; 09 tests 33, 34 and 36 to 38): a gRPC
-// server implementing the OTLP trace, metrics and logs collector services
-// over TLS or h2c (cleartext HTTP/2), which records every export request
-// for assertions.
+// Package otlpsink is the in-process OTLP/gRPC collector of the test kit:
+// a gRPC server implementing the OTLP trace, metrics and logs collector
+// services over TLS or h2c (cleartext HTTP/2), which records every export
+// request for assertions.
 //
 // It records, per request, the decoded message, the wire bytes as the
 // client sent them (after gRPC decompression, for canary scans), the
 // incoming metadata (headers), the peer address, the connection's
 // sequence number and the TLS state; Stats counts connections opened and
-// open now, so a test sees an exporter close its old connection (09 test
-// 40). Spans, log records and metrics are also kept flattened with their
-// resource and scope, and the span queries order a trace by start time
-// (ties in arrival order): Trace, SpanNames, Children, Roots and
-// FormatTree answer "which spans, in which order, under which parent" (09
-// test 34, 11 req 34).
+// open now, so a test sees an exporter close its old connection. Spans,
+// log records and metrics are also kept flattened with their resource and
+// scope, and the span queries order a trace by start time (ties in
+// arrival order): Trace, SpanNames, Children, Roots and FormatTree answer
+// "which spans, in which order, under which parent".
 //
-// Modes script collector failures for exporter tests (09 tests 37, 38):
-// Accept records and answers OK; Reject answers every export with a gRPC
-// status; Stall holds every export until the mode changes, the client's
-// deadline passes or the sink closes; Down stops the server (dials are
-// refused) and leaving Down listens on the same address again.
+// Modes script collector failures for exporter tests: Accept records and
+// answers OK; Reject answers every export with a gRPC status; Stall
+// holds every export until the mode changes, the client's deadline
+// passes or the sink closes; Down stops the server (dials are refused)
+// and leaving Down listens on the same address again.
 //
 // The package is self-contained on go.opentelemetry.io/proto/otlp and
-// google.golang.org/grpc and imports nothing from internal/telemetry
-// (R-53), so the telemetry runtime tests against it. Every goroutine
-// belongs to the Sink (one gRPC server with its serve loop, and the
-// handlers gRPC starts per export); Close, or the end of the Start
-// context, stops the server and waits for the serve loop and every
-// handler. Recording is bounded by MaxRequests and MaxBytes.
+// google.golang.org/grpc and imports nothing from internal/telemetry,
+// so the telemetry runtime tests against it. Every goroutine belongs
+// to the Sink (one gRPC server with its serve loop, and the handlers
+// gRPC starts per export); Close, or the end of the Start context,
+// stops the server and waits for the serve loop and every handler.
+// Recording is bounded by MaxRequests and MaxBytes.
 package otlpsink
 
 import (

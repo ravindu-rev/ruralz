@@ -4,9 +4,7 @@
 // Package resolver implements secret.Resolver for ruralzd: the env and file
 // secretRef providers, the RURALZ_SECRET_ROOT and RURALZ_SECRET_ rules,
 // per-kind size caps and checks, the Node-wide watch table and the 2 s file
-// poller (spec 01 requirements 44 to 46, spec 06 requirements 87 to 91,
-// spec 04 requirement 3; architecture 2.8, R-9, R-55). Only ruralzd links
-// it (depguard secretresolver).
+// poller. Only ruralzd links it (depguard secretresolver).
 //
 // Values live only in memory, in cells: one cell holds the current value
 // of one Ref. A Store resolved for a Revision points at its cells; a
@@ -51,7 +49,7 @@ import (
 	"github.com/ravindu-rev/ruralz/internal/telemetry/emit"
 )
 
-// Defaults and limits (architecture R-9; spec 01 requirements 44 and 46).
+// Defaults and limits.
 const (
 	// DefaultRoot is RURALZ_SECRET_ROOT when the setting is unset.
 	DefaultRoot = "/etc/ruralz"
@@ -62,7 +60,7 @@ const (
 	// MaxCRLBytes caps a file (and a value) of KindPEMCRL.
 	MaxCRLBytes = 16 << 20
 	// MinAPIKeyBytes is the shortest KindAPIKey value after trimming
-	// (spec 06 requirement 13; RZ-CFG-026 interim, 01 risk 37).
+	// (RZ-CFG-026 interim).
 	MinAPIKeyBytes = 22
 	// DefaultRetryInitial is the first delay of ResolveWithRetry (proposed).
 	DefaultRetryInitial = 500 * time.Millisecond
@@ -71,11 +69,10 @@ const (
 )
 
 // CodeUnresolvable is the diagnostic code of every failing use: an
-// unresolvable reference, or a value that fails its check (spec 01
-// requirement 44, spec 06 requirements 13, 51 and 80).
+// unresolvable reference, or a value that fails its check.
 const CodeUnresolvable = "RZ-CFG-026"
 
-// Environment variable rules of the env provider (OQ-security-and-identity-22 (a)).
+// Environment variable rules of the env provider.
 const (
 	// EnvStateStoreURL is the one env name outside the prefix that resolves.
 	EnvStateStoreURL = "RURALZ_STATE_STORE_URL"
@@ -84,7 +81,7 @@ const (
 )
 
 // Process setting names used in Config.Protected and in NewResolver errors
-// (spec 04 requirement 2; OQ-security-and-identity-7 (a); R-49).
+// .
 const (
 	// SettingSecretRoot is the secret root setting.
 	SettingSecretRoot = "RURALZ_SECRET_ROOT" //nolint:gosec // G101: a setting name, not a credential.
@@ -111,8 +108,7 @@ const (
 	providerVault      = "vault"
 )
 
-// Startup refusal errors (spec 01 requirement 45, spec 04 requirement 3,
-// spec 06 requirement 88). They carry no RZ code: ruralzd exits 2 with the
+// Startup refusal errors. They carry no RZ code: ruralzd exits 2 with the
 // message, which names the setting.
 var (
 	// ErrRelativeRoot reports a relative RURALZ_SECRET_ROOT.
@@ -157,7 +153,7 @@ type Config struct {
 	// RotationFailures returns the ruralz_config_secret_rotation_failures_total
 	// counter of a provider (emit.ConfigMetrics.SecretRotationFail). It is
 	// called once for env and once for file in NewResolver, so both series
-	// exist from the start (spec 01 requirement 56); nil counts nothing.
+	// exist from the start; nil counts nothing.
 	RotationFailures func(provider string) emit.Counter
 	// Status raises and clears the secret_rotation_failed degraded reason;
 	// nil records nothing.
@@ -209,8 +205,7 @@ var _ secret.Resolver = (*Resolver)(nil)
 // NewResolver validates cfg and returns a Resolver. It refuses a relative
 // root and a root that is, or contains, a protected path (compared after
 // filepath.Clean and filepath.EvalSymlinks where the path exists); the
-// error names the settings and ruralzd exits 2 with it (spec 01
-// requirement 45, spec 04 requirement 3, spec 06 requirement 88).
+// error names the settings and ruralzd exits 2 with it.
 func NewResolver(cfg Config) (*Resolver, error) {
 	root := cfg.Root
 	if root == "" {
@@ -280,18 +275,17 @@ func (r *Resolver) Root() string { return r.root }
 func (r *Resolver) Current() secret.Store { return r.active.Load() }
 
 // Activate makes s current: its file references become the polled set.
-// Watch registrations are kept (R-55); on the next cycle, which Activate
-// starts at once when Run is running, every registration whose reference
-// s holds receives the value it has not seen. Before s becomes current,
-// Activate applies the refused rotations s's uses accept (its pending
-// values) to the cells s shares with older Stores, so those Stores and
-// their watchers follow, and checks against s's uses every value that
-// changed since Resolve checked it; a value they refuse counts a rotation
-// failure and raises secret_rotation_failed. The next cycle also reads
-// again every file reference of s whose last examination failed and
-// checks it against s's uses, so a value the previous uses refused is
-// applied once s accepts it and secret_rotation_failed clears (spec 01
-// requirement 46, spec 06 requirements 13 and 76). A nil s activates the
+// Watch registrations are kept; on the next cycle, which Activate starts
+// at once when Run is running, every registration whose reference s holds
+// receives the value it has not seen. Before s becomes current, Activate
+// applies the refused rotations s's uses accept (its pending values) to
+// the cells s shares with older Stores, so those Stores and their
+// watchers follow, and checks against s's uses every value that changed
+// since Resolve checked it; a value they refuse counts a rotation failure
+// and raises secret_rotation_failed. The next cycle also reads again
+// every file reference of s whose last examination failed and checks it
+// against s's uses, so a value the previous uses refused is applied once
+// s accepts it and secret_rotation_failed clears. A nil s activates the
 // empty Store. s must come from r's Resolve; any other Store is a
 // programming error and panics.
 func (r *Resolver) Activate(s secret.Store) {
@@ -324,11 +318,11 @@ func (r *Resolver) Activate(s secret.Store) {
 }
 
 // settleLocked applies the pending values of st to the cells st shares
-// with older Stores and drops them, so Get on st reads its cells from
-// then on. A pending value is applied when its cell still holds the value
+// with older Stores and drops them, so Get on st reads its cells from then
+// on. A pending value is applied when its cell still holds the value
 // Resolve saw and its last examination still failed: every Store sharing
-// the cell, and every watcher, then follows it (secret.Store, R-55), and
-// the next poll re-reads the file if it changed since Resolve read it.
+// the cell, and every watcher, then follows it (secret.Store), and the
+// next poll re-reads the file if it changed since Resolve read it.
 // Otherwise the cell moved since Resolve; when its value is older than the
 // pending one, which st's Get and watchers may already have taken, it is
 // published again at a new version so they converge on it, and
@@ -379,10 +373,10 @@ func (r *Resolver) settleLocked(ctx context.Context, st *store) {
 // recheckLocked checks against st's uses every file value of st that
 // changed since st last checked it: a poll through the previously active
 // Store between Resolve and Activate checked it only against that Store's
-// uses (spec 01 requirement 46). A refused value stays served, as the
-// only value the reference has, but counts one rotation failure, is logged
-// and raises secret_rotation_failed until a value st's uses accept is
-// read. A cell whose last examination failed is left to the next poll.
+// uses. A refused value stays served, as the only value the reference has,
+// but counts one rotation failure, is logged and raises
+// secret_rotation_failed until a value st's uses accept is read. A cell
+// whose last examination failed is left to the next poll.
 func (r *Resolver) recheckLocked(ctx context.Context, st *store, now time.Time) {
 	for _, g := range st.files {
 		for _, ref := range g.refs {

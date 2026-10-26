@@ -13,7 +13,7 @@ import (
 	"github.com/ravindu-rev/ruralz/internal/ulid"
 )
 
-// HolderFormat is the format marker of holder.json (R-25).
+// HolderFormat is the format marker of holder.json.
 const HolderFormat = "ruralz.holder.v1"
 
 // MaxHolderBytes bounds a holder.json read.
@@ -22,19 +22,18 @@ const MaxHolderBytes = 64 << 10
 // Holder errors.
 var (
 	// ErrNoHolder reports a missing holder.json; the error also matches
-	// fs.ErrNotExist. ruralz node drain exits 2 with "no lock holder
-	// recorded in <dir>" (spec 10 requirement 96.1).
+	// fs.ErrNotExist. ruralz node drain exits 2 with
+	// "no lock holder recorded in <dir>".
 	ErrNoHolder = errors.New("nodedir: no lock holder recorded")
 	// ErrHolderInvalid reports a holder.json that does not parse, has
 	// another format or lacks a PID or node.id; ruralz node drain exits 2
-	// with "unreadable holder record" (spec 10 requirement 96.1).
+	// with "unreadable holder record".
 	ErrHolderInvalid = errors.New("nodedir: unreadable holder record")
 )
 
-// Holder is the PID record ruralz.holder.v1 in holder.json (spec 04
-// requirement 5, spec 10 requirement 95, R-25). Members are written in
-// this order; readers ignore members they do not know, so later members
-// are additive.
+// Holder is the PID record ruralz.holder.v1 in holder.json. Members are
+// written in this order; readers ignore members they do not know, so
+// later members are additive.
 type Holder struct {
 	// Format is HolderFormat.
 	Format string `json:"format"`
@@ -48,8 +47,7 @@ type Holder struct {
 	// Version is the holder's build version.
 	Version string `json:"version"`
 	// PIDNamespace is readlink(/proc/self/ns/pid), such as
-	// "pid:[4026531836]"; empty (and omitted) where /proc does not exist
-	// (OQ-cli-and-api-surface-10 (a)).
+	// "pid:[4026531836]"; empty (and omitted) where /proc does not exist.
 	PIDNamespace string `json:"pidNamespace,omitempty"`
 }
 
@@ -108,12 +106,11 @@ func DecodeHolder(data []byte) (Holder, error) {
 }
 
 // ReadHolderAt reads holder.json under root without opening, creating or
-// locking anything else, for ruralz node drain (spec 10 requirements 95
-// and 96). A missing record matches ErrNoHolder and fs.ErrNotExist; an
-// unparsable one matches ErrHolderInvalid, and so does, without blocking
-// or reading through it, a holder.json that is a symbolic link, a hard
-// link (more than one link), a FIFO or anything else but a regular file
-// (on Unix).
+// locking anything else, for ruralz node drain. A missing record matches
+// ErrNoHolder and fs.ErrNotExist; an unparsable one matches
+// ErrHolderInvalid, and so does, without blocking or reading through it,
+// a holder.json that is a symbolic link, a hard link (more than one
+// link), a FIFO or anything else but a regular file (on Unix).
 func ReadHolderAt(root string) (Holder, error) {
 	path := filepath.Join(root, HolderFile)
 	data, err := readLimited(path, MaxHolderBytes, true)

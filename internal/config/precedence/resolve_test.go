@@ -37,8 +37,8 @@ func codes(ds diag.List) []string {
 	return out
 }
 
-// TestCompilerIsBodyOracle checks that the CEL compiler contract
-// satisfies the oracle Options.Body takes (architecture 1.2 injection).
+// TestCompilerIsBodyOracle checks that the CEL compiler contract satisfies
+// the oracle Options.Body takes.
 func TestCompilerIsBodyOracle(t *testing.T) {
 	var c expr.Compiler
 	if o := (Options{Body: registry.BodyOracle(c)}); o.Body != nil {
@@ -46,7 +46,10 @@ func TestCompilerIsBodyOracle(t *testing.T) {
 	}
 }
 
-// TestPhaseSelection covers 02 test 17 (02 req 13 and 13a; 07 req 2).
+// TestPhaseSelection checks the Phases each Policy runs in: headers by the
+// parts they touch, transform.request on the upstream leg, authz.cel in
+// onRequestBody only when its rule reads the body, and no row for an empty
+// headers config.
 func TestPhaseSelection(t *testing.T) {
 	b := newBuilder()
 	b.policy("hdr-resp", v1alpha1.PolicyTypeHeaders, headersCfg(false, true))
@@ -90,9 +93,9 @@ func TestPhaseSelection(t *testing.T) {
 	}
 }
 
-// TestOrdering covers 02 test 18 and 02 req 35.5, 04 req 40: class, then
-// scope, then position; response Phases reversed; onLog in request
-// order; two Route ratelimit Policies keep list order.
+// TestOrdering covers the order within a Phase: class, then scope, then
+// position; response Phases reversed; onLog in request order; two Route
+// ratelimit Policies keep list order.
 func TestOrdering(t *testing.T) {
 	b := newBuilder()
 	b.policy("quota-g", v1alpha1.PolicyTypeQuota, nil)
@@ -125,7 +128,7 @@ func TestOrdering(t *testing.T) {
 	}
 }
 
-// TestUpstreamLegOrder covers 02 req 35.4 and 41: leg Policies only in
+// TestUpstreamLegOrder covers upstream legs: leg Policies only in
 // upstream-leg Phases, sorted by class then position and reversed in
 // response Phases; legs in first-appearance order, each once.
 func TestUpstreamLegOrder(t *testing.T) {
@@ -186,10 +189,10 @@ func TestUpstreamLegOrder(t *testing.T) {
 	}
 }
 
-// TestReplaceAndExclude covers 02 req 35.1, 35.2 and 36 and R-16: the
-// Removed list and Replaces, exclusion before replacement, an exclusion
-// of a Policy the Gateway does not attach, and a locked Policy that
-// stays in the chain after both RZ-CFG-019 findings.
+// TestReplaceAndExclude covers the Removed list and Replaces, exclusion
+// before replacement, an exclusion of a Policy the Gateway does not attach,
+// and a locked Policy that stays in the chain after both RZ-CFG-019
+// findings.
 func TestReplaceAndExclude(t *testing.T) {
 	b := newBuilder()
 	b.policy("cors-g", v1alpha1.PolicyTypeCORS, nil)
@@ -246,10 +249,10 @@ func TestReplaceAndExclude(t *testing.T) {
 	}
 }
 
-// TestSlotsPerScope covers 02 req 35.3, 35.4 and R-15: RZ-CFG-018 within
-// one list only (Upstream lists take no part in slot comparison), the
-// Gateway and Upstream lists checked once however many Routes use them,
-// and RZ-CFG-020 dropping the entry without a cascade.
+// TestSlotsPerScope covers slots per scope: RZ-CFG-018 within one list only
+// (Upstream lists take no part in slot comparison), the Gateway and
+// Upstream lists checked once however many Routes use them, and RZ-CFG-020
+// dropping the entry without a cascade.
 func TestSlotsPerScope(t *testing.T) {
 	b := newBuilder()
 	b.policy("rl-a", v1alpha1.PolicyTypeRateLimit, nil, slot("limits"))
@@ -310,7 +313,7 @@ func TestSlotsPerScopeOverridable(t *testing.T) {
 	}
 }
 
-// TestCacheGuardrail covers 02 req 39 beyond the fixtures: a
+// TestCacheGuardrail covers RZ-CFG-038 beyond the fixtures: a
 // Gateway-scoped authz.cel reading the body, an onRequestBody
 // transform.request (not covered by the rule) and a plugin auth Policy.
 func TestCacheGuardrail(t *testing.T) {
@@ -352,9 +355,9 @@ func TestCacheGuardrail(t *testing.T) {
 	}
 }
 
-// TestUnresolvedReferences covers 02 req 2 and 40: missing Policies,
-// Plugins and Upstreams are skipped without diagnostics, and every other
-// attachment and Route is still checked.
+// TestUnresolvedReferences checks that missing Policies, Plugins and
+// Upstreams are skipped without diagnostics, and every other attachment and
+// Route is still checked.
 func TestUnresolvedReferences(t *testing.T) {
 	b := newBuilder()
 	b.policy("rl", v1alpha1.PolicyTypeRateLimit, nil)
@@ -434,8 +437,8 @@ type failingOracle struct{}
 func (failingOracle) ReferencesRequestBody(string) (bool, error) { return false, errors.New("no") }
 
 // TestProgrammingErrors covers the errors Resolve returns instead of
-// diagnostics: CR 20 (ErrNoBodyOracle, a config of the wrong type), an
-// unknown type and a canceled context.
+// diagnostics: ErrNoBodyOracle, a config of the wrong type, an unknown type
+// and a canceled context.
 func TestProgrammingErrors(t *testing.T) {
 	newBundle := func(name string, typ v1alpha1.PolicyType, cfg any) *hub.Bundle {
 		b := newBuilder()
@@ -499,7 +502,7 @@ func TestNilBundle(t *testing.T) {
 	}
 }
 
-// TestCheckPolicies covers 02 req 37 on typed Policies: once per Policy,
+// TestCheckPolicies covers RZ-CFG-029 on typed Policies: once per Policy,
 // attached or not, with the resource named and sorted output.
 func TestCheckPolicies(t *testing.T) {
 	b := newBuilder()
@@ -528,7 +531,7 @@ func TestCheckPolicies(t *testing.T) {
 }
 
 // TestWorkersDeterministic checks that the result never depends on the
-// worker count or scheduling (02 section 3 concurrency rules).
+// worker count or scheduling.
 func TestWorkersDeterministic(t *testing.T) {
 	b, files := loadBundle(t, shopBundle, "testdata/fixtures/019-exclude")
 	r := New(nil, Options{Body: bodyOracle{}, Files: files})

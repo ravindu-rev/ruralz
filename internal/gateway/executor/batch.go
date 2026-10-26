@@ -34,7 +34,7 @@ type member struct {
 	p    *snapshot.Policy
 	c    filter.Consumptive
 	span emit.Span
-	// whenErr is admit's mark for span (spec 03 req 43).
+	// whenErr is admit's mark for span.
 	whenErr string
 	d       time.Duration
 	state   memberState
@@ -45,7 +45,7 @@ type member struct {
 const batchContexts = 8
 
 // batch runs a run of consecutive Consumptive Policies of onRequestHeaders
-// (pack 8.7 rule 3; spec 05 reqs 64 and 91; spec 08 reqs 27 to 29 and 38):
+// (pack 8.7 rule 3):
 //
 //  1. In chain order, each admitted member's Prepare runs every Node-local
 //     step on its own PolicyState. A member that decides locally is
@@ -201,9 +201,9 @@ func (r *Run) undo(ms []member, ctxs []context.Context, all bool) {
 }
 
 // stateAttrs puts a round trip on the span of the member whose call records
-// it and names that member in ruralz.state.batch on the others (spec 08
-// req 65). call is ptrs[q] of a round trip over ptrs[k:k+n]; Call.Batch
-// indexes that round trip's calls.
+// it and names that member in ruralz.state.batch on the others. call is
+// ptrs[q] of a round trip over ptrs[k:k+n]; Call.Batch indexes that round
+// trip's calls.
 func (r *Run) stateAttrs(span emit.Span, call *statestore.Call, q, k, n int) {
 	if span == nil {
 		return

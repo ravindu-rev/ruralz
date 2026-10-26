@@ -9,9 +9,9 @@ import (
 	"time"
 )
 
-// TestSetEndpointsKeepsState covers 05 req 2: per-Endpoint state is kept
-// for identities that remain; new Endpoints start healthy and unejected
-// (05 req 20); the list must be sorted and unique.
+// TestSetEndpointsKeepsState covers Endpoint-set changes: per-Endpoint
+// state is kept for identities that remain; new Endpoints start healthy
+// and unejected; the list must be sorted and unique.
 func TestSetEndpointsKeepsState(t *testing.T) {
 	tr, clk, _, log := newTracker(t, 3, func(c *Config) {
 		c.Passive = PassivePolicy{ConsecutiveErrors: 1}
@@ -59,11 +59,11 @@ func TestSetEndpointsKeepsState(t *testing.T) {
 	}
 }
 
-// TestHealthyGauge covers 05 req 23: ruralz_upstream_healthy_endpoints is
-// the Endpoints eligible after step (b) of 05 req 11, which in panic mode
-// is every Endpoint; OnHealthy reports the raw healthy count (0 in panic)
-// so the Upstream layer can raise upstream_panic; ejection expiry updates
-// both without a request.
+// TestHealthyGauge covers ruralz_upstream_healthy_endpoints: the Endpoints
+// eligible once Down ones are dropped, which in panic mode is every
+// Endpoint; OnHealthy reports the raw healthy count (0 in panic) so the
+// Upstream layer can raise upstream_panic; ejection expiry updates both
+// without a request.
 func TestHealthyGauge(t *testing.T) {
 	tr, clk, m, log := newTracker(t, 2, func(c *Config) { c.Passive = PassivePolicy{ConsecutiveErrors: 1, EjectionTime: 10 * time.Second} })
 	if m.healthyG.v.Load() != 2 {
@@ -146,7 +146,7 @@ func TestSetPolicyActiveOff(t *testing.T) {
 	}
 }
 
-// TestStatus covers the /debug/upstreams Endpoint fields (05 req 96).
+// TestStatus covers the /debug/upstreams Endpoint fields.
 func TestStatus(t *testing.T) {
 	tr, clk, _, _ := newTracker(t, 2, func(c *Config) {
 		c.Passive = PassivePolicy{ConsecutiveErrors: 3, EjectionTime: 5 * time.Second}
@@ -191,8 +191,8 @@ func TestPolicyDefaults(t *testing.T) {
 	}
 }
 
-// TestFailureWindow covers 05 req 13: attempts matching failureWhen in the
-// last second, in 100 ms buckets.
+// TestFailureWindow covers the failure window: attempts matching
+// failureWhen in the last second, in 100 ms buckets.
 func TestFailureWindow(t *testing.T) {
 	var w window
 	base := epoch().UnixNano()
@@ -218,8 +218,8 @@ func TestFailureWindow(t *testing.T) {
 // TestOnHealthyLatestWins: when two changes report out of order (a
 // goroutine preempted between its change and its report), the last
 // OnHealthy delivery still carries the current count, so the Upstream
-// layer's upstream_panic reason (05 req 11 step b) never sticks; equal
-// values are not delivered twice.
+// layer's upstream_panic reason never sticks; equal values are not
+// delivered twice.
 func TestOnHealthyLatestWins(t *testing.T) {
 	tr, clk, _, log := newTracker(t, 2, func(c *Config) { c.Passive = PassivePolicy{ConsecutiveErrors: 1, EjectionTime: 10 * time.Second} })
 	calls := func() int {

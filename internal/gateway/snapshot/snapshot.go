@@ -87,7 +87,7 @@ type Snapshot struct {
 // snapshot and role (one reference each) or carries the previous
 // snapshot's instance over without retaining it again. Retaining a
 // carried-over instance once per snapshot leaks references, and the old
-// driver never closes (08 req 61).
+// driver never closes.
 type StoreHandle interface {
 	Store() statestore.Store
 	Enqueuer() statestore.Enqueuer
@@ -205,8 +205,8 @@ type Route struct {
 	Listeners []string
 	// Protocol is the protocol of the Route's Upstreams; the handler's
 	// dispatch table is keyed by it. M1 serves only http (the ruralzd serve
-	// check rejects every other protocol with RZ-CFG-040, R-75); M3 and M4
-	// add handlers.
+	// check rejects every other protocol with RZ-CFG-040); M3 and M4 add
+	// handlers.
 	Protocol v1alpha1.UpstreamProtocol
 	// Timeout is the effective Route timeout (15 s default in M1).
 	Timeout time.Duration
@@ -313,10 +313,10 @@ type Outbound struct {
 // sent again.
 var ErrNotReplayable = errors.New("snapshot: request body is not replayable")
 
-// RequestBody is the client request body as the Upstream layer sees it
-// (05 req 31, 54); internal/gateway/body implements it over the body gate
-// or the client stream. Opens happen on one goroutine at a time except for
-// a gated body, whose readers are independent.
+// RequestBody is the client request body as the Upstream layer sees it;
+// internal/gateway/body implements it over the body gate or the client
+// stream. Opens happen on one goroutine at a time except for a gated body,
+// whose readers are independent.
 type RequestBody interface {
 	// ContentLength is the length when known (declared or gated), -1 when
 	// unknown, 0 for no body.

@@ -17,13 +17,13 @@ import (
 )
 
 // DefaultDumpLimit is the /config/dump body cap ReadDump applies when its
-// limit is zero or negative: 256 MiB (02 req 58 and 10 req 66, proposed).
+// limit is zero or negative: 256 MiB (proposed).
 const DefaultDumpLimit = 256 << 20
 
 // Dump is a /config/dump document read by ReadDump.
 type Dump struct {
 	// Body is the document exactly as read; ruralz node dump saves these
-	// bytes unchanged, so the file is a valid diff source (02 req 74).
+	// bytes unchanged, so the file is a valid diff source.
 	Body []byte
 	// Content is the exact canonical bytes, a subslice of Body.
 	Content []byte
@@ -34,14 +34,14 @@ type Dump struct {
 	LastKnownGood revision.Digest
 }
 
-// AppendDump appends the /config/dump document (02 req 73): the RFC 8785
-// serialization of {"content":<canonical document>,"digest":"sha256:...",
+// AppendDump appends the /config/dump document: the RFC 8785 serialization
+// of {"content":<canonical document>,"digest":"sha256:...",
 // "lastKnownGood":"sha256:...","revision":"rev-..."}, whose members are
 // already in RFC 8785 order. The content bytes are copied exactly, never
 // re-encoded, and lastKnownGood is omitted when lkg is zero. active is the
 // published snapshot's Revision, whose Content must be canonical content
 // (a Node without a Revision has no dump); the admin server receives this
-// writer as an injected handler (R-57) and serves it as application/json.
+// writer as an injected handler and serves it as application/json.
 func AppendDump(dst []byte, active revision.Revision, lkg revision.Digest) []byte {
 	dst = append(dst, `{"content":`...)
 	dst = append(dst, active.Content...)
@@ -62,10 +62,10 @@ func AppendDump(dst []byte, active revision.Revision, lkg revision.Digest) []byt
 // (CodeMismatch), and decodes the content as Decode does (CodeNewer,
 // CodeMismatch); positions count from the start of the document. Members
 // other than content, digest, lastKnownGood and revision are ignored, so
-// a newer Node's additions do not fail it (10 req 69). A body over limit
-// is ErrDumpTooLarge and one that is not a dump document ErrNotDump; a
-// read failure is returned wrapped. ctx is checked before decoding; it
-// does not interrupt a blocked read.
+// a newer Node's additions do not fail it. A body over limit is
+// ErrDumpTooLarge and one that is not a dump document ErrNotDump; a read
+// failure is returned wrapped. ctx is checked before decoding; it does
+// not interrupt a blocked read.
 func (d *Decoder) ReadDump(ctx context.Context, r io.Reader, limit int64, src Source) (Dump, []tree.Resource, error) {
 	if limit <= 0 {
 		limit = DefaultDumpLimit

@@ -13,12 +13,12 @@ import (
 )
 
 // Signature is the 12-byte PROXY protocol v2 signature every header starts
-// with (04 req 16, 06 req 61).
+// with.
 const Signature = "\r\n\r\n\x00\r\nQUIT\n"
 
 // MaxVariableLen caps the variable part of a header (address block plus
-// TLVs) at 4,096 bytes (04 req 16 and 06 req 61, proposed cap); a larger
-// declared length closes the connection before the part is read.
+// TLVs) at 4,096 bytes (proposed cap); a larger declared length closes
+// the connection before the part is read.
 const MaxVariableLen = 4096
 
 // MaxHeaderLen is the longest header ReadHeader accepts: the 16-byte fixed
@@ -65,7 +65,7 @@ func (c Command) String() string {
 type Family uint8
 
 // Families accepted by ReadHeader with PROXY; UDP and UNIX families are
-// refused with PROXY. LOCAL is accepted with any family byte (R-65).
+// refused with PROXY. LOCAL is accepted with any family byte.
 const (
 	// FamilyUnspec is AF_UNSPEC, accepted with LOCAL only.
 	FamilyUnspec Family = 0x00
@@ -136,12 +136,12 @@ var (
 // up with io.ErrNoProgress, as bufio does.
 const maxEmptyReads = 100
 
-// ReadHeader reads exactly one PROXY v2 header from r and nothing more
-// (04 req 16, 06 req 61). It checks the signature byte by byte as bytes
-// arrive, so a client that is not speaking PROXY v2 is refused on its first
-// bytes, and checks the declared length against MaxVariableLen before
-// reading the variable part. TLVs are read and discarded, not parsed.
-// Every failure wraps ErrMalformed.
+// ReadHeader reads exactly one PROXY v2 header from r and nothing more. It
+// checks the signature byte by byte as bytes arrive, so a client that is
+// not speaking PROXY v2 is refused on its first bytes, and checks the
+// declared length against MaxVariableLen before reading the variable part.
+// TLVs are read and discarded, not parsed. Every failure wraps
+// ErrMalformed.
 func ReadHeader(r io.Reader) (Header, error) {
 	// One buffer (one allocation, since it escapes through r.Read): the
 	// fixed part, then the address block, then TLVs in chunks.
@@ -195,10 +195,9 @@ func ReadHeader(r io.Reader) (Header, error) {
 
 // addrLen returns the length of the address block ReadHeader parses. LOCAL
 // discards its block whatever the family byte, as the PROXY v2 text has
-// receivers do (R-65, overriding the literal 04 req 16): the block is
-// skipped within MaxVariableLen and the TCP peer stays the peer. PROXY
-// needs TCP4 or TCP6; UDP, UNIX, AF_UNSPEC and unknown families close the
-// connection.
+// receivers do: the block is skipped within MaxVariableLen and the TCP
+// peer stays the peer. PROXY needs TCP4 or TCP6; UDP, UNIX, AF_UNSPEC and
+// unknown families close the connection.
 func addrLen(c Command, f Family) (int, error) {
 	if c == CommandLocal {
 		return 0, nil

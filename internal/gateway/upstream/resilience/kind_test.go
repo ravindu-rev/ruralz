@@ -23,9 +23,9 @@ import (
 	"github.com/ravindu-rev/ruralz/internal/telemetry/emit"
 )
 
-// TestKindLabels_05Req39 holds the kind spellings and their alignment with
+// TestKindLabels holds the kind spellings and their alignment with
 // the error label of ruralz_upstream_attempts_total and the emit indexes.
-func TestKindLabels_05Req39(t *testing.T) {
+func TestKindLabels(t *testing.T) {
 	fam, ok := catalog.Lookup(catalog.UpstreamAttemptsTotal)
 	if !ok {
 		t.Fatal("catalog has no ruralz_upstream_attempts_total")
@@ -70,8 +70,8 @@ func wrapped(err error, n int) error {
 	return err
 }
 
-// TestClassifyStage_05Req39 classifies synthetic errors of every shape.
-func TestClassifyStage_05Req39(t *testing.T) {
+// TestClassifyStage classifies synthetic errors of every shape.
+func TestClassifyStage(t *testing.T) {
 	ended, cancel := context.WithCancel(context.Background())
 	cancel()
 	live := context.Background()
@@ -128,11 +128,11 @@ func TestClassifyStage_05Req39(t *testing.T) {
 	}
 }
 
-// TestExpiredCanceled_05Req39 separates a deadline expiry (error kind
+// TestExpiredCanceled separates a deadline expiry (error kind
 // timeout, an Upstream failure) from a cancellation that is none: the
 // client went away or a sibling composition step canceled the shared
 // context.
-func TestExpiredCanceled_05Req39(t *testing.T) {
+func TestExpiredCanceled(t *testing.T) {
 	clk := newClock()
 	past := time.Now().Add(-time.Second)
 	errSibling := errors.New("sibling step failed")
@@ -209,7 +209,7 @@ func TestExpiredCanceled_05Req39(t *testing.T) {
 }
 
 // TestStageTrace covers the monotonic stage and its hooks, the stage input
-// of classification (05 req 39).
+// of classification.
 func TestStageTrace(t *testing.T) {
 	var s StageTrace
 	if s.Stage() != StageUnknown {
@@ -256,7 +256,7 @@ func TestStageTrace(t *testing.T) {
 	}
 }
 
-// TestKindError covers the kind annotation of RZ-UP-007 (05 req 40).
+// TestKindError covers the kind annotation of RZ-UP-007.
 func TestKindError(t *testing.T) {
 	cause := errors.New("boom")
 	err := fmt.Errorf("leg: %w", &KindError{Kind: KindReset, Err: cause})

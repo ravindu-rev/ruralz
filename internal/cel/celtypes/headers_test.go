@@ -16,14 +16,13 @@ import (
 	"github.com/ravindu-rev/ruralz/internal/expr"
 )
 
-// Tests for 03 C requirement 19: header lookup semantics equal
-// expr.JoinedHeader, without allocating the canonical key, with Host hidden
-// in request.headers only and a deterministic choice among non-canonical
-// keys.
+// Tests for header maps: lookup semantics equal expr.JoinedHeader, without
+// allocating the canonical key, with Host hidden in request.headers only
+// and a deterministic choice among non-canonical keys.
 
-// TestReq19LookupMatchesJoinedHeader compares joinedHeader with the
+// TestLookupMatchesJoinedHeader compares joinedHeader with the
 // contract helper over canonical maps and names in every case.
-func TestReq19LookupMatchesJoinedHeader(t *testing.T) {
+func TestLookupMatchesJoinedHeader(t *testing.T) {
 	h := http.Header{}
 	h.Add("X-Tenant", "acme")
 	h.Add("accept", "a")
@@ -57,10 +56,10 @@ type headerMap interface {
 	raw() any
 }
 
-// TestReq19Host checks that Host is hidden in request.headers only: it is
+// TestHost checks that Host is hidden in request.headers only: it is
 // request.host there, while response and step maps show every field
-// received, Host included (03 req 19).
-func TestReq19Host(t *testing.T) {
+// received, Host included.
+func TestHost(t *testing.T) {
 	h := http.Header{"Host": {"example.com"}, "host": {"x"}, "A": {"1"}}
 	tests := []struct {
 		name      string
@@ -108,9 +107,9 @@ func TestReq19Host(t *testing.T) {
 	}
 }
 
-// TestReq19NonCanonicalKeys checks maps built by direct assignment: lookup
+// TestNonCanonicalKeys checks maps built by direct assignment: lookup
 // prefers the exact canonical key, then the smallest key, every time.
-func TestReq19NonCanonicalKeys(t *testing.T) {
+func TestNonCanonicalKeys(t *testing.T) {
 	h := http.Header{"x-a": {"lower"}, "X-a": {"mixed"}, "X-B": {"canonical"}, "x-b": {"lower"}}
 	for range 50 {
 		if got, _ := joinedHeader(h, "x-a"); got != "mixed" {

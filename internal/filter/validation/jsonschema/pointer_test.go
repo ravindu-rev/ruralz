@@ -12,7 +12,7 @@ import (
 )
 
 // TestEscapeToken covers the RFC 6901 escapes of the keyword locations in
-// details and findings (07 reqs 75 and 81).
+// details and findings.
 func TestEscapeToken(t *testing.T) {
 	for _, tc := range []struct{ in, want string }{
 		{"", ""},
@@ -36,7 +36,7 @@ func TestEscapeToken(t *testing.T) {
 }
 
 // TestSplitPointer covers splitting a JSON Pointer into its tokens, for
-// the keyword locations of 07 reqs 75 and 81.
+// the keyword locations.
 func TestSplitPointer(t *testing.T) {
 	if toks, ok := splitPointer(""); !ok || toks != nil {
 		t.Errorf(`splitPointer("") = %v, %v`, toks, ok)
@@ -50,7 +50,7 @@ func TestSplitPointer(t *testing.T) {
 }
 
 // TestEncodeFragmentAndPointerOf covers the mapping between JSON Pointers
-// and the library's schema locations (07 reqs 75 and 81).
+// and the library's schema locations.
 func TestEncodeFragmentAndPointerOf(t *testing.T) {
 	for _, p := range []string{"", "/a", "/properties/a b", "/properties/é%2F", "/patternProperties/^x~1y$", "/$defs/#"} {
 		frag := encodeFragment(p)
@@ -67,7 +67,7 @@ func TestEncodeFragmentAndPointerOf(t *testing.T) {
 }
 
 // TestLookup covers resolving a JSON Pointer in a schema document as the
-// library does, for references (07 req 75).
+// library does, for references.
 func TestLookup(t *testing.T) {
 	var doc any
 	if err := json.Unmarshal([]byte(`{"a":{"b/c":[10,{"~":true}]},"":1}`), &doc); err != nil {
@@ -97,7 +97,7 @@ func TestLookup(t *testing.T) {
 }
 
 // TestComparePointers covers the pointer order that picks the first
-// failing keyword deterministically (07 req 81).
+// failing keyword deterministically.
 func TestComparePointers(t *testing.T) {
 	ordered := []string{"", "/additionalProperties", "/allOf/2/type", "/allOf/10/type", "/allOf/10/type/x", "/allOf/x", "/properties/a", "/properties/b/type", "/required"}
 	for i, a := range ordered {
@@ -115,7 +115,7 @@ func TestComparePointers(t *testing.T) {
 }
 
 // TestSchemaPath covers the key-aware diagnostic paths under
-// spec.config.schema that Check reports (07 req 75).
+// spec.config.schema that Check reports.
 func TestSchemaPath(t *testing.T) {
 	var doc any
 	if err := json.Unmarshal([]byte(`{"allOf":[{"properties":{"a.b":{"pattern":"("}}}],"items":[true]}`), &doc); err != nil {

@@ -11,8 +11,8 @@ import (
 	"os"
 )
 
-// lockFile is unsupported without BSD flock (R-60): ruralzd runs on Linux
-// and macOS, and the ruralz CLI never locks (spec 10 requirement 95).
+// lockFile is unsupported without BSD flock: ruralzd runs on Linux and
+// macOS, and the ruralz CLI never locks.
 func lockFile(path string) (*os.File, error) {
 	return nil, fmt.Errorf("nodedir: locking %s: %w", path, errors.ErrUnsupported)
 }

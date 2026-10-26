@@ -16,9 +16,8 @@ import (
 // TestKeepChompingMatchesGoccy parses every YAML Test Suite stream, and
 // variants of each with long blank runs, with the keep-chomping rewrite
 // and with it turned off (goccy's own clipping), and requires the same
-// trees, positions and findings (01 req 12; 11 req 26): the rewrite
-// changes neither goccy's tokens nor a value, for tagged scalars and
-// explicit keys too.
+// trees, positions and findings: the rewrite changes neither goccy's
+// tokens nor a value, for tagged scalars and explicit keys too.
 func TestKeepChompingMatchesGoccy(t *testing.T) {
 	inputs := append(suiteInputs(t), chompSamples()...)
 	// Variants with long blank runs wherever a blank line or the end is,
@@ -33,8 +32,7 @@ func TestKeepChompingMatchesGoccy(t *testing.T) {
 			strings.ReplaceAll(in, "\n\n", spaced),
 			in+spaced+"  ",
 			// A comment after the run ends a block scalar, where the
-			// rewrite must still apply (finding 1 of the second WP-33
-			// review).
+			// rewrite must still apply.
 			in+run+"# c\n",
 			in+run+" # c\n"+run,
 		)
@@ -101,20 +99,19 @@ func chompSamples() []string {
 		"a: |\n\n\n# c\nb: 1\n",
 		"a:\n  b: |\n    x\n\n\n # c\n  c: 1\n",
 		// A plain scalar after a block scalar and a long blank run, whose
-		// start the rewrite moved (finding of the eighth WP-33 review).
+		// start the rewrite moved.
 		"|\n 0\n\n\n\n\n\n\n\n\n0\n 0",
 		"k: |\n x\n\n\n\n\n\n\n\n\n0\n 0\n",
 	}
 }
 
 // TestPlainScalarAfterBlockScalar covers a plain scalar over several lines
-// that starts on the line ending a block scalar (01 req 12, 14; finding of
-// the eighth WP-33 review): the token pass found its start from goccy's
-// value of the block scalar's content, which is not the source text and
-// which the keep-chomping rewrite lengthens, so the finding at the plain
-// scalar was reported at 2:12 with the rewrite and 10:1 without, where the
-// scalar starts at 11:1. It starts at the line that ends the block scalar
-// now, with and without the rewrite.
+// that starts on the line ending a block scalar: the token pass found its
+// start from goccy's value of the block scalar's content, which is not the
+// source text and which the keep-chomping rewrite lengthens, so the
+// finding at the plain scalar was reported at 2:12 with the rewrite and
+// 10:1 without, where the scalar starts at 11:1. It starts at the line
+// that ends the block scalar now, with and without the rewrite.
 func TestPlainScalarAfterBlockScalar(t *testing.T) {
 	for _, blank := range []int{1, 7, 8, 12} {
 		for _, head := range []string{"k: |\n x\n", "|\n 0\n", "k: >-\n  x\n  y\n"} {
@@ -135,8 +132,7 @@ func TestPlainScalarAfterBlockScalar(t *testing.T) {
 
 // TestKeepChompingTaggedHeaders checks that the rewrite finds the header
 // of a tagged block scalar, which goccy reports one column early, and
-// that the value is the clipped one (01 req 12; findings 2 and 4 of the
-// WP-33 review).
+// that the value is the clipped one.
 func TestKeepChompingTaggedHeaders(t *testing.T) {
 	run := strings.Repeat("\n", 2*longBlankRun)
 	tests := []struct {
@@ -169,8 +165,8 @@ func TestKeepChompingTaggedHeaders(t *testing.T) {
 }
 
 // TestBlankLinesAfterBlockScalarAreLinear checks that blank lines after a
-// block scalar cost linear work (11 req 26): twice the lines take about
-// twice the allocations, where goccy's clipping takes four times.
+// block scalar cost linear work: twice the lines take about twice the
+// allocations, where goccy's clipping takes four times.
 func TestBlankLinesAfterBlockScalarAreLinear(t *testing.T) {
 	gen := func(n int) string {
 		return "a: >\n  x\n" + strings.Repeat("  \n", n/2) + strings.Repeat("\n", n/2) + "b: |\n  y" + strings.Repeat("\n", n) + "c: 1\n"
@@ -197,9 +193,9 @@ func TestBlankLinesAfterBlockScalarAreLinear(t *testing.T) {
 }
 
 // longBlockScalar is a block scalar of n bytes of content followed by m
-// blank lines, under the given header and line prefix ("a: " or "- "),
-// then tail: the shape whose clipping costs goccy O(m·L) (01 test plan
-// FuzzProfileYAML, 2 s per input).
+// blank lines, under the given header and line prefix ("a: " or "- "), then
+// tail: the shape whose clipping costs goccy O(m·L), against a fuzz budget
+// of 2 s per input.
 func longBlockScalar(prefix, header string, n, m int, tail string) string {
 	line := strings.Repeat("x", 63)
 	var b strings.Builder
@@ -278,8 +274,7 @@ func firstScalar(n *tree.Node) string {
 }
 
 // TestTaggedBlockScalarBlankLinesAreLinear checks the keep-chomping rewrite
-// on tagged block scalars and sequence entries (01 req 12; 11 req 26:
-// linear cost; finding 2 of the WP-33 review).
+// on tagged block scalars and sequence entries (linear cost).
 func TestTaggedBlockScalarBlankLinesAreLinear(t *testing.T) {
 	for _, tt := range []struct{ prefix, header string }{
 		{"a: ", "!!str |"}, {"a: ", "!!str >"}, {"- ", "!!str |"}, {"a: ", "!!str   >2"},
@@ -289,11 +284,10 @@ func TestTaggedBlockScalarBlankLinesAreLinear(t *testing.T) {
 }
 
 // TestBlockScalarBeforeCommentIsLinear checks the keep-chomping rewrite on
-// a block scalar that a comment ends after a long blank run (finding 1 of
-// the second WP-33 review; 01 test plan FuzzProfileYAML, 11 req 26): the
-// comment, not the next entry, ends the scalar, so the rewrite applies
-// whether the comment is at column 0, less indented than the scalar,
-// followed by the end of the file or by more blank lines.
+// a block scalar that a comment ends after a long blank run: the comment,
+// not the next entry, ends the scalar, so the rewrite applies whether the
+// comment is at column 0, less indented than the scalar, followed by the
+// end of the file or by more blank lines.
 func TestBlockScalarBeforeCommentIsLinear(t *testing.T) {
 	run := strings.Repeat("\n", 2*longBlankRun)
 	for _, tt := range []struct{ name, prefix, header, tail string }{
@@ -310,9 +304,8 @@ func TestBlockScalarBeforeCommentIsLinear(t *testing.T) {
 }
 
 // TestCutBlankRuns checks the cut that keeps the first scan of the
-// keep-chomping rewrite linear (11 req 26): a run keeps its first lines,
-// its longest line and its last line, and a line holding a tab is not
-// blank.
+// keep-chomping rewrite linear: a run keeps its first lines, its longest
+// line and its last line, and a line holding a tab is not blank.
 func TestCutBlankRuns(t *testing.T) {
 	tests := []struct {
 		text, want string
@@ -340,9 +333,9 @@ func TestCutBlankRuns(t *testing.T) {
 }
 
 // TestKeepChompingSpaceContent covers a block scalar whose only content is
-// spaces past its indentation, after a long run of empty lines (01 req
-// 12): the first scan must see that content, or the rewrite strips it
-// (found by FuzzLoadYAML).
+// spaces past its indentation, after a long run of empty lines: the first
+// scan must see that content, or the rewrite strips it (found by
+// FuzzLoadYAML).
 func TestKeepChompingSpaceContent(t *testing.T) {
 	for _, src := range []string{
 		"|1\n\n\n\n\n\n\n\n  ",

@@ -22,12 +22,11 @@ import (
 	"time"
 )
 
-// Tests for 11 test plan item 7 (faultproxy: each mode on live and new
-// connections; delay mean and standard deviation within 5% over 10,000
-// samples; black-hole stalls without closing; reset yields ECONNRESET at
-// the peer; refuse yields ECONNREFUSED; upstream switch; MaxConns overflow
-// resets; goroutines return to baseline after Close), verified against a
-// TCP echo server (WP-26 "Done when").
+// Tests for each mode on live and new connections (delay mean and standard
+// deviation within 5% over 10,000 samples; black-hole stalls without
+// closing; reset yields ECONNRESET at the peer; refuse yields
+// ECONNREFUSED; upstream switch), MaxConns overflow resets and goroutines
+// returning to baseline after Close, verified against a TCP echo server.
 
 // echo is a TCP echo server; with upper set it echoes upper case, so tests
 // can tell two upstreams apart.
@@ -172,7 +171,7 @@ func expectReset(t *testing.T, addr, what string) {
 	}
 }
 
-func TestPassAndTaps(t *testing.T) { // 11 test plan item 7: pass
+func TestPassAndTaps(t *testing.T) { // Pass
 	e := startEcho(t, false)
 	var mu sync.Mutex
 	tapped := map[Direction]*bytes.Buffer{Up: {}, Down: {}}
@@ -237,7 +236,7 @@ func TestHalfClose(t *testing.T) {
 	waitFor(t, "connection removed", func() bool { return p.Stats().Active == 0 })
 }
 
-func TestDelayLiveAndNew(t *testing.T) { // 11 test plan item 7: delay on live and new connections
+func TestDelayLiveAndNew(t *testing.T) { // Delay on live and new connections
 	e := startEcho(t, false)
 	p := start(t, Config{Upstream: e.addr()})
 	live := dial(t, p.Addr())
@@ -284,8 +283,8 @@ func TestDelayFlushedOnPass(t *testing.T) {
 
 // TestDelaySwitchDistribution moves from a long delay through Pass or
 // Blackhole to a short delay: the short delay applies at once, because the
-// long delay's queue is gone (11 test plan item 7, each mode on live
-// connections; OQ-scalability-and-distributed-state-10 (a)).
+// long delay's queue is gone (each mode on live connections;
+// OQ-scalability-and-distributed-state-10 (a)).
 func TestDelaySwitchDistribution(t *testing.T) {
 	tests := []struct {
 		name    string
@@ -335,7 +334,7 @@ func TestDelaySwitchDistribution(t *testing.T) {
 	}
 }
 
-func TestDelayDistribution(t *testing.T) { // 11 test plan item 7: mean and std dev within 5% over 10,000 samples
+func TestDelayDistribution(t *testing.T) { // Mean and std dev within 5% over 10,000 samples
 	for _, d := range []Delay{{Mean: 10 * time.Millisecond, StdDev: 2 * time.Millisecond}, {Mean: 200 * time.Millisecond, StdDev: 50 * time.Millisecond}} {
 		p := &Proxy{rng: rand.New(rand.NewPCG(7, 11))} //nolint:gosec // G404: test randomness
 		const n = 10000
@@ -374,7 +373,7 @@ func TestDelayDistribution(t *testing.T) { // 11 test plan item 7: mean and std 
 	}
 }
 
-func TestDelayLiveMeasured(t *testing.T) { // 11 test plan item 7: the distribution on a live connection
+func TestDelayLiveMeasured(t *testing.T) { // The distribution on a live connection
 	e := startEcho(t, false)
 	mean, sd := 20*time.Millisecond, 4*time.Millisecond
 	p := start(t, Config{Upstream: e.addr(), Mode: Delay{Mean: mean, StdDev: sd}, Seed: 42})
@@ -502,7 +501,7 @@ func TestHeldConnectionReset(t *testing.T) {
 	}
 }
 
-func TestBlackhole(t *testing.T) { // 11 test plan item 7: black-hole stalls without closing
+func TestBlackhole(t *testing.T) { // Black-hole stalls without closing
 	e := startEcho(t, false)
 	p := start(t, Config{Upstream: e.addr()})
 	live := dial(t, p.Addr())
@@ -550,7 +549,7 @@ func TestBlackholeHeldClientCloses(t *testing.T) {
 	}
 }
 
-func TestReset(t *testing.T) { // 11 test plan item 7: reset yields ECONNRESET
+func TestReset(t *testing.T) { // Reset yields ECONNRESET
 	e := startEcho(t, false)
 	p := start(t, Config{Upstream: e.addr()})
 	live := dial(t, p.Addr())
@@ -571,7 +570,7 @@ func TestReset(t *testing.T) { // 11 test plan item 7: reset yields ECONNRESET
 	mustEcho(t, dial(t, p.Addr()), "back", "back")
 }
 
-func TestRefuse(t *testing.T) { // 11 test plan item 7: refuse yields ECONNREFUSED
+func TestRefuse(t *testing.T) { // Refuse yields ECONNREFUSED
 	e := startEcho(t, false)
 	p := start(t, Config{Upstream: e.addr()})
 	live := dial(t, p.Addr())
@@ -607,7 +606,7 @@ func TestStartRefusing(t *testing.T) {
 	mustEcho(t, dial(t, p.Addr()), "ok", "ok")
 }
 
-func TestSetUpstream(t *testing.T) { // 11 test plan item 7: upstream switch (CE-5 failover)
+func TestSetUpstream(t *testing.T) { // Upstream switch (CE-5 failover)
 	a, b := startEcho(t, false), startEcho(t, true)
 	p := start(t, Config{Upstream: a.addr()})
 	first := dial(t, p.Addr())
@@ -625,7 +624,7 @@ func TestSetUpstream(t *testing.T) { // 11 test plan item 7: upstream switch (CE
 	}
 }
 
-func TestMaxConnsOverflowResets(t *testing.T) { // 11 test plan item 7: MaxConns overflow resets
+func TestMaxConnsOverflowResets(t *testing.T) { // MaxConns overflow resets
 	e := startEcho(t, false)
 	p := start(t, Config{Upstream: e.addr(), MaxConns: 2})
 	c1, c2 := dial(t, p.Addr()), dial(t, p.Addr())
@@ -720,7 +719,7 @@ func TestSetConnMode(t *testing.T) {
 	}
 }
 
-func TestCloseReturnsGoroutinesToBaseline(t *testing.T) { // 11 test plan item 7: goroutines return to baseline
+func TestCloseReturnsGoroutinesToBaseline(t *testing.T) { // Goroutines return to baseline
 	e := startEcho(t, false)
 	base := runtime.NumGoroutine()
 	p, err := Start(context.Background(), Config{Upstream: e.addr()})

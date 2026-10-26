@@ -13,11 +13,11 @@ import (
 )
 
 // lockFile opens (creating with FilePerm) the lock file and takes an
-// exclusive, non-blocking BSD flock on it (R-26). A BSD lock belongs to
-// the open file description, so a second open in the same process
-// conflicts too, and /proc/locks shows it as FLOCK with the holder's PID,
-// which ruralz node drain verifies (spec 10 requirement 96). The file is
-// close-on-exec, so no child inherits the lock.
+// exclusive, non-blocking BSD flock on it. A BSD lock belongs to the open
+// file description, so a second open in the same process conflicts too,
+// and /proc/locks shows it as FLOCK with the holder's PID, which ruralz
+// node drain verifies. The file is close-on-exec, so no child inherits
+// the lock.
 func lockFile(path string) (*os.File, error) {
 	f, err := os.OpenFile(path, os.O_RDWR|os.O_CREATE, FilePerm) //nolint:gosec // G304: the lock file under the data directory.
 	if err != nil {

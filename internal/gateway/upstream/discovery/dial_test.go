@@ -18,7 +18,7 @@ import (
 )
 
 // errRefused stands for the egress guard refusing a socket address in
-// net.Dialer.Control (05 req 9).
+// net.Dialer.Control.
 var errRefused = errors.New("refused by the egress guard")
 
 // scriptedDial answers per address: an error, a block until ctx ends, or a
@@ -65,8 +65,9 @@ func aps(s ...string) []netip.AddrPort {
 	return out
 }
 
-// TestDialAnswerOrder covers 05 req 5 with 05 req 9: the cached IPs are
-// tried in answer order; a refused or failed address moves on to the next.
+// TestDialAnswerOrder covers dialing a host name Endpoint: the cached IPs
+// are tried in answer order; a refused or failed address moves on to the
+// next.
 func TestDialAnswerOrder(t *testing.T) {
 	d := &scriptedDial{errs: map[string]error{
 		"127.0.0.1:80": errRefused,
@@ -94,9 +95,9 @@ func TestDialAnswerOrder(t *testing.T) {
 	}
 }
 
-// TestDialBudget: one 1 s budget covers every address (05 req 5); a
-// black-holed first address spends it and the dial fails as a connect
-// timeout without trying the rest.
+// TestDialBudget: one 1 s budget covers every address; a black-holed
+// first address spends it and the dial fails as a connect timeout
+// without trying the rest.
 func TestDialBudget(t *testing.T) {
 	clk := clocktest.New(epoch())
 	d := &scriptedDial{blocked: map[string]bool{"10.0.0.1:80": true}, entered: make(chan string, 4)}

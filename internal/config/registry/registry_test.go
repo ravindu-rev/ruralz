@@ -18,10 +18,9 @@ import (
 	"github.com/ravindu-rev/ruralz/pkg/config/v1alpha1"
 )
 
-// Tests for WP-04 "Done when": the table equals foundation pack section 10
-// row by row (01 test plan "registry table equals FP §10 row by row"; 02
-// req 13), every type has a config type (config_test.go), and the served
-// set is table-tested (architecture section 0 item 8, R-7).
+// Tests for the registry table: it equals foundation pack section 10 row by
+// row, every type has a config type (config_test.go), and the served set is
+// table-tested.
 
 // fpRow is one expanded row of foundation pack section 10.
 type fpRow struct {
@@ -111,9 +110,8 @@ func parseScopes(t *testing.T, s string) phase.ScopeSet {
 	return phase.Scopes(out...)
 }
 
-// TestTableMatchesFoundationPack is the WP-04 "Done when" table test: the
-// registry equals foundation pack section 10 row by row, in row order (02
-// req 13; 01 req 40 slots; OQ-configuration-model-8 (a) defaults).
+// TestTableMatchesFoundationPack checks that the registry equals foundation
+// pack section 10 row by row, in row order (slots and defaults).
 func TestTableMatchesFoundationPack(t *testing.T) {
 	reg := New()
 	rows := readFoundationPackRegistry(t)
@@ -236,39 +234,39 @@ func TestTableSpecRows(t *testing.T) {
 		closed = v1alpha1.FailureModeClosed
 		open   = v1alpha1.FailureModeOpen
 	)
-	authRow := want{phase.ClassAuth, rqH, 0, scG, "auth", closed, true, true} // 06 req 1
+	authRow := want{phase.ClassAuth, rqH, 0, scG, "auth", closed, true, true}
 	tests := map[v1alpha1.PolicyType]want{
 		v1alpha1.PolicyTypeAuthJWT:    authRow,
 		v1alpha1.PolicyTypeAuthAPIKey: authRow,
 		v1alpha1.PolicyTypeAuthBasic:  authRow,
 		v1alpha1.PolicyTypeAuthMTLS:   authRow,
-		// 06 req 53 and 56: authz stacks (slot = name), closed only.
+		// Authz stacks (slot = name), closed only.
 		v1alpha1.PolicyTypeAuthzCEL:   {phase.ClassAuthz, phase.Of(phase.OnRequestHeaders, phase.OnRequestBody), 0, scG, SlotName, closed, true, true},
 		v1alpha1.PolicyTypeAuthzOPA:   {phase.ClassAuthz, phase.Of(phase.OnRequestHeaders, phase.OnRequestBody), 0, scG, SlotName, closed, true, false},
 		v1alpha1.PolicyTypeAuthzCedar: {phase.ClassAuthz, phase.Of(phase.OnRequestHeaders, phase.OnRequestBody), 0, scG, SlotName, closed, true, false},
 		v1alpha1.PolicyTypeAuthzIP:    {phase.ClassAuthz, rqH, 0, scG, SlotName, closed, true, true},
 		v1alpha1.PolicyTypeAuthzGeoIP: {phase.ClassAuthz, rqH, 0, scG, SlotName, closed, true, false},
-		// 05 req 56.
+		// Rate limits stack (slot = name), open by default.
 		v1alpha1.PolicyTypeRateLimit: {phase.ClassAdmission, rqH, 0, scG, SlotName, open, false, true},
-		// 05 req 69; OQ-configuration-model-8 (a): quota open.
+		// quota defaults to open.
 		v1alpha1.PolicyTypeQuota: {phase.ClassAdmission, phase.Of(phase.OnRequestHeaders, phase.OnLog), 0, scG, SlotName, open, false, true},
-		// 07 req 1 and 3.
+		// Validation runs on the request body, at Route scope only.
 		v1alpha1.PolicyTypeValidationJSONSchema: {phase.ClassValidation, rqB, 0, scR, "validation", closed, false, true},
-		// 06 req 64.
+		// CORS runs on request headers and on the response.
 		v1alpha1.PolicyTypeCORS: {phase.ClassCORS, phase.Of(phase.OnRequestHeaders, phase.OnResponse), 0, scG, "cors", closed, false, true},
-		// 05 req 75 and T 97 (R only); R-40 keeps the Phases.
+		// Cache: Route scope only, on request headers and the response.
 		v1alpha1.PolicyTypeCache: {phase.ClassCache, phase.Of(phase.OnRequestHeaders, phase.OnResponse), 0, scR, "cache", open, false, true},
-		// 07 req 1.
+		// Headers and transforms run on both legs, at every scope.
 		v1alpha1.PolicyTypeHeaders: {
 			phase.ClassTransform, phase.Of(phase.OnRequestHeaders, phase.OnResponse),
 			phase.Of(phase.OnUpstreamRequest, phase.OnUpstreamResponseHeaders), scGRU, SlotName, closed, false, true,
 		},
 		v1alpha1.PolicyTypeTransformRequest:  {phase.ClassTransform, rqB, phase.Of(phase.OnUpstreamRequest), scGRU, SlotName, closed, false, true},
 		v1alpha1.PolicyTypeTransformResponse: {phase.ClassTransform, phase.Of(phase.OnResponse), phase.Of(phase.OnUpstreamResponseBody), scGRU, SlotName, closed, false, true},
-		// 06 req 68.
+		// Upstream authentication: upstream leg, Upstream scope only.
 		v1alpha1.PolicyTypeAuthUpstreamOAuth2: {phase.ClassUpstreamAuth, 0, phase.Of(phase.OnUpstreamRequest), scU, "upstream-auth", closed, true, true},
 		v1alpha1.PolicyTypeAuthUpstreamSigV4:  {phase.ClassUpstreamAuth, 0, phase.Of(phase.OnUpstreamRequest), scU, "upstream-auth", closed, true, false},
-		// OQ-configuration-model-8 (a): ai.token-budget closed.
+		// ai.token-budget defaults to closed.
 		v1alpha1.PolicyTypeAITokenBudget:   {phase.ClassAdmission, phase.Of(phase.OnRequestBody, phase.OnChunk, phase.OnLog), 0, scG, SlotName, closed, false, false},
 		v1alpha1.PolicyTypeAISemanticCache: {phase.ClassCache, phase.Of(phase.OnRequestBody, phase.OnResponse), 0, scR, "semantic-cache", open, false, false},
 		v1alpha1.PolicyTypeAIGuardrail:     {phase.ClassValidation, phase.Of(phase.OnRequestBody, phase.OnChunk, phase.OnResponse), 0, scG, SlotName, closed, false, false},
@@ -296,8 +294,7 @@ func TestTableSpecRows(t *testing.T) {
 }
 
 // TestServedSet: RZ-CFG-040 applies to exactly plugin, authz.opa,
-// authz.cedar, authz.geoip, auth.upstream-sigv4 and ai.* in M1
-// (architecture WP-04 scope, section 0 item 8, OQ-vision-and-positioning-10).
+// authz.cedar, authz.geoip, auth.upstream-sigv4 and ai.* in M1.
 func TestServedSet(t *testing.T) {
 	unserved := []v1alpha1.PolicyType{
 		v1alpha1.PolicyTypeAuthzOPA, v1alpha1.PolicyTypeAuthzCedar, v1alpha1.PolicyTypeAuthzGeoIP,
@@ -340,9 +337,9 @@ func TestServedSet(t *testing.T) {
 	}
 }
 
-// TestRegistrySlots: the fixed registry slots are exactly those of 01 req
-// 40 (auth for the four client auth types, validation, cors, cache,
-// upstream-auth, semantic-cache); every other type stacks by name.
+// TestRegistrySlots: the fixed registry slots are exactly those (auth for
+// the four client auth types, validation, cors, cache, upstream-auth,
+// semantic-cache); every other type stacks by name.
 func TestRegistrySlots(t *testing.T) {
 	got := map[string][]v1alpha1.PolicyType{}
 	for _, e := range New().Entries() {
@@ -372,8 +369,8 @@ func TestRegistrySlots(t *testing.T) {
 }
 
 // TestEntryInvariants checks every row against the Phase and scope model
-// of 02 req 14 (client-leg Phases at G and R, upstream-leg Phases at U)
-// and foundation pack section 8.10 (security types closed by default).
+// (client-leg Phases at G and R, upstream-leg Phases at U) and
+// foundation pack section 8.10 (security types closed by default).
 func TestEntryInvariants(t *testing.T) {
 	for _, e := range New().Entries() {
 		t.Run(string(e.Type), func(t *testing.T) {
@@ -448,8 +445,8 @@ func TestLookup(t *testing.T) {
 	}
 }
 
-// TestConcurrentUse: a Registry is immutable and safe for concurrent use
-// (01 section 3 concurrency model); run under -race.
+// TestConcurrentUse: a Registry is immutable and safe for concurrent use;
+// run under -race.
 func TestConcurrentUse(t *testing.T) {
 	reg := New()
 	var wg sync.WaitGroup

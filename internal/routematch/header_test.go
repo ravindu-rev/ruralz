@@ -10,7 +10,7 @@ import (
 	"github.com/ravindu-rev/ruralz/internal/errcode"
 )
 
-// TestCompileRegex: regex criteria match the whole input (04 req 28, 30).
+// TestCompileRegex: regex criteria match the whole input.
 func TestCompileRegex(t *testing.T) {
 	rx, err := CompileRegex(`/v1/orders/[0-9]+`)
 	if err != nil {
@@ -32,7 +32,7 @@ func TestCompileRegex(t *testing.T) {
 		t.Errorf("alternation is not anchored as a whole: %v", err)
 	}
 	// A valid expression ending inside a \Q quote stays valid, and the
-	// quote does not swallow the anchors (04 req 28, 30).
+	// quote does not swallow the anchors.
 	quoted := []struct {
 		re        string
 		match, no []string
@@ -72,8 +72,8 @@ func TestCompileRegex(t *testing.T) {
 	}
 }
 
-// TestMethodMatch: exact, case-sensitive tokens; HEAD does not imply GET
-// (04 req 30).
+// TestMethodMatch: exact, case-sensitive tokens; HEAD does not imply
+// GET.
 func TestMethodMatch(t *testing.T) {
 	cases := []struct {
 		methods []string
@@ -93,7 +93,7 @@ func TestMethodMatch(t *testing.T) {
 	}
 }
 
-// TestJoinHeader: repeated fields joined with ", " (04 req 25).
+// TestJoinHeader: repeated fields joined with ", ".
 func TestJoinHeader(t *testing.T) {
 	cases := []struct {
 		in   []string
@@ -115,9 +115,8 @@ func TestJoinHeader(t *testing.T) {
 	}
 }
 
-// TestHeaderMatcher covers the headers criterion (04 req 30): name
-// case-insensitive, exact on the joined value, regex full match, present
-// true and false.
+// TestHeaderMatcher covers the headers criterion: name case-insensitive,
+// exact on the joined value, regex full match, present true and false.
 func TestHeaderMatcher(t *testing.T) {
 	cases := []struct {
 		c      HeaderCriteria

@@ -23,21 +23,20 @@ const (
 	msgPlainFlowIndicator = "syntax error: a flow indicator cannot be inside a plain scalar in a flow collection"
 )
 
-// plain checks the plain scalar token idx (01 req 8, 12, 14), which is not
-// the content of a block scalar.
+// plain checks the plain scalar token idx, which is not the content of a
+// block scalar.
 //
 // A plain scalar holding a tab is read again from the source (tabbedPlain):
 // goccy's scanner leaves the tabs inside a plain scalar out of its value,
-// so "x: 1\t2" read as the integer 12 and the keys "bc" and "b\tc" as one
-// (01 req 11, 12, 15). A plain scalar over several lines is read again
-// from the source (foldPlain). goccy's scanner reads a line of one that
-// starts with '-' right of the last ':' or '-' as the start of a folded
-// block ("raw folded" text): from there on it keeps comments and ": " in
-// the value, keeps the line breaks and spaces a folded block scalar keeps,
-// and reports the scalar at a later line ("description: run the job\n  -v
-// # verbose" read as "run the job -v # verbose" at 2:9); and it folds two
-// empty lines of spaces into one line feed ("a\n  \n  \n  c" read as
-// "a\nc").
+// so "x: 1\t2" read as the integer 12 and the keys "bc" and "b\tc" as one.
+// A plain scalar over several lines is read again from the source
+// (foldPlain). goccy's scanner reads a line of one that starts with '-'
+// right of the last ':' or '-' as the start of a folded block ("raw folded"
+// text): from there on it keeps comments and ": " in the value, keeps the
+// line breaks and spaces a folded block scalar keeps, and reports the
+// scalar at a later line ("description: run the job\n  -v # verbose" read
+// as "run the job -v # verbose" at 2:9); and it folds two empty lines of
+// spaces into one line feed ("a\n  \n  \n  c" read as "a\nc").
 //
 // Every other plain token must hold what a YAML 1.2 plain scalar can: not
 // empty, no white space at either end or around a line break, no comment
@@ -133,7 +132,7 @@ func (t *tokenPass) plain(idx int) {
 
 // misread fails the file with RZ-CFG-001 at a token goccy misread, unless
 // the file has a finding already: it is never parsed then, and the scan
-// goes on collecting RZ-CFG-003 and RZ-CFG-004 (01 req 8).
+// goes on collecting RZ-CFG-003 and RZ-CFG-004.
 func (t *tokenPass) misread(at tree.Pos, msg string) {
 	if t.errs == 0 {
 		t.fail(at, msg)

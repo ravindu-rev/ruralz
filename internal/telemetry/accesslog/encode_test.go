@@ -41,9 +41,9 @@ func golden(t *testing.T, name string, got []byte) {
 	}
 }
 
-// Test plan 6.4 item 35, WP-11 done-when: access log encoder golden bytes
-// for a full record, a minimal one, a truncated one and an unmatched one.
-func TestAccessGolden_Req68(t *testing.T) {
+// TestAccessGolden pins the access log encoder's golden bytes for a full
+// record, a minimal one, a truncated one and an unmatched one.
+func TestAccessGolden(t *testing.T) {
 	var buf bytes.Buffer
 	full := &emit.AccessRecord{}
 	fullRecord(full)
@@ -75,8 +75,8 @@ func TestAccessGolden_Req68(t *testing.T) {
 	golden(t, "access.golden", buf.Bytes())
 }
 
-// 09 req 68: the members and their order for a full record.
-func TestAccessFieldOrder_Req68(t *testing.T) {
+// The members and their order for a full record.
+func TestAccessFieldOrder(t *testing.T) {
 	r := &emit.AccessRecord{}
 	fullRecord(r)
 	line := encode(r)
@@ -113,9 +113,9 @@ func TestAccessFieldOrder_Req68(t *testing.T) {
 	}
 }
 
-// 09 req 68: optional members are omitted when empty; the always-present
-// ones are written even when empty.
-func TestAccessOmissions_Req68(t *testing.T) {
+// Optional members are omitted when empty; the always-present ones are
+// written even when empty.
+func TestAccessOmissions(t *testing.T) {
 	r := &emit.AccessRecord{Status: 499, GatewayDurationSkipped: true, Endpoint: "ignored without upstream"}
 	line := encode(r)
 	want := []string{
@@ -133,9 +133,9 @@ func TestAccessOmissions_Req68(t *testing.T) {
 	}
 }
 
-// 09 req 67, 68, test plan 6.1 item 17: host, path and user_agent caps,
-// truncated naming the cut fields, no query string.
-func TestAccessTruncation_Req67(t *testing.T) {
+// TestAccessTruncation covers the host, path and user_agent caps:
+// truncated names the cut fields, and no query string is written.
+func TestAccessTruncation(t *testing.T) {
 	r := &emit.AccessRecord{
 		Host:      strings.Repeat("h", MaxHostBytes+1),
 		Path:      "/" + strings.Repeat("p", MaxPathBytes) + "?secret=1",
@@ -165,8 +165,8 @@ func TestAccessTruncation_Req67(t *testing.T) {
 	}
 }
 
-// 09 req 67: a multi-byte character is never split by a cap.
-func TestAccessTruncationUTF8_Req67(t *testing.T) {
+// A multi-byte character is never split by a cap.
+func TestAccessTruncationUTF8(t *testing.T) {
 	r := &emit.AccessRecord{Host: strings.Repeat("h", MaxHostBytes-1) + "é"}
 	m := object(t, encode(r))
 	if got := m["host"].(string); got != strings.Repeat("h", MaxHostBytes-1) {
@@ -174,9 +174,9 @@ func TestAccessTruncationUTF8_Req67(t *testing.T) {
 	}
 }
 
-// 09 req 67, test plan 6.1 item 17: string values take at most 4 KiB once
+// TestAccessRecordCap checks that string values take at most 4 KiB once
 // escaped; later fields are cut and named, and still present.
-func TestAccessRecordCap_Req67(t *testing.T) {
+func TestAccessRecordCap(t *testing.T) {
 	long := strings.Repeat("r", 1500)
 	r := &emit.AccessRecord{
 		Listener: long, Route: long, Method: long, Consumer: "c", Upstream: "u",
@@ -206,9 +206,9 @@ func TestAccessRecordCap_Req67(t *testing.T) {
 	}
 }
 
-// 09 req 68, test plan 6.1 item 17: JSON escaping, invalid UTF-8 as
-// U+FFFD, control characters escaped.
-func TestAccessEscaping_Req68(t *testing.T) {
+// TestAccessEscaping covers JSON escaping: invalid UTF-8 becomes U+FFFD
+// and control characters are escaped.
+func TestAccessEscaping(t *testing.T) {
 	r := &emit.AccessRecord{UserAgent: "a\"b\\c\nd\re\tf\x00g\x1f\xff\u2028<&>é"}
 	line := encode(r)
 	want := `"user_agent":"a\"b\\c\nd\re\tf\u0000g\u001f\ufffd\u2028<&>é"`
@@ -220,8 +220,9 @@ func TestAccessEscaping_Req68(t *testing.T) {
 	}
 }
 
-// 09 req 68, test plan 6.1 item 17: failure_modes holds at most 8 entries.
-func TestAccessFailureModesCap_Req68(t *testing.T) {
+// TestAccessFailureModesCap checks that failure_modes holds at most 8
+// entries.
+func TestAccessFailureModesCap(t *testing.T) {
 	r := &emit.AccessRecord{}
 	for i := range 11 {
 		r.FailureModes = append(r.FailureModes, emit.FailureModeEntry{Policy: fmt.Sprintf("p%d", i), Phase: phase.OnRoute, Mode: "closed"})
@@ -239,8 +240,8 @@ func TestAccessFailureModesCap_Req68(t *testing.T) {
 	}
 }
 
-// 09 req 68: durations are seconds with microsecond precision.
-func TestAppendSeconds_Req68(t *testing.T) {
+// Durations are seconds with microsecond precision.
+func TestAppendSeconds(t *testing.T) {
 	tests := []struct {
 		d    time.Duration
 		want string

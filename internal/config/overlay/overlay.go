@@ -5,38 +5,36 @@
 // documents of one overlay (overlays/<env>/) into the base union of a
 // Bundle with Kubernetes strategic-merge semantics driven by the
 // x-ruralz-list keyword of the rendered schema
-// (docs/architecture/02-configuration-model.md "Overlays"; spec 01
-// requirements 23 to 25).
+// (docs/architecture/02-configuration-model.md "Overlays").
 //
 // The merge reads the schema of the base resource's apiVersion through
-// internal/config/schemaidx (architecture R-3): objects merge recursively
-// with if/then dispatch applied to the merged object, so a Policy config
-// merges by the merged spec.type; map and orderedMap lists merge by their
-// key field; set and atomic lists, lists without x-ruralz-list, scalars and
-// the value of the JSONSchemaDocument definition (validation.json-schema
-// config.schema) are replaced whole. An overlay null removes a member.
+// internal/config/schemaidx: objects merge recursively with if/then
+// dispatch applied to the merged object, so a Policy config merges by the
+// merged spec.type; map and orderedMap lists merge by their key field; set
+// and atomic lists, lists without x-ruralz-list, scalars and the value of
+// the JSONSchemaDocument definition (validation.json-schema config.schema)
+// are replaced whole. An overlay null removes a member.
 //
 // The directives are the annotation ruralz.io/patch (delete or replace)
 // and the $patch member of a keyed-list entry ({<key>: v, $patch: delete})
 // or of the first element of an orderedMap list ({$patch: replace}).
-// $patch is valid only there and only in overlays (CM "Overlays"; 01 req
-// 25): anywhere else in an overlay document it is RZ-CFG-005, including
-// free content (undeclared members of open objects such as the M1 open
-// configs, lists without x-ruralz-list, plugin configs and Plugin
-// configSchema), and anywhere in a base document it is RZ-CFG-006
-// (CheckBase). The only exemption is the value of the JSONSchemaDocument
-// definition, which is replaced whole and never looked into.
+// $patch is valid only there and only in overlays (CM "Overlays"):
+// anywhere else in an overlay document it is RZ-CFG-005, including free
+// content (undeclared members of open objects such as the M1 open configs,
+// lists without x-ruralz-list, plugin configs and Plugin configSchema),
+// and anywhere in a base document it is RZ-CFG-006 (CheckBase). The only
+// exemption is the value of the JSONSchemaDocument definition, which is
+// replaced whole and never looked into.
 //
 // The pipeline runs CheckBase on every base resource, in its worker pool
 // and whether or not an overlay is selected, and Apply once for the
-// cross-resource identity merge (01 req 53).
+// cross-resource identity merge.
 //
-// Overlays merge before substitution (01 req 27), so a dispatch member
-// holding a ${VAR} expression (a Policy spec.type of ${TYPE}) selects no
-// if/then branch: the object's composite members then merge as free
-// content, keyed lists inside them are replaced whole and a $patch
-// inside them is RZ-CFG-005. Spec 01 does not decide this case; it is
-// raised as a contract change request against 01 req 25 and 27.
+// Overlays merge before substitution, so a dispatch member holding a ${VAR}
+// expression (a Policy spec.type of ${TYPE}) selects no if/then branch: the
+// object's composite members then merge as free content, keyed lists inside
+// them are replaced whole and a $patch inside them is RZ-CFG-005. The
+// configuration model does not decide this case.
 //
 // Results never depend on the order of the overlay files: an identity in
 // two overlay documents is RZ-CFG-008 and none of its documents applies,
@@ -92,7 +90,7 @@ const (
 )
 
 // schemaDocumentDef is the $defs name of the inline JSON Schema document
-// whose value an overlay replaces whole (CM "Overlays" table; 07 req 74).
+// whose value an overlay replaces whole (CM "Overlays" table).
 const schemaDocumentDef = "JSONSchemaDocument"
 
 // Options configure Apply and CheckBase.
@@ -106,9 +104,9 @@ type Options struct {
 
 // Apply merges patches, the documents of one overlay, into base, the base
 // union of a Bundle, and returns the merged resources with the stage D
-// diagnostics (01 req 23 to 25). It takes ownership of both slices'
-// resources: merged trees are rewritten in place and share nodes with the
-// patches, so callers use only the returned resources afterwards.
+// diagnostics. It takes ownership of both slices' resources: merged trees
+// are rewritten in place and share nodes with the patches, so callers use
+// only the returned resources afterwards.
 //
 // The result holds the base resources in their input order (a patched one
 // keeps its Start, a deleted one is dropped) followed by the resources the
@@ -118,7 +116,7 @@ type Options struct {
 // $patch in base documents: the pipeline runs CheckBase on each of them.
 //
 // ctx is checked between resources; on cancellation Apply returns
-// ctx.Err() and no result (01 req 53).
+// ctx.Err() and no result.
 func Apply(ctx context.Context, base, patches []*tree.Resource, opts Options) ([]*tree.Resource, diag.List, error) {
 	a := &applier{opts: opts}
 	out := make([]*tree.Resource, 0, len(base)+len(patches))
@@ -167,7 +165,7 @@ func Apply(ctx context.Context, base, patches []*tree.Resource, opts Options) ([
 			out[i] = nil
 			delete(byID, p.ID)
 		case action == PatchDelete:
-			// Deleting an absent resource is a no-op (01 risk 18).
+			// Deleting an absent resource is a no-op.
 		case exists:
 			b := out[i]
 			if action == PatchReplace {
@@ -187,11 +185,11 @@ func Apply(ctx context.Context, base, patches []*tree.Resource, opts Options) ([
 }
 
 // CheckBase reports every $patch member of res, a base document, as
-// RZ-CFG-006 ("valid only in overlays", 01 req 25), except inside the
-// value of the JSONSchemaDocument definition, which is data. It reads
-// only res and opts, so the loader runs it per resource in its worker
-// pool (01 req 53). A resource whose apiVersion or kind has no schema is
-// skipped: stage C and Apply report it (RZ-CFG-007).
+// RZ-CFG-006 ("valid only in overlays"), except inside the value of the
+// JSONSchemaDocument definition, which is data. It reads only res and
+// opts, so the loader runs it per resource in its worker pool. A
+// resource whose apiVersion or kind has no schema is skipped: stage C
+// and Apply report it (RZ-CFG-007).
 func CheckBase(res *tree.Resource, opts Options) diag.List {
 	if res == nil || res.Root == nil || res.Root.Kind != tree.KindMap || opts.Schemas == nil {
 		return nil
@@ -252,7 +250,7 @@ func (a *applier) index(r *tree.Resource) (*schemaidx.Index, bool) {
 
 // unique orders patches by file, line and column and drops every identity
 // declared by two or more of them, reporting RZ-CFG-008 at each later
-// declaration (01 req 24): the result never depends on file order.
+// declaration: the result never depends on file order.
 func (a *applier) unique(patches []*tree.Resource) []*tree.Resource {
 	sorted := slices.DeleteFunc(slices.Clone(patches), func(r *tree.Resource) bool { return r == nil })
 	slices.SortStableFunc(sorted, func(x, y *tree.Resource) int {
@@ -282,7 +280,7 @@ func (a *applier) unique(patches []*tree.Resource) []*tree.Resource {
 }
 
 // mismatch reports RZ-CFG-030: an overlay document patching base under
-// another apiVersion (01 req 24).
+// another apiVersion.
 func (a *applier) mismatch(p, base *tree.Resource) {
 	a.report(diag.Diagnostic{
 		Code: CodeVersionMismatch, Location: a.loc(memberPos(p, "apiVersion")), Resource: p.ID.ResourceID(),

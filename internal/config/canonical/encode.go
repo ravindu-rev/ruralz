@@ -23,8 +23,7 @@ import (
 )
 
 // conversionData is the annotation that carries newer-only fields through
-// a down-conversion; it never reaches the hub or the canonical form (02
-// req 7).
+// a down-conversion; it never reaches the hub or the canonical form.
 const conversionData = "ruralz.io/conversion-data"
 
 // header and trailer enclose the resources of every canonical document;
@@ -43,11 +42,11 @@ type Options struct {
 	// Level is the schema level to render at. It must equal the index's
 	// level (schemaidx.Index.Level, 0 for every M1 schema), the only level
 	// this release renders; other levels are the extension point for
-	// rendering at a pinned level (02 req 28).
+	// rendering at a pinned level.
 	Level int
 	// Workers is the number of goroutines that encode resources; less
 	// than 1 means 1. The Node passes max(1, GOMAXPROCS/2) and the CLI
-	// GOMAXPROCS (02 req 78).
+	// GOMAXPROCS.
 	Workers int
 }
 
@@ -68,12 +67,12 @@ type item struct {
 	root *tree.Node
 }
 
-// Encode writes the resources of b, sorted by kind and name (02 req 22),
-// as a ruralz.canonical.v1 document and returns it with its digest (02
-// reqs 21 to 29). It reads each resource's materialized Tree, not its
-// typed views, and checks ctx between resources so a superseded reload
-// can stop early. An error is ctx's or wraps ErrEncode: the trees hold a
-// value with no canonical form, which stage F and G never hand over.
+// Encode writes the resources of b, sorted by kind and name, as a
+// ruralz.canonical.v1 document and returns it with its digest. It reads
+// each resource's materialized Tree, not its typed views, and checks ctx
+// between resources so a superseded reload can stop early. An error is
+// ctx's or wraps ErrEncode: the trees hold a value with no canonical
+// form, which stage F and G never hand over.
 func (e *Encoder) Encode(ctx context.Context, b *hub.Bundle, opt Options) (revision.Revision, error) {
 	if b == nil {
 		return revision.Revision{}, fmt.Errorf("%w: no Bundle", ErrEncode)
@@ -98,8 +97,8 @@ func (e *Encoder) EncodeResources(ctx context.Context, rs []tree.Resource, opt O
 
 // AppendNode appends the RFC 8785 form of one value tree, without schema
 // (no since omission): members in UTF-16 code unit order, minimal string
-// escaping and canonical numbers (02 req 24). The diff engine and tests
-// compare values by these bytes. An error wraps ErrEncode.
+// escaping and canonical numbers. The diff engine and tests compare
+// values by these bytes. An error wraps ErrEncode.
 func AppendNode(dst []byte, n *tree.Node) ([]byte, error) {
 	var w writer
 	out, err := w.value(dst, n, nil, 0)
@@ -189,7 +188,7 @@ func (e *Encoder) encode(ctx context.Context, items []item, opt Options) (revisi
 }
 
 // compareItems orders resources by kind (hub.KindOrder), then by name
-// bytewise (02 req 22).
+// bytewise.
 func compareItems(a, b *item) int {
 	return cmp.Or(cmp.Compare(hub.KindOrder(a.id.Kind), hub.KindOrder(b.id.Kind)), cmp.Compare(a.id.Name, b.id.Name))
 }
@@ -220,7 +219,7 @@ func (e *Encoder) order(items []item) error {
 }
 
 // canonicalKind reports a kind the format holds: every kind but
-// Environment and Cluster, which never leave the loader (02 req 22).
+// Environment and Cluster, which never leave the loader.
 func canonicalKind(k v1alpha1.Kind) bool { return hub.KindOrder(k) < 99 }
 
 // nodeError is a value with no canonical form, with its path from the
@@ -283,8 +282,8 @@ type writer struct {
 }
 
 // resource appends one resource object: kind, metadata without the
-// conversion-data annotation, and spec (02 req 21). rs is the envelope
-// schema when since omission is active, else nil.
+// conversion-data annotation, and spec. rs is the envelope schema when
+// since omission is active, else nil.
 func (w *writer) resource(dst []byte, kind, name string, root *tree.Node, rs *schemaidx.Node) ([]byte, error) {
 	if root == nil || root.Kind != tree.KindMap {
 		return dst, &nodeError{msg: "resource tree is not a mapping"}
@@ -339,8 +338,8 @@ func (w *writer) resource(dst []byte, kind, name string, root *tree.Node, rs *sc
 
 // stripConversionData returns meta without the conversion-data
 // annotation, and without annotations when that was the only one, so a
-// down-converted resource keeps the digest of its source (02 req 7). meta
-// is returned as it is when it holds no such annotation.
+// down-converted resource keeps the digest of its source. meta is
+// returned as it is when it holds no such annotation.
 func stripConversionData(meta *tree.Node) *tree.Node {
 	ai := slices.IndexFunc(meta.Members, func(m tree.Member) bool { return m.Key == "annotations" })
 	if ai < 0 {
@@ -422,7 +421,7 @@ func (w *writer) list(dst []byte, n *tree.Node, s *schemaidx.Node, depth int) ([
 
 // object appends a mapping with members in UTF-16 code unit order (RFC
 // 8785 section 3.2.3). A member whose schema carries x-ruralz-since above
-// 0 is left out when it equals its default (02 req 23).
+// 0 is left out when it equals its default.
 func (w *writer) object(dst []byte, n *tree.Node, s *schemaidx.Node, depth int) ([]byte, error) {
 	if s != nil {
 		s = s.Select(n)
@@ -496,7 +495,7 @@ func memberSchema(s *schemaidx.Node, name string) *schemaidx.Node {
 
 // atDefault reports whether v, at a position whose schema s carries
 // x-ruralz-since above 0, equals s's default by canonical bytes. A
-// position without a default is written whenever present (02 req 23).
+// position without a default is written whenever present.
 func (w *writer) atDefault(v *tree.Node, s *schemaidx.Node, depth int) (bool, error) {
 	def := s.DefaultNode()
 	if def == nil {

@@ -17,9 +17,8 @@ import (
 	"github.com/ravindu-rev/ruralz/pkg/config/v1alpha1"
 )
 
-// Tests for architecture section 2.14 (WP-01) and spec 04 group H
-// (requirements 49 to 53, the types): striped pins with per-stripe
-// intrusive lists (req 50, 53), Listener.Key and ErrNotReplayable (R-41).
+// Tests for the snapshot types: striped pins with per-stripe intrusive
+// lists, Listener.Key and ErrNotReplayable.
 
 func pinned(p *Pins) []*PinnedRequest {
 	var out []*PinnedRequest
@@ -119,8 +118,8 @@ func TestPinsStripes(t *testing.T) {
 }
 
 func TestPinsConcurrent(t *testing.T) {
-	// 04 req 50: 8 stripes, concurrent requests pin and unpin while the
-	// retirer counts and walks.
+	// 8 stripes, concurrent requests pin and unpin while the retirer
+	// counts and walks.
 	p := NewPins(8)
 	const workers, rounds = 16, 500
 	var wg sync.WaitGroup
@@ -166,7 +165,7 @@ func TestPinsConcurrent(t *testing.T) {
 }
 
 func TestPinsAllocateNothing(t *testing.T) {
-	// 04 req 50: pinning allocates nothing.
+	// Pinning allocates nothing.
 	p := NewPins(8)
 	r := &PinnedRequest{}
 	if n := testing.AllocsPerRun(1000, func() {
@@ -229,7 +228,7 @@ func TestEndReasons(t *testing.T) {
 }
 
 // BenchmarkPinsAddRemove measures one pin and unpin per request across
-// parallel connections, each on its own stripe (04 req 50).
+// parallel connections, each on its own stripe.
 func BenchmarkPinsAddRemove(b *testing.B) {
 	p := NewPins(8)
 	var next sync.Mutex

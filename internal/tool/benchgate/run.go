@@ -109,7 +109,7 @@ func buildTest(ctx context.Context, tree, pkg, out, toolchain string) (string, e
 }
 
 // runBench runs one benchmark pass of a test binary in its package directory
-// with GOGC=off and a fixed GOMAXPROCS (11 req 64).
+// with GOGC=off and a fixed GOMAXPROCS.
 func runBench(ctx context.Context, bin, pkgDir string, e entry, cpu int) ([]byte, error) {
 	env := []string{"GOGC=off", "GOMAXPROCS=" + strconv.Itoa(cpu)}
 	return command(ctx, pkgDir, env, bin,
@@ -194,7 +194,7 @@ func gate(ctx context.Context, o options, w io.Writer) (res outcome, err error) 
 	footer := ""
 	switch {
 	case failed && o.override:
-		footer = "Failures accepted: the perf-override label was applied by a maintainer (11 req 66)."
+		footer = "Failures accepted: the perf-override label was applied by a maintainer."
 	case failed:
 		footer = "A median allocs/op above the base by more than the threshold with four of five pairs slower, a cap exceeded, or a removed benchmark fails the gate; a removal passes once allocgate.json no longer matches it."
 	}

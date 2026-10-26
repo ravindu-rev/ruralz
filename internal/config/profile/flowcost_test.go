@@ -8,17 +8,15 @@ import (
 	"testing"
 )
 
-// TestFlowBounds covers the bounds of goccy's parse of a flow collection
-// (01 req 9; 11 req 17, 26; blockers of the sixth WP-33 review). The paths
-// goccy builds for nested flow mappings with long keys, and the token
-// moves of the nulls it inserts for mapping entries without a value, are
-// RZ-CFG-001 past their bounds, at the token that passes the path bound or
-// at the collection that holds too many such entries; collections under
+// TestFlowBounds covers the bounds of goccy's parse of a flow collection.
+// The paths goccy builds for nested flow mappings with long keys, and the
+// token moves of the nulls it inserts for mapping entries without a value,
+// are RZ-CFG-001 past their bounds, at the token that passes the path bound
+// or at the collection that holds too many such entries; collections under
 // the bounds parse, and each outermost collection has bounds of its own.
 // Scalar tags before ',' or ':', whose default value goccy inserts the same
 // way, and a collection a document leaves open, which goccy's parse fills
-// with nulls before it fails at the end, are bounded too (blocker of the
-// seventh WP-33 review).
+// with nulls before it fails at the end, are bounded too.
 func TestFlowBounds(t *testing.T) {
 	distinct := func(n int) string {
 		var b strings.Builder
@@ -66,13 +64,11 @@ func TestFlowBounds(t *testing.T) {
 	}
 }
 
-// TestFlowNullSites covers which flow entries get a token goccy inserts
-// (01 test plan FuzzProfileYAML: 2 s per input; 11 req 26): a mapping
-// entry with no ':', or with nothing after its ':', and a single pair of a
-// sequence with nothing after its ':' or an explicit key with no ':' get
-// an implicit null (blocker of the eighth WP-33 review); a scalar tag
-// directly before ',' or ':' gets its default value, in sequences and
-// mappings alike (blocker of the seventh WP-33 review).
+// TestFlowNullSites covers which flow entries get a token goccy inserts: a
+// mapping entry with no ':', or with nothing after its ':', and a single
+// pair of a sequence with nothing after its ':' or an explicit key with no
+// ':' get an implicit null; a scalar tag directly before ',' or ':' gets
+// its default value, in sequences and mappings alike.
 func TestFlowNullSites(t *testing.T) {
 	for src, want := range map[string]int{
 		"a: {a, b: , c: 1, : , ? d}\n":      4,

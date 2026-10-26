@@ -30,7 +30,7 @@ type selector struct {
 func targetLabels() []string { return []string{"instance", "job"} }
 
 // histogramSuffixes are the series suffixes of a classic histogram
-// (09 req 73: dashboard checks strip them before the catalog lookup).
+// (dashboard checks strip them before the catalog lookup).
 func histogramSuffixes() []string { return []string{"_bucket", "_sum", "_count"} }
 
 // promqlKeywords are identifiers that are never metric names: binary and
@@ -53,8 +53,7 @@ func labelListKeywords() []string {
 
 // openMetricsFloat formats a histogram bound as Prometheus 3 stores the le
 // label: the shortest 'g' form with ".0" added to integers (le="2.0",
-// le="0.00015", le="1e-05"). Rules and panels match that form (09 section 9
-// risk 6).
+// le="0.00015", le="1e-05"). Rules and panels match that form.
 func openMetricsFloat(f float64) string {
 	switch {
 	case math.IsInf(f, 1):
@@ -439,9 +438,9 @@ func resolveFamily(name string) (catalog.Family, string, bool) {
 }
 
 // checkExpr returns the problems of one PromQL expression: every metric it
-// reads is a catalog family (09 req 73, spec 09 test 20), every matched
-// label belongs to that family, and every matched enumeration value and
-// le bound is one the family exports.
+// reads is a catalog family, every matched label belongs to that family,
+// and every matched enumeration value and le bound is one the family
+// exports.
 func checkExpr(expr string) []string {
 	s := &exprScanner{src: expr}
 	s.scan()

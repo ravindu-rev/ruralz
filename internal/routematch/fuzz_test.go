@@ -13,10 +13,10 @@ import (
 	"github.com/ravindu-rev/ruralz/internal/errcode"
 )
 
-// referenceNormalize is an independent, allocation-heavy reading of 04 req
-// 23 used as the oracle of FuzzNormalizePath: it rejects by substring and
-// byte scans, rewrites escapes byte by byte, and removes dot segments with
-// the literal RFC 3986 section 5.2.4 loop over strings.
+// referenceNormalize is an independent, allocation-heavy reading of the
+// NormalizePath steps, used as the oracle of FuzzNormalizePath: it rejects
+// by substring and byte scans, rewrites escapes byte by byte, and removes
+// dot segments with the literal RFC 3986 section 5.2.4 loop over strings.
 func referenceNormalize(p string) (string, bool) {
 	if p == "" {
 		return "/", true
@@ -124,11 +124,11 @@ func encodesControl(s string) bool {
 	return false
 }
 
-// FuzzNormalizePath checks 04 req 23 (test plan: FuzzNormalizePath): the
-// result equals an independent reference; it is idempotent; it never holds
-// a "." or ".." segment; it never decodes %2F (no slash is added); it holds
-// only canonical escapes; NUL, backslash and encoded control forms are
-// rejected with RZ-RT-017; asterisk-form is 404 RZ-RT-001.
+// FuzzNormalizePath checks NormalizePath: the result equals an independent
+// reference; it is idempotent; it never holds a "." or ".." segment; it
+// never decodes %2F (no slash is added); it holds only canonical escapes;
+// NUL, backslash and encoded control forms are rejected with RZ-RT-017;
+// asterisk-form is 404 RZ-RT-001.
 func FuzzNormalizePath(f *testing.F) {
 	for _, tc := range normalizeCases {
 		f.Add(tc.in)
@@ -197,11 +197,11 @@ func FuzzNormalizePath(f *testing.F) {
 	})
 }
 
-// FuzzTemplate checks 04 req 29 (test plan: FuzzTemplate): parsing never
-// panics; errors carry RZ-CFG-005; a valid template round-trips through
-// String; it matches its own instances with the right captures; Match on
-// any path agrees with the segment trie and captures non-empty segments
-// without "/".
+// FuzzTemplate checks the template grammar: parsing never panics; errors
+// carry RZ-CFG-005; a valid template round-trips through String; it
+// matches its own instances with the right captures; Match on any path
+// agrees with the segment trie and captures non-empty segments without
+// "/".
 func FuzzTemplate(f *testing.F) {
 	for _, tc := range templateCases {
 		f.Add(tc.in, "/v1/orders/42")
@@ -272,9 +272,9 @@ func FuzzTemplate(f *testing.F) {
 	})
 }
 
-// FuzzNormalizeHost checks 04 req 24 and 27: no upper-case ASCII in the
-// result, idempotence unless a second trailing dot remains, and the host
-// table yields exactly the matching patterns in rank 1 order.
+// FuzzNormalizeHost checks NormalizeHost and the host table: no upper-case
+// ASCII in the result, idempotence unless a second trailing dot remains,
+// and the host table yields exactly the matching patterns in rank 1 order.
 func FuzzNormalizeHost(f *testing.F) {
 	for _, s := range []string{"API.Shop.Example:8443", "[::1]:8080", "shop.example.", "a.b.shop.example", "xshop.example", "::1", "", ".", "a..shop.example", "[0:0::1]", "[::FFFF:10.0.0.1]:1", "[2001:db8::1%25x]"} {
 		f.Add(s)

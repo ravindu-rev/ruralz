@@ -15,14 +15,14 @@ import (
 	"time"
 )
 
-// Tests for spec 06 section 2.13 (requirements 84 to 86): the deny table
-// with its IPv4-mapped, NAT64 and IPv4-compatible forms, RFC 1918 left
-// reachable, RURALZ_FETCH_ALLOW parsing (requirement 85) and the connect
-// time check after DNS resolution (DNS rebinding).
+// Tests for the egress guard: the deny table with its IPv4-mapped, NAT64
+// and IPv4-compatible forms, RFC 1918 left reachable, RURALZ_FETCH_ALLOW
+// parsing and the connect time check after DNS resolution (DNS
+// rebinding).
 
-// TestDeniedTableReq84 covers every listed range and its mapped, NAT64 and
+// TestDeniedTable covers every listed range and its mapped, NAT64 and
 // IPv4-compatible forms, plus addresses that stay reachable.
-func TestDeniedTableReq84(t *testing.T) {
+func TestDeniedTable(t *testing.T) {
 	tests := []struct {
 		addr   string
 		denied bool
@@ -98,7 +98,7 @@ func TestDeniedTableReq84(t *testing.T) {
 	}
 }
 
-func TestDeniedInvalidAddressReq84(t *testing.T) {
+func TestDeniedInvalidAddress(t *testing.T) {
 	if !Denied(netip.Addr{}) {
 		t.Fatal("the zero Addr must be denied")
 	}
@@ -108,9 +108,9 @@ func TestDeniedInvalidAddressReq84(t *testing.T) {
 	}
 }
 
-// TestAllowListReq84Req85 checks that RURALZ_FETCH_ALLOW admits exactly the
+// TestAllowList checks that RURALZ_FETCH_ALLOW admits exactly the
 // listed addresses (mapped forms of listed IPv4 included).
-func TestAllowListReq84Req85(t *testing.T) {
+func TestAllowList(t *testing.T) {
 	g, err := ParseAllow("127.0.0.1/32, ::1, 169.254.169.254, fe80::/10")
 	if err != nil {
 		t.Fatal(err)
@@ -140,9 +140,9 @@ func TestAllowListReq84Req85(t *testing.T) {
 	}
 }
 
-// TestParseAllowReq85 covers the entry format: IP, CIDR, env-proxy, spaces,
+// TestParseAllow covers the entry format: IP, CIDR, env-proxy, spaces,
 // mapped prefixes, and every refused form.
-func TestParseAllowReq85(t *testing.T) {
+func TestParseAllow(t *testing.T) {
 	tests := []struct {
 		in       string
 		want     string
@@ -231,7 +231,7 @@ func TestPrefixesAndNilGuard(t *testing.T) {
 	}
 }
 
-func TestFromEnvReq85(t *testing.T) {
+func TestFromEnv(t *testing.T) {
 	g, err := FromEnv(func(string) (string, bool) { return "", false })
 	if err != nil || g.String() != "" {
 		t.Fatalf("unset: %v, %v", g, err)
@@ -249,9 +249,9 @@ func TestFromEnvReq85(t *testing.T) {
 	}
 }
 
-// TestControlReq84 checks the net.Dialer Control function on resolved
+// TestControl checks the net.Dialer Control function on resolved
 // addresses.
-func TestControlReq84(t *testing.T) {
+func TestControl(t *testing.T) {
 	g, err := ParseAllow("127.0.0.1")
 	if err != nil {
 		t.Fatal(err)
@@ -298,9 +298,9 @@ func TestCheckHost(t *testing.T) {
 	}
 }
 
-// TestDialerRefusesDeniedAddressReq84 dials a real loopback listener: refused
+// TestDialerRefusesDeniedAddress dials a real loopback listener: refused
 // without an allow entry, connected with one.
-func TestDialerRefusesDeniedAddressReq84(t *testing.T) {
+func TestDialerRefusesDeniedAddress(t *testing.T) {
 	ln := listen(t)
 	var nilGuard *Guard
 	if _, err := nilGuard.Dialer(0).DialContext(t.Context(), "tcp", ln.Addr().String()); !errors.Is(err, ErrDenied) {
@@ -320,10 +320,10 @@ func TestDialerRefusesDeniedAddressReq84(t *testing.T) {
 	}
 }
 
-// TestDialerDNSRebindingReq84 resolves a name through a fake DNS server that
+// TestDialerDNSRebinding resolves a name through a fake DNS server that
 // answers 127.0.0.1: the check runs after resolution, so the connect is
 // refused whatever the name looked like.
-func TestDialerDNSRebindingReq84(t *testing.T) {
+func TestDialerDNSRebinding(t *testing.T) {
 	ln := listen(t)
 	_, port, _ := net.SplitHostPort(ln.Addr().String())
 	res := fakeResolver(t, netip.MustParseAddr("127.0.0.1"))

@@ -69,9 +69,8 @@ func tlv(typ byte, v []byte) []byte {
 	return append(b, v...)
 }
 
-// TestReadHeader covers 04 req 16 and 06 req 61 (test plans 04 item 10 and
-// 06 "PROXY v2": TCP4, TCP6, LOCAL, bad signature, v1 text, truncated,
-// oversized TLVs).
+// TestReadHeader covers TCP4, TCP6, LOCAL, bad signature, v1 text,
+// truncated and oversized TLVs.
 func TestReadHeader(t *testing.T) {
 	tlvs := append(tlv(0x01, []byte("h2")), tlv(0x04, bytes.Repeat([]byte{0}, 40))...) // ALPN, NOOP
 	tests := []struct {
@@ -81,7 +80,7 @@ func TestReadHeader(t *testing.T) {
 		wantErr error
 	}{
 		{
-			name: "req16 TCP4 PROXY",
+			name: "TCP4 PROXY",
 			in:   proxyTCP4("203.0.113.7:51000", "192.0.2.1:443", nil),
 			want: Header{
 				Command: CommandProxy, Family: FamilyTCP4, Len: 28,
@@ -90,7 +89,7 @@ func TestReadHeader(t *testing.T) {
 			},
 		},
 		{
-			name: "req16 TCP6 PROXY",
+			name: "TCP6 PROXY",
 			in:   proxyTCP6("[2001:db8::7]:4711", "[2001:db8::1]:8443", nil),
 			want: Header{
 				Command: CommandProxy, Family: FamilyTCP6, Len: 52,
@@ -99,7 +98,7 @@ func TestReadHeader(t *testing.T) {
 			},
 		},
 		{
-			name: "req16 TCP6 with an IPv4-mapped source kept as sent",
+			name: "TCP6 with an IPv4-mapped source kept as sent",
 			in:   proxyTCP6("[::ffff:198.51.100.9]:1", "[::1]:2", nil),
 			want: Header{
 				Command: CommandProxy, Family: FamilyTCP6, Len: 52,
@@ -108,7 +107,7 @@ func TestReadHeader(t *testing.T) {
 			},
 		},
 		{
-			name: "req61 TLVs skipped",
+			name: "TLVs skipped",
 			in:   proxyTCP4("203.0.113.7:1", "192.0.2.1:2", tlvs),
 			want: Header{
 				Command: CommandProxy, Family: FamilyTCP4, Len: 16 + 12 + len(tlvs),
@@ -117,7 +116,7 @@ func TestReadHeader(t *testing.T) {
 			},
 		},
 		{
-			name: "req16 variable part at the 4096 cap",
+			name: "variable part at the 4096 cap",
 			in:   proxyTCP4("203.0.113.7:1", "192.0.2.1:2", tlv(0x04, make([]byte, MaxVariableLen-12-3))),
 			want: Header{
 				Command: CommandProxy, Family: FamilyTCP4, Len: MaxHeaderLen,
@@ -126,66 +125,65 @@ func TestReadHeader(t *testing.T) {
 			},
 		},
 		{
-			name: "req16 LOCAL with AF_UNSPEC",
+			name: "LOCAL with AF_UNSPEC",
 			in:   local(),
 			want: Header{Command: CommandLocal, Family: FamilyUnspec, Len: 16},
 		},
 		{
-			name: "req16 LOCAL discards an address block",
+			name: "LOCAL discards an address block",
 			in:   v2(0x20, 0x11, tcp4Block(netip.MustParseAddrPort("1.2.3.4:5"), netip.MustParseAddrPort("5.6.7.8:9"), nil)),
 			want: Header{Command: CommandLocal, Family: FamilyTCP4, Len: 28},
 		},
 		{
-			name: "req16 LOCAL with AF_UNSPEC and TLVs",
+			name: "LOCAL with AF_UNSPEC and TLVs",
 			in:   v2(0x20, 0x00, tlvs),
 			want: Header{Command: CommandLocal, Family: FamilyUnspec, Len: 16 + len(tlvs)},
 		},
-		// R-65 overrides the literal 04 req 16: LOCAL is accepted whatever
-		// its family byte, as the PROXY v2 text has receivers do, and its
-		// address block is skipped within the cap.
+		// LOCAL is accepted whatever its family byte, as the PROXY v2 text
+		// has receivers do, and its address block is skipped within the cap.
 		{
-			name: "R-65 LOCAL with a UDP family",
+			name: "LOCAL with a UDP family",
 			in:   v2(0x20, 0x12, nil),
 			want: Header{Command: CommandLocal, Family: Family(0x12), Len: 16},
 		},
 		{
-			name: "R-65 LOCAL with a UDP6 family and its block",
+			name: "LOCAL with a UDP6 family and its block",
 			in:   v2(0x20, 0x22, make([]byte, 36)),
 			want: Header{Command: CommandLocal, Family: Family(0x22), Len: 16 + 36},
 		},
 		{
-			name: "R-65 LOCAL with a UNIX family and its block",
+			name: "LOCAL with a UNIX family and its block",
 			in:   v2(0x20, 0x31, make([]byte, 216)),
 			want: Header{Command: CommandLocal, Family: Family(0x31), Len: 16 + 216},
 		},
 		{
-			name: "R-65 LOCAL with an unknown family",
+			name: "LOCAL with an unknown family",
 			in:   v2(0x20, 0x41, make([]byte, 5)),
 			want: Header{Command: CommandLocal, Family: Family(0x41), Len: 16 + 5},
 		},
-		{name: "req16 bad signature", in: append([]byte("\r\n\r\n\x00\r\nQUIX\n"), 0x21, 0x11, 0, 12), wantErr: ErrSignature},
-		{name: "req16 v1 text header", in: []byte("PROXY TCP4 203.0.113.7 192.0.2.1 51000 443\r\n"), wantErr: ErrSignature},
-		{name: "req16 plain HTTP request", in: []byte("GET / HTTP/1.1\r\nHost: a\r\n\r\n"), wantErr: ErrSignature},
-		{name: "req16 TLS ClientHello", in: []byte{0x16, 0x03, 0x01, 0x02, 0x00}, wantErr: ErrSignature},
-		{name: "req16 version 1 nibble", in: v2(0x11, 0x11, make([]byte, 12)), wantErr: ErrVersion},
-		{name: "req16 version 3 nibble", in: v2(0x31, 0x11, make([]byte, 12)), wantErr: ErrVersion},
-		{name: "req16 command 2", in: v2(0x22, 0x11, make([]byte, 12)), wantErr: ErrCommand},
-		{name: "req16 command 15", in: v2(0x2F, 0x11, make([]byte, 12)), wantErr: ErrCommand},
-		{name: "req16 UDP4 family", in: v2(0x21, 0x12, make([]byte, 12)), wantErr: ErrFamily},
-		{name: "req16 UDP6 family", in: v2(0x21, 0x22, make([]byte, 36)), wantErr: ErrFamily},
-		{name: "req16 UNIX stream family", in: v2(0x21, 0x31, make([]byte, 216)), wantErr: ErrFamily},
-		{name: "req16 UNIX datagram family", in: v2(0x21, 0x32, make([]byte, 216)), wantErr: ErrFamily},
-		{name: "R-65 LOCAL above the cap", in: v2Len(0x20, 0x31, MaxVariableLen+1, nil), wantErr: ErrLength},
-		{name: "R-65 LOCAL with a truncated UNIX block", in: v2Len(0x20, 0x31, 216, make([]byte, 100)), wantErr: io.ErrUnexpectedEOF},
-		{name: "req16 unknown family", in: v2(0x21, 0x41, make([]byte, 12)), wantErr: ErrFamily},
-		{name: "req16 AF_INET with UNSPEC transport", in: v2(0x21, 0x10, make([]byte, 12)), wantErr: ErrFamily},
-		{name: "req16 AF_UNSPEC only with LOCAL", in: v2(0x21, 0x00, nil), wantErr: ErrFamily},
-		{name: "req16 length above the cap", in: v2Len(0x21, 0x11, MaxVariableLen+1, make([]byte, 12)), wantErr: ErrLength},
-		{name: "req16 length 0xffff", in: v2Len(0x20, 0x00, 0xFFFF, nil), wantErr: ErrLength},
-		{name: "req16 TCP4 block too short", in: v2(0x21, 0x11, make([]byte, 11)), wantErr: ErrLength},
-		{name: "req16 TCP6 block too short", in: v2(0x21, 0x21, make([]byte, 35)), wantErr: ErrLength},
-		{name: "req16 empty stream", in: nil, wantErr: io.EOF},
-		{name: "req16 truncated TLVs", in: v2Len(0x21, 0x11, 100, make([]byte, 50)), wantErr: io.ErrUnexpectedEOF},
+		{name: "bad signature", in: append([]byte("\r\n\r\n\x00\r\nQUIX\n"), 0x21, 0x11, 0, 12), wantErr: ErrSignature},
+		{name: "v1 text header", in: []byte("PROXY TCP4 203.0.113.7 192.0.2.1 51000 443\r\n"), wantErr: ErrSignature},
+		{name: "plain HTTP request", in: []byte("GET / HTTP/1.1\r\nHost: a\r\n\r\n"), wantErr: ErrSignature},
+		{name: "TLS ClientHello", in: []byte{0x16, 0x03, 0x01, 0x02, 0x00}, wantErr: ErrSignature},
+		{name: "version 1 nibble", in: v2(0x11, 0x11, make([]byte, 12)), wantErr: ErrVersion},
+		{name: "version 3 nibble", in: v2(0x31, 0x11, make([]byte, 12)), wantErr: ErrVersion},
+		{name: "command 2", in: v2(0x22, 0x11, make([]byte, 12)), wantErr: ErrCommand},
+		{name: "command 15", in: v2(0x2F, 0x11, make([]byte, 12)), wantErr: ErrCommand},
+		{name: "UDP4 family", in: v2(0x21, 0x12, make([]byte, 12)), wantErr: ErrFamily},
+		{name: "UDP6 family", in: v2(0x21, 0x22, make([]byte, 36)), wantErr: ErrFamily},
+		{name: "UNIX stream family", in: v2(0x21, 0x31, make([]byte, 216)), wantErr: ErrFamily},
+		{name: "UNIX datagram family", in: v2(0x21, 0x32, make([]byte, 216)), wantErr: ErrFamily},
+		{name: "LOCAL above the cap", in: v2Len(0x20, 0x31, MaxVariableLen+1, nil), wantErr: ErrLength},
+		{name: "LOCAL with a truncated UNIX block", in: v2Len(0x20, 0x31, 216, make([]byte, 100)), wantErr: io.ErrUnexpectedEOF},
+		{name: "unknown family", in: v2(0x21, 0x41, make([]byte, 12)), wantErr: ErrFamily},
+		{name: "AF_INET with UNSPEC transport", in: v2(0x21, 0x10, make([]byte, 12)), wantErr: ErrFamily},
+		{name: "AF_UNSPEC only with LOCAL", in: v2(0x21, 0x00, nil), wantErr: ErrFamily},
+		{name: "length above the cap", in: v2Len(0x21, 0x11, MaxVariableLen+1, make([]byte, 12)), wantErr: ErrLength},
+		{name: "length 0xffff", in: v2Len(0x20, 0x00, 0xFFFF, nil), wantErr: ErrLength},
+		{name: "TCP4 block too short", in: v2(0x21, 0x11, make([]byte, 11)), wantErr: ErrLength},
+		{name: "TCP6 block too short", in: v2(0x21, 0x21, make([]byte, 35)), wantErr: ErrLength},
+		{name: "empty stream", in: nil, wantErr: io.EOF},
+		{name: "truncated TLVs", in: v2Len(0x21, 0x11, 100, make([]byte, 50)), wantErr: io.ErrUnexpectedEOF},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -210,8 +208,8 @@ func TestReadHeader(t *testing.T) {
 }
 
 // TestReadHeaderReadsExactlyTheHeader: the next byte after the header is
-// the request line or ClientHello (04 test plan item 10), both with full
-// reads and one byte at a time.
+// the request line or ClientHello, both with full reads and one byte at
+// a time.
 func TestReadHeaderReadsExactlyTheHeader(t *testing.T) {
 	const next = "GET / HTTP/1.1\r\n"
 	for _, hdr := range [][]byte{
@@ -239,7 +237,7 @@ func TestReadHeaderReadsExactlyTheHeader(t *testing.T) {
 }
 
 // TestReadHeaderTruncatedAtEveryOffset: every strict prefix of a valid
-// header is refused as truncated (04 test plan item 10).
+// header is refused as truncated.
 func TestReadHeaderTruncatedAtEveryOffset(t *testing.T) {
 	full := proxyTCP6("[2001:db8::7]:1", "[2001:db8::1]:2", tlv(0x02, []byte("authority.example")))
 	for n := range len(full) {

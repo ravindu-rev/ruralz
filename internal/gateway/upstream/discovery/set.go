@@ -16,21 +16,21 @@ type Endpoint struct {
 	// Identity is the stable name the balancer, health state and
 	// /debug/upstreams use: the configured address of a static Endpoint,
 	// ip:port of an A/AAAA answer, target:port (no trailing dot) of an SRV
-	// answer (05 reqs 5 and 6).
+	// answer.
 	Identity string
 	// Host is the name for the Host header and TLS ServerName when
-	// Upstream.spec.tls.sni is unset (05 req 29): the static host name, the
-	// SRV target (no trailing dot) or discovery.service for A/AAAA answers;
-	// "" for a static IP literal, whose IP is used instead.
+	// Upstream.spec.tls.sni is unset: the static host name, the SRV target
+	// (no trailing dot) or discovery.service for A/AAAA answers; "" for a
+	// static IP literal, whose IP is used instead.
 	Host string
 	// Port is the port dialed.
 	Port uint16
 	// Addrs are the cached IPs with Port, in answer order; a dial tries
-	// them in this order within one 1 s budget (05 req 5). Empty for a
-	// static host name that has never resolved.
+	// them in this order within one 1 s budget. Empty for a static host
+	// name that has never resolved.
 	Addrs []netip.AddrPort
 	// Weight is endpoints[].weight, 1 for A/AAAA answers, or the SRV
-	// weight (05 req 6).
+	// weight.
 	Weight uint32
 }
 
@@ -42,7 +42,7 @@ func (e *Endpoint) equal(o *Endpoint) bool {
 }
 
 // Status is the refresh state of a Source (the "source" object of
-// /debug/upstreams, 05 req 96).
+// /debug/upstreams).
 type Status struct {
 	// Type is "static" or "dns".
 	Type string
@@ -50,7 +50,7 @@ type Status struct {
 	// (zero: none yet).
 	LastRefresh time.Time
 	// Stale is true while the last refresh failed and the set is the last
-	// good one: the discovery_stale degraded reason (05 req 7).
+	// good one: the discovery_stale degraded reason.
 	Stale bool
 	// Failures counts consecutive failed refreshes.
 	Failures int
@@ -59,7 +59,7 @@ type Status struct {
 }
 
 // Set is an immutable Endpoint set with its refresh status, published
-// copy-on-write (05 req 8). Callers must not modify it.
+// copy-on-write. Callers must not modify it.
 type Set struct {
 	// Endpoints are sorted by Identity (byte order, like balance.Normalize)
 	// with unique identities.

@@ -10,8 +10,8 @@ import (
 	"testing"
 )
 
-// TestNormalize covers 05 req 8: Endpoints sorted by identity before any
-// build, with duplicates merged so every Node derives the same list.
+// TestNormalize covers Endpoints sorted by identity before any build, with
+// duplicates merged so every Node derives the same list.
 func TestNormalize(t *testing.T) {
 	tests := []struct {
 		name string
@@ -52,7 +52,7 @@ func TestCheckNormalized(t *testing.T) {
 	}
 }
 
-// TestEffectiveWeights covers the package weight rule (05 req 6's SRV rule
+// TestEffectiveWeights covers the package weight rule (the SRV weight rule
 // applied to every weight): 0 is never picked unless every weight is 0.
 func TestEffectiveWeights(t *testing.T) {
 	tests := []struct {
@@ -78,9 +78,8 @@ func TestEffectiveWeights(t *testing.T) {
 	}
 }
 
-// TestQuotas covers n_i = max(1, round(L × w_i / Σw)) of 05 reqs 12 and
-// 14, apportioned to exactly L slots (05 test plan item 11: "size
-// min(65,536, 64E)", "within one slot of n_i").
+// TestQuotas covers n_i = max(1, round(L × w_i / Σw)), apportioned to
+// exactly L slots ("size min(65,536, 64E)", "within one slot of n_i").
 func TestQuotas(t *testing.T) {
 	tests := []struct {
 		w      []uint32
@@ -165,15 +164,14 @@ func TestQuotasProperty(t *testing.T) {
 	}
 }
 
-// TestNominalSizes covers the S term and ring sizes of 05 reqs 12, 14 and
-// 17.
+// TestNominalSizes covers the S term and ring sizes.
 func TestNominalSizes(t *testing.T) {
 	sched := []struct {
 		endpoints int
 		want      int64
 	}{
 		{0, 0},
-		{3, 768}, // 05 req 12: 3 Endpoints use 768 bytes
+		{3, 768}, // 3 Endpoints use 768 bytes
 		{1024, 4 * 65536},
 		{5000, 4 * 65536}, // at most 256 KiB
 		{70000, 4 * 70000},

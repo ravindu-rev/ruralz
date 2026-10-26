@@ -6,7 +6,7 @@ package resilience
 import "sync/atomic"
 
 // RetryBudgetLimit returns the in-flight retries the budget allows with
-// originals legs in flight: max(3, floor(20% × originals)) (05 req 34).
+// originals legs in flight: max(3, floor(20% × originals)).
 func RetryBudgetLimit(originals int) int {
 	return max(RetryBudgetMin, originals/100*RetryBudgetPercent+originals%100*RetryBudgetPercent/100)
 }
@@ -18,18 +18,18 @@ const (
 	budgetMask  = 1<<budgetShift - 1
 )
 
-// RetryBudget is the retry budget of one Upstream on one Node (05 req 34):
-// in-flight retries never exceed max(3, floor(20% × in-flight originals))
-// when one is admitted. An original is a leg in flight, from BeginLeg to
-// EndLeg; a retry is in flight from the start of its backoff to the end of
-// its leg, so every retry a leg makes takes its own unit (TryRetry) and the
-// leg releases them all when it ends (EndLeg): a leg on its third retry
-// holds three. A leg alone in flight therefore makes at most RetryBudgetMin
+// RetryBudget is the retry budget of one Upstream on one Node: in-flight
+// retries never exceed max(3, floor(20% × in-flight originals)) when one is
+// admitted. An original is a leg in flight, from BeginLeg to EndLeg; a
+// retry is in flight from the start of its backoff to the end of its leg,
+// so every retry a leg makes takes its own unit (TryRetry) and the leg
+// releases them all when it ends (EndLeg): a leg on its third retry holds
+// three. A leg alone in flight therefore makes at most RetryBudgetMin
 // retries, whatever retries.attempts allows.
 //
 // The zero value is ready to use; it is safe for concurrent use and never
 // blocks (one compare-and-swap loop per call). It lives for the Node's
-// lifetime and is carried across Hot Reloads by Upstream name (05 req 2).
+// lifetime and is carried across Hot Reloads by Upstream name.
 type RetryBudget struct {
 	state atomic.Uint64
 }

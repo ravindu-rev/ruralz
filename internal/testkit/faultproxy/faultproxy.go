@@ -2,10 +2,10 @@
 // SPDX-License-Identifier: Apache-2.0
 
 // Package faultproxy is the protocol-agnostic TCP fault proxy of the chaos
-// and integration harness (OQ-scalability-and-distributed-state-10 (a);
-// 11 section 3, H 49): it sits between a client (a Node) and an upstream
-// (a State Store, an Upstream Endpoint, a Node behind the balancer) and
-// injects faults on live and new connections:
+// and integration harness (OQ-scalability-and-distributed-state-10 (a)): it
+// sits between a client (a Node) and an upstream (a State Store, an
+// Upstream Endpoint, a Node behind the balancer) and injects faults on
+// live and new connections:
 //
 //   - Pass forwards bytes unchanged.
 //   - Delay holds every chunk, per direction, for a normally distributed
@@ -20,7 +20,7 @@
 //
 // SetUpstream switches new connections to another upstream (scripted State
 // Store failover, CE-5). A Tap sees every forwarded byte synchronously
-// (A8's RESP counting proxy is a Tap). Every goroutine belongs to the
+// (the State Store's RESP counting proxy is a Tap). Every goroutine belongs to the
 // Proxy: one accept loop, and two per connection (one per direction),
 // bounded by MaxConns; Close stops and waits for all of them.
 package faultproxy

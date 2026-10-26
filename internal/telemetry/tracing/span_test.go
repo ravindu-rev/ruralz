@@ -15,7 +15,7 @@ import (
 	"github.com/ravindu-rev/ruralz/internal/telemetry/emit"
 )
 
-// TestNoopSpans: the no-op spans ignore every call (spec 09 req 7).
+// TestNoopSpans: the no-op spans ignore every call.
 func TestNoopSpans(t *testing.T) {
 	d := emit.Decision{ServerSpanID: [8]byte{1, 2, 3}}
 	for _, s := range []emit.Span{noopSpan{}, (*noopServer)(&d)} {
@@ -85,7 +85,7 @@ func TestProcessorDefaults(t *testing.T) {
 }
 
 // TestTracerShutdownDeadline: a Tracer whose collector stalls returns
-// from Shutdown at its deadline with the cause (spec 09 req 25).
+// from Shutdown at its deadline with the cause.
 func TestTracerShutdownDeadline(t *testing.T) {
 	tr, err := New(Options{})
 	if err != nil {
@@ -108,10 +108,10 @@ func TestTracerShutdownDeadline(t *testing.T) {
 	}
 }
 
-// TestTracerShutdownDoneContext covers spec 09 req 25 and the goroutine
-// stop path of architecture section 0 item 2: Shutdown with a context that
-// is already done still stops the worker, counts the queued span as an
-// export_error drop and shuts the exporter down once; a retry is a no-op.
+// TestTracerShutdownDoneContext covers the goroutine stop path: Shutdown
+// with a context that is already done still stops the worker, counts the
+// queued span as an export_error drop and shuts the exporter down once; a
+// retry is a no-op.
 func TestTracerShutdownDoneContext(t *testing.T) {
 	var c testCounters
 	tr, err := New(Options{Counters: c.wire()})

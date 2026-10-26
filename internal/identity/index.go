@@ -17,8 +17,8 @@ import (
 	"github.com/ravindu-rev/ruralz/pkg/config/v1alpha1"
 )
 
-// Claims is the read access the index needs to a verified JWT payload
-// (spec 06 requirements 16 and 17): top-level members only.
+// Claims is the read access the index needs to a verified JWT
+// payload: top-level members only.
 type Claims interface {
 	// StringClaim returns the value of the top-level claim name when it is
 	// present and a JSON string.
@@ -46,7 +46,7 @@ func (m MapClaims) HasClaim(name string) bool {
 
 // match accumulates the Consumers bound by one or more credential rules and
 // de-duplicates them by name: none, one, or ambiguous (two or more distinct
-// Consumers, 401 RZ-AUTH-002; spec 06 requirement 18).
+// Consumers, 401 RZ-AUTH-002).
 type match struct {
 	c         *expr.Consumer
 	ambiguous bool
@@ -111,7 +111,7 @@ type shapeKey struct{ iss, names string }
 
 // probe returns the rules the string claims of cl select: nil when one of
 // the shape's claims is absent or not a string (non-string claims never
-// match, spec 06 requirement 16).
+// match).
 func (s *claimShape) probe(seed maphash.Seed, cl Claims) []claimRule {
 	var h maphash.Hash
 	h.SetSeed(seed)
@@ -160,13 +160,12 @@ type basicEntry struct {
 	ambiguous bool
 }
 
-// Index is the immutable credential index of one snapshot (spec 06
-// requirement 12): every lookup is a hash-map probe on the presented
-// credential, independent of the number of Consumers (a JWT lookup probes
-// once per distinct claim-name set configured for the token's issuer), and
-// safe for concurrent use without locks. Digests of secretRef-held API keys
-// live in a KeyIndex beside it (WithSecretKeys), replaced copy-on-write on
-// rotation.
+// Index is the immutable credential index of one snapshot: every lookup is
+// a hash-map probe on the presented credential, independent of the number
+// of Consumers (a JWT lookup probes once per distinct claim-name set
+// configured for the token's issuer), and safe for concurrent use without
+// locks. Digests of secretRef-held API keys live in a KeyIndex beside it
+// (WithSecretKeys), replaced copy-on-write on rotation.
 type Index struct {
 	consumers map[string]*expr.Consumer
 
@@ -268,8 +267,7 @@ func (ix *Index) add(src *v1alpha1.Consumer, c *expr.Consumer, shapes map[shapeK
 			ix.addClaims(j.Issuer, j.Claims, c, shapes)
 		}
 	}
-	// OAuth clients bind through the Consumer's own jwt issuers
-	// (OQ-security-and-identity-24 (a), spec 06 requirement 17).
+	// OAuth clients bind through the Consumer's own jwt issuers.
 	for _, o := range cr.OAuthClients {
 		for _, j := range cr.JWT {
 			key := issClient{j.Issuer, o.ClientID}
@@ -400,9 +398,9 @@ func (ix *Index) Consumer(name string) (*expr.Consumer, bool) {
 // Consumers returns the views by name. The map is shared: read it only.
 func (ix *Index) Consumers() map[string]*expr.Consumer { return ix.consumers }
 
-// APIKey binds an API key by its SHA-256 digest (spec 06 requirement 14):
-// the Consumer holding it, nil when unknown (401 RZ-AUTH-002), or
-// ambiguous when two distinct Consumers hold it (401 RZ-AUTH-002).
+// APIKey binds an API key by its SHA-256 digest: the Consumer holding it,
+// nil when unknown (401 RZ-AUTH-002), or ambiguous when two distinct
+// Consumers hold it (401 RZ-AUTH-002).
 func (ix *Index) APIKey(digest [32]byte) (c *expr.Consumer, ambiguous bool) {
 	var m match
 	if e, ok := ix.apiKeys[digest]; ok {
@@ -419,16 +417,15 @@ func (ix *Index) APIKey(digest [32]byte) (c *expr.Consumer, ambiguous bool) {
 	return m.result()
 }
 
-// JWT binds a verified token of issuer iss (spec 06 requirements 16 to
-// 18): Consumers with a credentials.jwt entry for iss whose subject equals
-// the string claim sub, or whose claims all equal string claims; and
-// Consumers with an oauthClients clientId equal to the string claim
-// client_id (or, when client_id is absent, azp) that also list iss in
-// credentials.jwt. The union is de-duplicated: one Consumer binds, none
-// leaves the token unbound, two or more are ambiguous. Claims bindings cost
-// one hash probe per distinct claim-name set configured for iss, whatever
-// the number of Consumers sharing a set or a claim value; the lookup
-// allocates nothing.
+// JWT binds a verified token of issuer iss: Consumers with a
+// credentials.jwt entry for iss whose subject equals the string claim sub,
+// or whose claims all equal string claims; and Consumers with an
+// oauthClients clientId equal to the string claim client_id (or, when
+// client_id is absent, azp) that also list iss in credentials.jwt. The
+// union is de-duplicated: one Consumer binds, none leaves the token
+// unbound, two or more are ambiguous. Claims bindings cost one hash probe
+// per distinct claim-name set configured for iss, whatever the number of
+// Consumers sharing a set or a claim value; the lookup allocates nothing.
 func (ix *Index) JWT(iss string, claims Claims) (c *expr.Consumer, ambiguous bool) {
 	var m match
 	if sub, ok := claims.StringClaim("sub"); ok {
@@ -456,9 +453,9 @@ func (ix *Index) JWT(iss string, claims Claims) (c *expr.Consumer, ambiguous boo
 	return m.result()
 }
 
-// Basic returns the credential of a byte-exact username (spec 06
-// requirement 19): nil when undeclared, ambiguous when two Consumers
-// declare it (RZ-CFG-035 prevents that statically).
+// Basic returns the credential of a byte-exact username: nil when
+// undeclared, ambiguous when two Consumers declare it (RZ-CFG-035
+// prevents that statically).
 func (ix *Index) Basic(username string) (cred *BasicCredential, ambiguous bool) {
 	e, ok := ix.basic[username]
 	if !ok {
@@ -470,10 +467,10 @@ func (ix *Index) Basic(username string) (cred *BasicCredential, ambiguous bool) 
 	return e.cred, false
 }
 
-// Certificate binds a leaf auth.mtls verified (spec 06 requirement 19):
-// credentials.certificates entries match subject (the leaf's RFC 4514
-// string) or one of its URI SANs, exactly; a leaf matching two Consumers
-// (for example subject to A and uriSan to B) is ambiguous.
+// Certificate binds a leaf auth.mtls verified: credentials.certificates
+// entries match subject (the leaf's RFC 4514 string) or one of its URI
+// SANs, exactly; a leaf matching two Consumers (for example subject to A
+// and uriSan to B) is ambiguous.
 func (ix *Index) Certificate(subject string, uriSANs []string) (c *expr.Consumer, ambiguous bool) {
 	var m match
 	if subject != "" {

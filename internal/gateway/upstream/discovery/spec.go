@@ -55,8 +55,8 @@ const maxNameLen = 253
 
 // Validate reports whether s is a usable source: every static address is
 // host:port with a port from 1 to 65,535, and DNS discovery names a service
-// and exactly one of a numeric port and a port name (05 req 97, RZ-CFG-005
-// at validation).
+// and exactly one of a numeric port and a port name (RZ-CFG-005 at
+// validation).
 func (s Spec) Validate() error {
 	if s.DNS != nil {
 		if len(s.Static) > 0 {
@@ -130,7 +130,7 @@ func (s Spec) Type() string {
 
 // staticEntry is one parsed static Endpoint.
 type staticEntry struct {
-	identity string     // the configured address (05 req 5)
+	identity string     // the configured address
 	host     string     // DNS name; "" for an IP literal
 	addr     netip.Addr // the literal when host is ""
 	port     uint16

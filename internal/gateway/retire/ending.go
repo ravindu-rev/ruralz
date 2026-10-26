@@ -16,8 +16,8 @@ import (
 	"github.com/ravindu-rev/ruralz/internal/telemetry/catalog"
 )
 
-// RZ codes of the ending protocol (spec 04 reqs 52, 53 and 63): 503 before
-// commit, a reset stream or closed connection after it.
+// RZ codes of the ending protocol: 503 before commit, a reset stream or
+// closed connection after it.
 const (
 	CodeGraceEnded   = "RZ-RT-014"
 	CodeDrainReached = "RZ-RT-016"
@@ -71,10 +71,10 @@ func pastDeadline() time.Time { return time.Unix(1, 0) }
 
 // EndAll runs the ending protocol with reason on every live snapshot, the
 // active one included: the Drain deadline ends all remaining work with
-// RZ-RT-016 (spec 04 req 63). It blocks until every started callback has
-// finished and returns how many requests it ended; when ctx ends first it
-// stops starting callbacks and returns ctx's error with the count so far.
-// It takes snapshot.EndDrain only and returns ErrEndReason for any other
+// RZ-RT-016. It blocks until every started callback has finished and
+// returns how many requests it ended; when ctx ends first it stops
+// starting callbacks and returns ctx's error with the count so far. It
+// takes snapshot.EndDrain only and returns ErrEndReason for any other
 // reason.
 //
 // The end is sticky: from the first EndAll on, every request that pins
@@ -108,10 +108,10 @@ func (h *Holder) EndAll(ctx context.Context, reason snapshot.EndReason) (int, er
 	return n, nil
 }
 
-// endPinned is the ending protocol over one snapshot (spec 04 req 53): it
-// walks the per-stripe request lists and runs each request's callback on
-// its own goroutine, at most MaxEnding at once, and waits for them. It
-// counts grace endings in ruralz_snapshot_retirement_ended_total.
+// endPinned is the ending protocol over one snapshot: it walks the
+// per-stripe request lists and runs each request's callback on its own
+// goroutine, at most MaxEnding at once, and waits for them. It counts
+// grace endings in ruralz_snapshot_retirement_ended_total.
 //
 // A record visited here stays pending, tagged with this walk, until its
 // callback claims it; Unpin forgets a pending record and waits for a
@@ -163,10 +163,9 @@ func (h *Holder) endPinned(ctx context.Context, s *snapshot.Snapshot, reason sna
 // resets the HTTP/2 stream or closes the HTTP/1.1 connection. A request
 // already ended is left alone.
 //
-// Spec 04 req 53 lists the cancel first; architecture R-73 (3.3 step 9)
-// adopts this order instead. Marking before canceling means a handler woken by
-// the cancellation always sees Ended when it commits under rec.Mu (req
-// 38), so it writes the 503 with the end code instead of its own
+// Marking comes before canceling, as in the Data plane ending protocol: a
+// handler woken by the cancellation always sees Ended when it commits under
+// rec.Mu, so it writes the 503 with the end code instead of its own
 // cancellation error. Both steps run before the callback returns, so the
 // client cannot tell the orders apart otherwise.
 func (h *Holder) endOne(r *snapshot.PinnedRequest, reason snapshot.EndReason, walk uint64) bool {

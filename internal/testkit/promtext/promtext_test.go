@@ -13,10 +13,9 @@ import (
 	"testing"
 )
 
-// Tests for 11 test plan item 9 (promtext: parser golden, histogram
-// quantile interpolation, label matching) and the scrape path the chaos and
-// end-to-end assertions use (11 req 38, H 49: every degraded state visible
-// as a metric).
+// Tests for promtext (parser golden, histogram quantile interpolation,
+// label matching) and the scrape path the chaos and end-to-end assertions
+// use (every degraded state visible as a metric).
 
 func golden(t *testing.T) Set {
 	t.Helper()
@@ -32,7 +31,7 @@ func golden(t *testing.T) Set {
 	return s
 }
 
-func TestParseGoldenFamilies(t *testing.T) { // 11 test plan item 9
+func TestParseGoldenFamilies(t *testing.T) {
 	s := golden(t)
 	want := map[string]string{
 		"ruralz_config_activations_total":      TypeCounter,
@@ -80,7 +79,7 @@ func TestParseGoldenFamilies(t *testing.T) { // 11 test plan item 9
 	}
 }
 
-func TestLabelMatching(t *testing.T) { // 11 test plan item 9: label matching
+func TestLabelMatching(t *testing.T) { // Label matching
 	s := golden(t)
 	tests := []struct {
 		name  string
@@ -135,7 +134,7 @@ func TestDelta(t *testing.T) {
 	}
 }
 
-func TestHistogramQuantile(t *testing.T) { // 11 test plan item 9: quantile interpolation
+func TestHistogramQuantile(t *testing.T) { // Quantile interpolation
 	s := golden(t)
 	orders, err := s.Histogram("ruralz_http_gateway_duration_seconds", L("route", "orders"))
 	if err != nil {
@@ -307,7 +306,7 @@ func TestParseTolerances(t *testing.T) {
 	}
 }
 
-func TestScrape(t *testing.T) { // 11 req 38: /metrics parsed during e2e assertions
+func TestScrape(t *testing.T) { // /metrics parsed during e2e assertions
 	body, err := os.ReadFile("testdata/metrics.txt")
 	if err != nil {
 		t.Fatal(err)

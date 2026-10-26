@@ -110,11 +110,10 @@ func expected(hops []hop) netip.Addr {
 	return win[0].addr
 }
 
-// TestResolveProperties checks the 06 section 6.3 properties over random
-// chains of parsable entries, for both header forms: the result is never
-// a trusted address when an untrusted entry exists within the 16
-// rightmost, and appending trusted hops (within the window) never changes
-// the result.
+// TestResolveProperties checks two properties over random chains of
+// parsable entries, for both header forms: the result is never a trusted
+// address when an untrusted entry exists within the 16 rightmost, and
+// appending trusted hops (within the window) never changes the result.
 func TestResolveProperties(t *testing.T) {
 	tr := testTrusted()
 	peer := netip.MustParseAddrPort("10.0.0.1:443")

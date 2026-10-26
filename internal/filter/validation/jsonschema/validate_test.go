@@ -28,8 +28,8 @@ func decodeInstance(t testing.TB, body string) any {
 	return v
 }
 
-// TestValidateKeywordLocation covers 07 req 81: the detail names the
-// absolute keyword location (references resolved) of the first failing
+// TestValidateKeywordLocation covers the keyword location: the detail names
+// the absolute keyword location (references resolved) of the first failing
 // leaf in pointer order, never instance data.
 func TestValidateKeywordLocation(t *testing.T) {
 	for _, tc := range []struct {
@@ -83,8 +83,8 @@ func keywordPointer(e *sjs.ValidationError) (string, bool) {
 }
 
 // TestKeywordPointer covers the error shapes the location walk maps,
-// including ones Validate only meets in unusual trees (07 req 81, the
-// keyword location of a refusal).
+// including ones Validate only meets in unusual trees (the keyword
+// location of a refusal).
 func TestKeywordPointer(t *testing.T) {
 	for _, tc := range []struct {
 		name string
@@ -106,14 +106,12 @@ func TestKeywordPointer(t *testing.T) {
 	}
 }
 
-// TestValidateWithin is the regression test of the minor review finding
-// that M2 callers of Schema.Validate, which validate untrusted values (AI
-// tool inputs), had no way to apply Handle's bounds: ValidateWithin refuses
-// as filter.ErrTooLarge, before the library runs, a value whose validation
-// may hold more than the working-set limit, take more than the work limit,
-// or nest past the nesting limit, and otherwise validates as Handle does.
-//
-// Requirements: 07 section 3, reqs 80 to 82 and section 9 item 21.
+// TestValidateWithin covers Handle's bounds for the M2 callers of
+// Schema.Validate, which validate untrusted values (AI tool inputs):
+// ValidateWithin refuses as filter.ErrTooLarge, before the library runs, a
+// value whose validation may hold more than the working-set limit, take
+// more than the work limit, or nest past the nesting limit, and otherwise
+// validates as Handle does.
 func TestValidateWithin(t *testing.T) {
 	s := mustCompile(t, recordsSchema)
 	valid := decodeInstance(t, records(10))
@@ -138,10 +136,9 @@ func TestValidateWithin(t *testing.T) {
 	if loc, ok, err := s.ValidateWithin(failing, 1000); ok || loc != "" || err != nil {
 		t.Errorf("a location pass over the limit: %q, %v, %v, want not ok at the root", loc, ok, err)
 	}
-	// Review finding (a mutant that survived): a failing value whose
-	// decision pass fits the work limit, but not with the location pass
-	// and its walk, is not ok at the root, and the location pass does not
-	// run.
+	// A failing value whose decision pass fits the work limit, but not with
+	// the location pass and its walk, is not ok at the root, and the
+	// location pass does not run.
 	walk := walkCases(120000, 40000)[2]
 	ws := mustCompile(t, walk.schema)
 	wv, wscan := scanBody(t, ws, walk.body)
@@ -168,8 +165,8 @@ func TestValidateWithin(t *testing.T) {
 	}
 }
 
-// TestValidateExactNumbers covers 07 req 80 and T13: numbers stay
-// literal, so values beyond a double and large integers validate exactly.
+// TestValidateExactNumbers covers exact numbers: numbers stay literal, so
+// values beyond a double and large integers validate exactly.
 func TestValidateExactNumbers(t *testing.T) {
 	for _, tc := range []struct {
 		schema, body string
@@ -193,14 +190,11 @@ func TestValidateExactNumbers(t *testing.T) {
 	}
 }
 
-// TestValidateNumberBounds is the regression test of the minor review
-// finding that the exported Validate passed any number to the library,
-// which panics on an exponent past about 10^6 (proposed number bounds,
-// package documentation): a number the library would parse outside the
-// bounds is not ok at the root, without panicking, while one it never
-// parses validates.
-//
-// Requirements: 07 req 80.
+// TestValidateNumberBounds covers the number bounds of the exported
+// Validate, as the library panics on an exponent past about 10^6 (proposed
+// number bounds, package documentation): a number the library would parse
+// outside the bounds is not ok at the root, without panicking, while one it
+// never parses validates.
 func TestValidateNumberBounds(t *testing.T) {
 	s := mustCompile(t, `{"maximum":10,"properties":{"id":{"type":"string"}}}`)
 	if loc, ok := s.Validate(json.Number("1e9999999999")); ok || loc != "" {
@@ -212,7 +206,7 @@ func TestValidateNumberBounds(t *testing.T) {
 }
 
 // TestValidateMapModel checks that the decoder's data model is the one the
-// library expects: json.Number, map[string]any, []any (07 req 80).
+// library expects: json.Number, map[string]any, []any.
 func TestValidateMapModel(t *testing.T) {
 	s := mustCompile(t, `{"type":"object","properties":{"n":{"type":"number"},"l":{"type":"array"}}}`)
 	if _, ok := s.Validate(map[string]any{"n": json.Number("1"), "l": []any{}}); !ok {
@@ -222,9 +216,8 @@ func TestValidateMapModel(t *testing.T) {
 
 // walkCases are failing bodies whose error trees the location walk
 // reads: a dense array failing at a short location, at one long location
-// reached through an anchor (review finding: a 250,000-byte $defs name),
-// and at two long locations that differ only at their end, which the walk
-// compares in full.
+// reached through an anchor (a 250,000-byte $defs name), and at two long
+// locations that differ only at their end, which the walk compares in full.
 func walkCases(nameLen, items int) []struct{ name, schema, body string } {
 	long := strings.Repeat("n", nameLen)
 	return []struct{ name, schema, body string }{
@@ -238,8 +231,8 @@ func walkCases(nameLen, items int) []struct{ name, schema, body string } {
 }
 
 // BenchmarkLocationWalk measures the location walk alone against what the
-// scan charges it (walkWork, 07 section 9 item 21): ns/unit must stay
-// below 1 on the reference machine.
+// scan charges it (walkWork): ns/unit must stay below 1 on the reference
+// machine.
 func BenchmarkLocationWalk(b *testing.B) {
 	for _, nameLen := range []int{10, 20000} {
 		for _, tc := range walkCases(nameLen, 5000) {
@@ -259,16 +252,14 @@ func BenchmarkLocationWalk(b *testing.B) {
 	}
 }
 
-// TestHandleLocationWalk is the regression test of the review finding
-// that the location pass's walk over the error tree reads every leaf's
-// location, so its work grows with the leaves times the length of the
-// location, which the work model did not charge and nothing could stop: a
-// 160 KB body failing under a 250,000-byte $defs name held Handle for 23 s
-// (07 section 9 item 21). The scan charges the walk walkWork per error
-// unit; when the decision pass, the location pass and the walk do not fit
-// the work limit together, the body is refused with DetailMismatch alone,
-// as when the request ends during the walk. Through Factory.Build and
-// Handle at the 10 MiB default.
+// TestHandleLocationWalk covers the location pass's walk over the error
+// tree, which reads every leaf's location, so its work grows with the
+// leaves times the length of the location: uncharged and unstoppable, a
+// 160 KB body failing under a 250,000-byte $defs name held Handle for 23 s.
+// The scan charges the walk walkWork per error unit; when the decision
+// pass, the location pass and the walk do not fit the work limit together,
+// the body is refused with DetailMismatch alone, as when the request ends
+// during the walk. Through Factory.Build and Handle at the 10 MiB default.
 func TestHandleLocationWalk(t *testing.T) {
 	cases := walkCases(120000, 40000)
 	f := buildFilter(t, cases[2].schema, 0)
@@ -286,14 +277,13 @@ func TestHandleLocationWalk(t *testing.T) {
 	if got := detailOf(t, handle(t, f, small)); got != DetailMismatch+" at /$defs" {
 		t.Errorf("Handle(300 failing items) = %.60q, want the location", got)
 	}
-	// Minor review finding: a long dependentRequired key lengthens every
-	// location the walk reads under it.
+	// A long dependentRequired key lengthens every location the walk reads
+	// under it.
 	long := strings.Repeat("k", 10000)
 	if _, scan := scanBody(t, mustCompile(t, `{"items":{"dependentRequired":{"`+long+`":["b"]}}}`), denseArray(10, `{"`+long+`":1}`, 0)); scan.walk < 10*2*10000 {
 		t.Errorf("10 failing items under a 10,000-byte key: the walk is charged %d", scan.walk)
 	}
-	// So does a dependencies key (minor review finding, a mutant that
-	// survived).
+	// So does a dependencies key.
 	if _, scan := scanBody(t, mustCompile(t, `{"items":{"dependencies":{"`+long+`":["b"]}}}`), denseArray(10, `{"`+long+`":1}`, 0)); scan.walk < 10*2*10000 {
 		t.Errorf("10 failing items under a 10,000-byte dependencies key: the walk is charged %d", scan.walk)
 	}

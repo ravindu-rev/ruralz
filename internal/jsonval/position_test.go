@@ -8,9 +8,9 @@ import (
 	"testing"
 )
 
-// Tests for offsets to line and column (01 req 15: RZ-CFG-001 "at the
-// decoder's offset converted to line and column"; columns count code
-// points like diag.Location).
+// Tests for offsets to line and column (RZ-CFG-001 "at the decoder's
+// offset converted to line and column"; columns count code points
+// like diag.Location).
 
 func TestLocator(t *testing.T) {
 	data := []byte("{\n\t\"aé\U0001F600\": 1,\r\n  \"b\":\r2\n}")

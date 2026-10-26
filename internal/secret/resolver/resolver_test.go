@@ -17,9 +17,7 @@ import (
 	"github.com/ravindu-rev/ruralz/internal/telemetry/emit"
 )
 
-// Tests for NewResolver, Activate, Current and Run: spec 01 requirements
-// 45 and 46, spec 04 requirement 3, spec 06 requirement 88, architecture
-// 2.8 and R-9.
+// Tests for NewResolver, Activate, Current and Run.
 
 func TestCodeIsRegistered(t *testing.T) {
 	c, ok := errcode.Lookup(CodeUnresolvable)
@@ -33,7 +31,7 @@ func TestNewResolverDefaults(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	// Req 44: RURALZ_SECRET_ROOT defaults to /etc/ruralz; R-9: 2 s poll.
+	// RURALZ_SECRET_ROOT defaults to /etc/ruralz; the poll interval is 2 s.
 	if r.Root() != DefaultRoot {
 		t.Errorf("Root = %q, want %q", r.Root(), DefaultRoot)
 	}
@@ -64,7 +62,7 @@ func TestNewResolverRetryMaxAtLeastInitial(t *testing.T) {
 }
 
 func TestNewResolverPrecreatesRotationSeries(t *testing.T) {
-	// Spec 01 requirement 56: env and file series exist from the start.
+	// Env and file series exist from the start.
 	var asked []string
 	_, err := NewResolver(Config{Root: t.TempDir(), RotationFailures: func(p string) emit.Counter {
 		asked = append(asked, p)
@@ -79,7 +77,7 @@ func TestNewResolverPrecreatesRotationSeries(t *testing.T) {
 }
 
 func TestNewResolverRefusesRelativeRoot(t *testing.T) {
-	// Req 45: a relative RURALZ_SECRET_ROOT refuses start, naming the setting.
+	// A relative RURALZ_SECRET_ROOT refuses start, naming the setting.
 	_, err := NewResolver(Config{Root: "etc/ruralz"})
 	if !errors.Is(err, ErrRelativeRoot) || !strings.Contains(err.Error(), SettingSecretRoot) {
 		t.Fatalf("err = %v, want ErrRelativeRoot naming %s", err, SettingSecretRoot)
@@ -90,9 +88,8 @@ func TestNewResolverRefusesRelativeRoot(t *testing.T) {
 }
 
 func TestNewResolverProtectedPaths(t *testing.T) {
-	// Spec 01 req 45, spec 04 req 3, spec 06 req 88 (rule 5): the root must
-	// not be or contain the data dir, the admin TLS dir, the admin token
-	// files, the MAC key file or the Enrollment token file.
+	// The root must not be or contain the data dir, the admin TLS dir, the
+	// admin token files, the MAC key file or the Enrollment token file.
 	base := t.TempDir()
 	realDir := filepath.Join(base, "realDir")
 	if err := os.MkdirAll(filepath.Join(realDir, "data"), 0o700); err != nil {

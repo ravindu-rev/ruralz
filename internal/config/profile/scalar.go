@@ -11,9 +11,9 @@ import (
 )
 
 // The YAML 1.2 core schema (YAML 1.2.2 section 10.3.2) resolves a plain
-// scalar by its text alone. Ruralz owns this resolution (01 req 12): goccy
-// types 0777 as octal, 1_000 and 0b1 as integers and 1e3 as a string, so
-// its token types are never consulted.
+// scalar by its text alone. Ruralz owns this resolution: goccy types 0777
+// as octal, 1_000 and 0b1 as integers and 1e3 as a string, so its token
+// types are never consulted.
 
 // scalarClass is the core schema class of a plain scalar's text.
 type scalarClass uint8
@@ -127,7 +127,7 @@ func leadingDigits(s string) int {
 // normalizeInt returns the normalized decimal text of a core schema
 // integer (0o17 is 15, -0 is 0, +007 is 7) and reports whether it fits in
 // int64; an integer outside int64 is not representable in the JSON data
-// model the rest of the pipeline uses (01 req 12).
+// model the rest of the pipeline uses.
 func normalizeInt(s string) (string, bool) {
 	switch {
 	case strings.HasPrefix(s, "0o"):
@@ -183,11 +183,10 @@ func prefixOf(base int) byte {
 }
 
 // normalizeFloat rewrites core schema float text in RFC 8259 number syntax
-// without passing it through float64 (architecture R-64): it drops a
-// leading '+', puts a '0' before a leading '.', drops a '.' with no
-// fraction digits and strips leading zeros of the integer part keeping one
-// digit. .5 is 0.5, 1. is 1, +1.5 is 1.5, 01.5 is 1.5, 1.e3 is 1e3. s
-// must satisfy isCoreFloat.
+// without passing it through float64: it drops a leading '+', puts a '0'
+// before a leading '.', drops a '.' with no fraction digits and strips
+// leading zeros of the integer part keeping one digit. .5 is 0.5, 1. is 1,
+// +1.5 is 1.5, 01.5 is 1.5, 1.e3 is 1e3. s must satisfy isCoreFloat.
 func normalizeFloat(s string) string {
 	var b strings.Builder
 	b.Grow(len(s) + 1)
@@ -226,7 +225,7 @@ type typed struct {
 	msg  string
 }
 
-// resolvePlain types plain scalar text by the core schema (01 req 12).
+// resolvePlain types plain scalar text by the core schema.
 func resolvePlain(s string) typed {
 	switch classify(s) {
 	case classNull:
@@ -248,7 +247,7 @@ func resolvePlain(s string) typed {
 	}
 }
 
-// Core tags accepted by the profile (01 req 8).
+// Core tags accepted by the profile.
 const (
 	tagStr   = "!!str"
 	tagInt   = "!!int"
@@ -269,8 +268,8 @@ func isCoreTag(tag string) bool {
 }
 
 // resolveTagged types scalar content under an explicit core tag: the tag
-// forces the type, and content that does not match it is RZ-CFG-001 (01
-// req 12). !!map and !!seq never match a scalar.
+// forces the type, and content that does not match it is RZ-CFG-001.
+// !!map and !!seq never match a scalar.
 func resolveTagged(tag, s string) typed {
 	mismatch := typed{code: codeParse, msg: "value " + strconv.Quote(clip(s)) + " does not match tag " + tag}
 	switch tag {

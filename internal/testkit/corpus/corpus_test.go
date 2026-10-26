@@ -13,9 +13,8 @@ import (
 	"testing"
 )
 
-// Tests for 11 req 27 (seed corpora come from the golden and negative
-// corpora through a shared helper) and the WP-26 scope rule "tolerant of
-// absent dirs".
+// Tests that seed corpora come from the golden and negative corpora
+// through a shared helper, and that loading tolerates absent directories.
 
 // writeTree writes files (slash paths relative to root).
 func writeTree(t *testing.T, root string, files map[string]string) {
@@ -70,7 +69,7 @@ func sampleTree(t *testing.T) string {
 	return root
 }
 
-func TestLoadGroupsEntries(t *testing.T) { // 11 req 27
+func TestLoadGroupsEntries(t *testing.T) {
 	root := sampleTree(t)
 	// Special files that negative fixtures create are skipped, never read.
 	if err := os.Symlink("/etc/passwd", filepath.Join(root, "golden/minimal/bundle/escape.yaml")); err != nil {
@@ -148,7 +147,7 @@ func TestLoadGroupsEntries(t *testing.T) { // 11 req 27
 	}
 }
 
-func TestSeeds(t *testing.T) { // 11 req 27: YAML, JSON, canonical and Bundle seeds
+func TestSeeds(t *testing.T) { // YAML, JSON, canonical and Bundle seeds
 	c, err := Load(sampleTree(t))
 	if err != nil {
 		t.Fatal(err)
@@ -187,7 +186,7 @@ func TestSeeds(t *testing.T) { // 11 req 27: YAML, JSON, canonical and Bundle se
 	}
 }
 
-func TestAbsent(t *testing.T) { // WP-26 scope: tolerant of absent dirs
+func TestAbsent(t *testing.T) { // tolerant of absent dirs
 	c, err := Load(filepath.Join(t.TempDir(), "no", "such"))
 	if err != nil {
 		t.Fatal(err)
@@ -316,7 +315,7 @@ func archivesEqual(a, b *Archive) bool {
 	return true
 }
 
-func FuzzParseArchive(f *testing.F) { // 11 req 27: seeded through the corpus helpers themselves
+func FuzzParseArchive(f *testing.F) { // Seeded through the corpus helpers themselves
 	AddArchives(f)
 	AddYAML(f)
 	AddJSON(f)

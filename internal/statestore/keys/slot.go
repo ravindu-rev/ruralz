@@ -87,16 +87,16 @@ func hashTagBounds(key string) (lo, hi int) {
 	return i + 1, i + 1 + j
 }
 
-// HashTag returns the part of key its slot is computed from (spec 08 req
-// 49): foo{bar}{zap} hashes bar, foo{}{bar} and a key without braces hash
-// the whole key, foo{{bar}}zap hashes {bar.
+// HashTag returns the part of key its slot is computed from:
+// foo{bar}{zap} hashes bar, foo{}{bar} and a key without braces hash the
+// whole key, foo{{bar}}zap hashes {bar.
 func HashTag(key string) string {
 	lo, hi := hashTagBounds(key)
 	return key[lo:hi]
 }
 
 // Slot is the Redis Cluster hash slot of key: CRC16 of its hash tag,
-// modulo 16384 (spec 08 req 49).
+// modulo 16384.
 func Slot(key []byte) uint16 {
 	if i := bytes.IndexByte(key, '{'); i >= 0 {
 		if j := bytes.IndexByte(key[i+1:], '}'); j > 0 {
@@ -124,7 +124,7 @@ func crcDigest(crc uint16, d *statestore.Digest) uint16 {
 // DigestSlot is the slot of every key tagged {<hex d>}: the GCRA and
 // Quota keys of one config.key digest, and the generation key of a URI
 // digest. Consumptive calls with equal digests therefore share one slot
-// and merge into one script (spec 08 reqs 29 and 49).
+// and merge into one script.
 func DigestSlot(d statestore.Digest) uint16 { return crcDigest(0, &d) % Slots }
 
 // PartitionSlot is the slot of a Response Cache partition hash and its

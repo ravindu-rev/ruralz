@@ -14,13 +14,12 @@ import (
 	"github.com/ravindu-rev/ruralz/internal/telemetry/emit"
 )
 
-// Tests for spec 04 req 49 (one active snapshot behind one atomic.Pointer)
-// and req 50 (one pin per request; load, increment the stripe, re-load,
-// retry; S = min(GOMAXPROCS, 8) stripes assigned round robin per
-// connection and offset by the HTTP/2 stream ID; pinning allocates
-// nothing).
+// Tests for one active snapshot behind one atomic.Pointer and for one pin
+// per request (load, increment the stripe, re-load, retry;
+// S = min(GOMAXPROCS, 8) stripes assigned round robin per connection and
+// offset by the HTTP/2 stream ID; pinning allocates nothing).
 
-func TestReq49PinBeforeFirstPublish(t *testing.T) {
+func TestPinBeforeFirstPublish(t *testing.T) {
 	x := newHarness(t, Config{}, false)
 	if s := x.h.Pin(0, &snapshot.PinnedRequest{}); s != nil {
 		t.Fatalf("Pin before Publish = %v, want nil", s)
@@ -30,7 +29,7 @@ func TestReq49PinBeforeFirstPublish(t *testing.T) {
 	}
 }
 
-func TestReq49Req50PinReturnsActiveAndCounts(t *testing.T) {
+func TestPinReturnsActiveAndCounts(t *testing.T) {
 	x := newHarness(t, Config{}, false)
 	a := newSnap("a", x.log)
 	x.publish(a)
@@ -51,7 +50,7 @@ func TestReq49Req50PinReturnsActiveAndCounts(t *testing.T) {
 	var listed int
 	a.Pins.Each(func(*snapshot.PinnedRequest) { listed++ })
 	if listed != 10 {
-		t.Fatalf("registered records = %d, want 10 (req 53 registration at pin time)", listed)
+		t.Fatalf("registered records = %d, want 10 (registration at pin time)", listed)
 	}
 	for _, p := range ps {
 		x.unpin(p)
@@ -61,7 +60,7 @@ func TestReq49Req50PinReturnsActiveAndCounts(t *testing.T) {
 	}
 }
 
-func TestReq50PublishCreatesPinsWhenNil(t *testing.T) {
+func TestPublishCreatesPinsWhenNil(t *testing.T) {
 	x := newHarness(t, Config{Stripes: 3}, false)
 	s := newSnap("a", nil)
 	s.Pins = nil
@@ -73,10 +72,10 @@ func TestReq50PublishCreatesPinsWhenNil(t *testing.T) {
 	x.unpin(p)
 }
 
-// TestReq50PinAllocatesNothing is the "pin path 0 allocations" gate for
+// TestPinAllocatesNothing is the "pin path 0 allocations" gate for
 // the active snapshot and for a retired one (whose Unpin wakes the
 // retirer).
-func TestReq50PinAllocatesNothing(t *testing.T) {
+func TestPinAllocatesNothing(t *testing.T) {
 	x := newHarness(t, Config{}, false)
 	a := newSnap("a", nil)
 	x.publish(a)
@@ -102,7 +101,7 @@ func TestReq50PinAllocatesNothing(t *testing.T) {
 	x.h.Unpin(s, 2, held)
 }
 
-func TestReq50StripeCount(t *testing.T) {
+func TestStripeCount(t *testing.T) {
 	n := StripeCount()
 	want := min(max(runtime.GOMAXPROCS(0), 1), MaxStripes)
 	if n != want {
@@ -116,7 +115,7 @@ func TestReq50StripeCount(t *testing.T) {
 	}
 }
 
-func TestReq50ConnStripeRoundRobin(t *testing.T) {
+func TestConnStripeRoundRobin(t *testing.T) {
 	h := New(Config{Stripes: 4})
 	var got []emit.Stripe
 	for range 9 {
@@ -130,10 +129,10 @@ func TestReq50ConnStripeRoundRobin(t *testing.T) {
 	}
 }
 
-// TestReq50ConnStripeUsesTheMeterSource: with Config.NewStripe set (the
+// TestConnStripeUsesTheMeterSource: with Config.NewStripe set (the
 // wiring passes emit.Meter.NewStripe), ConnStripe returns the meter's
 // stripes, so pins and metrics share one round robin.
-func TestReq50ConnStripeUsesTheMeterSource(t *testing.T) {
+func TestConnStripeUsesTheMeterSource(t *testing.T) {
 	var next emit.Stripe
 	h := New(Config{Stripes: 3, NewStripe: func() emit.Stripe {
 		s := next
@@ -152,7 +151,7 @@ func TestReq50ConnStripeUsesTheMeterSource(t *testing.T) {
 	}
 }
 
-func TestReq50RequestStripeOffsetByStreamID(t *testing.T) {
+func TestRequestStripeOffsetByStreamID(t *testing.T) {
 	h := New(Config{Stripes: 4})
 	tests := []struct {
 		name     string
@@ -177,10 +176,10 @@ func TestReq50RequestStripeOffsetByStreamID(t *testing.T) {
 	}
 }
 
-// TestReq50ConcurrentConnStripesStayInRange assigns stripes from many
+// TestConcurrentConnStripesStayInRange assigns stripes from many
 // goroutines; every value is a valid stripe and each stripe is used
 // equally.
-func TestReq50ConcurrentConnStripesStayInRange(t *testing.T) {
+func TestConcurrentConnStripesStayInRange(t *testing.T) {
 	h := New(Config{Stripes: 8})
 	var mu sync.Mutex
 	counts := make([]int, 8)
@@ -203,12 +202,12 @@ func TestReq50ConcurrentConnStripesStayInRange(t *testing.T) {
 	}
 }
 
-// TestReq50PinRetriesOntoTheNewSnapshot swaps the pointer continuously
+// TestPinRetriesOntoTheNewSnapshot swaps the pointer continuously
 // while requests pin: every pin lands on a snapshot that was published
 // when its re-load ran, and every retry undoes its increment, so the
 // counts of all snapshots return to zero. Workers yield after every
 // pin, so the publisher is not starved at small GOMAXPROCS.
-func TestReq50PinRetriesOntoTheNewSnapshot(t *testing.T) {
+func TestPinRetriesOntoTheNewSnapshot(t *testing.T) {
 	x := newHarness(t, Config{K: 1000}, false)
 	snaps := []*snapshot.Snapshot{newSnap("s0", nil)}
 	x.publish(snaps[0])
@@ -248,8 +247,8 @@ func TestReq50PinRetriesOntoTheNewSnapshot(t *testing.T) {
 	}
 }
 
-// BenchmarkPinUnpin measures the request-path pin (spec 04 req 33 budgets
-// pin plus match at 3 µs p50 and 0 allocations).
+// BenchmarkPinUnpin measures the request-path pin (pin plus match is
+// budgeted at 3 µs p50 and 0 allocations).
 func BenchmarkPinUnpin(b *testing.B) {
 	h := New(Config{})
 	if _, err := h.Publish(newSnap("a", nil)); err != nil {

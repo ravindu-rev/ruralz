@@ -20,7 +20,7 @@ const (
 	severityTicket = "ticket"
 )
 
-// Dashboard titles of the M1 Grafana dashboard pack (09 req 73).
+// Dashboard titles of the M1 Grafana dashboard pack.
 const (
 	dashOverview  = "Ruralz Gateway overview"
 	dashRoute     = "Route detail"
@@ -37,8 +37,8 @@ const (
 // exact decimals (99.95% is 99950).
 const objectiveScale = 100000
 
-// Burn-rate windows and factors (09 req 72, target): page when the 1 h and
-// 5 min windows both burn at 14 times the budget rate, ticket at 6 times over
+// Burn-rate windows and factors (target): page when the 1 h and 5 min
+// windows both burn at 14 times the budget rate, ticket at 6 times over
 // 6 h and 30 min.
 const (
 	pageFactor   = 14
@@ -46,11 +46,11 @@ const (
 	burnMinimum  = 90000 // burn-rate rules cover objectives of 90% or more
 )
 
-// slo is one M1 service level objective (09 req 71; OBS "SLO definitions").
-// Exactly one of good and bad is set: good builds the ratio of events that
-// meet the objective over a PromQL range, bad the ratio that miss it. An
-// objective below burnMinimum names the threshold rule that alerts on it
-// instead of the burn-rate rules.
+// slo is one M1 service level objective (OBS "SLO definitions"). Exactly
+// one of good and bad is set: good builds the ratio of events that meet the
+// objective over a PromQL range, bad the ratio that miss it. An objective
+// below burnMinimum names the threshold rule that alerts on it instead of
+// the burn-rate rules.
 type slo struct {
 	id            string
 	title         string
@@ -100,7 +100,7 @@ func sloGW3() slo {
 	}
 }
 
-// slos returns the M1 SLOs of 09 req 71 in ID order.
+// slos returns the M1 SLOs in ID order.
 func slos() []slo {
 	return []slo{
 		{
@@ -140,8 +140,8 @@ type ruleLabel struct {
 	name, value string
 }
 
-// alertRule is one generated Prometheus alerting rule (spec 09 section 3
-// AlertRule: name, expression, for, severity, dashboard).
+// alertRule is one generated Prometheus alerting rule: name, expression,
+// for, severity, dashboard.
 type alertRule struct {
 	name      string
 	expr      string
@@ -173,8 +173,8 @@ func reasonAlternation(rs ...catalog.Reason) string {
 }
 
 // m1Rules returns the M1 rules of OBS "Alert rules" with their exact
-// expressions, for durations and severities (09 req 72). Control and AI
-// rules are M2 and M3.
+// expressions, for durations and severities. Control and AI rules are
+// M2 and M3.
 func m1Rules() []alertRule {
 	page := []catalog.Reason{catalog.ReasonStateStoreBreakerOpen, catalog.ReasonUpstreamPanic, catalog.ReasonSnapshotEndingOverdue}
 	notTicket := slices.Concat(page, []catalog.Reason{catalog.ReasonCleartextHop})
@@ -213,10 +213,9 @@ func m1Rules() []alertRule {
 			// at their first admission, so this rule deliberately omits the
 			// rare-event clause "or (x > 0 unless x offset 15m)", which would
 			// ticket every new Node (every Pod of a rollout) whose first
-			// admission folds. It is not a rare-event rule (architecture
-			// 2.16), so neither that clause of spec 09 req 72 nor the
-			// event-before-the-first-scrape case of req 72 and test 43
-			// applies to it.
+			// admission folds. It is not a rare-event rule, so neither that
+			// clause nor the event-before-the-first-scrape case of the
+			// promtool tests applies to it.
 			name: "RuralzSeriesFolded", severity: severityTicket, dashboard: dashTelemetry,
 			expr:    fmt.Sprintf("delta(%s[15m]) > 0", catalog.TelemetryFoldedLabelSets),
 			summary: "Node {{ $labels.instance }} folded new {{ $labels.instrument }} label sets into _overflow",
@@ -225,7 +224,7 @@ func m1Rules() []alertRule {
 }
 
 // burnRateRules returns a page and a ticket rule for every SLO objective of
-// 90% or more (09 req 72).
+// 90% or more.
 func burnRateRules() []alertRule {
 	var out []alertRule
 	for _, s := range slos() {

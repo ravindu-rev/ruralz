@@ -15,16 +15,16 @@ import (
 )
 
 // DialBudget is the single connect budget of one attempt, shared by every
-// cached IP of the Endpoint (05 reqs 5, 11 f and 24; target).
+// cached IP of the Endpoint (11 f and 24; target).
 const DialBudget = time.Second
 
 // DialFunc connects to one ip:port, like (*net.Dialer).DialContext. The
 // Upstream layer passes the egress guard's dialer, whose Control refuses
-// denied socket addresses at connect time (05 req 9).
+// denied socket addresses at connect time.
 type DialFunc func(ctx context.Context, network, address string) (net.Conn, error)
 
 // Dial errors. Every error Dial returns is a connect failure for error
-// classification (05 req 24: dial expiry is kind connect).
+// classification (dial expiry is kind connect).
 var (
 	// ErrNoAddresses reports an Endpoint without any resolved address yet.
 	ErrNoAddresses = errors.New("discovery: endpoint has no resolved address")
@@ -34,9 +34,9 @@ var (
 )
 
 // Dial connects to the first address of addrs that accepts, trying them in
-// answer order within one budget on clk (0 means DialBudget; 05 req 5). An
-// address the dial function refuses, or that fails, moves on to the next
-// while budget remains. The error joins every address's failure, and wraps
+// answer order within one budget on clk (0 means DialBudget). An address
+// the dial function refuses, or that fails, moves on to the next while
+// budget remains. The error joins every address's failure, and wraps
 // ErrDialBudget when the budget ran out.
 func Dial(ctx context.Context, clk clock.Clock, dial DialFunc, network string, addrs []netip.AddrPort, budget time.Duration) (net.Conn, error) {
 	if len(addrs) == 0 {

@@ -13,9 +13,9 @@ import (
 	"testing"
 )
 
-// Tests for the RFC 8785 number form: 02 req 16 (literals, I-JSON integer
-// range, non-finite numbers) and 02 req 24 (ECMAScript
-// Number.prototype.toString), 02 test plan item 3, RFC 8785 Appendix B.
+// Tests for the RFC 8785 number form: literals, the I-JSON integer range,
+// non-finite numbers, ECMAScript Number.prototype.toString and RFC 8785
+// Appendix B.
 
 func TestAppendFloatRFC8785AppendixB(t *testing.T) {
 	cases := []struct {
@@ -107,10 +107,9 @@ func TestAppendFloatRoundTrip(t *testing.T) {
 }
 
 func TestAppendCanonicalNumber(t *testing.T) {
-	// 02 test plan item 3 (forms) and 02 req 26: the canonical form is total
-	// over finite literals, reading integer literals beyond ±(2^53−1) as
-	// doubles as encoding/json/jsontext does, and canonicalizing its output
-	// gives the same bytes.
+	// Number forms: the canonical form is total over finite literals, reading
+	// integer literals beyond ±(2^53−1) as doubles as encoding/json/jsontext
+	// does, and canonicalizing its output gives the same bytes.
 	cases := []struct {
 		lit  string
 		want string
@@ -168,9 +167,9 @@ func TestAppendCanonicalNumber(t *testing.T) {
 }
 
 func TestCheckNumber(t *testing.T) {
-	// 02 req 16 and 02 test plan item 3: integer literals outside ±(2^53−1)
-	// and overflowing literals are refused (stage G reports RZ-CFG-005);
-	// float literals whose canonical form is a large integer are fine.
+	// Integer literals outside ±(2^53−1) and overflowing literals are
+	// refused (stage G reports RZ-CFG-005); float literals whose canonical
+	// form is a large integer are fine.
 	cases := []struct {
 		lit string
 		err error

@@ -13,15 +13,15 @@ import (
 )
 
 // maxFileTokens returns the most tokens all the documents of one file may
-// hold: five quarters of MaxDocumentTokens, 500,000 by default (01 test
-// plan FuzzProfileYAML; 11 req 17). The trees of a file's earlier documents
-// stay live while a later one is tokenized and parsed, so three documents of
-// 348,000 tokens each, 1,044,033 bytes, peaked at 184 to 276 MiB of heap,
-// past the 256 MiB budget for an input of 1 MiB, and two documents at the
-// limit at 216 to 234 MiB, where one peaks at 150 to 179 MiB. With a
-// quarter of the limit left for the documents before the last, they keep at
-// most 12 MiB live. A file of many small documents, such as a Bundle of many
-// resources, holds as many tokens: 1 MiB of "a: 1\n---\n" holds 466,000.
+// hold: five quarters of MaxDocumentTokens, 500,000 by default. The trees
+// of a file's earlier documents stay live while a later one is tokenized
+// and parsed, so three documents of 348,000 tokens each, 1,044,033 bytes,
+// peaked at 184 to 276 MiB of heap, past the 256 MiB budget for an input of
+// 1 MiB, and two documents at the limit at 216 to 234 MiB, where one peaks
+// at 150 to 179 MiB. With a quarter of the limit left for the documents
+// before the last, they keep at most 12 MiB live. A file of many small
+// documents, such as a Bundle of many resources, holds as many tokens:
+// 1 MiB of "a: 1\n---\n" holds 466,000.
 func maxFileTokens(maxTokens int) int {
 	return maxTokens + maxTokens/4
 }
@@ -73,8 +73,8 @@ type blockEntry struct {
 	start, colon int
 }
 
-// tokenPass is the token pass of 01 req 8 and 9 over one file. It runs
-// over each document's tokens before any parsing and keeps its findings:
+// tokenPass is the token pass over one file. It runs over each
+// document's tokens before any parsing and keeps its findings:
 // RZ-CFG-003 and RZ-CFG-004 are collected for the whole file, and the
 // first RZ-CFG-001 stops the file.
 type tokenPass struct {
@@ -217,7 +217,7 @@ func (t *tokenPass) run(tks token.Tokens, lineOff int, cols columnTable, text st
 			// (l-document-suffix), and splitDocuments ends the segment
 			// with that line. goccy reads a node there as the start of a
 			// next document, which the parse of one document body cannot
-			// hold (01 req 9: documents split at DocumentEndType).
+			// hold (documents split at DocumentEndType).
 			t.fail(posOf(tk), msgAfterMarker)
 			return
 		}
@@ -297,7 +297,7 @@ func (t *tokenPass) run(tks token.Tokens, lineOff int, cols columnTable, text st
 			if afterTag && !t.keyAfterTag(i) {
 				// YAML 1.2 gives a node at most one tag, and goccy's
 				// parser recurses once per tag of a chain, outside the
-				// depth limit (11 req 17, 26).
+				// depth limit.
 				t.fail(at, "a node has at most one tag")
 				return
 			}
@@ -310,7 +310,7 @@ func (t *tokenPass) run(tks token.Tokens, lineOff int, cols columnTable, text st
 			// and that includes the RZ-CFG-004 just reported for a
 			// non-core tag. After a finding, the check would add nothing
 			// and would only stop the collection of the file's other
-			// RZ-CFG-003 and RZ-CFG-004 findings (01 req 8).
+			// RZ-CFG-003 and RZ-CFG-004 findings.
 			if t.errs == 0 && t.tagWithoutValue(i) {
 				t.fail(at, "a tagged node has no value")
 				return
@@ -330,7 +330,7 @@ func (t *tokenPass) run(tks token.Tokens, lineOff int, cols columnTable, text st
 				// slice (newTagDefaultScalarValueNode), moving every later
 				// token, as it does the implicit null of a mapping entry
 				// without a value: the move is bounded the same way
-				// (flowcost.go; 11 req 26).
+				// (flowcost.go).
 				t.nulls++
 				t.nullSum += i
 			}
@@ -409,13 +409,13 @@ func (t *tokenPass) fix(tk *token.Token, f scalarFix) {
 }
 
 // keyAfterTag reports whether the tag at token idx, which follows another
-// tag, belongs to a different node (01 req 8, 12): in block context, a tag
-// on a later line than the previous one that starts an implicit key, as in
-// "spec: !!map\n  !!str name: x", where the first tag is the mapping's
-// and the second its key's. In flow context a tag that follows a tag is
-// always the same node's, and so is one on the same line. A chain stays
-// bounded at two tags (11 req 17, 26): a key's tag is followed on its line
-// by the key and its ':', never by another tag.
+// tag, belongs to a different node: in block context, a tag on a later
+// line than the previous one that starts an implicit key, as in
+// "spec: !!map\n  !!str name: x", where the first tag is the mapping's and
+// the second its key's. In flow context a tag that follows a tag is always
+// the same node's, and so is one on the same line. A chain stays bounded
+// at two tags: a key's tag is followed on its line by the key and its ':',
+// never by another tag.
 func (t *tokenPass) keyAfterTag(idx int) bool {
 	tk := t.tks[idx]
 	if t.flow > 0 || tk.Position.Line == t.lastTagLine {
@@ -427,18 +427,17 @@ func (t *tokenPass) keyAfterTag(idx int) bool {
 // tagWithoutValue reports a tag at token idx, in block context inside a
 // block collection, that ends its line (comments aside) while the next
 // token starts at or left of the innermost block collection's column, as
-// in "a: !!map\nb: 1" (01 req 8, 9). In YAML 1.2 the tagged node is empty
-// and the next token starts a sibling, but goccy's parser nests the
-// sibling under the tagged node, one level per such line at one column:
-// the tree's depth is then not the depth the algorithm of 01 req 9 counts
-// from columns, goccy's recursion costs the square of it (11 req 17, 26),
-// and the split parse (split.go) refuses the same lines, but with goccy's
-// message about the next token. Two next tokens at a
-// block mapping's column give the tagged node its value and are allowed:
-// a "-" (a compact sequence, "a: !!seq\n- x") and the ':' of an explicit
-// key that has none yet ("? !!str\n: v"). A document's tag, as in
-// "--- !!map\na: 1", a tag before a document marker and a tag at the end
-// of the input are outside this check.
+// in "a: !!map\nb: 1". In YAML 1.2 the tagged node is empty and the next
+// token starts a sibling, but goccy's parser nests the sibling under the
+// tagged node, one level per such line at one column: the tree's depth is
+// then not the depth the algorithm counts from columns, goccy's recursion
+// costs the square of it, and the split parse (split.go) refuses the same
+// lines, but with goccy's message about the next token. Two next tokens
+// at a block mapping's column give the tagged node its value and are
+// allowed: a "-" (a compact sequence, "a: !!seq\n- x") and the ':' of an
+// explicit key that has none yet ("? !!str\n: v"). A document's tag, as
+// in "--- !!map\na: 1", a tag before a document marker and a tag at the
+// end of the input are outside this check.
 func (t *tokenPass) tagWithoutValue(idx int) bool {
 	if t.flow > 0 || len(t.stack) == 0 {
 		return false
@@ -479,9 +478,8 @@ func (t *tokenPass) tagWithoutValue(idx int) bool {
 // character after the tag at token idx that is neither white space nor in a
 // comment: where the next node starts. goccy reports a plain scalar that a
 // line starting with '-' continues at its last line ("a: !!str 0\n -" puts
-// "0 -" on line 2), so the next token's position does not tell (finding of
-// the eighth WP-33 review). It reports false when the tag is not found in
-// the source or nothing follows it.
+// "0 -" on line 2), so the next token's position does not tell. It reports
+// false when the tag is not found in the source or nothing follows it.
 func (t *tokenPass) contentStart(idx int) (line, col int, ok bool) {
 	tk := t.tks[idx]
 	text := t.src.text
@@ -511,14 +509,14 @@ func (t *tokenPass) contentAfter(idx int) bool {
 }
 
 // tagOnBlockLine checks a tag at token idx, in block context, followed on
-// its line by a block collection (01 req 8, 12): a '-' or a '?', which
-// YAML 1.2 never allows on the line of their node's properties, or an
-// implicit key after !!map or !!seq, which YAML 1.2 gives the tag to, a
-// scalar. goccy instead tags the collection in a sequence entry or a
-// mapping value ("k: !!seq - a" reads as {k: [a]}, "k: !!map ? a" as
-// {k: {a: null}}, "- !!map a: b" as [{a: b}]) but refuses the same tokens
-// parsed on their own, as the split parse parses them. It returns the
-// index of the '-' or '?', of the tag for a key, or -1.
+// its line by a block collection: a '-' or a '?', which YAML 1.2 never
+// allows on the line of their node's properties, or an implicit key after
+// !!map or !!seq, which YAML 1.2 gives the tag to, a scalar. goccy
+// instead tags the collection in a sequence entry or a mapping value
+// ("k: !!seq - a" reads as {k: [a]}, "k: !!map ? a" as {k: {a: null}},
+// "- !!map a: b" as [{a: b}]) but refuses the same tokens parsed on their
+// own, as the split parse parses them. It returns the index of the '-' or
+// '?', of the tag for a key, or -1.
 func (t *tokenPass) tagOnBlockLine(idx int) int {
 	j := idx + 1
 	if t.flow > 0 || j == len(t.tks) || t.tks[j].Position.Line != t.tks[idx].Position.Line {
@@ -665,14 +663,14 @@ func (t *tokenPass) start(at tree.Pos, idx int) {
 	t.keyBlock = false
 }
 
-// structure applies the depth algorithm of 01 req 9 to token idx. Depth is
-// the number of open collections: a flow collection counts once; in block
-// context a sequence entry at column c, or a mapping entry whose key starts
-// at column c, first closes the block collections deeper than c and then
-// opens (kind, c) unless it is already the innermost one. A mapping entry
-// also closes a sequence at its own column whose parent is a mapping at
-// that column (a sequence written at its key's indentation ends at the next
-// key), which the literal rule would otherwise count again at every key.
+// structure applies the depth algorithm to token idx. Depth is the number
+// of open collections: a flow collection counts once; in block context a
+// sequence entry at column c, or a mapping entry whose key starts at column
+// c, first closes the block collections deeper than c and then opens (kind,
+// c) unless it is already the innermost one. A mapping entry also closes a
+// sequence at its own column whose parent is a mapping at that column (a
+// sequence written at its key's indentation ends at the next key), which
+// the literal rule would otherwise count again at every key.
 func (t *tokenPass) structure(tk *token.Token, at tree.Pos, idx int) {
 	switch tk.Type {
 	case token.SequenceStartType, token.MappingStartType:
@@ -708,7 +706,7 @@ func (t *tokenPass) structure(tk *token.Token, at tree.Pos, idx int) {
 		if t.flow > 0 {
 			// YAML 1.2 has no "- " indicator in flow context; goccy
 			// nests one sequence per dash, outside the depth limit and
-			// in quadratic memory (01 req 9, 11 req 26).
+			// in quadratic memory.
 			t.fail(at, "block sequence entries are not allowed inside a flow collection")
 			return
 		}
@@ -755,27 +753,25 @@ func (t *tokenPass) structure(tk *token.Token, at tree.Pos, idx int) {
 			f := t.block(frameBlockMap, int(t.keyStart.Column), at, t.keyStartIdx)
 			t.entry(f, blockEntry{start: t.keyStartIdx, colon: idx})
 		} else {
-			// No key on the ':' line. The ':' may complete an explicit
-			// key: its '?' entry has no ':' yet, and explicitValue checks
-			// that the key is one node (explicit.go). If not, and a node comes
-			// before the ':', that node started on an earlier line or is
-			// a block scalar (keyStart stays on the header). YAML 1.2
-			// keeps an implicit key on one line, but goccy makes that
-			// node a key and attaches the entry to the innermost open
-			// sequence, whatever column the ':' is at. A ladder of such
-			// lines ("- - \"\"\n:") then nests deeper on every line,
-			// past MaxDepth, while this algorithm closes back to the
-			// ':' column and counts a few levels. The split parse also
-			// refuses these lines, with goccy's message. These lines are
-			// RZ-CFG-001 here (01 req 8,
-			// 9; 11 req 17, 26). At the column of an enclosing block
-			// mapping, YAML 1.2 reads such a ':' as an entry with an empty
-			// key after the node instead ("a: 1\n: b"), which the profile
-			// refuses as goccy does, with its own message. Once the file
-			// has a finding, it is never parsed, so the check is skipped
-			// and the scan goes on collecting RZ-CFG-003 and RZ-CFG-004. A
-			// ':' with no node before it is an empty key, which goccy
-			// refuses itself.
+			// No key on the ':' line. The ':' may complete an explicit key:
+			// its '?' entry has no ':' yet, and explicitValue checks that the
+			// key is one node (explicit.go). If not, and a node comes before
+			// the ':', that node started on an earlier line or is a block
+			// scalar (keyStart stays on the header). YAML 1.2 keeps an
+			// implicit key on one line, but goccy makes that node a key and
+			// attaches the entry to the innermost open sequence, whatever
+			// column the ':' is at. A ladder of such lines ("- - \"\"\n:")
+			// then nests deeper on every line, past MaxDepth, while this
+			// algorithm closes back to the ':' column and counts a few levels.
+			// The split parse also refuses these lines, with goccy's message.
+			// These lines are RZ-CFG-001 here. At the column of an enclosing
+			// block mapping, YAML 1.2 reads such a ':' as an entry with an
+			// empty key after the node instead ("a: 1\n: b"), which the
+			// profile refuses as goccy does, with its own message. Once the
+			// file has a finding, it is never parsed, so the check is skipped
+			// and the scan goes on collecting RZ-CFG-003 and RZ-CFG-004. A ':'
+			// with no node before it is an empty key, which goccy refuses
+			// itself.
 			completes := t.explicitValue(at)
 			if t.fatal {
 				return
@@ -825,9 +821,9 @@ const (
 
 // tabIndented reports whether a tab comes before the block mapping key
 // starting at token idx in the white space that separates it from the start
-// of its line or from the indicator before it (01 req 8, 15). YAML 1.2
-// indents block collections with spaces only (s-indent), so "\t\"a\": 1"
-// and "a:\n  \t\"b\": 1" are invalid, as yaml.v3 and the YAML Test Suite
+// of its line or from the indicator before it. YAML 1.2 indents block
+// collections with spaces only (s-indent), so "\t\"a\": 1" and
+// "a:\n  \t\"b\": 1" are invalid, as yaml.v3 and the YAML Test Suite
 // (DK95/06) read them. goccy refuses a plain key there, but reads a quoted
 // key, or any key at the start of the input, as if the tab were a space, so
 // such a file read otherwise alone than after other entries.
@@ -895,8 +891,8 @@ const (
 // "a:\n  k: v\n c: 2", it would open a sibling of the collection it ended
 // in the same entry, which goccy's parse of the entry refuses only after
 // parsing every collection before it whole, in time quadratic in the
-// entries (11 req 17, 26): it is RZ-CFG-001 here, unless the file has a
-// finding already and is never parsed.
+// entries: it is RZ-CFG-001 here, unless the file has a finding already
+// and is never parsed.
 func (t *tokenPass) block(kind frameKind, col int, at tree.Pos, start int) *blockFrame {
 	popped := false
 	for len(t.stack) > 0 {
@@ -928,10 +924,9 @@ func (t *tokenPass) block(kind frameKind, col int, at tree.Pos, start int) *bloc
 	if kind == frameBlockMap && !seqInMap && n > 0 && t.stack[n-1].kind == frameBlockSeq && t.stack[n-1].col == col && t.errs == 0 {
 		// A mapping entry at the column of a block sequence's entries
 		// continues a mapping that holds the sequence as a value, or
-		// nothing: YAML 1.2 indents the mapping of a sequence entry past
-		// its '-'. goccy nested it in the last entry ("-\nk: v" as [{k: v}],
-		// "rules:\n    -\n    match: x" as {rules: [{match: x}]}; minor
-		// finding of the eighth WP-33 review).
+		// nothing: YAML 1.2 indents the mapping of a sequence entry past its
+		// '-'. goccy nested it in the last entry ("-\nk: v" as [{k: v}],
+		// "rules:\n    -\n    match: x" as {rules: [{match: x}]}).
 		t.fail(t.posOf(t.tks[start]), msgSeqMap)
 		return nil
 	}

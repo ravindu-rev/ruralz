@@ -14,10 +14,10 @@ import (
 	"testing"
 )
 
-// Tests for spec 06 requirements 93 (RURALZ_ADMIN_TLS_DIR files tls.crt,
-// tls.key, optional ca.crt; missing tls.crt or tls.key refuses start) and
-// 95 (client certificates verified when given against ca.crt, leaf with an
-// explicit clientAuth extended key usage).
+// Tests for the RURALZ_ADMIN_TLS_DIR files (tls.crt, tls.key, optional
+// ca.crt; missing tls.crt or tls.key refuses start) and the admin client
+// certificates (verified when given against ca.crt, leaf with an explicit
+// clientAuth extended key usage).
 
 type adminFixture struct {
 	ca       *testCA
@@ -52,7 +52,7 @@ func (f *adminFixture) client(t *testing.T, cl *leaf) *tls.Config {
 	return c
 }
 
-func TestAdminWithoutClientCAReq93(t *testing.T) {
+func TestAdminWithoutClientCA(t *testing.T) {
 	f := newAdminFixture(t, false)
 	cfg, err := Admin(f.dir)
 	if err != nil {
@@ -67,7 +67,7 @@ func TestAdminWithoutClientCAReq93(t *testing.T) {
 	}
 }
 
-func TestAdminClientCertificatesReq95(t *testing.T) {
+func TestAdminClientCertificates(t *testing.T) {
 	f := newAdminFixture(t, true)
 	cfg, err := Admin(f.dir)
 	if err != nil {
@@ -103,7 +103,7 @@ func TestAdminClientCertificatesReq95(t *testing.T) {
 	}
 }
 
-func TestAdminErrorsReq93(t *testing.T) {
+func TestAdminErrors(t *testing.T) {
 	good := newAdminFixture(t, false)
 	crt, err := os.ReadFile(filepath.Join(good.dir, AdminCertFile))
 	if err != nil {

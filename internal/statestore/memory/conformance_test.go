@@ -19,17 +19,15 @@ import (
 	"github.com/ravindu-rev/ruralz/internal/statestore/statestoretest"
 )
 
-// The driver conformance suite of spec 08 section 6.2 (Done when:
-// "Conformance suite passes on memory"), run twice: on clocktest.Fake,
-// where the literal numbers of section 6.2 are checked, and on the real
-// clock, which exercises the tolerant path the redis driver's live runs
-// take.
+// The driver conformance suite, run twice: on clocktest.Fake, where the
+// literal numbers are checked, and on the real clock, which exercises the
+// tolerant path the redis driver's live runs take.
 
 // start is the fake clock's start: mid-window for every window the suite
 // uses, and after the 2026 GCRA epoch.
 func start() time.Time { return time.Date(2026, 9, 26, 12, 0, 0, 123_456_789, time.UTC) }
 
-// skewClock is a Node clock offset from its base (spec 08 req 42 skew).
+// skewClock is a Node clock offset from its base, for the clock skew cases.
 type skewClock struct {
 	base clock.Clock
 	off  atomic.Int64

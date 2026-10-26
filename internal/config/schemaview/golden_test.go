@@ -19,13 +19,13 @@ import (
 var update = flag.Bool("update", false, "rewrite the golden files under testdata/mapping")
 
 // sentinel marks secret values in the golden inputs; no output may
-// contain it (01 req 33: an RZ-CFG-012 message never contains the value).
+// contain it (an RZ-CFG-012 message never contains the value).
 const sentinel = "SENTINEL"
 
 // TestGoldenErrorMapping validates each testdata/mapping/<case>.json
 // resource and compares the text and JSON diagnostic forms byte for byte
-// with <case>.diag.txt and <case>.diag.json (01 reqs 33 to 35, 47 to 50;
-// CR 145's JSONSchemaDocument type and OTLP endpoint cases).
+// with <case>.diag.txt and <case>.diag.json, the JSONSchemaDocument type
+// and OTLP endpoint cases included.
 func TestGoldenErrorMapping(t *testing.T) {
 	inputs, err := filepath.Glob(filepath.Join("testdata", "mapping", "*.json"))
 	if err != nil {

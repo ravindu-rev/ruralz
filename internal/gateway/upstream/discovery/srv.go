@@ -22,7 +22,7 @@ type srvTarget struct {
 	weight   uint32
 }
 
-// selectSRV applies 05 req 6 to an SRV answer: only the lowest-priority
+// selectSRV applies the SRV rule to an SRV answer: only the lowest-priority
 // group is used; in it, a weight of 0 is excluded unless every weight of
 // the group is 0, in which case each counts 1; the target loses its
 // trailing dot; records with the same target and port merge (weights add,

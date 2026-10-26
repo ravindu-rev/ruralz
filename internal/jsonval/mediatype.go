@@ -9,9 +9,9 @@ import "strings"
 // media type application/json, or any type/subtype whose subtype ends in
 // "+json" after at least one character (such as application/problem+json),
 // compared case-insensitively with surrounding whitespace and parameters
-// ignored (07 req 44; 03 req 25). Type and subtype must be RFC 9110 tokens.
-// It is the one JSON gate every body reader shares, so another decoder can
-// plug in by media type later (07 section 8).
+// ignored. Type and subtype must be RFC 9110 tokens. It is the one JSON
+// gate every body reader shares, so another decoder can plug in by media
+// type later.
 func IsJSONMediaType(contentType string) bool {
 	mt := contentType
 	if i := strings.IndexByte(mt, ';'); i >= 0 {

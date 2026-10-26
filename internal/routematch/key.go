@@ -13,7 +13,7 @@ import (
 
 // Criteria are a Route's match criteria, a field-for-field mirror of
 // v1alpha1.RouteMatch (Route.spec.match), so [MatchKey] stays independent of
-// the API types (R-68). Callers build it with [CriteriaOf].
+// the API types. Callers build it with [CriteriaOf].
 type Criteria struct {
 	// Hosts are host entries; empty matches any host.
 	Hosts []string
@@ -74,7 +74,7 @@ type GraphQLCriteria struct {
 }
 
 // CriteriaOf returns the Criteria of m, the one converter the Router and
-// configuration validation share (R-68). The nested criteria are struct
+// configuration validation share. The nested criteria are struct
 // conversions of v1alpha1.PathMatch, HeaderMatch, GRPCMatch and
 // GraphQLMatch, whose field sets are identical, so a field that diverges
 // breaks compilation. The result shares no memory with m; a nil m gives
@@ -115,16 +115,16 @@ func CriteriaOf(m *v1alpha1.RouteMatch) Criteria {
 }
 
 // Key is the canonical identity of a Route's match criteria. Two Routes
-// bound to a common listener with equal keys are RZ-CFG-023 (04 req 31);
-// validation compares keys per effective listener.
+// bound to a common listener with equal keys are RZ-CFG-023; validation
+// compares keys per effective listener.
 type Key string
 
 // MatchKey returns the identity of c. The hosts, methods and headers are
 // sets, so their order and repetition do not change the key; hosts take
 // their canonical form (see [ParseHostPattern]) and header names are
-// lower-cased (spec 01 risk 21). Paths are keyed in the form the Router
-// matches, so spellings of one path share a key: an exact or prefix path
-// as [NormalizePath] gives it, and a template by its canonical text
+// lower-cased. Paths are keyed in the form the Router matches, so
+// spellings of one path share a key: an exact or prefix path as
+// [NormalizePath] gives it, and a template by its canonical text
 // ([Template.String]: normalized literals, parameter names kept). Every
 // other difference, such as a template parameter name, a regex spelling, a
 // method's case or a When source, gives a different key. MatchKey never

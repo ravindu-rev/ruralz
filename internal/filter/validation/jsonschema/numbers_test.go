@@ -12,8 +12,6 @@ import (
 // TestNumberInRange covers the proposed number bounds (package
 // documentation): every double and long integers pass; long literals and
 // large exponents do not.
-//
-// Requirements: 07 req 80.
 func TestNumberInRange(t *testing.T) {
 	for _, tc := range []struct {
 		lit  string
@@ -46,8 +44,6 @@ func TestNumberInRange(t *testing.T) {
 
 // TestNumbersInRange covers the number bounds (proposed, package
 // documentation) over a whole decoded tree, the bound of the fuzz targets.
-//
-// Requirements: 07 req 80.
 func TestNumbersInRange(t *testing.T) {
 	for _, tc := range []struct {
 		doc  string

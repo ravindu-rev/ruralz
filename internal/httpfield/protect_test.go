@@ -9,11 +9,9 @@ import (
 	"testing"
 )
 
-// Tests for 07 req 22 (protected names), 07 req 33 and 04 req 22 (the fixed
-// hop-by-hop list), 07 req 34 (forwarding fields unprotected), 07 req 35
-// (trace context protected) and 07 req 36 (framing protected), plus the T1
-// Protect cases of spec 07 section 6: every protected name in three
-// casings.
+// Tests for the protected names, the fixed hop-by-hop list, the forwarding
+// fields left unprotected, the trace context and framing fields protected,
+// and every protected name in three casings.
 
 var protectedNames = []struct {
 	name string
@@ -35,7 +33,7 @@ var protectedNames = []struct {
 	{"tracestate", TraceContext},
 }
 
-func TestProtectReq22ThreeCasings(t *testing.T) {
+func TestProtectThreeCasings(t *testing.T) {
 	for _, tt := range protectedNames {
 		for _, name := range []string{tt.name, strings.ToUpper(tt.name), textproto.CanonicalMIMEHeaderKey(tt.name)} {
 			if got := Protect(name); got != tt.want {
@@ -45,7 +43,7 @@ func TestProtectReq22ThreeCasings(t *testing.T) {
 	}
 }
 
-func TestProtectPseudoReq22(t *testing.T) {
+func TestProtectPseudo(t *testing.T) {
 	for _, name := range []string{":authority", ":method", ":path", ":scheme", ":status", ":protocol", ":"} {
 		if got := Protect(name); got != Pseudo {
 			t.Errorf("Protect(%q) = %v, want %v", name, got, Pseudo)
@@ -55,7 +53,7 @@ func TestProtectPseudoReq22(t *testing.T) {
 
 func TestProtectUnprotected(t *testing.T) {
 	names := []string{
-		// 07 req 34: forwarding fields are edited by U-scope Policies.
+		// Forwarding fields are edited by U-scope Policies.
 		"x-forwarded-for", "X-Forwarded-Proto", "x-forwarded-host", "Forwarded",
 		"content-type", "set-cookie", "Set-Cookie", "authorization", "cookie",
 		"content-encoding", "x-api-key", "baggage", "", "t", "tee", "hosts",
@@ -72,13 +70,13 @@ func TestProtectUnprotected(t *testing.T) {
 	}
 }
 
-func TestIsHopByHopReq33(t *testing.T) {
+func TestIsHopByHop(t *testing.T) {
 	for _, tt := range protectedNames {
 		if got, want := IsHopByHop(tt.name), tt.want == HopByHop; got != want {
 			t.Errorf("IsHopByHop(%q) = %v, want %v", tt.name, got, want)
 		}
 	}
-	// The fixed list of 04 req 22 and 05 req 28, in canonical form.
+	// The fixed list, in canonical form.
 	for _, name := range []string{
 		"Connection", "Keep-Alive", "Proxy-Connection", "Te", "Trailer",
 		"Transfer-Encoding", "Upgrade", "Proxy-Authenticate", "Proxy-Authorization",
@@ -94,7 +92,7 @@ func TestIsHopByHopReq33(t *testing.T) {
 	}
 }
 
-func TestProtectionStringAndMessageReq22(t *testing.T) {
+func TestProtectionStringAndMessage(t *testing.T) {
 	tests := []struct {
 		p    Protection
 		str  string

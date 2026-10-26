@@ -10,7 +10,7 @@ import (
 	"github.com/ravindu-rev/ruralz/internal/errcode"
 )
 
-// PathTier is precedence rank 2 (04 req 31): the kind of path criterion.
+// PathTier is precedence rank 2: the kind of path criterion.
 type PathTier uint8
 
 // Path tiers, highest precedence first.
@@ -74,7 +74,7 @@ func RankOf(host HostPattern, c *Criteria, name string) (Rank, error) {
 }
 
 // Constraints returns how many of methods, headers, grpc and when c sets:
-// precedence rank 5 counts fields, not entries (04 req 31).
+// precedence rank 5 counts fields, not entries.
 func Constraints(c *Criteria) int {
 	n := 0
 	if len(c.Methods) > 0 {
@@ -94,7 +94,7 @@ func Constraints(c *Criteria) int {
 
 // Compare returns a negative number when a takes precedence over b, a
 // positive number when b does, and 0 only for equal positions. The order is
-// total, highest first (04 req 31; DP "Precedence"):
+// total, highest first (DP "Precedence"):
 //
 //  1. Host tier: an exact host, then a wildcard with the longer suffix, then
 //     no hosts.

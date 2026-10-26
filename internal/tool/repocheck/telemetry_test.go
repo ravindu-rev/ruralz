@@ -15,8 +15,8 @@ import (
 	"github.com/ravindu-rev/ruralz/internal/telemetry/catalog"
 )
 
-// TestValidateCatalog covers 09 req 77 (d), catalog.Validate() of spec 09
-// section 3: the linked catalog is clean and each rule has a failing case.
+// TestValidateCatalog covers check (d): the linked catalog is clean and
+// each rule has a failing case.
 func TestValidateCatalog(t *testing.T) {
 	if got := validateCatalog(linkedCatalog()); len(got) != 0 {
 		t.Fatalf("linked catalog: %q", got)
@@ -74,8 +74,7 @@ func TestValidateCatalog(t *testing.T) {
 	}
 }
 
-// TestCheckTelemetryNames covers 09 req 77 (a) to (c) and their
-// exemptions.
+// TestCheckTelemetryNames covers checks (a) to (c) and their exemptions.
 func TestCheckTelemetryNames(t *testing.T) {
 	src := `package p
 
@@ -165,7 +164,7 @@ func TestSplitRowAndTables(t *testing.T) {
 	}
 }
 
-// TestPick covers the per-name cells of multi-name OBS rows (09 req 74).
+// TestPick covers the per-name cells of multi-name OBS rows.
 func TestPick(t *testing.T) {
 	two := []string{"ruralz_a_total", "ruralz_b_total"}
 	runtime := []string{"ruralz_runtime_goroutines", "ruralz_runtime_heap_bytes", "ruralz_runtime_gc_cycles_total"}
@@ -205,7 +204,7 @@ func TestPick(t *testing.T) {
 	}
 }
 
-// TestCodeGateSeveralTypes covers 09 req 74 for a Type cell that lists
+// TestCodeGateSeveralTypes covers the code gate for a Type cell that lists
 // kinds without one part per name: the row is ambiguous, reported once,
 // and its kinds are not matched by substring.
 func TestCodeGateSeveralTypes(t *testing.T) {
@@ -259,7 +258,7 @@ func TestDocUnitAndWords(t *testing.T) {
 	}
 }
 
-// TestDocGate covers 09 req 75 token and reason recognition.
+// TestDocGate covers the doc gate's token and reason recognition.
 func TestDocGate(t *testing.T) {
 	obs := obsCatalog{
 		metrics: map[string]obsMetric{
@@ -304,9 +303,9 @@ func TestDocGate(t *testing.T) {
 	}
 }
 
-// TestDocGateTempDoc is spec 09 test 2's negative fixture against the real
-// Observability document: a new architecture document naming
-// ruralz_bogus_total fails the doc gate, and nothing else does.
+// TestDocGateTempDoc is the negative fixture against the real Observability
+// document: a new architecture document naming ruralz_bogus_total fails the
+// doc gate, and nothing else does.
 func TestDocGateTempDoc(t *testing.T) {
 	obs, err := os.ReadFile(filepath.Join("..", "..", "..", filepath.FromSlash(obsDoc)))
 	if err != nil {

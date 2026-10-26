@@ -9,11 +9,11 @@ import (
 	"strings"
 )
 
-// writeZsh renders the zsh script (spec 10 req 108): a #compdef function
-// dispatching nouns and verbs with _arguments and _describe, one function
-// per command whose _arguments specs list its flags in --name= form and
-// its positionals. An enum flag with modes picks its values from the
-// words already on the line.
+// writeZsh renders the zsh script: a #compdef function dispatching nouns
+// and verbs with _arguments and _describe, one function per command whose
+// _arguments specs list its flags in --name= form and its positionals. An
+// enum flag with modes picks its values from the words already on the
+// line.
 func writeZsh(b *bytes.Buffer, m *model) {
 	p, fn := m.program, "_"+m.ident
 	fmt.Fprintf(b, `#compdef %[1]s

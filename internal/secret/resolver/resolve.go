@@ -20,18 +20,17 @@ import (
 // Resolve.
 var errCanceled = errors.New("secret resolution canceled")
 
-// Resolve resolves every use before a Revision is activated (spec 01
-// requirement 44). It returns a Store holding every use, or a nil Store
-// and one RZ-CFG-026 diagnostic per failing use: all failing uses are
-// reported, each naming the provider, reference and key-aware path, never
-// a value. A reference the active Store holds keeps its value and cell
-// (no re-read across Hot Reloads; spec 01 requirement 46), so rotations
-// reach both Stores; it is still checked against every new use. A file
-// reference whose last poll failed also keeps its cell, but its file is
-// read again: a current value the new uses accept becomes a pending value
-// of the new Store, which Activate applies to the shared cell (see retry
-// and Resolver.settleLocked). Other references are read now. Resolve is
-// serialized with Activate and the poller.
+// Resolve resolves every use before a Revision is activated. It returns a
+// Store holding every use, or a nil Store and one RZ-CFG-026 diagnostic
+// per failing use: all failing uses are reported, each naming the
+// provider, reference and key-aware path, never a value. A reference the
+// active Store holds keeps its value and cell (no re-read across Hot
+// Reloads), so rotations reach both Stores; it is still checked against
+// every new use. A file reference whose last poll failed also keeps its
+// cell, but its file is read again: a current value the new uses accept
+// becomes a pending value of the new Store, which Activate applies to the
+// shared cell (see retry and Resolver.settleLocked). Other references are
+// read now. Resolve is serialized with Activate and the poller.
 func (r *Resolver) Resolve(ctx context.Context, uses []secret.Use) (secret.Store, diag.List) {
 	byRef := map[secret.Ref][]secret.Use{}
 	for _, u := range uses {
@@ -129,9 +128,9 @@ func (r *Resolver) Resolve(ctx context.Context, uses []secret.Use) (secret.Store
 // sleeping between attempts with a delay doubling from RetryInitial to
 // RetryMax: a Node cold-starting from Last-Known-Good stays not ready,
 // retrying with backoff, until every secretRef resolves (CM "secretRef";
-// spec 06 requirement 87 rule 4). report, when not nil, receives each
-// failed attempt's number (from 1), diagnostics and the delay before the
-// next attempt. When ctx ends first it returns a nil Store, the last
+// SEC "Secrets" rule 4). report, when not nil, receives each failed
+// attempt's number (from 1), diagnostics and the delay before the next
+// attempt. When ctx ends first it returns a nil Store, the last
 // diagnostics and ctx.Err().
 func (r *Resolver) ResolveWithRetry(ctx context.Context, uses []secret.Use, report func(attempt int, diags diag.List, next time.Duration)) (secret.Store, diag.List, error) {
 	delay := r.retryInitial
@@ -320,13 +319,11 @@ func (rs *resolution) readGroup(ctx context.Context, name string, p *pendingRead
 // cell's and passes every new use, it is returned as a pending value: the
 // refused rotation, which the new Store's Get returns until it is
 // activated and which Activate then applies to the shared cell, so every
-// Store sharing it follows (spec 01 requirement 46, spec 06 requirements
-// 13 and 76; the topology fit of spec 08 requirement 7; R-55). The cell is
-// never replaced: a Store kept by a carried-over owner or a retired
-// snapshot keeps seeing current values. Otherwise the cell's last good
-// value is checked against the new uses, as for any reused cell, and
-// retry returns nil; Activate then has the next poll examine the file
-// again.
+// Store sharing it follows. The cell is never replaced: a Store kept by a
+// carried-over owner or a retired snapshot keeps seeing current values.
+// Otherwise the cell's last good value is checked against the new uses,
+// as for any reused cell, and retry returns nil; Activate then has the
+// next poll examine the file again.
 func (rs *resolution) retry(c *cell, content []byte, fp fingerprint) *pendingValue {
 	val, owned, err := valueOf(content, c.ref.Key)
 	if err == nil {

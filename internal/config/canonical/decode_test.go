@@ -40,10 +40,9 @@ func decodeErr(t testing.TB, content string) error {
 	return err
 }
 
-// TestRoundTrip: decode then encode is byte-identical (02 req 26; WP-39
-// "Done when"), and the decoded trees are envelopes with the served
-// apiVersion in front, positions in a RoleCanonical file and resources in
-// content order (R-47).
+// TestRoundTrip: decode then encode is byte-identical, and the decoded
+// trees are envelopes with the served apiVersion in front, positions in a
+// RoleCanonical file and resources in content order.
 func TestRoundTrip(t *testing.T) {
 	content := mustEncodeBundle(t, largeBundle(t, 30))
 	files := &tree.FileTable{}
@@ -87,7 +86,7 @@ func TestRoundTrip(t *testing.T) {
 }
 
 // TestDecodeNewer: content from a newer producer is RZ-CFG-024, with
-// every finding located (02 req 33, test plan 13).
+// every finding located.
 func TestDecodeNewer(t *testing.T) {
 	route := `{"kind":"Route","metadata":{"name":"r"},"spec":{"match":{"path":{"prefix":"/"}},"upstreams":[{"name":"orders","weight":1}]}}`
 	for _, tc := range []struct {
@@ -124,8 +123,7 @@ func TestDecodeNewer(t *testing.T) {
 }
 
 // TestDecodeForm: anything but exact ruralz.canonical.v1 bytes is
-// RZ-CFG-027 "content is not in ruralz.canonical.v1 form" (02 req 31(b),
-// test plan 13).
+// RZ-CFG-027 "content is not in ruralz.canonical.v1 form".
 func TestDecodeForm(t *testing.T) {
 	r := `{"kind":"Route","metadata":{"name":"r"},"spec":{"timeout":"4s"}}`
 	u := `{"kind":"Upstream","metadata":{"name":"u"},"spec":{}}`
@@ -188,7 +186,7 @@ func TestDecodeForm(t *testing.T) {
 }
 
 // TestDecodePrecedence: a newer producer wins over a form problem, so an
-// older Node reports RZ-CFG-024 for content it cannot judge (02 req 33).
+// older Node reports RZ-CFG-024 for content it cannot judge.
 func TestDecodePrecedence(t *testing.T) {
 	err := decodeErr(t, `{"format":"ruralz.canonical.v1","resources":[{"kind":"Route","spec":{}},{"kind":"Widget","metadata":{"name":"w"}}]}`)
 	if codeOf(err) != CodeNewer {
@@ -201,7 +199,7 @@ func TestDecodePrecedence(t *testing.T) {
 }
 
 // TestDecodeNoRangeRule: an integer-looking literal above 2^53 is the RFC
-// 8785 form of a double; canonical decode accepts it (R-64).
+// 8785 form of a double; canonical decode accepts it.
 func TestDecodeNoRangeRule(t *testing.T) {
 	content := doc(`{"kind":"Plugin","metadata":{"name":"g"},"spec":{"configSchema":{"maximum":123456789012345680000,"minimum":-9007199254740992}}}`)
 	rs := mustDecode(t, []byte(content))
@@ -212,8 +210,7 @@ func TestDecodeNoRangeRule(t *testing.T) {
 	}
 }
 
-// TestVerify: verification checks the digest first, then the form (02
-// req 31, test plan 13).
+// TestVerify: verification checks the digest first, then the form.
 func TestVerify(t *testing.T) {
 	ctx := context.Background()
 	dec := NewDecoder(hubIndex(t), DecoderOptions{})
@@ -243,7 +240,7 @@ func TestVerify(t *testing.T) {
 }
 
 // TestDecodeWorkers: results and errors do not depend on the worker
-// count (02 req 78).
+// count.
 func TestDecodeWorkers(t *testing.T) {
 	content := mustEncodeBundle(t, largeBundle(t, 100))
 	bad := strings.Replace(string(content), `"name":"route-57"},"spec":{`, `"name":"route-57"},"spec":{"aa":1,`, 1)

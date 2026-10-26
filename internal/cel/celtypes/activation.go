@@ -11,11 +11,11 @@ import (
 )
 
 // Activation is the cel-go activation of one evaluation point: the
-// variables of an expr.Vars (03 req 17, 39). It has the same layout as
-// expr.Vars, so NewActivation converts a pointer without allocating, and
-// resolving a variable wraps the view pointer without copying or
-// converting any field: an expression pays only for what it selects.
-// A nil view pointer is CEL null (03 req 18); a nil Steps is an empty map.
+// variables of an expr.Vars. It has the same layout as expr.Vars, so
+// NewActivation converts a pointer without allocating, and resolving a
+// variable wraps the view pointer without copying or converting any field:
+// an expression pays only for what it selects. A nil view pointer is CEL
+// null; a nil Steps is an empty map.
 type Activation expr.Vars
 
 // Compile-time check of the cel-go interface.

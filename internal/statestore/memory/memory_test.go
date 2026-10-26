@@ -18,24 +18,24 @@ import (
 	"github.com/ravindu-rev/ruralz/internal/telemetry/emit"
 )
 
-// Unit tests for spec 08 section 2.9 (reqs 58 to 60), the memory side of
-// section 2.5 (reqs 41 to 46), req 53 (store admission), req 68 (MAC),
-// req 64 (metrics labels) and the lifecycle of section 2.10.
+// Unit tests for the memory driver: the memory side of the script
+// algorithms, store admission, the entry MAC, metrics labels and the
+// lifecycle across Hot Reloads.
 
 func TestOpen(t *testing.T) {
-	// Open is the Opener the Manager receives (resolution R-54).
+	// Open is the Opener the Manager receives.
 	var opener statestore.Opener = Open
 	ctx := context.Background()
 	d, err := opener(ctx, statestore.Config{Driver: statestore.DriverMemory, URL: "redis://ignored:6379", Topology: statestore.TopologyCluster}, statestore.Deps{})
 	if err != nil {
 		t.Fatalf("Open: %v", err)
 	}
-	// Spec 08 req 58: memory reports noeviction and no degraded concern.
+	// Memory reports noeviction and no degraded concern.
 	if st := d.Status(); st != (statestore.Status{EvictionPolicy: statestore.Yes}) {
 		t.Fatalf("Status = %+v", st)
 	}
 	if d.RoundTrips() {
-		t.Fatal("memory reports round trips; its time must stay gateway-added (req 59)")
+		t.Fatal("memory reports round trips; its time must stay gateway-added")
 	}
 	if !d.Supports(statestore.CapScripts) || d.Supports(statestore.CapVectorSets) || d.Supports(statestore.CapValkeySearch) {
 		t.Fatal("memory supports scripts only")
@@ -56,7 +56,7 @@ func TestOpen(t *testing.T) {
 }
 
 func TestCloseStopsDriver(t *testing.T) {
-	// Spec 08 req 63: the sweeper has an owner that cancels and waits.
+	// The sweeper has an owner that cancels and waits.
 	clk := clocktest.New(start())
 	d, err := New(context.Background(), statestore.Config{}, statestore.Deps{Clock: clk}, Options{})
 	if err != nil {
@@ -95,8 +95,8 @@ func TestCloseStopsDriver(t *testing.T) {
 }
 
 func TestSweeperReclaims(t *testing.T) {
-	// Spec 08 req 58: expired keys are reclaimed by the sweeper within
-	// 10 s of expiry, and on access.
+	// Expired keys are reclaimed by the sweeper within 10 s of expiry,
+	// and on access.
 	f := newFixture(t, Options{}, nil)
 	d := statestore.DigestOf("k")
 	f.consume(gcraCall("p", d, statestore.GCRALimit{Requests: 10, Window: time.Second, Burst: 10}))
@@ -147,8 +147,8 @@ func (f *fixture) eventually(t *testing.T, cond func() bool) {
 }
 
 func TestEntryBound(t *testing.T) {
-	// Spec 08 req 58: a shard full of unexpired keys refuses a new key
-	// with RZ-STS-002, like noeviction; existing keys keep working and
+	// A shard full of unexpired keys refuses a new key with
+	// RZ-STS-002, like noeviction; existing keys keep working and
 	// expired ones are reclaimed to make room.
 	f := newFixture(t, Options{Shards: 1, MaxEntries: 3}, nil)
 	l := statestore.GCRALimit{Requests: 10, Window: time.Second, Burst: 10}
@@ -208,12 +208,12 @@ func TestEntryBound(t *testing.T) {
 }
 
 func TestFullShardScansOnlyAfterAnExpiry(t *testing.T) {
-	// Spec 08 req 58: a shard full of live keys refuses a new key without
-	// scanning its maps; the on-demand reclaim runs only once the server
-	// time passed the shard's lower bound of key expiries, which the scan
-	// then recomputes, so a flood of new keys scans at most once per
-	// server millisecond. A key planted as expired behind the bound
-	// reveals whether a scan ran: only a scan deletes it.
+	// A shard full of live keys refuses a new key without scanning its
+	// maps; the on-demand reclaim runs only once the server time passed
+	// the shard's lower bound of key expiries, which the scan then
+	// recomputes, so a flood of new keys scans at most once per server
+	// millisecond. A key planted as expired behind the bound reveals
+	// whether a scan ran: only a scan deletes it.
 	f := newFixture(t, Options{Shards: 1, MaxEntries: 3, SweepInterval: time.Hour}, nil)
 	l := statestore.GCRALimit{Requests: 10, Window: time.Second, Burst: 10} // TAT keys live 1,100 ms
 	s := &f.d.shards[0]
@@ -296,9 +296,9 @@ func TestFullShardScansOnlyAfterAnExpiry(t *testing.T) {
 }
 
 func TestDroppedVariantReleased(t *testing.T) {
-	// Spec 08 req 58 (SG-7): a variant dropped by end-stale, a re-store
-	// or the eighth-variant bound leaves no reference in the partition's
-	// backing array, so memory the byte bound no longer counts is freed.
+	// A variant dropped by end-stale, a re-store or the eighth-variant
+	// bound leaves no reference in the partition's backing array, so
+	// memory the byte bound no longer counts is freed.
 	f := newFixture(t, Options{SweepInterval: time.Hour}, nil)
 	ck := statestore.CacheKey{URI: statestore.DigestOf("u")}
 	v := statestore.DigestOf("v")
@@ -342,8 +342,8 @@ func TestDroppedVariantReleased(t *testing.T) {
 }
 
 func TestCacheByteBound(t *testing.T) {
-	// Spec 08 req 58: 64 MiB of cache entry bytes (here 100); a store
-	// beyond the bound is refused and writes nothing.
+	// 64 MiB of cache entry bytes (here 100); a store beyond the
+	// bound is refused and writes nothing.
 	f := newFixture(t, Options{MaxCacheBytes: 100}, nil)
 	a := statestore.CacheKey{URI: statestore.DigestOf("a")}
 	b := statestore.CacheKey{URI: statestore.DigestOf("b")}
@@ -393,9 +393,8 @@ func inspectLease(d *Driver, k statestore.CacheKey) (bool, uint64) {
 }
 
 func TestMetrics(t *testing.T) {
-	// Spec 08 reqs 59 and 64 (R-56): calls and ops count on the request's
-	// stripe by OpKind.Label and RoundTrip.Label; memory records no
-	// duration.
+	// Calls and ops count on the request's stripe by OpKind.Label and
+	// RoundTrip.Label; memory records no duration.
 	f := newFixture(t, Options{}, nil)
 	ctx := context.Background()
 	d := statestore.DigestOf("k")
@@ -455,9 +454,9 @@ func TestMetrics(t *testing.T) {
 }
 
 func TestPrecheck(t *testing.T) {
-	// Spec 08 reqs 28, 33 and 60: memory never reports breaker, in-flight
-	// or timeout failures, but a spent per-request deadline, a zero
-	// timeout or an ended context is not attempted (RZ-STS-004).
+	// Memory never reports breaker, in-flight or timeout failures, but a
+	// spent per-request deadline, a zero timeout or an ended context is
+	// not attempted (RZ-STS-004).
 	f := newFixture(t, Options{}, nil)
 	d := statestore.DigestOf("k")
 	cases := []struct {
@@ -570,7 +569,7 @@ func TestWrongKinds(t *testing.T) {
 }
 
 func TestReserveWindows(t *testing.T) {
-	// Spec 08 req 42 against the model: the Node's candidates A and B,
+	// Quota reservation against the model: the Node's candidates A and B,
 	// the server's window, skew beyond half a window, TTL ws + 2W.
 	const w = time.Minute
 	cases := []struct {
@@ -640,9 +639,8 @@ func inspectQuota(d *Driver, name string, w time.Duration, ws time.Time, dg stat
 }
 
 func TestMACAtDriver(t *testing.T) {
-	// Spec 08 req 68: entries carry a tag under the configured key; an
-	// entry read under another key is a miss, logged rate-limited, never
-	// an error.
+	// Entries carry a tag under the configured key; an entry read under
+	// another key is a miss, logged rate-limited, never an error.
 	key := bytes.Repeat([]byte{1}, 32)
 	f := newFixture(t, Options{}, key)
 	ck := statestore.CacheKey{URI: statestore.DigestOf("u"), Partition: statestore.DigestOf("p")}
@@ -700,8 +698,8 @@ func TestLookupReusesEntryBuffer(t *testing.T) {
 }
 
 func TestExpiredOnAccess(t *testing.T) {
-	// Expired keys read as absent before the sweeper runs (spec 08 req
-	// 50): TATs, counters, generations, partitions and leases.
+	// Expired keys read as absent before the sweeper runs: TATs,
+	// counters, generations, partitions and leases.
 	f := newFixture(t, Options{SweepInterval: time.Hour}, nil)
 	d := statestore.DigestOf("k")
 	ck := statestore.CacheKey{URI: d, Partition: d}
@@ -722,8 +720,8 @@ func TestExpiredOnAccess(t *testing.T) {
 	if f.d.bytes.Load() != 0 {
 		t.Fatal("expired partition's bytes not reclaimed on access")
 	}
-	// Spec 08 req 45: the revalidation lease is fixed at 5 s; the take
-	// ignores CacheLease.TTL like the script, which takes no TTL.
+	// The revalidation lease is fixed at 5 s; the take ignores
+	// CacheLease.TTL like the script, which takes no TTL.
 	take := &statestore.Write{Kind: statestore.OpCacheSet, Timeout: time.Second, Lease: statestore.CacheLease{Key: ck, Mode: statestore.LeaseTake, Token: 2, TTL: 2 * time.Second}}
 	f.write(take)
 	if !take.Applied {

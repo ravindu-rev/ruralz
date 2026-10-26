@@ -14,13 +14,13 @@ import (
 	"github.com/ravindu-rev/ruralz/pkg/config/v1alpha1"
 )
 
-// Tests for spec 06 requirements 12 and 13 on secretRef-held API keys:
-// digests in a side index beside the snapshot, replaced copy-on-write on
-// rotation and read without locks; the raw key discarded; keys normalized
-// and rejected under 22 bytes (RZ-CFG-026 at activation; on rotation the
-// last value is kept and a rotation failure counted); and R-55: watches are
-// Node-wide, so a KeyIndex carried over into a later snapshot keeps
-// following rotations after the resolver activates a newer Store.
+// Tests for secretRef-held API keys: digests in a side index beside the
+// snapshot, replaced copy-on-write on rotation and read without locks; the
+// raw key discarded; keys normalized and rejected under 22 bytes
+// (RZ-CFG-026 at activation; on rotation the last value is kept and a
+// rotation failure counted); and Node-wide watches, so a KeyIndex carried
+// over into a later snapshot keeps following rotations after the resolver
+// activates a newer Store.
 
 var (
 	refA = envRef("RURALZ_SECRET_KEY_A")
@@ -37,7 +37,7 @@ func buildWith(t *testing.T, store secret.Store, prev *KeyIndex, cs ...*v1alpha1
 	return ix
 }
 
-func TestReq12SecretKeyBinding(t *testing.T) {
+func TestSecretKeyBinding(t *testing.T) {
 	r := newFakeResolver()
 	s := r.store(map[secret.Ref]string{refA: " " + testKeyA + "\n", refB: testKeyB})
 	r.activate(s)
@@ -68,7 +68,7 @@ func TestReq12SecretKeyBinding(t *testing.T) {
 	}
 }
 
-func TestReq14SecretAndLiteralDigestConflicts(t *testing.T) {
+func TestSecretAndLiteralDigestConflicts(t *testing.T) {
 	r := newFakeResolver()
 	s := r.store(map[secret.Ref]string{refA: testKeyA})
 	r.activate(s)
@@ -102,7 +102,7 @@ func TestReq14SecretAndLiteralDigestConflicts(t *testing.T) {
 	}
 }
 
-func TestReq13ActivationRejectsUnusableKeys(t *testing.T) {
+func TestActivationRejectsUnusableKeys(t *testing.T) {
 	const canary = "canary-9f3c1d-short"
 	r := newFakeResolver()
 	s := r.store(map[secret.Ref]string{refA: canary, refB: testKeyB})
@@ -131,7 +131,7 @@ func TestReq13ActivationRejectsUnusableKeys(t *testing.T) {
 	}
 }
 
-func TestReq13RotationCopyOnWrite(t *testing.T) {
+func TestRotationCopyOnWrite(t *testing.T) {
 	r := newFakeResolver()
 	s := r.store(map[secret.Ref]string{refA: testKeyA})
 	r.activate(s)
@@ -174,9 +174,9 @@ func TestReq13RotationCopyOnWrite(t *testing.T) {
 	}
 }
 
-// Done when: "rotation swaps without locks on the read path and survives
-// a carried-over KeyIndex" (R-55).
-func TestR55RotationReachesCarriedOverKeyIndex(t *testing.T) {
+// TestRotationReachesCarriedOverKeyIndex: a rotation swaps without locks
+// on the read path and survives a carried-over KeyIndex.
+func TestRotationReachesCarriedOverKeyIndex(t *testing.T) {
 	r := newFakeResolver()
 	cs := []*v1alpha1.Consumer{consumer("acme", withSecretKey("k", refA))}
 
@@ -323,7 +323,7 @@ func TestKeyIndexRotationDuringRegistration(t *testing.T) {
 // Every lookup answers the one Consumer or nothing, and every table a
 // reader loads is complete: it binds exactly one of the two digests (a
 // table edited in place would expose neither or both).
-func TestReq12ConcurrentReadsDuringRotation(t *testing.T) {
+func TestConcurrentReadsDuringRotation(t *testing.T) {
 	r := newFakeResolver()
 	s := r.store(map[secret.Ref]string{refA: testKeyA})
 	r.activate(s)

@@ -185,16 +185,16 @@ func (in *inspector) visit(s *sjs.Schema, from string) int {
 // fanOut applies MaxFanOut to every schema visited. The fan-out of a
 // schema is the largest product of the branch factors along a schema path
 // from it that repeats no schema: a path that reaches a schema already on
-// it ends there, so each $ref cycle counts once (07 req 75). The products
-// are computed exactly, over the strongly connected components of the
-// graph from the leaves up, so they do not depend on the order of members
-// or of visits: within a component every path is followed from every
-// schema of it, and a schema outside it contributes its own fan-out. A
-// component whose paths take more than fanOutSteps steps gets an upper
-// bound instead, the product of the largest factor of each of its schemas
-// times the largest fan-out leaving it, which can only refuse more. Of the
-// schemas where a product first exceeds MaxFanOut, the finding names the
-// one whose pointer sorts first.
+// it ends there, so each $ref cycle counts once. The products are computed
+// exactly, over the strongly connected components of the graph from the
+// leaves up, so they do not depend on the order of members or of visits:
+// within a component every path is followed from every schema of it, and a
+// schema outside it contributes its own fan-out. A component whose paths
+// take more than fanOutSteps steps gets an upper bound instead, the
+// product of the largest factor of each of its schemas times the largest
+// fan-out leaving it, which can only refuse more. Of the schemas where a
+// product first exceeds MaxFanOut, the finding names the one whose pointer
+// sorts first.
 func (in *inspector) fanOut() {
 	fan := make([]int, len(in.nodes))
 	comp := in.components()

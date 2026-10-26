@@ -12,12 +12,12 @@ import (
 	"github.com/ravindu-rev/ruralz/internal/filter"
 )
 
-// Tests for spec 06 requirements 6 (identity: auth.method, auth.claims an
-// empty map for non-JWT methods, consumer), 8 (challenge values), 9
-// (credential stripping), 14, 24 and 41 (single field line reads), 15
-// (auth.api-key default header) and 22 (principal).
+// Tests for the request identity (auth.method, auth.claims an empty map
+// for non-JWT methods, consumer), challenge values, credential stripping,
+// single field line reads, the auth.api-key default header and the
+// principal.
 
-func TestReq8Challenges(t *testing.T) {
+func TestChallenges(t *testing.T) {
 	tests := []struct{ header, want string }{
 		{"x-api-key", `APIKey header="x-api-key"`},
 		{"X-Partner-Key", `APIKey header="X-Partner-Key"`},
@@ -33,7 +33,7 @@ func TestReq8Challenges(t *testing.T) {
 	}
 }
 
-func TestReq15APIKeyHeader(t *testing.T) {
+func TestAPIKeyHeader(t *testing.T) {
 	empty, custom := "", "X-Partner-Key"
 	tests := []struct {
 		in   *string
@@ -50,7 +50,7 @@ func TestReq15APIKeyHeader(t *testing.T) {
 	}
 }
 
-func TestReq6Identities(t *testing.T) {
+func TestIdentities(t *testing.T) {
 	acme := &expr.Consumer{Name: "acme"}
 	claims := EmptyClaims()
 	tests := []struct {
@@ -102,7 +102,7 @@ func TestReq6Identities(t *testing.T) {
 // no principal at all (""), which a shared cache neither stores nor serves
 // for; a mutual "jwt:<iss>#" key would hand one client's entries to the
 // other. A subjectless certificate is treated the same way.
-func TestReq22SublessIdentitiesHaveNoPrincipal(t *testing.T) {
+func TestSublessIdentitiesHaveNoPrincipal(t *testing.T) {
 	a := NewJWTIdentity("jwt", nil, payload{"iss": "https://idp", "client_id": "app-a"}, "https://idp", "")
 	b := NewJWTIdentity("jwt", nil, payload{"iss": "https://idp", "client_id": "app-b"}, "https://idp", "")
 	if a.Principal != "" || b.Principal != "" {
@@ -130,7 +130,7 @@ func (p payload) Native() (any, error)                { return map[string]any(p)
 // valueClaims is a verified payload stand-in.
 type valueClaims struct{ expr.Value }
 
-func TestReq6JWTClaimsKept(t *testing.T) {
+func TestJWTClaimsKept(t *testing.T) {
 	v := valueClaims{EmptyClaims()}
 	if id := NewJWTIdentity("jwt", nil, v, "i", "s"); id.Claims != v {
 		t.Fatal("the verified payload was not kept")
@@ -140,7 +140,7 @@ func TestReq6JWTClaimsKept(t *testing.T) {
 	}
 }
 
-func TestReq6EmptyClaims(t *testing.T) {
+func TestEmptyClaims(t *testing.T) {
 	c := EmptyClaims()
 	if c.IsNull() {
 		t.Fatal("empty claims are null")
@@ -162,7 +162,7 @@ func TestReq6EmptyClaims(t *testing.T) {
 	}
 }
 
-func TestReq14Single(t *testing.T) {
+func TestSingle(t *testing.T) {
 	canonical := http.CanonicalHeaderKey("x-api-key")
 	tests := []struct {
 		name  string
@@ -194,7 +194,7 @@ func TestReq14Single(t *testing.T) {
 	}
 }
 
-func TestReq9Strip(t *testing.T) {
+func TestStrip(t *testing.T) {
 	h := http.Header{
 		"Authorization": {"Basic a", "Basic b"},
 		"authorization": {"Basic c"},

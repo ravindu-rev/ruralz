@@ -21,11 +21,10 @@ import (
 	"github.com/ravindu-rev/ruralz/internal/telemetry/emit"
 )
 
-// Tests for architecture section 2.13 (WP-01): the in-memory Exchange
-// (SetIdentity second binding, PolicyState per R-39), Message.SetBody
-// (spec 04 req 48: Content-Length recomputed, Content-Encoding and digests
-// dropped), the Store fake's trip counting and answers, and ReplayFunc
-// (R-43).
+// Tests for the fakes: the in-memory Exchange (SetIdentity second binding,
+// PolicyState), Message.SetBody (Content-Length recomputed,
+// Content-Encoding and digests dropped), the Store fake's trip counting and
+// answers, and ReplayFunc.
 
 var (
 	_ filter.Exchange    = (*Exchange)(nil)
@@ -55,7 +54,7 @@ func TestSetIdentitySecondBinding(t *testing.T) {
 	}
 }
 
-// policyStateFilter counts its calls in the per-request slot (R-39).
+// policyStateFilter counts its calls in the per-request slot.
 type policyStateFilter struct{}
 
 type counter struct{ calls int }

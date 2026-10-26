@@ -29,12 +29,12 @@ func traceparentSeeds() []string {
 	}
 }
 
-// FuzzTraceparent is spec 09 test 27: ParseTraceparent never panics; an
-// accepted value re-formats to its own lowercase bytes; acceptance, IDs
-// and the sampled flag agree with the SDK's propagation.TraceContext
-// extraction of the same header, except that version 00 flags with
-// reserved bits set (above 03) are accepted here (W3C Trace Context
-// ignores unknown flags; the SDK rejects them).
+// FuzzTraceparent checks that ParseTraceparent never panics; an accepted
+// value re-formats to its own lowercase bytes; acceptance, IDs and the
+// sampled flag agree with the SDK's propagation.TraceContext extraction
+// of the same header, except that version 00 flags with reserved bits set
+// (above 03) are accepted here (W3C Trace Context ignores unknown flags;
+// the SDK rejects them).
 func FuzzTraceparent(f *testing.F) {
 	for _, s := range traceparentSeeds() {
 		f.Add(s)
@@ -64,10 +64,10 @@ func FuzzTraceparent(f *testing.F) {
 	})
 }
 
-// FuzzTracestate is spec 09 test 28: a tracestate is passed through
-// byte-exact (after trimming outer OWS) or dropped, never modified; field
-// lines validated in place keep exactly what validating their combined
-// value would keep.
+// FuzzTracestate checks that a tracestate is passed through byte-exact
+// (after trimming outer OWS) or dropped, never modified; field lines
+// validated in place keep exactly what validating their combined value
+// would keep.
 func FuzzTracestate(f *testing.F) {
 	for _, s := range []string{
 		"rojo=00f067aa0ba902b7,congo=t61rcWkgMzE", "foo=1 \t , \t bar=2", "foo=1,foo=2",

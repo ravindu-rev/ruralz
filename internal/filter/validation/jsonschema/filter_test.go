@@ -29,12 +29,11 @@ import (
 // ./internal/filter/validation/jsonschema -run Golden -update.
 var update = flag.Bool("update", false, "rewrite the golden files under testdata")
 
-// matrixSchema is the schema of the T13 matrix.
+// matrixSchema is the schema of TestHandleMatrix.
 const matrixSchema = `{"type":"object","required":["id"],"properties":{"id":{"type":"integer","minimum":1},"tags":{"type":"array","items":{"type":"string"}}}}`
 
-// TestHandleMatrix is 07 T13: media types (req 78), empty bodies (req 79),
-// strict decoding (req 80), schema mismatches (req 81) and success (req
-// 82) in onRequestBody.
+// TestHandleMatrix covers media types, empty bodies, strict decoding,
+// schema mismatches and success in onRequestBody.
 func TestHandleMatrix(t *testing.T) {
 	f := buildFilter(t, matrixSchema, testLimit)
 	deep := strings.Repeat("[", 63) + strings.Repeat("]", 63)
@@ -76,9 +75,8 @@ func TestHandleMatrix(t *testing.T) {
 		{"number out of range", "application/json", `{"id":1e1001}`, DetailNumber},
 		{"long number", "application/json", `{"id":` + strings.Repeat("7", MaxNumberBytes+1) + `}`, DetailNumber},
 		{"exponent math/big refuses", "application/json", `{"id":1E1000001}`, DetailNumber},
-		// A number no keyword parses is never refused (minor review
-		// finding): "x" meets no schema, the tags' items compare no
-		// number.
+		// A number no keyword parses is never refused: "x" meets no schema,
+		// the tags' items compare no number.
 		{"unparsed number", "application/json", `{"id":1,"x":` + strings.Repeat("9", 130) + `,"tags":[]}`, ""},
 		{"number below unparsed members", "application/json", `{"id":1,"x":{"y":[1e5000]}}`, ""},
 		{"number where a string is due", "application/json", `{"id":1,"tags":[1e5000]}`, DetailMismatch + " at /properties/tags/items/type"},
@@ -94,7 +92,7 @@ func TestHandleMatrix(t *testing.T) {
 			} else if got := detailOf(t, r); got != tc.detail {
 				t.Fatalf("detail = %q, want %q", got, tc.detail)
 			}
-			// 07 req 82: the body, headers and framing pass unchanged.
+			// The body, headers and framing pass unchanged.
 			if string(m.Raw) != tc.body {
 				t.Errorf("body changed to %q", m.Raw)
 			}
@@ -108,7 +106,7 @@ func TestHandleMatrix(t *testing.T) {
 	}
 }
 
-// TestHandleBooleanSchemas covers T13's boolean schemas: true accepts any
+// TestHandleBooleanSchemas covers the boolean schemas: true accepts any
 // JSON body, false refuses every body at the root.
 func TestHandleBooleanSchemas(t *testing.T) {
 	yes := buildFilter(t, `true`, testLimit)
@@ -127,13 +125,12 @@ func TestHandleBooleanSchemas(t *testing.T) {
 	}
 }
 
-// TestHandleOversize covers R-63 and 07 reqs 15 and 80: decoded values
-// past filter.DecodedLimitFactor times maxRequestBodyBytes, and (proposed)
+// TestHandleOversize covers the size limits: decoded values past
+// filter.DecodedLimitFactor times maxRequestBodyBytes, and (proposed)
 // a decision pass that may hold more than WorkingSetFactor times it besides
 // them, are filter.ErrTooLarge (413 RZ-RT-003 through the executor), each
-// counted on its own (review finding: the decoded limit counts the decoded
-// values only); at either budget the body is decided; an unset limit is
-// the 10 MiB default.
+// counted on its own (the decoded limit counts the decoded values only); at
+// either budget the body is decided; an unset limit is the 10 MiB default.
 func TestHandleOversize(t *testing.T) {
 	body := `[` + strings.Repeat(`1,`, 999) + `1]` // 1,000 one-digit numbers
 	// Each element costs CostValue + CostString + 1 = 33; the array 40.
@@ -167,8 +164,8 @@ func TestHandleOversize(t *testing.T) {
 	if r.Outcome != filter.CannotDecide || r.Code != "" || !errors.Is(r.Err, filter.ErrTooLarge) || !errors.Is(r.Err, errWorkingSetTooLarge) {
 		t.Fatalf("working set over its limit: %+v, want CannotDecide with ErrTooLarge", r)
 	}
-	// An unset limit fails closed: the configuration default of 10 MiB
-	// (07 section 9 item 24), never an unbounded decode.
+	// An unset limit fails closed: the configuration default of 10 MiB,
+	// never an unbounded decode.
 	if unset := buildFilter(t, `{"type":"array"}`, 0); unset.limits != limitsOf(10<<20) || unset.limits.decoded != filter.DecodedLimitFactor*10<<20 {
 		t.Errorf("an unset limit gives %+v, want the limits of 10 MiB", unset.limits)
 	}
@@ -202,19 +199,16 @@ const composedOrder = `{"$ref":"#/$defs/order","$defs":{` +
 const composedOrderBody = `{"id":"ord_0123abcd","items":[{"id":"itm_0000aaaa","sku":"SKU-0001","qty":2,"price":{"amount":"9.99","currency":"EUR"}}],` +
 	`"total":{"amount":"19.98","currency":"EUR"},"shipping":{"line1":"1 Main St","city":"Paris","postal":"75001","country":"FR"},"email":"ann@example.com"}`
 
-// TestHandleSmallLimits is the regression test of the review finding that
-// the parts of the working set that do not grow with the body (the
-// decision pass's wrapper, a call-stack chain per value, a regexp matcher)
-// exceeded WorkingSetFactor times a maxRequestBodyBytes of a few KiB, so
-// tiny valid bodies got 413: {} under true at 1 and 2 KiB, a five-digit
+// TestHandleSmallLimits covers small limits: the parts of the working set
+// that do not grow with the body (the decision pass's wrapper, a call-stack
+// chain per value, a regexp matcher) exceed WorkingSetFactor times a
+// maxRequestBodyBytes of a few KiB, so limits scaled from it alone refused
+// tiny valid bodies with 413: {} under true at 1 and 2 KiB, a five-digit
 // string under a pattern up to 8 KiB, and a composed order up to 16 KiB.
 // The working-set, reservation and work limits scale from MinScaledLimit
-// at least (proposed, architecture R-77), so at limits of 1 to 16 KiB
-// small valid bodies continue, a schema whose root takes 2,000
-// evaluations included, while the decoded limit still scales from the raw
-// limit (R-63).
-//
-// Requirements: 07 reqs 80 and 82, architecture R-63 and R-77.
+// at least (proposed), so at limits of 1 to 16 KiB small valid bodies
+// continue, a schema whose root takes 2,000 evaluations included, while
+// the decoded limit still scales from the raw limit.
 func TestHandleSmallLimits(t *testing.T) {
 	login := `{"type":"object","required":["username","password"],"additionalProperties":false,"properties":{` +
 		`"username":{"type":"string","minLength":3,"maxLength":32,"pattern":"^[A-Za-z0-9_.-]+$"},"password":{"type":"string","minLength":12,"maxLength":128}}}`
@@ -246,7 +240,7 @@ func TestHandleSmallLimits(t *testing.T) {
 	}
 }
 
-// TestHandleBudget covers 07 reqs 15 and 80: what Handle reserves from
+// TestHandleBudget covers the budget: what Handle reserves from
 // limits.maxBufferedBytes (the decoded values at the decoder's charge, what
 // their maps, arrays and strings hold beyond it, and the decision pass's
 // working set; TestHandleLocationPass pins the sum) is refused with
@@ -274,9 +268,9 @@ func TestHandleBudget(t *testing.T) {
 	}
 }
 
-// TestMismatchDetailCap covers the detail bound (proposed, 07 req 81): a
-// keyword location longer than maxDetailLocation is cut back to its
-// longest ancestor that fits, at a token boundary, so the detail stays a
+// TestMismatchDetailCap covers the detail bound (proposed): a keyword
+// location longer than maxDetailLocation is cut back to its longest
+// ancestor that fits, at a token boundary, so the detail stays a
 // location of the schema.
 func TestMismatchDetailCap(t *testing.T) {
 	long := strings.Repeat("k", 200)
@@ -319,13 +313,11 @@ func (x *recordingExchange) Reserve(n int64) error {
 	return x.Exchange.Reserve(n)
 }
 
-// TestHandleNumberPaths covers the narrowed number bounds (proposed,
-// minor review finding): a body number is refused only where the library
-// may parse it: a numeric keyword or the integer type at its own path, a
-// uniqueItems array above it, or a const or enum value holding arrays or
-// objects compared with a value above it.
-//
-// Requirements: 07 req 80.
+// TestHandleNumberPaths covers the narrowed number bounds (proposed): a
+// body number is refused only where the library may parse it: a numeric
+// keyword or the integer type at its own path, a uniqueItems array above
+// it, or a const or enum value holding arrays or objects compared with a
+// value above it.
 func TestHandleNumberPaths(t *testing.T) {
 	for _, tc := range []struct {
 		schema, body string
@@ -339,8 +331,8 @@ func TestHandleNumberPaths(t *testing.T) {
 		{`{"properties":{"c":{"const":{"a":[1]}}}}`, `{"c":{"a":[1e1001]}}`, true},
 		{`{"properties":{"c":{"const":"a"}}}`, `{"c":1e1001,"d":1e1001}`, false},
 		{`{"properties":{"c":{"enum":[1,2]}}}`, `{"c":1e1001}`, true},
-		// Review finding (a mutant that survived): a const or enum value
-		// holding arrays compares the items of an array body too.
+		// A const or enum value holding arrays compares the items of an array
+		// body too.
 		{`{"const":[1,1,1]}`, `[1e999999,1e999999,1e999999]`, true},
 		{`{"enum":[[1],[2]]}`, `[1e1001]`, true},
 	} {
@@ -352,10 +344,9 @@ func TestHandleNumberPaths(t *testing.T) {
 	}
 }
 
-// TestHandleCanceled covers the minor review finding that validation,
-// which the library cannot stop, started for a request that had ended
-// (07 section 9 item 21): a canceled context is cannot decide with its
-// error, before anything is reserved.
+// TestHandleCanceled covers a request that has ended, for which validation,
+// which the library cannot stop, never starts: a canceled context is cannot
+// decide with its error, before anything is reserved.
 func TestHandleCanceled(t *testing.T) {
 	f := buildFilter(t, matrixSchema, testLimit)
 	ctx, cancel := context.WithCancel(t.Context())
@@ -371,9 +362,9 @@ func TestHandleCanceled(t *testing.T) {
 	}
 }
 
-// TestHandleUnavailable covers 07 req 13: a body the message cannot
-// supply is cannot decide with the class default code; the gate's own
-// sentinels pass through to the executor.
+// TestHandleUnavailable covers a body the message cannot supply: it is
+// cannot decide with the class default code; the gate's own sentinels pass
+// through to the executor.
 func TestHandleUnavailable(t *testing.T) {
 	f := buildFilter(t, matrixSchema, testLimit)
 	x, m := exchange("application/json", nil)
@@ -400,7 +391,7 @@ type failingMessage struct {
 
 func (m *failingMessage) Body(context.Context) ([]byte, error) { return nil, m.err }
 
-// TestHandleOtherPhases checks that only onRequestBody acts (07 req 1).
+// TestHandleOtherPhases checks that only onRequestBody acts.
 func TestHandleOtherPhases(t *testing.T) {
 	f := buildFilter(t, `false`, testLimit)
 	x, _ := exchange("text/plain", nil)
@@ -414,7 +405,7 @@ func TestHandleOtherPhases(t *testing.T) {
 	}
 }
 
-// TestHandleConcurrent runs one Filter from many goroutines (07 req 91).
+// TestHandleConcurrent runs one Filter from many goroutines.
 func TestHandleConcurrent(t *testing.T) {
 	f := buildFilter(t, matrixSchema, testLimit)
 	var wg sync.WaitGroup
@@ -445,7 +436,7 @@ func TestHandleConcurrent(t *testing.T) {
 	}
 }
 
-// TestJSONContentType covers 07 req 78 directly.
+// TestJSONContentType covers jsonContentType directly.
 func TestJSONContentType(t *testing.T) {
 	for _, tc := range []struct {
 		lines []string
@@ -492,10 +483,9 @@ func (s *fakeShared) Get(key any, build func() (any, error)) (any, error) {
 	return v, nil
 }
 
-// TestBuild covers the Factory (07 reqs 75, 77): RZ-CFG-005 errors, carry
-// over through Previous, sharing within a snapshot, also of a Schema
-// carried over unchanged, in either build order (minor review findings),
-// and the status taken from the registry.
+// TestBuild covers the Factory: RZ-CFG-005 errors, carry over through
+// Previous, sharing within a snapshot, also of a Schema carried over
+// unchanged, in either build order, and the status taken from the registry.
 func TestBuild(t *testing.T) {
 	ctx := t.Context()
 	env := func(schema string, limit int64) filter.BuildEnv {
@@ -581,9 +571,9 @@ func TestBuild(t *testing.T) {
 	if _, err := (Factory{}).Build(ctx, e); err == nil {
 		t.Error("a foreign shared value was accepted")
 	}
-	// Minor review findings: the previous Schema reused under new limits
-	// is shared with the snapshot's other Policies of the same document,
-	// and an error of Shared itself is not a schema finding.
+	// The previous Schema reused under new limits is shared with the
+	// snapshot's other Policies of the same document, and an error of
+	// Shared itself is not a schema finding.
 	shared = &fakeShared{}
 	e = env(matrixSchema, 2*testLimit)
 	e.Previous, e.Shared = first, shared
@@ -608,10 +598,9 @@ func TestBuild(t *testing.T) {
 	if got, err := (Factory{}).Build(ctx, e); err != nil || got.(*Filter).schema != first.schema || shared.builds != 1 {
 		t.Errorf("another Policy of a carried-over document = %v, builds %d, want the previous Schema", err, shared.builds)
 	}
-	// Minor review finding: when a new Policy of the same document builds
-	// first, it compiles the document (it has no Previous), and the
-	// carried-over Policy then takes that Schema, so the snapshot holds
-	// one Schema per document.
+	// When a new Policy of the same document builds first, it compiles the
+	// document (it has no Previous), and the carried-over Policy then takes
+	// that Schema, so the snapshot holds one Schema per document.
 	shared = &fakeShared{}
 	e = env(" "+matrixSchema, 2*testLimit)
 	e.Shared = shared
@@ -643,7 +632,7 @@ type failingShared struct{ err error }
 
 func (s failingShared) Get(any, func() (any, error)) (any, error) { return nil, s.err }
 
-// TestGoldenProblemDocuments is 07 T14: the RZ-RT-009 problem document of
+// TestGoldenProblemDocuments pins the RZ-RT-009 problem document of
 // every detail, as internal/problem writes it, byte for byte.
 func TestGoldenProblemDocuments(t *testing.T) {
 	f := buildFilter(t, matrixSchema, testLimit)
@@ -692,16 +681,14 @@ func golden(t *testing.T, path string, got []byte) {
 	}
 }
 
-// TestBuildStopsWhenCanceled covers the minor review finding that Build
-// never read its context: a canceled or superseded snapshot compile still
-// compiled every validation Policy it reached. An ended context is its
-// error, unchanged and without a code, at the start of Build, before the
-// library compiles the document and before the evaluation analysis; a
-// context that lasts builds the Filter.
+// TestBuildStopsWhenCanceled covers Build's context, so that a canceled or
+// superseded snapshot compile does not compile every validation Policy it
+// reaches: an ended context is its error, unchanged and without a code, at
+// the start of Build, before the library compiles the document and before
+// the evaluation analysis; a context that lasts builds the Filter.
 //
-// Requirements: 07 req 90 (each Factory call one unit of work between the
-// loader's yields) and the filter.Factory contract (an RZ-CFG code only
-// for a finding about the Policy).
+// Each Factory call is one unit of work between the loader's yields, and
+// only a finding about the Policy carries an RZ-CFG code.
 func TestBuildStopsWhenCanceled(t *testing.T) {
 	canceled, cancel := context.WithCancel(t.Context())
 	cancel()

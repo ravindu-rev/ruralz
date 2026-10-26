@@ -20,10 +20,10 @@ func allBounds() []catalog.Bounds {
 	return []catalog.Bounds{catalog.BoundsFast, catalog.BoundsRequest, catalog.BoundsControl, catalog.BoundsBytes, catalog.BoundsRatio}
 }
 
-// Spec 09 req 42 and test 11: bounds in integers equal the bounds in
-// seconds times the scale exactly, and bucket choice at an exact bound is
-// inclusive.
-func TestHistogramBounds_Req42(t *testing.T) {
+// TestHistogramBounds checks that bounds in integers equal the bounds in
+// seconds times the scale exactly, and that bucket choice at an exact
+// bound is inclusive.
+func TestHistogramBounds(t *testing.T) {
 	scales := map[catalog.Bounds]float64{
 		catalog.BoundsFast: 1e9, catalog.BoundsRequest: 1e9, catalog.BoundsControl: 1e9,
 		catalog.BoundsBytes: 1, catalog.BoundsRatio: 1e6,
@@ -63,9 +63,9 @@ func TestHistogramBounds_Req42(t *testing.T) {
 	}
 }
 
-// Spec 09 req 42: _sum is nanoseconds for fast, microseconds rounded to
-// the nearest for request and control, bytes, or millionths for ratio.
-func TestHistogramSumUnits_Req42(t *testing.T) {
+// _sum is nanoseconds for fast, microseconds rounded to the nearest for
+// request and control, bytes, or millionths for ratio.
+func TestHistogramSumUnits(t *testing.T) {
 	tests := []struct {
 		set   catalog.Bounds
 		in    uint64
@@ -93,8 +93,8 @@ func TestHistogramSumUnits_Req42(t *testing.T) {
 	}
 }
 
-// Spec 09 test 11: statuses 100 to 599 map to their class; anything else
-// (no response, client abort codes outside the range) counts as 5xx.
+// Statuses 100 to 599 map to their class; anything else (no response,
+// client abort codes outside the range) counts as 5xx.
 func TestStatusClass(t *testing.T) {
 	tests := map[int]int{
 		100: 0, 199: 0, 200: 1, 204: 1, 304: 2, 399: 2, 400: 3, 404: 3, 499: 3, 500: 4, 599: 4,
@@ -112,10 +112,10 @@ func TestStatusClass(t *testing.T) {
 	}
 }
 
-// Spec 09 req 50 and test 11: collection adds each delta since the last
-// collection modulo 2^64 to a float64 total, so a stripe wrapping near
-// 2^64 never makes the total go backwards; gauges sum their stripes.
-func TestCounterWrapAndGaugeStripes_Req50(t *testing.T) {
+// Collection adds each delta since the last collection modulo 2^64 to a
+// float64 total, so a stripe wrapping near 2^64 never makes the total go
+// backwards; gauges sum their stripes.
+func TestCounterWrapAndGaugeStripes(t *testing.T) {
 	r, clk := newTestRegistry(t, nil)
 	c, err := r.Counter(catalog.TelemetrySpansTotal)
 	if err != nil {
@@ -172,8 +172,8 @@ func TestCounterWrapAndGaugeStripes_Req50(t *testing.T) {
 	}
 }
 
-// Spec 09 req 49: a striped cell's blocks never share a cache line.
-func TestStripedCellLayout_Req49(t *testing.T) {
+// A striped cell's blocks never share a cache line.
+func TestStripedCellLayout(t *testing.T) {
 	var tab [256]uint8
 	for i := range tab {
 		tab[i] = uint8(i % 8)
@@ -195,9 +195,9 @@ func TestStripedCellLayout_Req49(t *testing.T) {
 	}
 }
 
-// Spec 09 req 52: exemplars go through a sequence lock; readers never see
-// a torn exemplar, even with concurrent writers.
-func TestExemplarSequenceLock_Req52(t *testing.T) {
+// Exemplars go through a sequence lock; readers never see a torn
+// exemplar, even with concurrent writers.
+func TestExemplarSequenceLock(t *testing.T) {
 	var e exemplarSlot
 	if _, ok := e.load(); ok {
 		t.Fatal("empty slot loaded")
@@ -260,10 +260,10 @@ func TestExemplarSequenceLock_Req52(t *testing.T) {
 	wg.Wait()
 }
 
-// Spec 09 test 23 (property): cumulative buckets are non-decreasing,
-// _count equals the +Inf bucket and _sum is exact, for random streams on
-// random stripes of every bound set.
-func TestHistogramInvariants_Test23(t *testing.T) {
+// Cumulative buckets are non-decreasing, _count equals the +Inf bucket
+// and _sum is exact, for random streams on random stripes of every bound
+// set.
+func TestHistogramInvariants(t *testing.T) {
 	r, clk := newTestRegistry(t, nil)
 	rng := testRand(23, 42)
 	type ref struct {
@@ -334,9 +334,9 @@ func TestHistogramInvariants_Test23(t *testing.T) {
 	}
 }
 
-// Spec 09 req 52 and test 45: only RecordExemplar touches the exemplar
-// slot; Record, the unsampled path, never does.
-func TestUnsampledNeverTouchesExemplar_Test45(t *testing.T) {
+// Only RecordExemplar touches the exemplar slot; Record, the unsampled
+// path, never does.
+func TestUnsampledNeverTouchesExemplar(t *testing.T) {
 	r, clk := newTestRegistry(t, nil)
 	pl, bind := admitBind(t, r, emit.Shape{Routes: []string{"orders"}})
 	defer bind.Release()

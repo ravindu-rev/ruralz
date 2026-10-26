@@ -36,7 +36,7 @@ func drainLines(w *Writer, lost int) []string {
 
 // emit.AccessLog contract: Acquire returns a reset record; Submit copies
 // it and returns it to the pool; a reused record carries nothing over.
-func TestAcquireSubmit_Req67(t *testing.T) {
+func TestAcquireSubmit(t *testing.T) {
 	w := New(Options{NodeID: testNode})
 	r := w.Acquire()
 	fullRecord(r)
@@ -73,9 +73,9 @@ func TestAcquireSubmit_Req67(t *testing.T) {
 	}
 }
 
-// 09 req 67: a queued record owns copies of its strings; it holds no
-// reference to the caller's memory, and the caller's record is reset.
-func TestRecordCopiesStrings_Req67(t *testing.T) {
+// A queued record owns copies of its strings; it holds no reference
+// to the caller's memory, and the caller's record is reset.
+func TestRecordCopiesStrings(t *testing.T) {
 	w := New(Options{})
 	r := w.Acquire()
 	buf := []byte("/orders/1")
@@ -96,7 +96,7 @@ func TestRecordCopiesStrings_Req67(t *testing.T) {
 }
 
 // Arena classes: an entry takes the smallest class holding its strings.
-func TestArenaClasses_Req67(t *testing.T) {
+func TestArenaClasses(t *testing.T) {
 	tests := []struct {
 		n, class int
 	}{{0, 0}, {256, 0}, {257, 1}, {512, 1}, {513, 2}, {1024, 2}, {2049, 4}, {4096, 4}, {9000, 4}}
@@ -115,9 +115,9 @@ func TestArenaClasses_Req67(t *testing.T) {
 	}
 }
 
-// 09 req 67, 65: the queue is bounded in records; a full queue drops with
-// queue_full and never blocks.
-func TestQueueRecordBound_Req67(t *testing.T) {
+// The queue is bounded in records; a full queue drops with queue_full and
+// never blocks.
+func TestQueueRecordBound(t *testing.T) {
 	w := New(Options{QueueRecords: 3})
 	for range 5 {
 		r := w.Acquire()
@@ -135,10 +135,10 @@ func TestQueueRecordBound_Req67(t *testing.T) {
 	}
 }
 
-// 09 req 67: each record reserves its actual size (copied bytes plus the
-// fixed overhead) from the byte budget until it is written; an exhausted
+// Each record reserves its actual size (copied bytes plus the fixed
+// overhead) from the byte budget until it is written; an exhausted
 // budget drops with queue_full.
-func TestQueueByteBound_Req67(t *testing.T) {
+func TestQueueByteBound(t *testing.T) {
 	w := New(Options{QueueBytes: 3 * (entryOverhead + 600)})
 	for range 4 {
 		r := w.Acquire()
@@ -167,9 +167,10 @@ func TestQueueByteBound_Req67(t *testing.T) {
 	drainLines(w2, 0)
 }
 
-// 09 req 67 at the default options: typical records reach the 8,192-record
-// bound before the 4 MiB budget; records at the 4 KiB cap hit the budget.
-func TestQueueDepthAtDefaults_Req67(t *testing.T) {
+// TestQueueDepthAtDefaults checks the default options: typical records
+// reach the 8,192-record bound before the 4 MiB budget; records at the
+// 4 KiB cap hit the budget.
+func TestQueueDepthAtDefaults(t *testing.T) {
 	w := New(Options{})
 	for range DefaultQueueRecords + 1 {
 		r := w.Acquire()
@@ -197,9 +198,9 @@ func TestQueueDepthAtDefaults_Req67(t *testing.T) {
 	big.Close()
 }
 
-// 09 req 67: a caller may assign its own FailureModes slice; the pooled
-// record never keeps it, so a later Acquire cannot write into it.
-func TestSubmitKeepsNoCallerSlice_Req67(t *testing.T) {
+// A caller may assign its own FailureModes slice; the pooled record
+// never keeps it, so a later Acquire cannot write into it.
+func TestSubmitKeepsNoCallerSlice(t *testing.T) {
 	w := New(Options{})
 	mine := make([]emit.FailureModeEntry, 0, MaxFailureModes)
 	r := w.Acquire()
@@ -222,10 +223,11 @@ func TestSubmitKeepsNoCallerSlice_Req67(t *testing.T) {
 	}
 }
 
-// 09 section 9 item 20, req 65: Close counts the lines a worker blocked in
-// its write still holds as export_error, once; when the worker later
-// settles them they are not counted again and reach the bridge flagged.
-func TestCloseCountsUnflushedLines_Req65(t *testing.T) {
+// TestCloseCountsUnflushedLines checks that Close counts the lines a
+// worker blocked in its write still holds as export_error, once; when the
+// worker later settles them they are not counted again and reach the
+// bridge flagged.
+func TestCloseCountsUnflushedLines(t *testing.T) {
 	w := New(Options{})
 	var bridged, flagged int
 	w.SetBridge(bridgeFunc(func(r *Exported) error {
@@ -258,9 +260,9 @@ func TestCloseCountsUnflushedLines_Req65(t *testing.T) {
 	}
 }
 
-// 09 section 9 item 20, req 65: a Submit racing Close never leaves a
+// TestSubmitRacingClose checks that a Submit racing Close never leaves a
 // record queued and uncounted.
-func TestSubmitRacingClose_Req65(t *testing.T) {
+func TestSubmitRacingClose(t *testing.T) {
 	for range 50 {
 		w := New(Options{})
 		var wg sync.WaitGroup
@@ -318,9 +320,9 @@ type bridgeFunc func(*Exported) error
 
 func (f bridgeFunc) Export(r *Exported) error { return f(r) }
 
-// 09 req 65, 66: lines lost by stdout count export_error once, reach the
-// bridge flagged Dropped, and a bridge failure alone counts export_error.
-func TestFlushedAndBridge_Req66(t *testing.T) {
+// Lines lost by stdout count export_error once, reach the bridge flagged
+// Dropped, and a bridge failure alone counts export_error.
+func TestFlushedAndBridge(t *testing.T) {
 	fake := clocktest.New(time.Date(2026, 9, 26, 8, 0, 0, 0, time.UTC))
 	w := New(Options{NodeID: testNode, Clock: fake})
 	var got []Exported
@@ -373,10 +375,10 @@ func TestFlushedAndBridge_Req66(t *testing.T) {
 	}
 }
 
-// WP-11 done-when: no allocation per record at steady state, on the
-// request goroutine (Acquire, fill, Submit) and on the worker (encode,
-// Flushed).
-func TestSteadyStateZeroAllocs_Req67(t *testing.T) {
+// TestSteadyStateZeroAllocs checks that no allocation happens per record
+// at steady state, on the request goroutine (Acquire, fill, Submit) and on
+// the worker (encode, Flushed).
+func TestSteadyStateZeroAllocs(t *testing.T) {
 	skipUnderRace(t)
 	w := New(Options{NodeID: testNode})
 	var buf []byte

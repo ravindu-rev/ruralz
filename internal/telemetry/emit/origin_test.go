@@ -9,11 +9,11 @@ import (
 	"github.com/ravindu-rev/ruralz/internal/errcode"
 )
 
-// Spec 09 req 44 and test 12: origin classification over errcode.All().
-// Every RZ-UP-* code and RZ-AI-004, -005 and -013 is dependency, any other
-// code (RZ-STS included) is node, and a passed-through Upstream status is
+// TestOriginOf checks origin classification over errcode.All(): every
+// RZ-UP-* code and RZ-AI-004, -005 and -013 is dependency, any other code
+// (RZ-STS included) is node, and a passed-through Upstream status is
 // upstream whatever code the exchange carries.
-func TestOriginOf_Test12(t *testing.T) {
+func TestOriginOf(t *testing.T) {
 	dependency := map[string]bool{"RZ-AI-004": true, "RZ-AI-005": true, "RZ-AI-013": true}
 	all := errcode.All()
 	if len(all) == 0 {

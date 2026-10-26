@@ -12,11 +12,11 @@ import (
 	"testing"
 )
 
-// Tests for spec 06 requirements 19, 20 and 42 to 43 on the index side:
-// the stored pbkdf2-sha256:<salt>:<key> form, the iteration bounds and
-// default, and the credential digest the auth.basic success cache records.
+// Tests for the basic credentials on the index side: the stored
+// pbkdf2-sha256:<salt>:<key> form, the iteration bounds and default, and
+// the credential digest the auth.basic success cache records.
 
-func TestReq42ParseBasicHash(t *testing.T) {
+func TestParseBasicHash(t *testing.T) {
 	salt22 := strings.Repeat("A", 22)
 	key43 := strings.Repeat("A", 43)
 	tests := []struct {
@@ -51,7 +51,7 @@ func TestReq42ParseBasicHash(t *testing.T) {
 }
 
 // A hash computed with crypto/pbkdf2 decodes to the salt and key used.
-func TestReq42ParseBasicHashDecodes(t *testing.T) {
+func TestParseBasicHashDecodes(t *testing.T) {
 	salt := []byte("0123456789abcdef")
 	key, err := pbkdf2.Key(sha256.New, "correct horse", salt, 1000, 32)
 	if err != nil {
@@ -67,7 +67,7 @@ func TestReq42ParseBasicHashDecodes(t *testing.T) {
 	}
 }
 
-func TestReq20Iterations(t *testing.T) {
+func TestIterations(t *testing.T) {
 	if Iterations(nil) != DefaultIterations || Iterations(i32(700000)) != 700000 {
 		t.Fatal("Iterations default or value wrong")
 	}
@@ -84,7 +84,7 @@ func TestReq20Iterations(t *testing.T) {
 	}
 }
 
-func TestReq43CredentialDigest(t *testing.T) {
+func TestCredentialDigest(t *testing.T) {
 	a := CredentialDigest(cfgBasicHash, 600000)
 	if a != CredentialDigest(cfgBasicHash, 600000) {
 		t.Fatal("CredentialDigest is not deterministic")

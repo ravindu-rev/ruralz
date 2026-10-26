@@ -8,9 +8,9 @@ import (
 	"testing"
 )
 
-// TestLeastRequestPrefersLowerScore covers 05 req 13 and test plan item 11
-// ("P2C prefers the lower score"): of two distinct weighted random
-// candidates the lower (in-flight + recent failures) ÷ weight wins.
+// TestLeastRequestPrefersLowerScore covers P2C preferring the lower score:
+// of two distinct weighted random candidates the lower (in-flight + recent
+// failures) ÷ weight wins.
 func TestLeastRequestPrefersLowerScore(t *testing.T) {
 	tests := []struct {
 		name    string
@@ -44,8 +44,8 @@ func TestLeastRequestPrefersLowerScore(t *testing.T) {
 	}
 }
 
-// TestLeastRequestExclusions covers 05 req 11 with least-request: both
-// candidates come from the lowest grade present.
+// TestLeastRequestExclusions covers the selection order with
+// least-request: both candidates come from the lowest grade present.
 func TestLeastRequestExclusions(t *testing.T) {
 	list := eps(5, ones)
 	tests := []struct {

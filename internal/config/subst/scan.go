@@ -18,7 +18,7 @@ type segment struct {
 	hasDef bool
 }
 
-// Reasons a ${ is malformed (01 req 26).
+// Reasons a ${ is malformed.
 const (
 	reasonUnterminated = "unterminated ${"
 	reasonName         = "a variable name matches [A-Za-z_][A-Za-z0-9_]*"
@@ -26,11 +26,11 @@ const (
 	reasonNested       = "a default must not contain ${"
 )
 
-// scan splits s by the grammar of 01 req 26: $${ is a literal ${, ${NAME}
-// and ${NAME:-default} are expressions (NAME matching
-// [A-Za-z_][A-Za-z0-9_]*, default any run of characters without } and
-// without ${), and a $ not followed by { is literal. Any other ${ is
-// malformed: bad is the reason and segs is nil.
+// scan splits s by the grammar: $${ is a literal ${, ${NAME} and
+// ${NAME:-default} are expressions (NAME matching [A-Za-z_][A-Za-z0-9_]*,
+// default any run of characters without } and without ${), and a $ not
+// followed by { is literal. Any other ${ is malformed: bad is the reason
+// and segs is nil.
 func scan(s string) (segs []segment, bad string) {
 	var lit strings.Builder
 	flush := func() {
@@ -132,8 +132,8 @@ func hasExpression(segs []segment) bool {
 	return false
 }
 
-// secretLike reports a variable name matching (?i)(secret|password|token|apikey)
-// (01 req 30).
+// secretLike reports a variable name matching
+// (?i)(secret|password|token|apikey).
 func secretLike(name string) bool {
 	l := strings.ToLower(name)
 	for _, w := range [...]string{"secret", "password", "token", "apikey"} {

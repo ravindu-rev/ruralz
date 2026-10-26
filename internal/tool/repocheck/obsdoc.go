@@ -12,14 +12,14 @@ import (
 	"github.com/ravindu-rev/ruralz/internal/telemetry/catalog"
 )
 
-// Paths of the catalog gates (09 req 74, 75).
+// Paths of the catalog gates.
 const (
 	obsDoc  = "docs/architecture/10-observability.md"
 	archDir = "docs/architecture/"
 )
 
 // Headings of the OBS sections whose tables the code gate compares with
-// the catalog (09 req 74).
+// the catalog.
 const (
 	gatewayMetricsHeading = "Ruralz Gateway metrics"
 	degradedHeading       = "Degraded states"
@@ -291,11 +291,11 @@ func docUnit(f catalog.Family) string {
 // laterMilestone matches an availability tag after M1.
 func laterMilestone() *regexp.Regexp { return regexp.MustCompile(`Planned \(M[2-5]\)`) }
 
-// checkObservabilityDoc runs the catalog gates over the documents:
-// the code gate (09 req 74) compares every catalog family and degraded
-// reason with its OBS row, and the doc gate (09 req 75) requires every
-// ruralz_* name and ruralz_node_degraded_info reason under
-// docs/architecture/ to be in the OBS catalog.
+// checkObservabilityDoc runs the catalog gates over the documents: the
+// code gate compares every catalog family and degraded reason with its
+// OBS row, and the doc gate requires every ruralz_* name and
+// ruralz_node_degraded_info reason under docs/architecture/ to be in
+// the OBS catalog.
 func checkObservabilityDoc(r *repo, cv catalogView) ([]finding, error) {
 	if !slices.Contains(r.files, obsDoc) {
 		return []finding{{path: obsDoc, msg: "missing: the telemetry catalog gates read its metrics and degraded states tables"}}, nil
@@ -319,7 +319,7 @@ func checkObservabilityDoc(r *repo, cv catalogView) ([]finding, error) {
 	return out, nil
 }
 
-// codeGate is 09 req 74: every catalog family appears in the OBS "Ruralz
+// codeGate checks that every catalog family appears in the OBS "Ruralz
 // Gateway metrics" table with the same type, histogram set, unit and label
 // names, and every catalog reason in the "Degraded states" table, not
 // tagged for a later milestone.
@@ -407,7 +407,8 @@ func codeGate(obs obsCatalog, cv catalogView) []finding {
 	return out
 }
 
-// docGate is 09 req 75 for one document under docs/architecture/.
+// docGate checks that every ruralz_* name and ruralz_node_degraded_info
+// reason of one document under docs/architecture/ is in the OBS catalog.
 func docGate(rel string, lines []string, obs obsCatalog) []finding {
 	token := regexp.MustCompile(`(?:^|[^A-Za-z0-9_])(ruralz_[a-z0-9_]*)`)
 	selector := regexp.MustCompile(`ruralz_node_degraded_info\{([^}]*)\}`)

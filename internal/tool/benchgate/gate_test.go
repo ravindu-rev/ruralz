@@ -28,10 +28,10 @@ func series(allocs ...float64) []sample {
 
 func ptr(v int64) *int64 { return &v }
 
-// TestEvaluate covers the decision rules of 11 req 64 and 65 (test plan
-// item 1): 30 to 31 fails (3.3%), 100 to 103 passes (exactly 3%), 100 to 104
-// fails, a cap exceeded fails without a regression, a new benchmark passes
-// and is reported, a removed benchmark fails, and the four-of-five pair rule.
+// TestEvaluate covers the decision rules: 30 to 31 fails (3.3%), 100 to 103
+// passes (exactly 3%), 100 to 104 fails, a cap exceeded fails without a
+// regression, a new benchmark passes and is reported, a removed benchmark
+// fails, and the four-of-five pair rule.
 func TestEvaluate(t *testing.T) {
 	for _, tc := range []struct {
 		name       string
@@ -86,7 +86,7 @@ func TestEvaluate(t *testing.T) {
 }
 
 // TestEvaluateOrderAndTable checks the sorted union of names and the
-// report columns (11 req 64 "a table per benchmark").
+// report columns (a table per benchmark).
 func TestEvaluateOrderAndTable(t *testing.T) {
 	base := map[string][]sample{"BenchmarkB": runs(2, 30), "BenchmarkGone": runs(2, 1)}
 	head := map[string][]sample{"BenchmarkB": runs(2, 31), "BenchmarkA": runs(2, 5)}

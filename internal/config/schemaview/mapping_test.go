@@ -44,7 +44,7 @@ func gateway(members string) string {
 }
 
 // TestErrorMapping checks the mapping of each error kind of the rendered
-// view to its code, key-aware path, message and hint (01 req 33).
+// view to its code, key-aware path, message and hint.
 func TestErrorMapping(t *testing.T) {
 	for _, tc := range []struct {
 		name string
@@ -231,7 +231,7 @@ func TestErrorMapping(t *testing.T) {
 }
 
 // TestUniqueness checks keyed-list and set uniqueness at the second entry
-// with the first as the related location (01 req 34).
+// with the first as the related location.
 func TestUniqueness(t *testing.T) {
 	src := `{"apiVersion": "ruralz/v1alpha1", "kind": "Gateway", "metadata": {"name": "g"}, "spec": {
   "listeners": [
@@ -273,10 +273,10 @@ func TestUniqueness(t *testing.T) {
 	}
 }
 
-// TestDuplicateKeysByValue compares keyed-list keys by canonical JSON
-// (01 req 34): the string "1" and the integer 1 are different keys, so a
-// mistyped key gets its type error and no spurious duplicate, while 1 and
-// 1.0 are one key.
+// TestDuplicateKeysByValue compares keyed-list keys by canonical JSON:
+// the string "1" and the integer 1 are different keys, so a mistyped key
+// gets its type error and no spurious duplicate, while 1 and 1.0 are one
+// key.
 func TestDuplicateKeysByValue(t *testing.T) {
 	got := findings(validateJSON(t, envelope("Gateway", `{"listeners": [
   {"name": "1", "port": 8080, "protocol": "http"},
@@ -299,7 +299,7 @@ func TestDuplicateKeysByValue(t *testing.T) {
 }
 
 // TestSetNumbersByValue compares set elements by value, as the canonical
-// form does: 1.50 and 1.5 are one element (01 req 34).
+// form does: 1.50 and 1.5 are one element.
 func TestSetNumbersByValue(t *testing.T) {
 	got := findings(validateWith(t, syntheticView(t), `{"apiVersion": "test/v1", "kind": "Thing", "metadata": {"name": "a"}, "spec": {"set": [1.50, 1.5, {"x": 1}, {"x": 1.0}]}}`))
 	want := []finding{
@@ -311,8 +311,7 @@ func TestSetNumbersByValue(t *testing.T) {
 	}
 }
 
-// TestReservedPrefix checks label and annotation keys under ruralz.io/
-// (01 req 35).
+// TestReservedPrefix checks label and annotation keys under ruralz.io/.
 func TestReservedPrefix(t *testing.T) {
 	src := `{"apiVersion": "ruralz/v1alpha1", "kind": "Route", "metadata": {"name": "x",
   "labels": {"ruralz.io/team": "a", "team": "b", "Ruralz.IO/x": "c"},
@@ -339,8 +338,7 @@ func TestReservedPrefix(t *testing.T) {
 }
 
 // TestPositions checks the source positions of each finding kind: the
-// value, the unknown key, the parent object of a missing field (01 reqs 33
-// and 47).
+// value, the unknown key, the parent object of a missing field.
 func TestPositions(t *testing.T) {
 	src := `{
   "apiVersion": "ruralz/v1alpha1",
@@ -365,7 +363,7 @@ func TestPositions(t *testing.T) {
 
 // TestDefaultedNodePointsAtParent checks that a finding on a node without
 // a source position (a materialized default) points at the nearest
-// positioned ancestor (01 req 36).
+// positioned ancestor.
 func TestDefaultedNodePointsAtParent(t *testing.T) {
 	files := &tree.FileTable{}
 	res := mustResource(t, files, "r.json", gateway(`, "admin": {"port": 1}`))
@@ -380,7 +378,7 @@ func TestDefaultedNodePointsAtParent(t *testing.T) {
 
 // TestSecretValueNeverEchoed checks that no form of a diagnostic contains
 // a literal from a secret position, an unknown member name inside a
-// secret, or a value from a nested secretRef (01 req 33, test plan 012).
+// secret, or a value from a nested secretRef.
 func TestSecretValueNeverEchoed(t *testing.T) {
 	const sentinel = "SENTINEL-7f3a"
 	for _, src := range []string{
@@ -413,8 +411,8 @@ func TestSecretValueNeverEchoed(t *testing.T) {
 }
 
 // TestLeafMessages words the kinds the rendered view never produces
-// through a synthetic schema (01 req 33: every error kind maps to a
-// registered code).
+// through a synthetic schema (every error kind maps to a registered
+// code).
 func TestLeafMessages(t *testing.T) {
 	v := syntheticView(t)
 	for _, tc := range []struct {
@@ -433,9 +431,9 @@ func TestLeafMessages(t *testing.T) {
 		{`{"either": []}`, []finding{{CodeSchema, "spec.either", "must be a string or an integer, not an array", ""}}},
 		{`{"overlap": 5}`, []finding{{CodeSchema, "spec.overlap", "matches more than one alternative; exactly one is allowed", ""}}},
 		{`{"notString": "s"}`, []finding{{CodeSchema, "spec.notString", "matches a form that is not allowed here", ""}}},
-		// 01 req 33: atMostOneOf over three fields is not with an anyOf of
-		// required pairs (schemagen fieldCombination); the message names
-		// every field in schema order.
+		// atMostOneOf over three fields is not with an anyOf of required
+		// pairs (schemagen fieldCombination); the message names every field
+		// in schema order.
 		{`{"atMost": {"a": 1, "c": 2}}`, []finding{{CodeSchema, "spec.atMost", "at most one of a, b, c is allowed, found a and c", ""}}},
 		{`{"atMost": {"c": 1, "b": 2, "a": 3}}`, []finding{{CodeSchema, "spec.atMost", "at most one of a, b, c is allowed, found a, b and c", ""}}},
 		{`{"atMost": {"b": 1, "d": 2}}`, nil},

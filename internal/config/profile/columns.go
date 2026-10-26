@@ -12,25 +12,24 @@ import (
 	"github.com/goccy/go-yaml/token"
 )
 
-// columnTable corrects goccy's columns to code-point columns of the source
-// (01 req 14, 15). goccy's scanner counts its column short in two places:
-// it steps over a tag's '!' without counting it, so every later token on
-// the tag's line, the next tag included, is one column to the left for
-// each tag before it ("!!str a: !!int 1" puts the second tag at 9, not
-// 10); and it steps over most tabs outside a quoted scalar without
-// counting them, so a token after a tab on its line is one column to the
-// left per tab ("kind:\tRoute" puts Route at 6, not 7), while a tab it
-// reads as part of a token or a quoted scalar is counted. It also counts
-// long: a plain scalar that spaces end its line ("- a  ") is placed one
-// column to the right per space, and so is the comment after a block
-// scalar header. Which tabs goccy counts depends on the scanner's state,
-// so the table does not predict them: every token is located in the
-// source (columnBuilder.find), and the table records the correction that
-// places it there. A token that cannot be located keeps goccy's column,
-// corrected for the tags before it. The tokens keep goccy's columns,
-// which its parser and the split parse compare with each other. Every
-// position this package reports or uses for the depth algorithm goes
-// through fix.
+// columnTable corrects goccy's columns to code-point columns of the
+// source. goccy's scanner counts its column short in two places: it steps
+// over a tag's '!' without counting it, so every later token on the tag's
+// line, the next tag included, is one column to the left for each tag
+// before it ("!!str a: !!int 1" puts the second tag at 9, not 10); and it
+// steps over most tabs outside a quoted scalar without counting them, so a
+// token after a tab on its line is one column to the left per tab
+// ("kind:\tRoute" puts Route at 6, not 7), while a tab it reads as part of
+// a token or a quoted scalar is counted. It also counts long: a plain
+// scalar that spaces end its line ("- a  ") is placed one column to the
+// right per space, and so is the comment after a block scalar header.
+// Which tabs goccy counts depends on the scanner's state, so the table
+// does not predict them: every token is located in the source
+// (columnBuilder.find), and the table records the correction that places
+// it there. A token that cannot be located keeps goccy's column, corrected
+// for the tags before it. The tokens keep goccy's columns, which its
+// parser and the split parse compare with each other. Every position this
+// package reports or uses for the depth algorithm goes through fix.
 //
 // The table holds, per line, the correction of goccy's columns from a
 // column on, sorted by line and column: a token gets the correction of the

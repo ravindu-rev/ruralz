@@ -33,9 +33,9 @@ type codeEntry struct {
 // open-addressing table whose slots are installed once by compare and
 // swap. Entries created up front (the codes a Policy type can emit, or
 // every registered code) are exported only after their first record, so
-// label sets with a code dimension appear on first record (spec 09 req
-// 45). A code the registry does not accept, or one past the table's
-// capacity, records nothing and is logged once per table.
+// label sets with a code dimension appear on first record. A code the
+// registry does not accept, or one past the table's capacity, records
+// nothing and is logged once per table.
 type codeTable struct {
 	name   string // the metric family, named in the drop record
 	slots  []atomic.Pointer[codeEntry]
@@ -171,10 +171,10 @@ func (t *codeTable) insert(e *codeEntry) {
 	}
 }
 
-// drop logs the first dropped code of the table at DEBUG (spec 09 test
-// 12). It runs on the recording goroutine, but the record is enqueued
-// without blocking (req 61). emit.CodeCounter and emit.AuthDecisions
-// carry no context, so the record has no trace context.
+// drop logs the first dropped code of the table at DEBUG. It runs on
+// the recording goroutine, but the record is enqueued without
+// blocking. emit.CodeCounter and emit.AuthDecisions carry no context,
+// so the record has no trace context.
 func (t *codeTable) drop(code, reason string) {
 	if t.logger == nil || !t.logged.CompareAndSwap(false, true) {
 		return

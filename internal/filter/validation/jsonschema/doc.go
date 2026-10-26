@@ -2,13 +2,13 @@
 // SPDX-License-Identifier: Apache-2.0
 
 // Package jsonschema is the validation.json-schema Policy type: it checks
-// JSON request bodies in onRequestBody against the inline JSON Schema of
-// the Policy's config.schema and answers 400 RZ-RT-009 when a body is not
-// acceptable (spec 07 groups J and K). It also exports the offline check
-// of that schema (Check, a hub.PolicyCheck) that every binary runs at stage
-// H, and CompileSchema with Schema.Raw for the M2 OpenAPI import and export.
+// JSON request bodies in onRequestBody against the inline JSON Schema of the
+// Policy's config.schema and answers 400 RZ-RT-009 when a body is not
+// acceptable. It also exports the offline check of that schema (Check, a
+// hub.PolicyCheck) that every binary runs at stage H, and CompileSchema with
+// Schema.Raw for the M2 OpenAPI import and export.
 //
-// # Compile (07 reqs 74 to 77)
+// # Compile
 //
 // CompileSchema compiles a schema document with
 // github.com/santhosh-tekuri/jsonschema/v6 under these rules, each a
@@ -29,7 +29,7 @@
 //     (see "Fan-out");
 //   - no reference cycle applies a schema to the same value again without
 //     descending into it (proposed): the library would answer every value
-//     reaching it with an internal error (07 req 13);
+//     reaching it with an internal error;
 //   - validating one value of a body nested less deep than MinNesting
 //     takes at most MaxEvaluations subschema evaluations (see "Evaluation
 //     bound");
@@ -41,7 +41,7 @@
 //   - every pattern and patternProperties name measures at most
 //     MaxPatternInstructions instructions, what its compiled form keeps
 //     and the parser's work on it, and all of them together at most
-//     MaxDocumentInstructions (architecture R-77; see "Patterns");
+//     MaxDocumentInstructions (see "Patterns");
 //   - every number literal the library parses, in a numeric or integer
 //     keyword (minimum, maxLength and the like) or in a const or enum
 //     value, stays within MaxNumberBytes and MaxNumberExponent (see "Number
@@ -53,113 +53,109 @@
 //     math/big (see "Number bounds").
 //
 // Unknown keywords, x-ruralz-* included, and annotations are ignored as
-// draft 2020-12 requires (07 req 76), their numbers included, with one
-// exception the library makes: it keeps the draft-07 dependencies keyword
-// under draft 2020-12, so an array member there is enforced like
-// dependentRequired and a schema member like dependentSchemas, and a
-// failure names /dependencies/<name>. The draft-07 additionalItems is
-// unknown too: the library collects its subschemas, their $id and anchors,
-// but compiles one only as the target of a reference or through an $id or
-// anchor of a schema there, so the rules above apply there only then
-// (minor review findings); as the meta-schema does not define it, the
-// library never checks such a subschema against the meta-schema, so the
-// compile does, before the library compiles it (review finding: a
-// multipleOf of 0 compiled there, and every number reaching it made the
-// library panic). Every $schema is checked wherever it is, and every
-// reference wherever the library compiles it. The library's compiler finds
-// already-compiled subschemas through a linear scan of its work queue and
-// compiles a schema resource with every subschema it reaches in one queue,
-// so compile time grows with the square of the subschema count: 256 KiB of
-// empty subschemas takes over 2 s. A document therefore holds at most
-// MaxSubschemas schema positions. At that bound a compile takes about 0.3 s
-// (BenchmarkCompileSchemaWorstCase); the evaluation analysis, which also
-// carries the counts of the runtime model and builds the states of the
+// draft 2020-12 requires, their numbers included, with one exception the
+// library makes: it keeps the draft-07 dependencies keyword under draft
+// 2020-12, so an array member there is enforced like dependentRequired and
+// a schema member like dependentSchemas, and a failure names
+// /dependencies/<name>. The draft-07 additionalItems is unknown too: the
+// library collects its subschemas, their $id and anchors, but compiles one
+// only as the target of a reference or through an $id or anchor of a schema
+// there, so the rules above apply there only then; as the meta-schema does
+// not define it, the library never checks such a subschema against the
+// meta-schema, so the compile does, before the library compiles it (without
+// that check a multipleOf of 0 compiled there, and every number reaching it
+// made the library panic). Every $schema is checked wherever it is, and
+// every reference wherever the library compiles it. The library's compiler
+// finds already-compiled subschemas through a linear scan of its work queue
+// and compiles a schema resource with every subschema it reaches in one
+// queue, so compile time grows with the square of the subschema count:
+// 256 KiB of empty subschemas takes over 2 s. A document therefore holds at
+// most MaxSubschemas schema positions. At that bound a compile takes about
+// 0.3 s (BenchmarkCompileSchemaWorstCase); the evaluation analysis, which
+// also carries the counts of the runtime model and builds the states of the
 // body paths, takes at most about 0.4 s more for 4,000 members against
 // recursive mixins (BenchmarkEvaluationAnalysis). The compile-time work on
-// patterns is bounded by its steps, never by a count of calls (review
-// findings): the exploration of a pattern's run queues is charged its
-// steps against patternBudget per pattern and regexpBudget per document
-// (about 3 ms and 25 ms; BenchmarkPatternCost, TestQueueBoundBudget), and
-// matching member names against patterns, a schema's properties against
-// its patternProperties and the names a body path's state declares against
-// the patterns of its other schemas, charges a name's length times each
-// pattern's work per byte against one matchBudget per document (about 34
-// ms; TestCompileMatchBudget), past which every pattern is assumed to
+// patterns is bounded by its steps, never by a count of calls: the
+// exploration of a pattern's run queues is charged its steps against
+// patternBudget per pattern and regexpBudget per document (about 3 ms and
+// 25 ms; BenchmarkPatternCost, TestQueueBoundBudget), and matching member
+// names against patterns, a schema's properties against its
+// patternProperties and the names a body path's state declares against the
+// patterns of its other schemas, charges a name's length times each
+// pattern's work per byte against one matchBudget per document (about
+// 34 ms; TestCompileMatchBudget), past which every pattern is assumed to
 // match. Each bound alone keeps a whole compile under about 0.7 s
-// (BenchmarkCompileAnalysisWorstCase, on a shared 4-vCPU 2.8 GHz machine
-// at a load of 1 to 3: 0.54 to 0.7 s for the mixins, 0.39 to 0.57 s for a
+// (BenchmarkCompileAnalysisWorstCase, on a shared 4-vCPU 2.8 GHz machine at
+// a load of 1 to 3: 0.54 to 0.7 s for the mixins, 0.39 to 0.57 s for a
 // reference ladder over 3,900 members, 0.31 to 0.42 s for 125 reference
 // targets outside the keywords next to 3,800 properties, 0.29 to 0.6 s for
-// 2,000 properties against 2,000 patterns, 0.24 to 0.38 s for
-// MaxSubschemas positions holding patterns, 0.1 to 0.15 s for the checks
-// a ladder of member maps repeats, 0.14 to 0.17 s for the states of 500
-// members that each apply a thousand patterns or kinds of length (review
-// finding: merged one schema at a time after a sort or a scan of what a
-// state held, 2.9 s and 1 s), and at most about 0.15 s for documents
-// whose patterns fill MaxDocumentInstructions: the largest programs,
-// repetitions of classes, alternations of thousands of literals, anchored
-// alternations and repetitions, Unicode class escapes merged in a class,
-// case folding, and patterns past the bound). The bounds are separate, so
-// their costs add up in one document (minor review findings): 3,800
-// properties against recursive mixins, eight case-folded classes of
-// merged Unicode class escapes and 120 reference targets outside the
-// keywords compile in about 0.95 to 1.1 s at a load of up to 1 (the
-// "combined" case), and with property names of slashes, which the
-// library's locations escape to twice their bytes and its quadratic scan
-// of its work queue compares, in 1.1 to 1.2 s ("combined, escaped
-// names"). 07 F6's 1 s is therefore not met for these combined worst
-// cases (proposed: an Open question with 07 req 90's figures; a joint
-// compile budget, or a bound on the bytes of the positions' locations,
-// would also refuse large ordinary schemas). Such a worst-case compile
-// allocates up to about 330 MB in all (the evaluation analysis reuses the
-// member maps of each level for the next), its heap peaks at about 35 MB,
-// the collector's pacing included, and the compiled Schema keeps up to
-// about 16 MB: the library's compiled schemas, about 2.4 KB a position (10
-// MB at MaxSubschemas), and the patterns' programs, at most about 6 MB at
-// MaxDocumentInstructions (TestPatternProgramMemory), the states sharing
-// each distinct list of the programs that may match a string; an ordinary
-// schema takes milliseconds and keeps kilobytes.
+// 2,000 properties against 2,000 patterns, 0.24 to 0.38 s for MaxSubschemas
+// positions holding patterns, 0.1 to 0.15 s for the checks a ladder of
+// member maps repeats, 0.14 to 0.17 s for the states of 500 members that
+// each apply a thousand patterns or kinds of length (merged one schema at a
+// time after a sort or a scan of what a state held, they took 2.9 s and
+// 1 s), and at most about 0.15 s for documents whose patterns fill
+// MaxDocumentInstructions: the largest programs, repetitions of classes,
+// alternations of thousands of literals, anchored alternations and
+// repetitions, Unicode class escapes merged in a class, case folding, and
+// patterns past the bound). The bounds are separate, so their costs add up
+// in one document: 3,800 properties against recursive mixins, eight
+// case-folded classes of merged Unicode class escapes and 120 reference
+// targets outside the keywords compile in about 0.95 to 1.1 s at a load of
+// up to 1 (the "combined" case), and with property names of slashes, which
+// the library's locations escape to twice their bytes and its quadratic
+// scan of its work queue compares, in 1.1 to 1.2 s ("combined, escaped
+// names"). The 1 s a compile is allowed is therefore not met for these
+// combined worst cases (proposed: an Open question with these figures; a
+// joint compile budget, or a bound on the bytes of the positions'
+// locations, would also refuse large ordinary schemas). Such a worst-case
+// compile allocates up to about 330 MB in all (the evaluation analysis
+// reuses the member maps of each level for the next), its heap peaks at
+// about 35 MB, the collector's pacing included, and the compiled Schema
+// keeps up to about 16 MB: the library's compiled schemas, about 2.4 KB a
+// position (10 MB at MaxSubschemas), and the patterns' programs, at most
+// about 6 MB at MaxDocumentInstructions (TestPatternProgramMemory), the
+// states sharing each distinct list of the programs that may match a
+// string; an ordinary schema takes milliseconds and keeps kilobytes.
 //
 // A compiled Schema is immutable and safe for concurrent use; the Factory
 // shares one per distinct schema within a snapshot (filter.Shared, keyed by
 // the SHA-256 of the document's normalized bytes) and carries it over to
-// the next snapshot through BuildEnv.Previous (07 req 77), also to the
-// other Policies of that snapshot with the same document that build after
-// the carried-over one. A Policy new to the snapshot has no Previous, so
-// when it builds first it compiles the document again; the carried-over
-// Policy then takes that Schema, so a snapshot holds one Schema per
-// document whatever the build order (minor review finding). A Build whose
-// context has ended returns the context's error, without a code, at its
-// start and between the stages of a compile, so a canceled or superseded
-// snapshot compile skips the rest (minor review finding); the library's
-// own compile cannot be interrupted.
+// the next snapshot through BuildEnv.Previous, also to the other Policies
+// of that snapshot with the same document that build after the carried-over
+// one. A Policy new to the snapshot has no Previous, so when it builds
+// first it compiles the document again; the carried-over Policy then takes
+// that Schema, so a snapshot holds one Schema per document whatever the
+// build order. A Build whose context has ended returns the context's error,
+// without a code, at its start and between the stages of a compile, so a
+// canceled or superseded snapshot compile skips the rest; the library's own
+// compile cannot be interrupted.
 //
 // # Patterns
 //
 // Go's regexp compiles a pattern into a program whose size grows with its
 // repetitions, not with its text: the 11 bytes of [a-z]{1000} compile to a
-// thousand instructions, which the compiled Schema keeps (review finding:
-// seven patterns of 33 KB compiled for 25 s and kept 886 MB). The rule
-// walk therefore measures every pattern before anything compiles it
-// (patternsize.go), in instructions of 40 bytes: the instructions Go's
-// parser estimates from the parsed syntax, every copy of a repetition
-// included; the ranges of its classes, rangesPerInstruction of them as one
-// instruction, and nodeInstructions for every literal and class, whose
-// node of the parsed syntax the program may keep, each once, since the
-// copies a repetition makes share them; programOverhead for the regexp's
-// own structures; plus the parser's own work, counted lexically before the
-// parse: the ranges of the table it builds for each Unicode class escape
-// (\p and \P; \pL holds about 680), which it merges and sorts within a
-// class, escapeRangesPerInstruction of them as one instruction, and the
-// characters of the case-insensitive class ranges, where a flag turns
-// folding on, which it folds one at a time (about 4 ms for
-// [\x{42}-\x{1e942}] under (?i)), foldRunesPerInstruction of them as one
-// instruction (proposed, in place of a separate bound on folded
-// characters). A pattern whose parsing work alone exceeds its bound is
-// refused unparsed, no pattern is parsed once the document's bound is
-// spent, and a pattern refused after its parse, or invalid, still counts
-// its parsing work, so a refused schema costs no more than an accepted one
-// (review finding).
+// thousand instructions, which the compiled Schema keeps (seven patterns of
+// 33 KB compiled for 25 s and kept 886 MB). The rule walk therefore
+// measures every pattern before anything compiles it (patternsize.go), in
+// instructions of 40 bytes: the instructions Go's parser estimates from the
+// parsed syntax, every copy of a repetition included; the ranges of its
+// classes, rangesPerInstruction of them as one instruction, and
+// nodeInstructions for every literal and class, whose node of the parsed
+// syntax the program may keep, each once, since the copies a repetition
+// makes share them; programOverhead for the regexp's own structures; plus
+// the parser's own work, counted lexically before the parse: the ranges of
+// the table it builds for each Unicode class escape (\p and \P; \pL holds
+// about 680), which it merges and sorts within a class,
+// escapeRangesPerInstruction of them as one instruction, and the characters
+// of the case-insensitive class ranges, where a flag turns folding on,
+// which it folds one at a time (about 4 ms for [\x{42}-\x{1e942}] under
+// (?i)), foldRunesPerInstruction of them as one instruction (proposed, in
+// place of a separate bound on folded characters). A pattern whose parsing
+// work alone exceeds its bound is refused unparsed, no pattern is parsed
+// once the document's bound is spent, and a pattern refused after its
+// parse, or invalid, still counts its parsing work, so a refused schema
+// costs no more than an accepted one.
 //
 // The library compiles every distinct pattern once (regexpCache), with
 // Go's regexp behind an empty group, (?:), which matches the empty string,
@@ -168,15 +164,15 @@
 // 1,000 instructions, Go would build its one-pass matcher: its tables
 // copy every instruction and the ranges of every class, and merge at every
 // alternation the first ranges of all its branches, so they grow with the
-// square of an alternation (review findings: 23 anchored alternations of
-// 330 classes, a 258 KB schema within every bound, kept 185 MB; 98
-// patterns ^\pL{990} kept 864 MB). Anchored patterns match with the
-// backtracker or the NFA simulation, as the others do, whose work the
-// runtime model bounds (regexcost.go, "Work bound"); the exploration of a
-// pattern's run queues charges the bounds of its classes before it
-// collects them. At run time a string or member name is charged a regexp
-// match, its matcher and the backtracker's job stack, only for the
-// patterns that may match it (see "Working set").
+// square of an alternation (23 anchored alternations of 330 classes, a
+// 258 KB schema within every bound, kept 185 MB; 98 patterns ^\pL{990} kept
+// 864 MB). Anchored patterns match with the backtracker or the NFA
+// simulation, as the others do, whose work the runtime model bounds
+// (regexcost.go, "Work bound"); the exploration of a pattern's run queues
+// charges the bounds of its classes before it collects them. At run time a
+// string or member name is charged a regexp match, its matcher and the
+// backtracker's job stack, only for the patterns that may match it (see
+// "Working set").
 //
 // # Meta-schema checks
 //
@@ -188,21 +184,20 @@
 // library's bookkeeping, an entry per position checked so far
 // (metacheck.go). In the order the library meets references, a target
 // checked before its ancestor was checked again with the ancestor's tree
-// (review findings: a ladder of 59 references from the deepest target up
-// checked a 3,900-member tree 59 times, 5.3 s and 2.2 GB; 2,040 such
-// targets copied the bookkeeping 2,040 times, 1.1 s). The compile
-// therefore checks those targets first, in pointer order, an ancestor
-// before its descendants, through a resource whose allOf refers to them in
-// that order, so a target an earlier check covered is never checked
-// again. What remains is bounded at the walk, which simulates that order:
-// a target whose keyword tree still holds positions an earlier check
-// covered (a reference to a member map such as #/x/properties, whose
-// member names are read as keywords) checks them again, and they count
-// again against MaxSubschemas, their JSON bytes against MaxSchemaBytes;
-// and every target checked apart counts the document's positions,
-// resources and anchors against maxCheckCopies (2^19, about 75 ms;
-// proposed). Each is RZ-CFG-005 at the reference to the target that
-// crosses it; moving such targets under $defs removes the cost.
+// (a ladder of 59 references from the deepest target up checked a
+// 3,900-member tree 59 times, 5.3 s and 2.2 GB; 2,040 such targets copied
+// the bookkeeping 2,040 times, 1.1 s). The compile therefore checks those
+// targets first, in pointer order, an ancestor before its descendants,
+// through a resource whose allOf refers to them in that order, so a target
+// an earlier check covered is never checked again. What remains is bounded
+// at the walk, which simulates that order: a target whose keyword tree
+// still holds positions an earlier check covered (a reference to a member
+// map such as #/x/properties, whose member names are read as keywords)
+// checks them again, and they count again against MaxSubschemas, their JSON
+// bytes against MaxSchemaBytes; and every target checked apart counts the
+// document's positions, resources and anchors against maxCheckCopies (2^19,
+// about 75 ms; proposed). Each is RZ-CFG-005 at the reference to the target
+// that crosses it; moving such targets under $defs removes the cost.
 //
 // # Fan-out
 //
@@ -217,24 +212,23 @@
 //
 // # Evaluation bound
 //
-// The library validates without memoizing and takes no context (07
-// section 9 item 21), so the fan-out product, which counts a $ref cycle
-// once, does not bound the work: a recursive reference reached through two
-// paths, such as {"oneOf":[{"items":{"$ref":"#"}},{"items":{"$ref":"#"}}]},
-// doubles the work at every level of body nesting (seconds for a 40-byte
-// body nested 20 deep). The compiled graph is therefore analyzed for an
-// upper bound of the subschemas evaluated at one value of a body, at every
-// nesting depth up to the decoder's 64: every allOf, anyOf and oneOf
-// branch counts, if counts with the costlier of then and else (the library
-// evaluates one of them), a $dynamicRef counts each target the dynamic
-// scope may resolve it to, an object member or array item counts every
-// subschema that can apply to it, by member name for properties and by
-// index for prefixItems, with contains and the uniqueItems hashing for
-// every item, and uniqueItems counts one evaluation at every value below
-// the array, which it hashes. A member name no properties keyword declares
-// is assumed to meet every patternProperties schema of the schemas
-// evaluated at its object, even patterns no name can match together (an
-// over-approximation, minor review finding: {"patternProperties":
+// The library validates without memoizing and takes no context, so the
+// fan-out product, which counts a $ref cycle once, does not bound the work:
+// a recursive reference reached through two paths, such as
+// {"oneOf":[{"items":{"$ref":"#"}},{"items":{"$ref":"#"}}]}, doubles the
+// work at every level of body nesting (seconds for a 40-byte body nested 20
+// deep). The compiled graph is therefore analyzed for an upper bound of the
+// subschemas evaluated at one value of a body, at every nesting depth up to
+// the decoder's 64: every allOf, anyOf and oneOf branch counts, if counts
+// with the costlier of then and else (the library evaluates one of them), a
+// $dynamicRef counts each target the dynamic scope may resolve it to, an
+// object member or array item counts every subschema that can apply to it,
+// by member name for properties and by index for prefixItems, with contains
+// and the uniqueItems hashing for every item, and uniqueItems counts one
+// evaluation at every value below the array, which it hashes. A member name
+// no properties keyword declares is assumed to meet every patternProperties
+// schema of the schemas evaluated at its object, even patterns no name can
+// match together (an over-approximation: {"patternProperties":
 // {"^[a-z]+$":{"$ref":"#"},"^[A-Z]+$":{"$ref":"#"}}} is refused as if it
 // doubled at every level). The first depth at which the count for the
 // document's root may exceed MaxEvaluations is the schema's nesting limit:
@@ -244,8 +238,8 @@
 // object no subschema evaluates, so the work per value stays within the
 // bound. A nesting limit below MinNesting is RZ-CFG-005 at the applicator
 // or member keyword where the count crosses: the doubling shapes cross 10
-// to 12 levels down. Recursive schemas whose recursion follows one path
-// per level, such as
+// to 12 levels down. Recursive schemas whose recursion follows one path per
+// level, such as
 // {"oneOf":[{"type":"string"},{"type":"array","items":{"$ref":"#"}}]},
 // allOf mixins recursing through different member names, or a tagged union
 // written as an if/then/else chain whose branches recurse, have no nesting
@@ -254,42 +248,40 @@
 // component tree of rows and columns 20 (their documents' fit is under
 // "Working set").
 //
-// # Runtime (07 reqs 78 to 84)
+// # Runtime
 //
 // In onRequestBody the Filter accepts application/json and any */*+json
 // media type whose only parameter is charset=utf-8, refuses an empty body,
 // decodes the body strictly with internal/jsonval (one RFC 8259 value,
 // valid UTF-8, depth at most 64, duplicate member names refused, numbers
-// kept as their literal text), and walks the decoded body once to check
-// it against the schema's limits before the library runs, which takes no
+// kept as their literal text), and walks the decoded body once to check it
+// against the schema's limits before the library runs, which takes no
 // context. Each limit is a multiple of limits.maxRequestBodyBytes (10 MiB
-// when the snapshot leaves the limit unset, 07 section 9 item 24), and a
-// body past one is filter.ErrTooLarge (413 RZ-RT-003) before anything is
-// reserved: decoded values costing more than filter.DecodedLimitFactor
-// times it (architecture R-63); a decision pass that may hold more than
-// WorkingSetFactor times it besides the decoded values (see "Working
-// set"); work over WorkPerByte work units per byte of it (see "Work
-// bound"); a reservation, the decoded values with what their maps, arrays
-// and strings hold beyond the decoder's charge and the decision pass's
-// working set, over ReservationFactor times it, so that with the raw body
-// the request side holds at most 13 times the limit (130 MiB at the
-// default; architecture R-77); and a body value nested as deep as the
-// schema's nesting limit on a path whose state does not bound it. The
-// working-set, reservation and work limits scale from MinScaledLimit (128
-// KiB) at least, 1 MiB, 1.5 MiB and 2^25 work units (proposed): what any
-// body's validation holds and takes has parts that do not grow with the
-// body, the decision pass's wrapper, a call-stack chain per value of the
-// path, a matcher of the largest program that may match a string, the
-// evaluations at the root, so scaled from a limit of a few KiB they
-// refused valid bodies of a few bytes (review finding: {} under true at 1
-// and 2 KiB, a 616-byte order composed four levels deep at 16 KiB). Every
-// maxRequestBodyBytes therefore works for small bodies, while the decoded
-// limit still scales from the raw limit, as architecture R-63 sets it. A
-// reservation the budget refuses is filter.ErrBudget (503 RZ-RT-004); the
-// executor answers both under either failureMode (07 req 15). A request
-// whose context has ended is cannot decide before anything is reserved.
-// Schema.ValidateWithin applies the same limits, but for the reservation,
-// to a value an M2 caller decoded.
+// when the snapshot leaves the limit unset), and a body past one is
+// filter.ErrTooLarge (413 RZ-RT-003) before anything is reserved: decoded
+// values costing more than filter.DecodedLimitFactor times it; a decision
+// pass that may hold more than WorkingSetFactor times it besides the
+// decoded values (see "Working set"); work over WorkPerByte work units per
+// byte of it (see "Work bound"); a reservation, the decoded values with
+// what their maps, arrays and strings hold beyond the decoder's charge and
+// the decision pass's working set, over ReservationFactor times it, so that
+// with the raw body the request side holds at most 13 times the limit
+// (130 MiB at the default); and a body value nested as deep as the schema's
+// nesting limit on a path whose state does not bound it. The working-set,
+// reservation and work limits scale from MinScaledLimit (128 KiB) at least,
+// 1 MiB, 1.5 MiB and 2^25 work units (proposed): what any body's validation
+// holds and takes has parts that do not grow with the body, the decision
+// pass's wrapper, a call-stack chain per value of the path, a matcher of
+// the largest program that may match a string, the evaluations at the root,
+// so scaled from a limit of a few KiB they refused valid bodies of a few
+// bytes ({} under true at 1 and 2 KiB, a 616-byte order composed four
+// levels deep at 16 KiB). Every maxRequestBodyBytes therefore works for
+// small bodies, while the decoded limit still scales from the raw limit,
+// filter.DecodedLimitFactor times it. A reservation the budget refuses is
+// filter.ErrBudget (503 RZ-RT-004); the executor answers both under either
+// failureMode. A request whose context has ended is cannot decide before
+// anything is reserved. Schema.ValidateWithin applies the same limits, but
+// for the reservation, to a value an M2 caller decoded.
 //
 // Validation then runs in up to two passes. The decision pass validates
 // for a boolean result, through a second resource whose not applies the
@@ -301,13 +293,13 @@
 // every refusal is 400 RZ-RT-009 with a fixed detail or the absolute
 // keyword location of the first failing leaf in pointer order, cut back to
 // its longest ancestor within 256 bytes (proposed); the detail never
-// quotes request content. The location pass runs only when its working
-// set fits the working-set and reservation limits, the work of both passes
-// and of its walk over the error tree the work limit, and the budget the
-// rest of its reservation; otherwise, or when the request ends during the
-// walk, the body is refused with DetailMismatch alone, a decision (07 reqs
-// 13 and 18). An internal validator error, which the location pass
-// reports, is cannot decide with the class default (07 req 13).
+// quotes request content. The location pass runs only when its working set
+// fits the working-set and reservation limits, the work of both passes and
+// of its walk over the error tree the work limit, and the budget the rest
+// of its reservation; otherwise, or when the request ends during the walk,
+// the body is refused with DetailMismatch alone, a decision. An internal
+// validator error, which the location pass reports, is cannot decide with
+// the class default.
 //
 // # Working set
 //
@@ -351,28 +343,28 @@
 //     failing member name's under each evaluation with propertyNames, and
 //     at an array 16 bytes per item for each evaluation with minContains or
 //     maxContains, whose error keeps the index of every item that matches
-//     contains (review finding: 100 such evaluations over 16,000 items held
-//     12.7 MB charged 58 KB);
+//     contains (100 such evaluations over 16,000 items held 12.7 MB charged
+//     58 KB);
 //   - along the costliest path from the root, the call stack: the library
 //     evaluates the in-place members of a schema one after the other, so
 //     at each value it holds one chain of in-place evaluations, never more
-//     than the value's evaluations (review finding: every evaluation was
-//     charged a frame, so a 14 KB rich-text body reserved 29 MB of stack),
-//     8 KiB per evaluation of the longest chain the value's state allows
-//     (measured with debug.SetMaxStack at 1.4 to 1.6 KiB per in-place
-//     evaluation and 2.2 to 2.5 KiB per evaluation of a nesting level's
-//     chain, up to three times that while the stack doubles and copies;
-//     the decision pass's wrapper adds three; TestStackWithinCharge); per
-//     evaluation of that chain that may copy unevaluated names, a map of
-//     256 bytes plus 128 per member (measured at most 256 plus 122), or
-//     for indexes 192 plus 96 per item (measured at most 192 plus 83), the
-//     library dropping a branch's copy when it merges it, before the next
-//     branch runs (review finding: charged per evaluation, an allOf of 50
-//     mixins under unevaluatedProperties was charged 84 times its peak and
-//     refused a 49 KB object, TestHandleUnevaluatedBranches); per
-//     evaluation with additionalProperties false 48 bytes per member it may
-//     list; and per evaluation with contains 16 bytes per item for the
-//     indexes of the items that match, which it lists while it loops;
+//     than the value's evaluations (with every evaluation charged a frame,
+//     a 14 KB rich-text body reserved 29 MB of stack), 8 KiB per evaluation
+//     of the longest chain the value's state allows (measured with
+//     debug.SetMaxStack at 1.4 to 1.6 KiB per in-place evaluation and 2.2
+//     to 2.5 KiB per evaluation of a nesting level's chain, up to three
+//     times that while the stack doubles and copies; the decision pass's
+//     wrapper adds three; TestStackWithinCharge); per evaluation of that
+//     chain that may copy unevaluated names, a map of 256 bytes plus 128
+//     per member (measured at most 256 plus 122), or for indexes 192 plus
+//     96 per item (measured at most 192 plus 83), the library dropping a
+//     branch's copy when it merges it, before the next branch runs (charged
+//     per evaluation, an allOf of 50 mixins under unevaluatedProperties was
+//     charged 84 times its peak and refused a 49 KB object,
+//     TestHandleUnevaluatedBranches); per evaluation with
+//     additionalProperties false 48 bytes per member it may list; and per
+//     evaluation with contains 16 bytes per item for the indexes of the
+//     items that match, which it lists while it loops;
 //   - once, the largest transient copy: the longest string, which the
 //     library copies at every evaluation, the duplicates map of the longest
 //     uniqueItems array (192 bytes per item, measured 102 to 168), or a
@@ -393,17 +385,17 @@
 //     applies to it, and its object's patternProperties to a member name,
 //     count; where the scan does not know the path, every pattern of the
 //     document, wherever a pattern or a length keyword may scan a value at
-//     its depth (review findings: a pattern of 241 alternations held 4.9 MB
-//     for a string of 537 bytes, charged 64 KB, TestHandleBacktrackCharge;
-//     then every alternation of the document's costliest pattern, charged
-//     to every string a pattern or a uniqueItems pass reached, refused a
-//     149-byte sign-up body at a 64 KiB limit, TestHandlePatternFit). The
-//     job stack binds before the body's size only at small limits, and
-//     only for the inputs short enough for the backtracker, which a longer
-//     one leaves for the NFA simulation: up to MinScaledLimit, whose
-//     working set is 1 MiB, a string of about 20,400 to 37,400 bytes under
-//     ^[^<>]*$, a program of 7 instructions holding one job per position,
-//     is refused with 413, and one of about 5,100 to 20,100 bytes under
+//     its depth (a pattern of 241 alternations held 4.9 MB for a string of
+//     537 bytes, charged 64 KB, TestHandleBacktrackCharge; every
+//     alternation of the document's costliest pattern, charged to every
+//     string a pattern or a uniqueItems pass reached, refused a 149-byte
+//     sign-up body at a 64 KiB limit, TestHandlePatternFit). The job stack
+//     binds before the body's size only at small limits, and only for the
+//     inputs short enough for the backtracker, which a longer one leaves
+//     for the NFA simulation: up to MinScaledLimit, whose working set is
+//     1 MiB, a string of about 20,400 to 37,400 bytes under ^[^<>]*$, a
+//     program of 7 instructions holding one job per position, is refused
+//     with 413, and one of about 5,100 to 20,100 bytes under
 //     ^(?:[a-z]+|[0-9]+|\s)*$, 13 instructions holding 4; at 256 KiB the
 //     first never binds and the second from about 10,600 bytes (4% of the
 //     limit); from 512 KiB up neither does, and from about 1.6 MiB up no
@@ -427,25 +419,24 @@
 // set. The decoder charges a value its headers and bytes (internal/jsonval)
 // but not the hash table of an object, a group of 8 slots up to 8 members
 // and a power of two slots past them, nor the spare capacity of an array's
-// backing array (review finding: a one-member object holds 336 bytes, of
-// which the decoder charges 80, so valid arrays of small objects held up to
-// 3.8 times the reservation); the scan adds both, and the rounding of every
-// string to its allocation size class (mapExtra, arrayExtra and
-// stringExtra, measured within 1% on Go 1.26 and 1.27), so the
-// reservation covers the decoded tree, measured exactly
-// (TestHandleReservesDecodedMaps). R-63's decoded limit still applies to
-// the decoder's charge, and the reservation limit to the whole (review
-// finding: arrays of one-member objects reserved up to 17.6 times the raw
-// limit).
+// backing array (a one-member object holds 336 bytes, of which the decoder
+// charges 80, so valid arrays of small objects held up to 3.8 times the
+// reservation); the scan adds both, and the rounding of every string to its
+// allocation size class (mapExtra, arrayExtra and stringExtra, measured
+// within 1% on Go 1.26 and 1.27), so the reservation covers the decoded
+// tree, measured exactly (TestHandleReservesDecodedMaps). The decoded
+// limit, filter.DecodedLimitFactor times the raw limit, still applies to
+// the decoder's charge, and the reservation limit to the whole (without it,
+// arrays of one-member objects reserved up to 17.6 times the raw limit).
 //
-// The measured fit at the 10 MiB default (architecture R-77: typical
-// records fit up to about 70 to 84% of the limit, dense enum, union,
-// numeric and uniqueItems arrays less, and operators raise
-// maxRequestBodyBytes on Routes that validate them), each the largest
-// valid body of its shape that passed, as measured, with the limit that
-// stopped the next (TestHandleAcceptsLargeBodies and TestHandleMeasuredFit
-// pin that each passes, within a few percent of its fraction, and reserves
-// what the model charges; TestHandleFitEdges the counts; and
+// The measured fit at the 10 MiB default (typical records fit up to about
+// 70 to 84% of the limit, dense enum, union, numeric and uniqueItems
+// arrays less, and operators raise maxRequestBodyBytes on Routes that
+// validate them), each the largest valid body of its shape that passed, as
+// measured, with the limit that stopped the next
+// (TestHandleAcceptsLargeBodies and TestHandleMeasuredFit pin that each
+// passes, within a few percent of its fraction, and reserves what the
+// model charges; TestHandleFitEdges the counts; and
 // TestHandleReservationLimit the reservation limit):
 //
 //   - arrays of tags under maxLength, of strings under a pattern, and long
@@ -458,30 +449,29 @@
 //   - an array of two-letter codes under a 250-value enum: 34%, at the work
 //     limit; dense arrays of one-character enum values, which may each hold
 //     an error: 31%, at the working-set limit;
-//   - dense numeric arrays (minor review finding): decimals under a
-//     minimum and a maximum, 53%, and prices under multipleOf 0.01, 69%,
-//     at the working-set limit (under a divisor of a thousand digits such
-//     as 1e-1000 about 10%, at the work limit); pairs of a
-//     timestamp and a value under prefixItems, 63%, at the decoded limit;
-//     longitude and latitude pairs, each bounded and counted by minItems
-//     and maxItems, 38%, at the working-set limit; a time series of objects
-//     of two numbers under required and additionalProperties false, 52%,
-//     at the reservation limit;
-//   - uniqueItems arrays (minor review findings): of integer ids, 33%, of
-//     short string tags, 42%, of distinct prices, 37%, and of bounded
-//     three-decimal readings, 21%, all at the working-set limit (the
-//     duplicates map; a decimal is charged only the numbers whose bytes
-//     can hash alike, hashColliders, where every split of its bytes held
-//     such arrays to 10 to 12%, at the work limit); of objects, about
-//     6,500 of two string members (2.1%) or 1,700 of one number member
-//     (0.19%), at the work limit, every pair being charged a comparison;
+//   - dense numeric arrays: decimals under a minimum and a maximum, 53%,
+//     and prices under multipleOf 0.01, 69%, at the working-set limit
+//     (under a divisor of a thousand digits such as 1e-1000 about 10%, at
+//     the work limit); pairs of a timestamp and a value under prefixItems,
+//     63%, at the decoded limit; longitude and latitude pairs, each bounded
+//     and counted by minItems and maxItems, 38%, at the working-set limit;
+//     a time series of objects of two numbers under required and
+//     additionalProperties false, 52%, at the reservation limit;
+//   - uniqueItems arrays: of integer ids, 33%, of short string tags, 42%,
+//     of distinct prices, 37%, and of bounded three-decimal readings, 21%,
+//     all at the working-set limit (the duplicates map; a decimal is
+//     charged only the numbers whose bytes can hash alike, hashColliders,
+//     where every split of its bytes held such arrays to 10 to 12%, at the
+//     work limit); of objects, about 6,500 of two string members (2.1%) or
+//     1,700 of one number member (0.19%), at the work limit, every pair
+//     being charged a comparison;
 //   - arrays of events under an 8-way and a 20-way oneOf of object variants:
 //     32% and 13.6%, at the working-set limit, every failing variant being
 //     charged its member's errors;
 //   - arrays of orders composed with allOf of a base and their own
 //     properties under unevaluatedProperties false: 56%, at the
-//     working-set limit (the minor review finding measured 38% for the
-//     composition nested in orders and their lines);
+//     working-set limit (38% for the composition nested in orders and their
+//     lines);
 //   - arrays of records whose required member an if, then and else chooses
 //     by kind: 62%, at the reservation limit;
 //   - a JSON Patch (RFC 6902), a oneOf of three kinds of operation: 38%,
@@ -495,32 +485,30 @@
 //     working-set limit, the states of a recursion through four or three
 //     alternatives growing with the nesting.
 //
-// For records and arrays of small objects, the heap at Handle's peak
-// stayed within about 1.25 times the reservation, the excess being the
-// collector's pacing; the decoder leaves the tables a wide object's map
-// outgrew, and the backing arrays an array of short strings outgrew, to the
-// collector before anything is reserved, so their peaks reached about 1.8
-// and 1.6 times it. For unions and recursive documents the reservation is
-// 3.5 to 11 times the peak at the sizes above, and up to about 70 times
-// for small deeply nested ones. Under 07 req 84 the 1 KiB order of
-// BenchmarkValidate1KiB takes about 90 µs on that machine, above the 25
-// µs p50 target (an Open question, architecture R-77); the library's
-// validation is two thirds of it.
+// For records and arrays of small objects, the heap at Handle's peak stayed
+// within about 1.25 times the reservation, the excess being the collector's
+// pacing; the decoder leaves the tables a wide object's map outgrew, and
+// the backing arrays an array of short strings outgrew, to the collector
+// before anything is reserved, so their peaks reached about 1.8 and 1.6
+// times it. For unions and recursive documents the reservation is 3.5 to 11
+// times the peak at the sizes above, and up to about 70 times for small
+// deeply nested ones. The 1 KiB order of BenchmarkValidate1KiB takes about
+// 90 µs on that machine, above the 25 µs p50 target (an Open question); the
+// library's validation is two thirds of it.
 //
 // # Work bound
 //
 // The library takes no context, so validation cannot be stopped once it
-// starts (07 section 9 item 21), and its work grows with the values as
-// well as with the evaluations: every evaluation at an object loops over
-// all its members and looks their names up, hashing them whole, every
-// evaluation at a string copies it and a pattern scans it, const and enum
-// compare whole values and parse numbers with math/big, the unevaluated
-// copies grow with the members or items and their names, uniqueItems
-// hashes every value below the array and compares the items that share a
-// hash, and multipleOf divides with math/big. The same walk therefore sums
-// an upper bound of the work, in work units of about a nanosecond of the
-// library on that machine, each term measured and rounded up by at least a
-// quarter:
+// starts, and its work grows with the values as well as with the
+// evaluations: every evaluation at an object loops over all its members and
+// looks their names up, hashing them whole, every evaluation at a string
+// copies it and a pattern scans it, const and enum compare whole values and
+// parse numbers with math/big, the unevaluated copies grow with the members
+// or items and their names, uniqueItems hashes every value below the array
+// and compares the items that share a hash, and multipleOf divides with
+// math/big. The same walk therefore sums an upper bound of the work, in
+// work units of about a nanosecond of the library on that machine, each
+// term measured and rounded up by at least a quarter:
 //
 //   - per evaluation 384, per keyword that can fail 320 (type, const and
 //     enum count once), per name of a list 32, and 1 per 8 bytes of the
@@ -537,9 +525,9 @@
 //     the member count (sorting the names), and once per uniqueItems
 //     comparison; and per 8 bytes of the object's longest name, 1 per
 //     const or enum object compared with it, which stops at the first name
-//     it lacks (review finding: none of these grew with the name, so a 10
-//     MiB name under 3,200 lookups or a 4,000-link unevaluated chain was
-//     hashed for 1.35 to 3.2 s charged a few milliseconds);
+//     it lacks (when none of these grew with the name, a 10 MiB name under
+//     3,200 lookups or a 4,000-link unevaluated chain was hashed for 1.35
+//     to 3.2 s charged a few milliseconds);
 //   - per byte of a string, 1 per evaluation at it, 2 more per evaluation
 //     with minLength or maxLength, which counts its runes, 1 per
 //     uniqueItems pass that hashes it, and per pattern 16 plus 16 per
@@ -561,9 +549,9 @@
 //     d, and 1 per 128 of the digit products a*b, c*d and (a+b)*(c+d),
 //     the divisor's parts counted with its schema (measured on 1,500
 //     random pairs within the number bounds, 0.25 to 26 µs, each at least
-//     40% under the model; review finding: charged as one parse of the
-//     body literal, 806,202 short decimals against a divisor of 127 bytes
-//     took 6.0 to 6.5 s, over twice the bound below);
+//     40% under the model; charged as one parse of the body literal,
+//     806,202 short decimals against a divisor of 127 bytes took 6.0 to
+//     6.5 s, over twice the bound below);
 //   - per value below a uniqueItems array, a hashing pass (384) and its
 //     comparisons: up to 20 items every pair, past that the items sharing
 //     its item's hash, which the library's hash allows for any array or
@@ -579,8 +567,8 @@
 //   - apart, per error unit of the location pass, its walk over the error
 //     tree for the first failing leaf: 192 plus 2 per byte of the longest
 //     location and keyword an error of the document may name (walkWork;
-//     review finding: the walk reads every leaf's location, so a 160 KB
-//     body failing under a 250,000-byte $defs name held Handle for 23 s).
+//     the walk reads every leaf's location, so a 160 KB body failing under
+//     a 250,000-byte $defs name held Handle for 23 s).
 //
 // A body whose work is over WorkPerByte (256) work units per byte of
 // limits.maxRequestBodyBytes is filter.ErrTooLarge (413 RZ-RT-003), and
@@ -605,7 +593,7 @@
 // crafted to share one hash under uniqueItems, each of which takes seconds
 // or grows with the square of the array (TestHandleWorkBound,
 // TestUniqueItemsComparisons); so is a valid uniqueItems array of more
-// than about 1,700 to 6,500 objects (architecture R-77; "Working set").
+// than about 1,700 to 6,500 objects ("Working set").
 //
 // # Number bounds
 //
@@ -629,15 +617,14 @@
 // of four lists of names for uniqueItems, the type list, required, and
 // every list of dependentRequired and of dependencies, every pair of up to
 // 20 entries and past that every entry once for its hash, before it checks
-// that each is a string (review finding: 20 literals of exponent 999,999
-// in a 241-byte type list compiled for 11 s, and 21 that math/big refuses
-// made it panic). Such an entry that is not a string is refused at the
-// walk, with the meta-schema's own message, at every schema position the
-// library compiles or checks (below additionalItems only where it compiles
-// one), so it never compares one: a number, and arrays and objects, whose
-// comparison its hash does not bound. Both bounds admit every IEEE 754
-// double and integers far beyond 64 bits, so 07 req 80 ("large integers
-// validate exactly") still holds.
+// that each is a string (20 literals of exponent 999,999 in a 241-byte type
+// list compiled for 11 s, and 21 that math/big refuses made it panic). Such
+// an entry that is not a string is refused at the walk, with the
+// meta-schema's own message, at every schema position the library compiles
+// or checks (below additionalItems only where it compiles one), so it never
+// compares one: a number, and arrays and objects, whose comparison its hash
+// does not bound. Both bounds admit every IEEE 754 double and integers far
+// beyond 64 bits, so large integers still validate exactly.
 //
 // The package never logs, starts no goroutine and reads no clock. It
 // builds for 64-bit platforms only, the only ones Ruralz ships (ADR-0001):

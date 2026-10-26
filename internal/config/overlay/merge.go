@@ -129,8 +129,8 @@ func (m *merger) normalize(ov *tree.Node, static *schemaidx.Node, path diag.Path
 
 // wholeListEntry reports a $patch member of e, an object element of a
 // list the overlay replaces whole (set, atomic or without x-ruralz-list),
-// as RZ-CFG-005 (01 req 25) and removes it. It returns false when e held
-// only the directive, which is then dropped from the list.
+// as RZ-CFG-005 and removes it. It returns false when e held only the
+// directive, which is then dropped from the list.
 func (m *merger) wholeListEntry(e *tree.Node, list *schemaidx.Node, ep diag.Path) bool {
 	j := slices.IndexFunc(e.Members, func(mem tree.Member) bool { return mem.Key == PatchKey })
 	if j < 0 {
@@ -173,13 +173,13 @@ type pendingMember struct {
 	ov   *tree.Node
 }
 
-// mergeMap merges overlay object ov into base object b (01 req 25):
-// members merge recursively, an overlay scalar or non-keyed list wins, an
-// overlay null removes the member, and new members are appended in
-// overlay order. Scalars and removals apply first, so the dispatch that
-// selects the composite members' schemas (a Policy config by spec.type)
-// reads the merged object. An overlay scalar equal to the base scalar
-// keeps the base node and its position.
+// mergeMap merges overlay object ov into base object b: members merge
+// recursively, an overlay scalar or non-keyed list wins, an overlay null
+// removes the member, and new members are appended in overlay order.
+// Scalars and removals apply first, so the dispatch that selects the
+// composite members' schemas (a Policy config by spec.type) reads the
+// merged object. An overlay scalar equal to the base scalar keeps the
+// base node and its position.
 func (m *merger) mergeMap(b, ov *tree.Node, static *schemaidx.Node, path diag.Path) *tree.Node {
 	var todo []pendingMember
 	for _, om := range ov.Members {
@@ -227,9 +227,9 @@ func (m *merger) mergeMap(b, ov *tree.Node, static *schemaidx.Node, path diag.Pa
 }
 
 // misplaced reports a $patch member of an overlay object outside a
-// keyed-list entry (RZ-CFG-005, 01 req 25). static is nil in free
-// content, whose $patch is no more data than anywhere else: the
-// directive is valid only in overlays and only where 01 req 25 places it.
+// keyed-list entry (RZ-CFG-005). static is nil in free content, whose
+// $patch is no more data than anywhere else: the directive is valid only in
+// overlays and only where CM "Overlays" places it.
 func (m *merger) misplaced(p tree.Pos, path diag.Path, static *schemaidx.Node) {
 	hint := "delete a keyed-list entry with {<key>: <value>, $patch: delete}; remove or replace a resource with the " +
 		PatchAnnotation + " annotation"
@@ -240,11 +240,11 @@ func (m *merger) misplaced(p tree.Pos, path diag.Path, static *schemaidx.Node) {
 }
 
 // mergeKeyed merges overlay list ov into base list b, both map or
-// orderedMap lists keyed by the list's key field (01 req 25): entries
-// matched by key merge recursively in place, new entries are appended in
-// overlay order, {<key>: v, $patch: delete} removes the entry (absent
-// key: no-op), and {$patch: replace} as the first element of an
-// orderedMap list makes the result the remaining overlay entries in order.
+// orderedMap lists keyed by the list's key field: entries matched by key
+// merge recursively in place, new entries are appended in overlay order,
+// {<key>: v, $patch: delete} removes the entry (absent key: no-op), and
+// {$patch: replace} as the first element of an orderedMap list makes the
+// result the remaining overlay entries in order.
 func (m *merger) mergeKeyed(b, ov *tree.Node, list *schemaidx.Node, path diag.Path) *tree.Node {
 	lt, key := list.List()
 	item := itemSchema(list)
@@ -381,9 +381,10 @@ func scalarText(n *tree.Node) string {
 	}
 }
 
-// checkBase reports every $patch member of a base document (RZ-CFG-006,
-// 01 req 25), free content included; only the JSONSchemaDocument value
-// is skipped. It keeps one path stack and copies it only to report.
+// checkBase reports every $patch member of a base document
+// (RZ-CFG-006), free content included; only the JSONSchemaDocument
+// value is skipped. It keeps one path stack and copies it only to
+// report.
 func (m *merger) checkBase(n *tree.Node, static *schemaidx.Node) {
 	if opaque(static) {
 		return

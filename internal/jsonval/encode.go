@@ -19,13 +19,13 @@ type Order uint8
 // Member orders.
 const (
 	// OrderBytes writes members by ascending byte order of their names,
-	// whatever their order in the tree (07 req 60).
+	// whatever their order in the tree.
 	OrderBytes Order = iota
 	// OrderInsertion writes *Object members in their order; map[string]any
 	// members, which have none, fall back to OrderBytes.
 	OrderInsertion
 	// OrderUTF16 writes members by ascending UTF-16 code units of their
-	// names, the RFC 8785 order (02 req 24).
+	// names, the RFC 8785 order.
 	OrderUTF16
 )
 
@@ -35,18 +35,17 @@ type NumberForm uint8
 // Number forms.
 const (
 	// NumbersVerbatim writes a json.Number as its literal (checked against
-	// the grammar), Go integers in decimal and Go floats with AppendFloat
-	// (07 req 60).
+	// the grammar), Go integers in decimal and Go floats with AppendFloat.
 	NumbersVerbatim NumberForm = iota
 	// NumbersCanonical writes every number in the RFC 8785 form: literals
 	// through AppendCanonicalNumber, Go integers within ±MaxSafeInteger in
 	// decimal (others are ErrNumberRange, since a double would round them)
-	// and Go floats with AppendFloat (02 req 16, 24).
+	// and Go floats with AppendFloat.
 	NumbersCanonical
 )
 
 // EncodeOptions configures an Encoder. The zero value is the transform
-// form of 07 req 60.
+// form.
 type EncodeOptions struct {
 	// Order is the object member order.
 	Order Order
@@ -54,12 +53,12 @@ type EncodeOptions struct {
 	Numbers NumberForm
 	// MaxBytes, when positive, limits the bytes one Append call adds:
 	// encoding stops with ErrOutputTooLarge as soon as the output would
-	// pass it, so an output cap (07 req 70; 05 req 47) is enforced without
-	// building the oversized body first. Strings, member names, number
-	// literals and the opening bracket of every array and object are
-	// refused before they are written, escapes are checked as they are
-	// written, and other tokens add at most a few dozen bytes, so a refused
-	// Append leaves at most MaxBytes plus that much in dst.
+	// pass it, so an output cap is enforced without building the oversized
+	// body first. Strings, member names, number literals and the opening
+	// bracket of every array and object are refused before they are
+	// written, escapes are checked as they are written, and other tokens
+	// add at most a few dozen bytes, so a refused Append leaves at most
+	// MaxBytes plus that much in dst.
 	MaxBytes int
 }
 
@@ -76,7 +75,7 @@ const maxEncodeDepth = MaxDepthLimit
 // allocates nothing beyond the growth of dst; an *Object already in the
 // output order is not sorted at all. Each Append drops sort scratch over
 // about 64 KiB, so a pooled Encoder never pins scratch sized by the largest
-// object it wrote (07 req 73).
+// object it wrote.
 type Encoder struct {
 	// Options selects member order, number form and output limit.
 	Options EncodeOptions
@@ -85,15 +84,14 @@ type Encoder struct {
 	limit   int
 }
 
-// Append appends v in the transform form (OrderBytes, NumbersVerbatim; 07
-// req 60).
+// Append appends v in the transform form (OrderBytes, NumbersVerbatim).
 func Append(dst []byte, v any) ([]byte, error) {
 	var e Encoder
 	return e.Append(dst, v)
 }
 
 // AppendCanonical appends v in the RFC 8785 form (OrderUTF16,
-// NumbersCanonical; 02 req 24, 25).
+// NumbersCanonical).
 func AppendCanonical(dst []byte, v any) ([]byte, error) {
 	e := Encoder{Options: EncodeOptions{Order: OrderUTF16, Numbers: NumbersCanonical}}
 	return e.Append(dst, v)
@@ -110,8 +108,8 @@ func (e *Encoder) Append(dst []byte, v any) ([]byte, error) {
 	return dst, err
 }
 
-// Encoder scratch bounds (07 req 73): position and key entries kept for
-// reuse, about maxScratch bytes each.
+// Encoder scratch bounds: position and key entries kept for reuse,
+// about maxScratch bytes each.
 const (
 	maxScratchIdx  = maxScratch / 8
 	maxScratchKeys = maxScratch / 16
@@ -356,8 +354,8 @@ const hexDigits = "0123456789abcdef"
 // '\\' are escaped, U+0008, U+0009, U+000A, U+000C and U+000D use their
 // short escapes, other characters below U+0020 use \u00xx with lowercase
 // hex, and everything else, including '/', U+007F, U+2028 and U+2029, is
-// written as it is. This is both the 07 req 60 and the RFC 8785 string
-// form. Invalid UTF-8 in s is ErrInvalidUTF8.
+// written as it is. This is both the Append and the RFC 8785 string form.
+// Invalid UTF-8 in s is ErrInvalidUTF8.
 func AppendString(dst []byte, s string) ([]byte, error) {
 	return appendString(dst, s, math.MaxInt)
 }

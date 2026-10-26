@@ -12,7 +12,7 @@ import (
 )
 
 // openLocked opens a fresh data directory and takes its lock, skipping
-// where flock is unsupported (R-60).
+// where flock is unsupported.
 func openLocked(t *testing.T) (*Dir, *Lock) {
 	t.Helper()
 	d, err := Open(filepath.Join(t.TempDir(), "data"))
@@ -30,9 +30,9 @@ func openLocked(t *testing.T) (*Dir, *Lock) {
 	return d, lk
 }
 
-// TestTryLockSameProcess covers spec 04 requirement 7 and test plan item 3:
-// a second TryLock in the same process (a separate open file description)
-// fails with ErrLocked; Release lets it succeed; the lock file is 0600.
+// TestTryLockSameProcess: a second TryLock in the same process (a separate
+// open file description) fails with ErrLocked; Release lets it succeed;
+// the lock file is 0600.
 func TestTryLockSameProcess(t *testing.T) {
 	d, lk := openLocked(t)
 	assertPerm(t, d.LockPath(), 0o600)
@@ -58,9 +58,8 @@ func TestTryLockSameProcess(t *testing.T) {
 	}
 }
 
-// TestNoWriteAfterRelease covers spec 04 requirement 7: the holder never
-// writes holder.json or under lkg/ after releasing the lock at Drain
-// start, and Release is idempotent.
+// TestNoWriteAfterRelease: the holder never writes holder.json or under
+// lkg/ after releasing the lock at Drain start, and Release is idempotent.
 func TestNoWriteAfterRelease(t *testing.T) {
 	d, lk := openLocked(t)
 	if err := lk.Release(); err != nil {
@@ -108,7 +107,7 @@ func TestReleaseKeepsForeignHolder(t *testing.T) {
 }
 
 // TestLockWriteFile covers holder-only writes under the data directory
-// (Last-Known-Good, spec 04 requirement 7).
+// (Last-Known-Good).
 func TestLockWriteFile(t *testing.T) {
 	d, lk := openLocked(t)
 	if err := lk.WriteFile("lkg/lkg.json", []byte(`{"a":1}`)); err != nil {

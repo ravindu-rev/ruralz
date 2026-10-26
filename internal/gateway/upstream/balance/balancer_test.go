@@ -49,8 +49,8 @@ func TestNewErrors(t *testing.T) {
 	}
 }
 
-// TestRemovedExcludedUntilRebuild covers 05 req 16: an Endpoint removed from
-// the set counts as excluded at once, the structure rebuilds only after
+// TestRemovedExcludedUntilRebuild covers an Endpoint removed from the set:
+// it counts as excluded at once, the structure rebuilds only after
 // RebuildInterval, and the remap follows the current list's indices.
 func TestRemovedExcludedUntilRebuild(t *testing.T) {
 	for _, alg := range allAlgorithms {
@@ -105,9 +105,9 @@ func TestRemovedExcludedUntilRebuild(t *testing.T) {
 	}
 }
 
-// TestStaleRingMatchesRebuild covers ring stability under churn (WP-22
-// "Done when"): until the rebuild, the stale ring walking past a removed
-// Endpoint answers every key exactly as the rebuilt ring does.
+// TestStaleRingMatchesRebuild covers ring stability under churn: until the
+// rebuild, the stale ring walking past a removed Endpoint answers every key
+// exactly as the rebuilt ring does.
 func TestStaleRingMatchesRebuild(t *testing.T) {
 	full := eps(10, ones)
 	b := mustNew(t, Config{Algorithm: RingHash, VirtualNodes: 128, Endpoints: full})
@@ -137,9 +137,9 @@ func TestStaleRingMatchesRebuild(t *testing.T) {
 	}
 }
 
-// TestAddedJoinAtRebuild covers 05 req 16: new Endpoints wait for the
-// rebuild, except that when the structure has nothing as good the current
-// set decides, so a healthy newcomer beats panic mode.
+// TestAddedJoinAtRebuild covers new Endpoints: they wait for the rebuild,
+// except that when the structure has nothing as good the current set
+// decides, so a healthy newcomer beats panic mode.
 func TestAddedJoinAtRebuild(t *testing.T) {
 	old := eps(3, ones)
 	grown := eps(4, ones) // adds ep-00003
@@ -172,9 +172,9 @@ func TestAddedJoinAtRebuild(t *testing.T) {
 
 // TestUrgentRebuilds covers the rebuilds that do not wait for the interval:
 // the first structure over a set that was empty from the start, and a plan
-// that shrinks the ring or starts a fallback (05 req 17 "lower v at once").
-// A full replacement of the set waits like any other change (05 req 16),
-// the current set's table serving meanwhile.
+// that shrinks the ring or starts a fallback (v is lowered at once).
+// A full replacement of the set waits like any other change, the current
+// set's table serving meanwhile.
 func TestUrgentRebuilds(t *testing.T) {
 	ctx := context.Background()
 	b := mustNew(t, Config{Algorithm: RingHash, VirtualNodes: 256})
@@ -269,8 +269,8 @@ func TestUrgentRebuilds(t *testing.T) {
 	}
 }
 
-// TestHealthNeverRebuilds covers 05 req 16: selections with any grades
-// leave the structure current.
+// TestHealthNeverRebuilds covers health changes: selections with any
+// grades leave the structure current.
 func TestHealthNeverRebuilds(t *testing.T) {
 	b := mustNew(t, Config{Algorithm: RoundRobin, Endpoints: eps(3, ones)})
 	for _, grades := range [][]Grade{{Down, Down, Down}, {Avoided, Eligible, Down}} {
@@ -332,8 +332,8 @@ func TestWeightChanges(t *testing.T) {
 	}
 }
 
-// TestSelectRandom covers 05 req 14's hashKey runtime error: a weighted
-// random Endpoint of the current set, graded like Select.
+// TestSelectRandom covers a hashKey runtime error: a weighted random
+// Endpoint of the current set, graded like Select.
 func TestSelectRandom(t *testing.T) {
 	list := eps(4, u32) // weights 0, 1, 2, 3
 	b := mustNew(t, Config{Algorithm: RingHash, VirtualNodes: 64, Endpoints: list})
@@ -354,9 +354,8 @@ func TestSelectRandom(t *testing.T) {
 	}
 }
 
-// TestRebuildGate covers 05 req 16's "at most 8 builds at a time per Node":
-// a full gate holds Rebuild until ctx ends, and concurrent Rebuild calls
-// build once.
+// TestRebuildGate covers at most 8 builds at a time per Node: a full gate
+// holds Rebuild until ctx ends, and concurrent Rebuild calls build once.
 func TestRebuildGate(t *testing.T) {
 	gate := NewBuildGate(0)
 	for range MaxConcurrentBuilds {
@@ -430,7 +429,7 @@ func TestGateAcquire(t *testing.T) {
 	}
 }
 
-// TestRemap covers the identity merge behind 05 req 16's stale structures:
+// TestRemap covers the identity merge behind stale structures:
 // removed and newly zero-weight Endpoints map to -1, insertions anywhere in
 // the order count as added, and an unchanged list needs no map.
 func TestRemap(t *testing.T) {

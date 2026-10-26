@@ -22,12 +22,12 @@ type Forwarding struct {
 	Scheme string
 	// Host is the client request authority (Request.Host), which the
 	// Upstream receives in X-Forwarded-Host because Host carries the
-	// Endpoint authority (R-28).
+	// Endpoint authority.
 	Host string
 }
 
 // Rewrite sets the forwarding fields of h, the header of an outgoing
-// Upstream request, from f (04 req 18, 06 req 63):
+// Upstream request, from f:
 //
 //   - Untrusted peer: X-Forwarded-For is overwritten with the peer address,
 //     X-Forwarded-Proto with the scheme, X-Forwarded-Host with the host, and

@@ -11,21 +11,20 @@ import (
 	"sync/atomic"
 )
 
-// Grade ranks an Endpoint for one attempt by 05 req 11 steps (b) and (c).
-// Lower is better; selection returns an Endpoint of the lowest grade
-// present.
+// Grade ranks an Endpoint for one attempt by health and avoidance. Lower
+// is better; selection returns an Endpoint of the lowest grade present.
 type Grade uint8
 
 // Grades in order of preference.
 const (
 	// Eligible: neither Down nor Avoided.
 	Eligible Grade = iota
-	// Avoided: healthy, but already tried in this leg, suspect (05 req 21)
-	// or at its in-flight cap (05 req 36); used only when every healthy
-	// Endpoint is Avoided (step c "while another remains").
+	// Avoided: healthy, but already tried in this leg, suspect or at its
+	// in-flight cap; used only when every healthy Endpoint is Avoided
+	// (avoided while another remains).
 	Avoided
 	// Down: passively ejected or actively unhealthy; used only when every
-	// Endpoint is Down (step b panic mode).
+	// Endpoint is Down (panic mode).
 	Down
 	// DownAvoided: Down and Avoided; the last resort in panic mode.
 	DownAvoided
@@ -33,12 +32,11 @@ const (
 
 // gone marks an Endpoint of a structure that has left the current set, or
 // whose weight dropped to 0, since the structure was built: it counts as
-// excluded until the rebuild and is never picked (05 req 16).
+// excluded until the rebuild and is never picked.
 const gone Grade = 0xff
 
-// GradeOf combines the two tests of 05 req 11: down is step (b) (passively
-// ejected or actively unhealthy), avoid is step (c) (tried in this leg,
-// suspect or capped).
+// GradeOf combines the two tests: down means passively ejected or actively
+// unhealthy, avoid means tried in this leg, suspect or capped.
 func GradeOf(down, avoid bool) Grade {
 	g := Eligible
 	if avoid {
@@ -63,8 +61,8 @@ type View interface {
 	Grade(i int) Grade
 	// Load is Endpoint i's least-request load: in-flight attempts (the whole
 	// attempt, response body streaming included) plus attempts that matched
-	// failureWhen in the last second (05 req 13). Only least-request reads
-	// it; negative values count as 0.
+	// failureWhen in the last second. Only least-request reads it; negative
+	// values count as 0.
 	Load(i int) int64
 }
 
@@ -73,17 +71,17 @@ type Choice struct {
 	// Index is the chosen Endpoint's position in the list of the Set (or
 	// Picker) that selected it.
 	Index int
-	// Grade is the chosen Endpoint's grade: above Eligible when step (c) or
-	// panic mode had to relax.
+	// Grade is the chosen Endpoint's grade: above Eligible when avoidance
+	// or panic mode had to relax.
 	Grade Grade
 }
 
 // Panic reports whether no healthy Endpoint remained, so the choice came
-// from panic mode (05 req 11 step b).
+// from panic mode.
 func (c Choice) Panic() bool { return c.Grade >= Down }
 
 // Relaxed reports whether every usable Endpoint was tried, suspect or
-// capped, so step (c) let an Avoided Endpoint through.
+// capped, so selection let an Avoided Endpoint through.
 func (c Choice) Relaxed() bool { return c.Grade&Avoided != 0 }
 
 // grader maps structure indices to current indices and grades them.
@@ -124,7 +122,7 @@ func (g *grader) load(i int) uint64 {
 	return uint64(max(g.view.Load(g.index(i)), 0))
 }
 
-// vnode is one ring virtual node (16 bytes, 05 req 14).
+// vnode is one ring virtual node (16 bytes).
 type vnode struct {
 	pos uint64
 	idx uint32
@@ -177,12 +175,11 @@ func build(alg Algorithm, eps []Endpoint, v int, seed uint64) *Picker {
 	return p
 }
 
-// BuildRoundRobin builds a round-robin schedule over eps (in any order):
-// L = min(65,536, 64 × E) slots of uint32 Endpoint indices (one per Endpoint
+// BuildRoundRobin builds a round-robin schedule over eps (in any order): L =
+// min(65,536, 64 × E) slots of uint32 Endpoint indices (one per Endpoint
 // beyond 65,536 Endpoints), weights normalized to n_i = max(1, round(w_i × L
 // / Σw)) apportioned to exactly L (see quotas) and interleaved earliest
-// deadline first; the cursor starts at seed modulo the schedule length (05
-// req 12).
+// deadline first; the cursor starts at seed modulo the schedule length.
 func BuildRoundRobin(eps []Endpoint, seed uint64) *Picker {
 	return build(RoundRobin, Normalize(eps), 0, seed)
 }
@@ -190,19 +187,18 @@ func BuildRoundRobin(eps []Endpoint, seed uint64) *Picker {
 // BuildRing builds a ring-hash ring over eps (in any order) of L = min(65,536,
 // v × E) virtual nodes (v ≤ 0: MaxVirtualNodes), Endpoint i owning max(1,
 // round(L × w_i / Σw)) of them, apportioned to exactly L (see quotas), at
-// positions FNV-1a-64(identity + "#" + j) through the splitmix64 finalizer
-// for j = 0, 1, … (05 req 14). Two Nodes given the same set build identical
-// rings.
+// positions FNV-1a-64(identity + "#" + j) through the splitmix64 finalizer for
+// j = 0, 1, …. Two Nodes given the same set build identical rings.
 func BuildRing(eps []Endpoint, v int) *Picker {
 	return build(RingHash, Normalize(eps), v, 0)
 }
 
-// BuildLeastRequest builds the least-request table over eps (05 req 13).
+// BuildLeastRequest builds the least-request table over eps.
 func BuildLeastRequest(eps []Endpoint) *Picker {
 	return build(LeastRequest, Normalize(eps), 0, 0)
 }
 
-// BuildRandom builds the weighted random table over eps (05 req 15).
+// BuildRandom builds the weighted random table over eps.
 func BuildRandom(eps []Endpoint) *Picker {
 	return build(Random, Normalize(eps), 0, 0)
 }
@@ -280,8 +276,8 @@ func (h *edfHeap) pop() edfItem {
 }
 
 // buildSchedule fills the round-robin schedule by earliest deadline first
-// over the quotas (05 req 12): at slot t the released job (k/n ≤ t/S) with
-// the earliest deadline (k+1)/n runs. Releasing jobs no earlier than their
+// over the quotas: at slot t the released job (k/n ≤ t/S) with the
+// earliest deadline (k+1)/n runs. Releasing jobs no earlier than their
 // share keeps every Endpoint within one slot of its ideal count in every
 // prefix of the schedule, the smoothness the tests check. Two binary heaps
 // make it O(L log E).
@@ -316,8 +312,8 @@ func (p *Picker) buildSchedule(seed uint64) {
 	}
 }
 
-// buildRing fills and sorts the ring (05 req 14). The per-Endpoint table is
-// built too, for keyless picks.
+// buildRing fills and sorts the ring. The per-Endpoint table is built too,
+// for keyless picks.
 func (p *Picker) buildRing(v int) {
 	if v <= 0 {
 		v = MaxVirtualNodes
@@ -368,11 +364,10 @@ func (p *Picker) VirtualNodes() int { return p.v }
 // Slots returns the length of the round-robin schedule or of the ring.
 func (p *Picker) Slots() int { return max(len(p.sched), len(p.ring)) }
 
-// Bytes returns the budgeted size of the structure (05 req 17): 4 bytes per
-// schedule slot, 16 bytes per ring virtual node, 8 bytes per Endpoint for
-// the random and least-request tables. Per-Endpoint side arrays (weights,
-// identities, a ring's keyless table) are linear in Endpoints and not
-// budgeted.
+// Bytes returns the budgeted size of the structure: 4 bytes per schedule
+// slot, 16 bytes per ring virtual node, 8 bytes per Endpoint for the random
+// and least-request tables. Per-Endpoint side arrays (weights, identities,
+// a ring's keyless table) are linear in Endpoints and not budgeted.
 func (p *Picker) Bytes() int64 {
 	switch p.alg {
 	case RoundRobin:
@@ -386,11 +381,11 @@ func (p *Picker) Bytes() int64 {
 }
 
 // Pick selects an Endpoint of the structure for one attempt: the lowest
-// grade present, found in the algorithm's own order (05 req 11 steps b to
-// d). key is the ring-hash key (HashKey of the hashKey value; other
-// algorithms ignore it); src supplies randomness (nil: the runtime
-// generator); view grades Endpoints by structure index (nil: all Eligible).
-// It returns false only when the structure holds no Endpoint.
+// grade present, found in the algorithm's own order. key is the ring-hash
+// key (HashKey of the hashKey value; other algorithms ignore it); src
+// supplies randomness (nil: the runtime generator); view grades Endpoints
+// by structure index (nil: all Eligible). It returns false only when the
+// structure holds no Endpoint.
 func (p *Picker) Pick(key uint64, src rand.Source, view View) (Choice, bool) {
 	g := grader{view: view}
 	i, gr, ok := p.pick(key, source(src), &g)
@@ -488,12 +483,12 @@ func wrap(start, k, n int) int {
 }
 
 // walkFrom walks the schedule or ring forward from slot start for at most
-// one pass and returns the first Endpoint of the lowest grade present (05
-// reqs 12 and 14). A probe grades up to probeGrades Endpoints and serves
-// every pick that meets an Eligible one; otherwise a linear pass finds the
-// lowest grade present: if the probe already holds it the walk ends, else
-// it resumes where the probe stopped and ends at the first slot of that
-// grade. The answer is the one of a full walk, at O(E) grades.
+// one pass and returns the first Endpoint of the lowest grade present. A
+// probe grades up to probeGrades Endpoints and serves every pick that
+// meets an Eligible one; otherwise a linear pass finds the lowest grade
+// present: if the probe already holds it the walk ends, else it resumes
+// where the probe stopped and ends at the first slot of that grade. The
+// answer is the one of a full walk, at O(E) grades.
 func (p *Picker) walkFrom(start int, g *grader) (int, Grade, bool) {
 	n := p.Slots()
 	w := walk{g: g, best: -1, bestG: gone, last: -1, live: p.live, track: len(p.ids) <= seenCap}
@@ -565,8 +560,8 @@ func (p *Picker) resume(start, k int, low Grade, g *grader, best int, bestG Grad
 }
 
 // pickRoundRobin takes the slot at the shared cursor and walks forward past
-// slots of excluded Endpoints for at most one pass (05 req 12); if the pass
-// finds no Eligible Endpoint it takes the first of the lowest grade.
+// slots of excluded Endpoints for at most one pass; if the pass finds no
+// Eligible Endpoint it takes the first of the lowest grade.
 func (p *Picker) pickRoundRobin(g *grader) (int, Grade, bool) {
 	n := len(p.sched)
 	if n == 0 {
@@ -594,7 +589,7 @@ func (p *Picker) ringStart(key uint64) int {
 }
 
 // pickRing looks up the first position at or after key and walks forward
-// past excluded Endpoints for at most one full ring (05 req 14).
+// past excluded Endpoints for at most one full ring.
 func (p *Picker) pickRing(key uint64, g *grader) (int, Grade, bool) {
 	if len(p.ring) == 0 {
 		return -1, gone, false
@@ -603,7 +598,7 @@ func (p *Picker) pickRing(key uint64, g *grader) (int, Grade, bool) {
 }
 
 // draw returns a weighted random Endpoint: a uniform value in [0, Σw)
-// located by binary search over the cumulative weights (05 req 15).
+// located by binary search over the cumulative weights.
 func (p *Picker) draw(src rand.Source) int {
 	r := uint64n(src, p.total)
 	lo, hi := 0, len(p.cum)
@@ -619,8 +614,8 @@ func (p *Picker) draw(src rand.Source) int {
 }
 
 // pickRandom draws up to RejectionDraws weighted Endpoints and keeps the
-// first Eligible one; otherwise it scans the list (05 req 15). exclude, when
-// not -1, is never returned.
+// first Eligible one; otherwise it scans the list. exclude, when not -1, is
+// never returned.
 func (p *Picker) pickRandom(src rand.Source, g *grader, exclude int) (int, Grade, bool) {
 	if p.live == 0 {
 		return -1, gone, false
@@ -683,7 +678,7 @@ func (p *Picker) scan(src rand.Source, g *grader, exclude int, want Grade) (int,
 
 // pickLeastRequest draws two distinct candidates of the lowest grade by
 // weighted random and keeps the lower (in-flight + recent failures) ÷
-// weight, a tie going either way at random (05 req 13).
+// weight, a tie going either way at random.
 func (p *Picker) pickLeastRequest(src rand.Source, g *grader) (int, Grade, bool) {
 	a, ga, ok := p.pickRandom(src, g, -1)
 	if !ok || p.live == 1 {

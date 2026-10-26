@@ -17,10 +17,10 @@ import (
 	"github.com/ravindu-rev/ruralz/internal/statestore/statestoretest"
 )
 
-// Tests of the test kit itself (spec 08 section 6): the failure-injecting
-// Fake follows the pre-call order of spec 08 req 33 and the RZ-STS
-// failures of section 2.4, the Model follows reqs 41 to 43, and the
-// conformance suite passes through a Fake wrapping the memory driver.
+// Tests of the test kit itself: the failure-injecting Fake follows the
+// pre-call order and the RZ-STS failures, the Model follows the GCRA,
+// Quota reserve and Quota refund rules, and the conformance suite passes
+// through a Fake wrapping the memory driver.
 
 func start() time.Time { return time.Date(2026, 9, 26, 12, 0, 0, 0, time.UTC) }
 
@@ -107,9 +107,8 @@ func TestFakeDefaults(t *testing.T) {
 }
 
 func TestFakePreCallOrder(t *testing.T) {
-	// Spec 08 req 33 and the section 6.1 "Pre-call order" row:
-	// unsupported beats a spent budget, a spent budget beats an injected
-	// breaker, which beats a later in-flight rule.
+	// Pre-call order: unsupported beats a spent budget, a spent budget
+	// beats an injected breaker, which beats a later in-flight rule.
 	ctx := context.Background()
 	clk := clocktest.New(start())
 	spent := func() *statestore.RequestBudget {
@@ -149,7 +148,7 @@ func TestFakePreCallOrder(t *testing.T) {
 func TestFakeLatencyAndTimeout(t *testing.T) {
 	// A latency under the timeout is reported and advances the clock; at
 	// or above it the call fails with RZ-STS-001 at the timeout, and with
-	// Apply the store still charges it (spec 08 req 34).
+	// Apply the store still charges it.
 	ctx := context.Background()
 	clk := clocktest.New(start())
 	mem, err := memory.New(ctx, statestore.Config{}, statestore.Deps{Clock: clk}, memory.Options{})
@@ -304,9 +303,9 @@ func TestFakeAnswersAndWrites(t *testing.T) {
 }
 
 func TestFakeAnswerDenyStopsGroup(t *testing.T) {
-	// Spec 08 reqs 29, 38 and 44: a scripted deny ends a merged group as
-	// on the real drivers; later calls are not answered and stay !Done
-	// with a nil Err. A scripted allow answers the whole group.
+	// A scripted deny ends a merged group as on the real drivers; later
+	// calls are not answered and stay !Done with a nil Err. A scripted
+	// allow answers the whole group.
 	ctx := context.Background()
 	d := statestore.DigestOf("k")
 	cases := []struct {
@@ -353,10 +352,9 @@ func TestFakeAnswerDenyStopsGroup(t *testing.T) {
 }
 
 func TestFakeMergedTimeoutIsMin(t *testing.T) {
-	// Spec 08 req 29 and the section 6.1 grouping row: the merged round
-	// trip's timeout is the smallest of its calls', clamped by the
-	// per-request deadline (req 28); a zero anywhere leaves the group not
-	// attempted (RZ-STS-004) and charges nothing.
+	// The merged round trip's timeout is the smallest of its calls',
+	// clamped by the per-request deadline; a zero anywhere leaves the group
+	// not attempted (RZ-STS-004) and charges nothing.
 	ctx := context.Background()
 	clk := clocktest.New(start())
 	mem, err := memory.New(ctx, statestore.Config{}, statestore.Deps{Clock: clk}, memory.Options{})
@@ -413,9 +411,9 @@ func TestFakeMergedTimeoutIsMin(t *testing.T) {
 }
 
 func TestFakeSlotMerging(t *testing.T) {
-	// The Store contract merges adjacent calls by hash slot (spec 08 req
-	// 29): with Slot set, calls with different digests in one slot share a
-	// round trip as on the real drivers; without it only equal digests do.
+	// The Store contract merges adjacent calls by hash slot: with Slot
+	// set, calls with different digests in one slot share a round trip as
+	// on the real drivers; without it only equal digests do.
 	ctx := context.Background()
 	a := statestore.DigestOf("a")
 	var same, other statestore.Digest

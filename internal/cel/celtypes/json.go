@@ -230,10 +230,9 @@ func appendNativeList(dst []byte, l []any, depth int) ([]byte, error) {
 const hexDigits = "0123456789abcdef"
 
 // appendString appends s as a JSON string with the escaping of
-// jsonval.AppendString (07 req 60): '"' and '\\' escaped, the short escapes
-// for U+0008, U+0009, U+000A, U+000C and U+000D, \u00xx for the other
-// control characters, everything else as it is. Invalid UTF-8 wraps
-// ErrNotJSON.
+// jsonval.AppendString: '"' and '\\' escaped, the short escapes for U+0008,
+// U+0009, U+000A, U+000C and U+000D, \u00xx for the other control
+// characters, everything else as it is. Invalid UTF-8 wraps ErrNotJSON.
 func appendString(dst []byte, s string) ([]byte, error) {
 	dst = append(dst, '"')
 	start := 0

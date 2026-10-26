@@ -11,9 +11,9 @@ import (
 	"github.com/ravindu-rev/ruralz/pkg/config/v1alpha1"
 )
 
-// Defaults are the registry defaults of one Policy, materialized into
-// every Policy.spec that lacks them like schema defaults (01 req 36, 02 req
-// 12, foundation pack section 8.1).
+// Defaults are the registry defaults of one Policy, materialized into every
+// Policy.spec that lacks them like schema defaults (foundation pack section
+// 8.1).
 type Defaults struct {
 	// Slot is the registry slot, or the Policy's metadata.name for types
 	// whose slot is its name.
@@ -39,7 +39,7 @@ func (e Entry) Defaults(name string) Defaults {
 }
 
 // EffectiveSlot returns spec.slot when set, else the registry slot, else
-// the Policy's metadata.name (01 req 40).
+// the Policy's metadata.name.
 func (e Entry) EffectiveSlot(p *v1alpha1.Policy) string {
 	if p.Spec.Slot != "" {
 		return p.Spec.Slot
@@ -72,8 +72,7 @@ func (e Entry) EffectiveFailureMode(p *v1alpha1.Policy) v1alpha1.FailureMode {
 
 // ClosedOnlyFor reports whether failureMode open is RZ-CFG-029 for p:
 // auth.* (including auth.upstream-*), authz.*, and a plugin Policy whose
-// effective class is auth or authz (02 req 37, foundation pack section
-// 8.10).
+// effective class is auth or authz (foundation pack section 8.10).
 func (e Entry) ClosedOnlyFor(p *v1alpha1.Policy) bool {
 	if e.ClosedOnly {
 		return true
@@ -101,12 +100,11 @@ func (e Entry) AllowsFailureMode(p *v1alpha1.Policy, m v1alpha1.FailureMode) boo
 
 // Materialize writes the registry defaults p lacks into p.Spec (slot,
 // failureMode, filterClass) and reports whether it wrote any; authored
-// values are kept, so a second call writes nothing (01 req 36, 02 req 12).
-// An empty default slot (a type whose slot is its name, on a Policy
-// without metadata.name, which stage D rejects) is not written. A Policy
-// of an unregistered type is left alone. Stage G materializes the same
-// values into the positioned tree from Entry.Defaults; this form serves
-// typed callers.
+// values are kept, so a second call writes nothing. An empty default slot
+// (a type whose slot is its name, on a Policy without metadata.name, which
+// stage D rejects) is not written. A Policy of an unregistered type is
+// left alone. Stage G materializes the same values into the positioned
+// tree from Entry.Defaults; this form serves typed callers.
 func (r *Registry) Materialize(p *v1alpha1.Policy) bool {
 	e, ok := r.Lookup(p.Spec.Type)
 	if !ok {
@@ -151,17 +149,16 @@ func newDiagnostic(code string, p *v1alpha1.Policy, field, msg string) diag.Diag
 }
 
 // CheckFilterClass reports an authored spec.filterClass the registry
-// rejects, as RZ-CFG-005 at spec.filterClass (02 req 38, architecture
-// R-7): on a type other than plugin, any value other than the registry
-// class (restating it is accepted); on plugin, a value that is not one of
-// the nine Filter classes. An absent filterClass is always accepted. This
-// is the only filterClass rule: R-7 materializes filterClass on every
-// Policy, so it overrides the "filterClass only for plugin" reading of 01
-// J 39 and note 9, and stages G and H must not reject a non-plugin
-// Policy's filterClass that restates the registry class. The diagnostic
-// carries Resource, Path and Message; the caller adds the source
-// Location. An unregistered type yields no finding: the schema's
-// PolicyType enum reports it (RZ-CFG-005 at spec.type).
+// rejects, as RZ-CFG-005 at spec.filterClass: on a type other than plugin,
+// any value other than the registry class (restating it is accepted); on
+// plugin, a value that is not one of the nine Filter classes. An absent
+// filterClass is always accepted. This is the only filterClass rule:
+// filterClass is materialized on every Policy, not only on plugin, so
+// stages G and H must not reject a non-plugin Policy's filterClass that
+// restates the registry class. The diagnostic carries Resource, Path and
+// Message; the caller adds the source Location. An unregistered type yields
+// no finding: the schema's PolicyType enum reports it (RZ-CFG-005 at
+// spec.type).
 func (r *Registry) CheckFilterClass(p *v1alpha1.Policy) (diag.Diagnostic, bool) {
 	e, ok := r.Lookup(p.Spec.Type)
 	if !ok || p.Spec.FilterClass == nil {
@@ -184,10 +181,10 @@ func (r *Registry) CheckFilterClass(p *v1alpha1.Policy) (diag.Diagnostic, bool) 
 }
 
 // CheckFailureMode reports failureMode open on a closed-only Policy as
-// RZ-CFG-029 at spec.failureMode with the message of 02 req 37. Stage I
-// raises it once per Policy, attached or not (R-46). An absent failureMode
-// takes the registry default, which is always allowed. The caller adds
-// the source Location. An unregistered type yields no finding.
+// RZ-CFG-029 at spec.failureMode with the message. Stage I raises it once
+// per Policy, attached or not. An absent failureMode takes the registry
+// default, which is always allowed. The caller adds the source Location.
+// An unregistered type yields no finding.
 func (r *Registry) CheckFailureMode(p *v1alpha1.Policy) (diag.Diagnostic, bool) {
 	e, ok := r.Lookup(p.Spec.Type)
 	if !ok || p.Spec.FailureMode == nil {
@@ -201,10 +198,10 @@ func (r *Registry) CheckFailureMode(p *v1alpha1.Policy) (diag.Diagnostic, bool) 
 }
 
 // CheckServed reports a Policy whose type this release does not serve as
-// RZ-CFG-040 at spec.type (architecture section 0 item 8, R-7): plugin,
-// authz.opa, authz.cedar, authz.geoip, auth.upstream-sigv4 and ai.* in
-// M1. The caller adds the source Location. An unregistered type yields no
-// finding: the schema's PolicyType enum reports it.
+// RZ-CFG-040 at spec.type: plugin, authz.opa, authz.cedar, authz.geoip,
+// auth.upstream-sigv4 and ai.* in M1. The caller adds the source
+// Location. An unregistered type yields no finding: the schema's
+// PolicyType enum reports it.
 func (r *Registry) CheckServed(p *v1alpha1.Policy) (diag.Diagnostic, bool) {
 	e, ok := r.Lookup(p.Spec.Type)
 	if !ok || e.Served {

@@ -10,17 +10,17 @@ import (
 )
 
 // LevelEnv is the environment variable that fixes the process log level
-// (foundation pack section 2 "Env vars"; 09 req 64).
+// (foundation pack section 2 "Env vars").
 const LevelEnv = "RURALZ_LOG_LEVEL"
 
 // ErrLevel is wrapped by ParseLevel for a value outside debug, info, warn
 // and error. ruralzd refuses to start with exit code 2 on it.
 var ErrLevel = errors.New("allowed values are debug, info, warn and error")
 
-// ParseLevel maps a RURALZ_LOG_LEVEL value to a level (09 req 64): debug,
-// info, warn or error, spelled in lower case; the empty string (unset)
-// means info. The level is fixed for the process lifetime and never
-// depends on a Revision (OQ-observability-6 (a)).
+// ParseLevel maps a RURALZ_LOG_LEVEL value to a level: debug, info, warn
+// or error, spelled in lower case; the empty string (unset) means info.
+// The level is fixed for the process lifetime and never depends on a
+// Revision (OQ-observability-6 (a)).
 func ParseLevel(s string) (slog.Level, error) {
 	switch s {
 	case "debug":

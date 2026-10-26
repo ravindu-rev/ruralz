@@ -410,8 +410,8 @@ func (n *Node) Def() string {
 	return n.def
 }
 
-// Scalar returns the scalar definition the node's values normalize by
-// (02 req 15; 01 req 29 re-types ByteSize and IntOrString).
+// Scalar returns the scalar definition the node's values normalize by;
+// substitution re-types ByteSize and IntOrString values by it.
 func (n *Node) Scalar() Scalar {
 	if n == nil {
 		return ScalarNone
@@ -484,7 +484,7 @@ func (n *Node) PropertyNames() []string {
 }
 
 // Defaults iterates the declared members that carry a default, in name
-// order (01 req 36, 02 req 9).
+// order.
 func (n *Node) Defaults() iter.Seq2[string, *Node] {
 	return func(yield func(string, *Node) bool) {
 		for name, p := range n.Properties() {
@@ -518,7 +518,7 @@ func (n *Node) Closed() bool { return n != nil && n.closed }
 
 // Open reports an object that accepts undeclared members with no schema
 // (+ruralz:open configs, free-form objects such as Plugin configSchema):
-// they are preserved and normalized generically (02 req 18).
+// they are preserved and normalized generically.
 func (n *Node) Open() bool {
 	return n != nil && n.types.Has(TypeObject) && !n.closed && n.addl == nil
 }
@@ -558,9 +558,9 @@ func (n *Node) Default() (any, bool) {
 
 // DefaultNode returns the default as a fresh tree node styled
 // tree.StyleDefaulted with an unknown position; nil without a default. A
-// number at an integer-only position is integer text (01 req 37), also
-// inside an object or array default: members and elements take their own
-// schema, with dispatch applied to the default's objects.
+// number at an integer-only position is integer text, also inside an
+// object or array default: members and elements take their own schema,
+// with dispatch applied to the default's objects.
 func (n *Node) DefaultNode() *tree.Node {
 	if n == nil || !n.hasDflt {
 		return nil
@@ -576,9 +576,9 @@ func (n *Node) integerOnly() bool {
 }
 
 // normalizeIntegers rewrites the integral numbers of t at integer-only
-// positions of the schema s as integer text (01 req 37), descending into
-// members (dispatch applied) and elements. A position without schema is
-// left as it is.
+// positions of the schema s as integer text, descending into members
+// (dispatch applied) and elements. A position without schema is left as
+// it is.
 func normalizeIntegers(t *tree.Node, s *Node) {
 	if t == nil || s == nil {
 		return
@@ -623,8 +623,8 @@ func (n *Node) DispatchValues(member string) []string {
 }
 
 // PolicyConfig returns the config schema a PolicySpec node selects for
-// policyType through its if/then dispatch on type (02 req 11); false when
-// no rule matches.
+// policyType through its if/then dispatch on type; false when no rule
+// matches.
 func (n *Node) PolicyConfig(policyType string) (*Node, bool) {
 	if !slices.Contains(n.DispatchValues("type"), policyType) {
 		return nil, false

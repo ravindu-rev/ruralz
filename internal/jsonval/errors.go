@@ -27,10 +27,10 @@ var (
 	// ErrInvalidNumber reports a number literal outside the RFC 8259
 	// grammar.
 	ErrInvalidNumber = errors.New("jsonval: invalid number literal")
-	// ErrNumberRange reports a number the output form cannot represent:
-	// NaN, an infinity, a literal that overflows a double, or, in the RFC
-	// 8785 form, a Go integer outside ±(2^53−1). CheckNumber also returns it
-	// for an integer literal outside that range (02 req 16).
+	// ErrNumberRange reports a number the output form cannot represent: NaN,
+	// an infinity, a literal that overflows a double, or, in the RFC 8785
+	// form, a Go integer outside ±(2^53−1). CheckNumber also returns it for
+	// an integer literal outside that range.
 	ErrNumberRange = errors.New("jsonval: number out of range")
 	// ErrUnsupportedType reports a Go value the encoder cannot write.
 	ErrUnsupportedType = errors.New("jsonval: unsupported value type")
@@ -39,8 +39,8 @@ var (
 )
 
 // Error is a scan or decode failure at a byte offset of the input. Msg is a
-// fixed description; it never quotes input bytes, so errors are safe to log
-// (07 req 87).
+// fixed description; it never quotes input bytes, so errors are safe to
+// log.
 type Error struct {
 	// Kind is one of the package sentinels: ErrSyntax, ErrInvalidUTF8,
 	// ErrSurrogate, ErrDuplicateName, ErrDepth or ErrTooLarge.

@@ -16,17 +16,17 @@ import (
 // its schema and the forbidden-position flags accumulated from the
 // resource root.
 //
-// schemaidx owns the forbidden-position rules (architecture R-3): place
-// and step mirror schemaidx.Info.InSecret and Info.NoSubstitution, and
+// schemaidx owns the forbidden-position rules: place and step mirror
+// schemaidx.Info.InSecret and Info.NoSubstitution, and
 // TestPositionsFromSchema, which compares both over every string field of
 // every kind and dispatch branch of the committed schema, is mandatory: a
 // change to those rules in schemaidx fails it until this copy follows.
 // The walk cannot use schemaidx.Walk or Lookup instead: Walk's Cursor
-// exposes neither the undispatched schema (DispatchValues names the
-// members to substitute before an object's dispatch is read) nor a step
-// for a member visited ahead of its siblings, and Lookup per scalar would
-// re-resolve every path from the root (01 req 54 budget). A contract
-// change request asks schemaidx to export one of them.
+// exposes neither the undispatched schema (DispatchValues names the members
+// to substitute before an object's dispatch is read) nor a step for a
+// member visited ahead of its siblings, and Lookup per scalar would
+// re-resolve every path from the root, past the load budget. This copy
+// stays until schemaidx exports one of them.
 type place struct {
 	// node is the schema with dispatch applied; nil without schema.
 	node *schemaidx.Node
@@ -66,7 +66,7 @@ func (p place) step(sel *schemaidx.Node, e edge) place {
 	return out
 }
 
-// forbidden reports a position where ${VAR} is RZ-CFG-011 (01 req 28).
+// forbidden reports a position where ${VAR} is RZ-CFG-011.
 func (p place) forbidden() bool { return p.inSecret || p.ref || p.cel || p.envelope != "" }
 
 // what names a forbidden position for messages.
@@ -95,8 +95,8 @@ func memberSchema(sel *schemaidx.Node, name string) (*schemaidx.Node, bool) {
 	return nil, false
 }
 
-// memberEdge returns the edge of member name below path (01 req 28: the
-// envelope fields apiVersion, kind and metadata.name).
+// memberEdge returns the edge of member name below path (the envelope
+// fields apiVersion, kind and metadata.name).
 func memberEdge(path diag.Path, name string, value bool) edge {
 	e := edge{inherit: value}
 	switch {
@@ -145,7 +145,7 @@ func (w *walker) report(d diag.Diagnostic) {
 }
 
 // envelope reports RZ-CFG-011 for ${ in apiVersion or kind of a resource
-// whose schema cannot be selected (01 req 16 and 28), and whether it did.
+// whose schema cannot be selected, and whether it did.
 func (w *walker) envelope(root *tree.Node) bool {
 	found := false
 	for _, name := range [...]string{"apiVersion", "kind"} {
@@ -229,7 +229,7 @@ func (w *walker) visitMap(n *tree.Node, static *schemaidx.Node, parent place, e 
 	w.headerValue(n, sel, pl)
 }
 
-// scalar substitutes one string scalar (01 req 26 to 30).
+// scalar substitutes one string scalar.
 func (w *walker) scalar(n *tree.Node, pl place) {
 	if !strings.Contains(n.Text, "${") {
 		w.detect(n, pl)
@@ -371,11 +371,11 @@ func headerSetEntry(sel *schemaidx.Node) bool {
 	return d == "HeaderRequestSet" || d == "HeaderResponseSet"
 }
 
-// headerValue reports RZ-CFG-013 for a literal value of a credential
-// header in a headers Policy request.set[] or response.set[] entry (01 J
-// row 013). A value that came from a variable (Vars set) is not a
-// literal: the secret-like name rule and the detectors cover it. A value
-// an error left unresolved is not one either.
+// headerValue reports RZ-CFG-013 for a literal value of a credential header
+// in a headers Policy request.set[] or response.set[] entry. A value that
+// came from a variable (Vars set) is not a literal: the secret-like name
+// rule and the detectors cover it. A value an error left unresolved is not
+// one either.
 func (w *walker) headerValue(n *tree.Node, sel *schemaidx.Node, pl place) {
 	if pl.inSecret || len(w.path) < 2 || !headerSetEntry(sel) {
 		return

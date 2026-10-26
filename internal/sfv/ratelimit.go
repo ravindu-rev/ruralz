@@ -15,11 +15,11 @@ const (
 )
 
 // AppendRateLimitPolicy appends one RateLimit-Policy List member to the
-// field value in dst, preceded by ", " when dst is not empty (05 req 67):
-// the Policy name as a String (".1", ".2" suffixed by the caller for a
-// multi-limit Policy) with the parameters q = quota (requests, or the quota
-// limit) and w = window in seconds (rounded up by the caller). quota and
-// window must be non-negative Integers. For example
+// field value in dst, preceded by ", " when dst is not empty: the Policy
+// name as a String (".1", ".2" suffixed by the caller for a multi-limit
+// Policy) with the parameters q = quota (requests, or the quota limit) and
+// w = window in seconds (rounded up by the caller). quota and window must
+// be non-negative Integers. For example
 //
 //	"ratelimit-gold.1";q=100;w=1
 //
@@ -30,10 +30,10 @@ func AppendRateLimitPolicy(dst []byte, name string, quota, window int64) ([]byte
 }
 
 // AppendRateLimit appends one RateLimit List member to the field value in
-// dst, preceded by ", " when dst is not empty (05 req 67 and 68): the
-// limit's name as a String with the parameters r = remaining and t =
-// seconds until the limit resets or admits again. remaining and reset must
-// be non-negative Integers. For example
+// dst, preceded by ", " when dst is not empty: the limit's name as a
+// String with the parameters r = remaining and t = seconds until the limit
+// resets or admits again. remaining and reset must be non-negative
+// Integers. For example
 //
 //	"ratelimit-gold.1";r=0;t=1
 //

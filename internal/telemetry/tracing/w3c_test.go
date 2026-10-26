@@ -29,7 +29,7 @@ func mustHex8(tb testing.TB, s string) [8]byte {
 	return b
 }
 
-// TestParseTraceparent is spec 09 test 7 (req 27).
+// TestParseTraceparent is the traceparent parser table.
 func TestParseTraceparent(t *testing.T) {
 	tid, pid := testTraceIDHex, testParentIDHex
 	zeroTID := strings.Repeat("0", 32)
@@ -88,7 +88,7 @@ func TestParseTraceparent(t *testing.T) {
 	}
 }
 
-// TestAppendTraceparent checks the injected format (spec 09 req 31).
+// TestAppendTraceparent checks the injected format.
 func TestAppendTraceparent(t *testing.T) {
 	tid, pid := mustHex16(t, testTraceIDHex), mustHex8(t, testParentIDHex)
 	if got := string(AppendTraceparent(nil, tid, pid, true)); got != tpSampled {
@@ -103,7 +103,7 @@ func TestAppendTraceparent(t *testing.T) {
 	}
 }
 
-// TestTraceIDFormats covers requestId and log IDs (spec 09 req 32).
+// TestTraceIDFormats covers requestId and log IDs.
 func TestTraceIDFormats(t *testing.T) {
 	tid, sid := mustHex16(t, testTraceIDHex), mustHex8(t, testParentIDHex)
 	if got := FormatTraceID(tid); got != testTraceIDHex {
@@ -126,8 +126,8 @@ func members(n int) string {
 	return strings.Join(parts, ",")
 }
 
-// TestValidTracestate is spec 09 test 7 (tracestate half, req 27) plus the
-// W3C list-member grammar.
+// TestValidTracestate covers tracestate validation, including the W3C
+// list-member grammar.
 func TestValidTracestate(t *testing.T) {
 	allKeyChars := "abcdefghijklmnopqrstuvwxyz0123456789_-*/"
 	var allValueChars strings.Builder
@@ -189,7 +189,7 @@ func TestValidTracestate(t *testing.T) {
 }
 
 // TestTracestateHeader covers extraction: field lines combined, limits on
-// the combined value, the raw value kept byte-exact (spec 09 req 27).
+// the combined value, the raw value kept byte-exact.
 func TestTracestateHeader(t *testing.T) {
 	for _, tc := range []struct {
 		name  string
@@ -223,7 +223,7 @@ func TestTracestateHeader(t *testing.T) {
 
 // TestTracestateHeaderAllocs: extraction allocates only the combined value
 // of several field lines that are valid together, never for a single line
-// or for an invalid combination a client sends (spec 09 reqs 27 and 38).
+// or for an invalid combination a client sends.
 func TestTracestateHeaderAllocs(t *testing.T) {
 	skipUnderRace(t)
 	for _, tc := range []struct {

@@ -22,7 +22,7 @@ import (
 	"github.com/ravindu-rev/ruralz/internal/testkit/corpus"
 )
 
-// hostileSeeds are small instances of the hostile shapes (11 req 15, 17).
+// hostileSeeds are small instances of the hostile shapes.
 func hostileSeeds() []string {
 	return []string{
 		"a: &a [x, x]\nb: &b [*a, *a]\nc: [*b, *b]\n",
@@ -42,9 +42,9 @@ func hostileSeeds() []string {
 		"a: 1\r\nb: |\r\n  x\r\n",
 		strings.Repeat("k: v\n", 300),
 		strings.Repeat("- k: v\n  l: [1]\n", 300),
-		// Block sequence entries inside flow collections, which goccy
-		// nests past the depth limit in quadratic memory, and tag
-		// chains, which its parser recurses on (WP-33 review).
+		// Block sequence entries inside flow collections, which goccy nests
+		// past the depth limit in quadratic memory, and tag chains, which
+		// its parser recurses on.
 		"a: [" + strings.Repeat("- ", 16000) + "x]\n",
 		"a: {k: " + strings.Repeat("- ", 4000) + "x}\n",
 		"a: [-, -]\nb: [-: x]\n",
@@ -54,22 +54,22 @@ func hostileSeeds() []string {
 		// clips in O(m·L) without the keep-chomping rewrite.
 		longTaggedScalar("a: ", "!!str |", 30<<10, 30000),
 		longTaggedScalar("- ", "!!str >", 1<<10, 100),
-		// A block scalar that a comment ends after a long blank run
-		// (second WP-33 review): 36 KB that took goccy 2.3 s.
+		// A block scalar that a comment ends after a long blank run: 36 KB
+		// that took goccy 2.3 s.
 		longBlockScalar("a: ", "|", 32<<10, 4000, "# c\nb: 1\n"),
 		// Empty tagged nodes before siblings, which goccy nests one level
-		// per line (third WP-33 review).
+		// per line.
 		taggedLadder(4, 8, 0),
 		"a: !!map\nb: 1\n? c\n: !!seq\n- x\n",
-		// Implicit keys over two lines, which goccy nests one level
-		// deeper per line (fourth WP-33 review).
+		// Implicit keys over two lines, which goccy nests one level deeper
+		// per line.
 		keyLadder(3, 6),
 		"a:\n  - \"x\"\n:\n",
 		"a:\n  - >\n:\n",
 		"? |\n  k\n: v\n? \"x\"\n: y\n",
 		"x: [!!str a, !!str b, c]\n",
-		// Explicit keys whose ':' goccy groups with a later node, and
-		// '?' lines holding more than the key (fifth WP-33 review).
+		// Explicit keys whose ':' goccy groups with a later node, and '?'
+		// lines holding more than the key.
 		explicitKeyLadder(3, 4),
 		"? \"a\"\n  - \"b\"\n:\n",
 		"? \"a\"\n  \"b\"\n:\n",
@@ -80,8 +80,8 @@ func hostileSeeds() []string {
 		"? \"q\"k\n",
 		"a:\n  ? \"q\"''\n",
 		"? k:\n",
-		// Shapes the width check found (fifth WP-33 review), and flow
-		// pairs, a level the token pass does not count.
+		// Shapes the width check found, and flow pairs, a level the token
+		// pass does not count.
 		"? a\nb\n? \nz: 1\n",
 		"? !!str {k: v}\n",
 		"k: !!seq - a\nm: !!map ? b\n",
@@ -91,11 +91,10 @@ func hostileSeeds() []string {
 		"--- %0\n-\n",
 		"0:\n- 0:\n-\n00:\n",
 		"a: " + strings.Repeat("[k: ", 40) + "v" + strings.Repeat("]", 40) + "\n",
-		// Shapes of the sixth WP-33 review: plain scalars continued by a
-		// line starting with '-', quoted and block scalars goccy decodes
-		// otherwise, the line after an empty block scalar, a tag at the
-		// end of the input, tagged keys after empty values, and the null
-		// of a trailing '?' entry.
+		// Shapes: plain scalars continued by a line starting with '-',
+		// quoted and block scalars goccy decodes otherwise, the line after
+		// an empty block scalar, a tag at the end of the input, tagged keys
+		// after empty values, and the null of a trailing '?' entry.
 		"description: run the job\n  -v # verbose\nimage: x\n",
 		"k: a\n  - b: c\nx:\n- a\n  - b #c\n",
 		"k: a\n  -b #c\n  d\n",
@@ -108,11 +107,10 @@ func hostileSeeds() []string {
 		"a:\n  b:\n!!str c: 1\ne:\n  ? k\n!!str x: v\n",
 		"x:\n  ? c\ny: 1\n",
 		"a: {a, b: , c: 1, : , ? d}\n",
-		// Shapes of the seventh WP-33 review: document markers goccy reads
-		// where the cut does not, entries indented between two columns,
-		// tagged empty nodes in flow collections, flow explicit keys whose
-		// tag ends its line, tabs inside and before scalars, and a lone
-		// '?'.
+		// Shapes: document markers goccy reads where the cut does not,
+		// entries indented between two columns, tagged empty nodes in flow
+		// collections, flow explicit keys whose tag ends its line, tabs
+		// inside and before scalars, and a lone '?'.
 		"a: 1\nb: 2\n...x: 1\n",
 		"a:\n-\nb: 1\n...x: 1\n",
 		"a: 1\n...#\n",
@@ -127,15 +125,14 @@ func hostileSeeds() []string {
 		"{\n\t\"a\": 1,\n\t\"b\": [\n\t\t\"x\"\n\t]\n}\n",
 		"a: !!str\tx\nb:\t'y'\n",
 		"b:\n?\nx: [?]\n",
-		// Shapes of the eighth WP-33 review: a ':' goccy reads otherwise
-		// inside a flow collection, flow entries without ',' and the
-		// ladders goccy nests by column, the inputs that failed this target
-		// (a key after a tab, a plain scalar after a block scalar and a
-		// blank run), values at their entry's column, and the scanner faults
-		// the appended-content check found (a tab in a double-quoted
-		// scalar, a keep-chomping scalar of blank lines, an indentation
-		// indicator before trailing blank lines, a tag whose content goccy
-		// reports on a later line).
+		// Shapes: a ':' goccy reads otherwise inside a flow collection, flow
+		// entries without ',' and the ladders goccy nests by column, the
+		// inputs that failed this target (a key after a tab, a plain scalar
+		// after a block scalar and a blank run), values at their entry's
+		// column, and the scanner faults the appended-content check found (a
+		// tab in a double-quoted scalar, a keep-chomping scalar of blank
+		// lines, an indentation indicator before trailing blank lines, a tag
+		// whose content goccy reports on a later line).
 		"labels: {app:web, tier: db}\nk: {x: [10:30]}\nl: [a:, b]\n",
 		"x: [\nk:\n k:\n  k: v\n]\ny: [\n a: 1\n b: 2\n]\n",
 		"x: [\n? a\n: b\n? c\n: d\n]\n",
@@ -178,8 +175,7 @@ func checkDiagnostics(t *testing.T, diags diag.List, path string, allowed ...str
 	}
 }
 
-// FuzzLoadYAML is the restricted YAML loader target (01 test plan
-// FuzzProfileYAML, 11 req 26; WP-33 FuzzLoadYAML): no panic or hang, only
+// FuzzLoadYAML is the restricted YAML loader target: no panic or hang, only
 // RZ-CFG-001 to RZ-CFG-005 with positions, mapping roots, bounded memory
 // under alias bombs, the token bound of the byte pre-scan never below
 // goccy's count, and accepted documents round-trip through Encode.
@@ -188,20 +184,19 @@ func FuzzLoadYAML(f *testing.F) {
 	for _, s := range hostileSeeds() {
 		f.Add([]byte(s))
 	}
-	// The 1 MiB shape of the third WP-33 review's blocker, which parsed
-	// to depth 16,066 in 1,679 MiB before the token pass stopped it.
+	// The 1 MiB tagged ladder, which parsed to depth 16,066 in 1,679 MiB
+	// before the token pass stopped it.
 	f.Add([]byte(taggedLadder(63, 255, 1<<20)))
-	// The 1 MiB shape of the fourth WP-33 review's blocker, multi-line
-	// implicit keys that parsed to depth 4,319.
+	// The 1 MiB key ladder, multi-line implicit keys that parsed to depth
+	// 4,319.
 	f.Add([]byte(keyLadder(16, 254)))
-	// The shapes of the fifth WP-33 review's blocker, explicit keys that
-	// parsed to depth 1,056 (100 KB) and 2,139 (515 KB).
+	// Explicit key ladders, which parsed to depth 1,056 (100 KB) and 2,139
+	// (515 KB).
 	f.Add([]byte(explicitKeyLadder(31, 32)))
 	f.Add([]byte(explicitKeyLadder(-1, 62)))
-	// The shapes of the sixth WP-33 review's blockers: long keys above
-	// many nodes (298 MiB and 263 MiB), flow mapping entries without
-	// values (minutes), and the densest documents at and past the token
-	// limit (up to 485 MiB at 1,000,000 tokens).
+	// Long keys above many nodes (298 MiB and 263 MiB), flow mapping
+	// entries without values (minutes), and the densest documents at and
+	// past the token limit (up to 485 MiB at 1,000,000 tokens).
 	f.Add([]byte(longKeyFlow(16384, 16384)))
 	f.Add([]byte(longKeysNested(62, 1000, 4096)))
 	f.Add([]byte(longKeysInFlow(60, 1000, 16384)))
@@ -213,9 +208,9 @@ func FuzzLoadYAML(f *testing.F) {
 	f.Add([]byte("a: [" + strings.Repeat("[],", DefaultMaxDocumentTokens/3-2) + "1]\n"))
 	f.Add([]byte("a: [" + strings.Repeat("k: 1,", DefaultMaxDocumentTokens/4-2) + "1]\n"))
 	f.Add([]byte("a:\n" + strings.Repeat("-\n", DefaultMaxDocumentTokens-4)))
-	// The shapes of the seventh WP-33 review's blockers: tokens after a
-	// document end (38 s for 1 MiB), entries between two columns (37 s),
-	// tagged empty nodes (10 s), and a flow collection left open (31 s).
+	// Tokens after a document end (38 s for 1 MiB), entries between two
+	// columns (37 s), tagged empty nodes (10 s), and a flow collection left
+	// open (31 s).
 	var wide strings.Builder
 	for i := 0; wide.Len() < 1<<20-16; i++ {
 		wide.WriteString("k" + itoa(i) + ": v\n")
@@ -229,9 +224,9 @@ func FuzzLoadYAML(f *testing.F) {
 	f.Add([]byte(taggedEmpties(99000, false)))
 	f.Add([]byte(taggedEmpties(64000, true)))
 	f.Add([]byte("a: {" + strings.Repeat("a,", 150000) + "\n"))
-	// The 1 MiB shapes of the eighth WP-33 review's blocker: flow ladders
-	// (567 MiB, 3,747 MiB) and comma-less flow entries (17.9 s), and
-	// documents whose trees stay live (up to 276 MiB).
+	// The 1 MiB flow ladders (567 MiB, 3,747 MiB) and comma-less flow
+	// entries (17.9 s), and documents whose trees stay live (up to
+	// 276 MiB).
 	f.Add([]byte(flowLadder(1, 836, 836)))
 	f.Add([]byte(flowLadder(62, 100, 100)))
 	f.Add([]byte(commaLess(80000, func(i int) string { return "k" + itoa(i) + ": v" }, "")))
@@ -264,8 +259,8 @@ func FuzzLoadYAML(f *testing.F) {
 			if peak := peakHeap(run); len(data) <= 1<<20 && peak > heapBudget {
 				t.Fatalf("peak heap growth %d MiB for %d bytes", peak>>20, len(data))
 			}
-			// 2 s per input (01 test plan FuzzProfileYAML); smaller
-			// inputs are bounded by their allocations below.
+			// 2 s per input; smaller inputs are bounded by their
+			// allocations below.
 			if took := time.Since(start); len(data) <= 1<<20 && took > 2*time.Second {
 				t.Fatalf("took %v for %d bytes", took, len(data))
 			}
@@ -283,7 +278,7 @@ func FuzzLoadYAML(f *testing.F) {
 			if d.Root == nil || d.Root.Kind != tree.KindMap || !d.Start.Known() {
 				t.Fatalf("document %+v", d)
 			}
-			// No accepted tree is deeper than MaxDepth (01 req 9).
+			// No accepted tree is deeper than MaxDepth.
 			if depth := treeDepth(d.Root); depth > DefaultMaxDepth {
 				t.Fatalf("document of depth %d, over %d", depth, DefaultMaxDepth)
 			}
@@ -322,7 +317,7 @@ func FuzzLoadYAML(f *testing.F) {
 			}
 		}
 		// Every parsed segment holds one document: goccy's document
-		// markers lie on its own marker lines (01 req 9).
+		// markers lie on its own marker lines.
 		if len(diags) == 0 {
 			if err := markersAligned(string(data)); err != nil {
 				t.Fatal(err)
@@ -347,12 +342,11 @@ func FuzzLoadYAML(f *testing.F) {
 // widthIndependent parses data alone and as the last entries of a mapping
 // of siblings more, and fails unless both accept or refuse it alike, with
 // the same findings siblings lines further down, and accept the same
-// members there (01 req 8; findings of the fifth and sixth WP-33 reviews):
-// a document's result never depends on the width of the mapping around
-// it. It applies to data whose first node is an implicit key at column 1,
-// a block mapping's first key, and that holds no document marker or
-// directive. The tests pass 300 siblings, past the split threshold of
-// earlier reviews; FuzzLoadYAML passes fewer, which keeps it fast.
+// members there: a document's result never depends on the width of the
+// mapping around it. It applies to data whose first node is an implicit key
+// at column 1, a block mapping's first key, and that holds no document
+// marker or directive. The tests pass 300 siblings, past the former split
+// threshold of 256; FuzzLoadYAML passes fewer, which keeps it fast.
 func widthIndependent(t *testing.T, data []byte, siblings int) {
 	t.Helper()
 	if !startsWithKey(data) {
@@ -383,12 +377,12 @@ func widthIndependent(t *testing.T, data []byte, siblings int) {
 // startsWithKey reports whether data starts with an implicit key at line 1,
 // column 1, and holds no line that starts with "---" or a directive, so the
 // entries of a mapping can go before it; a line starting with "..." ends
-// the first document, or is refused, alike at both widths. Data that
-// starts with blank or comment lines is left out: before the document
-// they are outside every node, after an entry they are between entries,
-// where goccy refuses a line of tabs that YAML 1.2 allows. So is data that
-// starts with white space: goccy does not count a leading tab, so its
-// column 1 is not the key's (minor finding of the eighth WP-33 review).
+// the first document, or is refused, alike at both widths. Data that starts
+// with blank or comment lines is left out: before the document they are
+// outside every node, after an entry they are between entries, where goccy
+// refuses a line of tabs that YAML 1.2 allows. So is data that starts with
+// white space: goccy does not count a leading tab, so its column 1 is not
+// the key's.
 func startsWithKey(data []byte) bool {
 	text := string(data)
 	if !utf8.ValidString(text) || text == "" || isWhite(text[0]) {
@@ -409,11 +403,10 @@ func startsWithKey(data []byte) bool {
 	return tks[1].Type == token.MappingValueType && tks[1].Position.Line == 1
 }
 
-// appendIndependent parses data alone and with a blank line, a "..."
-// line, a comment line and, when data starts with a key at column 1, a
-// sibling entry appended after it, and fails unless data the profile
-// accepts stays accepted with the same trees and positions (01 req 8, 14;
-// minor findings of the eighth WP-33 review): a document's result never
+// appendIndependent parses data alone and with a blank line, a "..." line,
+// a comment line and, when data starts with a key at column 1, a sibling
+// entry appended after it, and fails unless data the profile accepts stays
+// accepted with the same trees and positions: a document's result never
 // depends on what follows it. The split parse took goccy's raw positions,
 // so a blank line at the end refused "- run the job\n    -v" and moved the
 // null of "k1:", and goccy's scanner refused "a: |2\n  x" before a blank
@@ -519,14 +512,13 @@ func endsWithTag(text string) bool {
 
 // splitMatchesWhole parses data entry by entry, as production does, and as
 // goccy's parse reads it whole (splitAt -1), and fails unless the two give
-// the same trees and positions where both accept (01 req 10, 14; minor
-// finding of the eighth WP-33 review): every block collection takes the
-// split parse, so a fault in it would otherwise go unseen. The split parse
-// is stricter where goccy accepts invalid YAML, and it reads YAML 1.2's
-// tree where goccy misreads an empty last sequence entry before a key: the
-// token pass splits such a collection at any threshold (tokenPass.block),
-// so a document whose parse with only those collections split differs from
-// goccy's whole parse is left out.
+// the same trees and positions where both accept: every block collection
+// takes the split parse, so a fault in it would otherwise go unseen. The
+// split parse is stricter where goccy accepts invalid YAML, and it reads
+// YAML 1.2's tree where goccy misreads an empty last sequence entry before
+// a key: the token pass splits such a collection at any threshold
+// (tokenPass.block), so a document whose parse with only those collections
+// split differs from goccy's whole parse is left out.
 func splitMatchesWhole(t *testing.T, data []byte) {
 	t.Helper()
 	whole, wd, _ := parse(context.Background(), data, 0, "f.yaml", FormatYAML, Options{splitAt: -1}, true)
@@ -600,9 +592,9 @@ func differential(t *testing.T, data []byte) {
 	}
 }
 
-// FuzzProfileJSON is the JSON front end target (01 test plan): no panic,
-// only RZ-CFG-001, -002 and -005 with positions, and every accepted
-// document reads back from its JSON and YAML encodings unchanged.
+// FuzzProfileJSON is the JSON front end target: no panic, only
+// RZ-CFG-001, -002 and -005 with positions, and every accepted document
+// reads back from its JSON and YAML encodings unchanged.
 func FuzzProfileJSON(f *testing.F) {
 	corpus.AddJSON(f)
 	for _, s := range []string{
@@ -610,7 +602,7 @@ func FuzzProfileJSON(f *testing.F) {
 		`{"a": 1, "a": 2}`, `{"a": "\ud800"}`, `{"a": 01}`, `[1]`, `{} {}`, `{"a": 1,}`, `{"x": "é\/\t"}`,
 		`{"n": -0, "big": 9223372036854775808, "f": 1e400}`, "\uFEFF{}", "{\"a\":" + strings.Repeat("[", 70) + strings.Repeat("]", 70) + "}",
 		// Tabs between a key and its ':', and a final line of a tab, which
-		// the YAML front end read otherwise (eighth WP-33 review).
+		// the YAML front end read otherwise.
 		"{\"a\"\t: 1}\n", "{\"a\": 1,\n\t\"b\"\t:\t2}\n", "{\"a\": 1}\n\t\n",
 	} {
 		f.Add([]byte(s))
@@ -642,9 +634,8 @@ func FuzzProfileJSON(f *testing.F) {
 }
 
 // FuzzEncodeRoundTrip checks the emitter over trees built from arbitrary
-// strings, keys and numbers (01 test plan FuzzEncodeRoundTrip; 02 req
-// 45-46): Parse(Encode(x)) == x, Encode is idempotent, and "${" survives
-// rendering once substitution reads "$${".
+// strings, keys and numbers: Parse(Encode(x)) == x, Encode is idempotent,
+// and "${" survives rendering once substitution reads "$${".
 func FuzzEncodeRoundTrip(f *testing.F) {
 	f.Add("shop", "key", "1.5", int64(7), true)
 	f.Add("${HOST}", "$patch", ".5", int64(-1), false)

@@ -20,9 +20,9 @@
 // reported. An empty -base checks the caps only (a first release).
 //
 // B/op is reported, not gated. -override (a perf-override label applied by
-// a maintainer, 11 req 66) reports failures and passes. A missing or empty
-// gate list prints a skip line. Exit status: 0 pass, 1 gate failure, 2 tool
-// error; the worktree is removed on every exit path.
+// a maintainer) reports failures and passes. A missing or empty gate list
+// prints a skip line. Exit status: 0 pass, 1 gate failure, 2 tool error;
+// the worktree is removed on every exit path.
 package main
 
 import (

@@ -33,17 +33,18 @@ type Info struct {
 	// by the schema (an unknown field, RZ-CFG-006).
 	Free bool
 	// InSecret reports that the node or an ancestor carries
-	// x-ruralz-secret (01 req 28 subtree rule; 02 req 64 security impact).
+	// x-ruralz-secret: the secret rules and the security impact cover the
+	// whole subtree.
 	InSecret bool
 	// NoSubstitution reports a position where ${VAR} is forbidden
-	// (RZ-CFG-011, 01 req 28) and render writes no $${ escape (02 req 46):
-	// apiVersion, kind, metadata.name, x-ruralz-ref and x-ruralz-cel
-	// fields, the elements of such array fields and the values of such
-	// typed maps, and the whole x-ruralz-secret subtree. Mapping keys are
-	// always forbidden and are not positions.
+	// (RZ-CFG-011) and render writes no $${ escape: apiVersion, kind,
+	// metadata.name, x-ruralz-ref and x-ruralz-cel fields, the elements of
+	// such array fields and the values of such typed maps, and the whole
+	// x-ruralz-secret subtree. Mapping keys are always forbidden and are
+	// not positions.
 	NoSubstitution bool
 	// PathImpact is the union of x-ruralz-impact from the resource root
-	// to this node (02 req 64).
+	// to this node.
 	PathImpact Impact
 
 	// refOrCEL reports an x-ruralz-ref or x-ruralz-cel position, or an
@@ -99,7 +100,7 @@ func (i Info) step(sel *Node, how edge) Info {
 }
 
 // envelopeFixed reports apiVersion, kind and metadata.name at the
-// resource root, where substitution is forbidden (01 req 28).
+// resource root, where substitution is forbidden.
 func envelopeFixed(e diag.PathElem, parentDepth int, parentName string) bool {
 	if e.Kind != diag.ElemField {
 		return false
@@ -160,9 +161,9 @@ func (x *Index) Lookup(kind string, res *tree.Node, path diag.Path) (Info, bool)
 }
 
 // SchemaPath returns the instance-independent schema path of path, the
-// key of per-field tables such as the deprecation lifecycle (02 req 76):
-// members joined by ".", "[]" for array elements and "{}" for typed-map
-// values, such as "spec.upstreams[].weight" or "metadata.labels{}".
+// key of per-field tables such as the deprecation lifecycle: members
+// joined by ".", "[]" for array elements and "{}" for typed-map values,
+// such as "spec.upstreams[].weight" or "metadata.labels{}".
 func (x *Index) SchemaPath(kind string, res *tree.Node, path diag.Path) (string, bool) {
 	_, sp, ok := x.resolve(kind, res, path, true)
 	return sp, ok
@@ -281,12 +282,11 @@ func sameDouble(a, b string) bool {
 }
 
 // ItemElem returns the key-aware path element of element i of a list
-// whose schema is list (02 req 17; 01 req 34): a map or orderedMap entry
-// with a scalar key member is [<key>=<value>]; a set element is
-// [item=<value>] with the element's canonical JSON (AppendItemJSON), so
-// equal elements such as 1.50 and 1.5 get one element ([item=1.5]);
-// everything else, and every element of a list without x-ruralz-list, is
-// [<i>].
+// whose schema is list: a map or orderedMap entry with a scalar key
+// member is [<key>=<value>]; a set element is [item=<value>] with the
+// element's canonical JSON (AppendItemJSON), so equal elements such as
+// 1.50 and 1.5 get one element ([item=1.5]); everything else, and every
+// element of a list without x-ruralz-list, is [<i>].
 func ItemElem(list *Node, item *tree.Node, i int) diag.PathElem {
 	lt, key := list.List()
 	switch {
@@ -352,13 +352,13 @@ func (c *Cursor) Last() (diag.PathElem, bool) {
 type WalkFunc func(c *Cursor) error
 
 // Walk visits res, a resource envelope of kind, and every node below it in
-// document order (members in authored order, items in order), each with
-// its Info: if/then dispatch is applied per object from the instance (01
-// req 25 reads the Policy config schema by spec.type), list elements get
-// key-aware path elements (ItemElem), and InSecret, NoSubstitution and
-// PathImpact accumulate from the root. Positions without schema are
-// visited too, with a nil Info.Node. Walk returns an error for an unknown
-// kind or a nil res, and fn's error otherwise.
+// document order (members in authored order, items in order), each with its
+// Info: if/then dispatch is applied per object from the instance (the
+// Policy config schema is read by spec.type), list elements get key-aware
+// path elements (ItemElem), and InSecret, NoSubstitution and PathImpact
+// accumulate from the root. Positions without schema are visited too, with
+// a nil Info.Node. Walk returns an error for an unknown kind or a nil res,
+// and fn's error otherwise.
 func (x *Index) Walk(kind string, res *tree.Node, fn WalkFunc) error {
 	node, ok := x.Resource(kind)
 	if !ok {
@@ -440,12 +440,12 @@ func (w *walker) descend(inst *tree.Node, static *Node, parent Info, how edge, e
 // object or array set element: members sorted by UTF-16 code units, no
 // whitespace, strings escaped per RFC 8785, and every number in the
 // ECMAScript form of its double value (an integer within ±(2^53−1) is its
-// normalized decimal; a larger one, which 02 req 16 rejects later in
-// authored configuration, becomes the decimal of its nearest double, as
-// RFC 8785 prescribes). The number form and the member order are
+// normalized decimal; a larger one, which the number range rule rejects
+// later in authored configuration, becomes the decimal of its nearest
+// double, as RFC 8785 prescribes). The number form and the member order are
 // jsonval.AppendCanonicalNumber and jsonval.CompareUTF16, which
-// config/canonical uses too. A literal outside the RFC 8259 grammar, or
-// one that overflows a double, is written unchanged.
+// config/canonical uses too. A literal outside the RFC 8259 grammar, or one
+// that overflows a double, is written unchanged.
 func AppendItemJSON(dst []byte, n *tree.Node) []byte {
 	if n == nil {
 		return append(dst, "null"...)

@@ -16,8 +16,8 @@ import (
 )
 
 // BodyOracle decides the Phase of an authz.cel Policy: whether its
-// config.rule references request.body (02 req 13a, 03 req 13, 06 req 56).
-// expr.Compiler implements it; the registry never imports the CEL module.
+// config.rule references request.body. expr.Compiler implements it; the
+// registry never imports the CEL module.
 type BodyOracle interface {
 	// ReferencesRequestBody reports whether the checked rule src selects
 	// request.body.
@@ -44,9 +44,8 @@ type Attachment struct {
 
 // ScopeError is a Policy attached at a scope its type does not allow, or a
 // plugin Policy whose Plugin lists Phases outside the scope's leg: RZ-CFG-
-// 020 at the attaching PolicyRef (02 req 14 and 35.4, 01 req 39). Phases
-// returns it wrapped in an errcode.Error carrying CodeScope; use
-// errors.As to read it.
+// 020 at the attaching PolicyRef. Phases returns it wrapped in an
+// errcode.Error carrying CodeScope; use errors.As to read it.
 type ScopeError struct {
 	// Type is the Policy type.
 	Type v1alpha1.PolicyType
@@ -61,9 +60,9 @@ type ScopeError struct {
 	Phases []v1alpha1.Phase
 }
 
-// Error returns the message of 02 req 35.4: `Policy type "<type>" is not
-// allowed at <scope> scope (allowed: <scopes>)`, or for a plugin Policy
-// `Plugin "<p>" Phases [<phases>] are not allowed at <scope> scope`.
+// Error returns the message: `Policy type "<type>" is not allowed at
+// <scope> scope (allowed: <scopes>)`, or for a plugin Policy `Plugin
+// "<p>" Phases [<phases>] are not allowed at <scope> scope`.
 func (e *ScopeError) Error() string {
 	if e.Plugin != "" || len(e.Phases) > 0 {
 		names := make([]string, len(e.Phases))
@@ -113,24 +112,24 @@ func scopeList(set phase.ScopeSet) string {
 // errcode.Error with CodeScope. Within an allowed scope:
 //
 //   - authz.cel runs in onRequestBody when body reports that config.rule
-//     references request.body, else in onRequestHeaders, never both (02
-//     req 13a, 06 req 56). A non-empty rule needs body: with a nil body
-//     Phases fails with ErrNoBodyOracle rather than guess, because a body
-//     rule placed in onRequestHeaders would deny every request and hide
-//     its body read from the cache guardrail (RZ-CFG-038). An empty rule,
-//     or a rule body cannot check, selects onRequestHeaders: stage J
-//     reports the rule itself (RZ-CFG-014).
+//     references request.body, else in onRequestHeaders, never both. A
+//     non-empty rule needs body: with a nil body Phases fails with
+//     ErrNoBodyOracle rather than guess, because a body rule placed in
+//     onRequestHeaders would deny every request and hide its body read from
+//     the cache guardrail (RZ-CFG-038). An empty rule, or a rule body
+//     cannot check, selects onRequestHeaders: stage J reports the rule
+//     itself (RZ-CFG-014).
 //   - authz.opa and authz.cedar run in onRequestHeaders (body analysis is
-//     M2; 02 req 13).
+//     M2).
 //   - headers runs in onRequestHeaders (onUpstreamRequest at Upstream
 //     scope) iff config.request holds an entry, and in onResponse
-//     (onUpstreamResponseHeaders) iff config.response holds one (07 req 2).
+//     (onUpstreamResponseHeaders) iff config.response holds one.
 //   - transform.request runs in onRequestBody (onUpstreamRequest), and
 //     transform.response in onResponse (onUpstreamResponseBody), iff
-//     config sets body or holds any list entry (07 req 2).
+//     config sets body or holds any list entry.
 //   - plugin runs in its Plugin's Phases.
 //   - every other type runs in its declared Phases (cache in
-//     onRequestHeaders and onResponse, R-40).
+//     onRequestHeaders and onResponse).
 //
 // An empty result subscribes the Policy to nothing: it gets no chain row.
 // Phases fails with ErrUnknownType for an unregistered type, and with a
@@ -302,8 +301,8 @@ func indirect(v any) reflect.Value {
 
 // hasListEntry reports whether the struct v (or *v) holds a non-empty list
 // field. Reading every list field, rather than naming them, keeps Phase
-// selection right when the schema adds an operation list, such as
-// headers add and remove (07 req 2 and 20; additive schema changes, R-62).
+// selection right when the schema adds an operation list, such as headers
+// add and remove (additive schema changes).
 func hasListEntry(v any) bool {
 	rv := indirect(v)
 	if rv.Kind() != reflect.Struct {

@@ -27,11 +27,10 @@ import (
 	"google.golang.org/grpc/status"
 )
 
-// Tests for WP-84 otlpsink (11 section 3, F 32, req 39; 09 tests 33, 34,
-// 36 to 38; R-53). "Done when": the sink receives each signal from an
-// OTLP gRPC client built on the proto module (TestReceivesEachSignal).
+// Tests for otlpsink: the sink receives each signal from an OTLP gRPC
+// client built on the proto module (TestReceivesEachSignal).
 
-func TestReceivesEachSignal(t *testing.T) { // WP-84 Done when; 09 test 36 (TLS with a test CA)
+func TestReceivesEachSignal(t *testing.T) { // TLS with a test CA
 	p := newTestPKI(t)
 	for _, tc := range []struct {
 		name      string
@@ -94,7 +93,7 @@ func TestReceivesEachSignal(t *testing.T) { // WP-84 Done when; 09 test 36 (TLS 
 				}
 			}
 			if !bytes.Contains(reqs[0].Raw, []byte("rzcanary-marker")) || !bytes.Contains(reqs[2].Raw, []byte("rzcanary-marker")) {
-				t.Error("raw bytes lack the marker (11 req 39 canary scans)")
+				t.Error("raw bytes lack the marker (canary scans)")
 			}
 			if got := s.SpanNames(s.TraceIDs()[0]); !slices.Equal(got, []string{"GET orders"}) {
 				t.Errorf("SpanNames = %v", got)
@@ -112,7 +111,7 @@ func TestReceivesEachSignal(t *testing.T) { // WP-84 Done when; 09 test 36 (TLS 
 	}
 }
 
-func TestRawIsWireEncoding(t *testing.T) { // 11 req 39: raw bytes for canary scans are the client's encoding
+func TestRawIsWireEncoding(t *testing.T) { // Raw bytes for canary scans are the client's encoding
 	s := start(t, Config{})
 	cc := dial(t, s, nil)
 	req := traceReq("svc",
@@ -133,7 +132,7 @@ func TestRawIsWireEncoding(t *testing.T) { // 11 req 39: raw bytes for canary sc
 	}
 }
 
-func TestCodecCapture(t *testing.T) { // 11 req 39: the wire bytes travel with the decoded message
+func TestCodecCapture(t *testing.T) { // The wire bytes travel with the decoded message
 	c, err := newRawCodec()
 	if err != nil {
 		t.Fatal(err)
@@ -236,7 +235,7 @@ func TestExportHandlerDecodeFailure(t *testing.T) {
 // decoded messages and finally made Raw fall back to re-encoding); every
 // recorded request still carries its own wire bytes, and Close ends every
 // connection.
-func TestCanceledExportsKeepRawExact(t *testing.T) { // 11 req 39
+func TestCanceledExportsKeepRawExact(t *testing.T) { // raw bytes for canary scans
 	s := start(t, Config{})
 	cc := dial(t, s, nil)
 	client := coltrace.NewTraceServiceClient(cc)
@@ -294,7 +293,7 @@ func TestCanceledExportsKeepRawExact(t *testing.T) { // 11 req 39
 	}
 }
 
-func TestConnections(t *testing.T) { // 09 test 40: the old connection closes
+func TestConnections(t *testing.T) { // The old connection closes
 	s := start(t, Config{})
 	export := func(cc *grpc.ClientConn, marker string) Request {
 		t.Helper()
@@ -351,7 +350,7 @@ func TestConnections(t *testing.T) { // 09 test 40: the old connection closes
 	}
 }
 
-func TestReject(t *testing.T) { // 09 test 37: collector failing exports
+func TestReject(t *testing.T) { // Collector failing exports
 	s := start(t, Config{Mode: Reject{Code: codes.Unavailable, Message: "try later"}})
 	cc := dial(t, s, nil)
 	ctx := ctxTimeout(t, 10*time.Second)
@@ -384,7 +383,7 @@ func TestReject(t *testing.T) { // 09 test 37: collector failing exports
 	}
 }
 
-func TestStall(t *testing.T) { // 09 test 38: collector stalls
+func TestStall(t *testing.T) { // Collector stalls
 	s := start(t, Config{Mode: Stall{}})
 	cc := dial(t, s, nil)
 	client := coltrace.NewTraceServiceClient(cc)
@@ -447,7 +446,7 @@ func TestStall(t *testing.T) { // 09 test 38: collector stalls
 	}
 }
 
-func TestDown(t *testing.T) { // 09 test 37: collector down, then recovery on the same address
+func TestDown(t *testing.T) { // Collector down, then recovery on the same address
 	s := start(t, Config{})
 	addr := s.Addr()
 	cc := dial(t, s, nil)

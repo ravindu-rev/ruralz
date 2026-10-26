@@ -12,10 +12,9 @@ import (
 	"github.com/ravindu-rev/ruralz/pkg/config/v1alpha1"
 )
 
-// Tests for architecture section 2.9 (WP-01): NewBundle ordering and
-// indexes (spec 02 section 2.2 requirements 4 to 8, canonical kind order),
-// Chain.Leg, Entry.FirstPhase, the offline Checks table (R-34) and the
-// secret-to-destination constant (R-49).
+// Tests for NewBundle ordering and indexes (canonical kind order),
+// Chain.Leg, Entry.FirstPhase, the offline Checks table and the
+// secret-to-destination constant.
 
 func res(kind v1alpha1.Kind, name string) *Resource {
 	r := &Resource{ID: ID{Kind: kind, Name: name}}
@@ -244,8 +243,8 @@ func TestEntryFirstPhase(t *testing.T) {
 }
 
 func TestChecksTable(t *testing.T) {
-	// R-34: a type package exports a hub.PolicyCheck; the pipeline calls it
-	// with a location mapper and a sink, never importing internal/filter.
+	// A type package exports a hub.PolicyCheck; the pipeline calls it with
+	// a location mapper and a sink, never importing internal/filter.
 	check := func(r *Resource, loc func(diag.Path) diag.Location, add func(diag.Diagnostic)) {
 		p := diag.Path{diag.Field("spec"), diag.Field("config"), diag.Field("request"), diag.Field("set"), diag.Keyed("name", "host")}
 		add(diag.Diagnostic{
@@ -280,7 +279,7 @@ func TestChecksTable(t *testing.T) {
 }
 
 func TestDestinationLocalValue(t *testing.T) {
-	// R-49: "every other secret field is `local`"; the value is printed by
+	// "every other secret field is `local`"; the value is printed by
 	// RZ-CFG-041 messages and diff output, so it is pinned to the spelling
 	// of the resolution.
 	if DestinationLocal != "local" {

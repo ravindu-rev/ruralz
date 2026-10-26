@@ -1,12 +1,12 @@
 // Copyright 2026 Revington
 // SPDX-License-Identifier: Apache-2.0
 
-// Package binaries builds the Ruralz binaries under test (11 req 32): once
-// per test binary, from TestMain, with the release flags (CGO_ENABLED=0,
-// -trimpath and -ldflags "-s -w -X ..."; R-52 makes the stripped binary the
-// shipped one), or taken prebuilt from RURALZ_TEST_BIN_DIR. Variants for
-// Zero-Downtime Upgrade refusal and rollback tests (11 req 45, 47) are
-// built with go build -overlay, replacing single source files.
+// Package binaries builds the Ruralz binaries under test: once per test
+// binary, from TestMain, with the release flags (CGO_ENABLED=0, -trimpath
+// and -ldflags "-s -w -X ..."; the shipped binary is the stripped one), or
+// taken prebuilt from RURALZ_TEST_BIN_DIR. Variants for Zero-Downtime
+// Upgrade refusal and rollback tests are built with go build -overlay,
+// replacing single source files.
 //
 // Nothing is cached in package state: TestMain builds a Set and passes it
 // down.
@@ -87,8 +87,8 @@ func (o BuildOptions) variant() bool {
 		(o.GOOS != "" && o.GOOS != runtime.GOOS) || (o.GOARCH != "" && o.GOARCH != runtime.GOARCH)
 }
 
-// LDFlags returns the release -ldflags value: stripped (-s -w, R-52) with
-// the build metadata set in internal/buildinfo, matching the Makefile's
+// LDFlags returns the release -ldflags value: stripped (-s -w) with the
+// build metadata set in internal/buildinfo, matching the Makefile's
 // LDFLAGS.
 func LDFlags(version, commit, flavor string) string {
 	bi := Module + "/internal/buildinfo."

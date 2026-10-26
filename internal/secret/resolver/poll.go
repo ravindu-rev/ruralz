@@ -22,13 +22,12 @@ const (
 )
 
 // poll examines the active Store's file references and returns the Store
-// it polled (spec 01 requirement 46): each file is stat'ed and re-read
-// only when its fingerprint (size, modification time, inode, mode, owner)
-// changed or the last read was too close to a change to trust it. A new
-// value that passes every use check of the active Store replaces the
-// value at a new version (a reference whose last examination failed is
-// checked even when the file holds its value again); a failure keeps the
-// last value, counts
+// it polled: each file is stat'ed and re-read only when its fingerprint
+// (size, modification time, inode, mode, owner) changed or the last read
+// was too close to a change to trust it. A new value that passes every
+// use check of the active Store replaces the value at a new version (a
+// reference whose last examination failed is checked even when the file
+// holds its value again); a failure keeps the last value, counts
 // ruralz_config_secret_rotation_failures_total{provider="file"} once per
 // distinct failed file state, logs a warning and raises
 // secret_rotation_failed until the reference reads well again or leaves

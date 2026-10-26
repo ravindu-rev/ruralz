@@ -88,9 +88,9 @@ func (h *requestHandles) request40(s emit.Stripe, v uint64) {
 	}
 }
 
-// Done when and spec 09 req 47: hot-path recording allocates nothing, on
-// the plain, exemplar, folded and code paths.
-func TestHotPathZeroAllocs_Req47(t *testing.T) {
+// TestHotPathZeroAllocs checks that hot-path recording allocates nothing,
+// on the plain, exemplar, folded and code paths.
+func TestHotPathZeroAllocs(t *testing.T) {
 	r, _ := newTestRegistry(t, func(o *Options) { o.Limits = Limits{HistogramFamily: 1} })
 	h, b := s2Handles(t, r, 10)
 	defer b.Release()
@@ -120,8 +120,8 @@ func TestHotPathZeroAllocs_Req47(t *testing.T) {
 	}
 }
 
-// BenchmarkMetricsPerRequest is spec 09 test 44: the 15 metric operations
-// of an S2 request; 0 allocs/op.
+// BenchmarkMetricsPerRequest measures the 15 metric operations of an S2
+// request; 0 allocs/op.
 func BenchmarkMetricsPerRequest(b *testing.B) {
 	r, _ := newTestRegistry(b, func(o *Options) { o.Stripes = 0 })
 	h, bind := s2Handles(b, r, 0)
@@ -135,7 +135,8 @@ func BenchmarkMetricsPerRequest(b *testing.B) {
 	}
 }
 
-// BenchmarkMetricsPerRequest10Filters is spec 09 test 44: 40 operations.
+// BenchmarkMetricsPerRequest10Filters measures 40 metric operations per
+// request, with 10 Filters.
 func BenchmarkMetricsPerRequest10Filters(b *testing.B) {
 	r, _ := newTestRegistry(b, func(o *Options) { o.Stripes = 0 })
 	h, bind := s2Handles(b, r, 10)
@@ -149,8 +150,8 @@ func BenchmarkMetricsPerRequest10Filters(b *testing.B) {
 	}
 }
 
-// BenchmarkHotRouteContention is spec 09 test 45: one hot Route through
-// the five Gateway Policies of the worked example from every P; run with
+// BenchmarkHotRouteContention measures one hot Route through the five
+// Gateway Policies of the worked example from every P; run with
 // -cpu 4,32.
 func BenchmarkHotRouteContention(b *testing.B) {
 	r, _ := newTestRegistry(b, func(o *Options) { o.Stripes = 0 })
@@ -185,8 +186,8 @@ func BenchmarkHotRouteContention(b *testing.B) {
 	})
 }
 
-// capSeries is the Node cap of spec 09 req 56: 100,000 series of the
-// active Revision plus 25,000 retiring ones.
+// capSeries is the Node cap: 100,000 series of the active Revision
+// plus 25,000 retiring ones.
 const capSeries = 125000
 
 // bigRegistry builds a registry at the Node cap with S = 8: a Revision
@@ -218,9 +219,8 @@ func bigRegistry(b *testing.B) *Registry {
 	return r
 }
 
-// BenchmarkCollect125k is spec 09 test 46: one collection of a registry at
-// the Node cap; reports the live heap of the registry and its pooled
-// collection.
+// BenchmarkCollect125k measures one collection of a registry at the Node
+// cap; reports the live heap of the registry and its pooled collection.
 func BenchmarkCollect125k(b *testing.B) {
 	heap := func() uint64 {
 		var ms runtime.MemStats
@@ -269,11 +269,11 @@ func BenchmarkCollect125k(b *testing.B) {
 	runtime.KeepAlive(r)
 }
 
-// BenchmarkProduceConcurrent is the collection side of spec 09 test 46:
-// four or five readers at once, each holding its result until all have
-// one, share one collection of the 125,000-series registry. MiB-heap is
-// the live heap while the readers hold their results; it does not grow
-// with the fifth reader.
+// BenchmarkProduceConcurrent is the collection side: four or five
+// readers at once, each holding its result until all have one, share
+// one collection of the 125,000-series registry. MiB-heap is the live
+// heap while the readers hold their results; it does not grow with the
+// fifth reader.
 func BenchmarkProduceConcurrent(b *testing.B) {
 	for _, readers := range []int{4, 5} {
 		b.Run(fmt.Sprintf("readers=%d", readers), func(b *testing.B) {

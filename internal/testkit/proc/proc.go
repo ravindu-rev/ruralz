@@ -2,17 +2,17 @@
 // SPDX-License-Identifier: Apache-2.0
 
 // Package proc starts, signals, waits for and samples the processes of a
-// test topology (11 section 3): ruralzd Nodes, ruralz commands, redis-server
-// and re-executed test binaries. Each Process captures stdout and stderr
-// into optional log files plus bounded in-memory rings (up to 8 MiB each by
+// test topology: ruralzd Nodes, ruralz commands, redis-server and
+// re-executed test binaries. Each Process captures stdout and stderr into
+// optional log files plus bounded in-memory rings (up to 8 MiB each by
 // default, allocated as output arrives), is started and reaped by one
-// goroutine it owns, and is killed when the context given to Start ends, so
-// no process outlives its test.
+// goroutine it owns, and is killed when the context given to Start ends,
+// so no process outlives its test.
 //
-// On Linux, Sample reads CPU time, RSS and thread count from /proc (11 req
-// 61, 68), and InNetNS re-executes a test inside a fresh network namespace
-// holding only a loopback interface, with per-namespace sysctls such as
-// net.ipv4.tcp_migrate_req (11 req 40, 44).
+// On Linux, Sample reads CPU time, RSS and thread count from /proc, and
+// InNetNS re-executes a test inside a fresh network namespace holding only
+// a loopback interface, with per-namespace sysctls such as
+// net.ipv4.tcp_migrate_req.
 package proc
 
 import (

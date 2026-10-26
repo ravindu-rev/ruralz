@@ -12,12 +12,11 @@ import (
 	"github.com/ravindu-rev/ruralz/pkg/config/v1alpha1"
 )
 
-// Tests for spec 06 requirement 21 (the compiled Consumer: name, tier,
-// tags, labels, quota names, plus the by-name quota map QuotaByName that
-// Consumers.Quota reads) and the Revoker
-// hook of requirements 31 and 40 (M1 never revokes).
+// Tests for the compiled Consumer (name, tier, tags, labels, quota names,
+// plus the by-name quota map QuotaByName that Consumers.Quota reads) and
+// the Revoker hook (M1 never revokes).
 
-func TestReq21CompileConsumer(t *testing.T) {
+func TestCompileConsumer(t *testing.T) {
 	tests := []struct {
 		name string
 		in   *v1alpha1.Consumer
@@ -90,7 +89,7 @@ type wantConsumer struct {
 
 // The view never aliases the Bundle: editing the source after compile
 // leaves it unchanged (snapshots are immutable).
-func TestReq21CompileConsumerCopies(t *testing.T) {
+func TestCompileConsumerCopies(t *testing.T) {
 	src := &v1alpha1.Consumer{
 		Metadata: v1alpha1.ObjectMeta{Name: "a", Labels: map[string]string{"k": "v"}},
 		Spec: v1alpha1.ConsumerSpec{
@@ -107,7 +106,7 @@ func TestReq21CompileConsumerCopies(t *testing.T) {
 	}
 }
 
-func TestReq21ConsumersQuotaMap(t *testing.T) {
+func TestConsumersQuotaMap(t *testing.T) {
 	day := v1alpha1.Duration(24 * time.Hour)
 	cs := CompileConsumers([]*v1alpha1.Consumer{
 		{
@@ -156,7 +155,7 @@ func TestReq21ConsumersQuotaMap(t *testing.T) {
 	}
 }
 
-func TestReq21CompileBundle(t *testing.T) {
+func TestCompileBundle(t *testing.T) {
 	if CompileBundle(nil).Len() != 0 {
 		t.Fatal("nil Bundle compiled Consumers")
 	}
@@ -171,7 +170,7 @@ func TestReq21CompileBundle(t *testing.T) {
 	}
 }
 
-func TestReq31NopRevokerNeverRevokes(t *testing.T) {
+func TestNopRevokerNeverRevokes(t *testing.T) {
 	var r Revoker = NopRevoker{}
 	if r.RevokedJWT("iss", "kid", "jti", "sub", time.Unix(1_700_000_000, 0)) || r.RevokedKey("iss", "kid") ||
 		r.RevokedAPIKey([32]byte{1}) || r.RevokedBasic("u") || r.RevokedCert([]byte{1}, nil) {

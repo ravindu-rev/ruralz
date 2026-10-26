@@ -9,7 +9,7 @@ import (
 	"strings"
 )
 
-// writePowerShell renders the PowerShell script (spec 10 req 108):
+// writePowerShell renders the PowerShell script:
 // Register-ArgumentCompleter -Native with a script block returning
 // [System.Management.Automation.CompletionResult] objects. The command
 // table is data in hashtables read by the same algorithm as the bash
@@ -24,7 +24,7 @@ import (
 // null"). PSReadLine swallows the exception and shows no completion,
 // which is the intent; another host calling TabExpansion2, such as an
 // editor, sees the exception instead. Returning nothing would fall back
-// to path completion. TestPowerShellBehaviorReq107 pins this behavior.
+// to path completion. TestPowerShellBehavior pins this behavior.
 func writePowerShell(b *bytes.Buffer, m *model) {
 	p := m.program
 	fmt.Fprintf(b, `# PowerShell completion for %[1]s

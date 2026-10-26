@@ -10,19 +10,18 @@ import (
 	"github.com/ravindu-rev/ruralz/internal/jsonval"
 )
 
-// The library's meta-schema checks (architecture R-77, 07 F6).
-// Before compiling a schema position, the library checks the position's
-// whole keyword tree against the meta-schema (about 15 to 50 µs a
-// subschema, compiling every pattern it holds), unless an earlier check
-// covered the position: the document's keyword tree once, when the
-// document is first used, and then every reference target outside it
-// (under a member that is not a keyword, such as "x" in "#/x/if") that no
-// earlier check covered, each time copying its bookkeeping, one entry per
-// position checked so far (about 0.14 µs an entry). Two review findings
-// follow. A target checked before its ancestor is checked again with the
-// ancestor's tree: in the order the library meets references, a ladder of
-// 59 references from the deepest target up checked a 3,900-member tree
-// 59 times (5.3 s and 2.2 GB). And thousands of such targets copied the
+// The library's meta-schema checks. Before compiling a schema position, the
+// library checks the position's whole keyword tree against the meta-schema
+// (about 15 to 50 µs a subschema, compiling every pattern it holds), unless
+// an earlier check covered the position: the document's keyword tree once,
+// when the document is first used, and then every reference target outside
+// it (under a member that is not a keyword, such as "x" in "#/x/if") that
+// no earlier check covered, each time copying its bookkeeping, one entry
+// per position checked so far (about 0.14 µs an entry). This has two costs.
+// A target checked before its ancestor is checked again with the ancestor's
+// tree: in the order the library meets references, a ladder of 59
+// references from the deepest target up checked a 3,900-member tree 59
+// times (5.3 s and 2.2 GB). And thousands of such targets copied the
 // bookkeeping thousands of times (2,040 targets, 1.1 s and 574 MB).
 //
 // The compile therefore checks the targets apart first, in pointer order,
@@ -117,21 +116,21 @@ func (mc *metaCount) check(v any, ptr string, within bool) bool {
 	return fits
 }
 
-// The positions below additionalItems (review finding). The draft 2020-12
-// meta-schema does not define additionalItems, so neither the check of the
-// document's keyword tree nor that of a reference target looks below it,
-// yet the library collects the subschemas there as positions it has
-// processed, and when a reference, an anchor or an $id makes it compile
-// one, it never checks it: a multipleOf of 0 there compiled, and the
-// library's division by it panicked at every number reaching it, and a
-// type "strng" was silently ignored. The compile therefore checks every
-// position it compiles that no check of the library covers against the
-// meta-schema itself (checkApart), as the library checks a reference
-// target apart: the top-most of them, each checking its keyword tree
-// below, as far as another additionalItems. The trees these checks cover
-// are disjoint and none of them was checked before, so they check no
-// position or byte of the document twice, and they copy no bookkeeping:
-// MaxSubschemas and MaxSchemaBytes bound them.
+// The positions below additionalItems. The draft 2020-12 meta-schema does
+// not define additionalItems, so neither the check of the document's
+// keyword tree nor that of a reference target looks below it, yet the
+// library collects the subschemas there as positions it has processed, and
+// when a reference, an anchor or an $id makes it compile one, it never
+// checks it: a multipleOf of 0 there compiled, and the library's division
+// by it panicked at every number reaching it, and a type "strng" was
+// silently ignored. The compile therefore checks every position it compiles
+// that no check of the library covers against the meta-schema itself
+// (checkApart), as the library checks a reference target apart: the
+// top-most of them, each checking its keyword tree below, as far as another
+// additionalItems. The trees these checks cover are disjoint and none of
+// them was checked before, so they check no position or byte of the
+// document twice, and they copy no bookkeeping: MaxSubschemas and
+// MaxSchemaBytes bound them.
 
 // uncheckedPositions returns, in pointer order, the positions the compile
 // compiles (walked live) that no meta-schema check of the library covers,

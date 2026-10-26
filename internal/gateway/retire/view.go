@@ -9,12 +9,12 @@ import (
 	"github.com/ravindu-rev/ruralz/internal/adminapi"
 )
 
-// View returns the /debug/snapshots body (spec 04 req 73): every live
-// snapshot, the active one first and then newest to oldest, with its state,
-// display revision, digest, pin count and times (RFC 3339 UTC; retiredAt
-// once retired, graceEndsAt once closing). pending and lastKnownGood are
-// the digests ("sha256:…") of the loader's pending Revision and the
-// Last-Known-Good pointer; "" encodes null.
+// View returns the /debug/snapshots body: every live snapshot, the active
+// one first and then newest to oldest, with its state, display revision,
+// digest, pin count and times (RFC 3339 UTC; retiredAt once retired,
+// graceEndsAt once closing). pending and lastKnownGood are the digests
+// ("sha256:…") of the loader's pending Revision and the Last-Known-Good
+// pointer; "" encodes null.
 func (h *Holder) View(pending, lastKnownGood string) adminapi.Snapshots {
 	h.mu.Lock()
 	defer h.mu.Unlock()

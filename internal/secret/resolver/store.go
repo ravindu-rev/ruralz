@@ -32,10 +32,10 @@ type cellValue struct {
 
 // pendingValue is a refused rotation a Revision's uses accept: the value
 // Resolve read for a shared cell whose last examination failed, applied to
-// the cell when that Revision's Store is activated (spec 01 requirement
-// 46; see Resolver.settleLocked). Activate applies the value but keeps the
-// cell's failure record when a poll examined another file state after
-// Resolve (the cell's fingerprint matches neither baseFP nor fp).
+// the cell when that Revision's Store is activated (see
+// Resolver.settleLocked). Activate applies the value but keeps the cell's
+// failure record when a poll examined another file state after Resolve
+// (the cell's fingerprint matches neither baseFP nor fp).
 type pendingValue struct {
 	cv     *cellValue  // the value, at a version allocated by Resolve
 	base   uint64      // the cell's version when Resolve read the file
@@ -136,11 +136,11 @@ func (s *store) value(r secret.Ref, c *cell) *cellValue {
 	return c.load()
 }
 
-// Watch registers fn for rotations of r, Node-wide (R-55): the
-// registration survives Activate of later Stores, fires on the resolver
-// goroutine whenever the active Store holds a value of r the registration
-// has not seen and stays silent while no active Store holds r. fn must not
-// block; an fn error keeps the watcher's last value and counts a rotation
+// Watch registers fn for rotations of r, Node-wide: the registration
+// survives Activate of later Stores, fires on the resolver goroutine
+// whenever the active Store holds a value of r the registration has not
+// seen and stays silent while no active Store holds r. fn must not block;
+// an fn error keeps the watcher's last value and counts a rotation
 // failure. fn runs with no Resolver lock held, so it may call Watch and
 // any stop function, its own included: a Watch made inside fn starts at
 // the current version of r in s and does not receive the value being

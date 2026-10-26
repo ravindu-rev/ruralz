@@ -20,12 +20,11 @@ import (
 	"github.com/ravindu-rev/ruralz/internal/errcode"
 )
 
-// Tests for spec 06 section 2.16: requirement 97 (the full
-// sha256:<64 lowercase hex> is the only accepted expected digest,
-// RZ-CFG-027 for Revisions, RZ-CFG-028 for Plugin artifacts, always on)
-// and the M1 call-site contract of requirement 98 (DigestOnly as the
-// Verifier), plus R-10 (revision.Digest is the only digest type) and R-50
-// (VerifyArtifact: streaming SHA-256 with a size limit).
+// Tests for digest checks: the full sha256:<64 lowercase hex> is the only
+// accepted expected digest, RZ-CFG-027 for Revisions, RZ-CFG-028 for Plugin
+// artifacts, always on; the M1 call-site contract (DigestOnly as the
+// Verifier); revision.Digest as the only digest type; and VerifyArtifact,
+// streaming SHA-256 with a size limit.
 
 const canonical = `{"apiVersion":"ruralz.io/v1alpha1","kind":"Route","metadata":{"name":"orders"}}`
 
@@ -34,7 +33,7 @@ func digestHex(b []byte) string {
 	return hex.EncodeToString(s[:])
 }
 
-func TestParseDigestReq97(t *testing.T) {
+func TestParseDigest(t *testing.T) {
 	good := "sha256:" + digestHex([]byte(canonical))
 	tests := []struct {
 		name    string
@@ -109,7 +108,7 @@ func flipBit(b []byte, i int) []byte {
 	return c
 }
 
-func TestVerifyRevisionReq97(t *testing.T) {
+func TestVerifyRevision(t *testing.T) {
 	content := []byte(canonical)
 	want := revision.Sum(content)
 	if err := VerifyRevision(content, want); err != nil {
@@ -143,7 +142,7 @@ func TestVerifyRevisionReq97(t *testing.T) {
 	}
 }
 
-func TestVerifierReq98(t *testing.T) {
+func TestVerifier(t *testing.T) {
 	ctx := t.Context()
 	content := []byte(canonical)
 	want := revision.Sum(content)
@@ -344,9 +343,8 @@ func (f readerFunc) Read(p []byte) (int, error) { return f(p) }
 
 var wireForm = regexp.MustCompile(`^sha256:[0-9a-f]{64}$`)
 
-// FuzzParseDigest (spec 06 section 6.4): never panics; accepts exactly the
-// wire form and round-trips it; every rejection matches
-// revision.ErrSyntax.
+// FuzzParseDigest: never panics; accepts exactly the wire form and
+// round-trips it; every rejection matches revision.ErrSyntax.
 func FuzzParseDigest(f *testing.F) {
 	for _, s := range []string{
 		"sha256:" + digestHex(nil),

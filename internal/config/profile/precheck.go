@@ -42,11 +42,11 @@ func yamlPrintable(r rune) bool {
 	}
 }
 
-// precheckYAML applies the byte pre-checks of 01 req 7 before tokenizing:
-// valid UTF-8, no U+FEFF anywhere, only YAML printable characters. Each
-// failure is RZ-CFG-001 at the offending character and stops the file. On
-// success it returns the text with every CR LF and lone CR replaced by LF:
-// YAML normalizes line breaks inside scalars to LF and ignores their form
+// precheckYAML applies the byte pre-checks before tokenizing: valid UTF-8,
+// no U+FEFF anywhere, only YAML printable characters. Each failure is
+// RZ-CFG-001 at the offending character and stops the file. On success it
+// returns the text with every CR LF and lone CR replaced by LF: YAML
+// normalizes line breaks inside scalars to LF and ignores their form
 // elsewhere, so CRLF and CR files parse exactly like LF files, and every
 // position (lines, code-point columns) is unchanged.
 func (p *fileParser) precheckYAML(src []byte) (string, bool) {

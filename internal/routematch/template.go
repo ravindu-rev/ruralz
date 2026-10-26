@@ -20,10 +20,10 @@ type Segment struct {
 	Param string
 }
 
-// Template is a parsed path template such as "/v1/orders/{orderId}" (04
-// req 29). Segments holds the segments between slashes; TrailingSlash
-// records a final "/", which is significant. "/" is the template with no
-// segments and a trailing slash.
+// Template is a parsed path template such as "/v1/orders/{orderId}".
+// Segments holds the segments between slashes; TrailingSlash records a
+// final "/", which is significant. "/" is the template with no segments
+// and a trailing slash.
 type Template struct {
 	// Segments are the template's segments, left to right.
 	Segments []Segment
@@ -31,15 +31,14 @@ type Template struct {
 	TrailingSlash bool
 }
 
-// ParseTemplate parses a path template by the grammar of 04 req 29: it
-// begins with "/"; its segments split on "/"; each segment is either a
-// literal (non-empty, without "{" or "}") or exactly "{name}" with name
-// matching [A-Za-z_][A-Za-z0-9_]*; names are unique; there are no
-// partial-segment captures and no catch-all. A literal is normalized like a
-// request path segment (see [NormalizePath]) so it compares equal to the
-// normalized request, and a literal that [NormalizePath] would reject or
-// that is a dot segment is an error. Every error carries [CodeInvalid]
-// (RZ-CFG-005).
+// ParseTemplate parses a path template by this grammar: it begins with "/";
+// its segments split on "/"; each segment is either a literal (non-empty,
+// without "{" or "}") or exactly "{name}" with name matching
+// [A-Za-z_][A-Za-z0-9_]*; names are unique; there are no partial-segment
+// captures and no catch-all. A literal is normalized like a request path
+// segment (see [NormalizePath]) so it compares equal to the normalized
+// request, and a literal that [NormalizePath] would reject or that is a dot
+// segment is an error. Every error carries [CodeInvalid] (RZ-CFG-005).
 func ParseTemplate(s string) (Template, error) {
 	rest, ok := strings.CutPrefix(s, "/")
 	if !ok {

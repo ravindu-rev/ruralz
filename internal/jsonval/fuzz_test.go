@@ -14,10 +14,10 @@ import (
 	"unicode/utf8"
 )
 
-// Fuzz targets (07 test plan F5; WP-02 FuzzDecode). Seeds are the JSON
-// conformance corpus and the benchmark document; the oracle is: no panic,
-// agreement with encoding/json on inputs without duplicate names, typed
-// errors for the rest, exact cost accounting and round trips.
+// Fuzz targets. Seeds are the JSON conformance corpus and the benchmark
+// document; the oracle is: no panic, agreement with encoding/json on
+// inputs without duplicate names, typed errors for the rest, exact cost
+// accounting and round trips.
 
 // v1Decode decodes data with encoding/json into its UseNumber data model.
 func v1Decode(data []byte) (any, error) {
@@ -95,7 +95,7 @@ func FuzzDecode(f *testing.F) {
 		}
 		if lw, _, lwErr := Decode(data, Options{AllowDuplicateNames: true, MapObjects: true}); lwErr == nil {
 			// Last wins agrees with encoding/json, which keeps the last
-			// value of a duplicate in a map (07 req 58; 03 req 25).
+			// value of a duplicate in a map.
 			want, v1err := v1Decode(data)
 			if v1err != nil || !reflect.DeepEqual(lw, want) {
 				t.Fatalf("last-wins decode %#v, encoding/json %#v (%v)", lw, want, v1err)
@@ -123,7 +123,7 @@ func FuzzDecode(f *testing.F) {
 			t.Fatal("object and map forms differ")
 		}
 		// Cost is exact, bounded per input byte, and the budget threshold
-		// sits at it (07 req 58; 03 req 25).
+		// sits at it.
 		if Cost(v) != cost {
 			t.Fatalf("cost %d, Cost %d", cost, Cost(v))
 		}
@@ -144,7 +144,7 @@ func FuzzDecode(f *testing.F) {
 		} else if err != nil && !errors.Is(err, ErrDepth) {
 			t.Fatalf("wrapped: %v", err)
 		}
-		// Round trip through the encoder (07 P2) in every order.
+		// Round trip through the encoder in every order.
 		for _, e := range []Encoder{{}, {Options: EncodeOptions{Order: OrderInsertion}}, {Options: EncodeOptions{Order: OrderUTF16}}} {
 			b, err := e.Append(nil, v)
 			if err != nil {
@@ -164,10 +164,10 @@ func FuzzDecode(f *testing.F) {
 				t.Fatalf("MaxBytes %d: %v", len(b)-1, err)
 			}
 		}
-		// The canonical form exists unless a literal overflows a double,
-		// and it is idempotent (02 req 26): parse, canonicalize, parse again
-		// gives identical bytes, including for float literals such as 11e17
-		// whose canonical form is an integer beyond ±(2^53−1).
+		// The canonical form exists unless a literal overflows a double, and
+		// it is idempotent: parse, canonicalize, parse again gives identical
+		// bytes, including for float literals such as 11e17 whose canonical
+		// form is an integer beyond ±(2^53−1).
 		if c, err := AppendCanonical(nil, v); err == nil {
 			c2, err := AppendCanonical(nil, mustDecode(t, string(c)))
 			if err != nil || !bytes.Equal(c, c2) {

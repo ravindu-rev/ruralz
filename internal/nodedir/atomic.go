@@ -17,10 +17,9 @@ import (
 const tempPrefix = ".tmp-"
 
 // WriteFileAtomic replaces dir/name with data: it writes a temporary file
-// in dir with mode perm, fsyncs it, renames it over name and fsyncs dir
-// (spec 04 requirement 5 "written atomically"). A crash leaves either the
-// old or the new content, plus at most one ignored temporary file. name
-// must be a plain file name.
+// in dir with mode perm, fsyncs it, renames it over name and fsyncs dir.
+// A crash leaves either the old or the new content, plus at most one
+// ignored temporary file. name must be a plain file name.
 func WriteFileAtomic(dir, name string, data []byte, perm fs.FileMode) error {
 	tmp, err := writeTemp(dir, name, data, perm)
 	if err != nil {

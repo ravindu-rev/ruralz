@@ -21,9 +21,9 @@ func configSchemaPath() diag.Path {
 // ruralz-control): it compiles config.schema exactly as the Node does and
 // reports each finding as RZ-CFG-005 at a key-aware path under
 // spec.config.schema, an object member as a field and an array element as
-// an index (07 req 75). It reads no file or network. A resource whose
-// Config is not a decoded ValidationJSONSchemaConfig, or whose schema is
-// absent (stage F reports the missing required member), yields nothing.
+// an index. It reads no file or network. A resource whose Config is not a
+// decoded ValidationJSONSchemaConfig, or whose schema is absent (stage F
+// reports the missing required member), yields nothing.
 func Check(r *hub.Resource, loc func(diag.Path) diag.Location, add func(diag.Diagnostic)) {
 	if r == nil || add == nil {
 		return

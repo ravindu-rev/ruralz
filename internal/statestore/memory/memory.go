@@ -1,13 +1,13 @@
 // Copyright 2026 Revington
 // SPDX-License-Identifier: Apache-2.0
 
-// Package memory is the memory State Store driver (spec 08 section 2.9,
-// docs/architecture/11-scalability-and-distributed-state.md): TATs, Quota
+// Package memory is the memory State Store driver
+// (docs/architecture/11-scalability-and-distributed-state.md): TATs, Quota
 // counters, Response Cache generations, partitions and leases held in the
-// Node with the semantics of the ruralz_v1.lua library (spec 08 reqs 41 to
-// 45), the same float64 arithmetic and 2026 epoch, and the injected clock
-// as the server's TIME, so a differential test against the redis driver
-// gets identical decisions and TATs for identical inputs (spec 08 req 46).
+// Node with the semantics of the ruralz_v1.lua library, the same float64
+// arithmetic and 2026 epoch, and the injected clock as the server's TIME,
+// so a differential test against the redis driver gets identical decisions
+// and TATs for identical inputs.
 //
 // State lives in 256 mutex-guarded shards selected by the Redis Cluster
 // hash slot of each key's tag, so every limit of one call and every call
@@ -15,14 +15,14 @@
 // Maps are keyed by comparable structs, so no key string is built. Bounds:
 // 1,048,576 counter, lease and cache keys and 64 MiB of cache entry bytes;
 // a full shard refuses new keys with RZ-STS-002, like a noeviction server
-// refusing writes (spec 08 req 58). One sweeper goroutine, stopped by
-// Close, reclaims expired keys within 10 s of expiry.
+// refusing writes. One sweeper goroutine, stopped by Close, reclaims
+// expired keys within 10 s of expiry.
 //
 // memory never reports breaker, in-flight or timeout failures and its time
 // stays gateway-added (RoundTrips is false): calls count in
 // ruralz_state_calls_total and ruralz_state_ops_total on the request's
-// stripe, never in ruralz_state_call_duration_seconds (spec 08 reqs 59
-// and 60). A single-limit GCRA call makes no heap allocation.
+// stripe, never in ruralz_state_call_duration_seconds. A single-limit GCRA
+// call makes no heap allocation.
 package memory
 
 import (
@@ -41,7 +41,7 @@ import (
 	"github.com/ravindu-rev/ruralz/internal/telemetry/emit"
 )
 
-// Bounds of spec 08 req 58 (proposed; D11 gives none).
+// Bounds (proposed; Scalability and distributed state gives none).
 const (
 	// DefaultShards is the number of mutex-guarded shards.
 	DefaultShards = 256
@@ -72,11 +72,11 @@ type Options struct {
 	// ServerClock plays the server's TIME: GCRA and Quota decisions, key
 	// expiry and generation values read it. Nil means Deps.Clock, the
 	// production setting; a differential test sets it apart from the Node
-	// clock that picks Quota window candidates (spec 08 req 42).
+	// clock that picks Quota window candidates.
 	ServerClock clock.Clock
 }
 
-// DefaultOptions returns the bounds of spec 08 req 58.
+// DefaultOptions returns the bounds.
 func DefaultOptions() Options {
 	return Options{
 		Shards: DefaultShards, MaxEntries: DefaultMaxEntries,
@@ -108,8 +108,8 @@ type Driver struct {
 
 var _ statestore.Driver = (*Driver)(nil)
 
-// Open is the statestore.Opener of the memory driver (resolution R-54):
-// New with DefaultOptions.
+// Open is the statestore.Opener of the memory driver: New with
+// DefaultOptions.
 func Open(ctx context.Context, cfg statestore.Config, deps statestore.Deps) (statestore.Driver, error) {
 	d, err := New(ctx, cfg, deps, DefaultOptions())
 	if err != nil {
@@ -119,8 +119,8 @@ func Open(ctx context.Context, cfg statestore.Config, deps statestore.Deps) (sta
 }
 
 // New returns a memory driver and starts its sweeper, which Close stops.
-// cfg.URL and cfg.Topology are ignored (spec 08 req 4). It fails only for
-// a configuration naming another driver or a MAC key under 32 bytes.
+// cfg.URL and cfg.Topology are ignored. It fails only for a configuration
+// naming another driver or a MAC key under 32 bytes.
 func New(ctx context.Context, cfg statestore.Config, deps statestore.Deps, opts Options) (*Driver, error) {
 	if cfg.Driver != 0 && cfg.Driver != statestore.DriverMemory {
 		return nil, ErrWrongDriver
@@ -184,7 +184,7 @@ func (d *Driver) Close(ctx context.Context) error {
 }
 
 // Status reports a noeviction store without breakers, TLS or credentials
-// concerns (spec 08 req 58).
+// concerns.
 func (d *Driver) Status() statestore.Status {
 	return statestore.Status{EvictionPolicy: statestore.Yes}
 }
@@ -192,7 +192,7 @@ func (d *Driver) Status() statestore.Status {
 // Supports reports the script command set; M1 has no vector search.
 func (d *Driver) Supports(c statestore.Capability) bool { return c&^statestore.CapScripts == 0 }
 
-// RoundTrips is false: memory time stays gateway-added (spec 08 req 59).
+// RoundTrips is false: memory time stays gateway-added.
 func (d *Driver) RoundTrips() bool { return false }
 
 // stripeOf returns the request's metric stripe.
@@ -223,10 +223,10 @@ func (d *Driver) countOps(s emit.Stripe, label int, n uint64) {
 	}
 }
 
-// precheck applies the pre-call checks memory can fail (spec 08 reqs 33
-// and 60): per-request deadline or Policy timeout spent (RZ-STS-004), then
-// a closed driver (RZ-STS-002). With a nil budget the Policy timeout and
-// the context deadline alone apply.
+// precheck applies the pre-call checks memory can fail: per-request
+// deadline or Policy timeout spent (RZ-STS-004), then a closed driver
+// (RZ-STS-002). With a nil budget the Policy timeout and the context
+// deadline alone apply.
 func (d *Driver) precheck(ctx context.Context, rb *statestore.RequestBudget, timeout time.Duration) *statestore.Error {
 	if ctx.Err() != nil {
 		return statestore.ErrNotAttempted
@@ -248,11 +248,10 @@ func (d *Driver) precheck(ctx context.Context, rb *statestore.RequestBudget, tim
 }
 
 // Consume runs the longest prefix of calls whose keys share a hash slot
-// as one script, in order, stopping at the first deny (spec 08 reqs 29,
-// 38 and 44): every call of the group is Done up to and including the
-// deny, calls after it stay !Done, and a failure fails every call of the
-// group. The merged call's timeout is the smallest of the group, clamped
-// by the per-request deadline.
+// as one script, in order, stopping at the first deny: every call of the
+// group is Done up to and including the deny, calls after it stay !Done,
+// and a failure fails every call of the group. The merged call's timeout
+// is the smallest of the group, clamped by the per-request deadline.
 func (d *Driver) Consume(ctx context.Context, rb *statestore.RequestBudget, calls []*statestore.Call) int {
 	if len(calls) == 0 {
 		return 0
@@ -340,9 +339,9 @@ func (d *Driver) Consume(ctx context.Context, rb *statestore.RequestBudget, call
 	return n
 }
 
-// Read runs Response Cache lookups as one pipelined batch (spec 08 req
-// 45): per lookup the generation and the partition's names, variant
-// generation and MAC-verified entry. Every other kind is an error reply.
+// Read runs Response Cache lookups as one pipelined batch: per lookup
+// the generation and the partition's names, variant generation and
+// MAC-verified entry. Every other kind is an error reply.
 func (d *Driver) Read(ctx context.Context, rb *statestore.RequestBudget, calls []*statestore.Call) {
 	if len(calls) == 0 {
 		return
@@ -378,12 +377,11 @@ func (d *Driver) Read(ctx context.Context, rb *statestore.RequestBudget, calls [
 	d.count(stripe, emit.StateOpPipeline, res)
 }
 
-// Write applies one post-commit batch (spec 08 reqs 43 and 45): refunds,
-// cache stores, leases (take, refresh, end-stale) and invalidations. A
-// write whose timeout is 0 or whose context ended is not attempted
-// (RZ-STS-004); the per-request deadline does not apply (spec 08 req 56).
-// The attempted writes are one round trip, labeled pipeline when there
-// are several.
+// Write applies one post-commit batch: refunds, cache stores, leases
+// (take, refresh, end-stale) and invalidations. A write whose timeout is
+// 0 or whose context ended is not attempted (RZ-STS-004); the per-request
+// deadline does not apply. The attempted writes are one round trip,
+// labeled pipeline when there are several.
 func (d *Driver) Write(ctx context.Context, batch []*statestore.Write) {
 	now := instantOf(d.server.Now())
 	attempted, label := 0, -1
@@ -479,8 +477,8 @@ func (r *rateLog) allow(now time.Time) bool {
 }
 
 // admission applies the Response Cache memory rules to the one memory
-// "shard" (spec 08 req 53): the reading reports maxmemory = MaxCacheBytes
-// and used_memory = the cache entry bytes held.
+// "shard": the reading reports maxmemory = MaxCacheBytes and used_memory
+// = the cache entry bytes held.
 type admission struct {
 	mu      sync.Mutex
 	read    bool
@@ -491,7 +489,7 @@ type admission struct {
 	every   time.Duration
 }
 
-// Memory rule targets (spec 08 reqs 52 and 53).
+// Memory rule targets.
 const (
 	pollSlow      = 10 * time.Second
 	pollFast      = time.Second
@@ -502,18 +500,18 @@ const (
 	storeSharePct = 2 // of maxmemory per 10 s, divided by N_c
 	maxStoreRate  = 4 << 20
 	// storeNodes is N_c. A memory store has one writer, its own Node, so
-	// N_c = 1 (R-72, overriding spec 08 reqs 53 and 58 and spec 05 req 84
-	// for memory only): at the default 64 MiB that admits 134,217 bytes
-	// per second. redis keeps N_c = N_published, or 1,000 without one.
+	// memory alone takes N_c = 1 instead of the Node count: at the default
+	// 64 MiB that admits 134,217 bytes per second. redis keeps
+	// N_c = N_published, or 1,000 without one.
 	storeNodes = 1
 )
 
-// AdmitStoreBytes applies the Response Cache memory rules (spec 08 req
-// 53): skip above 70% of maxmemory, skip while the store grew by more than
-// 10% of maxmemory between readings until growth falls under 2%, and
-// otherwise allow at most min(2% of maxmemory per 10 s / N_c, 4 MiB per
-// second) bytes between readings, with N_c = 1 (R-72). Readings are taken
-// every 10 s, or every 1 s above 50%.
+// AdmitStoreBytes applies the Response Cache memory rules: skip above 70%
+// of maxmemory, skip while the store grew by more than 10% of maxmemory
+// between readings until growth falls under 2%, and otherwise allow at
+// most min(2% of maxmemory per 10 s / N_c, 4 MiB per second) bytes between
+// readings, with N_c = 1. Readings are taken every 10 s, or every 1 s
+// above 50%.
 func (d *Driver) AdmitStoreBytes(_ statestore.CacheKey, n int) bool {
 	now := d.server.Now()
 	a := &d.admit

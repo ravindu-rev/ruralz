@@ -19,9 +19,9 @@ import (
 	"github.com/ravindu-rev/ruralz/pkg/config/v1alpha1"
 )
 
-// Spec 09 req 45: every enumeration label set an alert rule references
-// exists at 0 from process start, before any Revision.
-func TestNodeSeriesPrecreatedAtZero_Req45(t *testing.T) {
+// Every enumeration label set an alert rule references exists at 0
+// from process start, before any Revision.
+func TestNodeSeriesPrecreatedAtZero(t *testing.T) {
 	r, clk := newTestRegistry(t, nil)
 	pts := collectNow(t, r, clk)
 
@@ -80,8 +80,8 @@ func TestNodeSeriesPrecreatedAtZero_Req45(t *testing.T) {
 	}
 }
 
-// Spec 09 req 46: runtime metrics come from runtime/metrics at collection.
-func TestRuntimeMetrics_Req46(t *testing.T) {
+// Runtime metrics come from runtime/metrics at collection.
+func TestRuntimeMetrics(t *testing.T) {
 	r, clk := newTestRegistry(t, nil)
 	pts := collectNow(t, r, clk)
 	if p := mustGet(t, pts, catalog.RuntimeGoroutines+"{}"); p.kind != "gauge" || p.value < 1 {
@@ -96,10 +96,10 @@ func TestRuntimeMetrics_Req46(t *testing.T) {
 	}
 }
 
-// R-56: the State Store handles are fixed arrays indexed by emit.StateOp*,
+// The State Store handles are fixed arrays indexed by emit.StateOp*,
 // emit.StateResult* and emit.Write*, each index labeled with the catalog
 // value at that position.
-func TestStateMetricsIndexes_R56(t *testing.T) {
+func TestStateMetricsIndexes(t *testing.T) {
 	r, clk := newTestRegistry(t, nil)
 	st := r.Node().State
 	results := []string{"ok", "error", "timeout", "skipped"}
@@ -142,9 +142,9 @@ func TestStateMetricsIndexes_R56(t *testing.T) {
 	}
 }
 
-// Spec 09 req 45 and test 12: a registered code creates its series on
-// first record; an unregistered one creates none and logs once at DEBUG.
-func TestNodeResponsesCodes_Req45(t *testing.T) {
+// A registered code creates its series on first record; an unregistered
+// one creates none and logs once at DEBUG.
+func TestNodeResponsesCodes(t *testing.T) {
 	var logs bytes.Buffer
 	logger := slog.New(slog.NewTextHandler(&logs, &slog.HandlerOptions{Level: slog.LevelDebug}))
 	r, clk := newTestRegistry(t, func(o *Options) { o.Logger = logger })
@@ -170,7 +170,7 @@ func TestNodeResponsesCodes_Req45(t *testing.T) {
 	if n := strings.Count(logs.String(), "metric code label not recorded"); n != 1 {
 		t.Errorf("drop logged %d times, want once: %s", n, logs.String())
 	}
-	// Keys are catalog constants (spec 09 req 63): metric, code and reason.
+	// Keys are catalog constants: metric, code and reason.
 	for _, want := range []string{
 		"level=DEBUG", catalog.KeyMetric + "=" + catalog.HTTPNodeResponsesTotal, catalog.KeyCode + "=RZ-XX-999",
 		catalog.KeyReason + "=" + dropUnregistered,
@@ -405,8 +405,8 @@ func TestNodeAccessors(t *testing.T) {
 	}
 }
 
-// Spec 09 req 49: stripes are min(GOMAXPROCS, 8) and assigned round robin.
-func TestStripes_Req49(t *testing.T) {
+// Stripes are min(GOMAXPROCS, 8) and assigned round robin.
+func TestStripes(t *testing.T) {
 	r, _ := newTestRegistry(t, func(o *Options) { o.Stripes = 0 })
 	if want := min(runtime.GOMAXPROCS(0), maxStripes); r.Stripes() != want {
 		t.Errorf("default stripes = %d, want %d", r.Stripes(), want)

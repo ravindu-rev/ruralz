@@ -16,13 +16,13 @@ import (
 // is canonicalized as net/http does.
 type field struct{ name, value string }
 
-// TestPropagationConformance is the WP-10 propagation conformance table:
+// TestPropagationConformance is the propagation conformance table:
 // the cases of the W3C Trace Context test suite
 // (github.com/w3c/trace-context test/test.py) run through Decide and
-// Inject as one proxy hop (spec 09 reqs 27, 28 and 31). "parent" means
-// the outgoing traceparent continues the client's trace ID with the
-// client's sampled flag; otherwise a new trace starts. state is the
-// outgoing tracestate ("" means none).
+// Inject as one proxy hop. "parent" means the outgoing traceparent
+// continues the client's trace ID with the client's sampled flag;
+// otherwise a new trace starts. state is the outgoing tracestate (""
+// means none).
 func TestPropagationConformance(t *testing.T) {
 	const (
 		tid   = testTraceIDHex

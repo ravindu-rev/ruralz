@@ -13,8 +13,8 @@ import (
 	"time"
 )
 
-// TestRouteDeadline_05Req4 applies the 15 s default Route timeout.
-func TestRouteDeadline_05Req4(t *testing.T) {
+// TestRouteDeadline applies the 15 s default Route timeout.
+func TestRouteDeadline(t *testing.T) {
 	if got := RouteDeadline(epoch, 0); !got.Equal(epoch.Add(15 * time.Second)) {
 		t.Errorf("default: %v", got)
 	}
@@ -26,8 +26,8 @@ func TestRouteDeadline_05Req4(t *testing.T) {
 	}
 }
 
-// TestLegDeadline_05Req24 nests the leg deadline in the Route deadline.
-func TestLegDeadline_05Req24(t *testing.T) {
+// TestLegDeadline nests the leg deadline in the Route deadline.
+func TestLegDeadline(t *testing.T) {
 	route := epoch.Add(10 * time.Second)
 	tests := []struct {
 		name    string
@@ -50,9 +50,9 @@ func TestLegDeadline_05Req24(t *testing.T) {
 	}
 }
 
-// TestPerTryTimeout_05Req4 derives the default perTryTimeout as the leg
+// TestPerTryTimeout derives the default perTryTimeout as the leg
 // time left divided by the retries left plus one, at each attempt start.
-func TestPerTryTimeout_05Req4(t *testing.T) {
+func TestPerTryTimeout(t *testing.T) {
 	leg := epoch.Add(9 * time.Second)
 	tests := []struct {
 		name        string
@@ -78,8 +78,8 @@ func TestPerTryTimeout_05Req4(t *testing.T) {
 	}
 }
 
-// TestAttemptDeadline_05Req24 nests the attempt deadline in the leg's.
-func TestAttemptDeadline_05Req24(t *testing.T) {
+// TestAttemptDeadline nests the attempt deadline in the leg's.
+func TestAttemptDeadline(t *testing.T) {
 	leg := epoch.Add(5 * time.Second)
 	if got := AttemptDeadline(leg, epoch, 2*time.Second); !got.Equal(epoch.Add(2 * time.Second)) {
 		t.Errorf("per-try bound: %v", got)
@@ -101,8 +101,8 @@ func TestAttemptDeadline_05Req24(t *testing.T) {
 	}
 }
 
-// TestWithDeadline_05Req25 drives the attempt context with a fake clock.
-func TestWithDeadline_05Req25(t *testing.T) {
+// TestWithDeadline drives the attempt context with a fake clock.
+func TestWithDeadline(t *testing.T) {
 	t.Run("fires at the deadline with its cause", func(t *testing.T) {
 		clk := newClock()
 		ctx, d := WithDeadline(context.Background(), clk, clk.Now().Add(time.Second), ErrAttemptTimeout)
@@ -187,10 +187,9 @@ func TestWithDeadline_05Req25(t *testing.T) {
 	})
 }
 
-// TestHeadersStopAttemptTimer_05Req25 is 05 section 6 test 4: once
-// response headers arrive the attempt timer is stopped, so a body slower
-// than perTryTimeout is not cut.
-func TestHeadersStopAttemptTimer_05Req25(t *testing.T) {
+// TestHeadersStopAttemptTimer: once response headers arrive the attempt
+// timer is stopped, so a body slower than perTryTimeout is not cut.
+func TestHeadersStopAttemptTimer(t *testing.T) {
 	t.Parallel()
 	release := make(chan struct{})
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {

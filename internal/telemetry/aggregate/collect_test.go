@@ -77,7 +77,7 @@ func encodeReference(sm []metricdata.ScopeMetrics) string {
 // goldenRegistry records a fixed workload: two listeners, three Routes of
 // which one folds by the retiring ceiling, two Upstreams, the five Gateway
 // Policies of the configuration model worked example, and Node-wide
-// families (spec 09 test 32's registry).
+// families.
 func goldenRegistry(t testing.TB) *Registry {
 	r, clk := newTestRegistry(t, func(o *Options) {
 		o.Limits = Limits{Retiring: 20}
@@ -155,7 +155,8 @@ func goldenRegistry(t testing.TB) *Registry {
 	return r
 }
 
-// Done when: the producer output equals a reference encoding (golden).
+// TestProduceGolden checks that the producer output equals a reference
+// encoding (golden).
 func TestProduceGolden(t *testing.T) {
 	p := goldenRegistry(t).Producer()
 	sm, err := p.Produce(context.Background())
@@ -193,10 +194,10 @@ func TestProduceGolden(t *testing.T) {
 	}
 }
 
-// Spec 09 req 51: one collection in flight; readers within the reuse
-// window share it; released structures are reused; a structure never
-// released is abandoned after 30 s instead of reused.
-func TestProduceReuseAndPooling_Req51(t *testing.T) {
+// One collection in flight; readers within the reuse window share
+// it; released structures are reused; a structure never released is
+// abandoned after 30 s instead of reused.
+func TestProduceReuseAndPooling(t *testing.T) {
 	r, clk := newTestRegistry(t, nil)
 	p := r.Producer()
 	ctx := context.Background()
@@ -292,8 +293,8 @@ func TestProduceReuseAndPooling_Req51(t *testing.T) {
 	p.ReleaseResource(&metricdata.ResourceMetrics{ScopeMetrics: b})
 }
 
-// Spec 09 req 51: concurrent readers share one collection.
-func TestProduceSingleFlight_Req51(t *testing.T) {
+// Concurrent readers share one collection.
+func TestProduceSingleFlight(t *testing.T) {
 	r, _ := newTestRegistry(t, nil)
 	p := r.Producer()
 	var wg sync.WaitGroup
@@ -332,7 +333,7 @@ func TestProduceContextCanceled(t *testing.T) {
 	<-p.sem
 }
 
-// OQ-observability-16 (a): the producer plugs into an SDK reader.
+// The producer plugs into an SDK reader.
 func TestManualReaderProducer(t *testing.T) {
 	r, _ := newTestRegistry(t, nil)
 	reader := sdkmetric.NewManualReader(sdkmetric.WithProducer(r.Producer()))
@@ -353,10 +354,10 @@ func TestManualReaderProducer(t *testing.T) {
 	}
 }
 
-// Spec 09 req 39: /metrics family names equal the OTLP instrument names
-// (no suffixes appended) when the Prometheus exporter reads the producer
-// as WP-40 configures it; histograms carry exemplars (req 52).
-func TestPrometheusNamesIdentical_Req39(t *testing.T) {
+// /metrics family names equal the OTLP instrument names (no suffixes
+// appended) when the Prometheus exporter reads the producer without
+// suffixes, scope info or target info; histograms carry exemplars.
+func TestPrometheusNamesIdentical(t *testing.T) {
 	p := goldenRegistry(t).Producer()
 	reg := prometheus.NewRegistry()
 	exp, err := otelprom.New(
@@ -419,10 +420,10 @@ func TestCodeSeriesStartTime(t *testing.T) {
 	}
 }
 
-// Spec 09 req 51 and test 46: readers arriving within the reuse window
-// share one collection, and a released structure is refilled in place,
-// so a fifth concurrent reader adds no structure (and no heap) over four.
-func TestProduceSharedByConcurrentReaders_Test46(t *testing.T) {
+// Readers arriving within the reuse window share one collection, and a
+// released structure is refilled in place, so a fifth concurrent reader
+// adds no structure (and no heap) over four.
+func TestProduceSharedByConcurrentReaders(t *testing.T) {
 	distinct := map[int]int{}
 	for _, readers := range []int{4, 5} {
 		r, clk := newTestRegistry(t, nil)
@@ -493,8 +494,8 @@ func retiringOf(sm []metricdata.ScopeMetrics) (float64, bool) {
 // window so every Produce collects while Admit, Bind, Retire, Release and
 // ceiling folds run, with K = 2 retired plus one closing snapshot kept
 // and requests recording through every pinned snapshot. Each collection
-// keeps the exported retiring series within the ceiling (spec 09 req 56),
-// and counts are exact once quiescent.
+// keeps the exported retiring series within the ceiling, and counts are
+// exact once quiescent.
 func TestConcurrentRecordReloadCollect(t *testing.T) {
 	const ceiling, reloads = 60, 300
 	r, clk := newTestRegistry(t, func(o *Options) { o.Limits = Limits{Retiring: ceiling} })

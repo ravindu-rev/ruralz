@@ -12,11 +12,11 @@ import (
 	"testing"
 )
 
-// Tests for 07 req 33, 04 req 22 and 05 req 28 and 30: hop-by-hop fields
-// and every field Connection names are removed in both directions, Expect
-// is dropped toward Upstreams and "TE: trailers" is kept toward them
-// (RFC 9110 section 7.6.1). Spec 07 integration case I4 ("Connection:
-// x-foo" with X-Foo removed both ways) is covered at the predicate level.
+// Tests that hop-by-hop fields and every field Connection names are
+// removed in both directions, Expect is dropped toward Upstreams and
+// "TE: trailers" is kept toward them (RFC 9110 section 7.6.1). The
+// "Connection: x-foo" integration case (X-Foo removed both ways) is
+// covered at the predicate level.
 
 // longName is a token over MaxNameBytes, so it does not fit the stack
 // buffer StripHopByHop canonicalizes options in.
@@ -26,7 +26,7 @@ const longName = "x-" + "abcdefghijklmnopqrstuvwxyz0123456789-ABCDEFGHIJKLMNOPQR
 	"abcdefghijklmnopqrstuvwxyz0123456789-ABCDEFGHIJKLMNOPQRSTUVWXYZ" +
 	"abcdefghijklmnopqrstuvwxyz0123456789-ABCDEFGHIJKLMNOPQRSTUVWXYZ"
 
-func TestConnectionOptionsReq33(t *testing.T) {
+func TestConnectionOptions(t *testing.T) {
 	tests := []struct {
 		name string
 		h    http.Header
@@ -50,7 +50,7 @@ func TestConnectionOptionsReq33(t *testing.T) {
 	}
 }
 
-func TestStripHopByHopReq33(t *testing.T) {
+func TestStripHopByHop(t *testing.T) {
 	tests := []struct {
 		name string
 		dir  Direction
@@ -81,7 +81,7 @@ func TestStripHopByHopReq33(t *testing.T) {
 			want: http.Header{"Content-Length": {"12"}, "Set-Cookie": {"a=1", "b=2"}},
 		},
 		{
-			// Spec 07 test I4: Connection: x-foo removes X-Foo both ways.
+			// Connection: x-foo removes X-Foo both ways.
 			name: "Connection-named field toward upstream",
 			dir:  TowardUpstream,
 			in:   http.Header{"Connection": {"x-foo, X-Bar"}, "X-Foo": {"1"}, "X-Bar": {"2"}, "X-Baz": {"3"}},
@@ -273,12 +273,11 @@ func TestStripHopByHopDoesNotAllocate(t *testing.T) {
 	}
 }
 
-// TestStripConnectionOptionsReq22 covers the admission strip of 04 req 22
-// and 05 req 28: Connection and the end-to-end fields it names go, the
-// fixed hop-by-hop fields stay for StripHopByHop at leg build, which then
-// keeps "TE: trailers" although "Connection: TE" named it (RFC 9110
-// section 10.1.4).
-func TestStripConnectionOptionsReq22(t *testing.T) {
+// TestStripConnectionOptions covers the admission strip: Connection and
+// the end-to-end fields it names go, the fixed hop-by-hop fields stay for
+// StripHopByHop at leg build, which then keeps "TE: trailers" although
+// "Connection: TE" named it (RFC 9110 section 10.1.4).
+func TestStripConnectionOptions(t *testing.T) {
 	tests := []struct {
 		name string
 		in   http.Header
@@ -324,10 +323,10 @@ func TestStripConnectionOptionsReq22(t *testing.T) {
 	}
 }
 
-// TestStripAtAdmissionKeepsPolicyFields is the 05 req 28 order: the client
-// names a field in Connection, the admission strip removes it, a headers
-// Policy then sets the same field, and the leg build strip keeps the
-// Policy's value and "TE: trailers".
+// TestStripAtAdmissionKeepsPolicyFields checks the strip order: the
+// client names a field in Connection, the admission strip removes it, a
+// headers Policy then sets the same field, and the leg build strip keeps
+// the Policy's value and "TE: trailers".
 func TestStripAtAdmissionKeepsPolicyFields(t *testing.T) {
 	h := http.Header{"Connection": {"TE, X-Shop-Consumer"}, "Te": {"trailers"}, "X-Shop-Consumer": {"forged"}}
 	StripConnectionOptions(h)
@@ -339,8 +338,8 @@ func TestStripAtAdmissionKeepsPolicyFields(t *testing.T) {
 	}
 }
 
-// TestStripConnectionOptionsDoesNotAllocate keeps the admission strip of
-// 04 req 22 free of allocations on a canonical header.
+// TestStripConnectionOptionsDoesNotAllocate keeps the admission strip
+// free of allocations on a canonical header.
 func TestStripConnectionOptionsDoesNotAllocate(t *testing.T) {
 	h := http.Header{"Content-Type": {"application/json"}, "Accept": {"*/*"}, "Keep-Alive": {"1"}}
 	conn, foo := []string{"keep-alive, X-Foo"}, []string{"1"}
@@ -356,9 +355,8 @@ func TestStripConnectionOptionsDoesNotAllocate(t *testing.T) {
 	}
 }
 
-// adversarialHeader is the header of the review case for 07 req 33: n
-// fields that no Connection option of the long-Connection test and
-// benchmark names.
+// adversarialHeader is the header of the linear-cost case: n fields that
+// no Connection option of the long-Connection test and benchmark names.
 func adversarialHeader(n int) http.Header {
 	h := make(http.Header, n+1)
 	for i := range n {
@@ -368,12 +366,12 @@ func adversarialHeader(n int) http.Header {
 }
 
 // TestStripHopByHopLongConnectionDoesNotAllocate checks that a long
-// Connection value against 250 fields costs no allocation per option (07
-// req 33). In the alternating case field C shares the options' length, but
-// the one-byte seen set lets only the first "a" and "b" reach a lookup. In
-// the distinct case field A1 shares the two-letter options' length and
-// none of them names it, so every option is canonicalized and looked up.
-// The time bound is BenchmarkStripHopByHopLongConnection.
+// Connection value against 250 fields costs no allocation per option. In
+// the alternating case field C shares the options' length, but the
+// one-byte seen set lets only the first "a" and "b" reach a lookup. In the
+// distinct case field A1 shares the two-letter options' length and none of
+// them names it, so every option is canonicalized and looked up. The time
+// bound is BenchmarkStripHopByHopLongConnection.
 func TestStripHopByHopLongConnectionDoesNotAllocate(t *testing.T) {
 	for _, tc := range []struct {
 		name string
@@ -403,7 +401,7 @@ func TestStripHopByHopLongConnectionDoesNotAllocate(t *testing.T) {
 
 // TestCanonicalKeyMatchesTextproto checks that the form StripHopByHop
 // looks Connection options up by is the one net/http stores keys in, so
-// that "Connection: x-foo" finds X-Foo (07 req 33, spec 07 test I4).
+// that "Connection: x-foo" finds X-Foo.
 func TestCanonicalKeyMatchesTextproto(t *testing.T) {
 	for _, s := range []string{
 		"", "a", "A", "x-foo", "X-FOO", "x--foo", "-x", "x-", "content-md5", "X_foo-bar",

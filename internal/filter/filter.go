@@ -43,10 +43,10 @@ const (
 	// CannotDecide applies the Policy's failureMode.
 	CannotDecide
 	// Retry asks the Upstream layer to retry the current attempt
-	// (onUpstreamResponseHeaders only; 05 req 33 "or a Filter request"):
-	// every other retry condition still applies and retryOn is not
-	// consulted; the remaining Filters of the Phase are skipped for this
-	// attempt. In any other Phase the executor treats it as CannotDecide.
+	// (onUpstreamResponseHeaders only): every other retry condition still
+	// applies and retryOn is not consulted; the remaining Filters of the
+	// Phase are skipped for this attempt. In any other Phase the executor
+	// treats it as CannotDecide.
 	Retry
 )
 
@@ -81,14 +81,14 @@ type Result struct {
 	// Filter names the error.type by returning or wrapping an error with an
 	// `ErrorType() string` method (found with errors.As). Its value is one
 	// of cel_error, invalid_value, null_body, path_error, output_cap,
-	// result_type or internal (spec 07 req 86), or the executor's own
-	// state_store, buffer_budget, too_large or invalid_result. Any other
-	// value is recorded as internal, so the attribute never carries request
-	// data. Without such an error the executor maps *expr.EvalError to
-	// cel_error, *statestore.Error to state_store, ErrBudget to
-	// buffer_budget, ErrTooLarge to too_large, a recovered panic to
-	// internal, and an outcome the Phase does not allow to invalid_result;
-	// anything else is internal.
+	// result_type or internal, or the executor's own state_store,
+	// buffer_budget, too_large or invalid_result. Any other value is
+	// recorded as internal, so the attribute never carries request data.
+	// Without such an error the executor maps *expr.EvalError to cel_error,
+	// *statestore.Error to state_store, ErrBudget to buffer_budget,
+	// ErrTooLarge to too_large, a recovered panic to internal, and an
+	// outcome the Phase does not allow to invalid_result; anything else is
+	// internal.
 	Err error
 }
 
@@ -127,11 +127,11 @@ var (
 	ErrNotAvailable = errors.New("filter: not available in this Phase")
 )
 
-// DecodedLimitFactor bounds a decoded JSON body (architecture R-63): the
-// values built from a body may cost at most DecodedLimitFactor times the
-// raw limit it arrived under (maxRequestBodyBytes, maxResponseBodyBytes or
-// a composition step's maxBodyBytes), measured as the jsonval cost of the
-// values actually built; past it the body is oversized (ErrTooLarge).
+// DecodedLimitFactor bounds a decoded JSON body: the values built from a
+// body may cost at most DecodedLimitFactor times the raw limit it arrived
+// under (maxRequestBodyBytes, maxResponseBodyBytes or a composition step's
+// maxBodyBytes), measured as the jsonval cost of the values actually
+// built; past it the body is oversized (ErrTooLarge).
 const DecodedLimitFactor = 4
 
 // Identity methods (auth.method).
@@ -156,13 +156,12 @@ type Identity struct {
 	Consumer *expr.Consumer
 	// CertSubject is the RFC 4514 leaf subject (auth.mtls only).
 	CertSubject string
-	// Principal is the non-secret cache partition key (spec 06 requirement
-	// 22): the bound Consumer's name; else, for jwt with a non-empty string
-	// sub, "jwt:" + iss + "#" + sub, with "%" and "#" in iss
-	// percent-encoded as %25 and %23 so the encoding is one-to-one; else,
-	// for mtls with a non-empty subject, "mtls:" + the leaf's RFC 4514
-	// subject; else "": no principal, never a partition key
-	// (OQ-security-and-identity-32). Treat it as opaque.
+	// Principal is the non-secret cache partition key: the bound Consumer's
+	// name; else, for jwt with a non-empty string sub, "jwt:" + iss + "#" +
+	// sub, with "%" and "#" in iss percent-encoded as %25 and %23 so the
+	// encoding is one-to-one; else, for mtls with a non-empty subject,
+	// "mtls:" + the leaf's RFC 4514 subject; else "": no principal, never a
+	// partition key (OQ-security-and-identity-32). Treat it as opaque.
 	Principal string
 }
 
@@ -440,11 +439,11 @@ type Consumptive interface {
 	Complete(ctx context.Context, x Exchange, call *statestore.Call) Result
 	// Undo returns the local tokens Prepare took when the member will not
 	// be completed. That happens when an earlier member denied or failed
-	// closed (spec 05 req 64), or when the member was waiting for its round
-	// trip and a later member's Prepare denied or failed closed locally, so
-	// the round trip was never sent. Complete never runs for a member that
-	// gets Undo. A member that decided in Prepare gets Undo only when an
-	// earlier member denied or failed closed.
+	// closed, or when the member was waiting for its round trip and a later
+	// member's Prepare denied or failed closed locally, so the round trip
+	// was never sent. Complete never runs for a member that gets Undo. A
+	// member that decided in Prepare gets Undo only when an earlier member
+	// denied or failed closed.
 	Undo(x Exchange)
 }
 
@@ -469,10 +468,10 @@ type Component interface {
 
 // Replayer sends a saved request through one Upstream's leg (upstream-leg
 // Policies, breaker, bulkhead, retries) outside any client request, for
-// Response Cache revalidation (05 req 86). The implementation
-// (internal/gateway/replay) pins the currently published snapshot for the
-// whole call and resolves route and upstream by name in it; either being
-// gone is ErrNotAvailable. The caller closes the response body.
+// Response Cache revalidation. The implementation (internal/gateway/replay)
+// pins the currently published snapshot for the whole call and resolves
+// route and upstream by name in it; either being gone is ErrNotAvailable.
+// The caller closes the response body.
 type Replayer interface {
 	Replay(ctx context.Context, route, upstream string, req *http.Request) (*http.Response, error)
 }

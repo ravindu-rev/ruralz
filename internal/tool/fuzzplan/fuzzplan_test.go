@@ -41,9 +41,8 @@ func listEvents(pkgs map[string][]string) string {
 	return b.String()
 }
 
-// TestParseList covers `go test -list` parsing (11 test plan item 5):
-// sorting by package and name, packages without tests, duplicates and
-// non-JSON lines.
+// TestParseList covers `go test -list` parsing: sorting by package
+// and name, packages without tests, duplicates and non-JSON lines.
 func TestParseList(t *testing.T) {
 	in := listEvents(map[string][]string{
 		"example.com/m/b": {"FuzzZeta", "FuzzAlpha"},
@@ -87,7 +86,7 @@ func TestParseListFailure(t *testing.T) {
 // Package; the error keeps them with the failed package (fail event
 // FailedBuild, or the ImportPath without its " [pkg.test]" suffix), and
 // build output no failed package names goes to a general section, so a
-// broken nightly fuzz plan names the compiler error (11 req 28).
+// broken nightly fuzz plan names the compiler error.
 func TestParseListBuildOutput(t *testing.T) {
 	const (
 		p   = "example.com/m/p"
@@ -161,7 +160,7 @@ func manyTargets(n int) []target {
 }
 
 // TestSharding: shards of eight in sorted order, deterministic for the same
-// input whatever its order (11 req 28; test plan item 5).
+// input whatever its order.
 func TestSharding(t *testing.T) {
 	ts := manyTargets(17)
 	shuffled := slices.Clone(ts)
@@ -297,7 +296,7 @@ func TestRunUsage(t *testing.T) {
 
 // TestRunShard runs a shard with a fake go command: a crasher records the
 // new testdata/fuzz input, a failure without one is "fail", the shard keeps
-// going after failures, and the report is written (11 req 28).
+// going after failures, and the report is written.
 func TestRunShard(t *testing.T) {
 	root := t.TempDir()
 	pkgDir := filepath.Join(root, "a")
@@ -402,8 +401,7 @@ func TestRunShardErrors(t *testing.T) {
 }
 
 // TestRealGo lists and fuzzes a temporary module with the real go command:
-// one target finds a crasher within a few hundred executions, one passes
-// (11 req 28, test plan item 5).
+// one target finds a crasher within a few hundred executions, one passes.
 func TestRealGo(t *testing.T) {
 	if testing.Short() {
 		t.Skip("runs the go fuzzer")

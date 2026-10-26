@@ -28,7 +28,7 @@ var update = flag.Bool("update", false, "rewrite the golden files under testdata
 
 // loadBundle parses every JSON file under testdata/bundle into resources
 // (file paths relative to it, role base) and checks that each passes
-// stage F, the precondition of stage G (02 req 2).
+// stage F, the precondition of stage G.
 func loadBundle(t testing.TB) (*fixture, []*tree.Resource) {
 	t.Helper()
 	f := newFixture()
@@ -95,9 +95,9 @@ func bundleText(b *hub.Bundle) string {
 
 // TestRunExampleBundle runs stage G over a Bundle shaped like the
 // configuration model's example: no diagnostics, a Bundle in canonical
-// order whose materialized trees match the golden file (01 golden tests:
-// "its materialized trees as JSON"), conversion-data stripped, typed
-// objects and configs decoded, and sources recorded.
+// order whose materialized trees match the golden file (its materialized
+// trees as JSON), conversion-data stripped, typed objects and configs
+// decoded, and sources recorded.
 func TestRunExampleBundle(t *testing.T) {
 	f, rs := loadBundle(t)
 	b, ds, err := newStage(t).Run(t.Context(), rs, f.files, 4)
@@ -141,8 +141,9 @@ func TestRunExampleBundle(t *testing.T) {
 	}
 }
 
-// TestRunDeterministic is 01 property P7 for stage G: the Bundle and the
-// diagnostics are identical for 1, 2 and 8 workers and any input order.
+// TestRunDeterministic is the determinism property for stage G: the Bundle
+// and the diagnostics are identical for 1, 2 and 8 workers and any input
+// order.
 func TestRunDeterministic(t *testing.T) {
 	var want string
 	for _, workers := range []int{1, 2, 8, 0} {
@@ -185,9 +186,9 @@ func TestRunCanceled(t *testing.T) {
 	}
 }
 
-// TestIdempotentOnCanonical covers R-47 and 02 req 20: stage G applied to
-// its own output, re-entering as canonical content, changes nothing and
-// reports nothing; the same holds when it re-enters as authored content.
+// TestIdempotentOnCanonical checks that stage G applied to its own output,
+// re-entering as canonical content, changes nothing and reports nothing;
+// the same holds when it re-enters as authored content.
 func TestIdempotentOnCanonical(t *testing.T) {
 	f, rs := loadBundle(t)
 	s := newStage(t)
@@ -216,9 +217,9 @@ func TestIdempotentOnCanonical(t *testing.T) {
 	}
 }
 
-// TestOverridablePresence is the stage G part of 02 test plan item 9: an
-// absent and an explicit true overridable materialize to the same tree,
-// an explicit false survives.
+// TestOverridablePresence is the stage G part: an absent and an explicit
+// true overridable materialize to the same tree, an explicit false
+// survives.
 func TestOverridablePresence(t *testing.T) {
 	s := newStage(t)
 	tree := func(spec string) string {
@@ -295,9 +296,9 @@ func (faultyHub) FromHub(_ string, doc *tree.Node, _ bool) (*tree.Node, diag.Lis
 }
 
 // TestResourceErrors covers the per-resource failures of stage G: an
-// unserved apiVersion (RZ-CFG-007, 02 req 4), a document that is not an
-// object, a failed conversion and failed decode, each carrying the
-// resource identity and a location.
+// unserved apiVersion (RZ-CFG-007), a document that is not an object, a
+// failed conversion and failed decode, each carrying the resource
+// identity and a location.
 func TestResourceErrors(t *testing.T) {
 	s := newStage(t)
 	f := newFixture()

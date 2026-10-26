@@ -1,13 +1,13 @@
 // Copyright 2026 Revington
 // SPDX-License-Identifier: Apache-2.0
 
-// Package keys is the State Store key layout (spec 08 section 2.6,
-// docs/architecture/11-scalability-and-distributed-state.md "Distributed
-// state catalog"): the rz:rl:, rz:qt: and rz:rc: prefixes with rzplg:
-// reserved for Plugin state, the escaping of free-form names, the hash
-// tags that keep one partition in one Redis Cluster slot, the CRC16 slot
-// function, the Response Cache generation, partition and lease keys with
-// their hash fields, and the entry MAC (spec 08 req 68, resolution R-49).
+// Package keys is the State Store key layout
+// (docs/architecture/11-scalability-and-distributed-state.md
+// "Distributed state catalog"): the rz:rl:, rz:qt: and rz:rc: prefixes
+// with rzplg: reserved for Plugin state, the escaping of free-form names,
+// the hash tags that keep one partition in one Redis Cluster slot, the
+// CRC16 slot function, the Response Cache generation, partition and lease
+// keys with their hash fields, and the entry MAC.
 //
 // Every builder appends to dst and allocates nothing when dst has the
 // capacity; the layout is a compatibility surface (the release document's
@@ -23,7 +23,7 @@ import (
 	"github.com/ravindu-rev/ruralz/internal/statestore"
 )
 
-// Key prefixes (spec 08 req 47). Another prefix needs a D11 catalog row.
+// Key prefixes. Another prefix needs a "Distributed state catalog" row.
 const (
 	// PrefixRateLimit holds Rate Limit TATs.
 	PrefixRateLimit = "rz:rl:"
@@ -46,9 +46,9 @@ func Prefixes() []string {
 // (rzplg:, Plugin state from M2).
 func Reserved(key string) bool { return strings.HasPrefix(key, PrefixPlugin) }
 
-// Response Cache key suffixes and partition hash fields (spec 08 req 48).
-// A variant field is its prefix followed by the lowercase hex SHA-256 of
-// the Vary-selected values (V).
+// Response Cache key suffixes and partition hash fields. A variant field
+// is its prefix followed by the lowercase hex SHA-256 of the
+// Vary-selected values (V).
 const (
 	// SuffixGeneration ends the per-URI generation key.
 	SuffixGeneration = ":gen"
@@ -95,9 +95,9 @@ func unreserved(c byte) bool {
 }
 
 // AppendEscaped appends s with every byte outside [A-Za-z0-9._-] written
-// as %XX in uppercase hex (spec 08 req 48), so '{', '}' and ':' never
-// appear and distinct names give distinct keys. RFC 1123 labels, such as
-// Policy names, are unchanged.
+// as %XX in uppercase hex, so '{', '}' and ':' never appear and distinct
+// names give distinct keys. RFC 1123 labels, such as Policy names, are
+// unchanged.
 func AppendEscaped(dst []byte, s string) []byte {
 	for i := range len(s) {
 		c := s[i]
@@ -220,11 +220,11 @@ func appendTag(dst []byte, d statestore.Digest) []byte {
 	return append(dst, '}')
 }
 
-// AppendRateLimit appends the GCRA key of one limits[] entry (spec 08 req
-// 48, ADR-0008 Keys row):
-// rz:rl:<policy>:<requests>/<window>:{<hex of the config.key digest>}.
-// Every limit of one Policy and key shares the hash tag, so one script
-// updates them together; a changed requests or window is a new key.
+// AppendRateLimit appends the GCRA key of one limits[] entry (ADR-0008
+// Keys row): rz:rl:<policy>:<requests>/<window>:{<hex of the config.key
+// digest>}. Every limit of one Policy and key shares the hash tag, so one
+// script updates them together; a changed requests or window is a new
+// key.
 func AppendRateLimit(dst []byte, policy string, l statestore.GCRALimit, d statestore.Digest) []byte {
 	dst = append(dst, PrefixRateLimit...)
 	dst = AppendEscaped(dst, policy)
@@ -236,9 +236,9 @@ func AppendRateLimit(dst []byte, policy string, l statestore.GCRALimit, d states
 	return appendTag(dst, d)
 }
 
-// AppendQuota appends the counter key of one Quota window (spec 08 req 48):
-// rz:qt:<escaped consumerQuota>:<window>:<window start in Unix
-// milliseconds>:{<hex of the config.key digest>}.
+// AppendQuota appends the counter key of one Quota window: rz:qt:<escaped
+// consumerQuota>:<window>:<window start in Unix milliseconds>:{<hex of the
+// config.key digest>}.
 func AppendQuota(dst []byte, name string, window time.Duration, start time.Time, d statestore.Digest) []byte {
 	dst = append(dst, PrefixQuota...)
 	dst = AppendEscaped(dst, name)

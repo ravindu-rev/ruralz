@@ -8,10 +8,10 @@ import (
 	"testing"
 )
 
-// TestParseConfigDefaults: the defaults of 11 req 64 (10 runs, 3%,
-// GOMAXPROCS 4, 2000x) and an explicit zero threshold.
+// TestParseConfigDefaults: the defaults (10 runs, 3%, GOMAXPROCS 4,
+// 2000x) and an explicit zero threshold.
 func TestParseConfigDefaults(t *testing.T) {
-	c, err := parseConfig([]byte(`{"benchmarks":[{"package":"./internal/gateway/router","pattern":"^BenchmarkMatch$","maxAllocs":30,"owner":"WP-42","budget":"PB-8","note":"S1 pass-through"}]}`))
+	c, err := parseConfig([]byte(`{"benchmarks":[{"package":"./internal/gateway/router","pattern":"^BenchmarkMatch$","maxAllocs":30,"owner":"internal/gateway/router","budget":"PB-8","note":"S1 pass-through"}]}`))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -19,7 +19,7 @@ func TestParseConfigDefaults(t *testing.T) {
 		t.Errorf("defaults = runs %d, threshold %v, gomaxprocs %d", c.Runs, c.threshold(), c.GOMAXPROCS)
 	}
 	e := c.Benchmarks[0]
-	if e.Benchtime != "2000x" || e.MaxAllocs == nil || *e.MaxAllocs != 30 || e.Owner != "WP-42" || e.Budget != "PB-8" || e.Note == "" {
+	if e.Benchtime != "2000x" || e.MaxAllocs == nil || *e.MaxAllocs != 30 || e.Owner != "internal/gateway/router" || e.Budget != "PB-8" || e.Note == "" {
 		t.Errorf("entry = %+v", e)
 	}
 	c, err = parseConfig([]byte(`{"runs":5,"threshold":0,"gomaxprocs":2,"benchmarks":[]}`))

@@ -11,8 +11,8 @@ import (
 	"github.com/ravindu-rev/ruralz/internal/clock"
 )
 
-// TestStallAndSuspect covers 05 req 21: an attempt without headers 1 s
-// after it started is stalled; its Endpoint is suspect while it has
+// TestStallAndSuspect covers stall and suspect: an attempt without headers
+// 1 s after it started is stalled; its Endpoint is suspect while it has
 // delivered no headers for 1 s; any attempt getting headers clears the
 // suspicion; selection avoids suspect Endpoints (View.Avoid).
 func TestStallAndSuspect(t *testing.T) {
@@ -65,8 +65,9 @@ func TestStallAndSuspect(t *testing.T) {
 	a2.End(clk.Now(), Outcome{})
 }
 
-// TestStalledShareRule covers 05 req 21: once stalled attempts hold 50% of
-// maxConnections, every Endpoint holding one is avoided, suspect or not.
+// TestStalledShareRule covers the stalled share: once stalled attempts hold
+// 50% of maxConnections, every Endpoint holding one is avoided, suspect or
+// not.
 func TestStalledShareRule(t *testing.T) {
 	tr, clk, _, _ := newTracker(t, 3, func(c *Config) { c.MaxConnections = 4 })
 	attempts := make([]Attempt, 2)
@@ -149,7 +150,7 @@ func TestAttemptReuse(t *testing.T) {
 
 // TestLateStallCallback: a stall firing armed for an earlier generation
 // that runs after the Attempt was reused does not stall the new attempt
-// early (05 req 21 on the real clock's asynchronous timers).
+// early (the stall rule on the real clock's asynchronous timers).
 func TestLateStallCallback(t *testing.T) {
 	tr, clk, _, _ := newTracker(t, 1, nil)
 	var a Attempt
@@ -204,7 +205,7 @@ func TestAttemptsRealClock(t *testing.T) {
 }
 
 // TestAttemptAllocations: tracking a pooled attempt allocates nothing
-// (spec 05 test 22: onUpstreamResponseHeaders accounting 0 allocations).
+// (onUpstreamResponseHeaders accounting 0 allocations).
 func TestAttemptAllocations(t *testing.T) {
 	tr, clk, _, _ := newTracker(t, 4, nil)
 	var a Attempt

@@ -32,7 +32,8 @@ import (
 
 // testPKI is a self-signed certificate for 127.0.0.1 used as the server
 // and client certificate, and the pool that trusts it. The test kit's pki
-// package is not imported: WP-84's packages import no Ruralz package.
+// package is not imported: the mock and OTLP sink packages import no
+// Ruralz package.
 type testPKI struct {
 	cert tls.Certificate
 	pool *x509.CertPool
@@ -107,7 +108,7 @@ func dial(t testing.TB, s *Sink, clientTLS *tls.Config) *grpc.ClientConn {
 	}
 	cc, err := grpc.NewClient("passthrough:///"+s.Addr(),
 		grpc.WithTransportCredentials(creds),
-		// Reconnect quickly after Down (09 test 37 recovery).
+		// Reconnect quickly after Down (collector-down recovery).
 		grpc.WithConnectParams(grpc.ConnectParams{
 			Backoff:           backoff.Config{BaseDelay: 20 * time.Millisecond, Multiplier: 1.6, MaxDelay: 200 * time.Millisecond},
 			MinConnectTimeout: time.Second,

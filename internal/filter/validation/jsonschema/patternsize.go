@@ -11,13 +11,12 @@ import (
 	"unicode/utf8"
 )
 
-// The size of a pattern (architecture R-77, 07 req 75 and F6).
-// Go's regexp compiles a pattern into a program the compiled Schema keeps,
-// so the work and the memory of compiling grow with the program, not with
-// the pattern: the 11 bytes of [a-z]{1000} compile to a thousand
-// instructions (review finding: seven patterns of 33 KB compiled for 25 s
-// and kept 886 MB). The walk therefore measures every pattern before
-// anything compiles it and refuses a pattern whose measure exceeds
+// The size of a pattern. Go's regexp compiles a pattern into a program the
+// compiled Schema keeps, so the work and the memory of compiling grow with
+// the program, not with the pattern: the 11 bytes of [a-z]{1000} compile to
+// a thousand instructions (seven patterns of 33 KB compiled for 25 s and
+// kept 886 MB). The walk therefore measures every pattern before anything
+// compiles it and refuses a pattern whose measure exceeds
 // MaxPatternInstructions, or patterns whose measures exceed
 // MaxDocumentInstructions together.
 //
@@ -40,12 +39,11 @@ import (
 // instruction).
 // A pattern whose parsing work alone exceeds the bound is refused
 // unparsed, and once the document's bound is spent no later pattern is
-// parsed (review finding: hundreds of escape-heavy patterns were parsed
-// after the bound, 1.3 s and 1.3 GB for a schema refused anyway); a pattern
-// refused after its parse still counts its parsing work. The library
-// compiles every distinct pattern once (regexpCache), through
-// compilePattern, which never builds Go's one-pass matcher: its tables are
-// not part of the measure.
+// parsed (parsed after the bound, hundreds of escape-heavy patterns took
+// 1.3 s and 1.3 GB for a schema refused anyway); a pattern refused after
+// its parse still counts its parsing work. The library compiles every
+// distinct pattern once (regexpCache), through compilePattern, which never
+// builds Go's one-pass matcher: its tables are not part of the measure.
 
 // rangesPerInstruction is the character-class ranges counted as one more
 // instruction of the program: an instruction takes 40 bytes, a range 8.
@@ -62,8 +60,8 @@ const programOverhead = 24
 // counts: the program's instructions refer to its runes, which the parser
 // keeps in the 112-byte node itself when they fit, as one or two do, so
 // the node stays alive (131 anchored alternations of 330 two-rune
-// literals, a review finding's document, keep 11 MB of programs and nodes
-// without the one-pass matcher, 84 bytes per instruction).
+// literals keep 11 MB of programs and nodes without the one-pass matcher,
+// 84 bytes per instruction).
 const nodeInstructions = 3
 
 // noOnePass is the empty group compilePattern compiles in front of every
@@ -72,10 +70,10 @@ const nodeInstructions = 3
 // fewer than 1,000 instructions (regexp compileOnePass), and its tables
 // hold a copy of every instruction, the ranges of every class again with
 // a dispatch table, and at every alternation the merged first ranges of
-// all its branches, so they grow with the square of an alternation (review
-// finding: 23 anchored alternations of 330 classes, 258 KB within every
-// bound, kept 185 MB; 131 of 330 literals 142 MB; 131 anchored repetitions
-// of a four-range class 21 MB). Behind the empty group the program starts
+// all its branches, so they grow with the square of an alternation (23
+// anchored alternations of 330 classes, 258 KB within every bound, kept
+// 185 MB; 131 of 330 literals 142 MB; 131 anchored repetitions of a
+// four-range class 21 MB). Behind the empty group the program starts
 // with a no-op, so Go never builds one. The group matches the empty
 // string, so the expression matches as written, and the matcher still
 // knows the program is anchored (syntax.Prog.StartCond skips the no-op)

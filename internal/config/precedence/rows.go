@@ -13,7 +13,7 @@ import (
 	"github.com/ravindu-rev/ruralz/pkg/config/v1alpha1"
 )
 
-// Labels of the render --effective table (02 req 51).
+// Labels of the render --effective table.
 const (
 	// LegClient is the Leg of client-leg rows.
 	LegClient = "client"
@@ -21,8 +21,8 @@ const (
 	None = "none"
 )
 
-// Row is one row of ruralz bundle render --effective --route (02 req 51
-// and 52). The JSON members are in the order of the JSON output.
+// Row is one row of ruralz bundle render --effective --route. The JSON
+// members are in the order of the JSON output.
 type Row struct {
 	// Phase is the Phase, such as "onRequestHeaders", or "none" for a
 	// removed Policy.
@@ -39,17 +39,17 @@ type Row struct {
 	Slot string `json:"slot"`
 	// From is "Gateway", "Route" or "Upstream <name>".
 	From string `json:"from"`
-	// Reason says why the Policy is there or gone (reason templates of 02
-	// req 51, pinned by golden files).
+	// Reason says why the Policy is there or gone (reason templates,
+	// pinned by golden files).
 	Reason string `json:"reason"`
 }
 
 // Rows returns the effective table of c: Phases in execution order; within
 // a Phase the client leg, then the legs in leg order, each in execution
 // order; then the removed Gateway Policies with Phase and Leg "none",
-// replaced before excluded, each in Gateway list order (02 req 51). b
-// supplies the type and Filter class of removed Policies; with a nil b, or
-// a Policy b lacks, they are empty.
+// replaced before excluded, each in Gateway list order. b supplies the
+// type and Filter class of removed Policies; with a nil b, or a Policy b
+// lacks, they are empty.
 func Rows(c *hub.Chain, b *hub.Bundle) []Row {
 	if c == nil {
 		return nil

@@ -25,12 +25,12 @@ func chunkCount(n, workers int) int {
 
 // parallel calls fn(worker, chunk, lo, hi) for each of the chunks
 // contiguous ranges [lo, hi) of [0, n), on min(workers, chunks)
-// goroutines that it owns and waits for before returning (02 req 78:
-// a bounded pool per call, no goroutine outliving it). worker is in
-// [0, min(workers, chunks)), so fn can use per-worker scratch. Chunks are
-// handed out in order; once ctx is done or a call fails no further chunk
-// starts. The result is the error of the lowest failing chunk, or ctx's
-// error, so it does not depend on scheduling when fn is deterministic.
+// goroutines that it owns and waits for before returning (a bounded pool
+// per call, no goroutine outliving it). worker is in [0, min(workers,
+// chunks)), so fn can use per-worker scratch. Chunks are handed out in
+// order; once ctx is done or a call fails no further chunk starts. The
+// result is the error of the lowest failing chunk, or ctx's error, so it
+// does not depend on scheduling when fn is deterministic.
 func parallel(ctx context.Context, n, workers, chunks int, fn func(worker, chunk, lo, hi int) error) error {
 	bounds := func(k int) (int, int) { return k * n / chunks, (k + 1) * n / chunks }
 	if workers <= 1 || chunks <= 1 {

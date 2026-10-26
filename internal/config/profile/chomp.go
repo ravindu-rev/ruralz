@@ -239,15 +239,14 @@ func cutBlankRuns(text string, keep int) (string, []int) {
 
 // stripEmptyKeep rewrites to strip chomping the keep-chomping block scalar
 // headers of text whose content is blank lines only, and returns the text
-// and the number of headers rewritten (01 req 8, 12). goccy's scanner
-// reads the line break such a scalar keeps as a value still pending and
-// refuses the next token ("keep: |+\n\n# c" is "could not find multi-line
-// content"), which YAML 1.2 accepts as {keep: "\n"}, so the scalar was
-// accepted at the end of a document and refused before a comment or an
-// entry. The token pass reads the value from the source (literal.go), and
-// the rewrite replaces one character of the header, so no position
-// changes; keepChomping gives such scalars strip chomping for the same
-// reason.
+// and the number of headers rewritten. goccy's scanner reads the line
+// break such a scalar keeps as a value still pending and refuses the next
+// token ("keep: |+\n\n# c" is "could not find multi-line content"), which
+// YAML 1.2 accepts as {keep: "\n"}, so the scalar was accepted at the end
+// of a document and refused before a comment or an entry. The token pass
+// reads the value from the source (literal.go), and the rewrite replaces
+// one character of the header, so no position changes; keepChomping gives
+// such scalars strip chomping for the same reason.
 //
 // goccy's scan of text stops at the first such scalar, so the headers are
 // found in a scan of text with every keep-chomping header written with

@@ -15,13 +15,12 @@ import (
 	"github.com/ravindu-rev/ruralz/internal/phase"
 )
 
-// Tests for LegHooks and LegRun over RequestState.Leg (R-42; spec 04 reqs
-// 39, 42; spec 05 req 33; spec 07 reqs 6 and 16): per-leg when decisions,
-// PolicyState slots and Finish at End, and concurrent legs sharing nothing
-// mutable.
+// Tests for LegHooks and LegRun over RequestState.Leg: per-leg when
+// decisions, PolicyState slots and Finish at End, and concurrent legs
+// sharing nothing mutable.
 
 // legFilter stores its leg's identity in PolicyState at onUpstreamRequest
-// and checks it in the later Phases and Finish (R-39: per-leg slots).
+// and checks it in the later Phases and Finish (per-leg slots).
 type legFilter struct {
 	name string
 	ev   *events
@@ -56,10 +55,10 @@ func legPolicies(ev *events, t testing.TB) []*snapshot.Policy {
 }
 
 func TestLegPhasesAndFinishOrder(t *testing.T) {
-	// Spec 04 req 39: onUpstreamRequest and onUpstreamResponseHeaders run per
-	// attempt, onUpstreamResponseBody per leg; response Phases reversed;
-	// End runs Finish for the leg's Policies in request order and releases
-	// the leg state (R-40, R-42).
+	// onUpstreamRequest and onUpstreamResponseHeaders run per attempt,
+	// onUpstreamResponseBody per leg; response Phases reversed; End runs
+	// Finish for the leg's Policies in request order and releases the leg
+	// state.
 	h := newHarness(t)
 	ch := chain(nil, map[string][]*snapshot.Policy{"orders": legPolicies(h.ev, t)})
 	ctx := context.Background()
@@ -102,8 +101,8 @@ func TestLegPhasesAndFinishOrder(t *testing.T) {
 }
 
 func TestLegWhenOncePerLeg(t *testing.T) {
-	// Spec 07 req 8: when is evaluated once per leg at Upstream scope, and a
-	// false when skips the Policy for every attempt of that leg only.
+	// When is evaluated once per leg at Upstream scope, and a false when
+	// skips the Policy for every attempt of that leg only.
 	h := newHarness(t)
 	prog := &constProgram{ok: false}
 	p := policy(spec{
@@ -130,10 +129,10 @@ func TestLegWhenOncePerLeg(t *testing.T) {
 }
 
 func TestConcurrentLegsShareNothingMutable(t *testing.T) {
-	// R-42: legs of an aggregate composition run concurrently, each with
-	// its own LegRun and leg state (PolicyState slots, when decisions,
-	// Leg); run under -race. The fake client state's Leg is not
-	// synchronized, so the executor must serialize BeginLeg.
+	// Legs of an aggregate composition run concurrently, each with its
+	// own LegRun and leg state (PolicyState slots, when decisions, Leg);
+	// run under -race. The fake client state's Leg is not synchronized,
+	// so the executor must serialize BeginLeg.
 	h := newHarness(t)
 	ch := chain(nil, map[string][]*snapshot.Policy{
 		"a": legPolicies(h.ev, t),
@@ -182,7 +181,7 @@ func TestConcurrentLegsShareNothingMutable(t *testing.T) {
 }
 
 func TestBeginLegsForReplay(t *testing.T) {
-	// R-43: the replay path runs one leg on a synthetic exchange with the
+	// The replay path runs one leg on a synthetic exchange with the
 	// snapshot's LegChains and no client Phases.
 	h := newHarness(t)
 	legs := chain(nil, map[string][]*snapshot.Policy{"up": legPolicies(h.ev, t)}).Legs

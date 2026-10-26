@@ -10,9 +10,8 @@ import (
 	"testing"
 )
 
-// Tests for architecture section 2.3 (WP-01) and section 0 convention 5:
-// Error carries a code through %w chains, CodeOf finds the outermost one,
-// Status maps registered codes; plus the M1 code rows (R-22).
+// Tests that Error carries a code through %w chains, CodeOf finds the
+// outermost one and Status maps registered codes; plus the M1 code rows.
 
 func TestErrorFormat(t *testing.T) {
 	cause := errors.New("dial tcp 10.0.0.7:8080: connection refused")
@@ -96,7 +95,7 @@ func TestStatus(t *testing.T) {
 }
 
 func TestM1Codes(t *testing.T) {
-	// Architecture 2.3: the rows WP-01 registers, with their statuses.
+	// The M1 rows, with their statuses.
 	tests := []struct {
 		id         string
 		area       Area

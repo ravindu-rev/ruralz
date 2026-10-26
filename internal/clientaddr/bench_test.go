@@ -11,9 +11,9 @@ import (
 	"testing"
 )
 
-// BenchmarkClientAddr is the 06 6.7 benchmark: source.ip with 16
-// X-Forwarded-For entries behind a trusted peer (the full walk), plus the
-// Forwarded form and the common short cases. Every case allocates nothing.
+// BenchmarkClientAddr measures source.ip with 16 X-Forwarded-For entries
+// behind a trusted peer (the full walk), plus the Forwarded form and the
+// common short cases. Every case allocates nothing.
 func BenchmarkClientAddr(b *testing.B) {
 	tr := testTrusted()
 	trusted := netip.MustParseAddrPort("10.0.0.1:443")

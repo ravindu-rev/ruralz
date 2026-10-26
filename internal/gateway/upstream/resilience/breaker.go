@@ -56,7 +56,7 @@ func Transition(from, to State) bool {
 	}
 }
 
-// LegResult is how a leg counts for the breaker (05 req 37).
+// LegResult is how a leg counts for the breaker.
 type LegResult uint8
 
 // Leg results.
@@ -72,7 +72,7 @@ const (
 )
 
 // BreakerResult returns how a leg that ended with o counts for the
-// breaker (05 req 37): failed is failureWhen over the leg's final result
+// breaker: failed is failureWhen over the leg's final result
 // (EvalFailureWhen), ejected and endpoints the Upstream's passively or
 // actively ejected Endpoints and its Endpoint count when the leg ended.
 //
@@ -118,8 +118,8 @@ const (
 	stateMask = 1<<stateBits - 1
 )
 
-// Breaker is the circuit breaker of one Upstream on one Node (05 req 37,
-// Figure 2), counting legs by their final result:
+// Breaker is the circuit breaker of one Upstream on one Node (Figure 2),
+// counting legs by their final result:
 //
 //   - Closed: every leg passes. The breaker opens when consecutiveFailures
 //     consecutive counted legs failed and at least failureRatio of at least
@@ -134,13 +134,13 @@ const (
 //
 // A leg admitted in one state period may start another attempt (a retry)
 // only while Admits holds: the breaker is closed, or half-open and the leg
-// is its current probe (05 req 11 step e). Leg checks it in Decide, before
-// the retry delay, and again in StartAttempt, when the attempt starts,
-// since the breaker can change during the delay. Results of legs admitted
-// in an earlier state period (a leg that started before the breaker
-// opened) are ignored. Every call takes the BreakerConfig of the caller's
-// snapshot, so a Hot Reload applies new thresholds to later calls while
-// the state carries over (05 req 2).
+// is its current probe. Leg checks it in Decide, before the retry delay,
+// and again in StartAttempt, when the attempt starts, since the breaker
+// can change during the delay. Results of legs admitted in an earlier
+// state period (a leg that started before the breaker opened) are ignored.
+// Every call takes the BreakerConfig of the caller's snapshot, so a Hot
+// Reload applies new thresholds to later calls while the state carries
+// over.
 //
 // A probe admitted with a lease (AllowLease) that has not ended by the
 // lease's end is presumed lost, for example a leg dropped without End: the
@@ -186,9 +186,9 @@ func NewBreaker(clk clock.Clock, src rand.Source, onChange func(from, to State))
 func (b *Breaker) State() State { return State(b.word.Load() & stateMask) }
 
 // Allow admits a new leg: ok is false when the breaker is open, or
-// half-open with its probe in flight (05 req 11 step e: RZ-UP-005). The
-// leg must pass the permit to Record exactly once when it ends. A probe
-// admitted by Allow holds the probe slot until then, without a lease.
+// half-open with its probe in flight (RZ-UP-005). The leg must pass the
+// permit to Record exactly once when it ends. A probe admitted by Allow
+// holds the probe slot until then, without a lease.
 func (b *Breaker) Allow(cfg *BreakerConfig) (p Permit, ok bool) {
 	return b.AllowLease(cfg, time.Time{})
 }
@@ -231,13 +231,12 @@ func (b *Breaker) AllowLease(cfg *BreakerConfig, deadline time.Time) (p Permit, 
 	return Permit{gen: b.word.Load() >> stateBits, probe: true}, true
 }
 
-// Admits reports whether a leg admitted with p may start another attempt,
-// a retry (05 req 11 step e, req 33 condition 3): the breaker is closed, or
-// half-open and p is its current probe. It is false while the breaker is
-// open, for every other leg while it is half-open (a leg admitted before
-// the breaker opened must not send a second attempt beside the probe;
-// req 37), and for a probe whose lease another leg took over. It is one
-// atomic load.
+// Admits reports whether a leg admitted with p may start another attempt, a
+// retry: the breaker is closed, or half-open and p is its current probe. It
+// is false while the breaker is open, for every other leg while it is
+// half-open (a leg admitted before the breaker opened must not send a
+// second attempt beside the probe), and for a probe whose lease another leg
+// took over. It is one atomic load.
 func (b *Breaker) Admits(p Permit) bool {
 	w := b.word.Load()
 	switch State(w & stateMask) {
@@ -357,7 +356,7 @@ func (b *Breaker) OpenUntil() time.Time {
 }
 
 // BreakerStats is a consistent read of a Breaker for the breaker object of
-// /debug/upstreams (05 req 96).
+// /debug/upstreams.
 type BreakerStats struct {
 	// State is the current state.
 	State State

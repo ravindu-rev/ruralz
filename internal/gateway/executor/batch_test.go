@@ -22,10 +22,10 @@ import (
 	"github.com/ravindu-rev/ruralz/pkg/config/v1alpha1"
 )
 
-// Tests for consumptive batching (pack 8.7 rules 1 to 3; spec 05 reqs 64
-// and 91; spec 08 reqs 27 to 29, 34 and 38; R-14, R-39): Prepare, shared
-// Store.Consume round trips counted with filtertest.Store, Complete,
-// Undo, per-member PolicyState and the request's RequestBudget.
+// Tests for consumptive batching (pack 8.7 rules 1 to 3): Prepare,
+// shared Store.Consume round trips counted with filtertest.Store,
+// Complete, Undo, per-member PolicyState and the request's
+// RequestBudget.
 
 // newConsumer returns a Consumptive admission Filter.
 func (h *harness) consumer(name string) *consumer {
@@ -91,8 +91,8 @@ func TestBatchOneRoundTrip(t *testing.T) {
 
 func TestBatchSequentialRoundTrips(t *testing.T) {
 	// Pack 8.7 rule 3 "otherwise sequential round trips": a Store taking one
-	// call per round trip makes three trips, each member exactly one
-	// (spec 08 req 27, at most one blocking round trip per Policy).
+	// call per round trip makes three trips, each member exactly one (at
+	// most one blocking round trip per Policy).
 	h := newHarness(t)
 	var sizes []int
 	h.store.ConsumeFn = func(calls []*statestore.Call) int {
@@ -115,9 +115,9 @@ func TestBatchSequentialRoundTrips(t *testing.T) {
 }
 
 func TestBatchDenyUndoesLaterMembers(t *testing.T) {
-	// Spec 05 req 64: calls stop at the first deny and local tokens taken by
-	// Policies after it are returned (Undo), including one that admitted
-	// locally in Prepare; earlier members keep their decision.
+	// Calls stop at the first deny and local tokens taken by Policies after
+	// it are returned (Undo), including one that admitted locally in
+	// Prepare; earlier members keep their decision.
 	h := newHarness(t)
 	h.store.ConsumeFn = func(calls []*statestore.Call) int {
 		calls[0].Done, calls[0].GCRA.Allowed = true, true
@@ -154,8 +154,8 @@ func TestBatchDenyUndoesLaterMembers(t *testing.T) {
 }
 
 func TestBatchLocalDenySendsNothing(t *testing.T) {
-	// Spec 05 req 91: local denials send zero State Store commands; members
-	// prepared before the deny return their tokens, later ones never run.
+	// Local denials send zero State Store commands; members prepared before
+	// the deny return their tokens, later ones never run.
 	h := newHarness(t)
 	a, b, c := h.consumer("a"), h.consumer("b"), h.consumer("c")
 	b.prepare = func(filter.Exchange, *statestore.Call) (filter.Result, bool) {
@@ -176,10 +176,10 @@ func TestBatchLocalDenySendsNothing(t *testing.T) {
 }
 
 func TestBatchStoreFailureEachMemberAppliesItsMode(t *testing.T) {
-	// Spec 08 req 38: in a merged round trip every call gets the same
-	// failure; the executor applies each Policy's failureMode in chain order
-	// and stops at the first closed rejection (503 with the Filter's RZ-STS
-	// code, spec 08 req 36); the members after it return their tokens.
+	// In a merged round trip every call gets the same failure; the executor
+	// applies each Policy's failureMode in chain order and stops at the
+	// first closed rejection (503 with the Filter's RZ-STS code); the
+	// members after it return their tokens.
 	h := newHarness(t)
 	h.store.ConsumeFn = func(calls []*statestore.Call) int {
 		for _, c := range calls {
@@ -215,8 +215,8 @@ func TestBatchStoreFailureEachMemberAppliesItsMode(t *testing.T) {
 }
 
 func TestBatchWithoutStoreIsNotAttempted(t *testing.T) {
-	// Spec 08 req 28/33: with no State Store the prepared calls are not
-	// attempted (RZ-STS-004) and each member applies its failureMode.
+	// With no State Store the prepared calls are not attempted
+	// (RZ-STS-004) and each member applies its failureMode.
 	h := newHarness(t)
 	a := h.consumer("a")
 	ch, _ := h.consumptive([]v1alpha1.FailureMode{v1alpha1.FailureModeClosed}, a)
@@ -269,9 +269,9 @@ func (s *budgetStore) Consume(ctx context.Context, rb *statestore.RequestBudget,
 }
 
 func TestBatchBudgetAndTimeouts(t *testing.T) {
-	// Spec 04 req 45 and spec 08 req 28: the round trip gets the request's
-	// RequestBudget (with its stripe); a call without a timeout takes the
-	// Policy's effective stateStoreTimeout.
+	// The round trip gets the request's RequestBudget (with its stripe); a
+	// call without a timeout takes the Policy's effective
+	// stateStoreTimeout.
 	h := newHarness(t)
 	bs := &budgetStore{}
 	a, b := h.consumer("a"), h.consumer("b")
@@ -302,8 +302,8 @@ func TestBatchBudgetAndTimeouts(t *testing.T) {
 }
 
 func TestBatchSpanStateAttributes(t *testing.T) {
-	// Spec 08 req 65: a shared round trip is recorded on the first member's
-	// span (op and duration) and named by the others in ruralz.state.batch.
+	// A shared round trip is recorded on the first member's span (op and
+	// duration) and named by the others in ruralz.state.batch.
 	h := newHarness(t)
 	h.store.ConsumeFn = func(calls []*statestore.Call) int {
 		for _, c := range calls {
@@ -367,8 +367,8 @@ func TestConsumptiveOutsideRequestHeadersUsesHandle(t *testing.T) {
 }
 
 func TestBatchPanicsAreCannotDecide(t *testing.T) {
-	// Spec 04 req 43: panics in Prepare and Complete become cannot decide
-	// (closed: 503 with the admission default); a panic in Undo is contained.
+	// Panics in Prepare and Complete become cannot decide (closed: 503 with
+	// the admission default); a panic in Undo is contained.
 	tests := []struct {
 		name  string
 		setup func(a, b *consumer)
@@ -474,10 +474,10 @@ func TestBatchMembersGetTheirSpanContext(t *testing.T) {
 }
 
 func TestBatchWhenErrors(t *testing.T) {
-	// Spec 03 req 43 in a batch: a member whose when errs runs under closed
-	// (its span carries the applied mode and error.type) and is skipped
-	// under open (no Prepare, a skipped span); each counts one failure in
-	// onRequestHeaders and feeds RecordFailure.
+	// A when runtime error in a batch: a member whose when errs runs under
+	// closed (its span carries the applied mode and error.type) and is
+	// skipped under open (no Prepare, a skipped span); each counts one
+	// failure in onRequestHeaders and feeds RecordFailure.
 	h := newHarness(t)
 	a, b, c := h.consumer("a"), h.consumer("b"), h.consumer("c")
 	ch, members := h.consumptive([]v1alpha1.FailureMode{v1alpha1.FailureModeClosed, v1alpha1.FailureModeOpen}, a, b, c)
@@ -532,9 +532,9 @@ func TestBatchWhenErrors(t *testing.T) {
 }
 
 func TestBatchLocalOpenFailureIsSettled(t *testing.T) {
-	// Spec 04 req 43: a member whose Prepare cannot decide locally under
-	// open is settled at once (skipped for the request, never undone) and
-	// sends nothing; the batch goes on with the next member.
+	// A member whose Prepare cannot decide locally under open is settled
+	// at once (skipped for the request, never undone) and sends nothing;
+	// the batch goes on with the next member.
 	h := newHarness(t)
 	a, b := h.consumer("a"), h.consumer("b")
 	a.prepare = func(filter.Exchange, *statestore.Call) (filter.Result, bool) {
@@ -563,7 +563,7 @@ func (*panicUndo) Undo(filter.Exchange) { panic("undo") }
 
 func TestBatchReusesScratchWithoutLeaks(t *testing.T) {
 	// The batch scratch is cleared after each run so a pooled Run retains
-	// no Policy, span or call (R-39: the executor's call is reused).
+	// no Policy, span or call (the executor's call is reused).
 	h := newHarness(t)
 	ch, _ := h.consumptive(nil, h.consumer("a"), h.consumer("b"))
 	r := h.e.Begin(h.st, ch, h.store)

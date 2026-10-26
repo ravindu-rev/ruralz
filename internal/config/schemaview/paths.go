@@ -11,11 +11,11 @@ import (
 	"github.com/ravindu-rev/ruralz/internal/config/diag"
 )
 
-// pathNode is one key-aware path (01 req 48): its last element, the
-// path above it and the interned text of the whole path. Every position
-// at or below a path shares its node, so a large element, such as a keyed
-// entry's key or a set element's canonical JSON, is held and rendered
-// once, never once per diagnostic. nil is the empty path.
+// pathNode is one key-aware path: its last element, the path above it and
+// the interned text of the whole path. Every position at or below a path
+// shares its node, so a large element, such as a keyed entry's key or a
+// set element's canonical JSON, is held and rendered once, never once per
+// diagnostic. nil is the empty path.
 type pathNode struct {
 	parent *pathNode
 	elem   diag.PathElem
@@ -25,7 +25,7 @@ type pathNode struct {
 // textNode is the Path.String text of a path as the chain of the texts
 // its elements add, interned per Validate call by (parent, text): two
 // paths render the same text exactly when they have the same textNode,
-// because the 01 req 48 grammar renders every element self-delimited (a
+// because the path grammar renders every element self-delimited (a
 // bracketed form closed by "]" outside JSON strings, or "." and a bare
 // field name). Diagnostics are deduplicated and compared by their
 // textNode, never by a rendered path. nil is the empty text.

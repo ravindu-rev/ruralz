@@ -11,8 +11,8 @@ import (
 	"github.com/ravindu-rev/ruralz/internal/telemetry/catalog"
 )
 
-// BenchmarkProcessLogDisabled: a debug record at info (09 req 64, 70: no
-// cost, 0 allocations).
+// BenchmarkProcessLogDisabled: a debug record at info (no cost, 0
+// allocations).
 func BenchmarkProcessLogDisabled(b *testing.B) {
 	s, err := New(Options{Stdout: io.Discard})
 	if err != nil {

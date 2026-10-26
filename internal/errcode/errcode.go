@@ -186,7 +186,7 @@ func All() []Code {
 		{ID: "RZ-UP-007", Area: AreaUP, Status: 502, Meaning: "Retries ran and the last attempt got no response"},
 		{ID: "RZ-UP-008", Area: AreaUP, Status: 503, Meaning: "Endpoint set empty"},
 		{ID: "RZ-UP-009", Area: AreaUP, StatusNote: "Not applicable", Meaning: "Upstream failed after commit; the stream ended with an error"},
-		{ID: "RZ-UP-010", Area: AreaUP, Status: 502, Meaning: "Buffered plain `upstreams` response over its cap (area per OQ-data-plane-9)"},
+		{ID: "RZ-UP-010", Area: AreaUP, Status: 502, Meaning: "Buffered plain `upstreams` response over its cap"},
 		{ID: "RZ-UP-011", Area: AreaUP, Status: 502, Meaning: "A merged or non-final composition step got a non-2xx response"},
 		{ID: "RZ-AUTH-001", Area: AreaAUTH, Status: 401, Meaning: "Credential missing, or every auth-class Policy skipped"},
 		{ID: "RZ-AUTH-002", Area: AreaAUTH, Status: 401, Meaning: "Credential invalid, no matching Consumer, a second binding, or an auth Policy that could not decide without a code"},

@@ -52,9 +52,9 @@ func (v stateView) Load(i int) int64 {
 	return int64(i % 3)
 }
 
-// TestSetSnapshot covers the View contract behind 05 reqs 11 and 16: a Set
-// keeps selecting from its own list and payload after the Balancer moved
-// on, so a View built from one Set never meets another Set's indices.
+// TestSetSnapshot covers the View contract behind selection and rebuilds: a
+// Set keeps selecting from its own list and payload after the Balancer
+// moved on, so a View built from one Set never meets another Set's indices.
 func TestSetSnapshot(t *testing.T) {
 	ids := func(names ...string) []Endpoint {
 		out := make([]Endpoint, len(names))
@@ -105,11 +105,10 @@ func TestSetSnapshot(t *testing.T) {
 }
 
 // TestSetSnapshotUnderChurn runs attempts the way the Upstream runtime does,
-// one loaded Set per attempt with its View built from that Set's payload,
-// on many goroutines while the set churns, plans change and structures
-// rebuild (run under -race): every graded index lies inside the Set's list,
-// and every choice is a member of that list with the lowest grade present
-// in it (05 req 11).
+// one loaded Set per attempt with its View built from that Set's payload, on
+// many goroutines while the set churns, plans change and structures rebuild
+// (run under -race): every graded index lies inside the Set's list, and
+// every choice is a member of that list with the lowest grade present in it.
 func TestSetSnapshotUnderChurn(t *testing.T) {
 	names := []string{"a", "b", "c", "d", "e", "f", "g", "h", "i", "j"}
 	listFor := func(round int) []Endpoint {

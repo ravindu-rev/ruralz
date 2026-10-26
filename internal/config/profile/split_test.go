@@ -22,9 +22,8 @@ func parseWith(t testing.TB, src string, splitAt int) ([]Document, string) {
 // TestSplitParseMatchesGoccy parses every YAML Test Suite stream twice,
 // with every block collection split entry by entry and with goccy's
 // whole-document parse, and requires the same trees, positions and finding
-// codes (01 req 10, 14; 11 req 18): the split parse, which every block
-// collection takes, never changes a result goccy gives for a stream it
-// reads as YAML 1.2 does.
+// codes: the split parse, which every block collection takes, never
+// changes a result goccy gives for a stream it reads as YAML 1.2 does.
 func TestSplitParseMatchesGoccy(t *testing.T) {
 	inputs := append(suiteInputs(t), splitSamples()...)
 	same := 0
@@ -85,8 +84,8 @@ func splitSamples() []string {
 }
 
 // TestSplitWideMappingIsLinear checks that a mapping of many entries
-// parses in linear work (11 req 26): twice the entries take about twice
-// the allocations, where goccy's whole-mapping parse takes four times.
+// parses in linear work: twice the entries take about twice the
+// allocations, where goccy's whole-mapping parse takes four times.
 func TestSplitWideMappingIsLinear(t *testing.T) {
 	gen := func(n int) string {
 		var b strings.Builder
@@ -119,11 +118,10 @@ func TestSplitWideMappingIsLinear(t *testing.T) {
 }
 
 // TestDedentedEntries covers an entry that ends block collections deeper
-// than its column without returning to an enclosing one (01 req 9, 10; 11
-// req 17, 26; blocker of the seventh WP-33 review). The token pass opened
-// a sibling collection at the entry's column, so the frame at the start of
-// the value no longer covered it, and the split parse handed the whole
-// value, every nested block collection included, to one goccy parse:
+// than its column without returning to an enclosing one. The token pass
+// opened a sibling collection at the entry's column, so the frame at the
+// start of the value no longer covered it, and the split parse handed the
+// whole value, every nested block collection included, to one goccy parse:
 // 125,000 entries took 37 s before goccy refused the line. Such an entry is
 // RZ-CFG-001 at its start now, split or not, while the shapes YAML 1.2
 // allows still parse.
@@ -165,13 +163,12 @@ func TestDedentedEntries(t *testing.T) {
 	}
 }
 
-// TestSplitNeverParsesBlockFrames covers the split parse's own guard (01
-// req 10; 11 req 17, 26; seventh WP-33 review): a value range that holds a
-// recorded block frame the frame does not cover, which the token pass no
-// longer records, is refused at the first token past the frame without
-// goccy's parse, which took 1.6 s and 1.6 GiB for 20,000 entries. The
-// token pass runs here with its indentation check off, as it ran before
-// the fix.
+// TestSplitNeverParsesBlockFrames covers the split parse's own guard: a
+// value range that holds a recorded block frame the frame does not cover,
+// which the token pass no longer records, is refused at the first token
+// past the frame without goccy's parse, which took 1.6 s and 1.6 GiB for
+// 20,000 entries. The token pass runs here with its indentation check off,
+// as it ran before the fix.
 func TestSplitNeverParsesBlockFrames(t *testing.T) {
 	var wide strings.Builder
 	for range 20000 {

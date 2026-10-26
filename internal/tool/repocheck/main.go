@@ -14,12 +14,11 @@
 //   - metric and span names come from internal/telemetry/catalog: no Go
 //     string literal outside it (test files and testdata aside) is a metric
 //     name or starts with a span prefix, no span starts with a literal name,
-//     and the catalog itself follows the foundation pack grammar (spec 09
-//     requirement 77);
+//     and the catalog itself follows the foundation pack grammar;
 //   - docs/architecture/10-observability.md lists every catalog family with
 //     the same type, histogram set, unit and labels, and every degraded
-//     reason (requirement 74), and every ruralz_* name and degraded reason
-//     under docs/architecture/ is in its catalog (requirement 75).
+//     reason (the code gate), and every ruralz_* name and degraded reason
+//     under docs/architecture/ is in its catalog (the doc gate).
 //
 // The Ruralz Console placeholder check starts with internal/console (M2).
 package main

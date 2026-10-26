@@ -96,8 +96,7 @@ func (e env) without(names ...string) env {
 	return out
 }
 
-// TestLoadValid covers every setting's valid form (spec 04 requirement 2
-// and test plan item 1 "every variable valid").
+// TestLoadValid covers every setting's valid form.
 func TestLoadValid(t *testing.T) {
 	f := newFixture(t)
 	s, err := Load(nil, f.env().with(
@@ -134,9 +133,8 @@ func TestLoadValid(t *testing.T) {
 	}
 }
 
-// TestLoadDefaults covers the defaults of spec 04 requirement 2 and spec
-// 06 requirement 88: only RURALZ_CONFIG set; relative paths of
-// RURALZ_CONFIG and RURALZ_DATA_DIR are made absolute.
+// TestLoadDefaults covers the defaults: only RURALZ_CONFIG set; relative
+// paths of RURALZ_CONFIG and RURALZ_DATA_DIR are made absolute.
 func TestLoadDefaults(t *testing.T) {
 	s, err := Load(nil, env{EnvConfig: "/srv/bundle"}.lookup)
 	if err != nil {
@@ -163,9 +161,7 @@ func TestLoadDefaults(t *testing.T) {
 	}
 }
 
-// TestLoadExit2 is the settings table of every exit-2 case (spec 04
-// requirements 1 to 4, spec 06 requirements 85, 88 and 93, spec 08
-// requirement 68, R-49; test plan item 1).
+// TestLoadExit2 is the settings table of every exit-2 case.
 func TestLoadExit2(t *testing.T) {
 	f := newFixture(t)
 	good := f.env()
@@ -249,10 +245,10 @@ func TestLoadExit2(t *testing.T) {
 		msg     string // substring of the error text
 		skip    bool
 	}{
-		// Spec 04 requirement 4: any argument.
+		// Any argument.
 		{name: "positional argument", args: []string{"serve"}, env: good, want: ErrUsage, msg: `got "serve"`},
 		{name: "flag", args: []string{"-h"}, env: good, want: ErrUsage, msg: "no arguments or flags"},
-		// Spec 04 requirements 1 and 2: RURALZ_CONFIG.
+		// RURALZ_CONFIG.
 		{name: "config unset", env: good.without(EnvConfig), setting: EnvConfig, want: ErrRequired},
 		{name: "config empty", env: good.with(EnvConfig, ""), setting: EnvConfig, want: ErrRequired},
 		{name: "config oci", env: good.with(EnvConfig, "oci://registry.example/bundles/shop:1"), setting: EnvConfig, want: ErrPlanned, msg: "Planned (M2): oci:// selects OCI pull mode"},
@@ -262,20 +258,19 @@ func TestLoadExit2(t *testing.T) {
 		{name: "config file URL", env: good.with(EnvConfig, "file:///srv/bundle"), setting: EnvConfig, want: ErrSource},
 		{name: "config path with ://", env: good.with(EnvConfig, "/srv/a://b"), want: nil},
 		{name: "config odd scheme chars", env: good.with(EnvConfig, "1x://b"), want: nil},
-		// Spec 04 requirement 2: RURALZ_LOG_LEVEL.
+		// RURALZ_LOG_LEVEL.
 		{name: "log level trace", env: good.with(EnvLogLevel, "trace"), setting: EnvLogLevel, want: ErrLogLevel, msg: `got "trace"`},
 		{name: "log level uppercase", env: good.with(EnvLogLevel, "INFO"), setting: EnvLogLevel, want: ErrLogLevel},
 		{name: "log level warning", env: good.with(EnvLogLevel, "warning"), setting: EnvLogLevel, want: ErrLogLevel},
 		{name: "log level error", env: good.with(EnvLogLevel, "error"), want: nil},
 		{name: "log level warn", env: good.with(EnvLogLevel, "warn"), want: nil},
-		// Spec 01 requirement 45: a relative secret root.
+		// A relative secret root.
 		{name: "secret root relative", env: good.with(EnvSecretRoot, "etc/ruralz"), setting: EnvSecretRoot, want: ErrNotAbsolute},
-		// Spec 06 requirement 93: admin settings are absolute paths.
+		// Admin settings are absolute paths.
 		{name: "admin token relative", env: good.with(EnvAdminTokenFile, "token"), setting: EnvAdminTokenFile, want: ErrNotAbsolute},
 		{name: "metrics token relative", env: good.with(EnvAdminMetricsTokenFile, "./m"), setting: EnvAdminMetricsTokenFile, want: ErrNotAbsolute},
 		{name: "admin TLS dir relative", env: good.with(EnvAdminTLSDir, "tls"), setting: EnvAdminTLSDir, want: ErrNotAbsolute},
-		// Spec 04 requirement 3, spec 06 requirement 88: the secret root
-		// never contains a protected path.
+		// The secret root never contains a protected path.
 		{name: "data dir inside root", env: good.with(EnvDataDir, filepath.Join(f.root, "data")), setting: EnvDataDir, want: ErrInsideSecretRoot, msg: EnvSecretRoot + "=" + f.root},
 		{name: "data dir is root", env: good.with(EnvDataDir, f.root), setting: EnvDataDir, want: ErrInsideSecretRoot},
 		{name: "relative data dir inside root", env: good.with(EnvDataDir, "x").with(EnvSecretRoot, mustAbs(t, ".")), setting: EnvDataDir, want: ErrInsideSecretRoot},
@@ -292,7 +287,7 @@ func TestLoadExit2(t *testing.T) {
 		{name: "admin token inside root", env: good.with(EnvAdminTokenFile, filepath.Join(f.root, "admin.token")), setting: EnvAdminTokenFile, want: ErrInsideSecretRoot},
 		{name: "metrics token inside root", env: good.with(EnvAdminMetricsTokenFile, filepath.Join(f.root, "sub", "..", "m.token")), setting: EnvAdminMetricsTokenFile, want: ErrInsideSecretRoot},
 		{name: "enrollment token inside root", env: good.with(EnvEnrollmentTokenFile, filepath.Join(f.root, "enroll")), setting: EnvEnrollmentTokenFile, want: ErrInsideSecretRoot},
-		// Spec 06 requirement 85: RURALZ_FETCH_ALLOW.
+		// RURALZ_FETCH_ALLOW.
 		{name: "fetch allow host name", env: good.with(EnvFetchAllow, "localhost"), setting: EnvFetchAllow, want: ErrFetchAllow, msg: `entry 1 ("localhost")`},
 		{name: "fetch allow bad prefix", env: good.with(EnvFetchAllow, "127.0.0.1/8,10.0.0.0/33"), setting: EnvFetchAllow, want: ErrFetchAllow, msg: "entry 2"},
 		{name: "fetch allow zone", env: good.with(EnvFetchAllow, "fe80::1%eth0"), setting: EnvFetchAllow, want: ErrFetchAllow, msg: "zone"},
@@ -302,7 +297,7 @@ func TestLoadExit2(t *testing.T) {
 		{name: "fetch allow proxy typo", env: good.with(EnvFetchAllow, "env_proxy"), setting: EnvFetchAllow, want: ErrFetchAllow},
 		{name: "fetch allow long entry echo bounded", env: good.with(EnvFetchAllow, strings.Repeat("x", 200)), setting: EnvFetchAllow, want: ErrFetchAllow, msg: `..."`},
 		{name: "fetch allow blanks", env: good.with(EnvFetchAllow, "   "), want: nil},
-		// R-49, spec 08 requirement 68: the MAC key file.
+		// The MAC key file.
 		{name: "mac key ok", env: good.with(EnvStateStoreMACKeyFile, f.key), want: nil},
 		{name: "mac key read-only owner", env: good.with(EnvStateStoreMACKeyFile, readOnly), want: nil},
 		{name: "mac key max size", env: good.with(EnvStateStoreMACKeyFile, maxKey), want: nil},
@@ -320,7 +315,7 @@ func TestLoadExit2(t *testing.T) {
 		{name: "mac key empty", env: good.with(EnvStateStoreMACKeyFile, empty), setting: EnvStateStoreMACKeyFile, want: ErrMACKeyShort},
 		{name: "mac key too large", env: good.with(EnvStateStoreMACKeyFile, long), setting: EnvStateStoreMACKeyFile, want: ErrMACKeyLong},
 		{name: "mac key inside root", env: good.with(EnvStateStoreMACKeyFile, insideKey), setting: EnvStateStoreMACKeyFile, want: ErrInsideSecretRoot},
-		// Spec 04 requirement 2: M2 settings only warn.
+		// M2 settings only warn.
 		{name: "M2 settings set", env: good.with(EnvTrustPolicyFile, "p", EnvEnrollmentTokenFile, "/run/enroll", EnvRegistryAuthFile, "a"), want: nil},
 	}
 	for _, tc := range cases {
@@ -392,11 +387,10 @@ func loadWithin(t *testing.T, args []string, lookup func(string) (string, bool))
 	}
 }
 
-// TestMACKeyFinalNewline covers the key bytes (R-49, spec 08 requirement
-// 68): one final "\n" or "\r\n" is not part of the key, so a key file
-// written by a shell tool and the same key without a newline give the same
-// HMAC on every Node; nothing else is trimmed, and the 32-byte minimum
-// counts the key without that newline.
+// TestMACKeyFinalNewline covers the key bytes: one final "\n" or "\r\n" is
+// not part of the key, so a key file written by a shell tool and the same
+// key without a newline give the same HMAC on every Node; nothing else is
+// trimmed, and the 32-byte minimum counts the key without that newline.
 func TestMACKeyFinalNewline(t *testing.T) {
 	f := newFixture(t)
 	cases := []struct {
@@ -475,8 +469,8 @@ func TestLoadReportsEverySetting(t *testing.T) {
 	}
 }
 
-// TestUnusedM2Settings covers spec 04 requirement 2: a set M2 setting is
-// reported for a warn log, by name only.
+// TestUnusedM2Settings covers M2 settings: a set one is reported for a
+// warn log, by name only.
 func TestUnusedM2Settings(t *testing.T) {
 	s, err := Load(nil, env{
 		EnvConfig:              "/srv/b",
@@ -496,7 +490,7 @@ func TestUnusedM2Settings(t *testing.T) {
 }
 
 // TestProtected covers the protected path list handed to the secret
-// resolver (spec 01 requirement 45).
+// resolver.
 func TestProtected(t *testing.T) {
 	s := Settings{DataDir: "/d", AdminTLSDir: "/t", AdminTokenFile: "/a", AdminMetricsTokenFile: "/m", MACKeyFile: "/k", EnrollmentTokenFile: "/e"}
 	got := s.Protected()
@@ -517,7 +511,7 @@ func TestProtected(t *testing.T) {
 }
 
 // TestMACKeyRedacted: the key never appears in fmt, JSON or slog output
-// of the key or of Settings (R-9 marker "[REDACTED]").
+// of the key or of Settings (the redaction marker "[REDACTED]").
 func TestMACKeyRedacted(t *testing.T) {
 	f := newFixture(t)
 	s, err := Load(nil, f.env().with(EnvStateStoreMACKeyFile, f.key).lookup)
@@ -562,7 +556,8 @@ func TestMACKeyRedacted(t *testing.T) {
 	}
 }
 
-// TestExitCode covers spec 04 requirement 4's codes.
+// TestExitCode covers the exit codes: 0 on success, 1 for a runtime error
+// and 2 for a setting or usage error.
 func TestExitCode(t *testing.T) {
 	for _, tc := range []struct {
 		err  error
@@ -617,10 +612,10 @@ func TestLoadOSEnvironment(t *testing.T) {
 }
 
 // FuzzLoadFetchAllow keeps Load's RURALZ_FETCH_ALLOW check aligned with
-// egress.ParseAllow, which parses the value later (spec 06 requirement
-// 85): both accept exactly the same values, so a value Load passes never
-// fails the guard and Load refuses every value the guard would. Every
-// refusal is an *Error naming the setting and wrapping ErrFetchAllow.
+// egress.ParseAllow, which parses the value later: both accept exactly
+// the same values, so a value Load passes never fails the guard and Load
+// refuses every value the guard would. Every refusal is an *Error naming
+// the setting and wrapping ErrFetchAllow.
 func FuzzLoadFetchAllow(f *testing.F) {
 	for _, s := range []string{
 		"", " ", " , ", ",", "127.0.0.1", "127.0.0.1/32,::1", " 127.0.0.1/32, ::1 ,env-proxy,10.0.0.0/8",

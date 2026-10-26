@@ -46,7 +46,7 @@ func wantSet(t *testing.T, s *Set, want ...string) {
 }
 
 // TestStaticLiteralsNeedNoRefresh: an IP literal is one Endpoint with no
-// lookup (05 req 5); the set is sorted by identity (05 req 8).
+// lookup; the set is sorted by identity.
 func TestStaticLiteralsNeedNoRefresh(t *testing.T) {
 	h := newHarness(t, Spec{Static: []StaticEndpoint{
 		{Address: "10.0.0.2:80", Weight: 1},
@@ -77,10 +77,10 @@ func canceled(t *testing.T) context.Context {
 	return ctx
 }
 
-// TestStaticHostReResolution covers 05 req 5: a host name is one Endpoint
-// named by the configured address, resolved at compile time and on every
-// refresh, keeping the last good answer when a lookup fails (05 req 7:
-// discovery_stale while it does).
+// TestStaticHostReResolution covers a host name as one Endpoint named by
+// the configured address, resolved at compile time and on every refresh,
+// keeping the last good answer when a lookup fails (discovery_stale while
+// it does).
 func TestStaticHostReResolution(t *testing.T) {
 	h := newHarness(t, Spec{Static: []StaticEndpoint{
 		{Address: "api.internal:8443", Weight: 1},
@@ -159,7 +159,7 @@ func TestStaticHostReResolution(t *testing.T) {
 }
 
 // TestStaticHostNeverResolved: a name that fails at compile time is still
-// an Endpoint, without addresses, and the source is stale (05 reqs 5, 7).
+// an Endpoint, without addresses, and the source is stale.
 func TestStaticHostNeverResolved(t *testing.T) {
 	h := newHarness(t, Spec{Static: []StaticEndpoint{{Address: "gone.internal:80", Weight: 1}}}, nil)
 	set, _ := h.src.Refresh(t.Context())
@@ -169,8 +169,8 @@ func TestStaticHostNeverResolved(t *testing.T) {
 	}
 }
 
-// TestDNSNumericPort covers 05 req 6: A and AAAA lookups of the service,
-// each IP one Endpoint ip:port of weight 1, Host the service name.
+// TestDNSNumericPort covers A and AAAA lookups of the service, each IP one
+// Endpoint ip:port of weight 1, Host the service name.
 func TestDNSNumericPort(t *testing.T) {
 	h := newHarness(t, Spec{DNS: &DNSSpec{Service: "orders.svc.", Port: 8080}}, nil)
 	if h.src.Current().Len() != 0 {
@@ -186,7 +186,7 @@ func TestDNSNumericPort(t *testing.T) {
 	if set.Version != 1 || set.Status.Type != "dns" {
 		t.Fatalf("version %d type %q", set.Version, set.Status.Type)
 	}
-	// The same answer in another order changes nothing (05 req 8).
+	// The same answer in another order changes nothing.
 	h.res.setHost("orders.svc.", "fe80::1%eth0", "2001:db8::2", "10.0.0.1", "10.0.0.3")
 	set2, _ := h.src.Refresh(t.Context())
 	if set2.Version != 1 || !slices.Equal(set2.Identities(), set.Identities()) {
@@ -194,8 +194,8 @@ func TestDNSNumericPort(t *testing.T) {
 	}
 }
 
-// TestDNSSRV covers 05 req 6: SRV _<port>._tcp.<service>, lowest-priority
-// group, SRV weights, each target resolved to IPs like a static host name.
+// TestDNSSRV covers SRV _<port>._tcp.<service>: the lowest-priority group,
+// SRV weights, each target resolved to IPs like a static host name.
 func TestDNSSRV(t *testing.T) {
 	h := newHarness(t, Spec{DNS: &DNSSpec{Service: "orders.svc", PortName: "http"}}, nil)
 	name := "_http._tcp.orders.svc"
@@ -255,7 +255,7 @@ func TestDNSSRV(t *testing.T) {
 }
 
 // TestRefreshInterval: after a good answer the next refresh is due 30 s
-// ±10% (05 req 6), spread over the whole window.
+// ±10%, spread over the whole window.
 func TestRefreshInterval(t *testing.T) {
 	h := newHarness(t, Spec{DNS: &DNSSpec{Service: "s", Port: 80}}, nil)
 	h.res.setHost("s", "10.0.0.1")
@@ -282,7 +282,7 @@ func TestRefreshInterval(t *testing.T) {
 }
 
 // TestBackoffBounds: the n-th consecutive failure waits a full-jitter
-// delay from 1 s to min(60 s, 2^n s) (05 req 7).
+// delay from 1 s to min(60 s, 2^n s).
 func TestBackoffBounds(t *testing.T) {
 	src := newRand(7)
 	for n := 0; n <= 12; n++ {
@@ -307,9 +307,9 @@ func TestBackoffBounds(t *testing.T) {
 	}
 }
 
-// TestFailureKeepsLastSet covers 05 req 7: a lookup failure keeps the last
-// set, raises discovery_stale on the Upstream and Node gauges, backs off,
-// and never empties the set however long it lasts.
+// TestFailureKeepsLastSet covers a lookup failure: it keeps the last set,
+// raises discovery_stale on the Upstream and Node gauges, backs off, and
+// never empties the set however long it lasts.
 func TestFailureKeepsLastSet(t *testing.T) {
 	h := newHarness(t, Spec{DNS: &DNSSpec{Service: "s", Port: 80}}, nil)
 	h.res.setHost("s", "10.0.0.1", "10.0.0.2")
@@ -349,7 +349,7 @@ func TestFailureKeepsLastSet(t *testing.T) {
 	}
 }
 
-// TestNotFoundEmptiesAfterThree covers 05 req 7: NXDOMAIN or an empty answer
+// TestNotFoundEmptiesAfterThree covers NXDOMAIN or an empty answer: it
 // is a failure until 3 consecutive refreshes repeat it; then the set
 // empties (selection returns RZ-UP-008) and the source is no longer stale.
 // Any other outcome in between restarts the count.
@@ -432,9 +432,9 @@ func TestNotFoundEmptiesAfterThree(t *testing.T) {
 				t.Fatalf("third repeat: %q status %+v", describe(set), set.Status)
 			}
 			// While the accepted answer keeps the set empty, retries stay
-			// on the failure backoff (05 req 7), its ceiling growing with
-			// the streak, so a name that comes back is found within
-			// seconds rather than after the 30 s schedule.
+			// on the failure backoff, its ceiling growing with the
+			// streak, so a name that comes back is found within seconds
+			// rather than after the 30 s schedule.
 			if next < BackoffMin || next > 8*time.Second {
 				t.Fatalf("accepted empty answer schedules %v, want 1-8 s", next)
 			}
@@ -460,7 +460,7 @@ func TestNotFoundEmptiesAfterThree(t *testing.T) {
 }
 
 // TestPreviousSeeding: a Source replacing another after a Hot Reload keeps
-// the last good answers of the names both resolve (05 reqs 2 and 5).
+// the last good answers of the names both resolve.
 func TestPreviousSeeding(t *testing.T) {
 	old := newHarness(t, Spec{Static: []StaticEndpoint{{Address: "api.internal:80", Weight: 1}}}, nil)
 	old.res.setHost("api.internal", "10.0.0.1", "10.0.0.2")
@@ -505,7 +505,7 @@ func TestPreviousSeeding(t *testing.T) {
 
 // TestSetMetricsAndClose: a new snapshot's gauge shows the current state;
 // Close clears the Node reason the Source holds and leaves the Upstream
-// series to the Source that replaces it (05 req 7).
+// series to the Source that replaces it.
 func TestSetMetricsAndClose(t *testing.T) {
 	h := newHarness(t, Spec{DNS: &DNSSpec{Service: "s", Port: 80}}, nil)
 	h.src.Refresh(t.Context()) // NXDOMAIN: stale
@@ -555,8 +555,8 @@ func (c *sleepClock) Sleep(ctx context.Context, d time.Duration) error {
 }
 
 // TestRunSchedule drives Run with the fake clock: refreshes every 27-33 s
-// after good answers (05 req 6), 1-2 s after a first failure (05 req 7),
-// onChange on Endpoint changes only, and a clean stop.
+// after good answers, 1-2 s after a first failure, onChange on Endpoint
+// changes only, and a clean stop.
 func TestRunSchedule(t *testing.T) {
 	clk := &sleepClock{Fake: clocktest.New(epoch())}
 	h := newHarness(t, Spec{DNS: &DNSSpec{Service: "s", Port: 80}}, func(o *Options) {
@@ -736,7 +736,7 @@ func TestDefaultOptions(t *testing.T) {
 
 // TestNoWaitForLookups: SetMetrics (activation) and Close (teardown) never
 // wait for a refresh blocked in DNS, and a refresh that ends after Close
-// neither raises discovery_stale nor schedules another (05 reqs 2 and 7).
+// neither raises discovery_stale nor schedules another.
 func TestNoWaitForLookups(t *testing.T) {
 	h := newHarness(t, Spec{DNS: &DNSSpec{Service: "s", Port: 80}}, nil)
 	h.res.block = make(chan struct{})
@@ -766,8 +766,8 @@ func TestNoWaitForLookups(t *testing.T) {
 	}
 }
 
-// TestSourceIsProvider pins the M2 extension point (spec 05 section 8):
-// the Upstream layer holds a Provider, which *Source implements.
+// TestSourceIsProvider pins the M2 extension point: the Upstream layer
+// holds a Provider, which *Source implements.
 func TestSourceIsProvider(t *testing.T) {
 	h := newHarness(t, Spec{Static: []StaticEndpoint{{Address: "10.0.0.1:80", Weight: 1}}}, nil)
 	var p Provider = h.src
@@ -780,10 +780,10 @@ func TestSourceIsProvider(t *testing.T) {
 }
 
 // TestRunAfterCompileRefresh: the Upstream layer refreshes at compile time
-// (05 req 5) and then runs Run, which waits for the delay that refresh
-// returned before its own first lookup: no back-to-back lookups after a
-// good answer, and no NXDOMAIN repeats counted milliseconds apart, which
-// would defeat the 3-refresh tolerance of 05 req 7.
+// and then runs Run, which waits for the delay that refresh returned
+// before its own first lookup: no back-to-back lookups after a good
+// answer, and no NXDOMAIN repeats counted milliseconds apart, which would
+// defeat the 3-refresh tolerance.
 func TestRunAfterCompileRefresh(t *testing.T) {
 	for _, tc := range []struct {
 		name string
@@ -870,9 +870,9 @@ func TestRunFollowsLatestRefresh(t *testing.T) {
 
 // TestSRVMalformedRecords: since Go 1.20 LookupSRV drops records whose
 // target is not a valid domain name and returns the others with a
-// *net.DNSError; the remaining records are a good answer (05 req 6), so
-// the set follows them and discovery_stale stays clear (05 req 7). Without
-// remaining records the error is an ordinary failure.
+// *net.DNSError; the remaining records are a good answer, so the set
+// follows them and discovery_stale stays clear. Without remaining records
+// the error is an ordinary failure.
 func TestSRVMalformedRecords(t *testing.T) {
 	const name = "_http._tcp.orders.svc"
 	malformed := &net.DNSError{Err: "DNS response contained records which contain invalid names", Name: name}

@@ -9,8 +9,8 @@ import (
 
 // BenchmarkAccessLogSubmit: the request-goroutine cost of one logged
 // request after the handler decided to log it (Acquire, fill, Submit):
-// 09 req 67 and 70 budget 2 µs at p99 and 8 allocations including `when`
-// (evaluated by internal/gateway/handler, R-48); this part allocates 0.
+// the budget is 2 µs at p99 and 8 allocations including `when` (evaluated
+// by internal/gateway/handler); this part allocates 0.
 func BenchmarkAccessLogSubmit(b *testing.B) {
 	w := New(Options{NodeID: testNode})
 	var buf []byte

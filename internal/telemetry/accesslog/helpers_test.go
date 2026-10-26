@@ -18,7 +18,7 @@ const testNode = "01J9Z8Q4W6X3V5T7R2N0M1K8H4"
 // testZone is created once: time.FixedZone allocates.
 var testZone = time.FixedZone("x", 3600)
 
-// fullRecord fills every M1 field of r (09 req 68).
+// fullRecord fills every M1 field of r.
 func fullRecord(r *emit.AccessRecord) {
 	r.Start = time.Date(2026, 9, 26, 7, 46, 12, 345678901, testZone)
 	r.TraceID = [16]byte{0x4b, 0xf9, 0x2f, 0x35, 0x77, 0xb3, 0x4d, 0xa6, 0xa3, 0xce, 0x92, 0x9d, 0x0e, 0x0e, 0x47, 0x36}

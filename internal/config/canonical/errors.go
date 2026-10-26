@@ -13,25 +13,23 @@ import (
 )
 
 // Format is the format identifier of the serialization a Revision digest
-// covers. A change to the serialization needs a new identifier (02 req
-// 28).
+// covers. A change to the serialization needs a new identifier.
 const Format = "ruralz.canonical.v1"
 
 // Codes raised by Decode, Verify and ReadDump, each registered in
 // internal/errcode.
 const (
 	// CodeNewer is content from a newer producer: an unknown format,
-	// member, kind or field, or a field above the served schema level (02
-	// req 33).
+	// member, kind or field, or a field above the served schema level.
 	CodeNewer = "RZ-CFG-024"
 	// CodeMismatch is content that does not hash to its digest or is not
-	// in ruralz.canonical.v1 form (02 req 31).
+	// in ruralz.canonical.v1 form.
 	CodeMismatch = "RZ-CFG-027"
 )
 
 // Sentinel errors without an RZ code: an encoder input the pipeline should
-// never produce (an internal error, 02 reqs 24 and 28) and a /config/dump
-// body that is not a dump document.
+// never produce (an internal error) and a /config/dump body that is not a
+// dump document.
 var (
 	// ErrEncode reports a tree that has no ruralz.canonical.v1 form: a
 	// null, invalid UTF-8, a number outside the RFC 8259 grammar or the
@@ -119,5 +117,5 @@ func finding(code string, loc diag.Location, res *diag.ResourceID, path diag.Pat
 	return diag.Diagnostic{Code: code, Severity: diag.SeverityError, Location: loc, Resource: res, Path: path, Message: msg}
 }
 
-// notCanonical is the message prefix of every form finding (02 req 31(b)).
+// notCanonical is the message prefix of every form finding.
 const notCanonical = "content is not in " + Format + " form"

@@ -16,11 +16,11 @@ import (
 	tracepb "go.opentelemetry.io/proto/otlp/trace/v1"
 )
 
-// Span-order queries (11 req 34: "the ordered ruralz.filter.<policy>
-// spans ... equal the printed rows' Policies in Phase order"; 09 test 34:
-// span tree names, kinds, parent links and order).
+// Span-order queries: the ordered ruralz.filter.<policy> spans of a trace
+// against the Policies of an effective chain in Phase order, and the span
+// tree's names, kinds, parent links and order.
 
-func TestSpanOrderQueries(t *testing.T) { // 11 req 34; 09 test 34
+func TestSpanOrderQueries(t *testing.T) {
 	s := start(t, Config{})
 	cc := dial(t, s, nil)
 	client := coltrace.NewTraceServiceClient(cc)

@@ -10,13 +10,12 @@ import (
 	"github.com/ravindu-rev/ruralz/pkg/config/v1alpha1"
 )
 
-// Tests for architecture section 2.2 (WP-01): round trip of every
-// v1alpha1.Phase and v1alpha1.FilterClass, and the Phase predicates against
-// spec 04 requirements 39 (Phases and legs), 40 (response Phases run in
-// reverse) and 42 (short-circuit).
+// Tests for the round trip of every v1alpha1.Phase and
+// v1alpha1.FilterClass, and for the Phase predicates (Phases and legs,
+// response Phases run in reverse, short-circuit).
 
 func TestPhaseRoundTrip(t *testing.T) {
-	// 04 req 39: the fixed Phase order, plus onChunk.
+	// The fixed Phase order, plus onChunk.
 	want := []v1alpha1.Phase{
 		v1alpha1.PhaseOnRequestHeaders,
 		v1alpha1.PhaseOnRequestBody,
@@ -55,7 +54,7 @@ func TestPhaseRoundTrip(t *testing.T) {
 }
 
 func TestClassRoundTrip(t *testing.T) {
-	// 04 req 40 and foundation pack 8.12: class order within a Phase.
+	// Foundation pack 8.12: class order within a Phase.
 	want := []v1alpha1.FilterClass{
 		v1alpha1.FilterClassCORS,
 		v1alpha1.FilterClassAuth,
@@ -91,11 +90,11 @@ func TestClassRoundTrip(t *testing.T) {
 }
 
 func TestPhasePredicates(t *testing.T) {
-	// Truth table from 04 req 39 (client leg: onRequestHeaders,
-	// onRequestBody, onRoute, onResponse, onLog; per upstream leg:
-	// onUpstreamRequest, onUpstreamResponseHeaders, onUpstreamResponseBody;
-	// onChunk on both), req 40 (response Phases reversed, onChunk ordered as
-	// a response Phase in M1) and req 42 (short-circuit before onResponse).
+	// Truth table (client leg: onRequestHeaders, onRequestBody, onRoute,
+	// onResponse, onLog; per upstream leg: onUpstreamRequest,
+	// onUpstreamResponseHeaders, onUpstreamResponseBody; onChunk on both),
+	// response Phases reversed (onChunk ordered as a response Phase in M1)
+	// and short-circuit before onResponse.
 	tests := []struct {
 		p                                        Phase
 		response, shortCircuit, client, upstream bool
@@ -192,7 +191,7 @@ func TestScope(t *testing.T) {
 			t.Errorf("Scope(%d).String() = %q, want %q", tt.s, got, tt.want)
 		}
 	}
-	// Chain order (04 req 40): Gateway, Route, Upstream.
+	// Chain order: Gateway, Route, Upstream.
 	if ScopeGateway >= ScopeRoute || ScopeRoute >= ScopeUpstream {
 		t.Fatal("scopes are not in chain order")
 	}

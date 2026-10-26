@@ -7,10 +7,10 @@ import (
 	"testing"
 )
 
-// TestPickAllocations is the allocation gate of 05 test plan item 22: the
-// onRoute pick (05 req 10) and every Endpoint selection (05 reqs 11 to 15)
-// allocate nothing, including under exclusions, a stale structure and the
-// keyless ring-hash pick; HashKey allocates nothing either.
+// TestPickAllocations is the allocation gate: the onRoute pick and every
+// Endpoint selection allocate nothing, including under exclusions, a stale
+// structure and the keyless ring-hash pick; HashKey allocates nothing
+// either.
 func TestPickAllocations(t *testing.T) {
 	if testing.CoverMode() != "" {
 		t.Skip("coverage instrumentation changes allocation counts")

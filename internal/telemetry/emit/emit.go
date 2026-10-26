@@ -77,12 +77,12 @@ const (
 )
 
 // OriginOf returns the origin label index of a response for
-// ruralz_http_listener_requests_total (spec 09 req 44): OriginUpstream
-// when the status was passed through from an Upstream response;
-// OriginDependency for a Node-generated response with an RZ-UP-* code or
-// RZ-AI-004, RZ-AI-005 or RZ-AI-013 (the Upstream or provider could not
-// answer); OriginNode for every other Node-generated response, RZ-STS
-// codes and responses without a code included.
+// ruralz_http_listener_requests_total: OriginUpstream when the status
+// was passed through from an Upstream response; OriginDependency for a
+// Node-generated response with an RZ-UP-* code or RZ-AI-004, RZ-AI-005
+// or RZ-AI-013 (the Upstream or provider could not answer); OriginNode
+// for every other Node-generated response, RZ-STS codes and responses
+// without a code included.
 func OriginOf(code string, fromUpstream bool) int {
 	switch {
 	case fromUpstream:

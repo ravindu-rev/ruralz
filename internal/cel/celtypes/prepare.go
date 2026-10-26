@@ -11,7 +11,7 @@ import (
 
 // prepared is the CEL implementation's cache in expr.Route.Prepared and
 // expr.Consumer.Prepared: values converted once per snapshot and shared
-// read-only (03 req 23).
+// read-only.
 type prepared struct {
 	// labels is metadata.labels with its keys sorted once.
 	labels ref.Val

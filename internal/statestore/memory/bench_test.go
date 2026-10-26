@@ -16,9 +16,9 @@ import (
 	"github.com/ravindu-rev/ruralz/internal/statestore"
 )
 
-// Allocation gate and budget of spec 08 req 59 and 05 tests 22 and 38: a
-// single-limit GCRA call on memory makes 0 heap allocations and fits the
-// ratelimit stage budget of 2 µs p50, 8 µs p99 (target).
+// Allocation gate and budget tests: a single-limit GCRA call on memory
+// makes 0 heap allocations and fits the ratelimit stage budget of 2 µs
+// p50, 8 µs p99 (target).
 
 // gcraBench is a warm single-limit GCRA call on a driver with metrics.
 type gcraBench struct {
@@ -49,7 +49,7 @@ func (b *gcraBench) run() {
 }
 
 func TestSingleGCRAZeroAllocs(t *testing.T) {
-	// Spec 08 req 59: 0 heap allocations per single-limit GCRA call.
+	// 0 heap allocations per single-limit GCRA call.
 	b := newGCRABench(t, clocktest.New(start()))
 	calls := []*statestore.Call{b.c}
 	if n := testing.AllocsPerRun(1000, func() {
@@ -77,8 +77,8 @@ func TestSingleGCRAZeroAllocs(t *testing.T) {
 }
 
 func TestGCRAStageBudget(t *testing.T) {
-	// Spec 08 req 59: 2 µs p50 and 8 µs p99 (target) with the real clock;
-	// the best of three runs tolerates a noisy machine.
+	// 2 µs p50 and 8 µs p99 (target) with the real clock; the best of
+	// three runs tolerates a noisy machine.
 	if testing.Short() || raceEnabled {
 		t.Skip("latency budget needs an optimized, uninstrumented build")
 	}

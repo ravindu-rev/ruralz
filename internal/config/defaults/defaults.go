@@ -1,9 +1,8 @@
 // Copyright 2026 Revington
 // SPDX-License-Identifier: Apache-2.0
 
-// Package defaults is stage G of the configuration pipeline (architecture
-// 3.1 and R-8; spec 02 sections 2.2 to 2.4, spec 01 group I): it turns
-// each resource that passed schema validation into a hub.Resource and the
+// Package defaults is stage G of the configuration pipeline: it turns each
+// resource that passed schema validation into a hub.Resource and the
 // resources of one rendered Bundle into a hub.Bundle.
 //
 // For each resource, in order:
@@ -11,62 +10,59 @@
 //  1. Materialize writes the defaults under the schema of the resource's
 //     own apiVersion: every +ruralz:default the rendered schema declares,
 //     only inside objects that are present (an absent optional object is
-//     never created, 02 req 9), inside list entries, typed-map values and
-//     a Policy config through its type dispatch (02 req 11), plus the
-//     registry defaults slot, failureMode and filterClass of every Policy
-//     (02 req 12, R-7). The mechanism is table-free: a new marker needs no
-//     code change (02 req 10).
+//     never created), inside list entries, typed-map values and a Policy
+//     config through its type dispatch, plus the registry defaults slot,
+//     failureMode and filterClass of every Policy. The mechanism is
+//     table-free: a new marker needs no code change.
 //  2. internal/config/convert converts the tree to the hub representation
-//     and strips the conversion-data annotation (02 req 4 to 7).
-//  3. Normalize rewrites values to one spelling under the hub schema
-//     (02 req 15 to 20, 01 req 37): Duration, ByteSize and Decimal values
-//     by their definition, integral numbers at integer positions as
-//     integer text, host names in Route match.hosts and Gateway
-//     listeners[].hostnames in ASCII lower case, set lists sorted by their
-//     elements' RFC 8785 bytes and map lists by key, object members in
-//     RFC 8785 order, everything else (orderedMap and atomic lists, free
-//     content) as authored. It reports RZ-CFG-005 for a duration that
-//     overflows, a byte size that does not parse, an integer outside
-//     ±(2^53−1) or a number outside the double range after normalization
-//     (02 req 16, R-64; not for canonical content, whose RFC 8785 doubles
-//     may print as large integers), and for duplicates that only
-//     normalization reveals, such as 90s and 1m30s in one set.
+//     and strips the conversion-data annotation.
+//  3. Normalize rewrites values to one spelling under the hub schema:
+//     Duration, ByteSize and Decimal values by their definition, integral
+//     numbers at integer positions as integer text, host names in Route
+//     match.hosts and Gateway listeners[].hostnames in ASCII lower case,
+//     set lists sorted by their elements' RFC 8785 bytes and map lists by
+//     key, object members in RFC 8785 order, everything else (orderedMap
+//     and atomic lists, free content) as authored. It reports RZ-CFG-005
+//     for a duration that overflows, a byte size that does not parse, an
+//     integer outside ±(2^53−1) or a number outside the double range after
+//     normalization (not for canonical content, whose RFC 8785 doubles may
+//     print as large integers), and for duplicates that only normalization
+//     reveals, such as 90s and 1m30s in one set.
 //  4. Decode decodes the tree into its pkg/config/v1alpha1 kind struct and
 //     a Policy's config into the registry's config type, reporting a value
-//     that does not fit its Go field as RZ-CFG-005 at the field (01 req
-//     38). Large values are decoded in pieces of at most 256 nodes, each
-//     one encoding/json call, with the result of one call over the whole
-//     tree, so the worker can yield between pieces.
+//     that does not fit its Go field as RZ-CFG-005 at the field. Large
+//     values are decoded in pieces of at most 256 nodes, each one
+//     encoding/json call, with the result of one call over the whole tree,
+//     so the worker can yield between pieces.
 //
 // Every step is idempotent: running stage G on its own output, or on a
-// decoded canonical document, changes nothing (02 req 20, R-47). Presence
-// is kept: absent fields stay absent, empty objects and lists and empty
-// strings stay (02 req 19).
+// decoded canonical document, changes nothing. Presence is kept: absent
+// fields stay absent, empty objects and lists and empty strings stay.
 //
 // Free content is data. Undeclared members of +ruralz:open configs, plugin
 // configs, Plugin configSchema and the inline JSON Schema document of a
 // validation.json-schema Policy (the JSONSchemaDocument definition) get no
 // defaults, keep every list in authored order and have their members
-// sorted and numbers checked like any other (02 req 17 and 18).
+// sorted and numbers checked like any other.
 //
-// JSON null never reaches the hub (02 req 19): an overlay null removed
-// its field before stage F, and any null left, in typed or free content,
-// the JSONSchemaDocument value included, is RZ-CFG-005, because the
+// JSON null never reaches the hub: an overlay null removed its field
+// before stage F, and any null left, in typed or free content, the
+// JSONSchemaDocument value included, is RZ-CFG-005, because the
 // canonical form has no null.
 //
-// Diagnostics are bounded per call, not per resource (01 req 50): Run's
-// workers share one budget of MaxDiagnostics, stop taking resources once
-// it is spent and report RZ-CFG-001 "too many diagnostics", so a hostile
+// Diagnostics are bounded per call, not per resource: Run's workers
+// share one budget of MaxDiagnostics, stop taking resources once it is
+// spent and report RZ-CFG-001 "too many diagnostics", so a hostile
 // Bundle cannot build an unbounded list.
 //
 // Stage values are immutable and safe for concurrent use; the functions
 // rewrite the trees they are given in place. The package never logs,
 // reads files or the network, and reads the clock only for the yield
-// timer (01 req 55): a worker counts its work units (nodes visited and
-// sort comparisons) across every step and every resource, reads the
-// timer every 256 units, between resources and around each encoding/json
-// call, and yields the processor once 100 µs of work have passed since
-// its last yield (01 req 53).
+// timer: a worker counts its work units (nodes visited and sort
+// comparisons) across every step and every resource, reads the timer
+// every 256 units, between resources and around each encoding/json call,
+// and yields the processor once 100 µs of work have passed since its
+// last yield.
 package defaults
 
 import (
@@ -88,26 +84,26 @@ import (
 // RZ codes of stage G (registered in internal/errcode).
 const (
 	// CodeSchema is RZ-CFG-005: a value normalization or the typed decode
-	// rejects (02 req 15 to 17, 01 req 38).
+	// rejects.
 	CodeSchema = "RZ-CFG-005"
 	// CodeUnserved is RZ-CFG-007: a resource whose apiVersion has no
 	// schema or converter, or whose kind has no hub type. Stage C reports
 	// these first; stage G repeats the check for resources that re-enter
-	// at stage F (02 req 4).
+	// at stage F.
 	CodeUnserved = "RZ-CFG-007"
-	// CodeLimit is RZ-CFG-001: the run reached MaxDiagnostics (01 req 50).
+	// CodeLimit is RZ-CFG-001: the run reached MaxDiagnostics.
 	CodeLimit = "RZ-CFG-001"
 )
 
-// MaxDiagnostics bounds the diagnostics one call records: one Run with
-// all its workers, or one Resource or Normalize call (01 req 50, 10,000
-// per run, proposed). Run and Resource then append one RZ-CFG-001 "too
-// many diagnostics" error, so they return at most MaxDiagnostics+1.
+// MaxDiagnostics bounds the diagnostics one call records: one Run with all
+// its workers, or one Resource or Normalize call. Run and Resource then
+// append one RZ-CFG-001 "too many diagnostics" error, so they return at
+// most MaxDiagnostics+1.
 const MaxDiagnostics = 10_000
 
 // defJSONSchemaDocument is the $defs name of the inline JSON Schema
-// document (validation.json-schema config.schema): opaque data, below
-// which every position is free (contract change request 144).
+// document (validation.json-schema config.schema): opaque data, below which
+// every position is free.
 const defJSONSchemaDocument = "JSONSchemaDocument"
 
 // ErrOptions marks every error New returns.
@@ -243,18 +239,17 @@ func (s *Stage) own(res *tree.Resource, files *tree.FileTable, ds diag.List) dia
 }
 
 // Run runs Resource on every resource of rs with at most workers
-// goroutines (fewer than 1 means 1), created and joined within the call
-// (01 req 53), and returns the hub.Bundle of the results with the sorted
-// diagnostics of every resource (02 req 2: every finding of the stage in
-// one run). The Bundle is nil when any error was reported.
+// goroutines (fewer than 1 means 1), created and joined within the call,
+// and returns the hub.Bundle of the results with the sorted diagnostics
+// of every resource (every finding of the stage in one run). The Bundle
+// is nil when any error was reported.
 //
-// The workers share one budget of MaxDiagnostics (01 req 50). Once it is
-// spent they take no further resource, and Run returns at most
-// MaxDiagnostics diagnostics plus one RZ-CFG-001 "too many diagnostics"
-// error. Below the cap the result does not depend on the worker count;
-// at the cap, which diagnostics are kept may, as with diag.Collector.
-// ctx is checked between resources; on cancellation Run returns ctx.Err()
-// and no result.
+// The workers share one budget of MaxDiagnostics. Once it is spent they
+// take no further resource, and Run returns at most MaxDiagnostics
+// diagnostics plus one RZ-CFG-001 "too many diagnostics" error. Below the
+// cap the result does not depend on the worker count; at the cap, which
+// diagnostics are kept may, as with diag.Collector. ctx is checked
+// between resources; on cancellation Run returns ctx.Err() and no result.
 func (s *Stage) Run(ctx context.Context, rs []*tree.Resource, files *tree.FileTable, workers int) (*hub.Bundle, diag.List, error) {
 	out := make([]*hub.Resource, len(rs))
 	found := make([]diag.List, len(rs))
@@ -313,7 +308,8 @@ func location(files *tree.FileTable, p tree.Pos) diag.Location {
 }
 
 // canonical reports content that re-enters as ruralz.canonical.v1
-// (tree.RoleCanonical): R-64 exempts it from the number range rule.
+// (tree.RoleCanonical). It is exempt from the number range rule: its RFC
+// 8785 doubles may print as integers beyond ±(2^53−1).
 func canonical(files *tree.FileTable, res *tree.Resource) bool {
 	return files != nil && files.File(res.Start.File).Role == tree.RoleCanonical
 }

@@ -9,7 +9,7 @@ import (
 	"time"
 )
 
-// TestGradeOf covers the combination of 05 req 11 steps (b) and (c).
+// TestGradeOf covers how the down and avoid tests combine.
 func TestGradeOf(t *testing.T) {
 	tests := []struct {
 		down, avoid bool
@@ -36,10 +36,10 @@ func TestGradeOf(t *testing.T) {
 	}
 }
 
-// TestSelectOrder covers 05 req 11 steps (a) to (d) for every algorithm:
-// (a) an empty set is ErrNoEndpoints (503 RZ-UP-008); (b) Down Endpoints are
-// dropped unless none remains (panic mode); (c) Avoided Endpoints are
-// excluded while another remains; (d) the algorithm picks among the rest.
+// TestSelectOrder covers the selection order for every algorithm: an empty
+// set is ErrNoEndpoints (503 RZ-UP-008); Down Endpoints are dropped unless
+// none remains (panic mode); Avoided Endpoints are excluded while another
+// remains; the algorithm picks among the rest.
 func TestSelectOrder(t *testing.T) {
 	now := time.Unix(1000, 0)
 	tests := []struct {
@@ -49,11 +49,11 @@ func TestSelectOrder(t *testing.T) {
 		grade  Grade
 	}{
 		{"all eligible", nil, map[int]bool{0: true, 1: true, 2: true, 3: true}, Eligible},
-		{"step b drops down", []Grade{Down, Eligible, Down, Eligible}, map[int]bool{1: true, 3: true}, Eligible},
-		{"step c drops tried", []Grade{Avoided, Eligible, Avoided, Down}, map[int]bool{1: true}, Eligible},
-		{"step c while another remains", []Grade{Avoided, Down, Avoided, Down}, map[int]bool{0: true, 2: true}, Avoided},
+		{"down dropped", []Grade{Down, Eligible, Down, Eligible}, map[int]bool{1: true, 3: true}, Eligible},
+		{"tried dropped", []Grade{Avoided, Eligible, Avoided, Down}, map[int]bool{1: true}, Eligible},
+		{"avoided when no other remains", []Grade{Avoided, Down, Avoided, Down}, map[int]bool{0: true, 2: true}, Avoided},
 		{"panic mode", []Grade{Down, Down, Down, Down}, map[int]bool{0: true, 1: true, 2: true, 3: true}, Down},
-		{"panic then step c", []Grade{DownAvoided, Down, DownAvoided, DownAvoided}, map[int]bool{1: true}, Down},
+		{"panic then avoided dropped", []Grade{DownAvoided, Down, DownAvoided, DownAvoided}, map[int]bool{1: true}, Down},
 		{"everything avoided", []Grade{DownAvoided, DownAvoided, DownAvoided, DownAvoided}, map[int]bool{0: true, 1: true, 2: true, 3: true}, DownAvoided},
 	}
 	for _, alg := range allAlgorithms {

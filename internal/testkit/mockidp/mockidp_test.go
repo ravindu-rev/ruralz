@@ -25,9 +25,8 @@ import (
 	"time"
 )
 
-// Server tests: JWKS endpoint with rotating keys and Cache-Control (06
-// reqs 36 to 38, 11 req 60 FC-16), the client-credentials token endpoint
-// (06 reqs 69 to 71), overrides and recording (11 req 39).
+// Server tests: JWKS endpoint with rotating keys and Cache-Control
+// (FC-16), the client-credentials token endpoint, overrides and recording.
 
 func serverTLS(t testing.TB) (*tls.Config, *x509.CertPool) {
 	t.Helper()
@@ -83,7 +82,7 @@ func httpClient(t testing.TB, pool *x509.CertPool) *http.Client {
 	return &http.Client{
 		Transport: tr,
 		Timeout:   20 * time.Second,
-		// auth.upstream-oauth2 never follows redirects (06 req 69).
+		// auth.upstream-oauth2 never follows redirects.
 		CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse },
 	}
 }
@@ -125,7 +124,7 @@ func mustSend(t testing.TB, c *http.Client, method, u string, body string, heade
 	return a
 }
 
-func TestJWKSEndpoint(t *testing.T) { // 06 req 37 fetch shape; 06 req 36 Cache-Control
+func TestJWKSEndpoint(t *testing.T) { // fetch shape and Cache-Control
 	tlsConf, pool := serverTLS(t)
 	s := start(t, Config{TLS: tlsConf})
 	if !strings.HasPrefix(s.JWKSURL(), "https://127.0.0.1:") || s.JWKSURL() != s.URL()+JWKSPath || s.TokenURL() != s.URL()+TokenPath {
@@ -196,7 +195,7 @@ func TestDefaultKeys(t *testing.T) {
 	}
 }
 
-func TestRotation(t *testing.T) { // 06 test plan: key rotation at the IdP (new kid)
+func TestRotation(t *testing.T) { // key rotation at the IdP (new kid)
 	es := key(t, ES256)
 	s := start(t, Config{Keys: []*Key{es}})
 	c := httpClient(t, nil)
@@ -300,7 +299,7 @@ func TestPeriodicRotation(t *testing.T) { // rotating keys (Config.RotateEvery)
 	}
 }
 
-func TestJWKSOverride(t *testing.T) { // FC-16 and 06 req 36: 429 Retry-After, failed fetches, slow IdP
+func TestJWKSOverride(t *testing.T) { // FC-16: 429 Retry-After, failed fetches, slow IdP
 	s := start(t, Config{})
 	c := httpClient(t, nil)
 	s.SetJWKSOverride(Override{Status: http.StatusTooManyRequests, Header: http.Header{"Retry-After": {"120"}}})
@@ -342,7 +341,7 @@ func rawBasic(id, secret string) string {
 	return "Basic " + base64.StdEncoding.EncodeToString([]byte(id+":"+secret))
 }
 
-func TestTokenEndpoint(t *testing.T) { // 06 req 69 to 71: client credentials grant
+func TestTokenEndpoint(t *testing.T) { // Client credentials grant
 	const (
 		id     = "orders:svc%1"
 		secret = "rzcanary-0123:secret%" //nolint:gosec // G101: a test client secret for the mock IdP
@@ -373,8 +372,8 @@ func TestTokenEndpoint(t *testing.T) { // 06 req 69 to 71: client credentials gr
 		// RFC 6749 section 3.2.1: client_id in the body identifies a Basic
 		// client; it is not a second authentication method.
 		{"basic with client_id in body", http.MethodPost, "grant_type=client_credentials&client_id=" + url.QueryEscape(id), http.Header{"Authorization": {basic(id, secret)}, "Content-Type": {form}}, 200, ""},
-		// 06 test plan "Basic auth encoding": a secret sent without
-		// form-encoding ("%" raw) is rejected but recorded as sent.
+		// Basic auth encoding: a secret sent without form-encoding ("%"
+		// raw) is rejected but recorded as sent.
 		{"unencoded secret", http.MethodPost, "grant_type=client_credentials", http.Header{"Authorization": {rawBasic(url.QueryEscape(id), secret)}, "Content-Type": {form}}, 401, "invalid_client"},
 		{"post secret without id", http.MethodPost, "grant_type=client_credentials&client_secret=" + url.QueryEscape(secret), http.Header{"Content-Type": {form}}, 401, "invalid_client"},
 	} {
@@ -395,8 +394,7 @@ func TestTokenEndpoint(t *testing.T) { // 06 req 69 to 71: client credentials gr
 					t.Fatal("no WWW-Authenticate on a Basic failure")
 				}
 				// A request refused for its body size still records the
-				// Basic credentials it presented (the canary destination
-				// of 11 req 39).
+				// Basic credentials it presented (the canary destination).
 				if tc.name == "too large" {
 					reqs := s.TokenRequests()
 					r := reqs[len(reqs)-1]
@@ -452,8 +450,8 @@ func TestTokenEndpoint(t *testing.T) { // 06 req 69 to 71: client credentials gr
 	if r := reqs[12]; r.AuthMethod != "client_secret_basic" || r.ClientID != id || r.Status != 200 {
 		t.Fatalf("Basic with client_id in body: %+v", r)
 	}
-	// 11 req 39: the token endpoint is a designated canary destination, so
-	// the record keeps a credential it could not decode.
+	// The token endpoint is a designated canary destination, so the record
+	// keeps a credential it could not decode.
 	if r := reqs[13]; r.AuthMethod != "client_secret_basic" || !r.MalformedCredentials || r.ClientID != id ||
 		r.ClientSecret != secret || r.RawClientSecret != secret || r.Status != 401 || r.AccessToken != "" {
 		t.Fatalf("unencoded secret: %+v", r)
@@ -508,7 +506,7 @@ func verifyClaims(t *testing.T, s *Server, token string) map[string]any {
 	return claims
 }
 
-func TestTokenOverride(t *testing.T) { // 06 test plan: 500 → 020, 302 not followed, missing expires_in, timeout
+func TestTokenOverride(t *testing.T) { // 500 → 020, 302 not followed, missing expires_in, timeout
 	s := start(t, Config{})
 	c := httpClient(t, nil)
 	hdr := http.Header{"Authorization": {basic("a", "b")}, "Content-Type": {"application/x-www-form-urlencoded"}}
@@ -548,7 +546,7 @@ func TestTokenOverride(t *testing.T) { // 06 test plan: 500 → 020, 302 not fol
 	}
 }
 
-func TestMintDefaults(t *testing.T) { // auth.jwt claim tests (06 req 30) mint against a fixed clock
+func TestMintDefaults(t *testing.T) { // auth.jwt claim tests mint against a fixed clock
 	now := time.Date(2026, 9, 26, 12, 0, 0, 0, time.UTC)
 	s := start(t, Config{Issuer: "https://idp.test", TokenTTL: 5 * time.Minute, Now: func() time.Time { return now }})
 	tok, err := s.Mint(RS256, map[string]any{"aud": []string{"orders"}, "sub": "alice"})
@@ -670,7 +668,7 @@ func TestStartErrors(t *testing.T) {
 		want string
 	}{
 		{"rotate", Config{Keys: []*Key{{}}, RotateEvery: -1}, "negative RotateEvery"},
-		// 06 req 70: expires_in is a positive integer of seconds.
+		// expires_in is a positive integer of seconds.
 		{"sub-second ttl", Config{TokenTTL: 500 * time.Millisecond}, "TokenTTL 500ms"},
 		{"fractional ttl", Config{TokenTTL: 1500 * time.Millisecond}, "whole number of seconds"},
 		{"negative ttl", Config{TokenTTL: -time.Second}, "TokenTTL -1s"},

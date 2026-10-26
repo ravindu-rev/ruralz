@@ -12,8 +12,8 @@ import (
 	"github.com/ravindu-rev/ruralz/internal/statestore"
 )
 
-// epoch2026 is 2026-01-01T00:00:00Z in Unix seconds, the GCRA time base
-// (spec 08 req 41): microseconds since it stay exact in a float64.
+// epoch2026 is 2026-01-01T00:00:00Z in Unix seconds, the GCRA time
+// base: microseconds since it stay exact in a float64.
 const epoch2026 = 1767225600
 
 // instant is one reading of the server clock in the units the scripts
@@ -75,7 +75,7 @@ type leaseEntry struct {
 	exp   int64
 }
 
-// maxVariants is the most variants a partition keeps (spec 08 req 45).
+// maxVariants is the most variants a partition keeps.
 const maxVariants = 8
 
 // variant is one stored variant: the fields g:<V>, t:<V> and e:<V>.
@@ -107,7 +107,7 @@ func (p *partition) find(v statestore.Digest) int {
 
 // remove drops variant i and returns its bytes. slices.Delete zeroes the
 // vacated tail slot, so the backing array keeps no reference to a dropped
-// entry the byte accounting no longer counts (spec 08 req 58).
+// entry the byte accounting no longer counts.
 func (p *partition) remove(i int) int64 {
 	n := int64(len(p.variants[i].entry))
 	p.variants = slices.Delete(p.variants, i, i+1)
@@ -195,12 +195,12 @@ func (s *shard) reclaim(nowMs int64) int64 {
 }
 
 // room reports whether the shard can take n new keys, reclaiming expired
-// ones first when it is full (spec 08 req 58: a shard full of unexpired
-// keys refuses new ones, like noeviction). The reclaim scan runs only
-// once the server time passed s.next, when some key may have expired; a
-// shard full of live keys therefore refuses in O(1), and since every
-// expiry written is in the future, a full shard scans at most once per
-// server millisecond under a flood of new keys.
+// ones first when it is full (a shard full of unexpired keys refuses new
+// ones, like noeviction). The reclaim scan runs only once the server
+// time passed s.next, when some key may have expired; a shard full of
+// live keys therefore refuses in O(1), and since every expiry written is
+// in the future, a full shard scans at most once per server millisecond
+// under a flood of new keys.
 func (d *Driver) room(s *shard, n int, nowMs int64) bool {
 	if n <= 0 || s.keys()+n <= d.perShard {
 		return true

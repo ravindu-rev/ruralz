@@ -13,7 +13,7 @@ import (
 )
 
 // BackoffCeiling returns the backoff ceiling of retry n (1-based):
-// min(250 ms, 25 ms × 2^(n−1)) (05 req 33). n below 1 counts as 1.
+// min(250 ms, 25 ms × 2^(n−1)). n below 1 counts as 1.
 func BackoffCeiling(n int) time.Duration {
 	switch {
 	case n <= 1:
@@ -27,8 +27,8 @@ func BackoffCeiling(n int) time.Duration {
 }
 
 // Backoff returns the full-jitter sleep of retry n (1-based) for one
-// uniform 64-bit draw: uniform(0, BackoffCeiling(n)), both ends included
-// (05 req 33). A zero draw sleeps 0 and the largest draw sleeps the
+// uniform 64-bit draw: uniform(0, BackoffCeiling(n)), both ends
+// included. A zero draw sleeps 0 and the largest draw sleeps the
 // ceiling; the mapping is monotonic in draw.
 func Backoff(n int, draw uint64) time.Duration {
 	return uniform(draw, BackoffCeiling(n))
@@ -45,8 +45,8 @@ func uniform(draw uint64, span time.Duration) time.Duration {
 }
 
 // jitterOpen returns openDuration jittered by OpenJitterPercent either way,
-// uniform over [d − 20%, d + 20%] for one draw (05 req 37). The result
-// saturates instead of overflowing.
+// uniform over [d − 20%, d + 20%] for one draw. The result saturates
+// instead of overflowing.
 func jitterOpen(d time.Duration, draw uint64) time.Duration {
 	if d <= 0 {
 		return 0

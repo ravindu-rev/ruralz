@@ -59,11 +59,11 @@ func deprecatedEverywhere(t *testing.T, idx *schemaidx.Index, res *tree.Resource
 	return got
 }
 
-// TestDeprecationsSchemaPaths covers 02 req 76 and the incremental schema
-// path of Deprecations: with every field deprecated, it warns at exactly
-// the positions schemaidx.Index.SchemaPath resolves, with the same schema
-// path, for a generated document of every field of the rendered schema
-// and for documents with free content, typed maps, keyed and set lists and
+// TestDeprecationsSchemaPaths covers the incremental schema path of
+// Deprecations: with every field deprecated, it warns at exactly the
+// positions schemaidx.Index.SchemaPath resolves, with the same schema
+// path, for a generated document of every field of the rendered schema and
+// for documents with free content, typed maps, keyed and set lists and
 // members the schema does not allow.
 func TestDeprecationsSchemaPaths(t *testing.T) {
 	idx := hubIndex(t)

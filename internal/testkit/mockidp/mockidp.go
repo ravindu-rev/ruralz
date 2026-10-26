@@ -1,10 +1,11 @@
 // Copyright 2026 Revington
 // SPDX-License-Identifier: Apache-2.0
 
-// Package mockidp is the mock identity provider of the test kit (11
-// section 3, F 32, req 39 and H 60 FC-16; 06 sections 2.3, 2.4 and 2.10):
-// one HTTP server, over TLS when a configuration is passed in (from
-// testkit/pki) or cleartext for unit tests, serving
+// Package mockidp is the mock identity provider of the test kit, for the
+// auth.jwt, JWKS and auth.upstream-oauth2 tests, the end-to-end harness,
+// the secret leak tests and the FC-16 failure row: one HTTP server, over
+// TLS when a configuration is passed in (from testkit/pki) or cleartext
+// for unit tests, serving
 //
 //   - a JWKS endpoint (JWKSURL) with RS256 and ES256 keys by default (PS256
 //     and EdDSA on request), rotated by hand (Rotate) or on a period
@@ -18,8 +19,8 @@
 // Overrides script failures per endpoint (a status such as 429 with
 // Retry-After, a replacement body, a delay). Every JWKS fetch and token
 // request is recorded, bounded, with its headers and credentials: the
-// token endpoint is a designated destination of the canary secret (11
-// req 39), so tests assert it arrives here and nowhere else.
+// token endpoint is a designated destination of the canary secret, so
+// tests assert it arrives here and nowhere else.
 //
 // Goroutines: the http.Server's serve loop and its per-connection
 // goroutines, and the rotation loop when RotateEvery is set, all owned by
@@ -95,8 +96,8 @@ type Config struct {
 	// minted JWTs; default DefaultTokenTTL. It must be a whole number of
 	// seconds, at least one: expires_in, iat and exp are integer seconds,
 	// so a shorter TTL would answer expires_in 0 and mint exp equal to
-	// iat (06 req 70). Start rejects other values; a missing or zero
-	// expires_in is scripted with SetTokenOverride instead.
+	// iat. Start rejects other values; a missing or zero expires_in is
+	// scripted with SetTokenOverride instead.
 	TokenTTL time.Duration
 	// TokenAudience, when set, is the aud of issued access tokens.
 	TokenAudience string
@@ -408,8 +409,8 @@ func (s *Server) signerLocked(alg Alg) (*Key, bool) {
 }
 
 // AddKey publishes k at the end of the document, making it the signing
-// key of its algorithm. Duplicate kids are allowed (06 req 38 keeps them
-// as a list).
+// key of its algorithm. Duplicate kids are allowed (auth.jwt keeps them as
+// a list, tried in document order).
 func (s *Server) AddKey(k *Key) error {
 	if k == nil || k.signer == nil {
 		return errors.New("mockidp: AddKey needs a key made by GenerateKey or NewKey")
@@ -502,7 +503,7 @@ func (s *Server) rotateAll() {
 }
 
 // SetCacheControl sets the JWKS Cache-Control value; "" omits the header
-// (auth.jwt then keeps a set for 1 h, 06 req 36).
+// (auth.jwt then keeps a set for 1 h).
 func (s *Server) SetCacheControl(v string) {
 	s.mu.Lock()
 	defer s.mu.Unlock()

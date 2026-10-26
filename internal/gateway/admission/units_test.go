@@ -13,18 +13,17 @@ import (
 	"github.com/ravindu-rev/ruralz/internal/errcode"
 )
 
-// Tests for spec 04 req 19 (in-flight units: 20,000, one atomic add, 503
-// RZ-RT-005 at once, never queued), spec 04 req 67 (ceiling lowered by the
-// other process's usage during a handover) and spec 05 req 43 (k units for
-// parallel composition steps); test plan item 9.
+// Tests for in-flight units (20,000, one atomic add, 503 RZ-RT-005 at
+// once, never queued), the ceiling lowered by the other process's usage
+// during a handover and k units for parallel composition steps.
 
-// TestReq19UnitsExactCeilingUnderContention makes 40,000 concurrent
+// TestUnitsExactCeilingUnderContention makes 40,000 concurrent
 // acquisition attempts against the 20,000 ceiling: exactly 20,000 hold a
 // unit, the rest are rejected at once. Attempts run in batches of 4,000
 // goroutines because the race detector allows at most 8,128 live
 // goroutines; the units stay held across batches, so the ceiling is
 // contended by every attempt.
-func TestReq19UnitsExactCeilingUnderContention(t *testing.T) {
+func TestUnitsExactCeilingUnderContention(t *testing.T) {
 	const attempts, batch = 40_000, 4_000
 	u := NewUnits(DefaultUnits)
 	var ok, rejected atomic.Int64
@@ -56,10 +55,10 @@ func TestReq19UnitsExactCeilingUnderContention(t *testing.T) {
 	}
 }
 
-// TestReq19UnitsChurnNeverExceedsCeiling acquires and releases from many
+// TestUnitsChurnNeverExceedsCeiling acquires and releases from many
 // goroutines while counting the holders: they never exceed the ceiling and
 // the count returns to zero.
-func TestReq19UnitsChurnNeverExceedsCeiling(t *testing.T) {
+func TestUnitsChurnNeverExceedsCeiling(t *testing.T) {
 	const ceiling, workers, rounds = 64, 256, 400
 	u := NewUnits(ceiling)
 	var holders, peak atomic.Int64
@@ -95,7 +94,7 @@ func raise(peak *atomic.Int64, v int64) {
 	}
 }
 
-func TestReq19UnitsTryAcquire(t *testing.T) {
+func TestUnitsTryAcquire(t *testing.T) {
 	tests := []struct {
 		name     string
 		limit    int64
@@ -108,13 +107,13 @@ func TestReq19UnitsTryAcquire(t *testing.T) {
 		{"one of many", 10, 0, 0, 1, true, 1},
 		{"last unit", 10, 9, 0, 1, true, 10},
 		{"full", 10, 10, 0, 1, false, 10},
-		{"k steps fit exactly (05 req 43)", 10, 6, 0, 4, true, 10},
+		{"k steps fit exactly", 10, 6, 0, 4, true, 10},
 		{"k steps over by one take nothing", 10, 7, 0, 4, false, 7},
 		{"k zero takes nothing", 10, 10, 0, 0, true, 10},
 		{"k negative takes nothing", 10, 3, 0, -2, true, 3},
 		{"zero ceiling rejects", 0, 0, 0, 1, false, 0},
 		{"negative limit is zero", -5, 0, 0, 1, false, 0},
-		{"handover lowers the ceiling (req 67)", 10, 5, 5, 1, false, 5},
+		{"handover lowers the ceiling", 10, 5, 5, 1, false, 5},
 		{"handover leaves room", 10, 4, 5, 1, true, 5},
 		{"external above the limit", 10, 0, 50, 1, false, 0},
 		{"negative external is zero", 10, 9, -3, 1, true, 10},
@@ -136,10 +135,10 @@ func TestReq19UnitsTryAcquire(t *testing.T) {
 	}
 }
 
-// TestReq67UnitsSetExternal lowers the ceiling while units are held: held
+// TestUnitsSetExternal lowers the ceiling while units are held: held
 // units stay, new ones wait for room, and clearing the usage restores the
 // full ceiling.
-func TestReq67UnitsSetExternal(t *testing.T) {
+func TestUnitsSetExternal(t *testing.T) {
 	u := NewUnits(100)
 	if !u.TryAcquire(60) {
 		t.Fatal("TryAcquire(60) failed")
@@ -164,8 +163,8 @@ func TestReq67UnitsSetExternal(t *testing.T) {
 	}
 }
 
-// TestReq19UnitsAcquireError is the RZ-RT-005 mapping: 503, registered.
-func TestReq19UnitsAcquireError(t *testing.T) {
+// TestUnitsAcquireError is the RZ-RT-005 mapping: 503, registered.
+func TestUnitsAcquireError(t *testing.T) {
 	u := NewUnits(1)
 	if err := u.Acquire(1); err != nil {
 		t.Fatalf("Acquire = %v", err)
@@ -189,7 +188,7 @@ func TestReq19UnitsAcquireError(t *testing.T) {
 }
 
 // BenchmarkUnitsAcquireRelease is the admission step of every request (the
-// RZ-RT-005 path budget of spec 04 req 80 starts here).
+// RZ-RT-005 path budget starts here).
 func BenchmarkUnitsAcquireRelease(b *testing.B) {
 	u := NewUnits(DefaultUnits)
 	b.ReportAllocs()

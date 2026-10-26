@@ -10,12 +10,12 @@ import (
 	"github.com/ravindu-rev/ruralz/internal/clock"
 )
 
-// PreRouting bounds the pre-routing responses written at once (spec 04 req
-// 20): RZ-RT-001, RZ-RT-002, RZ-RT-005, RZ-RT-006 and RZ-RT-017 run no
-// Filter Chain, get a 5 s write deadline, and at most DefaultPreRouting of
-// them are written concurrently; beyond it the handler aborts with
-// http.ErrAbortHandler without writing, so a flood of rejections costs no
-// more than its connections. PreRouting is safe for concurrent use.
+// PreRouting bounds the pre-routing responses written at once: RZ-RT-001,
+// RZ-RT-002, RZ-RT-005, RZ-RT-006 and RZ-RT-017 run no Filter Chain, get a
+// 5 s write deadline, and at most DefaultPreRouting of them are written
+// concurrently; beyond it the handler aborts with http.ErrAbortHandler
+// without writing, so a flood of rejections costs no more than its
+// connections. PreRouting is safe for concurrent use.
 type PreRouting struct {
 	n     atomic.Int64
 	limit int64

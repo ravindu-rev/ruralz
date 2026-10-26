@@ -37,9 +37,9 @@ func (r *seqReader) Read(p []byte) (int, error) {
 	return len(p), nil
 }
 
-// TestNewDeterministic covers spec 04 requirement 6 and test plan item 2
-// "deterministic output with fixed entropy": 48-bit big-endian ms plus 80
-// bits of entropy, 26 uppercase Crockford characters.
+// TestNewDeterministic checks the deterministic output with fixed
+// entropy: 48-bit big-endian ms plus 80 bits of entropy, 26 uppercase
+// Crockford characters.
 func TestNewDeterministic(t *testing.T) {
 	cases := []struct {
 		name    string
@@ -70,7 +70,7 @@ func TestNewDeterministic(t *testing.T) {
 }
 
 // TestLayout checks the byte layout against an independent big.Int
-// encoding (spec 04 requirement 6).
+// encoding.
 func TestLayout(t *testing.T) {
 	u, err := New(time.UnixMilli(0x0123456789ab), &seqReader{n: 0xa0})
 	if err != nil {
@@ -99,7 +99,7 @@ func bigEncode(u ULID) string {
 	return string(b[:])
 }
 
-// TestTimeRoundTrip covers test plan item 2 "time round trip".
+// TestTimeRoundTrip checks that Time gives back the millisecond, in UTC.
 func TestTimeRoundTrip(t *testing.T) {
 	for _, tm := range []time.Time{
 		time.Unix(0, 0),
@@ -174,7 +174,7 @@ func TestNewCryptoRand(t *testing.T) {
 	}
 }
 
-// assertAlphabet covers test plan item 2 "26-char alphabet".
+// assertAlphabet checks that s is 26 characters of the Crockford alphabet.
 func assertAlphabet(t *testing.T, s string) {
 	t.Helper()
 	if len(s) != EncodedLen {
@@ -187,8 +187,8 @@ func assertAlphabet(t *testing.T, s string) {
 	}
 }
 
-// TestLexicalOrderEqualsTimeOrder covers test plan item 2 "lexical order
-// equals time order for distinct ms".
+// TestLexicalOrderEqualsTimeOrder checks that lexical order equals time
+// order for distinct ms.
 func TestLexicalOrderEqualsTimeOrder(t *testing.T) {
 	var ids []ULID
 	for ms := int64(0); ms < 2000; ms += 7 {
@@ -217,8 +217,8 @@ func TestLexicalOrderEqualsTimeOrder(t *testing.T) {
 	}
 }
 
-// TestParse covers test plan item 2: lowercase accepted, I L O U
-// rejected, overflow first char > 7 rejected, wrong length rejected.
+// TestParse: lowercase accepted, I L O U rejected, overflow first char > 7
+// rejected, wrong length rejected.
 func TestParse(t *testing.T) {
 	cases := []struct {
 		name string

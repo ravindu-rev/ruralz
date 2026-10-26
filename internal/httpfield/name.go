@@ -8,8 +8,8 @@ import (
 	"fmt"
 )
 
-// MaxNameBytes is the longest field name a Policy may write, in bytes (07
-// req 21, proposed).
+// MaxNameBytes is the longest field name a Policy may write, in bytes
+// (proposed).
 const MaxNameBytes = 256
 
 // tchar (RFC 9110 section 5.6.2) as two 64-bit masks over the ASCII range:
@@ -61,8 +61,8 @@ func IsToken(s string) bool {
 }
 
 // ValidName reports whether name is a field name a Policy may write: an
-// RFC 9110 token of 1 to MaxNameBytes bytes (07 req 21). Pseudo-header
-// names such as ":authority" are not tokens and fail.
+// RFC 9110 token of 1 to MaxNameBytes bytes. Pseudo-header names such
+// as ":authority" are not tokens and fail.
 func ValidName(name string) bool {
 	return len(name) <= MaxNameBytes && IsToken(name)
 }

@@ -9,10 +9,9 @@ import (
 	"testing"
 )
 
-// Tests for 07 req 23 (literal values), 07 req 27 (computed values) and the
-// T1 value cases of spec 07 section 6.
+// Tests for literal and computed field values.
 
-func TestValidValueReq23(t *testing.T) {
+func TestValidValue(t *testing.T) {
 	tests := []struct {
 		name string
 		in   string
@@ -50,7 +49,7 @@ func TestValidValueReq23(t *testing.T) {
 	}
 }
 
-func TestCheckValueReasonsReq23(t *testing.T) {
+func TestCheckValueReasons(t *testing.T) {
 	tests := []struct {
 		name string
 		in   string
@@ -75,7 +74,7 @@ func TestCheckValueReasonsReq23(t *testing.T) {
 	}
 }
 
-func TestNormalizeValueReq27(t *testing.T) {
+func TestNormalizeValue(t *testing.T) {
 	tests := []struct {
 		name    string
 		in      string
@@ -124,8 +123,8 @@ func TestTrimOWS(t *testing.T) {
 	}
 }
 
-func TestLimitsReq37(t *testing.T) {
-	// 07 req 37: 32 entries x 8 KiB bound the bytes one Policy adds.
+func TestLimits(t *testing.T) {
+	// 32 entries x 8 KiB bound the bytes one Policy adds.
 	if MaxValueBytes != 8192 || MaxComputedValueBytes != MaxValueBytes {
 		t.Errorf("MaxValueBytes = %d, MaxComputedValueBytes = %d, want 8192", MaxValueBytes, MaxComputedValueBytes)
 	}

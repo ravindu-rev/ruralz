@@ -119,11 +119,11 @@ func conditionMember(f schemaidx.Field) bool {
 }
 
 // TestPositionsFromSchema checks every string field of every kind and
-// dispatch branch, enumerated from the committed schema (R-62), against
-// schemaidx.Info, which owns the forbidden-position rules (architecture
-// R-3): ${X} is RZ-CFG-011 exactly where Info.NoSubstitution holds and is
-// substituted elsewhere (01 req 28), and a credential-shaped literal warns
-// exactly outside Info.InSecret (01 J row 013).
+// dispatch branch, enumerated from the committed schema, against
+// schemaidx.Info, which owns the forbidden-position rules: ${X} is
+// RZ-CFG-011 exactly where Info.NoSubstitution holds and is substituted
+// elsewhere, and a credential-shaped literal warns exactly outside
+// Info.InSecret.
 func TestPositionsFromSchema(t *testing.T) {
 	set := schemas(t)
 	x, _ := set.Index(v1)

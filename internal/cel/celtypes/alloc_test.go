@@ -18,9 +18,9 @@ import (
 	"github.com/ravindu-rev/ruralz/internal/expr"
 )
 
-// Tests for the WP-08 "Done when": every expr.Vars field is reachable from
-// CEL with its documented type (03 req 17), and the adapters allocate
-// nothing for fields an expression does not select (03 req 19, 20, 23).
+// Tests that every expr.Vars field is reachable from CEL with its
+// documented type, and that the adapters allocate nothing for fields an
+// expression does not select.
 
 // celFields maps each view's Go fields to the CEL field that reads it.
 // Prepared is the CEL implementation's cache and QuotaByName is for the
@@ -163,9 +163,9 @@ func TestDoneWhenContainerFieldsAllocateNothing(t *testing.T) {
 	}
 }
 
-// TestReq19LookupAllocatesNothing checks the header lookup of a
-// single-valued field and the size of a canonical map (03 req 19).
-func TestReq19LookupAllocatesNothing(t *testing.T) {
+// TestLookupAllocatesNothing checks the header lookup of a
+// single-valued field and the size of a canonical map.
+func TestLookupAllocatesNothing(t *testing.T) {
 	h := http.Header{}
 	for i := range 40 {
 		h.Set(fmt.Sprintf("X-Header-%d", i), "v")
@@ -192,10 +192,10 @@ func TestReq19LookupAllocatesNothing(t *testing.T) {
 	}
 }
 
-// TestReq20QueryParsedLazily checks that request.query is parsed on its
+// TestQueryParsedLazily checks that request.query is parsed on its
 // first selection only: an expression that does not select it leaves the
 // raw query unparsed.
-func TestReq20QueryParsedLazily(t *testing.T) {
+func TestQueryParsedLazily(t *testing.T) {
 	parsed := func(r *expr.Request) bool {
 		f := reflect.ValueOf(r).Elem().FieldByName("query")
 		if !f.IsValid() || f.NumField() == 0 {

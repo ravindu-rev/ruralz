@@ -14,9 +14,8 @@ import (
 )
 
 // Tests for the per-Policy rules: registry defaults and their
-// materialization (01 req 36, 02 req 12 and test 8), the effective slot
-// (01 req 40), filterClass (02 req 38, R-7), failureMode (02 req 37, 06
-// req 1 and 53, foundation pack section 8.10) and served types (RZ-CFG-040).
+// materialization, the effective slot, filterClass, failureMode (foundation
+// pack section 8.10) and served types (RZ-CFG-040).
 
 func policy(name string, typ v1alpha1.PolicyType) *v1alpha1.Policy {
 	return &v1alpha1.Policy{
@@ -28,10 +27,10 @@ func policy(name string, typ v1alpha1.PolicyType) *v1alpha1.Policy {
 
 func ptr[T any](v T) *T { return &v }
 
-// TestDefaults is 02 test 8: for each of the 23 types, absent slot,
+// TestDefaults checks that, for each of the 23 types, absent slot,
 // failureMode and filterClass materialize the registry values; explicit
 // values are kept; plugin without filterClass gets custom; a second pass
-// changes nothing (01 req 36 idempotence).
+// changes nothing.
 func TestDefaults(t *testing.T) {
 	wantSlot := map[v1alpha1.PolicyType]string{
 		v1alpha1.PolicyTypeAuthJWT: "auth", v1alpha1.PolicyTypeAuthAPIKey: "auth",
@@ -46,7 +45,7 @@ func TestDefaults(t *testing.T) {
 	}
 	reg := New()
 	if n := len(reg.Types()); n != 23 {
-		t.Fatalf("registry has %d types, 02 test 8 expects 23", n)
+		t.Fatalf("registry has %d types, want 23", n)
 	}
 	for _, e := range reg.Entries() {
 		t.Run(string(e.Type), func(t *testing.T) {
@@ -100,7 +99,7 @@ func TestDefaults(t *testing.T) {
 
 			// A nameless Policy (stage D rejects it) gets no empty slot
 			// for a type whose slot is its name, and a second call still
-			// writes nothing (01 req 36).
+			// writes nothing.
 			n := policy("", e.Type)
 			if !reg.Materialize(n) {
 				t.Fatal("Materialize wrote nothing on a nameless Policy")
@@ -118,8 +117,8 @@ func TestDefaults(t *testing.T) {
 	}
 }
 
-// TestEffectiveSlot is 01 req 40: spec.slot if set, else the registry
-// slot, else metadata.name.
+// TestEffectiveSlot checks the effective slot: spec.slot if set, else the
+// registry slot, else metadata.name.
 func TestEffectiveSlot(t *testing.T) {
 	reg := New()
 	tests := []struct {
@@ -148,9 +147,9 @@ func TestEffectiveSlot(t *testing.T) {
 	}
 }
 
-// TestCheckFilterClass is 02 req 38 and test 8 with R-7: a type other than
-// plugin may only restate its registry class (RZ-CFG-005 otherwise); a
-// plugin chooses any of the nine classes.
+// TestCheckFilterClass checks that a type other than plugin may only
+// restate its registry class (RZ-CFG-005 otherwise) and that a plugin
+// chooses any of the nine classes.
 func TestCheckFilterClass(t *testing.T) {
 	reg := New()
 	tests := []struct {
@@ -218,9 +217,9 @@ func wantDiag(t *testing.T, d diag.Diagnostic, code, name, path string) {
 	}
 }
 
-// TestCheckFailureMode is 02 req 37 and test 16 (RZ-CFG-029): open on
-// auth.*, auth.upstream-*, authz.* or a plugin of class auth or authz is
-// rejected; ratelimit open and plugin custom open are accepted.
+// TestCheckFailureMode covers RZ-CFG-029: open on auth.*, auth.upstream-*,
+// authz.* or a plugin of class auth or authz is rejected; ratelimit open
+// and plugin custom open are accepted.
 func TestCheckFailureMode(t *testing.T) {
 	reg := New()
 	tests := []struct {

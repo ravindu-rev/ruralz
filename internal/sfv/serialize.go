@@ -12,9 +12,9 @@ import (
 )
 
 // tchar (RFC 9110 section 5.6.2) as two 64-bit masks over the ASCII range,
-// as in internal/httpfield (this L0 package imports no other Ruralz
-// package): bit c of tcharLo is byte c for c < 64, bit c-64 of tcharHi is
-// byte c for 64 <= c < 128.
+// as in internal/httpfield (this package imports no other Ruralz package):
+// bit c of tcharLo is byte c for c < 64, bit c-64 of tcharHi is byte c for
+// 64 <= c < 128.
 const (
 	tcharLo uint64 = 1<<'!' | 1<<'#' | 1<<'$' | 1<<'%' | 1<<'&' | 1<<'\'' |
 		1<<'*' | 1<<'+' | 1<<'-' | 1<<'.' | (1<<10-1)<<'0'

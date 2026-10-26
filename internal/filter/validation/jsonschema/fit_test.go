@@ -15,8 +15,8 @@ import (
 	"github.com/ravindu-rev/ruralz/internal/phase"
 )
 
-// The bodies of TestHandleMeasuredFit: documents of the shapes the review
-// measured, each valid under its schema.
+// The bodies of TestHandleMeasuredFit: documents of the measured shapes,
+// each valid under its schema.
 const (
 	fitParagraph = `{"type":"paragraph","content":[{"type":"text","text":"Lorem ipsum dolor sit amet, consectetur adipiscing elit."},{"type":"text","text":"bold part","marks":[{"type":"bold"}]}]}`
 	fitHeading   = `{"type":"heading","attrs":{"level":2},"content":[{"type":"text","text":"Section title"}]}`
@@ -41,17 +41,17 @@ const geoJSON = `{"type":"object","required":["type","features"],"properties":{"
 
 // composedSchema is an array of orders, each the allOf composition of a
 // base and its own properties under unevaluatedProperties false, the
-// draft 2020-12 way to close a composed object (minor review finding).
+// draft 2020-12 way to close a composed object.
 const composedSchema = `{"type":"array","items":{"$ref":"#/$defs/order"},"$defs":{"base":{"type":"object","required":["id"],"properties":{"id":{"type":"string"},"created":{"type":"string"}}},` +
 	`"order":{"allOf":[{"$ref":"#/$defs/base"},{"properties":{"total":{"type":"number"},"status":{"enum":["new","paid","shipped"]}}}],"unevaluatedProperties":false}}}`
 
 // conditionalSchema is an array of contacts whose required member depends
-// on their kind, through if, then and else (minor review finding).
+// on their kind, through if, then and else.
 const conditionalSchema = `{"type":"array","items":{"type":"object","properties":{"kind":{"type":"string"},"email":{"type":"string"},"phone":{"type":"string"}},` +
 	`"if":{"properties":{"kind":{"const":"email"}}},"then":{"required":["email"]},"else":{"required":["phone"]}}}`
 
 // patchSchema is a JSON Patch (RFC 6902) of three kinds of operations
-// under a oneOf (minor review finding).
+// under a oneOf.
 const patchSchema = `{"type":"array","items":{"oneOf":[` +
 	`{"type":"object","required":["op","path","value"],"properties":{"op":{"enum":["add","replace","test"]},"path":{"type":"string"},"value":true},"additionalProperties":false},` +
 	`{"type":"object","required":["op","path"],"properties":{"op":{"const":"remove"},"path":{"type":"string"}},"additionalProperties":false},` +
@@ -116,21 +116,18 @@ func uiTree(depth, width int, row bool) string {
 	return `{"kind":"` + kind + `","children":[` + joined(width, func(int) string { return uiTree(depth-1, width, !row) }) + `]}`
 }
 
-// TestHandleMeasuredFit pins the measured fit of the review findings
-// (architecture R-77: typical records fit up to about 70 to 84% of the
-// limit, dense enum or union arrays less, operators raise
-// maxRequestBodyBytes on validated Routes). Through Factory.Build and
+// TestHandleMeasuredFit pins the measured fit (typical records fit up to
+// about 70 to 84% of the limit, dense enum or union arrays less, operators
+// raise maxRequestBodyBytes on validated Routes). Through Factory.Build and
 // Handle at the 10 MiB default, each valid body passes at the fraction of
 // the limit it names, which the package documentation states ("Working
-// set"), and reserves what the model charges, which covers the heap
-// Handle holds at its peak within the collector's pacing; the log gives
-// its reservation against that peak. The decision pass is reserved its
-// worst case over the library's member order, in which every alternative
-// of a union may descend into the members of a value that fails it: a
-// valid document of unions and recursive blocks reserves several to tens
-// of times its measured peak.
-//
-// Requirements: 07 reqs 15, 80 and 82, architecture R-63 and R-77.
+// set"), and reserves what the model charges, which covers the heap Handle
+// holds at its peak within the collector's pacing; the log gives its
+// reservation against that peak. The decision pass is reserved its worst
+// case over the library's member order, in which every alternative of a
+// union may descend into the members of a value that fails it: a valid
+// document of unions and recursive blocks reserves several to tens of times
+// its measured peak.
 func TestHandleMeasuredFit(t *testing.T) {
 	// The fractions do not depend on the limit: under -race, which slows
 	// the library tenfold, a tenth of the default limit and of the bodies,
@@ -152,8 +149,8 @@ func TestHandleMeasuredFit(t *testing.T) {
 		fraction           float64
 		// tree compares the decoded tree exactly instead of the sampled
 		// peak: a wide object's map leaves the tables it outgrew to the
-		// collector before anything is reserved (minor review finding: the
-		// sampled peak came within 10% of twice the reservation).
+		// collector before anything is reserved (the sampled peak came within
+		// 10% of twice the reservation).
 		tree bool
 	}{
 		{"events under an 8-way oneOf", eventsSchema(8), `{"events":[` + joined(46000/scale, func(i int) string {
@@ -169,9 +166,8 @@ func TestHandleMeasuredFit(t *testing.T) {
 		}) + `]}`, 0.06, false},
 		{"component tree nested deep", componentTree, uiTree(depth, 3, true), 0, false},
 		{"GeoJSON features", geoJSON, `{"type":"FeatureCollection","features":[` + joined(6700/scale, func(int) string { return fitPolygon }) + `]}`, 0.14, false},
-		// Minor review finding: composed objects, conditional records and
-		// unions of operations, at the working-set, reservation and
-		// working-set limits.
+		// Composed objects, conditional records and unions of operations, at
+		// the working-set, reservation and working-set limits.
 		{"composed orders under unevaluatedProperties", composedSchema, "[" + joined(79000/scale, func(i int) string {
 			return fmt.Sprintf(`{"id":"ord-%06d","created":"2026-10-11","total":%d.5,"status":"paid"}`, i, i%1000)
 		}) + "]", 0.54, false},
@@ -182,28 +178,25 @@ func TestHandleMeasuredFit(t *testing.T) {
 			return fmt.Sprintf(`{"kind":"sms","phone":"+1555%07d"}`, i)
 		}) + "]", 0.59, false},
 		{"JSON Patch", patchSchema, "[" + joined(76000/scale, patchOperation) + "]", 0.35, false},
-		// Review finding: a member name that cannot fail propertyNames holds
-		// no error.
+		// A member name that cannot fail propertyNames holds no error.
 		{"map under propertyNames", `{"type":"object","propertyNames":{"maxLength":64},"additionalProperties":{"type":"integer"}}`, `{` + joined(450000/scale, member) + `}`, 0.5, true},
-		// Minor review findings: enum arrays, at the work and working-set
-		// limits, and dense numeric and uniqueItems arrays, whose fit the
-		// package documentation lists so that operators know to raise
-		// maxRequestBodyBytes on Routes that validate them.
+		// Enum arrays, at the work and working-set limits, and dense numeric
+		// and uniqueItems arrays, whose fit the package documentation lists so
+		// that operators know to raise maxRequestBodyBytes on Routes that
+		// validate them.
 		{"two-letter codes under a 250-value enum", `{"type":"array","items":{"enum":[` + strings.Join(codes, ",") + `]}}`, "[" + joined(706000/scale, func(i int) string { return codes[i%250] }) + "]", 0.33, false},
 		{"one-character enum values", `{"type":"array","items":{"enum":["a","b","c","d"]}}`, "[" + joined(788000/scale, func(i int) string { return fmt.Sprintf(`"%c"`, 'a'+i%4) }) + "]", 0.3, false},
 		{"decimals within bounds", `{"type":"array","items":{"type":"number","minimum":-1000,"maximum":1000}}`, "[" + joined(790000/scale, func(i int) string { return fmt.Sprintf("%d.25", i%1000) }) + "]", 0.51, false},
-		// Review finding: a multipleOf check is charged its division, which
-		// for a short divisor stays far below the working set.
+		// A multipleOf check is charged its division, which for a short
+		// divisor stays far below the working set.
 		{"prices under multipleOf", `{"type":"array","items":{"type":"number","multipleOf":0.01}}`, "[" + joined(790000/scale, price) + "]", 0.66, false},
 		{"timestamp and value pairs", `{"type":"array","items":{"type":"array","prefixItems":[{"type":"integer"},{"type":"number"}]}}`, "[" + joined(345000/scale, func(i int) string { return fmt.Sprintf("[%d,%d.5]", 1760173200+i, i%1000) }) + "]", 0.61, false},
 		{"longitude and latitude pairs", `{"type":"array","items":{"type":"array","minItems":2,"maxItems":2,"items":{"type":"number","minimum":-180,"maximum":180}}}`, denseArray(197000/scale, `[-122.4194,37.7749]`, 0), 0.37, false},
 		{"time series of closed objects", `{"type":"object","required":["points"],"properties":{"points":{"type":"array","items":{"type":"object","required":["t","v"],"properties":{"t":{"type":"integer"},"v":{"type":"number"}},"additionalProperties":false}}}}`, `{"points":[` + joined(200000/scale, func(i int) string { return fmt.Sprintf(`{"t":%d,"v":%d.5}`, 1760173200+i, i%1000) }) + "]}", 0.5, false},
 		{"unique integer ids", `{"type":"array","uniqueItems":true,"items":{"type":"integer"}}`, "[" + joined(427000/scale, func(i int) string { return fmt.Sprint(1000000 + i) }) + "]", 0.32, false},
 		{"unique tags", `{"type":"array","uniqueItems":true,"items":{"type":"string"}}`, "[" + joined(428000/scale, func(i int) string { return fmt.Sprintf(`"t%06d"`, i) }) + "]", 0.4, false},
-		// Minor review finding: distinct decimals, each charged the numbers
-		// that may share its hash, were refused above 10 to 12% of the
-		// limit at the work limit; now prices and bounded readings stop at
-		// the working-set limit.
+		// Prices and bounded readings, distinct decimals each charged the
+		// numbers that may share its hash, stop at the working-set limit.
 		{"unique prices", `{"type":"array","uniqueItems":true,"items":{"type":"number"}}`, "[" + joined(430000/scale, price) + "]", 0.36, false},
 		{"unique bounded readings", `{"type":"array","uniqueItems":true,"items":{"type":"number","minimum":-1000,"maximum":1000}}`, "[" + joined(280000/scale, func(i int) string { return fmt.Sprintf("%d.%03d", 100+i/1000, i%1000) }) + "]", 0.21, false},
 	} {
@@ -223,13 +216,12 @@ func TestHandleMeasuredFit(t *testing.T) {
 				t.Fatalf("Handle(%.3f of the limit) = %+v, want Continue", float64(len(tc.body))/float64(limit), r)
 			}
 			t.Logf("body %.3f of the limit: reserved %.2f times the limit, %.1f times the peak %.0f", float64(len(tc.body))/float64(limit), float64(px.peak)/float64(limit), float64(px.peak)/peak, peak)
-			// Minor review finding: Handle refuses a reservation over the
-			// reservation limit before it reserves, so that bound cannot
-			// fail here. What can: Handle reserves what the model charges,
-			// the decoded values with what their maps, arrays and strings
-			// hold beyond the decoder's charge and the decision pass's
-			// working set, and that covers the heap it holds at its peak
-			// within the collector's pacing (package documentation
+			// Handle refuses a reservation over the reservation limit before it
+			// reserves, so that bound cannot fail here. What can: Handle reserves
+			// what the model charges, the decoded values with what their maps,
+			// arrays and strings hold beyond the decoder's charge and the
+			// decision pass's working set, and that covers the heap it holds at
+			// its peak within the collector's pacing (package documentation
 			// "Working set": at most about 1.8 times for a wide object).
 			v, cost, err := f.decode([]byte(tc.body))
 			if err != nil {
@@ -263,16 +255,14 @@ func TestHandleMeasuredFit(t *testing.T) {
 }
 
 // TestHandleFitEdges pins the edges of the measured fit that the package
-// documentation states as counts ("Working set", minor review finding):
-// at the 10 MiB default, a uniqueItems array of about 6,500 objects of two
-// string members or 1,700 of one number member passes its limits and
-// one of 6,700 or 1,800 is refused at the work limit, every pair being
-// charged a comparison; a component tree nested 6 deep with 3 children per
-// node passes and one 7 deep is refused at the working-set limit. A body
-// passes its limits when Handle reaches the request's context, which has
-// ended, so the library never runs.
-//
-// Requirements: 07 reqs 15 and 80, architecture R-77.
+// documentation states as counts ("Working set"): at the 10 MiB default, a
+// uniqueItems array of about 6,500 objects of two string members or 1,700
+// of one number member passes its limits and one of 6,700 or 1,800 is
+// refused at the work limit, every pair being charged a comparison; a
+// component tree nested 6 deep with 3 children per node passes and one 7
+// deep is refused at the working-set limit. A body passes its limits when
+// Handle reaches the request's context, which has ended, so the library
+// never runs.
 func TestHandleFitEdges(t *testing.T) {
 	objects := func(n int, item string) string {
 		return "[" + joined(n, func(i int) string { return fmt.Sprintf(item, i) }) + "]"
@@ -309,17 +299,15 @@ func signUpSchema() string {
 		`"},"name":{"type":"string","maxLength":100},"bio":{"type":"string","maxLength":5000,"pattern":"^[^<>]*$"}}}`
 }
 
-// TestHandlePatternFit is the regression test of the review finding on the
-// backtracker's job stack charge: charged one job per alternation of the
-// document's costliest program for every string a pattern or a uniqueItems
-// pass reached, a 149-byte sign-up body was refused at a 64 KiB limit and
-// a 1,049-byte one reserved 6.15 MB at 1 MiB against a peak of about 0.13
-// MB, and an invalid one got 413 instead of its keyword location. Now
-// small records under ordinary patterns pass at small limits, invalid ones
-// get 400 with their keyword location, and the reservation stays within a
-// small multiple of what Handle holds at its peak.
-//
-// Requirements: 07 reqs 79 to 81, T13 and T14, architecture R-77.
+// TestHandlePatternFit covers the backtracker's job stack charge: charged
+// one job per alternation of the document's costliest program for every
+// string a pattern or a uniqueItems pass reached, a 149-byte sign-up body
+// was refused at a 64 KiB limit and a 1,049-byte one reserved 6.15 MB at
+// 1 MiB against a peak of about 0.13 MB, and an invalid one got 413 instead
+// of its keyword location. Small records under ordinary patterns pass
+// at small limits, invalid ones get 400 with their keyword location, and
+// the reservation stays within a small multiple of what Handle holds at its
+// peak.
 func TestHandlePatternFit(t *testing.T) {
 	signUp := func(bio string) string {
 		return `{"email":"ann@example.com","name":"Ann","bio":"` + bio + `"}`

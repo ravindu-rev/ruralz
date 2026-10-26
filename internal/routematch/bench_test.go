@@ -9,7 +9,7 @@ import (
 )
 
 // The benchmarks report allocations: the request-path primitives allocate
-// nothing on already-normal input (04 req 33; WP-05 "Done when").
+// nothing on already-normal input.
 
 func BenchmarkNormalizePath(b *testing.B) {
 	for _, bc := range []struct{ name, path string }{

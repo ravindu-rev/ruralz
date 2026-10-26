@@ -20,11 +20,10 @@ import (
 	"github.com/ravindu-rev/ruralz/internal/errcode"
 )
 
-// Tests for spec 06 requirements 74 (versions and suites, no field
-// disables verification), 80 (State Store client), 82 (IdP client) and
-// OQ-tech-stack-and-libraries-25 (system roots check).
+// Tests for the versions and suites (no field disables verification), the
+// State Store client, the IdP client and the system roots check.
 
-func TestTLS12SuitesReq74(t *testing.T) {
+func TestTLS12Suites(t *testing.T) {
 	want := []uint16{
 		tls.TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256,
 		tls.TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256,
@@ -54,7 +53,7 @@ func TestTLS12SuitesReq74(t *testing.T) {
 	}
 }
 
-func TestParseMinVersionReq74(t *testing.T) {
+func TestParseMinVersion(t *testing.T) {
 	tests := []struct {
 		in   string
 		want uint16
@@ -82,7 +81,7 @@ func TestParseMinVersionReq74(t *testing.T) {
 	}
 }
 
-func TestClientBuildersReq80Req82(t *testing.T) {
+func TestClientBuilders(t *testing.T) {
 	pool := x509.NewCertPool()
 	c := Client(pool)
 	if c.MinVersion != tls.VersionTLS12 || c.MaxVersion != tls.VersionTLS13 || c.RootCAs != pool ||
@@ -127,10 +126,10 @@ func TestCheckRootsOQTech25(t *testing.T) {
 	_ = CheckSystemRoots()
 }
 
-// TestNoInsecureSkipVerifyReq74Req79 checks every configuration a builder
+// TestNoInsecureSkipVerify checks every configuration a builder
 // returns by reflection, and that no non-test source of the package ever
 // assigns InsecureSkipVerify.
-func TestNoInsecureSkipVerifyReq74Req79(t *testing.T) {
+func TestNoInsecureSkipVerify(t *testing.T) {
 	ca := newCA(t, "ca")
 	srv := ca.issue(t, leafOpts{cn: "s", dns: []string{"s.example.com"}})
 	st := newFakeStore()
@@ -277,8 +276,8 @@ func TestParseCertPool(t *testing.T) {
 	}
 }
 
-// FuzzCABundle feeds arbitrary bytes to the PEM parsers every rotation runs
-// (spec 06 requirements 76 and 79): no panic, only the fixed errors.
+// FuzzCABundle feeds arbitrary bytes to the PEM parsers every rotation
+// runs: no panic, only the fixed errors.
 func FuzzCABundle(f *testing.F) {
 	ca := newCA(f, "fuzz")
 	l := ca.issue(f, leafOpts{cn: "x", dns: []string{"x.test"}})

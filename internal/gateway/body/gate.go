@@ -58,20 +58,20 @@ func (g *Buffer) Release() {
 	g.bud, g.b, g.held = nil, nil, 0
 }
 
-// ReadGate reads the whole body from r within limit bytes (spec 04 reqs 46
-// and 47): declared is the declared length (-1 when unknown). A declared
-// length over limit is ErrTooLarge before r is read, so net/http sends no
-// 100 Continue; a declared length of 0 or a nil or http.NoBody reader is an
-// empty body. The buffer grows as bytes arrive, geometrically and never
-// past limit or, while the body is within it, its declared length; each
-// growth first reserves the increments covering the new capacity from bud
-// (halving the step near the ceiling), and ErrBudget (503 RZ-RT-004) ends
-// the gate when not even one increment is left, or when bud is nil and the
-// body is not empty. A body passing limit is ErrTooLarge, detected by
-// reading at most one byte past it. ctx is checked between reads; the read
-// deadline of the client connection bounds a stalled client. The gauge
-// records the reservation on the request's stripe s. On any error the
-// reservation is returned and no Buffer is returned.
+// ReadGate reads the whole body from r within limit bytes: declared is the
+// declared length (-1 when unknown). A declared length over limit is
+// ErrTooLarge before r is read, so net/http sends no 100 Continue; a
+// declared length of 0 or a nil or http.NoBody reader is an empty body. The
+// buffer grows as bytes arrive, geometrically and never past limit or,
+// while the body is within it, its declared length; each growth first
+// reserves the increments covering the new capacity from bud (halving the
+// step near the ceiling), and ErrBudget (503 RZ-RT-004) ends the gate when
+// not even one increment is left, or when bud is nil and the body is not
+// empty. A body passing limit is ErrTooLarge, detected by reading at most
+// one byte past it. ctx is checked between reads; the read deadline of the
+// client connection bounds a stalled client. The gauge records the
+// reservation on the request's stripe s. On any error the reservation is
+// returned and no Buffer is returned.
 func ReadGate(ctx context.Context, r io.Reader, declared, limit int64, bud *Budget, s emit.Stripe) (*Buffer, error) {
 	g := &Buffer{}
 	if err := g.fill(ctx, r, declared, limit, bud, s); err != nil {

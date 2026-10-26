@@ -42,7 +42,7 @@ const benchRoute = `{
 }`
 
 // BenchmarkCompile measures compiling the embedded rendered view, done
-// once per process (01 req 32).
+// once per process.
 func BenchmarkCompile(b *testing.B) {
 	idx := testView(b).Index()
 	data := schema.RenderedV1alpha1()
@@ -55,7 +55,7 @@ func BenchmarkCompile(b *testing.B) {
 }
 
 // BenchmarkValidate measures stage F per resource, part of the budget of
-// validating 10,000 resources in under 2 s (01 req 54, target).
+// validating 10,000 resources in under 2 s (target).
 func BenchmarkValidate(b *testing.B) {
 	v := testView(b)
 	for _, bc := range []struct {

@@ -12,9 +12,9 @@ import (
 	"github.com/ravindu-rev/ruralz/internal/phase"
 )
 
-// BeginLeg starts one upstream leg (snapshot.LegHooks, R-42): an Upstream
-// leg of plain upstreams (step "") or one composition step. The leg runs
-// its Upstream's leg chain on its own leg state (RequestState.Leg: its own
+// BeginLeg starts one upstream leg (snapshot.LegHooks): an Upstream leg of
+// plain upstreams (step "") or one composition step. The leg runs its
+// Upstream's leg chain on its own leg state (RequestState.Leg: its own
 // Leg, Message, Vars copy, PolicyState slots and when decisions), so
 // concurrent legs of an aggregate composition share nothing mutable; the
 // client request is read-only meanwhile. BeginLeg is safe for concurrent
@@ -56,10 +56,9 @@ type legRun struct {
 
 var _ snapshot.LegRun = (*legRun)(nil)
 
-// OnUpstreamRequest runs onUpstreamRequest for one attempt (spec 04 reqs
-// 39 and 42). A non-nil response ends the leg without retry: a Filter's
-// Respond, or a closed failure (503 RZ-RT-011, 401 RZ-AUTH-020 for
-// upstream-auth, spec 07 req 16).
+// OnUpstreamRequest runs onUpstreamRequest for one attempt. A non-nil
+// response ends the leg without retry: a Filter's Respond, or a closed
+// failure (503 RZ-RT-011, 401 RZ-AUTH-020 for upstream-auth).
 func (l *legRun) OnUpstreamRequest(ctx context.Context, leg *filter.Leg) *filter.Response {
 	const ph = phase.OnUpstreamRequest
 	l.rs.SetLeg(leg)
@@ -76,11 +75,11 @@ func (l *legRun) OnUpstreamRequest(ctx context.Context, leg *filter.Leg) *filter
 }
 
 // OnUpstreamResponseHeaders runs onUpstreamResponseHeaders for one attempt,
-// in the compiled (reverse) order. A Filter's Retry (R-44) skips the rest
-// of the Phase for this attempt and returns retry true; the Upstream layer
-// still applies every other retry condition (spec 05 req 33). A closed
-// failure returns the leg's replacement response (502 RZ-RT-012), which is
-// final and triggers no retry (spec 07 req 16).
+// in the compiled (reverse) order. A Filter's Retry skips the rest of the
+// Phase for this attempt and returns retry true; the Upstream layer still
+// applies every other retry condition. A closed failure returns the leg's
+// replacement response (502 RZ-RT-012), which is final and triggers no
+// retry.
 func (l *legRun) OnUpstreamResponseHeaders(ctx context.Context, leg *filter.Leg) (retryAttempt bool, replacement *filter.Response) {
 	const ph = phase.OnUpstreamResponseHeaders
 	l.rs.SetLeg(leg)

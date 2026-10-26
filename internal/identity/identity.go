@@ -2,16 +2,16 @@
 // SPDX-License-Identifier: Apache-2.0
 
 // Package identity compiles the Consumers of a Revision for the data plane
-// (docs/architecture/08-security-and-identity.md "Consumers and tiers";
-// M1 spec 06 section 2.2): the read-only expr.Consumer views shared by CEL,
-// quota keys, cache partitions and logs; the per-snapshot credential Index
-// that auth Filters consult to bind a Consumer (API key digests, JWT issuer
-// plus subject or claims, OAuth client identifiers, basic usernames,
-// certificate subjects and URI SANs); the KeyIndex that holds the digests of
-// secretRef-held API keys and follows their rotations copy-on-write; the
-// non-secret principal keys; the static Consumer checks (RZ-CFG-035,
-// RZ-CFG-036) the configuration validator runs in every binary; and the
-// Revoker hook that M2's revocation list implements.
+// (docs/architecture/08-security-and-identity.md "Consumers and tiers"):
+// the read-only expr.Consumer views shared by CEL, quota keys, cache
+// partitions and logs; the per-snapshot credential Index that auth Filters
+// consult to bind a Consumer (API key digests, JWT issuer plus subject or
+// claims, OAuth client identifiers, basic usernames, certificate subjects
+// and URI SANs); the KeyIndex that holds the digests of secretRef-held API
+// keys and follows their rotations copy-on-write; the non-secret principal
+// keys; the static Consumer checks (RZ-CFG-035, RZ-CFG-036) the
+// configuration validator runs in every binary; and the Revoker hook that
+// M2's revocation list implements.
 //
 // Everything built here is immutable once published and read without
 // locks. The package never logs, never resolves a secret by itself (it
@@ -24,11 +24,11 @@ import (
 	"time"
 )
 
-// Revoker is the M2 revocation hook (Security and identity, "Revocation";
-// spec 06 requirements 31 and 40 and section 8). Every auth Filter consults
-// it after verification and before binding, the auth.basic success cache
-// on every hit, and the JWKS manager on every key load. M1 wires
-// NopRevoker. Implementations are safe for concurrent use and never block.
+// Revoker is the M2 revocation hook (Security and identity, "Revocation").
+// Every auth Filter consults it after verification and before binding, the
+// auth.basic success cache on every hit, and the JWKS manager on every key
+// load. M1 wires NopRevoker. Implementations are safe for concurrent use
+// and never block.
 type Revoker interface {
 	// RevokedJWT reports whether a verified token is revoked by jti or by a
 	// subject cut-off (iat is the zero time when the token has none).
