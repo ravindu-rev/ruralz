@@ -32,7 +32,7 @@ package x
 - Each binary's `internal/<pkg>` exposes `Run(ctx context.Context, args []string, stdout, stderr io.Writer) int`; `cmd/<binary>/main.go` only wires it. Parse flags inside `internal/` with a `flag.FlagSet`.
 - Exit codes are named constants that never change once released (`ExitOK = 0`, `ExitNegative = 1`, `ExitNoResult = 2` in `internal/cli`). A binary or command that is still Planned writes its milestone to stderr and returns 2.
 - Built-in Filters map from the Policy type: dots become slashes, hyphens drop (`auth.api-key` is `internal/filter/auth/apikey`); `headers` is `internal/filter/header`; `plugin` is `internal/pluginhost`.
-- Wrapped libraries stay in their package (depguard confinement rules in `.golangci.yml`): wazero in `internal/pluginhost`, rueidis in `internal/statestore/redis`, cel-go in `internal/cel`, jwx in `internal/filter/auth/jwt`, OpenTelemetry in `internal/telemetry` and `internal/testkit/otlpsink`, `hashicorp/raft` in `internal/controlstore/raft`.
+- Wrapped libraries stay in their package (depguard confinement rules in `.golangci.yml`): wazero in `internal/pluginhost`, rueidis in `internal/statestore/redis`, cel-go in `internal/cel`, jwx in `internal/filter/auth/jwt`, OpenTelemetry in `internal/telemetry` and `internal/testkit/otlpsink`, `hashicorp/raft` in `internal/controlstore/raft`, `go.yaml.in/yaml/v3` in `internal/config/profile` tests (its differential oracle).
 
 ## State, context, errors, output
 
