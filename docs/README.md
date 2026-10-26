@@ -33,7 +33,7 @@ The documentation is split by question. Each folder answers one kind of question
 | `docs/operations/` | How to deploy, upgrade, size and recover Ruralz in production | Operators |
 | `docs/engineering/` | Which libraries are used, how the repository is laid out, how code is tested and how releases are versioned | Contributors |
 | `docs/reference/` | The `ruralz` CLI, the admin APIs, the REST API and the Control Stream service | Operators, contributors, Plugin authors |
-| `docs/roadmap/` | The order of milestones `M0` to `M5`, their scope and exit criteria, and the steps left in the current milestone | Evaluators, contributors |
+| `docs/roadmap/` | The order of milestones `M1` to `M5`, their scope and exit criteria, and the steps left in the current milestone | Evaluators, contributors |
 | `docs/adr/` | Architecture Decision Records: one decision each, with context, options and consequences | Architects, contributors |
 | `docs/` (root) | This index and the glossary of shared terms | Everyone |
 

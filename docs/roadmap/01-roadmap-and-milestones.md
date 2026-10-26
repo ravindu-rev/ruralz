@@ -2,11 +2,11 @@
 
 ## Summary
 
-This document orders milestones `M0` to `M5` without dates, giving each its scope and measurable exit criteria; [Steps](02-steps.md) lists the work left in the current milestone. Readers: evaluators and contributors.
+This document orders milestones `M1` to `M5` without dates, giving each its scope and measurable exit criteria; [Steps](02-steps.md) lists the work left in the current milestone. Readers: evaluators and contributors.
 
 ## Scope and non-goals
 
-In scope: the [foundation pack](../_meta/foundation-pack.md) section 2 milestones and every item tagged `Planned (Mx)`.
+In scope: the [foundation pack](../_meta/foundation-pack.md) section 2 milestones not yet exited, `M1` to `M5`, and every item tagged `Planned (M1)` to `Planned (M5)`.
 
 Non-goals: designs; moving a tag (only its owning document does); the capability-by-capability list ([Feature Catalog](../features/01-feature-catalog.md), which wins on conflict); performance values ([Performance budgets](../architecture/12-performance-budgets-and-benchmarking.md)); release numbering ([Release](../engineering/04-release-versioning-and-compatibility.md)); calendar dates (OQ-roadmap-and-milestones-2).
 
@@ -23,30 +23,6 @@ Codes by owner:
 | Threat T13, T20 | [Security and identity](../architecture/08-security-and-identity.md#threat-model-and-trust-boundaries) |
 | Objective O8 | [Observability](../architecture/10-observability.md#observability-principles) |
 | Gate G1 to G3 | [Tech stack](../engineering/01-tech-stack-and-libraries.md#selection-criteria) |
-
-## M0 Foundations
-
-Pack name: **M0** Foundations. M0 builds the repository, gates and contracts later milestones need. Serves: Contributor.
-
-### M0 scope
-
-| Area | Planned (M0) items |
-|---|---|
-| License and governance | Apache-2.0 license and ownership; contributions under DCO, no CLA; dependencies and licenses; revenue rules; no feature gating: all features without a license key; trademark policy; `SECURITY.md`, where a reporter uses the private channel ([ADR-0002](../adr/0002-apache-2-license-no-feature-gating.md)) |
-| Build | Go 1.26 floor, release toolchain, floor job and guard file; `CGO_ENABLED=0`; build flags; production platforms |
-| CI stages 1 to 6 in `pr-fast` | 1. commit hygiene: DCO check, repocheck, no-license-check scan (SM-1); 2. format and lint: golangci-lint linters (`sloglint`), `golang.org/x/net/http2` forbidigo rule, depguard import rules: `github.com/tetratelabs/wazero` only in `internal/pluginhost`; the `github.com/google/cel-go` alias and any Lua runtime banned; 3. generated code drift; 4. cross-build (gate G1); 5. unit tests; 6. supply chain: `go mod verify`, `govulncheck` on every pull request, advisory floor, license gate G2 (what the gate reads; MPL-2.0 named exceptions, [ADR-0006](../adr/0006-control-store-raft-boltdb.md)), crypto denylist gate G3. Dependency admission (catalog row, rate limiting, no fasthttp); security scanning; all CI stages green |
-| Repository | `internal/`, `pkg/`, `api/` schema; test tooling |
-| Contracts | `ruralz/v1alpha1` envelope; JSON Schema (draft 2020-12) authoring and rendered views with a generation check ([ADR-0003](../adr/0003-configuration-format.md)), published; OpenAPI for `/api/v1/` follows in M2 |
-
-### M0 exit criteria
-
-Exit criteria:
-
-1. `pr-fast` stages 1 to 6 run on their triggers, block merge and complete within 10 minutes (target).
-2. The three binaries cross-build with `CGO_ENABLED=0` for linux/amd64 and linux/arm64; the license gate, crypto denylist and `govulncheck` pass on `main`.
-3. The no-license-check scan finds 0 gated features (target), per SM-1.
-4. Both schema views are generated from one source and published; the drift check fails on any difference.
-5. No Open question blocking M0 remains open.
 
 ## M1 Core gateway
 
@@ -187,24 +163,23 @@ Not planned today: produce-only Kafka proxying (M5 is option (b) of OQ-multi-pro
 
 Milestones exit in order; spikes and PDKs MAY start early. A slipping item blocks its milestone's exit unless its owning document moves it.
 
-*Figure 1: relative milestone sequencing M0 to M5 with parallel tracks; axis ticks count relative effort units, not calendar dates.*
+*Figure 1: relative milestone sequencing M1 to M5 with parallel tracks; axis ticks count relative effort units, not calendar dates.*
 
 ```mermaid
 gantt
-    title Relative sequencing of M0 to M5
+    title Relative sequencing of M1 to M5
     dateFormat X
     axisFormat %j
     todayMarker off
     section Milestones
-    M0 Foundations                                  :m0, 0, 2d
-    M1 Core gateway                                 :m1, after m0, 8d
+    M1 Core gateway                                 :m1, 0, 8d
     M2 WASM + Control/GitOps                        :m2, after m1, 8d
     M3 AI gateway + gRPC/GraphQL/WS/SSE + HTTP/3    :m3, after m2, 9d
     M4 Event protocols + multi-region + bench suite :m4, after m3, 6d
     M5 Enterprise hardening                         :m5, after m4, 5d
     section Parallel tracks
-    Plugin ABI and wazero spikes                    :t1, after m0, 4d
-    RH-1 hardware and load tools                    :t2, after m0, 3d
+    Plugin ABI and wazero spikes                    :t1, 0, 4d
+    RH-1 hardware and load tools                    :t2, 0, 3d
     gRPC and GraphQL spikes only (R-1)              :t3, after m1, 4d
     FIPS G3 evidence                                :t4, after m1, 10d
     Bench suite baseline records                    :t5, after m2, 6d
@@ -230,7 +205,6 @@ Contributors sign off under the DCO.
 
 | Milestone | Where outside contributors can help |
 |---|---|
-| M0 | CI stages, repocheck rules, license gate, tooling research |
 | M1 | Built-in Filters, golden and conformance cases, fuzz targets, Grafana dashboards |
 | M2 | PDKs, example Plugins, SM-8 OpenAPI corpus, Ruralz Console pages, Helm chart |
 | M3 | Dialect adapters, guardrail Plugins, TypeScript PDK, protocol conformance cases |
@@ -241,6 +215,6 @@ Contributors sign off under the DCO.
 
 | ID | Question | Options | Owner | Blocking? |
 |---|---|---|---|---|
-| OQ-roadmap-and-milestones-2 | Should milestones carry dates, which the vision Summary places here? | (a) Relative order only (current), amending the vision; (b) target quarters once M0 exits; (c) dates per release only | ruralz-core | No |
+| OQ-roadmap-and-milestones-2 | Should milestones carry dates, which the vision Summary places here? | (a) Relative order only (current), amending the vision; (b) target quarters; (c) dates per release only | ruralz-core | No |
 | OQ-roadmap-and-milestones-3 | Should M3 exit per track (AI, gRPC and GraphQL, WebSocket and SSE, HTTP/3)? | (a) One exit (current); (b) per-track exits, amending pack section 2; (c) HTTP/3 to M4 | ruralz-core | No |
 | OQ-roadmap-and-milestones-4 | How do documents show capabilities whose code has landed, while every `Planned (Mx)` tag names a milestone? | (a) Keep every tag until its milestone exits and its release ships, then change them in one pass (proposed); (b) An `Implemented (Mx)` tag in the style guide and pack section 2; (c) Track status only in the Feature Catalog | ruralz-core | No |
