@@ -10,19 +10,20 @@ import (
 	"github.com/ravindu-rev/ruralz/internal/jsonval"
 )
 
-// The library's meta-schema checks. Before compiling a schema position, the
-// library checks the position's whole keyword tree against the meta-schema
-// (about 15 to 50 µs a subschema, compiling every pattern it holds), unless
-// an earlier check covered the position: the document's keyword tree once,
-// when the document is first used, and then every reference target outside
-// it (under a member that is not a keyword, such as "x" in "#/x/if") that
-// no earlier check covered, each time copying its bookkeeping, one entry
-// per position checked so far (about 0.14 µs an entry). This has two costs.
-// A target checked before its ancestor is checked again with the ancestor's
-// tree: in the order the library meets references, a ladder of 59
-// references from the deepest target up checked a 3,900-member tree 59
-// times (5.3 s and 2.2 GB). And thousands of such targets copied the
-// bookkeeping thousands of times (2,040 targets, 1.1 s and 574 MB).
+// The library's meta-schema checks. Before compiling a schema position,
+// the library checks the position's whole keyword tree against the
+// meta-schema (about 15 to 50 µs a subschema, compiling every pattern
+// it holds), unless an earlier check covered the position: the document's
+// keyword tree once, when the document is first used, and then every
+// reference target outside it (under a member that is not a keyword, such
+// as "x" in "#/x/if") that no earlier check covered, each time copying
+// its bookkeeping, one entry per position checked so far (about 0.14 µs
+// an entry). Two costs follow. A target checked before its ancestor is
+// checked again with the ancestor's tree: in the order the library meets
+// references, a ladder of 59 references from the deepest target up checks
+// a 3,900-member tree 59 times (5.3 s and 2.2 GB). And thousands of such
+// targets copy the bookkeeping thousands of times (2,040 targets, 1.1 s
+// and 574 MB).
 //
 // The compile therefore checks the targets apart first, in pointer order,
 // an ancestor before its descendants (compileWalked), so a target in the
@@ -40,30 +41,24 @@ import (
 const maxCheckCopies = 1 << 19
 
 // metaChecks simulates the library's meta-schema checks in the order
-// compileWalked makes them, lists in checkOrder the targets checked apart,
-// and reports a document whose repeated checks or copies exceed their
-// bounds, at the reference to the target that crosses one.
+// compileWalked makes them, of the keyword tree and then of the targets
+// the walk lists in checkOrder (walk), and reports a document whose
+// repeated checks or copies exceed their bounds, at a reference to the
+// target that crosses one.
 func (w *walker) metaChecks() {
 	checked := make(map[string]bool, len(w.positions))
 	for _, p := range w.positions[:w.keywordTree] {
 		checked[p] = true
 	}
-	targets := slices.Clone(w.targets)
-	slices.SortStableFunc(targets, func(a, b refTarget) int { return comparePointers(a.ptr, b.ptr) })
-	perCopy := len(w.positions) + 2*len(w.ids) + len(w.anchors)
+	perCopy := len(w.positions) + 2*w.ids + w.anchors
 	mc := metaCount{checks: len(w.positions), checked: checked}
 	copies := 0
-	for _, t := range targets {
-		// A target listed again after its check is checked already.
-		if checked[t.ptr] {
-			continue
-		}
+	for _, t := range w.targets {
 		if copies += perCopy; copies > maxCheckCopies {
 			w.add(t.site, fmt.Sprintf("schema refers to too many subschemas outside its keywords for its %d subschemas: the compiler would copy more than %d entries to check them (move them under $defs)", len(w.positions), maxCheckCopies))
 			return
 		}
-		w.checkOrder = append(w.checkOrder, t.ptr)
-		v, _ := lookup(w.doc, t.ptr)
+		v := w.values[t.ptr]
 		if !mc.check(v, t.ptr, false) {
 			if mc.checks > MaxSubschemas {
 				w.add(t.site, fmt.Sprintf("schema has more than %d subschemas, counting again those the meta-schema check repeats under a reference such as this one, to a position whose keywords hold subschemas already checked", MaxSubschemas))
@@ -121,15 +116,15 @@ func (mc *metaCount) check(v any, ptr string, within bool) bool {
 // keyword tree nor that of a reference target looks below it, yet the
 // library collects the subschemas there as positions it has processed, and
 // when a reference, an anchor or an $id makes it compile one, it never
-// checks it: a multipleOf of 0 there compiled, and the library's division
-// by it panicked at every number reaching it, and a type "strng" was
-// silently ignored. The compile therefore checks every position it compiles
-// that no check of the library covers against the meta-schema itself
-// (checkApart), as the library checks a reference target apart: the
-// top-most of them, each checking its keyword tree below, as far as another
-// additionalItems. The trees these checks cover are disjoint and none of
-// them was checked before, so they check no position or byte of the
-// document twice, and they copy no bookkeeping: MaxSubschemas and
+// checks it: a multipleOf of 0 there would compile, the library's division
+// by it would panic at every number reaching it, and a type "strng" would
+// be silently ignored. The compile therefore checks every position it
+// compiles that no check of the library covers against the meta-schema
+// itself (checkApart), as the library checks a reference target apart: the
+// top-most of them, each checking its keyword tree below, as far as
+// another additionalItems. The trees these checks cover are disjoint and
+// none of them was checked before, so they check no position or byte of
+// the document twice, and they copy no bookkeeping: MaxSubschemas and
 // MaxSchemaBytes bound them.
 
 // uncheckedPositions returns, in pointer order, the positions the compile

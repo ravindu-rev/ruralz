@@ -75,9 +75,9 @@ const maxPatternMatches = 1 << 14
 // schema against its own patternProperties (newGNode) and for the names
 // one state declares against the patterns of the others (memberEntries),
 // all of one document together: about 34 ms of the regexp matchers at
-// most (a pair count would not bound the work, which grows with the name's
-// length times the pattern's run queue). Past it every pattern is assumed
-// to match, which can only charge more.
+// most (a pair count would not bound the work, which grows with the
+// name's length times the pattern's run queue). Past it every pattern is
+// assumed to match, which can only charge more.
 const matchBudget = 1 << 25
 
 // matchWork returns the work units of matching a name of n bytes against
@@ -249,8 +249,10 @@ type workFlags struct {
 	// unevaluatedProperties or unevaluatedItems, so evaluations counted
 	// in dimUneval copy member names or item indexes.
 	uneProps, uneItems bool
-	// dynamic is set when some schema has $dynamicRef or $recursiveRef,
-	// whose resolution walks the whole dynamic scope.
+	// dynamic is set when some schema has $dynamicRef, whose resolution
+	// walks the whole dynamic scope. A $recursiveRef walks it only when its
+	// target has $recursiveAnchor true (validator.go:795-799), which the
+	// compile refuses (inspect.go), so it resolves as $ref does.
 	dynamic bool
 	// lists is set when some schema has additionalProperties false, which
 	// lists the names it does not declare.
@@ -351,7 +353,7 @@ func newEvalGraph(starts []*sjs.Schema) (*evalGraph, bool) {
 		f.rats = f.rats || s.Minimum != nil || s.Maximum != nil || s.ExclusiveMinimum != nil || s.ExclusiveMaximum != nil || s.MultipleOf != nil
 		f.uneProps = f.uneProps || s.UnevaluatedProperties != nil
 		f.uneItems = f.uneItems || s.UnevaluatedItems != nil
-		f.dynamic = f.dynamic || s.DynamicRef != nil || s.RecursiveRef != nil
+		f.dynamic = f.dynamic || s.DynamicRef != nil
 		f.lists = f.lists || s.AdditionalProperties == false
 		f.contains = f.contains || s.Contains != nil
 		f.maxPointer = max(f.maxPointer, len(s.Location)+maxKeywordBytes+2*longestKey(s.Dependencies)+2*longestKey(s.DependentRequired))
@@ -551,9 +553,10 @@ func (g *evalGraph) edgePointer(v int, e gEdge) string {
 	return p
 }
 
-// isReference reports whether kw is a reference keyword.
+// isReference reports whether kw is a reference keyword
+// (referenceKeywords).
 func isReference(kw string) bool {
-	return kw == "$ref" || kw == "$dynamicRef" || kw == "$recursiveRef"
+	return slices.Contains(referenceKeywords(), kw)
 }
 
 // inPlaceOrder returns the schemas ordered so that every in-place target
@@ -671,9 +674,9 @@ type run struct {
 // classes of one level are garbage once the next level is computed
 // (preciseLevel keeps only their counts), so each level takes the maps of
 // the one before, cleared, in the order it made them, which is the order
-// of the schemas and so of their sizes (without the pool, a worst-case
-// compile allocated about 250 MB of them, and the collector's work slowed
-// it).
+// of the schemas and so of their sizes (without it a worst-case compile
+// would allocate about 250 MB of them, and the collector's work would
+// slow it).
 type namesPool struct {
 	spare, made []map[string]vec
 	next        int

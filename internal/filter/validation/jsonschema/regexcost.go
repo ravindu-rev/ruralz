@@ -83,27 +83,29 @@ type patternCost struct {
 // search turns to the second branch. The path moves through the input
 // positions in order, consuming a rune between two of them, so at one
 // position it is a run of empty-width steps (alternations, no-ops, captures
-// and assertions) from the instruction the position's search starts at, the
-// program's start or the instruction after a rune, and the visited marks
-// keep the run's alternations distinct. The stack therefore holds at most
-// held jobs per input position, held being the most alternations reachable
-// through empty-width steps from any one such instruction, plus the first:
-// (n+1)*held+1 on n bytes, which never exceeds the visited set's
+// and assertions) from the instruction the position's search starts at,
+// the program's start or the instruction after a rune, and the visited
+// marks keep the run's alternations distinct. The stack therefore holds at
+// most held jobs per input position, held being the most alternations
+// reachable through empty-width steps from any one such instruction, plus
+// the first: (n+1)*held+1 on n bytes, which never exceeds the visited set's
 // maxBacktrackVector pairs, about 12.6 MB at jobBytes. (?:(?:a??){240}a)*b,
 // whose 241 alternations all follow one another, held 129,658 jobs on 537
 // bytes, a charge of 129,659; the WHATWG e-mail pattern, 126 alternations
 // in all, holds at most 3 per position (charged every alternation of the
-// program, small bodies under it were refused at a 64 KiB limit).
+// program, small bodies under it would be refused at a 64 KiB limit).
 const (
 	// maxBacktrackProg and maxBacktrackVector are Go's limits: the largest
 	// program the backtracker runs, and the bits of its visited set, which
 	// bound the input length at maxBacktrackVector/len(prog.Inst).
 	maxBacktrackProg, maxBacktrackVector = 500, 256 << 10
 	// jobBytes is what one job may hold: 16 bytes in a slice grown by
-	// appending, up to three times that while the old and new arrays are
-	// live and the collector catches up (measured 1.6 to 3 times at GOGC
-	// 10, TestHandleBacktrackCharge); jobArrayBytes the 256 jobs the stack
-	// starts with.
+	// appending, up to three times that while append copies the array
+	// into one twice as large, both live (past 256 jobs Go 1.26 and 1.27
+	// grow it by less: the matcher's peak of a*b on 43,688 bytes,
+	// computed exactly from the match's allocations, holds its 43,689 jobs
+	// in 1.93 times their 16 bytes, TestHandleBacktrackCharge);
+	// jobArrayBytes the 256 jobs the stack starts with.
 	jobBytes, jobArrayBytes = 48, 256 * 16
 	// heldBudget bounds the instructions the search for held alternations
 	// may visit in all the patterns of one document (about 10 ms,
@@ -179,8 +181,8 @@ func reachOf(costs ...patternCost) patternReach {
 // allocation per schema: the backtracker runs programs of at most
 // maxBacktrackProg instructions, so the most jobs of each size fit a
 // table, which the merged list reads in order of size (a union per schema,
-// which concatenated and sorted the growing list again, made 1,000 patterns
-// at each of 349 states compile for 2.9 s and allocate 2.4 GB).
+// concatenating and sorting the growing list again, would compile 1,000
+// patterns at each of 349 states for 2.9 s and allocate 2.4 GB).
 // The zero value is empty.
 type reachMerger struct {
 	// insts is the largest program added; n counts the programs of the
@@ -226,8 +228,8 @@ func (m *reachMerger) reach(lists *reachLists) patternReach {
 
 // reachLists interns the program lists of merged reaches, so the states
 // with the same patterns share one list and the compiled Schema keeps each
-// distinct list once (1,200 states each keeping a list of 241 programs held
-// 4.5 MB).
+// distinct list once (1,200 states each keeping a list of 241 programs
+// would hold 4.5 MB).
 type reachLists struct {
 	lists   map[string][]backtrackProg
 	key     []byte
@@ -255,8 +257,8 @@ func (l *reachLists) intern(progs []backtrackProg) []backtrackProg {
 
 // bytes returns what one match of n bytes may hold under r: nothing
 // without a pattern, else a matcher of the largest program and the
-// backtracker's job stack (a pattern of 241 alternations held 4.9 MB for
-// 537 bytes, charged 64 KB).
+// backtracker's job stack (a pattern of 241 alternations holds 4.9 MB for
+// 537 bytes).
 func (r patternReach) bytes(n int) int64 {
 	if r.insts == 0 {
 		return 0
@@ -402,7 +404,7 @@ func classSteps(prog *syntax.Prog) int {
 // budget is checked before each representative, so the exploration
 // overruns its budget by at most one representative's closure, about twice
 // the program (checked only between queues, one queue of an alternation of
-// thousands of literals took seconds).
+// thousands of literals would take seconds).
 func queueBound(prog *syntax.Prog, budget *int) int {
 	n := len(prog.Inst)
 	if *budget < 0 {
@@ -541,8 +543,8 @@ func queueKey(q []int) string {
 // bound is charged to budget twice, for adding and for sorting it, and
 // the budget is checked before an instruction's bounds are added, so the
 // classes of a large program end the exploration without overrunning it
-// (uncharged, 990 copies of a class of 19,000 ranges took 1.4 s and 788 MB
-// here). It reports false when the budget runs out.
+// (uncharged, 990 copies of a class of 19,000 ranges would take 1.4 s and
+// 788 MB here). It reports false when the budget runs out.
 func classReps(prog *syntax.Prog, budget *int) ([]rune, bool) {
 	// A fold orbit holds at most four runes.
 	const maxOrbit = 4

@@ -1,0 +1,14 @@
+{
+  "$recursiveRef": "#/$defs/node",
+  "$defs": {
+    "node": {
+      "type": "object",
+      "required": ["name"],
+      "properties": {
+        "name": {"type": "string", "maxLength": 32},
+        "size": {"type": "integer", "minimum": 0},
+        "children": {"type": "array", "items": {"$recursiveRef": "#/$defs/node"}, "maxItems": 8}
+      }
+    }
+  }
+}

@@ -89,16 +89,17 @@ func costlyBelow(m int) string {
 }
 
 // TestStatesBudget covers link when stateBudget runs out between two
-// states: the declared names of the second are still collected once its
-// transition of the other names is set, or every declared name falls to the
-// state of the names no schema declares, which evaluates nothing (a member
-// failing at every item of a 1.6 MB array was charged 104 bytes of a 1.6 MB
-// error tree, and Handle held 728 MB for 15 s of validation). At every
-// budget from none to what the states need, for flat and nested members and
-// for prefix items, no declared name or index falls to the other names' or
-// items' state, and the scan never charges less than with the whole
-// budget. It also covers the fallbacks of a budget spent in each step: no
-// root state, an unknown entry list, a multiset past the budget.
+// states: were the second's transition of the other names set without its
+// declared names collected, every declared name would fall to the state
+// of the names no schema declares, which evaluates nothing, so a member
+// failing at every item of a 1.6 MB array would be charged 104 bytes of a
+// 1.6 MB error tree while Handle held 728 MB for 15 s of validation. At
+// every budget from none to what the states need, for flat and nested
+// members and for prefix items, no declared name or index falls to the
+// other names' or items' state, and the scan never charges less than with
+// the whole budget. It also covers the fallbacks of a budget spent in
+// each step: no root state, an unknown entry list, a multiset past the
+// budget.
 func TestStatesBudget(t *testing.T) {
 	arr := denseArray(50, `"x"`, 0)
 	for _, tc := range []struct{ name, schema, body string }{
@@ -152,10 +153,10 @@ func stateSchemas(t testing.TB) []string {
 		`{"prefixItems":[true,{"prefixItems":[true]}],"allOf":[{"prefixItems":[true,true,true]}],"unevaluatedItems":false}`)
 }
 
-// TestStatesDeclaredNames checks the invariant of link over the corpus and
-// the test and benchmark schemas, with the whole budget and with parts of
-// it: a declared member name or prefix index never falls to the transition
-// of the names or items no schema declares.
+// TestStatesDeclaredNames checks the invariant of link over the corpus
+// and the test and benchmark schemas, with the whole budget and with
+// parts of it: a declared member name or prefix index never falls to the
+// transition of the names or items no schema declares.
 func TestStatesDeclaredNames(t *testing.T) {
 	for i, schema := range stateSchemas(t) {
 		g, order, _, ok := stateGraph(t, schema)
@@ -224,6 +225,7 @@ func TestStatesMemberPatterns(t *testing.T) {
 			if scan.work < int64(matching) {
 				t.Errorf("the scan charges %d work units, matching the names takes %d", scan.work, matching)
 			}
+			requireMeter(t)
 			if decide := decisionTree(t, tc.schema, v); decide > scan.decide+treeSlack {
 				t.Errorf("the decision pass held an error tree of %d bytes, the scan charges %d", decide, scan.decide)
 			}
@@ -253,16 +255,17 @@ func repeatPatterns(n, rep int) string {
 	return strings.Join(pats, ",")
 }
 
-// TestCompileMatchBudget covers compile-time name matching, bounded by its
-// work rather than by the count of matches: bounded by the count, 128 names
-// of 600 bytes against 128 patterns of the same schema compiled for 18 s,
-// and 300 names of 800 bytes against 200 patterns of a sibling for 41 s, in
-// Factory.Build and again in Check, where a compile must return within 1 s.
-// Matching is charged its work, a name's length times what each pattern
-// costs per byte, against one matchBudget per document; past it every
-// pattern is assumed to match, which charges more at runtime, never less.
-// Deterministic: the test checks what the budget decided,
-// BenchmarkCompileAnalysisWorstCase the time.
+// TestCompileMatchBudget pins that compile-time name matching is bounded
+// by its work, not by the count of matches: bounded by the count, 128
+// names of 600 bytes against 128 patterns of the same schema would
+// compile for 18 s, and 300 names of 800 bytes against 200 patterns of
+// a sibling for 41 s, in Factory.Build and again in Check, where a
+// compile is to return within 1 s. Matching is charged its work, a
+// name's length times what each pattern costs per byte, against one
+// matchBudget per document; past it every pattern is assumed to match,
+// which charges more at runtime, never less. Deterministic: the test
+// checks what the budget decided, BenchmarkCompileAnalysisWorstCase the
+// time.
 func TestCompileMatchBudget(t *testing.T) {
 	// The schema's own patterns: all of them assumed to match.
 	g, _, _, ok := stateGraph(t, `{"properties":{`+longNames(128, 600)+`},"patternProperties":{`+repeatPatterns(128, 300)+`}}`)
@@ -364,10 +367,10 @@ func lengthsSchema(n int) string {
 // them a string that satisfies them is charged less than one that fails
 // them all; past it they are charged as if both keywords fail, whatever
 // the string. Weighing a state stops detailing them once they pass
-// maxLoops (with every distinct kind added after a scan of the list, 1,000
-// of them under 500 members compiled for 1 s), so a state of 1,000 kinds
-// allocates no more than one of maxLoops+1, and is charged the same as
-// summing them all.
+// maxLoops (with every distinct kind added after a scan of the list,
+// 1,000 of them under 500 members would compile for 1 s), so a state of
+// 1,000 kinds allocates no more than one of maxLoops+1, and is charged
+// the same as summing them all.
 func TestStatesLengthLoops(t *testing.T) {
 	weighed := func(n int) float64 {
 		g, order, _, ok := stateGraph(t, lengthsSchema(n))
@@ -483,15 +486,15 @@ func mergedReach(g *evalGraph, set []entry, names bool) patternReach {
 	return r
 }
 
-// TestStatesReach covers how the states merge the pattern reaches of their
+// TestStatesReach pins how the states merge the pattern reaches of their
 // schemas: merged one schema at a time, each union concatenating and
-// sorting the growing list again, at a cost stateBudget did not charge, an
-// allOf of 1,000 patterns under 500 members compiled for 2.9 s and
-// allocated 2.4 GB, where a compile must return within 1 s. Every state's
+// sorting the growing list again at a cost stateBudget does not charge, an
+// allOf of 1,000 patterns under 500 members would compile for 2.9 s and
+// allocate 2.4 GB, where a compile is to return within 1 s. Every state's
 // reach is that of all its schemas' patterns, those of a state's later
 // schemas included; the programs merged are charged to stateBudget; equal
-// lists are one list; and building the states allocates a bounded number of
-// times per state, never per schema.
+// lists are one list; and building the states allocates a bounded number
+// of times per state, never per schema.
 func TestStatesReach(t *testing.T) {
 	wide := `"(?:(?:a??){240}a)*b"`
 	for _, tc := range []struct {

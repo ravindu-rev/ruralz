@@ -30,9 +30,9 @@ func ladderBottom(n int, member func(i int) string) string {
 	return b.String()
 }
 
-// refLadder returns a reference ladder: bottom nested depth if levels deep
-// under the unknown member x, and rungs references in $defs to levels
-// rungs-1 down to 0 of it, the deepest first, so the library meets
+// refLadder returns a reference ladder: bottom nested depth if levels
+// deep under the unknown member x, and rungs references in $defs to
+// levels rungs-1 down to 0 of it, the deepest first, so the library meets
 // every target before its ancestors.
 func refLadder(depth, rungs int, bottom string) string {
 	var b strings.Builder
@@ -111,13 +111,14 @@ func compileAlloc(t *testing.T, raw string) uint64 {
 	return after.TotalAlloc - before.TotalAlloc
 }
 
-// TestReferenceLadder covers reference targets outside the document's
-// keywords, which the library checks against the meta-schema again under
-// every ancestor referenced after it: a ladder of 59 references from the
-// deepest target up checked a 3,900-member tree 59 times (5.3 s, 2.2 GB)
-// and compiled eight of the largest patterns 59 times (2.1 s, 2.1 GB), in
-// Check and Factory.Build alike, where a compile must return within 1 s.
-// The compile checks those targets first, ancestors first, so the ladder
+// TestReferenceLadder covers a reference ladder: in the order the library
+// meets references, it checks a reference target outside the document's
+// keywords against the meta-schema again under every ancestor referenced
+// after it, so a ladder of 59 references from the deepest target up would
+// check a 3,900-member tree 59 times (5.3 s, 2.2 GB) and compile eight of
+// the largest patterns 59 times (2.1 s, 2.1 GB), in Check and
+// Factory.Build alike, where a compile is to return within 1 s. The
+// compile checks those targets first, ancestors first, so the ladder
 // costs what one reference to its top costs; and every distinct pattern
 // compiles once, so even a repeated check compiles none again. Allocated
 // bytes, not time, so the test is deterministic.
@@ -148,23 +149,6 @@ func TestReferenceLadder(t *testing.T) {
 	}
 }
 
-// TestRegexpCache checks the library's regexp engine: an expression
-// compiles once per document, its compile shared, and a failure is a nil
-// Regexp with its error every time.
-func TestRegexpCache(t *testing.T) {
-	rc := regexpCache{}
-	a, errA := rc.compile(`^a+$`)
-	b, errB := rc.compile(`^a+$`)
-	if errA != nil || errB != nil || a != b || len(rc) != 1 {
-		t.Errorf("compile twice = %v, %v, %v, %v, want one shared regexp", a, errA, b, errB)
-	}
-	for range 2 {
-		if re, err := rc.compile(`(`); re != nil || err == nil {
-			t.Errorf("compile(%q) = %v, %v, want a nil Regexp and an error", `(`, re, err)
-		}
-	}
-}
-
 // idAnchor is a property, formatted with its index, that is a resource of
 // its own with an anchor.
 const idAnchor = `"q%[1]d":{"$id":"urn:q%[1]d","$anchor":"a%[1]d","type":"string"}`
@@ -173,10 +157,12 @@ const idAnchor = `"q%[1]d":{"$id":"urn:q%[1]d","$anchor":"a%[1]d","type":"string
 // target whose keyword tree holds positions an earlier check covered
 // checks them again, and they count again against MaxSubschemas and their
 // bytes against MaxSchemaBytes; every target checked apart costs a copy
-// of the document's bookkeeping, within maxCheckCopies (2,040 such targets
-// compiled for 1.1 s). Each bound admits the largest document of its shape
-// below it and refuses the next, at the reference to the target that
-// crosses it.
+// of the document's bookkeeping, within maxCheckCopies (2,040 such
+// targets would compile for 1.1 s). Each bound admits the largest
+// document of its shape below it and refuses the next, at the reference
+// to the target that crosses it: the first reference to it that the
+// walk's last pass, the compile's order, resolved. The positions an
+// earlier check covered include the document's own keyword tree.
 func TestMetaChecksBound(t *testing.T) {
 	members := func(n int) string {
 		return ladderBottom(n, func(int) string { return `{"type":"string","minLength":1}` })
@@ -188,8 +174,8 @@ func TestMetaChecksBound(t *testing.T) {
 		{"repeated subschemas", misalignedLadder(30, members(100)), misalignedLadder(30, members(125)), "more than 4096 subschemas"},
 		{"repeated bytes", misalignedLadder(29, enum(4000)), misalignedLadder(29, enum(5000)), "more than 262144 bytes"},
 		{"copies", outsideTargets(125, 3800), outsideTargets(130, 3800), "more than 524288 entries"},
-		// A copy holds the resources, each twice, and the anchors besides the
-		// positions, here four entries a property.
+		// A copy holds the resources, each twice, and the anchors besides
+		// the positions, here four entries a property.
 		{"copies of resources and anchors", outsideTargetsWith(115, 1000, idAnchor), outsideTargetsWith(135, 1000, idAnchor), "more than 524288 entries"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -206,6 +192,51 @@ func TestMetaChecksBound(t *testing.T) {
 	if len(w.issues) > 0 || len(w.checkOrder) > 0 {
 		t.Errorf("targets in the keyword tree: issues %+v, checked apart %q", w.issues, w.checkOrder)
 	}
+	// repeatedTree(n) holds n positions under $defs and three targets
+	// outside the keywords, /a, /b and /properties, the last a member map
+	// whose member items is the keyword tree's /properties/items: n+6
+	// positions, and checking /properties apart checks /properties/items
+	// again. The root's reference finds /b first and /b's finds
+	// /properties, but in the last pass, the compile's order, /a is
+	// collected apart before /b and its reference resolves to /properties
+	// first.
+	repeatedTree := func(n int) string {
+		pad := make([]string, n)
+		for i := range pad {
+			pad[i] = fmt.Sprintf(`"p%d":{}`, i)
+		}
+		return `{"$ref":"#/b","allOf":[{"$ref":"#/a"}],"a":{"$ref":"#/properties"},"b":{"$ref":"#/properties"},"properties":{"items":{}},"$defs":{` +
+			strings.Join(pad, ",") + `}}`
+	}
+	repeated := []Issue{{"/a/$ref", fmt.Sprintf("schema has more than %d subschemas, counting again those the meta-schema check repeats under a reference such as this one, to a position whose keywords hold subschemas already checked", MaxSubschemas)}}
+	// The positions of the document's keyword tree that a target's keyword
+	// tree holds count again (walker.keywordTree): at MaxSubschemas
+	// positions the repeat crosses it.
+	t.Run("keyword-tree positions checked again", func(t *testing.T) {
+		mustCompile(t, repeatedTree(MaxSubschemas-7))
+		w := newWalker(decodeInstance(t, repeatedTree(MaxSubschemas-6)))
+		w.walk()
+		if len(w.positions) != MaxSubschemas || w.keywordTree != MaxSubschemas-3 || !slices.Equal(w.checkOrder, []string{"/a", "/b", "/properties"}) {
+			t.Errorf("%d positions, keyword tree %d, checked apart %q, want %d, %d and /a, /b, /properties", len(w.positions), w.keywordTree, w.checkOrder, MaxSubschemas, MaxSubschemas-3)
+		}
+		refusedThrough(t, repeatedTree(MaxSubschemas-6), repeated)
+	})
+	// A finding names the first reference the last pass resolved to the
+	// target, /a/$ref, not the one that found it, /b/$ref (walker.targets).
+	t.Run("the reference a finding names", func(t *testing.T) {
+		w := newWalker(decodeInstance(t, repeatedTree(MaxSubschemas-6)))
+		w.walk()
+		if !slices.Equal(w.issues, repeated) {
+			t.Errorf("issues = %+v, want %+v", w.issues, repeated)
+		}
+		var finder string
+		if n := w.pointerTarget(rootNode, w.intern("/properties")); n >= 0 && w.nodes[n].known >= 0 {
+			finder = w.siteTab[w.nodes[n].known].ptr
+		}
+		if want := []refTarget{{"/a", "/allOf/0/$ref"}, {"/b", "/$ref"}, {"/properties", "/a/$ref"}}; !slices.Equal(w.targets, want) || finder != "/b/$ref" {
+			t.Errorf("targets %+v, /properties found by %q, want %+v and /b/$ref", w.targets, finder, want)
+		}
+	})
 }
 
 // additionalItemsCases are schemas whose compile compiles a subschema
@@ -224,6 +255,9 @@ func additionalItemsCases() []struct{ name, schema, ptr, defs string } {
 			"/additionalItems/properties/p/multipleOf", `{"type":"number","multipleOf":0}`,
 		},
 		{"a nested additionalItems", `{"$ref":"#/additionalItems/additionalItems","additionalItems":{"additionalItems":` + zero + `}}`, "/additionalItems/additionalItems/multipleOf", zero},
+		// Through $recursiveRef, which the walk follows as $ref.
+		{"a recursive reference", `{"$recursiveRef":"#/additionalItems","additionalItems":` + zero + `}`, "/additionalItems/multipleOf", zero},
+		{"a recursive reference below", `{"items":{"$recursiveRef":"#/additionalItems/properties/p"},"additionalItems":{"properties":{"p":{"multipleOf":0}}}}`, "/additionalItems/properties/p/multipleOf", zero},
 		{"an unknown type", `{"$ref":"#/additionalItems","additionalItems":{"type":"strng"}}`, "/additionalItems/type", `{"type":"strng"}`},
 		{"a number type", `{"$ref":"#/additionalItems","additionalItems":{"type":5}}`, "/additionalItems/type", `{"type":5}`},
 		{"a number enum", `{"$ref":"#/additionalItems","additionalItems":{"enum":5}}`, "/additionalItems/enum", `{"enum":5}`},
@@ -233,15 +267,16 @@ func additionalItemsCases() []struct{ name, schema, ptr, defs string } {
 }
 
 // TestAdditionalItemsChecked covers what the library compiles below
-// additionalItems, which it never checks against the meta-schema: the draft
-// 2020-12 meta-schema does not define it, and the library marks the
-// subschemas it collects there as processed, so a subschema a reference, an
-// anchor or an $id made it compile escaped the check (a multipleOf of 0
-// compiled, and every number reaching it made the library panic in Handle
-// and Validate; type "strng" was ignored). Each shape is RZ-CFG-005
-// with the meta-schema's own message, the one the same subschema gets under
-// $defs, through CompileSchema, Check and Factory.Build, without a panic;
-// below an additionalItems nothing compiles, the rules leave alone.
+// additionalItems, which it never checks against the meta-schema: the
+// draft 2020-12 meta-schema does not define it, and the library marks the
+// subschemas it collects there as processed, so a subschema a reference,
+// an anchor or an $id makes it compile escapes the check (a multipleOf of
+// 0 would compile, and every number reaching it would make the library
+// panic in Handle and Validate; type "strng" would be ignored). Each
+// shape is RZ-CFG-005 with the meta-schema's own message, the one the
+// same subschema gets under $defs, through CompileSchema, Check and
+// Factory.Build, without a panic; below an additionalItems nothing
+// compiles, the rules leave alone.
 func TestAdditionalItemsChecked(t *testing.T) {
 	for _, tc := range additionalItemsCases() {
 		t.Run(tc.name, func(t *testing.T) {

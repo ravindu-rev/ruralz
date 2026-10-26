@@ -29,7 +29,7 @@ const (
 		`"person":{"properties":{"pets":{"items":{"$ref":"#"}}}}},` +
 		`"allOf":[{"$ref":"#/$defs/base"},{"properties":{"friends":{"items":{"$ref":"#"}}}}]}`
 	// taggedUnion recurses through then and else, of which the library
-	// evaluates one (linear, so accepted).
+	// evaluates one: linear, accepted.
 	taggedUnion = `{"if":{"properties":{"kind":{"const":"a"}}},` +
 		`"then":{"properties":{"children":{"items":{"$ref":"#"}}}},` +
 		`"else":{"properties":{"children":{"items":{"$ref":"#"}}}}}`
@@ -214,10 +214,7 @@ func quotes(n int) string {
 
 // TestCrossingDepth pins the depth at which the evaluation bound crosses
 // for a recursion through a member name only the second allOf branch
-// declares (dropping the second operand's names from the precise pass's
-// classes would make it cross 14 deep, admitting 16 times the evaluations
-// per value; both depths are below MinNesting): 10 deep, whichever branch
-// declares the name.
+// declares: 10 deep, whichever branch declares the name.
 func TestCrossingDepth(t *testing.T) {
 	for _, tc := range []struct{ schema, ptr string }{
 		{`{"allOf":[{"properties":{"a":true}},{"properties":{"b":{"oneOf":[{"$ref":"#"},{"$ref":"#"}]}}}]}`, "/allOf/1/properties"},
@@ -230,9 +227,9 @@ func TestCrossingDepth(t *testing.T) {
 	}
 }
 
-// TestNestingLimit covers realistic recursive schemas, which the evaluation
-// bound does not refuse: a schema whose evaluations cross MaxEvaluations at
-// a depth of MinNesting or more compiles, with that depth as its nesting
+// TestNestingLimit covers the nesting limit that lets realistic recursive
+// schemas compile: a schema whose evaluations cross MaxEvaluations at a
+// depth of MinNesting or more compiles, with that depth as its nesting
 // limit, and Handle refuses a body that reaches it as filter.ErrTooLarge
 // (413) before the library runs, so the work per value stays bounded; a
 // body nested less deep validates.
@@ -308,8 +305,8 @@ func TestNestingLimit(t *testing.T) {
 
 // TestMinNesting pins the boundary of MinNesting (proposed): a recursion
 // that doubles every two levels of nesting crosses MaxEvaluations at depth
-// 16 and compiles with that nesting limit; one level deeper in the body, at
-// 15, it is RZ-CFG-005.
+// 16 and compiles with that nesting limit; one level deeper in the body,
+// at 15, it is RZ-CFG-005.
 func TestMinNesting(t *testing.T) {
 	doubling := func(ref string, extra int) string {
 		inner := `{"items":{"items":{"$ref":"` + ref + `"}}}`
@@ -324,11 +321,10 @@ func TestMinNesting(t *testing.T) {
 	}
 }
 
-// TestEvaluationBoundBudget covers the precise pass's budget for the
-// nesting limit: recursive mixins need the precise pass, which finds no
-// nesting limit; with its budget spent the coarse bound decides,
-// which limits the nesting of mixins and refuses mixins recursing through
-// two members per level.
+// TestEvaluationBoundBudget covers the precise pass's budget: recursive
+// mixins need the precise pass, which finds no nesting limit; with its
+// budget spent the coarse bound decides, which limits the nesting of mixins
+// and refuses mixins recursing through two members per level.
 func TestEvaluationBoundBudget(t *testing.T) {
 	analysis := func(schema string, budget int) (*workBound, []Issue) {
 		t.Helper()
@@ -391,10 +387,10 @@ func allocRatio(t *testing.T, s *sjs.Schema, schema string, depth int) float64 {
 	return count(2*depth) / count(depth)
 }
 
-// TestEvaluationBoundMatchesLibrary checks the evaluation bound
-// (proposed) against the library itself, compiled without it: the shapes it
-// refuses take work that doubles with each level of nesting, the shapes it
-// accepts work linear in the nesting.
+// TestEvaluationBoundMatchesLibrary checks the evaluation bound (proposed)
+// against the library itself, compiled without it: the shapes it refuses
+// take work that doubles with each level of nesting, the shapes it accepts
+// work linear in the nesting.
 func TestEvaluationBoundMatchesLibrary(t *testing.T) {
 	for _, tc := range []struct {
 		schema  string
@@ -409,6 +405,9 @@ func TestEvaluationBoundMatchesLibrary(t *testing.T) {
 		{linearAnyOf, false},
 		{mixins, false},
 		{taggedUnion, false},
+		// The library evaluates a $recursiveRef as a $ref.
+		{strings.ReplaceAll(oneOfTwice, `"$ref"`, `"$recursiveRef"`), true},
+		{strings.ReplaceAll(linearTree, `"$ref"`, `"$recursiveRef"`), false},
 	} {
 		root := libraryCompile(t, tc.schema)
 		ratio := allocRatio(t, root, tc.schema, 6)
@@ -456,9 +455,10 @@ func librarySchema(t testing.TB, schema string) *Schema {
 	return &Schema{root: root, decide: decide, work: workingSet{limit: maxNesting + 1}}
 }
 
-// TestInPlaceCycles covers in-place cycles at compile time: a reference
-// cycle that never descends into the value would make every value reaching
-// it an internal validator error, so it is RZ-CFG-005 at the reference.
+// TestInPlaceCycles covers the compile-time rule on in-place cycles: a
+// reference cycle that never descends into the value would make every
+// value reaching it an internal validator error, so it is RZ-CFG-005 at
+// the reference.
 func TestInPlaceCycles(t *testing.T) {
 	for _, tc := range []struct{ name, schema, ptr string }{
 		{"root", `{"$ref":"#"}`, "/$ref"},
@@ -468,6 +468,12 @@ func TestInPlaceCycles(t *testing.T) {
 		{"through dependentSchemas", `{"dependentSchemas":{"a":{"$ref":"#"}}}`, "/dependentSchemas/a/$ref"},
 		{"unreferenced definition", `{"$defs":{"x":{"not":{"$ref":"#/$defs/x"}}}}`, "/$defs/x/not/$ref"},
 		{"dynamic reference", `{"$dynamicAnchor":"n","$dynamicRef":"#n"}`, "/$dynamicRef"},
+		// Its static edge: a $recursiveRef applies its target in place, as
+		// $ref does.
+		{"recursive reference to itself", `{"$recursiveRef":"#"}`, "/$recursiveRef"},
+		{"two recursive references", `{"$defs":{"x":{"$recursiveRef":"#/$defs/y"},"y":{"$recursiveRef":"#/$defs/x"}},"$recursiveRef":"#/$defs/x"}`, "/$defs/x/$recursiveRef"},
+		{"recursive reference through allOf", `{"$defs":{"t":{"allOf":[{"type":"null"},{"$recursiveRef":"#/$defs/t"}]}},"$ref":"#/$defs/t"}`, "/$defs/t/allOf/1/$recursiveRef"},
+		{"recursive and plain references", `{"$defs":{"x":{"$ref":"#/$defs/y"},"y":{"$recursiveRef":"#/$defs/x"}},"$ref":"#/$defs/x"}`, "/$defs/x/$ref"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			issues := compileIssues(t, tc.schema)
@@ -530,11 +536,11 @@ func TestLegacyItems(t *testing.T) {
 	}
 }
 
-// TestNamesPool covers the reuse of the precise pass's member maps (without
-// it, a worst-case compile allocated about 250 MB of them): a level takes
-// the maps the level before made, cleared, in the order it made them, and
-// makes new ones past them; the evaluation tests check that the analysis
-// decides as before.
+// TestNamesPool covers the reuse of the precise pass's member maps,
+// without which a worst-case compile would allocate about 250 MB of them:
+// a level takes the maps the level before made, cleared, in the order it
+// made them, and makes new ones past them; the evaluation tests check that
+// the analysis decides as it would without the pool.
 func TestNamesPool(t *testing.T) {
 	var p namesPool
 	a, b := p.get(1), p.get(1)

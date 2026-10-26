@@ -14,7 +14,6 @@ import (
 	"unicode/utf8"
 
 	"github.com/ravindu-rev/ruralz/internal/filter"
-	"github.com/ravindu-rev/ruralz/internal/phase"
 )
 
 // costPatterns are patterns with an input that keeps their run queue
@@ -228,9 +227,9 @@ func cjkClass(n int) string {
 	return b.String()
 }
 
-// TestClassRepsBudget covers the budget of collecting and sorting a
-// program's classes: uncharged, 990 copies of a class of 19,000 ranges took
-// 1.4 s and 788 MB in classReps alone, where a compile must return within
+// TestClassRepsBudget covers the budget that bounds collecting a program's
+// classes: uncharged, 990 copies of a class of 19,000 ranges would take
+// 1.4 s and 788 MB in classReps alone, where a compile is to return within
 // 1 s. The copies a repetition makes share their ranges, which count once;
 // the bounds are charged before they are added, so the classes of a large
 // program stop the exploration within its budget, which then charges the
@@ -311,19 +310,20 @@ func altPatternFrom(first rune, n int) string {
 	return b.String()
 }
 
-// TestQueueBoundBudget covers the exploration's budget within a queue:
-// checked only between queues, one queue of an alternation of 4,000
-// two-rune literals scanned every class representative with a closure of
-// the whole start each, 61 times the budget at 1,000 literals, 244 times at
-// 2,000, and compile times grew with the square of the pattern, where a
-// compile must return within 1 s. The steps the exploration charges stay
-// within its budget plus one representative's closure and the setup, the
-// classes and the start's closure, and the bound is then the whole program.
-// Steps, not time, so the test is deterministic.
+// TestQueueBoundBudget covers the exploration's budget, checked before each
+// class representative, not only between queues: checked only between
+// them, one queue of an alternation of 4,000 two-rune literals would scan
+// every class representative with a closure of the whole start each, 61
+// times the budget at 1,000 literals, 244 times at 2,000, and compile times
+// would grow with the square of the pattern, where a compile is to return
+// within 1 s. The steps the exploration charges stay within its budget plus
+// one representative's closure and the setup, the classes and the start's
+// closure, and the bound is then the whole program. Steps, not time, so
+// the test is deterministic.
 func TestQueueBoundBudget(t *testing.T) {
 	// An anchored pattern whose classes mostly advance no thread spends its
-	// budget scanning the start queue, never building a closure, so only
-	// the check before each class representative stops it.
+	// budget scanning the start queue, never building a closure, so only the
+	// check before each class representative stops it.
 	sparse := `^(?:` + altPattern(8000) + `)(?:` + altPatternFrom(0x100, 8000) + `)$`
 	for _, expr := range []string{altPattern(4000), `^(?:` + altPattern(4000) + `)$`, altPattern(300), `[a-z]{1000}x`, sparse} {
 		prog := program(t, expr)
@@ -472,11 +472,11 @@ func emailExpr() string { return strings.ReplaceAll(emailPattern, `\\`, `\`) }
 const hostnamePattern = `^(?:[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?\.)+[a-zA-Z]{2,63}$`
 
 // TestHeldAlternations pins the jobs per input position the backtracker
-// may hold (rather than every alternation of the program at every position,
-// 126 for the WHATWG e-mail pattern, which holds at most 3): the
-// alternations reachable through empty-width steps from the start or from
-// the instruction after a rune, at most every alternation of the program,
-// which past its budget it charges.
+// may hold, not every alternation of the program (126 for the WHATWG
+// e-mail pattern, which holds at most 3): the alternations reachable
+// through empty-width steps from the start or from the instruction after a
+// rune, at most every alternation of the program, which past its budget it
+// charges.
 func TestHeldAlternations(t *testing.T) {
 	for _, tc := range []struct {
 		expr       string
@@ -691,32 +691,38 @@ func TestHeldJobsCoverBacktracker(t *testing.T) {
 	}
 }
 
-// TestHandleBacktrackCharge covers the backtracker's job stack: Go's regexp
-// grows it with the input, one 16-byte job per alternation and position on
-// the search path, so a matcher charge of only its visited set and the
-// NFA's queues would charge 126 and 97 KB where a*b on a string of 43,688
-// bytes holds 2.2 MB and (?:(?:a??){240}a)*b on 537 bytes 5.8 MB. Through
-// Factory.Build and Handle at the 10 MiB default, failing and valid bodies,
-// a string value, a member name under patternProperties and one under
-// propertyNames hold at their peak no more than Handle reserved.
+// TestHandleBacktrackCharge covers the charge of the backtracker's job
+// stack: Go's regexp grows it with the input, one 16-byte job per
+// alternation and position on the search path, so a*b on a string of 43,688
+// bytes holds 2.2 MB and (?:(?:a??){240}a)*b on 537 bytes 5.8 MB, where a
+// charge of only the visited set and the NFA's queues comes to 126 and
+// 97 KB. Through Factory.Build and Handle at the 10 MiB default, failing
+// and valid bodies, a string value, a member name under patternProperties
+// and one under propertyNames hold at their peak no more than Handle
+// reserved, but for heapNoise: the live heap at each pass's match with the
+// matcher's own peak on top, its state, its visited set and the largest
+// pair of job arrays live while the stack grows, computed from the match's
+// allocations (heapMeter, matcherPeak), not sampled from the heap in use,
+// which fails under load.
 func TestHandleBacktrackCharge(t *testing.T) {
+	requireMeter(t)
 	const wide = `(?:(?:a??){240}a)*b`
 	as := strings.Repeat
 	for _, tc := range []struct {
 		name, schema, body, detail string
+		// expr and input are the match whose job stack peaks.
+		expr, input string
 	}{
-		{"string", `{"type":"string","pattern":"a*b"}`, `"` + as("a", 43688) + `"`, "/pattern"},
-		{"valid string", `{"type":"string","pattern":"a*b"}`, `"` + as("a", 43687) + `b"`, ""},
-		{"alternations", `{"type":"string","pattern":"` + wide + `"}`, `"` + as("a", 537) + `"`, "/pattern"},
-		{"member name", `{"patternProperties":{"` + wide + `":false}}`, `{"` + as("a", 530) + `b":1}`, "/patternProperties/" + wide},
-		{"property name", `{"propertyNames":{"pattern":"` + wide + `"}}`, `{"` + as("a", 530) + `":1}`, "/propertyNames/pattern"},
+		{"string", `{"type":"string","pattern":"a*b"}`, `"` + as("a", 43688) + `"`, "/pattern", "a*b", as("a", 43688)},
+		{"valid string", `{"type":"string","pattern":"a*b"}`, `"` + as("a", 43687) + `b"`, "", "a*b", as("a", 43687) + "b"},
+		{"alternations", `{"type":"string","pattern":"` + wide + `"}`, `"` + as("a", 537) + `"`, "/pattern", wide, as("a", 537)},
+		{"member name", `{"patternProperties":{"` + wide + `":false}}`, `{"` + as("a", 530) + `b":1}`, "/patternProperties/" + wide, wide, as("a", 530) + "b"},
+		{"property name", `{"propertyNames":{"pattern":"` + wide + `"}}`, `{"` + as("a", 530) + `":1}`, "/propertyNames/pattern", wide, as("a", 530)},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			f := buildFilter(t, tc.schema, 0)
-			x, _ := exchange("application/json", []byte(tc.body))
-			px := &peakExchange{Exchange: x}
-			var r filter.Result
-			peak := peakHeap(func() any { r = f.Handle(t.Context(), phase.OnRequestBody, px); return r })
+			m := &heapMeter{}
+			r, reserved := handlePeak(t, f, tc.schema, tc.body, m)
 			if tc.detail == "" {
 				if r.Outcome != filter.Continue {
 					t.Fatalf("Handle = %+v, want Continue", r)
@@ -724,9 +730,14 @@ func TestHandleBacktrackCharge(t *testing.T) {
 			} else if got := detailOf(t, r); got != DetailMismatch+" at "+tc.detail {
 				t.Fatalf("detail = %q, want the location %s", got, tc.detail)
 			}
-			t.Logf("reserved %d, peak %.0f", px.peak, peak)
-			if peak > float64(px.peak+gcSlack) {
-				t.Errorf("Handle held %.0f bytes at its peak, reserved %d", peak, px.peak)
+			t.Logf("reserved %d, live peak %d, of which the matcher %d", reserved, m.peak(), m.matcher)
+			// The measurement sees the job stack: the most jobs a replica
+			// of the backtracker holds, 16 bytes each.
+			if jobs := int64(backtrackJobs(program(t, noOnePass+tc.expr), tc.input)); m.matcher < 16*jobs {
+				t.Errorf("the matcher's peak measured %d bytes, less than its %d jobs", m.matcher, jobs)
+			}
+			if exceeds(m.peak(), reserved) {
+				t.Errorf("Handle held %d bytes at its peak, reserved %d", m.peak(), reserved)
 			}
 		})
 	}

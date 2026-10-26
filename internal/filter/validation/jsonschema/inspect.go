@@ -45,11 +45,9 @@ func edges(s *sjs.Schema) []edge {
 			out = append(out, edge{kw: kw, sub: k, factor: 1, child: m[k]})
 		}
 	}
-	one("$ref", s.Ref)
-	if s.DynamicRef != nil {
-		one("$dynamicRef", s.DynamicRef.Ref)
+	for _, kw := range referenceKeywords() {
+		one(kw, compiledReference(s, kw))
 	}
-	one("$recursiveRef", s.RecursiveRef)
 	one("not", s.Not)
 	list("allOf", s.AllOf, len(s.AllOf))
 	list("anyOf", s.AnyOf, len(s.AnyOf))
@@ -107,11 +105,51 @@ func edges(s *sjs.Schema) []edge {
 	return out
 }
 
-// inspector checks the compiled graph: every schema reached lies in the
-// document and is draft 2020-12, and the nested applicator fan-out stays
-// within MaxFanOut. It also notes whether any schema compares numbers.
+// compiledReference returns the schema the reference keyword kw
+// (referenceKeywords) of s names, as the library compiled it, or nil when
+// s has none: the static target. For $dynamicRef the dynamic scope may
+// replace it with a schema bearing its anchor; for $recursiveRef only a
+// $recursiveAnchor of true would let the scope replace it, and the
+// inspection refuses one (visit).
+func compiledReference(s *sjs.Schema, kw string) *sjs.Schema {
+	switch kw {
+	case "$ref":
+		return s.Ref
+	case "$recursiveRef":
+		return s.RecursiveRef
+	case "$dynamicRef":
+		if s.DynamicRef != nil {
+			return s.DynamicRef.Ref
+		}
+	}
+	return nil
+}
+
+// msgRecursiveAnchor is the draft 2020-12 meta-schema's finding for a
+// boolean $recursiveAnchor, which it types as an anchor name.
+const msgRecursiveAnchor = "invalid JSON Schema: got boolean, want string"
+
+// inspector checks the compiled graph, every schema the library compiled
+// from the document (compiled.go): every schema reached lies in the
+// document, is draft 2020-12, asserts neither format nor a content keyword
+// and has no $recursiveAnchor true, and the nested applicator fan-out
+// stays within MaxFanOut. It also notes whether any schema compares
+// numbers.
+//
+// A $recursiveAnchor of true is the one thing that would make the library
+// resolve a $recursiveRef dynamically (validator.go:769-779, 795-799):
+// its target, and the outermost resource in the dynamic scope, would
+// replace the static target the evaluation analysis models. The draft
+// 2020-12 meta-schema types $recursiveAnchor as an anchor name, so the
+// library's checks and the compile's own (checkApart) refuse a boolean one
+// at every position they cover, which is every position the walk walks
+// live; the inspection refuses it at every schema the library compiled, a
+// backstop, with the meta-schema's message, so the static target is the
+// only one there is.
 type inspector struct {
-	id      map[*sjs.Schema]int
+	id map[*sjs.Schema]int
+	// schemas lists the schemas visited, by index, as nodes does.
+	schemas []*sjs.Schema
 	nodes   []fanNode
 	issues  []Issue
 	numbers bool
@@ -159,6 +197,7 @@ func (in *inspector) visit(s *sjs.Schema, from string) int {
 	}
 	i := len(in.nodes)
 	in.id[s] = i
+	in.schemas = append(in.schemas, s)
 	in.nodes = append(in.nodes, fanNode{})
 	ptr, ok := pointerOf(s.Location)
 	if !ok {
@@ -168,6 +207,10 @@ func (in *inspector) visit(s *sjs.Schema, from string) int {
 	in.nodes[i].ptr = ptr
 	if s.DraftVersion != 2020 {
 		in.add(ptr, "schema is not JSON Schema draft 2020-12; $schema must be "+Draft)
+	}
+	in.refuseAssertions(s, ptr)
+	if s.RecursiveAnchor {
+		in.add(appendToken(ptr, "$recursiveAnchor"), msgRecursiveAnchor)
 	}
 	in.noteNumbers(s)
 	var out []fanEdge
@@ -385,6 +428,44 @@ func (in *inspector) components() sccs {
 		}
 	}
 	return out
+}
+
+// msgFormatAsserted is refuseAssertions' finding for format: it holds for
+// every cause, the format-assertion vocabulary or an older draft such as
+// draft-07, naming neither.
+const msgFormatAsserted = "format is an annotation, but the library compiled it as an assertion under this schema's dialect; $schema must be " + Draft
+
+// refuseAssertions refuses, at the keyword, a format or content keyword that
+// the library compiled into s as an assertion, since they are annotations on
+// every route (package documentation "Compile"). The compile never sets
+// AssertFormat or AssertContent, so the library asserts format only under a
+// dialect that a $schema other than Draft gives a resource, one with the
+// format-assertion vocabulary (the policy document as $schema with a root
+// $vocabulary listing it, or the bundled meta/format-assertion) or a draft
+// before 2019-09 (objcompiler.go:185-200, 436-445), and the content keywords
+// only under AssertContent (objcompiler.go:239-251, 305-309). The walk
+// refuses such a $schema at the positions it walks, and the compile at every
+// other position the library reads one (checkCollected), before the
+// inspection; so this refusal is a backstop, over every schema the library
+// compiled. Asserted, format would run its validator on every body string
+// evaluated there, outside the work and working-set models, and format
+// 'regex' would call the compile's regexp engine from every request.
+func (in *inspector) refuseAssertions(s *sjs.Schema, ptr string) {
+	if s.Format != nil {
+		in.add(appendToken(ptr, "format"), msgFormatAsserted)
+	}
+	for _, kw := range []struct {
+		name string
+		set  bool
+	}{
+		{"contentEncoding", s.ContentEncoding != nil},
+		{"contentMediaType", s.ContentMediaType != nil},
+		{"contentSchema", s.ContentSchema != nil},
+	} {
+		if kw.set {
+			in.add(appendToken(ptr, kw.name), kw.name+" is an annotation, but the library compiled it as an assertion")
+		}
+	}
 }
 
 // noteNumbers sets numbers when validating against s parses instance

@@ -35,16 +35,13 @@ func noPanic(t *testing.T, what string, f func()) {
 	f()
 }
 
-// TestNameListsRefused covers the lists of names (number literals inside
-// the arrays of type, required, dependentRequired and dependencies escaped
-// the number bounds, and the library's meta-schema check parsed them with
-// math/big: past 20 entries it panicked on a literal math/big refuses).
-// Each shape is RZ-CFG-005 at the entry that is not a string, without a
-// panic, through CompileSchema, Check and Factory.Build, at every schema
-// position, a reference target and a member map read as a schema included.
-//
-// The diagnostics are identical in all three binaries, and a compile
-// returns within 1 s.
+// TestNameListsRefused covers the lists of names: number literals inside
+// the arrays of type, required, dependentRequired and dependencies escape
+// the number bounds, and the library's meta-schema check parses them with
+// math/big, past 20 entries panicking on a literal math/big refuses. Each
+// shape is RZ-CFG-005 at the entry that is not a string, without a panic,
+// through CompileSchema, Check and Factory.Build, at every schema position,
+// a reference target and a member map read as a schema included.
 func TestNameListsRefused(t *testing.T) {
 	huge := literals(21, "e9999999")
 	for _, tc := range []struct {
@@ -56,6 +53,9 @@ func TestNameListsRefused(t *testing.T) {
 		{"dependencies", `{"dependencies":{"a":[` + huge + `]}}`, "/dependencies/a/0"},
 		{"nested arrays", `{"type":[[1e9999999],[2e9999999],[3e9999999],[4e9999999],[5e9999999],[6e9999999],[7e9999999],[8e9999999],[9e9999999],[10e9999999],[11e9999999],[12e9999999],[13e9999999],[14e9999999],[15e9999999],[16e9999999],[17e9999999],[18e9999999],[19e9999999],[20e9999999],[21e9999999]]}`, "/type/0"},
 		{"member map behind a reference", `{"$ref":"#/x/properties","x":{"properties":{"type":[` + huge + `]}}}`, "/x/properties/type/0"},
+		// The library compiles $recursiveRef as a reference.
+		{"behind a recursive reference", `{"$recursiveRef":"#/x","x":{"type":[` + huge + `]}}`, "/x/type/0"},
+		{"required behind a recursive reference", `{"properties":{"a":{"$recursiveRef":"#/x"}},"x":{"required":[` + huge + `]}}`, "/x/required/0"},
 		{"after a string", `{"properties":{"a":{"required":["id",` + huge + `]}}}`, "/properties/a/required/1"},
 		{"slow type list", `{"type":[` + literals(20, "e999999") + `]}`, "/type/0"},
 		{"in range", `{"$defs":{"a":{"type":[1,2,3,4]}}}`, "/$defs/a/type/0"},
@@ -93,12 +93,11 @@ func TestNameListsRefused(t *testing.T) {
 }
 
 // TestNameListsRefusedByWalk shows that the rule walk itself refuses the
-// entries, so the library never compares them (20 literals of exponent
-// 999,999 in a 241-byte type list compiled for 11 s; 380 math/big parses at
-// about 30 ms each). It needs no clock: the walk reports every entry, and
-// compilePrepared returns the walk's findings before the compiler runs.
-//
-// A compile returns within 1 s.
+// entries, so the library never compares them, which for 20 literals of
+// exponent 999,999 in a 241-byte type list would take 11 s: 380 math/big
+// parses at about 30 ms each. It needs no clock: the walk reports every
+// entry, and compilePrepared returns the walk's findings before the
+// compiler runs.
 func TestNameListsRefusedByWalk(t *testing.T) {
 	for _, tc := range []struct {
 		schema string
@@ -141,8 +140,6 @@ func pointers(ptr string, n int) []string {
 // to the library's own meta-schema findings for the same entries, so a
 // document gets the same diagnostics whichever finds them: each schema is
 // walked, then compiled with the walk's findings dropped.
-//
-// The diagnostics are identical in all three binaries.
 func TestNameListsMatchLibrary(t *testing.T) {
 	var schemas []string
 	for _, e := range []string{`7`, `-1.5e3`, `{"a":1}`, `[1]`, `true`, `null`} {
@@ -167,7 +164,7 @@ func TestNameListsMatchLibrary(t *testing.T) {
 			continue
 		}
 		w.issues = nil
-		_, library, _ := compileWalked(p, w, refusingLoader{}, nil)
+		_, library, _ := compileWalked(p, w, refusingLoader{}, nil, newRegexpEngine())
 		slices.SortFunc(walked, func(a, b Issue) int { return comparePointers(a.Pointer, b.Pointer) })
 		if !slices.Equal(walked, library) {
 			t.Errorf("walk(%s) = %+v, library %+v", schema, walked, library)
@@ -178,14 +175,15 @@ func TestNameListsMatchLibrary(t *testing.T) {
 // TestNameListsAccepted covers what the rule leaves alone: lists of
 // strings, a dependencies member that is a schema, numbers in annotations
 // and unknown keywords, and members named like the keywords. Below
-// additionalItems, an unknown keyword under draft 2020-12 that the
-// library neither compiles nor checks against the meta-schema, no rule
-// applies unless a reference, an anchor or an $id makes the library
-// compile it (so the walk refuses no content there as an invalid JSON
-// Schema, also where a property name or a const, enum or examples value
-// merely holds an $id or an anchor), and a reference there is checked only
-// when the library compiles it (one leaving the document is never loaded),
-// once.
+// additionalItems, an unknown keyword under draft 2020-12 that the library
+// neither compiles nor checks against the meta-schema, no rule applies
+// unless the library compiles a schema there: a reference it compiles
+// names it, by pointer, $anchor or $id, or it is a $dynamicAnchor schema
+// of a resource the library compiles. A property name or a const, enum or
+// examples value merely holding an $id or an anchor makes nothing there
+// compile, nor does an $anchor or $id no reference names, and a reference
+// there is checked only when the library compiles it, once, so one leaving
+// the document that it never compiles is accepted.
 func TestNameListsAccepted(t *testing.T) {
 	for _, schema := range []string{
 		`{"type":["string","null"],"required":["a","b"],"dependentRequired":{"a":["b"]},"dependencies":{"a":["b"],"c":{"examples":[1e9999999]}}}`,
@@ -209,6 +207,9 @@ func TestNameListsAccepted(t *testing.T) {
 		`{"additionalItems":{"examples":[{"$dynamicAnchor":"d"}],"required":[1]}}`,
 		// Identifiers that are not strings, which the library ignores.
 		`{"additionalItems":{"$anchor":5,"$id":{"a":1},"pattern":"(?=a)"}}`,
+		// An $anchor no reference names, so nothing compiles the reference
+		// below it.
+		`{"additionalItems":{"$anchor":"a","items":{"$ref":"#/nope"}}}`,
 	} {
 		spy := &spyLoader{}
 		if _, _, issues := compileRaw([]byte(schema), spy); len(issues) > 0 || len(spy.urls) > 0 {
@@ -220,7 +221,7 @@ func TestNameListsAccepted(t *testing.T) {
 	for _, tc := range []struct{ schema, ptr string }{
 		{`{"$ref":"#/additionalItems","additionalItems":{"$ref":"#/nope"}}`, "/additionalItems/$ref"},
 		{`{"$ref":"#/additionalItems","additionalItems":{"$ref":"https://example.com/s"}}`, "/additionalItems/$ref"},
-		{`{"additionalItems":{"$anchor":"a","items":{"$ref":"#/nope"}}}`, "/additionalItems/items/$ref"},
+		{`{"$ref":"#a","additionalItems":{"$anchor":"a","items":{"$ref":"#/nope"}}}`, "/additionalItems/items/$ref"},
 	} {
 		if issues := compileIssues(t, tc.schema); len(issues) != 1 || issues[0].Pointer != tc.ptr {
 			t.Errorf("CompileSchema(%s) = %+v, want one finding at %s", tc.schema, issues, tc.ptr)

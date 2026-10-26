@@ -48,9 +48,9 @@ func refusedBecause() []string {
 
 // TestJSONSchemaTestSuite runs the required draft 2020-12 tests of the
 // vendored JSON-Schema-Test-Suite through CompileSchema and the Filter's
-// strict decoding (07 P7 against the suite's verdicts): every schema
-// compiles or is refused for a reason refusedBecause lists, and every case
-// of a compiled schema gets the suite's verdict.
+// strict decoding: every schema compiles or is refused for a reason
+// refusedBecause lists, and every case of a compiled schema gets the
+// suite's verdict.
 func TestJSONSchemaTestSuite(t *testing.T) {
 	dir := filepath.Join(suiteRoot, "data", "tests", "draft2020-12")
 	var files []string

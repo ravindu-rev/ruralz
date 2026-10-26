@@ -62,7 +62,11 @@ const (
 	// in-place evaluation and 2.2 to 2.5 KiB per evaluation of a nesting
 	// level's chain, whose first evaluation also descends into the value
 	// (debug.SetMaxStack), up to three times that while the stack doubles
-	// and copies.
+	// and copies. What that leaves, at least 512 bytes, holds the records
+	// the evaluation keeps on the heap while it runs: the validator, its
+	// scope and unevaluated record, about 200 bytes, and the first array
+	// of its error list, 32 bytes for up to four errors, of which the
+	// error charges count 24 bytes a slot.
 	stackBytes = 8192
 	// propMapBase and propMapEntry bound the map of unevaluated member
 	// names one evaluation copies, with every allocation of its growth:
@@ -72,7 +76,8 @@ const (
 	// indexes: measured at most 192 + 83 bytes per index.
 	itemMapBase, itemMapEntry = 192, 96
 	// hashNameBytes is what hashing an object for uniqueItems holds per
-	// member: the sorted slice of its names.
+	// member: the sorted slice of its names, a string header each, with
+	// the slice's rounding (namesBytes).
 	hashNameBytes = 16
 	// dupItemBytes is what the uniqueItems check of an array of more than
 	// pairwiseItems items holds per item: its hash map (measured 102 to 168
@@ -100,12 +105,33 @@ const (
 	// declare, in a slice grown by appending.
 	listedNameBytes = 48
 	// matchedItemBytes is what an evaluation with contains holds per item
-	// while it loops, and the location pass keeps in a minContains or
-	// maxContains error: the index of every item that matches, in a slice
-	// grown by appending (100 such evaluations over 16,000 items held
-	// 12.7 MB charged 58 KB).
-	matchedItemBytes = 16
+	// while it loops: the 8-byte index of every item that matches, in a
+	// slice grown by appending, up to three times that while append copies
+	// it into an array twice as large (100 such evaluations over 16,000
+	// items hold 12.7 MB, and one list just grown past a capacity holds up
+	// to 23.9 bytes per item, TestGrowthCharges).
+	// keptItemBytes is what the location pass keeps per item in a
+	// minContains or maxContains error: the list's last array, at most
+	// twice the indexes. Both count at least two items (listedItems): Go's
+	// append makes the first array of a slice 32 bytes.
+	matchedItemBytes, keptItemBytes = 24, 16
+	// listGrowthBytes is what the one list the library grows at a time
+	// holds past its items' charges while append copies it into a larger
+	// array, which the allocator's size classes and headers round up
+	// (TestGrowthCharges: at most 256 bytes, an error list grown past 287
+	// slots): charged once to each pass.
+	listGrowthBytes = 256
 )
+
+// listedItems returns the items a list of n matching items is charged
+// for: none for an empty list, which allocates nothing, and at least the
+// two of the first array.
+func listedItems(n int64) int64 {
+	if n == 0 {
+		return 0
+	}
+	return max(n, 2)
+}
 
 // The hash table of a decoded object (a map[string]any, Go's swiss
 // tables), which internal/jsonval charges as its 48-byte header and, per
@@ -133,8 +159,8 @@ const (
 
 // mapExtra returns what the map of a decoded object of n members holds
 // beyond what jsonval charges for it (a one-member object holds 336 bytes,
-// of which jsonval charges 80, so arrays of small objects held up to 3.8
-// times what Handle reserved).
+// of which jsonval charges 80, so arrays of small objects would otherwise
+// hold up to 3.8 times what Handle reserves).
 func mapExtra(n int64) int64 {
 	var table int64
 	switch {
@@ -171,13 +197,34 @@ func sizeClasses() [66]uint16 {
 // rounded up to.
 const pageBytes = 8 << 10
 
+// tinyBlockBytes is the block of the allocator's tiny allocator, which
+// takes every allocation without pointers shorter than it, and
+// tinyBlockFill the fewest bytes of such allocations of 2 bytes or more a
+// block holds once the allocator has left it (stringExtra).
+const tinyBlockBytes, tinyBlockFill = 16, 8
+
 // stringExtra returns what the bytes of a decoded string, member name or
 // number literal of n bytes hold beyond the n bytes jsonval charges: the
-// rounding up to their allocation size class. Shorter than 16 bytes, the
-// allocator packs them into shared 16-byte blocks.
+// rounding up to their allocation size class. One byte takes none: Go's
+// conversion of one byte to a string returns a static string (runtime
+// slicebytetostring). From 2 to 15 bytes, the allocator places them in
+// shared 16-byte blocks (its tiny allocator, runtime mallocgcTiny in Go
+// 1.26 and 1.27), aligned, starting a new block whenever the next does not
+// fit in the current one and keeping whichever block has more room left.
+// A block it leaves therefore holds at least tinyBlockFill bytes of them
+// (TestTinyBlocks), and every string at most its own block or
+// 16/tinyBlockFill times its bytes (charged their bytes alone, strings of
+// 9 to 15 bytes, each alone in its block, would hold the decoded tree of
+// composed orders 2.6% over its charge, and an order's 9-byte tags would
+// hold Handle's live heap 3.6% over its reservation). Another goroutine's
+// allocations on the same processor while the decoder runs can leave at
+// most one more block unfilled at each switch.
 func stringExtra(n int64) int64 {
-	if n < 16 {
+	if n <= 1 {
 		return 0
+	}
+	if n < tinyBlockBytes {
+		return min(tinyBlockBytes, (tinyBlockBytes*n+tinyBlockFill-1)/tinyBlockFill) - n
 	}
 	if n > 32<<10 {
 		return (n+pageBytes-1)/pageBytes*pageBytes - n
@@ -185,6 +232,44 @@ func stringExtra(n int64) int64 {
 	classes := sizeClasses()
 	i, _ := slices.BinarySearch(classes[:], uint16(n))
 	return int64(classes[i]) - n
+}
+
+// copyBytes returns what the library's copy of a string of n bytes takes,
+// which every evaluation at the string makes (validator.go strValidate):
+// its allocation size, from 1 to 15 bytes at most the 16-byte block of
+// the allocator's tiny allocator it may start (the copy of a 100,000-byte
+// string takes 106,496 bytes and one of 32,769 bytes 40,960,
+// TestCopySizes).
+func copyBytes(n int64) int64 {
+	switch {
+	case n <= 0:
+		return 0
+	case n < tinyBlockBytes:
+		return tinyBlockBytes
+	}
+	return n + stringExtra(n)
+}
+
+// mallocHeaderBytes is the header the allocator puts in front of an
+// object holding pointers past 512 bytes (runtime mallocgc in Go 1.26 and
+// 1.27).
+const mallocHeaderBytes = 8
+
+// namesBytes returns what hashing an object of n members for uniqueItems
+// holds while it hashes them (util.go writeHash): the sorted slice of its
+// names, hashNameBytes a name, rounded up to its allocation size with the
+// header the allocator puts in front of a slice of pointers (the names of
+// an object of 50,000 members take 802,824 bytes, their headers alone
+// 800,000, TestCopySizes).
+func namesBytes(n int64) int64 {
+	if n <= 0 {
+		return 0
+	}
+	b := mulCap(n, hashNameBytes)
+	if b > 512 {
+		b = addCap(b, mallocHeaderBytes)
+	}
+	return addCap(b, stringExtra(b))
 }
 
 // arraySlotBytes is one item's slot in a decoded array's backing array,
@@ -241,8 +326,8 @@ const (
 	// compareUnits is one comparison of two values (measured 4 units for
 	// short strings alone, 6.5 to 9 with the loop over an enum's values,
 	// BenchmarkWorkModel; at 16 an array of two-letter codes under a
-	// 250-value enum was refused above 27% of the limit); compareBytes are
-	// the string bytes compared per unit.
+	// 250-value enum would be refused above 27% of the limit); compareBytes
+	// are the string bytes compared per unit.
 	compareUnits, compareBytes = 12, 8
 	// memberUnits is one member of an object per evaluation at the
 	// object: the library loops over every member (measured 19 to 35).
@@ -252,7 +337,7 @@ const (
 	// it into and deletes it from maps keyed by names, which hashes the
 	// whole name (measured 0.02 to 0.05 ns per byte), and sorts the names
 	// of an object it hashes for uniqueItems, comparing them byte by byte
-	// (a 10 MiB name, charged nothing per byte, was hashed for 1.35 to
+	// (charged nothing per byte, a 10 MiB name would be hashed for 1.35 to
 	// 3.2 s).
 	nameHashBytes = 8
 	// nameHashes is how often an evaluation with member keywords may hash
@@ -274,8 +359,7 @@ const (
 	// merge (measured 110 to 319 and 112 to 167).
 	unevalPropUnits, unevalItemUnits = 384, 256
 	// scopeUnits is one step through the dynamic scope: the cycle check
-	// walks the evaluations at the value, a $dynamicRef or $recursiveRef
-	// the whole path.
+	// walks the evaluations at the value, a $dynamicRef the whole path.
 	scopeUnits = 4
 	// locationUnits is one level of depth per evaluation and error unit:
 	// the instance location the library extends and copies.
@@ -305,20 +389,21 @@ const (
 	numberUnits, numberByteUnits, numberExpUnits = 768, 28, 12
 )
 
-// The work of a multipleOf check (charged as one parse of the body literal,
-// a short decimal's check against 0.(120 fives)e-990 took 4.7 ns per
-// charged unit). The library divides the value by the divisor as math/big
-// rationals, a/b by c/d: it multiplies a by d and c by b, divides both
-// products by their greatest common divisor (Lehmer's algorithm), and
-// checks the quotient's denominator. With a, b, c and d bounded in decimal
-// digits (literalDigits, ratDigits), one check takes at most quoUnits,
-// quoMinUnits per digit of the smaller product (each step of the GCD),
-// quoDigitUnits per digit of all four, and a unit per quoProductDigits of
-// the digit products a*b, c*d and (a+b)*(c+d) (the multiplications, the
-// GCD's updates and the final divisions): measured on 1,500 random pairs
-// within the number bounds and at their edges, from 0.25 to 0.5 µs for
-// short literals to 26 µs, every one at least 40% under the model, which is
-// up to about 30 times above it for literals sharing large powers of ten
+// The work of a multipleOf check (charged as one parse of the body
+// literal, a short decimal's check against 0.(120 fives)e-990 would take
+// 4.7 ns per charged unit).
+// The library divides the value by the divisor as math/big rationals,
+// a/b by c/d: it multiplies a by d and c by b, divides both products by
+// their greatest common divisor (Lehmer's algorithm), and checks the
+// quotient's denominator. With a, b, c and d bounded in decimal digits
+// (literalDigits, ratDigits), one check takes at most quoUnits, quoMinUnits
+// per digit of the smaller product (each step of the GCD), quoDigitUnits
+// per digit of all four, and a unit per quoProductDigits of the digit
+// products a*b, c*d and (a+b)*(c+d) (the multiplications, the GCD's
+// updates and the final divisions): measured on 1,500 random pairs within
+// the number bounds and at their edges, from 0.25 to 0.5 µs for short
+// literals to 26 µs, every one at least 40% under the model, which is up
+// to about 30 times above it for literals sharing large powers of ten
 // (BenchmarkWorkModel's multipleOf cases). The divisor's part is the
 // schema's (workWeight); the rest is the scan's (bodyScan.quoWork).
 const (
@@ -402,10 +487,27 @@ func numberWork(lit string) int64 {
 
 // walkWork returns the work units the location walk may take per leaf of
 // the error tree under a document whose error locations have at most
-// maxPointer bytes (the walk reads every leaf's location, so its work grows
-// with the leaves times that length, which the library's does not).
+// maxPointer bytes (the walk reads every leaf's location, so its work
+// grows with the leaves times that length, which the library's does not).
 func walkWork(maxPointer int) int64 {
 	return walkUnits + walkByteUnits*int64(maxPointer)
+}
+
+// walkBytes returns what the location walk holds at once besides the
+// error tree, for a document whose error locations with their keywords
+// take at most maxPointer bytes (locationOf, keywordAt): the best leaf's
+// pointer so far, and for a leaf the pointer it builds, its location
+// unescaped, then extended by each keyword token, the old string, the
+// token escaped and the new string live at once while one is copied into
+// the next: at most four strings of maxPointer bytes, each rounded up to
+// its allocation size (a document holding a location of 100,000 bytes
+// holds 106 KB in the walk of a failing body of one byte,
+// TestHandleWalkMemory). The location pass's path and transient copies
+// are gone by then, so the pass is charged the larger of the two
+// (locateMemory).
+func walkBytes(maxPointer int) int64 {
+	n := int64(maxPointer)
+	return 4 * (n + stringExtra(n))
 }
 
 // maxNumberWork is numberWork of the costliest literal within the number
@@ -415,23 +517,79 @@ const maxNumberWork = numberUnits + numberByteUnits*MaxNumberBytes + numberExpUn
 // exponentOf returns the magnitude of the decimal exponent of a number
 // literal, at most MaxNumberExponent.
 func exponentOf(lit string) int {
+	return int(exponentUpTo(lit, MaxNumberExponent))
+}
+
+// exponentUpTo returns the magnitude of the decimal exponent of a number
+// literal, at most limit.
+func exponentUpTo(lit string, limit int64) int64 {
 	i := exponentIndex(lit)
 	if i < 0 {
 		return 0
 	}
-	exp := 0
+	var exp int64
 	for _, c := range []byte(lit[i+1:]) {
 		if c >= '0' && c <= '9' {
-			exp = min(exp*10+int(c-'0'), MaxNumberExponent)
+			exp = min(exp*10+int64(c-'0'), limit)
 		}
 	}
 	return exp
 }
 
+// The schema side of number work, derived from the schema's own literals
+// and compiled values: the walk keeps every literal the library parses
+// within the number bounds, where the terms of numberWork are measured, so
+// for every schema the compile accepts these equal those terms. A literal
+// or a compiled bound past the bounds, which only a position the walk did
+// not walk could hold, is charged its length and exponent, or its digits,
+// growing with their square past the bounds, above what math/big's parse
+// and comparison take (Karatsuba multiplication, below the square), so it
+// is over the work limit long before it is slow (with the exponent's
+// charge capped at MaxNumberExponent, a const of 1e99999 would run at
+// 29.7 ns per charged unit).
+
+// maxLiteralDigits bounds the decimal digits ratDigits gives the numerator
+// or the denominator of a literal within the number bounds: fewer than
+// MaxNumberBytes mantissa digits shifted by at most MaxNumberExponent,
+// plus ratDigits' rounding (1,124 at most, for 123 nines and e1000).
+const maxLiteralDigits = MaxNumberBytes + MaxNumberExponent + 1
+
+// pastBound returns x within bound, and x times x over bound past it, at
+// most countCap.
+func pastBound(x, bound int64) int64 {
+	if x <= bound {
+		return x
+	}
+	return min(mulCap(x, x)/bound, countCap)
+}
+
+// literalWork returns the work units of one parse and comparison of the
+// schema's number literal lit: numberWork within the number bounds, and
+// past them its length and exponent at pastBound.
+func literalWork(lit string) int64 {
+	exp := exponentUpTo(lit, countCap)
+	w := addCap(numberUnits, mulCap(numberByteUnits, pastBound(int64(len(lit)), MaxNumberBytes)))
+	return addCap(w, mulCap(numberExpUnits, pastBound(exp, MaxNumberExponent)))
+}
+
+// boundWork returns the work units a comparison with the compiled numeric
+// bound r takes beyond the parse and comparison numberWork charges the
+// value: none for a bound a literal within the number bounds gives, and
+// past them its digits at pastBound.
+func boundWork(r *big.Rat) int64 {
+	num, den := ratDigits(r)
+	if num <= maxLiteralDigits && den <= maxLiteralDigits {
+		return 0
+	}
+	return mulCap(numberExpUnits, addCap(pastBound(int64(num), maxLiteralDigits), pastBound(int64(den), maxLiteralDigits)))
+}
+
 // keywords returns the keywords of s that can report an error of their
 // own (assertions, and the applicators and references that wrap their
 // branches' errors) and the names its required, dependentRequired and
-// dependencies lists and its type list past the first type may list.
+// dependencies lists and its type list past the first type may list. Format
+// and the content keywords are listed as errorUnits lists them, and are
+// never set here.
 func keywords(s *sjs.Schema) (n, names int) {
 	for _, set := range []bool{
 		s.Ref != nil, s.RecursiveRef != nil, s.DynamicRef != nil, s.Not != nil,
@@ -554,7 +712,11 @@ func (l lengthUnits) units(fails int) (full, decide, groups int) {
 // Every keyword that can report an error of its own counts one unit:
 // assertions, and the references and applicators that wrap their
 // branches' errors. A type, const, enum or format that fails ends the
-// evaluation with one error.
+// evaluation with one error. Format and the content keywords count as the
+// library's validator would count them; the compile refuses every schema
+// the library compiled, the graph the analysis walks, in which the
+// library asserts one (compiled.go and inspect.go), so they add nothing
+// here.
 //
 // The location pass evaluates every other keyword. The decision pass
 // (validator.go with boolResult) evaluates $ref and the keywords of the
@@ -735,8 +897,8 @@ func composite(s *sjs.Schema) bool {
 // can fail (type, const and enum count once, since the first of them that
 // fails ends the evaluation), the names of its lists, its dependency
 // members, the bytes of the names it looks up, the schema side of its
-// const and enum comparisons, the setup of its pattern, and the divisor's
-// part of its multipleOf check.
+// const and enum comparisons and of its numeric bounds, the setup of its
+// pattern, and the divisor's part of its multipleOf check.
 func workWeight(s *sjs.Schema, pc *patternCosts) int {
 	if s.Bool != nil {
 		return evalUnits
@@ -761,6 +923,11 @@ func workWeight(s *sjs.Schema, pc *patternCosts) int {
 	}
 	if s.MultipleOf != nil {
 		w += divisorWork(s.MultipleOf)
+	}
+	for _, b := range []*big.Rat{s.Minimum, s.Maximum, s.ExclusiveMinimum, s.ExclusiveMaximum} {
+		if b != nil {
+			w = int(min(addCap(int64(w), boundWork(b)), countCap))
+		}
 	}
 	return min(w, countCap)
 }
@@ -795,18 +962,18 @@ func lookedUpBytes(s *sjs.Schema) int {
 }
 
 // compareWork returns the work of comparing a value with v, a const or
-// enum value, on v's side: the value side of a top-level number is in
-// dimParses; a number nested in v compares with a nested body number,
-// charged at the costliest literal.
+// enum value, on v's side, its numbers at literalWork: the value side of
+// a top-level number is in dimParses; a number nested in v compares with
+// a nested body number, charged at the costliest literal.
 func compareWork(v any, nested bool) int {
 	w := compareUnits
 	switch t := v.(type) {
 	case string:
 		w += len(t) / compareBytes
 	case json.Number:
-		w += int(numberWork(string(t)))
+		w = int(min(addCap(int64(w), literalWork(string(t))), countCap))
 		if nested {
-			w += maxNumberWork
+			w = min(w+maxNumberWork, countCap)
 		}
 	case []any:
 		for _, e := range t {
@@ -969,7 +1136,7 @@ func (b *bodyScan) decideMemory() int64 {
 }
 
 func (b *bodyScan) locateMemory() int64 {
-	return addCap(addCap(b.locate, b.path), b.transient)
+	return addCap(b.locate, max(addCap(b.path, b.transient), walkBytes(b.ws.flags.maxPointer)))
 }
 
 // workOver reports whether the body is past the work limit.
@@ -991,7 +1158,7 @@ func (b *bodyScan) scan(v any) {
 		st = 0
 	}
 	path, decide := b.value(v, 0, "", 0, st, nil)
-	b.path, b.decide = addCap(path, decideFrames*stackBytes), decide
+	b.path, b.decide = addCap(path, decideFrames*stackBytes+listGrowthBytes), decide
 }
 
 // valueCharge is what bodyScan charges every value before its kind's
@@ -1097,14 +1264,14 @@ func scanRate(c vec) int64 {
 
 // matchers charges the largest transient copy a pattern may take matching
 // the value v, a string, or its member name: a regexp matcher of the
-// largest program that may match it (charged to every body, it took 64 MB
-// of the budget for {}) and the backtracker's job stack (patternReach).
-// Where the value's state is known (s), only the patterns its evaluations
-// apply to the string and those its parent's apply to the name count
-// (charging every pattern of the document to every string a pattern or a
-// uniqueItems pass reached refused small valid bodies at a 64 KiB limit);
-// elsewhere, where the counts c may scan it, every pattern of the document,
-// for the longer of the two.
+// largest program that may match it (charged to every body, it would take
+// 64 MB of the budget for {}) and the backtracker's job stack
+// (patternReach). Where the value's state is known (s), only the patterns
+// its evaluations apply to the string and those its parent's apply to the
+// name count (charging every pattern of the document to every string a
+// pattern or a uniqueItems pass reaches would refuse small valid bodies at
+// a 64 KiB limit); elsewhere, where the counts c may scan it, every
+// pattern of the document, for the longer of the two.
 func (b *bodyScan) matchers(s, parent *evalState, c vec, name string, v any) {
 	str, isString := v.(string)
 	if s == nil {
@@ -1128,15 +1295,15 @@ func (b *bodyScan) str(a valueCharge, n int64) int64 {
 	work := addCap(a.work, mulCap(n, addCap(mulCap(a.evals, copyUnits), scanRate(a.c))))
 	b.addWork(addCap(work, mulCap(a.hash, compareUnits+n/compareBytes)))
 	if a.evals > 0 {
-		b.transient = max(b.transient, n)
+		b.transient = max(b.transient, copyBytes(n))
 	}
 	return a.own
 }
 
 // bounded reports whether st is a state whose evaluations stay within
 // MaxEvaluations, so that a value in it may lie at or past the schema's
-// nesting limit (otherwise the limit refuses every value that deep, also
-// the members of a free-form object that no subschema evaluates).
+// nesting limit (otherwise the limit would refuse every value that deep,
+// also the members of a free-form object that no subschema evaluates).
 func (b *bodyScan) bounded(st int) bool {
 	return st >= 0 && b.ws.states[st].c[dimEvals] <= MaxEvaluations
 }
@@ -1220,7 +1387,7 @@ func (b *bodyScan) array(t []any, d int, a valueCharge) (path, decide int64) {
 		// but only those of one in-place chain hold theirs at once: the
 		// library drops a branch's copy when it merges it, before the next
 		// branch runs (charged per evaluation, an allOf of mixins under
-		// unevaluated* was charged 27 to 84 times its peak).
+		// unevaluated* would be charged 27 to 84 times its peak).
 		u := int64(c[dimUneval])
 		work = addCap(work, mulCap(mulCap(u, n), unevalItemUnits))
 		own = addCap(own, mulCap(min(u, a.chain), itemMapBase+itemMapEntry*n))
@@ -1234,8 +1401,8 @@ func (b *bodyScan) array(t []any, d int, a valueCharge) (path, decide int64) {
 		if a.st != nil {
 			lists, kept = min(lists, int64(a.st.matches)), min(kept, int64(a.st.kept))
 		}
-		own = addCap(own, mulCap(mulCap(lists, n), matchedItemBytes))
-		b.locate = addCap(b.locate, mulCap(mulCap(kept, n), matchedItemBytes))
+		own = addCap(own, mulCap(mulCap(lists, listedItems(n)), matchedItemBytes))
+		b.locate = addCap(b.locate, mulCap(mulCap(kept, listedItems(n)), keptItemBytes))
 	}
 	unique := c[dimUnique] > 0
 	if unique && n > pairwiseItems {
@@ -1269,9 +1436,7 @@ func (b *bodyScan) array(t []any, d int, a valueCharge) (path, decide int64) {
 // loop, keeps them all. Every evaluation with propertyNames validates every
 // member name on its own, as the location pass does, and wraps the errors
 // of a name that fails in an error of its own: at most one per such
-// evaluation, and only for a name whose errors the scan cannot rule out
-// (rather than one wrapper per name, whether or not it could fail and
-// however many evaluations applied propertyNames).
+// evaluation, and only for a name whose errors the scan cannot rule out.
 func (b *bodyScan) object(t map[string]any, d int, a valueCharge) (path, decide int64) {
 	c, work, own := a.c, a.work, a.own
 	n := int64(len(t))
@@ -1285,7 +1450,7 @@ func (b *bodyScan) object(t map[string]any, d int, a valueCharge) (path, decide 
 	}
 	if c[dimHash] > 0 {
 		work = addCap(work, mulCap(mulCap(int64(c[dimHash]), n), sortUnits*int64(bits.Len64(uint64(n)))))
-		own = addCap(own, mulCap(n, hashNameBytes))
+		own = addCap(own, namesBytes(n))
 	}
 	lists := a.evals
 	if a.st != nil {
@@ -1419,10 +1584,11 @@ func comparisons(t []any) int64 {
 // alike, at most one per split of those bytes, with its negation. A JSON
 // number's denominator divides a power of ten, so a split counts only
 // where its second part is a product of twos and fives without a leading
-// zero byte and coprime with the first (counting every split would charge a
-// short decimal 12 comparisons, refusing arrays of distinct prices under
-// uniqueItems above 12% of the limit; 18.4375 and 0.0001, 295/16 and
-// 1/10000, share their bytes). It reports false when p or q does not fit.
+// zero byte and coprime with the first (counting every split would charge
+// a short decimal 12 comparisons, so arrays of distinct prices under
+// uniqueItems would be refused above 12% of the limit; 18.4375 and 0.0001,
+// 295/16 and 1/10000, share their bytes). It reports false when p or q
+// does not fit.
 func hashColliders(lit string) (int64, bool) {
 	p, q, ok := smallRat(lit)
 	if !ok {
