@@ -1,11 +1,12 @@
 # Copyright 2026 Revington
 # SPDX-License-Identifier: Apache-2.0
 #
-# pr-fast: CI stages 1 to 6 (docs/engineering/02-repository-layout-and-conventions.md).
-# Path filters skip stages whose inputs did not change; the pr-fast job
-# aggregates every stage and is the one required status check, so skipped
-# stages never leave a required check pending. release.yml re-runs it on the
-# tagged commit through workflow_call with all: true (11 req 11).
+# pr-fast: CI stages 1 to 6
+# (docs/engineering/02-repository-layout-and-conventions.md). Path filters skip
+# stages whose inputs did not change; the pr-fast job aggregates every stage
+# and is the one required status check, so skipped stages never leave a
+# required check pending. release.yml re-runs it on the tagged commit through
+# workflow_call with all: true.
 name: pr-fast
 
 on:
@@ -138,7 +139,7 @@ jobs:
     name: 4. Build and test on the Go 1.26 floor
     needs: changes
     # The test filter (Go changes, examples/ or the configuration conformance
-    # fixtures): the floor job also checks the conformance digests (11 req 9).
+    # fixtures): the floor job also checks the conformance digests.
     if: needs.changes.outputs.test == 'true'
     runs-on: ubuntu-latest
     steps:
@@ -186,8 +187,8 @@ jobs:
           CGO_ENABLED: "0"
         run: |
           pkgs=(./internal/cli/... ./internal/buildinfo/... ./pkg/...)
-          # The untagged configuration conformance suite: identical digests
-          # and JSON golden bytes on every platform (11 req 9).
+          # The untagged configuration conformance suite: identical
+          # digests and JSON golden bytes on every platform.
           if [[ -d test/conformance/config ]]; then
             pkgs+=(./test/conformance/config/...)
           else

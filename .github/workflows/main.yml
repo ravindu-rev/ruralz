@@ -1,13 +1,13 @@
 # Copyright 2026 Revington
 # SPDX-License-Identifier: Apache-2.0
 #
-# main: CI stage 10 on every merge to main (docs/engineering/02-repository-layout-and-conventions.md,
-# "CI stages"), 45 minutes (target). The end-to-end suite runs on the process
-# harness with the secret leak assertions in every run (11 req 5, 39), and
-# the quickstart script goes from a release archive to a first proxied
-# request on a clean runner (SM-7, 11 req 33). A failure does not block
-# merge but blocks the next release. release.yml re-runs it on the tagged
-# commit through workflow_call (11 req 11); main has no path filters, so
+# main: CI stage 10 on every merge to main
+# (docs/engineering/02-repository-layout-and-conventions.md, "CI stages"), 45
+# minutes (target). The end-to-end suite runs on the process harness with the
+# secret leak assertions in every run, and the quickstart script goes from a
+# release archive to a first proxied request on a clean runner (SM-7). A
+# failure does not block merge but blocks the next release. release.yml re-runs
+# it on the tagged commit through workflow_call; main has no path filters, so
 # `all` changes nothing.
 name: main
 
@@ -59,8 +59,7 @@ jobs:
           redis-server --version
       - name: End-to-end suite as root
         # Root lets the air-gapped start and the handover runs use private
-        # network namespaces (11 req 40, 44); the runner's Go and caches are
-        # kept.
+        # network namespaces; the runner's Go and caches are kept.
         run: |
           sudo --preserve-env env "PATH=$PATH" "HOME=$HOME" \
             "GOCACHE=$(go env GOCACHE)" "GOMODCACHE=$(go env GOMODCACHE)" make e2e
@@ -101,8 +100,8 @@ jobs:
           retention-days: 7
 
   quickstart:
-    # A fresh runner without Go: only the archive, its SHA256SUMS and the
-    # repository's examples/quickstart (11 req 33).
+    # A fresh runner without Go: only the archive, its SHA256SUMS and
+    # the repository's examples/quickstart.
     name: 10. Quickstart on a clean runner
     needs: quickstart-archive
     if: needs.quickstart-archive.outputs.archive != ''

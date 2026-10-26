@@ -1,15 +1,15 @@
 # Copyright 2026 Revington
 # SPDX-License-Identifier: Apache-2.0
 #
-# pr-full: CI stages 8 and 9 (docs/engineering/02-repository-layout-and-conventions.md,
-# "CI stages"; docs/engineering/03-testing-and-quality-strategy.md, "Test
-# pyramid"), 30 minutes (target). Stage 7 (Ruralz Console) is Planned (M2)
-# and stage 10 runs in main.yml. Path filters (scripts/ci-changes.sh) skip
-# stages whose inputs did not change; the pr-full job aggregates every stage
-# and is a required status check like pr-fast, so skipped stages never leave
-# a required check pending (11 req 4). release.yml re-runs it on the tagged
-# commit through workflow_call with all: true (11 req 11); the caller grants
-# contents, pull-requests and issues read.
+# pr-full: CI stages 8 and 9
+# (docs/engineering/02-repository-layout-and-conventions.md, "CI stages";
+# docs/engineering/03-testing-and-quality-strategy.md, "Test pyramid"), 30
+# minutes (target). Stage 7 (Ruralz Console) is Planned (M2) and stage 10 runs
+# in main.yml. Path filters (scripts/ci-changes.sh) skip stages whose inputs
+# did not change; the pr-full job aggregates every stage and is a required
+# status check like pr-fast, so skipped stages never leave a required check
+# pending. release.yml re-runs it on the tagged commit through workflow_call
+# with all: true; the caller grants contents, pull-requests and issues read.
 name: pr-full
 
 on:
@@ -72,12 +72,12 @@ jobs:
         run: bash scripts/ci-changes.sh
 
   integration:
-    # linux/amd64 and native linux/arm64 (OQ-repository-layout-and-conventions-6
-    # (a)) with the local redis-server process flavor, plus a linux/amd64 leg
-    # running the State Store container flavors (Redis 8, Valkey 9.0.1 or
-    # newer, Dragonfly, three-primary clusters) on the runner's Docker (11
-    # req 1, 2, 29). make integration also verifies the systemd unit with
-    # systemd-analyze (11 req 86).
+    # linux/amd64 and native linux/arm64
+    #  with the local redis-server
+    # process flavor, plus a linux/amd64 leg running the State Store container
+    # flavors (Redis 8, Valkey 9.0.1 or newer, Dragonfly, three-primary
+    # clusters) on the runner's Docker. make integration also verifies the
+    # systemd unit with systemd-analyze.
     name: 8. Integration and conformance (${{ matrix.leg }})
     needs: changes
     if: needs.changes.outputs.integration == 'true'
@@ -118,9 +118,8 @@ jobs:
       - run: make integration
 
   gates:
-    # alloc/op on the shared linux/amd64 runner (OQ-testing-and-quality-strategy-2
-    # (c)); the stripped size of both platforms and the idle RSS of the
-    # native binary on each architecture (11 req 3, 64 to 68).
+    # alloc/op on the shared linux/amd64 runner; the stripped size of both
+    # platforms and the idle RSS of the native binary on each architecture.
     name: 9. Regression gates (${{ matrix.leg }})
     needs: changes
     if: needs.changes.outputs.gates == 'true'
@@ -183,8 +182,8 @@ jobs:
           fi
           echo "BENCH_BASE=$base" >>"$GITHUB_ENV"
           echo "alloc/op baseline: ${base:-none, absolute caps only}"
-          # A perf-override label applied by a maintainer records the
-          # approval of an override (11 req 66).
+          # A perf-override label applied by a maintainer records
+          # the approval of an override.
           if [[ -n "$pr" ]] && PR=$pr bash scripts/ci-approvals.sh perf-override; then
             echo "GATES_OVERRIDE=1" >>"$GITHUB_ENV"
             echo "perf-override approved on #$pr by a maintainer" >>"$GITHUB_STEP_SUMMARY"
@@ -197,7 +196,7 @@ jobs:
         # applying the label does not re-run this job by itself.
         if: failure() && github.event_name == 'pull_request' && env.GATES_OVERRIDE == ''
         run: |
-          msg="If a gate failed (not a tool error), a maintainer other than the author can accept it with the perf-override label (11 req 66). Applying the label does not re-run pr-full: after it is applied, re-run this job."
+          msg="If a gate failed (not a tool error), a maintainer can accept it with the perf-override label. Applying the label does not re-run pr-full: after it is applied, re-run this job."
           echo "::notice title=perf-override::$msg"
           printf '\n%s\n' "$msg" >>"$GITHUB_STEP_SUMMARY"
 

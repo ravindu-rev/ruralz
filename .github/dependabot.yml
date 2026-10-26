@@ -28,8 +28,8 @@ updates:
       testcontainers:
         patterns:
           - github.com/testcontainers/*
-      # Minor bumps stay ungrouped: a pre-1.0 minor bump needs a named
-      # reviewer and may need its catalog row updated.
+      # Minor bumps stay ungrouped: a pre-1.0 minor bump can break its API
+      # and may need its catalog row updated.
       patch:
         update-types:
           - patch
