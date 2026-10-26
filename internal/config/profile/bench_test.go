@@ -54,8 +54,8 @@ func BenchmarkParseYAML(b *testing.B) {
 	}))/1000, "allocs/resource")
 }
 
-// BenchmarkParseYAMLWideMapping measures the split parse of one mapping of
-// 20,000 entries (linear, where goccy's own parse is quadratic).
+// BenchmarkParseYAMLWideMapping measures one mapping of 20,000 entries,
+// whose duplicate-key check looks keys up in a map (linear time).
 func BenchmarkParseYAMLWideMapping(b *testing.B) {
 	var sb strings.Builder
 	sb.WriteString("spec:\n  variables:\n")

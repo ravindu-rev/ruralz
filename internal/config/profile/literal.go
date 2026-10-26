@@ -3,27 +3,21 @@
 
 package profile
 
-import (
-	"strings"
-
-	"github.com/goccy/go-yaml/token"
-)
+import "strings"
 
 // Messages of the block scalar checks.
 const (
 	msgBlockLeadingSpaces = "syntax error: a leading empty line of a block scalar holds more spaces than its first line of content"
 	msgBlockInFlow        = "syntax error: a block scalar is not allowed inside a flow collection"
-	msgBlockScalar        = "syntax error: the block scalar does not end at the first line indented less than its content"
-	msgBlockHeader        = "syntax error: cannot find the block scalar's '|' or '>'"
 	msgBlockHeaderRest    = "syntax error: a block scalar header holds at most one chomping and one indentation indicator, then white space or a comment"
+	msgBlockScalarPlace   = "syntax error: a block scalar ('|' or '>') follows its key's ':', a '-' or a '?', on that line or on a later line indented past the entry's collection"
 )
 
 // headerValid reports whether the block scalar header whose indicator is at
 // byte offset at of text is one YAML 1.2 accepts (c-b-block-header): the
 // indicator, at most one indentation indicator (1 to 9) and one chomping
 // indicator in either order, then only white space, or white space and a
-// comment, up to the line break. goccy reads two indicators and ignores the
-// rest of the line ("k: |--" read as {k: "a"}).
+// comment, up to the line break ("k: |--" is refused).
 func headerValid(text string, at int) bool {
 	i := at + 1
 	indent, chomp := false, false
@@ -46,10 +40,7 @@ func headerValid(text string, at int) bool {
 // readBlockScalar reads the block scalar whose indicator ('|' or '>') is at
 // byte offset at of text as YAML 1.2 reads it (YAML 1.2.2 section 8.1),
 // where n is the indentation of the block collection around it, -1 at the
-// document level. goccy's own value drops the trailing white space of the
-// last line with strip chomping, keeps a line break for an empty scalar
-// with keep chomping and reads lines of spaces otherwise, so the value is
-// taken from here. It returns the value, the number of lines after the
+// document level. It returns the value, the number of lines after the
 // header line the scalar holds (its content and the empty lines after it),
 // and a message when YAML 1.2 refuses the scalar.
 //
@@ -146,8 +137,8 @@ scan:
 // indented n: the larger of n+1 and the spaces of its leading empty lines
 // and of its first line with content. It reports false when a leading
 // empty line holds more spaces than a first line of content, which YAML
-// 1.2 refuses; a comment line there is no content but a comment after the
-// scalar, as PyYAML and libyaml read it.
+// 1.2 refuses. A line indented past n is content even when it starts with
+// '#' (YAML Test Suite S98Z), where libyaml-family parsers read a comment.
 func detectIndent(body string, n int) (int, bool) {
 	most := 0
 	for off := 0; off < len(body); {
@@ -158,7 +149,7 @@ func detectIndent(body string, n int) (int, bool) {
 		}
 		sp := leadingSpaces(line)
 		if sp < len(line) {
-			if sp > n && sp < most && line[sp] != '#' {
+			if sp > n && sp < most {
 				return 0, false
 			}
 			most = max(most, sp)
@@ -168,88 +159,4 @@ func detectIndent(body string, n int) (int, bool) {
 		off = end + 1
 	}
 	return max(n+1, most), true
-}
-
-// blockScalar reads the block scalar whose header is token idx from the
-// source (readBlockScalar), records its value for the converter, and
-// checks that goccy's tokens end the scalar where YAML 1.2 does: the token
-// after its content must start on the line that ends it, which is recorded
-// for foldPlain (blockNext). goccy's scanner adds an empty plain scalar
-// after the content of a block scalar followed by blank lines ("? >\n  \n:"
-// scans as Folded, String "", String "\n", MappingValue); such a token
-// holds no value and becomes a comment, which every parse skips. A header
-// goccy reports elsewhere than at its indicator, a block scalar in a flow
-// collection and content goccy reads to another line are RZ-CFG-001. Like
-// the other checks that only keep goccy from misreading a file, it is
-// skipped once the file has a finding.
-func (t *tokenPass) blockScalar(idx int) {
-	if t.errs > 0 {
-		return
-	}
-	tk := t.tks[idx]
-	at := t.posOf(tk)
-	if t.flow > 0 {
-		t.fail(at, msgBlockInFlow)
-		return
-	}
-	// goccy reports the header of a tagged scalar at a blank before its
-	// indicator when white space other than one space comes between them.
-	off := t.src.offset(tk.Position.Line, t.col(tk))
-	for off >= 0 && off < len(t.src.text) && (t.src.text[off] == ' ' || t.src.text[off] == '\t') {
-		off++
-	}
-	if off < 0 || off == len(t.src.text) || (t.src.text[off] != '|' && t.src.text[off] != '>') {
-		t.fail(at, msgBlockHeader)
-		return
-	}
-	if !headerValid(t.src.text, off) {
-		t.fail(at, msgBlockHeaderRest)
-		return
-	}
-	n := -1
-	if len(t.stack) > 0 {
-		n = t.stack[len(t.stack)-1].col - 1
-	}
-	value, lines, msg := readBlockScalar(t.src.text, off, n)
-	if msg != "" {
-		t.fail(at, msg)
-		return
-	}
-	t.fix(tk, scalarFix{text: value, set: true})
-	// The content token, after a comment on the header's line.
-	j := idx + 1
-	for j < len(t.tks) && t.tks[j].Type == token.CommentType && t.tks[j].Position.Line == tk.Position.Line {
-		j++
-	}
-	if j < len(t.tks) && t.tks[j].Type == token.StringType {
-		j++
-	}
-	for j < len(t.tks) && t.tks[j].Type == token.StringType && strings.Trim(t.tks[j].Value, " \t\n") == "" {
-		t.tks[j].Type = token.CommentType
-		j++
-	}
-	end := tk.Position.Line + 1 + lines
-	if j < len(t.tks) {
-		if t.tks[j].Position.Line != end {
-			t.fail(at, msgBlockScalar)
-		}
-		t.next = blockNext{idx: j, line: end}
-		return
-	}
-	// Nothing follows: the scalar runs to the end of the text, apart from
-	// a document marker.
-	if rest := t.src.offset(end, 1); rest >= 0 && rest < len(t.src.text) && !markerAt(t.src.text[rest:lineEnd(t.src.text, rest)]) {
-		t.fail(at, msgBlockScalar)
-	}
-}
-
-// blockNext is the first token after a block scalar's content and the
-// segment line it starts on, where the scalar ends (blockScalar). goccy's
-// value of the content token is not its source text, so the plain scalar
-// that may start there is found from this line (foldPlain): goccy's value
-// drops the indentation of every line after the first, and the
-// keep-chomping rewrite (chomp.go) adds the blank lines after the content,
-// which put the scalar at another place with the rewrite than without it.
-type blockNext struct {
-	idx, line int
 }

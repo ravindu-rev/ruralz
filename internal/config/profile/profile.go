@@ -21,22 +21,21 @@ const (
 	codeSchema    = "RZ-CFG-005"
 )
 
-// Default limits. A Node never enforces a limit
-// below these CLI defaults.
+// Default limits. A Node never enforces a limit below these CLI defaults.
 const (
 	// DefaultMaxBytes is the per-file size limit: the 64 MiB source
 	// limit, which no single file can exceed.
 	DefaultMaxBytes = 64 << 20
 	// DefaultMaxDepth is the nesting limit (target).
 	DefaultMaxDepth = 64
-	// DefaultMaxDocumentTokens is the per-document token limit of the YAML
-	// token pass. A document's tokens, goccy's syntax tree and the value
-	// tree peak at 360 to 450 bytes of heap per token for the densest
-	// shapes (one-character scalars, empty flow collections, single-pair
-	// flow mappings), so 1,000,000 tokens took 400 MiB, past the 256 MiB
-	// heap budget for an input of 1 MiB, and 400,000 stay under 180 MiB,
-	// which leaves room for the paths of a flow collection (maxFlowPath).
-	DefaultMaxDocumentTokens = 400_000
+	// DefaultMaxDocumentTokens is the per-document node limit of the YAML
+	// parser: it counts every scalar, key, collection and empty node of a
+	// document's tree as the parser builds it, and a file's documents may
+	// hold five quarters of it. The parser holds no tokens, so the memory
+	// of a document is its tree's: about 110 to 160 bytes per node, which
+	// keeps the densest input of 1 MiB, about 600,000 nodes, far below the
+	// 256 MiB heap budget, and a file at its limit below 200 MiB.
+	DefaultMaxDocumentTokens = 1_000_000
 	// DefaultMaxDiagnostics is the per-run diagnostics cap (10,000,
 	// proposed).
 	DefaultMaxDiagnostics = 10_000
@@ -90,8 +89,9 @@ type Options struct {
 	// document is depth 1 (DefaultMaxDepth).
 	MaxDepth int
 	// MaxDocumentTokens is the most tokens one YAML document may hold
-	// (DefaultMaxDocumentTokens); a YAML file may hold five quarters as
-	// many in all its documents.
+	// (DefaultMaxDocumentTokens), a token being a node of its tree as the
+	// parser builds it: a scalar, key, collection or empty node. A YAML
+	// file may hold five quarters as many in all its documents.
 	MaxDocumentTokens int
 	// MaxDiagnostics bounds the findings kept for one file
 	// (DefaultMaxDiagnostics): after MaxDiagnostics+1 the file stops, so a
@@ -102,18 +102,6 @@ type Options struct {
 	// built, so the caller's worker can yield the processor. The profile
 	// itself never reads the clock.
 	Yield func()
-
-	// splitAt overrides defaultSplitAt in tests: a higher threshold lets
-	// goccy parse the block collections of fewer entries whole, and a
-	// negative one the whole document, as goccy alone reads it.
-	splitAt int
-	// noRewrite turns the keep-chomping rewrite (chomp.go) off, so tests
-	// can compare its result with goccy's own scan.
-	noRewrite bool
-	// passDepth, when positive, replaces MaxDepth in the token pass only,
-	// so tests can reach the converter's own depth bound (yaml.go) with
-	// trees the token pass would stop.
-	passDepth int
 }
 
 func (o Options) withDefaults() Options {
@@ -128,12 +116,6 @@ func (o Options) withDefaults() Options {
 	}
 	if o.MaxDiagnostics <= 0 {
 		o.MaxDiagnostics = DefaultMaxDiagnostics
-	}
-	switch {
-	case o.splitAt == 0:
-		o.splitAt = defaultSplitAt
-	case o.splitAt < 0:
-		o.splitAt = 0
 	}
 	return o
 }
@@ -158,9 +140,10 @@ var ErrFormat = errors.New("profile: unknown format")
 //
 // Every diagnostic is an error (RZ-CFG-001 to RZ-CFG-005) with a file,
 // line and column. A document with an error is left out of the result, and
-// a YAML file whose token pass reported anything yields no documents at
-// all; empty, comment-only and null documents are skipped, and every
-// returned document's root is a mapping. The returned error is non-nil
+// a YAML file with an anchor, alias, merge key or tag outside the profile,
+// or a finding that stops the file, yields no documents at all; empty,
+// comment-only and null documents are skipped, and every returned
+// document's root is a mapping. The returned error is non-nil
 // only when ctx ends (ctx.Err()) or f is unknown (ErrFormat); there is no
 // partial result then.
 func Parse(ctx context.Context, src []byte, file tree.FileID, path string, f Format, o Options) ([]Document, diag.List, error) {
@@ -232,31 +215,10 @@ func (p *fileParser) errorAt(code string, at tree.Pos, msg string) diag.Diagnost
 	return diag.Diagnostic{Code: code, Severity: diag.SeverityError, Location: p.location(at), Message: msg}
 }
 
-// canceled records ctx's error and reports whether the call must stop.
-func (p *fileParser) canceled(ctx context.Context) bool {
-	if p.err == nil {
-		p.err = ctx.Err()
-	}
-	return p.err != nil
-}
-
 // built counts a built node and yields every yieldEvery nodes.
 func (p *fileParser) built() {
 	p.nodes++
 	if p.opts.Yield != nil && p.nodes%yieldEvery == 0 {
 		p.opts.Yield()
 	}
-}
-
-// keep adds a parsed document unless its root disqualifies it: a null
-// root is skipped and any other non-mapping root is RZ-CFG-005.
-func (p *fileParser) keep(d Document) {
-	switch {
-	case d.Root == nil || d.Root.Kind == tree.KindNull:
-		return
-	case d.Root.Kind != tree.KindMap && !p.anyRoot:
-		p.add(p.errorAt(codeSchema, d.Root.Pos, "a resource must be a mapping"))
-		return
-	}
-	p.docs = append(p.docs, d)
 }

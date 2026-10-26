@@ -93,7 +93,7 @@ func loadExpectedFailures(t *testing.T) map[string]string {
 			t.Fatalf("%s:%d: want \"<ID> <reason>\"", failuresFile, i+1)
 		}
 		if !validReason(reason) {
-			t.Fatalf("%s:%d: reason %q is not profile:<feature> or reviewed:<goccy issue>", failuresFile, i+1, reason)
+			t.Fatalf("%s:%d: reason %q is not a profile:<feature> reason", failuresFile, i+1, reason)
 		}
 		if _, dup := out[id]; dup {
 			t.Fatalf("%s:%d: %s listed twice", failuresFile, i+1, id)
@@ -103,14 +103,12 @@ func loadExpectedFailures(t *testing.T) map[string]string {
 	return out
 }
 
-// validReason reports whether r is a valid reason: a restriction of the
-// profile, or a reviewed goccy limitation.
+// validReason reports whether r is a reason the list may give: a
+// restriction of the profile.
 func validReason(r string) bool {
-	switch {
-	case r == "profile:anchor", r == "profile:tag", r == "profile:complex-key", r == "profile:directive":
+	switch r {
+	case "profile:anchor", "profile:tag", "profile:complex-key", "profile:directive", "profile:duplicate-key":
 		return true
-	case strings.HasPrefix(r, "reviewed:"):
-		return len(r) > len("reviewed:")
 	}
 	return false
 }
@@ -118,16 +116,10 @@ func validReason(r string) bool {
 // reasonShown reports whether the findings of a listed case show its
 // reason, so a case that fails for another reason than the one listed
 // fails the run: an RZ-CFG-003 for an anchor, an RZ-CFG-004 for a tag, the
-// %YAML message for a directive, and a message about a key that is not a
-// scalar for a complex key. A reviewed goccy limitation may show anything,
-// an accepted invalid stream included.
+// %YAML message for a directive, the message about a key that is not a
+// scalar for a complex key, and an RZ-CFG-002 for a duplicate key.
 func reasonShown(reason string, diags diag.List) bool {
-	keyMessages := []string{
-		msgExplicitKey, msgExplicitKeyLine,
-		"syntax error: a mapping key must be a scalar",
-		"syntax error: found an invalid key for this map",
-	}
-	return strings.HasPrefix(reason, "reviewed:") || slices.ContainsFunc(diags, func(d diag.Diagnostic) bool {
+	return slices.ContainsFunc(diags, func(d diag.Diagnostic) bool {
 		switch reason {
 		case "profile:anchor":
 			return d.Code == codeAnchor
@@ -136,7 +128,9 @@ func reasonShown(reason string, diags diag.List) bool {
 		case "profile:directive":
 			return d.Code == codeParse && strings.HasPrefix(d.Message, "%YAML ")
 		case "profile:complex-key":
-			return d.Code == codeParse && slices.Contains(keyMessages, d.Message)
+			return d.Code == codeParse && d.Message == msgComplexKey
+		case "profile:duplicate-key":
+			return d.Code == codeDuplicate
 		default:
 			return false
 		}
@@ -176,9 +170,10 @@ func TestYAMLTestSuite(t *testing.T) {
 	t.Logf("YAML Test Suite: %d cases, %d pass, %d expected failures", len(cases), passed, failed)
 }
 
-// TestReasonShown checks the reason check of the runner: RZP5 was listed
-// as an anchor case while its findings show only its complex key, and
-// that passed.
+// TestReasonShown checks the reason check of the runner: a case passes as
+// an expected failure only when its findings show its listed reason, so a
+// case listed as an anchor case whose findings show only a complex key
+// fails the run.
 func TestReasonShown(t *testing.T) {
 	d := func(code, msg string) diag.List {
 		return diag.List{{Code: code, Severity: diag.SeverityError, Message: msg}}
@@ -189,83 +184,26 @@ func TestReasonShown(t *testing.T) {
 		want   bool
 	}{
 		{"profile:anchor", d(codeAnchor, "anchors are not allowed (&a)"), true},
-		{"profile:anchor", d(codeParse, msgExplicitKey), false},
-		{"profile:complex-key", d(codeParse, msgExplicitKey), true},
-		{"profile:complex-key", d(codeParse, "syntax error: a mapping key must be a scalar"), true},
-		{"profile:complex-key", d(codeParse, msgEmptyKey), false},
+		{"profile:anchor", d(codeParse, msgComplexKey), false},
+		{"profile:complex-key", d(codeParse, msgComplexKey), true},
+		{"profile:complex-key", d(codeParse, msgMultiLineKey), false},
 		{"profile:tag", d(codeTag, "%TAG directives are not allowed"), true},
 		{"profile:tag", d(codeAnchor, "anchors are not allowed (&a)"), false},
 		{"profile:directive", d(codeParse, "%YAML 1.1 directive: only YAML 1.2 is accepted"), true},
-		{"profile:directive", d(codeParse, msgEmptyKey), false},
-		{"reviewed:goccy-v1.19.2/x", nil, true},
-		{"profile:other", d(codeParse, msgEmptyKey), false},
+		{"profile:directive", d(codeParse, msgMultiLineKey), false},
+		{"profile:duplicate-key", d(codeDuplicate, `duplicate key ""`), true},
+		{"profile:duplicate-key", d(codeParse, msgComplexKey), false},
+		{"profile:other", d(codeParse, msgComplexKey), false},
 	}
 	for _, tt := range tests {
 		if got := reasonShown(tt.reason, tt.diags); got != tt.want {
 			t.Errorf("reasonShown(%q, %q) = %v, want %v", tt.reason, codes(tt.diags), got, tt.want)
 		}
 	}
-	for r, want := range map[string]bool{"profile:anchor": true, "profile:implicit-key": false, "reviewed:goccy-v1.19.2/a": true, "reviewed:": false} {
+	for r, want := range map[string]bool{"profile:anchor": true, "profile:implicit-key": false, "libyaml:parser": false, "": false} {
 		if got := validReason(r); got != want {
 			t.Errorf("validReason(%q) = %v, want %v", r, got, want)
 		}
-	}
-}
-
-// TestReviewedFindings pins the first finding of every case listed as a
-// reviewed goccy limitation. reasonShown lets such a case show any
-// finding, so a change that refused one of them for another reason, or
-// accepted it, would pass the runner unseen; several are refused by the
-// profile's own checks, which guard goccy's misreading of them. "" marks
-// an invalid stream that goccy accepts and the profile cannot tell from a
-// valid one.
-func TestReviewedFindings(t *testing.T) {
-	want := map[string]string{
-		"2JQS":     "RZ-CFG-001@2:1 " + msgEmptyKey,
-		"4MUZ/02":  "RZ-CFG-001@1:2 syntax error: map key definition includes an implicit line break",
-		"9C9N":     "",
-		"9JBA":     "",
-		"9MMW":     "RZ-CFG-001@2:16 " + msgFlowSeqEntry,
-		"CFD4":     "RZ-CFG-001@1:5 syntax error: found an invalid key for this map",
-		"CVW2":     "",
-		"DFF7":     "RZ-CFG-001@4:1 " + msgEmptyExplicitKey,
-		"DK95/04":  "RZ-CFG-001@2:1 syntax error: found character '\t' that cannot start any token",
-		"FH7J":     "RZ-CFG-001@1:3 a tagged node has no value",
-		"FRK4":     "RZ-CFG-001@3:3 syntax error: found an invalid key for this map",
-		"M7A3":     "RZ-CFG-001@6:1 " + msgBlockScalar,
-		"NHX8":     "RZ-CFG-001@1:1 " + msgEmptyKey,
-		"NKF9":     "RZ-CFG-001@3:1 " + msgEmptyKey,
-		"QB6E":     "",
-		"S3PD":     "RZ-CFG-001@2:1 " + msgEmptyKey,
-		"SM9W/01":  "RZ-CFG-001@1:1 " + msgEmptyKey,
-		"SU5Z":     "",
-		"UKK6/00":  "RZ-CFG-001@1:3 " + msgEmptyKey,
-		"VJP3/01":  "RZ-CFG-001@2:2 syntax error: map key definition includes an implicit line break",
-		"Y79Y/003": "",
-	}
-	expected := loadExpectedFailures(t)
-	for _, c := range loadSuite(t) {
-		reason := expected[c.id]
-		if !strings.HasPrefix(reason, "reviewed:") {
-			continue
-		}
-		w, pinned := want[c.id]
-		if !pinned {
-			t.Errorf("%s is listed as %s, and its finding is not pinned here", c.id, reason)
-			continue
-		}
-		delete(want, c.id)
-		diags, _ := runCase(c)
-		got := ""
-		if len(diags) > 0 {
-			got = fmt.Sprintf("%s@%d:%d %s", diags[0].Code, diags[0].Line, diags[0].Column, diags[0].Message)
-		}
-		if got != w {
-			t.Errorf("%s: first finding %q, want %q", c.id, got, w)
-		}
-	}
-	for id := range want {
-		t.Errorf("%s is pinned here and not listed as reviewed in %s", id, failuresFile)
 	}
 }
 

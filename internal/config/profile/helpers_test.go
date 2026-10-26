@@ -5,9 +5,8 @@ package profile
 
 import (
 	"context"
-	"errors"
+	"flag"
 	"fmt"
-	"io"
 	"io/fs"
 	"math/big"
 	"os"
@@ -18,9 +17,6 @@ import (
 	"strings"
 	"testing"
 	"time"
-
-	"github.com/goccy/go-yaml/scanner"
-	"github.com/goccy/go-yaml/token"
 
 	"github.com/ravindu-rev/ruralz/internal/config/diag"
 	"github.com/ravindu-rev/ruralz/internal/config/tree"
@@ -54,14 +50,6 @@ func show(n *tree.Node, pos bool) string {
 	return b.String()
 }
 
-// showShifted renders a tree like show with positions, its lines moved
-// down by shift.
-func showShifted(n *tree.Node, shift int) string {
-	var b strings.Builder
-	shower{pos: true, shift: shift}.write(&b, n)
-	return b.String()
-}
-
 // showValues renders a tree like show without positions, writing every
 // number as its exact value (num:1/2), so 1, 1.0 and 1e0 render alike.
 func showValues(n *tree.Node) string {
@@ -70,10 +58,9 @@ func showValues(n *tree.Node) string {
 	return b.String()
 }
 
-// shower renders trees for show, showShifted and showValues.
+// shower renders trees for show and showValues.
 type shower struct {
 	pos, values bool
-	shift       int
 }
 
 func (sh shower) write(b *strings.Builder, n *tree.Node) {
@@ -83,7 +70,7 @@ func (sh shower) write(b *strings.Builder, n *tree.Node) {
 	}
 	at := func(p tree.Pos) {
 		if sh.pos {
-			fmt.Fprintf(b, "@%d:%d", int(p.Line)+sh.shift, p.Column)
+			fmt.Fprintf(b, "@%d:%d", p.Line, p.Column)
 		}
 	}
 	switch n.Kind {
@@ -176,20 +163,63 @@ func suiteInputs(t testing.TB) []string {
 	return out
 }
 
-// allocBytes returns the bytes allocated by the process so far.
+// allocBytes returns the bytes allocated by the process so far. A P adds
+// the objects it allocates from a cached span to the count only when the
+// span leaves its cache, so the value lags by up to the cached spans,
+// hundreds of KiB: it suits bounds with MiB of slack, and allocatedBy
+// measures smaller amounts.
 func allocBytes() uint64 {
 	s := []metrics.Sample{{Name: "/gc/heap/allocs:bytes"}}
 	metrics.Read(s)
 	return s[0].Value.Uint64()
 }
 
+// allocatedBy returns the bytes allocated while f runs, counted exactly:
+// runtime.GC flushes every P's cached spans into the count before and
+// after f. The package's tests run one at a time, so f is all that
+// allocates in between.
+func allocatedBy(f func()) uint64 {
+	runtime.GC()
+	before := allocBytes()
+	f()
+	runtime.GC()
+	return allocBytes() - before
+}
+
+// fuzzing reports whether the test binary runs the fuzzing engine (go
+// test -fuzz), where a wall-clock bound catches a parse that hangs; the
+// seed corpus that a plain go test runs is checked without one.
+func fuzzing() bool {
+	f := flag.Lookup("test.fuzz")
+	return f != nil && f.Value.String() != ""
+}
+
+// TestAllocatedByIsExact checks the measure the linearity tests compare:
+// a known number of small allocations is counted in full, one or many,
+// where the unflushed counter reports none until a span leaves its
+// cache.
+func TestAllocatedByIsExact(t *testing.T) {
+	for _, n := range []uint64{1, 100, 10000} {
+		keep := make([][]byte, n)
+		got := allocatedBy(func() {
+			for i := range keep {
+				keep[i] = make([]byte, 64)
+			}
+		})
+		runtime.KeepAlive(keep)
+		if want := 64 * n; got < want || got > want+16<<10 {
+			t.Errorf("allocatedBy(%d allocations of 64 bytes) = %d, want %d to %d", n, got, want, want+16<<10)
+		}
+	}
+}
+
 func itoa(i int) string { return strconv.Itoa(i) }
 
 // peakHeap runs f and returns the largest growth of live heap objects and
 // goroutine stacks over their size before f, sampling
-// /memory/classes/heap/objects:bytes (the measure) and
+// /memory/classes/heap/objects:bytes (the measure heapBudget bounds) and
 // /memory/classes/heap/stacks:bytes every millisecond: a parser that
-// recurses once per token spends its memory on the stack, not in heap
+// recurses once per node spends its memory on the stack, not in heap
 // objects.
 func peakHeap(f func()) uint64 {
 	read := func() uint64 {
@@ -224,20 +254,65 @@ func peakHeap(f func()) uint64 {
 
 func itoa64(i int64) string { return strconv.FormatInt(i, 10) }
 
-// scanString returns goccy's scanner tokens of src, up to its first
-// error.
-func scanString(src string) (token.Tokens, error) {
-	var s scanner.Scanner
-	s.Init(src)
-	var tks token.Tokens
-	for {
-		sub, err := s.Scan()
-		tks.Add(sub...)
-		switch {
-		case errors.Is(err, io.EOF), err == nil && len(sub) == 0:
-			return tks, nil
-		case err != nil:
-			return tks, err
+// nest returns YAML nested depth levels deep in the given style.
+func nest(style string, depth int) string {
+	var b strings.Builder
+	switch style {
+	case "block map":
+		for i := range depth {
+			b.WriteString(strings.Repeat("  ", i) + "k" + strconv.Itoa(i) + ":\n")
 		}
+		b.WriteString(strings.Repeat("  ", depth) + "leaf\n")
+		// Replace the deepest key's empty value with a scalar.
+		s := b.String()
+		return strings.TrimSuffix(s[:strings.LastIndex(s, "\n"+strings.Repeat("  ", depth)+"leaf")], ":") + ": leaf\n"
+	case "block seq":
+		for i := range depth {
+			b.WriteString(strings.Repeat("  ", i) + "-\n")
+		}
+		b.WriteString(strings.Repeat("  ", depth) + "leaf\n")
+		return b.String()
+	case "compact seq":
+		b.WriteString(strings.Repeat("- ", depth) + "leaf\n")
+		return b.String()
+	case "flow":
+		return "a: " + strings.Repeat("[", depth-1) + strings.Repeat("]", depth-1) + "\n"
+	case "mixed":
+		// map > seq > map > seq ... in block style, then flow.
+		ind := 0
+		for i := 0; i < depth; i++ {
+			if i%2 == 0 {
+				b.WriteString(strings.Repeat(" ", ind) + "k:\n")
+			} else {
+				b.WriteString(strings.Repeat(" ", ind) + "-\n")
+			}
+			ind += 2
+		}
+		b.WriteString(strings.Repeat(" ", ind) + "leaf\n")
+		return b.String()
 	}
+	panic(style)
+}
+
+// parseWith parses YAML text with default options, keeping documents
+// whose root is not a mapping, and returns the documents and the findings
+// as codes.
+func parseWith(t testing.TB, src string) ([]Document, string) {
+	t.Helper()
+	docs, diags, err := parse(context.Background(), []byte(src), 0, "f.yaml", FormatYAML, Options{}, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return docs, codes(diags)
+}
+
+// mustRoot parses YAML text that must give one document without findings
+// and returns its root.
+func mustRoot(t *testing.T, src string) *tree.Node {
+	t.Helper()
+	docs, diags := parseYAML(t, src)
+	if len(diags) != 0 || len(docs) != 1 {
+		t.Fatalf("%q: %q", src, codes(diags))
+	}
+	return docs[0].Root
 }

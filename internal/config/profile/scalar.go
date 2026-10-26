@@ -11,9 +11,8 @@ import (
 )
 
 // The YAML 1.2 core schema (YAML 1.2.2 section 10.3.2) resolves a plain
-// scalar by its text alone. Ruralz owns this resolution: goccy types 0777
-// as octal, 1_000 and 0b1 as integers and 1e3 as a string, so its token
-// types are never consulted.
+// scalar by its text alone: 0777 is the decimal 777, 1_000 and 0b1 are
+// strings and 1e3 is a float, whatever YAML 1.1 parsers read.
 
 // scalarClass is the core schema class of a plain scalar's text.
 type scalarClass uint8

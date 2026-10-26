@@ -3,34 +3,25 @@
 
 package profile
 
-import (
-	"unicode/utf8"
+import "unicode/utf8"
 
-	"github.com/goccy/go-yaml/token"
-)
-
-// Messages of the quoted scalar checks.
-const (
-	msgQuoteStart = "syntax error: cannot find the quoted scalar's opening quote"
-	msgQuoteEnd   = "syntax error: the quoted scalar does not end at its closing quote"
-	msgQuoteOpen  = "syntax error: the quoted scalar has no closing quote"
-)
+// msgQuoteOpen is the message for a quoted scalar left open.
+const msgQuoteOpen = "syntax error: the quoted scalar has no closing quote"
 
 // readQuoted reads the quoted scalar whose opening quote is at byte offset
 // at of text as YAML 1.2 reads it (YAML 1.2.2 sections 7.3.1 and 7.3.2),
 // into buf's storage. It returns the value, the offset just past the
 // closing quote, and a message when YAML 1.2 refuses the scalar.
 //
-// goccy's scanner drops the white space an escape gives before a line
-// break ("\ ", "\x20"), keeps the tabs before a line break of a single
-// quoted scalar, and accepts invalid escapes such as "\xZZ", lone
-// surrogates and code points past U+10FFFF, so the value is taken from
-// here. A line break folds: the white space before it is dropped, as is
-// the indentation after it, and it becomes a space, or one line feed per
-// empty line that follows it. In a double-quoted scalar an escaped line
+// The white space an escape gives before a line break ("\ ", "\x20") stays,
+// and an escape YAML 1.2 does not define ("\xZZ", a lone surrogate, a code
+// point past U+10FFFF) is refused. A line break folds: the white space
+// before it is dropped, as is the indentation after it, and it becomes a
+// space, or one line feed per empty line that follows it. The caller checks
+// that indentation (quoted). In a double-quoted scalar an escaped line
 // break is dropped, keeping the white space before it, and the escapes are
-// YAML 1.2's; a high and a low UTF-16 surrogate escaped one after the
-// other join into one character, as in JSON.
+// YAML 1.2's; a high and a low UTF-16 surrogate escaped one after the other
+// join into one character, as in JSON.
 func readQuoted(buf []byte, text string, at int) (value []byte, end int, msg string) {
 	q := text[at]
 	out := buf[:0]
@@ -209,44 +200,4 @@ func hexValue(s string, digits int) (uint32, bool) {
 		}
 	}
 	return v, true
-}
-
-// quoted reads the quoted scalar token idx from the source (readQuoted)
-// and records its value for the converter when it differs from goccy's. An
-// escape YAML 1.2 does not define is RZ-CFG-001 at the scalar, as are an
-// opening quote goccy reports elsewhere and a next token inside the
-// scalar, which would mean goccy read another scalar. Like the other
-// checks that only keep goccy from misreading a file, it is skipped once
-// the file has a finding.
-func (t *tokenPass) quoted(idx int) {
-	if t.errs > 0 {
-		return
-	}
-	tk := t.tks[idx]
-	at := t.posOf(tk)
-	off := t.src.offset(tk.Position.Line, t.col(tk))
-	q := byte('"')
-	if tk.Type == token.SingleQuoteType {
-		q = '\''
-	}
-	if off < 0 || t.src.text[off] != q {
-		t.fail(at, msgQuoteStart)
-		return
-	}
-	value, end, msg := readQuoted(t.buf, t.src.text, off)
-	if msg != "" {
-		t.fail(at, msg)
-		return
-	}
-	t.buf = value
-	if string(value) != tk.Value {
-		t.fix(tk, scalarFix{text: string(value), set: true})
-	}
-	if idx+1 < len(t.tks) {
-		next := t.tks[idx+1]
-		line, col := advance(t.src.text, off, end, tk.Position.Line, t.col(tk))
-		if nl, nc := next.Position.Line, t.col(next); nl < line || (nl == line && nc < col) {
-			t.fail(at, msgQuoteEnd)
-		}
-	}
 }

@@ -1,7 +1,7 @@
-# YAML Test Suite cases the restricted profile is expected to fail (01 test
-# plan "Upstream suites", 11 req 18). The runner is TestYAMLTestSuite in
-# internal/config/profile (integration tag); the data is test/fixtures/
-# yaml-test-suite/data, vendored by scripts/update-test-suites.sh yaml.
+# YAML Test Suite cases the restricted profile is expected to fail. The
+# runner is TestYAMLTestSuite in internal/config/profile (integration tag);
+# the data is test/fixtures/yaml-test-suite/data, vendored by
+# scripts/update-test-suites.sh yaml.
 #
 # Every other case must pass: an "error" case must be rejected, any other
 # case must parse without diagnostics to its test.event documents and its
@@ -9,16 +9,11 @@
 # fails the run, so this list only shrinks.
 #
 # Format: one "<ID> <reason>" per line; # starts a comment. Reasons:
-#   profile:anchor       anchors, aliases or merge keys (RZ-CFG-003)
-#   profile:tag          a tag other than the YAML 1.2 core tags, or %TAG (RZ-CFG-004)
-#   profile:directive    a %YAML version other than 1.2 (RZ-CFG-001)
-#   profile:complex-key  a mapping key that is not a scalar (RZ-CFG-001)
-#   reviewed:goccy-v1.19.2/<name>
-#                        a parser limitation of github.com/goccy/go-yaml
-#                        v1.19.2, reviewed; <name> is the case's entry in
-#                        the failureTestNames list of goccy's own
-#                        yaml_test_suite_test.go at that release. Raising
-#                        the goccy version reruns these.
+#   profile:anchor         anchors, aliases or merge keys (RZ-CFG-003)
+#   profile:tag            a tag other than the YAML 1.2 core tags, or %TAG (RZ-CFG-004)
+#   profile:directive      a %YAML version other than 1.2 (RZ-CFG-001)
+#   profile:complex-key    a mapping key that is not a scalar (RZ-CFG-001)
+#   profile:duplicate-key  a key given twice in one mapping (RZ-CFG-002)
 
 # Anchors, aliases and merge keys.
 26DV profile:anchor
@@ -93,26 +88,7 @@ RZP5 profile:complex-key
 SBG9 profile:complex-key
 V9D5 profile:complex-key
 XW4D profile:complex-key
+9MMW profile:complex-key
 
-# goccy v1.19.2 limitations: valid streams it rejects, invalid streams it accepts, or values it reads wrongly.
-2JQS reviewed:goccy-v1.19.2/block-mapping-with-missing-keys
-4MUZ/02 reviewed:goccy-v1.19.2/flow-mapping-colon-on-line-after-key/02
-9C9N reviewed:goccy-v1.19.2/wrong-indented-flow-sequence
-9JBA reviewed:goccy-v1.19.2/invalid-comment-after-end-of-flow-sequence
-9MMW reviewed:goccy-v1.19.2/single-pair-implicit-entries
-CFD4 reviewed:goccy-v1.19.2/empty-implicit-key-in-single-pair-flow-sequences
-CVW2 reviewed:goccy-v1.19.2/invalid-comment-after-comma
-DFF7 reviewed:goccy-v1.19.2/spec-example-7-16-flow-mapping-entries
-DK95/04 reviewed:goccy-v1.19.2/tabs-that-look-like-indentation/04
-FH7J reviewed:goccy-v1.19.2/tags-on-empty-scalars
-FRK4 reviewed:goccy-v1.19.2/spec-example-7-3-completely-empty-flow-nodes
-M7A3 reviewed:goccy-v1.19.2/spec-example-9-3-bare-documents
-NHX8 reviewed:goccy-v1.19.2/empty-lines-at-end-of-document
-NKF9 reviewed:goccy-v1.19.2/empty-keys-in-block-and-flow-mapping
-QB6E reviewed:goccy-v1.19.2/wrong-indented-multiline-quoted-scalar
-S3PD reviewed:goccy-v1.19.2/spec-example-8-18-implicit-block-mapping-entries
-SM9W/01 reviewed:goccy-v1.19.2/single-character-streams/01
-SU5Z reviewed:goccy-v1.19.2/comment-without-whitespace-after-doublequoted-scalar
-UKK6/00 reviewed:goccy-v1.19.2/syntax-character-edge-cases/00
-VJP3/01 reviewed:goccy-v1.19.2/flow-collections-over-many-lines/01
-Y79Y/003 reviewed:goccy-v1.19.2/tabs-in-various-contexts/003
+# Keys given twice in one mapping: two empty keys.
+2JQS profile:duplicate-key

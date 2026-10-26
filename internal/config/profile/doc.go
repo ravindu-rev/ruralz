@@ -2,132 +2,65 @@
 // SPDX-License-Identifier: Apache-2.0
 
 // Package profile is stage B of the configuration pipeline: it turns the
-// bytes of one Bundle file into value trees under the restricted YAML
-// 1.2 profile or strict JSON, and writes trees back as
-// restricted-profile YAML or JSON. It is the only package that imports
-// goccy/go-yaml.
+// bytes of one Bundle file into value trees under the restricted YAML 1.2
+// profile or strict JSON, and writes trees back as restricted-profile YAML
+// or JSON. It is the only YAML parser and emitter of Ruralz, and it is
+// Ruralz code: no YAML library is linked (ADR-0003).
 //
 // # YAML
 //
 // Parse first applies the byte pre-checks: valid UTF-8, no U+FEFF, only
 // YAML printable characters; CR LF and CR become LF, and a text that does
 // not end with a line break gets one, as the YAML Test Suite reads such a
-// stream; neither changes a position. The text is then cut into documents
-// at their markers, and each document goes through the token pass and the
-// parse in turn, so peak token memory is one document's.
+// stream; neither changes a position.
 //
-// The token pass reads goccy's scanner tokens. It reports anchors,
-// aliases and merge keys (RZ-CFG-003) and tags other than the seven YAML
-// 1.2 core tags or %TAG (RZ-CFG-004) for the whole file, and stops the
-// file at the first RZ-CFG-001: a %YAML version other than 1.2, an invalid
-// token, nesting deeper than MaxDepth, more than MaxDocumentTokens tokens
-// in a document or five quarters of it in the file's documents (the trees
-// of earlier documents stay live while a later one is parsed), a "..."
-// goccy reads as a document end on a line that is no marker or a token
-// after a document end (segment.go), or a shape goccy reads otherwise than
-// YAML 1.2. These are a block sequence entry or a lone plain "-" inside a
-// flow collection, a node with two tags, a tag that ends its line before a
-// token at or left of its block collection's column (goccy nests "b: 1" in
-// "a: !!map\nb: 1" under a), a block collection on its tag's line, an
-// entry indented less than the block collection before it at no enclosing
-// collection's column, a mapping entry at a block sequence's column that
-// no mapping there holds ("-\nk: v"), a block mapping key after a tab on
-// its line, a ':' with no key on its line after a node that started on an
-// earlier line or is a block scalar (goccy reads a multi-line implicit
-// key), an explicit entry ('?') whose key is not one node on the '?' line,
-// is empty, or is followed by a node that is neither its ':' nor a new
-// entry, or in a flow collection holds more than one node or a tag goccy
-// does not group with its content (explicit.go), a plain scalar goccy
-// scanned out of a quoted scalar, a property or a flow collection, or a
-// lone "?" (plain.go), a quoted scalar with an escape YAML 1.2 does not
-// define (quoted.go), a block scalar inside a flow collection, one whose
-// header holds more than one chomping and one indentation indicator, or
-// one whose lines goccy reads to another end (literal.go), a flow entry
-// holding more than an optional '?', a node, a ':' and a node, which goccy
-// reads by columns and without ',', and a ':' goccy reads otherwise inside
-// a flow collection: followed by a character a plain scalar holds, which
-// goccy splits as a value indicator while a flow mapping is open
-// ("{app:web}" read as {app: web}), or before a flow indicator outside one
-// ("[a:]" read as ["a:"]) (flowentry.go), and a flow collection whose
-// parse by goccy would pass a memory or time bound (flowcost.go). The
-// checks that only keep goccy from misreading a file are skipped once the
-// file has a finding: it is never parsed then, and the scan goes on
-// collecting RZ-CFG-003 and RZ-CFG-004. The token count is first bounded
-// from the bytes before tokenizing; the bound over-counts indicators
-// inside quoted and block scalars, so a document whose bound passes the
-// limit is refused as too large to tokenize even when its exact count
-// would not.
+// The parser then reads the text once, by the productions of YAML 1.2.2
+// chapters 6 to 9, and builds the value trees directly: there is no token
+// or event stage, so time is linear in the input and the memory held is
+// the trees'. A syntax error is RZ-CFG-001 at the character that breaks
+// the grammar, with a message naming the rule; it leaves its document out,
+// and the parse goes on at the next document marker. Where libyaml-based
+// parsers read YAML otherwise, the parser follows YAML 1.2: it refuses a
+// block mapping key or a compact collection after a tab, a line of a quoted
+// scalar or a flow collection, its closing bracket included, indented at
+// or left of the block collection holding it, a comment right after a
+// token, a value after ':' without white space in a flow collection unless
+// the key is quoted ("{a:[]}"), a '?' or '-' before a flow indicator ("[?]",
+// "[-]"), a tab where the empty lines after a block scalar or the first
+// comment after them need spaces when the document goes on, and an implicit
+// key over more than one line or 1,024 characters; and it reads an entry
+// with an empty key, whose key is "", a reserved directive, which it
+// ignores, a bare document after "...", and a line indented past its
+// collection after a block scalar's empty lines, which is content (YAML
+// Test Suite S98Z). The deviation list in differential_test.go names every
+// such class.
 //
-// goccy's scanner reads some valid text otherwise than YAML 1.2, so a
-// document is scanned with one character rewritten for one where that
-// changes no value and no position: the blank lines that end it are left
-// out (an indentation indicator before them was refused), a tab between a
-// quoted key and its ':' is read as a space, a keep-chomping block scalar
-// of blank lines takes strip chomping (goccy refused the next token), and,
-// when goccy's scan holds them, the tabs inside a double-quoted scalar
-// (goccy stepped past the scalar's end, losing the line break after it)
-// and the tab that ends a tag ("!!str\tx") are read as spaces (yaml.go,
-// chomp.go). The token pass also reads from the source the scalars whose
-// value or position goccy's scanner gets wrong, and those readings win:
-// every quoted scalar (goccy drops the spaces escapes give before a line
-// break), every block scalar (goccy drops trailing spaces and miscounts
-// empty lines), every plain scalar over several lines (after a line
-// starting with '-' goccy keeps a comment in the value and reports a later
-// line, and it miscounts empty lines of spaces) and every plain scalar
-// holding a tab (goccy leaves the tab out of the value).
+// The profile restricts YAML further. Anchors, aliases and merge keys are
+// RZ-CFG-003 and tags other than the seven core tags, or %TAG, RZ-CFG-004,
+// reported for the whole file; a file with any of them yields no documents
+// and none of the findings about their values. A mapping key must be a
+// scalar (RZ-CFG-001). A %YAML version other than 1.2, nesting deeper than
+// MaxDepth, more than MaxDocumentTokens nodes in a document or five
+// quarters of it in the file's documents (the trees of earlier documents
+// stay live while a later one is parsed), and more than MaxDiagnostics
+// findings stop the file. The parser recurses only as the nodes nest, so
+// MaxDepth bounds its stack too.
 //
-// A file with any token-pass finding is not parsed. Each document is parsed
-// entry by entry along the block collections the token pass found
-// (split.go): goccy's parser reads every key and every value that is not a
-// block collection on its own, so no goccy cost grows past one value, and
-// the block structure is the token pass's, which refuses what YAML 1.2's
-// indentation rules refuse where goccy reads a tree: a value on a later
-// line at or left of its entry's column, except a block sequence that is a
-// mapping value, and the shapes above. A document whose tokens do not hold
-// one body is refused without goccy's parse of it (yaml.go), and the split
-// parse never hands goccy a range holding a block collection (split.go).
-// Ruralz code then types every plain scalar by the YAML 1.2 core schema
-// from its text, never from goccy's token type, reports duplicate keys
-// with both positions (RZ-CFG-002), skips empty and null documents and
-// refuses a root that is not a mapping (RZ-CFG-005). The conversion also
-// counts the depth of the tree it builds and fails a document with
-// RZ-CFG-001 at the first collection deeper than MaxDepth, so no shape the
-// token pass mispredicts returns a deeper tree (flow pairs such as "[k:
-// [k: v]]" add a level per flow sequence that the token pass does not
-// count). That bound covers the returned tree only: goccy has parsed the
-// value, with every node and path of it, before the conversion starts, so
-// the cost of goccy's parse rests on the token pass predicting goccy's
-// nesting from columns in block context and exactly inside a flow
-// collection, which goccy parses whole. Keys and values carry 1-based
-// lines and code-point columns. goccy's scanner puts every token after a
-// tag or after most tabs one column short, and a plain scalar before
-// trailing spaces too far right, so every token is located in the source
-// and every reported position corrected (columns.go); the implicit null of
-// an empty value sits in the column after its ':', '-' or explicit key,
-// whatever follows the entry.
+// Plain scalars are typed by the YAML 1.2 core schema from their text
+// (scalar.go), and a core tag forces the type: a value that does not match
+// it is RZ-CFG-001 at the tag. Duplicate keys are RZ-CFG-002 with both
+// positions, keys comparing as written; empty and null documents are
+// skipped, and a root that is not a mapping is RZ-CFG-005. Keys and values
+// carry 1-based lines and code-point columns: a node is at its first
+// character, a tagged node at its tag, a block mapping at its first entry,
+// a flow collection at its bracket, and the implicit null of an empty
+// value in the column after its ':' or '-', or after an explicit key's
+// position.
 //
-// goccy v1.19.2 costs are kept bounded without changing a result: the
-// entry-by-entry parse keeps wide block mappings, empty values and long
-// keys linear (split.go), a document with a long run of blank lines has its
-// clipping block scalars scanned with keep chomping (chomp.go), and the
-// paths and inserted nulls of a flow collection are bounded (flowcost.go).
-// The entry-by-entry parse and the keep-chomping rewrite are checked
-// against goccy's own parse over the YAML Test Suite.
-//
-// goccy v1.19.2 refuses some valid YAML 1.2, and the profile keeps it
-// refused (TestGoccyLimitations, the reviewed entries of the YAML Test
-// Suite's expected-failures.txt): a flow pair whose value is on a later
-// line at or left of its key ("[a:\n b]", "[? a\n : b]"), an empty value
-// or explicit key in a flow sequence ("[a: ]", "[k: ,]", "[? a]"), a ','
-// that starts a line after a flow pair, a ':' after a JSON-like key in a
-// flow sequence outside a flow mapping ("[\"a\":b]"), a plain scalar in a
-// flow collection continued by a line starting with '-' or another plain
-// line ("{a: b\n c}"), a tag that ends its line before a block scalar
-// header, a value over several lines after a tagged implicit key ("!!str
-// k: x\n  y") or a quoted explicit key, an explicit key whose tag ends the
-// '?' line, a tagged empty node before a sibling ("a: !!str\nb: 1"), and a
-// line of white space holding a tab between two lines of content
-// ("a: 1\n\t\nb: 2") or after the last.
+// The parser is checked against the YAML Test Suite, where the profile's
+// refusals are the listed expected failures, and against yaml.v3 as a
+// test-only differential oracle (differential_test.go,
+// FuzzYAMLv3Differential).
 //
 // # JSON
 //
@@ -139,13 +72,13 @@
 // # Encoding
 //
 // Encode is the one restricted-profile emitter: block style, two-space
-// indentation, "---" separators, the quoting rule and "${" written
-// "$${". EncodeJSON writes the JSON form. Neither depends on a library
-// release.
+// indentation, "---" separators, strings plain only where the core schema
+// reads them back as the same strings, and "${" written "$${". EncodeJSON
+// writes the JSON form. Neither depends on a library release.
 //
 // # Purity
 //
-// The package reads no file, environment, network or clock;
-// Options.Yield lets the caller's worker yield. Functions are safe for
-// concurrent use; Parse starts no goroutine.
+// The package reads no file, environment, network or clock; Options.Yield
+// lets the caller's worker yield. Functions are safe for concurrent use;
+// Parse starts no goroutine.
 package profile
