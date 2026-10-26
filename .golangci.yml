@@ -43,6 +43,9 @@ linters:
             - go.opentelemetry.io/contrib/bridges/otelslog
             - go.opentelemetry.io/otel
             - go.opentelemetry.io/proto/otlp
+            # Test-only: the differential oracle of internal/config/profile
+            # (ADR-0003); the yamlv3 rule below confines it.
+            - go.yaml.in/yaml/v3
             - golang.org/x/net/http2
             - golang.org/x/sys/unix
             - google.golang.org/grpc
@@ -79,6 +82,11 @@ linters:
           deny:
             - pkg: github.com/goccy/go-yaml
               desc: the restricted YAML profile is the only YAML parser and emitter
+        yamlv3:
+          files: ["$all", "!**/internal/config/profile/*_test.go"]
+          deny:
+            - pkg: go.yaml.in/yaml/v3
+              desc: yaml.v3 is only the test-only differential oracle of internal/config/profile (ADR-0003); the profile is the YAML parser and emitter
         jsonschema:
           files: ["$all", "!**/internal/config/schemaview/**", "!**/internal/filter/validation/jsonschema/**"]
           deny:
