@@ -29,8 +29,8 @@ A defect found in a higher layer MUST add a regression test at the lowest layer 
 
 | Stage | Trigger | Wall-clock budget |
 |---|---|---|
-| `pr-fast` | Every pull request and merge queue run | 10 minutes (target) |
-| `pr-full` | Go, proto, schema, `examples/`, `test/` or `deploy/` changes, and merge queue runs | 30 minutes (target) |
+| `pr-fast` | Every pull request | 10 minutes (target) |
+| `pr-full` | Go, proto, schema, `examples/`, `test/` or `deploy/` changes | 30 minutes (target) |
 | `main` | Every merge | 45 minutes (target) |
 | `nightly` | Daily, parallel jobs | Longest job 3 hours (target) |
 | `release` | A release candidate or release tag | Not bounded |
@@ -53,8 +53,8 @@ Weekly workflows: `chaos-scale.yml` runs on `rh-1` behind the same `RH1_PROVISIO
 flowchart LR
     pr["Pull request"] --> fast["pr-fast: build matrix, unit, property, golden, fuzz seeds, security scanning"]
     fast --> full["pr-full: integration, conformance, alloc/op gate"]
-    full --> mq["Merge queue: re-runs pr-fast and pr-full"]
-    mq --> main["main: end-to-end on the process harness, secret leak tests"]
+    full --> up["Merge once the branch is up to date with main"]
+    up --> main["main: end-to-end on the process harness, secret leak tests"]
     main --> nightly["nightly: fuzz, chaos, latency and image check jobs"]
     nightly --> rc["Release candidate tag"]
     rc --> rel["release: every stage re-run on the tag, then release gates"]

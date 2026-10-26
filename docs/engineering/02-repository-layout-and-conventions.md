@@ -494,15 +494,15 @@ Signed-off-by: Jane Doe <jane@example.com>
 | Merge method | Squash merge only; the title becomes the commit subject, and the repository's squash message setting MUST include commit details, so every `Signed-off-by:` survives |
 | Same-PR duties | Tests, regenerated files, documentation, and a catalog row for any new dependency |
 | Size | SHOULD stay under 400 changed lines, excluding generated files (target) |
-| Merge queue | Re-runs every required `pr-fast` and `pr-full` stage on the combined change |
+| Up to date | A pull request merges only when its branch is up to date with `main`, so `pr-fast` and `pr-full` ran on the combined change |
 
 ## CI stages
 
-The numbered stages are jobs inside the pipelines that [Testing and quality strategy](03-testing-and-quality-strategy.md#test-pyramid) owns: `pr-fast` on every pull request, within 10 minutes (target); `pr-full` on Go, proto, schema, `examples/`, `test/` or `deploy/` changes and merge queue runs, within 30 minutes (target); then `main`, `nightly` and `release`. Stages 1 to 11 each call one `make` target, runnable locally; stage 12 also needs signing credentials. The `pr-fast` workflow ends in a job named `pr-fast` that passes only when each stage passed or was skipped by its path filter; that job and the `pr-title` check are the required status checks. Path filters skip stages whose inputs did not change; a pass-through job computes the changed paths itself and MUST report success for each skipped required check. *Go changes* means any `*.go` file, `go.mod`, `go.sum`, `.golangci.yml`, `Makefile` or `scripts/` file; any change under `.github/workflows/` runs every `pr-fast` and `pr-full` stage.
+The numbered stages are jobs inside the pipelines that [Testing and quality strategy](03-testing-and-quality-strategy.md#test-pyramid) owns: `pr-fast` on every pull request, within 10 minutes (target); `pr-full` on Go, proto, schema, `examples/`, `test/` or `deploy/` changes, within 30 minutes (target); then `main`, `nightly` and `release`. Stages 1 to 11 each call one `make` target, runnable locally; stage 12 also needs signing credentials. The `pr-fast` workflow ends in a job named `pr-fast` that passes only when each stage passed or was skipped by its path filter; that job and the `pr-title` check are the required status checks. Path filters skip stages whose inputs did not change; a pass-through job computes the changed paths itself and MUST report success for each skipped required check. *Go changes* means any `*.go` file, `go.mod`, `go.sum`, `.golangci.yml`, `Makefile` or `scripts/` file; any change under `.github/workflows/` runs every `pr-fast` and `pr-full` stage.
 
 | Stage | Pipeline | What runs | Make target | Trigger | Blocks merge | Milestone |
 |---|---|---|---|---|---|---|
-| 1. Commit hygiene | `pr-fast` | DCO sign-off on the pull request's own commits, also on merge queue runs; Conventional Commits title; repocheck with the no-license-check scan | `make hygiene` | Every pull request | Yes | Planned (M0) |
+| 1. Commit hygiene | `pr-fast` | DCO sign-off on the pull request's own commits; Conventional Commits title; repocheck with the no-license-check scan | `make hygiene` | Every pull request | Yes | Planned (M0) |
 | 2. Format and lint | `pr-fast` | `gofumpt`, `goimports`, golangci-lint, actionlint, `buf format`, `buf lint` | `make lint` | Go or proto changes | Yes | Planned (M0) |
 | 3. Generated code drift | `pr-fast` | `go generate ./...` (schema, telemetrygen alert rules and Grafana dashboards) and `buf generate`, then `git diff --exit-code`; `buf breaking`; builds and license-gates each `sdk/` module's lockfile (G2) | `make generate` | Changes under `pkg/`, `api/`, `internal/gen/`, `internal/tool/`, `internal/telemetry/catalog/`, `sdk/`, `deploy/crds/` or `deploy/grafana/`, or to `buf.yaml`, `buf.gen.yaml` or `go.mod` | Yes | Planned (M0) schema; Planned (M1) telemetrygen; Planned (M2) protos and PDKs |
 | 4. Build | `pr-fast` | Three binaries for linux/amd64 and linux/arm64 with `CGO_ENABLED=0`, `-trimpath`, `-ldflags -X` metadata (G1) and, from M1, `-s -w`; CLI for darwin/arm64, darwin/amd64 and windows/amd64; floor job; FIPS job with `GOFIPS140` | `make build` | Go changes | Yes | Planned (M0); FIPS job Planned (M5) |
@@ -533,7 +533,7 @@ flowchart LR
   s7["7 Ruralz Console build, pr-fast"]
   s8["8 Integration and conformance, pr-full"]
   s9["9 Regression gates: alloc/op, size, pr-full"]
-  mq["Merge queue: re-runs required stages"]
+  up["Merge once the branch is up to date with main"]
   s10["10 End-to-end on the process harness, main"]
   s11["11 Nightly: fuzz, chaos, latency, image checks"]
   s12["12 Release on candidate tag"]
@@ -546,16 +546,16 @@ flowchart LR
   pr --> s7
   pr --> s8
   pr --> s9
-  s1 --> mq
-  s2 --> mq
-  s3 --> mq
-  s4 --> mq
-  s5 --> mq
-  s6 --> mq
-  s7 --> mq
-  s8 --> mq
-  s9 --> mq
-  mq --> s10
+  s1 --> up
+  s2 --> up
+  s3 --> up
+  s4 --> up
+  s5 --> up
+  s6 --> up
+  s7 --> up
+  s8 --> up
+  s9 --> up
+  up --> s10
   s10 -.-> s11
   s11 -.-> s12
 ```

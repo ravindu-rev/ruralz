@@ -11,11 +11,11 @@ git commit -s                  # adds the trailer
 git rebase --signoff main      # repairs a branch
 ```
 
-CI checks every non-merge commit of a pull request, also on merge queue runs; Dependabot commits are exempt because Dependabot cannot sign off.
+CI checks every non-merge commit of a pull request; Dependabot commits are exempt because Dependabot cannot sign off.
 
 ## Pull request titles
 
-Pull requests are squash-merged, so the title becomes the commit subject. It follows Conventional Commits: `<type>(<scope>): <subject>`, imperative mood, a lower-case first word, no trailing period. Add `!` after the scope and a `BREAKING CHANGE:` footer for a breaking change; `Refs: OQ-<docslug>-<n>` or `Refs: ADR-NNNN` footers link decisions.
+Pull requests are squash-merged, so the title becomes the commit subject, and merge only when the branch is up to date with `main` and the required `pr-fast` and `pr-title` checks pass. The title follows Conventional Commits: `<type>(<scope>): <subject>`, imperative mood, a lower-case first word, no trailing period. Add `!` after the scope and a `BREAKING CHANGE:` footer for a breaking change; `Refs: OQ-<docslug>-<n>` or `Refs: ADR-NNNN` footers link decisions.
 
 | Type | Scopes |
 |---|---|
