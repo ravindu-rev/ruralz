@@ -97,6 +97,13 @@ const maxIntegerDigits = 16
 // happens. tooLarge reports an integral value with more digits than any
 // integer the canonical form keeps; ok is false for a non-integral value
 // or text outside the grammar.
+//
+// The exponent may be any digit string, so it is bounded before any
+// arithmetic: one beyond the int range is clamped to it (strconv.Atoi's
+// range result), and one beyond what the digits allow (an integer of more
+// than maxIntegerDigits digits, or a value below 1) decides the result at
+// once, so no int expression below can wrap, whatever the exponent
+// ("1e9223372036854775807", "1e-9223372036854775808").
 func integerText(s string) (text string, ok, tooLarge bool) {
 	neg := strings.HasPrefix(s, "-")
 	body := strings.TrimPrefix(s, "-")
@@ -114,24 +121,28 @@ func integerText(s string) (text string, ok, tooLarge bool) {
 		if !digits(unsigned) {
 			return "", false, false
 		}
-		e, err := strconv.Atoi(expText)
-		if err != nil {
-			// An exponent beyond the int range: the value is 0 or huge.
-			if strings.TrimLeft(whole+frac, "0") == "" {
-				return "0", true, false
-			}
-			if strings.HasPrefix(expText, "-") {
-				return "", false, false
-			}
-			return "", false, true
-		}
-		exp = e
+		// The text is digits, so the only error is ErrRange, for which
+		// Atoi returns the int closest to the value (math.MaxInt or
+		// math.MinInt): the bounds below then decide (0, below 1 or huge).
+		exp, _ = strconv.Atoi(expText)
 	}
 	// value = d × 10^(exp − len(frac)) with d the digit string.
 	d := strings.TrimLeft(whole+frac, "0")
 	if d == "" {
 		return "0", true, false
 	}
+	switch {
+	case exp > len(frac)+maxIntegerDigits:
+		// d ≥ 1 times 10^(more than maxIntegerDigits): integral and too
+		// many digits.
+		return "", false, true
+	case exp < -len(whole)-len(frac):
+		// The shift is below −len(d), and d < 10^len(d): the value lies
+		// strictly between 0 and 1, so it is not an integer.
+		return "", false, false
+	default:
+	}
+	// The bounds keep shift within ±(len(whole)+2·len(frac)+maxIntegerDigits).
 	shift := exp - len(frac)
 	if shift < 0 {
 		trimmed := strings.TrimRight(d, "0")
@@ -170,11 +181,22 @@ func lowerASCII(s string) string {
 // maxShown bounds the code points of a value quoted in a message.
 const maxShown = 64
 
-// clip shortens s for a message.
+// clip shortens s for a message: its first maxShown code points and
+// "...", or all of s when it has no more, an invalid UTF-8 byte counting
+// as one code point and written as U+FFFD either way, so a message never
+// holds bytes that are not UTF-8. It reads at most maxShown+1 code points
+// of s and allocates only the result, so a 64 MiB scalar costs what a
+// short one does.
 func clip(s string) string {
-	if utf8.RuneCountInString(s) <= maxShown {
-		return s
+	n := 0
+	for i := range s {
+		if n == maxShown {
+			return string([]rune(s[:i])) + "..."
+		}
+		n++
 	}
-	r := []rune(s)
-	return string(r[:maxShown]) + "..."
+	if !utf8.ValidString(s) {
+		return string([]rune(s))
+	}
+	return s
 }

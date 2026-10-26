@@ -41,6 +41,37 @@ func TestDefaultServesV1alpha1(t *testing.T) {
 	}
 }
 
+// TestZeroRegistry covers the zero Registry as its doc states it (the
+// zero Registry passed to defaults.New is refused there): it serves no
+// apiVersion, the hub's included, and every conversion through it is
+// RZ-CFG-007 at apiVersion with an empty served list, never a panic; it
+// has no lifecycle table, so it warns about nothing.
+func TestZeroRegistry(t *testing.T) {
+	var r Registry
+	if r.Serves(HubAPIVersion) || len(r.Served()) != 0 {
+		t.Errorf("zero Registry serves %v, hub %v", r.Served(), r.Serves(HubAPIVersion))
+	}
+	if c, ok := r.Converter(HubAPIVersion); ok || c != nil {
+		t.Errorf("Converter(hub) = %v, %v", c, ok)
+	}
+	doc := mustParse(t, `{"apiVersion": "ruralz/v1alpha1", "kind": "Route", "metadata": {"name": "r"}, "spec": {}}`)
+	for name, run := range map[string]func() diag.List{
+		"CheckServed": func() diag.List { d, _ := r.CheckServed(v1); return diag.List{d} },
+		"ToHub":       func() diag.List { _, ds := r.ToHub(v1, "Route", doc, false); return ds },
+		"FromHub":     func() diag.List { _, ds := r.FromHub(v1, "Route", doc, false); return ds },
+		"Convert":     func() diag.List { _, ds := r.Convert(v1, v1, "Route", doc, false); return ds },
+	} {
+		ds := run()
+		if len(ds) != 1 || ds[0].Code != CodeUnserved || ds[0].Path.String() != "apiVersion" || ds[0].Hint != "served apiVersions: " {
+			t.Errorf("%s = %+v, want one RZ-CFG-007 at apiVersion", name, ds)
+		}
+	}
+	res := &tree.Resource{APIVersion: v1, ID: tree.ID{Kind: "Route", Name: "r"}, Root: doc}
+	if ds := r.Deprecations(nil, res, nil); len(ds) != 0 {
+		t.Errorf("Deprecations = %+v, want none", ds)
+	}
+}
+
 // fixedConverter is a converter for tests with a settable apiVersion.
 type fixedConverter struct {
 	identity
@@ -423,5 +454,133 @@ func TestLocation(t *testing.T) {
 	}
 	if got := location(files, tree.Pos{}, tree.Pos{File: fid, Line: 2, Column: 3}); got.File != "a.yaml" || got.Line != 2 {
 		t.Errorf("fallback = %+v", got)
+	}
+}
+
+// resultConverter returns out from both directions, with warnings.
+type resultConverter struct {
+	identity
+	out      func(doc *tree.Node) *tree.Node
+	warnings int
+}
+
+func (c resultConverter) ToHub(_ string, doc *tree.Node, _ bool) (*tree.Node, diag.List) {
+	return c.out(doc), c.diags()
+}
+
+func (c resultConverter) FromHub(_ string, doc *tree.Node, _ bool) (*tree.Node, diag.List) {
+	return c.out(doc), c.diags()
+}
+
+func (c resultConverter) diags() diag.List {
+	var ds diag.List
+	for range c.warnings {
+		ds = append(ds, diag.Diagnostic{Code: CodeDeprecated, Severity: diag.SeverityWarning, Message: "deprecated"})
+	}
+	return ds
+}
+
+// TestConverterResults covers the registry's check of what a converter
+// returns (the extension point), so stage G never builds a resource with
+// no tree. In each direction, for a whole resource and a partial
+// document: no document is RZ-CFG-007, a scalar or a list for a whole
+// resource object is RZ-CFG-007, both after the converter's own warnings
+// and with the input returned unchanged; a partial document may become
+// any document, and a nil input is the caller's.
+func TestConverterResults(t *testing.T) {
+	src := `{"apiVersion": "ruralz/v1test", "kind": "Route", "metadata": {"name": "a"}}`
+	scalar := func(*tree.Node) *tree.Node { return &tree.Node{Kind: tree.KindString, Text: "x"} }
+	list := func(*tree.Node) *tree.Node { return &tree.Node{Kind: tree.KindList} }
+	none := func(*tree.Node) *tree.Node { return nil }
+	same := func(doc *tree.Node) *tree.Node { return doc }
+	tests := []struct {
+		name    string
+		out     func(*tree.Node) *tree.Node
+		partial bool
+		nilDoc  bool
+		msg     string
+	}{
+		{"nil whole", none, false, false, "returned no document"},
+		{"nil partial", none, true, false, "returned no document"},
+		{"scalar whole", scalar, false, false, "returned a string instead of an object"},
+		{"list whole", list, false, false, "returned a list instead of an object"},
+		{"scalar partial", scalar, true, false, ""},
+		{"identity whole", same, false, false, ""},
+		{"nil input", none, false, true, ""},
+	}
+	for _, tc := range tests {
+		for _, dir := range []string{"to the hub", "from the hub"} {
+			t.Run(tc.name+" "+dir, func(t *testing.T) {
+				r, err := NewRegistry(Lifecycle{}, V1alpha1(), resultConverter{identity{version: vTest}, tc.out, 2})
+				if err != nil {
+					t.Fatal(err)
+				}
+				var doc *tree.Node
+				if !tc.nilDoc {
+					doc = mustParse(t, src)
+				}
+				var out *tree.Node
+				var ds diag.List
+				if dir == "to the hub" {
+					out, ds = r.ToHub(vTest, "Route", doc, tc.partial)
+				} else {
+					out, ds = r.FromHub(vTest, "Route", doc, tc.partial)
+				}
+				if tc.msg == "" {
+					if ds.HasErrors() || len(ds) != 2 {
+						t.Errorf("diagnostics = %v, want the two warnings", ds)
+					}
+					return
+				}
+				want := `the converter of apiVersion "ruralz/v1test" ` + tc.msg + " converting " + dir
+				if len(ds) != 3 || ds[2].Code != CodeUnserved || ds[2].Severity != diag.SeverityError || ds[2].Message != want || len(ds[2].Path) != 0 {
+					t.Fatalf("diagnostics = %v, want the two warnings and RZ-CFG-007 %q", ds, want)
+				}
+				if out != doc || !equal(out, mustParse(t, src)) {
+					t.Errorf("result = %s, want the input unchanged", dump(out))
+				}
+			})
+		}
+	}
+	// Through Convert, a nil hub stops before FromHub.
+	r, err := NewRegistry(Lifecycle{}, V1alpha1(), resultConverter{identity{version: vTest}, none, 0})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, ds := r.Convert(vTest, v1, "Route", mustParse(t, src), false); len(ds) != 1 || ds[0].Code != CodeUnserved {
+		t.Errorf("Convert with a nil hub = %v", ds)
+	}
+	if got := kindName(tree.Kind(99)); got != "value" {
+		t.Errorf("kindName(99) = %q", got)
+	}
+	for k, want := range map[tree.Kind]string{tree.KindNull: "null", tree.KindBool: "boolean", tree.KindInt: "number", tree.KindFloat: "number", tree.KindMap: "object"} {
+		if got := kindName(k); got != want {
+			t.Errorf("kindName(%d) = %q, want %q", k, got, want)
+		}
+	}
+}
+
+// TestMessagesClipped covers the messages of the registry that quote an
+// apiVersion, so a megabyte apiVersion never gives a megabyte message:
+// CheckServed, ToHub, FromHub and Convert's target check clip it to 64
+// code points.
+func TestMessagesClipped(t *testing.T) {
+	long := "ruralz/" + strings.Repeat("é", 1<<16)
+	shown := `"` + "ruralz/" + strings.Repeat("é", 57) + `..."`
+	r := Default()
+	doc := mustParse(t, `{"kind": "Route"}`)
+	for name, run := range map[string]func() diag.List{
+		"CheckServed": func() diag.List { d, _ := r.CheckServed(long); return diag.List{d} },
+		"ToHub":       func() diag.List { _, ds := r.ToHub(long, "Route", doc, false); return ds },
+		"FromHub":     func() diag.List { _, ds := r.FromHub(long, "Route", doc, false); return ds },
+		"Convert to":  func() diag.List { _, ds := r.Convert(v1, long, "Route", doc, false); return ds },
+	} {
+		ds := run()
+		if len(ds) != 1 || len(ds[0].Message) > 200 || !strings.Contains(ds[0].Message, shown) {
+			t.Errorf("%s: message of %d bytes %.120q, want it to show %s", name, len(ds[0].Message), ds[0].Message, shown)
+		}
+	}
+	if got := clip("ruralz/v1"); got != "ruralz/v1" {
+		t.Errorf("clip of a short value = %q", got)
 	}
 }

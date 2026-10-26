@@ -248,18 +248,27 @@ func TestNew(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	// The zero values of the two registries: a zero convert.Registry fails
+	// New, since every resource would then fail with RZ-CFG-007 "not
+	// served", a configuration error for the program's, and so does a zero
+	// registry.Registry, which would make every Policy decode without a
+	// config.
 	for name, o := range map[string]Options{
-		"no schemas":       {Registry: registry.New()},
-		"no registry":      {Schemas: schemas(t)},
-		"no hub schema":    {Schemas: empty, Registry: registry.New()},
-		"unindexed spoke":  {Schemas: schemas(t), Registry: registry.New(), Converters: beta},
-		"default and good": {},
+		"no schemas":                {Registry: registry.New()},
+		"no registry":               {Schemas: schemas(t)},
+		"no hub schema":             {Schemas: empty, Registry: registry.New()},
+		"unindexed spoke":           {Schemas: schemas(t), Registry: registry.New(), Converters: beta},
+		"zero converter registry":   {Schemas: schemas(t), Registry: registry.New(), Converters: &convert.Registry{}},
+		"zero Policy registry":      {Schemas: schemas(t), Registry: &registry.Registry{}},
+		"negative MaxDiagnostics":   {Schemas: schemas(t), Registry: registry.New(), MaxDiagnostics: -1},
+		"negative YieldAfter":       {Schemas: schemas(t), Registry: registry.New(), YieldAfter: -1},
+		"default converters, good":  {Schemas: schemas(t), Registry: registry.New()},
+		"explicit converters, good": {Schemas: schemas(t), Registry: registry.New(), Converters: convert.Default()},
 	} {
-		_, err := New(o)
-		if name == "default and good" {
-			continue
-		}
-		if !errors.Is(err, ErrOptions) {
+		s, err := New(o)
+		if good := strings.HasSuffix(name, ", good"); good != (err == nil) || good != (s != nil) {
+			t.Errorf("%s: New = %v, %v", name, s != nil, err)
+		} else if !good && !errors.Is(err, ErrOptions) {
 			t.Errorf("%s: New error = %v, want ErrOptions", name, err)
 		}
 	}
@@ -374,5 +383,294 @@ func TestSourceFile(t *testing.T) {
 	}
 	if _, ok := newObject("Nope"); ok {
 		t.Error("newObject of an unknown kind")
+	}
+}
+
+// TestOwnLocatesOnce covers how Resource completes a converter's
+// diagnostics (converters report a path, stage G adds the file
+// positions): each gets the resource identity unless it has one; each
+// without a location gets the position of the node its path names (a
+// member, a keyed entry, an index, a set element), or of the nearest
+// positioned node on that path, not the apiVersion position; an empty or
+// unresolvable path gets the apiVersion member's, looked up once for all
+// of them; and nothing is looked up when every diagnostic has a location.
+func TestOwnLocatesOnce(t *testing.T) {
+	s := newStage(t)
+	f := newFixture()
+	res := f.resource(t, "r.json", route(`{"match": {"hosts": ["a.example"]},
+ "upstreams": [{"name": "a"}, {"name": "b", "weight": 2}]}`))
+	// A node without a position, as a converter may add: its parent's
+	// position stands for it.
+	at(t, res.Root, "spec.upstreams[1]").Set("added", tree.Pos{}, &tree.Node{Kind: tree.KindString, Text: "x"})
+	other := &diag.ResourceID{Kind: "Route", Name: "other"}
+	kept := diag.Location{File: "x.yaml", Line: 9, Column: 2}
+	apiVersion := diag.Location{File: "r.json", Line: 1, Column: 16}
+	pos := func(path string) diag.Location {
+		p := at(t, res.Root, path).Pos
+		return diag.Location{File: "r.json", Line: int(p.Line), Column: int(p.Column)}
+	}
+	tests := []struct {
+		d   diag.Diagnostic
+		res *diag.ResourceID
+		loc diag.Location
+	}{
+		{diag.Diagnostic{Message: "empty path"}, res.ID.ResourceID(), apiVersion},
+		{diag.Diagnostic{Message: "other resource", Resource: other}, other, apiVersion},
+		{diag.Diagnostic{Message: "has a location", Location: kept, Path: diag.Path{diag.Field("spec")}}, res.ID.ResourceID(), kept},
+		{diag.Diagnostic{Message: "member", Path: diag.Path{diag.Field("spec"), diag.Field("match")}}, res.ID.ResourceID(), pos("spec.match")},
+		{diag.Diagnostic{Message: "keyed", Path: diag.Path{diag.Field("spec"), diag.Field("upstreams"), diag.Keyed("name", "b"), diag.Field("weight")}}, res.ID.ResourceID(), pos("spec.upstreams[1].weight")},
+		{diag.Diagnostic{Message: "index", Path: diag.Path{diag.Field("spec"), diag.Field("upstreams"), diag.Index(0)}}, res.ID.ResourceID(), pos("spec.upstreams[0]")},
+		{diag.Diagnostic{Message: "set item", Path: diag.Path{diag.Field("spec"), diag.Field("match"), diag.Field("hosts"), diag.Item("a.example")}}, res.ID.ResourceID(), pos("spec.match.hosts[0]")},
+		{diag.Diagnostic{Message: "unpositioned", Path: diag.Path{diag.Field("spec"), diag.Field("upstreams"), diag.Keyed("name", "b"), diag.Field("added")}}, res.ID.ResourceID(), pos("spec.upstreams[1]")},
+		{diag.Diagnostic{Message: "unresolvable", Path: diag.Path{diag.Field("spec"), diag.Field("nope")}}, res.ID.ResourceID(), apiVersion},
+		{diag.Diagnostic{Message: "unresolvable index", Path: diag.Path{diag.Field("spec"), diag.Field("upstreams"), diag.Index(7)}}, res.ID.ResourceID(), apiVersion},
+	}
+	ds := make(diag.List, len(tests))
+	for i, tc := range tests {
+		ds[i] = tc.d
+	}
+	w := newWork()
+	got := s.own(res, f.files, ds, w)
+	for i, tc := range tests {
+		if *got[i].Resource != *tc.res || got[i].Location != tc.loc {
+			t.Errorf("%s: %v at %+v, want %v at %+v", tc.d.Message, got[i].Resource, got[i].Location, tc.res, tc.loc)
+		}
+	}
+	// One finder for all the paths, and one apiVersion lookup for all
+	// the fallbacks.
+	walks := newWork()
+	shared := walks.newFinder()
+	for _, tc := range tests {
+		if tc.d.Location == (diag.Location{}) {
+			shared.at(res.Root, tc.d.Path)
+		}
+	}
+	lookup := newWork()
+	lookup.get(res.Root, "apiVersion")
+	if want := walks.total + lookup.total; w.total != want {
+		t.Errorf("own counted %d units, want %d: one finder for the paths and one lookup of the %d envelope members", w.total, want, len(res.Root.Members))
+	}
+	w = newWork()
+	s.own(res, f.files, diag.List{{Message: "e", Location: kept}}, w)
+	if w.total != 0 {
+		t.Errorf("own with every location known counted %d units, want 0", w.total)
+	}
+	// Without a position anywhere on the path, the fallback applies.
+	bare := &tree.Resource{ID: res.ID, Root: mustParse(t, `{"apiVersion": "ruralz/v1alpha1", "spec": {}}`)}
+	clearPositions(bare.Root)
+	if got := s.own(bare, nil, diag.List{{Path: diag.Path{diag.Field("spec")}}}, newWork()); got[0].Location != (diag.Location{}) {
+		t.Errorf("unpositioned tree: location %+v, want none", got[0].Location)
+	}
+}
+
+// clearPositions removes every position below n.
+func clearPositions(n *tree.Node) {
+	n.Pos = tree.Pos{}
+	for i := range n.Members {
+		n.Members[i].KeyPos = tree.Pos{}
+		clearPositions(n.Members[i].Value)
+	}
+	for _, it := range n.Items {
+		clearPositions(it)
+	}
+}
+
+// TestConverterResultChecked covers stage G with a registered converter
+// that returns no object (the extension point), so a converter returning
+// nil never gives a hub.Resource with no tree: the registry's RZ-CFG-007
+// rejects the resource at its apiVersion member, and Run returns no
+// Bundle, for a nil, a scalar and a list result.
+func TestConverterResultChecked(t *testing.T) {
+	for name, out := range map[string]*tree.Node{
+		"nil":    nil,
+		"scalar": {Kind: tree.KindString, Text: "x"},
+		"list":   {Kind: tree.KindList},
+	} {
+		t.Run(name, func(t *testing.T) {
+			s := convertedStage(t, Options{}, func(*tree.Node) (*tree.Node, diag.List) { return out, nil })
+			f := newFixture()
+			h, ds := s.Resource(f.resource(t, "r.json", route(`{"match": {}}`)), f.files)
+			if got := texts(ds); h != nil || len(got) != 1 ||
+				!strings.HasPrefix(got[0], `r.json:1:16 error RZ-CFG-007 Route/r: the converter of apiVersion "ruralz/v1alpha1" returned `) {
+				t.Errorf("Resource = %v, %q", h, got)
+			}
+			b, ds, err := s.Run(t.Context(), []*tree.Resource{f.resource(t, "r.json", route(`{"match": {}}`))}, f.files, 1)
+			if b != nil || err != nil || len(ds) != 1 || ds[0].Code != CodeUnserved {
+				t.Errorf("Run = %v, %q, %v", b, texts(ds), err)
+			}
+		})
+	}
+}
+
+// TestMessagesClipped covers every stage G message that quotes an
+// authored value, so a megabyte value never gives a megabyte message: a
+// ByteSize that passes stage F but does not parse (too large, too many
+// fraction digits), an unserved apiVersion, an apiVersion with a
+// converter but no schema, a kind with no hub type, a Duration whose
+// UnmarshalJSON error quotes it twice, and a decode error no field is
+// blamed for. Each shows at most 64 code points of the value.
+func TestMessagesClipped(t *testing.T) {
+	// 64 KiB values: long enough that an unclipped message is far above
+	// most, short enough for the race detector.
+	const most, size = 300, 1 << 16
+	nines, ones := strings.Repeat("9", size), strings.Repeat("1", size)
+	views, err := schemaview.Embedded(schemas(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := newStage(t)
+	for _, tc := range []struct{ name, value, reason string }{
+		{"byte size too large", nines + "Ki", "is too large"},
+		{"byte size fraction digits", "1." + ones + "Ki", "has too many fraction digits"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			f := newFixture()
+			res := f.resource(t, "g.json", gateway(`{"listeners": [{"name": "h", "port": 80, "protocol": "http"}], "limits": {"maxRequestBodyBytes": "`+tc.value+`"}}`))
+			if ds, _ := views.Validate(res, f.files); len(ds) != 0 {
+				t.Fatalf("stage F: %q", texts(ds))
+			}
+			_, ds := s.Resource(res, f.files)
+			if len(ds) != 1 || len(ds[0].Message) > most || !strings.Contains(ds[0].Message, tc.reason) || !strings.Contains(ds[0].Message, `..."`) {
+				t.Errorf("Resource: %d diagnostics, message of %d bytes %.120q", len(ds), len(ds[0].Message), ds[0].Message)
+			}
+		})
+	}
+	long := "ruralz/" + strings.Repeat("v", size)
+	check := func(name string, ds diag.List) {
+		t.Helper()
+		if len(ds) != 1 || len(ds[0].Message) > most || !strings.Contains(ds[0].Message, "...") {
+			t.Errorf("%s: %d diagnostics, message of %d bytes %.120q", name, len(ds), len(ds[0].Message), ds[0].Message)
+		}
+	}
+	f := newFixture()
+	res := f.resource(t, "r.json", route(`{"match": {}}`))
+	res.APIVersion = long
+	_, ds := s.Resource(res, f.files)
+	check("unserved apiVersion", ds)
+	conv, err := convert.NewRegistry(convert.Lifecycle{}, convert.V1alpha1(), versionConverter{long})
+	if err != nil {
+		t.Fatal(err)
+	}
+	noSchema := &Stage{schemas: schemas(t), hub: hubIndex(t), reg: registry.New(), conv: conv, maxDiagnostics: DefaultMaxDiagnostics}
+	res = f.resource(t, "r.json", route(`{"match": {}}`))
+	res.APIVersion = long
+	_, ds = noSchema.Resource(res, f.files)
+	check("apiVersion without a schema", ds)
+	_, _, ds = Decode(hubIndex(t), nil, &tree.Resource{ID: tree.ID{Kind: v1alpha1.Kind(strings.Repeat("K", size))}, Root: mustParse(t, `{}`)}, nil)
+	check("kind without a hub type", ds)
+	timeout := envelope(mustParse(t, route(`{"match": {}, "timeout": "x"}`)))
+	at(t, timeout.Root, "spec.timeout").Text = strings.Repeat("9", size) + "x"
+	_, _, ds = Decode(hubIndex(t), nil, timeout, nil)
+	check("duration", ds)
+	// The decode's fallback quotes encoding/json's error, which may hold
+	// the whole value: a number literal outside the grammar in a plugin
+	// config (any-valued, so no value is at fault in Go terms).
+	plugin := envelope(mustParse(t, policyDoc("plugin", `{"n": 1}`)))
+	at(t, plugin.Root, "spec.config.n").Text = strings.Repeat("9", size) + "x"
+	_, _, ds = Decode(hubIndex(t), registry.New(), plugin, nil)
+	check("decode fallback", ds)
+}
+
+// versionConverter is an identity converter of apiVersion v.
+type versionConverter struct{ v string }
+
+func (c versionConverter) APIVersion() string { return c.v }
+
+func (versionConverter) ToHub(_ string, doc *tree.Node, _ bool) (*tree.Node, diag.List) {
+	return doc, nil
+}
+
+func (versionConverter) FromHub(_ string, doc *tree.Node, _ bool) (*tree.Node, diag.List) {
+	return doc, nil
+}
+
+// TestStageDeprecations covers the RZ-CFG-025 warnings of stage G (CM
+// Figure 3, stage G: 005, 025), which come from Registry.Deprecations:
+// with a lifecycle table in Options.Converters, a deprecated apiVersion
+// gives one warning at the apiVersion member and a deprecated field one
+// at the authored field, each with the removing release and the
+// replacement as the hint, while the resource is still accepted; a field
+// only a default wrote gives none, since the warnings read the tree as
+// authored; the warnings draw on the diagnostic budget like any other;
+// and the M1 table gives none.
+func TestStageDeprecations(t *testing.T) {
+	reg, err := convert.NewRegistry(convert.Lifecycle{
+		APIVersions: map[string]convert.Notice{v1: {Removal: "0.9.0", Replacement: "ruralz/v1beta1"}},
+		Fields:      map[string]map[string]convert.Notice{v1: {"spec.upstreams[].weight": {Removal: "0.8.0"}}},
+	}, convert.V1alpha1())
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := stageWith(t, Options{Converters: reg})
+	f := newFixture()
+	res := f.resource(t, "r.json", route(`{"match": {}, "upstreams": [{"name": "a", "weight": 2}, {"name": "b"}]}`))
+	h, ds := s.Resource(res, f.files)
+	if h == nil {
+		t.Fatalf("Resource rejected a resource with warnings only: %q", texts(ds))
+	}
+	want := []string{
+		"r.json:1:16 warning RZ-CFG-025 Route/r apiVersion: apiVersion ruralz/v1alpha1 is deprecated and is removed in 0.9.0 (use ruralz/v1beta1)",
+		"r.json:1:139 warning RZ-CFG-025 Route/r spec.upstreams[name=a].weight: field spec.upstreams[].weight is deprecated and is removed in 0.8.0",
+	}
+	if got := texts(ds); !slices.Equal(got, want) {
+		t.Errorf("Resource diagnostics\n%s\nwant\n%s", strings.Join(got, "\n"), strings.Join(want, "\n"))
+	}
+	if w := at(t, h.Tree, "spec.upstreams[1].weight"); w.Style != tree.StyleDefaulted {
+		t.Errorf("entry b weight = %s, want the materialized default", dump(w))
+	}
+	// The warnings draw on the budget: a cap of 1 keeps the first.
+	capped := stageWith(t, Options{Converters: reg, MaxDiagnostics: 1})
+	res = f.resource(t, "r.json", route(`{"match": {}, "upstreams": [{"name": "a", "weight": 2}, {"name": "b", "weight": 3}]}`))
+	if h, ds := capped.Resource(res, f.files); h == nil || len(ds) != 2 || ds.HasErrors() {
+		t.Errorf("capped Resource = %v, %q; want the resource and cap+1 warnings", h, texts(ds))
+	}
+	// The M1 registry has an empty table.
+	res = f.resource(t, "r.json", route(`{"match": {}, "upstreams": [{"name": "a", "weight": 2}]}`))
+	if h, ds := newStage(t).Resource(res, f.files); h == nil || len(ds) != 0 {
+		t.Errorf("M1 Resource = %v, %q; want no warning", h, texts(ds))
+	}
+	// The walk of the table counts toward the worker's yield timer:
+	// one unit or more per position it visits.
+	units := func(s *Stage) int {
+		w := s.newWork()
+		s.resource(f.resource(t, "r.json", route(`{"match": {}, "upstreams": [{"name": "a", "weight": 2}, {"name": "b"}]}`)), f.files, w)
+		return w.total
+	}
+	if with, without := units(s), units(newStage(t)); with < without+10 {
+		t.Errorf("work units with the lifecycle table %d, without %d: the walk of the table is not counted", with, without)
+	}
+}
+
+// TestCanonicalNoDeprecations covers the RZ-CFG-025 warnings on content
+// that re-enters as ruralz.canonical.v1, so stage G never warns on
+// Last-Known-Good boots, handovers and diffs about an apiVersion the user
+// never wrote, since canonical content names the hub apiVersion, or about
+// deprecated fields an earlier run defaulted: a tree.RoleCanonical
+// resource gets no warning for a deprecated apiVersion or a deprecated
+// field, while the same resource as authored content gets both.
+func TestCanonicalNoDeprecations(t *testing.T) {
+	reg, err := convert.NewRegistry(convert.Lifecycle{
+		APIVersions: map[string]convert.Notice{v1: {Removal: "0.9.0"}},
+		Fields:      map[string]map[string]convert.Notice{v1: {"spec.upstreams[].weight": {Removal: "0.8.0"}}},
+	}, convert.V1alpha1())
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := stageWith(t, Options{Converters: reg})
+	src := route(`{"match": {}, "upstreams": [{"name": "a", "weight": 2}]}`)
+	f := newFixture()
+	for _, tc := range []struct {
+		role tree.Role
+		want int
+	}{{tree.RoleCanonical, 0}, {tree.RoleBase, 2}} {
+		h, ds := s.Resource(f.resourceRole(t, "r.json", src, tc.role), f.files)
+		if h == nil || len(ds) != tc.want {
+			t.Errorf("role %v: Resource = %v, %q; want the resource and %d warnings", tc.role, h != nil, texts(ds), tc.want)
+		}
+		for _, d := range ds {
+			if d.Code != convert.CodeDeprecated {
+				t.Errorf("role %v: %s", tc.role, d.AppendText(nil))
+			}
+		}
 	}
 }

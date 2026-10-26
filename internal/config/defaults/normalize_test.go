@@ -4,13 +4,16 @@
 package defaults
 
 import (
+	"errors"
 	"slices"
+	"strconv"
 	"strings"
 	"testing"
 
 	"github.com/ravindu-rev/ruralz/internal/config/diag"
 	"github.com/ravindu-rev/ruralz/internal/config/schemaidx"
 	"github.com/ravindu-rev/ruralz/internal/config/tree"
+	"github.com/ravindu-rev/ruralz/pkg/config/v1alpha1"
 )
 
 // normalized runs Normalize on a resource parsed from src (file r.json,
@@ -322,8 +325,9 @@ func TestJSONSchemaDocument(t *testing.T) {
 // TestNullRejected checks that a JSON null never reaches the hub. Stage F
 // admits one only where the schema says nothing (free content), so each
 // case here passes stage F, and Normalize reports RZ-CFG-005 at the null's
-// key-aware path, typed and free content alike; Resource then returns no
-// hub.Resource, so the canonical encoder never sees a null.
+// key-aware path, typed and free content alike, in authored and canonical
+// content; Resource then returns no hub.Resource, so the canonical encoder
+// never sees a null.
 func TestNullRejected(t *testing.T) {
 	const msg = ": null is not allowed: the canonical form has no null; remove the "
 	tests := []struct {
@@ -365,24 +369,26 @@ func TestNullRejected(t *testing.T) {
 	}
 	s := newStage(t)
 	for _, tc := range tests {
-		t.Run(tc.name, func(t *testing.T) {
-			f := newFixture()
-			res := f.resource(t, "r.json", tc.src)
-			ds := Normalize(hubIndex(t), res, f.files)
-			var got []string
-			for _, d := range ds {
-				if d.Code != CodeSchema || d.Line == 0 {
-					t.Errorf("diagnostic %s: want RZ-CFG-005 with a location", d.AppendText(nil))
+		for _, role := range roles() {
+			t.Run(tc.name+"/"+role.name, func(t *testing.T) {
+				f := newFixture()
+				res := f.resourceRole(t, "r.json", tc.src, role.role)
+				ds := Normalize(hubIndex(t), res, f.files)
+				var got []string
+				for _, d := range ds {
+					if d.Code != CodeSchema || d.Line == 0 {
+						t.Errorf("diagnostic %s: want RZ-CFG-005 with a location", d.AppendText(nil))
+					}
+					got = append(got, d.Path.String()+": "+d.Message)
 				}
-				got = append(got, d.Path.String()+": "+d.Message)
-			}
-			if !slices.Equal(got, tc.want) {
-				t.Errorf("diagnostics = %q\nwant %q", got, tc.want)
-			}
-			if h, ds := s.Resource(f.resource(t, "again.json", tc.src), f.files); h != nil || !diagnosticsOK(ds) {
-				t.Errorf("Resource = %v, %q; want no hub resource", h, texts(ds))
-			}
-		})
+				if !slices.Equal(got, tc.want) {
+					t.Errorf("diagnostics = %q\nwant %q", got, tc.want)
+				}
+				if h, ds := s.Resource(f.resourceRole(t, "again.json", tc.src, role.role), f.files); h != nil || !diagnosticsOK(ds) || len(ds) != len(tc.want) {
+					t.Errorf("Resource = %v, %q; want no hub resource and the %d nulls", h, texts(ds), len(tc.want))
+				}
+			})
+		}
 	}
 }
 
@@ -476,12 +482,13 @@ func TestSecretValuesNotShown(t *testing.T) {
 	}
 }
 
-// TestDiagnosticCap covers MaxDiagnostics: a hostile resource cannot build
-// an unbounded list.
+// TestDiagnosticCap covers the cap for Normalize: a hostile resource
+// cannot build an unbounded list, and it returns one diagnostic beyond
+// the default cap, so a diag.Collector of that cap sees it was reached.
 func TestDiagnosticCap(t *testing.T) {
 	var b strings.Builder
 	b.WriteString(`{"consumerQuota": "c", "x": [`)
-	for i := range MaxDiagnostics + 5 {
+	for i := range DefaultMaxDiagnostics + 5 {
 		if i > 0 {
 			b.WriteByte(',')
 		}
@@ -489,8 +496,8 @@ func TestDiagnosticCap(t *testing.T) {
 	}
 	b.WriteString(`]}`)
 	_, ds := normalized(t, policyDoc("quota", b.String()))
-	if len(ds) != MaxDiagnostics {
-		t.Errorf("got %d diagnostics, want %d", len(ds), MaxDiagnostics)
+	if len(ds) != DefaultMaxDiagnostics+1 {
+		t.Errorf("got %d diagnostics, want %d", len(ds), DefaultMaxDiagnostics+1)
 	}
 }
 
@@ -513,10 +520,10 @@ func TestStackPath(t *testing.T) {
 	list := &schemaidx.Node{}
 	item := mustParse(t, `{"name": "x"}`)
 	s := stack{{}, {name: "spec"}, {item: true, list: list, node: item, index: 4}}
-	if got := s.path().String(); got != "spec[4]" {
+	if got := s.path(nil).String(); got != "spec[4]" {
 		t.Errorf("path = %q", got)
 	}
-	if got := (stack{}).path(); len(got) != 0 {
+	if got := (stack{}).path(nil); len(got) != 0 {
 		t.Errorf("empty path = %v", got)
 	}
 	if got := s.pos(tree.Pos{Line: 9}); got.Line != 1 {
@@ -524,5 +531,146 @@ func TestStackPath(t *testing.T) {
 	}
 	if got := (stack{{}}).pos(tree.Pos{Line: 9}); got.Line != 9 {
 		t.Errorf("pos fallback = %+v", got)
+	}
+}
+
+// TestHugeExponents covers number literals whose exponent is at or beyond
+// the int range, at every kind of integer-only position (Route weight,
+// Gateway listener port and limits.maxRequestBodyBytes, ratelimit requests
+// and burst, Consumer basic iterations): stage G reports RZ-CFG-005 at the
+// field and never panics, for authored and for canonical content, since
+// integerText's exponent arithmetic never wraps.
+func TestHugeExponents(t *testing.T) {
+	positions := []struct {
+		name string
+		doc  func(w string) string
+		path string
+	}{
+		{"weight", func(w string) string {
+			return route(`{"match": {}, "upstreams": [{"name": "u", "weight": ` + w + `}]}`)
+		}, "spec.upstreams[name=u].weight"},
+		{"port", func(w string) string {
+			return gateway(`{"listeners": [{"name": "h", "port": ` + w + `, "protocol": "http"}]}`)
+		}, "spec.listeners[name=h].port"},
+		{"maxRequestBodyBytes", func(w string) string {
+			return gateway(`{"listeners": [], "limits": {"maxRequestBodyBytes": ` + w + `}}`)
+		}, "spec.limits.maxRequestBodyBytes"},
+		{"requests", func(w string) string {
+			return policyDoc("ratelimit", `{"limits": [{"requests": `+w+`, "window": "1s"}]}`)
+		}, "spec.config.limits[0].requests"},
+		{"burst", func(w string) string {
+			return policyDoc("ratelimit", `{"limits": [{"requests": 1, "window": "1s", "burst": `+w+`}]}`)
+		}, "spec.config.limits[0].burst"},
+		{"iterations", func(w string) string {
+			return `{"apiVersion": "ruralz/v1alpha1", "kind": "Consumer", "metadata": {"name": "c"}, "spec": {"credentials": {"basic": [{"username": "u", "hash": "h", "iterations": ` + w + `}]}}}`
+		}, "spec.credentials.basic[username=u].iterations"},
+	}
+	// Authored content gets the range rule; canonical content and a
+	// non-integral literal reach the typed decode, whose message depends
+	// on the field's Go type.
+	literals := []struct {
+		text, authored, canonical string
+	}{
+		{"1e9223372036854775807", "is outside the I-JSON range", "cannot decode"},
+		{"1E+9223372036854775807", "is outside the I-JSON range", "cannot decode"},
+		{"-1e9223372036854775807", "is outside the I-JSON range", "cannot decode"},
+		{"1.5e9223372036854775807", "is outside the I-JSON range", "cannot decode"},
+		{"10e9223372036854775807", "is outside the I-JSON range", "cannot decode"},
+		{"1e999999999999999999999", "is outside the I-JSON range", "cannot decode"},
+		{"1e-9223372036854775808", "cannot decode", "cannot decode"},
+		{"1.5e-9223372036854775808", "cannot decode", "cannot decode"},
+	}
+	s := newStage(t)
+	for _, p := range positions {
+		for _, l := range literals {
+			for _, role := range []tree.Role{tree.RoleBase, tree.RoleCanonical} {
+				want := l.authored
+				if role == tree.RoleCanonical {
+					want = l.canonical
+				}
+				t.Run(p.name+"/"+l.text+"/"+strconv.Itoa(int(role)), func(t *testing.T) {
+					f := newFixture()
+					h, ds := s.Resource(f.resourceRole(t, "r.json", p.doc(l.text), role), f.files)
+					if h != nil || len(ds) != 1 || ds[0].Code != CodeSchema || ds[0].Path.String() != p.path || !strings.Contains(ds[0].Message, want) {
+						t.Errorf("Resource = %v, %q; want one RZ-CFG-005 at %s containing %q", h, texts(ds), p.path, want)
+					}
+				})
+			}
+		}
+	}
+}
+
+// TestByteSizeMessage covers the message of a ByteSize that
+// v1alpha1.ParseByteSize rejects, whose error quotes the whole value: the
+// reason is kept and the value clipped; an error that does not quote the
+// value gets the package's own message; below a secret field the value is
+// not shown.
+func TestByteSizeMessage(t *testing.T) {
+	long := strings.Repeat("9", 100) + "Ki"
+	z := &normalizer{res: &tree.Resource{}, stack: stack{{}}}
+	_, err := v1alpha1.ParseByteSize(long)
+	if got, want := z.byteSizeMessage(long, err), `byte size "`+strings.Repeat("9", 64)+`..." is too large`; got != want {
+		t.Errorf("quoting error: %q, want %q", got, want)
+	}
+	if got, want := z.byteSizeMessage(long, errors.New("bad")), `invalid byte size "`+strings.Repeat("9", 64)+`..."`; got != want {
+		t.Errorf("other error: %q, want %q", got, want)
+	}
+	gw, _ := hubIndex(t).Spec("Gateway")
+	ss, _ := gw.Property("stateStore")
+	url, _ := ss.Select(nil).Property("url")
+	z.stack = stack{{}, {schema: url, name: "url"}}
+	if got := z.byteSizeMessage(long, err); got != "byte size the value is too large" {
+		t.Errorf("below a secret: %q", got)
+	}
+}
+
+// TestNormalizeElementNames covers how Normalize names the list elements
+// on a diagnostic's path: every diagnostic below one element gets the
+// element's name, computed once when the element is done, so a set
+// element is named by its normalized RFC 8785 text (its duration
+// normalized and its inner set sorted, whatever member the diagnostic is
+// at); each element of a list gets its own name; a diagnostic recorded
+// after the list (a sibling member) is not renamed; and a keyed entry is
+// named by its key member for every diagnostic below it.
+func TestNormalizeElementNames(t *testing.T) {
+	idx := setSchema(t)
+	thing := func(spec string) *tree.Resource {
+		return envelope(mustParse(t, `{"apiVersion": "test/v1", "kind": "Thing", "metadata": {}, "spec": `+spec+`}`))
+	}
+	paths := func(ds diag.List) []string {
+		out := make([]string, len(ds))
+		for i, d := range ds {
+			out[i] = d.Path.String()
+		}
+		return out
+	}
+	for _, tc := range []struct {
+		name string
+		run  func() diag.List
+		want []string
+	}{
+		{"set element normalized", func() diag.List {
+			ds, _ := normalize(idx, thing(`{"s": [{"t": ["b", "a"], "d": "90s", "a": null, "z": null}]}`), nil, newWork())
+			return ds
+		}, []string{
+			`spec.s[item={"a":null,"d":"1m30s","t":["a","b"],"z":null}].a`,
+			`spec.s[item={"a":null,"d":"1m30s","t":["a","b"],"z":null}].z`,
+		}},
+		{"each element its own", func() diag.List {
+			ds, _ := normalize(idx, thing(`{"s": [{"a": null, "k": 1}, {"a": null, "k": 2}], "y": null}`), nil, newWork())
+			return ds
+		}, []string{`spec.s[item={"a":null,"k":1}].a`, `spec.s[item={"a":null,"k":2}].a`, `spec.y`}},
+		{"nested elements", func() diag.List {
+			ds, _ := normalize(idx, thing(`{"s": [{"x": [{"a": null}, {"b": [null]}]}]}`), nil, newWork())
+			return ds
+		}, []string{`spec.s[item={"x":[{"a":null},{"b":[null]}]}].x[0].a`, `spec.s[item={"x":[{"a":null},{"b":[null]}]}].x[1].b[0]`}},
+		{"keyed entry", func() diag.List {
+			res := envelope(mustParse(t, policyDoc("auth.jwt", `{"issuers": [{"issuer": "i", "jwksUrl": "https://x.example/j", "audiences": ["a"], "A": null, "B": 9007199254740993}]}`)))
+			return Normalize(hubIndex(t), res, nil)
+		}, []string{`spec.config.issuers[issuer=i].A`, `spec.config.issuers[issuer=i].B`}},
+	} {
+		if got := paths(tc.run()); !slices.Equal(got, tc.want) {
+			t.Errorf("%s: paths\n%s\nwant\n%s", tc.name, strings.Join(got, "\n"), strings.Join(tc.want, "\n"))
+		}
 	}
 }
