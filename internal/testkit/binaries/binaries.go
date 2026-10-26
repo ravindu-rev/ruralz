@@ -167,7 +167,7 @@ func FromDir(dir string, cmds ...string) (Set, error) {
 		return Set{}, fmt.Errorf("binaries: %w", err)
 	}
 	goos := runtime.GOOS
-	if _, err := os.Stat(filepath.Join(abs, cmds[0]+".exe")); err == nil {
+	if _, err := os.Stat(filepath.Join(abs, cmds[0]+".exe")); err == nil { //nolint:gosec // G703: a directory the calling test supplies
 		goos = "windows"
 	}
 	return collect(abs, goos, cmds)
@@ -180,7 +180,7 @@ func collect(dir, goos string, cmds []string) (Set, error) {
 		if goos == "windows" {
 			p += ".exe"
 		}
-		st, err := os.Stat(p)
+		st, err := os.Stat(p) //nolint:gosec // G703: a binary name under a directory the calling test supplies
 		if err != nil {
 			return Set{}, fmt.Errorf("binaries: %w", err)
 		}

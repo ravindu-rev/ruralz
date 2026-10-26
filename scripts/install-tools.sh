@@ -22,7 +22,7 @@
 # overrides the install directory (default bin/).
 set -euo pipefail
 
-GOLANGCI_LINT_VERSION=2.13.2
+GOLANGCI_LINT_VERSION=2.15.0
 GOVULNCHECK_VERSION=v1.8.0
 ACTIONLINT_VERSION=1.7.12
 PROMETHEUS_VERSION=3.15.0
@@ -34,10 +34,10 @@ SYFT_VERSION=1.52.0
 # pin <tool> <os>-<arch> prints the SHA-256 of that tool's release asset.
 pin() {
   case "$1 $2" in
-    "golangci-lint linux-amd64") echo 2277d43b98ec0054280f2ac26b53268bae97682444678a59a657dd565da021d6 ;;
-    "golangci-lint linux-arm64") echo a2a4e0065aa41be71f7c5ac90f271b61751331e5d04314e62afe4027855f0893 ;;
-    "golangci-lint darwin-amd64") echo 8a13aaf9cbbb1dee52824e862cf0d0720e5bb97c1f4260d1e51623a09492b57b ;;
-    "golangci-lint darwin-arm64") echo f4bf83f0b64f055c42b28fc9a38861839f69c096e61c788e72dfaae412011789 ;;
+    "golangci-lint linux-amd64") echo 9b7fe6a6bf6334b98decf8d86b11415ea7889afdabdd1959fdce23af2a9ebcea ;;
+    "golangci-lint linux-arm64") echo b4d8f17068b35ee6060cc2f69a16fb48740d706fbba81661c318649c114a6998 ;;
+    "golangci-lint darwin-amd64") echo 767b899a28285e88ded2823d5dcc4bc5ef681173eb2d80f029a7b17ee4ece3b8 ;;
+    "golangci-lint darwin-arm64") echo d1e409481a8ca846c4bc97e781eb5cb1bd5c23353a0b3977a1cbda1b1b6447d5 ;;
     "actionlint linux-amd64") echo 8aca8db96f1b94770f1b0d72b6dddcb1ebb8123cb3712530b08cc387b349a3d8 ;;
     "actionlint linux-arm64") echo 325e971b6ba9bfa504672e29be93c24981eeb1c07576d730e9f7c8805afff0c6 ;;
     "actionlint darwin-amd64") echo 5b44c3bc2255115c9b69e30efc0fecdf498fdb63c5d58e17084fd5f16324c644 ;;

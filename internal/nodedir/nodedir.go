@@ -117,23 +117,23 @@ func Open(root string) (*Dir, error) {
 // ensureDir creates dir with DirPerm (exactly, whatever the umask), and
 // missing parents owner-only, or checks an existing dir.
 func ensureDir(dir string) error {
-	err := os.Mkdir(dir, DirPerm)
+	err := os.Mkdir(dir, DirPerm) //nolint:gosec // G703: the operator's absolute data directory or a fixed name under it.
 	if errors.Is(err, fs.ErrNotExist) {
-		if err := os.MkdirAll(filepath.Dir(dir), DirPerm); err != nil {
+		if err := os.MkdirAll(filepath.Dir(dir), DirPerm); err != nil { //nolint:gosec // G703: see above.
 			return fmt.Errorf("nodedir: %w", err)
 		}
-		err = os.Mkdir(dir, DirPerm)
+		err = os.Mkdir(dir, DirPerm) //nolint:gosec // G703: see above.
 	}
 	switch {
 	case err == nil:
-		if err := os.Chmod(dir, DirPerm); err != nil {
+		if err := os.Chmod(dir, DirPerm); err != nil { //nolint:gosec // G703: see above.
 			return fmt.Errorf("nodedir: %w", err)
 		}
 		return nil
 	case !errors.Is(err, fs.ErrExist):
 		return fmt.Errorf("nodedir: %w", err)
 	}
-	fi, err := os.Stat(dir)
+	fi, err := os.Stat(dir) //nolint:gosec // G703: see above.
 	if err != nil {
 		return fmt.Errorf("nodedir: %w", err)
 	}
