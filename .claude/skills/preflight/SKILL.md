@@ -12,7 +12,7 @@ Run every step from the repository root, in order, and keep going after a failur
 ## 0. Environment
 
 - `go version`. If Go is missing, mark steps 1a to 6 **skipped (Go not installed)**, do the manual checks in 1d, and still run step 7.
-- The version should be go1.27.1 or newer (from the `go.mod` toolchain line). Go 1.26 without `GOEXPERIMENT=jsonv2` fails on purpose at `internal/buildinfo/floor_guard.go`.
+- The version should be go1.27.3 or newer (from the `go.mod` toolchain line). Go 1.26 without `GOEXPERIMENT=jsonv2` fails on purpose at `internal/buildinfo/floor_guard.go`.
 - Base for commit checks: `origin/main` if `git rev-parse --verify origin/main` succeeds, else `main`.
 
 ## 1. Hygiene (CI stage 1)
@@ -25,7 +25,7 @@ d. Only when Go is missing, check by hand and report as **manual**. Title or sub
 ## 2. Lint (CI stage 2)
 
 - If `bin/golangci-lint` exists, run `make lint`.
-- If only a golangci-lint 2.13.x is on PATH, run `golangci-lint config verify`, `golangci-lint fmt --diff ./...` and `golangci-lint run ./...` directly; `make lint` would try to download a copy into `bin/`.
+- If only a golangci-lint 2.15.x is on PATH, run `golangci-lint config verify`, `golangci-lint fmt --diff ./...` and `golangci-lint run ./...` directly; `make lint` would try to download a copy into `bin/`.
 - Otherwise mark lint **skipped** (`make tools` has no Windows pin) and, as a partial substitute, run `go vet ./...` and `gofmt -l .` (gofumpt is stricter).
 
 ## 3. Generated code (CI stage 3)

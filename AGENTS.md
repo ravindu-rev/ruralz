@@ -41,14 +41,14 @@ Not built yet, so never claim or import them: the configuration loader and pipel
 
 ## Commands
 
-The Makefile needs GNU make, bash, git and curl. On Windows install make separately (Git for Windows lacks it) and run it from Git Bash, because PowerShell's `bash` is WSL; without make, run the Go commands below directly. Go comes from the `go.mod` toolchain line (`go1.27.1`) through `GOTOOLCHAIN=auto`. If `go` is not on PATH, say so; do not install it unasked.
+The Makefile needs GNU make, bash, git and curl. On Windows install make separately (Git for Windows lacks it) and run it from Git Bash, because PowerShell's `bash` is WSL; without make, run the Go commands below directly. Go comes from the `go.mod` toolchain line (`go1.27.3`) through `GOTOOLCHAIN=auto`. If `go` is not on PATH, say so; do not install it unasked.
 
 | Purpose | Command | Notes |
 |---|---|---|
 | Stages 1 to 6 as the Makefile runs them | `DCO_RANGE=origin/main..HEAD PR_TITLE='<title>' make hygiene lint generate build test supply-chain` | Without `DCO_RANGE` and `PR_TITLE`, `hygiene` runs only repocheck. CI `pr-fast` also runs the Go 1.26 floor and the CLI tests on macOS and Windows; `pr-title` checks the title |
 | Repo checks | `go run ./internal/tool/repocheck` | Stage 1; also runs inside `go test` |
 | Commit checks | `go run ./internal/tool/commitcheck dco -range origin/main..HEAD`; `go run ./internal/tool/commitcheck title -title '<title>'` | Stage 1 |
-| Lint | `make lint`; `make fmt` rewrites | Needs golangci-lint v2.13.2 and actionlint in `bin/` (`make tools`); `make tools` has no Windows pin |
+| Lint | `make lint`; `make fmt` rewrites | Needs golangci-lint v2.15.0 and actionlint in `bin/` (`make tools`); `make tools` has no Windows pin |
 | Regenerate schema | `go generate ./pkg/config/v1alpha1` | `make generate` then fails until the regenerated files are staged, by design |
 | Build | `go build ./...`; `make build` cross-builds into `dist/` | |
 | Test | `CGO_ENABLED=0 go test -shuffle=on ./...` | `make test` first runs `-race`, which needs cgo and a C compiler |
