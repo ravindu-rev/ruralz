@@ -1,6 +1,6 @@
 {
   "$schema": "https://json.schemastore.org/claude-code-settings.json",
-  "ultracode": true,
+  "ultracode": false,
   "permissions": {
     "allow": [
       "Bash(go version)",
@@ -50,8 +50,6 @@
       "Edit(/internal/signing/**)",
       "Edit(/internal/pluginhost/**)"
     ],
-    "deny": [
-      "Edit(/api/schema/ruralz/**)"
-    ]
+    "deny": ["Edit(/api/schema/ruralz/**)"]
   }
 }
