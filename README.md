@@ -1,6 +1,6 @@
 # Ruralz
 
-Ruralz is an open-source API gateway written in Go where every feature, including the control plane and console, is free (Apache-2.0, no feature gating). The design documentation is complete and milestone M1 is in progress: the building blocks exist, but `ruralzd` does not serve traffic yet.
+Ruralz is an open-source API gateway written in Go where every feature, including the control plane and console, is free (Apache-2.0, no feature gating). Milestone M1 is in progress: the building blocks exist, but `ruralzd` does not serve traffic yet.
 
 ## What is Ruralz
 
@@ -73,11 +73,11 @@ Ruralz is building M1: the building blocks exist, `ruralzd` does not serve traff
 | M4 Event protocols + multi-region + bench suite | Kafka, NATS and MQTT, Cells across Regions, a bench suite measured against the Performance Budgets and previous releases |
 | M5 Enterprise hardening | SSO/SAML for Ruralz Console, FIPS build, monetization hooks |
 
-The [Roadmap and milestones](docs/roadmap/01-roadmap-and-milestones.md) holds each milestone's scope and exit criteria; the [Feature Catalog](docs/features/01-feature-catalog.md) maps every capability to its milestone.
+The [Roadmap and milestones](docs/roadmap/01-roadmap-and-milestones.md) holds each milestone's scope and exit criteria, [Steps](docs/roadmap/02-steps.md) the work left in the current one, and the [Feature Catalog](docs/features/01-feature-catalog.md) maps every capability to its milestone.
 
 ## Documentation map
 
-Start at the [documentation index](docs/README.md), which gives reading paths for evaluators, contributors, operators, Plugin authors and AI platform engineers, plus the review status of every document.
+Start at the [documentation index](docs/README.md), which gives reading paths for evaluators, contributors, operators, Plugin authors and AI platform engineers.
 
 | If you want to | Read |
 |---|---|
@@ -86,8 +86,8 @@ Start at the [documentation index](docs/README.md), which gives reading paths fo
 | Plan a deployment | [Deployment topologies](docs/operations/01-deployment-topologies.md), [Scalability and distributed state](docs/architecture/11-scalability-and-distributed-state.md) |
 | Contribute | [Repository layout and conventions](docs/engineering/02-repository-layout-and-conventions.md), [Tech stack and libraries](docs/engineering/01-tech-stack-and-libraries.md), [Testing and quality strategy](docs/engineering/03-testing-and-quality-strategy.md) |
 | Look up commands, APIs and terms | [CLI and API surface](docs/reference/01-cli-and-api-surface.md), [Glossary](docs/glossary.md) |
-| See what ships when | [Roadmap and milestones](docs/roadmap/01-roadmap-and-milestones.md) |
-| Review decisions | [Architecture Decision Records](docs/adr/README.md) |
+| See what ships when | [Roadmap and milestones](docs/roadmap/01-roadmap-and-milestones.md), [Steps](docs/roadmap/02-steps.md) |
+| Read the decisions | [Architecture Decision Records](docs/adr/README.md) |
 
 ## License and governance
 

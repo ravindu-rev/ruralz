@@ -2,15 +2,6 @@
 id: ADR-0006
 title: "Control Store: embedded hashicorp/raft with raft-boltdb/v2 on bbolt, Postgres optional"
 status: proposed
-date: 2026-09-25
-deciders: [ruralz-core]
-related:
-  - docs/architecture/04-control-plane-and-gitops.md
-  - docs/engineering/01-tech-stack-and-libraries.md
-  - docs/_meta/foundation-pack.md
-  - docs/architecture/01-system-overview.md
-  - docs/engineering/02-repository-layout-and-conventions.md
-  - docs/engineering/04-release-versioning-and-compatibility.md
 ---
 
 # ADR-0006: Control Store: embedded hashicorp/raft with raft-boltdb/v2 on bbolt, Postgres optional
@@ -48,9 +39,9 @@ Chosen option: "Embedded hashicorp/raft with raft-boltdb/v2", because, of the re
 | Transport | A Ruralz mutual-TLS stream layer on `crypto/tls`, never the built-in TCP layer ([Control Store transport](../engineering/01-tech-stack-and-libraries.md#control-store-transport)), owns 8092 and names each connection's class, proposed by ALPN. Only Raft-class connections from peer-role certificates, never relay, reach `raft.NetworkTransport` via its `Accept`; forwarding, content, relay feed and token `Join` follow [Replica roles](../architecture/04-control-plane-and-gitops.md#replica-roles) (OQ-control-plane-and-gitops-15). Only `Join` takes a token without a client certificate (`VerifyClientCertIfGiven`); Node certificates are rejected (TB-11) | Planned (M2); relay classes Planned (M4) |
 | Content store | Objects stored by digest reach a replica quorum before the Raft entry referencing them, else `RZ-CP-013`. Followers fetch missing, self-verifying objects from peers and serve an assignment only once its content is local, also after `InstallSnapshot` or a join. Content yields to Raft within the 64 MiB/s per-peer cap (target); entries stay under 1 MiB (target) | Planned (M2) |
 | Membership | Three voters, or five to survive two failures (target); one voter, tolerating none, only for single-host and development installs; voters SHOULD share one Region. `ruralz control join` redeems a one-time `admin` token in `Join`; the leader signs the peer certificate and records a pending member, a non-voter from its first 8092 connection and a voter once caught up ([Certificates and replica join](../architecture/04-control-plane-and-gitops.md#certificates-and-replica-join)) | Planned (M2) |
-| Telemetry | `go-hclog` logs go to `log/slog` ([ADR-0018](0018-telemetry-opentelemetry-prometheus-exporter.md)); a Ruralz go-metrics `MetricSink` forwards Raft metrics to OpenTelemetry for `/metrics` on 9902, so quorum loss and leader churn raise degraded-state metrics (P10); go-metrics' Prometheus and Circonus sinks are never imported (OQ-tech-stack-and-libraries-16) | Planned (M2) |
+| Telemetry | `go-hclog` logs go to `log/slog` ([ADR-0018](0018-telemetry-opentelemetry-prometheus-exporter.md)); a Ruralz go-metrics `MetricSink` forwards Raft metrics to OpenTelemetry for `/metrics` on 9902, so quorum loss and leader churn raise degraded-state metrics (P10); go-metrics' Prometheus and Circonus sinks are never imported | Planned (M2) |
 | Backup | `ruralz control backup` writes a Raft snapshot plus referenced content at one index, encrypted and signed; `ruralz control restore` fills an empty deployment at a higher `storeEpoch` | Planned (M2) |
-| `postgres` | Metadata in PostgreSQL over TLS; content placement and status forwarding stay OQ-control-plane-and-gitops-22 (proposed: PostgreSQL tables, amending pack section 2), and 8092 stays unused (pack section 8.4) unless it picks option (b). A fenced lease row renewed every 2 s and expiring after 10 s (target) elects the leader; sequence checks run in a transaction; switching implementations opens a new `storeEpoch` | Planned (M4) |
+| `postgres` | Metadata in PostgreSQL over TLS; content placement and status forwarding stay OQ-control-plane-and-gitops-22 (proposed: PostgreSQL tables), and 8092 stays unused (pack section 8.4) unless it picks option (b). A fenced lease row renewed every 2 s and expiring after 10 s (target) elects the leader; sequence checks run in a transaction; switching implementations opens a new `storeEpoch` | Planned (M4) |
 | Licenses | `hashicorp/raft`, `raft-boltdb/v2`, `go-immutable-radix` and `golang-lru` are the MPL-2.0 exceptions: unmodified, notices kept, patches to their files published under MPL-2.0 | Planned (M0) license gate |
 
 *Figure 1: one replica's storage layers; dashed edges are optional or external.*
@@ -129,7 +120,7 @@ sequenceDiagram
 - **Container-free integration tests**, Planned (M2): three replicas over loopback mutual TLS, with backup then restore and a persisted commit index ([Integration tests](../engineering/03-testing-and-quality-strategy.md#integration-tests)); 8092 MUST refuse Node certificates and certificate-less connections outside `Join`.
 - **Chaos tests**, Planned (M2): quorum loss and leader failover cause zero outage-caused errors (target) ([Chaos testing](../engineering/03-testing-and-quality-strategy.md#chaos-testing)).
 - **Fencing test**, Planned (M2): a deposed leader's entry at a taken sequence commits but is never accepted or delivered, and a new leader proposes only after Barrier; under `postgres`, Planned (M4), the transaction rejects it.
-- **Review checklist item**: a pull request adding a consensus or storage library, or changing `internal/controlstore`, MUST amend this ADR.
+- **Amendment trigger**: a pull request adding a consensus or storage library, or changing `internal/controlstore`, MUST amend this ADR.
 
 ## Pros and cons of the options
 
@@ -161,4 +152,3 @@ sequenceDiagram
 - Related: [ADR-0007](0007-control-stream-protocol.md) (Control Stream) and [ADR-0017](0017-artifact-signing.md) (Revision signing).
 - Open questions: OQ-control-plane-and-gitops-8 (key custody) and those above.
 - Revisit when hashicorp/raft, at 8 commits in 90 days against etcd raft's 23 ([source](https://github.com/hashicorp/raft)) ([source](https://github.com/etcd-io/raft)), stalls, an advisory names `boltdb/bolt` v1.3.1, or a linked license leaves G2.
-- Proposed amendments: Control plane and GitOps SHOULD bound how long a never-accepted proposal's objects are kept, and reword "cannot commit" in Fencing stale replicas as "cannot have a stale-sequence entry accepted".

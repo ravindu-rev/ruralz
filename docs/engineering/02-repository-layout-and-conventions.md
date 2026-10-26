@@ -1,23 +1,8 @@
----
-title: Repository Layout and Conventions
-status: reviewed
-owner: ruralz-core
-last_updated: 2026-10-26
-depends_on:
-  - docs/_meta/foundation-pack.md
-  - docs/_meta/style-guide.md
-  - docs/architecture/01-system-overview.md
-  - docs/architecture/02-configuration-model.md
-  - docs/engineering/01-tech-stack-and-libraries.md
-adrs: [ADR-0001, ADR-0002, ADR-0003, ADR-0005, ADR-0007, ADR-0009, ADR-0016, ADR-0018]
-milestone_tags_used: [M0, M1, M2, M3, M4, M5]
----
-
 # Repository Layout and Conventions
 
 ## Summary
 
-This document fixes how the monorepo `github.com/ravindu-rev/ruralz` is organized and how code enters it: the tree and import rules for `ruralzd` (Ruralz Gateway), `ruralz-control` (Ruralz Control) and the `ruralz` CLI; Go conventions and golangci-lint; protobuf layout and buf; JSON Schema generation from Go types; commit, DCO and pull request rules; CI stages; and documentation verification. Nothing is implemented yet; every capability is Planned (Mx), and untagged conventions are Planned (M0).
+This document fixes how the monorepo `github.com/ravindu-rev/ruralz` is organized and how code enters it: the tree and import rules for `ruralzd` (Ruralz Gateway), `ruralz-control` (Ruralz Control) and the `ruralz` CLI; Go conventions and golangci-lint; protobuf layout and buf; JSON Schema generation from Go types; commit, DCO and pull request rules; CI stages; and documentation verification. Untagged conventions are Planned (M0).
 
 ## Scope and non-goals
 
@@ -133,7 +118,7 @@ github.com/ravindu-rev/ruralz
 
 ### Where Go code goes
 
-- New code starts in `internal/`. A move to `pkg/` needs approval from the [Release, versioning and compatibility](04-release-versioning-and-compatibility.md) owner, because `pkg/` becomes a SemVer promise at `1.0.0`.
+- New code starts in `internal/`. `pkg/` becomes a SemVer promise at `1.0.0` ([Release, versioning and compatibility](04-release-versioning-and-compatibility.md)), so a move to `pkg/` needs the owner's decision.
 - `cmd/<binary>` holds only `main.go` with `func main`; flags and logic live under `internal/`, and repocheck fails on anything else.
 - Built-in Filters map from the Policy `type` (foundation pack section 10) to a path: dots become slashes, hyphens are dropped (`auth.api-key` in `internal/filter/auth/apikey`). `headers` lives in `internal/filter/header` (Go packages are singular); `plugin` maps to `internal/pluginhost`.
 - depguard confines each wrapped library to its package (tech stack criterion S7), as [Banned imports](#banned-imports) lists; rueidis stays in `internal/statestore/redis`, including the Semantic Cache vector client.
@@ -240,7 +225,7 @@ golangci-lint v2.15.x ([source](https://github.com/golangci/golangci-lint/releas
 | `forbidigo` | Bans `fmt.Print*` outside `internal/cli` and the deprecated `x/net/http2` `Server` and `Transport` ([ADR-0009](../adr/0009-http-stack-net-http-quic-go.md)) |
 | `gochecknoinits`, `gocritic`, `unparam`, `unconvert`, `usestdlibvars` | No `init()`; style, performance and simplification |
 | `goheader` | Go license header: any holder, SPDX line required; repocheck covers proto and TypeScript |
-| `gosec` | Security diagnostics; suppressing one in auth, authz, signing or Plugin host packages needs a security reviewer |
+| `gosec` | Security diagnostics |
 | `misspell`, `revive`, `sloglint` | American English; documented exports; `slog` with no global logger, static messages and `snake_case` keys |
 | `nolintlint` | Every suppression is specific and explained |
 | `protogetter`, `spancheck` | Protobuf getters; spans ended with errors recorded |
@@ -301,7 +286,7 @@ formatters:
 
 ### Ruralz-specific checks
 
-`internal/tool/repocheck`, a standard-library Go program run in stage 1, Planned (M0), checks what no linter covers: `cmd/` holds wiring only; metric and span names match foundation pack section 2; every `RZ-<AREA>-<NNN>` literal is registered; `pkg/` and `api/schema` expose no third-party types; proto and TypeScript license headers; no `import "C"`; the Ruralz Console placeholder is unchanged. It also runs the no-license-check scan of [ADR-0002](../adr/0002-apache-2-license-no-feature-gating.md) over every file in `cmd/`, `internal/`, `pkg/`, `sdk/` and `console/`: any denylisted identifier, string or hostname absent from the reviewed allowlist file blocks merge (P1). Terms match ignoring case and the separators `-`, `_` and spaces, so `licenseKey`, `license_key` and `LICENSE-KEY` all match; the allowlist is `internal/tool/repocheck/nolicensecheck.allow`, one `<path or directory/> <term> # <reason>` line per entry. From Planned (M1), it also checks `internal/telemetry/catalog` and every `ruralz_*` name under `docs/architecture/` against the [Observability](../architecture/10-observability.md#metrics-catalog) metrics and degraded-state tables; the Ruralz Console check starts with `internal/console`, Planned (M2).
+`internal/tool/repocheck`, a standard-library Go program run in stage 1, Planned (M0), checks what no linter covers: `cmd/` holds wiring only; metric and span names match foundation pack section 2; every `RZ-<AREA>-<NNN>` literal is registered; `pkg/` and `api/schema` expose no third-party types; proto and TypeScript license headers; no `import "C"`; the Ruralz Console placeholder is unchanged. It also runs the no-license-check scan of [ADR-0002](../adr/0002-apache-2-license-no-feature-gating.md) over every file in `cmd/`, `internal/`, `pkg/`, `sdk/` and `console/`: any denylisted identifier, string or hostname absent from the allowlist file blocks merge (P1). Terms match ignoring case and the separators `-`, `_` and spaces, so `licenseKey`, `license_key` and `LICENSE-KEY` all match; the allowlist is `internal/tool/repocheck/nolicensecheck.allow`, one `<path or directory/> <term> # <reason>` line per entry. From Planned (M1), it also checks `internal/telemetry/catalog` and every `ruralz_*` name under `docs/architecture/` against the [Observability](../architecture/10-observability.md#metrics-catalog) metrics and degraded-state tables; the Ruralz Console check starts with `internal/console`, Planned (M2).
 
 Other standard-library programs: `internal/tool/commitcheck` checks DCO sign-off on every non-merge commit of a range and the Conventional Commits title; `internal/tool/depgate` runs G2, G3, the `ruralzd` Raft denylist and the advisory floors ([CI tooling](01-tech-stack-and-libraries.md#ci-tooling)), from M1 also denies test support and `internal/tool` in every binary and prints each artifact's `THIRD_PARTY_LICENSES`; `telemetrygen` generates alert rules and Grafana dashboards (stage 3 drift); `benchgate` and `sizegate` gate stage 9, `fuzzplan` shards nightly fuzzing, and `releasekit` and `releasegate` package and gate stage 12.
 
@@ -357,7 +342,7 @@ The Configuration model publishes one JSON Schema (draft 2020-12) in two views, 
 | Output path | `api/schema/ruralz/v1alpha1/authoring.schema.json` and `api/schema/ruralz/v1alpha1/rendered.schema.json`, each holding one definition per kind |
 | Embedding | Package `api/schema` embeds both files with `go:embed`, so every source-loading path validates against identical bytes |
 | Derived output | CRDs in `deploy/crds/`, generated from the rendered view with group `ruralz.io`, Planned (M2) ([ADR-0016](../adr/0016-kubernetes-helm-and-crds.md), proposed) |
-| Published | Committed under `api/schema/` and embedded in every binary; the two files also ship with every release ([Release artifacts](04-release-versioning-and-compatibility.md)); their `$id` is OQ-repository-layout-and-conventions-4 |
+| Published | Committed under `api/schema/` and embedded in every binary; the two files also ship with every release ([Release artifacts](04-release-versioning-and-compatibility.md)); their `$id` uses a Revington-owned domain, an identifier that no binary fetches ([apiVersion lifecycle](04-release-versioning-and-compatibility.md#apiversion-lifecycle-and-deprecation-windows)) |
 
 A later apiVersion adds a sibling source package (`pkg/config/v1beta1`) and output directory. Hub types and conversions stay in `internal/config/hub` and `internal/config/convert`, because the hub is never public ([Configuration model](../architecture/02-configuration-model.md#hub-and-spoke-conversion)).
 
@@ -387,7 +372,7 @@ flowchart LR
 
 ### Normative artifact
 
-The generated JSON Schema, not the Go types, is the contract every tool reads, keeping the Configuration model rule that "the JSON Schema is the single source of truth". Every source-loading path validates the parsed, substituted document against the embedded schema before decoding it into Go types ([Configuration model](../architecture/02-configuration-model.md#validation-and-diff-semantics)). Go types carry only `json` tags. Changing the generated files needs a Configuration model owner's review (CODEOWNERS on `api/schema/` and `pkg/config/`).
+The generated JSON Schema, not the Go types, is the contract every tool reads, keeping the Configuration model rule that "the JSON Schema is the single source of truth". Every source-loading path validates the parsed, substituted document against the embedded schema before decoding it into Go types ([Configuration model](../architecture/02-configuration-model.md#validation-and-diff-semantics)). Go types carry only `json` tags.
 
 ### Markers
 
@@ -422,7 +407,7 @@ A Go zero value cannot tell an absent field from an explicit `false` or `0`, so,
 - The `ruralz.canonical.v1` encoder is schema-driven, never relying on `encoding/json` `omitempty`: it writes materialized defaults and omits a field with `x-ruralz-since` above 0 only when it equals its default ([canonical form](../architecture/02-configuration-model.md#canonical-form-and-revision)).
 - A golden test proves that an explicit `overridable: false` survives canonicalization and changes the Revision.
 
-A named string type with a `const` block becomes an `enum`; `Duration` and byte-size types get the syntax the Configuration model defines. The authoring view adds the `${VAR}` alternative to every substitutable non-string scalar and to every substitutable string constrained by an enum or a pattern (OQ-configuration-model-20 (a)). RZ-CFG-011 forbids substitution in keys, `apiVersion`, `kind`, `metadata.name` and `ref`, `secret` or `cel` fields; schemagen hard-codes the envelope fields and reads the markers for the rest.
+A named string type with a `const` block becomes an `enum`; `Duration` and byte-size types get the syntax the Configuration model defines. The authoring view adds the `${VAR}` alternative to every substitutable non-string scalar and to every substitutable string constrained by an enum or a pattern. RZ-CFG-011 forbids substitution in keys, `apiVersion`, `kind`, `metadata.name` and `ref`, `secret` or `cel` fields; schemagen hard-codes the envelope fields and reads the markers for the rest.
 
 The example uses only Configuration model fields; marker values are illustrative.
 
@@ -460,7 +445,7 @@ type PolicySpec struct {
 
 ### Generator rules
 
-- `schemagen` uses only the standard library (`reflect` for structure, `go/parser` and `go/doc` for comments and markers). Adopting a third-party generator needs a research-backed catalog row first (foundation pack section 7).
+- `schemagen` uses only the standard library (`reflect` for structure, `go/parser` and `go/doc` for comments and markers). Adopting a third-party generator needs a catalog row first (foundation pack section 7).
 - Output is deterministic: keys sorted, two-space indentation, LF line endings, a trailing newline, no timestamps. Regenerating on any OS yields identical bytes, and stage 3 fails on any diff.
 - A Go test meta-validates both files against draft 2020-12 with `santhosh-tekuri/jsonschema/v6` and validates every Bundle under `examples/`, Planned (M1).
 - A Plugin `configSchema` is authored by the Plugin publisher and never generated.
@@ -506,21 +491,17 @@ Signed-off-by: Jane Doe <jane@example.com>
 | Rule | Detail |
 |---|---|
 | Merge method | Squash merge only; the title becomes the commit subject, and the repository's squash message setting MUST include commit details, so every `Signed-off-by:` survives |
-| Reviews | One CODEOWNERS approval; two, counted by a stage 1 job that reruns on each review and gates only merge, for `api/`, `pkg/`, `docs/_meta/`, security-sensitive packages and `go.mod` |
 | Same-PR duties | Tests, regenerated files, documentation, and a catalog row for any new dependency |
-| Binding decisions | Changing a foundation pack decision needs an ADR or an Open questions entry (foundation pack section 14) |
 | Size | SHOULD stay under 400 changed lines, excluding generated files (target) |
 | Merge queue | Re-runs every required `pr-fast` and `pr-full` stage on the combined change |
 
-The security-sensitive packages, whose gosec suppressions need a security reviewer, are `internal/filter/auth/`, `internal/filter/authz/`, `internal/signing/` and `internal/pluginhost/`. The approval count also requires two approvals for the no-license-check allowlist `internal/tool/repocheck/nolicensecheck.allow`, whose edits need maintainer review ([ADR-0002](../adr/0002-apache-2-license-no-feature-gating.md)), for `.github/`, which holds the workflows that enforce these rules, and for the alloc/op gate list `test/bench/allocgate.json`, because `benchgate` reads the head's copy, so raising a cap or the threshold, or dropping an entry, would otherwise loosen the stage 9 gate without the `perf-override` label ([Regression policy and gates](../architecture/12-performance-budgets-and-benchmarking.md#regression-policy-and-gates)). `scripts/ci-approvals.sh` holds the list.
-
 ## CI stages
 
-The numbered stages are jobs inside the pipelines that [Testing and quality strategy](03-testing-and-quality-strategy.md#test-pyramid) owns: `pr-fast` on every pull request, within 10 minutes (target); `pr-full` on Go, proto, schema, `examples/`, `test/` or `deploy/` changes and merge queue runs, within 30 minutes (target); then `main`, `nightly` and `release`. Stages 1 to 11 each call one `make` target, runnable locally except stage 1's approval count; stage 12 also needs signing credentials. The `pr-fast` workflow ends in a job named `pr-fast` that passes only when each stage passed or was skipped by its path filter; with the `pr-title` and `approvals` checks it is a required status check. Path filters skip stages whose inputs did not change; a pass-through job computes the changed paths itself and MUST report success for each skipped required check. *Go changes* means any `*.go` file, `go.mod`, `go.sum`, `.golangci.yml`, `Makefile` or `scripts/` file; any change under `.github/workflows/` runs every `pr-fast` and `pr-full` stage.
+The numbered stages are jobs inside the pipelines that [Testing and quality strategy](03-testing-and-quality-strategy.md#test-pyramid) owns: `pr-fast` on every pull request, within 10 minutes (target); `pr-full` on Go, proto, schema, `examples/`, `test/` or `deploy/` changes and merge queue runs, within 30 minutes (target); then `main`, `nightly` and `release`. Stages 1 to 11 each call one `make` target, runnable locally; stage 12 also needs signing credentials. The `pr-fast` workflow ends in a job named `pr-fast` that passes only when each stage passed or was skipped by its path filter; that job and the `pr-title` check are the required status checks. Path filters skip stages whose inputs did not change; a pass-through job computes the changed paths itself and MUST report success for each skipped required check. *Go changes* means any `*.go` file, `go.mod`, `go.sum`, `.golangci.yml`, `Makefile` or `scripts/` file; any change under `.github/workflows/` runs every `pr-fast` and `pr-full` stage.
 
 | Stage | Pipeline | What runs | Make target | Trigger | Blocks merge | Milestone |
 |---|---|---|---|---|---|---|
-| 1. Commit hygiene | `pr-fast` | DCO sign-off on the pull request's own commits, also on merge queue runs; Conventional Commits title; repocheck with the no-license-check scan; a separate approval count job that gates only merge, never other stages | `make hygiene` | Every pull request | Yes | Planned (M0) |
+| 1. Commit hygiene | `pr-fast` | DCO sign-off on the pull request's own commits, also on merge queue runs; Conventional Commits title; repocheck with the no-license-check scan | `make hygiene` | Every pull request | Yes | Planned (M0) |
 | 2. Format and lint | `pr-fast` | `gofumpt`, `goimports`, golangci-lint, actionlint, `buf format`, `buf lint` | `make lint` | Go or proto changes | Yes | Planned (M0) |
 | 3. Generated code drift | `pr-fast` | `go generate ./...` (schema, telemetrygen alert rules and Grafana dashboards) and `buf generate`, then `git diff --exit-code`; `buf breaking`; builds and license-gates each `sdk/` module's lockfile (G2) | `make generate` | Changes under `pkg/`, `api/`, `internal/gen/`, `internal/tool/`, `internal/telemetry/catalog/`, `sdk/`, `deploy/crds/` or `deploy/grafana/`, or to `buf.yaml`, `buf.gen.yaml` or `go.mod` | Yes | Planned (M0) schema; Planned (M1) telemetrygen; Planned (M2) protos and PDKs |
 | 4. Build | `pr-fast` | Three binaries for linux/amd64 and linux/arm64 with `CGO_ENABLED=0`, `-trimpath`, `-ldflags -X` metadata (G1) and, from M1, `-s -w`; CLI for darwin/arm64, darwin/amd64 and windows/amd64; floor job; FIPS job with `GOFIPS140` | `make build` | Go changes | Yes | Planned (M0); FIPS job Planned (M5) |
@@ -535,7 +516,9 @@ The numbered stages are jobs inside the pipelines that [Testing and quality stra
 
 Stage 5 never passes `integration` or `e2e`, so it skips suites needing a State Store, Docker or built binaries. Race jobs enable cgo for test binaries only; the `CGO_ENABLED=0` job tests the shipped configuration. Shipped binaries come only from stage 12, with stage 4's flags, so the size gate measures them. `pr-fast`, `pr-full`, `main` and `nightly` accept `workflow_call` with `all: true`, disabling path filters; `t5-systemd.yml` (systemd as PID 1), `chaos-scale.yml` (`rh-1`) and `image-checks.yml` (Docker) have their own triggers; stage 12 calls them too. Before opening a pull request, run `make hygiene lint generate build test supply-chain`, plus `make integration` with a local `redis-server`.
 
-*Figure 3: CI stages by pipeline; stages 1 to 9 start in parallel, and stages 2 to 9 never wait for stage 1's approval count.*
+Stages 8 and 9 run their linux/arm64 legs on native `ubuntu-24.04-arm` runners; while those runners are unavailable, the arm64 legs run natively in `nightly` only.
+
+*Figure 3: CI stages by pipeline; stages 1 to 9 start in parallel.*
 
 ```mermaid
 flowchart LR
@@ -578,23 +561,21 @@ flowchart LR
 
 ## Docs as code
 
-Documentation lives in `docs/` and is reviewed in the same pull requests as code. Folders follow the manifest: `README.md` and `glossary.md` at the root, `vision/`, `architecture/`, `engineering/`, `operations/`, `features/`, `reference/`, `roadmap/`, `adr/` (MADR 4.0 plus `Confirmation` ([source](https://github.com/adr/madr/releases/tag/4.0.0)), indexed by the [ADR index](../adr/README.md)) and `_meta/` (binding inputs and research).
+Documentation lives in `docs/` and changes in the same pull requests as code: `README.md` and `glossary.md` at the root, then `vision/`, `architecture/`, `engineering/`, `operations/`, `features/`, `reference/`, `roadmap/`, `adr/` (MADR 4.0 plus `Confirmation` ([source](https://github.com/adr/madr/releases/tag/4.0.0)), indexed by the [ADR index](../adr/README.md)) and `_meta/` (the foundation pack and the style guide).
 
 ### Rules
 
-- The [style guide](../_meta/style-guide.md) and the foundation pack are binding; `docs/_meta/manifest.yaml` fixes each document's outline, diagrams and acceptance criteria.
-- Diagrams are Mermaid source, never images, so diffs stay reviewable.
-- Every vendor or library claim cites a URL from a file under `docs/_meta/research/`; a new fact needs a research addendum first.
-- Changes to binding files under `docs/_meta/` follow foundation pack section 14 and need two approvals.
+- Documents state the current design only, with no history.
+- An Open questions section holds only open questions; an answered question becomes body text and leaves the table.
+- The [style guide](../_meta/style-guide.md) holds the writing rules; the [foundation pack](../_meta/foundation-pack.md) fixes canonical names, kinds, registries and shared system rules.
+- Diagrams are Mermaid source, never images, so diffs stay readable.
+- Every vendor or library claim cites its source inline as `([source](https://...))`.
+- Every `RZ-<AREA>-<NNN>` code a document names MUST be registered in `internal/errcode`, and every registered code MUST appear in a document; `TestMatchesDocs` fails otherwise. CI skips stage 5 on a docs-only change, so the local `make test` run before the pull request covers it.
 
 ## Open questions
 
 | ID | Question | Options | Owner | Blocking? |
 |---|---|---|---|---|
-| OQ-repository-layout-and-conventions-1 | Does the Configuration model accept Go types in `pkg/config/v1alpha1` as the one source that generates both schema views, with the generated schema as the normative artifact? | (a) Go types generate the schema (chosen, 2026-09-25); (b) Hand-written schema, Go types generated from it | configuration-model | No (answered) |
 | OQ-repository-layout-and-conventions-2 | What does the proto package `ruralz.plugin.v1` contain? | (a) Host Function field identifiers, return codes and the artifact config message (proposed); (b) Artifact config only; (c) No proto file, which needs a foundation pack section 12 amendment (OQ-wasm-plugin-system-12) | wasm-plugin-system | Yes, for Planned (M2) |
-| OQ-repository-layout-and-conventions-3 | Which toolchain builds Ruralz Console (package manager, bundler, type checker, test runner, linter)? | (a) A research addendum, then choose here and add the tech stack license and catalog rows (proposed); (b) The same research, then the Control plane and GitOps owner chooses | repository-layout-and-conventions | Yes, for Ruralz Console, Planned (M2) |
-| OQ-repository-layout-and-conventions-4 | What `$id` base URI do the published schema files use, and where are they hosted for editors? | (a) Release asset URLs; (b) A Revington-owned domain, an identifier that no binary fetches (chosen, 2026-10-03: [Release artifacts](04-release-versioning-and-compatibility.md#release-artifacts)); (c) A URN | release-versioning-and-compatibility | No (answered) |
+| OQ-repository-layout-and-conventions-3 | Which toolchain builds Ruralz Console (package manager, bundler, type checker, test runner, linter)? | (a) Choose here and add the tech stack license and catalog rows (proposed); (b) The Control plane and GitOps owner chooses | repository-layout-and-conventions | Yes, for Ruralz Console, Planned (M2) |
 | OQ-repository-layout-and-conventions-5 | Is the OpenAPI document hand-authored or generated from Go handlers? | (a) Hand-authored with a drift test (proposed); (b) Generated after a catalog row | control-plane-and-gitops | No |
-| OQ-repository-layout-and-conventions-6 | Where do linux/arm64 tests run? | (a) Native `ubuntu-24.04-arm` runners in stages 8 and 9 of `pr-full`, falling back to (c) if unavailable (chosen, 2026-10-03); (b) Emulation; (c) Native, nightly only | testing-and-quality-strategy | No (answered) |
-| OQ-repository-layout-and-conventions-7 | Which Go CI tools (golangci-lint v2.13.x, `gofumpt`, `goimports`, govulncheck) get a Tech stack catalog row? | (a) A research addendum, then a CI tooling row (chosen, 2026-09-25: [CI tooling](01-tech-stack-and-libraries.md#ci-tooling)); (b) golangci-lint's bundled formatters only | tech-stack-and-libraries | No (answered) |

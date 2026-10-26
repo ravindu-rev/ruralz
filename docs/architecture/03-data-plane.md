@@ -1,33 +1,18 @@
----
-title: Data Plane
-status: reviewed
-owner: ruralz-core
-last_updated: 2026-10-09
-depends_on:
-  - docs/_meta/foundation-pack.md
-  - docs/_meta/style-guide.md
-  - docs/architecture/01-system-overview.md
-  - docs/architecture/02-configuration-model.md
-  - docs/engineering/01-tech-stack-and-libraries.md
-adrs: [ADR-0001, ADR-0004, ADR-0005, ADR-0007, ADR-0008, ADR-0009, ADR-0014, ADR-0015, ADR-0017, ADR-0018, ADR-0019]
-milestone_tags_used: [M1, M2, M3, M4, M5]
----
-
 # Data Plane
 
 ## Summary
 
-This document specifies Ruralz Gateway (`ruralzd`), the stateless data plane: concurrency bounds, listeners, Route matching, Filter Chain execution through the fixed Phases, Upstream composition and balancing, and configuration snapshot swaps during Hot Reload that drop no in-flight request. It fixes routing precedence, the `transform.request` and `transform.response` `config` schema, the admin API on port 9901, the error format, the `RZ-RT` registry and fail-open or fail-closed behavior per Filter class. Nothing is implemented yet; Ruralz Gateway is Planned (M1).
+This document specifies Ruralz Gateway (`ruralzd`), the stateless data plane: concurrency bounds, listeners, Route matching, Filter Chain execution through the fixed Phases, Upstream composition and balancing, and configuration snapshot swaps during Hot Reload that drop no in-flight request. It fixes routing precedence, the `transform.request` and `transform.response` `config` schema, the admin API on port 9901, the error format, the `RZ-RT` registry and fail-open or fail-closed behavior per Filter class. Ruralz Gateway is Planned (M1).
 
 ## Scope and non-goals
 
-In scope: one Node, from socket accept to the last `onLog` call, plus configuration activation on it. "Pack N" cites the binding [foundation pack](../_meta/foundation-pack.md); boundaries come from the [System overview](01-system-overview.md), and kinds and fields from the [Configuration model](02-configuration-model.md), which wins on conflict.
+In scope: one Node, from socket accept to the last `onLog` call, plus configuration activation on it. "Pack N" cites the [foundation pack](../_meta/foundation-pack.md); boundaries come from the [System overview](01-system-overview.md), and kinds and fields from the [Configuration model](02-configuration-model.md), which wins on conflict.
 
 Non-goals, with owners: Policy `config` semantics and retry tuning ([Traffic management and resilience](09-traffic-management-and-resilience.md) and feature documents); Plugin ABI v1 ([WASM plugin system](05-wasm-plugin-system.md)); protocol Phase mappings ([Multi-protocol](07-multi-protocol.md)); AI dialects and Token Budgets ([AI/LLM gateway](06-ai-llm-gateway.md)); the Control Stream ([Control plane and GitOps](04-control-plane-and-gitops.md)); upgrade procedures ([Zero-downtime upgrades and hot reload](../operations/02-zero-downtime-upgrades-and-hot-reload.md)); performance values ([Performance budgets and benchmarking](12-performance-budgets-and-benchmarking.md)).
 
 ## Process and concurrency model
 
-A Node is one `ruralzd` process, identified by `node.id` (a ULID; OQ-tech-stack-and-libraries-15), built with `CGO_ENABLED=0` ([ADR-0001](../adr/0001-implementation-language-go.md)) on `net/http` ([ADR-0009](../adr/0009-http-stack-net-http-quic-go.md)). It runs in exactly one configuration mode chosen at boot: a watched Bundle directory, an OCI-pulled Revision or the Control Stream.
+A Node is one `ruralzd` process, identified by `node.id` (a ULID), built with `CGO_ENABLED=0` ([ADR-0001](../adr/0001-implementation-language-go.md)) on `net/http` ([ADR-0009](../adr/0009-http-stack-net-http-quic-go.md)). It runs in exactly one configuration mode chosen at boot: a watched Bundle directory, an OCI-pulled Revision or the Control Stream.
 
 ### Durable and shared state
 
@@ -128,7 +113,7 @@ Every queue, buffer, pool, connection and stream has a ceiling, so overload yiel
 | HTTP/3 header reads | quic-go reads a stream's headers before the handler runs ([ADR-0009](../adr/0009-http-stack-net-http-quic-go.md)), so each stream gets a header-read deadline of `ReadHeaderTimeout` from stream open, and expiry resets the stream. Body and write deadlines follow the row above, pending quic-go support (OQ-data-plane-14) |
 | HTTP/3 per-connection memory | About 9.25 MiB before a handler runs (hypothesis): 32 streams at the 256 KiB header ceiling, the 1 MiB receive window, and 256 KiB of QUIC, TLS and packet buffers; this equals 16 × 592 KiB |
 | Per in-flight unit | Its header block, at most `limits.maxRequestHeaderBytes`, plus 64 KiB of copy buffers (hypothesis) |
-| In-flight units per Node | 20,000 (target): one per request, parallel step and stream pump, taken by an atomic add; when full, 503 `RZ-RT-005` at once, never queued (OQ-data-plane-6 (a)) |
+| In-flight units per Node | 20,000 (target): one per request, parallel step and stream pump, taken by an atomic add; when full, 503 `RZ-RT-005` at once, never queued |
 | Header block | `Server.MaxHeaderBytes` 256 KiB (target) |
 | Bodies and buffered bytes | `limits.maxRequestBodyBytes`, `limits.maxResponseBodyBytes`, step `maxBodyBytes`; `limits.maxBufferedBytes` reserved as bytes arrive |
 | One streamed chunk | 1 MiB (target), reserved from the stream share while held |
@@ -176,11 +161,11 @@ The Router maps a request to exactly one Route from pre-body data only: listener
 
 The config loader compiles one Router per listener into the snapshot:
 
-1. **Host tables.** An exact-host hash map (lowercased, port stripped), a wildcard table of `*.` suffixes by length, and an any-host list. A `match.hosts` entry holds at most one leading `*.` label and no other `*`, else RZ-CFG-005 (OQ-data-plane-2 (a)); `*.` matches one or more leading labels, never the bare suffix.
+1. **Host tables.** An exact-host hash map (lowercased, port stripped), a wildcard table of `*.` suffixes by length, and an any-host list. A `match.hosts` entry holds at most one leading `*.` label and no other `*`, else RZ-CFG-005; `*.` matches one or more leading labels, never the bare suffix.
 2. **Path index per host entry.** A segment trie for `exact` and `template`, `prefix` on segment boundaries, and `regex` last, with the standard `regexp` package.
 3. **Candidate filters.** `methods`, `headers`, `grpc` (exact `/service/method`, or a `/service/` prefix without `method`) and the compiled `when` ([ADR-0019](../adr/0019-expressions-authorization-comprehension-stop.md)).
 
-Paths are normalized first, from the escaped target, for the Router, CEL, `authz.*`, logs, `/tap` and the forwarded request. `%00`, a raw or encoded backslash, another control byte or an invalid escape is 400 `RZ-RT-017` (OQ-security-and-identity-21 (a)); otherwise unreserved escapes are decoded and dot segments removed (RFC 3986), clamping at `/`, and `%2F` never splits a segment. Hosts are case-insensitive, paths case-sensitive; repeated and trailing slashes are kept, significant for `exact` and `template`.
+Paths are normalized first, from the escaped target, for the Router, CEL, `authz.*`, logs, `/tap` and the forwarded request. `%00`, a raw or encoded backslash, another control byte or an invalid escape is 400 `RZ-RT-017`; otherwise unreserved escapes are decoded and dot segments removed (RFC 3986), clamping at `/`, and `%2F` never splits a segment. Hosts are case-insensitive, paths case-sensitive; repeated and trailing slashes are kept, significant for `exact` and `template`.
 
 ### Precedence
 
@@ -429,9 +414,9 @@ In-flight requests complete on the snapshot they started on; retirement ends onl
    3. Leaves guest calls to the Plugin `limits.timeout`, enforced by [WASM plugin system](05-wasm-plugin-system.md), since wazero stops a running guest only with `WithCloseOnContextDone`, reported 10 to 20x slower on loop-heavy guests ([source](https://github.com/wazero/wazero/issues/2466)).
 
    Zero pins are expected within 5 s plus the largest Plugin `limits.timeout` plus 1 s (target); a snapshot pinned longer stays ending as a degraded state, never freed early.
-6. **Grace never cut short.** At most one snapshot is closing or ending. The loader keeps only the latest pending Revision and activates it once that snapshot is freed, so a burst of activations delays the last by at most the grace period, the ending bound and compile time (target) (OQ-data-plane-13 (a)).
+6. **Grace never cut short.** At most one snapshot is closing or ending. The loader keeps only the latest pending Revision and activates it once that snapshot is freed, so a burst of activations delays the last by at most the grace period, the ending bound and compile time (target).
 
-GOAWAY is not used for retirement, since it is connection-wide and lets streams finish (OQ-data-plane-12 (a)). Resources close, and a pending Revision compiles, only at zero pins, so no goroutine reaches a freed snapshot and peak configuration memory is (K + 2) snapshots (hypothesis).
+GOAWAY is not used for retirement, since it is connection-wide and lets streams finish. Resources close, and a pending Revision compiles, only at zero pins, so no goroutine reaches a freed snapshot and peak configuration memory is (K + 2) snapshots (hypothesis).
 
 *Figure 4: a configuration snapshot through a Hot Reload.*
 
@@ -520,7 +505,7 @@ Each `/tap` subscriber samples exchanges at its own `?sample=` rate in (0, 1], d
 | admission | `ratelimit`, `quota`, `ai.token-budget` | open, but closed for `ai.token-budget`; either | 503 `RZ-STS-<NNN>`; `RZ-RL-<NNN>` or `RZ-AI-<NNN>` on a CEL error | Admit unchecked | Not applicable |
 | validation | `validation.json-schema`, `ai.guardrail` | closed; either | 503 `RZ-RT-011` or `RZ-AI-<NNN>` | Skip the check | `ai.guardrail`: 502 `RZ-AI-<NNN>` or skip |
 | cache | `cache`, `ai.semantic-cache` | open; either | 503 `RZ-STS-<NNN>`, or `RZ-AI-<NNN>` for a failed embedding call (pack 8.7); a `config.key` error always bypasses | Bypass the cache | Store skipped |
-| upstream-auth | `auth.upstream-oauth2`, `auth.upstream-sigv4` | closed; closed only | 401 `RZ-AUTH-020` (pack 8.10; OQ-data-plane-8 (a)) | Not allowed | Not applicable |
+| upstream-auth | `auth.upstream-oauth2`, `auth.upstream-sigv4` | closed; closed only | 401 `RZ-AUTH-020` (pack 8.10) | Not allowed | Not applicable |
 | transform | `headers`, `transform.request`, `transform.response` | closed; either | 503 `RZ-RT-011` | Skip | `closed`: 502 `RZ-RT-012`; `open`: skip |
 | custom | `plugin` with `filterClass: custom` (the default) | closed; either | 503 `RZ-PLG-<NNN>` | Skip | `closed`: 502 `RZ-PLG-<NNN>`; `open`: skip |
 
@@ -538,7 +523,7 @@ gRPC requests get the matching `grpc-status` and upgraded WebSockets a close cod
 
 ### RZ-RT registry
 
-`RT` covers request and response handling on a Node outside Upstream legs, widening "before any Upstream" in pack 8.6 (OQ-data-plane-9 (a)).
+`RT` covers request and response handling on a Node outside Upstream legs (pack 8.6).
 
 | Code | Status | Meaning |
 |---|---|---|
@@ -557,7 +542,7 @@ gRPC requests get the matching `grpc-status` and upgraded WebSockets a close cod
 | RZ-RT-013 | None; stream ended | A streamed chunk exceeded its cap |
 | RZ-RT-014 | 503 before commit; stream ended after | The pinned snapshot's grace period ended |
 | RZ-RT-015 | 502 | A composition step failed on a CEL runtime error or a body over `maxBodyBytes` |
-| RZ-RT-016 | 503 before commit; stream ended after | The Drain deadline was reached (OQ-zero-downtime-upgrades-and-hot-reload-2 (b)) |
+| RZ-RT-016 | 503 before commit; stream ended after | The Drain deadline was reached |
 | RZ-RT-017 | 400 | Request target or framing rejected by request hardening |
 | RZ-RT-018 | 504 | An `only-if-cached` request missed the Response Cache |
 | RZ-RT-019 | 503 | The admin `/tap` subscriber limit is reached |
@@ -581,10 +566,3 @@ Latency, allocation, throughput and memory budgets live in [Performance budgets 
 | OQ-data-plane-15 | How do clients discover HTTP/3? | (a) `Alt-Svc` on `https` responses with the listener port (current); (b) an advertised port or `ma` field on the listener; (c) HTTPS DNS records only, published by operators | data-plane | Yes, for HTTP/3 (M3) |
 | OQ-data-plane-16 | Should a Hot Reload that replaces an `http3` listener keep its QUIC connections? | (a) No; they are lost and clients reconnect (current); (b) keep the UDP socket and QUIC transport when only non-socket settings change; (c) connection-ID steering to the new server | data-plane | No |
 | OQ-data-plane-17 | How does `transform.response` read an XML response body for SOAP integration? | (a) A `plugin` Policy for XML responses (current); (b) an XML decoder exposing XML bodies to CEL as `dyn`, a Configuration model change | data-plane | Yes, for the SOAP integration row (M5) |
-
-Closed:
-
-- OQ-data-plane-2 (a), [Compiled structure](#compiled-structure); -4 (b) ([CLI and API surface](../reference/01-cli-and-api-surface.md)); -6 (a), [Bounded resources](#bounded-resources); -8 (a), merged into OQ-security-and-identity-9 ([Failure semantics](#failure-semantics)); -9 (a), [RZ-RT registry](#rz-rt-registry); -11 (c), [state](#durable-and-shared-state).
-- OQ-data-plane-12 and -13 (a), [retirement](#why-no-in-flight-request-is-dropped), conformed in System overview's [Compile before swap](01-system-overview.md#compile-before-swap).
-- OQ-data-plane-18 (b), `RZ-RT-020` and `RZ-RT-021` in [Admin endpoints](#admin-endpoints).
-- OQ-feature-catalog-1 (a), decided here ([Transform Policies](#transform-policies)); its XML response part stays open as OQ-data-plane-17.

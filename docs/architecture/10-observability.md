@@ -1,18 +1,3 @@
----
-title: Observability
-status: reviewed
-owner: ruralz-core
-last_updated: 2026-10-03
-depends_on:
-  - docs/_meta/foundation-pack.md
-  - docs/_meta/style-guide.md
-  - docs/architecture/01-system-overview.md
-  - docs/architecture/02-configuration-model.md
-  - docs/engineering/01-tech-stack-and-libraries.md
-adrs: [ADR-0007, ADR-0008, ADR-0014, ADR-0016, ADR-0017, ADR-0018]
-milestone_tags_used: [M1, M2, M3, M4, M5]
----
-
 # Observability
 
 ## Summary
@@ -27,7 +12,7 @@ Non-goals: storing or querying telemetry (the operator's Collector and stores); 
 
 ## Observability principles
 
-P10 requires OpenTelemetry signals and a metric for every degraded state; P3 forbids request-path coordination ([Vision and positioning](../vision/01-vision-and-positioning.md#principles)). Component documents MUST NOT break these rules without an ADR.
+P10 requires OpenTelemetry signals and a metric for every degraded state; P3 forbids request-path coordination ([Vision and positioning](../vision/01-vision-and-positioning.md#principles)). Every component MUST follow these rules.
 
 | ID | Rule | Consequence |
 |---|---|---|
@@ -139,7 +124,7 @@ ratio:   [0.5, 0.75, 0.9, 0.95, 0.98, 0.99, 1, 1.01, 1.02, 1.05, 1.1, 1.25, 1.5]
 
 ### Ruralz Gateway metrics
 
-Rows are Planned (M1) except `ruralz_plugin_*`, `ruralz_node_detached_seconds`, `ruralz_node_revocation_mark_age_seconds` and `ruralz_node_control_stream_reconnects_total`, Planned (M2); `ruralz_http_session_duration_seconds` and `ruralz_sse_buffered_total`, Planned (M3); and `ruralz_ingress_paused_partitions` and `ruralz_ingress_hold_expiries_total`, Planned (M4). Names and reasons other documents propose are accepted as listed below. A CI check fails when a `ruralz_*` name or a `ruralz_node_degraded_info` reason under `docs/architecture/` is missing from this catalog.
+Rows are Planned (M1) except `ruralz_plugin_*`, `ruralz_node_detached_seconds`, `ruralz_node_revocation_mark_age_seconds` and `ruralz_node_control_stream_reconnects_total`, Planned (M2); `ruralz_http_session_duration_seconds` and `ruralz_sse_buffered_total`, Planned (M3); and `ruralz_ingress_paused_partitions` and `ruralz_ingress_hold_expiries_total`, Planned (M4). A CI check fails when a `ruralz_*` name or a `ruralz_node_degraded_info` reason under `docs/architecture/` is missing from this catalog.
 
 | Metric | Type | Unit | Labels | Meaning or values |
 |---|---|---|---|---|
@@ -166,7 +151,7 @@ Rows are Planned (M1) except `ruralz_plugin_*`, `ruralz_node_detached_seconds`, 
 | `ruralz_ratelimit_bucket_evictions_total` | Counter | entries | `policy` | Local keys evicted |
 | `ruralz_quota_decisions_total` | Counter | decisions | `policy`, `result` | allow, deny, no_quota, fail_open |
 | `ruralz_cache_requests_total` | Counter | requests | `route`, `result` | hit, miss, bypass, stale, stale_error |
-| `ruralz_cache_store_skipped_total` | Counter | stores | `policy`, `reason` | size_limit, buffer_budget, memory (chosen over `state_store_memory`, as in [Traffic management and resilience](09-traffic-management-and-resilience.md#response-caching)) |
+| `ruralz_cache_store_skipped_total` | Counter | stores | `policy`, `reason` | size_limit, buffer_budget, memory ([Traffic management and resilience](09-traffic-management-and-resilience.md#response-caching)) |
 | `ruralz_upstream_attempts_total` | Counter | attempts | `upstream`, `status_class`, `error` | none, connect, timeout, reset, tls |
 | `ruralz_upstream_attempt_duration_seconds` | Histogram, request | seconds | `upstream` | Connect to last byte |
 | `ruralz_upstream_retries_total`, `ruralz_upstream_retry_budget_exhausted_total` | Counter | retries | `upstream` | Made; skipped |
@@ -210,7 +195,7 @@ Rows are Planned (M1) except `ruralz_plugin_*`, `ruralz_node_detached_seconds`, 
 
 `origin` is `upstream`, `node`, or `dependency` for Node-generated Upstream or `AIProvider` failures (`RZ-UP` codes, `RZ-AI-004`, `RZ-AI-005`, `RZ-AI-013`). `stage` is verify, plugin_compile, compile, swap or total; `size_class` is le1000, le10000 or gt10000 Routes. `op` is gcra, quota, budget, cache_get, semantic_get, script_multi (merged consumptive calls), pipeline (a read batch, pack 8.7 rule 3), or a write kind: cache_set, semantic_set, cache_invalidate, refund or settle. `kind` is a write kind for dropped writes, any single-operation `op` otherwise.
 
-Both binaries read `ruralz_runtime_*` from `runtime/metrics` (SDK names: OQ-observability-15). [WASM plugin system](05-wasm-plugin-system.md#observability)'s proposed names and reasons are accepted; `ruralz_plugin_call_overhead_seconds`, added for SM-6, spans instance checkout to guest entry and guest return to call end.
+Both binaries read `ruralz_runtime_*` from `runtime/metrics` (SDK names: OQ-observability-15). The Plugin names and reasons follow [WASM plugin system](05-wasm-plugin-system.md#observability); `ruralz_plugin_call_overhead_seconds`, which measures SM-6, spans instance checkout to guest entry and guest return to call end.
 
 ### Gateway-added time
 
@@ -268,7 +253,7 @@ Ruralz Gateway uses W3C Trace Context on every hop:
 3. It injects `traceparent`, with its decision, and `tracestate` into every upstream leg: HTTP from Planned (M1), gRPC from Planned (M3), Kafka, NATS and MQTT 5 from Planned (M4).
 4. It returns the trace ID as `requestId` in every problem document.
 
-Trace and span IDs, needed even unsampled, come from a lock-free per-connection random source. The root cap is twice the default rate at an assumed 50,000 requests per second per Node (hypothesis; OQ-observability-17); at 15 spans per trace (Figure 2) both caps allow 22,500 spans per second (target). Untrusted clients' flags are OQ-observability-4. Baggage is never propagated.
+Trace and span IDs, needed even unsampled, come from a lock-free per-connection random source. The root cap is twice the default rate at an assumed 50,000 requests per second per Node (hypothesis); at 15 spans per trace (Figure 2) both caps allow 22,500 spans per second (target). Untrusted clients' flags are OQ-observability-4. Baggage is never propagated.
 
 ### Span model
 
@@ -367,7 +352,7 @@ AI telemetry, Planned (M3), follows the OpenTelemetry `gen_ai` semantic conventi
 
 Candidate spans carry `gen_ai.provider.name`, `gen_ai.usage.input_tokens`, `gen_ai.usage.output_tokens`, `gen_ai.usage.cache_read.input_tokens`, `gen_ai.usage.cache_write.input_tokens` and `gen_ai.usage.reasoning.output_tokens` ([source](https://github.com/open-telemetry/semantic-conventions-genai/blob/main/docs/gen-ai/gen-ai-spans.md)), never content attributes such as `gen_ai.input.messages`.
 
-The conventions left the main repository in semantic-conventions v1.42.0 ([source](https://github.com/open-telemetry/semantic-conventions/releases/tag/v1.42.0)); the new repository has no tagged release ([source](https://github.com/open-telemetry/semantic-conventions-genai)) and marks its documents Development ([source](https://github.com/open-telemetry/semantic-conventions-genai/tree/main/docs/gen-ai)). For OQ-ai-llm-gateway-11 this document chooses option (a): each release pins one commit, named in its release notes, and never captures content (OQ-observability-8). The `ruralz_ai_*` metrics are the stable contract.
+The conventions left the main repository in semantic-conventions v1.42.0 ([source](https://github.com/open-telemetry/semantic-conventions/releases/tag/v1.42.0)); the new repository has no tagged release ([source](https://github.com/open-telemetry/semantic-conventions-genai)) and marks its documents Development ([source](https://github.com/open-telemetry/semantic-conventions-genai/tree/main/docs/gen-ai)). Each release pins one commit, named in its release notes, and never captures content (OQ-ai-llm-gateway-11, OQ-observability-8). The `ruralz_ai_*` metrics are the stable contract.
 
 ### AI metrics
 
@@ -551,13 +536,13 @@ Ruralz Control (Planned (M2)) exports signals like a Node, with the same aggrega
 
 The action and operation registries belong to [Control plane and GitOps](04-control-plane-and-gitops.md#drift-detection); these names fill its Drift metric deferral.
 
-For OQ-control-plane-and-gitops-12 this document chooses option (a), OpenTelemetry logs, with the Control Store's committed audit log as the queue. The leader exports batches keyed by Raft index and advances a Raft-recorded high-water mark, at most once per second (target), to the highest contiguously acknowledged index; an OTLP partial success counts as failure. Export retries, so it lags and never drops, unlike TB-12 (OQ-observability-19); a new leader resumes from the mark, so delivery is at least once, deduplicated on the Raft index attribute. `/api/v1/audit` stays authoritative.
+The audit export uses OpenTelemetry logs, with the Control Store's committed audit log as the queue (OQ-control-plane-and-gitops-12). The leader exports batches keyed by Raft index and advances a Raft-recorded high-water mark, at most once per second (target), to the highest contiguously acknowledged index; an OTLP partial success counts as failure. Export retries, so it lags and never drops, unlike TB-12 (OQ-observability-19); a new leader resumes from the mark, so delivery is at least once, deduplicated on the Raft index attribute. `/api/v1/audit` stays authoritative.
 
 ## Cardinality and overhead budgets
 
 ### Overhead per signal
 
-Budgets are per request, defaults minus telemetry off, on the reference hardware of [Performance budgets and benchmarking](12-performance-budgets-and-benchmarking.md), access-logging every request. Memory rows are live heap above the 89 MiB idle RSS budget (target) in [Performance budgets and benchmarking](12-performance-budgets-and-benchmarking.md#memory-budget). The M1 benchmarks run at the default `GOGC=100` without `GOMEMLIMIT`, where the heap target is twice the live heap, so RSS above idle is at most twice each row (hypothesis); Performance budgets checks that these seeds fit (OQ-observability-17).
+Budgets are per request, defaults minus telemetry off, on the reference hardware of [Performance budgets and benchmarking](12-performance-budgets-and-benchmarking.md), access-logging every request. Memory rows are live heap above the 89 MiB idle RSS budget (target) in [Performance budgets and benchmarking](12-performance-budgets-and-benchmarking.md#memory-budget). The M1 benchmarks run at the default `GOGC=100` without `GOMEMLIMIT`, where the heap target is twice the live heap, so RSS above idle is at most twice each row (hypothesis); Performance budgets checks that these seeds fit.
 
 | Signal | CPU per request | Allocations per request | Memory per Node |
 |---|---|---|---|
@@ -614,9 +599,7 @@ With the Route histogram at its limit it is about 82,400 (hypothesis): about 8.2
 | OQ-observability-12 | How are Routes aggregated beyond the admission limit? | (a) `_overflow` (current); (b) by a Route label | observability | No |
 | OQ-observability-13 | How does `requestId` tell apart requests sharing a trace ID? | (a) `<trace-id>-<span-id>`; (b) a `spanId` member | data-plane | No |
 | OQ-observability-14 | Should heartbeats add latency histograms for Rollout gates, beside the request, 5xx and rejection counters they carry? | (a) No (current); (b) Yes | control-plane-and-gitops | No |
-| OQ-observability-15 | May Go runtime metrics keep SDK names outside pack 2? | (a) No, `ruralz_runtime_*` (current); (b) pack amendment | tech-stack-and-libraries | No |
-| OQ-observability-16 | Which OpenTelemetry Go SDK interface exports Ruralz aggregates and ends series, at what cost? | (a) External producer (chosen, 2026-10-03: [ADR-0018](../adr/0018-telemetry-opentelemetry-prometheus-exporter.md)); (b) callback instruments; (c) Ruralz encoders | tech-stack-and-libraries | No (answered) |
-| OQ-observability-17 | Do 50,000 requests per second (hypothesis), the idle RSS budget and 40 MiB of telemetry live heap, up to 80 MiB RSS at `GOGC=100` (target), fit together? | (a) Adopt as seeds, chosen by [Performance budgets and benchmarking](12-performance-budgets-and-benchmarking.md#memory-budget) with idle RSS lowered from 96 to 89 MiB (target); (b) lower admission limits, shard caps or the retiring ceiling; (c) raise the idle budget; (d) ship a documented `GOMEMLIMIT` that the M1 benchmark uses | performance-budgets-and-benchmarking | No (answered) |
+| OQ-observability-15 | May Go runtime metrics keep SDK names outside pack 2? | (a) No, `ruralz_runtime_*` (current); (b) a pack section 2 change | tech-stack-and-libraries | No |
 | OQ-observability-18 | How is a State Store failover rollback or lost Cell reported? | (a) State Store monitoring (current); (b) Ruralz Control | scalability-and-distributed-state | No |
 | OQ-observability-19 | Should TB-12 in System overview exempt the audit export, which retries from the Control Store and never drops? | (a) Failure column "Drop on failure; audit export lags" (proposed); (b) a separate boundary | system-overview | Yes, for Planned (M2) |
 | OQ-observability-20 | Should TB-12 allow unreported cleartext OTLP to a loopback address or Unix socket, checked on the resolved address? | (a) Yes (proposed; see OQ-security-and-identity-29); (b) No (current) | system-overview | No |

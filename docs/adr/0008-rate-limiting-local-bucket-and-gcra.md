@@ -2,15 +2,6 @@
 id: ADR-0008
 title: "Rate limiting: local token bucket plus GCRA in the State Store, fail-open by default"
 status: accepted
-date: 2026-09-25
-deciders: [ruralz-core]
-related:
-  - docs/architecture/09-traffic-management-and-resilience.md
-  - docs/_meta/foundation-pack.md
-  - docs/engineering/01-tech-stack-and-libraries.md
-  - docs/architecture/11-scalability-and-distributed-state.md
-  - docs/architecture/02-configuration-model.md
-  - docs/architecture/01-system-overview.md
 ---
 
 # ADR-0008: Rate limiting: local token bucket plus GCRA in the State Store, fail-open by default
@@ -95,9 +86,9 @@ flowchart TD
 
 - **Integration tests**, Planned (M1): against Redis 8, Valkey, Dragonfly and clustered servers, the script's allow and deny sequences, τ, all-or-nothing updates and the `NOSCRIPT` path ([Integration tests](../engineering/03-testing-and-quality-strategy.md#integration-tests)); a hot key above the shard hypothesis opens the breaker and co-tenants apply `failureMode`.
 - **Round-trip test**, Planned (M1): a counting State Store proxy asserts zero commands for local denials and over-limit cache hits, at most one blocking call per admitted request per Policy, and one shared script when consumptive keys share a hash slot (pack section 8.7 rules 1 and 3).
-- **Chaos experiments** CE-3, CE-4 and CE-5, Planned (M1): a slow, black-holed or failed-over State Store keeps admission within the fail-open bounds (target) ([Chaos experiments](../architecture/11-scalability-and-distributed-state.md#chaos-experiments)); CE-12 and CE-15 verify OQ-scalability-and-distributed-state-11's proposed amendments.
+- **Chaos experiments** CE-3, CE-4 and CE-5, Planned (M1): a slow, black-holed or failed-over State Store keeps admission within the fail-open bounds (target) ([Chaos experiments](../architecture/11-scalability-and-distributed-state.md#chaos-experiments)); CE-12 and CE-15 verify the behavior OQ-scalability-and-distributed-state-11 proposes.
 - **Dependency admission**, Planned (M0): the Rate limiting row of the [Library catalog](../engineering/01-tech-stack-and-libraries.md#library-catalog) lists redis_rate and throttled as alternatives not chosen.
-- **Review checklist item**: a change to per-request State Store calls, ceiling derivation or the default `failureMode` MUST amend this ADR and pack section 8.8.
+- **Amendment trigger**: a change to per-request State Store calls, ceiling derivation or the default `failureMode` MUST amend this ADR.
 
 ## Pros and cons of the options
 
@@ -135,6 +126,4 @@ flowchart TD
 
 - Owning document: [Traffic management and resilience](../architecture/09-traffic-management-and-resilience.md#rate-limiting), with [Per-Node ceiling](../architecture/09-traffic-management-and-resilience.md#per-node-ceiling) and the [Failure matrix](../architecture/09-traffic-management-and-resilience.md#failure-matrix).
 - Related decisions: [ADR-0014](0014-ai-api-surface.md) (Token Budgets fail closed) and [ADR-0007](0007-control-stream-protocol.md) (Control Stream carrying the Node count).
-- Pending pack section 8.8 amendments: OQ-traffic-management-and-resilience-1, -16, -19 and -20, OQ-scalability-and-distributed-state-11, and aligned-window fail-open refill for declared ceilings too.
-- Corrections: the Library catalog's "`NOSCRIPT` fallback" means the `failureMode` path above, never an `EVAL` retry; Traffic management's and Scalability's N × ceiling call bound is 2 × N × ceiling.
 - Revisit when OQ-system-overview-15 chooses leases or per-shard script throughput is measured.

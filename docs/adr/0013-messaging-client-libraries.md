@@ -2,14 +2,6 @@
 id: ADR-0013
 title: "Messaging clients: franz-go, nats.go JetStream, paho.golang and embedded mochi-mqtt"
 status: accepted
-date: 2026-09-25
-deciders: [ruralz-core]
-related:
-  - docs/architecture/07-multi-protocol.md
-  - docs/engineering/01-tech-stack-and-libraries.md
-  - docs/_meta/foundation-pack.md
-  - docs/engineering/03-testing-and-quality-strategy.md
-  - docs/vision/01-vision-and-positioning.md
 ---
 
 # ADR-0013: Messaging clients: franz-go, nats.go JetStream, paho.golang and embedded mochi-mqtt
@@ -46,7 +38,7 @@ Chosen option: "franz-go, nats.go `jetstream`, paho.golang `autopaho` and embedd
 |---|---|---|---|---|
 | Kafka | `github.com/twmb/franz-go` v1.22.x | `messaging.key` is the record key; idempotent producer, acknowledgment from all in-sync replicas; `ProducerLinger(0)` on every producer client, since publish Routes await the acknowledgment (mode: OQ-multi-protocol-8) and v1.20.0 made the default linger 10 ms ([source](https://raw.githubusercontent.com/twmb/franz-go/master/CHANGELOG.md)); `MaxBufferedRecords` bounds the producer buffer ([source](https://github.com/twmb/franz-go/blob/master/docs/producing-and-consuming.md)), and each record keeps its `maxBufferedBytes` reservation until franz-go resolves its produce promise, even after its request fails, so the Node budget bounds producer memory; records carry their request context and a delivery timeout of at most the Upstream `timeout` (unresearched; OQ-multi-protocol-8 spike), so each reservation ends within that `timeout`; ingress consumer groups use cooperative-sticky or KIP-848 balancing and commit after settle; revocation abandons unsettled messages uncommitted for redelivery, never blocking past the group timeout | BSD-3-Clause | Planned (M4) |
 | NATS | `github.com/nats-io/nats.go` v1.54.x, `jetstream` package only | Publish awaits the stream `PubAck`; ingress uses a durable pull consumer through `Consume()`, pre-buffering one message per consumer per Node (target); needs nats-server 2.9.0 or newer | Apache-2.0 | Planned (M4) |
-| MQTT client | Repository `eclipse-paho/paho.golang`, module `github.com/eclipse/paho.golang` v0.23.x, `autopaho` | `mqtt` Upstreams; QoS 1 publishes await `PUBACK`; each Node connects with its own client identifier derived from `node.id` and the Upstream name, `CleanStartOnInitialConnection` true, `SessionExpiryInterval` 0 and an in-memory `Queue`, so no session or queue state outlives the connection (P4, pack 8.11; proposed for Multi-protocol under OQ-multi-protocol-8); QoS 1 publishes bypass the `Queue`, failing at once (502 `RZ-UP`) while disconnected, so nothing outlives the request; if autopaho cannot bypass it (unresearched; OQ-multi-protocol-8 spike), the queue is bounded and each entry keeps its `maxBufferedBytes` reservation until sent or dropped; the consume mapping is undecided (OQ-multi-protocol-10) | EPL-2.0 or EDL-1.0; Ruralz elects EDL-1.0 in `NOTICE` | Planned (M4) |
+| MQTT client | Repository `eclipse-paho/paho.golang`, module `github.com/eclipse/paho.golang` v0.23.x, `autopaho` | `mqtt` Upstreams; QoS 1 publishes await `PUBACK`; each Node connects with its own client identifier derived from `node.id` and the Upstream name, `CleanStartOnInitialConnection` true, `SessionExpiryInterval` 0 and an in-memory `Queue`, so no session or queue state outlives the connection (P4, pack 8.11; OQ-multi-protocol-8); QoS 1 publishes bypass the `Queue`, failing at once (502 `RZ-UP`) while disconnected, so nothing outlives the request; if autopaho cannot bypass it (unresearched; OQ-multi-protocol-8 spike), the queue is bounded and each entry keeps its `maxBufferedBytes` reservation until sent or dropped; the consume mapping is undecided (OQ-multi-protocol-10) | EPL-2.0 or EDL-1.0; Ruralz elects EDL-1.0 in `NOTICE` | Planned (M4) |
 | MQTT embedded broker | `github.com/mochi-mqtt/server/v2` v2.7.x, core and auth packages only | `OnConnectAuthenticate` and `OnACLCheck` hooks (CONNECT credentials: OQ-multi-protocol-7); PUBLISH enters its Route from a publish hook such as `OnPublish`, and PUBACK timing follows the OQ-multi-protocol-10 spike; no persistent sessions, retained messages, SUBSCRIBE or QoS 2; the inline client never carries client traffic, since it bypasses ACL checks | MIT | Planned (M4) |
 | Wire protocols | None | Kafka wire proxying Not planned in M0 to M5, revisited at M4 (OQ-multi-protocol-11); MQTT native ingress only through the embedded broker; NATS proxying Not planned | Not applicable | Not planned |
 
@@ -102,7 +94,7 @@ flowchart LR
 - **G1 cross-build and G2 license gate**, Planned (M0): [Library catalog](../engineering/01-tech-stack-and-libraries.md#library-catalog) rows marked Pending CI are removed if they fail `CGO_ENABLED=0`; paho.golang passes only under EDL-1.0 ([License rules](../engineering/01-tech-stack-and-libraries.md#license-rules)).
 - **Quarterly health review** against the [Watch list](../engineering/01-tech-stack-and-libraries.md#watch-list) triggers.
 - **`govulncheck`** on every pull request, Planned (M0) ([Update policy](../engineering/01-tech-stack-and-libraries.md#update-policy)).
-- **Review checklist item**, from M4: a pull request adding a broker library, a wire-protocol listener, a mochi-mqtt inline client call, or a mochi-mqtt import beyond core and auth MUST amend this ADR; one touching `NOTICE` keeps the EDL-1.0 election.
+- **Amendment trigger**, from M4: a pull request adding a broker library, a wire-protocol listener, a mochi-mqtt inline client call, or a mochi-mqtt import beyond core and auth MUST amend this ADR; one touching `NOTICE` keeps the EDL-1.0 election.
 
 ## Pros and cons of the options
 
@@ -143,5 +135,4 @@ flowchart LR
 
 ## More information
 
-- Owning document: [Multi-protocol](../architecture/07-multi-protocol.md); catalog rows in [Tech stack and libraries](../engineering/01-tech-stack-and-libraries.md#library-catalog). Revisit at the M4 review of OQ-multi-protocol-11 or on a watch-list trigger.
-- Proposed amendment: [Repository layout and conventions](../engineering/02-repository-layout-and-conventions.md#import-boundaries) SHOULD add a depguard rule confining these libraries to wrapper packages under `internal/` (S7) and denying mochi-mqtt's storage hook packages.
+- Owning document: [Multi-protocol](../architecture/07-multi-protocol.md); catalog rows in [Tech stack and libraries](../engineering/01-tech-stack-and-libraries.md#library-catalog). Revisit at M4 under OQ-multi-protocol-11 or on a watch-list trigger.

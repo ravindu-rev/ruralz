@@ -1,28 +1,12 @@
----
-title: CLI and API Surface
-status: reviewed
-owner: ruralz-core
-last_updated: 2026-10-09
-depends_on:
-  - docs/_meta/foundation-pack.md
-  - docs/_meta/style-guide.md
-  - docs/architecture/02-configuration-model.md
-  - docs/architecture/03-data-plane.md
-  - docs/architecture/04-control-plane-and-gitops.md
-  - docs/architecture/05-wasm-plugin-system.md
-adrs: [ADR-0003, ADR-0006, ADR-0007, ADR-0015, ADR-0017, ADR-0018]
-milestone_tags_used: [M1, M2, M3, M4, M5]
----
-
 # CLI and API Surface
 
 ## Summary
 
-Reference for every operator-facing interface: `ruralz` commands and flags, admin APIs on 9901 (Ruralz Gateway) and 9902 (Ruralz Control), the REST API on 8090, the gRPC service `ruralz.control.v1.ControlStream` on 8091, authentication, output formats and exit codes. It adds verbs and flags, defines the `ruralz test run` case format and decides delegated questions. Everything is Planned (Mx). Readers: operators, CI authors, contributors, Plugin authors.
+Reference for every operator-facing interface: `ruralz` commands and flags, admin APIs on 9901 (Ruralz Gateway) and 9902 (Ruralz Control), the REST API on 8090, the gRPC service `ruralz.control.v1.ControlStream` on 8091, authentication, output formats and exit codes. It adds verbs and flags and defines the `ruralz test run` case format. Readers: operators, CI authors, contributors, Plugin authors.
 
 ## Scope and non-goals
 
-In scope: the Summary's list, plus platforms. The [CLI command registry](../_meta/foundation-pack.md#9-cli-command-registry) of the binding [foundation pack](../_meta/foundation-pack.md) ("pack 9") fixes the nouns `bundle`, `rollout`, `plugin`, `ai`, `dev`, `node`, `control` and `test`; this document MAY add verbs and flags; a new noun needs a pack amendment. For OQ-tech-stack-and-libraries-18, [Tech stack and libraries](../engineering/01-tech-stack-and-libraries.md) picks a CLI framework with nested nouns, generated completions and no global state.
+In scope: the Summary's list, plus platforms. The [CLI command registry](../_meta/foundation-pack.md#9-cli-command-registry) of the binding [foundation pack](../_meta/foundation-pack.md) ("pack 9") fixes the nouns `bundle`, `rollout`, `plugin`, `ai`, `dev`, `node`, `control` and `test`; this document adds verbs and flags. [Tech stack and libraries](../engineering/01-tech-stack-and-libraries.md) picks a CLI framework with nested nouns, generated completions and no global state.
 
 Non-goals, with owners:
 
@@ -117,7 +101,7 @@ Every command from pack 9 and other documents, plus `ruralz rollout reject`; Fig
 | `ruralz rollout resume` | Continue its persisted plan | `ROLLOUT_ID` | Planned (M2) |
 | `ruralz rollout rollback` | Re-deliver the previous Revision | `ROLLOUT_ID` | Planned (M2) |
 | `ruralz rollout approve` | Approve a queued promotion or held revert | `--env NAME` or `--rollout ROLLOUT_ID`, `--digest sha256:DIGEST` | Planned (M2) |
-| `ruralz rollout reject` | Discard a queued promotion (OQ-control-plane-and-gitops-17) or held revert | `--env NAME` or `--rollout ROLLOUT_ID`, `--digest sha256:DIGEST`, `--reason TEXT` | Planned (M2) |
+| `ruralz rollout reject` | Discard a queued promotion or held revert | `--env NAME` or `--rollout ROLLOUT_ID`, `--digest sha256:DIGEST`, `--reason TEXT` | Planned (M2) |
 | `ruralz plugin init` | Scaffold a Plugin with tests (plugin generator) | `NAME`, `--language rust`, `go`, `typescript` or `csharp` | Planned (M2); TypeScript Planned (M3); C# Planned (M4) |
 | `ruralz plugin build` | Compile to WASM, derive Capabilities, generate shims | `[DIR]` | Planned (M2) |
 | `ruralz plugin test` | Test on `ruralzd`'s wazero host | `[DIR]` | Planned (M2) |
@@ -189,7 +173,7 @@ Read commands resolve `rev-<12 hex>` via `GET /api/v1/revisions?digestPrefix=<12
 
 Without `--oci`, `ruralz bundle push` uploads the source Bundle with the CLI's digest; Ruralz Control re-renders it, rejects a mismatch (RZ-CFG-027) and refuses it under `requireApproval` unless process configuration allows it. With `--oci` it publishes the rendered, Sigstore-signed Revision for file-mode Nodes ([ADR-0017](../adr/0017-artifact-signing.md)); registry credentials are OQ-cli-and-api-surface-7.
 
-`ruralz bundle render --api-version VERSION --output-dir DIR` converts sources instead: each base and overlay file is rewritten under VERSION into DIR, keeping layout, `overlays/<env>/` and `${VAR}` expressions, unmerged and unsubstituted. It then renders both trees per Environment in the required `--environments`, exiting 1 unless every diff is empty. OQ-configuration-model-7, option (a): comments are lost; conversion is rare.
+`ruralz bundle render --api-version VERSION --output-dir DIR` converts sources instead: each base and overlay file is rewritten under VERSION into DIR, keeping layout, `overlays/<env>/` and `${VAR}` expressions, unmerged and unsubstituted. It then renders both trees per Environment in the required `--environments`, exiting 1 unless every diff is empty. Comments are lost; conversion is rare.
 
 ### Rollout, promotion and Node verbs
 
@@ -199,7 +183,7 @@ Without `--oci`, `ruralz bundle push` uploads the source Bundle with the CLI's d
 
 `ruralz rollout approve --env prod` shows the queued record's source, digest and diff impact, then approves it for every Cluster of the Environment, sending the displayed digest on a terminal, else `--digest`, so a record a newer commit replaced is never approved. `ruralz rollout reject` follows the same rules; the server enforces separation of duties (`RZ-CP-007`).
 
-`ruralz node drain` takes OQ-data-plane-4 option (b) for Planned (M1): a local SIGTERM starts a Drain, like a process manager ([ADR-0015](../adr/0015-zero-downtime-upgrades-so-reuseport.md)). The process holding the `flock` on `${RURALZ_DATA_DIR}/lock` writes `holder.json` beside it atomically on taking it (OQ-cli-and-api-surface-10 (a)); readers ignore unknown members:
+For Planned (M1), `ruralz node drain` sends a local SIGTERM that starts a Drain, like a process manager ([ADR-0015](../adr/0015-zero-downtime-upgrades-so-reuseport.md)). The process holding the `flock` on `${RURALZ_DATA_DIR}/lock` writes `holder.json` beside it atomically on taking it; readers ignore unknown members:
 
 | Member | Contents |
 |---|---|
@@ -220,9 +204,9 @@ During a Zero-Downtime Upgrade the lock moves at Drain start; the CLI still awai
 
 `ruralz control join` runs on the new replica's host before `ruralz control serve`. It generates a key pair in `--data-dir` and dials `--peer` pinned to the 8092 server CA's SHA-256 fingerprint from the join token, as with Enrollment tokens (proposed, OQ-cli-and-api-surface-9), never unpinned. It redeems the one-time `admin` token from `--join-token-file`, issued by `/api/v1/replicas`, in `Join` with a certificate request whose SAN is `--advertise`, the replica's own peer address, then stores the certificate chain and peer CA beside the key, which stays local.
 
-`Join` only issues the certificate and records a pending member; no voter set changes. When `ruralz control serve` on that directory first connects over 8092, the leader adds it as a non-voter, promoting it to voter once it reaches the leader's commit index, so quorum never counts a stopped replica ([adopted](../architecture/04-control-plane-and-gitops.md#certificates-and-replica-join), OQ-cli-and-api-surface-14). `serve` bootstraps a cluster and creates or loads CAs only on an empty Control Store, never on a directory `join` or `restore` wrote.
+`Join` only issues the certificate and records a pending member; no voter set changes. When `ruralz control serve` on that directory first connects over 8092, the leader adds it as a non-voter, promoting it to voter once it reaches the leader's commit index, so quorum never counts a stopped replica ([Control plane and GitOps](../architecture/04-control-plane-and-gitops.md#certificates-and-replica-join)). `serve` bootstraps a cluster and creates or loads CAs only on an empty Control Store, never on a directory `join` or `restore` wrote.
 
-OQ-high-availability-and-disaster-recovery-6, option (a): `ruralz control backup --revocation-list-file PATH` also writes the Node revocation list, revoked `node.id`s and certificate serials, signed with the backup's key.
+`ruralz control backup --revocation-list-file PATH` also writes the Node revocation list, revoked `node.id`s and certificate serials, signed with the backup's key.
 
 `ruralz control restore` runs only on the host of an empty Control Store, never through REST ([ADR-0006](../adr/0006-control-store-raft-boltdb.md), proposed):
 
@@ -245,15 +229,15 @@ OQ-high-availability-and-disaster-recovery-6, option (a): `ruralz control backup
 
 ### Plugin, AI and development verbs
 
-OQ-wasm-plugin-system-7, option (a): `ruralz dev run` loads Plugins only by digest from a registry, possibly local, since `Plugin.spec.image` requires a digest (RZ-CFG-021) and one fetch path keeps development like production. Only `ruralz dev run` verifies signatures under `warn`.
+`ruralz dev run` loads Plugins only by digest from a registry, possibly local, since `Plugin.spec.image` requires a digest (RZ-CFG-021) and one fetch path keeps development like production. Only `ruralz dev run` verifies signatures under `warn`.
 
-OQ-ai-llm-gateway-13, option (a): `ruralz ai cost` reads access log records' `ai` object, as metrics carry no Consumer label. `--group-by` takes `consumer`, `tier`, `route`, `aimodel` or `provider`. Totals are per currency, unconverted and `approximate`, listing unpriced requests apart; records an errors-only `accessLog.when` skipped are missing (OQ-cli-and-api-surface-6).
+`ruralz ai cost` reads access log records' `ai` object, as metrics carry no Consumer label. `--group-by` takes `consumer`, `tier`, `route`, `aimodel` or `provider`. Totals are per currency, unconverted and `approximate`, listing unpriced requests apart; records an errors-only `accessLog.when` skipped are missing (OQ-cli-and-api-surface-6).
 
 `/tap` admits at most 4 subscribers with 1 MiB buffers, costing about 2 µs per sampled event (target) whatever `--route` filters; `ruralz dev tap` exits 2 when refused (503 `RZ-RT-019`) and warns on each `{"dropped":N}` line.
 
 ### Test case format
 
-OQ-testing-and-quality-strategy-8, option (a): `ruralz test run` reads YAML files marked `format: ruralz.test.v1`. They are not Bundle resources (no `apiVersion` or `kind`) and live outside the Bundle, such as in `tests/`. Registration is OQ-cli-and-api-surface-1; streaming and multi-request cases, OQ-cli-and-api-surface-13.
+`ruralz test run` reads YAML files marked `format: ruralz.test.v1`. They are not Bundle resources (no `apiVersion` or `kind`) and live outside the Bundle, such as in `tests/`. Registration is OQ-cli-and-api-surface-1; streaming and multi-request cases, OQ-cli-and-api-surface-13.
 
 ```yaml
 format: ruralz.test.v1
@@ -314,7 +298,7 @@ ruralz rollout status --control https://control.shop.example:8090 --token-file ~
 
 ## Ruralz Gateway admin API
 
-`ruralzd` serves admin on `Gateway.spec.admin.port`, default 9901. This table matches Data plane's [Admin endpoints](../architecture/03-data-plane.md#admin-endpoints), which owns the semantics; a path added there MUST be added here.
+`ruralzd` serves admin on `Gateway.spec.admin.port`, default 9901. This table matches Data plane's [Admin endpoints](../architecture/03-data-plane.md#admin-endpoints), which owns the semantics.
 
 | Path on 9901 | Method | Returns | Authentication | Used by | Planned |
 |---|---|---|---|---|---|
@@ -435,9 +419,9 @@ Every surface denies by default; only `/healthz` and `/readyz` MAY be open (pack
 | Admin `/debug/*`, `/config/dump`, `/tap` | 9901 (`/debug/*` also 9902) | Operator token or client certificate; off without an operator token | Read-only | Same | Planned (M1); 9902 Planned (M2) |
 | REST API | 8090 | Session cookie (Ruralz Console) or API token, TLS 1.3 by default | Roles bound globally, per Environment or per Cluster; step-up TOTP for approvals, reverts, trust uploads and Access changes | 401 for failed authentication (code: OQ-cli-and-api-surface-12); `RZ-CP-007` for RBAC or separation-of-duties denials; audited | Planned (M2) |
 | Forge webhook | 8090 `/api/v1/hooks/git` | Per-source HMAC | Triggers an authenticated fetch only | `RZ-CP-018` | Planned (M2) |
-| Control Stream `Enroll` | 8091 | One-time token, pinned server CA (pack 8.4 amendment proposed: OQ-security-and-identity-31) | One Cluster; token consumed | `RZ-CP-001` (token rejected), `RZ-CP-002` (`node.id` already enrolled); lockout per [Enrollment and mTLS](../architecture/04-control-plane-and-gitops.md#enrollment-and-mtls) | Planned (M2) |
+| Control Stream `Enroll` | 8091 | One-time token, pinned server CA (OQ-security-and-identity-31) | One Cluster; token consumed | `RZ-CP-001` (token rejected), `RZ-CP-002` (`node.id` already enrolled); lockout per [Enrollment and mTLS](../architecture/04-control-plane-and-gitops.md#enrollment-and-mtls) | Planned (M2) |
 | Control Stream `Stream` (including renewal) | 8091 | Per-Node certificate (mTLS), the only source of `node.id` | That Node and its Cluster | `RZ-CP-002`, `RZ-CP-003` | Planned (M2) |
-| Peer layer | 8092 | Peer or relay certificate (mTLS); one-time `admin` token for `Join` (pack 8.4 amendment proposed: OQ-control-plane-and-gitops-15, OQ-security-and-identity-31) | Class by certificate role | Connection refused | Planned (M2); relay Planned (M4) |
+| Peer layer | 8092 | Peer or relay certificate (mTLS); one-time `admin` token for `Join` (OQ-control-plane-and-gitops-15, OQ-security-and-identity-31) | Class by certificate role | Connection refused | Planned (M2); relay Planned (M4) |
 
 ### Admin API
 
@@ -468,11 +452,11 @@ Data goes to standard output; progress, warnings and prompts to standard error. 
 | `ruralz ai cost` | Table per currency; also `--output csv` | Rows with `currency` and `approximate` |
 | `ruralz version` | Text | `version`, `commit`, `flavor`, `apiVersions`, `pluginAbi`, `controlStream` |
 
-The `ruralz version` members take OQ-release-versioning-and-compatibility-6 option (a). `pluginAbi` and `controlStream` name contracts the binary serves, so a build omits them until Plugin ABI v1 and the Control Stream are served, Planned (M2); `apiVersions` lists the configuration apiVersions it serves.
+`pluginAbi` and `controlStream` name contracts the binary serves, so a build omits them until Plugin ABI v1 and the Control Stream are served, Planned (M2); `apiVersions` lists the configuration apiVersions it serves.
 
 ### Diff JSON compatibility
 
-This document owns compatibility of `ruralz.diff.v1`, shaped by the [Configuration model](../architecture/02-configuration-model.md#diff-semantics): changes are additive only, and consumers MUST ignore unknown members. Field operations stay `add`, `remove`, `replace` and `move`, with zero-based positions; a changed meaning needs `ruralz.diff.v2`. First addition: `from` and `to` gain `digest`, the full `sha256:<64 hex>` beside `revision`, so automation never trusts a 12-character prefix.
+This document owns compatibility of `ruralz.diff.v1`, shaped by the [Configuration model](../architecture/02-configuration-model.md#diff-semantics): changes are additive only, and consumers MUST ignore unknown members. Field operations stay `add`, `remove`, `replace` and `move`, with zero-based positions; a changed meaning needs `ruralz.diff.v2`. `from` and `to` carry `digest`, the full `sha256:<64 hex>`, beside `revision`, so automation never trusts a 12-character prefix.
 
 ### Exit codes
 
@@ -504,5 +488,3 @@ An invalid Bundle is 1 for `validate`, `render`, `build` and `audit`, whose resu
 | OQ-cli-and-api-surface-11 | Should a setting bind a CLI-launched `ruralzd` to loopback? | (a) A `RURALZ_*` setting by a pack section 2 amendment (proposed); (b) No; use a host firewall | cli-and-api-surface | No |
 | OQ-cli-and-api-surface-12 | Which codes cover an invalid REST request and failed authentication? | (a) Two new `RZ-CP` codes (proposed); (b) Plain 400 and 401 | control-plane-and-gitops | No |
 | OQ-cli-and-api-surface-13 | How does `ruralz.test.v1` express gRPC, WebSocket, SSE, repeated requests and TLS or SNI targets? | (a) Additive `protocol`, `repeat`, `tls` members (proposed); (b) `ruralz.test.v2` | cli-and-api-surface | No |
-
-Closed: OQ-cli-and-api-surface-10 (a), [`holder.json`](#rollout-promotion-and-node-verbs). Decided here, option (a) unless noted, for owners to close: OQ-configuration-model-7 and -10 (no overlay selector in `ruralzd`); OQ-control-plane-and-gitops-17 (`ruralz rollout reject`); OQ-wasm-plugin-system-7; OQ-ai-llm-gateway-13; OQ-release-versioning-and-compatibility-6; OQ-testing-and-quality-strategy-8; OQ-high-availability-and-disaster-recovery-6. Pending pack 8.4 amendments relied on: OQ-security-and-identity-31 (token `Enroll`, token `Join`) and OQ-control-plane-and-gitops-15 (8092 classes and relays).

@@ -2,21 +2,13 @@
 id: ADR-0019
 title: "Expressions and authorization: CEL inline with a comprehension stop, OPA and Cedar engines, no Lua"
 status: accepted
-date: 2026-10-03
-deciders: [ruralz-core]
-related:
-  - docs/adr/0011-expressions-and-authorization-engines.md
-  - docs/architecture/08-security-and-identity.md
-  - docs/architecture/02-configuration-model.md
-  - docs/engineering/01-tech-stack-and-libraries.md
-  - docs/_meta/foundation-pack.md
 ---
 
 # ADR-0019: Expressions and authorization: CEL inline with a comprehension stop, OPA and Cedar engines, no Lua
 
 ## Context and problem statement
 
-[ADR-0011](0011-expressions-and-authorization-engines.md) chose CEL for inline expressions, OPA and Cedar as pluggable authorization engines, and no Lua, bounding CEL by a static estimate, the runtime cost limit and the request deadline. Since `cel-go` cost tracking slows with the square of a comprehension's length (hypothesis), a comprehension over a capped input can stay under the cost limit yet run for seconds (hypothesis). The [Configuration model](../architecture/02-configuration-model.md#limits) therefore stops such evaluation at 50 ms (target), and OQ-configuration-model-21 asked whether to record that stop. An accepted ADR changes only through a superseding one, so this ADR restates ADR-0011's decision with the stop.
+Ruralz needs small expressions in many fields ([Allowed places](../architecture/02-configuration-model.md#allowed-places)) and authorization richer than one boolean. A static cost estimate, a runtime cost limit and the request deadline bound most evaluation, but `cel-go` cost tracking slows with the square of a comprehension's length (hypothesis), so a comprehension over a capped input can stay under the cost limit yet run for seconds (hypothesis). The [Configuration model](../architecture/02-configuration-model.md#limits) therefore stops such evaluation at 50 ms (target).
 
 Which expression language and authorization engines run inside `CGO_ENABLED=0` binaries ([ADR-0001](0001-implementation-language-go.md)) with bounded cost and time, compiled once per Revision and validated identically everywhere? `authz.cel` is Planned (M1); `authz.opa` and `authz.cedar` are Planned (M2); all are Filter class `authz` and `failureMode: closed` only ([foundation pack section 10](../_meta/foundation-pack.md#10-policy-type-registry)).
 
@@ -32,8 +24,8 @@ Which expression language and authorization engines run inside `CGO_ENABLED=0` b
 
 ## Considered options
 
-1. **CEL inline with a comprehension stop, OPA and Cedar engines, no Lua**: ADR-0011's chosen option plus a 50 ms (target) stop through `ContextEval` interrupt checks ([source](https://github.com/cel-expr/cel-go/blob/master/cel/program.go)).
-2. **CEL inline with the request deadline alone**: ADR-0011 unchanged (OQ-configuration-model-21 (b)).
+1. **CEL inline with a comprehension stop, OPA and Cedar engines, no Lua**: CEL inline, OPA and Cedar as pluggable engines and no Lua runtime, with a 50 ms (target) stop through `ContextEval` interrupt checks ([source](https://github.com/cel-expr/cel-go/blob/master/cel/program.go)).
+2. **CEL inline with the request deadline alone**: the same languages and engines, with evaluation bounded only by the static estimate, the runtime cost limit and the request deadline.
 3. **CEL only**: richer rules become `authz`-class `plugin` Policies ([source](https://github.com/google/cel-go/blob/main/policy/README.md)).
 4. **CEL plus embedded Lua**: a Lua interpreter linked into `ruralzd` for scripted logic.
 5. **OPA as an external decision service**, such as a sidecar.
@@ -87,10 +79,10 @@ flowchart LR
 
 ### Consequences
 
-- Good, because every inline field uses one bounded, typed language that cannot loop or call out, now bounded in time and cost.
+- Good, because every inline field uses one bounded, typed language that cannot loop or call out, bounded in both time and cost.
 - Good, because CEL, inline Rego and Cedar errors appear in `ruralz bundle validate`, since all three binaries link the same libraries ([Dependency graph](../engineering/01-tech-stack-and-libraries.md#dependency-graph)).
 - Good, because teams reuse Rego or Cedar policies without a sidecar, free in every build (P1).
-- Bad, because a long comprehension that would finish under the cost limit now fails at 50 ms (target), and an `authz.cel` Policy then denies with RZ-AUTH-015.
+- Bad, because a long comprehension that would finish under the cost limit fails at 50 ms (target), and an `authz.cel` Policy then denies with RZ-AUTH-015.
 - Bad, because only CEL fully meets S4: OPA has a deadline but no cost or allocation limit, and cedar-go has neither.
 - Bad, because three evaluators must be secured and upgraded, and OPA counts against the `ruralzd` 160 MiB stripped binary budget (target).
 - Bad, because cedar-go is idle since 2026-06-01 and lacks the schema validator ([source](https://github.com/cedar-policy/cedar-go/blob/main/README.md)); its [Watch list](../engineering/01-tech-stack-and-libraries.md#watch-list) fallback is "OPA only; fork".
@@ -101,10 +93,10 @@ flowchart LR
 - **Banned imports**, Planned (M0): depguard rejects `github.com/google/cel-go` and any Lua runtime ([Banned imports](../engineering/02-repository-layout-and-conventions.md#banned-imports)).
 - **Dependency admission**, Planned (M0): the G1 cross-build, license gate and `go list -deps` G3 check cover all three libraries.
 - **Runtime limit tests**, Planned (M1): a tracked program over a capped list fails at 1,000,000 units, and a long comprehension fails with a deadline error within the deadline plus 10 ms (target).
-- **Benchmarks**, Planned (M1) for CEL, Planned (M2) for the engines: microbenchmarks, with worst-case fixtures at the caps, report against the per-call budgets in [Performance budgets and benchmarking](../architecture/12-performance-budgets-and-benchmarking.md); `authz.opa` throughput scales linearly from 1 to 32 GOMAXPROCS (target); a miss reopens this ADR. `split(",")` of a 64 KiB header with `exists` and `map`, and a 32 × 32 nested comprehension, end within 50 ms (target), finished or stopped; once they finish well under 50 ms without the stop, a superseding ADR removes it.
+- **Benchmarks**, Planned (M1) for CEL, Planned (M2) for the engines: microbenchmarks, with worst-case fixtures at the caps, report against the per-call budgets in [Performance budgets and benchmarking](../architecture/12-performance-budgets-and-benchmarking.md); `authz.opa` throughput scales linearly from 1 to 32 GOMAXPROCS (target); a miss reopens this ADR. `split(",")` of a 64 KiB header with `exists` and `map`, and a 32 × 32 nested comprehension, end within 50 ms (target), finished or stopped; once they finish well under 50 ms without the stop, this ADR is amended to remove it.
 - **Fuzzing**, Planned (M1): the "CEL compile and cost estimator" target checks that actual cost stays within the static estimate ([Fuzzing](../engineering/03-testing-and-quality-strategy.md#fuzzing)).
 - **Configuration conformance suite**, Planned (M1): negative fixtures cover RZ-CFG-014, RZ-CFG-015 and RZ-CFG-029. Planned (M2) fixtures in all three binaries: Rego calling `http.send`, `net.lookup_ip_addr`, `time.now_ns`, `rand.intn` or `uuid.rfc4122` fails compilation, and a Bundle at the engine ceiling gets one verdict.
-- **Review checklist item**: a pull request that adds an expression language, policy engine, CEL extension or allowlisted OPA built-in, or changes the 50 ms (target) stop, MUST supersede this ADR.
+- **Amendment trigger**: a pull request that adds an expression language, policy engine, CEL extension or allowlisted OPA built-in, or changes the 50 ms (target) stop, MUST amend this ADR.
 
 ## Pros and cons of the options
 
@@ -135,7 +127,7 @@ flowchart LR
 
 ## More information
 
-- Supersedes [ADR-0011](0011-expressions-and-authorization-engines.md); its rejection of the root `opa/rego` package, deprecated and kept "for the lifetime of OPA v1.x" ([source](https://github.com/open-policy-agent/opa/blob/main/rego/rego.go)), stands.
-- Owners: [Security and identity](../architecture/08-security-and-identity.md#authorization) (engines, limits, `RZ-AUTH` codes) and [CEL expressions and allowed places](../architecture/02-configuration-model.md#cel-expressions-and-allowed-places) (CEL fields, variables, limits), which closes OQ-configuration-model-21 with (a).
+- The root `opa/rego` package is rejected: it is deprecated and kept "for the lifetime of OPA v1.x" ([source](https://github.com/open-policy-agent/opa/blob/main/rego/rego.go)), so `authz.opa` imports `opa/v1/rego`.
+- Owners: [Security and identity](../architecture/08-security-and-identity.md#authorization) (engines, limits, `RZ-AUTH` codes) and [CEL expressions and allowed places](../architecture/02-configuration-model.md#cel-expressions-and-allowed-places) (CEL fields, variables, limits).
 - Related: [ADR-0003](0003-configuration-format.md), [ADR-0004](0004-wasm-runtime-wazero.md), [ADR-0005](0005-plugin-abi-v1.md) and [ADR-0014](0014-ai-api-surface.md).
 - Revisit when `cel-go` tracks comprehension cost linearly, cedar-go hits its watch-list trigger, OPA fails the G3 check, or a per-call budget misses.

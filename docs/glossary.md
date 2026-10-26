@@ -1,47 +1,25 @@
----
-title: Glossary
-status: reviewed
-owner: ruralz-core
-last_updated: 2026-10-03
-depends_on:
-  - docs/_meta/foundation-pack.md
-  - docs/_meta/style-guide.md
-  - docs/architecture/01-system-overview.md
-  - docs/architecture/02-configuration-model.md
-  - docs/architecture/03-data-plane.md
-  - docs/architecture/04-control-plane-and-gitops.md
-  - docs/architecture/05-wasm-plugin-system.md
-  - docs/architecture/06-ai-llm-gateway.md
-  - docs/architecture/09-traffic-management-and-resilience.md
-  - docs/architecture/11-scalability-and-distributed-state.md
-  - docs/architecture/12-performance-budgets-and-benchmarking.md
-  - docs/operations/02-zero-downtime-upgrades-and-hot-reload.md
-adrs: []
-milestone_tags_used: []
----
-
 # Glossary
 
 ## Summary
 
-This glossary fixes the meaning, canonical spelling and forbidden aliases of every Ruralz term that the documentation set shares. Each definition restates the foundation pack glossary in 40 words or fewer and links to the section of the document that owns the term, where the full rules live. The Forbidden aliases section lists the script-checked aliases and the escape comment for unavoidable quotations. Every reader should keep it open while reading other documents, and every writer and reviewer MUST use these spellings.
+This glossary fixes the meaning, canonical spelling and forbidden aliases of every Ruralz term that the documentation set shares. Each definition restates the foundation pack glossary and links to the section of the document that owns the term, where the full rules live. The Forbidden aliases section lists aliases never to use, their replacements and the rule for unavoidable quotations. Every reader should keep it open while reading other documents. These spellings are canonical.
 
 ## Scope and non-goals
 
 In scope:
 
-- Every term in the manifest `glossary_terms` list, in one alphabetical table.
+- Every Ruralz term the documentation set shares, in one alphabetical table.
 - The forbidden aliases of the foundation pack, with their replacements.
 
 Non-goals:
 
 - Kind fields, Policy types and their `config` schemas: the [Configuration model](architecture/02-configuration-model.md#kind-catalog) owns them.
 - CLI commands and the REST API: [CLI and API surface](reference/01-cli-and-api-surface.md) owns them.
-- Normative rules. A definition here summarizes; when it seems to differ from the owning section, the owning section wins and the difference is a defect to fix here.
+- Normative rules. A definition here summarizes; when it seems to differ from the owning section, the owning section wins.
 
 ## Terms
 
-Terms sort alphabetically, ignoring case. "Canonical spelling" gives the exact capitalization to use in prose; kinds also appear in code formatting. "Forbidden aliases" lists the names never to use for the term; aliases that the verifier checks are also listed under [Forbidden aliases](#forbidden-aliases).
+Terms sort alphabetically, ignoring case. "Canonical spelling" gives the exact capitalization to use in prose; kinds also appear in code formatting. "Forbidden aliases" lists the names never to use for the term; several also appear, with replacements and exemptions, under [Forbidden aliases](#forbidden-aliases).
 
 | Term | Definition | Canonical spelling | Forbidden aliases | Defined in |
 |---|---|---|---|---|
@@ -96,12 +74,12 @@ Terms sort alphabetically, ignoring case. "Canonical spelling" gives the exact c
 
 ## Forbidden aliases
 
-These aliases are forbidden, in any capitalization, in prose, inline code and Mermaid blocks of every document under `docs/` outside `docs/_meta/`. These are names never used for Ruralz concepts. Other fenced code, such as a third-party protocol sample, may quote them.
+These aliases are forbidden, in any capitalization, in prose, inline code and Mermaid blocks: they are names never used for Ruralz concepts. Other fenced code, such as a third-party protocol sample, may quote them.
 
 | Forbidden | Use instead | Notes |
 |---|---|---|
 | backend (as a Ruralz concept) | Upstream | For a State Store or Control Store implementation, write "State Store backend" or "driver" |
-| endpoint as a name for a published API path | Route | Bare "Endpoint" is the glossary term for an Upstream target address and is not flagged |
+| endpoint as a name for a published API path | Route | Bare "Endpoint" is the glossary term for an Upstream target address |
 | controller, management plane | Ruralz Control | "Kubernetes controller" and "Ingress controller" are exempt |
 | dashboard | Ruralz Console | Grafana dashboards and third-party product names are exempt |
 | sync protocol, config push protocol | Control Stream | Applies to any name for the protocol between Ruralz Control and Nodes |
@@ -110,7 +88,7 @@ These aliases are forbidden, in any capitalization, in prose, inline code and Me
 
 **Quotation.** A forbidden alias may appear only when quoting, for example a third-party protocol field or product name, never to name a Ruralz concept.
 
-Forbidden aliases in the Terms table that this table does not list, such as "fleet" for Cluster, come from the foundation pack canonical names and are enforced by review.
+Forbidden aliases in the Terms table that this table does not list, such as "fleet" for Cluster, come from the foundation pack canonical names.
 
 ## Open questions
 

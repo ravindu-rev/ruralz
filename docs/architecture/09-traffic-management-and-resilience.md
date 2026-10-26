@@ -1,18 +1,3 @@
----
-title: Traffic Management and Resilience
-status: reviewed
-owner: ruralz-core
-last_updated: 2026-10-03
-depends_on:
-  - docs/_meta/foundation-pack.md
-  - docs/_meta/style-guide.md
-  - docs/architecture/01-system-overview.md
-  - docs/architecture/02-configuration-model.md
-  - docs/engineering/01-tech-stack-and-libraries.md
-adrs: [ADR-0008, ADR-0014, ADR-0019]
-milestone_tags_used: [M1, M2, M3, M4]
----
-
 # Traffic Management and Resilience
 
 ## Summary
@@ -21,7 +6,7 @@ This document fixes how a Ruralz Gateway Node selects and ejects Endpoints, boun
 
 ## Scope and non-goals
 
-In scope: the Summary's subjects and Policy `config` ([Configuration model](02-configuration-model.md#policy)), `Route.spec.timeout`, weighted `upstreams` and IETF RateLimit headers. "Pack 8.8" is a [foundation pack](../_meta/foundation-pack.md) section. Nothing here is implemented.
+In scope: the Summary's subjects and Policy `config` ([Configuration model](02-configuration-model.md#policy)), `Route.spec.timeout`, weighted `upstreams` and IETF RateLimit headers. "Pack 8.8" is a [foundation pack](../_meta/foundation-pack.md) section.
 
 Non-goals, with owners: kinds and fields ([Configuration model](02-configuration-model.md)); precedence, error format, buffer budgets ([Data plane](03-data-plane.md)); accuracy bounds, State Store sizing, Cells ([Scalability](11-scalability-and-distributed-state.md)); Token Budgets ([ADR-0014](../adr/0014-ai-api-surface.md)), Provider Fallback ([AI/LLM gateway](06-ai-llm-gateway.md)); `authz.ip`, `authz.geoip`, pre-authentication limits ([Security](08-security-and-identity.md)); streams ([Multi-protocol](07-multi-protocol.md)); authoritative numbers ([Performance budgets](12-performance-budgets-and-benchmarking.md), which wins).
 
@@ -216,7 +201,7 @@ Notation: N_published is the Node count Ruralz Control publishes (`HeartbeatRepl
 5. Otherwise one `EVALSHA` runs GCRA for every limit with server `TIME`, updating TATs only if all allow; a deny is 429 `RZ-RL-002`. Nodes `SCRIPT LOAD` every script at connect, reconnect and failover; `NOSCRIPT` applies `failureMode` and schedules a reload, so no request makes a second round trip (pack 8.7 rule 1).
 6. A failed call or open State client breaker applies `failureMode`: `open` admits within the local buckets, `closed` returns 503 `RZ-STS-<NNN>` ([Scalability](11-scalability-and-distributed-state.md)).
 
-Local-only admission departs from pack 8.8, which runs GCRA for every locally admitted request; OQ-traffic-management-and-resilience-20 proposes the amendment. Until it closes, option (c), wait for GCRA, is the conforming behavior, and only offered load bounds first-seen calls. Under option (a) they are at most min(B × N_serving / N_published, 500 × N_serving) per second per Cell, B at steady state; without a count, as in file mode, 200 × N, 200,000 at 1,000 Nodes (hypothesis), so large file-mode Clusters SHOULD run Control mode or size the State Store.
+Local-only admission departs from pack 8.8, which runs GCRA for every locally admitted request. Pending OQ-traffic-management-and-resilience-20, option (c) applies: first-seen keys past the budget wait for GCRA, and only offered load bounds first-seen calls. Under option (a) they are at most min(B × N_serving / N_published, 500 × N_serving) per second per Cell, B at steady state; without a count, as in file mode, 200 × N, 200,000 at 1,000 Nodes (hypothesis), so large file-mode Clusters SHOULD run Control mode or size the State Store.
 
 A Node new from scale-out, a restart or a Zero-Downtime Upgrade starts empty and warms at its budget: 50,000 active keys take about 250 s at N_published = 100 (hypothesis). Meanwhile past-budget keys wait for GCRA under option (c), or under option (a) are admitted at the per-Node ceiling without GCRA. Handing over the key table and count is OQ-traffic-management-and-resilience-22.
 
@@ -240,7 +225,7 @@ flowchart TD
     olc -- "yes" --> deny2["429 RZ-RL-002 with Retry-After"]
     olc -- "no" --> nk{"Local entry?"}
     nk -- "yes, or first-seen within budget" --> lb{"Every local bucket has a token?"}
-    nk -- "first-seen past budget, conforming (c): wait for GCRA" --> lb
+    nk -- "first-seen past budget, current (c): wait for GCRA" --> lb
     nk -- "first-seen past budget, proposed (a) in OQ-20" --> local["Local-only entry at the per-Node ceiling, 10 s (target)"]
     local --> lb
     lb -- "no" --> deny1["429 RZ-RL-001, no State Store call"]
@@ -259,13 +244,13 @@ flowchart TD
 
 ### Per-Node ceiling
 
-Three `ratelimit` fields, submitted to the [Configuration model](02-configuration-model.md#policy) for registration (OQ-traffic-management-and-resilience-1), govern ceilings:
+Three `ratelimit` fields, registered in the [Configuration model](02-configuration-model.md#registered-from-feature-documents) (OQ-traffic-management-and-resilience-1), govern ceilings:
 
 | Field | Type; default | Rule |
 |---|---|---|
 | `limits[].perNodeCeiling` | Integer, 1 to `requests`; unset | Each Node's bucket capacity and refill per `window` |
 | `limits[].burst` | Integer, 0 to `requests`; `requests` | τ = `burst` × `window` / `requests`: a window admits `requests` + `burst` |
-| `config.localOnly` | Boolean; `false` | Local buckets alone decide, without State Store calls, over-limit cache or first-seen budget: at most N_serving × ceiling per window, even healthy (target), for keys too hot for one shard ([Scalability](11-scalability-and-distributed-state.md#distributed-rate-limits)); amends pack 8.8 (OQ-scalability-and-distributed-state-11) |
+| `config.localOnly` | Boolean; `false` | Local buckets alone decide, without State Store calls, over-limit cache or first-seen budget: at most N_serving × ceiling per window, even healthy (target), for keys too hot for one shard ([Scalability](11-scalability-and-distributed-state.md#distributed-rate-limits)); departs from pack 8.8 (OQ-scalability-and-distributed-state-11) |
 
 Without `perNodeCeiling` the ceiling derives from N_published in Control mode; a Control-mode Node without a count uses the full limit, degraded reason `node_count_unknown` ([Observability](10-observability.md)); so does file mode (pack 8.8), not degraded. OQ-traffic-management-and-resilience-16 proposes min(`requests`, max(10, ceil(2 × `requests` / N_published))) (target) over pack 8.8's limit / N: the factor 2 absorbs uneven spread, the floor serves pinned clients.
 
@@ -358,7 +343,7 @@ spec:
 
 An exhausted quota returns 429 `RZ-RL-003` with `Retry-After` at the window end plus up to 1% of it, at most 60 s (target). Nodes cache the denial, keyed with the limit, up to 60 s (target): a raised limit applies at once, refunds within 60 s, costing one script per minute per key per Node, about 17 per second at 1,000 Nodes (hypothesis). Before exhaustion each request costs one script: 20,000 per second on one key take 20% of a shard (hypothesis) unless a `ratelimit` sharing the script (pack 8.7) bounds it. A null Consumer, or one lacking the quota, gets 403 `RZ-RL-004`.
 
-Dropped refunds only over-charge. For OQ-configuration-model-8, option (a) is recommended: `quota` fails open, `ai.token-budget` closed, as unmetered tokens are provider spend.
+Dropped refunds only over-charge. `quota` fails open and `ai.token-budget` closed, as unmetered tokens are provider spend.
 
 ## Response caching
 
@@ -452,7 +437,7 @@ spec:
   timeout: 3s
 ```
 
-Routing features build on Route matching and composition, all free and Planned (M1) unless noted. A catch-all fallback is a Route matching only `when: "true"`, ranked by [precedence](03-data-plane.md#precedence); header and query routing use `match.headers`, `match.when` over `request.query` or `composition.mode: conditional` with CEL ([ADR-0019](../adr/0019-expressions-authorization-comprehension-stop.md)); wildcard routes use `match.path` `prefix`, `template` or `regex` (wildcard hosts: OQ-data-plane-2); virtual hosts use `match.hosts` with listener `hostnames`. URL rewrite is a composition step `path` or `pathExpression` (plain `upstreams`: OQ-traffic-management-and-resilience-13). Upstream 3xx responses pass through; Route-issued redirects use a `plugin` Policy, Planned (M2), with built-in fields under OQ-traffic-management-and-resilience-13. A service-wide Rate Limit is a `ratelimit` with a constant `config.key`, and a tiered one is one `ratelimit` per Tier guarded by `when`. IP filtering is `authz.ip`, Planned (M1), and GeoIP `authz.geoip`, Planned (M2) ([Security](08-security-and-identity.md)).
+Routing features build on Route matching and composition, all free and Planned (M1) unless noted. A catch-all fallback is a Route matching only `when: "true"`, ranked by [precedence](03-data-plane.md#precedence); header and query routing use `match.headers`, `match.when` over `request.query` or `composition.mode: conditional` with CEL ([ADR-0019](../adr/0019-expressions-authorization-comprehension-stop.md)); wildcard routes use `match.path` `prefix`, `template` or `regex` (wildcard hosts: [Data plane](03-data-plane.md#compiled-structure)); virtual hosts use `match.hosts` with listener `hostnames`. URL rewrite is a composition step `path` or `pathExpression` (plain `upstreams`: OQ-traffic-management-and-resilience-13). Upstream 3xx responses pass through; Route-issued redirects use a `plugin` Policy, Planned (M2), with built-in fields under OQ-traffic-management-and-resilience-13. A service-wide Rate Limit is a `ratelimit` with a constant `config.key`, and a tiered one is one `ratelimit` per Tier guarded by `when`. IP filtering is `authz.ip`, Planned (M1), and GeoIP `authz.geoip`, Planned (M2) ([Security](08-security-and-identity.md)).
 
 ## Overload protection
 
@@ -516,7 +501,7 @@ Pack 8.6 assigns `UP` and `RL` here ([body format](03-data-plane.md#error-respon
 | RZ-UP-007 | 502 | Retries ran and the last attempt got no response |
 | RZ-UP-008 | 503 | Endpoint set empty |
 | RZ-UP-009 | Not applicable | Upstream failed after commit; the stream ended with an error |
-| RZ-UP-010 | 502 | Buffered plain `upstreams` response over its cap (area per OQ-data-plane-9) |
+| RZ-UP-010 | 502 | Buffered plain `upstreams` response over its cap (area per [Data plane](03-data-plane.md#rz-rt-registry)) |
 | RZ-UP-011 | 502 | A merged or non-final composition step got a non-2xx response |
 | RZ-RL-001 | 429 | Denied by a local token bucket |
 | RZ-RL-002 | 429 | Denied by GCRA or the over-limit cache |
@@ -528,7 +513,7 @@ Pack 8.6 assigns `UP` and `RL` here ([body format](03-data-plane.md#error-respon
 
 | ID | Question | Options | Owner | Blocking? |
 |---|---|---|---|---|
-| OQ-traffic-management-and-resilience-1 | Will the Configuration model register the [Per-Node ceiling](#per-node-ceiling) fields? | (a) As authored (decided here); (b) renamed | configuration-model | No; pack 8.8's amendment is OQ-scalability-and-distributed-state-11 |
+| OQ-traffic-management-and-resilience-1 | Will the Configuration model register the [Per-Node ceiling](#per-node-ceiling) fields? | (a) As authored (current); (b) renamed | configuration-model | No; pack 8.8's amendment is OQ-scalability-and-distributed-state-11 |
 | OQ-traffic-management-and-resilience-2 | How do admitted responses get RateLimit fields? | (a) `onResponse` on both types; (b) 429 only; (c) Data plane appends them | configuration-model | Yes, header contract (M1) |
 | OQ-traffic-management-and-resilience-3 | Should header output be selectable? | (a) `config.responseHeaders`; (b) `ietf` only; (c) also `X-RateLimit-*` | traffic-management-and-resilience | No |
 | OQ-traffic-management-and-resilience-4 | Should one `ratelimit` hold per-Tier limits? | (a) `config.limits[].when`; (b) a `tiers` map; (c) one Policy per Tier (current) | traffic-management-and-resilience | No |
@@ -541,7 +526,7 @@ Pack 8.6 assigns `UP` and `RL` here ([body format](03-data-plane.md#error-respon
 | OQ-traffic-management-and-resilience-11 | How is the Response Cache isolated from limit keys; must all unsafe methods invalidate; does `s-maxage` forbid stale? | (a) A separate State Store (recommended beside `ai.token-budget`); (b) a per-Policy entry cap; (c) interim rules and a declared Node count as fields, a TTL cap, a purge; any with `s-maxage` as `proxy-revalidate` (current) | configuration-model | Yes, Response Cache (M1) |
 | OQ-traffic-management-and-resilience-12 | How is mirroring declared? | (a) `Route.spec.mirror`, Planned (M2); (b) a fire-and-forget step; (c) a Plugin | configuration-model | No |
 | OQ-traffic-management-and-resilience-13 | How are redirects and plain `upstreams` rewrites declared? | (a) `Route.spec.redirect`, `upstreams[].pathRewrite`; (b) `plugin`, composition `path` (current) | configuration-model | Yes, built-in redirects (M2) |
-| OQ-traffic-management-and-resilience-14 | Should shedding honor Tier priority? | (a) Tier-ordered; (b) adaptive concurrency; (c) OQ-data-plane-6 only | data-plane | No |
+| OQ-traffic-management-and-resilience-14 | Should shedding honor Tier priority? | (a) Tier-ordered; (b) adaptive concurrency; (c) the Node in-flight ceiling only | data-plane | No |
 | OQ-traffic-management-and-resilience-15 | Which hash does `ring-hash` use? | (a) Standard library; (b) third party, after a Tech stack row | tech-stack-and-libraries | No |
 | OQ-traffic-management-and-resilience-16 | Which ceiling derivation and fail-open refill replace pack 8.8's limit / N? | (a) limit / N; (b) 2× headroom, floor 10, step refill per aligned window (recommended); (c) declared multiplier | scalability-and-distributed-state | Yes, pack 8.8 amendment (M1) |
 | OQ-traffic-management-and-resilience-17 | How is a percentage-sticky split declared? | (a) A hash key on `upstreams`; (b) a CEL hash; (c) a cookie-setting Plugin | configuration-model | No |

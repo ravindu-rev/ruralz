@@ -2,15 +2,6 @@
 id: ADR-0003
 title: "Configuration format: YAML with JSON Schema and a Kubernetes-style resource model"
 status: accepted
-date: 2026-09-23
-deciders: [ruralz-core]
-related:
-  - docs/architecture/02-configuration-model.md
-  - docs/_meta/foundation-pack.md
-  - docs/engineering/01-tech-stack-and-libraries.md
-  - docs/architecture/01-system-overview.md
-  - docs/vision/01-vision-and-positioning.md
-  - docs/_meta/research/tooling-and-licenses.md
 ---
 
 # ADR-0003: Configuration format: YAML with JSON Schema and a Kubernetes-style resource model
@@ -46,7 +37,7 @@ Chosen option: "YAML 1.2 validated by a published JSON Schema (draft 2020-12), w
 |---|---|---|
 | Envelope | `apiVersion: ruralz/v1alpha1`, `kind` (ten kinds), `metadata`, `spec`; `camelCase` keys and `PascalCase` kinds, except `$patch` | Planned (M0) |
 | Schema | Draft 2020-12 authoring view (accepts `${VAR}` strings) and strict rendered view, generated from one source, with `x-ruralz-*` keywords | Planned (M0) |
-| Restricted profile | Rejects non-UTF-8, byte order marks and oversize or over-deep input, depth checked over `lexer.Tokenize` output before parsing (RZ-CFG-001; proposed 64 MiB and 20,000 resources (target), Node limits never below CLI defaults), duplicate keys (RZ-CFG-002), anchors, aliases, merge keys (RZ-CFG-003) and custom tags (RZ-CFG-004) | Planned (M1) |
+| Restricted profile | Rejects non-UTF-8, byte order marks and oversize or over-deep input, depth checked over `lexer.Tokenize` output before parsing (RZ-CFG-001; defaults 64 MiB of source, 20,000 resources and 64 nesting levels (target), Node limits never below CLI defaults), duplicate keys (RZ-CFG-002), anchors, aliases, merge keys (RZ-CFG-003) and custom tags (RZ-CFG-004) | Planned (M1) |
 | JSON | `.json` files share the loader, schema and Revision digest | Planned (M1) |
 | Bundle merge | Base files form a union; `overlays/<env>/` patch by `x-ruralz-list` strategic merge; `${VAR}` substitution runs once, between merge and validation | Planned (M1) |
 | Libraries | `goccy/go-yaml` for tokens and AST. Ruralz types plain scalars from token text by the YAML 1.2 core schema (null, true/false, decimal, `0o` and `0x` integers, floats, else string), never by library typing; a substituted whole-value `${VAR}`, quoted or JSON too, takes the rendered view's field type. `santhosh-tekuri/jsonschema/v6` with its `Vocabulary` API | Planned (M1) |
@@ -94,18 +85,18 @@ flowchart LR
 - Bad, because authors lose anchors, replaced by Policies by reference and overlays.
 - Bad, because goccy/go-yaml reads leading-zero integers as octal ([source](https://github.com/goccy/go-yaml/blob/master/token/token.go)), so Ruralz owns scalar resolution.
 - Bad, because both libraries self-report conformance, and goccy/go-yaml's last release (2026-01-08) ([source](https://github.com/goccy/go-yaml/releases/tag/v1.19.2)) leaves the S1 window on 2027-01-08, triggering a health review.
-- Bad, because the depth limit's value and peak loader memory (hypothesis) stay unset until the Configuration model adds an Open question for them.
-- Bad, because two schema views and seven custom keywords must stay in step, and apiVersion migration drops comments (OQ-configuration-model-7).
+- Bad, because peak loader memory at the default size and depth limits is a hypothesis until the hostile-input fixtures measure it.
+- Bad, because two schema views and seven custom keywords must stay in step, and apiVersion migration drops comments.
 
 ### Confirmation
 
 - **Loader conformance suite**, Planned (M1): a fixture per rejection (RZ-CFG-001 to RZ-CFG-004), an alias-expansion fixture, and plain scalars `yes`, `on`, `0777`, `0b1`, `1_000` and `2026-09-23`: `0777` MUST decode as 777 raw or substituted into an integer field and stay "0777" substituted into a string field; the rest are strings.
 - **Hostile input**, Planned (M1): loader fuzzing, plus size and nesting fixtures that MUST fail with RZ-CFG-001 without a crash.
-- **Upstream suites**, Planned (M1): the pinned YAML Test Suite against `goccy/go-yaml`, failing only on a checked-in list of profile-rejected or reviewed cases, and the pinned JSON-Schema-Test-Suite's required draft 2020-12 tests (optional excluded, except used formats) against `jsonschema/v6`, with zero failures. Other failures or regressions fail CI.
+- **Upstream suites**, Planned (M1): the pinned YAML Test Suite against `goccy/go-yaml`, failing only on a checked-in list of profile-rejected or known-deviation cases, and the pinned JSON-Schema-Test-Suite's required draft 2020-12 tests (optional excluded, except used formats) against `jsonschema/v6`, with zero failures. Other failures or regressions fail CI.
 - **JSON subset fixtures**, Planned (M1): tab indentation, `\/` and surrogate `\u` escapes MUST yield the digest of their YAML twins.
 - **Golden corpus**, Planned (M1): the Configuration model's [example Bundle](../architecture/02-configuration-model.md#complete-annotated-example-bundle) and its JSON twin MUST reproduce one expected digest on every release, except entries recording a `v1alpha1` default change.
 - **Schema generation check**, Planned (M0): CI regenerates both views from one source and fails on any drift from the published files.
-- **Review checklist item**: a pull request accepting a new YAML feature, file format or envelope key MUST amend this ADR.
+- **Amendment trigger**: a pull request accepting a new YAML feature, file format or envelope key MUST amend this ADR.
 
 ## Pros and cons of the options
 
@@ -141,6 +132,6 @@ flowchart LR
 ## More information
 
 - Owning document: [Configuration model](../architecture/02-configuration-model.md#restricted-yaml-profile).
-- Evidence: [Tooling and licenses research](../_meta/research/tooling-and-licenses.md) sections 6 and 7; the [Library catalog](../engineering/01-tech-stack-and-libraries.md#library-catalog).
-- Related decisions: [ADR-0011](0011-expressions-and-authorization-engines.md) and [ADR-0017](0017-artifact-signing.md).
+- Evidence: the [Library catalog](../engineering/01-tech-stack-and-libraries.md#library-catalog).
+- Related decisions: [ADR-0019](0019-expressions-authorization-comprehension-stop.md) and [ADR-0017](0017-artifact-signing.md).
 - Open elsewhere: OQ-configuration-model-10 and OQ-configuration-model-2.

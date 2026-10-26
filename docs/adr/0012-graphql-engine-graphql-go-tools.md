@@ -2,14 +2,6 @@
 id: ADR-0012
 title: "GraphQL engine: wundergraph/graphql-go-tools v2"
 status: accepted
-date: 2026-09-25
-deciders: [ruralz-core]
-related:
-  - docs/architecture/07-multi-protocol.md
-  - docs/engineering/01-tech-stack-and-libraries.md
-  - docs/_meta/foundation-pack.md
-  - docs/architecture/02-configuration-model.md
-  - docs/architecture/01-system-overview.md
 ---
 
 # ADR-0012: GraphQL engine: wundergraph/graphql-go-tools v2
@@ -90,7 +82,7 @@ flowchart LR
 - Good, because Ruralz keeps listeners, the Router, the Filter Chain and client framing, and every upstream fetch and subscription gets upstream-leg Phases ([applicability](../architecture/07-multi-protocol.md#filter-chain-applicability-per-protocol)).
 - Good, because it is MIT-licensed, its v2 `go.mod` declares `go 1.25.0` with no C dependencies ([source](https://raw.githubusercontent.com/wundergraph/graphql-go-tools/master/v2/go.mod)), it tagged seven releases in 14 days ([source](https://github.com/wundergraph/graphql-go-tools/releases)) so it passes G2, S1 and S2 (G1 and G3: Confirmation).
 - Bad, because paying WunderGraph customers steer its features ([source](https://github.com/wundergraph/graphql-go-tools)), and that pace suggests API churn, which the S7 wrapper absorbs under the [Update policy](../engineering/01-tech-stack-and-libraries.md#update-policy).
-- Bad, because it pins `gorilla/websocket` v1.5.1, inside the GO-2026-6278 range ([source](https://pkg.go.dev/vuln/GO-2026-6278)), beside coder/websocket: an accepted S6 exception ([Selection criteria](../engineering/01-tech-stack-and-libraries.md#selection-criteria)) that OQ-tech-stack-and-libraries-6 does not yet cover.
+- Bad, because it pins `gorilla/websocket` v1.5.1, inside the GO-2026-6278 range ([source](https://pkg.go.dev/vuln/GO-2026-6278)), beside coder/websocket: an accepted S6 exception ([Selection criteria](../engineering/01-tech-stack-and-libraries.md#selection-criteria)).
 - Bad, because it has no composition package ([source](https://github.com/wundergraph/graphql-go-tools/tree/master/v2)), so federation waits on OQ-multi-protocol-4, and planning checks add `engine/plan` and `graphql_datasource`, which imports gorilla/websocket, to Ruralz Control and the CLI (size: OQ-tech-stack-and-libraries-22).
 - Bad, because the engine holds each event whole, so each is reserved as a chunk up to 1 MiB (target) even without `onChunk` ([Subscriptions](../architecture/07-multi-protocol.md#subscriptions)); the subgraph read limit is unresearched (OQ-multi-protocol-12).
 - Bad, because `ruralzd` always links it, adding to its 160 MiB stripped budget (target) even on Nodes serving no GraphQL.
@@ -98,12 +90,12 @@ flowchart LR
 
 ### Confirmation
 
-- **Dependency admission**, Planned (M0): the GraphQL catalog row cites this ADR, and a depguard rule banning `github.com/99designs/gqlgen`, `github.com/movio/bramble` and `github.com/graphql-go/graphql` (proposed below) fails any pull request importing them.
+- **Dependency admission**, Planned (M0): the GraphQL catalog row cites this ADR, and a depguard rule banning `github.com/99designs/gqlgen`, `github.com/movio/bramble` and `github.com/graphql-go/graphql` fails any pull request importing them.
 - **G1 cross-build, G3 crypto denylist and license gate**, Planned (M0), plus the FIPS CI job, Planned (M5): confirm pure Go, Go-module-only cryptography and MIT over all three binaries' linked sets, including graphql-go-tools.
 - **GraphQL module floor**, Planned (M3): the `gorilla/websocket` v1.5.3 `require` above; `govulncheck` on every pull request, Planned (M0), blocks a reachable GO-2026-6278 ([Version floors](../engineering/01-tech-stack-and-libraries.md#version-floors-from-advisories)).
 - **Protocol conformance suite** in `pr-full`, Planned (M3) ([Conformance suites](../engineering/03-testing-and-quality-strategy.md#conformance-suites)): federation versions 1 and 2, all three subscription transports, pass-through subscriptions including from a `graphql-ws` client, and limit rejections. Every subgraph or pass-through fetch and subscription dial emits a `ruralz.upstream.<name>` span and runs `onUpstreamRequest`; an oversized subgraph body is rejected with its reservation released; a denied `subscribe` gets an `error` for its operation id while the socket stays open.
 - **CI size check**, Planned (M1): reports `ruralzd` against its binary budget.
-- **Review checklist item**: a pull request that adds another GraphQL library, imports the `subscription` package, or exceeds the `ruralz-control`, `ruralz` row's package set or builds an HTTP or subscription client there, MUST amend this ADR.
+- **Amendment trigger**: a pull request that adds another GraphQL library, imports the `subscription` package, or exceeds the `ruralz-control`, `ruralz` row's package set or builds an HTTP or subscription client there, MUST amend this ADR.
 
 ## Pros and cons of the options
 
@@ -141,9 +133,4 @@ flowchart LR
 
 - Owning document: [Multi-protocol](../architecture/07-multi-protocol.md#engine).
 - Related decisions: [ADR-0001](0001-implementation-language-go.md), [ADR-0009](0009-http-stack-net-http-quic-go.md) and [ADR-0013](0013-messaging-client-libraries.md).
-- Proposed amendments:
-  - [Repository layout and conventions](../engineering/02-repository-layout-and-conventions.md#banned-imports) SHOULD add depguard rules: graphql-go-tools only in one wrapper package; Ruralz Control and the CLI limited to their Decision outcome package set; `subscription` nowhere; gqlgen, bramble and graphql-go banned.
-  - Tech stack and libraries SHOULD align its GraphQL catalog row and Figure 2 with this package set, watch graphql-go-tools (trigger: an unfixed advisory or license change; fallback: a fork), extend OQ-tech-stack-and-libraries-22 to supergraph planning, and widen OQ-tech-stack-and-libraries-6 to gorilla/websocket.
-  - Multi-protocol SHOULD widen OQ-multi-protocol-4 to a pass-through schema source, if pass-through validates operations against one; this ADR names no field.
-  - Testing and quality strategy SHOULD add a GraphQL parser and normalizer fuzz target.
 - Revisit if the engine drops a federation version, changes license, or adds a composition package.

@@ -1,31 +1,12 @@
----
-title: High Availability and Disaster Recovery
-status: reviewed
-owner: ruralz-core
-last_updated: 2026-09-25
-depends_on:
-  - docs/_meta/foundation-pack.md
-  - docs/_meta/style-guide.md
-  - docs/architecture/04-control-plane-and-gitops.md
-  - docs/engineering/04-release-versioning-and-compatibility.md
-  - docs/architecture/11-scalability-and-distributed-state.md
-  - docs/architecture/12-performance-budgets-and-benchmarking.md
-  - docs/operations/01-deployment-topologies.md
-adrs: [ADR-0006, ADR-0007, ADR-0008, ADR-0014, ADR-0017]
-milestone_tags_used: [M1, M2, M3, M4]
----
-
 # High Availability and Disaster Recovery
 
 ## Summary
 
-This document tells operators what fails, what keeps working and how to recover: degraded modes (Last-Known-Good, local rate-limit fallback, `failureMode`), recovery objectives, backups, runbooks and game days. Nodes never wait on Ruralz Control, so its failures cost requests nothing, except derived ceilings after a rebuild; State Store and Region losses have their own traffic RTOs. Nothing is implemented: Node recovery is Planned (M1), Ruralz Control and backups Planned (M2), multi-region Planned (M4). For operators and architects.
+This document tells operators what fails, what keeps working and how to recover: degraded modes (Last-Known-Good, local rate-limit fallback, `failureMode`), recovery objectives, backups, runbooks and game days. Nodes never wait on Ruralz Control, so its failures cost requests nothing, except derived ceilings after a rebuild; State Store and Region losses have their own traffic RTOs. Node recovery is Planned (M1), Ruralz Control and backups Planned (M2), multi-region Planned (M4). For operators and architects.
 
 ## Scope and non-goals
 
 In scope: failure behavior at component boundaries, degraded modes, recovery objectives, backup practice, runbooks and chaos drills. "Pack 8.2" names a [foundation pack](../_meta/foundation-pack.md) section.
-
-This document decides OQ-system-overview-13 (`/readyz` never fails for detachment) and OQ-scalability-and-distributed-state-7 (option (a) below), and carries OQ-system-overview-12 and OQ-deployment-topologies-18 and -20, with every option, into [Open questions](#open-questions); their original IDs close at conformance.
 
 Non-goals, with owners: accuracy bounds and chaos pass criteria ([Scalability](../architecture/11-scalability-and-distributed-state.md)); Control Store, fencing and backup internals ([Control plane](../architecture/04-control-plane-and-gitops.md)); upgrade rollback ([Release](../engineering/04-release-versioning-and-compatibility.md), [Zero-downtime upgrades](02-zero-downtime-upgrades-and-hot-reload.md)); layouts ([Deployment topologies](01-deployment-topologies.md)); performance values ([Performance budgets](../architecture/12-performance-budgets-and-benchmarking.md)); State Store product operations beyond the rules below.
 
@@ -122,19 +103,19 @@ Every degraded mode is a metric (P10, SG-8) named by [Observability](../architec
 
 ### Detached Nodes and Last-Known-Good
 
-A detached Node serves its active Revision and stays ready indefinitely (pack 8.5), deciding OQ-system-overview-13 as "never": failing `/readyz` on staleness would evacuate a Cell's Nodes during the incident it signals.
+A detached Node serves its active Revision and stays ready indefinitely (pack 8.5): failing `/readyz` on staleness would evacuate a Cell's Nodes during the incident it signals.
 
 | Situation | Behavior | Operator consequence |
 |---|---|---|
 | Node restarts while detached | Pack 8.2 boot order: upgrade handover, then Last-Known-Good after up to 5 s (target) | Restarts boot Last-Known-Good within 30 s (target) (CE-8) |
 | Last-Known-Good boot with unresolvable `secretRef` | Not ready until every reference resolves; secrets are never on disk (FC-21) | Keep TLS keys and the State Store URL on `file` or `env` |
 | Last-Known-Good uses a field newer than the binary | `RZ-CFG-024`; not ready ([rollback limit](../engineering/04-release-versioning-and-compatibility.md#binary-rollback-limit)) | Never roll back a binary during a Ruralz Control outage |
-| Last-Known-Good accepted from a removed signing key after `compromisedSince` | Refused at boot until the Control Stream delivers (proposed, OQ-control-plane-and-gitops-24) | Emergency key removal costs restarts during an outage |
+| Last-Known-Good accepted from a removed signing key after `compromisedSince` | Refused at boot until the Control Stream delivers | Emergency key removal costs restarts during an outage |
 | New Node, no Last-Known-Good | Not ready until it enrolls (pack 8.11) | Autoscaling adds nothing: hold 30% headroom (target); reschedulable Nodes MUST keep `${RURALZ_DATA_DIR}` persistent |
 | Detached beyond the 30-day certificate lifetime (target) | Keeps serving; on return `RZ-CP-003` | Re-enroll ([OQ-high-availability-and-disaster-recovery-4](#open-questions)) |
 | Restarted while detached | Forgets revocations until Ruralz Control returns (OQ-security-and-identity-5) | Rotate urgent revocations at the credential's source (IdP key, API key) |
 
-The new-Node row is option (a) of OQ-scalability-and-distributed-state-7, headroom being a SHOULD; (b) OCI seeding and (c) Last-Known-Good in images stay open in [OQ-high-availability-and-disaster-recovery-1](#open-questions).
+In the new-Node row, headroom is a SHOULD; OCI seeding and Last-Known-Good in images are open in [OQ-high-availability-and-disaster-recovery-1](#open-questions).
 
 ### Local rate-limit fallback
 
@@ -164,7 +145,7 @@ Autoscaled Control-mode Clusters, and any a rebuild or list-less restore may hit
 | `ratelimit` | Open | Local buckets only |
 | `quota` | Open | Unmetered; such Routes SHOULD also carry a `ratelimit` |
 | `cache`, `ai.semantic-cache` | Open | Bypassed; origin or provider load rises |
-| `ai.token-budget` | Closed | 503 `RZ-STS-001` to `RZ-STS-004`: a State Store outage is an AI outage in that Cell (default: OQ-configuration-model-8) |
+| `ai.token-budget` | Closed | 503 `RZ-STS-001` to `RZ-STS-004`: a State Store outage is an AI outage in that Cell |
 | Other `plugin` Policies | Closed | Per the Policy; a trap discards the instance only |
 
 Upstream failures follow the [failure matrix](../architecture/09-traffic-management-and-resilience.md#failure-matrix), Token Budgets [ADR-0014](../adr/0014-ai-api-surface.md).
@@ -437,7 +418,5 @@ Game days rehearse runbooks on staging Clusters under open-loop load; the [Chaos
 | OQ-high-availability-and-disaster-recovery-8 | May a newer binary minor restore an older backup? | (a) Same minor only (proposed); (b) N restores N-1, then finalize | release-versioning-and-compatibility | No |
 | OQ-high-availability-and-disaster-recovery-9 | Should a restored or rebuilt deployment withhold or seed `clusterNodeCount` until qualification catches up? | (a) Withhold, so Nodes keep their last count (proposed); (b) seed from `Hello` and heartbeats; (c) as written | control-plane-and-gitops | Yes, for Planned (M2) restore and GD-10 |
 | OQ-high-availability-and-disaster-recovery-10 | May a restore drill sign with a drill-only root no production Node trusts? | (a) Yes (proposed); (b) offline root each drill | control-plane-and-gitops | No |
-
-Closed: OQ-high-availability-and-disaster-recovery-6 with option (a), `--revocation-list-file`, decided by [CLI and API surface](../reference/01-cli-and-api-surface.md).
 
 Dependency: OQ-zero-downtime-upgrades-and-hot-reload-9 (GD-5).

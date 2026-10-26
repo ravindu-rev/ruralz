@@ -1,23 +1,8 @@
----
-title: AI/LLM Gateway
-status: reviewed
-owner: ruralz-core
-last_updated: 2026-10-03
-depends_on:
-  - docs/_meta/foundation-pack.md
-  - docs/_meta/style-guide.md
-  - docs/architecture/01-system-overview.md
-  - docs/architecture/02-configuration-model.md
-  - docs/engineering/01-tech-stack-and-libraries.md
-adrs: [ADR-0005, ADR-0008, ADR-0014, ADR-0018, ADR-0019]
-milestone_tags_used: [M1, M3, M4, M5]
----
-
 # AI/LLM Gateway
 
 ## Summary
 
-This document designs differentiator (2), the AI/LLM gateway inside Ruralz Gateway: `AIProvider` and `AIModel`, an OpenAI-compatible façade beside native passthrough ([ADR-0014](../adr/0014-ai-api-surface.md)), model routing with Provider Fallback, token accounting, Token Budgets, cost attribution, Prompt Cache and Semantic Cache, guardrail hooks, the MCP and A2A stance, `gen_ai` telemetry and data residency routing. Provider-reported usage is authoritative, tokenizer counts are estimates only, and native passthrough edits bytes in place. Nothing is implemented; AI traffic is Planned (M3).
+This document designs differentiator (2), the AI/LLM gateway inside Ruralz Gateway: `AIProvider` and `AIModel`, an OpenAI-compatible façade beside native passthrough ([ADR-0014](../adr/0014-ai-api-surface.md)), model routing with Provider Fallback, token accounting, Token Budgets, cost attribution, Prompt Cache and Semantic Cache, guardrail hooks, the MCP and A2A stance, `gen_ai` telemetry and data residency routing. Provider-reported usage is authoritative, tokenizer counts are estimates only, and native passthrough edits bytes in place. AI traffic is Planned (M3).
 
 ## Scope and non-goals
 
@@ -164,7 +149,7 @@ flowchart LR
 
 ## AIProvider, AIModel and dialect translation matrix
 
-An `AIProvider` is one provider account (`dialect`, `baseUrl`, `credentials.apiKey`, `region`, `pricing`). An `AIModel` maps a virtual model to ordered `candidates` (`provider`, `model`, `weight`, `when`) under a `strategy`, with `limits` and `cache` ([AIModel](02-configuration-model.md#aimodel)). Both kinds and `ruralz ai models` are Planned (M3). Wire facts as of 2026-09-23:
+An `AIProvider` is one provider account (`dialect`, `baseUrl`, `credentials.apiKey`, `region`, `pricing`). An `AIModel` maps a virtual model to ordered `candidates` (`provider`, `model`, `weight`, `when`) under a `strategy`, with `limits` and `cache` ([AIModel](02-configuration-model.md#aimodel)). Both kinds and `ruralz ai models` are Planned (M3). Wire facts per dialect:
 
 | `dialect` | Streaming | Usage fields | Prompt-cache support | Façade translation | Source |
 |---|---|---|---|---|---|
@@ -334,7 +319,7 @@ A Token Budget is an `ai.token-budget` Policy: Filter class admission, Phases `o
 - **Admission:** one Lua script, using server `TIME`, reserves R only if the window's remaining budget covers it; otherwise 429 `RZ-AI-006` with `retry-after` at the window end.
 - **Keys:** the hash tag is `{<SHA-256 of consumer.name>}`, as for `quota` in [Traffic management and resilience](09-traffic-management-and-resilience.md), so a Route's budgets reserve in one script, all or nothing (pack 8.7); settlement adjusts the reserving window, possibly past its limit.
 - **Missing quota:** a null Consumer or one without the quota gets 403 `RZ-AI-007`, a decision, never `RZ-STS`.
-- **Failures:** `closed` rejects a State Store failure with 503 `RZ-STS` and a CEL error with `RZ-AI-014`; `open` admits unmetered (default: OQ-configuration-model-8).
+- **Failures:** `closed` rejects a State Store failure with 503 `RZ-STS` and a CEL error with `RZ-AI-014`; `open` admits unmetered.
 
 ### Token-aware rate limits
 
@@ -510,13 +495,13 @@ Unknown methods, batches, `GET` streams, `DELETE` and client responses are denie
 
 ### MCP Server
 
-Proposed answer to OQ-ai-llm-gateway-10, option (a), and so to OQ-vision-and-positioning-12: a built-in `ai.mcp` Policy type that turns one Route into an MCP Server whose tools are existing Routes. It is submitted as a pack section 10 amendment through that Open question (pack section 14), and the Configuration model registers its `config` as authored here (OQ-configuration-model-9). Until then it is no registered type, so no example Bundle uses it. `ai.mcp` points each tool at a Route rather than at a separately declared schema and workflow, so every call runs that Route's Policies.
+A proposed built-in `ai.mcp` Policy type turns one Route into an MCP Server whose tools are existing Routes (OQ-ai-llm-gateway-10, option (a); OQ-vision-and-positioning-12). Until the Configuration model registers its `config` as authored here, it is no registered type, so no example Bundle uses it. `ai.mcp` points each tool at a Route rather than at a separately declared schema and workflow, so every call runs that Route's Policies.
 
 | Registry column | Proposed value |
 |---|---|
 | Filter class | transform, so the MCP Route's auth, authz (such as the tool allow list above), admission and validation Policies run first |
 | Phases | `onRequestHeaders` (method and header checks) and `onRequestBody` (JSON-RPC); both short-circuit (pack section 4) |
-| Scopes | R only. The Route sets neither `upstreams` nor `composition`; the amendment makes that legal only with `ai.mcp` attached |
+| Scopes | R only. The Route sets neither `upstreams` nor `composition`, which is legal only with `ai.mcp` attached |
 | Slot | `mcp` |
 | `failureMode` | closed; closed only |
 | Planned | Planned (M3) |

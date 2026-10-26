@@ -63,10 +63,9 @@ make floor FLOOR_GOTOOLCHAIN=go1.26.8                # the Go 1.26 floor job, wi
 
 ## Pull requests
 
-- Keep a pull request under 400 changed lines, excluding generated files (target), and bring its tests, regenerated files and documentation with it.
-- One CODEOWNERS approval is required; changes to `api/`, `pkg/`, `docs/_meta/`, `go.mod`, the security-sensitive packages (`internal/filter/auth/`, `internal/filter/authz/`, `internal/signing/`, `internal/pluginhost/`), the no-license-check allowlist, `.github/` or `test/bench/allocgate.json` need two.
-- The required checks are `pr-fast` (stages 1 to 6), `pr-title` and `approvals`.
-- A design change that contradicts a document needs an ADR or an entry in that document's Open questions.
+- A pull request brings its tests, regenerated files and documentation with it.
+- The required checks are `pr-fast` (stages 1 to 6) and `pr-title`.
+- A design change updates the owning document in `docs/` in the same pull request.
 
 ## Reporting security issues
 

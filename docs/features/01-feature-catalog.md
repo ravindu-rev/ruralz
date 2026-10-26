@@ -1,38 +1,8 @@
----
-title: Feature Catalog
-status: reviewed
-owner: ruralz-core
-last_updated: 2026-10-03
-depends_on:
-  - docs/_meta/foundation-pack.md
-  - docs/_meta/style-guide.md
-  - docs/architecture/01-system-overview.md
-  - docs/architecture/02-configuration-model.md
-  - docs/architecture/03-data-plane.md
-  - docs/architecture/04-control-plane-and-gitops.md
-  - docs/architecture/05-wasm-plugin-system.md
-  - docs/architecture/06-ai-llm-gateway.md
-  - docs/architecture/07-multi-protocol.md
-  - docs/architecture/08-security-and-identity.md
-  - docs/architecture/09-traffic-management-and-resilience.md
-  - docs/architecture/10-observability.md
-  - docs/architecture/11-scalability-and-distributed-state.md
-  - docs/architecture/12-performance-budgets-and-benchmarking.md
-  - docs/operations/02-zero-downtime-upgrades-and-hot-reload.md
-  - docs/vision/01-vision-and-positioning.md
-  - docs/engineering/01-tech-stack-and-libraries.md
-  - docs/engineering/04-release-versioning-and-compatibility.md
-  - docs/reference/01-cli-and-api-surface.md
-  - docs/roadmap/01-roadmap-and-milestones.md
-adrs: [ADR-0002, ADR-0003, ADR-0004, ADR-0005, ADR-0007, ADR-0008, ADR-0009, ADR-0012, ADR-0013, ADR-0014, ADR-0015, ADR-0016, ADR-0017, ADR-0018, ADR-0019]
-milestone_tags_used: [M0, M1, M2, M3, M4, M5]
----
-
 # Feature Catalog
 
 ## Summary
 
-This catalog lists every feature Ruralz plans, grouped in ten categories, with the milestone that delivers it, the kind, Policy type, Filter or command that carries it, and the document section that owns its design. It also lists deliberate exclusions with their reasons and counts features per category and milestone. Every feature is free under Apache-2.0 in every public build, with no feature gating. Evaluators read the Status column to judge fit and timing; architects follow the Mechanism and Design columns into the owning documents. Nothing is implemented yet: every row is `Planned (M0)` to `Planned (M5)`.
+This catalog lists every feature Ruralz plans, grouped in ten categories, with the milestone that delivers it, the kind, Policy type, Filter or command that carries it, and the document section that owns its design. It also lists deliberate exclusions with their reasons and counts features per category and milestone. Every feature is free under Apache-2.0 in every public build, with no feature gating. Evaluators read the Status column to judge fit and timing; architects follow the Mechanism and Design columns into the owning documents.
 
 ## Scope and non-goals
 
@@ -53,7 +23,7 @@ Each category section holds one table with four columns.
 | Column | Values | Meaning |
 |---|---|---|
 | Feature | Ruralz terms | What an operator, developer or Consumer gets |
-| Status | `Planned (M0)` to `Planned (M5)` | The milestone whose exit delivers the feature, free in every build; nothing is implemented yet |
+| Status | `Planned (M0)` to `Planned (M5)` | The milestone whose exit delivers the feature, free in every build |
 | Mechanism | Kinds, fields, Policy types, commands | Kinds in `PascalCase` (`Route`), fields as `spec` paths (`match.hosts`), Policy types as registered strings (`ratelimit`), commands as `ruralz <noun> <verb>`; an OQ ID marks an open design decision |
 | Design | Link | The section of the owning Ruralz document |
 
@@ -154,7 +124,7 @@ Ruralz shapes traffic with `Route` composition, CEL ([ADR-0019](../adr/0019-expr
 | Plugin hot-swap with canary percentage | Planned (M2) | A new `Plugin` digest arrives in a new Revision, compiled once per digest and swapped by Hot Reload, optionally to a canary share of traffic | [WASM plugin system: Hot-swap lifecycle](../architecture/05-wasm-plugin-system.md#hot-swap-lifecycle) |
 | proxy-wasm ABI adapter | Planned (M4) | An adapter runs modules written against the proxy-wasm ABI inside the Plugin host | [WASM plugin system: proxy-wasm stance](../architecture/05-wasm-plugin-system.md#proxy-wasm-stance) |
 | JSON Schema response validation | Planned (M5) | `validation.json-schema` extended to response Phases per OQ-feature-catalog-3; a validation-class `plugin` Policy meanwhile | [Configuration model: Policy](../architecture/02-configuration-model.md#policy) |
-| Response compression | Planned (M5) | A `Policy` of a built-in compression type, not yet registered, at `Gateway` or `Route` scope in `onResponse`; type per OQ-feature-catalog-3, a pack section 10 amendment | [Data plane: Filter Chain execution](../architecture/03-data-plane.md#filter-chain-execution) |
+| Response compression | Planned (M5) | A `Policy` of a built-in compression type, not yet registered, at `Gateway` or `Route` scope in `onResponse`; type per OQ-feature-catalog-3 | [Data plane: Filter Chain execution](../architecture/03-data-plane.md#filter-chain-execution) |
 | Faster JSON decoding for merges and transforms | Planned (M5) | The JSON decoder behind `composition` merges, `transform.response` and `validation.json-schema`, measured against Performance Budgets (OQ-feature-catalog-11) | [Performance budgets and benchmarking: Per-stage latency budget](../architecture/12-performance-budgets-and-benchmarking.md#per-stage-latency-budget) |
 
 ## Security
@@ -185,7 +155,7 @@ The header match fixes the Route before `onRequestHeaders`; body-dependent crite
 | Feature | Status | Mechanism | Design |
 |---|---|---|---|
 | Pass-through proxying | Planned (M1) | A `Route` with `upstreams` streams request and response bodies unchanged | [Data plane: Upstream layer](../architecture/03-data-plane.md#upstream-layer) |
-| Virtual hosts | Planned (M1) | `Route` `match.hosts` with listener `hostnames`; a wildcard host has one leading `*.` label (OQ-data-plane-2, option (a)) | [Data plane: Router](../architecture/03-data-plane.md#router) |
+| Virtual hosts | Planned (M1) | `Route` `match.hosts` with listener `hostnames`; a wildcard host has one leading `*.` label | [Data plane: Router](../architecture/03-data-plane.md#router) |
 | Path matching with prefixes, templates and regular expressions | Planned (M1) | `Route` `match.path` with `prefix`, `template` or `regex`, plus `match.methods` | [Data plane: Precedence](../architecture/03-data-plane.md#precedence) |
 | Header and query string routing | Planned (M1) | `Route` `match.headers`, `match.when` over `request.query`, or `conditional` composition; CEL `match.when` sees no body | [Data plane: Router](../architecture/03-data-plane.md#router) |
 | Conditional routing | Planned (M1) | `Route` `composition.mode: conditional` with CEL step `when` | [Data plane: Composition engine](../architecture/03-data-plane.md#composition-engine) |
@@ -295,7 +265,7 @@ Ruralz rate limiting is a local token bucket at a per-Node ceiling plus GCRA in 
 | Granular timeouts | Planned (M1) | `Route` `timeout`, `Upstream` `timeout`, `retries.perTryTimeout` and Policy `stateStoreTimeout`, nested per request, leg and attempt | [Traffic management and resilience: Deadlines](../architecture/09-traffic-management-and-resilience.md#deadlines) |
 | Retries with a retry budget | Planned (M1) | `retries.attempts` and CEL `retryOn` with full-jitter backoff; in-flight retries capped at max(3, 20% of in-flight originals) (target) | [Traffic management and resilience: Retries](../architecture/09-traffic-management-and-resilience.md#retries) |
 | Load shedding | Planned (M1) | A fixed ceiling of 20,000 in-flight units per Node (target); a request past it gets 503 `RZ-RT-005` at once, never queued | [Data plane: Bounded resources](../architecture/03-data-plane.md#bounded-resources) |
-| IP filtering | Planned (M1) | `authz.ip` by CIDR on `source.ip`, which `Gateway` `trustedProxies` and listener `proxyProtocol` (PROXY protocol v2) derive behind load balancers (OQ-security-and-identity-6, option (c)) | [Security and identity: IP filtering and GeoIP](../architecture/08-security-and-identity.md#ip-filtering-and-geoip) |
+| IP filtering | Planned (M1) | `authz.ip` by CIDR on `source.ip`, which `Gateway` `trustedProxies` and listener `proxyProtocol` (PROXY protocol v2) derive behind load balancers | [Security and identity: IP filtering and GeoIP](../architecture/08-security-and-identity.md#ip-filtering-and-geoip) |
 | User-agent filtering | Planned (M1) | `authz.cel` `config.rule` matching `request.headers["user-agent"]`; a list beyond the `RZ-CFG-015` cost bound of 10,000 units (target) uses a `plugin` Policy | [Security and identity: Authorization](../architecture/08-security-and-identity.md#authorization) |
 | GeoIP filtering | Planned (M2) | `authz.geoip` by ISO 3166 country from a local MaxMind-format database; reader per OQ-tech-stack-and-libraries-24; a `source.country` CEL variable per OQ-security-and-identity-14 | [Security and identity: IP filtering and GeoIP](../architecture/08-security-and-identity.md#ip-filtering-and-geoip) |
 | Request hedging | Planned (M4) | A second attempt to another Endpoint after a delay, for idempotent methods with replayable bodies, spending retry budget; `hedgeDelay` per OQ-traffic-management-and-resilience-5 | [Traffic management and resilience: Hedging](../architecture/09-traffic-management-and-resilience.md#hedging) |
@@ -336,7 +306,7 @@ Ruralz governs APIs with Consumers, Quotas and non-overridable Gateway Policies.
 
 ## Not planned
 
-These features are deliberately outside M0 to M5. Each stays reviewable, and a reversal needs an ADR or a closed Open question.
+These features are deliberately outside M0 to M5.
 
 | Feature | Reason | Alternative |
 |---|---|---|
@@ -390,8 +360,6 @@ M1 exit criterion 6 holds when every Planned (M1) row works in the `0.1.0` relea
 
 ## Open questions
 
-IDs keep their original numbers; gaps belong to closed or withdrawn questions.
-
 | ID | Question | Options | Owner | Blocking? |
 |---|---|---|---|---|
 | OQ-feature-catalog-2 | Should Ruralz re-encode responses to XML, YAML or a negotiated format? | (a) No: pass-through and JSON merges (current); (b) an encoding option in `transform.response`; (c) a `plugin` Policy | data-plane | No |
@@ -410,5 +378,3 @@ IDs keep their original numbers; gaps belong to closed or withdrawn questions.
 | OQ-feature-catalog-17 | Should Ruralz add an out-of-process extension point beside WASM Plugins and CEL? | (a) Not planned; (b) a registered Policy type; (c) a Plugin Host Function | wasm-plugin-system | No |
 | OQ-feature-catalog-18 | gRPC is Planned (M3), so deployments that need gRPC before M3 cannot adopt Ruralz. Should part of it arrive earlier? | (a) Keep Planned (M3); (b) gRPC passthrough over HTTP/2 earlier, with gRPC-aware Policies at M3 | multi-protocol | No |
 | OQ-feature-catalog-19 | Pack section 1, P1 and vision product non-goal 8 promise one feature set in every public build, including the FIPS build, while pack section 8.4 turns HTTP/3 off in FIPS builds (OQ-tech-stack-and-libraries-9). Which rule wins? | (a) Amend the pack, P1 and non-goal 8 to exempt HTTP/3 from the FIPS build; (b) ship HTTP/3 in the FIPS build with a caveat (OQ-tech-stack-and-libraries-9 option (b)) | ruralz-core | Yes, for the FIPS build |
-
-Closed: OQ-feature-catalog-1 with option (a), decided by Data plane: [Transform Policies](../architecture/03-data-plane.md#transform-policies) is one CEL-based schema covering body extraction to headers, CEL-built bodies, CEL queries, regular expression replacement, array operations and XML request building; the XML response part moved to OQ-data-plane-17.

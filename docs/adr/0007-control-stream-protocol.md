@@ -2,17 +2,6 @@
 id: ADR-0007
 title: "Control Stream: own gRPC snapshot and delta protocol with xDS-style ACK/NACK"
 status: accepted
-date: 2026-09-25
-deciders: [ruralz-core]
-related:
-  - docs/architecture/04-control-plane-and-gitops.md
-  - docs/_meta/foundation-pack.md
-  - docs/engineering/01-tech-stack-and-libraries.md
-  - docs/architecture/01-system-overview.md
-  - docs/architecture/02-configuration-model.md
-  - docs/engineering/02-repository-layout-and-conventions.md
-  - docs/engineering/03-testing-and-quality-strategy.md
-  - docs/engineering/04-release-versioning-and-compatibility.md
 ---
 
 # ADR-0007: Control Stream: own gRPC snapshot and delta protocol with xDS-style ACK/NACK
@@ -47,7 +36,7 @@ Chosen option: "own `ruralz.control.v1.ControlStream` on connect in gRPC mode at
 
 | Element | Rule |
 |---|---|
-| Service | `ruralz.control.v1.ControlStream` with exactly two RPCs: unary `Enroll` (one-time token, server CA pinned; pack 8.4 amendment pending, OQ-security-and-identity-31) and bidirectional `Stream` (Node certificate over mTLS, the only source of `node.id`); Ruralz Control never dials a Node |
+| Service | `ruralz.control.v1.ControlStream` with exactly two RPCs: unary `Enroll` (one-time token, server CA pinned; OQ-security-and-identity-31) and bidirectional `Stream` (Node certificate over mTLS, the only source of `node.id`); Ruralz Control never dials a Node |
 | Transport | `connectrpc.com/connect` v1.21.x, gRPC mode, HTTP/2 over TLS on 8091; no `ReadTimeout` or `WriteTimeout` on the stream; `HTTP2Config` pings detect dead peers |
 | Delivery | Each carries `promotion` and a signed assignment naming one Revision by full digest. `Snapshot` sends canonical content in chunks of at most 1 MiB (target); `Delta` (`baseDigest`, `ops`) serves changes encoding within 1 MiB (target), and a mismatching result is `Nack` RZ-CFG-027, after which, as after a `Hello` whose Last-Known-Good or active content fails re-hash, the next delivery is a `Snapshot` |
 | ACK/NACK | Each configuration message carries a 128-bit random `nonce`; stale nonces are ignored. `Ack` means active, not durable, and counts per (`node.id`, `storeEpoch`, `assignmentSeq`), not per stream: a `Hello` matching the pending assignment's digest, `storeEpoch` and `assignmentSeq` is its `Ack`, and a Node re-ACKs a re-sent assignment it runs, so a lost `Ack` never makes a Node lag. `Nack` keeps the active Revision and carries `code` and `class`; one Ruralz Control reproduces from the Revision is deterministic (pack 8.3) and fails the gate, else transient |
@@ -144,7 +133,7 @@ flowchart TD
 - **Dependency admission**: go-control-plane has no catalog row ([Alternatives not chosen](../engineering/01-tech-stack-and-libraries.md#alternatives-not-chosen)), so [banned imports](../engineering/02-repository-layout-and-conventions.md#banned-imports) rejects it.
 - **Container-free integration tests**, Planned (M2): snapshot and delta delivery, ACK and NACK classification, promoted digests ([Integration tests](../engineering/03-testing-and-quality-strategy.md#integration-tests)), a stale-nonce `Ack` changing nothing, a mismatching `Delta` NACKed with RZ-CFG-027 then a `Snapshot` ACKed, a Node that missed an empty-`ops` re-sign `Delta` receiving it after reconnecting, and a Node still ACKed after the replica holding its forwarded `Ack` dies before the bitmap commit.
 - **Fuzzing and chaos**, Planned (M2): one fuzz target per message type ([Fuzzing](../engineering/03-testing-and-quality-strategy.md#fuzzing)); after leader failover each reconnecting Node gets only its planned Revision ([Chaos testing](../engineering/03-testing-and-quality-strategy.md#chaos-testing)).
-- **Review checklist item**: a new message, field or RPC MUST update the owning document's message table; a grpc-go server or second channel to Nodes MUST supersede this ADR.
+- **Amendment trigger**: a new message, field or RPC MUST update the owning document's message table; a grpc-go server or second channel to Nodes MUST amend this ADR.
 
 ## Pros and cons of the options
 
@@ -176,4 +165,3 @@ flowchart TD
 - Owning document: [Control plane and GitOps](../architecture/04-control-plane-and-gitops.md#control-stream), with [Heartbeat and backpressure](../architecture/04-control-plane-and-gitops.md#heartbeat-and-backpressure); Node side in [Compile before swap](../architecture/01-system-overview.md#compile-before-swap).
 - Related decisions: [ADR-0003](0003-configuration-format.md) (canonical digest), [ADR-0006](0006-control-store-raft-boltdb.md) (committed assignments) and [ADR-0017](0017-artifact-signing.md) (signing).
 - Open questions: OQ-tech-stack-and-libraries-14, OQ-release-versioning-and-compatibility-4 (`binaryVersion` in `Hello`), OQ-security-and-identity-31 (`Enroll` credential), OQ-control-plane-and-gitops-25 (Snapshot limit) and OQ-zero-downtime-upgrades-and-hot-reload-11 (stream supersession).
-- Proposed amendments: Control plane and GitOps SHOULD add the implicit `Ack` to its `Ack` row and an Open question on the `Delta` `ops` encoding over `ruralz.canonical.v1`; Repository layout and conventions SHOULD ban go-control-plane explicitly and grpc-go servers in `ruralz-control` via forbidigo.

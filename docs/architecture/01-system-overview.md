@@ -1,15 +1,3 @@
----
-title: System Overview
-status: reviewed
-owner: ruralz-core
-last_updated: 2026-10-03
-depends_on:
-  - docs/_meta/foundation-pack.md
-  - docs/_meta/style-guide.md
-adrs: [ADR-0001, ADR-0003, ADR-0004, ADR-0005, ADR-0006, ADR-0007, ADR-0008, ADR-0009, ADR-0014, ADR-0015, ADR-0016, ADR-0017, ADR-0018]
-milestone_tags_used: [M1, M2, M3, M4, M5]
----
-
 # System Overview
 
 ## Summary
@@ -18,13 +6,13 @@ This document fixes the top-level shape of Ruralz: two runtime components, Rural
 
 ## Scope and non-goals
 
-In scope: component boundaries and ports, the request and configuration lifecycles, deployment modes, failure behavior, trust boundaries, and a map to owning documents. References such as "pack 8.3" name a section of the [foundation pack](../_meta/foundation-pack.md) v1, which is binding.
+In scope: component boundaries and ports, the request and configuration lifecycles, deployment modes, failure behavior, trust boundaries, and a map to owning documents. References such as "pack 8.3" name a section of the [foundation pack](../_meta/foundation-pack.md).
 
-Non-goals: kinds and fields ([Configuration model](02-configuration-model.md) wins on conflict), component internals (see the [Document map](#document-map)), authoritative numbers ([Performance budgets and benchmarking](12-performance-budgets-and-benchmarking.md) wins on conflict), and positioning. Nothing here is implemented yet; every capability carries a Planned tag.
+Non-goals: kinds and fields ([Configuration model](02-configuration-model.md) wins on conflict), component internals (see the [Document map](#document-map)), authoritative numbers ([Performance budgets and benchmarking](12-performance-budgets-and-benchmarking.md) wins on conflict), and positioning.
 
 ## Design principles
 
-Product principles `P1` to `P10` are defined in [Vision and positioning](../vision/01-vision-and-positioning.md). These rules are their architectural consequences; component documents MUST NOT break one without an ADR.
+Product principles `P1` to `P10` are defined in [Vision and positioning](../vision/01-vision-and-positioning.md). These rules are their architectural consequences.
 
 | Rule | Statement | Consequence |
 |---|---|---|
@@ -251,7 +239,7 @@ A Route carries a global Rate Limit (pack 8.8): a local token bucket at a per-No
 
 1. GCRA calls hit the deadline and the Rate Limit fails open; admission per key is at most N serving Nodes times the per-Node ceiling per window (target), a bound [Scalability and distributed state](11-scalability-and-distributed-state.md) owns.
 2. The State client's breaker opens, so later requests pay no timeout.
-3. A `failureMode: closed` Policy, such as the `ai.token-budget` default, rejects with `RZ-STS-<NNN>` (defaults: OQ-configuration-model-8).
+3. A `failureMode: closed` Policy, such as the `ai.token-budget` default, rejects with `RZ-STS-<NNN>`.
 
 Seed budgets exclude Upstream and State Store time; [Performance budgets and benchmarking](12-performance-budgets-and-benchmarking.md) owns the workload and values.
 
@@ -337,7 +325,7 @@ The config loader, off the request path:
 6. Writes the Revision and its canonical source under `${RURALZ_DATA_DIR}/lkg/` as a candidate.
 7. Retires the old snapshot.
 
-A failure before step 4 NACKs with `RZ-CFG-<NNN>` and leaves the running snapshot untouched. At most K = 2 retired snapshots are kept, plus at most one closing or ending (target). When a third would be retired, the oldest becomes closing: its streams end at once with per-stream closes (WebSocket 1001, gRPC `UNAVAILABLE` trailers, an SSE end with a retry hint), never an HTTP/2 GOAWAY (OQ-data-plane-12 (a)), and after a 30 s grace period (target) requests still pinned end with `RZ-RT-014`. A grace period is never cut short: the loader keeps only the latest pending Revision and activates it once that snapshot is freed (OQ-data-plane-13 (a)); [Data plane](03-data-plane.md#why-no-in-flight-request-is-dropped) owns the rules.
+A failure before step 4 NACKs with `RZ-CFG-<NNN>` and leaves the running snapshot untouched. At most K = 2 retired snapshots are kept, plus at most one closing or ending (target). When a third would be retired, the oldest becomes closing: its streams end at once with per-stream closes (WebSocket 1001, gRPC `UNAVAILABLE` trailers, an SSE end with a retry hint), never an HTTP/2 GOAWAY, and after a 30 s grace period (target) requests still pinned end with `RZ-RT-014`. A grace period is never cut short: the loader keeps only the latest pending Revision and activates it once that snapshot is freed; [Data plane](03-data-plane.md#why-no-in-flight-request-is-dropped) owns the rules.
 
 Building router structures and chains for 10,000 Routes takes 2 s or less on one core (target), excluding cold Plugin compilation. Peak configuration memory is (K + 2) times snapshot size (hypothesis); [Data plane](03-data-plane.md) owns the numbers.
 
@@ -422,7 +410,7 @@ The Helm chart and CRDs are Planned (M2) ([ADR-0016](../adr/0016-kubernetes-helm
 
 A **Hot Reload** activates a Revision on one Node without a restart. A **Zero-Downtime Upgrade** replaces the `ruralzd` binary: the new process binds the same ports with `SO_REUSEPORT` and reports ready, then the old one Drains with HTTP/2 GOAWAY ([ADR-0015](../adr/0015-zero-downtime-upgrades-so-reuseport.md)). Both are Planned (M1); [Zero-downtime upgrades and hot reload](../operations/02-zero-downtime-upgrades-and-hot-reload.md) owns procedures. Handover rules:
 
-1. Before closing a TCP listener, `SO_ATTACH_REUSEPORT_CBPF` (through `golang.org/x/sys/unix`) steers new connections to the new socket while the old accept queue empties; hosts SHOULD also set `net.ipv4.tcp_migrate_req`, which complements steering, and the old process keeps accepting through a 3 s linger (target) (OQ-zero-downtime-upgrades-and-hot-reload-12 (a)).
+1. Before closing a TCP listener, `SO_ATTACH_REUSEPORT_CBPF` (through `golang.org/x/sys/unix`) steers new connections to the new socket while the old accept queue empties; hosts SHOULD also set `net.ipv4.tcp_migrate_req`, which complements steering, and the old process keeps accepting through a 3 s linger (target).
 2. In-flight QUIC connections on UDP 8443 are lost and reconnect (OQ-system-overview-18).
 3. Only the process holding the file lock on `${RURALZ_DATA_DIR}` writes Last-Known-Good and holds the Control Stream for its `node.id`; the old process releases it at Drain start. A new process that finds a live holder boots the holder's active Revision from its verified candidate ([Compile before swap](#compile-before-swap) step 6) without a boot wait.
 4. The new process reports readiness to the old one over a Unix socket under `${RURALZ_DATA_DIR}`; CBPF steers 9901 to whichever process keeps serving.
@@ -523,5 +511,3 @@ flowchart LR
 | OQ-system-overview-16 | What is a regional Ruralz Control? | Own Control Store; Raft non-voter; read-only relay | control-plane-and-gitops | Yes, for multi-region |
 | OQ-system-overview-18 | Can upgrades keep in-flight QUIC connections? | Accept loss (current); connection-ID steering | data-plane | No |
 | OQ-system-overview-19 | Which variable names a file-mode Node's OCI reference? | `RURALZ_CONFIG` with `oci://`; a new variable | configuration-model | No |
-
-Retired: OQ-system-overview-4 (moved to OQ-configuration-model-8), OQ-system-overview-10 (withdrawn), OQ-system-overview-14 (resolved by [Canonical form and Revision](02-configuration-model.md#canonical-form-and-revision)). Decided by the pack v1 freeze (pack 14) and answered above: OQ-system-overview-1 (HTTP/3), OQ-system-overview-2 (Last-Known-Good promotion), OQ-system-overview-3 (ADR-0017 signing), OQ-system-overview-7 (Raft port 8092), OQ-system-overview-17 (`paused`), OQ-system-overview-20 (streaming guard).

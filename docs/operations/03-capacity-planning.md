@@ -1,29 +1,12 @@
----
-title: Capacity Planning
-status: reviewed
-owner: ruralz-core
-last_updated: 2026-09-25
-depends_on:
-  - docs/_meta/foundation-pack.md
-  - docs/_meta/style-guide.md
-  - docs/architecture/04-control-plane-and-gitops.md
-  - docs/engineering/04-release-versioning-and-compatibility.md
-  - docs/architecture/11-scalability-and-distributed-state.md
-  - docs/architecture/12-performance-budgets-and-benchmarking.md
-  - docs/operations/01-deployment-topologies.md
-adrs: [ADR-0006, ADR-0008, ADR-0014, ADR-0015]
-milestone_tags_used: [M1, M2, M3, M4]
----
-
 # Capacity Planning
 
 ## Summary
 
-This document turns workload figures into Node counts, container sizes, State Store shards and Ruralz Control replicas, with coefficients citing [Performance budgets and benchmarking](../architecture/12-performance-budgets-and-benchmarking.md), three worked examples, headroom, autoscaling bounds, costs and re-planning triggers. Nothing is implemented yet: every coefficient is a (target) or (hypothesis) until a published release record replaces it (P10). Its readers are operators sizing a Cell and architects checking Cell ceilings.
+This document turns workload figures into Node counts, container sizes, State Store shards and Ruralz Control replicas, with coefficients citing [Performance budgets and benchmarking](../architecture/12-performance-budgets-and-benchmarking.md), three worked examples, headroom, autoscaling bounds, costs and re-planning triggers. Every coefficient is a (target) or (hypothesis) until a published release record replaces it (P10). Its readers are operators sizing a Cell and architects checking Cell ceilings.
 
 ## Scope and non-goals
 
-In scope: sizing Ruralz Gateway Nodes, each Cell's State Store, Ruralz Control replicas and the Control Store in one Region; Planned (M4) multi-region pre-provisioning applies it per Region. "Pack 8.x" cites the [foundation pack](../_meta/foundation-pack.md). It answers two questions it owns: OQ-deployment-topologies-8 with option (a), measured sizes replacing interim values once F2, the memory runs and Data plane's cache layout publish; and OQ-zero-downtime-upgrades-and-hot-reload-6 under [Headroom](#headroom-and-failure-capacity).
+In scope: sizing Ruralz Gateway Nodes, each Cell's State Store, Ruralz Control replicas and the Control Store in one Region; Planned (M4) multi-region pre-provisioning applies it per Region. "Pack 8.x" cites the [foundation pack](../_meta/foundation-pack.md). Measured sizes replace interim values once F2, the memory runs and Data plane's cache layout publish.
 
 Non-goals, with owners:
 
@@ -381,16 +364,16 @@ Capacity covers peak plus h on the survivors of the largest single failure. Fail
 | Hot key | Above 25% of a shard: a declared per-Node ceiling, a split `config.key` or its own Cell; `config.localOnly` is proposed (OQ-scalability-and-distributed-state-11) | λ_key × (1 + h) ≤ about 25,000; λ_slot × (1 + h) ≤ 50,000 per second (hypothesis) | [Rate limits](../architecture/11-scalability-and-distributed-state.md#distributed-rate-limits) |
 | Reconnect storm (zone loss, Drain, snapshot retirement) | Handshakes and upgrade GCRA calls fit | λ_storm × (c_hs + c_up) ≤ 10% of survivor CPU (target); W_rc ≥ W_rc,min (hypothesis) | This document |
 | Hot Reload under load | Configuration memory and reload time | (K + 2) × snapshot; 1 s at 5,000 Routes (target) | [Reload time](../architecture/12-performance-budgets-and-benchmarking.md#startup-and-reload-time-by-configuration-size) |
-| Zero-Downtime Upgrade on a VM | Answers OQ-zero-downtime-upgrades-and-hot-reload-6 with option (a) for planning: two processes, each `GOMEMLIMIT` at M_flood ([ADR-0015](../adr/0015-zero-downtime-upgrades-so-reuseport.md)) | Host memory ≥ 2 × container (hypothesis): 26 GiB for Example 1 (target); (b) below | [Zero-downtime upgrades](02-zero-downtime-upgrades-and-hot-reload.md) |
+| Zero-Downtime Upgrade on a VM | For planning, two processes, each `GOMEMLIMIT` at M_flood ([ADR-0015](../adr/0015-zero-downtime-upgrades-so-reuseport.md)) | Host memory ≥ 2 × container (hypothesis): 26 GiB for Example 1 (target); verified shared ceilings below | [Zero-downtime upgrades](02-zero-downtime-upgrades-and-hot-reload.md) |
 | Ruralz Control replica or zone loss | Survivors at 80% of shedding onset | r_min (hypothesis) | [Scaling](../architecture/11-scalability-and-distributed-state.md#scaling-ruralz-control-and-the-state-store) |
 
-Under option (b), once its shared ceilings are verified, the new process runs under 90% of the limit minus the old RSS (target), admitting each ceiling minus the old process's usage. Independent limits below M_flood are not allowed: halving memory does not merely halve C_cap, as the 6,250 MiB (hypothesis) unit term is fixed, so a mid-Drain flood would OOM-kill a process.
+Once shared ceilings are verified, the new process runs under 90% of the limit minus the old RSS (target), admitting each ceiling minus the old process's usage. Independent limits below M_flood are not allowed: halving memory does not merely halve C_cap, as the 6,250 MiB (hypothesis) unit term is fixed, so a mid-Drain flood would OOM-kill a process.
 
 ```text
-VM host memory during a handover (OQ-zero-downtime-upgrades-and-hot-reload-6)
-  (a) planning:  host ≥ 2 × container                                            (hypothesis)
+VM host memory during a handover
+  planning:      host ≥ 2 × container                                            (hypothesis)
                  Example 1: 2 × 13 GiB = 26 GiB                                   (target) [H]
-  (b) verified shared ceilings: host ≥ container + overlap extra, about 0.6 GiB
+  verified shared ceilings: host ≥ container + overlap extra, about 0.6 GiB
                  plus (K + 2) × s_snap                                            (hypothesis)
                  Example 1: 13 GiB + 0.6 GiB + 1 MiB ≈ 13.6 GiB                   (target) [H]
   independent split: 0.45 × host ≥ M_flood at C_cap', so
@@ -399,7 +382,7 @@ VM host memory during a handover (OQ-zero-downtime-upgrades-and-hot-reload-6)
                  = 8,464 MiB > 0.45 × 13,312 = 5,990 MiB even at C_cap' = 0         (target) [H]
                  Example 3: 1,243 + 500 + 6,250 + 146 = 8,139 MiB > 5,990 MiB      (target) [H]
                  smallest Example 1 split host: 2 × 11,282 / 0.9 = 24.5 GiB, so
-                 no split below the 26 GiB of (a)                                 (target) [H]
+                 no split below the 26 GiB of planning                            (target) [H]
 ```
 
 At 80% of saturation, S2 allows a 2 ms gateway-added p99 (target, PB-16), so a zone loss burns SLO-GW-2 until OQ-performance-budgets-and-benchmarking-13 decides; a Cluster that must hold 1 ms (target) plans with u_z = 0.6 × (Z − 1) / Z (target).

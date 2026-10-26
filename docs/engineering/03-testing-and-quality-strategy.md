@@ -1,27 +1,12 @@
----
-title: Testing and Quality Strategy
-status: reviewed
-owner: ruralz-core
-last_updated: 2026-10-26
-depends_on:
-  - docs/_meta/foundation-pack.md
-  - docs/_meta/style-guide.md
-  - docs/architecture/01-system-overview.md
-  - docs/architecture/02-configuration-model.md
-  - docs/engineering/01-tech-stack-and-libraries.md
-adrs: [ADR-0001, ADR-0003, ADR-0005, ADR-0006, ADR-0007, ADR-0008, ADR-0012, ADR-0014, ADR-0017, ADR-0019]
-milestone_tags_used: [M0, M1, M2, M3, M4, M5]
----
-
 # Testing and Quality Strategy
 
 ## Summary
 
-This document fixes how Ruralz proves code matches design: test layers and CI stages, three conformance suites (configuration, Plugin ABI, protocol), fuzzing, chaos, benchmark gates, security scanning, the Plugin SDK and AI provider harnesses, and release gates, all `Planned (Mx)`. Each new package, Policy type, protocol or Host Function arrives with the tests required here.
+This document fixes how Ruralz proves code matches design: test layers and CI stages, three conformance suites (configuration, Plugin ABI, protocol), fuzzing, chaos, benchmark gates, security scanning, the Plugin SDK and AI provider harnesses, and release gates. Each new package, Policy type, protocol or Host Function arrives with the tests required here.
 
 ## Scope and non-goals
 
-In scope: tests for `ruralzd` (Ruralz Gateway), `ruralz-control` (Ruralz Control), the `ruralz` CLI, the Plugin Development Kits (PDKs) and the Bundle schema, their CI stages and release evidence, under the [foundation pack](../_meta/foundation-pack.md) v1 and P10 ([Vision](../vision/01-vision-and-positioning.md#principles)).
+In scope: tests for `ruralzd` (Ruralz Gateway), `ruralz-control` (Ruralz Control), the `ruralz` CLI, the Plugin Development Kits (PDKs) and the Bundle schema, their CI stages and release evidence, under the [foundation pack](../_meta/foundation-pack.md) and P10 ([Vision](../vision/01-vision-and-positioning.md#principles)).
 
 Non-goals, owned elsewhere: budget values and thresholds ([Performance budgets and benchmarking](../architecture/12-performance-budgets-and-benchmarking.md)); signing and skew ([Release, versioning and compatibility](04-release-versioning-and-compatibility.md)); numbered CI jobs and the Ruralz Console toolchain ([Repository layout](02-repository-layout-and-conventions.md)); the threat model ([Security and identity](../architecture/08-security-and-identity.md)); the `ruralz test run` case format ([CLI and API surface](../reference/01-cli-and-api-surface.md)).
 
@@ -84,7 +69,7 @@ Unit tests are hermetic: time, randomness and the State Store arrive as failure-
 
 ### Required properties
 
-Each property is a `testing.F` target, with no property library (OQ-testing-and-quality-strategy-1, option (a)): seeds in `pr-fast`, longer fuzzing in `nightly`.
+Each property is a `testing.F` target, with no property library: seeds in `pr-fast`, longer fuzzing in `nightly`.
 
 | Area | Property | Source |
 |---|---|---|
@@ -127,7 +112,7 @@ The golden corpus pins Bundle digests (including `shop-bundle`), diagnostics, `r
 
 ## Integration tests
 
-Integration tests carry the `integration` tag and run in stage 8 of `pr-full`. `RURALZ_TEST_STATESTORE` selects the State Store flavor: `process`, a local `redis-server`, on every leg and contributor machine; `container`, the images below through testcontainers-go, a test-only [catalog](01-tech-stack-and-libraries.md#library-catalog) module ([source](https://github.com/testcontainers/testcontainers-go)), on the linux/amd64 container leg. Without either, a suite skips with a reason. Images are pinned by digest ([CI tooling](01-tech-stack-and-libraries.md#ci-tooling)), as research did not check module defaults ([source](https://golang.testcontainers.org/modules/)).
+Integration tests carry the `integration` tag and run in stage 8 of `pr-full`. `RURALZ_TEST_STATESTORE` selects the State Store flavor: `process`, a local `redis-server`, on every leg and contributor machine; `container`, the images below through testcontainers-go, a test-only [catalog](01-tech-stack-and-libraries.md#library-catalog) module ([source](https://github.com/testcontainers/testcontainers-go)), on the linux/amd64 container leg. Without either, a suite skips with a reason. Images are pinned by digest ([CI tooling](01-tech-stack-and-libraries.md#ci-tooling)), never taken from module defaults ([source](https://golang.testcontainers.org/modules/)).
 
 | Dependency | Container source | Used for | Milestone |
 |---|---|---|---|
@@ -190,7 +175,7 @@ The configuration suite also re-runs the JSON-Schema-Test-Suite and the YAML Tes
 
 The Plugin ABI suite is the promise to Plugin authors ([ADR-0005](../adr/0005-plugin-abi-v1.md)): a PDK is maintained only while it passes, with wazero in compiler mode on production platforms.
 
-The protocol suite runs the Autobahn cases, which the selected WebSocket library passes ([source](https://github.com/coder/websocket)), through Ruralz Gateway's listeners and a `websocket` Upstream. Its AI dialect fixtures verify Prompt Cache marker preservation in 100% of cases (target) (SM-11). Frame-level HTTP/2 and HTTP/3 suites await research (OQ-testing-and-quality-strategy-6).
+The protocol suite runs the Autobahn cases, which the selected WebSocket library passes ([source](https://github.com/coder/websocket)), through Ruralz Gateway's listeners and a `websocket` Upstream. Its AI dialect fixtures verify Prompt Cache marker preservation in 100% of cases (target) (SM-11). Which frame-level HTTP/2 and HTTP/3 suites join is OQ-testing-and-quality-strategy-6.
 
 ## Fuzzing
 
@@ -209,7 +194,7 @@ Go native fuzzing covers every surface parsing untrusted or operator-supplied by
 | GraphQL operation parser and normalizer ([ADR-0012](../adr/0012-graphql-engine-graphql-go-tools.md)) | Depth, alias, field-count and complexity limits hold after fragment expansion, before any upstream call | Planned (M3) |
 | AI stream parsers, one target per dialect | Moving chunk boundaries: extracted usage equals the fixture's final usage; mutated content: correct usage or usage reported missing | Planned (M3) |
 
-Property targets plus the per-message and per-group targets make 25 or more by M2 (target). The `nightly` fuzz job keeps the grown corpus as a CI artifact, and a crasher opens a `fuzz-crasher` issue. Fuzzing runs in CI only (OQ-testing-and-quality-strategy-4, option (a)).
+Property targets plus the per-message and per-group targets make 25 or more by M2 (target). The `nightly` fuzz job keeps the grown corpus as a CI artifact, and a crasher opens a `fuzz-crasher` issue. Fuzzing runs in CI only.
 
 ## Chaos testing
 
@@ -228,13 +213,13 @@ Chaos tests prove P9: each [System overview failure table](../architecture/01-sy
 | Leader failover with every Node reconnecting | Jittered reconnects; each Node gets only its planned Revision | Planned (M2) |
 | One Cell's State Store lost | Only that Cell degrades | Planned (M4) |
 
-Faults come from process signals, `redis` commands and the Ruralz TCP fault proxy `internal/testkit/faultproxy` (OQ-testing-and-quality-strategy-3, option (a)); container stop and kind pod deletion join in M2. A degraded state without a metric fails its scenario (P10). CE-5 at 100 Nodes, CE-15 at 100,000 new keys per second and CE-12 at full rate (target) run weekly on RH-1 in `chaos-scale.yml` (`runs-on: [self-hosted, rh-1]`, OQ-testing-and-quality-strategy-11, option (b)), and GD-1 to GD-5 as automated drills in the Chaos job; human game days need a staging environment.
+Faults come from process signals, `redis` commands and the Ruralz TCP fault proxy `internal/testkit/faultproxy`; container stop and kind pod deletion join in M2. A degraded state without a metric fails its scenario (P10). CE-5 at 100 Nodes, CE-15 at 100,000 new keys per second and CE-12 at full rate (target) run weekly on RH-1 in `chaos-scale.yml` (`runs-on: [self-hosted, rh-1]`), and GD-1 to GD-5 as automated drills in the Chaos job; human game days need a staging environment.
 
 ## Benchmarks and regression gates
 
 [Performance budgets and benchmarking](../architecture/12-performance-budgets-and-benchmarking.md) owns values, hardware, load tools and both thresholds; this document places the gates. Each seed budget gates from its component's milestone, the Plugin Phase call from M2 (SM-6); the M4 bench suite extends them.
 
-**Regression policy.** A change fails when its alloc/op exceeds the merge base's by more than 3% (target), benchmarked interleaved with the head in one `pr-full` job, at least 10 runs each (target), on shared runners. Latency gates on RH-1, never on shared runners (OQ-testing-and-quality-strategy-2, option (c)): a change fails when its median-of-runs p99 is more than 5% (target) above the same scenario's previous run, re-run interleaved, with four of five pairs slower; `release` compares with the previous release on the same hosts. RH-2 (linux/arm64) results are reported once provisioned and gate from M2 (OQ-performance-budgets-and-benchmarking-4, option (a)). These placements, the Latency job's slot rotation, the `release` soak and F2 in the Scale job adopt OQ-performance-budgets-and-benchmarking-3, option (a).
+**Regression policy.** A change fails when its alloc/op exceeds the merge base's by more than 3% (target), benchmarked interleaved with the head in one `pr-full` job, at least 10 runs each (target), on shared runners. Latency gates on RH-1, never on shared runners: a change fails when its median-of-runs p99 is more than 5% (target) above the same scenario's previous run, re-run interleaved, with four of five pairs slower; `release` compares with the previous release on the same hosts. RH-2 (linux/arm64) results are reported once provisioned and gate from M2.
 
 | Gate | Measures | Stage | Fails when | Milestone |
 |---|---|---|---|---|
@@ -264,7 +249,7 @@ Static checks run in `pr-fast`, block merge and enforce the [tech stack](01-tech
 | Secret leak tests | The [end-to-end](#end-to-end-tests) canary secret appears in any output | `main`, `release` | Planned (M1) |
 | `ruralz bundle audit` | An unexpected finding on the golden corpus | `pr-fast` | Planned (M2) |
 
-The Plugin ABI suite and Host Function fuzzing hunt sandbox escapes (SM-13: none unpatched after 30 days, target). An image scanner follows research (OQ-testing-and-quality-strategy-5, option (a)); `0.1.0` ships none, and `govulncheck` covers the binaries.
+The Plugin ABI suite and Host Function fuzzing hunt sandbox escapes (SM-13: none unpatched after 30 days, target). No image scanner is selected: `0.1.0` ships none, and `govulncheck` covers the binaries.
 
 ## Plugin SDK and AI provider harnesses
 
@@ -319,7 +304,7 @@ Fixtures follow provider documentation; unconfirmed placements and live checks a
 
 ## Release gates
 
-A release candidate becomes a release only when every gate below passes on its exact commit, where the `release` stage re-runs every other stage and `nightly` job. Skipping a gate needs a release-notes entry and a maintainer's approval from outside the author's team.
+A release candidate becomes a release only when every gate below passes on its exact commit, where the `release` stage re-runs every other stage and `nightly` job. A maintainer (repository role admin or maintain), the author included, may skip a gate with a release-notes entry, as a maintainer applies the `perf-override` label in `pr-full` ([Regression policy and gates](../architecture/12-performance-budgets-and-benchmarking.md#regression-policy-and-gates)).
 
 | Gate | Evidence | From |
 |---|---|---|
@@ -339,14 +324,8 @@ Signing and SBOM follow [Release, versioning and compatibility](04-release-versi
 
 | ID | Question | Options | Owner | Blocking? |
 |---|---|---|---|---|
-| OQ-testing-and-quality-strategy-1 | Should property tests use a dedicated library? | (a) `testing.F` only (chosen, 2026-10-03); (b) a researched library | tech-stack-and-libraries | No (answered) |
-| OQ-testing-and-quality-strategy-2 | Which statistics tool and runner hardware back the benchmark gates? | (a) Bare metal for both; (b) cloud instances, more repetitions; (c) alloc/op on shared runners, latency on RH-1 bare metal, medians and the four-of-five pair rule until a researched statistics tool (chosen, 2026-10-03) | performance-budgets-and-benchmarking | No (answered) |
-| OQ-testing-and-quality-strategy-3 | Which tool injects chaos network faults? | (a) A Ruralz Go proxy (chosen, 2026-10-03); (b) a researched proxy; (c) kernel traffic control | testing-and-quality-strategy | No (answered) |
-| OQ-testing-and-quality-strategy-4 | Should fuzzing continue outside CI? | (a) CI only (chosen, 2026-10-03); (b) an external program after research | testing-and-quality-strategy | No (answered) |
-| OQ-testing-and-quality-strategy-5 | Which scanner checks container images? | (a) Research, then a selection, none in `0.1.0` (chosen, 2026-10-03); (b) `govulncheck` on binaries only | release-versioning-and-compatibility | No (answered) |
 | OQ-testing-and-quality-strategy-6 | Which frame-level HTTP/2 and HTTP/3 suites join the protocol suite? | (a) Research, then adoption; (b) Ruralz frame tests | multi-protocol | Yes, for the M3 protocol suite |
 | OQ-testing-and-quality-strategy-7 | Where does `usage` sit in `mistral` stream chunks, is `gemini` `usageMetadata` on every chunk, and should a job check the mock against live providers? | (a) Documentation fixtures only (current); (b) a scheduled job with Revington-funded keys; (c) community reports | ai-llm-gateway | Yes, for the M3 `mistral` and `gemini` fixtures |
 | OQ-testing-and-quality-strategy-8 | What format do `ruralz test run` cases use? | (a) Versioned YAML owned by the CLI reference; (b) a Go test API only | cli-and-api-surface | Yes, for the M2 end-to-end suite |
 | OQ-testing-and-quality-strategy-9 | Which tools and coverage target apply to Ruralz Console? | (a) Chosen with its toolchain; (b) browser end-to-end tests only | repository-layout-and-conventions | No |
 | OQ-testing-and-quality-strategy-10 | Where does the 100-Node SM-9 scenario run? | (a) 100 `ruralzd` processes on dedicated runners; (b) a cloud Kubernetes cluster per run; (c) kind | performance-budgets-and-benchmarking | Yes, for the M2 SM-9 gate |
-| OQ-testing-and-quality-strategy-11 | Where do CE-5 at 100 Nodes and CE-15 at target rate run, since a personal account owns the repository and a [larger runner](01-tech-stack-and-libraries.md#ci-tooling) needs an organization on a Team or Enterprise Cloud plan? | (a) Move the repository to such an organization; (b) an RH-class self-hosted host: RH-1 (chosen, 2026-10-03) | ruralz-core | No (answered) |

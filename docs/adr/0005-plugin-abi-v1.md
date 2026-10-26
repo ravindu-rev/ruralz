@@ -2,17 +2,6 @@
 id: ADR-0005
 title: "Plugin ABI v1: capability-based with Extism-style conventions, proxy-wasm adapter Planned (M4)"
 status: accepted
-date: 2026-09-25
-deciders: [ruralz-core]
-related:
-  - docs/architecture/05-wasm-plugin-system.md
-  - docs/_meta/foundation-pack.md
-  - docs/engineering/01-tech-stack-and-libraries.md
-  - docs/architecture/01-system-overview.md
-  - docs/architecture/02-configuration-model.md
-  - docs/engineering/03-testing-and-quality-strategy.md
-  - docs/engineering/04-release-versioning-and-compatibility.md
-  - docs/adr/0004-wasm-runtime-wazero.md
 ---
 
 # ADR-0005: Plugin ABI v1: capability-based with Extism-style conventions, proxy-wasm adapter Planned (M4)
@@ -52,8 +41,8 @@ Chosen option: "Custom capability-based Plugin ABI v1 (`ruralz.plugin.v1`) with 
 | Phase results | `0` CONTINUE, `1` RESPOND after an accepted `response_send`, `2` END_STREAM in `onChunk`; negative means cannot decide, so `failureMode` applies |
 | Capabilities | Each Host Function needs exactly one Capability; the set derived from imports MUST be a subset of `spec.capabilities` (RZ-CFG-028), re-checked with the Phase per call; `ERR_PHASE`, `ERR_BUDGET` and `ERR_DENIED` are sticky: `RZ-PLG-006` |
 | Ambient authority | None: a `wasi_snapshot_preview1` shim maps log, clock and random calls to their Capabilities and fails file and socket calls; ungated, `args_*` and `environ_*` return zero entries and `proc_exit` traps (`RZ-PLG-001`); no outbound calls, timers or shared queues |
-| State Store | One blocking `state_get` or `state_incr` per Plugin Policy per request before commit, a second returning `ERR_BUDGET`; in upstream-leg Phases, as proposed in OQ-wasm-plugin-system-20, later attempts and steps replay the first result for the same Host Function and key without a round trip, parallel steps serializing; `onLog` writes asynchronous; none in `onChunk` |
-| Credentials | Credential headers need `credentials.read` (OQ-wasm-plugin-system-3, option (b)) |
+| State Store | One blocking `state_get` or `state_incr` per Plugin Policy per request before commit, a second returning `ERR_BUDGET`; in upstream-leg Phases, later attempts and steps replay the first result for the same Host Function and key without a round trip, parallel steps serializing; `onLog` writes asynchronous; none in `onChunk` |
+| Credentials | Credential headers need `credentials.read` |
 | Evolution | Frozen when it ships; additions are new Host Functions only, each raising an ABI level while `rz_abi_version()` stays 1; anything else needs `ruralz.plugin.v2`, except optional guest JSON fields (OQ-release-versioning-and-compatibility-10) ([versioning](../engineering/04-release-versioning-and-compatibility.md#plugin-abi-versioning)) |
 | proxy-wasm, Planned (M4) | Ruralz adapter with the same host, Capabilities, limits, `RZ-PLG` codes and `failureMode`; a pinned call waits for its instance at most the 1 ms (target) pool wait, else `RZ-PLG-005`; a trap fails every context pinned to that instance, each under its own Policy's `failureMode`; outbound calls, timers and shared queues fail activation (RZ-CFG-028); declaration: OQ-wasm-plugin-system-8 |
 
@@ -111,8 +100,8 @@ sequenceDiagram
 - Bad, because no existing binary runs at launch: Extism plugins need rebuilding; proxy-wasm filters wait for the adapter.
 - Bad, because engine-based PDKs (TypeScript, C#) need an import shim and more memory: a 64 MiB `state.*` Plugin (hypothesis) gets a parked bound of 12 under the 2 GiB default cap, below the audit threshold of 16 (target), so it needs a 4 GiB cap ([Sizing](../architecture/05-wasm-plugin-system.md#sizing)).
 - Bad, because Plugins cannot call out (OQ-wasm-plugin-system-5) or hold plaintext keys (OQ-wasm-plugin-system-4).
-- Bad, because an Upstream-scoped Plugin gets one State Store result per request: retries and steps replay it, another key returns `ERR_BUDGET`, and parallel `aggregate` steps wait on the first call (proposed OQ-wasm-plugin-system-20).
-- Bad, because after the freeze an ABI mistake costs `ruralz.plugin.v2`, served beside v1 for 4 minor releases, about 12 months (target).
+- Bad, because an Upstream-scoped Plugin gets one State Store result per request: retries and steps replay it, another key returns `ERR_BUDGET`, and parallel `aggregate` steps wait on the first call.
+- Bad, because once v1 ships, an ABI mistake costs `ruralz.plugin.v2`, served beside v1 for 4 minor releases, about 12 months (target).
 - Bad, because the adapter pins each request to the instance holding its stream state: up to 1,000 contexts (target) share its serialized calls and traps, with recycling and fault radius open (OQ-wasm-plugin-system-17).
 
 ### Confirmation
@@ -124,7 +113,7 @@ Planned (M2) unless tagged:
 - **Online Plugin check**: `ruralz bundle build`, `ruralz bundle validate --online`, ingest and activation reject artifacts disagreeing with `Plugin.spec` (RZ-CFG-028).
 - **Host Function fuzzing**: out-of-bounds pointers and lengths trap the guest, never the host ([Fuzzing](../engineering/03-testing-and-quality-strategy.md#fuzzing)).
 - **SM-6 microbenchmark gate**: 50 µs or less per pooled Phase call at p99 (target).
-- **Review checklist item**: a pull request that adds an ambient import or a Host Function without exactly one Capability, changes a result code, Phase result, memory convention or required export, or accepts another `abi` value MUST amend this ADR or open `ruralz.plugin.v2`.
+- **Amendment trigger**: a pull request that adds an ambient import or a Host Function without exactly one Capability, changes a result code, Phase result, memory convention or required export, or accepts another `abi` value MUST amend this ADR or open `ruralz.plugin.v2`.
 
 ## Pros and cons of the options
 
@@ -149,7 +138,6 @@ Planned (M2) unless tagged:
 ## More information
 
 - Owning document: [WASM plugin system](../architecture/05-wasm-plugin-system.md).
-- Research: [Go runtime libraries](../_meta/research/go-libraries-runtime.md) sections 2.5 and 2.6.
-- Related decisions: [ADR-0001](0001-implementation-language-go.md), [ADR-0011](0011-expressions-and-authorization-engines.md) and [ADR-0017](0017-artifact-signing.md).
-- Open questions: OQ-wasm-plugin-system-8 (adapter declaration, blocking Planned (M4); first measure SDK-built filters' import sets), -12 (proto package), -13 (ABI levels in Rollouts), -17 (adapter recycling and fault radius) and OQ-release-versioning-and-compatibility-10. Proposed to the owning document: OQ-wasm-plugin-system-20, whether upstream attempts and steps (a) replay the first State Store result, as here, or (b) forbid `state.*` at Upstream scope (RZ-CFG-020).
+- Related decisions: [ADR-0001](0001-implementation-language-go.md), [ADR-0019](0019-expressions-authorization-comprehension-stop.md) and [ADR-0017](0017-artifact-signing.md).
+- Open questions: OQ-wasm-plugin-system-8 (adapter declaration, blocking Planned (M4); first measure SDK-built filters' import sets), -12 (proto package), -13 (ABI levels in Rollouts), -17 (adapter recycling and fault radius) and OQ-release-versioning-and-compatibility-10.
 - Revisit if proxy-wasm gains a capability model and a maintained pure-Go host; admitting outbound calls would add Host Functions within v1, plus a Policy-declared timeout and `failureMode` (pack section 8.7 rule 6) that the Configuration model does not define yet (OQ-wasm-plugin-system-5).

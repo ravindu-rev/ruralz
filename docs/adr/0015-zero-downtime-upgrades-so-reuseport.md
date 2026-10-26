@@ -2,15 +2,6 @@
 id: ADR-0015
 title: "Zero-downtime upgrades: SO_REUSEPORT, drain and readiness gating, no socket passing"
 status: accepted
-date: 2026-09-25
-deciders: [ruralz-core]
-related:
-  - docs/operations/02-zero-downtime-upgrades-and-hot-reload.md
-  - docs/_meta/foundation-pack.md
-  - docs/architecture/01-system-overview.md
-  - docs/architecture/11-scalability-and-distributed-state.md
-  - docs/engineering/01-tech-stack-and-libraries.md
-  - docs/engineering/04-release-versioning-and-compatibility.md
 ---
 
 # ADR-0015: Zero-downtime upgrades: SO_REUSEPORT, drain and readiness gating, no socket passing
@@ -19,7 +10,7 @@ related:
 
 A Zero-Downtime Upgrade replaces the `ruralzd` binary on a Node without refusing connections or failing requests. `ruralzd` listens by default on 8080, 8443 (TCP, plus UDP for HTTP/3, Planned (M3)) and admin port 9901 (foundation pack section 8.4), holds a Control Stream for its `node.id` and writes Last-Known-Good under `${RURALZ_DATA_DIR}` (pack 8.2, 8.11). Balancers probe `/readyz`, which fails during a Drain (pack 8.5).
 
-How does a new process take over listeners, readiness and identity across N-1 and N, keeping Nodes disposable (P4) and handovers measurable (P10) ([Vision](../vision/01-vision-and-positioning.md#principles))? Nothing is implemented: the in-place handover is Planned (M1), blocked by two Open questions, and the Kubernetes Drain and restart Planned (M2).
+How does a new process take over listeners, readiness and identity across N-1 and N, keeping Nodes disposable (P4) and handovers measurable (P10) ([Vision](../vision/01-vision-and-positioning.md#principles))? Nothing is implemented: the in-place handover is Planned (M1), and the Kubernetes Drain and restart Planned (M2).
 
 ## Decision drivers
 
@@ -47,10 +38,10 @@ Chosen option: "`SO_REUSEPORT` with CBPF steering, Drain and readiness gating", 
 | Readiness gating | Over an owner-only Unix socket under `${RURALZ_DATA_DIR}` the new process sends version, format markers and active digest; the holder has a newer candidate reloaded and reported again, refusing an unknown marker or older candidate. Unaccepted after 60 s (target), the new process exits; if the holder exits first, the new process takes the lock and listens | Planned (M1) |
 | Steering | Accepted, the new process listens, still pinned; the holder swaps each program to the new sockets, 9901 included, accepts through a 3 s linger (target), then closes its listeners | Planned (M1) |
 | Readiness move | During the linger the holder closes idle admin connections and answers in-flight admin requests with `Connection: close`, so keep-alive health checkers reconnect to the new process and no probe sees the Drain's 503 | Planned (M1) |
-| `net.ipv4.tcp_migrate_req` | Complements steering: handover hosts SHOULD set it, so closing migrates queued and in-progress handshakes. Pack section 7 says alternative, pending OQ-zero-downtime-upgrades-and-hot-reload-12 (a) | Planned (M1) |
-| Shared Node-wide ceilings | The old process reports connections, in-flight units, buffered bytes, Plugin memory and RSS at acceptance and each second (target); the new one admits each ceiling minus that usage, under a soft memory limit of 90% of the limit minus the old RSS (target) (OQ-zero-downtime-upgrades-and-hot-reload-6) | Planned (M1) |
+| `net.ipv4.tcp_migrate_req` | Complements steering: handover hosts SHOULD set it, so closing migrates queued and in-progress handshakes | Planned (M1) |
+| Shared Node-wide ceilings | The old process reports connections, in-flight units, buffered bytes, Plugin memory and RSS at acceptance and each second (target); the new one admits each ceiling minus that usage, under a soft memory limit of 90% of the limit minus the old RSS (target) | Planned (M1) |
 | Identity | At Drain start the old process sends a last `Heartbeat` with `draining`, closes its Control Stream and releases the file lock; the new one takes it, alone writes Last-Known-Good and, in Control mode, dials 8091, retrying `RZ-CP-002` while ready | Planned (M1) |
-| Drain | `/readyz` 503, stop accepting, one HTTP/2 GOAWAY in Planned (M1) (OQ-zero-downtime-upgrades-and-hot-reload-3), `Connection: close` on HTTP/1.1, jittered WebSocket 1001 and SSE ends. After SIGTERM: deadline 20 s after stop-accepting, exit within 30 s (target). After a handover: Drain from the linger's end, no accept window, deadline 20 s later, 23 s after steering (target) ([Drain timeline defaults](../operations/02-zero-downtime-upgrades-and-hot-reload.md#drain-timeline-defaults)) | Planned (M1); WebSocket and SSE Planned (M3) |
+| Drain | `/readyz` 503, stop accepting, one HTTP/2 GOAWAY in Planned (M1), `Connection: close` on HTTP/1.1, jittered WebSocket 1001 and SSE ends. After SIGTERM: deadline 20 s after stop-accepting, exit within 30 s (target). After a handover: Drain from the linger's end, no accept window, deadline 20 s later, 23 s after steering (target) ([Drain timeline defaults](../operations/02-zero-downtime-upgrades-and-hot-reload.md#drain-timeline-defaults)) | Planned (M1); WebSocket and SSE Planned (M3) |
 | QUIC | In-flight QUIC connections on UDP 8443 are lost and reconnect (OQ-system-overview-18) | Planned (M3) |
 | Kubernetes (T4) | preStop, Drain and a new Pod replace each Pod, `terminationGracePeriodSeconds` 45 s (target); the Cluster keeps serving, but this is no per-Node Zero-Downtime Upgrade | Planned (M2) |
 
@@ -97,7 +88,7 @@ sequenceDiagram
 - **V-3**, Planned (M1): 1,000 handovers at half saturation (target), a keep-alive health checker on 9901, `tcp_migrate_req` at 1 and 0, and 1,000 refused or timed-out handovers. Pass: resets per handover recorded: none at 1, only twice-retransmitted handshakes at 0; no refused connection or failed request; every probe 200; no OOM kill or State Store connection refusal; derived-ceiling count drops at most 10% (target) ([Verification runbook](../operations/02-zero-downtime-upgrades-and-hot-reload.md#verification-runbook)).
 - **V-4**, Planned (M1); WebSocket and SSE Planned (M3): SIGTERM a Node holding HTTP/2, WebSocket and SSE connections. Pass: zero failed new requests, exit within 30 s (target).
 - **V-6**, Planned (M1): a handover to N-1 past the binary rollback limit is refused; N keeps serving.
-- **Review checklist item**: a pull request passing listening descriptors between processes (such as `unix.UnixRights`) or closing a listener before steering MUST supersede this ADR.
+- **Amendment trigger**: a pull request passing listening descriptors between processes (such as `unix.UnixRights`) or closing a listener before steering MUST amend this ADR.
 
 ## Pros and cons of the options
 
@@ -125,6 +116,5 @@ sequenceDiagram
 
 - Owning document: [Zero-downtime upgrades and hot reload](../operations/02-zero-downtime-upgrades-and-hot-reload.md#in-place-handover), which owns the handover steps, Drain timeline, long-lived connections and rollback. See also [foundation pack section 7](../_meta/foundation-pack.md#7-technology-decisions-fixed-details-in-docsengineering01-tech-stack-and-librariesmd-and-adrs) and [SO_REUSEPORT and listeners](../architecture/11-scalability-and-distributed-state.md#so_reuseport-and-listeners), which rules out `SO_REUSEPORT` for scaling.
 - Related decisions: [ADR-0007](0007-control-stream-protocol.md) (Control Stream reconnect), [ADR-0009](0009-http-stack-net-http-quic-go.md) (`net/http` GOAWAY and QUIC loss) and [ADR-0016](0016-kubernetes-helm-and-crds.md) (Kubernetes packaging, proposed).
-- Blocking the Planned (M1) handover: OQ-zero-downtime-upgrades-and-hot-reload-6 (overlap memory) and OQ-zero-downtime-upgrades-and-hot-reload-7 (systemd unit). Non-blocking: OQ-zero-downtime-upgrades-and-hot-reload-1, OQ-zero-downtime-upgrades-and-hot-reload-5, OQ-zero-downtime-upgrades-and-hot-reload-11 and OQ-zero-downtime-upgrades-and-hot-reload-12.
-- The tech stack document SHOULD add a `golang.org/x/sys` catalog row, today only transitive.
+- Open questions, neither blocking: OQ-zero-downtime-upgrades-and-hot-reload-5 and OQ-zero-downtime-upgrades-and-hot-reload-11.
 - Revisit when QUIC connection-ID steering is feasible (OQ-system-overview-18) or a measured handover failure rate justifies socket passing.

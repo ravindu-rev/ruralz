@@ -1,26 +1,8 @@
----
-title: Scalability and Distributed State
-status: reviewed
-owner: ruralz-core
-last_updated: 2026-09-25
-depends_on:
-  - docs/_meta/foundation-pack.md
-  - docs/_meta/style-guide.md
-  - docs/architecture/01-system-overview.md
-  - docs/architecture/02-configuration-model.md
-  - docs/architecture/03-data-plane.md
-  - docs/architecture/04-control-plane-and-gitops.md
-  - docs/architecture/06-ai-llm-gateway.md
-  - docs/architecture/09-traffic-management-and-resilience.md
-adrs: [ADR-0006, ADR-0007, ADR-0008, ADR-0014, ADR-0015]
-milestone_tags_used: [M1, M2, M3, M4]
----
-
 # Scalability and Distributed State
 
 ## Summary
 
-This document fixes how Ruralz scales out and where shared state lives: per-Node memory, distributed state with numeric accuracy bounds, Cells as blast-radius units, multi-Region rules, per-Node limits, the `RZ-STS` registry and verifying chaos experiments. Nothing is implemented; everything is Planned (M1) to Planned (M4). Read it before sizing a Cluster, a State Store or a second Region.
+This document fixes how Ruralz scales out and where shared state lives: per-Node memory, distributed state with numeric accuracy bounds, Cells as blast-radius units, multi-Region rules, per-Node limits, the `RZ-STS` registry and verifying chaos experiments. Read it before sizing a Cluster, a State Store or a second Region.
 
 ## Scope and non-goals
 
@@ -47,7 +29,7 @@ Non-guarantees: limits are exact only inside one Cell; long-lived connections ne
 
 ## Stateless data plane
 
-A Node persists only its enrollment identity, Last-Known-Good and disposable caches under `${RURALZ_DATA_DIR}` (pack 8.11); under OQ-scalability-and-distributed-state-11 it would also persist the last Node count, used flagged stale. This table inventories all in-memory per-Node state; new state needs a row before shipping.
+A Node persists only its enrollment identity, Last-Known-Good and disposable caches under `${RURALZ_DATA_DIR}` (pack 8.11); under OQ-scalability-and-distributed-state-11 it would also persist the last Node count, used flagged stale. This table inventories all in-memory per-Node state.
 
 | Per-Node state | Bound | Rebuilt from | Why losing it is safe |
 |---|---|---|---|
@@ -289,17 +271,15 @@ sequenceDiagram
     end
 ```
 
-**Per-request GCRA.** For OQ-system-overview-15, GCRA runs per admitted request through Planned (M3), as pack 8.8 fixes, keeping the Cell limit exact for every key with a GCRA answer while the State Store is healthy: under option (c) of OQ-traffic-management-and-resilience-20, conforming until OQ-scalability-and-distributed-state-11 closes, every key except `config.localOnly` hot keys (proposed). Under option (a), a first-seen key past the budget B runs local-only for 10 s (target) with its own [bound](#consistency-and-accuracy-bounds), and first-seen calls stay at most min(B × N_serving / N_published, 500 × N_serving) per second per Cell (target) ([decision path](09-traffic-management-and-resilience.md#decision-path)). Leases, as in Doorman ([source](https://github.com/youtube/doorman)), trade accuracy for fewer calls (OQ-scalability-and-distributed-state-1).
+**Per-request GCRA.** GCRA runs per admitted request through Planned (M3), as pack 8.8 fixes (OQ-system-overview-15), keeping the Cell limit exact for every key with a GCRA answer while the State Store is healthy: under option (c) of OQ-traffic-management-and-resilience-20, which applies until OQ-scalability-and-distributed-state-11 closes, every key except `config.localOnly` hot keys (proposed). Under option (a), a first-seen key past the budget B runs local-only for 10 s (target) with its own [bound](#consistency-and-accuracy-bounds), and first-seen calls stay at most min(B × N_serving / N_published, 500 × N_serving) per second per Cell (target) ([decision path](09-traffic-management-and-resilience.md#decision-path)). Leases, as in Doorman ([source](https://github.com/youtube/doorman)), trade accuracy for fewer calls (OQ-scalability-and-distributed-state-1).
 
-**Hot keys.** A key reaches the State Store at most min(offered, 2 × N_serving × ceiling) times per window (target) ([ADR-0008](../adr/0008-rate-limiting-local-bucket-and-gcra.md)); denials come from the per-Node over-limit cache. Since each locally admitted request runs GCRA (pack 8.8), a derived ceiling allows 2 × `requests` × N_serving / N_published calls per window. A key whose `requests` exceed 25% of one shard's calls, about 25,000 per second (hypothesis), SHOULD set [Traffic's](09-traffic-management-and-resilience.md#per-node-ceiling) `config.localOnly` once OQ-scalability-and-distributed-state-11 amends pack 8.8 (proposed); until then it needs a declared per-Node ceiling, a split `config.key` or its own Cell. GCRA keys thus stay under 2 × 25% = 50% of a shard, leaving margin under the 70% script CPU target for a count lagging 40% (hypothesis). A `config.localOnly` key would never run GCRA, admitting at most N_serving × ceiling per window, even healthy (target), amending pack 8.8; validation warnings are OQ-scalability-and-distributed-state-15.
-
-**Pack amendments.** OQ-scalability-and-distributed-state-11 carries the options recommended here, amending packs 8.8 and 8.11; their owners close them with it.
+**Hot keys.** A key reaches the State Store at most min(offered, 2 × N_serving × ceiling) times per window (target) ([ADR-0008](../adr/0008-rate-limiting-local-bucket-and-gcra.md)); denials come from the per-Node over-limit cache. Since each locally admitted request runs GCRA (pack 8.8), a derived ceiling allows 2 × `requests` × N_serving / N_published calls per window. A key whose `requests` exceed 25% of one shard's calls, about 25,000 per second (hypothesis), SHOULD set [Traffic's](09-traffic-management-and-resilience.md#per-node-ceiling) `config.localOnly` once OQ-scalability-and-distributed-state-11 closes (proposed); until then it needs a declared per-Node ceiling, a split `config.key` or its own Cell. GCRA keys thus stay under 2 × 25% = 50% of a shard, leaving margin under the 70% script CPU target for a count lagging 40% (hypothesis). A `config.localOnly` key would never run GCRA, admitting at most N_serving × ceiling per window, even healthy (target), departing from pack 8.8; validation warnings are OQ-scalability-and-distributed-state-15.
 
 ### Distributed caches
 
 The Response Cache and Semantic Cache share the Cell's State Store deployment with limit keys; under `noeviction` a full deployment refuses writes, so Rate Limits fail open and every `closed` Token Budget in the Cell returns 503 ([Response caching](09-traffic-management-and-resilience.md#response-caching)). Both skip stores above memory watermarks.
 
-A separate cache deployment isolates them (OQ-traffic-management-and-resilience-11 (a)), but `Gateway.spec.stateStore` holds one connection; OQ-scalability-and-distributed-state-3 proposes a second. Until then, a Cell whose State Store holds `ai.token-budget` keys MUST NOT attach `cache` or `ai.semantic-cache`, and where N_serving can exceed 25 × N_c (hypothesis), `cache` MUST stay off; Nodes warn at startup when `cache` and a limit Policy type share a State Store. For OQ-ai-llm-gateway-18 this document decides option (a) in Cells without `ai.token-budget`, and (b) once the second connection exists; its owner closes it at conformance.
+A separate cache deployment isolates them (OQ-traffic-management-and-resilience-11 (a)), but `Gateway.spec.stateStore` holds one connection; OQ-scalability-and-distributed-state-3 proposes a second. Until then, a Cell whose State Store holds `ai.token-budget` keys MUST NOT attach `cache` or `ai.semantic-cache`, and where N_serving can exceed 25 × N_c (hypothesis), `cache` MUST stay off; Nodes warn at startup when `cache` and a limit Policy type share a State Store. The Semantic Cache follows OQ-ai-llm-gateway-18 option (a) in Cells without `ai.token-budget`, and option (b) once the second connection exists.
 
 Client-side caching stays off, as Redis advises for continuously incremented keys ([source](https://redis.io/docs/latest/develop/reference/client-side-caching/)); enabling it for cache reads later MUST cap each connection at 16 MiB and each Node at 64 MiB (target).
 
@@ -319,7 +299,7 @@ Cookie affinity or a session Policy type is OQ-scalability-and-distributed-state
 
 ### Post-commit write queue
 
-The queue, Planned (M1), holds 64,000 items and 85 MiB (target) in four classes capped in items and bytes; a full class drops only its own writes. This answers OQ-wasm-plugin-system-19 with option (a): this sub-queue, plus the Environment name as `rzplg:` namespace, a pack 8.7 amendment in OQ-scalability-and-distributed-state-11. Sizes are fixed (OQ-scalability-and-distributed-state-4).
+The queue, Planned (M1), holds 64,000 items and 85 MiB (target) in four classes capped in items and bytes; a full class drops only its own writes. Plugin writes take their own class, with the Environment name as `rzplg:` namespace (OQ-wasm-plugin-system-19, OQ-scalability-and-distributed-state-11). Sizes are fixed (OQ-scalability-and-distributed-state-4).
 
 | Class | Capacity | Drain turn | On full |
 |---|---|---|---|
@@ -375,7 +355,7 @@ Bounds hold per Cell. N_serving counts serving Nodes, N_published is the publish
 | Caches | Dropped store or failing State Store | Misses only (target) |
 | Quota layout switch | Node without the switch signal | Up to 2 × `limit` for one window per such Node ([Release, versioning and compatibility](../engineering/04-release-versioning-and-compatibility.md#state-store-layout-changes)) (hypothesis) |
 
-Scripts read server `TIME`, so Node clock skew up to half a window does not matter (target). For OQ-release-versioning-and-compatibility-9 this document recommends option (a), a Control Stream field, so the layout-switch bound applies only to detached Nodes.
+Scripts read server `TIME`, so Node clock skew up to half a window does not matter (target). With OQ-release-versioning-and-compatibility-9 option (a), a Control Stream field, the layout-switch bound applies only to detached Nodes.
 
 ## Multi-region
 
@@ -529,7 +509,7 @@ Geo DNS, anycast or clients choose the Region, a router AWS advises keeping simp
 
 ### Cross-region configuration sync
 
-One Revision per Environment reaches every Region over the Control Stream ([ADR-0007](../adr/0007-control-stream-protocol.md)). Remote Nodes dial the home Region until a read-only regional relay, Planned (M4), serves them ([relay feed](04-control-plane-and-gitops.md#relay-feed), answering OQ-system-overview-16; its 8092 feed awaits the pack 8.4 amendment of OQ-control-plane-and-gitops-15). Nodes verify signatures end to end, so a relay cannot forge configuration.
+One Revision per Environment reaches every Region over the Control Stream ([ADR-0007](../adr/0007-control-stream-protocol.md)). Remote Nodes dial the home Region until a read-only regional relay, Planned (M4), serves them ([relay feed](04-control-plane-and-gitops.md#relay-feed), OQ-system-overview-16; its 8092 feed awaits OQ-control-plane-and-gitops-15). Nodes verify signatures end to end, so a relay cannot forge configuration.
 
 Clusters of one Environment promote one at a time, so a bad Revision passing one Region's canary meets the next.
 
