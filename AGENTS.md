@@ -33,6 +33,7 @@ Not built yet, so never claim or import them: the configuration loader and pipel
 | Canonical names, CLI registry, Policy type registry, error areas | `docs/_meta/foundation-pack.md` |
 | Doc style | `docs/_meta/style-guide.md` and `docs/_meta/manifest.yaml` |
 | Decisions | `docs/adr/` |
+| Milestones, their scope and exit criteria (the only plan) | `docs/roadmap/01-roadmap-and-milestones.md` |
 
 - Never invent YAML fields, CLI nouns or verbs, Policy types, `RZ` codes or libraries. If the owning doc lacks one, record it as an `OQ-<docslug>-<n>` Open questions row (format in `.claude/rules/docs.md`) and stop.
 - A change that contradicts a doc needs an ADR or an entry in that doc's Open questions (`CONTRIBUTING.md`, foundation pack section 14); add it in the same pull request.
@@ -75,10 +76,10 @@ Review-enforced (no linter checks it): no mutable package-level variables, excep
 
 Aim for the complete solution, never a quick fix.
 
-- **Tests gate each step; one review at the end.** By the owner's decision of 2026-10-25, a step of the M1 plan (`.claude/plans/m1/steps.md`) is done when its scope is built, every known finding it carries is fixed, and its tests and checks pass; no review runs per step. One review of all M1 work runs at the end, before the release, and every finding, from it or already on file, is fixed before the release. Never ship with a finding open; if a finding is wrong, show why with evidence and get the owner's agreement.
+- **Implementation and tests gate each change.** A change is done when its scope is built, every known bug it touches is fixed, and its tests and checks pass; there are no separate review or verification passes. Never ship with a known bug open; if a report is wrong, show why with evidence and get the owner's agreement.
 - **Fix the class, not the instance.** For each finding, find every path that shares its root cause (each keyword, input shape, code path, caller or sibling of the same kind), fix them together, and list the class members in the change. One fix per class beats one fix per report.
 - **A test for every case.** Every requirement, finding and class member gets its own test that fails without the fix, small and edge cases included. Prove it by running the test against the code without the fix (`go test -overlay`) or by a mutation the test kills. Prefer table tests that name each case. Spend the time on tests; untested behavior counts as missing.
-- **Inventory before bounding a dependency.** Before code wraps or bounds a third-party library (its cost, memory, accepted input or errors), read the library and list every feature and code path it acts on with how each is bounded and tested, then build from that list instead of finding paths one review at a time.
+- **Inventory before bounding a dependency.** Before code wraps or bounds a third-party library (its cost, memory, accepted input or errors), read the library and list every feature and code path it acts on with how each is bounded and tested, then build from that list instead of finding paths one bug at a time.
 - **Deterministic tests.** Never assert wall-clock time or a sampled heap without a margin proven under load; use benchmarks, counters or measurements that do not depend on scheduling.
 - **Record decisions.** A limit, refusal or trade-off the specs do not state is the owner's decision: ask, then record it where the next reader looks (the owning document, an Open questions row or an ADR).
 
