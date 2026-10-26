@@ -7,39 +7,35 @@ paths:
 
 # Configuration types and the generated JSON Schema
 
-Authority: `docs/architecture/02-configuration-model.md` owns kinds, fields, Policy types and `RZ-CFG` codes; `docs/engineering/02-repository-layout-and-conventions.md` section "Schema generation from Go types" owns the markers. Use `/change-config-schema` for the full recipe.
+Authority: `docs/architecture/02-configuration-model.md` owns kinds, fields, Policy types and `RZ-CFG` codes; the layout document's "Schema generation from Go types" section owns the markers.
 
 ## Ground rules
 
-- The Go types in `pkg/config/v1alpha1` are the only source of `api/schema/ruralz/v1alpha1/{authoring,rendered}.schema.json`. Never edit the JSON by hand.
-- Add or change a field only when `02-configuration-model.md` defines it (its Kind catalog sketches are normative for names, `# required` and list types). Otherwise add an `OQ-configuration-model-<n>` row there and stop.
-- `pkg/` non-test files import only the standard library and `pkg/` (repocheck and depguard). No loader, validator or YAML exists yet; do not add one here. `pkg/` and `api/` changes need two approvals.
-- The 10 kinds are fixed (foundation pack section 3). Adding one needs a foundation pack amendment: an ADR or an Open questions entry (section 14), with two approvals because it changes `docs/_meta/`, `pkg/` and `api/`.
-- Schema levels: every field added within an apiVersion carries `x-ruralz-since`, and changing a `v1alpha1` default is a new schema level. No field carries `+ruralz:since` yet. Do not pick a level or change an existing `+ruralz:default=` yourself: ask, or add an `OQ-configuration-model-<n>` row and stop.
+- The Go types in `pkg/config/v1alpha1` are the only source of `api/schema/ruralz/v1alpha1/{authoring,rendered}.schema.json`. Never edit the JSON. After a change run `go generate ./pkg/config/v1alpha1` and commit types and JSON together; `TestCommittedSchemaIsCurrent` fails on a stale schema and `make generate` diffs against the index.
+- Add or change a field only when the configuration model defines it; its Kind catalog sketches are normative for names, `# required` and list types. Otherwise ask the owner.
+- `pkg/` non-test files import only the standard library and `pkg/`.
+- The 10 kinds are fixed (foundation pack section 3).
+- Every field added within an apiVersion carries `x-ruralz-since`, and changing a `v1alpha1` default is a new schema level: ask the owner before adding `+ruralz:since` or changing a `+ruralz:default=`.
 
-## Regenerate and check
+## Translating a sketch
 
-1. Edit the types and their `+ruralz:` markers.
-2. `go generate ./pkg/config/v1alpha1` (directive at `pkg/config/v1alpha1/doc.go:21`).
-3. `go test ./internal/tool/schemagen/ ./api/schema/ ./pkg/...`. `TestCommittedSchemaIsCurrent` fails when the committed JSON is stale; `TestDeterministic` checks byte-identical output across runs, LF only, a trailing newline and no HTML escaping (key order comes from `encoding/json` map sorting).
-4. Stage the types and both JSON files together. `make generate` diffs the working tree against the index, so it fails until the regenerated files are staged.
+- Doc comment first (it becomes the schema `description`, so write user-facing text), then marker lines, then the field with a camelCase `json` tag.
+- `# required` becomes `+ruralz:required` with no `omitempty`; every other field gets `omitempty`.
+- `default X` becomes a pointer field plus `+ruralz:default=X` (quote strings); optional bools and numbers are pointers too.
+- Lists: `map keyed by k` is `+ruralz:list=map,key=k`, `orderedMap keyed by k` is `+ruralz:list=orderedMap,key=k`, `set` is `+ruralz:list=set`, anything else `+ruralz:list=atomic`.
+- A `{secretRef: ...}` value is a `SecretValue` field with `+ruralz:secret` and `+ruralz:impact` including `security`; a field naming another resource gets `+ruralz:ref=<Kind>`.
+- Use the package scalar types: `Duration` (never `time.Duration`), `ByteSize`, `Decimal`, `IntOrString`, `SecretValue`; signed integers for numbers.
 
 ## Field rules schemagen enforces
 
-- One field per line, with a `json` tag that names it (no missing or `-` tag).
-- A field is required only with `+ruralz:required`; every other field has `omitempty`.
-- Optional bools and numbers, and optional fields whose default is not the Go zero value, are pointers. `+ruralz:default=` is allowed only on a pointer field.
-- Use the package scalar types: `Duration` for durations (never `time.Duration`), `ByteSize` for byte sizes, `Decimal` for prices, `IntOrString` for a port number or name, `SecretValue` for secrets. `Duration` and `ByteSize` are integer kinds, so an optional one is a pointer. Use signed integers for numbers.
-- Every slice except `json.RawMessage` has `+ruralz:list=...`.
-- `SecretValue` and `SecretRef` fields carry `+ruralz:secret`, except the `SecretRef` field inside `SecretValue` itself, which must not.
-- Map keys are strings. No anonymous structs, no struct types from other packages, no embedded fields outside resource types.
-- A typed string `const` block becomes the type's `enum`, in source order. Doc comments become `description`; write them as user-facing text.
-- A `+ruralz:secret` field also carries `+ruralz:impact` including `security`.
-- A `+ruralz:default` value must satisfy the field's own `pattern`, `minLength`, `maxLength`, `minimum` and `maximum`.
-- A `+ruralz:required` field takes no `+ruralz:default`.
-- `+ruralz:impact` appears once per field, each class once and in ascending byte order (`ai`, `metadata`, `plugin`, `routing`, `security`, `traffic`).
+- One field per line with a naming `json` tag; required only with `+ruralz:required`, everything else `omitempty`.
+- Optional bools and numbers, and optional fields whose default is not the Go zero value, are pointers; `+ruralz:default=` only on a pointer field, never on a required one, and it must satisfy the field's own `pattern`, length and range keywords.
+- Every slice except `json.RawMessage` has `+ruralz:list=...`. Map keys are strings. No anonymous structs, no struct types from other packages, no embedded fields outside resource types.
+- `SecretValue` and `SecretRef` fields carry `+ruralz:secret`, except the `SecretRef` inside `SecretValue`.
+- A typed string `const` block becomes the type's `enum`, in source order.
+- `+ruralz:impact` appears once per field, each class once, in ascending order (`ai`, `metadata`, `plugin`, `routing`, `security`, `traffic`).
 
-## Markers (compact)
+## Markers
 
 | Marker | Where | Effect |
 |---|---|---|
@@ -48,30 +44,26 @@ Authority: `docs/architecture/02-configuration-model.md` owns kinds, fields, Pol
 | `ref=<Kind>` | field | `x-ruralz-ref`; value must be a Kind constant |
 | `cel=<vars>:<bool\|string\|dyn>` | field | `x-ruralz-cel` |
 | `list=<map\|orderedMap\|set\|atomic>[,key=<field>]` | slice field | `x-ruralz-list`; `map` and `orderedMap` need a key, `set` and `atomic` must not have one |
-| `impact=<classes>` | field | `x-ruralz-impact`; classes `routing`, `security`, `traffic`, `plugin`, `ai`, `metadata`; one marker per field, classes unique and ascending |
+| `impact=<classes>` | field | `x-ruralz-impact` |
 | `since=<n>` | field | `x-ruralz-since`, n of 1 or more |
 | `validation=<CEL rule>` | field, repeatable | Appends to `x-ruralz-validations` |
-| `default=<value>` | pointer field | `default`, typed (Duration canonical string, byte sizes as integers, quoted strings allowed); never on a required field; must satisfy the field's keywords |
+| `default=<value>` | pointer field | `default`, typed |
 | `policyType=<type>` | config struct | Selects the config by `Policy.spec.type` |
 | `open` | struct | Omits `additionalProperties: false` |
-| `minProperties=<n>` | struct, or map-typed field | The standard keyword, on the object schema |
-| `exactlyOneOf=`, `atMostOneOf=`, `atLeastOneOf=<json fields>` | struct | Presence constraints over existing JSON field names |
+| `minProperties=<n>` | struct or map field | The standard keyword |
+| `exactlyOneOf=`, `atMostOneOf=`, `atLeastOneOf=<json fields>` | struct | Presence constraints |
 | `pattern=`, `minLength=`, `maxLength=`, `minimum=`, `maximum=`, `minItems=` | field or named string type | The standard keyword |
 
-An unknown marker, or a marker given a value it does not take (or missing one it needs), fails generation (`internal/tool/schemagen/source.go`).
+An unknown marker, or a marker given a value it does not take, fails generation (`internal/tool/schemagen/source.go`).
 
 ## Adding a Policy type
 
-The type must first be in foundation pack section 10 and in `02-configuration-model.md`.
+The type must first be in foundation pack section 10 and in the configuration model.
 
-1. Add the `PolicyType` constant in `pkg/config/v1alpha1/policy.go` with a doc comment ending in its `Planned (Mx)` tag.
-2. Add the config struct to `pkg/config/v1alpha1/policy_config.go` with a `+ruralz:policyType=<type>` marker. Also mark it and its nested structs `+ruralz:open` unless `02-configuration-model.md` registers every `config` field its feature document authors; only fully registered configs are closed (`policy_config.go:6-10`, OQ-configuration-model-19, which already tracks the unregistered fields).
-3. Append the struct to `policyConfigTypes()` in `internal/tool/schemagen/kinds.go`. The enum, the markers and this table must match one to one.
-4. Update the hard-coded Policy type count in both the check and its message in `TestKeywords` (`internal/tool/schemagen/schemagen_test.go:181-182`), and the count in `AGENTS.md` ("What exists today"). `TestKeywords` also pins specific output, such as `RateLimitConfig` open and `AuthMTLSConfig` closed; update those expectations only for a deliberate change.
-5. Regenerate and test as above.
+1. Add the `PolicyType` constant in `pkg/config/v1alpha1/policy.go` with a doc comment ending in its `Planned (Mx)` tag; add `//nolint:gosec // A Policy type name, not a credential.` only if gosec reports it.
+2. Add the config struct to `policy_config.go` with `+ruralz:policyType=<type>`, marked `+ruralz:open` (with its nested structs) unless the configuration model registers every `config` field.
+3. Append the struct to `policyConfigTypes()` in `internal/tool/schemagen/kinds.go`.
+4. Update the Policy type count in `TestKeywords` (`internal/tool/schemagen/schemagen_test.go`), the check and its message.
+5. Regenerate.
 
-A new kind would also need a `Kind` constant in `pkg/config/v1alpha1/meta.go` (schemagen rejects a resource type that is not one), an entry in `resourceTypes()` in `kinds.go`, and the 10-kind list in `api/schema/schema_test.go:29`.
-
-## Known open questions
-
-- The docs say schemagen reads comments with `go/doc`; the code uses `go/parser` and `go/ast`. Trust the code.
+A new kind would also need a `Kind` constant in `meta.go`, an entry in `resourceTypes()` in `kinds.go` and the kind list in `api/schema/schema_test.go`.
