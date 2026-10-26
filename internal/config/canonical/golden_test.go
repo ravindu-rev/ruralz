@@ -18,12 +18,17 @@ import (
 var update = flag.Bool("update", false, "rewrite the golden files under testdata/golden")
 
 // TestGoldenExampleBundles pins the canonical bytes and digests of the
-// example Bundles: the configuration model's example Bundle (shop, its
-// base files with the substitution defaults applied) and a minimal Bundle,
-// each parsed from YAML and from a JSON twin with other member orders,
-// which yield identical bytes. The trees are the parsed ones; the
-// pipeline's golden corpus pins the output after stage G. Decoding each
-// golden document and encoding it again is byte-identical.
+// encoder over the parsed trees of the example Bundles: the configuration
+// model's example Bundle (shop, its base files with the substitution
+// defaults applied) and a minimal Bundle, each parsed from YAML and from
+// a JSON twin with other member orders, which yield identical bytes. The
+// trees are the parsed ones, before stage G materializes defaults and
+// normalizes scalars, so the files are named *.parsed.json and
+// *.parsed.digest: they are not the Revisions of these Bundles. The
+// golden corpus of the pipeline's output, the shop-bundle Revision
+// included, belongs to the configuration conformance suite
+// (test/conformance/config). Decoding each golden document and encoding
+// it again is byte-identical.
 func TestGoldenExampleBundles(t *testing.T) {
 	for _, tc := range []struct {
 		name string
@@ -33,8 +38,8 @@ func TestGoldenExampleBundles(t *testing.T) {
 		{"minimal", []string{"minimal", "minimal-json"}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			golden := filepath.Join("testdata", "golden", tc.name+".json")
-			digestFile := filepath.Join("testdata", "golden", tc.name+".digest")
+			golden := filepath.Join("testdata", "golden", tc.name+".parsed.json")
+			digestFile := filepath.Join("testdata", "golden", tc.name+".parsed.digest")
 			for i, dir := range tc.dirs {
 				b := loadBundle(t, filepath.Join("testdata", "bundles", dir))
 				rev, err := NewEncoder(hubIndex(t)).Encode(context.Background(), b, Options{Workers: 2})

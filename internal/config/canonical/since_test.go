@@ -5,6 +5,7 @@ package canonical
 
 import (
 	"context"
+	"runtime"
 	"strings"
 	"testing"
 
@@ -55,7 +56,8 @@ func TestSinceOmission(t *testing.T) {
 // TestSinceRoundTrip: content with omitted since fields decodes and
 // re-encodes identically; re-materializing the defaults (stage G on
 // FromResources) restores the fields and still gives the same bytes;
-// writing a since field at its default is not canonical form.
+// writing a since field at its default is not canonical form (31(b)
+// and 33).
 func TestSinceRoundTrip(t *testing.T) {
 	idx := syntheticIndex(t)
 	ctx := context.Background()
@@ -156,4 +158,111 @@ func materializeSince(t *testing.T, idx *schemaidx.Index, rs []tree.Resource) {
 			t.Fatal(err)
 		}
 	}
+}
+
+// recursiveSince is a level-1 schema whose Gateway spec nests since
+// positions in one another: N's member c is an N at schema level 1 with
+// the default {}.
+const recursiveSince = `{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "required": ["apiVersion", "kind", "metadata", "spec"],
+  "properties": {"apiVersion": {"const": "test/v1"}, "kind": {"enum": ["Gateway"]}},
+  "allOf": [
+    {"if": {"properties": {"kind": {"const": "Gateway"}}, "required": ["kind"]}, "then": {"$ref": "#/$defs/Gateway"}}
+  ],
+  "$defs": {
+    "Meta": {"type": "object", "additionalProperties": false, "required": ["name"], "properties": {"name": {"type": "string"}}},
+    "Gateway": {"type": "object", "additionalProperties": false, "properties": {
+      "apiVersion": {"const": "test/v1"}, "kind": {"const": "Gateway"},
+      "metadata": {"$ref": "#/$defs/Meta"}, "spec": {"$ref": "#/$defs/N"}}},
+    "N": {"type": "object", "additionalProperties": false, "properties": {
+      "c": {"$ref": "#/$defs/N", "x-ruralz-since": 1, "default": {}},
+      "v": {"type": "integer"}}}
+  }
+}`
+
+// TestSinceLinear: since omission costs one encoding of each value, so
+// encoding and decoding a spec whose since positions nest depth deep is
+// linear in depth; encoding each since position's whole value once to
+// compare it with the default and again to write it would cost about
+// 2^depth. The bytes Encode and Decode allocate, the least of three runs,
+// grow by less than a factor of 3 from 6 to 12 and from 12 to 18 levels,
+// where doubling per level would make it some 64 (counted bytes, not
+// time); the values written grow by the same number from one depth to the
+// next, and a value at its default is still left out at every level.
+func TestSinceLinear(t *testing.T) {
+	idx, err := schemaidx.Load("test/v1", []byte(recursiveSince))
+	if err != nil {
+		t.Fatal(err)
+	}
+	enc := NewEncoder(idx)
+	dec := NewDecoder(idx, DecoderOptions{Workers: 1})
+	spec := func(depth int) string {
+		return strings.Repeat(`{"c":`, depth) + `{"v":1}` + strings.Repeat(`}`, depth)
+	}
+	gateway := func(depth int) string {
+		return `{"apiVersion":"test/v1","kind":"Gateway","metadata":{"name":"g"},"spec":` + spec(depth) + `}`
+	}
+	least := func(fn func()) float64 {
+		best := ^uint64(0)
+		for range 3 {
+			var before, after runtime.MemStats
+			runtime.ReadMemStats(&before)
+			fn()
+			runtime.ReadMemStats(&after)
+			best = min(best, after.TotalAlloc-before.TotalAlloc)
+		}
+		return float64(best)
+	}
+	var encBytes, decBytes []float64
+	var written []int
+	for _, depth := range []int{6, 12, 18} {
+		b := bundleOf(t, gateway(depth))
+		var content []byte
+		encBytes = append(encBytes, least(func() {
+			rev, err := enc.Encode(context.Background(), b, Options{Level: 1})
+			if err != nil {
+				t.Fatal(err)
+			}
+			content = rev.Content
+		}))
+		if want := doc(`{"kind":"Gateway","metadata":{"name":"g"},"spec":` + spec(depth) + `}`); string(content) != want {
+			t.Fatalf("depth %d: %s, want %s", depth, content, want)
+		}
+		decBytes = append(decBytes, least(func() {
+			if _, err := dec.Decode(context.Background(), content, Source{}); err != nil {
+				t.Fatal(err)
+			}
+		}))
+		var o observed
+		enc.observe = o.add
+		now, after := due()
+		if _, err := enc.Encode(context.Background(), b, Options{Level: 1, Now: now, YieldAfter: after}); err != nil {
+			t.Fatal(err)
+		}
+		enc.observe = nil
+		sites, _, _ := total(o.take())
+		written = append(written, sites[siteValue])
+	}
+	for i := 1; i < 3; i++ {
+		if r := encBytes[i] / encBytes[i-1]; r >= 3 {
+			t.Errorf("Encode: %.0f bytes at %d levels, %.0f at %d: %.1f times, want linear", encBytes[i], 6*(i+1), encBytes[i-1], 6*i, r)
+		}
+		if r := decBytes[i] / decBytes[i-1]; r >= 3 {
+			t.Errorf("Decode: %.0f bytes at %d levels, %.0f at %d: %.1f times, want linear", decBytes[i], 6*(i+1), decBytes[i-1], 6*i, r)
+		}
+	}
+	if written[2]-written[1] != written[1]-written[0] || written[1]-written[0] != 6 {
+		t.Errorf("values written at 6, 12 and 18 levels: %v, want 6 more per 6 levels", written)
+	}
+	// A spec at its default, nested in since positions, is left out level
+	// by level: {"c":{"c":{}}} has the default {} innermost, so the inner c
+	// is omitted, which leaves {"c":{}} at the default again, and so on.
+	at := bundleOf(t, `{"apiVersion":"test/v1","kind":"Gateway","metadata":{"name":"g"},"spec":{"c":{"c":{"c":{}}},"v":2}}`)
+	rev, err := enc.Encode(context.Background(), at, Options{Level: 1})
+	if err != nil {
+		t.Fatal(err)
+	}
+	sameBytes(t, "nested defaults", rev.Content, []byte(doc(`{"kind":"Gateway","metadata":{"name":"g"},"spec":{"v":2}}`)))
 }

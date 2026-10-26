@@ -12,6 +12,7 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/ravindu-rev/ruralz/internal/config/hub"
 	"github.com/ravindu-rev/ruralz/internal/config/tree"
@@ -42,7 +43,7 @@ func addGolden(f *testing.F, dumps bool) {
 			if err != nil {
 				f.Fatal(err)
 			}
-			f.Add(AppendDump(nil, rev, rev.Digest))
+			f.Add(dumpOf(f, nil, rev, rev.Digest))
 			continue
 		}
 		f.Add(data)
@@ -51,8 +52,9 @@ func addGolden(f *testing.F, dumps bool) {
 }
 
 // FuzzCanonical is the canonicalization oracle of TQ "Fuzzing": parse,
-// canonicalize and parse again gives identical bytes, and the canonical
-// text holds the same JSON value, with numbers compared as doubles.
+// canonicalize and parse again gives identical bytes, and the
+// canonical text holds the same JSON value, with numbers compared as
+// doubles.
 func FuzzCanonical(f *testing.F) {
 	addGolden(f, false)
 	for _, s := range []string{
@@ -136,20 +138,87 @@ func sameValue(a, b *tree.Node) bool {
 	}
 }
 
-// FuzzDecodeCanonical: arbitrary bytes never panic Decode; a failure
-// carries RZ-CFG-024 or RZ-CFG-027 (a scan failure keeps its jsonval error
-// under RZ-CFG-027), and a success re-encodes to the input.
+// FuzzDecodeCanonical: arbitrary bytes never panic Decode, with its
+// workers taking part once the content holds more than one chunk; a
+// failure carries RZ-CFG-024, RZ-CFG-027 or, past a limit, RZ-CFG-001 (a
+// scan failure keeps its jsonval error), and a success re-encodes to the
+// input. Under a cap of two findings the outcome is the same with one
+// worker and with three, at most three diagnostics, the last an
+// RZ-CFG-001 exactly when the Findings are truncated, and, when not
+// truncated, the outcome of the default cap. Under small limits (three
+// resources, 40 values, depth 8) the outcome is the same with one worker
+// and with three, a limit is one RZ-CFG-001 finding, and content within
+// the limits has the outcome of the default limits. Yields never change
+// an outcome: a decode whose goroutines yield at every read of their
+// timer gives the same findings or trees, and a re-encoding that yields
+// the same bytes.
 func FuzzDecodeCanonical(f *testing.F) {
 	addGolden(f, false)
 	f.Add([]byte(doc(`{"kind":"Route","metadata":{"name":"r","owner":"x"},"spec":{}}`)))
 	f.Add([]byte(`{"format":"ruralz.canonical.v2","resources":[]}`))
 	f.Add([]byte(doc(`{"kind":"Plugin","metadata":{"name":"g"},"spec":{"configSchema":{"n":123456789012345680000}}}`)))
-	dec := NewDecoder(hubIndex(f), DecoderOptions{Workers: 2})
+	// More resources than two chunks, so the workers take part.
+	f.Add(routes(2*streamChunk + 1))
+	// Findings past the small cap, of each code, before invalid JSON and
+	// another format.
+	f.Add([]byte(capCases()[5].gen(2*streamChunk + 3)))
+	f.Add([]byte(capCases()[0].gen(5)))
+	f.Add([]byte(`{"a":1,"b":2,"c":3,"format":"ruralz.canonical.v2"}`))
+	f.Add([]byte(header + `{"kind":"Route","metadata":{"name":"r"},"spec":{"x":1,"y":2,"z":3}},]}`))
+	dec := NewDecoder(hubIndex(f), DecoderOptions{Workers: 3})
+	clock := &stepClock{step: time.Microsecond}
+	yielding := NewDecoder(hubIndex(f), DecoderOptions{Workers: 3, Now: clock.now, YieldAfter: time.Microsecond})
+	small := []*Decoder{
+		NewDecoder(hubIndex(f), DecoderOptions{Workers: 1, MaxDiagnostics: 2}),
+		NewDecoder(hubIndex(f), DecoderOptions{Workers: 3, MaxDiagnostics: 2}),
+	}
+	limited := []*Decoder{
+		NewDecoder(hubIndex(f), DecoderOptions{Workers: 1, MaxResources: 3, MaxValues: 40, MaxDepth: 8}),
+		NewDecoder(hubIndex(f), DecoderOptions{Workers: 3, MaxResources: 3, MaxValues: 40, MaxDepth: 8}),
+	}
+	f.Add([]byte(doc(`{"kind":"Route","metadata":{"name":"a"},"spec":{}}`, `{"kind":"Route","metadata":{"name":"b"},"spec":{}}`, `{"kind":"Route","metadata":{"name":"c"},"spec":{}}`, `{"kind":"Route","metadata":{"name":"d"},"spec":{}}`)))
 	f.Fuzz(func(t *testing.T, data []byte) {
 		rs, err := dec.Decode(context.Background(), data, Source{Name: "f.json"})
+		yrs, yerr := yielding.Decode(context.Background(), data, Source{Name: "f.json"})
+		if got, want := codeOf(yerr)+"\n"+describe(DiagnosticsOf(yerr)), codeOf(err)+"\n"+describe(DiagnosticsOf(err)); got != want || (err == nil) != (yerr == nil) {
+			t.Fatalf("yielding: outcome %q, want %q", got, want)
+		}
+		if d := diffResources(rs, yrs); err == nil && d != "" {
+			t.Fatalf("yielding: %s", d)
+		}
+		var limits [2]string
+		for i, ld := range limited {
+			_, lerr := ld.Decode(context.Background(), data, Source{Name: "f.json"})
+			ds := DiagnosticsOf(lerr)
+			limits[i] = codeOf(lerr) + "\n" + describe(ds)
+			switch {
+			case codeOf(lerr) == CodeLimit && (len(ds) != 1 || ds[0].Code != CodeLimit || findingsOf(lerr).Truncated):
+				t.Fatalf("limits: a limit with diagnostics %v", ds)
+			case codeOf(lerr) != CodeLimit && codeOf(err) != CodeLimit && limits[i] != codeOf(err)+"\n"+describe(DiagnosticsOf(err)):
+				t.Fatalf("limits: outcome %q within the limits differs from the default limits' %v", limits[i], err)
+			}
+		}
+		if limits[0] != limits[1] {
+			t.Fatalf("limits: one worker gives %q, three give %q", limits[0], limits[1])
+		}
+		var outcomes [2]string
+		for i, sd := range small {
+			_, serr := sd.Decode(context.Background(), data, Source{Name: "f.json"})
+			ds, fs := DiagnosticsOf(serr), findingsOf(serr)
+			if len(ds) > 3 || fs.Truncated != (len(ds) == 3) || (fs.Truncated && ds[2].Code != CodeTooMany) {
+				t.Fatalf("cap 2: %d diagnostics, truncated %v: %v", len(ds), fs.Truncated, ds)
+			}
+			outcomes[i] = codeOf(serr) + "\n" + describe(ds)
+			if !fs.Truncated && outcomes[i] != codeOf(err)+"\n"+describe(DiagnosticsOf(err)) {
+				t.Fatalf("cap 2 untruncated outcome %q differs from the default cap's %v", outcomes[i], err)
+			}
+		}
+		if outcomes[0] != outcomes[1] {
+			t.Fatalf("cap 2: one worker gives %q, three give %q", outcomes[0], outcomes[1])
+		}
 		if err != nil {
-			if c := codeOf(err); c != CodeNewer && c != CodeMismatch {
-				t.Fatalf("Decode error %v has no RZ-CFG-024 or RZ-CFG-027 code", err)
+			if c := codeOf(err); c != CodeNewer && c != CodeMismatch && c != CodeLimit {
+				t.Fatalf("Decode error %v has no RZ-CFG-024, RZ-CFG-027 or RZ-CFG-001 code", err)
 			}
 			if len(DiagnosticsOf(err)) == 0 {
 				t.Fatalf("Decode error %v without diagnostics", err)
@@ -160,12 +229,16 @@ func FuzzDecodeCanonical(f *testing.F) {
 		if err != nil || !bytes.Equal(rev.Content, data) {
 			t.Fatalf("decoded content does not re-encode to itself: %v\n%q\n%q", err, data, rev.Content)
 		}
+		yrev, err := NewEncoder(hubIndex(t)).EncodeResources(context.Background(), yrs, Options{Workers: 3, Now: clock.now, YieldAfter: time.Microsecond})
+		if err != nil || !bytes.Equal(yrev.Content, data) || yrev.Digest != rev.Digest {
+			t.Fatalf("yielding: decoded content does not re-encode to itself: %v\n%q\n%q", err, data, yrev.Content)
+		}
 	})
 }
 
 // FuzzReadDump: arbitrary bytes never panic ReadDump; a failure is
-// ErrNotDump, ErrDumpTooLarge or carries RZ-CFG-024 or RZ-CFG-027, and a
-// success keeps the body unchanged.
+// ErrNotDump, ErrDumpTooLarge or carries RZ-CFG-024, RZ-CFG-027 or
+// RZ-CFG-001, and a success keeps the body unchanged.
 func FuzzReadDump(f *testing.F) {
 	addGolden(f, true)
 	f.Add([]byte(`{"content":{},"digest":"sha256:00","revision":"rev-0"}`))
@@ -174,7 +247,7 @@ func FuzzReadDump(f *testing.F) {
 		d, _, err := dec.ReadDump(context.Background(), bytes.NewReader(data), 1<<20, Source{Name: "dump.json"})
 		if err != nil {
 			c := codeOf(err)
-			if c != CodeNewer && c != CodeMismatch && !errors.Is(err, ErrNotDump) && !errors.Is(err, ErrDumpTooLarge) {
+			if c != CodeNewer && c != CodeMismatch && c != CodeLimit && !errors.Is(err, ErrNotDump) && !errors.Is(err, ErrDumpTooLarge) {
 				t.Fatalf("ReadDump error %v is not a dump or canonical error", err)
 			}
 			return
