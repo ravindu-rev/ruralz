@@ -5,6 +5,8 @@ package overlay
 
 import (
 	"slices"
+	"strconv"
+	"strings"
 	"testing"
 
 	"github.com/ravindu-rev/ruralz/internal/config/diag"
@@ -56,4 +58,37 @@ func TestSelection(t *testing.T) {
 	if got := (Selection{Name: "staging"}).Absent([]string{"prod"}); got != nil {
 		t.Errorf("defaulted overlay: Absent = %q, want none", texts(got))
 	}
+}
+
+// TestAbsentHintOrder: the RZ-CFG-009 hint never depends on the order of
+// the existing overlay names. diag.Nearest compares at most 64
+// length-compatible names, so with "prd" listed after 70 others it would
+// go unseen.
+func TestAbsentHintOrder(t *testing.T) {
+	var names []string
+	for i := range 70 {
+		names = append(names, "q"+strconv.Itoa(100+i))
+	}
+	s := Selection{Name: "prod", Explicit: true}
+	want := texts(s.Absent(append([]string{"prd"}, names...)))
+	if len(want) != 1 || !strings.Contains(want[0], `did you mean "prd"?`) {
+		t.Fatalf("Absent = %q, want the prd hint", want)
+	}
+	for name, order := range map[string][]string{
+		"listed last":       append(slices.Clone(names), "prd"),
+		"listed in reverse": reversed(append(slices.Clone(names), "prd")),
+		"with duplicates":   append(append(slices.Clone(names), names...), "prd", "prd"),
+	} {
+		if got := texts(s.Absent(order)); !slices.Equal(got, want) {
+			t.Errorf("%s: Absent = %q, want %q", name, got, want)
+		}
+	}
+	if !slices.Equal(names[:2], []string{"q100", "q101"}) {
+		t.Errorf("Absent changed the caller's slice: %q", names[:2])
+	}
+}
+
+func reversed(s []string) []string {
+	slices.Reverse(s)
+	return s
 }

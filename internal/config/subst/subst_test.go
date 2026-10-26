@@ -17,7 +17,7 @@ import (
 func apply(t *testing.T, src string, vars Map, hints ...string) (*tree.Resource, diag.List) {
 	t.Helper()
 	files := &tree.FileTable{}
-	rs := docs(t, files, tree.RoleBase, "r.yaml", src)
+	rs := docs(t, files, "r.yaml", src)
 	if len(rs) != 1 {
 		t.Fatalf("got %d documents", len(rs))
 	}
@@ -119,22 +119,24 @@ func TestSubstitute(t *testing.T) {
 		vars             []string
 		codes            []string
 	}{
-		{name: "req26 one expression", text: "${A}", want: "x", vars: []string{"A"}},
-		{name: "req26 mixed text, escape and default", text: "pre-${A}-${B:-d}-$${A}", want: "pre-x-d-${A}", vars: []string{"A", "B"}},
-		{name: "req26 a $ not followed by { is literal", text: "$5 and $A and $", want: "$5 and $A and $"},
-		{name: "req27 :- treats empty as unset", text: "${EMPTY:-d}", want: "d", vars: []string{"EMPTY"}},
-		{name: "req27 plain ${NAME} set to empty yields empty", text: "${EMPTY}", want: "", vars: []string{"EMPTY"}},
-		{name: "req27 empty default", text: "${U:-}", want: "", vars: []string{"U"}},
-		{name: "req27 not recursive", text: "${NESTED}", want: "${A}", vars: []string{"NESTED"}},
-		{name: "req27 never injects structure", text: "${STRUCT}", want: "a: b\n- c {d} # e", vars: []string{"STRUCT"}},
-		{name: "req27 repeated variable recorded once", text: "${A}${A}", want: "xx", vars: []string{"A"}},
-		{name: "req27 undefined without default", text: "${U}", want: "${U}", codes: []string{CodeUndefined}},
-		{name: "req27 one RZ-CFG-010 per occurrence", text: "${U}-${U}-${A}", want: "${U}-${U}-${A}", codes: []string{CodeUndefined, CodeUndefined}},
-		{name: "req26 malformed nested default", text: "${A:-${B}}", want: "${A:-${B}}", codes: []string{CodeMalformed}},
-		{name: "req26 malformed name", text: "${1X}", want: "${1X}", codes: []string{CodeMalformed}},
-		{name: "req26 malformed operator", text: "${X-d}", want: "${X-d}", codes: []string{CodeMalformed}},
-		{name: "req26 malformed assignment", text: "${X:=d}", want: "${X:=d}", codes: []string{CodeMalformed}},
-		{name: "req26 unterminated", text: "a ${A", want: "a ${A", codes: []string{CodeMalformed}},
+		{name: "one expression", text: "${A}", want: "x", vars: []string{"A"}},
+		{name: "mixed text, escape and default", text: "pre-${A}-${B:-d}-$${A}", want: "pre-x-d-${A}", vars: []string{"A", "B"}},
+		{name: "a $ not followed by { is literal", text: "$5 and $A and $", want: "$5 and $A and $"},
+		{name: ":- treats empty as unset", text: "${EMPTY:-d}", want: "d", vars: []string{"EMPTY"}},
+		{name: "plain ${NAME} set to empty yields empty", text: "${EMPTY}", want: "", vars: []string{"EMPTY"}},
+		{name: "empty default", text: "${U:-}", want: "", vars: []string{"U"}},
+		{name: "not recursive", text: "${NESTED}", want: "${A}", vars: []string{"NESTED"}},
+		{name: "never injects structure", text: "${STRUCT}", want: "a: b\n- c {d} # e", vars: []string{"STRUCT"}},
+		{name: "repeated variable recorded once", text: "${A}${A}", want: "xx", vars: []string{"A"}},
+		{name: "undefined without default", text: "${U}", want: "${U}", codes: []string{CodeUndefined}},
+		{name: "one RZ-CFG-010 per occurrence", text: "${U}-${U}-${A}", want: "${U}-${U}-${A}", codes: []string{CodeUndefined, CodeUndefined}},
+		// The lenient read of the malformed text uses the undefined B
+		// (TestMalformedUndefined).
+		{name: "malformed nested default", text: "${A:-${B}}", want: "${A:-${B}}", codes: []string{CodeMalformed, CodeUndefined}},
+		{name: "malformed name", text: "${1X}", want: "${1X}", codes: []string{CodeMalformed}},
+		{name: "malformed operator", text: "${X-d}", want: "${X-d}", codes: []string{CodeMalformed}},
+		{name: "malformed assignment", text: "${X:=d}", want: "${X:=d}", codes: []string{CodeMalformed}},
+		{name: "unterminated", text: "a ${A", want: "a ${A", codes: []string{CodeMalformed}},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -260,8 +262,8 @@ func TestRetype(t *testing.T) {
 		{"number leading zeros", "telemetry", "traceSampling", "${V}", "007.50", tree.KindFloat, "7.50"},
 		{"number exponent sign", "telemetry", "traceSampling", "${V}", ".5E+2", tree.KindFloat, "0.5E+2"},
 		{"number integer", "telemetry", "traceSampling", "${V}", "1", tree.KindInt, "1"},
-		{"req12 number field with an integer outside int64 stays a string", "telemetry", "traceSampling", "${V}", "99999999999999999999", tree.KindString, "99999999999999999999"},
-		{"req12 number field with a hex integer outside int64 stays a string", "telemetry", "traceSampling", "${V}", "0x10000000000000000", tree.KindString, "0x10000000000000000"},
+		{"number field with an integer outside int64 stays a string", "telemetry", "traceSampling", "${V}", "99999999999999999999", tree.KindString, "99999999999999999999"},
+		{"number field with a hex integer outside int64 stays a string", "telemetry", "traceSampling", "${V}", "0x10000000000000000", tree.KindString, "0x10000000000000000"},
 		{"number field with a large float", "telemetry", "traceSampling", "${V}", "99999999999999999999.0", tree.KindFloat, "99999999999999999999.0"},
 		{"number inf does not fit", "telemetry", "traceSampling", "${V}", ".inf", tree.KindString, ".inf"},
 		{"number nan does not fit", "telemetry", "traceSampling", "${V}", ".nan", tree.KindString, ".nan"},
@@ -303,8 +305,10 @@ func TestRetype(t *testing.T) {
 
 // TestForbiddenPositions checks that keys, apiVersion, kind, metadata.name,
 // x-ruralz-ref, the x-ruralz-secret subtree and x-ruralz-cel positions
-// report RZ-CFG-011 only (never -010 or -013), and that $${ is still
-// unescaped there.
+// report RZ-CFG-011 only (never -010 or -013). Mapping keys and the
+// envelope fields are never substituted or unescaped, so any ${ there, $${
+// included, is RZ-CFG-011; in the other forbidden positions $${ is still
+// unescaped.
 func TestForbiddenPositions(t *testing.T) {
 	cases := []struct {
 		name, src, path string
@@ -335,6 +339,11 @@ func TestForbiddenPositions(t *testing.T) {
 			name: "metadata.name",
 			src:  `{"apiVersion":"ruralz/v1alpha1","kind":"Route","metadata":{"name":"${N}"},"spec":{}}`,
 			want: []string{CodeForbidden},
+		},
+		{
+			name: "metadata.name with an escape",
+			src:  `{"apiVersion":"ruralz/v1alpha1","kind":"Route","metadata":{"name":"$${N}"},"spec":{}}`,
+			want: []string{CodeForbidden}, path: "metadata.name", text: "$${N}",
 		},
 		{
 			name: "x-ruralz-ref",
@@ -388,7 +397,7 @@ func TestForbiddenPositions(t *testing.T) {
 	}
 	vars := Map{"PT": "authz.cel", "PT2": "plugin", "X": "x", "K": "k", "V": "v", "N": "n", "KEY_SECRET": "s"}
 	for _, tc := range cases {
-		t.Run("req28 "+tc.name, func(t *testing.T) {
+		t.Run(tc.name, func(t *testing.T) {
 			r, ds := apply(t, tc.src, vars)
 			if g := codes(ds); !slices.Equal(g, tc.want) {
 				t.Fatalf("codes = %v, want %v: %q", g, tc.want, texts(ds))
@@ -405,7 +414,12 @@ func TestForbiddenPositions(t *testing.T) {
 // TestCredentialWarnings covers RZ-CFG-013, which this stage owns: each use
 // of a secret-like variable name, and each credential-shaped literal
 // outside an x-ruralz-secret subtree, CEL strings included, warns without
-// the value; a headers set[] value for a credential header warns too.
+// the value; the credential rules read the authored text (literal text and
+// every default, taken or not), never a variable's value; a headers set[]
+// value for a credential header warns too when its authored text is more
+// than framing or no expression in it took its text from the variable
+// source, with at most one warning for the text and the secret-like name
+// warning at each use besides.
 func TestCredentialWarnings(t *testing.T) {
 	jwt := "eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0.dozjgNryP4J3jVmNHl0w5N_XgL0n3I9PlFUP0THsR8U"
 	ghp := "ghp_" + strings.Repeat("A1", 18)
@@ -415,10 +429,10 @@ func TestCredentialWarnings(t *testing.T) {
 		want       int // RZ-CFG-013 warnings
 		detector   string
 	}{
-		{name: "req30 secret-like name", text: "${DB_PASSWORD}", vars: Map{"DB_PASSWORD": "x"}, want: 1},
-		{name: "req30 case-insensitive name", text: "${myToken}-${ApiKey}-${client_secret}", vars: Map{"myToken": "", "ApiKey": "", "client_secret": ""}, want: 3},
-		{name: "req30 warns even when undefined", text: "${TOKEN:-x}", want: 1},
-		{name: "req30 API_KEY does not match apikey", text: "${API_KEY}", vars: Map{"API_KEY": "x"}, want: 0},
+		{name: "secret-like name", text: "${DB_PASSWORD}", vars: Map{"DB_PASSWORD": "x"}, want: 1},
+		{name: "case-insensitive name", text: "${myToken}-${ApiKey}-${client_secret}", vars: Map{"myToken": "", "ApiKey": "", "client_secret": ""}, want: 3},
+		{name: "warns even when undefined", text: "${TOKEN:-x}", want: 1},
+		{name: "API_KEY does not match apikey", text: "${API_KEY}", vars: Map{"API_KEY": "x"}, want: 0},
 		{name: "PEM private key", text: "-----BEGIN RSA PRIVATE " + "KEY-----\nMIIB", want: 1, detector: "PEM private key"},
 		{name: "PEM certificate is fine", text: "-----BEGIN CERTIFICATE-----", want: 0},
 		{name: "URL with a password", text: "https://user:" + "pass@otel.example:4318", want: 1, detector: "URL with a password"},
@@ -432,7 +446,7 @@ func TestCredentialWarnings(t *testing.T) {
 		{name: "API secret key", text: "sk-ant-" + strings.Repeat("x", 20), want: 1, detector: "API secret key"},
 		{name: "Bearer credentials", text: "Bearer abcdefghijklmnopqrstu==", want: 1, detector: "Authorization header credentials"},
 		{name: "short Bearer is fine", text: "Bearer abc", want: 0},
-		{name: "substituted value is checked", text: "${V}", vars: Map{"V": "AKIAABCDEFGHIJKLMNOP"}, want: 1},
+		{name: "a variable's value is not authored text", text: "${V}", vars: Map{"V": "AKIAABCDEFGHIJKLMNOP"}, want: 0},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -518,6 +532,108 @@ func TestCredentialWarnings(t *testing.T) {
 		{"an escaped ${ is a literal", headers("request", "set", `{"name":"cookie","value":"$${C}"}`), []string{
 			`r.yaml:1:151 warning RZ-CFG-013 Policy/h spec.config.request.set[name=cookie].value: literal value for the credential header "cookie" (keep credentials out of the Bundle: reference a secret with secretRef)`,
 		}, nil},
+		// Defaults: a default, taken or not, is text written in the
+		// Bundle. The value is a literal when its authored runs hold text
+		// other than framing (a leading Bearer or Basic scheme, or text
+		// without letters or digits), or when no expression takes its text
+		// from the variable source.
+		{"a default taken for an unset variable is a literal", headers("request", "set", `{"name":"authorization","value":"${X:-hunter2}"}`), []string{
+			`r.yaml:1:158 warning RZ-CFG-013 Policy/h spec.config.request.set[name=authorization].value: literal value for the credential header "authorization" (keep credentials out of the Bundle: reference a secret with secretRef)`,
+		}, nil},
+		{"a default taken for an empty variable is a literal", headers("request", "set", `{"name":"authorization","value":"${X:-hunter2}"}`), []string{
+			`r.yaml:1:158 warning RZ-CFG-013 Policy/h spec.config.request.set[name=authorization].value: literal value for the credential header "authorization" (keep credentials out of the Bundle: reference a secret with secretRef)`,
+		}, Map{"X": ""}},
+		{"a default not taken is still authored text", headers("request", "set", `{"name":"authorization","value":"${X:-hunter2}"}`), []string{
+			`r.yaml:1:158 warning RZ-CFG-013 Policy/h spec.config.request.set[name=authorization].value: literal value for the credential header "authorization" (keep credentials out of the Bundle: reference a secret with secretRef)`,
+		}, Map{"X": "v"}},
+		{"one default taken beside a variable is a literal", headers("response", "set", `{"name":"cookie","value":"${A}; ${B:-b=1}"}`), []string{
+			`r.yaml:1:152 warning RZ-CFG-013 Policy/h spec.config.response.set[name=cookie].value: literal value for the credential header "cookie" (keep credentials out of the Bundle: reference a secret with secretRef)`,
+		}, Map{"A": "a=1"}},
+		{"a default beside a variable is authored text whether taken or not", headers("response", "set", `{"name":"cookie","value":"${A}; ${B:-b=1}"}`), []string{
+			`r.yaml:1:152 warning RZ-CFG-013 Policy/h spec.config.response.set[name=cookie].value: literal value for the credential header "cookie" (keep credentials out of the Bundle: reference a secret with secretRef)`,
+		}, Map{"A": "a=1", "B": "b=2"}},
+		{"two variables are not a literal", headers("response", "set", `{"name":"cookie","value":"${A}; ${B}"}`), nil, Map{"A": "a=1", "B": "b=2"}},
+		{"a framing default taken beside a sourced variable is not a literal", headers("request", "set", `{"name":"cookie","value":"${A}${B:-; }"}`), nil, Map{"A": "sid=1"}},
+		{"framing around an empty default is a literal", headers("request", "set", `{"name":"authorization","value":"Bearer ${X:-}"}`), []string{
+			`r.yaml:1:158 warning RZ-CFG-013 Policy/h spec.config.request.set[name=authorization].value: literal value for the credential header "authorization" (keep credentials out of the Bundle: reference a secret with secretRef)`,
+		}, nil},
+		{"a non-string value is left to schema validation", headers("request", "set", `{"name":"authorization","value":1}`), nil, nil},
+		{"an empty default alone leaves an empty value", headers("request", "set", `{"name":"authorization","value":"${X:-}"}`), nil, nil},
+		{"a variable set to empty leaves an empty value", headers("request", "set", `{"name":"authorization","value":"${X}"}`), nil, Map{"X": ""}},
+		// The framing rule: only a leading Bearer or Basic scheme and text
+		// without letters or digits frame a variable.
+		{"an escaped ${ beside a variable is literal text", headers("request", "set", `{"name":"x-api-key","value":"$${K}${K}"}`), []string{
+			`r.yaml:1:154 warning RZ-CFG-013 Policy/h spec.config.request.set[name=x-api-key].value: literal value for the credential header "x-api-key" (keep credentials out of the Bundle: reference a secret with secretRef)`,
+		}, Map{"K": "v"}},
+		{"literal text before a variable set to empty", headers("request", "set", `{"name":"x-api-key","value":"hardcodedkey${E}"}`), []string{
+			`r.yaml:1:154 warning RZ-CFG-013 Policy/h spec.config.request.set[name=x-api-key].value: literal value for the credential header "x-api-key" (keep credentials out of the Bundle: reference a secret with secretRef)`,
+		}, Map{"E": ""}},
+		// A value with several authored runs is a literal when any run is
+		// not framing, the first included, not only the last.
+		{"literal text before a variable followed by framing", headers("request", "set", `{"name":"x-api-key","value":"key${A};"}`), []string{
+			`r.yaml:1:154 warning RZ-CFG-013 Policy/h spec.config.request.set[name=x-api-key].value: literal value for the credential header "x-api-key" (keep credentials out of the Bundle: reference a secret with secretRef)`,
+		}, Map{"A": "v"}},
+		{"framing before a variable followed by literal text", headers("request", "set", `{"name":"x-api-key","value":";${A}key"}`), []string{
+			`r.yaml:1:154 warning RZ-CFG-013 Policy/h spec.config.request.set[name=x-api-key].value: literal value for the credential header "x-api-key" (keep credentials out of the Bundle: reference a secret with secretRef)`,
+		}, Map{"A": "v"}},
+		{"literal text after a variable", headers("request", "set", `{"name":"authorization","value":"${T}x"}`), []string{
+			`r.yaml:1:158 warning RZ-CFG-013 Policy/h spec.config.request.set[name=authorization].value: literal value for the credential header "authorization" (keep credentials out of the Bundle: reference a secret with secretRef)`,
+		}, Map{"T": "t"}},
+		{"a scheme in any case is framing", headers("request", "set", `{"name":"authorization","value":"bEaReR ${T}"}`), nil, Map{"T": "t"}},
+		{"a Basic scheme is framing for proxy-authorization", headers("request", "set", `{"name":"proxy-authorization","value":"Basic ${T}"}`), nil, Map{"T": "t"}},
+		{"another scheme is literal text", headers("request", "set", `{"name":"authorization","value":"Token ${T}"}`), []string{
+			`r.yaml:1:158 warning RZ-CFG-013 Policy/h spec.config.request.set[name=authorization].value: literal value for the credential header "authorization" (keep credentials out of the Bundle: reference a secret with secretRef)`,
+		}, Map{"T": "t"}},
+		{"a scheme after a variable is literal text", headers("request", "set", `{"name":"authorization","value":"${T} Bearer ${T}"}`), []string{
+			`r.yaml:1:158 warning RZ-CFG-013 Policy/h spec.config.request.set[name=authorization].value: literal value for the credential header "authorization" (keep credentials out of the Bundle: reference a secret with secretRef)`,
+		}, Map{"T": "t"}},
+		{"a cookie name is literal text", headers("request", "set", `{"name":"cookie","value":"session=${S}"}`), []string{
+			`r.yaml:1:151 warning RZ-CFG-013 Policy/h spec.config.request.set[name=cookie].value: literal value for the credential header "cookie" (keep credentials out of the Bundle: reference a secret with secretRef)`,
+		}, Map{"S": "s"}},
+		{"punctuation around variables is framing", headers("request", "set", `{"name":"cookie","value":"\"${A}\"; ${B}:${C}"}`), nil, Map{"A": "a", "B": "b", "C": "c"}},
+		{"a letter outside ASCII is literal text", headers("request", "set", `{"name":"x-api-key","value":"ключ${K}"}`), []string{
+			`r.yaml:1:154 warning RZ-CFG-013 Policy/h spec.config.request.set[name=x-api-key].value: literal value for the credential header "x-api-key" (keep credentials out of the Bundle: reference a secret with secretRef)`,
+		}, Map{"K": "v"}},
+		{"a scheme alone is a literal", headers("request", "set", `{"name":"authorization","value":"Bearer "}`), []string{
+			`r.yaml:1:158 warning RZ-CFG-013 Policy/h spec.config.request.set[name=authorization].value: literal value for the credential header "authorization" (keep credentials out of the Bundle: reference a secret with secretRef)`,
+		}, nil},
+		// An empty default supplies no text.
+		{"an empty default beside a variable supplies no text", headers("request", "set", `{"name":"authorization","value":"${A}${B:-}"}`), nil, Map{"A": "tok"}},
+		{"an empty default before a scheme-framed variable", headers("request", "set", `{"name":"authorization","value":"Bearer ${B:-}${A}"}`), nil, Map{"A": "tok"}},
+		// The header name is read after substitution, the header the
+		// gateway sends, and quoted as authored, never as the variable's
+		// value.
+		{"a header name from a variable with a default value", headers("request", "set", `{"name":"${H}","value":"${X:-pw}"}`), []string{
+			`r.yaml:1:149 warning RZ-CFG-013 Policy/h spec.config.request.set[name="${H}"].value: literal value for the credential header "${H}" (keep credentials out of the Bundle: reference a secret with secretRef)`,
+		}, Map{"H": "Proxy-Authorization"}},
+		{"a header name from a variable naming a credential header", headers("request", "set", `{"name":"${H}","value":"abc"}`), []string{
+			`r.yaml:1:149 warning RZ-CFG-013 Policy/h spec.config.request.set[name="${H}"].value: literal value for the credential header "${H}" (keep credentials out of the Bundle: reference a secret with secretRef)`,
+		}, Map{"H": "authorization"}},
+		{"a header name from a variable naming another header", headers("request", "set", `{"name":"${H}","value":"abc"}`), nil, Map{"H": "x-other"}},
+		{"a header name partly from a variable", headers("request", "set", `{"name":"x-${H}","value":"abc"}`), []string{
+			`r.yaml:1:151 warning RZ-CFG-013 Policy/h spec.config.request.set[name="x-${H}"].value: literal value for the credential header "x-${H}" (keep credentials out of the Bundle: reference a secret with secretRef)`,
+		}, Map{"H": "API-Key"}},
+		{"a header name with an undefined variable", headers("request", "set", `{"name":"${U}","value":"abc"}`), []string{
+			`r.yaml:1:134 error RZ-CFG-010 Policy/h spec.config.request.set[name="${U}"].name: variable "U" is not defined and has no default`,
+		}, nil},
+		// Two RZ-CFG-013 rules on one scalar: the secret-like name warns at
+		// each use, and the text warns once more, by a detector or as a
+		// credential header literal (walker.warn).
+		{"a secret-like variable with its default taken warns per rule", headers("request", "set", `{"name":"authorization","value":"${AUTH_TOKEN:-hunter2}"}`), []string{
+			`r.yaml:1:158 warning RZ-CFG-013 Policy/h spec.config.request.set[name=authorization].value: literal value for the credential header "authorization" (keep credentials out of the Bundle: reference a secret with secretRef)`,
+			`r.yaml:1:158 warning RZ-CFG-013 Policy/h spec.config.request.set[name=authorization].value: variable "AUTH_TOKEN" looks like a secret (use a secretRef with provider: env instead of substitution)`,
+		}, nil},
+		{"a value a detector matches is not authored text: the secret-like name warns alone", headers("request", "set", `{"name":"authorization","value":"${AUTH_TOKEN}"}`), []string{
+			`r.yaml:1:158 warning RZ-CFG-013 Policy/h spec.config.request.set[name=authorization].value: variable "AUTH_TOKEN" looks like a secret (use a secretRef with provider: env instead of substitution)`,
+		}, Map{"AUTH_TOKEN": "Bearer abcdefghijklmnopqrstuvwx"}},
+		{"a secret-like variable with a credential default warns per rule", headers("request", "set", `{"name":"authorization","value":"${AUTH_TOKEN:-Bearer abcdefghijklmnopqrstuvwx}"}`), []string{
+			`r.yaml:1:158 warning RZ-CFG-013 Policy/h spec.config.request.set[name=authorization].value: credential-shaped value (Authorization header credentials) (keep credentials out of the Bundle: reference a secret with secretRef)`,
+			`r.yaml:1:158 warning RZ-CFG-013 Policy/h spec.config.request.set[name=authorization].value: variable "AUTH_TOKEN" looks like a secret (use a secretRef with provider: env instead of substitution)`,
+		}, Map{"AUTH_TOKEN": "t"}},
+		{"each use of a secret-like variable warns", headers("request", "set", `{"name":"x-trace","value":"${A_TOKEN}${A_TOKEN}"}`), []string{
+			`r.yaml:1:152 warning RZ-CFG-013 Policy/h spec.config.request.set[name=x-trace].value: variable "A_TOKEN" looks like a secret (use a secretRef with provider: env instead of substitution)`,
+			`r.yaml:1:152 warning RZ-CFG-013 Policy/h spec.config.request.set[name=x-trace].value: variable "A_TOKEN" looks like a secret (use a secretRef with provider: env instead of substitution)`,
+		}, Map{"A_TOKEN": "t"}},
 	} {
 		t.Run("headers "+tc.name, func(t *testing.T) {
 			_, ds := apply(t, tc.src, tc.vars)
@@ -551,8 +667,8 @@ func TestEscape(t *testing.T) {
 	}
 }
 
-// TestEnviron covers the os.Environ snapshot Source (the package never
-// reads the process environment itself).
+// TestEnviron covers the os.Environ snapshot Source (the package
+// never reads the process environment itself).
 func TestEnviron(t *testing.T) {
 	m := Environ([]string{"A=1", "B=x=y", "A=2", "=C:=C:\\", "NOEQ", "EMPTY="})
 	want := Map{"A": "1", "B": "x=y", "EMPTY": ""}
@@ -592,7 +708,7 @@ func TestNoSchema(t *testing.T) {
 		t.Errorf("no schema set: %v", ds)
 	}
 	files := &tree.FileTable{}
-	r = docs(t, files, tree.RoleBase, "r.yaml", prefixRoute("${A}"))[0]
+	r = docs(t, files, "r.yaml", prefixRoute("${A}"))[0]
 	if g := codes(New(Options{Schemas: schemas(t), Files: files}).Apply(r)); !slices.Equal(g, []string{CodeUndefined}) {
 		t.Errorf("nil Variables: codes %v", g)
 	}

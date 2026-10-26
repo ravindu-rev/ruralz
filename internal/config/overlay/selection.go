@@ -4,6 +4,7 @@
 package overlay
 
 import (
+	"slices"
 	"strconv"
 	"strings"
 
@@ -41,6 +42,7 @@ func ValidName(name string) bool {
 	if name == "" {
 		return false
 	}
+	// bounded: an overlay directory name, checked outside Apply and CheckBase.
 	for i := 0; i < len(name); i++ {
 		c := name[i]
 		alnum := (c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') || (c >= '0' && c <= '9')
@@ -61,10 +63,14 @@ func (s Selection) Contains(path string) bool {
 	return ValidName(s.Name) && strings.HasPrefix(path, s.Dir())
 }
 
-// Absent returns the diagnostics for a selected overlay directory that does
-// not exist: none when spec.overlay was defaulted (the overlay is then
-// empty), and RZ-CFG-009 at spec.overlay when it was set explicitly,
-// hinting the nearest of the existing overlay names.
+// Absent returns the diagnostics for a selected overlay directory that
+// does not exist: none when spec.overlay was defaulted (the overlay is
+// then empty), and RZ-CFG-009 at spec.overlay when it was set explicitly,
+// hinting the nearest of the existing overlay names. diag.Nearest
+// compares at most 64 names, so Absent reads a sorted copy of existing:
+// the hint never depends on the order the names were listed in. The
+// diagnostic carries the overlay and Environment names bounded as every
+// diagnostic of the package does (clip, shown).
 func (s Selection) Absent(existing []string) diag.List {
 	if !s.Explicit {
 		return nil
@@ -72,13 +78,13 @@ func (s Selection) Absent(existing []string) diag.List {
 	d := diag.Diagnostic{
 		Code: CodeMissing, Severity: diag.SeverityError, Location: s.Location,
 		Path:    diag.Path{diag.Field("spec"), diag.Field("overlay")},
-		Message: "overlay directory " + strconv.Quote(s.Dir()) + " does not exist",
+		Message: "overlay directory " + strconv.Quote(Root+clip(s.Name)+"/") + " does not exist",
 	}
 	if s.Environment != "" {
-		d.Resource = &diag.ResourceID{Kind: "Environment", Name: s.Environment}
+		d.Resource = &diag.ResourceID{Kind: "Environment", Name: shown(s.Environment)}
 	}
-	if near, ok := diag.Nearest(s.Name, existing); ok {
-		d.Hint = "did you mean " + strconv.Quote(near) + "?"
+	if near, ok := diag.Nearest(s.Name, slices.Compact(slices.Sorted(slices.Values(existing)))); ok {
+		d.Hint = "did you mean " + strconv.Quote(clip(near)) + "?"
 	}
 	return diag.List{d}
 }

@@ -17,13 +17,15 @@ import (
 // grammar, a boolean position the core bool literals, and ByteSize and
 // IntOrString an integer when the text is a core int. A string position,
 // a position without schema and text that does not fit keep the string,
-// which schema validation then reports naming the variable.
-func retype(n *tree.Node, s *schemaidx.Node) {
+// which schema validation then reports naming the variable. The text is a
+// variable's value, as long as the output limit allows, so every grammar
+// check reads it in windows reported to read.
+func retype(n *tree.Node, s *schemaidx.Node, read func(int)) {
 	if s == nil {
 		return
 	}
 	if sc := s.Scalar(); sc == schemaidx.ScalarByteSize || sc == schemaidx.ScalarIntOrString {
-		setInt(n)
+		setInt(n, read)
 		return
 	}
 	t := s.Types()
@@ -33,13 +35,13 @@ func retype(n *tree.Node, s *schemaidx.Node) {
 		// A core int outside int64 is not representable, as in an authored
 		// literal: it stays a string rather than becoming a double, and
 		// schema validation reports it naming the variable.
-		if !setInt(n) && !intGrammar(n.Text) {
-			if f, ok := coreFloat(n.Text); ok {
+		if !setInt(n, read) && !intGrammar(n.Text, read) {
+			if f, ok := coreFloat(n.Text, read); ok {
 				n.Kind, n.Text = tree.KindFloat, f
 			}
 		}
 	case t.Has(schemaidx.TypeInteger):
-		setInt(n)
+		setInt(n, read)
 	case t.Has(schemaidx.TypeBoolean):
 		if b, ok := coreBool(n.Text); ok {
 			n.Kind, n.Text, n.Bool = tree.KindBool, "", b
@@ -49,23 +51,36 @@ func retype(n *tree.Node, s *schemaidx.Node) {
 }
 
 // setInt makes n an integer when its text is a core int.
-func setInt(n *tree.Node) bool {
-	v, ok := coreInt(n.Text)
+func setInt(n *tree.Node, read func(int)) bool {
+	v, ok := coreInt(n.Text, read)
 	if ok {
 		n.Kind, n.Text = tree.KindInt, v
 	}
 	return ok
 }
 
+// maxIntDigits bounds the digits of an int64 without leading zeros in
+// base 8, 10 or 16 (22 octal digits for the minimum).
+const maxIntDigits = 22
+
 // coreInt parses the YAML 1.2 core int grammar ([-+]?[0-9]+, 0o[0-7]+,
 // 0x[0-9a-fA-F]+; leading zeros allowed, so 0777 is 777) and returns the
-// normalized decimal; false outside the grammar or outside int64.
-func coreInt(s string) (string, bool) {
-	text, base, ok := splitInt(s)
+// normalized decimal; false outside the grammar or outside int64. Leading
+// zeros are skipped by a counted scan, so strconv.ParseInt reads at most
+// maxIntDigits digits.
+func coreInt(s string, read func(int)) (string, bool) {
+	sign, digits, base, ok := splitInt(s, read)
 	if !ok {
 		return "", false
 	}
-	v, err := strconv.ParseInt(text, base, 64)
+	digits = trimZeros(digits, read)
+	if len(digits) > maxIntDigits {
+		return "", false
+	}
+	if digits == "" {
+		digits = "0"
+	}
+	v, err := strconv.ParseInt(sign+digits, base, 64)
 	if err != nil {
 		return "", false
 	}
@@ -73,31 +88,34 @@ func coreInt(s string) (string, bool) {
 }
 
 // intGrammar reports text in the core int grammar, whatever its range.
-func intGrammar(s string) bool {
-	_, _, ok := splitInt(s)
+func intGrammar(s string, read func(int)) bool {
+	_, _, _, ok := splitInt(s, read)
 	return ok
 }
 
-// splitInt matches s against the core int grammar and returns the text
-// strconv.ParseInt reads in base (the 0o or 0x prefix removed).
-func splitInt(s string) (text string, base int, ok bool) {
-	text, base = s, 10
+// splitInt matches s against the core int grammar and returns its sign
+// (base 10 only), its digits and their base.
+func splitInt(s string, read func(int)) (sign, digits string, base int, ok bool) {
+	digits, base = s, 10
 	switch {
-	case strings.HasPrefix(s, "0o"):
-		text, base = s[2:], 8
-	case strings.HasPrefix(s, "0x"):
-		text, base = s[2:], 16
+	case len(s) >= 2 && s[:2] == "0o":
+		digits, base = s[2:], 8
+	case len(s) >= 2 && s[:2] == "0x":
+		digits, base = s[2:], 16
+	case s != "" && (s[0] == '+' || s[0] == '-'):
+		sign, digits = s[:1], s[1:]
 	}
-	digits := text
-	if base == 10 && digits != "" && (digits[0] == '+' || digits[0] == '-') {
-		digits = digits[1:]
-	}
-	return text, base, digits != "" && allDigits(digits, base)
+	return sign, digits, base, digits != "" && allDigits(digits, base, read)
 }
 
-// allDigits reports whether s holds only digits of base 8, 10 or 16.
-func allDigits(s string, base int) bool {
+// allDigits reports whether s holds only digits of base 8, 10 or 16,
+// reading s in windows of textStep bytes.
+func allDigits(s string, base int, read func(int)) bool {
+	// counted: the digits are reported every textStep bytes.
 	for i := 0; i < len(s); i++ {
+		if i%textStep == 0 {
+			read(min(textStep, len(s)-i))
+		}
 		c := s[i]
 		var ok bool
 		switch base {
@@ -115,41 +133,73 @@ func allDigits(s string, base int) bool {
 	return true
 }
 
+// trimZeros returns s without its leading '0' bytes, reading them in
+// windows of textStep bytes.
+func trimZeros(s string, read func(int)) string {
+	i := 0
+	// counted: the zeros are reported every textStep bytes.
+	for i < len(s) && s[i] == '0' {
+		if i++; i%textStep == 0 {
+			read(textStep)
+		}
+	}
+	read(i % textStep)
+	return s[i:]
+}
+
+// indexByte returns the index of the first c in s, or -1, reading s in
+// windows of textStep bytes.
+func indexByte(s string, c byte, read func(int)) int {
+	return indexFrom(s, string(c), 0, read)
+}
+
 // coreFloat parses the finite YAML 1.2 core float grammar
 // [-+]?(\.[0-9]+|[0-9]+(\.[0-9]*)?)([eE][-+]?[0-9]+)? and returns it in
 // RFC 8259 number syntax, as the profile stores floats: a leading +
 // dropped, a 0 put before a leading '.', a '.' without fraction digits
 // dropped and leading zeros of the integer part stripped keeping one
-// digit. .inf and .nan are not JSON numbers and do not fit.
-func coreFloat(s string) (string, bool) {
+// digit. .inf and .nan are not JSON numbers and do not fit. Every scan
+// and the copy of the result read the text in windows.
+func coreFloat(s string, read func(int)) (string, bool) {
 	sign := ""
-	switch {
-	case strings.HasPrefix(s, "-"):
-		sign, s = "-", s[1:]
-	case strings.HasPrefix(s, "+"):
+	if s != "" && (s[0] == '-' || s[0] == '+') {
+		if s[0] == '-' {
+			sign = "-"
+		}
 		s = s[1:]
 	}
 	mant, exp := s, ""
-	if i := strings.IndexAny(s, "eE"); i >= 0 {
+	if i := min(uint(indexByte(s, 'e', read)), uint(indexByte(s, 'E', read))); i < uint(len(s)) {
 		mant, exp = s[:i], s[i:]
-		e := strings.TrimPrefix(strings.TrimPrefix(exp[1:], "+"), "-")
-		if len(exp[1:])-len(e) > 1 || e == "" || !allDigits(e, 10) {
+		e := exp[1:]
+		if e != "" && (e[0] == '+' || e[0] == '-') {
+			e = e[1:]
+		}
+		if e == "" || !allDigits(e, 10, read) {
 			return "", false
 		}
 	}
-	intPart, frac, _ := strings.Cut(mant, ".")
-	if !allDigits(intPart, 10) || !allDigits(frac, 10) || (intPart == "" && frac == "") {
+	intPart, frac := mant, ""
+	if i := indexByte(mant, '.', read); i >= 0 {
+		intPart, frac = mant[:i], mant[i+1:]
+	}
+	if !allDigits(intPart, 10, read) || !allDigits(frac, 10, read) || (intPart == "" && frac == "") {
 		return "", false
 	}
-	intPart = strings.TrimLeft(intPart, "0")
+	intPart = trimZeros(intPart, read)
 	if intPart == "" {
 		intPart = "0"
 	}
-	out := sign + intPart
+	var b strings.Builder
+	b.Grow(len(sign) + len(intPart) + 1 + len(frac) + len(exp))
+	appendText(&b, sign, read)
+	appendText(&b, intPart, read)
 	if frac != "" {
-		out += "." + frac
+		appendText(&b, ".", read)
+		appendText(&b, frac, read)
 	}
-	return out + exp, true
+	appendText(&b, exp, read)
+	return b.String(), true
 }
 
 // coreBool parses the YAML 1.2 core bool literals.
