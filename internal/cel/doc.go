@@ -1,0 +1,71 @@
+// Copyright 2026 Revington
+// SPDX-License-Identifier: Apache-2.0
+
+// Package cel compiles, cost-checks and evaluates the CEL expressions of a
+// Revision on cel.dev/cel-go (ADR-0019,
+// docs/architecture/02-configuration-model.md "CEL expressions and allowed
+// places"). It implements the internal/expr contracts: [Compiler] is the
+// expr.Compiler, and its Builder, ProgramSet, Program and Value are the
+// expr types every other package codes against. It is the only package that
+// imports cel-go besides internal/cel/celtypes, whose views and type provider
+// it uses.
+//
+// # Environments
+//
+// A site (expr.Site) is one occurrence of a place, refined by its
+// attachment. The environment of a site declares only the variables
+// available there, so any other variable is an "undeclared reference":
+// Policy.spec.when declares response only when the Policy's first Phase is
+// a response Phase, and the transform places declare upstream only at
+// Upstream scope. The language is the standard library plus the strings
+// (version 5) and encoders (version 1) extensions, with the duration,
+// timestamp and regular-expression literal validators.
+//
+// # Validation
+//
+// A finding is RZ-CFG-014 for a syntax, type or unavailable-variable error
+// and RZ-CFG-015 for a static cost above 10,000 units at nominal sizes
+// (target). Beyond cel-go's own checks, a checked expression is rejected
+// when it:
+//
+//   - selects request.body outside the body sites (the composition places,
+//     the transform.request places, the authz.cel rule, and the when of a
+//     Policy that gates the request body at its attachment), or
+//     response.body outside the transform.response places and the when of a
+//     transform.response Policy;
+//   - constructs a Ruralz object type, such as ruralz.Request{};
+//   - passes a time zone that is not the literal "UTC" or a literal UTC
+//     offset such as "+02:00" to a timestamp accessor, because a named zone
+//     reads zone data on every evaluation;
+//   - reads steps outside a sequential composition, or names a step that is
+//     not an earlier step of the composition;
+//   - has a result type the place cannot take: a bool place takes bool or
+//     dyn, a string place string or dyn, a dyn place anything.
+//
+// # Cost
+//
+// The static estimate sizes every string reached from a variable, typed or
+// dyn, at 256 bytes and every list or map at 32 entries (target); a dyn
+// value used as a comprehension range or an in container is sized as a
+// container. A second estimate with no size hints decides runtime
+// tracking: a program whose cost is bounded by 1,000,000 units at any input
+// size evaluates without cost tracking, any other one under the cost limit
+// of 1,000,000 units (target). A tracked program holding a comprehension
+// evaluates through ContextEval under the smaller of the request deadline
+// and 50 ms (target, ADR-0019).
+//
+// # Evaluation
+//
+// Programs are immutable and safe for concurrent evaluation; they read the
+// expr.Vars they are given and never write it. A runtime failure is an
+// *expr.EvalError whose Kind classifies it and whose Error text never holds
+// request data. A Builder reuses the Program of an identical site and
+// source from the previous snapshot's ProgramSet, so a Hot Reload compiles
+// only changed expressions.
+//
+// # Concurrency
+//
+// A Compiler is safe for concurrent use; it creates environments lazily
+// under one mutex. A Builder takes concurrent Compile calls and one Build
+// call after them. The package starts no goroutine.
+package cel
