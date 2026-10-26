@@ -72,9 +72,9 @@ Versions are floors; pins live in `go.mod`. "Milestone" is when the first code u
 | Zero-Downtime Upgrade socket steering, peer credentials and test namespaces | `golang.org/x/sys/unix` v0.48.x, imported directly for `SO_ATTACH_REUSEPORT_CBPF` steering, `SO_PEERCRED` on the handover socket and, in tests only, network namespaces for `internal/testkit/proc` (`CLONE_NEWNET`, loopback brought up through the `SIOCSIFFLAGS` ioctl, per-namespace sysctls) | `syscall` | Already linked through grpc-go in M1 and through wazero and bbolt from M2, so no new module | BSD-3-Clause | Steering, peer credentials and namespaces are Linux-only | Pending CI | [ADR-0015](../adr/0015-zero-downtime-upgrades-so-reuseport.md) | Planned (M1) | ([source](https://github.com/golang/sys/blob/v0.48.0/LICENSE)) ([source](https://proxy.golang.org/golang.org/x/sys/@v/v0.48.0.zip)) ([source](https://proxy.golang.org/google.golang.org/grpc/@v/v1.84.0.mod)) ([source](https://github.com/wazero/wazero/blob/main/go.mod)) ([source](https://github.com/etcd-io/bbolt/blob/v1.4.1/go.mod)) |
 | ULID for `node.id` | Own code on `crypto/rand` in `internal/ulid` | `oklog/ulid/v2` v2.1.x | One identifier per Node needs no module (S6) | Apache-2.0 (Ruralz code) | Encoding is Ruralz code and tests | Ruralz code | None | Planned (M1) | ([source](https://pkg.go.dev/crypto/rand)) ([source](https://github.com/oklog/ulid/releases/tag/v2.1.2)) |
 | CLI framework | Standard library `flag`; interspersed flags, help and completion are Ruralz code in `internal/cli/command` | `spf13/cobra` v1.10.x | No dependency; commands are an explicit table | BSD-3-Clause (standard library) | `flag` stops at the first positional argument | Standard library | None | Planned (M1) | ([source](https://pkg.go.dev/flag)) ([source](https://github.com/spf13/cobra/releases/tag/v1.10.2)) |
-| YAML 1.2 parser | `github.com/goccy/go-yaml` v1.19.x; Ruralz code over its AST rejects anchors, aliases, merge keys and custom tags | go-yaml v4 (`go.yaml.in/yaml/v4`); sigs.k8s.io/yaml (YAML 1.1 resolver) | Only candidate claiming YAML 1.2-only scalar resolution; duplicate keys fail by default; no dependencies | MIT | Last release 2026-01-08; YAML Test Suite results self-reported | Pending CI | [ADR-0003](../adr/0003-configuration-format.md) | Planned (M1) | ([source](https://github.com/goccy/go-yaml/blob/master/README.md)) ([source](https://github.com/goccy/go-yaml/blob/master/token/token.go)) ([source](https://github.com/goccy/go-yaml/blob/v1.19.2/option.go)) |
+| YAML 1.2 parser | Ruralz code in `internal/config/profile` over the YAML 1.2.2 productions, rejecting anchors, aliases, merge keys and custom tags | `goccy/go-yaml` v1.19.x; go-yaml v4 (`go.yaml.in/yaml/v4`); sigs.k8s.io/yaml (YAML 1.1 resolver) | Reads the YAML Test Suite as YAML 1.2 does; counts depth and nodes while parsing; no YAML module in any binary | Apache-2.0 (Ruralz code) | Ruralz alone maintains block scalars, folding, tabs and positions; the YAML Test Suite and a yaml.v3 differential check them | Ruralz code | [ADR-0003](../adr/0003-configuration-format.md) | Planned (M1) | ([source](https://yaml.org/spec/1.2.2/)) ([source](https://github.com/yaml/yaml-test-suite/releases/tag/data-2022-01-17)) |
 | JSON Schema validator | `github.com/santhosh-tekuri/jsonschema/v6` v6.0.x (draft 2020-12), also behind `validation.json-schema` | kaptinlin/jsonschema (`go 1.27.0` fails S2); google/jsonschema-go | Claims 2020-12 test-suite compliance; `Vocabulary` API for `x-ruralz-*` keywords; instance locations for the source map; declares `go 1.21` | Apache-2.0 | Compliance shown by badges, not an independent run | Pending CI | [ADR-0003](../adr/0003-configuration-format.md) | Planned (M1) | ([source](https://github.com/santhosh-tekuri/jsonschema/blob/boon/README.md)) ([source](https://github.com/santhosh-tekuri/jsonschema/blob/v6.0.3/vocab.go)) ([source](https://github.com/santhosh-tekuri/jsonschema/blob/v6.0.3/go.mod)) |
-| Test tooling (not shipped) | testcontainers-go v0.44.x; buf v1.73.x | Docker Compose scripts | Real brokers in Go tests; `buf lint` and `buf breaking` | MIT; Apache-2.0 | Breaking changes in v0.42.0 and v0.43.0 | Not linked | None | Planned (M0) | ([source](https://github.com/testcontainers/testcontainers-go)) ([source](https://github.com/bufbuild/buf)) |
+| Test tooling (not shipped) | testcontainers-go v0.44.x; buf v1.73.x; `go.yaml.in/yaml/v3` v3.0.x, the YAML parser's differential oracle, in `internal/config/profile` tests only | Docker Compose scripts | Real brokers in Go tests; `buf lint` and `buf breaking`; a libyaml port to compare the parser with | MIT; Apache-2.0; MIT and Apache-2.0 | Breaking changes in v0.42.0 and v0.43.0 | Not linked | [ADR-0003](../adr/0003-configuration-format.md) (yaml.v3) | Planned (M0); yaml.v3 Planned (M1) | ([source](https://github.com/testcontainers/testcontainers-go)) ([source](https://github.com/bufbuild/buf)) ([source](https://github.com/yaml/go-yaml/blob/v3.0.5/LICENSE)) |
 
 Because client-go, OPA and graphql-go-tools are always linked, `ruralzd` has a stripped binary budget of 160 MiB (target) and an idle RSS budget of 89 MiB with no Revision loaded (target), owned by [Performance budgets and benchmarking](../architecture/12-performance-budgets-and-benchmarking.md) and reported by a CI size check from Planned (M1).
 
@@ -130,7 +130,6 @@ flowchart LR
   tik["tiktoken-go tokenizer"]
   oras["oras-go and sigstore-go"]
   k8s["k8s.io/client-go"]
-  yaml["goccy/go-yaml"]
   jss["santhosh-tekuri/jsonschema v6"]
   xsys["golang.org/x/sys/unix"]
   dp --> http
@@ -153,7 +152,6 @@ flowchart LR
   dp --> tik
   dp --> oras
   dp --> k8s
-  dp --> yaml
   dp --> jss
   dp --> xsys
 ```
@@ -177,7 +175,6 @@ flowchart LR
   wazero["wazero"]
   oras["oras-go and sigstore-go"]
   k8s["k8s.io/client-go"]
-  yaml["goccy/go-yaml"]
   jss["santhosh-tekuri/jsonschema v6"]
   cp --> http
   cp --> connect
@@ -198,9 +195,7 @@ flowchart LR
   cli --> gqlv
   cli --> wazero
   cli --> oras
-  cp --> yaml
   cp --> jss
-  cli --> yaml
   cli --> jss
 ```
 
@@ -382,6 +377,8 @@ ADRs follow MADR 4.0 plus `Confirmation` ([style guide](../_meta/style-guide.md)
 | pkoukk/tiktoken-go | Tokenizer | Downloads vocabularies at runtime | Never | ([source](https://github.com/pkoukk/tiktoken-go)) |
 | r3labs/sse | SSE | MPL-2.0; no tag since 2023-01 | Never | ([source](https://pkg.go.dev/github.com/r3labs/sse/v2?tab=versions)) |
 | Embedded Lua | Expressions | Duplicates the Plugin path ([ADR-0019](../adr/0019-expressions-authorization-comprehension-stop.md)) | Never | Design decision, no external claim |
+| goccy/go-yaml | YAML 1.2 parser | Reads `010` as an octal; fixes for quadratic parse time and tabs wait without review; no security policy ([ADR-0003](../adr/0003-configuration-format.md)) | Never | ([source](https://github.com/goccy/go-yaml/issues/894)) ([source](https://github.com/goccy/go-yaml/pull/889)) ([source](https://github.com/goccy/go-yaml/security)) |
+| go-yaml v4 | YAML 1.2 parser | Release candidates only; refuses `%YAML 1.2`; limits bound depth and aliases, not nodes ([ADR-0003](../adr/0003-configuration-format.md)) | A final release accepts `%YAML 1.2` and bounds nodes | ([source](https://proxy.golang.org/go.yaml.in/yaml/v4/@v/list)) ([source](https://github.com/yaml/go-yaml/issues/146)) ([source](https://github.com/yaml/go-yaml/blob/main/docs/plugin.md)) |
 
 ## Open questions
 

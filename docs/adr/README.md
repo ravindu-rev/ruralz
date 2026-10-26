@@ -8,7 +8,7 @@ The [documentation index](../README.md) lists every document and reading path.
 |---|---|---|---|
 | [ADR-0001](0001-implementation-language-go.md) | Implementation language: Go with CGO_ENABLED=0 static binaries | accepted | [Tech Stack and Libraries](../engineering/01-tech-stack-and-libraries.md) |
 | [ADR-0002](0002-apache-2-license-no-feature-gating.md) | License: Apache-2.0 for all components, no feature gating, DCO and Revington trademark policy | accepted | [Vision and Positioning](../vision/01-vision-and-positioning.md) |
-| [ADR-0003](0003-configuration-format.md) | Configuration format: YAML with JSON Schema and a Kubernetes-style resource model | accepted | [Configuration Model](../architecture/02-configuration-model.md) |
+| [ADR-0003](0003-configuration-format.md) | Configuration format: YAML with JSON Schema, a Kubernetes-style resource model and a Ruralz parser | accepted | [Configuration Model](../architecture/02-configuration-model.md) |
 | [ADR-0004](0004-wasm-runtime-wazero.md) | WASM runtime: wazero | accepted | [WASM Plugin System](../architecture/05-wasm-plugin-system.md) |
 | [ADR-0005](0005-plugin-abi-v1.md) | Plugin ABI v1: capability-based with Extism-style conventions, proxy-wasm adapter Planned (M4) | accepted | [WASM Plugin System](../architecture/05-wasm-plugin-system.md) |
 | [ADR-0006](0006-control-store-raft-boltdb.md) | Control Store: embedded hashicorp/raft with raft-boltdb/v2 on bbolt, Postgres optional | proposed | [Control Plane and GitOps](../architecture/04-control-plane-and-gitops.md) |

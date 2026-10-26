@@ -171,7 +171,7 @@ Conformance suites test published contracts; each is versioned with its contract
 
 The codes of the five checks that can fail after a green offline run ([Validation and diff semantics](../architecture/02-configuration-model.md#validation-and-diff-semantics)) may carry no source position; integration and end-to-end cases assert code and resource identity wherever raised: RZ-CFG-024 at Rollout, NACK or file-mode load; RZ-CFG-026 at NACK or load; RZ-CFG-027 at `ruralz bundle push`, OCI pull, Control Stream delivery and Last-Known-Good boot; RZ-CFG-028 and RZ-CFG-033 in `ruralz bundle build`, `validate --online`, Ruralz Control ingest and Node activation, RZ-CFG-033 also for Revision signatures at Node activation (pack sections 8.1 and 8.14).
 
-The configuration suite also re-runs the JSON-Schema-Test-Suite and the YAML Test Suite, because the selected libraries self-report test-suite results ([source](https://github.com/santhosh-tekuri/jsonschema/blob/boon/README.md)) ([source](https://github.com/goccy/go-yaml/blob/master/README.md)); an upgrade that loses a passing case fails.
+The configuration suite also re-runs the JSON-Schema-Test-Suite, whose results the validator self-reports ([source](https://github.com/santhosh-tekuri/jsonschema/blob/boon/README.md)), and the YAML Test Suite against the Ruralz parser, which fails only on a checked-in list of profile refusals ([ADR-0003](../adr/0003-configuration-format.md)); a change that loses a passing case fails.
 
 The Plugin ABI suite is the promise to Plugin authors ([ADR-0005](../adr/0005-plugin-abi-v1.md)): a PDK is maintained only while it passes, with wazero in compiler mode on production platforms.
 
@@ -183,7 +183,7 @@ Go native fuzzing covers every surface parsing untrusted or operator-supplied by
 
 | Target family | Oracle | Milestone |
 |---|---|---|
-| Restricted YAML loader | Rejections carry RZ-CFG-001 to RZ-CFG-004; memory stays bounded under alias bombs | Planned (M1) |
+| Restricted YAML loader | Rejections carry RZ-CFG-001 to RZ-CFG-004; memory stays bounded under alias bombs, and an input of up to 1 MiB parses within 256 MiB of heap growth and 2 s (target); the parser and yaml.v3 agree on every input outside the checked-in deviation classes | Planned (M1) |
 | Env substitution and overlay merge | Output validates or fails with a registered code | Planned (M1) |
 | CEL compile and cost estimator | A finite estimate, or RZ-CFG-014 or RZ-CFG-015; at nominal input sizes, actual cost stays within the static estimate; on any capped input, evaluation finishes or stops with a runtime error at 1,000,000 cost units or, for a comprehension, 50 ms (target) ([ADR-0019](../adr/0019-expressions-authorization-comprehension-stop.md)), handled per its place's runtime-error rule ([Allowed places](../architecture/02-configuration-model.md#allowed-places)) | Planned (M1) |
 | Canonicalization | Parse, canonicalize and parse again: identical bytes | Planned (M1) |

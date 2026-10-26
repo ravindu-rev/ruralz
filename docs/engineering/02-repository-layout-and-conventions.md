@@ -274,7 +274,8 @@ formatters:
 | `log` (depguard rule `log$`) | `log/slog` via `internal/telemetry` | One structured logging path (ADR-0018) |
 | `github.com/tetratelabs/wazero` outside `internal/pluginhost` | `internal/pluginhost` | S7 wrapping; `ruralz plugin test` runs Plugins through the same host package as `ruralzd` |
 | `github.com/hashicorp/raft` outside `internal/controlstore/raft` | `internal/controlstore` interface | MPL-2.0 exception scoped to the Control Store ([license rules](01-tech-stack-and-libraries.md#license-rules)) |
-| `github.com/goccy/go-yaml` outside `internal/config/profile` | `internal/config/profile` | The restricted YAML profile is the only YAML parser and emitter |
+| `github.com/goccy/go-yaml`, `go.yaml.in/yaml/v4`, `gopkg.in/yaml` | `internal/config/profile` | The restricted YAML profile is Ruralz code and the only YAML parser and emitter ([ADR-0003](../adr/0003-configuration-format.md)) |
+| `go.yaml.in/yaml/v3` outside `internal/config/profile` tests | `internal/config/profile` | Only the profile's tests use it, as a differential oracle |
 | `github.com/santhosh-tekuri/jsonschema` outside `internal/config/schemaview` and `internal/filter/validation/jsonschema` | Those two packages | S7 wrapping |
 | `cel.dev/cel-go`, `cel.dev/expr` outside `internal/cel` | `internal/expr` contracts | Everything else codes against the contracts |
 | `github.com/lestrrat-go/jwx` outside `internal/filter/auth/jwt`; its `jwt`, `jwe` and root packages anywhere | `jwk`, `jws` and `jwa` there | The others link `golang.org/x/crypto` (G3) |
