@@ -16,8 +16,8 @@ import (
 	"github.com/ravindu-rev/ruralz/internal/config/tree"
 )
 
-// TestFieldSyntax checks the documented-format messages selected by schema
-// location, and the typed-map value path.
+// TestFieldSyntax checks the documented-format messages selected by
+// schema location, and the typed-map value path.
 func TestFieldSyntax(t *testing.T) {
 	for _, tc := range []struct {
 		name string
@@ -199,14 +199,17 @@ func TestWordingHelpers(t *testing.T) {
 	if got := typeName(nil); got != "" {
 		t.Errorf("typeName(nil) = %q", got)
 	}
-	if got := knownPos(nil, nil); got.Known() {
-		t.Errorf("knownPos(nil, nil) = %v", got)
+	parent := tree.Pos{Line: 2, Column: 3}
+	if got := nearestPos(tree.Pos{}, tree.Pos{}); got.Known() {
+		t.Errorf("nearestPos(unknown, unknown) = %v", got)
 	}
-	parent := &tree.Node{Pos: tree.Pos{Line: 2, Column: 3}}
-	if got := knownPos(&tree.Node{}, parent); got != parent.Pos {
-		t.Errorf("knownPos(unknown, parent) = %v", got)
+	if got := nearestPos(tree.Pos{}, parent); got != parent {
+		t.Errorf("nearestPos(unknown, parent) = %v", got)
 	}
-	m := newMapper(testView(t), &tree.Resource{}, nil, MaxDiagnostics)
+	if own := (tree.Pos{Line: 5, Column: 1}); nearestPos(own, parent) != own {
+		t.Errorf("nearestPos(known, parent) = %v", nearestPos(own, parent))
+	}
+	m := newMapper(testView(t), &tree.Resource{}, nil, MaxDiagnostics, Options{})
 	if got := m.location(tree.Pos{}); got.Line != 0 || got.File != "" {
 		t.Errorf("location(unknown) = %+v", got)
 	}
@@ -217,7 +220,7 @@ func TestWordingHelpers(t *testing.T) {
 
 // TestTypeMismatch covers the branch classification of anyOf and oneOf.
 func TestTypeMismatch(t *testing.T) {
-	m := newMapper(testView(t), &tree.Resource{}, nil, MaxDiagnostics)
+	m := newMapper(testView(t), &tree.Resource{}, nil, MaxDiagnostics, Options{})
 	typeErr := &jsonschema.ValidationError{InstanceLocation: []string{"a"}, ErrorKind: &kind.Type{Got: "boolean", Want: []string{"integer"}}}
 	for _, tc := range []struct {
 		name string

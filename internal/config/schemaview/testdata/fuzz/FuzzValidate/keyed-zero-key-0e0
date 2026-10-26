@@ -1,0 +1,2 @@
+go test fuzz v1
+[]byte("{\"kind\":\"Gateway\",\"00000000\":{\"0000\":\"0\"},\"spec\":{\"listeners\":[{\"name\":0e0}]}}")

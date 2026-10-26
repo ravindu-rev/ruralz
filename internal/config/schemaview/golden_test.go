@@ -15,7 +15,9 @@ import (
 	"github.com/ravindu-rev/ruralz/internal/config/tree"
 )
 
-// update rewrites the error-mapping goldens: go test ./internal/config/schemaview -run Golden -update.
+// update rewrites the error-mapping goldens:
+//
+//	go test ./internal/config/schemaview -run Golden -update
 var update = flag.Bool("update", false, "rewrite the golden files under testdata/mapping")
 
 // sentinel marks secret values in the golden inputs; no output may
@@ -24,8 +26,8 @@ const sentinel = "SENTINEL"
 
 // TestGoldenErrorMapping validates each testdata/mapping/<case>.json
 // resource and compares the text and JSON diagnostic forms byte for byte
-// with <case>.diag.txt and <case>.diag.json, the JSONSchemaDocument type
-// and OTLP endpoint cases included.
+// with <case>.diag.txt and <case>.diag.json (the JSONSchemaDocument type
+// and OTLP endpoint cases included).
 func TestGoldenErrorMapping(t *testing.T) {
 	inputs, err := filepath.Glob(filepath.Join("testdata", "mapping", "*.json"))
 	if err != nil {

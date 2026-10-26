@@ -17,19 +17,51 @@
 // besides validation.json-schema that imports jsonschema/v6, and no
 // jsonschema type appears in its API.
 //
+// A finding about a value that substitution (stage E) wrote variables
+// into names the variables, in a clause that never contains a value; a
+// duplicate keyed-list key or set element is quoted in its message as
+// its path shows it, substituted or not.
+//
 // Views and Sets are immutable after construction and safe for concurrent
-// use; Validate allocates per call and starts no goroutine. The mapping
+// use; Validate allocates per call and starts no goroutine, and
+// ValidateWith calls Options.Yield every 256 units of its own work, so a
+// loader worker can yield inside one resource between the spans
+// Options.Yield lists, the jsonschema/v6 call the longest. The mapping
 // resolves each instance position once and shares its key-aware path with
 // every diagnostic at or below it: a large path element, such as a keyed
 // entry's key or a set element's canonical JSON, is held and rendered
-// once, and diagnostics are deduplicated and sorted by interned path text,
-// never by rendering their paths. Mapping work and memory are therefore
-// linear in the resource size plus the number of validation errors times
-// their location depth, and Validate returns at most MaxDiagnostics
-// diagnostics, the first in sorted order. Rendering the returned paths
-// (diag.Path.String, diag.List.Sort) still writes such an element once per
-// diagnostic below it, which the path contract does not bound. The package
-// never logs, reads files or the network, or uses the clock.
+// once, and diagnostics are deduplicated and sorted by interned path
+// text, never by rendering their paths; the common prefix of two long
+// sibling elements is read once however many diagnostics lie below them
+// when it reaches 1 KiB, and otherwise at most once per comparison, with
+// every pair answered again from either element's last comparison.
+// Mapping work is therefore linear in the resource size plus the number
+// of validation errors times their location depth, up to the logarithmic
+// factor of sorting them, and Validate returns at most the cap plus one
+// diagnostics, the first in sorted order, the extra one telling the
+// caller the cap was reached (Options.MaxDiagnostics). What the mapping
+// holds grows with the cap and the resource, not with the errors:
+// memoized positions and path texts that no kept diagnostic needs are
+// swept (sweep.go), pending secret findings are pruned to the cap, and
+// each validation error is released once mapped. The validator's own
+// error tree still grows with the errors (Options.MaxDiagnostics).
+//
+// A nil member value or list element is null, as the validator reads it:
+// the mapping and the checks after the validator read a copy of the tree
+// with a null node in its place, so it is reported exactly as a null
+// value, at its nearest positioned ancestor.
+//
+// The validator's cost for a number does not grow with the literal: every
+// number reaches jsonschema/v6 as a text of bounded length and exponent
+// with the same integrality, order against the view's numbers, multipleOf
+// divisibility and equality as the literal (numbers.go), so no literal,
+// however long or whatever its exponent, zeros included, makes it slow or
+// crashes it, and the diagnostics are those of the literal itself; a
+// panic inside it is reported as a finding (validate), never raised.
+// Rendering the returned paths (diag.Path.String, diag.List.Sort) still
+// writes such an element once per diagnostic below it, which the path
+// contract does not bound. The package never logs, reads files or the
+// network, or uses the clock.
 package schemaview
 
 import (
@@ -37,6 +69,7 @@ import (
 	"errors"
 	"fmt"
 	"io/fs"
+	"maps"
 	"path"
 	"slices"
 	"strings"
@@ -61,10 +94,15 @@ const (
 	CodeLiteral = "RZ-CFG-012"
 )
 
-// ErrSchema marks every error Compile returns for a schema that does not
-// compile: invalid JSON, a draft 2020-12 or vocabulary keyword violation,
-// an unresolvable or remote reference, or a schema that disagrees with its
-// index.
+// ErrSchema marks every error Compile returns for a schema it refuses:
+// invalid JSON; a draft 2020-12 or vocabulary keyword violation; an
+// unresolvable or remote reference; a schema that disagrees with its
+// index (a kind the root does not dispatch, a dispatched kind or a
+// $defs definition the index lacks); and a number the number model
+// cannot bound (numbers.go): one that needs more than maxViewDigits
+// integer or fraction digits, multipleOf values whose period needs more
+// than maxPeriodDigits digits, or a zero whose exponent lies outside
+// int64.
 var ErrSchema = errors.New("schemaview: schema does not compile")
 
 // View is the compiled rendered view of one apiVersion. It is immutable
@@ -81,6 +119,8 @@ type View struct {
 	// kind); kinds holds each kind's definition, compiled once.
 	root  *jsonschema.Schema
 	kinds map[string]*jsonschema.Schema
+	// nums bounds the number literals handed to the validator.
+	nums *numberModel
 }
 
 // baseURL returns the URL a view of apiVersion is compiled under. It is a
@@ -93,7 +133,18 @@ func baseURL(apiVersion string) string {
 // Compile compiles rendered, the rendered view that idx indexes, once:
 // the whole document (so every $ref resolves) and the definition of every
 // kind the root dispatches. idx must have been loaded from the same
-// bytes; Compile checks that the root kind dispatch agrees with it.
+// bytes: the mapping reads dispatch, list types, secret marks and the
+// names of hints from it. Compile checks that the index has every $defs
+// definition of rendered and the root's kind dispatch, which refuses an
+// index of a view with fewer definitions, such as the rendered view's
+// index paired with the authoring view; it cannot tell an index of
+// another view with the same definitions and dispatch, which no caller
+// may pass. Compile refuses (ErrSchema) a view with a number that needs
+// more than maxViewDigits (400) integer or fraction digits, multipleOf
+// values whose period needs more than maxPeriodDigits (400) digits, or a
+// zero whose exponent lies outside int64: the number model keeps every
+// text it hands the validator short, and the compiler could not parse
+// such a zero (numbers.go).
 func Compile(rendered []byte, idx *schemaidx.Index) (*View, error) {
 	if idx == nil {
 		return nil, fmt.Errorf("%w: nil schema index", ErrSchema)
@@ -102,11 +153,20 @@ func Compile(rendered []byte, idx *schemaidx.Index) (*View, error) {
 	if err != nil {
 		return nil, fmt.Errorf("%w: %w", ErrSchema, err)
 	}
+	if name, ok := missingDef(doc, idx); !ok {
+		return nil, fmt.Errorf("%w: definition %q is not in the schema index", ErrSchema, name)
+	}
+	// The number model first: it refuses a view whose numbers would make
+	// the compiler's own big.Rat parsing slow (numbers.go).
+	nums, err := newNumberModel(doc, gridDigits)
+	if err != nil {
+		return nil, fmt.Errorf("%w: %w", ErrSchema, err)
+	}
 	c, err := newCompiler()
 	if err != nil {
 		return nil, fmt.Errorf("%w: %w", ErrSchema, err)
 	}
-	v := &View{idx: idx, base: baseURL(idx.APIVersion()), doc: doc, kinds: map[string]*jsonschema.Schema{}}
+	v := &View{idx: idx, base: baseURL(idx.APIVersion()), doc: doc, kinds: map[string]*jsonschema.Schema{}, nums: nums}
 	if err := c.AddResource(v.base, doc); err != nil {
 		return nil, fmt.Errorf("%w: %w", ErrSchema, err)
 	}
@@ -140,6 +200,21 @@ func compileError(err error) error {
 		return fmt.Errorf("%w: %w", ErrSchema, load.Err)
 	}
 	return fmt.Errorf("%w: %w", ErrSchema, err)
+}
+
+// missingDef returns the first $defs name of doc, in name order, that idx
+// has no definition for, and false; true when idx has them all. Compile
+// uses it to refuse a view paired with another view's index, such as the
+// authoring view with the rendered view's index.
+func missingDef(doc any, idx *schemaidx.Index) (string, bool) {
+	root, _ := doc.(map[string]any)
+	defs, _ := root["$defs"].(map[string]any)
+	for _, name := range slices.Sorted(maps.Keys(defs)) {
+		if _, ok := idx.Def(name); !ok {
+			return name, false
+		}
+	}
+	return "", true
 }
 
 // kindRefs reads the root dispatch the generator emits,
@@ -239,6 +314,11 @@ func (s *Set) Served() []string { return slices.Clone(s.served) }
 // ok is false, with no diagnostics, for an unserved apiVersion, which
 // stage C reports as RZ-CFG-007 before validation.
 func (s *Set) Validate(res *tree.Resource, files *tree.FileTable) (_ diag.List, ok bool) {
+	return s.ValidateWith(res, files, Options{})
+}
+
+// ValidateWith is Validate with options (View.ValidateWith).
+func (s *Set) ValidateWith(res *tree.Resource, files *tree.FileTable, opts Options) (_ diag.List, ok bool) {
 	if res == nil {
 		return nil, false
 	}
@@ -246,5 +326,5 @@ func (s *Set) Validate(res *tree.Resource, files *tree.FileTable) (_ diag.List, 
 	if !ok {
 		return nil, false
 	}
-	return v.Validate(res, files), true
+	return v.ValidateWith(res, files, opts), true
 }

@@ -1,0 +1,52 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "required": ["apiVersion", "kind", "metadata", "spec"],
+  "properties": {
+    "apiVersion": {"const": "num/v1"},
+    "kind": {"enum": ["Num"]}
+  },
+  "allOf": [
+    {"if": {"properties": {"kind": {"const": "Num"}}, "required": ["kind"]}, "then": {"$ref": "#/$defs/Num"}}
+  ],
+  "$defs": {
+    "Meta": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name"],
+      "properties": {"name": {"type": "string"}}
+    },
+    "Num": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["apiVersion", "kind", "metadata", "spec"],
+      "properties": {
+        "apiVersion": {"const": "num/v1"},
+        "kind": {"const": "Num"},
+        "metadata": {"$ref": "#/$defs/Meta"},
+        "spec": {"$ref": "#/$defs/NumSpec"}
+      }
+    },
+    "NumSpec": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "int": {"type": "integer"},
+        "num": {"type": "number"},
+        "range": {"type": "number", "minimum": -2.5, "maximum": 1e30},
+        "open": {"type": "number", "exclusiveMinimum": 0.125, "exclusiveMaximum": 7},
+        "third": {"type": "number", "multipleOf": 3},
+        "tenth": {"type": "number", "multipleOf": 0.3},
+        "quarter": {"type": "number", "multipleOf": 0.25},
+        "step": {"type": "integer", "multipleOf": 7.5, "minimum": -1000},
+        "choice": {"enum": [1, 2.5, -1e-3, 1e30, "x"]},
+        "exact": {"const": 4},
+        "nested": {"const": {"a": [1.5, 2]}},
+        "few": {"type": "array", "uniqueItems": true, "maxItems": 20},
+        "many": {"type": "array", "uniqueItems": true},
+        "either": {"anyOf": [{"type": "integer", "minimum": 0}, {"type": "string"}]},
+        "one": {"oneOf": [{"type": "integer"}, {"type": "number", "maximum": 0}]}
+      }
+    }
+  }
+}

@@ -6,6 +6,7 @@ package schemaview
 import (
 	"bytes"
 	"encoding/json"
+	"fmt"
 	"io/fs"
 	"maps"
 	"os"
@@ -18,6 +19,8 @@ import (
 	"github.com/santhosh-tekuri/jsonschema/v6"
 
 	"github.com/ravindu-rev/ruralz/api/schema"
+	"github.com/ravindu-rev/ruralz/internal/config/diag"
+	"github.com/ravindu-rev/ruralz/internal/config/profile"
 	"github.com/ravindu-rev/ruralz/internal/config/registry"
 	"github.com/ravindu-rev/ruralz/internal/config/schemaidx"
 	"github.com/ravindu-rev/ruralz/internal/config/tree"
@@ -57,19 +60,14 @@ func refs(v any, out *[]string) {
 }
 
 // TestMetaViewsCompile compiles both schema files against draft 2020-12
-// with the Ruralz vocabulary asserting the x-ruralz-* keyword shapes,
-// resolves every $ref and compiles every definition.
+// with the Ruralz vocabulary asserting the x-ruralz-* keyword shapes, each
+// with the index loaded from its own bytes as Compile requires (never the
+// authoring view with the rendered view's index), resolves every $ref and
+// compiles every definition.
 func TestMetaViewsCompile(t *testing.T) {
-	idx, err := schemaidx.Embedded()
-	if err != nil {
-		t.Fatal(err)
-	}
-	x, _ := idx.Index("ruralz/v1alpha1")
 	for name, data := range views() {
 		t.Run(name, func(t *testing.T) {
-			if _, err := Compile(data, x); err != nil {
-				t.Fatalf("Compile(%s) error = %v", name, err)
-			}
+			viewOf(t, data)
 			doc, err := jsonschema.UnmarshalJSON(bytes.NewReader(data))
 			if err != nil {
 				t.Fatal(err)
@@ -160,11 +158,12 @@ func vocabularyKinds(t *testing.T) []string {
 	return slices.Sorted(slices.Values(meta.Properties["x-ruralz-ref"].Enum))
 }
 
-// TestMetaVocabularyAssertsShapes checks that the vocabulary asserts the
-// keyword shapes: it rejects a malformed x-ruralz-* keyword anywhere in a
-// schema, and an unknown one, with the shapes of
-// docs/architecture/02-configuration-model.md "Schema keywords that drive
-// tooling": a kind, true, distinct classes, a level of at least 1.
+// TestMetaVocabularyAssertsShapes checks that the vocabulary rejects a
+// malformed x-ruralz-* keyword anywhere in a schema, and an unknown one
+// ("the vocabulary asserting keyword shapes"), with the shapes of
+// docs/architecture/02-configuration-model.md
+// "Schema keywords that drive tooling": a kind, true, distinct classes, a
+// level of at least 1.
 func TestMetaVocabularyAssertsShapes(t *testing.T) {
 	for _, tc := range []struct {
 		kw   string
@@ -516,114 +515,233 @@ func checkKeywords(t *testing.T, ptr string, got schemaidx.Keywords, want keywor
 	}
 }
 
-// exampleDocs walks an examples/ tree and returns the raw JSON resource
-// documents of its Bundles by slash-separated path, and its YAML files.
-// It skips overlays/ directories (partial patches, not resources), hidden
-// paths (never part of a Bundle) and JSON whose top-level apiVersion does
-// not start with ruralz/ (request bodies and other data).
-func exampleDocs(root string) (resources map[string][]byte, yamlFiles []string, err error) {
-	resources = map[string][]byte{}
+// exampleFiles walks an examples/ tree and returns, sorted and
+// slash-separated, the configuration files (.yaml, .yml and .json,
+// case-sensitive, profile.FormatOf) the loader reads, and the others. The
+// loader reads, from each Bundle root (a directory holding ruralz.yaml),
+// the files discovery reads: none under the root's own overlays/
+// directory (partial patches the pipeline merges), none with a hidden
+// path segment, none that the root's .ruralzignore matches (parseIgnore),
+// and ruralz.yaml always; and the files of control/ (the Environments and
+// Clusters files the CLI reads), hidden ones excepted. A file inside a
+// Bundle root that its Bundle does not hold (an overlay patch, an ignored
+// draft) is in neither list; every configuration file outside any Bundle
+// root and control/ is in others, hidden paths excepted.
+func exampleFiles(root string) (read, others []string, err error) {
+	var all []string
+	var bundles []string
 	err = filepath.WalkDir(root, func(p string, d fs.DirEntry, err error) error {
 		if err != nil {
 			return err
 		}
+		rel, _ := filepath.Rel(root, p)
+		rel = filepath.ToSlash(rel)
 		if d.IsDir() {
-			if p != root && (d.Name() == "overlays" || strings.HasPrefix(d.Name(), ".")) {
+			if p != root && strings.HasPrefix(d.Name(), ".") {
 				return fs.SkipDir
 			}
+			if _, err := os.Stat(filepath.Join(p, "ruralz.yaml")); err == nil {
+				bundles = append(bundles, rel)
+			}
 			return nil
 		}
-		if strings.HasPrefix(d.Name(), ".") {
-			return nil
-		}
-		switch filepath.Ext(p) {
-		case ".json":
-			data, err := os.ReadFile(p) //nolint:gosec // G304: a file of the repository's examples/ tree.
-			if err != nil {
-				return err
-			}
-			if isResource(data) {
-				resources[filepath.ToSlash(p)] = data
-			}
-		case ".yaml", ".yml":
-			yamlFiles = append(yamlFiles, filepath.ToSlash(p))
-		default:
+		if _, ok := profile.FormatOf(d.Name()); ok && !strings.HasPrefix(d.Name(), ".") {
+			all = append(all, rel)
 		}
 		return nil
 	})
-	return resources, yamlFiles, err
+	if err != nil {
+		return nil, nil, err
+	}
+	discovered, inBundle := map[string]bool{}, map[string]bool{}
+	for _, b := range bundles {
+		prefix := b + "/"
+		if b == "." {
+			prefix = ""
+		}
+		var rules ignoreRules
+		if data, err := os.ReadFile(filepath.Join(root, filepath.FromSlash(b), ".ruralzignore")); err == nil { //nolint:gosec // G304: a file of the examples/ tree under test.
+			if rules, err = parseIgnore(string(data)); err != nil {
+				return nil, nil, fmt.Errorf("%s.ruralzignore: %w", prefix, err)
+			}
+		}
+		for _, f := range all {
+			in, ok := strings.CutPrefix(f, prefix)
+			if !ok {
+				continue
+			}
+			inBundle[f] = true
+			if strings.HasPrefix(in, "overlays/") {
+				continue
+			}
+			if in == "ruralz.yaml" || !rules.ignored(in) {
+				discovered[f] = true
+			}
+		}
+	}
+	for _, f := range all {
+		if strings.HasPrefix(f, "control/") {
+			discovered[f] = true
+		}
+	}
+	for _, f := range all {
+		p := filepath.ToSlash(filepath.Join(root, filepath.FromSlash(f)))
+		switch {
+		case discovered[f]:
+			read = append(read, p)
+		case !inBundle[f]:
+			others = append(others, p)
+		}
+	}
+	slices.Sort(read)
+	slices.Sort(others)
+	return read, others, nil
 }
 
-// isResource reports whether data is a JSON object whose apiVersion
-// starts with ruralz/.
-func isResource(data []byte) bool {
-	var head struct {
-		APIVersion any `json:"apiVersion"`
+// checkExamples parses the configuration files of an examples/ tree with
+// the production front ends (profile.Parse: the restricted YAML profile,
+// strict JSON) and validates each raw document whose apiVersion starts
+// with ruralz/ against the authoring view, since raw documents precede
+// substitution. For the files the loader reads (exampleFiles) it returns
+// one problem per parse or validation finding, as diagnostic text.
+// Another file need not be a Ruralz file at all (a Compose file with
+// anchors, a request body), so a parse finding there is not a problem and
+// the file is left out; when it parses, its ruralz/ documents, such as a
+// one-file Bundle's, are validated all the same. Documents of other
+// apiVersions are left out. It also returns the number of documents it
+// validated.
+func checkExamples(t *testing.T, root string, authoring *View) (problems []string, validated int) {
+	t.Helper()
+	read, others, err := exampleFiles(root)
+	if err != nil {
+		t.Fatal(err)
 	}
-	if err := json.Unmarshal(data, &head); err != nil {
-		return false
+	isRead := map[string]bool{}
+	for _, p := range read {
+		isRead[p] = true
 	}
-	v, ok := head.APIVersion.(string)
-	return ok && strings.HasPrefix(v, "ruralz/")
+	for _, p := range slices.Sorted(slices.Values(slices.Concat(read, others))) {
+		format, _ := profile.FormatOf(p)
+		data, err := os.ReadFile(p) //nolint:gosec // G304: a file of the examples/ tree under test.
+		if err != nil {
+			t.Fatal(err)
+		}
+		files := &tree.FileTable{}
+		id := files.Add(tree.File{Path: p, Role: tree.RoleBase})
+		docs, ds, err := profile.Parse(t.Context(), data, id, p, format, profile.Options{})
+		if err != nil {
+			t.Fatalf("profile.Parse(%s) error = %v", p, err)
+		}
+		if len(ds) > 0 && !isRead[p] {
+			continue
+		}
+		for _, d := range ds {
+			problems = append(problems, strings.TrimSpace(texts(diag.List{d})))
+		}
+		for _, doc := range docs {
+			if v, ok := doc.Root.Get("apiVersion"); !ok || v.Kind != tree.KindString || !strings.HasPrefix(v.Text, "ruralz/") {
+				continue
+			}
+			res := resourceOf(doc.Root)
+			res.Start = doc.Start
+			validated++
+			for _, d := range authoring.Validate(res, files) {
+				problems = append(problems, strings.TrimSpace(texts(diag.List{d})))
+			}
+		}
+	}
+	return problems, validated
 }
 
-// TestMetaExamples covers the examples/ check as far as this package can:
-// every raw JSON resource document of a Bundle under examples/ validates
-// against the authoring view (raw documents precede substitution, so the
-// authoring view applies). The full check, each Bundle loading with zero
+// authoringView compiles the authoring view of ruralz/v1alpha1 with its
+// own index (viewOf).
+func authoringView(t *testing.T) *View {
+	t.Helper()
+	return viewOf(t, schema.AuthoringV1alpha1())
+}
+
+// viewOf compiles a view of ruralz/v1alpha1 with the index loaded from the
+// same bytes, as Compile requires: the mapping reads dispatch, list types,
+// secret marks and hint names from the index.
+func viewOf(t *testing.T, data []byte) *View {
+	t.Helper()
+	idx, err := schemaidx.Load("ruralz/v1alpha1", data)
+	if err != nil {
+		t.Fatalf("schemaidx.Load() error = %v", err)
+	}
+	v, err := Compile(data, idx)
+	if err != nil {
+		t.Fatalf("Compile() error = %v", err)
+	}
+	return v
+}
+
+// TestMetaExamples covers the part of the examples/ check that this
+// package can run: every raw document of a file the loader reads from a
+// Bundle root or control/ under examples/, YAML and JSON alike, parses
+// with the production front ends and validates against the authoring
+// view, and so does every ruralz/ document of another file that parses
+// (checkExamples). The rest of the check, each Bundle loading with zero
 // errors for each Environment of examples/control/environments.yaml and
-// without --env, needs the configuration loader and its pipeline, so the
-// yaml subtest skips with that reason instead of passing silently.
+// without --env, runs through the configuration pipeline, which this
+// package cannot import; the bundles subtest skips with that reason
+// instead of passing silently.
 func TestMetaExamples(t *testing.T) {
 	if _, err := os.Stat(examplesRoot); err != nil {
 		t.Skipf("needs the examples/ tree, which does not exist yet: %v", err)
 	}
-	resources, yamlFiles, err := exampleDocs(examplesRoot)
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Run("json", func(t *testing.T) {
-		if len(resources) == 0 {
-			t.Skip("examples/ holds no JSON resource document")
+	t.Run("documents", func(t *testing.T) {
+		problems, validated := checkExamples(t, examplesRoot, authoringView(t))
+		if validated == 0 {
+			t.Error("examples/ holds no ruralz/ document")
 		}
-		authoring, err := Compile(schema.AuthoringV1alpha1(), testView(t).Index())
-		if err != nil {
-			t.Fatal(err)
-		}
-		for _, p := range slices.Sorted(maps.Keys(resources)) {
-			files := &tree.FileTable{}
-			res := mustResource(t, files, p, string(resources[p]))
-			if got := authoring.Validate(res, files); len(got) > 0 {
-				t.Errorf("%s does not validate against the authoring view:\n%s", p, texts(got))
-			}
+		for _, p := range problems {
+			t.Errorf("examples/: %s", p)
 		}
 	})
-	t.Run("yaml", func(t *testing.T) {
-		if len(yamlFiles) == 0 {
-			t.Skip("examples/ holds no YAML file")
-		}
-		t.Skipf("%d YAML files under examples/ are not validated here; loading each Bundle for each Environment "+
-			"of examples/control/environments.yaml and without --env needs the configuration loader "+
-			"and its pipeline", len(yamlFiles))
+	t.Run("bundles", func(t *testing.T) {
+		t.Skip("loading each Bundle under examples/ for each Environment of examples/control/environments.yaml " +
+			"and without --env needs the configuration pipeline, which this package cannot import")
 	})
 }
 
-// TestExampleDocs checks which files of an examples/ tree the meta test
-// validates.
-func TestExampleDocs(t *testing.T) {
+// TestCheckExamples checks what the meta test reads from an examples/
+// tree and what it reports: every YAML and JSON document of a Bundle root
+// or of control/ parses with the production front ends and validates
+// against the authoring view, which accepts ${VAR} where the rendered
+// view would not; a parse finding and a schema finding are both reported;
+// a Bundle's root-level overlays/, the files its .ruralzignore matches,
+// hidden paths, other extensions and documents of other apiVersions are
+// left out, while ruralz.yaml cannot be ignored and a nested overlays/
+// directory is an ordinary one; a file outside every Bundle root and
+// control/ is validated when it parses and left out when it does not,
+// such as a Compose file with anchors.
+func TestCheckExamples(t *testing.T) {
 	root := t.TempDir()
 	route := envelope("Route", `{"match": {"path": {"prefix": "/"}}, "upstreams": [{"name": "u"}]}`)
 	for name, content := range map[string]string{
-		"shop/routes/orders.json":       route,
-		"shop/ruralz.yaml":              "apiVersion: ruralz/v1alpha1\n",
+		"shop/routes/orders.json": route,
+		"shop/ruralz.yaml": "apiVersion: ruralz/v1alpha1\nkind: Route\nmetadata:\n  name: x\nspec:\n  match:\n    path:\n      prefix: /\n" +
+			"  upstreams:\n    - name: u\n  timout: 1s\n---\napiVersion: ruralz/v1alpha1\nkind: Gateway\nmetadata:\n  name: g\n" +
+			"spec:\n  listeners:\n    - name: http\n      port: \"${PORT}\"\n      protocol: http\n",
+		"shop/upstreams.yml":            "apiVersion: ruralz/v1alpha1\nkind: Upstream\nmetadata:\n  name: u\nspec:\n  protocol: http\n  endpoints:\n    - address: a:1\n",
+		"shop/anchors.yaml":             "apiVersion: ruralz/v1alpha1\nkind: Route\nmetadata: &m\n  name: y\n",
+		"shop/duplicate.json":           `{"apiVersion": "ruralz/v1alpha1", "apiVersion": "ruralz/v1alpha1"}`,
 		"shop/overlays/prod/patch.json": `{"apiVersion": "ruralz/v1alpha1", "kind": "Route", "metadata": {"name": "x"}, "spec": {"$patch": "delete"}}`,
+		"shop/overlays/prod/patch.yaml": "apiVersion: ruralz/v1alpha1\nkind: Route\nmetadata:\n  name: x\nspec:\n  timeout: 1s\n",
+		"shop/.ruralzignore":            "# drafts\nnotes/\n*.draft.json\n!keep.draft.json\nruralz.yaml\n",
+		"shop/notes/draft.yaml":         "apiVersion: ruralz/v1alpha1\nkind: Route\nmetadata:\n  name: draft\n",
+		"shop/routes/x.draft.json":      `{"apiVersion": "ruralz/v1alpha1", "kind": "Route", "metadata": {"name": "xd"}}`,
+		"shop/routes/keep.draft.json":   envelope("Route", `{"match": {"path": {"prefix": "/"}}, "upstreams": [{"name": "u"}], "tiemout": "1s"}`),
+		"shop/nested/overlays/n.json":   envelope("Upstream", `{"protocol": "http", "endpoints": [{"address": "a:1"}]}`),
 		"shop/.git/config.json":         `{"apiVersion": "ruralz/v1alpha1"}`,
-		"shop/.hidden.json":             `{"apiVersion": "ruralz/v1alpha1"}`,
+		"shop/.hidden.yaml":             "apiVersion: ruralz/v1alpha1\n",
+		"shop/upper.YAML":               "apiVersion: ruralz/v1alpha1\n",
+		"control/environments.yaml":     "apiVersion: ruralz/v1alpha1\nkind: Environment\nmetadata:\n  name: prod\nspec:\n  variabels: {}\n",
 		"quickstart/request.json":       `{"model": "gpt", "messages": []}`,
-		"quickstart/list.json":          `[1, 2]`,
-		"quickstart/other.json":         `{"apiVersion": "v1", "kind": "ConfigMap"}`,
-		"quickstart/broken.json":        `{"apiVersion": `,
-		"control/environments.yml":      "apiVersion: ruralz/v1alpha1\n",
+		"quickstart/other.yaml":         "apiVersion: v1\nkind: ConfigMap\n",
+		"quickstart/compose.yaml":       "x-common: &common\n  image: ruralz\nservices:\n  gateway:\n    <<: *common\n",
+		"quickstart/bundle.yaml":        "apiVersion: ruralz/v1alpha1\nkind: Route\nmetadata:\n  name: q\nspec:\n  match:\n    path:\n      prefix: /\n  upstreams:\n    - name: u\n  timeot: 1s\n",
 		"README.md":                     "# examples\n",
 	} {
 		p := filepath.Join(root, filepath.FromSlash(name))
@@ -634,18 +752,48 @@ func TestExampleDocs(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	resources, yamlFiles, err := exampleDocs(root)
+	base := filepath.ToSlash(root) + "/"
+	prefixed := func(paths ...string) []string {
+		var out []string
+		for _, p := range paths {
+			out = append(out, base+p)
+		}
+		return out
+	}
+	read, others, err := exampleFiles(root)
 	if err != nil {
 		t.Fatal(err)
 	}
-	base := filepath.ToSlash(root) + "/"
-	if got := slices.Sorted(maps.Keys(resources)); !slices.Equal(got, []string{base + "shop/routes/orders.json"}) {
-		t.Errorf("exampleDocs() resources = %v, want only the Bundle's Route", got)
+	wantRead := prefixed("control/environments.yaml", "shop/anchors.yaml", "shop/duplicate.json", "shop/nested/overlays/n.json",
+		"shop/routes/keep.draft.json", "shop/routes/orders.json", "shop/ruralz.yaml", "shop/upstreams.yml")
+	if !slices.Equal(read, wantRead) {
+		t.Errorf("exampleFiles() read = %v, want %v", read, wantRead)
 	}
-	if want := []string{base + "control/environments.yml", base + "shop/ruralz.yaml"}; !slices.Equal(yamlFiles, want) {
-		t.Errorf("exampleDocs() yaml = %v, want %v", yamlFiles, want)
+	if wantOthers := prefixed("quickstart/bundle.yaml", "quickstart/compose.yaml", "quickstart/other.yaml", "quickstart/request.json"); !slices.Equal(others, wantOthers) {
+		t.Errorf("exampleFiles() others = %v, want %v", others, wantOthers)
 	}
-	if _, _, err := exampleDocs(filepath.Join(root, "missing")); err == nil {
-		t.Error("exampleDocs(missing) error = nil")
+	problems, validated := checkExamples(t, root, authoringView(t))
+	if validated != 8 {
+		t.Errorf("checkExamples() validated %d documents, want the Environment, the Upstreams of nested/ and upstreams.yml, the Routes of orders.json, keep.draft.json and bundle.yaml, and both of ruralz.yaml", validated)
+	}
+	wantProblems := []string{
+		base + `control/environments.yaml:6:3 error RZ-CFG-006 Environment/prod spec.variabels: unknown field "variabels" (did you mean "variables"?)`,
+		base + `quickstart/bundle.yaml:11:3 error RZ-CFG-006 Route/q spec.timeot: unknown field "timeot" (did you mean "timeout"?)`,
+		base + "shop/anchors.yaml:3:11 error RZ-CFG-003: anchors are not allowed (&m)",
+		base + `shop/duplicate.json:1:35 error RZ-CFG-002: duplicate key "apiVersion" (first defined at ` + base + "shop/duplicate.json:1:2)",
+		base + `shop/routes/keep.draft.json:1:154 error RZ-CFG-006 Route/x spec.tiemout: unknown field "tiemout" (did you mean "timeout"?)`,
+		base + `shop/ruralz.yaml:11:3 error RZ-CFG-006 Route/x spec.timout: unknown field "timout" (did you mean "timeout"?)`,
+	}
+	if !slices.Equal(problems, wantProblems) {
+		t.Errorf("checkExamples() problems =\n%s\nwant\n%s", strings.Join(problems, "\n"), strings.Join(wantProblems, "\n"))
+	}
+	if _, _, err := exampleFiles(filepath.Join(root, "missing")); err == nil {
+		t.Error("exampleFiles(missing) error = nil")
+	}
+	if err := os.WriteFile(filepath.Join(root, "shop", ".ruralzignore"), []byte("ok\n[bad\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := exampleFiles(root); err == nil || !strings.Contains(err.Error(), "line 2") {
+		t.Errorf("exampleFiles(invalid .ruralzignore) error = %v, want line 2", err)
 	}
 }

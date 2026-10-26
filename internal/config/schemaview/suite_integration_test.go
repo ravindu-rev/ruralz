@@ -153,6 +153,88 @@ func TestJSONSchemaTestSuite(t *testing.T) {
 	t.Logf("%d files, %d cases", len(files), cases)
 }
 
+// TestJSONSchemaTestSuiteNumbers runs the same cases with every instance
+// number replaced by the text the number model of the group's schema
+// hands the validator (numberModel.bound at the smallest grid, so most
+// literals take a surrogate): the result is valid exactly when the suite
+// says so, for every keyword that reads numbers (numbers.go).
+func TestJSONSchemaTestSuiteNumbers(t *testing.T) {
+	remotes := suiteRemotes(t)
+	cases, replaced := 0, 0
+	for _, file := range suiteFiles(t) {
+		data, err := os.ReadFile(filepath.Join(suiteRoot, "data", "tests", "draft2020-12", filepath.FromSlash(file)))
+		if err != nil {
+			t.Fatal(err)
+		}
+		var groups []suiteGroup
+		dec := json.NewDecoder(bytes.NewReader(data))
+		dec.UseNumber()
+		if err := dec.Decode(&groups); err != nil {
+			t.Fatalf("%s: %v", file, err)
+		}
+		for _, g := range groups {
+			doc, err := jsonschema.UnmarshalJSON(bytes.NewReader(g.Schema))
+			if err != nil {
+				t.Fatal(err)
+			}
+			nm, err := newNumberModel(doc, 0)
+			if err != nil {
+				t.Fatalf("%s: %s: newNumberModel() error = %v", file, g.Description, err)
+			}
+			sch := compileSuiteSchema(t, file, g, remotes)
+			for _, tc := range g.Tests {
+				inst, err := jsonschema.UnmarshalJSON(bytes.NewReader(tc.Data))
+				if err != nil {
+					t.Fatal(err)
+				}
+				n := 0
+				inst = boundNumbers(t, nm, newNumberTags(nm), inst, &n)
+				if n == 0 {
+					continue
+				}
+				cases++
+				replaced += n
+				if got := sch.Validate(inst) == nil; got != tc.Valid {
+					t.Errorf("%s: %s: %s: valid = %v with bounded numbers, want %v", file, g.Description, tc.Description, got, tc.Valid)
+				}
+			}
+		}
+	}
+	if replaced == 0 {
+		t.Fatal("no suite number took a surrogate")
+	}
+	t.Logf("%d cases with %d surrogates", cases, replaced)
+}
+
+// boundNumbers replaces every number of a decoded instance with its
+// bound text, counting the surrogates in n.
+func boundNumbers(t *testing.T, nm *numberModel, tags *numberTags, v any, n *int) any {
+	t.Helper()
+	switch x := v.(type) {
+	case json.Number:
+		text, form, ok := nm.bound(string(x), tags, nil)
+		if !ok {
+			t.Fatalf("bound(%q) not ok", x)
+		}
+		if form == surrogate {
+			*n++
+		}
+		return json.Number(text)
+	case map[string]any:
+		for k, e := range x {
+			x[k] = boundNumbers(t, nm, tags, e, n)
+		}
+		return x
+	case []any:
+		for i, e := range x {
+			x[i] = boundNumbers(t, nm, tags, e, n)
+		}
+		return x
+	default:
+		return v
+	}
+}
+
 // compileSuiteSchema compiles one group's schema with the production
 // compiler configuration plus the suite's remotes.
 func compileSuiteSchema(t *testing.T, file string, g suiteGroup, remotes map[string]any) *jsonschema.Schema {

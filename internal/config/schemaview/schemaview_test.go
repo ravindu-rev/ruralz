@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"strconv"
 	"strings"
 	"testing"
 	"testing/fstest"
@@ -127,7 +128,9 @@ func TestEmbeddedErrors(t *testing.T) {
 }
 
 // TestCompileErrors checks that a schema that does not compile, or that
-// disagrees with its index, is ErrSchema.
+// disagrees with its index, is ErrSchema: among them a view with a
+// definition its index lacks, such as the authoring view paired with
+// the rendered view's index, which agree on the kind dispatch.
 func TestCompileErrors(t *testing.T) {
 	synthetic, err := os.ReadFile(filepath.Join("testdata", "synthetic.schema.json"))
 	if err != nil {
@@ -161,10 +164,27 @@ func TestCompileErrors(t *testing.T) {
 	if _, err := Compile(synthetic, nil); !errors.Is(err, ErrSchema) {
 		t.Errorf("Compile(nil index) error = %v, want ErrSchema", err)
 	}
+	for _, tc := range []struct {
+		name, def string
+		schema    []byte
+		idx       *schemaidx.Index
+	}{
+		{"definition the index lacks", "Extra", []byte(strings.Replace(src, `"$defs": {`, `"$defs": {"Extra": {"type": "string"}, `, 1)), idx},
+		{"authoring view with the rendered index", "Substitution", schema.AuthoringV1alpha1(), testView(t).Index()},
+	} {
+		if _, err := Compile(tc.schema, tc.idx); !errors.Is(err, ErrSchema) || !strings.Contains(err.Error(), strconv.Quote(tc.def)) {
+			t.Errorf("%s: Compile() error = %v, want ErrSchema naming %q", tc.name, err, tc.def)
+		}
+	}
+	if authoring := authoringView(t).Index(); authoring == testView(t).Index() {
+		t.Error("authoringView() uses the rendered view's index")
+	} else if _, ok := authoring.Def("Substitution"); !ok {
+		t.Error("authoringView() index lacks the authoring view's Substitution definition")
+	}
 }
 
-// TestRefusingLoader checks that compiling never loads a URL: a remote $ref
-// fails with ErrRemoteReference.
+// TestRefusingLoader checks that compiling never loads a URL: a remote
+// $ref fails with ErrRemoteReference (risk 30).
 func TestRefusingLoader(t *testing.T) {
 	synthetic, err := os.ReadFile(filepath.Join("testdata", "synthetic.schema.json"))
 	if err != nil {
@@ -237,8 +257,8 @@ func TestValidateWithoutFiles(t *testing.T) {
 	}
 }
 
-// TestValidResources accepts minimal valid resources of every M1 kind, and
-// an unknown member of an open config, which is no RZ-CFG-006 (cors
+// TestValidResources accepts minimal valid resources of every M1 kind,
+// and an unknown member of an open config, which is no RZ-CFG-006 (cors
 // config.maxAge).
 func TestValidResources(t *testing.T) {
 	for _, src := range []string{
