@@ -4,7 +4,6 @@ The work left in the current milestone, M1 Core gateway, in build order: a row d
 
 | Step | Paths | Design |
 |---|---|---|
-| Router | `internal/gateway/router/` | [Data plane](../architecture/03-data-plane.md) |
 | Per-request exchange | `internal/gateway/exchange/` | [Data plane](../architecture/03-data-plane.md) |
 | Listeners, servers and SO_REUSEPORT | `internal/gateway/listener/`, `internal/gateway/reuseport/` | [Data plane](../architecture/03-data-plane.md) |
 | Admin server, tap and readiness | `internal/gateway/admin/`, `internal/gateway/tap/`, `internal/gateway/readiness/` | [Data plane](../architecture/03-data-plane.md), [CLI and API surface](../reference/01-cli-and-api-surface.md) |

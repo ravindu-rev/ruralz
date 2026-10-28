@@ -161,8 +161,8 @@ The Router maps a request to exactly one Route from pre-body data only: listener
 
 The config loader compiles one Router per listener into the snapshot:
 
-1. **Host tables.** An exact-host hash map (lowercased, port stripped), a wildcard table of `*.` suffixes by length, and an any-host list. A `match.hosts` entry holds at most one leading `*.` label and no other `*`, else RZ-CFG-005; `*.` matches one or more leading labels, never the bare suffix.
-2. **Path index per host entry.** A segment trie for `exact` and `template`, `prefix` on segment boundaries, and `regex` last, with the standard `regexp` package.
+1. **Host tables.** An exact-host hash map (lowercased, port stripped), a wildcard table of `*.` suffixes by length, and an any-host list. A `match.hosts` entry holds at most one leading `*.` label and no other `*`, else RZ-CFG-005; `*.` matches one or more leading labels, never the bare suffix. Listener `hostnames` take the same forms and bound every Route of the listener: a host outside them reaches no Route.
+2. **Path index per host entry.** A segment trie for `exact`, `template` and `prefix` (on segment boundaries), then `regex` with the standard `regexp` package, then Routes without `path`.
 3. **Candidate filters.** `methods`, `headers`, `grpc` (exact `/service/method`, or a `/service/` prefix without `method`) and the compiled `when` ([ADR-0019](../adr/0019-expressions-authorization-comprehension-stop.md)).
 
 Paths are normalized first, from the escaped target, for the Router, CEL, `authz.*`, logs, `/tap` and the forwarded request. `%00`, a raw or encoded backslash, another control byte or an invalid escape is 400 `RZ-RT-017`; otherwise unreserved escapes are decoded and dot segments removed (RFC 3986), clamping at `/`, and `%2F` never splits a segment. Hosts are case-insensitive, paths case-sensitive; repeated and trailing slashes are kept, significant for `exact` and `template`.
@@ -180,7 +180,7 @@ Two Routes with identical match criteria are rejected at validation (RZ-CFG-023)
 | 5 | Constraint count | More of `methods`, `headers`, `grpc`, `when` set first |
 | 6 | Tie-break | `metadata.name` in byte order |
 
-Regex specificity is undecidable, so `regex` paths are ordered only by ranks 5 and 6. The Router picks the first candidate whose remaining criteria match, falling through on a `methods` mismatch; none left gives 404 `RZ-RT-001`. A `match.when` runtime error returns 500 `RZ-RT-006` without fallthrough, so an erroring guard cannot divert traffic to a less protected Route. The span is `ruralz.route.match`.
+Regex specificity is undecidable, so `regex` paths are ordered only by ranks 5 and 6. The Router picks the first candidate whose remaining criteria match, falling through when `methods`, `headers` or `grpc` fails or `when` is false; none left gives 404 `RZ-RT-001`. `when` sees the candidate's template captures as `request.pathParams`. A `match.when` runtime error returns 500 `RZ-RT-006` without fallthrough, so an erroring guard cannot divert traffic to a less protected Route. The span is `ruralz.route.match`.
 
 *Figure 2: Route selection from a request's headers.*
 
