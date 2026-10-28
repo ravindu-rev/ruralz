@@ -169,19 +169,24 @@ type Certificate struct {
 	PrivateKey  secret.Ref
 }
 
-// Router is one listener's compiled Router.
+// Router is one listener's compiled Router (internal/gateway/router).
 type Router interface {
-	// Match selects a Route; it allocates nothing. params is caller storage.
+	// Match selects a Route. params is caller storage for the winner's
+	// captures; with room for them, Match allocates nothing outside
+	// match.when and the decoding of percent-encoded captures.
 	Match(ctx context.Context, q *MatchRequest, params []expr.Param) MatchResult
 }
 
 // MatchRequest is the pre-body request data routing uses.
 type MatchRequest struct {
-	Host   string
+	// Host is the request host (r.Host); the Router normalizes it.
+	Host string
+	// Path is the normalized path (routematch.NormalizePath).
 	Path   string
 	Method string
 	Header http.Header
-	// Vars is the pre-route activation (request, source, now) for match.when.
+	// Vars is the pre-route activation (request, source, now) for
+	// match.when; Match sets its request.pathParams.
 	Vars *expr.Vars
 }
 
