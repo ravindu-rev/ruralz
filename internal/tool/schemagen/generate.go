@@ -496,6 +496,12 @@ func (g *generator) structDef(t reflect.Type) (schema, error) {
 				}
 			}
 			allOf = append(allOf, fieldCombination(m.name, fields))
+		case "requiredIf":
+			rule, err := g.requiredIf(t, m.value, props)
+			if err != nil {
+				return nil, fmt.Errorf("type %s: %w", name, err)
+			}
+			allOf = append(allOf, rule)
 		default:
 			return nil, fmt.Errorf("type %s: marker %s is not allowed on a struct", name, m.name)
 		}
@@ -508,6 +514,41 @@ func (g *generator) structDef(t reflect.Type) (schema, error) {
 	}
 	g.defs[name] = s
 	return ref(name), nil
+}
+
+// requiredIf encodes requiredIf=<field>,<member>=<value> on struct t: field
+// is required when member is present and equals the string value, as an
+// if/then rule in the form the schema index reads for dispatch (a member
+// const and its required). A value outside the enum of member's type is an
+// error, so the rule cannot silently never apply.
+func (g *generator) requiredIf(t reflect.Type, value string, props schema) (schema, error) {
+	field, cond, ok := strings.Cut(value, ",")
+	member, want, hasValue := strings.Cut(cond, "=")
+	if !ok || !hasValue || field == "" || member == "" || want == "" || field == member {
+		return nil, fmt.Errorf("requiredIf %q: want <field>,<member>=<value> naming two fields", value)
+	}
+	for _, f := range []string{field, member} {
+		if _, ok := props[f]; !ok {
+			return nil, fmt.Errorf("requiredIf names unknown field %q", f)
+		}
+	}
+	for i := range t.NumField() {
+		f := t.Field(i)
+		if jsonName, _, err := jsonTag(f); err != nil || jsonName != member {
+			continue
+		}
+		mt := f.Type
+		if mt.Kind() == reflect.Pointer {
+			mt = mt.Elem()
+		}
+		if enum := g.in.source[mt.Name()].enumOrNil(); len(enum) > 0 && !slices.Contains(enum, want) {
+			return nil, fmt.Errorf("requiredIf %q: %q is not a %s value", value, want, mt.Name())
+		}
+	}
+	return schema{
+		"if":   schema{"properties": schema{member: schema{"const": want}}, "required": []any{member}},
+		"then": schema{"required": []any{field}},
+	}, nil
 }
 
 // fieldCombination encodes exactlyOneOf, atMostOneOf and atLeastOneOf.

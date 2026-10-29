@@ -193,7 +193,9 @@ const (
 	StateStoreTopologyCluster StateStoreTopology = "cluster"
 )
 
-// StateStore is the State Store connection.
+// StateStore is the State Store connection. driver redis without url is
+// RZ-CFG-005.
+// +ruralz:requiredIf=url,driver=redis
 type StateStore struct {
 	// Driver is memory or redis.
 	// +ruralz:default=memory
@@ -201,7 +203,7 @@ type StateStore struct {
 	// Topology applies to redis only. Planned (M1).
 	// +ruralz:default=standalone
 	Topology *StateStoreTopology `json:"topology,omitempty"`
-	// URL is the rueidis connection URL; it may carry credentials.
+	// URL is the rueidis connection URL; it may carry credentials. Required with driver redis.
 	// +ruralz:secret
 	// +ruralz:impact=security
 	URL *SecretValue `json:"url,omitempty"`

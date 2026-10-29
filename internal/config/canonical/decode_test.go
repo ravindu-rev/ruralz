@@ -429,7 +429,7 @@ func TestDecodeNoRangeRule(t *testing.T) {
 func TestDecodeLeavesValuesToStageF(t *testing.T) {
 	for _, tc := range []struct{ name, content string }{
 		{"unknown Policy type", doc(`{"kind":"Policy","metadata":{"name":"p"},"spec":{"config":{"x":1},"type":"future.type"}}`)},
-		{"open Policy config member", doc(`{"kind":"Policy","metadata":{"name":"p"},"spec":{"config":{"allowOrigins":["*"],"futureField":1},"type":"cors"}}`)},
+		{"open Policy config member", doc(`{"kind":"Policy","metadata":{"name":"p"},"spec":{"config":{"futureField":1},"type":"cache"}}`)},
 		{"enum value", doc(`{"kind":"Upstream","metadata":{"name":"u"},"spec":{"endpoints":[{"address":"a:1"}],"protocol":"http4"}}`)},
 		{"nested enum value", doc(`{"kind":"Gateway","metadata":{"name":"g"},"spec":{"stateStore":{"driver":"future"}}}`)},
 	} {

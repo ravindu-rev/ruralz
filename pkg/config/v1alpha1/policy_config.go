@@ -186,16 +186,27 @@ type ValidationJSONSchemaConfig struct {
 	Schema JSONSchemaDocument `json:"schema"`
 }
 
-// CORSConfig is the config of a cors Policy.
+// CORSConfig is the config of a cors Policy. allowCredentials true with "*"
+// or "null" in allowOrigins, or with "*" in allowHeaders or exposeHeaders,
+// is RZ-CFG-005.
 // +ruralz:policyType=cors
-// +ruralz:open
 type CORSConfig struct {
-	// AllowOrigins are the allowed origins.
+	// AllowOrigins are the allowed origins, matched exactly: "*" allows any origin, and every other entry is a serialized origin such as https://shop.example (lower-case scheme and host, no default port, no path) or null, else RZ-CFG-005.
 	// +ruralz:list=set
 	AllowOrigins []string `json:"allowOrigins,omitempty"`
-	// AllowMethods are the allowed methods.
+	// AllowMethods are the allowed methods, matched exactly.
 	// +ruralz:list=set
 	AllowMethods []string `json:"allowMethods,omitempty"`
+	// AllowHeaders are the request header names a preflight may ask for, matched ignoring case; "*" allows any. Without them only CORS-safelisted request headers are allowed.
+	// +ruralz:list=set
+	AllowHeaders []string `json:"allowHeaders,omitempty"`
+	// AllowCredentials lets a browser send cookies, HTTP authentication or a client certificate and read the response; absent means false.
+	AllowCredentials *bool `json:"allowCredentials,omitempty"`
+	// MaxAge is how long a browser may cache a preflight answer, sent in whole seconds; absent sends no Access-Control-Max-Age.
+	MaxAge *Duration `json:"maxAge,omitempty"`
+	// ExposeHeaders are the response header names a page may read beyond the CORS-safelisted ones; "*" exposes all.
+	// +ruralz:list=set
+	ExposeHeaders []string `json:"exposeHeaders,omitempty"`
 }
 
 // CacheConfig is the config of a cache (Response Cache) Policy.

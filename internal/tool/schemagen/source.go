@@ -164,7 +164,7 @@ func knownMarker(name string) (takesValue, ok bool) {
 		return false, true
 	case "ref", "cel", "list", "impact", "since", "validation", "default", "policyType",
 		"minItems", "minimum", "maximum", "pattern", "minLength", "maxLength", "minProperties",
-		"exactlyOneOf", "atMostOneOf", "atLeastOneOf":
+		"exactlyOneOf", "atMostOneOf", "atLeastOneOf", "requiredIf":
 		return true, true
 	default:
 		return false, false

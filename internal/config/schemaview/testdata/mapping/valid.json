@@ -1,9 +1,9 @@
 {
   "apiVersion": "ruralz/v1alpha1",
   "kind": "Policy",
-  "metadata": {"name": "cors"},
+  "metadata": {"name": "cache"},
   "spec": {
-    "type": "cors",
-    "config": {"allowOrigins": ["https://shop.example"], "maxAge": 600}
+    "type": "cache",
+    "config": {"futureField": 600}
   }
 }

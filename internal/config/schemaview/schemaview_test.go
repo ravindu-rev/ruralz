@@ -258,8 +258,8 @@ func TestValidateWithoutFiles(t *testing.T) {
 }
 
 // TestValidResources accepts minimal valid resources of every M1 kind,
-// and an unknown member of an open config, which is no RZ-CFG-006 (cors
-// config.maxAge).
+// and an unknown member of an open config, which is no RZ-CFG-006 (a
+// cache config member the schema does not register).
 func TestValidResources(t *testing.T) {
 	for _, src := range []string{
 		`{"apiVersion": "ruralz/v1alpha1", "kind": "Gateway", "metadata": {"name": "edge", "labels": {"team": "a"}, "annotations": {"ruralz.io/conversion-data": "x"}},
@@ -269,7 +269,7 @@ func TestValidResources(t *testing.T) {
 		`{"apiVersion": "ruralz/v1alpha1", "kind": "Upstream", "metadata": {"name": "u"},
 		  "spec": {"protocol": "http", "endpoints": [{"address": "10.0.0.1:80"}]}}`,
 		`{"apiVersion": "ruralz/v1alpha1", "kind": "Policy", "metadata": {"name": "c"},
-		  "spec": {"type": "cors", "config": {"allowOrigins": ["https://a.example"], "maxAge": 600}}}`,
+		  "spec": {"type": "cache", "config": {"futureField": 600}}}`,
 		`{"apiVersion": "ruralz/v1alpha1", "kind": "Consumer", "metadata": {"name": "c"},
 		  "spec": {"credentials": {"apiKeys": [{"name": "k", "secretRef": {"provider": "env", "name": "RURALZ_SECRET_K"}}]}}}`,
 	} {

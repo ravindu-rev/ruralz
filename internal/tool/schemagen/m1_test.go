@@ -433,7 +433,7 @@ func TestPolicyConfigClosure(t *testing.T) {
 		"RateLimitConfig":            true, // responseHeaders and cost later
 		"QuotaConfig":                true,
 		"ValidationJSONSchemaConfig": false,
-		"CORSConfig":                 true,
+		"CORSConfig":                 false, // every cors field is registered
 		"CacheConfig":                true,
 		"HeadersConfig":              false,
 		"HeaderRequestOps":           false,

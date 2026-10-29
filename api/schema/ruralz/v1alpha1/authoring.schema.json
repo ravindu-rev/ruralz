@@ -879,10 +879,32 @@
       "description": "A number of bytes: an integer or a Kubernetes quantity such as 64Ki, 10Mi or 1Gi."
     },
     "CORSConfig": {
-      "description": "CORSConfig is the config of a cors Policy.",
+      "additionalProperties": false,
+      "description": "CORSConfig is the config of a cors Policy. allowCredentials true with \"*\" or \"null\" in allowOrigins, or with \"*\" in allowHeaders or exposeHeaders, is RZ-CFG-005.",
       "properties": {
+        "allowCredentials": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "$ref": "#/$defs/Substitution"
+            }
+          ],
+          "description": "AllowCredentials lets a browser send cookies, HTTP authentication or a client certificate and read the response; absent means false."
+        },
+        "allowHeaders": {
+          "description": "AllowHeaders are the request header names a preflight may ask for, matched ignoring case; \"*\" allows any. Without them only CORS-safelisted request headers are allowed.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array",
+          "x-ruralz-list": {
+            "type": "set"
+          }
+        },
         "allowMethods": {
-          "description": "AllowMethods are the allowed methods.",
+          "description": "AllowMethods are the allowed methods, matched exactly.",
           "items": {
             "type": "string"
           },
@@ -892,7 +914,7 @@
           }
         },
         "allowOrigins": {
-          "description": "AllowOrigins are the allowed origins.",
+          "description": "AllowOrigins are the allowed origins, matched exactly: \"*\" allows any origin, and every other entry is a serialized origin such as https://shop.example (lower-case scheme and host, no default port, no path) or null, else RZ-CFG-005.",
           "items": {
             "type": "string"
           },
@@ -900,6 +922,27 @@
           "x-ruralz-list": {
             "type": "set"
           }
+        },
+        "exposeHeaders": {
+          "description": "ExposeHeaders are the response header names a page may read beyond the CORS-safelisted ones; \"*\" exposes all.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array",
+          "x-ruralz-list": {
+            "type": "set"
+          }
+        },
+        "maxAge": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Duration"
+            },
+            {
+              "$ref": "#/$defs/Substitution"
+            }
+          ],
+          "description": "MaxAge is how long a browser may cache a preflight answer, sent in whole seconds; absent sends no Access-Control-Max-Age."
         }
       },
       "type": "object"
@@ -4147,7 +4190,26 @@
     },
     "StateStore": {
       "additionalProperties": false,
-      "description": "StateStore is the State Store connection.",
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "driver": {
+                "const": "redis"
+              }
+            },
+            "required": [
+              "driver"
+            ]
+          },
+          "then": {
+            "required": [
+              "url"
+            ]
+          }
+        }
+      ],
+      "description": "StateStore is the State Store connection. driver redis without url is RZ-CFG-005.",
       "properties": {
         "cache": {
           "$ref": "#/$defs/StateStoreCache",
@@ -4191,7 +4253,7 @@
         },
         "url": {
           "$ref": "#/$defs/SecretValue",
-          "description": "URL is the rueidis connection URL; it may carry credentials.",
+          "description": "URL is the rueidis connection URL; it may carry credentials. Required with driver redis.",
           "x-ruralz-impact": [
             "security"
           ],
