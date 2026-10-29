@@ -6,7 +6,6 @@ package jwt
 import (
 	"context"
 	"errors"
-	"fmt"
 	"net/url"
 	"slices"
 
@@ -138,25 +137,11 @@ func newFilter(env filter.BuildEnv, cfg *v1alpha1.AuthJWTConfig, ix *identity.In
 
 // validate checks what the schema leaves to the Factory: at least one
 // issuer, each with a non-empty issuer named once, at least one audience
-// and an https jwksUrl.
+// and an https jwksUrl. It refuses the first of the findings Check
+// reports offline, so both apply one rule set.
 func validate(cfg *v1alpha1.AuthJWTConfig) error {
-	if len(cfg.Issuers) == 0 {
-		return errcode.Errorf(codeSchema, "auth.jwt: config.issuers is empty")
-	}
-	seen := make(map[string]bool, len(cfg.Issuers))
-	for _, is := range cfg.Issuers {
-		switch {
-		case is.Issuer == "":
-			return errcode.Errorf(codeSchema, "auth.jwt: config.issuers has an empty issuer")
-		case seen[is.Issuer]:
-			return errcode.Errorf(codeSchema, "auth.jwt: issuer %q is listed twice", is.Issuer)
-		case len(is.Audiences) == 0:
-			return errcode.Errorf(codeSchema, "auth.jwt: issuer %q has no audiences", is.Issuer)
-		}
-		seen[is.Issuer] = true
-		if err := checkJWKSURL(is.JWKSURL); err != nil {
-			return errcode.Wrap(CodeHTTPS, fmt.Errorf("auth.jwt: issuer %q: %w", is.Issuer, err))
-		}
+	if fs := findings(cfg); len(fs) > 0 {
+		return fs[0].err()
 	}
 	return nil
 }
