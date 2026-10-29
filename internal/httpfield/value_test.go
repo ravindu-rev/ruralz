@@ -123,6 +123,27 @@ func TestTrimOWS(t *testing.T) {
 	}
 }
 
+// TestTransformTakesTheHeadersCaps checks the caps of a transform.request
+// set entry with target header or query: the headers Policy's 256-byte
+// names and 8 KiB values (docs/architecture/03-data-plane.md "Transform
+// Policies").
+func TestTransformTakesTheHeadersCaps(t *testing.T) {
+	for _, tc := range []struct {
+		name      string
+		got, want int
+	}{
+		{"MaxNameBytes", MaxNameBytes, 256},
+		{"MaxValueBytes", MaxValueBytes, 8 << 10},
+		{"MaxQueryNameBytes", MaxQueryNameBytes, MaxNameBytes},
+		{"MaxQueryValueBytes", MaxQueryValueBytes, MaxValueBytes},
+		{"MaxComputedValueBytes", MaxComputedValueBytes, MaxValueBytes},
+	} {
+		if tc.got != tc.want {
+			t.Errorf("%s = %d, want %d", tc.name, tc.got, tc.want)
+		}
+	}
+}
+
 func TestLimits(t *testing.T) {
 	// 32 entries x 8 KiB bound the bytes one Policy adds.
 	if MaxValueBytes != 8192 || MaxComputedValueBytes != MaxValueBytes {

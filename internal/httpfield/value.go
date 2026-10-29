@@ -8,22 +8,25 @@ import (
 	"fmt"
 )
 
-// Value size limits for header values and query edits (all proposed).
-// Together with a Policy's 32-entry cap they bound the bytes one Policy
-// adds to 32 x 8 KiB.
+// Value size limits for header values and query edits. Together with a
+// Policy's 32-entry cap they bound the bytes one Policy adds to 32 x 8 KiB.
 const (
 	// MaxValueBytes is the longest field value a Policy may write, literal
-	// or computed.
+	// or computed (target, docs/architecture/02-configuration-model.md
+	// "Policy").
 	MaxValueBytes = 8 << 10
 	// MaxComputedValueBytes is the limit for a value computed at
-	// runtime; it equals MaxValueBytes.
+	// runtime; it equals MaxValueBytes (target).
 	MaxComputedValueBytes = MaxValueBytes
 	// MaxQueryNameBytes is the longest query parameter name a transform
-	// may write.
-	MaxQueryNameBytes = 256
+	// may write: the headers Policy's name cap, MaxNameBytes, which
+	// transform.request set entries with target header or query take
+	// (target, docs/architecture/03-data-plane.md "Transform Policies").
+	MaxQueryNameBytes = MaxNameBytes
 	// MaxQueryValueBytes is the longest computed query parameter value a
-	// transform may write.
-	MaxQueryValueBytes = 8 << 10
+	// transform may write: the headers Policy's value cap, MaxValueBytes
+	// (target).
+	MaxQueryValueBytes = MaxValueBytes
 )
 
 // Errors returned by [CheckValue] and [NormalizeValue]. Each is wrapped

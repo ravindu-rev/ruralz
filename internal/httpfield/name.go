@@ -9,7 +9,7 @@ import (
 )
 
 // MaxNameBytes is the longest field name a Policy may write, in bytes
-// (proposed).
+// (target, docs/architecture/02-configuration-model.md "Policy").
 const MaxNameBytes = 256
 
 // tchar (RFC 9110 section 5.6.2) as two 64-bit masks over the ASCII range:

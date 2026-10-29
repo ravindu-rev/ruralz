@@ -12,8 +12,9 @@
 // [NormalizeValue] test a field value: no control byte but HTAB (CR, LF and
 // NUL included), no leading or trailing SP or HTAB, and at most
 // [MaxValueBytes] bytes, literal or computed (a computed value is trimmed
-// first). The byte tables are constants; nothing here allocates on
-// success.
+// first). A transform's query parameter edits take the same caps,
+// [MaxQueryNameBytes] and [MaxQueryValueBytes]. The byte tables are
+// constants; nothing here allocates on success.
 //
 // # Protected names
 //
